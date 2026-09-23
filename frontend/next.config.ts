@@ -106,8 +106,9 @@ const nextConfig: NextConfig = {
   // to enable it zone-wide). Includes ATS HR-data-handling defaults: deny
   // framing, no MIME sniffing, strict referrer, deny camera/mic/geolocation.
   // Plan analytics PR 7: wygaszanie DynaReportera — legacy strony raportowe
-  // przekierowują do następców w Insights. Strony administracyjne
-  // (/dynareporter/admin*, /upload, /profile) zostają jako archiwum.
+  // przekierowują do następców w Insights. 23.09.2026 zniknęło też archiwum
+  // admina (/dynareporter, /admin*, /upload, /profile, /mindy) — reszta adresów
+  // `/dynareporter/*` łapie przekierowanie zbiorcze na końcu listy.
   //
   // 2026-07-20: parity potwierdzona, katalogi 12 stron raportowych USUNIĘTE
   // (~4850 linii). Przekierowania MUSZĄ zostać — bez nich stare zakładki
@@ -121,14 +122,6 @@ const nextConfig: NextConfig = {
       source,
       destination,
       permanent: true,
-    });
-    // 307 — strona źródłowa NADAL ISTNIEJE w kodzie, tylko jest wygaszona.
-    // Trwałe przekierowanie zapisałoby się w cache przeglądarek i utrudniło
-    // ewentualny powrót, więc świadomie zostaje tymczasowe.
-    const parked = (source: string, destination: string) => ({
-      source,
-      destination,
-      permanent: false,
     });
     return [
       // Bramka „Pending" wyłączona 17.09.2026 — strona kolejki usunięta, ale
@@ -150,9 +143,17 @@ const nextConfig: NextConfig = {
       gone("/dynareporter/board", insights("rada")),
       gone("/dynareporter/board-dashboard", insights("rada")),
       gone("/dynareporter/przetargi", insights("rada")),
-      // MINDY to czat AI komentujący KPI, nie strona raportowa — i Insights
-      // NIE MA dla niego następcy. Kod zostaje, decyzja produktowa otwarta.
-      parked("/dynareporter/mindy", insights("body-leasing")),
+      // MINDY zastąpił Jarvis (asystent na każdym ekranie, ⌘J).
+      gone("/dynareporter/mindy", insights("body-leasing")),
+      // Archiwum admina, profil, upload i strona startowa DynaReportera
+      // usunięte 23.09.2026 — wszystko, czego lista wyżej nie zna.
+      gone("/dynareporter", "/insights"),
+      gone("/dynareporter/:path*", "/insights"),
+      // Cortex usunięty 23.09.2026 (Słownik umiejętności: Ustawienia →
+      // Rekrutacja); stare linki prowadzą na Insights, jak dotąd strona.
+      gone("/cortex", "/insights"),
+      // Metryki LinkedIn usunięte 23.09.2026 — strona ustawień znikła.
+      gone("/settings/linkedin-metrics", "/settings"),
     ];
   },
   async headers() {

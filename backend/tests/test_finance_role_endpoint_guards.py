@@ -15,10 +15,6 @@ from typing import get_args, get_type_hints
 import pytest
 from fastapi import HTTPException
 
-from app.analytics.capabilities import (
-    AnalyticsCapability,
-    require_dynareporter_section,
-)
 from app.analytics.scope import (
     ScopeKind,
     ensure_recruitment_user_scope,
@@ -41,14 +37,11 @@ from app.api import (
     contract_analytics,
     contractors,
     contracts,
-    cortex,
-    dynareporter_przetargi,
     financial_adjustments,
     invoices,
     hiring_managers_analytics,
     job_chat,
     jobs,
-    linkedin_metrics,
     my_clients,
     my_relationships,
     notifications,
@@ -58,7 +51,7 @@ from app.api import (
     reports,
     signing,
 )
-from app.api.deps import AdminUser, DeliveryLeadPlus, HeadOfRecruitmentPlus
+from app.api.deps import AdminUser, DeliveryLeadPlus
 from app.api.financial_access import (
     FinanceApproveUser,
     FinanceManageUser,
@@ -660,53 +653,8 @@ def test_candidate_finance_read_is_split_from_candidate_finance_write():
     assert _current_user_annotation(contracts.export_contracts) == FinanceReadUser
 
 
-@pytest.mark.asyncio
-async def test_finance_passes_cortex_read_guard_and_contractor_scope_is_global():
-    finance = _user(UserRole.finance)
-    guarded = await _annotated_dependency(cortex.CortexUser)(finance)
-
-    assert guarded is finance
+def test_finance_contractor_scope_is_global():
     assert UserRole.finance in contractors._FULL_VISIBILITY_ROLES
-
-
-@pytest.mark.asyncio
-async def test_finance_bypasses_business_section_narrowing_after_capability_check():
-    finance = _user(UserRole.finance)
-    finance.allowed_sections = []
-
-    for section in ("clients-mrr", "przetargi", "board", "sales-mgmt"):
-        guard = require_dynareporter_section(section, AnalyticsCapability.VIEW_FINANCE)
-        assert await guard(finance) is finance
-
-    with pytest.raises(HTTPException) as mindy_requires_explicit_grant:
-        await require_dynareporter_section(
-            "mindy",
-            AnalyticsCapability.VIEW_OPERATIONAL_AGGREGATES,
-        )(finance)
-    assert mindy_requires_explicit_grant.value.status_code == 403
-
-    finance.allowed_sections = ["mindy"]
-    assert (
-        await require_dynareporter_section(
-            "mindy",
-            AnalyticsCapability.VIEW_OPERATIONAL_AGGREGATES,
-        )(finance)
-        is finance
-    )
-
-    with pytest.raises(HTTPException) as no_admin_capability:
-        await require_dynareporter_section(
-            "sales",
-            AnalyticsCapability.ADMIN_ANALYTICS,
-        )(finance)
-    assert no_admin_capability.value.status_code == 403
-
-    with pytest.raises(HTTPException) as no_admin_section:
-        await require_dynareporter_section(
-            "admin",
-            AnalyticsCapability.VIEW_FINANCE,
-        )(finance)
-    assert no_admin_section.value.status_code == 403
 
 
 @pytest.mark.asyncio
@@ -719,18 +667,6 @@ async def test_finance_analytics_team_and_user_scope_are_organization_wide():
     user_scope = await ensure_recruitment_user_scope(None, finance, 999)
     assert user_scope.kind is ScopeKind.user
     assert user_scope.user_id == 999
-
-
-@pytest.mark.asyncio
-async def test_przetargi_identity_projections_use_the_section_guard():
-    finance = _user(UserRole.finance)
-    finance.allowed_sections = []
-
-    for endpoint in (
-        dynareporter_przetargi.list_consultants,
-        dynareporter_przetargi.list_allocations,
-    ):
-        assert await _parameter_dependency(endpoint)(finance) is finance
 
 
 def test_finance_reads_client_overview_and_hiring_manager_reports():
@@ -771,21 +707,6 @@ def test_finance_reads_settings_audit_surfaces_without_gaining_mutations():
             get_type_hints(endpoint, include_extras=True)["_user"]
             == admin_client_portfolio.ClientPortfolioReadUser
         )
-    for endpoint in (
-        linkedin_metrics.list_batch,
-        linkedin_metrics.list_linkedin_users,
-    ):
-        assert (
-            get_type_hints(endpoint, include_extras=True)["_user"]
-            == linkedin_metrics.LinkedInMetricsReadUser
-        )
-    assert (
-        _current_user_annotation(linkedin_metrics.upsert_batch) == HeadOfRecruitmentPlus
-    )
-    assert (
-        get_type_hints(linkedin_metrics.delete_metric, include_extras=True)["_user"]
-        == HeadOfRecruitmentPlus
-    )
 
 
 def test_order_safe_gets_and_rate_bearing_documents_use_distinct_readers():
@@ -1020,7 +941,6 @@ async def test_finance_chat_access_is_the_same_rule_for_read_and_write():
         reports.report_delivery_leads,
         reports.report_delivery_lead_trend,
         reports.report_invite_links,
-        reports.report_power_calling,
     ],
 )
 async def test_finance_passes_organization_report_read_guards(endpoint):

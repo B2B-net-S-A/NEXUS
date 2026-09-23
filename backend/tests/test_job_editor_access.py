@@ -191,35 +191,6 @@ async def test_job_detail_reports_can_edit_and_can_manage(app_client, world):
 
 
 @pytest.mark.asyncio
-async def test_postings_follow_the_same_rule(app_client, world):
-    created = await app_client.post(
-        f"/api/jobs/{world['job_id']}/postings",
-        headers=world["owner"],
-        json={"portal": "pracuj_pl", "expires_days": 30},
-    )
-    assert created.status_code == 201, created.text
-    posting_id = created.json()["id"]
-
-    # Rekruter spoza zespołu publikuje i zdejmuje ogłoszenia (23.09.2026).
-    by_outsider = await app_client.post(
-        f"/api/jobs/{world['job_id']}/postings",
-        headers=world["outsider"],
-        json={"portal": "justjoinit", "expires_days": 30},
-    )
-    assert by_outsider.status_code == 201, by_outsider.text
-    assert by_outsider.json()["job_id"] == world["job_id"]
-    outsider_delete = await app_client.delete(
-        f"/api/postings/{posting_id}", headers=world["outsider"]
-    )
-    assert outsider_delete.status_code == 204, outsider_delete.text
-
-    deleted = await app_client.delete(
-        f"/api/postings/{by_outsider.json()['id']}", headers=world["collab"]
-    )
-    assert deleted.status_code == 204, deleted.text
-
-
-@pytest.mark.asyncio
 async def test_champion_profile_is_editable_by_every_internal_role(app_client, world):
     ok = await app_client.put(
         f"/api/jobs/{world['job_id']}/champion-profile",

@@ -762,10 +762,6 @@ class Settings(BaseSettings):
 
     # ── Phase 13: notification triggers ──────────────────────────────────────
     BUSINESS_TZ: str = "Europe/Warsaw"
-    # Ile Call (status=completed) / dzień roboczy rekrutera musi mieć do 11:45.
-    POWERCALLING_DAILY_TARGET: int = 15
-    POWERCALLING_CHECK_HOUR: int = 11
-    POWERCALLING_CHECK_MINUTE: int = 45
     # Alert do DL o braku feedbacku klienta — przed końcem dnia pracy.
     CLIENT_FEEDBACK_ALERT_HOUR: int = 16
     CLIENT_FEEDBACK_ALERT_MINUTE: int = 30
@@ -901,15 +897,6 @@ class Settings(BaseSettings):
     # Opcjonalne zawężenie aktywnych modułów v1 (csv, np. "overview,funnel").
     # Pusta wartość = wszystkie moduły w danym trybie.
     ANALYTICS_V1_MODULES: str = ""
-    # Legacy DynaReporter: read_only (adaptery czytają) | off (410 na readach).
-    DYNAREPORTER_MODE: str = "read_only"
-    # Audyt M7 PR-02 (P0.3): przy DYNAREPORTER_MODE=read_only backend blokuje
-    # mutacje (POST/PUT/PATCH/DELETE) na /api/dynareporter — dotąd read_only NIE
-    # przechwytywało zapisów (tylko off dawało 410). Break-glass odblokowuje
-    # zapisy tymczasowo (np. admin musi wprowadzić dane board/master-data), z
-    # audytem. Domyślnie zamknięte (fail-closed, DR = archive per §19 planu).
-    # Operacyjnie: ustaw =true w Coolify na czas edycji, zdejmij po zakończeniu.
-    DYNAREPORTER_WRITE_BREAKGLASS: bool = False
     # KPI Coach v2 — wysyłka nudge'y po dry-run parity (plan PR 4).
     KPI_COACH_V2_NUDGES_ENABLED: bool = False
 
@@ -931,14 +918,6 @@ class Settings(BaseSettings):
                 f"RECRUITMENT_PRIORITY_MODE must be one of {sorted(allowed)}"
             )
         return normalized
-
-    @field_validator("DYNAREPORTER_MODE")
-    @classmethod
-    def _validate_dynareporter_mode(cls, v: str) -> str:
-        allowed = {"read_only", "off"}
-        if v not in allowed:
-            raise ValueError(f"DYNAREPORTER_MODE must be one of {sorted(allowed)}")
-        return v
 
     # Externally reachable base URL for the public API. Used by Outlook
     # Actionable Messages (Phase 7.5) which require Microsoft's servers to be
@@ -1611,21 +1590,6 @@ class Settings(BaseSettings):
     TRAFFIT_INTEGRATION_LEASE_HEARTBEAT_SECONDS: int = 30
     TRAFFIT_INTEGRATION_TOMBSTONE_MISSING_STRIKES: int = 2
     TRAFFIT_INTEGRATION_TOMBSTONE_GRACE_DAYS: int = 7
-    # Cortex extraction phase within the Traffit sync — keeps skill facts fresh
-    # (delta re-extraction of just-changed candidates + weekly full reconcile).
-    # Runs only when TRAFFIT_SYNC_ENABLED is also True; idempotent + reconciled,
-    # so safe. Set False to disable the phase without disabling the whole sync.
-    CORTEX_SYNC_ENABLED: bool = True
-    # Cortex CV/LLM extractor (Etap 2) — parses stored CV text via parse_cv
-    # (Claude→Ollama→regex) into source='cv_llm' facts. Kosztowny (LLM) i
-    # NIGDY nie odpala się automatycznie — tylko ręczny admin endpoint, gated.
-    # Default OFF: nie uruchamiać pełnego backfillu przed walidacją Etapu 0.
-    CORTEX_CV_LLM_ENABLED: bool = False
-    # Cortex resolved facts jako DODATKOWY sygnał w scoringu (Etap 2). Default
-    # OFF — włączenie zmienia wyniki matchingu, więc WYMAGA walidacji przez
-    # scripts/eval_matching.py (Precision@5/Recall@20/MRR/nDCG przed/po) zgodnie
-    # z regułą autonomous-verification §4. Gdy OFF: zero zmiany zachowania.
-    CORTEX_FACTS_IN_SCORING: bool = False
 
     # ── Microsoft Teams notifications (Phase 7.6) ────────────────────────────
     # Kill-switch: when False, /api/teams-channels/* keep working for CRUD but

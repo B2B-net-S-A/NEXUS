@@ -30,11 +30,6 @@ vi.mock("@/components/v2/jobs/JobSettingsPanel", () => ({
 vi.mock("@/components/v2/priority-work", () => ({
   JobPriorityContext: () => <div data-testid="priority-context" />,
 }));
-vi.mock("@/components/v2/recruitment/PostingsSection", () => ({
-  PostingsSection: ({ readOnly }: { readOnly: boolean }) => (
-    <div data-testid="postings" data-read-only={String(readOnly)} />
-  ),
-}));
 vi.mock("@/components/v2/jobs/JobReadinessDock", () => ({
   JobReadinessDock: () => <div data-testid="readiness-dock" />,
 }));
@@ -176,20 +171,10 @@ describe("OrderSlideOver", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Priorytet/ }));
     expect(screen.getByTestId("priority-context")).toBeInTheDocument();
 
-    expect(screen.queryByTestId("postings")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Portale ogłoszeniowe/ }));
-    expect(screen.getByTestId("postings")).toBeInTheDocument();
+    // Symulowane portale ogłoszeniowe usunięte 23.09.2026.
+    expect(screen.queryByRole("button", { name: /Portale ogłoszeniowe/ })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Napisz ogłoszenie z AI" }));
     expect(h.onOpenAiWriter).toHaveBeenCalled();
-  });
-
-  it("initialSection=portals rozwija portale od razu (stary link ?tab=portals)", async () => {
-    setup({ initialSection: "portals", readOnly: true });
-    expect(await screen.findByTestId("postings")).toHaveAttribute(
-      "data-read-only",
-      "true",
-    );
-    expect(screen.queryByTestId("ownership-panel")).not.toBeInTheDocument();
   });
 
   it("canEdit=false chowa edycję i zamknięcie, a klocki dostają tryb odczytu", async () => {
@@ -201,24 +186,12 @@ describe("OrderSlideOver", () => {
     expect(screen.getByTestId("hm-picker")).toHaveAttribute("data-can-edit", "false");
   });
 
-  it("rekruter prowadzący (canEditContent): edycja treści i ogłoszeń, bez zespołu i zamknięcia", async () => {
-    setup({ canEdit: false, canEditContent: true, initialSection: "portals" });
-    expect(await screen.findByTestId("postings")).toHaveAttribute(
-      "data-read-only",
-      "false",
-    );
-    expect(screen.getByRole("button", { name: "Edytuj rekrutację" })).toBeInTheDocument();
+  it("rekruter prowadzący (canEditContent): edycja treści, bez zespołu i zamknięcia", async () => {
+    setup({ canEdit: false, canEditContent: true });
+    expect(await screen.findByRole("button", { name: "Edytuj rekrutację" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Zamknij rekrutację" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Zmień zespół i hiring managera/ }));
     expect(screen.getByTestId("hm-picker")).toHaveAttribute("data-can-edit", "false");
-  });
-
-  it("bez prawa edycji treści ogłoszenia są tylko do odczytu", async () => {
-    setup({ canEdit: false, initialSection: "portals" });
-    expect(await screen.findByTestId("postings")).toHaveAttribute(
-      "data-read-only",
-      "true",
-    );
   });
 
   it("„Zamknij rekrutację” otwiera istniejący dialog z podpowiedzią powodu", async () => {

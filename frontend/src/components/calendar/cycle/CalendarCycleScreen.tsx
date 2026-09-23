@@ -168,7 +168,7 @@ export function CalendarCycleScreen({
             {todoCount > 0 ? ` · do zrobienia: ${todoCount}` : ""}
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2" data-help="calendar.views">
           <Segmented
             label="Widok"
             value={view}
@@ -191,6 +191,7 @@ export function CalendarCycleScreen({
             <button
               type="button"
               onClick={() => setDialog({ kind: "slots", pair: null })}
+              data-help="calendar.slots"
               className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
             >
               <CalendarPlus className="h-4 w-4" aria-hidden />

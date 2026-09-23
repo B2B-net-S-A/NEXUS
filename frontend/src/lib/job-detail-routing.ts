@@ -33,7 +33,7 @@ export const JOB_DETAIL_DEFAULT_VIEW: JobDetailView = "board";
 /** Zakładka startowa okna „Historia i czat" (lustro `HistoryChatTab`). */
 export type JobHistoryChatTab = "all" | "chat" | "moves" | "request" | "background";
 /** Sekcja startowa okna „Zlecenie" (lustro `OrderSlideOverSection`). */
-export type JobOrderSection = "portals" | "team" | "close";
+export type JobOrderSection = "team" | "close";
 
 export interface LegacyJobTabTarget {
   view: JobDetailView;
@@ -54,7 +54,9 @@ const LEGACY_TAB_TARGETS: Readonly<Record<string, LegacyJobTabTarget>> = {
   "ai-matching": { view: "people", segment: "proposals" },
   similar: { view: "people", segment: "proposals" },
   "manual-search": { view: "people", slideOver: "manual-search" },
-  portals: { view: "people", slideOver: "order", orderSection: "portals" },
+  // Symulowane portale ogłoszeniowe usunięte 23.09.2026 — stary link otwiera
+  // samo okno zlecenia (sekcja „Ogłoszenie i link aplikacyjny" jest w nim).
+  portals: { view: "people", slideOver: "order" },
   questions: { view: "people", slideOver: "questions" },
   history: { view: "people", slideOver: "history-chat", slideOverTab: "request" },
   chat: { view: "people", slideOver: "history-chat", slideOverTab: "chat" },
@@ -111,7 +113,7 @@ const HISTORY_TABS: readonly JobHistoryChatTab[] = [
   "request",
   "background",
 ];
-const ORDER_SECTIONS: readonly JobOrderSection[] = ["portals", "team", "close"];
+const ORDER_SECTIONS: readonly JobOrderSection[] = ["team", "close"];
 
 function oneOf<T extends string>(raw: string | null | undefined, allowed: readonly T[]): T | null {
   if (raw == null) return null;

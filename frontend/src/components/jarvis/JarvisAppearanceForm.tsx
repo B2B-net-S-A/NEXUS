@@ -10,7 +10,7 @@
  */
 
 import { useEffect, useState } from "react";
-import { Lock } from "lucide-react";
+import { Lock, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import type { JarvisPrefs, JarvisPrefsResponse } from "@/lib/jarvis/types";
@@ -28,7 +28,13 @@ interface Props {
   hideActions?: boolean;
   /** Informuje wołającego, czy imię jest poprawne (blokada „Zapisz” w stopce). */
   onValidityChange?: (valid: boolean) => void;
+  /** „Pokaż wskazówki od nowa” — czyści listę obejrzanych ekranów. */
+  onResetTips?: () => void;
 }
+
+const MAX_NOTES = 10;
+const MAX_NOTE_CHARS = 200;
+const NOTE_PATTERN = /^[^<>{}[\]`]+$/;
 
 const NAME_PATTERN = /^[^<>{}[\]`]{1,24}$/;
 
@@ -41,7 +47,10 @@ export function JarvisAppearanceForm({
   formId,
   hideActions = false,
   onValidityChange,
+  onResetTips,
 }: Props) {
+  const [noteDraft, setNoteDraft] = useState("");
+  const [tipsReset, setTipsReset] = useState(false);
   const [draft, setDraft] = useState<JarvisPrefs>({
     character: prefs.character,
     name: prefs.name,
@@ -50,7 +59,24 @@ export function JarvisAppearanceForm({
     minimized: prefs.minimized,
     sound: prefs.sound,
     daily_brief: prefs.daily_brief,
+    screen_tips: prefs.screen_tips ?? true,
+    notes: prefs.notes ?? [],
   });
+  const cleanNote = noteDraft.replace(/\s+/g, " ").trim();
+  const noteError =
+    cleanNote.length === 0
+      ? null
+      : cleanNote.length > MAX_NOTE_CHARS
+        ? `Najwyżej ${MAX_NOTE_CHARS} znaków.`
+        : !NOTE_PATTERN.test(cleanNote)
+          ? "Bez znaków < > { } [ ] `."
+          : null;
+  const canAddNote = cleanNote.length > 0 && !noteError && draft.notes.length < MAX_NOTES;
+  function addNote() {
+    if (!canAddNote || draft.notes.includes(cleanNote)) return;
+    setDraft((d) => ({ ...d, notes: [...d.notes, cleanNote] }));
+    setNoteDraft("");
+  }
   const cleanName = draft.name.replace(/\s+/g, " ").trim();
   const nameError =
     cleanName.length === 0
@@ -160,12 +186,84 @@ export function JarvisAppearanceForm({
           onChange={(v) => setDraft((d) => ({ ...d, daily_brief: v }))}
         />
         <ToggleRow
+          label="Wskazówki na nowych ekranach"
+          hint="Przy pierwszej wizycie na ekranie dymek podpowie, co się tu robi (najwyżej 3 dziennie)."
+          checked={draft.screen_tips}
+          onChange={(v) => setDraft((d) => ({ ...d, screen_tips: v }))}
+        />
+        {onResetTips && (
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs text-muted-foreground">
+              {tipsReset ? "Wskazówki pokażą się znowu na każdym ekranie." : "Chcesz zobaczyć wskazówki jeszcze raz?"}
+            </p>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                onResetTips();
+                setTipsReset(true);
+              }}
+            >
+              Pokaż wskazówki od nowa
+            </Button>
+          </div>
+        )}
+        <ToggleRow
           label="Dźwięk"
           hint="Krótki sygnał, gdy asystent skończy odpowiadać."
           checked={draft.sound}
           onChange={(v) => setDraft((d) => ({ ...d, sound: v }))}
         />
       </div>
+
+      <fieldset className="space-y-2" data-testid="jarvis-notes">
+        <legend className="text-sm font-medium">Co {cleanName || "asystent"} o mnie wie</legend>
+        <p className="text-xs text-muted-foreground">
+          Twoje preferencje, np. „odpowiadaj krótko”, „moi klienci to X i Y”. Asystent bierze je pod uwagę
+          w każdej rozmowie. Nie wpisuj tu danych kandydatów.
+        </p>
+        {draft.notes.length > 0 ? (
+          <ul className="space-y-1">
+            {draft.notes.map((note) => (
+              <li key={note} className="flex items-start gap-2 rounded-md border border-border px-2.5 py-1.5 text-sm">
+                <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">{note}</span>
+                <button
+                  type="button"
+                  onClick={() => setDraft((d) => ({ ...d, notes: d.notes.filter((n) => n !== note) }))}
+                  className="shrink-0 text-muted-foreground hover:text-destructive"
+                  aria-label={`Usuń: ${note}`}
+                >
+                  <X className="h-4 w-4" aria-hidden />
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-xs text-muted-foreground">Na razie nic.</p>
+        )}
+        <div className="flex gap-2">
+          <input
+            value={noteDraft}
+            onChange={(e) => setNoteDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                addNote();
+              }
+            }}
+            maxLength={MAX_NOTE_CHARS + 20}
+            disabled={draft.notes.length >= MAX_NOTES}
+            placeholder={draft.notes.length >= MAX_NOTES ? `Najwyżej ${MAX_NOTES} pozycji` : "Dodaj preferencję…"}
+            aria-label="Nowa preferencja"
+            className="h-9 min-w-0 flex-1 rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-primary"
+          />
+          <Button type="button" size="sm" variant="outline" disabled={!canAddNote} onClick={addNote}>
+            Dodaj
+          </Button>
+        </div>
+        {noteError && <p className="text-xs text-destructive">{noteError}</p>}
+      </fieldset>
 
       {error && (
         <p role="alert" className="text-sm text-destructive">

@@ -49,7 +49,6 @@ from app.api import (
     contractors,
     contract_analytics,
     contract_templates,
-    cortex,
     fx,
     invoices,
     rate_cards,
@@ -70,7 +69,6 @@ from app.api import finance as finance_api
 from app.api import financial_adjustments as financial_adjustments_api
 from app.api import emails
 from app.api import user_email_templates as user_email_templates_api
-from app.api import postings
 from app.api import calls
 from app.api import cloudtalk as cloudtalk_api
 from app.api import reports
@@ -140,31 +138,7 @@ from app.api import public_engagement
 from app.api import public_interview_confirmation
 from app.api import cv_generator_b2b
 from app.api import b2b_contract_generator
-from app.api import dynareporter_profile
-from app.api import dynareporter_kpi_body_leasing
-from app.api import dynareporter_kpi_sales
-from app.api import dynareporter_kpi_delivery_lead
-from app.api import dynareporter_placements
-from app.api import dynareporter_clients_mrr
-from app.api import dynareporter_competitions
-from app.api import dynareporter_przetargi
-from app.api import dynareporter_board
-from app.api import dynareporter_sales_mgmt
 from app.api import jarvis as jarvis_api
-from app.api import dynareporter_upload
-from app.api import dynareporter_redirect
-from app.api import dynareporter_rekrutacja
-from app.api import dynareporter_delivery_lead_dashboard
-from app.api import dynareporter_board_dashboard
-from app.api import dynareporter_admin_dashboard
-from app.api import dynareporter_admin_config
-from app.api import dynareporter_admin_hof
-from app.api import dynareporter_admin_master_data
-from app.api import dynareporter_admin_users
-
-# dynareporter_admin_writes (Sales+Przetargi admin) usunięte 2026-05-19 —
-# Nexus nie ma głównych dashboardów Sales/Przetargi w sidebarze, więc admin
-# entry dla tych modułów nie był potrzebny (per user request).
 from app.api import candidate_stage_cv as candidate_stage_cv_api
 from app.api import calendar
 from app.api import notifications
@@ -178,6 +152,7 @@ from app.api import cv_match_preview
 from app.api import talent_radar
 from app.api import phase3_actions
 from app.api import skills as skills_api
+from app.api import skills_admin as skills_admin_api
 from app.api import scoring_weights as scoring_weights_api
 from app.api import public_share as public_share_api
 from app.api import phase3
@@ -188,6 +163,7 @@ from app.api import admin_import
 from app.api import kpis as kpis_api
 from app.api import onboarding as onboarding_api
 from app.api import procedures as procedures_api
+from app.api import help_screens as help_screens_api
 from app.api import help_materials as help_materials_api
 from app.api import proposals as proposals_api
 from app.api import job_shortlist as job_shortlist_api
@@ -210,7 +186,6 @@ from app.api import champion_suggestions as champion_suggestions_api
 from app.api import rate_benchmarks as rate_benchmarks_api
 from app.api import team_structure as team_structure_api
 from app.api import competitions as competitions_api
-from app.api import linkedin_metrics as linkedin_metrics_api
 from app.api import competence_categories as competence_categories_api
 from app.api import interview_questions as interview_questions_api
 from app.api import interview_feedback as interview_feedback_api
@@ -478,81 +453,9 @@ def _legacy_stats_exempt(path: str) -> bool:
     )
 
 
-# Audyt M7 PR-02 (P0.3): metody mutujące blokowane przy DYNAREPORTER_MODE=read_only.
-_DYNAREPORTER_MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
-
-# Ścieżki zwolnione z blokady read_only — nie tworzą DANYCH RAPORTOWYCH:
-# competitions notifications .../read (self-scoped read-marker powiadomień usera).
-# Dawne zwolnienie `mindy/*` zniknęło razem z MINDY (zastąpiona przez Jarvisa,
-# `/api/jarvis/*`, który stoi poza prefiksem DynaReportera).
-
-
-def _dynareporter_write_exempt(path: str, method: str) -> bool:
-    """Czy dana mutacja DR jest zwolniona z blokady read_only (nie-raportowa)."""
-    # upload/excel ma własny terminalny 410 GONE (R0) — mocniejszy niż read_only
-    # 409; nie przykrywamy go (zachowuje kontrakt „trwale wycofane").
-    if path == "/api/dynareporter/upload/excel":
-        return True
-    if (
-        method == "PATCH"
-        and path.startswith("/api/dynareporter/competitions/notifications/")
-        and path.endswith("/read")
-    ):
-        return True
-    return False
-
-
 class LegacyStatsDeprecationMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
-
-        # Plan PR 7: telemetria ruchu legacy DynaReportera (sam path, bez PII)
-        # + tryb DYNAREPORTER_MODE=off ⇒ 410 na odczytach (writes są już
-        # admin-only; upload 410 od R0).
-        if path.startswith("/api/dynareporter"):
-            logger.info("legacy_dynareporter_hit path=%s", path)
-            if settings.DYNAREPORTER_MODE == "off":
-                from fastapi.responses import JSONResponse
-
-                return JSONResponse(
-                    status_code=410,
-                    content={
-                        "detail": (
-                            "DynaReporter został wygaszony — bieżące statystyki: "
-                            "/api/analytics/v1 (UI: /insights)"
-                        )
-                    },
-                )
-
-            # Audyt M7 PR-02 (P0.3): read_only egzekwuje read-only CENTRALNIE.
-            # Dotąd read_only nie przechwytywało zapisów (split-brain: „archiwum",
-            # które nadal przyjmuje mutacje). Teraz każda mutacja DR daje 409 z
-            # kodem DYNAREPORTER_READ_ONLY, chyba że jest zwolniona (read-
-            # marker) albo operator włączył break-glass na czas edycji danych.
-            if (
-                settings.DYNAREPORTER_MODE == "read_only"
-                and request.method in _DYNAREPORTER_MUTATING_METHODS
-                and not _dynareporter_write_exempt(path, request.method)
-                and not settings.DYNAREPORTER_WRITE_BREAKGLASS
-            ):
-                # Audyt próby zapisu bez payloadu (bez PII).
-                logger.warning(
-                    "dynareporter_write_blocked method=%s path=%s",
-                    request.method,
-                    path,
-                )
-                from fastapi.responses import JSONResponse
-
-                return JSONResponse(
-                    status_code=409,
-                    content={
-                        "detail": (
-                            "DynaReporter działa w trybie tylko-do-odczytu "
-                            "(archiwum) — zapisy są zablokowane."
-                        ),
-                        "code": "DYNAREPORTER_READ_ONLY",
-                    },
-                )
 
         response = await call_next(request)
         if path.startswith(_LEGACY_STATS_PREFIXES) and not _legacy_stats_exempt(path):
@@ -1237,7 +1140,6 @@ app.include_router(
     prefix="/api/contract-analytics",
     tags=["contract-analytics"],
 )
-app.include_router(cortex.router, prefix="/api/cortex", tags=["cortex"])
 app.include_router(
     contract_templates.router,
     prefix="/api/contract-templates",
@@ -1296,7 +1198,6 @@ app.include_router(
     prefix="/api/user-email-templates",
     tags=["user-email-templates"],
 )
-app.include_router(postings.router, prefix="/api", tags=["postings"])
 app.include_router(calls.router, prefix="/api", tags=["calls"])
 app.include_router(cloudtalk_api.router, prefix="/api/cloudtalk", tags=["cloudtalk"])
 app.include_router(
@@ -1395,109 +1296,8 @@ app.include_router(
     prefix="/api/insights/campaigns",
     tags=["insights"],
 )
-app.include_router(
-    dynareporter_profile.router,
-    prefix="/api/dynareporter/profile",
-    tags=["dynareporter"],
-)
-app.include_router(
-    dynareporter_kpi_body_leasing.router,
-    prefix="/api/dynareporter/kpi/body-leasing",
-    tags=["dynareporter"],
-)
-app.include_router(
-    dynareporter_kpi_sales.router,
-    prefix="/api/dynareporter/kpi/sales",
-    tags=["dynareporter"],
-)
-app.include_router(
-    dynareporter_kpi_delivery_lead.router,
-    prefix="/api/dynareporter/kpi/delivery-lead",
-    tags=["dynareporter"],
-)
-app.include_router(
-    dynareporter_placements.router,
-    prefix="/api/dynareporter/placements",
-    tags=["dynareporter"],
-)
-app.include_router(
-    dynareporter_clients_mrr.router,
-    prefix="/api/dynareporter/clients-mrr",
-    tags=["dynareporter"],
-)
-app.include_router(
-    dynareporter_competitions.router,
-    prefix="/api/dynareporter/competitions",
-    tags=["dynareporter"],
-)
-app.include_router(
-    dynareporter_przetargi.router,
-    prefix="/api/dynareporter/przetargi",
-    tags=["dynareporter"],
-)
-app.include_router(
-    dynareporter_board.router,
-    prefix="/api/dynareporter/board",
-    tags=["dynareporter"],
-)
-app.include_router(
-    dynareporter_sales_mgmt.router,
-    prefix="/api/dynareporter/sales-mgmt",
-    tags=["dynareporter"],
-)
-# Jarvis (0330) — asystent-agent w shellu; POZA prefiksem /api/dynareporter,
-# bo `LegacyStatsDeprecationMiddleware` gasi tamten prefiks (409/410).
+# Jarvis (0330) — asystent-agent w shellu.
 app.include_router(jarvis_api.router, prefix="/api/jarvis", tags=["jarvis"])
-app.include_router(
-    dynareporter_upload.router,
-    prefix="/api/dynareporter/upload",
-    tags=["dynareporter"],
-)
-app.include_router(
-    dynareporter_rekrutacja.router,
-    prefix="/api/dynareporter/rekrutacja",
-    tags=["dynareporter"],
-)
-app.include_router(
-    dynareporter_delivery_lead_dashboard.router,
-    prefix="/api/dynareporter/delivery-lead-dashboard",
-    tags=["dynareporter"],
-)
-app.include_router(
-    dynareporter_board_dashboard.router,
-    prefix="/api/dynareporter/board-dashboard",
-    tags=["dynareporter"],
-)
-app.include_router(
-    dynareporter_admin_dashboard.router,
-    prefix="/api/dynareporter/admin-dashboard",
-    tags=["dynareporter"],
-)
-app.include_router(
-    dynareporter_admin_config.router,
-    prefix="/api/dynareporter/admin-config",
-    tags=["dynareporter"],
-)
-app.include_router(
-    dynareporter_admin_hof.router,
-    prefix="/api/dynareporter/admin-hof",
-    tags=["dynareporter"],
-)
-app.include_router(
-    dynareporter_admin_master_data.router,
-    prefix="/api/dynareporter/admin-master-data",
-    tags=["dynareporter"],
-)
-app.include_router(
-    dynareporter_admin_users.router,
-    prefix="/api/dynareporter/admin-users",
-    tags=["dynareporter"],
-)
-app.include_router(
-    dynareporter_redirect.router,
-    prefix="/api/dynareporter",
-    tags=["dynareporter"],
-)
 app.include_router(client_knowledge.router, prefix="/api", tags=["client-knowledge"])
 app.include_router(client_materials.router, prefix="/api", tags=["client-materials"])
 app.include_router(
@@ -1529,6 +1329,9 @@ app.include_router(
 app.include_router(admin_chats_api.router, prefix="/api/admin", tags=["admin-chats"])
 app.include_router(matching.router, prefix="/api", tags=["matching"])
 app.include_router(skills_api.router, prefix="/api/skills", tags=["skills"])
+app.include_router(
+    skills_admin_api.router, prefix="/api/skills-admin", tags=["skills-admin"]
+)
 app.include_router(
     scoring_weights_api.router,
     prefix="/api/scoring-weights",
@@ -1603,6 +1406,7 @@ app.include_router(
 )
 app.include_router(users_api.router, prefix="/api/users", tags=["users"])
 app.include_router(procedures_api.router, prefix="/api", tags=["procedures"])
+app.include_router(help_screens_api.router, prefix="/api", tags=["help"])
 app.include_router(help_materials_api.router, prefix="/api", tags=["help-materials"])
 app.include_router(proposals_api.router, prefix="/api", tags=["proposals"])
 app.include_router(proposals_bulk_api.router, prefix="/api", tags=["proposals"])
@@ -1650,11 +1454,6 @@ app.include_router(
     priority_work_api.router,
     prefix="/api/priority-work",
     tags=["priority-work"],
-)
-app.include_router(
-    linkedin_metrics_api.router,
-    prefix="/api/linkedin-metrics",
-    tags=["linkedin-metrics"],
 )
 app.include_router(
     competence_categories_api.router,
@@ -2235,42 +2034,6 @@ async def api_health_check():
         except Exception:
             checks["compass_lifecycle"] = "degraded"
 
-    # Cortex extraction — informational. Świeżość ostatniego przebiegu faktów
-    # skilli (cortex_extraction_runs). Overall status pozostaje DB-only; to tylko
-    # uwidacznia stale/failed backfill po deployu. `unconfigured` (brak runów) /
-    # `degraded` (failed / stary / z błędami) / `healthy` (świeży ok / w toku).
-    try:
-        from datetime import datetime as _cdt
-        from datetime import timedelta as _ctd
-        from datetime import timezone as _ctz
-
-        async with AsyncSessionLocal() as session:
-            row = await asyncio.wait_for(
-                session.execute(
-                    text(
-                        "SELECT status, finished_at, started_at "
-                        "FROM cortex_extraction_runs "
-                        "ORDER BY started_at DESC LIMIT 1"
-                    )
-                ),
-                timeout=1.0,
-            )
-        r = row.fetchone()
-        if r is None:
-            checks["cortex"] = "unconfigured"  # nigdy nie ekstrahowano
-        elif r[0] == "running":
-            checks["cortex"] = "healthy"  # run w toku
-        elif r[0] in ("failed", "errors"):
-            checks["cortex"] = "degraded"
-        else:  # ok
-            finished = r[1] or r[2]
-            if finished is None or (_cdt.now(_ctz.utc) - finished) > _ctd(days=8):
-                checks["cortex"] = "degraded"  # stary (daily + weekly full)
-            else:
-                checks["cortex"] = "healthy"
-    except Exception:
-        checks["cortex"] = "degraded"
-
     # Qdrant — patrz `_probe_qdrant` po uzasadnienie kształtu tej sondy.
     #
     # Nigdy nie przestawia `overall` ani kodu HTTP: utrata wektorów to utrata
@@ -2703,12 +2466,7 @@ async def api_health_deep_check():
     from app.models.contract import Contract
     from app.models.contract_candidate_rate import ContractCandidateRate
     from app.models.contract_client_rate import ContractClientRate
-    from app.models.cortex import (
-        CortexExtractionRun,
-        CortexSkillFact,
-        CortexUnmatchedObservation,
-        CortexUnmatchedTerm,
-    )
+    from app.models.cortex import CortexUnmatchedTerm
     from app.models.finance import FinanceImportRun, FinanceMonthlyResult
     from app.models.invite_link import CandidateInviteLink
     from app.models.job import Job
@@ -2758,6 +2516,7 @@ async def api_health_deep_check():
         JarvisConversation,
         JarvisConversationEntity,
         JarvisMessage,
+        JarvisUiEvent,
     )
     from app.models.job_proposal import JobProposal
     from app.models.my_people import MyPeopleJobMatch, MyPeopleOverride
@@ -2883,10 +2642,8 @@ async def api_health_deep_check():
         ("candidate_contact_events", CandidateContactEvent),
         ("candidate_contact_traffit_cursors", CandidateContactTraffitCursor),
         ("candidate_contact_traffit_ledger", CandidateContactTraffitLedger),
-        ("cortex_skill_facts", CortexSkillFact),
+        # Po usunięciu Cortexa (23.09.2026) czyta ją tylko Słownik umiejętności.
         ("cortex_unmatched_terms", CortexUnmatchedTerm),
-        ("cortex_unmatched_observations", CortexUnmatchedObservation),
-        ("cortex_extraction_runs", CortexExtractionRun),
         # 0257: mianownik wskaznikow „na dzien" (D5). Prod alembic bywa
         # osierocony, wiec to jest jedyny realny dowod, ze tabela powstala.
         ("user_workday_periods", UserWorkdayPeriod),
@@ -2919,6 +2676,8 @@ async def api_health_deep_check():
         ("jarvis_messages", JarvisMessage),
         ("jarvis_actions", JarvisAction),
         ("jarvis_conversation_entities", JarvisConversationEntity),
+        # 0355: telemetria pomocy na ekranie — brak tabeli = 500 na każdym dymku.
+        ("jarvis_ui_events", JarvisUiEvent),
         # 0333: skrzynka „Propozycje". Lista rekrutacji liczy z niej
         # `open_proposals_count`, a dodanie kandydata do rekrutacji ją stempluje.
         ("job_proposals", JobProposal),

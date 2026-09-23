@@ -94,7 +94,7 @@ export function AgendaView({
   return (
     <div className="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)] xl:grid-cols-[320px_minmax(0,1fr)_360px]">
       {/* Do zrobienia */}
-      <section aria-labelledby="cycle-todo-h" className="flex flex-col gap-3 min-w-0">
+      <section aria-labelledby="cycle-todo-h" className="flex flex-col gap-3 min-w-0" data-help="calendar.todo">
         <h2 id="cycle-todo-h" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           Do zrobienia
         </h2>
@@ -154,6 +154,7 @@ export function AgendaView({
       {/* Agenda */}
       <section
         aria-labelledby="cycle-agenda-h"
+        data-help="calendar.agenda"
         className="min-w-0 rounded-2xl border border-border bg-card overflow-hidden flex flex-col"
       >
         <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">

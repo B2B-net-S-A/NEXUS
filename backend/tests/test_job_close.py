@@ -1,7 +1,7 @@
 """Smoke tests for POST /api/jobs/{id}/close.
 
 Covers the happy path (published → closed with reason + notes), the RBAC
-requirement (TacPlus — recruiters shouldn't be able to close), and 404.
+requirement (DeliveryLeadPlus — recruiters shouldn't be able to close), and 404.
 
 Migration 0048_job_close_reason adds the `close_reason`/`close_notes` columns
 plus `jobclosereason` enum. If this test fails with "column does not exist"
@@ -21,7 +21,7 @@ pytestmark = pytest.mark.asyncio
 async def _create_draft_job(
     app_client: AsyncClient, headers: dict[str, str], title: str
 ) -> int:
-    """Create a draft job directly — returns its id. Requires TacPlus.
+    """Create a draft job directly — returns its id. Requires DeliveryLeadPlus.
 
     Seeds a throwaway client first (migration 0120 forces NOT NULL on
     `jobs.client_id`).

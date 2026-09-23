@@ -30,6 +30,7 @@ from datetime import date, datetime, timedelta
 from typing import Any, Callable, Literal, Optional
 from urllib.parse import quote
 
+from app.data.screen_guides import SCREEN_KEYS
 from app.services.section_permissions import ProductSection
 
 Tier = Literal["read", "write", "link"]
@@ -362,6 +363,176 @@ def _shape_client_profile(data: Any, _args: dict[str, Any]) -> Any:
 
 def _get(path: str, params: Optional[dict[str, Any]] = None) -> RequestSpec:
     return RequestSpec("GET", path, params=_clean(params or {}))
+
+
+_BOARD_TASK_ROW = (
+    "kind",
+    "candidate_id",
+    "candidate_name",
+    "job_id",
+    "job_title",
+    "client_name",
+    "since",
+)
+_BOARD_TASK_LISTS = {
+    "dz": "czeka na przegląd DZ",
+    "cpro_to_send": "do wysłania do Cpro",
+    "cpro_sent": "wysłane do Cpro",
+    "dl_review": "czeka na przegląd Delivery Leada",
+}
+
+
+def _shape_board_tasks(data: Any, _args: dict[str, Any]) -> Any:
+    if not isinstance(data, dict):
+        return trim(data)
+    out: dict[str, Any] = {}
+    for key, label in _BOARD_TASK_LISTS.items():
+        rows = [r for r in data.get(key) or [] if isinstance(r, dict)]
+        out[key] = {
+            "znaczenie": label,
+            "count": len(rows),
+            "items": [pick(r, _BOARD_TASK_ROW) for r in rows[:10]],
+        }
+    return trim(out)
+
+
+_CYCLE_PAIR = ("candidate_id", "candidate_name", "job_id", "job_title", "client_name")
+_CYCLE_TODO_LABELS = {
+    "call_now": "zadzwoń do kandydata po rozmowie u klienta",
+    "debrief_overdue": "zaległy debrief po rozmowie",
+    "slots_pick": "wybierz termin z propozycji klienta",
+    "slots_confirm": "potwierdź termin u klienta",
+    "prep_missing": "brak przygotowania (prep) przed rozmową",
+    "slots_missing": "brak terminów od klienta",
+    "prep2_missing": "brak drugiego przygotowania",
+}
+
+
+def _shape_interview_cycle(data: Any, _args: dict[str, Any]) -> Any:
+    if not isinstance(data, dict):
+        return trim(data)
+    from app.core.scheduling import business_today
+
+    horizon = (business_today() + timedelta(days=1)).isoformat()
+    todos = [
+        {
+            **pick(t, (*_CYCLE_PAIR, "kind", "due", "event_id", "slot_request_id")),
+            "co_zrobic": _CYCLE_TODO_LABELS.get(str(t.get("kind")), t.get("kind")),
+        }
+        for t in data.get("todos") or []
+        if isinstance(t, dict)
+    ]
+    agenda = [
+        pick(a, (*_CYCLE_PAIR, "kind", "start", "end", "event_id", "done"))
+        for a in data.get("agenda") or []
+        if isinstance(a, dict) and str(a.get("start") or "")[:10] <= horizon
+    ]
+    return trim(
+        {
+            "todos": todos,
+            "agenda_dzis_i_jutro": agenda,
+            "okno_telefonu_min": data.get("call_window_minutes"),
+            "truncated": data.get("truncated"),
+        }
+    )
+
+
+def _shape_prep_kit(data: Any, _args: dict[str, Any]) -> Any:
+    if not isinstance(data, dict):
+        return trim(data)
+    out = pick(
+        data,
+        (
+            "client_overview",
+            "candidate_strengths",
+            "candidate_gaps",
+            "selling_points",
+            "recommended_strategy",
+            "degraded",
+            "degraded_reason",
+        ),
+    )
+    out["likely_questions"] = list(data.get("likely_questions") or [])[:10]
+    return trim(out)
+
+
+def _shape_proposals(data: Any, _args: dict[str, Any]) -> Any:
+    if not isinstance(data, dict):
+        return trim(data)
+    rows = []
+    for item in data.get("items") or []:
+        if not isinstance(item, dict):
+            continue
+        person = (
+            item.get("candidate") if isinstance(item.get("candidate"), dict) else {}
+        )
+        eligibility = (
+            item.get("eligibility") if isinstance(item.get("eligibility"), dict) else {}
+        )
+        reassign = (
+            item.get("reassign_from")
+            if isinstance(item.get("reassign_from"), dict)
+            else {}
+        )
+        rows.append(
+            {
+                "candidate_id": person.get("id"),
+                "name": " ".join(
+                    str(person.get(k) or "").strip() for k in ("name", "lastname")
+                ).strip(),
+                "title": person.get("title"),
+                "city": person.get("city"),
+                "score": item.get("score"),
+                "sources": item.get("sources"),
+                "is_new": item.get("is_new"),
+                "ostrzezenie": eligibility.get("reason"),
+                "przepiecie_z": reassign.get("title"),
+            }
+        )
+    return trim(
+        {
+            "total": data.get("total"),
+            "ukrytych_przez_bramke": data.get("hidden_on_page"),
+            "items": rows,
+        }
+    )
+
+
+def _shape_metric_catalog(data: Any, _args: dict[str, Any]) -> Any:
+    if not isinstance(data, dict):
+        return trim(data)
+    sources = []
+    for src in data.get("sources") or []:
+        if not isinstance(src, dict):
+            continue
+        sources.append(
+            {
+                **pick(
+                    src,
+                    (
+                        "key",
+                        "label",
+                        "available",
+                        "reason",
+                        "group_by",
+                        "filters",
+                        "supports_author",
+                    ),
+                ),
+                "measures": [
+                    pick(m, ("key", "label", "snapshot"))
+                    for m in src.get("measures") or []
+                    if isinstance(m, dict)
+                ],
+            }
+        )
+    return trim(
+        {
+            "sources": sources,
+            "stages": data.get("stages"),
+            "periods": data.get("periods"),
+        }
+    )
 
 
 READ_TOOLS: tuple[JarvisTool, ...] = (
@@ -773,6 +944,57 @@ READ_TOOLS: tuple[JarvisTool, ...] = (
         ),
     ),
     JarvisTool(
+        name="get_contract",
+        label="Czytam kontrakt",
+        description=(
+            "Szczegóły jednego kontraktu po ID: osoba, klient, status, daty umowy i "
+            "bieżącego zamówienia, stawki i marża (kwoty tylko, gdy użytkownik ma do "
+            "nich prawo), zakończenie współpracy, powiązane kontrakty."
+        ),
+        input_schema=_schema({"contract_id": INT}, ("contract_id",)),
+        tier="read",
+        method="GET",
+        path="/api/contracts/{contract_id}",
+        section=ProductSection.delivery,
+        entity_type="candidate",
+        build=lambda a: _get(f"/api/contracts/{_int(a, 'contract_id')}"),
+        shape=lambda data, _a: trim(
+            pick(
+                data,
+                (
+                    "id",
+                    "candidate_id",
+                    "candidate_name",
+                    "client_id",
+                    "client_name",
+                    "job_title",
+                    "status",
+                    "contract_type",
+                    "start_date",
+                    "end_date",
+                    "client_order_start_date",
+                    "client_order_end_date",
+                    "latest_order_end_date",
+                    "rate_candidate",
+                    "rate_client",
+                    "rate_unit",
+                    "currency",
+                    "monthly_rate_candidate",
+                    "monthly_rate_client",
+                    "monthly_margin",
+                    "termination_reason",
+                    "terminated_at",
+                    "project_name",
+                    "work_mode",
+                    "engagement_model",
+                    "order_consumption",
+                    "order_consumption_unit",
+                    "related_contracts",
+                ),
+            )
+        ),
+    ),
+    JarvisTool(
         name="list_client_orders",
         label="Czytam zamówienia klienta",
         description="Zamówienia okresowe klienta — jedna karta na kontraktora z historią zamówień.",
@@ -986,19 +1208,364 @@ READ_TOOLS: tuple[JarvisTool, ...] = (
         shape=pick_list(("id", "name", "description", "candidates_count", "is_shared")),
     ),
     JarvisTool(
+        name="my_board_tasks",
+        label="Sprawdzam kolejkę „Czeka na Ciebie”",
+        description=(
+            "Kolejka „Czeka na Ciebie” z pulpitu: osoby czekające na przegląd DZ, do "
+            "wysłania do Cpro (Nordea), wysłane do Cpro i czekające na przegląd "
+            "Delivery Leada — policzone dla tej osoby. Wołaj przy „co mam dziś zrobić”."
+        ),
+        input_schema=_schema({}),
+        tier="read",
+        method="GET",
+        path="/api/board-tasks",
+        section=ProductSection.pipeline,
+        entity_type="candidate",
+        build=lambda a: _get("/api/board-tasks"),
+        shape=_shape_board_tasks,
+    ),
+    JarvisTool(
+        name="my_interview_cycle",
+        label="Sprawdzam rozmowy u klienta",
+        description=(
+            "Cykl rozmów u klienta: zadania (zadzwoń do kandydata po rozmowie, zaległy "
+            "debrief, termin do wyboru, brak przygotowania) i agenda na dziś i jutro. "
+            "scope: mine (moje, domyślnie), jobs (moje rekrutacje), all (cała firma — "
+            "tylko admin i Head of Recruitment)."
+        ),
+        input_schema=_schema(
+            {"scope": {"type": "string", "enum": ["mine", "jobs", "all"]}}
+        ),
+        tier="read",
+        method="GET",
+        path="/api/interview-cycle",
+        section=ProductSection.pipeline,
+        entity_type="candidate",
+        build=lambda a: _get(
+            "/api/interview-cycle", {"scope": a.get("scope") or "mine"}
+        ),
+        shape=_shape_interview_cycle,
+    ),
+    JarvisTool(
+        name="prep_for_interview",
+        label="Przygotowuję materiały na rozmowę",
+        description=(
+            "Przygotowanie kandydata do rozmowy u klienta: prawdopodobne pytania (także "
+            "te, które ten klient zadawał wcześniej), mocne strony, luki, argumenty "
+            "i strategia. Bez kosztu AI."
+        ),
+        input_schema=_schema(
+            {"candidate_id": INT, "job_id": INT}, ("candidate_id", "job_id")
+        ),
+        tier="read",
+        method="POST",
+        path="/api/prep-kit/generate",
+        section=ProductSection.pipeline,
+        entity_type="candidate",
+        build=lambda a: RequestSpec(
+            "POST",
+            "/api/prep-kit/generate",
+            json={"candidate_id": _int(a, "candidate_id"), "job_id": _int(a, "job_id")},
+        ),
+        shape=_shape_prep_kit,
+    ),
+    JarvisTool(
+        name="client_questions",
+        label="Sprawdzam pytania klienta",
+        description=(
+            "Pytania, które klient tej rekrutacji zadawał na wcześniejszych rozmowach "
+            "(z debriefów rekruterów), najnowsze najpierw."
+        ),
+        input_schema=_schema({"job_id": INT, "limit": LIMIT}, ("job_id",)),
+        tier="read",
+        method="GET",
+        path="/api/interview-cycle/client-questions",
+        section=ProductSection.pipeline,
+        build=lambda a: _get(
+            "/api/interview-cycle/client-questions",
+            {"job_id": _int(a, "job_id"), "limit": _limit(a)},
+        ),
+        shape=pick_list(("text", "created_at")),
+    ),
+    JarvisTool(
+        name="get_debrief",
+        label="Czytam debrief rozmowy",
+        description=(
+            "Zapisany debrief rozmowy u klienta (po ID wydarzenia z kalendarza albo "
+            "z my_interview_cycle): jak poszło, akceptacja oferty, pytania klienta."
+        ),
+        input_schema=_schema({"event_id": INT}, ("event_id",)),
+        tier="read",
+        method="GET",
+        path="/api/interview-cycle/events/{event_id}/debrief",
+        section=ProductSection.pipeline,
+        build=lambda a: _get(
+            f"/api/interview-cycle/events/{_int(a, 'event_id')}/debrief"
+        ),
+        shape=as_is,
+    ),
+    JarvisTool(
+        name="list_job_proposals",
+        label="Przeglądam propozycje do rekrutacji",
+        description=(
+            "Ekran „Do przejrzenia” rekrutacji: osoby zaproponowane przez automaty "
+            "(przegląd bazy, nowe CV, przepięcia z podobnych rekrutacji) — wynik, "
+            "źródło, ostrzeżenie. Osoby ukryte przez bramkę są tylko liczone."
+        ),
+        input_schema=_schema({"job_id": INT, "limit": LIMIT}, ("job_id",)),
+        tier="read",
+        method="GET",
+        path="/api/jobs/{job_id}/proposal-inbox",
+        section=ProductSection.pipeline,
+        entity_type="candidate",
+        build=lambda a: _get(
+            f"/api/jobs/{_int(a, 'job_id')}/proposal-inbox",
+            {"status": "proposed", "limit": _limit(a, default=20)},
+        ),
+        shape=_shape_proposals,
+    ),
+    JarvisTool(
+        name="get_hm_feedback",
+        label="Sprawdzam werdykty klienta",
+        description=(
+            "Werdykty hiring managera w rekrutacji (po jednym na kandydata): dalej / "
+            "odrzucony / wstrzymany, powód, notatka, autor. `can_record` mówi, czy ta "
+            "osoba może zapisać werdykt."
+        ),
+        input_schema=_schema({"job_id": INT}, ("job_id",)),
+        tier="read",
+        method="GET",
+        path="/api/jobs/{job_id}/hiring-manager-feedback",
+        section=ProductSection.pipeline,
+        entity_type="candidate",
+        build=lambda a: _get(f"/api/jobs/{_int(a, 'job_id')}/hiring-manager-feedback"),
+        shape=lambda data, _a: trim(
+            {
+                "can_record": data.get("can_record")
+                if isinstance(data, dict)
+                else None,
+                "items": [
+                    pick(
+                        r,
+                        (
+                            "candidate_id",
+                            "decision",
+                            "rejection_reason_name",
+                            "note",
+                            "overall_fit",
+                            "author_name",
+                            "event_title",
+                        ),
+                    )
+                    for r in (
+                        (data or {}).get("items") or []
+                        if isinstance(data, dict)
+                        else []
+                    )
+                ],
+            }
+        ),
+    ),
+    JarvisTool(
+        name="order_mail_queue",
+        label="Sprawdzam skrzynkę zamówień",
+        description=(
+            "Zamówienia z maila czekające na decyzję człowieka („Do weryfikacji”) z "
+            "powodami wstrzymania; outcome=needs_review domyślnie. Opcjonalnie tylko "
+            "jeden klient."
+        ),
+        input_schema=_schema(
+            {
+                "client_id": INT,
+                "outcome": {
+                    "type": "string",
+                    "enum": [
+                        "needs_review",
+                        "unrecognized_client",
+                        "failed",
+                        "applied",
+                        "auto_applied",
+                    ],
+                },
+                "limit": LIMIT,
+            }
+        ),
+        tier="read",
+        method="GET",
+        path="/api/order-mail/queue",
+        section=ProductSection.delivery,
+        build=lambda a: _get(
+            "/api/order-mail/queue",
+            {
+                "outcome": a.get("outcome") or "needs_review",
+                "client_id": a.get("client_id"),
+                "limit": _limit(a, default=20),
+            },
+        ),
+        shape=pick_list(
+            (
+                "id",
+                "received_at",
+                "subject",
+                "attachment_name",
+                "client_name",
+                "outcome",
+                "gate_reasons",
+                "can_apply",
+            )
+        ),
+    ),
+    JarvisTool(
+        name="metric_catalog",
+        label="Sprawdzam, co da się policzyć",
+        description=(
+            "Katalog miar do evaluate_metric: źródła (ruchy w pipeline, kandydaci, "
+            "rekrutacje, kontrakty, zamówienia, finanse), ich miary, podziały, etapy "
+            "i okresy — oraz które są dostępne dla tej osoby."
+        ),
+        input_schema=_schema({}),
+        tier="read",
+        method="GET",
+        path="/api/dashboard-metrics/catalog",
+        section=None,
+        build=lambda a: _get("/api/dashboard-metrics/catalog"),
+        shape=_shape_metric_catalog,
+    ),
+    JarvisTool(
+        name="evaluate_metric",
+        label="Liczę",
+        description=(
+            "Liczy jedną miarę (np. ile CV wysłałem w zeszłym miesiącu, ilu nowych "
+            "kandydatów w tym kwartale, przychód klienta). Najpierw metric_catalog — "
+            "użyj kluczy z niego. author: me (moje), team, all (cała firma, jeśli wolno)."
+        ),
+        input_schema=_schema(
+            {
+                "source": {
+                    "type": "string",
+                    "enum": [
+                        "pipeline_moves",
+                        "candidates",
+                        "jobs",
+                        "contracts",
+                        "orders",
+                        "finance",
+                    ],
+                },
+                "measure": STR,
+                "stage": STR,
+                "group_by": STR,
+                "period": STR,
+                "compare_previous": BOOL,
+                "author": {"type": "string", "enum": ["me", "team", "all"]},
+                "client_ids": {"type": "array", "items": INT, "maxItems": 20},
+                "job_ids": {"type": "array", "items": INT, "maxItems": 20},
+            },
+            ("source", "measure", "period"),
+        ),
+        tier="read",
+        method="POST",
+        path="/api/dashboard-metrics/evaluate",
+        section=None,
+        build=lambda a: RequestSpec(
+            "POST",
+            "/api/dashboard-metrics/evaluate",
+            json=_clean(
+                {
+                    "source": a.get("source"),
+                    "measure": a.get("measure"),
+                    "stage": a.get("stage"),
+                    "group_by": a.get("group_by") or "none",
+                    "period": a.get("period"),
+                    "compare_previous": bool(a.get("compare_previous")),
+                    "filters": _clean(
+                        {
+                            "author": a.get("author"),
+                            "client_ids": a.get("client_ids"),
+                            "job_ids": a.get("job_ids"),
+                        }
+                    )
+                    or None,
+                }
+            ),
+        ),
+        shape=as_is,
+    ),
+    JarvisTool(
+        name="explain_match",
+        label="Sprawdzam dopasowanie",
+        description=(
+            "Dlaczego kandydat pasuje (albo nie) do rekrutacji: wynik, podsumowanie, "
+            "mocne strony i luki. Przy pierwszym pytaniu o parę to PŁATNE wywołanie AI — "
+            "wołaj tylko na wyraźną prośbę użytkownika."
+        ),
+        input_schema=_schema(
+            {"candidate_id": INT, "job_id": INT}, ("candidate_id", "job_id")
+        ),
+        tier="read",
+        method="GET",
+        path="/api/candidates/{candidate_id}/scoring/{job_id}",
+        section=ProductSection.sourcing,
+        entity_type="candidate",
+        # BEZ `refresh`: ponowne liczenie zawsze płaci, a Jarvis nie ma powodu go wymuszać.
+        build=lambda a: _get(
+            f"/api/candidates/{_int(a, 'candidate_id')}/scoring/{_int(a, 'job_id')}"
+        ),
+        shape=lambda data, _a: trim(
+            pick(
+                data,
+                (
+                    "candidate_id",
+                    "job_id",
+                    "job_title",
+                    "score",
+                    "summary",
+                    "pros",
+                    "watchouts",
+                    "generated_at",
+                ),
+            )
+        ),
+    ),
+    JarvisTool(
+        name="get_screen_guide",
+        label="Czytam przewodnik ekranu",
+        description=(
+            "Przewodnik ekranu NEXUSA: co się tu robi, najczęstsze zadania krok po "
+            "kroku z nazwami przycisków, pułapki i lista elementów, które da się "
+            "pokazać (show_on_screen). Klucz bieżącego ekranu jest w kontekście; "
+            "przy pytaniu o inny ekran wybierz jego klucz z listy."
+        ),
+        input_schema=_schema(
+            {"key": {"type": "string", "enum": list(SCREEN_KEYS)}}, ("key",)
+        ),
+        tier="read",
+        method="GET",
+        path="/api/help/screens/{key}",
+        section=None,
+        build=lambda a: _get(
+            f"/api/help/screens/{quote(str(a.get('key') or ''), safe='.')}"
+        ),
+        shape=as_is,
+    ),
+    JarvisTool(
         name="search_help",
         label="Szukam w Pomocy",
         description=(
             "Szuka w procedurach modułu Pomoc — użyj przy pytaniach „jak zrobić X w "
-            "NEXUSIE”. Zwraca tytuły i slug; treść czytasz narzędziem get_help_article."
+            "NEXUSIE”. Pytaj pełnym zdaniem albo kilkoma słowami; wyniki są "
+            "posortowane od najtrafniejszego i mają fragment treści. Pełną treść "
+            "czytasz narzędziem get_help_article."
         ),
         input_schema=_schema({"query": STR}),
         tier="read",
         method="GET",
         path="/api/procedures",
         section=None,
-        build=lambda a: _get("/api/procedures", {"q": a.get("query")}),
-        shape=pick_list(("id", "slug", "title", "category", "summary", "updated_at")),
+        build=lambda a: _get(
+            "/api/procedures", {"q": a.get("query"), "ranked": "true"}
+        ),
+        shape=pick_list(("id", "slug", "title", "excerpt")),
     ),
     JarvisTool(
         name="get_help_article",
@@ -1428,7 +1995,320 @@ WRITE_TOOLS: tuple[JarvisTool, ...] = (
         shape=as_is,
         preview=lambda a: f"Odświeżę podsumowanie aktywności {_who(a)}",
     ),
+    JarvisTool(
+        name="save_interview_debrief",
+        done="Debrief zapisany.",
+        label="Przygotowuję debrief rozmowy",
+        description=(
+            "PROPONUJE zapis debriefu po rozmowie u klienta (ID wydarzenia z "
+            "my_interview_cycle albo kalendarza): jak poszło (good/medium/bad), czy "
+            "kandydat przyjmie ofertę (yes/likely/no/unknown), komentarz, pytania "
+            "zadane przez klienta. Pytania trafią do banku pytań tego klienta. "
+            "no_client_questions=true TYLKO, gdy użytkownik wprost powie, że klient "
+            "nie zadawał pytań. Nie wymyślaj pytań."
+        ),
+        input_schema=_schema(
+            {
+                "event_id": INT,
+                "candidate_id": {**INT, "description": "Tylko do opisu karty."},
+                "outcome": {"type": "string", "enum": ["good", "medium", "bad"]},
+                "offer_acceptance": {
+                    "type": "string",
+                    "enum": ["yes", "likely", "no", "unknown"],
+                },
+                "candidate_comment": {**STR, "maxLength": 4000},
+                "questions": {
+                    "type": "array",
+                    "items": {**STR, "maxLength": 500},
+                    "maxItems": 20,
+                },
+                "acceptance_condition": {**STR, "maxLength": 2000},
+                "no_client_questions": BOOL,
+            },
+            ("event_id", "outcome", "offer_acceptance"),
+        ),
+        tier="write",
+        method="PUT",
+        path="/api/interview-cycle/events/{event_id}/debrief",
+        section=ProductSection.pipeline,
+        entity_type="candidate",
+        invalidates=(("interview-cycle",), ("client-questions",), ("kanban",)),
+        build=lambda a: RequestSpec(
+            "PUT",
+            f"/api/interview-cycle/events/{_int(a, 'event_id')}/debrief",
+            json=_clean(
+                {
+                    "outcome": a.get("outcome"),
+                    "offer_acceptance": a.get("offer_acceptance"),
+                    "candidate_comment": a.get("candidate_comment"),
+                    "questions": [
+                        str(q)[:500]
+                        for q in (a.get("questions") or [])
+                        if str(q).strip()
+                    ][:20],
+                    "acceptance_condition": a.get("acceptance_condition"),
+                    "no_client_questions": bool(a.get("no_client_questions")) or None,
+                }
+            ),
+        ),
+        shape=lambda data, _a: trim(
+            pick(data, ("id", "outcome", "offer_acceptance", "questions_saved"))
+            if isinstance(data, dict)
+            else data
+        ),
+        preview=lambda a: (
+            "Zapiszę debrief rozmowy u klienta"
+            + (
+                f" — {_who(a)}"
+                if a.get("candidate_id")
+                else f" (wydarzenie #{a.get('event_id')})"
+            )
+            + f": {_OUTCOME_PL.get(str(a.get('outcome')), a.get('outcome'))}, "
+            f"oferta: {_ACCEPTANCE_PL.get(str(a.get('offer_acceptance')), a.get('offer_acceptance'))}"
+        ),
+        detail=lambda a: _debrief_detail(a),
+    ),
+    JarvisTool(
+        name="dismiss_job_proposal",
+        done="Propozycja odrzucona — przywrócisz ją na ekranie „Do przejrzenia”.",
+        label="Przygotowuję odrzucenie propozycji",
+        description=(
+            "PROPONUJE odrzucenie propozycji kandydata w rekrutacji (ekran „Do "
+            "przejrzenia”). Da się ją przywrócić; nowe CV tej osoby zaproponuje ją ponownie."
+        ),
+        input_schema=_schema(
+            {"job_id": INT, "candidate_id": INT}, ("job_id", "candidate_id")
+        ),
+        tier="write",
+        method="POST",
+        path="/api/jobs/{job_id}/proposal-inbox/{candidate_id}/dismiss",
+        section=ProductSection.pipeline,
+        entity_type="candidate",
+        invalidates=(("job-proposals",),),
+        build=lambda a: RequestSpec(
+            "POST",
+            f"/api/jobs/{_int(a, 'job_id')}/proposal-inbox/{_int(a, 'candidate_id')}/dismiss",
+            json={},
+        ),
+        shape=as_is,
+        preview=lambda a: (
+            f"Odrzucę propozycję {_who(a)} w rekrutacji {_who(a, 'job_id', 'Rekrutacja')}"
+        ),
+    ),
+    JarvisTool(
+        name="record_hm_feedback",
+        done="Werdykt klienta zapisany.",
+        label="Przygotowuję werdykt klienta",
+        description=(
+            "PROPONUJE zapis werdyktu hiring managera o kandydacie w rekrutacji: "
+            "advance (dalej), reject (odrzucony), on_hold (wstrzymany), z notatką "
+            "i oceną 1–5. Powód odrzucenia ze słownika wybiera człowiek na ekranie."
+        ),
+        input_schema=_schema(
+            {
+                "job_id": INT,
+                "candidate_id": INT,
+                "decision": {
+                    "type": "string",
+                    "enum": ["advance", "reject", "on_hold"],
+                },
+                "note": {**STR, "maxLength": 8000},
+                "overall_fit": {"type": "integer", "minimum": 1, "maximum": 5},
+            },
+            ("job_id", "candidate_id", "decision"),
+        ),
+        tier="write",
+        method="POST",
+        path="/api/jobs/{job_id}/hiring-manager-feedback",
+        section=ProductSection.pipeline,
+        entity_type="candidate",
+        invalidates=(("hiring-manager-feedback",), ("kanban",)),
+        build=lambda a: RequestSpec(
+            "POST",
+            f"/api/jobs/{_int(a, 'job_id')}/hiring-manager-feedback",
+            json=_clean(
+                {
+                    "candidate_id": _int(a, "candidate_id"),
+                    "decision": a.get("decision"),
+                    "note": a.get("note"),
+                    "overall_fit": a.get("overall_fit"),
+                }
+            ),
+        ),
+        shape=lambda data, _a: trim(
+            pick(data, ("id", "candidate_id", "decision", "note"))
+            if isinstance(data, dict)
+            else data
+        ),
+        preview=lambda a: (
+            f"Zapiszę werdykt klienta o {_who(a)}: "
+            f"{_DECISION_PL.get(str(a.get('decision')), a.get('decision'))}"
+        ),
+        detail=lambda a: str(a.get("note") or ""),
+    ),
+    JarvisTool(
+        name="claim_candidate",
+        done="Kandydat jest Twój przez 12 godzin.",
+        label="Przygotowuję „Biorę”",
+        description=(
+            "PROPONUJE „Biorę” — 12-godzinną rezerwację kandydata z kolumny „Nowi” "
+            "w rekrutacji dla tej osoby. Cudzą aktywną rezerwację przejmują tylko "
+            "Delivery Lead, Head of Recruitment i admin (poprzednia osoba dostaje "
+            "powiadomienie)."
+        ),
+        input_schema=_schema(
+            {"job_id": INT, "candidate_id": INT}, ("job_id", "candidate_id")
+        ),
+        tier="write",
+        method="POST",
+        path="/api/pipeline/claim",
+        section=ProductSection.pipeline,
+        entity_type="candidate",
+        invalidates=(("kanban",),),
+        build=lambda a: RequestSpec(
+            "POST",
+            "/api/pipeline/claim",
+            json={"candidate_id": _int(a, "candidate_id"), "job_id": _int(a, "job_id")},
+        ),
+        shape=as_is,
+        preview=lambda a: (
+            f"Wezmę {_who(a)} w rekrutacji {_who(a, 'job_id', 'Rekrutacja')} na 12 godzin"
+        ),
+        detail=lambda _a: (
+            "Jeśli tę osobę prowadzi już ktoś inny, przejęcie zadziała tylko dla "
+            "Delivery Leada, Head of Recruitment i admina — poprzednia osoba dostanie "
+            "powiadomienie."
+        ),
+    ),
+    JarvisTool(
+        name="snooze_my_person",
+        done="Osoba uśpiona w „Moich ludziach”.",
+        label="Przygotowuję uśpienie",
+        description=(
+            "PROPONUJE uśpienie osoby na liście „Moi ludzie” z powodem: found_job "
+            "(znalazła pracę), not_interested (nie jest zainteresowana), no_contact "
+            "(brak kontaktu), other (z notatką). Wybudzić można na liście."
+        ),
+        input_schema=_schema(
+            {
+                "candidate_id": INT,
+                "reason": {
+                    "type": "string",
+                    "enum": ["found_job", "not_interested", "no_contact", "other"],
+                },
+                "note": {**STR, "maxLength": 500},
+            },
+            ("candidate_id", "reason"),
+        ),
+        tier="write",
+        method="POST",
+        path="/api/my-people/{candidate_id}/snooze",
+        section=ProductSection.sourcing,
+        entity_type="candidate",
+        invalidates=(("my-people",),),
+        build=lambda a: RequestSpec(
+            "POST",
+            f"/api/my-people/{_int(a, 'candidate_id')}/snooze",
+            json=_clean({"reason": a.get("reason"), "note": a.get("note")}),
+        ),
+        shape=lambda _data, _a: {"ok": True},
+        preview=lambda a: (
+            f"Uśpię {_who(a)} w „Moich ludziach” — "
+            f"{_SNOOZE_PL.get(str(a.get('reason')), a.get('reason'))}"
+        ),
+        detail=lambda a: str(a.get("note") or ""),
+    ),
+    JarvisTool(
+        name="pin_my_person",
+        done="Osoba przypięta do „Moich ludzi”.",
+        label="Przygotowuję przypięcie",
+        description=(
+            "PROPONUJE przypięcie osoby do listy „Moi ludzie” (także kogoś, kogo "
+            "lista nie wyliczyła sama). Odpiąć można na liście."
+        ),
+        input_schema=_schema({"candidate_id": INT}, ("candidate_id",)),
+        tier="write",
+        method="POST",
+        path="/api/my-people/{candidate_id}/pin",
+        section=ProductSection.sourcing,
+        entity_type="candidate",
+        invalidates=(("my-people",),),
+        build=lambda a: RequestSpec(
+            "POST", f"/api/my-people/{_int(a, 'candidate_id')}/pin", json={}
+        ),
+        shape=lambda _data, _a: {"ok": True},
+        preview=lambda a: f"Przypnę {_who(a)} do „Moich ludzi”",
+    ),
+    JarvisTool(
+        name="remember_preference",
+        done="Zapamiętane. Listę zobaczysz w ustawieniach Jarvisa.",
+        label="Przygotowuję zapamiętanie",
+        description=(
+            "PROPONUJE zapamiętanie preferencji użytkownika o sposobie pracy z "
+            "Jarvisem (np. „odpowiadaj krócej”, „moi klienci to X i Y”). NIGDY "
+            "informacji o kandydatach ani danych osobowych innych osób."
+        ),
+        input_schema=_schema(
+            {"text": {**STR, "minLength": 3, "maxLength": 200}}, ("text",)
+        ),
+        tier="write",
+        method="PATCH",
+        path="/api/users/me/preferences",
+        section=None,
+        invalidates=(("jarvis",),),
+        # Pełną listę (stare + nowa) składa serwer w ``prepare_proposal``
+        # (klucz ``_notes``, którego model nie może podać — ``sanitize_args``).
+        build=lambda a: RequestSpec(
+            "PATCH",
+            "/api/users/me/preferences",
+            json={
+                "jarvis": {
+                    "notes": list(a.get("_notes") or [])
+                    or [str(a.get("text") or "").strip()]
+                }
+            },
+        ),
+        shape=lambda _data, _a: {"ok": True},
+        preview=lambda a: f"Zapamiętam: „{_short(a.get('text'), 200)}”",
+    ),
 )
+
+
+_OUTCOME_PL = {"good": "poszło dobrze", "medium": "średnio", "bad": "słabo"}
+_ACCEPTANCE_PL = {
+    "yes": "przyjmie",
+    "likely": "raczej przyjmie",
+    "no": "nie przyjmie",
+    "unknown": "nie wiadomo",
+}
+_DECISION_PL = {
+    "advance": "dalej w procesie",
+    "reject": "odrzucony",
+    "on_hold": "wstrzymany",
+}
+_SNOOZE_PL = {
+    "found_job": "znalazła pracę",
+    "not_interested": "nie jest zainteresowana",
+    "no_contact": "brak kontaktu",
+    "other": "inny powód",
+}
+
+
+def _debrief_detail(a: dict[str, Any]) -> str:
+    parts: list[str] = []
+    if a.get("candidate_comment"):
+        parts.append(f"Komentarz: {a['candidate_comment']}")
+    if a.get("acceptance_condition"):
+        parts.append(f"Warunek akceptacji: {a['acceptance_condition']}")
+    questions = [str(q).strip() for q in a.get("questions") or [] if str(q).strip()]
+    if questions:
+        parts.append(
+            "Pytania klienta (trafią do banku pytań tego klienta):\n"
+            + "\n".join(f"• {q}" for q in questions)
+        )
+    elif a.get("no_client_questions"):
+        parts.append("Klient nie zadawał pytań.")
+    return "\n\n".join(parts)
 
 
 # ── narzędzie linku (operacje krytyczne i ekrany) ──────────────────────────
@@ -1474,7 +2354,17 @@ def build_screen_link(args: dict[str, Any]) -> dict[str, str]:
     if screen in _SCREENS_WITHOUT_ID:
         href = template
     else:
-        href = template.replace("{id}", str(_int(args, "id")))
+        record_id = args.get("id")
+        if (
+            isinstance(record_id, bool)
+            or not isinstance(record_id, int)
+            or record_id < 1
+        ):
+            raise ValueError(
+                f"Ekran {screen} wymaga id rekordu — najpierw je ustal (np. global_search) "
+                f"albo wybierz ekran bez id: {', '.join(sorted(_SCREENS_WITHOUT_ID))}."
+            )
+        href = template.replace("{id}", str(record_id))
     reason = _short(args.get("reason") or "", 200)
     return {"href": href, "label": label, "reason": reason}
 
@@ -1493,7 +2383,13 @@ OPEN_SCREEN = JarvisTool(
             "screen": {"type": "string", "enum": sorted(SCREENS)},
             "id": {
                 **INT,
-                "description": "ID rekordu (dla ekranów konkretnego rekordu).",
+                "description": (
+                    "ID rekordu — WYMAGANE dla ekranów: "
+                    + ", ".join(
+                        sorted(k for k in SCREENS if k not in _SCREENS_WITHOUT_ID)
+                    )
+                    + "."
+                ),
             },
             "reason": {**STR, "maxLength": 200},
         },
@@ -1508,7 +2404,34 @@ OPEN_SCREEN = JarvisTool(
 )
 
 
-ALL_TOOLS: tuple[JarvisTool, ...] = (*READ_TOOLS, *WRITE_TOOLS, OPEN_SCREEN)
+SHOW_ON_SCREEN = JarvisTool(
+    name="show_on_screen",
+    label="Pokazuję na ekranie",
+    description=(
+        "Podświetla element na ekranie, na którym jest użytkownik (np. przycisk, "
+        "pasek filtrów, kolumnę). Identyfikator `anchor` bierz WYŁĄCZNIE z listy "
+        "`anchors` w wyniku get_screen_guide dla bieżącego ekranu. W `reason` "
+        "napisz jednym zdaniem, co tam zrobić."
+    ),
+    input_schema=_schema(
+        {"anchor": {**STR, "maxLength": 60}, "reason": {**STR, "maxLength": 200}},
+        ("anchor", "reason"),
+    ),
+    tier="link",
+    method=None,
+    path=None,
+    section=None,
+    build=lambda a: RequestSpec("GET", ""),  # nieużywane — patrz agent._handle_tool
+    shape=as_is,
+)
+
+
+ALL_TOOLS: tuple[JarvisTool, ...] = (
+    *READ_TOOLS,
+    *WRITE_TOOLS,
+    OPEN_SCREEN,
+    SHOW_ON_SCREEN,
+)
 TOOLS_BY_NAME: dict[str, JarvisTool] = {tool.name: tool for tool in ALL_TOOLS}
 
 

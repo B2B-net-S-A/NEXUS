@@ -3,8 +3,9 @@
 /** Lista pozycji rozmowy — wiadomości, kroki, karty akcji i linki. */
 
 import { useEffect, useRef } from "react";
-import { AlertCircle } from "lucide-react";
-import type { JarvisAction, JarvisItem } from "@/lib/jarvis/types";
+import { AlertCircle, MousePointerClick } from "lucide-react";
+import type { JarvisAction, JarvisItem, ScreenGuideTask } from "@/lib/jarvis/types";
+import { JarvisGuideCard } from "./JarvisGuideCard";
 import { JarvisActionCard } from "./JarvisActionCard";
 import { JarvisDeepLinkCard } from "./JarvisDeepLinkCard";
 import { JarvisMarkdown } from "./JarvisMarkdown";
@@ -20,6 +21,9 @@ interface Props {
   onConfirm?: (action: JarvisAction) => void;
   onReject?: (action: JarvisAction) => void;
   onNavigate?: () => void;
+  onGuideTask?: (task: ScreenGuideTask) => void;
+  onShowAnchor?: (anchorId: string) => void;
+  onAskOther?: () => void;
 }
 
 export function JarvisMessageList({
@@ -31,6 +35,9 @@ export function JarvisMessageList({
   onConfirm,
   onReject,
   onNavigate,
+  onGuideTask,
+  onShowAnchor,
+  onAskOther,
 }: Props) {
   const endRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -51,6 +58,46 @@ export function JarvisMessageList({
             ) : (
               <div key={index} className="max-w-[92%] rounded-2xl rounded-bl-md bg-muted px-3 py-2">
                 <JarvisMarkdown>{item.markdown}</JarvisMarkdown>
+                {item.streaming && (
+                  <span
+                    className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse bg-foreground/60 align-middle"
+                    aria-hidden
+                    data-testid="jarvis-streaming-caret"
+                  />
+                )}
+              </div>
+            );
+          case "guide":
+            return (
+              <JarvisGuideCard
+                key={`guide-${index}`}
+                guide={item.guide}
+                onTask={onGuideTask}
+                onShow={onShowAnchor}
+                onAskOther={onAskOther}
+              />
+            );
+          case "highlight":
+            return (
+              <div
+                key={index}
+                className="flex items-start gap-2 rounded-xl border border-primary/40 bg-primary/5 px-3 py-2 text-sm"
+                data-testid="jarvis-highlight-item"
+              >
+                <MousePointerClick className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium">Pokazuję: {item.label}</p>
+                  {item.reason && <p className="text-xs text-muted-foreground">{item.reason}</p>}
+                </div>
+                {onShowAnchor && (
+                  <button
+                    type="button"
+                    onClick={() => onShowAnchor(item.anchor)}
+                    className="shrink-0 text-xs font-medium text-primary hover:underline"
+                  >
+                    Pokaż ponownie
+                  </button>
+                )}
               </div>
             );
           case "steps":

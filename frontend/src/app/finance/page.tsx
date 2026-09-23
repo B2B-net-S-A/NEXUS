@@ -156,6 +156,7 @@ export default function FinancePage() {
         <div
           role="tablist"
           aria-label="Tryb modułu Finanse"
+          data-help="finance.modes"
           className="inline-flex items-center gap-1 rounded-lg border border-[hsl(var(--border))] bg-muted/40 p-1"
         >
           <ModeButton

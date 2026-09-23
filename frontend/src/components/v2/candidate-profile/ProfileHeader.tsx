@@ -362,11 +362,11 @@ function HeaderActions({
   return (
     <>
       <PinButton candidateId={candidate.id} iconOnly className="min-h-11 min-w-11" />
-      <Button size="sm" variant="outline" className="min-h-11 min-w-11" onClick={actions.onAddNote}>
+      <Button size="sm" variant="outline" className="min-h-11 min-w-11" onClick={actions.onAddNote} data-help="candidate.profile.note">
         <MessageSquare className="h-4 w-4" />
         Dodaj notatkę
       </Button>
-      <Button size="sm" variant="primary" className="min-h-11 min-w-11" onClick={actions.onAssign}>
+      <Button size="sm" variant="primary" className="min-h-11 min-w-11" onClick={actions.onAssign} data-help="candidate.profile.assign">
         <UserPlus className="h-4 w-4" />
         Przypisz do rekrutacji
       </Button>

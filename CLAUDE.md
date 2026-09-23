@@ -42,20 +42,20 @@ rekrutacyjne to **rekrutacja**.
 
 Rola `finance` ma organizacyjny odczyt wszystkich danych biznesowych: kandydatów,
 rekrutacji i pipeline'u, klientów wraz z kontaktami/notatkami/materiałami i
-dokumentami prawnymi, kontraktów/stawek/zamówień/wykonawców, Cortex/Insights,
-raportów, eksportów, czatów audytowych oraz odczytowych sekcji DynaReportera.
-Zakres nie zależy od membershipu oferty, przypisania klienta ani
-`allowed_sections`; sekcja techniczna DynaReportera `admin` pozostaje wyłączona,
-a płatna akcja MINDY nadal wymaga jawnego wpisu w `allowed_sections`.
+dokumentami prawnymi, kontraktów/stawek/zamówień/wykonawców, Insights,
+raportów, eksportów i czatów audytowych. Zakres nie zależy od membershipu
+oferty, przypisania klienta ani `allowed_sections` (DynaReporter i Cortex
+usunięte 23.09.2026 — `users.allowed_sections` zostaje w bazie bez konsumenta
+tras).
 
 **Odczyt nie nadaje prawa zapisu.** Nowe powierzchnie Finance muszą używać
 dedykowanych read dependencies i read-scope helpers, nigdy globalnego dopisania
-roli do `AdminUser`, `TacPlus`, membership command guardów ani mutacji domenowych.
+roli do `AdminUser`, `DeliveryLeadPlus`, membership command guardów ani mutacji domenowych.
 Istniejące przed decyzją 31.08 operacyjne prawa Finance (m.in. tier
 `RecruiterPlus`, akcje kandydackie/kalendarzowe i lifecycle zamówień) pozostają
 bez zmian; ten kontrakt nie może ich po cichu odebrać. Mutacje techniczne
-(użytkownicy/role/konfiguracja/backfille), kuratela Cortexa i sekcja `admin`
-pozostają Admin-only, a zapisy finansowe nadal wymagają właściwej capability
+(użytkownicy/role/konfiguracja/backfille) pozostają Admin-only (kuratela
+słownika umiejętności: admin + HoR), a zapisy finansowe nadal wymagają właściwej capability
 `manage_finance`/`approve_finance`.
 
 Wyłączność konta Finance (CHECK `ck_users_exclusive_finance_viewer_roles`) i
@@ -86,8 +86,12 @@ Reguły, które łatwo cofnąć:
 
 - **Funkcji TAC nie używamy, ale konta zostają** — kod nie może WYMAGAĆ roli
   `tac` do pracy, którą robi rekruter. Mutacje kontraktów/klientów/podpisów to
-  `DeliveryLeadPlus` (nie `TacPlus`); zakres „zespołu DL" liczy się z rekrutacji
+  `DeliveryLeadPlus`; zakres „zespołu DL" liczy się z rekrutacji
   DL (`recruiter_id`, `tac_id`, współpracownicy), nie tylko z `ClientTacAssignment`.
+  Alias `TacPlus` usunięty 23.09.2026: rekrutację zakłada/publikuje/zamyka/usuwa
+  `DeliveryLeadPlus`, „Prowadzona w NEXUSIE" włącza `RecruiterPlus` + członkostwo,
+  szablony maili (POST/PUT) zapisuje admin/HoR/DL. Pełną redakcję rekrutacji
+  (`job.update`) opisuje `recruitment_access.JOB_FULL_EDIT_ROLES`.
 - **Rekrutację ZAKŁADA admin/DL** (`/jobs/new`, capability `job.create`),
   **EDYTUJE też rekruter prowadzący i współpracownicy** — ale tylko treść (opis,
   ogłoszenia, Champion). `GET /api/jobs/{id}` niesie `can_edit` (treść) i
@@ -111,9 +115,11 @@ Reguły, które łatwo cofnąć:
   nie ma — zmiana liczby = zmiana katalogu.
 - **Wyścig miesięczny (1500 zł)**: weryfikacje/dzień i precyzja czytane z celów
   KPI; minimum placementów = `insights_scoring_config.monthly_race_min_placements`
-  (2, świadomie wyżej niż cel). Raport Power Calling używa celu weryfikacji.
-- **PowerCalling 11:45 i KPI rozmów milczą przy `CLOUDTALK_ENABLED=false`**
-  (do 22.09 HoR dostawał codziennie tabelę „0/15 ❌").
+  (2, świadomie wyżej niż cel).
+- **KPI rozmów milczy przy `CLOUDTALK_ENABLED=false`.** Raport PowerCalling
+  11:45 i `GET /api/reports/power-calling` usunięte 23.09.2026 (do 22.09 HoR
+  dostawał codziennie tabelę „0/15 ❌"); typ `powercalling_kpi` zostaje dla
+  historycznych powiadomień.
 - **Cele liderów**: `GET /api/kpis/me/goals` — DL: kwartalne hit ratio (30%) i
   placementy portfela liczone tą samą funkcją co liga DL
   (`competitions.dl_portfolio_counts`); HoR/TCM: cele zespołu (suma celów ludzi).
@@ -457,7 +463,7 @@ cofnąć „przy okazji”:
   (`require_roles`, `OperationalUser`, `RecruitmentReadAccess`…) NIE sprawdza
   sekcji — konto z odebraną sekcją dalej wołało ok. 20 routerów (pulpity, KPI,
   Cortex, priorytety, maile odmów, obecność, struktura zespołu, stary
-  DynaReporter). Nowy router: `dependencies=` z `app.api.section_access`
+  DynaReporter — oba usunięte 23.09.2026). Nowy router: `dependencies=` z `app.api.section_access`
   (`require_section_access`, `_any` gdy zapisujący siedzą w różnych sekcjach,
   `_any_read` dla wspólnych odczytów) albo wpis do `_SECTIONLESS_ALLOWLIST`
   z powodem. Front montuje widżety według `hasSectionAccess`, nie samych ról —
@@ -619,7 +625,7 @@ Wszystko w `components/v2/pages/B2BContractGeneratorV2.tsx`.
   `ContractLegalAccess` i tej decyzji NIE dotyczy — pozostaje admin/HoR/DL/TAC.
   Węższe bramki wewnątrz generatora zostają nietknięte: edycja `client_name`
   (autor albo admin), DELETE (autor albo admin), katalog 29 ról (`AdminUser`),
-  `confirm-fully-signed` (`TacPlus` + ścisły client-scope — audytowana,
+  `confirm-fully-signed` (ścisły client-scope — audytowana,
   jednokierunkowa automatyzacja zatrudnienia, świadomie kontained nawet dla
   pełnodostępowego TAC). Test kontraktowy: `test_contract_legal_access.py`.
 - **TCM działa w całej organizacji (decyzja Artura, 10.09.2026).** #1430 dał
@@ -1954,7 +1960,8 @@ Migracja Traffit→Nexus z maja 2026 była **one-shot CLI** (`python -m app.cli.
 - **Ochrona dopisana do JEDNEJ ścieżki zapisu kandydata nie działa** (18.09.2026). Importer ma dwie gałęzie: `_UPSERT_CANDIDATE` (po `(external_source, external_id)`) i `_UPDATE_CANDIDATE_ADOPT` (po MAILU). **Produkcja chodzi drugą** — `email_to_id` jest budowane BEZ filtra `external_source`, więc kandydat już zaimportowany dopasowuje się sam do siebie po mailu. Czyszczenie nagrobka i lepka blacklista były wyłącznie w upsercie, więc: raz postawiony nagrobek nie znikał NIGDY (74 wiersze, w tym DWÓCH pracujących konsultantów niewidocznych dla automatu zamówień z maila — ten filtruje `external_deleted_at IS NULL`, więc jednemu założyłby drugiego kandydata i drugi kontrakt, a drugiemu podpiąłby zamówienie pod imiennika), a blacklista założona w NEXUSIE byłaby zdejmowana przy najbliższym syncu. Obie gałęzie mają teraz obie ochrony; pilnuje tego `test_traffit_adopt_path_protections.py`. **Dokładając cokolwiek do jednej z nich, sprawdź drugą.** Znany, nienaprawiony dług tej samej klasy: adopt przepisuje `cv_extracted_data.legacy_source` na `'traffit'` przy każdym biegu, niszcząc atrybucję pochodzenia, którą deklaruje zachowywać.
 - **Health:** `/api/health.checks.traffit` = `unconfigured` (off) / `misconfigured` (brak secretów) / `degraded` (włączony, brak świeżego runu / errors) / `healthy` (ostatni `__daily__` < 36h, status ok). **To sonda ŚWIEŻOŚCI, nie kompletności** — `healthy` nie znaczy, że dane się zgadzają z Traffitem (tak właśnie luka w plikach/CV żyła miesiącami przy zielonym healthu).
 - **Błędy WIERSZY faz wzbogacania są doradcze (od 11.09.2026):**
-  `candidates_enrich_names`, `candidates_cv_fields` i `cortex` — błąd pojedynczego
+  `candidates_enrich_names` i `candidates_cv_fields` (do 23.09.2026 także
+  `cortex`, faza usunięta razem z Cortexem) — błąd pojedynczego
   kandydata (`add_error`) nie wstrzymuje już watermarku `__daily__`, ale zostaje
   widoczny na wierszu fazy i w próbkach `/sync/status` (z klasą wyjątku, np.
   „backfill failed (ValueError)”). Powód: od 08.09 jeden trwale nieparsowalny
@@ -1979,7 +1986,7 @@ Migracja Traffit→Nexus z maja 2026 była **one-shot CLI** (`python -m app.cli.
     (CASE jak `recruiter_id`↔`is_open`) i nie unieważnia wtedy wymagań (tytuł się nie
     zmienia). `deadline`/`opened_at`/`client_id`… nadal DOPEŁNIAJĄ puste pola
     (COALESCE), `custom_fields` scala JSONB. Kolumny flagi są w `NEXUS_OWNED`;
-  - `POST /api/jobs/{id}/manage-in-nexus` (`TacPlus` + członkostwo sprawdzane PO
+  - `POST /api/jobs/{id}/manage-in-nexus` (`RecruiterPlus` + członkostwo sprawdzane PO
     odczycie oferty — brak oferty = 404; wyłączenie tylko admin / Delivery Lead = 403
     dla reszty; rekrutacja spoza Traffita = 409; idempotentne) — OSOBNA trasa, nie
     pole w PATCH: każda realna zmiana zostawia `activities.action='managed_in_nexus_changed'`
@@ -5162,7 +5169,8 @@ Decyzje D1–D7 i pełna specyfikacja: `docs/insights-dynareporter-migration-pla
   nimi kokpit i ranking klientów) widzą WYŁĄCZNIE admin, Finanse i HoR —
   `RADA_ROLES` we froncie i `BoardReader` na `/api/insights/board`,
   `/board/yoy`, `/clients/ranking`. **Usunięte z UI:** Power Calling, LinkedIn
-  (endpointy zostają bez konsumenta) oraz cztery sekcje DL zastąpione
+  (od 23.09.2026 także ich endpointy i sekcja `linkedin` w dashboard v2;
+  tabela `linkedin_daily_metrics` zostaje) oraz cztery sekcje DL zastąpione
   portfelami. Z pulpitu przeszły: aktywność dnia/miesiąca
   (`RecruitmentActivityDashboard showNextSteps={false}`, tylko z dostępem do
   sekcji Rekrutacje), obłożenie (`AllocationWorkloadBoard`, tylko admin/HoR —
@@ -5314,8 +5322,8 @@ Decyzje D1–D7 i pełna specyfikacja: `docs/insights-dynareporter-migration-pla
   `/api/internal/workdays` → `user_workday_periods`). Metryka to **dni robocze
   minus zatwierdzony urlop**, NIE „dni przepracowane" — chorobowego w źródle nie
   ma (trigger B2B go blokuje). Bez sekretów (`WORKDAYS_EXPORT_SECRET`,
-  `COMPASS_WORKDAYS_*`) endpoint zwraca 503, a Power Calling raportuje
-  `not_assessable` — mówi wprost, że nie wie, zamiast dzielić przez zmyśloną
+  `COMPASS_WORKDAYS_*`) endpoint zwraca 503, a (usunięty 23.09.2026) Power
+  Calling raportował `not_assessable` — mówił wprost, że nie wie, zamiast dzielić przez zmyśloną
   stałą (usunięte `POWER_CALLING_WORKDAYS = 5` stawiało osoby na urlopie
   na imiennej liście „poniżej progu").
 - **Plakietki wygaszamy, nie kasujemy** (`user_performance_flags`, 0258):
@@ -6011,11 +6019,11 @@ Backend: `app/api/jarvis.py` + `app/services/jarvis/`; front: `components/jarvis
   `prefs.py` `JarvisCharacter` (test w `jarvis-lib.test.ts`); `robot_gold`/`trophy`
   odblokowuje `competition_winners` (rank 1 / ≤3), PATCH odrzuca zablokowaną 403.
 - **⌘J = Jarvis, ⌘⇧J = nowa rekrutacja** (goły `j` bez zmian).
-- **Endpointy MINDY (`/api/dynareporter/mindy/*`) usunięte** (21.09.2026) —
-  wraz z ich zwolnieniem z blokady `DYNAREPORTER_MODE=read_only`. Wartość enuma
-  `mindy_chat` ZOSTAJE (Postgres nie ma `DROP VALUE`, historia kosztów ją
-  niesie), razem z wpisem w rejestrze modeli. Strona `/dynareporter/mindy`
-  i przekierowania `/mindy`, `/chat` prowadzą do informacji o Jarvisie.
+- **Endpointy MINDY (`/api/dynareporter/mindy/*`) usunięte** (21.09.2026),
+  a 23.09.2026 cały DynaReporter (20 routerów, `DYNAREPORTER_MODE`, archiwum
+  admina). Wartość enuma `mindy_chat` ZOSTAJE (Postgres nie ma `DROP VALUE`,
+  historia kosztów ją niesie), razem z wpisem w rejestrze modeli.
+  `/dynareporter/mindy` przekierowuje trwale na Insights (`next.config.ts`).
   Powrót routera łapie `test_mindy_endpoints_are_gone`.
 - **Internet = przełącznik 🌐 na JEDNĄ wiadomość** (`web: true`, 21.09.2026,
   `services/jarvis/web.py`). Zasada: internet ALBO baza, nigdy oba. Tura z
@@ -6036,6 +6044,69 @@ Backend: `app/api/jarvis.py` + `app/services/jarvis/`; front: `components/jarvis
   przycinający wynik; zapis: `preview` + `done` + `invalidates`), test kontraktowy
   przechodzi sam, jeśli trasa istnieje i poziom się zgadza. Dokładając trasę
   pod `/api/jarvis/*` — wpis w `_BARE_BASELINE` i `_SECTIONLESS_ALLOWLIST`.
+
+## Jarvis 2 — pomoc na ekranie, dzień pracy, pamięć (0355, 23.09.2026)
+
+Pomiar 21–23.09: 3 realne osoby, 18 tur, 0 akcji zapisu, 0 kliknięć podpowiedzi,
+żaden DL. Diagnoza: Jarvisowi nie brakowało narzędzi, tylko obecności w pracy.
+Decyzje Artura 23.09: dymek domyślnie ON (raz na ekran), 12 ekranów, treść
+przewodników bez przeglądu człowieka (pilnuje test świeżości), bez głosu (RODO).
+
+- **Przewodniki ekranów: `backend/app/data/screen_guides/guides.json`**
+  (12 kluczy `SCREEN_KEYS`, lustro `lib/help/screen-key.ts`). Front czyta je
+  z `GET /api/help/screens` (obrazy Dockera nie widzą swoich katalogów), Jarvis
+  narzędziem `get_screen_guide`. Każdy wpis ma `sources` — zmiana któregoś pliku
+  albo samego wpisu = czerwony `test_screen_guides_freshness.py`; po przeglądzie
+  `cd backend && python scripts/stamp_screen_guides.py`. Treść jest dla
+  rekrutera: bez ścieżek, tras i nazw tabel (test to sprawdza). Stary
+  `OnboardingWalkthrough` usunięty — zgnił dokładnie tak („Ogłoszenia").
+- **Kotwice `data-help="<klucz>.<nazwa>"`** na istniejących elementach 12
+  ekranów, zamknięta lista w `anchors` przewodnika. Model NIE podaje selektora:
+  `show_on_screen` (tier `link`) przyjmuje tylko id z przewodnika BIEŻĄCEGO
+  ekranu, a `requires` odfiltrowuje przyciski, których ta rola nie widzi.
+  `HelpSpotlight` szuka elementu 1,5 s, brak = komunikat, nigdy cisza.
+  Test `lib/help/__tests__/help-mode.test.ts` wymaga zgodności w obie strony
+  (kotwica bez `data-help` i `data-help` bez kotwicy = czerwień). Nowa kotwica =
+  wpis w JSON-ie + atrybut + przestemplowanie. Dok osoby nie stoi w adresie —
+  `jobs.person` rozpoznaje `context.ts` po otwartym `[data-help="jobs.person.dock"]`.
+- **Dymki nieproszone mają JEDEN budżet: 3 dziennie** (`lib/jarvis/bubble-budget.ts`),
+  wspólny dla dymka ekranu i „utknięcia”; nigdy przy otwartym oknie Radix ani
+  panelu. Poranny skrót i „Moi ludzie” mają własne reguły. Nie dokładaj źródła
+  dymków obok budżetu.
+- **„Utknięcie”**: interceptor w `lib/api.ts` tylko obserwuje odmowy
+  403/409/412/422/423 z `detail.code`/`detail.reason`; trzecia taka sama w 2 min →
+  dymek z tekstem z `lib/help/error-explainers.ts` (bez modelu). Każdy kod musi
+  istnieć w backendzie (test grepuje `backend/app`).
+- **„Zatrzymaj”**: `POST /api/jarvis/conversations/{id}/cancel` → zbiór w pamięci
+  procesu (backend = jeden uvicorn), pętla sprawdza go przed krokiem modelu
+  i przed każdym narzędziem; każdy `tool_use` dostaje wynik (inaczej historia
+  psuje następną turę). Wywołania modelu w wątku nie da się przerwać w połowie.
+- **`stop_reason=max_tokens`**: ucięty `tool_use` jest wyrzucany, tekst dostaje
+  dopisek „napisz «dalej»”. Krótkie odpowiedzi wymusza prompt, nie limit tokenów.
+- **Strumieniowanie**: `call_claude(..., stream_response=True, on_text_delta=…)`
+  (tylko Anthropic; ponowienie wysyła `None` → `delta_reset`); agent przekazuje
+  delty kolejką z wątku (`loop.call_soon_threadsafe`). `message` na końcu kroku
+  ZASTĘPUJE tekst pisany na żywo w reduktorze — nie dokładaj drugiej wiadomości.
+- **Pamięć „Co Jarvis o mnie wie”**: `jarvis_prefs.notes` (≤10 × 200 zn., bez
+  `<>{}[]\``), w bloku kontekstu każdej wiadomości — nigdy w `SYSTEM_PROMPT`
+  (cache). `remember_preference` składa pełną listę serwerowo (`_notes`, którego
+  model nie poda — `sanitize_args`). Prompt zakazuje zapamiętywania danych
+  kandydatów.
+- **Nowe narzędzia** (wszystkie na istniejących trasach): `get_contract`,
+  `my_board_tasks`, `my_interview_cycle`, `prep_for_interview`,
+  `client_questions`, `get_debrief`, `list_job_proposals`, `get_hm_feedback`,
+  `order_mail_queue`, `metric_catalog`/`evaluate_metric`, `explain_match` (BEZ
+  `refresh` — pierwsze pytanie o parę i tak płaci), `get_screen_guide`; zapisy
+  `save_interview_debrief`, `dismiss_job_proposal`, `record_hm_feedback`,
+  `claim_candidate`, `snooze_my_person`/`pin_my_person`, `remember_preference`.
+  Terminy od klienta zostają linkiem (`POST /slots` sam przesuwa kartę).
+- **`search_help` pyta `GET /api/procedures?ranked=true`** (`services/help_search.py`:
+  punkty zamiast AND słów, bez polskich znaków, prefiks 5 znaków, fragment
+  treści). Ekran Pomocy woła bez `ranked` — jego zachowanie się nie zmienia.
+- **Telemetria `jarvis_ui_events` (0355)** + lustro w `entrypoint.sh`: tylko klucz
+  ekranu i kod, retencja 90 dni w `jarvis_retention`. Liczniki:
+  `GET /api/jarvis/ui-events/summary?days=14` (admin). Typ dymka albo przewodnik
+  z kliknięciami <25% po 2 tygodniach — do wyłączenia, nie do wzmacniania.
 
 ## „Moi ludzie" — lista rekrutera, dzwonek przy nowej rekrutacji, postać w rogu (21.09.2026)
 
@@ -6189,6 +6260,12 @@ Widok wynika wyłącznie z adresu (`?area=`, `?item=`); stare `?tab=` mapuje
   System/Log/Import CV/Narzędzia w Administracji), Konflikty, Coaching, Pomoc
   i Teams zniknęły z menu. Pozycje `hidden: true` dalej otwierają się pod
   adresem (`?item=conflicts`, `?item=advanced` = dawna siatka „Zaawansowane").
+- **„Słownik umiejętności" (`?item=skills`, obszar Rekrutacja, 23.09.2026)** to
+  jedyna część Cortexa, która przeżyła jego usunięcie: dodanie umiejętności,
+  aliasy i mapowanie nieznanych terminów (`api/skills_admin.py`,
+  `HeadOfRecruitmentPlus` + zapis Sourcing; `services/skill_curation.py`
+  odświeża `ALIAS_MAP` po każdym zapisie). Tabele `cortex_*` zostają (DROP
+  osobną migracją); `cortex_unmatched_terms` już nie rośnie.
 - Nowa pozycja = wpis w rejestrze z bramką (`gate`) lustrzaną do backendu
   i `case` w `SettingsItemBody` (albo `route` dla osobnej strony).
 - `ownHeader` = komponent ma własny nagłówek; strona rysuje wtedy tylko ścieżkę.

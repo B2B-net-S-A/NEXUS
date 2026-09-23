@@ -37,11 +37,31 @@ export function applyStreamEvent(state: JarvisTurnState, event: JarvisStreamEven
       }
       return { ...state, items, mood: event.status === "running" ? "working" : "thinking" };
     }
-    case "message":
+    case "delta": {
+      const items = [...state.items];
+      const last = items[items.length - 1];
+      if (last?.kind === "message" && last.role === "assistant" && last.streaming) {
+        items[items.length - 1] = { ...last, markdown: last.markdown + event.text };
+      } else {
+        items.push({ kind: "message", role: "assistant", markdown: event.text, streaming: true });
+      }
+      return { ...state, items };
+    }
+    case "delta_reset":
+      return { ...state, items: withoutStreaming(state.items) };
+    case "message": {
+      // Pełna wiadomość kroku zastępuje tekst pokazany na żywo (deltami).
+      const items = withoutStreaming(state.items);
+      items.push({ kind: "message", role: "assistant", markdown: event.markdown });
+      return { ...state, items, thinking: event.final ? false : state.thinking };
+    }
+    case "highlight":
       return {
         ...state,
-        items: [...state.items, { kind: "message", role: "assistant", markdown: event.markdown }],
-        thinking: event.final ? false : state.thinking,
+        items: [
+          ...state.items,
+          { kind: "highlight", anchor: event.anchor, label: event.label, reason: event.reason },
+        ],
       };
     case "action_proposed":
       return { ...state, items: [...state.items, { kind: "action", action: event.action }], mood: "listening" };
@@ -57,17 +77,32 @@ export function applyStreamEvent(state: JarvisTurnState, event: JarvisStreamEven
     case "error":
       return {
         ...state,
-        items: [...state.items, { kind: "error", message: event.message }],
+        items: [...finalizeStreaming(state.items), { kind: "error", message: event.message }],
         thinking: false,
         mood: "error",
       };
     case "done": {
       const proposed = state.items.some((i) => i.kind === "action" && i.action.status === "proposed");
-      return { ...state, thinking: false, mood: proposed ? "listening" : "idle" };
+      return { ...state, items: finalizeStreaming(state.items), thinking: false, mood: proposed ? "listening" : "idle" };
     }
     default:
       return state;
   }
+}
+
+/** Usuwa pozycję pisaną na żywo (ostatnią) — zastąpi ją pełna wiadomość. */
+function withoutStreaming(items: JarvisItem[]): JarvisItem[] {
+  const last = items[items.length - 1];
+  if (last?.kind === "message" && last.streaming) return items.slice(0, -1);
+  return [...items];
+}
+
+/** Tekst pisany na żywo, po którym nie przyszła pełna wiadomość (przerwanie,
+ *  błąd), zostaje jako zwykła wiadomość — nie znika z ekranu. */
+function finalizeStreaming(items: JarvisItem[]): JarvisItem[] {
+  return items.map((item) =>
+    item.kind === "message" && item.streaming ? { kind: "message", role: item.role, markdown: item.markdown } : item,
+  );
 }
 
 /** Podmiana karty akcji po zatwierdzeniu/odrzuceniu (+ ewentualna karta „mimo ostrzeżenia”). */

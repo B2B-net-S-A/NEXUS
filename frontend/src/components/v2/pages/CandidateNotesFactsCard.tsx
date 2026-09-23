@@ -166,7 +166,7 @@ export function CandidateNotesFactsCard({
   const extractedAt = formatExtractedAt(data?.extracted_at ?? null);
 
   return (
-    <Card aria-labelledby="candidate-notes-facts-title">
+    <Card aria-labelledby="candidate-notes-facts-title" data-help="candidate.profile.notes_facts">
       <CardHeader className="pb-1">
         <CardTitle
           id="candidate-notes-facts-title"

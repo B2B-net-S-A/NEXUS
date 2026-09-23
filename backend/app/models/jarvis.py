@@ -154,3 +154,44 @@ class JarvisConversationEntity(Base):
     )
     entity_type: Mapped[str] = mapped_column(String(32), primary_key=True)
     entity_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+
+JARVIS_UI_EVENTS = (
+    "bubble_shown",
+    "bubble_clicked",
+    "bubble_dismissed",
+    "guide_opened",
+    "guide_task",
+    "highlight_shown",
+    "highlight_missing",
+    "stuck_shown",
+    "stuck_clicked",
+)
+
+
+class JarvisUiEvent(Base):
+    """Telemetria pomocy na ekranie (0355): co pokazano i czy ktoś kliknął.
+
+    Tylko klucz ekranu i kod (id kotwicy albo kod odmowy) — nigdy dane
+    rekordu. Retencja 90 dni w pętli ``jarvis_retention``.
+    """
+
+    __tablename__ = "jarvis_ui_events"
+    __table_args__ = (
+        CheckConstraint(
+            "event IN (" + ", ".join(f"'{e}'" for e in JARVIS_UI_EVENTS) + ")",
+            name="ck_jarvis_ui_events_event",
+        ),
+        Index("ix_jarvis_ui_events_event_created", "event", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    event: Mapped[str] = mapped_column(String(40), nullable=False)
+    screen_key: Mapped[Optional[str]] = mapped_column(String(60), nullable=True)
+    detail: Mapped[Optional[str]] = mapped_column(String(60), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

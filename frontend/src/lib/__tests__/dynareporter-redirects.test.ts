@@ -47,3 +47,24 @@ describe("przekierowanie usuniętej kolejki weryfikacji (17.09.2026)", () => {
     expect(rule).toMatchObject({ destination: "/jobs", permanent: true });
   });
 });
+
+describe("usunięte moduły (23.09.2026)", () => {
+  it("archiwum admina DynaReportera i MINDY przekierowują trwale", async () => {
+    const all = await redirects();
+    for (const source of ["/dynareporter", "/dynareporter/:path*", "/dynareporter/mindy"]) {
+      expect(all.find((r) => r.source === source)).toMatchObject({ permanent: true });
+    }
+  });
+
+  it("przekierowanie zbiorcze stoi PO konkretnych — inaczej połknęłoby raporty", async () => {
+    const sources = (await redirects()).map((r) => r.source);
+    expect(sources.indexOf("/dynareporter/:path*")).toBeGreaterThan(
+      sources.indexOf("/dynareporter/clients-mrr"),
+    );
+  });
+
+  it("Cortex prowadzi na Insights", async () => {
+    const rule = (await redirects()).find((r) => r.source === "/cortex");
+    expect(rule).toMatchObject({ destination: "/insights", permanent: true });
+  });
+});

@@ -25,7 +25,12 @@ async def prune_once() -> dict[str, int]:
     purged = await store.purge_old_conversations(
         max(1, int(settings.JARVIS_RETENTION_DAYS))
     )
-    return {"actions_expired": expired, "conversations_purged": purged}
+    ui_events = await store.purge_old_ui_events()
+    return {
+        "actions_expired": expired,
+        "conversations_purged": purged,
+        "ui_events_purged": ui_events,
+    }
 
 
 async def jarvis_retention_loop() -> None:

@@ -22,7 +22,7 @@ import re
 import time
 import uuid
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
 from typing import Any, AsyncIterator, Optional
 
 import anthropic
@@ -55,6 +55,22 @@ logger = logging.getLogger(__name__)
 UNAVAILABLE_MESSAGE = (
     "Nie działam teraz — spróbuj za chwilę. Wszystko inne w NEXUSIE działa normalnie."
 )
+CANCELLED_MESSAGE = "Przerwane na Twoją prośbę."
+TRUNCATED_NOTE = "\n\n_(Odpowiedź ucięta — napisz „dalej”, dokończę.)_"
+
+# Prośby o przerwanie tury („Zatrzymaj” w panelu). Backend to jeden proces
+# uvicorn, więc zbiór w pamięci wystarcza; pętla sprawdza go przed każdym
+# wywołaniem modelu i każdym narzędziem. Samego wywołania modelu w wątku nie
+# da się przerwać — tura kończy się najpóźniej po bieżącym kroku.
+_CANCEL_REQUESTS: set[uuid.UUID] = set()
+
+
+def request_cancel(conversation_id: uuid.UUID) -> None:
+    _CANCEL_REQUESTS.add(conversation_id)
+
+
+def _cancelled(state: "_TurnState") -> bool:
+    return state.conversation_id in _CANCEL_REQUESTS
 
 
 @dataclass
@@ -74,6 +90,13 @@ class TurnInput:
     system_note: Optional[str] = None
     # Tura z internetem: wyszukiwarka, bez danych NEXUSA i bez historii.
     web: bool = False
+    # Chwila tury w strefie firmy — godzina w kontekście („jutro o 10”).
+    now: Optional[datetime] = None
+    # „Co Jarvis o mnie wie” — preferencje wpisane przez użytkownika.
+    notes: list[str] = field(default_factory=list)
+    # Poziomy sekcji pytającego — do kotwic ``show_on_screen`` (element, którego
+    # ta osoba nie widzi, nie jest podświetlany).
+    sections: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass
@@ -261,6 +284,8 @@ async def prepare_proposal(
     except (ValueError, TypeError) as exc:
         raise ProposalRejected(str(exc) or "Nieprawidłowe argumenty") from exc
     extra: dict[str, Any] = {}
+    if tool.name == "remember_preference":
+        args = await _merge_notes(transport, args)
     if tool.name == "move_candidate_stage":
         resolved = await _resolve_move_stage(transport, args)
         args = resolved["args"]
@@ -273,6 +298,58 @@ async def prepare_proposal(
     if tool.detail:
         preview["body"] = tool.detail(args)
     return args, preview
+
+
+async def _merge_notes(
+    transport: JarvisTransport, args: dict[str, Any]
+) -> dict[str, Any]:
+    """Pełna lista pamięci (zapisane + nowa) — PATCH podmienia całą listę."""
+    from app.services.jarvis.prefs import MAX_NOTES
+
+    resp = await transport.call(RequestSpec("GET", "/api/users/me/preferences"))
+    if not resp.ok or not isinstance(resp.data, dict):
+        raise ProposalRejected(describe_error(resp))
+    jarvis = (
+        resp.data.get("jarvis") if isinstance(resp.data.get("jarvis"), dict) else {}
+    )
+    current = [str(n) for n in jarvis.get("notes") or [] if str(n).strip()]
+    text = " ".join(str(args.get("text") or "").split())
+    if not text:
+        raise ProposalRejected("Pusta treść do zapamiętania.")
+    if text in current:
+        raise ProposalRejected("To już jest zapamiętane.")
+    if len(current) >= MAX_NOTES:
+        raise ProposalRejected(
+            f"Pamięć jest pełna ({MAX_NOTES} pozycji) — poproś użytkownika, żeby usunął "
+            "coś w ustawieniach Jarvisa („Co Jarvis o mnie wie”)."
+        )
+    return {**args, "text": text, "_notes": [*current, text]}
+
+
+def screen_anchor(
+    turn: "TurnInput", anchor_id: str
+) -> tuple[Optional[dict[str, Any]], list[str]]:
+    """Kotwica z przewodnika BIEŻĄCEGO ekranu, którą ta osoba widzi.
+
+    Zwraca (kotwica albo ``None``, lista poprawnych identyfikatorów). Model
+    nie może wymyślić selektora — tylko wybrać z zamkniętej listy.
+    """
+    from app.data.screen_guides import guide_for_user, load_guides
+
+    key = (turn.screen or {}).get("key") if isinstance(turn.screen, dict) else None
+    guide = load_guides().get(key) if isinstance(key, str) else None
+    if guide is None:
+        return None, []
+    sections = turn.sections or {
+        s: 2 for s in ("sourcing", "pipeline", "delivery", "insights", "finance")
+    }
+    shaped = guide_for_user(guide, set(turn.roles), sections)
+    anchors = (shaped or {}).get("anchors") or []
+    valid = [a["id"] for a in anchors]
+    for anchor in anchors:
+        if anchor["id"] == anchor_id:
+            return anchor, valid
+    return None, valid
 
 
 def _sse_tool_label(tool: JarvisTool) -> str:
@@ -331,6 +408,7 @@ async def run_turn(
 
 
 async def _finish_turn(state: _TurnState) -> None:
+    _CANCEL_REQUESTS.discard(state.conversation_id)
     if state.entities:
         await store.link_entities(state.conversation_id, state.entities)
     await store.release_turn(state.conversation_id)
@@ -344,6 +422,8 @@ def _user_content(turn: TurnInput) -> list[dict[str, Any]]:
                 user_name=turn.user_name,
                 roles=turn.roles,
                 today=turn.today,
+                now=turn.now,
+                notes=turn.notes,
                 screen=turn.screen,
                 assistant_name=turn.assistant_name,
             ),
@@ -429,6 +509,9 @@ async def _steps(
     transport: JarvisTransport,
 ) -> AsyncIterator[dict[str, Any]]:
     for step in range(max(1, settings.JARVIS_MAX_STEPS)):
+        if _cancelled(state):
+            yield {"type": "message", "markdown": CANCELLED_MESSAGE, "final": True}
+            return
         remaining = deadline - time.monotonic()
         if remaining < 5:
             yield {
@@ -437,8 +520,17 @@ async def _steps(
             }
             return
         yield {"type": "thinking", "step": step + 1}
-        try:
-            message = await run_in_threadpool(
+        # Tekst odpowiedzi idzie do panelu na żywo (zdarzenia ``delta``);
+        # pełna wiadomość (``message``) i tak przychodzi na końcu kroku
+        # i zastępuje to, co zdążyło się pokazać.
+        loop = asyncio.get_running_loop()
+        deltas: asyncio.Queue = asyncio.Queue()
+
+        def _on_delta(chunk: Optional[str]) -> None:
+            loop.call_soon_threadsafe(deltas.put_nowait, chunk)
+
+        call = asyncio.ensure_future(
+            run_in_threadpool(
                 claude_client.call_claude,
                 model=model,
                 fallback_models=fallbacks,
@@ -448,7 +540,24 @@ async def _steps(
                 tools=definitions,
                 messages=history,
                 total_timeout=remaining,
+                stream_response=True,
+                on_text_delta=_on_delta,
             )
+        )
+        while True:
+            getter = asyncio.ensure_future(deltas.get())
+            done, _ = await asyncio.wait(
+                {call, getter}, return_when=asyncio.FIRST_COMPLETED
+            )
+            if getter in done:
+                yield _delta_event(getter.result())
+                continue
+            getter.cancel()
+            break
+        while not deltas.empty():
+            yield _delta_event(deltas.get_nowait())
+        try:
+            message = call.result()
         except (claude_client.ClaudeError, anthropic.APIError) as exc:
             logger.warning(
                 "jarvis: wywołanie modelu nie powiodło się: %s", type(exc).__name__
@@ -469,9 +578,18 @@ async def _steps(
                 "status": "done",
             }
         sources = jarvis_web.collect_sources(content) if turn.web else []
-        paused = getattr(message, "stop_reason", None) == "pause_turn"
+        stop_reason = getattr(message, "stop_reason", None)
+        paused = stop_reason == "pause_turn"
+        truncated = stop_reason == "max_tokens"
 
         blocks = [b for b in (_block_to_dict(x) for x in content) if b]
+        if truncated:
+            # Ucięty blok narzędzia ma niepełne argumenty, a tool_use bez
+            # tool_result rozbiłby następną turę — zostaje sam tekst z dopiskiem.
+            texts = [b for b in blocks if b["type"] == "text"]
+            if texts:
+                texts[-1] = {"type": "text", "text": texts[-1]["text"] + TRUNCATED_NOTE}
+            blocks = texts or [{"type": "text", "text": TRUNCATED_NOTE.strip()}]
         if not blocks and not paused:
             blocks = [{"type": "text", "text": "…"}]
         stored = list(blocks)
@@ -504,6 +622,17 @@ async def _steps(
 
         results: list[dict[str, Any]] = []
         for use in tool_uses:
+            if _cancelled(state):
+                # Każdy tool_use musi dostać wynik — inaczej historia rozmowy
+                # byłaby niepoprawna dla następnej tury.
+                results.append(
+                    _tool_result(
+                        str(use.get("id") or ""),
+                        "Przerwane przez użytkownika.",
+                        is_error=True,
+                    )
+                )
+                continue
             events: list[dict[str, Any]] = []
             results.append(
                 await _handle_tool(turn, state, tools_by_name, transport, use, events)
@@ -512,11 +641,20 @@ async def _steps(
                 yield event
         await store.append_message(state.conversation_id, "user", results)
         history.append({"role": "user", "content": results})
+        if _cancelled(state):
+            yield {"type": "message", "markdown": CANCELLED_MESSAGE, "final": True}
+            return
 
     yield {
         "type": "message",
         "markdown": "Zatrzymałem się po kilku krokach, żeby nie przedłużać — napisz, co dalej sprawdzić.",
     }
+
+
+def _delta_event(chunk: Optional[str]) -> dict[str, Any]:
+    if chunk is None:
+        return {"type": "delta_reset"}
+    return {"type": "delta", "text": chunk}
 
 
 def _tool_result(
@@ -547,6 +685,27 @@ async def _handle_tool(
             use_id, "Nieznane albo niedostępne narzędzie.", is_error=True
         )
     args = sanitize_args(tool, use.get("input"))
+
+    if tool.name == "show_on_screen":
+        anchor, valid = screen_anchor(turn, str(args.get("anchor") or ""))
+        if anchor is None:
+            hint = (
+                f"Poprawne na tym ekranie: {', '.join(valid)}."
+                if valid
+                else "Na tym ekranie nie ma elementów do pokazania — opisz drogę słowami."
+            )
+            return _tool_result(
+                use_id, f"Nie ma takiego elementu. {hint}", is_error=True
+            )
+        events.append(
+            {
+                "type": "highlight",
+                "anchor": anchor["id"],
+                "label": anchor["label"],
+                "reason": str(args.get("reason") or "")[:200],
+            }
+        )
+        return _tool_result(use_id, f"Podświetliłem użytkownikowi: {anchor['label']}.")
 
     if tool.tier == "link":
         try:

@@ -72,7 +72,6 @@ const PIPELINE_OPERATIONAL_ROLES = PIPELINE_ROLES.filter(
 const DELIVERY_ROLES = sectionRoles("delivery");
 const INSIGHTS_ROLES = sectionRoles("insights");
 const SYSTEM_ADMIN_ROLES = sectionRoles("system_admin");
-const CORTEX_ROLES = INSIGHTS_ROLES.filter((role) => role !== "user");
 
 // Trasy wymagające dostępu do sekcji lub KONKRETNYCH ról. Każda inna
 // (niepubliczna) trasa wymaga wyłącznie ważnego tokenu — patrz deny-by-default.
@@ -143,10 +142,6 @@ const ROLE_ROUTES: RouteAccessRule[] = [
   },
   // Zamówienia z maila są powierzchnią Delivery; scope rekordu liczy backend.
   { prefix: "/order-mail", roles: DELIVERY_ROLES, section: "delivery" },
-  // DynaReporter (migracja B.0, 0112): zalogowani; fine-grained access per moduł
-  // przez `user.allowed_sections` (sprawdzane client-side w komponentach —
-  // middleware nie ma dostępu do user object, tylko JWT payload).
-  { prefix: "/dynareporter", roles: null },
   // Granularne podstrony settings (defense in depth) — kolejność nie ma
   // znaczenia, resolveAccessRule bierze najdłuższy pasujący prefix.
   // Backend strumienia czatów wymaga Pipeline i Sourcing (F02); middleware
@@ -213,13 +208,6 @@ const ROLE_ROUTES: RouteAccessRule[] = [
     section: "pipeline",
     enforceRoles: true,
   },
-  {
-    prefix: "/settings/linkedin-metrics",
-    roles: ["admin", "head_of_recruitment", "finance"],
-    section: "insights",
-    required: "read",
-    enforceRoles: true,
-  },
   // Benchmarki stawek rynkowych: Admin ma CRUD, Finance pełny odczyt.
   // POST/PATCH/DELETE/import pozostają po stronie API na `AdminUser`.
   {
@@ -252,14 +240,6 @@ const ROLE_ROUTES: RouteAccessRule[] = [
     prefix: "/settings/client-portfolio-preview",
     roles: ["admin", "finance"],
     section: "finance",
-    enforceRoles: true,
-  },
-  // Cortex — dane kompetencyjne kandydatów (RODO gate, parytet z backendowym
-  // CortexUser i zakładką Insights → Klienci & Delivery).
-  {
-    prefix: "/cortex",
-    roles: CORTEX_ROLES,
-    section: "insights",
     enforceRoles: true,
   },
   // Wykonywanie telefonów jest ograniczone do ról operacyjnych (lustro

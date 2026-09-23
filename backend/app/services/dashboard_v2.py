@@ -51,9 +51,6 @@ from app.schemas.dashboard_v2 import (
     RecruitmentHallOfFame,
     RecruitmentHallOfFameHistoryEntry,
     RecruitmentHallOfFameHistoryPeriod,
-    RecruitmentLinkedIn,
-    RecruitmentLinkedInRow,
-    RecruitmentLinkedInTotals,
     RecruitmentMonthlyRace,
     RecruitmentMonthlyRaces,
     RecruitmentQuarterlyLeague,
@@ -1788,16 +1785,6 @@ async def _compute_recruitment_stats_dashboard(
             "hall_of_fame: odpowiedź nie zawiera all_time i history",
         )
         hof = None
-    linkedin = await _capture(
-        quality, "linkedin", lambda: sources.load_linkedin_summary(db, period)
-    )
-    if linkedin is not None and not _mapping_with_list_fields(linkedin, "per_user"):
-        _mark_partial(
-            quality,
-            "linkedin",
-            "linkedin: odpowiedź nie zawiera per_user",
-        )
-        linkedin = None
     trend = await _capture(quality, "trend", lambda: sources.load_recruitment_trend(db))
 
     kpi_quality = _source_kpi_quality(quality, "team_funnel", team)
@@ -1967,29 +1954,6 @@ async def _compute_recruitment_stats_dashboard(
             ],
         )
 
-    linkedin_block = None
-    if linkedin is not None:
-        totals_raw = linkedin["totals"]
-        linkedin_block = RecruitmentLinkedIn(
-            date_from=linkedin["date_from"],
-            date_to=linkedin["date_to"],
-            per_user=[
-                RecruitmentLinkedInRow(
-                    user_id=row.user_id,
-                    name=row.name,
-                    role=row.role,
-                    cv_added=row.cv_added,
-                    messages_sent=row.messages_sent,
-                    responses_received=row.responses_received,
-                    response_rate=row.response_rate,
-                    cv_response_rate=row.cv_response_rate,
-                    days_reported=row.days_reported,
-                )
-                for row in linkedin["per_user"]
-            ],
-            totals=RecruitmentLinkedInTotals(**totals_raw),
-        )
-
     trend_block = None
     if trend is not None:
         trend_block = RecruitmentTrend(
@@ -2026,7 +1990,6 @@ async def _compute_recruitment_stats_dashboard(
             quarterly_league=quarterly_league,
             monthly_races=monthly_races,
             hall_of_fame=hall_of_fame,
-            linkedin=linkedin_block,
             trend=trend_block,
         ),
     )

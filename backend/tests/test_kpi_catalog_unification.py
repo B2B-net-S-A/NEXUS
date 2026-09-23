@@ -14,17 +14,15 @@ from zoneinfo import ZoneInfo
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import func, select, text
+from sqlalchemy import select, text
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
-from app.models.call import Call, CallStatus
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.job import Job, RecruitmentType
 from app.models.kpi_target import KpiRoleDefault, UserKpiTarget
-from app.models.notification import Notification, NotificationType
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import User, UserRole
 from app.services import kpi_target_normalization as norm
@@ -82,9 +80,7 @@ def test_normalization_constants_mirror_the_catalog():
 
 
 def test_single_dl_hit_ratio_constant():
-    from app.api import dynareporter_delivery_lead_dashboard as drdl
     from app.api import reports
-    from app.schemas.dr_delivery_lead_dashboard import DLMember
     from app.services import competitions, insights_clients, insights_dl_scope
 
     assert DL_HIT_RATIO_TARGET_PCT == 30.0
@@ -92,10 +88,6 @@ def test_single_dl_hit_ratio_constant():
     assert reports.HIT_RATIO_TARGET_PCT == DL_HIT_RATIO_TARGET_PCT
     assert insights_dl_scope.HIT_RATIO_TARGET_PCT == DL_HIT_RATIO_TARGET_PCT
     assert insights_clients.HIT_RATIO_TARGET_PCT == DL_HIT_RATIO_TARGET_PCT
-    assert drdl.HIT_RATIO_TARGET == int(DL_HIT_RATIO_TARGET_PCT)
-    assert DLMember.model_fields["hit_ratio_target"].default == int(
-        DL_HIT_RATIO_TARGET_PCT
-    )
 
 
 def test_every_coach_kpi_has_its_own_messages():
@@ -270,57 +262,7 @@ async def test_monthly_race_thresholds_come_from_kpi_and_config():
     assert thresholds.min_placements == 2
 
 
-# ── T2: PowerCalling bez telefonii ──────────────────────────────────────────
-
-
-async def _powercalling_notifications(db, user_ids: list[int]) -> int:
-    return int(
-        await db.scalar(
-            select(func.count(Notification.id)).where(
-                Notification.user_id.in_(user_ids),
-                Notification.notification_type == NotificationType.powercalling_kpi,
-            )
-        )
-        or 0
-    )
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("enabled", [False, True])
-async def test_powercalling_trigger_respects_cloudtalk_switch(monkeypatch, enabled):
-    from app.services.notification_triggers import check_powercalling_kpi
-
-    monkeypatch.setattr(settings, "CLOUDTALK_ENABLED", enabled)
-    recruiter_id = await _seed_user(UserRole.recruiter, label="pc-r")
-    hor_id = await _seed_user(UserRole.head_of_recruitment, label="pc-h")
-    # Wtorek 11:45 w Warszawie — dokładnie okno raportu.
-    now = datetime(2026, 9, 22, 11, 45, tzinfo=WARSAW)
-    async with AsyncSessionLocal() as db:
-        # Rekruter „ma źródło rozmów" — bez tego alert indywidualny i tak by nie wyszedł.
-        candidate = Candidate(name="Pc", lastname=uuid.uuid4().hex[:6])
-        db.add(candidate)
-        await db.flush()
-        db.add(
-            Call(
-                candidate_id=candidate.id,
-                user_id=recruiter_id,
-                status=CallStatus.failed,
-                started_at=now - timedelta(days=3),
-            )
-        )
-        await db.flush()
-        emitted = await check_powercalling_kpi(db, now)
-        await db.flush()
-        count = await _powercalling_notifications(db, [recruiter_id, hor_id])
-        await db.rollback()
-
-    if enabled:
-        assert emitted > 0
-        assert count >= 1
-    else:
-        # Zero rozmów + wyłączona telefonia = zero powiadomień (audyt T2).
-        assert emitted == 0
-        assert count == 0
+# ── T2: KPI rozmów bez telefonii ────────────────────────────────────────────
 
 
 @pytest.mark.asyncio

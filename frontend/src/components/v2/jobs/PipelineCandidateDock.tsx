@@ -724,7 +724,7 @@ export function PipelineCandidateDock({
             ścieżka co drag&drop (`requestMove`) — okna stawki, potwierdzeń
             i powodu odrzucenia działają bez zmian. */}
         {!readOnly && (
-          <div className="space-y-1.5">
+          <div className="space-y-1.5" data-help="jobs.person.actions">
             {primaryTarget ? (
               <Button
                 size="sm"
@@ -827,6 +827,7 @@ export function PipelineCandidateDock({
           <div
             role="group"
             aria-label="Odznaki etapu"
+            data-help="jobs.person.badges"
             className="mt-2 flex flex-wrap items-center gap-1.5"
           >
             {badgeToggles.map((badge) => (
@@ -1224,7 +1225,10 @@ export function PipelineCandidateDock({
           Prawy margines zostawia róg maskotce Jarvisa (fixed, 64 px + 20 px
           odstępu) — bez niego zasłaniała przycisk wysyłania notatki. */}
       {!readOnly && (
-        <div className="flex items-end gap-1.5 border-t border-border bg-muted/10 p-3 pr-[5.75rem]">
+        <div
+          className="flex items-end gap-1.5 border-t border-border bg-muted/10 p-3 pr-[5.75rem]"
+          data-help="jobs.person.note"
+        >
           <textarea
             value={noteText}
             onChange={(e) => setNoteText(e.target.value)}

@@ -404,7 +404,7 @@ export function ChampionProfileEditor({
           }
         }}
       />
-      {canEdit && <button className="text-sm underline" onClick={() => setReviewOpen(true)}>Uzgodnij profil i pola rekrutacji</button>}
+      {canEdit && <button className="text-sm underline" onClick={() => setReviewOpen(true)} data-help="job.champion.reconcile">Uzgodnij profil i pola rekrutacji</button>}
       {reviewOpen && <ChampionImportReview initial={{ champion_profile: draft, validation: data?.validation }} jobId={jobId} fingerprint={data?.fingerprint} jobValues={data?.job_values} onClose={() => setReviewOpen(false)} onApply={() => invalidateChampionDependents(qc, jobId)} />}
 
       {saveStatus === "saved" && (
@@ -449,6 +449,7 @@ export function ChampionProfileEditor({
               aria-expanded={showIntake}
               className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1 text-xs font-medium text-foreground hover:bg-accent"
               data-testid="toggle-ai-intake"
+              data-help="job.champion.intake"
             >
               Wygeneruj z opisu klienta
               {showIntake ? (
