@@ -241,3 +241,29 @@ def test_an_unknown_future_status_is_refused_instead_of_being_treated_as_closed(
     with pytest.raises(HTTPException) as exc:
         assert_group_is_reopenable("on_hold")
     assert exc.value.status_code == 409
+
+
+def test_line_period_wins_over_the_group_period_in_the_export():
+    """FIN-CHG-4 (audyt 22.09): wiersz osoby pokazuje okres LINII.
+
+    Poprzednik po zamianie kontraktora kończy się w dniu zamiany, a następca
+    od niego zaczyna — arkusz z okresem grupy przy obu dawał dwa identyczne
+    okresy dwóch różnych ludzi. Linia bez własnych dat dziedziczy okres grupy.
+    """
+    group = _group(
+        md_budget_mode="per_person",
+        lines=[
+            _line(
+                "Anna Poprzednik", end_date=date(2026, 6, 30), md_total=Decimal("20")
+            ),
+            _line("Jan Następca", start_date=date(2026, 7, 1), md_total=Decimal("30")),
+            _line("Ewa Bez Dat", md_total=Decimal("10")),
+        ],
+    )
+    periods = {
+        row.consultant_name: (row.start_date, row.end_date)
+        for row in export_rows_for_group(group)
+    }
+    assert periods["Anna Poprzednik"] == (date(2026, 1, 1), date(2026, 6, 30))
+    assert periods["Jan Następca"] == (date(2026, 7, 1), date(2026, 12, 31))
+    assert periods["Ewa Bez Dat"] == (date(2026, 1, 1), date(2026, 12, 31))

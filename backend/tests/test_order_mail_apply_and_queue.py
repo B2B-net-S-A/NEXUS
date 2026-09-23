@@ -556,3 +556,101 @@ async def test_refresh_auto_verdict_waits_in_queue_when_autoapply_is_off(
     assert manual.status_code == 200, manual.text
     assert manual.json()["ok"] is True
     assert manual.json()["document"]["outcome"] == OUTCOME_APPLIED
+
+
+# ── Audyt 22.09, druga runda ─────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_manual_apply_keeps_the_document_currency(seeded):
+    """FIN-MAIL-02: waluta z dokumentu idzie na zamówienie, nie waluta kontraktu."""
+    async with AsyncSessionLocal() as db:
+        doc = await db.get(OrderMailDocument, seeded["doc_id"])
+        doc.extraction = {**doc.extraction, "currency": "EUR"}
+        doc.proposal = {
+            **doc.proposal,
+            "rows": [{**doc.proposal["rows"][0], "currency": "EUR"}],
+        }
+        await db.flush()
+        result = await apply_document(db, doc, actor_user_id=None)
+        assert result.ok, result.as_dict()
+        order = await db.get(ClientOrder, result.rows[0].order_id)
+        assert order.rate_client_currency == "EUR"
+        await db.rollback()
+
+
+@pytest.mark.asyncio
+async def test_refresh_applies_client_rules_to_a_document_recognized_late(
+    seeded, monkeypatch
+):
+    """FIN-MAIL-05: dokument rozpoznany dopiero przy recheku przechodzi reguły.
+
+    Odczyt powstał, zanim znano klienta, więc reguły klienta nie zadziałały.
+    Przeliczenie stosuje je deterministycznie (bez modelu), zapisuje nazwę
+    reguły, a bramka dostaje wyłącznie reguły faktycznie zastosowane.
+    """
+    from types import SimpleNamespace
+
+    from app.services.order_document_text import OrderDocumentText
+
+    def ruled(result, ctx):
+        result.title = "RULED/1"
+        result.confidence["title"] = 1.0
+        return result
+
+    policy = SimpleNamespace(
+        key="stub_late",
+        display_name="Stub Late",
+        order=1,
+        requires_target=False,
+        suppressed_by=frozenset(),
+        apply=ruled,
+        rate_rules=None,
+        rule_version="v1",
+        table_authoritative=False,
+        reapply_on_refresh=False,
+        extract_rows=None,
+        open_ended_period=False,
+        document_period_authoritative=False,
+    )
+    monkeypatch.setattr(svc, "active_policies", lambda client_id: [policy])
+    monkeypatch.setattr(
+        svc,
+        "extract_order_text",
+        lambda *_a: OrderDocumentText("tekst", 1, False, False, None, 0.0),
+    )
+    seen: dict = {}
+
+    async def plan_and_gate(db, row, extraction, doc, policies, client_id, method):
+        seen["title"] = extraction.title
+        seen["applied"] = svc._applied_policy_names(row)
+
+    monkeypatch.setattr(svc, "_plan_and_gate", plan_and_gate)
+    async with AsyncSessionLocal() as db:
+        doc = await db.get(OrderMailDocument, seeded["doc_id"])
+        doc.client_policy = None
+        doc.document_meta = {"policies_pending": True}
+        await svc.refresh_review_plan(db, doc)
+        assert seen == {"title": "RULED/1", "applied": ("Stub Late",)}
+        assert doc.client_policy == "Stub Late"
+        assert "policies_pending" not in (doc.document_meta or {})
+        await db.rollback()
+
+
+@pytest.mark.asyncio
+async def test_locked_queue_read_sees_the_state_after_the_lock(seeded):
+    """FIN-MAIL-08: blokada czyta stan z bazy, nie z mapy tożsamości sesji."""
+    from app.api.order_mail_queue import _load_visible
+
+    admin = User(email="lock@example.com", name="Lock", role=UserRole.admin)
+    admin.roles = [UserRole.admin.value]
+    async with AsyncSessionLocal() as db:
+        stale = await _load_visible(db, seeded["doc_id"], admin)
+        assert stale.outcome == OUTCOME_NEEDS_REVIEW
+        async with AsyncSessionLocal() as other:
+            fresh = await other.get(OrderMailDocument, seeded["doc_id"])
+            fresh.outcome = "dismissed"
+            await other.commit()
+        locked = await _load_visible(db, seeded["doc_id"], admin, for_update=True)
+        assert locked.outcome == "dismissed"
+        await db.rollback()

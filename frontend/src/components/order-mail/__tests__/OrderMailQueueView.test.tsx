@@ -13,7 +13,7 @@ import { describe, expect, it, vi } from "vitest";
 const openAuthenticatedFile = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/authenticated-files", () => ({ openAuthenticatedFile }));
 
-import { OrderMailQueueView } from "@/components/order-mail/OrderMailQueue";
+import { OrderMailQueueView, selectOrderMailDocument } from "@/components/order-mail/OrderMailQueue";
 import type { OrderMailDocument, OrderMailRecheckRun, OrderMailSyncStatus } from "@/lib/api/orderMail";
 
 function doc(over: Partial<OrderMailDocument> = {}): OrderMailDocument {
@@ -402,5 +402,31 @@ describe("Historia automatycznej weryfikacji", () => {
       />,
     );
     expect(screen.getByTestId("recheck-history")).toHaveTextContent("całą dobę");
+  });
+
+  // FE-N03 (audyt 22.09): alert z `?doc=` nie może otworzyć INNEGO dokumentu.
+  it("never substitutes the first listed document for a missing ?doc= target", () => {
+    const other = doc({ id: 7, client_name: "Bank Inny" });
+    render(<OrderMailQueueView {...base} state="ready" items={[other]} selectedId={42} pinnedState="missing" />);
+    expect(screen.getByText(/Nie znaleziono dokumentu #42/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Zastosuj/ })).toBeNull();
+  });
+
+  it("shows the document fetched by id when it is outside the current list", () => {
+    const other = doc({ id: 7, client_name: "Bank Inny" });
+    const pinned = doc({ id: 42, client_name: "Bank Wskazany", attachment_name: "wskazany.pdf" });
+    render(<OrderMailQueueView {...base} state="ready" items={[other]} selectedId={42} pinnedDoc={pinned} pinnedState="ready" />);
+    expect(screen.queryByText(/Nie znaleziono dokumentu/)).toBeNull();
+    expect(selectOrderMailDocument([other], 42, pinned, "ready")?.id).toBe(42);
+    expect(selectOrderMailDocument([other], null, pinned)?.id).toBe(7);
+    expect(selectOrderMailDocument([other], 42, null, "missing")).toBeNull();
+    // Wybór kliknięciem (bez przypięcia z adresu) — dalej pierwszy z listy.
+    expect(selectOrderMailDocument([other], 42, null, null)?.id).toBe(7);
+  });
+
+  it("renders a loading line while the pinned document is fetched, even with an empty list", () => {
+    render(<OrderMailQueueView {...base} state="ready" items={[]} total={0} selectedId={42} pinnedState="loading" />);
+    expect(screen.getByTestId("order-mail-pinned-loading")).toBeInTheDocument();
+    expect(screen.queryByText("Nic do pokazania")).toBeNull();
   });
 });

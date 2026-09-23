@@ -178,8 +178,11 @@ def export_rows_for_group(
                 order_number=group.order_number,
                 cost_rate=line.rate_cost,
                 revenue_rate=line.rate_revenue,
-                start_date=group.start_date,
-                end_date=group.end_date,
+                # Okres LINII (zamiana kontraktora, zapis historyczny), a gdy
+                # linia własnych dat nie ma — okres grupy. Lustro reguły
+                # ``is_current_order_period`` z filtra wyżej (FIN-CHG-4).
+                start_date=getattr(line, "start_date", None) or group.start_date,
+                end_date=getattr(line, "end_date", None) or group.end_date,
                 allocation=(
                     None if group.is_cost_based or shared_md else line.md_total
                 ),

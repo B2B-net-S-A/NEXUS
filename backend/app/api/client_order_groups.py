@@ -233,6 +233,7 @@ from app.services.order_excel_export import (
     orders_export_filename,
 )
 from app.services import storage_service
+from app.services.order_gaps import close_gaps_of_deleted_orders
 from app.services.order_settlements import (
     assert_order_has_no_settlements,
     settlement_blockers,
@@ -3465,6 +3466,8 @@ async def _delete_line_row(db: AsyncSession, line: ClientOrder) -> str | None:
         )
     )
     file_path = line.file_path
+    # audyt 22.09 r2 (FIN-CHG-5): karty DL braku tej linii.
+    await close_gaps_of_deleted_orders(db, [line.id])
     await db.delete(line)
     return file_path
 

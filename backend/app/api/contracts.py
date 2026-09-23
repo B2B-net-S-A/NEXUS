@@ -2868,6 +2868,14 @@ async def create_contract(
             source_contract_id=source_contract_id,
             actor_id=current_user.id,
         )
+        # audyt 22.09 r2 (FIN-CHG-2): szkic następnego projektu zamyka brak
+        # od razu, z chwilą założenia — nie przy nocnym przebiegu.
+        from app.services.order_gaps import refresh_order_gaps_safely
+
+        await db.flush()
+        await refresh_order_gaps_safely(
+            db, contract_ids=[contract.id], actor_id=current_user.id
+        )
     db.add(
         Activity(
             entity_type="contract",

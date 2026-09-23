@@ -564,6 +564,59 @@ async def test_mail_document_leads_to_the_order_window_and_leaves_the_queue(
     assert again.status_code == 409
 
 
+async def test_resolved_in_order_refuses_an_unrelated_older_order_of_the_client(
+    app_client: AsyncClient, app_auth_headers: dict, tmp_path, monkeypatch
+):
+    """FIN-MAIL-09 (audyt 22.09): dowolna grupa klienta nie „rozstrzyga" dokumentu.
+
+    Tylko zamówienie o numerze z dokumentu albo założone PO nadejściu maila
+    (czyli w oknie otwartym z kolejki) zdejmuje dokument z kolejki.
+    """
+    ids = await _seed()
+    older = await _create_group(
+        app_client,
+        app_auth_headers,
+        ids["client_id"],
+        "cost",
+        [_line(ids["leaving_contract"], "cost")],
+    )
+    # Zegar bazy (``now()``) i Pythona bywają rozjechane (przypięcie doby
+    # w conftest) — „starsze niż mail" ustawiamy jawnie.
+    from sqlalchemy import update
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order_group import ClientOrderGroup
+
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(ClientOrderGroup)
+            .where(ClientOrderGroup.id == older["id"])
+            .values(created_at=datetime.now(timezone.utc) - timedelta(days=3))
+        )
+        await db.commit()
+    doc_id = await _mail_doc(ids["client_id"], "SAP 4588888888", tmp_path, monkeypatch)
+    refused = await app_client.post(
+        f"/api/order-mail/queue/{doc_id}/resolved-in-order",
+        json={"order_group_id": older["id"]},
+        headers=app_auth_headers,
+    )
+    assert refused.status_code == 422, refused.text
+
+    created_from_window = await _create_group(
+        app_client,
+        app_auth_headers,
+        ids["client_id"],
+        "cost",
+        [_line(ids["substitute_contract"], "cost")],
+    )
+    done = await app_client.post(
+        f"/api/order-mail/queue/{doc_id}/resolved-in-order",
+        json={"order_group_id": created_from_window["id"]},
+        headers=app_auth_headers,
+    )
+    assert done.status_code == 200, done.text
+
+
 async def test_mail_document_without_an_open_order_opens_a_new_one(
     app_client: AsyncClient, app_auth_headers: dict, tmp_path, monkeypatch
 ):

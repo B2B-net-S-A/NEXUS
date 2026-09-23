@@ -276,6 +276,10 @@ def _precedes(other: OrderFact, fact: OrderFact) -> bool:
 
 
 def _runs_on(other: OrderFact, day: date) -> bool:
+    # Linia MD z budżetem pracuje po dacie końca (FIN-CHG-6): równoległa praca
+    # u innego klienta to „Dodatkowy projekt", nie „Zmiana klienta".
+    if other.works_until_md_exhausted:
+        return True
     if other.end is None:
         return other.status != ClientOrderStatus.completed.value
     return other.end >= day
@@ -429,6 +433,13 @@ async def _entries(
     )
     siblings = await load_siblings(db, facts)
     classes = await _classify_entries(db, facts, siblings, window)
+    # Szkic i zamówienie tej samej współpracy to JEDNO wejście (FIN-CHG-7):
+    # szkic pomijamy, gdy współpraca ma zamówienie, które nie jest szkicem.
+    covered = {
+        key
+        for key, group in siblings.items()
+        if any(not o.is_draft and not o.is_cancelled for o in group)
+    }
     items = [
         OrderEntryItem(
             **_ref(fact),
@@ -443,6 +454,7 @@ async def _entries(
         )
         for fact in facts
         if classes[fact.order_id].kind == "new"
+        and not (fact.is_draft and sibling_key(fact) in covered)
     ]
     return sorted(items, key=_sort_key), facts, classes
 
@@ -720,6 +732,9 @@ async def _gaps(
                 Candidate.lastname,
                 Contract.candidate_id,
             )
+            # Brak usuniętego zamówienia nie jest brakiem (FIN-CHG-5) — wiersz
+            # zostaje w bazie, ale raport go nie pokazuje.
+            .join(ClientOrder, ClientOrder.id == OrderGap.order_id)
             .outerjoin(Client, Client.id == OrderGap.client_id)
             .outerjoin(Contract, Contract.id == OrderGap.contract_id)
             .outerjoin(Candidate, Candidate.id == Contract.candidate_id)
@@ -894,7 +909,9 @@ async def build_order_changes(
     open_order_ids = list(
         (
             await db.scalars(
-                select(OrderGap.order_id).where(OrderGap.status == GAP_STATUS_OPEN)
+                select(OrderGap.order_id)
+                .join(ClientOrder, ClientOrder.id == OrderGap.order_id)
+                .where(OrderGap.status == GAP_STATUS_OPEN)
             )
         ).all()
     )

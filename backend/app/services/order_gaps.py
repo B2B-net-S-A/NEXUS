@@ -299,6 +299,35 @@ async def _scoped_open_gaps(
     return list((await db.scalars(query)).all())
 
 
+async def close_gap_alerts(
+    db: AsyncSession,
+    order_id: int,
+    moment: datetime,
+    *,
+    actor_id: Optional[int] = None,
+) -> None:
+    """Oznacz karty DL braku zamówienia ``order_id`` jako obsłużone."""
+    await _close_gap_alerts(db, order_id, moment, actor_id=actor_id)
+
+
+async def close_gaps_of_deleted_orders(
+    db: AsyncSession, order_ids: Iterable[int], *, actor_id: Optional[int] = None
+) -> None:
+    """Usunięte zamówienie nie zostawia otwartej karty DL (FIN-CHG-5).
+
+    Wołane PRZED ``db.delete(order)``: karta DL ma ``order_id`` z
+    ``ON DELETE SET NULL``, więc po usunięciu nie da się jej już znaleźć po
+    zamówieniu. Wiersz braku zostaje w bazie (nigdy nie znika), ale raport
+    Finansów i przypomnienia pomijają braki bez zamówienia.
+    """
+    ids = sorted({order_id for order_id in order_ids if order_id is not None})
+    if not ids or not settings.ORDER_GAPS_ENABLED:
+        return
+    moment = datetime.now(timezone.utc)
+    for order_id in ids:
+        await _close_gap_alerts(db, order_id, moment, actor_id=actor_id)
+
+
 async def _close_gap_alerts(
     db: AsyncSession,
     order_id: int,
@@ -361,7 +390,16 @@ async def resolve_order_gaps(
         gap.status = GAP_STATUS_FILLED_LATE
         gap.resolved_order_id = successor.order_id
         gap.resolved_order_number = successor.number[:255]
-        gap.resolved_at = moment
+        # Moment uzupełnienia to chwila ZAŁOŻENIA następcy, nie przebiegu, który
+        # go zauważył — ścieżka bez odświeżenia braków (podpis B2B, projekt
+        # z rejestru) przesuwała go na noc i zamówienie na czas wyglądało na
+        # spóźnione (audyt 22.09, FIN-CHG-2). To samo zamówienie przedłużone
+        # po fakcie ma stary ``created_at`` — tam liczy się chwila przebiegu.
+        gap.resolved_at = (
+            min(moment, successor.created_at)
+            if successor.order_id != gap.order_id and successor.created_at
+            else moment
+        )
         await _close_gap_alerts(db, gap.order_id, moment, actor_id=actor_id)
         resolved += 1
     if resolved:
@@ -395,6 +433,12 @@ async def remind_open_gaps(
     for gap in gaps:
         fact = facts.get(gap.order_id)
         if fact is None:
+            # Zamówienie usunięte — brak nie jest już sprawą do załatwienia
+            # (FIN-CHG-5). Karta miała ``order_id`` wyzerowany przez FK, więc
+            # zamykamy ją po kluczu sprawy.
+            await dl_alerts.resolve_entity_alerts(
+                db, alert_type=ALERT_ORDER_MISSING_SUCCESSOR, entity_key=f"gap:{gap.id}"
+            )
             continue
         if gap.order_id in ended:
             # Współpraca zakończona po wykryciu braku: nie przypominamy DL

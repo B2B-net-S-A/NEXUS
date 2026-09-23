@@ -21,6 +21,7 @@ from typing import Mapping, Optional
 
 from app.services.order_mail_planner import (
     ACTION_DECIDE_PERSON,
+    ACTION_REACTIVATE,
     AUTO_ACTIONS,
     DocumentProposal,
 )
@@ -77,6 +78,12 @@ CODE_ROW_EVIDENCE_COUNT = "row_evidence_count"
 CODE_ROW_EVIDENCE_PERSON = "row_evidence_person"
 CODE_ROW_EVIDENCE_UNCERTAIN = "row_evidence_uncertain"
 CODE_ROW_EVIDENCE_RATE = "row_evidence_rate"
+#: Okres z planu nie zgadza się z okresem wiersza z pól PDF albo — u klienta,
+#: którego okres ustala reguła — nie został przez regułę potwierdzony
+#: (audyt 22.09, FIN-MAIL-03).
+CODE_ROW_EVIDENCE_PERIOD = "row_evidence_period"
+#: Waluta dokumentu inna niż PLN — automat nie ma kursu (FIN-MAIL-02).
+CODE_CURRENCY_FOREIGN = "currency_foreign"
 CODE_READ_UNCERTAIN = "read_uncertain"
 CODE_TEXT_TRUNCATED = "text_truncated"
 CODE_OCR_CAPPED = "ocr_capped"
@@ -135,6 +142,9 @@ class GateInput:
     #: Polityka klienta deklaruje zamówienia BEZTERMINOWE (BIK) — brak daty
     #: końca jest wtedy poprawnym odczytem, nie niepełnym okresem.
     open_ended_period: bool = False
+    #: Okres zamówienia ustala reguła klienta z etykiety dokumentu — musi być
+    #: przez nią potwierdzony (confidence 1.0), inaczej kolejka (FIN-MAIL-03).
+    document_period_authoritative: bool = False
 
 
 @dataclass
@@ -203,6 +213,58 @@ def _row_evidence_reasons(
                 )
             )
     return reasons
+
+
+def _period_evidence_reasons(inp: GateInput) -> list[tuple[str, str]]:
+    """Okres z planu kontra okres z pól dokumentu (FIN-MAIL-03).
+
+    Dwa źródła dowodu. (1) Wiersz osoby odczytany deterministycznie z tabeli
+    ma własny okres — plan musi go powtórzyć. (2) U klienta, którego okres
+    ustala reguła z etykiety dokumentu, reguła musiała go faktycznie ustalić
+    (confidence 1.0); data zostawiona przez model nie jest dowodem.
+    """
+    out: list[tuple[str, str]] = []
+    ex = inp.extraction
+    if inp.document_period_authoritative:
+        missing = [
+            label
+            for key, label, required in (
+                ("start_date", "data początku", True),
+                ("end_date", "data końca", not inp.open_ended_period),
+            )
+            if required
+            and getattr(ex, key) is not None
+            and ex.confidence.get(key) != 1.0
+        ]
+        if missing:
+            out.append(
+                (
+                    CODE_ROW_EVIDENCE_PERIOD,
+                    "Okres zamówienia nie został potwierdzony regułą klienta w polu "
+                    f"dokumentu ({', '.join(missing)})",
+                )
+            )
+    for row_prop in inp.proposal.rows:
+        sources = [
+            source
+            for source in inp.deterministic_rows
+            if _names_exactly_equivalent(row_prop.row_name, source.consultant_name)
+        ]
+        if len(sources) != 1:
+            continue  # brak jednoznacznego wiersza — mówi o tym _row_evidence_reasons
+        source = sources[0]
+        if (source.start_date and source.start_date != row_prop.start_date) or (
+            source.end_date and source.end_date != row_prop.end_date
+        ):
+            out.append(
+                (
+                    CODE_ROW_EVIDENCE_PERIOD,
+                    f"„{row_prop.row_name}”: okres z planu ({row_prop.start_date or '—'} – "
+                    f"{row_prop.end_date or '—'}) różni się od okresu w polach PDF "
+                    f"({source.start_date or '—'} – {source.end_date or '—'})",
+                )
+            )
+    return out
 
 
 def _unused_total_mapping_reason(reason: str, inp: GateInput) -> bool:
@@ -355,6 +417,7 @@ def evaluate(inp: GateInput) -> GateVerdict:
             )
         )
     reasons.extend(_row_evidence_reasons(ex.consultant_rows, inp.deterministic_rows))
+    reasons.extend((code, text) for code, text in _period_evidence_reasons(inp))
     if ex.uncertain:
         actionable = [
             r
@@ -409,6 +472,17 @@ def evaluate(inp: GateInput) -> GateVerdict:
                     )
                 )
 
+    # 7a) waluta: automat zapisuje wyłącznie PLN (brak kursu) — FIN-MAIL-02
+    for row_prop in prop.rows:
+        if row_prop.currency and row_prop.currency != "PLN":
+            reasons.append(
+                (
+                    CODE_CURRENCY_FOREIGN,
+                    f"„{row_prop.row_name}”: stawka w walucie {row_prop.currency} — "
+                    "automat zapisuje wyłącznie kwoty w PLN, sprawdź i zastosuj ręcznie",
+                )
+            )
+
     # 7b) zamówienie MD wymaga liczby MD — przy osobie albo na całe zamówienie
     for row_prop in _md_rows(inp):
         if row_prop.md_total is None:
@@ -435,6 +509,15 @@ def evaluate(inp: GateInput) -> GateVerdict:
     if prop.blocking:
         reasons.extend((CODE_PLAN_BLOCKING, r) for r in prop.blocking)
     for row_prop in prop.rows:
+        if row_prop.action == ACTION_REACTIVATE and row_prop.existing_person_ids:
+            # Powrót rozpoznany po samym nazwisku przy imienniku w bazie
+            # (FIN-MAIL-07) — akcja jest automatyczna, ale ten wiersz nie.
+            reasons.append(
+                (
+                    CODE_ACTION_NOT_AUTO,
+                    f"„{row_prop.row_name}”: " + "; ".join(row_prop.reasons),
+                )
+            )
         if row_prop.action not in AUTO_ACTIONS:
             reasons.append(
                 (
