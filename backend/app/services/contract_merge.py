@@ -227,6 +227,10 @@ _HISTORICAL_REFERENCE_KEYS = frozenset(
 _CONTRACT_LIFECYCLE_FIELDS = {"status", "voided_at", "voided_by"}
 _CONTRACT_DERIVED_FIELDS = {"client_order_start_date", "client_order_end_date"}
 _CONTRACT_AUDIT_FIELDS = {"created_at", "updated_at"}
+# „Usuń szkic" (0357): stan PREZENTACJI karty w zakładce Zamówienia. Ocalały
+# kontrakt zachowuje własny — schowana karta przegranego nie chowa karty osoby,
+# która po scaleniu ma zamówienia.
+_CONTRACT_PRESENTATION_FIELDS = {"orders_card_dismissed_at", "orders_card_dismissed_by"}
 _CLASSIFIED_CONTRACT_FIELDS = (
     set(_MERGEABLE_FIELDS)
     | _CONTRACT_IDENTITY_FIELDS
@@ -234,6 +238,7 @@ _CLASSIFIED_CONTRACT_FIELDS = (
     | _CONTRACT_LIFECYCLE_FIELDS
     | _CONTRACT_DERIVED_FIELDS
     | _CONTRACT_AUDIT_FIELDS
+    | _CONTRACT_PRESENTATION_FIELDS
 )
 
 _STATUS_RANK = {
@@ -2517,6 +2522,7 @@ async def build_contract_merge_plan(
                 "lifecycle": sorted(_CONTRACT_LIFECYCLE_FIELDS),
                 "order_derived": sorted(_CONTRACT_DERIVED_FIELDS),
                 "audit_timestamps": sorted(_CONTRACT_AUDIT_FIELDS),
+                "survivor_presentation": sorted(_CONTRACT_PRESENTATION_FIELDS),
             },
         },
         "summary": {

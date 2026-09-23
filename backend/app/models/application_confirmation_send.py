@@ -1,4 +1,4 @@
-"""Dedup maila potwierdzenia aplikacji (0357).
+"""Dedup maila potwierdzenia aplikacji (0358).
 
 Jeden wiersz na (HMAC adresu, klucz linku); ``sent_at`` = ostatnia wysyłka.
 Kolejny mail do tej samej pary dopiero po 24 h

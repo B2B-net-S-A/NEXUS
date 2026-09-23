@@ -526,8 +526,10 @@ zostaje także wtedy, gdy historia samego zamówienia znika razem z nim.
 Przy osobie, która **zakończyła współpracę**, a została na zamówieniu, karta
 pokazuje: „Ta osoba nie ma już aktywnej współpracy…" i trzy przyciski:
 **Zostaw jako historię** (zapisuje, kto i kiedy zdecydował), **Zastąp kimś
-innym** (otwiera dodawanie konsultanta — nowa osoba dołącza **obok**, a historia
-zapisze, za kogo jest zastępstwem) i **Usuń z zamówienia** (tylko gdy osoba
+innym** (na zamówieniu MD z pulą przy osobie nowa osoba **przejmuje pozostałe MD**
+odchodzącej — zasady w „Przejęcie pozostałych MD" niżej; na zamówieniu
+kosztowym i przy wspólnej puli dołącza **obok**, a historia zapisze, za kogo jest
+zastępstwem) i **Usuń z zamówienia** (tylko gdy osoba
 nie ma rozliczeń — inaczej przycisk jest wyszarzony). Przy zamówieniu MD
 z czekającą decyzją o pozostałych MD najpierw obowiązuje przycisk „Podejmij
 decyzję" (niżej).
@@ -556,8 +558,9 @@ dni nie mogą przepaść tylko dlatego, że zaczął się nowy okres.
 ### Zamiana kontraktora
 
 Tworzy **nową linię** i domyka starą datą zamiany. Na zamówieniu **MD
-z budżetem przy osobie** system sam przelicza dni tak, żeby wartość w złotych
-została ta sama (nowe MD × nowa stawka = pozostałe MD × stara stawka). Przy
+z budżetem przy osobie** pozostałe dni przechodzą na nową osobę według zasad
+z „Przejęcie pozostałych MD" (pula w MD — 1:1, pula w kwocie — wybierasz stawkę).
+Przy
 zamówieniu **kosztowym** i przy **wspólnej puli MD** nie rusza budżetu w ogóle —
 zmienia się tylko osoba i jej stawki.
 
@@ -574,6 +577,58 @@ ten dzień nadejdzie.
 Do **Historii zamówienia** trafiają zawsze obie stawki (stara i nowa) oraz data
 zamiany. Liczby MD wpisują się tam tylko przy budżecie przypisanym
 osobie — przy wspólnej puli i przy zamówieniu kosztowym nie ma czego zapisać.
+
+### Przejęcie pozostałych MD (wszyscy klienci MD)
+
+Dotyczy każdego przeniesienia pozostałych MD na inną osobę: „Wejdź za
+konsultanta", decyzji o MD, „Zastąp kimś innym" i „Zamień kontraktora".
+
+* **Pula w MD** (budżet osoby wpisany jako liczba dni) — pozostałe MD przechodzą
+  **1:1**. Pola „Przelicz po stawce" nie ma; okno mówi „Zamówienie ma pulę w MD —
+  [osoba] przejmuje X MD 1:1".
+* **Pula w kwocie** — okno pokazuje „Pozostało X MD × stawka osoby odchodzącej =
+  kwota" i dwie opcje z gotowym wynikiem: **po stawce osoby odchodzącej** (X MD)
+  albo **po stawce osoby przychodzącej** (kwota ÷ stawka przychodząca, zaokrąglone
+  do 0,1 MD). Żadna nie jest zaznaczona — zapis jest nieaktywny, dopóki jej nie
+  wybierzesz.
+
+Przeniesione MD **nie są już „pozostało" u osoby odchodzącej** — jej pasek
+pokazuje 0, a przy nazwisku stoi „Zastąpiony przez: [osoba] od [data]". Nowa
+osoba ma plakietkę **Zastępstwo** i linię „Przejęła po: [osoba] · X MD
+([sposób])". Suma zamówienia liczy te dni raz. Każde przeniesienie trafia do
+**Historii zamówienia**: kto, kiedy, z kogo na kogo, od jakiej daty, ile MD
+i jakim sposobem. Gdy raport Finansów za ostatni miesiąc odchodzącego przyjdzie
+później, system sam koryguje przejętą pulę (wpis „Korekta przeniesionej puli
+MD…").
+
+### Karta szkicu: „Przypisz do zamówienia" i „Usuń szkic"
+
+Osoba bez zamówienia (albo tylko ze szkicem zamówienia) stoi w pigułce
+**Draft** z dopiskiem „Brak aktywnego zamówienia" — to **karta szkicu**.
+
+**Usuń szkic** (u każdego klienta) chowa taką kartę razem ze szkicem zamówienia.
+Kontrakt i dane rekrutacji zostają; karta wraca, gdy dla tej osoby powstanie
+nowe zamówienie. Karty z zamówieniem innym niż szkic nie da się tak usunąć.
+
+**Przypisz do zamówienia** (tylko Centrum e-Zdrowia) daje trzy drogi:
+
+* **Dołącz do aktywnego zamówienia** — wybierasz zamówienie (numer, umowa
+  wykonawcza, obsada), datę od, MD podstawy i opcji oraz stawki. Gdy MD
+  przekraczają **wolną pulę** zamówienia (MD osób z zakończoną współpracą, o
+  których nikt jeszcze nie zdecydował), okno pokazuje, o ile — zapis nadal jest
+  możliwy. Osoba dostaje plakietkę **Dołączona**.
+* **Wejdź za konsultanta** — wybierasz, za kogo osoba wchodzi: kogoś z zakończoną
+  współpracą albo kogoś, kto ma już **przyszłą datę zakończenia** (przy każdej
+  osobie widać pozostałe MD). Data wejścia to domyślnie dzień po zakończeniu.
+  Jeśli osoba odchodząca jeszcze pracuje, powstaje **Zaplanowane zastępstwo od
+  [data]**: odchodzący pracuje do swojego końca, a w dniu wejścia system sam
+  aktywuje nową osobę i przenosi pozostałe na ten dzień MD (do tego czasu decyzja
+  o MD odchodzącego jest zablokowana — żeby nie rozdać tej samej puli dwa razy).
+* **Nowe zamówienie** — dotychczasowe „Uzupełnij zamówienie": osobne zamówienie
+  z własną umową wykonawczą, zapisywane jako szkic.
+
+Stawka koszt podpowiada się z kontraktu: kontrakt godzinowy × 8 („Z kontraktu:
+85 PLN/h × 8"). Pole zostaje edytowalne.
 
 ---
 
@@ -1143,9 +1198,13 @@ Przy zamówieniu okresowym i kosztowym rozliczy zakończenie sam; przy MD zostaj
 niewykorzystana pula i ktoś musi powiedzieć, co z nią zrobić. Do czasu decyzji
 system blokuje inne zmiany na tym zamówieniu.
 
-Okienko **„Zakończenie współpracy — decyzja o MD"** daje dwie opcje:
-**Usuń z zamówienia** albo **Przelicz na innego konsultanta** (wskazujesz osobę
-przejmującą i podstawę stawki: osoby odchodzącej albo przejmującej).
+Okienko **„Zakończenie współpracy — decyzja o MD"** daje trzy opcje:
+**Usuń z zamówienia**, **Przelicz na innego konsultanta** albo **Przywróć jako
+aktywne**. Przy przeliczeniu lista „Konsultant przejmujący" ma dwie grupy:
+**Na tym zamówieniu** (aktywne osoby z zamówienia) i **Nowe osoby u klienta**
+(osoby ze szkiców). Wybór nowej osoby działa jak „Wejdź za konsultanta" —
+podajesz datę wejścia i stawki, a osoba dochodzi do obsady z przejętymi MD.
+Sposób przeliczenia opisuje „Przejęcie pozostałych MD" niżej.
 
 Przy **wspólnej puli MD** decyzja tylko zdejmuje osobę z obsady — pula nie jest
 pomniejszana ani nikomu przypisywana, bo i tak była wspólna.

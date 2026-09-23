@@ -1,4 +1,4 @@
-"""0357 i 0358 mają lustro w entrypoincie (alembic na prodzie bywa osierocony)."""
+"""0358 i 0359 mają lustro w entrypoincie (alembic na prodzie bywa osierocony)."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ def _migration(name: str) -> str:
 
 
 def test_application_confirmation_table_is_mirrored():
-    migration = _migration("0357_application_confirmation.py")
+    migration = _migration("0358_application_confirmation.py")
     for needle in (
         "CREATE TABLE IF NOT EXISTS application_confirmation_sends",
         "UNIQUE (email_key, link_key)",
@@ -26,7 +26,7 @@ def test_application_confirmation_table_is_mirrored():
 
 
 def test_order_group_cancel_schema_is_mirrored():
-    migration = _migration("0358_order_group_cancel.py")
+    migration = _migration("0359_order_group_cancel.py")
     for needle in (
         "status_before_cancel",
         "cancelled_at",
@@ -46,8 +46,8 @@ def test_order_group_cancel_schema_is_mirrored():
 
 
 def test_chain_is_linear():
-    assert 'revision = "0357_application_confirmation"' in _migration(
-        "0357_application_confirmation.py"
+    assert 'revision = "0358_application_confirmation"' in _migration(
+        "0358_application_confirmation.py"
     )
-    cancel = _migration("0358_order_group_cancel.py")
-    assert 'down_revision = "0357_application_confirmation"' in cancel
+    cancel = _migration("0359_order_group_cancel.py")
+    assert 'down_revision = "0358_application_confirmation"' in cancel

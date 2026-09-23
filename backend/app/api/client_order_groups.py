@@ -83,6 +83,7 @@ from app.models.client_order_group import (
 from app.models.client_executive_contract import ClientExecutiveContract
 from app.models.client_order_offboarding import (
     OFFBOARDING_RATE_BASIS_DEPARTING,
+    OFFBOARDING_RATE_BASIS_RECIPIENT,
     OFFBOARDING_RESOLUTION_REMOVE,
     OFFBOARDING_RESOLUTION_RESTORE,
     OFFBOARDING_RESOLUTION_TRANSFER,
@@ -127,6 +128,7 @@ from app.schemas.client_order_group import (
     OrderOffboardingResolutionRequest,
     OrderLineRead,
     OrderLineSwapRequest,
+    OrderLineTakeoverRequest,
     OrderLineUpdate,
     OrderPlanContractRead,
     OrderPlanLineRead,
@@ -177,6 +179,27 @@ from app.services.cyfrowy_polsat_orders import (
     is_cyfrowy_polsat_order_types_client,
 )
 from app.services.ezdrowie import is_ezdrowie_client, resolve_ezdrowie_assignment
+from app.services.client_order_lines import _swap_split_remaining
+from app.services.order_line_takeover import (
+    ASSIGNMENT_JOIN,
+    ASSIGNMENT_TAKEOVER,
+    SOURCE_LEAVING,
+    TRANSFER_METHOD_LABELS,
+    TRANSFER_METHODS,
+    TakeoverError,
+    apply_takeover_transfer,
+    basis_rate_for,
+    line_pool_unit,
+    load_takeover_source,
+    projected_budget,
+    resolve_transfer_method,
+    scheduled_successor_of,
+    split_transferred,
+    takeover_source_state,
+    transferred_md as transferred_md_for,
+    describe_transfer,
+    stored_rate_basis,
+)
 from app.services.dl_alerts import (
     emit_cost_order_exhausted,
     emit_shared_md_pool_exhausted,
@@ -1026,6 +1049,7 @@ def _line_to_read(
         md_manual_adjustment=order.md_manual_adjustment,
         predecessor_order_id=order.predecessor_order_id,
         predecessor_consultant_name=predecessor_name,
+        pool_unit=line_pool_unit(order),
         invoiced_total=invoiced,
         unsettled_total=unsettled,
         missing_consumption_month=missing_month,
@@ -1239,6 +1263,14 @@ async def _group_to_read(
     if not group.is_cost_based and not uses_shared_md_budget:
         used_by_line = {item.id: item.md_used for item in reads}
         replaced_kind = {item.id: item.replaced_by_kind for item in reads}
+        # Zaplanowane zastępstwo (ticket 09.2026) jeszcze nie weszło: odchodzący
+        # pracuje i wnosi CAŁY budżet, a szkic następcy (prognoza „na dziś")
+        # nie wnosi nic — inaczej zużycie z okresu do wejścia liczyłoby się
+        # dwa razy.
+        scheduled_ids = {item.id for item in reads if item.takeover_scheduled}
+        for item in reads:
+            if item.replaced_by_scheduled:
+                replaced_kind[item.id] = None
         positions = Decimal("0")
         used_sum = Decimal("0")
         value = Decimal("0")
@@ -1250,7 +1282,7 @@ async def _group_to_read(
             used = Decimal(str(used_by_line.get(line.id) or 0))
             used_sum += used
             used_value += used * rate
-            if line.status == ClientOrderStatus.cancelled:
+            if line.status == ClientOrderStatus.cancelled or line.id in scheduled_ids:
                 # Anulowana linia nie jest pozycją umowy — jej ewentualne
                 # zużycie zostaje faktem, ale budżet nie wchodzi do wartości.
                 continue
@@ -1259,7 +1291,7 @@ async def _group_to_read(
                 # Zastępstwo: następca ma WŁASNĄ pozycję, poprzednik oddał
                 # swoją — liczy się tylko jego zużycie.
                 continue
-            if kind == "swap":
+            if kind in ("swap", "takeover"):
                 # Zamiana: następca przejął tylko POZOSTAŁOŚĆ, więc zużyta
                 # część budżetu poprzednika nadal jest częścią pozycji —
                 # inaczej „wykorzystano" przekraczałoby wartość umowy.
@@ -1379,6 +1411,7 @@ async def _apply_line_history(
     """
     if not lines:
         return
+    today = business_today()
     by_id = {line.id: line for line in lines}
     rows = await db.execute(
         select(ClientOrderGroupEvent, User.name)
@@ -1403,6 +1436,9 @@ async def _apply_line_history(
     # odróżniamy zamianę (następca przejął pozostałość) od zastępstwa przez
     # `replaces_order_id` (następca ma własny budżet).
     swapped_old_ids: set[int] = set()
+    # „Wejdź za konsultanta" (ticket 09.2026): następca przejął pozostałe MD,
+    # a budżet odchodzącego zdjęto o nie — liczy się jak zamiana.
+    takeover_old_ids: set[int] = set()
     for event, author in rows.all():
         if event.event_type == EVENT_CONSULTANT_ENDED:
             ended.setdefault(event.order_id, []).append((event, author))
@@ -1411,6 +1447,13 @@ async def _apply_line_history(
                 old_id = (event.payload or {}).get("old_order_id")
                 if isinstance(old_id, int):
                     swapped_old_ids.add(old_id)
+            if event.event_type == EVENT_CONSULTANT_ADDED:
+                payload = event.payload or {}
+                old_id = payload.get("takeover_from_order_id")
+                if payload.get("assignment") == ASSIGNMENT_TAKEOVER and isinstance(
+                    old_id, int
+                ):
+                    takeover_old_ids.add(old_id)
             added.setdefault(event.order_id, (event, author))
 
     # Tag „Zastąpiony → następca" (Faza B): linia wskazująca tę jako
@@ -1420,6 +1463,9 @@ async def _apply_line_history(
     # najnowsza linia.
     successor_by_predecessor: dict[int, ClientOrder] = {}
     for line in lines:
+        if line.status == ClientOrderStatus.cancelled:
+            # Anulowane zaplanowane zastępstwo nie jest następcą.
+            continue
         if line.predecessor_order_id in by_id:
             current = successor_by_predecessor.get(line.predecessor_order_id)
             if current is None or line.id > current.id:
@@ -1449,8 +1495,18 @@ async def _apply_line_history(
             item.replaced_by_order_id = successor.id
             item.replaced_by_consultant_name = consultant_display_name(successor)
             item.replaced_by_kind = (
-                "swap" if line.id in swapped_old_ids else "replacement"
+                "swap"
+                if line.id in swapped_old_ids
+                else "takeover"
+                if line.id in takeover_old_ids
+                else "replacement"
             )
+            item.replaced_by_start_date = successor.start_date
+            item.replaced_by_scheduled = successor.status == ClientOrderStatus.draft
+            if item.replaced_by_kind in ("swap", "takeover") and (
+                successor.md_total is not None
+            ):
+                item.replaced_by_md = quantize_md(line_budget_total(successor))
 
         entry = added.get(line.id)
         if entry is not None:
@@ -1469,6 +1525,25 @@ async def _apply_line_history(
                 elif _added_later(group.created_at, event.created_at):
                     item.origin = "manual"
                 item.replaces_name = payload.get("replaces") or None
+            assignment = payload.get("assignment")
+            if assignment in (ASSIGNMENT_JOIN, ASSIGNMENT_TAKEOVER):
+                item.assignment_kind = assignment
+            if assignment == ASSIGNMENT_TAKEOVER:
+                item.takeover_from_name = (
+                    payload.get("takeover_from_name")
+                    or item.predecessor_consultant_name
+                )
+                method = payload.get("md_transfer_method")
+                if method in TRANSFER_METHODS:
+                    item.takeover_method = method
+                item.takeover_scheduled = (
+                    bool(payload.get("scheduled"))
+                    and line.status == ClientOrderStatus.draft
+                )
+                # Ile MD przeszło: przy zaplanowanym — prognoza „na dziś",
+                # po wejściu — budżet linii (przelicza go korekta FIN-MD-02).
+                if line.md_total is not None:
+                    item.takeover_md = quantize_md(line_budget_total(line))
 
         for event, author in ended.get(line.id, []):
             payload = event.payload or {}
@@ -1489,6 +1564,17 @@ async def _apply_line_history(
             status_value = getattr(contract.status, "value", contract.status)
             if status_value == ContractStatus.ended.value or contract.terminated_at:
                 item.cooperation_ended_on = contract.terminated_at or contract.end_date
+        source_state = takeover_source_state(
+            line,
+            contract=line.contract,
+            cases=[item.offboarding_case] if item.offboarding_case else [],
+            has_successor=successor is not None,
+            history_decided=bool(item.history_kept_at) or item.removed_from_order,
+            today=today,
+        )
+        if source_state is not None:
+            item.takeover_source = source_state.state
+            item.departure_date = source_state.departure_date
         if item.is_active and item.offboarding_case is None:
             # Aktywna linia z wznowionym kontraktem nie jest „zakończoną współpracą".
             # Warunek idzie po OBSADZIE, nie po samym statusie: linia MD kończy
@@ -1884,6 +1970,7 @@ def _line_origin_payload(
         # Tylko identyfikator ZWERYFIKOWANY przez handler (linia tej grupy).
         "replaces_order_id": replaced_order_id,
         "historical": payload.historical,
+        "assignment": payload.assignment,
     }
 
 
@@ -4855,6 +4942,19 @@ async def resolve_md_offboarding_case(
                 "version": case.version,
             },
         )
+    scheduled = await scheduled_successor_of(db, case.order_id)
+    if scheduled is not None:
+        # Zaplanowane „Wejdź za konsultanta" rozstrzygnie tę sprawę samo
+        # w dniu wejścia; druga, ręczna decyzja rozdysponowałaby tę samą pulę.
+        raise HTTPException(
+            409,
+            detail=(
+                "Na tę osobę jest zaplanowane zastępstwo od "
+                f"{scheduled.start_date.strftime('%d.%m.%Y') if scheduled.start_date else '—'}"
+                " — pozostałe MD przejdą automatycznie. Usuń zaplanowane "
+                "zastępstwo, jeśli chcesz podjąć inną decyzję."
+            ),
+        )
 
     # Resolve i operacje grupowe mogą dotykać dwóch tych samych linii. Blokuj
     # source + target jednym zapytaniem w rosnącym porządku ID; osobne locki
@@ -4886,6 +4986,7 @@ async def resolve_md_offboarding_case(
 
     remaining = max(Decimal("0"), quantize_md(case.remaining_md_snapshot))
     transferred_md = Decimal("0")
+    transfer_method: Optional[str] = None
     target: Optional[ClientOrder] = None
     target_name: Optional[str] = None
     source_rate = case.rate_revenue_snapshot or source.md_rate_revenue
@@ -4934,14 +5035,35 @@ async def resolve_md_offboarding_case(
         if not case.uses_shared_md_pool:
             if target.md_total is None:
                 raise HTTPException(422, detail="Linia docelowa nie ma budżetu MD")
-            basis_rate = (
-                source_rate
-                if payload.rate_basis == OFFBOARDING_RATE_BASIS_DEPARTING
-                else target_rate
-            )
+            if payload.md_transfer_method is not None:
+                # Ticket 09.2026 (B1): pula w MD → 1:1, pula w kwocie → wybór
+                # stawki; `rate_basis` sprawy jest wyprowadzany z wyboru.
+                try:
+                    transfer_method = resolve_transfer_method(
+                        line_pool_unit(source), payload.md_transfer_method
+                    )
+                except TakeoverError as exc:
+                    raise HTTPException(exc.status, detail=str(exc)) from exc
+                if source_rate is None or source_rate <= 0:
+                    raise HTTPException(
+                        422, detail="Brak stawki do przeliczenia puli MD"
+                    )
+                basis_rate = basis_rate_for(transfer_method, source_rate, target_rate)
+                rebalance_evidence["md_transfer_method"] = transfer_method
+            else:
+                basis_rate = (
+                    source_rate
+                    if payload.rate_basis == OFFBOARDING_RATE_BASIS_DEPARTING
+                    else target_rate
+                )
             if basis_rate is None or basis_rate <= 0:
                 raise HTTPException(422, detail="Brak stawki do przeliczenia puli MD")
-            transferred_md = quantize_md(remaining * basis_rate / target_rate)
+            if transfer_method is not None:
+                transferred_md = transferred_md_for(
+                    transfer_method, remaining, source_rate, target_rate
+                )
+            else:
+                transferred_md = quantize_md(remaining * basis_rate / target_rate)
             rebalance_evidence["basis_rate"] = str(basis_rate)
             target.md_total = quantize_md(
                 Decimal(str(target.md_total)) + transferred_md
@@ -5010,7 +5132,16 @@ async def resolve_md_offboarding_case(
     case.status = OFFBOARDING_STATUS_RESOLVED
     case.resolution = payload.action
     case.target_order_id = target.id if target is not None else None
-    case.rate_basis = payload.rate_basis
+    case.rate_basis = (
+        stored_rate_basis(transfer_method)
+        if transfer_method is not None
+        else payload.rate_basis
+        if payload.action == OFFBOARDING_RESOLUTION_TRANSFER
+        else None
+    )
+    if payload.action == OFFBOARDING_RESOLUTION_TRANSFER and case.rate_basis is None:
+        # Wspólna pula bez przeliczenia: CHECK wymaga podstawy przy transferze.
+        case.rate_basis = OFFBOARDING_RATE_BASIS_RECIPIENT
     case.resolved_at = now
     case.resolved_by_user_id = user.id
     case.version += 1
@@ -5059,6 +5190,17 @@ async def resolve_md_offboarding_case(
             if case.uses_shared_md_pool
             else f"pozostałe {format_md(remaining)} MD usunięto z zamówienia."
         )
+    elif transfer_method is not None and not case.uses_shared_md_pool:
+        event_type = EVENT_MD_OFFBOARDING_TRANSFERRED
+        description = describe_transfer(
+            source_name=source_name,
+            target_name=target_name or "konsultant",
+            entry_date=case.effective_date + timedelta(days=1),
+            transferred=transferred_md,
+            remaining=remaining,
+            method=transfer_method,
+            departing_rate=source_rate,
+        )
     else:
         event_type = EVENT_MD_OFFBOARDING_TRANSFERRED
         description = f"{source_name} — zakończenie współpracy obsłużone: " + (
@@ -5093,6 +5235,317 @@ async def resolve_md_offboarding_case(
     return _offboarding_case_to_read(
         case,
         with_finance=await _can_see_finance(db, user, client_id),
+    )
+
+
+@router.post(
+    "/{client_id}/order-groups/{group_id}/takeover",
+    response_model=OrderLineRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def take_over_consultant(
+    client_id: int,
+    group_id: int,
+    payload: OrderLineTakeoverRequest,
+    user: DeliveryLeadOrAdmin,
+    db: AsyncSession = Depends(get_db),
+):
+    """„Wejdź za konsultanta" — nowa osoba przejmuje pozostałe MD odchodzącego.
+
+    Dwie odmiany (ticket 09.2026):
+
+    * odchodzący już nie pracuje (sprawa offboardingu czeka albo linia jest
+      zakończona) — przeniesienie od razu, nowa linia aktywna;
+    * odchodzący ma PRZYSZŁĄ datę zakończenia — zastępstwo zaplanowane: nowa
+      linia czeka jako szkic, a pula przechodzi w dniu wejścia
+      (``activate_due_takeovers`` w nocnym cyklu kontraktów).
+
+    Przeniesienie i jego zapis w historii liczy ``order_line_takeover``; ta
+    trasa pilnuje uprawnień, stanu zamówienia i nowej osoby.
+    """
+    await _assert_line_finance_write_allowed(
+        db, user, client_id, {"rate_cost", "rate_revenue"}
+    )
+    await _assert_client(db, client_id)
+    _assert_multi_client(client_id)
+    if not await _has_md_line_management_access(db, user, client_id):
+        raise deny(
+            "zastępstwo z przejęciem puli MD ustawia Delivery Lead albo administrator"
+        )
+
+    group = await db.scalar(
+        select(ClientOrderGroup)
+        .where(
+            ClientOrderGroup.id == group_id,
+            ClientOrderGroup.client_id == client_id,
+        )
+        .with_for_update()
+    )
+    if group is None:
+        raise HTTPException(404, detail="Zamówienie nie istnieje")
+    if group.status != GROUP_STATUS_ACTIVE:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=(
+                f"Zamówienie {group.order_number} nie jest aktywne — zastępstwo "
+                "można ustawić tylko na aktywnym zamówieniu."
+            ),
+        )
+    if group.is_cost_based or uses_shared_md_pool(group):
+        raise HTTPException(
+            422,
+            detail=(
+                "Przejęcie pozostałych MD dotyczy zamówień z pulą MD per osoba — "
+                "tu budżet jest wspólny dla całego zamówienia."
+            ),
+        )
+
+    # Kontrakty linii → linie, zanim zablokujemy odchodzącego (kolejność
+    # blokad wszystkich writerów zamówień).
+    await _lock_group_lines(db, group.id)
+    source = await db.scalar(
+        _line_query()
+        .where(
+            ClientOrder.id == payload.departing_order_id,
+            ClientOrder.order_group_id == group.id,
+            ClientOrder.client_id == client_id,
+        )
+        .with_for_update()
+    )
+    if source is None:
+        raise HTTPException(
+            422, detail="Osoba odchodząca nie należy do tego zamówienia"
+        )
+    source_name = consultant_display_name(source)
+    state = await load_takeover_source(db, source)
+    if state is None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=(
+                f"Za {source_name} nie można już wejść — pozostałe MD tej osoby "
+                "zostały rozdysponowane albo współpraca trwa bez daty zakończenia."
+            ),
+        )
+    if (
+        state.case is not None
+        and payload.expected_case_version is not None
+        and state.case.version != payload.expected_case_version
+    ):
+        raise HTTPException(
+            409,
+            detail={
+                "code": "offboarding_case_version_conflict",
+                "message": "Sprawa zmieniła się w innym oknie. Odśwież zamówienie.",
+                "version": state.case.version,
+            },
+        )
+    try:
+        method = resolve_transfer_method(
+            line_pool_unit(source), payload.md_transfer_method
+        )
+    except TakeoverError as exc:
+        raise HTTPException(exc.status, detail=str(exc)) from exc
+
+    incoming = await _resolve_contract(db, client_id, payload.contract_id)
+    incoming_status = getattr(incoming.status, "value", incoming.status)
+    if incoming_status in (ContractStatus.ended.value, ContractStatus.void.value):
+        raise HTTPException(
+            422,
+            detail=(
+                "Nowa osoba ma zakończony albo unieważniony kontrakt u tego "
+                "klienta — nie może wejść na zamówienie."
+            ),
+        )
+    if (
+        source.contract is not None
+        and source.contract.candidate_id is not None
+        and source.contract.candidate_id == incoming.candidate_id
+    ):
+        raise HTTPException(422, detail="Nowa osoba to ta sama osoba, która odchodzi")
+    await _assert_not_on_order_yet(
+        db, group=group, contract=incoming, candidate=incoming.candidate
+    )
+
+    scheduled = state.state == SOURCE_LEAVING
+    departure = state.departure_date
+    if scheduled and departure is not None and payload.entry_date <= departure:
+        raise HTTPException(
+            422,
+            detail=(
+                f"Data wejścia musi przypadać po ostatnim dniu pracy {source_name} "
+                f"({departure.strftime('%d.%m.%Y')})."
+            ),
+        )
+    if payload.entry_date < group.start_date or (
+        group.end_date is not None and payload.entry_date > group.end_date
+    ):
+        raise HTTPException(422, detail="Data wejścia wykracza poza okres zamówienia")
+
+    for removed_order_id in await absorb_auto_draft_shells(db, incoming.id):
+        db.add(
+            Activity(
+                entity_type="client_order",
+                entity_id=removed_order_id,
+                action="order_deleted",
+                user_id=user.id,
+                details={
+                    "contract_id": incoming.id,
+                    "client_id": client_id,
+                    "order_group_id": group.id,
+                    "reason": "absorbed_auto_draft_shell",
+                },
+            )
+        )
+
+    job_id: Optional[int] = None
+    if incoming.job_id is not None:
+        job_id = await db.scalar(
+            select(Job.id).where(Job.id == incoming.job_id, Job.client_id == client_id)
+        )
+    candidate = incoming.candidate
+    who = (
+        f"{candidate.name or ''} {candidate.lastname or ''}".strip()
+        if candidate
+        else ""
+    ) or "konsultant"
+    now = datetime.now(timezone.utc)
+    target = ClientOrder(
+        client_id=client_id,
+        contract_id=incoming.id,
+        job_id=job_id,
+        order_group_id=group.id,
+        order_type=group.order_type,
+        title=f"Zamówienie {group.order_number} — {who}"[:255],
+        status=ClientOrderStatus.draft if scheduled else ClientOrderStatus.active,
+        start_date=payload.entry_date,
+        end_date=group.end_date,
+        filled_at=None if scheduled else now,
+        md_rate_cost=payload.rate_cost,
+        md_rate_revenue=payload.rate_revenue,
+        rate_candidate=payload.rate_cost,
+        rate_client=payload.rate_revenue,
+        rate_unit=RateUnit.daily,
+        billing_hours_per_month=HOURS_PER_MONTH,
+        currency="PLN",
+        rate_client_currency="PLN",
+        rate_candidate_currency="PLN",
+        md_manual_adjustment=Decimal("0"),
+        predecessor_order_id=source.id,
+        executive_contract_id=source.executive_contract_id
+        or group.executive_contract_id,
+        project_part=source.project_part,
+        created_by_user_id=user.id,
+    )
+    if scheduled:
+        # Prognoza „na dziś" — w dniu wejścia pula jest liczona od nowa, bo
+        # odchodzący do końca współpracy dalej zużywa MD.
+        current = max(Decimal("0"), quantize_md(source.md_remaining or 0))
+        base_rem, opt_rem = await _swap_split_remaining(db, source, current)
+        try:
+            base_new, opt_new = projected_budget(
+                source=source,
+                method=method,
+                incoming_rate=payload.rate_revenue,
+                base_remaining=base_rem,
+                optional_remaining=opt_rem,
+            )
+        except TakeoverError as exc:
+            raise HTTPException(exc.status, detail=str(exc)) from exc
+        target.md_input_mode = INPUT_MODE_MD
+        target.md_input_value = base_new
+        target.md_total = base_new
+        target.md_optional_total = opt_new
+        target.md_remaining = quantize_md(base_new + (opt_new or Decimal("0")))
+    else:
+        # Budżet ustawi przeniesienie; do tego czasu linia musi spełniać CHECK
+        # spójności pól MD (komplet albo nic).
+        target.md_input_mode = INPUT_MODE_MD
+        target.md_input_value = Decimal("0")
+        target.md_total = Decimal("0")
+        target.md_remaining = Decimal("0")
+    db.add(target)
+    await db.flush()
+
+    if scheduled:
+        moved = quantize_md(target.md_remaining or 0)
+    else:
+        try:
+            result = await apply_takeover_transfer(
+                db,
+                group=group,
+                source=source,
+                target=target,
+                departure_date=departure or (payload.entry_date - timedelta(days=1)),
+                entry_date=payload.entry_date,
+                method=method,
+                case=state.case,
+                actor_id=user.id,
+            )
+        except TakeoverError as exc:
+            raise HTTPException(exc.status, detail=str(exc)) from exc
+        moved = result.transferred
+        await _sync_contract_after_live_group_line(db, target, actor_id=user.id)
+
+    how = TRANSFER_METHOD_LABELS[method]
+    entry_label = payload.entry_date.strftime("%d.%m.%Y")
+    description = (
+        f"{who} — zaplanowane zastępstwo za {source_name} od {entry_label}: "
+        f"w dniu wejścia przejmie pozostałe MD ({how}); dziś to "
+        f"{format_md(moved)} MD."
+        if scheduled
+        else f"{who} — zastępstwo za {source_name} od {entry_label}: przejęła "
+        f"{format_md(moved)} MD ({how})."
+    )
+    record_event(
+        db,
+        group_id=group.id,
+        order_id=target.id,
+        event_type=EVENT_CONSULTANT_ADDED,
+        description=description,
+        payload={
+            "consultant": who,
+            "rate_cost": str(target.md_rate_cost),
+            "rate_revenue": str(target.md_rate_revenue),
+            "md_total": str(target.md_total),
+            "origin": "manual",
+            "replaces": source_name,
+            "replaces_order_id": source.id,
+            "assignment": ASSIGNMENT_TAKEOVER,
+            "takeover_from_order_id": source.id,
+            "takeover_from_name": source_name,
+            "md_transfer_method": method,
+            "md_transferred": str(moved),
+            "entry_date": payload.entry_date.isoformat(),
+            "departure_date": None if departure is None else departure.isoformat(),
+            "scheduled": scheduled,
+        },
+        user_id=user.id,
+    )
+    db.add(
+        Activity(
+            entity_type="client",
+            entity_id=client_id,
+            action="order_line_takeover",
+            user_id=user.id,
+            details={
+                "group_id": group.id,
+                "from": source.id,
+                "to": target.id,
+                "scheduled": scheduled,
+                "method": method,
+            },
+        )
+    )
+    superseded_paths = await _sync_group_pdf_for_new_line(db, group=group, user=user)
+    await commit_order_write(db)
+    for path in superseded_paths:
+        storage_service.delete_contract_document(path)
+
+    refreshed = await db.scalar(_line_query().where(ClientOrder.id == target.id))
+    return _line_to_read(
+        refreshed,
+        with_finance=await _can_see_finance(db, user, client_id),
+        group_end_date=group.end_date,
     )
 
 
@@ -5171,6 +5624,7 @@ async def swap_consultant(
     md_remaining_old: Optional[Decimal] = None
     md_total_new: Optional[Decimal] = None
     md_optional_new: Optional[Decimal] = None
+    transfer_method: Optional[str] = None
     if not has_group_budget:
         await recompute_remaining(db, old)
         md_remaining_old = Decimal(str(old.md_remaining or 0))
@@ -5198,17 +5652,35 @@ async def swap_consultant(
             Decimal("0"), md_remaining_old - optional_remaining_old
         )
         try:
-            md_total_new = swap_md_total(
-                md_remaining_old=base_remaining_old,
-                rate_revenue_old=old.md_rate_revenue,
-                rate_revenue_new=payload.rate_revenue,
-            )
-            if old.md_optional_total is not None:
-                md_optional_new = swap_md_total(
-                    md_remaining_old=optional_remaining_old,
+            if payload.md_transfer_method is not None:
+                # Ticket 09.2026 (B1): pula w MD przechodzi 1:1, pula w kwocie
+                # po stawce wybranej przez DL — ta sama reguła co „Wejdź za
+                # konsultanta" i decyzja o MD.
+                transfer_method = resolve_transfer_method(
+                    line_pool_unit(old), payload.md_transfer_method
+                )
+                md_total_new, md_optional_new = split_transferred(
+                    method=transfer_method,
+                    base_remaining=base_remaining_old,
+                    optional_remaining=optional_remaining_old,
+                    has_optional=old.md_optional_total is not None,
+                    departing_rate=old.md_rate_revenue,
+                    incoming_rate=payload.rate_revenue,
+                )
+            else:
+                md_total_new = swap_md_total(
+                    md_remaining_old=base_remaining_old,
                     rate_revenue_old=old.md_rate_revenue,
                     rate_revenue_new=payload.rate_revenue,
                 )
+                if old.md_optional_total is not None:
+                    md_optional_new = swap_md_total(
+                        md_remaining_old=optional_remaining_old,
+                        rate_revenue_old=old.md_rate_revenue,
+                        rate_revenue_new=payload.rate_revenue,
+                    )
+        except TakeoverError as exc:
+            raise HTTPException(exc.status, detail=str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(422, detail=str(exc)) from exc
 
@@ -5326,14 +5798,26 @@ async def swap_consultant(
         value_pln = remaining_value_pln(
             md_remaining=md_remaining_old, rate_revenue=old.md_rate_revenue
         )
-        description = (
-            f"Zamiana kontraktora {payload.swap_date.isoformat()}: "
-            f"{old_who} ({format_md(old.md_rate_revenue)} zł/MD, "
-            f"pozostało {format_md(md_remaining_old)} MD) → "
-            f"{new_who} ({format_md(payload.rate_revenue)} zł/MD, "
-            f"{format_md(md_total_new)} MD). "
-            f"Wartość pozostała bez zmian: {format_md(value_pln)} zł."
-        )
+        if transfer_method is not None:
+            moved = quantize_md(md_total_new + (md_optional_new or Decimal("0")))
+            description = (
+                f"Zamiana kontraktora — przeniesienie MD: {old_who} → {new_who} "
+                f"od {payload.swap_date.strftime('%d.%m.%Y')}: {format_md(moved)} MD "
+                f"({TRANSFER_METHOD_LABELS[transfer_method]}). Pozostało "
+                f"{format_md(md_remaining_old)} MD × "
+                f"{format_md(old.md_rate_revenue)} zł/MD = {format_md(value_pln)} zł."
+            )
+            event_payload["md_transfer_method"] = transfer_method
+            event_payload["md_transferred"] = str(moved)
+        else:
+            description = (
+                f"Zamiana kontraktora {payload.swap_date.isoformat()}: "
+                f"{old_who} ({format_md(old.md_rate_revenue)} zł/MD, "
+                f"pozostało {format_md(md_remaining_old)} MD) → "
+                f"{new_who} ({format_md(payload.rate_revenue)} zł/MD, "
+                f"{format_md(md_total_new)} MD). "
+                f"Wartość pozostała bez zmian: {format_md(value_pln)} zł."
+            )
         event_payload["old_md_remaining"] = str(md_remaining_old)
         event_payload["new_md_total"] = str(md_total_new)
         # FIN-MD-02: tylko zamiany z tym znacznikiem są automatycznie korygowane

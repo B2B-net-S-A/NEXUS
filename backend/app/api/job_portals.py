@@ -1,4 +1,4 @@
-"""Multiposting rekrutacji na portale (Pracuj.pl, JustJoinIT) — szkielet (0359).
+"""Multiposting rekrutacji na portale (Pracuj.pl, JustJoinIT) — szkielet (0360).
 
     GET  /api/job-portals/config                         — które portale działają
     GET  /api/jobs/{job_id}/portals                      — publikacje rekrutacji

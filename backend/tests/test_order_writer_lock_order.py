@@ -36,6 +36,7 @@ WRITER_MODULES = (
     "services/contract_order_offboarding.py",
     "services/contract_client_reassign.py",
     "services/b2b_contract_automation.py",
+    "services/order_line_takeover.py",
     "services/contract_lifecycle.py",
 )
 

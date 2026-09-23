@@ -816,6 +816,9 @@ export function contractorMatchesPill(
 ): boolean {
   if (pill === "all") return true;
   if (pill === "active") {
+    // Karta szkicu (żywy kontrakt bez zamówień poza szkicami) nie jest aktywną
+    // obsadą — stoi w „Draft" (ticket 09.2026, sekcja „Szkice").
+    if (contractor.draft_card) return false;
     return (
       contractor.contract_status === "active" ||
       contractor.contract_status === "ending" ||
@@ -836,6 +839,7 @@ export function contractorMatchesPill(
   }
   if (pill === "draft") {
     return (
+      contractor.draft_card === true ||
       contractor.orders.some((order) => order.status === "draft") ||
       (contractor.contract_status === "draft" &&
         !contractor.orders.some((order) => order.status === "active"))

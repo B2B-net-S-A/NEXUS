@@ -1,4 +1,4 @@
-"""Wspólny interfejs adapterów portali ogłoszeniowych (0359).
+"""Wspólny interfejs adapterów portali ogłoszeniowych (0360).
 
 Adapter zna WYŁĄCZNIE protokół portalu. Co publikujemy (treść z
 zatwierdzonego opisu publicznego, link aplikacyjny), kiedy (kolejka) i kto

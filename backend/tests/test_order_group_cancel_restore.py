@@ -1,4 +1,4 @@
-"""Anulowanie zamówienia MD/kosztowego z przywróceniem (0358, PR2).
+"""Anulowanie zamówienia MD/kosztowego z przywróceniem (0359, PR2).
 
 Pokrywa:
 

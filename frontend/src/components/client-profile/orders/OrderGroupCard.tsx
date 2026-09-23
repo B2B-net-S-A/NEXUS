@@ -46,6 +46,7 @@ import { countPl } from "@/lib/plural-pl";
 import { formatDateTimePl } from "@/lib/date-pl";
 import { formatDate, formatPLN } from "@/types/client-profile";
 import { isEzdrowieClient } from "@/lib/ezdrowie";
+import { MD_TRANSFER_METHOD_LABELS } from "@/lib/order-takeover";
 
 import {
   consultantUsageSentence,
@@ -410,6 +411,16 @@ function OrderLineRow({
   const perPersonMd = !group.is_cost_based && !sharedMd;
   const replacedBy =
     line.replaced_by_order_id != null ? line.replaced_by_consultant_name : null;
+  // B2 (ticket 09.2026): MD przeniesione na następcę nie są już „pozostało"
+  // u osoby odchodzącej — pasek pokazuje zero, a zdanie mówi, kto je przejął.
+  const transferredOut =
+    line.replaced_by_md != null &&
+    (line.replaced_by_kind === "swap" || line.replaced_by_kind === "takeover") &&
+    !line.replaced_by_scheduled &&
+    !line.is_active;
+  const barLine: OrderLineRead = transferredOut ? { ...line, md_remaining: 0 } : line;
+  const scheduledTakeover = line.takeover_scheduled === true;
+  const pendingButScheduled = pendingOffboarding && line.replaced_by_scheduled === true;
   const endedCooperation = Boolean(line.cooperation_ended_on) && !line.is_active;
   // „[Osoba] wykorzystał(a) X zł / Y MD na tym zamówieniu przed zakończeniem
   // współpracy" — jedno zdanie dla zamówień MD i kosztowych.
@@ -474,14 +485,28 @@ function OrderLineRow({
                 Zakończył współpracę
               </span>
             ) : null}
-            {line.origin === "manual" ? (
+            {scheduledTakeover ? (
+              <span className="rounded bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
+                Zaplanowane zastępstwo od {formatDate(line.start_date)}
+              </span>
+            ) : line.assignment_kind === "takeover" ? (
+              <span className="rounded bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
+                Zastępstwo
+              </span>
+            ) : line.assignment_kind === "join" ? (
+              <span className="rounded bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
+                Dołączona
+              </span>
+            ) : line.origin === "manual" ? (
               <span className="rounded bg-warning-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-warning-muted-foreground">
                 Dodany ręcznie
               </span>
             ) : null}
             {line.replaced_by_order_id != null ? (
               <span className="rounded-full bg-warning-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-warning-muted-foreground">
-                Zastąpiony
+                {line.replaced_by_scheduled
+                  ? `Zastępstwo od ${formatDate(line.replaced_by_start_date ?? null)}`
+                  : "Zastąpiony"}
               </span>
             ) : null}
           </p>
@@ -491,7 +516,9 @@ function OrderLineRow({
               line.is_active && "truncate",
             )}
           >
-            {pendingOffboarding
+            {scheduledTakeover
+              ? "Zaplanowane zastępstwo"
+              : pendingOffboarding
               ? "Współpraca zakończona"
               : removed
                 ? "Usunięty z zamówienia"
@@ -501,7 +528,7 @@ function OrderLineRow({
                     ? "Konsultant"
                     : "Zakończony"}
             {line.start_date
-              ? line.is_active
+              ? line.is_active || scheduledTakeover
                 ? ` · od ${formatDate(line.start_date)}`
                 : ` · był na zamówieniu od ${formatDate(line.start_date)}`
               : ""}
@@ -509,7 +536,13 @@ function OrderLineRow({
               ? ` do ${formatDate(line.end_date)}`
               : ""}
           </p>
-          {pendingOffboarding && line.offboarding_case ? (
+          {pendingButScheduled ? (
+            <p role="status" className="mt-1 text-xs font-medium text-foreground">
+              Zastępstwo zaplanowane: {line.replaced_by_consultant_name} od{" "}
+              {formatDate(line.replaced_by_start_date ?? null)} — pozostałe MD
+              przejdą automatycznie w dniu wejścia.
+            </p>
+          ) : pendingOffboarding && line.offboarding_case ? (
             <p role="status" className="mt-1 text-xs font-medium text-destructive">
               Kontrakt zakończył się {formatDate(line.offboarding_case.effective_date)}.
               Wymagana decyzja o pozostałej puli MD
@@ -528,12 +561,40 @@ function OrderLineRow({
                   : formatPLN(line.invoiced_total)}
             </p>
           ) : null}
-          {line.predecessor_consultant_name ? (
+          {line.assignment_kind === "takeover" && line.takeover_from_name ? (
+            <p className="truncate text-xs text-muted-foreground">
+              {scheduledTakeover ? "Przejmie po" : "Przejęła po"}:{" "}
+              {line.takeover_from_name}
+              {line.takeover_md != null ? ` · ${formatMd(line.takeover_md)} MD` : ""}
+              {line.takeover_method
+                ? ` (${MD_TRANSFER_METHOD_LABELS[line.takeover_method]})`
+                : ""}
+            </p>
+          ) : line.predecessor_consultant_name ? (
             <p className="truncate text-xs text-muted-foreground">
               zastąpił: {line.predecessor_consultant_name}
             </p>
           ) : null}
-          {line.replaced_by_order_id != null ? (
+          {line.replaced_by_order_id != null &&
+          (line.replaced_by_kind === "takeover" || line.replaced_by_kind === "swap") ? (
+            <p className="truncate text-xs text-muted-foreground">
+              {line.replaced_by_scheduled ? "Zastąpi go" : "Zastąpiony przez"}:{" "}
+              <button
+                type="button"
+                onClick={() => focusOrderLine(line.replaced_by_order_id as number)}
+                aria-label={`Pokaż następcę${replacedBy ? `: ${replacedBy}` : ""}`}
+                className="font-medium text-primary underline-offset-2 hover:underline"
+              >
+                {replacedBy ?? "następca"}
+              </button>
+              {line.replaced_by_start_date
+                ? ` od ${formatDate(line.replaced_by_start_date)}`
+                : ""}
+              {transferredOut && line.replaced_by_md != null
+                ? ` · przejęła ${formatMd(line.replaced_by_md)} MD`
+                : ""}
+            </p>
+          ) : line.replaced_by_order_id != null ? (
             <p className="truncate text-xs text-muted-foreground">
               <button
                 type="button"
@@ -615,10 +676,10 @@ function OrderLineRow({
         // Podstawa + opcja — dwa paski ZUŻYCIA WYŁĄCZNIE na karcie przypiętej
         // do umowy wykonawczej (CeZ); BIK/Polkomtel dostają dotychczasowy
         // pasek „pozostało / całość" — backend zwraca `md_base_used` także im.
-        <MdScopeBars line={line} className="ml-auto" />
+        <MdScopeBars line={barLine} className="ml-auto" />
       ) : (
         <MdBudgetBar
-          remaining={line.md_remaining}
+          remaining={barLine.md_remaining}
           total={line.md_total}
           className="ml-auto"
         />
@@ -644,7 +705,7 @@ function OrderLineRow({
 
   const actionsBlock = (
     <>
-      {pendingOffboarding ? (
+      {pendingOffboarding && !pendingButScheduled ? (
         <div className="ml-auto flex flex-col items-end gap-1">
           {canManage ? (
             <button
@@ -791,7 +852,11 @@ function OrderLineRow({
         id={orderLineAnchorId(line.id)}
         className={cn(
           "rounded-xl border border-border bg-card px-4 py-3",
-          !line.is_active && !pendingOffboarding && !needsDecision && "opacity-60",
+          !line.is_active &&
+            !pendingOffboarding &&
+            !needsDecision &&
+            !scheduledTakeover &&
+            "opacity-60",
           searchQuery.trim() &&
             consultantMatchesQuery(line.consultant_name, searchQuery) &&
             "bg-primary/10 ring-1 ring-inset ring-primary/20",
@@ -825,9 +890,9 @@ function OrderLineRow({
               </span>
             </p>
           </div>
-          <MdScopePanels line={line} />
+          <MdScopePanels line={barLine} />
         </div>
-        <MdScopeTotalBar line={line} className="mt-2" />
+        <MdScopeTotalBar line={barLine} className="mt-2" />
         {hasHistoryNotes ? <div className="mt-2">{notesBlock}</div> : null}
       </li>
     );
@@ -839,7 +904,11 @@ function OrderLineRow({
       className={cn(
         "flex flex-wrap items-center gap-x-5 gap-y-2 py-2",
         cardSurface && "rounded-xl border border-border bg-card px-4",
-        !line.is_active && !pendingOffboarding && !needsDecision && "opacity-60",
+        !line.is_active &&
+            !pendingOffboarding &&
+            !needsDecision &&
+            !scheduledTakeover &&
+            "opacity-60",
         searchQuery.trim() &&
           consultantMatchesQuery(line.consultant_name, searchQuery) &&
           "rounded-md bg-primary/10 px-2 ring-1 ring-inset ring-primary/20",
@@ -1137,8 +1206,11 @@ export function OrderGroupCard({
   // odpowiadała na dwa różne pytania naraz i zespół czytał ją jako listę
   // pracujących. Sprawa wędruje teraz razem z wierszem do „Zakończone", a żeby
   // nie zniknęła z oczu, nagłówek tej sekcji niesie licznik decyzji.
+  // Zaplanowane zastępstwo (ticket 09.2026) czeka jako szkic w aktywnym
+  // zamówieniu — należy do bieżącej obsady, nie do „Zakończonych".
   const isDraftLine = (line: OrderLineRead) =>
-    group.status === "draft" && line.status === "draft";
+    (group.status === "draft" && line.status === "draft") ||
+    line.takeover_scheduled === true;
   const currentLines = sortedLines.filter(
     (line) => line.is_active || isDraftLine(line),
   );

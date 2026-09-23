@@ -1,7 +1,7 @@
 """Anulowanie zamówienia MD/kosztowego z możliwością przywrócenia.
 
-Revision ID: 0358_order_group_cancel
-Revises: 0357_application_confirmation
+Revision ID: 0359_order_group_cancel
+Revises: 0358_application_confirmation
 
 * ``client_order_groups.status`` dostaje wartość ``cancelled``. Do tej pory
   jedynym wyjściem z omyłkowo założonego zamówienia było usunięcie, które
@@ -17,8 +17,8 @@ Lustro w ``entrypoint.sh`` (alembic na prodzie bywa osierocony).
 
 from alembic import op
 
-revision = "0358_order_group_cancel"
-down_revision = "0357_application_confirmation"
+revision = "0359_order_group_cancel"
+down_revision = "0358_application_confirmation"
 branch_labels = None
 depends_on = None
 

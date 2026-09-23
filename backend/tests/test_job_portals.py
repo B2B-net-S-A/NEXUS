@@ -1,4 +1,4 @@
-"""Multiposting (0359) — szkielet Pracuj.pl + JustJoinIT za flagami OFF.
+"""Multiposting (0360) — szkielet Pracuj.pl + JustJoinIT za flagami OFF.
 
 Pokrywa:
 
@@ -260,7 +260,7 @@ async def test_sim_rows_are_removed_by_the_mirror_statement():
 
 def test_migration_and_entrypoint_mirror():
     migration = re.sub(
-        r"\s+", " ", (BACKEND / "alembic/versions/0359_job_portals.py").read_text()
+        r"\s+", " ", (BACKEND / "alembic/versions/0360_job_portals.py").read_text()
     )
     entrypoint = re.sub(r"\s+", " ", (BACKEND / "entrypoint.sh").read_text())
     for needle in (
@@ -275,4 +275,4 @@ def test_migration_and_entrypoint_mirror():
     ):
         assert needle in migration, needle
         assert needle in entrypoint, needle
-    assert 'down_revision = "0358_order_group_cancel"' in migration
+    assert 'down_revision = "0359_order_group_cancel"' in migration
