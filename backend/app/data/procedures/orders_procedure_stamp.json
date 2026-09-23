@@ -8,7 +8,7 @@
     "backend/app/api/order_mail_queue.py": "72e174bb8856ec1272eb7a2800e8dfeb5728a8e63170b3d25f5f61f3cdb954ba",
     "backend/app/models/client_order.py": "0b629ca994697de47aa0ab129be29568d907277733929f860664aeb241297531",
     "backend/app/models/client_order_group.py": "9ed9ba9dcf78c9da43e8705fa95eb53bf6581803881066efde2f35fec7a6c934",
-    "backend/app/services/client_order_lines.py": "c37aaa92d1558ac8a5ba25f2e942e7b7a3285743e215467befa664771b7f6c8a",
+    "backend/app/services/client_order_lines.py": "2b24205f930063cfb6937b4a51895c63b077e6156e2b87e1d2e4700d1f311ea3",
     "backend/app/services/contract_order_offboarding.py": "400cfee4e2dcf1686a655fbd46b0cd9bc3db6746baa048834ac4554de3c8dbaf",
     "backend/app/services/contract_order_sync.py": "bbf4c4f33eba9c6687e3e485dc6cb9af9214ca7e4c6a1d7491cecd811a4404de",
     "backend/app/services/cost_orders.py": "e092ebefe4ba313f8f359c4d5cb28efc10da657eb3da035c73953b1c1eef2bd8",

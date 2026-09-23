@@ -2126,11 +2126,10 @@ async def _revert_earlier_transfer(
     )
     if entry is None or (import_id is not None and entry.import_id == import_id):
         return
-    await db.scalar(
-        select(ClientOrder.id)
-        .where(ClientOrder.id == successor_line.id)
-        .with_for_update()
-    )
+    from app.services.contract_lifecycle import lock_contract_then_orders
+
+    # Kolejność blokad kontrakt → zamówienie (jak każdy writer zamówień).
+    await lock_contract_then_orders(db, order_ids=[successor_line.id])
     removed = Decimal(str(entry.md_reported))
     await delete_consumption(db, successor_line, period_month)
     record_event(
