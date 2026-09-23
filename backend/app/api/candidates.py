@@ -5212,6 +5212,12 @@ async def delete_candidate(
     from app.services.cv_source_erasure import detach_candidate_job_sources
 
     storage_keys.extend(await detach_candidate_job_sources(db, candidate_id))
+    # audyt 22.09 r2 (PROD-02): kopie snapshotów CV etapów w object storage
+    # (`stage-cv/<candidate_id>/…`) znikają razem z osobą — wiersze
+    # `candidate_stage_cvs` kaskadują, obiekty w storage nie.
+    from app.services.candidate_stage_cv_service import snapshot_keys_for_candidate
+
+    storage_keys.extend(await snapshot_keys_for_candidate(db, candidate_id))
     storage_keys = sorted(set(storage_keys))
 
     # Pseudonimizacja umów PRZED usunięciem: `SET NULL` zadziała w bazie sam,

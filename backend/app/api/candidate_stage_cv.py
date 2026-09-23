@@ -88,7 +88,9 @@ from app.schemas.candidate_stage_cv import (
 )
 from app.services import storage_service
 from app.services.candidate_stage_cv_service import (
+    load_original_cv_bytes,
     refresh_original_cv_snapshot,
+    snapshot_exists,
 )
 from app.services.hiring_manager_verdicts import veto_for_candidate_stage
 
@@ -103,7 +105,8 @@ _DEFAULT_LANGUAGE = "pl"
 
 
 def _build_original_response(csv: CandidateStageCV) -> CVOriginalSnapshotResponse:
-    has_snapshot = csv.original_cv_content is not None
+    # PROD-02: snapshot bywa w object storage (bajty w bazie = NULL).
+    has_snapshot = snapshot_exists(csv)
     return CVOriginalSnapshotResponse(
         candidate_stage_id=csv.candidate_stage_id,
         candidate_id=csv.candidate_id,
@@ -254,7 +257,24 @@ async def download_original_cv(
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     csv = await _load_csv_for_stage(db, stage_id, current_user, read_access=True)
-    if csv.original_cv_content is None:
+    if not snapshot_exists(csv):
+        raise HTTPException(
+            status_code=404,
+            detail="Kandydat nie miał CV w momencie utworzenia rekrutacji.",
+        )
+    try:
+        content = await load_original_cv_bytes(csv)
+    except Exception as exc:  # noqa: BLE001 — storage chwilowo niedostępny
+        logger.warning(
+            "Snapshot CV stage=%s: pobranie z object storage nieudane: %r",
+            stage_id,
+            exc,
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Nie udało się pobrać pliku CV z magazynu. Spróbuj ponownie.",
+        ) from exc
+    if content is None:
         raise HTTPException(
             status_code=404,
             detail="Kandydat nie miał CV w momencie utworzenia rekrutacji.",
@@ -266,11 +286,11 @@ async def download_original_cv(
         media_type = "application/octet-stream"
 
     return StreamingResponse(
-        BytesIO(csv.original_cv_content),
+        BytesIO(content),
         media_type=media_type,
         headers={
             "Content-Disposition": content_disposition_attachment(filename),
-            "Content-Length": str(len(csv.original_cv_content)),
+            "Content-Length": str(len(content)),
         },
     )
 
