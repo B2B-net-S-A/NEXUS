@@ -2535,6 +2535,19 @@ async def api_health_check():
     except Exception:
         checks["disk"] = "unknown"
 
+    # audyt 22.09 r2 (PROD-01): wolumen kopii zapasowych — z pliku statusu,
+    # który zapisuje cron hosta (`app/services/host_status.py`). Informacyjne.
+    backup_volume_percent: int | None = None
+    backup_volume_checked_at: str | None = None
+    try:
+        from app.services.host_status import read_backup_volume
+
+        backup_volume_percent, backup_volume_checked_at = read_backup_volume(
+            settings.HOST_STATUS_DIR
+        )
+    except Exception as exc:  # noqa: BLE001 — sonda informacyjna
+        logger.warning("[health] backup volume check failed: %s", exc)
+
     db_healthy = checks.get("database") == "healthy"
     overall = "healthy" if db_healthy else "unhealthy"
 
@@ -2544,6 +2557,8 @@ async def api_health_check():
             "version": os.environ.get("GIT_SHA", "unknown"),
             "deployedAt": _resolve_deployed_at(),
             "diskPercent": disk_percent,
+            "backupVolumePercent": backup_volume_percent,
+            "backupVolumeCheckedAt": backup_volume_checked_at,
             "checks": checks,
         },
         status_code=http_status.HTTP_200_OK
