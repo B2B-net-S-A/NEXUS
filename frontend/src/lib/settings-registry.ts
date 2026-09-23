@@ -42,6 +42,7 @@ export type SettingsItemId =
   | "cv"
   | "ranking"
   | "mail"
+  | "skills"
   | "contracts"
   | "rates"
   | "ai"
@@ -145,6 +146,13 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     // Zapis szablonu = `require_candidate_write` (emails.py) — każdy rekruter;
     // do 22.09 pozycję widział tylko admin (audyt ról U10).
     gate: { capability: "candidate.write" },
+  },
+  {
+    id: "skills", area: "rec", title: "Słownik umiejętności",
+    description: "Technologie i ich aliasy rozpoznawane w CV i wyszukiwarce.",
+    keywords: "umiejetnosci skille technologie aliasy taksonomia slownik cortex",
+    // `/api/skills-admin`: HeadOfRecruitmentPlus + zapis sekcji Sourcing.
+    gate: { roles: ["admin", "head_of_recruitment"], section: "sourcing", required: "write" },
   },
   {
     id: "contracts", area: "deals", title: "Wzory umów",

@@ -15,12 +15,13 @@
  * tylko woła confirm/reject i odświeża dane ekranu kluczami z odpowiedzi.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { usePathname } from "next/navigation";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, triggerSessionExpiredRedirect } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
+  cancelJarvisTurn,
   confirmAction,
   deleteConversation,
   fetchConversation,
@@ -35,7 +36,26 @@ import { screenFromLocation, suggestionsFor } from "@/lib/jarvis/context";
 import { JARVIS_OPEN_EVENT, type JarvisOpenDetail } from "@/lib/jarvis/events";
 import { applyStreamEvent, replaceAction, type JarvisTurnState } from "@/lib/jarvis/reducer";
 import { JarvisHttpError, streamJarvisChat } from "@/lib/jarvis/stream";
-import type { JarvisAction, JarvisPrefs, JarvisPrefsResponse } from "@/lib/jarvis/types";
+import type {
+  JarvisAction,
+  JarvisItem,
+  JarvisPrefs,
+  JarvisPrefsResponse,
+  ScreenGuide,
+  ScreenGuideTask,
+} from "@/lib/jarvis/types";
+import {
+  canShowUnsolicited,
+  markScreenSeen,
+  recordUnsolicited,
+  resetScreenSeen,
+  screenSeen,
+} from "@/lib/jarvis/bubble-budget";
+import { readStorage, storageKey, todayKey, writeStorage } from "@/lib/jarvis/storage";
+import { trackJarvisUi } from "@/lib/jarvis/telemetry";
+import { explainerFor } from "@/lib/help/error-explainers";
+import { JARVIS_STUCK_EVENT, type JarvisStuckDetail } from "@/lib/help/refusal-tracker";
+import { useScreenGuides } from "@/lib/help/useScreenGuides";
 import { playPetSound } from "@/lib/kidsSound";
 import { hasSectionAccess } from "@/lib/section-access";
 import { hasCapability } from "@/lib/capabilities";
@@ -52,8 +72,8 @@ import { useThemeStore } from "@/store/theme";
 import { JarvisAppearanceDialog } from "./JarvisAppearanceDialog";
 import { JarvisMascot } from "./JarvisMascot";
 import { JarvisPanel } from "./JarvisPanel";
+import { HelpSpotlight, showHelpAnchor } from "./HelpSpotlight";
 import { useKidsChatter } from "./useKidsChatter";
-import { warsawToday } from "@/lib/warsaw-date";
 
 const DEFAULT_PREFS: JarvisPrefsResponse = {
   character: "robot",
@@ -63,40 +83,36 @@ const DEFAULT_PREFS: JarvisPrefsResponse = {
   minimized: false,
   sound: false,
   daily_brief: true,
+  screen_tips: true,
+  notes: [],
   unlocked_characters: ["robot", "owl", "cat", "ghost", "rocket", "star", "dragon", "astronaut"],
   locked_characters: {},
 };
 
 const EMPTY_TURN: JarvisTurnState = { items: [], thinking: false, mood: "idle", conversationId: null };
 
-function storageKey(userId: number | undefined, name: string): string {
-  return `nexus:jarvis:${name}:v1:${userId ?? "anon"}`;
-}
-
-function readStorage(key: string): string | null {
-  try {
-    return window.localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-}
-
-function writeStorage(key: string, value: string | null): void {
-  try {
-    if (value === null) window.localStorage.removeItem(key);
-    else window.localStorage.setItem(key, value);
-  } catch {
-    /* storage zablokowany — funkcja działa bez pamięci */
-  }
-}
-
 function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   return target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
 }
 
-function todayKey(): string {
-  return warsawToday();
+/** Otwarte okno (Radix) — dymek nieproszony nie wchodzi wtedy między wiersze formularza. */
+function modalOpen(): boolean {
+  return Boolean(document.querySelector('[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]'));
+}
+
+/**
+ * `useSearchParams` wymaga granicy Suspense — osobny komponent, żeby shell
+ * renderował się bez niej. Zgłasza bieżący `?query` (zmiana zakładki bez
+ * zmiany ścieżki też zmienia ekran).
+ */
+function SearchWatcher({ onChange }: { onChange: (search: string) => void }) {
+  const params = useSearchParams();
+  const search = params?.toString() ?? "";
+  useEffect(() => {
+    onChange(search);
+  }, [search, onChange]);
+  return null;
 }
 
 export function JarvisRoot() {
@@ -140,6 +156,11 @@ export function JarvisRoot() {
   // pierwszeństwo przed porannym skrótem — dotyczy rekrutacji z tej chwili.
   const [nudge, setNudge] = useState<{ text: string; prompt: string } | null>(null);
   const [webMode, setWebMode] = useState(false);
+  const [search, setSearch] = useState("");
+  // Dymek „co tu robisz” przy pierwszej wizycie na ekranie.
+  const [screenTip, setScreenTip] = useState<{ key: string; text: string } | null>(null);
+  // Dymek po trzeciej takiej samej odmowie serwera.
+  const [stuck, setStuck] = useState<{ code: string; text: string } | null>(null);
   const loadedConversation = useRef<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -150,6 +171,51 @@ export function JarvisRoot() {
     autoTalk: kidsAutoTalk,
     firstName: user?.name?.trim().split(/\s+/)[0],
   });
+
+  // Przewodniki ekranów — tylko gdy asystent działa (klik dymka otwiera panel).
+  const guides = useScreenGuides(active && available);
+  const screen = useMemo(() => screenFromLocation(pathname, search), [pathname, search]);
+  const currentGuide: ScreenGuide | null = (screen.key && guides.get(screen.key)) || null;
+  const onSearchChange = useCallback((next: string) => setSearch(next), []);
+
+  const appendItems = useCallback((items: JarvisItem[]) => {
+    setTurn((t) => ({ ...t, items: [...t.items, ...items] }));
+  }, []);
+
+  const openGuide = useCallback(
+    (guide: ScreenGuide) => {
+      setOpen(true);
+      setView("chat");
+      appendItems([{ kind: "guide", guide }]);
+      trackJarvisUi("guide_opened", guide.key);
+    },
+    [appendItems],
+  );
+
+  const onGuideTask = useCallback(
+    (task: ScreenGuideTask) => {
+      appendItems([
+        { kind: "message", role: "user", markdown: task.q },
+        { kind: "message", role: "assistant", markdown: task.a },
+        ...(task.anchor
+          ? [{ kind: "highlight" as const, anchor: task.anchor, label: "Pokaż na ekranie", reason: "" }]
+          : []),
+      ]);
+      trackJarvisUi("guide_task", screen.key, task.anchor ?? null);
+    },
+    [appendItems, screen.key],
+  );
+
+  const anchorLabel = useCallback(
+    (anchorId: string): string => {
+      for (const guide of Array.from(guides.values())) {
+        const hit = guide.anchors.find((a) => a.id === anchorId);
+        if (hit) return hit.label;
+      }
+      return "ten element";
+    },
+    [guides],
+  );
 
   // Ostatnia rozmowa wraca po odświeżeniu strony.
   useEffect(() => {
@@ -205,18 +271,19 @@ export function JarvisRoot() {
       }));
       const controller = new AbortController();
       abortRef.current = controller;
-      const screen = screenFromLocation(
+      const turnScreen = screenFromLocation(
         typeof window !== "undefined" ? window.location.pathname : pathname,
         typeof window !== "undefined" ? window.location.search : "",
       );
       try {
         await streamJarvisChat(
-          { message: text, conversation_id: turn.conversationId, screen, web: webMode },
+          { message: text, conversation_id: turn.conversationId, screen: turnScreen, web: webMode },
           {
             signal: controller.signal,
             onUnauthorized: triggerSessionExpiredRedirect,
             onEvent: (event) => {
               if (event.type === "conversation") loadedConversation.current = event.conversation_id;
+              if (event.type === "highlight") showHelpAnchor(event.anchor);
               setTurn((t) => applyStreamEvent(t, event));
             },
           },
@@ -392,6 +459,31 @@ export function JarvisRoot() {
           /* jw. */
         }
       }
+      if (hasSectionAccess(user, "pipeline")) {
+        // Kolejka „Czeka na Ciebie” i cykl rozmów u klienta — to z nich
+        // naprawdę wynika dzień pracy (telefon po rozmowie, debrief, DZ).
+        try {
+          const { data } = await api.get<Record<string, unknown>>("/api/board-tasks");
+          const waiting = ["dz", "cpro_to_send", "dl_review"].reduce(
+            (sum, key) => sum + (Array.isArray(data?.[key]) ? (data[key] as unknown[]).length : 0),
+            0,
+          );
+          if (waiting > 0) parts.push(`${waiting} ${waiting === 1 ? "osoba czeka" : "osoby czekają"} na Twój przegląd`);
+        } catch {
+          /* jw. */
+        }
+        try {
+          const { data } = await api.get<{ todos?: { kind?: string }[] }>("/api/interview-cycle", {
+            params: { scope: "mine" },
+          });
+          const urgent = (data?.todos ?? []).filter((t) =>
+            ["call_now", "debrief_overdue", "slots_pick"].includes(String(t.kind)),
+          ).length;
+          if (urgent > 0) parts.push(`${urgent} ${urgent === 1 ? "sprawa" : "sprawy"} po rozmowach u klienta`);
+        } catch {
+          /* jw. */
+        }
+      }
       if (hasCapability(user, "nav.my_people")) {
         try {
           const { data } = await api.get<MyPeopleSummary>("/api/my-people/summary");
@@ -410,10 +502,65 @@ export function JarvisRoot() {
     };
   }, [active, available, prefs.daily_brief, user, briefKey]);
 
-  const suggestions = useMemo(
-    () => suggestionsFor(screenFromLocation(pathname, typeof window !== "undefined" ? window.location.search : "")),
-    [pathname],
+  const suggestions = useMemo(() => suggestionsFor(screen, currentGuide), [screen, currentGuide]);
+
+  // Dymek „co tu robisz” — raz na ekran na osobę, 2 s po wejściu, gdy nic
+  // innego nie mówi i nie ma otwartego okna. Wspólny budżet 3 dziennie.
+  const screenKey = screen.key ?? null;
+  const openRef = useRef(open);
+  openRef.current = open;
+  useEffect(() => {
+    setScreenTip(null);
+    if (!active || !available || !prefs.enabled || !prefs.screen_tips || !user || !screenKey) return;
+    const guide = guides.get(screenKey);
+    if (!guide || screenSeen(user.id, screenKey)) return;
+    const timer = window.setTimeout(() => {
+      if (openRef.current || modalOpen() || !canShowUnsolicited(user.id)) return;
+      markScreenSeen(user.id, screenKey);
+      recordUnsolicited(user.id);
+      setScreenTip({ key: screenKey, text: `${guide.what} Kliknij, pokażę, jak tu działać.` });
+      trackJarvisUi("bubble_shown", screenKey, "screen_tip");
+    }, 2000);
+    return () => window.clearTimeout(timer);
+  }, [active, available, prefs.enabled, prefs.screen_tips, user, screenKey, guides]);
+
+  // Trzecia taka sama odmowa serwera w 2 min → wyjaśnienie po ludzku.
+  useEffect(() => {
+    if (!active || !available || !prefs.enabled) return;
+    const onStuck = (e: Event) => {
+      const code = (e as CustomEvent<JarvisStuckDetail>).detail?.code;
+      const explainer = explainerFor(code);
+      if (!code || !explainer) return;
+      if (!open && (modalOpen() || !canShowUnsolicited(user?.id))) return;
+      if (!open) recordUnsolicited(user?.id);
+      setStuck({ code, text: `${explainer.title} — kliknij, wyjaśnię.` });
+      trackJarvisUi("stuck_shown", screenKey, code);
+    };
+    window.addEventListener(JARVIS_STUCK_EVENT, onStuck);
+    return () => window.removeEventListener(JARVIS_STUCK_EVENT, onStuck);
+  }, [active, available, prefs.enabled, open, user?.id, screenKey]);
+
+  const openStuck = useCallback(
+    (code: string) => {
+      const explainer = explainerFor(code);
+      if (!explainer) return;
+      setOpen(true);
+      setView("chat");
+      appendItems([
+        { kind: "message", role: "assistant", markdown: `**${explainer.title}.** ${explainer.text}` },
+        ...(explainer.anchor
+          ? [{ kind: "highlight" as const, anchor: explainer.anchor, label: anchorLabel(explainer.anchor), reason: "" }]
+          : []),
+      ]);
+      trackJarvisUi("stuck_clicked", screenKey, code);
+    },
+    [appendItems, anchorLabel, screenKey],
   );
+
+  const stop = useCallback(() => {
+    if (turn.conversationId) void cancelJarvisTurn(turn.conversationId).catch(() => undefined);
+    abortRef.current?.abort();
+  }, [turn.conversationId]);
 
   if (!active) return null;
 
@@ -438,7 +585,7 @@ export function JarvisRoot() {
       ? "Dzisiejszy limit wyszukiwań w internecie jest wyczerpany"
       : null;
   const mood = kids.mood ?? turn.mood;
-  const bubble = nudge?.text ?? brief ?? kids.bubble;
+  const bubble = nudge?.text ?? brief ?? stuck?.text ?? screenTip?.text ?? kids.bubble;
 
   return (
     <>
@@ -451,21 +598,34 @@ export function JarvisRoot() {
           minimized={prefs.minimized}
           open={open}
           bubble={bubble}
-          attention={Boolean(brief || nudge)}
+          attention={Boolean(brief || nudge || stuck)}
           onToggle={() => setOpen((v) => !v)}
           onBubbleClick={() => {
             const wasBrief = Boolean(brief);
             const pending = nudge;
+            const pendingStuck = !pending && !wasBrief ? stuck : null;
+            const tip = !pending && !wasBrief && !stuck ? screenTip : null;
             setNudge(null);
             setBrief(null);
+            setStuck(null);
+            setScreenTip(null);
             kids.dismiss();
             setOpen(true);
             if (pending && available) void send(pending.prompt);
             else if (wasBrief && available) void send("Co mam dziś do zrobienia? Zacznij od najpilniejszego.");
+            else if (pendingStuck) openStuck(pendingStuck.code);
+            else if (tip) {
+              const guide = guides.get(tip.key);
+              trackJarvisUi("bubble_clicked", tip.key, "screen_tip");
+              if (guide) openGuide(guide);
+            }
           }}
           onDismissBubble={() => {
+            if (screenTip && !nudge && !brief && !stuck) trackJarvisUi("bubble_dismissed", screenTip.key, "screen_tip");
             setNudge(null);
             setBrief(null);
+            setStuck(null);
+            setScreenTip(null);
             kids.dismiss();
           }}
         />
@@ -492,6 +652,11 @@ export function JarvisRoot() {
           webRemaining={webRemaining}
           webUnavailableReason={webUnavailableReason}
           onToggleWeb={() => setWebMode((v) => !v)}
+          onStop={stop}
+          guideTitle={currentGuide?.title ?? null}
+          onOpenGuide={currentGuide ? () => openGuide(currentGuide) : undefined}
+          onGuideTask={onGuideTask}
+          onShowAnchor={(anchorId) => showHelpAnchor(anchorId)}
           onDraftChange={setDraft}
           onSend={(m) => void send(m)}
           onNewChat={newChat}
@@ -515,7 +680,24 @@ export function JarvisRoot() {
         saving={savePrefs.isPending}
         error={savePrefs.isError ? apiErrorMessage(savePrefs.error, "Nie udało się zapisać wyglądu.") : null}
         onSave={(next) => savePrefs.mutate(next)}
+        onResetTips={() => resetScreenSeen(user?.id)}
       />
+      <HelpSpotlight
+        onShown={(anchorId) => trackJarvisUi("highlight_shown", screenKey, anchorId)}
+        onMissing={(anchorId) => {
+          trackJarvisUi("highlight_missing", screenKey, anchorId);
+          appendItems([
+            {
+              kind: "message",
+              role: "assistant",
+              markdown: `Nie widzę teraz na ekranie: **${anchorLabel(anchorId)}**. Może jest na innej zakładce, w zwiniętym panelu albo widzi go inna rola.`,
+            },
+          ]);
+        }}
+      />
+      <Suspense fallback={null}>
+        <SearchWatcher onChange={onSearchChange} />
+      </Suspense>
     </>
   );
 }

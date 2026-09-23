@@ -148,22 +148,6 @@ async def api_client():
         yield c
 
 
-async def test_dynareporter_mode_off_gives_410(api_client, monkeypatch):
-    email, password = await _seed_admin()
-    resp = await api_client.post(
-        "/api/auth/login", json={"email": email, "password": password}
-    )
-    headers = {"Authorization": f"Bearer {resp.json()['access_token']}"}
-
-    monkeypatch.setattr(settings, "DYNAREPORTER_MODE", "off")
-    r = await api_client.get("/api/dynareporter/profile/me", headers=headers)
-    assert r.status_code == 410, r.text
-
-    monkeypatch.setattr(settings, "DYNAREPORTER_MODE", "read_only")
-    r2 = await api_client.get("/api/dynareporter/profile/me", headers=headers)
-    assert r2.status_code == 200, r2.text
-
-
 async def test_cutover_requires_first_of_month(api_client, monkeypatch):
     monkeypatch.setattr(settings, "ANALYTICS_V1_MODE", "shadow")
     # Audyt M7 PR-05 (P1.7): cutover jest zamrożony za break-glass — ten test

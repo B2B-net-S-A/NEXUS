@@ -26,6 +26,10 @@ export interface JarvisPrefs {
   minimized: boolean;
   sound: boolean;
   daily_brief: boolean;
+  /** Dymek „co tu robisz” przy pierwszej wizycie na ekranie. */
+  screen_tips: boolean;
+  /** „Co Jarvis o mnie wie” — preferencje wpisane przez użytkownika (≤10). */
+  notes: string[];
 }
 
 export interface JarvisPrefsResponse extends JarvisPrefs {
@@ -73,12 +77,41 @@ export interface JarvisLink {
 
 /** Pozycja widoku rozmowy — i z historii (`GET …/conversations/{id}`), i ze strumienia. */
 export type JarvisItem =
-  | { kind: "message"; role: "user" | "assistant"; markdown: string }
+  | { kind: "message"; role: "user" | "assistant"; markdown: string; streaming?: boolean }
   | { kind: "link"; href: string; label: string; reason: string }
   | { kind: "action"; action: JarvisAction }
   | { kind: "steps"; steps: JarvisStep[] }
   | { kind: "sources"; items: JarvisSource[] }
-  | { kind: "error"; message: string };
+  | { kind: "error"; message: string }
+  /** Karta przewodnika ekranu — lokalnie, bez modelu. */
+  | { kind: "guide"; guide: ScreenGuide }
+  /** Element podświetlony na ekranie (show_on_screen albo „Pokaż na ekranie”). */
+  | { kind: "highlight"; anchor: string; label: string; reason: string };
+
+/** Przewodnik ekranu (`GET /api/help/screens`, `backend/app/data/screen_guides`). */
+export interface ScreenGuideTask {
+  q: string;
+  a: string;
+  anchor?: string | null;
+}
+
+export interface ScreenGuideAnchor {
+  id: string;
+  label: string;
+  describe: string;
+}
+
+export interface ScreenGuide {
+  key: string;
+  title: string;
+  section?: string | null;
+  roles: string[];
+  what: string;
+  tasks: ScreenGuideTask[];
+  pitfalls: string[];
+  anchors: ScreenGuideAnchor[];
+  help_slug?: string | null;
+}
 
 export interface JarvisStep {
   tool: string;
@@ -110,6 +143,11 @@ export type JarvisStreamEvent =
   | { type: "thinking"; step: number }
   | { type: "step"; tool: string; label: string; status: JarvisStep["status"] }
   | { type: "message"; markdown: string; final?: boolean }
+  /** Fragment odpowiedzi na żywo; `message` na końcu kroku go zastępuje. */
+  | { type: "delta"; text: string }
+  /** Ponowienie wywołania modelu — to, co pokazano, jest do wyrzucenia. */
+  | { type: "delta_reset" }
+  | { type: "highlight"; anchor: string; label: string; reason: string }
   | { type: "action_proposed"; action: JarvisAction }
   | ({ type: "deep_link" } & JarvisLink)
   | { type: "sources"; items: JarvisSource[] }
@@ -119,6 +157,8 @@ export type JarvisStreamEvent =
 export interface JarvisScreen {
   path: string;
   entity?: { type: "candidate" | "job" | "client" | "contract"; id: number } | null;
+  /** Klucz przewodnika ekranu (`lib/help/screen-key.ts`). */
+  key?: string | null;
 }
 
 /** Stan maskotki — steruje animacją postaci. */

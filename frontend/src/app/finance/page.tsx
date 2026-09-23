@@ -158,6 +158,7 @@ export default function FinancePage() {
           aria-label="Tryb modułu Finanse"
           // Pięć długich etykiet (~460 px) — poniżej `sm` przewijanie w poziomie
           // zamiast wypychania strony (audyt 23.09.2026, P1-12).
+          data-help="finance.modes"
           className="flex w-full max-w-full items-center gap-1 overflow-x-auto rounded-lg border border-[hsl(var(--border))] bg-muted/40 p-1 sm:inline-flex sm:w-auto"
         >
           <ModeButton

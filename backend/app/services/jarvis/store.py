@@ -304,3 +304,18 @@ async def purge_old_conversations(retention_days: int) -> int:
         )
         await db.commit()
         return int(result.rowcount or 0)
+
+
+UI_EVENTS_RETENTION_DAYS = 90
+
+
+async def purge_old_ui_events(retention_days: int = UI_EVENTS_RETENTION_DAYS) -> int:
+    from app.models.jarvis import JarvisUiEvent
+
+    cutoff = _now() - timedelta(days=retention_days)
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            delete(JarvisUiEvent).where(JarvisUiEvent.created_at < cutoff)
+        )
+        await db.commit()
+        return int(result.rowcount or 0)

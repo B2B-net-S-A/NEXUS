@@ -43,8 +43,8 @@ import { TraffitSyncCard } from "@/components/settings/TraffitSyncCard";
 import EmailTemplatesCard from "@/components/settings/EmailTemplatesCard";
 import NotificationDeliverySettings from "@/components/settings/NotificationDeliverySettings";
 import { useAuthStore, hasRole, type UserRole } from "@/store/auth";
-import { clearOnboardingCompleted } from "@/lib/onboarding-storage";
-import { requestOnboardingOpen } from "@/components/OnboardingWalkthrough";
+import { resetScreenSeen } from "@/lib/jarvis/bubble-budget";
+import { openJarvis } from "@/lib/jarvis/events";
 import {
   findSettingsArea,
   isFinanceReadOnly,
@@ -82,6 +82,13 @@ const AdminUsersTab = dynamic(
 
 const EventHistoryTab = dynamic(
   () => import("@/components/settings/EventHistoryTab"),
+  {
+    ssr: false,
+    loading: () => <div className="h-64 animate-pulse bg-muted rounded-xl" />,
+  }
+);
+const SkillDictionaryTab = dynamic(
+  () => import("@/components/settings/SkillDictionaryTab"),
   {
     ssr: false,
     loading: () => <div className="h-64 animate-pulse bg-muted rounded-xl" />,
@@ -213,15 +220,6 @@ const ADVANCED_LINKS: Array<{
     roles: ["admin", "head_of_recruitment", "finance"],
   },
   {
-    href: "/settings/linkedin-metrics",
-    title: "Aktywność LinkedIn",
-    description: "Bulk edit dziennych liczb (CV / Msg / Resp) per TAC/sourcer.",
-    icon: <BarChart3 className="w-5 h-5" />,
-    roles: ["admin", "head_of_recruitment", "finance"],
-    section: "insights",
-    required: "read",
-  },
-  {
     href: "/settings/chats",
     title: "Globalny audyt czatów",
     description: "Przegląd wszystkich rozmów (projekty + kandydaci) z możliwością przeszukania treści.",
@@ -261,7 +259,6 @@ const FINANCE_READ_ONLY_LINKS = new Set([
   "/settings/rate-benchmarks",
   "/settings/contract-templates",
   "/settings/team-structure",
-  "/settings/linkedin-metrics",
   "/settings/chats",
   "/settings/clients-overview",
   "/settings/client-portfolio-preview",
@@ -549,6 +546,8 @@ function SettingsItemBody({ item, user }: { item: SettingsItem; user: Parameters
           </div>
         </div>
       );
+    case "skills":
+      return <SkillDictionaryTab />;
     case "traffit":
       return <TraffitSyncCard />;
     case "fireflies":
@@ -745,11 +744,12 @@ function CoachingSettings() {
 }
 
 function OnboardingSettings() {
-  // Otwiera przewodnik od razu, bez przeładowania strony — przewodnik nie
-  // startuje już sam, więc to jedyna droga do niego.
+  // Dawny czterokrokowy przewodnik (zgnił: „Ogłoszenia”) zastąpiły
+  // przewodniki ekranów Jarvisa — dymek raz na ekran i przycisk „?” w panelu.
+  const userId = useAuthStore((s) => s.user?.id);
   const handleReset = () => {
-    clearOnboardingCompleted();
-    requestOnboardingOpen();
+    resetScreenSeen(userId);
+    openJarvis({});
   };
 
   return (
@@ -759,9 +759,10 @@ function OnboardingSettings() {
           <HelpCircle className="w-6 h-6 text-primary" />
         </div>
         <div>
-          <h3 className="text-base font-bold text-foreground dark:text-foreground">Przewodnik wprowadzający</h3>
+          <h3 className="text-base font-bold text-foreground dark:text-foreground">Wskazówki na ekranach</h3>
           <p className="text-sm text-muted-foreground dark:text-muted-foreground mt-0.5">
-            Pokaż ponownie przewodnik po Nexus
+            Asystent przy pierwszej wizycie na ekranie podpowiada, co się tu robi. Na każdym ekranie
+            możesz też kliknąć „?” w jego panelu.
           </p>
         </div>
       </div>
@@ -772,7 +773,7 @@ function OnboardingSettings() {
         className="flex items-center gap-2 px-4 py-2.5 bg-primary text-white rounded-xl text-sm font-medium hover:bg-primary/90 transition-colors"
       >
         <RefreshCw className="w-4 h-4" />
-        Pokaż przewodnik
+        Pokaż wskazówki od nowa
       </button>
 
       <div className="mt-6 pt-6 border-t border-border dark:border-border">

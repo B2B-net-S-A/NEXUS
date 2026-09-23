@@ -2541,6 +2541,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  {boardFold.closed.length > 0 && (
  <div
  data-testid="board-closed-bar"
+ data-help="jobs.board.closed"
  className="mb-2 flex flex-wrap items-center justify-end gap-1.5 text-xs"
  >
  {showClosed ? (
@@ -2582,6 +2583,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  <div
  ref={boardRef}
  data-testid="pipeline-board"
+ data-help="jobs.board.columns"
  data-desktop-layout={fullPipelineDesktop ?"full-pipeline" :"scroll"}
  className={cn(
  // Board = JEDYNY scroll-kontener (oba kierunki). Po usunięciu overflow-y
@@ -2709,6 +2711,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  {dockItem && dockItemColLabel !== null && (
  <aside
  aria-label="Karta kandydata"
+ data-help="jobs.person.dock"
  className="fixed right-0 top-12 bottom-0 z-30 flex w-full max-w-[380px] flex-col border-l border-border bg-background shadow-xl"
  style={chromeTop != null ? { top: chromeTop } : undefined}
  >

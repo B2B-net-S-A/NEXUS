@@ -136,6 +136,7 @@ export function PipelineFilterBar({
       className="flex flex-wrap items-center gap-1.5 rounded-xl border border-border bg-card px-3 py-2"
       role="toolbar"
       aria-label="Filtry tablicy"
+      data-help="jobs.board.filters"
     >
       <input
         id="pipeline-name-filter"

@@ -289,7 +289,7 @@ export function ProposalsSegmentView({
       onKeyDown={onKeyDown}
     >
       {/* ── Pasek stanu przeglądu bazy ───────────────────────────────────── */}
-      <section aria-label="Przegląd bazy" className="space-y-2">
+      <section aria-label="Przegląd bazy" className="space-y-2" data-help="jobs.proposals.review">
         <div className="flex flex-wrap items-center gap-2">
           <p className="mr-auto text-sm text-muted-foreground">
             {status.latestRun
@@ -361,7 +361,7 @@ export function ProposalsSegmentView({
       </section>
 
       {/* ── Filtry widoku ────────────────────────────────────────────────── */}
-      <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Źródło propozycji">
+      <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Źródło propozycji" data-help="jobs.proposals.sources">
         {SOURCE_PILLS.map((source) => (
           <button key={source} type="button" aria-pressed={filters.source === source} className={pillClass(filters.source === source)} onClick={() => patch({ source })}>
             {source === "all" ? "Wszystkie" : PROPOSAL_SOURCE_LABEL[source]}

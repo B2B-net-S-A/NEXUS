@@ -474,6 +474,7 @@ export function JobDetailCompactHeader({
                 disabled={championPending}
                 aria-pressed={Boolean(championFound)}
                 data-testid="toggle-champion"
+                data-help="job.champion.found"
                 title={
                   championFound
                     ? "Cofnij „Mamy championa” — rekrutacja wraca do „Szukamy”"

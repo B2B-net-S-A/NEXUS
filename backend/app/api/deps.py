@@ -443,7 +443,7 @@ def require_roles(*roles: UserRole):
     Since migration 0110 a user may hold multiple roles
     (``User.role`` = primary, ``User.roles`` = full set). Permission checks
     evaluate against the union via ``has_any_role`` so a hybrid
-    delivery_lead+TAC user passes both ``DeliveryLeadPlus`` and ``TacPlus``.
+    delivery_lead+recruiter user passes both ``DeliveryLeadPlus`` and ``RecruiterPlus``.
     """
 
     async def _check_role(
@@ -545,10 +545,9 @@ PriorityDemandReader = Annotated[
     ),
 ]
 
-TacPlus = Annotated[
-    User,
-    Depends(require_roles(UserRole.admin, UserRole.delivery_lead, UserRole.tac)),
-]
+# `TacPlus` (admin + DL + TAC) usunięty 23.09.2026 — funkcji TAC nie używamy,
+# więc żadna trasa nie może WYMAGAĆ tej roli. Rekrutację zakłada, publikuje
+# i zamyka `DeliveryLeadPlus`.
 
 # Od 2026-09-17 (decyzja Artura, audyt narzędzi rekrutera): Head of
 # Recruitment ma pełny parytet z rekruterem — do tej pory FE liczył prawa

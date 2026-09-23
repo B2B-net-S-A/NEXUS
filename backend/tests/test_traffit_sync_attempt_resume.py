@@ -255,13 +255,13 @@ def test_resumable_attempt_requires_the_same_since():
     )
 
 
-def test_pipelines_run_before_files_and_cortex():
-    """INTG-01: ruchy pipeline'u przed plikami CV i Cortexem."""
+def test_pipelines_run_before_files_and_enrichment():
+    """INTG-01: ruchy pipeline'u przed plikami CV i fazami wzbogacania."""
     names = list(ts.PHASE_NAMES)
     assert names.index("jobs") < names.index("pipelines")
     assert names.index("pipelines") < names.index("candidates_cv")
     assert names.index("pipelines") < names.index("candidate_files")
-    assert names.index("pipelines") < names.index("cortex")
+    assert names.index("pipelines") < names.index("candidates_enrich_names")
 
 
 @pytest.mark.asyncio

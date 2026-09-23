@@ -1467,6 +1467,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                   className="h-10"
                   onClick={() => setRequestOpen(true)}
                   title="Wklej request klienta, wgraj profil Championa albo wybierz rekrutację"
+                  data-help="candidates.list.request"
                 >
                   <FileText className="h-4 w-4" /> Z requestu
                 </Button>
@@ -1516,7 +1517,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
               onUpdate={applyFiltersPatch}
               omitKey={isChipShownOnFilterBar}
             />
-            <div className="ml-auto flex flex-wrap items-center gap-2">
+            <div className="ml-auto flex flex-wrap items-center gap-2" data-help="candidates.list.saved">
               <SavedSearchesMenu
                 currentQs={encodeFilterCriteria(filtersSnapshot).toString()}
                 onApply={(qs, ssId, previousViewedAt, newCandidateIds) => {
@@ -1552,7 +1553,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
               </Select>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="md" aria-label="Wybierz kolumny tabeli">
+                  <Button variant="outline" size="md" aria-label="Wybierz kolumny tabeli" data-help="candidates.list.columns">
                     <Columns3 className="h-4 w-4" aria-hidden />
                     Kolumny
                   </Button>

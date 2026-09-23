@@ -20,7 +20,7 @@ import { JarvisAppearanceForm } from "@/components/jarvis/JarvisAppearanceForm";
 import { JarvisMascot } from "@/components/jarvis/JarvisMascot";
 import { JarvisMessageList } from "@/components/jarvis/JarvisMessageList";
 import { JarvisPanel } from "@/components/jarvis/JarvisPanel";
-import type { JarvisAccent, JarvisItem, JarvisMood, JarvisPrefsResponse } from "@/lib/jarvis/types";
+import type { JarvisAccent, JarvisItem, JarvisMood, JarvisPrefsResponse, ScreenGuide } from "@/lib/jarvis/types";
 
 const noop = () => undefined;
 
@@ -89,6 +89,32 @@ const CONVERSATION: JarvisItem[] = [
   { kind: "error", message: "Nie działam teraz — spróbuj za chwilę. Wszystko inne w NEXUSIE działa normalnie." },
 ];
 
+// Przewodnik ekranu i rozmowa pomocy — fikcyjne dane, zero zapytań.
+const GUIDE: ScreenGuide = {
+  key: "jobs.board",
+  title: "Tablica rekrutacji",
+  roles: ["recruiter"],
+  what: "Tu prowadzisz kandydatów tej rekrutacji przez 6 kolumn: Nowi, Zweryfikowany, CV wysłane, Rozmowa u klienta, Umowa i Zatrudniony.",
+  tasks: [
+    { q: "Jak przesunąć kandydata dalej?", a: "Przeciągnij kartę do następnej kolumny.", anchor: "jobs.board.columns" },
+    { q: "Skąd biorą się propozycje na górze kolumny Nowi?", a: "To propozycje z bazy.", anchor: "jobs.board.review" },
+    { q: "Gdzie są odrzuceni?", a: "Na pasku nad tablicą." },
+  ],
+  pitfalls: ["Wyjście z „Rozmowy u klienta” wymaga debriefu."],
+  anchors: [
+    { id: "jobs.board.columns", label: "Kolumny tablicy", describe: "Sześć kolumn." },
+    { id: "jobs.board.review", label: "Propozycje z bazy", describe: "Na górze Nowych." },
+  ],
+};
+
+const HELP_CONVERSATION: JarvisItem[] = [
+  { kind: "guide", guide: GUIDE },
+  { kind: "message", role: "user", markdown: "Jak przesunąć kandydata dalej?" },
+  { kind: "message", role: "assistant", markdown: "Przeciągnij kartę do następnej kolumny." },
+  { kind: "highlight", anchor: "jobs.board.columns", label: "Kolumny tablicy", reason: "Przeciągnij kartę w prawo." },
+  { kind: "message", role: "assistant", markdown: "Już piszę odpowiedź na żywo", streaming: true },
+];
+
 const PREFS: JarvisPrefsResponse = {
   character: "owl",
   name: "Sowa",
@@ -97,6 +123,8 @@ const PREFS: JarvisPrefsResponse = {
   minimized: false,
   sound: false,
   daily_brief: true,
+  screen_tips: true,
+  notes: ["Odpowiadaj krótko, w punktach", "Moi klienci to PKO BP i Nordea"],
   unlocked_characters: ["robot", "owl", "cat", "ghost", "rocket", "star", "dragon", "astronaut"],
   locked_characters: {
     robot_gold: "Wygraj dowolny ranking Ligi Mistrzów (1. miejsce).",
@@ -153,6 +181,55 @@ export default function JarvisPreviewPage() {
               ))}
             </tbody>
           </table>
+        </div>
+      </section>
+
+      <section className="mt-8" data-testid="preview-help-mode">
+        <h2 className="mb-3 text-sm font-semibold">Pomoc na ekranie — przewodnik, podświetlenie, Zatrzymaj</h2>
+        <div className="flex flex-wrap items-end gap-6">
+          <JarvisPanel
+            inline
+            name="Jarvis"
+            character="robot"
+            accent={accent}
+            mood="thinking"
+            view="chat"
+            items={HELP_CONVERSATION}
+            thinking={false}
+            streaming
+            draft=""
+            suggestions={[]}
+            busyActionId={null}
+            guideTitle={GUIDE.title}
+            onOpenGuide={noop}
+            onStop={noop}
+            onGuideTask={noop}
+            onShowAnchor={noop}
+            onDraftChange={noop}
+            onSend={noop}
+            onNewChat={noop}
+            onShowHistory={noop}
+            onBackToChat={noop}
+            onSelectConversation={noop}
+            onDeleteConversation={noop}
+            onOpenAppearance={noop}
+            onClose={noop}
+            onConfirm={noop}
+            onReject={noop}
+          />
+          <JarvisMascot
+            inline
+            name="Jarvis"
+            character="robot"
+            accent={accent}
+            mood="idle"
+            minimized={false}
+            open={false}
+            bubble={`${GUIDE.what} Kliknij, pokażę, jak tu działać.`}
+            onToggle={noop}
+            onBubbleClick={noop}
+            onDismissBubble={noop}
+          />
         </div>
       </section>
 

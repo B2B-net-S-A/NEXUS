@@ -52,3 +52,8 @@ export async function confirmAction(id: string): Promise<JarvisActionOutcome> {
 export async function rejectAction(id: string): Promise<JarvisActionOutcome> {
   return (await api.post<JarvisActionOutcome>(`/api/jarvis/actions/${id}/reject`)).data;
 }
+
+/** „Zatrzymaj” — tura kończy się po bieżącym kroku modelu. */
+export async function cancelJarvisTurn(conversationId: string): Promise<void> {
+  await api.post(`/api/jarvis/conversations/${encodeURIComponent(conversationId)}/cancel`);
+}

@@ -36,6 +36,7 @@ const PAGES = [
   "/preview/custom-dashboard",
   "/preview/cv-search",
   "/preview/dl-alerts",
+  "/preview/dz-review",
   "/preview/ezdrowie-contract-structure",
   "/preview/finance-order-changes",
   "/preview/finance-order-pdfs",

@@ -3,11 +3,12 @@
 /**
  * Okno „Zlecenie" — wszystko, co opisuje rekrutację, obok tabeli osób
  * (makieta V3Zlecenie). Zastępuje panel „Zespół i priorytet" z nagłówka,
- * zakładkę `?tab=portals` i skróty edycji/ogłoszenia z menu nagłówka.
+ * zakładkę `?tab=portals` (dziś otwiera samo okno) i skróty edycji/ogłoszenia
+ * z menu nagłówka.
  *
  * Okno NIE ma własnych reguł ani formularzy: składa istniejące klocki
  * (`JobOwnershipPanel`, `HiringManagerPicker`, `JobSettingsPanel`,
- * `JobPriorityContext`, `PostingsSection`, `JobCloseWithReasonDialog`,
+ * `JobPriorityContext`, `JobCloseWithReasonDialog`,
  * `JobReadinessDock`) i każdy z nich zapisuje po swojemu, natychmiast. Stąd
  * brak przycisku „Zapisz" z makiety — nie miałby czego zapisywać.
  */
@@ -32,7 +33,6 @@ import { JobReadinessDock } from "@/components/v2/jobs/JobReadinessDock";
 import { JobSettingsPanel } from "@/components/v2/jobs/JobSettingsPanel";
 import { formatJobLocation } from "@/components/v2/jobs/JobSummaryCard";
 import { JobPriorityContext } from "@/components/v2/priority-work";
-import { PostingsSection } from "@/components/v2/recruitment/PostingsSection";
 import type { RecruitmentSlideOver } from "@/components/v2/recruitment/types";
 import api from "@/lib/api";
 import { formatBudgetHourly, jobBudgetHourly } from "@/lib/job-budget";
@@ -44,7 +44,7 @@ import { hasRole, useAuthStore } from "@/store/auth";
 
 import { RecruitmentSheet } from "./RecruitmentSheet";
 
-export type OrderSlideOverSection = "portals" | "team" | "close";
+export type OrderSlideOverSection = "team" | "close";
 
 export interface OrderSlideOverProps {
   open: boolean;
@@ -57,8 +57,6 @@ export interface OrderSlideOverProps {
    * prowadzący i współpracownicy (22.09.2026). Brak = `canEdit`.
    */
   canEditContent?: boolean;
-  /** Brak zapisu w sekcji pipeline — portale bez akcji publikacji. */
-  readOnly?: boolean;
   /** Przejście do pełnego widoku (dziś tylko Profil Championa). */
   onNavigate: (target: "champion") => void;
   /** Otwarcie innego okna wysuwanego (np. „Baza pytań"). */
@@ -70,8 +68,7 @@ export interface OrderSlideOverProps {
   /** `undefined` = rekrutacja nieopublikowana albo brak uprawnienia do linku. */
   onOpenInviteLink?: () => void;
   /**
-   * Sekcja rozwinięta i przewinięta przy otwarciu — stary link `?tab=portals`
-   * ląduje na portalach, a nie na górze okna. `close` = wejście z podpowiedzi
+   * Sekcja rozwinięta i przewinięta przy otwarciu. `close` = wejście z podpowiedzi
    * „Obsada kompletna" w panelu osoby: od razu okno zamknięcia z powodem
    * (dawny krok 08 otwierał je jednym kliknięciem).
    */
@@ -211,7 +208,6 @@ function OrderBody({
   jobId,
   canEdit,
   canEditContent = canEdit,
-  readOnly,
   onNavigate,
   onOpenSlideOver,
   onEdit,
@@ -221,7 +217,6 @@ function OrderBody({
   hiredCount,
   closeSheet,
 }: Omit<OrderSlideOverProps, "open" | "onOpenChange"> & {
-  readOnly: boolean;
   hiredCount: number;
   closeSheet: () => void;
 }) {
@@ -232,13 +227,11 @@ function OrderBody({
   const [teamOpen, setTeamOpen] = useState(initialSection === "team");
   const [priorityOpen, setPriorityOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [portalsOpen, setPortalsOpen] = useState(initialSection === "portals");
   const [readinessOpen, setReadinessOpen] = useState(false);
   const [closeDialogOpen, setCloseDialogOpen] = useState(false);
   const closeRequestHandled = useRef(false);
 
   const teamRef = useRef<HTMLElement | null>(null);
-  const portalsRef = useRef<HTMLElement | null>(null);
   const closeRef = useRef<HTMLDivElement | null>(null);
 
   // Ten sam klucz co strona rekrutacji i dok gotowości (`["job", "<id>"]`) —
@@ -267,8 +260,7 @@ function OrderBody({
       }
       return;
     }
-    const target = initialSection === "team" ? teamRef.current : portalsRef.current;
-    target?.scrollIntoView?.({ block: "start" });
+    teamRef.current?.scrollIntoView?.({ block: "start" });
   }, [jobLoaded, initialSection]);
 
   const viewState = resolveViewState({
@@ -473,7 +465,7 @@ function OrderBody({
         </DisclosureRow>
       </OrderBlock>
 
-      <OrderBlock title="Ogłoszenie i link aplikacyjny" sectionRef={portalsRef}>
+      <OrderBlock title="Ogłoszenie i link aplikacyjny">
         {onOpenAiWriter || onOpenInviteLink ? (
           <div className="flex flex-wrap gap-2">
             {onOpenAiWriter ? (
@@ -503,14 +495,6 @@ function OrderBody({
             rekrutacji i ról z prawem jej edycji.
           </p>
         )}
-        <DisclosureRow
-          label="Portale ogłoszeniowe"
-          open={portalsOpen}
-          onToggle={() => setPortalsOpen((v) => !v)}
-        >
-          {/* Ogłoszenia zapisuje każdy, kto edytuje treść rekrutacji. */}
-          <PostingsSection jobId={jobId} readOnly={readOnly || !canEditContent} />
-        </DisclosureRow>
       </OrderBlock>
 
       <section aria-label="Więcej ustawień" className="px-1">
@@ -610,7 +594,6 @@ function OrderBlock({
 export function OrderSlideOver({
   open,
   onOpenChange,
-  readOnly = false,
   hiredCount = 0,
   ...rest
 }: OrderSlideOverProps) {
@@ -629,7 +612,6 @@ export function OrderSlideOver({
       <OrderBody
         key={rest.initialSection ?? "default"}
         {...rest}
-        readOnly={readOnly}
         hiredCount={hiredCount}
         closeSheet={() => onOpenChange(false)}
       />

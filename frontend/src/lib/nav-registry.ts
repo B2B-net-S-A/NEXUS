@@ -446,8 +446,8 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     placement: "primary",
     inPalette: true,
   },
-  // Cortex ukryty w UI (decyzja Artura 21.09.2026) — strona `/cortex` przekierowuje
-  // na Insights, komponenty w `components/cortex/` i API zostają na powrót.
+  // Cortex usunięty 23.09.2026 (`/cortex` przekierowuje na Insights); jego
+  // jedyna żywa część — Słownik umiejętności — jest w Ustawieniach → Rekrutacja.
   {
     id: "finance",
     href: "/finance",

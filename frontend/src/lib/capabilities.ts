@@ -95,8 +95,11 @@ const RECRUITER_PLUS: readonly UserRole[] = [
   "sourcer",
 ];
 
-/** Odpowiednik backendowego `TacPlus`. */
-const TAC_PLUS: readonly UserRole[] = ["admin", "delivery_lead", "tac"];
+/**
+ * Pełna redakcja rekrutacji — lustro `JOB_FULL_EDIT_ROLES`
+ * (backend/app/api/recruitment_access.py). Do 23.09.2026 lustro `TacPlus`.
+ */
+const JOB_FULL_EDITORS: readonly UserRole[] = ["admin", "delivery_lead", "tac"];
 
 /**
  * KAŻDA zalogowana rola — dla powierzchni otwartych z decyzji produktowej
@@ -134,16 +137,16 @@ export const CAPABILITY_ROLES: Record<Capability, readonly UserRole[]> = {
   // przycisk „Nowa rekrutacja" i skróty `j` / ⌘⇧J prowadziły donikąd (audyt
   // ról 22.09, U4). Decyzja Artura 22.09: rekrutacje zakłada admin i DL.
   "job.create": ["admin", "delivery_lead"],
-  // PATCH /api/jobs/{id} → TacPlus (backend/app/api/jobs.py) — PEŁNA edycja
+  // PATCH /api/jobs/{id} → poziom `full` (recruitment_access.job_edit_level) — PEŁNA edycja
   // (klient, budżet, właściciele, HM, termin, cykl życia). Od 22.09.2026
   // rekruter prowadzący i współpracownicy edytują TREŚĆ swojej rekrutacji
   // (opis, ogłoszenia, Champion) — o tym decyduje per rekrutacja pole
   // `can_edit` z `GET /api/jobs/{id}` (`lib/job-edit-access.ts`), nie ta
   // capability. HoR nadal poza: inline-edycja pól oferty dostałaby 403.
-  "job.update": TAC_PLUS,
-  // POST /api/clients → TacPlus narrowed by the Delivery section write gate.
+  "job.update": JOB_FULL_EDITORS,
+  // POST /api/clients → DeliveryLeadPlus + the Delivery section write gate.
   "client.create": DELIVERY_TAC_WRITERS,
-  // PATCH /api/clients/{id} → TacPlus narrowed by the Delivery section write
+  // PATCH /api/clients/{id} → DeliveryLeadPlus + the Delivery section write
   // gate. Bez tej
   // bramki nie-TAC widział "Edytuj", wypełniał formularz i dostawał 403 na
   // zapisie — czytało się jak "zapis nie działa".
@@ -159,7 +162,7 @@ export const CAPABILITY_ROLES: Record<Capability, readonly UserRole[]> = {
   // prowadzi DL; odczyt ma każdy OperationalUser — bramkujemy tylko przycisk
   // „Edytuj kartę" i CTA „Załóż kartę".
   "client_playbook.manage": ["admin", "delivery_lead"],
-  // POST /api/contracts → TacPlus narrowed by the Delivery section write gate.
+  // POST /api/contracts → DeliveryLeadPlus + the Delivery section write gate.
   "contract.create": DELIVERY_TAC_WRITERS,
   // POST /api/clients/{id}/contacts → ClientAccess.can_edit_contacts =
   // ADMIN_LIKE_ROLES ∪ CLIENT_TEAM_ROLES (backend/app/services/client_access.py)
@@ -217,7 +220,7 @@ export const CAPABILITY_ROLES: Record<Capability, readonly UserRole[]> = {
   "nav.order_mail": DELIVERY_READ,
   "nav.my_relationships": DELIVERY_READ,
   // Odczyt kontraktów jest szerszy niż `contract.create`: Finance ma pełny
-  // business-read, ale nie dziedziczy przez to mutacji z `TAC_PLUS`.
+  // business-read, ale nie dziedziczy przez to mutacji z `JOB_FULL_EDITORS`.
   "nav.contracts": DELIVERY_READ,
   // /api/finance/* → FinanceModuleUser = require_roles(admin, finance)
   // (backend/app/api/deps.py). Rola `finance` jest WYŁĄCZNA (CHECK

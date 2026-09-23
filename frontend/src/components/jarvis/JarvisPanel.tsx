@@ -9,7 +9,18 @@
  */
 
 import { useEffect, useRef } from "react";
-import { ArrowLeft, Globe, History, MessageSquarePlus, Palette, Send, Trash2, X } from "lucide-react";
+import {
+  ArrowLeft,
+  CircleHelp,
+  Globe,
+  History,
+  MessageSquarePlus,
+  Palette,
+  Send,
+  Square,
+  Trash2,
+  X,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type {
   JarvisAccent,
@@ -18,6 +29,7 @@ import type {
   JarvisConversationSummary,
   JarvisItem,
   JarvisMood,
+  ScreenGuideTask,
 } from "@/lib/jarvis/types";
 import { JarvisCharacter } from "./characters/JarvisCharacter";
 import { JarvisMessageList } from "./JarvisMessageList";
@@ -61,6 +73,13 @@ export interface JarvisPanelProps {
   webUnavailableReason?: string | null;
   webRemaining?: number | null;
   onToggleWeb?: () => void;
+  /** „Zatrzymaj” w trakcie odpowiedzi. */
+  onStop?: () => void;
+  /** Przewodnik bieżącego ekranu — przycisk „?” w nagłówku (gdy jest). */
+  onOpenGuide?: () => void;
+  guideTitle?: string | null;
+  onGuideTask?: (task: ScreenGuideTask) => void;
+  onShowAnchor?: (anchorId: string) => void;
 }
 
 // Telefon i telefon w poziomie (< 768 px): pełny ekran na wysokość WIDOCZNEGO
@@ -129,13 +148,25 @@ export function JarvisPanel(props: JarvisPanelProps) {
         </div>
         {view === "chat" && (
           <>
+            {props.onOpenGuide && props.guideTitle && (
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                onClick={props.onOpenGuide}
+                aria-label="Jak działa ten ekran"
+                title={`Jak działa ten ekran: ${props.guideTitle}`}
+                data-testid="jarvis-open-guide"
+              >
+                <CircleHelp className="h-4 w-4" />
+              </Button>
+            )}
             <Button size="icon-sm" variant="ghost" onClick={props.onNewChat} aria-label="Nowa rozmowa" title="Nowa rozmowa">
               <MessageSquarePlus className="h-4 w-4" />
             </Button>
             <Button size="icon-sm" variant="ghost" onClick={props.onShowHistory} aria-label="Poprzednie rozmowy" title="Poprzednie rozmowy">
               <History className="h-4 w-4" />
             </Button>
-            <Button size="icon-sm" variant="ghost" onClick={props.onOpenAppearance} aria-label="Wygląd asystenta" title="Wygląd asystenta">
+            <Button size="icon-sm" variant="ghost" onClick={props.onOpenAppearance} aria-label="Ustawienia asystenta" title="Wygląd, wskazówki i pamięć asystenta">
               <Palette className="h-4 w-4" />
             </Button>
           </>
@@ -205,6 +236,9 @@ export function JarvisPanel(props: JarvisPanelProps) {
                 onConfirm={props.onConfirm}
                 onReject={props.onReject}
                 onNavigate={props.onNavigate}
+                onGuideTask={props.onGuideTask}
+                onShowAnchor={props.onShowAnchor}
+                onAskOther={() => inputRef.current?.focus()}
               />
             )}
           </div>
@@ -284,9 +318,23 @@ export function JarvisPanel(props: JarvisPanelProps) {
                 }
                 className="max-h-32 min-h-[40px] flex-1 resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-ring/30 disabled:opacity-60"
               />
-              <Button type="submit" size="icon" disabled={!canSend} aria-label="Wyślij">
-                <Send className="h-4 w-4" />
-              </Button>
+              {streaming && props.onStop ? (
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="outline"
+                  onClick={props.onStop}
+                  aria-label="Zatrzymaj odpowiedź"
+                  title="Zatrzymaj odpowiedź"
+                  data-testid="jarvis-stop"
+                >
+                  <Square className="h-4 w-4" />
+                </Button>
+              ) : (
+                <Button type="submit" size="icon" disabled={!canSend} aria-label="Wyślij">
+                  <Send className="h-4 w-4" />
+                </Button>
+              )}
             </form>
             <p className="mt-1.5 text-[11px] text-muted-foreground" data-testid="jarvis-footnote">
               {props.webMode

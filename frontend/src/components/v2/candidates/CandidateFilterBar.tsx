@@ -429,7 +429,7 @@ export function CandidateFilterBar({
     filters.qAny.slice(1).flat().length;
 
   return (
-    <section aria-label="Filtry kandydatów" className={cn("space-y-2 text-sm", className)}>
+    <section aria-label="Filtry kandydatów" className={cn("space-y-2 text-sm", className)} data-help="candidates.list.filters">
       <button
         type="button"
         aria-expanded={keywordsOpen}
@@ -552,6 +552,7 @@ export function CandidateFilterBar({
         <button
           type="button"
           onClick={() => setMoreOpen(true)}
+          data-help="candidates.list.more"
           className={cn(
             "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition-colors md:h-8 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
             counts.more > 0

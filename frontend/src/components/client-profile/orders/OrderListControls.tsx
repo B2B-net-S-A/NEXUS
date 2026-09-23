@@ -50,7 +50,7 @@ export function OrderListControls({
   const activeCount = activeFilterCount(filters);
 
   return (
-    <section className="rounded-lg border border-border bg-card p-3">
+    <section className="rounded-lg border border-border bg-card p-3" data-help="client.orders.search">
       <div className="flex flex-col gap-2 sm:flex-row">
         <div className="relative min-w-0 flex-1">
           <Search

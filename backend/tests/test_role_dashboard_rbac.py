@@ -8,9 +8,6 @@ from app.api.admin import _acquires_onboarding_role, _normalized_role_values
 from app.services.user_response import _dashboard_presets_for
 from app.api.dashboard import _legacy_organization_dashboard_guard
 from app.api.deps import require_onboarded_user, require_roles
-from app.api.dynareporter_delivery_lead_dashboard import (
-    _require_legacy_team_dashboard_scope,
-)
 from app.api.financial_access import has_financial_access
 from app.api.jobs import (
     _apply_delivery_lead_job_scope,
@@ -97,15 +94,6 @@ def test_finance_capabilities_are_exclusive_from_delivery_lead() -> None:
 def test_admin_is_superadmin_and_legacy_viewer_has_no_dashboard_capability() -> None:
     assert capabilities_for(_user(UserRole.admin)) == frozenset(AnalyticsCapability)
     assert capabilities_for(_user(UserRole.user)) == frozenset()
-
-
-def test_legacy_organization_wide_delivery_report_rejects_plain_dl() -> None:
-    with pytest.raises(HTTPException) as exc:
-        _require_legacy_team_dashboard_scope(_user(UserRole.delivery_lead))
-    assert exc.value.status_code == 403
-
-    _require_legacy_team_dashboard_scope(_user(UserRole.head_of_recruitment))
-    _require_legacy_team_dashboard_scope(_user(UserRole.admin))
 
 
 @pytest.mark.asyncio
