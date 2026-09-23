@@ -1382,6 +1382,30 @@ def _checks_word(n: int) -> str:
     return f"{n} sprawdzeń"
 
 
+async def run_after_move(stage_id: int, user_id: Optional[int]) -> None:
+    """QC w tle po wejściu karty do kolumny „QC CV” (24.09.2026).
+
+    Bez tego tablica, przegląd DL i kolejka Cpro pokazywały „QC nie
+    sprawdzone”, dopóki ktoś nie otworzył okna QC. Własna sesja, nigdy nie
+    rzuca — ruch już się zapisał; awaria = brak przebiegu (liczy się przy
+    otwarciu okna albo w bramce).
+    """
+
+    from app.core.database import AsyncSessionLocal
+
+    try:
+        async with AsyncSessionLocal() as db:
+            stage = await db.get(CandidateStage, stage_id)
+            if stage is None:
+                return
+            await run_qc(db, stage, user_id=user_id, persist=True)
+            await db.commit()
+    except Exception:  # noqa: BLE001 — automat nigdy nie psuje ruchu
+        logger.warning(
+            "[cv_qc] background run failed stage=%s", stage_id, exc_info=True
+        )
+
+
 async def assert_qc_passed(
     db: AsyncSession,
     *,
