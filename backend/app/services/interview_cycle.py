@@ -151,7 +151,12 @@ class PairSnapshot:
     def prep_slot(self, n: int) -> Optional[EventRef]:
         """Prep numer ``n``. Powtórzony prep (poprzedni bez nagrania) wygrywa
         z tym, którego nie nagrano — liczy się ostatnia próba."""
-        matching = [p for p in self.preps if (p.ordinal or 0) == n]
+        preps = (
+            self.preps
+            if all(p.ordinal for p in self.preps)
+            else assign_prep_ordinals(self.preps)
+        )
+        matching = [p for p in preps if (p.ordinal or 0) == n]
         if not matching:
             return None
         return max(matching, key=lambda p: (p.transcript_status != "missing", p.start))
