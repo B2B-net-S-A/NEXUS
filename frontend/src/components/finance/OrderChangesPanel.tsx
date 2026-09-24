@@ -160,11 +160,12 @@ export function OrderChangesPanel({
 
   return (
     <section className="space-y-4 rounded-xl border border-border bg-card p-4 shadow-xs sm:p-5">
-      {/* Poniżej `xl` podzakładki idą w osobnym wierszu nad miesiącem i eksportem —
-          w jednym wierszu na laptopie (~1000 px) „Braki" chowały się za
-          przewijaniem, czyli akurat podzakładka, o którą chodzi. */}
+      {/* Poniżej `2xl` podzakładki idą w osobnym wierszu nad postępem, miesiącem
+          i eksportem — w jednym wierszu „Braki" chowały się za przewijaniem
+          (~1000 px), a od paska „Zrobione we wrześniu" także przy 1512 px
+          („Bra", audyt 24.09.2026). Zakładki się zawijają, nigdy nie ucinają. */}
       <div
-        className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between"
+        className="flex flex-col gap-3 2xl:flex-row 2xl:items-center 2xl:justify-between"
         data-help="finance.order_changes"
       >
         <TabbedNav
@@ -172,8 +173,8 @@ export function OrderChangesPanel({
           value={subTab}
           onValueChange={(next) => onSubTabChange(next as OrderChangesSubTab)}
           ariaLabel="Rodzaj zmian w zamówieniach"
-          overflow="scroll"
-          className="min-w-0 xl:w-auto xl:flex-1"
+          overflow="wrap"
+          className="min-w-0 2xl:w-auto 2xl:flex-1"
           listClassName="w-auto"
         />
         <div className="flex flex-wrap items-center gap-3">
