@@ -515,6 +515,10 @@
         "anchor": "contracts.b2b_generator.search"
       },
       {
+        "q": "Umowa ma czerwony znacznik „Kontrakt usunięty — brak kontraktora” — co zrobić?",
+        "a": "Jeśli kontrakt tej osoby istnieje, kliknij przy umowie „Powiąż z kontraktem” i wpisz jego numer (admin albo Delivery Lead). Umowa zostaje taka sama, trafia do zakładki Dokumenty kontraktu, a w historii umowy pojawia się wpis."
+      },
+      {
         "q": "Partner się wycofał przed podpisem — co zrobić?",
         "a": "Zmień status umowy na „Anulowana”. Wpis zostaje w „Umowy bieżące”, numer nie wraca do puli, a powrót na „W trakcie” to jedno kliknięcie."
       },
