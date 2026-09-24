@@ -30,11 +30,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from typing import Iterable, Optional
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.scheduling import business_today
+from app.core.scheduling import DEFAULT_TZ, business_today
 from app.models.candidate import Candidate, CandidateStatus
 from app.models.competence_category import CandidateCompetenceCategory
 from app.models.my_people import MyPeopleJobMatch, MyPeopleOverride
@@ -274,11 +275,18 @@ async def _unseen_match_counts(db: AsyncSession, user_id: int) -> dict[int, int]
 
 
 def _days_since(moment: Optional[datetime], today: date) -> Optional[int]:
+    """Dni od znacznika do ``today`` (kalendarz firmy, ``business_today``).
+
+    Znacznik z bazy jest w UTC — jego DZIEŃ liczymy też w strefie firmy, inaczej
+    przez 1–2 h na dobę (wysyłka po 22:00/23:00 UTC) wynik był przesunięty
+    o dzień.
+    """
     if moment is None:
         return None
     if moment.tzinfo is None:
         moment = moment.replace(tzinfo=timezone.utc)
-    return max(0, (today - moment.date()).days)
+    local_day = moment.astimezone(ZoneInfo(DEFAULT_TZ)).date()
+    return max(0, (today - local_day).days)
 
 
 def _sort_key(row: PersonRow) -> tuple:
