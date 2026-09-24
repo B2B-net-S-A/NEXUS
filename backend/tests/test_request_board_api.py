@@ -264,3 +264,32 @@ async def test_lead_recruiter_is_adopted_and_manual_removal_sticks() -> None:
         await _adopt_owners(db, blocked=blocked, now=datetime.now(timezone.utc))
         await db.commit()
     assert await live_rows() == []
+
+
+async def test_reopened_job_goes_back_to_review(
+    app_client: AsyncClient, app_auth_headers: dict
+) -> None:
+    """Zamknięcie → „Zakończony”, ponowne otwarcie → „Do przejrzenia”.
+
+    Audyt 24.09.2026: PATCH ``closed → published`` zostawiał ``finished``,
+    więc opublikowana rekrutacja wypadała z puli przydziału, pulpitu
+    „Requesty” i nocnego przeglądu bazy, bez żadnego sygnału.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.job import Job
+
+    job_id = await _seed_job(work_state="searching")
+
+    closed = await app_client.patch(
+        f"/api/jobs/{job_id}", json={"status": "closed"}, headers=app_auth_headers
+    )
+    assert closed.status_code == 200, closed.text
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(Job, job_id)).work_state == "finished"
+
+    reopened = await app_client.patch(
+        f"/api/jobs/{job_id}", json={"status": "published"}, headers=app_auth_headers
+    )
+    assert reopened.status_code == 200, reopened.text
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(Job, job_id)).work_state == "to_review"

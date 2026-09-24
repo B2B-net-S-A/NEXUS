@@ -99,7 +99,11 @@ from app.services.section_permissions import (
 )
 from app.api.ws import manager as ws_manager
 from app.core.config import settings
-from app.services.request_work_state import set_work_state
+from app.services.request_work_state import (
+    WORK_STATE_FINISHED,
+    WORK_STATE_REOPENED,
+    set_work_state,
+)
 from app.services.request_work_state import visible_state as _visible_work_state
 from app.services.recruitment_allocation import (
     allocation_lock,
@@ -1382,7 +1386,14 @@ async def jobs_quick_counts(
     # liczba „rejestru" jest zarazem liczbą w zakresie „Otwarte".
     from app.services import job_similarity as _sim  # noqa: PLC0415
 
-    register_ids = select(Job.id).where(jobs_register_base_clause())
+    # Ostatnie etapy par (``DISTINCT ON`` po ``candidate_stages``) tylko dla
+    # NIEZAMKNIĘTYCH: „closed" wynika z samego ``jobs.status`` (pierwsza gałąź
+    # ``request_status_expr``), a zamkniętych z Traffita jest ~4 tys. Zamknięta
+    # rekrutacja łączy się z pustym wierszem podzapytania i dalej liczy się
+    # jako „closed" — liczby bez zmian (audyt 24.09.2026).
+    register_ids = select(Job.id).where(
+        jobs_register_base_clause(), jobs_open_only_clause()
+    )
     status_sq = _sim.request_status_subquery(register_ids)
     # Status liczony w podzapytaniu, grupowanie po jego kolumnie: `CASE`
     # z parametrami w SELECT i GROUP BY dostałby dwa różne zestawy `$n`
@@ -2051,6 +2062,17 @@ async def update_job(
             )
         elif prev_status == JobStatus.closed:
             job.closed_at = None
+            # Lustro zamknięcia (0371): ponownie otwarta rekrutacja wraca do
+            # „Do przejrzenia” — z „Zakończonego” wypadała z puli przydziału,
+            # pulpitu „Requesty” i nocnego przeglądu bazy (audyt 24.09.2026).
+            if job.work_state == WORK_STATE_FINISHED:
+                await set_work_state(
+                    db,
+                    job,
+                    WORK_STATE_REOPENED,
+                    actor_id=current_user.id,
+                    reason="job_reopened",
+                )
 
     db.add(
         Activity(
