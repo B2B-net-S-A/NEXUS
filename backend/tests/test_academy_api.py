@@ -72,15 +72,22 @@ async def _candidate(db, **kw):
     return cand
 
 
-async def _apply(db, *, cand, job, at: datetime):
+async def _apply(db, *, cand, job, at: datetime, stage: str = "posting"):
     from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 
     db.add(
         CandidateStage(
-            candidate_id=cand.id, job_id=job.id, stage=PipelineStage("posting"), moved_at=at
+            candidate_id=cand.id, job_id=job.id, stage=PipelineStage(stage), moved_at=at
         )
     )
     await db.flush()
+
+
+async def _settle():
+    """Sortowanie Luną biegnie w tle po „Pobierz zgłoszenia” — poczekaj na nie."""
+    from app.services import academy as svc
+
+    await svc.wait_for_background()
 
 
 def _headers(user_id: int, role: str) -> dict:
@@ -180,6 +187,8 @@ async def test_full_flow_luna_sorts_human_decides_and_rejection_is_forever(
     rec_h = _headers(ids["recruiter"], "recruiter")
 
     resp = await app_client.post(f"/api/academy/programs/{program_id}/sync", headers=rec_h)
+
+    await _settle()
     assert resp.status_code == 200, resp.text
     assert resp.json()["new"] == 2  # zgłoszenie sprzed `since` nie wpada
 
@@ -236,6 +245,7 @@ async def test_full_flow_luna_sorts_human_decides_and_rejection_is_forever(
         await db.commit()
     calls_before = len(calls)
     resp = await app_client.post(f"/api/academy/programs/{program_id}/sync", headers=rec_h)
+    await _settle()
     assert resp.status_code == 200, resp.text
     assert resp.json()["reapplied"] == 1
     apps = await _apps_by_candidate(app_client, program_id, rec_h)
@@ -306,6 +316,7 @@ async def test_session_capacity_and_wrong_stage(app_client, monkeypatch):
         await db.commit()
         extra_id = extra.id
     await app_client.post(f"/api/academy/programs/{program_id}/sync", headers=rec_h)
+    await _settle()
     apps = await _apps_by_candidate(app_client, program_id, rec_h)
 
     resp = await app_client.post(
@@ -356,6 +367,7 @@ async def test_person_who_withdrew_returns_on_next_application(app_client, monke
     program_id, ids = await _setup(app_client)
     rec_h = _headers(ids["recruiter"], "recruiter")
     await app_client.post(f"/api/academy/programs/{program_id}/sync", headers=rec_h)
+    await _settle()
     junior = (await _apps_by_candidate(app_client, program_id, rec_h))[ids["junior"]]
 
     resp = await app_client.post(
@@ -377,6 +389,7 @@ async def test_person_who_withdrew_returns_on_next_application(app_client, monke
         )
         await db.commit()
     resp = await app_client.post(f"/api/academy/programs/{program_id}/sync", headers=rec_h)
+    await _settle()
     assert resp.json()["returned"] == 1
     again = (await _apps_by_candidate(app_client, program_id, rec_h))[ids["junior"]]
     assert again["status"] in ("new", "to_call")
@@ -412,6 +425,7 @@ async def test_reject_without_reason_is_refused(app_client, monkeypatch):
     program_id, ids = await _setup(app_client)
     rec_h = _headers(ids["recruiter"], "recruiter")
     await app_client.post(f"/api/academy/programs/{program_id}/sync", headers=rec_h)
+    await _settle()
     junior = (await _apps_by_candidate(app_client, program_id, rec_h))[ids["junior"]]
     resp = await app_client.post(
         f"/api/academy/applications/{junior['id']}/actions",
@@ -420,3 +434,92 @@ async def test_reject_without_reason_is_refused(app_client, monkeypatch):
     )
     assert resp.status_code == 422
     assert resp.json()["detail"]["code"] == "reason_required"
+
+
+@needs_db
+@pytest.mark.asyncio
+async def test_card_move_in_traffit_is_not_a_new_application(app_client, monkeypatch):
+    """Przesunięcie karty (np. na „Odrzucony”) po decyzji ≠ ponowne zgłoszenie."""
+    from app.core.database import AsyncSessionLocal
+    from app.services import academy as svc
+
+    calls: list[str] = []
+    monkeypatch.setattr(svc, "_call_model", _fake_luna(calls))
+    program_id, ids = await _setup(app_client)
+    rec_h = _headers(ids["recruiter"], "recruiter")
+    await app_client.post(f"/api/academy/programs/{program_id}/sync", headers=rec_h)
+    await _settle()
+    junior = (await _apps_by_candidate(app_client, program_id, rec_h))[ids["junior"]]
+    await app_client.post(
+        f"/api/academy/applications/{junior['id']}/actions",
+        headers=rec_h,
+        json={"action": "withdraw"},
+    )
+
+    async with AsyncSessionLocal() as db:
+        from app.models.candidate import Candidate
+        from app.models.job import Job
+
+        await _apply(
+            db,
+            cand=await db.get(Candidate, ids["junior"]),
+            job=await db.get(Job, ids["job"]),
+            at=datetime.now(timezone.utc) + timedelta(seconds=5),
+            stage="rejected",
+        )
+        await db.commit()
+    calls_before = len(calls)
+    resp = await app_client.post(f"/api/academy/programs/{program_id}/sync", headers=rec_h)
+    await _settle()
+    assert resp.json()["returned"] == 0
+    again = (await _apps_by_candidate(app_client, program_id, rec_h))[ids["junior"]]
+    assert again["status"] == "withdrew"
+    assert len(calls) == calls_before
+
+
+@needs_db
+@pytest.mark.asyncio
+async def test_absent_person_rescheduled_to_the_same_full_session_is_refused(
+    app_client, monkeypatch
+):
+    from app.core.database import AsyncSessionLocal
+    from app.services import academy as svc
+
+    monkeypatch.setattr(svc, "_call_model", _fake_luna([]))
+    program_id, ids = await _setup(app_client)  # limit miejsc: 1
+    rec_h = _headers(ids["recruiter"], "recruiter")
+    async with AsyncSessionLocal() as db:
+        from app.models.job import Job
+
+        other = await _candidate(
+            db,
+            raw_cv_text="Magister 2025.",
+            education=[{"level": "master", "school": "UW", "year": 2025}],
+            languages=[{"code": "PL", "lang": "polski", "level": "native"}],
+        )
+        await _apply(db, cand=other, job=await db.get(Job, ids["job"]), at=NOW)
+        await db.commit()
+        other_id = other.id
+    await app_client.post(f"/api/academy/programs/{program_id}/sync", headers=rec_h)
+    await _settle()
+    apps = await _apps_by_candidate(app_client, program_id, rec_h)
+    a, b = apps[ids["junior"]], apps[other_id]
+    session_id = (
+        await app_client.post(
+            f"/api/academy/programs/{program_id}/sessions",
+            headers=rec_h,
+            json={"starts_at": (NOW + timedelta(days=4)).isoformat()},
+        )
+    ).json()["id"]
+
+    async def act(app_id, body):
+        return await app_client.post(
+            f"/api/academy/applications/{app_id}/actions", headers=rec_h, json=body
+        )
+
+    assert (await act(a["id"], {"action": "schedule", "session_id": session_id})).status_code == 200
+    assert (await act(a["id"], {"action": "absent"})).status_code == 200
+    assert (await act(b["id"], {"action": "schedule", "session_id": session_id})).status_code == 200
+    again = await act(a["id"], {"action": "schedule", "session_id": session_id})
+    assert again.status_code == 409, again.text
+    assert again.json()["detail"]["code"] == "session_full"

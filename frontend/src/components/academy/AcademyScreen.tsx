@@ -129,7 +129,15 @@ export function AcademyScreen({ programId }: { programId: number }) {
           const parts = [`nowych: ${result.new ?? 0}`];
           if (result.reapplied) parts.push(`wykluczonych, którzy wrócili: ${result.reapplied}`);
           if (result.returned) parts.push(`powrotów: ${result.returned}`);
-          showSuccess(`Pobrano zgłoszenia — ${parts.join(", ")}.`);
+          showSuccess(
+            `Pobrano zgłoszenia — ${parts.join(", ")}. Luna sortuje je w tle; lista odświeży się sama.`,
+          );
+          // Sortowanie to kilka–kilkadziesiąt sekund — dociągnij wynik dwa razy.
+          for (const delay of [20_000, 60_000]) {
+            setTimeout(() => {
+              void queryClient.invalidateQueries({ queryKey: academyKeys.applications(programId) });
+            }, delay);
+          }
         }
       } catch (err) {
         showError(apiErrorMessage(err, "Nie udało się pobrać zgłoszeń."));

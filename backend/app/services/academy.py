@@ -38,7 +38,7 @@ from app.models.academy import (
 from app.models.activity import Activity
 from app.models.ai_feature import AIFeatureKey
 from app.models.candidate import Candidate
-from app.models.recruitment_pipeline import CandidateStage
+from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.services import academy_rules
 from app.services.academy_flow import (
     STATUS_LABELS,
@@ -58,6 +58,10 @@ FEATURE = AIFeatureKey.academy_screening
 SCREENING_VERSION = 1
 CV_CHAR_LIMIT = 12000
 SCREEN_BATCH = 25
+# Etapy, którymi osoba WCHODZI do rekrutacji z ogłoszenia. Tylko nowy wiersz
+# na tych etapach jest ponownym zgłoszeniem — przesunięcie karty w Traffit
+# (np. na „Odrzucony”) po decyzji w akademii nie może udawać, że ktoś wrócił.
+ENTRY_STAGES = (PipelineStage.posting, PipelineStage.new)
 
 # Jeden bieg sortowania na program naraz (backend = jeden proces uvicorna):
 # pętla tła i przycisk „Pobierz zgłoszenia” nie czytają tego samego CV dwa razy.
@@ -96,8 +100,9 @@ async def intake_program(db: AsyncSession, program_id: int) -> dict[str, int]:
     if not sources:
         return stats
 
-    # Kandydat → (pierwsze zgłoszenie, ostatnie zgłoszenie, rekrutacja ostatniego).
-    applied: dict[int, tuple[datetime, datetime, int]] = {}
+    # Kandydat → (pierwszy wiersz etapu, ostatnie WEJŚCIE z ogłoszenia albo
+    # None, rekrutacja ostatniego wejścia).
+    applied: dict[int, tuple[datetime, Optional[datetime], int]] = {}
     for source in sources:
         conditions = [CandidateStage.job_id == source.job_id]
         if source.since is not None:
@@ -115,24 +120,26 @@ async def intake_program(db: AsyncSession, program_id: int) -> dict[str, int]:
                 select(
                     CandidateStage.candidate_id,
                     func.min(CandidateStage.moved_at),
-                    func.max(CandidateStage.moved_at),
+                    func.max(CandidateStage.moved_at).filter(
+                        CandidateStage.stage.in_(ENTRY_STAGES)
+                    ),
                 )
                 .where(*conditions)
                 .group_by(CandidateStage.candidate_id)
             )
         ).all()
         for candidate_id, first_at, last_at in rows:
-            if first_at is None or last_at is None:
+            if first_at is None:
                 continue
             prev = applied.get(candidate_id)
             if prev is None:
                 applied[candidate_id] = (first_at, last_at, source.job_id)
+                continue
+            first = min(prev[0], first_at)
+            if last_at is not None and (prev[1] is None or last_at > prev[1]):
+                applied[candidate_id] = (first, last_at, source.job_id)
             else:
-                first = min(prev[0], first_at)
-                if last_at > prev[1]:
-                    applied[candidate_id] = (first, last_at, source.job_id)
-                else:
-                    applied[candidate_id] = (first, prev[1], prev[2])
+                applied[candidate_id] = (first, prev[1], prev[2])
     if not applied:
         return stats
 
@@ -140,10 +147,14 @@ async def intake_program(db: AsyncSession, program_id: int) -> dict[str, int]:
         row.candidate_id: row
         for row in (
             await db.execute(
-                select(AcademyApplication).where(
+                select(AcademyApplication)
+                .where(
                     AcademyApplication.program_id == program_id,
                     AcademyApplication.candidate_id.in_(list(applied)),
                 )
+                # Wiersz, na którym człowiek właśnie klika akcję, pomijamy w tym
+                # biegu — inaczej reset „zrezygnował → nowy” nadpisałby „Przywróć”.
+                .with_for_update(skip_locked=True)
             )
         ).scalars()
     }
@@ -164,7 +175,7 @@ async def intake_program(db: AsyncSession, program_id: int) -> dict[str, int]:
             )
             continue
         closed_at = row.closed_at
-        if closed_at is None or last_at <= closed_at:
+        if closed_at is None or last_at is None or last_at <= closed_at:
             continue
         if row.status == "rejected":
             if row.reapplied_at is None or last_at > row.reapplied_at:
@@ -367,6 +378,51 @@ async def sync_program(program_id: int) -> dict[str, int]:
     return {**intake, **screened}
 
 
+_background: set[asyncio.Task] = set()
+
+
+async def intake_now(program_id: int) -> Optional[dict[str, int]]:
+    """Sam nabór (szybki, w żądaniu). ``None`` = inny bieg trzyma program."""
+    lock = _lock_for(program_id)
+    if lock.locked():
+        return None
+    async with lock:
+        async with AsyncSessionLocal() as db:
+            stats = await intake_program(db, program_id)
+            await db.commit()
+    return stats
+
+
+async def _screen_in_background(program_id: int) -> None:
+    lock = _lock_for(program_id)
+    if lock.locked():
+        return  # trwa bieg pętli — posortuje te same zgłoszenia
+    async with lock:
+        try:
+            await screen_pending(program_id)
+        except Exception:  # noqa: BLE001 — sortowanie w tle nigdy nie wywraca żądania
+            logger.exception(
+                "academy: background screening program=%s failed", program_id
+            )
+
+
+def start_screening(program_id: int) -> None:
+    """Sortowanie Luną w tle — przycisk na ekranie nie czeka na model.
+
+    Referencja w ``_background``: zadanie bez niej może zostać zebrane przez
+    GC w trakcie działania.
+    """
+    task = asyncio.create_task(_screen_in_background(program_id))
+    _background.add(task)
+    task.add_done_callback(_background.discard)
+
+
+async def wait_for_background() -> None:
+    """Czeka na sortowanie w tle (testy, łagodne zamknięcie)."""
+    while _background:
+        await asyncio.gather(*list(_background), return_exceptions=True)
+
+
 async def sync_all_active() -> dict[int, dict[str, int]]:
     async with AsyncSessionLocal() as db:
         ids = (
@@ -423,7 +479,11 @@ async def perform_action(
             )
         if session.cancelled_at is not None:
             raise AcademyActionError("session_cancelled", "Ten termin jest odwołany.")
-        if row.session_id != session.id:
+        # Osoba już liczona w tym terminie nie zajmuje drugiego miejsca; ta,
+        # która „nie przyszła”, już się nie liczy — przy ponownym zapisie
+        # na ten sam termin MUSI przejść przez limit.
+        counted_here = row.session_id == session.id and row.attended is not False
+        if not counted_here:
             taken = await session_taken(db, session.id)
             if taken >= session.capacity:
                 raise AcademyActionError(

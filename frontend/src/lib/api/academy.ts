@@ -161,6 +161,8 @@ export interface ActionBody {
 
 export interface SyncResult {
   busy: boolean;
+  /** Luna sortuje nowe zgłoszenia w tle (odpowiedź nie czeka na model). */
+  screening?: boolean;
   message?: string;
   new?: number;
   reapplied?: number;

@@ -14,6 +14,7 @@ albo Head of Recruitment (``HeadOfRecruitmentPlus``) — to one decydują,
 kogo system w ogóle bierze pod uwagę.
 """
 
+import asyncio
 import logging
 from datetime import date, datetime, time, timedelta
 from typing import Literal, Optional
@@ -400,13 +401,18 @@ async def sync_program(
     current_user: RecruiterPlus,
     db: AsyncSession = Depends(get_db),
 ):
-    """Pobierz zgłoszenia z ogłoszeń teraz i posortuj pierwszą paczkę."""
+    """Pobierz zgłoszenia z ogłoszeń teraz; Luna sortuje je w tle.
+
+    Sortowanie to do 25 wywołań modelu po kolei — w żądaniu przekroczyłoby
+    limit czasu przeglądarki, a backend pracowałby dalej z założoną blokadą.
+    """
     await _program_or_404(db, program_id)
-    await db.commit()  # nie trzymaj połączenia na czas sortowania
-    stats = await svc.sync_program(program_id)
-    if stats.get("busy"):
+    await db.commit()  # nie trzymaj połączenia na czas naboru
+    stats = await svc.intake_now(program_id)
+    if stats is None:
         return {"busy": True, "message": "Pobieranie już trwa — odśwież za chwilę."}
-    return {"busy": False, **stats}
+    svc.start_screening(program_id)
+    return {"busy": False, "screening": True, **stats}
 
 
 # ── zgłoszenia ─────────────────────────────────────────────────────────────
@@ -506,7 +512,8 @@ async def application_documents(
         handover_name=body.handover_name,
         protocol_date=body.protocol_date,
     )
-    payload = docs.render_package(data)
+    # Pięć DOCX-ów renderuje się synchronicznie — poza pętlą zdarzeń.
+    payload = await asyncio.to_thread(docs.render_package, data)
     db.add(
         Activity(
             entity_type="candidate",
@@ -543,7 +550,8 @@ async def bulk_action(
     program = await _program_or_404(db, program_id)
     done: list[int] = []
     failed: list[dict] = []
-    for application_id in dict.fromkeys(body.ids):
+    # Stała kolejność blokad — dwa nakładające się wywołania nie zakleszczą się.
+    for application_id in sorted(set(body.ids)):
         row = await db.get(AcademyApplication, application_id, with_for_update=True)
         if row is None or row.program_id != program_id:
             failed.append(
