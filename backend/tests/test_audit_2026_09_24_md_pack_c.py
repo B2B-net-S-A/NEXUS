@@ -274,3 +274,273 @@ async def test_auto_closed_case_does_not_block_termination_reversal(
     )
     assert done.status_code == 200, done.text
     assert await _pending_cases(seed["contract_id"]) == []
+
+
+# ── H6: dawna linia Polkomtela nie wiąże numeru z „Uwag” u innego klienta ──
+
+
+async def _person_on_two_clients() -> dict:
+    """Ta sama osoba: kontrakt u „Polkomtela” (dawno) i u innego klienta (dziś)."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from app.models.client import Client
+    from app.models.contract import Contract, ContractStatus
+    from tests.test_md_import_order_number_assignment import _old_start
+
+    suffix = uuid.uuid4().hex[:6]
+    async with AsyncSessionLocal() as db:
+        polkomtel = Client(name=f"PackC-Polk-{suffix}")
+        other = Client(name=f"PackC-Bnp-{suffix}")
+        cand = Candidate(
+            name="Oskar",
+            lastname=f"Dwuklientowy-{suffix}",
+            email=f"packc-{suffix}@example.com",
+        )
+        db.add_all([polkomtel, other, cand])
+        await db.commit()
+        # Aktywny na czas założenia zamówienia; test kończy go w bazie.
+        old_contract = Contract(
+            candidate_id=cand.id,
+            client_id=polkomtel.id,
+            status=ContractStatus.active,
+            start_date=_old_start() - timedelta(days=200),
+            rate_candidate=Decimal("900"),
+            rate_client=Decimal("1100"),
+        )
+        new_contract = Contract(
+            candidate_id=cand.id,
+            client_id=other.id,
+            status=ContractStatus.active,
+            start_date=_old_start(),
+            rate_candidate=Decimal("900"),
+            rate_client=Decimal("1100"),
+        )
+        db.add_all([old_contract, new_contract])
+        await db.commit()
+        return {
+            "polkomtel": polkomtel.id,
+            "other": other.id,
+            "old_contract": old_contract.id,
+            "new_contract": new_contract.id,
+            "name": f"{cand.name} {cand.lastname}",
+        }
+
+
+async def test_old_polkomtel_line_does_not_bind_a_note_number_at_another_client(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+    from app.models.client_order_group import GROUP_STATUS_COMPLETED, ClientOrderGroup
+    from app.models.contract import Contract, ContractStatus
+    from app.services import finance_order_matching
+    from app.services.order_policies.polkomtel import CLIENT_IDS_ENV
+    from tests.test_md_import_order_number_assignment import (
+        _consumptions,
+        _create_group,
+        _enable_multi,
+        _finance_headers,
+        _import,
+        _old_start,
+        _sheet,
+    )
+
+    seed = await _person_on_two_clients()
+    _enable_multi(monkeypatch, seed["polkomtel"], seed["other"])
+    monkeypatch.setattr(
+        finance_order_matching, "POLKOMTEL_CLIENT_ID", seed["polkomtel"]
+    )
+    monkeypatch.setenv(CLIENT_IDS_ENV, str(seed["polkomtel"]))
+
+    old = await _create_group(
+        app_client,
+        app_auth_headers,
+        seed["polkomtel"],
+        seed["old_contract"],
+        number=f"SAP 45{uuid.uuid4().int % 10**8:08d}",
+        start=_old_start() - timedelta(days=200),
+        end=None,
+        md_total=40,
+    )
+    async with AsyncSessionLocal() as db:
+        line = await db.get(ClientOrder, old["lines"][0]["id"])
+        line.status = ClientOrderStatus.completed
+        line.end_date = _old_start() - timedelta(days=1)
+        group = await db.get(ClientOrderGroup, old["id"])
+        group.status = GROUP_STATUS_COMPLETED
+        group.closure_date = _old_start() - timedelta(days=1)
+        contract = await db.get(Contract, seed["old_contract"])
+        contract.status = ContractStatus.ended
+        contract.end_date = _old_start() - timedelta(days=1)
+        await db.commit()
+    current = await _create_group(
+        app_client,
+        app_auth_headers,
+        seed["other"],
+        seed["new_contract"],
+        number=f"87_{uuid.uuid4().hex[:4]}",
+        start=_old_start(),
+        end=None,
+        md_total=60,
+    )
+    current_line = current["lines"][0]["id"]
+
+    finance = await _finance_headers(app_client)
+    detail = await _import(
+        app_client, finance, _sheet([(seed["name"], 12, "delegacja 445", 0)])
+    )
+
+    [row] = detail["rows"]
+    assert row["status"] == "applied", row
+    assert row["matched_order_id"] == current_line
+    assert list((await _consumptions(current_line)).values()) == [Decimal("12")]
+
+
+# ── H7: zatwierdzenie przekroczenia wspólnej puli nie nadpisuje nowszej paczki ─
+
+
+async def test_approving_an_old_shared_pool_batch_does_not_overwrite_a_newer_one(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    from tests.test_md_import_shared_budget import (
+        _create_shared_md_group,
+        _enable_cyfrowy_polsat,
+        _group_from_list,
+    )
+    from tests.test_order_lifecycle_and_cost import (
+        _finance_headers,
+        _import_sheet,
+        _seed_client_with_contracts,
+        _sheet,
+    )
+
+    client_id, contracts, names = await _seed_client_with_contracts(1)
+    _enable_cyfrowy_polsat(monkeypatch, client_id)
+    number = f"45008{uuid.uuid4().int % 10**5:05d}"
+    group = await _create_shared_md_group(
+        app_client,
+        app_auth_headers,
+        client_id,
+        contracts[0],
+        order_number=number,
+        budget=10,
+    )
+    finance = await _finance_headers(app_client)
+
+    old = await _import_sheet(
+        app_client, finance, _sheet([(names[0], 15, f"SAP {number}", 0)])
+    )
+    [held] = [r for r in old["rows"] if r["status"] == "overflow"]
+    newer = await _import_sheet(
+        app_client, finance, _sheet([(names[0], 8, f"SAP {number}", 0)])
+    )
+    assert newer["rows"][0]["status"] == "applied", newer["rows"]
+
+    approved = await app_client.post(
+        f"/api/md-consumption/imports/{old['id']}/rows/{held['id']}/assign",
+        json={"order_id": held["matched_order_id"], "confirm_overflow": True},
+        headers=finance,
+    )
+    assert approved.status_code == 409, approved.text
+    assert "nowszego importu" in approved.json()["detail"]
+    body = await _group_from_list(app_client, app_auth_headers, client_id, group["id"])
+    assert body["md_budget_used"] == pytest.approx(8.0)
+
+
+# ── M12: replay Polkomtela nie księguje przekroczenia bez zatwierdzenia ────
+
+
+async def test_polkomtel_replay_keeps_an_overflow_row_waiting_for_approval(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order import ClientOrder
+    from app.services import finance_order_matching
+    from tests.test_order_lifecycle_and_cost import (
+        _create_group,
+        _enable_multi,
+        _finance_headers,
+        _import_sheet,
+        _md_line,
+        _seed_client_with_contracts,
+        _sheet,
+    )
+
+    client_id, contracts, names = await _seed_client_with_contracts(1)
+    _enable_multi(monkeypatch, client_id)
+    monkeypatch.setattr(finance_order_matching, "POLKOMTEL_CLIENT_ID", client_id)
+    digits = f"45{uuid.uuid4().int % 10**8:08d}"
+    group = await _create_group(
+        app_client,
+        app_auth_headers,
+        client_id,
+        [_md_line(contracts[0], input_value=8)],
+        order_number=f"SAP {digits}",
+    )
+    line_id = group["lines"][0]["id"]
+    finance = await _finance_headers(app_client)
+
+    imported = await _import_sheet(
+        app_client, finance, _sheet([(names[0], 12, digits, 0)])
+    )
+    [row] = imported["rows"]
+    assert row["status"] == "overflow", row
+
+    endpoint = f"/api/md-consumption/imports/{imported['id']}/reprocess-polkomtel"
+    applied = await app_client.post(endpoint, json={"apply": True}, headers=finance)
+    assert applied.status_code == 200, applied.text
+
+    detail = await app_client.get(
+        f"/api/md-consumption/imports/{imported['id']}", headers=finance
+    )
+    assert detail.status_code == 200, detail.text
+    [after] = detail.json()["rows"]
+    assert after["status"] == "overflow", after
+    async with AsyncSessionLocal() as db:
+        line = await db.get(ClientOrder, line_id)
+        assert Decimal(str(line.md_remaining)) == Decimal("8")
+
+
+# ── M13: przekroczenie u następcy zamiany wstrzymuje wiersz ────────────────
+
+
+async def test_late_swap_month_report_that_sinks_the_successor_is_held(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Raport poprzednika za miesiąc zamiany zmniejsza budżet następcy
+    (FIN-MD-02); gdy następca zużył już więcej, wiersz czeka na zatwierdzenie."""
+    from tests.test_md_import_duplicate_consultant_rows import (
+        _finance_headers,
+        _sheet,
+    )
+    from tests.test_multi_consultant_orders import (
+        _create_group,
+        _enable_for,
+        _line_payload,
+        _line_total,
+        _report_md,
+        _seed_client_with_contracts,
+        _swap,
+    )
+    from tests.test_order_lifecycle_and_cost import _import_sheet
+
+    if business_today().day == 1:
+        pytest.skip("Poprzednik kończy się w poprzednim miesiącu — brak miesiąca zamiany.")
+    client_id, contracts, names = await _seed_client_with_contracts(2)
+    _enable_for(monkeypatch, client_id)
+    group = await _create_group(
+        app_client, app_auth_headers, client_id, [_line_payload(contracts[0])]
+    )
+    predecessor = group["lines"][0]["id"]
+    successor = await _swap(app_client, app_auth_headers, client_id, group, contracts[1])
+    assert await _line_total(successor) == Decimal("50")
+    await _report_md(successor, "45")
+
+    finance = await _finance_headers(app_client)
+    detail = await _import_sheet(app_client, finance, _sheet([(names[0], 10)]))
+
+    [row] = detail["rows"]
+    assert row["status"] == "overflow", row
+    assert row["matched_order_id"] == predecessor
+    # Nic nie zostało zaksięgowane — budżet następcy nietknięty.
+    assert await _line_total(successor) == Decimal("50")
