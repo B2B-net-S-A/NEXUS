@@ -101,3 +101,49 @@ middleware dla całej aplikacji (`backend/app/core/null_character_guard.py`):
 query string, ścieżka i ciała JSON dostają 422 w kształcie błędu walidacji
 FastAPI (`type: "null_character"`). `pattern=` przy `q` zostaje, bo opisuje
 kontrakt w OpenAPI, z którego generator Schemathesis bierze dozwolone wartości.
+
+## Test obciążeniowy produkcji (tylko odczyt)
+
+`qa/load/prod-readonly.js` symuluje zespół pracujący naraz na prawdziwych danych:
+60% rekruterzy (pulpit, lista i wyszukiwanie kandydatów, profile, lista i tablica
+rekrutacji, agenda), 25% Delivery Leadzi (klienci, zamówienia, kontrakty,
+rekrutacje) i 15% kierownictwo (Insights: Rywalizacja i Zespół). Przerwy 5–15 s
+między ekranami, ekran = kilka żądań naraz, odpytywanie w tle co 5 min jak
+otwarta karta. Rampa: 10 osób → 30 (12 min) → 50 (6 min), razem ~33 min.
+Hamulce: > 5% błędów albo p95 > 5 s przerywa bieg.
+
+Wyłącznie GET-y sprawdzone jako czysty odczyt. Świadomie poza testem, bo
+zapisują albo mają limit na IP: `GET /api/jobs/{id}/champion-profile` (oznacza
+powiadomienia), `GET /api/clients/{id}/order-groups` (może uruchomić zaplanowane
+zamówienia), `GET /api/saved-searches` (jednorazowa migracja starych zapisów),
+podgląd treści dokumentów (wpis audytu), `GET /api/jobs/{id}/pipeline-scores`
+(Voyage + 30/min na IP), `POST /api/jarvis/ui-events`, WebSocket. Jedyne
+wywołanie zewnętrzne to osadzenie zapytania Voyage w trybie „auto” wyszukiwania
+(8 stałych fraz, pamięć 5 min — kilka wywołań na bieg).
+
+Procedura:
+
+1. Pora bez ludzi w systemie i bez wdrożeń: sprawdź, że nic nie czeka w kolejce
+   merge'ów ani w workflow Deploy. Okno ciszy wdrożeń to 0–7 czasu
+   warszawskiego; o 1:00 startuje nocny przegląd bazy, więc bieg ma się
+   skończyć przed 1:00.
+2. Tokeny (sekret nie opuszcza serwera, ważne 3 h, `.qa/` jest poza Gitem):
+   ```sh
+   B=$(ssh -i ~/.ssh/nexus_prod_root_ed25519 root@91.99.199.112 "docker ps --format '{{.Names}}' | grep '^backend-ocgkw' | head -1")
+   ssh -i ~/.ssh/nexus_prod_root_ed25519 root@91.99.199.112 \
+     "docker exec -i $B python - id=<admin> recruiter=8 delivery_lead=4 head_of_recruitment=1" \
+     < qa/load/mint_prod_tokens.py > .qa/prod-tokens.json && chmod 600 .qa/prod-tokens.json
+   ```
+3. Monitor w drugim terminalu: `qa/load/prod_monitor.sh .qa/loadrun/monitor.csv`
+   (czas `/api/health/live` z zewnątrz, status `/api/health`, CPU/RAM
+   kontenerów, połączenia backendu w `pg_stat_activity`, nazwa kontenera —
+   zmiana = wdrożenie w trakcie, wynik do powtórki).
+4. `.qa/bin/k6 run -e QA_CONFIRM=nexus-prod-readonly -e K6_PROFILE=smoke qa/load/prod-readonly.js`,
+   potem bez `K6_PROFILE`. Podsumowanie trafia do `.qa/loadrun/`.
+5. Po biegu: linie `runtime_metrics` z logów backendu za czas testu (opóźnienie
+   pętli zdarzeń, szczyt wypożyczonych połączeń).
+
+Granice: k6 nie renderuje przeglądarki, nie mierzy AI (generator CV, Jarvis)
+ani zapisów, a konta testowe są prawdziwymi kontami ról (tylko odczyty, bez
+śladu w danych). Wynik mówi o odczytach przy 30/50 osobach, nie o pełnym dniu
+pracy z importami i eksportami.
