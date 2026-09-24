@@ -190,6 +190,19 @@ def _detach_lotte_wedel_client_gate(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _competition_rankings_uncached(monkeypatch):
+    """Rankingi konkursów mają na produkcji 60-sekundowy cache w procesie.
+
+    Testy na wspólnej bazie dosiewają dane i pytają o ranking ponownie — z
+    cache'em dostawałyby wynik poprzedniego testu. Zachowanie cache'u sprawdza
+    osobno `test_competition_rankings_cache.py`.
+    """
+    from app.api import competitions as competitions_api
+
+    monkeypatch.setattr(competitions_api, "_CACHE_TTL_SECONDS", -1)
+
+
+@pytest.fixture(autouse=True)
 def _open_the_order_mail_recheck_window(monkeypatch):
     """Automatyczny recheck ma w testach chodzić niezależnie od pory dnia.
 

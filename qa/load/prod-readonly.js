@@ -39,12 +39,19 @@ for (const [name, pool] of Object.entries(POOLS)) {
 }
 
 const profile = __ENV.K6_PROFILE || 'load';
-if (!['smoke', 'load'].includes(profile)) throw new Error('K6_PROFILE: smoke albo load');
+if (!['smoke', 'load', 'peak'].includes(profile)) throw new Error('K6_PROFILE: smoke, load albo peak');
 
 // Udział person w ruchu: 60% rekrutacja, 25% delivery, 15% kierownictwo.
 const SHARES = { recruiter: 0.6, delivery: 0.25, management: 0.15 };
 // Rampa: 10 osób (rozgrzewka) → 30 (docelowo) → 50 (zapas) → 0.
-const STAGES = [
+// `peak` pomija rozgrzewkę: 30 osób przez 10 min, potem 50 przez 8 min.
+const STAGES = profile === 'peak' ? [
+  { duration: '2m', target: 30 },
+  { duration: '10m', target: 30 },
+  { duration: '2m', target: 50 },
+  { duration: '8m', target: 50 },
+  { duration: '1m', target: 0 },
+] : [
   { duration: '3m', target: 10 },
   { duration: '4m', target: 10 },
   { duration: '3m', target: 30 },
@@ -102,12 +109,18 @@ function json(res) { try { return res.json(); } catch (_) { return null; } }
 function screen(name, token, requests) {
   const started = Date.now();
   group(name, () => {
-    const batch = requests.map(([path, label]) => ['GET', API + path, null, {
+    // Trzeci element krotki: statusy poprawne dla tej trasy (domyślnie 200).
+    // 403 bywa poprawne tam, gdzie front woła trasę tylko przy uprawnieniu.
+    const batch = requests.map(([path, label, ok = [200]]) => ['GET', API + path, null, {
       headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
       tags: { name: label, kind: 'api', screen: name }, timeout: '30s', redirects: 0,
+      responseCallback: http.expectedStatuses(...ok),
     }]);
     const responses = http.batch(batch);
-    responses.forEach((r, i) => check(r, { [`${requests[i][1]}: 200`]: (x) => x.status === 200 }));
+    responses.forEach((r, i) => {
+      const ok = requests[i][2] || [200];
+      check(r, { [`${requests[i][1]}: ${ok.join('/')}`]: (x) => ok.includes(x.status) });
+    });
     screenTime.add(Date.now() - started, { screen: name });
     screens.add(1, { screen: name });
     return responses;
@@ -256,8 +269,8 @@ export function delivery(data) {
   const contract = pickFrom(data.contracts);
   screen('contract detail', token, [
     [`/api/contracts/${contract}`, 'contract detail'],
-    [`/api/contracts/${contract}/documents`, 'contract documents'],
-    [`/api/contracts/${contract}/benchmark`, 'contract benchmark'],
+    [`/api/contracts/${contract}/documents`, 'contract documents', [200, 403]],
+    [`/api/contracts/${contract}/benchmark`, 'contract benchmark', [200, 403]],
   ]);
   think();
   screen('jobs list', token, [

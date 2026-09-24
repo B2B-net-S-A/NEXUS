@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AdminUser, CurrentUser
 from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
+from app.core.cache import cache_get, cache_invalidate, cache_set, cache_single_flight
 from app.core.database import get_db
 from app.core.scheduling import business_today
 from app.services.insights_scoring_config import (
@@ -50,6 +51,23 @@ def _parse_type(type_str: str) -> CompetitionType:
 # /api/admin/clients-overview, /api/dashboard/v2/*) sa wspoldzielone z INNYMI
 # stronami — tam Insights dostaje wlasne /api/insights/*, zamiast poszerzac cudzy
 # guard. Zapisy (freeze) zostaja na AdminUser.
+# Rankingi na żywo są takie same dla każdego oglądającego, a jedno przeliczenie
+# to kilka sekund pracy Postgresa (`VERIFIER_ANCHORED_CTE`). Test obciążeniowy
+# 24.09.2026: przy 30 osobach `/monthly-races` p50 5,9 s i `/current` ~3 s,
+# liczone od nowa przy każdym wejściu na Insights. Minuta opóźnienia rankingu
+# nie zmienia niczego w konkursie (nagrody wypłaca zamrożenie, nie ten widok);
+# zamrożenie i rozstrzygnięcie remisu czyszczą cache od razu.
+_CACHE_PREFIX = "competitions:"
+_CACHE_TTL_SECONDS = 60
+
+
+async def _remember(key: str, value: dict) -> None:
+    # Rozrzut wygaśnięcia tylko przy dodatnim TTL — testy wyłączają cache
+    # ujemnym TTL-em i rozrzut przywróciłby wtedy kilka sekund ważności.
+    jitter = 10 if _CACHE_TTL_SECONDS > 0 else 0
+    await cache_set(key, value, ttl_seconds=_CACHE_TTL_SECONDS, jitter_seconds=jitter)
+
+
 @router.get("/current")
 async def get_current(
     _user: CurrentUser,
@@ -64,6 +82,19 @@ async def get_current(
     """Live ranking (bez zapisu do DB). Pokazuje TOP 10 + meta (countdown,
     system punktowy, pula nagród, warunek udziału)."""
     ctype = _parse_type(type)
+    key = f"{_CACHE_PREFIX}current:{ctype.value}:{period or ''}"
+    async with cache_single_flight(key, db=db):
+        cached = await cache_get(key)
+        if cached is not None:
+            return cached
+        result = await _compute_current(db, ctype, period)
+        await _remember(key, result)
+        return result
+
+
+async def _compute_current(
+    db: AsyncSession, ctype: CompetitionType, period: Optional[str]
+) -> dict:
     if period is None:
         if ctype in (
             CompetitionType.quarterly_champions_dl,
@@ -188,7 +219,14 @@ async def monthly_races(
     """
     # Kompozycja (rankingi + wykluczenie lidera kwartału) wyniesiona do
     # serwisu — composite dashboardu używa dokładnie tej samej funkcji.
-    return await comp_service.compose_monthly_races(db, period)
+    key = f"{_CACHE_PREFIX}monthly-races:{period or ''}"
+    async with cache_single_flight(key, db=db):
+        cached = await cache_get(key)
+        if cached is not None:
+            return cached
+        result = await comp_service.compose_monthly_races(db, period)
+        await _remember(key, result)
+        return result
 
 
 @router.get("/history")
@@ -272,6 +310,7 @@ async def freeze(
             ),
         )
     created = await comp_service.freeze_competition(db, ctype, period)
+    await cache_invalidate(_CACHE_PREFIX)
     # `len(created)` to rozmiar podium, nie liczba ZAPISANYCH wierszy — przy
     # ponownym zamrożeniu okresu serwis zwraca istniejący snapshot bez zapisu,
     # więc odpowiedź meldowała „saved_count: 3" mimo że nic się nie stało.
@@ -317,11 +356,13 @@ async def resolve_tie(
     """Admin rozstrzyga remis: kolejność → wiersze podium z nagrodą."""
     ctype = _parse_type(type)
     try:
-        return await comp_service.resolve_competition_tie(
+        result = await comp_service.resolve_competition_tie(
             db, ctype, period, payload.user_ids, actor_id=user.id
         )
     except comp_service.TieResolutionError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.message)
+    await cache_invalidate(_CACHE_PREFIX)
+    return result
 
 
 @router.get("/my-position")
