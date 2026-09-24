@@ -10,14 +10,17 @@ import {
 } from "@/lib/contract-termination";
 
 describe("suggestedLastDay", () => {
-  it("dodaje okres wypowiedzenia w miesiącach", () => {
-    expect(suggestedLastDay("2026-09-10", 1)).toBe("2026-10-10");
-    expect(suggestedLastDay("2026-11-15", 3)).toBe("2027-02-15");
+  // Umowa 2026 (`notice_end_date` w backendzie): okres wypowiedzenia ze
+  // skutkiem na koniec miesiąca kalendarzowego (audyt 24.09, N2).
+  it("dodaje okres wypowiedzenia i kończy na ostatnim dniu miesiąca", () => {
+    expect(suggestedLastDay("2026-09-15", 1)).toBe("2026-10-31");
+    expect(suggestedLastDay("2026-09-10", 1)).toBe("2026-10-31");
+    expect(suggestedLastDay("2026-11-15", 3)).toBe("2027-02-28");
   });
 
-  it("przycina dzień do końca krótszego miesiąca", () => {
+  it("koniec lutego zna rok przestępny", () => {
     expect(suggestedLastDay("2026-01-31", 1)).toBe("2026-02-28");
-    expect(suggestedLastDay("2028-01-31", 1)).toBe("2028-02-29");
+    expect(suggestedLastDay("2028-01-05", 1)).toBe("2028-02-29");
   });
 
   it("bez okresu albo daty nie podpowiada nic", () => {

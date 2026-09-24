@@ -128,11 +128,12 @@ describe("ContractTerminationDialog — rozwiązanie umowy", () => {
     const signed = screen.getByLabelText(/Data złożenia wypowiedzenia/);
     await userEvent.type(signed, "2026-09-10");
     const lastDay = screen.getByLabelText(/Ostatni dzień umowy/) as HTMLInputElement;
-    expect(lastDay.value).toBe("2026-10-10");
+    // Koniec miesiąca po okresie wypowiedzenia (umowa 2026, audyt 24.09 N2).
+    expect(lastDay.value).toBe("2026-10-31");
     // Użytkownik może zmienić podpowiedź.
     await userEvent.clear(lastDay);
-    await userEvent.type(lastDay, "2026-10-31");
-    expect(lastDay.value).toBe("2026-10-31");
+    await userEvent.type(lastDay, "2026-10-15");
+    expect(lastDay.value).toBe("2026-10-15");
 
     await userEvent.click(screen.getByRole("radio", { name: "Porozumienie stron" }));
     expect(screen.getByLabelText(/Data zawarcia porozumienia/)).toBeInTheDocument();

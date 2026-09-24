@@ -147,3 +147,82 @@ export function scheduleHasBackwardsRange(
       step.effective_to !== null && step.effective_to < step.effective_from,
   );
 }
+
+// ── Edycja harmonogramu istniejącego kontraktu (`/contracts/[id]`) ─────────
+
+/** Wiersz edytora harmonogramu w formularzu edycji — z notatką kroku. */
+export type ScheduleEditRow = {
+  rate: string;
+  effectiveFrom: string;
+  /** Zapisana data końca kroku — pole jest ukryte (resolver jej nie czyta,
+   *  audyt 24.09, N4), ale wartość wraca do API bez zmian. */
+  effectiveTo: string;
+  /** Notatka kroku („Stawka początkowa”, powód aneksu) — niewidoczna
+   *  w formularzu, ale musi przeżyć zapis (audyt 24.09, W2). */
+  note?: string | null;
+};
+
+export type ScheduleEditStep = RateScheduleStep & { note: string | null };
+
+/** Zapisany krok harmonogramu tak, jak zwraca go `GET /api/contracts/{id}`. */
+export type SavedScheduleStep = {
+  rate: number;
+  effective_from: string;
+  effective_to?: string | null;
+  note?: string | null;
+};
+
+/**
+ * Kroki do wysłania z formularza edycji: tylko wiersze z poprawną stawką,
+ * pusty „od” ⇒ data rozpoczęcia kontraktu, notatka i zapisana data końca bez
+ * zmian. Kolejność wierszy zostaje — przy dwóch krokach z tą samą datą
+ * „od” wygrywa późniejszy wpis (`Contract._resolve_scheduled_rate`), więc
+ * duplikat daty jest legalny (aneks z datą równą dacie rozpoczęcia).
+ */
+export function buildScheduleEditSteps(
+  rows: ScheduleEditRow[],
+  startDate: string,
+): ScheduleEditStep[] {
+  return rows.flatMap((row) => {
+    const rate = parseDecimalInput(row.rate);
+    const effectiveFrom = row.effectiveFrom || startDate;
+    if (rate === null || !effectiveFrom) return [];
+    return [
+      {
+        rate,
+        effective_from: effectiveFrom,
+        effective_to: row.effectiveTo?.trim() ? row.effectiveTo : null,
+        note: row.note ?? null,
+      },
+    ];
+  });
+}
+
+/** Zapisany harmonogram w kolejności formularza (od najstarszego; stabilnie). */
+export function sortSavedSchedule<T extends SavedScheduleStep>(steps: T[]): T[] {
+  return [...steps].sort((a, b) =>
+    a.effective_from.localeCompare(b.effective_from),
+  );
+}
+
+/**
+ * Czy formularz zmienił harmonogram (stawka, od, do — bez notatek). Zapis
+ * niezmienionego harmonogramu zastępował dotąd kroki w bazie: znikały
+ * notatki i autorzy (audyt 24.09, W2), a przy zmianie jednostki backend nie
+ * mógł odróżnić „bez zmian” od „nowe kwoty”.
+ */
+export function scheduleStepsChanged(
+  steps: RateScheduleStep[],
+  saved: SavedScheduleStep[],
+): boolean {
+  const ordered = sortSavedSchedule(saved);
+  if (steps.length !== ordered.length) return true;
+  return steps.some((step, i) => {
+    const prev = ordered[i];
+    return (
+      Math.abs(step.rate - Number(prev.rate)) > 0.0005 ||
+      step.effective_from !== prev.effective_from ||
+      (step.effective_to ?? null) !== (prev.effective_to ?? null)
+    );
+  });
+}

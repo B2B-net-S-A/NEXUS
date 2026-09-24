@@ -9,13 +9,13 @@ import {
   type EquipmentOwner,
   type EquipmentReturnStatus,
 } from "@/lib/api";
-import { formatDate } from "@/lib/utils";
+import { formatIsoDatePl as formatDate } from "@/lib/date-pl";
 import { apiErrorMessage } from "@/lib/api-error";
 import { warsawToday } from "@/lib/warsaw-date";
 import { useToast } from "@/components/Toast";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { resolveViewState } from "@/lib/view-state";
-import { Laptop, Plus, Trash2, Check, AlertTriangle } from "lucide-react";
+import { Laptop, Plus, Trash2, Check, AlertTriangle, X } from "lucide-react";
 
 interface Props {
   contractId: number;
@@ -69,6 +69,9 @@ function isOverdue(item: ContractEquipmentItem): boolean {
 export function ContractEquipmentTab({ contractId, readOnly = false }: Props) {
   const qc = useQueryClient();
   const [adding, setAdding] = useState(false);
+  // Potwierdzenie w wierszu zamiast natywnego `confirm("Usunąć pozycję ? ")`
+  // (audyt 24.09, N7 — literówka i zamrożona automatyzacja przeglądarki).
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
 
   const { showToast } = useToast();
   const onMutationError = (fallback: string) => (err: unknown) =>
@@ -236,16 +239,41 @@ export function ContractEquipmentTab({ contractId, readOnly = false }: Props) {
                             Zwrócono
                           </button>
                         )}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (confirm("Usunąć pozycję ? "))
-                              deleteMut.mutate(item.id);
-                          }}
-                          className="inline-flex items-center text-xs text-destructive hover:underline"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        {confirmDeleteId === item.id ? (
+                          <span className="inline-flex items-center gap-1 text-xs">
+                            <span className="text-muted-foreground">Usunąć pozycję?</span>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                deleteMut.mutate(item.id, {
+                                  onSettled: () => setConfirmDeleteId(null),
+                                })
+                              }
+                              disabled={deleteMut.isPending}
+                              aria-label={`Potwierdź usunięcie: ${ITEM_TYPE_LABELS[item.item_type]}`}
+                              className="rounded px-2 py-1 font-medium text-destructive hover:bg-destructive/10 disabled:opacity-60"
+                            >
+                              Usuń
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setConfirmDeleteId(null)}
+                              aria-label="Anuluj usuwanie"
+                              className="rounded p-1 hover:bg-muted"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setConfirmDeleteId(item.id)}
+                            aria-label={`Usuń pozycję: ${ITEM_TYPE_LABELS[item.item_type]}`}
+                            className="inline-flex items-center text-xs text-destructive hover:underline"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                       </div>
                     </td>
                   )}

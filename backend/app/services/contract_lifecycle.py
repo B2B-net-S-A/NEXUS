@@ -926,6 +926,52 @@ async def reconcile_contracts_to_live_orders(
     return reconciled
 
 
+async def _assert_no_live_orders_before_void(
+    db: AsyncSession, contract: Contract
+) -> None:
+    """Anulowanie kontraktu z żywymi zamówieniami = 409 (audyt 24.09, S4).
+
+    ``void`` nie domyka zamówień ani umowy w Generatorze B2B, więc zamówienie
+    zostawało otwarte na anulowanym kontrakcie, a skaner wygasania i alerty DL
+    dalej o nim przypominały. Zamiast drugiej kopii kaskady zakończenia
+    odmawiamy: najpierw zamówienia (usunięcie szkicu, zakończenie zamówienia
+    albo „Zakończ współpracę”), potem anulowanie. Obejmuje zamówienia
+    okresowe i linie zamówień MD/kosztowych (to te same wiersze).
+    """
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+
+    blocking = (
+        ClientOrderStatus.draft,
+        ClientOrderStatus.active,
+        ClientOrderStatus.paused,
+    )
+    live = list(
+        (
+            await db.execute(
+                select(ClientOrder.id, ClientOrder.title)
+                .where(
+                    ClientOrder.contract_id == contract.id,
+                    ClientOrder.status.in_(blocking),
+                )
+                .order_by(ClientOrder.id)
+            )
+        ).all()
+    )
+    if not live:
+        return
+    raise ContractTransitionError(
+        {
+            "message": (
+                "Kontrakt ma otwarte zamówienia — najpierw je zakończ albo usuń "
+                "(szkice), a jeśli współpraca się skończyła, użyj „Zakończ "
+                "współpracę”. Anulowanie nie zamyka zamówień."
+            ),
+            "reason": "void_has_live_orders",
+            "order_ids": [row.id for row in live],
+        }
+    )
+
+
 async def void_contract(
     db: AsyncSession,
     contract: Contract,
@@ -944,6 +990,7 @@ async def void_contract(
             {"message": "Contract is already void", "from": previous.value}
         )
     assert_transition(previous, ContractStatus.void)
+    await _assert_no_live_orders_before_void(db, contract)
 
     contract.status = ContractStatus.void
     contract.voided_at = datetime.now(timezone.utc)

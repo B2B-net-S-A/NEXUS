@@ -286,10 +286,10 @@ async def test_list_contractors_filter_by_status(
     today = business_today()
     cutoff = today + timedelta(days=ENDING_SOON_WINDOW_DAYS)
     for item in resp.json()["items"]:
-        # ``active`` is a date bucket, not an equality filter on the stored
-        # status. A legacy ``ending`` row outside the 30-day window belongs in
-        # this tab until the lifecycle cron normalizes its stored status.
-        assert item["status"] in ("active", "ending")
+        # ``active`` is a date bucket over live contracts. Since the 24.09
+        # audit (S6) a stored ``ending`` (terminated with a future end date,
+        # even months ahead) belongs to „Kończący się”, never to „Aktywni”.
+        assert item["status"] == "active"
         if item["end_date"] is not None:
             end_date = date.fromisoformat(item["end_date"])
             assert end_date < today or end_date > cutoff

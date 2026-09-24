@@ -7,14 +7,19 @@ import { documentsHref } from "@/lib/b2b-documents";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "@/lib/api";
 import { RequireRole } from "@/components/RequireRole";
-import { formatDate } from "@/lib/utils";
+import { formatDateTimePl, formatIsoDatePl as formatDate } from "@/lib/date-pl";
+import {
+  contractDetailLabel,
+  contractDetailValue,
+} from "@/components/contracts/contract-timeline-labels";
 import { B2B_EXTENSION_HINT } from "@/lib/contract-end-date";
 import { warsawToday } from "@/lib/warsaw-date";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { resolveViewState } from "@/lib/view-state";
 import {
-  canManageCandidateFinance,
   canViewClientFinance,
+  hasAnalyticsCapability,
+  hasRole,
   useAuthStore,
 } from "@/store/auth";
 import {
@@ -111,7 +116,15 @@ export function ContractAmendmentsTab({
 }) {
   const queryClient = useQueryClient();
   const user = useAuthStore((state) => state.user);
-  const canManageFinance = canManageCandidateFinance(user);
+  // „Zmień stawkę” = to samo, co przepuszcza backend aneksów (audyt 24.09,
+  // S10): trasa `DeliveryLeadPlus` (admin / Delivery Lead) ORAZ zapis kwot
+  // (`can_manage_finance_amounts`: admin albo `manage_finance`). Dawne
+  // `canManageCandidateFinance` (admin/Finanse) pokazywało przycisk Finansom,
+  // którym trasa odmawia, i chowało go DL z `manage_finance`.
+  const canAmendRates =
+    hasRole(user, "admin") ||
+    (hasRole(user, "delivery_lead") &&
+      hasAnalyticsCapability(user, "manage_finance"));
   const canViewFinance = canViewClientFinance(user, clientId);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<FormState>(() => emptyAmendmentForm());
@@ -148,7 +161,7 @@ export function ContractAmendmentsTab({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (form.amendment_type === "rate_change" && !canManageFinance) {
+    if (form.amendment_type === "rate_change" && !canAmendRates) {
       setShowForm(false);
       setForm(emptyAmendmentForm());
       setError("");
@@ -162,16 +175,13 @@ export function ContractAmendmentsTab({
     if (form.amendment_type === "extension" && form.new_end_date) {
       payload.new_end_date = form.new_end_date;
     }
-    if (form.amendment_type === "rate_change" && canManageFinance) {
+    if (form.amendment_type === "rate_change" && canAmendRates) {
       if (form.new_rate_candidate) payload.new_rate_candidate = Number(form.new_rate_candidate);
       if (form.new_rate_client) payload.new_rate_client = Number(form.new_rate_client);
     }
     if (form.amendment_type === "scope_change") {
       if (form.new_project_name) payload.new_project_name = form.new_project_name;
       if (form.new_team_name) payload.new_team_name = form.new_team_name;
-    }
-    if (form.amendment_type === "early_termination" && form.new_end_date) {
-      payload.new_end_date = form.new_end_date;
     }
     createMutation.mutate(payload);
   };
@@ -205,7 +215,7 @@ export function ContractAmendmentsTab({
             >
               <CalendarPlus className="w-4 h-4" /> Przedłuż
             </button>
-            {canManageFinance && (
+            {canAmendRates && (
               <button
                 onClick={() => {
                   setForm(emptyAmendmentForm("rate_change"));
@@ -279,13 +289,13 @@ export function ContractAmendmentsTab({
               />
             </label>
 
-            {(form.amendment_type === "extension" ||
-              form.amendment_type === "early_termination") && (
+            {/* Wcześniejsze zakończenie nie jest już aneksem z tego formularza —
+                idzie oknem „Zakończ współpracę” (audyt 24.09, S5: backend
+                odmawia `termination_required`). */}
+            {form.amendment_type === "extension" && (
               <label className="block">
                 <span className="block text-xs text-muted-foreground dark:text-muted-foreground mb-1">
-                  {form.amendment_type === "extension"
-                    ? "Nowa data zakończenia"
-                    : "Data faktycznego zakończenia"}
+                  Nowa data zakończenia
                 </span>
                 <input
                   type="date"
@@ -299,7 +309,7 @@ export function ContractAmendmentsTab({
             )}
           </div>
 
-          {form.amendment_type === "rate_change" && canManageFinance && (
+          {form.amendment_type === "rate_change" && canAmendRates && (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <label className="block">
                 <span className="block text-xs text-muted-foreground dark:text-muted-foreground mb-1">
@@ -416,7 +426,7 @@ export function ContractAmendmentsTab({
           ) : (
             <>
               Brak aneksów — użyj przycisków powyżej, żeby przedłużyć,
-              {canManageFinance ? " zmienić stawkę," : ""} zmienić zakres lub
+              {canAmendRates ? " zmienić stawkę," : ""} zmienić zakres lub
               zakończyć kontrakt wcześniej.
             </>
           )}
@@ -446,26 +456,12 @@ export function ContractAmendmentsTab({
                         {a.reason}
                       </p>
                     )}
-                    <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2 text-xs [&>*]:min-w-0">
-                      {a.old_values && (
-                        <div>
-                          <div className="text-muted-foreground uppercase tracking-wide">Przed</div>
-                          <pre className="mt-1 bg-muted dark:bg-card/50 rounded p-2 overflow-x-auto">
-                            {JSON.stringify(a.old_values, null, 2)}
-                          </pre>
-                        </div>
-                      )}
-                      {a.new_values && (
-                        <div>
-                          <div className="text-muted-foreground uppercase tracking-wide">Po</div>
-                          <pre className="mt-1 bg-emerald-50 dark:bg-emerald-900/20 rounded p-2 overflow-x-auto">
-                            {JSON.stringify(a.new_values, null, 2)}
-                          </pre>
-                        </div>
-                      )}
-                    </div>
+                    {/* Czytelna lista pól zamiast surowego JSON-a (audyt
+                        24.09, N9): klucz → etykieta PL, wartość → data,
+                        status, jednostka po polsku. */}
+                    <AmendmentValues old={a.old_values} next={a.new_values} />
                     <div className="text-xs text-muted-foreground mt-2">
-                      {formatDate(a.created_at)}
+                      {formatDateTimePl(a.created_at)}
                       {a.created_by_email && ` · ${a.created_by_email}`}
                     </div>
                   </div>
@@ -476,5 +472,51 @@ export function ContractAmendmentsTab({
         </ol>
       )}
     </div>
+  );
+}
+
+/** Pola zmienione aneksem: „przed → po” dla kluczy z `new_values`. */
+export function amendmentChangeRows(
+  old: Record<string, unknown> | null,
+  next: Record<string, unknown> | null,
+): { key: string; label: string; before: string; after: string }[] {
+  const keys = Object.keys(next ?? {});
+  return keys.map((key) => ({
+    key,
+    label: contractDetailLabel(key),
+    before: contractDetailValue(key, old?.[key]),
+    after: contractDetailValue(key, next?.[key]),
+  }));
+}
+
+function AmendmentValues({
+  old,
+  next,
+}: {
+  old: Record<string, unknown> | null;
+  next: Record<string, unknown> | null;
+}) {
+  const rows = amendmentChangeRows(old, next);
+  if (rows.length === 0) return null;
+  return (
+    <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
+      {rows.map((row) => (
+        <div key={row.key} className="contents">
+          <dt className="text-muted-foreground">{row.label}</dt>
+          <dd className="min-w-0 break-words">
+            {row.before !== "—" && row.before !== row.after ? (
+              <>
+                <span className="text-muted-foreground line-through">
+                  {row.before}
+                </span>{" "}
+                → {row.after}
+              </>
+            ) : (
+              row.after
+            )}
+          </dd>
+        </div>
+      ))}
+    </dl>
   );
 }
