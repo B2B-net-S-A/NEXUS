@@ -558,12 +558,15 @@ export interface SwapConsultantInput {
 
 // ── Import MD (moduł Finanse) ───────────────────────────────────────────────
 
-/** `cost_only` (FIN-MD-06): wiersz z samą fakturą, bez liczby MD. */
+/** `cost_only` (FIN-MD-06): wiersz z samą fakturą, bez liczby MD.
+ *  `overflow` (ticket 1.1, 24.09.2026): zejście zepchnęłoby saldo poniżej
+ *  zera — czeka na ręczne zatwierdzenie. */
 export type ImportRowStatus =
   | "applied"
   | "needs_assignment"
   | "unmatched"
-  | "cost_only";
+  | "cost_only"
+  | "overflow";
 
 /** Wynik dopasowania KOSZTOWEGO — niezależny od `status` (dopasowanie MD po
  *  nazwisku). `null` = wiersz nie dotyczy zamówień kosztowych, co jest czym
@@ -598,6 +601,10 @@ export interface ImportRow {
   /** Dlaczego wiersz z numerem zamówienia nie trafił na żadną linię
    * (ticket 23.09.2026); `null` = wiersz bez numeru albo dopasowany. */
   status_reason?: string | null;
+  /** Status `overflow`: o ile MD zejście przekroczyłoby pulę. */
+  overflow_md?: number | null;
+  /** Ile wierszy tej samej osoby z tym samym numerem zsumowano w jedno zejście. */
+  merged_rows?: number;
   notes_raw: string | null;
   order_number_hint: string | null;
   invoice_amount: number | null;
@@ -868,10 +875,15 @@ export const mdConsumptionApi = {
     });
   },
 
-  assignRow: (importId: number, rowId: number, orderId: number) =>
+  assignRow: (
+    importId: number,
+    rowId: number,
+    orderId: number,
+    confirmOverflow = false,
+  ) =>
     api.post<ImportRow>(
       `/api/md-consumption/imports/${importId}/rows/${rowId}/assign`,
-      { order_id: orderId },
+      { order_id: orderId, confirm_overflow: confirmOverflow },
     ),
 
   reprocessPolkomtel: (importId: number, apply = false) =>

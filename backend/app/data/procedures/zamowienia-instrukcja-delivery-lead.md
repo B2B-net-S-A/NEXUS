@@ -1365,11 +1365,15 @@ Korekta pozostałości to osobna operacja opisana na końcu tej sekcji.
   z numerem trafia **wyłącznie** na zamówienie o tym numerze — także gdy ta
   sama osoba ma w tym miesiącu dwa zamówienia (stare kończy się 14.08, nowe
   zaczyna 15.08: dwa wiersze, każdy na swoje zamówienie, bez nadpisywania).
-  Nadwyżka ponad budżet zostaje wtedy na wskazanym zamówieniu (widać ją na
-  czerwono), a nie przechodzi na przedłużenie. Gdy tej osoby nie ma na
+  Kilka wierszy tej samej osoby z **tym samym** numerem sumuje się w jedno
+  zejście — podgląd importu pisze „połączono N wierszy arkusza". Nadwyżka
+  ponad budżet nie przechodzi na przedłużenie. Gdy tej osoby nie ma na
   wskazanym zamówieniu w tym miesiącu (numer z literówką, zamówienia nie ma
-  w NEXUSIE, okres go nie obejmuje), wiersz zostaje **„Brak pasującego
-  zamówienia" z opisem przyczyny** i nie zmienia żadnego zamówienia. Za
+  w NEXUSIE, okres go nie obejmuje), wiersz dostaje status **„Do weryfikacji"
+  z opisem przyczyny** i nie zmienia żadnego zamówienia. **U BIK okres
+  zamówienia nie ma znaczenia** — data na zamówieniu SAP to data wystawienia,
+  więc MD za sierpień z numerem zamówienia wystawionego 3 września trafiają na
+  to zamówienie. Za
   numer uznawany jest ciąg cyfr znany jako numer zamówienia **klienta tej
   osoby**, a u klientów z numerami z samych cyfr (BIK, Polkomtel) także każdy
   ciąg dłuższy niż 6 cyfr. Dopisek „w tym delegacja 318", rok, NIP czy numer
@@ -1406,6 +1410,14 @@ Korekta pozostałości to osobna operacja opisana na końcu tej sekcji.
   której nie da się odczytać („do ustalenia"). Kwoty w formatach „20 900,00 zł",
   „20.900,00 zł" i „1,234.56" są czytane poprawnie. Popraw plik i wgraj miesiąc
   ponownie.
+* **Zejście, po którym saldo spadłoby poniżej zera, nie jest księgowane samo.**
+  Dotyczy puli przy osobie (gdy nadwyżki nie przejmuje przedłużenie) i wspólnej
+  puli MD. Wiersz dostaje status **„Do weryfikacji – przekroczenie puli o X MD"**,
+  a budżet i status zamówienia zostają bez zmian (zamówienie nie zakończy się
+  samo na błędnym saldzie). Finanse albo administrator zatwierdzają go
+  przyciskiem **„Zatwierdź mimo przekroczenia"** (dwa kliknięcia) — wtedy MD
+  schodzą, a historia zamówienia ma dopisek „Przekroczenie puli zatwierdzone
+  ręcznie". Przy wspólnej puli zatwierdza się cały miesiąc zamówienia naraz.
 * **Powtórny import tego samego miesiąca nadpisuje** poprzednie zużycie — MD nie
   odejmą się drugi raz. Przy **wspólnej puli MD** plik korygujący może nieść
   tylko poprawione osoby: MD pozostałych osób z wcześniejszego importu tego

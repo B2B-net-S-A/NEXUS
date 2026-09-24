@@ -839,6 +839,7 @@ def line_settles_in_month(
     *,
     contract: Optional[Contract] = None,
     include_draft: bool = False,
+    ignore_period: bool = False,
 ) -> bool:
     """Pythonowe lustro ``line_settles_in_month_conditions``.
 
@@ -846,12 +847,18 @@ def line_settles_in_month(
     dobór kandydatów i zapis odpowiadają na dokładnie to samo pytanie.
     ``contract`` podaje wołający, żeby nie doczytywać relacji leniwie w sesji
     async (``MissingGreenlet``).
+
+    ``ignore_period`` — wiersz importu wskazał zamówienie numerem u klienta,
+    którego data zamówienia jest datą wystawienia, nie okresem usługi (BIK,
+    ticket 1.1 z 24.09.2026, ``md_lines_for_numbered_rows``).
     """
     if order.status not in _settling_line_statuses(include_draft=include_draft):
         return False
     resolved = contract if contract is not None else order.contract
     if resolved is not None and resolved.status == ContractStatus.void:
         return False
+    if ignore_period:
+        return True
     first, last = month_bounds(period_month)
     if order.start_date is not None and order.start_date > last:
         return False
@@ -900,6 +907,52 @@ async def md_lines_settling_in_month(
         ):
             continue
         if not group_settles_in_month(group, first):
+            continue
+        candidate = order.contract.candidate if order.contract else None
+        display = (
+            f"{candidate.name or ''} {candidate.lastname or ''}".strip()
+            if candidate
+            else ""
+        )
+        matches.append(LineMatch(order=order, group=group, consultant_name=display))
+    return matches
+
+
+async def md_lines_for_numbered_rows(
+    db: AsyncSession, client_ids: Iterable[int]
+) -> list[LineMatch]:
+    """Linie MD per osoba klientów, u których data zamówienia NIE jest okresem.
+
+    BIK (ticket 1.1, 24.09.2026): data na zamówieniu SAP to data wystawienia,
+    a MD za sierpień bywają rozliczane na zamówieniu wystawionym 3 września.
+    Wiersz importu z numerem takiego zamówienia trafia na nie bez względu na
+    okres — decydują numer z arkusza i osoba. Zapas dla wierszy Z NUMEREM;
+    wiersz bez numeru nadal dopasowuje się wyłącznie okresem
+    (``md_lines_settling_in_month``). Grupa anulowana i wspólna pula odpadają.
+    """
+    ids = frozenset(client_ids)
+    if not ids:
+        return []
+    result = await db.execute(
+        _line_query()
+        .join(Contract, ClientOrder.contract_id == Contract.id)
+        .options(selectinload(ClientOrder.order_group))
+        .where(
+            ClientOrder.md_total.isnot(None),
+            ClientOrder.client_id.in_(ids),
+            ClientOrder.status.in_(_SETTLING_LINE_STATUSES),
+            Contract.status != ContractStatus.void,
+        )
+    )
+    matches: list[LineMatch] = []
+    for order in result.scalars():
+        group = order.order_group
+        if group is None or group.status not in (
+            GROUP_STATUS_ACTIVE,
+            GROUP_STATUS_COMPLETED,
+        ):
+            continue
+        if group.is_cost_based or uses_shared_md_pool(group):
             continue
         candidate = order.contract.candidate if order.contract else None
         display = (

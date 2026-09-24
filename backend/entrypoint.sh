@@ -7881,13 +7881,17 @@ _CONSTRAINT_STATEMENTS = [
             )) NOT VALID;
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     # 0351: 'cost_only' — wiersz arkusza z samą fakturą, bez liczby MD.
+    # 0374: 'overflow' — wiersz przekraczający pulę czeka na zatwierdzenie.
+    "ALTER TABLE md_consumption_import_rows "
+    "ADD COLUMN IF NOT EXISTS overflow_md NUMERIC(16, 6) NULL",
     "ALTER TABLE md_consumption_import_rows "
     "DROP CONSTRAINT IF EXISTS ck_md_import_rows_status",
     """DO $$ BEGIN
         ALTER TABLE md_consumption_import_rows
             ADD CONSTRAINT ck_md_import_rows_status
             CHECK (status IN (
-                'applied', 'needs_assignment', 'unmatched', 'cost_only'
+                'applied', 'needs_assignment', 'unmatched', 'cost_only',
+                'overflow'
             )) NOT VALID;
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     "ALTER TABLE my_people_overrides "
@@ -9357,6 +9361,41 @@ async def repair():
             )
             return
     print(f"md import order-number repair: {summarize_for_log(summary)}")
+
+asyncio.run(repair())
+PY
+
+# Ticket 1.1 (24.09.2026): dwa wiersze jednej osoby z dwoma numerami zamówień
+# (BIK) zsumowane na jednym zamówieniu — 19 MD przechodzi na zamówienie
+# wskazane w wierszu, pierwsze wraca do salda 0 i zakończenia z końcem miesiąca
+# ostatniego zejścia. Przypięte do ID i stanu z 24.09 (inna wartość =
+# pominięcie z kodem). Logika w `app/services/md_import_split_rows_repair.py`;
+# marker w `app_settings` + advisory lock. Log: wyłącznie liczby, ID i kody.
+startup_phase "repair-md-import-split-rows"
+echo "Orders: move MD import rows to the orders named in them (one-shot)..."
+python - <<'PY' || echo "md import split-rows repair skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.md_import_split_rows_repair import (
+    run_md_import_split_rows_repair,
+    summarize_for_log,
+)
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_md_import_split_rows_repair(db)
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001 — treść błędu może nieść dane zamówień
+            await db.rollback()
+            sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+            print(
+                f"md import split-rows repair failed ({type(exc).__name__}, "
+                f"sqlstate={sqlstate}); nothing written, next start retries"
+            )
+            return
+    print(f"md import split-rows repair: {summarize_for_log(summary)}")
 
 asyncio.run(repair())
 PY

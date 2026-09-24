@@ -1096,7 +1096,8 @@ async def test_assign_rejects_a_line_whose_period_ends_before_the_month(
 async def test_md_remaining_may_go_negative(
     app_client: AsyncClient, app_auth_headers: dict, monkeypatch
 ):
-    """Przekroczony budżet jest zapisywany, nie ścinany do zera."""
+    """Przekroczony budżet jest zapisywany, nie ścinany do zera — po
+    świadomym zatwierdzeniu przekroczenia (ticket 1.1, 24.09.2026)."""
     client_id, contracts, names = await _seed_client_with_contracts(1)
     _enable_for(monkeypatch, client_id)
     await _create_group(
@@ -1110,6 +1111,14 @@ async def test_md_remaining_may_go_negative(
         business_today().strftime("%Y-%m"),
     )
     assert resp.status_code == 201, resp.text
+    [held] = resp.json()["rows"]
+    assert held["status"] == "overflow"
+    approved = await app_client.post(
+        f"/api/md-consumption/imports/{resp.json()['id']}/rows/{held['id']}/assign",
+        json={"order_id": held["matched_order_id"], "confirm_overflow": True},
+        headers=app_auth_headers,
+    )
+    assert approved.status_code == 200, approved.text
 
     listing = await app_client.get(
         f"/api/clients/{client_id}/order-groups", headers=app_auth_headers

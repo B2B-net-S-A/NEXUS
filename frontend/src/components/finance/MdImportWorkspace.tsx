@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 
 import { EmptyState, QueryStateNotice } from "@/components/ds";
+import { ConfirmTwoStepButton } from "@/components/orders/ConfirmTwoStepButton";
 import { useToast } from "@/components/Toast";
 import {
   mdConsumptionApi,
@@ -32,6 +33,7 @@ const STATUS_STYLE: Record<ImportRowStatus, { className: string; icon: typeof Ch
   needs_assignment: { className: "text-amber-700 bg-amber-50", icon: HelpCircle },
   unmatched: { className: "text-muted-foreground bg-muted", icon: AlertTriangle },
   cost_only: { className: "text-sky-700 bg-sky-50", icon: CheckCircle2 },
+  overflow: { className: "text-amber-800 bg-amber-100", icon: AlertTriangle },
 };
 
 /** Styl wiersza „tylko faktura", którego kwota NIE trafiła na zamówienie. */
@@ -47,7 +49,13 @@ const COST_FAILED_STYLE = {
  * rozliczone kwotowo (brak linii MD, ale faktura zeszła z puli kosztowej).
  */
 export function isLostImportRow(row: ImportRow): boolean {
-  if (row.status === "applied" || row.status === "needs_assignment") return false;
+  // `overflow` czeka na zatwierdzenie — nie jest zgubiony.
+  if (
+    row.status === "applied" ||
+    row.status === "needs_assignment" ||
+    row.status === "overflow"
+  )
+    return false;
   return row.cost_status !== "applied";
 }
 
@@ -151,17 +159,38 @@ export function MdImportWorkspace() {
   });
 
   const assign = useMutation({
-    mutationFn: async ({ rowId, orderId }: { rowId: number; orderId: number }) => {
+    mutationFn: async ({
+      rowId,
+      orderId,
+      confirmOverflow = false,
+    }: {
+      rowId: number;
+      orderId: number;
+      confirmOverflow?: boolean;
+    }) => {
       if (!detail) throw new Error("Brak importu");
-      await mdConsumptionApi.assignRow(detail.id, rowId, orderId);
-      return (await mdConsumptionApi.getImport(detail.id)).data;
+      const assigned = (
+        await mdConsumptionApi.assignRow(detail.id, rowId, orderId, confirmOverflow)
+      ).data;
+      return {
+        held: assigned.status === "overflow",
+        confirmed: confirmOverflow,
+        detail: (await mdConsumptionApi.getImport(detail.id)).data,
+      };
     },
-    onSuccess: (data) => {
+    onSuccess: ({ held, confirmed, detail: data }) => {
       setDetail(data);
       setReprocessPreview(null);
       setReprocessRaceConflict(null);
       queryClient.invalidateQueries({ queryKey: ["md-imports"] });
-      showToast("Przypisano zamówienie i zaktualizowano MD", "success");
+      showToast(
+        held
+          ? "Zejście przekroczyłoby pulę — wiersz czeka na zatwierdzenie przekroczenia"
+          : confirmed
+            ? "Zatwierdzono przekroczenie puli i zaksięgowano MD"
+            : "Przypisano zamówienie i zaktualizowano MD",
+        held ? "error" : "success",
+      );
     },
     onError: (err) => showToast(apiError(err, "Nie udało się przypisać."), "error"),
   });
@@ -219,7 +248,10 @@ export function MdImportWorkspace() {
   });
 
   const pendingCount = useMemo(
-    () => (detail?.rows ?? []).filter((r) => r.status === "needs_assignment").length,
+    () =>
+      (detail?.rows ?? []).filter(
+        (r) => r.status === "needs_assignment" || r.status === "overflow",
+      ).length,
     [detail],
   );
   const lostCount = useMemo(
@@ -543,7 +575,9 @@ export function MdImportWorkspace() {
                     key={row.id}
                     row={row}
                     busy={assign.isPending}
-                    onAssign={(orderId) => assign.mutate({ rowId: row.id, orderId })}
+                    onAssign={(orderId, confirmOverflow) =>
+                      assign.mutate({ rowId: row.id, orderId, confirmOverflow })
+                    }
                   />
                 ))}
               </tbody>
@@ -621,6 +655,17 @@ export function MdImportWorkspace() {
   );
 }
 
+/** „połączono N wierszy” — ta sama osoba z tym samym numerem (ticket 1.1). */
+function mergedNote(row: ImportRow) {
+  const merged = row.merged_rows ?? 1;
+  if (merged < 2) return null;
+  return (
+    <span className="ml-1">
+      · połączono {merged} {pluralPl(merged, "wiersz", "wiersze", "wierszy")} arkusza
+    </span>
+  );
+}
+
 function ImportRowLine({
   row,
   busy,
@@ -628,7 +673,7 @@ function ImportRowLine({
 }: {
   row: ImportRow;
   busy: boolean;
-  onAssign: (orderId: number) => void;
+  onAssign: (orderId: number, confirmOverflow?: boolean) => void;
 }) {
   const [choice, setChoice] = useState("");
   const costFailedEarly = row.cost_status != null && row.cost_status !== "applied";
@@ -650,7 +695,7 @@ function ImportRowLine({
   //  * wiersz rozliczony kosztowo, ale bez linii MD, jest w porządku — u
   //    Polkomtela to normalny przypadek.
   const mdSettled = row.status === "applied";
-  const mdPending = row.status === "needs_assignment";
+  const mdPending = row.status === "needs_assignment" || row.status === "overflow";
   const costSettled = row.cost_status === "applied";
   const costFailed = costFailedEarly;
   const unmatchedRow = !mdSettled && !mdPending && !costSettled;
@@ -715,9 +760,30 @@ function ImportRowLine({
               Przypisz
             </button>
           </div>
+        ) : row.status === "overflow" && row.matched ? (
+          // Ticket 1.1: zejście zepchnęłoby saldo poniżej zera — nic nie
+          // zostało zaksięgowane, dopóki człowiek nie zatwierdzi przekroczenia.
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-muted-foreground">
+              {row.matched.client_name} · nr {row.matched.order_number} (pozostało{" "}
+              {formatMd(row.matched.md_remaining)} MD)
+              {mergedNote(row)}
+            </span>
+            <ConfirmTwoStepButton
+              onConfirm={() => onAssign(row.matched!.order_id, true)}
+              disabled={busy}
+              confirmLabel="Na pewno? Saldo spadnie poniżej zera"
+              ariaLabel={`Zatwierdź przekroczenie puli dla ${row.consultant_name}`}
+              confirmAriaLabel={`Na pewno zatwierdzić przekroczenie puli dla ${row.consultant_name}? Saldo spadnie poniżej zera`}
+              className="rounded-md border border-border px-2 py-1 text-xs font-medium"
+            >
+              Zatwierdź mimo przekroczenia
+            </ConfirmTwoStepButton>
+          </div>
         ) : row.matched ? (
           <span className="text-xs text-muted-foreground">
             {row.matched.client_name} · nr {row.matched.order_number}
+            {mergedNote(row)}
           </span>
         ) : row.status_reason ? (
           // Wiersz wskazał zamówienie numerem, a ta osoba go w tym miesiącu

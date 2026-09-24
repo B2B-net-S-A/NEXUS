@@ -48,11 +48,15 @@ IMPORT_ROW_UNMATCHED = "unmatched"
 # FIN-MD-06 (0351): wiersz z samą fakturą (numer + kwota, bez liczby MD) —
 # rozlicza wyłącznie pulę kosztową.
 IMPORT_ROW_COST_ONLY = "cost_only"
+# 0374 (ticket 1.1, 24.09.2026): zaksięgowanie zeszłoby poniżej zera — wiersz
+# czeka na ręczne zatwierdzenie („Do weryfikacji – przekroczenie puli o X MD”).
+IMPORT_ROW_OVERFLOW = "overflow"
 IMPORT_ROW_STATUSES: tuple[str, ...] = (
     IMPORT_ROW_APPLIED,
     IMPORT_ROW_NEEDS_ASSIGNMENT,
     IMPORT_ROW_UNMATCHED,
     IMPORT_ROW_COST_ONLY,
+    IMPORT_ROW_OVERFLOW,
 )
 
 IMPORT_ROW_STATUS_LABELS: dict[str, str] = {
@@ -64,6 +68,8 @@ IMPORT_ROW_STATUS_LABELS: dict[str, str] = {
     # wysyłała operatora po odblokowanie statusu, którego nikt już nie pyta.
     IMPORT_ROW_UNMATCHED: "Brak pasującego zamówienia",
     IMPORT_ROW_COST_ONLY: "Tylko faktura (bez MD)",
+    # Liczbę MD dokleja odczyt wiersza (`overflow_md`).
+    IMPORT_ROW_OVERFLOW: "Do weryfikacji – przekroczenie puli",
 }
 
 CONSUMPTION_SOURCE_IMPORT = "import"
@@ -155,7 +161,8 @@ class MdConsumptionImportRow(Base):
     __tablename__ = "md_consumption_import_rows"
     __table_args__ = (
         CheckConstraint(
-            "status IN ('applied', 'needs_assignment', 'unmatched', 'cost_only')",
+            "status IN ('applied', 'needs_assignment', 'unmatched', 'cost_only', "
+            "'overflow')",
             name="ck_md_import_rows_status",
         ),
         CheckConstraint(
@@ -204,6 +211,10 @@ class MdConsumptionImportRow(Base):
     matched_group_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("client_order_groups.id", ondelete="SET NULL"), nullable=True
     )
+    overflow_md: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(16, 6), nullable=True
+    )
+    """O ile MD zaksięgowanie przekroczyłoby pulę (status ``overflow``, 0374)."""
     cost_status: Mapped[Optional[str]] = mapped_column(String(24), nullable=True)
     """``NULL`` = wiersz nie dotyczy rozliczenia kosztowego (brak numeru
     w „Uwagach"). Patrz ``COST_ROW_*``."""

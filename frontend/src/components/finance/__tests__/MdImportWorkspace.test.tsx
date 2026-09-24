@@ -212,7 +212,49 @@ describe("MdImportWorkspace", () => {
     await user.click(assign);
 
     await waitFor(() =>
-      expect(mdConsumptionApi.assignRow).toHaveBeenCalledWith(1, 1, 100),
+      expect(mdConsumptionApi.assignRow).toHaveBeenCalledWith(1, 1, 100, false),
+    );
+  });
+
+  it("wiersz przekraczający pulę czeka na zatwierdzenie w dwóch krokach (ticket 1.1)", async () => {
+    const held = row({
+      status: "overflow",
+      status_label: "Do weryfikacji – przekroczenie puli o 19 MD",
+      overflow_md: 19,
+      merged_rows: 2,
+      order_number_hint: "4500030197",
+    });
+    vi.mocked(mdConsumptionApi.upload).mockResolvedValue({
+      data: detail([held]),
+    } as never);
+    vi.mocked(mdConsumptionApi.assignRow).mockResolvedValue({
+      data: { status: "applied" },
+    } as never);
+    vi.mocked(mdConsumptionApi.getImport).mockResolvedValue({
+      data: detail([row()]),
+    } as never);
+
+    const user = userEvent.setup();
+    renderWorkspace();
+    const file = new File(["x"], "raport.xlsx", {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    });
+    await user.upload(screen.getByLabelText(/Plik XLSX/), file);
+    await user.click(screen.getByRole("button", { name: /Importuj/ }));
+
+    expect(
+      await screen.findByText("Do weryfikacji – przekroczenie puli o 19 MD"),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/połączono 2 wiersze arkusza/)).toBeInTheDocument();
+
+    const approve = screen.getByRole("button", {
+      name: /Zatwierdź przekroczenie puli dla Jan Kowalski/,
+    });
+    await user.click(approve);
+    expect(mdConsumptionApi.assignRow).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: /Na pewno/ }));
+    await waitFor(() =>
+      expect(mdConsumptionApi.assignRow).toHaveBeenCalledWith(1, 1, 99, true),
     );
   });
 
