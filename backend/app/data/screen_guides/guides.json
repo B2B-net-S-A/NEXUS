@@ -8,7 +8,7 @@
     "tasks": [
       {
         "q": "Jak przełączyć między moimi, otwartymi i wszystkimi rekrutacjami?",
-        "a": "Użyj przełącznika „Moje / Otwarte / Wszystkie” obok przycisku „Filtry”. Rekruter i Delivery Lead domyślnie widzą swoje, admin, Head of Recruitment i Finanse — otwarte. Zamknięte rekrutacje są tylko w „Moje” i „Wszystkie” — wybranie statusu „Zamknięta” w filtrach przy „Otwartych” samo przełącza na „Wszystkie”. Wybór zapisuje się w adresie, więc link wysłany koledze pokaże to samo.",
+        "a": "Użyj przełącznika „Moje / Otwarte / Wszystkie” obok „Filtry”. Rekruter i Delivery Lead domyślnie widzą swoje, admin, Head of Recruitment i Finanse — otwarte. Status „Zamknięta” przy „Otwartych” sam przełącza na „Wszystkie”. Wybór zapisuje się w adresie, więc link wysłany koledze pokaże to samo.",
         "anchor": "jobs.list.scope"
       },
       {
@@ -158,7 +158,7 @@
     "tasks": [
       {
         "q": "Jak przesunąć osobę na kolejny etap?",
-        "a": "Ramka „Następny etap” pod nazwiskiem pokazuje, czego brakuje do kolejnej kolumny, z przyciskiem przy każdym braku, i mówi, czy system zatrzyma ruch (QC CV, stawka do klienta, debrief). Przesuwasz przyciskiem „Przenieś na etap: …” — a gdy CV wysyła Delivery Lead albo osoba od Cpro, przycisk mówi „Przekaż…” i przekazuje osobę do ich kolejki. Gdy czegoś brakuje, przycisk jest wyłączony, a pod nim stoi powód. Inny etap wybierzesz w „Inny etap…”. Pełny profil: link „Profil ↗” przy nazwisku.",
+        "a": "Ramka „Następny etap” pod nazwiskiem pokazuje braki do kolejnej kolumny, z przyciskiem przy każdym. Gdy CV wysyła Delivery Lead albo osoba od Cpro, przycisk mówi „Przekaż…”; gdy system zatrzyma ruch, jest wyłączony z powodem. Inny etap wybierzesz w „Inny etap…”, pełny profil — link „Profil ↗” przy nazwisku.",
         "anchor": "jobs.person.actions"
       },
       {
@@ -566,7 +566,7 @@
       },
       {
         "q": "Jak zaimportować raport zużycia MD?",
-        "a": "W „Import zużycia MD” wgraj miesięczny XLSX i wybierz miesiąc. Wiersze dopasowane do jednej osoby schodzą z budżetu, niejednoznaczne czekają na wskazanie zamówienia. Numer zamówienia w „Uwagach” jest wiążący: wiersz trafia tylko na to zamówienie, a gdy się nie da — dostaje „Brak pasującego zamówienia” albo „Do weryfikacji” z przyczyną. Osoba bez zamówienia MD w tym miesiącu ma szary status „Bez zamówienia MD”, a wiersz z fakturą rozliczoną na zamówieniu kosztowym — „Rozliczono kwotowo”.",
+        "a": "W „Import zużycia MD” wgraj miesięczny XLSX i wybierz miesiąc. Numer zamówienia w „Uwagach” jest wiążący: gdy wiersza nie da się na nie rozliczyć, dostaje „Brak pasującego zamówienia” albo „Do weryfikacji”. Osoba bez zamówienia MD ma szary status „Bez zamówienia MD”, a faktura rozliczona na zamówieniu kosztowym — „Rozliczono kwotowo”.",
         "anchor": "finance.md_import"
       },
       {

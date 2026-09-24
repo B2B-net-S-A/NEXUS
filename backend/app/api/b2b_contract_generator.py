@@ -2620,7 +2620,6 @@ async def link_generated_contract_to_contract(
     await _assert_generator_client_access(
         db, current_user, contract.client_id, write=True
     )
-    await _assert_link_same_person(db, row, contract)
     other = await db.scalar(
         select(B2BGeneratedContract.contract_number).where(
             B2BGeneratedContract.contract_id == contract.id,
@@ -2633,6 +2632,7 @@ async def link_generated_contract_to_contract(
             status_code=409,
             detail=f"Kontrakt #{contract.id} ma już powiązaną umowę {other}.",
         )
+    await _assert_link_same_person(db, row, contract)
 
     previous = {
         "previous_contract_id": row.contract_id,

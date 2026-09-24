@@ -89,10 +89,6 @@ LIVE_POOLS: list[tuple[str, str | None]] = [
     ("Test Lead", QA),
     ("Test Manager", QA),
     ("Pentester (blue+red)", INFRA),
-    # Audyt 24.09.2026: polskie nazwy pentestów nie mogą trafiać do QA.
-    ("Tester penetracyjny", INFRA),
-    ("Penetration Tester", INFRA),
-    ("Security Tester", QA),
     ("Performance Tester (jMeter, Loadrunner, Gatling)", QA),
     ("Manual Tester - bazy danych", QA),
     ("Manual Tester (web, mob, sys (bankowość)", QA),
@@ -157,6 +153,10 @@ def test_live_catalogue_has_full_coverage() -> None:
         (None, None),
         # ordering: a tester whose name also mentions a data tool stays QA
         ("Tester (ETL, Spark)", QA),
+        # audyt 24.09.2026: pentest (także po polsku) to security, nie QA
+        ("Tester penetracyjny", INFRA),
+        ("Penetration Tester", INFRA),
+        ("Security Tester", QA),
         # ordering: "Service Manager" is management, "Service Desk" is infra
         ("Service Manager", MGMT),
         ("Service Desk", INFRA),
