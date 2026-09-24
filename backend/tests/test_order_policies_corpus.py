@@ -658,6 +658,47 @@ class TestBankPocztowyLayout:
         assert r.consultant_rows[0].consultant_name == "Wojciech Testowy"
         assert r.uncertain is False
 
+    def test_person_rows_are_converted_like_the_document_rate(self):
+        """W3 (audyt 24.09): wiersz osoby w MD też przechodzi MD → h.
+
+        Do 24.09 przeliczana była tylko stawka dokumentu, a planer brał stawkę
+        z wiersza — 1400 zł za MD zapisywało się jako 1400 zł/h.
+        """
+        policy = policy_by_key("bank_pocztowy")
+        result = OrderExtraction(
+            source="claude",
+            consultant_rows=[
+                ConsultantOrderRow(
+                    consultant_name="Wojciech Testowy",
+                    rate_client=Decimal("1400"),
+                    rate_unit="day",
+                    uncertain=False,
+                )
+            ],
+        )
+        first, _ = apply_policies(result, PolicyContext(document_text=BP), [policy])
+        row = first.consultant_rows[0]
+        assert (row.rate_client, row.rate_unit) == (Decimal("175.00"), "hour")
+
+        # „Przelicz plan": reguła działa ponownie na zapisanym odczycie —
+        # niczego nie dzieli drugi raz.
+        assert policy.reapply_on_refresh and policy.rule_version
+        again, _ = apply_policies(
+            first, PolicyContext(document_text=BP, reapplied=True), [policy]
+        )
+        assert (again.rate_client, again.rate_client_md, again.rate_unit) == (
+            Decimal("175.00"),
+            Decimal("1400"),
+            "hour",
+        )
+        row = again.consultant_rows[0]
+        assert (row.rate_client, row.rate_unit) == (Decimal("175.00"), "hour")
+
+        # Wzór „1400*1,23” dowodzi netto także dla przeliczonego wiersza.
+        ruled = apply_rate_kind(again, BP, [policy])
+        assert ruled.consultant_rows[0].uncertain is False
+        assert ruled.consultant_rows[0].rate_client_gross is None
+
 
 CA = """Zamówienie nr 26138 z dnia 2031-08-12 do Umowy Ramowej nr CA/B2B.NET/short/kwalif/2031
 Wynagrodzenie

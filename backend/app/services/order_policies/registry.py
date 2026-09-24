@@ -293,6 +293,12 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         apply=_bank_pocztowy,
         order=20,
         extract_rows=bank_pocztowy.extract_rows,
+        # „Przelicz plan" stosuje regułę ponownie: odczyt zapisany przed
+        # 24.09.2026 ma wiersz osoby w MD przy stawce dokumentu w godzinach.
+        # Reguła jest idempotentna (``rate_client_md``, jednostka wiersza).
+        reapply_on_refresh=True,
+        # 24.09.2026: wiersze osób też przeliczane MD → h (audyt W3).
+        rule_version="2026-09-24",
     ),
     OrderClientPolicy(
         key="credit_agricole",
