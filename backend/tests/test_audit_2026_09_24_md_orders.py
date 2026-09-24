@@ -575,6 +575,56 @@ async def test_takeover_enters_an_order_completed_with_a_later_date(
     assert (await _line_row(planned)).status == ClientOrderStatus.active
 
 
+async def test_extension_replacing_the_order_cancels_a_pending_takeover(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Zamówienie zastąpione przedłużeniem (materializacja) nie zostawia
+    zaplanowanego zastępstwa jako `completed`, które „Przywróć" oddałoby jako
+    aktywną linię bez przeniesienia MD — anuluje je z wpisem."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+    from app.services.order_group_lifecycle import materialize_scheduled_order_groups
+
+    seed = await _seed_takeover(source_state="leaving")
+    _enable_multi(monkeypatch, seed["client_id"])
+    planned = await _schedule_takeover(
+        app_client, app_auth_headers, seed, seed["departure"] + timedelta(days=1)
+    )
+    extension = await _extend(
+        app_client,
+        app_auth_headers,
+        seed["client_id"],
+        seed["group_id"],
+        start=business_today(),
+        lines=[
+            dict(
+                _md_line(seed["konrad_contract_id"], 10),
+                start_date=business_today().isoformat(),
+            )
+        ],
+    )
+    # Poprzednik bez MD do wykorzystania — przedłużenie może wejść.
+    async with AsyncSessionLocal() as db:
+        konrad = await db.get(ClientOrder, seed["line_id"])
+        konrad.status = ClientOrderStatus.completed
+        (await db.get(ClientOrder, planned)).md_remaining = Decimal("0")
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        await materialize_scheduled_order_groups(db, client_id=seed["client_id"])
+        await db.commit()
+
+    assert (await _line_row(planned)).status == ClientOrderStatus.cancelled
+    events = await app_client.get(
+        f"/api/clients/{seed['client_id']}/order-groups/{seed['group_id']}/events",
+        headers=app_auth_headers,
+    )
+    assert any(
+        "Zaplanowane zastępstwo anulowane" in e["description"]
+        and extension["order_number"] in e["description"]
+        for e in events.json()["events"]
+    )
+
+
 # ── S9: numer zamówienia ────────────────────────────────────────────────────
 
 
