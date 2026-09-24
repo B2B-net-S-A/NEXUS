@@ -40,7 +40,7 @@ from app.services.metric_definitions import (
     VERIFIER_ANCHORED_MILESTONES,
 )
 from app.services.placement_exclusions import not_excluded_placement
-from app.core.scheduling import business_today
+from app.core.scheduling import business_today, local_month_bounds
 
 logger = logging.getLogger(__name__)
 
@@ -1534,7 +1534,9 @@ async def report_client_trend(
     if exists is None:
         raise HTTPException(status_code=404, detail="Client not found")
 
-    today = datetime.now(timezone.utc).date()
+    # Miesiące w kalendarzu firmy: o 00:30 1. dnia w Warszawie trend ma już
+    # kończyć się nowym miesiącem, a jego granice to północ warszawska.
+    today = business_today()
     trend: list[dict] = []
     for i in range(months - 1, -1, -1):
         year = today.year
@@ -1542,23 +1544,20 @@ async def report_client_trend(
         while month <= 0:
             month += 12
             year -= 1
-        month_start = datetime(year, month, 1, tzinfo=timezone.utc)
-        if month == 12:
-            month_end = datetime(year + 1, 1, 1, tzinfo=timezone.utc)
-        else:
-            month_end = datetime(year, month + 1, 1, tzinfo=timezone.utc)
+        month_first = date(year, month, 1)
+        bounds = local_month_bounds(month_first)
 
         rows, _ = await _compute_client_hit_ratio(
             db,
-            period_start=month_start,
-            period_end=month_end,
+            period_start=bounds.start_utc,
+            period_end=bounds.end_utc,
             only_client_id=client_id,
         )
         row = rows[0] if rows else None
         trend.append(
             {
-                "month": month_start.strftime("%Y-%m"),
-                "month_label": month_start.strftime("%b %Y"),
+                "month": month_first.strftime("%Y-%m"),
+                "month_label": month_first.strftime("%b %Y"),
                 "closed_jobs": row["closed_jobs"] if row else 0,
                 "filled_jobs": row["filled_jobs"] if row else 0,
                 "placements": row["placements"] if row else 0,

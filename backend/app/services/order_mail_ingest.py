@@ -40,6 +40,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
+from app.core.scheduling import business_today
 from app.models.ai_feature import AIFeatureKey
 from app.models.client import Client
 from app.models.client_directory import ClientPortfolioScope, PortfolioCategory
@@ -1204,6 +1205,8 @@ async def current_proposal(db, extraction, client_id):
             await load_people_outside_roster(db, client_id=client_id, names=unmatched),
         )
     contract_ids = {r.contract_id for r in resolved if r.contract_id}
+    # Stawka obowiązująca i daty zamówień to daty w kalendarzu firmy.
+    today = business_today()
     existing: dict[int, list[ExistingOrder]] = {}
     current_rates: dict[int, tuple[Optional[Decimal], Optional[str]]] = {}
     if contract_ids:
@@ -1264,7 +1267,6 @@ async def current_proposal(db, extraction, client_id):
             .scalars()
             .all()
         )
-        today = datetime.now(timezone.utc).date()
         for c in contracts:
             try:
                 eff = effective_rate_fields(c, today)
@@ -1305,7 +1307,7 @@ async def current_proposal(db, extraction, client_id):
         resolved=resolved,
         existing_orders_by_contract=existing,
         is_group_client=is_multi_consultant_client(client_id),
-        today=datetime.now(timezone.utc).date(),
+        today=today,
         order_type=(await suggested_order_type(db, client_id)).value,
         document_period_authoritative=document_period_authoritative(
             active_policies(client_id)

@@ -46,6 +46,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal
+from app.core.scheduling import business_today
 from app.models.ai_feature import AIFeatureKey, FEATURE_LABELS
 from app.models.ai_metering import AIOperation, AIProviderCall, AISpendAlert
 from app.services.ai_quota import get_total_usage_for_period
@@ -60,7 +61,9 @@ MULTIPLIER = float(os.environ.get("AI_SPEND_ALERT_MULTIPLIER", "3"))
 
 
 def _period_start(when: Optional[date] = None) -> date:
-    d = when or datetime.now(timezone.utc).date()
+    # Ten sam miesiąc co w `ai_quota._current_period_start` — oba liczą okres
+    # z kalendarza firmy, inaczej alert pyta o wiersze pod innym `period_start`.
+    d = when or business_today()
     return d.replace(day=1)
 
 
