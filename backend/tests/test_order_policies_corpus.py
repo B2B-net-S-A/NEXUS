@@ -616,6 +616,7 @@ class TestNordeaLayout:
         # Odczyt modelu potwierdza osobę i stawkę z tabeli (S2, audyt 24.09).
         model = OrderExtraction(
             source="claude",
+            uncertain=False,
             consultant_rows=[
                 ConsultantOrderRow(
                     consultant_name="Łukasz Testowy",

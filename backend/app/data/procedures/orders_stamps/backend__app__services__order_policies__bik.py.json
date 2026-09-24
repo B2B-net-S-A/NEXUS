@@ -1,4 +1,4 @@
 {
-  "sha256": "72f8181b0874b7cc8829253f6830fe12540e28ddd31af6dcf0b2e94d4ad0048b",
+  "sha256": "6d17cf4e4eead9eca1ba5ebbe0ec5885925b43257e56cd60b767aeadabdf6dc0",
   "source": "backend/app/services/order_policies/bik.py"
 }

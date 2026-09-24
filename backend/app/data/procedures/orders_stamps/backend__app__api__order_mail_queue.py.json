@@ -1,4 +1,4 @@
 {
-  "sha256": "72e174bb8856ec1272eb7a2800e8dfeb5728a8e63170b3d25f5f61f3cdb954ba",
+  "sha256": "4c2d62ec2acfc29f4246163e4ed5e1fc855957c34049d6ad52018bf9f758e8a2",
   "source": "backend/app/api/order_mail_queue.py"
 }

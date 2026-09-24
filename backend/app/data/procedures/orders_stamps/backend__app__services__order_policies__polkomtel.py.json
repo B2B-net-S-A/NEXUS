@@ -1,4 +1,4 @@
 {
-  "sha256": "6e19cf3335b32af577b813a5767c431bae64bfb2edd42fe273b672b1d214fd46",
+  "sha256": "1290948e9d78f3a13664cf3d29c303d11f198631827c32d8ef1b4500badf68e7",
   "source": "backend/app/services/order_policies/polkomtel.py"
 }
