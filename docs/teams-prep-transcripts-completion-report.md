@@ -1,4 +1,4 @@
-# Prepy w Teams — transkrypt, notatka i ocena prepu (0369) — raport
+# Prepy w Teams — transkrypt, notatka i ocena prepu (0370) — raport
 
 Data: 23.09.2026. Zastępuje integrację z Fireflies.
 
@@ -28,7 +28,7 @@ ma podłączone 2 z ~30 osób (rekruterzy 0/16).
 ## Co zmieniono
 
 **Backend**
-- Migracja `0369_teams_prep_transcripts` i lustro w `entrypoint.sh`:
+- Migracja `0370_teams_prep_transcripts` i lustro w `entrypoint.sh`:
   tabele `prep_meetings`, `prep_transcripts`, `prep_reviews`, klucz AI
   `prep_review`, typ powiadomienia `prep_attention`, sondy w `/api/health/deep`.
 - `services/m365/teams_prep_auth.py`: osobna rejestracja aplikacji
@@ -69,7 +69,7 @@ ma podłączone 2 z ~30 osób (rekruterzy 0/16).
 
 - Testy backendu na zmigrowanej bazie (przed decyzją „bez lokalnego Dockera”):
   prepy, cykl rozmów, powiadomienia, kontrakty sekcji, heartbeat, rejestr modeli
-  i lustra enumów — 218 zielonych, 1 czerwony (rejestr modeli nie znał F23,
+  i lustra enumów — 218 zielonych, 1 czerwony (rejestr modeli nie znał F24,
   poprawione; plik potem 47/47).
 - Przegląd kodu znalazł dwa błędy blokujące i kilka mniejszych. Wszystkie są
   poprawione i mają testy:

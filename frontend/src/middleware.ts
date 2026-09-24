@@ -133,6 +133,13 @@ const ROLE_ROUTES: RouteAccessRule[] = [
     section: "pipeline",
     enforceRoles: true,
   },
+  // Akademia (0369) = sekcja Pipeline + RecruiterPlus w backendzie.
+  {
+    prefix: "/academy",
+    roles: PIPELINE_OPERATIONAL_ROLES,
+    section: "pipeline",
+    enforceRoles: true,
+  },
   // Moduł „Finanse" — podpisany claim sekcji pozwala także na indywidualny
   // wyjątek, a lista ról zachowuje bezpieczny fallback dla starszych tokenów.
   {
@@ -414,6 +421,7 @@ const PUBLIC_PATHS = [
   "/preview/career-share",
   "/preview/candidate-merge",
   "/preview/job-portals",
+  "/preview/academy",
   // Strona kariery (kandydaci z LinkedIna) — publiczna z definicji. Na własnym
   // hoście (`kariera.dynaminds.pl`) obsługuje ją `careerHostResponse` niżej;
   // tu jest wejście pod `/kariera/*` na hoście aplikacji (dev, podgląd, grafiki

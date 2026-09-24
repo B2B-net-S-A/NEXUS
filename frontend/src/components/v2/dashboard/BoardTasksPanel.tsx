@@ -11,7 +11,7 @@
  *    kolei" otwiera `CproQueueDialog`. Do Cpro wrzuca JEDNA osoba na całą
  *    firmę, zmienić ją może każdy (decyzja Artura 23.09.2026),
  *  - „Wysłane do Cpro" — od ilu dni czekamy na Nordeę,
- *  - „Prepy przed rozmową u klienta" (0369) — brak prepu, prep słaby albo bez
+ *  - „Prepy przed rozmową u klienta" (0370) — brak prepu, prep słaby albo bez
  *    nagrania; wiersz prowadzi do karty kandydata w kalendarzu. Nic nie
  *    blokuje — to przypomnienie, nie bramka.
  *

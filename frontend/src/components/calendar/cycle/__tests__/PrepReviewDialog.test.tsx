@@ -38,7 +38,7 @@ function prep(partial: Partial<Prep> = {}): Prep {
   };
 }
 
-describe("PrepSummary (0369)", () => {
+describe("PrepSummary (0370)", () => {
   it("pokazuje ocenę, punkty z cytatem i to, co zostało na Prep 2", () => {
     render(<PrepSummary prep={prep()} />);
     expect(screen.getByText("Ocena: OK")).toBeInTheDocument();

@@ -144,7 +144,7 @@ export type InterviewBadgeKind =
  | "call_due"
  | "choose_slot"
  | "awaiting_dl"
- // 0369: prepy w Teams — przypomnienie, nie bramka.
+ // 0370: prepy w Teams — przypomnienie, nie bramka.
  | "prep_weak"
  | "prep_missing"
  | "prep2"

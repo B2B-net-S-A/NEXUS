@@ -260,7 +260,9 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'screening_reassign_suggest'",
     # 0353: podpowiedzi Luny w przeglądzie DZ (Dominik porównuje CV).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'dz_review'",
-    # 0369: ocena prepu z transkryptu Teams (GPT-6 Luna).
+    # 0369: Akademia — Luna sortuje zgłoszenia z ogłoszeń.
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'academy_screening'",
+    # 0370: ocena prepu z transkryptu Teams (GPT-6 Luna).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'prep_review'",
     # 0233: cotygodniowy digest dopasowań (match_digest_loop)
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'match_digest'",
@@ -666,7 +668,7 @@ _ENUM_STATEMENTS = [
     # 0352: pipeline v4 — przejęta blokada 12 h i zatrudniony bez zamówienia.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'candidate_claim_taken'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hired_order_missing'",
-    # 0369: prep słaby / bez nagrania / brak prepu przed rozmową u klienta.
+    # 0370: prep słaby / bez nagrania / brak prepu przed rozmową u klienta.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'prep_attention'",
     # callstatus: zapisywane przez POST /api/cloudtalk/initiate-call. Uśpione,
     # bo CLOUDTALK_ENABLED=false — ale leży dokładnie na ścieżce aktywacji.
@@ -5047,6 +5049,95 @@ _COLUMN_STATEMENTS = [
     )""",
     "CREATE INDEX IF NOT EXISTS ix_jarvis_ui_events_event_created "
     "ON jarvis_ui_events (event, created_at)",
+    # 0369: Akademia — programy, ogłoszenia-źródła, terminy w biurze i zgłoszenia.
+    # Lustro 1:1 z migracją — `test_academy_migration_mirror.py`.
+    """CREATE TABLE IF NOT EXISTS academy_programs (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(200) NOT NULL,
+        is_active BOOLEAN NOT NULL DEFAULT true,
+        max_experience_years INTEGER NOT NULL DEFAULT 6,
+        require_polish BOOLEAN NOT NULL DEFAULT true,
+        luna_enabled BOOLEAN NOT NULL DEFAULT true,
+        conditions JSONB NOT NULL DEFAULT '[]'::jsonb,
+        session_capacity INTEGER NOT NULL DEFAULT 8,
+        task_due_days INTEGER NOT NULL DEFAULT 5,
+        created_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT ck_academy_programs_experience
+            CHECK (max_experience_years BETWEEN 0 AND 40),
+        CONSTRAINT ck_academy_programs_capacity
+            CHECK (session_capacity BETWEEN 1 AND 200),
+        CONSTRAINT ck_academy_programs_task_days
+            CHECK (task_due_days BETWEEN 1 AND 60)
+    )""",
+    """CREATE TABLE IF NOT EXISTS academy_program_sources (
+        program_id INTEGER NOT NULL REFERENCES academy_programs(id) ON DELETE CASCADE,
+        job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+        since DATE NULL,
+        added_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+        added_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (program_id, job_id)
+    )""",
+    """CREATE TABLE IF NOT EXISTS academy_sessions (
+        id SERIAL PRIMARY KEY,
+        program_id INTEGER NOT NULL REFERENCES academy_programs(id) ON DELETE CASCADE,
+        starts_at TIMESTAMPTZ NOT NULL,
+        location VARCHAR(255) NULL,
+        capacity INTEGER NOT NULL DEFAULT 8,
+        cancelled_at TIMESTAMPTZ NULL,
+        created_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT ck_academy_sessions_capacity CHECK (capacity BETWEEN 1 AND 200)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_academy_sessions_program_starts ON academy_sessions (program_id, starts_at)",
+    """CREATE TABLE IF NOT EXISTS academy_applications (
+        id BIGSERIAL PRIMARY KEY,
+        program_id INTEGER NOT NULL REFERENCES academy_programs(id) ON DELETE CASCADE,
+        candidate_id INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+        source_job_id INTEGER NULL REFERENCES jobs(id) ON DELETE SET NULL,
+        applied_at TIMESTAMPTZ NOT NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'new',
+        screening_verdict VARCHAR(10) NULL,
+        screening JSONB NULL,
+        screened_at TIMESTAMPTZ NULL,
+        experience_years NUMERIC(4, 1) NULL,
+        call_attempts INTEGER NOT NULL DEFAULT 0,
+        last_call_at TIMESTAMPTZ NULL,
+        session_id INTEGER NULL REFERENCES academy_sessions(id) ON DELETE SET NULL,
+        attended BOOLEAN NULL,
+        task_due DATE NULL,
+        task_result VARCHAR(10) NULL,
+        contract_sent_at TIMESTAMPTZ NULL,
+        signed_at TIMESTAMPTZ NULL,
+        cohort_month DATE NULL,
+        closed_stage VARCHAR(20) NULL,
+        closed_reason VARCHAR(500) NULL,
+        closed_at TIMESTAMPTZ NULL,
+        closed_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+        reapplied_at TIMESTAMPTZ NULL,
+        note VARCHAR(2000) NULL,
+        updated_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT uq_academy_applications_program_candidate
+            UNIQUE (program_id, candidate_id),
+        CONSTRAINT ck_academy_applications_status CHECK (
+            status IN ('new', 'to_call', 'scheduled', 'task_given', 'task_passed', 'contract_sent', 'signed', 'rejected', 'withdrew')
+        ),
+        CONSTRAINT ck_academy_applications_verdict CHECK (
+            screening_verdict IS NULL OR screening_verdict IN ('call', 'review', 'skip')
+        ),
+        CONSTRAINT ck_academy_applications_task_result CHECK (
+            task_result IS NULL OR task_result IN ('passed', 'failed')
+        ),
+        CONSTRAINT ck_academy_applications_rejected_reason CHECK (
+            status <> 'rejected' OR closed_reason IS NOT NULL
+        )
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_academy_applications_program_status ON academy_applications (program_id, status)",
+    "CREATE INDEX IF NOT EXISTS ix_academy_applications_candidate ON academy_applications (candidate_id)",
+    "CREATE INDEX IF NOT EXISTS ix_academy_applications_session ON academy_applications (session_id)",
     # 0333: skrzynka „Propozycje" rekrutacji. `run_id` bez FK (przeglądy kasuje
     # retencja); kandydat i rekrutacja CASCADE (twarde usunięcie kandydata
     # zabiera jego propozycje). Lustro 1:1 z migracją — `test_job_proposals.py`.
@@ -5277,7 +5368,7 @@ _COLUMN_STATEMENTS = [
 )""",
     "CREATE INDEX IF NOT EXISTS ix_cv_qc_runs_pair_created "
     "ON cv_qc_runs (candidate_id, job_id, created_at DESC)",
-    # 0369: prepy w Teams — spotkanie, transkrypt i ocena. Lustro 1:1 z
+    # 0370: prepy w Teams — spotkanie, transkrypt i ocena. Lustro 1:1 z
     # migracją — pilnuje `test_prep_meetings_schema.py`.
     """CREATE TABLE IF NOT EXISTS prep_meetings (
     id BIGSERIAL PRIMARY KEY,
@@ -5984,7 +6075,12 @@ _DATA_STATEMENTS = [
     "SELECT 'dz_review', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'dz_review')",
-    # 0369: seed feature'a AI `prep_review` (ocena prepu z transkryptu Teams).
+    # 0369: seed feature'a AI `academy_screening` (sortowanie zgłoszeń akademii).
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'academy_screening', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'academy_screening')",
+    # 0370: seed feature'a AI `prep_review` (ocena prepu z transkryptu Teams).
     "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
     "SELECT 'prep_review', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "

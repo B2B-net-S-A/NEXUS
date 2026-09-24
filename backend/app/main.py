@@ -103,6 +103,7 @@ from app.api import md_consumption as md_consumption_api
 from app.api import my_clients as my_clients_api
 from app.api import my_relationships as my_relationships_api
 from app.api import my_people as my_people_api
+from app.api import academy as academy_api
 from app.api import board_tasks as board_tasks_api
 from app.api import interview_cycle as interview_cycle_api
 from app.api import prep_meetings as prep_meetings_api
@@ -656,6 +657,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.candidate_search_worker import candidate_search_loop
     from app.tasks.candidate_search_retention import candidate_search_retention_loop
     from app.tasks.jarvis_retention import jarvis_retention_loop
+    from app.tasks.academy_intake import academy_intake_loop
 
     # audyt 22.09 r2 (DATA-03/04/PROD-10): retencja kolejek i dziennika automatów.
     from app.tasks.queue_retention import queue_retention_loop
@@ -703,6 +705,7 @@ async def lifespan(app: FastAPI):
         ),
         # Jarvis (0330): retencja rozmów (dane osobowe) i wygaszanie propozycji.
         "jarvis_retention": asyncio.create_task(jarvis_retention_loop()),
+        "academy_intake": asyncio.create_task(academy_intake_loop()),
         # audyt 22.09 r2 (DATA-03/04/PROD-10): dziennik auto-matcha, kolejki.
         "queue_retention": asyncio.create_task(queue_retention_loop()),
         "calendar_reminder": asyncio.create_task(calendar_reminder_loop()),
@@ -766,7 +769,7 @@ async def lifespan(app: FastAPI):
         "cloudtalk_sync": asyncio.create_task(cloudtalk_sync_loop()),
         "traffit_sync": asyncio.create_task(traffit_daily_sync_loop()),
         "order_mail_ingest": asyncio.create_task(order_mail_ingest_loop()),
-        # 0369: transkrypty prepów z Teams → notatka i ocena prepu. Kończy się
+        # 0370: transkrypty prepów z Teams → notatka i ocena prepu. Kończy się
         # przed pętlą przy TEAMS_PREP_TRANSCRIPTS_ENABLED=false.
         "teams_prep_transcripts": asyncio.create_task(teams_prep_transcripts_loop()),
         # D5: mianownik wskaznikow „na dzien". Petla KONCZY sie przed
@@ -1075,6 +1078,11 @@ app.include_router(
     tags=["my-people"],
 )
 app.include_router(
+    academy_api.router,
+    prefix="/api/academy",
+    tags=["academy"],
+)
+app.include_router(
     board_tasks_api.router,
     prefix="/api/board-tasks",
     tags=["board-tasks"],
@@ -1084,7 +1092,7 @@ app.include_router(
     prefix="/api",
     tags=["interview-cycle"],
 )
-# 0369: prepy w Teams — planowanie Prep 1/2, transkrypt i ocena prepu.
+# 0370: prepy w Teams — planowanie Prep 1/2, transkrypt i ocena prepu.
 app.include_router(
     prep_meetings_api.router,
     prefix="/api",
@@ -1969,7 +1977,7 @@ async def api_health_check():
     # bieg nie przełącza na `degraded`, trzy z rzędu — tak. `running` w
     # kolumnie NIE jest awarią: to bieg w toku albo przerwany restartem
     # (deploy), a o świeżości i tak mówi data ostatniego końca.
-    # 0369: prepy w Teams — app-only kalendarz i transkrypty. Informacyjna.
+    # 0370: prepy w Teams — app-only kalendarz i transkrypty. Informacyjna.
     # `degraded` = w ostatnich 48 h aplikacja dostała 403 (polityka dostępu nie
     # obejmuje organizatora) albo pobranie padło.
     try:
@@ -2610,6 +2618,12 @@ async def api_health_deep_check():
     )
     from app.models.job_proposal import JobProposal
     from app.models.my_people import MyPeopleJobMatch, MyPeopleOverride
+    from app.models.academy import (
+        AcademyApplication,
+        AcademyProgram,
+        AcademyProgramSource,
+        AcademySession,
+    )
     from app.models.user_dashboard import UserDashboard
     from app.models.client_interview_slot_request import ClientInterviewSlotRequest
     from app.models.job_public_profile import JobPublicProfile
@@ -2789,6 +2803,11 @@ async def api_health_deep_check():
         # 0334: „Moi ludzie" — panel rekrutera i dzwonek po publikacji rekrutacji.
         ("my_people_overrides", MyPeopleOverride),
         ("my_people_job_matches", MyPeopleJobMatch),
+        # 0369: Akademia — ekran naboru czyta wszystkie cztery tabele przy wejściu.
+        ("academy_programs", AcademyProgram),
+        ("academy_program_sources", AcademyProgramSource),
+        ("academy_sessions", AcademySession),
+        ("academy_applications", AcademyApplication),
         # 0337: własny pulpit startowy — /dashboard czyta go przy każdym wejściu.
         ("user_dashboards", UserDashboard),
         # 0338: terminy rozmów od klienta — agenda kalendarza czyta je przy
@@ -2801,7 +2820,7 @@ async def api_health_deep_check():
         # 0343: wykluczone placementy — czyta je widok analytics_first_milestones
         # i VERIFIER_ANCHORED_CTE, więc brak tabeli = KPI i Insights 500.
         ("placement_exclusions", PlacementExclusion),
-        # 0369: prepy w Teams — agenda „Rozmowy u klienta” czyta je przy
+        # 0370: prepy w Teams — agenda „Rozmowy u klienta” czyta je przy
         # każdym wejściu, więc brak tabeli = pusty ekran kalendarza.
         ("prep_meetings", PrepMeeting),
         ("prep_transcripts", PrepTranscript),

@@ -16,7 +16,7 @@ const LABELS: Record<TeamsPrepHealth, { text: string; className: string }> = {
 };
 
 /**
- * Stan integracji „Prepy w Teams” (0369) — zastępuje kartę Fireflies.
+ * Stan integracji „Prepy w Teams” (0370) — zastępuje kartę Fireflies.
  * Czyta `checks.teams_prep` z `/api/health` (sonda informacyjna).
  */
 export function TeamsPrepStatusCard() {

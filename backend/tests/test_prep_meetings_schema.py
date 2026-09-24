@@ -1,4 +1,4 @@
-"""Prepy w Teams (0369): lustro migracji w entrypoint.sh i rejestracje.
+"""Prepy w Teams (0370): lustro migracji w entrypoint.sh i rejestracje.
 
 Prod alembic bywa osierocony — entrypoint JEST wdrożeniem schematu, więc
 tabele, indeksy, wartości enumów i seed klucza AI muszą być w nim 1:1.
@@ -18,7 +18,7 @@ def _squash(text: str) -> str:
 
 def _migration_ddl() -> list[str]:
     ns: dict = {}
-    source = (ROOT / "alembic/versions/0369_teams_prep_transcripts.py").read_text()
+    source = (ROOT / "alembic/versions/0370_teams_prep_transcripts.py").read_text()
     exec(compile(source.replace("from alembic import op", ""), "m", "exec"), ns)
     return [
         ns[name]

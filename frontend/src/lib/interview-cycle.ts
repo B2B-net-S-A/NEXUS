@@ -42,7 +42,7 @@ export interface CycleStep {
   at: string | null;
   event_id: number | null;
   meta: string | null;
-  /** 0369: jakość odbytego prepu (ocena z transkryptu Teams). */
+  /** 0370: jakość odbytego prepu (ocena z transkryptu Teams). */
   quality?: PrepQuality | null;
 }
 
@@ -111,7 +111,7 @@ export interface AgendaEntry extends PairInfo {
   slot_request_id: number | null;
   online_meeting_url: string | null;
   done: boolean;
-  /** 0369: prep założony z NEXUSA (Teams) — ma transkrypt i ocenę. */
+  /** 0370: prep założony z NEXUSA (Teams) — ma transkrypt i ocenę. */
   from_nexus?: boolean;
   prep_quality?: PrepQuality | null;
   prep_meta?: string | null;

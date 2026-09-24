@@ -1,6 +1,6 @@
 """Prepy w Teams: spotkanie, transkrypt, ocena prepu (zastępuje Fireflies).
 
-Revision ID: 0369_teams_prep_transcripts
+Revision ID: 0370_teams_prep_transcripts
 Revises: 0368_contract_termination_reversal
 
 Decyzje Artura 23.09.2026: przed rozmową u klienta są zawsze dwa prepy
@@ -15,8 +15,8 @@ Lustro w ``entrypoint.sh`` (prod alembic bywa osierocony) — pilnuje
 
 from alembic import op
 
-revision = "0369_teams_prep_transcripts"
-down_revision = "0368_contract_termination_reversal"
+revision = "0370_teams_prep_transcripts"
+down_revision = "0369_academy"
 branch_labels = None
 depends_on = None
 

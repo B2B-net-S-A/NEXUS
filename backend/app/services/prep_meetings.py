@@ -1,4 +1,4 @@
-"""Prep 1 / Prep 2 z kandydatem przez Teams — zakładanie z NEXUSA (0369).
+"""Prep 1 / Prep 2 z kandydatem przez Teams — zakładanie z NEXUSA (0370).
 
 Przed każdą rozmową u klienta są dwa prepy (decyzja Artura 23.09.2026):
 Prep 1 prowadzi Delivery Lead rekrutacji, Prep 2 — rekruter kandydata.

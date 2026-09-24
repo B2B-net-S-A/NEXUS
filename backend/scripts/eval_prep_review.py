@@ -1,4 +1,4 @@
-"""Porównanie modeli oceny prepu (F23): GPT-6 Luna vs Sonnet 5 na prawdziwych prepach.
+"""Porównanie modeli oceny prepu (F24): GPT-6 Luna vs Sonnet 5 na prawdziwych prepach.
 
 Reguła repo: przeniesienie funkcji na Lunę wymaga pomiaru. Skrypt bierze
 ostatnie ``--limit`` transkryptów z ``prep_transcripts``, puszcza każdy przez

@@ -437,7 +437,7 @@ const TYPE_CONFIG: Record<
     icon: <BellRing className="w-3.5 h-3.5" />,
     color: "text-warning",
     bgColor: "bg-warning/15",
-  },  // 0369: prep słaby / bez nagrania / brak prepu przed rozmową u klienta.
+  },  // 0370: prep słaby / bez nagrania / brak prepu przed rozmową u klienta.
   prep_attention: {
     icon: <BellRing className="w-3.5 h-3.5" />,
     color: "text-warning",

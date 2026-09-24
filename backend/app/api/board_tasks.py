@@ -68,7 +68,7 @@ class BoardTaskRow(BaseModel):
 
 
 class PrepAttentionRow(BaseModel):
-    """Prep przed rozmową u klienta wymagający uwagi (0369)."""
+    """Prep przed rozmową u klienta wymagający uwagi (0370)."""
 
     reason: Literal["missing", "weak", "unrecorded"]
     prep_no: int
@@ -93,7 +93,7 @@ class BoardTasksResponse(BaseModel):
     # wykonuje wyłącznie admin albo Delivery Lead — Head of Recruitment widzi
     # kolejkę, ale serwer odmówiłby mu wysyłki.
     can_send_to_client: bool
-    # 0369: brak prepu, prep słaby albo bez nagrania — organizator i HoR.
+    # 0370: brak prepu, prep słaby albo bez nagrania — organizator i HoR.
     prep_attention: list[PrepAttentionRow] = []
 
 

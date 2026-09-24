@@ -32,7 +32,7 @@ export interface CardBadge {
   title?: string;
 }
 
-/** 0369: podpowiedź do odznak prepów — ruch karty nie jest blokowany. */
+/** 0370: podpowiedź do odznak prepów — ruch karty nie jest blokowany. */
 const PREP_BADGE_TITLE: Partial<Record<string, string>> = {
   prep_missing:
     "Przed rozmową u klienta brakuje prepu z kandydatem (Prep 1 — Delivery Lead, Prep 2 — rekruter). Umów go w kalendarzu „Rozmowy u klienta”.",

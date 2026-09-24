@@ -126,7 +126,11 @@ class AIFeatureKey(str, enum.Enum):
     # (Delivery Lead / Head of Recruitment) i inny strumień wydatku niż
     # recenzja faktów przy generacji.
     dz_review = "dz_review"
-    # Ocena prepu z transkryptu Teams (0369): czy w Prepie 1/2 omówiono
+    # Akademia (0369): Luna sortuje zgłoszenia z ogłoszeń — język polski
+    # i doświadczenie od końca studiów, z cytatem z CV. Tylko sortowanie:
+    # decyzję „nie” zawsze klika człowiek.
+    academy_screening = "academy_screening"
+    # Ocena prepu z transkryptu Teams (0370): czy w Prepie 1/2 omówiono
     # must-have z Championa i przećwiczono pytania tego klienta — punkt po
     # punkcie z cytatem — plus krótkie podsumowanie do notatki kandydata.
     prep_review = "prep_review"
@@ -157,6 +161,7 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.job_public_description: "Opis rekrutacji na stronę kariery",
     AIFeatureKey.screening_reassign_suggest: "Przepięcie — podpowiedzi odpowiedzi na pytania screeningu",
     AIFeatureKey.dz_review: "Przegląd DZ — podpowiedzi do CV dla klienta",
+    AIFeatureKey.academy_screening: "Akademia — sortowanie zgłoszeń z ogłoszeń",
     AIFeatureKey.prep_review: "Ocena prepu z transkryptu Teams",
 }
 
@@ -265,6 +270,10 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
         "Tekst oryginalnego CV kandydata",
         "Must-have, nice-to-have i opis rekrutacji",
         "(bez stawek, kontaktów do klienta i notatek rekruterów)",
+    ],
+    AIFeatureKey.academy_screening: [
+        "Tekst CV kandydata z ogłoszenia akademii",
+        "(bez narodowości i danych kontaktowych z profilu)",
     ],
     AIFeatureKey.prep_review: [
         "Transkrypt prepu z Teams (wypowiedzi z podpisem: kandydat / zespół)",
