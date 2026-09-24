@@ -544,6 +544,8 @@ class ContractList(BaseModel):
     total: int
     contractors_total: int
     contracts_total: int
+    #: Umowy „Aktywne”/„Kończące się”, które startują w przyszłości (U5).
+    future_start_total: int = 0
     page: int
     page_size: int
 

@@ -225,6 +225,35 @@ async def test_grouped_list_one_row_per_person(app_client, app_auth_headers):
     assert all(row["group_members"] == [] for row in flat.json()["items"])
 
 
+async def test_list_metadata_counts_active_contracts_with_future_start(
+    app_client, app_auth_headers
+):
+    """U5 (audyt 24.09.2026): „Aktywny” obejmuje umowy z przyszłym startem —
+    nagłówek rejestru mówi, ile ich jest, zamiast liczyć je jak pracujące."""
+    marker = f"Fut{uuid.uuid4().hex[:6]}"
+    working = await _seed_candidate(marker, email=f"{marker.lower()}@example.com")
+    upcoming = await _seed_candidate(
+        marker, email=f"{marker.lower()}-next@example.com", suffix="Next"
+    )
+    client_id = await _seed_client(f"Fut {marker}")
+    await _seed_contract(working, client_id)
+    future_id = await _seed_contract(upcoming, client_id)
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, future_id)
+        contract.start_date = business_today() + timedelta(days=14)
+        await db.commit()
+
+    resp = await app_client.get(
+        "/api/contracts",
+        params={"q": marker, "page_size": 50},
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["contracts_total"] == 2
+    assert body["future_start_total"] == 1
+
+
 async def test_list_metadata_deduplicates_duplicate_piotr_profiles(
     app_client, app_auth_headers
 ):
