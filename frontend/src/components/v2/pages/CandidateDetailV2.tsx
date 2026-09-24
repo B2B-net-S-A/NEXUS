@@ -30,7 +30,7 @@ import { canMergeCandidates } from "@/lib/api/candidateMerge";
 import { CandidateMergeDialog } from "@/components/v2/candidate-profile/CandidateMergeDialog";
 import { ConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { SendEmailV2 } from "@/components/v2/modals/SendEmailV2";
-import { CVGeneratorV2 } from "@/components/v2/modals/CVGeneratorV2";
+import { CvGeneratorDialog } from "@/components/v2/cv-generator/CvGeneratorDialog";
 import { QuickAssignV2 } from "@/components/v2/modals/QuickAssignV2";
 import { PrepInviteModal } from "@/components/v2/modals/PrepInviteModal";
 import ScheduleInterviewModal from "@/components/calendar/ScheduleInterviewModal";
@@ -722,7 +722,7 @@ export function CandidateDetailV2({
             candidateName={fullName}
             candidateEmail={candidate.email ?? ""}
           />
-          <CVGeneratorV2
+          <CvGeneratorDialog
             open={cvOpen}
             onOpenChange={setCvOpen}
             candidateId={candidateNumericId}

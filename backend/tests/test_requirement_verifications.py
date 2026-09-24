@@ -19,6 +19,10 @@ from app.services.requirement_verification import (
 
 def fixture():
     now = datetime.now(timezone.utc)
+    # Ostatnia edycja profilu jest w przeszłości: zapis weryfikacji podbija
+    # `updated_at` na „teraz”, a przy zamrożonym zegarze (`_pin_business_day`
+    # po północy warszawskiej) „teraz” równe wersji z fixture'u nie było „nowsze”.
+    edited_at = now - timedelta(minutes=5)
     contract = MatchingRequirements(
         reviewed=True, all_of=[SkillRequirement(any_of=["Python"])]
     )
@@ -27,7 +31,7 @@ def fixture():
     )
     candidate = SimpleNamespace(
         id=1,
-        updated_at=now,
+        updated_at=edited_at,
         raw_cv_text="X" * 9000 + "Python",
         skills=["Python"],
         cv_extracted_data={},
@@ -35,7 +39,7 @@ def fixture():
     body = VerifyRequirementRequest(
         requirement_index=0,
         requirements_fingerprint=criteria_fingerprint(contract),
-        candidate_version=str(now),
+        candidate_version=str(edited_at),
         status="not_met",
         evidence="Test praktyczny: brak rozwiązania zadania",
         usage_context="Wymagany samodzielny backend Python",

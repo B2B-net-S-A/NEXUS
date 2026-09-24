@@ -23,40 +23,28 @@ async function expectShellInViewport(page: Page) {
 }
 
 for (const viewport of [{ width: 1440, height: 900 }, { width: 1366, height: 650 }]) {
-  test(`file pickers preserve the CV generator layout at ${viewport.width}x${viewport.height}`, async ({ page }) => {
+  test(`file picker preserves the CV generator layout at ${viewport.width}x${viewport.height}`, async ({ page }) => {
     await page.setViewportSize(viewport);
     await page.goto("/cv-generator");
-    await page.getByRole("radio", { name: /Old \(upload plików\)/ }).click();
-    const champion = page.getByText("Upuść DOCX championa tutaj lub kliknij, by wybrać", { exact: true });
-    await expect(champion).toBeVisible();
-    // The entry animation temporarily provides a containing block. Wait until
-    // it finishes so it cannot conceal an unanchored absolute file input.
+    // Generator v3: plik z dysku tylko dla osoby spoza bazy.
+    await page.getByRole("button", { name: "Osoby nie ma w bazie? Wgraj jej plik CV" }).click();
+    const dropzone = page.getByText("Upuść plik CV (PDF albo DOCX) albo wybierz z dysku", { exact: true });
+    await expect(dropzone).toBeVisible();
     await page.locator("main > div").evaluate(async (element) => {
       await Promise.all(element.getAnimations().map((animation) => animation.finished));
     });
 
-    for (const trigger of [
-      champion,
-      page.getByText("Upuść CV tutaj lub kliknij, by wybrać plik", { exact: true }),
-      page.getByText("Wybierz zrzut (PNG / JPEG)", { exact: true }),
-      champion,
-    ]) {
-      // Start elsewhere in the form: the regression detached the input's
-      // position from its label once main had been scrolled.
-      await page.getByLabel("Nice-to-have", { exact: true }).click();
-      await trigger.scrollIntoViewIfNeeded();
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      // Start elsewhere: the regression detached the input's position from its
+      // label once main had been scrolled.
+      await page.getByRole("button", { name: "Wróć do wyszukiwania osoby" }).scrollIntoViewIfNeeded();
+      await dropzone.scrollIntoViewIfNeeded();
       const before = await page.locator("main").evaluate((element) => element.scrollTop);
       const chooserPromise = page.waitForEvent("filechooser");
-      await trigger.click();
+      await dropzone.click();
       await (await chooserPromise).setFiles([]);
       await expectShellInViewport(page);
       await expect.poll(() => page.locator("main").evaluate((element) => element.scrollTop)).toBe(before);
     }
-
-    // Continue editing without a refresh after cancelling the picker.
-    const requirements = page.getByLabel("Must-have", { exact: true });
-    await requirements.fill("Kubernetes");
-    await expect(requirements).toHaveValue("Kubernetes");
-    await expectShellInViewport(page);
   });
 }

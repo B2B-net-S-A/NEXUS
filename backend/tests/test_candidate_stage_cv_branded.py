@@ -3,24 +3,24 @@
 Pokrycie:
 
   GET /cv/branded:
-    * GET w stanie 'none' → podgląd z domyślnego szablonu, status='none',
-      rendered_from_default=True, BEZ zapisu w bazie (CV-01)
-    * drugi GET → nadal 'none', ta sama treść, nic nie zapisane
+    * GET w stanie 'none' → pusty stan (stary szablon „CV firmowe" wycofany
+      w generatorze v3): status='none', content_html=None, BEZ zapisu (CV-01)
+    * drugi GET → nadal 'none', nic nie zapisane
 
   PATCH /cv/branded:
     * save content_html → zachowuje treść
-    * swap template → re-render, nadpisuje content_html
+    * swap template → 410 (stary szablon wycofany)
     * podać oba → 422 (model_validator)
     * podać żaden → 422
     * po finalize → 409 immutable
 
   GET /cv/branded/render-pdf:
     * zwraca printable HTML (z window.print() script)
-    * 404 gdy draft pusty
+    * 404 w stanie 'none' (nie ma czego drukować)
 
   POST /cv/branded/finalize:
     * draft → finalized, snapshot do storage
-    * 'none' (bez wcześniejszego PATCH) też można zatwierdzić (CV-01)
+    * 'none' → 409 „Najpierw wygeneruj CV w generatorze”
     * 422 gdy treść pusta
     * po finalize ponowny finalize → 409
 
@@ -94,8 +94,35 @@ async def _patch(client, url, **kwargs):
     return await client.patch(url, **kwargs)
 
 
+async def _seed_draft(sid: int, html: str = "<h1>Brand</h1><p>Treść CV</p>") -> None:
+    """Szkic CV etapu założony wprost w bazie.
+
+    Generator v3: szkic powstaje WYŁĄCZNIE z generatora (podpięcie po generacji
+    albo ``select-generated``) — PATCH na pustym etapie to 409. Te testy
+    dotyczą zapisu, zatwierdzania i linków, nie pochodzenia szkicu, więc
+    zakładamy go bezpośrednio (idempotentnie: istniejący szkic zostaje).
+    """
+    async with AsyncSessionLocal() as db:
+        csv = await db.scalar(
+            select(CandidateStageCV).where(CandidateStageCV.candidate_stage_id == sid)
+        )
+        if csv.branded_status != "none":
+            return
+        csv.branded_status = "draft"
+        csv.branded_draft_html = html
+        csv.branded_template = "standard"
+        csv.branded_language = "pl"
+        await db.commit()
+
+
+async def _ensure_draft(client, finalize_url, headers):
+    base = finalize_url.removesuffix("/finalize")
+    await _seed_draft(int(base.split("/stages/")[1].split("/")[0]))
+
+
 async def _post(client, url, **kwargs):
     if url.endswith("/cv/branded/finalize"):
+        await _ensure_draft(client, url, kwargs.get("headers"))
         kwargs["json"] = await _draft_request_body(url, kwargs.get("json"))
     return await client.post(url, **kwargs)
 
@@ -192,9 +219,11 @@ async def _seed_full_stage(
 
 
 @pytest.mark.asyncio
-async def test_get_branded_lazy_renders_on_first_call(
+async def test_get_branded_none_is_an_empty_state_without_render(
     app_client: AsyncClient, app_auth_headers: dict
 ):
+    """Generator v3: stary szablon „CV firmowe" (HTML z e-mailem i telefonem
+    kandydata) wycofany — etap bez CV zwraca pusty stan, bez renderu."""
     sid, cid, jid = await _seed_full_stage()
     res = await app_client.get(
         f"/api/candidates/stages/{sid}/cv/branded", headers=app_auth_headers
@@ -202,12 +231,11 @@ async def test_get_branded_lazy_renders_on_first_call(
     assert res.status_code == 200, res.text
     body = res.json()
     assert body["status"] == "none"
-    assert body["template"] == "standard"
-    assert body["language"] == "pl"
-    assert body["rendered_from_default"] is True
-    assert body["content_html"] is not None
-    # Treść powinna zawierać imię kandydata (z _generate_cv_html)
-    assert "Brand" in body["content_html"]
+    assert body["content_html"] is None
+    assert body["template"] is None and body["language"] is None
+    assert body["rendered_from_default"] is False
+    # Żadnych danych kontaktowych kandydata w odpowiedzi.
+    assert "500 000 001" not in res.text and "@example.com" not in res.text
     # CV-01: odczyt niczego nie zapisuje — ani statusu, ani treści, ani rewizji.
     async with AsyncSessionLocal() as db:
         csv = await db.scalar(
@@ -233,8 +261,7 @@ async def test_get_branded_returns_existing_after_first(
     assert second.status_code == 200
     assert second.json()["status"] == "none"
     assert second.json()["edit_revision"] == first.json()["edit_revision"]
-    # Treść powinna być identyczna z pierwszym wywołaniem.
-    assert second.json()["content_html"] == first.json()["content_html"]
+    assert second.json()["content_html"] is None
 
 
 # ── PATCH save / swap ──────────────────────────────────────────────────────
@@ -245,9 +272,7 @@ async def test_patch_branded_saves_content(
     app_client: AsyncClient, app_auth_headers: dict
 ):
     sid, _, _ = await _seed_full_stage()
-    await app_client.get(
-        f"/api/candidates/stages/{sid}/cv/branded", headers=app_auth_headers
-    )
+    await _seed_draft(sid)
     custom = "<h1>Custom edit</h1><p>Modified by recruiter</p>"
     res = await _patch(
         app_client,
@@ -260,24 +285,46 @@ async def test_patch_branded_saves_content(
 
 
 @pytest.mark.asyncio
-async def test_patch_branded_swaps_template_rerenders(
+async def test_patch_on_an_empty_stage_is_refused(
     app_client: AsyncClient, app_auth_headers: dict
 ):
+    """Generator v3: ręczny HTML na pustym etapie omijałby reguły klienta
+    i blokadę zgody RODO — szkic powstaje wyłącznie z generatora."""
     sid, _, _ = await _seed_full_stage()
-    first = await app_client.get(
-        f"/api/candidates/stages/{sid}/cv/branded", headers=app_auth_headers
+    res = await _patch(
+        app_client,
+        f"/api/candidates/stages/{sid}/cv/branded",
+        headers=app_auth_headers,
+        json={"content_html": "<p>Ręczny HTML</p>"},
     )
+    assert res.status_code == 409, res.text
+    assert "Najpierw wygeneruj CV" in res.json()["detail"]
+    async with AsyncSessionLocal() as db:
+        csv = await db.scalar(
+            select(CandidateStageCV).where(CandidateStageCV.candidate_stage_id == sid)
+        )
+        assert csv.branded_status == "none" and csv.branded_draft_html is None
+
+
+@pytest.mark.asyncio
+async def test_patch_branded_template_swap_is_gone(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Zmiana szablonu renderowała stary szablon „CV firmowe" — 410."""
+    sid, _, _ = await _seed_full_stage()
     res = await _patch(
         app_client,
         f"/api/candidates/stages/{sid}/cv/branded",
         headers=app_auth_headers,
         json={"template": "blind", "language": "en"},
     )
-    assert res.status_code == 200, res.text
-    body = res.json()
-    assert body["template"] == "blind"
-    assert body["language"] == "en"
-    assert body["content_html"] != first.json()["content_html"]
+    assert res.status_code == 410, res.text
+    assert "wycofany" in res.json()["detail"]
+    async with AsyncSessionLocal() as db:
+        csv = await db.scalar(
+            select(CandidateStageCV).where(CandidateStageCV.candidate_stage_id == sid)
+        )
+        assert csv.branded_status == "none" and csv.branded_draft_html is None
 
 
 @pytest.mark.asyncio
@@ -316,15 +363,20 @@ async def test_render_pdf_returns_printable_html(
     app_client: AsyncClient, app_auth_headers: dict
 ):
     sid, _, _ = await _seed_full_stage()
-    await app_client.get(
-        f"/api/candidates/stages/{sid}/cv/branded", headers=app_auth_headers
+    none = await app_client.get(
+        f"/api/candidates/stages/{sid}/cv/branded/render-pdf",
+        headers=app_auth_headers,
     )
+    # Stan 'none' nie ma czego drukować (stary szablon wycofany).
+    assert none.status_code == 404, none.text
+    await _seed_draft(sid, "<h1>Brand</h1><p>Do druku</p>")
     res = await app_client.get(
         f"/api/candidates/stages/{sid}/cv/branded/render-pdf",
         headers=app_auth_headers,
     )
     assert res.status_code == 200
     assert "window.print()" in res.text
+    assert "Do druku" in res.text
     assert res.headers["content-type"].startswith("text/html")
 
 
@@ -352,10 +404,9 @@ async def test_finalize_creates_snapshot_and_flips_status(
 
 
 @pytest.mark.asyncio
-async def test_finalize_accepts_none_without_prior_patch(
-    app_client: AsyncClient, app_auth_headers: dict
-):
-    """CV-01: GET nie zakłada szkicu, więc finalize przyjmuje też 'none'."""
+async def test_finalize_refuses_none(app_client: AsyncClient, app_auth_headers: dict):
+    """Generator v3: zatwierdzić można wyłącznie CV podpięte do etapu — stan
+    'none' odsyła do generatora zamiast materializować stary szablon."""
     sid, _, _ = await _seed_full_stage()
     preview = await app_client.get(
         f"/api/candidates/stages/{sid}/cv/branded", headers=app_auth_headers
@@ -365,11 +416,16 @@ async def test_finalize_accepts_none_without_prior_patch(
         headers=app_auth_headers,
         json={
             "expected_revision": preview.json()["edit_revision"],
-            "content_html": preview.json()["content_html"],
+            "content_html": "<p>Treść spoza generatora</p>",
         },
     )
-    assert res.status_code == 200, res.text
-    assert res.json()["status"] == "finalized"
+    assert res.status_code == 409, res.text
+    assert "Najpierw wygeneruj CV" in res.json()["detail"]
+    async with AsyncSessionLocal() as db:
+        csv = await db.scalar(
+            select(CandidateStageCV).where(CandidateStageCV.candidate_stage_id == sid)
+        )
+        assert csv.branded_status == "none"
 
 
 @pytest.mark.asyncio
@@ -446,9 +502,7 @@ async def test_branded_cv_isolated_between_stages(
         sid_b = stage_b.id
 
     # Edytuj brandowane stage A
-    await app_client.get(
-        f"/api/candidates/stages/{sid_a}/cv/branded", headers=app_auth_headers
-    )
+    await _seed_draft(sid_a)
     await _patch(
         app_client,
         f"/api/candidates/stages/{sid_a}/cv/branded",
@@ -709,6 +763,7 @@ async def test_atomic_current_content_and_old_links_survive_new_version(
 ):
     sid, _, _ = await _seed_full_stage()
     url = f"/api/candidates/stages/{sid}/cv/branded"
+    await _ensure_draft(app_client, url + "/finalize", app_auth_headers)
     initial = (await app_client.get(url, headers=app_auth_headers)).json()
     # No autosave request precedes approval: the body is newer than the DB.
     approved = await app_client.post(
@@ -771,6 +826,7 @@ async def test_atomic_current_content_and_old_links_survive_new_version(
 @pytest.mark.asyncio
 async def test_competing_cv_saves_have_exactly_one_winner(app_client, app_auth_headers):
     sid, _, _ = await _seed_full_stage()
+    await _seed_draft(sid)
     url = f"/api/candidates/stages/{sid}/cv/branded"
     original = (await app_client.get(url, headers=app_auth_headers)).json()
     responses = await asyncio.gather(
@@ -890,13 +946,8 @@ async def test_review_rejection_keeps_database_draft(
     from fastapi import HTTPException
 
     sid, _, _ = await _seed_full_stage()
-    # GET nie zakłada już szkicu (CV-01) — zakłada go pierwszy zapis.
-    await _patch(
-        app_client,
-        f"/api/candidates/stages/{sid}/cv/branded",
-        headers=app_auth_headers,
-        json={"content_html": "<h1>Brand</h1><p>Szkic</p>"},
-    )
+    # Szkic etapu (w aplikacji: podpięcie CV z generatora).
+    await _seed_draft(sid, "<h1>Brand</h1><p>Szkic</p>")
     approved_content_review.side_effect = HTTPException(422, "Niepotwierdzone fakty")
     response = await _post(
         app_client,

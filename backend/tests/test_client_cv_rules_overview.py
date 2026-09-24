@@ -239,14 +239,19 @@ async def test_delivery_lead_manages_rules_for_all_clients(
 
         from app.api.client_cv_rules import CHAMPION_SEED_KEYS
 
+        # Baza testowa jest wspólna: testy centralnych polityk publikują reguły
+        # z kluczem `test-policy-*`. Porównujemy wyłącznie klucze szablonów.
+        known_seed_keys = {k for k, _ in CHAMPION_SEED_KEYS}
         seeded_keys = {
-            row["seed_key"] for row in admin_overview["rules"] if row["seed_key"]
+            row["seed_key"]
+            for row in admin_overview["rules"]
+            if row["seed_key"] in known_seed_keys
         }
         unassigned_keys = {
             template["seed_key"] for template in admin_overview["unassigned_templates"]
         }
         assert seeded_keys.isdisjoint(unassigned_keys)
-        assert seeded_keys | unassigned_keys == {k for k, _ in CHAMPION_SEED_KEYS}
+        assert seeded_keys | unassigned_keys == known_seed_keys
         for template in admin_overview["unassigned_templates"]:
             assert set(template) == {"seed_key", "label", "template_url"}
     finally:

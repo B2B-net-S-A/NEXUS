@@ -104,6 +104,7 @@ describe("/preview/recruitment-v3 zasiewa każdy stały klucz i nie ma sieci", (
   const components = [
     "components/v2/recruitment/PeopleTable.tsx",
     "components/v2/recruitment/PersonPanel.tsx",
+    "components/v2/recruitment/CvToClientCard.tsx",
     "components/v2/recruitment/ProposalsSegment.tsx",
     "components/v2/recruitment/ProposalPanel.tsx",
     "components/v2/recruitment/useBulkCvHandoff.tsx",
@@ -130,8 +131,17 @@ describe("/preview/recruitment-v3 zasiewa każdy stały klucz i nie ma sieci", (
     expect(harness).toContain("candidateContactQueryKeys.status()");
     expect(harness).toContain("candidateQueryKeys.detail(item.candidate_id)");
     expect(harness).toContain("candidateQueryKeys.notes(item.candidate_id)");
-    // Sekcja CV panelu pyta o „Pracę w tle" (powód pominięcia auto-CV).
+    // Karta „CV do klienta” pyta o „Pracę w tle" (powód pominięcia auto-CV).
     expect(harness).toContain("jobBackgroundEventsQueryKey(JOB_ID, BACKGROUND_EVENTS_STEP)");
+    // …o CV etapu, listę wygenerowanych CV pary i plik źródłowy — TYMI SAMYMI
+    // funkcjami kluczy co karta, nie kopią.
+    const card = withoutComments(read("components/v2/recruitment/CvToClientCard.tsx"));
+    for (const fn of ["cvToClientRowsQueryKey", "stageBrandedQueryKey"]) {
+      expect(card).toMatch(new RegExp(`queryKey: ${fn}\\(`));
+      expect(harness).toMatch(new RegExp(`setQueryData\\(\\s*${fn}\\(`));
+    }
+    expect(card).toContain('queryKey: ["cv-original", stageId]');
+    expect(harness).toContain('setQueryData(["cv-original", item.id]');
   });
 
   it("odcina sieć na czas życia harnessu (warsztaty panelu pytają o klucze nie do zasiania)", () => {
@@ -226,6 +236,55 @@ describe("/preview/new-job zasiewa każdy stały klucz", () => {
     expect(read("components/v2/jobs/new/NewJobRequestStep.tsx")).toContain(
       'queryKey="clients-lookup-new-job"',
     );
+  });
+});
+
+describe("/preview/cv-generator renderuje z propsów i nie ma sieci", () => {
+  const harness = withoutComments(read("app/preview/cv-generator/page.tsx")).replace(/\s+/g, " ");
+  // Komponenty prezentacyjne, które harness montuje. Żaden nie może mieć
+  // stałego klucza zapytania bez zasiewu.
+  const components = [
+    "components/v2/cv-generator/PersonStep.tsx",
+    "components/v2/cv-generator/ProcessStep.tsx",
+    "components/v2/cv-generator/SourcesPanel.tsx",
+    "components/v2/cv-generator/ProcessingTiles.tsx",
+    "components/v2/cv-generator/LanguageChoice.tsx",
+    "components/v2/cv-generator/AdvancedOptions.tsx",
+    "components/v2/cv-generator/GenerateBar.tsx",
+    "components/v2/cv-generator/UploadIdentityStep.tsx",
+    "components/v2/cv-generator/CvResult.tsx",
+    "components/v2/cv-generator/MyCvList.tsx",
+  ];
+
+  it("nie zostawia stałego klucza bez zasiewu", () => {
+    const missing: string[] = [];
+    for (const file of components) {
+      for (const key of literalQueryKeys(read(file))) {
+        if (!harness.includes(key)) missing.push(`${file}: ${key}`);
+      }
+    }
+    expect(missing).toEqual([]);
+  });
+
+  it("zasiewa listę klientów tym samym kluczem, którego używa picker kroku 2", () => {
+    expect(read("components/v2/cv-generator/ProcessStep.tsx")).toContain(
+      'CV_GENERATOR_CLIENTS_QUERY_KEY = "clients-lookup-cv-generator"',
+    );
+    expect(harness).toContain("qc.setQueryData([CV_GENERATOR_CLIENTS_QUERY_KEY]");
+  });
+
+  it("montuje widoki, nie kontenery z zapytaniami", () => {
+    // `MyCvList`/`CvResultLive`/`CvGenerator` pobierają dane — harness bierze ich widoki.
+    expect(harness).toContain("<MyCvListView");
+    expect(harness).toContain("<CvResultView");
+    expect(harness).not.toMatch(/<MyCvList[\s>]/);
+    expect(harness).not.toMatch(/<CvResultLive[\s>]/);
+    expect(harness).not.toMatch(/<CvGenerator[\s>]/);
+  });
+
+  it("odcina sieć na czas życia harnessu", () => {
+    expect(harness).toContain("api.interceptors.request.use(");
+    expect(harness).toContain("api.interceptors.request.eject(");
   });
 });
 

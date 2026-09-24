@@ -6048,6 +6048,136 @@ export const cvGeneratedShareApi = {
     ),
 };
 
+// ── Generator CV v3 (lista „Moje CV”, osoba spoza bazy, zgoda po generacji) ──
+
+/** Wynik niezależnej kontroli AI treści (0327) — same liczby, bez cytatów. */
+export interface CvFactualReviewSummary {
+  status: "verified" | "advisory" | "unavailable";
+  findings: number;
+  model?: string | null;
+  reason?: string | null;
+}
+
+/** Wiersz `GET /api/cv-generator/generated` — lista „Moje CV” i widok wyniku. */
+export interface GeneratedCvItem {
+  id: number;
+  approved_version_id?: number | null;
+  central_policy?: Record<string, unknown> | null;
+  /** Główny dokument pakietu językowego (PL + EN); `null` = sam jest główny. */
+  package_id?: number | null;
+  candidate_id?: number | null;
+  job_id?: number | null;
+  job_title?: string | null;
+  client_id?: number | null;
+  client_name?: string | null;
+  candidate_name: string;
+  position?: string | null;
+  language: string;
+  blind: boolean;
+  mode: string;
+  content_mode?: string | null;
+  /** `auto` = zakolejkował system po ruchu na „Zweryfikowany”. */
+  origin?: "auto" | "manual" | (string & {}) | null;
+  stage_id?: number | null;
+  needs_review?: boolean;
+  filename: string;
+  status: "processing" | "ready" | "failed";
+  job_status?: "queued" | "running" | "complete" | "failed" | "interrupted" | null;
+  error_message?: string | null;
+  warnings?: string[];
+  factual_review?: CvFactualReviewSummary | null;
+  created_at?: string | null;
+  created_by_name?: string | null;
+  can_download: boolean;
+  can_delete: boolean;
+  /** Klient wymaga zrzutu zgody RODO na końcu CV (dziś PKO BP). */
+  consent_required?: boolean;
+  /** Zrzutu jeszcze nie ma — pobranie DOCX/HTML kończy się 409. */
+  consent_missing?: boolean;
+}
+
+export interface CvGeneratedListParams {
+  mine?: boolean;
+  days?: number;
+  q?: string;
+  candidate_id?: number;
+  job_id?: number;
+  stage_id?: number;
+  before_id?: number;
+  limit?: number;
+}
+
+/** Podobna osoba w bazie dla wgranego pliku CV (`POST /identify-upload`). */
+export interface CvIdentifyMatch {
+  candidate_id: number;
+  full_name: string;
+  /** Kody: `identical_file`, `email_exact`, `phone_exact` (bez wywołania modelu). */
+  match_reasons: string[];
+}
+
+/** Wynik dołączenia / wymiany zrzutu zgody w gotowym CV (cały pakiet). */
+export interface CvConsentAttachResult {
+  package_id: number;
+  replaced: boolean;
+  document_ids: number[];
+  reapproved_version_ids: number[];
+}
+
+export interface CvGenerateEnqueued {
+  id: number;
+  status: string;
+  candidate_name: string;
+}
+
+/** `POST /api/cv-generator/generate` — wariant bez etapu wymaga `client_id`. */
+export interface CvGeneratePayload {
+  candidate_id: number;
+  stage_id: number | null;
+  client_id: number | null;
+  cv_document_id: number;
+  project_ref: string;
+  language: "pl" | "en";
+  languages: "one" | "both";
+  blind_cv: boolean;
+  content_mode: "basic" | "polished" | "tailored";
+  position?: string;
+  champion_profile?: ChampionProfile;
+  consent_screenshot_token?: string;
+  /** Tylko bez procesu: notatki idą do tego CV, nie do profilu kandydata. */
+  screening_notes?: string;
+}
+
+export const cvGeneratorApi = {
+  listGenerated: (params: CvGeneratedListParams) =>
+    api.get<GeneratedCvItem[]>("/api/cv-generator/generated", { params }),
+  identifyUpload: (file: File) => {
+    const fd = new FormData();
+    fd.append("cv_file", file);
+    return api.post<{ matches: CvIdentifyMatch[] }>(
+      "/api/cv-generator/identify-upload",
+      fd,
+      { headers: { "Content-Type": "multipart/form-data" }, timeout: 60_000 },
+    );
+  },
+  /** Zrzut zgody dla JUŻ wygenerowanego CV — podpis przypisania do wiersza. */
+  uploadConsentForGenerated: (generatedId: number, file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("generated_id", String(generatedId));
+    return api.post<{ consent_token: string; filename: string }>(
+      "/api/cv-generator/consent-screenshot",
+      fd,
+      { headers: { "Content-Type": "multipart/form-data" }, timeout: 60_000 },
+    );
+  },
+  attachConsent: (generatedId: number, consentToken: string) =>
+    api.post<CvConsentAttachResult>(`/api/cv-generator/generated/${generatedId}/consent`, {
+      consent_screenshot_token: consentToken,
+    }, { timeout: SLOW_ENDPOINT_TIMEOUT_MS }),
+  deleteGenerated: (generatedId: number) =>
+    api.delete(`/api/cv-generator/generated/${generatedId}`),
+};
+
 // ── Settings → AI (Traffit gap #5) ───────────────────────────────────────────
 
 export type AIFeatureKey =

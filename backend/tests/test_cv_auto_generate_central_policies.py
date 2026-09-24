@@ -10,10 +10,10 @@ Kontrakty:
 - z flagą `CV_CENTRAL_POLICIES_ENABLED` automat generuje w trybie i języku
   ustalonym centralnie i stempluje `central_policy` DOKŁADNIE tak jak ręczna
   generacja dla tej samej pary (kandydat, rekrutacja);
-- wymóg, którego automat nie ma skąd spełnić (zrzut zgody, numer projektu),
-  to POMINIĘCIE z kodem powodu: bez naliczenia AI i bez wiersza dokumentu.
-  Centralny przepływ sprawdza je dopiero przy gotowości pakietu, a zapadają
-  przy generacji — dokument byłby na zawsze szkicem nie do udostępnienia;
+- wymóg, którego automat nie ma skąd spełnić (numer projektu, którego nie
+  niesie rekrutacja), to POMINIĘCIE z kodem powodu: bez naliczenia AI i bez
+  wiersza dokumentu. Brak zrzutu zgody pod centralnymi regułami NIE jest już
+  pominięciem (generator v3) — patrz ``test_cv_auto_generate_pko.py``;
 - polityka czekająca na synchronizację (503) to pominięcie, nie „awaria";
 - z flagą wyłączoną zachowanie jest takie jak przed centralnymi regułami.
 """
@@ -62,7 +62,7 @@ def _stub_generation(monkeypatch, world: dict) -> dict:
     seen: dict = {"charges": [], "persisted": [], "executed": []}
     cv_bytes = _docx()
 
-    async def _load(db, *, candidate_id, stage_id, language, cv_document_id):
+    async def _load(db, *, candidate_id, stage_id, language, cv_document_id, **_):
         return CandidateGenerationSource(
             cv_bytes=cv_bytes,
             cv_filename="cv.docx",
@@ -244,7 +244,9 @@ async def _assert_skipped(world: dict, seen: dict, *, reason: str) -> dict:
     return event.details
 
 
-async def test_central_consent_requirement_is_never_bypassed(monkeypatch):
+async def test_central_pko_without_a_recruitment_reference_is_skipped(monkeypatch):
+    """Generator v3: brak zgody nie blokuje automatu (blokuje POBRANIE), ale
+    numer zapytania musi wynikać z rekrutacji — tu go nie ma."""
     monkeypatch.setattr(settings, "CV_CENTRAL_POLICIES_ENABLED", True)
     world = await _world()
     # Lustro PKO BP: zgoda + numer zapytania.
@@ -259,7 +261,8 @@ async def test_central_consent_requirement_is_never_bypassed(monkeypatch):
     seen = _stub_generation(monkeypatch, world)
 
     assert await _run_automation(world) is None
-    await _assert_skipped(world, seen, reason="consent_screenshot_required")
+    details = await _assert_skipped(world, seen, reason="client_rule_inputs_missing")
+    assert "numeru projektu" in details["detail"]
 
 
 async def test_central_project_ref_requirement_is_a_skip_not_a_dead_draft(

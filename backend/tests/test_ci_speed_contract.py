@@ -182,7 +182,7 @@ def test_selector_hub_modules_do_not_select_half_the_suite() -> None:
     assert not indirect, "config.py importuje prawie każdy test — to zadanie kolejki."
     assert all(
         Path(t).name == "test_config.py" or Path(t).name.startswith("test_config_")
-        for t in direct
+        for t in direct - set(sel._ALWAYS)
     )
 
 
@@ -191,6 +191,15 @@ def test_selector_finds_tests_that_import_a_changed_module() -> None:
     direct, indirect = sel.select(["backend/app/services/order_mail_ingest.py"])
     assert "tests/test_order_mail_ingest.py" in direct, "Test o nazwie modułu."
     assert "tests/test_nordea_pdf_policy.py" in indirect, "Test importujący moduł."
+
+
+def test_selector_always_runs_repo_guards_even_for_frontend_only_prs() -> None:
+    """Stemple i głowa Alembica wyrzucały PR-y z kolejki — PR ma je widzieć."""
+    sel = _selector()
+    direct, _ = sel.select(["frontend/src/components/EditOrderDialog.tsx"])
+    for guard in sel._ALWAYS:
+        assert (_REPO / "backend" / guard).is_file(), f"Strażnik {guard} zniknął."
+        assert guard in direct
 
 
 def test_selector_budget_keeps_direct_and_drops_slowest_indirect() -> None:

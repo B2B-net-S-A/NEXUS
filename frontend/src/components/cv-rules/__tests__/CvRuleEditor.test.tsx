@@ -8,8 +8,9 @@ import { makeClientPlaybook } from "@/test/fixtures/client-playbook";
 import { makeCvRule } from "@/test/fixtures/cv-rule";
 
 /**
- * Edytor reguły — pełna recepta DL w czterech zakładkach (Ustawienia, Podgląd,
- * Karta klienta, Historia) z progresywnym odsłanianiem.
+ * Edytor reguły — pełna recepta DL w trzech zakładkach (Ustawienia, Karta
+ * klienta, Historia) z progresywnym odsłanianiem. Zakładki „Podgląd” (CV
+ * próbne) nie ma od generatora CV v3 — stary `?tab=preview` otwiera Ustawienia.
  *
  * Cztery kontrakty, które łatwo cofnąć „przy okazji":
  *  * zakładka „Karta klienta" montuje się LENIWIE (edytor otwierany dla reguły
@@ -97,8 +98,6 @@ describe("CvRuleEditor", () => {
             recent: [],
           },
         };
-      if (url === "/api/clients/5/cv-rule/prompt-preview")
-        return { data: { language: "pl", block: "<client_presentation_rules>\nx\n</client_presentation_rules>", is_active: true } };
       if (url === "/api/clients-lookup") return { data: [] };
       if (url === "/api/clients/5/playbook")
         return { data: makeClientPlaybook({ client_id: 5 }) };
@@ -297,11 +296,22 @@ describe("CvRuleEditor", () => {
     expect(await screen.findByLabelText("SLA: dni robocze na pierwszego kandydata")).toBeInTheDocument();
     first.unmount();
 
-    renderEditor(vi.fn(), "nope");
+    const second = renderEditor(vi.fn(), "nope");
     await screen.findByText("Reguły CV · wersja 1");
     expect(screen.getByRole("tab", { name: "Ustawienia" })).toHaveAttribute(
       "aria-selected",
       "true",
     );
+    second.unmount();
+
+    // Stare linki `?tab=preview` (CV próbne, wycofane w generatorze CV v3)
+    // otwierają Ustawienia — zakładki „Podgląd” już nie ma.
+    renderEditor(vi.fn(), "preview");
+    await screen.findByText("Reguły CV · wersja 1");
+    expect(screen.getByRole("tab", { name: "Ustawienia" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.queryByRole("tab", { name: "Podgląd" })).not.toBeInTheDocument();
   });
 });

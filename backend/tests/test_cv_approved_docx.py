@@ -142,8 +142,12 @@ async def test_approval_freezes_actual_edits_and_download_never_rerenders(monkey
     csv.branded_version = 2
     csv.branded_status = "draft"
     db.scalar.return_value = version
+    from app.services import cv_approved_docx
+
     monkeypatch.setattr(
-        api, "render_approved_docx", Mock(side_effect=AssertionError("must not render"))
+        cv_approved_docx,
+        "render_approved_docx",
+        Mock(side_effect=AssertionError("must not render")),
     )
     first = await api.download_approved_docx(2, 1, user, db)
     second = await api.download_approved_docx(2, 1, user, db)

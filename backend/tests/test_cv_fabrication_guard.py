@@ -249,7 +249,7 @@ def test_certain_findings_survive_truncation() -> None:
 def test_severity_prefixes_are_frozen() -> None:
     """Prefiksy są kontraktem z frontendem, nie kosmetyką.
 
-    `CVGeneratorV2.tsx` klasyfikuje uwagi po tych właśnie łańcuchach, żeby
+    Generator CV (`classifyCvWarnings`) klasyfikuje uwagi po tych właśnie łańcuchach, żeby
     oddzielić trafienia pewne od podpowiedzi. Zmiana któregokolwiek bez
     aktualizacji `CV_CERTAIN_WARNING_PREFIXES` w `frontend/src/lib/cv-generator.ts`
     sprawia, że pewne trafienia CICHO wpadają do miękkich i czerwony blok

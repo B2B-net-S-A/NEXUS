@@ -16,7 +16,7 @@ export interface CalendarRecruitment {
 /**
  * Rekrutacje kandydata — to samo źródło co picker generatora CV
  * (`GET /api/cv-generator/candidates/{id}/recruitments`), jedna pozycja na
- * rekrutację. Świadomie bez `RecruitmentCombobox` z generatora: ten pokazuje
+ * rekrutację. Świadomie bez kroku „Proces” z generatora: ten pokazuje
  * gotowość do wygenerowania CV (ostrzeżenie przy braku Championa/notatek),
  * która w kalendarzu czytałaby się jak problem z rozmową.
  */
