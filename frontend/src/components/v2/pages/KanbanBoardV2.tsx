@@ -1437,7 +1437,12 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  >
  <span
  data-column-purpose={purpose ? "true" : undefined}
- className={cn("min-w-0", purpose ? "line-clamp-2 font-medium leading-snug text-foreground/80" : "truncate")}
+ className={cn(
+ "min-w-0",
+ // Wąska pusta kolumna (96 px) potrzebuje trzech linii na „Prep → rozmowa → telefon”.
+ purpose ? cn(narrow ? "line-clamp-3" : "line-clamp-2", "font-medium leading-snug text-foreground/80") : "truncate",
+ )}
+ title={purpose ?? undefined}
  >
  {purpose ?? slaHint.left}
  </span>

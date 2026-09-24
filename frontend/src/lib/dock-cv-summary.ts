@@ -14,6 +14,7 @@
  * (lista dokumentów wczytana i pusta) — nieudany odczyt to nie brak.
  */
 
+import type { MoveRequirementItem } from "@/lib/api/moveRequirements";
 import { stageCvStatus, type StageBrandedSummary } from "@/lib/cv-to-client";
 import { formatDate } from "@/lib/utils";
 
@@ -97,12 +98,36 @@ export interface DockBrandedInput extends StageBrandedSummary {
   finalized_at?: string | null;
 }
 
-export function companyCvSentence(branded: DockBrandedInput | null | undefined): {
+/**
+ * Czy PARA (kandydat × rekrutacja) ma CV firmowe — z listy `move-requirements`
+ * (pozycja `company_cv`, reguła `company_cv_refs`: CV etapu, gotowe CV
+ * z generatora albo plik „…B2B…”). `null` = lista tego nie mówi.
+ */
+export function pairCompanyCv(
+  items: readonly MoveRequirementItem[] | null | undefined,
+): boolean | null {
+  const item = items?.find((i) => i.key === "company_cv");
+  if (!item) return null;
+  return item.status === "ok";
+}
+
+export function companyCvSentence(
+  branded: DockBrandedInput | null | undefined,
+  opts: { pairHasCompanyCv?: boolean | null } = {},
+): {
   text: string;
   tone: "success" | "info" | "neutral" | "warning";
 } {
   const status = stageCvStatus(branded);
-  if (status === "none") return { text: "CV firmowe: brak", tone: "warning" };
+  if (status === "none") {
+    // Etap nie ma własnego CV (brak wiersza → 404 albo stan „none”), a para
+    // ma CV firmowe gdzie indziej — ramka „Następny etap” pokazuje wtedy ✓,
+    // więc „brak” byłby sprzecznością na jednym ekranie.
+    if (opts.pairHasCompanyCv) {
+      return { text: "CV firmowe: gotowe (nie podpięte do tego etapu)", tone: "success" };
+    }
+    return { text: "CV firmowe: brak", tone: "warning" };
+  }
   if (status === "legacy") {
     return { text: "CV firmowe: stary szablon (tylko podgląd)", tone: "neutral" };
   }

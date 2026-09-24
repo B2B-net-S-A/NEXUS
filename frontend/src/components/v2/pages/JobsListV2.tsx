@@ -541,7 +541,7 @@ function JobsTable({
               nie wiadomo, czyj to status i termin. */}
           <TableHead className="max-md:sticky max-md:left-0 max-md:z-20 max-md:bg-background">Rekrutacja</TableHead>
           <TableHead className="w-[150px]">Status</TableHead>
-          <TableHead className="w-[250px] py-1.5" title={STAGE_COUNTS_LEGEND}>
+          <TableHead className="w-[244px] px-2 py-1.5" title={STAGE_COUNTS_LEGEND}>
             <span className="sr-only">Etapy</span>
             <JobStageCountsHeader />
           </TableHead>
@@ -613,7 +613,7 @@ function JobsTable({
                 )}
                 <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-muted-foreground">
                   {job.client_name && (
-                    <span className="inline-flex min-w-0 items-center gap-0.5" title="Klient">
+                    <span className="inline-flex min-w-0 max-w-[220px] items-center gap-0.5" title="Klient">
                       <Building2 className="h-3 w-3 shrink-0" />
                       <span className="truncate">{job.client_name}</span>
                     </span>
@@ -624,7 +624,7 @@ function JobsTable({
                     </span>
                   )}
                   {job.location && (
-                    <span className="inline-flex min-w-0 items-center gap-0.5" title="Lokalizacja">
+                    <span className="inline-flex min-w-0 max-w-[180px] items-center gap-0.5" title="Lokalizacja">
                       <MapPin className="h-3 w-3 shrink-0" />
                       <span className="truncate">{job.location}</span>
                     </span>
@@ -648,7 +648,7 @@ function JobsTable({
                   </span>
                 )}
               </TableCell>
-              <TableCell>
+              <TableCell className="px-2">
                 {stageSummary ? (
                   <JobStageCounts summary={stageSummary} />
                 ) : (

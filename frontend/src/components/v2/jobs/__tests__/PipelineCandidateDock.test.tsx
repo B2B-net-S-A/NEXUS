@@ -650,6 +650,31 @@ describe("PipelineCandidateDock — następny etap, profil i CV", () => {
     expect(onMoveTo).toHaveBeenCalledWith(target);
   });
 
+  it("etap bez własnego CV (404) przy CV firmowym pary: bez „nie udało się sprawdzić” i bez „brak”", async () => {
+    // Produkcja 24.09.2026: `…/cv/branded` → 404 (etap bez wiersza CV),
+    // a ramka „Następny etap” mówiła ✓ „CV firmowe” — dok przeczył sam sobie.
+    brandedGet.mockRejectedValue({ response: { status: 404 } });
+    routeApiGet({
+      requirements: requirements({
+        to_column: "cv_qc",
+        items: [{ key: "company_cv", label: "CV firmowe „Pod rekrutację”", status: "ok", blocking: true }],
+        primary: { kind: "move", label: "Przenieś" },
+      }),
+    });
+    const user = userEvent.setup();
+    const target = stageCol("interview", "QC CV", { stage_def_id: 9 });
+    renderDock({ primaryTarget: target, item: baseItem({ stage: "verified" }) });
+
+    expect(await screen.findByText(/Następny etap: 4 · QC CV/)).toBeInTheDocument();
+    const cvToggle = screen.getByRole("button", { name: /^CV/ });
+    if (cvToggle.getAttribute("aria-expanded") !== "true") await user.click(cvToggle);
+    await waitFor(() =>
+      expect(screen.getAllByText("CV firmowe: gotowe (nie podpięte do tego etapu)").length).toBeGreaterThanOrEqual(1),
+    );
+    expect(screen.queryByText("CV firmowe: nie udało się sprawdzić")).toBeNull();
+    expect(screen.queryByText("CV firmowe: brak")).toBeNull();
+  });
+
   it("brak pilnowany przez serwer (QC CV) jest nazwany wprost", async () => {
     routeApiGet({
       requirements: requirements({

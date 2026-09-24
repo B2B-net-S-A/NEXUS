@@ -62,6 +62,13 @@ describe("proposal-facts", () => {
     expect(workModeLabel({ max_onsite_days_per_week: null, remote_modes: [] })).toBeNull();
     expect(factsRateLabel({ expected_rate_hourly: 30, expected_rate_currency: "EUR" })).toBe("30 EUR/h");
     expect(factsRateLabel({ expected_rate_hourly: null, expected_rate_currency: "PLN" })).toBeNull();
+    // Import zapisywał walutę jako „zł” / „ZŁ” — to wciąż złotówki (produkcja 24.09: „60 ZŁ/h”).
+    expect(factsRateLabel({ expected_rate_hourly: 60, expected_rate_currency: "ZŁ" })).toBe("60 zł/h");
+    expect(factsRateLabel({ expected_rate_hourly: 60, expected_rate_currency: "zł" })).toBe("60 zł/h");
+  });
+
+  it("sama firma bez stanowiska — bez wiszącej „@”", () => {
+    expect(proposalFactsLine(facts({ company: "Astek", city: "Warszawa" }), NOW)).toBe("Astek · Warszawa");
   });
 
   it("historia u klienta: rekrutacja, najdalszy etap i wynik", () => {
