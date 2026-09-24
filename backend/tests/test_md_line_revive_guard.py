@@ -25,8 +25,6 @@ from app.core.scheduling import business_today
 
 pytestmark = pytest.mark.asyncio
 
-_TODAY = business_today()
-
 
 async def _seed_line(*, remaining: Decimal, with_case: bool):
     """Linia MD zakończona DZIŚ, opcjonalnie ze sprawą offboardingu."""
@@ -61,7 +59,7 @@ async def _seed_line(*, remaining: Decimal, with_case: bool):
             candidate_id=cand.id,
             client_id=client.id,
             status=ContractStatus.active,
-            start_date=_TODAY - timedelta(days=90),
+            start_date=business_today() - timedelta(days=90),
             rate_candidate=Decimal("100.000"),
             rate_client=Decimal("150.000"),
         )
@@ -72,7 +70,7 @@ async def _seed_line(*, remaining: Decimal, with_case: bool):
         group = ClientOrderGroup(
             client_id=client.id,
             order_number=f"RG-{suffix}",
-            start_date=_TODAY - timedelta(days=90),
+            start_date=business_today() - timedelta(days=90),
             order_type="md",
             md_budget_mode="per_person",
             status="active",
@@ -87,10 +85,10 @@ async def _seed_line(*, remaining: Decimal, with_case: bool):
             order_group_id=group.id,
             title=f"Linia {group.order_number}",
             status=ClientOrderStatus.completed,
-            start_date=_TODAY - timedelta(days=90),
+            start_date=business_today() - timedelta(days=90),
             # Zejście „na dziś": okres nadal obejmuje dzisiejszy dzień, więc
             # sam warunek daty w `sync_md_line_status` linii nie zatrzyma.
-            end_date=_TODAY,
+            end_date=business_today(),
             md_total=Decimal("100.000000"),
             md_remaining=remaining,
             md_manual_adjustment=Decimal("0"),
@@ -110,7 +108,7 @@ async def _seed_line(*, remaining: Decimal, with_case: bool):
                 order_id=order.id,
                 order_group_id=group.id,
                 client_id=client.id,
-                effective_date=_TODAY,
+                effective_date=business_today(),
                 status=OFFBOARDING_STATUS_PENDING,
                 uses_shared_md_pool=False,
                 remaining_md_snapshot=Decimal("100.000000"),
@@ -170,7 +168,7 @@ async def test_late_consumption_shrinks_the_open_case_snapshot():
     order_id, case_id = await _seed_line(
         remaining=Decimal("100.000000"), with_case=True
     )
-    month = (_TODAY - timedelta(days=40)).strftime("%Y-%m")
+    month = (business_today() - timedelta(days=40)).strftime("%Y-%m")
 
     async with AsyncSessionLocal() as db:
         order = await db.get(ClientOrder, order_id)

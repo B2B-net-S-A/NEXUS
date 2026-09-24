@@ -11,12 +11,12 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import func, select
 
+from app.core.scheduling import business_today
 from app.services.finance_order_matching import finance_order_number_matches
 from tests.test_md_import_shared_budget import (
     _client_and_contract_for_existing_candidate,
 )
 from tests.test_order_lifecycle_and_cost import (
-    _TODAY,
     _cost_line,
     _create_group,
     _enable_cost,
@@ -640,7 +640,7 @@ async def test_existing_md_batch_is_reprocessed_from_stored_rows(
             _md_line(
                 contracts[0],
                 input_value=8,
-                end_date=_TODAY.isoformat(),
+                end_date=business_today().isoformat(),
             )
         ],
         order_number="SAP 4567890",
@@ -782,7 +782,7 @@ async def test_reprocess_fails_closed_before_overwriting_a_successor_md_row(
     )
     assert imported["rows"][0]["status"] == "needs_assignment"
 
-    successor_start = _TODAY + timedelta(days=1)
+    successor_start = business_today() + timedelta(days=1)
     extended = await app_client.post(
         f"/api/clients/{polkomtel_id}/order-groups/{predecessor['id']}/extend",
         json={

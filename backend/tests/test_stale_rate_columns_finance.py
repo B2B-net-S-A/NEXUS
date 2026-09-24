@@ -31,9 +31,14 @@ from app.core.scheduling import business_today
 
 pytestmark = pytest.mark.asyncio
 
-_TODAY = business_today()
-_START = _TODAY - timedelta(days=400)
-_STEP = _TODAY - timedelta(days=200)
+
+def _start():
+    return business_today() - timedelta(days=400)
+
+
+def _step():
+    return business_today() - timedelta(days=200)
+
 
 # Okres 1 = to, co trzymają kolumny legacy. Okres 2 = krok, którego data już
 # minęła; każda liczba poniżej ma pochodzić WŁAŚNIE z niego.
@@ -75,8 +80,8 @@ async def _seed_scheduled_contract(status_value: str = "active"):
             candidate_id=cand.id,
             client_id=client.id,
             status=ContractStatus(status_value),
-            start_date=_START,
-            end_date=_TODAY + timedelta(days=20),
+            start_date=_start(),
+            end_date=business_today() + timedelta(days=20),
             rate_candidate=_P1_CANDIDATE,
             rate_client=_P1_CLIENT,
             margin=_P1_CLIENT - _P1_CANDIDATE,
@@ -90,26 +95,26 @@ async def _seed_scheduled_contract(status_value: str = "active"):
         db.add_all(
             [
                 ContractCandidateRate(
-                    contract_id=contract.id, rate=_P1_CANDIDATE, effective_from=_START
+                    contract_id=contract.id, rate=_P1_CANDIDATE, effective_from=_start()
                 ),
                 ContractClientRate(
-                    contract_id=contract.id, rate=_P1_CLIENT, effective_from=_START
+                    contract_id=contract.id, rate=_P1_CLIENT, effective_from=_start()
                 ),
                 ContractCandidateRate(
-                    contract_id=contract.id, rate=_P2_CANDIDATE, effective_from=_STEP
+                    contract_id=contract.id, rate=_P2_CANDIDATE, effective_from=_step()
                 ),
                 ContractClientRate(
-                    contract_id=contract.id, rate=_P2_CLIENT, effective_from=_STEP
+                    contract_id=contract.id, rate=_P2_CLIENT, effective_from=_step()
                 ),
                 ContractCandidateRate(
                     contract_id=contract.id,
                     rate=Decimal("99000.000"),
-                    effective_from=_TODAY + timedelta(days=365),
+                    effective_from=business_today() + timedelta(days=365),
                 ),
                 ContractClientRate(
                     contract_id=contract.id,
                     rate=Decimal("99000.000"),
-                    effective_from=_TODAY + timedelta(days=365),
+                    effective_from=business_today() + timedelta(days=365),
                 ),
             ]
         )
@@ -141,8 +146,8 @@ async def _seed_plain_contract(status_value: str):
                 candidate_id=cand.id,
                 client_id=client.id,
                 status=ContractStatus(status_value),
-                start_date=_TODAY - timedelta(days=60),
-                end_date=_TODAY + timedelta(days=200),
+                start_date=business_today() - timedelta(days=60),
+                end_date=business_today() + timedelta(days=200),
                 rate_candidate=Decimal("8000.000"),
                 rate_client=Decimal("10000.000"),
                 rate_unit=RateUnit.monthly,
@@ -179,7 +184,7 @@ async def test_historical_month_is_priced_with_that_month_rate():
     from app.core.database import AsyncSessionLocal
 
     client_id, _, _ = await _seed_scheduled_contract()
-    before_step = _STEP - timedelta(days=30)
+    before_step = _step() - timedelta(days=30)
     async with AsyncSessionLocal() as db:
         data, _, _ = await client_finance(db, client_id, as_of=before_step)
 
@@ -304,7 +309,7 @@ async def _seed_order(client_id: int, contract_id: int) -> int:
             contract_id=contract_id,
             title="Zamówienie testowe",
             status=ClientOrderStatus.active,
-            start_date=_TODAY - timedelta(days=30),
+            start_date=business_today() - timedelta(days=30),
         )
         db.add(order)
         await db.commit()

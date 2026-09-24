@@ -21,9 +21,6 @@ from app.models.user import User, UserRole
 from app.tasks import candidate_search_retention as search_retention
 from app.tasks import queue_retention
 
-NOW = datetime.now(timezone.utc)
-OLD = NOW - timedelta(days=60)
-
 
 async def _world(db):
     tag = uuid.uuid4().hex[:8]
@@ -46,6 +43,8 @@ async def _ids(db, table: str, ids: list[int]) -> set[int]:
 
 @pytest.mark.asyncio
 async def test_prune_keeps_decisions_in_flight_events_and_latest_indexed_hash():
+    now = datetime.now(timezone.utc)
+    old = now - timedelta(days=60)
     async with AsyncSessionLocal() as db:
         client, job, cand = await _world(db)
         ins_log = text(
@@ -56,10 +55,10 @@ async def test_prune_keeps_decisions_in_flight_events_and_latest_indexed_hash():
         )
         log = {}
         for name, decision, when in (
-            ("old_below", "below_threshold", OLD),
-            ("old_added", "added", OLD),
-            ("old_proposed", "proposed", OLD),
-            ("new_below", "below_threshold", NOW),
+            ("old_below", "below_threshold", old),
+            ("old_added", "added", old),
+            ("old_proposed", "proposed", old),
+            ("new_below", "below_threshold", now),
         ):
             log[name] = (
                 await db.execute(
@@ -73,10 +72,10 @@ async def test_prune_keeps_decisions_in_flight_events_and_latest_indexed_hash():
         )
         mo = {
             "old_done": (
-                await db.execute(ins_mo, {"j": job.id, "s": "done", "t": OLD})
+                await db.execute(ins_mo, {"j": job.id, "s": "done", "t": old})
             ).scalar_one(),
             "old_pending": (
-                await db.execute(ins_mo, {"j": job.id, "s": "pending", "t": OLD})
+                await db.execute(ins_mo, {"j": job.id, "s": "pending", "t": old})
             ).scalar_one(),
         }
         ins_io = text(
@@ -94,7 +93,7 @@ async def test_prune_keeps_decisions_in_flight_events_and_latest_indexed_hash():
             io[name] = (
                 await db.execute(
                     ins_io,
-                    {"e": cand.id, "rev": rev, "s": status, "ih": ih, "t": OLD},
+                    {"e": cand.id, "rev": rev, "s": status, "ih": ih, "t": old},
                 )
             ).scalar_one()
         await db.commit()
@@ -150,6 +149,7 @@ def test_defaults():
 
 @pytest.mark.asyncio
 async def test_automatic_reviews_expire_after_two_days_manual_after_seven():
+    now = datetime.now(timezone.utc)
     async with AsyncSessionLocal() as db:
         try:
             tag = uuid.uuid4().hex
@@ -163,7 +163,7 @@ async def test_automatic_reviews_expire_after_two_days_manual_after_seven():
             client = Client(name=f"QR search {tag}")
             db.add_all([user, client])
             await db.flush()
-            three_days = NOW - timedelta(days=3)
+            three_days = now - timedelta(days=3)
 
             def _run(origin):
                 return CandidateSearchRun(
@@ -188,9 +188,9 @@ async def test_automatic_reviews_expire_after_two_days_manual_after_seven():
             expired = set(
                 await search_retention.expired_run_ids(
                     db,
-                    cutoff=NOW - timedelta(days=7),
+                    cutoff=now - timedelta(days=7),
                     limit=10_000,
-                    auto_cutoff=NOW - timedelta(days=2),
+                    auto_cutoff=now - timedelta(days=2),
                 )
             )
             assert auto_run.id in expired

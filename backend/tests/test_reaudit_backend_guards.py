@@ -28,8 +28,6 @@ from decimal import Decimal
 from httpx import AsyncClient
 from app.core.scheduling import business_today
 
-_TODAY = business_today()
-
 
 # ── Shared helpers ───────────────────────────────────────────────────────────
 
@@ -193,8 +191,8 @@ async def _seed_client_order() -> tuple[int, int, int]:
             candidate_id=cand.id,
             client_id=client.id,
             status=ContractStatus.active,
-            start_date=_TODAY - timedelta(days=10),
-            end_date=_TODAY + timedelta(days=90),
+            start_date=business_today() - timedelta(days=10),
+            end_date=business_today() + timedelta(days=90),
             rate_candidate=Decimal("100.000"),
             rate_client=Decimal("150.000"),
             rate_unit=RateUnit.monthly,
@@ -209,8 +207,8 @@ async def _seed_client_order() -> tuple[int, int, int]:
             contract_id=contract.id,
             title="PO-guard",
             status=ClientOrderStatus.active,
-            start_date=_TODAY - timedelta(days=5),
-            end_date=_TODAY + timedelta(days=80),
+            start_date=business_today() - timedelta(days=5),
+            end_date=business_today() + timedelta(days=80),
             rate_client=Decimal("150.000"),
             total_value=Decimal("18000.00"),
             currency="PLN",
@@ -491,8 +489,8 @@ async def _seed_contract_for_client() -> tuple[int, int]:
             candidate_id=cand.id,
             client_id=client.id,
             status=ContractStatus.active,
-            start_date=_TODAY - timedelta(days=10),
-            end_date=_TODAY + timedelta(days=90),
+            start_date=business_today() - timedelta(days=10),
+            end_date=business_today() + timedelta(days=90),
             rate_candidate=Decimal("100.000"),
             rate_client=Decimal("150.000"),
             margin=Decimal("50.000"),

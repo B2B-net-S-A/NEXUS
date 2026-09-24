@@ -20,8 +20,8 @@ from app.services.requirement_verification import (
 def fixture():
     now = datetime.now(timezone.utc)
     # Ostatnia edycja profilu jest w przeszłości: zapis weryfikacji podbija
-    # `updated_at` na „teraz”, a przy zamrożonym zegarze (`_pin_business_day`
-    # po północy warszawskiej) „teraz” równe wersji z fixture'u nie było „nowsze”.
+    # `updated_at` na „teraz”, a „teraz” równe wersji z fixture'u (dwa odczyty
+    # zegara w tej samej chwili) nie byłoby „nowsze”.
     edited_at = now - timedelta(minutes=5)
     contract = MatchingRequirements(
         reviewed=True, all_of=[SkillRequirement(any_of=["Python"])]
@@ -70,14 +70,16 @@ def test_provenance_requires_current_request_and_full_candidate_source():
 @pytest.mark.parametrize(
     "changes",
     [
-        {"verified_at": datetime.now(timezone.utc) + timedelta(days=1)},
-        {"verified_at": datetime.now()},  # noqa: DTZ005 — celowo bez strefy
-        {"evidence": "   "},
-        {"usage_context": ""},
-        {"reviewer_id": 99},
+        # Daty liczone przy wywołaniu (lambda), nie przy imporcie modułu.
+        lambda: {"verified_at": datetime.now(timezone.utc) + timedelta(days=1)},
+        lambda: {"verified_at": datetime.now()},  # noqa: DTZ005 — celowo bez strefy
+        lambda: {"evidence": "   "},
+        lambda: {"usage_context": ""},
+        lambda: {"reviewer_id": 99},
     ],
 )
 def test_invalid_or_forged_review_request_rejected(changes):
+    changes = changes()
     data = fixture()[-1].model_dump()
     with pytest.raises(ValidationError):
         VerifyRequirementRequest(**{**data, **changes})

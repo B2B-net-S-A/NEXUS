@@ -38,6 +38,7 @@ from app.api.recruitment_access import (
     job_read_scope_clause,
 )
 from app.core.database import get_db
+from app.core.scheduling import business_today
 from app.services.candidate_stage_cv_service import create_original_cv_snapshot
 from app.services.candidate_contact_hooks import maybe_ensure_contact_opportunity
 from app.models.activity import Activity
@@ -174,6 +175,16 @@ async def _attach_cv_as_document(
         db.add(document)
     await db.flush()
     return document
+
+
+def _append_submission_message(profile_about: Optional[str], message: str) -> str:
+    """Dopisz wiadomość z formularza do „O kandydacie” z datą scalenia.
+
+    Data dla rekrutera to dzień w kalendarzu firmy — scalenie o 00:30 w Warszawie
+    datowane dniem UTC wyglądało na wczorajsze.
+    """
+    prefix = profile_about.strip() + "\n\n" if profile_about else ""
+    return f"{prefix}[{business_today().isoformat()}] {message.strip()}"
 
 
 def _origin_assignment_id(
@@ -379,14 +390,8 @@ async def resolve_application_submission(
             if not candidate.linkedin and submission.submitted_linkedin:
                 candidate.linkedin = submission.submitted_linkedin
             if submission.submitted_message:
-                prefix = (
-                    candidate.profile_about.strip() + "\n\n"
-                    if candidate.profile_about
-                    else ""
-                )
-                stamp = datetime.now(timezone.utc).date().isoformat()
-                candidate.profile_about = (
-                    f"{prefix}[{stamp}] {submission.submitted_message.strip()}"
+                candidate.profile_about = _append_submission_message(
+                    candidate.profile_about, submission.submitted_message
                 )
             submission.status = ApplicationSubmissionStatus.merged.value
         else:

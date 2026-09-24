@@ -22,6 +22,7 @@ from typing import Any, Iterable
 from sqlalchemy import func, literal, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.scheduling import business_today
 from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.models.client import Client, ClientStatus
@@ -1265,9 +1266,13 @@ def _msa_status(
 
 
 def _application_date() -> date:
-    """Single, UTC-based business date used for all statuses in one apply."""
+    """Jedna data dla wszystkich statusów MSA w jednym apply — dzień w kalendarzu firmy.
 
-    return datetime.now(timezone.utc).date()
+    Daty obowiązywania umów ramowych to daty polskie; dzień UTC o 00:30 w Warszawie
+    to jeszcze wczoraj, więc umowa startująca „dziś" wychodziła jako draft.
+    """
+
+    return business_today()
 
 
 def _msa_name(display_name: str, row: dict[str, Any]) -> str:

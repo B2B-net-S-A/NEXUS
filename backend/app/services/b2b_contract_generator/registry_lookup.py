@@ -27,11 +27,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timezone
 
 import httpx
 
 from app.core.config import settings
+from app.core.scheduling import business_today
 from app.services.b2b_contract_generator.entity_type import entity_type_from_registry
 
 logger = logging.getLogger(__name__)
@@ -117,7 +117,9 @@ async def lookup_by_nip(nip: str) -> dict | None:
     clean = _digits(nip)
     if len(clean) != 10:
         return None
-    today = datetime.now(timezone.utc).astimezone().date().isoformat()
+    # Stan na dziś w kalendarzu polskim (API MF). `astimezone()` bez strefy
+    # to strefa kontenera, czyli UTC — o 00:30 w Warszawie jeszcze wczoraj.
+    today = business_today().isoformat()
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             resp = await client.get(

@@ -425,10 +425,6 @@ async def test_change_password_self_clears_force_flag(
 # ── AUTH-03: token z hasła tymczasowego nie ma dostępu domenowego ───────────
 
 
-# `iat` nowego tokenu pochodzi z zegara Pythona, a `tokens_valid_after` ze
-# zmiany hasła z `now()` bazy — przypięty po północy zegar Pythona (23:59)
-# robił z tokenu po ponownym logowaniu „starszy niż zmiana hasła” → 401.
-@pytest.mark.real_clock
 async def test_fpc_token_is_refused_by_business_api_but_reaches_recovery(
     app_client: AsyncClient, fresh_user: dict
 ):

@@ -14,9 +14,6 @@ from app.core.scheduling import business_today
 from app.models.order_type import OrderType
 
 
-_TODAY = business_today()
-
-
 async def _seed_client_with_contracts(count: int = 2) -> tuple[int, list[int]]:
     from app.core.database import AsyncSessionLocal
     from app.models.candidate import Candidate
@@ -42,7 +39,7 @@ async def _seed_client_with_contracts(count: int = 2) -> tuple[int, list[int]]:
                 candidate_id=candidate.id,
                 client_id=client.id,
                 status=ContractStatus.active,
-                start_date=_TODAY - timedelta(days=30),
+                start_date=business_today() - timedelta(days=30),
                 rate_candidate=Decimal("100.000"),
                 rate_client=Decimal("150.000"),
             )
@@ -58,7 +55,7 @@ def _shared_line(contract_id: int) -> dict:
         "contract_id": contract_id,
         "rate_cost": 1000,
         "rate_revenue": 1200,
-        "start_date": (_TODAY - timedelta(days=5)).isoformat(),
+        "start_date": (business_today() - timedelta(days=5)).isoformat(),
     }
 
 
@@ -77,7 +74,7 @@ def test_explicit_group_schema_derives_one_unambiguous_type():
 
     cost = OrderGroupCreate(
         order_number="COST-1",
-        start_date=_TODAY,
+        start_date=business_today(),
         order_type=OrderType.cost,
         budget_amount=Decimal("1000"),
     )
@@ -86,7 +83,7 @@ def test_explicit_group_schema_derives_one_unambiguous_type():
 
     md = OrderGroupCreate(
         order_number="MD-1",
-        start_date=_TODAY,
+        start_date=business_today(),
         order_type=OrderType.md,
     )
     assert md.is_cost_based is False
@@ -94,7 +91,7 @@ def test_explicit_group_schema_derives_one_unambiguous_type():
 
     shared_md = OrderGroupCreate(
         order_number="MD-SHARED-1",
-        start_date=_TODAY,
+        start_date=business_today(),
         order_type=OrderType.md,
         is_md_budget_based=True,
         md_budget_total=Decimal("20"),
@@ -104,7 +101,7 @@ def test_explicit_group_schema_derives_one_unambiguous_type():
     with pytest.raises(ValidationError, match="sprzeczny z flagą"):
         OrderGroupCreate(
             order_number="MIXED-1",
-            start_date=_TODAY,
+            start_date=business_today(),
             order_type=OrderType.cost,
             is_md_budget_based=True,
             budget_amount=Decimal("1000"),
@@ -139,7 +136,7 @@ async def test_generic_client_can_mix_new_types_and_get_history_suggestion(
         url,
         json={
             "order_number": "COST-NOWY",
-            "start_date": (_TODAY - timedelta(days=5)).isoformat(),
+            "start_date": (business_today() - timedelta(days=5)).isoformat(),
             "order_type": "cost",
             "budget_amount": 50000,
             "lines": [_shared_line(contracts[0])],
@@ -158,7 +155,7 @@ async def test_generic_client_can_mix_new_types_and_get_history_suggestion(
         url,
         json={
             "order_number": "MD-NOWY",
-            "start_date": (_TODAY - timedelta(days=4)).isoformat(),
+            "start_date": (business_today() - timedelta(days=4)).isoformat(),
             "order_type": "md",
             "lines": [_md_line(contracts[1])],
         },
@@ -219,7 +216,7 @@ async def test_generic_client_legacy_group_request_stays_rejected(
         f"/api/clients/{client_id}/order-groups",
         json={
             "order_number": "BEZ-TYPU",
-            "start_date": _TODAY.isoformat(),
+            "start_date": business_today().isoformat(),
             "lines": [],
         },
         headers=app_auth_headers,
@@ -230,7 +227,7 @@ async def test_generic_client_legacy_group_request_stays_rejected(
         f"/api/clients/{client_id}/order-groups",
         json={
             "order_number": "MD-SHARED-GENERIC",
-            "start_date": _TODAY.isoformat(),
+            "start_date": business_today().isoformat(),
             "order_type": "md",
             "is_md_budget_based": True,
             "md_budget_total": 20,
@@ -254,7 +251,7 @@ async def test_empty_explicit_md_has_no_group_bar_and_first_line_gets_own_budget
         url,
         json={
             "order_number": "MD-BEZ-OBSADY",
-            "start_date": (_TODAY - timedelta(days=2)).isoformat(),
+            "start_date": (business_today() - timedelta(days=2)).isoformat(),
             "order_type": "md",
             "lines": [],
         },
@@ -322,7 +319,7 @@ async def test_legacy_group_drives_suggestion_without_being_backfilled(
         legacy = ClientOrderGroup(
             client_id=client_id,
             order_number=f"LEGACY-{expected_type.upper()}",
-            start_date=_TODAY - timedelta(days=10),
+            start_date=business_today() - timedelta(days=10),
             status="active",
             order_type=None,
             is_cost_based=is_cost_based,
@@ -433,7 +430,7 @@ async def test_completing_typed_draft_materializes_budget_at_the_correct_scope(
         json={
             "title": f"DRAFT-{order_type.upper()}",
             "order_type": order_type,
-            "start_date": (_TODAY - timedelta(days=1)).isoformat(),
+            "start_date": (business_today() - timedelta(days=1)).isoformat(),
             "rate_candidate": 100,
             "rate_client": 150,
             budget_field: budget_value,
@@ -480,7 +477,7 @@ async def test_new_cost_marker_bypasses_legacy_matcher_gate_only_for_new_group(
         f"/api/clients/{client_id}/order-groups",
         json={
             "order_number": "EXPLICIT-COST",
-            "start_date": (_TODAY - timedelta(days=2)).isoformat(),
+            "start_date": (business_today() - timedelta(days=2)).isoformat(),
             "order_type": "cost",
             "budget_amount": 10000,
             "lines": [_shared_line(contracts[0])],
@@ -494,7 +491,7 @@ async def test_new_cost_marker_bypasses_legacy_matcher_gate_only_for_new_group(
         legacy_group = ClientOrderGroup(
             client_id=client_id,
             order_number="LEGACY-COST",
-            start_date=_TODAY - timedelta(days=2),
+            start_date=business_today() - timedelta(days=2),
             order_type=None,
             status="active",
             is_cost_based=True,
@@ -510,7 +507,7 @@ async def test_new_cost_marker_bypasses_legacy_matcher_gate_only_for_new_group(
             order_type=None,
             title="LEGACY-COST — konsultant",
             status=ClientOrderStatus.active,
-            start_date=_TODAY - timedelta(days=2),
+            start_date=business_today() - timedelta(days=2),
             rate_client=Decimal("1200"),
         )
         db.add(legacy_line)
@@ -519,7 +516,7 @@ async def test_new_cost_marker_bypasses_legacy_matcher_gate_only_for_new_group(
         await db.commit()
 
     async with AsyncSessionLocal() as db:
-        matches = await cost_lines_settling_in_month(db, _TODAY.strftime("%Y-%m"))
+        matches = await cost_lines_settling_in_month(db, business_today().strftime("%Y-%m"))
     matched_ids = {match.order.id for match in matches}
     assert explicit_line_id in matched_ids
     assert legacy_line_id not in matched_ids
@@ -583,7 +580,7 @@ async def test_generic_client_still_cannot_request_a_shared_md_pool(
         f"/api/clients/{client_id}/order-groups",
         json={
             "order_number": f"GEN-MD-{uuid.uuid4().hex[:8]}",
-            "start_date": _TODAY.isoformat(),
+            "start_date": business_today().isoformat(),
             "order_type": "md",
             "is_md_budget_based": True,
             "md_budget_total": 100,

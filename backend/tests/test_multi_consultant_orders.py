@@ -18,8 +18,6 @@ from httpx import AsyncClient
 from tests.test_contract_analytics_fx import _free_test_currency
 from app.core.scheduling import business_today
 
-_TODAY = business_today()
-
 
 # ── Seed ────────────────────────────────────────────────────────────────────
 
@@ -55,7 +53,7 @@ async def _seed_client_with_contracts(
                 candidate_id=cand.id,
                 client_id=client.id,
                 status=ContractStatus.active,
-                start_date=_TODAY - timedelta(days=30),
+                start_date=business_today() - timedelta(days=30),
                 rate_candidate=Decimal("100.000"),
                 rate_client=Decimal("150.000"),
             )
@@ -82,7 +80,7 @@ def _line_payload(contract_id: int, **overrides) -> dict:
         "rate_revenue": 1200,
         "input_mode": "md",
         "input_value": 50,
-        "start_date": (_TODAY - timedelta(days=10)).isoformat(),
+        "start_date": (business_today() - timedelta(days=10)).isoformat(),
     }
     payload.update(overrides)
     return payload
@@ -95,7 +93,7 @@ async def _create_group(
         f"/api/clients/{client_id}/order-groups",
         json={
             "order_number": f"445-{uuid.uuid4().hex[:4]}",
-            "start_date": (_TODAY - timedelta(days=10)).isoformat(),
+            "start_date": (business_today() - timedelta(days=10)).isoformat(),
             "lines": lines,
         },
         headers=headers,
@@ -118,7 +116,7 @@ async def test_legacy_group_payload_stays_rejected_outside_allowlist(
         f"/api/clients/{client_id}/order-groups",
         json={
             "order_number": "445",
-            "start_date": _TODAY.isoformat(),
+            "start_date": business_today().isoformat(),
             "lines": [_line_payload(contracts[0])],
         },
         headers=app_auth_headers,
@@ -213,7 +211,7 @@ async def test_assigned_delivery_lead_can_add_a_consultant_with_rates(
         f"/api/clients/{client_id}/order-groups",
         json={
             "order_number": "447",
-            "start_date": _TODAY.isoformat(),
+            "start_date": business_today().isoformat(),
             "lines": [_line_payload(contracts[0])],
         },
         headers=dl_headers,
@@ -250,7 +248,7 @@ async def test_unassigned_delivery_lead_reads_redacted_but_cannot_write_rates(
         f"/api/clients/{client_id}/order-groups",
         json={
             "order_number": "448",
-            "start_date": _TODAY.isoformat(),
+            "start_date": business_today().isoformat(),
             "lines": [_line_payload(contracts[0])],
         },
         headers=other_dl,
@@ -271,7 +269,7 @@ async def test_unassigned_delivery_lead_reads_redacted_but_cannot_write_rates(
             "contract_id": contracts[0],
             "rate_cost": 800,
             "rate_revenue": 950,
-            "swap_date": _TODAY.isoformat(),
+            "swap_date": business_today().isoformat(),
         },
         headers=other_dl,
     )
@@ -528,7 +526,7 @@ async def test_line_rejects_zero_revenue_rate(
         f"/api/clients/{client_id}/order-groups",
         json={
             "order_number": "446",
-            "start_date": _TODAY.isoformat(),
+            "start_date": business_today().isoformat(),
             "lines": [_line_payload(contracts[0], rate_revenue=0)],
         },
         headers=app_auth_headers,
@@ -558,7 +556,7 @@ async def test_swap_preserves_order_value_in_pln(
             "contract_id": contracts[1],
             "rate_cost": 800,
             "rate_revenue": 950,
-            "swap_date": _TODAY.isoformat(),
+            "swap_date": business_today().isoformat(),
         },
         headers=app_auth_headers,
     )
@@ -589,7 +587,7 @@ async def test_swap_closes_old_line_and_keeps_history(
             "contract_id": contracts[1],
             "rate_cost": 800,
             "rate_revenue": 950,
-            "swap_date": _TODAY.isoformat(),
+            "swap_date": business_today().isoformat(),
         },
         headers=app_auth_headers,
     )
@@ -599,7 +597,7 @@ async def test_swap_closes_old_line_and_keeps_history(
     )
     lines = {line["id"]: line for line in listing.json()["groups"][0]["lines"]}
     assert lines[old_id]["is_active"] is False
-    assert lines[old_id]["end_date"] == _TODAY.isoformat()
+    assert lines[old_id]["end_date"] == business_today().isoformat()
 
     events = await app_client.get(
         f"/api/clients/{client_id}/order-groups/{group['id']}/events",
@@ -632,7 +630,7 @@ async def test_future_swap_keeps_old_line_active(
         app_client, app_auth_headers, client_id, [_line_payload(contracts[0])]
     )
     old_id = group["lines"][0]["id"]
-    future = _TODAY + timedelta(days=20)
+    future = business_today() + timedelta(days=20)
 
     resp = await app_client.post(
         f"/api/clients/{client_id}/order-groups/{group['id']}/lines/{old_id}/swap",
@@ -664,7 +662,7 @@ async def test_swap_gives_successor_the_planned_end_date(
     """
     client_id, contracts, _ = await _seed_client_with_contracts(2)
     _enable_for(monkeypatch, client_id)
-    planned_end = _TODAY + timedelta(days=120)
+    planned_end = business_today() + timedelta(days=120)
 
     group = await _create_group(
         app_client,
@@ -680,13 +678,13 @@ async def test_swap_gives_successor_the_planned_end_date(
             "contract_id": contracts[1],
             "rate_cost": 800,
             "rate_revenue": 950,
-            "swap_date": _TODAY.isoformat(),
+            "swap_date": business_today().isoformat(),
         },
         headers=app_auth_headers,
     )
     assert resp.status_code == 201, resp.text
     new_line = resp.json()
-    assert new_line["start_date"] == _TODAY.isoformat()
+    assert new_line["start_date"] == business_today().isoformat()
     assert new_line["end_date"] == planned_end.isoformat(), (
         "następca dostał datę zamiany zamiast planowanego końca zaangażowania"
     )
@@ -722,7 +720,7 @@ async def test_line_stays_editable_after_a_swap(
             "contract_id": contracts[1],
             "rate_cost": 800,
             "rate_revenue": 950,
-            "swap_date": _TODAY.isoformat(),
+            "swap_date": business_today().isoformat(),
         },
         headers=app_auth_headers,
     )
@@ -764,7 +762,7 @@ async def test_manual_adjustment_after_a_swap_survives_the_read(
             "contract_id": contracts[1],
             "rate_cost": 800,
             "rate_revenue": 950,
-            "swap_date": _TODAY.isoformat(),
+            "swap_date": business_today().isoformat(),
         },
         headers=app_auth_headers,
     )
@@ -824,7 +822,7 @@ async def test_import_subtracts_md_and_is_idempotent(
     group = await _create_group(
         app_client, app_auth_headers, client_id, [_line_payload(contracts[0])]
     )
-    month = _TODAY.strftime("%Y-%m")
+    month = business_today().strftime("%Y-%m")
 
     first = await _upload(app_client, app_auth_headers, [(names[0], 15)], month)
     assert first.status_code == 201, first.text
@@ -872,7 +870,7 @@ async def test_import_marks_ambiguous_without_applying(
             candidate_id=cand.id,
             client_id=client_id,
             status=ContractStatus.active,
-            start_date=_TODAY - timedelta(days=30),
+            start_date=business_today() - timedelta(days=30),
             rate_candidate=Decimal("100.000"),
             rate_client=Decimal("150.000"),
         )
@@ -889,7 +887,10 @@ async def test_import_marks_ambiguous_without_applying(
     )
 
     resp = await _upload(
-        app_client, app_auth_headers, [(names[0], 10)], _TODAY.strftime("%Y-%m")
+        app_client,
+        app_auth_headers,
+        [(names[0], 10)],
+        business_today().strftime("%Y-%m"),
     )
     assert resp.status_code == 201, resp.text
     body = resp.json()
@@ -934,7 +935,7 @@ async def test_import_unmatched_row_does_not_break_the_rest(
         app_client,
         app_auth_headers,
         [("Nikt Taki", 5), (names[0], 12)],
-        _TODAY.strftime("%Y-%m"),
+        business_today().strftime("%Y-%m"),
     )
     assert resp.status_code == 201, resp.text
     body = resp.json()
@@ -971,7 +972,7 @@ async def test_assign_takes_the_predecessor_line_after_a_swap_this_month(
             candidate_id=cand.id,
             client_id=client_id,
             status=ContractStatus.active,
-            start_date=_TODAY - timedelta(days=30),
+            start_date=business_today() - timedelta(days=30),
             rate_candidate=Decimal("100.000"),
             rate_client=Decimal("150.000"),
         )
@@ -989,7 +990,10 @@ async def test_assign_takes_the_predecessor_line_after_a_swap_this_month(
 
     body = (
         await _upload(
-            app_client, app_auth_headers, [(names[0], 10)], _TODAY.strftime("%Y-%m")
+            app_client,
+            app_auth_headers,
+            [(names[0], 10)],
+            business_today().strftime("%Y-%m"),
         )
     ).json()
     row = body["rows"][0]
@@ -1003,7 +1007,7 @@ async def test_assign_takes_the_predecessor_line_after_a_swap_this_month(
             "contract_id": contracts[1],
             "rate_cost": 800,
             "rate_revenue": 950,
-            "swap_date": _TODAY.isoformat(),
+            "swap_date": business_today().isoformat(),
         },
         headers=app_auth_headers,
     )
@@ -1045,7 +1049,7 @@ async def test_assign_rejects_a_line_whose_period_ends_before_the_month(
             candidate_id=cand.id,
             client_id=client_id,
             status=ContractStatus.active,
-            start_date=_TODAY - timedelta(days=30),
+            start_date=business_today() - timedelta(days=30),
             rate_candidate=Decimal("100.000"),
             rate_client=Decimal("150.000"),
         )
@@ -1063,7 +1067,10 @@ async def test_assign_rejects_a_line_whose_period_ends_before_the_month(
 
     body = (
         await _upload(
-            app_client, app_auth_headers, [(names[0], 10)], _TODAY.strftime("%Y-%m")
+            app_client,
+            app_auth_headers,
+            [(names[0], 10)],
+            business_today().strftime("%Y-%m"),
         )
     ).json()
     row = body["rows"][0]
@@ -1073,7 +1080,7 @@ async def test_assign_rejects_a_line_whose_period_ends_before_the_month(
     target = group_b["lines"][0]["id"]
     async with AsyncSessionLocal() as db:
         line = await db.get(ClientOrder, target)
-        line.end_date = _TODAY.replace(day=1) - timedelta(days=1)
+        line.end_date = business_today().replace(day=1) - timedelta(days=1)
         line.status = ClientOrderStatus.completed
         await db.commit()
 
@@ -1097,7 +1104,10 @@ async def test_md_remaining_may_go_negative(
     )
 
     resp = await _upload(
-        app_client, app_auth_headers, [(names[0], 70)], _TODAY.strftime("%Y-%m")
+        app_client,
+        app_auth_headers,
+        [(names[0], 70)],
+        business_today().strftime("%Y-%m"),
     )
     assert resp.status_code == 201, resp.text
 
@@ -1119,7 +1129,7 @@ async def test_manual_adjustment_survives_reimport(
         app_client, app_auth_headers, client_id, [_line_payload(contracts[0])]
     )
     line_id = group["lines"][0]["id"]
-    month = _TODAY.strftime("%Y-%m")
+    month = business_today().strftime("%Y-%m")
 
     await _upload(app_client, app_auth_headers, [(names[0], 10)], month)  # → 40
 
@@ -1167,7 +1177,7 @@ async def test_legacy_single_consultant_orders_untouched(
             contract_id=contracts[0],
             title="Legacy",
             status=ClientOrderStatus.active,
-            start_date=_TODAY,
+            start_date=business_today(),
         )
         db.add(order)
         await db.commit()
@@ -1223,7 +1233,7 @@ async def _seed_person_with_contract(
             candidate_id=cand.id,
             client_id=client_id,
             status=ContractStatus(status_value),
-            start_date=start_date or (_TODAY - timedelta(days=60)),
+            start_date=start_date or (business_today() - timedelta(days=60)),
             rate_candidate=rate_candidate,
             rate_unit=RateUnit(rate_unit),
             billing_hours_per_month=billing_hours_per_month,
@@ -1445,7 +1455,7 @@ async def test_options_prefill_active_client_rate_warns_on_history_and_order_edi
             candidate_id=candidate.id,
             client_id=client_id,
             status=ContractStatus.active,
-            start_date=_TODAY - timedelta(days=90),
+            start_date=business_today() - timedelta(days=90),
             # Celowo nieaktualny cache: resolver harmonogramu ma zwrócić 560.
             rate_candidate=Decimal("999.000"),
             rate_unit=RateUnit.daily,
@@ -1454,7 +1464,7 @@ async def test_options_prefill_active_client_rate_warns_on_history_and_order_edi
             candidate_id=candidate.id,
             client_id=client_id,
             status=ContractStatus.ended,
-            start_date=_TODAY - timedelta(days=400),
+            start_date=business_today() - timedelta(days=400),
             rate_candidate=Decimal("520.000"),
             rate_unit=RateUnit.daily,
         )
@@ -1462,7 +1472,7 @@ async def test_options_prefill_active_client_rate_warns_on_history_and_order_edi
             candidate_id=candidate.id,
             client_id=client_id,
             status=ContractStatus.draft,
-            start_date=_TODAY - timedelta(days=1),
+            start_date=business_today() - timedelta(days=1),
             rate_candidate=Decimal("700.000"),
             rate_unit=RateUnit.daily,
         )
@@ -1470,18 +1480,18 @@ async def test_options_prefill_active_client_rate_warns_on_history_and_order_edi
             candidate_id=candidate.id,
             client_id=other_client,
             status=ContractStatus.active,
-            start_date=_TODAY - timedelta(days=20),
+            start_date=business_today() - timedelta(days=20),
             rate_candidate=Decimal("600.000"),
             rate_unit=RateUnit.daily,
         )
         active.candidate_rate_schedule = [
             ContractCandidateRate(
                 rate=Decimal("540.000"),
-                effective_from=_TODAY - timedelta(days=90),
+                effective_from=business_today() - timedelta(days=90),
             ),
             ContractCandidateRate(
                 rate=Decimal("560.000"),
-                effective_from=_TODAY - timedelta(days=10),
+                effective_from=business_today() - timedelta(days=10),
             ),
         ]
         db.add_all([active, ended, newer_draft, other])
@@ -1509,7 +1519,7 @@ async def test_options_prefill_active_client_rate_warns_on_history_and_order_edi
             "rate_revenue": 900,
             "input_mode": "md",
             "input_value": 20,
-            "start_date": _TODAY.isoformat(),
+            "start_date": business_today().isoformat(),
         },
         headers=app_auth_headers,
     )
@@ -1527,7 +1537,9 @@ async def test_options_prefill_active_client_rate_warns_on_history_and_order_edi
         # (575) nie przeszła na kontrakt.
         assert stored.rate_unit == RateUnit.hourly
         assert stored.rate_candidate * 8 == Decimal("999.000")
-        assert stored.effective_candidate_rate(_TODAY) * 8 == Decimal("560.000")
+        assert stored.effective_candidate_rate(business_today()) * 8 == Decimal(
+            "560.000"
+        )
 
 
 async def test_options_ignore_other_clients_and_same_client_rates_do_not_warn(
@@ -1553,7 +1565,7 @@ async def test_options_ignore_other_clients_and_same_client_rates_do_not_warn(
     async with AsyncSessionLocal() as db:
         db.add(
             FxRate(
-                effective_date=_TODAY,
+                effective_date=business_today(),
                 currency=foreign_currency,
                 rate_to_pln=Decimal("4.0000"),
                 source="test",
@@ -1572,7 +1584,7 @@ async def test_options_ignore_other_clients_and_same_client_rates_do_not_warn(
                     candidate_id=candidate.id,
                     client_id=client_id,
                     status=ContractStatus.active,
-                    start_date=_TODAY - timedelta(days=30),
+                    start_date=business_today() - timedelta(days=30),
                     rate_candidate=Decimal("19.250"),
                     rate_unit=RateUnit.hourly,
                     billing_hours_per_month=160,
@@ -1582,7 +1594,7 @@ async def test_options_ignore_other_clients_and_same_client_rates_do_not_warn(
                     candidate_id=candidate.id,
                     client_id=client_id,
                     status=ContractStatus.ended,
-                    start_date=_TODAY - timedelta(days=300),
+                    start_date=business_today() - timedelta(days=300),
                     rate_candidate=Decimal("616.000"),
                     rate_unit=RateUnit.daily,
                 ),
@@ -1590,7 +1602,7 @@ async def test_options_ignore_other_clients_and_same_client_rates_do_not_warn(
                     candidate_id=candidate.id,
                     client_id=other_client,
                     status=ContractStatus.active,
-                    start_date=_TODAY - timedelta(days=5),
+                    start_date=business_today() - timedelta(days=5),
                     rate_candidate=Decimal("600.000"),
                     rate_unit=RateUnit.daily,
                 ),
@@ -1633,7 +1645,7 @@ async def test_options_compare_historical_rates_at_line_storage_precision(
                 candidate_id=candidate_id,
                 client_id=client_id,
                 status=ContractStatus.ended,
-                start_date=_TODAY - timedelta(days=300),
+                start_date=business_today() - timedelta(days=300),
                 rate_candidate=Decimal("100.006"),
                 rate_unit=RateUnit.daily,
             )
@@ -1729,7 +1741,7 @@ async def test_options_never_show_the_same_person_twice(
                 candidate_id=candidate_id,
                 client_id=other_client,
                 status=ContractStatus.active,
-                start_date=_TODAY - timedelta(days=10),
+                start_date=business_today() - timedelta(days=10),
             )
         )
         await db.commit()
@@ -1869,7 +1881,7 @@ async def test_person_from_nexus_base_can_be_added_to_an_order(
             "rate_revenue": 1100,
             "input_mode": "md",
             "input_value": 20,
-            "start_date": _TODAY.isoformat(),
+            "start_date": business_today().isoformat(),
         },
         headers=app_auth_headers,
     )
@@ -1932,7 +1944,7 @@ async def test_adding_by_candidate_id_reuses_an_existing_contract(
             "rate_revenue": 1100,
             "input_mode": "md",
             "input_value": 20,
-            "start_date": _TODAY.isoformat(),
+            "start_date": business_today().isoformat(),
         },
         headers=app_auth_headers,
     )
@@ -1961,14 +1973,14 @@ async def test_line_needs_exactly_one_person_reference(
         "rate_revenue": 1100,
         "input_mode": "md",
         "input_value": 20,
-        "start_date": _TODAY.isoformat(),
+        "start_date": business_today().isoformat(),
     }
     for payload in ({}, {"contract_id": contracts[0], "candidate_id": 1}):
         resp = await app_client.post(
             f"/api/clients/{client_id}/order-groups",
             json={
                 "order_number": f"445-{uuid.uuid4().hex[:4]}",
-                "start_date": _TODAY.isoformat(),
+                "start_date": business_today().isoformat(),
                 "lines": [{**base, **payload}],
             },
             headers=app_auth_headers,
@@ -1993,7 +2005,7 @@ async def test_unknown_candidate_is_rejected(
             "rate_revenue": 1100,
             "input_mode": "md",
             "input_value": 20,
-            "start_date": _TODAY.isoformat(),
+            "start_date": business_today().isoformat(),
         },
         headers=app_auth_headers,
     )
@@ -2153,7 +2165,10 @@ async def test_future_groups_are_nested_sorted_and_promoted_on_start_date(
     current = await _create_group(
         app_client, app_auth_headers, client_id, [_line_payload(contracts[0])]
     )
-    dates = (_TODAY + timedelta(days=30), _TODAY + timedelta(days=60))
+    dates = (
+        business_today() + timedelta(days=30),
+        business_today() + timedelta(days=60),
+    )
     future: list[dict] = []
     for index, start in enumerate(reversed(dates), start=1):
         response = await app_client.post(
@@ -2241,7 +2256,7 @@ async def test_deleting_future_group_keeps_pdf_as_historical_contract_document(
     current = await _create_group(
         app_client, app_auth_headers, client_id, [_line_payload(contracts[0])]
     )
-    start = _TODAY + timedelta(days=30)
+    start = business_today() + timedelta(days=30)
     extension = await app_client.post(
         f"/api/clients/{client_id}/order-groups/{current['id']}/extend",
         json={
@@ -2420,7 +2435,7 @@ async def _seed_executive_contract(client_id: int, project_part: str = "cz2") ->
 def _md_group_payload(lines: list[dict], **extra) -> dict:
     return {
         "order_number": f"CeZ-{uuid.uuid4().hex[:6]}",
-        "start_date": (_TODAY - timedelta(days=10)).isoformat(),
+        "start_date": (business_today() - timedelta(days=10)).isoformat(),
         "order_type": "md",
         "md_budget_mode": "per_person",
         "lines": lines,
@@ -2529,7 +2544,7 @@ async def _report_md(line_id: int, md: str) -> None:
         await upsert_consumption(
             db,
             order=line,
-            period_month=_TODAY.strftime("%Y-%m"),
+            period_month=business_today().strftime("%Y-%m"),
             md_reported=Decimal(md),
         )
         await db.commit()
@@ -2551,7 +2566,7 @@ async def _swap(app_client, headers, client_id, group, new_contract) -> int:
             "contract_id": new_contract,
             "rate_cost": 1000,
             "rate_revenue": 1200,
-            "swap_date": _TODAY.isoformat(),
+            "swap_date": business_today().isoformat(),
         },
         headers=headers,
     )

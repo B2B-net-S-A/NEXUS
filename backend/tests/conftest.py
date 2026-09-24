@@ -23,45 +23,35 @@ import json
 import os
 import statistics
 import uuid
-from datetime import date, datetime, time
+from datetime import datetime
 from pathlib import Path
 from typing import AsyncIterator
-from zoneinfo import ZoneInfo
 
 import pytest
 import pytest_asyncio
-import time_machine
 from httpx import ASGITransport, AsyncClient
 
 from app.core.config import settings
-from app.core.scheduling import DEFAULT_TZ, business_today
 
 
-# ── Zegar: doba nie może zmienić się w środku biegu ─────────────────────────
-# 16.09.2026 shard CI padł na `test_order_line_roster.py`, choć PR nie dotykał
-# zamówień. Mechanizm: moduły testowe liczą `_TODAY = business_today()` RAZ,
-# przy imporcie, a kod produkcyjny woła `business_today()` przy każdym
-# wywołaniu. Shard trwał 14m56s i przekroczył północ warszawską, więc wpis
-# z końcem „dziś" stał się wpisem z końcem „wczoraj" i wypadł z aktywnej obsady.
+# ── Zegar: żadnych dat liczonych przy imporcie ──────────────────────────────
+# Reguła: moduł testowy nie liczy daty ani godziny przy imporcie — ani w stałej
+# (`_TODAY = business_today()`, `NOW = datetime.now(...)`), ani w `parametrize`,
+# ani w domyślnej wartości argumentu. „Dziś" i „teraz" liczy się w teście albo
+# w małej funkcji (`def _period(): return business_today().strftime(...)`).
+# Pilnuje tego `test_no_import_time_dates.py`.
 #
-# Poprawianie tego plik po pliku nie jest naprawą: `grep` znajduje 28 modułów
-# liczących datę z zegara przy imporcie, a każdy kolejny dopisany test wnosi ten
-# sam błąd od nowa. Dlatego zegar jest przypinany TUTAJ, dla całej sesji.
-#
-# Fixture jest no-opem przez ~23 godziny na dobę: przypięcie włącza się dopiero
-# wtedy, gdy zegar faktycznie przeskoczył na inny dzień niż ten, który widziały
-# importy. Bieg rozpoczęty i skończony tego samego dnia nie odczuwa go wcale.
-#
-# 23:59, czyli tuż przed północą: baza ma własny zegar (`now()` Postgresa),
-# którego przypiąć się nie da, więc każda minuta cofnięcia to minuta rozjazdu
-# między czasem Pythona a znacznikami wierszy. Kod liczący okna („to samo
-# zdarzenie w ciągu 10 minut") łamie się na tym rozjeździe — zmierzone na
-# `test_client_deletion`: cofnięcie o godzinę wywraca dedup, cofnięcie o minuty
-# nie. Im bliżej północy, tym mniejszy rozjazd; dalej niż do 23:59 cofać się nie
-# opłaca, bo cały zysk to i tak pozostanie w tym samym dniu.
-_SESSION_DAY = business_today()
-_PINNED_HOUR = 23
-_PINNED_MINUTE = 59
+# Dlaczego:
+# * 16.09.2026 shard CI padł na `test_order_line_roster.py`, choć PR nie dotykał
+#   zamówień: stała `_TODAY` policzona przy imporcie przed północą warszawską,
+#   a kod produkcyjny woła `business_today()` przy każdym wywołaniu — po
+#   północy wpis z końcem „dziś" stał się wpisem z końcem „wczoraj".
+# * Pierwsza naprawa przypinała zegar Pythona na 23:59 dnia startu sesji
+#   (`time_machine`, bez upływu). 23–24.09.2026 okazało się, że to zamienia
+#   jeden błąd na inny: `now()` Postgresa idzie dalej, więc po północy padało
+#   każde porównanie czasu z Pythona ze znacznikiem nadanym przez bazę (tokeny,
+#   okna deduplikacji, retencja) — zegara bazy przypiąć się nie da.
+# Stałe z importu usunięte, więc zegar nie jest już niczym przypinany.
 
 
 @pytest.fixture
@@ -103,55 +93,6 @@ def routine_notification_email_enabled(monkeypatch):
     for module in consumers:
         monkeypatch.setattr(f"{module}.load_policy", enabled_policy, raising=False)
     return policy
-
-
-def pinned_moment(session_day: date, current_day: date) -> datetime | None:
-    """Moment, na który przypiąć zegar, albo ``None`` gdy nie ma czego naprawiać.
-
-    Wydzielone z fixture'a, żeby dało się to sprawdzić testem bez udawania
-    północy w prawdziwym zegarze procesu.
-    """
-    if current_day == session_day:
-        return None
-    return datetime.combine(
-        session_day, time(_PINNED_HOUR, _PINNED_MINUTE), tzinfo=ZoneInfo(DEFAULT_TZ)
-    )
-
-
-def pytest_configure(config):
-    config.addinivalue_line(
-        "markers",
-        "real_clock: test porównuje zegar Pythona z now() Postgresa, więc "
-        "_pin_business_day go nie przypina (nie może mieć stałych daty z importu)",
-    )
-
-
-@pytest.fixture(autouse=True)
-def _pin_business_day(request):
-    """Trzymaj „dzisiaj" na dniu, z którego pochodzą stałe modułów testowych.
-
-    Skutek uboczny przypięcia: zegar Pythona stoi na 23:59 dnia startu sesji,
-    a ``now()`` Postgresa idzie dalej — rozjazd rośnie z każdą minutą biegu po
-    północy (23.09.2026: sześć padów w shardach, które ją przekroczyły). Test
-    porównujący czas z Pythona ze znacznikiem nadanym przez bazę bierze więc
-    punkt odniesienia z bazy (``SELECT now()``) albo, gdy porównanie robi kod
-    produkcyjny (``iat`` tokenu vs ``tokens_valid_after = now()``), ma znacznik
-    ``real_clock``. Dwa kolejne ``datetime.now()`` są przy przypięciu równe —
-    ``a > b`` między nimi nie jest dowodem niczego.
-    """
-    pinned = pinned_moment(_SESSION_DAY, business_today())
-    if pinned is not None and request.node.get_closest_marker("real_clock"):
-        yield business_today()
-        return
-    if pinned is None:
-        yield _SESSION_DAY
-        return
-    # tick=False, bo przy 23:59 płynący zegar przekroczyłby północ po minucie —
-    # czyli dokładnie to, przed czym to przypięcie broni. Zamrożenie zmierzono na
-    # 394 testach (próba kontrolna: zegar ruszony, data ta sama): zero padów, więc
-    # nic w tej suicie nie zależy od upływu czasu po stronie Pythona.
-    with time_machine.travel(pinned, tick=False):
-        yield _SESSION_DAY
 
 
 # ── Legacy user-fixture compatibility after the role cutover ────────────────
@@ -253,10 +194,9 @@ def _open_the_order_mail_recheck_window(monkeypatch):
     """Automatyczny recheck ma w testach chodzić niezależnie od pory dnia.
 
     Produkcyjnie `run_recheck(trigger="scheduled")` rusza tylko w godzinach
-    8:00–18:00 (Europe/Warsaw). W testach zegar jest prawdziwy przez ~23 h na
-    dobę (`_pin_business_day` jest no-opem, dopóki doba się nie zmieni), więc
-    bez tego bramka zamieniłaby KAŻDY test recheku w test „czy jest teraz
-    dzień" — zielony po południu, czerwony wieczorem i na nocnym CI.
+    8:00–18:00 (Europe/Warsaw). W testach zegar jest prawdziwy, więc bez tego
+    bramka zamieniłaby KAŻDY test recheku w test „czy jest teraz dzień" —
+    zielony po południu, czerwony wieczorem i na nocnym CI.
 
     Wyrównane godziny = okno wyłączone. Testy samego okna ustawiają je jawnie
     i podmieniają zegar (`time_machine`), więc ta fixture ich nie dotyczy.

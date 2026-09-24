@@ -22,7 +22,6 @@ from app.core.scheduling import business_today
 
 pytestmark = pytest.mark.asyncio
 
-_TODAY = business_today()
 _PDF = b"%PDF-1.4\n% minimalny plik\n"
 
 
@@ -49,8 +48,8 @@ async def _seed_order() -> dict[str, int]:
             candidate_id=cand.id,
             client_id=client.id,
             status=ContractStatus.active,
-            start_date=_TODAY - timedelta(days=5),
-            end_date=_TODAY + timedelta(days=60),
+            start_date=business_today() - timedelta(days=5),
+            end_date=business_today() + timedelta(days=60),
             rate_candidate=Decimal("100.000"),
             rate_client=Decimal("150.000"),
             margin=Decimal("50.000"),
@@ -219,7 +218,7 @@ async def test_complete_draft_auto_activates_and_remains_editable(
         url,
         headers=app_auth_headers,
         json={
-            "start_date": _TODAY.isoformat(),
+            "start_date": business_today().isoformat(),
             "rate_candidate": 110,
         },
     )

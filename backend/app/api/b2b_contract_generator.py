@@ -2291,6 +2291,11 @@ def _build_register_xlsx(
     return buffer.getvalue()
 
 
+def _register_export_filename() -> str:
+    """Nazwa rejestru umów z datą w kalendarzu firmy (Europe/Warsaw), nie dniem UTC."""
+    return f"rejestr-umow-b2b-{business_today().isoformat()}.xlsx"
+
+
 @router.get("/generated/export.xlsx")
 async def export_generated_contracts_xlsx(
     current_user: B2BGeneratorAccess,
@@ -2346,12 +2351,11 @@ async def export_generated_contracts_xlsx(
         include_free_text=current_user.has_role(UserRole.admin)
         or current_user.has_role(UserRole.finance),
     )
-    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     return Response(
         content=data,
         media_type=_XLSX_MEDIA,
         headers={
-            "Content-Disposition": f'attachment; filename="rejestr-umow-b2b-{stamp}.xlsx"'
+            "Content-Disposition": f'attachment; filename="{_register_export_filename()}"'
         },
     )
 

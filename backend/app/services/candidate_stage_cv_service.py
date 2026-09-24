@@ -22,6 +22,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
+from app.core.scheduling import business_today
 from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.models.candidate_stage_cv import CandidateStageCV
@@ -350,6 +351,11 @@ async def render_stage_editor_docx(csv, content_html: str) -> tuple[bytes, bytes
     return docx, template
 
 
+def branded_cv_filename(candidate_label: str, version: int) -> str:
+    """Nazwa pliku zatwierdzonego CV z datą w kalendarzu firmy (Europe/Warsaw)."""
+    return f"cv_brandowane_{candidate_label}_v{version}_{business_today().isoformat()}.html"
+
+
 async def finalize_stage_cv(
     db: AsyncSession,
     csv: CandidateStageCV,
@@ -395,8 +401,7 @@ async def finalize_stage_cv(
         if candidate
         else f"stage_{stage_id}"
     )
-    today = datetime.now(timezone.utc).date().isoformat()
-    filename = f"cv_brandowane_{candidate_label}_v{csv.branded_version}_{today}.html"
+    filename = branded_cv_filename(candidate_label, csv.branded_version)
 
     # Render the exact submitted/sanitized content once, before approval. The
     # stored bytes are subsequently downloaded without accessing live sources.

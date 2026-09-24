@@ -29,7 +29,6 @@ from app.core.scheduling import business_today
 # jeszcze zanim test zdąży sprawdzić zagnieżdżenie, i widzi dwie równorzędne
 # karty zamiast jednej. Czerwień zależałaby od GODZINY biegu CI, nie od kodu.
 # Ten sam wzorzec ma już `test_order_activation_gates_and_group_materializer`.
-_TODAY = business_today()
 
 
 # ── Seed ────────────────────────────────────────────────────────────────────
@@ -65,7 +64,7 @@ async def _seed_client_with_contracts(
                 candidate_id=cand.id,
                 client_id=client.id,
                 status=ContractStatus.active,
-                start_date=_TODAY - timedelta(days=30),
+                start_date=business_today() - timedelta(days=30),
                 rate_candidate=Decimal("100.000"),
                 rate_client=Decimal("150.000"),
             )
@@ -98,7 +97,7 @@ def _md_line(contract_id: int, **overrides) -> dict:
         "rate_revenue": 1200,
         "input_mode": "md",
         "input_value": 50,
-        "start_date": (_TODAY - timedelta(days=10)).isoformat(),
+        "start_date": (business_today() - timedelta(days=10)).isoformat(),
     }
     payload.update(overrides)
     return payload
@@ -110,7 +109,7 @@ def _cost_line(contract_id: int, **overrides) -> dict:
         "contract_id": contract_id,
         "rate_cost": 1000,
         "rate_revenue": 1200,
-        "start_date": (_TODAY - timedelta(days=10)).isoformat(),
+        "start_date": (business_today() - timedelta(days=10)).isoformat(),
     }
     payload.update(overrides)
     return payload
@@ -125,7 +124,7 @@ async def _create_group(
 ) -> dict:
     body = {
         "order_number": f"445-{uuid.uuid4().hex[:4]}",
-        "start_date": (_TODAY - timedelta(days=10)).isoformat(),
+        "start_date": (business_today() - timedelta(days=10)).isoformat(),
         "lines": lines,
     }
     body.update(extra)
@@ -484,14 +483,14 @@ async def test_delete_periodic_order_removes_only_that_order(
     current = await _add_standalone_order(
         contracts[0],
         client_id,
-        start_date=_TODAY - timedelta(days=20),
-        end_date=_TODAY + timedelta(days=40),
+        start_date=business_today() - timedelta(days=20),
+        end_date=business_today() + timedelta(days=40),
     )
     future = await _add_standalone_order(
         contracts[0],
         client_id,
-        start_date=_TODAY + timedelta(days=41),
-        end_date=_TODAY + timedelta(days=120),
+        start_date=business_today() + timedelta(days=41),
+        end_date=business_today() + timedelta(days=120),
     )
 
     resp = await app_client.delete(
@@ -507,7 +506,7 @@ async def test_delete_periodic_order_removes_only_that_order(
         assert line is not None
         assert line.status.value == "active"
         assert line.order_group_id == group["id"]
-        assert line.end_date is None or line.end_date > _TODAY
+        assert line.end_date is None or line.end_date > business_today()
         cases = await db.scalar(
             select(func.count(ClientOrderOffboardingCase.id)).where(
                 ClientOrderOffboardingCase.order_id == md_line["id"]
@@ -526,7 +525,7 @@ async def test_delete_periodic_order_with_settlements_is_refused(
 
     client_id, contracts, _ = await _seed_client_with_contracts(1)
     order_id = await _add_standalone_order(
-        contracts[0], client_id, start_date=_TODAY - timedelta(days=20)
+        contracts[0], client_id, start_date=business_today() - timedelta(days=20)
     )
     async with AsyncSessionLocal() as db:
         db.add(
@@ -560,7 +559,7 @@ async def test_close_moves_group_and_closes_lines(
         app_client, app_auth_headers, client_id, [_md_line(contracts[0])]
     )
 
-    closure = (_TODAY - timedelta(days=1)).isoformat()
+    closure = (business_today() - timedelta(days=1)).isoformat()
     resp = await app_client.post(
         f"/api/clients/{client_id}/order-groups/{group['id']}/close",
         json={"closure_date": closure, "closure_reason": "Koniec projektu"},
@@ -587,7 +586,7 @@ async def test_close_in_the_future_does_not_switch_off_a_working_consultant(
         app_client, app_auth_headers, client_id, [_md_line(contracts[0])]
     )
 
-    future = (_TODAY + timedelta(days=30)).isoformat()
+    future = (business_today() + timedelta(days=30)).isoformat()
     resp = await app_client.post(
         f"/api/clients/{client_id}/order-groups/{group['id']}/close",
         json={"closure_date": future},
@@ -609,7 +608,7 @@ async def test_reopen_restores_active_and_clears_closure(
     )
     await app_client.post(
         f"/api/clients/{client_id}/order-groups/{group['id']}/close",
-        json={"closure_date": _TODAY.isoformat()},
+        json={"closure_date": business_today().isoformat()},
         headers=app_auth_headers,
     )
 
@@ -671,10 +670,11 @@ async def test_extend_creates_successor_linked_to_predecessor(
         f"/api/clients/{client_id}/order-groups/{group['id']}/extend",
         json={
             "order_number": "446",
-            "start_date": (_TODAY + timedelta(days=1)).isoformat(),
+            "start_date": (business_today() + timedelta(days=1)).isoformat(),
             "lines": [
                 _md_line(
-                    contracts[0], start_date=(_TODAY + timedelta(days=1)).isoformat()
+                    contracts[0],
+                    start_date=(business_today() + timedelta(days=1)).isoformat(),
                 )
             ],
         },
@@ -717,7 +717,11 @@ async def test_extend_inherits_settlement_type(
 
     without_budget = await app_client.post(
         f"/api/clients/{client_id}/order-groups/{group['id']}/extend",
-        json={"order_number": "447", "start_date": _TODAY.isoformat(), "lines": []},
+        json={
+            "order_number": "447",
+            "start_date": business_today().isoformat(),
+            "lines": [],
+        },
         headers=app_auth_headers,
     )
     assert without_budget.status_code == 422, without_budget.text
@@ -726,7 +730,7 @@ async def test_extend_inherits_settlement_type(
         f"/api/clients/{client_id}/order-groups/{group['id']}/extend",
         json={
             "order_number": "447",
-            "start_date": _TODAY.isoformat(),
+            "start_date": business_today().isoformat(),
             "budget_amount": 30000,
             "lines": [],
         },
@@ -796,7 +800,7 @@ async def test_lifecycle_actions_allowed_for_finance(
 
     resp = await app_client.post(
         f"/api/clients/{client_id}/order-groups/{group['id']}/close",
-        json={"closure_date": _TODAY.isoformat()},
+        json={"closure_date": business_today().isoformat()},
         headers=headers,
     )
     assert resp.status_code == 200, resp.text
@@ -815,7 +819,7 @@ async def test_lifecycle_actions_allowed_for_finance(
         f"/api/clients/{client_id}/order-groups/{group['id']}/extend",
         json={
             "order_number": f"ext-{uuid.uuid4().hex[:4]}",
-            "start_date": _TODAY.isoformat(),
+            "start_date": business_today().isoformat(),
             "lines": [],
         },
         headers=headers,
@@ -880,12 +884,14 @@ async def _finance_headers(app_client: AsyncClient) -> dict:
 #: Miesiąc importu MUSI zachodzić na okres linii — `cost_lines_settling_in_month`
 #: dopasowuje wyłącznie linie obowiązujące w danym miesiącu, więc sztywna data
 #: z przeszłości dawałaby zero trafień i test „przechodziłby" z zerem zmian.
-_PERIOD = _TODAY.strftime("%Y-%m")
+def _period():
+    return business_today().strftime("%Y-%m")
 
 
 async def _import_sheet(
-    app_client: AsyncClient, headers: dict, payload: bytes, period: str = _PERIOD
+    app_client: AsyncClient, headers: dict, payload: bytes, period: str | None = None
 ) -> dict:
+    period = period or _period()
     resp = await app_client.post(
         "/api/md-consumption/imports",
         files={
@@ -1167,7 +1173,7 @@ async def test_md_import_reaches_an_order_closed_with_a_future_date(
     group = await _create_group(
         app_client, app_auth_headers, client_id, [_md_line(contracts[0])]
     )
-    closure = _TODAY + timedelta(days=30)
+    closure = business_today() + timedelta(days=30)
     closed = await app_client.post(
         f"/api/clients/{client_id}/order-groups/{group['id']}/close",
         json={"closure_date": closure.isoformat()},
@@ -1218,7 +1224,7 @@ async def test_invoice_import_reaches_a_cost_order_closed_with_a_future_date(
         is_cost_based=True,
         budget_amount=50000,
     )
-    closure = _TODAY + timedelta(days=30)
+    closure = business_today() + timedelta(days=30)
     closed = await app_client.post(
         f"/api/clients/{client_id}/order-groups/{group['id']}/close",
         json={"closure_date": closure.isoformat()},
@@ -1251,7 +1257,7 @@ async def test_impossible_closure_date_is_refused_not_a_500(
 
     resp = await app_client.post(
         f"/api/clients/{client_id}/order-groups/{group['id']}/close",
-        json={"closure_date": (_TODAY - timedelta(days=365)).isoformat()},
+        json={"closure_date": (business_today() - timedelta(days=365)).isoformat()},
         headers=app_auth_headers,
     )
     assert resp.status_code == 422, resp.text
@@ -1464,7 +1470,7 @@ async def test_cost_line_rates_and_end_date_can_be_edited_without_changing_budge
     before_budget = (group["budget_amount"], group["budget_remaining"])
     assert before_budget == pytest.approx((50000, 50000))
 
-    end_date = _TODAY + timedelta(days=30)
+    end_date = business_today() + timedelta(days=30)
     updated = await app_client.patch(
         f"/api/clients/{client_id}/order-groups/{group['id']}"
         f"/lines/{group['lines'][0]['id']}",
@@ -1519,7 +1525,7 @@ async def test_swap_works_on_a_cost_order_without_md_budget(
             "contract_id": contracts[1],
             "rate_cost": 900,
             "rate_revenue": 1500,
-            "swap_date": _TODAY.isoformat(),
+            "swap_date": business_today().isoformat(),
         },
         headers=app_auth_headers,
     )
@@ -1530,7 +1536,7 @@ async def test_swap_works_on_a_cost_order_without_md_budget(
         old = await db.get(ClientOrder, line_id)
         new = await db.get(ClientOrder, new_line["id"])
         # Domknięcie poprzednika lustrzane wobec trybu MD.
-        assert old.end_date == _TODAY
+        assert old.end_date == business_today()
         assert old.status == ClientOrderStatus.completed
         # Komplet NULL-i — inaczej `ck_client_orders_md_coherence` odrzuciłby
         # zapis, a częściowo wypełniona linia kłamałaby o budżecie.
@@ -1572,7 +1578,7 @@ async def test_swap_on_cost_order_does_not_touch_the_shared_budget(
             "contract_id": contracts[1],
             "rate_cost": 900,
             "rate_revenue": 1500,
-            "swap_date": _TODAY.isoformat(),
+            "swap_date": business_today().isoformat(),
         },
         headers=app_auth_headers,
     )
@@ -1605,7 +1611,7 @@ async def test_swap_event_on_cost_order_does_not_mention_md_budget(
             "contract_id": contracts[1],
             "rate_cost": 900,
             "rate_revenue": 1500,
-            "swap_date": _TODAY.isoformat(),
+            "swap_date": business_today().isoformat(),
         },
         headers=app_auth_headers,
     )
@@ -1646,7 +1652,7 @@ async def test_swap_still_recalculates_md_on_a_normal_order(
             "contract_id": contracts[1],
             "rate_cost": 900,
             "rate_revenue": 1500,
-            "swap_date": _TODAY.isoformat(),
+            "swap_date": business_today().isoformat(),
         },
         headers=app_auth_headers,
     )
@@ -1687,7 +1693,7 @@ async def test_scanner_closes_by_date_everything_except_md_lines(
     md_line_id = group["lines"][0]["id"]
     # Dwa dni zamiast jednego zachowują test z dala od inkluzywnej granicy:
     # zamówienie kończące się dzisiaj pozostaje aktywne do końca dnia.
-    past = _TODAY - timedelta(days=2)
+    past = business_today() - timedelta(days=2)
 
     async with AsyncSessionLocal() as db:
         md_line = await db.get(ClientOrder, md_line_id)
@@ -1697,7 +1703,7 @@ async def test_scanner_closes_by_date_everything_except_md_lines(
             contract_id=contracts[1],
             title="Zamówienie bez budżetu MD",
             status=ClientOrderStatus.active,
-            start_date=_TODAY - timedelta(days=10),
+            start_date=business_today() - timedelta(days=10),
             end_date=past,
         )
         db.add(plain)
@@ -1833,7 +1839,7 @@ async def test_swapped_out_consultant_is_never_resurrected(
             "contract_id": contracts[1],
             "rate_cost": 800,
             "rate_revenue": 950,
-            "swap_date": _TODAY.isoformat(),
+            "swap_date": business_today().isoformat(),
         },
         headers=app_auth_headers,
     )
@@ -1898,7 +1904,7 @@ async def test_technical_entries_are_hidden_from_history_and_from_its_counter(
 
     edited = await app_client.patch(
         f"/api/clients/{client_id}/order-groups/{group['id']}",
-        json={"end_date": (_TODAY + timedelta(days=90)).isoformat()},
+        json={"end_date": (business_today() + timedelta(days=90)).isoformat()},
         headers=app_auth_headers,
     )
     assert edited.status_code == 200, edited.text
@@ -1906,7 +1912,7 @@ async def test_technical_entries_are_hidden_from_history_and_from_its_counter(
         f"/api/clients/{client_id}/order-groups/{group['id']}/extend",
         json={
             "order_number": f"ext-{uuid.uuid4().hex[:4]}",
-            "start_date": (_TODAY + timedelta(days=120)).isoformat(),
+            "start_date": (business_today() + timedelta(days=120)).isoformat(),
             "lines": [],
         },
         headers=app_auth_headers,
@@ -1992,7 +1998,7 @@ async def test_transfer_link_survives_the_payload_redaction(
         other = ClientOrderGroup(
             client_id=client_id,
             order_number=f"NEXT-{uuid.uuid4().hex[:4]}",
-            start_date=_TODAY + timedelta(days=30),
+            start_date=business_today() + timedelta(days=30),
             status="scheduled",
             predecessor_group_id=group["id"],
         )
@@ -2052,7 +2058,7 @@ async def test_cost_family_continuation_still_promotes_on_the_start_date(
         f"/api/clients/{client_id}/order-groups/{group['id']}/extend",
         json={
             "order_number": f"ext-{uuid.uuid4().hex[:4]}",
-            "start_date": _TODAY.isoformat(),
+            "start_date": business_today().isoformat(),
             "budget_amount": 50000,
             "lines": [],
         },

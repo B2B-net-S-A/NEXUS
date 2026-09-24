@@ -22,9 +22,6 @@ from httpx import AsyncClient
 
 from app.core.scheduling import business_today
 
-# „Dziś” w czasie polskim, jak serwer — między 22 a 24 UTC to już jutro.
-_TODAY = business_today()
-
 
 async def _seed_active_contract(end_offset_days: int = 90) -> int:
     """Aktywny kontrakt z end_date w przyszłości; zwraca id."""
@@ -48,8 +45,8 @@ async def _seed_active_contract(end_offset_days: int = 90) -> int:
             candidate_id=cand.id,
             client_id=client.id,
             status=ContractStatus.active,
-            start_date=_TODAY - timedelta(days=30),
-            end_date=_TODAY + timedelta(days=end_offset_days),
+            start_date=business_today() - timedelta(days=30),
+            end_date=business_today() + timedelta(days=end_offset_days),
             rate_candidate=Decimal("100.000"),
             rate_client=Decimal("150.000"),
         )
@@ -72,12 +69,12 @@ async def test_future_early_termination_amendment_keeps_active(
     app_client: AsyncClient, app_auth_headers: dict
 ):
     cid = await _seed_active_contract()
-    early_end = _TODAY + timedelta(days=30)
+    early_end = business_today() + timedelta(days=30)
     r = await app_client.post(
         f"/api/contracts/{cid}/amendments",
         json={
             "amendment_type": "early_termination",
-            "effective_date": _TODAY.isoformat(),
+            "effective_date": business_today().isoformat(),
             "new_end_date": early_end.isoformat(),
         },
         headers=app_auth_headers,
@@ -98,8 +95,8 @@ async def test_today_early_termination_amendment_is_ending_until_tomorrow(
         f"/api/contracts/{cid}/amendments",
         json={
             "amendment_type": "early_termination",
-            "effective_date": _TODAY.isoformat(),
-            "new_end_date": _TODAY.isoformat(),
+            "effective_date": business_today().isoformat(),
+            "new_end_date": business_today().isoformat(),
         },
         headers=app_auth_headers,
     )
@@ -116,7 +113,7 @@ async def test_future_terminate_keeps_active(
     app_client: AsyncClient, app_auth_headers: dict
 ):
     cid = await _seed_active_contract()
-    future = _TODAY + timedelta(days=30)
+    future = business_today() + timedelta(days=30)
     r = await app_client.post(
         f"/api/contracts/{cid}/terminate",
         json={
@@ -140,7 +137,7 @@ async def test_today_terminate_is_ending_until_tomorrow(
         f"/api/contracts/{cid}/terminate",
         json={
             "termination_reason": "project_ended",
-            "terminated_at": _TODAY.isoformat(),
+            "terminated_at": business_today().isoformat(),
         },
         headers=app_auth_headers,
     )
@@ -157,7 +154,7 @@ async def test_past_terminate_ends_immediately(
         f"/api/contracts/{cid}/terminate",
         json={
             "termination_reason": "project_ended",
-            "terminated_at": (_TODAY - timedelta(days=1)).isoformat(),
+            "terminated_at": (business_today() - timedelta(days=1)).isoformat(),
         },
         headers=app_auth_headers,
     )

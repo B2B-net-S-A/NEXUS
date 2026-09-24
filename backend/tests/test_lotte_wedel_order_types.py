@@ -9,9 +9,9 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import text
 
+from app.core.scheduling import business_today
 from app.services.lotte_wedel_orders import LOTTE_WEDEL_CLIENT_ID
 from tests.test_order_lifecycle_and_cost import (
-    _TODAY,
     _cost_line,
     _create_group,
     _finance_headers,
@@ -93,7 +93,7 @@ async def test_shared_md_settlement_locks_before_reading_consumption(
         id=99155,
         client_id=LOTTE_WEDEL_CLIENT_ID,
         order_number="4500810155",
-        start_date=_TODAY,
+        start_date=business_today(),
         status="active",
         is_cost_based=False,
         is_md_budget_based=True,
@@ -139,7 +139,7 @@ async def test_shared_md_upsert_locks_group_before_month_row(
         id=99156,
         client_id=LOTTE_WEDEL_CLIENT_ID,
         order_number="4500810156",
-        start_date=_TODAY,
+        start_date=business_today(),
         status="active",
         is_cost_based=False,
         is_md_budget_based=True,
@@ -324,7 +324,7 @@ async def test_lotte_profile_and_group_api_require_one_special_type(
     url = f"/api/clients/{client_id}/order-groups"
     base = {
         "order_number": "4500810155",
-        "start_date": _TODAY.isoformat(),
+        "start_date": business_today().isoformat(),
         "lines": [_cost_line(contracts[0])],
     }
     neither = await app_client.post(url, json=base, headers=app_auth_headers)
@@ -456,7 +456,7 @@ async def test_non_lotte_client_still_cannot_create_shared_md(
         f"/api/clients/{client_id}/order-groups",
         json={
             "order_number": "4500810999",
-            "start_date": _TODAY.isoformat(),
+            "start_date": business_today().isoformat(),
             "is_md_budget_based": True,
             "md_budget_total": 10,
             "lines": [_cost_line(contracts[0])],

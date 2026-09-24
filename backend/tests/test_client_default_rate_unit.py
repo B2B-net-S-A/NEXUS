@@ -19,8 +19,6 @@ from app.models.contract import RateUnit
 from app.services.client_default_rate_unit import default_rate_unit_for_client
 from app.core.scheduling import business_today
 
-_TODAY = business_today()
-
 
 async def _seed_client(*, name: str | None = None) -> tuple[int, int, int]:
     """Klient + kandydat + kontrakt. Zwraca (client_id, contract_id, candidate_id)."""
@@ -47,7 +45,7 @@ async def _seed_client(*, name: str | None = None) -> tuple[int, int, int]:
             candidate_id=candidate.id,
             client_id=client.id,
             status=ContractStatus.active,
-            start_date=_TODAY - timedelta(days=30),
+            start_date=business_today() - timedelta(days=30),
             rate_candidate=Decimal("100.000"),
             rate_client=Decimal("140.000"),
             rate_unit=RateUnit.hourly,
@@ -198,7 +196,7 @@ async def test_operational_order_without_unit_takes_client_default(
         json={
             "candidate_id": candidate_id,
             "title": "NOWE-PO-1",
-            "contract_start_date": _TODAY.isoformat(),
+            "contract_start_date": business_today().isoformat(),
             # świadomie BEZ rate_unit ani stawek → ścieżka operacyjna
         },
     )
@@ -227,7 +225,7 @@ async def test_finance_order_without_unit_takes_client_default(
         json={
             "candidate_id": candidate_id,
             "title": "NOWE-PO-1b",
-            "contract_start_date": _TODAY.isoformat(),
+            "contract_start_date": business_today().isoformat(),
             "rate_client": "544.000",
             "rate_candidate": "480.000",
             # BEZ rate_unit → serwer bierze domyślną jednostkę klienta
@@ -257,7 +255,7 @@ async def test_new_contractor_order_respects_explicit_unit(
         json={
             "candidate_id": candidate_id,
             "title": "NOWE-PO-2",
-            "contract_start_date": _TODAY.isoformat(),
+            "contract_start_date": business_today().isoformat(),
             "rate_client": "160.000",
             "rate_candidate": "120.000",
             "rate_unit": "monthly",

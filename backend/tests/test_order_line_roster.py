@@ -26,8 +26,6 @@ from httpx import AsyncClient
 
 from app.core.scheduling import business_today
 
-_TODAY = business_today()
-
 
 def _month_first(day: date) -> date:
     return day.replace(day=1)
@@ -35,9 +33,16 @@ def _month_first(day: date) -> date:
 
 #: Pierwszy i ostatni dzień POPRZEDNIEGO miesiąca — okres, za który raport
 #: z Finansów przychodzi już po zejściu konsultanta.
-_LAST_MONTH_LAST = _month_first(_TODAY) - timedelta(days=1)
-_LAST_MONTH_FIRST = _month_first(_LAST_MONTH_LAST)
-_LAST_MONTH = f"{_LAST_MONTH_FIRST.year:04d}-{_LAST_MONTH_FIRST.month:02d}"
+def _last_month_last():
+    return _month_first(business_today()) - timedelta(days=1)
+
+
+def _last_month_first():
+    return _month_first(_last_month_last())
+
+
+def _last_month():
+    return f"{_last_month_first().year:04d}-{_last_month_first().month:02d}"
 
 
 async def _seed_client_with_contracts(n: int = 2) -> tuple[int, list[int], list[str]]:
@@ -65,7 +70,7 @@ async def _seed_client_with_contracts(n: int = 2) -> tuple[int, list[int], list[
                 candidate_id=cand.id,
                 client_id=client.id,
                 status=ContractStatus.active,
-                start_date=_TODAY - timedelta(days=200),
+                start_date=business_today() - timedelta(days=200),
                 rate_candidate=Decimal("100.000"),
                 rate_client=Decimal("150.000"),
             )
@@ -92,7 +97,7 @@ def _md_line(contract_id: int, **overrides) -> dict:
         "rate_revenue": 1200,
         "input_mode": "md",
         "input_value": 50,
-        "start_date": (_TODAY - timedelta(days=150)).isoformat(),
+        "start_date": (business_today() - timedelta(days=150)).isoformat(),
     }
     payload.update(overrides)
     return payload
@@ -103,7 +108,7 @@ async def _create_group(
 ) -> dict:
     body = {
         "order_number": f"CeZ-{uuid.uuid4().hex[:4]}/2026",
-        "start_date": (_TODAY - timedelta(days=150)).isoformat(),
+        "start_date": (business_today() - timedelta(days=150)).isoformat(),
         "lines": lines,
     }
     body.update(extra)
@@ -143,14 +148,14 @@ def _order(status_value: str, end_date: date | None):
 def test_line_without_an_end_date_stays_on_the_roster():
     from app.services.client_order_lines import is_line_on_active_roster
 
-    assert is_line_on_active_roster(_order("active", None), _TODAY + timedelta(days=90))
+    assert is_line_on_active_roster(_order("active", None), business_today() + timedelta(days=90))
 
 
 def test_line_ending_in_the_future_stays_on_the_roster():
     from app.services.client_order_lines import is_line_on_active_roster
 
     assert is_line_on_active_roster(
-        _order("active", _TODAY + timedelta(days=10)), _TODAY + timedelta(days=90)
+        _order("active", business_today() + timedelta(days=10)), business_today() + timedelta(days=90)
     )
 
 
@@ -158,7 +163,7 @@ def test_line_ended_before_the_order_leaves_the_roster():
     from app.services.client_order_lines import is_line_on_active_roster
 
     assert not is_line_on_active_roster(
-        _order("active", _LAST_MONTH_LAST), _TODAY + timedelta(days=90)
+        _order("active", _last_month_last()), business_today() + timedelta(days=90)
     )
 
 
@@ -171,7 +176,7 @@ def test_whole_expired_order_keeps_its_roster():
     """
     from app.services.client_order_lines import is_line_on_active_roster
 
-    expired = _TODAY - timedelta(days=5)
+    expired = business_today() - timedelta(days=5)
     assert is_line_on_active_roster(_order("active", expired), expired)
     # Kto zszedł WCZEŚNIEJ niż zamówienie, schodzi z obsady także tutaj.
     assert not is_line_on_active_roster(
@@ -200,7 +205,7 @@ def test_open_ended_order_uses_today_as_the_boundary():
 def test_closed_and_cancelled_lines_are_never_on_the_roster():
     from app.services.client_order_lines import is_line_on_active_roster
 
-    future = _TODAY + timedelta(days=90)
+    future = business_today() + timedelta(days=90)
     assert not is_line_on_active_roster(_order("completed", None), future)
     assert not is_line_on_active_roster(_order("cancelled", None), future)
     assert not is_line_on_active_roster(_order("draft", None), future)
@@ -223,13 +228,13 @@ async def test_consultant_with_a_saved_end_date_leaves_the_active_roster(
         app_auth_headers,
         client_id,
         [_md_line(contracts[0]), _md_line(contracts[1])],
-        end_date=(_TODAY + timedelta(days=90)).isoformat(),
+        end_date=(business_today() + timedelta(days=90)).isoformat(),
     )
     departed_id = _line_by_contract(group, contracts[0])["id"]
 
     resp = await app_client.patch(
         f"/api/clients/{client_id}/order-groups/{group['id']}/lines/{departed_id}",
-        json={"end_date": _LAST_MONTH_LAST.isoformat()},
+        json={"end_date": _last_month_last().isoformat()},
         headers=app_auth_headers,
     )
     assert resp.status_code == 200, resp.text
@@ -269,7 +274,7 @@ async def test_departed_consultant_keeps_usage_and_still_gets_a_late_import(
         app_auth_headers,
         client_id,
         [_md_line(contracts[0]), _md_line(contracts[1])],
-        end_date=(_TODAY + timedelta(days=90)).isoformat(),
+        end_date=(business_today() + timedelta(days=90)).isoformat(),
     )
     before = await _read_group(app_client, app_auth_headers, client_id, group["id"])
     positions_before = before["md_positions_total"]
@@ -277,20 +282,20 @@ async def test_departed_consultant_keeps_usage_and_still_gets_a_late_import(
 
     resp = await app_client.patch(
         f"/api/clients/{client_id}/order-groups/{group['id']}/lines/{departed_id}",
-        json={"end_date": _LAST_MONTH_LAST.isoformat()},
+        json={"end_date": _last_month_last().isoformat()},
         headers=app_auth_headers,
     )
     assert resp.status_code == 200, resp.text
 
     async with AsyncSessionLocal() as db:
-        matches = await md_lines_settling_in_month(db, _LAST_MONTH)
+        matches = await md_lines_settling_in_month(db, _last_month())
         assert departed_id in {m.order.id for m in matches}, (
             "linia zdjęta z obsady wypadła z importu zużycia za miesiąc, "
             "w którym osoba jeszcze pracowała"
         )
         order = await db.get(ClientOrder, departed_id)
         await upsert_consumption(
-            db, order=order, period_month=_LAST_MONTH, md_reported=Decimal("12")
+            db, order=order, period_month=_last_month(), md_reported=Decimal("12")
         )
         await db.commit()
 
@@ -322,13 +327,13 @@ async def test_departed_line_reports_its_end_and_keeps_the_swap_gate(
         app_auth_headers,
         client_id,
         [_md_line(contracts[0])],
-        end_date=(_TODAY + timedelta(days=90)).isoformat(),
+        end_date=(business_today() + timedelta(days=90)).isoformat(),
     )
     line = group["lines"][0]
 
     resp = await app_client.patch(
         f"/api/clients/{client_id}/order-groups/{group['id']}/lines/{line['id']}",
-        json={"end_date": _LAST_MONTH_LAST.isoformat()},
+        json={"end_date": _last_month_last().isoformat()},
         headers=app_auth_headers,
     )
     assert resp.status_code == 200, resp.text
@@ -336,7 +341,7 @@ async def test_departed_line_reports_its_end_and_keeps_the_swap_gate(
     fresh = await _read_group(app_client, app_auth_headers, client_id, group["id"])
     departed = fresh["lines"][0]
     assert departed["is_active"] is False
-    assert departed["end_date"] == _LAST_MONTH_LAST.isoformat()
+    assert departed["end_date"] == _last_month_last().isoformat()
     assert departed["status"] == "active", (
         "bramka zamiany po stronie serwera pyta o status, nie o obsadę"
     )

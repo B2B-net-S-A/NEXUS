@@ -16,8 +16,8 @@ from decimal import Decimal
 from httpx import AsyncClient
 from sqlalchemy import select
 
+from app.core.scheduling import business_today
 from tests.test_multi_consultant_orders import (
-    _TODAY,
     _create_group,
     _enable_for,
     _line_payload,
@@ -46,7 +46,7 @@ async def _standalone_order(
             order_type="periodic" if order_group_id is None else None,
             order_group_id=order_group_id,
             status=ClientOrderStatus(status),
-            start_date=start_date if start_date is not None else _TODAY - timedelta(days=5),
+            start_date=start_date if start_date is not None else business_today() - timedelta(days=5),
             end_date=end_date,
             rate_client=Decimal("150.000"),
         )
@@ -101,7 +101,7 @@ async def test_closing_a_periodic_order_leaves_the_md_line_and_contract_alone(
 
     resp = await app_client.post(
         f"/api/clients/{client_id}/orders/{periodic_id}/close",
-        json={"closure_date": _TODAY.isoformat(), "closure_reason": "koniec projektu"},
+        json={"closure_date": business_today().isoformat(), "closure_reason": "koniec projektu"},
         headers=app_auth_headers,
     )
     assert resp.status_code == 200, resp.text
@@ -110,7 +110,7 @@ async def test_closing_a_periodic_order_leaves_the_md_line_and_contract_alone(
     closed = await _order_row(periodic_id)
     assert closed is not None
     assert closed.status == ClientOrderStatus.completed
-    assert closed.end_date == _TODAY
+    assert closed.end_date == business_today()
 
     md_line = await _order_row(md_line_id)
     assert md_line is not None
@@ -131,7 +131,7 @@ async def test_future_closure_date_keeps_the_order_running(
 
     client_id, contracts, _ = await _seed_client_with_contracts(1)
     order_id = await _standalone_order(client_id, contracts[0])
-    when = _TODAY + timedelta(days=30)
+    when = business_today() + timedelta(days=30)
 
     resp = await app_client.post(
         f"/api/clients/{client_id}/orders/{order_id}/close",
@@ -158,7 +158,7 @@ async def test_group_line_cannot_be_closed_through_the_standalone_route(
 
     resp = await app_client.post(
         f"/api/clients/{client_id}/orders/{group['lines'][0]['id']}/close",
-        json={"closure_date": _TODAY.isoformat()},
+        json={"closure_date": business_today().isoformat()},
         headers=app_auth_headers,
     )
     assert resp.status_code == 409, resp.text
@@ -184,7 +184,7 @@ async def test_periodic_order_is_refused_next_to_a_live_group_line(
             "contract_id": str(contracts[0]),
             "title": "ZAM_1453_2026",
             "order_type": "periodic",
-            "start_date": _TODAY.isoformat(),
+            "start_date": business_today().isoformat(),
         },
         headers=app_auth_headers,
     )
@@ -284,7 +284,7 @@ async def test_line_for_a_person_from_the_nexus_base_creates_an_open_ended_contr
         await db.refresh(candidate)
         candidate_id = candidate.id
 
-    line_end = _TODAY + timedelta(days=90)
+    line_end = business_today() + timedelta(days=90)
     payload = _line_payload(contracts[0])
     payload.pop("contract_id")
     payload["candidate_id"] = candidate_id
@@ -338,7 +338,7 @@ async def test_contract_offboarding_never_touches_another_clients_order():
         await apply_contract_order_offboarding(
             db,
             contract_id=contracts_a[0],
-            effective_date=_TODAY,
+            effective_date=business_today(),
             actor_id=None,
         )
         await db.commit()
@@ -368,22 +368,22 @@ async def test_excel_export_takes_only_the_currently_valid_order(
         contracts[0],
         title="PRZESZLE",
         status="completed",
-        start_date=_TODAY - timedelta(days=400),
-        end_date=_TODAY - timedelta(days=200),
+        start_date=business_today() - timedelta(days=400),
+        end_date=business_today() - timedelta(days=200),
     )
     current = await _standalone_order(
         client_id,
         contracts[0],
         title="BIEZACE",
-        start_date=_TODAY - timedelta(days=10),
-        end_date=_TODAY + timedelta(days=20),
+        start_date=business_today() - timedelta(days=10),
+        end_date=business_today() + timedelta(days=20),
     )
     future = await _standalone_order(
         client_id,
         contracts[0],
         title="PRZYSZLE",
-        start_date=_TODAY + timedelta(days=60),
-        end_date=_TODAY + timedelta(days=200),
+        start_date=business_today() + timedelta(days=60),
+        end_date=business_today() + timedelta(days=200),
     )
 
     resp = await app_client.post(

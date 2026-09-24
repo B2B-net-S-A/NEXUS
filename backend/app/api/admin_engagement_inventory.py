@@ -42,16 +42,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.admin_snapshot import _snapshot_auth
 from app.core.database import get_db
+from app.core.scheduling import business_today
 
 router = APIRouter()
 
 # Bump przy każdej zmianie definicji zapytań — raporty porównujemy tylko
 # w obrębie tej samej wersji.
-QUERY_VERSION = "m5-pr00-v3"
+QUERY_VERSION = "m5-pr00-v4"
 
 SAMPLE_LIMIT = 20
 CHECK_TIMEOUT_SECONDS = 20.0
 
+# „Dziś" w checkach dat to dzień w kalendarzu firmy, podawany z Pythona jako
+# `:today`. `CURRENT_DATE` bazy liczy się w strefie sesji (UTC), więc między
+# północą warszawską a UTC kontrakt startujący „dziś" wychodził jako przyszły.
 # Kontrakt „żywy" = trwająca współpraca w oczach reszty systemu (raporty, marża,
 # alerty, profil klienta). Uwaga: `active` NIE dowodzi startu ani podpisu — to
 # właśnie mierzymy niżej.
@@ -93,7 +97,7 @@ _CHECKS: list[tuple[str, str, str, str]] = [
         FROM contracts c
         WHERE c.status IN {_LIVE}
           AND c.start_date IS NOT NULL
-          AND c.start_date > CURRENT_DATE
+          AND c.start_date > :today
         ORDER BY c.id DESC
         LIMIT :sample_limit
         """,
@@ -109,7 +113,7 @@ _CHECKS: list[tuple[str, str, str, str]] = [
         FROM contracts c
         WHERE c.status = 'ended'
           AND c.terminated_at IS NOT NULL
-          AND c.terminated_at > CURRENT_DATE
+          AND c.terminated_at > :today
         ORDER BY c.id DESC
         LIMIT :sample_limit
         """,
@@ -157,11 +161,11 @@ _CHECKS: list[tuple[str, str, str, str]] = [
             SELECT 1 FROM client_orders o
             WHERE o.contract_id = c.id
               AND o.status = 'active'
-              AND (o.end_date IS NULL OR o.end_date >= CURRENT_DATE)
+              AND (o.end_date IS NULL OR o.end_date >= :today)
           )
           AND (
             c.client_order_end_date IS NULL
-            OR c.client_order_end_date < CURRENT_DATE
+            OR c.client_order_end_date < :today
           )
         ORDER BY c.id DESC
         LIMIT :sample_limit
@@ -517,7 +521,9 @@ async def _run_check(
     started = time.monotonic()
     try:
         result = await asyncio.wait_for(
-            db.execute(text(sql), {"sample_limit": SAMPLE_LIMIT}),
+            db.execute(
+                text(sql), {"sample_limit": SAMPLE_LIMIT, "today": business_today()}
+            ),
             timeout=CHECK_TIMEOUT_SECONDS,
         )
         rows = result.mappings().all()

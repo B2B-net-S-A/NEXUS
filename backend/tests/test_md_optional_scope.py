@@ -24,8 +24,8 @@ from decimal import Decimal
 import pytest
 from httpx import AsyncClient
 
+from app.core.scheduling import business_today
 from tests.test_multi_consultant_orders import (
-    _TODAY,
     _enable_for,
     _line_payload,
     _seed_client_with_contracts,
@@ -42,7 +42,7 @@ async def _create_md_group(
         f"/api/clients/{client_id}/order-groups",
         json={
             "order_number": f"CeZ-{uuid.uuid4().hex[:6]}",
-            "start_date": (_TODAY - timedelta(days=10)).isoformat(),
+            "start_date": (business_today() - timedelta(days=10)).isoformat(),
             "order_type": "md",
             "md_budget_mode": "per_person",
             "lines": lines,
@@ -186,7 +186,7 @@ async def test_optional_scope_is_refused_on_a_cost_order(
         f"/api/clients/{client_id}/order-groups",
         json={
             "order_number": f"K-{uuid.uuid4().hex[:6]}",
-            "start_date": (_TODAY - timedelta(days=10)).isoformat(),
+            "start_date": (business_today() - timedelta(days=10)).isoformat(),
             "order_type": "cost",
             "is_cost_based": True,
             "budget_amount": 100000,
@@ -196,7 +196,7 @@ async def test_optional_scope_is_refused_on_a_cost_order(
                     "rate_cost": 1000,
                     "rate_revenue": 1200,
                     "optional_md": 20,
-                    "start_date": (_TODAY - timedelta(days=10)).isoformat(),
+                    "start_date": (business_today() - timedelta(days=10)).isoformat(),
                 }
             ],
         },
@@ -230,7 +230,7 @@ async def test_swap_carries_the_unused_option_at_the_same_ratio(
             "contract_id": contracts[1],
             "rate_cost": 800,
             "rate_revenue": 950,
-            "swap_date": _TODAY.isoformat(),
+            "swap_date": business_today().isoformat(),
         },
         headers=app_auth_headers,
     )
@@ -362,7 +362,7 @@ async def test_swap_never_produces_a_negative_base_scope(
             "contract_id": contracts[1],
             "rate_cost": 800,
             "rate_revenue": 1200,
-            "swap_date": _TODAY.isoformat(),
+            "swap_date": business_today().isoformat(),
         },
         headers=app_auth_headers,
     )
@@ -406,7 +406,7 @@ async def test_budget_mode_switch_with_optional_scope_keeps_the_check_happy(
         f"/api/clients/{client_id}/order-groups",
         json={
             "order_number": f"DRAFT-{uuid.uuid4().hex[:4]}",
-            "start_date": _TODAY.isoformat(),
+            "start_date": business_today().isoformat(),
             "status": "draft",
             "order_type": "md",
             "md_budget_mode": "per_person",
