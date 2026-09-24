@@ -757,6 +757,72 @@ async def test_manual_apply_refuses_a_shared_md_pool(monkeypatch):
         await db.rollback()
 
 
+async def test_manual_apply_refuses_a_cost_order_for_several_people(monkeypatch):
+    """S3: kosztowe dla kilku osób — ręczne „Zastosuj” odmawia jak przy puli MD."""
+    from app.services import order_mail_ingest
+    from app.services.order_mail_apply import COST_SHARED_BUDGET_REFUSAL
+    from app.services.order_mail_planner import (
+        ACTION_NEW,
+        DocumentProposal,
+        RowProposal,
+    )
+
+    async def cost_plan(db, extraction, client_id):
+        rows = [
+            RowProposal(
+                row_index=i,
+                row_name=row.consultant_name,
+                action=ACTION_NEW,
+                contract_id=None,
+                order_type="cost",
+            )
+            for i, row in enumerate(extraction.consultant_rows)
+        ]
+        return (
+            DocumentProposal(
+                client_id=client_id,
+                order_number=extraction.title,
+                is_group_client=True,
+                rows=rows,
+            ),
+            [],
+            {},
+        )
+
+    monkeypatch.setattr(order_mail_ingest, "current_proposal", cost_plan)
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"Cost pool mail {uuid.uuid4().hex}")
+        db.add(client)
+        await db.flush()
+        doc = document(client.id, "Jan Kosztowy" + uuid.uuid4().hex[:8], "Koszt 1")
+        doc.extraction = {
+            **doc.extraction,
+            "consultant_rows": [
+                *doc.extraction["consultant_rows"],
+                {
+                    "consultant_name": "Anna Kosztowa" + uuid.uuid4().hex[:8],
+                    "rate_client": "140.00",
+                    "rate_unit": "hour",
+                    "uncertain": False,
+                },
+            ],
+        }
+        db.add(doc)
+        await db.flush()
+        result = await apply_document(db, doc, actor_user_id=1)
+        assert not result.ok
+        assert result.error == COST_SHARED_BUDGET_REFUSAL
+        assert (
+            await db.scalar(
+                select(func.count())
+                .select_from(ClientOrder)
+                .where(ClientOrder.client_id == client.id)
+            )
+            == 0
+        )
+        await db.rollback()
+
+
 async def _active_contract(db):
     client = Client(name=f"Two positions mail {uuid.uuid4().hex}")
     candidate = Candidate(name="Jan", lastname="Dwupozycyjny" + uuid.uuid4().hex[:8])

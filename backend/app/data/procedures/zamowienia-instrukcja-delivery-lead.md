@@ -750,10 +750,11 @@ PFRON i Credit Agricole (tam liczy się wyłącznie okres z dokumentu) oraz
 też **dokument, w którym ta sama osoba ma kilka pozycji** (np. stawka on-site
 i off-site albo dwa okresy) — plan pokazuje przy niej „Pomijany” z powodem,
 a które zamówienia założyć, decydujesz w oknie zamówienia; **zamówienie
-kosztowe dla kilku osób** (kwota zlecenia jest wspólna — automat jej nie dzieli)
-oraz **jedna liczba MD na całe zamówienie dla kilku osób** (wspólną pulę MD
-zakładasz w oknie zamówienia; „Zastosuj” takiego dokumentu odmawia, bo każda
-osoba dostałaby całą pulę). Wartość całego dokumentu trafia na zamówienie tylko
+kosztowe dla kilku osób** (kwota zlecenia jest wspólna — automat jej nie dzieli;
+zakładasz je w oknie zamówienia, a „Zastosuj” takiego dokumentu odmawia, bo
+powstałyby same szkice bez kwoty) oraz **jedna liczba MD na całe zamówienie dla
+kilku osób** (wspólną pulę MD zakładasz w oknie zamówienia; „Zastosuj” takiego
+dokumentu odmawia, bo każda osoba dostałaby całą pulę). Wartość całego dokumentu trafia na zamówienie tylko
 wtedy, gdy dokument dotyczy jednej osoby i jego stawka nie była brutto (wartość
 całkowita nie jest przeliczana przez 1,23). Przy kilku osobach osoba bez własnej
 stawki albo liczby MD w dokumencie nie dostaje stawki ani MD z nagłówka — pole

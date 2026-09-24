@@ -88,6 +88,12 @@ SHARED_MD_POOL_REFUSAL = (
     "klienta; zapis z kolejki dałby każdej osobie całą pulę"
 )
 
+COST_SHARED_BUDGET_REFUSAL = (
+    "Zamówienie kosztowe dla kilku osób — kwota zlecenia jest wspólna dla całej "
+    "obsady; załóż je ręcznie w oknie zamówienia klienta, zapis z kolejki dałby "
+    "same szkice bez kwoty"
+)
+
 
 @dataclass
 class AppliedRow:
@@ -344,6 +350,11 @@ async def apply_document(
             # pulę dokumentu (3 osoby × 60 MD). Pulę zakłada człowiek w oknie
             # zamówienia (audyt 24.09, W1).
             return ApplyResult(error=SHARED_MD_POOL_REFUSAL)
+        if sum(1 for r in proposal.rows if r.order_type == "cost") > 1:
+            # Lustro powodu bramki CODE_COST_SHARED_BUDGET dla ręcznego zapisu:
+            # kwota zlecenia nie trafia na żadną osobę, więc zostałyby szkice,
+            # których nie da się aktywować (audyt 24.09, S3).
+            return ApplyResult(error=COST_SHARED_BUDGET_REFUSAL)
         if proposal.blocking or not proposal.auto_eligible_actions:
             return ApplyResult(
                 error="; ".join(

@@ -633,9 +633,8 @@ function errorDetail(error: unknown, fallback: string): string {
   return typeof detail === "string" && detail ? detail : fallback;
 }
 
-/** `can_dismiss` z backendu (od 24.09) — pole spoza typu `OrderMailDocument`. */
 function canDismiss(doc: OrderMailDocument): boolean {
-  return (doc as OrderMailDocument & { can_dismiss?: boolean }).can_dismiss === true;
+  return doc.can_dismiss === true;
 }
 
 function Detail({ doc, onApply, onDismiss, onRefreshPlan, busy, applyError }: { doc: OrderMailDocument; onApply: () => void; onDismiss: () => void; onRefreshPlan?: () => void; busy: boolean; applyError: string | null }) {
