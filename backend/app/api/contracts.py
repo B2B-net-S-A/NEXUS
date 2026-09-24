@@ -1,5 +1,5 @@
-import asyncio
 import base64
+import calendar
 import hashlib
 import logging
 from datetime import date, datetime, timedelta, timezone
@@ -127,6 +127,7 @@ from app.services.contract_lifecycle import (
     void_contract,
 )
 from app.services.contract_order_sync import (
+    _switch_contract_unit,
     apply_contract_hourly_policy,
     apply_manual_client_rate,
     resync_contract_safely,
@@ -903,7 +904,9 @@ async def _apply_termination_to_contract(
         )
     )
     # Zamówienia skrócone do daty zakończenia → okres zamówienia w kontrakcie.
-    await resync_contract_safely(db, contract, actor_id=actor_id)
+    # Bez automatycznej aktywacji: zakończenie szkicu nie może go aktywować
+    # (audyt 24.09, S8).
+    await resync_contract_safely(db, contract, actor_id=actor_id, auto_activate=False)
     # Data zakończenia projektu z przeszłości = „Zakończony” od razu, więc
     # Generator przestawia umowę teraz; przyszła data — w nocy, dzień po niej.
     await sync_generator_after_contract_ended(db, contract, actor_id=actor_id)
@@ -1051,6 +1054,123 @@ def _same_rate(left: object, right: object) -> bool:
     ).quantize(Decimal("0.001"))
 
 
+def _schedule_signature(steps: object) -> list[tuple]:
+    """Treść harmonogramu do porównania: (stawka, od, do) w kolejności wpisu."""
+    out: list[tuple] = []
+    for step in steps or []:
+        get = step.get if isinstance(step, dict) else step.__getattribute__
+        rate = get("rate")
+        out.append(
+            (
+                None if rate is None else Decimal(str(rate)).quantize(Decimal("0.001")),
+                get("effective_from"),
+                get("effective_to"),
+            )
+        )
+    return out
+
+
+def _rebuild_rate_schedule(
+    model: type,
+    existing: object,
+    sent: object,
+    *,
+    actor_id: int,
+) -> list:
+    """Nowa lista kroków harmonogramu z PATCH-a — z pamięcią niezmienionych.
+
+    Formularz zastępuje harmonogram w całości. Do 24.09 (audyt, W2) każdy
+    zapis gubił notatki kroków („Stawka początkowa", powód aneksu) i autora:
+    wszystkie kroki dostawały ``note`` z żądania (formularz go nie wysyłał)
+    i ``created_by`` = zapisujący. Krok identyczny z zapisanym (stawka, od,
+    do) zachowuje teraz swoją notatkę i autora, chyba że żądanie niesie
+    własną notatkę. Duplikaty dat są legalne (resolver: wygrywa późniejszy
+    wpis), więc dopasowanie zużywa kroki po kolei, a kolejność zostaje.
+    """
+    pool = [(_schedule_signature([step])[0], step) for step in (existing or [])]
+    rebuilt = []
+    for step in sent or []:
+        signature = _schedule_signature([step])[0]
+        match = next((i for i, (sig, _) in enumerate(pool) if sig == signature), None)
+        previous = pool.pop(match)[1] if match is not None else None
+        note = step.get("note")
+        rebuilt.append(
+            model(
+                rate=step["rate"],
+                effective_from=step["effective_from"],
+                effective_to=step.get("effective_to"),
+                note=(note if note is not None or previous is None else previous.note),
+                created_by=(
+                    previous.created_by
+                    if previous is not None and previous.created_by is not None
+                    else actor_id
+                ),
+            )
+        )
+    return rebuilt
+
+
+def _switch_unit_for_patch(
+    contract: Contract,
+    updates: dict,
+    target: RateUnit,
+    *,
+    previous_rate_client: object,
+    today: date,
+    schedule_input: object,
+    framework_input: object,
+) -> tuple[bool, bool]:
+    """Zmiana jednostki w PATCH przelicza kwoty kontraktu (audyt 24.09, W1).
+
+    Do 24.09 pętla ``setattr`` przestawiała samą etykietę: 150 zł/h stawało
+    się „150 zł/mc", a synchronizacja przeliczała potem koszt do zamówień
+    przez nową jednostkę (150 / 168 ≈ 0,89 zł/h). Teraz ``_switch_contract_unit``
+    przelicza obie stawki, stawkę ramową, widełki i wszystkie harmonogramy.
+
+    Formularz odsyła przy każdym zapisie wszystkie kwoty — także nieruszone,
+    wciąż w STAREJ jednostce. Kwota równa tej, którą formularz pokazał (stawka
+    efektywna na dziś), jest więc „bez zmian" i zostaje przeliczona; kwota
+    inna to nowa wartość wpisana już w nowej jednostce. Tak samo harmonogram:
+    identyczny z zapisanym zostaje przeliczony, zmieniony — zastępuje go.
+    Zwraca, czy przysłane harmonogramy (kandydata, ramowy) nadal trzeba
+    zastosować — ``False`` = przysłany był identyczny z zapisanym.
+    """
+    before = {
+        "rate_candidate": contract.effective_candidate_rate(today),
+        "rate_client": previous_rate_client,
+        "framework_rate": contract.effective_framework_rate(today),
+        "target_rate_min": contract.target_rate_min,
+        "target_rate_max": contract.target_rate_max,
+    }
+    candidate_steps = sorted(
+        _schedule_signature(contract.candidate_rate_schedule), key=repr
+    )
+    framework_steps = sorted(
+        _schedule_signature(contract.framework_rate_schedule), key=repr
+    )
+    billing_hours = updates.get("billing_hours_per_month")
+    _switch_contract_unit(
+        contract,
+        target,
+        billing_hours=(
+            int(billing_hours)
+            if billing_hours is not None and target == RateUnit.hourly
+            else None
+        ),
+    )
+    for key, old in before.items():
+        if key in updates and _same_rate(old, updates[key]):
+            updates.pop(key)
+
+    def _differs(sent: object, old_steps: list[tuple]) -> bool:
+        return sorted(_schedule_signature(sent), key=repr) != old_steps
+
+    return (
+        schedule_input is None or _differs(schedule_input, candidate_steps),
+        framework_input is None or _differs(framework_input, framework_steps),
+    )
+
+
 # Pola PATCH-a kontraktu, po których kontrakt i zamówienia tej osoby muszą się
 # ponownie zgodzić (stawka kosztowa → zamówienia; status/daty/jednostka →
 # okres i stawka przychodowa z zamówień). Edycja PM-a czy notatek nie rusza
@@ -1100,8 +1220,23 @@ async def _inherit_rates_into_unpriced_order_drafts(
     )
     drafts = list(result.all())
     inherited = inherited_order_rate_fields(contract)
+    from app.services.order_engagement_separation import (
+        AUTO_DRAFT_TITLE_PLACEHOLDER,
+    )
+
     for order in drafts:
         for field, value in inherited.items():
+            # Zaślepka „(bez numeru)” (hook zatrudnienia, klient MD/kosztowy)
+            # nie jest zamówieniem, tylko zaproszeniem do wpisania numeru.
+            # Stawka przychodowa skopiowana z kontraktu robiła z niej źródło
+            # przychodu i okresu dla synchronizacji kontrakt ↔ zamówienia
+            # („uzupełnione zamówienie” = start + dodatnia stawka przychodowa;
+            # audyt 24.09, S3). Stawka kosztowa i jednostka mogą zostać.
+            if (
+                field == "rate_client"
+                and (order.title or "").strip() == AUTO_DRAFT_TITLE_PLACEHOLDER
+            ):
+                continue
             setattr(order, field, value)
     return len(drafts)
 
@@ -2117,6 +2252,10 @@ _CONTRACT_STATUS_LABELS = {
     "active": "Aktywny",
     "ending": "Kończący się",
     "ended": "Zakończony",
+    # Audyt 24.09 (S11): bez tych dwóch eksport pokazywał surowe `void`
+    # i `ready_for_signature`. Lustro `frontend/src/lib/status-labels.ts`.
+    "void": "Anulowany",
+    "ready_for_signature": "Do podpisu",
 }
 _RATE_UNIT_LABELS = {
     "hourly": "godzinowa",
@@ -3077,6 +3216,23 @@ async def run_alerts_now(current_user: AdminUser):
 # ── Bulk operations (Phase 9 C3) ─────────────────────────────────────────────
 
 
+def _add_months_keeping_month_end(day: date, months: int) -> date:
+    """Data + N miesięcy; koniec miesiąca zostaje końcem miesiąca.
+
+    Do 24.09 (audyt, S7) dzień był przycinany do 28 dla KAŻDEGO miesiąca:
+    30.06 + 3 miesiące dawało 28.09 i skracało umowę o dwa dni. Teraz dzień
+    przycina się do długości miesiąca docelowego (31.01 + 1 = 28/29.02),
+    a ostatni dzień miesiąca przechodzi na ostatni dzień miesiąca docelowego
+    (30.06 + 1 = 31.07).
+    """
+    total = day.month - 1 + months
+    year, month = day.year + total // 12, total % 12 + 1
+    last_day = calendar.monthrange(year, month)[1]
+    if day.day == calendar.monthrange(day.year, day.month)[1]:
+        return date(year, month, last_day)
+    return date(year, month, min(day.day, last_day))
+
+
 @router.post("/bulk-extend", status_code=status.HTTP_200_OK)
 async def bulk_extend_contracts(
     current_user: DeliveryLeadPlus,
@@ -3101,9 +3257,16 @@ async def bulk_extend_contracts(
     contracts = list(result.scalars().all())
     for contract in contracts:
         await _ensure_delivery_lead_contract_visible(contract, current_user, db)
-    extended = 0
+    extended_ids: list[int] = []
     skipped: list[int] = []
+    skipped_void: list[int] = []
     for c in contracts:
+        # Anulowanej umowy nie przedłużamy: `reopen_contract` odmówiłby 409
+        # i wywrócił całą paczkę (audyt 24.09, S7).
+        if c.status == ContractStatus.void:
+            skipped.append(c.id)
+            skipped_void.append(c.id)
+            continue
         # Umowa B2B bez zakończenia nie ma czego przedłużać — jest bezterminowa
         # (`b2b_contract_end_date`). Przedłużyć można wyłącznie datę umowy
         # zakończonej ręcznie, czyli przesunąć jej zakończenie.
@@ -3112,13 +3275,7 @@ async def bulk_extend_contracts(
         ):
             skipped.append(c.id)
             continue
-        # Add N months naively (month-wise; day may clamp if end-of-month)
-        y, m = c.end_date.year, c.end_date.month + months
-        while m > 12:
-            m -= 12
-            y += 1
-        new_day = min(c.end_date.day, 28)  # safe for all months
-        new_end = c.end_date.replace(year=y, month=m, day=new_day)
+        new_end = _add_months_keeping_month_end(c.end_date, months)
         c.end_date = new_end
         # Client order is renewed together with the contract — keep its end date
         # in sync (only when the contract already tracks one). Mirrors the
@@ -3133,8 +3290,10 @@ async def bulk_extend_contracts(
         # `from_status`/`to_status`, więc nie da się go odtworzyć ze śladu
         # audytowego. Funkcja sama pilnuje `assert_transition`.
         await reopen_contract(db, c, actor_id=current_user.id)
-        extended += 1
-    for cid in contract_ids:
+        extended_ids.append(c.id)
+    # Historia tylko przy umowach NAPRAWDĘ przedłużonych — wpis przy pominiętej
+    # (albo nieistniejącej) twierdził coś, co się nie wydarzyło.
+    for cid in extended_ids:
         db.add(
             Activity(
                 entity_type="contract",
@@ -3145,14 +3304,20 @@ async def bulk_extend_contracts(
         )
     # Przedłużenie przesuwa „koniec zamówienia u klienta" razem z umową
     # (`_synced_client_order_end`); okres zamówienia prowadzi jednak
-    # synchronizacja z zamówień, więc przywracamy go z ich prawdy.
+    # synchronizacja z zamówień, więc przywracamy go z ich prawdy. Bez
+    # automatycznej aktywacji: przedłużenie nie jest decyzją o aktywacji
+    # szkicu (audyt 24.09, S8).
     for c in contracts:
-        await resync_contract_safely(db, c, actor_id=current_user.id)
+        if c.id in extended_ids:
+            await resync_contract_safely(
+                db, c, actor_id=current_user.id, auto_activate=False
+            )
     await db.commit()
     return {
         "requested": len(contract_ids),
-        "extended": extended,
+        "extended": len(extended_ids),
         "skipped_no_end_date": skipped,
+        "skipped_void": skipped_void,
     }
 
 
@@ -3575,19 +3740,28 @@ async def update_contract(
         and (RateUnit.daily in (requested_unit, current_unit))
     ):
         _reject_daily_contract_unit()
+    # Godziny ↔ ryczałt miesięczny: przeliczenie kwot, nie sama etykieta (W1).
+    if requested_unit is not None and requested_unit != current_unit:
+        schedule_changed, framework_changed = _switch_unit_for_patch(
+            contract,
+            updates,
+            requested_unit,
+            previous_rate_client=previous_rate_client,
+            today=business_today(),
+            schedule_input=schedule_input if schedule_sent else None,
+            framework_input=framework_input if framework_sent else None,
+        )
+        schedule_sent = schedule_sent and schedule_changed
+        framework_sent = framework_sent and framework_changed
     for k, v in updates.items():
         setattr(contract, k, v)
     if schedule_sent:
-        contract.candidate_rate_schedule = [
-            ContractCandidateRate(
-                rate=step["rate"],
-                effective_from=step["effective_from"],
-                effective_to=step.get("effective_to"),
-                note=step.get("note"),
-                created_by=current_user.id,
-            )
-            for step in (schedule_input or [])
-        ]
+        contract.candidate_rate_schedule = _rebuild_rate_schedule(
+            ContractCandidateRate,
+            contract.candidate_rate_schedule,
+            schedule_input,
+            actor_id=current_user.id,
+        )
         # A non-empty schedule is authoritative for the cached rate; an empty
         # schedule clears history and defers to the plain `rate_candidate` field
         # (set above by the setattr loop when present in this same PATCH).
@@ -3596,16 +3770,12 @@ async def update_contract(
                 business_today()
             )
     if framework_sent:
-        contract.framework_rate_schedule = [
-            ContractFrameworkRate(
-                rate=step["rate"],
-                effective_from=step["effective_from"],
-                effective_to=step.get("effective_to"),
-                note=step.get("note"),
-                created_by=current_user.id,
-            )
-            for step in (framework_input or [])
-        ]
+        contract.framework_rate_schedule = _rebuild_rate_schedule(
+            ContractFrameworkRate,
+            contract.framework_rate_schedule,
+            framework_input,
+            actor_id=current_user.id,
+        )
         # A non-empty schedule drives the cached framework_rate; an empty schedule
         # clears history and defers to the plain `framework_rate` field (set by the
         # setattr loop when present in this same PATCH).
@@ -3980,21 +4150,11 @@ async def activate_contract(
     if not await _can_read_contract_finance(contract, current_user, db):
         _redact_contract_finance(detail)
 
-    # Outbox/side-effects AFTER the activation commit — the `contract_signed`
-    # Teams notification loads the contract in its own session, so it must not
-    # run before this transaction is durable. Committing here (rather than
-    # leaning on get_db's trailing commit) guarantees the ordering; get_db's
-    # later commit becomes a harmless no-op.
-    await db.commit()
-    try:
-        from app.services.teams_notifications import notify_contract_signed_by_id
-
-        asyncio.create_task(notify_contract_signed_by_id(contract.id))
-    except Exception as exc:  # noqa: BLE001
-        logger.warning(
-            "Teams notify (contract_signed via activate) scheduling failed: %s", exc
-        )
-
+    # Bez powiadomienia Teams „contract_signed” (audyt 24.09, N6): aktywacja
+    # jest stanem operacyjnym niezależnym od podpisu — ta sama reguła co
+    # automatyczna aktywacja w PATCH, która świadomie go nie wysyła. Do tego
+    # dnia `/activate` ogłaszał podpis, którego mogło nie być, i odpalał
+    # zadanie bez trzymanej referencji (asyncio może je zebrać w połowie).
     return detail
 
 
@@ -4890,6 +5050,7 @@ async def create_contract_amendment(
         .options(
             selectinload(Contract.candidate_rate_schedule),
             selectinload(Contract.client_rate_schedule),
+            selectinload(Contract.framework_rate_schedule),
         )
         .with_for_update()
     )
@@ -4968,6 +5129,31 @@ async def create_contract_amendment(
                     "w życie — nie da się jej zaplanować z wyprzedzeniem."
                 ),
             )
+        # Zmiana jednostki PRZED nowymi krokami: istniejące kwoty i kroki są
+        # w starej jednostce i przeliczają się (audyt 24.09, W1 — do tego dnia
+        # aneks przestawiał samą etykietę i 150 zł/h stawało się 150 zł/mc),
+        # a stawki z aneksu są już podane w nowej jednostce.
+        if data.new_rate_unit is not None:
+            if RateUnit(data.new_rate_unit) == RateUnit.daily:
+                _reject_daily_contract_unit()
+            if RateUnit(data.new_rate_unit) != RateUnit(contract.rate_unit):
+                _switch_contract_unit(
+                    contract,
+                    RateUnit(data.new_rate_unit),
+                    billing_hours=(
+                        data.new_billing_hours_per_month
+                        if RateUnit(data.new_rate_unit) == RateUnit.hourly
+                        else None
+                    ),
+                )
+            new_values["rate_unit"] = data.new_rate_unit
+        # Krok bazowy harmonogramu potrzebuje daty. Kontrakt bez daty
+        # rozpoczęcia dawał dotąd IntegrityError (500) po stronie kandydata
+        # (audyt 24.09, N1), a po stronie klienta krok bazowy „od dziś"
+        # przykrywał aneks wsteczny. Najwcześniejsza znana data wygrywa.
+        baseline_from = contract.start_date or min(
+            data.effective_date, business_today()
+        )
         if data.new_rate_candidate is not None:
             # The candidate rate lives in the schedule. Seed a baseline step
             # (the contract's current rate from its start) the first time we
@@ -4980,7 +5166,7 @@ async def create_contract_amendment(
                 contract.candidate_rate_schedule.append(
                     ContractCandidateRate(
                         rate=contract.rate_candidate,
-                        effective_from=contract.start_date,
+                        effective_from=baseline_from,
                         note="Stawka początkowa",
                         created_by=current_user.id,
                     )
@@ -5006,7 +5192,7 @@ async def create_contract_amendment(
                 contract.client_rate_schedule.append(
                     ContractClientRate(
                         rate=contract.rate_client,
-                        effective_from=contract.start_date or business_today(),
+                        effective_from=baseline_from,
                         note="Stawka początkowa",
                         created_by=current_user.id,
                     )
@@ -5020,11 +5206,6 @@ async def create_contract_amendment(
                 )
             )
             new_values["rate_client"] = data.new_rate_client
-        if data.new_rate_unit is not None:
-            if RateUnit(data.new_rate_unit) == RateUnit.daily:
-                _reject_daily_contract_unit()
-            contract.rate_unit = data.new_rate_unit  # type: ignore[assignment]
-            new_values["rate_unit"] = data.new_rate_unit
         if data.new_billing_hours_per_month is not None:
             contract.billing_hours_per_month = data.new_billing_hours_per_month
             new_values["billing_hours_per_month"] = data.new_billing_hours_per_month
@@ -5054,38 +5235,35 @@ async def create_contract_amendment(
             )
 
     elif data.amendment_type == ContractAmendmentType.early_termination:
-        end = data.new_end_date or data.effective_date
-        state_before = ContractStateBefore.of(contract)
-        # Odmowa przed zapisem daty: aneks nie wskrzesza unieważnionej umowy.
-        new_status = _status_after_termination(contract.status, end, business_today())
-        contract.end_date = end
-        # An early-termination amendment can be recorded ahead of its effective
-        # date. Until that date arrives, the contract is still running and must
-        # remain visible as active; the daily status job progresses it according
-        # to the end-date lifecycle (P0.7 — future termination must not end now).
-        contract.status = new_status
-        await _sync_client_orders_to_contract_end(
-            db,
-            contract.id,
-            end,
-            actor_id=current_user.id,
-            contract_before=state_before,
-        )
-        new_values["end_date"] = end.isoformat()
-        new_values["status"] = contract.status.value
-        await sync_generator_after_contract_ended(
-            db, contract, actor_id=current_user.id
+        # Wcześniejsze zakończenie wyłącznie przez okno „Zakończ współpracę”
+        # (``/terminate``) — ta sama reguła co zmiana statusu na „Zakończony”
+        # (audyt 24.09, S5). Aneks przez API omijał powód, datę końca projektu,
+        # rozwiązanie umowy B2B i migawkę do „Cofnij zakończenie”. Historyczne
+        # aneksy tego typu zostają (czyta je ``is_manually_terminated``);
+        # nowe dopisuje wyłącznie ``/terminate``.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "message": (
+                    "Kontrakt kończy się oknem „Zakończ współpracę” — podaj "
+                    "powód i datę zakończenia projektu."
+                ),
+                "reason": "termination_required",
+            },
         )
 
     # Synchronizacja z zamówieniami: aneks stawki zmienia koszt w KONTRAKCIE
     # (zamówienia dostają go od daty aneksu; przyszła podwyżka wejdzie w swoim
     # dniu przez przebieg dobowy), a przedłużenie i wcześniejsze zakończenie
     # ruszają okres zamówienia. Jednostka z aneksu wygrywa z zamówieniem.
+    # Bez automatycznej aktywacji szkicu — aneks nie jest decyzją o aktywacji
+    # (audyt 24.09, S8); tę podejmuje PATCH albo `/activate`.
     if data.amendment_type != ContractAmendmentType.scope_change:
         await resync_contract_safely(
             db,
             contract,
             actor_id=current_user.id,
+            auto_activate=False,
             follow_order_unit=not (
                 data.amendment_type == ContractAmendmentType.rate_change
                 and data.new_rate_unit is not None
@@ -5676,17 +5854,22 @@ async def contract_timeline(
 
 
 def _monthly_equivalent(
-    rate: Optional[int], unit: RateUnit, hours: int
-) -> Optional[int]:
+    rate: object, unit: RateUnit, hours: Optional[int]
+) -> Optional[float]:
+    """Kwota miesięczna do porównania w benchmarku — w złotych z groszami.
+
+    Do 24.09 (audyt, S1) funkcja obiecywała ``int``, a stawki kontraktu są
+    ``Numeric(16, 6)``: 125,19375 zł/h × 168 dawało ułamek, schemat odpowiedzi
+    (``Optional[int]``) odrzucał go i karta kończyła się 500.
+    """
     if rate is None:
         return None
-    if unit == RateUnit.monthly:
-        return rate
+    amount = Decimal(str(rate))
     if unit == RateUnit.daily:
-        return rate * MD_PER_MONTH
-    if unit == RateUnit.hourly:
-        return rate * (hours or HOURS_PER_MONTH)
-    return rate
+        amount = amount * MD_PER_MONTH
+    elif unit == RateUnit.hourly:
+        amount = amount * (hours or HOURS_PER_MONTH)
+    return float(amount.quantize(Decimal("0.01")))
 
 
 async def _resolve_role_for_contract(
@@ -5717,30 +5900,39 @@ async def contract_benchmark(
     result = await db.execute(
         select(Contract)
         .where(Contract.id == contract_id)
-        .options(selectinload(Contract.candidate))
+        .options(
+            selectinload(Contract.candidate),
+            selectinload(Contract.client_rate_schedule),
+        )
     )
     contract = result.scalar_one_or_none()
     if not contract:
         raise HTTPException(status_code=404, detail="Contract not found")
 
+    today = business_today()
     role = await _resolve_role_for_contract(db, contract)
+    # Stawka z harmonogramu na dziś, nie kolumna cache'u (aneks z datą, która
+    # już nadeszła, zostawiał w kolumnie starą kwotę).
     contract_rate_monthly = _monthly_equivalent(
-        contract.rate_client, contract.rate_unit, contract.billing_hours_per_month
+        contract.effective_client_rate(today),
+        contract.rate_unit,
+        contract.billing_hours_per_month,
     )
 
-    # Internal average: other active contracts for the same role.
-    internal_avg_monthly: Optional[int] = None
-    internal_median_monthly: Optional[int] = None
+    # Internal average: other running contracts for the same role — „Kończący
+    # się” też pracuje (audyt 24.09, S1).
+    internal_avg_monthly: Optional[float] = None
+    internal_median_monthly: Optional[float] = None
     internal_sample_size = 0
     if role:
         peer_q = (
             select(Contract, Job.title, Candidate.competence_category)
             .join(Candidate, Candidate.id == Contract.candidate_id)
             .outerjoin(Job, Job.id == Contract.job_id)
+            .options(selectinload(Contract.client_rate_schedule))
             .where(
                 Contract.id != contract_id,
-                Contract.status == ContractStatus.active,
-                Contract.rate_client.isnot(None),
+                Contract.status.in_((ContractStatus.active, ContractStatus.ending)),
                 func.upper(
                     func.coalesce(
                         Contract.rate_client_currency,
@@ -5753,22 +5945,24 @@ async def contract_benchmark(
             )
         )
         rows = (await db.execute(peer_q)).all()
-        monthly_values: list[int] = []
+        monthly_values: list[float] = []
         for peer, _, _ in rows:
             peer_monthly = _monthly_equivalent(
-                peer.rate_client, peer.rate_unit, peer.billing_hours_per_month
+                peer.effective_client_rate(today),
+                peer.rate_unit,
+                peer.billing_hours_per_month,
             )
             if peer_monthly is not None:
                 monthly_values.append(peer_monthly)
         if monthly_values:
             internal_sample_size = len(monthly_values)
-            internal_avg_monthly = int(sum(monthly_values) / internal_sample_size)
+            internal_avg_monthly = round(sum(monthly_values) / internal_sample_size, 2)
             sorted_v = sorted(monthly_values)
             mid = internal_sample_size // 2
             internal_median_monthly = (
                 sorted_v[mid]
                 if internal_sample_size % 2 == 1
-                else (sorted_v[mid - 1] + sorted_v[mid]) // 2
+                else round((sorted_v[mid - 1] + sorted_v[mid]) / 2, 2)
             )
 
     # Market benchmark: pick the most recent entry for the role in same currency.
@@ -5785,9 +5979,9 @@ async def contract_benchmark(
         )
         market_row = (await db.execute(market_q)).scalar_one_or_none()
 
-    market_min_monthly: Optional[int] = None
-    market_median_monthly: Optional[int] = None
-    market_max_monthly: Optional[int] = None
+    market_min_monthly: Optional[float] = None
+    market_median_monthly: Optional[float] = None
+    market_max_monthly: Optional[float] = None
     market_source = None
     market_source_date = None
     if market_row is not None:
