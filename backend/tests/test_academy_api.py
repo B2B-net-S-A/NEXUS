@@ -243,8 +243,39 @@ async def test_full_flow_luna_sorts_human_decides_and_rejection_is_forever(
     assert apps[ids["senior"]]["reapplied_at"] is not None
     assert len(calls) == calls_before
 
-    # Dalej: zadanie → zaliczone → podpis = edycja od 1. dnia miesiąca.
-    for action in ("give_task", "task_passed", "signed"):
+    # Dokumentów nie ma przed zaliczonym zadaniem.
+    early = await app_client.post(
+        f"/api/academy/applications/{junior['id']}/documents", headers=rec_h, json={}
+    )
+    assert early.status_code == 409
+
+    # Dalej: zadanie → zaliczone → dokumenty → podpis = edycja od 1. dnia miesiąca.
+    for action in ("give_task", "task_passed"):
+        resp = await app_client.post(
+            f"/api/academy/applications/{junior['id']}/actions",
+            headers=rec_h,
+            json={"action": action},
+        )
+        assert resp.status_code == 200, (action, resp.text)
+    bad = await app_client.post(
+        f"/api/academy/applications/{junior['id']}/documents",
+        headers=rec_h,
+        json={"pesel": "12345678901"},
+    )
+    assert bad.status_code == 422
+    package = await app_client.post(
+        f"/api/academy/applications/{junior['id']}/documents",
+        headers=rec_h,
+        json={"signing_date": "2026-10-20", "handover_name": "Jan Rekruter"},
+    )
+    assert package.status_code == 200, package.text
+    assert package.headers["content-type"] == "application/zip"
+    import io
+    import zipfile
+
+    assert len(zipfile.ZipFile(io.BytesIO(package.content)).namelist()) == 5
+
+    for action in ("signed",):
         resp = await app_client.post(
             f"/api/academy/applications/{junior['id']}/actions",
             headers=rec_h,

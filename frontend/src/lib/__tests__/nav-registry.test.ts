@@ -188,7 +188,7 @@ describe("szyna i „Więcej” (rekrutacja v3)", () => {
   it("„Więcej” grupuje resztę; puste grupy odpadają", () => {
     const groups = visibleMoreGroups(userOf("recruiter"), opts);
     expect(groups.map((group) => [group.title, group.items.map((i) => i.label)])).toEqual([
-      ["Codzienna praca", ["Do przedzwonienia"]],
+      ["Codzienna praca", ["Do przedzwonienia", "Akademia"]],
       ["Dokumenty", ["Generator CV", "Generator Umów B2B"]],
       ["System", ["Pomoc", "Ustawienia"]],
     ]);
@@ -258,7 +258,8 @@ describe("menu (szyna + „Więcej”, sekcjami) — pozycje per rola identyczne
     "/contracts/b2b-generator",
     // „/talents" i „/sourcing/marketplace" zdjęte z menu 21.09.2026.
   ];
-  const PIPELINE = ["/jobs", "/calendar"];
+  // Akademia (0369) — w „Więcej”, ta sama bramka co Kalendarz.
+  const PIPELINE = ["/jobs", "/calendar", "/academy"];
   const DELIVERY = ["/clients", "/contracts"];
   const INSIGHTS = ["/insights"];
   const SYSTEM = ["/help", "/settings"];

@@ -19,7 +19,7 @@ from datetime import date, datetime, time, timedelta
 from typing import Literal, Optional
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,17 +29,25 @@ from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.core.rate_limit import limiter, user_or_ip_key
 from app.core.scheduling import DEFAULT_TZ, business_today
+from app.models.activity import Activity
 from app.models.academy import (
     AcademyApplication,
     AcademyProgram,
     AcademyProgramSource,
     AcademySession,
 )
+from app.models.candidate import Candidate
 from app.models.job import Job
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.user import User, UserRole
 from app.services import academy as svc
-from app.services.academy_flow import ACTIONS, AcademyActionError, ActionInput
+from app.services import academy_documents as docs
+from app.services.academy_flow import (
+    ACTIONS,
+    AcademyActionError,
+    ActionInput,
+    next_cohort,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -151,6 +159,26 @@ class RhythmInput(BaseModel):
         if any(d < 0 or d > 6 for d in value):
             raise ValueError("Dni tygodnia: 0 (poniedziałek) … 6 (niedziela).")
         return sorted(set(value))
+
+
+class DocumentsBody(BaseModel):
+    """Dane do kompletu dokumentów. PESEL i adres NIE są zapisywane w bazie."""
+
+    signing_date: Optional[date] = None
+    address: Optional[str] = Field(default=None, max_length=300)
+    pesel: Optional[str] = Field(default=None, max_length=11)
+    program_start: Optional[date] = None
+    program_end: Optional[date] = None
+    handover_name: Optional[str] = Field(default=None, max_length=200)
+    protocol_date: Optional[date] = None
+
+
+DOCUMENT_STATUSES = ("task_passed", "contract_sent", "signed")
+
+
+def _cohort_payload(month: date) -> dict:
+    start, end = docs.program_dates(month)
+    return {"month": month, "start": start, "end": end}
 
 
 class SessionPatch(BaseModel):
@@ -276,6 +304,7 @@ async def get_program(
         "sources": sources,
         "counts": await svc.status_counts(db, program_id),
         "can_manage": _can_manage(current_user),
+        "next_cohort": _cohort_payload(next_cohort(business_today())),
     }
 
 
@@ -419,6 +448,85 @@ async def application_action(
         raise _action_error(exc) from None
     await db.commit()
     return await _row_payload(db, application_id)
+
+
+@router.get("/cohort-dates")
+async def cohort_dates(
+    current_user: RecruiterPlus,
+    month: date = Query(...),
+):
+    """Domyślne daty edycji: 10 dni roboczych od 1. dnia roboczego miesiąca."""
+    return _cohort_payload(date(month.year, month.month, 1))
+
+
+@router.post("/applications/{application_id}/documents")
+async def application_documents(
+    application_id: int,
+    body: DocumentsBody,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    """Komplet dokumentów uczestnika (ZIP): umowa, harmonogram, oświadczenie,
+    regulamin, protokół przekazania Manuala.
+
+    PESEL i adres idą wyłącznie do pliku — nie trafiają do bazy ani do logu.
+    """
+    row = await db.get(AcademyApplication, application_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Nie ma takiego zgłoszenia.")
+    if row.status not in DOCUMENT_STATUSES:
+        raise HTTPException(
+            status_code=409,
+            detail="Dokumenty generujemy po zaliczonym zadaniu.",
+        )
+    pesel = (body.pesel or "").strip() or None
+    if pesel is not None and not docs.pesel_valid(pesel):
+        raise HTTPException(status_code=422, detail="PESEL jest niepoprawny.")
+    month = row.cohort_month or next_cohort(business_today())
+    default_start, default_end = docs.program_dates(month)
+    start = body.program_start or default_start
+    end = body.program_end or default_end
+    if end < start:
+        raise HTTPException(
+            status_code=422, detail="Koniec programu nie może być przed początkiem."
+        )
+    candidate = await db.get(Candidate, row.candidate_id)
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="Nie ma takiego kandydata.")
+    full_name = f"{candidate.name or ''} {candidate.lastname or ''}".strip()
+    data = docs.DocumentInput(
+        participant_name=full_name,
+        phone=candidate.phone,
+        email=candidate.email,
+        address=body.address,
+        pesel=pesel,
+        signing_date=body.signing_date,
+        program_start=start,
+        program_end=end,
+        handover_name=body.handover_name,
+        protocol_date=body.protocol_date,
+    )
+    payload = docs.render_package(data)
+    db.add(
+        Activity(
+            entity_type="candidate",
+            entity_id=row.candidate_id,
+            action="academy_documents",
+            user_id=current_user.id,
+            details={
+                "program_id": row.program_id,
+                "program_start": start.isoformat(),
+                "program_end": end.isoformat(),
+            },
+        )
+    )
+    await db.commit()
+    filename = f"Akademia_dokumenty_{docs.file_stem(full_name)}.zip"
+    return Response(
+        content=payload,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.post("/programs/{program_id}/applications/bulk")

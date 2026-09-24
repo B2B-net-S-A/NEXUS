@@ -520,7 +520,7 @@ async def list_applications(
     *,
     statuses: Optional[list[str]] = None,
     q: Optional[str] = None,
-    limit: int = 500,
+    limit: int = 2000,
 ) -> list[dict[str, Any]]:
     from app.models.job import Job  # noqa: PLC0415
 
