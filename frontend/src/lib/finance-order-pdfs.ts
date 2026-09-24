@@ -9,6 +9,10 @@ import {
   formatMoment,
   parseMonthValue,
 } from "@/lib/finance-order-changes";
+import {
+  ORDER_GROUP_STATUS_LABELS,
+  ORDER_STATUS_LABELS,
+} from "@/lib/status-labels";
 
 /** „2026-09" → „Wrzesień 2026". */
 export function orderPdfMonthLabel(value: string): string {
@@ -32,13 +36,15 @@ export function orderPdfEntryTypeLabel(type: OrderPdfEntryType): string {
   return ENTRY_TYPE_LABELS[type];
 }
 
+/**
+ * Status zamówienia przy pliku. Etykiety z jednego słownika (`status-labels`)
+ * — lista łączy zamówienia okresowe (`client_orders`) i zamówienia MD/kosztowe
+ * (`client_order_groups`). Do 24.09.2026 lokalna kopia nie znała
+ * „cancelled”, więc anulowane zamówienie pokazywało surowy kod.
+ */
 const STATUS_LABELS: Record<string, string> = {
-  draft: "Szkic",
-  active: "Aktywne",
-  paused: "Wstrzymane",
-  scheduled: "Zaplanowane",
-  completed: "Zakończone",
-  exhausted: "Wyczerpane",
+  ...ORDER_STATUS_LABELS,
+  ...ORDER_GROUP_STATUS_LABELS,
 };
 
 export function orderPdfStatusLabel(status: string | null): string | null {

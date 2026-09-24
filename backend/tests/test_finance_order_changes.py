@@ -21,6 +21,7 @@ from sqlalchemy import func, select
 
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.contract import Contract, ContractStatus, ContractType, RateUnit
+from app.services.finance_order_changes import MonthWindow
 from app.services.order_facts import OrderFact, covers_after, previous_of, successor_of
 
 pytestmark = pytest.mark.asyncio
@@ -676,9 +677,11 @@ async def test_month_view_lists_entries_exits_and_gaps_with_matching_counts(
     # Kontynuacja to NIE zejście — osoba pracuje dalej pod nowym numerem.
     assert a["order_id"] not in exits
     # Osobie B skończyło się zamówienie, ale nikt nie zapisał końca współpracy:
-    # to kończące się zamówienie, nie zejście.
+    # to nie zejście. Jej brak wykryto w TYM miesiącu, więc stoi wyłącznie
+    # w Brakach — ta sama osoba pod dwoma kluczami pozycji była dublem
+    # (audyt 24.09.2026).
     assert b["order_id"] not in exits
-    assert ending[b["order_id"]]["verdict"] == "no_successor"
+    assert b["order_id"] not in ending
 
     gaps = [g for g in body["gaps"] if g["client_id"] in ours]
     assert [g["order_id"] for g in gaps] == [b["order_id"]]
@@ -694,7 +697,7 @@ async def test_month_view_lists_entries_exits_and_gaps_with_matching_counts(
         "Zmiany",
         "Wejścia",
         "Zejścia",
-        "Kończące się zam.",
+        "Bez kontynuacji",
         "Braki",
     ]
 
@@ -1107,8 +1110,8 @@ async def test_ending_orders_tab_filters_and_exports_like_the_others(
         headers=app_auth_headers,
     )
     assert export.status_code == 200, export.text
-    assert "Konczace_sie_zamowienia" in export.headers["content-disposition"]
-    sheet = load_workbook(io.BytesIO(export.content))["Kończące się zam. (1)"]
+    assert "Zamowienia_bez_kontynuacji" in export.headers["content-disposition"]
+    sheet = load_workbook(io.BytesIO(export.content))["Bez kontynuacji (1)"]
     assert sheet.max_row == 2  # nagłówek + jeden wiersz
 
 
@@ -1555,3 +1558,157 @@ async def test_draft_and_order_of_the_same_person_are_one_entry(
     body = await _month(app_client, app_auth_headers, day, client_id=ids["client_id"])
     entries = [e for e in body["entries"] if e["client_id"] == ids["client_id"]]
     assert [e["order_id"] for e in entries] == [ids["order_id"]]
+
+
+# ── Audyt 24.09.2026: „bez kontynuacji", baner braków, eksport ─────────────
+
+
+async def test_order_without_continuation_says_the_cooperation_goes_on(
+    monkeypatch, app_client: AsyncClient, app_auth_headers: dict
+):
+    """Werdykt ``no_successor`` nie każe zdejmować z rozliczeń kogoś, kto pracuje.
+
+    Zamówienie kończy się w ostatnim dniu miesiąca, więc brak wykrywa się
+    w KOLEJNYM miesiącu — w tym miesiącu nie ma dubla i wiersz zostaje
+    w „Zamówieniach bez kontynuacji", a w kolejnym stoi w Brakach.
+    """
+
+    first = _far_day(2050, 2053).replace(day=1)
+    last = MonthWindow.of(first.year, first.month).last
+    ids = await _seed(
+        contract_rate_client=None, start=last - timedelta(days=60), end=last
+    )
+    await _detect(monkeypatch, tracking_start=last, today=last + timedelta(days=1))
+
+    body = await _month(app_client, app_auth_headers, first, client_id=ids["client_id"])
+    [row] = body["ending_orders"]
+    assert row["order_id"] == ids["order_id"]
+    assert row["verdict"] == "no_successor"
+    assert row["verdict_label"] == (
+        "Zamówienie się skończyło, brak kolejnego — współpraca trwa"
+    )
+    assert "usunięcia" not in row["verdict_label"]
+    assert body["gaps"] == []
+
+    following = await _month(
+        app_client,
+        app_auth_headers,
+        last + timedelta(days=1),
+        client_id=ids["client_id"],
+    )
+    assert _gap_order_ids(following, ids["client_id"]) == {ids["order_id"]}
+    assert following["ending_orders"] == []
+
+
+async def test_gap_banner_uses_the_same_exclusion_as_the_gaps_list(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Baner liczył brak współpracy zakończonej wypowiedzeniem innego zamówienia.
+
+    Lista Braków pomija go (osoba stoi w Zejściach), baner nie — pokazywał
+    otwarty brak, którego na żadnej liście nie było.
+    """
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.order_gap import GAP_STATUS_OPEN, OrderGap
+
+    first = _far_day(2054, 2057).replace(day=1)
+    early_end = first + timedelta(days=4)
+    ids = await _seed(
+        contract_rate_client=None, start=first - timedelta(days=60), end=early_end
+    )
+    late_end = first + timedelta(days=20)
+    await _add_order(ids, start=first + timedelta(days=8), end=late_end)
+    async with AsyncSessionLocal() as db:
+        db.add(
+            OrderGap(
+                order_id=ids["order_id"],
+                contract_id=ids["contract_id"],
+                client_id=ids["client_id"],
+                order_number="NB-early",
+                ended_on=early_end,
+                detected_on=early_end + timedelta(days=1),
+                status=GAP_STATUS_OPEN,
+            )
+        )
+        await db.commit()
+
+    before = (await _month(app_client, app_auth_headers, first))["open_gaps_total"]
+    await _terminate(ids["contract_id"], late_end)
+    after = await _month(app_client, app_auth_headers, first)
+
+    assert _gap_order_ids(after, ids["client_id"]) == set()
+    assert after["open_gaps_total"] == before - 1
+
+
+async def test_export_carries_the_done_state_and_who_checked(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Z pliku nie dało się odczytać, co już zostało rozliczone."""
+
+    first = _far_day(2058, 2061).replace(day=1)
+    ids = await _seed(contract_rate_client=None, start=first, end=None)
+    body = await _month(app_client, app_auth_headers, first, client_id=ids["client_id"])
+    [entry] = body["entries"]
+    checked = await app_client.post(
+        "/api/finance/order-changes/checks",
+        headers=app_auth_headers,
+        json={
+            "year": first.year,
+            "month": first.month,
+            "item_key": entry["item_key"],
+            "done": True,
+        },
+    )
+    assert checked.status_code == 200, checked.text
+
+    export = await app_client.get(
+        f"/api/finance/order-changes/export?year={first.year}&month={first.month}"
+        f"&tab=entries&client_id={ids['client_id']}",
+        headers=app_auth_headers,
+    )
+    assert export.status_code == 200, export.text
+    sheet = load_workbook(io.BytesIO(export.content))["Wejścia (1)"]
+    header = [cell.value for cell in sheet[1]]
+    values = dict(zip(header, [cell.value for cell in sheet[2]]))
+    assert values["Zrobione"] == "Tak"
+    assert values["Odhaczył(a)"]
+    assert values["Odhaczono"] is not None
+
+
+def test_periodic_order_type_is_named_like_in_the_client_orders_tab():
+    """„B2B" w eksporcie myliło się z typem umowy — w Klientach to „Okresowe"."""
+
+    from app.services.finance_order_changes import ORDER_TYPE_LABELS
+
+    assert ORDER_TYPE_LABELS["periodic"] == "Okresowe"
+
+
+def test_export_sheet_titles_fit_excel_limit_and_carry_the_done_columns():
+    """Excel odrzuca tytuł arkusza dłuższy niż 31 znaków — pełna nazwa zakładki
+    „Zamówienia bez kontynuacji (NNN)" by się nie zmieściła."""
+
+    from app.schemas.finance_order_changes import (
+        OrderChangesCounts,
+        OrderChangesPeriod,
+        OrderChangesResponse,
+    )
+    from app.services.finance_order_changes import build_order_changes_workbook
+
+    empty = OrderChangesResponse(
+        period=OrderChangesPeriod(year=2026, month=9, label="Wrzesień 2026"),
+        counts=OrderChangesCounts(changes=0, entries=0, exits=0, ending=0, gaps=0),
+        changes=[],
+        entries=[],
+        exits=[],
+        ending_orders=[],
+        gaps=[],
+        gaps_tracked_since=date(2026, 8, 1),
+        open_gaps_total=0,
+    )
+    workbook = load_workbook(io.BytesIO(build_order_changes_workbook(empty)))
+    assert all(len(name) <= 31 for name in workbook.sheetnames)
+    assert "Bez kontynuacji (0)" in workbook.sheetnames
+    for sheet in workbook.worksheets:
+        header = [cell.value for cell in sheet[1]]
+        assert header[-3:] == ["Zrobione", "Odhaczył(a)", "Odhaczono"], sheet.title

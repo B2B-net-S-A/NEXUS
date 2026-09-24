@@ -153,7 +153,9 @@ export function FinanceResultsTab({ canWrite = true }: { canWrite?: boolean }) {
               value={formatMoney(totals?.margin ?? null)}
               sub={
                 totals?.avg_margin_pct != null
-                  ? `Suma „Marża PLN” z arkusza · śr. marża ${formatPct(totals.avg_margin_pct)}`
+                  ? // Marża % miesiąca = Σ marży / Σ faktur (ważona przychodem,
+                    // liczy serwer) — nie średnia procentów wierszy.
+                    `Suma „Marża PLN” z arkusza · marża ${formatPct(totals.avg_margin_pct)} przychodu`
                   : "Suma „Marża PLN” z arkusza"
               }
             />

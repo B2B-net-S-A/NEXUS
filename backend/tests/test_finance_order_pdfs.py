@@ -330,3 +330,58 @@ async def test_finance_role_can_list(app_client: AsyncClient):
     headers = await _headers_for(app_client, "finance")
     resp = await app_client.get("/api/finance/order-pdfs/months", headers=headers)
     assert resp.status_code == 200
+
+
+async def test_cancelled_md_order_is_not_listed_zipped_nor_downloadable(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Anulowane zamówienie MD/kosztowe wpadało do „Zamówień PDF" jako „Nowy"."""
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.client import Client
+    from app.models.client_order_group import ClientOrderGroup
+    from app.services import storage_service
+
+    month = _far_month()
+    suffix = uuid.uuid4().hex[:6]
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"FinPdf anul {suffix}")
+        db.add(client)
+        await db.flush()
+        person = await _person(db, client.id, f"Anul{suffix}")
+        live = ClientOrderGroup(
+            client_id=client.id, order_number=f"L-{suffix}", start_date=month
+        )
+        cancelled = ClientOrderGroup(
+            client_id=client.id,
+            order_number=f"C-{suffix}",
+            start_date=month,
+            status="cancelled",
+            status_before_cancel="active",
+        )
+        db.add_all([live, cancelled])
+        await db.flush()
+        _attach(live, storage_service.save_client_order_group_po, "zywe.pdf")
+        _attach(cancelled, storage_service.save_client_order_group_po, "anul.pdf")
+        db.add(
+            _order(
+                client.id,
+                person.id,
+                order_group_id=cancelled.id,
+                status=ClientOrderStatus.cancelled,
+            )
+        )
+        await db.commit()
+        client_id, live_id, cancelled_id = client.id, live.id, cancelled.id
+
+    body = await _month(app_client, app_auth_headers, month)
+    [bucket] = [c for c in body["clients"] if c["client_id"] == client_id]
+    listed = {(f["kind"], f["id"]) for f in bucket["files"]}
+    assert ("group", live_id) in listed
+    assert ("group", cancelled_id) not in listed
+
+    gone = await app_client.get(
+        f"/api/finance/order-pdfs/group/{cancelled_id}/file",
+        headers=app_auth_headers,
+    )
+    assert gone.status_code == 404

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, Loader2, RotateCcw } from "lucide-react";
 
+import { AppModal } from "@/components/ds/AppModal";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/Toast";
@@ -34,6 +35,11 @@ export function FinanceArchiveTab({ canWrite = true }: { canWrite?: boolean }) {
   const { showToast } = useToast();
   const queryClient = useQueryClient();
   const [busyId, setBusyId] = useState<number | null>(null);
+  // Potwierdzenie w oknie aplikacji — natywny `confirm` zamraża automatyzację
+  // przeglądarki (testy E2E, przeklikanie), a jego treści nie da się ostylować.
+  const [pendingRestore, setPendingRestore] = useState<FinanceImportRun | null>(
+    null,
+  );
 
   const { data, isLoading, isError, refetch } = useQuery<FinanceImportRun[]>({
     queryKey: ["finance-imports"],
@@ -43,6 +49,7 @@ export function FinanceArchiveTab({ canWrite = true }: { canWrite?: boolean }) {
   const restore = useMutation({
     mutationFn: (runId: number) => financeApi.restoreImport(runId),
     onSuccess: () => {
+      setPendingRestore(null);
       showToast("Wersja przywrócona jako aktualna", "success");
       queryClient.invalidateQueries({ queryKey: ["finance-imports"] });
       queryClient.invalidateQueries({ queryKey: ["finance-periods"] });
@@ -159,15 +166,7 @@ export function FinanceArchiveTab({ canWrite = true }: { canWrite?: boolean }) {
                       type="button"
                       title="Przywróć jako aktualny"
                       disabled={restore.isPending}
-                      onClick={() => {
-                        if (
-                          confirm(
-                            `Przywrócić wersję z ${formatDateTime(run.created_at)} jako aktualną dla ${run.label}?`,
-                          )
-                        ) {
-                          restore.mutate(run.id);
-                        }
-                      }}
+                      onClick={() => setPendingRestore(run)}
                       className="rounded p-1.5 text-muted-foreground hover:bg-muted disabled:opacity-50"
                     >
                       <RotateCcw className="h-4 w-4" />
@@ -179,6 +178,47 @@ export function FinanceArchiveTab({ canWrite = true }: { canWrite?: boolean }) {
           ))}
         </tbody>
       </table>
+      {pendingRestore && (
+        <AppModal
+          open
+          onOpenChange={(next) => {
+            if (!next && !restore.isPending) setPendingRestore(null);
+          }}
+          title="Przywrócić tę wersję?"
+          footer={
+            <>
+              <button
+                type="button"
+                onClick={() => setPendingRestore(null)}
+                disabled={restore.isPending}
+                className="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-muted disabled:opacity-50"
+              >
+                Anuluj
+              </button>
+              <button
+                type="button"
+                onClick={() => restore.mutate(pendingRestore.id)}
+                disabled={restore.isPending}
+                className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
+              >
+                {restore.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                Przywróć
+              </button>
+            </>
+          }
+        >
+          <div className="space-y-2 text-sm">
+            <p>
+              Wersja z <strong>{formatDateTime(pendingRestore.created_at)}</strong>{" "}
+              stanie się aktualna dla <strong>{pendingRestore.label}</strong>.
+            </p>
+            <p className="text-muted-foreground">
+              Obecna wersja nie zostanie usunięta — trafi do Archiwum ze statusem
+              „Zastąpiony” i można ją przywrócić.
+            </p>
+          </div>
+        </AppModal>
+      )}
     </div>
   );
 }
