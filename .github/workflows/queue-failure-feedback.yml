@@ -1,0 +1,74 @@
+name: Queue failure feedback
+
+# Czerwony bieg CI w kolejce merge'ów (`merge_group`) wyrzuca PR z kolejki, ale
+# checki SAMEGO PR-a zostają zielone. Sesja Claude'a, która pilnuje PR-a
+# (auto-fix patrzy na checki PR-a), nic nie wie, a `auto-enqueue` po następnym
+# pushu wrzuca PR z powrotem na ten sam błąd. Zmierzone 23–24.09.2026: 62 z 99
+# biegów CI w kolejce czerwone w 27 h, PR-y wyrzucane po 4–6 razy.
+#
+# Ten workflow po czerwonym biegu kolejki:
+#   * ustawia status commita „Kolejka merge'ów” = failure na HEAD każdego
+#     otwartego PR-a z grupy (link do biegu) — PR wygląda na czerwony, więc
+#     auto-fix sesji się budzi. Status znika sam przy nowym commicie.
+#     NIE jest wymaganym kontekstem i nie ma być (ruleset nietknięty);
+#   * dopisuje/aktualizuje komentarz (znacznik <!-- queue-failure-feedback -->)
+#     z listą czerwonych testów i PR-ami z grupy.
+#
+# `workflow_run` biegnie z definicji z maina i robi checkout maina — kod
+# z gałęzi kolejki nie jest tu wykonywany. Do ręcznej próby / uzupełnienia:
+# „Run workflow” z `run_id` (i `dry_run`, który tylko wypisuje).
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: ["gh-readonly-queue/**"]
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "ID biegu CI z kolejki (merge_group, failure)"
+        required: true
+      dry_run:
+        description: "Tylko wypisz, co zostałoby wysłane"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: queue-failure-feedback-${{ github.event.workflow_run.id || inputs.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  feedback:
+    name: Informuj PR-y o wypadnięciu z kolejki
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch'
+      || (github.event.workflow_run.event == 'merge_group'
+          && github.event.workflow_run.conclusion == 'failure') }}
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: write
+      statuses: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+      - name: Status i komentarz na PR-ach z grupy
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id || inputs.run_id }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+          args=(--repo "$REPO" --run-id "$RUN_ID")
+          if [ "$DRY_RUN" = "true" ]; then
+            args+=(--dry-run)
+          fi
+          python3 .github/scripts/queue_failure_feedback.py "${args[@]}"
