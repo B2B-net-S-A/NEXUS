@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/api/finance", () => ({
@@ -66,5 +66,34 @@ describe("FinanceArchiveTab section access", () => {
     renderTab(true);
 
     expect(await screen.findByTitle("Przywróć jako aktualny")).toBeInTheDocument();
+  });
+});
+
+describe("FinanceArchiveTab — przywrócenie wersji", () => {
+  it("pyta w oknie aplikacji, nie natywnym confirm (zamraża automatyzację)", async () => {
+    const nativeConfirm = vi.spyOn(window, "confirm");
+    vi.mocked(financeApi.restoreImport).mockResolvedValue({ data: {} } as never);
+    renderTab(true);
+
+    fireEvent.click(await screen.findByTitle("Przywróć jako aktualny"));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent("Sierpień 2026");
+    expect(nativeConfirm).not.toHaveBeenCalled();
+    expect(financeApi.restoreImport).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Przywróć" }));
+    await waitFor(() => expect(financeApi.restoreImport).toHaveBeenCalledWith(7));
+    nativeConfirm.mockRestore();
+  });
+
+  it("anulowanie okna niczego nie przywraca", async () => {
+    renderTab(true);
+
+    fireEvent.click(await screen.findByTitle("Przywróć jako aktualny"));
+    fireEvent.click(await screen.findByRole("button", { name: "Anuluj" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(financeApi.restoreImport).not.toHaveBeenCalled();
   });
 });
