@@ -264,7 +264,7 @@ Reguły, które łatwo cofnąć:
 - **Codecov flags:** `backend` + `frontend` — separate uploads.
 - **Lint warnings cap:** `next lint --max-warnings=300` — historyczny dług, nie failować na obecnych warningach.
 - **`npm ci --legacy-peer-deps`** w FE (React 19 + niektóre pakiety jeszcze RC).
-- **Kolejka merge'ów — co wyrzucało PR-y i co to teraz łapie (24.09.2026).** Pomiar 23–24.09: 62 z 99 biegów `merge_group` czerwonych, PR-y wypadały 4–6×, bo sito na PR-ze nie widziało testów „całego repo”, a `auto-enqueue` po każdym pushu wrzucał je z powrotem. Teraz: (1) sito zawsze uruchamia strażników `_ALWAYS` w `.github/scripts/select_pr_tests.py` — stemple przewodników i procedury, jedna głowa Alembica (#1768); (2) `auto-enqueue` czyta BIEŻĄCE etykiety/draft z API, nie migawkę ze zdarzenia (#1770); (3) wypadnięcie z kolejki → `queue-failure-feedback.yml` ustawia na head PR-a status „Kolejka merge'ów” = failure i komentarz z listą padniętych testów — to budzi auto-fix sesji właściciela (#1775); co poniedziałek `queue-weekly-report.yml` aktualizuje issue z etykietą `raport-kolejki` (testy wyrzucające PR-y, których sito nie wybiera = kandydaci na reguły sita); (4) kolizja numeru migracji po scaleniu maina → `cd backend && python3 scripts/rechain_migration.py [--dry-run]` przepina migrację PR-a na głowę maina i przenumerowuje TYLKO linie dodane przez PR (#1772); (5) pytest w 12 shardach + Vitest z pokryciem w osobnym jobie `frontend-vitest`, wymagany kontekst „Frontend (typecheck + build)” to bramka zbierająca oba joby — bieg kolejki ~10,7 min zamiast 13 (#1773). Wypadł PR z kolejki = najpierw przyczyna z logów `merge_group`, potem poprawka; samo ponowne `gh pr merge --auto` wraca na ten sam pad.
+- **Kolejka merge'ów — co wyrzucało PR-y i co to teraz łapie (24.09.2026).** Pomiar 23–24.09: 62 z 99 biegów `merge_group` czerwonych, PR-y wypadały 4–6×, bo sito na PR-ze nie widziało testów „całego repo”, a `auto-enqueue` po każdym pushu wrzucał je z powrotem. Teraz: (1) sito zawsze uruchamia strażników `_ALWAYS` w `.github/scripts/select_pr_tests.py` — stemple przewodników i procedury, jedna głowa Alembica (#1768); (2) `auto-enqueue` czyta BIEŻĄCE etykiety/draft z API, nie migawkę ze zdarzenia (#1770); (3) wypadnięcie z kolejki → `queue-failure-feedback.yml` ustawia status „Kolejka merge'ów” = failure WYŁĄCZNIE na head PR-a, którego bieg padł (reszta grupy dostaje sam komentarz), z listą padniętych testów — to budzi auto-fix sesji właściciela (#1775); co poniedziałek `queue-weekly-report.yml` aktualizuje issue z etykietą `raport-kolejki` (testy wyrzucające PR-y, których sito nie wybiera = kandydaci na reguły sita); (4) kolizja numeru migracji po scaleniu maina → `cd backend && python3 scripts/rechain_migration.py [--dry-run]` przepina migrację PR-a na głowę maina i przenumerowuje TYLKO linie dodane przez PR (#1772); (5) pytest w 12 shardach + Vitest z pokryciem w osobnym jobie `frontend-vitest`, wymagany kontekst „Frontend (typecheck + build)” to bramka zbierająca oba joby — bieg kolejki ~10,7 min zamiast 13 (#1773). Wypadł PR z kolejki = najpierw przyczyna z logów `merge_group`, potem poprawka; samo ponowne `gh pr merge --auto` wraca na ten sam pad.
 - **„Dziś” = kalendarz firmy (Europe/Warsaw), kontenery i CI chodzą w UTC.** `business_today()` / `local_now()` z `app/core/scheduling.py`; ruff DTZ011 (`date.today()`) i DTZ005 (`datetime.now()` bez strefy) są włączone dla `app/` i `tests/` (#1771, bramka w `ci-gate.yml`). W testach żadnych dat liczonych przy imporcie modułu (`_TODAY = business_today()` na poziomie modułu, w dekoratorze czy argumencie domyślnym) — pilnuje `tests/test_no_import_time_dates.py`; dawne przypinanie zegara w conftest (`_pin_business_day`) usunięte, bo zamrażało Pythona na 23:59, a `now()` Postgresa szło dalej (23.09: CI czerwone co wieczór 22–24 UTC). Test porównujący czas z Pythona ze znacznikiem nadanym przez bazę bierze punkt odniesienia z bazy (`SELECT now()`). W kodzie aplikacji data kalendarzowa z UTC (`now(timezone.utc).date()`, `strftime('%Y-%m-%d')` na czasie UTC, `.astimezone().date()`, SQL `CURRENT_DATE`) jest zakazana przez `tests/test_no_utc_calendar_date.py` — wyjątek tylko z komentarzem `# dzień UTC celowo: <powód>` (#1779; 17 miejsc przełączonych na Warszawę, m.in. alerty terminów rekrutacji wychodziły dzień za wcześnie między 00:00 a 02:00).
 - **40+ feature branches w remote** — przy `git checkout` weryfikuj że `main` pociągnięty (`git fetch && git log origin/main..HEAD`).
 - **Minuty GitHub Actions są płatne od września 2026 — i to NEXUS je zjada.** Pula 50 000 min/mc organizacji `B2B-net-S-A` wyszła: rachunek za wrzesień to 47 273 min, rabat $0.00, $283,64 do zapłaty przy $0,006/min. Z tego **NEXUS to 46 784 min (99,3%)** — ATLAS 138, COMPASS 117, ELEVATE 92. Rozkład (zmierzone z jobów 16–20.09, pokrywa 91% kwoty): **CI 83,7%** (4 shardy pytest 14 470 min + frontend 3 677 min = 96% kosztu CI; od 22.09 pełny bieg tylko w kolejce), E2E 8,9%, CI Gate 5,5%, Deploy 1,5%, crony 0,4%. Crony NIE są problemem — pięć dni roboczych fali naprawczej (14–18.09) to 42 565 min, czyli 90% miesięcznej puli; weekendy po 24–30 min. Cztery cięcia z 20.09, każde z kontraktem w `test_ci_deploy_workflows_contract.py`: (1) **pełne CI zdjęte z `push: main`** — od włączenia kolejki merge'ów `merge_group` waliduje DOKŁADNIE to drzewo, które ląduje na mainie, więc przebieg na push był trzecim wykonaniem tego samego kodu (3 946 min / 5 dni = 18% rachunku); bramką deployu było i jest „CI Gate”, więc nic się nie odbramkowało, ale **tracimy sygnał „main się zepsuł” PO merge'u — gdyby kolejka została wyłączona, `push: branches: [main]` MUSI tu wrócić**; (2) **E2E przeniesione z każdego PR-a do kolejki** (1 506 min / 5 dni za 226 przebiegów, z których czerwone były 3, przy zerowym bramkowaniu — nie jest wymaganym kontekstem); (3) **filtr ścieżek na frontendzie** — 25% PR-ów nie tyka frontendu (29 z 116, zmierzone prawdziwym skryptem filtra uruchomionym z katalogu joba), oszczędza ~16 z 17 min; (4) `claude-review.yml` usunięty (174 przebiegi w 5 dni, wszystkie `skipped` przy `CLAUDE_ENABLED=false`).
@@ -793,6 +793,9 @@ Wszystko w `components/v2/pages/B2BContractGeneratorV2.tsx`.
   wyłącznie `EXCEPTION WHEN duplicate_object`, więc poszerzenie katalogu nigdy by na
   prodzie nie zadziałało — dołożony DROP przed ADD. Obie tabele B2B są w `core_checks`
   `/api/health/deep`.
+- **`link-contract` wymaga zapisu u klienta WIERSZA**, odrzuca wiersze z Excela
+  i kontrakt innej osoby (klucz `candidate_identity_key`; zdublowany rekord tej
+  samej osoby przechodzi — ticket 1460) (audyt 24.09.2026).
 - **Poprawki po audycie 23.09.2026** (`test_b2b_generator_audit_2026_09_23.py`):
   - **Numer nigdy nie wraca do puli.** Usunięty wpis zostawia `Activity`
     `deleted` z numerem (`_deleted_contract_numbers`): `/render` odmawia 409
@@ -3092,6 +3095,22 @@ Makiety: https://claude.ai/artifact/1gapo2YTWp7oYbZp9pBdBo (decyzje Artura
   stawka tylko dla ról, które ją widzą, historia u tego klienta; bez danych
   kontaktowych, stała liczba zapytań, ≤ 100 osób. „Policz dopasowanie dla N”
   idzie przez `useVisibleMatchScores` (paczki po 20).
+- **Ramka „Następny etap” i okno „Przesuń dalej” mają JEDNĄ regułę przycisku**
+  (`lib/move-primary.ts`, `planPrimaryStep`): `hand_to_dl`/`hand_to_cpro` =
+  przekazanie na etap `primary.target_stage_def_id`, `blocked` = przycisk
+  wyłączony z powodem. Wymagania czyta WYŁĄCZNIE `useMoveRequirements` — drugi
+  obserwator z atrapą `queryFn` zerował ramkę po `invalidateQueries` (audyt
+  24.09.2026).
+- **„Mój ruch” = karty z plakietką „Twój ruch”** (`cardNextStep(...).mine`), a
+  nawigator doku „N z M” idzie w kolejności widocznej Tablicy
+  (`lib/board-dock-order.ts`). U Nordei osoby w kolejce Cpro liczą się osobno
+  („N w kolejce Cpro”), nie jako praca w QC.
+- **Status „Zamknięta” przy zakresie „Otwarte” przełącza listę na „Wszystkie”**
+  (`scopeForStatuses`); stan pracy w wierszu listy to `ROW_STATE_LABEL`
+  („Praca: …”). Ponowne otwarcie rekrutacji w NEXUSIE zmienia `finished` na
+  `to_review`.
+- **Nową stronę dopisz do `SEGMENT_LABELS` w `BreadcrumbV2.tsx`** — test czyta
+  katalog `app/` i odrzuca segment bez polskiej nazwy.
 
 ## Rekrutacja v5 — 8 kolumn, strzałka „Przesuń dalej”, QC CV, firmowa kolejka Cpro (0361, 24.09.2026)
 
@@ -3149,7 +3168,11 @@ osobę od Cpro per rekrutacja (0353) i kolejkę „Czeka na DZ” (0348).
   liczy tą samą regułą.
 - **Rekrutacja bez DL-a dostaje głównego DL-a klienta**
   (`services/job_delivery_lead_fill.py`, 24.09.2026): tylko `draft`/`published`,
-  tylko puste pole (nigdy nadpis), główny DL (`is_head`, aktywny). Woła ją start
+  główny DL (`is_head`, aktywny). DL wpisany ręcznie nigdy nie jest nadpisywany;
+  DL wpisany przez automat (`jobs.delivery_lead_auto_filled`, 0376 — fill i POST
+  z głównym DL-em klienta) idzie za zmianą głównego DL-a, a ręczna zmiana
+  w PATCH zeruje znacznik. Nieaktywny DL rekrutacji = brak DL-a: przegląd DL idzie
+  do portfela klienta, alert DL-owy do HoR. Woła ją start
   aplikacji, faza `jobs` importu Traffita i przypisanie/zmiana głównego DL-a
   klienta. Zamkniętych nie rusza — statystyki DL liczą je przez tego samego
   głównego DL-a. Skutek: alerty DL-owe tych rekrutacji idą do DL-a, nie do HoR.
@@ -3197,6 +3220,10 @@ lista w „Czeka na Ciebie” (`followups` w `GET /api/board-tasks`), pole
   `candidate_followup_signal` do właścicieli procesów oznaczonych jako
   „rezygnuje” (albo do wszystkich), z pominięciem dzwoniącego. Etapu nie
   zmienia.
+- Request „Zakończony” (`jobs.work_state = 'finished'`) nie daje follow-upów.
+  Dzwonek `candidate_followup_signal` to jeden wpis na właściciela ze wszystkimi
+  jego procesami; drugi sygnał tego samego dnia dopisuje się do dzisiejszego
+  wpisu i oznacza go jako nieprzeczytany (dobowy dedup go nie połyka).
 - Awaria liczenia NIE kładzie pulpitu ani Tablicy (`load_followups_safely`:
   savepoint, log, pusta lista). „Moje następne kroki” (do 25 tablic) liczy
   tablice bez follow-upów (`with_followups=False`).
@@ -3564,6 +3591,14 @@ z kategorią, brak urlopów z Compassa, jednorazowa kolejka przy handoffie) —
   `jobs.recruiter_id`, jeśli puste. Bez świeżych urlopów z Compassa `auto`
   nie przydziela nowych (shadow proponuje dalej). Pętla działa dopiero przy
   `RECRUITMENT_ALLOCATION_ENABLED=true`.
+- **Zwolnienie automatu jest trwałe w bieżącym stanie requestu** (audyt
+  24.09.2026): osoba zwolniona przez automat (urlop, „Poza przydziałem”) nie
+  wraca adopcją jako `owner` (`_auto_released`), zwolnienie rekrutera automatu
+  zdejmuje też prowadzącego, którego automat wpisał, a wiersz `owner`
+  nieaktywnego konta jest zwalniany. „Ile pasujących w bazie” = otwarte
+  propozycje `full_base`, nie istnienie przeglądu. Ręczne dodanie i zdjęcie
+  z pulpitu biorą `allocation_lock` przed blokadą rekrutacji. „Klient milczy”
+  przypomina się co 14 dni od ostatniego wysłania (`stats.silent_reminded`).
 - **„Kto pracuje” = `job_work_assignments`** (wiersz nigdy nie jest kasowany,
   zdjęcie = `released` z powodem — z tego liczą się „Zmiany od wczoraj”).
   NIE `job_collaborators` (auto_cc = cała kategoria) i NIE plan priorytetów.
@@ -4077,6 +4112,14 @@ który topnieje wraz z miesięcznymi raportami z Finansów. Migracja `0227`.
   trwałego wiersza niejednoznaczność przepadłaby razem z odpowiedzią HTTP.
   Tokeny nazwiska są **zbiorem** (nie listą) — arkusze piszą raz „Jan Kowalski", raz
   „Kowalski Jan". Normalizacja z `candidate_identity_quarantine.normalize_person_name_part`.
+- **Import MD po audycie 24.09.2026:** linie BIK/Polkomtela spoza okresu wchodzą do
+  puli wiersza wyłącznie, gdy numer z „Uwag” jest numerem ich zamówienia
+  (`_md_row_pool`). Przekroczenie puli sprawdza całą rodzinę linii zamówienia
+  (następca zamiany, cel przeniesienia) i obowiązuje też w replayu Polkomtela,
+  przywróceniu linii i zatwierdzaniu wspólnej puli (tam także FIN-MD-07).
+  Statusy wierszy: „Bez zamówienia MD” (szary), „Rozliczono kwotowo”, „Brak
+  pasującego zamówienia” tylko dla numeru, którego nie ma; liczniki nagłówka
+  liczy `lib/md-import-row-tone.ts`.
 - **Parser XLSX szuka nagłówka po synonimach** i przemiata wszystkie arkusze (raporty często
   zaczynają się arkuszem tytułowym). Miesiąc wybiera OPERATOR — nazwy plików kłamią dokładnie
   wtedy, gdy import dotyczy okresu zaległego. Wiersze nieczytelne trafiają do `skipped_rows`,
@@ -4614,6 +4657,12 @@ i zwroty sprzętu, dla których kart nie ma. Panel `MyClientsAlertsPanel` (`pres
      liczby co paski `MdScopeBars`). **Bez eskalacji i bez maila** — wysoki
      priorytet ma `md_budget_low`; w paśmie, gdzie oba warunki są spełnione, DL
      widzi dwie karty i to jest zamierzone.
+- **Dzwonek 30/14/7 (`_scan_orders`) i kafel pulpitu „kończy się w 30 dni”**
+  wołają regułę z `include_date_closed_lines=True`: linie zamówień BEZ budżetu
+  MD (kosztowe) liczą się u KAŻDEGO klienta, bo `_promote_statuses` domyka je
+  datą. Karta w panelu DL ich nie obejmuje. Kontynuacją „do wyczerpania budżetu
+  MD” jest wyłącznie linia zamówienia MD (`order_group_id IS NOT NULL`), nigdy
+  samodzielne zamówienie okresowe z `md_total` (audyt 24.09.2026).
 - **`DL_ALERT_MD_THRESHOLD=21` zostaje GLOBALNY i bezwzględny** — `md_base_usage_high`
   go nie zastępuje ani nie konfiguruje per klient. „Mało MD" ma znaczyć to samo
   w każdym raporcie (pilnuje `test_md_threshold_is_global_not_per_client`);
@@ -4903,6 +4952,11 @@ krótkie przedłużenie kończące się w oknie zostawia kartę z plakietką
 jest już czytany przez tę zakładkę** — liczył po zamówieniu z najpóźniejszym
 startem i wskazywał plakietką złe zamówienie. Rodzinę grup buduj z PEŁNEJ listy
 (`buildOrderGroupFamilies`), nie z podzbioru po filtrze pigułki.
+Filtr „kończy się w ciągu N dni” czyta `next_ending_without_successor_days`
+z serwera (najbliższe zamówienie bez kontynuacji, bez górnej granicy dni), nie
+lokalną regułę — ta widziała zredagowane `rate_client` (audyt 24.09.2026).
+Pigułka „Anulowane” obejmuje kontraktora tylko wtedy, gdy nie ma żadnego
+zamówienia aktywnego, wstrzymanego ani szkicu.
 
 ## Umowa B2B jest bezterminowa, dopóki ktoś jej ręcznie nie zakończy (11.09.2026)
 
@@ -5202,11 +5256,16 @@ fail-closed:
 | Orlen | `ORLEN_ORDER_EXTRACTION_CLIENT_IDS` (+ kanoniczne ID 35) | wspólna stawka on/off-site tej samej osoby; MD z PDF zawsze pomijane |
 | PFRON | `PFRON_ORDER_EXTRACTION_CLIENT_IDS` (+ kanoniczne ID 122) | okres wyłącznie z jawnej daty końca usług; brutto → netto |
 | BIK | `BIK_ORDER_CLIENT_IDS` (+ kanoniczne ID 18) | numer/data z „Numer/data zamówienia” (start = data, koniec = bezterminowo); każda „Poz.” = osoba z własnym limitem MD („Ilość zamów.”, SZT) i stawką PLN/MD („Cena jednostk.”); wartości netto tylko do kontroli |
-| Polkomtel | `POLKOMTEL_ORDER_EXTRACTION_CLIENT_IDS` (+ kanoniczne ID 15) | „Zlecenie wykonawcze": numer = skrót + numer po „nr" do ukośnika („SAP 4500123456"); start z „zawarte w dniu …", koniec zawsze bezterminowo; reguły działają WYŁĄCZNIE na dokumencie z nagłówkiem „ZLECENIE WYKONAWCZE nr" (inny szablon = odczyt ogólny + uwaga); tabela „Cena netto 1MD po upuście \| Cena total \| Konsultant" czytana jako STRUMIEŃ KOMÓREK (PDF: wiersz w linii, komórka scalona osobno; DOCX: komórka = linia, scalona powtórzona), kolejność kolumn z nagłówka (kotwicą „Cena netto", nagłówek osoby = całe słowo „Konsultant"); dwie kwoty w wierszu = stawka + kwota osoby TYLKO z dowodem (każdy wiersz ma parę, kwota osoby > stawki, suma = „na kwotę"), inaczej wiersz niepewny — nigdy zgadywanie; odczyt modelu jest drugim, niezależnym czytelnikiem (inna stawka tej osoby albo osoba spoza tabeli → do sprawdzenia); stawka zawsze netto za MD; „na kwotę …"/„Cena total" = kwota CAŁEGO zlecenia; MD: kolumna przy osobie albo jedna liczba („pracochłonność … MD"); brak MD w kosztowym = poprawny odczyt; `closes_on_md_exhaustion` |
+| Polkomtel | `POLKOMTEL_ORDER_EXTRACTION_CLIENT_IDS` (+ kanoniczne ID 15) | „Zlecenie wykonawcze": numer = skrót + numer po „nr" do ukośnika („SAP 4500123456"); start z „zawarte w dniu …", koniec zawsze bezterminowo; reguły działają WYŁĄCZNIE na dokumencie z nagłówkiem „ZLECENIE WYKONAWCZE nr" (inny szablon = odczyt ogólny + uwaga); tabela „Cena netto 1MD po upuście \| Cena total \| Konsultant" czytana jako STRUMIEŃ KOMÓREK (PDF: wiersz w linii, komórka scalona osobno; DOCX: komórka = linia, scalona powtórzona), kolejność kolumn z nagłówka (kotwicą „Cena netto", nagłówek osoby = całe słowo „Konsultant"); dwie kwoty w wierszu = stawka + kwota osoby TYLKO z dowodem (każdy wiersz ma parę, kwota osoby > stawki, suma = „na kwotę"), inaczej wiersz niepewny — nigdy zgadywanie; odczyt modelu jest drugim, niezależnym czytelnikiem (inna stawka tej osoby albo osoba spoza tabeli → do sprawdzenia); stawka zawsze netto za MD; „na kwotę …"/„Cena total" = kwota CAŁEGO zlecenia; MD: kolumna przy osobie albo jedna liczba („pracochłonność … MD"); brak MD w kosztowym = poprawny odczyt; `closes_on_md_exhaustion`; przywracanie stawki sprzed ÷1,23 tylko w „Zleceniu wykonawczym nr” (inny dokument → ogólne rozpoznanie brutto/netto) |
 | Cyfrowy Polsat | `CYFROWY_POLSAT_ORDER_EXTRACTION_CLIENT_IDS` (+ kanoniczne ID 38339) | wyłącznie numer tą samą regułą („CP 1234"); okres i stawki — odczyt ogólny (CP ma też zamówienia okresowe) |
 | Alior | `ALIOR_ORDER_EXTRACTION_CLIENT_IDS` | tylko 4 pola: „Zamówienie nr:”, nazwisko z kolumny konsultanta, okres z nawiasu pod nazwiskiem (inaczej „Moment wejścia w życie” / „czas oznaczony”), stawka z „Razem stawka dla Banku” za MD; zawsze netto, jawne „brutto” w tabeli → weryfikacja bez ÷1,23; Roboczodni/Stawka bazowa/Marża/Total ignorowane |
 | PKO BP | `PKO_BP_ORDER_EXTRACTION_CLIENT_IDS` | numer z „Zamówienie nr”; tabela Wykonawców: nazwisko WYŁĄCZNIE z kolumny osoby — profil jednoliniowy („Tester Middle”) pdfplumber wstawia w linię wiersza między nazwisko a daty i jest odcinany słownikiem słów profilu (granica niepewna = wiersz do sprawdzenia; nazwisko sklejone w odczycie modelu/zapisanym prostowane do tabeli przy „Przelicz plan”, `reapply_on_refresh`); okres z „Początek/Planowany Koniec Zaangażowania”; stawka z „Stawka PLN/MD netto” zawsze netto (bez ÷1,23 i bez pytania brutto/netto; „brutto” łącznej wartości nie ma wpływu), jawne „PLN/MD brutto” w nagłówku → weryfikacja; gwiazdka „stawka negocjowana” pomijana |
 
+- **„Przelicz plan” podaje regule `reapplied=True` tylko wtedy, gdy reguła już
+  działała na zapisanym odczycie** (`not policies_pending`) — dokument Nordei
+  rozpoznany dopiero przy ponownej weryfikacji nie dostaje trwałego powodu
+  „odczyt sprzed zmiany reguły”. Ręczne „Zastosuj” odmawia wiersza ze stawką
+  bez jednostki (audyt 24.09.2026).
 - **„Brak liczby MD" nie jest zastrzeżeniem ODCZYTU — o wymaganych polach decyduje
   typ zamówienia** (ticket Polkomtel 09.2026). Model czyta PDF bez wiedzy o typie
   i przy zamówieniu kosztowym zgłaszał „brak informacji o liczbie MD". Trzy warstwy:
@@ -5248,6 +5307,13 @@ fail-closed:
   alertami). Korekta przywracająca komuś MD wskrzesza grupę automatycznie —
   tylko zakończoną automatycznie; ręczne „Przywróć” takiej grupy daje 409
   z instrukcją. Siatka: dobowy skaner i `GET …/order-groups` (reconcile).
+- **Zamówienie zakończone wyczerpaniem ma `closure_date` = dzień przeliczenia**
+  (nie koniec miesiąca zejścia) — inaczej `group_settles_in_month` odrzuca
+  import za bieżący miesiąc (audyt 24.09.2026). Sprawa offboardingu z pulą 0 MD
+  zamyka się sama (`md_pool_used_up`, payload `automatic`) i zamyka swój alert,
+  ale NIE w trakcie decyzji człowieka — decyzja DL i przejęcie osłaniają linię
+  (`offboarding_decision_in_progress` w `session.info`). Sprawa automatyczna nie
+  blokuje „Cofnij zakończenie” — cofnięcie usuwa ją jak nierozstrzygniętą.
 - **Nordea i Alior mają tabelę osób jako źródło prawdy** (`table_authoritative`
   w rejestrze): formularze czytają wszystkie osoby tak jak mail (parser
   all-rows, osobę wybiera polityka), a „Przelicz plan” stosuje regułę ponownie
@@ -5783,6 +5849,20 @@ Decyzje D1–D7 i pełna specyfikacja: `docs/insights-dynareporter-migration-pla
   zarządu (`kpi_email_reports._BOARD_ROLES`) idzie tylko do admina i Finansów.
   `/api/competitions/monthly-races` nie oddaje marży/h z rozstrzygania remisu
   (`_MARGIN_EXTRAS`) — do 24.09 widział ją każdy zalogowany.
+- **Tabele osób bez kont administracyjnych** (24.09.2026): Zespół → Ludzie,
+  Aktywność zespołu, Analiza placementów i Time-to-hire biorą role Hall of Fame
+  + Talent Community Manager (`services/insights_person_scope.py`,
+  `PEOPLE_TABLE_ROLES`). Konta bez takiej roli to jeden wiersz „Konta
+  administracyjne”, sumy firmy bez zmian. Nowa tabela osób = ten sam helper.
+- **Precyzja (30 dni) to kohorta**: z par zweryfikowanych w 30 dniach, ile doszło
+  do „CV wysłane” (`kpi_panel.PRECISION_COHORT_CTE`, Zespół i Mój miesiąc).
+  Nigdy ponad 100% (do 24.09 było 900%). Konwersja w Lejku po etapach liczy się
+  względem ostatniego etapu, przez który ludzie przeszli (`stageConversion`).
+- **Link z widoku do raportu niesie okres** (`reportHref(id, period)`); przy
+  liczbach o świadomie innej definicji (Liga DL: kwartał, rekrutacje zamknięte;
+  Portfele DL: rok, wszystkie zapytania) stoi zdanie „liczone: …”. Tabela DL
+  w Zespole liczy rok. „Do uwagi” cache'uje 5 min; „bez ruchu” pomija requesty
+  „Zakończone” i „Klient milczy”.
 - **Widok Zespół ma własne trasy** (`api/insights_team_signals.py`, capability
   `VIEW_TEAM_KPI`): `/team/people` (atrybucja verifier-anchored jak wyścigi
   i „Mój miesiąc", precyzja 30 dni, weryfikacje na dzień roboczy, placementy
@@ -6830,6 +6910,13 @@ dokumenty i umowa → edycja (program do 10 dni roboczych). Decyzje Artura
   z cytatem obecnym w CV. **Filtra po „polskim” imieniu/nazwisku, narodowości
   i wieku NIE budujemy** (dyskryminacja — odmowa 24.09.2026); model nie
   dostaje narodowości z profilu i ma zakaz wnioskowania z imienia.
+- **Po audycie 24.09.2026:** cytat Luny musi zawierać rok pracy albo rok
+  ukończenia studiów, a przy polskim — słowo o języku (przy „podstawowy” także
+  poziom); stanowisko profilu bez daty końca dalej niż na 1. pozycji = „bez dat”.
+  Zbiorcze „Zatwierdź” odrzuca tylko osoby, które nadal mają `new` + `skip`.
+  Scalanie kandydatów: odrzucenie wygrywa z nowszym zgłoszeniem. Lista
+  zgłoszeń: najpierw osoby w toku, najnowsi pierwsi; limit ucina najstarszych
+  zamkniętych, a ekran mówi „Pokazano N z M”.
 - **Dokumenty** (`POST /api/academy/applications/{id}/documents`, ZIP: umowa,
   zał. 1 harmonogram, oświadczenie, regulamin, protokół Manuala) od etapu
   „zaliczył zadanie”. **PESEL i adres idą wyłącznie do pliku** — nie do bazy
@@ -6870,10 +6957,23 @@ https://claude.ai/artifact/2cF9QaY3YwoezR8dU8ga7x, kontrakt
   dopasowań):** `employment_only` chowa ZAWSZE (niezależnie od wyłącznika
   rubryk); zgoda na niższy budżet / więcej dni w biurze zostawia osobę
   widoczną z `rate_fit="below_min_consented"` / `office_fit="over_consented"`;
-  `part_time_only` przy rekrutacji `fulltime` i `full_time_only` przy
-  `parttime` = `work_time_mismatch`. `Job.work_mode` z Traffita to zawsze
+  sprzeczny wymiar pracy (`part_time_only` przy `fulltime`, `full_time_only`
+  przy `parttime`) NIE ukrywa — wiersz niesie plakietkę `work_time_fit`
+  (decyzja Artura 24.09.2026; licznik `work_time_mismatch` zostaje w
+  `meta.hidden` i jest zawsze 0). `Job.work_mode` z Traffita to zawsze
   `fulltime` — świadomie traktowane jako pełny etat (decyzja). Zmiana semantyki
   bramek = bump `MUST_GATE_POLICY_VERSION`.
+- **Fakty z rozmowy da się poprawić** (audyt 24.09.2026): pasek faktów profilu
+  („Popraw”, `PATCH /api/candidates/{id}/call-facts`, bramka faktów profilu,
+  `Activity candidate_call_facts_corrected`). Każda zmiana stawki spoza telefonu
+  praktykanta (`write_profile_rate`) czyści `accepts_below_min_rate`.
+- **Lista dnia bez dziur:** poranny ranking i oddzwonienia „później” przechodzą
+  przed wpisaniem przez twarde warunki puli (`_hard_conditions_sql`); pusta
+  lista jest uzupełniana przy kolejnym `GET /today` (pusty ranking liczony
+  ponownie najwyżej co 10 min). W „podglądzie jako” `GET /today` niczego nie
+  zapisuje (`preview_not_generated`). Przekazanie rekruterowi tylko z dzisiejszej
+  pozycji z wynikiem `call` (409); pominięta propozycja pary wraca do „Do
+  przejrzenia”. Zmiana ról z grupy AAD woła `sync_program_for_roles`.
 - **Pula (jedno zapytanie, `trainee_call_list.pool_sql`):** telefon, nie
   czarna lista, nie „tylko etat”, bez umowy u nas, bez sprawy w „Do
   przedzwonienia”, bez ruchu w opublikowanej rekrutacji (30 dni), bez telefonu
