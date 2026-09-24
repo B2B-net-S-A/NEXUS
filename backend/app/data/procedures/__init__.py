@@ -15,18 +15,19 @@ Stąd ten moduł. Treść mieszka w pliku ``.md`` w repo (widać ją w diffie PR
 a do bazy trafia dwoma kanałami: migracją i safety-netem w ``entrypoint.sh``
 — tak jak każdy inny seed, bo alembic na produkcji bywa osierocony.
 
-``ORDERS_LOGIC_SOURCES`` + ``orders_procedure_stamp.json`` to druga połowa
-mechanizmu: lista plików, których zmiana ma wymusić przegląd instrukcji, wraz
-z ich odciskiem z chwili ostatniego przeglądu. Pilnuje tego test
+``ORDERS_LOGIC_SOURCES`` + ``orders_stamps/`` to druga połowa mechanizmu:
+lista plików, których zmiana ma wymusić przegląd instrukcji, wraz z ich
+odciskiem z chwili ostatniego przeglądu (osobny plik stempla na plik źródłowy,
+patrz ``app/data/review_stamps.py``). Pilnuje tego test
 ``tests/test_orders_procedure_freshness.py``.
+
+Moduł zostaje czystą biblioteką standardową — importuje go
+``scripts/check_stamps.py`` z hooka pre-commit.
 """
 
 from __future__ import annotations
 
-import hashlib
-import json
 from dataclasses import dataclass
-from datetime import date
 from pathlib import Path
 
 _THIS_DIR = Path(__file__).resolve().parent
@@ -203,39 +204,3 @@ ORDERS_LOGIC_SOURCES: tuple[str, ...] = (
     "frontend/src/lib/order-extraction.ts",
     "frontend/src/components/orders/ExtractedConsultants.tsx",
 )
-
-STAMP_PATH = _THIS_DIR / "orders_procedure_stamp.json"
-
-
-def digest_of(relative_path: str) -> str:
-    """SHA-256 pliku z listy obserwowanych, albo ``"missing"``.
-
-    Brak pliku NIE jest wyjątkiem: chcemy, żeby test pokazał ``missing``
-    obok nazwy przeniesionego pliku, zamiast wywalić się stack trace'em,
-    z którego nie widać, o którą pozycję listy chodzi.
-    """
-    path = REPO_ROOT / relative_path
-    if not path.is_file():
-        return "missing"
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def current_digests() -> dict[str, str]:
-    """Odciski obserwowanych plików w bieżącym drzewie."""
-    return {relative: digest_of(relative) for relative in ORDERS_LOGIC_SOURCES}
-
-
-def load_stamp() -> dict:
-    """Zapisany stan z ostatniego przeglądu instrukcji."""
-    return json.loads(STAMP_PATH.read_text(encoding="utf-8"))
-
-
-def write_stamp(reviewed_at: date, digests: dict[str, str]) -> None:
-    """Zapisz nowy stempel (używane przez ``scripts/stamp_orders_procedure.py``)."""
-    payload = {
-        "reviewed_at": reviewed_at.isoformat(),
-        "sources": dict(sorted(digests.items())),
-    }
-    STAMP_PATH.write_text(
-        json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
-    )

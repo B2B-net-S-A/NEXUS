@@ -1961,14 +1961,15 @@ Reguła odczytu zmienia liczby, więc warto znać ją w całości:
 
 ## Skąd wiadomo, że ta instrukcja jest aktualna
 
-Data u góry (**Zgodność z systemem sprawdzona**) to dzień, w którym treść ostatni
-raz porównano z działającym systemem.
+Data u góry (**Zgodność z systemem sprawdzona**) to dzień, w którym treść tej
+instrukcji ostatni raz zmieniono po porównaniu z działającym systemem.
 
 **Zmiana w module zamówień nie może trafić na produkcję, dopóki ktoś nie
-przejrzy tej instrukcji i nie potwierdzi jej nową datą.** Pilnuje tego sama
-aplikacja przy wypuszczaniu zmian — także liczb, które tu padają wprost, jak
-próg „21 MD" i powtórka „co 7 dni". Dzięki temu data u góry nie jest
-deklaracją, tylko warunkiem wypuszczenia zmiany.
+przejrzy tej instrukcji.** Pilnuje tego sama aplikacja przy wypuszczaniu
+zmian — także liczb, które tu padają wprost, jak próg „21 MD" i powtórka
+„co 7 dni". Jeżeli przegląd kończy się poprawką treści, data u góry zmienia
+się na dzień tej poprawki. Jeżeli zmiana w systemie niczego tu nie zmienia,
+data zostaje — instrukcja jest wtedy co najmniej tak aktualna, jak pokazuje.
 
 Jeżeli mimo to zauważysz, że system zachowuje się inaczej, niż tu napisano —
 zgłoś to. To znaczy, że jakaś zmiana ominęła ten przegląd.

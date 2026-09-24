@@ -1,0 +1,4 @@
+{
+  "sha256": "213b6bd7fba6d86d9eb9e4e90d02fc36477044c87595d6117b0894ff8711a2ec",
+  "source": "backend/app/services/order_burn_rate.py"
+}
