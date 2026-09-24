@@ -288,11 +288,27 @@ def test_rate_already_divided_by_vat_returns_to_the_pdf_amount():
         ],
         source="claude",
     )
-    ruled = polkomtel.apply_rate_rules(divided, "")
-    ruled = polkomtel.apply_rate_rules(ruled, "")  # idempotentne
+    ruled = polkomtel.apply_rate_rules(divided, HEAD)
+    ruled = polkomtel.apply_rate_rules(ruled, HEAD)  # idempotentne
     for item in [ruled, *ruled.consultant_rows]:
         assert (item.rate_client, item.rate_client_gross) == (Decimal("840.00"), None)
-    assert policy_by_key("polkomtel").rule_version == "2026-09-24"
+    assert policy_by_key("polkomtel").rule_version == "2026-09-24.2"
+
+
+def test_rate_rule_keeps_gross_net_decision_for_other_templates():
+    """Audyt 24.09.2026: stawka sprzed ÷ 1,23 wraca TYLKO w „Zleceniu
+    wykonawczym nr …" (lustro BIK). Inny szablon od Polkomtela (np. faktura
+    albo pismo z kwotą brutto) idzie ogólnym rozpoznaniem brutto/netto —
+    reguła „zawsze netto" podnosiła tam stawkę o VAT."""
+    divided = OrderExtraction(
+        rate_client=Decimal("682.93"),
+        rate_client_gross=Decimal("840.00"),
+        source="claude",
+    )
+    assert (
+        polkomtel.apply_rate_rules(divided, "Zamówienie 12/2031\n840 zł brutto") is None
+    )
+    assert divided.rate_client == Decimal("682.93")
 
 
 # ── Rejestr ─────────────────────────────────────────────────────────────────

@@ -790,7 +790,11 @@ kosztowe dla kilku osób** (kwota zlecenia jest wspólna — automat jej nie dzi
 zakładasz je w oknie zamówienia, a „Zastosuj” takiego dokumentu odmawia, bo
 powstałyby same szkice bez kwoty) oraz **jedna liczba MD na całe zamówienie dla
 kilku osób** (wspólną pulę MD zakładasz w oknie zamówienia; „Zastosuj” takiego
-dokumentu odmawia, bo każda osoba dostałaby całą pulę). Wartość całego dokumentu trafia na zamówienie tylko
+dokumentu odmawia, bo każda osoba dostałaby całą pulę). „Zastosuj” odmawia też
+wiersza, który ma stawkę, ale **bez jednostki** (np. inna kwota niż w nagłówku
+dokumentu bez „zł/MD” czy „zł/h”) — jednostkę uzupełniasz w oknie zamówienia,
+bo przyjęta po cichu jednostka umowy mogła zapisać stawkę za MD jako
+godzinową. Wartość całego dokumentu trafia na zamówienie tylko
 wtedy, gdy dokument dotyczy jednej osoby i jego stawka nie była brutto (wartość
 całkowita nie jest przeliczana przez 1,23). Przy kilku osobach osoba bez własnej
 stawki albo liczby MD w dokumencie nie dostaje stawki ani MD z nagłówka — pole
