@@ -67,15 +67,29 @@ async def _make_client(
     notes: str | None = None,
     external_id: str | None = None,
 ) -> int:
+    from app.services.inactive_client_cleanup_signals import (
+        code_configured_client_ids,
+    )
+
+    # Na świeżej bazie CI numery klientów są małe i trafiają w ID zaszyte
+    # w kodzie (Polkomtel 15, BIK 18, Orlen 35…) — taki klient jest z definicji
+    # „wstrzymany”, więc test brałby cudzą regułę za swoją. Numer z tej listy
+    # zwalniamy i bierzemy następny z sekwencji.
+    reserved = code_configured_client_ids()
     async with AsyncSessionLocal() as db:
-        client = Client(
-            name=f"Cleanup {tag} {uuid.uuid4().hex[:6]}",
-            notes=notes,
-            external_source="traffit" if external_id else "manual",
-            external_id=external_id,
-        )
-        db.add(client)
-        await db.flush()
+        while True:
+            client = Client(
+                name=f"Cleanup {tag} {uuid.uuid4().hex[:6]}",
+                notes=notes,
+                external_source="traffit" if external_id else "manual",
+                external_id=external_id,
+            )
+            db.add(client)
+            await db.flush()
+            if client.id not in reserved:
+                break
+            await db.delete(client)
+            await db.flush()
         for category in categories:
             db.add(ClientPortfolioScope(client_id=client.id, category=category))
         await db.commit()
