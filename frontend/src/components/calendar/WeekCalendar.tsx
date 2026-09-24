@@ -171,7 +171,18 @@ export default function WeekCalendar() {
 }
 
 // Zamknięcie okna z linku wraca do TEJ zakładki — goły `/calendar` otwiera agendę.
-const WEEK_URL = "/calendar?view=week";
+/**
+ * Adres Tygodnia bez linku do wydarzenia (`event`, `action`) — pozostałe
+ * parametry ekranu (np. `scope`) zostają, inaczej zamknięcie okna cofało
+ * zakres „Cały zespół” do domyślnego.
+ */
+function weekUrl(current: URLSearchParams): string {
+  const next = new URLSearchParams(current.toString());
+  next.delete("event");
+  next.delete("action");
+  next.set("view", "week");
+  return `/calendar?${next.toString()}`;
+}
 
 function CalendarPageInner() {
   const queryClient = useQueryClient();
@@ -223,7 +234,7 @@ function CalendarPageInner() {
         setDeepLinkFailedId(requestedEventId);
         // Zdejmij parametr z adresu: F5 ma wrócić do zwykłego kalendarza,
         // a nie ponawiać nieudany link (komunikat wyżej zostaje na ekranie).
-        router.replace(WEEK_URL);
+        router.replace(weekUrl(searchParams));
       });
     return () => {
       cancelled = true;
@@ -234,7 +245,7 @@ function CalendarPageInner() {
   // F5 otwierałoby je z powrotem, a ponowny klik w TEN SAM link nie zmieniałby
   // wartości parametru i efekt wyżej nie wchodził.
   const clearEventParam = () => {
-    if (eventParam != null) router.replace(WEEK_URL);
+    if (eventParam != null) router.replace(weekUrl(searchParams));
   };
 
   const weekDays = getWeekDays(currentMonday);

@@ -401,6 +401,21 @@ describe("CalendarPage — link ?event=<id> (audyt B39)", () => {
     await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/calendar?view=week"));
   });
 
+  it("zamknięcie okna z linku zachowuje zakres ekranu (?scope=)", async () => {
+    // Produkcja 24.09.2026: „Szczegóły” z panelu Tablicy → zamknięcie okna →
+    // powrót na Tablicę pokazywał „Moi kandydaci” zamiast „Cały zespół”.
+    mocks.search = "scope=all&view=week&event=42";
+    mocks.listEvents.mockResolvedValue({ data: [] });
+    mocks.getEvent.mockResolvedValue({
+      data: eventOn(42, "Rozmowa z linku", "2031-03-10T09:00:00.000Z"),
+    });
+    renderPage();
+
+    await screen.findByRole("dialog", { name: "Rozmowa z linku" });
+    fireEvent.click(screen.getAllByRole("button", { name: "Zamknij" })[0]);
+    await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/calendar?scope=all&view=week"));
+  });
+
   it("&action=feedback otwiera od razu formularz feedbacku zamiast szczegółów", async () => {
     mocks.search = "event=42&action=feedback";
     mocks.listEvents.mockResolvedValue({ data: [] });
