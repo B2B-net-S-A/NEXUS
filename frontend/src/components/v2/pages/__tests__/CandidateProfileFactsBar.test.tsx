@@ -39,7 +39,7 @@ vi.mock("@/store/auth", () => ({
     user ? Array.from(new Set([user.role, ...(user.roles ?? [])])) : [],
 }));
 
-// Fakt „Kontakt” (0371) ma własny test; tu kandydat nie czeka na klienta.
+// Fakt „Kontakt” (0372) ma własny test; tu kandydat nie czeka na klienta.
 vi.mock("@/lib/api/candidateFollowups", () => ({
   useCandidateFollowup: () => ({ data: undefined }),
 }));

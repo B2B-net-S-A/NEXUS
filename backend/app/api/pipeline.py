@@ -1450,6 +1450,15 @@ async def move_candidate(
         await on_candidate_sent(
             db, job_id=data.job_id, candidate_id=stage.candidate_id, stage=legacy_enum
         )
+        # 0371: klient zaprosił na rozmowę / zaakceptował → „Klient milczy”
+        # wraca do „Szukamy kandydatów”. Nigdy nie rzuca.
+        from app.services.request_work_state import (  # noqa: PLC0415
+            wake_on_client_response,
+        )
+
+        await wake_on_client_response(
+            db, job_id=data.job_id, stage=legacy_enum, reason="client_stage"
+        )
 
     actor_id = current_user.id
     await db.commit()
@@ -2073,7 +2082,7 @@ async def build_kanban_view(
     from app.services.cv_qc import pair_statuses
 
     qc_by_pair = await pair_statuses(db, [(cid, job_id) for cid in candidate_ids])
-    # 0371: follow-up z kandydatem, gdy klient milczy — liczony dla OSOBY (ze
+    # 0372: follow-up z kandydatem, gdy klient milczy — liczony dla OSOBY (ze
     # wszystkimi jej procesami), na karcie tylko przy procesie, który czeka.
     from app.services import candidate_followups
 
@@ -2371,7 +2380,7 @@ async def my_next_steps(
                 job_id=job.id,
                 title=job.title,
                 client_name=job.client.name if job.client else None,
-                # Follow-up (0371) liczy ~14 zapytań na tablicę — „Moje
+                # Follow-up (0372) liczy ~14 zapytań na tablicę — „Moje
                 # następne kroki” składa do 25 tablic, a plakietki nie pokazuje.
                 view=await build_kanban_view(
                     db, job, viewer=current_user, with_followups=False
@@ -3282,6 +3291,13 @@ async def bulk_move_candidates(
         await on_candidate_sent(
             db, job_id=data.job_id, candidate_id=cid, stage=bulk_stage
         )
+    from app.services.request_work_state import (  # noqa: PLC0415
+        wake_on_client_response,
+    )
+
+    await wake_on_client_response(
+        db, job_id=data.job_id, stage=bulk_stage, reason="client_stage"
+    )
 
     actor_id = current_user.id
     await db.commit()

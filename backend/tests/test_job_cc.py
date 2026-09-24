@@ -13,29 +13,31 @@ from app.services.job_cc import classify_job_title_to_cc_slug
 
 INFRA = "infrastructure_operations"
 SW = "software_development"
-DATA = "data_ai"
-SEC = "security_quality"
+# Od 24.09.2026 cztery kategorie: dane i security należą do grupy Infra,
+# a `security_quality` to samo QA (services/competence_category_four.py).
+DATA = INFRA
+QA = "security_quality"
 MGMT = "management_delivery"
 
 # (job_title, expected_slug_or_None) — titles from the prod catalogue.
 LIVE_TITLES: list[tuple[str, str | None]] = [
     # — Security & Quality (testers + security, checked first) —
-    ("Tester Middle ZOB-2732", SEC),
-    ("Tester Senior (ZOB-2741)", SEC),
-    ("TESTER AUTOMATYCZNY", SEC),
-    ("Tester Automatyzujący Selenium + JAVA", SEC),
-    ("Tester automatyzujący C#", SEC),
-    ("PKO BP Tester Manualny Junior ZOB-2380", SEC),
-    ("Tester UAT (aplikacje mobilne) (ZOB-840)", SEC),
-    ("Nordea: Senior Test Automation Engineer D&A Hub (41806)", SEC),
-    ("QA Test Engineer Senior (manual) - Consumer Finance - Poland", SEC),
-    ("PKP: Specjalista bezpieczeństwa chmury obliczeniowej x1", SEC),
-    ("GISP2023/PVM/Senior IT Security Specialist (3) (30530)", SEC),
-    ("ATOS:FRONTEX: Security Architect - replacement", SEC),
-    ("B2B Red Team: Exploit Developer", SEC),
-    ("Technical IT Security resource MFA - Windows Hello for Business", SEC),
+    ("Tester Middle ZOB-2732", QA),
+    ("Tester Senior (ZOB-2741)", QA),
+    ("TESTER AUTOMATYCZNY", QA),
+    ("Tester Automatyzujący Selenium + JAVA", QA),
+    ("Tester automatyzujący C#", QA),
+    ("PKO BP Tester Manualny Junior ZOB-2380", QA),
+    ("Tester UAT (aplikacje mobilne) (ZOB-840)", QA),
+    ("Nordea: Senior Test Automation Engineer D&A Hub (41806)", QA),
+    ("QA Test Engineer Senior (manual) - Consumer Finance - Poland", QA),
+    ("PKP: Specjalista bezpieczeństwa chmury obliczeniowej x1", INFRA),
+    ("GISP2023/PVM/Senior IT Security Specialist (3) (30530)", INFRA),
+    ("ATOS:FRONTEX: Security Architect - replacement", INFRA),
+    ("B2B Red Team: Exploit Developer", INFRA),
+    ("Technical IT Security resource MFA - Windows Hello for Business", INFRA),
     # Precedence: a tester touching ETL stays QA, not data.
-    ("Tester Automatyzujący (ETL, bazy danych)", SEC),
+    ("Tester Automatyzujący (ETL, bazy danych)", QA),
     # — Data & AI —
     ("Projekt testowy: ATOS/PGE - Data Architect", DATA),
     ("ETL developer TD11410 (29334)", DATA),
@@ -114,9 +116,9 @@ def test_empty_and_none() -> None:
 @pytest.mark.unit
 def test_precedence_security_over_infra_and_software() -> None:
     # "bezpieczeństwa chmury" → security wins over the infra "chmur" rule.
-    assert classify_job_title_to_cc_slug("Specjalista bezpieczeństwa chmury") == SEC
+    assert classify_job_title_to_cc_slug("Specjalista bezpieczeństwa chmury") == INFRA
     # Security Architect → security, not the generic software "architect".
-    assert classify_job_title_to_cc_slug("Security Architect") == SEC
+    assert classify_job_title_to_cc_slug("Security Architect") == INFRA
 
 
 @pytest.mark.unit

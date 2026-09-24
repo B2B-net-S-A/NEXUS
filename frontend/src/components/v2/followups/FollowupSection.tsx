@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * „Follow-up z kandydatami” w panelu „Czeka na Ciebie” (0371) — makieta A.
+ * „Follow-up z kandydatami” w panelu „Czeka na Ciebie” (0372) — makieta A.
  *
  * Tylko osoby, do których dzwonisz TY (termin do końca jutra). Na dole jedna
  * zwinięta linijka o Twoich kandydatach, z którymi follow-up robi ktoś inny —

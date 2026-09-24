@@ -144,7 +144,10 @@ _CC_JOB: dict[str, Any] = {
 
 
 async def _run_cc_backfill(
-    limit: Optional[int], only_missing: bool, start_after_id: int
+    limit: Optional[int],
+    only_missing: bool,
+    start_after_id: int,
+    only_slugs: Optional[list[str]] = None,
 ) -> None:
     _CC_JOB.update(
         running=True,
@@ -155,6 +158,7 @@ async def _run_cc_backfill(
         errors=0,
         by_primary={},
         only_missing=only_missing,
+        only_slugs=only_slugs or [],
         start_after_id=start_after_id,
         last_id=start_after_id,
         started_at=datetime.now(timezone.utc).isoformat(),
@@ -169,6 +173,7 @@ async def _run_cc_backfill(
                 limit=limit,
                 only_missing=only_missing,
                 start_after_id=start_after_id,
+                only_slugs=only_slugs,
                 progress=_CC_JOB,
             )
     except Exception as e:  # noqa: BLE001 — never crash the background task
@@ -203,6 +208,12 @@ async def trigger_backfill_cc(
         "container restart continues the pass instead of rescanning the "
         "low-signal skipped convoy from id 0.",
     ),
+    only_slug: list[str] = Query(
+        default=[],
+        description="Przelicz tylko kandydatów, których obecna główna kategoria "
+        "ma jeden z tych slugów (powtarzalny parametr). Po przejściu na cztery "
+        "kategorie: only_slug=security_quality&only_slug=data_ai&only_missing=false.",
+    ),
 ) -> dict[str, Any]:
     """Kick a competence-category backfill in the background. Admin only."""
     if _CC_JOB["running"]:
@@ -210,11 +221,14 @@ async def trigger_backfill_cc(
             status_code=status.HTTP_409_CONFLICT,
             detail="A competence-category backfill is already in progress",
         )
-    asyncio.create_task(_run_cc_backfill(limit, only_missing, start_after_id))
+    asyncio.create_task(
+        _run_cc_backfill(limit, only_missing, start_after_id, only_slug or None)
+    )
     return {
         "status": "started",
         "limit": limit,
         "only_missing": only_missing,
+        "only_slugs": only_slug,
         "start_after_id": start_after_id,
     }
 

@@ -1,4 +1,4 @@
-"""Follow-up z kandydatem, gdy klient milczy (0371, decyzje Artura 24.09.2026).
+"""Follow-up z kandydatem, gdy klient milczy (0372, decyzje Artura 24.09.2026).
 
 Jedno zadanie na OSOBĘ: kandydat w trzech procesach u trzech rekruterów
 dostaje jeden telefon od rekrutera procesu, który zaszedł najdalej; kontakt

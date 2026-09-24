@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { CheckCircle2, Crown, Info, Save } from "lucide-react"
@@ -684,6 +685,16 @@ export default function AdminTeamStructurePage() {
         </p>
       </div>
 
+      {canEdit && (
+        <p className="rounded-md border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+          Kategorie całego zespołu naraz (1. i 2. priorytet, „Poza przydziałem”, zasady
+          przydziału requestów) ustawisz w panelu{" "}
+          <Link href="/settings/competence-team" className="font-medium text-primary hover:underline">
+            Kategorie kompetencji
+          </Link>
+          .
+        </p>
+      )}
       {canEdit ? (
         <>
           <OperatorCompetencesSection summary={summary} operators={operators} />

@@ -995,7 +995,7 @@ export function PipelineCandidateDock({
           onToggle={() => toggleSection("process")}
         >
           <div className="space-y-3">
-            {/* 0371: follow-up z kandydatem, gdy klient milczy — jeden telefon
+            {/* 0372: follow-up z kandydatem, gdy klient milczy — jeden telefon
                 na osobę, także gdy jest w kilku procesach. */}
             {item.followup && (
               <DockFollowupBlock candidateId={item.candidate_id} badge={item.followup} />

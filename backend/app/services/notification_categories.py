@@ -126,6 +126,8 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.suggest_next_step: _C.reminders,
     _T.recruitment_allocation_alert: _C.reminders,
     _T.board_tasks_digest: _C.reminders,
+    _T.request_assignment_changed: _C.reminders,
+    _T.request_review_needed: _C.reminders,
     # Terminy rekrutacji
     _T.job_deadline_7d: _C.deadlines,
     _T.job_deadline_3d: _C.deadlines,

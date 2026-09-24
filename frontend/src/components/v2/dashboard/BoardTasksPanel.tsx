@@ -17,7 +17,7 @@
  *  - „Prepy przed rozmową u klienta" (0370) — brak prepu, prep słaby albo bez
  *    nagrania; wiersz prowadzi do karty kandydata w kalendarzu. Nic nie
  *    blokuje — to przypomnienie, nie bramka,
- *  - „Follow-up z kandydatami" (0371) — klient milczy 14 dni, telefon do
+ *  - „Follow-up z kandydatami" (0372) — klient milczy 14 dni, telefon do
  *    kandydata; jeden na OSOBĘ, także gdy jest w kilku procesach
  *    (`FollowupSection`).
  *

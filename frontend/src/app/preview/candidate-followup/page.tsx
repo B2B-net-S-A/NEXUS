@@ -1,6 +1,6 @@
 "use client";
 
-// Publiczny harness follow-upu z kandydatem, gdy klient milczy (0371): lista
+// Publiczny harness follow-upu z kandydatem, gdy klient milczy (0372): lista
 // w „Czeka na Ciebie”, blok „Kontakt z kandydatem” z doku Tablicy i okno
 // zapisu wyniku telefonu. Dane fikcyjne, ZERO zapytań: panel i szczegóły
 // kandydata są zasiane w cache tymi samymi kluczami, których używają

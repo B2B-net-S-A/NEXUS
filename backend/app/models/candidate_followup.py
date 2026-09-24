@@ -1,4 +1,4 @@
-"""Follow-up z kandydatem, gdy klient milczy (migracja 0371, 24.09.2026).
+"""Follow-up z kandydatem, gdy klient milczy (migracja 0372, 24.09.2026).
 
 Jedno zadanie na OSOBĘ, nie na proces: kandydat w pięciu procesach dostaje
 jeden telefon od jednego rekrutera. Kto dzwoni i kiedy, liczy się przy

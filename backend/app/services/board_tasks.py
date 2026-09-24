@@ -598,7 +598,7 @@ class DigestLine:
     cpro_mine: int = 0
     cpro_unassigned: int = 0
     dl_review: int = 0
-    # 0371: follow-upy z kandydatami na dziś (w tym zaległe).
+    # 0372: follow-upy z kandydatami na dziś (w tym zaległe).
     followups: int = 0
     followups_overdue: int = 0
 

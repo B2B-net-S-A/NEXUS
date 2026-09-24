@@ -403,7 +403,7 @@ async def test_auto_add_heals_missing_cc_on_existing_pool(
 
     subcategory = f"AutoTestHeal-{uuid.uuid4().hex[:6]}"
     pool_name = f"{subcategory} Mid"
-    cc_id = await _get_cc_id("data_ai")
+    cc_id = await _get_cc_id("infrastructure_operations")
 
     # First job — NO CC
     job1_id = await _seed_job(

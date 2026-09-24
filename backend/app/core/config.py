@@ -1579,7 +1579,7 @@ class Settings(BaseSettings):
     # ledger keyed by Traffit history id makes this safe and absorbs clock skew.
     CANDIDATE_CONTACT_TRAFFIT_OVERLAP_MINUTES: int = 15
 
-    # ── Follow-up z kandydatem, gdy klient milczy (0371, 24.09.2026) ──────
+    # ── Follow-up z kandydatem, gdy klient milczy (0372, 24.09.2026) ──────
     # Decyzje Artura: 14 dni kalendarzowych ciszy klienta i braku kontaktu,
     # dzwoni rekruter procesu, który zaszedł najdalej, wchodzą WYŁĄCZNIE CV
     # wysłane od 24.09.2026 (bez historii), „nie odebrał” przypomina co

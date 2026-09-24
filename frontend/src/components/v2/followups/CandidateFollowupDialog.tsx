@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Okno „Follow-up: <kandydat>” (0371) — zapis wyniku telefonu, gdy klient
+ * Okno „Follow-up: <kandydat>” (0372) — zapis wyniku telefonu, gdy klient
  * milczy. Po lewej ściąga na rozmowę: WSZYSTKIE procesy, w których czekamy na
  * klienta, z ostatnią wiadomością od właściciela każdego z nich (żeby
  * dzwoniący nie obiecał czegoś, czego tamten proces już nie obejmuje). Po

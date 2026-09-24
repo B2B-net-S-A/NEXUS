@@ -98,10 +98,10 @@ export interface BoardTasksResponse {
   /** 0370: brak prepu, prep słaby albo bez nagrania. Opcjonalne w typie —
    *  harnessy zasiewają kolejkę sprzed 0355 (brak = pusta lista). */
   prep_attention?: PrepAttentionRow[];
-  /** 0371: follow-upy z kandydatami do zrobienia przez Ciebie (termin do
+  /** 0372: follow-upy z kandydatami do zrobienia przez Ciebie (termin do
    *  jutra). Opcjonalne w typie — brak = pusta lista. */
   followups?: FollowupRow[];
-  /** 0371: Twoi kandydaci, z którymi follow-up robi ktoś inny. */
+  /** 0372: Twoi kandydaci, z którymi follow-up robi ktoś inny. */
   followups_by_others?: FollowupRow[];
 }
 

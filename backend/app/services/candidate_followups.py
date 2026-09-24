@@ -1,4 +1,4 @@
-"""Follow-up z kandydatem, gdy klient milczy (0371, decyzje Artura 24.09.2026).
+"""Follow-up z kandydatem, gdy klient milczy (0372, decyzje Artura 24.09.2026).
 
 Po wysłaniu CV klient bywa cicho tygodniami, a kandydat nie wie, czy dalej
 jest w procesie. Rekruter dzwoni więc co 14 dni („nie mamy jeszcze

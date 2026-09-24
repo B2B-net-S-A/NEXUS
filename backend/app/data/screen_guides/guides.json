@@ -34,7 +34,8 @@
     "pitfalls": [
       "Pusta lista w zakresie „Moje” nie znaczy, że rekrutacji nie ma — przełącz na „Otwarte” albo „Wszystkie”.",
       "Kolumna „Etapy” ma te same 8 kolumn co tablica (skróty w nagłówku, pełna nazwa po najechaniu).",
-      "Sortowanie „Wymaga uwagi” stawia na górze rekrutacje z największą liczbą kandydatów czekających na Twój ruch."
+      "Sortowanie „Wymaga uwagi” stawia na górze rekrutacje z największą liczbą kandydatów czekających na Twój ruch.",
+      "Przyciski „Praca” pokazują stan nadany przez Delivery Leada w „Porządku w requestach”. „Zakończony” w NEXUSIE nie zamyka rekrutacji w Traffit — zdejmuje ją tylko z pracy i z przydziału ludzi."
     ],
     "anchors": [
       {"id": "jobs.list.scope", "label": "Moje / Otwarte / Wszystkie", "describe": "Przełącznik zakresu listy rekrutacji z licznikami."},

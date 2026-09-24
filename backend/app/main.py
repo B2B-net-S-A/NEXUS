@@ -225,6 +225,9 @@ from app.api import entity_fields as entity_fields_api
 from app.api import teams_channels as teams_channels_api
 from app.api import priority_work as priority_work_api
 from app.api import recruitment_allocation as recruitment_allocation_api
+from app.api import competence_team as competence_team_api
+from app.api import request_work_states as request_work_states_api
+from app.api import request_board as request_board_api
 
 # Force-load every SQLAlchemy model into Base.metadata so FKs across tables
 # (e.g. scheduled_rejection_emails.email_id → emails.id from m365.py) can
@@ -1104,7 +1107,7 @@ app.include_router(
     prefix="/api/board-tasks",
     tags=["board-tasks"],
 )
-# 0371: follow-up z kandydatem, gdy klient milczy — jeden telefon na osobę.
+# 0372: follow-up z kandydatem, gdy klient milczy — jeden telefon na osobę.
 app.include_router(
     candidate_followups_api.router,
     prefix="/api/candidate-followups",
@@ -1538,6 +1541,21 @@ app.include_router(
     recruitment_allocation_api.router,
     prefix="/api/recruitment-allocation",
     tags=["recruitment-allocation"],
+)
+app.include_router(
+    competence_team_api.router,
+    prefix="/api/competence-team",
+    tags=["competence-team"],
+)
+app.include_router(
+    request_work_states_api.router,
+    prefix="/api/request-work-states",
+    tags=["request-work-states"],
+)
+app.include_router(
+    request_board_api.router,
+    prefix="/api/request-board",
+    tags=["request-board"],
 )
 
 app.include_router(
@@ -2648,6 +2666,7 @@ async def api_health_deep_check():
         AcademySession,
     )
     from app.models.user_dashboard import UserDashboard
+    from app.models.job_work_assignment import JobWorkAssignment
     from app.models.client_interview_slot_request import ClientInterviewSlotRequest
     from app.models.job_public_profile import JobPublicProfile
     from app.models.candidate_consent import CandidateConsent
@@ -2834,6 +2853,9 @@ async def api_health_deep_check():
         ("academy_applications", AcademyApplication),
         # 0337: własny pulpit startowy — /dashboard czyta go przy każdym wejściu.
         ("user_dashboards", UserDashboard),
+        # 0371: kto pracuje nad requestem — pulpit „Requesty i obłożenie” i
+        # automat przydziału czytają ją przy każdym wejściu i przeglądzie.
+        ("job_work_assignments", JobWorkAssignment),
         # 0338: terminy rozmów od klienta — agenda kalendarza czyta je przy
         # każdym wejściu, więc brak tabeli = pusty ekran „Rozmowy u klienta”.
         ("client_interview_slot_requests", ClientInterviewSlotRequest),
@@ -2849,7 +2871,7 @@ async def api_health_deep_check():
         ("prep_meetings", PrepMeeting),
         ("prep_transcripts", PrepTranscript),
         ("prep_reviews", PrepReview),
-        # 0371: follow-up z kandydatem — „Czeka na Ciebie” i Tablica czytają
+        # 0372: follow-up z kandydatem — „Czeka na Ciebie” i Tablica czytają
         # wyniki telefonów, więc brak tabeli = pulpit i kanban 500.
         ("candidate_followups", CandidateFollowup),
         # 0361: QC CV — tablica czyta stan QC każdej karty, a ruch na

@@ -230,7 +230,7 @@ describe("Rekrutacja v5: chip QC, znany brak i „kto ma ruch”", () => {
   });
 });
 
-describe("odznaka follow-upu (0371) — klient milczy, kto dzwoni do kandydata", () => {
+describe("odznaka follow-upu (0372) — klient milczy, kto dzwoni do kandydata", () => {
   const badge = {
     caller_id: 3,
     caller_name: "Anna Kowalczyk",

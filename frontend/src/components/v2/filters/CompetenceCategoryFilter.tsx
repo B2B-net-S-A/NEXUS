@@ -22,8 +22,8 @@ interface CompetenceCategoryFilterProps {
 
 /**
  * Flagship filter for the manual candidate search — pinned in the planning
- * brief as the primary chip. Renders the 5 NEXUS competence categories
- * (Infrastructure / Development / Data & AI / Security & QA / Management)
+ * brief as the primary chip. Renders the 4 NEXUS competence categories
+ * (Infra & Ops & Security / Data & AI, Development, QA, Management & Delivery)
  * fetched from `GET /api/competence-categories` so admin-facing additions or
  * renames flow through automatically.
  *
@@ -85,7 +85,7 @@ export function CompetenceCategoryFilter({
         aria-label="Ładowanie kategorii kompetencji"
         className={cn("flex flex-wrap gap-2", className)}
       >
-        {Array.from({ length: 5 }).map((_, i) => (
+        {Array.from({ length: 4 }).map((_, i) => (
           <div
             key={i}
             className="h-8 w-32 animate-pulse rounded-md bg-zinc-100 dark:bg-zinc-800"

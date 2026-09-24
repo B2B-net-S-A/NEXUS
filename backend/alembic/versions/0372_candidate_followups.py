@@ -1,7 +1,7 @@
 """Follow-up z kandydatem, gdy klient milczy — wyniki telefonów.
 
-Revision ID: 0371_candidate_followups
-Revises: 0370_teams_prep_transcripts
+Revision ID: 0372_candidate_followups
+Revises: 0371_request_allocation
 
 Decyzje Artura 24.09.2026: gdy klient nie odpowiada 14 dni po wysłaniu CV,
 jeden rekruter dzwoni do kandydata („nadal jesteś w procesie”) i powtarza to
@@ -18,8 +18,8 @@ pilnuje ``tests/test_candidate_followups_migration_mirror.py``.
 
 from alembic import op
 
-revision = "0371_candidate_followups"
-down_revision = "0370_teams_prep_transcripts"
+revision = "0372_candidate_followups"
+down_revision = "0371_request_allocation"
 branch_labels = None
 depends_on = None
 

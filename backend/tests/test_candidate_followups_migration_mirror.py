@@ -1,4 +1,4 @@
-"""0371: tabela follow-upów ma lustro w entrypoincie i sondę w `/api/health/deep`.
+"""0372: tabela follow-upów ma lustro w entrypoincie i sondę w `/api/health/deep`.
 
 Prod alembic bywa osierocony — `entrypoint.sh` JEST wdrożeniem. Bez lustra
 pulpit („Czeka na Ciebie”) i Tablica padają na produkcji na
@@ -12,7 +12,7 @@ import re
 from pathlib import Path
 
 BACKEND = Path(__file__).resolve().parents[1]
-MIGRATION = BACKEND / "alembic" / "versions" / "0371_candidate_followups.py"
+MIGRATION = BACKEND / "alembic" / "versions" / "0372_candidate_followups.py"
 
 
 def _collapse(sql: str) -> str:
@@ -20,7 +20,7 @@ def _collapse(sql: str) -> str:
 
 
 def _migration_module():
-    spec = importlib.util.spec_from_file_location("m0371", MIGRATION)
+    spec = importlib.util.spec_from_file_location("m0372", MIGRATION)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(module)
@@ -32,10 +32,10 @@ def _entrypoint_text() -> str:
     return _collapse(re.sub(r'"\s*\n\s*"', "", raw))
 
 
-def test_migration_chains_after_teams_prep():
+def test_migration_chains_after_request_allocation():
     module = _migration_module()
-    assert module.revision == "0371_candidate_followups"
-    assert module.down_revision == "0370_teams_prep_transcripts"
+    assert module.revision == "0372_candidate_followups"
+    assert module.down_revision == "0371_request_allocation"
 
 
 def test_every_ddl_statement_is_mirrored_in_entrypoint():

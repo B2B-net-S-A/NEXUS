@@ -101,7 +101,7 @@ class BoardTasksResponse(BaseModel):
     can_send_to_client: bool
     # 0370: brak prepu, prep słaby albo bez nagrania — organizator i HoR.
     prep_attention: list[PrepAttentionRow] = []
-    # 0371: follow-up z kandydatem, gdy klient milczy — telefony tej osoby
+    # 0372: follow-up z kandydatem, gdy klient milczy — telefony tej osoby
     # (termin do końca jutra) i kandydaci, u których prowadzi proces, a dzwoni
     # ktoś inny.
     followups: list[FollowupRow] = []

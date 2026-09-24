@@ -1,4 +1,4 @@
-// Follow-up z kandydatem, gdy klient milczy (0371, decyzje Artura 24.09.2026).
+// Follow-up z kandydatem, gdy klient milczy (0372, decyzje Artura 24.09.2026).
 //
 // Typy są lustrem `backend/app/api/candidate_followups.py`. Kto dzwoni i kiedy
 // liczy SERWER (`services/candidate_followups.py`) — front tylko pokazuje

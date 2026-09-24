@@ -48,7 +48,7 @@ function row(extra: Partial<FollowupRow> = {}): FollowupRow {
   };
 }
 
-describe("follow-up z kandydatem — etykiety (0371)", () => {
+describe("follow-up z kandydatem — etykiety (0372)", () => {
   it("termin: zaległy z poprawną liczbą mnogą, dziś, jutro, data", () => {
     expect(followupDueLabel(row())).toBe("zaległy 2 dni");
     expect(followupDueLabel(row({ overdue_days: 1 }))).toBe("zaległy 1 dzień");

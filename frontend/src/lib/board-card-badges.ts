@@ -198,7 +198,7 @@ export function cardBadges(item: KanbanItem, ctx: CardBadgeContext): CardBadge[]
       tone: "wait",
     });
   }
-  // 0371: follow-up z kandydatem, gdy klient milczy — kto dzwoni (jeden
+  // 0372: follow-up z kandydatem, gdy klient milczy — kto dzwoni (jeden
   // telefon na OSOBĘ, także gdy jest w kilku procesach). Tylko termin do
   // jutra: plakietka „za 9 dni” byłaby szumem na każdej karcie.
   if (

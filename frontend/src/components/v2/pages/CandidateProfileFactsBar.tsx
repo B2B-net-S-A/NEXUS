@@ -153,7 +153,7 @@ interface CandidateProfileFactsBarProps {
 }
 
 /**
- * 0371: „Kontakt” — kiedy ostatnio ktoś z nami rozmawiał z kandydatem i kto
+ * 0372: „Kontakt” — kiedy ostatnio ktoś z nami rozmawiał z kandydatem i kto
  * zadzwoni następny, gdy klient milczy. Tylko przy procesach czekających na
  * klienta; bez sekcji Pipeline (403) i przy awarii fakt po prostu znika —
  * to podpowiedź, nie dane profilu.

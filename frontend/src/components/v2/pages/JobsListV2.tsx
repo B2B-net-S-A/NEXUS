@@ -4,6 +4,12 @@ import { pluralPl } from "@/lib/plural-pl";
 import { useEffect, useMemo, useState } from "react";
 import { TAC_UI_ENABLED } from "@/lib/tac-ui";
 import {
+  STATE_HINT,
+  STATE_LABEL,
+  VISIBLE_STATES,
+  type VisibleState,
+} from "@/lib/request-work-state";
+import {
   REQUEST_STATUS_FILTER_ORDER,
   REQUEST_STATUS_META,
   requestStatusOf,
@@ -314,6 +320,7 @@ export interface JobsListQueryState {
   page: number;
   /** Status requestu (0341) — pusty/brak = wszystkie. */
   requestStatuses?: readonly RequestStatus[];
+  workStates?: readonly VisibleState[];
   /** Granice presetu terminu `range` — brak = bez zakresu. */
   deadlineRange?: JobDeadlineRange;
   /** Delivery Lead rekrutacji (`delivery_lead_id`, LUB). */
@@ -321,6 +328,13 @@ export interface JobsListQueryState {
   /** „Wysłanych do klienta" — brak = dowolnie. */
   sent?: JobSentFilterValue;
 }
+
+const WORK_STATE_CHIPS: readonly VisibleState[] = [
+  "to_review",
+  "searching",
+  "client_silent",
+  "finished",
+];
 
 export function jobsListQueryKey(state: JobsListQueryState): unknown[] {
   return [
@@ -341,6 +355,7 @@ export function jobsListQueryKey(state: JobsListQueryState): unknown[] {
     state.priorityWork,
     state.page,
     state.requestStatuses ?? [],
+    state.workStates ?? [],
     state.deadline === "range"
       ? [state.deadlineRange?.from ?? "", state.deadlineRange?.to ?? ""]
       : [],
@@ -624,6 +639,14 @@ function JobsTable({
               </TableCell>
               <TableCell>
                 <RequestStatusBadge status={job.request_status} />
+                {job.visible_work_state && job.visible_work_state !== "searching" && (
+                  <span
+                    className="mt-1 block text-[11px] text-muted-foreground"
+                    title="Stan pracy nad requestem (Porządek w requestach)"
+                  >
+                    {STATE_LABEL[job.visible_work_state as VisibleState]}
+                  </span>
+                )}
               </TableCell>
               <TableCell>
                 {stageSummary ? (
@@ -786,6 +809,14 @@ export function JobsListV2() {
       .map(requestStatusOf)
       .filter((s): s is RequestStatus => s !== null),
   );
+  // Stan pracy nad requestem (0371) — adres `ws=` (powtarzalny).
+  const [workStates, setWorkStates] = useState<VisibleState[]>(() =>
+    searchParams
+      .getAll("ws")
+      .filter((s): s is VisibleState =>
+        (VISIBLE_STATES as readonly string[]).includes(s),
+      ),
+  );
   const [similarForJob, setSimilarForJob] = useState<number | null>(null);
   const [inviteModalForJob, setInviteModalForJob] = useState<number | null>(null);
   // Dok podglądu (gotowość rekrutacji) otwiera ikona „Podgląd" w wierszu —
@@ -856,6 +887,8 @@ export function JobsListV2() {
     const withStatus = new URLSearchParams(qs);
     withStatus.delete("rs");
     for (const s of requestStatuses) withStatus.append("rs", s);
+    withStatus.delete("ws");
+    for (const s of workStates) withStatus.append("ws", s);
     const qsFull = withStatus.toString();
     const target = qsFull
       ? `${window.location.pathname}?${qsFull}`
@@ -882,6 +915,7 @@ export function JobsListV2() {
     noOwnerOnly,
     priorityWorkFilter,
     requestStatuses,
+    workStates,
   ]);
 
   const dl = deadlineQueryParams(deadlinePreset, deadlineRange);
@@ -920,6 +954,7 @@ export function JobsListV2() {
       priorityWork: priorityWorkFilter,
       page,
       requestStatuses,
+      workStates,
       deadlineRange,
       deliveryLeadIds,
       sent: sentFilter,
@@ -943,6 +978,7 @@ export function JobsListV2() {
             priority_work:
               priorityWorkFilter === "any" ? undefined : priorityWorkFilter,
             request_status: requestStatuses.length ? requestStatuses : undefined,
+            work_state: workStates.length ? workStates : undefined,
             sort,
             ...dl,
             ...sentQueryParams(sentFilter),
@@ -1079,7 +1115,8 @@ export function JobsListV2() {
     clientIds.length +
     ccIds.length +
     responsibleIds.length +
-    requestStatuses.length;
+    requestStatuses.length +
+    workStates.length;
 
   // „4 241 · pokazuję 12 moich" (makieta). Pierwsza liczba to ZAWSZE `total`
   // z API — czyli ile rekrutacji pasuje do filtrów, nie ile widać. Druga mówi,
@@ -1120,6 +1157,7 @@ export function JobsListV2() {
     setTypeFilter("all");
     setStatusFilter([]);
     setRequestStatuses([]);
+    setWorkStates([]);
     // „Wyczyść" wraca do domyślnego zakresu ROLI (`defaultMineForUser`).
     changeScope(null);
     setResponsibleIds([]);
@@ -1699,6 +1737,35 @@ export function JobsListV2() {
                       {count.toLocaleString("pl-PL")}
                     </span>
                   )}
+                </button>
+              );
+            })}
+            <span className="ml-3 mr-1 text-xs text-muted-foreground">Praca:</span>
+            {/* „Mamy championa” jest już w statusie wyżej — tu tylko stany
+                prowadzone w „Porządku w requestach”; „Szukamy” jako „W pracy”,
+                żeby nie dublować etykiety statusu. */}
+            {WORK_STATE_CHIPS.map((value) => {
+              const on = workStates.includes(value);
+              return (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={on}
+                  title={STATE_HINT[value]}
+                  onClick={() => {
+                    setWorkStates((prev) =>
+                      on ? prev.filter((s) => s !== value) : [...prev, value],
+                    );
+                    setPage(1);
+                  }}
+                  className={cn(
+                    "h-7 rounded-full border px-3 text-xs transition-colors",
+                    on
+                      ? "border-primary/40 bg-primary/10 font-semibold text-primary"
+                      : "border-border text-muted-foreground hover:bg-muted",
+                  )}
+                >
+                  {value === "searching" ? "W pracy" : STATE_LABEL[value]}
                 </button>
               );
             })}

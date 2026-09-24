@@ -1,4 +1,4 @@
-// Follow-up z kandydatem, gdy klient milczy — zdania i etykiety (0371).
+// Follow-up z kandydatem, gdy klient milczy — zdania i etykiety (0372).
 //
 // Regułę (kto dzwoni, kiedy) liczy serwer; tu wyłącznie prezentacja:
 // termin, plakietka, powód, ostatni kontakt. Czyste funkcje — testy bez

@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Blok „Kontakt z kandydatem” w doku osoby na Tablicy (0371) — makieta C.
+ * Blok „Kontakt z kandydatem” w doku osoby na Tablicy (0372) — makieta C.
  *
  * Rekruter, który NIE dzwoni, widzi tu, kto dzwoni i dlaczego, oraz może
  * przejąć rundę („Zrobię to ja”), gdy i tak rozmawia z kandydatem. Wynik
