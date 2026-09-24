@@ -2071,6 +2071,7 @@ async def update_job(
             )
         elif prev_status == JobStatus.closed:
             job.closed_at = None
+            _take_over_reopened_traffit_job(db, job, current_user)
             # Lustro zamknięcia (0371): ponownie otwarta rekrutacja wraca do
             # „Do przejrzenia” — z „Zakończonego” wypadała z puli przydziału,
             # pulpitu „Requesty” i nocnego przeglądu bazy (audyt 24.09.2026).
@@ -2299,6 +2300,31 @@ async def close_job(
     return _redact_delivery_lead_job_finance(payload, current_user)
 
 
+def _take_over_reopened_traffit_job(db: AsyncSession, job: Job, user) -> None:
+    """Otwarta ponownie rekrutacja z Traffita przechodzi do NEXUSA.
+
+    Rekrutacje z Traffita są w NEXUSIE archiwum (24.09.2026,
+    `services/traffit_job_archive.py`) — nocny sync zamyka każdą, która nie jest
+    „Prowadzona w NEXUSIE”. Kto ją otwiera z powrotem, prowadzi ją tutaj, więc
+    przełącznik włącza się sam (z tym samym wpisem w historii co ręczny) —
+    inaczej najbliższy sync zamknąłby ją znowu bez słowa.
+    """
+    if job.external_source != "traffit" or job.managed_in_nexus:
+        return
+    job.managed_in_nexus = True
+    job.managed_in_nexus_at = datetime.now(timezone.utc)
+    job.managed_in_nexus_by = user.id
+    db.add(
+        Activity(
+            entity_type="job",
+            entity_id=job.id,
+            action="managed_in_nexus_changed",
+            user_id=user.id,
+            details={"enabled": True, "previous": False, "reason": "job_reopened"},
+        )
+    )
+
+
 @router.post("/{job_id}/manage-in-nexus", response_model=JobResponse)
 async def set_job_managed_in_nexus(
     job_id: int,
@@ -2378,6 +2404,7 @@ async def publish_job(
         # Lustro ponownego otwarcia w PATCH: bez tego rekrutacja opublikowana
         # z powrotem zostawała „Zakończona” i poza przydziałem (audyt 24.09.2026).
         job.closed_at = None
+        _take_over_reopened_traffit_job(db, job, current_user)
         if job.work_state == WORK_STATE_FINISHED:
             await set_work_state(
                 db,

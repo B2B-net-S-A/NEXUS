@@ -62,7 +62,7 @@ async def _events(db, job_id) -> int:
 
 
 @pytest.mark.asyncio
-async def test_published_recruitment_from_traffit_gets_an_event_and_an_owner():
+async def test_recruitment_from_traffit_is_archived_with_an_owner_and_no_event():
     ext = f"e{uuid.uuid4().hex[:12]}"
     raw = {
         "id": ext,
@@ -93,16 +93,26 @@ async def test_published_recruitment_from_traffit_gets_an_event_and_an_owner():
                     text("SELECT id FROM jobs WHERE external_id = :e"), {"e": ext}
                 )
             ).scalar_one()
-            status = (
+            row = (
                 await db.execute(
-                    text("SELECT CAST(status AS text) FROM jobs WHERE id = :i"),
+                    text(
+                        "SELECT CAST(status AS text), work_state, is_open, closed_at, "
+                        "custom_fields->>'traffit_status' FROM jobs WHERE id = :i"
+                    ),
                     {"i": job_id},
                 )
-            ).scalar_one()
-            if status != "published":
-                pytest.skip(f"status mapping gives {status!r}, not published")
-            assert first.job_events == 1
-            assert await _events(db, job_id) == 1
+            ).one()
+            # Archiwum z Traffita (24.09.2026): rekrutacja otwarta w Traffit
+            # jest w NEXUSIE zamknięta i „Zakończona”, bez daty zamknięcia
+            # (hit ratio liczy daty z Traffita) i bez zdarzenia dla automatów.
+            assert row[0] == "closed"
+            assert row[1] == "finished"
+            assert row[2] is False
+            assert row[3] is None
+            assert row[4] == "published"
+            assert first.archived >= 1
+            assert first.job_events == 0
+            assert await _events(db, job_id) == 0
             assert first.recruiter_resolved == 1
             owner = (
                 await db.execute(

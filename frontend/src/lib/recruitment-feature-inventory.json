@@ -162,7 +162,7 @@
    "opis": "Prowadzona w NEXUSIE (plakietka Traffit + chip)",
    "file": "app/jobs/[id]/page.tsx",
    "marker": "ManagedInNexus",
-   "v3_home": "linia odznak nagłówka (plakietka „Prowadzona w Traffit” z „Przełącz do NEXUSA”, chip „Prowadzona w NEXUSIE od …”)"
+   "v3_home": "linia odznak nagłówka (plakietka „Archiwum z Traffita” z „Przełącz do NEXUSA”, chip „Prowadzona w NEXUSIE od …”)"
   },
   {
    "id": "header.ownership",

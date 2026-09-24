@@ -7554,6 +7554,21 @@ _DATA_STATEMENTS = [
        AND NOT j.delivery_lead_auto_filled
        AND EXISTS (SELECT 1 FROM marker)
 """,
+    # 0377 — rekrutacje z Traffita są w NEXUSIE archiwum (24.09.2026). Lustro
+    # `services/traffit_job_archive.ARCHIVE_TRAFFIT_JOBS_SQL` (pilnuje
+    # `test_traffit_job_archive.py`); idempotentne, nocny import robi to samo.
+    """
+UPDATE jobs
+SET status = 'closed',
+    is_open = false,
+    work_state = 'finished',
+    work_state_changed_at = CASE
+        WHEN work_state <> 'finished' THEN now() ELSE work_state_changed_at END,
+    updated_at = now()
+WHERE external_source = 'traffit'
+  AND NOT managed_in_nexus
+  AND (status <> 'closed' OR is_open OR work_state <> 'finished')
+""",
 ]
 
 

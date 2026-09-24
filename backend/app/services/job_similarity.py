@@ -12,8 +12,9 @@ Decyzje Artura (22.09.2026):
   „Szukamy" trwa, dopóki Delivery Lead nie oznaczy „Mamy championa".
 
 Sugestie liczy prosta, deterministyczna miara: wspólne must-have, wspólne
-słowa tytułu i ta sama kategoria kompetencji. Pula (rekrutacje z ostatnich
-18 miesięcy, także zamknięte — tam są osoby już wysłane) trzymana jest
+słowa tytułu i ta sama kategoria kompetencji. Pula (CAŁA historia, także
+zamknięte i archiwum z Traffita — tam są osoby już wysłane; decyzja Artura
+24.09.2026, do tego dnia 18 miesięcy) trzymana jest
 w pamięci procesu przez kilka minut, a kandydaci do porównania wybierani są
 przez indeks odwrócony, więc lista rekrutacji nie porównuje każdej z każdą.
 
@@ -26,7 +27,7 @@ import logging
 import re
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any, Iterable, Optional, Sequence
 
 from sqlalchemy import and_, case, exists, func, or_, select
@@ -72,7 +73,6 @@ REQUEST_STATUSES = (
     "searching",
 )
 
-SUGGESTION_WINDOW = timedelta(days=548)
 MIN_SCORE = 55
 MAX_SUGGESTIONS = 5
 _POOL_TTL_SECONDS = 300
@@ -209,7 +209,6 @@ async def _load_pool(db: AsyncSession) -> _Pool:
     global _pool
     if _pool.jobs and time.monotonic() - _pool.loaded_at < _POOL_TTL_SECONDS:
         return _pool
-    since = datetime.now(timezone.utc) - SUGGESTION_WINDOW
     rows = (
         await db.execute(
             select(
@@ -222,7 +221,7 @@ async def _load_pool(db: AsyncSession) -> _Pool:
                 Job.must_skills,
                 Job.champion_profile,
                 Job.created_at,
-            ).where(Job.client_id.is_not(None), Job.created_at >= since)
+            ).where(Job.client_id.is_not(None))
         )
     ).all()
     pool = _Pool(loaded_at=time.monotonic())
