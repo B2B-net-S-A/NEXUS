@@ -815,9 +815,8 @@ class _DraftMaterializerSession:
 
     async def get(self, model, ident):
         # ``sync_md_group_exhaustion`` doczytuje grupę po id (od 24.09.2026
-        # dotyczy każdego klienta, nie tylko BIK).
-        if model is ClientOrderGroup and self._group is not None:
-            return self._group
+        # dotyczy każdego klienta, nie tylko BIK). Wyczerpanie puli nie jest
+        # przedmiotem tych testów — świeży szkic i tak ma pełny budżet.
         return None
 
     def add(self, obj):
