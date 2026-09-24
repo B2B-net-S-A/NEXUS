@@ -229,7 +229,7 @@ const DATA: OrderChangesResponse = {
       status: "draft",
     },
   ],
-  // Zejścia = zapisany koniec współpracy. Kończące się zamówienia = zamówienie
+  // Zejścia = zapisany koniec współpracy. Zamówienia bez kontynuacji = zamówienie
   // dobiega końca, a współpraca trwa. Werdykt jest tu jedynym rozróżnieniem.
   exits: [
     {
@@ -283,7 +283,7 @@ const DATA: OrderChangesResponse = {
       currency: "PLN",
       order_type: "periodic",
       verdict: "no_successor",
-      verdict_label: "Brak kolejnego zamówienia — do usunięcia z rozliczeń",
+      verdict_label: "Zamówienie się skończyło, brak kolejnego — współpraca trwa",
       intent: null,
     },
   ],

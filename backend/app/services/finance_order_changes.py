@@ -12,10 +12,15 @@ zawsze zgadzały się z ich treścią.
   wypowiedziana/zakończona umowa, zamiana kontraktora, decyzja DL po
   offboardingu MD, usunięcie z zamówienia, zostawienie jako historia.
   Wspólny mianownik: człowiek świadomie zapisał, że ta osoba schodzi.
-* **Kończące się zamówienia** — zamówienie kończy się (albo skończyło) bez
+* **Zamówienia bez kontynuacji** (do 24.09.2026 „Kończące się zamówienia",
+  klucz ``ending`` zostaje) — zamówienie kończy się (albo skończyło) bez
   kolejnego, a współpraca TRWA. To nie jest zejście i do 09.2026 mieszało się
   z nimi w jednej zakładce: „Kończy się 30.09 — na razie brak kolejnego
   zamówienia" czytało się jak rozstanie z konsultantem, który pracuje dalej.
+  Zamówienie, którego otwarty brak stoi w Brakach TEGO miesiąca, jest tylko
+  tam: Braki mówią o luce w rozliczeniu (z dniem wykrycia i kartą DL), więc to
+  one są właściwym miejscem, a ta sama osoba pod dwoma kluczami pozycji
+  wymagałaby dwóch odhaczeń tej samej sprawy.
 * **Zmiany** — wszystko, co dzieje się w TRWAJĄCEJ współpracy: dziennik
   ``order_change_events`` z datą WPROWADZENIA w miesiącu (decyzja Artura
   14.09) plus nowe zamówienia osób, które już z nami pracują — kontynuacja
@@ -26,6 +31,7 @@ zawsze zgadzały się z ich treścią.
   zakończenia (wypowiedzenie zapisane PO wykryciu braku), oraz brak tej samej
   współpracy (osoba × klient), która stoi w Zejściach tego miesiąca. Brak
   nowego zamówienia po zakończonej współpracy jest oczekiwany, nie błędem.
+  Tę samą regułę (``_hidden_gap_ids``) stosuje baner ``open_gaps_total``.
 
 Zakładka ma nazywać się tak, jak to, co w niej jest — obie korekty (09.2026)
 wynikły z tej jednej zasady.
@@ -48,7 +54,7 @@ import io
 import re
 import unicodedata
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Callable, Iterable, Literal, Optional, Sequence
 from zoneinfo import ZoneInfo
@@ -112,7 +118,8 @@ MONTH_LABELS_PL = (
     "Grudzień",
 )
 
-ORDER_TYPE_LABELS = {"periodic": "B2B", "cost": "Kosztowe", "md": "MD"}
+# Nazwy jak w zakładce „Zamówienia" klienta — „B2B" myliło się z typem umowy.
+ORDER_TYPE_LABELS = {"periodic": "Okresowe", "cost": "Kosztowe", "md": "MD"}
 UNIT_LABELS = {"hourly": "h", "daily": "dzień", "monthly": "mc", "md": "MD"}
 
 
@@ -459,13 +466,13 @@ async def _entries(
     return sorted(items, key=_sort_key), facts, classes
 
 
-# ── Zejścia i kończące się zamówienia ────────────────────────────────────────
+# ── Zejścia i zamówienia bez kontynuacji ────────────────────────────────────────
 
 
 async def _exits(
     db: AsyncSession, window: MonthWindow, today: date
 ) -> tuple[list[OrderExitItem], list[OrderExitItem], set[SiblingKey]]:
-    """Dwie listy z JEDNEGO przebiegu: zejścia i kończące się zamówienia.
+    """Dwie listy z JEDNEGO przebiegu: zejścia i zamówienia bez kontynuacji.
 
     Rozdziela je werdykt: zapisana intencja zakończenia to zejście, jej brak —
     samo zamówienie dobiegające końca przy żywej współpracie. Dwa osobne
@@ -532,8 +539,10 @@ async def _exits(
                 f"Kończy się {_fmt_date(fact.end)} — na razie brak kolejnego zamówienia"
             )
         else:
+            # Osoba pracuje dalej — „do usunięcia z rozliczeń" kazało Finansom
+            # zdjąć z rozliczeń kogoś, kto nadal świadczy usługi.
             verdict = "no_successor"
-            label = "Brak kolejnego zamówienia — do usunięcia z rozliczeń"
+            label = "Zamówienie się skończyło, brak kolejnego — współpraca trwa"
         bucket = exits if verdict == "ended_intent" else ending
         if verdict == "ended_intent":
             exit_keys.add(sibling_key(fact))
@@ -719,6 +728,80 @@ def _gap_key(gap: OrderGap, candidate_id: Optional[int]) -> SiblingKey:
     return ("person", candidate_id, gap.client_id)
 
 
+async def _ended_cooperations(
+    db: AsyncSession, facts: Sequence[OrderFact]
+) -> set[SiblingKey]:
+    """Współprace (osoba × klient), których OSTATNIM stanem jest zapisany koniec.
+
+    Zamówienie z intencją zakończenia i bez następcy — to samo, co stawia
+    wiersz w Zejściach, tylko bez okna miesiąca. Następca liczy się
+    z ``successor_of``, więc stare zakończenie, po którym osoba wróciła,
+    współpracy nie „zamyka".
+    """
+
+    if not facts:
+        return set()
+    siblings = await load_siblings(db, facts)
+    candidates = [
+        other
+        for group in siblings.values()
+        for other in group
+        if other.end is not None and not other.is_cancelled and not other.is_draft
+    ]
+    intents = await load_ending_intents(db, candidates)
+    return {
+        sibling_key(other)
+        for other in candidates
+        if other.order_id in intents
+        and not other.works_until_md_exhausted
+        and successor_of(other, siblings_of(other, siblings)) is None
+    }
+
+
+async def _hidden_gap_ids(
+    db: AsyncSession,
+    gaps: Sequence[tuple[OrderGap, Optional[int]]],
+    exit_keys: frozenset[SiblingKey] | set[SiblingKey] = frozenset(),
+) -> set[int]:
+    """Braki zakończonych współprac — JEDNA reguła dla listy i dla banera.
+
+    Pomijany jest brak, gdy:
+    * jego zamówienie ma dziś zapisaną intencję zakończenia (wypowiedzenie
+      zapisane PO wykryciu braku);
+    * jego współpraca stoi w Zejściach tego miesiąca (``exit_keys``);
+    * brak jest otwarty, a współpraca skończyła się zapisanym końcem
+      (``_ended_cooperations``) — baner nie ma miesiąca, więc tylko ta
+      reguła mówi mu to, co liście mówią Zejścia. Dla otwartego braku oba
+      warunki są równoważne: zejście tej współpracy nie ma następcy.
+    """
+
+    if not gaps:
+        return set()
+    ended_orders = await gap_orders_with_ending_intent(
+        db, (gap.order_id for gap, _ in gaps)
+    )
+    open_ids = sorted(
+        {gap.order_id for gap, _ in gaps if gap.status == GAP_STATUS_OPEN}
+    )
+    ended_coops = (
+        await _ended_cooperations(
+            db, await load_facts(db, ClientOrder.id.in_(open_ids))
+        )
+        if open_ids
+        else set()
+    )
+    hidden: set[int] = set()
+    for gap, candidate_id in gaps:
+        key = _gap_key(gap, candidate_id)
+        if (
+            gap.order_id in ended_orders
+            or key in exit_keys
+            or (gap.status == GAP_STATUS_OPEN and key in ended_coops)
+        ):
+            hidden.add(gap.id)
+    return hidden
+
+
 async def _gaps(
     db: AsyncSession,
     window: MonthWindow,
@@ -748,11 +831,11 @@ async def _gaps(
             .order_by(OrderGap.status.desc(), OrderGap.detected_on.desc(), OrderGap.id)
         )
     ).all()
-    ended = await gap_orders_with_ending_intent(db, (row[0].order_id for row in rows))
+    hidden = await _hidden_gap_ids(db, [(row[0], row[4]) for row in rows], exit_keys)
     items: list[OrderGapItem] = []
     for gap, client_name, first, last, candidate_id in rows:
         # Zakończona współpraca nie jest brakiem — ta osoba stoi w Zejściach.
-        if gap.order_id in ended or _gap_key(gap, candidate_id) in exit_keys:
+        if gap.id in hidden:
             continue
         delay = None
         if gap.resolved_at is not None:
@@ -907,20 +990,24 @@ async def build_order_changes(
     exits, ending, exit_keys = await _exits(db, window, day)
     changes = await _changes(db, window, entry_facts, classes)
     gaps = await _gaps(db, window, exit_keys)
+    # Zamówienie z otwartym brakiem w Brakach TEGO miesiąca stoi tylko tam —
+    # patrz docstring modułu. Brak wykryty w kolejnym miesiącu (koniec
+    # zamówienia w ostatnim dniu) nie jest dublem: zostaje w tej zakładce.
+    open_gap_orders = {gap.order_id for gap in gaps if gap.status == GAP_STATUS_OPEN}
+    ending = [item for item in ending if item.order_id not in open_gap_orders]
     tracked_since = await db.scalar(select(func.min(OrderChangeEvent.created_at)))
-    open_order_ids = list(
-        (
-            await db.scalars(
-                select(OrderGap.order_id)
-                .join(ClientOrder, ClientOrder.id == OrderGap.order_id)
-                .where(OrderGap.status == GAP_STATUS_OPEN)
-            )
-        ).all()
-    )
-    # Baner nie liczy braków zakończonych współprac — te same, których lista
-    # nie pokazuje.
-    open_ended = await gap_orders_with_ending_intent(db, open_order_ids)
-    open_total = sum(1 for order_id in open_order_ids if order_id not in open_ended)
+    open_rows = (
+        await db.execute(
+            select(OrderGap, Contract.candidate_id)
+            .join(ClientOrder, ClientOrder.id == OrderGap.order_id)
+            .outerjoin(Contract, Contract.id == OrderGap.contract_id)
+            .where(OrderGap.status == GAP_STATUS_OPEN)
+        )
+    ).all()
+    # Baner nie liczy braków zakończonych współprac — ta sama reguła, której
+    # używa lista (``_hidden_gap_ids``).
+    open_hidden = await _hidden_gap_ids(db, [(row[0], row[1]) for row in open_rows])
+    open_total = sum(1 for row in open_rows if row[0].id not in open_hidden)
     response = OrderChangesResponse(
         period=OrderChangesPeriod(
             year=year, month=month, label=period_label(year, month)
@@ -983,6 +1070,23 @@ def _previous_order_label(item: OrderChangeItem) -> str:
     return "—"
 
 
+def _author_label(item) -> str:
+    """Kto wprowadził pozycję: autor wpisu dziennika albo założyciel zamówienia.
+
+    ``entered_by`` wypełnia ``order_change_checks.decorate``; bez dekoracji
+    (wywołanie wprost) zostaje autor z dziennika.
+    """
+
+    name = getattr(item, "entered_by", None) or getattr(item, "author_name", None)
+    if name:
+        return name
+    if getattr(item, "entered_automatically", False) or (
+        getattr(item, "source", None) == "system"
+    ):
+        return "System"
+    return "—"
+
+
 def _change_description(item: OrderChangeItem) -> tuple[str, str, str]:
     if item.kind == "additional_project":
         return (
@@ -1020,6 +1124,22 @@ def _change_description(item: OrderChangeItem) -> tuple[str, str, str]:
     )
 
 
+DONE_HEADERS = ["Zrobione", "Odhaczył(a)", "Odhaczono"]
+
+
+def _done_cells(item, zone: ZoneInfo) -> list[object]:
+    """Stan „Zrobione" pozycji — ten sam, który widać przy wierszu na ekranie.
+
+    Plik bez tej kolumny zmuszał do ponownego przejścia listy: z eksportu nie
+    dało się odczytać, co już zostało rozliczone.
+    """
+
+    done = getattr(item, "done", None)
+    if done is None:
+        return ["Nie", "", None]
+    return ["Tak", done.by_name, done.at.astimezone(zone).replace(tzinfo=None)]
+
+
 def _sheet(
     workbook: Workbook,
     title: str,
@@ -1048,6 +1168,8 @@ def _sheet(
                 cell.number_format = "#,##0.00"
             elif isinstance(cell.value, int):
                 cell.number_format = "0"
+            elif isinstance(cell.value, datetime):
+                cell.number_format = "DD.MM.YYYY HH:MM"
             elif isinstance(cell.value, date):
                 cell.number_format = "DD.MM.YYYY"
     sheet.freeze_panes = "A2"
@@ -1056,12 +1178,15 @@ def _sheet(
 
 
 def _exit_like_sheet(
-    workbook: Workbook, title: str, items: Sequence[OrderExitItem]
+    workbook: Workbook,
+    title: str,
+    items: Sequence[OrderExitItem],
+    zone: ZoneInfo,
 ) -> None:
-    """Zejścia i Kończące się zamówienia dzielą wiersz, więc i kolumny.
+    """Zejścia i Zamówienia bez kontynuacji dzielą wiersz, więc i kolumny.
 
-    Tytuł arkusza musi się zmieścić w 31 znakach Excela — stąd skrót „zam."
-    zamiast pełnej nazwy zakładki.
+    Tytuł arkusza musi się zmieścić w 31 znakach Excela — stąd „Bez
+    kontynuacji" zamiast pełnej nazwy zakładki.
     """
 
     _sheet(
@@ -1074,6 +1199,7 @@ def _exit_like_sheet(
             "Data zakończenia",
             "Typ zamówienia",
             "Decyzja dla rozliczeń",
+            *DONE_HEADERS,
         ],
         [
             [
@@ -1083,10 +1209,11 @@ def _exit_like_sheet(
                 item.end_date,
                 ORDER_TYPE_LABELS.get(item.order_type, item.order_type),
                 item.verdict_label,
+                *_done_cells(item, zone),
             ]
             for item in items
         ],
-        [28, 28, 22, 16, 15, 60],
+        [28, 28, 22, 16, 15, 60, 11, 22, 18],
     )
 
 
@@ -1118,6 +1245,7 @@ def build_order_changes_workbook(
                 "Jest",
                 "Data",
                 "Autor",
+                *DONE_HEADERS,
             ],
             [
                 [
@@ -1128,11 +1256,12 @@ def build_order_changes_workbook(
                     item.occurred_at.astimezone(zone).replace(tzinfo=None)
                     if item.occurred_at
                     else item.effective_date,
-                    item.author_name or ("System" if item.source == "system" else "—"),
+                    _author_label(item),
+                    *_done_cells(item, zone),
                 ]
                 for item in data.changes
             ],
-            [28, 28, 22, 26, 34, 46, 18, 22],
+            [28, 28, 22, 26, 34, 46, 18, 22, 11, 22, 18],
         )
     if "entries" in wanted:
         _sheet(
@@ -1150,6 +1279,8 @@ def build_order_changes_workbook(
                 "Waluta",
                 "Typ zamówienia",
                 "Status",
+                "Wprowadził(a)",
+                *DONE_HEADERS,
             ],
             [
                 [
@@ -1164,18 +1295,21 @@ def build_order_changes_workbook(
                     item.currency or "PLN",
                     ORDER_TYPE_LABELS.get(item.order_type, item.order_type),
                     "Szkic" if item.status == ClientOrderStatus.draft.value else "",
+                    _author_label(item),
+                    *_done_cells(item, zone),
                 ]
                 for item in data.entries
             ],
-            [28, 28, 22, 16, 16, 16, 18, 11, 9, 15, 10],
+            [28, 28, 22, 16, 16, 16, 18, 11, 9, 15, 10, 22, 11, 22, 18],
         )
     if "exits" in wanted:
-        _exit_like_sheet(workbook, f"Zejścia ({data.counts.exits})", data.exits)
+        _exit_like_sheet(workbook, f"Zejścia ({data.counts.exits})", data.exits, zone)
     if "ending" in wanted:
         _exit_like_sheet(
             workbook,
-            f"Kończące się zam. ({data.counts.ending})",
+            f"Bez kontynuacji ({data.counts.ending})",
             data.ending_orders,
+            zone,
         )
     if "gaps" in wanted:
         _sheet(
@@ -1191,6 +1325,7 @@ def build_order_changes_workbook(
                 "Uzupełnione zamówieniem",
                 "Uzupełniono",
                 "Opóźnienie (dni)",
+                *DONE_HEADERS,
             ],
             [
                 [
@@ -1207,10 +1342,11 @@ def build_order_changes_workbook(
                     if item.resolved_at
                     else None,
                     item.delay_days,
+                    *_done_cells(item, zone),
                 ]
                 for item in data.gaps
             ],
-            [28, 28, 22, 18, 14, 26, 24, 14, 16],
+            [28, 28, 22, 18, 14, 26, 24, 14, 16, 11, 22, 18],
         )
     output = io.BytesIO()
     workbook.save(output)
@@ -1221,7 +1357,7 @@ TAB_FILENAMES: dict[str, str] = {
     "changes": "Zmiany",
     "entries": "Wejscia",
     "exits": "Zejscia",
-    "ending": "Konczace_sie_zamowienia",
+    "ending": "Zamowienia_bez_kontynuacji",
     "gaps": "Braki",
 }
 

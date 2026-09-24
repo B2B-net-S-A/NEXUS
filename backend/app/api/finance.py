@@ -77,6 +77,11 @@ from app.core.http_headers import content_disposition_attachment
 from app.services import finance_order_pdfs
 from app.services import order_change_checks
 from app.services import storage_service
+from app.services.section_permissions import (
+    ProductSection,
+    SectionAccess,
+    section_access_for_user,
+)
 from app.services.finance_order_changes import (
     OrderChangesFilters,
     OrderChangesTab,
@@ -208,6 +213,51 @@ def _margin_percent(row: FinanceMonthlyResult) -> Optional[Decimal]:
         return None
     value = Decimal(row.margin_pct)
     return value * 100 if abs(value) <= 1 else value
+
+
+def _weighted_margin_percent(
+    rows: list[FinanceMonthlyResult],
+) -> Optional[Decimal]:
+    """Marża % miesiąca = Σ„Marża PLN" / Σ„Faktura" (punkty procentowe).
+
+    Liczona z wierszy, które mają OBA pola (faktura ≠ 0) — ta sama para, na
+    której kafle „Przychód" i „Marża" opierają swój stosunek. Do 24.09.2026
+    była tu średnia procentów wierszy: 100 000 zł z 5% i 1 000 zł z 40%
+    dawało 22,5% zamiast 5,35% — mały kontrakt ważył tyle co duży.
+    ``None``, gdy nie ma z czego liczyć (nie zero).
+    """
+
+    margin = Decimal(0)
+    revenue = Decimal(0)
+    for row in rows:
+        if row.margin_pln is None or not row.invoice_amount:
+            continue
+        margin += Decimal(row.margin_pln)
+        revenue += Decimal(row.invoice_amount)
+    if not revenue:
+        return None
+    return (margin / revenue * 100).quantize(_PCT_QUANT, rounding=ROUND_HALF_UP)
+
+
+def _needs_completion(row: FinanceMonthlyResult) -> bool:
+    """Wiersz z pustym polem liczbowym, którego nikt jeszcze nie poprawił.
+
+    Lustro reguły importu (``FinanceRowDraft.missing_fields``: pole liczbowe
+    puste w arkuszu). Pole poprawione ręcznie (``edited_fields``) jest
+    decyzją człowieka — także gdy celowo zostawił je puste.
+    """
+
+    edited = set(row.edited_fields or [])
+    return any(
+        getattr(row, field) is None and field not in edited
+        for field in EDITABLE_NUMERIC_FIELDS
+    )
+
+
+def _needs_completion_count(rows: list[FinanceMonthlyResult]) -> int:
+    """Liczone przy odczycie — licznik z importu nie malał po korekcie komórki."""
+
+    return sum(1 for row in rows if _needs_completion(row))
 
 
 def _row_to_read(row: FinanceMonthlyResult) -> FinanceResultRow:
@@ -358,12 +408,7 @@ async def get_results(
     cost = sum((r.compensation or Decimal(0) for r in all_rows), Decimal(0))
     revenue = sum((r.invoice_amount or Decimal(0) for r in all_rows), Decimal(0))
     margin = sum((r.margin_pln or Decimal(0) for r in all_rows), Decimal(0))
-    # Średnia z marży % w punktach procentowych (patrz ``_margin_percent``) —
-    # nie z surowej kolumny, która dla komórek procentowych Excela jest ułamkiem.
-    pct_values = [p for p in (_margin_percent(r) for r in all_rows) if p is not None]
-    avg_pct = (
-        sum(pct_values, Decimal(0)) / Decimal(len(pct_values)) if pct_values else None
-    )
+    avg_pct = _weighted_margin_percent(all_rows)
     # Kafel „Marża" to suma kolumny „Marża PLN" z arkusza Finansów, a NIE
     # „Przychód" − „Koszt": wiersze z wynagrodzeniem bez faktury mają marżę
     # pustą i nie obniżają sumy marży, choć ich koszt jest w kaflu „Koszt".
@@ -387,7 +432,7 @@ async def get_results(
             rows_without_margin=len(without_margin),
             cost_without_margin=cost_without_margin,
         ),
-        needs_completion_count=run.needs_completion_count,
+        needs_completion_count=_needs_completion_count(all_rows),
     )
 
 
@@ -446,6 +491,20 @@ async def update_result_row(
     # miejscu — SQLAlchemy nie wykrywa mutacji zwykłego JSON-a i zmiana
     # przepadałaby przy commicie.
     row.edited_fields = sorted(set(row.edited_fields or []) | supplied)
+
+    # Archiwum czyta licznik z wiersza biegu — trzymamy go zgodnego z tabelą
+    # (ta sama reguła co odczyt ``/results``).
+    await db.flush()
+    run = await db.get(FinanceImportRun, row.import_run_id)
+    if run is not None:
+        run_rows = (
+            await db.scalars(
+                select(FinanceMonthlyResult).where(
+                    FinanceMonthlyResult.import_run_id == row.import_run_id
+                )
+            )
+        ).all()
+        run.needs_completion_count = _needs_completion_count(list(run_rows))
 
     db.add(
         Activity(
@@ -848,10 +907,18 @@ def _impersonating(request: Request) -> bool:
 
 
 def _can_check(request: Request, user: User) -> bool:
-    """Odhaczać mogą role Admin i Finanse — nigdy w trybie „podgląd jako"."""
+    """Odhaczać mogą role Admin i Finanse z ZAPISEM sekcji Finanse.
 
-    return not _impersonating(request) and user.has_any_role(
-        UserRole.admin, UserRole.finance
+    Lustro bramek ``POST /order-changes/checks`` (rola + zapis sekcji z
+    ``FINANCE_SECTION_DEPENDENCIES``). Sama rola nie wystarczała: osoba
+    z sekcją odebraną do odczytu widziała aktywne checkboxy, a każde
+    kliknięcie kończyło się 403. Nigdy w trybie „podgląd jako".
+    """
+
+    return (
+        not _impersonating(request)
+        and user.has_any_role(UserRole.admin, UserRole.finance)
+        and section_access_for_user(user, ProductSection.finance) >= SectionAccess.write
     )
 
 
@@ -951,16 +1018,17 @@ async def export_order_changes(
     """Ten sam widok jako XLSX — z tymi samymi filtrami, co ekran.
 
     ``tab`` wskazuje jedną podzakładkę; pominięty daje cały audyt (pięć
-    arkuszy), jak dotąd. Liczniki są w nazwach arkuszy.
+    arkuszy), jak dotąd. Liczniki są w nazwach arkuszy, a każdy arkusz ma
+    kolumny „Zrobione" / „Odhaczył(a)" / „Odhaczono".
     """
 
     resolved_year, resolved_month = _order_changes_period(year, month)
-    data = await build_order_changes(
-        db,
-        resolved_year,
-        resolved_month,
-        filters=_order_changes_filters(q, client_id, date_from, date_to),
-    )
+    filters = _order_changes_filters(q, client_id, date_from, date_to)
+    # Ta sama kolejność co ekran: dekoracja (stan „Zrobione", autor) na PEŁNYM
+    # audycie, filtry dopiero potem — plik niesie to, co widać przy wierszu.
+    full = await build_order_changes(db, resolved_year, resolved_month)
+    decorated = await order_change_checks.decorate(db, full, can_check=False)
+    data = apply_filters(decorated, filters)
     content = await run_in_threadpool(
         build_order_changes_workbook, data, (tab,) if tab else None
     )

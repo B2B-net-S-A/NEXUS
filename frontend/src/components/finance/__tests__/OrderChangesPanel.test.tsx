@@ -93,7 +93,7 @@ const DATA: OrderChangesResponse = {
       currency: "PLN",
       order_type: "cost",
       verdict: "no_successor",
-      verdict_label: "Brak kolejnego zamówienia — do usunięcia z rozliczeń",
+      verdict_label: "Zamówienie się skończyło, brak kolejnego — współpraca trwa",
       intent: null,
     },
   ],
@@ -236,7 +236,7 @@ describe("OrderChangesPanel", () => {
       "Zmiany0",
       "Wejścia1",
       "Zejścia1",
-      "Kończące się zamówienia1",
+      "Zamówienia bez kontynuacji1",
       "Braki2",
     ]);
   });
@@ -368,18 +368,18 @@ describe("OrderChangesPanel", () => {
     expect(screen.getByLabelText("Data zejścia od")).toBeInTheDocument();
     expect(screen.queryByLabelText("Data wejścia od")).not.toBeInTheDocument();
 
-    fireEvent.mouseDown(screen.getByRole("tab", { name: /Kończące się/ }));
+    fireEvent.mouseDown(screen.getByRole("tab", { name: /Zamówienia bez kontynuacji/ }));
     expect(screen.getByLabelText("Data końca zamówienia od")).toBeInTheDocument();
   });
 
   it("keeps a person whose order merely ends out of the exits tab", () => {
-    // Zejście = zapisany koniec współpracy. Kończące się zamówienie to inne
+    // Zejście = zapisany koniec współpracy. Zamówienie bez kontynuacji to inne
     // pytanie i inna zakładka — ta sama osoba nie może stać w obu.
     render(<Harness initial="exits" />);
     expect(screen.getByText(/Olga Wiśniewska/)).toBeInTheDocument();
     expect(screen.queryByText(/Ewa Kowalska/)).not.toBeInTheDocument();
 
-    fireEvent.mouseDown(screen.getByRole("tab", { name: /Kończące się/ }));
+    fireEvent.mouseDown(screen.getByRole("tab", { name: /Zamówienia bez kontynuacji/ }));
     expect(screen.getByText(/Ewa Kowalska/)).toBeInTheDocument();
     expect(screen.queryByText(/Olga Wiśniewska/)).not.toBeInTheDocument();
   });
@@ -388,7 +388,7 @@ describe("OrderChangesPanel", () => {
     const empty = { ...DATA, exits: [], counts: { ...DATA.counts, exits: 0 } };
     render(<Harness data={empty} initial="exits" />);
     expect(
-      screen.getByText(/są w zakładce\s+Kończące się zamówienia/),
+      screen.getByText(/są w zakładce\s+Zamówienia bez kontynuacji/),
     ).toBeInTheDocument();
   });
 
