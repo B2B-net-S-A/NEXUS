@@ -185,6 +185,10 @@ class NotificationType(str, enum.Enum):
     # milczy” od 14 dni albo „Szukamy” bez pracy od 30 dni;
     # related_entity=(user, id), jeden zbiorczy wpis na odbiorcę i dzień.
     request_review_needed = "request_review_needed"
+    # 0372: follow-up z kandydatem przyniósł zmianę (inna oferta, rezygnacja
+    # z procesu, dostępność) — do właściciela procesu; related_entity=
+    # (candidate, id).
+    candidate_followup_signal = "candidate_followup_signal"
 
 
 class Notification(Base, TimestampMixin):

@@ -673,6 +673,8 @@ _ENUM_STATEMENTS = [
     # 0371: automat przydziału requestów — poranne zmiany i requesty do decyzji DL.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'request_assignment_changed'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'request_review_needed'",
+    # 0372: follow-up z kandydatem przyniósł zmianę — do właściciela procesu.
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'candidate_followup_signal'",
     # callstatus: zapisywane przez POST /api/cloudtalk/initiate-call. Uśpione,
     # bo CLOUDTALK_ENABLED=false — ale leży dokładnie na ścieżce aktywacji.
     "ALTER TYPE callstatus ADD VALUE IF NOT EXISTS 'initiated'",
@@ -5476,6 +5478,22 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     """CREATE UNIQUE INDEX IF NOT EXISTS ux_job_work_assignments_live ON job_work_assignments (job_id, user_id) WHERE state <> 'released'""",
     """CREATE INDEX IF NOT EXISTS ix_job_work_assignments_user_state ON job_work_assignments (user_id, state)""",
     """CREATE INDEX IF NOT EXISTS ix_job_work_assignments_changed ON job_work_assignments (assigned_at, released_at)""",
+    # 0372: follow-up z kandydatem — wyniki telefonów (kandydat CASCADE, RODO).
+    """CREATE TABLE IF NOT EXISTS candidate_followups (
+    id BIGSERIAL PRIMARY KEY,
+    candidate_id INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+    user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    outcome VARCHAR(16) NOT NULL,
+    callback_on DATE NULL,
+    note_id INTEGER NULL REFERENCES notes(id) ON DELETE SET NULL,
+    details JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT ck_candidate_followups_outcome
+        CHECK (outcome IN ('connected','changed','no_answer','callback','claim')),
+    CONSTRAINT ck_candidate_followups_callback
+        CHECK ((outcome = 'callback') = (callback_on IS NOT NULL))
+)""",
+    "CREATE INDEX IF NOT EXISTS ix_candidate_followups_candidate_created ON candidate_followups (candidate_id, created_at DESC)",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""

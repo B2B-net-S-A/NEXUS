@@ -30,7 +30,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import Iterable, Optional
+from typing import TYPE_CHECKING, Iterable, Optional
 
 from sqlalchemy import or_, select, text, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -47,6 +47,10 @@ from app.services.board_stage_badges import (
     is_cpro_stage,
     is_qc_stage,
 )
+
+
+if TYPE_CHECKING:
+    from app.services.candidate_followups import DigestCounts
 
 WINDOW_DAYS = 14
 DL_REVIEW_WINDOW_DAYS = 30
@@ -594,25 +598,38 @@ class DigestLine:
     cpro_mine: int = 0
     cpro_unassigned: int = 0
     dl_review: int = 0
+    # 0372: follow-upy z kandydatami na dziś (w tym zaległe).
+    followups: int = 0
+    followups_overdue: int = 0
 
     @property
     def total(self) -> int:
-        return self.cpro_mine + self.cpro_unassigned + self.dl_review
+        return self.cpro_mine + self.cpro_unassigned + self.dl_review + self.followups
 
 
 async def digest_counts(
-    db: AsyncSession, snapshot: BoardTaskSnapshot
+    db: AsyncSession,
+    snapshot: BoardTaskSnapshot,
+    *,
+    followups: Optional[dict[int, "DigestCounts"]] = None,
 ) -> dict[int, DigestLine]:
     """Poranny skrót: kto ma co do zrobienia (tylko to, co wymaga ruchu).
 
     Wysłane do Cpro nie są zadaniem — czekamy na Nordeę — więc skrót ich nie
     liczy. Osoba od Cpro dostaje liczbę osób w kolejce; kolejka bez nikogo
     ustawionego trafia do Head of Recruitment. Przegląd DL — ta sama reguła co
-    panel (`_sees_dl_review`).
+    panel (`_sees_dl_review`). Follow-upy (``followups`` — liczby telefonów
+    per dzwoniący z ``candidate_followups.digest_counts``) dostaje każda rola,
+    nie tylko DL i HoR.
     """
 
+    followups = followups or {}
     if not snapshot.tasks:
-        return {}
+        return {
+            uid: DigestLine(followups=c.due, followups_overdue=c.overdue)
+            for uid, c in followups.items()
+            if c.due
+        }
     users = (
         await db.scalars(
             select(User).where(
@@ -648,6 +665,13 @@ async def digest_counts(
             for u in users:
                 if _sees_dl_review(t, u, portfolios.get(u.id, frozenset())):
                     bump(u.id, "dl_review")
+    for uid, c in followups.items():
+        if c.due:
+            line = counts.setdefault(
+                uid, {"cpro_mine": 0, "cpro_unassigned": 0, "dl_review": 0}
+            )
+            line["followups"] = c.due
+            line["followups_overdue"] = c.overdue
     return {uid: DigestLine(**c) for uid, c in counts.items()}
 
 
@@ -661,6 +685,11 @@ def digest_message(line: DigestLine) -> str:
         parts.append(
             f"{_people(line.cpro_mine)} w kolejce Cpro do wysłania przez Ciebie"
         )
+    if line.followups:
+        phrase = f"{_followups(line.followups)} z kandydatami do zrobienia"
+        if line.followups_overdue:
+            phrase += f" ({line.followups_overdue} zaległ{'y' if line.followups_overdue == 1 else ('e' if _few(line.followups_overdue) else 'ych')})"
+        parts.append(phrase)
     if line.cpro_unassigned:
         parts.append(
             f"{_people(line.cpro_unassigned)} w kolejce Cpro — "
@@ -675,6 +704,14 @@ def _few(n: int) -> bool:
 
 def _waits(n: int) -> str:
     return "czekają" if _few(n) else "czeka"
+
+
+def _followups(n: int) -> str:
+    if n == 1:
+        return "1 follow-up"
+    if _few(n):
+        return f"{n} follow-upy"
+    return f"{n} follow-upów"
 
 
 def _people(n: int) -> str:

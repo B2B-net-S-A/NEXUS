@@ -8,6 +8,7 @@ import {
   Languages,
   Loader2,
   LockKeyhole,
+  PhoneCall,
   MapPin,
   PencilLine,
   Plus,
@@ -15,6 +16,13 @@ import {
   Trash2,
   WalletCards,
 } from "lucide-react";
+import { useCandidateFollowup } from "@/lib/api/candidateFollowups";
+import { pluralPl } from "@/lib/plural-pl";
+import {
+  followupDueLabel,
+  lastContactLabel,
+  shortPersonName,
+} from "@/lib/candidate-followup";
 
 import { useToast } from "@/components/Toast";
 import { Badge } from "@/components/ui/badge";
@@ -142,6 +150,27 @@ interface CandidateProfileFactsBarProps {
     preferences?: unknown;
     max_onsite_days_per_week?: number | null;
   };
+}
+
+/**
+ * 0372: „Kontakt” — kiedy ostatnio ktoś z nami rozmawiał z kandydatem i kto
+ * zadzwoni następny, gdy klient milczy. Tylko przy procesach czekających na
+ * klienta; bez sekcji Pipeline (403) i przy awarii fakt po prostu znika —
+ * to podpowiedź, nie dane profilu.
+ */
+function FollowupFact({ candidateId }: { candidateId: number }) {
+  const query = useCandidateFollowup(candidateId);
+  const row = query.data?.followup;
+  if (!row) return null;
+  const caller = row.caller_name ? shortPersonName(row.caller_name) : "brak opiekuna";
+  return (
+    <FactShell icon={<PhoneCall className="size-4" />} label="Kontakt">
+      {row.processes.length}{" "}
+      {pluralPl(row.processes.length, "proces czeka", "procesy czekają", "procesów czeka")} na
+      klienta ·{" "}
+      {lastContactLabel(row)} · następny: {followupDueLabel(row)}, {caller}
+    </FactShell>
+  );
 }
 
 function requestStatus(error: unknown): number | null {
@@ -1278,6 +1307,7 @@ export function CandidateProfileFactsBar({
             </FactShell>
           ) : null
         ) : null}
+        <FollowupFact candidateId={candidate.id} />
       </section>
 
       {canEditFacts && languagesQuery.data ? (

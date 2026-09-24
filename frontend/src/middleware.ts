@@ -351,7 +351,7 @@ const ROLE_ROUTES: RouteAccessRule[] = [
 //   `/preview/contract-candidate-contact`, `/preview/cv-search`,
 //   `/preview/recruitment-v3`, `/preview/pipeline-v4`, `/preview/cv-generator`,
 //   `/preview/jobs-list-v3`, `/preview/calendar-cycle`, `/preview/cv-qc`,
-//   `/preview/cpro-queue`,
+//   `/preview/cpro-queue`, `/preview/candidate-followup`,
 //   `/preview/kpi-targets`,
 //   `/preview/b2b-documents`,
 //   `/preview/candidates-list` (publiczny przez prefiks `/preview/candidates`)
@@ -416,6 +416,7 @@ const PUBLIC_PATHS = [
   "/preview/calendar-cycle",
   "/preview/cv-qc",
   "/preview/cpro-queue",
+  "/preview/candidate-followup",
   "/preview/kpi-targets",
   "/preview/b2b-documents",
   "/preview/kariera",

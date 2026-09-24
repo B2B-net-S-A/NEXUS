@@ -87,15 +87,19 @@ import { DebriefRequiredDialog } from "@/components/v2/recruitment/DebriefRequir
 import { DockNextStage } from "@/components/v2/jobs/DockNextStage";
 import {
   MOVE_REQUIREMENTS_PREFIX,
+  moveRequirementsQueryKey,
   type MoveRequirementAction,
+  type MoveRequirementsResponse,
 } from "@/lib/api/moveRequirements";
 import {
   companyCvSentence,
   dockOriginalCv,
+  pairCompanyCv,
   originalCvSentence,
   type DockProfileCvDoc,
 } from "@/lib/dock-cv-summary";
 import type { CandidateDocument } from "@/components/v2/files/FilePreviewModal";
+import { DockFollowupBlock } from "@/components/v2/followups/DockFollowupBlock";
 
 // Edytor brandowanego CV jest ciężki (rich text) — leniwy import jak w
 // CandidateDetailV2, żeby nie puchła zakładka Pipeline dla osób, które go
@@ -631,7 +635,25 @@ export function PipelineCandidateDock({
     profileDocsFailed: profileCvQuery.isError,
     cvFilename: candidate?.cv_filename ?? null,
   });
-  const companyCv = companyCvSentence(cvBrandedQuery.data);
+  // 404 z `…/cv/branded` = etap nie ma własnego CV (brak wiersza CV etapu),
+  // nie awaria. Czy PARA ma CV firmowe, mówi lista wymagań ramki „Następny
+  // etap” — czytana z cache (`enabled: false`), bez drugiego żądania.
+  const brandedMissingOnStage =
+    cvBrandedQuery.isError &&
+    (cvBrandedQuery.error as { response?: { status?: number } } | null)?.response?.status === 404;
+  const brandedFailed = cvBrandedQuery.isError && !brandedMissingOnStage;
+  const nextStageRequirements = useQuery({
+    queryKey: moveRequirementsQueryKey({
+      candidateId: item.candidate_id,
+      jobId,
+      toStageDefId: primaryTarget?.stage_def_id ?? null,
+    }),
+    queryFn: () => null as MoveRequirementsResponse | null,
+    enabled: false,
+  });
+  const companyCv = companyCvSentence(brandedMissingOnStage ? null : cvBrandedQuery.data, {
+    pairHasCompanyCv: pairCompanyCv(nextStageRequirements.data?.items),
+  });
   const profileHref = `/candidates/${item.candidate_id}?${encodeJobBackRef(jobId).toString()}`;
 
   // ── Ramka „Następny etap”: przyciski usuwające braki. Każda akcja otwiera
@@ -994,6 +1016,11 @@ export function PipelineCandidateDock({
           onToggle={() => toggleSection("process")}
         >
           <div className="space-y-3">
+            {/* 0372: follow-up z kandydatem, gdy klient milczy — jeden telefon
+                na osobę, także gdy jest w kilku procesach. */}
+            {item.followup && (
+              <DockFollowupBlock candidateId={item.candidate_id} badge={item.followup} />
+            )}
             <div className="space-y-2 rounded-lg border border-border bg-muted/20 p-3 text-xs">
               <div className="flex items-center justify-between gap-2 font-medium text-foreground">
                 <span className="truncate">Etap · {currentStageLabel}</span>
@@ -1206,7 +1233,7 @@ export function PipelineCandidateDock({
         <DockSection
           id="cv"
           label={DOCK_SECTION_LABEL.cv}
-          summary={cvBrandedQuery.isSuccess ? companyCv.text : "Oryginał i CV firmowe"}
+          summary={cvBrandedQuery.isSuccess || brandedMissingOnStage ? companyCv.text : "Oryginał i CV firmowe"}
           isNow={nowSection === "cv"}
           open={isOpen("cv")}
           onToggle={() => toggleSection("cv")}
@@ -1235,7 +1262,7 @@ export function PipelineCandidateDock({
                   />
                 )}
                 <span className="text-foreground">
-                  {cvBrandedQuery.isError ? "CV firmowe: nie udało się sprawdzić" : companyCv.text}
+                  {brandedFailed ? "CV firmowe: nie udało się sprawdzić" : companyCv.text}
                 </span>
               </li>
               <li className="flex items-start gap-1.5">

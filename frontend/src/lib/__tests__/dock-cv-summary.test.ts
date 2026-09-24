@@ -4,6 +4,7 @@ import {
   companyCvSentence,
   dockOriginalCv,
   originalCvSentence,
+  pairCompanyCv,
   primaryProfileCv,
 } from "@/lib/dock-cv-summary";
 import { summarizeRequirements, type MoveRequirementItem } from "@/lib/api/moveRequirements";
@@ -76,6 +77,26 @@ describe("companyCvSentence", () => {
       companyCvSentence({ status: "finalized", from_generator: true, finalized_at: "2026-09-04T10:00:00Z" }).text,
     ).toBe("CV firmowe: zatwierdzone 4.09.2026");
     expect(companyCvSentence({ status: "draft", from_generator: false }).text).toMatch(/stary szablon/);
+  });
+
+  it("etap bez własnego CV, a para ma CV firmowe (ramka „Następny etap” mówi ✓) — nie „brak”", () => {
+    const pairOk = pairCompanyCv([
+      { key: "company_cv", label: "CV firmowe", status: "ok", blocking: true },
+    ]);
+    expect(pairOk).toBe(true);
+    const s = companyCvSentence(null, { pairHasCompanyCv: pairOk });
+    expect(s.text).toBe("CV firmowe: gotowe (nie podpięte do tego etapu)");
+    expect(s.tone).toBe("success");
+  });
+
+  it("etap bez CV i brak wiedzy o parze albo para bez CV — „brak”", () => {
+    expect(pairCompanyCv(undefined)).toBeNull();
+    expect(pairCompanyCv([{ key: "rate", label: "Stawka", status: "ok", blocking: true }])).toBeNull();
+    expect(
+      pairCompanyCv([{ key: "company_cv", label: "CV firmowe", status: "missing", blocking: true }]),
+    ).toBe(false);
+    expect(companyCvSentence(null, { pairHasCompanyCv: null }).text).toBe("CV firmowe: brak");
+    expect(companyCvSentence(null, { pairHasCompanyCv: false }).text).toBe("CV firmowe: brak");
   });
 });
 
