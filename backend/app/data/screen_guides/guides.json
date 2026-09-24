@@ -481,7 +481,7 @@
     "title": "Generator umów B2B",
     "section": null,
     "roles": ["recruiter", "delivery_lead", "tac", "admin"],
-    "what": "Tu generujesz umowę B2B z Partnerem w DOCX i prowadzisz rejestr umów: bieżące, bez projektu i zakończone.",
+    "what": "Tu generujesz umowę B2B z Partnerem w DOCX, prowadzisz rejestr umów (bieżące, bez projektu, zakończone) i przygotowujesz dokumenty do umów: aneksy, porozumienia, wypowiedzenia i umowę przedwstępną.",
     "tasks": [
       {
         "q": "Jak wygenerować umowę?",
@@ -501,14 +501,20 @@
       {
         "q": "Partner się wycofał przed podpisem — co zrobić?",
         "a": "Zmień status umowy na „Anulowana”. Wpis zostaje w „Umowy bieżące”, numer nie wraca do puli, a powrót na „W trakcie” to jedno kliknięcie."
+      },
+      {
+        "q": "Jak przygotować aneks albo porozumienie o rozwiązaniu?",
+        "a": "W zakładce „Dokumenty” kliknij „Nowy dokument” (albo „Nowy dokument” w wierszu umowy), wybierz rodzaj i umowę bazową, uzupełnij formularz i pobierz DOCX. Po podpisie kliknij „Oznacz jako podpisany” — dopiero wtedy NEXUS zmienia kontrakt i rejestr.",
+        "anchor": "contracts.b2b_generator.tabs"
       }
     ],
     "pitfalls": [
       "Umowy podpisanej obustronnie nie da się anulować — kończy się ją statusem „Zakończona”.",
+      "PESEL, numer dowodu i adres zamieszkania nie są zapisywane — przy ponownym pobraniu takiego dokumentu formularz poprosi o nie jeszcze raz.",
       "Zawiesić („Umowy bez projektu”) można tylko umowę aktywną."
     ],
     "anchors": [
-      {"id": "contracts.b2b_generator.tabs", "label": "Zakładki generatora", "describe": "Generator, Umowy bieżące, Umowy bez projektu, Zakończone umowy."},
+      {"id": "contracts.b2b_generator.tabs", "label": "Zakładki generatora", "describe": "Generator, Umowy bieżące, Umowy bez projektu, Zakończone umowy, Dokumenty."},
       {"id": "contracts.b2b_generator.search", "label": "Szukaj umowy", "describe": "Wyszukiwanie po numerze i nazwisku."},
       {
         "id": "contracts.b2b_generator.docx",
@@ -534,7 +540,7 @@
       },
       {
         "q": "Jak zaimportować raport zużycia MD?",
-        "a": "W „Import zużycia MD” wgraj miesięczny XLSX i wybierz miesiąc. Wiersze dopasowane do jednej osoby schodzą z budżetu, niejednoznaczne czekają na wskazanie zamówienia.",
+        "a": "W „Import zużycia MD” wgraj miesięczny XLSX i wybierz miesiąc. Wiersze dopasowane do jednej osoby schodzą z budżetu, niejednoznaczne czekają na wskazanie zamówienia. Numer zamówienia w „Uwagach” jest wiążący: wiersz trafia tylko na to zamówienie, a gdy się nie da — dostaje „Brak pasującego zamówienia” z przyczyną.",
         "anchor": "finance.md_import"
       },
       {

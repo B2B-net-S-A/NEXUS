@@ -67,8 +67,11 @@ describe("odznaki karty — Pipeline v4", () => {
   });
 
   it("„Czeka na DL” w QC CV poza Nordeą, u Nordei nie, w Zweryfikowanym nie", () => {
-    const v = item({ stage: "interview", days_in_stage: 1 });
+    const v = item({ stage: "interview", days_in_stage: 1, qc: { status: "passed", blocking_failed: 0 } });
     expect(labels(v, ctx({ column: "cv_qc" }))).toEqual(["Czeka na DL · 1 dzień"]);
+    // Niesprawdzone QC: DL jeszcze na nic nie czeka.
+    const unchecked = item({ stage: "interview", days_in_stage: 1 });
+    expect(labels(unchecked, ctx({ column: "cv_qc" }))).toEqual([]);
     expect(labels(v, ctx({ column: "cv_qc", cproEnabled: true }))).toEqual([]);
     expect(labels(v, ctx({ column: "verified" }))).toEqual([]);
   });
@@ -142,11 +145,17 @@ describe("Rekrutacja v5: chip QC, znany brak i „kto ma ruch”", () => {
       who: "Ty",
       mine: true,
     });
-    expect(cardNextStep(action, item({}), { column: "cv_qc", cproEnabled: false })?.who).toBe("DL");
+    const passed = item({ qc: { status: "passed", blocking_failed: 0 } });
+    expect(cardNextStep(action, passed, { column: "cv_qc", cproEnabled: false })?.who).toBe("DL");
+    // Niesprawdzone QC = ruch rekrutera, nie DL.
+    expect(cardNextStep(action, item({}), { column: "cv_qc", cproEnabled: false })).toMatchObject({
+      who: "Ty",
+      label: "Sprawdź QC CV",
+    });
     expect(
       cardNextStep(action, item({}), { column: "cv_qc", cproEnabled: true, stageBadge: "cpro" })?.who,
     ).toBe("Osoba od Cpro");
-    expect(cardNextStep(action, item({}), { column: "cv_qc", cproEnabled: true })?.label).toBe(
+    expect(cardNextStep(action, passed, { column: "cv_qc", cproEnabled: true })?.label).toBe(
       "Przekaż do Cpro",
     );
     // Poza QC — lustro `nextActionFor`: klient to nie „Ty”.

@@ -204,9 +204,11 @@ def _items_for(column: str, f: PairFacts) -> list[_Item]:
     if column == "cv_sent":
         qc_ok = f.qc_status in QC_OK_STATUSES
         if f.qc_status == "overridden":
-            qc_detail: Optional[str] = "przepuszczone przez Delivery Leada"
+            qc_detail: Optional[str] = "przepuszczone mimo QC (z powodem)"
         elif f.qc_status == "failed":
-            qc_detail = f"{f.qc_blocking_failed} sprawdzenia do poprawy"
+            from app.services.cv_qc import _checks_word
+
+            qc_detail = f"{_checks_word(f.qc_blocking_failed)} do poprawy"
         elif f.qc_status == "unchecked":
             qc_detail = "QC jeszcze nie policzone"
         else:
@@ -215,7 +217,7 @@ def _items_for(column: str, f: PairFacts) -> list[_Item]:
             _Item(
                 column,
                 "cv_qc",
-                "QC CV przeszło",
+                "QC CV",
                 OK if qc_ok else MISSING,
                 True,
                 qc_detail,
@@ -398,7 +400,8 @@ def build_requirements(facts: PairFacts, to_column: str) -> dict[str, Any]:
     if blocking and primary["kind"] != "blocked":
         primary = {
             "kind": "blocked",
-            "label": f"Najpierw: {blocking[0].label.lower()}",
+            # Nazwa wymagania bywa własną nazwą („QC CV”), więc bez `.lower()`.
+            "label": f"Najpierw uzupełnij: {blocking[0].label}",
         }
     result["primary"] = primary
     result["owner_note"] = owner_note

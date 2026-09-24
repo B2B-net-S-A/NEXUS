@@ -587,6 +587,9 @@ export interface ImportRow {
   matched: ImportLineOption | null;
   options: ImportLineOption[];
   resolved_at: string | null;
+  /** Dlaczego wiersz z numerem zamówienia nie trafił na żadną linię
+   * (ticket 23.09.2026); `null` = wiersz bez numeru albo dopasowany. */
+  status_reason?: string | null;
   notes_raw: string | null;
   order_number_hint: string | null;
   invoice_amount: number | null;

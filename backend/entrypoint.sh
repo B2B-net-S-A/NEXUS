@@ -767,8 +767,34 @@ except Exception as _kc_err:  # noqa: BLE001
     _KEYWORD_CORPUS_DDL = []
     _KEYWORD_CORPUS_INDEXES = []
 
+# Dokumenty pochodne umowy B2B (migracja 0362): tabela, typy aneksu i wersja
+# wzoru umowy — JEDNO źródło z migracją (`app/services/b2b_documents/schema_sql.py`).
+try:
+    from app.services.b2b_documents import schema_sql as _b2b_docs
+
+    _ENUM_STATEMENTS.extend(_b2b_docs.ENUM_DDL)
+    _B2B_DOCUMENTS_DDL = list(_b2b_docs.TABLE_DDL)
+    _B2B_DOCUMENTS_BACKFILL = list(_b2b_docs.BACKFILL_DDL)
+except Exception as _b2b_docs_err:  # noqa: BLE001
+    print(f"b2b documents DDL unavailable: {_b2b_docs_err!r}")
+    _B2B_DOCUMENTS_DDL = []
+    _B2B_DOCUMENTS_BACKFILL = []
+
+# Rejestr umów z Excela działu (migracja 0363): kolumny źródła, NULL-owalne
+# `year`/`seq`, częściowy UNIQUE i tabele przebiegów importu — JEDNO źródło
+# z migracją (`app/services/b2b_register_import/schema_sql.py`).
+try:
+    from app.services.b2b_register_import import schema_sql as _b2b_register
+
+    _B2B_REGISTER_DDL = list(_b2b_register.TABLE_DDL)
+except Exception as _b2b_register_err:  # noqa: BLE001
+    print(f"b2b register import DDL unavailable: {_b2b_register_err!r}")
+    _B2B_REGISTER_DDL = []
+
 _COLUMN_STATEMENTS = [
     *_KEYWORD_CORPUS_DDL,
+    *_B2B_DOCUMENTS_DDL,
+    *_B2B_REGISTER_DDL,
     # 0269: configurable product-section RBAC. The tables are created here as
     # an idempotent recovery path when Alembic stopped before stamping head.
     """CREATE TABLE IF NOT EXISTS rbac_policy_state (
@@ -5437,6 +5463,7 @@ END $$
 
 
 _DATA_STATEMENTS = [
+    *_B2B_DOCUMENTS_BACKFILL,
     # 17.09.2026: konflikt z klientem i `client_excluded` przestały zerować wynik
     # (idą do `breakdown.warnings`). Wiersze cache policzone starą regułą mają
     # `total=0` i w `penalties` te kody — unieważniamy je, żeby przeliczyły się
@@ -8879,6 +8906,41 @@ async def repair():
             )
             return
     print(f"contract start-date repair: {summarize_for_log(summary)}")
+
+asyncio.run(repair())
+PY
+
+# Import MD za sierpień 2026 (ticket 23.09.2026) — jednorazowo: wiersz
+# z numerem zamówienia nadpisał wartość innego wiersza tej samej osoby na
+# zamówieniu-poprzedniku, a lipcowa nadwyżka przeszła na zamówienie, które
+# w lipcu nie istniało. Przypięte do ID i stanu z 23.09 (inna wartość =
+# pominięcie z kodem). Logika w `app/services/md_import_order_number_repair.py`;
+# marker w `app_settings` + advisory lock. Log: wyłącznie liczby, ID i kody.
+startup_phase "repair-md-import-order-number"
+echo "Orders: correct MD import rows assigned across orders (one-shot)..."
+python - <<'PY' || echo "md import order-number repair skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.md_import_order_number_repair import (
+    run_md_import_order_number_repair,
+    summarize_for_log,
+)
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_md_import_order_number_repair(db)
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001 — treść błędu może nieść dane zamówień
+            await db.rollback()
+            sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+            print(
+                f"md import order-number repair failed ({type(exc).__name__}, "
+                f"sqlstate={sqlstate}); nothing written, next start retries"
+            )
+            return
+    print(f"md import order-number repair: {summarize_for_log(summary)}")
 
 asyncio.run(repair())
 PY

@@ -143,6 +143,21 @@ _DOCX_MEDIA = "application/vnd.openxmlformats-officedocument.wordprocessingml.do
 # ignoruje nieznane klucze, więc odtworzenie payloadu go po prostu pomija.
 _CLAUSE_SNAPSHOT_FIELD = "_clause_override"
 
+# Wiersz z rejestru Excela działu (0363) — treść prowadzi dział w pliku, więc
+# NEXUS jej nie poprawia, nie usuwa i nie potwierdza podpisu (ponowny import
+# cofnąłby każdą taką zmianę). Zmiana statusu handlowego jest dozwolona.
+_EXCEL_ROW_READ_ONLY = (
+    "Umowa z rejestru Excel działu — treść, podpis i usunięcie zmienia się "
+    "w pliku Excel i kolejnym imporcie."
+)
+
+
+def _reject_excel_row(row: B2BGeneratedContract) -> None:
+    if row.source == "excel":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=_EXCEL_ROW_READ_ONLY
+        )
+
 
 def _is_view_only_generator_user(user: User) -> bool:
     """Whether rate-bearing document content must stay redacted."""
@@ -760,7 +775,7 @@ async def _serialize_generated_contracts(
     user_ids = {
         uid
         for row in rows
-        for uid in (row.created_by, row.signed_by_user_id)
+        for uid in (row.created_by, row.signed_by_user_id, row.recruiter_user_id)
         if uid is not None
     }
     candidate_ids = {row.candidate_id for row in rows if row.candidate_id is not None}
@@ -884,6 +899,11 @@ async def _serialize_generated_contracts(
             and (is_admin or row.created_by == current_user.id)
         )
         is_cancelled = row.contract_status == "cancelled"
+        from_excel = row.source == "excel"
+        if from_excel:
+            # Wiersz z rejestru Excela: treść i usunięcie należą do pliku
+            # działu (ponowny import by je cofnął). Status handlowy — tak.
+            can_manage = False
         can_confirm = (
             generator_access >= ActionAccess.view
             and (
@@ -895,7 +915,10 @@ async def _serialize_generated_contracts(
             and not is_cancelled
         )
         blocked_reason: str | None = None
-        if is_signed:
+        if from_excel and not is_signed:
+            blocked_reason = _EXCEL_ROW_READ_ONLY
+            can_confirm = False
+        elif is_signed:
             blocked_reason = "Umowa została już oznaczona jako podpisana obustronnie."
         # PRZED gałęziami uprawnień: anulowanie jest najbardziej konkretnym
         # powodem i niesie następny krok („przywróć W trakcie”), a komunikat
@@ -994,6 +1017,20 @@ async def _serialize_generated_contracts(
                 signed_by_name=users.get(row.signed_by_user_id),
                 can_confirm_signed=can_confirm,
                 blocked_reason=blocked_reason,
+                source=row.source or "generator",
+                raw_contract_number=row.raw_contract_number,
+                position=row.position,
+                contract_kind=row.contract_kind,
+                start_date_mode=row.start_date_mode,
+                recruiter_name=users.get(row.recruiter_user_id),
+                legacy_flags=list((row.legacy_data or {}).get("flags") or []),
+                needs_business_data_annex=bool(row.needs_business_data_annex),
+                business_data_annex_done_at=row.business_data_annex_done_at,
+                excel_missing_since=(
+                    row.excel_missing_since.isoformat()
+                    if row.excel_missing_since
+                    else None
+                ),
             )
         )
     return items
@@ -1535,10 +1572,21 @@ async def _next_seq(db: AsyncSession) -> int:
     # Numeracja jest CIĄGŁA między latami — zmienia się tylko rok („1302/2026”
     # był pierwszym numerem 2026 w rejestrze Excel działu). Liczone po
     # wszystkich latach; z filtrem po roku 1 stycznia sugestią byłoby „1/2027”.
-    rows = await db.execute(select(B2BGeneratedContract.contract_number))
+    rows = await db.execute(
+        select(
+            B2BGeneratedContract.contract_number,
+            B2BGeneratedContract.raw_contract_number,
+        )
+    )
     max_seq = 0
-    for (number,) in rows.all():
+    for record in rows.all():
+        number = record[0]
+        raw_number = record[1] if len(record) > 1 else None
         parsed = _parse_seq(number)
+        # Wiersz z Excela bez daty podpisania ma numer bez roku („1517”) —
+        # numeracja działu jest wspólna i ciągła, więc też się liczy.
+        if parsed is None and raw_number and raw_number.strip().isdigit():
+            parsed = int(raw_number.strip())
         if parsed is not None and parsed > max_seq:
             max_seq = parsed
     # Numery USUNIĘTYCH wpisów są POMIJANE, nie wliczane do maksimum (audyt
@@ -1568,7 +1616,15 @@ async def _deleted_contract_numbers(db: AsyncSession) -> list[str]:
             Activity.action == "deleted",
         )
     )
-    return [number for (number,) in rows.all() if number]
+    numbers: list[str] = []
+    for (number,) in rows.all():
+        if not number:
+            continue
+        # Postać kanoniczna („1518/2026”): stary wpis „1518 / 2026” musi
+        # blokować ten sam numer, a nie osobny napis.
+        m = _NUMBER_RE.match(number)
+        numbers.append(f"{int(m.group(1))}/{int(m.group(2))}" if m else number)
+    return numbers
 
 
 @router.get("/next-number", response_model=B2BNextNumberResponse)
@@ -1704,6 +1760,29 @@ async def render_standalone(
             detail=(
                 f"Numer umowy „{number}” jest już użyty — wybierz inny. "
                 f"Następny wolny: {suggested}."
+            ),
+        )
+    # Numeracja działu jest ciągła między latami, a wiersz z Excela bywa bez
+    # roku („1517” bez daty podpisania) — ten sam numer porządkowy z Excela
+    # w DOWOLNYM roku jest już wydany.
+    excel_clash = await db.scalar(
+        select(B2BGeneratedContract.id)
+        .where(
+            B2BGeneratedContract.source == "excel",
+            or_(
+                B2BGeneratedContract.seq == row_seq,
+                func.trim(B2BGeneratedContract.raw_contract_number) == str(row_seq),
+                B2BGeneratedContract.contract_number.like(f"{row_seq}/%"),
+            ),
+        )
+        .limit(1)
+    )
+    if excel_clash:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Numer porządkowy {row_seq} jest już w rejestrze z Excela działu "
+                f"— wybierz inny. Następny wolny: {suggested}."
             ),
         )
     if number in set(await _deleted_contract_numbers(db)):
@@ -1903,6 +1982,18 @@ async def list_generated_contracts(
     start_to: date | None = Query(
         None, description="Data rozpoczęcia usług DO (włącznie)."
     ),
+    source: str | None = Query(
+        None,
+        pattern="^(generator|excel)$",
+        description="Tylko umowy wydane w NEXUSIE (`generator`) albo z Excela działu.",
+    ),
+    business_data_annex_pending: bool = Query(
+        False,
+        description=(
+            "Tylko umowy czekające na aneks „uzupełnienie danych firmy” "
+            "(podpisane przed założeniem działalności)."
+        ),
+    ),
 ):
     """Ostatnio wygenerowane umowy (numer, partner, klient, data) — do zakładki
     „Wygenerowane umowy", by potwierdzić poprawność numeru.
@@ -1990,6 +2081,13 @@ async def list_generated_contracts(
         query = query.where(B2BGeneratedContract.closure_reason == closure_reason)
     if job_id is not None:
         query = query.where(B2BGeneratedContract.job_id == job_id)
+    if source is not None:
+        query = query.where(B2BGeneratedContract.source == source)
+    if business_data_annex_pending:
+        query = query.where(
+            B2BGeneratedContract.needs_business_data_annex.is_(True),
+            B2BGeneratedContract.business_data_annex_done_at.is_(None),
+        )
 
     # Koniunkcja z `q` i `contract_status` wychodzi sama: każdy filtr dokłada
     # własne `.where(...)`, a SQLAlchemy łączy je AND-em. Wiersze bez
@@ -2024,8 +2122,214 @@ async def list_generated_contracts(
     # „1500/2026", który leksykalnie stawia „999/2026" przed „1000/2026".
     # UNIQUE(year, seq) czyni z tej pary porządek całkowity, więc kolejność jest
     # deterministyczna także przy numerach wpisanych ręcznie.
-    rows.sort(key=lambda r: (r.year, r.seq), reverse=True)
+    # Wiersz z Excela bez numeru kanonicznego (`seq`/`year` NULL) ląduje na
+    # końcu strony, po numerowanych.
+    rows.sort(key=lambda r: (r.year or 0, r.seq or 0, r.id), reverse=True)
     return await _serialize_generated_contracts(db, rows, current_user)
+
+
+# ── Eksport rejestru w układzie Excela działu ────────────────────────────────
+
+#: Nagłówki kolumn A–N arkusza „Umowy B2B” działu — w tej kolejności, żeby
+#: wiersze dało się wkleić do pliku prowadzonego równolegle (decyzja 23.09.2026).
+REGISTER_EXPORT_HEADERS: tuple[str, ...] = (
+    "NAZWISKO, PÓŹNIEJ IMIE",
+    "Numer umowy",
+    "Klient",
+    "Stanowisko",
+    "Rodzaj umowy",
+    "Data podpisania",
+    "Data startu pracy",
+    "Data zakończenia umowy",
+    "Okres lojalności",
+    "Rekruter",
+    "czy wysłano informację o rozliczeniach",
+    "mail powitalny",
+    "UWAGI",
+    "ZMIANY W UMOWIE",
+)
+_KIND_LABELS = {
+    "b2b": "B2B",
+    "mandate": "zlecenie",
+    "work": "dzieło",
+    "employment": "UoP",
+}
+_START_MODE_PREFIX = {
+    "not_later": "nie później niż ",
+    "not_earlier": "nie wcześniej niż ",
+}
+_XLSX_MEDIA = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def _register_export_sort_key(row: B2BGeneratedContract) -> tuple[int, int, int]:
+    raw = (row.raw_contract_number or "").strip()
+    number = row.seq if row.seq is not None else (int(raw) if raw.isdigit() else None)
+    if number is None:
+        number = _parse_seq(row.contract_number) or 10**9
+    return (number, row.year or 0, row.id)
+
+
+def _surname_first(person: str | None) -> str | None:
+    parts = (person or "").split()
+    if len(parts) < 2:
+        return person
+    return " ".join(parts[-1:] + parts[:-1])
+
+
+def _build_register_xlsx(
+    rows: list[B2BGeneratedContract],
+    *,
+    role_names: dict[int, str],
+    user_names: dict[int, str],
+    job_recruiters: dict[int, int],
+    include_free_text: bool = True,
+) -> bytes:
+    from io import BytesIO
+
+    from openpyxl import Workbook
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Umowy B2B"
+    sheet.append(list(REGISTER_EXPORT_HEADERS))
+    for row in rows:
+        excel = (
+            ((row.legacy_data or {}).get("excel") or {})
+            if row.source == "excel"
+            else {}
+        )
+        payload = row.render_payload or {}
+        if row.source == "excel":
+            number: object = row.seq if row.seq is not None else row.raw_contract_number
+            if isinstance(number, str) and number.strip().isdigit():
+                number = int(number.strip())
+            name = excel.get("name") or _surname_first(row.partner_name)
+            position = row.position
+            kind = _KIND_LABELS.get(row.contract_kind or "", excel.get("kind"))
+            recruiter = user_names.get(row.recruiter_user_id) or excel.get("recruiter")
+        else:
+            number = _parse_seq(row.contract_number) or row.contract_number
+            name = _surname_first(row.partner_name)
+            role_id = payload.get("role_id")
+            position = role_names.get(role_id) if isinstance(role_id, int) else None
+            kind = "B2B"
+            recruiter_id = job_recruiters.get(row.job_id) if row.job_id else None
+            recruiter = user_names.get(recruiter_id) if recruiter_id else None
+        if row.start_date and row.start_date_mode in _START_MODE_PREFIX:
+            start: object = _START_MODE_PREFIX[
+                row.start_date_mode
+            ] + row.start_date.strftime("%d.%m.%Y")
+        else:
+            start = row.start_date or excel.get("start")
+        end_date = excel.get("end_date")
+        end: object = (
+            date.fromisoformat(end_date)
+            if end_date
+            else excel.get("end") or "czas nieokreślony"
+        )
+        signing: object = row.signing_date
+        if signing is None:
+            signing = excel.get("signing") or (
+                "umowa nie doszła do skutku"
+                if row.contract_status == "cancelled"
+                else None
+            )
+        sheet.append(
+            [
+                name,
+                number,
+                row.client_name,
+                position,
+                kind,
+                signing,
+                start,
+                end,
+                excel.get("loyalty"),
+                recruiter,
+                # Wolny tekst działu bywa o stawkach („zmiana stawki od…”) —
+                # tylko dla ról, które widzą wszystkie stawki (admin, Finanse).
+                excel.get("settlement_info") if include_free_text else None,
+                excel.get("welcome_mail"),
+                excel.get("notes") if include_free_text else None,
+                excel.get("changes") if include_free_text else None,
+            ]
+        )
+    for cells in sheet.iter_rows(min_row=2):
+        for cell in cells:
+            if isinstance(cell.value, date):
+                cell.number_format = "DD.MM.YYYY"
+            elif cell.data_type == "f":
+                # openpyxl zamienia napis zaczynający się od „=” w formułę —
+                # tekst z pliku działu ma zostać tekstem (formula injection).
+                cell.data_type = "s"
+    buffer = BytesIO()
+    workbook.save(buffer)
+    return buffer.getvalue()
+
+
+@router.get("/generated/export.xlsx")
+async def export_generated_contracts_xlsx(
+    current_user: B2BGeneratorAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    """Cały rejestr (NEXUS + Excel) w układzie kolumn A–N arkusza działu,
+    posortowany po numerze — do wklejenia umów wydanych w NEXUSIE do Excela.
+    Stawek NIE eksportujemy (plik wychodzi poza NEXUS)."""
+    query = await _scope_generator_query(
+        select(B2BGeneratedContract),
+        B2BGeneratedContract.client_id,
+        db,
+        current_user,
+    )
+    rows = list((await db.execute(query)).scalars().all())
+    rows.sort(key=_register_export_sort_key)
+    role_ids = {
+        payload.get("role_id")
+        for row in rows
+        if isinstance(payload := row.render_payload or {}, dict)
+        and isinstance(payload.get("role_id"), int)
+    }
+    role_names: dict[int, str] = {}
+    if role_ids:
+        result = await db.execute(
+            select(B2BContractRole.id, B2BContractRole.name_pl).where(
+                B2BContractRole.id.in_(role_ids)
+            )
+        )
+        role_names = {rid: name for rid, name in result.all()}
+    job_ids = {row.job_id for row in rows if row.job_id is not None}
+    job_recruiters: dict[int, int] = {}
+    if job_ids:
+        result = await db.execute(
+            select(Job.id, Job.recruiter_id).where(Job.id.in_(job_ids))
+        )
+        job_recruiters = {jid: rid for jid, rid in result.all() if rid is not None}
+    user_ids = {row.recruiter_user_id for row in rows if row.recruiter_user_id} | set(
+        job_recruiters.values()
+    )
+    user_names: dict[int, str] = {}
+    if user_ids:
+        result = await db.execute(
+            select(User.id, User.name).where(User.id.in_(user_ids))
+        )
+        user_names = {uid: name for uid, name in result.all()}
+    data = await run_in_threadpool(
+        _build_register_xlsx,
+        rows,
+        role_names=role_names,
+        user_names=user_names,
+        job_recruiters=job_recruiters,
+        include_free_text=current_user.has_role(UserRole.admin)
+        or current_user.has_role(UserRole.finance),
+    )
+    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    return Response(
+        content=data,
+        media_type=_XLSX_MEDIA,
+        headers={
+            "Content-Disposition": f'attachment; filename="rejestr-umow-b2b-{stamp}.xlsx"'
+        },
+    )
 
 
 @router.get(
@@ -2152,6 +2456,7 @@ async def download_generated_contract(
         created_by=row.created_by,
         job_id=row.job_id,
     )
+    _reject_excel_row(row)
     if not row.render_payload:
         raise HTTPException(
             status_code=422,
@@ -2187,6 +2492,7 @@ async def _load_row_for_correction(
     if not row:
         raise HTTPException(status_code=404, detail="Wpis nie został znaleziony")
     await _assert_generator_client_access(db, current_user, row.client_id, write=True)
+    _reject_excel_row(row)
     if not current_user.has_role(UserRole.admin) and row.created_by != current_user.id:
         raise HTTPException(
             status_code=403,
@@ -2329,6 +2635,7 @@ async def confirm_generated_contract_fully_signed(
         )
         if row is None:
             raise HTTPException(status_code=404, detail="Wpis nie został znaleziony")
+        _reject_excel_row(row)
         # confirm-fully-signed is the audited, one-way employment automation —
         # it stays strictly client-scoped for DL/TAC even though the rest of the
         # generator is unscoped for a full-access TAC.
@@ -2751,6 +3058,8 @@ async def update_generated_contract(
             status_code=403,
             detail="Nazwę Klienta może poprawić tylko autor wpisu albo administrator.",
         )
+    if wants_client_name and row.source == "excel":
+        _reject_excel_row(row)
     if wants_client_name and row.signature_status == "signed_both":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -3098,6 +3407,7 @@ async def delete_generated_contract(
             row.client_id,
             write=True,
         )
+        _reject_excel_row(row)
         if row.signature_status == "signed_both":
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,

@@ -625,9 +625,10 @@ Wszystko w `components/v2/pages/B2BContractGeneratorV2.tsx`.
   `ContractLegalAccess` i tej decyzji NIE dotyczy — pozostaje admin/HoR/DL/TAC.
   Węższe bramki wewnątrz generatora zostają nietknięte: edycja `client_name`
   (autor albo admin), DELETE (autor albo admin), katalog 29 ról (`AdminUser`),
-  `confirm-fully-signed` (ścisły client-scope — audytowana,
-  jednokierunkowa automatyzacja zatrudnienia, świadomie kontained nawet dla
-  pełnodostępowego TAC). Test kontraktowy: `test_contract_legal_access.py`.
+  `confirm-fully-signed` (akcja RBAC `b2b_signature_confirmation` na
+  poziomie `manage` + ścisły client-scope — audytowana, jednokierunkowa
+  automatyzacja zatrudnienia; stan po audycie 23.09.2026, wcześniej ten opis
+  mówił „`TacPlus`”). Test kontraktowy: `test_contract_legal_access.py`.
 - **TCM działa w całej organizacji (decyzja Artura, 10.09.2026).** #1430 dał
   roli TCM `confirm-fully-signed`, a #1421 zmianę statusu kontraktu
   (`PATCH /contracts/{id}/status`) — obie akcje bez zakresu klienta, bo nie ma
@@ -731,7 +732,10 @@ Wszystko w `components/v2/pages/B2BContractGeneratorV2.tsx`.
   jest** blokowany po podpisaniu — blokada 409 obejmuje wyłącznie treść dokumentu
   (`client_name`).
 - **Dwie różne bramki w tym samym PATCH-u.** `contract_status` — każdy, kto widzi
-  wiersz (`B2BGeneratorAccess` + client-scope; `can_change_status` = `True`).
+  wiersz I ma akcję generatora na poziomie `manage`
+  (`_require_generated_contract_management`; + client-scope). Delivery Lead
+  czyta rejestr wszystkich klientów, a zapisuje wyłącznie u przypisanych
+  (`_assert_generator_client_access(..., write=True)`).
   `client_name` — nadal autor albo admin. Reguła „autor albo admin" dla statusu
   była za wąska: kontraktora na nowy projekt kieruje delivery, nie osoba, która
   kiedyś kliknęła „generuj" — przycisk byłby niewidoczny dla większości zespołu.
@@ -817,6 +821,48 @@ Wszystko w `components/v2/pages/B2BContractGeneratorV2.tsx`.
     w „Zakończonych”. Reguły: `lib/b2b-generator-register.ts`.
   - Stawka zaokrąglana do groszy w schemacie (jedna reguła dla kwoty i kwoty
     słownie); nazwy Partnera/Klienta ≤ 255 znaków (422, nie 500).
+- **Dokumenty pochodne (0362, zakładka „Dokumenty”, `?tab=documents`)** —
+  aneksy (stawka, data startu, dane firmy JDG/spółka, oddelegowanie, zlecenie),
+  porozumienie o rozwiązaniu (B2B i zlecenie, opcja zwolnienia z zakazu
+  konkurencji), wypowiedzenie przez B2B.net, cofnięcie wypowiedzenia Partnera
+  i umowa przedwstępna CeZ. Osobna tabela `b2b_contract_documents`, NIE typ
+  wiersza rejestru — kilkanaście miejsc zakłada „wiersz rejestru = umowa B2B”.
+  Aneksy nie mają własnego numeru (decyzja Artura 23.09.2026). Typy, pola
+  i języki: JEDEN rejestr `services/b2b_documents/registry.py` (front buduje
+  formularz z `GET /document-types`); szablony `app/templates/documents/`
+  budowane skryptem `scripts/build_b2b_document_templates.py` ze wzorów działu
+  (oryginałów z przykładowymi danymi osób NIE commitujemy; zmiana wzoru =
+  zmiana skryptu). Numery paragrafów cytowanych w dokumentach zależą od
+  `b2b_generated_contracts.template_version` (`contract_versions.py`, dziś
+  tylko „2026”); wiersz bez wersji (import z Excela) = formularz prosi o
+  paragrafy. Rejestr klauzul klienta NIE dotyczy dokumentów pochodnych.
+  - **Generowanie niczego nie zmienia — zmienia „Oznacz jako podpisany”**
+    (`effects.apply`, idempotentnie po `effect_applied_at`, pod blokadą),
+    zawsze istniejącą ścieżką domeny: aneks stawki = handler aneksu
+    z `api/contracts.py`, rozwiązanie/wypowiedzenie =
+    `_apply_termination_to_contract`, cofnięcie wypowiedzenia =
+    `reopen_contract` (NIE `revert_contract`, który cofa do szkicu). DOCX
+    ląduje w dokumentach kontraktu. Okno podpisu pokazuje skutki liczone przez
+    serwer (`GET /documents/{id}/effects`), blokada wyłącza przycisk.
+  - **PESEL, dowód i adres zamieszkania NIGDY nie trafiają do bazy** —
+    `strip_sensitive` przed zapisem `render_payload`; ponowne pobranie takiego
+    dokumentu prosi o te pola jeszcze raz (`POST /documents/{id}/docx`).
+  - Wypowiedzenie złożone przez Partnera nie ma wzoru — to akcja bez
+    dokumentu (`POST /documents/partner-notice`, koniec z okresu wypowiedzenia
+    wersji umowy: 2026 = miesiąc na koniec miesiąca).
+- **Rejestr z Excela działu (0363)** — Excel „UMOWY I ZAMÓWIENIA” jest
+  prowadzony RÓWNOLEGLE, więc import jest powtarzalny: Ustawienia → Umowy
+  i stawki → „Rejestr umów z Excela” (admin): podgląd → zapis → cofnięcie
+  ostatniego przebiegu. `source = generator | excel`; wiersza z NEXUSA import
+  nigdy nie zmienia (rozbieżność pod tym samym numerem = raport), wiersz
+  z Excela aktualizuje się po `source_key`, zniknięty z pliku dostaje
+  `excel_missing_since` (nie jest kasowany). `year`/`seq` są NULL-owalne,
+  UNIQUE(year, seq) częściowy — numer spoza formatu („264A”, „bez numeru”)
+  żyje w `raw_contract_number`. Wiersze z Excela są tylko do odczytu poza
+  statusem i dokumentami pochodnymi. Arkusz „Bez działalności” zasila kolejkę
+  „Aneks uzupełnienia danych do zrobienia” (`needs_business_data_annex`,
+  zdejmuje ją podpisany aneks „dane firmy”). `GET /generated/export.xlsx`
+  oddaje rejestr w układzie kolumn Excela działu.
 - **Kontener listy:** `max-w-6xl` → `max-w-7xl` (9 kolumn + akcje).
 
 ## Centrum e-Zdrowia: umowy ramowe (części) → umowy wykonawcze + zamówienia MD (09.2026)
@@ -3689,7 +3735,24 @@ który topnieje wraz z miesięcznymi raportami z Finansów. Migracja `0227`.
 - **Precyzja:** `NUMERIC(16, 6)`. „Bez zaokrąglenia" jest nieosiągalne w typie
   stałoprzecinkowym (`kwota / stawka` bywa ułamkiem nieskończonym); sześć miejsc to cztery
   zapasu ponad prezentację (2 miejsca), więc kolejne importy nie kumulują widocznego błędu.
-- **Import MD dopasowuje WYŁĄCZNIE po imieniu i nazwisku** (arkusz nie ma numeru zamówienia).
+- **Import MD dopasowuje po imieniu i nazwisku, a numer zamówienia z „Uwag" WIĄŻE**
+  (ticket 23.09.2026, BIK: stare zamówienie do 14.08, następca od 15.08, dwa wiersze
+  tej samej osoby). Numer wiąże WYŁĄCZNIE względem klientów, u których ta osoba ma
+  linie: znany numer zamówienia tego klienta, a u klienta z numerami z samych cyfr
+  (BIK, Polkomtel) także ≥ 7 cyfr (`finance_order_matching.explicit_order_hints`,
+  `OrderNumberIndex`; u Polkomtela każdy ciąg cyfr). Globalny zbiór numerów
+  blokowałby BNP/CeZ („delegacja 445", NIP w uwagach).
+  Wiersz z takim numerem idzie WYŁĄCZNIE na linię tej osoby w zamówieniu o tym numerze
+  albo nigdzie („Brak pasującego zamówienia" + `status_reason` liczony przy odczycie,
+  `_unmatched_reason` — bez kolumny w bazie). Zapis wskazany numerem
+  (`apply_md_consumption(explicit_order=True)`) NIE przekierowuje na poprzednika
+  i NIE przenosi nadwyżki na następcę; ręczne przypisanie wbrew numerowi = 422.
+  Przekierowanie FIN-MD-01 rusza tylko przy wpisie poprzednika z INNEJ paczki — wpis
+  z tej samej paczki to osobny wiersz arkusza (do 23.09 był nadpisywany).
+  Zapis z numerem cofa wpis następcy za ten miesiąc, jeśli dziennik ma
+  `transfer_md` z tego zamówienia, a wpis pochodzi z innej paczki
+  (`_revert_earlier_transfer`) — inaczej ponowny import podzielonego miesiąca
+  liczyłby MD dwa razy.
   Jedno trafienie → zastosuj; zero → „Brak aktywnego zamówienia"; **więcej niż jedno →
   „Wymaga przypisania" i system NIE zgaduje** — trafienie w złe zamówienie odejmuje MD nie
   temu klientowi i wychodzi dopiero na fakturze. Wiersz importu ŻYJE DALEJ w bazie, bo bez

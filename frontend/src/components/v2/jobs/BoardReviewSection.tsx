@@ -96,7 +96,7 @@ export function BoardReviewSection({
         data-help="jobs.board.review"
       >
         <div className="flex items-center justify-between gap-2 rounded-md border border-dashed border-primary/40 bg-primary/5 px-2 py-1.5 text-xs">
-          <span className="min-w-0 truncate font-medium text-foreground">
+          <span className="min-w-0 font-medium leading-snug text-foreground">
             Propozycje z bazy ·{" "}
             <span className="tabular-nums" data-testid="board-review-count">
               {view.kind === "loading" ? "…" : countLabel}
