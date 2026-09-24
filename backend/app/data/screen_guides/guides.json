@@ -510,11 +510,6 @@
         "anchor": "contracts.b2b_generator.tabs"
       },
       {
-        "q": "Jak znaleźć umowę?",
-        "a": "Wpisz numer umowy albo imię i nazwisko w polu wyszukiwania na liście umów.",
-        "anchor": "contracts.b2b_generator.search"
-      },
-      {
         "q": "Umowa ma czerwony znacznik „Kontrakt usunięty — brak kontraktora” — co zrobić?",
         "a": "Jeśli kontrakt tej osoby istnieje, kliknij przy umowie „Powiąż z kontraktem” i wpisz jego numer (admin albo Delivery Lead). Umowa zostaje taka sama, trafia do zakładki Dokumenty kontraktu, a w historii umowy pojawia się wpis."
       },

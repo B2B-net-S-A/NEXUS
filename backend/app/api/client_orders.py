@@ -1781,7 +1781,8 @@ async def export_client_orders(
                     else contract_rate_in_unit(
                         contractor.rate_candidate,
                         contractor,  # type: ignore[arg-type]
-                        order.rate_unit,
+                        # Zamówienie bez jednostki = jednostka kontraktu.
+                        order.rate_unit or contractor.rate_unit,
                     )
                 ),
                 revenue_rate=order.rate_client,

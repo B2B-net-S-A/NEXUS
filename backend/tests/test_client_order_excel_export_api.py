@@ -265,6 +265,7 @@ async def test_export_labels_units_converts_contract_cost_and_skips_past_groups(
             order_type="cost",
             is_cost_based=True,
             budget_amount=Decimal("1000"),
+            budget_remaining=Decimal("1000"),
         )
         db.add(past)
         await db.commit()

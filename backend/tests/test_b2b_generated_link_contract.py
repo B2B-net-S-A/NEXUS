@@ -11,8 +11,10 @@ import uuid
 from datetime import date
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import select
 
+from app.api import b2b_contract_generator
 from app.core.database import AsyncSessionLocal
 from app.models.activity import Activity
 from app.models.b2b_generated_contract import B2BGeneratedContract
@@ -22,6 +24,7 @@ from app.models.b2b_generated_contract_status_event import (
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.contract import Contract, ContractStatus
+from app.models.contract_document import ContractDocument
 
 pytestmark = pytest.mark.asyncio
 
@@ -75,9 +78,16 @@ async def _seed(*, signature_status: str = "signed_both", status: str = "active"
         }
 
 
+async def _render_fails(db, row):
+    raise HTTPException(status_code=422, detail="brak danych formularza")
+
+
 async def test_link_sets_contract_aligns_person_and_logs_history(
-    app_client, app_auth_headers
+    app_client, app_auth_headers, monkeypatch
 ):
+    monkeypatch.setattr(
+        b2b_contract_generator, "_render_generated_row_docx", _render_fails
+    )
     ids = await _seed()
     resp = await app_client.post(
         f"{PATH}/{ids['row']}/link-contract",
@@ -118,6 +128,45 @@ async def test_link_sets_contract_aligns_person_and_logs_history(
             )
         )
         assert activity is not None
+
+
+async def test_link_attaches_the_rendered_agreement_to_contract_documents(
+    app_client, app_auth_headers, monkeypatch
+):
+    async def render_ok(db, row):
+        return b"PK-docx"
+
+    monkeypatch.setattr(
+        b2b_contract_generator, "_render_generated_row_docx", render_ok
+    )
+    monkeypatch.setattr(
+        "app.services.storage_service.save_contract_document",
+        lambda contract_id, filename, fileobj, stored_name=None: (
+            f"contracts/{contract_id}/{stored_name}",
+            7,
+        ),
+    )
+    ids = await _seed()
+    resp = await app_client.post(
+        f"{PATH}/{ids['row']}/link-contract",
+        json={"contract_id": ids["contract"]},
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["document_attached"] is True
+    async with AsyncSessionLocal() as db:
+        docs = list(
+            (
+                await db.scalars(
+                    select(ContractDocument).where(
+                        ContractDocument.contract_id == ids["contract"]
+                    )
+                )
+            ).all()
+        )
+    assert [d.filename for d in docs] == [
+        f"Umowa {ids['number'].replace('/', '-')}.docx"
+    ]
 
 
 async def test_link_refuses_unsigned_agreement(app_client, app_auth_headers):

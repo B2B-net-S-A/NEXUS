@@ -346,8 +346,10 @@ async def test_directory_counts_scopes_sorts_and_counts_consultants(
             "A scope",
             "B scope",
         ]
-        assert {item["active_consultants_count"] for item in items[1:]} == {2}
-        assert {item["active_contracts_count"] for item in items[1:]} == {4}
+        # „Ended” ma status active i minioną datę końca: o końcu decyduje
+        # status umowy, nie `end_date` — jak na profilu klienta (audyt N11).
+        assert {item["active_consultants_count"] for item in items[1:]} == {3}
+        assert {item["active_contracts_count"] for item in items[1:]} == {5}
         assert items[1]["client_status"] == "prospect"
         assert items[2]["effective_date"] is not None
         assert items[2]["expiry_date"] is None
@@ -859,8 +861,8 @@ async def test_directory_export_xlsx_mirrors_list_and_includes_legal(
         assert b_scope["Status klienta"] == "Prospekt"
         assert b_scope["Koniec umowy ramowej"] == "Bezterminowa"
         assert b_scope["Start umowy ramowej"]  # non-empty ISO date
-        assert b_scope["Aktywni konsultanci"] == 2
-        assert b_scope["Aktywne kontrakty"] == 4
+        assert b_scope["Aktywni konsultanci"] == 3
+        assert b_scope["Aktywne kontrakty"] == 5
     finally:
         await _cleanup_directory(seed)
 

@@ -18,6 +18,7 @@ from typing import Annotated, List, Optional
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import distinct, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from pydantic import BaseModel, PlainSerializer
 
 from app.api.financial_access import FinanceReadUser
@@ -120,7 +121,8 @@ async def _load_live_contracts(db: AsyncSession, today: date) -> list[Contract]:
             await db.execute(
                 select(Contract)
                 .where(Contract.status.in_(_LIVE_CONTRACT_STATUSES))
-                .options(*RATE_SCHEDULE_LOADS)
+                # ``fold_money`` liczy kontraktorów po tożsamości kandydata.
+                .options(selectinload(Contract.candidate), *RATE_SCHEDULE_LOADS)
                 .order_by(Contract.id)
             )
         )
