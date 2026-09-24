@@ -129,6 +129,8 @@ async def test_data_ai_rows_move_to_infra_and_primary_is_kept() -> None:
             )
             job = await _job(db, "Data Engineer", data_ai)
             await db.flush()
+            # expire_all() wygasza też id — odczyt po nim to lazy load poza greenletem.
+            cand_id, person_id, job_id = cand.id, person.id, job.id
 
             for statement in _remap_statements():
                 await db.execute(text(statement))
@@ -139,7 +141,7 @@ async def test_data_ai_rows_move_to_infra_and_primary_is_kept() -> None:
                     select(
                         CandidateCompetenceCategory.competence_category_id,
                         CandidateCompetenceCategory.is_primary,
-                    ).where(CandidateCompetenceCategory.candidate_id == cand.id)
+                    ).where(CandidateCompetenceCategory.candidate_id == cand_id)
                 )
             ).all()
             assert cand_rows == [(infra, True)]
@@ -149,14 +151,14 @@ async def test_data_ai_rows_move_to_infra_and_primary_is_kept() -> None:
                     select(
                         UserCompetenceCategory.competence_category_id,
                         UserCompetenceCategory.priority,
-                    ).where(UserCompetenceCategory.user_id == person.id)
+                    ).where(UserCompetenceCategory.user_id == person_id)
                 )
             ).all()
             assert user_rows == [(infra, 1)]
 
             refreshed = await db.execute(
                 text("SELECT competence_category_id FROM jobs WHERE id = :id"),
-                {"id": job.id},
+                {"id": job_id},
             )
             assert refreshed.scalar() == infra
         finally:

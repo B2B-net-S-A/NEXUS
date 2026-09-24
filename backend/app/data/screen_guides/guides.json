@@ -13,7 +13,7 @@
       },
       {
         "q": "Jak znaleźć konkretną rekrutację?",
-        "a": "Wpisz w pole wyszukiwania tytuł, nazwę klienta albo technologię. Zawęzić listę możesz też statusem („Szukamy”, „Mamy championa”, „Umowa”…) i przyciskiem „Filtry”.",
+        "a": "Wpisz w pole wyszukiwania tytuł, nazwę klienta albo technologię. Zawęzić listę możesz też statusem („Szukamy”, „Mamy championa”, „Umowa”…) i przyciskiem „Filtry”. Przyciski „Praca” pokazują stan nadany przez Delivery Leada w „Porządku w requestach” — to on mówi, czy ktoś naprawdę szuka.",
         "anchor": "jobs.list.search"
       },
       {
@@ -33,7 +33,8 @@
     ],
     "pitfalls": [
       "Pusta lista w zakresie „Moje” nie znaczy, że rekrutacji nie ma — przełącz na „Wszystkie”.",
-      "Sortowanie „Wymaga uwagi” stawia na górze rekrutacje z największą liczbą kandydatów czekających na Twój ruch."
+      "Sortowanie „Wymaga uwagi” stawia na górze rekrutacje z największą liczbą kandydatów czekających na Twój ruch.",
+      "„Zakończony” w NEXUSIE nie zamyka rekrutacji w Traffit — zdejmuje ją tylko z pracy i z przydziału ludzi."
     ],
     "anchors": [
       {"id": "jobs.list.scope", "label": "Moje / Wszystkie", "describe": "Przełącznik zakresu listy rekrutacji z licznikami."},
