@@ -588,14 +588,31 @@ def test_money_is_the_same_function_as_the_board_tiles_not_a_copy():
 async def test_yoy_is_reachable_only_for_admin_finance_and_hor(
     yoy_client: AsyncClient,
 ):
-    """Zakładka Rada: admin · finance · HoR (21.09.2026), bez redakcji kwot."""
+    """Rok do roku: admin · finance z kwotami, HoR BEZ kwot (24.09.2026)."""
     params = {"end_year": BASE_YEAR, "years": 2}
-    for role in (UserRole.admin, UserRole.finance, UserRole.head_of_recruitment):
+    for role in (UserRole.admin, UserRole.finance):
         email, password = await _seed_user(role)
         headers = await _login(yoy_client, email, password)
         resp = await yoy_client.get(YOY_URL, headers=headers, params=params)
         assert resp.status_code == 200, f"{role.value}: {resp.text}"
         assert _metric(resp.json(), "margin_monthly_pln")["series"] is not None
+
+    email, password = await _seed_user(UserRole.head_of_recruitment)
+    headers = await _login(yoy_client, email, password)
+    resp = await yoy_client.get(YOY_URL, headers=headers, params=params)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    keys = {m["key"] for m in body["metrics"]}
+    # Rekrutacja zostaje, pieniędzy nie ma w żadnej postaci.
+    assert {"placements", "hit_ratio_pct", "consultants", "departures"} <= keys
+    assert not any(m["unit"] == "pln" for m in body["metrics"])
+    assert "margin_pct" not in keys
+    assert not {
+        "margin_monthly_pln",
+        "revenue_monthly_pln",
+        "margin_with_known_hours_pln",
+    } & set(body["component_series"])
+    assert body["money_redacted"] is True
 
     for role in (UserRole.sourcer, UserRole.tac, UserRole.recruiter):
         email, password = await _seed_user(role)
@@ -734,3 +751,35 @@ def test_metrics_say_whether_the_contract_backlog_affects_them():
         _metric("b", "hr", "B", "count", "sum", series, basis="pipeline")["basis"]
         == "pipeline"
     )
+
+
+def test_without_money_strips_amounts_and_keeps_cached_result_intact() -> None:
+    """Redakcja dla HoR działa na KOPII — cache admina zostaje z kwotami."""
+    from app.services.insights_board_yoy import without_money
+
+    cached = {
+        "metrics": [
+            {"key": "revenue_monthly_pln", "unit": "pln"},
+            {"key": "margin_pct", "unit": "pct"},
+            {"key": "placements", "unit": "count"},
+            {"key": "hit_ratio_pct", "unit": "pct"},
+        ],
+        "component_series": {
+            "margin_monthly_pln": {},
+            "revenue_monthly_pln": {},
+            "closed_jobs_total": {},
+        },
+        "degraded": {
+            "reasons": ["fx_missing"],
+            "fx": {"currencies": ["EUR"], "months_affected": ["2026-01"]},
+            "contracts_without_termination_reason": 0,
+            "message": "Brak kursu NBP dla walut: EUR",
+        },
+    }
+    stripped = without_money(cached)
+    assert [m["key"] for m in stripped["metrics"]] == ["placements", "hit_ratio_pct"]
+    assert set(stripped["component_series"]) == {"closed_jobs_total"}
+    assert stripped["degraded"] is None
+    assert stripped["money_redacted"] is True
+    assert len(cached["metrics"]) == 4
+    assert "margin_monthly_pln" in cached["component_series"]

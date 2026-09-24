@@ -262,8 +262,10 @@ async def closed_job_hired_twice() -> AsyncIterator[dict]:
 
 # ── Dostęp: /ranking tylko Rada, /hit-ratio każdy zalogowany ───────────────
 
-BOARD_ROLES = (UserRole.admin, UserRole.finance, UserRole.head_of_recruitment)
+BOARD_ROLES = (UserRole.admin, UserRole.finance)
 NON_BOARD_ROLES = (
+    # Head of Recruitment nie widzi pieniędzy (decyzja Artura 24.09.2026).
+    UserRole.head_of_recruitment,
     UserRole.delivery_lead,
     UserRole.tac,
     UserRole.recruiter,
@@ -286,7 +288,7 @@ async def test_every_role_reaches_hit_ratio(fx_client: AsyncClient, role):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("role", BOARD_ROLES)
 async def test_board_roles_reach_ranking(fx_client: AsyncClient, role):
-    """Ranking klientów (MRR, przychody) należy do zakładki Rada (21.09.2026)."""
+    """Ranking klientów (MRR, przychody): widok Firma — admin i Finanse (24.09.2026)."""
     _, email, password = await _seed_user(role, "rbac-rank")
     headers = await _login(fx_client, email, password)
 
@@ -297,7 +299,7 @@ async def test_board_roles_reach_ranking(fx_client: AsyncClient, role):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("role", NON_BOARD_ROLES)
 async def test_other_roles_are_refused_the_ranking(fx_client: AsyncClient, role):
-    """Poza admin · finance · HoR ranking to 403 — nie pusta lista."""
+    """Poza admin · finance ranking to 403 — nie pusta lista."""
     _, email, password = await _seed_user(role, "rbac-rank-denied")
     headers = await _login(fx_client, email, password)
 

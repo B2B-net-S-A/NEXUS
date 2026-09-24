@@ -1240,6 +1240,14 @@ def _placements_word(count: int) -> str:
     return "placementów"
 
 
+# Marża/h do rozstrzygania remisu wyścigu placementów. `award_order` wpisuje
+# ją w `extras`, bo potrzebuje jej zamrożenie okresu i ekran remisów admina —
+# ale `/api/competitions/monthly-races` czyta każdy zalogowany, a marża to
+# pieniądze (widzą je tylko admin i Finanse, decyzja 24.09.2026). Do 24.09
+# przy każdym remisie szła tam do rekrutera razem z listą placementów.
+_MARGIN_EXTRAS = frozenset({"margin_per_hour_sum", "margin_placements"})
+
+
 async def compose_monthly_races(
     db: AsyncSession, month_period: Optional[str] = None
 ) -> dict:
@@ -1289,7 +1297,11 @@ async def compose_monthly_races(
     ) -> dict:
         ranking = [
             {
-                **r.to_dict(),
+                **{
+                    key: value
+                    for key, value in r.to_dict().items()
+                    if key not in _MARGIN_EXTRAS
+                },
                 "rank": idx + 1,
                 "excluded": r.user_id in excluded_ids,
             }

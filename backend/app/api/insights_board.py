@@ -3,9 +3,9 @@
 Następca `GET /api/reports/board`, usuniętego 15.09.2026 (liczył powtórne
 zatrudnienia z surowych wierszy etapów i nie miał już konsumenta — audyt
 statystyk 14.09). Numery linii `reports.py` niżej opisują kod sprzed usunięcia.
-Dostęp: admin · finance · Head of Recruitment (``BoardReader``, decyzja
-Artura 21.09.2026 — zakładka Rada nie jest już otwarta dla każdej roli, D7
-zawężone), bez redakcji kwot.
+Dostęp: kokpit z kwotami — admin · finance (``BoardReader``); tabele
+rok-do-roku — także Head of Recruitment, ale bez metryk pieniężnych
+(``BoardTrendReader``, decyzja Artura 24.09.2026: HoR nie widzi pieniędzy).
 
 Sześć defektów oryginału, których ten moduł NIE portuje:
 
@@ -88,16 +88,18 @@ from app.analytics.periods import (
     PeriodError,
     resolve_period,
 )
-from app.api.deps import BoardReader
+from app.api.deps import BoardReader, BoardTrendReader
 from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.core.cache import cache_get, cache_set
 from app.core.database import get_db
 from app.core.rate_limit import limiter
+from app.models.user import UserRole
 from app.services.insights_board_yoy import (
     DEFAULT_YEARS,
     MAX_YEARS,
     compute_board_yoy,
     resolve_years,
+    without_money,
 )
 from app.services.insights_board import _today_warsaw, compute_board
 
@@ -146,9 +148,9 @@ async def insights_board(
 ):
     """Kokpit zarządu dla okna [start, end).
 
-    Zakładka Rada: tylko admin · finance · Head of Recruitment (``BoardReader``,
-    decyzja Artura 21.09.2026 — zawęża D7 dla kokpitu, tabel rok-do-roku
-    i rankingu klientów). Kwoty NIE są redagowane. Nie zastępuj tego guardu
+    Widok Firma: tylko admin · finance (``BoardReader``, decyzja Artura
+    24.09.2026 — Head of Recruitment nie widzi pieniędzy). Kwoty NIE są
+    redagowane. Nie zastępuj tego guardu
     capability — `VIEW_FINANCE` steruje 40+ innymi powierzchniami
     (`app/analytics/capabilities.py:64-115`), a HoR go nie ma.
     """
@@ -177,7 +179,7 @@ async def insights_board(
 @limiter.limit("10/minute")
 async def insights_board_yoy(
     request: Request,
-    current_user: BoardReader,
+    current_user: BoardTrendReader,
     db: AsyncSession = Depends(get_db),
     end_year: Optional[int] = Query(
         None, ge=2000, le=2100, description="ostatni rok siatki (domyślnie bieżący)"
@@ -196,8 +198,9 @@ async def insights_board_yoy(
     „ostatnie 12 miesięcy" podpisaną nazwami miesięcy, czyli dwie różne rzeczy
     pod jedną etykietą. Okno wybiera się latami.
 
-    Tylko admin · finance · Head of Recruitment (``BoardReader``, decyzja
-    Artura 21.09.2026), bez redakcji kwot.
+    Admin · finance · Head of Recruitment (``BoardTrendReader``). Head of
+    Recruitment dostaje odpowiedź BEZ metryk pieniężnych (decyzja Artura
+    24.09.2026) — redakcja na gotowym wyniku, cache jeden dla wszystkich.
     """
     resolved_years = resolve_years(end_year, years, _today_warsaw())
     # Klucz niesie LATA i dzień — bez daty siatka z wczoraj wisiałaby przez TTL
@@ -206,10 +209,10 @@ async def insights_board_yoy(
     cache_key = (
         f"insights:board:yoy:v1:{resolved_years[0]}-{resolved_years[-1]}:{today}"
     )
-    cached = await cache_get(cache_key)
-    if cached is not None:
-        return cached
-
-    result = await compute_board_yoy(db, resolved_years, today)
-    await cache_set(cache_key, result, ttl_seconds=YOY_CACHE_TTL_SECONDS)
-    return result
+    result = await cache_get(cache_key)
+    if result is None:
+        result = await compute_board_yoy(db, resolved_years, today)
+        await cache_set(cache_key, result, ttl_seconds=YOY_CACHE_TTL_SECONDS)
+    if current_user.has_any_role(UserRole.admin, UserRole.finance):
+        return result
+    return without_money(result)

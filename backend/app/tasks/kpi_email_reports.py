@@ -12,7 +12,8 @@ w Ustawieniach → Powiadomienia):
   z dodatkową rolą recruiter (reaudyt 14.09, R01).
 * ``board_monthly_report`` — **1. dzień roboczy miesiąca od 8:00**:
   podsumowanie Rady za zamknięty miesiąc (`insights_board.compute_board`
-  + tabela rok-do-roku) do admina, Finansów i HoR (= `BoardReader`).
+  + tabela rok-do-roku) do admina i Finansów (= `BoardReader`; Head of
+  Recruitment nie dostaje kwot od 24.09.2026).
 
 Bez duplikatu po restarcie: przed wysyłką pętla ZAKŁADA wiersz
 `kpi_email_report_runs` (UNIQUE kind+period_key). Deploy w trakcie wysyłki
@@ -55,7 +56,9 @@ MONTHLY_KIND = "board_monthly_report"
 SEND_HOUR = 8
 CHECK_INTERVAL_SECONDS = 600
 
-_BOARD_ROLES = (UserRole.admin, UserRole.finance, UserRole.head_of_recruitment)
+# Bez Head of Recruitment (decyzja Artura 24.09.2026): mail niesie przychód
+# i marżę, a HoR nie widzi pieniędzy — lustro `BoardReader`.
+_BOARD_ROLES = (UserRole.admin, UserRole.finance)
 _MONTHS_PL = (
     "styczeń",
     "luty",
@@ -137,7 +140,7 @@ def render_weekly(team: dict, period_label: str) -> tuple[str, str]:
         )
     lines += [
         "",
-        f"Szczegóły: {_link('/insights?tab=body-leasing&ch=wyniki')}",
+        f"Szczegóły: {_link('/insights?tab=zespol')}",
         "",
         "— Nexus ATS (raport automatyczny; wyłączysz go w Ustawieniach → Powiadomienia)",
     ]
@@ -195,7 +198,7 @@ def render_board(
         )
     lines += [
         "",
-        f"Szczegóły: {_link('/insights?tab=rada')}",
+        f"Szczegóły: {_link('/insights?tab=firma')}",
         "",
         "— Nexus ATS (raport automatyczny; wyłączysz go w Ustawieniach → Powiadomienia)",
     ]
