@@ -135,9 +135,7 @@ def _validate_text_fields(
         if len(name) > 255:
             raise HTTPException(422, detail="Nazwa umowy: najwyżej 255 znaków.")
     if currency is not None and len(currency) > 3:
-        raise HTTPException(
-            422, detail="Waluta to trzyliterowy kod, np. PLN albo EUR."
-        )
+        raise HTTPException(422, detail="Waluta to trzyliterowy kod, np. PLN albo EUR.")
     if filename is not None and len(filename) > 255:
         raise HTTPException(
             422, detail="Nazwa pliku jest za długa (najwyżej 255 znaków). Skróć ją."
