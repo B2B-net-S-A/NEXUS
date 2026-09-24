@@ -239,12 +239,29 @@ async def _reason_context(db: AsyncSession) -> _ReasonContext:
     )
 
 
+REASON_ORDER_MISSING = "order_missing"
+_REASON_TO_VERIFY = "to_verify"
+
+# Audyt 24.09.2026 (U14): etykiety wierszy importu, które nie zeszły z puli MD.
+# „Brak pasującego zamówienia” (czerwony) zostaje dla numeru z „Uwag”, którego
+# nie ma; osoba bez żadnego zamówienia MD w miesiącu (zwykły kontraktor
+# okresowy) nie jest błędem — ma neutralne „Bez zamówienia MD”, a wiersz
+# rozliczony kwotą — „Rozliczono kwotowo”.
+LABEL_NO_MD_ORDER = "Bez zamówienia MD"
+LABEL_COST_SETTLED = "Rozliczono kwotowo"
+LABEL_ORDER_MISSING = IMPORT_ROW_STATUS_LABELS[IMPORT_ROW_UNMATCHED]
+LABEL_TO_VERIFY = "Do weryfikacji"
+
+
 def _unmatched_reason(
     row: MdConsumptionImportRow,
     period_month: Optional[str],
     context: Optional[_ReasonContext],
-) -> Optional[str]:
+) -> Optional[tuple[str, str]]:
     """Dlaczego wiersz z wiążącym numerem zamówienia nie trafił na żadną linię.
+
+    Zwraca ``(rodzaj, opis)``; rodzaj ``REASON_ORDER_MISSING`` = numeru nie ma
+    w NEXUSIE (status „Brak pasującego zamówienia”), reszta = „Do weryfikacji”.
 
     Liczone przy odczycie (bez kolumny w bazie), więc opis mówi o dzisiejszym
     stanie zamówień — tym, który operator ma poprawić. Numer wiąże się tą samą
@@ -300,13 +317,13 @@ def _unmatched_reason(
         )
     }
     if not matching_ids:
-        return (
+        return REASON_ORDER_MISSING, (
             f"Zamówienia nr {number} nie ma w NEXUSIE. {not_elsewhere} — "
             "dodaj zamówienie albo popraw numer w arkuszu."
         )
     on_order = [line for line in person_lines if line.order_group_id in matching_ids]
     if not on_order:
-        return (
+        return _REASON_TO_VERIFY, (
             f"Na zamówieniu nr {number} nie ma osoby z arkusza. {not_elsewhere} — "
             "sprawdź numer w arkuszu albo obsadę zamówienia."
         )
@@ -314,19 +331,19 @@ def _unmatched_reason(
     group = context.groups[line.order_group_id]
     label = format_period_month(period_month)
     if group.is_cost_based:
-        return (
+        return _REASON_TO_VERIFY, (
             f"Zamówienie nr {number} jest kosztowe — rozlicza fakturę, nie liczbę MD. "
             f"{not_elsewhere}."
         )
     if not line_settles_in_month(line, period_month, contract=line.contract):
-        return (
+        return _REASON_TO_VERIFY, (
             f"Okres tej osoby na zamówieniu nr {number} "
             f"({_fmt_day(line.start_date)} – "
             f"{_fmt_day(line.end_date) if line.end_date else 'bezterminowo'}) "
             f"nie obejmuje miesiąca raportu ({label}). {not_elsewhere} — "
             "sprawdź okres albo numer zamówienia."
         )
-    return (
+    return _REASON_TO_VERIFY, (
         f"Zamówienie nr {number} nie rozlicza miesiąca raportu ({label}). "
         f"{not_elsewhere} — sprawdź okres i status zamówienia."
     )
@@ -335,6 +352,28 @@ def _unmatched_reason(
 def _overflow_label(md: Optional[Decimal]) -> str:
     label = IMPORT_ROW_STATUS_LABELS[IMPORT_ROW_OVERFLOW]
     return f"{label} o {format_md(md)} MD" if md is not None else label
+
+
+def _row_status_label(row: MdConsumptionImportRow, reason_kind: Optional[str]) -> str:
+    """Jedna etykieta wiersza importu — zgodna z licznikami nagłówka."""
+    if row.status == IMPORT_ROW_OVERFLOW:
+        return _overflow_label(row.overflow_md)
+    if reason_kind is not None:
+        # Wiersz wskazał numer zamówienia, którego nie da się rozliczyć —
+        # ticket 1.1: opis przyczyny w ``status_reason``.
+        return (
+            LABEL_ORDER_MISSING if reason_kind == REASON_ORDER_MISSING else LABEL_TO_VERIFY
+        )
+    if row.status in (IMPORT_ROW_UNMATCHED, IMPORT_ROW_COST_ONLY):
+        if row.cost_status == COST_ROW_APPLIED:
+            return LABEL_COST_SETTLED
+        if row.status == IMPORT_ROW_UNMATCHED:
+            if row.cost_status == COST_ROW_UNMATCHED_NUMBER:
+                return LABEL_ORDER_MISSING
+            if row.cost_status is not None:
+                return LABEL_TO_VERIFY
+            return LABEL_NO_MD_ORDER
+    return IMPORT_ROW_STATUS_LABELS.get(row.status, row.status)
 
 
 async def _row_to_read(
@@ -382,15 +421,9 @@ async def _row_to_read(
                 md_remaining=order.md_remaining,
             )
 
-    status_reason = _unmatched_reason(row, period_month, reason_context)
-    if row.status == IMPORT_ROW_OVERFLOW:
-        status_label = _overflow_label(row.overflow_md)
-    elif status_reason:
-        # Wiersz wskazał numer zamówienia, którego nie da się rozliczyć —
-        # ticket 1.1: „Do weryfikacji” z opisem przyczyny.
-        status_label = "Do weryfikacji"
-    else:
-        status_label = IMPORT_ROW_STATUS_LABELS.get(row.status, row.status)
+    reason = _unmatched_reason(row, period_month, reason_context)
+    status_reason = reason[1] if reason else None
+    status_label = _row_status_label(row, reason[0] if reason else None)
     return ImportRowRead(
         id=row.id,
         row_number=row.row_number,

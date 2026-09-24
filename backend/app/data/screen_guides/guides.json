@@ -565,7 +565,7 @@
       },
       {
         "q": "Jak zaimportować raport zużycia MD?",
-        "a": "W „Import zużycia MD” wgraj miesięczny XLSX i wybierz miesiąc. Wiersze dopasowane do jednej osoby schodzą z budżetu, niejednoznaczne czekają na wskazanie zamówienia. Numer zamówienia w „Uwagach” jest wiążący: wiersz trafia tylko na to zamówienie, a gdy się nie da — dostaje „Brak pasującego zamówienia” z przyczyną.",
+        "a": "W „Import zużycia MD” wgraj miesięczny XLSX i wybierz miesiąc. Wiersze dopasowane do jednej osoby schodzą z budżetu, niejednoznaczne czekają na wskazanie zamówienia. Numer zamówienia w „Uwagach” jest wiążący: wiersz trafia tylko na to zamówienie, a gdy się nie da — dostaje „Brak pasującego zamówienia” albo „Do weryfikacji” z przyczyną. Osoba bez zamówienia MD w tym miesiącu ma szary status „Bez zamówienia MD”, a wiersz z fakturą rozliczoną na zamówieniu kosztowym — „Rozliczono kwotowo”.",
         "anchor": "finance.md_import"
       },
       {

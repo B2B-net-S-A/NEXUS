@@ -544,3 +544,48 @@ async def test_late_swap_month_report_that_sinks_the_successor_is_held(
     assert row["matched_order_id"] == predecessor
     # Nic nie zostało zaksięgowane — budżet następcy nietknięty.
     assert await _line_total(successor) == Decimal("50")
+
+
+# ── U14: etykieta wiersza importu zgodna z tym, co się z nim stało ─────────
+
+
+def _import_row(**overrides):
+    from app.models.md_consumption import MdConsumptionImportRow
+
+    values = {
+        "row_number": 2,
+        "consultant_name": "Piotr Okresowy",
+        "md_reported": Decimal("10"),
+        "status": "unmatched",
+    }
+    values.update(overrides)
+    return MdConsumptionImportRow(**values)
+
+
+@pytest.mark.parametrize(
+    ("overrides", "reason_kind", "label"),
+    [
+        # Zwykły kontraktor okresowy — nie ma zamówienia MD, to nie błąd.
+        ({}, None, "Bez zamówienia MD"),
+        # Faktura zeszła z zamówienia kosztowego (dotąd: „Brak pasującego…”).
+        ({"cost_status": "applied"}, None, "Rozliczono kwotowo"),
+        ({"status": "cost_only", "cost_status": "applied"}, None, "Rozliczono kwotowo"),
+        # Numer z „Uwag”, którego nie ma — jedyny „Brak pasującego zamówienia”.
+        ({}, "order_missing", "Brak pasującego zamówienia"),
+        ({"cost_status": "unmatched_number"}, None, "Brak pasującego zamówienia"),
+        ({}, "to_verify", "Do weryfikacji"),
+        ({"cost_status": "unmatched_consultant"}, None, "Do weryfikacji"),
+        ({"status": "applied"}, None, "Zaktualizowano"),
+        (
+            {"status": "overflow", "overflow_md": Decimal("3")},
+            None,
+            "Do weryfikacji – przekroczenie puli o 3 MD",
+        ),
+    ],
+)
+def test_import_row_label_matches_what_happened_to_the_row(
+    overrides, reason_kind, label
+):
+    from app.api.md_consumption import _row_status_label
+
+    assert _row_status_label(_import_row(**overrides), reason_kind) == label

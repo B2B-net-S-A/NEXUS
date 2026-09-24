@@ -1357,10 +1357,15 @@ Korekta pozostałości to osobna operacja opisana na końcu tej sekcji.
 * Jeden plik obejmuje wszystkich klientów naraz. Miesiąc raportu **wybiera
   operator** — system nigdy nie zgaduje go z nazwy pliku.
 * Wiersze dopasowywane są do zamówień **po imieniu i nazwisku**. Jedno trafienie
-  → zaktualizowane; zero → „Brak pasującego zamówienia"; **więcej niż jedno →
+  → zaktualizowane; zero → „Bez zamówienia MD" (szary — zwykle kontraktor
+  z zamówieniem okresowym, to nie błąd); **więcej niż jedno →
   „Wymaga przypisania"** i system czeka, aż człowiek wskaże właściwe zamówienie.
   Nie zgaduje, bo trafienie w złe zamówienie odejmuje dni nie temu klientowi
-  i wychodzi dopiero na fakturze.
+  i wychodzi dopiero na fakturze. Wiersz, którego faktura zeszła z zamówienia
+  kosztowego, ma status „Rozliczono kwotowo". Na czerwono („Brak pasującego
+  zamówienia", „Do weryfikacji") świeci tylko wiersz z numerem z „Uwag",
+  którego nie da się rozliczyć, i faktura bez zamówienia — licznik „Do
+  sprawdzenia" nad tabelą.
 * **Numer zamówienia w „Uwagach" jest wiążący u każdego klienta.** Wiersz
   z numerem trafia **wyłącznie** na zamówienie o tym numerze — także gdy ta
   sama osoba ma w tym miesiącu dwa zamówienia (stare kończy się 14.08, nowe
@@ -1392,8 +1397,10 @@ Korekta pozostałości to osobna operacja opisana na końcu tej sekcji.
   miesiące, które nie leżą po dacie zakończenia — konsultant pracuje do tej
   daty, choć zamówienie od razu figuruje w „Zakończonych”. Dotyczy MD przy
   osobie, wspólnej puli MD i zamówień kosztowych. Za miesiąc po dacie
-  zakończenia wiersz zostanie „Brak pasującego zamówienia”. Zamówienie
-  **wyczerpane** importu nie przyjmuje.
+  zakończenia wiersz zostanie „Bez zamówienia MD”. Zamówienie
+  **wyczerpane** importu nie przyjmuje. Zamówienie, które zakończyło się samo
+  po wyczerpaniu limitów MD wszystkich osób, dostaje datę zakończenia z dnia
+  przeliczenia — raport za bieżący miesiąc nadal na nie trafia.
 * **Przy wspólnej puli MD u dowolnego klienta samo nazwisko nie
   wystarcza** — wiersz musi mieć dodatkowo **numer tego zamówienia w kolumnie
   „Uwagi"**. Bez numeru (albo gdy numer pasuje do kilku zamówień) **z puli nie
