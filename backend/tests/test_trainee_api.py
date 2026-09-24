@@ -152,6 +152,33 @@ async def test_trainee_is_confined_to_own_screen(app_client) -> None:
 
 @needs_db
 @pytest.mark.asyncio
+async def test_trainee_cannot_open_the_event_socket() -> None:
+    from app.api.ws import _authenticate_ws_token
+    from app.core.database import AsyncSessionLocal
+    from app.core.security import create_access_token
+
+    async with AsyncSessionLocal() as db:
+        trainee = await _user(db, "trainee")
+        recruiter = await _user(db, "recruiter")
+        await db.commit()
+        trainee_id, recruiter_id = trainee.id, recruiter.id
+
+    assert (
+        await _authenticate_ws_token(
+            create_access_token(subject=trainee_id, role="trainee")
+        )
+        is None
+    )
+    assert (
+        await _authenticate_ws_token(
+            create_access_token(subject=recruiter_id, role="recruiter")
+        )
+        is not None
+    )
+
+
+@needs_db
+@pytest.mark.asyncio
 async def test_pool_ranks_demand_and_skips_unsafe_people() -> None:
     from app.core.database import AsyncSessionLocal
     from app.core.scheduling import business_today
