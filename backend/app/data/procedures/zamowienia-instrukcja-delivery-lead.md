@@ -62,7 +62,9 @@ Nad listą masz:
   dziś**: plik bierze wyłącznie zamówienia obowiązujące w dniu pobrania i każdy
   konsultant jest w nim **dokładnie raz**. Zamówienia zakończone i te, które
   jeszcze się nie zaczęły, do arkusza nie wchodzą; „kończące się" wchodzi, bo
-  konsultant nadal pracuje,
+  konsultant nadal pracuje. Obok stawek są kolumny **„Jednostka stawki"**
+  (godz. / MD / mies.) i **„Waluta"** — stawka kosztowa brana z umowy jest
+  przeliczona na jednostkę zamówienia,
 * przycisk **Nowe zamówienie**.
 
 **📝 Draft** pokazuje szkice pojedynczych konsultantów oraz nowe zbiorcze
@@ -250,7 +252,8 @@ jest istotna:
 * **Zakończ zamówienie** — domyka **to jedno zamówienie**. Umowa zostaje
   aktywna, a wszystkie pozostałe zamówienia tej osoby (w tym linia na
   zamówieniu MD u tego samego klienta) zostają **nietknięte**. Tego użyj, gdy
-  kończy się okres zamówienia, a współpraca trwa dalej.
+  kończy się okres zamówienia, a współpraca trwa dalej. **Szkicu nie da się
+  zakończyć** — niepotrzebny szkic usuń.
 * **Zakończ współpracę** — wypowiada **umowę**. Domyka wszystkie zamówienia tego
   kontraktu i — przy zamówieniach MD — otwiera decyzję o niewykorzystanych
   dniach. Tego użyj, gdy konsultant naprawdę odchodzi od klienta.
@@ -1088,7 +1091,7 @@ nie samą zakładkę. Karty są pogrupowane:
 | | **Umowa ramowa** klienta wygasa | 30 dni przed wygaśnięciem | jak wyżej |
 | | **Kontrakt** konsultanta kończy się (umowa B2B ma datę końca dopiero po „Zakończ współpracę") | 30 dni przed końcem | jak wyżej |
 | | **[Klient] — wygasł konflikt z kandydatem** (NDA / cooling-off, czarna lista klienta albo konkurencja z datą wygaśnięcia) | data wygaśnięcia wpisu w „Konflikty" na profilu kandydata minęła — kandydata znów można proponować temu klientowi; przycisk otwiera profil kandydata | raz; bez maila |
-| | **Mało MD** — konsultantowi (budżet przy osobie) albo całemu zamówieniu (wspólna pula) | zostało **21 MD lub mniej** | co 7 dni; **wysoki priorytet + mail**, gdy zostało MD na ok. **7 dni roboczych** pracy przy dotychczasowym tempie tego zamówienia |
+| | **Mało MD** — konsultantowi (budżet przy osobie; nie osobie, która już zeszła z zamówienia) albo całemu zamówieniu (wspólna pula) | zostało **21 MD lub mniej** | co 7 dni; **wysoki priorytet + mail**, gdy zostało MD na ok. **7 dni roboczych** pracy przy dotychczasowym tempie tego zamówienia |
 | | **Wysokie zużycie podstawy MD** — tylko u klientów z rozszerzonymi alertami, osobno dla każdego konsultanta | zużyto **80% lub więcej** podstawy MD (zakres opcjonalny nie wchodzi do rachunku) | co 7 dni; bez eskalacji — pilny sygnał daje wiersz wyżej |
 | | **Kończy się budżet zamówienia kosztowego** | zostało **10 000 zł lub mniej** | co 7 dni; **wysoki priorytet + mail**, gdy budżet wystarczy na ok. **7 dni roboczych** przy dotychczasowym tempie faktur |
 | | Zamówienie **wyczerpane** (kosztowe albo wspólna pula MD) | budżet zszedł do zera | raz |
