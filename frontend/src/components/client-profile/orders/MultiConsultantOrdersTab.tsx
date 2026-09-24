@@ -32,6 +32,7 @@ import {
   type OrderType,
   type SwapConsultantInput,
 } from "@/lib/api/orderGroups";
+import { apiErrorMessage } from "@/lib/api-error";
 import { countPl } from "@/lib/plural-pl";
 import {
   DEFAULT_ORDER_LIST_FILTERS,
@@ -63,6 +64,7 @@ import { hasSectionAccess } from "@/lib/section-access";
 import { isEzdrowieClient } from "@/lib/ezdrowie";
 import {
   canViewClientFinance,
+  canEditOrderLineAmounts,
   canManageMultiConsultantOrders,
   canManageOrderLifecycle,
   hasRole,
@@ -85,23 +87,23 @@ import { OrderTypeBadge, orderTypeLabel } from "./OrderTypeBadge";
 import { ReplaceWithTakeoverModal } from "./ReplaceWithTakeoverModal";
 import { SwapConsultantModal } from "./SwapConsultantModal";
 
-/** Wyciąga czytelny komunikat z odpowiedzi API (detail bywa stringiem lub obiektem). */
+/** Czytelny komunikat z odpowiedzi API — wspólną regułą `apiErrorMessage`
+ *  (audyt 24.09.2026, S12: lokalna kopia przepuszczała surowe komunikaty
+ *  po angielsku). Kod `finance_fields_forbidden` ma własne zdanie. */
 function apiError(err: unknown, fallback: string): string {
   const detail = (err as { response?: { data?: { detail?: unknown } } })?.response?.data
     ?.detail;
-  if (typeof detail === "string") return detail;
-  if (detail && typeof detail === "object" && "code" in detail) {
-    const typedDetail = detail as { code?: string; message?: string };
-    const code = typedDetail.code;
-    if (code === "finance_fields_forbidden") {
-      return (
-        "Stawki linii może ustawiać administrator albo Delivery Lead " +
-        "przypisany do tego klienta."
-      );
-    }
-    if (typedDetail.message) return typedDetail.message;
+  if (
+    detail &&
+    typeof detail === "object" &&
+    (detail as { code?: string }).code === "finance_fields_forbidden"
+  ) {
+    return (
+      "Stawki linii może ustawiać administrator, Finanse albo Delivery Lead " +
+      "przypisany do tego klienta."
+    );
   }
-  return fallback;
+  return apiErrorMessage(err, fallback);
 }
 
 /** Wynik zapisu zamówienia razem z osobnym, drugim wywołaniem — wgraniem PDF-a.
@@ -127,7 +129,7 @@ function saveErrorMessage(err: unknown, fallback: string): string {
 const PILLS: Array<{ key: UnifiedOrderPill; label: string }> = [
   { key: "all", label: "Wszystkie" },
   { key: "active", label: "Aktywne" },
-  { key: "ending_30d", label: "⚠️ Kończące się 30d" },
+  { key: "ending_30d", label: "⚠️ Bez kontynuacji 30d" },
   { key: "completed", label: "Zakończeni" },
   { key: "exhausted", label: "Wyczerpane" },
   { key: "cancelled", label: "Anulowane" },
@@ -173,7 +175,6 @@ const ALL_ORDER_TYPES: readonly OrderType[] = ["periodic", "cost", "md"];
  */
 export function MultiConsultantOrdersTab({
   clientId,
-  clientName = "",
   legacyNullOrderType = "periodic",
   orderMailDocId = null,
   onOrderMailDocDone,
@@ -189,6 +190,9 @@ export function MultiConsultantOrdersTab({
   // osadzonych formularzy zamówień; wspólny cache z dialogami.
   const { data: defaultRateUnit } = useClientDefaultRateUnit(clientId);
   const canManage = canManageMultiConsultantOrders(user, clientId);
+  // Finanse: wyłącznie kwoty linii (S11) — reszta obsady przy admin/DL.
+  const canEditAmounts = canEditOrderLineAmounts(user, clientId);
+  const amountsOnly = canEditAmounts && !canManage;
   const canLifecycle = canManageOrderLifecycle(user);
   // Eksport = odczyt w sekcji Delivery (U8); TCM bez innej roli Delivery — bez
   // eksportu, jak dotąd.
@@ -316,6 +320,8 @@ export function MultiConsultantOrdersTab({
       queryClient.invalidateQueries({ queryKey: ["contract-documents"] }),
       // The backend marks the alert handled in the decision transaction.
       queryClient.invalidateQueries({ queryKey: ["dl-alerts"] }),
+      // Kafle profilu (MRR, obsada) liczą się z tych samych zamówień (N10).
+      queryClient.invalidateQueries({ queryKey: ["client-profile", clientId] }),
     ]);
   };
 
@@ -555,6 +561,18 @@ export function MultiConsultantOrdersTab({
     mutationFn: async (values: LineFormValues) => {
       const group = lineModal.group;
       if (!group) throw new Error("Brak zamówienia");
+      if (lineModal.line && amountsOnly) {
+        // Finanse: serwer odrzuca 403 `finance_amounts_only` każde pole
+        // niebędące kwotą — wysyłamy wyłącznie stawki i ich waluty.
+        return (
+          await orderGroupsApi.updateLine(clientId, group.id, lineModal.line.id, {
+            rate_candidate_currency: values.rate_candidate_currency,
+            rate_client_currency: values.rate_client_currency,
+            rate_cost: values.rate_cost,
+            rate_revenue: values.rate_revenue,
+          })
+        ).data;
+      }
       if (lineModal.line) {
         return (
           await orderGroupsApi.updateLine(
@@ -1036,6 +1054,7 @@ export function MultiConsultantOrdersTab({
         group={group}
         searchQuery={search}
         canManage={canManage}
+        canEditAmounts={canEditAmounts}
         canManageLifecycle={canLifecycle}
         onAddConsultant={(selected) => {
           setFormError(null);
@@ -1186,7 +1205,9 @@ export function MultiConsultantOrdersTab({
       {query.isSuccess &&
       contractorQuery.isSuccess &&
       (user?.role === "admin" || user?.roles?.includes("admin")) &&
-      clientName.toLocaleLowerCase("pl").includes("nordea") ? (
+      // Klient z polityki Nordei liczony na serwerze (S13) — nazwa klienta
+      // nie jest regułą (Traffit ją nadpisuje, „Nordea" bywa w kilku nazwach).
+      contractorQuery.data.nordea_order_import_enabled === true ? (
         <NordeaOrderImportPanel clientId={clientId} onApplied={invalidate} />
       ) : null}
 
@@ -1349,8 +1370,11 @@ export function MultiConsultantOrdersTab({
         submitting={saveLine.isPending || adjustRemaining.isPending}
         error={formError}
         onSubmit={(values) => saveLine.mutate(values)}
+        amountsOnly={amountsOnly}
         onAdjustRemaining={
-          lineModal.line ? (md) => adjustRemaining.mutate(md) : undefined
+          lineModal.line && !amountsOnly
+            ? (md) => adjustRemaining.mutate(md)
+            : undefined
         }
       />
 

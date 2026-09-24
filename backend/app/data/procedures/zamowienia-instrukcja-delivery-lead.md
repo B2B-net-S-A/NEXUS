@@ -32,7 +32,7 @@ typ.
 
 Nad listą masz:
 
-* siedem filtrów z licznikami: **Wszystkie**, **Aktywne**, **⚠️ Kończące się 30d**,
+* siedem filtrów z licznikami: **Wszystkie**, **Aktywne**, **⚠️ Bez kontynuacji 30d**,
   **Zakończeni**, **Wyczerpane**, **Anulowane**, **📝 Draft (do uzupełnienia)**.
   **O tym, kto jest w „Zakończonych", decyduje wyłącznie umowa z modułu
   Kontrakty** — jej status i data zakończenia — nigdy sam upływ okresu
@@ -43,10 +43,14 @@ Nad listą masz:
   Ciebie: dodaj przedłużenie albo poproś administrację o zakończenie umowy
   w Kontraktach. Data końca wpisana tam w umowie od razu staje się datą końca
   jej otwartego zamówienia (zamówienie zaczynające się później jest anulowane).
-  **W „Kończących się 30d" są tylko zamówienia, które nie mają jeszcze
+  **W „Bez kontynuacji 30d" są tylko zamówienia, które nie mają jeszcze
   kontynuacji.** Gdy do zamówienia kończącego się w ciągu 30 dni dodasz już
-  przyszłe zamówienie (także szkic „do uzupełnienia"), to zamówienie znika
-  z tej zakładki i z jej licznika — nie wymaga działania. Samo przyszłe
+  przyszłe zamówienie (także szkic „do uzupełnienia" z wpisaną stawką albo
+  datą końca), to zamówienie znika z tej zakładki i z jej licznika — nie
+  wymaga działania. Pusty szkic zakładany automatycznie przy podpisie umowy
+  (bez stawki i bez daty końca) kontynuacją **nie jest**; „Dodaj
+  przedłużenie" go wchłania. Ta sama reguła liczy panel „Moi klienci",
+  dzwonek i kafelek pulpitu. Samo przyszłe
   zamówienie ocenia się tak samo: jeśli ono z kolei kończy się w ciągu 30 dni
   i nic nie ma po nim, karta zostaje w zakładce, a plakietka mówi „przyszłe
   zamówienie … kończy się za N dni". Przy zamówieniach MD/kosztowych

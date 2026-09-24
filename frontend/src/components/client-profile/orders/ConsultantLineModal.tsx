@@ -111,6 +111,9 @@ interface Props {
   onAdjustRemaining?: (mdRemaining: number) => void;
   /** „Zastąp kimś innym" — nowa osoba dołącza obok tej linii (dodanie). */
   replaces?: OrderLineRead | null;
+  /** Finanse: w edycji zmieniają się WYŁĄCZNIE kwoty (S11, 24.09.2026) —
+   *  budżet i daty są zablokowane, bo serwer odrzuciłby je 403. */
+  amountsOnly?: boolean;
 }
 
 /**
@@ -186,6 +189,7 @@ export function ConsultantLineModal({
   error,
   onSubmit,
   onAdjustRemaining,
+  amountsOnly = false,
   replaces = null,
 }: Props) {
   const editing = Boolean(line);
@@ -1000,7 +1004,10 @@ export function ConsultantLineModal({
               : "To zamówienie ma wspólną pulę MD dla wszystkich konsultantów — osobny budżet MD przy osobie nie występuje."}
           </p>
         ) : (
-        <fieldset className="rounded-md border border-border p-3">
+        <fieldset
+          className="rounded-md border border-border p-3 disabled:opacity-60"
+          disabled={amountsOnly}
+        >
           <legend className="px-1 text-xs font-semibold text-muted-foreground">
             Budżet
           </legend>
@@ -1080,8 +1087,15 @@ export function ConsultantLineModal({
               type="date"
               value={endDate}
               onChange={(e) => setEndDate(e.target.value)}
+              disabled={amountsOnly}
               className={inputClass}
             />
+            {amountsOnly ? (
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Finanse zmieniają tu wyłącznie stawki — budżet i daty prowadzi
+                Delivery Lead.
+              </p>
+            ) : null}
           </div>
         </div>
 

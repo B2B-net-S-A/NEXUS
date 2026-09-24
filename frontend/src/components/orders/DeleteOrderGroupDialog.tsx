@@ -57,7 +57,6 @@ export function DeleteOrderGroupDialog({
     })),
   });
 
-  const loading = previews.some((q) => q.isLoading);
   const failed = previews.find((q) => q.isError);
   const allLoaded = previews.every((q) => q.isSuccess);
   const blocked = previews.some(
@@ -115,14 +114,16 @@ export function DeleteOrderGroupDialog({
       <p className="mb-3 text-sm text-muted-foreground">
         {`Zamówienie zostanie usunięte razem ze wszystkimi konsultantami (${lines.length}). Tej operacji nie można cofnąć.`}
       </p>
-      {loading ? (
-        <p className="text-sm text-muted-foreground">Sprawdzam skutki…</p>
-      ) : failed ? (
+      {failed ? (
         <p role="alert" className="text-sm text-destructive">
           Nie udało się sprawdzić skutków usunięcia:{" "}
           {apiErrorMessage(failed.error, "nieznany błąd")}. Bez tego nie usuwamy
           — spróbuj ponownie.
         </p>
+      ) : !allLoaded ? (
+        // `!allLoaded` (każde `isSuccess`), nie `isLoading`: zapytanie
+        // wstrzymane pisało „bez zmian", zanim cokolwiek było wiadomo (N4).
+        <p className="text-sm text-muted-foreground">Sprawdzam skutki…</p>
       ) : consequences.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           Umowy konsultantów i ich pozostałe zamówienia zostają bez zmian.

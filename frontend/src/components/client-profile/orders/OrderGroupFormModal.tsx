@@ -25,6 +25,7 @@ import {
   type OrderGroupRead,
 } from "@/lib/api/orderGroups";
 import { useExecutiveContractOptions } from "@/lib/api/executiveContracts";
+import { ConfirmTwoStepButton } from "@/components/orders/ConfirmTwoStepButton";
 import { usesSharedMdPool } from "@/lib/client-order-list";
 import { isEzdrowieClient } from "@/lib/ezdrowie";
 import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
@@ -646,13 +647,12 @@ export function OrderGroupFormModal({
               >
                 <Download className="h-4 w-4" aria-hidden />
               </button>
-              <button
-                type="button"
-                aria-label="Usuń plik PDF zamówienia"
+              <ConfirmTwoStepButton
+                ariaLabel="Usuń plik PDF zamówienia"
+                confirmAriaLabel="Potwierdź usunięcie pliku PDF zamówienia"
                 title="Usuń"
-                onClick={() => {
-                  if (!window.confirm("Czy na pewno chcesz usunąć plik PDF zamówienia?"))
-                    return;
+                confirmLabel="Usunąć?"
+                onConfirm={() => {
                   void withExistingFileBusy(async () => {
                     await onDeleteFile();
                     setHasExistingFile(false);
@@ -662,9 +662,10 @@ export function OrderGroupFormModal({
                   }, "Nie udało się usunąć pliku PDF.");
                 }}
                 className="rounded p-1 pointer-coarse:p-2.5 text-destructive hover:bg-destructive/10"
+                armedClassName="rounded-md bg-destructive px-2 py-1 text-xs font-semibold text-destructive-foreground"
               >
                 <Trash2 className="h-4 w-4" aria-hidden />
-              </button>
+              </ConfirmTwoStepButton>
             </>
           )}
         </div>
@@ -718,19 +719,17 @@ export function OrderGroupFormModal({
               : "Zczytaj i uzupełnij całe zamówienie"}
         </button>
         {file ? (
-          <button
-            type="button"
-            aria-label="Usuń wybrany plik PDF zamówienia"
+          <ConfirmTwoStepButton
+            ariaLabel="Usuń wybrany plik PDF zamówienia"
+            confirmAriaLabel="Potwierdź usunięcie wybranego pliku PDF"
             title="Usuń wybrany plik"
-            onClick={() => {
-              if (!window.confirm("Czy na pewno chcesz usunąć plik PDF zamówienia?"))
-                return;
-              clearPickedFile();
-            }}
+            confirmLabel="Usunąć?"
+            onConfirm={clearPickedFile}
             className="rounded-md border border-destructive/40 p-2 text-destructive hover:bg-destructive/10"
+            armedClassName="rounded-md bg-destructive px-2 py-1 text-xs font-semibold text-destructive-foreground"
           >
             <Trash2 className="h-4 w-4" aria-hidden />
-          </button>
+          </ConfirmTwoStepButton>
         ) : null}
       </div>
       <p className="mt-1 text-xs text-muted-foreground">

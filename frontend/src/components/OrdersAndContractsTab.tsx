@@ -40,7 +40,8 @@ import {
   type OrderListFilters,
   contractorMatchesPill,
   daysUntil,
-  endingOrderWithoutSuccessor,
+  endingWithoutSuccessorOrderId,
+  endsInPhrase,
   lacksCurrentOrder,
 } from "@/lib/client-order-list";
 import type {
@@ -190,7 +191,7 @@ export function OrdersAndContractsTab({
     [],
   );
 
-  // „Kończące się 30d" jest PODZBIOREM „Aktywni" — suma liczników świadomie
+  // „Bez kontynuacji 30d" jest PODZBIOREM „Aktywni" — suma liczników świadomie
   // nie równa się liczbie z „Wszyscy". To zamierzone, nie błąd arytmetyki.
   const counts = useMemo(() => {
     const contractors = data?.contractors ?? [];
@@ -285,7 +286,7 @@ export function OrdersAndContractsTab({
             onClick={() => setFilter("expiring_30d")}
             warn
           >
-            ⚠️ Kończące się 30d ({counts.expiring_30d})
+            ⚠️ Bez kontynuacji 30d ({counts.expiring_30d})
           </FilterPill>
           <FilterPill active={filter === "drafts"} onClick={() => setFilter("drafts")}>
             📝 Draft (do uzupełnienia) ({counts.drafts})
@@ -1090,8 +1091,16 @@ function ContractorCard({
   // zamówienie z dodaną kontynuacją nie ostrzega. Plakietka mówi, KTÓRE
   // zamówienie się kończy — przy dodanym przyszłym zamówieniu, które samo
   // zbliża się do końca, ostrzeżenie dotyczy jego, nie bieżącego okresu.
-  const endingOrder = endingOrderWithoutSuccessor(contractor.orders, 30);
-  const endingDays = endingOrder ? daysUntil(endingOrder.end_date) : null;
+  // Regułę liczy serwer (audyt 24.09.2026, S1) — ta sama co panel „Moi
+  // klienci", dzwonek i kafelek pulpitu.
+  const endingOrderId = endingWithoutSuccessorOrderId(contractor);
+  const endingOrder =
+    endingOrderId === null
+      ? null
+      : (contractor.orders.find((order) => order.id === endingOrderId) ?? null);
+  const endingDays = endingOrder
+    ? (contractor.ending_without_successor_days ?? daysUntil(endingOrder.end_date))
+    : null;
   const endingIsFuture =
     endingOrder !== null && endingOrder.id !== activeOrder?.id;
   // Okres zamówienia minął, a umowa trwa: osoba zostaje w „Aktywnych"
@@ -1168,18 +1177,24 @@ function ContractorCard({
               >
                 <AlertTriangle className="w-3 h-3" />
                 {endingIsFuture
-                  ? `przyszłe zamówienie ${endingOrder.title} kończy się za ${endingDays} dni`
-                  : `kończy się za ${endingDays} dni`}
+                  ? `przyszłe zamówienie ${endingOrder.title} kończy się ${endsInPhrase(endingDays)}`
+                  : `kończy się ${endsInPhrase(endingDays)}`}
               </span>
             )}
             {noCurrentOrder && (
               <span
                 className="text-[11px] text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded flex items-center gap-1"
-                title="Okres zamówienia minął, a umowa trwa — dodaj przedłużenie albo zakończ współpracę w module Kontrakty"
+                title={
+                  contractor.draft_card === true
+                    ? "Kontrakt nie ma jeszcze zamówienia od klienta — uzupełnij szkic albo dodaj zamówienie"
+                    : "Okres zamówienia minął, a umowa trwa — dodaj przedłużenie albo zakończ współpracę w module Kontrakty"
+                }
                 data-testid="no-active-order-note"
               >
                 <AlertTriangle className="w-3 h-3" />
-                Brak aktywnego zamówienia
+                {contractor.draft_card === true
+                  ? "Brak zamówienia"
+                  : "Brak aktywnego zamówienia"}
               </span>
             )}
           </div>

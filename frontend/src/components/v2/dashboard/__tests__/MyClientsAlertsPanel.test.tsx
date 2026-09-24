@@ -206,6 +206,9 @@ describe("MyClientsAlertsPanel", () => {
   it("labels match the ticket copy", () => {
     expect(cardPill(card({ priority: "high", days_left: 7 }))).toBe("7 dni — pilne")
     expect(cardPill(card({ days_left: 23 }))).toBe("23 dni")
+    // N5 (audyt 24.09.2026): miniona data to nie „dziś".
+    expect(cardPill(card({ days_left: 0 }))).toBe("dziś")
+    expect(cardPill(card({ days_left: -3 }))).toBe("po terminie")
     expect(
       cardPill(card({ alert_type: "candidate_conflict_expired", days_left: null })),
     ).toBe("Wygasł")
