@@ -239,6 +239,15 @@ class OrderRevenueTerms:
     billing_hours: int
 
 
+def _is_live_placeholder(order: Optional[ClientOrder]) -> bool:
+    """Nieanulowana zaślepka „(bez numeru)" — jej stawka to kopia stawki umowy."""
+    return (
+        order is not None
+        and ClientOrderStatus(order.status) != ClientOrderStatus.cancelled
+        and (order.title or "").strip() == AUTO_DRAFT_TITLE_PLACEHOLDER
+    )
+
+
 def order_revenue_terms(order: ClientOrder) -> Optional[OrderRevenueTerms]:
     """Warunki, które zamówienie narzuca kontraktowi — albo ``None``.
 
@@ -534,8 +543,24 @@ async def sync_contract_from_orders(
             # Zamówienie, z którego pochodziła stawka, zostało anulowane albo
             # skasowane. Krok znika, a okres (prowadzony przez synchronizację)
             # przestaje udawać, że ktoś tu ma zamówienie.
-            for step in order_steps.values():
-                schedule.remove(step)
+            #
+            # Wyjątek: kroki z żywych zaślepek „(bez numeru)". Zaślepka nie
+            # jest już źródłem przychodu (S4), ale jej stawka została kiedyś
+            # SKOPIOWANA z kontraktu („Dodaj kolejny projekt", PATCH
+            # kontraktu) — to przychód umowy, nie zamówienia. Skasowanie kroku
+            # zerowało ``rate_client`` i zdejmowało kontrakt z MRR przy
+            # pierwszym przeliczeniu (audyt 24.09.2026). Krok zostaje jako
+            # ręczny, a anulowane i skasowane prawdziwe zamówienia — bez zmian.
+            by_id = {order.id: order for order in orders}
+            if all(
+                _is_live_placeholder(by_id.get(order_id)) for order_id in order_steps
+            ):
+                for step in order_steps.values():
+                    step.source_order_id = None
+                    step.note = "Stawka umowy (przeniesiona z zaślepki „(bez numeru)”)"
+            else:
+                for step in order_steps.values():
+                    schedule.remove(step)
             outcome.revenue_steps_changed += len(order_steps)
             if contract.client_order_start_date or contract.client_order_end_date:
                 contract.client_order_start_date = None
