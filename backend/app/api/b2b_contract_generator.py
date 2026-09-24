@@ -78,6 +78,8 @@ from app.schemas.b2b_contract_generator import (
     B2BConfirmFullySignedResponse,
     B2BGeneratedContractItem,
     B2BGeneratedContractUpdate,
+    B2BLinkContractRequest,
+    B2BLinkContractResponse,
     B2BNextNumberResponse,
     B2BStatusEventItem,
     B2BRenderHtmlResponse,
@@ -2486,6 +2488,15 @@ async def download_generated_contract(
         job_id=row.job_id,
     )
     _reject_excel_row(row)
+    data = await _render_generated_row_docx(db, row)
+    return _docx_response(data, row.contract_number)
+
+
+async def _render_generated_row_docx(
+    db: AsyncSession, row: B2BGeneratedContract
+) -> bytes:
+    """DOCX odtworzony z zapisanego payloadu (numer z wiersza, klauzule z
+    przypiętego snapshotu). Wiersz bez payloadu → 422."""
     if not row.render_payload:
         raise HTTPException(
             status_code=422,
@@ -2499,9 +2510,171 @@ async def download_generated_contract(
     role = await db.get(B2BContractRole, payload.role_id) if payload.role_id else None
     context = build_render_context(payload, role)
     context["b2b"]["contract_number"] = row.contract_number
+    return await _render_docx_or_500(context, lang, _pinned_clause_key(row, lang))
 
-    data = await _render_docx_or_500(context, lang, _pinned_clause_key(row, lang))
-    return _docx_response(data, row.contract_number)
+
+LINK_CONTRACT_EVENT_SOURCE = "linked_to_contract"
+
+
+@router.post(
+    "/generated/{generated_id}/link-contract",
+    response_model=B2BLinkContractResponse,
+)
+async def link_generated_contract_to_contract(
+    generated_id: int,
+    payload: B2BLinkContractRequest,
+    current_user: B2BGeneratorAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    """Powiąż podpisaną umowę z istniejącym kontraktem.
+
+    Znacznik „Kontrakt usunięty — brak kontraktora” nie miał dotąd wyjścia
+    w interfejsie (umowa 1460/2026, 24.09.2026: umowę wygenerowano dla
+    zdublowanego rekordu osoby i złego klienta, kontrakt założony przy
+    podpisie usunięto, a właściwy kontrakt istniał osobno). Operacja:
+
+    - dotyczy wyłącznie umowy podpisanej obustronnie, bez żywego kontraktu;
+    - ustawia kontrakt i wyrównuje osobę oraz klienta wiersza do kontraktu
+      (poprzednie wartości zostają w historii);
+    - NIE zmienia numeru, statusów, dat ani treści dokumentu;
+    - dokłada DOCX umowy do dokumentów kontraktu (gdy da się go odtworzyć);
+    - zostawia wpis w historii statusów umowy i Activity na kontrakcie.
+    """
+    _require_generated_contract_management(current_user)
+    if not current_user.has_any_role(UserRole.admin, UserRole.delivery_lead):
+        raise HTTPException(
+            status_code=403,
+            detail="Powiązać umowę z kontraktem może administrator albo Delivery Lead.",
+        )
+    row = await db.scalar(
+        select(B2BGeneratedContract)
+        .where(B2BGeneratedContract.id == generated_id)
+        .with_for_update()
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Wpis nie został znaleziony")
+    await _assert_generator_client_access(db, current_user, row.client_id)
+    if row.signature_status != "signed_both":
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Powiązać można tylko umowę podpisaną obustronnie — niepodpisana "
+                "dostaje kontrakt przy „Oznacz jako podpisaną”."
+            ),
+        )
+    if row.contract_id is not None:
+        current = await db.get(Contract, row.contract_id)
+        if current is not None and current.status != ContractStatus.void:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Umowa jest już powiązana z kontraktem #{current.id}.",
+            )
+    contract = await db.scalar(
+        select(Contract).where(Contract.id == payload.contract_id).with_for_update()
+    )
+    if contract is None:
+        raise HTTPException(status_code=404, detail="Kontrakt nie istnieje")
+    if contract.status == ContractStatus.void:
+        raise HTTPException(
+            status_code=409, detail="Nie można powiązać umowy z anulowanym kontraktem."
+        )
+    await _assert_generator_client_access(
+        db, current_user, contract.client_id, write=True
+    )
+    other = await db.scalar(
+        select(B2BGeneratedContract.contract_number).where(
+            B2BGeneratedContract.contract_id == contract.id,
+            B2BGeneratedContract.id != row.id,
+            B2BGeneratedContract.contract_status != "cancelled",
+        )
+    )
+    if other is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Kontrakt #{contract.id} ma już powiązaną umowę {other}.",
+        )
+
+    previous = {
+        "previous_contract_id": row.contract_id,
+        "previous_candidate_id": row.candidate_id,
+        "previous_client_id": row.client_id,
+    }
+    row.contract_id = contract.id
+    row.candidate_id = contract.candidate_id
+    row.client_id = contract.client_id
+    db.add(
+        B2BGeneratedContractStatusEvent(
+            generated_contract_id=row.id,
+            from_status=row.contract_status,
+            to_status=row.contract_status,
+            client_id=contract.client_id,
+            changed_by=current_user.id,
+            details={
+                "source": LINK_CONTRACT_EVENT_SOURCE,
+                "contract_id": contract.id,
+                **previous,
+            },
+        )
+    )
+    db.add(
+        Activity(
+            entity_type="contract",
+            entity_id=contract.id,
+            action="generated_contract_linked",
+            user_id=current_user.id,
+            details={
+                "generated_contract_id": row.id,
+                "contract_number": row.contract_number,
+                **previous,
+            },
+        )
+    )
+
+    attached = False
+    note: str | None = None
+    try:
+        data = await _render_generated_row_docx(db, row)
+    except HTTPException as exc:
+        data = None
+        note = (
+            "Nie udało się odtworzyć dokumentu umowy — dołącz podpisany plik "
+            f"w zakładce Dokumenty kontraktu ({exc.detail})."
+        )
+    if data is not None:
+        from io import BytesIO
+
+        from app.models.contract_document import ContractDocument, ContractDocumentType
+        from app.services.storage_service import save_contract_document
+
+        filename = f"Umowa {row.contract_number.replace('/', '-')}.docx"
+        path, size = save_contract_document(
+            contract.id,
+            filename,
+            BytesIO(data),
+            stored_name=f"b2b-generated-{row.id}.docx",
+        )
+        db.add(
+            ContractDocument(
+                contract_id=contract.id,
+                filename=filename,
+                file_path=path,
+                content_type=(
+                    "application/vnd.openxmlformats-officedocument."
+                    "wordprocessingml.document"
+                ),
+                size_bytes=size,
+                doc_type=ContractDocumentType.contract,
+                uploaded_by=current_user.id,
+            )
+        )
+        attached = True
+    await db.commit()
+    await db.refresh(row)
+    return B2BLinkContractResponse(
+        item=await _serialize_generated_contract(db, row, current_user),
+        document_attached=attached,
+        document_note=note,
+    )
 
 
 async def _load_row_for_correction(

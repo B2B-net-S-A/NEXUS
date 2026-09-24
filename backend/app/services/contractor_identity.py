@@ -15,7 +15,7 @@ Contract counts remain separate.  This module only answers "how many people?".
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date
 from typing import Any, Hashable, Protocol
@@ -246,10 +246,94 @@ def is_current_contract(
     return start <= today
 
 
-def current_contracts(contracts: Iterable[Any], today: date) -> list[Any]:
-    """Filtr `is_current_contract` zachowujący kolejność wejścia."""
+def current_contracts(
+    contracts: Iterable[Any],
+    today: date,
+    *,
+    fallback_start_by_contract: Mapping[int, date | None] | None = None,
+) -> list[Any]:
+    """Filtr `is_current_contract` zachowujący kolejność wejścia.
 
-    return [c for c in contracts if is_current_contract(c, today)]
+    ``fallback_start_by_contract`` to daty startu reprezentatywnych zamówień
+    kontraktów BEZ własnej daty startu (``load_fallback_starts``). Bez niej
+    kontrakt bez daty z zamówieniem startującym za tydzień byłby tu
+    „obecny”, a na profilu klienta — „planowany” (audyt 24.09.2026, S5).
+    """
+
+    fallback = fallback_start_by_contract or {}
+    return [
+        c
+        for c in contracts
+        if is_current_contract(
+            c, today, fallback_start=fallback.get(getattr(c, "id", None))
+        )
+    ]
+
+
+def representative_start(starts: Iterable[date | None], today: date) -> date | None:
+    """Data startu zamówienia reprezentującego kontrakt „na dziś”.
+
+    Lustro ``services/representative_order.representative_order`` liczone na
+    samych datach (anulowane zamówienia wołający pomija): najnowsze
+    rozpoczęte (pusta data = rozpoczęte), a gdy wszystkie są przyszłe —
+    najbliższe nadchodzące.
+    """
+
+    values = list(starts)
+    if not values:
+        return None
+    started = [s for s in values if s is None or s <= today]
+    if started:
+        return max(started, key=lambda s: s or date.min)
+    return min(values, key=lambda s: s or date.max)
+
+
+async def load_fallback_starts(
+    db: Any, contracts: Iterable[Any], today: date
+) -> dict[int, date | None]:
+    """Hurtowo: ``{contract_id: start reprezentatywnego zamówienia}``.
+
+    Tylko dla kontraktów bez własnej daty startu — jedno zapytanie, bez
+    ładowania relacji. Lustro ``fallback_start`` z profilu klienta.
+    """
+
+    # Import leniwy: modele zamówień importują pośrednio ten moduł.
+    from sqlalchemy import select
+
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+
+    ids = sorted(
+        {
+            c.id
+            for c in contracts
+            if getattr(c, "start_date", None) is None and getattr(c, "id", None)
+        }
+    )
+    if not ids:
+        return {}
+    starts: dict[int, list[date | None]] = {}
+    rows = await db.execute(
+        select(ClientOrder.contract_id, ClientOrder.start_date).where(
+            ClientOrder.contract_id.in_(ids),
+            ClientOrder.status != ClientOrderStatus.cancelled,
+        )
+    )
+    for contract_id, start in rows:
+        starts.setdefault(int(contract_id), []).append(start)
+    return {cid: representative_start(values, today) for cid, values in starts.items()}
+
+
+async def load_current_contracts(
+    db: Any, contracts: Iterable[Any], today: date
+) -> list[Any]:
+    """``current_contracts`` z datą startu dopowiedzianą z zamówień."""
+
+    rows = list(contracts)
+    return current_contracts(
+        rows,
+        today,
+        fallback_start_by_contract=await load_fallback_starts(db, rows, today),
+    )
 
 
 def summarize_active_contracts(contracts: Iterable[Any]) -> ContractorHeadcount:

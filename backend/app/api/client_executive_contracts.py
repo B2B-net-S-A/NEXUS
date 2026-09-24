@@ -35,6 +35,7 @@ from app.schemas.client_executive_contract import (
     ExecutiveContractUpdate,
 )
 from app.services import executive_contracts as service
+from app.services.client_access import assert_client_writable
 from app.services.ezdrowie import is_ezdrowie_client
 
 router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
@@ -44,11 +45,18 @@ ONLY_EZDROWIE_MESSAGE = (
 )
 
 
-async def _assert_ezdrowie_client(db: AsyncSession, client_id: int) -> None:
-    client = await db.scalar(select(Client).where(Client.id == client_id))
-    # Klient usunięty z profilu (0307) nie ma już profilu ani struktury umów.
-    if client is None or client.deleted_at is not None:
-        raise HTTPException(status_code=404, detail="Client not found")
+async def _assert_ezdrowie_client(
+    db: AsyncSession, client_id: int, *, write: bool = False
+) -> None:
+    if write:
+        # Zapis tylko na widocznym kliencie: usunięty, scalony albo ukryty
+        # → 404 (audyt 24.09.2026, S1).
+        await assert_client_writable(db, client_id)
+    else:
+        client = await db.scalar(select(Client).where(Client.id == client_id))
+        # Klient usunięty z profilu (0307) nie ma już profilu ani struktury umów.
+        if client is None or client.deleted_at is not None:
+            raise HTTPException(status_code=404, detail="Client not found")
     if not is_ezdrowie_client(client_id):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -97,7 +105,7 @@ async def create_executive_contract(
     user: DlAssignedOrAdmin,
     db: AsyncSession = Depends(get_db),
 ):
-    await _assert_ezdrowie_client(db, client_id)
+    await _assert_ezdrowie_client(db, client_id, write=True)
     try:
         executive = await service.create_executive_contract(
             db, client_id, payload, user.id
@@ -117,7 +125,7 @@ async def update_executive_contract(
     user: DlAssignedOrAdmin,
     db: AsyncSession = Depends(get_db),
 ):
-    await _assert_ezdrowie_client(db, client_id)
+    await _assert_ezdrowie_client(db, client_id, write=True)
     try:
         executive = await service.update_executive_contract(
             db, client_id, ec_id, payload, user.id
@@ -150,7 +158,7 @@ async def assign_executive_contract(
     user: DlAssignedOrAdmin,
     db: AsyncSession = Depends(get_db),
 ):
-    await _assert_ezdrowie_client(db, client_id)
+    await _assert_ezdrowie_client(db, client_id, write=True)
     try:
         return await service.assign_executive_contract(db, client_id, payload, user.id)
     except ValueError as error:

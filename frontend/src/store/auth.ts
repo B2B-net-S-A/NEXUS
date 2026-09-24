@@ -459,6 +459,30 @@ export function canManageMultiConsultantOrders(
 }
 
 /**
+ * Edycja KWOT linii zamówienia MD/kosztowego (stawki i ich waluty).
+ *
+ * Szersza niż `canManageMultiConsultantOrders` o Finanse z `manage_finance`
+ * (decyzja 22.09.2026; audyt 24.09.2026, S11): backend wpuszcza ich na PATCH
+ * linii, ale wyłącznie z polami kwot (`finance_amounts_only` na resztę) —
+ * reszta obsady (osoba, budżet MD, daty, zamiana) zostaje przy admin/DL.
+ */
+export function canEditOrderLineAmounts(
+  user:
+    | Pick<
+        User,
+        "role" | "roles" | "analytics_capabilities" | "capabilities" | "data_scope"
+      >
+    | null
+    | undefined,
+  clientId: number
+): boolean {
+  if (canManageMultiConsultantOrders(user, clientId)) return true
+  return (
+    hasRole(user, "finance") && hasAnalyticsCapability(user, "manage_finance")
+  )
+}
+
+/**
  * Kwoty JEDNEGO klienta: przychód, marża, stawki (profil klienta + zakładka
  * Analityka, zasilana przez `/api/my-clients/{id}/dashboard`).
  *

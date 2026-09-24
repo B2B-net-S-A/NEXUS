@@ -1,4 +1,4 @@
 {
-  "sha256": "7c16dbea29bd4bdee86cfed87995d6faf3ef38b2544486216854b94670876b6e",
+  "sha256": "36f3026a294c13e328a052dae687d929b2d6a97a79789620c975bd10f0ea3dc1",
   "source": "frontend/src/components/orders/InlineOrderFields.tsx"
 }

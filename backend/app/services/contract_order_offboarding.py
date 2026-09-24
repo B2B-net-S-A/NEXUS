@@ -29,6 +29,7 @@ from app.models.contract import Contract
 from app.models.order_type import OrderType
 from app.services.client_order_lines import (
     consultant_display_name,
+    live_successor_line_id,
     recompute_remaining,
     record_event,
 )
@@ -381,6 +382,15 @@ async def apply_contract_order_offboarding(
             # leave an alert that has no resolve route or UI destination.
             order.status = ClientOrderStatus.completed
             continue
+        if order.id not in existing_by_order and (
+            await live_successor_line_id(db, order.id) is not None
+        ):
+            # Audyt 24.09.2026 (W1): pula tej linii jest już budżetem następcy
+            # z zamiany kontraktora (data zamiany w przyszłości zostawiła
+            # poprzednika aktywnego). Sprawa MD rozdałaby ją drugi raz — linia
+            # kończy się bez decyzji o puli.
+            order.status = ClientOrderStatus.completed
+            continue
         uses_shared_pool = bool(group and uses_shared_md_pool(group))
         if uses_shared_pool:
             remaining = _ZERO_MD
@@ -395,6 +405,35 @@ async def apply_contract_order_offboarding(
         order.status = ClientOrderStatus.completed
 
         case = existing_by_order.get(order.id)
+        if (
+            case is None
+            and not uses_shared_pool
+            and order.md_total is not None
+            and remaining <= _ZERO_MD
+        ):
+            # Pula osoby wykorzystana w całości — decyzja o 0 MD nie ma sensu,
+            # a otwarta sprawa trzymałaby zamówienie w „Aktywnych” i blokowała
+            # „Zakończ zamówienie” (ticket 4500030067, 24.09.2026).
+            record_event(
+                db,
+                group_id=group.id,
+                order_id=order.id,
+                event_type=EVENT_CONSULTANT_ENDED,
+                description=(
+                    f"{consultant_display_name(order)} zakończył(a) współpracę "
+                    f"{effective_date.isoformat()} — pula MD wykorzystana "
+                    "w całości, decyzja o puli nie jest potrzebna."
+                ),
+                payload={
+                    "contract_id": order.contract_id,
+                    "order_id": order.id,
+                    "effective_date": effective_date.isoformat(),
+                    "order_number": group.order_number,
+                    "pool_used_up": True,
+                },
+                user_id=actor_id,
+            )
+            continue
         created = False
         if case is None:
             case, created = await _ensure_md_case(

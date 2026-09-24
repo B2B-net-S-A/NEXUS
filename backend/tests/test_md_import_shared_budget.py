@@ -79,6 +79,20 @@ async def _client_and_contract_for_existing_candidate(
         return client.id, contract.id
 
 
+async def _force_order_number(group_id: int, order_number: str) -> None:
+    """Drugie OTWARTE zamówienie o tym samym numerze to stan danych z produkcji
+    (Lotte Wedel), którego API od audytu 24.09.2026 (S9) już nie zakłada —
+    zapisujemy numer wprost, żeby import dalej był na nim sprawdzany."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order_group import ClientOrderGroup
+
+    async with AsyncSessionLocal() as db:
+        group = await db.get(ClientOrderGroup, group_id)
+        assert group is not None
+        group.order_number = order_number
+        await db.commit()
+
+
 async def _group_from_list(
     app_client: AsyncClient, headers: dict, client_id: int, group_id: int
 ) -> dict:
@@ -322,8 +336,9 @@ async def test_shared_md_bad_or_ambiguous_number_never_writes_or_falls_back(
         app_auth_headers,
         shared_client,
         contracts[0],
-        order_number="4500810004",
+        order_number="4500810004-B",
     )
+    await _force_order_number(shared_b["id"], "4500810004")
     legacy = await _create_group(
         app_client,
         app_auth_headers,

@@ -623,7 +623,8 @@ async def run_contract_alerts_cycle() -> dict:
                             user_id=uid,
                             title=title,
                             message=message,
-                            link=f"/contracts/{doc.contract_id}",
+                            # Prosto na zakładkę dokumentów (audyt 24.09, S9).
+                            link=f"/contracts/{doc.contract_id}?tab=documents",
                             notification_type=NotificationType.contract_ending,
                         )
                     )
@@ -672,7 +673,7 @@ async def run_contract_alerts_cycle() -> dict:
                             user_id=uid,
                             title=title,
                             message=message,
-                            link=f"/contracts/{item.contract_id}",
+                            link=f"/contracts/{item.contract_id}?tab=equipment",
                             notification_type=NotificationType.equipment_return_due_14d,
                             related_entity_type="contract_equipment",
                             related_entity_id=item.id,

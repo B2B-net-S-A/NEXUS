@@ -42,6 +42,7 @@ from app.models.order_mail import (
     OUTCOME_APPLIED,
     OUTCOME_DISMISSED,
     OUTCOME_NEEDS_REVIEW,
+    OUTCOME_UNRECOGNIZED,
     OUTCOMES,
     OrderMailDocument,
     OrderMailRecheckRun,
@@ -330,8 +331,38 @@ async def _serialize(db: AsyncSession, doc: OrderMailDocument, user) -> Dict[str
             else doc.error
         ),
         "can_apply": can_finance and doc.outcome == OUTCOME_NEEDS_REVIEW,
-        "has_file": bool(doc.storage_path) and not read_only_tcm,
+        "can_dismiss": can_finance and doc.outcome in _DISMISSABLE_OUTCOMES,
+        # Plik, którego nie ma na dysku (retencja, przeniesiony wolumen), nie
+        # może pokazywać przycisku PDF ani „Przelicz plan" (audyt 24.09, N1).
+        "has_file": not read_only_tcm and _attachment_exists(doc),
     }
+
+
+#: Stany, z których dokument można odrzucić. „Nierozpoznane" też: bez tego
+#: dokument bez rozpoznanego klienta wisiał w kolejce na zawsze (audyt 24.09,
+#: N2). Bez klienta nie ma przypisanego Delivery Leada, więc odrzuca admin.
+_DISMISSABLE_OUTCOMES = (OUTCOME_NEEDS_REVIEW, OUTCOME_UNRECOGNIZED)
+
+_FILE_MISSING = "Plik zamówienia nie istnieje na dysku — pobierz go ponownie z maila"
+
+
+def _attachment_path(doc: OrderMailDocument):
+    """Ścieżka zapisanego PDF-a albo ``None``, gdy pliku nie ma.
+
+    Helper magazynu RZUCA ``FileNotFoundError`` dla brakującego pliku —
+    nieprzechwycony dawał 500 zamiast 404 (audyt 24.09, N1).
+    """
+    if not doc.storage_path:
+        return None
+    try:
+        path = storage_service.get_order_mail_attachment_path(doc.storage_path)
+    except (FileNotFoundError, ValueError):
+        return None
+    return path if path.is_file() else None
+
+
+def _attachment_exists(doc: OrderMailDocument) -> bool:
+    return _attachment_path(doc) is not None
 
 
 async def _load_visible(
@@ -547,9 +578,9 @@ async def download_queue_file(
         )
     if not doc.storage_path:
         raise HTTPException(status_code=404, detail="Brak pliku")
-    path = storage_service.get_order_mail_attachment_path(doc.storage_path)
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="Plik nie istnieje na dysku")
+    path = _attachment_path(doc)
+    if path is None:
+        raise HTTPException(status_code=404, detail=_FILE_MISSING)
     return FileResponse(
         path,
         media_type="application/pdf",
@@ -590,13 +621,10 @@ async def refresh_queue_plan(
         raise HTTPException(
             status_code=422, detail="Brak odczytu lub rozpoznanego klienta"
         )
-    if (
-        not doc.storage_path
-        or not storage_service.get_order_mail_attachment_path(
-            doc.storage_path
-        ).is_file()
-    ):
+    if not doc.storage_path:
         raise HTTPException(status_code=404, detail="Brak zapisanego pliku PDF")
+    if _attachment_path(doc) is None:
+        raise HTTPException(status_code=404, detail=_FILE_MISSING)
     # Zapis pewnego planu jest tu AUTOMATYCZNY (człowiek kliknął „Przelicz”,
     # nie „Zastosuj”) — ta sama funkcja co przeliczenie po zmianie reguły
     # klienta w biegu skrzynki. Aktor idzie wyłącznie do atrybucji: historia
@@ -822,7 +850,7 @@ async def dismiss_queue_item(
 ) -> Dict[str, Any]:
     doc = await _load_visible(db, doc_id, user, for_update=True)
     await _require_apply_rights(db, doc, user)
-    if doc.outcome != OUTCOME_NEEDS_REVIEW:
+    if doc.outcome not in _DISMISSABLE_OUTCOMES:
         raise HTTPException(
             status_code=409,
             detail=f"Dokument nie czeka na weryfikację (stan: {doc.outcome})",

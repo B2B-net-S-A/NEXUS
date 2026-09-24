@@ -146,7 +146,11 @@ def test_order_totals_are_not_carried_into_the_order(text):
     assert result.total_value is None
     # Wiele osób: stawka i limit MD istnieją wyłącznie per pozycja; jednostka
     # (PLN/MD) jest wspólna dla wszystkich pozycji.
-    assert (result.rate_client, result.rate_unit, result.md_total) == (None, "day", None)
+    assert (result.rate_client, result.rate_unit, result.md_total) == (
+        None,
+        "day",
+        None,
+    )
 
 
 # ── Pozycje per konsultant ──────────────────────────────────────────────────
@@ -270,7 +274,9 @@ def test_missing_number_date_field_needs_review():
 def test_invoice_number_is_a_fallback_and_a_cross_check():
     text = SPACED.replace("4500012345 / 20310903", "")
     assert _run(text).title == "4500012345"
-    conflicting = SPACED.replace("nr zamówienia : 4500012345", "nr zamówienia : 4500099999")
+    conflicting = SPACED.replace(
+        "nr zamówienia : 4500012345", "nr zamówienia : 4500099999"
+    )
     result = _run(conflicting)
     assert result.title == "4500012345"
     assert any("różni się od numeru" in r for r in result.uncertain_reasons)
@@ -366,6 +372,26 @@ def test_rates_are_net_without_generic_uncertainty():
         Decimal("1080.00"),
         Decimal("1280.00"),
     ]
+
+
+def test_rate_already_divided_by_vat_returns_to_the_pdf_amount():
+    """N3 (audyt 24.09): przy nagłówku „Wart.netto" stawka po ÷ 1,23 wraca do
+    kwoty z PDF-a — samo zerowanie oryginału zostawiało zaniżoną stawkę."""
+    result = _run(SPACED)
+    for item in [result, *result.consultant_rows]:
+        if item.rate_client is not None:
+            item.rate_client_gross = item.rate_client
+            item.rate_client = (item.rate_client / Decimal("1.23")).quantize(
+                Decimal("0.01")
+            )
+    ruled = bik.apply_rate_rules(result, SPACED)
+    assert ruled is not None
+    assert all(r.rate_client_gross is None for r in ruled.consultant_rows)
+    assert [r.rate_client for r in ruled.consultant_rows] == [
+        Decimal("1080.00"),
+        Decimal("1280.00"),
+    ]
+    assert policy_by_key("bik").rule_version == "2026-09-24"
 
 
 def test_row_type_is_the_shared_consultant_row():

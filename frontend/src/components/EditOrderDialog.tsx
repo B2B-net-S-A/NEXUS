@@ -47,6 +47,7 @@ import {
   openOrderDocument,
 } from "@/lib/order-documents";
 import { extractionErrorMessage, numberToField } from "@/lib/order-extraction";
+import { orderPeriodError } from "@/lib/order-period";
 import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
 import { HOURS_PER_MONTH } from "@/lib/work-time";
 import {
@@ -459,6 +460,11 @@ export function EditOrderDialog({
   const budgetComplete =
     (orderType !== "cost" || (parseDecimalInput(totalBudget) ?? 0) > 0) &&
     (orderType !== "md" || (parseDecimalInput(mdBudget) ?? 0) > 0);
+  // Koniec przed startem blokuje zapis (ticket OIT/0569/2026/ITVM; backend 422).
+  const periodError = orderPeriodError(
+    normalizeDateInput(startDate),
+    normalizeDateInput(endDate),
+  );
   const canSubmit =
     title.trim().length > 0 && budgetComplete && !mutation.isPending;
 
@@ -483,7 +489,7 @@ export function EditOrderDialog({
           <button
             type="button"
             onClick={() => mutation.mutate()}
-            disabled={!canSubmit}
+            disabled={!canSubmit || Boolean(periodError)}
             className="px-3 py-1.5 text-sm rounded-md bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50 inline-flex items-center gap-1.5"
           >
             {mutation.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
@@ -585,6 +591,11 @@ export function EditOrderDialog({
             />
           </label>
         </div>
+        {periodError ? (
+          <p role="alert" className="text-sm text-destructive">
+            {periodError}
+          </p>
+        ) : null}
 
         {orderType === "cost" ? (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 rounded-md border border-border bg-muted/30 p-3">

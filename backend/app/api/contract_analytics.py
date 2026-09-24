@@ -18,6 +18,7 @@ from typing import Annotated, List, Optional
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import distinct, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from pydantic import BaseModel, PlainSerializer
 
 from app.api.financial_access import FinanceReadUser
@@ -28,10 +29,17 @@ from app.services.contract_rates import RATE_SCHEDULE_LOADS, effective_rate_fiel
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.contract import Contract, ContractStatus, ContractTerminationReason
+from app.models.contract_amendment import ContractAmendment, ContractAmendmentType
 from app.models.job import Job
 from app.services.client_identity import client_display_name_expression
 from app.services.fx_service import amount_to_pln_with_rate, get_rate_to_pln
 from app.services.consultant_population import consultant_population
+from app.services.insights_board_money import (
+    MONTH_LABELS_PL,
+    MoneyFold,
+    fold_money,
+    ratio,
+)
 from app.services.contractor_identity import (
     candidate_identity_key,
     contractor_identity_sql_expression,
@@ -68,42 +76,22 @@ MoneyPLN = Annotated[
 # inną marżę w Finansach niż w Radzie. Teraz reguła jest wspólna.
 
 
-def _pln_leg(
-    amount: Optional[Decimal],
-    currency: str,
-    rate_cache: dict[str, tuple[Decimal, bool]],
-) -> tuple[Optional[Decimal], bool]:
-    """Kwota jednej nogi w PLN albo ``None``; ``complete`` = kurs był dostępny."""
-    fx, found = rate_cache.get((currency or "PLN").upper(), (Decimal("1"), False))
-    return amount_to_pln_with_rate(amount, fx if found else None)
+def _fold_rates(rate_cache: dict[str, tuple[Decimal, bool]]) -> dict:
+    """Kursy w kształcie ``fold_money``: brak kursu = ``None``, nie 1:1."""
+    return {
+        currency: (rate if found else None)
+        for currency, (rate, found) in rate_cache.items()
+    }
 
 
-def _contract_money_pln(
-    contract: Contract,
-    on: date,
-    rate_cache: dict[str, tuple[Decimal, bool]],
-) -> tuple[Optional[Decimal], Optional[Decimal], bool]:
-    """(przychód, marża, komplet) jednego kontraktu w PLN na dzień ``on``.
+def _margin_pct(fold: MoneyFold) -> Optional[float]:
+    """Marża % z kontraktów, których marża jest ZNANA (obie nogi wycenione).
 
-    Nogi przychodu i kosztu przeliczane są niezależnie, a wynik zaokrąglany
-    do pełnych złotych tak samo jak w ``insights_board_money.fold_money``.
-    Przychód bez kosztu nie ma marży (``None``), a brak kursu wyklucza nogę
-    — żadna obca kwota nie jest traktowana jak PLN po nominale.
+    Do 24.09.2026 marżę dzielono przez przychód WSZYSTKICH kontraktów, więc
+    kontrakt z przychodem i bez stawki kosztowej zaniżał procent bez żadnego
+    sygnału. Liczba takich kontraktów jedzie obok (``contracts_without_cost_leg``).
     """
-    eff = effective_rate_fields(contract, on)
-    revenue_pln, revenue_complete = _pln_leg(
-        eff["monthly_rate_client"], eff["rate_client_currency"], rate_cache
-    )
-    cost_pln, cost_complete = _pln_leg(
-        eff["monthly_rate_candidate"], eff["rate_candidate_currency"], rate_cache
-    )
-    revenue = Decimal(to_whole_pln(revenue_pln)) if revenue_pln is not None else None
-    margin = (
-        Decimal(to_whole_pln(revenue_pln - cost_pln))
-        if revenue_pln is not None and cost_pln is not None
-        else None
-    )
-    return revenue, margin, revenue_complete and cost_complete
+    return ratio(fold.margin, fold.margin_revenue)
 
 
 def _contract_currencies(contracts) -> set[str]:
@@ -133,7 +121,8 @@ async def _load_live_contracts(db: AsyncSession, today: date) -> list[Contract]:
             await db.execute(
                 select(Contract)
                 .where(Contract.status.in_(_LIVE_CONTRACT_STATUSES))
-                .options(*RATE_SCHEDULE_LOADS)
+                # ``fold_money`` liczy kontraktorów po tożsamości kandydata.
+                .options(selectinload(Contract.candidate), *RATE_SCHEDULE_LOADS)
                 .order_by(Contract.id)
             )
         )
@@ -172,6 +161,9 @@ class MarginByContractor(BaseModel):
     # True when at least one contributing currency had no cached FX rate. That
     # leg is excluded; a foreign amount is never treated as PLN at 1:1.
     fx_missing: bool = False
+    # Kontrakty z przychodem, ale bez stawki kosztowej: ich przychód jest
+    # w ``total_monthly_revenue``, marża — nieznana (poza ``margin_pct``).
+    contracts_without_cost_leg: int = 0
 
 
 class MarginByClient(BaseModel):
@@ -182,6 +174,10 @@ class MarginByClient(BaseModel):
     total_monthly_revenue: MoneyPLN
     margin_pct: Optional[float]
     fx_missing: bool = False
+    contracts_without_cost_leg: int = 0
+    # Przychód kontraktów ze znaną marżą — mianownik ``margin_pct``.
+    # ``None`` = równy ``total_monthly_revenue``.
+    revenue_with_margin: Optional[MoneyPLN] = None
 
 
 class MarginTotals(BaseModel):
@@ -198,6 +194,8 @@ class MarginTotals(BaseModel):
     total_monthly_margin: MoneyPLN
     margin_pct: Optional[float]
     fx_missing: bool
+    # Kafel mówi wprost, ile kontraktów wnosi przychód bez marży.
+    contracts_without_cost_leg: int = 0
 
 
 class UtilizationStats(BaseModel):
@@ -266,49 +264,31 @@ async def margin_by_contractor(
             )
         ).all()
     }
-    rate_cache = await _resolve_rate_cache(db, _contract_currencies(contracts))
+    rates = _fold_rates(await _resolve_rate_cache(db, _contract_currencies(contracts)))
 
-    acc: dict[int, dict] = {}
+    by_person: dict[int, list[Contract]] = {}
     for c in contracts:
-        person = names.get(c.candidate_id)
-        if person is None:
-            continue
-        bucket = acc.setdefault(
-            c.candidate_id,
-            {
-                "name": person.name,
-                "lastname": person.lastname,
-                "active_contracts": 0,
-                "margin": Decimal("0"),
-                "revenue": Decimal("0"),
-                "fx_missing": False,
-            },
-        )
-        bucket["active_contracts"] += 1
-        revenue, margin, complete = _contract_money_pln(c, today, rate_cache)
-        if revenue is not None:
-            bucket["revenue"] += revenue
-        if margin is not None:
-            bucket["margin"] += margin
-        if not complete:
-            bucket["fx_missing"] = True
+        if c.candidate_id in names:
+            by_person.setdefault(c.candidate_id, []).append(c)
 
-    rows = [
-        MarginByContractor(
-            candidate_id=cid,
-            candidate_name=f"{b['name']} {b['lastname']}",
-            active_contracts=b["active_contracts"],
-            total_monthly_margin=b["margin"],
-            total_monthly_revenue=b["revenue"],
-            margin_pct=(
-                round(float(b["margin"] / b["revenue"]) * 100, 1)
-                if b["revenue"]
-                else None
-            ),
-            fx_missing=b["fx_missing"],
+    rows = []
+    for cid, own in by_person.items():
+        # Ta sama funkcja co kokpit Rady (``fold_money``) — kopia reguł
+        # rozjechałaby się przy pierwszej poprawce jednej z nich.
+        fold = fold_money(own, today, rates)
+        person = names[cid]
+        rows.append(
+            MarginByContractor(
+                candidate_id=cid,
+                candidate_name=f"{person.name} {person.lastname}",
+                active_contracts=len(own),
+                total_monthly_margin=fold.margin,
+                total_monthly_revenue=fold.revenue,
+                margin_pct=_margin_pct(fold),
+                fx_missing=not fold.complete,
+                contracts_without_cost_leg=fold.without_cost_leg,
+            )
         )
-        for cid, b in acc.items()
-    ]
     # Rank by PLN-normalised margin (SQL can no longer order/limit — the ranking
     # only makes sense after cross-currency folding).
     rows.sort(key=lambda x: x.total_monthly_margin, reverse=True)
@@ -335,47 +315,29 @@ async def _margin_by_client_rows(db: AsyncSession) -> List[MarginByClient]:
             )
         ).all()
     }
-    rate_cache = await _resolve_rate_cache(db, _contract_currencies(contracts))
+    rates = _fold_rates(await _resolve_rate_cache(db, _contract_currencies(contracts)))
 
-    acc: dict[int, dict] = {}
+    by_client: dict[int, list[Contract]] = {}
     for c in contracts:
-        if c.client_id not in names:
-            continue
-        bucket = acc.setdefault(
-            c.client_id,
-            {
-                "name": names[c.client_id],
-                "active_contracts": 0,
-                "margin": Decimal("0"),
-                "revenue": Decimal("0"),
-                "fx_missing": False,
-            },
-        )
-        bucket["active_contracts"] += 1
-        revenue, margin, complete = _contract_money_pln(c, today, rate_cache)
-        if revenue is not None:
-            bucket["revenue"] += revenue
-        if margin is not None:
-            bucket["margin"] += margin
-        if not complete:
-            bucket["fx_missing"] = True
+        if c.client_id in names:
+            by_client.setdefault(c.client_id, []).append(c)
 
-    rows = [
-        MarginByClient(
-            client_id=cid,
-            client_name=b["name"],
-            active_contracts=b["active_contracts"],
-            total_monthly_margin=b["margin"],
-            total_monthly_revenue=b["revenue"],
-            margin_pct=(
-                round(float(b["margin"] / b["revenue"]) * 100, 1)
-                if b["revenue"]
-                else None
-            ),
-            fx_missing=b["fx_missing"],
+    rows = []
+    for cid, own in by_client.items():
+        fold = fold_money(own, today, rates)
+        rows.append(
+            MarginByClient(
+                client_id=cid,
+                client_name=names[cid],
+                active_contracts=len(own),
+                total_monthly_margin=fold.margin,
+                total_monthly_revenue=fold.revenue,
+                margin_pct=_margin_pct(fold),
+                fx_missing=not fold.complete,
+                contracts_without_cost_leg=fold.without_cost_leg,
+                revenue_with_margin=fold.margin_revenue,
+            )
         )
-        for cid, b in acc.items()
-    ]
     rows.sort(key=lambda x: x.total_monthly_margin, reverse=True)
     return rows
 
@@ -410,13 +372,25 @@ async def margin_totals(
     rows = await _margin_by_client_rows(db)
     revenue = sum((row.total_monthly_revenue for row in rows), Decimal("0"))
     margin = sum((row.total_monthly_margin for row in rows), Decimal("0"))
+    # Procent z przychodu kontraktów ze znaną marżą — ten sam mianownik, co
+    # procent w wierszu rankingu (Σlicznik / Σmianownik, nie średnia procentów).
+    revenue_with_margin = sum(
+        (
+            row.total_monthly_revenue
+            if row.revenue_with_margin is None
+            else row.revenue_with_margin
+            for row in rows
+        ),
+        Decimal("0"),
+    )
     return MarginTotals(
         clients=len(rows),
         active_contracts=sum(row.active_contracts for row in rows),
         total_monthly_revenue=revenue,
         total_monthly_margin=margin,
-        margin_pct=(round(float(margin / revenue) * 100, 1) if revenue else None),
+        margin_pct=ratio(margin, revenue_with_margin),
         fx_missing=any(row.fx_missing for row in rows),
+        contracts_without_cost_leg=sum(row.contracts_without_cost_leg for row in rows),
     )
 
 
@@ -533,9 +507,12 @@ async def revenue_forecast(
             c
             for c in active_contracts
             # Pusta data startu = start NIEZNANY, nie „planowany" — ta sama
-            # reguła co ``is_current_contract`` (audyt 18.09.2026), więc
-            # pierwszy miesiąc prognozy zgadza się z dzisiejszymi sumami.
-            # Pusta data końca = umowa bezterminowa.
+            # reguła co ``is_current_contract`` (audyt 18.09.2026). Pusta data
+            # końca = umowa bezterminowa. Pierwszy miesiąc prognozy NIE jest
+            # kopią dzisiejszych kafli: liczy każdy kontrakt działający w
+            # którymkolwiek dniu miesiąca (także startujący za tydzień albo
+            # zakończony w jego trakcie), po stawce z 1. dnia miesiąca albo
+            # z dnia startu — kafle to zdjęcie na dziś.
             if (c.start_date is None or c.start_date < next_month)
             and (c.end_date is None or c.end_date >= month_start)
         ]
@@ -559,7 +536,9 @@ async def revenue_forecast(
         months.append(
             ForecastMonth(
                 month=month_start.strftime("%Y-%m"),
-                month_label=month_start.strftime("%b %Y"),
+                # Polska nazwa miesiąca — ``strftime("%b")`` zależy od locale
+                # kontenera i na prodzie dawało „Sep 2026".
+                month_label=f"{MONTH_LABELS_PL[month_start.month - 1]} {month_start.year}",
                 revenue=revenue_raw,
                 margin=margin_raw,
                 active_count=len(active_in_month),
@@ -867,8 +846,30 @@ async def termination_analysis(
     ]
 
     # Client retention: how often does a contract reach its planned end?
-    # "Ended early" = terminated_at < end_date OR termination_reason in
-    # (poached_by_client, consultant_resigned, better_offer, contract_breach).
+    # „Wcześniej niż planowano" = aneks ``early_termination`` ALBO powód
+    # z listy niżej. Do 24.09.2026 sygnałem było ``terminated_at < end_date``,
+    # które nigdy nie zachodzi: zakończenie ustawia ``end_date = min(end_date,
+    # terminated_at)``. Pierwotna data końca przeżywa wyłącznie w aneksie
+    # ``early_termination`` (``old_values.end_date``), który „Zakończ
+    # współpracę" i „Oznacz zakończone" zapisują przy każdym skróceniu.
+    # ``agreement_termination_*`` (0367) nie niesie planowanego końca, więc
+    # nie odróżnia skrócenia od zakończenia w terminie.
+    contract_ids = [contract.id for contract, _ in rows]
+    shortened = (
+        set(
+            (
+                await db.scalars(
+                    select(ContractAmendment.contract_id).where(
+                        ContractAmendment.contract_id.in_(contract_ids),
+                        ContractAmendment.amendment_type
+                        == ContractAmendmentType.early_termination,
+                    )
+                )
+            ).all()
+        )
+        if contract_ids
+        else set()
+    )
     early_reasons = {
         ContractTerminationReason.poached_by_client.value,
         ContractTerminationReason.consultant_resigned.value,
@@ -886,15 +887,7 @@ async def termination_analysis(
         reason_val = (
             contract.termination_reason.value if contract.termination_reason else None
         )
-        is_early = False
-        if (
-            contract.terminated_at
-            and contract.end_date
-            and contract.terminated_at < contract.end_date
-        ):
-            is_early = True
-        elif reason_val in early_reasons:
-            is_early = True
+        is_early = contract.id in shortened or reason_val in early_reasons
         if is_early:
             bucket["early"] += 1
         else:

@@ -14,6 +14,7 @@ import type {
   OrderGroupRead,
   OrderLineInput,
 } from "@/lib/api/orderGroups";
+import { ConfirmTwoStepButton } from "@/components/orders/ConfirmTwoStepButton";
 import { usesSharedMdPool } from "@/lib/client-order-list";
 import {
   extractedEndDate,
@@ -633,12 +634,13 @@ export function ExtendOrderGroupModal({
               {extracting ? "Odczytywanie…" : "Zczytaj dane z dokumentu"}
             </button>
             {file ? (
-              <button
-                type="button"
-                aria-label="Usuń wybrany plik PDF zamówienia"
+              <ConfirmTwoStepButton
+                ariaLabel="Usuń wybrany plik PDF zamówienia"
+                confirmAriaLabel="Potwierdź usunięcie wybranego pliku PDF"
                 title="Usuń wybrany plik"
-                onClick={() => {
-                  if (!window.confirm("Czy na pewno chcesz usunąć plik PDF zamówienia?")) return;
+                confirmLabel="Usunąć?"
+                armedClassName="rounded-md bg-destructive px-2 py-1 text-xs font-semibold text-destructive-foreground"
+                onConfirm={() => {
                   setFile(null);
                   setFileError(null);
                   setExtractError(null);
@@ -650,7 +652,7 @@ export function ExtendOrderGroupModal({
                 className="rounded-md border border-destructive/40 p-2 text-destructive hover:bg-destructive/10"
               >
                 <Trash2 className="h-4 w-4" aria-hidden />
-              </button>
+              </ConfirmTwoStepButton>
             ) : null}
           </div>
         </div>

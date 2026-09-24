@@ -4,13 +4,15 @@
  * Lustro `backend/app/services/b2b_contract_end_date.py`. Data zakończenia
  * umowy B2B przepisywana z końca ZAMÓWIENIA wysyłała konsultantów do
  * „Zakończonych" mimo trwającej współpracy, więc formularze nie oferują jej
- * dla B2B — datę ustawia „Zakończ współpracę" (powód + data, także przyszła)
- * albo status „Zakończony". Backend odrzuca taką datę 422-ką z tym samym
+ * dla B2B — datę ustawia „Zakończ współpracę" (powód + data, także przyszła).
+ * Backend odrzuca taką datę 422-ką z tym samym
  * zdaniem, gdyby przyszła ze starej karty przeglądarki.
  */
 
+// Status „Zakończony” nie jest już osobną drogą — ustawia go wyłącznie okno
+// „Zakończ współpracę” (0367); tekst mówił inaczej (audyt 24.09, N3).
 export const B2B_END_DATE_HOW =
-  "Datę zakończenia ustawia „Zakończ współpracę” (powód i data) albo status „Zakończony”.";
+  "Datę zakończenia ustawia okno „Zakończ współpracę” (powód i data zakończenia projektu).";
 
 export const B2B_INDEFINITE_HINT = `Umowa B2B jest bezterminowa. ${B2B_END_DATE_HOW}`;
 
@@ -39,8 +41,8 @@ export function b2bEndDateLocked(state: ContractEndDateState): boolean {
 
 /**
  * Aneks „Przedłużenie" dla umowy B2B — tylko po ręcznym zakończeniu (wtedy
- * przesuwa datę zakończenia). Umowę B2B zakończoną bez wypowiedzenia
- * przywraca się statusem „Aktywny" (wraca bezterminowa), nie aneksem.
+ * przesuwa datę zakończenia). Zakończoną umowę przywraca „Cofnij zakończenie”
+ * albo „Powrót po przerwie” (0368), nie aneks.
  */
 export function b2bExtensionLocked(state: ContractEndDateState): boolean {
   if ((state.contract_type ?? "b2b") !== "b2b") return false;
@@ -48,7 +50,7 @@ export function b2bExtensionLocked(state: ContractEndDateState): boolean {
 }
 
 export const B2B_EXTENSION_HINT =
-  "Umowa B2B bez zakończenia jest bezterminowa — nie ma czego przedłużać. Przedłuż zamówienie klienta; zakończoną umowę przywróć statusem „Aktywny”.";
+  "Umowa B2B bez zakończenia jest bezterminowa — nie ma czego przedłużać. Przedłuż zamówienie klienta. Zakończenie wpisane przez pomyłkę cofa „Cofnij zakończenie”, a powrót konsultanta po przerwie — „Powrót po przerwie”.";
 
 /**
  * Data, którą „Zakończ współpracę” podstawia przy przejściu na „Zakończony”.

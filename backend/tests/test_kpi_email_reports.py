@@ -199,3 +199,9 @@ async def test_monthly_report_on_first_business_day(
         **({reports.WEEKLY_KIND: "already_claimed"} if day.weekday() == 0 else {}),
         reports.MONTHLY_KIND: "already_claimed",
     }
+
+
+def test_board_report_never_goes_to_head_of_recruitment() -> None:
+    """Mail zarządu niesie przychód i marżę — HoR ich nie widzi (24.09.2026)."""
+    assert UserRole.head_of_recruitment not in reports._BOARD_ROLES
+    assert set(reports._BOARD_ROLES) == {UserRole.admin, UserRole.finance}

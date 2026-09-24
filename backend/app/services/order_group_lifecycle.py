@@ -37,7 +37,7 @@ from app.services.contract_lifecycle import (
     lock_order_group_lines,
     sync_contract_to_live_order,
 )
-from app.services.multi_consultant_orders import EVENT_ORDER_CLOSED
+from app.services.multi_consultant_orders import EVENT_MANUAL_EDIT, EVENT_ORDER_CLOSED
 from app.services.shared_md_orders import (
     normalize_empty_generic_explicit_md_group,
     uses_shared_md_pool,
@@ -292,14 +292,54 @@ async def materialize_scheduled_order_groups(
                     )
                 ).scalars()
             )
+            # Import leniwy: `order_line_takeover` importuje moduły, które
+            # sięgają tu po materializację.
+            from app.services.order_line_takeover import scheduled_takeover_event
+
             for line in previous_lines:
+                if (
+                    line.status == ClientOrderStatus.draft
+                    and line.predecessor_order_id is not None
+                    and await scheduled_takeover_event(db, line) is not None
+                ):
+                    # S2 (audyt 24.09.2026): zaplanowane „Wejdź za konsultanta"
+                    # w zamówieniu zastąpionym przedłużeniem nie wejdzie.
+                    # `completed` oddawałby je przy „Przywróć" jako aktywną
+                    # linię bez przeniesienia MD — anulujemy z wpisem.
+                    line.status = ClientOrderStatus.cancelled
+                    record_event(
+                        db,
+                        group_id=previous.id,
+                        order_id=line.id,
+                        event_type=EVENT_MANUAL_EDIT,
+                        description=(
+                            "Zaplanowane zastępstwo anulowane — zamówienie "
+                            f"{previous.order_number} zostało zastąpione "
+                            f"zamówieniem {current.order_number} przed dniem "
+                            "wejścia."
+                        ),
+                        payload={
+                            "assignment": "takeover",
+                            "scheduled_cancelled": True,
+                            "takeover_from_order_id": line.predecessor_order_id,
+                        },
+                    )
+                    continue
                 if line.status in (
                     ClientOrderStatus.active,
                     ClientOrderStatus.draft,
                 ):
                     line.status = ClientOrderStatus.completed
-                if line.end_date is None or line.end_date > history_boundary:
-                    line.end_date = history_boundary
+                # Jak przy grupie wyżej: koniec linii nie przed jej startem —
+                # następca startujący tego samego dnia co linia dawałby okres
+                # odwrócony (audyt 24.09.2026).
+                line_end = (
+                    max(history_boundary, line.start_date)
+                    if line.start_date is not None
+                    else history_boundary
+                )
+                if line.end_date is None or line.end_date > line_end:
+                    line.end_date = line_end
 
     if changed:
         await db.flush()

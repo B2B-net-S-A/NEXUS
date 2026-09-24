@@ -34,8 +34,30 @@ const STATUS_STYLE: Record<ImportRowStatus, { className: string; icon: typeof Ch
   cost_only: { className: "text-sky-700 bg-sky-50", icon: CheckCircle2 },
 };
 
-function currentMonth(): string {
-  return new Date().toISOString().slice(0, 7);
+/** Styl wiersza „tylko faktura", którego kwota NIE trafiła na zamówienie. */
+const COST_FAILED_STYLE = {
+  className: "text-destructive bg-destructive/10",
+  icon: AlertTriangle,
+};
+
+/**
+ * Wiersz, z którego NIC nie zeszło z żadnego budżetu — ani MD po nazwisku,
+ * ani kwota po numerze z „Uwag". Audyt 24.09.2026 (N5): licznik „Bez
+ * zamówienia" brał `rows_unmatched` z serwera, który liczy też wiersze
+ * rozliczone kwotowo (brak linii MD, ale faktura zeszła z puli kosztowej).
+ */
+export function isLostImportRow(row: ImportRow): boolean {
+  if (row.status === "applied" || row.status === "needs_assignment") return false;
+  return row.cost_status !== "applied";
+}
+
+/**
+ * Bieżący miesiąc wg zegara użytkownika (RRRR-MM). N7 (audyt 24.09.2026):
+ * `toISOString()` liczy w UTC, więc 1. dnia miesiąca między północą a 1–2:00
+ * czasu polskiego podpowiadał poprzedni miesiąc.
+ */
+export function currentMonth(now: Date = new Date()): string {
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 }
 
 function formatMd(value: number | null | undefined): string {
@@ -200,6 +222,10 @@ export function MdImportWorkspace() {
     () => (detail?.rows ?? []).filter((r) => r.status === "needs_assignment").length,
     [detail],
   );
+  const lostCount = useMemo(
+    () => (detail?.rows ?? []).filter(isLostImportRow).length,
+    [detail],
+  );
 
   const currentReprocessPreview =
     reprocessPreview?.import_id === detail?.id ? reprocessPreview : null;
@@ -309,8 +335,25 @@ export function MdImportWorkspace() {
                 Wymaga przypisania: <strong>{detail.rows_ambiguous}</strong>
               </span>
               <span className="text-muted-foreground">
-                Bez zamówienia: <strong>{detail.rows_unmatched}</strong>
+                Bez zamówienia: <strong>{lostCount}</strong>
               </span>
+              {detail.rows_cost_applied + detail.rows_cost_unmatched > 0 ? (
+                <>
+                  <span className="text-sky-700">
+                    Rozliczono kwotowo: <strong>{detail.rows_cost_applied}</strong>
+                  </span>
+                  <span
+                    className={
+                      detail.rows_cost_unmatched > 0
+                        ? "text-destructive"
+                        : "text-muted-foreground"
+                    }
+                  >
+                    Faktura bez zamówienia:{" "}
+                    <strong>{detail.rows_cost_unmatched}</strong>
+                  </span>
+                </>
+              ) : null}
             </div>
           </header>
 
@@ -588,7 +631,13 @@ function ImportRowLine({
   onAssign: (orderId: number) => void;
 }) {
   const [choice, setChoice] = useState("");
-  const style = STATUS_STYLE[row.status];
+  const costFailedEarly = row.cost_status != null && row.cost_status !== "applied";
+  // N5: wiersz „tylko faktura" ma status wyłącznie kosztowy — zielona ikona
+  // przy nieudanym rozliczeniu mówiłaby „zeszło", gdy nic nie zeszło.
+  const style =
+    row.status === "cost_only" && costFailedEarly
+      ? COST_FAILED_STYLE
+      : STATUS_STYLE[row.status];
   const Icon = style.icon;
 
   // Wiersz jest „zgubiony" dopiero wtedy, gdy NIC z niego nie zeszło z żadnego
@@ -603,7 +652,7 @@ function ImportRowLine({
   const mdSettled = row.status === "applied";
   const mdPending = row.status === "needs_assignment";
   const costSettled = row.cost_status === "applied";
-  const costFailed = row.cost_status != null && row.cost_status !== "applied";
+  const costFailed = costFailedEarly;
   const unmatchedRow = !mdSettled && !mdPending && !costSettled;
 
   return (

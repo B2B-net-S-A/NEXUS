@@ -30,7 +30,9 @@ class RecruiterBrief(BaseModel):
 
 
 class CandidateBrief(BaseModel):
-    id: int
+    # `None` = kandydat usunięty (RODO), a kontrakt został — wiersz zostaje,
+    # bo jego marża wchodzi do „Aktywnego MRR” (audyt 24.09.2026, S6).
+    id: Optional[int] = None
     name: str
     avatar_url: Optional[str] = None
     competence_category: Optional[str] = None
@@ -95,6 +97,9 @@ class ActiveConsultantItem(BaseModel):
     days_to_end: Optional[int] = (
         None  # null if no end_date; < 30 triggers amber UI, < 7 red
     )
+    # `active` / `ending` — „Przedłuż” na profilu jest wyłącznie dla
+    # kontraktu kończącego się (audyt 24.09.2026, W2).
+    contract_status: Optional[str] = None
     monthly_rate_client: Optional[WholePLN] = None
     # Stawka kosztowa /mc (ticket #5 krok 1: koszt + przychód + marża w wierszu).
     # Dane finansowe — redagowane dla ról bez VIEW_FINANCE jak rodzeństwo.
@@ -165,6 +170,10 @@ class LostJobItem(BaseModel):
 
 class ClientProfileHistory(BaseModel):
     placements: List[HistoricalPlacementItem]
+    # Liczba WSZYSTKICH zakończonych kontraktów — lista `placements` jest
+    # przycięta (najnowsze), front mówi „Pokazano N z M” (audyt S7).
+    placements_total: int = 0
+    # Nie jest już liczone (audyt S8) — zawsze pusta lista; pole zostaje (D6).
     lost_jobs: List[LostJobItem]
 
 

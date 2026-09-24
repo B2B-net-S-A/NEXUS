@@ -36,14 +36,14 @@ interface MyRelationshipRow {
   days_since_personal_touchpoint: number | null;
 }
 
-const STRENGTH_COLORS: Record<RelationshipStrength, string> = {
+export const RELATIONSHIP_STRENGTH_COLORS: Record<RelationshipStrength, string> = {
   cold: "bg-blue-50 text-blue-700",
   warm: "bg-yellow-50 text-yellow-700",
   strong: "bg-green-50 text-green-700",
   champion: "bg-violet-100 text-violet-800",
 };
 
-const STRENGTH_LABELS: Record<RelationshipStrength, string> = {
+export const RELATIONSHIP_STRENGTH_LABELS: Record<RelationshipStrength, string> = {
   cold: "🥶 Cold",
   warm: "🌤️ Warm",
   strong: "🤝 Strong",
@@ -143,9 +143,9 @@ export function KeyRelationshipsPanel() {
                     <h3 className="font-semibold">{r.name}</h3>
                     {r.relationship_strength && (
                       <span
-                        className={`text-xs px-2 py-0.5 rounded ${STRENGTH_COLORS[r.relationship_strength]}`}
+                        className={`text-xs px-2 py-0.5 rounded ${RELATIONSHIP_STRENGTH_COLORS[r.relationship_strength]}`}
                       >
-                        {STRENGTH_LABELS[r.relationship_strength]}
+                        {RELATIONSHIP_STRENGTH_LABELS[r.relationship_strength]}
                       </span>
                     )}
                     {r.is_decision_maker && (

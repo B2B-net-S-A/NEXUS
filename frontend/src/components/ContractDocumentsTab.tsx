@@ -9,7 +9,8 @@ import {
 } from "@/lib/contract-documents";
 import { RequireRole } from "@/components/RequireRole";
 import { OrderDocumentsSection } from "@/components/OrderDocumentsSection";
-import { formatDate } from "@/lib/utils";
+import { formatIsoDatePl as formatDate } from "@/lib/date-pl";
+import { apiErrorMessage } from "@/lib/api-error";
 import {
   Upload,
   Trash2,
@@ -21,6 +22,7 @@ import {
   ClipboardList,
   Loader2,
   AlertCircle,
+  X,
 } from "lucide-react";
 
 // Matches backend ContractDocumentType enum
@@ -122,6 +124,9 @@ export function ContractDocumentsTab({ contractId, readOnly = false }: Props) {
   const [expiryDate, setExpiryDate] = useState<string>("");
   const [error, setError] = useState<string>("");
   const [busyId, setBusyId] = useState<number | null>(null);
+  // Potwierdzenie usunięcia w wierszu zamiast `window.confirm` (audyt
+  // 24.09, N7) — natywne okno zamraża automatyzację przeglądarki.
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
 
   const { data, isLoading } = useQuery<ContractDocument[]>({
     queryKey: ["contract-documents", contractId],
@@ -138,8 +143,7 @@ export function ContractDocumentsTab({ contractId, readOnly = false }: Props) {
       setError("");
     },
     onError: (err: unknown) => {
-      const message = err instanceof Error ? err.message : "Błąd podczas uploadu";
-      setError(message);
+      setError(apiErrorMessage(err, "Nie udało się wgrać pliku."));
     },
   });
 
@@ -147,8 +151,15 @@ export function ContractDocumentsTab({ contractId, readOnly = false }: Props) {
     mutationFn: (documentId: number) =>
       contractsApi.deleteDocument(contractId, documentId),
     onSuccess: () => {
+      setConfirmDeleteId(null);
+      setError("");
       queryClient.invalidateQueries({ queryKey: ["contract-documents", contractId] });
       queryClient.invalidateQueries({ queryKey: ["contract-activities", contractId] });
+    },
+    // Odmowa usunięcia nie może kończyć się ciszą (audyt 24.09, N10).
+    onError: (err: unknown) => {
+      setConfirmDeleteId(null);
+      setError(apiErrorMessage(err, "Nie udało się usunąć pliku."));
     },
   });
 
@@ -162,11 +173,6 @@ export function ContractDocumentsTab({ contractId, readOnly = false }: Props) {
     uploadMutation.mutate(fd);
   };
 
-  const handleDelete = (doc: ContractDocument) => {
-    if (window.confirm(`Usunąć plik "${doc.filename}"?`)) {
-      deleteMutation.mutate(doc.id);
-    }
-  };
 
   const handleOpen = async (doc: ContractDocument) => {
     setBusyId(doc.id);
@@ -196,6 +202,16 @@ export function ContractDocumentsTab({ contractId, readOnly = false }: Props) {
 
   return (
     <div className="space-y-4">
+      {/* W trybie odczytu nie ma panelu wgrywania, a z nim miejsca na błąd —
+          nieudane otwarcie/pobranie kończyło się ciszą. */}
+      {readOnly && error && (
+        <div
+          role="alert"
+          className="text-sm text-destructive bg-destructive/10 dark:bg-red-900/30 dark:text-red-300 rounded-lg px-3 py-2 flex items-center gap-2"
+        >
+          <AlertCircle className="w-4 h-4" /> {error}
+        </div>
+      )}
       {!readOnly && (
         <RequireRole roles={["admin", "delivery_lead"]}>
         <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-4 space-y-3">
@@ -356,15 +372,38 @@ export function ContractDocumentsTab({ contractId, readOnly = false }: Props) {
                         </button>
                         {!readOnly && (
                           <RequireRole roles={["admin", "delivery_lead"]}>
-                            <button
-                              onClick={() => handleDelete(d)}
-                              disabled={deleteMutation.isPending}
-                              className="p-1.5 pointer-coarse:p-2.5 rounded hover:bg-destructive/10 dark:hover:bg-red-900/20 text-destructive disabled:opacity-50"
-                              title="Usuń"
-                              aria-label={`Usuń ${d.filename}`}
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                            {confirmDeleteId === d.id ? (
+                              <span className="inline-flex items-center gap-1 text-xs">
+                                <span className="text-muted-foreground">Usunąć?</span>
+                                <button
+                                  type="button"
+                                  onClick={() => deleteMutation.mutate(d.id)}
+                                  disabled={deleteMutation.isPending}
+                                  aria-label={`Potwierdź usunięcie ${d.filename}`}
+                                  className="rounded px-2 py-1 font-medium text-destructive hover:bg-destructive/10 disabled:opacity-60"
+                                >
+                                  Usuń
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setConfirmDeleteId(null)}
+                                  aria-label="Anuluj usuwanie"
+                                  className="rounded p-1 hover:bg-muted"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => setConfirmDeleteId(d.id)}
+                                disabled={deleteMutation.isPending}
+                                className="p-1.5 pointer-coarse:p-2.5 rounded hover:bg-destructive/10 dark:hover:bg-red-900/20 text-destructive disabled:opacity-50"
+                                title="Usuń"
+                                aria-label={`Usuń ${d.filename}`}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
                           </RequireRole>
                         )}
                       </div>

@@ -25,6 +25,7 @@ import { B2B_INDEFINITE_HINT } from "@/lib/contract-end-date";
 import { useExecutiveContractOptions } from "@/lib/api/executiveContracts";
 import { isEzdrowieClient } from "@/lib/ezdrowie";
 import { extractionErrorMessage, numberToField } from "@/lib/order-extraction";
+import { orderPeriodError } from "@/lib/order-period";
 import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
 import { HOURS_PER_MONTH } from "@/lib/work-time";
 import {
@@ -453,6 +454,14 @@ export function NewContractorOrderDialog({
           }
           if (ezdrowie && !executiveContractId) {
             showError("Wybierz umowę wykonawczą");
+            return;
+          }
+          const periodError = orderPeriodError(
+            normalizeDateInput(orderStart || contractStart),
+            normalizeDateInput(orderEnd),
+          );
+          if (periodError) {
+            showError(periodError);
             return;
           }
           mutation.mutate();

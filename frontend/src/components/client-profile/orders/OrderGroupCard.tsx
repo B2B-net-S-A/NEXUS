@@ -368,6 +368,9 @@ interface OrderLineRowProps {
   line: OrderLineRead;
   searchQuery: string;
   canManage: boolean;
+  /** Finanse z `manage_finance` edytują WYŁĄCZNIE kwoty linii (audyt
+   *  24.09.2026, S11) — ołówek bez pozostałych akcji obsady. */
+  canEditAmounts?: boolean;
   canManageLifecycle: boolean;
   onEditLine: (group: OrderGroupRead, line: OrderLineRead) => void;
   onSwapLine: (group: OrderGroupRead, line: OrderLineRead) => void;
@@ -391,6 +394,7 @@ function OrderLineRow({
   line,
   searchQuery,
   canManage,
+  canEditAmounts = false,
   canManageLifecycle,
   onEditLine,
   onSwapLine,
@@ -422,6 +426,13 @@ function OrderLineRow({
   const scheduledTakeover = line.takeover_scheduled === true;
   const pendingButScheduled = pendingOffboarding && line.replaced_by_scheduled === true;
   const endedCooperation = Boolean(line.cooperation_ended_on) && !line.is_active;
+  // Pula osoby wykorzystana w całości — decyzji o MD nie ma (ticket
+  // 4500030067), więc karta mówi, dlaczego.
+  const poolUsedUp =
+    !group.uses_shared_md_pool &&
+    line.md_total != null &&
+    line.md_remaining != null &&
+    line.md_remaining <= 0;
   // „[Osoba] wykorzystał(a) X zł / Y MD na tym zamówieniu przed zakończeniem
   // współpracy" — jedno zdanie dla zamówień MD i kosztowych.
   const usageSentence = consultantUsageSentence(group, line);
@@ -482,7 +493,9 @@ function OrderLineRow({
               </span>
             ) : endedCooperation && !pendingOffboarding ? (
               <span className="rounded bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                Zakończył współpracę
+                {poolUsedUp
+                  ? "Zakończył współpracę · pula wykorzystana"
+                  : "Zakończył współpracę"}
               </span>
             ) : null}
             {line.returned_from_contract_id != null ? (
@@ -740,8 +753,19 @@ function OrderLineRow({
             </span>
           )}
         </div>
-      ) : (canManage || canManageLifecycle) && !removed ? (
+      ) : (canManage || canEditAmounts || canManageLifecycle) && !removed ? (
         <div className="flex items-center gap-1">
+          {!canManage && canEditAmounts ? (
+            <button
+              type="button"
+              onClick={() => onEditLine(group, line)}
+              aria-label={`Edytuj stawki — ${line.consultant_name}`}
+              title="Edytuj stawki"
+              className="rounded-md p-1.5 pointer-coarse:p-2.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            >
+              <Pencil className="h-4 w-4" aria-hidden="true" />
+            </button>
+          ) : null}
           {canManage ? (
             <>
               <button
@@ -1079,13 +1103,13 @@ function FutureOrders({
                     />
                     <span className="text-muted-foreground">
                       <span className="block text-[10px] uppercase tracking-wide">kosztowa</span>
-                      {line.rate_cost == null ? "—" : `${formatPLN(line.rate_cost)}/MD`}
+                      {/* Waluta linii jak w aktywnej obsadzie (N9, 24.09.2026) —
+                          „/MD" w PLN przy stawce w EUR mylił o kurs. */}
+                      {displayLineRate(line, "cost")}
                     </span>
                     <span className="text-muted-foreground">
                       <span className="block text-[10px] uppercase tracking-wide">przychodowa</span>
-                      {line.rate_revenue == null
-                        ? "—"
-                        : `${formatPLN(line.rate_revenue)}/MD`}
+                      {displayLineRate(line, "revenue")}
                     </span>
                     <div className="text-muted-foreground">
                       <span className="block text-[10px] uppercase tracking-wide">
@@ -1130,6 +1154,8 @@ interface Props {
   group: OrderGroupRead;
   searchQuery?: string;
   canManage: boolean;
+  /** Finanse: edycja wyłącznie kwot linii (S11, 24.09.2026). */
+  canEditAmounts?: boolean;
   /** Usuwanie / kończenie / przywracanie / przedłużanie — szersza rola niż
    *  `canManage` (stawki). Lustro backendowego `_ORDER_LIFECYCLE_ROLES`. */
   canManageLifecycle: boolean;
@@ -1162,6 +1188,7 @@ export function OrderGroupCard({
   group,
   searchQuery = "",
   canManage,
+  canEditAmounts = false,
   canManageLifecycle,
   onAddConsultant,
   onEditGroup,
@@ -1433,6 +1460,7 @@ export function OrderGroupCard({
                         line={line}
                         searchQuery={searchQuery}
                         canManage={canManage}
+                        canEditAmounts={canEditAmounts}
                         canManageLifecycle={canManageLifecycle}
                         onEditLine={onEditLine}
                         onSwapLine={onSwapLine}
@@ -1477,6 +1505,7 @@ export function OrderGroupCard({
                         line={line}
                         searchQuery={searchQuery}
                         canManage={canManage}
+                        canEditAmounts={canEditAmounts}
                         canManageLifecycle={canManageLifecycle}
                         onEditLine={onEditLine}
                         onSwapLine={onSwapLine}

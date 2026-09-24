@@ -669,3 +669,54 @@ async def test_patch_order_with_unchanged_assignment_ignores_ended_contract(
         assert "Wybierz umowę wykonawczą" in resp.text
     finally:
         await _cleanup(seeded)
+
+
+async def test_future_extension_under_contract_blocks_ending(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], monkeypatch
+):
+    """Przyszłe przedłużenie pod umową trzyma ją otwartą (audyt 24.09.2026, S2).
+
+    Do tej daty liczyły się wyłącznie reprezentatywne zamówienia, więc
+    zamówienie startujące za miesiąc (reprezentantem jest bieżące, bez umowy)
+    nie blokowało zakończenia.
+    """
+    seeded = await _seed()
+    client_id = seeded["client_id"]
+    monkeypatch.setattr(EZDROWIE_GATE, client_id)
+    await _add_order(seeded, title="Bieżące bez umowy", start_delta_days=-10)
+    await _add_order(
+        seeded,
+        title="Przedłużenie",
+        start_delta_days=30,
+        project_part="cz2",
+        executive_contract_id=seeded["ec_active"],
+    )
+    try:
+        resp = await app_client.patch(
+            f"/api/clients/{client_id}/executive-contracts/{seeded['ec_active']}",
+            json={"status": "ended"},
+            headers=app_auth_headers,
+        )
+        assert resp.status_code == 409, resp.text
+        assert "przyszłych przedłużeń" in resp.text
+    finally:
+        await _cleanup(seeded)
+
+
+async def test_patch_with_explicit_null_is_422_not_500(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], monkeypatch
+):
+    """Jawny null numeru/statusu = 422, nie IntegrityError (audyt S3)."""
+    seeded = await _seed(with_contract=False)
+    client_id = seeded["client_id"]
+    monkeypatch.setattr(EZDROWIE_GATE, client_id)
+    try:
+        for payload in ({"number": None}, {"status": None}):
+            resp = await app_client.patch(
+                f"/api/clients/{client_id}/executive-contracts/{seeded['ec_active']}",
+                json=payload,
+                headers=app_auth_headers,
+            )
+            assert resp.status_code == 422, resp.text
+    finally:
+        await _cleanup(seeded)

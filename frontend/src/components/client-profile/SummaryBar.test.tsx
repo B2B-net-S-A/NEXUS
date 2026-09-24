@@ -29,11 +29,29 @@ describe("SummaryBar — Aktywne MRR", () => {
     );
   });
 
-  it("brak kwoty (żaden kontrakt nie wyceniony) = „—”, bez dopisku o niepełnej sumie", () => {
+  // Audyt 24.09.2026 (N3): do tej daty ten stan renderował „—”, czyli tak
+  // samo jak brak uprawnień — a to dwa różne zdania o kliencie.
+  it("brak kwoty (żaden kontrakt nie wyceniony) = „Brak stawek”, nie „—”", () => {
     render(
       <SummaryBar summary={{ ...base, active_mrr: null, active_mrr_unpriced_contracts: 3 }} />,
     );
     expect(screen.getByText("Aktywne MRR")).toBeInTheDocument();
+    expect(screen.getByText("Brak stawek")).toBeInTheDocument();
     expect(screen.queryByText(/0,00/)).not.toBeInTheDocument();
+  });
+
+  it("brak uprawnień (redakcja: null i licznik 0) = „—”", () => {
+    render(
+      <SummaryBar summary={{ ...base, active_mrr: null, active_mrr_unpriced_contracts: 0 }} />,
+    );
+    expect(screen.getByText("—")).toBeInTheDocument();
+    expect(screen.queryByText("Brak stawek")).not.toBeInTheDocument();
+  });
+
+  it("podpis kafla odmienia „kontrakt” (N4)", () => {
+    render(<SummaryBar summary={{ ...base, active_contracts: 1 }} />);
+    expect(
+      screen.getByText("Aktywni konsultanci").closest("[title]")?.getAttribute("title"),
+    ).toContain("1 aktywny kontrakt");
   });
 });

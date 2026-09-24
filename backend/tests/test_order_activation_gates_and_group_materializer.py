@@ -813,6 +813,12 @@ class _DraftMaterializerSession:
             return self._line_id
         return 0
 
+    async def get(self, model, ident):
+        # ``sync_md_group_exhaustion`` doczytuje grupę po id (od 24.09.2026
+        # dotyczy każdego klienta, nie tylko BIK). Wyczerpanie puli nie jest
+        # przedmiotem tych testów — świeży szkic i tak ma pełny budżet.
+        return None
+
     def add(self, obj):
         self.added.append(obj)
 

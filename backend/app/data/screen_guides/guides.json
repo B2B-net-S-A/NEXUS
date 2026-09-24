@@ -412,7 +412,7 @@
       },
       {
         "q": "Komu kończy się zamówienie?",
-        "a": "Kliknij pigułkę „Kończące się 30d”. Są tam tylko zamówienia bez kolejnego zamówienia dla tej osoby.",
+        "a": "Kliknij pigułkę „Bez kontynuacji 30d”. Są tam tylko zamówienia bez kolejnego zamówienia dla tej osoby.",
         "anchor": "client.orders.pills"
       },
       {
@@ -442,7 +442,7 @@
         "describe": "Dodanie zamówienia, także z odczytem PDF.",
         "requires": {"roles": ["admin", "delivery_lead"]}
       },
-      {"id": "client.orders.pills", "label": "Aktywne / Kończące się / Zakończeni", "describe": "Pigułki stanu zamówień z licznikami."},
+      {"id": "client.orders.pills", "label": "Aktywne / Bez kontynuacji / Zakończeni", "describe": "Pigułki stanu zamówień z licznikami."},
       {"id": "client.orders.search", "label": "Wyszukiwanie i eksport", "describe": "Szukanie po numerze i nazwisku, filtry i eksport."}
     ],
     "help_slug": "zamowienia-instrukcja-delivery-lead",
@@ -519,9 +519,8 @@
         "anchor": "contracts.b2b_generator.tabs"
       },
       {
-        "q": "Jak znaleźć umowę?",
-        "a": "Wpisz numer umowy albo imię i nazwisko w polu wyszukiwania na liście umów.",
-        "anchor": "contracts.b2b_generator.search"
+        "q": "Umowa ma czerwony znacznik „Kontrakt usunięty — brak kontraktora” — co zrobić?",
+        "a": "Jeśli kontrakt tej osoby istnieje, kliknij przy umowie „Powiąż z kontraktem” i wpisz jego numer (admin albo Delivery Lead). Umowa zostaje taka sama, trafia do zakładki Dokumenty kontraktu, a w historii umowy pojawia się wpis."
       },
       {
         "q": "Partner się wycofał przed podpisem — co zrobić?",
@@ -561,7 +560,7 @@
     "tasks": [
       {
         "q": "Co się zmieniło w zamówieniach w tym miesiącu?",
-        "a": "Otwórz „Zmiany w zamówieniach”: Zmiany, Wejścia, Zejścia, Kończące się zamówienia i Braki. Odhaczaj pozycje „Zrobione” — pasek pokazuje postęp miesiąca.",
+        "a": "Otwórz „Zmiany w zamówieniach”: Zmiany, Wejścia, Zejścia, Zamówienia bez kontynuacji i Braki. Odhaczaj pozycje „Zrobione” — pasek pokazuje postęp miesiąca, a eksport do Excela niesie kolumnę „Zrobione”.",
         "anchor": "finance.order_changes"
       },
       {
@@ -581,7 +580,7 @@
       }
     ],
     "pitfalls": [
-      "Zejścia to tylko zapisany koniec współpracy — zamówienie kończące się przy trwającej umowie jest w „Kończące się zamówienia”.",
+      "Zejścia to tylko zapisany koniec współpracy — zamówienie kończące się przy trwającej umowie jest w „Zamówienia bez kontynuacji”. Gdy brak kolejnego zamówienia jest już w „Brakach” tego miesiąca, osoba stoi tylko tam.",
       "Powtórny import tego samego miesiąca nadpisuje wcześniejsze zużycie."
     ],
     "anchors": [

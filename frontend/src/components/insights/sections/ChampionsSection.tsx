@@ -15,6 +15,7 @@ import {
   Trophy,
 } from "lucide-react";
 import { api } from "@/lib/api";
+import { useAuthStore } from "@/store/auth";
 import { cn } from "@/lib/utils";
 import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
 import { count, money, pct } from "./InsightsFormat";
@@ -84,6 +85,9 @@ interface CompetitionPayload {
 }
 
 // ── Podium ──────────────────────────────────────────────────────────────
+
+/** Ile miejsc pod podium widać bez klikania (4–8). */
+const DEFAULT_REST_ROWS = 5;
 
 type PodiumRank = 1 | 2 | 3;
 
@@ -312,6 +316,7 @@ function LeagueCard({
   metricLabel: string;
 }) {
   const [showAll, setShowAll] = useState(false);
+  const meId = useAuthStore((state) => state.user?.id ?? null);
   const { data, isPending, isSuccess, isError, error, refetch } =
     useQuery<CompetitionPayload>({
       // Prefiks `insights` — żeby „Odśwież" z paska narzędzi (invalidacja po
@@ -343,6 +348,14 @@ function LeagueCard({
   const rest = fullRanking
     .map((entry, index) => ({ entry, rank: index + 1 }))
     .filter((row) => !podiumIds.has(row.entry.user_id));
+  // Miejsca 4–8 i własny wiersz widać od razu (przebudowa 24.09.2026: liga
+  // ma być czytelna bez klikania). Reszta za „Pokaż wszystkich".
+  const visibleRest = showAll
+    ? rest
+    : rest.filter(
+        (row, index) => index < DEFAULT_REST_ROWS || row.entry.user_id === meId,
+      );
+  const hiddenCount = rest.length - visibleRest.length;
 
   const prizes = data?.quarterly_prizes_pln ?? null;
 
@@ -491,33 +504,21 @@ function LeagueCard({
 
             {rest.length > 0 ? (
               <div>
-                <button
-                  type="button"
-                  onClick={() => setShowAll((open) => !open)}
-                  aria-expanded={showAll}
-                  className="flex w-full items-center justify-center gap-1.5 rounded-md border border-border py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted"
-                >
-                  {showAll ? (
-                    <ChevronUp className="h-3.5 w-3.5" aria-hidden="true" />
-                  ) : (
-                    <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
-                  )}
-                  {showAll
-                    ? "Zwiń ranking"
-                    : `Zobacz pełny ranking (${rest.length} więcej)`}
-                </button>
-                {showAll ? (
-                  <ul className="mt-2 space-y-1.5">
-                    {rest.map(({ entry, rank }) => {
+                <ul className="space-y-1.5">
+                  {visibleRest.map(({ entry, rank }) => {
                       const disqualified = describeDisqualification(entry);
+                      const isMe = entry.user_id === meId;
                       return (
                         <li
                           key={entry.user_id}
+                          aria-current={isMe ? "true" : undefined}
                           className={cn(
                             "flex items-center justify-between gap-3 rounded-lg border px-3 py-2",
-                            disqualified
-                              ? "border-warning/25 bg-warning-muted"
-                              : "border-border bg-muted/40",
+                            isMe
+                              ? "border-primary/40 bg-primary/10"
+                              : disqualified
+                                ? "border-warning/25 bg-warning-muted"
+                                : "border-border bg-muted/40",
                           )}
                         >
                           <div className="flex min-w-0 items-center gap-3">
@@ -527,6 +528,11 @@ function LeagueCard({
                             <div className="min-w-0">
                               <p className="truncate text-sm font-medium text-foreground">
                                 {entry.name}
+                                {isMe ? (
+                                  <span className="ml-1 font-semibold text-primary">
+                                    (Ty)
+                                  </span>
+                                ) : null}
                                 {disqualified ? (
                                   <span className="ml-2 text-xs font-normal text-warning-muted-foreground">
                                     ({disqualified})
@@ -551,7 +557,23 @@ function LeagueCard({
                         </li>
                       );
                     })}
-                  </ul>
+                </ul>
+                {hiddenCount > 0 || showAll ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowAll((open) => !open)}
+                    aria-expanded={showAll}
+                    className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-md border border-border py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted"
+                  >
+                    {showAll ? (
+                      <ChevronUp className="h-3.5 w-3.5" aria-hidden="true" />
+                    ) : (
+                      <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
+                    )}
+                    {showAll
+                      ? "Zwiń ranking"
+                      : `Pokaż wszystkich (${hiddenCount} więcej)`}
+                  </button>
                 ) : null}
               </div>
             ) : null}

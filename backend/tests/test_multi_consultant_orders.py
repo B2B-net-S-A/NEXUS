@@ -2381,16 +2381,18 @@ async def test_excel_export_uses_visible_group_order_and_rejects_cross_client_id
     )
     workbook = load_workbook(io.BytesIO(response.content))
     sheet = workbook.active
-    assert [cell.value for cell in sheet[1]][:5] == [
+    assert [cell.value for cell in sheet[1]][:7] == [
         "Imię i nazwisko",
         "Numer zamówienia",
         "Stawka kosztowa",
         "Stawka przychodowa",
+        "Jednostka stawki",
+        "Waluta",
         "Okres zamówienia",
     ]
     assert [sheet["A2"].value, sheet["A3"].value] == sorted(names)
-    assert sheet["F2"].value == 50
-    assert sheet["G2"].value == 0
+    assert sheet["H2"].value == 50
+    assert sheet["I2"].value == 0
 
     forbidden = await app_client.post(
         f"/api/clients/{client_id}/order-groups/export",

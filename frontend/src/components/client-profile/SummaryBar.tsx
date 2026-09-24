@@ -23,7 +23,7 @@ interface Props {
  *
  * Grid zwężony z 3 do 2 kolumn — inaczej po usunięciu kafla zostałaby dziura.
  */
-function activeContractsWord(n: number): string {
+export function activeContractsWord(n: number): string {
   if (n === 1) return "aktywny kontrakt";
   const lastTwo = n % 100;
   const last = n % 10;
@@ -38,21 +38,26 @@ export function SummaryBar({ summary }: Props) {
   // Podpis kafla idzie do natywnego tooltipa (StatsCard), więc samo „niepełne”
   // musi być widoczne w tytule — inaczej zaniżona kwota czyta się jak pełna.
   const mrrIncomplete = unpriced > 0 && summary.active_mrr !== null;
+  // `null` przy niewycenionych kontraktach to „brak stawek”, nie brak
+  // uprawnień — redakcja zeruje licznik, więc oba stany się nie mylą (N3).
+  const mrrUnpriced = unpriced > 0 && summary.active_mrr === null;
   const mrrSubtitle = mrrIncomplete
     ? `miesięczna marża — suma niepełna: pominięto ${unpriced} ${activeContractsWord(unpriced)} bez stawki`
-    : "miesięczna marża";
+    : mrrUnpriced
+      ? `miesięczna marża — żaden z ${unpriced} ${activeContractsWord(unpriced)} nie ma stawki`
+      : "miesięczna marża";
   return (
     <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2">
       <StatsCard
         title="Aktywni konsultanci"
         value={summary.active_consultants}
-        subtitle={`${summary.active_contracts} aktywnych kontraktów`}
+        subtitle={`${summary.active_contracts} ${activeContractsWord(summary.active_contracts)}`}
         color="green"
         icon={<Users className="w-4 h-4" />}
       />
       <StatsCard
         title={mrrIncomplete ? "Aktywne MRR (niepełne)" : "Aktywne MRR"}
-        value={formatPLN(summary.active_mrr)}
+        value={mrrUnpriced ? "Brak stawek" : formatPLN(summary.active_mrr)}
         subtitle={mrrSubtitle}
         color="orange"
         icon={<DollarSign className="w-4 h-4" />}

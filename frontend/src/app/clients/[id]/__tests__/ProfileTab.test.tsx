@@ -73,6 +73,7 @@ vi.mock("@/lib/api", () => ({
 }));
 
 import { ProfileTab } from "@/app/clients/[id]/ProfileTab";
+import { useAuthStore, type User } from "@/store/auth";
 
 const PROFILE: ClientProfileResponse = {
   summary: {
@@ -221,7 +222,23 @@ function renderTab(clientId = 42, profile: ClientProfileResponse = PROFILE) {
   );
 }
 
+
+// Przyciski zapisu umów wykonawczych widzi tylko admin i przypisany DL
+// (`DlAssignedOrAdmin`, audyt 24.09.2026, S11) — testy działają jako admin.
+const ADMIN_USER = {
+  id: 1,
+  email: "admin@example.com",
+  name: "Admin",
+  role: "admin",
+  roles: ["admin"],
+  profile_completed: true,
+  profile_completed_at: null,
+  force_password_change: false,
+  force_password_change_at: null,
+} as unknown as User;
+
 beforeEach(() => {
+  useAuthStore.setState({ user: ADMIN_USER, hydrated: true });
   mocks.apiGet.mockReset();
   mocks.ecStructure.mockReset();
   mocks.ecReview.mockReset();
@@ -620,5 +637,77 @@ describe("ProfileTab — Centrum e-Zdrowia: struktura umów wykonawczych", () =>
     expect(
       await screen.findByText("Wszyscy obecni konsultanci mają przypisaną umowę wykonawczą."),
     ).toBeInTheDocument();
+  });
+});
+
+describe("ProfileTab — audyt 24.09.2026", () => {
+  it("kontrakt kandydata usuniętego (RODO) zostaje wierszem bez linku (S6)", async () => {
+    renderTab(42, {
+      ...PROFILE,
+      active_consultants: [
+        {
+          ...PROFILE.active_consultants[0],
+          contract_id: 777,
+          candidate: {
+            id: null,
+            name: "Konsultant usunięty (RODO)",
+            avatar_url: null,
+            competence_category: null,
+            linkedin: null,
+          },
+        },
+      ],
+    });
+    const name = await screen.findByText("Konsultant usunięty (RODO)");
+    expect(name.closest("a")).toBeNull();
+  });
+
+  it("przycięte archiwum mówi, ile pokazano z ilu (S7)", async () => {
+    const user = userEvent.setup({ delay: null });
+    renderTab(42, {
+      ...PROFILE,
+      historical: { ...PROFILE.historical, placements_total: 250 },
+    });
+    await screen.findByText("Tomasz Sadowski");
+    const archiveTab = screen.getByRole("tab", { name: /Archiwum konsultantów/ });
+    expect(archiveTab).toHaveTextContent("250");
+    await user.click(archiveTab);
+    expect(
+      await screen.findByText(/Pokazano 1 najnowszych z 250 zakończonych kontraktów/),
+    ).toBeInTheDocument();
+  });
+
+  it("„Przedłuż” tylko przy kontrakcie kończącym się (W2)", async () => {
+    renderTab(42, {
+      ...PROFILE,
+      active_consultants: [
+        { ...PROFILE.active_consultants[0], contract_status: "ending" },
+        { ...PROFILE.active_consultants[1], contract_status: "active" },
+      ],
+    });
+    await screen.findByText("Tomasz Sadowski");
+    expect(screen.getAllByRole("button", { name: /Przedłuż/ })).toHaveLength(1);
+  });
+
+  it("gdy osób jest mniej niż kontraktów, mówi o tym wprost (N1)", async () => {
+    renderTab(42, {
+      ...PROFILE,
+      summary: { ...PROFILE.summary, active_consultants: 1 },
+    });
+    await screen.findByText("Tomasz Sadowski");
+    expect(screen.getByText(/2 kontrakty · 1 osoba/)).toBeInTheDocument();
+  });
+
+  it("awaria profilu ma „Spróbuj ponownie” (S10)", async () => {
+    mocks.apiGet.mockRejectedValue({ response: { status: 500 } });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProfileTab clientId={42} />
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByText("Spróbuj ponownie")).toBeInTheDocument();
   });
 });

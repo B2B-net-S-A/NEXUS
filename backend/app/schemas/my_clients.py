@@ -72,6 +72,13 @@ class ClientDashboardResponse(BaseModel):
     603,82% (Nordea, zmierzone na produkcji).
     """
 
+    monthly_margin_unpriced_contracts: Optional[int] = None
+    """Obecne kontrakty bez stawki, pominięte w ``monthly_margin_total``.
+
+    >0 znaczy, że marża jest sumą NIEPEŁNĄ — lustro
+    ``active_mrr_unpriced_contracts`` z profilu (audyt 24.09.2026, S9).
+    """
+
     # Konsultanci
     active_consultants: int = 0
     active_contracts: int = 0
@@ -79,7 +86,7 @@ class ClientDashboardResponse(BaseModel):
 
     # Order velocity
     avg_days_to_fill: Optional[float] = None
-    """Średni czas (dni) od `created_at` do gdy `linked_contracts_count == positions_count`."""
+    """Średni czas obsadzenia (dni): start kontraktu − otwarcie rekrutacji (jak profil)."""
 
     # Counts
     framework_contracts_count: int = 0

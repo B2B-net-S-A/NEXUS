@@ -75,7 +75,9 @@ def test_client_directory_sql_mirrors_the_python_rule():
     """
     source = open("app/api/client_directory.py", encoding="utf-8").read()
     assert "Contract.start_date.is_not(None)" not in source
+    # Od 24.09.2026 (S5) kontrakt bez daty startu pyta o nią swoje zamówienia
+    # — lustro `fallback_start` z profilu; nadal nie odpada z samego braku daty.
     assert re.search(
-        r"or_\(\s*Contract\.start_date\.is_\(None\),\s*Contract\.start_date <= as_of",
+        r"Contract\.start_date <= as_of,\s*and_\(\s*Contract\.start_date\.is_\(None\)",
         source,
     ), "katalog klientów przestał dopuszczać kontrakt bez daty startu"

@@ -11,10 +11,18 @@ import type { ClientDashboardResponse, ExpiringAlert } from "@/lib/api/dlPortal"
 import { formatIsoDatePl } from "@/lib/date-pl";
 import { countPl } from "@/lib/plural-pl";
 import { canViewClientFinance, useAuthStore } from "@/store/auth";
+import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
 
 interface AnalyticsTabProps {
   clientId: number;
 }
+
+/** Pole dołożone w audycie 24.09.2026 (S9) — lustro
+ *  `active_mrr_unpriced_contracts` z profilu: >0 = marża jest sumą niepełną. */
+type DashboardData = ClientDashboardResponse & {
+  monthly_margin_unpriced_contracts?: number | null;
+};
 
 export function AnalyticsTab({ clientId }: AnalyticsTabProps) {
   const { user, hydrated } = useAuthStore();
@@ -53,7 +61,7 @@ export function AnalyticsTab({ clientId }: AnalyticsTabProps) {
   )
     .sort()
     .join(",");
-  const { data, isLoading, error } = useQuery({
+  const query = useQuery<DashboardData>({
     queryKey: [
       "client-dashboard",
       clientId,
@@ -68,15 +76,31 @@ export function AnalyticsTab({ clientId }: AnalyticsTabProps) {
     },
     enabled: hydrated && Boolean(user),
   });
+  const { data } = query;
+  // 403 ≠ awaria: brak uprawnień bez „Ponów”, awaria z „Ponów” (audyt S10).
+  const viewState = resolveViewState({
+    isLoading: !hydrated || query.isPending,
+    isError: query.isError,
+    error: query.error,
+    isSuccess: query.isSuccess,
+  });
 
-  if (!hydrated || isLoading) {
+  if (viewState === "loading") {
     return <div className="text-muted-foreground">Ładowanie analityki…</div>;
   }
-  if (error || !data) {
+  if (isBlockingViewState(viewState) || !data) {
     return (
-      <div className="text-destructive">
-        Błąd analityki — sprawdź uprawnienia lub spróbuj ponownie.
-      </div>
+      <QueryStateNotice
+        state={
+          isBlockingViewState(viewState)
+            ? (viewState as "forbidden" | "not_found" | "error")
+            : "error"
+        }
+        description={
+          viewState === "error" ? "Nie udało się wczytać analityki klienta." : undefined
+        }
+        onRetry={() => void query.refetch()}
+      />
     );
   }
 
@@ -97,9 +121,11 @@ function KpiGrid({
   data,
   showFinance,
 }: {
-  data: ClientDashboardResponse;
+  data: DashboardData;
   showFinance: boolean;
 }) {
+  const unpriced = data.monthly_margin_unpriced_contracts ?? 0;
+  const marginIncomplete = unpriced > 0 && data.monthly_margin_total != null;
   return (
     <div className="grid grid-cols-1 min-[420px]:grid-cols-2 lg:grid-cols-4 gap-3">
       {showFinance ? (
@@ -118,9 +144,14 @@ function KpiGrid({
             sublabel={countPl(data.active_orders_count, "zamówienie", "zamówienia", "zamówień")}
           />
           <KpiCard
-            label="Marża/mc (PLN)"
-            value={
-              fmtMoney(data.monthly_margin_total)
+            label={marginIncomplete ? "Marża/mc (PLN) (niepełne)" : "Marża/mc (PLN)"}
+            value={fmtMoney(data.monthly_margin_total)}
+            // Kontrakty bez stawki nie wchodzą do sumy — jak „Aktywne MRR
+            // (niepełne)” na profilu (audyt S9).
+            title={
+              marginIncomplete
+                ? `Suma niepełna: pominięto ${countPl(unpriced, "kontrakt", "kontrakty", "kontraktów")} bez stawki`
+                : undefined
             }
             // „% przychodu/mc", nie samo „%": ten wskaźnik to marża
             // miesięczna podzielona przez przychód miesięczny. Goły procent
@@ -137,7 +168,7 @@ function KpiGrid({
       <KpiCard
         label="Konsultanci aktywni"
         value={`${data.active_consultants}`}
-        sublabel={`${data.active_contracts} aktywnych kontraktów · ${data.completed_consultants} zakończonych`}
+        sublabel={`${countPl(data.active_contracts, "aktywny kontrakt", "aktywne kontrakty", "aktywnych kontraktów")} · ${data.completed_consultants} zakończonych`}
         icon={<Users className="w-4 h-4 text-primary" />}
       />
       <KpiCard
@@ -167,11 +198,13 @@ interface KpiCardProps {
   value: string;
   sublabel?: string;
   icon?: React.ReactNode;
+  /** Dopisek w natywnym dymku całej karty (np. „suma niepełna”). */
+  title?: string;
 }
 
-function KpiCard({ label, value, sublabel, icon }: KpiCardProps) {
+function KpiCard({ label, value, sublabel, icon, title }: KpiCardProps) {
   return (
-    <div className="min-w-0 border border-border rounded-lg p-3 bg-card">
+    <div className="min-w-0 border border-border rounded-lg p-3 bg-card" title={title}>
       <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">
         {icon}
         {label}

@@ -541,12 +541,21 @@ DeliveryLeadPlus = Annotated[
     Depends(require_roles(UserRole.admin, UserRole.delivery_lead)),
 ]
 
-# Zakładka „Rada" w /insights (kokpit, tabele rok-do-roku, ranking klientów
-# z MRR): admin (niejawnie przez `require_roles`) · finance · Head of
-# Recruitment. Decyzja Artura 21.09.2026 — zawęża D7 wyłącznie dla tych trzech
-# tras. Świadomie NIE `VIEW_FINANCE`: ta capability steruje 40+ innymi
-# powierzchniami, a HoR konsekwentnie jej nie ma.
+# Widok „Firma" w /insights (kokpit z kwotami, ranking klientów z MRR): admin
+# (niejawnie przez `require_roles`) · finance. Decyzja Artura 24.09.2026:
+# Head of Recruitment zajmuje się rekrutacją i NIE widzi pieniędzy (marża,
+# przychód, kwoty per klient) — do tego dnia wchodził tu razem z Finansami.
+# Świadomie NIE `VIEW_FINANCE`: ta capability steruje 40+ innymi
+# powierzchniami, a admin może nadać HoR sekcję Finanse w panelu.
 BoardReader = Annotated[
+    User,
+    Depends(require_roles(UserRole.finance)),
+]
+
+# Tabele rok-do-roku: admin · finance · Head of Recruitment. HoR dostaje je
+# BEZ metryk pieniężnych (router redaguje odpowiedź) — placementy, hit ratio,
+# konsultanci i zejścia to jego praca, kwoty już nie.
+BoardTrendReader = Annotated[
     User,
     Depends(require_roles(UserRole.finance, UserRole.head_of_recruitment)),
 ]

@@ -42,7 +42,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.client_order import ClientOrder, ClientOrderStatus
-from app.models.client_order_group import ClientOrderGroup
+from app.models.client_order_group import GROUP_STATUS_CANCELLED, ClientOrderGroup
 from app.models.contract import Contract
 from app.models.contract_amendment import ContractAmendment, ContractAmendmentType
 from app.models.contract_document import ContractDocument
@@ -283,7 +283,15 @@ async def _group_entries(
             ClientOrderGroup.end_date,
         )
         .join(Client, Client.id == ClientOrderGroup.client_id)
-        .where(ClientOrderGroup.file_path.is_not(None), _client_visible())
+        .where(
+            ClientOrderGroup.file_path.is_not(None),
+            # Anulowane zamówienie MD/kosztowe nie jest do rozliczenia — do
+            # 24.09.2026 wpadało do listy i ZIP-ów jako „Nowy" PDF. Lustro
+            # warunku dla zamówień okresowych w ``_order_entries``; ten sam
+            # filtr obejmuje ``find_entry`` i ``entries_for``.
+            ClientOrderGroup.status != GROUP_STATUS_CANCELLED,
+            _client_visible(),
+        )
     )
     if window is not None:
         stmt = stmt.where(

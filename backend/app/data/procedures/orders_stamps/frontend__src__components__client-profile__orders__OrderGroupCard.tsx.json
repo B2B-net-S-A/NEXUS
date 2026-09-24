@@ -1,4 +1,4 @@
 {
-  "sha256": "745fcd4315b6e852b4c7c3d06d8fbf472b27f8a188b61da488a7aaee8dcb47af",
+  "sha256": "3f9ca72cb97cb09e3b2f2658bf8eb9ec219f8965150e39bb73e927cb8158e882",
   "source": "frontend/src/components/client-profile/orders/OrderGroupCard.tsx"
 }

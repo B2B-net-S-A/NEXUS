@@ -17,6 +17,8 @@ import {
   effectiveGroupOrderType,
   endingGroupWithoutSuccessor,
   endingOrderWithoutSuccessor,
+  endingWithoutSuccessorOrderId,
+  endsInPhrase,
   filterMaterializedContractorShells,
   filterAndSortContractors,
   filterAndSortOrderGroups,
@@ -987,5 +989,92 @@ describe("reguła zakładki Kończące się", () => {
         families,
       ),
     ).toEqual([]);
+  });
+});
+
+describe("audyt 24.09.2026 — reguła „bez kontynuacji” i pigułki", () => {
+  const TODAY = "2026-09-24";
+  const ending = (over: Partial<ClientOrderRead> = {}) =>
+    clientOrder(900, "periodic", {
+      contract_id: 90,
+      title: "ZAM-1",
+      status: "active",
+      start_date: "2026-01-01",
+      end_date: "2026-10-05",
+      ...over,
+    });
+
+  it("pigułka czyta pole liczone na serwerze (S1)", () => {
+    const person = contractor(90, "Anna", {
+      orders: [ending()],
+      ending_without_successor_order_id: null,
+    });
+    // Serwer mówi „brak" — front nie liczy reguły po swojemu.
+    expect(contractorMatchesPill(person, "ending_30d", TODAY)).toBe(false);
+    const flagged = contractor(90, "Anna", {
+      orders: [],
+      ending_without_successor_order_id: 900,
+    });
+    expect(endingWithoutSuccessorOrderId(flagged, TODAY)).toBe(900);
+    expect(contractorMatchesPill(flagged, "ending_30d", TODAY)).toBe(true);
+  });
+
+  it("porzucony szkic z podpisu nie jest kontynuacją (W2)", () => {
+    const shell = clientOrder(901, "periodic", {
+      contract_id: 90,
+      status: "draft",
+      start_date: "2026-01-01",
+      end_date: null,
+      rate_client: null,
+    });
+    const person = contractor(90, "Anna", { orders: [shell, ending()] });
+    expect(endingOrderWithoutSuccessor(person.orders, 30, TODAY)?.id).toBe(900);
+  });
+
+  it("zakończone z datą w przyszłości nie jest kontynuacją (N2)", () => {
+    const closedEarly = clientOrder(902, "periodic", {
+      contract_id: 90,
+      status: "completed",
+      start_date: "2026-10-06",
+      end_date: "2026-12-31",
+    });
+    const person = contractor(90, "Anna", { orders: [closedEarly, ending()] });
+    expect(endingOrderWithoutSuccessor(person.orders, 30, TODAY)?.id).toBe(900);
+  });
+
+  it("anulowane zamówienie okresowe trafia do pigułki „Anulowane” (N9)", () => {
+    const person = contractor(90, "Anna", {
+      orders: [ending({ status: "cancelled" })],
+    });
+    expect(contractorMatchesPill(person, "cancelled", TODAY)).toBe(true);
+    expect(
+      contractorMatchesPill(contractor(91, "Ola", { orders: [ending()] }), "cancelled", TODAY),
+    ).toBe(false);
+  });
+
+  it("umowa gotowa do podpisu jest w pigułce Draft (N9)", () => {
+    const person = contractor(92, "Ewa", {
+      contract_status: "ready_for_signature",
+      orders: [],
+    });
+    expect(contractorMatchesPill(person, "draft", TODAY)).toBe(true);
+    expect(contractorMatchesPill(person, "active", TODAY)).toBe(false);
+  });
+
+  it("odmienia dni w plakietce końca", () => {
+    expect(endsInPhrase(0)).toBe("dziś");
+    expect(endsInPhrase(1)).toBe("za 1 dzień");
+    expect(endsInPhrase(5)).toBe("za 5 dni");
+  });
+
+  it("wspólna pula MD z serwera wygrywa z listą w bundlu (S13)", () => {
+    const shared = group(95, "MD-X", {
+      client_id: 1,
+      is_md_budget_based: true,
+      md_budget_mode: null,
+      uses_shared_md_pool: true,
+    });
+    expect(usesSharedMdPool(shared)).toBe(true);
+    expect(usesSharedMdPool({ ...shared, uses_shared_md_pool: false })).toBe(false);
   });
 });

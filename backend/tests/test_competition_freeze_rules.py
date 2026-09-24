@@ -379,6 +379,29 @@ async def test_placement_tie_is_broken_by_margin_per_hour() -> None:
     assert winners[0].frozen_snapshot["excluded_user_ids"] == [leader.id]
 
 
+async def test_monthly_races_screen_never_carries_margin() -> None:
+    """Marża/h rozstrzyga remis, ale nie wychodzi do ekranu wyścigów.
+
+    `/api/competitions/monthly-races` czyta każdy zalogowany, a marża to
+    pieniądze (widzą je tylko admin i Finanse, decyzja 24.09.2026). Do tego
+    dnia każdy remis w wyścigu placementów oddawał rekruterom sumę marży/h
+    i listę placementów z nią policzonych.
+    """
+    year = _year()
+    period = f"{year}-08"
+    async with AsyncSessionLocal() as db:
+        _leader, a, b = await _placement_tie(db, year, second_has_contracts=True)
+        races = await competitions.compose_monthly_races(db, period)
+    placements = races["placements"]
+    tied = [e for e in placements["ranking"] if e["user_id"] in (a.id, b.id)]
+    assert len(tied) == 2
+    for entry in [*placements["ranking"], placements["qualified_leader"] or {}]:
+        assert "margin_per_hour_sum" not in entry
+        assert "margin_placements" not in entry
+    # Regulamin nadal działa: A (wyższa marża) prowadzi.
+    assert placements["qualified_leader"]["user_id"] == a.id
+
+
 # ── 5. Remis nierozstrzygalny → tie_pending → decyzja admina ─────────────
 
 

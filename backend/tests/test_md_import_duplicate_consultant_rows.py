@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import io
 import uuid
-from datetime import timedelta
+from datetime import date, timedelta
 from decimal import Decimal
 
 import pytest
@@ -153,7 +153,9 @@ async def _finance_headers(app_client: AsyncClient) -> dict:
     return {"Authorization": f"Bearer {resp.json()['access_token']}"}
 
 
-async def _import(app_client: AsyncClient, headers: dict, payload: bytes) -> dict:
+async def _import(
+    app_client: AsyncClient, headers: dict, payload: bytes, period: str | None = None
+) -> dict:
     resp = await app_client.post(
         "/api/md-consumption/imports",
         files={
@@ -163,11 +165,23 @@ async def _import(app_client: AsyncClient, headers: dict, payload: bytes) -> dic
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
         },
-        data={"period_month": _period()},
+        data={"period_month": period or _period()},
         headers=headers,
     )
     assert resp.status_code == 201, resp.text
     return resp.json()
+
+
+def _next_month_first():
+    """Pierwszy dzień przyszłego miesiąca — start kontynuacji w testach podziału.
+
+    Audyt 24.09.2026 (W4): nadwyżka przechodzi wyłącznie na następcę, który
+    ROZLICZA miesiąc raportu. Testy, w których kontynuacja ma czekać
+    (niezmaterializowana), zaczynają ją pierwszego dnia przyszłego miesiąca
+    i importują TEN miesiąc — okres poprzednika go obejmuje, kontynuacji też.
+    """
+    today = business_today()
+    return (date(today.year, today.month, 1) + timedelta(days=32)).replace(day=1)
 
 
 async def _group(app_client: AsyncClient, headers: dict, client_id: int, gid: int):
@@ -377,7 +391,8 @@ async def test_reimporting_the_split_month_does_not_move_md_twice(
     group = await _create_group(
         app_client, app_auth_headers, client_id, [_md_line(contracts[0], 20)]
     )
-    successor_start = business_today() + timedelta(days=30)
+    successor_start = _next_month_first()
+    period = successor_start.strftime("%Y-%m")
     successor = await _extend(
         app_client,
         app_auth_headers,
@@ -394,8 +409,8 @@ async def test_reimporting_the_split_month_does_not_move_md_twice(
     finance = await _finance_headers(app_client)
     payload = _sheet([(names[0], 30)])
 
-    await _import(app_client, finance, payload)
-    await _import(app_client, finance, payload)
+    await _import(app_client, finance, payload, period)
+    await _import(app_client, finance, payload, period)
 
     next_line = await _line_of(app_client, app_auth_headers, client_id, successor["id"])
     assert next_line["md_remaining"] == pytest.approx(40.0)
@@ -458,7 +473,8 @@ async def test_raising_the_budget_takes_the_md_back_from_the_continuation(
     group = await _create_group(
         app_client, app_auth_headers, client_id, [_md_line(contracts[0], 20)]
     )
-    successor_start = business_today() + timedelta(days=30)
+    successor_start = _next_month_first()
+    period = successor_start.strftime("%Y-%m")
     successor = await _extend(
         app_client,
         app_auth_headers,
@@ -474,7 +490,7 @@ async def test_raising_the_budget_takes_the_md_back_from_the_continuation(
     )
     finance = await _finance_headers(app_client)
     payload = _sheet([(names[0], 30)])
-    await _import(app_client, finance, payload)
+    await _import(app_client, finance, payload, period)
     assert (await _line_of(app_client, app_auth_headers, client_id, successor["id"]))[
         "md_remaining"
     ] == pytest.approx(40.0)
@@ -486,7 +502,7 @@ async def test_raising_the_budget_takes_the_md_back_from_the_continuation(
         headers=app_auth_headers,
     )
     assert raised.status_code == 200, raised.text
-    await _import(app_client, finance, payload)
+    await _import(app_client, finance, payload, period)
 
     current_line = await _line_of(app_client, app_auth_headers, client_id, group["id"])
     next_line = await _line_of(app_client, app_auth_headers, client_id, successor["id"])
@@ -529,7 +545,8 @@ async def test_manual_assignment_splits_the_same_way_as_the_batch_import(
         client_id,
         [_md_line(contracts[0], 20), _md_line(contracts[1], 50)],
     )
-    successor_start = business_today() + timedelta(days=30)
+    successor_start = _next_month_first()
+    period = successor_start.strftime("%Y-%m")
     successor = await _extend(
         app_client,
         app_auth_headers,
@@ -544,7 +561,7 @@ async def test_manual_assignment_splits_the_same_way_as_the_batch_import(
         ],
     )
     finance = await _finance_headers(app_client)
-    detail = await _import(app_client, finance, _sheet([(names[0], 30)]))
+    detail = await _import(app_client, finance, _sheet([(names[0], 30)]), period)
     assert detail["rows_ambiguous"] == 1, detail
 
     target = next(

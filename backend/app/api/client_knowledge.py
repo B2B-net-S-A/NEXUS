@@ -25,6 +25,7 @@ from app.api.deps import CurrentUser, get_current_user
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.services.client_access import (
     assert_client_exists,
+    assert_client_writable,
     deny,
     record_client_audit,
     resolve_client_access,
@@ -85,7 +86,8 @@ async def create_client_knowledge(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await assert_client_exists(db, client_id)
+    # Zapis tylko na widocznym kliencie (usunięty/scalony/ukryty → 404, S1).
+    await assert_client_writable(db, client_id)
     access = await resolve_client_access(db, current_user, client_id)
     if not access.can_edit_knowledge:
         raise deny("dodawanie wiedzy klienta wymaga roli admin lub Delivery Lead")
@@ -125,6 +127,7 @@ async def delete_client_knowledge(
     entry = result.scalar_one_or_none()
     if not entry:
         raise HTTPException(status_code=404, detail="Knowledge entry not found")
+    await assert_client_writable(db, entry.client_id)
 
     access = await resolve_client_access(db, current_user, entry.client_id)
     if not access.can_edit_knowledge:

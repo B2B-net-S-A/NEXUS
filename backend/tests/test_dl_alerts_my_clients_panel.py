@@ -872,3 +872,41 @@ async def test_checked_off_case_alerts_again_after_the_cause_went_away_and_came_
     async with AsyncSessionLocal() as db:
         handled = await db.get(DlAlert, first.id)
     assert handled.status == "handled" and handled.handled_by_user_id == user_id
+
+
+async def test_empty_signing_draft_does_not_close_the_ending_order_card(monkeypatch):
+    """Audyt 24.09.2026 (W2): szkic z podpisu umowy nie jest kontynuacją.
+
+    Szkic zakładany przy podpisie ma start umowy, pusty koniec i pustą stawkę
+    klienta. Do poprawki liczył się jako następca każdego zamówienia tej
+    osoby, więc karta „kończy się" nie powstawała nigdy.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+    from app.models.dl_alert import ALERT_PERIODIC_ORDER_ENDING
+    from app.tasks.dl_alerts_scanner import rule_periodic_order_ending
+
+    client_id = await _seed_client()
+    user_id, _, _ = await _seed_dl(client_id)
+    contract_id, _ = await _seed_contract(client_id)
+    order_id = await _seed_periodic_order(
+        client_id, contract_id, _TODAY + timedelta(days=10)
+    )
+    async with AsyncSessionLocal() as db:
+        db.add(
+            ClientOrder(
+                client_id=client_id,
+                contract_id=contract_id,
+                title="Jan Kowalski — Java Developer",
+                status=ClientOrderStatus.draft,
+                start_date=date(2026, 1, 1),
+                end_date=None,
+                rate_client=None,
+            )
+        )
+        await db.commit()
+
+    await _run(rule_periodic_order_ending, monkeypatch, _TODAY)
+    rows = await _alerts(user_id, ALERT_PERIODIC_ORDER_ENDING)
+    assert [r.status for r in rows] == ["new"]
+    assert f"order:{order_id}:" in rows[0].event_key

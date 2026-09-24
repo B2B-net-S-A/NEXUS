@@ -91,6 +91,7 @@ from app.api import insights_reconciliation
 from app.api import integrations_compass
 from app.api import insights_performance_flags
 from app.api import insights_team
+from app.api import insights_team_signals
 from app.api import client_knowledge
 from app.api import client_materials
 from app.api import client_framework_contracts
@@ -1340,6 +1341,13 @@ app.include_router(
 # procesu (funnel, time-to-hire, konwersje).
 app.include_router(
     insights_team.router,
+    prefix="/api/insights",
+    tags=["insights"],
+)
+# Widok Zespół (24.09.2026): tabela ludzi, „Do uwagi" i rekrutacje bez ruchu.
+# Capability VIEW_TEAM_KPI — imienne wyniki cudzej pracy.
+app.include_router(
+    insights_team_signals.router,
     prefix="/api/insights",
     tags=["insights"],
 )

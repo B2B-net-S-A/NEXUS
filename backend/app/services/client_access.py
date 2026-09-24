@@ -355,6 +355,32 @@ async def assert_client_exists(db: AsyncSession, client_id: int) -> None:
         raise HTTPException(status_code=404, detail="Client not found")
 
 
+CLIENT_NOT_WRITABLE_DETAIL = "Klient nie istnieje albo został usunięty lub scalony."
+
+
+async def assert_client_writable(
+    db: AsyncSession, client_id: int, *, lock: bool = False
+) -> Client:
+    """404 dla klienta, którego nie da się już zmieniać.
+
+    Jeden strażnik dla KAŻDEGO zapisu na kliencie (karta, materiały, wiedza,
+    zespół, umowy ramowe i wykonawcze, aneksy, PATCH klienta): klient
+    USUNIĘTY (``deleted_at``, reguła 0307) nie ma profilu ani zapisów (audyt
+    24.09.2026, S1). Klient ukryty, zarchiwizowany albo scalony zostaje
+    zapisywalny — karta klienta świadomie przyjmuje zapis dla ukrytego
+    i scalonego (``test_client_playbooks_api``), a „Nieaktywni” mają profil.
+    ``lock`` blokuje wiersz klienta do końca transakcji.
+    """
+
+    stmt = select(Client).where(Client.id == client_id)
+    if lock:
+        stmt = stmt.with_for_update()
+    client = await db.scalar(stmt)
+    if client is None or client.deleted_at is not None:
+        raise HTTPException(status_code=404, detail=CLIENT_NOT_WRITABLE_DETAIL)
+    return client
+
+
 async def get_client_access(
     client_id: int,
     current_user: User = Depends(get_current_user),

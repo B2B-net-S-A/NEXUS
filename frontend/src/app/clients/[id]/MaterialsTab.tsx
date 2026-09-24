@@ -18,6 +18,34 @@ import {
 } from "lucide-react";
 import api from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
+import {
+  QueryStateNotice,
+  type BlockingViewState,
+} from "@/components/ds/QueryStateNotice";
+import {
+  isBlockingViewState,
+  resolveViewState,
+  type ViewState,
+} from "@/lib/view-state";
+
+/** Stan widoku sekcji z zapytania react-query (awaria ≠ pustka, audyt S10). */
+function queryViewState(
+  query: {
+    isPending: boolean;
+    isError: boolean;
+    error: unknown;
+    isSuccess: boolean;
+  },
+  isEmpty: boolean,
+): ViewState {
+  return resolveViewState({
+    isLoading: query.isPending,
+    isError: query.isError,
+    error: query.error,
+    isEmpty,
+    isSuccess: query.isSuccess,
+  });
+}
 import { useToast } from "@/components/Toast";
 import { DeleteButton } from "@/components/ConfirmDialog";
 import {
@@ -198,11 +226,14 @@ function OnePagersSection({
   const { showSuccess, showError } = useToast();
   const [showUpload, setShowUpload] = useState(false);
 
-  const { data: pagers = [], isLoading } = useQuery<OnePager[]>({
+  const pagersQuery = useQuery<OnePager[]>({
     queryKey: ["client-one-pagers", clientId],
     queryFn: () =>
       api.get(`/api/clients/${clientId}/one-pagers`).then((r) => r.data),
   });
+  const pagers = pagersQuery.data ?? [];
+  // Awaria ≠ „Brak one-pagerów” (audyt S10).
+  const pagersState = queryViewState(pagersQuery, pagers.length === 0);
 
   const deleteMutation = useMutation({
     mutationFn: (id: number) =>
@@ -255,8 +286,17 @@ function OnePagersSection({
         )}
       </div>
 
-      {isLoading ? (
+      {pagersState === "loading" ? (
         <p className="text-sm text-muted-foreground">Ładowanie…</p>
+      ) : isBlockingViewState(pagersState) ? (
+        <QueryStateNotice
+          state={pagersState as BlockingViewState}
+          description={
+            pagersState === "error" ? "Nie udało się wczytać one-pagerów." : undefined
+          }
+          onRetry={() => void pagersQuery.refetch()}
+          className="py-6"
+        />
       ) : pagers.length === 0 ? (
         <div className="text-center py-8 text-muted-foreground text-sm">
           {readOnly
@@ -575,13 +615,15 @@ function RequiredDocumentsSection({
   const [showApply, setShowApply] = useState(false);
   const [editing, setEditing] = useState<RequiredDoc | null>(null);
 
-  const { data: docs = [], isLoading } = useQuery<RequiredDoc[]>({
+  const docsQuery = useQuery<RequiredDoc[]>({
     queryKey: ["client-required-docs", clientId],
     queryFn: () =>
       api
         .get(`/api/clients/${clientId}/required-documents`)
         .then((r) => r.data),
   });
+  const docs = docsQuery.data ?? [];
+  const docsState = queryViewState(docsQuery, docs.length === 0);
 
   const deleteMutation = useMutation({
     mutationFn: (id: number) =>
@@ -615,8 +657,19 @@ function RequiredDocumentsSection({
         )}
       </div>
 
-      {isLoading ? (
+      {docsState === "loading" ? (
         <p className="text-sm text-muted-foreground">Ładowanie…</p>
+      ) : isBlockingViewState(docsState) ? (
+        <QueryStateNotice
+          state={docsState as BlockingViewState}
+          description={
+            docsState === "error"
+              ? "Nie udało się wczytać wymaganych dokumentów."
+              : undefined
+          }
+          onRetry={() => void docsQuery.refetch()}
+          className="py-6"
+        />
       ) : docs.length === 0 ? (
         <div className="text-center py-8 text-muted-foreground text-sm">
           {readOnly
@@ -1185,13 +1238,15 @@ function ContractTermsSection({
   const qc = useQueryClient();
   const { showSuccess, showError } = useToast();
 
-  const { data: terms, isLoading } = useQuery<ContractTerms | null>({
+  const termsQuery = useQuery<ContractTerms | null>({
     queryKey: ["client-contract-terms", clientId],
     queryFn: () =>
       api
         .get(`/api/clients/${clientId}/contract-terms`)
         .then((r) => r.data ?? null),
   });
+  const terms = termsQuery.data;
+  const termsState = queryViewState(termsQuery, false);
 
   const mutation = useMutation({
     mutationFn: (payload: Partial<ContractTerms>) =>
@@ -1202,13 +1257,30 @@ function ContractTermsSection({
       qc.invalidateQueries({ queryKey: ["client-contract-terms", clientId] });
       showSuccess("Zapisano warunki umowy");
     },
-    onError: () => showError("Nie udało się zapisać"),
+    onError: (err: unknown) =>
+      showError(apiErrorMessage(err, "Nie udało się zapisać")),
   });
 
-  if (isLoading) {
+  if (termsState === "loading") {
     return (
       <section className="bg-card dark:bg-muted rounded-2xl border border-border dark:border-border p-6">
         <p className="text-sm text-muted-foreground">Ładowanie warunków umowy…</p>
+      </section>
+    );
+  }
+  // Przy awarii edytor NIE może wystartować z pustym formularzem — zapis
+  // nadpisałby prawdziwe warunki pustymi polami (audyt S10).
+  if (isBlockingViewState(termsState)) {
+    return (
+      <section className="bg-card dark:bg-muted rounded-2xl border border-border dark:border-border p-6">
+        <QueryStateNotice
+          state={termsState as BlockingViewState}
+          description={
+            termsState === "error" ? "Nie udało się wczytać warunków umowy." : undefined
+          }
+          onRetry={() => void termsQuery.refetch()}
+          className="py-6"
+        />
       </section>
     );
   }

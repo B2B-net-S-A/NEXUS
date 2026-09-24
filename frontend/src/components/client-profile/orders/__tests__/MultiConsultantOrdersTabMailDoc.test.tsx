@@ -25,6 +25,7 @@ vi.mock("@/store/auth", () => ({
   hasRole: (user: { role?: string } | null, ...roles: string[]) =>
     roles.includes(user?.role ?? ""),
   canManageMultiConsultantOrders: () => true,
+  canEditOrderLineAmounts: () => true,
   canManageOrderLifecycle: () => true,
   canManageCandidateFinance: () => true,
   canViewClientFinance: () => true,

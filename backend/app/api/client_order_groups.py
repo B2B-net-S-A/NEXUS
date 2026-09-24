@@ -43,7 +43,7 @@ from openpyxl import load_workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 from starlette.concurrency import run_in_threadpool
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -147,6 +147,7 @@ from app.services.client_order_lines import (
     is_line_on_active_roster,
     line_budget_total,
     lines_for_group,
+    live_successor_line_id,
     list_consultant_options,
     month_bounds,
     record_event,
@@ -194,6 +195,7 @@ from app.services.order_line_takeover import (
     projected_budget,
     resolve_transfer_method,
     scheduled_successor_of,
+    scheduled_takeover_event,
     split_transferred,
     takeover_source_state,
     transferred_md as transferred_md_for,
@@ -494,6 +496,12 @@ async def _assert_no_pending_offboarding_case(
     query = select(ClientOrderOffboardingCase.id).where(
         ClientOrderOffboardingCase.order_group_id == group_id,
         ClientOrderOffboardingCase.status == OFFBOARDING_STATUS_PENDING,
+        # Sprawa z pulą 0 MD nie blokuje (ticket 4500030067) — i tak zamyka
+        # się sama przy najbliższym przeliczeniu; wspólna pula blokuje zawsze.
+        or_(
+            ClientOrderOffboardingCase.uses_shared_md_pool.is_(True),
+            ClientOrderOffboardingCase.remaining_md_snapshot > 0,
+        ),
     )
     if order_id is not None:
         query = query.where(ClientOrderOffboardingCase.order_id == order_id)
@@ -507,6 +515,36 @@ async def _assert_no_pending_offboarding_case(
                     "zakończeniu współpracy konsultanta."
                 ),
             },
+        )
+
+
+async def _assert_not_transfer_target(db: AsyncSession, order_id: int) -> None:
+    """Linia, na którą przeniesiono pulę MD odchodzącego, nie znika bez śladu.
+
+    Audyt 24.09.2026 (W5). Przeniesienie (decyzja DL albo „Wejdź za
+    konsultanta") zdjęło te MD z budżetu źródła i dopisało je tutaj; FK sprawy
+    ma ``ON DELETE SET NULL``, a rozstrzygnięta sprawa blokuje ponowne
+    przejęcie. Usunięcie linii kasowałoby więc przeniesione MD bez drogi
+    powrotu.
+    """
+    case_id = await db.scalar(
+        select(ClientOrderOffboardingCase.id)
+        .where(
+            ClientOrderOffboardingCase.target_order_id == order_id,
+            ClientOrderOffboardingCase.status == OFFBOARDING_STATUS_RESOLVED,
+            ClientOrderOffboardingCase.resolution == OFFBOARDING_RESOLUTION_TRANSFER,
+        )
+        .limit(1)
+    )
+    if case_id is not None:
+        raise HTTPException(
+            409,
+            detail=(
+                "Na tę osobę przeniesiono pozostałe MD konsultanta, który "
+                "zakończył współpracę. Usunięcie linii skasowałoby te MD bez "
+                "możliwości przywrócenia — zakończ jej udział („Zakończ”) albo "
+                "popraw budżet linii."
+            ),
         )
 
 
@@ -3008,6 +3046,7 @@ async def create_order_group(
                 422,
                 detail="Przed aktywacją dodaj konsultantów i uzupełnij ich budżety MD",
             )
+    await _assert_order_number_free(db, client_id, payload.order_number)
 
     group = ClientOrderGroup(
         client_id=client_id,
@@ -3114,6 +3153,41 @@ async def create_order_group(
 OrderAmountUser = Annotated[
     User, Depends(require_roles_or_finance_manager(UserRole.delivery_lead))
 ]
+
+
+async def _assert_order_number_free(
+    db: AsyncSession, client_id: int, order_number: str
+) -> None:
+    """Drugie OTWARTE zamówienie klienta o tym samym numerze → 409 (S9).
+
+    Na produkcji Lotte Wedel ma dwie grupy z jednym numerem — import MD
+    i dopasowanie faktur po numerze nie mają wtedy jak wybrać zamówienia.
+    Zakończone, wyczerpane i anulowane nie blokują: numer bywa świadomie
+    użyty ponownie po zamknięciu (przedłużenie idzie osobną trasą).
+    """
+    wanted = (order_number or "").strip()
+    if not wanted:
+        return
+    existing = await db.scalar(
+        select(ClientOrderGroup.id)
+        .where(
+            ClientOrderGroup.client_id == client_id,
+            func.lower(func.trim(ClientOrderGroup.order_number)) == wanted.lower(),
+            ClientOrderGroup.status.in_(
+                (GROUP_STATUS_ACTIVE, GROUP_STATUS_SCHEDULED, "draft")
+            ),
+        )
+        .limit(1)
+    )
+    if existing is not None:
+        raise HTTPException(
+            409,
+            detail=(
+                f"Ten klient ma już otwarte zamówienie nr {wanted}. Dodaj "
+                "konsultantów do istniejącego zamówienia („Uzupełnij zamówienie”) "
+                "albo popraw numer."
+            ),
+        )
 
 
 def _assert_finance_manager_amounts_only(user: User, supplied) -> None:
@@ -3693,6 +3767,7 @@ async def delete_line(
         await _assert_no_pending_offboarding_case(
             db, group_id=group.id, order_id=line.id
         )
+        await _assert_not_transfer_target(db, line.id)
         await assert_order_has_no_settlements(
             db,
             line.id,
@@ -3854,7 +3929,48 @@ async def close_order_group(
     # Audyt 22.09 r2 (FIN-MD-04): stan sprzed zakończenia — z niego
     # „Przywróć” odtwarza daty i obsadę, które zakończenie przycięło.
     previous_group_end_date = group.end_date
+    # N1: status sprzed zakończenia — zamówienie wyczerpane nie wraca przez
+    # „Przywróć” jako aktywne z pustą pulą.
+    previous_group_status = group.status
     previous_lines: list[dict[str, object]] = []
+
+    # S2: zaplanowane „Wejdź za konsultanta", które po tym zakończeniu nie
+    # zdąży wejść (dzień wejścia po dacie zakończenia albo zakończenie już
+    # obowiązuje), jest anulowane z wpisem w historii. Zostawione jako szkic
+    # dostałoby `completed`, a „Przywróć” oddałoby je jako aktywną linię —
+    # bez przeniesienia MD odchodzącego.
+    cancelled_takeovers = 0
+    for line in locked_lines:
+        if line.status != ClientOrderStatus.draft or line.predecessor_order_id is None:
+            continue
+        if await scheduled_takeover_event(db, line) is None:
+            continue
+        if payload.closure_date > today and (
+            line.start_date is not None and line.start_date <= payload.closure_date
+        ):
+            continue
+        line.status = ClientOrderStatus.cancelled
+        cancelled_takeovers += 1
+        record_event(
+            db,
+            group_id=group.id,
+            order_id=line.id,
+            event_type=EVENT_MANUAL_EDIT,
+            description=(
+                f"Zaplanowane zastępstwo {consultant_display_name(line)} "
+                f"anulowane — zamówienie {group.order_number} kończy się "
+                f"z dniem {payload.closure_date.strftime('%d.%m.%Y')}, przed "
+                "dniem wejścia. Pozostałe MD osoby odchodzącej nie przeszły."
+            ),
+            payload={
+                "assignment": ASSIGNMENT_TAKEOVER,
+                "scheduled_cancelled": True,
+                "takeover_from_order_id": line.predecessor_order_id,
+                "closure_date": payload.closure_date.isoformat(),
+            },
+            user_id=user.id,
+        )
+
     group.status = GROUP_STATUS_COMPLETED
     group.closure_date = payload.closure_date
     group.closure_reason = (payload.closure_reason or "").strip() or None
@@ -3895,6 +4011,8 @@ async def close_order_group(
             "closure_date": payload.closure_date.isoformat(),
             "closure_reason": group.closure_reason,
             "lines_closed": closed_lines,
+            "previous_status": previous_group_status,
+            "scheduled_takeovers_cancelled": cancelled_takeovers,
             "previous_group_end_date": (
                 None
                 if previous_group_end_date is None
@@ -3975,6 +4093,17 @@ async def reopen_order_group(
         if closed_event is not None and isinstance(closed_event.payload, dict)
         else {}
     )
+    if closed_payload.get("previous_status") == GROUP_STATUS_EXHAUSTED:
+        # N1: zakończone zostało zamówienie WYCZERPANE. Przywrócenie oddałoby
+        # aktywne zamówienie z pulą 0 — ta sama reguła co dla `exhausted`.
+        raise HTTPException(
+            409,
+            detail=(
+                "To zamówienie przed zakończeniem miało wyczerpaną pulę — "
+                "przywrócenie zostawiłoby aktywne zamówienie bez budżetu. "
+                "Zwiększ budżet albo załóż przedłużenie zamówienia."
+            ),
+        )
     group.status = GROUP_STATUS_ACTIVE
     group.closure_date = None
     group.closure_reason = None
@@ -4063,6 +4192,24 @@ async def _lock_group_lines(db: AsyncSession, group_id: int) -> None:
     await lock_order_group_lines(db, [group_id])
 
 
+async def _lock_group_row(db: AsyncSession, group_id: int) -> ClientOrderGroup:
+    """Nagłówek zamówienia pod blokadą, na świeżym stanie z bazy.
+
+    Wołać PO blokadach kontraktów i linii (kolejność kontrakt → linia → grupa).
+    ``populate_existing``: obiekt w sesji mógł zostać odczytany przed blokadą,
+    a decyzja ma zapaść na stanie, którego nikt już nie zmieni.
+    """
+    group = await db.scalar(
+        select(ClientOrderGroup)
+        .where(ClientOrderGroup.id == group_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if group is None:
+        raise HTTPException(404, detail="Zamówienie nie istnieje")
+    return group
+
+
 def _assert_group_not_cancelled(group: ClientOrderGroup) -> None:
     """Anulowane zamówienie jest tylko do odczytu, dopóki ktoś go nie przywróci.
 
@@ -4133,6 +4280,12 @@ async def cancel_order_group(
     )
     # Kolejność blokad: kontrakty linii → linie (jak każdy writer zamówień).
     await lock_contract_then_orders(db, order_ids=line_ids)
+    # S3: status sprawdzony PRZED blokadą przepuszczał dwa równoległe
+    # „Anuluj" — drugie zapisywało zdarzenie z samymi `cancelled` i nadpisywało
+    # `status_before_cancel`, więc „Przywróć" oddawało grupę bez linii.
+    group = await _lock_group_row(db, group.id)
+    if group.status == GROUP_STATUS_CANCELLED:
+        raise HTTPException(409, detail="To zamówienie jest już anulowane")
     locked_lines = list(
         (
             await db.execute(
@@ -4233,6 +4386,11 @@ async def restore_order_group(
         ).all()
     )
     await lock_contract_then_orders(db, order_ids=line_ids)
+    # S3: ponowne sprawdzenie pod blokadą — drugie równoległe „Przywróć"
+    # przywracałoby grupę już przywróconą.
+    group = await _lock_group_row(db, group.id)
+    if group.status != GROUP_STATUS_CANCELLED:
+        raise HTTPException(409, detail="To zamówienie nie jest anulowane")
     cancelled_event = await db.scalar(
         select(ClientOrderGroupEvent)
         .where(
@@ -4981,6 +5139,17 @@ async def resolve_md_offboarding_case(
                 "zastępstwo, jeśli chcesz podjąć inną decyzję."
             ),
         )
+    if await live_successor_line_id(db, case.order_id) is not None:
+        # Audyt 24.09.2026 (W1): pozostała pula tej osoby jest już budżetem
+        # następcy (zamiana kontraktora). Każda decyzja — oddanie, przeniesienie
+        # albo przywrócenie — rozdałaby te same MD drugi raz.
+        raise HTTPException(
+            409,
+            detail=(
+                "Ta osoba ma już następcę na zamówieniu — jej pozostałe MD "
+                "przeszły na niego przy zamianie. Decyzja o puli nie jest potrzebna."
+            ),
+        )
 
     # Resolve i operacje grupowe mogą dotykać dwóch tych samych linii. Blokuj
     # source + target jednym zapytaniem w rosnącym porządku ID; osobne locki
@@ -5299,6 +5468,9 @@ async def take_over_consultant(
             "zastępstwo z przejęciem puli MD ustawia Delivery Lead albo administrator"
         )
 
+    # S4: kontrakty linii → linie → grupa — ta sama kolejność blokad co każdy
+    # writer zamówień (do 24.09 grupa była blokowana pierwsza).
+    await _lock_group_lines(db, group_id)
     group = await db.scalar(
         select(ClientOrderGroup)
         .where(
@@ -5326,9 +5498,6 @@ async def take_over_consultant(
             ),
         )
 
-    # Kontrakty linii → linie, zanim zablokujemy odchodzącego (kolejność
-    # blokad wszystkich writerów zamówień).
-    await _lock_group_lines(db, group.id)
     source = await db.scalar(
         _line_query()
         .where(
@@ -5646,6 +5815,18 @@ async def swap_consultant(
         raise HTTPException(
             422, detail="Data zamiany jest wcześniejsza niż start linii"
         )
+    # S1: zamiana po końcu linii albo zamówienia dałaby następcę, którego
+    # okres zaczyna się po końcu jego własnej linii.
+    if (old.end_date is not None and payload.swap_date > old.end_date) or (
+        group.end_date is not None and payload.swap_date > group.end_date
+    ):
+        raise HTTPException(
+            422,
+            detail=(
+                "Data zamiany wypada po końcu udziału tej osoby albo po końcu "
+                "zamówienia — zamiana nie ma od kiedy obowiązywać."
+            ),
+        )
 
     md_remaining_old: Optional[Decimal] = None
     md_total_new: Optional[Decimal] = None
@@ -5711,6 +5892,53 @@ async def swap_consultant(
             raise HTTPException(422, detail=str(exc)) from exc
 
     new_contract = await _resolve_contract(db, client_id, payload.contract_id)
+    # S1: te same bramki co „Wejdź za konsultanta". Kontrakt zakończony albo
+    # unieważniony zostałby wskrzeszony przez `_sync_contract_after_live_group_line`,
+    # a osoba, która już jest na zamówieniu, dostałaby drugi budżet MD.
+    new_status = getattr(new_contract.status, "value", new_contract.status)
+    if new_status in (ContractStatus.ended.value, ContractStatus.void.value):
+        raise HTTPException(
+            422,
+            detail=(
+                "Nowa osoba ma zakończony albo unieważniony kontrakt u tego "
+                "klienta — nie może wejść na zamówienie."
+            ),
+        )
+    if (
+        old.contract is not None
+        and old.contract.candidate_id is not None
+        and old.contract.candidate_id == new_contract.candidate_id
+    ):
+        raise HTTPException(422, detail="Nowa osoba to ta sama osoba, która odchodzi")
+    await _assert_not_on_order_yet(
+        db, group=group, contract=new_contract, candidate=new_contract.candidate
+    )
+    if new_contract.candidate_id is not None:
+        same_person = await db.scalar(
+            select(ClientOrder.id)
+            .join(Contract, Contract.id == ClientOrder.contract_id)
+            .where(
+                ClientOrder.order_group_id == group.id,
+                Contract.candidate_id == new_contract.candidate_id,
+                ClientOrder.status.in_(
+                    (
+                        ClientOrderStatus.active,
+                        ClientOrderStatus.draft,
+                        ClientOrderStatus.paused,
+                    )
+                ),
+            )
+            .limit(1)
+        )
+        if same_person is not None:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                detail=(
+                    "Ta osoba jest już na zamówieniu "
+                    f"{group.order_number} (na innym kontrakcie) — zmień jej "
+                    "linię zamiast dopisywać ją drugi raz"
+                ),
+            )
 
     # Domknięcie starej linii lustrzane wobec syncu terminacji kontraktu
     # (`contracts.py`): data zawsze, status `completed` dopiero gdy dzień

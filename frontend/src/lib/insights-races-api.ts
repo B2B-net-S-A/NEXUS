@@ -298,6 +298,23 @@ export function monthFromResolvedPeriod(
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+export interface MyCompetitionPositionEntry {
+  user_id: number;
+  name: string;
+  metric_value: number;
+  rank?: number;
+  placements?: number | null;
+}
+
+export interface MyCompetitionPosition {
+  type: string;
+  period: string;
+  rank: number | null;
+  me: MyCompetitionPositionEntry | null;
+  context: MyCompetitionPositionEntry[];
+  total: number;
+}
+
 export const racesApi = {
   /** Oba wyścigi naraz. Bez `month` backend bierze bieżący miesiąc. */
   monthlyRaces: (month?: string | null) =>
@@ -312,6 +329,17 @@ export const racesApi = {
     api
       .get<HallOfFameResponse>("/api/competitions/current", {
         params: { type: "hall_of_fame" },
+      })
+      .then((r) => r.data),
+
+  /**
+   * Pozycja zalogowanej osoby w bieżącym konkursie (`/my-position`): numer
+   * miejsca, własny wpis i ±2 sąsiadów. `rank: null` = poza rankingiem.
+   */
+  myPosition: (type: CompetitionTypeKey) =>
+    api
+      .get<MyCompetitionPosition>("/api/competitions/my-position", {
+        params: { type },
       })
       .then((r) => r.data),
 

@@ -92,6 +92,9 @@ CODE_RATE_OUT_OF_BAND = "rate_out_of_band"
 CODE_RATE_DEVIATION = "rate_deviation"
 CODE_MD_MISSING = "md_missing"
 CODE_MD_SHARED_POOL = "md_shared_pool"
+#: Zamówienie kosztowe z kilkoma osobami: kwota zlecenia jest wspólna dla całej
+#: obsady, a zapis per osoba nie ma gdzie jej zapisać (audyt 24.09, S3).
+CODE_COST_SHARED_BUDGET = "cost_shared_budget"
 CODE_PLAN_BLOCKING = "plan_blocking"
 #: Nowy kontraktor bez żywej umowy gdziekolwiek — zamówienie czeka na podpis.
 CODE_PERSON_DECISION_NEW = "person_decision_new"
@@ -309,6 +312,10 @@ def _irrelevant_md_absence_reason(reason: str, inp: GateInput) -> bool:
     """
     if not is_md_absence_reason(reason) or not inp.proposal.rows:
         return False
+    if md_scope(inp.extraction) == MD_SCOPE_ORDER:
+        # Wspólna pula: liczba MD JEST w dokumencie, tylko nie przy osobach —
+        # o tym mówi osobny powód ``CODE_MD_SHARED_POOL``.
+        return True
     return all(row.md_total is not None for row in _md_rows(inp))
 
 
@@ -484,8 +491,9 @@ def evaluate(inp: GateInput) -> GateVerdict:
             )
 
     # 7b) zamówienie MD wymaga liczby MD — przy osobie albo na całe zamówienie
+    shared_md_pool = md_scope(ex) == MD_SCOPE_ORDER
     for row_prop in _md_rows(inp):
-        if row_prop.md_total is None:
+        if row_prop.md_total is None and not shared_md_pool:
             reasons.append(
                 (
                     CODE_MD_MISSING,
@@ -493,15 +501,29 @@ def evaluate(inp: GateInput) -> GateVerdict:
                     "podaje jej ani przy osobie, ani na całe zamówienie",
                 )
             )
-    if _md_rows(inp) and md_scope(ex) == MD_SCOPE_ORDER:
-        # Plan przenosi liczbę dokumentu na każdy wiersz, a zapis per osoba
-        # dałby każdemu całą pulę. Wspólną pulę zakłada człowiek w oknie
-        # zamówienia — automat jej nie dzieli.
+    if _md_rows(inp) and shared_md_pool:
+        # Liczba MD dokumentu jest pulą całej obsady (planer nie przenosi jej
+        # na wiersze), a zapis per osoba nie ma gdzie jej zapisać. Wspólną
+        # pulę zakłada człowiek w oknie zamówienia — automat jej nie dzieli.
         reasons.append(
             (
                 CODE_MD_SHARED_POOL,
                 "Dokument podaje jedną liczbę MD na całe zamówienie — załóż wspólny "
                 "budżet MD ręcznie, automat nie dzieli puli między osoby",
+            )
+        )
+
+    # 7c) zamówienie kosztowe dla kilku osób: kwota zlecenia jest wspólna.
+    #     Planer nie przenosi jej na żadną osobę (FIN-MAIL-01), więc zapis
+    #     per osoba kończył się samymi szkicami bez kwoty, które nie dają się
+    #     aktywować, a dokument szedł jako „zapisany automatycznie”.
+    if sum(1 for row in prop.rows if row.order_type == "cost") > 1:
+        reasons.append(
+            (
+                CODE_COST_SHARED_BUDGET,
+                "Zamówienie kosztowe dla kilku osób — kwota zlecenia jest wspólna "
+                "dla całej obsady; załóż zamówienie kosztowe ręcznie w oknie "
+                "zamówienia, automat nie dzieli kwoty między osoby",
             )
         )
 

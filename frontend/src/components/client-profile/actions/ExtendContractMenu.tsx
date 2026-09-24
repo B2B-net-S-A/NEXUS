@@ -5,19 +5,50 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown } from "lucide-react";
 import api from "@/lib/api";
 import { useToast } from "@/components/Toast";
+import { AppModal } from "@/components/ds/AppModal";
+import { Button } from "@/components/ui/button";
 import { countPl } from "@/lib/plural-pl";
 import { cn } from "@/lib/utils";
 import { useClickOutside } from "@/lib/use-click-outside";
+import { useAuthStore } from "@/store/auth";
+import { canManageClientDelivery } from "@/components/client-profile/permissions";
 
 interface Props {
   contractId: number;
   clientId: number;
+  /** Status kontraktu z profilu — „Przedłuż” wyłącznie dla `ending`. */
+  contractStatus?: string | null;
 }
 
 const DURATIONS = [3, 6, 12];
 
-export function ExtendContractMenu({ contractId, clientId }: Props) {
+/**
+ * Czy wiersz konsultanta pokazuje „Przedłuż” (audyt 24.09.2026, W2).
+ *
+ * `POST /api/contracts/bulk-extend` wymaga `DeliveryLeadPlus` (admin + DL),
+ * a przycisk widziały też Finanse i TCM — klik kończył się 403. Sensowny jest
+ * tylko dla kontraktu „Kończący się”: umowę bezterminową backend pomija.
+ */
+export function canExtendContract(
+  user: Parameters<typeof canManageClientDelivery>[0],
+  contractStatus: string | null | undefined,
+): boolean {
+  return contractStatus === "ending" && canManageClientDelivery(user);
+}
+
+/** Klucze odświeżane po przedłużeniu — profil, zamówienia i rejestr kontraktów. */
+export const EXTEND_INVALIDATED_KEYS = [
+  ["client-profile"],
+  ["dl-orders-grouped"],
+  ["contracts-v2"],
+  ["contracts-expiring-v2"],
+  ["contractors-v2"],
+] as const;
+
+export function ExtendContractMenu({ contractId, clientId, contractStatus }: Props) {
+  const user = useAuthStore((s) => s.user);
   const [open, setOpen] = useState(false);
+  const [pendingMonths, setPendingMonths] = useState<number | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
@@ -33,8 +64,9 @@ export function ExtendContractMenu({ contractId, clientId }: Props) {
         {}
       ),
     onSuccess: (response, months) => {
-      queryClient.invalidateQueries({ queryKey: ["client-profile", clientId] });
-      queryClient.invalidateQueries({ queryKey: ["client-contracts", clientId] });
+      for (const queryKey of EXTEND_INVALIDATED_KEYS) {
+        queryClient.invalidateQueries({ queryKey: [...queryKey] });
+      }
       // Backend pomija umowy bezterminowe (w tym każdą umowę B2B bez ręcznego
       // zakończenia) — „przedłużono" byłoby wtedy nieprawdą.
       if ((response?.data?.extended ?? 0) === 0) {
@@ -44,13 +76,15 @@ export function ExtendContractMenu({ contractId, clientId }: Props) {
       } else {
         showSuccess(`Kontrakt przedłużony o ${months} mc`);
       }
-      setOpen(false);
+      setPendingMonths(null);
     },
     onError: () => showError("Nie udało się przedłużyć kontraktu"),
   });
 
+  if (!canExtendContract(user, contractStatus)) return null;
+
   return (
-    <div ref={containerRef} className="relative">
+    <div ref={containerRef} className="relative" data-client-id={clientId}>
       <button
         onClick={() => setOpen((v) => !v)}
         disabled={mutation.isPending}
@@ -64,7 +98,10 @@ export function ExtendContractMenu({ contractId, clientId }: Props) {
           {DURATIONS.map((m) => (
             <button
               key={m}
-              onClick={() => mutation.mutate(m)}
+              onClick={() => {
+                setOpen(false);
+                setPendingMonths(m);
+              }}
               className={cn(
                 "block w-full text-left px-3 py-1.5 text-xs hover:bg-emerald-50 dark:hover:bg-emerald-900/30 text-foreground dark:text-muted-foreground"
               )}
@@ -74,6 +111,46 @@ export function ExtendContractMenu({ contractId, clientId }: Props) {
           ))}
         </div>
       )}
+      <AppModal
+        open={pendingMonths !== null}
+        onOpenChange={(next) => {
+          if (!next && !mutation.isPending) setPendingMonths(null);
+        }}
+        title="Przedłużyć kontrakt?"
+        size="sm"
+        footer={
+          <>
+            <Button
+              variant="outline"
+              onClick={() => setPendingMonths(null)}
+              disabled={mutation.isPending}
+            >
+              Anuluj
+            </Button>
+            <Button
+              onClick={() => {
+                if (pendingMonths !== null) mutation.mutate(pendingMonths);
+              }}
+              disabled={mutation.isPending}
+            >
+              {mutation.isPending ? "Przedłużam…" : "Przedłuż i cofnij wypowiedzenie"}
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-foreground">
+          Data końca kontraktu przesunie się o{" "}
+          {pendingMonths !== null
+            ? countPl(pendingMonths, "miesiąc", "miesiące", "miesięcy")
+            : ""}
+          .
+        </p>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Jeśli współpraca była wypowiedziana, wypowiedzenie zostanie cofnięte:
+          dane rozwiązania umowy znikną z kontraktu, a kontrakt wróci do
+          aktywnych. Tego nie da się cofnąć jednym kliknięciem.
+        </p>
+      </AppModal>
     </div>
   );
 }

@@ -16,20 +16,20 @@ from __future__ import annotations
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.financial_access import FinanceReadUser
 from app.core.database import get_db
-from app.models.client_order import ClientOrder, ClientOrderStatus
+from app.models.client_order import ClientOrderStatus
 from app.models.contract import Contract
 from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User
 from app.schemas.admin_clients_overview import DlKpiRow, OverviewRow
 from app.services.contract_rates import RATE_SCHEDULE_LOADS
 from app.services.contractor_identity import (
-    current_contracts,
+    load_current_contracts,
     summarize_active_contracts,
 )
 from app.services.insights_clients import (
@@ -37,7 +37,10 @@ from app.services.insights_clients import (
     compute_client_ranking,
     margin_lookup_pln,
 )
-from app.services.order_revenue import order_revenue_rows_to_pln
+from app.services.order_revenue import (
+    client_order_value_rows,
+    order_revenue_rows_to_pln,
+)
 from app.core.scheduling import business_today
 
 router = APIRouter()
@@ -107,23 +110,10 @@ async def kpi_by_dl(
     all_client_ids = {
         client_id for slot in dl_clients.values() for client_id in slot["client_ids"]
     }
-    dl_revenue_rows = list(
-        await db.execute(
-            select(
-                ClientOrder.client_id,
-                ClientOrder.status,
-                ClientOrder.currency,
-                func.coalesce(func.sum(ClientOrder.total_value), 0).label("sum_val"),
-                func.count().label("cnt"),
-            )
-            .where(ClientOrder.client_id.in_(all_client_ids))
-            .group_by(
-                ClientOrder.client_id,
-                ClientOrder.status,
-                ClientOrder.currency,
-            )
-        )
-    )
+    # Ta sama reguła wartości i liczby zamówień co Analityka klienta:
+    # zamówienie MD/kosztowe = jedno zamówienie z wartością grupy, bez
+    # szkiców (audyt 24.09.2026, W1).
+    dl_revenue_rows = await client_order_value_rows(db, all_client_ids)
     dl_revenue_lookup, dl_revenue_incomplete = await order_revenue_rows_to_pln(
         db, dl_revenue_rows, business_today()
     )
@@ -133,6 +123,25 @@ async def kpi_by_dl(
             active_orders_by_client[row.client_id] = active_orders_by_client.get(
                 row.client_id, 0
             ) + int(row.cnt or 0)
+
+    # Kontrakty wszystkich klientów z przypisaniami — JEDNO zapytanie zamiast
+    # jednego na każdego DL (audyt N14). Contract.client_id daje wszystkich
+    # kontraktorów klienta bez joina do zamówień.
+    today = business_today()
+    all_live_contracts = await load_current_contracts(
+        db,
+        (
+            await db.execute(
+                select(Contract)
+                .options(*RATE_SCHEDULE_LOADS, selectinload(Contract.candidate))
+                .where(
+                    Contract.client_id.in_(all_client_ids),
+                    Contract.status.in_(_LIVE_CONTRACT_STATUSES),
+                )
+            )
+        ).scalars(),
+        today,
+    )
 
     # Per-DL agregaty: revenue, active orders, marża
     items: list[DlKpiRow] = []
@@ -162,23 +171,9 @@ async def kpi_by_dl(
             active_orders_by_client.get(client_id, 0) for client_id in client_ids
         )
 
-        # Refactor 2026-05-11: Contract.client_id daje wszystkich kontraktorów
-        # tego DL (bez join'a do Order).
-        margin_rows_dl = list(
-            (
-                await db.execute(
-                    select(Contract)
-                    .options(*RATE_SCHEDULE_LOADS, selectinload(Contract.candidate))
-                    .where(
-                        Contract.client_id.in_(client_ids),
-                        Contract.status.in_(_LIVE_CONTRACT_STATUSES),
-                    )
-                )
-            ).scalars()
-        )
-        today = business_today()
         # Tylko kontrakty OBECNE — ta sama reguła co profil i ranking (B46).
-        margin_rows_dl = current_contracts(margin_rows_dl, today)
+        dl_client_set = set(client_ids)
+        margin_rows_dl = [c for c in all_live_contracts if c.client_id in dl_client_set]
         active_headcount = summarize_active_contracts(margin_rows_dl)
         # Kontrakt bez jednej nogi stawki (``unpriced``) nie zdejmuje kwoty
         # z wiersza DL — suma jest częściowa, jak kafel na profilu klienta;

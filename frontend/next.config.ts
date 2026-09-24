@@ -115,8 +115,11 @@ const nextConfig: NextConfig = {
   // i deep-linki zaczęłyby zwracać 404 zamiast trafiać do następcy.
   // Podniesione z 307 na 308 (permanent), bo źródło już nie istnieje.
   async redirects() {
-    const insights = (tab: string, ch?: string) =>
-      ch ? `/insights?tab=${tab}&ch=${ch}` : `/insights?tab=${tab}`;
+    // Widoki Insights od 24.09.2026: rywalizacja · zespol · firma · raporty
+    // (+ `report=`). Kanoniczne adresy, nie aliasy — aliasy zna tylko
+    // `InsightsView` i przepisuje je po stronie klienta.
+    const insights = (tab: string, report?: string) =>
+      report ? `/insights?tab=${tab}&report=${report}` : `/insights?tab=${tab}`;
     // 308 — strona źródłowa usunięta, przekierowanie jest trwałe.
     const gone = (source: string, destination: string) => ({
       source,
@@ -128,23 +131,23 @@ const nextConfig: NextConfig = {
       // powiadomienia `pending_verification` zapisane w bazie nadal do niej
       // linkują. Bez tego klik w stare powiadomienie kończył się 404.
       gone("/pending-verifications", "/jobs"),
-      gone("/dynareporter/rekrutacja", insights("body-leasing", "wyniki")),
-      gone("/dynareporter/body-leasing", insights("body-leasing", "wyniki")),
-      gone("/dynareporter/placements", insights("body-leasing", "wyniki")),
-      gone("/dynareporter/competitions", insights("body-leasing", "rywalizacja")),
-      // Kanoniczne identyfikatory zakładek (`body-leasing` + rozdział, `rada`),
-      // nie aliasy `rekrutacja`/`delivery-lead`/`klienci`/`zarzad` — ranking klientów i MRR mieszkają w Radzie,
-      // więc `clients-mrr` celuje wprost w tę sekcję (UAT M10-B03).
-      gone("/dynareporter/delivery-lead", insights("body-leasing", "klienci")),
-      gone("/dynareporter/delivery-lead-dashboard", insights("body-leasing", "klienci")),
-      gone("/dynareporter/clients-mrr", `${insights("rada")}#klienci`),
-      gone("/dynareporter/sales", insights("body-leasing", "klienci")),
-      gone("/dynareporter/sales-mgmt", insights("body-leasing", "klienci")),
-      gone("/dynareporter/board", insights("rada")),
-      gone("/dynareporter/board-dashboard", insights("rada")),
-      gone("/dynareporter/przetargi", insights("rada")),
+      gone("/dynareporter/rekrutacja", insights("zespol")),
+      gone("/dynareporter/body-leasing", insights("zespol")),
+      gone("/dynareporter/placements", insights("raporty", "placementy")),
+      gone("/dynareporter/competitions", insights("rywalizacja")),
+      // Raporty Delivery Leada → raport Portfele DL; ranking klientów z MRR
+      // mieszka w widoku Firma (tylko admin i Finanse — pozostałym
+      // `InsightsView` pokaże rok do roku bez kwot).
+      gone("/dynareporter/delivery-lead", insights("raporty", "portfele-dl")),
+      gone("/dynareporter/delivery-lead-dashboard", insights("raporty", "portfele-dl")),
+      gone("/dynareporter/clients-mrr", insights("firma")),
+      gone("/dynareporter/sales", insights("raporty", "portfele-dl")),
+      gone("/dynareporter/sales-mgmt", insights("raporty", "portfele-dl")),
+      gone("/dynareporter/board", insights("firma")),
+      gone("/dynareporter/board-dashboard", insights("firma")),
+      gone("/dynareporter/przetargi", insights("firma")),
       // MINDY zastąpił Jarvis (asystent na każdym ekranie, ⌘J).
-      gone("/dynareporter/mindy", insights("body-leasing")),
+      gone("/dynareporter/mindy", insights("rywalizacja")),
       // Archiwum admina, profil, upload i strona startowa DynaReportera
       // usunięte 23.09.2026 — wszystko, czego lista wyżej nie zna.
       gone("/dynareporter", "/insights"),

@@ -429,7 +429,14 @@ async def emit_md_consultant_ended(
             f"na zamówieniu {number}. {pool_detail} Otwórz zamówienie i wybierz "
             "usunięcie, przeniesienie albo przywrócenie konsultanta."
         ),
-        link=(f"/clients/{client_id}?tab=zamowienia&offboardingCase={case_id}"),
+        # Strona czyta `order`/`group`/`framework` (lib/client-order-list.ts
+        # `resolveOrderFocus`) — sam `offboardingCase` był martwym linkiem,
+        # który lądował na liście bez wskazania karty (S10, 24.09.2026).
+        link=(
+            f"/clients/{client_id}?tab=zamowienia"
+            + (f"&group={order_group_id}" if order_group_id is not None else "")
+            + f"&offboardingCase={case_id}"
+        ),
         payload={
             "offboarding_case_id": case_id,
             "order_number": order_number,

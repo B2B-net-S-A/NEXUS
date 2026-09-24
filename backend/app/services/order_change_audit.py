@@ -65,6 +65,11 @@ _ORDER_FIELDS = (
     "md_rate_revenue",
     "rate_unit",
     "end_date",
+    # Waluta stawki: sama zmiana waluty (1000 PLN → 1000 EUR) to zmiana
+    # pieniędzy, której dziennik do 24.09.2026 nie widział (N1).
+    "currency",
+    "rate_client_currency",
+    "rate_candidate_currency",
 )
 _GROUP_FIELDS = ("status", "end_date")
 #: Pola czytane przy budowie zdarzenia (poza śledzonymi) — zapamiętywane po
@@ -186,7 +191,11 @@ def _rate_events(snap: _Snapshot) -> list[dict[str, Any]]:
         (FIELD_RATE_REVENUE, "rate_client", "md_rate_revenue", "rate_client_currency"),
     )
     for field, legacy_key, md_key, currency_key in pairs:
-        if in_group:
+        # ``md_rate_*`` to kanoniczne PLN/MD. Linia w walucie obcej zapisuje
+        # zmianę stawki ŹRÓDŁOWEJ (``rate_*`` w walucie i jednostce linii) —
+        # „PLN" przy kwocie przeliczonej z EUR mylił Finanse (S14).
+        foreign_line = in_group and _currency(snap.current, currency_key) != "PLN"
+        if in_group and not foreign_line:
             md_change = snap.change(md_key)
             if md_change is not None:
                 old, new = _amount(md_change[0]), _amount(md_change[1])
@@ -212,11 +221,10 @@ def _rate_events(snap: _Snapshot) -> list[dict[str, Any]]:
         old, new = _amount(old_raw), _amount(new_raw)
         if old is None or new is None:
             continue
-        if old == new and initial_unit == current_unit:
+        currency = _currency(snap.current, currency_key)
+        old_currency = _currency(snap.initial, currency_key)
+        if old == new and initial_unit == current_unit and old_currency == currency:
             continue
-        currency = snap.current(currency_key)
-        if currency in (None, NO_VALUE):
-            currency = snap.current("currency")
         events.append(
             {
                 "field": field,
@@ -224,10 +232,25 @@ def _rate_events(snap: _Snapshot) -> list[dict[str, Any]]:
                 "new_amount": new,
                 "old_unit": initial_unit,
                 "new_unit": current_unit,
-                "currency": None if currency is NO_VALUE else currency,
+                "currency": currency,
+                "old_currency": old_currency,
             }
         )
     return events
+
+
+def _currency(read: Any, key: str) -> str:
+    """Waluta strony stawki (``rate_*_currency``, zapasowo ``currency``, PLN).
+
+    Brak waluty to PLN — jak wszędzie w module zamówień. Bez tego
+    uzupełnienie pustej waluty wartością „PLN" (normalizacja w PATCH) dawało
+    fałszywą „zmianę stawki" o tej samej kwocie."""
+    value = read(key)
+    if value in (None, NO_VALUE):
+        value = read("currency")
+    if value in (None, NO_VALUE):
+        return "PLN"
+    return str(value).strip().upper() or "PLN"
 
 
 def _end_date_event(snap: _Snapshot) -> list[dict[str, Any]]:

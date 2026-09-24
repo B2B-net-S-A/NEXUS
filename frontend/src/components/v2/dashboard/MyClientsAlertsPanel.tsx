@@ -48,7 +48,9 @@ const SECTIONS: { key: DlAlertSection; title: string }[] = [
 const REPEAT_DAYS = 7
 
 function daysLabel(days: number): string {
-  if (days <= 0) return "dziś"
+  // Data, która już minęła, to nie „dziś" (N5, audyt 24.09.2026).
+  if (days < 0) return "po terminie"
+  if (days === 0) return "dziś"
   return days === 1 ? "1 dzień" : `${days} dni`
 }
 
@@ -376,7 +378,10 @@ export function MyClientsAlertsPanel({
                 trzy razy na sprawę — `email_on_first` w `emit` (pierwsza karta,
                 zwykle miesiąc przed końcem) oraz etapy t14 i t7
                 z `date_cycle_stage`. Powtórki co 7 dni idą bez maila. */}
-            <p>Mail: pierwsze przypomnienie, 14 dni i 7 dni przed końcem.</p>
+            <p>
+              Mail (daty końca): pierwsze przypomnienie, 14 dni i 7 dni przed
+              końcem. Budżet MD i kwota zamówienia: mail przy wysokim priorytecie.
+            </p>
           </div>
           <button
             type="button"

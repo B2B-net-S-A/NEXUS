@@ -368,3 +368,31 @@ describe("/preview/trainee i /preview/trainees (0373) nie mają sieci", () => {
   });
 });
 
+describe("/preview/insights zasiewa każdy stały klucz widoków", () => {
+  it("nie zostawia klucza, który uruchomiłby zapytanie i przerzucił na /login", () => {
+    const harness = withoutComments(read("app/preview/insights/page.tsx")).replace(
+      /\s+/g,
+      " ",
+    );
+    const missing: string[] = [];
+    for (const file of [
+      "components/insights/views/RywalizacjaView.tsx",
+      "components/insights/views/MojMiesiacView.tsx",
+      "components/insights/views/ZespolView.tsx",
+      "components/insights/views/FirmaView.tsx",
+      "components/insights/sections/InsightsRaces.tsx",
+      "components/insights/sections/InsightsSeniority.tsx",
+    ]) {
+      for (const key of literalQueryKeys(read(file))) {
+        if (!harness.includes(key)) missing.push(`${file}: ${key}`);
+      }
+    }
+    expect(missing).toEqual([]);
+  });
+
+  it("odcina sieć interceptorem", () => {
+    expect(read("app/preview/insights/page.tsx")).toContain(
+      "api.interceptors.request.use",
+    );
+  });
+});

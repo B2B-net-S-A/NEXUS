@@ -1,7 +1,13 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, Field, computed_field, field_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    computed_field,
+    field_validator,
+    model_validator,
+)
 
 from app.models.client import ClientStatus
 
@@ -49,6 +55,24 @@ class ClientUpdate(BaseModel):
     # ma ją zero klientów. Ekran „Reguły CV" jest pierwszym miejscem, w którym
     # da się ją nadać; PATCH klienta jest generyczny, więc wystarczy tu wpis.
     cv_content_mode_cap: Optional[str] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _required_fields_not_null(cls, data):
+        """Jawny ``null`` dla kolumny NOT NULL = 422 po polsku, nie 500 z bazy.
+
+        PATCH jest częściowy (``exclude_unset``), więc ``None`` znaczy tu
+        wyłącznie „wyczyść”, a tych pól wyczyścić nie wolno (audyt S3).
+        """
+        if isinstance(data, dict):
+            for field, label in (
+                ("status", "Status klienta"),
+                ("cv_interactive_enabled", "Interaktywne CV"),
+                ("nda_signed", "NDA"),
+            ):
+                if field in data and data[field] is None:
+                    raise ValueError(f"{label}: pole nie może być puste.")
+        return data
 
     @field_validator("cv_content_mode_cap")
     @classmethod

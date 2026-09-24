@@ -40,7 +40,9 @@ export interface RecruiterBrief {
 }
 
 export interface CandidateBrief {
-  id: number;
+  /** `null` = kandydat usunięty (RODO), a kontrakt został — wiersz bez linku
+   *  do profilu, nazwa „Konsultant usunięty (RODO)” (audyt 24.09.2026, S6). */
+  id: number | null;
   name: string;
   avatar_url: string | null;
   competence_category: string | null;
@@ -89,6 +91,8 @@ export interface ActiveConsultantItem {
   start_date: string;
   end_date: string | null;
   days_to_end: number | null;
+  /** `active` / `ending` — „Przedłuż” tylko dla kończącego się (audyt W2). */
+  contract_status?: string | null;
   monthly_rate_client: number | null;
   /** Stawka kosztowa /mc (ticket #5) — redagowana bez VIEW_FINANCE. */
   monthly_rate_candidate?: number | null;
@@ -148,10 +152,16 @@ export interface ClientProfileResponse {
   open_jobs: OpenJobItem[];
   active_consultants: ActiveConsultantItem[];
   /** Kontrakty aktywne statusem, które jeszcze nie obowiązują (przyszły start
-   *  albo brak daty startu) — poza „Obecnymi" i „Aktywnym MRR" (UAT B46). */
+   *  umowy, a przy jej braku — start bieżącego zamówienia) — poza „Obecnymi"
+   *  i „Aktywnym MRR" (UAT B46; brak jakiejkolwiek daty = obecny). */
   planned_consultants: ActiveConsultantItem[];
   historical: {
+    /** Najnowsze zakończone kontrakty — lista PRZYCIĘTA po stronie serwera. */
     placements: HistoricalPlacementItem[];
+    /** Liczba WSZYSTKICH zakończonych kontraktów (audyt S7) — front mówi
+     *  „Pokazano N z M”, gdy lista jest krótsza. */
+    placements_total?: number;
+    /** Nie jest już liczone (audyt S8) — zawsze pusta lista. */
     lost_jobs: LostJobItem[];
   };
 }

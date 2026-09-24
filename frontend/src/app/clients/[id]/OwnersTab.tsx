@@ -7,7 +7,10 @@ import api, { clientTeamApi } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import type { ClientTeamResponse, ClientTeamTacAssignment } from "@/lib/api";
 import { useToast } from "@/components/Toast";
-import { useAuthStore } from "@/store/auth";
+import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { TAC_UI_ENABLED } from "@/lib/tac-ui";
+import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
+import { hasRole, useAuthStore } from "@/store/auth";
 
 interface AppUser {
   id: number;
@@ -25,12 +28,24 @@ export function OwnersTab({ clientId }: { clientId: number }) {
   const qc = useQueryClient();
   const toast = useToast();
   const me = useAuthStore((s) => s.user);
-  const canEdit =
-    me?.role === "admin" || me?.role === "head_of_recruitment";
+  // Multi-role aware (`hasRole`): sama rola główna chowała edycję przed
+  // hybrydą z dodatkową rolą admin/HoR (audyt N6).
+  const canEdit = hasRole(me, "admin", "head_of_recruitment");
+  // Funkcji TAC nie używamy (decyzja 22.09.2026, `lib/tac-ui.ts`) — sekcja TAC
+  // i opis pierwszego priorytetu znikają razem z resztą UI TAC-a.
+  const showTac = TAC_UI_ENABLED;
 
-  const { data: team, isLoading } = useQuery<ClientTeamResponse>({
+  const teamQuery = useQuery<ClientTeamResponse>({
     queryKey: ["client-team", clientId],
     queryFn: () => clientTeamApi.get(clientId).then((r) => r.data),
+  });
+  const team = teamQuery.data;
+  // Awaria ≠ „Brak przypisanych Delivery Leadów” (audyt S10).
+  const teamState = resolveViewState({
+    isLoading: teamQuery.isPending,
+    isError: teamQuery.isError,
+    error: teamQuery.error,
+    isSuccess: teamQuery.isSuccess,
   });
 
   const { data: allUsers } = useQuery<AppUser[]>({
@@ -121,6 +136,9 @@ export function OwnersTab({ clientId }: { clientId: number }) {
       toast.showSuccess("DL usunięty");
       invalidate();
     },
+    // Bez `onError` nieudane usunięcie nie mówiło nic (audyt N6).
+    onError: (e: unknown) =>
+      toast.showError(apiErrorMessage(e, "Nie udało się usunąć Delivery Leada")),
   });
 
   const toggleHeadDl = useMutation({
@@ -130,11 +148,24 @@ export function OwnersTab({ clientId }: { clientId: number }) {
       toast.showSuccess("Head DL zmieniony");
       invalidate();
     },
+    onError: (e: unknown) =>
+      toast.showError(apiErrorMessage(e, "Nie udało się zmienić head DL")),
   });
 
-  if (isLoading) {
+  if (teamState === "loading") {
     return (
       <div className="p-6 text-muted-foreground text-sm">Ładowanie opiekunów…</div>
+    );
+  }
+  if (isBlockingViewState(teamState)) {
+    return (
+      <QueryStateNotice
+        state={teamState as "forbidden" | "not_found" | "error"}
+        description={
+          teamState === "error" ? "Nie udało się wczytać opiekunów klienta." : undefined
+        }
+        onRetry={() => void teamQuery.refetch()}
+      />
     );
   }
 
@@ -169,136 +200,138 @@ export function OwnersTab({ clientId }: { clientId: number }) {
       )}
 
       {/* ── TAC ──────────────────────────────────────────────────────── */}
-      <section>
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-semibold text-foreground dark:text-foreground">
-            TAC (Talent Acquisition Consultants)
-          </h3>
-          {canEdit && !addingTac && (
-            <button
-              onClick={() => setAddingTac(true)}
-              className="inline-flex items-center gap-1 text-xs px-3 py-1.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
-            >
-              <Plus className="w-3.5 h-3.5" /> Dodaj TAC
-            </button>
-          )}
-        </div>
-
-        {addingTac && canEdit && (
-          <div className="bg-muted dark:bg-card/40 rounded-lg p-4 mb-3 space-y-3">
-            <label className="block text-xs text-muted-foreground">Użytkownik</label>
-            <select
-              className="w-full border border-border dark:border-border rounded-lg px-3 py-2 text-sm bg-card dark:bg-muted"
-              value={tacUserId}
-              onChange={(e) => setTacUserId(e.target.value)}
-            >
-              <option value="">— wybierz —</option>
-              {tacCandidates.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {userLabel(u)} ({u.role})
-                </option>
-              ))}
-            </select>
-            <label className="flex items-center gap-2 text-xs">
-              <input
-                type="checkbox"
-                checked={tacIsFirstPriority}
-                onChange={(e) => setTacIsFirstPriority(e.target.checked)}
-              />
-              Ustaw tego klienta jako pierwszy priorytet tego TAC-a
-            </label>
-            <div className="flex gap-2">
+      {showTac ? (
+        <section>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-foreground dark:text-foreground">
+              TAC (Talent Acquisition Consultants)
+            </h3>
+            {canEdit && !addingTac && (
               <button
-                disabled={!tacUserId || addTac.isPending}
-                onClick={() =>
-                  addTac.mutate(
-                    tacIsFirstPriority
-                      ? {
-                          user_id: Number(tacUserId),
-                          is_first_priority_for_tac: true,
-                        }
-                      : { user_id: Number(tacUserId) },
-                  )
-                }
-                className="text-xs px-3 py-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50"
+                onClick={() => setAddingTac(true)}
+                className="inline-flex items-center gap-1 text-xs px-3 py-1.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
               >
-                Dodaj
+                <Plus className="w-3.5 h-3.5" /> Dodaj TAC
               </button>
-              <button
-                onClick={() => {
-                  setAddingTac(false);
-                  setTacUserId("");
-                  setTacIsFirstPriority(false);
-                }}
-                className="text-xs px-3 py-1.5 text-muted-foreground hover:text-foreground"
-              >
-                Anuluj
-              </button>
-            </div>
+            )}
           </div>
-        )}
 
-        {tacs.length === 0 ? (
-          <p className="text-xs text-muted-foreground italic">
-            Brak przypisanych TAC-ów.
-          </p>
-        ) : (
-          <ul className="space-y-2">
-            {tacs.map((t) => (
-              <li
-                key={t.id}
-                className="flex flex-wrap items-center justify-between gap-2 bg-card dark:bg-muted border border-border dark:border-border rounded-lg px-3 py-2"
+          {addingTac && canEdit && (
+            <div className="bg-muted dark:bg-card/40 rounded-lg p-4 mb-3 space-y-3">
+              <label className="block text-xs text-muted-foreground">Użytkownik</label>
+              <select
+                className="w-full border border-border dark:border-border rounded-lg px-3 py-2 text-sm bg-card dark:bg-muted"
+                value={tacUserId}
+                onChange={(e) => setTacUserId(e.target.value)}
               >
-                <div className="flex min-w-0 flex-1 items-center gap-3">
-                  <UserCircle2 className="w-6 h-6 shrink-0 text-purple-500" />
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium flex flex-wrap items-center gap-2">
-                      {t.name}
-                      {t.is_first_priority_for_tac && (
-                        <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 dark:bg-purple-950/30 dark:text-purple-300">
-                          <Target className="w-3 h-3" /> 1. priorytet tego TAC-a
+                <option value="">— wybierz —</option>
+                {tacCandidates.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {userLabel(u)} ({u.role})
+                  </option>
+                ))}
+              </select>
+              <label className="flex items-center gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  checked={tacIsFirstPriority}
+                  onChange={(e) => setTacIsFirstPriority(e.target.checked)}
+                />
+                Ustaw tego klienta jako pierwszy priorytet tego TAC-a
+              </label>
+              <div className="flex gap-2">
+                <button
+                  disabled={!tacUserId || addTac.isPending}
+                  onClick={() =>
+                    addTac.mutate(
+                      tacIsFirstPriority
+                        ? {
+                            user_id: Number(tacUserId),
+                            is_first_priority_for_tac: true,
+                          }
+                        : { user_id: Number(tacUserId) },
+                    )
+                  }
+                  className="text-xs px-3 py-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  Dodaj
+                </button>
+                <button
+                  onClick={() => {
+                    setAddingTac(false);
+                    setTacUserId("");
+                    setTacIsFirstPriority(false);
+                  }}
+                  className="text-xs px-3 py-1.5 text-muted-foreground hover:text-foreground"
+                >
+                  Anuluj
+                </button>
+              </div>
+            </div>
+          )}
+
+          {tacs.length === 0 ? (
+            <p className="text-xs text-muted-foreground italic">
+              Brak przypisanych TAC-ów.
+            </p>
+          ) : (
+            <ul className="space-y-2">
+              {tacs.map((t) => (
+                <li
+                  key={t.id}
+                  className="flex flex-wrap items-center justify-between gap-2 bg-card dark:bg-muted border border-border dark:border-border rounded-lg px-3 py-2"
+                >
+                  <div className="flex min-w-0 flex-1 items-center gap-3">
+                    <UserCircle2 className="w-6 h-6 shrink-0 text-purple-500" />
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium flex flex-wrap items-center gap-2">
+                        {t.name}
+                        {t.is_first_priority_for_tac && (
+                          <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 dark:bg-purple-950/30 dark:text-purple-300">
+                            <Target className="w-3 h-3" /> 1. priorytet tego TAC-a
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-xs text-muted-foreground break-all">
+                        {t.email} · {t.role}
+                      </div>
+                    </div>
+                  </div>
+                  {canEdit && (
+                    <div className="ml-auto flex items-center gap-2 pointer-coarse:gap-4">
+                      {t.is_first_priority_for_tac ? (
+                        <span
+                          className="text-[11px] text-muted-foreground max-w-48 text-right"
+                          title="Pierwszy priorytet musi mieć następcę"
+                        >
+                          Ustaw innego klienta jako priorytet #1 z jego karty
                         </span>
+                      ) : (
+                        <button
+                          onClick={() => setFirstPriorityTac.mutate(t)}
+                          disabled={setFirstPriorityTac.isPending}
+                          className="text-xs px-2 py-1 rounded border border-border dark:border-border hover:bg-muted dark:hover:bg-muted pointer-coarse:min-h-10"
+                          title="Ustaw klienta jako pierwszy priorytet tego TAC-a"
+                        >
+                          Ustaw 1. priorytet
+                        </button>
                       )}
-                    </div>
-                    <div className="text-xs text-muted-foreground break-all">
-                      {t.email} · {t.role}
-                    </div>
-                  </div>
-                </div>
-                {canEdit && (
-                  <div className="ml-auto flex items-center gap-2 pointer-coarse:gap-4">
-                    {t.is_first_priority_for_tac ? (
-                      <span
-                        className="text-[11px] text-muted-foreground max-w-48 text-right"
-                        title="Pierwszy priorytet musi mieć następcę"
-                      >
-                        Ustaw innego klienta jako priorytet #1 z jego karty
-                      </span>
-                    ) : (
                       <button
-                        onClick={() => setFirstPriorityTac.mutate(t)}
-                        disabled={setFirstPriorityTac.isPending}
-                        className="text-xs px-2 py-1 rounded border border-border dark:border-border hover:bg-muted dark:hover:bg-muted pointer-coarse:min-h-10"
-                        title="Ustaw klienta jako pierwszy priorytet tego TAC-a"
+                        onClick={() => removeTac.mutate(t.user_id)}
+                        className="hit-area text-muted-foreground hover:text-destructive"
+                        title="Usuń przypisanie"
+                        aria-label="Usuń przypisanie"
                       >
-                        Ustaw 1. priorytet
+                        <Trash2 className="w-4 h-4" />
                       </button>
-                    )}
-                    <button
-                      onClick={() => removeTac.mutate(t.user_id)}
-                      className="hit-area text-muted-foreground hover:text-destructive"
-                      title="Usuń przypisanie"
-                      aria-label="Usuń przypisanie"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      ) : null}
 
       {/* ── Delivery Leads ───────────────────────────────────────────── */}
       <section>
@@ -419,14 +452,16 @@ export function OwnersTab({ clientId }: { clientId: number }) {
         )}
       </section>
 
-      <div className="text-xs text-muted-foreground bg-muted dark:bg-card/40 rounded-lg px-3 py-2">
-        <strong>Jak to działa:</strong> wszyscy przypisani TAC-owie są
-        równorzędni. „1. priorytet” opisuje osobistą kolejność pracy konkretnego
-        TAC-a — nie robi z niego głównego opiekuna klienta. Przy jednym TAC-u
-        nowy request może dostać go jako prefill; przy kilku trzeba jawnie
-        wybrać ownera requestu. <strong>Head Delivery Lead</strong> nadal może
-        zostać uzupełniony automatycznie.
-      </div>
+      {showTac ? (
+        <div className="text-xs text-muted-foreground bg-muted dark:bg-card/40 rounded-lg px-3 py-2">
+          <strong>Jak to działa:</strong> wszyscy przypisani TAC-owie są
+          równorzędni. „1. priorytet” opisuje osobistą kolejność pracy konkretnego
+          TAC-a — nie robi z niego głównego opiekuna klienta. Przy jednym TAC-u
+          nowy request może dostać go jako prefill; przy kilku trzeba jawnie
+          wybrać ownera requestu. <strong>Head Delivery Lead</strong> nadal może
+          zostać uzupełniony automatycznie.
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -6,6 +6,7 @@ import api, { extractErrorMsg } from "@/lib/api";
 import { hasAnalyticsCapability, useAuthStore } from "@/store/auth";
 import { formatCurrency } from "@/lib/utils";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { ConfirmButton } from "@/components/ConfirmDialog";
 import { resolveViewState } from "@/lib/view-state";
 import { Plus, Trash2, Loader2, Pencil, X } from "lucide-react";
 
@@ -175,10 +176,10 @@ export function RateCardsTab({ clientId }: { clientId: number }) {
     saveMutation.mutate(payload);
   };
 
+  // Potwierdzenie w wierszu (`ConfirmButton`), nie natywny `window.confirm`,
+  // który zamraża automatyzację przeglądarki (audyt S12).
   const handleDelete = (card: RateCard) => {
-    if (window.confirm(`Usunąć cennik dla "${card.role}"?`)) {
-      deleteMutation.mutate(card.id);
-    }
+    deleteMutation.mutate(card.id);
   };
 
   const cards = data ?? [];
@@ -447,14 +448,13 @@ export function RateCardsTab({ clientId }: { clientId: number }) {
                         >
                           <Pencil className="w-4 h-4" />
                         </button>
-                        <button
-                          onClick={() => handleDelete(c)}
-                          disabled={deleteMutation.isPending}
+                        <ConfirmButton
+                          onConfirm={() => handleDelete(c)}
+                          message={`Usunąć cennik „${c.role}”?`}
                           className="p-1.5 pointer-coarse:p-2.5 rounded hover:bg-destructive/10 dark:hover:bg-red-900/20 text-destructive disabled:opacity-50"
-                          title="Usuń"
                         >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                          <Trash2 className="w-4 h-4" aria-label="Usuń" />
+                        </ConfirmButton>
                       </div>
                     )}
                   </td>
