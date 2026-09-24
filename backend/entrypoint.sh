@@ -670,6 +670,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hired_order_missing'",
     # 0370: prep słaby / bez nagrania / brak prepu przed rozmową u klienta.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'prep_attention'",
+    # 0371: follow-up z kandydatem przyniósł zmianę — do właściciela procesu.
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'candidate_followup_signal'",
     # callstatus: zapisywane przez POST /api/cloudtalk/initiate-call. Uśpione,
     # bo CLOUDTALK_ENABLED=false — ale leży dokładnie na ścieżce aktywacji.
     "ALTER TYPE callstatus ADD VALUE IF NOT EXISTS 'initiated'",
@@ -5437,6 +5439,22 @@ _COLUMN_STATEMENTS = [
 )""",
     "CREATE INDEX IF NOT EXISTS ix_prep_meetings_fetch_queue ON prep_meetings (transcript_status, next_fetch_at)",
     "CREATE INDEX IF NOT EXISTS ix_prep_meetings_pair ON prep_meetings (candidate_id, job_id)",
+    # 0371: follow-up z kandydatem — wyniki telefonów (kandydat CASCADE, RODO).
+    """CREATE TABLE IF NOT EXISTS candidate_followups (
+    id BIGSERIAL PRIMARY KEY,
+    candidate_id INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+    user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    outcome VARCHAR(16) NOT NULL,
+    callback_on DATE NULL,
+    note_id INTEGER NULL REFERENCES notes(id) ON DELETE SET NULL,
+    details JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT ck_candidate_followups_outcome
+        CHECK (outcome IN ('connected','changed','no_answer','callback','claim')),
+    CONSTRAINT ck_candidate_followups_callback
+        CHECK ((outcome = 'callback') = (callback_on IS NOT NULL))
+)""",
+    "CREATE INDEX IF NOT EXISTS ix_candidate_followups_candidate_created ON candidate_followups (candidate_id, created_at DESC)",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""

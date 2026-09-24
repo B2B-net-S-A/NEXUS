@@ -1579,6 +1579,16 @@ class Settings(BaseSettings):
     # ledger keyed by Traffit history id makes this safe and absorbs clock skew.
     CANDIDATE_CONTACT_TRAFFIT_OVERLAP_MINUTES: int = 15
 
+    # ── Follow-up z kandydatem, gdy klient milczy (0371, 24.09.2026) ──────
+    # Decyzje Artura: 14 dni kalendarzowych ciszy klienta i braku kontaktu,
+    # dzwoni rekruter procesu, który zaszedł najdalej, wchodzą WYŁĄCZNIE CV
+    # wysłane od 24.09.2026 (bez historii), „nie odebrał” przypomina co
+    # 2 dni robocze bez limitu. Wyłącznik chowa listę i plakietki.
+    CANDIDATE_FOLLOWUP_ENABLED: bool = True
+    CANDIDATE_FOLLOWUP_SINCE: date = date(2026, 9, 24)
+    CANDIDATE_FOLLOWUP_DAYS: int = 14
+    CANDIDATE_FOLLOWUP_RETRY_BUSINESS_DAYS: int = 2
+
     # ── Traffit bidirectional integration (plan 2026-07-16) ────────────────
     # Twarde kill-switche środowiskowe. Runtime control w tabeli
     # `traffit_integration_control` może dodatkowo pauzować kierunek, ale

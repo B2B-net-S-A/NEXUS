@@ -2069,6 +2069,30 @@ async def build_kanban_view(
     from app.services.cv_qc import pair_statuses
 
     qc_by_pair = await pair_statuses(db, [(cid, job_id) for cid in candidate_ids])
+    # 0371: follow-up z kandydatem, gdy klient milczy — liczony dla OSOBY (ze
+    # wszystkimi jej procesami), na karcie tylko przy procesie, który czeka.
+    from app.services import candidate_followups
+
+    followups = await candidate_followups.load_followups(
+        db, now=board_now, candidate_ids=candidate_ids
+    )
+    followup_today = candidate_followups.local_date(board_now)
+    followup_names = await candidate_followups.user_names(
+        db, (f.caller_id for f in followups.values())
+    )
+
+    def _followup_badge(candidate_id: int) -> Optional[dict]:
+        f = followups.get(candidate_id)
+        if f is None or all(p.job_id != job_id for p in f.processes):
+            return None
+        return {
+            "caller_id": f.caller_id,
+            "caller_name": followup_names.get(f.caller_id) if f.caller_id else None,
+            "due_on": f.due_on.isoformat(),
+            "state": f.state(followup_today),
+            "overdue_days": f.overdue_days(followup_today),
+            "process_count": len(f.processes),
+        }
 
     def _stage_resp_with_name(e: CandidateStage) -> dict:
         n, ln = name_by_id.get(e.candidate_id, (None, None))
@@ -2124,6 +2148,7 @@ async def build_kanban_view(
         if e.task_assignee_id is not None:
             payload["task_assignee_name"] = user_name_by_id.get(e.task_assignee_id)
         payload["interview_badge"] = interview_badges.get(e.candidate_id)
+        payload["followup"] = _followup_badge(e.candidate_id)
         if e.stage == PipelineStage.hired:
             payload["order_status"] = order_statuses.get((e.candidate_id, job_id))
         v4 = v4_processes.get(e.candidate_id)

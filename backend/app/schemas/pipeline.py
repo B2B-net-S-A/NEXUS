@@ -237,6 +237,9 @@ class CandidateStageResponse(BaseModel):
     # Odznaka terminarza rozmowy u klienta (`interview_badges_for_job`):
     # {kind, label, tone, at}.
     interview_badge: Optional[dict] = None
+    # 0371: follow-up z kandydatem, gdy klient milczy — kto dzwoni i kiedy:
+    # {caller_id, caller_name, due_on, state, overdue_days, process_count}.
+    followup: Optional[dict] = None
     # „Zatrudniony": czy jest uzupełnione zamówienie (complete|missing).
     order_status: Optional[str] = None
 

@@ -21,6 +21,7 @@ from pydantic import BaseModel
 from sqlalchemy import select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.candidate_followups import FollowupRow, serialize_rows
 from app.api.deps import OperationalUser
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.config import settings
@@ -30,7 +31,12 @@ from app.models.candidate import Candidate
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.user import UserRole
 from app.services import board_tasks as svc
-from app.services import cpro_sender, move_requirements, prep_attention
+from app.services import (
+    candidate_followups,
+    cpro_sender,
+    move_requirements,
+    prep_attention,
+)
 
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 
@@ -95,6 +101,11 @@ class BoardTasksResponse(BaseModel):
     can_send_to_client: bool
     # 0370: brak prepu, prep słaby albo bez nagrania — organizator i HoR.
     prep_attention: list[PrepAttentionRow] = []
+    # 0371: follow-up z kandydatem, gdy klient milczy — telefony tej osoby
+    # (termin do końca jutra) i kandydaci, u których prowadzi proces, a dzwoni
+    # ktoś inny.
+    followups: list[FollowupRow] = []
+    followups_by_others: list[FollowupRow] = []
 
 
 class CproSenderRead(BaseModel):
@@ -162,7 +173,22 @@ async def list_board_tasks(
         current_user,
     )
     names, titles = await prep_attention.labels(db, preps)
+    now = datetime.now(timezone.utc)
+    today = candidate_followups.local_date(now)
+    all_followups = await candidate_followups.load_followups(db, now=now)
+    followups = await serialize_rows(
+        db,
+        candidate_followups.for_user(all_followups, current_user, today=today),
+        today=today,
+    )
+    followups_by_others = await serialize_rows(
+        db,
+        candidate_followups.others_for_user(all_followups, current_user),
+        today=today,
+    )
     return BoardTasksResponse(
+        followups=followups,
+        followups_by_others=followups_by_others,
         cpro_to_send=[BoardTaskRow(**t.as_dict()) for t in mine[svc.KIND_CPRO_TO_SEND]],
         # Najdłużej czekające na Nordeę na górze — wysłane rośnie w czasie.
         cpro_sent=[BoardTaskRow(**t.as_dict()) for t in mine[svc.KIND_CPRO_SENT]],

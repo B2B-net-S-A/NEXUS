@@ -178,6 +178,10 @@ class NotificationType(str, enum.Enum):
     # na dobę przed rozmową u klienta. Do organizatora prepu i Head of
     # Recruitment; related_entity=(calendar_event, id) — jeden wpis na sprawę.
     prep_attention = "prep_attention"
+    # 0371: follow-up z kandydatem przyniósł zmianę (inna oferta, rezygnacja
+    # z procesu, dostępność) — do właściciela procesu; related_entity=
+    # (candidate, id).
+    candidate_followup_signal = "candidate_followup_signal"
 
 
 class Notification(Base, TimestampMixin):
