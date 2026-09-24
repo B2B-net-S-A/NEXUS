@@ -32,7 +32,7 @@ from __future__ import annotations
 import unicodedata
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
-from typing import Literal, Optional
+from typing import Iterable, Literal, Optional
 
 from fastapi import HTTPException, status as http_status
 from sqlalchemy import ColumnElement, and_, not_, or_, select, update
@@ -188,6 +188,83 @@ ALLOWED_TRANSITIONS: dict[ContractStatus, frozenset[ContractStatus]] = {
     ),
     ContractStatus.void: frozenset(),
 }
+
+
+async def lock_contract_then_orders(
+    db: AsyncSession,
+    *,
+    contract_ids: Iterable[Optional[int]] = (),
+    order_ids: Iterable[Optional[int]] = (),
+) -> None:
+    """JEDNA kolejność blokad dla każdego writera zamówień: kontrakty → zamówienia.
+
+    Do 09.2026 writery zamówień blokowały ``client_orders`` (albo po prostu je
+    aktualizowały), a dopiero ``commit_order_write`` → ``resync_contract``
+    brał ``contracts FOR UPDATE``. Handlery kontraktu (status, wypowiedzenie,
+    aneks, cron) robią odwrotnie: kontrakt, potem jego zamówienia. Dwie
+    transakcje na tej samej parze = zakleszczenie (ABBA).
+
+    Helper bierze blokady w stałej kolejności: najpierw kontrakty — wskazane
+    wprost ORAZ kontrakty podanych zamówień (odczyt bez blokady, bo zamówienie
+    nie zmienia kontraktu poza tym samym writerem) — rosnąco po ``id``, potem
+    zamówienia rosnąco po ``id``. Wołaj go PRZED pierwszą blokadą i pierwszym
+    zapisem zamówienia; późniejsze ``SELECT … FOR UPDATE`` tych samych wierszy
+    są już tylko odczytem blokady, którą transakcja trzyma.
+
+    Nie odświeża obiektów ORM (bez ``populate_existing``) — wołający sam
+    decyduje, czy potrzebuje świeżego stanu. Autoflush wyłączony: blokada nie
+    może jako efekt uboczny opublikować wcześniejszych zmian tej transakcji.
+    """
+    from app.models.client_order import ClientOrder
+
+    orders = sorted({oid for oid in order_ids if oid is not None})
+    contracts = {cid for cid in contract_ids if cid is not None}
+    with db.no_autoflush:
+        if orders:
+            contracts.update(
+                cid
+                for cid in (
+                    await db.scalars(
+                        select(ClientOrder.contract_id).where(
+                            ClientOrder.id.in_(orders)
+                        )
+                    )
+                ).all()
+                if cid is not None
+            )
+        if contracts:
+            await db.execute(
+                select(Contract.id)
+                .where(Contract.id.in_(sorted(contracts)))
+                .order_by(Contract.id)
+                .with_for_update()
+            )
+        if orders:
+            await db.execute(
+                select(ClientOrder.id)
+                .where(ClientOrder.id.in_(orders))
+                .order_by(ClientOrder.id)
+                .with_for_update()
+            )
+
+
+async def lock_order_group_lines(db: AsyncSession, group_ids: Iterable[int]) -> None:
+    """Kontrakty linii wskazanych zamówień MD/kosztowych → te linie.
+
+    Ta sama kolejność co :func:`lock_contract_then_orders` dla writerów, które
+    znają grupy, a nie linie (cykl życia grupy, materializacja następcy).
+    """
+    from app.models.client_order import ClientOrder
+
+    ids = sorted({gid for gid in group_ids if gid is not None})
+    if not ids:
+        return
+    line_ids = (
+        await db.scalars(
+            select(ClientOrder.id).where(ClientOrder.order_group_id.in_(ids))
+        )
+    ).all()
+    await lock_contract_then_orders(db, order_ids=line_ids)
 
 
 class ContractTransitionError(HTTPException):
@@ -758,7 +835,7 @@ async def reconcile_contracts_to_live_orders(
         marker.value if marker is not None else None,
         today=today,
     )
-    result = await db.execute(
+    candidates_stmt = (
         select(ClientOrder, Contract)
         .join(Contract, Contract.id == ClientOrder.contract_id)
         .where(
@@ -773,10 +850,28 @@ async def reconcile_contracts_to_live_orders(
             ClientOrder.end_date.desc().nullsfirst(),
             ClientOrder.id.desc(),
         )
+    )
+    # Kolejność blokad writerów zamówień: kontrakty → zamówienia. Wspólne
+    # ``FOR UPDATE OF client_orders, contracts`` na złączeniu blokowało wiersze
+    # w kolejności skanu, czyli zamówienie potrafiło wyprzedzić swój kontrakt.
+    # Najpierw odczyt bez blokad, potem blokady w stałej kolejności, a dopiero
+    # potem właściwy odczyt pod blokadą (wiersze już trzymane).
+    pairs = [
+        (row[0], row[1])
+        for row in await db.execute(
+            candidates_stmt.with_only_columns(ClientOrder.id, Contract.id)
+        )
+    ]
+    await lock_contract_then_orders(
+        db,
+        contract_ids=[contract_id for _, contract_id in pairs],
+        order_ids=[order_id for order_id, _ in pairs],
+    )
+    result = await db.execute(
         # Wait for the short writer transaction and serialize the canonical
         # sync.  Avoiding SKIP LOCKED also means the first catch-up pass does not
         # need another day to observe a row concurrently edited at scan time.
-        .with_for_update(of=[ClientOrder, Contract])
+        candidates_stmt.with_for_update(of=[ClientOrder, Contract])
     )
 
     reconciled = 0

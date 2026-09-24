@@ -52,6 +52,19 @@ from app.services.order_group_lifecycle import materialize_scheduled_order_group
 _TODAY = business_today()
 
 
+@pytest.fixture(autouse=True)
+def _skip_contract_order_locks(monkeypatch):
+    """Sztuczne sesje tego pliku nie znają blokad; kolejność blokad kontrakt →
+    zamówienia pilnuje ``test_order_writer_lock_order.py``."""
+
+    async def _no_lock(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(
+        "app.services.order_group_lifecycle.lock_order_group_lines", _no_lock
+    )
+
+
 # ── 1. Bramka aktywacji: stawka OBOWIĄZUJĄCA, nie cache ─────────────────────
 
 

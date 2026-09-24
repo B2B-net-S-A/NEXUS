@@ -28,6 +28,19 @@ from app.services.contract_lifecycle import order_period_covers
 pytestmark = pytest.mark.asyncio
 
 
+@pytest.fixture(autouse=True)
+def _skip_contract_order_locks(monkeypatch):
+    """Sztuczne sesje tego pliku nie znają blokad; kolejność blokad kontrakt →
+    zamówienia pilnuje ``test_order_writer_lock_order.py``."""
+
+    async def _no_lock(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(
+        "app.services.contract_lifecycle.lock_contract_then_orders", _no_lock
+    )
+
+
 async def _seed_ended_contract(
     *,
     end_date: date,

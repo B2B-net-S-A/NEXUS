@@ -35,6 +35,19 @@ from app.services.multi_consultant_orders import (
 pytestmark = pytest.mark.asyncio
 
 
+@pytest.fixture(autouse=True)
+def _skip_contract_order_locks(monkeypatch):
+    """Sztuczne sesje tego pliku nie znają blokad; kolejność blokad kontrakt →
+    zamówienia pilnuje ``test_order_writer_lock_order.py``."""
+
+    async def _no_lock(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(
+        "app.services.contract_lifecycle.lock_contract_then_orders", _no_lock
+    )
+
+
 async def test_standard_order_routes_block_a_pending_group_line_case() -> None:
     order = ClientOrder(id=17, client_id=71, contract_id=91, order_group_id=4)
     db = SimpleNamespace(scalar=AsyncMock(return_value=902))

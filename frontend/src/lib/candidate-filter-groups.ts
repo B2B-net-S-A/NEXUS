@@ -43,6 +43,7 @@ export function filterGroupCounts(
     (filters.recentlyChangedJobs ? 1 : 0);
   const source = filters.poolIds.length + filters.addedByIds.length;
   const other =
+    filters.tags.length +
     filters.status.length +
     filters.openTo.length +
     (filters.hideUnknown ? 1 : 0) +

@@ -33,7 +33,10 @@ from app.models.client_order_group import (
 )
 from app.models.contract import Contract
 from app.services.client_order_lines import record_event
-from app.services.contract_lifecycle import sync_contract_to_live_order
+from app.services.contract_lifecycle import (
+    lock_order_group_lines,
+    sync_contract_to_live_order,
+)
 from app.services.multi_consultant_orders import EVENT_ORDER_CLOSED
 from app.services.shared_md_orders import (
     normalize_empty_generic_explicit_md_group,
@@ -188,6 +191,11 @@ async def materialize_scheduled_order_groups(
         # Gdy proces nie działał przez kilka dat startu, aktywujemy najnowszą
         # już obowiązującą wersję. Starsze due trafiają wprost do historii.
         current = max(due, key=lambda item: (item.start_date, item.id))
+        # Kolejność blokad writerów zamówień: kontrakty linii całej rodziny →
+        # linie, ZANIM zmienimy pierwszą z nich (aktywacja następcy i domknięcie
+        # poprzednika). Synchronizacja kontraktów przy commicie bierze je potem
+        # jeszcze raz — już trzymane, bez ABBA z handlerem kontraktu.
+        await lock_order_group_lines(db, [member.id for member in family])
         await normalize_empty_generic_explicit_md_group(db, current)
         current.status = GROUP_STATUS_ACTIVE
         current.closure_date = None

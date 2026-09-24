@@ -126,6 +126,7 @@ from app.models.client_playbook_event import ClientPlaybookEvent
 from app.models.client_cleanup import ClientCleanupRun, PurgedClient
 from app.models.critical_event import CriticalEvent
 from app.models.order_change_check import OrderChangeCheck, OrderPdfDownload
+from app.models.application_confirmation_send import ApplicationConfirmationSend
 from app.models.order_change_event import OrderChangeEvent
 from app.models.order_gap import OrderGap
 from app.models.insights_scoring_config import InsightsScoringConfig
@@ -436,6 +437,7 @@ __all__ = [
     "OrderChangeCheck",
     "OrderChangeEvent",
     "OrderPdfDownload",
+    "ApplicationConfirmationSend",
     "OrderGap",
     "InsightsScoringConfig",
     "UserWorkdayPeriod",
