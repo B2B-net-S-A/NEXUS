@@ -96,7 +96,10 @@ async def test_public_stage_cv_keeps_branded_template_stylesheet():
 
     served = (await _public_stage_cv(html))["cv_html"]
 
-    assert _styles(served) == [template_css]
+    # Wierna kopia szablonu + dodatek pod telefon (audyt responsywności).
+    from app.services.cv_legacy_template_css import LEGACY_MOBILE_CSS
+
+    assert _styles(served) == [template_css + LEGACY_MOBILE_CSS]
     assert "Jan Kowalski" in served
     # Siatka szablonu (.cv-body: sidebar + treść) wymaga kolumny bocznej.
     assert '<aside class="cv-sidebar">' in served
