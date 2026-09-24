@@ -1498,6 +1498,18 @@ async def _refresh_open_offboarding_snapshot(
         # może mieć sprawy offboardingu — i nie ma po co jej szukać.
         return
 
+    from app.services.md_pool_used_up import (
+        close_used_up_case,
+        close_used_up_case_alerts,
+        decision_in_progress,
+    )
+
+    if decision_in_progress(db, order.id):
+        # Audyt 24.09.2026 (H8): człowiek właśnie rozstrzyga tę sprawę
+        # (decyzja DL, „Wejdź za konsultanta") i sam zdjął pulę z linii —
+        # migawka zostaje taka, z jakiej liczy się jego decyzja.
+        return
+
     from app.models.client_order_offboarding import (
         OFFBOARDING_STATUS_PENDING,
         ClientOrderOffboardingCase,
@@ -1523,9 +1535,9 @@ async def _refresh_open_offboarding_snapshot(
     if refreshed <= ZERO:
         # Import po zejściu wyzerował pulę — nie ma czego przenosić ani
         # przywracać, więc sprawa nie czeka na decyzję (ticket 4500030067).
-        from app.services.md_pool_used_up import close_used_up_case
-
-        changed = close_used_up_case(db, case, order) or changed
+        if close_used_up_case(db, case, order):
+            changed = True
+            await close_used_up_case_alerts(db, case.id)
     if changed:
         # Sesje mają ``autoflush=False``: bez tego ``sync_md_group_exhaustion``
         # widziałby w SQL-u starą migawkę i sprawę wciąż „do decyzji”.

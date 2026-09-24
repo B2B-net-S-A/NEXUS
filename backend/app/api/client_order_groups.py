@@ -202,6 +202,7 @@ from app.services.order_line_takeover import (
     describe_transfer,
     stored_rate_basis,
 )
+from app.services.md_pool_used_up import offboarding_decision_in_progress
 from app.services.dl_alerts import (
     emit_cost_order_exhausted,
     emit_shared_md_pool_exhausted,
@@ -5202,107 +5203,111 @@ async def resolve_md_offboarding_case(
         ),
     }
 
-    if payload.action == OFFBOARDING_RESOLUTION_TRANSFER:
-        target = locked_lines.get(payload.target_order_id)
-        if target is None:
-            raise HTTPException(
-                422, detail="Wskazany konsultant nie jest na zamówieniu"
+    # Audyt 24.09.2026 (H8): zdjęcie puli z linii odchodzącego przelicza ją
+    # przed zapisem tej decyzji — bez osłony przeliczenie zamknęłoby sprawę
+    # samo jako „pula wykorzystana (0 MD)”.
+    with offboarding_decision_in_progress(db, source.id):
+        if payload.action == OFFBOARDING_RESOLUTION_TRANSFER:
+            target = locked_lines.get(payload.target_order_id)
+            if target is None:
+                raise HTTPException(
+                    422, detail="Wskazany konsultant nie jest na zamówieniu"
+                )
+            if target.id == source.id:
+                raise HTTPException(422, detail="Nie można przenieść puli na tę samą osobę")
+            if (
+                source.contract is not None
+                and target.contract is not None
+                and source.contract.candidate_id == target.contract.candidate_id
+            ):
+                raise HTTPException(
+                    422, detail="Nie można przenieść puli na drugi wpis tej samej osoby"
+                )
+            if target.status != ClientOrderStatus.active:
+                raise HTTPException(409, detail="Konsultant docelowy nie jest już aktywny")
+            target_name = consultant_display_name(target)
+            target_rate = target.md_rate_revenue
+            if target_rate is None or target_rate <= 0:
+                raise HTTPException(
+                    422, detail="Konsultant docelowy nie ma stawki przychodowej"
+                )
+
+            if not case.uses_shared_md_pool:
+                if target.md_total is None:
+                    raise HTTPException(422, detail="Linia docelowa nie ma budżetu MD")
+                if payload.md_transfer_method is not None:
+                    # Ticket 09.2026 (B1): pula w MD → 1:1, pula w kwocie → wybór
+                    # stawki; `rate_basis` sprawy jest wyprowadzany z wyboru.
+                    try:
+                        transfer_method = resolve_transfer_method(
+                            line_pool_unit(source), payload.md_transfer_method
+                        )
+                    except TakeoverError as exc:
+                        raise HTTPException(exc.status, detail=str(exc)) from exc
+                    if source_rate is None or source_rate <= 0:
+                        raise HTTPException(
+                            422, detail="Brak stawki do przeliczenia puli MD"
+                        )
+                    basis_rate = basis_rate_for(transfer_method, source_rate, target_rate)
+                    rebalance_evidence["md_transfer_method"] = transfer_method
+                else:
+                    basis_rate = (
+                        source_rate
+                        if payload.rate_basis == OFFBOARDING_RATE_BASIS_DEPARTING
+                        else target_rate
+                    )
+                if basis_rate is None or basis_rate <= 0:
+                    raise HTTPException(422, detail="Brak stawki do przeliczenia puli MD")
+                if transfer_method is not None:
+                    transferred_md = transferred_md_for(
+                        transfer_method, remaining, source_rate, target_rate
+                    )
+                else:
+                    transferred_md = quantize_md(remaining * basis_rate / target_rate)
+                rebalance_evidence["basis_rate"] = str(basis_rate)
+                target.md_total = quantize_md(
+                    Decimal(str(target.md_total)) + transferred_md
+                )
+                if target.md_input_mode == INPUT_MODE_AMOUNT:
+                    target.md_input_value = quantize_md(
+                        Decimal(str(target.md_input_value or 0))
+                        + transferred_md * target_rate
+                    )
+                else:
+                    target.md_input_mode = INPUT_MODE_MD
+                    target.md_input_value = quantize_md(
+                        Decimal(str(target.md_input_value or 0)) + transferred_md
+                    )
+                await recompute_remaining(db, target)
+
+        restored_end_date: Optional[date] = None
+        contract_reopened = False
+        if payload.action == OFFBOARDING_RESOLUTION_RESTORE:
+            restored_end_date, contract_reopened = await _restore_offboarded_line(
+                db,
+                case=case,
+                group=group,
+                source=source,
+                requested_end_date=payload.restore_end_date,
+                actor_id=user.id,
             )
-        if target.id == source.id:
-            raise HTTPException(422, detail="Nie można przenieść puli na tę samą osobę")
+
+        # A legacy line's unused pool is removed from its signed value. Consumption
+        # stays untouched; cards and exports now show the reduced total instead of
+        # pretending the forfeited/transferred remainder was consumed.
+        #
+        # ``restore`` jest tu WYKLUCZONE, i to jest cała jego istota: pula nie
+        # została ani przekazana, ani utracona — współpraca trwa dalej, więc
+        # zdjęcie jej z wartości zamówienia byłoby zapisaniem faktu, który się nie
+        # wydarzył (i zabraniem konsultantowi budżetu, na którym właśnie pracuje).
         if (
-            source.contract is not None
-            and target.contract is not None
-            and source.contract.candidate_id == target.contract.candidate_id
+            payload.action != OFFBOARDING_RESOLUTION_RESTORE
+            and not case.uses_shared_md_pool
+            and source.md_total is not None
+            and remaining > 0
         ):
-            raise HTTPException(
-                422, detail="Nie można przenieść puli na drugi wpis tej samej osoby"
-            )
-        if target.status != ClientOrderStatus.active:
-            raise HTTPException(409, detail="Konsultant docelowy nie jest już aktywny")
-        target_name = consultant_display_name(target)
-        target_rate = target.md_rate_revenue
-        if target_rate is None or target_rate <= 0:
-            raise HTTPException(
-                422, detail="Konsultant docelowy nie ma stawki przychodowej"
-            )
-
-        if not case.uses_shared_md_pool:
-            if target.md_total is None:
-                raise HTTPException(422, detail="Linia docelowa nie ma budżetu MD")
-            if payload.md_transfer_method is not None:
-                # Ticket 09.2026 (B1): pula w MD → 1:1, pula w kwocie → wybór
-                # stawki; `rate_basis` sprawy jest wyprowadzany z wyboru.
-                try:
-                    transfer_method = resolve_transfer_method(
-                        line_pool_unit(source), payload.md_transfer_method
-                    )
-                except TakeoverError as exc:
-                    raise HTTPException(exc.status, detail=str(exc)) from exc
-                if source_rate is None or source_rate <= 0:
-                    raise HTTPException(
-                        422, detail="Brak stawki do przeliczenia puli MD"
-                    )
-                basis_rate = basis_rate_for(transfer_method, source_rate, target_rate)
-                rebalance_evidence["md_transfer_method"] = transfer_method
-            else:
-                basis_rate = (
-                    source_rate
-                    if payload.rate_basis == OFFBOARDING_RATE_BASIS_DEPARTING
-                    else target_rate
-                )
-            if basis_rate is None or basis_rate <= 0:
-                raise HTTPException(422, detail="Brak stawki do przeliczenia puli MD")
-            if transfer_method is not None:
-                transferred_md = transferred_md_for(
-                    transfer_method, remaining, source_rate, target_rate
-                )
-            else:
-                transferred_md = quantize_md(remaining * basis_rate / target_rate)
-            rebalance_evidence["basis_rate"] = str(basis_rate)
-            target.md_total = quantize_md(
-                Decimal(str(target.md_total)) + transferred_md
-            )
-            if target.md_input_mode == INPUT_MODE_AMOUNT:
-                target.md_input_value = quantize_md(
-                    Decimal(str(target.md_input_value or 0))
-                    + transferred_md * target_rate
-                )
-            else:
-                target.md_input_mode = INPUT_MODE_MD
-                target.md_input_value = quantize_md(
-                    Decimal(str(target.md_input_value or 0)) + transferred_md
-                )
-            await recompute_remaining(db, target)
-
-    restored_end_date: Optional[date] = None
-    contract_reopened = False
-    if payload.action == OFFBOARDING_RESOLUTION_RESTORE:
-        restored_end_date, contract_reopened = await _restore_offboarded_line(
-            db,
-            case=case,
-            group=group,
-            source=source,
-            requested_end_date=payload.restore_end_date,
-            actor_id=user.id,
-        )
-
-    # A legacy line's unused pool is removed from its signed value. Consumption
-    # stays untouched; cards and exports now show the reduced total instead of
-    # pretending the forfeited/transferred remainder was consumed.
-    #
-    # ``restore`` jest tu WYKLUCZONE, i to jest cała jego istota: pula nie
-    # została ani przekazana, ani utracona — współpraca trwa dalej, więc
-    # zdjęcie jej z wartości zamówienia byłoby zapisaniem faktu, który się nie
-    # wydarzył (i zabraniem konsultantowi budżetu, na którym właśnie pracuje).
-    if (
-        payload.action != OFFBOARDING_RESOLUTION_RESTORE
-        and not case.uses_shared_md_pool
-        and source.md_total is not None
-        and remaining > 0
-    ):
-        _reduce_legacy_md_budget(source, remaining)
-        await recompute_remaining(db, source)
+            _reduce_legacy_md_budget(source, remaining)
+            await recompute_remaining(db, source)
     if (
         payload.action == OFFBOARDING_RESOLUTION_TRANSFER
         and target is not None

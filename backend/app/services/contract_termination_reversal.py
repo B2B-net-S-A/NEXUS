@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from typing import Any, Optional
 
-from sqlalchemy import delete, select
+from sqlalchemy import and_, delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -190,6 +190,28 @@ class ReversalPlan:
 # ── Dostępność ──────────────────────────────────────────────────────────────
 
 
+def _automatic_case(case: ClientOrderOffboardingCase) -> bool:
+    """Sprawa zamknięta SAMA (pula 0 MD, ``md_pool_used_up``) — nikt jej nie
+    rozstrzygał, więc nie jest decyzją, którą cofnięcie by unieważniło."""
+    return bool((case.resolution_payload or {}).get("automatic"))
+
+
+def _undoable_case_clause():
+    """Sprawy, które cofnięcie zakończenia usuwa razem z zakończeniem:
+    nierozstrzygnięte i zamknięte automatycznie (audyt 24.09.2026, M8)."""
+    return or_(
+        ClientOrderOffboardingCase.status == OFFBOARDING_STATUS_PENDING,
+        and_(
+            ClientOrderOffboardingCase.status == OFFBOARDING_STATUS_RESOLVED,
+            ClientOrderOffboardingCase.resolution == OFFBOARDING_RESOLUTION_REMOVE,
+            ClientOrderOffboardingCase.resolved_by_user_id.is_(None),
+            ClientOrderOffboardingCase.resolution_payload["automatic"]
+            .as_boolean()
+            .is_(True),
+        ),
+    )
+
+
 async def _pending_cases(
     db: AsyncSession, contract_id: int
 ) -> list[ClientOrderOffboardingCase]:
@@ -199,7 +221,7 @@ async def _pending_cases(
                 select(ClientOrderOffboardingCase)
                 .where(
                     ClientOrderOffboardingCase.contract_id == contract_id,
-                    ClientOrderOffboardingCase.status == OFFBOARDING_STATUS_PENDING,
+                    _undoable_case_clause(),
                 )
                 .order_by(ClientOrderOffboardingCase.id)
             )
@@ -375,7 +397,7 @@ async def _plan_from_history(db: AsyncSession, plan: ReversalPlan) -> None:
             await db.scalars(
                 select(ClientOrderOffboardingCase.order_id).where(
                     ClientOrderOffboardingCase.contract_id == contract.id,
-                    ClientOrderOffboardingCase.status == OFFBOARDING_STATUS_PENDING,
+                    _undoable_case_clause(),
                 )
             )
         ).all()
@@ -506,6 +528,10 @@ async def _add_blockers(db: AsyncSession, plan: ReversalPlan) -> None:
     for case in (
         await db.scalars(case_query.order_by(ClientOrderOffboardingCase.id))
     ).all():
+        if _automatic_case(case):
+            # Pula była 0 MD i sprawa zamknęła się sama — cofnięcie usuwa ją
+            # jak nierozstrzygniętą (``_pending_cases``), nie blokuje.
+            continue
         number = case.order_number_snapshot or f"#{case.order_id}"
         label = _DECISION_LABELS.get(case.resolution or "", case.resolution or "")
         target = (case.resolution_payload or {}).get("target_consultant")

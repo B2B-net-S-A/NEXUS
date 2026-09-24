@@ -31,17 +31,15 @@ zakończenia ręcznego (autor, własny powód) nigdy.
 
 from __future__ import annotations
 
-import calendar
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduling import business_today
 from app.models.client_order import ClientOrder, ClientOrderStatus
-from app.models.md_consumption import ClientOrderMdConsumption
 from app.models.client_order_offboarding import (
     OFFBOARDING_STATUS_PENDING,
     ClientOrderOffboardingCase,
@@ -65,22 +63,6 @@ _ZERO = Decimal("0")
 
 def _remaining(line: ClientOrder) -> Decimal:
     return Decimal(str(line.md_remaining if line.md_remaining is not None else 0))
-
-
-async def _closure_day(db: AsyncSession, line_ids: list[int]) -> Optional[date]:
-    """Ostatni dzień miesiąca ostatniego zejścia — ono wyczerpało pulę
-    (ticket 4500030067: zejście za sierpień → 31.08, nie dzień odczytu)."""
-    if not line_ids:
-        return None
-    last = await db.scalar(
-        select(func.max(ClientOrderMdConsumption.period_month)).where(
-            ClientOrderMdConsumption.order_id.in_(line_ids)
-        )
-    )
-    if not last:
-        return None
-    year, month = (int(part) for part in str(last)[:7].split("-"))
-    return date(year, month, calendar.monthrange(year, month)[1])
 
 
 def closed_by_md_exhaustion(group: ClientOrderGroup) -> bool:
@@ -159,9 +141,11 @@ async def sync_md_group_exhaustion(
         )
         if pending_case is not None:
             return False
-        closure_day = await _closure_day(db, [line.id for line in lines]) or (
-            today or business_today()
-        )
+        # Audyt 24.09.2026 (H9): dzień przeliczenia, nie koniec miesiąca
+        # ostatniego zejścia. Data cofnięta do 31.08 (raport sierpnia wgrany
+        # 10.09) zamykała wrzesień — ``group_settles_in_month`` odrzucał import
+        # za bieżący miesiąc, choć konsultanci na tym zamówieniu pracowali.
+        closure_day = today or business_today()
         group.status = GROUP_STATUS_COMPLETED
         group.closure_date = closure_day
         group.closure_reason = MD_EXHAUSTED_CLOSURE_REASON
