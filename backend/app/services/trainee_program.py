@@ -12,12 +12,14 @@ import logging
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
+from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException, status
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
+from app.core.config import settings
 from app.core.scheduling import business_today
 from app.models.activity import Activity
 from app.models.call import Call, CallDirection, CallStatus
@@ -503,7 +505,8 @@ def _apply_facts(candidate: Candidate, facts: CallFacts, user: User) -> dict[str
                 "entered_unit": facts.min_rate_unit,
             }
         )
-        extracted = dict(candidate.cv_extracted_data or {})
+        current = candidate.cv_extracted_data
+        extracted = dict(current) if isinstance(current, dict) else {}
         extracted["_manual_override_rate"] = True
         candidate.cv_extracted_data = extracted
         flag_modified(candidate, "cv_extracted_data")
@@ -657,8 +660,8 @@ async def record_outcome(
                 later_date.year,
                 later_date.month,
                 later_date.day,
-                8,
-                tzinfo=timezone.utc,
+                9,
+                tzinfo=ZoneInfo(settings.BUSINESS_TZ),
             ),
         )
         await db.flush()
@@ -973,7 +976,9 @@ async def overview(db: AsyncSession) -> dict[str, Any]:
                 ),
             }
         )
-    month_start = datetime(today.year, today.month, 1, tzinfo=timezone.utc)
+    month_start = datetime(
+        today.year, today.month, 1, tzinfo=ZoneInfo(settings.BUSINESS_TZ)
+    )
     verified = await db.scalar(
         select(func.count(func.distinct(TraineeCallItem.candidate_id)))
         .join(Candidate, Candidate.id == TraineeCallItem.candidate_id)
