@@ -112,7 +112,8 @@ export function CycleBoard({
         <OrphanTodos todos={orphanTodos} onSelect={onSelect} />
       ) : null}
 
-      <div className="overflow-x-auto pb-2">
+      {/* Na dotyku kolumny dociągają się do krawędzi (jak przed 24.09.2026). */}
+      <div className="overflow-x-auto pb-2 pointer-coarse:snap-x pointer-coarse:snap-mandatory">
         <div
           className="grid min-w-full gap-x-2.5 gap-y-2 [grid-template-columns:var(--cols-mobile)] sm:[grid-template-columns:var(--cols)]"
           style={
@@ -147,7 +148,7 @@ export function CycleBoard({
                   key={key}
                   role="listitem"
                   aria-label={`${STEP_TITLES[key]} — pusto`}
-                  className="flex min-w-0 flex-col gap-1 rounded-xl bg-muted/60 p-2.5"
+                  className="flex min-w-0 snap-start flex-col gap-1 rounded-xl bg-muted/60 p-2.5"
                 >
                   <h3 className="text-xs font-bold leading-tight text-foreground">
                     {n}. {STEP_TITLES[key]}
@@ -163,7 +164,7 @@ export function CycleBoard({
                 role="listitem"
                 aria-label={STEP_TITLES[key]}
                 className={cn(
-                  "flex min-w-0 flex-col gap-2 rounded-xl p-2.5",
+                  "flex min-w-0 snap-start flex-col gap-2 rounded-xl p-2.5",
                   hot ? "bg-destructive/10" : "bg-muted/60",
                 )}
               >

@@ -256,6 +256,14 @@ describe("CalendarCycleScreen", () => {
     expect(screen.queryByTestId("cycle-candidate-card")).not.toBeInTheDocument();
   });
 
+  it("„Szczegóły” z panelu otwierają Tydzień i zachowują wybrany zakres", async () => {
+    mocks.search = "scope=jobs&cycle=11-22";
+    renderScreen();
+    const panel = await screen.findByTestId("cycle-candidate-card");
+    fireEvent.click(within(panel).getByRole("button", { name: "Szczegóły" }));
+    expect(mocks.push).toHaveBeenCalledWith("/calendar?scope=jobs&view=week&event=44");
+  });
+
   it("bez kandydatów w cyklu jest komunikat, bez pustego panelu", async () => {
     mocks.get.mockImplementation((url: string) =>
       url === "/api/interview-cycle"

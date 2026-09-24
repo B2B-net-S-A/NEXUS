@@ -155,9 +155,16 @@ export function CalendarCycleScreen({
       case "add_slots":
         setDialog({ kind: "slots", pair: action.pair });
         break;
-      case "open_event":
-        router.push(`${basePath}?view=week&event=${action.eventId}`);
+      case "open_event": {
+        // Zakres zostaje — po powrocie na Tablicę użytkownik widzi ten sam zespół.
+        const next = new URLSearchParams();
+        const currentScope = params.get("scope");
+        if (currentScope) next.set("scope", currentScope);
+        next.set("view", "week");
+        next.set("event", String(action.eventId));
+        router.push(`${basePath}?${next.toString()}`);
         break;
+      }
     }
   };
 
