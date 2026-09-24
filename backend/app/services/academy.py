@@ -55,7 +55,7 @@ from app.core.scheduling import business_today
 logger = logging.getLogger(__name__)
 
 FEATURE = AIFeatureKey.academy_screening
-SCREENING_VERSION = 1
+SCREENING_VERSION = 2
 CV_CHAR_LIMIT = 12000
 SCREEN_BATCH = 25
 APPLICATIONS_LIST_LIMIT = 2000

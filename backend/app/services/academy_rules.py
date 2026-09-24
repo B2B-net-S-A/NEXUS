@@ -200,7 +200,7 @@ def work_from_profile(experience: Any, today: date) -> WorkFacts:
     entries = _as_list(experience)
     periods: list[WorkPeriod] = []
     undated = 0
-    for entry in entries:
+    for position, entry in enumerate(entries):
         start = parse_year_month(entry.get("start"), today)
         raw_end = entry.get("end")
         has_end = raw_end not in (None, "") and str(raw_end).strip() != ""
@@ -209,7 +209,16 @@ def work_from_profile(experience: Any, today: date) -> WorkFacts:
             undated += 1
             continue
         if end is None:
-            # Brak daty końca przy dacie startu = praca trwająca.
+            if position > 0:
+                # Reguła repo (``services/experience_end.py``): pusty koniec
+                # dalej niż na pierwszej pozycji to praca PRZESZŁA o nieznanej
+                # dacie końca — nie „do dziś”. Liczenie jej do dziś zawyżało
+                # staż (stary staż + scalanie przedziałów = lata od najstarszego
+                # startu) i dawało trwałe „nie”. Czas trwania jest nieznany,
+                # więc pozycja idzie do „bez dat — sprawdź w rozmowie”.
+                undated += 1
+                continue
+            # Pierwsza pozycja bez daty końca = praca trwająca.
             end = (today.year, today.month)
         if end < start:
             undated += 1
@@ -259,6 +268,36 @@ def quote_in_text(quote: Any, text: str) -> bool:
     return _fold(quote) in _fold(text)
 
 
+# Cytat musi DOWODZIĆ faktu, nie tylko występować w CV: „Specjalista” nie
+# dowodzi, że praca zaczęła się w 2010, a „język polski” — że polski jest
+# podstawowy. Bez tego model mógł dopisać do dowolnego fragmentu datę albo
+# poziom, a werdykt „skip” kończy się trwałym wykluczeniem.
+_POLISH_WORD = re.compile(r"polsk|polish|\bpl\b")
+_POLISH_BASIC_LEVEL = re.compile(
+    r"\b[ab][12]\b|podstaw|basic|elementar|beginner|komunikatyw|intermediate|"
+    r"sredni|srednio|conversational|limited|ograniczon"
+)
+
+
+def quote_has_year(quote: Any, year: Optional[int]) -> bool:
+    """Czy cytat zawiera dany rok (samodzielną liczbą, nie częścią innej)."""
+    if year is None or not isinstance(quote, str):
+        return False
+    return re.search(rf"(?<!\d){year}(?!\d)", quote) is not None
+
+
+def quote_proves_polish(quote: Any, level: str) -> bool:
+    """Cytat o polskim musi mówić o języku polskim; „podstawowy” — także o poziomie."""
+    if not isinstance(quote, str):
+        return False
+    folded = _fold(quote)
+    if not _POLISH_WORD.search(folded):
+        return False
+    if level == POLISH_BASIC:
+        return _POLISH_BASIC_LEVEL.search(folded) is not None
+    return True
+
+
 def facts_from_model(
     parsed: Any, cv_text: str, today: date
 ) -> tuple[Optional[StudiesFacts], Optional[WorkFacts], Optional[PolishFacts]]:
@@ -275,6 +314,7 @@ def facts_from_model(
             level in _POLISH_LEVELS
             and level != POLISH_UNKNOWN
             and quote_in_text(quote, cv_text)
+            and quote_proves_polish(quote, level)
         ):
             polish = PolishFacts(level, quote.strip()[:300])
         else:
@@ -295,6 +335,9 @@ def facts_from_model(
                 continue
             end_year = _int_year(item.get("end_year"))
             if end_year is None:
+                continue
+            if not quote_has_year(item.get("quote"), end_year):
+                # Rok końca studiów bez tego roku w cytacie — nie dowiedziony.
                 continue
             if end_year > today.year:
                 studying = True
@@ -319,8 +362,18 @@ def facts_from_model(
             ):
                 continue
             start = parse_year_month(item.get("start"), today)
-            end = parse_year_month(item.get("end") or "present", today)
+            raw_end = item.get("end") or "present"
+            end = parse_year_month(raw_end, today)
             if start is None or end is None or end < start:
+                undated += 1
+                continue
+            quote = item.get("quote")
+            ongoing = _ONGOING.search(str(raw_end)) is not None
+            if not quote_has_year(quote, start[0]) or (
+                not ongoing and not quote_has_year(quote, end[0])
+            ):
+                # Daty pracy muszą stać w cytacie — inaczej model mógłby
+                # dopisać je do dowolnego fragmentu CV („Specjalista”).
                 undated += 1
                 continue
             periods.append(WorkPeriod(start, end, str(item.get("quote")).strip()[:300]))

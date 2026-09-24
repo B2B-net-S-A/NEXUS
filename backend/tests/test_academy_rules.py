@@ -283,3 +283,92 @@ def test_no_facts_about_name_or_age_are_ever_produced():
 )
 def test_years_label(years, label):
     assert rules.years_label(years) == label
+
+
+# ── audyt 24.09.2026: cytat musi DOWODZIĆ faktu ────────────────────────────
+
+
+def test_work_dates_not_in_quote_are_not_proven():
+    """„Specjalista” występuje w CV, ale nie dowodzi pracy od 2010 — bez tego
+    model dopisywał datę do dowolnego fragmentu, a 14 lat = „skip”."""
+    parsed = {"work": [{"start": "2010-01", "end": "present", "quote": "Spe"}]}
+    result = _evaluate(
+        model_parsed=parsed,
+        cv_text="Specjalista ds. HR",
+        languages=POLISH_NATIVE,
+    )
+    assert result.verdict != rules.VERDICT_SKIP
+    assert result.facts["experience_years"] is None
+
+    parsed = {
+        "work": [{"start": "2019-03", "end": "2021-06", "quote": "Specjalista 2019"}]
+    }
+    _studies, work, _polish = rules.facts_from_model(
+        parsed, "Specjalista 2019 – 2021", TODAY
+    )
+    assert work is not None and work.periods == ()  # brak roku końca w cytacie
+
+    parsed = {
+        "work": [
+            {"start": "2019-03", "end": "2021-06", "quote": "Specjalista 2019 – 2021"}
+        ]
+    }
+    _studies, work, _polish = rules.facts_from_model(
+        parsed, "Specjalista 2019 – 2021", TODAY
+    )
+    assert work is not None and len(work.periods) == 1
+
+
+def test_graduation_year_must_be_in_quote():
+    parsed = {
+        "education": [
+            {"kind": "higher", "completed": True, "end_year": 2012, "quote": "magister"}
+        ]
+    }
+    studies, _work, _polish = rules.facts_from_model(
+        parsed, "Uniwersytet Warszawski, magister 2023", TODAY
+    )
+    assert studies is not None and studies.end_year is None
+
+
+def test_polish_level_needs_a_quote_about_polish():
+    cv = "Języki: angielski B2, polski podstawowy. Sprzedawca."
+    parsed = {"polish": {"level": "native", "quote": "Sprzedawca"}}
+    _s, _w, polish = rules.facts_from_model(parsed, cv, TODAY)
+    assert polish is not None and polish.level == rules.POLISH_UNKNOWN
+
+    # „podstawowy” (który daje „skip”) musi mieć w cytacie także poziom.
+    parsed = {"polish": {"level": "basic", "quote": "polski"}}
+    _s, _w, polish = rules.facts_from_model(parsed, cv, TODAY)
+    assert polish is not None and polish.level == rules.POLISH_UNKNOWN
+
+    parsed = {"polish": {"level": "basic", "quote": "polski podstawowy"}}
+    _s, _w, polish = rules.facts_from_model(parsed, cv, TODAY)
+    assert polish is not None and polish.level == rules.POLISH_BASIC
+
+
+def test_position_without_end_date_further_down_is_past_not_until_today():
+    """Reguła ``experience_end``: pusty koniec dalej niż na pierwszej pozycji to
+    praca przeszła. Staż 2012 bez daty końca nie może dawać 14 lat."""
+    work = rules.work_from_profile(
+        [
+            {"start": "2022-01", "end": "present", "role": "Asystent HR"},
+            {"start": "2012-06", "role": "Stażysta"},
+        ],
+        TODAY,
+    )
+    assert len(work.periods) == 1
+    assert work.undated == 1
+    result = _evaluate(
+        experience=[
+            {"start": "2022-01", "end": "present", "role": "Asystent HR"},
+            {"start": "2012-06", "role": "Stażysta"},
+        ],
+        languages=POLISH_NATIVE,
+    )
+    assert result.verdict == rules.VERDICT_REVIEW
+    assert result.experience_years is not None and result.experience_years < 6
+
+    # Pierwsza pozycja bez daty końca to nadal praca trwająca.
+    current = rules.work_from_profile([{"start": "2025-01", "role": "Rekruter"}], TODAY)
+    assert current.periods[0].end == (TODAY.year, TODAY.month)
