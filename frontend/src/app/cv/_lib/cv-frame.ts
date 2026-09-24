@@ -5,10 +5,11 @@ import { useCallback, useEffect, useState, type RefObject } from "react";
 /**
  * Publiczne CV w ramce (`/cv/{token}`, `/cv/i/{token}`) — czytelność na telefonie.
  *
- * Nowe dokumenty niosą to zapytanie w szablonie (`cv_html_renderer.py`,
- * `html_export.py`), ale HTML zatwierdzonego CV jest w bazie niemutowalny, więc
- * te same reguły doklejamy przy budowie `srcDoc`. Pomijamy je, gdy dokument już
- * je ma (znacznik z backendu albo nasz własny).
+ * Serwer dokłada te reguły z zamrożonego arkusza starego szablonu
+ * (`cv_legacy_template_css.py`) i z eksportu HTML (`html_export.py`), ale HTML
+ * zatwierdzonego CV jest w bazie niemutowalny, więc na wypadek dokumentu bez
+ * nich doklejamy je przy budowie `srcDoc`. Pomijamy je, gdy dokument już je ma
+ * (znacznik z backendu albo nasz własny).
  */
 export const MOBILE_CV_STYLE_MARKER = "data-nexus-cv-mobile";
 
