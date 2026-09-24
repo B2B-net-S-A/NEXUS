@@ -1,8 +1,8 @@
 {
-  "entry": "0bbc61e68de700f29bc728d4fcaa4772fdb1ccfff976f409b57c4f334b2b0f58",
+  "entry": "d4506d66a3c71c65f46cece41542dba8e60ccdc257ccd7d295dd533e7ac6743a",
   "guide": "jobs.list",
   "sources": {
-    "frontend/src/components/v2/pages/JobsListV2.tsx": "6b12367d794e8bb19260572ae7e4e94e7a50bbf217c540a8f02b52800d1db8ac",
+    "frontend/src/components/v2/pages/JobsListV2.tsx": "8cc53e0226b7112cd91f0ceddb7590d090abc5b91193331dc2848196ee57dfa7",
     "frontend/src/lib/request-status.ts": "728e777128c3141c98b45d031da8f05a9f615fcc89a7fb4d43889555ae36a9ff"
   }
 }
