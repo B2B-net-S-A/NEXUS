@@ -472,6 +472,28 @@ describe("zawężenia ról nadal obowiązują", () => {
     expect(destination("/contracts/analytics", validDeliveryLead)).toBe("/403")
   })
 
+  it("Analityka kontraktów idzie za sekcją Finanse, jak moduł Finansów", () => {
+    // Backend wpuszcza tu każdego z odczytem sekcji Finanse (VIEW_FINANCE);
+    // do 24.09.2026 middleware dokładał węższą bramkę ról admin/finance.
+    const deliveryLeadWithFinanceRead = makeToken({
+      role: "delivery_lead",
+      roles: ["delivery_lead"],
+      exp: now() + HOUR,
+      sa: {
+        sourcing: "none",
+        pipeline: "none",
+        delivery: "write",
+        insights: "none",
+        finance: "read",
+        system_admin: "none",
+      },
+    })
+    expect(destination("/finance", deliveryLeadWithFinanceRead)).toBe("pass")
+    expect(
+      destination("/contracts/analytics", deliveryLeadWithFinanceRead),
+    ).toBe("pass")
+  })
+
   it("Generator B2B pozostaje w Sourcing mimo prefiksu /contracts", () => {
     for (const token of [
       validRecruiter,
