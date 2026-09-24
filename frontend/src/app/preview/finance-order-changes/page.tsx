@@ -273,9 +273,12 @@ const DATA: OrderChangesResponse = {
       verdict_label: "Kończy się 30.09.2026 — na razie brak kolejnego zamówienia",
       intent: null,
     },
+    // Zamówienie kończy się w ostatnim dniu miesiąca — brak wykryje się
+    // dopiero w październiku, więc we wrześniu stoi tutaj. Marek (ED-77) ma
+    // brak wykryty we wrześniu i stoi WYŁĄCZNIE w Brakach (audyt 24.09.2026).
     {
-      ...ref(6, "Marek Zieliński", "Energetyka Demo", "ED-77"),
-      end_date: "2026-09-05",
+      ...ref(11, "Tomasz Lis", "Energetyka Demo", "ED-81"),
+      end_date: "2026-09-30",
       start_date: "2026-03-01",
       rate_cost: 110,
       rate_revenue: 150,
