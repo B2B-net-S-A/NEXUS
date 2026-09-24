@@ -489,7 +489,7 @@ async def test_placement_analysis_folds_admin_accounts_into_one_slice(
     outside = [
         p
         for p in after["by_person"]
-        if p["name"] == "Konta administracyjne i spoza rekrutacji"
+        if p["name"] == "Konta administracyjne"
     ]
     assert outside and outside[0]["attributed"] is False
     assert totals["outside_scope_placements"] >= 2

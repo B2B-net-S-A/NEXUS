@@ -105,7 +105,7 @@ export function InsightsTimeToHire({ period }: Props) {
             <p className="mt-2 text-xs text-muted-foreground">
               Poza tabelą: {totals.outside_scope_hires}{" "}
               {totals.outside_scope_hires === 1 ? "zatrudnienie" : "zatrudnień"}{" "}
-              kont administracyjnych i spoza rekrutacji — liczą się do sumy{" "}
+              kont administracyjnych — liczą się do sumy{" "}
               {totals.hires}, ale nie są rekruterem w rankingu.
             </p>
           )}

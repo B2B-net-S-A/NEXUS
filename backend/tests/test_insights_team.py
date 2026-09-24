@@ -506,3 +506,31 @@ async def test_admin_accounts_are_one_row_outside_the_table(
     assert totals["outside_scope_users"] == 1
     # Suma firmy bez zmian — zgadza się z lejkiem.
     assert totals["all"]["placements"] == 2
+
+
+@pytest.mark.asyncio
+async def test_talent_community_manager_stays_in_the_people_table(
+    fx_app: AsyncClient, fx_login: AsyncClient
+):
+    """TCM zostaje w tabeli osób — poza tabelą są wyłącznie konta administracyjne.
+
+    Decyzja Artura z 24.09.2026 dotyczyła kont admina; TCM rekomenduje
+    i domyka placementy jak rekruter (na produkcji 7 placementów w Q3).
+    """
+    day = _next_window()
+    _, email, password = await _seed_user(UserRole.admin, name="Admin Patrzy")
+    tcm_id, _, _ = await _seed_user(UserRole.talent_community_manager, name="TCM Osoba")
+    cand, job = await _seed_pair()
+    await _seed_stage(
+        candidate_id=cand,
+        job_id=job,
+        stage=PipelineStage.hired,
+        moved_at=_at(day),
+        moved_by=tcm_id,
+    )
+
+    headers = await _headers(fx_login, email, password)
+    body = (await fx_app.get(URL, headers=headers, params=_params(day))).json()
+
+    assert tcm_id in [r["user_id"] for r in body["rows"]]
+    assert body["totals"]["outside_scope"]["placements"] == 0

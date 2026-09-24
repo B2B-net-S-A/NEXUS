@@ -142,7 +142,7 @@ export function InsightsPlacementAnalysis({ period }: Props) {
           <p className="mt-3 text-xs text-muted-foreground">
             Liczone: pierwsze zatrudnienie pary (kandydat, rekrutacja),
             przypisane osobie, która przesunęła kandydata na „Zatrudniony”.
-            Konta administracyjne i spoza rekrutacji są jednym wycinkiem, nie
+            Konta administracyjne są jednym wycinkiem, nie
             osobą — jak w Hall of Fame.
           </p>
         </>

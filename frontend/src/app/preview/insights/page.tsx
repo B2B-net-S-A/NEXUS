@@ -202,7 +202,7 @@ function seeded(): QueryClient {
     rows: PEOPLE.map((p) => ({ user_id: p.id, name: p.name, role: "recruiter", is_active: true, verifications: p.v, recommendations: p.r, interviews: p.i, placements: p.p, previous_placements: p.prev, verifications_per_workday: +(p.v / 17).toFixed(1), precision_pct: p.prec })),
     totals: { verifications: 518, recommendations: 90, interviews: 42, placements: 14, precision_pct: 63, people: 8, unattributed: 3 },
     previous_totals: { verifications: 500, recommendations: 95, interviews: 40, placements: 15 },
-    outside_scope: { label: "Konta administracyjne i spoza rekrutacji", people: 1, verifications: 0, recommendations: 4, interviews: 2, placements: 5, previous_placements: 3 },
+    outside_scope: { label: "Konta administracyjne", people: 1, verifications: 0, recommendations: 4, interviews: 2, placements: 5, previous_placements: 3 },
   });
   qc.setQueryData(performanceFlagsQueryKey, { flags_by_user: {}, types: [] });
   qc.setQueryData(insightsQueryKeys.dlPortfolio(ZESPOL_DL_PERIOD), {

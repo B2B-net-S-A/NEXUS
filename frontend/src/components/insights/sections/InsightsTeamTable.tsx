@@ -377,7 +377,7 @@ export function InsightsTeamTable({ period, renderFlags }: Props) {
                     <tr className="text-muted-foreground">
                       <td className="py-2 pr-3 text-xs" colSpan={2}>
                         {totals.outside_scope_label ??
-                          "Konta administracyjne i spoza rekrutacji"}{" "}
+                          "Konta administracyjne"}{" "}
                         ({count(totals.outside_scope_users ?? 0)})
                       </td>
                       {METRIC_KEYS.map((key) => (
