@@ -316,18 +316,24 @@ async def test_endpoints_require_authentication(fx_client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_money_is_not_redacted_for_a_role_without_view_finance(
+async def test_finance_sees_ranking_amounts_and_hor_is_refused(
     fx_client: AsyncClient,
     stale_rate_column_contract: dict,
 ):
-    """Head of Recruitment widzi kwoty rankingu, choć nie ma `VIEW_FINANCE`.
+    """Kwoty rankingu: Finanse widzą je bez redakcji, HoR dostaje 403.
 
-    Redakcja na /insights jest zdjęta świadomie — bramką jest dostęp do
-    zakładki Rada (``BoardReader``), nie capability. Jeśli ktoś doda tu
-    redakcję po `VIEW_FINANCE`, HoR zobaczy puste kwoty i ten test padnie.
+    Decyzja Artura 24.09.2026 — Head of Recruitment nie widzi pieniędzy.
+    Do tego dnia ten test pilnował odwrotnej reguły (HoR widział kwoty mimo
+    braku `VIEW_FINANCE`). Bramką jest ``BoardReader``, nie capability.
     """
     await cache_invalidate("insights:clients:")
-    _, email, password = await _seed_user(UserRole.head_of_recruitment, "money")
+    _, hor_email, hor_password = await _seed_user(
+        UserRole.head_of_recruitment, "money-hor"
+    )
+    hor_headers = await _login(fx_client, hor_email, hor_password)
+    assert (await fx_client.get(RANKING, headers=hor_headers)).status_code == 403
+
+    _, email, password = await _seed_user(UserRole.finance, "money")
     headers = await _login(fx_client, email, password)
 
     body = (await fx_client.get(RANKING, headers=headers)).json()
