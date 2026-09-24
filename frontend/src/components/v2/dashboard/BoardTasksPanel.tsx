@@ -136,7 +136,7 @@ export function BoardTasksPanel() {
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-base font-semibold">Czeka na Ciebie</h2>
         <p className="text-xs text-muted-foreground">
-          Ruchy na Tablicach z ostatnich {data.window_days} dni · najdłużej czekający na górze
+          Ruchy na Tablicach z ostatnich {Math.max(data.window_days, data.dl_review_window_days ?? 0)} dni · najdłużej czekający na górze
         </p>
       </div>
       <div className="grid gap-4 lg:grid-cols-3">

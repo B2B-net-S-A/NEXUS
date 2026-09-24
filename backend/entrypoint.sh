@@ -145,7 +145,7 @@ _ENUM_STATEMENTS = [
     """DO $$ BEGIN
         CREATE TYPE adjustmentstatus AS ENUM ('draft', 'approved');
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
-    # 0364: multiposting — kolejka publikacji (czeka na worker / nieudana).
+    # 0366: multiposting — kolejka publikacji (czeka na worker / nieudana).
     "ALTER TYPE postingstatus ADD VALUE IF NOT EXISTS 'publishing'",
     "ALTER TYPE postingstatus ADD VALUE IF NOT EXISTS 'failed'",
     # userrole: head_of_recruitment (migration 0029_notifications_triggers)
@@ -770,8 +770,34 @@ except Exception as _kc_err:  # noqa: BLE001
     _KEYWORD_CORPUS_DDL = []
     _KEYWORD_CORPUS_INDEXES = []
 
+# Dokumenty pochodne umowy B2B (migracja 0362): tabela, typy aneksu i wersja
+# wzoru umowy — JEDNO źródło z migracją (`app/services/b2b_documents/schema_sql.py`).
+try:
+    from app.services.b2b_documents import schema_sql as _b2b_docs
+
+    _ENUM_STATEMENTS.extend(_b2b_docs.ENUM_DDL)
+    _B2B_DOCUMENTS_DDL = list(_b2b_docs.TABLE_DDL)
+    _B2B_DOCUMENTS_BACKFILL = list(_b2b_docs.BACKFILL_DDL)
+except Exception as _b2b_docs_err:  # noqa: BLE001
+    print(f"b2b documents DDL unavailable: {_b2b_docs_err!r}")
+    _B2B_DOCUMENTS_DDL = []
+    _B2B_DOCUMENTS_BACKFILL = []
+
+# Rejestr umów z Excela działu (migracja 0363): kolumny źródła, NULL-owalne
+# `year`/`seq`, częściowy UNIQUE i tabele przebiegów importu — JEDNO źródło
+# z migracją (`app/services/b2b_register_import/schema_sql.py`).
+try:
+    from app.services.b2b_register_import import schema_sql as _b2b_register
+
+    _B2B_REGISTER_DDL = list(_b2b_register.TABLE_DDL)
+except Exception as _b2b_register_err:  # noqa: BLE001
+    print(f"b2b register import DDL unavailable: {_b2b_register_err!r}")
+    _B2B_REGISTER_DDL = []
+
 _COLUMN_STATEMENTS = [
     *_KEYWORD_CORPUS_DDL,
+    *_B2B_DOCUMENTS_DDL,
+    *_B2B_REGISTER_DDL,
     # 0269: configurable product-section RBAC. The tables are created here as
     # an idempotent recovery path when Alembic stopped before stamping head.
     """CREATE TABLE IF NOT EXISTS rbac_policy_state (
@@ -4083,7 +4109,7 @@ _COLUMN_STATEMENTS = [
     "closed_at TIMESTAMPTZ NULL",
     "ALTER TABLE client_order_groups ADD COLUMN IF NOT EXISTS "
     "closed_by_user_id INTEGER NULL",
-    # 0363 — anulowanie zamówienia MD/kosztowego z przywróceniem. Stan sprzed
+    # 0365 — anulowanie zamówienia MD/kosztowego z przywróceniem. Stan sprzed
     # anulowania i autor; statusy linii żyją w payloadzie zdarzenia.
     "ALTER TABLE client_order_groups ADD COLUMN IF NOT EXISTS "
     "status_before_cancel VARCHAR(16) NULL",
@@ -4585,7 +4611,7 @@ _COLUMN_STATEMENTS = [
         CONSTRAINT ck_order_pdf_downloads_kind
             CHECK (file_kind IN ('order', 'group', 'amendment'))
     )""",
-    # 0364: multiposting — kolumny kolejki publikacji w portalach.
+    # 0366: multiposting — kolumny kolejki publikacji w portalach.
     "ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS last_error TEXT",
     "ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS payload_hash VARCHAR(64)",
@@ -4593,7 +4619,7 @@ _COLUMN_STATEMENTS = [
     "ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS created_by INTEGER "
     "REFERENCES users (id) ON DELETE SET NULL",
     "ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS last_synced_at TIMESTAMPTZ",
-    # 0362: dedup maila potwierdzenia aplikacji (HMAC adresu + klucz linku,
+    # 0364: dedup maila potwierdzenia aplikacji (HMAC adresu + klucz linku,
     # jeden mail na parę w 24 h). Bez tabeli zgłoszenie przechodzi, ale mail
     # się nie wysyła (błąd połykany w `schedule_confirmation`).
     """CREATE TABLE IF NOT EXISTS application_confirmation_sends (
@@ -5477,7 +5503,8 @@ END $$
 
 
 _DATA_STATEMENTS = [
-    # 0364: symulowane „publikacje” SIM-… z dawnej zakładki portali — to nie
+    *_B2B_DOCUMENTS_BACKFILL,
+    # 0366: symulowane „publikacje” SIM-… z dawnej zakładki portali — to nie
     # były prawdziwe ogłoszenia. Idempotentne (drugi start nic nie znajdzie).
     "DELETE FROM job_postings WHERE external_id LIKE 'SIM-%'",
     # 17.09.2026: konflikt z klientem i `client_excluded` przestały zerować wynik
@@ -7274,7 +7301,7 @@ _CONSTRAINT_STATEMENTS = [
                 AND (md_rate_revenue IS NULL OR md_rate_revenue > 0)
             ) NOT VALID;
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
-    # 0363 dokłada 'cancelled' (anulowanie z przywróceniem) i spójność
+    # 0365 dokłada 'cancelled' (anulowanie z przywróceniem) i spójność
     # `status_before_cancel` — DROP+ADD, bo nazwa więzu się nie zmienia.
     "ALTER TABLE client_order_groups DROP CONSTRAINT IF EXISTS ck_client_order_groups_status",
     """DO $$ BEGIN
@@ -7824,7 +7851,7 @@ _CONSTRAINT_STATEMENTS = [
 # tutaj byłoby martwym kodem: CREATE INDEX IF NOT EXISTS i tak by je pominął.
 _INDEX_STATEMENTS = [
     *_KEYWORD_CORPUS_INDEXES,
-    # 0364: najwyżej jedna żywa publikacja rekrutacji na portal.
+    # 0366: najwyżej jedna żywa publikacja rekrutacji na portal.
     "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS uq_job_postings_live_per_portal "
     "ON job_postings (job_id, portal) WHERE status IN ('publishing', 'published')",
     # 0339: slug linku unikalny; jeden nieodwołany stały link na rekrutera.

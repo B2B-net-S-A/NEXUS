@@ -46,6 +46,7 @@ export type SettingsItemId =
   | "skills"
   | "contracts"
   | "rates"
+  | "register-import"
   | "ai"
   | "traffit"
   | "fireflies"
@@ -176,6 +177,14 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     keywords: "benchmark wycena stawki rynek",
     route: "/settings/rate-benchmarks",
     gate: { roles: ["admin", "finance"], section: "finance", finance: true },
+  },
+  {
+    id: "register-import", area: "deals", title: "Rejestr umów z Excela",
+    description: "Wgraj plik działu „UMOWY I ZAMÓWIENIA” — podgląd, zapis i cofnięcie.",
+    keywords: "import excel xlsx rejestr umowy b2b dzial numery aneks bez dzialalnosci",
+    route: "/settings/b2b-register-import",
+    wide: true,
+    gate: { roles: ["admin"] },
   },
   {
     id: "notifications", area: "sys", title: "Powiadomienia",

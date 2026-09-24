@@ -52,6 +52,7 @@ import { moveDialogFor } from "@/lib/pipeline-move-dialog";
 import { assignErrorMessage } from "@/lib/assign-error";
 import {
   formatExpectedRate,
+  knownClientRate,
   bulkMoveFailureMessage,
   bulkMoveSkipReason,
   itemFullName,
@@ -1145,6 +1146,7 @@ export function usePipelineMove({
           onSkip={() => submitClientRateMove(null)}
           required={!cproEnabled}
           candidateRateLabel={formatExpectedRate(clientRatePrompt.item)}
+          initialRate={knownClientRate(clientRatePrompt.item)}
         />
       )}
 

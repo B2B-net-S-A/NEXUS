@@ -1,7 +1,7 @@
 """Mail potwierdzenia aplikacji: tabela dedupu (adres, link) na 24 h.
 
-Revision ID: 0362_application_confirmation
-Revises: 0361_cv_qc
+Revision ID: 0364_application_confirmation
+Revises: 0363_b2b_register_import
 
 * ``application_confirmation_sends`` — HMAC adresu kandydata + nie-sekretny
   klucz linku aplikacyjnego; ``sent_at`` = ostatnia wysyłka. Bez jawnego
@@ -14,8 +14,8 @@ Lustro w ``entrypoint.sh`` (alembic na prodzie bywa osierocony).
 
 from alembic import op
 
-revision = "0362_application_confirmation"
-down_revision = "0361_cv_qc"
+revision = "0364_application_confirmation"
+down_revision = "0363_b2b_register_import"
 branch_labels = None
 depends_on = None
 

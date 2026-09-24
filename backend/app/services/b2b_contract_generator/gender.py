@@ -20,6 +20,15 @@ _FORMS_M = {
     "g_zwanym": "zwanym",
     "g_zapoznal": "zapoznałem",
     "g_mr": "Mr",
+    # Formy dokumentów pochodnych (aneksy, rozwiązania, przedwstępna — 09.2026).
+    "g_pan_nom": "Pan",
+    "g_prowadzacy_nom": "prowadzący",
+    "g_zamieszkaly": "zamieszkałym",
+    "g_legitymujacy": "legitymującym się",
+    "g_legitymujacy_nom": "legitymujący się",
+    "g_przekazal": "przekazałem",
+    "g_zlozyl": "złożyłem",
+    "g_mr_long": "Mr",
 }
 _FORMS_F = {
     "g_pan": "Panią",
@@ -28,6 +37,14 @@ _FORMS_F = {
     "g_zwanym": "zwaną",
     "g_zapoznal": "zapoznałam",
     "g_mr": "Ms",
+    "g_pan_nom": "Pani",
+    "g_prowadzacy_nom": "prowadząca",
+    "g_zamieszkaly": "zamieszkałą",
+    "g_legitymujacy": "legitymującą się",
+    "g_legitymujacy_nom": "legitymująca się",
+    "g_przekazal": "przekazałam",
+    "g_zlozyl": "złożyłam",
+    "g_mr_long": "Ms",
 }
 
 

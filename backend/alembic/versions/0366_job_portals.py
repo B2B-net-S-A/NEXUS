@@ -1,7 +1,7 @@
 """Multiposting (Pracuj.pl, JustJoinIT): szkielet kolejki publikacji.
 
-Revision ID: 0364_job_portals
-Revises: 0363_order_group_cancel
+Revision ID: 0366_job_portals
+Revises: 0365_order_group_cancel
 
 * ``job_postings`` dostaje kolumny kolejki: ``last_error``, ``attempts``,
   ``payload_hash`` (odcisk treści wysłanej do portalu), ``public_profile_hash``
@@ -17,8 +17,8 @@ Lustro w ``entrypoint.sh`` (alembic na prodzie bywa osierocony).
 
 from alembic import op
 
-revision = "0364_job_portals"
-down_revision = "0363_order_group_cancel"
+revision = "0366_job_portals"
+down_revision = "0365_order_group_cancel"
 branch_labels = None
 depends_on = None
 
