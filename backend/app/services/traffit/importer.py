@@ -2659,6 +2659,19 @@ class TraffitImporter:
                 # wszystkie rekrutacje zapisane w tym biegu.
                 progress.add_error(f"record job reindex intent: {exc!r}")
 
+        # Rekrutacja z Traffita nie niesie Delivery Leada — dostaje głównego
+        # DL-a klienta (decyzja Artura 24.09.2026). Uzupełnienie, nie nadpis.
+        if not self.dry_run:
+            from app.services.job_delivery_lead_fill import (
+                fill_missing_job_delivery_leads,
+            )
+
+            try:
+                async with self.db.begin_nested():
+                    await fill_missing_job_delivery_leads(self.db)
+            except Exception as exc:  # noqa: BLE001
+                progress.add_error(f"fill job delivery leads: {exc!r}")
+
         if not self.dry_run:
             await self.db.commit()
         progress.finished_at = datetime.now(timezone.utc)

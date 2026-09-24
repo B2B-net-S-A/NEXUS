@@ -183,6 +183,8 @@ async def test_dl_client_upsert_revokes_every_changed_dl(monkeypatch) -> None:
         "app.api.team_structure.invalidate_delivery_lead_scope_for_users",
         invalidator,
     )
+    fill = AsyncMock(return_value=0)
+    monkeypatch.setattr("app.api.team_structure.fill_missing_job_delivery_leads", fill)
 
     await assign_dl_to_client(
         AssignDlClientPayload(
@@ -197,6 +199,8 @@ async def test_dl_client_upsert_revokes_every_changed_dl(monkeypatch) -> None:
     assert previous_head.is_head is False
     assert existing.is_head is True
     invalidator.assert_awaited_once_with(db, {12, 15})
+    # Nowy główny DL dostaje otwarte rekrutacje klienta bez DL-a (24.09.2026).
+    fill.assert_awaited_once_with(db, [44])
 
 
 @pytest.mark.asyncio

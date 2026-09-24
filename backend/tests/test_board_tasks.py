@@ -168,43 +168,37 @@ def test_classify_template_finds_the_rejected_terminal_stage() -> None:
     assert stages.qc_id is None
 
 
-def test_dl_review_belongs_to_the_recruitments_delivery_lead() -> None:
-    """Decyzja Artura 24.09.2026: DL widzi tylko rekrutacje przypięte do
-    siebie; admin i HoR — tylko te bez żadnego Delivery Leada."""
+def test_dl_review_belongs_only_to_the_recruitments_delivery_lead() -> None:
+    """Decyzja Artura 24.09.2026: przegląd widzi wyłącznie DL rekrutacji —
+    admin i HoR nie, nawet gdy rekrutacja nie ma żadnego DL-a."""
     snap = svc.BoardTaskSnapshot(
         tasks=[
             # Portfel DL 50, bez DL w rekrutacji.
-            _task(svc.KIND_DL_REVIEW, stage_id=1, client_id=7, client_has_dl=True),
-            # Klient z innym DL w portfelu.
-            _task(svc.KIND_DL_REVIEW, stage_id=2, client_id=8, client_has_dl=True),
+            _task(svc.KIND_DL_REVIEW, stage_id=1, client_id=7),
+            # Klient spoza portfela DL 50.
+            _task(svc.KIND_DL_REVIEW, stage_id=2, client_id=8),
             # DL 50 wpisany w rekrutacji — spoza portfela.
             _task(svc.KIND_DL_REVIEW, stage_id=3, client_id=9, delivery_lead_id=50),
             # Klient z portfela DL 50, ale rekrutacja ma wpisanego innego DL.
-            _task(
-                svc.KIND_DL_REVIEW,
-                stage_id=4,
-                client_id=7,
-                client_has_dl=True,
-                delivery_lead_id=51,
-            ),
-            # Rekrutacja bez żadnego Delivery Leada.
-            _task(svc.KIND_DL_REVIEW, stage_id=5, client_id=10),
+            _task(svc.KIND_DL_REVIEW, stage_id=4, client_id=7, delivery_lead_id=51),
         ]
     )
     dl = _user(50, UserRole.delivery_lead)
     mine = svc.tasks_for_user(snap, dl, portfolio=frozenset({7}))
     assert [t.stage_id for t in mine[svc.KIND_DL_REVIEW]] == [1, 3]
 
-    for role in (UserRole.head_of_recruitment, UserRole.admin):
-        orphans = svc.tasks_for_user(snap, _user(60, role), portfolio=frozenset())
-        assert [t.stage_id for t in orphans[svc.KIND_DL_REVIEW]] == [5]
-        assert orphans[svc.KIND_DL_REVIEW][0].as_dict()["without_delivery_lead"]
+    for role in (UserRole.head_of_recruitment, UserRole.admin, UserRole.recruiter):
+        other = svc.tasks_for_user(snap, _user(60, role), portfolio=frozenset({7}))
+        assert other[svc.KIND_DL_REVIEW] == []
 
-    rec = _user(70, UserRole.recruiter)
-    assert (
-        svc.tasks_for_user(snap, rec, portfolio=frozenset({7}))[svc.KIND_DL_REVIEW]
-        == []
-    )
+    # HoR, który jest też DL, widzi swoje jako DL.
+    hybrid = _user(51, UserRole.head_of_recruitment, UserRole.delivery_lead)
+    assert [
+        t.stage_id
+        for t in svc.tasks_for_user(snap, hybrid, portfolio=frozenset())[
+            svc.KIND_DL_REVIEW
+        ]
+    ] == [4]
 
 
 def test_task_dict_carries_qc_and_return_stage() -> None:
@@ -636,7 +630,6 @@ async def test_dl_review_lists_people_in_the_qc_column_not_in_verified(
         assert row["screening_stage_id"] is not None
         assert row["screening_stage_id"] != row["stage_id"]
         assert row["qc_status"] == "unchecked"
-        assert row["without_delivery_lead"] is False
         assert queue["dl_review_window_days"] == svc.DL_REVIEW_WINDOW_DAYS
 
         assert (
@@ -700,3 +693,67 @@ async def test_assignee_on_ready_move_still_sets_the_job_fallback(
             assert todo[0].assignee_id == rec_id
     finally:
         await _cleanup(world, [hor_id, rec_id])
+
+
+async def test_open_recruitment_without_dl_gets_the_clients_head_dl() -> None:
+    """Rekrutacja bez DL-a dostaje głównego DL-a klienta (24.09.2026) —
+    otwarta tak, zamknięta nie, a wpisany DL nigdy nie jest nadpisywany."""
+
+    from app.models.team_structure import DeliveryLeadClientAssignment
+    from app.services.job_delivery_lead_fill import fill_missing_job_delivery_leads
+
+    world = await _seed_world()
+    head_id, _ = await _seed_user(UserRole.delivery_lead)
+    other_id, _ = await _seed_user(UserRole.delivery_lead)
+    unique = uuid.uuid4().hex[:8]
+    extra_ids: list[int] = []
+    try:
+        async with AsyncSessionLocal() as db:
+            db.add(
+                DeliveryLeadClientAssignment(
+                    delivery_lead_user_id=head_id,
+                    client_id=world["client_id"],
+                    is_head=True,
+                )
+            )
+            closed = Job(
+                title=f"BT closed {unique}",
+                location="Warszawa",
+                client_id=world["client_id"],
+                status=JobStatus.closed,
+                remote_policy=RemotePolicy.remote,
+            )
+            owned = Job(
+                title=f"BT owned {unique}",
+                location="Warszawa",
+                client_id=world["client_id"],
+                status=JobStatus.published,
+                remote_policy=RemotePolicy.remote,
+                delivery_lead_id=other_id,
+            )
+            db.add_all([closed, owned])
+            await db.commit()
+            extra_ids = [closed.id, owned.id]
+
+        async with AsyncSessionLocal() as db:
+            filled = await fill_missing_job_delivery_leads(db, [world["client_id"]])
+            await db.commit()
+        assert filled == 1
+
+        async with AsyncSessionLocal() as db:
+            assert (await db.get(Job, world["job_id"])).delivery_lead_id == head_id
+            assert (await db.get(Job, extra_ids[0])).delivery_lead_id is None
+            assert (await db.get(Job, extra_ids[1])).delivery_lead_id == other_id
+            # Drugie wywołanie niczego już nie zmienia.
+            assert await fill_missing_job_delivery_leads(db, [world["client_id"]]) == 0
+            await db.rollback()
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(Job).where(Job.id.in_(extra_ids)))
+            await db.execute(
+                delete(DeliveryLeadClientAssignment).where(
+                    DeliveryLeadClientAssignment.client_id == world["client_id"]
+                )
+            )
+            await db.commit()
+        await _cleanup(world, [head_id, other_id])

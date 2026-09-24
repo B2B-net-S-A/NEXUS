@@ -264,6 +264,8 @@ Reguły, które łatwo cofnąć:
 - **Codecov flags:** `backend` + `frontend` — separate uploads.
 - **Lint warnings cap:** `next lint --max-warnings=300` — historyczny dług, nie failować na obecnych warningach.
 - **`npm ci --legacy-peer-deps`** w FE (React 19 + niektóre pakiety jeszcze RC).
+- **Kolejka merge'ów — co wyrzucało PR-y i co to teraz łapie (24.09.2026).** Pomiar 23–24.09: 62 z 99 biegów `merge_group` czerwonych, PR-y wypadały 4–6×, bo sito na PR-ze nie widziało testów „całego repo”, a `auto-enqueue` po każdym pushu wrzucał je z powrotem. Teraz: (1) sito zawsze uruchamia strażników `_ALWAYS` w `.github/scripts/select_pr_tests.py` — stemple przewodników i procedury, jedna głowa Alembica (#1768); (2) `auto-enqueue` czyta BIEŻĄCE etykiety/draft z API, nie migawkę ze zdarzenia (#1770); (3) wypadnięcie z kolejki → `queue-failure-feedback.yml` ustawia na head PR-a status „Kolejka merge'ów” = failure i komentarz z listą padniętych testów — to budzi auto-fix sesji właściciela (#1775); co poniedziałek `queue-weekly-report.yml` aktualizuje issue z etykietą `raport-kolejki` (testy wyrzucające PR-y, których sito nie wybiera = kandydaci na reguły sita); (4) kolizja numeru migracji po scaleniu maina → `cd backend && python3 scripts/rechain_migration.py [--dry-run]` przepina migrację PR-a na głowę maina i przenumerowuje TYLKO linie dodane przez PR (#1772); (5) pytest w 12 shardach + Vitest z pokryciem w osobnym jobie `frontend-vitest`, wymagany kontekst „Frontend (typecheck + build)” to bramka zbierająca oba joby — bieg kolejki ~10,7 min zamiast 13 (#1773). Wypadł PR z kolejki = najpierw przyczyna z logów `merge_group`, potem poprawka; samo ponowne `gh pr merge --auto` wraca na ten sam pad.
+- **„Dziś” = kalendarz firmy (Europe/Warsaw), kontenery i CI chodzą w UTC.** `business_today()` / `local_now()` z `app/core/scheduling.py`; ruff DTZ011 (`date.today()`) i DTZ005 (`datetime.now()` bez strefy) są włączone dla `app/` i `tests/` (#1771, bramka w `ci-gate.yml`). W testach żadnych dat liczonych przy imporcie modułu (`_TODAY = business_today()` na poziomie modułu, w dekoratorze czy argumencie domyślnym) — pilnuje `tests/test_no_import_time_dates.py`; dawne przypinanie zegara w conftest (`_pin_business_day`) usunięte, bo zamrażało Pythona na 23:59, a `now()` Postgresa szło dalej (23.09: CI czerwone co wieczór 22–24 UTC). Test porównujący czas z Pythona ze znacznikiem nadanym przez bazę bierze punkt odniesienia z bazy (`SELECT now()`). W kodzie aplikacji data kalendarzowa z UTC (`now(timezone.utc).date()`, `strftime('%Y-%m-%d')` na czasie UTC, `.astimezone().date()`, SQL `CURRENT_DATE`) jest zakazana przez `tests/test_no_utc_calendar_date.py` — wyjątek tylko z komentarzem `# dzień UTC celowo: <powód>` (#1779; 17 miejsc przełączonych na Warszawę, m.in. alerty terminów rekrutacji wychodziły dzień za wcześnie między 00:00 a 02:00).
 - **40+ feature branches w remote** — przy `git checkout` weryfikuj że `main` pociągnięty (`git fetch && git log origin/main..HEAD`).
 - **Minuty GitHub Actions są płatne od września 2026 — i to NEXUS je zjada.** Pula 50 000 min/mc organizacji `B2B-net-S-A` wyszła: rachunek za wrzesień to 47 273 min, rabat $0.00, $283,64 do zapłaty przy $0,006/min. Z tego **NEXUS to 46 784 min (99,3%)** — ATLAS 138, COMPASS 117, ELEVATE 92. Rozkład (zmierzone z jobów 16–20.09, pokrywa 91% kwoty): **CI 83,7%** (4 shardy pytest 14 470 min + frontend 3 677 min = 96% kosztu CI; od 22.09 pełny bieg tylko w kolejce), E2E 8,9%, CI Gate 5,5%, Deploy 1,5%, crony 0,4%. Crony NIE są problemem — pięć dni roboczych fali naprawczej (14–18.09) to 42 565 min, czyli 90% miesięcznej puli; weekendy po 24–30 min. Cztery cięcia z 20.09, każde z kontraktem w `test_ci_deploy_workflows_contract.py`: (1) **pełne CI zdjęte z `push: main`** — od włączenia kolejki merge'ów `merge_group` waliduje DOKŁADNIE to drzewo, które ląduje na mainie, więc przebieg na push był trzecim wykonaniem tego samego kodu (3 946 min / 5 dni = 18% rachunku); bramką deployu było i jest „CI Gate”, więc nic się nie odbramkowało, ale **tracimy sygnał „main się zepsuł” PO merge'u — gdyby kolejka została wyłączona, `push: branches: [main]` MUSI tu wrócić**; (2) **E2E przeniesione z każdego PR-a do kolejki** (1 506 min / 5 dni za 226 przebiegów, z których czerwone były 3, przy zerowym bramkowaniu — nie jest wymaganym kontekstem); (3) **filtr ścieżek na frontendzie** — 25% PR-ów nie tyka frontendu (29 z 116, zmierzone prawdziwym skryptem filtra uruchomionym z katalogu joba), oszczędza ~16 z 17 min; (4) `claude-review.yml` usunięty (174 przebiegi w 5 dni, wszystkie `skipped` przy `CLAUDE_ENABLED=false`).
 - **Filtra ścieżek NIE MA i nie będzie na shardach pytest — policzone, nie przeoczone.** Testy backendu czytają 37 ścieżek spoza `backend/`: parsują workflowy (`test_ci_deploy_workflows_contract`), `docs/`, `scripts/` oraz **29 plików frontendu** jako lustra kontraktów (`test_delivery_contract`, `test_client_tab_links`, `test_orders_procedure_freshness`). Po uwzględnieniu tych sprzężeń backend dałby się pominąć w **4 PR-ach na 116 (3%)** — za to ryzyko, że zmiana frontendu wywróci na mainie kontrakt, którego nikt nie uruchomił. Filtr frontendu jest bezpieczny tylko dlatego, że lustra w drugą stronę (7 ścieżek `backend/app/...` czytanych przez `capabilities.test.ts`) **wylicza z repo grepem, nie z listy w YAML-u** — lista wpisana na sztywno zgniłaby cicho przy pierwszym nowym lustrze. `Frontend (typecheck + build)` jest wymaganym kontekstem rulesetu, więc job **zawsze się zgłasza**; pominięte są tylko jego drogie kroki. Nie zamieniaj tego na `if:` na poziomie joba: „`skipped` liczy się za sukces” to umowa GitHuba, nie nasza, a jej zmiana zaklinowałaby kolejkę (`ALLGREEN`) bez żadnego komunikatu.
@@ -3074,9 +3076,15 @@ osobę od Cpro per rekrutacja (0353) i kolejkę „Czeka na DZ” (0348).
 - **Kto widzi „Czeka na Ciebie” (decyzja Artura 24.09.2026, `board_tasks._sees_*`):**
   obie listy Cpro — wyłącznie osoba od Cpro (gdy nikt nie jest ustawiony: listę
   „do wrzucenia” widzi admin i HoR, bo tylko tam da się kogoś ustawić; DL nigdy);
-  przegląd DL — Delivery Lead rekrutacji (`jobs.delivery_lead_id` wygrywa, bez
-  niego portfel klienta), a admin i HoR tylko rekrutacje bez żadnego DL
-  (plakietka „bez DL”). Poranny skrót liczy tą samą regułą.
+  przegląd DL — wyłącznie Delivery Lead rekrutacji (`jobs.delivery_lead_id`
+  wygrywa, bez niego portfel klienta); admin i HoR go nie widzą. Poranny skrót
+  liczy tą samą regułą.
+- **Rekrutacja bez DL-a dostaje głównego DL-a klienta**
+  (`services/job_delivery_lead_fill.py`, 24.09.2026): tylko `draft`/`published`,
+  tylko puste pole (nigdy nadpis), główny DL (`is_head`, aktywny). Woła ją start
+  aplikacji, faza `jobs` importu Traffita i przypisanie/zmiana głównego DL-a
+  klienta. Zamkniętych nie rusza — statystyki DL liczą je przez tego samego
+  głównego DL-a. Skutek: alerty DL-owe tych rekrutacji idą do DL-a, nie do HoR.
 - **„Dodaj kandydatów”** (`AddCandidatesPanel`): jedno wejście z nagłówka i z kolumny
   Nowi, zakładki wyszukiwanie AI z Championa · propozycje · Moi ludzie · ręcznie.
 
@@ -5202,7 +5210,7 @@ albo próg — a wtedy nikt nie ma powodu wchodzić do modułu Pomoc.
 **Zmieniasz cokolwiek w logice zamówień → przejrzyj instrukcję i przestempluj:**
 
 ```bash
-cd backend && python scripts/stamp_orders_procedure.py
+cd backend && python3 scripts/stamp_orders_procedure.py   # sprawdzenie bez zapisu: python3 scripts/check_stamps.py
 ```
 
 `tests/test_orders_procedure_freshness.py` trzyma CI na czerwono, dopóki tego nie
@@ -5219,9 +5227,14 @@ poprawny i też kończy się przestemplowaniem — to nie jest obejście.
   odświeża wiersz tak długo, jak nikt nie tknął go w aplikacji; edycja przez
   `PUT /api/procedures/{id}` stempluje autora i od tej chwili wiersz zostaje
   taki, jaki zapisał człowiek. Sama instrukcja mówi o tym czytelnikowi wprost.
-- **Data w treści i w stemplu muszą być równe** — test to sprawdza, a skrypt
-  ustawia obie naraz. Ta data jest jedynym sygnałem świeżości, jaki widzi
-  Delivery Lead.
+- **Stemple są per plik** (`app/data/procedures/orders_stamps/<ścieżka z / → __>.json`,
+  od #1776) — dwa PR-y zmieniające RÓŻNE pliki logiki zamówień nie zderzają się
+  już na wspólnym stemplu; ten sam plik = konflikt, i słusznie (ktoś musi
+  przejrzeć). Skrypt przepisuje tylko stemple, które się rozjechały (`--only`).
+  **Data w treści zmienia się tylko przy edycji samej treści** (tekst ma własny
+  stempel) — przegląd „ta zmiana nie dotyczy instrukcji” daty nie rusza, więc
+  widoczna data może być starsza od ostatniego przeglądu, nigdy nowsza. Hook
+  `review-stamps` w `.pre-commit-config.yaml` sprawdza stemple przed commitem.
 - **Spis treści w module Pomoc** powstaje z DOM-u (`lib/procedure-headings.ts`),
   nie z parsowania Markdownu — parser po naszej stronie musiałby powtórzyć
   zachowanie `react-markdown` co do joty, a każdy rozjazd to link prowadzący
@@ -6467,7 +6480,9 @@ przewodników bez przeglądu człowieka (pilnuje test świeżości), bez głosu 
   z `GET /api/help/screens` (obrazy Dockera nie widzą swoich katalogów), Jarvis
   narzędziem `get_screen_guide`. Każdy wpis ma `sources` — zmiana któregoś pliku
   albo samego wpisu = czerwony `test_screen_guides_freshness.py`; po przeglądzie
-  `cd backend && python scripts/stamp_screen_guides.py`. Treść jest dla
+  `cd backend && python3 scripts/stamp_screen_guides.py` (stemple per ekran w
+  `screen_guides/stamps/<klucz>.json` od #1776 — PR-y na różnych ekranach się
+  nie zderzają). Treść jest dla
   rekrutera: bez ścieżek, tras i nazw tabel (test to sprawdza). Stary
   `OnboardingWalkthrough` usunięty — zgnił dokładnie tak („Ogłoszenia").
 - **Kotwice `data-help="<klucz>.<nazwa>"`** na istniejących elementach 12

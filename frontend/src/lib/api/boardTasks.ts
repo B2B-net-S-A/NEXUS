@@ -49,9 +49,6 @@ export interface BoardTaskRow {
   /** v5: wynik QC CV (przegląd DL = osoby w kolumnie „QC CV"). */
   qc_status?: QcStatus | null;
   qc_blocking_failed?: number | null;
-  /** Przegląd DL rekrutacji bez żadnego Delivery Leada — trafia do admina
-   *  i Head of Recruitment, bo inaczej nikt by go nie zobaczył. */
-  without_delivery_lead?: boolean;
 }
 
 /** 0370: prep przed rozmową u klienta, który wymaga uwagi. Widzi go
