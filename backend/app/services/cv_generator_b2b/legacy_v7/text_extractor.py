@@ -17,6 +17,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from app.core.zip_guard import assert_safe_ooxml
+
 logger = logging.getLogger(__name__)
 
 
@@ -90,6 +92,7 @@ def _extract_docx(data: bytes) -> str:
     """Pull paragraphs and table cells from a DOCX."""
     from docx import Document
 
+    assert_safe_ooxml(data)
     doc = Document(io.BytesIO(data))
     parts: list[str] = []
     for para in doc.paragraphs:

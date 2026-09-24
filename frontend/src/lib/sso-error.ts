@@ -34,6 +34,18 @@ const RULES: SsoErrorRule[] = [
       "Twoja domena email nie jest dopuszczona do logowania przez Microsoft. Skontaktuj się z administratorem.",
   },
   {
+    code: "foreign_tenant",
+    legacy: [],
+    message:
+      "To konto Microsoft nie należy do organizacji firmy. Zaloguj się kontem firmowym.",
+  },
+  {
+    code: "identity_mismatch",
+    legacy: [],
+    message:
+      "To konto NEXUS jest przypisane do innej tożsamości Microsoft. Poproś administratora o sprawdzenie konta.",
+  },
+  {
     code: "missing_identity_claims",
     legacy: ["missing identity claims"],
     message:

@@ -791,3 +791,137 @@ async def test_exchange_rejects_unknown_code(
         json={"code": "x" * 40},
     )
     assert resp.status_code == 410
+
+
+# ── Tożsamość i tenant (audyt bezpieczeństwa 24.09.2026) ────────────────────
+
+
+@pytest.mark.asyncio
+async def test_callback_refuses_a_different_identity_on_a_linked_account(
+    app_client_no_redirect: AsyncClient, monkeypatch, cleanup_sso_users
+):
+    """UPN nadany ponownie nowej osobie nie przejmuje starego konta z rolą."""
+    unique = uuid.uuid4().hex[:8]
+    email = f"reused-{unique}@b2bnetwork.pl"
+    cleanup_sso_users.append(email)
+    async with AsyncSessionLocal() as db:
+        db.add(
+            User(
+                email=email,
+                name="Poprzedni Właściciel",
+                role=UserRole.admin,
+                is_active=True,
+                profile_completed=True,
+                azure_oid=f"azure-oid-original-{unique}",
+            )
+        )
+        await db.commit()
+
+    _patch_token_exchange(
+        monkeypatch,
+        {
+            "preferred_username": email,
+            "oid": f"azure-oid-newcomer-{unique}",
+            "name": "Nowa Osoba",
+        },
+    )
+    resp = await app_client_no_redirect.get(
+        "/api/auth/microsoft/callback",
+        params={"code": "graph-code", "state": _make_state("v" * 64)},
+    )
+    assert resp.status_code == 302
+    assert "error=identity_mismatch" in resp.headers["location"]
+
+    async with AsyncSessionLocal() as db:
+        u = await db.scalar(select(User).where(User.email == email))
+        assert u.azure_oid == f"azure-oid-original-{unique}"
+        codes = (
+            await db.execute(
+                select(AuthExchangeCode).where(AuthExchangeCode.user_id == u.id)
+            )
+        ).all()
+        assert codes == []
+
+
+@pytest.mark.asyncio
+async def test_callback_refuses_a_foreign_tenant(
+    app_client_no_redirect: AsyncClient, monkeypatch, cleanup_sso_users
+):
+
+    ours = str(uuid.uuid4())
+    monkeypatch.setattr(settings, "M365_TENANT_ID", ours)
+    unique = uuid.uuid4().hex[:8]
+    email = f"foreign-{unique}@b2bnetwork.pl"
+    cleanup_sso_users.append(email)
+    _patch_token_exchange(
+        monkeypatch,
+        {
+            "preferred_username": email,
+            "oid": f"azure-oid-foreign-{unique}",
+            "tid": str(uuid.uuid4()),
+        },
+    )
+    resp = await app_client_no_redirect.get(
+        "/api/auth/microsoft/callback",
+        params={"code": "graph-code", "state": _make_state("v" * 64)},
+    )
+    assert resp.status_code == 302
+    assert "error=foreign_tenant" in resp.headers["location"]
+    async with AsyncSessionLocal() as db:
+        assert await db.scalar(select(User).where(User.email == email)) is None
+
+
+@pytest.mark.asyncio
+async def test_admin_can_unpin_the_microsoft_identity(
+    app_client, app_auth_headers, app_client_no_redirect, monkeypatch, cleanup_sso_users
+):
+    """Po odmowie `identity_mismatch` admin odpina tożsamość i nowe konto
+    Microsoft przypina się przy następnym logowaniu."""
+    unique = uuid.uuid4().hex[:8]
+    email = f"unpin-{unique}@b2bnetwork.pl"
+    cleanup_sso_users.append(email)
+    async with AsyncSessionLocal() as db:
+        u = User(
+            email=email,
+            name="Odtworzone Konto",
+            role=UserRole.recruiter,
+            is_active=True,
+            profile_completed=True,
+            oauth_provider="microsoft",
+            external_id=f"azure-oid-old-{unique}",
+            azure_oid=f"azure-oid-old-{unique}",
+        )
+        db.add(u)
+        await db.commit()
+        user_id = u.id
+
+    resp = await app_client.put(
+        f"/api/admin/users/{user_id}",
+        json={"clear_microsoft_identity": True},
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+
+    async with AsyncSessionLocal() as db:
+        u = await db.get(User, user_id)
+        assert u.azure_oid is None
+        assert await db.scalar(
+            select(Activity).where(
+                Activity.entity_id == user_id,
+                Activity.action == "microsoft_identity_cleared",
+            )
+        )
+
+    _patch_token_exchange(
+        monkeypatch,
+        {"preferred_username": email, "oid": f"azure-oid-new-{unique}"},
+    )
+    resp = await app_client_no_redirect.get(
+        "/api/auth/microsoft/callback",
+        params={"code": "graph-code", "state": _make_state("v" * 64)},
+    )
+    assert resp.status_code == 302
+    assert "error=" not in resp.headers["location"]
+    async with AsyncSessionLocal() as db:
+        u = await db.get(User, user_id)
+        assert u.azure_oid == f"azure-oid-new-{unique}"

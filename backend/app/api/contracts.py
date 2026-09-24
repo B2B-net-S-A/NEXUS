@@ -1,6 +1,4 @@
-import base64
 import calendar
-import hashlib
 import logging
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
@@ -26,6 +24,12 @@ from sqlalchemy.orm import selectinload
 
 from app.analytics.capabilities import AnalyticsCapability, user_has_capability
 from app.api.contract_templates import _contract_vars, _jinja_env
+from app.core.printable_html import (
+    AUTOPRINT_HASH,
+    AUTOPRINT_JS,
+    PRINTABLE_CSP,
+    printable_document,
+)
 from app.core.database import get_db
 from app.core.scheduling import business_today
 from app.core.work_time import HOURS_PER_MONTH, MD_PER_MONTH
@@ -4240,36 +4244,30 @@ def _render_draft_body(template: ContractTemplate, contract: Contract) -> str:
 # Set per-route so it holds even in DEBUG and independent of the incidental
 # global default. An injected `<script>`/`onerror=` in the draft body has no
 # matching hash → the browser refuses to run it.
-_AUTOPRINT_JS = (
-    "window.addEventListener('load',()=>setTimeout(()=>window.print(),300));"
-)
-_AUTOPRINT_HASH = "sha256-" + base64.b64encode(
-    hashlib.sha256(_AUTOPRINT_JS.encode("utf-8")).digest()
-).decode("ascii")
-_CONTRACT_PREVIEW_CSP = (
-    "default-src 'none'; "
-    f"script-src '{_AUTOPRINT_HASH}'; "
-    "style-src 'unsafe-inline'; img-src data:; font-src data:"
+# Stałe i otoczka żyją w `app.core.printable_html` — ten sam dokument otwiera
+# front jako blob (bez nagłówków odpowiedzi), więc CSP jedzie też w <meta>.
+_AUTOPRINT_JS = AUTOPRINT_JS
+_AUTOPRINT_HASH = AUTOPRINT_HASH
+_CONTRACT_PREVIEW_CSP = PRINTABLE_CSP
+
+_CONTRACT_PRINT_STYLE = (
+    "<style>"
+    "body{font-family:'Helvetica',Arial,sans-serif;max-width:780px;"
+    "margin:40px auto;line-height:1.55;color:#222;padding:0 20px;}"
+    "h1,h2,h3{color:#111}"
+    "table{border-collapse:collapse;width:100%;margin:1em 0}"
+    "th,td{border:1px solid #ccc;padding:6px 10px;text-align:left}"
+    "@media print{body{margin:0;padding:0}}"
+    "</style>"
 )
 
 
 def _wrap_printable(body_html: str, contract_id: int, title: str) -> str:
     """Wrap raw body HTML with print-friendly stylesheet + auto-print script."""
-    return (
-        '<!DOCTYPE html><html><head><meta charset="utf-8">'
-        f"<title>{title} — kontrakt #{contract_id}</title>"
-        "<style>"
-        "body{font-family:'Helvetica',Arial,sans-serif;max-width:780px;"
-        "margin:40px auto;line-height:1.55;color:#222;padding:0 20px;}"
-        "h1,h2,h3{color:#111}"
-        "table{border-collapse:collapse;width:100%;margin:1em 0}"
-        "th,td{border:1px solid #ccc;padding:6px 10px;text-align:left}"
-        "@media print{body{margin:0;padding:0}}"
-        "</style>"
-        f"<script>{_AUTOPRINT_JS}</script>"
-        "</head><body>"
-        f"{body_html}"
-        "</body></html>"
+    return printable_document(
+        body_html,
+        f"{title} — kontrakt #{contract_id}",
+        head_extra=_CONTRACT_PRINT_STYLE,
     )
 
 

@@ -181,6 +181,9 @@ def _extract_docx(path: str) -> Optional[str]:
     try:
         from docx import Document  # type: ignore[import-untyped]
 
+        from app.core.zip_guard import assert_safe_ooxml
+
+        assert_safe_ooxml(path)
         doc = Document(path)
         lines = [p.text for p in doc.paragraphs if p.text]
         # Include table cells — CVs often layout experience as tables.

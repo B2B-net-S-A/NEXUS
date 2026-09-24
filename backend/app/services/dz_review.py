@@ -40,6 +40,7 @@ from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.zip_guard import assert_safe_ooxml
 from app.models.candidate import Candidate
 from app.models.candidate_stage_cv import CandidateStageCV
 from app.models.cv_generated_document import CvGeneratedDocument
@@ -676,6 +677,7 @@ def docx_blocks(data: bytes) -> list[Block]:
     from docx.table import Table
     from docx.text.paragraph import Paragraph
 
+    assert_safe_ooxml(data)
     doc = Document(io.BytesIO(data))
     blocks: list[Block] = []
     in_experience = False

@@ -24,6 +24,8 @@ export interface UserFormData {
   recruiter_role: string;
   /** Imienne uprawnienie do usuwania klientów (tylko edycja istniejącego konta). */
   can_delete_clients: boolean;
+  /** Odpina tożsamość Microsoft — następne logowanie SSO przypnie nowe konto. */
+  clear_microsoft_identity: boolean;
 }
 
 // Pełna lista ról systemu (sync z backend/app/models/user.py:UserRole).

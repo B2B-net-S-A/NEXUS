@@ -7,6 +7,8 @@ import re
 import unicodedata
 from copy import deepcopy
 
+from app.core.zip_guard import assert_safe_ooxml
+
 
 def folded(value: str) -> str:
     return "".join(
@@ -47,6 +49,7 @@ def document_text(data: bytes) -> str:
                     if cells:
                         yield " | ".join(cells)
 
+    assert_safe_ooxml(data)
     return "\n".join(blocks(Document(io.BytesIO(data))))
 
 
@@ -55,6 +58,7 @@ def table_profile(data: bytes) -> dict | None:
     from docx import Document
     from docx.text.paragraph import Paragraph
 
+    assert_safe_ooxml(data)
     doc = Document(io.BytesIO(data))
     profile = {
         key: {}

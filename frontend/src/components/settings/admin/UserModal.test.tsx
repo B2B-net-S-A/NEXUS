@@ -211,3 +211,28 @@ describe("UserModal — imienne uprawnienie do usuwania klientów", () => {
     expect(screen.getByRole("alert")).toHaveTextContent(/domenie firmy/);
   });
 });
+
+describe("UserModal — odpięcie tożsamości Microsoft (audyt 24.09.2026)", () => {
+  it("wysyła odpięcie tylko po zaznaczeniu", () => {
+    const onSave = vi.fn();
+    render(
+      <UserModal
+        initial={{ id: 5, role: "recruiter", roles: ["recruiter"] }}
+        onClose={vi.fn()}
+        onSave={onSave}
+        loading={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
+    expect(onSave).toHaveBeenLastCalledWith(
+      expect.objectContaining({ clear_microsoft_identity: false }),
+    );
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Odepnij tożsamość Microsoft" }));
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
+    expect(onSave).toHaveBeenLastCalledWith(
+      expect.objectContaining({ clear_microsoft_identity: true }),
+    );
+  });
+});

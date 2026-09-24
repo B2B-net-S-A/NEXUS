@@ -23,7 +23,7 @@ from app.api.deps import AdminUser
 from app.core.database import get_db
 from app.core.security import hash_password
 from app.models.oauth_client import SCOPE_LABELS, OAuthClient, OAuthScope
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.oauth_client import (
     OAuthClientCreate,
     OAuthClientCreateResponse,
@@ -53,6 +53,18 @@ async def _validate_acting_user(db: AsyncSession, user_id: int) -> None:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="acting_user_id must reference an existing, active user",
+        )
+    # Token klienta przechodzi przez `get_current_user` jak token człowieka,
+    # więc klient działający jako admin to trwały, bezosobowy admin: sekret
+    # przeżywa odejście autora i rotację SECRET_KEY (audyt 24.09.2026).
+    # Integracja dostaje własne konto z rolą operacyjną.
+    if user.has_role(UserRole.admin):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Klient OAuth nie może działać jako administrator — załóż "
+                "osobne konto integracji z rolą operacyjną."
+            ),
         )
 
 

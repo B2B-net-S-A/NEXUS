@@ -478,3 +478,36 @@ def test_has_usable_password_for_a_real_hash():
     hashed = hash_password("Haslo123!")
     assert has_usable_password(hashed) is True
     assert verify_password("Haslo123!", hashed) is True
+
+
+# ── Klient nie działa jako administrator (audyt bezpieczeństwa 24.09.2026) ──
+
+
+class _ScalarDb:
+    def __init__(self, value):
+        self._value = value
+
+    async def scalar(self, _stmt):
+        return self._value
+
+
+@pytest.mark.asyncio
+async def test_acting_user_cannot_be_an_admin():
+    from app.api.oauth_clients import _validate_acting_user
+    from app.models.user import UserRole
+
+    admin = SimpleNamespace(
+        is_active=True, has_role=lambda role: role == UserRole.admin
+    )
+    with pytest.raises(HTTPException) as exc:
+        await _validate_acting_user(_ScalarDb(admin), 7)
+    assert exc.value.status_code == 422
+    assert "administrator" in exc.value.detail
+
+
+@pytest.mark.asyncio
+async def test_operational_acting_user_is_accepted():
+    from app.api.oauth_clients import _validate_acting_user
+
+    recruiter = SimpleNamespace(is_active=True, has_role=lambda role: False)
+    await _validate_acting_user(_ScalarDb(recruiter), 7)

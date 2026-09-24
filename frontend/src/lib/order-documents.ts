@@ -8,6 +8,7 @@
  * przeglądarce same-origin blob URL. Wzorzec jak ``contract-documents.ts``.
  */
 
+import { inlineSafeType } from "./inline-file-type";
 import { getAuthenticatedRequestHeaders } from "./session";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -47,14 +48,18 @@ export async function openOrderDocument(doc: OrderDocumentRef): Promise<void> {
   const win = typeof window !== "undefined" ? window.open("", "_blank") : null;
   try {
     const raw = await fetchOrderDocumentBlob(doc.client_id, doc.order_id);
-    const blob = doc.content_type
-      ? new Blob([raw], { type: doc.content_type })
-      : raw;
+    // Inline tylko PDF i obrazy rastrowe — HTML/SVG z bloba działa pod
+    // originem aplikacji (patrz `inline-file-type.ts`); reszta do pobrania.
+    const safeType = inlineSafeType(doc.content_type, raw.type);
+    const blob = new Blob([raw], {
+      type: safeType ?? "application/octet-stream",
+    });
     const url = URL.createObjectURL(blob);
     const name = doc.filename || `zamowienie-${doc.order_id}.pdf`;
-    if (win) {
+    if (win && safeType) {
       win.location.href = url;
     } else {
+      if (win) win.close();
       triggerDownload(url, name);
     }
     window.setTimeout(() => URL.revokeObjectURL(url), 60_000);

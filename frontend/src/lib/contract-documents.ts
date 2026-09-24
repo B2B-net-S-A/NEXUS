@@ -12,6 +12,7 @@
  * status 0 na prod — patrz `FilePreviewModal.fetchDocumentBlob` (2026-05-25).
  */
 
+import { inlineSafeType } from "./inline-file-type";
 import { getAuthenticatedRequestHeaders } from "./session";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -59,14 +60,18 @@ export async function openContractDocument(
     const raw = await fetchContractDocumentBlob(contractId, doc.id);
     // Wymuś poprawny MIME — Blob bez typu (octet-stream) wymusiłby download
     // zamiast inline renderu PDF/obrazu.
-    const blob = doc.content_type
-      ? new Blob([raw], { type: doc.content_type })
-      : raw;
+    // Inline tylko PDF i obrazy rastrowe — HTML/SVG z bloba działa pod
+    // originem aplikacji (patrz `inline-file-type.ts`); reszta do pobrania.
+    const safeType = inlineSafeType(doc.content_type, raw.type);
+    const blob = new Blob([raw], {
+      type: safeType ?? "application/octet-stream",
+    });
     const url = URL.createObjectURL(blob);
-    if (win) {
+    if (win && safeType) {
       win.location.href = url;
     } else {
-      // Popup zablokowany — pobierz zamiast otwierać.
+      if (win) win.close();
+      // Popup zablokowany albo typ spoza listy — pobierz zamiast otwierać.
       triggerDownload(url, doc.filename);
     }
     // Nowa karta wciąż czyta blob — zwolnij dopiero po chwili.

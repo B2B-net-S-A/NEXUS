@@ -67,7 +67,9 @@ regexes = [
   # nie ma), a pojawia się w testach redakcji logów jako realistyczna atrapa.
   # Po WARTOŚCI, nie po ścieżce: allowlistowanie ``backend/tests/`` oślepiłoby
   # skaner na katalog, w którym prawdziwy token wkleja się najłatwiej.
-  '''eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9''',
+  # Zakotwiczone (audyt 24.09.2026): bez ``^…$`` wpis pasował jako PODCIĄG
+  # każdego pełnego tokenu HS256, więc zacommitowany prawdziwy JWT przechodził.
+  '''^eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9$''',
   # Dosłowna atrapa z asercji ``redact_sensitive("token=abcdef123456")``.
   # Zakotwiczona, bo ten globalny blok dopasowuje regexy do SAMEGO SEKRETU
   # (``regexTarget`` domyślnie ``"secret"``, nie ``"line"`` jak w blokach

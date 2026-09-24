@@ -712,7 +712,9 @@ async def test_sso_callback_rolls_back_when_aad_would_remove_last_admin(
         monkeypatch,
         {
             "preferred_username": email,
-            "oid": f"new-oid-{unique}",
+            # Ta sama tożsamość — inny `oid` na przypiętym koncie jest od
+            # 24.09.2026 odrzucany wcześniej (identity_mismatch).
+            "oid": original_oid,
             "name": "Last AAD Admin Changed",
         },
     )
