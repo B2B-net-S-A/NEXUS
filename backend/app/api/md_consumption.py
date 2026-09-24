@@ -580,6 +580,40 @@ async def _lock_finance_target_orders(
     return locked
 
 
+async def _md_family_line_ids(db: AsyncSession, group_ids: set[int]) -> set[int]:
+    """Linie zamówień MD celów importu wraz z ich poprzednikami i następcami."""
+
+    if not group_ids:
+        return set()
+    predecessors = set(
+        (
+            await db.scalars(
+                select(ClientOrderGroup.predecessor_group_id).where(
+                    ClientOrderGroup.id.in_(group_ids),
+                    ClientOrderGroup.predecessor_group_id.is_not(None),
+                )
+            )
+        ).all()
+    )
+    successors = set(
+        (
+            await db.scalars(
+                select(ClientOrderGroup.id).where(
+                    ClientOrderGroup.predecessor_group_id.in_(group_ids)
+                )
+            )
+        ).all()
+    )
+    family = group_ids | predecessors | successors
+    return set(
+        (
+            await db.scalars(
+                select(ClientOrder.id).where(ClientOrder.order_group_id.in_(family))
+            )
+        ).all()
+    )
+
+
 async def _lock_finance_target_groups(
     db: AsyncSession, groups: dict[int, ClientOrderGroup]
 ) -> dict[int, ClientOrderGroup]:
@@ -913,7 +947,18 @@ async def create_import(
             if order.order_group_id is not None
         }
     )
-    locked_orders = await _lock_finance_target_orders(db, set(expected_group_by_order))
+    # S8 (audyt 24.09.2026): zapis MD per osoba dotyka też linii poza celami
+    # z arkusza — poprzednika (FIN-MD-01), następcy (nadwyżka), następcy
+    # zamiany i celu przeniesienia puli (korekty FIN-MD-02). Ich kontrakty
+    # i wiersze blokujemy RAZEM z celami, w jednej kolejności kontrakt →
+    # linia → grupa; blokada kontraktu wzięta później szłaby po blokadach
+    # linii i grup i zamykała cykl z anulowaniem/zakończeniem zamówienia.
+    family_line_ids = await _md_family_line_ids(
+        db, {group.id for _, group in md_orders.values()}
+    )
+    locked_orders = await _lock_finance_target_orders(
+        db, set(expected_group_by_order) | family_line_ids
+    )
     for order_id, expected_group_id in expected_group_by_order.items():
         if locked_orders[order_id].order_group_id != expected_group_id:
             raise HTTPException(

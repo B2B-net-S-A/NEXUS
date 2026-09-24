@@ -393,6 +393,47 @@ async def test_deleting_a_line_that_received_a_transferred_pool_is_refused(
     assert await _line_row(target_id) is not None
 
 
+# ── S8: blokady linii następcy/celu nie gubią zmian z tej samej sesji ────────
+
+
+async def test_transfer_to_a_replacement_line_keeps_the_transferred_md(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Przeniesienie puli na osobę, która zastąpiła odchodzącego
+    (`replaces_order_id` → `predecessor_order_id`): przeliczenie źródła woła
+    korektę następcy, a ta nie może nadpisać celu stanem z bazy — dodane MD
+    przepadłyby, a źródło i tak by je straciło."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order import ClientOrder
+    from tests.test_offboarding_restore_decision import (
+        _add_target_line,
+        _line_state,
+        _resolve_url,
+        _seed_pending_case,
+    )
+
+    seed = await _seed_pending_case()
+    _enable_multi(monkeypatch, seed["client_id"])
+    target_id = await _add_target_line(seed)
+    async with AsyncSessionLocal() as db:
+        (await db.get(ClientOrder, target_id)).predecessor_order_id = seed["line_id"]
+        await db.commit()
+
+    resp = await app_client.post(
+        _resolve_url(seed),
+        json={
+            "action": "transfer",
+            "target_order_id": target_id,
+            "rate_basis": "departing",
+            "expected_version": 1,
+        },
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert (await _line_state(target_id))["md_total"] == Decimal("140")
+    assert (await _line_state(seed["line_id"]))["md_total"] == Decimal("0")
+
+
 # ── S1: walidacja zamiany kontraktora ───────────────────────────────────────
 
 

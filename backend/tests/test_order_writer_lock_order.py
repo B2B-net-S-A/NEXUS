@@ -64,6 +64,21 @@ EXEMPT: dict[tuple[str, str], str] = {
         "services/order_mail_apply.py",
         "_renewal_of_completed_order",
     ): "FOR SHARE w pętli _write_document, po blokadzie całego dokumentu",
+    (
+        "services/client_order_lines.py",
+        "_rebalance_swap_successor",
+    ): (
+        "blokada samego wiersza następcy z tej samej grupy (audyt 24.09, S8) — "
+        "nowa blokada kontraktu szłaby po blokadach linii i grup wołającego; "
+        "import blokuje kontrakty rodziny zamówień z góry"
+    ),
+    (
+        "services/client_order_lines.py",
+        "_rebalance_offboarding_transfer",
+    ): (
+        "blokada samego wiersza celu przeniesienia z tej samej grupy (audyt "
+        "24.09, S8) — bez nowej blokady kontraktu po blokadach linii i grup"
+    ),
 }
 
 # Blokady NAGŁÓWKA zamówienia MD/kosztowego (``ClientOrderGroup``) bez helpera

@@ -1590,19 +1590,7 @@ async def _rebalance_swap_successor(db: AsyncSession, order: ClientOrder) -> Non
     )
     if len(successors) != 1 or successors[0].md_total is None:
         return
-    # S8 (audyt 24.09.2026): korekta pisze na linii NASTĘPCY — pod blokadą,
-    # w kolejności kontrakt → linia, i na świeżym stanie wiersza.
-    from app.services.contract_lifecycle import lock_contract_then_orders
-
-    await lock_contract_then_orders(db, order_ids=[successors[0].id])
-    succ = await db.scalar(
-        select(ClientOrder)
-        .where(ClientOrder.id == successors[0].id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
-    if succ is None or succ.md_total is None:
-        return
+    succ = successors[0]
     event = await db.scalar(
         select(ClientOrderGroupEvent)
         .where(
@@ -1671,6 +1659,14 @@ async def _rebalance_swap_successor(db: AsyncSession, order: ClientOrder) -> Non
         succ.md_optional_total, new_optional
     ):
         return
+    # S8 (audyt 24.09.2026): korekta pisze na linii NASTĘPCY — pod blokadą
+    # samego wiersza. Nowa blokada kontraktu tutaj szłaby PO blokadach linii
+    # i grup wołającego (import blokuje kontrakty całej rodziny zamówień
+    # z góry, decyzje o puli — linie grupy). Bez odświeżania obiektu:
+    # niezapisane zmiany następcy w tej sesji muszą przetrwać.
+    await db.execute(
+        select(ClientOrder.id).where(ClientOrder.id == succ.id).with_for_update()
+    )
     previous_total = Decimal(str(succ.md_total))
     succ_name = await _person_name(db, succ)
     succ.md_total = new_total
@@ -1739,17 +1735,7 @@ async def _rebalance_offboarding_transfer(db: AsyncSession, order: ClientOrder) 
         order.md_total, payload.get("source_md_total_after")
     ) or not _same_md(order.md_optional_total, payload.get("source_md_optional_after")):
         return  # linia odchodzącego edytowana ręcznie
-    # S8: korekta pisze na linii CELU przeniesienia — pod blokadą, kontrakt →
-    # linia, na świeżym stanie wiersza.
-    from app.services.contract_lifecycle import lock_contract_then_orders
-
-    await lock_contract_then_orders(db, order_ids=[case.target_order_id])
-    target = await db.scalar(
-        select(ClientOrder)
-        .where(ClientOrder.id == case.target_order_id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
+    target = await db.get(ClientOrder, case.target_order_id)
     if target is None or target.md_total is None:
         return
     if not _same_md(target.md_total, payload.get("target_md_total_after")):
@@ -1798,6 +1784,13 @@ async def _rebalance_offboarding_transfer(db: AsyncSession, order: ClientOrder) 
         from app.services.order_line_takeover import round_to_tenth
 
         new_transferred = round_to_tenth(new_transferred)
+    # S8: korekta pisze na linii CELU przeniesienia — pod blokadą samego
+    # wiersza (bez nowej blokady kontraktu po blokadach linii i grup
+    # wołającego), bez odświeżania obiektu, żeby niezapisane zmiany celu
+    # w tej sesji przetrwały.
+    await db.execute(
+        select(ClientOrder.id).where(ClientOrder.id == target.id).with_for_update()
+    )
     delta = new_transferred - quantize_md(old_transferred)
     target.md_total = quantize_md(Decimal(str(target.md_total)) + delta)
     if target.md_input_mode == INPUT_MODE_AMOUNT:
@@ -2390,11 +2383,12 @@ async def apply_md_consumption(
             order, group = pred_line, pred_group
         successor_line, successor_group = await successor_line_for(db, order)
         if successor_line is not None:
-            # S8: zapis na linii następcy pod blokadą — kontrakt → linia, jak
-            # każdy writer zamówień — i na świeżym stanie wiersza.
-            from app.services.contract_lifecycle import lock_contract_then_orders
-
-            await lock_contract_then_orders(db, order_ids=[successor_line.id])
+            # S8: zapis na linii następcy pod blokadą wiersza, na świeżym
+            # stanie. Import blokuje z góry kontrakty i linie całej rodziny
+            # zamówień (kontrakt → linia → grupa), więc tu nie bierzemy nowej
+            # blokady kontraktu — szłaby PO blokadach linii i grup. Flush
+            # przed odświeżeniem: niezapisane zmiany nie mogą przepaść.
+            await db.flush()
             successor_line = await db.scalar(
                 _line_query()
                 .where(ClientOrder.id == successor_line.id)
