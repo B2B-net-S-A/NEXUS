@@ -2654,20 +2654,31 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  }
  return ids;
  }, [cols, groupByColId, slaDays]);
- // „Mój ruch" — następny krok należy do rekrutera (ta sama funkcja co karta).
+ // „Mój ruch" — karty, na których plakietka mówi „Twój ruch" (`cardNextStep`
+ // — ta sama funkcja i te same kolumny Tablicy co karta). Do 24.09.2026 filtr
+ // liczył każdą kartę z ruchem po stronie rekrutera, także tę z imieniem innego
+ // rekrutera albo z „DL" w QC CV. Stos wejściowy („review" — Nowi z ogłoszeń)
+ // zostaje poza filtrem, jak w „Wymaga ruchu".
  const myMoveIds = useMemo(() => {
  const ids = new Set<number>();
- for (const col of cols) {
+ for (const col of [...displayCols, ...cols.filter((c) => isOffTemplate(c))]) {
  if (col.category === "terminal") continue;
  const group = groupByColId.get(colId(col));
+ const column = boardKeyByColId.get(colId(col)) ?? null;
  for (const item of col.items) {
- if (nextActionFor(item, col, { slaDays, group }).owner === "recruiter") {
- ids.add(item.id);
- }
+ const action = nextActionFor(item, col, { slaDays, group });
+ if (action.owner !== "recruiter") continue;
+ const step = cardNextStep(action, item, {
+ column,
+ cproEnabled,
+ stageBadge: boardFold.badgeByItemId.get(item.id) ?? null,
+ viewerId: authUser?.id ?? null,
+ });
+ if (step?.mine) ids.add(item.id);
  }
  }
  return ids;
- }, [cols, groupByColId, slaDays]);
+ }, [displayCols, cols, groupByColId, boardKeyByColId, boardFold, slaDays, cproEnabled, authUser?.id]);
  // „Ostrzeżenia" = weto hiring managera. Od 17.09.2026 nic nie BLOKUJE ruchu
  // (karta „Oczekuje" nie powstaje), więc filtr pokazuje karty z ostrzeżeniem.
  const blockedCount = useMemo(

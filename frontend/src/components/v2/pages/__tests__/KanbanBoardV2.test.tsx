@@ -1239,6 +1239,31 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     expect(screen.queryByRole("list", { name: "Grupy etapów pipeline" })).toBeNull();
   });
 
+  it("„Mój ruch” liczy tylko karty, na których plakietka mówi „Twój ruch” (nie cudze i nie DL)", async () => {
+    useAuthStore.setState({ user: { id: 5, role: "recruiter", roles: ["recruiter"] } } as never);
+    const columns = defaultB2BColumns() as unknown as Array<Record<string, unknown>>;
+    columns[2] = {
+      ...columns[2],
+      count: 2,
+      items: [
+        { id: 7201, candidate_id: 8201, stage: "verified", name: "Ola", lastname: "Moja", days_in_stage: 1, recruiter_id: 5, recruiter_name: "Ja Rekruter" },
+        { id: 7202, candidate_id: 8202, stage: "verified", name: "Ewa", lastname: "Cudza", days_in_stage: 1, recruiter_id: 9, recruiter_name: "Anna Kowal" },
+      ],
+    };
+    // QC CV zaliczone poza Nordeą — ruch ma Delivery Lead („DL”), nie rekruter.
+    columns[3] = {
+      ...columns[3],
+      count: 1,
+      items: [
+        { id: 7301, candidate_id: 8301, stage: "new", name: "Iga", lastname: "Mazur", days_in_stage: 1, recruiter_id: 5, qc: { status: "passed", blocking_failed: 0 } },
+      ],
+    };
+    renderBoard(columns as never);
+    await screen.findByTestId("pipeline-board");
+    // Screening (karta bez rekrutera = „Twój ruch”) + własna karta w „Zweryfikowanym”.
+    expect(screen.getByRole("button", { name: /^Mój ruch/ })).toHaveTextContent("Mój ruch · 2");
+  });
+
   it("„Mój ruch” i nazwisko przełączają się w pasku (aria-pressed)", async () => {
     renderBoard(defaultB2BColumns());
     await screen.findByTestId("pipeline-board");
