@@ -483,3 +483,33 @@ async def test_manual_add_twice_is_idempotent_and_takes_over_auto_row(
         )
         assert resp.status_code == 200, resp.text
     assert await _live_rows(job_id) == [(person, "manual", "active")]
+
+
+async def test_review_tab_pages_with_limit_and_offset(
+    app_client: AsyncClient, app_auth_headers: dict
+) -> None:
+    """Zakładka „Zakończone” niesie ~4 tys. wierszy — lista idzie stronami."""
+    await _seed_job(work_state="finished")
+    await _seed_job(work_state="finished")
+    first = await app_client.get(
+        "/api/request-work-states",
+        params={"tab": "finished", "limit": 1},
+        headers=app_auth_headers,
+    )
+    assert first.status_code == 200, first.text
+    body = first.json()
+    assert len(body["rows"]) == 1
+    assert body["total"] == body["counts"]["finished"] >= 2
+    assert body["has_more"] is True
+    second = await app_client.get(
+        "/api/request-work-states",
+        params={"tab": "finished", "limit": 1, "offset": 1},
+        headers=app_auth_headers,
+    )
+    assert second.json()["rows"][0]["job_id"] != body["rows"][0]["job_id"]
+    too_big = await app_client.get(
+        "/api/request-work-states",
+        params={"tab": "finished", "limit": 5000},
+        headers=app_auth_headers,
+    )
+    assert too_big.status_code == 422

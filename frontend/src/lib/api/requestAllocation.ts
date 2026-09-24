@@ -2,7 +2,7 @@
 // `backend/app/api/request_board.py`, `request_work_states.py`
 // i `competence_team.py`.
 
-import { useQuery } from "@tanstack/react-query"
+import { keepPreviousData, useQuery } from "@tanstack/react-query"
 
 import api from "@/lib/api"
 import { DASHBOARD_SECTION_POLL_MS } from "@/lib/polling"
@@ -119,22 +119,42 @@ export interface ReviewResponse {
   tab: VisibleState
   counts: Record<VisibleState, number>
   rows: ReviewRow[]
+  /** Wszystkich w zakładce (po filtrach) — lista idzie stronami. */
+  total?: number
+  has_more?: boolean
 }
 
-export function reviewQueryKey(tab: VisibleState, mine: boolean, q: string) {
-  return ["request-work-states", tab, mine, q] as const
+/** Pierwsza strona listy; „Pokaż więcej” podnosi limit o tyle samo. */
+export const REVIEW_PAGE_SIZE = 200
+
+export function reviewQueryKey(tab: VisibleState, mine: boolean, q: string, limit = REVIEW_PAGE_SIZE) {
+  return ["request-work-states", tab, mine, q, limit] as const
 }
 
-export function useRequestReview(tab: VisibleState, mine: boolean, q: string) {
+export function useRequestReview(
+  tab: VisibleState,
+  mine: boolean,
+  q: string,
+  limit: number = REVIEW_PAGE_SIZE,
+) {
   return useQuery<ReviewResponse>({
-    queryKey: reviewQueryKey(tab, mine, q),
+    queryKey: reviewQueryKey(tab, mine, q, limit),
     queryFn: async () =>
       (
         await api.get<ReviewResponse>("/api/request-work-states", {
-          params: { tab, mine, q: q || undefined },
+          params: { tab, mine, q: q || undefined, limit },
         })
       ).data,
     staleTime: 15_000,
+    // „Pokaż więcej” podnosi limit — bez tego lista znikałaby na czas odczytu.
+    // Tylko w tej samej zakładce i z tymi samymi filtrami: wiersze innej
+    // zakładki pod nagłówkiem nowej wyglądałyby jak jej treść.
+    placeholderData: (previous, previousQuery) => {
+      const key = previousQuery?.queryKey
+      return key && key[1] === tab && key[2] === mine && key[3] === q
+        ? keepPreviousData(previous)
+        : undefined
+    },
   })
 }
 
