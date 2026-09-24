@@ -1,0 +1,13 @@
+{
+  "_comment": "Wspólne przypadki reguły stanu requestu (0371): backend services/request_work_state.visible_state i front lib/request-work-state.ts czytają ten sam plik.",
+  "cases": [
+    {"work_state": "to_review", "champion": false, "visible": "to_review"},
+    {"work_state": "to_review", "champion": true, "visible": "to_review"},
+    {"work_state": "searching", "champion": false, "visible": "searching"},
+    {"work_state": "searching", "champion": true, "visible": "champion"},
+    {"work_state": "client_silent", "champion": true, "visible": "client_silent"},
+    {"work_state": "finished", "champion": false, "visible": "finished"},
+    {"work_state": "unknown", "champion": false, "visible": "to_review"},
+    {"work_state": null, "champion": false, "visible": "to_review"}
+  ]
+}

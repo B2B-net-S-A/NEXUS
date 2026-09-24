@@ -141,6 +141,21 @@ class Job(Base, TimestampMixin):
     champion_found_by: Mapped[Optional[int]] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+    # 0371: stan pracy nad requestem prowadzony w NEXUSIE (Traffit go nie
+    # nadpisuje — `job_column_ownership.NEXUS_OWNED`): to_review („Do
+    # przejrzenia”), searching („Szukamy kandydatów”), client_silent („Klient
+    # milczy”), finished („Zakończony”). „Mamy championa” NIE jest wartością —
+    # to `champion_found_at` przy stanie searching
+    # (`services/request_work_state.visible_state`).
+    work_state: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="to_review", server_default="to_review"
+    )
+    work_state_changed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    work_state_changed_by: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     # 0353: jedna osoba wysyła do Cpro kandydatów tej rekrutacji (Nordea) —
     # decyzja Artura 23.09.2026: „jedna osoba per cały proces".
     cpro_sender_id: Mapped[Optional[int]] = mapped_column(

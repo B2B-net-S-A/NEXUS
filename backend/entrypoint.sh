@@ -670,6 +670,9 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hired_order_missing'",
     # 0370: prep słaby / bez nagrania / brak prepu przed rozmową u klienta.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'prep_attention'",
+    # 0371: automat przydziału requestów — poranne zmiany i requesty do decyzji DL.
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'request_assignment_changed'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'request_review_needed'",
     # callstatus: zapisywane przez POST /api/cloudtalk/initiate-call. Uśpione,
     # bo CLOUDTALK_ENABLED=false — ale leży dokładnie na ścieżce aktywacji.
     "ALTER TYPE callstatus ADD VALUE IF NOT EXISTS 'initiated'",
@@ -5437,6 +5440,39 @@ _COLUMN_STATEMENTS = [
 )""",
     "CREATE INDEX IF NOT EXISTS ix_prep_meetings_fetch_queue ON prep_meetings (transcript_status, next_fetch_at)",
     "CREATE INDEX IF NOT EXISTS ix_prep_meetings_pair ON prep_meetings (candidate_id, job_id)",
+    # 0371: automat przydziału requestów — konto „Poza przydziałem”, stan pracy
+    # nad requestem (Traffit go nie nadpisuje) i „kto pracuje”. Jedno źródło:
+    # `app/services/request_allocation_schema.py` — pilnuje
+    # `test_request_allocation_schema.py`.
+    """ALTER TABLE users ADD COLUMN IF NOT EXISTS allocation_excluded BOOLEAN NOT NULL DEFAULT false""",
+    """ALTER TABLE jobs ADD COLUMN IF NOT EXISTS work_state VARCHAR(20) NOT NULL DEFAULT 'to_review'""",
+    """ALTER TABLE jobs ADD COLUMN IF NOT EXISTS work_state_changed_at TIMESTAMPTZ NULL""",
+    """ALTER TABLE jobs ADD COLUMN IF NOT EXISTS work_state_changed_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL""",
+    """DO $$ BEGIN
+    ALTER TABLE jobs ADD CONSTRAINT ck_jobs_work_state
+        CHECK (work_state IN ('to_review', 'searching', 'client_silent', 'finished'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    """CREATE INDEX IF NOT EXISTS ix_jobs_work_state ON jobs (work_state)""",
+    """CREATE TABLE IF NOT EXISTS job_work_assignments (
+    id SERIAL PRIMARY KEY,
+    job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role VARCHAR(20) NOT NULL,
+    source VARCHAR(20) NOT NULL,
+    state VARCHAR(20) NOT NULL,
+    assigned_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    assigned_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    released_at TIMESTAMPTZ NULL,
+    release_reason VARCHAR(40) NULL,
+    CONSTRAINT ck_job_work_assignments_role CHECK (role IN ('recruiter', 'sourcer')),
+    CONSTRAINT ck_job_work_assignments_source CHECK (source IN ('auto', 'manual')),
+    CONSTRAINT ck_job_work_assignments_state
+        CHECK (state IN ('proposed', 'active', 'released'))
+)""",
+    """CREATE INDEX IF NOT EXISTS ix_job_work_assignments_job_id ON job_work_assignments (job_id)""",
+    """CREATE UNIQUE INDEX IF NOT EXISTS ux_job_work_assignments_live ON job_work_assignments (job_id, user_id) WHERE state <> 'released'""",
+    """CREATE INDEX IF NOT EXISTS ix_job_work_assignments_user_state ON job_work_assignments (user_id, state)""",
+    """CREATE INDEX IF NOT EXISTS ix_job_work_assignments_changed ON job_work_assignments (assigned_at, released_at)""",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""
@@ -6365,7 +6401,10 @@ _DATA_STATEMENTS = [
     _ROLE_DASHBOARD_CUTOVER_SQL,
     # Seed 5 Competence Categories (migration 0033_cc_entities). Idempotent:
     # ON CONFLICT (slug) pomija duplikaty. Nie re-update'uje, bo Head of
-    # Recruitment mógł zmodyfikować opis/keywords w UI.
+    # Recruitment mógł zmodyfikować opis/keywords w UI. Od 0371 (24.09.2026)
+    # zespół ma CZTERY kategorie: nazwy nadaje i `data_ai` wyłącza blok
+    # „competence-categories-four” niżej (`competence_category_four.py`) —
+    # `data_ai` zostaje w tabeli nieaktywna, więc ten seed jej nie wskrzesza.
     """INSERT INTO competence_categories (slug, name_pl, name_en, description, keywords, display_order, is_active)
        VALUES
          ('infrastructure_operations', 'Infrastruktura i Operacje', 'Infrastructure & Operations',
@@ -9010,6 +9049,38 @@ async def promote():
     print(f"pending verification promotion: {summary or 'nothing to do'}")
 
 asyncio.run(promote())
+PY
+
+# Cztery kategorie kompetencji + stany startowe requestów (0371, 24.09.2026).
+# Decyzja Artura: zespół pracuje w czterech grupach z InfraReportera, a
+# „Dane i AI” oraz security należą do grupy Infra. SQL ma jedno źródło:
+# `app/services/competence_category_four.py` i
+# `app/services/request_allocation_schema.py` (to samo woła migracja 0371).
+# Oba kroki mają marker w `app_settings` + advisory lock → drugi start kończy
+# się od razu, a późniejsze decyzje DL o stanie requestu nie są nadpisywane.
+# Log: same liczby.
+startup_phase "competence-categories-four"
+echo "Competence categories: four team groups + initial request work states..."
+python - <<'PY' || echo "competence categories four skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.competence_category_four import run_competence_category_four
+from app.services.request_allocation_schema import run_initial_work_states
+
+async def switch():
+    async with AsyncSessionLocal() as db:
+        try:
+            receipt = await run_competence_category_four(db)
+            initial = await run_initial_work_states(db)
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            raise
+    print(f"competence categories four: {receipt or 'nothing to do'}")
+    print(f"request work states initial: {'applied' if initial else 'nothing to do'}")
+
+asyncio.run(switch())
 PY
 
 # Wykluczone placementy (0343, 22.09.2026) — jednorazowe zasianie listy:

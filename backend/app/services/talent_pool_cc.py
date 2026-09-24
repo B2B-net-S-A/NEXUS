@@ -2,7 +2,7 @@
 
 Why this exists
 ---------------
-The 5 Competence Categories are the backbone of NEXUS matching, but on
+The Competence Categories (4 od 24.09.2026) are the backbone of NEXUS matching, but on
 production *every* talent pool had ``competence_category_id = NULL`` — the CC
 dimension was never populated (no Job carries a CC either, so the lineage-based
 heal in ``talent_pool_auto_add`` / ``scripts.backfill_talent_pools`` could never
@@ -14,12 +14,13 @@ kategoriach".
 Talent-pool names are a small, controlled vocabulary of role titles
 ("DevOps Engineers", "QA Automation", "Java Backend Senior", …). That makes the
 name itself a reliable, dependency-free signal — no Qdrant / embeddings needed.
-This module maps a pool name to one of the 5 CC slugs with ordered keyword
-rules.
+This module maps a pool name to one of the 4 active CC slugs with ordered
+keyword rules (``data_ai`` is retired — data and security roles belong to the
+Infra group).
 
 Rule ordering is load-bearing: e.g. "Tester Automatyzujący (ETL, bazy danych)"
-must resolve to *security_quality* (it's a tester), not *data_ai* (ETL), so the
-QA rules are checked before the data rules; "Service Manager" must be
+must resolve to *security_quality* = QA (it's a tester), not the data rules
+(ETL), so the QA rules are checked first; "Service Manager" must be
 *management_delivery* while "Service Desk" is *infrastructure_operations*, so
 management is checked before infrastructure. ``tests/test_talent_pool_cc.py``
 locks the full name→slug expectation across the live pool catalogue.
@@ -39,17 +40,27 @@ from app.models.competence_category import CompetenceCategory
 # wins. Patterns are case-insensitive regexes; short or ambiguous tokens use
 # ``\b`` word-boundary anchors so e.g. "ai" matches "AI Engineer" but not the
 # "ai" inside "Mainframe".
-_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
-    # 1) Security & Quality — QA/testers + security. Checked first so a
-    #    "Tester (ETL...)" stays QA rather than leaking into data_ai, and
-    #    "Test Manager" stays QA rather than management_delivery.
+_RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    # 1) QA — testers. Checked first so a "Tester (ETL...)" stays QA rather
+    #    than leaking into the data rules, "Security Tester" stays QA rather
+    #    than security, and "Test Manager" stays QA rather than management.
     (
+        "qa",
         "security_quality",
         (
             r"\bqa\b",
             r"quality assurance",
-            r"tester",
+            # „Pentester” to security, nie tester oprogramowania.
+            r"(?<!pen)tester",
             r"\btest\b",
+        ),
+    ),
+    # 2) Security — od 24.09.2026 część grupy „Infra & Operations & Security
+    #    / Data & AI” (cztery kategorie zespołu, `competence_category_four`).
+    (
+        "security",
+        "infrastructure_operations",
+        (
             r"pentest",
             r"penetration",
             r"\bsecurity\b",
@@ -61,10 +72,12 @@ _RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
             r"owasp",
         ),
     ),
-    # 2) Data & AI — explicit data/ML/AI roles only (no bare "data", so
-    #    "IT Analyst - Data Focus" falls through to the analyst rule).
+    # 3) Data & AI — explicit data/ML/AI roles only (no bare "data", so
+    #    "IT Analyst - Data Focus" falls through to the analyst rule). Też
+    #    grupa Infra od 24.09.2026.
     (
-        "data_ai",
+        "data",
+        "infrastructure_operations",
         (
             r"data scientist",
             r"data science",
@@ -82,10 +95,11 @@ _RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
             r"\bllm\b",
         ),
     ),
-    # 3) Management & Delivery — analysts, PM/PO, scrum, the "* Manager"
+    # 4) Management & Delivery — analysts, PM/PO, scrum, the "* Manager"
     #    family, GRC/compliance. Checked before infrastructure so
     #    "Service Manager" != "Service Desk".
     (
+        "management",
         "management_delivery",
         (
             r"\banalyst\b",
@@ -111,9 +125,10 @@ _RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
             r"coach",
         ),
     ),
-    # 4) Infrastructure & Operations — DevOps/cloud/network/admin/helpdesk/DBA.
+    # 5) Infrastructure & Operations — DevOps/cloud/network/admin/helpdesk/DBA.
     #    "platform engineer" (not bare "platform") so "Power Platform" stays SW.
     (
+        "infra",
         "infrastructure_operations",
         (
             r"devops",
@@ -135,9 +150,10 @@ _RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
             r"kubernetes",
         ),
     ),
-    # 5) Software Development — broad tech catch-all + generic "architect"
+    # 6) Software Development — broad tech catch-all + generic "architect"
     #    (Cloud/Network/Data/Test architects are already claimed above).
     (
+        "software",
         "software_development",
         (
             r"developer",
@@ -186,17 +202,18 @@ _RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
 BASE_CC_RULES = _RULES
 
 _COMPILED: tuple[tuple[str, tuple[re.Pattern[str], ...]], ...] = tuple(
-    (slug, tuple(re.compile(p, re.IGNORECASE) for p in pats)) for slug, pats in _RULES
+    (slug, tuple(re.compile(p, re.IGNORECASE) for p in pats))
+    for _block, slug, pats in _RULES
 )
 
 
 def classify_pool_name_to_cc_slug(name: Optional[str]) -> Optional[str]:
     """Map a talent-pool name to a CC slug, or None if no rule matches.
 
-    Pure and deterministic — no DB / network. Returns one of the 5 seed slugs
-    (``infrastructure_operations`` / ``software_development`` / ``data_ai`` /
-    ``security_quality`` / ``management_delivery``) or ``None`` for names that
-    are not role categories (e.g. "Targ kandydatów", "POWER CALLING").
+    Pure and deterministic — no DB / network. Returns one of the 4 active
+    slugs (``infrastructure_operations`` / ``software_development`` /
+    ``security_quality`` = QA / ``management_delivery``) or ``None`` for names
+    that are not role categories (e.g. "Targ kandydatów", "POWER CALLING").
     """
     if not name:
         return None

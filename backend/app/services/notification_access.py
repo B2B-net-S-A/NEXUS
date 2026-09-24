@@ -107,6 +107,8 @@ NOTIFICATION_SECTION_BY_TYPE: dict[NotificationType, ProductSection] = {
     NotificationType.prep_attention: ProductSection.pipeline,
     NotificationType.board_tasks_digest: ProductSection.pipeline,
     NotificationType.cpro_send_assigned: ProductSection.pipeline,
+    NotificationType.request_assignment_changed: ProductSection.pipeline,
+    NotificationType.request_review_needed: ProductSection.pipeline,
     NotificationType.candidate_claim_taken: ProductSection.pipeline,
     NotificationType.hired_order_missing: ProductSection.finance,
 }

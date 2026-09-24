@@ -88,10 +88,11 @@ describe("katalog kafelków", () => {
 });
 
 describe("polecane na pusty pulpit", () => {
-  it("rekruter dostaje swoje cztery kafelki", () => {
+  it("rekruter dostaje pulpit requestów i swoje cztery kafelki", () => {
     const { roleLabel, templates } = recommendedTemplates(user("recruiter"));
     expect(roleLabel).toBe("Rekruter");
     expect(templates.map((t) => t.key)).toEqual([
+      "request_board",
       "cv_sent_week",
       "my_recruitments",
       "my_next_steps",
