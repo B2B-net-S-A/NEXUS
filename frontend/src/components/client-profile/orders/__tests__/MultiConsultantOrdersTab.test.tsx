@@ -40,6 +40,14 @@ vi.mock("@/store/auth", () => ({
   // delivery, nie tylko admin.
   canManageMultiConsultantOrders: (user: { role?: string } | null) =>
     user?.role === "admin" || user?.role === "delivery_lead",
+  // S11 (audyt 24.09.2026): Finanse z `manage_finance` edytują kwoty linii.
+  canEditOrderLineAmounts: (
+    user: { role?: string; capabilities?: string[] } | null,
+  ) =>
+    user?.role === "admin" ||
+    user?.role === "delivery_lead" ||
+    (user?.role === "finance" &&
+      (user.capabilities ?? []).includes("manage_finance")),
   // Lustro backendowego `_ORDER_LIFECYCLE_ROLES`: granica sekcji odcina HoR,
   // TAC i TCM, a Finanse zachowują operacyjny lifecycle.
   canManageOrderLifecycle: (user: { role?: string } | null) =>
@@ -546,6 +554,31 @@ describe("MultiConsultantOrdersTab", () => {
     expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(2);
     // Liczby MD są operacyjne — zostają widoczne.
     expect(screen.getByText("/ 50 MD")).toBeInTheDocument();
+  });
+
+  it("Finanse z manage_finance edytują same stawki linii (S11)", async () => {
+    authState.role = "finance";
+    authState.capabilities = ["view_finance", "manage_finance"];
+    vi.mocked(orderGroupsApi.list).mockResolvedValue({
+      data: {
+        groups: [group({ lines: [line()] })],
+        total_groups: 1,
+        total_consultants: 1,
+      },
+    } as never);
+
+    renderTab();
+
+    expect(
+      await screen.findByRole("button", { name: /Edytuj stawki/ }),
+    ).toBeInTheDocument();
+    // Reszta obsady (zamiana, dodanie) zostaje przy admin/DL.
+    expect(
+      screen.queryByRole("button", { name: /Zamień kontraktora/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Edytuj linię/ }),
+    ).not.toBeInTheDocument();
   });
 
   it("wyczerpany budżet MD jest sygnalizowany, a nie ścinany do zera", async () => {

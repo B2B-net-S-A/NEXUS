@@ -46,7 +46,11 @@ from app.models.client_contract_terms import ClientContractTerms
 from app.models.client_playbook import ClientPlaybook
 from app.models.client_playbook_event import ClientPlaybookEvent
 from app.models.user import User
-from app.services.client_access import deny, resolve_client_access
+from app.services.client_access import (
+    assert_client_writable,
+    deny,
+    resolve_client_access,
+)
 from app.services.client_playbook_seed import seed_entry
 from app.services.section_permissions import (
     ProductSection,
@@ -414,7 +418,10 @@ async def upsert_client_playbook(
     ma mówić o treści, nie o kliknięciach. Bez bramki zatwierdzenia: zapis
     obowiązuje od razu.
     """
-    client = await _client_or_404(db, client_id)
+    # Zapis tylko na widocznym kliencie (S1) i pod blokadą jego wiersza (S4):
+    # dwa równoległe zapisy liczyły diff i wersję od tego samego stanu, więc
+    # dwie różne treści dostawały ten sam numer wersji.
+    client = await assert_client_writable(db, client_id, lock=True)
     await _require_client_playbook_access(db, current_user, client.id, write=True)
     row = await _playbook_for(db, client.id)
     before = _state(row)
@@ -489,7 +496,7 @@ async def seed_client_playbook(
     istniejącej karty (409) — decyzja człowieka wygrywa z seedem, jak w
     automatycznym `ON CONFLICT DO NOTHING`.
     """
-    client = await _client_or_404(db, client_id)
+    client = await assert_client_writable(db, client_id, lock=True)
     await _require_client_playbook_access(db, current_user, client.id, write=True)
     entry = seed_entry(body.seed_key)
     if entry is None:

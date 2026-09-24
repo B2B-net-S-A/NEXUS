@@ -18,6 +18,7 @@ from sqlalchemy import and_, distinct, exists, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.clients import polish_alphabetical_key
 from app.api.deps import AdminUser, OperationalUser
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.core.database import get_db
@@ -30,6 +31,7 @@ from app.models.client_directory import (
     PortfolioCategory,
 )
 from app.models.client_framework_contract import ClientFrameworkContract
+from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.contract import Contract, ContractStatus
 from app.models.user import User, UserRole
 from app.schemas.client_directory import (
@@ -80,6 +82,18 @@ def _visible_client_filters() -> tuple:
     return visible_client_predicates()
 
 
+def _live_orders_of_contract():
+    """Nieanulowane zamówienia kontraktu z zewnętrznego zapytania (korelacja)."""
+    return (
+        select(ClientOrder.id)
+        .where(
+            ClientOrder.contract_id == Contract.id,
+            ClientOrder.status != ClientOrderStatus.cancelled,
+        )
+        .correlate(Contract)
+    )
+
+
 def _active_consultants_subquery(as_of: date):
     """Client-wide date-effective consultant count, deduplicated by person."""
 
@@ -108,8 +122,29 @@ def _active_consultants_subquery(as_of: date):
             # — lustro `contractor_identity.is_current_contract` (audyt
             # 18.09.2026: trzy aktywne kontrakty z żywymi zamówieniami znikały
             # z liczników i z MRR, bo nikt nie wpisał dnia rozpoczęcia).
-            or_(Contract.start_date.is_(None), Contract.start_date <= as_of),
-            or_(Contract.end_date.is_(None), Contract.end_date >= as_of),
+            # Kontrakt bez daty startu pyta o nią swoje zamówienia — lustro
+            # `fallback_start` z profilu (`load_fallback_starts`): planowany
+            # jest wyłącznie wtedy, gdy ma nieanulowane zamówienia i żadne
+            # z nich jeszcze się nie zaczęło (audyt 24.09.2026, S5). Bez
+            # filtra po `end_date` — profil też go nie ma, o końcu decyduje
+            # status umowy (N11).
+            or_(
+                Contract.start_date <= as_of,
+                and_(
+                    Contract.start_date.is_(None),
+                    or_(
+                        ~_live_orders_of_contract().exists(),
+                        _live_orders_of_contract()
+                        .where(
+                            or_(
+                                ClientOrder.start_date.is_(None),
+                                ClientOrder.start_date <= as_of,
+                            )
+                        )
+                        .exists(),
+                    ),
+                ),
+            ),
         )
         .group_by(Contract.client_id)
         .subquery()
@@ -222,9 +257,11 @@ def _directory_rows_statement(
             )
         )
 
+    # Polski alfabet („Ł” po „L”, nie za „Z”) — ta sama funkcja co
+    # `GET /api/clients` (audyt N11).
     return statement.order_by(
-        func.lower(canonical_name).asc(),
-        func.lower(func.coalesce(scope_label, "")).asc(),
+        polish_alphabetical_key(canonical_name).asc(),
+        polish_alphabetical_key(func.coalesce(scope_label, "")).asc(),
         ClientPortfolioScope.id.asc(),
     )
 

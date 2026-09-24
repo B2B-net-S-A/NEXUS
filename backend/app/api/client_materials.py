@@ -22,6 +22,7 @@ from typing import Annotated, List, Optional
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
@@ -39,6 +40,7 @@ from app.schemas.client_materials import (
 )
 from app.services import storage_service
 from app.services.client_access import (
+    assert_client_writable,
     deny,
     resolve_client_access,
 )
@@ -99,7 +101,8 @@ async def require_client_material_write_access(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> User:
-    await _assert_client(db, client_id)
+    # Zapis tylko na widocznym kliencie (usunięty/scalony/ukryty → 404, S1).
+    await assert_client_writable(db, client_id)
     await _require_material_write(db, current_user, client_id)
     return current_user
 
@@ -121,7 +124,7 @@ async def require_client_legal_write_access(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> User:
-    await _assert_client(db, client_id)
+    await assert_client_writable(db, client_id)
     await _require_material_write(db, current_user, client_id, legal=True)
     return current_user
 
@@ -238,6 +241,22 @@ async def upload_one_pager(
 ):
     # MIME + extension allowlist (extension is the fallback — browsers mislabel)
     filename = file.filename or "file"
+    # Lustro długości kolumn `client_one_pagers` — za długi tytuł albo nazwa
+    # pliku dawały 500 z bazy po zapisaniu pliku na dysku (audyt S3).
+    title = title.strip()
+    if not title:
+        raise HTTPException(status_code=422, detail="Podaj tytuł materiału.")
+    if len(title) > 255:
+        raise HTTPException(
+            status_code=422, detail="Tytuł materiału: najwyżej 255 znaków."
+        )
+    if version is not None and len(version) > 50:
+        raise HTTPException(status_code=422, detail="Wersja: najwyżej 50 znaków.")
+    if len(filename) > 255:
+        raise HTTPException(
+            status_code=422,
+            detail="Nazwa pliku jest za długa (najwyżej 255 znaków). Skróć ją.",
+        )
     mime = (file.content_type or "").lower()
     ext_ok = filename.lower().endswith(_ALLOWED_EXT_RE)
     if mime not in _ALLOWED_MIME and not ext_ok:
@@ -344,7 +363,7 @@ async def delete_one_pager(
     if not op:
         raise HTTPException(status_code=404, detail="One-pager not found")
 
-    storage_service.delete_client_one_pager(op.file_path)
+    file_path = op.file_path
     await db.delete(op)
     db.add(
         Activity(
@@ -355,7 +374,10 @@ async def delete_one_pager(
             details={"title": op.title, "filename": op.filename},
         )
     )
-    await db.flush()
+    # Plik kasujemy PO udanym commicie — do 24.09.2026 znikał przed zapisem,
+    # więc nieudana transakcja zostawiała wiersz bez pliku (audyt W3).
+    await db.commit()
+    storage_service.delete_client_one_pager(file_path)
     return None
 
 
@@ -390,6 +412,10 @@ async def upsert_contract_terms(
     current_user: ClientLegalWriteUser,
     db: AsyncSession = Depends(get_db),
 ):
+    # Blokada wiersza klienta szereguje zapisy warunków: dwa PIERWSZE zapisy
+    # naraz widziały brak wiersza i drugi INSERT padał na unikalności (500,
+    # audyt S4).
+    await assert_client_writable(db, client_id, lock=True)
     result = await db.execute(
         select(ClientContractTerms).where(ClientContractTerms.client_id == client_id)
     )
@@ -417,6 +443,16 @@ async def upsert_contract_terms(
             details={"fields": list(payload.keys())},
         )
     )
-    await db.flush()
+    try:
+        await db.flush()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Warunki umowy tego klienta właśnie zapisał ktoś inny. "
+                "Odśwież widok i zapisz ponownie."
+            ),
+        ) from exc
     await db.refresh(terms)
     return await _terms_to_response(db, terms)

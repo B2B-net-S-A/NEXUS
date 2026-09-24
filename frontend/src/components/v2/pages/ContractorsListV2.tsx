@@ -68,6 +68,15 @@ const TAB_LABELS: Record<Tab, string> = {
  ending: "Kończący się",
 };
 
+// Co naprawdę jest w zakładce (audyt 24.09, S6). Od 0367 status „Kończący
+// się” dostaje każda wypowiedziana umowa — także z datą za pół roku — więc
+// zakładka to status `ending` ORAZ umowy kończące się w ciągu 30 dni (zanim
+// nocny cron przestawi ich status). Liczy to backend (`/api/contractors`).
+const TAB_HINTS: Partial<Record<Tab, string>> = {
+ ending:
+ "Wypowiedziane kontrakty (dowolna data zakończenia) oraz kontrakty kończące się w ciągu 30 dni.",
+};
+
 const FIELD_LABELS: Record<string, string> = {
  start_date: "Data start",
  end_date: "Data koniec",
@@ -281,6 +290,7 @@ export function ContractorsListV2() {
  key={t}
  role="tab"
  aria-selected={isActive}
+ title={TAB_HINTS[t]}
  onClick={() => selectTab(t)}
  className={cn("shrink-0 whitespace-nowrap px-4 py-2 text-sm font-medium border-b-2 transition-colors",
  isActive
@@ -305,6 +315,11 @@ export function ContractorsListV2() {
  );
  })}
  </div>
+ {TAB_HINTS[tab] && (
+ <p className="text-xs text-muted-foreground" data-testid="contractors-tab-hint">
+ {TAB_HINTS[tab]}
+ </p>
+ )}
 
  <Table density="cozy">
  <TableHeader>

@@ -34,9 +34,9 @@ from app.models.contract_amendment import ContractAmendment, ContractAmendmentTy
 B2B_END_DATE_REASON = "b2b_end_date_requires_termination"
 B2B_END_DATE_MESSAGE = (
     "Umowa B2B jest bezterminowa — nie ma daty zakończenia, dopóki ktoś jej "
-    "nie zakończy. Datę ustawia „Zakończ współpracę” (powód i data, także "
-    "przyszła) albo status „Zakończony”. Koniec zamówienia u klienta wpisz "
-    "w zamówieniu, nie w umowie."
+    "nie zakończy. Datę ustawia okno „Zakończ współpracę” (powód i data, "
+    "także przyszła). Koniec zamówienia u klienta wpisz w zamówieniu, nie "
+    "w umowie."
 )
 
 # Statusy, w których data zakończenia jest faktem, a nie prognozą: umowa już

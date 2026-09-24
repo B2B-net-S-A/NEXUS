@@ -50,6 +50,14 @@ class _ScalarResult:
         return self.value
 
 
+@pytest.fixture(autouse=True)
+def _client_is_writable(monkeypatch):
+    """Strażnik usuniętego klienta pyta bazę — tu baza jest atrapą."""
+    monkeypatch.setattr(
+        "app.api.clients_team.assert_client_writable", AsyncMock(return_value=None)
+    )
+
+
 class _Database:
     def __init__(self, *results):
         self.results = list(results)

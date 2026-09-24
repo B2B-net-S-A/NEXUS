@@ -430,3 +430,38 @@ describe("Historia automatycznej weryfikacji", () => {
     expect(screen.queryByText("Nic do pokazania")).toBeNull();
   });
 });
+
+describe("Audyt 24.09 — kolejka poczty zamówień", () => {
+  it("rate is shown in the document currency, not always in PLN (S5)", () => {
+    const base0 = doc();
+    const eur = doc({
+      extraction: { ...base0.extraction!, currency: "EUR" },
+      proposal: {
+        ...base0.proposal!,
+        rows: [{ ...base0.proposal!.rows[0], rate_client: "110.00", rate_unit: "hour" }],
+      },
+    });
+    render(<OrderMailQueueView {...base} state="ready" items={[eur]} />);
+    const detail = screen.getByTestId("order-mail-detail");
+    expect(detail).toHaveTextContent("110,00 EUR/h");
+    expect(detail).not.toHaveTextContent("110,00 zł");
+  });
+
+  it("an unrecognized document can be dismissed when the server allows it (N2)", () => {
+    const onDismiss = vi.fn();
+    const unrecognized = doc({
+      outcome: "unrecognized_client", client_id: null, client_name: null, can_apply: false, proposal: null,
+    });
+    const { rerender } = render(
+      <OrderMailQueueView {...base} outcome="unrecognized_client" onDismiss={onDismiss} state="ready" items={[unrecognized]} />,
+    );
+    expect(screen.queryByRole("button", { name: /Odrzuć/ })).toBeNull();
+    const dismissable = { ...unrecognized, can_dismiss: true } as OrderMailDocument;
+    rerender(
+      <OrderMailQueueView {...base} outcome="unrecognized_client" onDismiss={onDismiss} state="ready" items={[dismissable]} />,
+    );
+    expect(screen.queryByRole("button", { name: /Zastosuj/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Odrzuć/ }));
+    expect(onDismiss).toHaveBeenCalledWith(1);
+  });
+});

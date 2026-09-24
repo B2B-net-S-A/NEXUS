@@ -889,6 +889,20 @@ async def test_reprocess_fails_closed_on_same_person_and_number_at_bik(
     assert bik_body["lines"][0]["md_remaining"] == pytest.approx(50)
 
 
+async def _force_order_number(group_id: int, order_number: str) -> None:
+    """Drugie OTWARTE zamówienie o tym samym numerze to stan danych z produkcji
+    (Lotte Wedel), którego API od audytu 24.09.2026 (S9) już nie zakłada —
+    zapisujemy numer wprost, żeby import dalej był na nim sprawdzany."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order_group import ClientOrderGroup
+
+    async with AsyncSessionLocal() as db:
+        group = await db.get(ClientOrderGroup, group_id)
+        assert group is not None
+        group.order_number = order_number
+        await db.commit()
+
+
 @pytest.mark.asyncio
 async def test_reprocess_preserves_cost_group_when_one_row_applies_md_and_invoice(
     app_client: AsyncClient, app_auth_headers: dict, monkeypatch
@@ -911,10 +925,11 @@ async def test_reprocess_preserves_cost_group_when_one_row_applies_md_and_invoic
         app_auth_headers,
         polkomtel_id,
         [_cost_line(contracts[0])],
-        order_number="SAP 6789012",
+        order_number="SAP 6789012-K",
         is_cost_based=True,
         budget_amount=10000,
     )
+    await _force_order_number(cost_group["id"], "SAP 6789012")
     await _create_group(
         app_client,
         app_auth_headers,

@@ -112,10 +112,11 @@ const ROLE_ROUTES: RouteAccessRule[] = [
     enforceRoles: true,
   },
   {
+    // Jak `/finance`: przy claimie `sa` decyduje sekcja Finanse (backend:
+    // VIEW_FINANCE z odczytu sekcji), role są fallbackiem dla starych tokenów.
     prefix: "/contracts/analytics",
     roles: ["admin", "finance"],
     section: "finance",
-    enforceRoles: true,
   },
   { prefix: "/contractors", roles: DELIVERY_ROLES, section: "delivery" },
   { prefix: "/contracts", roles: DELIVERY_ROLES, section: "delivery" },

@@ -1,5 +1,6 @@
 from datetime import date, datetime, timezone
 from decimal import Decimal
+from types import SimpleNamespace
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -32,6 +33,7 @@ from app.schemas.client import (
     ClientSafeResponse,
     ClientUpdate,
 )
+from app.services.client_access import assert_client_writable
 from app.services.access_scope import (
     apply_delivery_lead_client_scope,
     assert_delivery_lead_client_visible,
@@ -268,7 +270,14 @@ def _finance_rates_in_pln(
     }
 
 
-def _candidate_brief(candidate: Candidate) -> CandidateBrief:
+# Wiersz kontraktu, którego kandydat został usunięty (art. 17 RODO) — kontrakt
+# zostaje (faktury, marża), osoby już nie ma. Audyt 24.09.2026 (S6).
+ERASED_CANDIDATE_LABEL = "Konsultant usunięty (RODO)"
+
+
+def _candidate_brief(candidate: Optional[Candidate]) -> CandidateBrief:
+    if candidate is None:
+        return CandidateBrief(id=None, name=ERASED_CANDIDATE_LABEL)
     full_name = f"{candidate.name or ''} {candidate.lastname or ''}".strip() or "?"
     return CandidateBrief(
         id=candidate.id,
@@ -370,6 +379,46 @@ def _days_to(target: Optional[date]) -> Optional[int]:
 # (od 09.2026 czyta ją też przypisanie umowy wykonawczej CeZ). Alias zostaje,
 # bo wołają go trzy miejsca w tym module — ta sama funkcja, nie kopia.
 _representative_order = representative_order
+
+
+async def client_time_to_fill(
+    db: AsyncSession, client_id: int
+) -> tuple[Optional[float], int]:
+    """Średni czas obsadzenia klienta: ``(dni, liczba nieocenialnych)``.
+
+    Średnia z (``Contract.start_date`` − ``Job.opened_at``) po kontraktach
+    obecnych, kończących się i zakończonych, z rekrutacją i datą startu.
+    Rekrutacja bez ``opened_at`` jest nieocenialna (nie zero). Jedna
+    definicja dla profilu i zakładki Analityka.
+    """
+    rows = await db.execute(
+        select(Contract.start_date, Job.opened_at)
+        .join(Job, Job.id == Contract.job_id)
+        .where(
+            Contract.client_id == client_id,
+            Contract.status.in_(
+                (ContractStatus.active, ContractStatus.ending, ContractStatus.ended)
+            ),
+            Contract.start_date.is_not(None),
+        )
+    )
+    fill_days: list[int] = []
+    not_assessable = 0
+    for start_date, opened_at in rows:
+        delta = job_data_trust.duration_days(
+            SimpleNamespace(opened_at=opened_at), until=start_date
+        )
+        if delta is None:
+            not_assessable += 1
+            continue
+        fill_days.append(delta)
+    avg = (sum(fill_days) / len(fill_days)) if fill_days else None
+    return avg, not_assessable
+
+
+# Archiwum konsultantów na profilu: tyle wierszy trafia do listy; liczniki
+# i LTV liczą się z całej historii (`placements_total`).
+ARCHIVE_ROWS_LIMIT = 100
 
 
 def _representative_project_part(contract: Contract) -> Optional[str]:
@@ -587,6 +636,11 @@ async def get_client_profile(
     delivery_lead_finance_client_ids = await resolve_delivery_lead_finance_client_ids(
         current_user, db
     )
+    finance_readable = can_read_client_finance(
+        current_user,
+        client_id=client_id,
+        delivery_lead_finance_client_ids=delivery_lead_finance_client_ids,
+    )
     # 404 early so we don't hand back empty sections for a phantom client.
     client = await db.scalar(select(Client).where(Client.id == client_id))
     if client is None:
@@ -605,11 +659,15 @@ async def get_client_profile(
 
     # ── 1. Open jobs ──────────────────────────────────────────────────────
     # `published` jobs with a candidate-count subquery + recruiter join.
+    # Zawężone do rekrutacji TEGO klienta — do 24.09.2026 podzapytanie
+    # grupowało całą `candidate_stages` przy każdym otwarciu profilu (S8).
     candidate_count_sq = (
         select(
             CandidateStage.job_id,
             func.count(distinct(CandidateStage.candidate_id)).label("cnt"),
         )
+        .join(Job, Job.id == CandidateStage.job_id)
+        .where(Job.client_id == client_id, Job.status == JobStatus.published)
         .group_by(CandidateStage.job_id)
         .subquery()
     )
@@ -726,8 +784,9 @@ async def get_client_profile(
     active_consultants: list[ActiveConsultantItem] = []
     planned_consultants: list[ActiveConsultantItem] = []
     for c in active_contracts:
-        if c.candidate is None:
-            continue
+        # Kontrakt bez kandydata (usunięty z art. 17 RODO) ZOSTAJE wierszem:
+        # jego marża wchodzi do „Aktywnego MRR”, a kafel ma być sumą kolumny
+        # pod nim (audyt 24.09.2026, S6). Wiersz nie linkuje do profilu.
         rates = active_rates_pln[c.id]
         job_id, job_title, job_from_order = _resolve_job(c)
         bucket = (
@@ -743,6 +802,7 @@ async def get_client_profile(
                 start_date=c.start_date,
                 end_date=c.end_date,
                 days_to_end=_days_to(c.end_date),
+                contract_status=getattr(c.status, "value", c.status),
                 monthly_rate_client=rates["monthly_rate_client"],
                 monthly_rate_candidate=rates["monthly_rate_candidate"],
                 monthly_margin=rates["monthly_margin"],
@@ -777,9 +837,20 @@ async def get_client_profile(
             func.coalesce(Contract.terminated_at, Contract.end_date).desc().nullslast(),
             Contract.id.desc(),
         )
-        .limit(100)
+        .limit(ARCHIVE_ROWS_LIMIT)
     )
     ended_contracts = list((await db.execute(ended_stmt)).scalars().all())
+    # Lista archiwum jest przycięta, ale liczniki i LTV nie mogą być — do
+    # 24.09.2026 `total_placements` i `ltv` liczyły się z pierwszych 100
+    # wierszy, a front nie mówił, że lista jest niepełna (S7).
+    archived_total = (
+        await db.scalar(
+            select(func.count(Contract.id)).where(
+                Contract.client_id == client_id,
+                Contract.status == ContractStatus.ended,
+            )
+        )
+    ) or 0
 
     # Archiwum to zapis HISTORYCZNY, więc stawka jest rozwiązywana na dzień
     # zakończenia, nie na dziś. Krok harmonogramu zaplanowany PO zakończeniu
@@ -815,8 +886,6 @@ async def get_client_profile(
 
     placements: list[HistoricalPlacementItem] = []
     for c in ended_contracts:
-        if c.candidate is None:
-            continue
         end_boundary = ended_boundaries[c.id]
         rates = ended_rates_pln[c.id]
         job_id, job_title, job_from_order = _resolve_job(c)
@@ -844,37 +913,12 @@ async def get_client_profile(
             )
         )
 
-    # ── 4. Lost jobs (closed without matching contract) ───────────────────
-    placed_job_ids_stmt = select(distinct(Contract.job_id)).where(
-        Contract.client_id == client_id, Contract.job_id.is_not(None)
-    )
-    placed_job_ids = {
-        row for row in (await db.execute(placed_job_ids_stmt)).scalars().all() if row
-    }
-
-    lost_stmt = (
-        select(Job, candidate_count_sq.c.cnt)
-        .outerjoin(candidate_count_sq, candidate_count_sq.c.job_id == Job.id)
-        .where(Job.client_id == client_id, Job.status == JobStatus.closed)
-        .order_by(Job.closed_at.desc().nullslast(), Job.updated_at.desc())
-        .limit(100)
-    )
-    lost_rows = (await db.execute(lost_stmt)).all()
-
+    # ── 4. Lost jobs ──────────────────────────────────────────────────────
+    # Nie liczymy (audyt 24.09.2026, S8): sekcji „Przegrane rekrutacje” nie ma
+    # na profilu, Jarvis czyta tylko podsumowanie i otwarte rekrutacje, a
+    # reguła „obsadzona” szła po `Contract.job_id` — kolumnie pustej na
+    # produkcji, więc lista i tak była błędna. Pole zostaje w API (D6).
     lost_jobs: list[LostJobItem] = []
-    for job, cnt in lost_rows:
-        if job.id in placed_job_ids:
-            continue  # closed + placed = shown under placements, not lost
-        lost_jobs.append(
-            LostJobItem(
-                job_id=job.id,
-                title=job.title,
-                closed_at=job.closed_at,
-                close_reason=job.close_reason,
-                close_notes=job.close_notes,
-                candidate_count_reached=int(cnt or 0),
-            )
-        )
 
     # ── 5. Summary metrics ────────────────────────────────────────────────
     # Ten sam słownik stawek, z którego liczą się wiersze — inaczej kafel
@@ -933,6 +977,57 @@ async def get_client_profile(
         )
         if rev:
             ltv += rev
+    # Archiwum przycięte do ARCHIVE_ROWS_LIMIT wierszy — LTV liczy się z CAŁEJ
+    # historii (S7). Doczytujemy resztę tylko dla odbiorcy kwot: pozostałym
+    # `ltv` i tak jest redagowane.
+    if finance_readable and archived_total > len(ended_contracts):
+        rest = list(
+            (
+                await db.execute(
+                    select(Contract)
+                    .where(
+                        Contract.client_id == client_id,
+                        Contract.status == ContractStatus.ended,
+                        Contract.id.notin_([c.id for c in ended_contracts]),
+                    )
+                    .options(
+                        selectinload(Contract.client_orders),
+                        selectinload(Contract.candidate_rate_schedule),
+                        selectinload(Contract.client_rate_schedule),
+                        selectinload(Contract.framework_rate_schedule),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        rest_boundaries = {c.id: (c.terminated_at or c.end_date or today) for c in rest}
+        rest_fx = await rates_to_pln_by_date(
+            db,
+            {
+                boundary: {
+                    currency
+                    for contract in rest
+                    if rest_boundaries[contract.id] == boundary
+                    for currency in _profile_currencies(contract, boundary)
+                }
+                for boundary in set(rest_boundaries.values())
+            },
+        )
+        for c in rest:
+            boundary = rest_boundaries[c.id]
+            rates = _finance_rates_in_pln(
+                c,
+                _effective_rate_fields(c, boundary),
+                rest_fx[boundary],
+                _representative_order(c, boundary),
+            )
+            if rates["client_missing_fx"]:
+                ltv_complete = False
+                continue
+            rev = _contract_total_revenue(c, boundary, rates["monthly_rate_client"])
+            if rev:
+                ltv += rev
 
     # avg_time_to_fill = średnia z (Contract.start_date − Job.opened_at).
     #
@@ -947,21 +1042,15 @@ async def get_client_profile(
     #
     # Rekrutacje bez `opened_at` nie są pomijane po cichu: liczymy je jako
     # nieocenialne i mówimy o tym w odpowiedzi (`avg_time_to_fill_source`).
-    fill_days: list[int] = []
-    ttf_not_assessable = 0
-    for c in list(active_contracts) + list(ended_contracts):
-        if c.job is None or c.start_date is None:
-            continue
-        delta = job_data_trust.duration_days(c.job, until=c.start_date)
-        if delta is None:
-            ttf_not_assessable += 1
-            continue
-        fill_days.append(delta)
-    avg_ttf = (sum(fill_days) / len(fill_days)) if fill_days else None
+    #
+    # Liczone z CAŁEJ historii klienta (nie z przyciętego archiwum) i tą samą
+    # funkcją co zakładka Analityka (audyt 24.09.2026, S7/S9).
+    avg_ttf, ttf_not_assessable = await client_time_to_fill(db, client_id)
 
     # Placement to osoba zatrudniona — także ta, która dopiero wystartuje.
+    # Archiwum z licznika, nie z przyciętej listy (S7).
     total_placements = (
-        len(active_consultants) + len(planned_consultants) + len(placements)
+        len(active_consultants) + len(planned_consultants) + archived_total
     )
     active_headcount = summarize_active_contracts(current_contracts)
 
@@ -985,7 +1074,11 @@ async def get_client_profile(
         open_jobs=open_jobs,
         active_consultants=active_consultants,
         planned_consultants=planned_consultants,
-        historical=ClientProfileHistory(placements=placements, lost_jobs=lost_jobs),
+        historical=ClientProfileHistory(
+            placements=placements,
+            placements_total=archived_total,
+            lost_jobs=lost_jobs,
+        ),
     )
 
     # R0 (plan 2026-07-16): stawki/marże/MRR/LTV dla ról z VIEW_FINANCE oraz
@@ -997,11 +1090,7 @@ async def get_client_profile(
     # sobą samym: kafel „Aktywne MRR" jest sumą kolumny „Marża" pod nim,
     # a „Archiwum konsultantów" ma DOKŁADNIE te same trzy kolumny co
     # „Obecni konsultanci" w zakładce obok.
-    if not can_read_client_finance(
-        current_user,
-        client_id=client_id,
-        delivery_lead_finance_client_ids=delivery_lead_finance_client_ids,
-    ):
+    if not finance_readable:
         response.summary.active_mrr = None
         response.summary.active_mrr_unpriced_contracts = 0
         response.summary.ltv = None
@@ -1048,10 +1137,10 @@ async def update_client(
         client_id,
         await resolve_delivery_lead_client_ids(current_user, db),
     )
-    result = await db.execute(select(Client).where(Client.id == client_id))
-    client = result.scalar_one_or_none()
-    if not client:
-        raise HTTPException(status_code=404, detail="Client not found")
+    # Zapis tylko na widocznym kliencie — usunięty, scalony albo ukryty
+    # klient nie ma profilu, więc edycja tworzyła dane nie do zobaczenia
+    # (audyt 24.09.2026, S1).
+    client = await assert_client_writable(db, client_id)
     updates = data.model_dump(exclude_unset=True)
     from app.services.cv_generator_b2b import central_policies
 
@@ -1113,6 +1202,12 @@ async def merge_client_into(
     if target.hidden or target.archived_at is not None:
         raise HTTPException(
             status_code=409, detail="Cel scalenia jest ukryty/zarchiwizowany"
+        )
+    if target.deleted_at is not None:
+        # Usunięty klient nie ma profilu — scalenie przekierowałoby profil
+        # duplikatu w próżnię (audyt N10).
+        raise HTTPException(
+            status_code=422, detail="Nie można scalić z usuniętym klientem."
         )
     if source.merged_into_client_id is not None:
         if source.merged_into_client_id == target_id:

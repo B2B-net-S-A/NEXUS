@@ -70,8 +70,9 @@ export function monthOptions(today: Date, back = 24): MonthOption[] {
   return options;
 }
 
+// Nazwy jak w zakładce „Zamówienia” klienta — „B2B” myliło się z typem umowy.
 const TYPE_LABELS: Record<OrderTypeCode, string> = {
-  periodic: "B2B",
+  periodic: "Okresowe",
   cost: "Kosztowe",
   md: "MD",
 };

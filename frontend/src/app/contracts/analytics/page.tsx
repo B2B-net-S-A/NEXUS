@@ -11,7 +11,7 @@ import api, {
 } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
 import { countPl } from "@/lib/plural-pl";
-import { RequireRole } from "@/components/RequireRole";
+import { RequireSectionAccess } from "@/components/RequireSectionAccess";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { resolveViewState, type ViewState } from "@/lib/view-state";
 import {
@@ -38,6 +38,8 @@ interface MarginRow {
   // Gdy true, backend pominął co najmniej jedną nogę bez kursu FX. Kwoty są
   // wtedy częściowe i nie wolno prezentować ich jak kompletnego agregatu.
   fx_missing?: boolean;
+  // Kontrakty z przychodem bez stawki kosztowej — w przychodzie, poza marżą.
+  contracts_without_cost_leg?: number;
 }
 
 interface MarginTotals {
@@ -45,8 +47,12 @@ interface MarginTotals {
   active_contracts: number;
   total_monthly_revenue: number;
   total_monthly_margin: number;
+  // Liczy serwer: marża / przychód kontraktów ze ZNANĄ marżą. Front nie
+  // dzieli kafla marży przez kafel przychodu — przychód obejmuje też
+  // kontrakty bez stawki kosztowej, więc procent wychodził zaniżony.
   margin_pct: number | null;
   fx_missing: boolean;
+  contracts_without_cost_leg?: number;
 }
 
 interface UtilizationData {
@@ -92,6 +98,24 @@ function forecastMonthLabel(month: string, fallback: string): string {
   return new Intl.DateTimeFormat("pl-PL", { month: "short", year: "numeric" })
     .format(date)
     .replace(".", "");
+}
+
+/** Podpis kafla marży: procent od serwera i kontrakty bez stawki kosztowej. */
+function marginTileSub(
+  totals: Pick<MarginTotals, "margin_pct" | "contracts_without_cost_leg"> | undefined,
+): string | undefined {
+  if (!totals) return undefined;
+  const parts: string[] = [];
+  if (totals.margin_pct != null) {
+    parts.push(`${totals.margin_pct.toFixed(1)}% z przychodu`);
+  }
+  const withoutCost = totals.contracts_without_cost_leg ?? 0;
+  if (withoutCost > 0) {
+    parts.push(
+      `${countPl(withoutCost, "kontrakt", "kontrakty", "kontraktów")} bez stawki kosztowej poza marżą`,
+    );
+  }
+  return parts.length > 0 ? parts.join(" · ") : undefined;
 }
 
 function isFailedState(
@@ -413,7 +437,18 @@ export default function ContractAnalyticsPage() {
   const totalMonthlyRevenue = totals?.total_monthly_revenue ?? 0;
 
   return (
-    <RequireRole roles={["admin", "finance"]}>
+    // Lustro backendu: endpointy stoją za VIEW_FINANCE = odczyt sekcji Finanse,
+    // nie za rolą. Rola admin/finance z odebraną sekcją widziała tu serię
+    // kart błędu 403 zamiast jednego komunikatu.
+    <RequireSectionAccess
+      section="finance"
+      fallback={
+        <QueryStateNotice
+          state="forbidden"
+          description="Analityka kontraktów wymaga dostępu do sekcji Finanse. Poproś administratora o dostęp."
+        />
+      }
+    >
       <div className="space-y-6">
         <div>
           <Link
@@ -462,9 +497,7 @@ export default function ContractAnalyticsPage() {
                   : clientFxMissing
                     ? "Niepełne dane — brak kursu FX"
                     : "Nie udało się pobrać marży"
-                : totalMonthlyRevenue
-                  ? `${((totalMonthlyMargin / totalMonthlyRevenue) * 100).toFixed(1)}% z przychodu`
-                  : undefined
+                : marginTileSub(totals)
             }
           />
           <MetricCard
@@ -554,7 +587,7 @@ export default function ContractAnalyticsPage() {
         <LocationDistributionCard />
         <TerminationAnalysisCard />
       </div>
-    </RequireRole>
+    </RequireSectionAccess>
   );
 }
 

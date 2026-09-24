@@ -113,12 +113,21 @@ export function ConsultantsTable({ rows, showEndDate, renderActions }: Props) {
                   )}
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <Link
-                        href={`/candidates/${r.candidate.id}`}
-                        className="truncate font-semibold text-foreground hover:text-purple-600"
-                      >
-                        {r.candidate.name}
-                      </Link>
+                      {r.candidate.id != null ? (
+                        <Link
+                          href={`/candidates/${r.candidate.id}`}
+                          className="truncate font-semibold text-foreground hover:text-purple-600"
+                        >
+                          {r.candidate.name}
+                        </Link>
+                      ) : (
+                        // Kandydat usunięty (RODO) — kontrakt został, profilu
+                        // nie ma (audyt S6). Wiersz zostaje, bo jego marża
+                        // wchodzi do „Aktywnego MRR” nad tabelą.
+                        <span className="truncate font-semibold text-muted-foreground">
+                          {r.candidate.name}
+                        </span>
+                      )}
                       {/* e-Zdrowie: NUMER umowy wykonawczej, część w tooltipie.
                           Fallback na samą część = wiersz sprzed wdrożenia
                           struktury (do przeglądu w sekcji „Struktura umów") —

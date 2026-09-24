@@ -726,6 +726,10 @@ function NewContractForm() {
                   onValueChange={(v) => {
                     setContractType(v);
                     clearField("contract_type");
+                    // Nowa umowa B2B jest bezterminowa, a „Kończący się”
+                    // wymaga daty końca — serwer odmówiłby 409 (audyt 24.09,
+                    // N3). Przy zmianie typu na B2B status wraca na „Szkic”.
+                    if (v === "b2b" && statusVal === "ending") setStatusVal("draft");
                   }}
                 >
                   <SelectTrigger
@@ -758,7 +762,9 @@ function NewContractForm() {
                   <SelectContent>
                     <SelectItem value="draft">Szkic</SelectItem>
                     <SelectItem value="active">Aktywny</SelectItem>
-                    <SelectItem value="ending">Kończący się</SelectItem>
+                    {contractType !== "b2b" && (
+                      <SelectItem value="ending">Kończący się</SelectItem>
+                    )}
                     <SelectItem value="ended">Zakończony</SelectItem>
                   </SelectContent>
                 </Select>

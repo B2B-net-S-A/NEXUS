@@ -129,6 +129,15 @@ async def _live_contracts(db: AsyncSession, client_id: int) -> list[Contract]:
     )
 
 
+# Zamówienia, które jeszcze pracują albo dopiero przyjdą — trzymają umowę
+# wykonawczą otwartą (zakończenie → 409).
+_OPEN_ORDER_STATUSES = (
+    ClientOrderStatus.draft,
+    ClientOrderStatus.active,
+    ClientOrderStatus.paused,
+)
+
+
 def _assigned_counts(contracts: list[Contract]) -> dict[int, int]:
     counts: dict[int, int] = {}
     for contract in contracts:
@@ -242,9 +251,13 @@ async def create_executive_contract(
 
 
 async def _load_executive(
-    db: AsyncSession, client_id: int, executive_contract_id: int
+    db: AsyncSession,
+    client_id: int,
+    executive_contract_id: int,
+    *,
+    lock: bool = False,
 ) -> ClientExecutiveContract:
-    executive = await db.scalar(
+    stmt = (
         select(ClientExecutiveContract)
         .options(selectinload(ClientExecutiveContract.framework_contract))
         .where(
@@ -252,6 +265,9 @@ async def _load_executive(
             ClientExecutiveContract.client_id == client_id,
         )
     )
+    if lock:
+        stmt = stmt.with_for_update(of=ClientExecutiveContract)
+    executive = await db.scalar(stmt)
     if executive is None:
         raise ValueError(
             "Wskazana umowa wykonawcza nie istnieje albo należy do innego klienta"
@@ -273,8 +289,15 @@ async def update_executive_contract(
     ``resolve_ezdrowie_assignment`` przyjmuje wyłącznie umowy ``active``.
     Najpierw przepisz ludzi, potem zamknij umowę.
     """
-    executive = await _load_executive(db, client_id, executive_contract_id)
     data = payload.model_dump(exclude_unset=True)
+    # Zakończenie pod blokadą wiersza umowy: liczenie przypisań i zmiana
+    # statusu idą w jednej transakcji (audyt 24.09.2026, S2).
+    executive = await _load_executive(
+        db,
+        client_id,
+        executive_contract_id,
+        lock=data.get("status") == EXECUTIVE_CONTRACT_STATUS_ENDED,
+    )
     if "number" in data and data["number"] != executive.number:
         if await _number_taken(db, client_id, data["number"], exclude_id=executive.id):
             raise ExecutiveContractConflict(DUPLICATE_NUMBER_MESSAGE)
@@ -282,9 +305,19 @@ async def update_executive_contract(
         data.get("status") == EXECUTIVE_CONTRACT_STATUS_ENDED
         and executive.status != EXECUTIVE_CONTRACT_STATUS_ENDED
     ):
-        assigned = _assigned_counts(await _live_contracts(db, client_id)).get(
-            executive.id, 0
-        )
+        # Liczymy WSZYSTKIE nieukończone zamówienia wskazujące tę umowę, nie
+        # tylko reprezentatywne zamówienia bieżących kontraktów: do 24.09.2026
+        # przyszłe przedłużenie pod tą umową nie blokowało zakończenia (S2).
+        assigned = (
+            await db.scalar(
+                select(func.count(ClientOrder.id)).where(
+                    ClientOrder.client_id == client_id,
+                    ClientOrder.executive_contract_id == executive.id,
+                    ClientOrder.order_group_id.is_(None),
+                    ClientOrder.status.in_(_OPEN_ORDER_STATUSES),
+                )
+            )
+        ) or 0
         # Karty MD (grupy) wskazują umowę bezpośrednio — żywa karta blokuje
         # zakończenie tak samo jak przypisany konsultant.
         live_groups = await db.scalar(
@@ -302,8 +335,8 @@ async def update_executive_contract(
         if assigned:
             raise ExecutiveContractConflict(
                 f"Umowa wykonawcza {executive.number} ma {assigned} "
-                "przypisanych konsultantów — przepisz ich na inną umowę, "
-                "zanim ją zakończysz"
+                "przypisanych zamówień (także przyszłych przedłużeń) — przepisz "
+                "je na inną umowę, zanim ją zakończysz"
             )
     changed = {
         field: value
@@ -351,7 +384,18 @@ async def review_rows(
     szkic (``assign_executive_contract``).
     """
     contracts = await _live_contracts(db, client_id)
-    current_ids = {c.id for c in current_contracts(contracts, business_today())}
+    today = business_today()
+    current_ids = {
+        c.id
+        for c in current_contracts(
+            contracts,
+            today,
+            fallback_start_by_contract={
+                c.id: getattr(representative_order(c, today), "start_date", None)
+                for c in contracts
+            },
+        )
+    }
     frameworks_by_part = {
         fc.project_part: fc.id for fc in await _framework_parts(db, client_id)
     }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api, {
@@ -56,6 +56,24 @@ import {
   terminationSeedDate,
 } from "@/lib/contract-end-date";
 import { celebrate } from "@/lib/celebrate";
+import {
+  CONTRACT_STATUS_LABELS,
+  contractStatusLabel,
+  contractStatusVariant,
+  type StatusVariant,
+} from "@/lib/status-labels";
+import {
+  contractDetailTabHref,
+  useContractDetailTab,
+  type ContractDetailTab,
+} from "@/lib/contract-detail-tab";
+import {
+  buildScheduleEditSteps,
+  scheduleStepsChanged,
+  sortSavedSchedule,
+  type ScheduleEditRow,
+} from "@/lib/contract-rate-schedule";
+import { useToast } from "@/components/Toast";
 import { getAuthenticatedRequestHeaders } from "@/lib/session";
 import { hasSectionAccess } from "@/lib/section-access";
 import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
@@ -67,6 +85,7 @@ import {
   canManageContractStatus,
   canRecoverContractTermination,
   canViewClientFinance,
+  hasAnalyticsCapability,
   hasRole,
   useAuthStore,
 } from "@/store/auth";
@@ -162,7 +181,7 @@ interface ContractDetail {
   billing_hours_per_month: number;
   margin: number | null;
   contract_type: "b2b" | "uop" | "uzlecenie";
-  status: "draft" | "active" | "ending" | "ended";
+  status: "draft" | "ready_for_signature" | "active" | "ending" | "ended" | "void";
   documents: unknown;
   client_pm_name: string | null;
   client_pm_email: string | null;
@@ -222,19 +241,24 @@ interface RateHistoryEntry {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const STATUS_STYLES: Record<string, string> = {
-  draft: "bg-muted text-foreground border border-border dark:bg-muted dark:text-muted-foreground",
-  active: "bg-emerald-100 text-emerald-700 border border-emerald-200",
-  ending: "bg-orange-100 text-orange-700 border border-orange-200",
-  ended: "bg-destructive/15 text-destructive border border-destructive/20",
+// Etykiety i warianty statusów z `lib/status-labels.ts` (audyt 24.09, S11):
+// lokalny słownik znał cztery statusy, więc „Do podpisu” i „Anulowany”
+// wychodziły na plakietce jako surowy kod.
+const VARIANT_STYLES: Record<StatusVariant, string> = {
+  neutral: "bg-muted text-foreground border border-border dark:bg-muted dark:text-muted-foreground",
+  soft: "bg-muted text-foreground border border-border dark:bg-muted dark:text-muted-foreground",
+  success: "bg-emerald-100 text-emerald-700 border border-emerald-200",
+  warning: "bg-orange-100 text-orange-700 border border-orange-200",
+  danger: "bg-destructive/15 text-destructive border border-destructive/20",
 };
 
-const STATUS_LABELS: Record<string, string> = {
-  draft: "Draft",
-  active: "Aktywny",
-  ending: "Kończący się",
-  ended: "Zakończony",
-};
+function statusStyle(status: string): string {
+  return VARIANT_STYLES[contractStatusVariant(status)];
+}
+
+// Statusy, które da się WYBRAĆ w rejestrze. „Do podpisu” i „Anulowany” mają
+// własne ścieżki (podpis, „Anuluj kontrakt”) — tylko je wyświetlamy.
+const SELECTABLE_STATUSES = ["draft", "active", "ending", "ended"] as const;
 
 const TYPE_LABELS: Record<string, string> = {
   b2b: "B2B",
@@ -261,6 +285,7 @@ function GenerateDocumentButton({
   contractId: number;
   contractType: string;
 }) {
+  const { showError } = useToast();
   const { data: templates } = useQuery<ContractTemplate[]>({
     queryKey: ["contract-templates-by-type", contractType],
     queryFn: () =>
@@ -278,20 +303,24 @@ function GenerateDocumentButton({
       const resp = await fetch(url, {
         headers: getAuthenticatedRequestHeaders(),
       });
+      // Komunikaty toastem, nie natywnym `alert()` (audyt 24.09, N7) —
+      // natywne okno zamraża automatyzację przeglądarki.
       if (!resp.ok) {
-        alert(`Błąd renderowania: ${resp.status}`);
+        showError(`Nie udało się wygenerować dokumentu (HTTP ${resp.status}).`);
         return;
       }
       const html = await resp.text();
       const win = window.open("", "_blank");
       if (!win) {
-        alert("Popupy są blokowane — pozwól na okno i spróbuj ponownie.");
+        showError("Przeglądarka zablokowała nowe okno — zezwól na wyskakujące okna i spróbuj ponownie.");
         return;
       }
       win.document.write(html);
       win.document.close();
     } catch (err) {
-      alert(`Błąd: ${err instanceof Error ? err.message : String(err)}`);
+      showError(
+        `Nie udało się wygenerować dokumentu: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   };
 
@@ -320,16 +349,7 @@ function GenerateDocumentButton({
 
 // ── Tabs ──────────────────────────────────────────────────────────────────────
 
-type TabKey =
-  | "details"
-  | "documents"
-  | "amendments"
-  | "onboarding"
-  | "equipment"
-  | "notes"
-  | "invoices"
-  | "rateHistory"
-  | "timeline";
+type TabKey = ContractDetailTab;
 
 interface Tab {
   key: TabKey;
@@ -353,8 +373,8 @@ const TABS: Tab[] = [
 
 function StatusBadge({ status }: { status: string }) {
   return (
-    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_STYLES[status] ?? ""}`}>
-      {STATUS_LABELS[status] ?? status}
+    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusStyle(status)}`}>
+      {contractStatusLabel(status)}
     </span>
   );
 }
@@ -382,11 +402,7 @@ function InfoRow({
 // ── Edit form ─────────────────────────────────────────────────────────────────
 
 /** One editable step of the candidate-rate schedule ("stawka progresywna"). */
-interface RateScheduleRow {
-  rate: string;
-  effectiveFrom: string;
-  effectiveTo: string;
-}
+type RateScheduleRow = ScheduleEditRow;
 
 interface EditForm {
   start_date: string;
@@ -431,24 +447,26 @@ function contractToForm(c: ContractDetail): EditForm {
     // Prefill the schedule editor from the persisted schedule (oldest → newest).
     // Empty when the contract has no schedule yet — then the plain rate input is
     // shown and "Dodaj stawkę progresywną" seeds the first step on demand.
-    candidate_rate_schedule: [...c.candidate_rate_schedule]
-      .sort((a, b) => a.effective_from.localeCompare(b.effective_from))
-      .map((s) => ({
+    candidate_rate_schedule: sortSavedSchedule(c.candidate_rate_schedule).map(
+      (s) => ({
         rate: s.rate?.toString() ?? "",
         effectiveFrom: s.effective_from ?? "",
         effectiveTo: s.effective_to ?? "",
-      })),
+        note: s.note ?? null,
+      }),
+    ),
     rate_client: c.rate_client?.toString() ?? "",
     framework_rate: c.framework_rate?.toString() ?? "",
     // Prefill the framework schedule editor from the persisted schedule
     // (oldest → newest). Empty when the contract has no framework schedule yet.
-    framework_rate_schedule: [...(c.framework_rate_schedule ?? [])]
-      .sort((a, b) => a.effective_from.localeCompare(b.effective_from))
-      .map((s) => ({
+    framework_rate_schedule: sortSavedSchedule(c.framework_rate_schedule ?? []).map(
+      (s) => ({
         rate: s.rate?.toString() ?? "",
         effectiveFrom: s.effective_from ?? "",
         effectiveTo: s.effective_to ?? "",
-      })),
+        note: s.note ?? null,
+      }),
+    ),
     target_rate_min: c.target_rate_min?.toString() ?? "",
     target_rate_max: c.target_rate_max?.toString() ?? "",
     rate_client_currency: c.rate_client_currency ?? c.currency ?? "PLN",
@@ -478,10 +496,21 @@ function contractToForm(c: ContractDetail): EditForm {
 export default function ContractDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const user = useAuthStore((state) => state.user);
   const impersonating = useAuthStore((state) => state.realUser !== null);
   const canManageFinance = canManageCandidateFinance(user);
+  // Benchmark porównuje z kontraktami INNYCH klientów, więc backend trzyma go
+  // za `view_finance` (bez wyjątku portfela DL). Ta sama bramka tutaj —
+  // inaczej DL dostawał 403 i karta znikała bez słowa (audyt 24.09, S1).
+  const canViewBenchmark = hasAnalyticsCapability(user, "view_finance");
+  // Faktury: backend `/api/invoices` — odczyt `view_finance`, zapis
+  // `manage_finance` (bez wyjątku portfela DL). Jedna bramka zamiast dwóch
+  // sprzecznych (audyt 24.09, S10): `readOnly={!canManageFinance}` wpuszczał
+  // Finanse, a `RequireRole admin/delivery_lead` w środku je wyrzucał.
+  const canViewInvoices = canViewBenchmark;
+  const canManageInvoices = hasAnalyticsCapability(user, "manage_finance");
   const isAdmin = hasRole(user, "admin");
   const canEditContract =
     !impersonating &&
@@ -510,7 +539,16 @@ export default function ContractDetailPage() {
     setReturnContext(parseContractsReturnContext(window.location.search));
   }, []);
 
-  const [activeTab, setActiveTab] = useState<TabKey>("details");
+  // Zakładka w adresie (`?tab=`) — linki z powiadomień i wzmianek prowadzą
+  // prosto do właściwej zakładki (audyt 24.09, S9).
+  const [activeTab, setActiveTab] = useContractDetailTab(
+    searchParams?.get("tab") ?? null,
+    (tab) =>
+      router.replace(
+        contractDetailTabHref(window.location.pathname, window.location.search, tab),
+        { scroll: false },
+      ),
+  );
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<EditForm | null>(null);
   const [error, setError] = useState("");
@@ -710,36 +748,24 @@ export default function ContractDetailPage() {
     // ── Candidate rate: plain single value vs progressive schedule ──────────
     // Rows with a numeric rate become schedule steps; an empty "Obowiązuje od"
     // defaults to the contract start date (mirrors the "Nowy kontrakt" form).
-    const scheduleSteps = form.candidate_rate_schedule
-      .map((r) => ({
-        rate: parseDecimalInput(r.rate),
-        effective_from: r.effectiveFrom || form.start_date,
-        effective_to: r.effectiveTo || null,
-      }))
-      .filter(
-        (
-          r,
-        ): r is { rate: number; effective_from: string; effective_to: string | null } =>
-          r.rate !== null && !!r.effective_from,
-      );
-    // Reject duplicate "Obowiązuje od" — the resolver keys steps by that date.
-    const fromDates = scheduleSteps.map((s) => s.effective_from);
-    if (new Set(fromDates).size !== fromDates.length) {
-      setError('Każdy etap stawki musi mieć inną datę „Obowiązuje od".');
-      return;
-    }
-    // Reject an "Obowiązuje do" earlier than its "Obowiązuje od".
-    if (scheduleSteps.some((s) => s.effective_to && s.effective_to < s.effective_from)) {
-      setError('„Obowiązuje do" nie może być wcześniejsze niż „Obowiązuje od".');
-      return;
-    }
+    // Duplikat daty „od” jest legalny — rozstrzyga kolejność wpisu (resolver:
+    // wygrywa późniejszy krok), np. aneks z datą równą dacie rozpoczęcia.
+    // Harmonogram idzie do API tylko przy REALNEJ zmianie, z notatkami kroków
+    // (audyt 24.09, W2): zastąpienie niezmienionego harmonogramu gubiło
+    // notatki i autorów, a przy zmianie jednostki udawało „nowe kwoty”.
+    const scheduleSteps = buildScheduleEditSteps(
+      form.candidate_rate_schedule,
+      form.start_date,
+    );
     const hadSchedule = contract.candidate_rate_schedule.length > 0;
-    // A genuine schedule: >1 step, any explicit "Obowiązuje do", or a single
-    // step starting on a custom (non-start) date. A former schedule is always
-    // replaced so we don't silently drop planned steps.
+    const scheduleChanged = scheduleStepsChanged(
+      scheduleSteps,
+      contract.candidate_rate_schedule,
+    );
+    // A genuine schedule: >1 step, or a single step starting on a custom
+    // (non-start) date.
     const isProgressive =
       scheduleSteps.length >= 2 ||
-      scheduleSteps.some((s) => s.effective_to) ||
       form.candidate_rate_schedule.some(
         (r) =>
           parseDecimalInput(r.rate) !== null &&
@@ -749,35 +775,17 @@ export default function ContractDetailPage() {
 
     // ── Framework rate: plain single value vs progressive schedule ──────────
     // Same shape/logic as the candidate schedule above ("Stawka z umowy ramowej").
-    const frameworkSteps = form.framework_rate_schedule
-      .map((r) => ({
-        rate: parseDecimalInput(r.rate),
-        effective_from: r.effectiveFrom || form.start_date,
-        effective_to: r.effectiveTo || null,
-      }))
-      .filter(
-        (
-          r,
-        ): r is { rate: number; effective_from: string; effective_to: string | null } =>
-          r.rate !== null && !!r.effective_from,
-      );
-    const frameworkFromDates = frameworkSteps.map((s) => s.effective_from);
-    if (new Set(frameworkFromDates).size !== frameworkFromDates.length) {
-      setError(
-        'Każdy etap stawki z umowy ramowej musi mieć inną datę „Obowiązuje od".',
-      );
-      return;
-    }
-    if (
-      frameworkSteps.some((s) => s.effective_to && s.effective_to < s.effective_from)
-    ) {
-      setError('„Obowiązuje do" nie może być wcześniejsze niż „Obowiązuje od".');
-      return;
-    }
+    const frameworkSteps = buildScheduleEditSteps(
+      form.framework_rate_schedule,
+      form.start_date,
+    );
     const hadFrameworkSchedule = contract.framework_rate_schedule.length > 0;
+    const frameworkChanged = scheduleStepsChanged(
+      frameworkSteps,
+      contract.framework_rate_schedule,
+    );
     const isFrameworkProgressive =
       frameworkSteps.length >= 2 ||
-      frameworkSteps.some((s) => s.effective_to) ||
       form.framework_rate_schedule.some(
         (r) =>
           parseDecimalInput(r.rate) !== null &&
@@ -796,7 +804,11 @@ export default function ContractDetailPage() {
     const operationalPayload: Record<string, unknown> = {
       start_date: form.start_date || null,
       end_date: endDateLocked ? null : form.end_date || null,
-      client_order_end_date: form.client_order_end_date || null,
+      // Okres zamówienia prowadzi synchronizacja z zamówień — wpis ręczny
+      // zostałby nadpisany przy najbliższym zapisie (audyt 24.09, S2).
+      ...(contract.client_order_start_date
+        ? {}
+        : { client_order_end_date: form.client_order_end_date || null }),
       contract_type: form.contract_type,
       status: form.status,
       client_pm_name: form.client_pm_name || null,
@@ -830,25 +842,26 @@ export default function ContractDetailPage() {
         billing_hours_per_month:
           Number(form.billing_hours_per_month) || HOURS_PER_MONTH,
       });
-      if ((isProgressive || hadSchedule) && scheduleSteps.length > 0) {
-        payload.candidate_rate_schedule = scheduleSteps;
-      } else if (hadSchedule && scheduleSteps.length === 0) {
+      if (hadSchedule && scheduleSteps.length === 0) {
         payload.candidate_rate_schedule = [];
         payload.rate_candidate = parseDecimalInput(form.rate_candidate);
+      } else if (hadSchedule) {
+        if (scheduleChanged) payload.candidate_rate_schedule = scheduleSteps;
+      } else if (isProgressive && scheduleSteps.length > 0) {
+        payload.candidate_rate_schedule = scheduleSteps;
       } else {
         payload.rate_candidate =
           scheduleSteps.length > 0
             ? scheduleSteps[0].rate
             : parseDecimalInput(form.rate_candidate);
       }
-      if (
-        (isFrameworkProgressive || hadFrameworkSchedule) &&
-        frameworkSteps.length > 0
-      ) {
-        payload.framework_rate_schedule = frameworkSteps;
-      } else if (hadFrameworkSchedule && frameworkSteps.length === 0) {
+      if (hadFrameworkSchedule && frameworkSteps.length === 0) {
         payload.framework_rate_schedule = [];
         payload.framework_rate = parseDecimalInput(form.framework_rate);
+      } else if (hadFrameworkSchedule) {
+        if (frameworkChanged) payload.framework_rate_schedule = frameworkSteps;
+      } else if (isFrameworkProgressive && frameworkSteps.length > 0) {
+        payload.framework_rate_schedule = frameworkSteps;
       } else {
         payload.framework_rate =
           frameworkSteps.length > 0
@@ -904,8 +917,8 @@ export default function ContractDetailPage() {
   const visibleTabs = TABS.filter(
     (tab) =>
       (canViewContractDocuments || tab.key !== "documents") &&
-      (canViewFinance ||
-        (tab.key !== "invoices" && tab.key !== "rateHistory")),
+      (canViewFinance || tab.key !== "rateHistory") &&
+      (canViewInvoices || tab.key !== "invoices"),
   );
 
   // Konsolidacja wieloklientowa: pozostałe kontrakty tej samej osoby.
@@ -972,10 +985,19 @@ export default function ContractDetailPage() {
                 }}
                 className="rounded-md border border-border bg-card px-2 py-1 text-sm font-medium"
               >
-                <option value="draft">Draft</option>
-                <option value="active">Aktywny</option>
-                <option value="ending">Kończący się</option>
-                <option value="ended">Zakończony</option>
+                {SELECTABLE_STATUSES.map((value) => (
+                  <option key={value} value={value}>
+                    {CONTRACT_STATUS_LABELS[value]}
+                  </option>
+                ))}
+                {/* „Do podpisu” / „Anulowany” — wyświetlane, nie do wyboru. */}
+                {!(SELECTABLE_STATUSES as readonly string[]).includes(
+                  contract.status,
+                ) && (
+                  <option value={contract.status} disabled>
+                    {contractStatusLabel(contract.status)}
+                  </option>
+                )}
               </select>
             )}
             {complianceRisk.risk === "overdue" && (
@@ -1117,17 +1139,17 @@ export default function ContractDetailPage() {
                   : `/contracts/${sibling.id}`
               }
               className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-sm font-medium text-foreground hover:border-primary/50 hover:text-primary"
-              title={`${STATUS_LABELS[sibling.status] ?? sibling.status} · ${
+              title={`${contractStatusLabel(sibling.status)} · ${
                 sibling.start_date ? formatDate(sibling.start_date) : "—"
               }${sibling.end_date ? ` – ${formatDate(sibling.end_date)}` : ""}`}
             >
               {sibling.client_name ?? `Klient #${sibling.client_id}`}
               <span
-                className={`px-1.5 py-0.5 rounded-full text-[10px] font-medium ${
-                  STATUS_STYLES[sibling.status] ?? ""
-                }`}
+                className={`px-1.5 py-0.5 rounded-full text-[10px] font-medium ${statusStyle(
+                  sibling.status,
+                )}`}
               >
-                {STATUS_LABELS[sibling.status] ?? sibling.status}
+                {contractStatusLabel(sibling.status)}
               </span>
             </Link>
           ))}
@@ -1237,6 +1259,7 @@ export default function ContractDetailPage() {
             <button
               key={t.key}
               onClick={() => setActiveTab(t.key)}
+              aria-current={active ? "page" : undefined}
               className={`flex shrink-0 items-center gap-2 whitespace-nowrap px-4 py-2.5 text-sm border-b-2 -mb-px transition-colors ${
                 active
                   ? "border-primary text-primary font-medium"
@@ -1249,6 +1272,27 @@ export default function ContractDetailPage() {
           );
         })}
       </div>
+
+      {/* Błąd zapisu poza formularzem (zmiana statusu z nagłówka, kontakt
+          zapisywany w miejscu) — do 24.09 był widoczny wyłącznie w trybie
+          edycji, więc odmowa kończyła się ciszą (audyt, S9). */}
+      {error && !editing && (
+        <div
+          role="alert"
+          className="text-sm text-destructive bg-destructive/10 dark:bg-red-900/30 dark:text-red-300 rounded-lg px-4 py-2 flex items-center gap-2"
+        >
+          <AlertCircle className="w-4 h-4 shrink-0" />
+          <span className="flex-1">{error}</span>
+          <button
+            type="button"
+            onClick={() => setError("")}
+            aria-label="Zamknij komunikat"
+            className="rounded p-0.5 hover:bg-destructive/10"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {/* Tab: Szczegóły */}
       {activeTab === "details" && (
@@ -1373,7 +1417,7 @@ export default function ContractDetailPage() {
             )}
 
             {/* Rate benchmark card — compare vs internal avg + market */}
-            {!editing && canViewFinance && (
+            {!editing && canViewBenchmark && (
               <ContractRateBenchmarkCard
                 contractId={id}
                 currency={contract.rate_client_currency ?? contract.currency ?? "PLN"}
@@ -1558,13 +1602,28 @@ export default function ContractDetailPage() {
                     <input id="contract-edit-client-order-end-date"
                       type="date"
                       value={form.client_order_end_date}
+                      readOnly={Boolean(contract.client_order_start_date)}
+                      aria-describedby={
+                        contract.client_order_start_date
+                          ? "contract-edit-client-order-end-date-hint"
+                          : undefined
+                      }
                       onChange={(e) =>
                         setForm((f) =>
                           f ? { ...f, client_order_end_date: e.target.value } : f,
                         )
                       }
-                      className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground"
+                      className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground read-only:opacity-60 read-only:cursor-not-allowed"
                     />
+                    {contract.client_order_start_date && (
+                      <p
+                        id="contract-edit-client-order-end-date-hint"
+                        className="mt-1 text-xs text-muted-foreground"
+                      >
+                        Okres zamówienia ustawia się z zamówień tej osoby —
+                        zmień go w zakładce „Zamówienia” klienta.
+                      </p>
+                    )}
                   </div>
                   <div>
                     <label htmlFor="contract-edit-contract-type" className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
@@ -1593,10 +1652,31 @@ export default function ContractDetailPage() {
                       }
                       className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground"
                     >
-                      <option value="draft">Draft</option>
-                      <option value="active">Aktywny</option>
-                      <option value="ending">Kończący się</option>
-                      <option value="ended">Zakończony</option>
+                      {SELECTABLE_STATUSES.filter(
+                        (value) =>
+                          // Umowa B2B bez ręcznego zakończenia jest
+                          // bezterminowa, a „Kończący się” wymaga daty końca
+                          // — serwer odmówiłby 409 (audyt 24.09, N3).
+                          value !== "ending" ||
+                          form.status === "ending" ||
+                          !b2bEndDateLocked({
+                            contract_type: form.contract_type,
+                            status: form.status,
+                            terminated_at: contract.terminated_at,
+                            termination_reason: contract.termination_reason,
+                          }),
+                      ).map((value) => (
+                        <option key={value} value={value}>
+                          {CONTRACT_STATUS_LABELS[value]}
+                        </option>
+                      ))}
+                      {!(SELECTABLE_STATUSES as readonly string[]).includes(
+                        form.status,
+                      ) && (
+                        <option value={form.status} disabled>
+                          {contractStatusLabel(form.status)}
+                        </option>
+                      )}
                     </select>
                   </div>
                   <div>
@@ -1766,7 +1846,7 @@ export default function ContractDetailPage() {
                   ) : (
                     <div className="space-y-2">
                       {form.framework_rate_schedule.map((row, idx) => (
-                        <div key={idx} className="grid grid-cols-1 gap-2 rounded-lg border border-border p-2 sm:grid-cols-[1fr_1fr_1fr_auto] sm:items-end sm:border-0 sm:p-0">
+                        <div key={idx} className="grid grid-cols-1 gap-2 rounded-lg border border-border p-2 sm:grid-cols-[1fr_1fr_auto] sm:items-end sm:border-0 sm:p-0">
                           <div className="flex-1">
                             <span className={`mb-1 block text-[11px] text-muted-foreground${idx > 0 ? " sm:hidden" : ""}`}>
                               Stawka
@@ -1817,32 +1897,6 @@ export default function ContractDetailPage() {
                                           f.framework_rate_schedule.map((r, i) =>
                                             i === idx
                                               ? { ...r, effectiveFrom: e.target.value }
-                                              : r,
-                                          ),
-                                      }
-                                    : f,
-                                )
-                              }
-                              className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground"
-                            />
-                          </div>
-                          <div className="flex-1">
-                            <span className={`mb-1 block text-[11px] text-muted-foreground${idx > 0 ? " sm:hidden" : ""}`}>
-                              Obowiązuje do
-                            </span>
-                            <input
-                              aria-label={`Etap ${idx + 1} stawki z umowy ramowej: obowiązuje do`}
-                              type="date"
-                              value={row.effectiveTo}
-                              onChange={(e) =>
-                                setForm((f) =>
-                                  f
-                                    ? {
-                                        ...f,
-                                        framework_rate_schedule:
-                                          f.framework_rate_schedule.map((r, i) =>
-                                            i === idx
-                                              ? { ...r, effectiveTo: e.target.value }
                                               : r,
                                           ),
                                       }
@@ -1945,7 +1999,7 @@ export default function ContractDetailPage() {
                   ) : (
                     <div className="space-y-2">
                       {form.candidate_rate_schedule.map((row, idx) => (
-                        <div key={idx} className="grid grid-cols-1 gap-2 rounded-lg border border-border p-2 sm:grid-cols-[1fr_1fr_1fr_auto] sm:items-end sm:border-0 sm:p-0">
+                        <div key={idx} className="grid grid-cols-1 gap-2 rounded-lg border border-border p-2 sm:grid-cols-[1fr_1fr_auto] sm:items-end sm:border-0 sm:p-0">
                           <div className="flex-1">
                             <span className={`mb-1 block text-[11px] text-muted-foreground${idx > 0 ? " sm:hidden" : ""}`}>
                               Stawka
@@ -1996,32 +2050,6 @@ export default function ContractDetailPage() {
                                           f.candidate_rate_schedule.map((r, i) =>
                                             i === idx
                                               ? { ...r, effectiveFrom: e.target.value }
-                                              : r,
-                                          ),
-                                      }
-                                    : f,
-                                )
-                              }
-                              className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground"
-                            />
-                          </div>
-                          <div className="flex-1">
-                            <span className={`mb-1 block text-[11px] text-muted-foreground${idx > 0 ? " sm:hidden" : ""}`}>
-                              Obowiązuje do
-                            </span>
-                            <input
-                              aria-label={`Etap ${idx + 1} stawki kandydata: obowiązuje do`}
-                              type="date"
-                              value={row.effectiveTo}
-                              onChange={(e) =>
-                                setForm((f) =>
-                                  f
-                                    ? {
-                                        ...f,
-                                        candidate_rate_schedule:
-                                          f.candidate_rate_schedule.map((r, i) =>
-                                            i === idx
-                                              ? { ...r, effectiveTo: e.target.value }
                                               : r,
                                           ),
                                       }
@@ -2116,6 +2144,15 @@ export default function ContractDetailPage() {
                         </option>
                       )}
                     </select>
+                    {form.rate_unit !== contract.rate_unit &&
+                      contract.rate_unit !== "daily" && (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Zapis przeliczy stawki i harmonogramy na nową
+                          jednostkę (godziny × liczba godzin w miesiącu).
+                          Kwoty zmienione w tym formularzu traktujemy jako
+                          podane już w nowej jednostce.
+                        </p>
+                      )}
                   </div>
                   {form.rate_unit === "hourly" && (
                     <div>
@@ -2395,8 +2432,8 @@ export default function ContractDetailPage() {
       )}
 
       {/* Tab: Faktury */}
-      {canViewFinance && activeTab === "invoices" && (
-        <ContractInvoicesTab contractId={id} readOnly={!canManageFinance} />
+      {canViewInvoices && activeTab === "invoices" && (
+        <ContractInvoicesTab contractId={id} readOnly={!canManageInvoices} />
       )}
 
       {/* Tab: Rate history */}

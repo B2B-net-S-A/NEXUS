@@ -11,7 +11,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 
 class ClientOnePagerResponse(BaseModel):
@@ -58,8 +58,27 @@ class ClientContractTermsBase(BaseModel):
     other_clauses: Optional[str] = None
 
 
+# Lustro długości kolumn `client_contract_terms` — za długa wartość dawała
+# surowy błąd bazy (500 bez CORS) zamiast czytelnego 422 (audyt S3).
+_TERMS_MAX_LENGTH = {
+    "off_limits_scope": (500, "Zakres off-limits"),
+    "payment_currency": (3, "Waluta płatności"),
+    "payment_invoice_cycle": (50, "Cykl fakturowania"),
+    "payment_late_fees": (500, "Odsetki za opóźnienie"),
+}
+
+
 class ClientContractTermsUpsert(ClientContractTermsBase):
-    pass
+    @model_validator(mode="after")
+    def _fits_columns(self) -> "ClientContractTermsUpsert":
+        for field, (limit, label) in _TERMS_MAX_LENGTH.items():
+            value = getattr(self, field)
+            if value is not None and len(value) > limit:
+                raise ValueError(f"{label}: najwyżej {limit} znaków.")
+        fee = self.internalization_fee_pct
+        if fee is not None and not (Decimal("0") <= fee <= Decimal("999.99")):
+            raise ValueError("Opłata za internalizację: od 0 do 999,99%.")
+        return self
 
 
 class ClientContractTermsResponse(ClientContractTermsBase):

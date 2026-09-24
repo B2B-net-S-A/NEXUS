@@ -369,7 +369,7 @@ export function OrderChangesTab({
         .normalize("NFD")
         .replace(/[\u0300-\u036f]/g, "")
         .replace(/ł/gi, "l")
-        // Wielowyrazowa nazwa zakładki („Kończące się zamówienia") nie może
+        // Wielowyrazowa nazwa zakładki („Zamówienia bez kontynuacji") nie może
         // wpuścić spacji do nazwy pliku.
         .replace(/\s+/g, "_");
       downloadBlob(

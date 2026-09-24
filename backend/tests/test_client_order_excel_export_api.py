@@ -128,7 +128,8 @@ async def test_legacy_excel_export_has_visible_order_and_scoped_ids(
     assert sheet["A2"].value == consultant
     assert sheet["C2"].value == 123.456
     assert sheet["D2"].value == 185.75
-    assert sheet["E2"].value == "01.01.2026 – 31.12.2026"
+    assert sheet["E2"].value == "mies."
+    assert sheet["G2"].value == "01.01.2026 – 31.12.2026"
 
     foreign = await app_client.post(
         f"/api/clients/{client_id}/orders/export",
@@ -163,6 +164,8 @@ async def test_unified_excel_export_preserves_mixed_item_order_and_columns(
         "Numer zamówienia",
         "Stawka kosztowa",
         "Stawka przychodowa",
+        "Jednostka stawki",
+        "Waluta",
         "Okres zamówienia",
         "Liczba MD / Kwota zamówienia",
         "Zużycie zamówienia",
@@ -171,10 +174,10 @@ async def test_unified_excel_export_preserves_mixed_item_order_and_columns(
     assert sheet.max_row == 3
     assert sheet["B2"].value == "MD-2026"
     # A generic MD order without consultants has no aggregate budget.
-    assert sheet["F2"].value is None
-    assert sheet["H2"].value == "MD"
+    assert sheet["H2"].value is None
+    assert sheet["J2"].value == "MD"
     assert sheet["A3"].value == consultant
-    assert sheet["H3"].value == "Okresowe"
+    assert sheet["J3"].value == "Okresowe"
 
 
 async def test_unified_excel_export_rejects_duplicate_and_foreign_items(
@@ -227,3 +230,60 @@ async def test_finance_unified_export_includes_group_and_standalone_orders(
     sheet = load_workbook(io.BytesIO(standalone.content)).active
     assert sheet.max_row == 2
     assert sheet["A2"].value == consultant
+
+
+async def test_export_labels_units_converts_contract_cost_and_skips_past_groups(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    """S8 (audyt 24.09.2026): jednostka i waluta obok stawek, zapasowa stawka
+    kosztowa kontraktu przeliczona na jednostkę zamówienia, a wiersz zbiorczy
+    grupy tylko dla zamówienia obowiązującego dziś."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order import ClientOrder
+    from app.models.client_order_group import ClientOrderGroup
+    from app.models.contract import Contract, RateUnit
+
+    client_id, order_id, contract_id, _ = await _seed_order("Eksport Jednostki")
+    today = business_today()
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, contract_id)
+        contract.rate_unit = RateUnit.hourly
+        contract.rate_candidate = Decimal("120.000")
+        order = await db.get(ClientOrder, order_id)
+        order.rate_unit = RateUnit.daily
+        order.start_date = today - timedelta(days=10)
+        order.end_date = today + timedelta(days=10)
+        order.rate_client_currency = "EUR"
+        order.rate_candidate_currency = "PLN"
+        order.currency = "EUR"
+        past = ClientOrderGroup(
+            client_id=client_id,
+            order_number="KOSZT-STARE",
+            start_date=today - timedelta(days=400),
+            end_date=today - timedelta(days=40),
+            status="active",
+            order_type="cost",
+            is_cost_based=True,
+            budget_amount=Decimal("1000"),
+            budget_remaining=Decimal("1000"),
+        )
+        db.add(past)
+        await db.commit()
+        past_id = past.id
+
+    response = await app_client.post(
+        f"/api/clients/{client_id}/orders/export",
+        headers=app_auth_headers,
+        json={
+            "items": [
+                {"kind": "group", "id": past_id},
+                {"kind": "order", "id": order_id},
+            ]
+        },
+    )
+    assert response.status_code == 200, response.text
+    sheet = load_workbook(io.BytesIO(response.content)).active
+    assert sheet.max_row == 2, "zamówienie sprzed roku nie trafia do arkusza na dziś"
+    assert sheet["C2"].value == 960, "120 zł/h razy 8 = 960 za MD"
+    assert sheet["E2"].value == "MD"
+    assert sheet["F2"].value == "EUR (koszt PLN)"

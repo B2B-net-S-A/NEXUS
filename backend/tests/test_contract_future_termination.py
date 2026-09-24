@@ -18,6 +18,7 @@ import uuid
 from datetime import timedelta
 from decimal import Decimal
 
+import pytest
 from httpx import AsyncClient
 
 from app.core.scheduling import business_today
@@ -65,45 +66,30 @@ async def _status(app_client: AsyncClient, headers: dict, cid: int) -> dict:
 # ── Amendment early_termination ──────────────────────────────────────────────
 
 
-async def test_future_early_termination_amendment_keeps_active(
-    app_client: AsyncClient, app_auth_headers: dict
+@pytest.mark.parametrize("days_ahead", [0, 30])
+async def test_early_termination_amendment_is_refused_in_favour_of_the_window(
+    app_client: AsyncClient, app_auth_headers: dict, days_ahead: int
 ):
+    """Audyt 24.09 (S5): aneks „wcześniejsze zakończenie” przez API omijał
+    okno „Zakończ współpracę” (powód, koniec projektu, rozwiązanie umowy,
+    migawka do cofnięcia). Odmowa 409 ``termination_required`` bez zapisu."""
     cid = await _seed_active_contract()
-    early_end = business_today() + timedelta(days=30)
+    before = await _status(app_client, app_auth_headers, cid)
     r = await app_client.post(
         f"/api/contracts/{cid}/amendments",
         json={
             "amendment_type": "early_termination",
             "effective_date": business_today().isoformat(),
-            "new_end_date": early_end.isoformat(),
+            "new_end_date": (business_today() + timedelta(days=days_ahead)).isoformat(),
         },
         headers=app_auth_headers,
     )
-    assert r.status_code == 201, r.text
-    assert r.json()["new_values"]["status"] == "ending"
+    assert r.status_code == 409, r.text
+    assert r.json()["detail"]["reason"] == "termination_required"
 
     after = await _status(app_client, app_auth_headers, cid)
-    assert after["status"] == "ending", "future early termination ended it today!"
-    assert after["end_date"] == early_end.isoformat()
-
-
-async def test_today_early_termination_amendment_is_ending_until_tomorrow(
-    app_client: AsyncClient, app_auth_headers: dict
-):
-    cid = await _seed_active_contract()
-    r = await app_client.post(
-        f"/api/contracts/{cid}/amendments",
-        json={
-            "amendment_type": "early_termination",
-            "effective_date": business_today().isoformat(),
-            "new_end_date": business_today().isoformat(),
-        },
-        headers=app_auth_headers,
-    )
-    assert r.status_code == 201, r.text
-    after = await _status(app_client, app_auth_headers, cid)
-    # Dziś konsultant jeszcze pracuje — „Zakończony” od jutra (nocny cron).
-    assert after["status"] == "ending"
+    assert after["status"] == before["status"]
+    assert after["end_date"] == before["end_date"]
 
 
 # ── Dedicated /terminate ─────────────────────────────────────────────────────

@@ -57,7 +57,7 @@ from decimal import Decimal
 from itertools import chain
 from typing import Iterable, Optional, Sequence
 
-from sqlalchemy import event, inspect, or_, select
+from sqlalchemy import event, func, inspect, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
@@ -68,7 +68,11 @@ from app.models.app_setting import AppSetting
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.contract import Contract, ContractStatus, RateUnit
 from app.models.contract_client_rate import ContractClientRate
-from app.services.contract_lifecycle import auto_activate_complete_draft
+from app.services.contract_lifecycle import (
+    auto_activate_complete_draft,
+    lock_contract_then_orders,
+)
+from app.services.order_engagement_separation import AUTO_DRAFT_TITLE_PLACEHOLDER
 from app.services.order_rate_snapshots import (
     CONTRACT_RATE_SCALE,
     RATE_SCALE,
@@ -86,6 +90,7 @@ __all__ = [
     "contract_unit_for_order",
     "apply_manual_client_rate",
     "backfill_missing_order_periods",
+    "backfill_missing_order_revenue",
     "OrderRevenueTerms",
     "REPAIR_MARKER",
     "SOURCE_ORDER_STATUSES",
@@ -244,6 +249,11 @@ def order_revenue_terms(order: ClientOrder) -> Optional[OrderRevenueTerms]:
     status = ClientOrderStatus(order.status)
     if status not in SOURCE_ORDER_STATUSES or order.start_date is None:
         return None
+    if (order.title or "").strip() == AUTO_DRAFT_TITLE_PLACEHOLDER:
+        # Zaślepka „(bez numeru)" to zaproszenie do wpisania numeru, nie
+        # zamówienie od klienta — stawka skopiowana do niej z kontraktu nie
+        # może wrócić na kontrakt jako „przychód z zamówienia" (S4).
+        return None
     if order.order_group_id is not None:
         if order.rate_client is not None:
             rate = order.rate_client
@@ -309,6 +319,9 @@ class ContractSyncOutcome:
     activated: bool = False
     order_cost_ids: list[int] = field(default_factory=list)
     source_order_id: Optional[int] = None
+    # Waluta najnowszego zamówienia, której kontrakt NIE przyjął, bo starsze
+    # zamówienia są w innej (W1). Informacja dla człowieka — nie zmiana.
+    currency_conflict: Optional[str] = None
 
     @property
     def changed(self) -> bool:
@@ -344,6 +357,8 @@ class ContractSyncOutcome:
             details["auto_activated"] = True
         if self.order_cost_ids:
             details["order_cost_synced"] = sorted(self.order_cost_ids)
+        if self.currency_conflict:
+            details["currency_conflict"] = self.currency_conflict
         return details
 
 
@@ -606,10 +621,39 @@ async def sync_contract_from_orders(
     #    zmieniamy też wtedy, gdy kontrakt ma przychód spoza zamówień: kroki
     #    nie niosą własnej waluty, więc 1000 PLN/MD sprzed zmiany czytałoby
     #    się po niej jako 1000 EUR/MD.
+    #
+    #    To samo dotyczy przychodu Z ZAMÓWIEŃ w innej walucie niż najnowsze
+    #    (audyt 24.09.2026, W1): przełączenie waluty usuwało kroki wszystkich
+    #    zamówień w starej walucie, a resolver brał wtedy najbliższy przyszły
+    #    krok — cała historia przychodu czytała się w nowej walucie. Krok nie
+    #    niesie własnej waluty, więc taki kontrakt zostaje przy swojej walucie
+    #    i czeka na decyzję człowieka (log + znacznik w wyniku).
     target_currency = latest.currency
-    keep_currency = not follow_order_currency or (
-        has_own_revenue and contract.resolved_rate_client_currency != latest.currency
+    mixed_order_currencies = any(t.currency != latest.currency for t in terms)
+    keep_currency = (
+        not follow_order_currency
+        or (
+            has_own_revenue
+            and contract.resolved_rate_client_currency != latest.currency
+        )
+        or (
+            mixed_order_currencies
+            and contract.resolved_rate_client_currency != latest.currency
+        )
     )
+    if (
+        follow_order_currency
+        and mixed_order_currencies
+        and contract.resolved_rate_client_currency != latest.currency
+    ):
+        outcome.currency_conflict = latest.currency
+        logger.warning(
+            "contract-order sync: contract %s has orders in %s and %s — "
+            "currency kept, needs a human decision",
+            contract.id,
+            contract.resolved_rate_client_currency,
+            latest.currency,
+        )
     if keep_currency:
         target_currency = contract.resolved_rate_client_currency
     elif (contract.rate_client_currency or "").upper() != latest.currency or (
@@ -1113,6 +1157,15 @@ async def run_daily_order_cost_sync(
                 # Savepoint per kontrakt: jeden rekord z danymi, których nie da
                 # się pogodzić, nie może zatrzymać podwyżek wszystkich innych.
                 async with db.begin_nested():
+                    # Kontrakt → zamówienia (S5, 24.09.2026): przebieg pisze
+                    # do zamówień, więc bierze blokady w kolejności handlerów.
+                    await lock_contract_then_orders(
+                        db,
+                        contract_ids=[contract.id],
+                        order_ids=[
+                            o.id for o in orders_by_contract.get(contract.id, [])
+                        ],
+                    )
                     changed = await sync_orders_cost_from_contract(
                         db,
                         contract,
@@ -1168,6 +1221,14 @@ async def backfill_missing_order_periods(
     """
     if not await sync_enabled(db):
         return 0
+    # Przychód najpierw (D1, audyt 24.09.2026): pełna synchronizacja ustawia
+    # też okres, więc kontrakt uzupełniony tu nie wraca niżej.
+    try:
+        async with db.begin_nested():
+            await backfill_missing_order_revenue(db)
+    except Exception:  # noqa: BLE001 — okres ma przeżyć awarię przychodu
+        logger.exception("contract-order sync: revenue backfill failed")
+        await _refresh_expired(db)
     contract_ids = list(
         (
             await db.scalars(
@@ -1179,12 +1240,7 @@ async def backfill_missing_order_periods(
                     # przebieg uzupełnia wyłącznie BRAK, nigdy nie nadpisuje.
                     Contract.client_order_start_date.is_(None),
                     Contract.client_order_end_date.is_(None),
-                    ClientOrder.client_id == Contract.client_id,
-                    ClientOrder.start_date.is_not(None),
-                    ClientOrder.status.in_(list(SOURCE_ORDER_STATUSES)),
-                    # To samo, co wymaga ``order_revenue_terms`` — bez tego
-                    # szkice bez stawki byłyby wczytywane co noc na próżno.
-                    or_(ClientOrder.rate_client > 0, ClientOrder.md_rate_revenue > 0),
+                    *_revenue_order_filter(),
                 )
                 .distinct()
                 .order_by(ClientOrder.contract_id)
@@ -1248,6 +1304,167 @@ async def backfill_missing_order_periods(
             )
         await db.flush()
     return filled
+
+
+def _revenue_order_filter() -> tuple:
+    """Zamówienia, które ``order_revenue_terms`` może uznać za uzupełnione.
+
+    To samo, co wymaga ``order_revenue_terms`` — bez tego szkice bez stawki
+    i zaślepki byłyby wczytywane co noc na próżno.
+    """
+    return (
+        ClientOrder.client_id == Contract.client_id,
+        ClientOrder.start_date.is_not(None),
+        ClientOrder.status.in_(list(SOURCE_ORDER_STATUSES)),
+        or_(ClientOrder.rate_client > 0, ClientOrder.md_rate_revenue > 0),
+        func.coalesce(ClientOrder.title, "") != AUTO_DRAFT_TITLE_PLACEHOLDER,
+    )
+
+
+REVENUE_DRIFT_REPORT_KEY = "contract_order_revenue_drift"
+
+
+@dataclass
+class RevenueBackfillOutcome:
+    filled: int = 0
+    drift: int = 0
+    drift_contract_ids: list[int] = field(default_factory=list)
+
+
+async def backfill_missing_order_revenue(
+    db: AsyncSession, *, today: Optional[date] = None, batch_size: int = 200
+) -> RevenueBackfillOutcome:
+    """Nocne uzupełnienie BRAKU przychodu kontraktu z jego zamówień (D1).
+
+    Decyzja właściciela (24.09.2026): przebieg UZUPEŁNIA wyłącznie kontrakt
+    bez stawki przychodowej i bez harmonogramu, który ma uzupełnione
+    zamówienie — tą samą funkcją co zapis zamówienia (``resync_contract``),
+    ale bez automatycznej aktywacji szkicu (to decyzja zapisu, nie nocy).
+
+    Kontrakt, który przychód ma, NIE jest nadpisywany: jeśli jego stawka na
+    dzień startu najnowszego zamówienia różni się od stawki zamówienia,
+    trafia wyłącznie do raportu (licznik + id w
+    ``app_settings['contract_order_revenue_drift']`` i log bez danych
+    osobowych) — rozjazd rozstrzyga człowiek.
+    """
+    outcome = RevenueBackfillOutcome()
+    if not await sync_enabled(db):
+        return outcome
+    today = today or business_today()
+    from sqlalchemy import exists
+
+    from app.services.contract_rates import RATE_SCHEDULE_LOADS
+
+    has_schedule = exists(
+        select(ContractClientRate.id).where(
+            ContractClientRate.contract_id == Contract.id
+        )
+    )
+    contract_ids = list(
+        (
+            await db.scalars(
+                select(ClientOrder.contract_id)
+                .join(Contract, Contract.id == ClientOrder.contract_id)
+                .where(Contract.status != ContractStatus.void, *_revenue_order_filter())
+                .distinct()
+                .order_by(ClientOrder.contract_id)
+            )
+        ).all()
+    )
+    missing = set(
+        (
+            await db.scalars(
+                select(Contract.id).where(
+                    Contract.id.in_(contract_ids),
+                    Contract.rate_client.is_(None),
+                    ~has_schedule,
+                )
+            )
+        ).all()
+    )
+    for contract_id in sorted(missing):
+        try:
+            async with db.begin_nested():
+                result = await resync_contract(
+                    db,
+                    contract_id,
+                    actor_id=None,
+                    today=today,
+                    auto_activate=False,
+                )
+        except Exception:  # noqa: BLE001 — jeden kontrakt nie blokuje reszty
+            logger.exception(
+                "contract-order sync: revenue backfill skipped contract %s",
+                contract_id,
+            )
+            await _refresh_expired(db)
+            continue
+        if result is not None and result.revenue_steps_changed:
+            outcome.filled += 1
+
+    rest = [cid for cid in contract_ids if cid not in missing]
+    for offset in range(0, len(rest), batch_size):
+        batch = rest[offset : offset + batch_size]
+        contracts = (
+            await db.scalars(
+                select(Contract)
+                .where(Contract.id.in_(batch))
+                .options(*RATE_SCHEDULE_LOADS)
+            )
+        ).all()
+        orders_by_contract: dict[int, list[ClientOrder]] = {}
+        for order in (
+            await db.scalars(
+                select(ClientOrder)
+                .where(ClientOrder.contract_id.in_(batch))
+                .order_by(ClientOrder.id)
+            )
+        ).all():
+            orders_by_contract.setdefault(order.contract_id, []).append(order)
+        for contract in contracts:
+            terms = [
+                t
+                for order in orders_by_contract.get(contract.id, [])
+                if order.client_id == contract.client_id
+                and (t := order_revenue_terms(order)) is not None
+            ]
+            if not terms:
+                continue
+            latest = _latest(terms)
+            if latest.currency != contract.resolved_rate_client_currency:
+                continue
+            expected = order_rate_in_contract_unit(latest.rate, latest.unit, contract)
+            actual = contract.effective_client_rate(latest.start)
+            if actual is None or not _same_amount(actual, expected):
+                outcome.drift += 1
+                outcome.drift_contract_ids.append(contract.id)
+
+    report = await db.get(AppSetting, REVENUE_DRIFT_REPORT_KEY)
+    value = {
+        "checked_on": today.isoformat(),
+        "filled": outcome.filled,
+        "drift_count": outcome.drift,
+        # Same numery kontraktów (bez nazwisk i kwot), najwyżej 500.
+        "drift_contract_ids": outcome.drift_contract_ids[:500],
+    }
+    if report is None:
+        db.add(AppSetting(key=REVENUE_DRIFT_REPORT_KEY, value=value))
+    else:
+        report.value = value
+    await db.flush()
+    if outcome.drift:
+        logger.warning(
+            "contract-order sync: %s contracts have revenue different from "
+            "their latest order (report in app_settings %s)",
+            outcome.drift,
+            REVENUE_DRIFT_REPORT_KEY,
+        )
+    logger.info(
+        "contract-order sync: revenue backfill filled=%s drift=%s",
+        outcome.filled,
+        outcome.drift,
+    )
+    return outcome
 
 
 async def _refresh_revenue_caches(db: AsyncSession, *, today: date) -> int:

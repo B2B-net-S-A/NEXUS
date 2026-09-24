@@ -41,6 +41,26 @@ def polkomtel_numeric_order_number(
     return match.group(1) if match else None
 
 
+_DIGITS_ONLY_RE = re.compile(r"^\d+$")
+
+
+def canonical_digits(value: str | None) -> str | None:
+    """Numer z samych cyfr bez zer wiodących; ``None`` dla innych kształtów.
+
+    Audyt 24.09.2026 (S7): Excel zapisuje numer zamówienia jako liczbę
+    i obcina zera wiodące („0087020188" → „87020188"). Porównanie numerów
+    czysto cyfrowych idzie więc po tej postaci — w obu kierunkach (numer
+    w „Uwagach" i numer zapisany na zamówieniu). Numery z literami czy
+    ukośnikami (``87_2026``, ``CeZ/45/2026``) zostają porównywane dosłownie.
+    """
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not _DIGITS_ONLY_RE.match(text):
+        return None
+    return text.lstrip("0") or "0"
+
+
 def finance_order_number_matches(
     *,
     client_id: int | None,
@@ -60,7 +80,15 @@ def finance_order_number_matches(
     if stored in hints:
         return True
     numeric = polkomtel_numeric_order_number(client_id, stored)
-    return numeric is not None and numeric in hints
+    if numeric is not None and numeric in hints:
+        return True
+    # Audyt 24.09.2026 (S7): numer z samych cyfr bez zer wiodących —
+    # Excel obcina „0087020188" do „87020188" (produkcja: wiersz 546).
+    stored_digits = numeric if numeric is not None else stored
+    canonical = canonical_digits(stored_digits)
+    if canonical is None:
+        return False
+    return any(canonical_digits(hint) == canonical for hint in hints)
 
 
 # ── Jawny numer zamówienia w wierszu importu MD (ticket 23.09.2026) ─────────
@@ -85,7 +113,6 @@ def finance_order_number_matches(
 #   Klienci z numerami w innym kształcie (BNP ``87_2026``, CeZ ``CeZ/45/2026``)
 #   tej reguły nie dostają — tam długi ciąg cyfr w „Uwagach" nie jest numerem.
 EXPLICIT_ORDER_NUMBER_MIN_DIGITS = 7
-_DIGITS_ONLY_RE = re.compile(r"^\d+$")
 
 
 @dataclass(frozen=True)
@@ -123,6 +150,9 @@ def build_order_number_index(
             keys.add(digits)
         else:
             digits = stored if _DIGITS_ONLY_RE.match(stored) else None
+        if digits is not None:
+            # S7: ta sama postać bez zer wiodących, w której Excel oddaje numer.
+            keys.add(canonical_digits(digits))
         if digits is not None and len(digits) >= EXPLICIT_ORDER_NUMBER_MIN_DIGITS:
             numeric.add(client_id)
     return OrderNumberIndex(
@@ -148,8 +178,10 @@ def explicit_order_hints(
         value = str(hint).strip()
         if not value:
             continue
-        if value in known or (
-            long_binds and len(value) >= EXPLICIT_ORDER_NUMBER_MIN_DIGITS
+        if (
+            value in known
+            or canonical_digits(value) in known
+            or (long_binds and len(value) >= EXPLICIT_ORDER_NUMBER_MIN_DIGITS)
         ):
             explicit.append(value)
     return explicit

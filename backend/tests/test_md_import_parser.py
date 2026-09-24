@@ -196,3 +196,58 @@ def test_md_boundaries_are_inclusive():
     parsed = parse_md_sheet(content)
     assert [row.md_reported for row in parsed.rows] == [Decimal("0"), Decimal("1000")]
     assert parsed.skipped_rows == []
+
+
+# ── Audyt 24.09.2026 (S6): formaty kwot i nieczytelna faktura ───────────────
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("20.900,00 zł", Decimal("20900.00")),
+        ("1,234.56", Decimal("1234.56")),
+        ("1.234.567", Decimal("1234567")),
+        ("1,234,567", Decimal("1234567")),
+        ("20 900,00 zł", Decimal("20900.00")),
+        ("20\u202f900,50 PLN", Decimal("20900.50")),
+    ],
+)
+def test_money_with_thousand_dots_or_english_format_is_read(raw, expected):
+    from app.services.md_import_parser import parse_money_value
+
+    assert parse_money_value(raw) == expected
+
+
+def test_unreadable_invoice_cell_goes_to_skipped_rows_with_a_reason():
+    """Niepusta, nieczytelna kwota faktury nie znika po cichu."""
+    content = _book(
+        [
+            ["Konsultant", "MD", "Uwagi", "Faktura"],
+            ["Jan Kowalski", 10, "SAP 4500719650", "20.900,00 zł"],
+            ["Anna Nowak", 5, "SAP 4500719650", "do ustalenia"],
+            ["Ewa Lis", 3, "SAP 4500719650", "-"],
+        ]
+    )
+    parsed = parse_md_sheet(content)
+    assert [row.consultant_name for row in parsed.rows] == ["Jan Kowalski", "Ewa Lis"]
+    assert parsed.rows[0].invoice_amount == Decimal("20900.00")
+    assert parsed.rows[1].invoice_amount is None
+    assert parsed.skipped_rows == [
+        {
+            "row": 3,
+            "reason": "nieczytelna kwota faktury ('do ustalenia')",
+            "consultant_name": "Anna Nowak",
+        }
+    ]
+
+
+def test_import_route_parses_the_sheet_off_the_event_loop():
+    """N6 (audyt 24.09.2026): openpyxl parsuje synchronicznie — trasa importu
+    woła parser w wątku, nie w pętli zdarzeń jedynego procesu uvicorna."""
+    from pathlib import Path
+
+    source = (
+        Path(__file__).resolve().parents[1] / "app" / "api" / "md_consumption.py"
+    ).read_text(encoding="utf-8")
+    assert "run_in_threadpool(parse_md_sheet, payload)" in source
+    assert "= parse_md_sheet(" not in source

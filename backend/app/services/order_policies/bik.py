@@ -537,7 +537,10 @@ def apply_rate_rules(
     """
     if not _NET_HEADER_RE.search(document_text or ""):
         return None
-    result.rate_client_gross = None
-    for row in result.consultant_rows:
-        row.rate_client_gross = None
+    # Odczyt, który przeszedł już ÷ 1,23, wraca do kwoty z PDF-a — samo
+    # zerowanie oryginału zostawiało zaniżoną stawkę (audyt 24.09, N3).
+    for item in [result, *result.consultant_rows]:
+        if item.rate_client_gross is not None:
+            item.rate_client, item.rate_client_gross = item.rate_client_gross, None
+    result.confidence.pop("rate_client_gross", None)
     return result

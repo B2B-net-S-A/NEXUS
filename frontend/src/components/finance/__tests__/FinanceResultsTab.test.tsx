@@ -214,7 +214,7 @@ describe("FinanceResultsTab — stany", () => {
 
     expect(await screen.findByText("16,7%")).toBeInTheDocument();
     expect(screen.queryByText("0,2%")).not.toBeInTheDocument();
-    expect(screen.getByText(/śr\. marża 21,4%/)).toBeInTheDocument();
+    expect(screen.getByText(/marża 21,4% przychodu/)).toBeInTheDocument();
     // B-B08: kafle nie udają, że marża = przychód − koszt.
     const note = screen.getByTestId("finance-margin-note");
     expect(note).toHaveTextContent(/nie jest różnicą „Przychód” − „Koszt”/);

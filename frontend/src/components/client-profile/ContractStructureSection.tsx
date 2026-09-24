@@ -32,6 +32,8 @@ import {
 } from "@/lib/api/executiveContracts";
 import { countPl } from "@/lib/plural-pl";
 import { cn } from "@/lib/utils";
+import { useAuthStore } from "@/store/auth";
+import { canManageAssignedClient } from "@/components/client-profile/permissions";
 
 interface Props {
   clientId: number;
@@ -39,6 +41,10 @@ interface Props {
 
 export function ContractStructureSection({ clientId }: Props) {
   const structure = useContractStructure(clientId);
+  // Zapis umów wykonawczych = `DlAssignedOrAdmin` — innym rolom przyciski
+  // kończyły się 403 (audyt 24.09.2026, S11).
+  const user = useAuthStore((s) => s.user);
+  const canEdit = canManageAssignedClient(user, clientId);
   const queryClient = useQueryClient();
   const { showSuccess } = useToast();
   const [addFor, setAddFor] = useState<number | null>(null);
@@ -110,6 +116,7 @@ export function ContractStructureSection({ clientId }: Props) {
             <FrameworkRow
               key={fc.id}
               framework={fc}
+              canEdit={canEdit}
               onAdd={() => {
                 setAddFor(fc.id);
                 setEditing(null);
@@ -125,7 +132,7 @@ export function ContractStructureSection({ clientId }: Props) {
         </ul>
       )}
 
-      <ExecutiveContractReviewPanel clientId={clientId} />
+      <ExecutiveContractReviewPanel clientId={clientId} canAssign={canEdit} />
 
       <AddExecutiveContractModal
         clientId={clientId}
@@ -143,10 +150,12 @@ export function ContractStructureSection({ clientId }: Props) {
 
 function FrameworkRow({
   framework,
+  canEdit,
   onAdd,
   onEdit,
 }: {
   framework: FrameworkPartRead;
+  canEdit: boolean;
   onAdd: () => void;
   onEdit: (contract: ExecutiveContractRead) => void;
 }) {
@@ -158,14 +167,16 @@ function FrameworkRow({
           <span className="text-sm font-semibold text-foreground">{header}</span>
           <span className="text-xs text-muted-foreground">{framework.name}</span>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onAdd}
-          aria-label={`Dodaj umowę wykonawczą: ${header}`}
-        >
-          <Plus className="h-3.5 w-3.5" aria-hidden="true" /> Dodaj umowę wykonawczą
-        </Button>
+        {canEdit ? (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onAdd}
+            aria-label={`Dodaj umowę wykonawczą: ${header}`}
+          >
+            <Plus className="h-3.5 w-3.5" aria-hidden="true" /> Dodaj umowę wykonawczą
+          </Button>
+        ) : null}
       </div>
       <div className="mt-2 flex flex-wrap gap-2">
         {framework.executive_contracts.length === 0 ? (
@@ -200,22 +211,25 @@ function FrameworkRow({
                 {countPl(
                   ec.consultants_count,
                   "konsultant",
-                  "konsultantów",
+                  // 2–4 w mianowniku, jak „2 aktywne kontrakty” (audyt N9).
+                  "konsultanci",
                   "konsultantów",
                 )}
               </span>
               {/* Edycja (numer, notatka, status) — kryterium „edytowalna".
                   Ikona z `aria-label`: chip jest gęsty, tekst „Edytuj" przy
                   każdej umowie rozciągałby wiersz. */}
-              <button
-                type="button"
-                onClick={() => onEdit(ec)}
-                aria-label={`Edytuj umowę wykonawczą: ${ec.number}`}
-                title="Edytuj umowę wykonawczą"
-                className="hit-area -mr-1 rounded-full p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-              >
-                <Pencil className="h-3 w-3" aria-hidden="true" />
-              </button>
+              {canEdit ? (
+                <button
+                  type="button"
+                  onClick={() => onEdit(ec)}
+                  aria-label={`Edytuj umowę wykonawczą: ${ec.number}`}
+                  title="Edytuj umowę wykonawczą"
+                  className="hit-area -mr-1 rounded-full p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                >
+                  <Pencil className="h-3 w-3" aria-hidden="true" />
+                </button>
+              ) : null}
             </span>
           ))
         )}

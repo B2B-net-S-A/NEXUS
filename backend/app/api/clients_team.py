@@ -44,7 +44,11 @@ from app.services.client_tac_assignments import (
     toggle_legacy_primary_tac,
     upsert_client_tac_assignment,
 )
-from app.services.client_access import deny, resolve_client_access
+from app.services.client_access import (
+    assert_client_writable,
+    deny,
+    resolve_client_access,
+)
 
 router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
 
@@ -232,7 +236,10 @@ async def assign_tac_to_client(
     ``is_first_priority_for_tac`` are mutated independently.  Omitting the
     latter auto-prioritises only a TAC's first client assignment.
     """
-    await _ensure_client_exists(db, client_id)
+    # Przypisanie tylko do widocznego klienta (usunięty/scalony/ukryty → 404,
+    # audyt S1). Zdjęcie TAC-a z takiego klienta zostaje dozwolone — to
+    # sprzątanie zakresu, nie nowe dane.
+    await assert_client_writable(db, client_id)
     await _load_user_for_tac(db, payload.user_id)
     try:
         result = await upsert_client_tac_assignment(
@@ -312,6 +319,7 @@ async def toggle_tac_primary(
     db: AsyncSession = Depends(get_db),
 ):
     """Flip only legacy ``is_primary``; never rewrite TAC work priority."""
+    await assert_client_writable(db, client_id)
     try:
         row = await toggle_legacy_primary_tac(
             db,
@@ -342,6 +350,8 @@ async def update_tac_first_priority(
     ``successor_client_id`` so there is no priority gap between transactions.
     This operation does not alter relationship authorization scope.
     """
+    if payload.enabled:
+        await assert_client_writable(db, client_id)
     try:
         row = await set_first_priority_for_tac(
             db,

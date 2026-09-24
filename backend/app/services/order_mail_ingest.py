@@ -35,7 +35,7 @@ from decimal import Decimal
 from typing import Any, Awaitable, Callable, Optional
 
 from fastapi.concurrency import run_in_threadpool
-from sqlalchemy import func, select, text
+from sqlalchemy import func, inspect as sa_inspect, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -1476,6 +1476,50 @@ async def notify_review(
     return len(created)
 
 
+#: Pola wiersza dziennika, które przeżywają nieudane przetworzenie załącznika:
+#: tożsamość wiadomości i pliku (dedup po SHA) oraz rozpoznany klient.
+_FAILED_ROW_FIELDS = (
+    "connection_id",
+    "internet_message_id",
+    "m365_message_id",
+    "received_at",
+    "sender_email",
+    "sender_domain",
+    "subject",
+    "attachment_name",
+    "attachment_sha256",
+    "attachment_size",
+    "storage_path",
+    "client_id",
+    "client_key",
+)
+
+
+def _row_fields(row: OrderMailDocument) -> dict[str, Any]:
+    """Pola z ``_FAILED_ROW_FIELDS`` już załadowane w obiekcie — bez bazy.
+
+    ``inspect(row).dict`` zamiast ``getattr``: wycofany savepoint zapisu
+    wygasza zmieniony w nim wiersz, a ``getattr`` próbowałby go doczytać
+    z bazy — w nieudanej transakcji i w sesji async to kolejny wyjątek.
+    """
+    loaded = sa_inspect(row).dict
+    return {name: loaded[name] for name in _FAILED_ROW_FIELDS if name in loaded}
+
+
+def _failed_row(
+    identity: dict[str, Any], row: OrderMailDocument, exc: Exception
+) -> OrderMailDocument:
+    """Świeży wiersz FAILED: tożsamość sprzed przetwarzania + to, co ustalono.
+
+    Wołane PRZED ``rollback()``.
+    """
+    return OrderMailDocument(
+        **{**identity, **_row_fields(row)},
+        outcome=OUTCOME_FAILED,
+        error=repr(exc)[:2000],
+    )
+
+
 async def _process_message(
     db: AsyncSession,
     gc: GraphClient,
@@ -1566,6 +1610,7 @@ async def _process_message(
             stats.duplicates += 1
             continue
 
+        identity = _row_fields(row)
         try:
             rel, _size = await run_in_threadpool(
                 storage_service.save_order_mail_attachment,
@@ -1574,13 +1619,25 @@ async def _process_message(
                 io.BytesIO(payload),
             )
             row.storage_path = rel
+            identity["storage_path"] = rel
             await process_pdf_bytes(db, row, payload, registry=registry)
         except Exception as exc:  # noqa: BLE001
             logger.exception(
                 "order_mail: processing failed for %s", row.attachment_name
             )
-            row.outcome = OUTCOME_FAILED
-            row.error = repr(exc)[:2000]
+            # Błąd bazy w środku przetwarzania zostawia sesję w nieudanej
+            # transakcji — bez wycofania zapis wiersza FAILED rzucał
+            # PendingRollbackError i przerywał CAŁY bieg skrzynki (audyt 24.09,
+            # S4). Pola wiersza zbieramy PRZED wycofaniem: wiersz mógł już
+            # trafić do bazy w tej transakcji, a wycofanie go z niej zdejmuje.
+            failed = _failed_row(identity, row, exc)
+            await db.rollback()
+            # Wycofanie wygasza też wiersz połączenia; następny załącznik czyta
+            # `conn.id` w `_base_row` — w sesji async byłby to MissingGreenlet
+            # (tryb delegowany; app-only ma `conn=None`).
+            if conn is not None:
+                await db.refresh(conn)
+            row = failed
             stats.failed += 1
         db.add(row)
         await db.commit()

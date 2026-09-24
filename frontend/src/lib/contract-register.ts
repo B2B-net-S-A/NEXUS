@@ -4,6 +4,8 @@
  * i warianty Badge. Współdzielone przez rejestr i dialog edycji.
  */
 
+import { CONTRACT_STATUS_LABELS, CONTRACT_STATUS_VARIANTS } from "@/lib/status-labels";
+
 export type ProlongationStatus = "unknown" | "yes" | "no" | "negotiate";
 export type EngagementModel = "time_based" | "hours_pool";
 
@@ -75,16 +77,9 @@ export const ENGAGEMENT_MODEL_LABEL: Record<EngagementModel, string> =
     ENGAGEMENT_MODEL_OPTIONS.map((o) => [o.value, o.label]),
   ) as Record<EngagementModel, string>;
 
-export const CONTRACT_STATUS_LABEL: Record<string, string> = {
-  draft: "Szkic",
-  active: "Aktywny",
-  ending: "Kończący się",
-  ended: "Zakończony",
-};
+// Wspólny słownik statusów (lib/status-labels.ts) — do 24.09.2026 ta mapa
+// nie znała „Do podpisu” ani „Anulowany”.
+export const CONTRACT_STATUS_LABEL: Record<string, string> = CONTRACT_STATUS_LABELS;
 
-export const CONTRACT_STATUS_VARIANT: Record<string, BadgeVariant> = {
-  draft: "soft",
-  active: "success",
-  ending: "warning",
-  ended: "neutral",
-};
+export const CONTRACT_STATUS_VARIANT: Record<string, BadgeVariant> =
+  CONTRACT_STATUS_VARIANTS;

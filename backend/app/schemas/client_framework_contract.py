@@ -50,6 +50,25 @@ class ClientFrameworkContractUpdate(BaseModel):
     contract_terms_id: Optional[int] = None
     notes: Optional[str] = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def _required_fields_not_null(cls, data):
+        """Jawny ``null`` dla kolumny NOT NULL = 422 po polsku, nie 500 z bazy.
+
+        PATCH jest częściowy (pominięte pole zostaje), więc ``None`` może tu
+        znaczyć wyłącznie „wyczyść”, a tych trzech pól wyczyścić nie wolno
+        (audyt 24.09.2026, S3).
+        """
+        if isinstance(data, dict):
+            for field, label in (
+                ("name", "Nazwa umowy"),
+                ("status", "Status umowy"),
+                ("signed_via", "Sposób podpisania"),
+            ):
+                if field in data and data[field] is None:
+                    raise ValueError(f"{label} nie może być pusty.")
+        return data
+
     @model_validator(mode="after")
     def validate_dates(self) -> "ClientFrameworkContractUpdate":
         if (

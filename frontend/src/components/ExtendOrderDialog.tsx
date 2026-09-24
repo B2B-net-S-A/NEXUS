@@ -32,6 +32,7 @@ import {
 } from "@/lib/api/executiveContracts";
 import { isEzdrowieClient } from "@/lib/ezdrowie";
 import { extractionErrorMessage, numberToField } from "@/lib/order-extraction";
+import { duplicateOrderError, orderPeriodError } from "@/lib/order-period";
 import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
 import { HOURS_PER_MONTH } from "@/lib/work-time";
 import {
@@ -59,7 +60,11 @@ export function ExtendOrderDialog({
   const user = useAuthStore((state) => state.user);
   const canManageFinance =
     serverCanManageFinance ?? canManageCandidateFinance(user);
-  const latest = contract.orders[0]; // assumed already sorted desc
+  // Lista jest posortowana malejąco po starcie; anulowane zamówienie nie może
+  // podpowiadać startu ani stawek przedłużenia (N3, audyt 24.09.2026).
+  const latest =
+    contract.orders.find((order) => order.status !== "cancelled") ??
+    contract.orders[0];
   const rateBillingHours =
     latest?.billing_hours_per_month ??
     contract.billing_hours_per_month ??
@@ -153,6 +158,21 @@ export function ExtendOrderDialog({
     net: string;
   } | null>(null);
   const [unitChangeNotice, setUnitChangeNotice] = useState<string | null>(null);
+
+  // Okres i numer sprawdzane przed wysyłką (ticket OIT/0569/2026/ITVM): start
+  // podpowiadany „dzień po ostatnim zamówieniu” potrafił wypaść po końcu
+  // z dokumentu, a ten sam PDF dawał drugie zamówienie o tym samym numerze.
+  const periodError = orderPeriodError(
+    normalizeDateInput(startDate),
+    normalizeDateInput(endDate),
+  );
+  const duplicateError = duplicateOrderError(
+    title,
+    normalizeDateInput(startDate),
+    normalizeDateInput(endDate),
+    contract.orders,
+  );
+  const blockingError = periodError ?? duplicateError;
 
   // Stawki przyjmują grosze wpisane po polsku (przecinek) — parseDecimalInput.
   const rateClientNum = parseDecimalInput(rateClient);
@@ -289,6 +309,10 @@ export function ExtendOrderDialog({
             showToast("Wybierz umowę wykonawczą", "error");
             return;
           }
+          if (blockingError) {
+            showToast(blockingError, "error");
+            return;
+          }
           mutation.mutate();
         }}
         className="bg-card rounded-lg shadow-xl max-w-md w-full p-6 flex max-h-[90dvh] flex-col gap-3"
@@ -392,6 +416,11 @@ export function ExtendOrderDialog({
               />
             </label>
           </div>
+          {blockingError ? (
+            <p role="alert" className="text-sm text-destructive">
+              {blockingError}
+            </p>
+          ) : null}
 
           {canManageFinance && (
             <div className="space-y-3 rounded-md border border-border bg-muted/20 p-3">
@@ -614,7 +643,7 @@ export function ExtendOrderDialog({
           </button>
           <button
             type="submit"
-            disabled={mutation.isPending}
+            disabled={mutation.isPending || Boolean(blockingError)}
             className="px-3 py-2 text-sm bg-violet-600 text-white rounded hover:bg-violet-700 disabled:opacity-50"
           >
             {mutation.isPending ? "Zapisywanie…" : "Zapisz przedłużenie"}

@@ -10,6 +10,7 @@ import {
   generatorPrefillHref,
   generatorTabFromParam,
   mergeRegisterPages,
+  needsContractLink,
   nextRegisterOffset,
   registerRowWarnings,
   registerSearchHref,
@@ -307,6 +308,25 @@ describe("canCorrectInForm — lustro bramki /form i /rerender", () => {
     expect(canCorrectInForm({ ...base, contract_status: "cancelled" })).toBe(false);
     expect(
       canCorrectInForm({ ...base, signature_status: "signed_both" }),
+    ).toBe(false);
+  });
+});
+
+describe("needsContractLink (ticket 1460/2026)", () => {
+  it("podpisana umowa bez kontraktu spoza Excela potrzebuje powiązania", () => {
+    expect(
+      needsContractLink({ signature_status: "signed_both", contract_id: null, source: "generator" }),
+    ).toBe(true);
+  });
+  it("umowa z kontraktem, niepodpisana albo z Excela — nie", () => {
+    expect(
+      needsContractLink({ signature_status: "signed_both", contract_id: 341, source: "generator" }),
+    ).toBe(false);
+    expect(
+      needsContractLink({ signature_status: "unsigned", contract_id: null, source: "generator" }),
+    ).toBe(false);
+    expect(
+      needsContractLink({ signature_status: "signed_both", contract_id: null, source: "excel" }),
     ).toBe(false);
   });
 });

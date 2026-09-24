@@ -694,3 +694,52 @@ async def test_sorting_by_margin_percent_follows_the_displayed_value(
             )
         ).json()
         assert [r["consultant_name"] for r in data["rows"]] == expected, direction
+
+
+# ── Audyt 24.09.2026: kafel „Marża %" i licznik „do uzupełnienia" ──────────
+
+
+def _full_row(**values):
+    from decimal import Decimal
+    from types import SimpleNamespace
+
+    from app.schemas.finance import EDITABLE_NUMERIC_FIELDS
+
+    base = {field: Decimal("1") for field in EDITABLE_NUMERIC_FIELDS}
+    base["edited_fields"] = []
+    base.update(values)
+    return SimpleNamespace(**base)
+
+
+async def test_month_margin_percent_is_weighted_by_revenue_not_row_average():
+    """100 000 zł z 5% i 1 000 zł z 40% to 5,35% miesiąca, nie 22,5%.
+
+    Średnia procentów wierszy dawała małemu kontraktowi wagę dużego.
+    """
+    from decimal import Decimal
+
+    from app.api.finance import _weighted_margin_percent
+
+    rows = [
+        _result(margin_pln=Decimal("5000"), invoice_amount=Decimal("100000")),
+        _result(margin_pln=Decimal("400"), invoice_amount=Decimal("1000")),
+        # Bez faktury albo bez marży — poza licznikiem i mianownikiem.
+        _result(margin_pln=Decimal("300"), invoice_amount=None),
+        _result(margin_pln=None, invoice_amount=Decimal("9000")),
+    ]
+    assert _weighted_margin_percent(rows) == Decimal("5.3")
+    assert _weighted_margin_percent([_result()]) is None
+
+
+async def test_needs_completion_is_recounted_after_a_manual_fix():
+    """Licznik z importu nie malał po uzupełnieniu komórki w tabeli."""
+    from decimal import Decimal
+
+    from app.api.finance import _needs_completion_count
+
+    complete = _full_row()
+    missing = _full_row(md_count=None)
+    fixed = _full_row(md_count=Decimal("21"), edited_fields=["md_count"])
+    # Pole celowo wyczyszczone przez człowieka to decyzja, nie brak.
+    cleared = _full_row(margin_pct=None, edited_fields=["margin_pct"])
+    assert _needs_completion_count([complete, missing, fixed, cleared]) == 1

@@ -182,6 +182,8 @@ export type OrderGroupStatus =
 
 export interface OrderGroupRead {
   md_budget_mode?: "per_person" | "shared" | null;
+  /** Wspólna pula MD liczona na serwerze (audyt 24.09.2026, S13). */
+  uses_shared_md_pool?: boolean;
   md_budget_mode_locked?: boolean;
   id: number;
   client_id: number;

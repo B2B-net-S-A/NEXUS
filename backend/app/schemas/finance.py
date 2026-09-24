@@ -86,7 +86,8 @@ class FinanceTotals(BaseModel):
     cost: MoneyPLN  # Σ „Wynagrodzenie"
     revenue: MoneyPLN  # Σ „Faktura"
     margin: MoneyPLN  # Σ „Marża PLN" (NIE revenue − cost — patrz niżej)
-    # Średnia marża % wierszy w PUNKTACH procentowych (21.4 = 21,4%).
+    # Marża % miesiąca = Σ„Marża PLN" / Σ„Faktura" w PUNKTACH procentowych
+    # (21.4 = 21,4%) — ważona przychodem, nie średnia procentów wierszy.
     avg_margin_pct: Optional[MoneyPLN] = None
     # Wiersze bez „Marży PLN" (zwykle wynagrodzenie bez faktury) i ich koszt —
     # są w kaflu „Koszt", a nie obniżają kafla „Marża".

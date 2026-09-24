@@ -35,7 +35,13 @@ vi.mock("@/components/Toast", () => ({
 vi.mock("@/store/auth", () => ({
   useAuthStore: (selector: (state: unknown) => unknown) =>
     selector({ user: { id: 1, role: "admin" } }),
+  hasRole: (user: { role?: string } | null, ...roles: string[]) =>
+    Boolean(user?.role && roles.includes(user.role)),
 }));
+
+// Sekcja TAC jest schowana, gdy funkcja TAC jest wyłączona (`lib/tac-ui.ts`,
+// audyt N6) — te testy opisują jej zachowanie po ponownym włączeniu.
+vi.mock("@/lib/tac-ui", () => ({ TAC_UI_ENABLED: true }));
 
 function renderOwners() {
   const queryClient = new QueryClient({
@@ -240,5 +246,16 @@ describe("OwnersTab — równorzędni TAC-y", () => {
     expect(mocks.addTac.mock.calls[0]?.[1]).not.toHaveProperty(
       "is_first_priority_for_tac",
     );
+  });
+
+  it("awaria odczytu zespołu to komunikat z „Spróbuj ponownie”, nie pusta lista (S10)", async () => {
+    mocks.getTeam.mockRejectedValue({ response: { status: 500 } });
+
+    renderOwners();
+
+    expect(await screen.findByText("Spróbuj ponownie")).toBeInTheDocument();
+    expect(
+      screen.queryByText("Brak przypisanych Delivery Leadów."),
+    ).not.toBeInTheDocument();
   });
 });

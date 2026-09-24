@@ -48,7 +48,7 @@ export const BOARD_LABEL_TEXT: Record<BoardLabel, string> = {
   rate_revenue: "Stawka przychodowa",
   rate_cost: "Stawka kosztowa",
   exit: "Zejście",
-  ending: "Kończy się",
+  ending: "Bez kontynuacji",
   gap: "Brak zamówienia",
 };
 

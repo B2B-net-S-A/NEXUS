@@ -19,6 +19,12 @@ def _month():
     return business_today().strftime("%Y-%m")
 
 
+def _month_end(day):
+    import calendar
+
+    return day.replace(day=calendar.monthrange(day.year, day.month)[1])
+
+
 async def _bik_group(app_client, headers, monkeypatch, *, bik: bool = True):
     client_id, contracts = await _seed_client_with_contracts(2)
     if bik:
@@ -104,7 +110,9 @@ async def test_order_ends_only_when_the_last_person_exhausts_the_limit(
     assert lines == ["completed", "completed"]
     assert state.status == "completed"
     assert state.closure_reason == MD_EXHAUSTED_CLOSURE_REASON
-    assert state.closure_date == business_today()
+    # Koniec miesiąca zejścia, które wyczerpało pulę (ticket 4500030067).
+    today = business_today()
+    assert state.closure_date == _month_end(today)
     assert state.closed_by_user_id is None
     # Koniec wyznacza limit, nie data — zamówienie zostaje bezterminowe.
     assert state.end_date is None
@@ -145,9 +153,11 @@ async def test_manual_reopen_of_exhausted_order_explains_what_to_do(
 
 
 @pytest.mark.asyncio
-async def test_other_clients_keep_their_order_active(
+async def test_other_clients_orders_also_close_when_the_pool_is_used_up(
     app_client, app_auth_headers, monkeypatch
 ):
+    """Od ticketu 4500030067 reguła dotyczy KAŻDEGO zamówienia MD per osoba,
+    nie tylko klientów z polityką BIK."""
     _client_id, group = await _bik_group(
         app_client, app_auth_headers, monkeypatch, bik=False
     )
@@ -155,7 +165,55 @@ async def test_other_clients_keep_their_order_active(
         await _consume(line["id"], str(line["md_total"]))
     state, lines = await _group_state(group["id"])
     assert lines == ["completed", "completed"]
+    assert state.status == "completed"
+
+
+@pytest.mark.asyncio
+async def test_pending_decision_zeroed_by_a_later_import_closes_itself_and_the_order(
+    app_client, app_auth_headers, monkeypatch
+):
+    """Ticket 4500030067: sprawa założona przy 13,75 MD, import sierpnia
+    zjadł resztę — sprawa zamyka się sama, zamówienie idzie do zakończonych
+    z datą końca miesiąca zejścia."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+    from app.models.client_order_offboarding import ClientOrderOffboardingCase
+
+    client_id, group = await _bik_group(app_client, app_auth_headers, monkeypatch)
+    first, second = (line["id"] for line in group["lines"])
+    await _consume(first, "35")
+    async with AsyncSessionLocal() as db:
+        departed = await db.get(ClientOrder, second)
+        departed.status = ClientOrderStatus.completed
+        db.add(
+            ClientOrderOffboardingCase(
+                contract_id=departed.contract_id,
+                order_id=second,
+                order_group_id=group["id"],
+                client_id=client_id,
+                effective_date=business_today(),
+                uses_shared_md_pool=False,
+                remaining_md_snapshot=Decimal("13.75"),
+            )
+        )
+        await db.commit()
+    state, _ = await _group_state(group["id"])
     assert state.status == "active"
+
+    await _consume(second, "42")
+
+    state, _ = await _group_state(group["id"])
+    assert state.status == "completed"
+    assert state.closure_date == _month_end(business_today())
+    async with AsyncSessionLocal() as db:
+        case = await db.scalar(
+            select(ClientOrderOffboardingCase).where(
+                ClientOrderOffboardingCase.order_id == second
+            )
+        )
+        assert case.status == "resolved"
+        assert case.resolution == "remove"
+        assert case.resolution_payload["reason"] == "pool_used_up"
 
 
 @pytest.mark.asyncio

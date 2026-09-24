@@ -10,7 +10,7 @@ import {
 } from "@/lib/client-tab";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "@/lib/api";
-import { resolveViewState } from "@/lib/view-state";
+import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
 import { useCapability } from "@/hooks/useCapability";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import {
@@ -60,6 +60,12 @@ import { KeyRelationshipDialog } from "@/components/KeyRelationshipDialog";
 import { ClientPlaybookTab } from "@/components/client-playbook/ClientPlaybookTab";
 import { DeleteClientDialog } from "@/components/client-profile/DeleteClientDialog";
 import { ClientConflictsSection } from "@/components/client-profile/ClientConflictsSection";
+import { canManageClientDelivery } from "@/components/client-profile/permissions";
+import { TAC_UI_ENABLED } from "@/lib/tac-ui";
+import {
+  RELATIONSHIP_STRENGTH_COLORS,
+  RELATIONSHIP_STRENGTH_LABELS,
+} from "@/components/clients/KeyRelationshipsPanel";
 import Link from "next/link";
 import { useTabsStore } from "@/store/tabs";
 import { hasSectionAccess } from "@/lib/section-access";
@@ -219,10 +225,23 @@ function KnowledgeTab({ clientId }: { clientId: number }) {
   const [form, setForm] = useState({ category: "general" as KnowledgeCategory, content: "", source: "" });
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
+  // Dodawanie i usuwanie wiedzy = `ClientAccess.can_edit_knowledge` (admin
+  // i Delivery Lead) — innym rolom przycisk kończył się 403 (audyt S11).
+  const currentUser = useAuthStore((state) => state.user);
+  const canEditKnowledge = canManageClientDelivery(currentUser);
 
-  const { data: entries = [] } = useQuery<ClientKnowledge[]>({
+  const knowledgeQuery = useQuery<ClientKnowledge[]>({
     queryKey: ["client-knowledge", clientId],
     queryFn: () => api.get(`/api/clients/${clientId}/knowledge`).then((r) => r.data),
+  });
+  const entries = knowledgeQuery.data ?? [];
+  // Awaria ≠ pusta baza wiedzy (audyt S10).
+  const knowledgeState = resolveViewState({
+    isLoading: knowledgeQuery.isPending,
+    isError: knowledgeQuery.isError,
+    error: knowledgeQuery.error,
+    isEmpty: entries.length === 0,
+    isSuccess: knowledgeQuery.isSuccess,
   });
 
   const addMutation = useMutation({
@@ -254,14 +273,28 @@ function KnowledgeTab({ clientId }: { clientId: number }) {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">Baza wiedzy o kliencie</p>
-        <button
-          onClick={() => setShowAdd(!showAdd)}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-primary hover:bg-primary/90 text-white text-xs font-semibold rounded-lg transition-colors"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          Dodaj wiedzę
-        </button>
+        {canEditKnowledge ? (
+          <button
+            onClick={() => setShowAdd(!showAdd)}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-primary hover:bg-primary/90 text-white text-xs font-semibold rounded-lg transition-colors"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            Dodaj wiedzę
+          </button>
+        ) : null}
       </div>
+
+      {isBlockingViewState(knowledgeState) ? (
+        <QueryStateNotice
+          state={knowledgeState as "forbidden" | "not_found" | "error"}
+          description={
+            knowledgeState === "error"
+              ? "Nie udało się wczytać wiedzy o kliencie."
+              : undefined
+          }
+          onRetry={() => void knowledgeQuery.refetch()}
+        />
+      ) : null}
 
       {/* Add form */}
       {showAdd && (
@@ -343,10 +376,12 @@ function KnowledgeTab({ clientId }: { clientId: number }) {
                   <p className="text-sm text-foreground whitespace-pre-line leading-relaxed flex-1">
                     {entry.content}
                   </p>
-                  <DeleteButton
-                    onConfirm={() => deleteMutation.mutate(entry.id)}
-                    className="hit-area pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:group-focus-within:opacity-100 focus-visible:opacity-100 text-muted-foreground hover:text-destructive transition-all shrink-0"
-                  />
+                  {canEditKnowledge ? (
+                    <DeleteButton
+                      onConfirm={() => deleteMutation.mutate(entry.id)}
+                      className="hit-area pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:group-focus-within:opacity-100 focus-visible:opacity-100 text-muted-foreground hover:text-destructive transition-all shrink-0"
+                    />
+                  ) : null}
                 </div>
                 {entry.source && (
                   <p className="text-xs text-muted-foreground mt-2 italic">Źródło: {entry.source}</p>
@@ -360,11 +395,13 @@ function KnowledgeTab({ clientId }: { clientId: number }) {
         )
       )}
 
-      {entries.length === 0 && !showAdd && (
+      {knowledgeState === "empty" && !showAdd && (
         <div className="text-center py-12 text-muted-foreground">
           <BookOpen className="w-10 h-10 mx-auto mb-3 opacity-40" />
           <p className="text-sm">Brak wpisów wiedzy o tym kliencie</p>
-          <p className="text-xs mt-1">Kliknij "Dodaj wiedzę" aby začąć</p>
+          {canEditKnowledge ? (
+            <p className="text-xs mt-1">Kliknij „Dodaj wiedzę”, aby zacząć</p>
+          ) : null}
         </div>
       )}
     </div>
@@ -505,9 +542,18 @@ function ContactsTab({ clientId }: { clientId: number }) {
   // pozostali czytelnicy nie dostają formularza prowadzącego w 403 (F-19).
   const canCreateContact = useCapability("contact.create");
 
-  const { data: rawContacts = [] } = useQuery<Contact[]>({
+  const contactsQuery = useQuery<Contact[]>({
     queryKey: ["client-contacts", clientId],
     queryFn: () => api.get(`/api/clients/${clientId}/contacts`).then((r) => r.data),
+  });
+  const rawContacts = contactsQuery.data ?? [];
+  // Awaria ≠ „brak kontaktów” (audyt S10).
+  const contactsState = resolveViewState({
+    isLoading: contactsQuery.isPending,
+    isError: contactsQuery.isError,
+    error: contactsQuery.error,
+    isEmpty: rawContacts.length === 0,
+    isSuccess: contactsQuery.isSuccess,
   });
   // Sort: key relationships first (within key — by strength), then alfabetycznie
   const contacts = [...rawContacts].sort((a, b) => {
@@ -605,7 +651,21 @@ function ContactsTab({ clientId }: { clientId: number }) {
       )}
 
       {/* Contacts list */}
-      {contacts.length === 0 && !showAdd ? (
+      {isBlockingViewState(contactsState) ? (
+        <QueryStateNotice
+          state={contactsState as "forbidden" | "not_found" | "error"}
+          description={
+            contactsState === "error"
+              ? "Nie udało się wczytać kontaktów klienta."
+              : undefined
+          }
+          onRetry={() => void contactsQuery.refetch()}
+        />
+      ) : contactsState === "loading" ? (
+        <p className="py-6 text-center text-sm text-muted-foreground">
+          Ładowanie kontaktów…
+        </p>
+      ) : contacts.length === 0 && !showAdd ? (
         <div className="text-center py-12 text-muted-foreground">
           <Users className="w-10 h-10 mx-auto mb-3 opacity-40" />
           <p className="text-sm">Brak kontaktów dla tego klienta</p>
@@ -655,8 +715,19 @@ function ContactsTab({ clientId }: { clientId: number }) {
                             </span>
                           )}
                           {contact.relationship_strength && (
-                            <span className="text-xs px-1.5 py-0.5 bg-pink-50 text-pink-700 rounded-full">
-                              {contact.relationship_strength}
+                            <span
+                              className={cn(
+                                "text-xs px-1.5 py-0.5 rounded-full",
+                                RELATIONSHIP_STRENGTH_COLORS[
+                                  contact.relationship_strength
+                                ] ?? "bg-pink-50 text-pink-700",
+                              )}
+                            >
+                              {/* Etykiety jak w „Kluczowych relacjach” zamiast
+                                  surowego „warm”/„champion” (audyt N9). */}
+                              {RELATIONSHIP_STRENGTH_LABELS[
+                                contact.relationship_strength
+                              ] ?? contact.relationship_strength}
                             </span>
                           )}
                         </div>
@@ -691,37 +762,41 @@ function ContactsTab({ clientId }: { clientId: number }) {
                         )}
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 pointer-coarse:gap-4 shrink-0">
-                      <button
-                        onClick={() => setEditingKeyRelationship(contact)}
-                        aria-label="Edytuj relację"
-                        className={
-                          "hit-area transition-colors " +
-                          (contact.is_key_relationship
-                            ? "text-pink-600 hover:text-pink-700"
-                            : "text-muted-foreground hover:text-pink-600")
-                        }
-                        title="Edytuj relację (klucz, siła, notatki)"
-                      >
-                        <Heart
+                    {/* Edycja i usunięcie = `ClientAccess.can_edit_contacts`
+                        — ta sama bramka co „Dodaj kontakt” (audyt S11). */}
+                    {canCreateContact ? (
+                      <div className="flex items-center gap-2 pointer-coarse:gap-4 shrink-0">
+                        <button
+                          onClick={() => setEditingKeyRelationship(contact)}
+                          aria-label="Edytuj relację"
                           className={
-                            "w-4 h-4 " +
-                            (contact.is_key_relationship ? "fill-pink-200" : "")
+                            "hit-area transition-colors " +
+                            (contact.is_key_relationship
+                              ? "text-pink-600 hover:text-pink-700"
+                              : "text-muted-foreground hover:text-pink-600")
                           }
+                          title="Edytuj relację (klucz, siła, notatki)"
+                        >
+                          <Heart
+                            className={
+                              "w-4 h-4 " +
+                              (contact.is_key_relationship ? "fill-pink-200" : "")
+                            }
+                          />
+                        </button>
+                        <button
+                          onClick={() => openEdit(contact)}
+                          aria-label="Edytuj kontakt"
+                          className="hit-area text-muted-foreground hover:text-primary transition-colors"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                        <DeleteButton
+                          onConfirm={() => deleteMutation.mutate(contact.id)}
+                          className="hit-area"
                         />
-                      </button>
-                      <button
-                        onClick={() => openEdit(contact)}
-                        aria-label="Edytuj kontakt"
-                        className="hit-area text-muted-foreground hover:text-primary transition-colors"
-                      >
-                        <Pencil className="w-4 h-4" />
-                      </button>
-                      <DeleteButton
-                        onConfirm={() => deleteMutation.mutate(contact.id)}
-                        className="hit-area"
-                      />
-                    </div>
+                      </div>
+                    ) : null}
                   </div>
                   {contact.is_key_relationship && contact.relationship_notes && (
                     <div className="mt-3 text-xs text-pink-700 italic border-l-2 border-pink-200 pl-3 ml-0 sm:ml-12">
@@ -771,9 +846,6 @@ function ContactsTab({ clientId }: { clientId: number }) {
 export default function ClientDetailPage() {
   const { id } = useParams();
   const user = useAuthStore((state) => state.user);
-  const isReadOnlyTcm =
-    hasRole(user, "talent_community_manager") &&
-    !hasRole(user, "admin", "delivery_lead", "finance");
   // Rola + zapis w sekcji Delivery (U8): DL z odebraną sekcją nie widzi
   // przycisków, które kończą się 403.
   const canEditDelivery =
@@ -849,11 +921,15 @@ export default function ClientDetailPage() {
   const [showDelete, setShowDelete] = useState(false);
   const closeTab = useTabsStore((s) => s.closeTab);
 
+  // Zakładka „Umowy” i jej treść mają JEDNĄ bramkę (`canViewDeliveryLegal`).
+  // Do 24.09.2026 zakładkę chowano tylko TCM-owi, a treść pokazywano rolom
+  // admin/DL/Finanse — rola z ręcznie nadaną sekcją Delivery widziała pustą
+  // zakładkę (audyt N7).
   useEffect(() => {
-    if (isReadOnlyTcm && activeTab === "umowy-ramowe") {
+    if (!canViewDeliveryLegal && activeTab === "umowy-ramowe") {
       setActiveTab("profil");
     }
-  }, [activeTab, isReadOnlyTcm, setActiveTab]);
+  }, [activeTab, canViewDeliveryLegal, setActiveTab]);
 
   const {
     data: client,
@@ -936,7 +1012,7 @@ export default function ClientDetailPage() {
     { key: "analityka", label: "Analityka", icon: <LayoutDashboard className="w-4 h-4" /> },
   ];
   const TABS = allTabs.filter(
-    (tab) => !isReadOnlyTcm || tab.key !== "umowy-ramowe",
+    (tab) => canViewDeliveryLegal || tab.key !== "umowy-ramowe",
   );
 
   return (
@@ -1145,7 +1221,7 @@ export default function ClientDetailPage() {
             <div className="space-y-4">
               <div>
                 <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground mb-3">
-                  Opiekunowie (TAC + Delivery Lead)
+                  {TAC_UI_ENABLED ? "Opiekunowie (TAC + Delivery Lead)" : "Delivery Lead"}
                 </h3>
                 <OwnersTab clientId={Number(id)} />
               </div>
@@ -1244,8 +1320,20 @@ interface CoopTrendResponse {
   trend: CoopTrendPoint[];
 }
 
+/** Kolor pigułki hit ratio względem CELU z backendu (`hit_ratio_target_pct`,
+ *  dziś 30%) — do 24.09.2026 progi 50/20 były wpisane na sztywno i klient na
+ *  celu świecił na bursztynowo (audyt N8). */
+export function hitRatioTone(hitRatio: number, targetPct: number): string {
+  if (hitRatio >= targetPct) return "bg-green-100 text-green-800";
+  if (hitRatio >= targetPct / 2) return "bg-amber-100 text-amber-800";
+  return "bg-destructive/15 text-red-800";
+}
+
 function CooperationStatsSection({ clientId }: { clientId: number }) {
-  const { data: hitData, isLoading, isError } = useQuery<CoopStatsResponse>({
+  // Raport nie przyjmuje `client_id` (backend `/api/reports/clients` liczy
+  // wszystkich klientów) — filtrujemy wiersz po stronie przeglądarki. Zawężenie
+  // wymaga zmiany endpointu raportów (poza modułem Klienci).
+  const hitQuery = useQuery<CoopStatsResponse>({
     queryKey: ["client-coop-stats", clientId, "year"],
     queryFn: () =>
       api
@@ -1265,25 +1353,40 @@ function CooperationStatsSection({ clientId }: { clientId: number }) {
     retry: false,
   });
 
-  if (isLoading) {
+  const hitData = hitQuery.data;
+  const hitState = resolveViewState({
+    isLoading: hitQuery.isPending,
+    isError: hitQuery.isError,
+    error: hitQuery.error,
+    isSuccess: hitQuery.isSuccess,
+  });
+
+  if (hitState === "loading") {
     return (
       <div className="text-sm text-muted-foreground">Ładowanie statystyk…</div>
     );
   }
 
-  // 403 for recruiter/sourcer → hide section entirely (graceful degradation).
-  if (isError) return null;
+  // 403 (rola bez raportów) → sekcja znika. Awaria serwera NIE może wyglądać
+  // tak samo — do 24.09.2026 każdy błąd chował sekcję (audyt S10).
+  if (hitState === "forbidden") return null;
+  if (isBlockingViewState(hitState)) {
+    return (
+      <QueryStateNotice
+        state={hitState as "not_found" | "error"}
+        description="Nie udało się wczytać statystyk współpracy."
+        onRetry={() => void hitQuery.refetch()}
+        className="py-6"
+      />
+    );
+  }
 
   const row = hitData?.clients.find((c) => c.client_id === clientId);
 
   // Empty state — new client, no data yet. Still show the header + placeholder.
   const hasData = row && (row.closed_jobs > 0 || row.active_jobs > 0);
   const tonePill = row && row.closed_jobs >= 3
-    ? row.hit_ratio >= 50
-      ? "bg-green-100 text-green-800"
-      : row.hit_ratio >= 20
-        ? "bg-amber-100 text-amber-800"
-        : "bg-destructive/15 text-red-800"
+    ? hitRatioTone(row.hit_ratio, hitData?.overall.hit_ratio_target_pct ?? 30)
     : "bg-muted text-foreground";
 
   const trendValues = trendData?.trend.map((p) => p.hit_ratio) ?? [];

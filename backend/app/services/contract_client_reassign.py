@@ -193,8 +193,16 @@ def _alert_matches(
     return False
 
 
-async def _load_target(db: AsyncSession, client_id: int) -> Client:
-    target = await db.get(Client, client_id)
+async def _load_target(
+    db: AsyncSession, client_id: int, *, lock: bool = False
+) -> Client:
+    """Klient docelowy — widoczny (``is_client_visible``) i, przy wykonaniu,
+    zablokowany do końca transakcji, żeby równoległe usunięcie albo scalenie
+    nie przyjęło przepiętego kontraktu (audyt 24.09.2026, N10)."""
+    stmt = select(Client).where(Client.id == client_id)
+    if lock:
+        stmt = stmt.with_for_update().execution_options(populate_existing=True)
+    target = await db.scalar(stmt)
     if target is None:
         raise ReassignError(
             404, "target_client_not_found", "Nie znaleziono klienta docelowego."
@@ -217,6 +225,12 @@ async def _load_target(db: AsyncSession, client_id: int) -> Client:
             "target_client_hidden",
             "Klient docelowy jest ukryty (zdublowany wariant) — wybierz widoczny rekord.",
         )
+    if target.archived_at is not None:
+        raise ReassignError(
+            422,
+            "target_client_archived",
+            "Klient docelowy jest zarchiwizowany — wybierz aktywny rekord.",
+        )
     return target
 
 
@@ -237,7 +251,9 @@ async def build_plan(
         raise ReassignError(
             422, "same_client", "Kontrakt jest już przypisany do tego klienta."
         )
-    target = await _load_target(db, target_client_id)
+    # Wykonanie (``orders`` z zablokowanymi wierszami) blokuje też klienta
+    # docelowego; podgląd niczego nie blokuje.
+    target = await _load_target(db, target_client_id, lock=orders is not None)
     source = await db.get(Client, contract.client_id)
     from_ref = (
         _client_ref(source)

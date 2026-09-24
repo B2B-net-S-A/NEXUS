@@ -175,6 +175,10 @@ async def test_finance_can_export_requested_standalone_order_ids(monkeypatch):
         status="active",
         rate_candidate=None,
         rate_client=Decimal("150"),
+        rate_unit="daily",
+        currency="PLN",
+        rate_client_currency="PLN",
+        rate_candidate_currency="PLN",
         start_date=today - timedelta(days=30),
         end_date=today + timedelta(days=30),
         order_type="md",
@@ -183,6 +187,8 @@ async def test_finance_can_export_requested_standalone_order_ids(monkeypatch):
         contract_id=77,
         candidate_name="Jan Kowalski",
         rate_candidate=Decimal("100"),
+        rate_unit="hourly",
+        billing_hours_per_month=168,
         orders=[order],
     )
     calls = []

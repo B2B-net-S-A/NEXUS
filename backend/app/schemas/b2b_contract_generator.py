@@ -629,6 +629,19 @@ class B2BStatusEventItem(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class B2BLinkContractRequest(BaseModel):
+    """Powiązanie podpisanej umowy z istniejącym kontraktem (znacznik
+    „Kontrakt usunięty — brak kontraktora”, ticket 1460/2026 z 24.09.2026)."""
+
+    contract_id: int = Field(..., gt=0)
+
+
+class B2BLinkContractResponse(BaseModel):
+    item: B2BGeneratedContractItem
+    document_attached: bool
+    document_note: Optional[str] = None
+
+
 class B2BConfirmFullySignedRequest(BaseModel):
     """One-time legacy binding supplied only when the generated row lacks IDs.
 

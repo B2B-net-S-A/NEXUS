@@ -7,6 +7,7 @@ import {
   effectiveTransferMethod,
   freePoolMd,
   mdOverFreePool,
+  sourceDepartingRate,
   takeoverSources,
   transferPreview,
 } from "@/lib/order-takeover";
@@ -118,5 +119,35 @@ describe("przejęcie pozostałych MD", () => {
     expect(freePoolMd(group([konrad, active]))).toBe(187);
     expect(mdOverFreePool(200, 187)).toBe(13);
     expect(mdOverFreePool(100, 187)).toBe(0);
+  });
+});
+
+describe("stawka odchodzącego w podglądzie przejęcia (audyt 24.09, N2)", () => {
+  const pendingCase = (rate: number | null) =>
+    ({
+      status: "pending",
+      version: 1,
+      remaining_md_snapshot: 20,
+      rate_revenue_snapshot: rate,
+    }) as OrderLineRead["offboarding_case"];
+
+  it("przy sprawie czekającej na decyzję liczy stawką ze sprawy, nie bieżącą", () => {
+    const departing = line({ rate_revenue: 1000, offboarding_case: pendingCase(800) });
+    expect(sourceDepartingRate(departing)).toBe(800);
+    const preview = transferPreview({
+      unit: "amount",
+      remaining: 20,
+      departingRate: sourceDepartingRate(departing),
+      incomingRate: 1000,
+    });
+    // 20 MD × 800 zł = 16 000 zł → 16 MD po stawce 1000 zł (jak serwer).
+    expect(preview?.options.find((o) => o.method === "incoming_rate")?.md).toBe(16);
+  });
+
+  it("bez sprawy albo bez zapamiętanej stawki bierze stawkę linii", () => {
+    expect(sourceDepartingRate(line({ rate_revenue: 900 }))).toBe(900);
+    expect(
+      sourceDepartingRate(line({ rate_revenue: 900, offboarding_case: pendingCase(null) })),
+    ).toBe(900);
   });
 });

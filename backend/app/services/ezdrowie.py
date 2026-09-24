@@ -110,6 +110,11 @@ async def resolve_ezdrowie_assignment(
             ClientExecutiveContract.id == executive_contract_id,
             ClientExecutiveContract.client_id == client_id,
         )
+        # FOR SHARE: zakończenie umowy wykonawczej blokuje jej wiersz FOR UPDATE
+        # i liczy przypisania — bez tej blokady przypisanie równoległe z
+        # zakończeniem przechodziło na umowę, która właśnie się kończy.
+        .with_for_update(read=True)
+        .execution_options(populate_existing=True)
     )
     if executive is None:
         raise ValueError(

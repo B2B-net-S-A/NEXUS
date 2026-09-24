@@ -53,6 +53,7 @@ vi.mock("@/lib/api/executiveContracts", async (importOriginal) => {
 
 import { ContractStructureSection } from "@/components/client-profile/ContractStructureSection";
 import { contractStructureQueryKey } from "@/lib/api/executiveContracts";
+import { useAuthStore, type User } from "@/store/auth";
 
 const STRUCTURE: ContractStructureResponse = {
   framework_contracts: [
@@ -99,8 +100,24 @@ function renderSection() {
   return { queryClient, invalidate };
 }
 
+
+// Przyciski zapisu umów wykonawczych widzi tylko admin i przypisany DL
+// (`DlAssignedOrAdmin`, audyt 24.09.2026, S11) — testy działają jako admin.
+const ADMIN_USER = {
+  id: 1,
+  email: "admin@example.com",
+  name: "Admin",
+  role: "admin",
+  roles: ["admin"],
+  profile_completed: true,
+  profile_completed_at: null,
+  force_password_change: false,
+  force_password_change_at: null,
+} as unknown as User;
+
 beforeEach(() => {
   vi.clearAllMocks();
+  useAuthStore.setState({ user: ADMIN_USER, hydrated: true });
   mocks.structure.mockResolvedValue(STRUCTURE);
   mocks.review.mockResolvedValue(EMPTY_REVIEW);
 });
@@ -120,7 +137,7 @@ describe("ContractStructureSection", () => {
     });
     const { invalidate } = renderSection();
 
-    expect(await screen.findByText("3 konsultantów")).toBeInTheDocument();
+    expect(await screen.findByText("3 konsultanci")).toBeInTheDocument();
     await user.click(
       screen.getByRole("button", { name: "Dodaj umowę wykonawczą: Cz. IV — CeZ/147/2025" }),
     );
