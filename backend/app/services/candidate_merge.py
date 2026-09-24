@@ -68,6 +68,15 @@ _POLYMORPHIC: tuple[tuple[str, str, str, str], ...] = (
     ("traffit_entity_links", "entity_type", "candidate", "nexus_entity_id"),
 )
 
+# Konflikt unikalności, w którym o zwycięzcy decyduje STAN wiersza, nie data:
+# (tabela, kolumna, wartość, która wygrywa). Akademia pamięta „nie” na zawsze
+# (decyzja Artura 24.09.2026) — gdyby wygrywał nowszy wiersz, scalenie profilu
+# odrzuconej osoby z jej świeżym profilem z Traffita (nowe zgłoszenie, inny
+# e-mail) wracałoby ją do telefonów bez śladu wykluczenia.
+_STATE_WINS: dict[str, tuple[str, str]] = {
+    "academy_applications": ("status", "rejected"),
+}
+
 # Tabele, których przepinać NIE wolno (z powodem).
 _SKIP_TABLES: dict[str, str] = {
     # Kolejka indeksu: wiersz duplikatu zostaje i dostaje zadanie „delete",
@@ -657,6 +666,51 @@ async def _timestamps(
     return {str(k): ts for k, ts in rows}
 
 
+async def _winning_states(
+    db: AsyncSession,
+    ref: Reference,
+    key: str,
+    winning_state: tuple[str, str],
+    keys: set[str],
+    ids: tuple[int, int],
+) -> dict[str, bool]:
+    """Które wiersze mają stan, który wygrywa konflikt (np. ``rejected``)."""
+    column, value = winning_state
+    rows = (
+        await db.execute(
+            text(
+                f"SELECT {key}::text, ({column} = :value) FROM {ref.table} "
+                f"WHERE {ref.column} IN (:a, :b) AND {key}::text = ANY(:keys)"
+            ),
+            {"a": ids[0], "b": ids[1], "keys": sorted(keys), "value": value},
+        )
+    ).all()
+    return {str(k): bool(flag) for k, flag in rows}
+
+
+async def _stamp_academy_reapplied(
+    db: AsyncSession, ref: Reference, key: str, kept: str, dropped: list[str]
+) -> None:
+    """Wykluczony wiersz wygrał z nowszym zgłoszeniem — zostaw ślad powrotu.
+
+    Lustro naboru (``services/academy.py``): osoba odrzucona, która aplikuje
+    ponownie, dostaje tylko ``reapplied_at`` (najpóźniejsze zgłoszenie).
+    """
+    await db.execute(
+        text(
+            f"UPDATE {ref.table} AS kept SET reapplied_at = sub.last_at "
+            f"FROM (SELECT max(applied_at) AS last_at FROM {ref.table} "
+            f"WHERE {key}::text = ANY(:dropped)) AS sub "
+            f"WHERE kept.{key}::text = :kept AND sub.last_at IS NOT NULL "
+            # Tylko zgłoszenie PO decyzji jest powrotem — starsze, aktywne
+            # zgłoszenie z drugiego profilu niczego nie mówi o powrocie.
+            "AND sub.last_at > COALESCE(kept.closed_at, kept.applied_at) "
+            "AND (kept.reapplied_at IS NULL OR kept.reapplied_at < sub.last_at)"
+        ),
+        {"kept": kept, "dropped": sorted(dropped)},
+    )
+
+
 async def _delete_keys(
     db: AsyncSession, ref: Reference, key: str, keys: list[str], ids: tuple[int, int]
 ) -> int:
@@ -734,18 +788,39 @@ async def _move_reference(
         if ts_col is not None:
             every = set(pairs) | {k for keys in pairs.values() for k in keys}
             stamps = await _timestamps(db, ref, key, ts_col, every, ids)
+        states: dict[str, bool] = {}
+        winning_state = _STATE_WINS.get(ref.table)
+        if winning_state is not None:
+            every = set(pairs) | {k for keys in pairs.values() for k in keys}
+            states = await _winning_states(db, ref, key, winning_state, every, ids)
         drop_duplicate: list[str] = []
         drop_survivor: set[str] = set()
+        reapplied: list[tuple[str, list[str]]] = []
         for dup_key, surv_keys in sorted(pairs.items()):
-            dup_ts = stamps.get(dup_key)
-            surv_ts = [stamps.get(k) for k in surv_keys]
-            newer = dup_ts is not None and all(
-                ts is not None and dup_ts > ts for ts in surv_ts
-            )
+            dup_wins = states.get(dup_key, False)
+            surv_wins = any(states.get(k, False) for k in surv_keys)
+            if dup_wins and not surv_wins:
+                newer = True
+            elif surv_wins and not dup_wins:
+                newer = False
+            else:
+                dup_ts = stamps.get(dup_key)
+                surv_ts = [stamps.get(k) for k in surv_keys]
+                newer = dup_ts is not None and all(
+                    ts is not None and dup_ts > ts for ts in surv_ts
+                )
             if newer:
                 drop_survivor.update(surv_keys)
+                if dup_wins and not surv_wins:
+                    reapplied.append((dup_key, list(surv_keys)))
             else:
                 drop_duplicate.append(dup_key)
+                if surv_wins and not dup_wins:
+                    kept = next(k for k in surv_keys if states.get(k, False))
+                    reapplied.append((kept, [dup_key]))
+        if ref.table == "academy_applications":
+            for kept, dropped in reapplied:
+                await _stamp_academy_reapplied(db, ref, key, kept, dropped)
         replaced += await _delete_keys(db, ref, key, sorted(drop_survivor), ids)
         replaced += await _delete_keys(db, ref, key, drop_duplicate, ids)
     moved = await _repoint(db, ref, survivor_id=survivor_id, duplicate_id=duplicate_id)
