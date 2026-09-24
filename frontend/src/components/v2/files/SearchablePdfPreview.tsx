@@ -130,7 +130,7 @@ export function PdfViewControls({
   handleRef: RefObject<PdfViewerHandle | null>;
 }) {
   const buttonClass =
-    "rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground";
+    "rounded p-2.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground md:p-1";
   return (
     <div className="flex shrink-0 items-center gap-2 text-xs tabular-nums text-muted-foreground">
       <span>

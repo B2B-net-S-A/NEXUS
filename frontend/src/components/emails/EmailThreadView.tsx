@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type CSSProperties } from "react";
 import { useQuery } from "@tanstack/react-query";
 import DOMPurify from "dompurify";
 import {
@@ -160,10 +160,17 @@ function ThreadMessageCard({
 
   return (
     <div
-      // Inline padding-left for arbitrary depth — Tailwind doesn't generate
-      // every depth class up front and we cap at MAX_DEPTH so the value is
-      // bounded (max 480px).
-      style={{ paddingLeft: depth === 0 ? 0 : `${depth * 24}px` }}
+      // Wcięcie przez zmienne CSS — Tailwind nie generuje klasy na każdą
+      // głębokość. Od `sm` 24 px na poziom (limit MAX_DEPTH → max 480 px);
+      // na telefonie 8 px i najwyżej 6 poziomów, inaczej głęboka odpowiedź
+      // zostawiała treści ~100 px szerokości.
+      style={
+        {
+          "--thread-depth": depth,
+          "--thread-depth-narrow": Math.min(depth, 6),
+        } as CSSProperties
+      }
+      className="pl-[calc(var(--thread-depth-narrow)*0.5rem)] sm:pl-[calc(var(--thread-depth)*1.5rem)]"
     >
       <div
         className={cn(
@@ -238,7 +245,9 @@ function ThreadMessageCard({
               />
             ) : bodyHtml ? (
               <div
-                className="prose prose-sm max-w-none text-foreground"
+                // Maile HTML (newslettery) niosą tabele i obrazy o stałej
+                // szerokości — bez limitu rozpychały cały panel na telefonie.
+                className="prose prose-sm max-w-none break-words text-foreground [&_img]:h-auto [&_img]:max-w-full [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto"
                 dangerouslySetInnerHTML={{ __html: bodyHtml }}
               />
             ) : fullMessage?.body_text || email.body_text ? (
@@ -263,16 +272,16 @@ function ThreadMessageCard({
                         type="button"
                         onClick={() => handleDownloadAttachment(a)}
                         disabled={isDownloading}
-                        className="inline-flex items-center gap-2 text-sm px-3 py-1.5 bg-muted border border-border rounded-lg hover:bg-muted/80 disabled:opacity-60 disabled:cursor-not-allowed"
+                        className="inline-flex min-w-0 max-w-full items-center gap-2 text-sm px-3 py-1.5 bg-muted border border-border rounded-lg hover:bg-muted/80 disabled:opacity-60 disabled:cursor-not-allowed"
                       >
-                        <Paperclip className="h-3.5 w-3.5 text-muted-foreground" />
-                        <span className="truncate max-w-[20rem]">
+                        <Paperclip className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                        <span className="min-w-0 truncate max-w-[20rem]">
                           {a.filename}
                         </span>
                         {isDownloading ? (
                           <Loader2 className="h-3.5 w-3.5 text-muted-foreground animate-spin" />
                         ) : (
-                          <Download className="h-3.5 w-3.5 text-muted-foreground" />
+                          <Download className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                         )}
                       </button>
                     );
@@ -339,7 +348,7 @@ export default function EmailThreadView({
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col p-0">
+      <DialogContent className="max-w-3xl max-h-[90dvh] flex flex-col p-0">
         <DialogHeader className="p-5 border-b border-border">
           <DialogTitle className="text-base font-semibold">{subject}</DialogTitle>
           <div className="text-xs text-muted-foreground mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">

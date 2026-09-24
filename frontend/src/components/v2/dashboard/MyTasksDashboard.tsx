@@ -299,7 +299,7 @@ export function MyTasksDashboard({
   const loading = calendarQuery.isLoading || notificationsQuery.isLoading
 
   return (
-    <section aria-labelledby="my-tasks-heading" data-testid="my-tasks-dashboard">
+    <section aria-labelledby="my-tasks-heading" data-testid="my-tasks-dashboard" className="@container">
       <Collapsible open={open} onOpenChange={setOpen}>
         <Card className="overflow-hidden p-0">
           <CollapsibleTrigger asChild>
@@ -343,13 +343,13 @@ export function MyTasksDashboard({
           <CollapsibleContent>
             <div className="border-t border-border">
               {loading ? (
-                <div className="grid gap-3 p-4 md:grid-cols-3">
+                <div className="grid gap-3 p-4 @2xl:grid-cols-3">
                   {Array.from({ length: 3 }).map((_, index) => (
                     <Skeleton key={index} className="h-36 w-full" />
                   ))}
                 </div>
               ) : (
-                <div className="grid divide-y divide-border md:grid-cols-3 md:divide-x md:divide-y-0">
+                <div className="grid divide-y divide-border @2xl:grid-cols-3 @2xl:divide-x @2xl:divide-y-0">
                   <TaskColumn
                     title="Do zrobienia dziś"
                     icon={CheckSquare2}

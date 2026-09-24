@@ -81,7 +81,7 @@ export default function Microsoft365CallbackPage() {
 
 function Centered({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-[60vh] flex items-center justify-center p-6">
+    <div className="min-h-[60dvh] flex items-center justify-center p-6">
       <div className="bg-card border border-border rounded-2xl shadow-xs p-8">
         {children}
       </div>

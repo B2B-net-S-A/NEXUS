@@ -300,7 +300,7 @@ export function ContractAmendmentsTab({
           </div>
 
           {form.amendment_type === "rate_change" && canManageFinance && (
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <label className="block">
                 <span className="block text-xs text-muted-foreground dark:text-muted-foreground mb-1">
                   Nowa stawka kandydata
@@ -434,7 +434,7 @@ export function ContractAmendmentsTab({
                   <div className="w-8 h-8 rounded-full bg-primary/10 dark:bg-primary/10 flex items-center justify-center text-primary shrink-0">
                     <Icon className="w-4 h-4" />
                   </div>
-                  <div className="flex-1">
+                  <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-baseline gap-2">
                       <span className="font-medium">{TYPE_LABELS[a.amendment_type]}</span>
                       <span className="text-xs text-muted-foreground dark:text-muted-foreground">
@@ -446,7 +446,7 @@ export function ContractAmendmentsTab({
                         {a.reason}
                       </p>
                     )}
-                    <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+                    <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2 text-xs [&>*]:min-w-0">
                       {a.old_values && (
                         <div>
                           <div className="text-muted-foreground uppercase tracking-wide">Przed</div>

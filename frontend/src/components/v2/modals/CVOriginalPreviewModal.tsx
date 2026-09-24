@@ -130,7 +130,7 @@ export function CVOriginalPreviewModal({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         size="2xl"
-        className="p-0 max-h-[92vh] flex flex-col"
+        className="p-0 max-h-[92dvh] flex flex-col"
         onEscapeKeyDown={keepDialogOpenOnDocumentSearchEscape}
       >
         <div className="flex items-center justify-between px-5 py-3 border-b border-border">
@@ -214,7 +214,7 @@ export function CVOriginalPreviewModal({
               </div>
             ) : pdfBlob ? (
               <div
-                className="relative h-[75vh] w-full"
+                className="relative h-[75dvh] w-full"
                 aria-label="CV oryginalne"
                 role="document"
               >

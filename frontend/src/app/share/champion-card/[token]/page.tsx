@@ -131,19 +131,19 @@ export default async function PublicChampionCardPage({ params }: PageProps) {
  <div
  data-ui="v2"
  data-ui-theme="share-dark"
- className="min-h-screen bg-background text-foreground"
+ className="min-h-screen min-h-dvh bg-background text-foreground"
  >
  {/* Ambient glow */}
  <div
  className="pointer-events-none fixed inset-0"
  style={{
- background: "radial-gradient(ellipse 80% 40% at 50% 0%, hsl(var(--primary))/15, transparent 70%)",
+ background: "radial-gradient(ellipse 80% 40% at 50% 0%, hsl(var(--primary) / 0.15), transparent 70%)",
  }}
  aria-hidden="true"
  />
 
  {/* Top bar */}
- <header className="relative z-10 max-w-4xl mx-auto px-6 pt-8 pb-4 flex items-center justify-between">
+ <header className="relative z-10 max-w-4xl mx-auto px-4 sm:px-6 pt-6 sm:pt-8 pb-4 flex flex-wrap items-center justify-between gap-2">
  <div className="flex items-center gap-2.5">
  <div className="h-8 w-8 rounded-md bg-primary text-white flex items-center justify-center font-semibold text-sm">
  N
@@ -158,7 +158,7 @@ export default async function PublicChampionCardPage({ params }: PageProps) {
  {data.expires_at && (
  <div className="inline-flex items-center gap-1.5 text-[11px] opacity-70">
  <Calendar className="h-3 w-3" />
- Ważne do{""}
+ Ważne do{" "}
  {new Date(data.expires_at).toLocaleDateString("pl-PL", {
  day: "2-digit",
  month: "2-digit",
@@ -169,11 +169,11 @@ export default async function PublicChampionCardPage({ params }: PageProps) {
  </header>
 
  {/* Hero */}
- <section className="relative z-10 max-w-4xl mx-auto px-6 pt-4 pb-8">
+ <section className="relative z-10 max-w-4xl mx-auto px-4 sm:px-6 pt-4 pb-8">
  <p className="text-xs font-semibold uppercase tracking-eyebrow text-primary mb-2">
  {data.candidate.competence_category ??"Kandydat"}
  </p>
- <h1 className="font-semibold text-4xl md:text-5xl font-extrabold tracking-[-0.025em] text-foreground leading-[1.02]">
+ <h1 className="font-semibold text-3xl sm:text-4xl md:text-5xl font-extrabold break-words hyphens-auto tracking-[-0.025em] text-foreground leading-[1.02]">
  {fullName ||"Kandydat"}
  </h1>
  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-3 text-sm opacity-80">
@@ -187,10 +187,10 @@ export default async function PublicChampionCardPage({ params }: PageProps) {
  </div>
 
  {/* Role chip */}
- <div className="mt-5 inline-flex items-center gap-2 rounded-lg border border-border bg-card/40 px-4 py-2">
- <Sparkles className="h-4 w-4 text-primary" />
- <span className="text-sm">
- Rekomendacja na stanowisko:{""}
+ <div className="mt-5 inline-flex max-w-full items-start sm:items-center gap-2 rounded-lg border border-border bg-card/40 px-4 py-2">
+ <Sparkles className="h-4 w-4 shrink-0 text-primary mt-0.5 sm:mt-0" />
+ <span className="min-w-0 text-sm break-words">
+ Rekomendacja na stanowisko:{" "}
  <strong className="text-foreground">{data.job.title}</strong>
  {data.job.location && (
  <span className="opacity-70"> · {data.job.location}</span>
@@ -200,11 +200,11 @@ export default async function PublicChampionCardPage({ params }: PageProps) {
  </section>
 
  {/* Main content */}
- <main className="relative z-10 max-w-4xl mx-auto px-6 pb-12 space-y-5">
+ <main className="relative z-10 max-w-4xl mx-auto px-4 sm:px-6 pb-12 space-y-5">
  {/* Project context */}
  {(data.champion_profile.project?.about ||
  data.champion_profile.project?.responsibilities) && (
- <section className="rounded-xl bg-card border border-border shadow-md p-6 space-y-4">
+ <section className="rounded-xl bg-card border border-border shadow-md p-4 sm:p-6 space-y-4">
  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
  Kontekst projektu
  </p>
@@ -232,8 +232,8 @@ export default async function PublicChampionCardPage({ params }: PageProps) {
  )}
 
  {/* Screening */}
- <section className="rounded-xl bg-card border border-border shadow-md p-6">
- <div className="flex items-center justify-between mb-4">
+ <section className="rounded-xl bg-card border border-border shadow-md p-4 sm:p-6">
+ <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
  Screening rekrutera
  </p>
@@ -258,18 +258,18 @@ export default async function PublicChampionCardPage({ params }: PageProps) {
  return (
  <li
  key={q.id}
- className="rounded-lg border border-border bg-background/40 p-4"
+ className="rounded-lg border border-border bg-background/40 p-3 sm:p-4"
  >
  <div className="flex items-start gap-2 mb-2">
  <span className="text-[10px] px-1.5 py-0.5 rounded-md font-mono bg-primary/20 text-primary mt-0.5 shrink-0">
  Q{i + 1}
  </span>
- <p className="text-sm font-semibold text-foreground flex-1">
+ <p className="min-w-0 text-sm font-semibold text-foreground flex-1 break-words">
  {q.question}
  </p>
  </div>
  <p
- className={`text-sm pl-8 ${
+ className={`text-sm pl-8 break-words ${
  a?.deal_breaker_hit
  ?"text-[#d48b95] font-medium"
  :"text-foreground"
@@ -301,7 +301,7 @@ export default async function PublicChampionCardPage({ params }: PageProps) {
  </section>
 
  {/* Footer */}
- <footer className="flex items-center justify-between text-[11px] opacity-60 pt-2">
+ <footer className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between text-[11px] opacity-60 pt-2">
  <span>Dokument udostępniony przez Nexus ATS · B2B.net S.A.</span>
  <span className="font-semibold text-foreground">
  Define tomorrow.

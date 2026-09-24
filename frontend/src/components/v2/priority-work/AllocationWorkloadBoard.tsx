@@ -36,7 +36,7 @@ export function AllocationWorkloadBoard() {
   const data = query.data
   const names = new Map(data.people.map((person) => [person.user_id, person.name]))
   return (
-    <Card className="space-y-5 p-4" aria-label="Obłożenie i zastępstwa">
+    <Card className="@container space-y-5 p-4" aria-label="Obłożenie i zastępstwa">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="font-semibold">Obłożenie i zastępstwa</h2>
@@ -86,7 +86,7 @@ export function AllocationWorkloadBoard() {
           Przeliczanie wymaga uwagi: {data.worker_error}. Zdarzenia czekają na ponowienie.
         </p>
       )}
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+      <div className="grid gap-3 @2xl:grid-cols-2 @5xl:grid-cols-3">
         {data.people.map((person) => (
           <section key={person.user_id} className="rounded-lg border border-border p-3">
             <div className="flex justify-between gap-2">

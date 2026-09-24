@@ -422,12 +422,15 @@ function LeagueCard({
                 {([1, 2, 3] as PodiumRank[]).map((rank) => (
                   <div
                     key={rank}
-                    className="rounded-lg border border-border bg-muted/40 p-2 text-center"
+                    className="min-w-0 rounded-lg border border-border bg-muted/40 p-2 text-center"
                   >
                     <p className="text-[11px] text-muted-foreground">
                       {rank}. miejsce
                     </p>
-                    <p className="text-sm font-semibold text-foreground">
+                    <p
+                      className="truncate text-xs font-semibold tabular-nums text-foreground sm:text-sm"
+                      title={money(prizes[String(rank)])}
+                    >
                       {money(prizes[String(rank)])}
                     </p>
                   </div>

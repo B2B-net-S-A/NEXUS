@@ -13,6 +13,9 @@ const TabsList = React.forwardRef<
  <TabsPrimitive.List
  ref={ref}
  className={cn("inline-flex items-center gap-1","border-b border-border",
+ // Telefon: wiele zakładek przewija się w poziomie zamiast wypychać ekran.
+ // `pb-px` mieści `-mb-px` triggera w polu przewijania (bez 1 px pionowego scrolla).
+ "max-w-full max-sm:overflow-x-auto max-sm:pb-px",
  className
  )}
  {...props}
@@ -26,7 +29,7 @@ const TabsTrigger = React.forwardRef<
 >(({ className, ...props }, ref) => (
  <TabsPrimitive.Trigger
  ref={ref}
- className={cn("relative inline-flex items-center gap-2","px-3 py-2 text-sm font-medium","text-muted-foreground hover:text-foreground","transition-colors focus:outline-hidden","border-b-2 border-transparent -mb-px","data-[state=active]:text-primary","data-[state=active]:border-primary","disabled:opacity-50 disabled:pointer-events-none",
+ className={cn("relative inline-flex items-center gap-2","max-sm:shrink-0 max-sm:whitespace-nowrap","px-3 py-2 text-sm font-medium","text-muted-foreground hover:text-foreground","transition-colors focus:outline-hidden","border-b-2 border-transparent -mb-px","data-[state=active]:text-primary","data-[state=active]:border-primary","disabled:opacity-50 disabled:pointer-events-none",
  className
  )}
  {...props}

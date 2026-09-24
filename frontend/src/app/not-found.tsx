@@ -3,7 +3,7 @@ import { Zap, Home, AlertTriangle } from "lucide-react";
 
 export default function NotFound() {
   return (
-    <div className="min-h-screen bg-muted dark:bg-gray-950 flex flex-col items-center justify-center px-4 text-center">
+    <div className="min-h-screen min-h-dvh bg-muted dark:bg-gray-950 flex flex-col items-center justify-center px-4 text-center">
       {/* Logo */}
       <div className="flex items-center gap-2 mb-10">
         <Zap className="w-7 h-7 text-primary" aria-hidden="true" />
@@ -16,13 +16,13 @@ export default function NotFound() {
       {/* 404 illustration */}
       <div className="relative mb-8">
         <div
-          className="text-[9rem] font-black text-foreground dark:text-foreground leading-none select-none"
+          className="text-[6rem] sm:text-[9rem] font-black text-foreground dark:text-foreground leading-none select-none"
           aria-hidden="true"
         >
           404
         </div>
         <div className="absolute inset-0 flex items-center justify-center">
-          <AlertTriangle className="w-16 h-16 text-primary" aria-hidden="true" />
+          <AlertTriangle className="w-12 h-12 sm:w-16 sm:h-16 text-primary" aria-hidden="true" />
         </div>
       </div>
 
@@ -36,7 +36,7 @@ export default function NotFound() {
 
       <Link
         href="/"
-        className="inline-flex items-center gap-2 h-10 px-6 bg-primary hover:bg-primary/90 text-white text-sm font-medium rounded-lg transition-colors focus:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        className="inline-flex items-center gap-2 h-11 sm:h-10 px-6 bg-primary hover:bg-primary/90 text-white text-sm font-medium rounded-lg transition-colors focus:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         aria-label="Wróć do dashboardu"
       >
         <Home className="w-4 h-4" aria-hidden="true" />

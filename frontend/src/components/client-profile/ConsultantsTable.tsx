@@ -71,11 +71,14 @@ function initialsOf(name: string): string {
 
 export function ConsultantsTable({ rows, showEndDate, renderActions }: Props) {
   return (
+    // `min-w` + przyklejona kolumna „Konsultant": na telefonie tabela
+    // przewija się w bok zamiast ściskać nagłówki do trzech linii, a po
+    // przewinięciu nadal widać, czyj to wiersz. Tło komórki = tło karty profilu.
     <div className="overflow-x-auto">
-      <table className="w-full text-sm">
+      <table className="w-full min-w-[720px] text-sm">
         <thead>
           <tr className="border-b border-border text-left text-xs text-muted-foreground">
-            <th className="py-2 pr-4 font-medium">Konsultant</th>
+            <th className="sticky left-0 z-10 bg-card py-2 pr-4 font-medium dark:bg-muted">Konsultant</th>
             <th className="py-2 pr-4 font-medium">Start date</th>
             <th className="py-2 pr-4 font-medium">Stawka kosztowa [godz.]</th>
             <th className="py-2 pr-4 font-medium">Stawka przychodowa [godz.]</th>
@@ -92,7 +95,7 @@ export function ConsultantsTable({ rows, showEndDate, renderActions }: Props) {
         <tbody>
           {rows.map((r) => (
             <tr key={r.contract_id} className="border-b border-border">
-              <td className="py-3 pr-4">
+              <td className="sticky left-0 z-10 bg-card py-3 pr-4 dark:bg-muted">
                 <div className="flex items-start gap-3">
                   {r.candidate.avatar_url ? (
                     // eslint-disable-next-line @next/next/no-img-element
@@ -195,7 +198,7 @@ export function ConsultantsTable({ rows, showEndDate, renderActions }: Props) {
                   </div>
                 </div>
               </td>
-              <td className="py-3 pr-4 tabular-nums">
+              <td className="py-3 pr-4 tabular-nums whitespace-nowrap">
                 {formatDate(r.start_date)}
               </td>
               {/* `formatPLN(null)` → „—". Kwoty MUSZĄ renderować się także jako
@@ -204,22 +207,22 @@ export function ConsultantsTable({ rows, showEndDate, renderActions }: Props) {
                   Stawki są GODZINOWE (backend przelicza z jednostki zamówienia:
                   godzinowa bez zmian, MD ÷ 8); zamówienia i kontrakty zostają
                   w swojej jednostce. */}
-              <td className="py-3 pr-4 tabular-nums">
+              <td className="py-3 pr-4 tabular-nums whitespace-nowrap">
                 {formatPLN(r.hourly_rate_candidate)}
               </td>
-              <td className="py-3 pr-4 tabular-nums">
+              <td className="py-3 pr-4 tabular-nums whitespace-nowrap">
                 {formatPLN(r.hourly_rate_client)}
               </td>
               <td
                 className={cn(
-                  "py-3 pr-4 font-medium tabular-nums",
+                  "py-3 pr-4 font-medium tabular-nums whitespace-nowrap",
                   r.monthly_margin != null && "text-emerald-600 dark:text-emerald-400",
                 )}
               >
                 {formatPLN(r.monthly_margin)}
               </td>
               {showEndDate ? (
-                <td className="py-3 pr-4 tabular-nums">
+                <td className="py-3 pr-4 tabular-nums whitespace-nowrap">
                   {formatDate(r.end_date)}
                 </td>
               ) : null}

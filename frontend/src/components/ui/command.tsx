@@ -4,7 +4,7 @@ import * as React from"react";
 import { Command as CommandPrimitive } from"cmdk";
 import { Search } from"lucide-react";
 import { cn } from"@/lib/utils";
-import { Dialog, DialogContent, DialogTitle, DialogDescription } from"./dialog";
+import { Dialog, DialogClose, DialogContent, DialogTitle, DialogDescription } from"./dialog";
 
 /**
  * Command palette built on cmdk. Use <CommandDialog> for ⌘K-style palette;
@@ -40,12 +40,22 @@ interface CommandDialogProps extends React.ComponentProps<typeof Dialog> {
 
 const CommandDialog = ({ title ="Wyszukaj", description ="Szybki dostęp do kandydatów, rekrutacji i akcji.", children, shouldFilter, ...props }: CommandDialogProps) => (
  <Dialog {...props}>
- <DialogContent size="lg" className="p-0 overflow-hidden" hideClose>
+ {/* Telefon: okno u góry ekranu (klawiatura zasłania dolną połowę) i nie
+     wyższe niż widoczny obszar; od `sm` wyśrodkowane jak dotąd. */}
+ <DialogContent
+ size="lg"
+ className="p-0 overflow-hidden top-2 translate-y-0 max-h-[calc(100dvh-1rem)] sm:top-[50%] sm:translate-y-[-50%] sm:max-h-[90dvh]"
+ hideClose
+ >
  <div className="sr-only">
  <DialogTitle>{title}</DialogTitle>
  <DialogDescription>{description}</DialogDescription>
  </div>
- <Command shouldFilter={shouldFilter} className="**:[[cmdk-group-heading]]:px-3 **:[[cmdk-group-heading]]:py-2 **:[[cmdk-group-heading]]:text-[10px] **:[[cmdk-group-heading]]:uppercase **:[[cmdk-group-heading]]:tracking-[0.12em] **:[[cmdk-group-heading]]:text-muted-foreground **:[[cmdk-group]]:px-1 **:[[cmdk-group]]:pb-2 [&_[cmdk-input-wrapper]_svg]:h-4 [&_[cmdk-input-wrapper]_svg]:w-4 **:[[cmdk-input]]:h-12 **:[[cmdk-item]]:px-2 **:[[cmdk-item]]:py-2.5 [&_[cmdk-item]_svg]:h-4 [&_[cmdk-item]_svg]:w-4">
+ {/* Na dotyku nie ma Esc — widoczne „Anuluj” obok pola wyszukiwania. */}
+ <DialogClose className="absolute right-2 top-1.5 z-10 flex h-9 items-center rounded-md px-3 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground sm:hidden">
+ Anuluj
+ </DialogClose>
+ <Command shouldFilter={shouldFilter} className="min-h-0 max-sm:**:[[cmdk-input-wrapper]]:pr-24 **:[[cmdk-group-heading]]:px-3 **:[[cmdk-group-heading]]:py-2 **:[[cmdk-group-heading]]:text-[10px] **:[[cmdk-group-heading]]:uppercase **:[[cmdk-group-heading]]:tracking-[0.12em] **:[[cmdk-group-heading]]:text-muted-foreground **:[[cmdk-group]]:px-1 **:[[cmdk-group]]:pb-2 [&_[cmdk-input-wrapper]_svg]:h-4 [&_[cmdk-input-wrapper]_svg]:w-4 **:[[cmdk-input]]:h-12 **:[[cmdk-item]]:px-2 **:[[cmdk-item]]:py-2.5 [&_[cmdk-item]_svg]:h-4 [&_[cmdk-item]_svg]:w-4">
  {children}
  </Command>
  </DialogContent>
@@ -75,7 +85,7 @@ const CommandList = React.forwardRef<
 >(({ className, ...props }, ref) => (
  <CommandPrimitive.List
  ref={ref}
- className={cn("max-h-[420px] overflow-y-auto overflow-x-hidden", className)}
+ className={cn("max-h-[min(420px,calc(100dvh-5rem))] overflow-y-auto overflow-x-hidden", className)}
  {...props}
  />
 ));

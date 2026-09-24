@@ -16,6 +16,7 @@ import {
   FileText,
   Star,
   Copy,
+  ChevronLeft,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { hasRole, useAuthStore } from "@/store/auth";
@@ -325,7 +326,7 @@ function TemplateEditor({ template, onSave, onCancel }: EditorProps) {
   return (
     <form onSubmit={handleSubmit} className="flex flex-col h-full">
       {/* Editor header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-border dark:border-border">
+      <div className="flex flex-wrap items-center justify-between gap-2 px-4 md:px-6 py-4 border-b border-border dark:border-border">
         <div className="flex items-center gap-2">
           <FileText className="w-5 h-5 text-primary" />
           <h2 className="font-bold text-foreground dark:text-foreground">
@@ -348,9 +349,9 @@ function TemplateEditor({ template, onSave, onCancel }: EditorProps) {
       </div>
 
       {/* Form body */}
-      <div className="flex-1 overflow-y-auto p-6 space-y-4">
+      <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4">
         {/* Name + Category */}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="block text-xs font-semibold text-muted-foreground dark:text-muted-foreground uppercase tracking-wide mb-1.5">
               Nazwa szablonu *
@@ -452,7 +453,7 @@ function TemplateEditor({ template, onSave, onCancel }: EditorProps) {
       </div>
 
       {/* Footer */}
-      <div className="flex items-center justify-between gap-3 px-6 py-4 border-t border-border dark:border-border bg-muted dark:bg-card/50">
+      <div className="flex flex-wrap items-center justify-between gap-3 px-4 md:px-6 py-4 border-t border-border dark:border-border bg-muted dark:bg-card/50">
         <button
           type="button"
           onClick={onCancel}
@@ -477,7 +478,7 @@ function TemplateEditor({ template, onSave, onCancel }: EditorProps) {
       {/* Preview Modal */}
       {showPreview && preview && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-card dark:bg-muted rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col">
+          <div className="bg-card dark:bg-muted rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85dvh] flex flex-col">
             <div className="flex items-center justify-between px-6 py-4 border-b border-border dark:border-border">
               <div className="flex items-center gap-2">
                 <Eye className="w-5 h-5 text-violet-500" />
@@ -486,7 +487,8 @@ function TemplateEditor({ template, onSave, onCancel }: EditorProps) {
               <button
                 type="button"
                 onClick={() => setShowPreview(false)}
-                className="text-muted-foreground hover:text-muted-foreground dark:hover:text-muted-foreground"
+                aria-label="Zamknij podgląd"
+                className="hit-area text-muted-foreground hover:text-muted-foreground dark:hover:text-muted-foreground"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -569,6 +571,9 @@ export default function EmailTemplatesPage() {
     }
   };
 
+  // Poniżej lg lista i edytor nie mieszczą się obok siebie — pokazujemy jedno.
+  const editorOpen = selectedTemplate !== undefined;
+
   const handleEditorSave = () => {
     setSelectedTemplate(undefined);
   };
@@ -578,16 +583,18 @@ export default function EmailTemplatesPage() {
   };
 
   return (
-    <div className="h-[calc(100vh-8rem)] flex flex-col space-y-4 max-w-7xl">
+    // Stała wysokość tylko od lg (lista obok edytora); na telefonie strona
+    // przewija się naturalnie, a lista i edytor pokazują się na zmianę.
+    <div className="lg:h-[calc(100dvh-8rem)] flex flex-col space-y-4 max-w-7xl">
       {/* Header */}
-      <div className="flex items-center justify-between shrink-0">
+      <div className="flex flex-wrap items-start justify-between gap-3 shrink-0">
         <div>
           <h1 className="text-2xl font-bold text-foreground dark:text-foreground">Szablony emaili</h1>
           <p className="text-sm text-muted-foreground dark:text-muted-foreground mt-0.5">
             Zarządzaj szablonami komunikacji z kandydatami
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {isAdmin && allTemplates.length === 0 && !isLoading && (
             <button
               onClick={handleSeedTemplates}
@@ -624,9 +631,14 @@ export default function EmailTemplatesPage() {
       </div>
 
       {/* Master-detail layout */}
-      <div className="flex-1 flex gap-4 min-h-0">
-        {/* Left panel: template list */}
-        <div className="w-80 shrink-0 flex flex-col bg-card dark:bg-muted rounded-2xl border border-border dark:border-border shadow-sm overflow-hidden">
+      <div className="flex-1 flex flex-col lg:flex-row gap-4 min-h-0">
+        {/* Left panel: template list — poniżej lg lista ALBO edytor. */}
+        <div
+          className={cn(
+            "w-full lg:w-80 lg:shrink-0 flex-col bg-card dark:bg-muted rounded-2xl border border-border dark:border-border shadow-sm overflow-hidden",
+            editorOpen ? "hidden lg:flex" : "flex",
+          )}
+        >
           {/* Category tabs */}
           <div className="flex flex-wrap gap-1 p-3 border-b border-border dark:border-border">
             {ALL_CATEGORIES.map(({ value, label }) => (
@@ -700,10 +712,11 @@ export default function EmailTemplatesPage() {
                       </div>
                       {/* Quick actions */}
                       {isAdmin && (
-                        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="flex items-center gap-0.5 pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
                           <button
                             onClick={(e) => { e.stopPropagation(); setDeleteTarget(t); }}
-                            className="p-1 text-muted-foreground hover:text-destructive hover:bg-destructive/10 dark:hover:bg-red-900/20 rounded transition-colors"
+                            aria-label={`Usuń szablon ${t.name}`}
+                            className="hit-area p-1 text-muted-foreground hover:text-destructive hover:bg-destructive/10 dark:hover:bg-red-900/20 rounded transition-colors"
                             title="Usuń"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -727,7 +740,22 @@ export default function EmailTemplatesPage() {
         </div>
 
         {/* Right panel: editor or empty state */}
-        <div className="flex-1 bg-card dark:bg-muted rounded-2xl border border-border dark:border-border shadow-sm overflow-hidden">
+        <div
+          className={cn(
+            "flex-1 min-w-0 bg-card dark:bg-muted rounded-2xl border border-border dark:border-border shadow-sm overflow-hidden",
+            editorOpen ? "block" : "hidden lg:block",
+          )}
+        >
+          {editorOpen && (
+            <button
+              type="button"
+              onClick={() => setSelectedTemplate(undefined)}
+              className="lg:hidden flex items-center gap-1.5 h-11 px-4 text-sm font-medium text-primary border-b border-border"
+            >
+              <ChevronLeft className="w-4 h-4" aria-hidden />
+              Szablony
+            </button>
+          )}
           {selectedTemplate === undefined && (
             <div className="h-full flex flex-col items-center justify-center text-muted-foreground p-8">
               <Mail className="w-16 h-16 mb-4 opacity-20" />

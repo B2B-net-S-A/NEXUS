@@ -63,23 +63,25 @@ export function AIJobWriterModal({
   };
 
   return (
-    <div role="dialog" aria-modal="true" aria-label="Szkic ogłoszenia" className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-card rounded-2xl shadow-xl w-full max-w-2xl my-4">
+    <div role="dialog" aria-modal="true" aria-label="Szkic ogłoszenia" className="fixed inset-0 bg-black/40 z-50 flex items-start justify-center p-4 overflow-y-auto">
+      {/* `my-auto` zamiast `items-center`: okno wyższe niż ekran (telefon w poziomie)
+          traciło przy centrowaniu górę — nagłówek z „Zamknij" był poza zasięgiem. */}
+      <div className="bg-card rounded-2xl shadow-xl w-full max-w-2xl my-auto">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border dark:border-border">
+        <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-border dark:border-border">
           <div className="flex items-center gap-2">
             <Wand2 className="w-5 h-5 text-primary" />
             <h2 className="text-lg font-bold text-foreground">Szkic ogłoszenia</h2>
           </div>
-          <button onClick={onClose} disabled={saving} aria-label="Zamknij szkic" className="text-muted-foreground hover:text-muted-foreground">
+          <button onClick={onClose} disabled={saving} aria-label="Zamknij szkic" className="hit-area text-muted-foreground hover:text-muted-foreground">
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="p-6 space-y-4">
+        <div className="p-4 sm:p-6 space-y-4">
           <p className="text-sm text-muted-foreground">Szablon na podstawie podanych danych. Sprawdź i popraw szkic przed zapisaniem go jako opisu rekrutacji.</p>
           {/* Form */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <label className="block text-xs font-semibold text-muted-foreground mb-1">Tytuł stanowiska</label>
               <input

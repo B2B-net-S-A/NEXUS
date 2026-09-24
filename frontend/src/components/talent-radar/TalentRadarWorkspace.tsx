@@ -541,7 +541,7 @@ function AdHocTalentRadarWorkspace({ embedded = false, initialText, initial }: T
         ) : (
           // Albo-albo WIDAĆ z układu: plik i treść stoją OBOK SIEBIE,
           // rozdzielone pastylką „ALBO" — nie trzeba tego wyczytywać z opisu.
-          <div className="grid gap-3 md:grid-cols-[1fr_auto_1fr] md:items-stretch">
+          <div className="grid gap-3 lg:grid-cols-[1fr_auto_1fr] lg:items-stretch">
             <div className="flex flex-col gap-2 rounded-md border border-dashed border-border p-3">
               <Label htmlFor="tr-champion-file">Profil Championa (plik)</Label>
               <input
@@ -742,8 +742,8 @@ function AdHocTalentRadarWorkspace({ embedded = false, initialText, initial }: T
                 <ul className="flex flex-wrap gap-2">
                   {requirementsPreview.uncertain.map(name => <li key={name} className="flex items-center gap-1 rounded-full border border-border bg-muted py-0.5 pl-3 pr-1 text-sm">
                     <span>{name}</span>
-                    <Button type="button" size="sm" variant="ghost" className="h-6 px-2 text-xs" aria-label={`${name} do obowiązkowych`} onClick={() => moveUncertain([name], "must")}>→ obowiązkowe</Button>
-                    <Button type="button" size="sm" variant="ghost" className="h-6 px-2 text-xs" aria-label={`${name} do dodatkowych`} onClick={() => moveUncertain([name], "nice")}>→ dodatkowe</Button>
+                    <Button type="button" size="sm" variant="ghost" className="h-9 px-2 text-xs md:h-6" aria-label={`${name} do obowiązkowych`} onClick={() => moveUncertain([name], "must")}>→ obowiązkowe</Button>
+                    <Button type="button" size="sm" variant="ghost" className="h-9 px-2 text-xs md:h-6" aria-label={`${name} do dodatkowych`} onClick={() => moveUncertain([name], "nice")}>→ dodatkowe</Button>
                   </li>)}
                 </ul>
               </div>}

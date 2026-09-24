@@ -84,6 +84,30 @@ export function TileCatalogSheet({
               className="pl-9"
             />
           </label>
+          {/* Telefon: kolumna kategorii jest schowana — te same filtry jako chipy. */}
+          <div
+            role="group"
+            aria-label="Kategorie kafelków (telefon)"
+            className="-mx-1 mt-2 flex gap-1 overflow-x-auto px-1 pb-1 sm:hidden"
+          >
+            {(["all", ...Object.keys(TILE_CATEGORY_LABELS)] as CategoryFilter[]).map((c) => (
+              <button
+                key={c}
+                type="button"
+                aria-pressed={category === c}
+                onClick={() => setCategory(c)}
+                className={cn(
+                  "shrink-0 whitespace-nowrap rounded-full border px-3 py-1.5 text-xs",
+                  category === c
+                    ? "border-primary bg-primary/10 font-semibold text-primary"
+                    : "border-border text-foreground",
+                )}
+              >
+                {c === "all" ? "Wszystkie" : TILE_CATEGORY_LABELS[c]}{" "}
+                <span className="font-mono text-muted-foreground">{counts[c] ?? 0}</span>
+              </button>
+            ))}
+          </div>
         </SheetHeader>
         <div className="flex min-h-0 flex-1">
           <nav

@@ -130,7 +130,7 @@ export function AddToRecruitmentDialog({
           <DialogTitle>Dodaj do rekrutacji</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
-        <DialogBody className="max-h-[60vh] overflow-y-auto">
+        <DialogBody className="max-h-[60dvh] overflow-y-auto">
           <JobPicker value={job} onChange={setJob} scope="mine" />
           {error ? (
             <p role="alert" className="mt-3 text-sm text-destructive">

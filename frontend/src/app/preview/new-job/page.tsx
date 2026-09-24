@@ -153,7 +153,7 @@ function Harness() {
   });
   return (
     <QueryClientProvider client={client}>
-      <div className="min-h-screen bg-background">
+      <div className="min-h-dvh bg-background">
         <NewJobPage key={params?.get("state") ?? "review"} preview={state} />
       </div>
     </QueryClientProvider>

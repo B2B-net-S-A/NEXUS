@@ -80,7 +80,7 @@ export default async function ApplyPage({ params }: PageProps) {
  });
 
  return (
- <div className="max-w-2xl mx-auto px-6 py-12 md:py-16">
+ <div className="max-w-2xl mx-auto px-4 sm:px-6 py-10 sm:py-12 md:py-16">
  {/* Header */}
  <header className="flex items-center gap-3 mb-10">
  <div className="h-9 w-9 rounded-md bg-primary text-white flex items-center justify-center font-semibold">
@@ -101,7 +101,7 @@ export default async function ApplyPage({ params }: PageProps) {
  <p className="text-xs font-semibold uppercase tracking-eyebrow text-primary">
  {meta.recruiter.first_name} zaprasza Cię do aplikacji
  </p>
- <h1 className="font-semibold text-3xl md:text-4xl font-extrabold tracking-[-0.025em] text-foreground leading-[1.05]">
+ <h1 className="font-semibold text-2xl sm:text-3xl md:text-4xl font-extrabold break-words hyphens-auto tracking-[-0.025em] text-foreground leading-[1.05]">
  {meta.job.title}
  </h1>
 
@@ -113,7 +113,7 @@ export default async function ApplyPage({ params }: PageProps) {
  )}
  {meta.job.seniority && (
  <span className="inline-flex items-center gap-1.5">
- <Sparkles className="h-3.5 w-3.5" />{""}
+ <Sparkles className="h-3.5 w-3.5" />{" "}
  {SENIORITY_LABEL[meta.job.seniority] ?? meta.job.seniority}
  </span>
  )}
@@ -127,11 +127,11 @@ export default async function ApplyPage({ params }: PageProps) {
  </section>
 
  {/* Form */}
- <section className="rounded-xl bg-card border border-border shadow-md p-6 md:p-8">
+ <section className="rounded-xl bg-card border border-border shadow-md p-4 sm:p-6 md:p-8">
  <ApplyForm token={token} recruiterFirstName={meta.recruiter.first_name} />
  </section>
 
- <footer className="flex items-center justify-between text-[11px] text-muted-foreground pt-6">
+ <footer className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between text-[11px] text-muted-foreground pt-6">
  <span>Twoje dane trafią wyłącznie do rekrutera Dynaminds.</span>
  <span className="font-semibold text-foreground">
  Define tomorrow.

@@ -140,7 +140,7 @@ export function ChampionProfileSuggestionReview({
         </div>
 
         {/* Body */}
-        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4 max-h-[70vh]">
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4 max-h-[70dvh]">
           {suggestion.error_message ? (
             <div className="rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
               Błąd generowania: {suggestion.error_message}
@@ -409,7 +409,7 @@ function SectionDiff({ patch, current, accepted, onToggle }: SectionDiffProps) {
           <ConfidenceBadge confidence={patch.confidence} />
         </div>
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-0 divide-x divide-gray-200 dark:divide-gray-800">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-0 divide-y md:divide-y-0 md:divide-x divide-gray-200 dark:divide-gray-800">
         <SideCol title="Obecne" value={current} muted />
         <SideCol title="Proponowane" value={patch.value} highlight />
       </div>

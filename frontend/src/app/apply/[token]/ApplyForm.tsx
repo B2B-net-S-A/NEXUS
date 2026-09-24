@@ -70,6 +70,18 @@ export default function ApplyForm({ token, recruiterFirstName }: ApplyFormProps)
  const [status, setStatus] = useState<FormStatus>("idle");
  const [cvName, setCvName] = useState<string | null>(null);
  const fileInputRef = useRef<HTMLInputElement | null>(null);
+ const formRef = useRef<HTMLFormElement | null>(null);
+ // Po odmowie walidacji fokus idzie na pierwsze błędne pole: na telefonie
+ // błąd przy „Imię” jest nad krawędzią ekranu, a kandydat widzi tylko baner
+ // przy przycisku.
+ const focusFirstInvalidRef = useRef(false);
+ useEffect(() => {
+ if (!focusFirstInvalidRef.current) return;
+ focusFirstInvalidRef.current = false;
+ formRef.current
+ ?.querySelector<HTMLElement>('[aria-invalid="true"]')
+ ?.focus();
+ }, [errors]);
 
  // Capture UTM query params on mount and stash for the eventual submit.
  // We snapshot once — if the user navigates away and back the URL might
@@ -130,6 +142,7 @@ export default function ApplyForm({ token, recruiterFirstName }: ApplyFormProps)
  // Zgoda jest wymagana przez API (422 bez niej) — checkbox wysyła `consent=true`.
  if (fd.get("consent") !== "true") nextErrors.consent = CONSENT_REQUIRED;
  if (Object.keys(nextErrors).length > 0) {
+ focusFirstInvalidRef.current = true;
  setErrors(nextErrors);
  return;
  }
@@ -183,6 +196,7 @@ export default function ApplyForm({ token, recruiterFirstName }: ApplyFormProps)
  // rozbieżność: zod 4 przyjmuje `jan@firma-.pl`, `EmailStr` odrzuca.
  const fieldErrors = applyFieldErrors(body);
  if (fieldErrors.length > 0) {
+ focusFirstInvalidRef.current = true;
  setErrors((prev) => ({
  ...prev,
  ...Object.fromEntries(fieldErrors.map((e) => [e.field, e.message])),
@@ -222,20 +236,22 @@ export default function ApplyForm({ token, recruiterFirstName }: ApplyFormProps)
  const busy = status === "submitting";
 
  return (
- <form onSubmit={onSubmit} className="space-y-5" noValidate>
+ <form ref={formRef} onSubmit={onSubmit} className="space-y-5" noValidate>
  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
- <Field label="Imię" error={errors.first_name}>
+ <Field label="Imię" name="first_name" error={errors.first_name}>
  <input
  name="first_name"
+ {...invalidProps("first_name", errors.first_name)}
  autoComplete="given-name"
  disabled={busy}
  className={inputClass}
  required
  />
  </Field>
- <Field label="Nazwisko" error={errors.last_name}>
+ <Field label="Nazwisko" name="last_name" error={errors.last_name}>
  <input
  name="last_name"
+ {...invalidProps("last_name", errors.last_name)}
  autoComplete="family-name"
  disabled={busy}
  className={inputClass}
@@ -244,9 +260,10 @@ export default function ApplyForm({ token, recruiterFirstName }: ApplyFormProps)
  </Field>
  </div>
 
- <Field label="Email" error={errors.email}>
+ <Field label="Email" name="email" error={errors.email}>
  <input
  name="email"
+ {...invalidProps("email", errors.email)}
  type="email"
  autoComplete="email"
  disabled={busy}
@@ -256,19 +273,24 @@ export default function ApplyForm({ token, recruiterFirstName }: ApplyFormProps)
  </Field>
 
  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
- <Field label="Telefon (opcjonalnie)" error={errors.phone}>
+ <Field label="Telefon (opcjonalnie)" name="phone" error={errors.phone}>
  <input
  name="phone"
+ {...invalidProps("phone", errors.phone)}
  type="tel"
+ inputMode="tel"
  autoComplete="tel"
  disabled={busy}
  className={inputClass}
  />
  </Field>
- <Field label="LinkedIn (opcjonalnie)" error={errors.linkedin}>
+ <Field label="LinkedIn (opcjonalnie)" name="linkedin" error={errors.linkedin}>
  <input
  name="linkedin"
+ {...invalidProps("linkedin", errors.linkedin)}
  type="url"
+ inputMode="url"
+ autoComplete="url"
  placeholder="https://linkedin.com/in/…"
  disabled={busy}
  className={inputClass}
@@ -276,16 +298,24 @@ export default function ApplyForm({ token, recruiterFirstName }: ApplyFormProps)
  </Field>
  </div>
 
+ {/* Pole pliku ma własną klikalną etykietę, więc `Field` jest tu `div` —
+ etykieta w etykiecie to niepoprawny HTML. */}
  <Field
  label="CV (PDF, DOC lub DOCX, max 10 MB)"
+ name="cv"
  error={errors.cv}
+ as="div"
  >
- <label className="flex items-center justify-between gap-3 rounded-md border border-dashed border-border bg-background/40 px-3 py-2.5 cursor-pointer hover:border-primary">
- <span className="inline-flex items-center gap-2 text-sm">
- <Paperclip className="h-4 w-4 text-muted-foreground" />
+ <label className="flex min-h-11 items-center justify-between gap-3 rounded-md border border-dashed border-border bg-background/40 px-3 py-2.5 cursor-pointer hover:border-primary focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/30">
+ {/* min-w-0 + truncate: nazwy plików CV zwykle nie mają spacji
+ i bez tego rozpychały kartę na telefonie (przewijanie w bok). */}
+ <span className="inline-flex min-w-0 flex-1 items-center gap-2 text-sm">
+ <Paperclip className="h-4 w-4 shrink-0 text-muted-foreground" />
+ <span id="apply-cv-name" className="truncate">
  {cvName ??"Wybierz plik…"}
  </span>
- <span className="text-xs text-muted-foreground">
+ </span>
+ <span className="shrink-0 text-xs text-muted-foreground">
  {cvName ?"Zmień" :"Dodaj"}
  </span>
  <input
@@ -295,6 +325,8 @@ export default function ApplyForm({ token, recruiterFirstName }: ApplyFormProps)
  accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
  disabled={busy}
  className="sr-only"
+ aria-labelledby="apply-cv-label apply-cv-name"
+ {...invalidProps("cv", errors.cv)}
  onChange={(e) => {
  const f = e.target.files?.[0];
  setCvName(f?.name ?? null);
@@ -306,12 +338,13 @@ export default function ApplyForm({ token, recruiterFirstName }: ApplyFormProps)
  </label>
  </Field>
 
- <Field label="Wiadomość (opcjonalnie)" error={errors.message}>
+ <Field label="Wiadomość (opcjonalnie)" name="message" error={errors.message}>
  <textarea
  name="message"
+ {...invalidProps("message", errors.message)}
  rows={4}
  disabled={busy}
- className={inputClass}
+ className={textareaClass}
  maxLength={2000}
  placeholder="Kilka zdań o sobie, motywacji, dostępności…"
  />
@@ -325,7 +358,7 @@ export default function ApplyForm({ token, recruiterFirstName }: ApplyFormProps)
  value="true"
  disabled={busy}
  required
- aria-invalid={errors.consent ? true : undefined}
+ {...invalidProps("consent", errors.consent)}
  className="mt-0.5 h-5 w-5 shrink-0 accent-primary"
  />
  <span className="text-xs leading-relaxed text-muted-foreground">
@@ -341,7 +374,9 @@ export default function ApplyForm({ token, recruiterFirstName }: ApplyFormProps)
  </span>
  </label>
  {errors.consent && (
- <span className="block text-xs text-destructive">{errors.consent}</span>
+ <span id="apply-consent-error" className="block text-xs text-destructive">
+ {errors.consent}
+ </span>
  )}
  </div>
 
@@ -354,7 +389,7 @@ export default function ApplyForm({ token, recruiterFirstName }: ApplyFormProps)
  <button
  type="submit"
  disabled={busy}
- className="w-full inline-flex items-center justify-center gap-2 rounded-md bg-primary text-white font-semibold text-sm px-4 py-2.5 hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed"
+ className="w-full inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-primary text-white font-semibold text-sm px-4 py-2.5 sm:min-h-10 hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed"
  >
  {busy ? (
  <>
@@ -367,24 +402,47 @@ export default function ApplyForm({ token, recruiterFirstName }: ApplyFormProps)
  );
 }
 
-const inputClass ="w-full rounded-md border border-border bg-card px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary disabled:opacity-60";
+// h-11 + 16 px na telefonie: cel dotykowy 44 px i brak powiększania strony
+// przez iOS przy fokusie (pole < 16 px). Od `sm` wygląd bez zmian.
+const fieldBaseClass ="w-full rounded-md border border-border bg-card px-3 text-base sm:text-sm text-foreground placeholder:text-muted-foreground focus:outline-hidden focus:ring-2 focus:ring-primary/30 focus:border-primary disabled:opacity-60";
+const inputClass = `${fieldBaseClass} h-11 sm:h-10`;
+const textareaClass = `${fieldBaseClass} py-2.5`;
+
+/** `aria-invalid` + powiązanie z komunikatem błędu (fokus po odmowie). */
+function invalidProps(name: string, error: string | undefined) {
+ return error
+ ? { "aria-invalid": true as const, "aria-describedby": `apply-${name}-error` }
+ : {};
+}
 
 function Field({
  label,
+ name,
  error,
+ as ="label",
  children,
 }: {
  label: string;
+ name: string;
  error?: string;
+ as?:"label" |"div";
  children: React.ReactNode;
 }) {
+ const Wrapper = as;
  return (
- <label className="block space-y-1.5">
- <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+ <Wrapper className="block space-y-1.5">
+ <span
+ id={`apply-${name}-label`}
+ className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground"
+ >
  {label}
  </span>
  {children}
- {error && <span className="block text-xs text-destructive">{error}</span>}
- </label>
+ {error && (
+ <span id={`apply-${name}-error`} className="block text-xs text-destructive">
+ {error}
+ </span>
+ )}
+ </Wrapper>
  );
 }

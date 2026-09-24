@@ -285,7 +285,7 @@ export function CvRuleEditor({
     }
   };
 
-  if (central.data?.managed) return <div className="space-y-4"><div className="flex gap-2"><Button variant="outline" onClick={() => setTab("settings")}>Zasady i historia CV</Button><Button variant="outline" onClick={() => setTab("playbook")}>Karta klienta</Button></div>{tab === "playbook" ? <CvRulePlaybookTab clientId={clientId} /> : <CentralPolicyView clientId={clientId} />}</div>;
+  if (central.data?.managed) return <div className="space-y-4"><div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => setTab("settings")}>Zasady i historia CV</Button><Button variant="outline" onClick={() => setTab("playbook")}>Karta klienta</Button></div>{tab === "playbook" ? <CvRulePlaybookTab clientId={clientId} /> : <CentralPolicyView clientId={clientId} />}</div>;
   if (central.isLoading) return <p>Ładowanie zasad CV…</p>;
   if (central.isError) return <p>Nie udało się odczytać zasad CV.</p>;
 
@@ -355,7 +355,7 @@ export function CvRuleEditor({
               <div className="rounded-md border border-dashed p-3">
                 <p className="mb-2 text-xs font-medium">Skopiuj regułę z innego klienta</p>
                 <div className="flex flex-wrap items-center gap-2">
-                  <div className="min-w-64 flex-1">
+                  <div className="min-w-0 basis-64 flex-1">
                     <ClientSinglePicker
                       value={copySource}
                       onChange={setCopySource}
@@ -420,7 +420,7 @@ export function CvRuleEditor({
           ) : null}
           {allowDelete && stored ? (
             confirmingDelete ? (
-              <span className="ml-auto flex items-center gap-2 text-sm">
+              <span className="ml-auto flex flex-wrap items-center gap-2 text-sm">
                 <span className="text-muted-foreground">Usunąć całą regułę? Wróci domyślna nazwa pliku, brak ograniczenia trybu i włączone interaktywne CV.</span>
                 <button
                   type="button"

@@ -50,7 +50,7 @@ export function CvRichProfileSections({ profile }: { profile: RichCvProfile }) {
             <History className="h-3.5 w-3.5" />
             Technologie w czasie
           </h3>
-          <div className="overflow-x-auto rounded-lg border border-border">
+          <div className="relative overflow-x-auto rounded-lg border border-border">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-[11px] uppercase tracking-wide text-muted-foreground">

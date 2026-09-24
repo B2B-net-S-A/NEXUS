@@ -72,7 +72,7 @@ export function InsightsYearlyStats({ year }: Props) {
 
   if (viewState === "loading") {
     return (
-      <section className="rounded-xl border border-border bg-card p-6 shadow-xs">
+      <section className="rounded-xl border border-border bg-card p-4 shadow-xs sm:p-6">
         <SectionHeading title={heading} />
         <div className="flex items-center justify-center py-10">
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -83,7 +83,7 @@ export function InsightsYearlyStats({ year }: Props) {
 
   if (isBlockingViewState(viewState)) {
     return (
-      <section className="rounded-xl border border-border bg-card p-6 shadow-xs">
+      <section className="rounded-xl border border-border bg-card p-4 shadow-xs sm:p-6">
         <SectionHeading title={heading} />
         <SectionError
           label="Statystyki roczne"
@@ -96,7 +96,7 @@ export function InsightsYearlyStats({ year }: Props) {
 
   if (viewState === "empty" || !data) {
     return (
-      <section className="rounded-xl border border-border bg-card p-6 shadow-xs">
+      <section className="rounded-xl border border-border bg-card p-4 shadow-xs sm:p-6">
         <SectionHeading title={heading} />
         <p className="py-6 text-center text-sm text-muted-foreground">
           Brak miesięcy do pokazania w tym roku. Miesiące, które się jeszcze nie
@@ -161,20 +161,20 @@ function YearlyProgressChart({ data }: { data: YearlyStatsResponse }) {
   const partial = data.months.find((m) => m.is_partial);
 
   return (
-    <section className="rounded-xl border border-border bg-card p-6 shadow-xs">
-      <div className="mb-4 flex items-center gap-2">
+    <section className="rounded-xl border border-border bg-card p-4 shadow-xs sm:p-6">
+      <div className="mb-4 flex flex-wrap items-center gap-2">
         <LineIcon className="h-5 w-5 text-primary" aria-hidden="true" />
         <h2 className="text-base font-semibold text-foreground">
           Progress zespołu – {data.year}
         </h2>
-        <span className="ml-auto text-xs font-normal text-muted-foreground">
+        <span className="basis-full text-xs font-normal text-muted-foreground sm:ml-auto sm:basis-auto">
           {data.series
             .map((s) => `${s.label}: ${count(data.totals[s.key])}`)
             .join(" · ")}
         </span>
       </div>
 
-      <div className="h-80">
+      <div className="h-64 sm:h-80">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart
             data={data.months}
@@ -251,18 +251,18 @@ function YearlyConversionChart({ data }: { data: YearlyStatsResponse }) {
   );
 
   return (
-    <section className="rounded-xl border border-border bg-card p-6 shadow-xs">
-      <div className="mb-4 flex items-center gap-2">
+    <section className="rounded-xl border border-border bg-card p-4 shadow-xs sm:p-6">
+      <div className="mb-4 flex flex-wrap items-center gap-2">
         <LineIcon className="h-5 w-5 text-primary" aria-hidden="true" />
         <h2 className="text-base font-semibold text-foreground">
           Efektywność lejka – {data.year}
         </h2>
-        <span className="ml-auto text-xs font-normal text-muted-foreground">
+        <span className="basis-full text-xs font-normal text-muted-foreground sm:ml-auto sm:basis-auto">
           konwersje miesięczne
         </span>
       </div>
 
-      <div className="h-80">
+      <div className="h-64 sm:h-80">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart
             data={data.months}

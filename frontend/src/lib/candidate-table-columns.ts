@@ -75,13 +75,25 @@ export function toggleCandidateColumn(
   return CANDIDATE_COLUMNS.filter((c) => current.has(c.id) && !c.required).map((c) => c.id);
 }
 
-/** `grid-template-columns` (z kolumną zaznaczenia) i minimalna szerokość wiersza. */
+/** Odstęp między kolumnami siatki wiersza (`gap-3`). */
+export const CANDIDATE_GRID_GAP_PX = 12;
+/** Poziomy padding wiersza i nagłówka (`px-4` z obu stron). */
+export const CANDIDATE_GRID_PADDING_X_PX = 16;
+
+/** `grid-template-columns` (z kolumną zaznaczenia) i minimalna szerokość wiersza.
+ *  Minimalna szerokość liczy też odstępy między kolumnami i padding wiersza —
+ *  bez nich kontener był o ~130 px węższy niż siatka i ostatnie kolumny
+ *  („Przypisz”, CV) wypadały poza obszar przewijania. */
 export function candidateGridLayout(columns: readonly CandidateColumn[]): {
   template: string;
   minWidth: number;
 } {
   return {
     template: ["32px", ...columns.map((c) => c.width)].join(" "),
-    minWidth: 32 + columns.reduce((sum, c) => sum + c.minWidth, 0),
+    minWidth:
+      32 +
+      columns.reduce((sum, c) => sum + c.minWidth, 0) +
+      CANDIDATE_GRID_GAP_PX * columns.length +
+      2 * CANDIDATE_GRID_PADDING_X_PX,
   };
 }

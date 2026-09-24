@@ -225,7 +225,7 @@ function Harness() {
   return (
     <QueryClientProvider client={client}>
       <ToastProvider>
-        <main className="min-h-screen bg-background p-6">
+        <main className="min-h-dvh bg-background p-4 md:p-6">
           <p className="mb-4 text-xs text-muted-foreground">
             Podgląd na danych fikcyjnych · {asDl ? "oczami Delivery Leada" : "oczami rekrutera"} ·{" "}
             <a className="text-primary underline" href={asDl ? BASE : `${BASE}?as=dl`}>

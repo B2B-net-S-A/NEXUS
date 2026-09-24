@@ -112,7 +112,7 @@ export default function Microsoft365Card() {
 
       {/* Connected meta */}
       {connected && (
-        <div className="grid grid-cols-2 gap-3 mb-5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
           <div className="bg-muted dark:bg-muted rounded-xl p-3">
             <p className="text-xs text-muted-foreground dark:text-muted-foreground mb-0.5">
               Skrzynka

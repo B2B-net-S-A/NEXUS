@@ -17,10 +17,10 @@ const COPY: Record<PublicLinkFailure, { heading: string; body: string }> = {
 export function PublicLinkUnavailable({ failure }: { failure: PublicLinkFailure }) {
   const copy = COPY[failure];
   return (
-    <main className="max-w-xl mx-auto p-6 pt-16">
+    <main className="max-w-xl mx-auto p-4 pt-12 sm:p-6 sm:pt-16">
       <div
         role="alert"
-        className="rounded-lg border border-destructive/20 bg-destructive/10 p-6 text-center"
+        className="rounded-lg border border-destructive/20 bg-destructive/10 p-4 sm:p-6 text-center"
       >
         <AlertCircle className="h-8 w-8 text-destructive mx-auto mb-3" />
         <h1 className="text-lg font-semibold mb-1">{copy.heading}</h1>

@@ -193,43 +193,45 @@ export function RateHistoryWidget({ candidateId, hideWhenEmpty = false }: Props)
       ) : rows.length === 0 ? (
         <p className="text-sm text-muted-foreground">Brak zapisanych stawek.</p>
       ) : (
-        <table className="w-full text-sm">
-          <thead className="text-xs uppercase text-muted-foreground">
-            <tr>
-              <th className="text-left py-1">Data startu</th>
-              <th className="text-left">Klient</th>
-              <th className="text-right">Stawka</th>
-              <th className="text-left pl-4">Kontrakt</th>
-              {canEdit && <th />}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr
-                key={r.id}
-                className="border-t border-border dark:border-border"
-              >
-                <td className="py-1.5">{r.start_date}</td>
-                <td>{clientName(r.client_id)}</td>
-                <td className="text-right">
-                  {r.rate.toLocaleString()} {r.currency}
-                </td>
-                <td className="pl-4">{CONTRACT_LABEL[r.contract_type] ?? r.contract_type}</td>
-                {canEdit && (
-                  <td className="text-right">
-                    <button
-                      onClick={() => handleDelete(r.id)}
-                      className="text-destructive/70 hover:text-destructive"
-                      aria-label="Usuń stawkę"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </td>
-                )}
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="text-xs uppercase text-muted-foreground">
+              <tr>
+                <th className="text-left py-1">Data startu</th>
+                <th className="text-left">Klient</th>
+                <th className="text-right">Stawka</th>
+                <th className="text-left pl-4">Kontrakt</th>
+                {canEdit && <th />}
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr
+                  key={r.id}
+                  className="border-t border-border dark:border-border"
+                >
+                  <td className="py-1.5">{r.start_date}</td>
+                  <td>{clientName(r.client_id)}</td>
+                  <td className="text-right">
+                    {r.rate.toLocaleString()} {r.currency}
+                  </td>
+                  <td className="pl-4">{CONTRACT_LABEL[r.contract_type] ?? r.contract_type}</td>
+                  {canEdit && (
+                    <td className="text-right">
+                      <button
+                        onClick={() => handleDelete(r.id)}
+                        className="text-destructive/70 hover:text-destructive"
+                        aria-label="Usuń stawkę"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );

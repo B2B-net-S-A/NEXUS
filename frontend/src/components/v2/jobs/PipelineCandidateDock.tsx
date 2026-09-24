@@ -625,7 +625,7 @@ export function PipelineCandidateDock({
                 type="button"
                 onClick={onSelectPrevious}
                 disabled={position <= 1}
-                className="rounded-md p-0.5 hover:bg-accent disabled:opacity-40"
+                className="rounded-md p-0.5 hover:bg-accent disabled:opacity-40 pointer-coarse:p-2.5"
                 aria-label="Poprzednia karta"
               >
                 <ChevronLeft className="h-3.5 w-3.5" />
@@ -637,7 +637,7 @@ export function PipelineCandidateDock({
                 type="button"
                 onClick={onSelectNext}
                 disabled={position >= total}
-                className="rounded-md p-0.5 hover:bg-accent disabled:opacity-40"
+                className="rounded-md p-0.5 hover:bg-accent disabled:opacity-40 pointer-coarse:p-2.5"
                 aria-label="Następna karta"
               >
                 <ChevronRight className="h-3.5 w-3.5" />
@@ -651,7 +651,7 @@ export function PipelineCandidateDock({
           <button
             type="button"
             onClick={onClose}
-            className="ml-auto shrink-0 rounded-md p-1 text-muted-foreground hover:bg-accent"
+            className="ml-auto shrink-0 rounded-md p-1 text-muted-foreground hover:bg-accent pointer-coarse:p-2.5"
             aria-label="Zamknij dok"
           >
             <X className="h-4 w-4" />
@@ -767,7 +767,7 @@ export function PipelineCandidateDock({
                   </DropdownMenuTrigger>
                   <DropdownMenuContent
                     align="start"
-                    className="max-h-[60vh] w-72 overflow-y-auto"
+                    className="max-h-[60dvh] w-72 overflow-y-auto"
                   >
                     {moveTargets.map(({ col, blockedReason }) => {
                       const label = col.name ?? col.stage;

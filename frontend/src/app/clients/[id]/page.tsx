@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 
 import {
@@ -268,11 +268,15 @@ function KnowledgeTab({ clientId }: { clientId: number }) {
         <div className="bg-primary/10 border border-primary/20 rounded-xl p-4 space-y-3">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold text-primary">Nowy wpis</h3>
-            <button onClick={() => setShowAdd(false)} className="text-primary hover:text-primary">
+            <button
+              onClick={() => setShowAdd(false)}
+              aria-label="Zamknij"
+              className="hit-area text-primary hover:text-primary"
+            >
               <X className="w-4 h-4" />
             </button>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <label className="text-xs font-semibold text-muted-foreground block mb-1">Kategoria</label>
               <select
@@ -341,7 +345,7 @@ function KnowledgeTab({ clientId }: { clientId: number }) {
                   </p>
                   <DeleteButton
                     onConfirm={() => deleteMutation.mutate(entry.id)}
-                    className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all shrink-0"
+                    className="hit-area pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:group-focus-within:opacity-100 focus-visible:opacity-100 text-muted-foreground hover:text-destructive transition-all shrink-0"
                   />
                 </div>
                 {entry.source && (
@@ -394,7 +398,7 @@ function ContactForm({
 }) {
   return (
     <div className="space-y-3">
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div>
           <label className="text-xs font-semibold text-muted-foreground block mb-1">Imię i nazwisko *</label>
           <input
@@ -414,7 +418,7 @@ function ContactForm({
           />
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div>
           <label className="text-xs font-semibold text-muted-foreground block mb-1">Email</label>
           <input
@@ -433,7 +437,7 @@ function ContactForm({
           />
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div>
           <label className="text-xs font-semibold text-muted-foreground block mb-1">Dział</label>
           <input
@@ -666,16 +670,16 @@ function ContactsTab({ clientId }: { clientId: number }) {
                           {contact.email && (
                             <a
                               href={`mailto:${contact.email}`}
-                              className="flex items-center gap-1 text-xs text-primary hover:underline"
+                              className="flex min-w-0 max-w-full items-center gap-1 text-xs text-primary hover:underline pointer-coarse:min-h-10"
                             >
-                              <Mail className="w-3 h-3" />
-                              {contact.email}
+                              <Mail className="w-3 h-3 shrink-0" />
+                              <span className="break-all">{contact.email}</span>
                             </a>
                           )}
                           {contact.phone && (
                             <a
                               href={`tel:${contact.phone}`}
-                              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground pointer-coarse:min-h-10"
                             >
                               <Phone className="w-3 h-3" />
                               {contact.phone}
@@ -687,11 +691,12 @@ function ContactsTab({ clientId }: { clientId: number }) {
                         )}
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex items-center gap-2 pointer-coarse:gap-4 shrink-0">
                       <button
                         onClick={() => setEditingKeyRelationship(contact)}
+                        aria-label="Edytuj relację"
                         className={
-                          "transition-colors " +
+                          "hit-area transition-colors " +
                           (contact.is_key_relationship
                             ? "text-pink-600 hover:text-pink-700"
                             : "text-muted-foreground hover:text-pink-600")
@@ -707,15 +712,19 @@ function ContactsTab({ clientId }: { clientId: number }) {
                       </button>
                       <button
                         onClick={() => openEdit(contact)}
-                        className="text-muted-foreground hover:text-primary transition-colors"
+                        aria-label="Edytuj kontakt"
+                        className="hit-area text-muted-foreground hover:text-primary transition-colors"
                       >
                         <Pencil className="w-4 h-4" />
                       </button>
-                      <DeleteButton onConfirm={() => deleteMutation.mutate(contact.id)} />
+                      <DeleteButton
+                        onConfirm={() => deleteMutation.mutate(contact.id)}
+                        className="hit-area"
+                      />
                     </div>
                   </div>
                   {contact.is_key_relationship && contact.relationship_notes && (
-                    <div className="mt-3 pl-12 text-xs text-pink-700 italic border-l-2 border-pink-200 pl-3 ml-12">
+                    <div className="mt-3 text-xs text-pink-700 italic border-l-2 border-pink-200 pl-3 ml-0 sm:ml-12">
                       {contact.relationship_notes}
                     </div>
                   )}
@@ -859,6 +868,25 @@ export default function ClientDetailPage() {
 
   useCanonicalClientRedirect(id, client?.id);
 
+  // Pasek 8 zakładek jest na telefonie szerszy niż ekran. Wejście z
+  // powiadomienia (`?tab=zamowienia`) albo klik w częściowo widoczną zakładkę
+  // przewija go do aktywnej — inaczej wybrana zakładka bywa poza kadrem.
+  // Przewijamy WYŁĄCZNIE pasek w poziomie (nie `scrollIntoView`), żeby zmiana
+  // zakładki z wnętrza treści nie podrywała całej strony do góry.
+  const activeTabRef = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    const tab = activeTabRef.current;
+    const strip = tab?.parentElement;
+    if (!tab || !strip) return;
+    const tabBox = tab.getBoundingClientRect();
+    const stripBox = strip.getBoundingClientRect();
+    if (tabBox.left < stripBox.left) {
+      strip.scrollLeft -= stripBox.left - tabBox.left;
+    } else if (tabBox.right > stripBox.right) {
+      strip.scrollLeft += tabBox.right - stripBox.right;
+    }
+  }, [activeTab, client]);
+
   useEffect(() => {
     if (client && Number(id) === client.id) {
       openTab("client", Number(id), client.name);
@@ -923,20 +951,20 @@ export default function ClientDetailPage() {
       <div className="bg-card dark:bg-muted rounded-2xl border border-border dark:border-border shadow-xs overflow-hidden">
         <div className="h-1.5 bg-linear-to-r from-purple-600 via-violet-500 to-purple-400" />
 
-        <div className="p-6">
+        <div className="p-4 sm:p-6">
           <div className="flex items-start gap-4">
-            <div className="w-14 h-14 bg-purple-100 rounded-2xl flex items-center justify-center shrink-0">
+            <div className="hidden sm:flex w-14 h-14 bg-purple-100 rounded-2xl items-center justify-center shrink-0">
               <Building2 className="w-7 h-7 text-purple-600" />
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-start justify-between gap-3 flex-wrap">
-                <div>
-                  <h1 className="text-2xl font-bold text-foreground">{client.name}</h1>
+                <div className="min-w-0">
+                  <h1 className="text-2xl font-bold text-foreground break-words">{client.name}</h1>
                   {client.industry && (
                     <p className="text-sm text-purple-600 font-medium mt-0.5">{client.industry}</p>
                   )}
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   {client.status && (
                     <span
                       className={`px-2.5 py-1 rounded-full text-xs font-semibold ${STATUS_COLORS[client.status] || "bg-muted text-muted-foreground"}`}
@@ -948,7 +976,7 @@ export default function ClientDetailPage() {
                     <button
                       onClick={() => setShowEdit(true)}
                       title="Edytuj firmę"
-                      className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-muted-foreground hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/30 rounded-md transition-colors"
+                      className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-muted-foreground hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/30 rounded-md transition-colors pointer-coarse:min-h-10"
                     >
                       <Pencil className="w-3.5 h-3.5" />
                       Edytuj
@@ -958,7 +986,7 @@ export default function ClientDetailPage() {
                     <button
                       onClick={() => setShowDelete(true)}
                       title="Usuń klienta"
-                      className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-md transition-colors"
+                      className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-md transition-colors pointer-coarse:min-h-10"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                       Usuń klienta
@@ -973,10 +1001,10 @@ export default function ClientDetailPage() {
                     href={client.website.startsWith("http") ? client.website : `https://${client.website}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex items-center gap-1.5 hover:text-purple-600 transition-colors"
+                    className="flex min-w-0 max-w-full items-center gap-1.5 hover:text-purple-600 transition-colors"
                   >
-                    <Globe className="w-3.5 h-3.5 text-muted-foreground" />
-                    {client.website}
+                    <Globe className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
+                    <span className="break-all">{client.website}</span>
                   </a>
                 )}
               </div>
@@ -1000,12 +1028,13 @@ export default function ClientDetailPage() {
             padding px-3 (vs 4) + krótsze labele mieszczą wszystkie 12 tabów. */}
         <div className="border-t border-border min-w-0">
           <div
-            className="flex gap-0 px-6 pt-0 overflow-x-auto whitespace-nowrap min-w-0"
+            className="flex gap-0 px-3 sm:px-6 pt-0 overflow-x-auto whitespace-nowrap min-w-0"
             style={{ scrollbarWidth: "thin" }}
           >
             {TABS.map((tab) => (
               <button
                 key={tab.key}
+                ref={activeTab === tab.key ? activeTabRef : undefined}
                 onClick={() => selectTab(tab.key)}
                 className={cn(
                   "flex items-center gap-1.5 px-3 py-3 text-sm font-medium border-b-2 transition-colors shrink-0",
@@ -1026,7 +1055,7 @@ export default function ClientDetailPage() {
             dziecko montuje się dopiero po pierwszym otwarciu (LazyDetails) —
             zwinięty <details> montuje treść i odpalał zapytania paneli, których
             nikt nie ogląda. */}
-        <div className="p-6">
+        <div className="p-4 sm:p-6">
           {activeTab === "profil" && (
             <div className="space-y-4">
               <ProfileTab clientId={Number(id)} />

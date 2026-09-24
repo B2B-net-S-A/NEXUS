@@ -230,7 +230,7 @@ export function ContractorsListV2() {
  }, [initialListState, viewState]);
 
  return (
- <div className="max-w-[1400px] mx-auto space-y-4 p-6">
+ <div className="max-w-[1400px] mx-auto space-y-4 md:p-6">
  <div className="flex items-end justify-between flex-wrap gap-3">
  <div>
  <p className="text-xs font-semibold uppercase tracking-eyebrow text-primary">
@@ -246,9 +246,9 @@ export function ContractorsListV2() {
  </div>
 
  {incompleteCount > 0 && tab !== "draft" && (
- <Card className="bg-warning-muted border-warning/25 flex items-center gap-3 p-4!">
+ <Card className="bg-warning-muted border-warning/25 flex flex-wrap items-center gap-3 p-4!">
  <AlertTriangle className="h-5 w-5 text-warning-muted-foreground shrink-0" />
- <div className="flex-1">
+ <div className="min-w-0 flex-1">
  <p className="text-sm font-semibold text-warning-muted-foreground">
  {incompleteCount} draft{incompleteCount > 1 ?"y" :""} czeka na
  uzupełnienie
@@ -270,7 +270,7 @@ export function ContractorsListV2() {
  <div
  role="tablist"
  aria-label="Filtry kontraktorów"
- className="flex gap-1 border-b border-border"
+ className="flex gap-1 overflow-x-auto border-b border-border"
  >
  {(["draft","active","ending"] as Tab[]).map((t) => {
  const count =
@@ -282,7 +282,7 @@ export function ContractorsListV2() {
  role="tab"
  aria-selected={isActive}
  onClick={() => selectTab(t)}
- className={cn("px-4 py-2 text-sm font-medium border-b-2 transition-colors",
+ className={cn("shrink-0 whitespace-nowrap px-4 py-2 text-sm font-medium border-b-2 transition-colors",
  isActive
  ?"border-primary text-foreground"
  :"border-transparent text-muted-foreground hover:text-foreground"
@@ -309,7 +309,7 @@ export function ContractorsListV2() {
  <Table density="cozy">
  <TableHeader>
  <TableRow>
- <TableHead>Kandydat</TableHead>
+ <TableHead className="max-md:sticky max-md:left-0 max-md:z-10 max-md:bg-card">Kandydat</TableHead>
  <TableHead className="max-w-[240px]">Klient · Rekrutacja</TableHead>
  <TableHead>Daty</TableHead>
  <TableHead>Tryb</TableHead>
@@ -387,7 +387,7 @@ export function ContractorsListV2() {
  revenueCurrency.toUpperCase() === costCurrency.toUpperCase();
  return (
  <TableRow key={c.contract_id} interactive>
- <TableCell>
+ <TableCell className="max-md:sticky max-md:left-0 max-md:z-10 max-md:bg-card">
  <Link
  href={`/candidates/${c.candidate.id}`}
  className="font-medium text-foreground hover:text-primary"

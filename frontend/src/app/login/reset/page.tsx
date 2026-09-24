@@ -96,7 +96,7 @@ function ResetPasswordForm() {
         </div>
         <Link
           href="/login/forgot-password"
-          className="flex items-center justify-center gap-2 text-sm text-primary hover:text-primary/80 hover:underline underline-offset-4"
+          className="flex min-h-11 sm:min-h-0 items-center justify-center gap-2 text-sm text-primary hover:text-primary/80 hover:underline underline-offset-4"
         >
           Wyślij nowy link resetowy
         </Link>
@@ -133,11 +133,14 @@ function ResetPasswordForm() {
             required
             minLength={8}
             placeholder="••••••••"
+            className="pr-11"
           />
+          {/* Cel dotykowy 40 px (sama ikona miała 16×16), a pole ma `pr-11`,
+              żeby tekst nie wchodził pod przycisk. */}
           <button
             type="button"
             onClick={() => setShowPassword((s) => !s)}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            className="absolute right-0.5 top-1/2 -translate-y-1/2 inline-flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground hover:text-foreground"
             aria-label={showPassword ? "Ukryj hasło" : "Pokaż hasło"}
           >
             {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -167,7 +170,7 @@ function ResetPasswordForm() {
         variant="primary"
         size="lg"
         loading={loading}
-        className="w-full"
+        className="w-full h-11 sm:h-10"
       >
         {loading ? "Zapisywanie…" : "Ustaw nowe hasło"}
         {!loading && <KeyRound className="h-4 w-4" />}
@@ -175,7 +178,7 @@ function ResetPasswordForm() {
 
       <Link
         href="/login"
-        className="flex items-center justify-center gap-2 text-sm text-muted-foreground hover:text-foreground"
+        className="flex min-h-11 sm:min-h-0 items-center justify-center gap-2 text-sm text-muted-foreground hover:text-foreground"
       >
         <ArrowLeft className="h-4 w-4" />
         Wróć do logowania

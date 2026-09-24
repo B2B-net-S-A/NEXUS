@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Phone, Video } from "lucide-react";
 
 import { EmptyState } from "@/components/ds/EmptyState";
@@ -82,6 +82,23 @@ export function AgendaView({
   onSelect,
 }: AgendaViewProps) {
   const [showAll, setShowAll] = useState(false);
+  // Poniżej xl karta kandydata stoi POD listą i agendą — sam wybór zmieniał
+  // tylko tło wiersza, a karta pojawiała się setki pikseli niżej (martwy klik
+  // na telefonie). Po wyborze przewijamy do karty, gdy układ jest pionowy.
+  const cardRef = useRef<HTMLElement>(null);
+  const [revealTick, setRevealTick] = useState(0);
+  const selectAndReveal = (key: string) => {
+    onSelect(key);
+    setRevealTick((t) => t + 1);
+  };
+  useEffect(() => {
+    if (revealTick === 0) return;
+    if (window.matchMedia?.("(min-width: 1280px)").matches) return;
+    // Bez `behavior: "smooth"`: ekran przewija się w zagnieżdżonym kontenerze
+    // powłoki, a tam Chrome cicho pomija płynne przewijanie
+    // (patrz `ProcedureTableOfContents`).
+    cardRef.current?.scrollIntoView?.({ block: "start" });
+  }, [revealTick]);
   const days = useMemo(
     () => groupAgendaByDay(upcomingAgenda(data.agenda, now), now),
     [data.agenda, now],
@@ -137,7 +154,7 @@ export function AgendaView({
                   />
                   <button
                     type="button"
-                    onClick={() => onSelect(pairKey(t))}
+                    onClick={() => selectAndReveal(pairKey(t))}
                     className="min-w-0 flex-1 text-left"
                   >
                     <div
@@ -218,7 +235,7 @@ export function AgendaView({
                       }
                       now={now}
                       selected={pairKey(e) === selectedPairKey}
-                      onSelect={() => onSelect(pairKey(e))}
+                      onSelect={() => selectAndReveal(pairKey(e))}
                       onAction={onAction}
                     />
                   ))}
@@ -242,8 +259,9 @@ export function AgendaView({
           „Wybierz kandydata” czytała się jak zepsuty panel). */}
       {selected ? (
       <aside
+        ref={cardRef}
         aria-label="Wybrany kandydat"
-        className="min-w-0 rounded-2xl border border-border bg-card p-4 lg:col-span-2 xl:col-span-1"
+        className="scroll-mt-4 min-w-0 rounded-2xl border border-border bg-card p-4 lg:col-span-2 xl:col-span-1"
       >
         <CandidateCycleCard
           item={selected}

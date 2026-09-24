@@ -87,7 +87,7 @@ export function PageHeader({
           ) : null}
           <h1
             className={cn(
-              "font-semibold tracking-tight",
+              "wrap-break-word font-semibold tracking-tight",
               isCompact ? "text-xl sm:text-2xl" : "text-2xl sm:text-3xl",
             )}
           >
@@ -101,7 +101,9 @@ export function PageHeader({
         </div>
 
         {actions ? (
-          <div className="flex shrink-0 flex-wrap items-center gap-2">
+          // Akcje nie zabierają więcej niż 60% wiersza — przy 3+ przyciskach
+          // tytuł nie ściska się do wąskiej kolumny (640–900 px); zawijają się.
+          <div className="flex shrink-0 flex-wrap items-center gap-2 sm:max-w-[60%] sm:justify-end">
             {actions}
           </div>
         ) : null}

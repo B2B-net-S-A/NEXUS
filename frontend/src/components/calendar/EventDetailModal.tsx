@@ -181,7 +181,7 @@ export function EventDetailModal({
       >
         <div className={cn("h-1.5 shrink-0 rounded-t-2xl", cfg.dotColor)} />
 
-        {/* Treść przewija się W OKNIE: `DialogContent` ma `max-h-[90vh]
+        {/* Treść przewija się W OKNIE: `DialogContent` ma `max-h-[90dvh]
             overflow-hidden`, więc długi opis z Outlooka ucinał przyciski,
             a Tab do nich przesuwał ukryty kontener i znikał nagłówek. */}
         <div className="p-6 min-h-0 overflow-y-auto" data-testid="calendar-event-detail-body">
@@ -590,7 +590,7 @@ function EventEditForm({
       </div>
 
       {!event.all_day && (
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label htmlFor="event-edit-start" className="text-xs font-semibold text-muted-foreground block mb-1">
               Od

@@ -297,7 +297,7 @@ export default function CvRulesSettingsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6 p-6">
+    <div className="mx-auto max-w-7xl space-y-6 md:p-6">
       <PageHeader
         title="Reguły CV per klient"
         description="Jak ma się nazywać plik CV, w jakim ma być języku, czego jeszcze wymaga klient i jakie instrukcje ma dostać generator. Reguła działa od chwili zatwierdzenia — każdy Delivery Lead zakłada i zatwierdza reguły dla swoich klientów sam."
@@ -406,10 +406,12 @@ export default function CvRulesSettingsPage() {
             </p>
           ) : (
             <div className="overflow-x-auto rounded-md border">
-              <table className="w-full text-sm">
+              <table className="w-full min-w-[900px] text-sm">
                 <thead className="bg-muted/50 text-left">
                   <tr>
-                    <th className="p-3 font-medium">Klient</th>
+                    {/* Pierwsza kolumna przyklejona przy przewijaniu w poziomie
+                        (telefon) — obok przyklejonej kolumny akcji. */}
+                    <th className="sticky left-0 z-10 border-r bg-muted p-3 font-medium xl:static xl:border-r-0 xl:bg-transparent">Klient</th>
                     <th className="p-3 font-medium">Wzór nazwy pliku</th>
                     <th className="p-3 font-medium">Język</th>
                     <th className="p-3 font-medium">Wymogi</th>
@@ -454,7 +456,7 @@ export default function CvRulesSettingsPage() {
                       !row.glossary?.length;
                     return (
                       <tr key={row.client_id} className="border-t align-top">
-                        <td className="p-3">
+                        <td className="sticky left-0 z-10 max-w-[40vw] border-r bg-background p-3 xl:static xl:max-w-none xl:border-r-0">
                           <div className="flex flex-wrap items-center gap-2">
                             <Link
                               href={`/clients/${row.client_id}`}

@@ -88,7 +88,7 @@ export function EmailDraftDialog({
       onClick={onClose}
     >
       <div
-        className="bg-card dark:bg-card rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col"
+        className="bg-card dark:bg-card rounded-lg shadow-xl max-w-2xl w-full max-h-[90dvh] overflow-hidden flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         <header className="flex items-center justify-between border-b border-border dark:border-border p-4">

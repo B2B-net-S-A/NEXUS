@@ -235,7 +235,7 @@ export function OrderChangesPanel({
           <>
             {filters.clientPicker}
             <div
-              className="flex items-center gap-1.5"
+              className="flex w-full items-center gap-1.5 sm:w-auto"
               role="group"
               aria-label={`${DATE_FILTER_LABELS[subTab]} (zakres)`}
             >
@@ -246,7 +246,7 @@ export function OrderChangesPanel({
                 onChange={(event) =>
                   filters.onDateFromChange(event.target.value)
                 }
-                className="h-9 w-[150px]"
+                className="h-9 min-w-0 flex-1 sm:w-[150px] sm:flex-none"
               />
               <span className="text-sm text-muted-foreground" aria-hidden>
                 –
@@ -256,7 +256,7 @@ export function OrderChangesPanel({
                 aria-label={`${DATE_FILTER_LABELS[subTab]} do`}
                 value={filters.dateTo}
                 onChange={(event) => filters.onDateToChange(event.target.value)}
-                className="h-9 w-[150px]"
+                className="h-9 min-w-0 flex-1 sm:w-[150px] sm:flex-none"
               />
             </div>
           </>

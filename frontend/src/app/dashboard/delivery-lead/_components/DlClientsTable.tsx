@@ -22,11 +22,13 @@ export function DlClientsTable({ rows }: DlClientsTableProps) {
           </div>
         </div>
       </div>
-      <div className="bg-card">
-        <table className="w-full text-sm">
+      {/* Przewijanie w bok zamiast cięcia przez `overflow-hidden` ramki
+          (ta zostaje tylko dla zaokrąglonych rogów). */}
+      <div className="bg-card overflow-x-auto">
+        <table className="w-full min-w-[480px] text-sm">
           <thead className="border-b border-border">
             <tr>
-              <th className="text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground px-4 py-2 w-48">
+              <th className="text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground px-4 py-2 w-36 sm:w-48 sticky left-0 z-10 bg-card">
                 Delivery Lead
               </th>
               <th className="text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground px-4 py-2">
@@ -44,9 +46,9 @@ export function DlClientsTable({ rows }: DlClientsTableProps) {
                 .toUpperCase()
               return (
                 <tr key={row.delivery_lead.id}>
-                  <td className="px-4 py-3 align-top">
+                  <td className="px-4 py-3 align-top sticky left-0 z-10 bg-card">
                     <span className="inline-flex items-center gap-2">
-                      <span className="inline-flex items-center justify-center h-7 w-7 rounded-full bg-teal-100 text-teal-800 text-xs font-bold">
+                      <span className="inline-flex shrink-0 items-center justify-center h-7 w-7 rounded-full bg-teal-100 text-teal-800 text-xs font-bold">
                         {initials}
                       </span>
                       <span className="font-medium text-foreground">

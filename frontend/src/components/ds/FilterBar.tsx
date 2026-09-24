@@ -108,7 +108,7 @@ export function FilterBar({
                 type="button"
                 onClick={search.onClear}
                 aria-label="Wyczyść wyszukiwanie"
-                className="absolute right-2 top-1/2 inline-flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus:outline-hidden focus:ring-2 focus:ring-ring"
+                className="absolute right-2 top-1/2 inline-flex size-6 pointer-coarse:right-0.5 pointer-coarse:size-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus:outline-hidden focus:ring-2 focus:ring-ring"
               >
                 <X aria-hidden className="size-3.5" />
               </button>
@@ -146,7 +146,7 @@ export function FilterBar({
                 type="button"
                 onClick={chip.onRemove}
                 aria-label={`Usuń filtr: ${chip.label}`}
-                className="inline-flex size-4 items-center justify-center rounded-full transition-colors hover:bg-accent hover:text-accent-foreground focus:outline-hidden focus:ring-2 focus:ring-ring"
+                className="hit-area inline-flex size-4 items-center justify-center rounded-full transition-colors hover:bg-accent hover:text-accent-foreground focus:outline-hidden focus:ring-2 focus:ring-ring"
               >
                 <X aria-hidden className="size-3" />
               </button>

@@ -457,436 +457,439 @@ export function NewContractorOrderDialog({
           }
           mutation.mutate();
         }}
-        className="bg-card rounded-lg shadow-xl max-w-xl w-full p-6 space-y-3 max-h-[90vh] overflow-auto"
+        className="bg-card rounded-lg shadow-xl max-w-xl w-full p-6 flex max-h-[90dvh] flex-col gap-3"
       >
-        <div>
-          <h3 className="text-lg font-semibold">Nowy kontraktor / zamówienie</h3>
-          <p className="text-xs text-muted-foreground mt-1">
-            Zakłada jednocześnie umowę z kandydatem i pierwsze zamówienie klienta.
-          </p>
-        </div>
+        {/* Treść przewija się w środku, przyciski zostają widoczne (dvh:
+            na iOS `vh` liczy duży wiewport i stopka chowała się pod paskiem). */}
+        <div className="-mx-1 min-h-0 flex-1 space-y-3 overflow-y-auto px-1">
+          <div>
+            <h3 className="text-lg font-semibold">Nowy kontraktor / zamówienie</h3>
+            <p className="text-xs text-muted-foreground mt-1">
+              Zakłada jednocześnie umowę z kandydatem i pierwsze zamówienie klienta.
+            </p>
+          </div>
 
-        {onOrderTypeChange ? (
-          <OrderTypeSwitch
-            value={orderType}
-            onChange={(next) => onOrderTypeChange(next, file, title)}
-            allowedTypes={allowedOrderTypes}
-          />
-        ) : null}
+          {onOrderTypeChange ? (
+            <OrderTypeSwitch
+              value={orderType}
+              onChange={(next) => onOrderTypeChange(next, file, title)}
+              allowedTypes={allowedOrderTypes}
+            />
+          ) : null}
 
-        {/* Candidate picker (typeahead search) */}
-        <div>
-          <span className="text-sm">Kandydat *</span>
-          {selectedCandidate ? (
-            <div className="mt-1 flex items-center justify-between gap-3 px-3 py-2 border border-border rounded bg-background">
-              <div className="min-w-0">
-                <p className="text-sm font-medium truncate">
-                  {selectedCandidate.name} {selectedCandidate.lastname}{" "}
-                  <span className="text-xs text-muted-foreground">
-                    #{selectedCandidate.id}
-                  </span>
-                </p>
-                <p className="text-xs text-muted-foreground truncate">
-                  {[
-                    selectedCandidate.competence_category,
-                    formatCandidateLocation(selectedCandidate.location),
-                    selectedCandidate.email,
-                  ]
-                    .filter(Boolean)
-                    .join(" · ") || "—"}
-                </p>
+          {/* Candidate picker (typeahead search) */}
+          <div>
+            <span className="text-sm">Kandydat *</span>
+            {selectedCandidate ? (
+              <div className="mt-1 flex items-center justify-between gap-3 px-3 py-2 border border-border rounded bg-background">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium truncate">
+                    {selectedCandidate.name} {selectedCandidate.lastname}{" "}
+                    <span className="text-xs text-muted-foreground">
+                      #{selectedCandidate.id}
+                    </span>
+                  </p>
+                  <p className="text-xs text-muted-foreground truncate">
+                    {[
+                      selectedCandidate.competence_category,
+                      formatCandidateLocation(selectedCandidate.location),
+                      selectedCandidate.email,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ") || "—"}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedCandidate(null);
+                    setCandidateQuery("");
+                    setDebouncedQuery("");
+                  }}
+                  className="text-xs text-muted-foreground hover:text-foreground shrink-0"
+                >
+                  Zmień
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedCandidate(null);
-                  setCandidateQuery("");
-                  setDebouncedQuery("");
-                }}
-                className="text-xs text-muted-foreground hover:text-foreground shrink-0"
+            ) : (
+              <>
+                <div className="relative mt-1">
+                  <Search className="w-4 h-4 absolute left-3 top-2.5 text-muted-foreground" />
+                  <input
+                    type="text"
+                    autoFocus
+                    value={candidateQuery}
+                    onChange={(e) => setCandidateQuery(e.target.value)}
+                    placeholder="Szukaj po imieniu, emailu, skillu..."
+                    className="w-full pl-9 pr-3 py-2 border border-border rounded bg-background"
+                  />
+                </div>
+                {debouncedQuery.length >= 2 && (
+                  <div className="mt-1 max-h-48 overflow-y-auto border border-border rounded bg-background">
+                    {candLoading ? (
+                      <p className="text-xs text-muted-foreground text-center py-3">
+                        Szukam…
+                      </p>
+                    ) : candError ? (
+                      /* Awaria zapytania NIE może wyglądać jak „nie ma takiej
+                         osoby" — na tej ścieżce zakłada się kontrakt, więc pustka
+                         podpowiada, żeby założyć drugi rekord komuś, kto w bazie
+                         JEST. Realny przypadek: chwilowy rate limit przy imporcie
+                         Nordei ukrył kandydata, którego `/api/candidates` zwraca
+                         bez problemu. */
+                      <div
+                        role="alert"
+                        className="px-3 py-3 text-center text-xs text-destructive"
+                      >
+                        <p>Nie udało się wyszukać kandydatów.</p>
+                        <button
+                          type="button"
+                          onClick={() => refetchCandidates()}
+                          className="mt-1 underline hover:no-underline"
+                        >
+                          Ponów
+                        </button>
+                      </div>
+                    ) : candidates.length === 0 ? (
+                      <p className="text-xs text-muted-foreground text-center py-3">
+                        Brak wyników dla „{debouncedQuery}".
+                      </p>
+                    ) : (
+                      candidates.map((c) => (
+                        <button
+                          type="button"
+                          key={c.id}
+                          onClick={() => {
+                            setSelectedCandidate(c);
+                            setCandidateQuery("");
+                          }}
+                          className="w-full text-left px-3 py-2 hover:bg-muted transition-colors border-b border-border last:border-b-0"
+                        >
+                          <p className="text-sm font-medium truncate">
+                            {c.name} {c.lastname}{" "}
+                            <span className="text-xs text-muted-foreground">
+                              #{c.id}
+                            </span>
+                          </p>
+                          <p className="text-xs text-muted-foreground truncate">
+                            {[c.competence_category, formatCandidateLocation(c.location), c.email]
+                              .filter(Boolean)
+                              .join(" · ") || "—"}
+                          </p>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* Job dropdown (jobs of this client) */}
+          <label className="block">
+            <span className="text-sm">Rekrutacja (opcjonalnie)</span>
+            <select
+              value={jobId}
+              onChange={(e) => setJobId(e.target.value)}
+              className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
+            >
+              <option value="">— brak —</option>
+              {clientJobs.map((j) => (
+                <option key={j.id} value={String(j.id)}>
+                  #{j.id} · {j.title}
+                  {j.status ? ` (${j.status})` : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          {/* „Umowa wykonawcza" — tylko Centrum e-Zdrowia. Opcje pogrupowane
+              pod nagłówkami części; część bez aktywnej umowy nie ma grupy. */}
+          {ezdrowie && (
+            <label className="block">
+              <span className="text-sm">Umowa wykonawcza *</span>
+              <select
+                value={executiveContractId}
+                onChange={(e) => setExecutiveContractId(e.target.value)}
+                aria-label="Umowa wykonawcza"
+                className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
               >
-                Zmień
-              </button>
-            </div>
-          ) : (
-            <>
-              <div className="relative mt-1">
-                <Search className="w-4 h-4 absolute left-3 top-2.5 text-muted-foreground" />
-                <input
-                  type="text"
-                  autoFocus
-                  value={candidateQuery}
-                  onChange={(e) => setCandidateQuery(e.target.value)}
-                  placeholder="Szukaj po imieniu, emailu, skillu..."
-                  className="w-full pl-9 pr-3 py-2 border border-border rounded bg-background"
+                <option value="">— wybierz —</option>
+                {executiveContracts.groups.map((group) => (
+                  <optgroup key={group.framework_contract_id} label={group.label}>
+                    {group.options.map((ec) => (
+                      <option key={ec.id} value={String(ec.id)}>
+                        {ec.number}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+              {executiveContracts.isSuccess && executiveContracts.groups.length === 0 ? (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Dodaj umowę wykonawczą w sekcji Struktura umów na profilu klienta.
+                </p>
+              ) : !executiveContractId ? (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Pole wymagane dla Centrum e-Zdrowia.
+                </p>
+              ) : null}
+            </label>
+          )}
+
+          {/* PDF od klienta — widoczny OD RAZU i dla KAŻDEGO klienta.
+              Formularz działa dalej bez pliku: wgranie jest skrótem, nie
+              warunkiem. */}
+          <div className="space-y-2">
+            <FileDropZone
+              inputId="new-order-po"
+              file={file}
+              onPick={(picked) => {
+                // Unieważnia odczyt w locie: odpowiedź poprzedniego pliku nie
+                // może wpaść do formularza po zmianie wyboru.
+                extractionEpochRef.current += 1;
+                setExtracting(false);
+                setFile(picked);
+                setFileError(null);
+                resetExtraction();
+                // Formularz startuje pusty, więc odczyt po wgraniu wypełnia go
+                // od razu — ale WYŁĄCZNIE puste pola (patrz `applyExtraction`).
+                if (picked) void runExtraction(picked, { overwrite: false });
+              }}
+              onError={setFileError}
+              error={fileError}
+              accept=".pdf,.docx,.doc"
+              maxBytes={25 * 1024 * 1024}
+              label="PDF zamówienia od klienta"
+              hint=".pdf / .docx · przeciągnij plik tutaj lub wybierz z dysku · maks. 25 MB"
+            />
+            <button
+              type="button"
+              onClick={() => file && void runExtraction(file, { overwrite: true })}
+              disabled={!file || extracting}
+              className="inline-flex w-full items-center justify-center gap-1.5 rounded-md bg-orange-500 px-3 py-2 text-sm font-medium text-white hover:bg-orange-600 disabled:opacity-50"
+            >
+              <FileSearch className="h-4 w-4" aria-hidden />
+              {extracting ? "Odczytywanie…" : "Zczytaj dane z dokumentu"}
+            </button>
+
+            {clientPolicy !== null && (
+              <p
+                role="status"
+                className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-foreground"
+              >
+                {clientPolicy
+                  ? `Zastosowano reguły odczytu: ${clientPolicy}.`
+                  : "Dla tego klienta nie ma jeszcze własnych reguł odczytu PDF — pola wypełnił odczyt ogólny. Sprawdź je przed zapisem."}
+              </p>
+            )}
+
+            <ExtractedConsultants rows={extractedRows} />
+            {checkData && (
+              <div
+                role="alert"
+                className="flex items-start gap-2 rounded-md border border-orange-300 bg-orange-50 p-3 text-sm text-orange-900"
+              >
+                <AlertTriangle
+                  className="mt-0.5 h-4 w-4 shrink-0 text-orange-500"
+                  aria-hidden
                 />
+                <div>
+                  <p className="font-semibold">Sprawdź dane!</p>
+                  {checkReasons.length > 0 && (
+                    <ul className="mt-1 list-disc pl-4">
+                      {checkReasons.map((reason) => (
+                        <li key={reason}>{reason}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
               </div>
-              {debouncedQuery.length >= 2 && (
-                <div className="mt-1 max-h-48 overflow-y-auto border border-border rounded bg-background">
-                  {candLoading ? (
-                    <p className="text-xs text-muted-foreground text-center py-3">
-                      Szukam…
-                    </p>
-                  ) : candError ? (
-                    /* Awaria zapytania NIE może wyglądać jak „nie ma takiej
-                       osoby" — na tej ścieżce zakłada się kontrakt, więc pustka
-                       podpowiada, żeby założyć drugi rekord komuś, kto w bazie
-                       JEST. Realny przypadek: chwilowy rate limit przy imporcie
-                       Nordei ukrył kandydata, którego `/api/candidates` zwraca
-                       bez problemu. */
-                    <div
-                      role="alert"
-                      className="px-3 py-3 text-center text-xs text-destructive"
-                    >
-                      <p>Nie udało się wyszukać kandydatów.</p>
-                      <button
-                        type="button"
-                        onClick={() => refetchCandidates()}
-                        className="mt-1 underline hover:no-underline"
-                      >
-                        Ponów
-                      </button>
-                    </div>
-                  ) : candidates.length === 0 ? (
-                    <p className="text-xs text-muted-foreground text-center py-3">
-                      Brak wyników dla „{debouncedQuery}".
-                    </p>
-                  ) : (
-                    candidates.map((c) => (
-                      <button
-                        type="button"
-                        key={c.id}
-                        onClick={() => {
-                          setSelectedCandidate(c);
-                          setCandidateQuery("");
-                        }}
-                        className="w-full text-left px-3 py-2 hover:bg-muted transition-colors border-b border-border last:border-b-0"
-                      >
-                        <p className="text-sm font-medium truncate">
-                          {c.name} {c.lastname}{" "}
-                          <span className="text-xs text-muted-foreground">
-                            #{c.id}
-                          </span>
-                        </p>
-                        <p className="text-xs text-muted-foreground truncate">
-                          {[c.competence_category, formatCandidateLocation(c.location), c.email]
-                            .filter(Boolean)
-                            .join(" · ") || "—"}
-                        </p>
-                      </button>
-                    ))
+            )}
+          </div>
+
+          <label className="block">
+            {/* Ta wartość jest wyświetlana na karcie klienta jako „Numer
+                zamówienia", więc etykieta musi mówić to samo — rozjazd „Tytuł"
+                tutaj vs „Numer" tam kazał zgadywać, że to jedno i to samo pole. */}
+            <span className="text-sm">Numer zamówienia *</span>
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              required
+              className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
+              placeholder="np. 45767"
+            />
+          </label>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <label>
+              <span className="text-sm">Początek umowy *</span>
+              <input
+                type="text"
+                inputMode="numeric"
+                pattern={DATE_PATTERN}
+                placeholder={DATE_PLACEHOLDER}
+                value={contractStart}
+                onChange={(e) => setContractStart(e.target.value)}
+                onBlur={(e) => setContractStart(normalizeDateInput(e.target.value))}
+                required
+                className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
+              />
+            </label>
+            {/* Bez pola „Contract end": ten formularz zakłada umowę B2B, a ta
+                jest bezterminowa — koniec zamówienia ma własne pole niżej.
+                Reguła: `lib/contract-end-date.ts`. */}
+            <div>
+              <span className="text-sm">Koniec umowy</span>
+              <p
+                className="mt-1 px-3 py-2 text-sm text-muted-foreground"
+                data-testid="contract-end-indefinite"
+                title={B2B_INDEFINITE_HINT}
+              >
+                Bezterminowo (umowa B2B)
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <label>
+              <span className="text-sm">Początek zamówienia (PDF od klienta)</span>
+              <input
+                type="text"
+                inputMode="numeric"
+                pattern={DATE_PATTERN}
+                placeholder={DATE_PLACEHOLDER}
+                value={orderStart}
+                onChange={(e) => setOrderStart(e.target.value)}
+                onBlur={(e) => setOrderStart(normalizeDateInput(e.target.value))}
+                className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
+              />
+            </label>
+            <label>
+              <span className="text-sm">Koniec zamówienia</span>
+              <input
+                type="text"
+                inputMode="numeric"
+                pattern={DATE_PATTERN}
+                placeholder={DATE_PLACEHOLDER}
+                value={orderEnd}
+                onChange={(e) => setOrderEnd(e.target.value)}
+                onBlur={(e) => setOrderEnd(normalizeDateInput(e.target.value))}
+                className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
+              />
+            </label>
+          </div>
+
+          {canManageFinance && (
+            <>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <label>
+                  <span className="text-sm">
+                    Klient płaci ({rateClientCurrency}/{rateUnitSuffix}) *
+                  </span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={rateClient}
+                    onChange={(e) =>
+                      setRateClient(sanitizeDecimalInput(e.target.value))
+                    }
+                    required
+                    className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
+                    placeholder="np. 215,60"
+                  />
+                </label>
+                <label>
+                  <span className="text-sm">
+                    My płacimy kontraktorowi ({rateCandidateCurrency}/
+                    {rateUnitSuffix}) *
+                  </span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={rateCandidate}
+                    onChange={(e) =>
+                      setRateCandidate(sanitizeDecimalInput(e.target.value))
+                    }
+                    required
+                    className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
+                    placeholder="np. 150,40"
+                  />
+                </label>
+              </div>
+
+              {margin !== null && (
+                <div className="text-sm text-green-700 bg-green-50 px-3 py-2 rounded">
+                  Marża /{rateUnitSuffix} (przybl.):{" "}
+                  <strong>{margin.toLocaleString("pl-PL")}</strong>{" "}
+                  {rateClientCurrency}
+                  {rateClientNum !== null && rateClientNum > 0 && (
+                    <> ({((margin / rateClientNum) * 100).toFixed(1)}%)</>
                   )}
                 </div>
               )}
+
+              <div className="space-y-3">
+                <OrderRateUnitToggle
+                  value={rateUnit}
+                  rateCandidate={rateCandidate}
+                  rateClient={rateClient}
+                  onValueChange={(u) => {
+                    rateUnitTouchedRef.current = true;
+                    setRateUnit(u);
+                  }}
+                  onRateCandidateChange={setRateCandidate}
+                  onRateClientChange={setRateClient}
+                  billingHoursPerMonth={Number(billingHours) || HOURS_PER_MONTH}
+                />
+                <div className="grid gap-3 sm:grid-cols-[8rem_1fr_1fr] sm:items-end">
+                  <label>
+                    <span className="text-sm">Godziny / mc</span>
+                    <input
+                      type="number"
+                      min="1"
+                      value={billingHours}
+                      onChange={(e) => setBillingHours(e.target.value)}
+                      disabled={rateUnit !== "hourly"}
+                      className="mt-1 w-full px-3 py-2 border border-border rounded bg-background disabled:opacity-50"
+                    />
+                  </label>
+                  <OrderCurrencySelect
+                    value={rateClientCurrency}
+                    onChange={setRateClientCurrency}
+                  />
+                  <OrderCurrencySelect
+                    value={rateCandidateCurrency}
+                    onChange={setRateCandidateCurrency}
+                    label="Waluta stawki kosztowej"
+                    ariaLabel="Waluta stawki kosztowej"
+                  />
+                </div>
+              </div>
+
+              {rateClientCurrency !== rateCandidateCurrency &&
+                rateClientNum !== null &&
+                rateCandidateNum !== null && (
+                  <p className="text-xs text-muted-foreground">
+                    Marża zostanie pokazana po niezależnym przeliczeniu obu stawek
+                    do PLN.
+                  </p>
+                )}
             </>
           )}
-        </div>
 
-        {/* Job dropdown (jobs of this client) */}
-        <label className="block">
-          <span className="text-sm">Rekrutacja (opcjonalnie)</span>
-          <select
-            value={jobId}
-            onChange={(e) => setJobId(e.target.value)}
-            className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
-          >
-            <option value="">— brak —</option>
-            {clientJobs.map((j) => (
-              <option key={j.id} value={String(j.id)}>
-                #{j.id} · {j.title}
-                {j.status ? ` (${j.status})` : ""}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        {/* „Umowa wykonawcza" — tylko Centrum e-Zdrowia. Opcje pogrupowane
-            pod nagłówkami części; część bez aktywnej umowy nie ma grupy. */}
-        {ezdrowie && (
           <label className="block">
-            <span className="text-sm">Umowa wykonawcza *</span>
-            <select
-              value={executiveContractId}
-              onChange={(e) => setExecutiveContractId(e.target.value)}
-              aria-label="Umowa wykonawcza"
-              className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
-            >
-              <option value="">— wybierz —</option>
-              {executiveContracts.groups.map((group) => (
-                <optgroup key={group.framework_contract_id} label={group.label}>
-                  {group.options.map((ec) => (
-                    <option key={ec.id} value={String(ec.id)}>
-                      {ec.number}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
-            {executiveContracts.isSuccess && executiveContracts.groups.length === 0 ? (
-              <p className="mt-1 text-xs text-muted-foreground">
-                Dodaj umowę wykonawczą w sekcji Struktura umów na profilu klienta.
-              </p>
-            ) : !executiveContractId ? (
-              <p className="mt-1 text-xs text-muted-foreground">
-                Pole wymagane dla Centrum e-Zdrowia.
-              </p>
-            ) : null}
-          </label>
-        )}
-
-        {/* PDF od klienta — widoczny OD RAZU i dla KAŻDEGO klienta.
-            Formularz działa dalej bez pliku: wgranie jest skrótem, nie
-            warunkiem. */}
-        <div className="space-y-2">
-          <FileDropZone
-            inputId="new-order-po"
-            file={file}
-            onPick={(picked) => {
-              // Unieważnia odczyt w locie: odpowiedź poprzedniego pliku nie
-              // może wpaść do formularza po zmianie wyboru.
-              extractionEpochRef.current += 1;
-              setExtracting(false);
-              setFile(picked);
-              setFileError(null);
-              resetExtraction();
-              // Formularz startuje pusty, więc odczyt po wgraniu wypełnia go
-              // od razu — ale WYŁĄCZNIE puste pola (patrz `applyExtraction`).
-              if (picked) void runExtraction(picked, { overwrite: false });
-            }}
-            onError={setFileError}
-            error={fileError}
-            accept=".pdf,.docx,.doc"
-            maxBytes={25 * 1024 * 1024}
-            label="PDF zamówienia od klienta"
-            hint=".pdf / .docx · przeciągnij plik tutaj lub wybierz z dysku · maks. 25 MB"
-          />
-          <button
-            type="button"
-            onClick={() => file && void runExtraction(file, { overwrite: true })}
-            disabled={!file || extracting}
-            className="inline-flex w-full items-center justify-center gap-1.5 rounded-md bg-orange-500 px-3 py-2 text-sm font-medium text-white hover:bg-orange-600 disabled:opacity-50"
-          >
-            <FileSearch className="h-4 w-4" aria-hidden />
-            {extracting ? "Odczytywanie…" : "Zczytaj dane z dokumentu"}
-          </button>
-
-          {clientPolicy !== null && (
-            <p
-              role="status"
-              className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-foreground"
-            >
-              {clientPolicy
-                ? `Zastosowano reguły odczytu: ${clientPolicy}.`
-                : "Dla tego klienta nie ma jeszcze własnych reguł odczytu PDF — pola wypełnił odczyt ogólny. Sprawdź je przed zapisem."}
-            </p>
-          )}
-
-          <ExtractedConsultants rows={extractedRows} />
-          {checkData && (
-            <div
-              role="alert"
-              className="flex items-start gap-2 rounded-md border border-orange-300 bg-orange-50 p-3 text-sm text-orange-900"
-            >
-              <AlertTriangle
-                className="mt-0.5 h-4 w-4 shrink-0 text-orange-500"
-                aria-hidden
-              />
-              <div>
-                <p className="font-semibold">Sprawdź dane!</p>
-                {checkReasons.length > 0 && (
-                  <ul className="mt-1 list-disc pl-4">
-                    {checkReasons.map((reason) => (
-                      <li key={reason}>{reason}</li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-
-        <label className="block">
-          {/* Ta wartość jest wyświetlana na karcie klienta jako „Numer
-              zamówienia", więc etykieta musi mówić to samo — rozjazd „Tytuł"
-              tutaj vs „Numer" tam kazał zgadywać, że to jedno i to samo pole. */}
-          <span className="text-sm">Numer zamówienia *</span>
-          <input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            required
-            className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
-            placeholder="np. 45767"
-          />
-        </label>
-
-        <div className="grid grid-cols-2 gap-3">
-          <label>
-            <span className="text-sm">Początek umowy *</span>
-            <input
-              type="text"
-              inputMode="numeric"
-              pattern={DATE_PATTERN}
-              placeholder={DATE_PLACEHOLDER}
-              value={contractStart}
-              onChange={(e) => setContractStart(e.target.value)}
-              onBlur={(e) => setContractStart(normalizeDateInput(e.target.value))}
-              required
-              className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
-            />
-          </label>
-          {/* Bez pola „Contract end": ten formularz zakłada umowę B2B, a ta
-              jest bezterminowa — koniec zamówienia ma własne pole niżej.
-              Reguła: `lib/contract-end-date.ts`. */}
-          <div>
-            <span className="text-sm">Koniec umowy</span>
-            <p
-              className="mt-1 px-3 py-2 text-sm text-muted-foreground"
-              data-testid="contract-end-indefinite"
-              title={B2B_INDEFINITE_HINT}
-            >
-              Bezterminowo (umowa B2B)
-            </p>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <label>
-            <span className="text-sm">Początek zamówienia (PDF od klienta)</span>
-            <input
-              type="text"
-              inputMode="numeric"
-              pattern={DATE_PATTERN}
-              placeholder={DATE_PLACEHOLDER}
-              value={orderStart}
-              onChange={(e) => setOrderStart(e.target.value)}
-              onBlur={(e) => setOrderStart(normalizeDateInput(e.target.value))}
-              className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
-            />
-          </label>
-          <label>
-            <span className="text-sm">Koniec zamówienia</span>
-            <input
-              type="text"
-              inputMode="numeric"
-              pattern={DATE_PATTERN}
-              placeholder={DATE_PLACEHOLDER}
-              value={orderEnd}
-              onChange={(e) => setOrderEnd(e.target.value)}
-              onBlur={(e) => setOrderEnd(normalizeDateInput(e.target.value))}
-              className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
+            <span className="text-sm">Notatki</span>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={2}
+              className="mt-1 w-full px-3 py-2 border border-border rounded bg-background text-sm"
             />
           </label>
         </div>
-
-        {canManageFinance && (
-          <>
-            <div className="grid grid-cols-2 gap-3">
-              <label>
-                <span className="text-sm">
-                  Klient płaci ({rateClientCurrency}/{rateUnitSuffix}) *
-                </span>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={rateClient}
-                  onChange={(e) =>
-                    setRateClient(sanitizeDecimalInput(e.target.value))
-                  }
-                  required
-                  className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
-                  placeholder="np. 215,60"
-                />
-              </label>
-              <label>
-                <span className="text-sm">
-                  My płacimy kontraktorowi ({rateCandidateCurrency}/
-                  {rateUnitSuffix}) *
-                </span>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={rateCandidate}
-                  onChange={(e) =>
-                    setRateCandidate(sanitizeDecimalInput(e.target.value))
-                  }
-                  required
-                  className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
-                  placeholder="np. 150,40"
-                />
-              </label>
-            </div>
-
-            {margin !== null && (
-              <div className="text-sm text-green-700 bg-green-50 px-3 py-2 rounded">
-                Marża /{rateUnitSuffix} (przybl.):{" "}
-                <strong>{margin.toLocaleString("pl-PL")}</strong>{" "}
-                {rateClientCurrency}
-                {rateClientNum !== null && rateClientNum > 0 && (
-                  <> ({((margin / rateClientNum) * 100).toFixed(1)}%)</>
-                )}
-              </div>
-            )}
-
-            <div className="space-y-3">
-              <OrderRateUnitToggle
-                value={rateUnit}
-                rateCandidate={rateCandidate}
-                rateClient={rateClient}
-                onValueChange={(u) => {
-                  rateUnitTouchedRef.current = true;
-                  setRateUnit(u);
-                }}
-                onRateCandidateChange={setRateCandidate}
-                onRateClientChange={setRateClient}
-                billingHoursPerMonth={Number(billingHours) || HOURS_PER_MONTH}
-              />
-              <div className="grid gap-3 sm:grid-cols-[8rem_1fr_1fr] sm:items-end">
-                <label>
-                  <span className="text-sm">Godziny / mc</span>
-                  <input
-                    type="number"
-                    min="1"
-                    value={billingHours}
-                    onChange={(e) => setBillingHours(e.target.value)}
-                    disabled={rateUnit !== "hourly"}
-                    className="mt-1 w-full px-3 py-2 border border-border rounded bg-background disabled:opacity-50"
-                  />
-                </label>
-                <OrderCurrencySelect
-                  value={rateClientCurrency}
-                  onChange={setRateClientCurrency}
-                />
-                <OrderCurrencySelect
-                  value={rateCandidateCurrency}
-                  onChange={setRateCandidateCurrency}
-                  label="Waluta stawki kosztowej"
-                  ariaLabel="Waluta stawki kosztowej"
-                />
-              </div>
-            </div>
-
-            {rateClientCurrency !== rateCandidateCurrency &&
-              rateClientNum !== null &&
-              rateCandidateNum !== null && (
-                <p className="text-xs text-muted-foreground">
-                  Marża zostanie pokazana po niezależnym przeliczeniu obu stawek
-                  do PLN.
-                </p>
-              )}
-          </>
-        )}
-
-        <label className="block">
-          <span className="text-sm">Notatki</span>
-          <textarea
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            rows={2}
-            className="mt-1 w-full px-3 py-2 border border-border rounded bg-background text-sm"
-          />
-        </label>
-
-        <div className="flex justify-end gap-2 pt-2">
+        <div className="flex shrink-0 justify-end gap-2 pt-2">
           <button
             type="button"
             onClick={onClose}

@@ -65,7 +65,7 @@ export function GeneratedCvPreviewModal({ item, onClose, onDownload }: Generated
 
   return (
     <Dialog open={!!item} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent size="full" className="h-[92vh] gap-0 p-0">
+      <DialogContent size="full" className="h-[92dvh] gap-0 p-0">
         <DialogHeader className="flex-row items-center justify-between gap-3 border-b border-border px-4 py-3 pr-16">
           <DialogTitle className="min-w-0 truncate text-base font-semibold">
             {item?.candidate_name}
@@ -107,7 +107,7 @@ export function GeneratedCvPreviewModal({ item, onClose, onDownload }: Generated
                 title="Podgląd CV"
                 sandbox=""
                 srcDoc={html}
-                className="mx-auto h-full min-h-[70vh] w-full max-w-4xl rounded-lg border border-border bg-card"
+                className="mx-auto h-full min-h-[70dvh] w-full max-w-4xl rounded-lg border border-border bg-card"
               />
             ) : null
           ) : (

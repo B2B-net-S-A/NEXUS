@@ -566,7 +566,7 @@ export function ClientContractRegister({
               options={CONTRACT_STATUS_OPTIONS}
               placeholder="Wszystkie statusy"
               searchPlaceholder="Szukaj statusu…"
-              triggerWidthClass="w-[170px]"
+              triggerWidthClass="w-full sm:w-[170px]"
               triggerLabel={(n) =>
                 n === 1
                   ? (CONTRACT_STATUS_OPTIONS.find(
@@ -576,7 +576,7 @@ export function ClientContractRegister({
               }
             />
             <div
-              className="flex items-center gap-1.5"
+              className="grid w-full grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-1.5 sm:flex sm:w-auto"
               role="group"
               aria-label="Okres (zakres dat)"
             >
@@ -588,7 +588,7 @@ export function ClientContractRegister({
                   setPeriodFrom(e.target.value);
                   setPage(1);
                 }}
-                className="h-9 w-[150px]"
+                className="h-9 w-full sm:w-[150px]"
               />
               <span className="text-sm text-muted-foreground" aria-hidden>
                 –
@@ -601,7 +601,7 @@ export function ClientContractRegister({
                   setPeriodTo(e.target.value);
                   setPage(1);
                 }}
-                className="h-9 w-[150px]"
+                className="h-9 w-full sm:w-[150px]"
               />
             </div>
             {/* Podkategoria — tylko gdy klient ma jakiekolwiek podkategorie rekrutacji
@@ -616,7 +616,7 @@ export function ClientContractRegister({
                 options={subcategoryOptions}
                 placeholder="Wszystkie podkategorie"
                 searchPlaceholder="Szukaj podkategorii…"
-                triggerWidthClass="w-[190px]"
+                triggerWidthClass="w-full sm:w-[190px]"
                 triggerLabel={(n) =>
                   n === 1 ? (subcategoryFilter[0] ?? "Podkategoria") : `Podkategoria: ${n}`
                 }
@@ -646,7 +646,7 @@ export function ClientContractRegister({
       <Table density="cozy">
         <TableHeader>
           <TableRow>
-            <TableHead>Nr projektu</TableHead>
+            <TableHead className="max-md:sticky max-md:left-0 max-md:z-10 max-md:bg-card">Nr projektu</TableHead>
             <TableHead>Projekt</TableHead>
             <TableHead>Konsultant</TableHead>
             <TableHead>Model</TableHead>
@@ -707,7 +707,7 @@ export function ClientContractRegister({
           ) : (
             items.map((row) => (
               <TableRow key={row.id}>
-                <TableCell className="font-mono text-xs">
+                <TableCell className="font-mono text-xs max-md:sticky max-md:left-0 max-md:z-10 max-md:bg-card">
                   {row.project_code ? (
                     <span className="text-foreground">{row.project_code}</span>
                   ) : (

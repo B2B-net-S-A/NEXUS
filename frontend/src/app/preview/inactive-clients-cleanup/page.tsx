@@ -179,7 +179,7 @@ const REPORT: InactiveCleanupReport = {
 export default function InactiveClientsCleanupPreviewPage() {
   const [acknowledged, setAcknowledged] = useState(false);
   return (
-    <main className="min-h-screen bg-background p-6">
+    <main className="min-h-dvh bg-background p-4 sm:p-6">
       <h1 className="mb-1 text-xl font-bold text-foreground">
         Czyszczenie nieaktywnych klientów — harness
       </h1>

@@ -57,8 +57,8 @@ export default function AdminGlobalChatsPage() {
   };
 
   return (
-    <div className="max-w-5xl mx-auto p-6 space-y-4">
-      <header className="flex items-center justify-between">
+    <div className="max-w-5xl mx-auto md:p-6 space-y-4">
+      <header className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <MessageCircle className="w-6 h-6 text-primary" />
           <h1 className="text-xl font-semibold">

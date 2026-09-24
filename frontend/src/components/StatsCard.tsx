@@ -95,7 +95,16 @@ export function StatsCard({ title, value, subtitle, icon, color = "blue", trend,
     >
       <div className="min-w-0 flex-1">
         <p className="text-xs font-medium text-muted-foreground dark:text-muted-foreground truncate">{title}</p>
-        <p className="text-xl font-bold text-foreground dark:text-foreground leading-tight tabular-nums">{value}</p>
+        {/* Kwoty PLN mają twardą spację między tysiącami i nie łamią się —
+            na telefonie mniejsza czcionka + `break-words` zamiast wyjścia
+            poza kafel. */}
+        <p className="text-lg sm:text-xl font-bold text-foreground dark:text-foreground leading-tight tabular-nums break-words">{value}</p>
+        {/* Na dotyku nie ma natywnego tooltipa (`title`), a podpis bywa
+            jedynym wyjaśnieniem liczby („suma niepełna: pominięto N…").
+            Przy myszy zostaje tylko dla czytnika ekranu. */}
+        {subtitle && (
+          <p className="text-xs text-muted-foreground pointer-fine:sr-only">{subtitle}</p>
+        )}
         {trend != null && (
           <p className={cn("text-xs font-medium", trend.value >= 0 ? "text-green-600" : "text-destructive")}>
             {trend.value >= 0 ? "↑" : "↓"} {Math.abs(trend.value)}%

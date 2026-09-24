@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 
 import api from "@/lib/api";
-import { formatDate, formatRelativeTime } from "@/lib/utils";
+import { cn, formatDate, formatRelativeTime } from "@/lib/utils";
 import { DEFAULT_FILTERS, encodeNavContext } from "@/lib/url-filters";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -201,10 +201,18 @@ function QuickSectionError({
 }
 
 /** Kafel faktu — „brak" wyszarzony, żeby pustka nie udawała wartości. */
-function FactTile({ label, value }: { label: string; value: React.ReactNode }) {
+function FactTile({
+  label,
+  value,
+  className,
+}: {
+  label: string;
+  value: React.ReactNode;
+  className?: string;
+}) {
   const missing = value === null || value === undefined || value === "";
   return (
-    <div className="min-w-0 rounded-lg border border-border bg-muted/30 px-3 py-2">
+    <div className={cn("min-w-0 rounded-lg border border-border bg-muted/30 px-3 py-2", className)}>
       <dt className="text-xs text-muted-foreground">{label}</dt>
       <dd
         className={
@@ -582,10 +590,15 @@ export function CandidateQuickView({
               </div>
             </section>
 
-            <dl className="grid grid-cols-3 gap-2" aria-label="Najważniejsze fakty">
+            <dl className="grid grid-cols-2 gap-2 sm:grid-cols-3" aria-label="Najważniejsze fakty">
               <FactTile label="Dostępność" value={availabilityLabel(quickView.availability)} />
               <FactTile label="Stawka B2B" value={rate === undefined ? "—" : rate} />
-              <FactTile label="Lokalizacja" value={candidate.location || candidate.city || null} />
+              {/* Na telefonie lokalizacja dostaje pełny wiersz — w 1/3 ucinała się. */}
+              <FactTile
+                label="Lokalizacja"
+                value={candidate.location || candidate.city || null}
+                className="col-span-2 sm:col-span-1"
+              />
             </dl>
 
             <section aria-label="Kontakt" className="space-y-1.5 text-sm">

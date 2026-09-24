@@ -13,11 +13,12 @@
  * w cv_html jeśli rekruter wybrał template `standard`).
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { apiErrorMessage } from "@/lib/api-error";
 import { useParams } from "next/navigation";
 import axios from "axios";
 import { Printer, AlertCircle, Sparkles } from "lucide-react";
+import { useFitFrameHeight, withMobileCvStyle } from "../_lib/cv-frame";
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_URL || "https://api.nexus.dynaminds.pl";
@@ -43,6 +44,8 @@ export default function PublicCvPage() {
   const [view, setView] = useState<PublicCVView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [errorStatus, setErrorStatus] = useState<number | null>(null);
+  const cvFrameRef = useRef<HTMLIFrameElement | null>(null);
+  const { height: cvFrameHeight, fit: fitCvFrame } = useFitFrameHeight(cvFrameRef);
 
   useEffect(() => {
     async function load() {
@@ -128,15 +131,35 @@ export default function PublicCvPage() {
         </button>
       </div>
 
-      {/* CV iframe — sandboxed, srcDoc-rendered */}
+      {/* CV iframe — sandboxed, srcDoc-rendered. Wysokość = treść (bez
+          przewijania w przewijaniu na telefonie). */}
       <div className="rounded-lg border border-border dark:border-border bg-card shadow-xs overflow-hidden">
-        {view.package_documents && <div className="mb-3 flex gap-2 print:hidden" aria-label="Wersje językowe CV">{view.package_documents.map(doc => <button key={doc.language} type="button" className="rounded border px-3 py-2 text-sm" aria-pressed={selectedLanguage === doc.language} onClick={() => setSelectedLanguage(doc.language)}>{doc.language.toUpperCase()}</button>)}</div>}
-          <iframe
+        {view.package_documents && (
+          <div className="flex flex-wrap gap-2 px-3 pt-3 print:hidden" aria-label="Wersje językowe CV">
+            {view.package_documents.map((doc) => (
+              <button
+                key={doc.language}
+                type="button"
+                className="rounded border px-3 py-2 text-sm"
+                aria-pressed={selectedLanguage === doc.language}
+                onClick={() => setSelectedLanguage(doc.language)}
+              >
+                {doc.language.toUpperCase()}
+              </button>
+            ))}
+          </div>
+        )}
+        <iframe
+          ref={cvFrameRef}
           title="CV"
-          srcDoc={view.package_documents?.find(doc => doc.language === selectedLanguage)?.cv_html || view.cv_html}
+          srcDoc={withMobileCvStyle(
+            view.package_documents?.find((doc) => doc.language === selectedLanguage)?.cv_html ||
+              view.cv_html,
+          )}
           sandbox="allow-same-origin"
+          onLoad={fitCvFrame}
           className="w-full"
-          style={{ height: "calc(100vh - 220px)", minHeight: 600 }}
+          style={{ height: cvFrameHeight ?? "70dvh", minHeight: 400 }}
         />
       </div>
 

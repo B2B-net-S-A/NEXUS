@@ -7,7 +7,7 @@ export default function SettingsLoading() {
                 <div className="h-8 w-32 rounded bg-muted animate-pulse" />
                 <div className="h-4 w-64 mt-2 rounded bg-muted animate-pulse" />
             </div>
-            <div className="flex items-center justify-center min-h-[40vh]">
+            <div className="flex items-center justify-center min-h-[40dvh]">
                 <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
             </div>
         </div>

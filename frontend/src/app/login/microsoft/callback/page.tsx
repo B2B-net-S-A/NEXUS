@@ -98,7 +98,7 @@ function CallbackBody() {
   }, [code, error, router, setAuth]);
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background">
+    <div className="min-h-screen min-h-dvh flex items-center justify-center bg-background">
       <div className="text-center max-w-sm px-6">
         {error ? (
           <div className="flex items-start gap-2 text-sm text-destructive">
@@ -124,7 +124,7 @@ export default function MicrosoftCallbackPage() {
   return (
     <Suspense
       fallback={
-        <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="min-h-screen min-h-dvh flex items-center justify-center bg-background">
           <div className="text-sm text-muted-foreground">Ładowanie…</div>
         </div>
       }

@@ -11,7 +11,7 @@ Stała jest zamrożoną kopią ``<style>`` z ostatniej wersji renderera
 nie zmienia, więc kopia nie ma się z czym rozjechać.
 """
 
-LEGACY_BRANDED_CSS = """
+_FROZEN_TEMPLATE_CSS = """
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body {
     font-family: 'Segoe UI', Arial, sans-serif;
@@ -196,3 +196,20 @@ LEGACY_BRANDED_CSS = """
     .highlight-section { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   }
 """
+
+# Telefon (audyt responsywności 23.09.2026): zamrożona kopia ma sztywną siatkę
+# 230px + 1fr, która przy ~340 px iframe'a zostawiała ~40 px na treść. Osobna
+# stała, żeby kopia szablonu została wierna co do znaku (test porównuje ją
+# z prawdziwym dokumentem starego szablonu), a dodatek był widoczny.
+LEGACY_MOBILE_CSS = """
+  @media (max-width: 640px) {
+    .cv-body { grid-template-columns: 1fr; }
+    .cv-sidebar { border-right: 0; border-bottom: 1px solid #e2e8f0; padding: 20px 16px; }
+    .cv-main { padding: 20px 16px; }
+    .cv-header { padding: 24px 16px 20px; }
+    .cv-header-date { position: static; margin-top: 8px; }
+    .cv-footer { padding: 12px 16px; flex-wrap: wrap; gap: 4px; }
+  }
+"""
+
+LEGACY_BRANDED_CSS = _FROZEN_TEMPLATE_CSS + LEGACY_MOBILE_CSS

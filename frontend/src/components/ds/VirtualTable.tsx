@@ -91,6 +91,12 @@ export interface VirtualTableProps<Row> {
   virtualize?: boolean
   /** Accessible name of the grid. */
   "aria-label"?: string
+  /**
+   * Minimalna szerokość siatki (np. `720` albo `"48rem"`). Węższy kontener
+   * przewija się w poziomie, a tło i ramka nagłówka idą za przewijaniem —
+   * bez tego kolumny `px` ściskały się na telefonie.
+   */
+  minWidth?: number | string
   className?: string
 }
 
@@ -215,15 +221,18 @@ function VirtualTableRowInner<Row>({
           className="flex h-full items-center justify-center"
           onClick={(event) => event.stopPropagation()}
         >
-          <input
-            type="checkbox"
-            className="size-3.5 cursor-pointer accent-primary"
-            aria-label={`Zaznacz: ${label}`}
-            checked={selected}
-            onChange={(event) =>
-              onToggleSelect(rowKey, (event.nativeEvent as MouseEvent).shiftKey === true)
-            }
-          />
+          {/* Cała komórka (36 px) jest celem kliknięcia, nie sam 14-px checkbox. */}
+          <label className="flex h-full w-full cursor-pointer items-center justify-center">
+            <input
+              type="checkbox"
+              className="size-3.5 cursor-pointer accent-primary"
+              aria-label={`Zaznacz: ${label}`}
+              checked={selected}
+              onChange={(event) =>
+                onToggleSelect(rowKey, (event.nativeEvent as MouseEvent).shiftKey === true)
+              }
+            />
+          </label>
         </div>
       ) : null}
       {columns.map((column) => (
@@ -265,6 +274,7 @@ export function VirtualTable<Row>({
   footer,
   virtualize = true,
   "aria-label": ariaLabel,
+  minWidth,
   className,
 }: VirtualTableProps<Row>) {
   const height = rowHeight ?? (density === "cozy" ? 44 : 36)
@@ -508,7 +518,7 @@ export function VirtualTable<Row>({
         onKeyDown={handleKeyDown}
         className="relative min-h-0 flex-1 overflow-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
       >
-        <div role="rowgroup" className="sticky top-0 z-10">
+        <div role="rowgroup" className="sticky top-0 z-10" style={minWidth !== undefined ? { minWidth } : undefined}>
           <div
             role="row"
             aria-rowindex={1}
@@ -517,16 +527,18 @@ export function VirtualTable<Row>({
           >
             {selectable ? (
               <div role="columnheader" className="flex h-full items-center justify-center">
-                <input
-                  ref={headerCheckboxRef}
-                  type="checkbox"
-                  className="size-3.5 cursor-pointer accent-primary"
-                  aria-label="Zaznacz wszystkie"
-                  aria-checked={someSelected ? "mixed" : allSelected}
-                  checked={allSelected}
-                  disabled={allKeys.length === 0}
-                  onChange={toggleAll}
-                />
+                <label className="flex h-full w-full cursor-pointer items-center justify-center">
+                  <input
+                    ref={headerCheckboxRef}
+                    type="checkbox"
+                    className="size-3.5 cursor-pointer accent-primary"
+                    aria-label="Zaznacz wszystkie"
+                    aria-checked={someSelected ? "mixed" : allSelected}
+                    checked={allSelected}
+                    disabled={allKeys.length === 0}
+                    onChange={toggleAll}
+                  />
+                </label>
               </div>
             ) : null}
             {columns.map((column) => {
@@ -574,7 +586,7 @@ export function VirtualTable<Row>({
         </div>
 
         {loading ? (
-          <div role="rowgroup" data-testid="virtual-table-loading">
+          <div role="rowgroup" data-testid="virtual-table-loading" style={minWidth !== undefined ? { minWidth } : undefined}>
             {Array.from({ length: SKELETON_ROWS }, (_, index) => (
               <div
                 key={index}
@@ -608,14 +620,16 @@ export function VirtualTable<Row>({
         ) : virtualize ? (
           <div
             role="rowgroup"
-            style={{ height: virtualizer.getTotalSize(), width: "100%", position: "relative" }}
+            style={{ height: virtualizer.getTotalSize(), width: "100%", minWidth, position: "relative" }}
           >
             {virtualizer
               .getVirtualItems()
               .map((v) => renderItem(items[v.index], v.index, v.start - headerHeight))}
           </div>
         ) : (
-          <div role="rowgroup">{items.map((item, index) => renderItem(item, index, undefined))}</div>
+          <div role="rowgroup" style={minWidth !== undefined ? { minWidth } : undefined}>
+            {items.map((item, index) => renderItem(item, index, undefined))}
+          </div>
         )}
       </div>
       {footer ? <div className="shrink-0 border-t border-border bg-card">{footer}</div> : null}

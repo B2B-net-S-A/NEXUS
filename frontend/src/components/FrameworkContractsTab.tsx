@@ -261,7 +261,7 @@ function FrameworkContractRow({
         <div className="flex items-start justify-between gap-4">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-medium">{fc.name}</span>
+              <span className="font-medium break-words">{fc.name}</span>
               <span
                 className={`text-xs px-2 py-0.5 rounded ${STATUS_COLORS[fc.status]}`}
               >
@@ -279,7 +279,7 @@ function FrameworkContractRow({
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-4 mt-1 text-xs text-muted-foreground">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1 text-xs text-muted-foreground">
               {fc.effective_date && (
                 <span className="flex items-center gap-1">
                   <Calendar className="w-3 h-3" />
@@ -295,10 +295,11 @@ function FrameworkContractRow({
                     e.stopPropagation();
                     handleDownload();
                   }}
-                  className="flex items-center gap-1 hover:text-violet-600"
+                  className="flex min-w-0 max-w-full items-center gap-1 hover:text-violet-600"
+                  title={fc.filename}
                 >
-                  <Download className="w-3 h-3" />
-                  {fc.filename}
+                  <Download className="w-3 h-3 shrink-0" />
+                  <span className="truncate">{fc.filename}</span>
                 </button>
               )}
             </div>
@@ -309,7 +310,7 @@ function FrameworkContractRow({
                 e.stopPropagation();
                 onDelete();
               }}
-              className="text-muted-foreground hover:text-destructive p-1"
+              className="hit-area text-muted-foreground hover:text-destructive p-1"
               title="Usuń"
             >
               <Trash2 className="w-4 h-4" />
@@ -414,7 +415,7 @@ function AmendmentsSection({ clientId, fcId }: AmendmentsSectionProps) {
                   onClick={() => {
                     if (confirm(`Usunąć aneks "${a.name}"?`)) deleteMutation.mutate(a.id);
                   }}
-                  className="text-muted-foreground hover:text-destructive p-1"
+                  className="hit-area text-muted-foreground hover:text-destructive p-1"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
@@ -490,95 +491,99 @@ function CreateFrameworkContractDialog({
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <form
         onSubmit={handleSubmit}
-        className="bg-card rounded-lg shadow-xl max-w-md w-full p-6 space-y-3"
+        className="bg-card rounded-lg shadow-xl max-w-md w-full p-6 flex max-h-[90dvh] flex-col gap-3"
       >
-        <h3 className="text-lg font-semibold">Nowa umowa ramowa</h3>
-        <label className="block">
-          <span className="text-sm">Nazwa</span>
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            required
-            className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
-            placeholder="np. MSA 2026"
-          />
-        </label>
-        <div className="grid grid-cols-2 gap-3">
-          <label>
-            <span className="text-sm">Status</span>
-            <select
-              value={contractStatus}
-              onChange={(e) =>
-                setContractStatus(e.target.value as FrameworkContractStatus)
-              }
-              className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
-            >
-              <option value="draft">Szkic</option>
-              <option value="active">Aktywna</option>
-              <option value="pending_signature">Czeka na podpis</option>
-            </select>
-          </label>
-          <label>
-            <span className="text-sm">Sposób podpisu</span>
-            <select
-              value={signedVia}
-              onChange={(e) => setSignedVia(e.target.value as FrameworkContractSignedVia)}
-              className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
-            >
-              <option value="upload">Skan / PDF</option>
-              <option value="autenti">Autenti</option>
-            </select>
-          </label>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <label>
-            <span className="text-sm">Obowiązuje od</span>
+        <h3 className="shrink-0 text-lg font-semibold">Nowa umowa ramowa</h3>
+        {/* Pola przewijają się w środku, przyciski zostają widoczne — bez
+            tego na telefonie z klawiaturą „Zapisz" był poza ekranem. */}
+        <div className="-mx-1 min-h-0 flex-1 space-y-3 overflow-y-auto px-1">
+          <label className="block">
+            <span className="text-sm">Nazwa</span>
             <input
-              type="date"
-              value={effectiveDate}
-              onChange={(e) => setEffectiveDate(e.target.value)}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
               className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
+              placeholder="np. MSA 2026"
+            />
+          </label>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <label>
+              <span className="text-sm">Status</span>
+              <select
+                value={contractStatus}
+                onChange={(e) =>
+                  setContractStatus(e.target.value as FrameworkContractStatus)
+                }
+                className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
+              >
+                <option value="draft">Szkic</option>
+                <option value="active">Aktywna</option>
+                <option value="pending_signature">Czeka na podpis</option>
+              </select>
+            </label>
+            <label>
+              <span className="text-sm">Sposób podpisu</span>
+              <select
+                value={signedVia}
+                onChange={(e) => setSignedVia(e.target.value as FrameworkContractSignedVia)}
+                className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
+              >
+                <option value="upload">Skan / PDF</option>
+                <option value="autenti">Autenti</option>
+              </select>
+            </label>
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <label>
+              <span className="text-sm">Obowiązuje od</span>
+              <input
+                type="date"
+                value={effectiveDate}
+                onChange={(e) => setEffectiveDate(e.target.value)}
+                className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
+              />
+            </label>
+            <label>
+              <span className="text-sm">Wygasa</span>
+              <input
+                type="date"
+                value={expiryDate}
+                onChange={(e) => setExpiryDate(e.target.value)}
+                className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
+              />
+            </label>
+          </div>
+          <label>
+            <span className="text-sm">Waluta</span>
+            <input
+              value={currency}
+              onChange={(e) => setCurrency(e.target.value)}
+              maxLength={3}
+              className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
+              placeholder="PLN"
             />
           </label>
           <label>
-            <span className="text-sm">Wygasa</span>
+            <span className="text-sm">Plik PDF (opcjonalny)</span>
             <input
-              type="date"
-              value={expiryDate}
-              onChange={(e) => setExpiryDate(e.target.value)}
-              className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
+              type="file"
+              accept=".pdf,.docx,.doc"
+              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              className="mt-1 w-full text-sm"
+            />
+          </label>
+          <label>
+            <span className="text-sm">Notatki</span>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={2}
+              className="mt-1 w-full px-3 py-2 border border-border rounded bg-background text-sm"
             />
           </label>
         </div>
-        <label>
-          <span className="text-sm">Waluta</span>
-          <input
-            value={currency}
-            onChange={(e) => setCurrency(e.target.value)}
-            maxLength={3}
-            className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
-            placeholder="PLN"
-          />
-        </label>
-        <label>
-          <span className="text-sm">Plik PDF (opcjonalny)</span>
-          <input
-            type="file"
-            accept=".pdf,.docx,.doc"
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-            className="mt-1 w-full text-sm"
-          />
-        </label>
-        <label>
-          <span className="text-sm">Notatki</span>
-          <textarea
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            rows={2}
-            className="mt-1 w-full px-3 py-2 border border-border rounded bg-background text-sm"
-          />
-        </label>
-        <div className="flex justify-end gap-2 pt-2">
+        <div className="flex shrink-0 justify-end gap-2 pt-2">
           <button type="button" onClick={onClose} className="px-3 py-2 text-sm border border-border rounded">
             Anuluj
           </button>
@@ -640,48 +645,52 @@ function CreateAmendmentDialog({
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <form
         onSubmit={handleSubmit}
-        className="bg-card rounded-lg shadow-xl max-w-md w-full p-6 space-y-3"
+        className="bg-card rounded-lg shadow-xl max-w-md w-full p-6 flex max-h-[90dvh] flex-col gap-3"
       >
-        <h3 className="text-lg font-semibold">Nowy aneks</h3>
-        <label className="block">
-          <span className="text-sm">Nazwa</span>
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            required
-            className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
-            placeholder="np. Aneks 1 — zmiana stawek"
-          />
-        </label>
-        <label>
-          <span className="text-sm">Obowiązuje od</span>
-          <input
-            type="date"
-            value={effectiveDate}
-            onChange={(e) => setEffectiveDate(e.target.value)}
-            required
-            className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
-          />
-        </label>
-        <label>
-          <span className="text-sm">Opis zmian</span>
-          <textarea
-            value={changesSummary}
-            onChange={(e) => setChangesSummary(e.target.value)}
-            rows={2}
-            className="mt-1 w-full px-3 py-2 border border-border rounded bg-background text-sm"
-          />
-        </label>
-        <label>
-          <span className="text-sm">Plik PDF (opcjonalny)</span>
-          <input
-            type="file"
-            accept=".pdf,.docx,.doc"
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-            className="mt-1 w-full text-sm"
-          />
-        </label>
-        <div className="flex justify-end gap-2 pt-2">
+        <h3 className="shrink-0 text-lg font-semibold">Nowy aneks</h3>
+        {/* Pola przewijają się w środku, przyciski zostają widoczne — bez
+            tego na telefonie z klawiaturą „Zapisz" był poza ekranem. */}
+        <div className="-mx-1 min-h-0 flex-1 space-y-3 overflow-y-auto px-1">
+          <label className="block">
+            <span className="text-sm">Nazwa</span>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+              className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
+              placeholder="np. Aneks 1 — zmiana stawek"
+            />
+          </label>
+          <label>
+            <span className="text-sm">Obowiązuje od</span>
+            <input
+              type="date"
+              value={effectiveDate}
+              onChange={(e) => setEffectiveDate(e.target.value)}
+              required
+              className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
+            />
+          </label>
+          <label>
+            <span className="text-sm">Opis zmian</span>
+            <textarea
+              value={changesSummary}
+              onChange={(e) => setChangesSummary(e.target.value)}
+              rows={2}
+              className="mt-1 w-full px-3 py-2 border border-border rounded bg-background text-sm"
+            />
+          </label>
+          <label>
+            <span className="text-sm">Plik PDF (opcjonalny)</span>
+            <input
+              type="file"
+              accept=".pdf,.docx,.doc"
+              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              className="mt-1 w-full text-sm"
+            />
+          </label>
+        </div>
+        <div className="flex shrink-0 justify-end gap-2 pt-2">
           <button type="button" onClick={onClose} className="px-3 py-2 text-sm border border-border rounded">
             Anuluj
           </button>

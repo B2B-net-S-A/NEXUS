@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { headers } from "next/headers";
 
 import { CareerTheme } from "@/components/career/CareerTheme";
@@ -23,6 +23,12 @@ export async function generateMetadata(): Promise<Metadata> {
   };
 }
 
+/** Pasek przeglądarki i przewijanie poza stronę w kolorze strony (czerń). */
+export const viewport: Viewport = {
+  themeColor: "#000000",
+  colorScheme: "dark",
+};
+
 export default function CareerLayout({ children }: { children: React.ReactNode }) {
-  return <CareerTheme>{children}</CareerTheme>;
+  return <CareerTheme page>{children}</CareerTheme>;
 }

@@ -48,7 +48,7 @@ function FilterPill({
       title={title}
       aria-pressed={active}
       className={cn(
-        "rounded-full border px-2 py-0.5 text-[11px] transition-colors",
+        "rounded-full border px-2 py-0.5 text-[11px] transition-colors pointer-coarse:min-h-9 pointer-coarse:px-3",
         active
           ? "border-primary bg-primary text-primary-foreground"
           : "border-border bg-background text-foreground hover:bg-accent"
@@ -144,7 +144,7 @@ export function PipelineFilterBar({
         onChange={(e) => onNameQueryChange(e.target.value)}
         placeholder="Filtruj po nazwisku…"
         aria-label="Filtruj po nazwisku"
-        className="h-7 w-48 rounded-md border border-border bg-background px-2 text-xs focus:outline-hidden focus:ring-2 focus:ring-ring"
+        className="h-7 w-full min-w-0 rounded-md border pointer-coarse:h-10 sm:w-48 border-border bg-background px-2 text-xs focus:outline-hidden focus:ring-2 focus:ring-ring"
       />
       <FilterPill
         active={myMoveFilter}
@@ -157,7 +157,7 @@ export function PipelineFilterBar({
           <button
             type="button"
             className={cn(
-              "inline-flex h-7 items-center gap-1 rounded-full border px-2.5 text-[11px] transition-colors",
+              "inline-flex h-7 items-center gap-1 rounded-full border px-2.5 text-[11px] transition-colors pointer-coarse:h-9 pointer-coarse:px-3",
               activeHidden > 0
                 ? "border-primary/40 bg-primary/10 font-medium text-primary"
                 : "border-border bg-background text-foreground hover:bg-accent",
@@ -205,7 +205,7 @@ export function PipelineFilterBar({
                   aria-label="Rekruter"
                   value={recruiterFilter ?? ""}
                   onChange={(e) => onSetRecruiterFilter(e.target.value || null)}
-                  className="h-7 rounded-md border border-border bg-background px-1.5 text-xs text-foreground"
+                  className="h-7 rounded-md border border-border bg-background px-1.5 text-xs text-foreground pointer-coarse:h-9"
                 >
                   <option value="">Wszyscy rekruterzy</option>
                   {recruiters.map((name) => (
@@ -221,7 +221,7 @@ export function PipelineFilterBar({
               onClick={onToggleHideEmptyColumns}
               aria-pressed={hideEmptyColumns}
               className={cn(
-                "inline-flex h-7 items-center gap-1 rounded-md border px-2 text-[11px] transition-colors",
+                "inline-flex h-7 items-center gap-1 rounded-md border px-2 text-[11px] transition-colors pointer-coarse:h-9",
                 hideEmptyColumns
                   ? "border-primary bg-primary/10 font-medium text-primary"
                   : "border-border bg-background text-foreground hover:bg-accent",
@@ -235,7 +235,7 @@ export function PipelineFilterBar({
       </Popover>
       {/* Podsumowanie i SLA klienta (z karty klienta; brak mówimy wprost,
           bo cisza czytałaby się jak „zdążamy"). */}
-      <span className="ml-auto inline-flex items-center gap-3 text-[11px] text-muted-foreground">
+      <span className="ml-auto inline-flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
         {typeof inProcessCount === "number" ? (
           <span className="tabular-nums">
             {inProcessCount} w procesie

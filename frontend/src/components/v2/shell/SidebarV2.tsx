@@ -28,6 +28,8 @@ import { DynamindsMark } from "@/components/brand/DynamindsMark";
 import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature";
 import { dashboardHref } from "@/lib/dashboard-presets";
 import { useSidebarPinned } from "./useSidebarPinned";
+import { PaletteSwitcher } from "./PaletteSwitcher";
+import { KidsModeToggleButton, ThemeToggleButton } from "./ThemeControls";
 import { hasSectionAccess } from "@/lib/section-access";
 import { hasCapability } from "@/lib/capabilities";
 import { useOrderMailPendingCount } from "@/components/order-mail/useOrderMailPendingCount";
@@ -106,6 +108,12 @@ export function SidebarV2({
     setSidebarCollapsed(!pinned);
   }, [pinned, setSidebarCollapsed]);
 
+  // Nawigacja zamyka rozwinięcie pod kursorem — inaczej nakładka 240 px
+  // zostawała nad nową stroną, dopóki kursor (albo palec) jej nie opuścił.
+  useEffect(() => {
+    setHovered(false);
+  }, [pathname]);
+
   const togglePinned = () => {
     const next = !pinned;
     setPinned(next);
@@ -159,8 +167,15 @@ export function SidebarV2({
   const rail = (
     <aside
       aria-label="Nawigacja boczna"
-      onMouseEnter={() => !mobileOpen && setHovered(true)}
-      onMouseLeave={() => !mobileOpen && !moreOpen && setHovered(false)}
+      // Rozwinięcie pod kursorem tylko dla MYSZY: stuknięcie na tablecie
+      // emituje `mouseenter`, więc nakładka 240 px otwierała się na każde
+      // dotknięcie ikony i zasłaniała treść.
+      onPointerEnter={(e) => {
+        if (e.pointerType === "mouse" && !mobileOpen) setHovered(true);
+      }}
+      onPointerLeave={(e) => {
+        if (e.pointerType === "mouse" && !mobileOpen && !moreOpen) setHovered(false);
+      }}
       className={cn(
         "bg-sidebar text-sidebar-foreground",
         "flex flex-col h-full shrink-0 overflow-hidden",
@@ -219,7 +234,7 @@ export function SidebarV2({
           <button
             onClick={onClose}
             aria-label="Zamknij menu"
-            className="p-1 rounded-md text-sidebar-muted hover:text-sidebar-foreground hover:bg-sidebar-accent"
+            className="flex h-10 w-10 items-center justify-center rounded-md text-sidebar-muted hover:text-sidebar-foreground hover:bg-sidebar-accent"
           >
             <X className="h-4 w-4" />
           </button>
@@ -301,6 +316,16 @@ export function SidebarV2({
           collapsed && !mobileOpen ? "px-2" : "px-3",
         )}
       >
+        {/* Na telefonie pasek górny nie mieści przełączników wyglądu —
+            w szufladzie są zawsze pod ręką. */}
+        {mobileOpen && (
+          <div className="mb-2 flex items-center gap-1 px-2">
+            <span className="flex-1 text-xs text-sidebar-muted">Wygląd</span>
+            <PaletteSwitcher />
+            <KidsModeToggleButton />
+            <ThemeToggleButton />
+          </div>
+        )}
         {!hydrated ? (
           // Przed wczytaniem sesji z pamięci przeglądarki NIE wiemy, czy ktoś
           // jest zalogowany — „Sesja wygasła" migało przy każdym przeładowaniu.
@@ -363,7 +388,7 @@ export function SidebarV2({
             <button
               onClick={logout}
               aria-label="Wyloguj"
-              className="text-sidebar-muted hover:text-sidebar-foreground p-1 rounded-md hover:bg-sidebar-accent"
+              className="text-sidebar-muted hover:text-sidebar-foreground p-1 rounded-md hover:bg-sidebar-accent pointer-coarse:p-3"
             >
               <LogOut className="h-4 w-4" />
             </button>
@@ -387,7 +412,7 @@ export function SidebarV2({
             <button
               onClick={logout}
               aria-label="Wyloguj"
-              className="text-sidebar-muted hover:text-sidebar-foreground p-1 rounded-md hover:bg-sidebar-accent"
+              className="text-sidebar-muted hover:text-sidebar-foreground p-1 rounded-md hover:bg-sidebar-accent pointer-coarse:p-3"
             >
               <LogOut className="h-4 w-4" />
             </button>

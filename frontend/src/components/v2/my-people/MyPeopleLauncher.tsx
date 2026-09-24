@@ -99,17 +99,17 @@ export function MyPeopleBuddyView({
   animate?: boolean;
 }) {
   return (
-    <div className="fixed bottom-5 right-5 z-30 flex items-end gap-2">
+    <div className="fixed bottom-[calc(1.25rem+env(safe-area-inset-bottom))] right-[calc(1.25rem+env(safe-area-inset-right))] z-30 flex items-end gap-2">
       {showBubble && sentences.length ? (
         <div
           role="status"
-          className="relative max-w-[260px] rounded-xl border border-border bg-card px-3 py-2 text-xs text-foreground shadow-lg"
+          className="relative max-w-[min(260px,calc(100vw-6rem))] rounded-xl border border-border bg-card px-3 py-2 text-xs text-foreground shadow-lg"
         >
           <button
             type="button"
             onClick={onDismissBubble}
             aria-label="Zamknij podpowiedź"
-            className="absolute right-1 top-1 rounded p-0.5 text-muted-foreground hover:text-foreground"
+            className="absolute right-1 top-1 rounded p-0.5 pointer-coarse:p-2 pointer-coarse:-m-1.5 text-muted-foreground hover:text-foreground"
           >
             <X className="h-3 w-3" aria-hidden />
           </button>
@@ -122,14 +122,14 @@ export function MyPeopleBuddyView({
             <button
               type="button"
               onClick={onOpen}
-              className="text-xs font-medium text-primary hover:underline"
+              className="text-xs font-medium text-primary hover:underline pointer-coarse:py-2"
             >
               Pokaż moich ludzi
             </button>
             <button
               type="button"
               onClick={onHide}
-              className="text-xs text-muted-foreground hover:text-foreground"
+              className="text-xs text-muted-foreground hover:text-foreground pointer-coarse:py-2"
             >
               Ukryj postać
             </button>

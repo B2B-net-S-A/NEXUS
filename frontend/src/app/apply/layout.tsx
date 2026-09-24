@@ -9,7 +9,7 @@ export default function ApplyLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className="min-h-screen min-h-dvh bg-background text-foreground">
       {children}
     </div>
   );

@@ -135,7 +135,7 @@ export function OnboardingDLV2() {
  )
 
  return (
- <div className="min-h-screen flex items-start justify-center px-4 py-10">
+ <div className="min-h-screen min-h-dvh flex items-start justify-center px-4 py-10">
  <div className="w-full max-w-3xl">
  <div className="mb-6 flex flex-col items-start">{header}</div>
 
@@ -152,7 +152,7 @@ export function OnboardingDLV2() {
  </div>
 
  {/* Body */}
- <div className="px-5 py-4 max-h-[55vh] overflow-y-auto">
+ <div className="px-5 py-4 max-h-[55dvh] overflow-y-auto">
  {isLoading ? (
  <div className="space-y-2 animate-pulse">
  {Array.from({ length: 6 }).map((_, i) => (

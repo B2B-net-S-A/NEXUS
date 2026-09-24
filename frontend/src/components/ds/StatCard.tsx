@@ -104,29 +104,30 @@ export const StatCard = React.forwardRef<HTMLDivElement, StatCardProps>(
   ({ label, value, delta, sub, icon: Icon, spark, className, ...props }, ref) => (
     <Card
       ref={ref}
-      className={cn("p-5 transition-shadow duration-200 hover:shadow-xs", className)}
+      className={cn("min-w-0 p-4 sm:p-5 transition-shadow duration-200 hover:shadow-xs", className)}
       {...props}
     >
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
+      <div className="flex min-w-0 items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
           {Icon ? (
             <span className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/10 text-primary">
               <Icon className="h-3.5 w-3.5" />
             </span>
           ) : null}
-          <span className="text-[13px] font-medium text-muted-foreground">{label}</span>
+          <span className="truncate text-[13px] font-medium text-muted-foreground">{label}</span>
         </div>
         {delta !== undefined ? <TrendDelta value={delta} /> : null}
       </div>
       <div className="mt-4 flex items-end justify-between gap-3">
         <div className="min-w-0">
-          <div className="text-[32px] font-semibold leading-none tracking-tight tabular-nums text-foreground">
+          {/* 24 px na telefonie — kwota 32 px wychodziła poza kafel 163 px. */}
+          <div className="break-words text-2xl font-semibold leading-none tracking-tight tabular-nums text-foreground sm:text-[32px]">
             {value}
           </div>
           {sub ? <p className="mt-2.5 text-xs text-muted-foreground">{sub}</p> : null}
         </div>
         {spark && spark.length > 1 ? (
-          <Sparkline points={spark} className="text-primary" />
+          <Sparkline points={spark} className="hidden text-primary sm:block" />
         ) : null}
       </div>
     </Card>
@@ -140,12 +141,12 @@ export interface StatCardGridProps extends React.HTMLAttributes<HTMLDivElement> 
   children: React.ReactNode
 }
 
-/** Responsive grid wrapper: 2 columns on mobile, 4 on large screens. */
+/** Responsive grid wrapper: 1 column on narrow phones, 2 from 420 px, 4 on large screens. */
 export const StatCardGrid = React.forwardRef<HTMLDivElement, StatCardGridProps>(
   ({ children, className, ...props }, ref) => (
     <div
       ref={ref}
-      className={cn("grid grid-cols-2 gap-4 lg:grid-cols-4", className)}
+      className={cn("grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 sm:gap-4 lg:grid-cols-4", className)}
       {...props}
     >
       {children}

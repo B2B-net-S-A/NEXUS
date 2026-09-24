@@ -288,7 +288,7 @@ function ClientRow({ client, scopes, onChange }: ClientRowProps) {
           </div>
           <div className="text-xs text-muted-foreground space-y-0.5 mt-2">
             <div>
-              <span className="font-mono">{client.client_id}</span>
+              <span className="font-mono break-all">{client.client_id}</span>
             </div>
             <div>
               {client.last_used_at
@@ -385,7 +385,7 @@ export default function ApiIntegrationPage() {
 
   if (isLoading) {
     return (
-      <div className="container max-w-4xl mx-auto py-8 px-4">
+      <div className="container max-w-4xl mx-auto md:py-8 md:px-4">
         <div className="flex items-center justify-center min-h-[400px]">
           <Loader2 className="w-8 h-8 text-muted-foreground animate-spin" />
         </div>
@@ -395,7 +395,7 @@ export default function ApiIntegrationPage() {
 
   if (clientsQuery.error || scopesQuery.error) {
     return (
-      <div className="container max-w-4xl mx-auto py-8 px-4">
+      <div className="container max-w-4xl mx-auto md:py-8 md:px-4">
         <div className="p-6 bg-rose-500/10 border border-rose-500/20 rounded-xl flex items-center gap-2 text-rose-500">
           <AlertCircle className="w-5 h-5" />
           <span>
@@ -411,7 +411,7 @@ export default function ApiIntegrationPage() {
   const scopes = scopesQuery.data ?? [];
 
   return (
-    <div className="container max-w-4xl mx-auto py-8 px-4">
+    <div className="container max-w-4xl mx-auto md:py-8 md:px-4">
       <div className="mb-6">
         <Link
           href="/settings"

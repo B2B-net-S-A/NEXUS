@@ -779,7 +779,7 @@ export function CvQcDialogView({
 
   return (
     <Dialog open={open && stageId != null} onOpenChange={(next) => (!next ? onClose() : undefined)}>
-      <DialogContent size="full" className="flex h-[92vh] max-h-[92vh] flex-col p-0" aria-describedby="cv-qc-desc">
+      <DialogContent size="full" className="flex h-[92dvh] max-h-[92dvh] flex-col p-0" aria-describedby="cv-qc-desc">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-3 pr-16">
           <div className="min-w-0 space-y-0.5">
             <p className="text-xs uppercase tracking-wider text-muted-foreground">QC CV</p>

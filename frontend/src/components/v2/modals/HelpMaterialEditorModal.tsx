@@ -211,7 +211,7 @@ export function HelpMaterialEditorModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent size="lg" className="flex flex-col max-h-[90vh]">
+      <DialogContent size="lg" className="flex flex-col max-h-[90dvh]">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>

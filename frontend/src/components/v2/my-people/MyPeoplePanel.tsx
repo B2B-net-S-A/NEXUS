@@ -32,6 +32,8 @@ import { matchesQuery, splitPeople, summarySentences } from "@/lib/my-people-sum
 import { isForbiddenError } from "@/lib/view-state";
 import { useMyPeoplePanel } from "@/store/my-people";
 import { useUiStore } from "@/store/ui";
+import { useAuthStore } from "@/store/auth";
+import { cn } from "@/lib/utils";
 import { useCompetenceCategories } from "@/components/v2/CompetenceCategoryBadge";
 import { AddToRecruitmentDialog, addToRecruitmentSummary } from "@/components/v2/recruitment/AddToRecruitmentDialog";
 import { TabbedNav } from "@/components/ds/TabbedNav";
@@ -120,6 +122,8 @@ export function MyPeoplePanel() {
   const open = useMyPeoplePanel((s) => s.open);
   const close = useMyPeoplePanel((s) => s.close);
   const pathname = usePathname();
+  // Pasek „Podgląd jako” (h-9) przesuwa topbar w dół — panel startuje pod nim.
+  const impersonating = useAuthStore((s) => !!s.realUser);
   const { jobId, candidateId } = contextFromPath(pathname);
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
@@ -244,7 +248,10 @@ export function MyPeoplePanel() {
   return (
     <aside
       aria-label="Moi ludzie"
-      className="fixed bottom-0 right-0 top-12 z-40 flex w-full max-w-[420px] flex-col border-l border-border bg-background shadow-xl"
+      className={cn(
+        "fixed bottom-0 right-0 z-40 flex w-full max-w-[420px] flex-col border-l border-border bg-background shadow-xl pb-[env(safe-area-inset-bottom)]",
+        impersonating ? "top-21" : "top-12",
+      )}
     >
       <header className="flex items-center gap-2 border-b border-border px-4 py-3">
         <Users className="h-4 w-4 text-primary" aria-hidden />

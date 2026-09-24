@@ -148,8 +148,8 @@ export default function EngagementDeclarationPage() {
   }
 
   return (
-    <main className="max-w-xl mx-auto p-6 pt-12">
-      <div className="rounded-lg border border-border bg-card dark:bg-card dark:border-border p-6 shadow-xs">
+    <main className="max-w-xl mx-auto p-4 pt-8 sm:p-6 sm:pt-12">
+      <div className="rounded-lg border border-border bg-card dark:bg-card dark:border-border p-4 sm:p-6 shadow-xs">
         <div className="flex items-start gap-3 mb-5">
           <Sparkles className="w-5 h-5 text-amber-500 mt-1 shrink-0" />
           <div>
@@ -196,7 +196,7 @@ export default function EngagementDeclarationPage() {
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             rows={3}
-            className="mt-1 w-full border border-border dark:border-border rounded-md px-3 py-2 text-sm bg-card dark:bg-gray-950 focus:border-amber-400 outline-hidden"
+            className="mt-1 w-full border border-border dark:border-border rounded-md px-3 py-2 text-base md:text-sm bg-card dark:bg-gray-950 focus:border-amber-400 outline-hidden"
             placeholder="np. tylko Python, max 8h tygodniowo, najchętniej fintech…"
           />
         </label>

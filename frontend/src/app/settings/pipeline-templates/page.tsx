@@ -28,7 +28,7 @@ export default function PipelineTemplatesPage() {
 
   return (
     <div className="min-h-screen bg-muted dark:bg-card">
-      <div className="max-w-7xl mx-auto px-4 py-8">
+      <div className="max-w-7xl mx-auto px-0 py-2 md:px-4 md:py-8">
         {canManage ? (
           <PipelineTemplatesTab />
         ) : (

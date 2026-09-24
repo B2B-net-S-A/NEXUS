@@ -1117,7 +1117,7 @@ export function MultiConsultantOrdersTab({
             Jedna lista zamówień okresowych, kosztowych i rozliczanych w MD.
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           {/* `isSuccess`, nie `!isLoading && !isError` — w przerwie między
               ponowieniami dane są puste, a licznik pokazywałby „0 zamówienia",
               czyli tę samą nieprawdę co pusty stan pod spodem. */}

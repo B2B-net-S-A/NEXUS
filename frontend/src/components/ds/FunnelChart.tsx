@@ -33,7 +33,7 @@ export const FunnelChart = React.forwardRef<HTMLDivElement, FunnelChartProps>(
     const max = Math.max(...stages.map((s) => s.count), 1)
 
     return (
-      <Card ref={ref} size="lg" className={cn("p-6", className)} {...props}>
+      <Card ref={ref} size="lg" className={cn("p-4 sm:p-6", className)} {...props}>
         <div className="mb-6 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <GitCompareArrows className="h-4 w-4 text-muted-foreground" />
@@ -52,8 +52,14 @@ export const FunnelChart = React.forwardRef<HTMLDivElement, FunnelChartProps>(
             const inline = width >= INLINE_LABEL_THRESHOLD
 
             return (
-              <div key={stage.label} className="flex items-center gap-4">
-                <span className="w-24 shrink-0 text-sm text-muted-foreground">{stage.label}</span>
+              <div key={stage.label} className="flex items-center gap-2 sm:gap-4">
+                {/* Telefon: węższa etykieta w jednej linii (pełna w `title`). */}
+                <span
+                  className="w-20 shrink-0 truncate text-sm text-muted-foreground sm:w-24 sm:whitespace-normal"
+                  title={stage.label}
+                >
+                  {stage.label}
+                </span>
                 <div className="relative h-8 flex-1 overflow-hidden rounded-full bg-muted">
                   <div
                     className="flex h-full items-center justify-end rounded-full bg-primary/85 pr-3"
@@ -71,7 +77,7 @@ export const FunnelChart = React.forwardRef<HTMLDivElement, FunnelChartProps>(
                     </span>
                   )}
                 </div>
-                <span className="w-16 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
+                <span className="w-12 shrink-0 text-right text-xs tabular-nums text-muted-foreground sm:w-16">
                   {stage.conv ?? "—"}
                 </span>
               </div>

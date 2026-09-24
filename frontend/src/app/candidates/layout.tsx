@@ -12,8 +12,8 @@ import { CandidateTabsRail } from "@/components/v2/candidates/CandidateTabsRail"
  * Scoped to the list page (/candidates) and detail pages (/candidates/<id>).
  * The special-purpose sub-tools (search, compare, bulk-import) render bare so
  * the rail doesn't crowd their full-width layouts. The rail itself self-hides
- * when no candidate tabs are open and on small screens (where the list/detail
- * page is shown full-width without it).
+ * when no candidate tabs are open and below 2xl (where the list/detail page
+ * needs the full width).
  */
 export default function CandidatesLayout({
   children,
@@ -27,8 +27,10 @@ export default function CandidatesLayout({
   if (!showRail) return <>{children}</>;
 
   return (
-    <div className="flex items-start gap-4 lg:gap-6">
-      <CandidateTabsRail className="sticky top-0 hidden max-h-[calc(100vh-7rem)] self-start lg:flex" />
+    <div className="flex items-start gap-4 2xl:gap-6">
+      {/* Szyna od 2xl: na 1024–1535 px (z paskiem bocznym) zabierała liście
+          i profilowi połowę szerokości — ucięte kolumny, ściśnięty profil. */}
+      <CandidateTabsRail className="sticky top-0 hidden max-h-[calc(100dvh-7rem)] self-start 2xl:flex" />
       <div className="min-w-0 flex-1">{children}</div>
     </div>
   );

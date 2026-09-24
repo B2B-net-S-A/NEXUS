@@ -75,7 +75,7 @@ function VerifyEmailInner() {
         </div>
         <Link
           href="/login"
-          className="flex items-center justify-center gap-2 text-sm text-primary hover:text-primary/80 hover:underline underline-offset-4"
+          className="flex min-h-11 sm:min-h-0 items-center justify-center gap-2 text-sm text-primary hover:text-primary/80 hover:underline underline-offset-4"
         >
           Przejdź do logowania
           <ArrowRight className="h-4 w-4" />
@@ -98,7 +98,7 @@ function VerifyEmailInner() {
       </div>
       <Link
         href="/register"
-        className="flex items-center justify-center gap-2 text-sm text-primary hover:text-primary/80 hover:underline underline-offset-4"
+        className="flex min-h-11 sm:min-h-0 items-center justify-center gap-2 text-sm text-primary hover:text-primary/80 hover:underline underline-offset-4"
       >
         Wróć do rejestracji
       </Link>

@@ -630,7 +630,9 @@ export function CandidateDetailV2({
           listClassName="max-w-full justify-start px-4 pt-2 *:shrink-0"
           tabs={tabs}
         >
-          <div className="p-4 sm:p-5">
+          {/* `@container`: zakładki układają kolumnę boczną po szerokości
+              karty, nie okna — obok szyny i paska bocznego karta bywa wąska. */}
+          <div className="@container p-4 sm:p-5">
             <TabsContent value="summary" className="mt-0">
               <ProfileTab
                 candidate={candidate}
