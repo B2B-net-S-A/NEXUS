@@ -124,6 +124,11 @@ class MoneyFold:
     margin_hours: Decimal
     margin_with_known_hours: Decimal
     contracts_without_hours: int
+    # Przychód TYLKO tych kontraktów, których marża weszła do ``margin`` —
+    # mianownik „marży %". Dzielenie marży przez cały ``revenue`` zaniżało
+    # procent o przychód kontraktów bez stawki kosztowej (analityka
+    # kontraktów, audyt 24.09.2026). Rada tego pola nie czyta.
+    margin_revenue: Decimal = Decimal("0")
 
     @property
     def complete(self) -> bool:
@@ -186,6 +191,7 @@ def fold_money(contracts: Sequence[Contract], on: date, rates: dict) -> MoneyFol
     margin = Decimal("0")
     margin_hours = Decimal("0")
     margin_with_known_hours = Decimal("0")
+    margin_revenue = Decimal("0")
     contracts_without_hours = 0
     priced = 0
     without_cost_leg = 0
@@ -234,6 +240,7 @@ def fold_money(contracts: Sequence[Contract], on: date, rates: dict) -> MoneyFol
         cost += Decimal(to_whole_pln(candidate_pln))
         row_margin = Decimal(to_whole_pln(client_pln - candidate_pln))
         margin += row_margin
+        margin_revenue += Decimal(to_whole_pln(client_pln))
 
         hours = _billable_hours(contract)
         if hours is None or hours <= 0:
@@ -257,6 +264,7 @@ def fold_money(contracts: Sequence[Contract], on: date, rates: dict) -> MoneyFol
         margin_hours=margin_hours,
         margin_with_known_hours=margin_with_known_hours,
         contracts_without_hours=contracts_without_hours,
+        margin_revenue=margin_revenue,
     )
 
 

@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Hashable
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.candidate import Candidate
@@ -101,8 +101,11 @@ async def consultant_population(
     ``REVENUE_BEARING_STATUSES`` (``active``/``ending``/``ended``), bo ławka
     z definicji składa się z kontraktów ZAKOŃCZONYCH — zbiór „żywych” statusów
     zostawiłby mianownik równy licznikowi i utylizację na sztywne 100%.
-    Kontrakt bez daty rozpoczęcia nie mówi, kiedy współpraca się zaczęła, więc
-    nie wchodzi ani do licznika, ani do mianownika (patrz też kafel MRR).
+    Kontrakt bez daty rozpoczęcia liczy się jak już obowiązujący — ta sama
+    reguła co ``contractor_identity.is_current_contract`` (18.09.2026) i kafel
+    „aktywne kontrakty” obok (``_started_by``). Do 24.09.2026 był tu pomijany,
+    więc osoba z żywym kontraktem bez daty była w kaflu kontraktów, a w
+    utylizacji nie było jej wcale.
 
     Na dziś (i później) aktywny jest tylko kontrakt w żywym statusie: ``ended``
     bez daty końca albo z datą w przyszłości to zakończona współpraca, a kafel
@@ -125,8 +128,7 @@ async def consultant_population(
             .join(Contract, Contract.candidate_id == Candidate.id)
             .where(
                 Contract.status.in_(REVENUE_BEARING_STATUSES),
-                Contract.start_date.isnot(None),
-                Contract.start_date <= on,
+                or_(Contract.start_date.is_(None), Contract.start_date <= on),
             )
         )
     ).all()

@@ -39,9 +39,11 @@ vi.mock("@/lib/api", () => ({
   CONTRACT_TERMINATION_REASONS: [],
 }));
 
-// Bramka rolowa strony nie jest przedmiotem tego testu.
-vi.mock("@/components/RequireRole", () => ({
-  RequireRole: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+// Bramka sekcji strony nie jest przedmiotem tego testu.
+vi.mock("@/components/RequireSectionAccess", () => ({
+  RequireSectionAccess: ({ children }: { children: React.ReactNode }) => (
+    <>{children}</>
+  ),
 }));
 
 import ContractAnalyticsPage from "@/app/contracts/analytics/page";
@@ -153,6 +155,41 @@ describe("ContractAnalyticsPage — kafle pieniężne", () => {
     expect(
       screen.getByText("Miesięczna marża").parentElement,
     ).toHaveTextContent(/1[\s ]?000,00/);
+  });
+});
+
+describe("ContractAnalyticsPage — marża bez stawki kosztowej", () => {
+  it("procent marży idzie z serwera, a kafel mówi o kontraktach bez kosztu", async () => {
+    // Serwer liczy procent z przychodu kontraktów o ZNANEJ marży (33,3%),
+    // a dzielenie kafla marży przez kafel przychodu dałoby 25% — przychód
+    // obejmuje kontrakt bez stawki kosztowej (audyt 24.09.2026).
+    mocks.get.mockImplementation((url: string) => {
+      if (url.includes("margin-totals")) {
+        return Promise.resolve({
+          data: {
+            clients: 1,
+            active_contracts: 2,
+            total_monthly_margin: 1000,
+            total_monthly_revenue: 4000,
+            margin_pct: 33.3,
+            fx_missing: false,
+            contracts_without_cost_leg: 1,
+          },
+        });
+      }
+      if (url.includes("margin-by")) return Promise.resolve({ data: [] });
+      if (url.includes("utilization")) return Promise.reject(httpError(500));
+      return Promise.resolve({ data: { horizon_months: 12, months: [] } });
+    });
+
+    renderPage();
+
+    expect(
+      await screen.findByText(
+        "33.3% z przychodu · 1 kontrakt bez stawki kosztowej poza marżą",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/25\.0% z przychodu/)).not.toBeInTheDocument();
   });
 });
 

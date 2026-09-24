@@ -452,3 +452,40 @@ async def test_filled_draft_comes_back_as_todo_after_it_was_checked(
     [entry_after] = [e for e in after["entries"] if e["order_id"] == ids["order_id"]]
     assert entry_after["item_key"] != entry["item_key"]
     assert entry_after["done"] is None
+
+
+def test_can_check_needs_finance_section_write_not_only_the_role():
+    """Checkbox aktywny przy sekcji Finanse tylko do odczytu kończył się 403.
+
+    ``POST /order-changes/checks`` wymaga roli i ZAPISU sekcji — flaga
+    ``can_check`` musi liczyć to samo.
+    """
+
+    from types import SimpleNamespace
+
+    from app.api.finance import _can_check
+    from app.models.user import User, UserRole
+    from app.services.section_permissions import ProductSection
+
+    def user(role: UserRole, finance: str) -> User:
+        person = User(
+            id=77,
+            email=f"{role.value}-check@example.com",
+            name=role.value,
+            role=role,
+            roles=[role.value],
+            is_active=True,
+            profile_completed=True,
+        )
+        person.effective_section_access = {
+            section.value: "none" for section in ProductSection
+        }
+        person.effective_section_access[ProductSection.finance.value] = finance
+        return person
+
+    request = SimpleNamespace(state=SimpleNamespace())
+    assert _can_check(request, user(UserRole.finance, "write")) is True
+    assert _can_check(request, user(UserRole.finance, "read")) is False
+    assert _can_check(request, user(UserRole.recruiter, "write")) is False
+    impersonated = SimpleNamespace(state=SimpleNamespace(impersonator_id=1))
+    assert _can_check(impersonated, user(UserRole.admin, "write")) is False

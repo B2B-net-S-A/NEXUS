@@ -781,7 +781,7 @@ Wszystko w `components/v2/pages/B2BContractGeneratorV2.tsx`.
   obiecuje wąski podzbiór. Axios musi serializować `indexes: null` — domyślne
   `contract_status[]=` to po stronie FastAPI INNA nazwa pola i filtr milcząco pada.
 - **Pusty wynik wyszukiwania ma inny komunikat niż brak umów** — „Brak umów pasujących do
-  wyszukiwania" vs „Brak umów aktywnych i w trakcie podpisu" (ten sam błąd co przy 403
+  wyszukiwania" vs „Brak umów bieżących." (ten sam błąd co przy 403
   renderowanym jako pustka: pustka czyta się jak utrata danych). Padnięte zapytanie ma
   WŁASNĄ gałąź `isError` z przyciskiem „Ponów" — awaria nie może udawać zera.
 - **Safety-net entrypointu** zawiera lustro DDL (kolumny + CHECK-i + `CREATE TABLE`
@@ -1652,8 +1652,8 @@ link). API: `app/api/client_playbooks.py`.
   obowiązującej reguły CV zdejmuje zatwierdzenie; adres biura na tym samym
   wierszu wyłączałby wymuszanie nazwy pliku do ponownego zatwierdzenia.
 - **Bramki (lustro reguł CV po #1351):** zapis i historia = `DeliverySectionUser`
-  (sekcja Delivery) + graf klienta `resolve_client_access` (admin org-wide,
-  Delivery Lead tylko własny portfel). **Odczyt karty i przeglądu = `OperationalUser`,
+  (sekcja Delivery) + graf klienta `resolve_client_access` (admin i — od #1365 —
+  Delivery Lead org-wide). **Odczyt karty i przeglądu = `OperationalUser`,
   org-wide, bez grafu klienta** — świadome odstępstwo: karta zastępuje 14 wzorów
   Word w Pomocy, które czytał każdy zalogowany, a rekruter czyta ją PRZED
   przypisaniem do rekrutacji. `off_limits` (z `client_contract_terms`) jedzie
@@ -1721,11 +1721,12 @@ w jednej zakładce i puste w sąsiedniej.
   kwoty z zakresem wierszy. Sam `has_role(delivery_lead)` rozdałby hybrydzie
   HoR+DL przychody całej firmy, bo ta wchodzi gałęzią organizacyjną.
 - **`None` jako granica = brak finansów z tej ścieżki.** Tak wygląda odbiorca
-  nierządzony personą DL: admin (i tak ma capability), rola nie-DL oraz
-  **hybryda `head_of_recruitment + delivery_lead`** — ta ostatnia ma nadzór
-  nieoskopowany, więc „własny portfel" nie miałby czego zawęzić, a repo
-  konsekwentnie trzyma HoR poza finansami. Pilnuje tego
-  `test_head_of_recruitment_with_dl_role_stays_redacted`.
+  nierządzony personą DL: admin (i tak ma capability) i rola nie-DL.
+  **Hybryda `head_of_recruitment + delivery_lead` widzi kwoty WYŁĄCZNIE swojego
+  portfela DL** (rolą Delivery Lead, nie nadzorem HoR) — tak liczy kod i front
+  (audyt 24.09.2026; wcześniejszy opis „zostaje zredagowana” był nieaktualny).
+  Pilnuje tego `test_head_of_recruitment_with_dl_role_sees_rates_only_in_dl_portfolio`
+  i `test_my_clients_hor_with_dl_role_gets_scoped_delivery_money`.
 - **`tac` i `head_of_recruitment` ZOSTAJĄ zredagowane i to nie jest przeoczenie**
   — TAC jest w zespole klienta i widzi konsultantów, ale obsady nie prowadzi
   (lustro decyzji z `_can_see_finance`); HoR przechodzi guardy klienta globalnie,
@@ -2482,7 +2483,7 @@ miejsce, nie zbiór funkcji.
   **Panel klientów, Moje relacje i Zamówienia z maila NIE stoją w menu
   (22.09.2026)** — to tryby ekranów (`lib/clients-workspace.ts`): „Moi
   klienci" = przełącznik „Moi / Wszyscy" na liście `/clients` (`?mine=0/1`,
-  domyślnie „Moi" dla DL/TAC; backend `GET /api/clients/directory?mine=true`
+  domyślnie „Moi" dla DL — `CLIENTS_MINE_ROLES`; backend `GET /api/clients/directory?mine=true`
   zawęża do przypisań DL ∪ TAC — to filtr widoku, nie granica dostępu),
   „Kluczowe relacje" = `/clients?view=contacts`, „Skrzynka zamówień" =
   `/contracts?view=order-mail` z licznikiem „Do weryfikacji" przy trybie
@@ -3950,8 +3951,9 @@ który topnieje wraz z miesięcznymi raportami z Finansów. Migracja `0227`.
   było wiadomo. Dotyczy trzech miejsc: listy zamówień, historii zamówienia i historii importów.
 - **Aktywacja na prodzie:** ustaw `MULTI_CONSULTANT_ORDER_CLIENT_IDS` w Coolify (ID z
   `SELECT id, name FROM clients WHERE name ILIKE '%BIK%' OR name ILIKE '%Polkomtel%' OR
-  name ILIKE '%BNP%'`). Do tego czasu wszystko stoi bezczynnie i zakładka „Zamówienia"
-  renderuje dotychczasowy widok jednoosobowy dla każdego klienta.
+  name ILIKE '%BNP%'`). Zakładka „Zamówienia” od 09.2026 renderuje ten sam widok
+  (`MultiConsultantOrdersTab`) dla KAŻDEGO klienta — lista steruje już tylko
+  interpretacją starych danych, nie tym, co widać (audyt 24.09.2026).
 
 ## Zamówienie MD i zamówienie okresowe to DWA niezależne byty
 
@@ -4174,13 +4176,13 @@ Filtrowanie do pojedynczego statusu i sentinel `status=all` działają bez zmian
 Migracja `0233`. Trzy obszary, jedna rewizja — spotykają się na jednym wierszu
 `client_order_groups`. Pełny opis: `docs/order-lifecycle-cost-and-dl-alerts-completion-report.md`.
 
-- **Zakładka „Zamówienia" renderuje DWA różne widoki i tickety dzielą się między nie
-  czysto.** `MultiConsultantOrdersTab` dla klientów z `MULTI_CONSULTANT_ORDER_CLIENT_IDS`
-  (BIK/Polkomtel/BNP), `OrdersAndContractsTab` dla wszystkich pozostałych
-  ([page.tsx:945](frontend/src/app/clients/[id]/page.tsx)). Zanim cokolwiek dodasz do
-  „zamówień", ustal, o którym widoku mowa — pole dołożone do złego jest **martwe**, bo
-  jego klienci tego ekranu nigdy nie widzą (dokładnie dlatego „Liczba MD" NIE trafiła do
-  `ExtendOrderDialog`).
+- **Zakładka „Zamówienia" to JEDEN widok dla każdego klienta** (stan z audytu
+  24.09.2026): `MultiConsultantOrdersTab` renderuje grupy MD/kosztowe i karty
+  kontraktorów z zamówieniami okresowymi (`ContractorOrderCards` z
+  `components/OrdersAndContractsTab.tsx`). Główna funkcja `OrdersAndContractsTab` w tym
+  pliku nie jest nigdzie montowana (żyje tylko w teście i harnessie `/preview/order-tile`)
+  — nie dokładaj do niej funkcji, bo nikt ich nie zobaczy. Do 09.2026 były dwa widoki
+  i stąd historyczne wzmianki w tym pliku o „widoku jednoosobowym”.
 - **Cykl życia grupy jest STANEM, nie datą.** `status` ∈ `active | completed | exhausted`.
   Data nie odróżnia zamówienia domkniętego świadomie od takiego, któremu minął termin,
   a to dwie różne decyzje. `exhausted` dochodzi automatycznie przy zerowym budżecie

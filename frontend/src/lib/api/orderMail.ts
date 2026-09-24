@@ -120,6 +120,8 @@ export interface OrderMailDocument {
   reviewed_at: string | null;
   error: string | null;
   can_apply: boolean;
+  /** Admin może odrzucić także „Nierozpoznane” (od 24.09.2026). */
+  can_dismiss?: boolean;
   has_file: boolean;
 }
 

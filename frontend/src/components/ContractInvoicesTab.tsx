@@ -3,9 +3,11 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "@/lib/api";
-import { RequireRole } from "@/components/RequireRole";
-import { formatCurrency, formatDate } from "@/lib/utils";
-import { Plus, Trash2, Check, Loader2 } from "lucide-react";
+import { apiErrorMessage } from "@/lib/api-error";
+import { useToast } from "@/components/Toast";
+import { formatCurrency } from "@/lib/utils";
+import { formatIsoDatePl as formatDate } from "@/lib/date-pl";
+import { Plus, Trash2, Check, Loader2, X } from "lucide-react";
 
 interface Invoice {
   id: number;
@@ -22,6 +24,15 @@ interface Invoice {
   status: "issued" | "sent" | "paid" | "overdue" | "cancelled";
   notes: string | null;
 }
+
+// Etykiety PL zamiast surowego `paid`/`overdue` (audyt 24.09, N9).
+export const INVOICE_STATUS_LABELS: Record<string, string> = {
+  issued: "Wystawiona",
+  sent: "Wysłana",
+  paid: "Zapłacona",
+  overdue: "Przeterminowana",
+  cancelled: "Anulowana",
+};
 
 const STATUS_COLOR: Record<string, string> = {
   issued: "bg-muted text-foreground",
@@ -60,6 +71,14 @@ function emptyForm() {
   };
 }
 
+/**
+ * Faktury kontraktu. Bramka jest JEDNA i przychodzi z góry (`readOnly`):
+ * backend `/api/invoices` zapisuje z capability `manage_finance`. Do 24.09
+ * (audyt, S10) w środku siedział dodatkowo `RequireRole admin/delivery_lead`,
+ * a strona dawała `readOnly={!canManageFinance}` — Finanse były wpuszczane
+ * z zewnątrz i wyrzucane w środku, DL odwrotnie, więc w praktyce pisał tylko
+ * admin.
+ */
 export function ContractInvoicesTab({
   contractId,
   readOnly = false,
@@ -68,10 +87,13 @@ export function ContractInvoicesTab({
   readOnly?: boolean;
 }) {
   const queryClient = useQueryClient();
+  const { showError } = useToast();
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(emptyForm);
+  // Potwierdzenie usunięcia w wierszu zamiast `window.confirm` (N7).
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
 
-  const { data, isLoading } = useQuery<Invoice[]>({
+  const { data, isLoading, isError, refetch } = useQuery<Invoice[]>({
     queryKey: ["contract-invoices", contractId],
     queryFn: () =>
       api.get(`/api/invoices?contract_id=${contractId}`).then((r) => r.data),
@@ -85,6 +107,9 @@ export function ContractInvoicesTab({
       setShowForm(false);
       setForm(emptyForm());
     },
+    // Odmowa nie może kończyć się ciszą (audyt 24.09, N10).
+    onError: (err: unknown) =>
+      showError(apiErrorMessage(err, "Nie udało się zapisać faktury.")),
   });
 
   const markPaidMutation = useMutation({
@@ -95,12 +120,20 @@ export function ContractInvoicesTab({
       }),
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: ["contract-invoices", contractId] }),
+    onError: (err: unknown) =>
+      showError(
+        apiErrorMessage(err, "Nie udało się oznaczyć faktury jako zapłaconej."),
+      ),
   });
 
   const deleteMutation = useMutation({
     mutationFn: (id: number) => api.delete(`/api/invoices/${id}`),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ["contract-invoices", contractId] }),
+    onSuccess: () => {
+      setConfirmDeleteId(null);
+      queryClient.invalidateQueries({ queryKey: ["contract-invoices", contractId] });
+    },
+    onError: (err: unknown) =>
+      showError(apiErrorMessage(err, "Nie udało się usunąć faktury.")),
   });
 
   const invoices = data ?? [];
@@ -108,7 +141,7 @@ export function ContractInvoicesTab({
   return (
     <div className="space-y-4">
       {!readOnly && (
-        <RequireRole roles={["admin", "delivery_lead"]}>
+        <>
           {!showForm ? (
             <button
               onClick={() => {
@@ -217,12 +250,26 @@ export function ContractInvoicesTab({
               </div>
             </form>
           )}
-        </RequireRole>
+        </>
       )}
 
       {isLoading ? (
         <div className="text-sm text-muted-foreground flex items-center gap-2">
           <Loader2 className="w-4 h-4 animate-spin" /> Ładowanie faktur…
+        </div>
+      ) : isError ? (
+        <div
+          role="alert"
+          className="text-sm text-destructive bg-destructive/10 rounded-2xl p-6 text-center"
+        >
+          Nie udało się wczytać faktur.{" "}
+          <button
+            type="button"
+            onClick={() => void refetch()}
+            className="font-medium underline hover:no-underline"
+          >
+            Ponów
+          </button>
         </div>
       ) : invoices.length === 0 ? (
         <div className="text-sm text-muted-foreground italic bg-card dark:bg-muted rounded-2xl p-6 text-center shadow-xs">
@@ -244,10 +291,13 @@ export function ContractInvoicesTab({
             </thead>
             <tbody>
               {invoices.map((inv) => {
+                // Porównanie dat ISO w strefie firmy — `new Date(due)` to
+                // północ UTC, czyli 1–2 h przesunięcia (N8).
                 const overdue =
                   inv.due_date &&
                   inv.status !== "paid" &&
-                  new Date(inv.due_date).getTime() < Date.now();
+                  inv.status !== "cancelled" &&
+                  inv.due_date < todayWarsawISO();
                 return (
                   <tr key={inv.id} className="border-t border-border dark:border-border">
                     <td className="sticky left-0 z-10 bg-card dark:bg-muted px-3 py-2 font-medium">{inv.invoice_number}</td>
@@ -267,12 +317,33 @@ export function ContractInvoicesTab({
                       <span
                         className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLOR[inv.status] ?? ""}`}
                       >
-                        {inv.status}
+                        {INVOICE_STATUS_LABELS[inv.status] ?? inv.status}
                       </span>
                     </td>
                     {!readOnly && (
                       <td className="px-3 py-2 text-right">
-                        <RequireRole roles={["admin", "delivery_lead"]}>
+                        {confirmDeleteId === inv.id ? (
+                          <div className="inline-flex items-center gap-1 text-xs">
+                            <span className="text-muted-foreground">Usunąć?</span>
+                            <button
+                              type="button"
+                              onClick={() => deleteMutation.mutate(inv.id)}
+                              disabled={deleteMutation.isPending}
+                              aria-label={`Potwierdź usunięcie faktury ${inv.invoice_number}`}
+                              className="rounded px-2 py-1 font-medium text-destructive hover:bg-destructive/10 disabled:opacity-60"
+                            >
+                              Usuń
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setConfirmDeleteId(null)}
+                              aria-label="Anuluj usuwanie"
+                              className="rounded p-1 hover:bg-muted"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ) : (
                           <div className="inline-flex gap-1">
                             {inv.status !== "paid" && (
                               <button
@@ -286,11 +357,7 @@ export function ContractInvoicesTab({
                               </button>
                             )}
                             <button
-                              onClick={() => {
-                                if (window.confirm(`Usunąć fakturę ${inv.invoice_number}?`)) {
-                                  deleteMutation.mutate(inv.id);
-                                }
-                              }}
+                              onClick={() => setConfirmDeleteId(inv.id)}
                               title="Usuń fakturę"
                               aria-label={`Usuń fakturę ${inv.invoice_number}`}
                               className="p-1.5 pointer-coarse:p-2.5 rounded hover:bg-destructive/10 text-destructive"
@@ -298,7 +365,7 @@ export function ContractInvoicesTab({
                               <Trash2 className="w-4 h-4" />
                             </button>
                           </div>
-                        </RequireRole>
+                        )}
                       </td>
                     )}
                   </tr>

@@ -10,7 +10,9 @@ import {
 } from "@tanstack/react-query";
 import { Calendar, Clock, Download, FileText, Pencil, Plus } from "lucide-react";
 import api, { contractsApi } from "@/lib/api";
-import { cn, formatDate } from "@/lib/utils";
+import { cn } from "@/lib/utils";
+// Daty ISO bez przesunięcia strefy (audyt 24.09, N8).
+import { formatIsoDatePl as formatDate } from "@/lib/date-pl";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { getAuthenticatedRequestHeaders } from "@/lib/session";
 import { hasSectionAccess } from "@/lib/section-access";

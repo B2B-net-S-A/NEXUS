@@ -11,7 +11,7 @@ interface Props {
 }
 
 export function ContractRateBenchmarkCard({ contractId, currency }: Props) {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["contract-benchmark", contractId],
     queryFn: async () => {
       const res = await contractsApi.benchmark(contractId);
@@ -23,6 +23,26 @@ export function ContractRateBenchmarkCard({ contractId, currency }: Props) {
     return (
       <div className="rounded-lg border border-border dark:border-border p-4 text-sm text-muted-foreground">
         Ładowanie benchmarku…
+      </div>
+    );
+  }
+  // Awaria nie może znikać bez śladu (audyt 24.09, S1): do tego dnia 500 na
+  // stawce z ułamkiem i 403 dla roli bez `view_finance` dawały po prostu brak
+  // karty — nie do odróżnienia od „benchmark nie istnieje".
+  if (isError) {
+    return (
+      <div
+        role="alert"
+        className="rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive"
+      >
+        Nie udało się wczytać benchmarku stawki.{" "}
+        <button
+          type="button"
+          onClick={() => void refetch()}
+          className="font-medium underline hover:no-underline"
+        >
+          Ponów
+        </button>
       </div>
     );
   }

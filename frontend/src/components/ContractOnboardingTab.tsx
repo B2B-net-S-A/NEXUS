@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "@/lib/api";
 import { RequireRole } from "@/components/RequireRole";
-import { formatDate } from "@/lib/utils";
+import { formatIsoDatePl as formatDate } from "@/lib/date-pl";
 import { apiErrorMessage } from "@/lib/api-error";
 import { useToast } from "@/components/Toast";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
@@ -16,6 +16,7 @@ import {
   Plus,
   Trash2,
   Loader2,
+  X,
 } from "lucide-react";
 
 interface OnboardingItem {
@@ -37,6 +38,13 @@ const STATUS_ICON: Record<string, React.ComponentType<{ className?: string }>> =
   na: Minus,
 };
 
+// Etykiety PL zamiast surowego `pending` w podpowiedzi (audyt 24.09, N9).
+export const ONBOARDING_STATUS_LABELS: Record<string, string> = {
+  pending: "do zrobienia",
+  done: "zrobione",
+  na: "nie dotyczy",
+};
+
 const NEXT_STATUS: Record<string, "pending" | "done" | "na"> = {
   pending: "done",
   done: "na",
@@ -52,6 +60,8 @@ export function ContractOnboardingTab({
 }) {
   const queryClient = useQueryClient();
   const [newLabel, setNewLabel] = useState("");
+  // Potwierdzenie usunięcia w wierszu zamiast `window.confirm` (N7).
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
 
   const { showToast } = useToast();
   const onMutationError = (fallback: string) => (err: unknown) =>
@@ -253,7 +263,12 @@ export function ContractOnboardingTab({
                             ? "text-muted-foreground"
                             : "text-muted-foreground hover:text-primary"
                       }
-                      title={`Zmień status (obecnie: ${item.status})`}
+                      title={`Zmień status (obecnie: ${
+                        ONBOARDING_STATUS_LABELS[item.status] ?? item.status
+                      })`}
+                      aria-label={`${item.label}: zmień status (obecnie: ${
+                        ONBOARDING_STATUS_LABELS[item.status] ?? item.status
+                      })`}
                     >
                       <Icon className="w-5 h-5" />
                     </button>
@@ -271,17 +286,42 @@ export function ContractOnboardingTab({
                 )}
                 {!readOnly && (
                   <RequireRole roles={["admin", "delivery_lead"]}>
-                    <button
-                      onClick={() => {
-                        if (window.confirm(`Usunąć pozycję "${item.label}"?`)) {
-                          deleteMutation.mutate(item.id);
-                        }
-                      }}
-                      className="p-1 rounded hover:bg-destructive/10 dark:hover:bg-red-900/20 text-red-400 hover:text-destructive"
-                      title="Usuń"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    {confirmDeleteId === item.id ? (
+                      <span className="inline-flex items-center gap-1 text-xs">
+                        <span className="text-muted-foreground">Usunąć?</span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            deleteMutation.mutate(item.id, {
+                              onSettled: () => setConfirmDeleteId(null),
+                            })
+                          }
+                          disabled={deleteMutation.isPending}
+                          aria-label={`Potwierdź usunięcie pozycji ${item.label}`}
+                          className="rounded px-2 py-1 font-medium text-destructive hover:bg-destructive/10 disabled:opacity-60"
+                        >
+                          Usuń
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDeleteId(null)}
+                          aria-label="Anuluj usuwanie"
+                          className="rounded p-1 hover:bg-muted"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDeleteId(item.id)}
+                        className="p-1 rounded hover:bg-destructive/10 dark:hover:bg-red-900/20 text-red-400 hover:text-destructive"
+                        title="Usuń"
+                        aria-label={`Usuń pozycję ${item.label}`}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
                   </RequireRole>
                 )}
               </li>

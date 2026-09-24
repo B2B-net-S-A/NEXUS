@@ -40,10 +40,16 @@ vi.mock("@/lib/api", () => ({
   contractsApi: {
     notesTimeline: (...a: unknown[]) => mocks.notesTimeline(...a),
   },
+  // Słowniki czytane przez `contract-timeline-labels.ts` (lista zmian aneksu).
+  CONTRACT_FIELD_LABELS: { rate_candidate: "Stawka kandydata" },
+  CONTRACT_TERMINATION_REASONS: [],
 }));
 
 vi.mock("@/components/Toast", () => ({
-  useToast: () => ({ showToast: mocks.showToast }),
+  useToast: () => ({
+    showToast: mocks.showToast,
+    showError: (message: string) => mocks.showToast(message, "error"),
+  }),
 }));
 
 vi.mock("@/components/RequireRole", () => ({
@@ -66,6 +72,7 @@ import { ContractOnboardingTab } from "@/components/ContractOnboardingTab";
 import { ContractAmendmentsTab } from "@/components/ContractAmendmentsTab";
 import { ContractEquipmentTab } from "@/components/contracts/ContractEquipmentTab";
 import { ContractNotesTab } from "@/components/contracts/ContractNotesTab";
+import { ContractInvoicesTab } from "@/components/ContractInvoicesTab";
 
 function httpError(status: number, detail?: string) {
   return Object.assign(new Error(`HTTP ${status}`), {
@@ -219,5 +226,97 @@ describe("ContractNotesTab", () => {
     mocks.notesTimeline.mockResolvedValueOnce({ data: [] });
     fireEvent.click(screen.getByRole("button", { name: /Spróbuj ponownie/ }));
     expect(await screen.findByText(/Brak notatek/)).toBeInTheDocument();
+  });
+});
+
+describe("audyt 24.09 (blok D) — zakładki kontraktu", () => {
+  it("aneks pokazuje zmienione pola po polsku, nie surowy JSON (N9)", async () => {
+    mocks.get.mockResolvedValue({
+      data: [
+        {
+          id: 1,
+          contract_id: 5,
+          amendment_type: "extension",
+          old_values: { end_date: "2026-06-30", status: "ending" },
+          new_values: { end_date: "2026-09-30", status: "active" },
+          effective_date: "2026-06-15",
+          reason: null,
+          document_id: null,
+          created_by: null,
+          created_by_email: null,
+          created_at: "2026-06-15T10:00:00Z",
+        },
+      ],
+    });
+    renderWith(<ContractAmendmentsTab contractId={5} clientId={2} readOnly />);
+
+    expect(await screen.findByText(/→ 30\.09\.2026/)).toBeInTheDocument();
+    expect(screen.getByText(/→ Aktywny/)).toBeInTheDocument();
+    expect(screen.queryByText(/"end_date"/)).not.toBeInTheDocument();
+  });
+
+  it("formularz aneksu nie ma już gałęzi „wcześniejsze zakończenie” (S5)", async () => {
+    mocks.get.mockResolvedValue({ data: [] });
+    renderWith(<ContractAmendmentsTab contractId={5} clientId={2} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Zmień zakres/ }));
+    expect(screen.queryByText("Data faktycznego zakończenia")).not.toBeInTheDocument();
+  });
+
+  it("usunięcie sprzętu pyta w wierszu, nie natywnym oknem (N7)", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm");
+    mocks.equipmentList.mockResolvedValue({
+      data: [
+        {
+          id: 3,
+          contract_id: 9,
+          item_type: "laptop",
+          owner: "ours",
+          brand_model: "X1",
+          serial_number: null,
+          return_due_date: null,
+          return_status: "returned",
+        },
+      ],
+    });
+    renderWith(<ContractEquipmentTab contractId={9} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Usuń pozycję/ }));
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: /Potwierdź usunięcie/ })).toBeInTheDocument();
+    confirmSpy.mockRestore();
+  });
+
+  it("faktury: status po polsku, a odmowa usunięcia kończy się toastem (N9, N10)", async () => {
+    mocks.get.mockResolvedValue({
+      data: [
+        {
+          id: 7,
+          contract_id: 5,
+          direction: "to_client",
+          invoice_number: "FV/1",
+          period_month: null,
+          period_year: null,
+          issue_date: "2026-09-01",
+          due_date: "2026-09-15",
+          paid_date: "2026-09-10",
+          amount: 1000,
+          currency: "PLN",
+          status: "paid",
+          notes: null,
+        },
+      ],
+    });
+    mocks.del.mockRejectedValue(httpError(403, "Brak uprawnień do faktur"));
+    renderWith(<ContractInvoicesTab contractId={5} />);
+
+    expect(await screen.findByText("Zapłacona")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Usuń fakturę FV/1" }));
+    fireEvent.click(screen.getByRole("button", { name: "Potwierdź usunięcie faktury FV/1" }));
+    await waitFor(() =>
+      expect(mocks.showToast).toHaveBeenCalledWith(
+        "Brak uprawnień do faktur",
+        "error",
+      ),
+    );
   });
 });

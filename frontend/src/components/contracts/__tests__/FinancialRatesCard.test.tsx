@@ -223,7 +223,7 @@ describe("FinancialRatesCard — harmonogram z jednym krokiem (UAT B53)", () => 
     );
 
     expect(screen.getByTestId("client-rate-schedule-11-source")).toHaveTextContent("z zamówienia");
-    expect(screen.getByText(/od 1\.07\.2026/)).toBeInTheDocument();
+    expect(screen.getByText(/od 01\.07\.2026/)).toBeInTheDocument();
   });
 
   it("pokazuje jeden krok stawki kandydata, a bez kroków nic nie dorysowuje", () => {
@@ -237,7 +237,7 @@ describe("FinancialRatesCard — harmonogram z jednym krokiem (UAT B53)", () => 
         }}
       />,
     );
-    expect(screen.getByText(/od 1\.03\.2026/)).toBeInTheDocument();
+    expect(screen.getByText(/od 01\.03\.2026/)).toBeInTheDocument();
 
     rerender(
       <FinancialRatesCard

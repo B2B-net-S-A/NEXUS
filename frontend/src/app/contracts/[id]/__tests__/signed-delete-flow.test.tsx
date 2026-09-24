@@ -17,11 +17,19 @@ const mocks = vi.hoisted(() => ({
   canManageFinance: false,
   deliveryAccess: "write" as "none" | "read" | "write",
   impersonating: false,
+  search: "",
+  replace: vi.fn(),
+  updateStatus: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
   useParams: () => ({ id: "563" }),
-  useRouter: () => ({ push: mocks.push }),
+  useRouter: () => ({ push: mocks.push, replace: mocks.replace }),
+  useSearchParams: () => new URLSearchParams(mocks.search),
+}));
+
+vi.mock("@/components/Toast", () => ({
+  useToast: () => ({ showError: vi.fn(), showSuccess: vi.fn(), showToast: vi.fn() }),
 }));
 
 vi.mock("next/link", () => ({
@@ -68,6 +76,7 @@ vi.mock("@/store/auth", () => ({
     ["admin", "delivery_lead"].includes(mocks.role) &&
     mocks.deliveryAccess === "write",
   canViewClientFinance: () => mocks.role === "admin",
+  hasAnalyticsCapability: () => mocks.role === "admin",
   canRecoverContractTermination: () =>
     ["admin", "finance", "talent_community_manager"].includes(mocks.role) &&
     mocks.deliveryAccess !== "none",
@@ -119,6 +128,7 @@ vi.mock("@/lib/api", () => ({
     activities: (...args: unknown[]) => mocks.activities(...args),
     rateHistory: vi.fn(),
     update: (...args: unknown[]) => mocks.updateContract(...args),
+    updateStatus: (...args: unknown[]) => mocks.updateStatus(...args),
     delete: (...args: unknown[]) => mocks.deleteContract(...args),
     forceDeleteSigned: (...args: unknown[]) =>
       mocks.forceDeleteSigned(...args),
@@ -131,7 +141,7 @@ vi.mock("@/components/contracts/AddProjectDialog", () => ({
   AddProjectDialog: () => null,
 }));
 vi.mock("@/components/ContractAmendmentsTab", () => ({
-  ContractAmendmentsTab: () => null,
+  ContractAmendmentsTab: () => <p>zakładka aneksów</p>,
 }));
 vi.mock("@/components/ContractDocumentsTab", () => ({
   ContractDocumentsTab: () => null,
@@ -150,7 +160,7 @@ vi.mock("@/components/contracts/ContractNotesTab", () => ({
   ContractNotesTab: () => null,
 }));
 vi.mock("@/components/contracts/ContractRateBenchmarkCard", () => ({
-  ContractRateBenchmarkCard: () => null,
+  ContractRateBenchmarkCard: () => <p>karta benchmarku</p>,
 }));
 vi.mock("@/components/contracts/ContractTerminationDialog", () => ({
   ContractTerminationDialog: () => null,
@@ -264,6 +274,7 @@ beforeEach(() => {
   mocks.canManageFinance = false;
   mocks.deliveryAccess = "write";
   mocks.impersonating = false;
+  mocks.search = "";
   window.history.replaceState(
     {},
     "",
@@ -454,5 +465,56 @@ describe("ContractDetailPage — Timeline (retest UAT B23)", () => {
     await user.click(screen.getByRole("button", { name: /Timeline/ }));
 
     expect(await screen.findByText("Brak wpisów w historii.")).toBeInTheDocument();
+  });
+});
+
+describe("ContractDetailPage — audyt 24.09 (blok D)", () => {
+  it("otwiera zakładkę wskazaną w adresie i zapisuje wybór w adresie (S9)", async () => {
+    mocks.search = "tab=amendments";
+    const user = userEvent.setup({ delay: null });
+    renderPage();
+
+    expect(await screen.findByText("zakładka aneksów")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Timeline/ }));
+    expect(mocks.replace).toHaveBeenCalledWith(
+      expect.stringContaining("tab=timeline"),
+      { scroll: false },
+    );
+  });
+
+  it("pokazuje „Anulowany” zamiast surowego `void` (S11)", async () => {
+    mocks.getContract.mockResolvedValue({ data: { ...contract, status: "void" } });
+    renderPage();
+
+    const heading = await screen.findByRole("heading", { name: /Kontrakt #563/ });
+    expect(within(heading).getAllByText("Anulowany").length).toBeGreaterThan(0);
+    expect(within(heading).queryByText("void")).not.toBeInTheDocument();
+  });
+
+  it("odmowa zmiany statusu z nagłówka jest widoczna bez trybu edycji (S9)", async () => {
+    mocks.updateStatus.mockRejectedValue(new Error("409"));
+    const user = userEvent.setup({ delay: null });
+    renderPage();
+
+    await screen.findByRole("heading", { name: /Kontrakt #563/ });
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Zmień status kontraktu" }),
+      "draft",
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Nie udało się usunąć kontraktu.",
+    );
+  });
+
+  it("benchmark tylko z `view_finance` — ta sama bramka co backend (S1)", async () => {
+    renderPage();
+    expect(await screen.findByText("karta benchmarku")).toBeInTheDocument();
+  });
+
+  it("Delivery Lead bez `view_finance` nie dostaje karty kończącej się 403 (S1)", async () => {
+    mocks.role = "delivery_lead";
+    renderPage();
+    await screen.findByRole("heading", { name: /Kontrakt #563/ });
+    expect(screen.queryByText("karta benchmarku")).not.toBeInTheDocument();
   });
 });

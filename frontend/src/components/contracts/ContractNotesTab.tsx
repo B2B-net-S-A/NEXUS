@@ -3,7 +3,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { contractsApi, type ContractTimelineItem } from "@/lib/api";
 import { Phone, StickyNote } from "lucide-react";
-import { formatDate } from "@/lib/utils";
+// DD.MM.RRRR jak reszta kontraktu (audyt 24.09, N8).
+import { formatIsoDatePl as formatDate } from "@/lib/date-pl";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { resolveViewState } from "@/lib/view-state";
 

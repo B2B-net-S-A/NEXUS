@@ -30,7 +30,11 @@ from app.services.order_consultant_match import (
     unknown_consultant_reason,
 )
 from app.services.order_mail_resolver import ResolvedConsultant
-from app.services.order_pdf_parser import ConsultantOrderRow, OrderExtraction
+from app.services.order_pdf_parser import (
+    ConsultantOrderRow,
+    OrderExtraction,
+    _names_exactly_equivalent,
+)
 
 ACTION_FILL_DRAFT = "fill_draft"
 ACTION_FUTURE = "future"
@@ -80,6 +84,13 @@ AUTO_ACTIONS = frozenset(
 )
 
 PLACEHOLDER_TITLE = "(bez numeru)"
+
+#: Powód dla dwóch pozycji tej samej osoby w jednym dokumencie (audyt 24.09, W2).
+REPEATED_PERSON_REASON = (
+    "Ta sama osoba ma w dokumencie więcej niż jedną pozycję (np. dwie stawki "
+    "albo dwa okresy) — zdecyduj, które zamówienia założyć, i zapisz je ręcznie "
+    "w oknie zamówienia"
+)
 
 
 @dataclass(frozen=True)
@@ -262,11 +273,36 @@ def _period_for_row(
 
 
 def _rate_for_row(
-    row: ConsultantOrderRow, extraction: OrderExtraction
+    row: ConsultantOrderRow, extraction: OrderExtraction, *, single_person: bool
 ) -> tuple[Optional[Decimal], Optional[str], Optional[Decimal]]:
-    rate = row.rate_client if row.rate_client is not None else extraction.rate_client
-    unit = row.rate_unit or extraction.rate_unit
-    md = row.md_total if row.md_total is not None else extraction.md_total
+    """Stawka, jednostka i liczba MD wiersza — stawka i jednostka z JEDNEGO źródła.
+
+    Pola dokumentu opisują osobę wyłącznie w dokumencie jednoosobowym. Przy
+    kilku osobach „60 MD na zamówienie" to wspólna pula, a stawka z nagłówka
+    nie jest stawką osoby, której wiersz jej nie podał — skopiowana na każdy
+    wiersz dawała ręcznemu „Zastosuj" 3 × 60 MD i cudzą stawkę (audyt 24.09,
+    W1; ta sama reguła co ``total_value``, FIN-MAIL-01).
+
+    Jednostka idzie za stawką. Dokument pożycza jednostkę wierszowi tylko
+    wtedy, gdy mówi o tej samej kwocie (albo nie ma własnej): Bank Pocztowy
+    przelicza stawkę DOKUMENTU z MD na godziny, więc wiersz z 1200 zł za MD
+    dostawał jednostkę „hour" i zapisywał się jako 1200 zł/h (W3).
+    """
+    if row.rate_client is not None:
+        rate = row.rate_client
+        unit = row.rate_unit or (
+            extraction.rate_unit
+            if extraction.rate_client is None or extraction.rate_client == rate
+            else None
+        )
+    elif single_person:
+        rate, unit = extraction.rate_client, extraction.rate_unit
+    else:
+        rate, unit = None, None
+    if row.md_total is not None:
+        md = row.md_total
+    else:
+        md = extraction.md_total if single_person else None
     return rate, unit, md
 
 
@@ -314,13 +350,20 @@ def plan_document(
     if not extraction.title:
         proposal.blocking.append("Brak numeru zamówienia")
 
+    # Dokument ze stawką oznaczoną jako brutto (Erste, PFRON, rozpoznanie
+    # ogólne): stawka przeszła ÷ 1,23, a wartość całkowita nie — jej charakter
+    # (brutto czy netto) nie wynika z oznaczenia stawki i nie wolno go zgadywać.
+    # Przeniesiona na zamówienie zawyżała przychód o 23% (audyt 24.09, S1).
+    gross_document = extraction.rate_client_gross is not None or any(
+        row.rate_client_gross is not None for row in rows
+    )
     for row, res in zip(rows, resolved):
         start, end = _period_for_row(
             row,
             extraction,
             document_period_authoritative=document_period_authoritative,
         )
-        rate, unit, md = _rate_for_row(row, extraction)
+        rate, unit, md = _rate_for_row(row, extraction, single_person=len(rows) == 1)
         rp = RowProposal(
             row_index=res.row_index,
             row_name=row.consultant_name,
@@ -335,7 +378,9 @@ def plan_document(
             md_total=str(md) if md is not None else None,
             order_type=order_type or ("md" if is_group_client else "periodic"),
             total_value=str(extraction.total_value)
-            if extraction.total_value is not None and len(rows) == 1
+            if extraction.total_value is not None
+            and len(rows) == 1
+            and not gross_document
             else None,
             currency=(extraction.currency or "").strip().upper() or None,
         )
@@ -483,4 +528,39 @@ def plan_document(
             continue
         rp.action = ACTION_FUTURE if open_orders else ACTION_NEW
         proposal.rows.append(rp)
+    _hold_repeated_people(proposal.rows)
     return proposal
+
+
+def _hold_repeated_people(rows: list[RowProposal]) -> None:
+    """Dwie pozycje tej samej osoby w jednym PDF-ie — nigdy automatem.
+
+    On-site 150 i off-site 130 albo dwa okresy tej samej osoby: planer dawał
+    obu wierszom „nowe zamówienie”, a zabezpieczenie przed duplikatem w zapisie
+    (kontrakt + numer + dokument) trafiało przy drugim wierszu w zamówienie
+    założone dla pierwszego. Druga pozycja przepadała, a dokument szedł jako
+    „Zastosowano” (audyt 24.09, W2). Które pozycje są osobnymi zamówieniami,
+    a które jednym ze wspólną stawką, rozstrzyga człowiek.
+
+    Ta sama osoba = ten sam kontrakt, a bez kontraktu (osoba spoza rostera) —
+    to samo imię i nazwisko.
+    """
+    repeated: set[int] = set()
+    for i, first in enumerate(rows):
+        for second in rows[i + 1 :]:
+            if first.contract_id is not None and second.contract_id is not None:
+                same = first.contract_id == second.contract_id
+            else:
+                # Wiersz bez odczytanego nazwiska nie jest „tą samą osobą"
+                # co inny taki wiersz — zatrzymuje go dopasowanie osoby.
+                same = bool(first.row_name.strip()) and _names_exactly_equivalent(
+                    first.row_name, second.row_name
+                )
+            if same:
+                repeated.update((first.row_index, second.row_index))
+    for rp in rows:
+        if rp.row_index not in repeated:
+            continue
+        if rp.action in AUTO_ACTIONS:
+            rp.action = ACTION_SKIP
+        rp.reasons.append(REPEATED_PERSON_REASON)

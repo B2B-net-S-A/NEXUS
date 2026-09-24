@@ -20,7 +20,7 @@ const TAB_SHORT: Record<string, string> = {
   changes: "Zmiany",
   entries: "Wejścia",
   exits: "Zejścia",
-  ending: "Kończące się",
+  ending: "Bez kontynuacji",
   gaps: "Braki",
 };
 

@@ -552,7 +552,7 @@
     "tasks": [
       {
         "q": "Co się zmieniło w zamówieniach w tym miesiącu?",
-        "a": "Otwórz „Zmiany w zamówieniach”: Zmiany, Wejścia, Zejścia, Kończące się zamówienia i Braki. Odhaczaj pozycje „Zrobione” — pasek pokazuje postęp miesiąca.",
+        "a": "Otwórz „Zmiany w zamówieniach”: Zmiany, Wejścia, Zejścia, Zamówienia bez kontynuacji i Braki. Odhaczaj pozycje „Zrobione” — pasek pokazuje postęp miesiąca, a eksport do Excela niesie kolumnę „Zrobione”.",
         "anchor": "finance.order_changes"
       },
       {
@@ -572,7 +572,7 @@
       }
     ],
     "pitfalls": [
-      "Zejścia to tylko zapisany koniec współpracy — zamówienie kończące się przy trwającej umowie jest w „Kończące się zamówienia”.",
+      "Zejścia to tylko zapisany koniec współpracy — zamówienie kończące się przy trwającej umowie jest w „Zamówienia bez kontynuacji”. Gdy brak kolejnego zamówienia jest już w „Brakach” tego miesiąca, osoba stoi tylko tam.",
       "Powtórny import tego samego miesiąca nadpisuje wcześniejsze zużycie."
     ],
     "anchors": [

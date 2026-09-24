@@ -175,7 +175,7 @@ export interface OrderEntryItem extends OrderRef {
  *
  * Werdykt rozdziela dwie podzakładki o tym samym kształcie wiersza:
  * `ended_intent` → Zejścia (ktoś zapisał koniec współpracy),
- * `ending_pending` / `no_successor` → Kończące się zamówienia.
+ * `ending_pending` / `no_successor` → Zamówienia bez kontynuacji (klucz `ending`).
  */
 export type OrderExitVerdict = "ended_intent" | "no_successor" | "ending_pending";
 

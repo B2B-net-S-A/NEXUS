@@ -830,3 +830,183 @@ def test_queue_redacts_amounts_and_other_clients_for_roles_without_finance():
     assert row["existing_person_ids"] == [] and "Bank Inny" not in str(tcm)
     admin = _redact_proposal(proposal, show_finance=True)
     assert admin is proposal
+
+
+# ── Audyt 24.09, blok B (poczta zamówień) ────────────────────────────────────
+
+
+def _two_people(ex_rows):
+    return (
+        _resolved(0, ex_rows[0].consultant_name),
+        _resolved(1, ex_rows[1].consultant_name, contract_id=11, live=(11,)),
+    )
+
+
+def test_several_people_do_not_inherit_the_document_md_pool_or_rate():
+    """W1: „60 MD na zamówienie" przy 3 osobach nie jest 60 MD każdej z nich.
+
+    Ręczne „Zastosuj" nie czyta bramki — plan był jedynym zabezpieczeniem, a
+    kopiował liczbę MD i stawkę z nagłówka na każdą osobę bez własnych.
+    """
+    rows = [_row("Jan Kowalski"), _row("Anna Nowak")]
+    rows[1].rate_client = None
+    rows[1].rate_unit = None
+    ex = _extraction(rows)
+    ex.md_total = Decimal("60")
+    ex.rate_client = Decimal("1000.00")
+    ex.rate_unit = "day"
+    prop = _plan(ex, _two_people(rows), order_type="md")
+    assert [r.md_total for r in prop.rows] == [None, None]
+    assert (prop.rows[0].rate_client, prop.rows[0].rate_unit) == ("900.00", "day")
+    assert (prop.rows[1].rate_client, prop.rows[1].rate_unit) == (None, None)
+
+    # Dokument jednoosobowy: liczba MD i stawka dokumentu SĄ tej osoby.
+    one = _row("Jan Kowalski")
+    one.rate_client = None
+    one.rate_unit = None
+    single = _extraction([one])
+    single.md_total = Decimal("60")
+    single.rate_client = Decimal("1000.00")
+    single.rate_unit = "day"
+    row = _plan(single, (_resolved(0, "Jan Kowalski"),), order_type="md").rows[0]
+    assert (row.md_total, row.rate_client, row.rate_unit) == ("60", "1000.00", "day")
+
+
+def test_shared_md_pool_is_one_reason_not_a_missing_md_per_person():
+    """W1: wspólna pula to jeden powód „wspólny budżet”, nie „brak MD” u osób."""
+    from app.services.order_mail_gate import CODE_MD_MISSING, CODE_MD_SHARED_POOL
+
+    rows = [_row("Jan Kowalski"), _row("Anna Nowak")]
+    ex = _extraction(rows, uncertain=True)
+    ex.uncertain_reasons = ["Brak liczby MD przy konsultantach"]
+    ex.md_total = Decimal("60")
+    resolved = _two_people(rows)
+    prop = _plan(ex, resolved, order_type="md")
+    verdict = evaluate(
+        _gate_input(
+            extraction=ex,
+            proposal=prop,
+            resolved=resolved,
+            deterministic_rows=tuple(rows),
+            current_rates={},
+        )
+    )
+    assert verdict.verdict == VERDICT_REVIEW
+    assert CODE_MD_SHARED_POOL in verdict.codes
+    assert CODE_MD_MISSING not in verdict.codes
+    assert not any("Odczyt niepewny: Brak liczby MD" in r for r in verdict.reasons)
+
+
+def test_row_rate_keeps_its_own_unit_not_the_converted_document_unit():
+    """W3: stawka wiersza w MD nie dostaje jednostki godzinowej dokumentu.
+
+    Bank Pocztowy przelicza stawkę DOKUMENTU (1200 zł/MD → 150 zł/h). Wiersz
+    osoby z 1200 bez jednostki brał jednostkę dokumentu i zapisywał się jako
+    1200 zł/h.
+    """
+    row = _row("Jan Kowalski", rate="1200.00", unit=None)
+    ex = _extraction([row])
+    ex.rate_client = Decimal("150.00")
+    ex.rate_client_md = Decimal("1200.00")
+    ex.rate_unit = "hour"
+    planned = _plan(ex, (_resolved(0, "Jan Kowalski"),)).rows[0]
+    assert (planned.rate_client, planned.rate_unit) == ("1200.00", None)
+    # Ta sama kwota w wierszu i w dokumencie — jednostka dokumentu jej dotyczy.
+    same = _extraction([_row("Jan Kowalski", rate="150.00", unit=None)])
+    same.rate_client = Decimal("150.00")
+    same.rate_unit = "hour"
+    planned = _plan(same, (_resolved(0, "Jan Kowalski"),)).rows[0]
+    assert (planned.rate_client, planned.rate_unit) == ("150.00", "hour")
+
+
+def test_gross_document_total_is_not_carried_onto_the_order():
+    """S1: stawka przeszła ÷ 1,23, wartość całkowita nie — nie przenosimy jej."""
+    row = _row("Jan Kowalski", rate="1160.00")
+    row.rate_client_gross = Decimal("1426.80")
+    ex = _extraction([row])
+    ex.rate_client = Decimal("1160.00")
+    ex.rate_client_gross = Decimal("1426.80")
+    ex.total_value = Decimal("32816.40")
+    assert _plan(ex, (_resolved(0, "Jan Kowalski"),)).rows[0].total_value is None
+    net = _extraction([_row("Jan Kowalski")])
+    net.total_value = Decimal("60000")
+    assert _plan(net, (_resolved(0, "Jan Kowalski"),)).rows[0].total_value == "60000"
+
+
+def test_two_positions_of_one_person_wait_for_a_human():
+    """W2: on-site 150 i off-site 130 tej samej osoby — nigdy dwa „nowe” automatem.
+
+    Zabezpieczenie w zapisie trafiało przy drugiej pozycji w zamówienie
+    pierwszej, więc druga przepadała, a dokument szedł jako zapisany.
+    """
+    from app.services.order_mail_gate import CODE_ACTION_NOT_AUTO
+    from app.services.order_mail_planner import ACTION_SKIP, REPEATED_PERSON_REASON
+
+    rows = [
+        _row("Jan Kowalski", rate="150.00", unit="hour"),
+        _row("Kowalski Jan", rate="130.00", unit="hour"),
+        _row("Anna Nowak", rate="140.00", unit="hour"),
+    ]
+    resolved = (
+        _resolved(0, "Jan Kowalski"),
+        _resolved(1, "Kowalski Jan"),
+        _resolved(2, "Anna Nowak", contract_id=11, live=(11,)),
+    )
+    prop = _plan(_extraction(rows), resolved)
+    assert [r.action for r in prop.rows] == [ACTION_SKIP, ACTION_SKIP, ACTION_NEW]
+    assert all(REPEATED_PERSON_REASON in r.reasons for r in prop.rows[:2])
+    assert REPEATED_PERSON_REASON not in prop.rows[2].reasons
+    assert prop.auto_eligible_actions is False
+    verdict = evaluate(
+        _gate_input(
+            extraction=_extraction(rows),
+            proposal=prop,
+            resolved=resolved,
+            deterministic_rows=tuple(rows),
+            current_rates={},
+        )
+    )
+    assert verdict.verdict == VERDICT_REVIEW
+    assert CODE_ACTION_NOT_AUTO in verdict.codes
+
+
+def test_two_positions_of_one_new_person_are_also_held():
+    """W2: osoba spoza rostera (bez kontraktu) — to samo imię i nazwisko."""
+    from app.services.order_mail_planner import ACTION_SKIP
+
+    rows = [_row("Zenon Nowy", rate="150.00"), _row("Zenon Nowy", rate="130.00")]
+    resolved = (
+        ResolvedConsultant(0, "Zenon Nowy", MATCH_NONE, reason="Brak w rosterze"),
+        ResolvedConsultant(1, "Zenon Nowy", MATCH_NONE, reason="Brak w rosterze"),
+    )
+    prop = _plan(_extraction(rows), resolved)
+    assert [r.action for r in prop.rows] == [ACTION_SKIP, ACTION_SKIP]
+
+
+def test_cost_order_for_several_people_goes_to_the_queue():
+    """S3: wspólna kwota zlecenia kosztowego nie ma gdzie trafić przy zapisie
+    per osoba — dokument szedł jako „zapisany automatycznie" z samymi szkicami."""
+    from app.services.order_mail_gate import CODE_COST_SHARED_BUDGET
+
+    rows = [_row("Jan Kowalski"), _row("Anna Nowak")]
+    ex = _extraction(rows)
+    ex.total_value = Decimal("250000")
+    resolved = _two_people(rows)
+    prop = _plan(ex, resolved, order_type="cost")
+    verdict = evaluate(
+        _gate_input(
+            extraction=ex,
+            proposal=prop,
+            resolved=resolved,
+            deterministic_rows=tuple(rows),
+            current_rates={},
+        )
+    )
+    assert verdict.verdict == VERDICT_REVIEW
+    assert CODE_COST_SHARED_BUDGET in verdict.codes
+    one = _extraction([_row("Jan Kowalski")])
+    single = _plan(one, (_resolved(0, "Jan Kowalski"),), order_type="cost")
+    assert (
+        CODE_COST_SHARED_BUDGET
+        not in evaluate(_gate_input(extraction=one, proposal=single)).codes
+    )

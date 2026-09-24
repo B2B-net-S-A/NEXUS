@@ -1238,6 +1238,13 @@ def bank_pocztowy_net_md_rate(text: str) -> Optional[Decimal]:
     return _normalize_amount(m.group(1))
 
 
+def _bp_hourly_from_md(md_rate: Decimal) -> Decimal:
+    """Stawka za 1 MD → godzinowa: ÷ 8, W GÓRĘ do 2 miejsc (reguła BP)."""
+    return (md_rate / _BP_HOURS_PER_MD).quantize(
+        Decimal("0.01"), rounding=ROUND_CEILING
+    )
+
+
 def apply_bank_pocztowy_order_policy(
     result: OrderExtraction, document_text: str
 ) -> OrderExtraction:
@@ -1254,18 +1261,23 @@ def apply_bank_pocztowy_order_policy(
         result.title_needs_review = True
 
     # 2) Stawka: netto za 1 MD → godzinowa (÷ 8, W GÓRĘ do 2 miejsc).
+    #    ``rate_client_md`` jest znacznikiem idempotencji: odczyt już
+    #    przeliczony (ponowne zastosowanie reguły przy „Przelicz plan") nie jest
+    #    dzielony drugi raz.
+    already_converted = result.rate_client_md is not None
     net_from_formula = bank_pocztowy_net_md_rate(document_text)
-    if net_from_formula is not None:
+    if net_from_formula is not None and not already_converted:
         result.rate_client = net_from_formula
         result.confidence["rate_client"] = 1.0
     rate_warning: Optional[str] = None
     if result.rate_client is not None:
-        md_rate = result.rate_client
-        hourly = (md_rate / _BP_HOURS_PER_MD).quantize(
-            Decimal("0.01"), rounding=ROUND_CEILING
-        )
-        result.rate_client_md = md_rate
-        result.rate_client = hourly
+        if already_converted:
+            hourly = result.rate_client
+        else:
+            md_rate = result.rate_client
+            hourly = _bp_hourly_from_md(md_rate)
+            result.rate_client_md = md_rate
+            result.rate_client = hourly
         result.rate_unit = "hour"
         if hourly < _BP_HOURLY_MIN or hourly > _BP_HOURLY_MAX:
             rate_warning = (
@@ -1280,6 +1292,17 @@ def apply_bank_pocztowy_order_policy(
         # z tą inwariantą (i mylący w metadanych odpowiedzi).
         result.rate_unit = None
         result.confidence.pop("rate_unit", None)
+
+    # 2b) Wiersze osób: ta sama reguła MD → h. Do 24.09.2026 przeliczana była
+    #     wyłącznie stawka DOKUMENTU, a planer brał stawkę z wiersza i jednostkę
+    #     z dokumentu — 1200 zł za MD zapisywało się jako 1200 zł/h (audyt
+    #     24.09, W3). Wiersz z jednostką godzinową jest już przeliczony
+    #     (ponowne zastosowanie reguły) — nie dzielimy go drugi raz.
+    for row in result.consultant_rows:
+        if row.rate_client is None or row.rate_unit == "hour":
+            continue
+        row.rate_client = _bp_hourly_from_md(row.rate_client)
+        row.rate_unit = "hour"
 
     # 3) Liczba MD ze wzoru — pomijana w całej logice (nie zasila formularza
     #    jednoosobowego, a wpisanie jej do budżetu byłoby zgadywaniem).
@@ -2125,7 +2148,8 @@ def apply_document_rate_kind(
             marking = RATE_MARK_NET
         if (
             marking is None
-            and item is result
+            and (item is result or item.rate_client == result.rate_client)
+            and item.rate_unit == "hour"
             and result.rate_client_md is not None
             and result.rate_unit == "hour"
             and result.rate_client
@@ -2135,7 +2159,8 @@ def apply_document_rate_kind(
         ):
             # Po konwersji MD → h kwoty godzinowej nie ma w dokumencie.
             # Sprawdź oryginał; wzór <stawka>*1,23 jest dowodem netto,
-            # niezależnym od tożsamości klienta.
+            # niezależnym od tożsamości klienta. Wiersz osoby przeliczony tą
+            # samą regułą do tej samej kwoty ma ten sam oryginał (W3).
             marking = detect_rate_gross_marking(document_text, [result.rate_client_md])
             if (
                 marking is None

@@ -229,7 +229,7 @@ const DATA: OrderChangesResponse = {
       status: "draft",
     },
   ],
-  // Zejścia = zapisany koniec współpracy. Kończące się zamówienia = zamówienie
+  // Zejścia = zapisany koniec współpracy. Zamówienia bez kontynuacji = zamówienie
   // dobiega końca, a współpraca trwa. Werdykt jest tu jedynym rozróżnieniem.
   exits: [
     {
@@ -273,9 +273,12 @@ const DATA: OrderChangesResponse = {
       verdict_label: "Kończy się 30.09.2026 — na razie brak kolejnego zamówienia",
       intent: null,
     },
+    // Zamówienie kończy się w ostatnim dniu miesiąca — brak wykryje się
+    // dopiero w październiku, więc we wrześniu stoi tutaj. Marek (ED-77) ma
+    // brak wykryty we wrześniu i stoi WYŁĄCZNIE w Brakach (audyt 24.09.2026).
     {
-      ...ref(6, "Marek Zieliński", "Energetyka Demo", "ED-77"),
-      end_date: "2026-09-05",
+      ...ref(11, "Tomasz Lis", "Energetyka Demo", "ED-81"),
+      end_date: "2026-09-30",
       start_date: "2026-03-01",
       rate_cost: 110,
       rate_revenue: 150,
@@ -283,7 +286,7 @@ const DATA: OrderChangesResponse = {
       currency: "PLN",
       order_type: "periodic",
       verdict: "no_successor",
-      verdict_label: "Brak kolejnego zamówienia — do usunięcia z rozliczeń",
+      verdict_label: "Zamówienie się skończyło, brak kolejnego — współpraca trwa",
       intent: null,
     },
   ],

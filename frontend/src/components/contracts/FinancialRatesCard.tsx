@@ -1,6 +1,8 @@
 import { AlertCircle, Banknote, RefreshCw, TrendingUp } from "lucide-react";
 
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatCurrency } from "@/lib/utils";
+// Daty ISO bez przesunięcia strefy (audyt 24.09, N8).
+import { formatIsoDatePl as formatDate } from "@/lib/date-pl";
 import { HOURS_PER_MONTH, MD_PER_MONTH } from "@/lib/work-time";
 import { warsawToday } from "@/lib/warsaw-date";
 

@@ -40,7 +40,8 @@ export const SUB_TAB_LABELS: Record<OrderChangesSubTab, string> = {
   changes: "Zmiany",
   entries: "Wejścia",
   exits: "Zejścia",
-  ending: "Kończące się zamówienia",
+  // Klucz `ending` (URL `sub=ending`) zostaje — zmieniła się nazwa (D4, 24.09).
+  ending: "Zamówienia bez kontynuacji",
   gaps: "Braki",
 };
 
@@ -392,9 +393,9 @@ function emptyText(
     case "entries":
       return `Nikt nie rozpoczął z nami współpracy w miesiącu ${data.period.label}. Przedłużenia, zmiany klienta i dodatkowe projekty są w zakładce Zmiany.`;
     case "exits":
-      return `Nikt nie zakończył współpracy w miesiącu ${data.period.label}. Zamówienia, które kończą się bez kolejnego, są w zakładce Kończące się zamówienia.`;
+      return `Nikt nie zakończył współpracy w miesiącu ${data.period.label}. Zamówienia, które kończą się bez kolejnego, są w zakładce Zamówienia bez kontynuacji.`;
     case "ending":
-      return `Żadne zamówienie nie kończy się w miesiącu ${data.period.label} bez kolejnego.`;
+      return `Żadne zamówienie nie kończy się w miesiącu ${data.period.label} bez kolejnego. Zamówienia, których brak jest już w zakładce Braki, stoją tylko tam.`;
     case "gaps":
       return `Brak zamówień zakończonych bez następnego zamówienia w miesiącu ${data.period.label}.`;
     case "changes":

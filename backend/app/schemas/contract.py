@@ -505,13 +505,15 @@ class ContractBulkTerminateRequest(BaseModel):
 class ContractBenchmarkComparison(BaseModel):
     """Porównanie stawki kontraktu vs nasza średnia vs rynek."""
 
-    contract_rate_monthly: Optional[int] = None
-    internal_avg_monthly: Optional[int] = None
-    internal_median_monthly: Optional[int] = None
+    # Kwoty w złotych z groszami (audyt 24.09, S1): stawki kontraktu mają
+    # sześć miejsc po przecinku, więc ``int`` dawał ValidationError → 500.
+    contract_rate_monthly: Optional[float] = None
+    internal_avg_monthly: Optional[float] = None
+    internal_median_monthly: Optional[float] = None
     internal_sample_size: int = 0
-    market_min: Optional[int] = None
-    market_median: Optional[int] = None
-    market_max: Optional[int] = None
+    market_min: Optional[float] = None
+    market_median: Optional[float] = None
+    market_max: Optional[float] = None
     market_source: Optional[str] = None
     market_source_date: Optional[date] = None
     role_used: Optional[str] = None

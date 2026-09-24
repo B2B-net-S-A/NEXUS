@@ -36,6 +36,20 @@ interface Props {
 }
 
 /**
+ * Domyślny miesiąc importu = POPRZEDNI miesiąc w czasie lokalnym.
+ *
+ * Wyniki dotyczą miesiąca zakończonego — arkusz za wrzesień przychodzi
+ * w październiku. Domyślny bieżący miesiąc zapisywał dane pod złym okresem,
+ * gdy nikt nie zmienił listy. Data z `getFullYear`/`getMonth` (lokalna), nie
+ * z `toISOString` — tamto jest w UTC i 1. dnia miesiąca po północy dawało
+ * miesiąc wcześniej.
+ */
+export function defaultImportPeriod(today: Date): { year: number; month: number } {
+  const previous = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+  return { year: previous.getFullYear(), month: previous.getMonth() + 1 };
+}
+
+/**
  * Wgrywanie miesięcznego arkusza.
  *
  * Okres wybiera CZŁOWIEK (pkt 6 ticketu) — arkusz nie niesie jednoznacznej
@@ -51,8 +65,8 @@ export function FinanceImportPanel({ onImported }: Props) {
   const [error, setError] = useState("");
   const [headerError, setHeaderError] = useState<FinanceHeaderMismatch | null>(null);
   const [conflict, setConflict] = useState<FinancePeriodConflict | null>(null);
-  const [year, setYear] = useState(now.getFullYear());
-  const [month, setMonth] = useState(now.getMonth() + 1);
+  const [year, setYear] = useState(() => defaultImportPeriod(now).year);
+  const [month, setMonth] = useState(() => defaultImportPeriod(now).month);
 
   function pick(next: File | null) {
     setError("");
@@ -186,7 +200,9 @@ export function FinanceImportPanel({ onImported }: Props) {
           className="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
         >
           {mutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-          Wybierz plik
+          {/* Przycisk WYSYŁA import — „Wybierz plik” obiecywało okno wyboru,
+              a wybór pliku to pole obok. */}
+          Importuj plik
         </button>
       </div>
 
