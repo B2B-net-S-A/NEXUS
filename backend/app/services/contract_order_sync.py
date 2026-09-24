@@ -309,6 +309,9 @@ class ContractSyncOutcome:
     activated: bool = False
     order_cost_ids: list[int] = field(default_factory=list)
     source_order_id: Optional[int] = None
+    # Waluta najnowszego zamówienia, której kontrakt NIE przyjął, bo starsze
+    # zamówienia są w innej (W1). Informacja dla człowieka — nie zmiana.
+    currency_conflict: Optional[str] = None
 
     @property
     def changed(self) -> bool:
@@ -344,6 +347,8 @@ class ContractSyncOutcome:
             details["auto_activated"] = True
         if self.order_cost_ids:
             details["order_cost_synced"] = sorted(self.order_cost_ids)
+        if self.currency_conflict:
+            details["currency_conflict"] = self.currency_conflict
         return details
 
 
@@ -606,10 +611,39 @@ async def sync_contract_from_orders(
     #    zmieniamy też wtedy, gdy kontrakt ma przychód spoza zamówień: kroki
     #    nie niosą własnej waluty, więc 1000 PLN/MD sprzed zmiany czytałoby
     #    się po niej jako 1000 EUR/MD.
+    #
+    #    To samo dotyczy przychodu Z ZAMÓWIEŃ w innej walucie niż najnowsze
+    #    (audyt 24.09.2026, W1): przełączenie waluty usuwało kroki wszystkich
+    #    zamówień w starej walucie, a resolver brał wtedy najbliższy przyszły
+    #    krok — cała historia przychodu czytała się w nowej walucie. Krok nie
+    #    niesie własnej waluty, więc taki kontrakt zostaje przy swojej walucie
+    #    i czeka na decyzję człowieka (log + znacznik w wyniku).
     target_currency = latest.currency
-    keep_currency = not follow_order_currency or (
-        has_own_revenue and contract.resolved_rate_client_currency != latest.currency
+    mixed_order_currencies = any(t.currency != latest.currency for t in terms)
+    keep_currency = (
+        not follow_order_currency
+        or (
+            has_own_revenue
+            and contract.resolved_rate_client_currency != latest.currency
+        )
+        or (
+            mixed_order_currencies
+            and contract.resolved_rate_client_currency != latest.currency
+        )
     )
+    if (
+        follow_order_currency
+        and mixed_order_currencies
+        and contract.resolved_rate_client_currency != latest.currency
+    ):
+        outcome.currency_conflict = latest.currency
+        logger.warning(
+            "contract-order sync: contract %s has orders in %s and %s — "
+            "currency kept, needs a human decision",
+            contract.id,
+            contract.resolved_rate_client_currency,
+            latest.currency,
+        )
     if keep_currency:
         target_currency = contract.resolved_rate_client_currency
     elif (contract.rate_client_currency or "").upper() != latest.currency or (

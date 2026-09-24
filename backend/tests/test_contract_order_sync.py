@@ -1347,3 +1347,53 @@ async def test_deleting_the_only_order_takes_its_revenue_off_the_contract(
         None,
         None,
     )
+
+
+# ── Audyt 24.09.2026 (blok C) ───────────────────────────────────────────────
+
+
+async def test_order_in_a_new_currency_keeps_the_revenue_history_of_the_old_one():
+    """W1: zamówienie PLN, potem EUR — historia przychodu nie może czytać się w EUR.
+
+    Do poprawki synchronizacja przełączała walutę kontraktu na EUR i usuwała
+    kroki zamówień w PLN; resolver brał wtedy najbliższy przyszły krok, więc
+    wrzesień „kosztował" 250 EUR/MD zamiast 1340 PLN/MD.
+    """
+    contract = _contract(status=ContractStatus.active)
+    pln = _order(100)
+    await sync_contract_from_orders(
+        _FakeDb(), contract, [pln], actor_id=None, today=date(2026, 9, 20)
+    )
+    eur = _order(
+        101,
+        start_date=date(2027, 1, 1),
+        end_date=date(2027, 6, 30),
+        rate_client=Decimal("250"),
+        rate_client_currency="EUR",
+        currency="EUR",
+    )
+
+    outcome = await sync_contract_from_orders(
+        _FakeDb(), contract, [pln, eur], actor_id=None, today=date(2026, 9, 20)
+    )
+
+    assert contract.resolved_rate_client_currency == "PLN"
+    assert [s.source_order_id for s in contract.client_rate_schedule] == [100]
+    assert contract.effective_client_rate(date(2026, 10, 1)) == Decimal("167.500")
+    assert outcome.currency_conflict == "EUR"
+    assert outcome.as_details()["currency_conflict"] == "EUR"
+
+
+async def test_single_currency_switch_without_history_still_follows_the_order():
+    """Kontrakt bez przychodu w starej walucie przyjmuje walutę zamówienia."""
+    contract = _contract(status=ContractStatus.active)
+    eur = _order(
+        101, rate_client=Decimal("250"), rate_client_currency="EUR", currency="EUR"
+    )
+
+    outcome = await sync_contract_from_orders(
+        _FakeDb(), contract, [eur], actor_id=None, today=date(2026, 9, 20)
+    )
+
+    assert contract.resolved_rate_client_currency == "EUR"
+    assert outcome.currency_conflict is None
