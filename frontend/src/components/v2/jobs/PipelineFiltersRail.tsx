@@ -61,7 +61,8 @@ function FilterPill({
 
 /**
  * Pasek filtrów Tablicy (makieta 22.09.2026) — jeden wiersz nad tablicą
- * zamiast kolumny 230 px. Te same filtry co dawna kolumna (przyciemniają,
+ * zamiast kolumny 230 px. Od 24.09.2026 w tej samej linii stoją też chipy
+ * zamkniętych (`closed`) — wcześniej osobny wiersz nad kolumnami. Te same filtry co dawna kolumna (przyciemniają,
  * nie usuwają kart), plus „Mój ruch" i szukanie po nazwisku. Lista etapów
  * zniknęła, bo fokus kolumny daje nawigator etapów nad tablicą.
  */
@@ -91,6 +92,7 @@ export function PipelineFilterBar({
   slaClientName,
   slaLoading,
   inProcessCount,
+  closed,
   trailing,
 }: {
   nameQuery: string;
@@ -119,6 +121,13 @@ export function PipelineFilterBar({
   slaLoading: boolean;
   /** Osoby w procesie (bez etapów końcowych) — podsumowanie po prawej. */
   inProcessCount?: number;
+  /**
+   * „Zamknięci:" z chipami (przez nas / przez DL / przez klienta /
+   * zrezygnował) — cele upuszczenia, więc renderuje je Tablica wewnątrz
+   * `DragDropContext`. Stoją w TEJ SAMEJ linii co filtry (24.09.2026; do
+   * tego dnia osobny wiersz nad kolumnami).
+   */
+  closed?: React.ReactNode;
   /** Przełączniki widoku i gęstości Tablicy (za podsumowaniem). */
   trailing?: React.ReactNode;
 }) {
@@ -233,25 +242,33 @@ export function PipelineFilterBar({
           </div>
         </PopoverContent>
       </Popover>
-      {/* Podsumowanie i SLA klienta (z karty klienta; brak mówimy wprost,
-          bo cisza czytałaby się jak „zdążamy"). */}
-      <span className="ml-auto inline-flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
-        {typeof inProcessCount === "number" ? (
-          <span className="tabular-nums">
-            {inProcessCount} w procesie
-            {stuckCount > 0 ? ` · ${stuckCount} utknęło > 7 d` : ""}
-          </span>
+      {/* Odstęp, potem zamknięci, separator i SLA — jedna linia na
+          desktopie, zawija się dopiero na wąskim ekranie. */}
+      <span className="ml-auto inline-flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+        {closed}
+        {closed ? (
+          <span aria-hidden="true" className="hidden h-4 w-px bg-border sm:inline-block" />
         ) : null}
-        <span
-          className="inline-flex items-center gap-1"
-          title="SLA klienta z karty klienta — dni robocze na CV od wejścia w Screening"
-        >
-          <Timer className="h-3 w-3" aria-hidden="true" />
-          {slaLoading
-            ? "SLA: wczytywanie…"
-            : slaDays != null
-              ? `SLA ${slaClientName?.trim() || "klienta"}: ${slaDays} ${slaDays === 1 ? "dzień roboczy" : "dni roboczych"}`
-              : "SLA: nie ustawiono w karcie klienta"}
+        {/* Podsumowanie i SLA klienta (z karty klienta; brak mówimy wprost,
+            bo cisza czytałaby się jak „zdążamy"). */}
+        <span className="inline-flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
+          {typeof inProcessCount === "number" ? (
+            <span className="tabular-nums">
+              {inProcessCount} w procesie
+              {stuckCount > 0 ? ` · ${stuckCount} utknęło > 7 d` : ""}
+            </span>
+          ) : null}
+          <span
+            className="inline-flex items-center gap-1"
+            title="SLA klienta z karty klienta — dni robocze na CV od wejścia w Screening"
+          >
+            <Timer className="h-3 w-3" aria-hidden="true" />
+            {slaLoading
+              ? "SLA: wczytywanie…"
+              : slaDays != null
+                ? `SLA ${slaClientName?.trim() || "klienta"}: ${slaDays} ${slaDays === 1 ? "dzień roboczy" : "dni roboczych"}`
+                : "SLA: nie ustawiono w karcie klienta"}
+          </span>
         </span>
       </span>
       {trailing ? <span className="inline-flex items-center gap-1">{trailing}</span> : null}

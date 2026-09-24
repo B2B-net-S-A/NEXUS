@@ -5,7 +5,7 @@ import type { ReactElement } from "react";
 
 import {
   MANAGED_IN_NEXUS_LABELS,
-  ManagedInNexusBanner,
+  ManagedInTraffitNotice,
   ManagedInNexusChip,
 } from "@/components/v2/jobs/ManagedInNexusSwitch";
 
@@ -51,34 +51,36 @@ beforeEach(() => {
   mocks.setManagedInNexus.mockResolvedValue({ data: managedJob });
 });
 
-describe("ManagedInNexusBanner", () => {
-  it("shows the banner for a Traffit recruitment that is not switched yet", () => {
-    renderWithQuery(<ManagedInNexusBanner job={traffitJob} canSwitch />);
-    expect(screen.getByTestId("managed-in-nexus-banner")).toBeInTheDocument();
-    expect(screen.getByText(MANAGED_IN_NEXUS_LABELS.bannerTitle)).toBeInTheDocument();
-    expect(screen.getByTestId("managed-in-nexus-switch")).toBeInTheDocument();
+describe("ManagedInTraffitNotice", () => {
+  it("shows one compact pill (not a banner) for a Traffit recruitment that is not switched yet", () => {
+    renderWithQuery(<ManagedInTraffitNotice job={traffitJob} canSwitch />);
+    const notice = screen.getByTestId("managed-in-traffit-notice");
+    expect(notice.tagName).toBe("SPAN");
+    expect(notice).toHaveTextContent("Prowadzona w Traffit — ruchy nadpisze nocny import");
+    expect(notice).toHaveAttribute("title", MANAGED_IN_NEXUS_LABELS.noticeHint);
+    expect(screen.getByTestId("managed-in-nexus-switch")).toHaveTextContent("Przełącz do NEXUSA");
   });
 
   it("renders nothing for a recruitment created in NEXUS", () => {
     renderWithQuery(
-      <ManagedInNexusBanner job={{ ...traffitJob, external_source: "manual" }} canSwitch />,
+      <ManagedInTraffitNotice job={{ ...traffitJob, external_source: "manual" }} canSwitch />,
     );
-    expect(screen.queryByTestId("managed-in-nexus-banner")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("managed-in-traffit-notice")).not.toBeInTheDocument();
   });
 
   it("renders nothing once the recruitment is managed in NEXUS", () => {
-    renderWithQuery(<ManagedInNexusBanner job={managedJob} canSwitch />);
-    expect(screen.queryByTestId("managed-in-nexus-banner")).not.toBeInTheDocument();
+    renderWithQuery(<ManagedInTraffitNotice job={managedJob} canSwitch />);
+    expect(screen.queryByTestId("managed-in-traffit-notice")).not.toBeInTheDocument();
   });
 
   it("hides the switch button without permission but keeps the warning", () => {
-    renderWithQuery(<ManagedInNexusBanner job={traffitJob} canSwitch={false} />);
-    expect(screen.getByTestId("managed-in-nexus-banner")).toBeInTheDocument();
+    renderWithQuery(<ManagedInTraffitNotice job={traffitJob} canSwitch={false} />);
+    expect(screen.getByTestId("managed-in-traffit-notice")).toBeInTheDocument();
     expect(screen.queryByTestId("managed-in-nexus-switch")).not.toBeInTheDocument();
   });
 
   it("switches the recruitment after confirmation", async () => {
-    renderWithQuery(<ManagedInNexusBanner job={traffitJob} canSwitch />);
+    renderWithQuery(<ManagedInTraffitNotice job={traffitJob} canSwitch />);
     fireEvent.click(screen.getByTestId("managed-in-nexus-switch"));
     expect(await screen.findByText(MANAGED_IN_NEXUS_LABELS.enableTitle)).toBeInTheDocument();
     expect(mocks.setManagedInNexus).not.toHaveBeenCalled();

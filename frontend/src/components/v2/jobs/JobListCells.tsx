@@ -1,8 +1,9 @@
 "use client";
 
 /**
- * Komórki wiersza listy rekrutacji (rekrutacja v3): zwarte liczby per grupa
- * etapów, pigułka „Wymaga ruchu" i link „+N propozycji".
+ * Komórki wiersza listy rekrutacji: zwarte liczby per kolumna Tablicy,
+ * termin, status requestu, plakietka podobnych rekrutacji, pigułka „Wymaga
+ * ruchu" i link „+N propozycji".
  *
  * Osobny plik, bo `JobsListV2.tsx` jest już długi, a te trzy elementy mają
  * własną logikę tonu i odmiany — testowalną bez montowania całej listy.
@@ -23,28 +24,50 @@ import {
   funnelGroupTitle,
   FUNNEL_GROUP_LABELS,
   FUNNEL_GROUP_ORDER,
-  type FunnelGroupKey,
+  FUNNEL_GROUP_SHORT,
   type PipelineStageSummary,
 } from "@/lib/job-pipeline-funnel";
-
-/** Skrót grupy pod liczbą — pełna nazwa i etapy szablonu są w tooltipie. */
-const GROUP_SHORT: Record<FunnelGroupKey, string> = {
-  new: "Now",
-  screening: "Scr",
-  verified: "Zwer",
-  with_client: "Kl",
-  contract: "Um",
-  hired: "Zatr",
-};
+import {
+  classifyJobDeadline,
+  deadlineRelativeLabel,
+  formatDateOnly,
+  type DeadlineUrgency,
+} from "@/lib/job-deadline";
 
 /** Legenda nagłówka kolumny — te same nazwy co tooltipy komórek. */
 export const STAGE_COUNTS_LEGEND = FUNNEL_GROUP_ORDER.map(
-  (key) => `${GROUP_SHORT[key]} = ${FUNNEL_GROUP_LABELS[key]}`,
+  (key) => `${FUNNEL_GROUP_SHORT[key]} = ${FUNNEL_GROUP_LABELS[key]}`,
 ).join(" · ");
 
+/** Szerokość jednej liczby — ta sama w nagłówku i w wierszu (kolumny się pokrywają). */
+const STAGE_CELL = "w-[26px] shrink-0 text-center";
+
 /**
- * Sześć liczb w stałej kolejności lejka. Zero jest wyszarzone (grupa istnieje,
- * nikt w niej nie stoi), zatrudnieni mają ton sukcesu — to wynik, nie etap.
+ * Nagłówek kolumny „Etapy": skróty ośmiu kolumn Tablicy RAZ, nad liczbami
+ * (lista v5 — do 24.09.2026 skrót stał pod każdą liczbą w każdym wierszu).
+ * Pełna nazwa w `title` i w nazwie dostępnej.
+ */
+export function JobStageCountsHeader() {
+  return (
+    <div className="flex items-end gap-1" data-testid="job-stage-counts-header">
+      {FUNNEL_GROUP_ORDER.map((key) => (
+        <abbr
+          key={key}
+          title={FUNNEL_GROUP_LABELS[key]}
+          aria-label={FUNNEL_GROUP_LABELS[key]}
+          className={cn(STAGE_CELL, "text-[10px] font-medium no-underline")}
+        >
+          {FUNNEL_GROUP_SHORT[key]}
+        </abbr>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Osiem liczb w kolejności kolumn Tablicy (te same co tablica: `placeStage`).
+ * Zero jest wyszarzone (kolumna istnieje, nikt w niej nie stoi), zatrudnieni
+ * mają ton sukcesu — to wynik, nie etap. Nazwy kolumn stoją w nagłówku.
  */
 export function JobStageCounts({ summary }: { summary: PipelineStageSummary }) {
   const groups = buildStageFunnel(summary);
@@ -54,7 +77,7 @@ export function JobStageCounts({ summary }: { summary: PipelineStageSummary }) {
     <div
       role="group"
       aria-label={`Etapy: ${spoken}`}
-      className="flex items-stretch gap-1"
+      className="flex items-center gap-1"
       data-testid="job-stage-counts"
     >
       {groups.map((g) => (
@@ -63,24 +86,65 @@ export function JobStageCounts({ summary }: { summary: PipelineStageSummary }) {
           data-group={g.key}
           title={funnelGroupTitle(g, stages[g.key])}
           className={cn(
-            "flex min-w-[26px] flex-col items-center rounded-md border px-1 py-0.5 leading-none",
+            STAGE_CELL,
+            "rounded-md py-0.5 text-xs font-semibold tabular-nums leading-none",
             g.count === 0
-              ? "border-transparent text-muted-foreground/60"
+              ? "text-muted-foreground/50"
               : g.key === "hired"
-                ? "border-success/30 bg-success/10 text-success"
-                : "border-border bg-muted/50 text-foreground",
+                ? "bg-success/10 text-success"
+                : "bg-muted/60 text-foreground",
           )}
         >
-          <span className="text-xs font-semibold tabular-nums">{g.count}</span>
-          <span
-            aria-hidden="true"
-            className="mt-0.5 text-[10px] text-muted-foreground"
-          >
-            {GROUP_SHORT[g.key]}
-          </span>
+          {g.count}
         </span>
       ))}
     </div>
+  );
+}
+
+const DEADLINE_TONE_CLASS: Record<DeadlineUrgency, string> = {
+  overdue: "text-destructive",
+  soon: "text-warning",
+  normal: "text-muted-foreground",
+  none: "text-muted-foreground",
+};
+
+/**
+ * Termin w wierszu: data i „za N dni" / „po terminie N dni". Po terminie —
+ * ton destrukcyjny, ≤ 7 dni — ostrzegawczy, brak terminu — kreska.
+ * `now` jest parametrem dla testów.
+ */
+export function JobDeadlineCell({
+  deadline,
+  now,
+}: {
+  deadline: string | null | undefined;
+  now?: Date;
+}) {
+  const info = classifyJobDeadline(deadline, now);
+  const relative = deadlineRelativeLabel(info);
+  if (info.urgency === "none" || !relative) {
+    return <span className="text-xs text-muted-foreground">—</span>;
+  }
+  return (
+    <span
+      data-testid="job-deadline"
+      data-urgency={info.urgency}
+      className="flex flex-col leading-tight"
+    >
+      <span className="whitespace-nowrap text-xs tabular-nums text-foreground">
+        {formatDateOnly(deadline)}
+      </span>
+      <span
+        className={cn(
+          "whitespace-nowrap text-[11px]",
+          info.urgency !== "normal" && "font-medium",
+          DEADLINE_TONE_CLASS[info.urgency],
+        )}
+      >
+        {relative}
+      </span>
+    </span>
   );
 }
 
@@ -230,8 +294,10 @@ export interface JobSimilarSummary {
 }
 
 /**
- * „↻" = rekrutacje połączone (osoby przepinają się same), „≈" = system
- * sugeruje podobne z osobami wysłanymi do klienta. Brak obu = kreska.
+ * Plakietka „Podobne rekrutacje" w linii pod tytułem (lista v5 — do
+ * 24.09.2026 osobna kolumna). „↻" = rekrutacje połączone (osoby przepinają się
+ * same), „≈" = system sugeruje podobne z osobami wysłanymi do klienta. Brak
+ * obu = nic (w linii metadanych kreska byłaby szumem).
  */
 export function SimilarJobsCell({
   similar,
@@ -243,7 +309,7 @@ export function SimilarJobsCell({
   onOpen: () => void;
 }) {
   if (!similar || (similar.linked_count === 0 && !similar.suggested)) {
-    return <span className="text-xs text-muted-foreground">—</span>;
+    return null;
   }
   const open = (e: MouseEvent) => {
     e.stopPropagation();
@@ -257,14 +323,16 @@ export function SimilarJobsCell({
         type="button"
         onClick={open}
         disabled={disabled}
-        className="block max-w-full text-left"
+        data-testid="job-similar-badge"
+        className="inline-flex min-w-0 max-w-full items-center gap-1 rounded-md border border-primary/30 bg-primary/5 px-1.5 py-px text-[11px] text-primary hover:bg-primary/10"
         title="Połączone rekrutacje — otwórz, żeby zmienić"
       >
-        <span className="inline-flex max-w-full items-center gap-1 truncate rounded-md border border-primary/30 bg-primary/5 px-1.5 py-0.5 text-[11px] font-semibold text-primary">
+        <span className="truncate font-semibold">
           ↻ {first?.reference_number ?? first?.title ?? "Połączone"}
           {more}
         </span>
-        <span className="mt-0.5 block text-[11px] text-muted-foreground">
+        <span className="shrink-0 text-muted-foreground">·</span>
+        <span className="shrink-0 text-muted-foreground">
           przepięto {similar.reassigned_count}
         </span>
       </button>
@@ -276,16 +344,17 @@ export function SimilarJobsCell({
       type="button"
       onClick={open}
       disabled={disabled}
-      className="block max-w-full text-left"
+      data-testid="job-similar-badge"
+      className="inline-flex min-w-0 max-w-full items-center gap-1 rounded-md border border-dashed border-primary/40 px-1.5 py-px text-[11px] text-primary hover:bg-primary/5"
       title="System znalazł podobne rekrutacje z osobami wysłanymi do klienta"
     >
-      <span className="inline-flex items-center gap-1 rounded-md border border-dashed border-primary/40 px-1.5 py-0.5 text-[11px] font-semibold text-primary">
+      <span className="shrink-0 font-semibold">
         ≈ {countPl(suggested.count, "podobna", "podobne", "podobnych")}
       </span>
-      <span className="mt-0.5 block text-[11px] text-muted-foreground">
-        {suggested.sent_count} u klienta ·{" "}
-        <span className="font-semibold text-primary">Przepnij →</span>
+      <span className="shrink-0 text-muted-foreground">
+        · {suggested.sent_count} u klienta ·
       </span>
+      <span className="shrink-0 font-semibold">Przepnij →</span>
     </button>
   );
 }

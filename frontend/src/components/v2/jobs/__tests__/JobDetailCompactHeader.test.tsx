@@ -115,6 +115,17 @@ describe("JobDetailCompactHeader", () => {
     expect(screen.getByTestId("open-order")).not.toHaveTextContent("brakuje");
   });
 
+  it("ze „Ścieżką rekrutacji” krok 1 zastępuje przycisk „Zlecenie” — bez dublowania", () => {
+    renderHeader({
+      orderMissingCount: 2,
+      path: <div data-testid="path-slot">ścieżka</div>,
+    });
+    expect(screen.getByTestId("path-slot")).toBeTruthy();
+    expect(screen.queryByTestId("open-order")).toBeNull();
+    // Pozostałe przyciski rzędu zostają pod ścieżką.
+    expect(screen.getByTestId("open-history-chat")).toBeTruthy();
+  });
+
   it("licznik nieprzeczytanych czatu jest w nazwie przycisku i na odznace", () => {
     const { unmount } = renderHeader({ chatUnreadCount: 3 });
     const button = screen.getByRole("button", { name: "Historia i czat, 3 nieprzeczytane" });

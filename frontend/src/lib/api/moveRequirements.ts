@@ -112,3 +112,36 @@ export function isBlockingGap(item: MoveRequirementItem, askedDuringMove: boolea
   if (askedDuringMove && (kind === "set_candidate_rate" || kind === "set_client_rate")) return false;
   return true;
 }
+
+/**
+ * Wymagania, których brak zatrzymuje SERWER przy ruchu (bramka QC CV,
+ * stawka do klienta przy wysyłce przez Delivery Leada, debrief po rozmowie
+ * u klienta — `pipeline_move_rules`, `cv_qc`, `debrief_gate`). Każdy inny brak
+ * z listy `move-requirements` jest przypomnieniem: ruch przechodzi mimo niego.
+ */
+export const SERVER_ENFORCED_REQUIREMENT_KEYS: ReadonlySet<string> = new Set([
+  "cv_qc",
+  "client_rate",
+  "debrief",
+]);
+
+export interface RequirementsSummary {
+  /** Pozycje inne niż „ok” (brak albo w toku). */
+  missing: number;
+  total: number;
+  /** Braki, przy których serwer odmówi ruchu. */
+  enforced: MoveRequirementItem[];
+  /** Braki, które są tylko przypomnieniem. */
+  reminders: MoveRequirementItem[];
+}
+
+/** Licznik „brakuje X z Y” i podział braków na bramki serwera i przypomnienia. */
+export function summarizeRequirements(items: readonly MoveRequirementItem[]): RequirementsSummary {
+  const open = items.filter((i) => i.status !== "ok");
+  return {
+    missing: open.length,
+    total: items.length,
+    enforced: open.filter((i) => i.status === "missing" && SERVER_ENFORCED_REQUIREMENT_KEYS.has(i.key)),
+    reminders: open.filter((i) => !(i.status === "missing" && SERVER_ENFORCED_REQUIREMENT_KEYS.has(i.key))),
+  };
+}

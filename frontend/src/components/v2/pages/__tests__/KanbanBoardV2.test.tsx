@@ -825,16 +825,30 @@ describe("KanbanBoardV2 — focus na etapie", () => {
     expect(board).toHaveAttribute("data-desktop-layout", "full-pipeline");
     expect(board).toHaveClass("overflow-auto", "xl:pointer-fine:gap-1");
     expect(container.querySelectorAll("[data-colid]")).toHaveLength(12);
-    for (const column of container.querySelectorAll("[data-colid]")) {
-      expect(column).toHaveClass(
-        "xl:pointer-fine:w-auto",
-        "xl:pointer-fine:min-w-[12.5rem]",
-        "xl:pointer-fine:basis-[12.5rem]",
-        "xl:pointer-fine:grow",
-      );
+    for (const column of container.querySelectorAll<HTMLElement>("[data-colid]")) {
       // Dawny tryb kafelkowy ściskał kolumnę do zera.
       expect(column).not.toHaveClass("xl:pointer-fine:min-w-0");
+      if (column.dataset.narrow === "true") {
+        // Pusta kolumna jest wąska (24.09.2026) — 96 px, bez rozpychania.
+        expect(column).toHaveClass(
+          "xl:pointer-fine:w-24",
+          "xl:pointer-fine:min-w-24",
+          "xl:pointer-fine:basis-24",
+          "xl:pointer-fine:grow-0",
+        );
+        continue;
+      }
+      expect(column).toHaveClass(
+        "xl:pointer-fine:w-auto",
+        "xl:pointer-fine:min-w-[11.5rem]",
+        "xl:pointer-fine:basis-[11.5rem]",
+        "xl:pointer-fine:grow",
+      );
     }
+    // Kolumna z kartą ma pełną szerokość, puste są wąskie.
+    const narrow = container.querySelectorAll('[data-colid][data-narrow="true"]');
+    expect(narrow.length).toBeGreaterThan(0);
+    expect(narrow.length).toBeLessThan(container.querySelectorAll("[data-colid]").length);
 
     expect(container.querySelector("[data-mobile-stage-navigation]")).toHaveClass(
       "xl:pointer-fine:hidden",
@@ -1268,13 +1282,16 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     expect(within(qcCol).queryByText("DZ ✓")).toBeNull();
     expect(within(qcCol).getByTestId("card-qc-chip")).toHaveTextContent("QC nie sprawdzone");
     // Niesprawdzone QC: ruch ma rekruter („Sprawdź QC CV”), nie DL.
-    expect(within(qcCol).getByTestId("card-next-who")).toHaveTextContent("Ty");
-    // Odrzuceni i wycofani nie zajmują kolumn — pasek z celami upuszczenia.
+    expect(within(qcCol).getByTestId("card-next-who")).toHaveTextContent("Twój ruch");
+    // Odrzuceni i wycofani nie zajmują kolumn — chipy w pasku filtrów (jedna
+    // linia z wyszukiwarką i SLA), każdy jest celem upuszczenia.
     const bar = screen.getByTestId("board-closed-bar");
-    expect(bar).toHaveTextContent("Odrzucony przez nas 1");
-    expect(bar).toHaveTextContent("Odrzucony przez DL 0");
-    expect(bar).toHaveTextContent("Odrzucony przez klienta 0");
-    expect(bar).toHaveTextContent("Zrezygnował 0");
+    expect(screen.getByRole("toolbar", { name: "Filtry tablicy" })).toContainElement(bar);
+    expect(bar).toHaveTextContent("Zamknięci:");
+    expect(bar).toHaveTextContent("przez nas 1");
+    expect(bar).toHaveTextContent("przez DL 0");
+    expect(bar).toHaveTextContent("przez klienta 0");
+    expect(bar).toHaveTextContent("zrezygnował 0");
     expect(container.querySelector('[data-colid="def:313"]')).toBeNull();
     await userEvent.click(within(bar).getByRole("button", { name: /Odrzucony przez nas/ }));
     expect(container.querySelector('[data-colid="def:313"]')).toBeTruthy();
@@ -1302,7 +1319,7 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     // Znany brak — strzałka jest szara, ale klikalna.
     const card = document.querySelector('[data-candidate-id="8302"]') as HTMLElement;
     expect(within(card).getByTestId("card-advance")).toHaveAttribute("data-gap", "true");
-    expect(within(card).getByTestId("card-next-who")).toHaveTextContent("Ty");
+    expect(within(card).getByTestId("card-next-who")).toHaveTextContent("Twój ruch");
     await userEvent.click(chip);
     expect(await screen.findByTestId("cv-qc-dialog")).toHaveAttribute("data-stage-id", "7302");
   });
@@ -1443,18 +1460,65 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     expect(post.mock.calls.filter((c) => c[0] === "/api/pipeline/move")).toHaveLength(0);
   });
 
+  it("pusta kolumna jest wąska i ma pole „upuść tutaj”, kolumna z kartami — pełna", async () => {
+    const { container } = renderBoard(defaultB2BColumns());
+    await screen.findByTestId("pipeline-board");
+    const verified = container.querySelector('[data-colid="def:302"]') as HTMLElement;
+    const screening = container.querySelector('[data-colid="def:301"]') as HTMLElement;
+    expect(verified).toHaveAttribute("data-narrow", "true");
+    expect(within(verified).getByTestId("column-drop-hint")).toHaveTextContent("upuść tutaj");
+    // `droppableId` bez zmian — upuszczanie trafia w ten sam etap.
+    expect(verified.dataset.colid).toBe("def:302");
+    expect(screening).not.toHaveAttribute("data-narrow");
+    expect(within(screening).queryByTestId("column-drop-hint")).toBeNull();
+  });
+
+  it("tylko do odczytu: pusta kolumna nie zaprasza do upuszczania", async () => {
+    const { container } = renderBoard(defaultB2BColumns(), undefined, true);
+    await screen.findByTestId("pipeline-board");
+    const verified = container.querySelector('[data-colid="def:302"]') as HTMLElement;
+    expect(within(verified).queryByTestId("column-drop-hint")).toBeNull();
+  });
+
+  it("skok ze „Ścieżki rekrutacji” podświetla kolumnę Tablicy", async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const tree = (seq: number) => (
+      <QueryClientProvider client={qc}>
+        <TooltipProvider>
+          <KanbanBoardV2
+            columns={defaultB2BColumns()}
+            jobId={10}
+            focusColumnRequest={{ column: "cv_qc", seq }}
+          />
+        </TooltipProvider>
+      </QueryClientProvider>
+    );
+    const { container } = render(tree(1));
+    await screen.findByTestId("pipeline-board");
+    await waitFor(() =>
+      expect(container.querySelector('[data-colid="def:303"]')).toHaveClass("ring-2", "ring-primary"),
+    );
+    expect(container.querySelector('[data-colid="def:302"]')).not.toHaveClass("ring-2");
+  });
+
   it("nagłówek kolumny niesie drugą linię o SLA i najstarszej karcie", async () => {
     const { container } = renderBoard(defaultB2BColumns());
     await screen.findByTestId("pipeline-board");
 
-    // Bez karty klienta SLA nie jest zgadywane — kolumna mówi „SLA: —".
+    // Pod nazwą kolumny „co tu robisz" (v5), po prawej najstarsza karta;
+    // pełna informacja o SLA (bez karty klienta — „SLA: —") w dymku.
     const intake = container.querySelector('[data-column-sla="def:300"]');
-    expect(intake).toHaveTextContent("SLA: —");
+    expect(intake).toHaveTextContent("Przejrzyj, zadzwoń, kliknij „Biorę”");
     expect(intake).toHaveTextContent("najstarszy 9 d");
-    // Terminal odsyła po powody do doku, weryfikacja — do następnego kroku.
-    expect(
-      container.querySelector('[data-column-sla="def:302"]'),
-    ).toHaveTextContent("→ CV do klienta");
+    expect(intake).toHaveAttribute("title", "SLA: — · najstarszy 9 d");
+    // Po weryfikacji następna jest QC CV — nie „→ CV do klienta" (błąd sprzed v5).
+    const verified = container.querySelector('[data-column-sla="def:302"]');
+    expect(verified).toHaveTextContent("Stawka ✓ → przygotuj CV do QC");
+    expect(verified).not.toHaveTextContent("→ CV do klienta");
+    expect(container.querySelector('[data-column-sla="def:303"]')).toHaveTextContent(
+      "Popraw CV, potem wyślij",
+    );
+    expect(container.querySelector('[data-column-sla="def:311"]')).toHaveTextContent("Obsada 0 / —");
   });
 
   it("karta mówi, co dalej, a filtr „Bez następnej akcji” liczy zaległe", async () => {
@@ -1561,6 +1625,27 @@ describe("KanbanBoardV2 — wysuwany dok i deep link ?candidate=", () => {
         screen.queryByRole("complementary", { name: "Karta kandydata" }),
       ).toBeNull(),
     );
+  });
+
+  it("zwykły klik w nazwisko otwiera dok, nie profil; Ctrl/⌘-klik zostawia link przeglądarce", async () => {
+    renderBoard(dockColumns());
+    const link = await screen.findByRole("link", { name: "Aleksandra Nowakowska" });
+    // Prawdziwy adres zostaje — nowa karta, czytniki ekranu, „Kopiuj link".
+    expect(link.getAttribute("href")).toMatch(/^\/candidates\/90\?/);
+
+    // Ctrl-klik: przeglądarka otwiera profil w nowej karcie, dok się nie otwiera.
+    const ctrl = new MouseEvent("click", { bubbles: true, cancelable: true, ctrlKey: true });
+    link.dispatchEvent(ctrl);
+    expect(ctrl.defaultPrevented).toBe(false);
+    expect(screen.queryByRole("complementary", { name: "Karta kandydata" })).toBeNull();
+
+    // Zwykły klik: bez nawigacji (preventDefault), otwiera dok osoby.
+    const plain = new MouseEvent("click", { bubbles: true, cancelable: true });
+    link.dispatchEvent(plain);
+    expect(plain.defaultPrevented).toBe(true);
+    expect(
+      await screen.findByRole("complementary", { name: "Karta kandydata" }),
+    ).toBeInTheDocument();
   });
 
   it("Escape przy otwartym dialogu nie zamyka doku", async () => {

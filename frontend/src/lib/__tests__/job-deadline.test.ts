@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { classifyJobDeadline, formatDateOnly } from "@/lib/job-deadline";
+import {
+  classifyJobDeadline,
+  deadlineRelativeLabel,
+  formatDateOnly,
+} from "@/lib/job-deadline";
 
 const TODAY = new Date(2026, 8, 7); // 07.09.2026, lokalnie (miesiące 0-indeksowane)
 
@@ -64,5 +68,28 @@ describe("formatDateOnly", () => {
     expect(formatDateOnly(null)).toBe("—");
     expect(formatDateOnly(undefined)).toBe("—");
     expect(formatDateOnly("not-a-date")).toBe("—");
+  });
+});
+
+describe("deadlineRelativeLabel — „za N dni” / „po terminie N dni”", () => {
+  const now = new Date(2026, 8, 24, 23, 30);
+  const label = (deadline: string | null) =>
+    deadlineRelativeLabel(classifyJobDeadline(deadline, now));
+
+  it("przyszłość: za 1 dzień, za 2 dni, za 12 dni", () => {
+    expect(label("2026-09-25")).toBe("za 1 dzień");
+    expect(label("2026-09-26")).toBe("za 2 dni");
+    expect(label("2026-10-06")).toBe("za 12 dni");
+  });
+
+  it("dziś i po terminie", () => {
+    expect(label("2026-09-24")).toBe("dziś");
+    expect(label("2026-09-23")).toBe("po terminie 1 dzień");
+    expect(label("2026-09-14")).toBe("po terminie 10 dni");
+  });
+
+  it("brak terminu → null (komórka pokazuje kreskę)", () => {
+    expect(label(null)).toBeNull();
+    expect(label("nie-data")).toBeNull();
   });
 });

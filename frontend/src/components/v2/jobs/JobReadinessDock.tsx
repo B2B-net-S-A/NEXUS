@@ -382,7 +382,7 @@ function PipelineSummary({
   );
 }
 
-/** Zakładka „Pipeline" — WSZYSTKIE sześć grup, także zerowe (rozkład, nie skrót). */
+/** Zakładka „Pipeline" — WSZYSTKIE osiem kolumn Tablicy, także zerowe (rozkład, nie skrót). */
 function PipelineTab({
   jobId,
   stageBreakdown,

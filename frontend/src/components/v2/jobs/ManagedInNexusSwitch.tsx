@@ -8,10 +8,11 @@
  * nazajutrz. Po przełączeniu (`POST /api/jobs/{id}/manage-in-nexus`) import omija
  * etapy tej rekrutacji i nie nadpisuje jej tytułu, statusu ani daty zamknięcia.
  *
- * Dwie powierzchnie:
- * - `ManagedInNexusBanner` — nad tablicą, WYŁĄCZNIE dla rekrutacji z Traffita,
- *   które nie są jeszcze przełączone. Ruch na tablicy jest dozwolony zawsze;
- *   baner uprzedza, że nocny import go nadpisze.
+ * Dwie powierzchnie, obie w linii odznak nagłówka rekrutacji:
+ * - `ManagedInTraffitNotice` — WYŁĄCZNIE dla rekrutacji z Traffita, które nie
+ *   są jeszcze przełączone. Ruch na tablicy jest dozwolony zawsze; plakietka
+ *   uprzedza, że nocny import go nadpisze. Do 24.09.2026 był to duży baner
+ *   nad Tablicą (~110 px), który spychał kolumny pod ekran.
  * - `ManagedInNexusChip` — w nagłówku, WYŁĄCZNIE dla przełączonych. Powrót do
  *   Traffita tylko admin / Delivery Lead (backend odpowiada 403 pozostałym).
  *
@@ -24,7 +25,6 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { AppModal } from "@/components/ds";
 import { useToast } from "@/components/Toast";
-import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { jobsApi, type JobManagedInNexus } from "@/lib/api";
@@ -32,8 +32,9 @@ import { apiErrorMessage } from "@/lib/api-error";
 import { formatDate } from "@/lib/utils";
 
 export const MANAGED_IN_NEXUS_LABELS = {
-  bannerTitle: "Ta rekrutacja jest prowadzona w Traffitcie",
-  bannerDescription: "Ruchy wykonane tutaj nadpisze nocny import.",
+  notice: "Prowadzona w Traffit — ruchy nadpisze nocny import",
+  noticeHint:
+    "Nocny import z Traffita zapisuje etapy tej rekrutacji — ruch zrobiony tutaj przegra nazajutrz. Przełącz do NEXUSA, żeby import ich nie ruszał.",
   switchButton: "Przełącz do NEXUSA",
   enableTitle: "Przełączyć rekrutację do NEXUSA?",
   enableDescription:
@@ -77,13 +78,13 @@ function useManagedMutation(jobId: number, onDone: () => void) {
   });
 }
 
-export interface ManagedInNexusBannerProps {
+export interface ManagedInTraffitNoticeProps {
   job: ManagedJob;
   /** Czy użytkownik może przełączyć rekrutację (zapis pipeline + edycja rekrutacji). */
   canSwitch: boolean;
 }
 
-export function ManagedInNexusBanner({ job, canSwitch }: ManagedInNexusBannerProps) {
+export function ManagedInTraffitNotice({ job, canSwitch }: ManagedInTraffitNoticeProps) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const mutation = useManagedMutation(job.id, () => setConfirmOpen(false));
 
@@ -91,27 +92,23 @@ export function ManagedInNexusBanner({ job, canSwitch }: ManagedInNexusBannerPro
 
   return (
     <>
-      <Alert
-        variant="warning"
-        className="mb-3"
-        data-testid="managed-in-nexus-banner"
-        title={MANAGED_IN_NEXUS_LABELS.bannerTitle}
-        description={MANAGED_IN_NEXUS_LABELS.bannerDescription}
+      <span
+        data-testid="managed-in-traffit-notice"
+        title={MANAGED_IN_NEXUS_LABELS.noticeHint}
+        className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-warning/25 bg-warning-muted py-0.5 pl-2.5 pr-1 text-xs font-medium text-warning-muted-foreground"
       >
+        <span className="min-w-0 truncate">{MANAGED_IN_NEXUS_LABELS.notice}</span>
         {canSwitch ? (
-          <div className="mt-2">
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              data-testid="managed-in-nexus-switch"
-              onClick={() => setConfirmOpen(true)}
-            >
-              {MANAGED_IN_NEXUS_LABELS.switchButton}
-            </Button>
-          </div>
+          <button
+            type="button"
+            data-testid="managed-in-nexus-switch"
+            onClick={() => setConfirmOpen(true)}
+            className="shrink-0 rounded-full border border-warning/40 bg-background px-2 py-px text-[11px] font-semibold text-foreground transition-colors hover:bg-muted focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:min-h-9"
+          >
+            {MANAGED_IN_NEXUS_LABELS.switchButton}
+          </button>
         ) : null}
-      </Alert>
+      </span>
       <AppModal
         open={confirmOpen}
         onOpenChange={setConfirmOpen}

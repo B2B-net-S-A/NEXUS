@@ -159,10 +159,10 @@
   {
    "id": "header.managed",
    "area": "naglowek",
-   "opis": "Prowadzona w NEXUSIE (baner+chip)",
+   "opis": "Prowadzona w NEXUSIE (plakietka Traffit + chip)",
    "file": "app/jobs/[id]/page.tsx",
    "marker": "ManagedInNexus",
-   "v3_home": "nagłówek + baner nad Tablicą"
+   "v3_home": "linia odznak nagłówka (plakietka „Prowadzona w Traffit” z „Przełącz do NEXUSA”, chip „Prowadzona w NEXUSIE od …”)"
   },
   {
    "id": "header.ownership",
@@ -689,10 +689,10 @@
   {
    "id": "list.similar-jobs",
    "area": "lista",
-   "opis": "Kolumna „Podobne rekrutacje”: ↻ połączone (przepięto N), ≈ sugestie z osobami u klienta → okno przepięć",
+   "opis": "Plakietka „Podobne rekrutacje” pod tytułem: ↻ połączone (przepięto N), ≈ sugestie z osobami u klienta → okno przepięć",
    "file": "components/v2/pages/JobsListV2.tsx",
    "marker": "SimilarJobsCell",
-   "v3_home": "lista → kolumna Podobne rekrutacje"
+   "v3_home": "lista → plakietka pod tytułem rekrutacji"
   },
   {
    "id": "header.similar-jobs",
@@ -871,6 +871,30 @@
    "file": "components/v2/recruitment/CvToClientCard.tsx",
    "marker": "Użyj nowej wersji",
    "v3_home": "panel → CV → karta „CV do klienta”"
+  },
+  {
+   "id": "header.recruitment-path",
+   "area": "naglowek",
+   "opis": "„Ścieżka rekrutacji” (Zlecenie → Kandydaci → CV do klienta → Rozmowy → Umowa, kropka stanu + linia faktu) i pole „Najbliższy krok” (jedno zdanie + przycisk)",
+   "file": "app/jobs/[id]/page.tsx",
+   "marker": "JobRecruitmentPath",
+   "v3_home": "nagłówek rekrutacji, pod metadanymi"
+  },
+  {
+   "id": "board.column-purpose",
+   "area": "pipeline",
+   "opis": "Podpis „co tu robisz” pod nazwą kolumny Tablicy (SLA / najstarsza karta po prawej i w dymku); puste kolumny wąskie z polem „upuść tutaj”",
+   "file": "components/v2/pages/KanbanBoardV2.tsx",
+   "marker": "boardColumnPurpose",
+   "v3_home": "nagłówek kolumny Tablicy"
+  },
+  {
+   "id": "board.name-opens-dock",
+   "area": "pipeline",
+   "opis": "Klik w nazwisko na karcie otwiera dok osoby (nie profil); Ctrl/⌘-klik — profil w nowej karcie",
+   "file": "components/v2/pages/KanbanBoardV2.tsx",
+   "marker": "isPlainLeftClick",
+   "v3_home": "karta Tablicy"
   }
  ]
 }

@@ -1,0 +1,14 @@
+{
+  "_comment": "Lustro komunikatów bramki „Przekaż do searchu” (backend/app/services/job_readiness.py, MSG_*). Okno Zlecenie mapuje po nich brak na wiersz z działaniem. Pilnuje: backend/tests/test_job_readiness_blockers_mirror.py.",
+  "blockers": {
+    "title": "Uzupełnij tytuł rekrutacji.",
+    "client": "Przypisz klienta do rekrutacji.",
+    "context": "Uzupełnij kontekst projektu (o projekcie / obowiązki) w Profilu Championa.",
+    "questions": "Dodaj co najmniej 2 pytania screeningowe w Profilu Championa.",
+    "must": "Dodaj co najmniej jedną technologię must-have (pole oferty lub sekcja „Stack technologiczny” w Profilu Championa).",
+    "budget": "Uzupełnij budżet stawki kandydata w PLN/h (pole oferty lub stawka w Profilu Championa).",
+    "work_mode": "Określ tryb pracy: zdalnie, hybrydowo albo stacjonarnie.",
+    "office_days": "Podaj liczbę dni w biurze w tygodniu (tryb hybrydowy/stacjonarny).",
+    "office_city": "Podaj miasto biura w lokalizacji oferty (tryb hybrydowy/stacjonarny)."
+  }
+}

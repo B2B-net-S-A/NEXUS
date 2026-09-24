@@ -97,7 +97,7 @@ describe("nextActionFor — bramki wygrywają z etapem", () => {
       item({ verification_status: "pending" }),
       verifiedCol,
     );
-    expect(action.label).toBe("Wyślij CV do klienta");
+    expect(action.label).toBe("Przygotuj CV do QC");
   });
 
   it("„Ogłoszenia” dostaje tę samą podpowiedź co „Nowi”", () => {
@@ -195,9 +195,9 @@ describe("nextActionFor — screening i SLA klienta", () => {
 });
 
 describe("nextActionFor — dalsze etapy", () => {
-  it("po weryfikacji następnym krokiem jest CV do klienta", () => {
+  it("po weryfikacji następnym krokiem jest QC CV, nie klient (v5)", () => {
     expect(nextActionFor(item(), verifiedCol)).toEqual({
-      label: "Wyślij CV do klienta",
+      label: "Przygotuj CV do QC",
       tone: "normal",
       kind: "cv",
       owner: "recruiter",
@@ -211,7 +211,21 @@ describe("nextActionFor — dalsze etapy", () => {
     // …a z grupą policzoną nad całą tablicą — odróżni.
     expect(
       nextActionFor(item(), custom, { group: "verification" }).label,
-    ).toBe("Wyślij CV do klienta");
+    ).toBe("Popraw CV / wyślij");
+  });
+
+  it("kolumna „QC CV” mówi o poprawkach CV, nie o przygotowaniu do QC", () => {
+    const qcCol = col({ stage: "interview", name: "QC CV" });
+    expect(nextActionFor(item(), qcCol, { group: "verification" })).toEqual({
+      label: "Popraw CV / wyślij",
+      tone: "normal",
+      kind: "cv",
+      owner: "recruiter",
+    });
+    const other = col({ stage: "new", name: "Rozmowa z DL" });
+    expect(nextActionFor(item(), other, { group: "verification" }).label).toBe(
+      "Przygotuj CV do QC",
+    );
   });
 
   it("etapy u klienta mówią, na czyj ruch czekamy", () => {

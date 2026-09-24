@@ -8,8 +8,9 @@
  *
  * Klucze listy i liczników pochodzą z TYCH SAMYCH funkcji co w komponencie
  * (`jobsListQueryKey`, `jobsQuickCountsQueryKey`) — zasiew nie może się z nim
- * rozjechać. Zasiane są oba zakresy: domyślne „Moje" (sort „Wymaga uwagi")
- * i „Wszystkie" (sort „Od najnowszej"), więc przełącznik zakresu działa.
+ * rozjechać. Zasiane są trzy zakresy: domyślne „Moje" (sort „Wymaga uwagi"),
+ * „Otwarte" i „Wszystkie" (sort „Od najnowszej"), więc przełącznik zakresu
+ * działa.
  *
  * Bezpiecznik sieci: dok „Podgląd" i rozwijane filtry mają własne zapytania,
  * których tu nie zasiewamy. Na czas życia harnessu interceptor odrzuca KAŻDE
@@ -43,8 +44,8 @@ const pipeline = (counts: number[]) => [
   column("new", "Nowy", counts[0], 0),
   column("prep_call", "Prep call", counts[1], 1),
   column("screening", "Screening", counts[2], 2),
-  column("new", "Przepuszczony przez DZ", counts[3], 3),
-  column("verified", "Zweryfikowany", counts[4], 4),
+  column("verified", "Zweryfikowany", counts[4], 3),
+  column("interview", "QC CV", counts[3], 4),
   column("cv_sent", "CV Wysłane", counts[5], 5, { category: "external" }),
   column("client_interview", "Rozmowa z klientem", counts[6], 6, {
     category: "external",
@@ -144,7 +145,7 @@ const MINE = [
   },
 ];
 
-const ALL = [
+const OPEN = [
   ...MINE,
   {
     id: 904,
@@ -188,7 +189,30 @@ const ALL = [
   },
 ];
 
-const BASE: Omit<JobsListQueryState, "mine" | "sort"> = {
+const ALL = [
+  ...OPEN,
+  {
+    id: 906,
+    request_status: "closed",
+    similar: { linked_count: 0, linked_first: null, reassigned_count: 0, suggested: null },
+    title: "Frontend Developer React (zamknięta, z Traffita)",
+    reference_number: "REF-2025-0142",
+    recruitment_type: "body_leasing",
+    client_name: "Bank Przykładowy",
+    status: "closed",
+    tac_id: 5,
+    primary_owner: { name: "Jan Nowak" },
+    deadline: inDays(-200),
+    created_at: inDays(-400),
+    headcount: 1,
+    candidate_count: 11,
+    needs_action_count: 0,
+    open_proposals_count: 0,
+    stage_columns: pipeline([0, 0, 0, 0, 0, 0, 0, 0, 1, 10]),
+  },
+];
+
+const BASE: Omit<JobsListQueryState, "mine" | "openOnly" | "sort"> = {
   search: "",
   status: [],
   type: "all",
@@ -198,7 +222,6 @@ const BASE: Omit<JobsListQueryState, "mine" | "sort"> = {
   needsSourcing: false,
   activeInSearch: false,
   deadline: "any",
-  openOnly: false,
   noOwnerOnly: false,
   priorityWork: "any",
   page: 1,
@@ -223,21 +246,41 @@ function seededClient(): QueryClient {
     },
   });
   qc.setQueryData(
-    jobsListQueryKey({ ...BASE, mine: true, sort: "attention" }),
+    jobsListQueryKey({ ...BASE, mine: true, openOnly: false, sort: "attention" }),
     page(MINE),
   );
   qc.setQueryData(
-    jobsListQueryKey({ ...BASE, mine: false, sort: "newest" }),
+    jobsListQueryKey({ ...BASE, mine: false, openOnly: true, sort: "newest" }),
+    page(OPEN),
+  );
+  qc.setQueryData(
+    jobsListQueryKey({ ...BASE, mine: false, openOnly: false, sort: "newest" }),
     page(ALL),
   );
   qc.setQueryData(jobsQuickCountsQueryKey(), {
-    all: 4241,
+    all: 4286,
     mine: MINE.length,
     open: 318,
     needs_sourcing: 41,
     active_in_search: 27,
     owner_missing: 63,
     deadline_7d: 9,
+    request_status: {
+      searching: 210,
+      champion: 14,
+      contract: 9,
+      filled: 5,
+      incomplete: 80,
+      closed: 3968,
+    },
+    request_status_mine: {
+      searching: 1,
+      champion: 1,
+      contract: 1,
+      filled: 0,
+      incomplete: 0,
+      closed: 0,
+    },
   });
   // Rozwijane filtry kolumny (klucze z samych literałów — pilnuje ich
   // `harness-seeds.test.ts`).
@@ -265,7 +308,7 @@ export default function JobsListV3Preview() {
         email: "preview@example.com",
         name: "Preview Rekruter",
         // Wielorolowe: `admin` daje „Nowa rekrutacja", `recruiter` — domyślny
-        // zakres „Moje" (`defaultMineForUser`).
+        // zakres „Moje" (`defaultScopeForUser`).
         role: "admin",
         roles: ["admin", "recruiter"],
         profile_completed: true,

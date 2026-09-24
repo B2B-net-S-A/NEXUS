@@ -291,47 +291,81 @@ export function knownForwardGap(
 }
 
 export interface CardNextStep {
-  /** „Ty", „DL", „Klient"… — kto ma ruch. */
+  /** „Twój ruch", imię rekrutera, „DL", „Klient"… — kto ma ruch. */
   who: string;
   /** Ruch należy do patrzącego (podświetlenie tokenem primary). */
   mine: boolean;
   label: string;
 }
 
-const OWNER_WHO: Record<string, string> = {
-  recruiter: "Ty",
-  review: "Ty",
+/** Plakietka ruchu patrzącego (24.09.2026: „Ty" czytało się jak etykieta osoby). */
+export const MY_MOVE_LABEL = "Twój ruch";
+
+const ROLE_WHO: Record<string, string> = {
   client: "Klient",
   candidate: "Kandydat",
   delivery: "Delivery",
 };
 
+function firstNameOrNull(full: string | null | undefined): string | null {
+  const name = full?.trim();
+  return name ? name.split(/\s+/)[0] : null;
+}
+
+/**
+ * Ruch po naszej stronie (rekruter / przegląd): czyj? Blokada „Biorę" w Nowych
+ * wygrywa z rekruterem karty; bez obu albo gdy to patrzący — „Twój ruch".
+ * Bez `viewerId` (harness, starszy kontekst) zostaje „Twój ruch", jak dawne „Ty".
+ */
+function recruiterSideWho(
+  item: KanbanItem,
+  owner: string,
+  viewerId: number | null | undefined,
+): { who: string; mine: boolean } {
+  const claimActive = owner === "review" && item.claim_user_id != null;
+  const personId = claimActive ? item.claim_user_id : (item.recruiter_id ?? null);
+  const personName = claimActive ? item.claim_user_name : item.recruiter_name;
+  if (personId == null || viewerId == null || personId === viewerId) {
+    return { who: MY_MOVE_LABEL, mine: true };
+  }
+  const name = firstNameOrNull(personName);
+  return name ? { who: name, mine: false } : { who: MY_MOVE_LABEL, mine: true };
+}
+
 /**
  * Dół karty: kto ma ruch i co zrobić. Opiera się na `nextActionFor` (lustro
- * backendu), a w kolumnie „QC CV" — której tamta reguła nie zna — mówi, czy
- * ruch jest po stronie rekrutera (poprawki), Delivery Leada (przegląd
- * i wysłanie poza Nordeą) czy osoby od Cpro.
+ * backendu), a w kolumnie „QC CV" — której tamta reguła nie zna w szczegółach
+ * (wynik QC, kolejka Cpro) — mówi, czy ruch jest po stronie rekrutera
+ * (poprawki), Delivery Leada (przegląd i wysłanie poza Nordeą) czy osoby od Cpro.
  */
 export function cardNextStep(
   action: { label: string; owner: string; kind: string },
   item: KanbanItem,
-  ctx: { column: BoardColumnKey | null; cproEnabled: boolean; stageBadge?: string | null },
+  ctx: {
+    column: BoardColumnKey | null;
+    cproEnabled: boolean;
+    stageBadge?: string | null;
+    /** Patrzący — „Twój ruch" tylko wtedy, gdy karta jest jego (albo niczyja). */
+    viewerId?: number | null;
+  },
 ): CardNextStep | null {
+  const recruiter = () => recruiterSideWho(item, "recruiter", ctx.viewerId);
   if (ctx.column === "cv_qc") {
     if (item.qc?.status === "failed") {
-      return { who: "Ty", mine: true, label: "Popraw CV wg QC" };
+      return { ...recruiter(), label: "Popraw CV wg QC" };
     }
     if (ctx.stageBadge !== "cpro" && item.qc?.status !== "passed" && item.qc?.status !== "overridden") {
-      return { who: "Ty", mine: true, label: "Sprawdź QC CV" };
+      return { ...recruiter(), label: "Sprawdź QC CV" };
     }
     if (ctx.cproEnabled) {
       return ctx.stageBadge === "cpro"
         ? { who: "Osoba od Cpro", mine: false, label: "Wrzuć CV do Cpro" }
-        : { who: "Ty", mine: true, label: "Przekaż do Cpro" };
+        : { ...recruiter(), label: "Przekaż do Cpro" };
     }
     return { who: "DL", mine: false, label: "Przegląd CV i wysłanie do klienta" };
   }
   if (action.kind === "none" || action.owner === "none" || !action.label) return null;
-  const who = OWNER_WHO[action.owner] ?? "Ty";
-  return { who, mine: who === "Ty", label: action.label };
+  const role = ROLE_WHO[action.owner];
+  if (role) return { who: role, mine: false, label: action.label };
+  return { ...recruiterSideWho(item, action.owner, ctx.viewerId), label: action.label };
 }
