@@ -47,6 +47,7 @@ async def marketplace_sweeper_loop() -> None:
                 await db.commit()
 
                 rescanned = await rescan_recent_jobs(db, lookback=timedelta(hours=2))
+                await db.commit()
 
                 if (
                     counters.added
