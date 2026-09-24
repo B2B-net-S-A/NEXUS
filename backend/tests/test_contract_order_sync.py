@@ -1397,3 +1397,107 @@ async def test_single_currency_switch_without_history_still_follows_the_order():
 
     assert contract.resolved_rate_client_currency == "EUR"
     assert outcome.currency_conflict is None
+
+
+def test_placeholder_order_is_not_a_revenue_source():
+    """S4: zaślepka „(bez numeru)" ze stawką skopiowaną z kontraktu nie jest
+    „uzupełnionym zamówieniem" — inaczej stawka wraca na kontrakt jako
+    przychód z zamówienia."""
+    assert order_revenue_terms(_order(title="(bez numeru)")) is None
+    assert order_revenue_terms(_order(title=" (bez numeru) ")) is None
+    assert order_revenue_terms(_order(title="OIT/0189/2026/ITVM")) is not None
+
+
+async def _seed_revenue_case(
+    *, contract_rate_client: Decimal | None, order_title: str = "Z-REV"
+) -> tuple[int, int]:
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from app.models.client import Client
+
+    suffix = uuid.uuid4().hex[:6]
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"Przychód Backfill {suffix}")
+        candidate = Candidate(
+            name="Przychód",
+            lastname=f"Backfill-{suffix}",
+            email=f"revenue-{suffix}@example.com",
+        )
+        db.add_all([client, candidate])
+        await db.flush()
+        contract = Contract(
+            candidate_id=candidate.id,
+            client_id=client.id,
+            contract_type=ContractType.b2b,
+            status=ContractStatus.active,
+            start_date=date(2026, 1, 1),
+            rate_candidate=Decimal("100.000"),
+            rate_client=contract_rate_client,
+            rate_unit=RateUnit.hourly,
+            billing_hours_per_month=168,
+            currency="PLN",
+            rate_candidate_currency="PLN",
+        )
+        db.add(contract)
+        await db.flush()
+        db.add(
+            ClientOrder(
+                title=order_title,
+                status=ClientOrderStatus.active,
+                start_date=date(2026, 9, 1),
+                end_date=date(2026, 12, 31),
+                client_id=client.id,
+                contract_id=contract.id,
+                rate_unit=RateUnit.hourly,
+                rate_client=Decimal("170.000"),
+                rate_client_currency="PLN",
+                rate_candidate_currency="PLN",
+                currency="PLN",
+            )
+        )
+        await db.commit()
+        return contract.id, client.id
+
+
+async def test_nightly_pass_fills_missing_revenue_and_only_reports_drift():
+    """D1 (audyt 24.09.2026): noc UZUPEŁNIA brak przychodu z zamówienia,
+    a przychód różny od zamówienia tylko raportuje — bez nadpisania."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.app_setting import AppSetting
+    from app.services.contract_order_sync import (
+        REVENUE_DRIFT_REPORT_KEY,
+        backfill_missing_order_revenue,
+    )
+
+    missing_id, _ = await _seed_revenue_case(contract_rate_client=None)
+    drift_id, _ = await _seed_revenue_case(contract_rate_client=Decimal("150.000"))
+    placeholder_id, _ = await _seed_revenue_case(
+        contract_rate_client=None, order_title="(bez numeru)"
+    )
+
+    async with AsyncSessionLocal() as db:
+        result = await backfill_missing_order_revenue(db, today=date(2026, 9, 20))
+        await db.commit()
+
+    assert result.filled >= 1
+    assert drift_id in result.drift_contract_ids
+    assert missing_id not in result.drift_contract_ids
+
+    filled = await _load_contract(missing_id)
+    assert [s.source_order_id is not None for s in filled.client_rate_schedule] == [
+        True
+    ]
+    assert filled.effective_client_rate(date(2026, 10, 1)) == Decimal("170.000")
+    assert filled.status == ContractStatus.active
+
+    untouched = await _load_contract(drift_id)
+    assert list(untouched.client_rate_schedule) == []
+    assert untouched.rate_client == Decimal("150.000")
+
+    placeholder = await _load_contract(placeholder_id)
+    assert list(placeholder.client_rate_schedule) == []
+    assert placeholder.rate_client is None
+
+    async with AsyncSessionLocal() as db:
+        report = await db.get(AppSetting, REVENUE_DRIFT_REPORT_KEY)
+    assert report is not None and drift_id in report.value["drift_contract_ids"]
