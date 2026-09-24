@@ -293,6 +293,8 @@ async def test_selected_content_cannot_be_silently_regenerated_from_profile(
         await api.update_branded_cv(
             2, CVBrandedUpdate(expected_revision=5, language="en"), user, db
         )
-    assert exc.value.status_code == 409
+    # Generator v3: zmiana szablonu/języka (stary szablon „CV firmowe") jest
+    # wycofana w całości — 410 zanim cokolwiek zostanie wczytane.
+    assert exc.value.status_code == 410
     assert csv.branded_draft_html == "<p>old</p>"
     db.commit.assert_not_awaited()

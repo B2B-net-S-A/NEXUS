@@ -502,6 +502,11 @@ class Settings(BaseSettings):
     # wejścia = pominięcie z Activity `cv_auto_generate_skipped`. False = brak
     # jakiegokolwiek efektu po ruchu (stan sprzed 21.09).
     CV_AUTO_GENERATE_ON_VERIFIED: bool = True
+    # Pobranie CV klienta, którego centralna polityka wymaga zrzutu zgody RODO
+    # (PKO BP), jest zablokowane (409 `consent_required`), dopóki zrzut nie jest
+    # dołączony — generacja przechodzi, zgodę można dołączyć po niej. False =
+    # wyłącznik awaryjny: pobrania działają jak przed 23.09.2026.
+    CV_CONSENT_DOWNLOAD_GATE_ENABLED: bool = True
 
     # ── QC CV — bramka przed „CV wysłane”/Cpro (Rekrutacja v5, 0361) ─────────
     # Ruch pary z kolumn Nowi/Screening/Zweryfikowany/QC CV na „CV wysłane”

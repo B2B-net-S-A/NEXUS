@@ -24,8 +24,21 @@ def _key() -> bytes:
 
 
 def subject(
-    *, candidate_id=None, stage_id=None, client_id=None, cv_sha256=None
+    *,
+    candidate_id=None,
+    stage_id=None,
+    client_id=None,
+    cv_sha256=None,
+    generated_id=None,
 ) -> dict:
+    # `generated` (generator v3): zgoda dołączana do GOTOWEGO CV — wiązana
+    # z wierszem głównym pakietu, nie ze źródłem generacji.
+    if generated_id is not None:
+        return {
+            "mode": "generated",
+            "generated_id": generated_id,
+            "client_id": client_id,
+        }
     if cv_sha256 is not None:
         return {"mode": "upload", "cv_sha256": cv_sha256, "client_id": client_id}
     return {

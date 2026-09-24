@@ -5,7 +5,9 @@ Faza 2 (PR1) — `original` snapshot:
   GET    /api/candidates/stages/{stage_id}/cv/original/download
   POST   /api/candidates/stages/{stage_id}/cv/original/refresh
 
-Faza 3 (PR2) — `branded` draft + finalize (mirror Contract Draft):
+Faza 3 (PR2) — `branded` draft + finalize (mirror Contract Draft). Od
+generatora v3 (23.09.2026) szkic pochodzi wyłącznie z generatora; stary
+szablon „CV firmowe" wycofany (GET `none` = pusty stan, zmiana szablonu 410):
   GET    /api/candidates/stages/{stage_id}/cv/branded
   PATCH  /api/candidates/stages/{stage_id}/cv/branded
   GET    /api/candidates/stages/{stage_id}/cv/branded/render-pdf
@@ -35,21 +37,13 @@ from starlette.concurrency import run_in_threadpool
 from app.models.cv_document_version import CvDocumentVersion
 from app.services.cv_document_assets import (
     generated_assets,
-    default_template,
     CvAssetsError,
 )
-from app.services.cv_approved_docx import (
-    render_approved_docx,
-    ApprovedDocxError,
-    RENDERER_VERSION,
-)
-
 from app.core.http_headers import content_disposition_attachment
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.services.cv_html_renderer import _generate_cv_html
 from app.services.html_sanitizer import sanitize_cv_html
 from app.services.cv_document_versions import check_revision, freeze_approved_version
 
@@ -67,7 +61,6 @@ from app.models.candidate import Candidate
 from app.models.candidate_stage_cv import CandidateStageCV
 from app.models.cv_share_token import CVShareToken
 from app.models.cv_generated_document import CvGeneratedDocument
-from app.models.job import Job
 from app.models.pipeline_template import PipelineStageDef
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.user import User
@@ -86,22 +79,45 @@ from app.schemas.candidate_stage_cv import (
     CVShareTokenResponse,
     RecruitmentBrandedCvSummary,
 )
-from app.services import storage_service
+
+# Testy podmieniają `api.storage_service.save_branded_cv` — moduł zostaje w
+# przestrzeni nazw, choć zapis robi teraz `finalize_stage_cv`.
+from app.services import storage_service  # noqa: F401
 from app.services.candidate_stage_cv_service import (
+    finalize_stage_cv,
     load_original_cv_bytes,
     refresh_original_cv_snapshot,
+    render_stage_editor_docx,
     snapshot_exists,
 )
+from app.services import cv_consent_gate as consent_gate
 from app.services.hiring_manager_verdicts import veto_for_candidate_stage
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-# Default config dla pierwszego renderu brandowanego CV (mirror Contract Draft
-# `is_default=True` template). Reuse `_generate_cv_html()` z cv_generator.py.
-_DEFAULT_TEMPLATE = "standard"
-_DEFAULT_LANGUAGE = "pl"
+# Stary szablon „CV firmowe" (HTML bez AI, z e-mailem i telefonem kandydata)
+# został wycofany w generatorze v3 (23.09.2026): CV etapu powstaje wyłącznie
+# z generatora (`select-generated` albo podpięcie po generacji). Etap bez CV
+# zwraca pusty stan, a zapisy na nim odsyłają do generatora. Istniejące szkice
+# i wersje ze starego szablonu zostają czytelne (tylko do odczytu w UI).
+NO_GENERATED_CV_MESSAGE = (
+    "Najpierw wygeneruj CV w generatorze — stary szablon „CV firmowe” został wycofany."
+)
+LEGACY_TEMPLATE_GONE_MESSAGE = (
+    "Szablon „CV firmowe” został wycofany. Wygeneruj CV w generatorze i edytuj "
+    "je w edytorze."
+)
+
+
+async def _generated_for_stage_cv(
+    db: AsyncSession, csv: CandidateStageCV
+) -> Optional[CvGeneratedDocument]:
+    """Wygenerowane CV, z którego pochodzi szkic etapu (blokada zgody RODO)."""
+    if not csv.generated_document_id:
+        return None
+    return await db.get(CvGeneratedDocument, csv.generated_document_id)
 
 
 def _build_original_response(csv: CandidateStageCV) -> CVOriginalSnapshotResponse:
@@ -326,12 +342,7 @@ async def refresh_original_cv(
 
 
 def _wrap_printable_cv(body_html: str, stage_id: int, candidate_label: str) -> str:
-    """Wrap HTML w printable wrapper z auto-print (mirror contracts._wrap_printable).
-
-    Body HTML z `_generate_cv_html()` jest już kompletnym dokumentem — przy
-    finalize i render-pdf chcemy upewnić się, że ma `window.print()` script.
-    Dla CV body zawiera już `<style>` więc dorzucamy tylko script + tytuł.
-    """
+    """Wrap HTML w printable wrapper z auto-print (mirror contracts._wrap_printable)."""
     return (
         '<!DOCTYPE html><html><head><meta charset="utf-8">'
         f"<title>CV — {candidate_label} (rekrutacja #{stage_id})</title>"
@@ -341,18 +352,6 @@ def _wrap_printable_cv(body_html: str, stage_id: int, candidate_label: str) -> s
         f"{body_html}"
         "</body></html>"
     )
-
-
-async def _load_candidate_and_job(
-    db: AsyncSession, csv: CandidateStageCV
-) -> tuple[Candidate, Optional[Job]]:
-    candidate = await db.scalar(
-        select(Candidate).where(Candidate.id == csv.candidate_id)
-    )
-    if candidate is None:
-        raise HTTPException(status_code=404, detail="Kandydat nie znaleziony")
-    job = await db.scalar(select(Job).where(Job.id == csv.job_id))
-    return candidate, job
 
 
 def _build_branded_response(
@@ -393,50 +392,24 @@ def _build_branded_response(
     )
 
 
-def _build_transient_branded_response(
-    csv: CandidateStageCV, html: str
-) -> CVBrandedResponse:
-    """Podgląd CV w stanie ``none`` — bez zapisu (CV-01).
+def _build_empty_branded_response(csv: CandidateStageCV) -> CVBrandedResponse:
+    """Etap bez CV (``none``) — pusty stan, bez renderu i bez zapisu.
 
-    Odczyt nie zakłada szkicu: robi to pierwszy PATCH (albo finalize, który
-    przyjmuje także ``none``). ``edit_revision`` jest prawdziwe, żeby kolejny
-    zapis przeszedł kontrolę rewizji.
+    Do 23.09.2026 GET renderował tu stary szablon „CV firmowe" (HTML z danymi
+    kontaktowymi kandydata). Szablon wycofano: CV etapu powstaje w generatorze
+    i trafia tu przez podpięcie szkicu. ``edit_revision`` jest prawdziwe, żeby
+    późniejszy wybór z generatora przeszedł kontrolę rewizji.
     """
-
     return CVBrandedResponse(
         candidate_stage_id=csv.candidate_stage_id,
         edit_revision=csv.edit_revision or 0,
         version=csv.branded_version or 1,
         status="none",
-        content_html=html,
-        template=_DEFAULT_TEMPLATE,
-        language=_DEFAULT_LANGUAGE,
-        updated_at=None,
-        updated_by=None,
-        updated_by_name=None,
-        finalized_at=None,
-        finalized_by=None,
-        finalized_by_name=None,
-        snapshot_filename=None,
-        rendered_from_default=True,
+        content_html=None,
+        template=None,
+        language=None,
+        rendered_from_default=False,
     )
-
-
-def _materialize_draft_from_none(
-    csv: CandidateStageCV, content_html: str, user_id: int
-) -> None:
-    """Załóż szkic ze stanu ``none`` treścią z żądania zapisu (CV-01).
-
-    Rewizji NIE podbijamy: klient wysyła tę samą ``expected_revision`` do
-    kontroli i do zatwierdzenia, a oba kroki muszą przejść kontrolę rewizji.
-    Wołane wyłącznie przez trasy zapisu (kontrola, zatwierdzenie).
-    """
-    csv.branded_draft_html = content_html
-    csv.branded_template = csv.branded_template or _DEFAULT_TEMPLATE
-    csv.branded_language = csv.branded_language or _DEFAULT_LANGUAGE
-    csv.branded_status = "draft"
-    csv.branded_updated_at = datetime.now(timezone.utc)
-    csv.branded_updated_by = user_id
 
 
 @router.get(
@@ -448,16 +421,13 @@ async def get_branded_cv(
     current_user: CandidateDocumentAccess,
     db: AsyncSession = Depends(get_db),
 ) -> CVBrandedResponse:
-    """Brandowane CV etapu. W stanie ``none`` zwraca podgląd wyrenderowany
-    z domyślnego szablonu BEZ zapisu (CV-01) — GET był dotąd jedyną trasą
-    odczytu, która zmieniała stan dokumentu, rewizję i autora, także dla ról
-    z samym odczytem. Szkic zakłada pierwszy PATCH albo finalize."""
+    """Brandowane CV etapu. W stanie ``none`` zwraca pusty stan (bez renderu,
+    bez zapisu — CV-01 i wycofanie starego szablonu, generator v3). Szkic
+    powstaje z generatora: podpięcie po generacji albo ``select-generated``."""
     csv = await _load_csv_for_stage(db, stage_id, current_user, read_access=True)
 
     if csv.branded_status == "none":
-        candidate, job = await _load_candidate_and_job(db, csv)
-        html = _generate_cv_html(candidate, _DEFAULT_TEMPLATE, _DEFAULT_LANGUAGE, job)
-        return _build_transient_branded_response(csv, html)
+        return _build_empty_branded_response(csv)
 
     updated_by_name: Optional[str] = None
     if csv.branded_updated_by:
@@ -615,12 +585,23 @@ async def update_branded_cv(
     current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
 ) -> CVBrandedResponse:
-    """Update brandowanego CV — XOR `content_html` (save) / `template+language` (re-render).
+    """Zapis treści brandowanego CV (`content_html`). Po finalize 409.
 
-    Walidacja XOR jest w `CVBrandedUpdate.model_validator`. Po finalize 409.
+    Gałąź `template`/`language` (ponowny render starego szablonu „CV firmowe")
+    wycofana w generatorze v3 — 410. Walidacja XOR zostaje w
+    `CVBrandedUpdate.model_validator` (starsi klienci API dostają 422 jak dotąd).
     """
+    if payload.content_html is None:
+        # Zmiana szablonu/języka renderowała stary szablon „CV firmowe" —
+        # wycofany w generatorze v3. 410, nie 409: tej operacji już nie ma.
+        raise HTTPException(status_code=410, detail=LEGACY_TEMPLATE_GONE_MESSAGE)
     csv = await _load_csv_for_stage(db, stage_id, current_user, lock=True)
     check_revision(csv, payload.expected_revision)
+    if csv.branded_status == "none":
+        # Szkic powstaje wyłącznie z generatora (select-generated / podpięcie
+        # po generacji). Ręczny HTML na pustym etapie omijałby reguły klienta
+        # i blokadę zgody RODO (brak `generated_document_id`).
+        raise HTTPException(status_code=409, detail=NO_GENERATED_CV_MESSAGE)
     if csv.branded_status == "finalized":
         raise HTTPException(
             status_code=409,
@@ -630,34 +611,9 @@ async def update_branded_cv(
             ),
         )
 
-    action: str
-    details: dict
-    if payload.content_html is not None:
-        csv.branded_draft_html = sanitize_cv_html(payload.content_html)
-        action = "branded_cv_edited"
-        details = {"length": len(csv.branded_draft_html)}
-    else:
-        if csv.branded_from_generator:
-            raise HTTPException(
-                409,
-                "To CV pochodzi z generatora. Zmień treść w edytorze lub wybierz "
-                "nowy wynik generatora we właściwym języku i szablonie.",
-            )
-        # Re-render branch — wymaga template+language (jeden lub oba mogą być
-        # podane; brakujące biorą wartość obecną).
-        new_template = payload.template or csv.branded_template or _DEFAULT_TEMPLATE
-        new_language = payload.language or csv.branded_language or _DEFAULT_LANGUAGE
-        candidate, job = await _load_candidate_and_job(db, csv)
-        csv.branded_draft_html = _generate_cv_html(
-            candidate, new_template, new_language, job
-        )
-        csv.branded_template = new_template
-        csv.branded_language = new_language
-        action = "branded_cv_template_changed"
-        details = {"template": new_template, "language": new_language}
-
-    if csv.branded_status == "none":
-        csv.branded_status = "draft"
+    csv.branded_draft_html = sanitize_cv_html(payload.content_html)
+    action = "branded_cv_edited"
+    details = {"length": len(csv.branded_draft_html)}
     csv.edit_revision += 1
     csv.branded_updated_at = datetime.now(timezone.utc)
     csv.branded_updated_by = current_user.id
@@ -692,23 +648,14 @@ async def render_branded_cv_for_print(
     nowej karcie i drukuje (Save as PDF)."""
     csv = await _load_csv_for_stage(db, stage_id, current_user, read_access=True)
     draft_html = csv.branded_draft_html
-    candidate: Optional[Candidate] = None
-    # CV-01: GET nie zakłada już szkicu, więc CV w stanie `none` drukujemy
-    # z domyślnego szablonu (bez zapisu) dla każdej roli, nie tylko Finansów.
-    if not draft_html and csv.branded_status == "none":
-        candidate, job = await _load_candidate_and_job(db, csv)
-        draft_html = _generate_cv_html(
-            candidate, _DEFAULT_TEMPLATE, _DEFAULT_LANGUAGE, job
-        )
-    if not draft_html:
-        raise HTTPException(
-            status_code=404,
-            detail="Brandowane CV jest puste — otwórz edytor pierwszy raz, by je wygenerować.",
-        )
-    if candidate is None:
-        candidate = await db.scalar(
-            select(Candidate).where(Candidate.id == csv.candidate_id)
-        )
+    if csv.branded_status == "none" or not draft_html:
+        # Stary szablon wycofany (generator v3): etap bez CV nie ma czego
+        # drukować — CV powstaje w generatorze.
+        raise HTTPException(status_code=404, detail=NO_GENERATED_CV_MESSAGE)
+    consent_gate.ensure_downloadable(await _generated_for_stage_cv(db, csv))
+    candidate = await db.scalar(
+        select(Candidate).where(Candidate.id == csv.candidate_id)
+    )
     label = (
         f"{candidate.name} {candidate.lastname}" if candidate else f"stage_{stage_id}"
     )
@@ -719,19 +666,7 @@ async def render_branded_cv_for_print(
     )
 
 
-async def _render_editor_docx(csv, content_html: str) -> tuple[bytes, bytes]:
-    template = csv.branded_template_content or await run_in_threadpool(default_template)
-    try:
-        docx = await run_in_threadpool(
-            render_approved_docx,
-            sanitize_cv_html(content_html),
-            template,
-            consent=csv.branded_consent_content,
-            language=csv.branded_language or "pl",
-        )
-    except ApprovedDocxError as error:
-        raise HTTPException(422, str(error)) from error
-    return docx, template
+_render_editor_docx = render_stage_editor_docx
 
 
 @router.post("/candidates/stages/{stage_id}/cv/branded/preview-docx")
@@ -744,11 +679,13 @@ async def preview_branded_docx(
     """Render the current editor contents and frozen assets without approval."""
     csv = await _load_csv_for_stage(db, stage_id, current_user, lock=True)
     check_revision(csv, payload.expected_revision)
-    # `none` też — podgląd renderuje treść z żądania i niczego nie zapisuje.
-    if csv.branded_status not in ("none", "draft"):
+    if csv.branded_status == "none":
+        raise HTTPException(409, NO_GENERATED_CV_MESSAGE)
+    if csv.branded_status != "draft":
         raise HTTPException(
             409, "Podgląd dotyczy szkicu. Pobierz zatwierdzoną wersję CV."
         )
+    consent_gate.ensure_downloadable(await _generated_for_stage_cv(db, csv))
     docx, _ = await _render_editor_docx(csv, payload.content_html)
     return Response(
         content=docx,
@@ -782,113 +719,22 @@ async def finalize_branded_cv(
     """
     csv = await _load_csv_for_stage(db, stage_id, current_user, lock=True)
     check_revision(csv, payload.expected_revision)
-    # `none` też: GET nie zakłada już szkicu (CV-01), a treść przychodzi
-    # w `content_html`, więc zatwierdzenie bez wcześniejszego PATCH-a jest
-    # poprawne.
-    if csv.branded_status not in ("none", "draft"):
+    if csv.branded_status == "none":
+        # Stary szablon wycofany (generator v3): zatwierdzić można wyłącznie
+        # CV z generatora, podpięte do etapu jako szkic.
+        raise HTTPException(status_code=409, detail=NO_GENERATED_CV_MESSAGE)
+    if csv.branded_status != "draft":
         raise HTTPException(
             status_code=409,
             detail=(
                 f"Branded CV is in status '{csv.branded_status}', "
-                "expected 'none' or 'draft' to finalize."
+                "expected 'draft' to finalize."
             ),
         )
-    if csv.branded_status == "none":
-        _materialize_draft_from_none(
-            csv, sanitize_cv_html(payload.content_html), current_user.id
-        )
-    csv.branded_draft_html = sanitize_cv_html(payload.content_html)
-    if not csv.branded_draft_html.strip():
-        raise HTTPException(
-            status_code=422,
-            detail="Brandowane CV jest puste — wygeneruj treść przed finalize.",
-        )
-
-    candidate = await db.scalar(
-        select(Candidate).where(Candidate.id == csv.candidate_id)
+    version, filename, size = await finalize_stage_cv(
+        db, csv, payload.content_html, current_user.id
     )
-    candidate_label = (
-        f"{candidate.name}_{candidate.lastname}".replace(" ", "_")
-        if candidate
-        else f"stage_{stage_id}"
-    )
-    today = datetime.now(timezone.utc).date().isoformat()
-    filename = f"cv_brandowane_{candidate_label}_v{csv.branded_version}_{today}.html"
-
-    # Render the exact submitted/sanitized content once, before approval. The
-    # stored bytes are subsequently downloaded without accessing live sources.
-    docx, template = await _render_editor_docx(csv, csv.branded_draft_html)
-    from app.services.cv_approval_review import review_for_approval
-
-    content_review = await review_for_approval(
-        db, csv, csv.branded_draft_html, current_user.id
-    )
-
-    docx_filename = (
-        csv.branded_docx_filename or filename.removesuffix(".html") + ".docx"
-    )
-    from app.services.cv_approval_provenance import approval_provenance
-
-    metadata = {
-        **(csv.branded_render_metadata or {}),
-        **approval_provenance(csv.branded_draft_html, csv.branded_render_metadata),
-        "content_review": content_review,
-        "requires_content_review": False,
-        "renderer_version": RENDERER_VERSION,
-        "template_sha256": hashlib.sha256(template).hexdigest(),
-        "consent_sha256": hashlib.sha256(csv.branded_consent_content).hexdigest()
-        if csv.branded_consent_content
-        else None,
-    }
-    snapshot_html = _wrap_printable_cv(
-        csv.branded_draft_html, stage_id, candidate_label
-    )
-    blob = snapshot_html.encode("utf-8")
-    relative_path, size = storage_service.save_branded_cv(
-        candidate_stage_id=stage_id,
-        upload_filename=filename,
-        source=BytesIO(blob),
-    )
-
-    csv.edit_revision += 1
-    csv.branded_updated_at = datetime.now(timezone.utc)
-    csv.branded_updated_by = current_user.id
-    csv.branded_status = "finalized"
-    csv.branded_finalized_at = datetime.now(timezone.utc)
-    csv.branded_finalized_by = current_user.id
-    csv.branded_snapshot_path = relative_path
-    csv.branded_snapshot_filename = filename
-    csv.branded_snapshot_size_bytes = size
-
-    csv.branded_docx_filename = docx_filename
-    csv.branded_template_content = template
-    csv.branded_render_metadata = metadata
-    version = await freeze_approved_version(
-        db,
-        csv,
-        docx_content=docx,
-        docx_filename=docx_filename,
-        render_metadata=metadata,
-    )
-    from app.services.cv_version_map_jobs import schedule_approved_map
-
-    await schedule_approved_map(db, version, current_user.id)
-    db.add(
-        Activity(
-            entity_type="candidate_stage_cv",
-            entity_id=csv.id,
-            action="branded_cv_finalized",
-            user_id=current_user.id,
-            details={
-                "candidate_stage_id": stage_id,
-                "snapshot_filename": filename,
-                "size_bytes": size,
-                "document_version_id": version.id,
-                "version": version.version,
-                "content_sha256": version.content_sha256,
-            },
-        )
-    )
+    metadata = version.render_metadata
     await db.commit()
     await db.refresh(csv)
 
@@ -924,6 +770,12 @@ async def download_approved_docx(
     )
     if version is None:
         raise HTTPException(404, "Nie znaleziono zatwierdzonej wersji CV.")
+    consent_gate.ensure_downloadable(
+        await db.get(CvGeneratedDocument, version.generated_document_id)
+        if version.generated_document_id
+        else None,
+        version,
+    )
     if not version.docx_content:
         raise HTTPException(
             409,
@@ -1390,13 +1242,9 @@ async def start_stage_cv_review(
 
     draft = await _load_csv_for_stage(db, stage_id, current_user, lock=True)
     if draft.branded_status == "none":
-        # CV-01: podgląd z GET nie zakłada szkicu, więc kontrola przed
-        # zatwierdzeniem (pierwszy zapis) zakłada go treścią z żądania.
-        check_revision(draft, payload.expected_revision)
-        content = sanitize_cv_html(payload.content_html)
-        if not content.strip():
-            raise HTTPException(422, "CV nie może być puste.")
-        _materialize_draft_from_none(draft, content, current_user.id)
+        # Stary szablon wycofany (generator v3): kontrola dotyczy CV
+        # z generatora podpiętego do etapu jako szkic.
+        raise HTTPException(409, NO_GENERATED_CV_MESSAGE)
     result = await enqueue_review(db, draft, payload, current_user.id)
     await db.commit()
     return result

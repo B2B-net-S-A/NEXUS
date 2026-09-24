@@ -27,6 +27,11 @@ import { QueryClient, QueryClientProvider, type InfiniteData } from "@tanstack/r
 import { api } from "@/lib/api";
 import { candidateContactQueryKeys } from "@/lib/candidate-contact";
 import {
+  cvToClientRowsQueryKey,
+  stageBrandedQueryKey,
+  type StageGeneratedCvRow,
+} from "@/lib/cv-to-client";
+import {
   BACKGROUND_EVENTS_STEP,
   jobBackgroundEventsQueryKey,
   type JobBackgroundEvent,
@@ -395,6 +400,61 @@ function seededClient(columns: KanbanColumn[]): QueryClient {
     { id: 2, kind: "new_cv_proposals", created_at: "2026-09-19T09:15:00Z", count: 3, trigger: "cv_ingest" },
     { id: 1, kind: "auto_full_review_failed", created_at: "2026-09-18T05:00:00Z", reason: "stalled", message: "Przegląd stanął bez postępu i został przerwany." },
   ];
+  // Karta „CV do klienta” (sekcja CV panelu osoby): CV etapu, lista
+  // wygenerowanych CV pary i plik źródłowy — trzy stany z makiety: gotowe
+  // (auto-CV), brak i gotowe bez zgody RODO.
+  verified.forEach((item, index) => {
+    const variant = index % 3;
+    const generatedId = 9000 + item.id;
+    const rows: StageGeneratedCvRow[] =
+      variant === 1
+        ? []
+        : [
+            {
+              id: generatedId,
+              status: "ready",
+              origin: item.auto_cv_ready ? "auto" : "manual",
+              needs_review: item.auto_cv_ready === true,
+              content_mode: "tailored",
+              language: "pl",
+              created_at: "2026-09-20T12:40:00Z",
+              consent_required: variant === 2,
+              consent_missing: variant === 2,
+              factual_review: { status: "advisory", findings: variant === 0 ? 2 : 0 },
+            },
+          ];
+    client.setQueryData(cvToClientRowsQueryKey(item.candidate_id, JOB_ID), rows);
+    client.setQueryData(stageBrandedQueryKey(item.id), {
+      status: variant === 1 ? "none" : "draft",
+      from_generator: variant !== 1,
+      generated_document_id: variant === 1 ? null : generatedId,
+      edit_revision: 1,
+      version: 1,
+      candidate_stage_id: item.id,
+      content_html: variant === 1 ? null : "<h2>Podsumowanie</h2><p>Java Developer z 8-letnim doświadczeniem w bankowości.</p>",
+      template: null,
+      language: "pl",
+      updated_at: null,
+      updated_by: null,
+      updated_by_name: null,
+      finalized_at: null,
+      finalized_by: null,
+      finalized_by_name: null,
+      snapshot_filename: null,
+      rendered_from_default: false,
+    });
+    client.setQueryData(["cv-original", item.id], {
+      candidate_stage_id: item.id,
+      candidate_id: item.candidate_id,
+      job_id: JOB_ID,
+      has_snapshot: true,
+      original_cv_filename: `${item.lastname ?? "CV"}_CV.pdf`,
+      original_cv_language: "pl",
+      original_snapshot_at: "2026-09-12T10:00:00Z",
+      original_snapshot_source: "profile",
+      download_url: null,
+    });
+  });
   client.setQueryData(jobBackgroundEventsQueryKey(JOB_ID, BACKGROUND_EVENTS_STEP), {
     job_id: JOB_ID,
     items: backgroundItems,

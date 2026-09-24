@@ -151,30 +151,16 @@ describe("PersonPanel — sekcja domyślna z etapu", () => {
     expect(screen.getAllByRole("tabpanel", { hidden: true })).toHaveLength(1);
   });
 
-  it("sekcja CV mówi, dlaczego automat NIE przygotował CV tej osoby — po polsku, z „Pracy w tle”", async () => {
-    const events = (items: unknown[]) =>
-      mocks.apiGet.mockImplementation((url: string) =>
-        Promise.resolve({ data: url.endsWith("/background-events") ? { job_id: 42, items, limit: 30 } : { items: [] } }),
-      );
-    events([
-      { id: 9, kind: "cv_auto_generate_skipped", created_at: "2026-09-21T08:00:00Z", reason: "consent_screenshot_required", candidate: { id: 3, name: "Marek Zieliński" } },
-      { id: 8, kind: "cv_auto_generate_skipped", created_at: "2026-09-21T07:00:00Z", reason: "no_cv_document", candidate: { id: 2, name: null } },
-    ]);
-    const first = renderPanel({ candidateId: 3 });
-    expect(await screen.findByTestId("auto-cv-skip-notice")).toHaveTextContent(
-      "CV nie zostało wygenerowane automatycznie: reguła klienta wymaga zrzutu zgody RODO.",
-    );
-    expect(mocks.apiGet).toHaveBeenCalledWith("/api/jobs/42/background-events", { params: { limit: 30 } });
-    first.unmount();
-
-    // Późniejsza udana generacja gasi stary powód.
-    events([
-      { id: 10, kind: "cv_auto_generate", created_at: "2026-09-21T09:00:00Z", candidate: { id: 3, name: null }, generated_id: 1, document_status: "ready" },
-      { id: 9, kind: "cv_auto_generate_skipped", created_at: "2026-09-21T08:00:00Z", reason: "consent_screenshot_required", candidate: { id: 3, name: null } },
-    ]);
+  it("sekcja CV to warsztat z kartą „CV do klienta” — panel sam nie pyta o „Pracę w tle”", () => {
+    // Powód pominięcia auto-CV pokazuje od generatora CV v3 karta „CV do
+    // klienta” (w warsztacie, w stanie „brak CV”) — panel nie dubluje zapytania.
     renderPanel({ candidateId: 3 });
-    await waitFor(() => expect(mocks.apiGet).toHaveBeenCalledWith("/api/jobs/42/background-events", expect.anything()));
-    await waitFor(() => expect(screen.queryByTestId("auto-cv-skip-notice")).not.toBeInTheDocument());
+    expect(screen.getByTestId("wb-cv")).toBeInTheDocument();
+    expect(mocks.workbenchProps.cv).toMatchObject({ focusCandidateId: 3, jobId: 42 });
+    expect(mocks.apiGet).not.toHaveBeenCalledWith(
+      "/api/jobs/42/background-events",
+      expect.anything(),
+    );
   });
 
   it("etap wejściowy i zamknięty otwierają „Notatki i historia”", async () => {

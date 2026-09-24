@@ -126,10 +126,6 @@ async def test_finance_branded_cv_lazy_preview_does_not_persist(monkeypatch):
         assert read_access is True
         return csv
 
-    async def load_candidate_and_job(db, loaded_csv):
-        assert loaded_csv is csv
-        return SimpleNamespace(name="Jan", lastname="Kowalski"), None
-
     class RecordingDb:
         def __init__(self):
             self.added = []
@@ -147,14 +143,6 @@ async def test_finance_branded_cv_lazy_preview_does_not_persist(monkeypatch):
 
     db = RecordingDb()
     monkeypatch.setattr(candidate_stage_cv, "_load_csv_for_stage", load_csv)
-    monkeypatch.setattr(
-        candidate_stage_cv, "_load_candidate_and_job", load_candidate_and_job
-    )
-    monkeypatch.setattr(
-        candidate_stage_cv,
-        "_generate_cv_html",
-        lambda candidate, template, language, job: "<p>transient</p>",
-    )
 
     response = await candidate_stage_cv.get_branded_cv(
         stage_id=17,
@@ -162,11 +150,12 @@ async def test_finance_branded_cv_lazy_preview_does_not_persist(monkeypatch):
         db=db,
     )
 
-    # CV-01 (audyt 22.09.2026): podgląd bez zapisu mówi prawdę o stanie —
-    # szkicu nie ma, dopóki ktoś nie zacznie edycji.
+    # CV-01 (audyt 22.09.2026): odczyt mówi prawdę o stanie — szkicu nie ma.
+    # Generator v3: stary szablon wycofany, więc stan 'none' to pusty stan
+    # bez renderu (i bez danych kontaktowych kandydata).
     assert response.status == "none"
-    assert response.content_html == "<p>transient</p>"
-    assert response.rendered_from_default is True
+    assert response.content_html is None
+    assert response.rendered_from_default is False
     assert csv.branded_status == "none"
     assert csv.branded_draft_html is None
     assert db.added == []

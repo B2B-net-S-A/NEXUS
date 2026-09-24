@@ -32,6 +32,13 @@ from app.services import loop_heartbeat
 
 logger = logging.getLogger(__name__)
 
+# CV próbne w regułach klienta wycofano w generatorze v3 (23.09.2026). Zadanie
+# rodzaju `preview`, które czekało w kolejce w chwili wdrożenia, nie woła już
+# workera — jego wiersz podglądu kończy się jako „failed" z tym komunikatem.
+PREVIEW_RETIRED_MESSAGE = (
+    "CV próbne zostały wycofane z reguł CV — wygeneruj CV w generatorze."
+)
+
 
 async def persist_job(
     db,
@@ -138,13 +145,16 @@ async def execute_job(job_id: int):
         )
         preview_id = job.preview_id
         quota_snapshot = job.quota_snapshot
+    if kind == "preview":
+        await _retire_preview_job(job_id, token, preview_id)
+        return
     renewal = asyncio.create_task(_renew(job_id, token))
     work = None
     failed = False
     try:
         raw = await run_in_threadpool(object_storage.download_cv, key)
         stored_kind, inputs = deserialize_job_inputs(raw, digest)
-        if stored_kind != kind or kind not in {"new", "upload", "preview"}:
+        if stored_kind != kind or kind not in {"new", "upload"}:
             raise ValueError("CV job kind mismatch")
         if quota_snapshot is not None:
             inputs["quota_state"] = QuotaState(
@@ -157,17 +167,10 @@ async def execute_job(job_id: int):
             async with AsyncSessionLocal() as db:
                 await lock_owned_job(db)
                 await db.commit()
-            if kind == "preview":
-                from app.api.client_cv_rules import _run_rule_preview_job
-
-                work = asyncio.create_task(_run_rule_preview_job(preview_id, **inputs))
-            else:
-                worker = (
-                    _run_generate_new_job if kind == "new" else _run_generate_upload_job
-                )
-                work = asyncio.create_task(
-                    _run_declared(worker, generated_id, **inputs)
-                )
+            worker = (
+                _run_generate_new_job if kind == "new" else _run_generate_upload_job
+            )
+            work = asyncio.create_task(_run_declared(worker, generated_id, **inputs))
         done, _ = await asyncio.wait(
             {work, renewal}, return_when=asyncio.FIRST_COMPLETED
         )
@@ -175,10 +178,7 @@ async def execute_job(job_id: int):
             await renewal  # Surface loss before accepting a result.
         await work
         async with AsyncSessionLocal() as db:
-            document = await db.get(
-                ClientCvRulePreview if kind == "preview" else CvGeneratedDocument,
-                preview_id if kind == "preview" else generated_id,
-            )
+            document = await db.get(CvGeneratedDocument, generated_id)
             job = await db.get(CvGenerationJob, job_id)
             second = (
                 await db.get(CvGeneratedDocument, job.second_generated_id)
@@ -215,6 +215,34 @@ async def execute_job(job_id: int):
                     await task
     async with AsyncSessionLocal() as db:
         await finish_job(db, job_id, token, failed=failed)
+
+
+async def _retire_preview_job(job_id: int, token: str, preview_id: int | None) -> None:
+    """Zadanie CV próbnego z kolejki: bez workera, bez wywołania modelu.
+
+    Wiersz podglądu dostaje „failed" z komunikatem o wycofaniu, a zadanie
+    kończy się jako nieudane — wejście trafia potem do zwykłej retencji
+    (`retire_unneeded_job_inputs`). Kwota naliczona przy przyjęciu zostaje
+    (tak samo jak przy każdej innej przerwanej generacji).
+    """
+    async with AsyncSessionLocal() as db:
+        with owned_job(job_id, token):
+            try:
+                await lock_owned_job(db)
+            except RuntimeError:
+                await db.rollback()
+                return
+            preview = (
+                await db.get(ClientCvRulePreview, preview_id)
+                if preview_id is not None
+                else None
+            )
+            if preview is not None and preview.status == "processing":
+                preview.status = "failed"
+                preview.error_message = PREVIEW_RETIRED_MESSAGE
+            await db.commit()
+    async with AsyncSessionLocal() as db:
+        await finish_job(db, job_id, token, failed=True)
 
 
 async def queued_job_ids(limit: int = 4) -> list[int]:

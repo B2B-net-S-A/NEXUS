@@ -66,6 +66,14 @@ vi.mock("@/components/v2/modals/CVShareLinkModal", () => ({
 vi.mock("@/components/v2/modals/SendEmailV2", () => ({
   SendEmailV2: () => null,
 }));
+// Okno generatora CV (v3) — dok tylko je otwiera z osobą i rekrutacją.
+const generatorDialog = vi.fn();
+vi.mock("@/components/v2/cv-generator/CvGeneratorDialog", () => ({
+  CvGeneratorDialog: (props: Record<string, unknown>) => {
+    generatorDialog(props);
+    return <div data-testid="cv-generator-dialog" />;
+  },
+}));
 // `DopasowanieTab` woła `matchScoringApi` — niepowiązane z tym, co testujemy;
 // stub żeby nie trzeba było mockować jeszcze jednego modułu API.
 vi.mock("@/components/v2/pages/DopasowanieTab", () => ({
@@ -282,6 +290,29 @@ describe("PipelineCandidateDock", () => {
     await user.click(screen.getByRole("button", { name: /^CV/ }));
     expect(screen.queryByText(/Stwórz brandowane/)).toBeNull();
     expect(screen.queryByText(/Wyślij klientowi/)).toBeNull();
+  });
+
+  it("sekcja CV: bez CV do klienta „Generuj CV” otwiera okno generatora z osobą i rekrutacją", async () => {
+    const user = userEvent.setup();
+    renderDock();
+    await user.click(screen.getByRole("button", { name: /^CV/ }));
+    expect(await screen.findByText("CV do klienta: brak")).toBeInTheDocument();
+    expect(screen.queryByText(/Stwórz brandowane|CV firmowe/)).toBeNull();
+    await user.click(await screen.findByRole("button", { name: /Generuj CV/ }));
+    expect(screen.getByTestId("cv-generator-dialog")).toBeInTheDocument();
+    expect(generatorDialog).toHaveBeenLastCalledWith(
+      expect.objectContaining({ candidateId: 42, jobId: 10 }),
+    );
+  });
+
+  it("sekcja CV: szkic z generatora to plakietka „CV do klienta: szkic” i „Edytuj CV”", async () => {
+    const user = userEvent.setup();
+    brandedGet.mockResolvedValue({ data: { status: "draft", from_generator: true, edit_revision: 1, version: 1 } });
+    renderDock();
+    await user.click(screen.getByRole("button", { name: /^CV/ }));
+    expect(await screen.findByText("CV do klienta: szkic")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Edytuj CV/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Generuj CV/ })).toBeNull();
   });
 
   it("zamknięcie doku woła onClose", async () => {

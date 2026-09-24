@@ -200,4 +200,19 @@ async def recovery_loop():
                 raise
             except Exception:
                 logger.warning("CV input retention sweep will retry later")
+            try:
+                from app.services.cv_preview_retention import (
+                    PREVIEW_RETENTION,
+                    retire_previews,
+                )
+
+                async with AsyncSessionLocal() as db:
+                    await retire_previews(
+                        db, None, datetime.now(timezone.utc) - PREVIEW_RETENTION
+                    )
+                    await db.commit()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.warning("CV preview retention sweep will retry later")
         await asyncio.sleep(30)

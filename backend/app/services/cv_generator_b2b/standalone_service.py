@@ -2300,6 +2300,29 @@ async def collect_screening_notes_text(
     return "\n\n".join(screening_parts)
 
 
+async def collect_candidate_notes_text(db: AsyncSession, *, candidate_id: int) -> str:
+    """Notatki kandydata dla generacji BEZ procesu (generator v3).
+
+    Wyłącznie notatki niepodpięte do żadnej rekrutacji (``Note.job_id IS
+    NULL``): notatka z procesu innego klienta niesie jego stawki, czerwone
+    flagi i nazwę — w CV pod innego klienta nie ma prawa się znaleźć. Bez
+    arkuszy screeningu, odpowiedzi i transkryptów — te należą do procesu.
+    """
+    notes = (
+        await db.scalars(
+            select(Note)
+            .where(Note.candidate_id == candidate_id, Note.job_id.is_(None))
+            .order_by(Note.created_at.desc())
+            .limit(20)
+        )
+    ).all()
+    return "\n\n".join(
+        f"[Notatka kandydata]\n{note.content.strip()}"
+        for note in notes
+        if note.content and note.content.strip()
+    )
+
+
 async def screening_notes_char_count(
     db: AsyncSession, *, candidate_id: int, stage_id: int
 ) -> int | None:
@@ -2338,11 +2361,13 @@ class CandidateGenerationSource:
     screening_notes_text: str
     source_warnings: tuple[str, ...]
     fallback_name: str | None
-    job_id: int
+    # `None` przy generacji bez procesu (generator v3). Nazwy pól bez zmian —
+    # snapshoty zadań sprzed tej zmiany dekodują się jak dotąd.
+    job_id: int | None
     job_title: str
     client_content_mode_cap: str | None
     candidate_id: int
-    stage_id: int
+    stage_id: int | None
     cv_document_id: int | None
     requirements: tuple[tuple[str, str], ...] = ()
     client_id: int | None = None
@@ -2388,11 +2413,23 @@ async def load_candidate_generation_source(
     db: AsyncSession,
     *,
     candidate_id: int,
-    stage_id: int,
+    stage_id: int | None,
     language: Language = "pl",
     cv_document_id: int | None = None,
+    position: str = "",
+    client_id: int | None = None,
+    champion_profile: dict | None = None,
+    extra_notes: str = "",
 ) -> CandidateGenerationSource:
-    """Read the chosen file, recruitment context and notes once; no provider calls."""
+    """Read the chosen file, recruitment context and notes once; no provider calls.
+
+    ``stage_id=None`` (generator v3, „inny klient — bez procesu"): Champion
+    pochodzi wyłącznie z ``champion_profile``, tytuł roli = ``position``,
+    klient = ``client_id``, a notatki to tylko te bez rekrutacji
+    (:func:`collect_candidate_notes_text`). ``champion_profile`` (podgląd
+    wgranego pliku) ma pierwszeństwo przed Championem rekrutacji — jak JSON
+    podglądu w uploadzie. ``position`` z etapem nadpisuje tytuł rekrutacji.
+    """
     request_id = f"cvsource_{uuid.uuid4().hex[:12]}"
     candidate = await db.get(Candidate, candidate_id)
     if candidate is None:
@@ -2401,26 +2438,30 @@ async def load_candidate_generation_source(
             message=f"Candidate {candidate_id} does not exist",
         )
 
-    stage_q = (
-        select(CandidateStage)
-        .options(selectinload(CandidateStage.job))
-        .where(CandidateStage.id == stage_id)
-    )
-    stage = (await db.scalars(stage_q)).first()
-    if stage is None or stage.candidate_id != candidate_id:
-        raise StandaloneGenerationError(
-            code="stage_not_found",
-            message=f"Stage {stage_id} not found for candidate {candidate_id}",
+    stage = None
+    job = None
+    if stage_id is not None:
+        stage_q = (
+            select(CandidateStage)
+            .options(selectinload(CandidateStage.job))
+            .where(CandidateStage.id == stage_id)
         )
+        stage = (await db.scalars(stage_q)).first()
+        if stage is None or stage.candidate_id != candidate_id:
+            raise StandaloneGenerationError(
+                code="stage_not_found",
+                message=f"Stage {stage_id} not found for candidate {candidate_id}",
+            )
 
-    job = stage.job
-    if job is None:
-        raise StandaloneGenerationError(
-            code="stage_not_found",
-            message=f"Stage {stage_id} has no linked job",
-        )
+        job = stage.job
+        if job is None:
+            raise StandaloneGenerationError(
+                code="stage_not_found",
+                message=f"Stage {stage_id} has no linked job",
+            )
+        client_id = job.client_id
 
-    client = await db.get(Client, job.client_id) if job.client_id else None
+    client = await db.get(Client, client_id) if client_id else None
     # ── 1. CV file ────────────────────────────────────────────────────────
     cv_doc_q = (
         select(CandidateDocument)
@@ -2482,45 +2523,78 @@ async def load_candidate_generation_source(
             message="CV kandydata jest puste (brak storage_key i file_content).",
         )
 
-    champion_dto = from_nexus_job(
-        must_skills=job.must_skills,
-        nice_skills=job.nice_skills,
-        champion_profile=job.champion_profile,
-        requirements=job.requirements,
-    )
-    champion_dto.requirements_reviewed = bool(
-        getattr(job, "requirements_reviewed", False)
-    )
+    if champion_profile is not None:
+        from types import SimpleNamespace
+
+        champion_dto = from_nexus_job(None, None, champion_profile)
+        has_champion = _champion_present(
+            SimpleNamespace(  # type: ignore[arg-type]
+                must_skills=None, nice_skills=None, champion_profile=champion_profile
+            )
+        )
+    elif job is not None:
+        champion_dto = from_nexus_job(
+            must_skills=job.must_skills,
+            nice_skills=job.nice_skills,
+            champion_profile=job.champion_profile,
+            requirements=job.requirements,
+        )
+        champion_dto.requirements_reviewed = bool(
+            getattr(job, "requirements_reviewed", False)
+        )
+        has_champion = _champion_present(job)
+    else:
+        champion_dto = from_nexus_job(None, None, None)
+        has_champion = False
 
     source_warnings: list[str] = []
-    screening_notes_text = await collect_screening_notes_text(
-        db,
-        candidate_id=candidate_id,
-        stage=stage,
-        job=job,
-        warnings=source_warnings,
-        language=language,
-    )
+    if stage is not None and job is not None:
+        screening_notes_text = await collect_screening_notes_text(
+            db,
+            candidate_id=candidate_id,
+            stage=stage,
+            job=job,
+            warnings=source_warnings,
+            language=language,
+        )
+    else:
+        screening_notes_text = await collect_candidate_notes_text(
+            db, candidate_id=candidate_id
+        )
+        extra = (extra_notes or "").strip()
+        if extra:
+            # Notatki z formularza generacji bez procesu — tylko do tego CV.
+            screening_notes_text = "\n\n".join(
+                part
+                for part in (
+                    f"[Notatka rekrutera do tego CV]\n{extra}",
+                    screening_notes_text,
+                )
+                if part
+            )
     from app.services.cv_generator_b2b.requirement_map import build_requirements
 
+    position = (position or "").strip()
     return CandidateGenerationSource(
         cv_bytes=bytes(cv_bytes),
         cv_filename=cv_doc.filename or "cv.pdf",
         champion_json=json.dumps(asdict(champion_dto), ensure_ascii=False),
-        has_champion=_champion_present(job),
+        has_champion=has_champion,
         screening_notes_text=screening_notes_text,
         source_warnings=tuple(source_warnings),
         fallback_name=f"{candidate.name} {candidate.lastname}".strip() or None,
-        job_id=job.id,
-        job_title=job.title,
+        job_id=job.id if job is not None else None,
+        job_title=position or (job.title if job is not None else ""),
         client_content_mode_cap=getattr(client, "cv_content_mode_cap", None),
         candidate_id=candidate_id,
         stage_id=stage_id,
         cv_document_id=getattr(cv_doc, "id", None),
         requirements=tuple(
             (item["name"], item["kind"]) for item in build_requirements(job)
-        ),
-        client_id=job.client_id,
+        )
+        if job is not None
+        else (),
+        client_id=job.client_id if job is not None else client_id,
     )
 
 
@@ -2741,6 +2815,7 @@ def generate_cv_from_uploads(
 
 __all__ = [
     "champion_present",
+    "collect_candidate_notes_text",
     "collect_screening_notes_text",
     "screening_notes_char_count",
     "CONTENT_MODES",

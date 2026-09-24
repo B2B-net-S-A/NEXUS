@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
+import warningCases from "../__fixtures__/cv-warning-cases.json";
 import {
   CHAMPION_ACCEPT,
+  classifyCvWarnings,
   CV_CERTAIN_WARNING_PREFIXES,
   CV_CONTENT_MODES,
   DEFAULT_CV_CONTENT_MODE,
@@ -198,5 +200,39 @@ describe("extractErrorDetail", () => {
   it("returns an empty string when there is nothing to show", async () => {
     expect(await extractErrorDetail(new Error("Network Error"))).toBe("");
     expect(await extractErrorDetail(null)).toBe("");
+  });
+});
+
+
+describe("classifyCvWarnings — prawdziwe teksty backendu", () => {
+  it.each(warningCases.cases.map((c) => [c.text, c.group, c.kind] as const))(
+    "%s → %s",
+    (text, group, kind) => {
+      const result = classifyCvWarnings([text]);
+      const bucket = group === "info" ? result.info : result.review;
+      expect(bucket).toHaveLength(1);
+      expect(bucket[0].kind).toBe(kind);
+    },
+  );
+
+  it("nieznany tekst trafia do „Do sprawdzenia”, nigdy do informacji", () => {
+    const result = classifyCvWarnings(["Zupełnie nowy komunikat"]);
+    expect(result.review.map((w) => w.text)).toEqual(["Zupełnie nowy komunikat"]);
+    expect(result.info).toEqual([]);
+  });
+
+  it("zlicza rodzaje informacji do jednej linii i pomija duplikaty", () => {
+    const overlap = "WERYFIKUJ: nakładające się okresy zatrudnienia: 'A' (2020) i 'B' (2021)";
+    const result = classifyCvWarnings([
+      overlap,
+      overlap,
+      "WERYFIKUJ: nakładające się okresy zatrudnienia: 'C' (2019) i 'D' (2019)",
+      "NICE-TO-HAVE: Grafana",
+      "",
+    ]);
+    expect(result.infoKinds).toEqual([
+      { kind: "nakładające się okresy", count: 2 },
+      { kind: "brakujące NICE-TO-HAVE", count: 1 },
+    ]);
   });
 });

@@ -94,3 +94,47 @@ async def test_like_wildcards_in_query_are_literal(
         assert cid not in ids
     finally:
         await _cleanup([cid])
+
+
+async def _seed_phone(phone: str) -> int:
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+
+    async with AsyncSessionLocal() as db:
+        c = Candidate(
+            name="Telefon",
+            lastname=f"Test-{uuid.uuid4().hex[:6]}",
+            email=f"picker-{uuid.uuid4().hex[:8]}@example.com",
+            phone=phone,
+        )
+        db.add(c)
+        await db.commit()
+        await db.refresh(c)
+        return c.id
+
+
+@pytest.mark.asyncio
+async def test_phone_digits_find_the_candidate_regardless_of_format(
+    app_client: AsyncClient, app_auth_headers: dict
+) -> None:
+    """Generator v3: od 6 cyfr picker szuka po telefonie (ostatnie 9 cyfr,
+    jak `dedup_service`) — „+48 5xx-xxx-xxx" znajduje zapis bez separatorów."""
+    digits = f"5{uuid.uuid4().int % 10**8:08d}"
+    candidate = await _seed_phone(f"+48 {digits[:3]}-{digits[3:6]}-{digits[6:]}")
+    try:
+        assert candidate in await _search(app_client, app_auth_headers, digits)
+        assert candidate in await _search(
+            app_client, app_auth_headers, f"+48 {digits[:3]} {digits[3:6]} {digits[6:]}"
+        )
+        assert candidate in await _search(app_client, app_auth_headers, digits[-6:])
+        # Mniej niż 6 cyfr nie szuka po telefonie (przypadkowe fragmenty).
+        assert candidate not in await _search(app_client, app_auth_headers, digits[-5:])
+        response = await app_client.get(
+            "/api/cv-generator/candidates",
+            params={"q": digits, "limit": 50},
+            headers=app_auth_headers,
+        )
+        [row] = [r for r in response.json() if r["id"] == candidate]
+        assert row["phone"].endswith(digits[6:])
+    finally:
+        await _cleanup([candidate])

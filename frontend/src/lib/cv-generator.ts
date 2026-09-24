@@ -1,8 +1,8 @@
 /**
  * Shared types + helpers for the B2B CV generator surfaces.
  *
- * Single source of truth for the modal (CVGeneratorV2), the standalone page
- * (CVGeneratorStandaloneV2) and the B2B contract generator — previously each
+ * Single source of truth for the CV generator (`components/v2/cv-generator`,
+ * page and dialog) and the B2B contract generator — previously each
  * kept its own copy of these utilities and they had already started to drift.
  */
 
@@ -336,4 +336,85 @@ export function clientRuleRequirementProblems(
     );
   }
   return problems;
+}
+
+// ── Uwagi generatora w dwóch grupach (v3) ──────────────────────────────────
+
+/**
+ * Grupa „Do sprawdzenia” — to, co może być w CV nieprawdą albo czego
+ * brakuje względem wymagań. Grupa „Informacje” — co generator zrobił
+ * i dlaczego (przycięcia wg reguły klienta, nakładające się okresy).
+ *
+ * Reguła jest ASYMETRYCZNA: do „Informacji” trafia wyłącznie tekst, który
+ * rozpoznajemy po znanym początku. Wszystko inne — w tym tekst, którego nikt
+ * tu nie przewidział — ląduje w „Do sprawdzenia”. Nowe ostrzeżenie backendu
+ * ma być widoczne, zanim ktoś zdecyduje, że jest tylko informacją.
+ */
+export type CvWarningGroup = "review" | "info";
+
+export interface ClassifiedCvWarning {
+  text: string;
+  group: CvWarningGroup;
+  /** Krótka etykieta rodzaju (np. „Kontrola AI”, „nakładające się okresy”). */
+  kind: string;
+}
+
+export interface ClassifiedCvWarnings {
+  review: ClassifiedCvWarning[];
+  info: ClassifiedCvWarning[];
+  /** Rodzaje informacji z liczbą — do jednej linii nagłówka „Informacje”. */
+  infoKinds: Array<{ kind: string; count: number }>;
+}
+
+const INFO_RULES: ReadonlyArray<{ pattern: RegExp; kind: string }> = [
+  { pattern: /^(WERYFIKUJ: nakładające się okresy|VERIFY: overlapping employment periods)/, kind: "nakładające się okresy" },
+  { pattern: /^(… i \d+ kolejnych nakładających się par|… and \d+ more overlapping pairs)/, kind: "nakładające się okresy" },
+  { pattern: /^WERYFIKUJ: domknięto politykę prezentacji klienta/, kind: "skrócone wg reguły klienta" },
+  { pattern: /^WERYFIKUJ: zastosowano instrukcje tego klienta/, kind: "instrukcje klienta" },
+  { pattern: /^WERYFIKUJ: ten klient oczekuje CV po polsku ORAZ po angielsku/, kind: "wersje językowe" },
+  { pattern: /^WERYFIKUJ: ten klient wymaga zrzutu ekranu ze zgodą/, kind: "zgoda RODO" },
+  { pattern: /^Brak kompletnego Profilu Championa/, kind: "tryb obróbki" },
+  { pattern: /^Profil Championa przycięty/, kind: "Profil Championa" },
+  { pattern: /^NICE-TO-HAVE:/, kind: "brakujące NICE-TO-HAVE" },
+  { pattern: /^Wyróżnienia:/, kind: "wyróżnienia" },
+  { pattern: /^(Źródła: pominięto|Sources: omitted)/, kind: "źródła" },
+];
+
+function reviewKind(text: string): string {
+  if (/\((kontrola AI|AI review)\)/.test(text) || /kontrola AI treści CV nie wykonała się|independent AI review did not run/.test(text)) {
+    return "Kontrola AI";
+  }
+  if (/^MUST-HAVE:/.test(text)) return "Wymagania";
+  if (/^(Pominięto instrukcję klienta|Skipped client instruction)/.test(text)) return "Instrukcje klienta";
+  if (/^Profil Championa:/.test(text)) return "Profil Championa";
+  if (/^(BRAK POKRYCIA|NOT IN SOURCE)/.test(text)) return "Brak pokrycia w źródle";
+  if (/^(WERYFIKUJ|VERIFY)/.test(text)) return "Do weryfikacji";
+  return "Uwaga";
+}
+
+/** Dzieli uwagi generatora na „Do sprawdzenia” i „Informacje”. */
+export function classifyCvWarnings(warnings: readonly string[] | null | undefined): ClassifiedCvWarnings {
+  const review: ClassifiedCvWarning[] = [];
+  const info: ClassifiedCvWarning[] = [];
+  const seen = new Set<string>();
+  for (const raw of warnings ?? []) {
+    const text = String(raw ?? "").trim();
+    if (!text || seen.has(text)) continue;
+    seen.add(text);
+    const rule = INFO_RULES.find((r) => r.pattern.test(text));
+    if (rule) info.push({ text, group: "info", kind: rule.kind });
+    else review.push({ text, group: "review", kind: reviewKind(text) });
+  }
+  const counts = new Map<string, number>();
+  for (const item of info) counts.set(item.kind, (counts.get(item.kind) ?? 0) + 1);
+  return {
+    review,
+    info,
+    infoKinds: [...counts.entries()].map(([kind, count]) => ({ kind, count })),
+  };
+}
+
+/** Etykieta trybu obróbki na liście i w wyniku. */
+export function contentModeLabel(mode: string | null | undefined): string {
+  return CV_CONTENT_MODES.find((option) => option.value === mode)?.label ?? (mode || "—");
 }
