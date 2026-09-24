@@ -215,3 +215,106 @@ async def test_link_refuses_agreement_with_a_live_contract(
         headers=app_auth_headers,
     )
     assert resp.status_code == 409, resp.text
+
+
+# ── Audyt 24.09.2026, M7 ─────────────────────────────────────────────────────
+
+
+async def _dl_headers(app_client, client_id: int) -> dict[str, str]:
+    """Delivery Lead przypisany WYŁĄCZNIE do ``client_id``."""
+    from app.core.security import hash_password
+    from app.models.team_structure import DeliveryLeadClientAssignment
+    from app.models.user import User, UserRole
+
+    email = f"link-dl-{uuid.uuid4().hex[:8]}@example.com"
+    password = f"P4ss_{uuid.uuid4().hex[:6]}!"
+    async with AsyncSessionLocal() as db:
+        user = User(
+            email=email,
+            password_hash=hash_password(password),
+            name="Link DL",
+            role=UserRole.delivery_lead,
+            roles=[UserRole.delivery_lead.value],
+            is_active=True,
+            profile_completed=True,
+        )
+        db.add(user)
+        await db.flush()
+        db.add(
+            DeliveryLeadClientAssignment(
+                delivery_lead_user_id=user.id, client_id=client_id
+            )
+        )
+        await db.commit()
+    login = await app_client.post(
+        "/api/auth/login", json={"email": email, "password": password}
+    )
+    assert login.status_code == 200, login.text
+    return {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+
+async def test_dl_cannot_pull_another_clients_agreement_into_own_portfolio(
+    app_client, monkeypatch
+):
+    """DL przypisany tylko do klienta kontraktu nie przepisze umowy cudzego
+    klienta — do 24.09 wystarczał mu ODCZYT u klienta wiersza."""
+    monkeypatch.setattr(
+        b2b_contract_generator, "_render_generated_row_docx", _render_fails
+    )
+    ids = await _seed()
+    headers = await _dl_headers(app_client, ids["right_client"])
+    resp = await app_client.post(
+        f"{PATH}/{ids['row']}/link-contract",
+        json={"contract_id": ids["contract"]},
+        headers=headers,
+    )
+    assert resp.status_code == 403, resp.text
+    async with AsyncSessionLocal() as db:
+        row = await db.get(B2BGeneratedContract, ids["row"])
+        assert row.contract_id is None
+        assert row.client_id == ids["wrong_client"]
+
+
+async def test_link_refuses_excel_register_row(app_client, app_auth_headers):
+    ids = await _seed()
+    async with AsyncSessionLocal() as db:
+        row = await db.get(B2BGeneratedContract, ids["row"])
+        row.source = "excel"
+        await db.commit()
+    resp = await app_client.post(
+        f"{PATH}/{ids['row']}/link-contract",
+        json={"contract_id": ids["contract"]},
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 409, resp.text
+    assert "Excel" in resp.json()["detail"]
+
+
+async def test_link_refuses_contract_of_another_person(
+    app_client, app_auth_headers, monkeypatch
+):
+    """Zdublowany rekord tej samej osoby przechodzi (pierwszy test), inna
+    osoba dostaje 409 i wiersz zostaje nietknięty."""
+    monkeypatch.setattr(
+        b2b_contract_generator, "_render_generated_row_docx", _render_fails
+    )
+    ids = await _seed()
+    async with AsyncSessionLocal() as db:
+        stranger = Candidate(name="Bartosz", lastname=f"Obcy{uuid.uuid4().hex[:8]}")
+        db.add(stranger)
+        await db.flush()
+        row = await db.get(B2BGeneratedContract, ids["row"])
+        row.candidate_id = stranger.id
+        await db.commit()
+        stranger_id = stranger.id
+    resp = await app_client.post(
+        f"{PATH}/{ids['row']}/link-contract",
+        json={"contract_id": ids["contract"]},
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 409, resp.text
+    assert "innej osoby" in resp.json()["detail"]
+    async with AsyncSessionLocal() as db:
+        row = await db.get(B2BGeneratedContract, ids["row"])
+        assert row.contract_id is None
+        assert row.candidate_id == stranger_id
