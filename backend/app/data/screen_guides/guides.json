@@ -176,16 +176,12 @@
         "q": "Co to są odznaki etapu (np. Prep, Umowa podpisana)?",
         "a": "To etapy pomocnicze, które nie mają własnej kolumny — pokazują się na karcie. „Umowa podpisana” włączasz przełącznikiem w karcie. Kontrolę CV robi teraz kolumna „QC CV”.",
         "anchor": "jobs.person.badges"
-      },
-      {
-        "q": "Co znaczy „Follow-up: Anna K. · zaległy 2 dni” i kto dzwoni do kandydata?",
-        "a": "Gdy klient milczy 14 dni po wysłaniu CV, a nikt z nas nie rozmawiał w tym czasie z kandydatem, jedna osoba dzwoni do niego z informacją, że dalej jest w procesie. Jeśli kandydat jest w kilku procesach, dzwoni rekruter procesu, który zaszedł najdalej, i mówi o wszystkich. W karcie, w bloku „Kontakt z kandydatem”, zapiszesz wynik telefonu albo przejmiesz telefon przyciskiem „Zrobię to ja”. Zapisana rozmowa z kandydatem (telefon, spotkanie, mail — także z Traffita) przesuwa termin kolejnego telefonu o 14 dni, u wszystkich rekruterów naraz.",
-        "anchor": "jobs.person.followup"
       }
     ],
     "pitfalls": [
       "Osoba zarezerwowana przez kogoś innego (12 h) nie da się przesunąć, dopóki rezerwacja nie wygaśnie albo ktoś uprawniony jej nie przejmie.",
-      "CV dla klienta wymagającego zgody RODO da się wygenerować bez zrzutu, ale nie da się go pobrać ani udostępnić, dopóki zrzut nie zostanie dołączony."
+      "CV dla klienta wymagającego zgody RODO da się wygenerować bez zrzutu, ale nie da się go pobrać ani udostępnić, dopóki zrzut nie zostanie dołączony.",
+      "Odznaka „Follow-up: Anna K. · zaległy 2 dni” znaczy, że klient milczy od 14 dni i ta osoba zadzwoni do kandydata — jedna osoba, nawet gdy kandydat jest w kilku procesach. Nie dzwoń drugi raz: zapisz wynik albo kliknij „Zrobię to ja” w bloku „Kontakt z kandydatem”."
     ],
     "anchors": [
       {"id": "jobs.person.dock", "label": "Karta kandydata", "describe": "Panel osoby wysuwany z prawej po kliknięciu karty."},
