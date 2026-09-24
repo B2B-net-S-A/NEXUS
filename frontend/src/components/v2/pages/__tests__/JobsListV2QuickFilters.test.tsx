@@ -397,6 +397,29 @@ describe("JobsListV2 — status jako pigułki", () => {
     mockJobsResponse([jobRow()]);
   });
 
+  it("status „Zamknięta” w zakresie „Otwarte” przełącza na „Wszystkie” (dawniej zawsze 0 wyników)", async () => {
+    signInAs("admin");
+    window.history.replaceState(null, "", "/jobs");
+    const user = userEvent.setup();
+    renderJobs();
+    await waitFor(() => expect(jobsCalls()).toHaveLength(1));
+    expect(latestParams()).toMatchObject({ open_only: true });
+
+    const statusGroup = within(screen.getByRole("group", { name: "Filtr: Status" }));
+    await user.click(statusGroup.getByRole("button", { name: "Zamknięta" }));
+    await waitFor(() => expect(latestParams()).toMatchObject({ status: ["closed"] }));
+    expect(latestParams().open_only).toBeUndefined();
+    const scope = within(screen.getByRole("group", { name: "Zakres rekrutacji" }));
+    expect(scope.getByRole("button", { name: /Wszystkie/ })).toHaveAttribute("aria-pressed", "true");
+    await waitFor(() => expect(window.location.search).toContain("mine=0"));
+
+    // Powrót do „Otwartych” zdejmuje „Zamknięta” — inaczej lista byłaby pusta.
+    await user.click(scope.getByRole("button", { name: /Otwarte/ }));
+    await waitFor(() => expect(latestParams()).toMatchObject({ open_only: true }));
+    expect(latestParams().status).toBeUndefined();
+    window.history.replaceState(null, "", "/jobs");
+  });
+
   it("pigułka wysyła `status[]`, a „Wszystkie” czyści filtr", async () => {
     const user = userEvent.setup();
     renderJobs();

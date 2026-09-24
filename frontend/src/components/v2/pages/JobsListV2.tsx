@@ -95,8 +95,10 @@ import {
   initialSentFromUrl,
   resolveScope,
   scopeOverrideFromUrl,
+  scopeForStatuses,
   scopeQueryFlags,
   sentQueryParams,
+  statusesForScope,
   initialPriorityWorkFromUrl,
   initialSearchFromUrl,
   sortOverrideFromUrl,
@@ -756,7 +758,9 @@ export function JobsListV2() {
   const [scopeOverride, setScopeOverride] = useState<JobScope | null>(() =>
     scopeOverrideFromUrl(searchParams),
   );
-  const scope = resolveScope(scopeOverride, authUser);
+  // Status „Zamknięta” przy „Otwartych” przełącza na „Wszystkie” — razem
+  // dawały zawsze pustą listę (audyt 24.09.2026).
+  const scope = scopeForStatuses(resolveScope(scopeOverride, authUser), statusFilter);
   const { mine, openOnly } = scopeQueryFlags(scope);
   const [responsibleIds, setResponsibleIds] = useState<number[]>(() =>
     initialIdsFromUrl(searchParams, "responsible"),
@@ -851,6 +855,7 @@ export function JobsListV2() {
   // zostaje. `null` = powrót do domyślnego zakresu roli („Wyczyść").
   const changeScope = (nextScope: JobScope | null) => {
     setScopeOverride(nextScope);
+    setStatusFilter((prev) => statusesForScope(resolveScope(nextScope, authUser), prev));
     setPage(1);
   };
 

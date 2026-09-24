@@ -90,6 +90,27 @@ export function resolveScope(
   return override ?? defaultScopeForUser(user);
 }
 
+/**
+ * Zakres „Otwarte” (`open_only`) i status „Zamknięta” wykluczają się — lista
+ * była zawsze pusta (audyt 24.09.2026). Wybrany status „Zamknięta” wygrywa:
+ * zakres przechodzi na „Wszystkie” (w adresie `mine=0`). „Moje” zostaje —
+ * moje zamknięte to poprawne pytanie.
+ */
+export function scopeForStatuses(
+  scope: JobScope,
+  statuses: readonly string[],
+): JobScope {
+  return scope === "open" && statuses.includes("closed") ? "all" : scope;
+}
+
+/** Jawny wybór „Otwarte” zdejmuje status „Zamknięta” (lustro wyżej). */
+export function statusesForScope<S extends string>(
+  scope: JobScope,
+  statuses: readonly S[],
+): S[] {
+  return scope === "open" ? statuses.filter((s) => s !== "closed") : [...statuses];
+}
+
 /** Parametry zakresu dla `GET /api/jobs` (i klucza zapytania). */
 export function scopeQueryFlags(scope: JobScope): {
   mine: boolean;
