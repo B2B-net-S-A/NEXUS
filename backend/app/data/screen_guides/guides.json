@@ -12,14 +12,9 @@
         "anchor": "jobs.list.scope"
       },
       {
-        "q": "Jak znaleźć konkretną rekrutację?",
-        "a": "Wpisz w pole wyszukiwania tytuł, nazwę klienta albo technologię. Zawęzić listę możesz też statusem („Szukamy”, „Mamy championa”, „Umowa”… — z liczbą przy każdym) i przyciskiem „Filtry”.",
+        "q": "Jak znaleźć konkretną rekrutację albo zawęzić listę?",
+        "a": "Wpisz w pole wyszukiwania tytuł, klienta albo technologię i wybierz status (z liczbą przy każdym). Pod „Filtry” są m.in. „Termin” (po terminie, w tym tygodniu, do 14 dni, bez terminu, zakres dat), „Wysłanych do klienta” (nikt, co najmniej 1, 3, 5) i „Delivery Lead”. Sortowanie „Najbliższy termin” ustawia listę według daty.",
         "anchor": "jobs.list.search"
-      },
-      {
-        "q": "Jak znaleźć rekrutacje z bliskim terminem, bez wysłanych kandydatów albo jednego Delivery Leada?",
-        "a": "Otwórz „Filtry”: „Termin” (po terminie, w tym tygodniu, do 14 dni, bez terminu albo zakres dat), „Wysłanych do klienta” (nikt, co najmniej 1, 3 albo 5 osób) i „Delivery Lead”. Sortowanie „Najbliższy termin” ustawi rekrutacje według daty.",
-        "anchor": "jobs.list.filters"
       },
       {
         "q": "Co pokazuje status requestu?",
@@ -66,7 +61,7 @@
     "tasks": [
       {
         "q": "Od czego zacząć w tej rekrutacji?",
-        "a": "Spójrz na „Ścieżkę rekrutacji” w nagłówku: Zlecenie → Kandydaci → CV do klienta → Rozmowy → Umowa, ze stanem każdego kroku. Obok stoi „Najbliższy krok” z przyciskiem — np. uzupełnij zlecenie, przejrzyj propozycje albo sprawdź CV w QC. Kliknięcie kroku otwiera zlecenie, panel dodawania kandydatów albo przewija do właściwej kolumny."
+        "a": "Spójrz na „Ścieżkę rekrutacji” w nagłówku: Zlecenie → Kandydaci → CV do klienta → Rozmowy → Umowa, ze stanem każdego kroku, i na „Najbliższy krok” obok. Klik w krok otwiera zlecenie albo panel kandydatów lub przewija do kolumny. Klik w nazwisko na karcie otwiera kartę kandydata z boku (Ctrl/⌘ — pełny profil)."
       },
       {
         "q": "Jak przesunąć kandydata dalej?",
@@ -93,9 +88,7 @@
       "„CV wysłane” poza Nordeą ustawia tylko Delivery Lead albo admin, podając w tym samym kroku stawkę do klienta.",
       "Wyjście z „Rozmowy u klienta” wymaga debriefu: pytań klienta albo potwierdzenia, że ich nie było.",
       "Bez zielonego QC CV kandydat nie przejdzie na „CV wysłane” ani do kolejki Cpro (u Nordei wrzuca osoba od Cpro wyznaczona dla całej firmy). Przepuścić mimo QC może Delivery Lead albo admin, podając powód.",
-      "Osobę dodaną ręcznie przez 12 godzin (w Nowych i Screeningu) prowadzi tylko osoba, która ją wzięła — przejąć mogą Delivery Lead, Head of Recruitment i admin.",
-      "Kliknięcie w nazwisko na karcie otwiera kartę kandydata z boku; pełny profil otworzysz linkiem „Profil ↗” albo Ctrl/⌘-klikiem w nazwisko.",
-      "Rekrutacja prowadzona jeszcze w Traffit ma w nagłówku plakietkę — ruchy zrobione tutaj nadpisze nocny import, dopóki nie klikniesz „Przełącz do NEXUSA”."
+      "Osobę dodaną ręcznie przez 12 godzin (w Nowych i Screeningu) prowadzi tylko osoba, która ją wzięła — przejąć mogą Delivery Lead, Head of Recruitment i admin."
     ],
     "anchors": [
       {"id": "jobs.board.columns", "label": "Kolumny tablicy", "describe": "Osiem kolumn etapów — strzałka „→” na karcie albo przeciąganie."},
@@ -162,7 +155,7 @@
     "tasks": [
       {
         "q": "Jak przesunąć osobę na kolejny etap?",
-        "a": "Pod nazwiskiem jest ramka „Następny etap” z listą tego, czego brakuje do kolejnej kolumny, i przyciskiem przy każdym braku (np. arkusz screeningu, generator CV, QC CV). Ramka mówi też, czy brak to tylko przypomnienie, czy system zatrzyma ruch (QC CV, stawka do klienta, debrief). Przesuwasz przyciskiem „Przenieś na etap: …” pod listą; na inny etap przejdziesz przez „Inny etap…”. Pełny profil otworzysz linkiem „Profil ↗” przy nazwisku.",
+        "a": "Ramka „Następny etap” pod nazwiskiem pokazuje, czego brakuje do kolejnej kolumny, z przyciskiem przy każdym braku, i mówi, czy system zatrzyma ruch (QC CV, stawka do klienta, debrief). Przesuwasz przyciskiem „Przenieś na etap: …”, inny etap wybierzesz w „Inny etap…”. Pełny profil: link „Profil ↗” przy nazwisku.",
         "anchor": "jobs.person.actions"
       },
       {
@@ -177,7 +170,7 @@
       },
       {
         "q": "Jak przygotować CV do klienta?",
-        "a": "Sekcja „CV” mówi osobno o CV firmowym (brak, szkic albo zatwierdzone — z datą) i o oryginale (dołączony do zgłoszenia, z profilu kandydata albo brak pliku). Kliknij „Generuj CV” — otworzy się generator z tą osobą i tą rekrutacją. Gdy CV już jest, użyj „Edytuj CV”. Jeśli klient wymaga zgody RODO (PKO BP), pobranie CV jest zablokowane, dopóki nie dołączysz zrzutu maila ze zgodą."
+        "a": "Sekcja „CV” mówi osobno o CV firmowym (brak, szkic, zatwierdzone — z datą) i o oryginale (ze zgłoszenia, z profilu albo brak pliku). „Generuj CV” otwiera generator z tą osobą i rekrutacją, a gdy CV już jest — „Edytuj CV”. U klienta wymagającego zgody RODO (PKO BP) pobranie CV czeka na zrzut maila ze zgodą."
       },
       {
         "q": "Co to są odznaki etapu (np. Prep, Umowa podpisana)?",
