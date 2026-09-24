@@ -23,7 +23,7 @@ def circuit_key() -> str:
     scope = "|".join(
         (
             settings.M365_MAIL_TENANT_ID or settings.M365_TENANT_ID,
-            settings.M365_CLIENT_ID,
+            settings.M365_APP_MAIL_CLIENT_ID or settings.M365_CLIENT_ID,
             settings.M365_MAIL_SENDER_UPN.lower(),
         )
     )

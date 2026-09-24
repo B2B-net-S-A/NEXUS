@@ -6730,6 +6730,7 @@ export interface CloudTalkAgent {
 
 export interface InitiateCallResponse {
   call_id: number;
+  transcript_linkable: boolean;
   candidate_id: number;
   phone: string;
   cloudtalk_response: Record<string, unknown>;

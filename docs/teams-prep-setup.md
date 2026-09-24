@@ -13,13 +13,15 @@ do zakresu tamtej aplikacji (ma `Mail.Read`) dałoby jej odczyt ich poczty.
 1. Entra ID → App registrations → New registration: **NEXUS Teams Prep**
    (single tenant).
 2. API permissions → Microsoft Graph → **Application permissions**:
-   - `Calendars.ReadWrite` — spotkanie w kalendarzu organizatora,
    - `OnlineMeetings.ReadWrite.All` — identyfikator spotkania i włączenie
      automatycznej transkrypcji,
    - `OnlineMeetingTranscript.Read.All` — pobranie transkryptu,
    - `User.ReadBasic.All` — identyfikator obiektu organizatora
      (ścieżki `onlineMeetings` go wymagają).
-3. **Grant admin consent**.
+3. **Grant admin consent** tylko dla powyższych uprawnień. Dostęp do kalendarzy
+   nadaj przez Exchange App RBAC z rolą `Application Calendars.ReadWrite` i
+   zakresem skrzynek organizatorów. Nie dodawaj równolegle nieograniczonego
+   uprawnienia `Calendars.ReadWrite` w Entra.
 4. Certificates & secrets → New client secret. Zapisz wartość (widać ją raz).
 
 ## 2. Grupa, do której aplikacja ma dostęp
@@ -29,7 +31,12 @@ wszyscy Delivery Leadzi i rekruterzy prowadzący prepy.
 
 ## 3. Zawężenie dostępu (PowerShell)
 
-Exchange Online (kalendarze):
+Exchange Online (kalendarze): skonfiguruj [App RBAC](https://learn.microsoft.com/en-us/exchange/permissions-exo/application-rbac)
+z rolą `Application Calendars.ReadWrite` ograniczoną do skrzynek organizatorów
+i sprawdź dostęp do skrzynki w zakresie oraz poza nim. Poniższa Application
+Access Policy to starsza ścieżka awaryjna. Wymaga grantu aplikacyjnego
+`Calendars.ReadWrite` w Entra i nie powinna być łączona z App RBAC, bo
+uprawnienia obu mechanizmów są sumowane.
 
 ```powershell
 Connect-ExchangeOnline
@@ -52,10 +59,24 @@ Grant-CsApplicationAccessPolicy -PolicyName NEXUS-Meetings -Group <ID_GRUPY>
 
 Propagacja polityki Teams trwa do ok. 30 minut.
 
-## 4. Polityka spotkań Teams
+## 4. Polityka spotkań Teams i dostęp API
 
 Dla grupy: transkrypcja dozwolona (Teams admin center → Meetings → Meeting
-policies → Recording & transcription → Transcription: On).
+policies → Recording & transcription → Transcription: On). Aktualna polityka
+globalna ma już `Meeting recording` i `Transcription` włączone, ale
+`Require participant agreement for recording, transcription, and Copilot` jest
+wyłączone. Przed automatycznym nagrywaniem przypisz organizatorom politykę
+z wymaganą zgodą i sprawdź faktyczny ekran zgody u uczestnika testowego.
+
+Osobno: Teams admin center → Meetings → Meeting settings → Transcript API
+access → Microsoft Graph access. Ten przełącznik jest domyślnie wyłączony i
+blokuje odczyt VTT nawet przy `OnlineMeetingTranscript.Read.All`. Speaker
+attribution jest osobnym ustawieniem. Przed zmianą polityki globalnej
+sprawdź dostęp konkretnych aplikacji i zakres ich uprawnień w Entra.
+
+Uzgodnij informację i zgodę uczestników przed automatycznym nagrywaniem.
+Obecny akapit w zaproszeniu (`PREP_NOTICE_TEXT`) jest roboczy i wymaga
+akceptacji prawnej; samo zaproszenie nie zastępuje polityki zgody w Teams.
 
 ## 5. Zmienne w Coolify (workflow „Coolify set env”)
 

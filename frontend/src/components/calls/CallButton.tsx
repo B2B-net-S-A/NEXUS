@@ -16,6 +16,7 @@ interface CallButtonProps {
    */
   compact?: boolean;
   className?: string;
+  onStarted?: (callId: number, transcriptLinkable: boolean) => void;
 }
 
 /**
@@ -34,6 +35,7 @@ export default function CallButton({
   phone,
   compact = false,
   className = "",
+  onStarted,
 }: CallButtonProps) {
   const { showSuccess, showError } = useToast();
   const [isLoading, setLoading] = useState(false);
@@ -45,7 +47,8 @@ export default function CallButton({
     if (isLoading) return;
     setLoading(true);
     try {
-      await cloudtalkApi.initiateCall(candidateId);
+      const started = await cloudtalkApi.initiateCall(candidateId);
+      onStarted?.(started.call_id, started.transcript_linkable);
       showSuccess("Dzwonimy — odbierz swój softphone CloudTalk");
     } catch (err: unknown) {
       const status =

@@ -28,6 +28,7 @@ from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.models.candidate import Candidate
 from app.models.candidate_followup import CandidateFollowup
+from app.models.call import Call, CallDirection
 from app.models.note import Note, NoteType
 from app.models.notification import NotificationType
 from app.models.user import User
@@ -83,6 +84,9 @@ class FollowupHistoryRow(BaseModel):
     created_at: datetime
     callback_on: Optional[date] = None
     note: Optional[str] = None
+    call_id: Optional[int] = None
+    has_transcript: bool = False
+    has_recording: bool = False
 
 
 class FollowupDetail(BaseModel):
@@ -95,6 +99,8 @@ class FollowupOutcomeIn(BaseModel):
     outcome: Literal["connected", "changed", "no_answer", "callback"]
     note: Optional[str] = Field(default=None, max_length=4000)
     callback_on: Optional[date] = None
+    # Id z POST /api/cloudtalk/initiate-call, nigdy dopasowanie po numerze.
+    call_id: Optional[int] = Field(default=None, ge=1)
     # `changed`: co z każdym procesem — klucz to id rekrutacji.
     processes: dict[int, Literal["interested", "withdrawing"]] = {}
 
@@ -226,16 +232,41 @@ async def _history(
         )
     ).all()
     names = await svc.user_names(db, (r.user_id for r, _ in rows))
-    return [
-        FollowupHistoryRow(
-            outcome=r.outcome,
-            user_name=names.get(r.user_id) if r.user_id else None,
-            created_at=r.created_at,
-            callback_on=r.callback_on,
-            note=_snippet(content),
+    call_ids = {
+        int(r.details["call_id"])
+        for r, _ in rows
+        if isinstance(r.details, dict) and isinstance(r.details.get("call_id"), int)
+    }
+    calls = (
+        {
+            call.id: call
+            for call in (
+                await db.scalars(select(Call).where(Call.id.in_(call_ids)))
+            ).all()
+        }
+        if call_ids
+        else {}
+    )
+    history = []
+    for r, content in rows:
+        call = (
+            calls.get(r.details.get("call_id")) if isinstance(r.details, dict) else None
         )
-        for r, content in rows
-    ]
+        if call is not None and call.candidate_id != candidate_id:
+            call = None
+        history.append(
+            FollowupHistoryRow(
+                outcome=r.outcome,
+                user_name=names.get(r.user_id) if r.user_id else None,
+                created_at=r.created_at,
+                callback_on=r.callback_on,
+                note=_snippet(content),
+                call_id=call.id if call else None,
+                has_transcript=bool(call.transcript) if call else False,
+                has_recording=bool(call.recording_url) if call else False,
+            )
+        )
+    return history
 
 
 async def _detail(db: AsyncSession, candidate_id: int) -> FollowupDetail:
@@ -442,6 +473,30 @@ async def record_followup_outcome(
             detail="Wybrany proces nie czeka już na odpowiedź klienta — odśwież okno.",
         )
 
+    if body.call_id is not None:
+        call = await db.get(Call, body.call_id, with_for_update=True)
+        if (
+            call is None
+            or call.candidate_id != candidate_id
+            or call.user_id != current_user.id
+            or call.direction != CallDirection.outbound
+            or not call.cloudtalk_call_id
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="Rozmowa CloudTalk nie należy do tego kandydata i użytkownika.",
+            )
+        previous = await db.scalar(
+            select(CandidateFollowup.id).where(
+                CandidateFollowup.details.contains({"call_id": body.call_id})
+            )
+        )
+        if previous is not None:
+            raise HTTPException(
+                status_code=409,
+                detail="Ta rozmowa jest już przypisana do innego follow-upu.",
+            )
+
     entry = CandidateFollowup(
         candidate_id=candidate_id,
         user_id=current_user.id,
@@ -450,6 +505,7 @@ async def record_followup_outcome(
         details={
             "processes": {str(k): v for k, v in body.processes.items()},
             "job_ids": sorted(job_ids),
+            **({"call_id": body.call_id} if body.call_id is not None else {}),
         },
     )
     db.add(entry)

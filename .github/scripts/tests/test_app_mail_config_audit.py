@@ -1,6 +1,7 @@
 import importlib.util
 import json
 import io
+import urllib.parse
 from unittest.mock import Mock
 from pathlib import Path
 import unittest
@@ -93,6 +94,22 @@ class ProbeTests(unittest.TestCase):
             {"accepted": False, "result": "configuration_unavailable"},
         )
         opener.assert_not_called()
+
+    def test_dedicated_sender_credentials_override_order_mail(self):
+        rows = self.rows() + [
+            {"key": "M365_APP_MAIL_CLIENT_ID", "value": str(UUID(int=3))},
+            {"key": "M365_APP_MAIL_CLIENT_SECRET", "value": "dedicated-secret"},
+        ]
+        token = io.BytesIO(b'{"access_token":"synthetic-token"}')
+        response = Mock(status=202)
+        response.__enter__ = Mock(return_value=response)
+        response.__exit__ = Mock(return_value=False)
+        opener = Mock(side_effect=[token, response])
+        self.assertTrue(audit.send_probe(rows, opener)["accepted"])
+        token_request = opener.call_args_list[0].args[0]
+        params = urllib.parse.parse_qs(token_request.data.decode())
+        self.assertEqual(params["client_id"], [str(UUID(int=3))])
+        self.assertEqual(params["client_secret"], ["dedicated-secret"])
 
     def test_uncertain_post_is_not_retried(self):
         opener = Mock(

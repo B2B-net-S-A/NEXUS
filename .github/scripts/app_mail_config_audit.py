@@ -16,6 +16,7 @@ PROBE_RECIPIENT = "artur.twardowski@b2bnetwork.pl"
 def summarize(envs):
     patterns = {
         "M365_CLIENT_ID": r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}",
+        "M365_APP_MAIL_CLIENT_ID": r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}",
         "M365_MAIL_SENDER_UPN": r"[A-Za-z0-9._+-]+@b2bnetwork\.pl",
         "M365_APP_MAIL_ENABLED": r"(?i:true|false|0|1)",
     }
@@ -38,6 +39,8 @@ def send_probe(envs, opener=urllib.request.urlopen):
     allowed = {
         "M365_CLIENT_ID",
         "M365_CLIENT_SECRET",
+        "M365_APP_MAIL_CLIENT_ID",
+        "M365_APP_MAIL_CLIENT_SECRET",
         "M365_TENANT_ID",
         "M365_MAIL_TENANT_ID",
         "M365_MAIL_SENDER_UPN",
@@ -49,12 +52,17 @@ def send_probe(envs, opener=urllib.request.urlopen):
     }
     sender = PROBE_SENDER
     tenant = values.get("M365_MAIL_TENANT_ID") or values.get("M365_TENANT_ID", "")
+    dedicated_id = values.get("M365_APP_MAIL_CLIENT_ID", "")
+    dedicated_secret = values.get("M365_APP_MAIL_CLIENT_SECRET", "")
+    client_id = dedicated_id or values.get("M365_CLIENT_ID", "")
+    client_secret = dedicated_secret or values.get("M365_CLIENT_SECRET", "")
     uuid_pattern = r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}"
     if (
         values.get("M365_MAIL_SENDER_UPN") != sender
+        or bool(dedicated_id) != bool(dedicated_secret)
         or not re.fullmatch(uuid_pattern, tenant)
-        or not re.fullmatch(uuid_pattern, values.get("M365_CLIENT_ID", ""))
-        or not values.get("M365_CLIENT_SECRET")
+        or not re.fullmatch(uuid_pattern, client_id)
+        or not client_secret
     ):
         return {"accepted": False, "result": "configuration_unavailable"}
     posted = False
@@ -62,8 +70,8 @@ def send_probe(envs, opener=urllib.request.urlopen):
         body = urllib.parse.urlencode(
             {
                 "grant_type": "client_credentials",
-                "client_id": values["M365_CLIENT_ID"],
-                "client_secret": values["M365_CLIENT_SECRET"],
+                "client_id": client_id,
+                "client_secret": client_secret,
                 "scope": "https://graph.microsoft.com/.default",
             }
         ).encode()
