@@ -60,8 +60,6 @@ class BoardTaskRow(BaseModel):
     screening_stage_id: Optional[int] = None
     job_sender_id: Optional[int] = None
     job_sender_name: Optional[str] = None
-    # Przegląd DL rekrutacji bez żadnego Delivery Leada (widzą ją admin i HoR).
-    without_delivery_lead: bool = False
     # Kolejka Cpro: etap QC CV szablonu — cel „Zwróć do rekrutera".
     return_stage_def_id: Optional[int] = None
     # Przegląd DL i kolejka Cpro: wynik QC CV pary.
