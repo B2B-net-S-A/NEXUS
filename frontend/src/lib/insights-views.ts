@@ -372,9 +372,14 @@ export function previousComparablePeriod(
     offset === 0 &&
     (p.period === "week" || p.period === "quarter" || p.period === "year")
   ) {
-    const start = periodStartOf(p.period, today);
+    // Dni liczymy na datach BEZ godziny: `today` z `new Date()` niesie
+    // godzinę i od ~12:00 zaokrąglenie wydłużało poprzedni okres o dzień.
+    // `Math.round` zostaje tylko po to, żeby zmiana czasu (23/25 h) nie
+    // zgubiła dnia.
+    const day = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const start = periodStartOf(p.period, day);
     const prevStart = previousPeriodStart(p.period, start);
-    const days = Math.round((today.getTime() - start.getTime()) / 86_400_000);
+    const days = Math.round((day.getTime() - start.getTime()) / 86_400_000);
     const end = addDays(prevStart, days);
     const lastPrevDay = addDays(start, -1);
     return {

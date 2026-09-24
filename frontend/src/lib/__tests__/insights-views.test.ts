@@ -132,6 +132,23 @@ describe("okno porównania", () => {
       params: { period: "custom", date_from: "2026-09-14", date_to: "2026-09-17" },
     });
   });
+
+  it("godzina dnia nie wydłuża okna porównania (audyt 24.09.2026)", () => {
+    // `today` z `new Date()` niesie godzinę — od ~12:00 zaokrąglenie różnicy
+    // dni szło w górę i poprzedni okres rósł o dzień (4 dni przeciw 5).
+    for (const hour of [9, 13, 23]) {
+      const today = new Date(2026, 8, 24, hour, 30);
+      expect(
+        previousComparablePeriod({ period: "week", offset: 0 }, today)?.params,
+      ).toEqual({ period: "custom", date_from: "2026-09-14", date_to: "2026-09-17" });
+      expect(
+        previousComparablePeriod({ period: "quarter", offset: 0 }, today)?.params,
+      ).toEqual({ period: "custom", date_from: "2026-04-01", date_to: "2026-06-25" });
+      expect(
+        previousComparablePeriod({ period: "year", offset: 0 }, today)?.params,
+      ).toEqual({ period: "custom", date_from: "2025-01-01", date_to: "2025-09-24" });
+    }
+  });
 });
 
 describe("delty", () => {
