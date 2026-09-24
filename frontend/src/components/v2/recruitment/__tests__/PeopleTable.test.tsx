@@ -110,7 +110,7 @@ describe("PeopleTable — osoby w procesie", () => {
     expect(screen.getByTitle("Dopasowanie")).toHaveTextContent("Dop.");
     const marek = within(rowOf("Marek Zieliński"));
     expect(marek.getByText("Zweryfikowany")).toBeInTheDocument();
-    expect(marek.getByText("Wyślij CV do klienta")).toBeInTheDocument();
+    expect(marek.getByText("Przygotuj CV do QC")).toBeInTheDocument();
     expect(marek.getByText("ponad budżet")).toBeInTheDocument();
     expect(marek.getByText("Uzupełnij screening")).toBeInTheDocument();
     expect(marek.getByText("4 d")).toBeInTheDocument();

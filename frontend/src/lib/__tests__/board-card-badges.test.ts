@@ -155,17 +155,17 @@ describe("Rekrutacja v5: chip QC, znany brak i „kto ma ruch”", () => {
   });
 
   it("w QC CV ruch ma rekruter (poprawki), DL (poza Nordeą) albo osoba od Cpro", () => {
-    const action = { label: "Wyślij CV do klienta", owner: "recruiter", kind: "cv" };
+    const action = { label: "Popraw CV / wyślij", owner: "recruiter", kind: "cv" };
     const failed = item({ qc: { status: "failed", blocking_failed: 1 } });
     expect(cardNextStep(action, failed, { column: "cv_qc", cproEnabled: false })).toMatchObject({
-      who: "Ty",
+      who: "Twój ruch",
       mine: true,
     });
     const passed = item({ qc: { status: "passed", blocking_failed: 0 } });
     expect(cardNextStep(action, passed, { column: "cv_qc", cproEnabled: false })?.who).toBe("DL");
     // Niesprawdzone QC = ruch rekrutera, nie DL.
     expect(cardNextStep(action, item({}), { column: "cv_qc", cproEnabled: false })).toMatchObject({
-      who: "Ty",
+      who: "Twój ruch",
       label: "Sprawdź QC CV",
     });
     expect(
@@ -174,7 +174,7 @@ describe("Rekrutacja v5: chip QC, znany brak i „kto ma ruch”", () => {
     expect(cardNextStep(action, passed, { column: "cv_qc", cproEnabled: true })?.label).toBe(
       "Przekaż do Cpro",
     );
-    // Poza QC — lustro `nextActionFor`: klient to nie „Ty”.
+    // Poza QC — lustro `nextActionFor`: klient to nie „Twój ruch”.
     expect(
       cardNextStep({ label: "Feedback klienta", owner: "client", kind: "client" }, item({}), {
         column: "cv_sent",
@@ -184,5 +184,48 @@ describe("Rekrutacja v5: chip QC, znany brak i „kto ma ruch”", () => {
     expect(
       cardNextStep({ label: "", owner: "none", kind: "none" }, item({}), { column: "closed", cproEnabled: false }),
     ).toBeNull();
+  });
+
+  it("„Twój ruch” tylko na własnej (albo niczyjej) karcie — cudza mówi imię rekrutera", () => {
+    const action = { label: "Przygotuj CV do QC", owner: "recruiter", kind: "cv" };
+    const mine = item({ recruiter_id: 7, recruiter_name: "Klaudia Urban" });
+    expect(cardNextStep(action, mine, { column: "verified", cproEnabled: false, viewerId: 7 })).toEqual({
+      who: "Twój ruch",
+      mine: true,
+      label: "Przygotuj CV do QC",
+    });
+    expect(cardNextStep(action, mine, { column: "verified", cproEnabled: false, viewerId: 9 })).toEqual({
+      who: "Klaudia",
+      mine: false,
+      label: "Przygotuj CV do QC",
+    });
+    // Karta bez rekrutera — nikt jej nie „ma”, ruch jest po stronie patrzącego.
+    expect(cardNextStep(action, item({}), { column: "verified", cproEnabled: false, viewerId: 9 })?.who).toBe(
+      "Twój ruch",
+    );
+    // Nowi: aktywna blokada „Biorę” wygrywa z rekruterem karty.
+    const claimed = item({ recruiter_id: 9, claim_user_id: 3, claim_user_name: "Ola Nowak" });
+    expect(
+      cardNextStep({ label: "Umów screening", owner: "review", kind: "screening" }, claimed, {
+        column: "new",
+        cproEnabled: false,
+        viewerId: 9,
+      })?.who,
+    ).toBe("Ola");
+    // Kandydat i Delivery to role, nie imiona.
+    expect(
+      cardNextStep({ label: "Reakcja kandydata na ofertę", owner: "candidate", kind: "offer" }, mine, {
+        column: "contract",
+        cproEnabled: false,
+        viewerId: 7,
+      })?.who,
+    ).toBe("Kandydat");
+    expect(
+      cardNextStep({ label: "Przekaż do Delivery", owner: "delivery", kind: "contract" }, mine, {
+        column: "hired",
+        cproEnabled: false,
+        viewerId: 7,
+      })?.who,
+    ).toBe("Delivery");
   });
 });

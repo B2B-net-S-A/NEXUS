@@ -15,6 +15,7 @@
  * kartę przy renderze, więc nie wolno tu wejść żadnemu zapytaniu.
  */
 
+import { isQcStageName } from "@/lib/board-stages";
 import { terminalOf } from "@/lib/kanban-terminal";
 import {
   CV_SENT_STAGE,
@@ -93,7 +94,7 @@ export interface NextActionContext {
    * Bez niej moduł klasyfikuje kolumnę sam, ale bez pozycji w szablonie nie
    * odróżni własnego etapu wewnętrznego PO screeningu („Przepuszczony przez
    * DZ") od etapu wejściowego — taka karta dostałaby „Umów screening" zamiast
-   * „Wyślij CV do klienta". Tablica zna całą listę, więc podaje grupę wprost.
+   * „Przygotuj CV do QC". Tablica zna całą listę, więc podaje grupę wprost.
    */
   group?: PipelineGroupKey;
 }
@@ -223,7 +224,13 @@ function baseActionFor(
     }
 
     case "verification":
-      return { label: "Wyślij CV do klienta", tone: "normal", kind: "cv" };
+      // Rekrutacja v5 (24.09.2026): po „Zweryfikowany" stoi „QC CV", nie
+      // klient. Do tego dnia obie kolumny mówiły „Wyślij CV do klienta",
+      // czyli pomijały kontrolę CV, którą serwer i tak wymusza przy wysłaniu.
+      if (isQcStageName(column.name)) {
+        return { label: "Popraw CV / wyślij", tone: "normal", kind: "cv" };
+      }
+      return { label: "Przygotuj CV do QC", tone: "normal", kind: "cv" };
 
     case "client":
       if (column.stage === CV_SENT_STAGE) {

@@ -8,6 +8,8 @@ const startRun = vi.fn();
 const bulkAdd = vi.fn();
 const forJob = vi.fn();
 const toast = vi.fn();
+const factsApi = vi.fn();
+const matchScores = vi.fn();
 
 function entry(id: number, name: string, origins: string[], extra: Record<string, unknown> = {}) {
   return {
@@ -52,7 +54,15 @@ vi.mock("@/components/v2/recruitment/useJobProposals", () => ({
 }));
 vi.mock("@/lib/candidate-search-api", () => ({
   proposalsBulkApi: { add: (...a: unknown[]) => bulkAdd(...a) },
+  candidateSearchApi: { matchScores: (...a: unknown[]) => matchScores(...a) },
 }));
+vi.mock("@/lib/job-proposals-api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/job-proposals-api")>();
+  return {
+    ...actual,
+    jobProposalsApi: { ...actual.jobProposalsApi, facts: (...a: unknown[]) => factsApi(...a) },
+  };
+});
 vi.mock("@/lib/matching-requirements", () => ({
   matchingRequirementsApi: {
     get: () =>
@@ -111,6 +121,7 @@ describe("AddCandidatesPanel", () => {
     proposalsState.entries = [];
     (proposalsState.status.run as { data: unknown }).data = undefined;
     proposalsState.status.latestRun = null;
+    factsApi.mockResolvedValue({ job_id: 5, items: [] });
   });
 
   it("zamknięty panel nie montuje treści ani zapytań", () => {
@@ -216,5 +227,127 @@ describe("AddCandidatesPanel", () => {
     expect(props.onOpenQuickAdd).toHaveBeenCalled();
     await userEvent.click(screen.getByRole("button", { name: /Z pliku CV/ }));
     expect(props.onOpenFromCv).toHaveBeenCalled();
+  });
+
+  it("Propozycje: fakty zamiast pustych pól, historia u klienta i sortowanie „najpierw byli u tego klienta”", async () => {
+    proposalsState.entries = [
+      entry(1, "Anna Pierwsza", ["similar"], { rateLabel: null, availabilityLabel: null, fitScore: null, reason: "Był(a) w podobnym projekcie: X" }),
+      entry(2, "Bartek Drugi", ["similar"], { rateLabel: null, availabilityLabel: null, fitScore: null, reason: "Był(a) w podobnym projekcie: Y" }),
+    ];
+    factsApi.mockResolvedValue({
+      job_id: 5,
+      items: [
+        {
+          candidate_id: 1, title: "Tester", company: null, years_experience: 3, city: "Łódź",
+          max_onsite_days_per_week: null, remote_modes: [], availability_status: null, availability_date: null,
+          expected_rate_hourly: null, expected_rate_currency: null, expected_rate_redacted: false, client_history: null,
+        },
+        {
+          candidate_id: 2, title: "Java Developer", company: "Firma", years_experience: 8, city: "Gdańsk",
+          max_onsite_days_per_week: 0, remote_modes: [], availability_status: null, availability_date: null,
+          expected_rate_hourly: 170, expected_rate_currency: "PLN", expected_rate_redacted: false,
+          client_history: { job_id: 77, title: "Senior Java", furthest_stage: "cv_sent", furthest_stage_label: "CV Wysłane", outcome: "rejected", last_moved_at: null },
+        },
+      ],
+    });
+    renderPanel({ initialTab: "proposals" });
+    const list = await screen.findByRole("list", { name: "Propozycje" });
+    await within(list).findByText("Java Developer @ Firma · 8 lat dośw. · Gdańsk · tylko zdalnie · 170 zł/h");
+    expect(within(list).getByText("Tester · 3 lata dośw. · Łódź")).toBeTruthy();
+    expect(
+      within(list).getByText("Był(a) u tego klienta: Senior Java — doszedł(a) do etapu „CV Wysłane” (odrzucony/a)"),
+    ).toBeTruthy();
+    expect(within(list).queryByText(/stawka —/)).toBeNull();
+    // Domyślnie na górze osoba z historią u klienta.
+    const names = within(list).getAllByRole("checkbox").map((c) => c.getAttribute("aria-label"));
+    expect(names).toEqual(["Zaznacz Bartek Drugi", "Zaznacz Anna Pierwsza"]);
+    await userEvent.click(screen.getByRole("button", { name: "Kolejność propozycji" }));
+    expect(within(list).getAllByRole("checkbox").map((c) => c.getAttribute("aria-label"))).toEqual([
+      "Zaznacz Anna Pierwsza",
+      "Zaznacz Bartek Drugi",
+    ]);
+    expect(factsApi).toHaveBeenCalledWith(5, [1, 2], expect.anything());
+  });
+
+  it("„Policz dopasowanie dla N”: wynik w miejscu „nie policzono”, niezmierzony = „Ocena niepełna”", async () => {
+    proposalsState.entries = [
+      entry(1, "Anna Pierwsza", ["similar"], { fitScore: null }),
+      entry(2, "Bartek Drugi", ["similar"], { fitScore: null }),
+      entry(3, "Cezary Trzeci", ["inbox"], { fitScore: 64 }),
+    ];
+    matchScores.mockResolvedValue({
+      scores: { "1": 71.4 },
+      breakdowns: { "2": { total: null, measurement: "missing_index" } },
+      profile_key: "p:1",
+    });
+    renderPanel({ initialTab: "proposals" });
+    const list = await screen.findByRole("list", { name: "Propozycje" });
+    expect(within(list).getAllByText("nie policzono")).toHaveLength(2);
+    await userEvent.click(screen.getByRole("button", { name: /Policz dopasowanie dla 2/ }));
+    await within(list).findByText("71%");
+    expect(within(list).getByText("Ocena niepełna")).toBeTruthy();
+    expect(within(list).getByText("64%")).toBeTruthy();
+    expect(matchScores).toHaveBeenCalledTimes(1);
+    expect(matchScores.mock.calls[0][0]).toBe(5);
+    expect([...matchScores.mock.calls[0][1]].sort()).toEqual([1, 2]);
+    expect(screen.queryByRole("button", { name: /Policz dopasowanie/ })).toBeNull();
+  });
+
+  it("po dodaniu osoby z listy policzone wyniki pozostałych zostają (nie wracają do „liczę…”)", async () => {
+    proposalsState.entries = [
+      entry(1, "Anna Pierwsza", ["similar"], { fitScore: null }),
+      entry(2, "Bartek Drugi", ["similar"], { fitScore: null }),
+      entry(3, "Cezary Trzeci", ["similar"], { fitScore: null }),
+    ];
+    matchScores.mockResolvedValue({
+      scores: { "1": 81, "2": 72, "3": 63 },
+      breakdowns: {},
+      profile_key: "p:1",
+    });
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const props = {
+      open: true,
+      onOpenChange: vi.fn(),
+      jobId: 5,
+      budgetHourly: 160,
+      location: "Warszawa",
+      pipelineCandidateIds: [99],
+      onOpenManualSearch: vi.fn(),
+      onOpenQuickAdd: vi.fn(),
+      onOpenFromCv: vi.fn(),
+      initialTab: "proposals" as const,
+    };
+    const tree = () => (
+      <QueryClientProvider client={qc}>
+        <AddCandidatesPanel {...props} />
+      </QueryClientProvider>
+    );
+    const { rerender } = render(tree());
+    const list = await screen.findByRole("list", { name: "Propozycje" });
+    await userEvent.click(screen.getByRole("button", { name: /Policz dopasowanie dla 3/ }));
+    await within(list).findByText("81%");
+
+    // Osoba 1 dodana do rekrutacji — znika z propozycji, panel zostaje otwarty.
+    proposalsState.entries = proposalsState.entries.filter((e) => e.row.candidateId !== 1);
+    rerender(tree());
+
+    const after = screen.getByRole("list", { name: "Propozycje" });
+    expect(within(after).getByText("72%")).toBeTruthy();
+    expect(within(after).getByText("63%")).toBeTruthy();
+    expect(within(after).queryByText("liczę…")).toBeNull();
+    expect(matchScores).toHaveBeenCalledTimes(1);
+  });
+
+  it("błąd liczenia to „nie policzono — ponów”, nigdy 0", async () => {
+    proposalsState.entries = [entry(1, "Anna Pierwsza", ["similar"], { fitScore: null })];
+    matchScores.mockRejectedValueOnce({ response: { status: 500 } });
+    renderPanel({ initialTab: "proposals" });
+    await screen.findByRole("list", { name: "Propozycje" });
+    await userEvent.click(screen.getByRole("button", { name: /Policz dopasowanie dla 1/ }));
+    const retry = await screen.findByRole("button", { name: "nie policzono — ponów" });
+    expect(screen.queryByText("0%")).toBeNull();
+    matchScores.mockResolvedValueOnce({ scores: { "1": 55 }, breakdowns: {}, profile_key: "p:1" });
+    await userEvent.click(retry);
+    await screen.findByText("55%");
   });
 });
