@@ -512,4 +512,58 @@ describe("MdImportWorkspace", () => {
     ).toBeInTheDocument();
     expect(screen.queryByText("Brak importów")).not.toBeInTheDocument();
   });
+
+  it("liczniki rozróżniają rozliczenie kwotowe, a nieudana faktura nie ma zielonej ikony (N5)", async () => {
+    const costSettled = row({
+      id: 11,
+      consultant_name: "Anna Kwota",
+      status: "unmatched",
+      status_label: "Brak aktywnego zamówienia",
+      matched_order_id: null,
+      matched: null,
+      order_number_hint: "4500810000",
+      invoice_amount: 1000,
+      cost_status: "applied",
+      cost_status_label: "Rozliczono",
+    });
+    const costFailed = row({
+      id: 12,
+      consultant_name: "Ewa Brak",
+      status: "cost_only",
+      status_label: "Tylko faktura",
+      matched_order_id: null,
+      matched: null,
+      order_number_hint: "4500819999",
+      invoice_amount: 500,
+      cost_status: "unmatched_number",
+      cost_status_label: "Brak zamówienia kosztowego o tym numerze",
+    });
+    const secondSettled = { ...costSettled, id: 13, consultant_name: "Olga Kwota" };
+    const payload = {
+      ...detail([row(), costSettled, secondSettled, costFailed]),
+      // Serwer liczy „bez dopasowania MD” — także wiersze rozliczone kwotowo.
+      rows_unmatched: 2,
+      rows_cost_applied: 2,
+      rows_cost_unmatched: 1,
+    };
+    vi.mocked(mdConsumptionApi.upload).mockResolvedValue({ data: payload } as never);
+
+    const user = userEvent.setup();
+    renderWorkspace();
+    await user.upload(screen.getByLabelText(/Plik XLSX/), new File(["x"], "raport.xlsx"));
+    await user.click(screen.getByRole("button", { name: /Importuj/ }));
+    await screen.findByText(/Wynik importu/);
+
+    const lost = screen.getByText(/Bez zamówienia:/);
+    expect(lost).toHaveTextContent("Bez zamówienia: 1");
+    expect(screen.getByText(/Rozliczono kwotowo:/)).toHaveTextContent(
+      "Rozliczono kwotowo: 2",
+    );
+    expect(screen.getByText(/Faktura bez zamówienia:/)).toHaveTextContent(
+      "Faktura bez zamówienia: 1",
+    );
+    const failedBadge = screen.getByText("Tylko faktura").closest("span");
+    expect(failedBadge?.className).toContain("text-destructive");
+    expect(failedBadge?.className).not.toContain("emerald");
+  });
 });
