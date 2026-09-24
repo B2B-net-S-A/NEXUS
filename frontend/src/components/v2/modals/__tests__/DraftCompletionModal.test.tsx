@@ -219,15 +219,18 @@ describe("DraftCompletionModal — audyt 24.09 (S12)", () => {
     expect(submit).toBeDisabled();
   });
 
-  it("umowa B2B bez zakończenia nie ma pola daty i nie wysyła daty", async () => {
+  it("umowa B2B bez zakończenia nie ma pola daty i czyści zapisaną datę (audyt 24.09, M5)", async () => {
+    // Okno mówi „Bezterminowo", więc zapis musi to zrobić: zapisana data
+    // końca zostawała, a nocny cron kończył potem aktywowany kontrakt
+    // (lustro formularza edycji na /contracts/[id], który wysyła null).
     const user = userEvent.setup({ delay: null });
-    renderModal({ contract_type: "b2b", status: "draft" });
+    renderModal({ contract_type: "b2b", status: "draft", end_date: "2026-12-31" });
 
     expect(screen.getByTestId("draft-end-date-b2b-indefinite")).toBeInTheDocument();
     expect(screen.queryByLabelText("Data zakończenia")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /Aktywuj kontrakt/i }));
     await waitFor(() => expect(mocks.update).toHaveBeenCalledTimes(1));
-    expect(mocks.update.mock.calls[0]?.[1]).not.toHaveProperty("end_date");
+    expect(mocks.update.mock.calls[0]?.[1]).toHaveProperty("end_date", null);
   });
 
   it("umowa o pracę nadal ma datę zakończenia", () => {

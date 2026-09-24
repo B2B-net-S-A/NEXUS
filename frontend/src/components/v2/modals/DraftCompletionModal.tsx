@@ -147,8 +147,10 @@ export function DraftCompletionModal({
  const [error, setError] = React.useState<string | null>(null);
  // Umowa B2B bez ręcznego zakończenia jest bezterminowa — backend odrzuca
  // wpisaną datę 422 (`b2b_end_date_requires_termination`), a pole ją
- // oferowało (audyt 24.09, S12). Zablokowana data NIE jest wysyłana: szkic
- // z datą przepisaną kiedyś z zamówienia zostaje, jaki był.
+ // oferowało (audyt 24.09, S12). Zablokowane pole wysyła `null` — okno mówi
+ // „Bezterminowo", a data przepisana kiedyś z zamówienia zostawała i nocny
+ // cron kończył aktywowany kontrakt (audyt 24.09, M5; lustro formularza
+ // edycji na /contracts/[id]). Wyczyszczenie daty backend przyjmuje zawsze.
  const endDateLocked = b2bEndDateLocked({
  contract_type: form.contract_type,
  status: contractor.status,
@@ -169,11 +171,9 @@ export function DraftCompletionModal({
  contract_type: form.contract_type,
  work_mode: form.work_mode || null,
  };
- if (!endDateLocked) {
  // Pusty string to nie jest data — backend odrzuciłby go 422.
  // `null` znaczy „bezterminowo" i tak też czyta go bramka aktywacji.
- payload.end_date = form.end_date || null;
- }
+ payload.end_date = endDateLocked ? null : form.end_date || null;
  if (canManageFinance) {
  payload.rate_candidate = positiveRate(form.rate_candidate);
  payload.rate_client = positiveRate(form.rate_client);
