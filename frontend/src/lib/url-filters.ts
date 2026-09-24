@@ -126,6 +126,11 @@ export interface CandidateFilters {
   currentCompany: string[];
   pastCompany: string[];
   currentTitle: string[];
+  /**
+   * Tagi kandydata (cały tag, bez wielkości liter) — każdy wymagany (AND).
+   * W URL `tags` (lista `|`), w API powtarzany `tags`.
+   */
+  tags: string[];
   workedAtClientIds: number[];
   // Przynależność do rekrutacji — kandydaci przypisani (lub NIE) do wybranych
   // rekrutacji (job ids). `recruitmentMatch` decyduje o kierunku: `assigned`
@@ -246,6 +251,7 @@ export const DEFAULT_FILTERS: CandidateFilters = {
   currentCompany: [],
   pastCompany: [],
   currentTitle: [],
+  tags: [],
   workedAtClientIds: [],
   recruitmentIds: [],
   recruitmentMatch: "assigned",
@@ -358,6 +364,7 @@ export function encodeFilters(f: CandidateFilters): URLSearchParams {
   if (f.currentCompany.length) p.set("cur_co", PIPE(f.currentCompany));
   if (f.pastCompany.length) p.set("past_co", PIPE(f.pastCompany));
   if (f.currentTitle.length) p.set("title", PIPE(f.currentTitle));
+  if (f.tags.length) p.set("tags", PIPE(f.tags));
   if (f.workedAtClientIds.length) p.set("client_hist", CSV(f.workedAtClientIds));
   if (f.recruitmentIds.length) {
     p.set("recr", CSV(f.recruitmentIds));
@@ -470,6 +477,7 @@ export function decodeFilters(sp: URLSearchParams): CandidateFilters {
     currentCompany: parsePipe(sp.get("cur_co")),
     pastCompany: parsePipe(sp.get("past_co")),
     currentTitle: parsePipe(sp.get("title")),
+    tags: parsePipe(sp.get("tags")),
     workedAtClientIds: parseCsvInt(sp.get("client_hist")),
     recruitmentIds: parseCsvInt(sp.get("recr")),
     recruitmentMatch:
@@ -665,6 +673,7 @@ export function filtersToApiParams(
     current_company: filters.currentCompany.length ? filters.currentCompany : undefined,
     past_company: filters.pastCompany.length ? filters.pastCompany : undefined,
     current_title: filters.currentTitle.length ? filters.currentTitle : undefined,
+    tags: filters.tags.length ? filters.tags : undefined,
     worked_at_client_id: filters.workedAtClientIds.length
       ? filters.workedAtClientIds
       : undefined,

@@ -17,6 +17,7 @@ import {
   ReceiptText,
   Repeat,
   RotateCcw,
+  Ban,
   SquareCheckBig,
   Trash2,
   UserPlus,
@@ -170,6 +171,7 @@ const STATUS_BADGE: Record<string, string> = {
   scheduled: "bg-sky-100 text-sky-800",
   completed: "bg-zinc-200 text-zinc-700",
   exhausted: "bg-destructive/15 text-destructive",
+  cancelled: "bg-muted text-muted-foreground line-through",
 };
 
 /** Kotwica do przewijania. Osobna od `order-group-{id}-content`, bo dostają ją
@@ -1144,6 +1146,9 @@ interface Props {
   onDeleteGroup: (group: OrderGroupRead) => void;
   onCloseGroup: (group: OrderGroupRead) => void;
   onReopenGroup: (group: OrderGroupRead) => void;
+  /** Anulowanie (tylko bez rozliczeń) i jego cofnięcie. */
+  onCancelGroup?: (group: OrderGroupRead) => void;
+  onRestoreGroup?: (group: OrderGroupRead) => void;
   onExtendGroup: (group: OrderGroupRead) => void;
   /** Klik w numer zamówienia powiązanego wpisem `transfer_md`. Rozstrzygnięcie,
    *  KTÓRA karta pokaże cel, należy do rodzica — tylko on widzi całą listę. */
@@ -1169,6 +1174,8 @@ export function OrderGroupCard({
   onDeleteGroup,
   onCloseGroup,
   onReopenGroup,
+  onCancelGroup,
+  onRestoreGroup,
   onExtendGroup,
   onFocusGroup,
   focusRequest = null,
@@ -1218,7 +1225,7 @@ export function OrderGroupCard({
   // pracujących. Sprawa wędruje teraz razem z wierszem do „Zakończone", a żeby
   // nie zniknęła z oczu, nagłówek tej sekcji niesie licznik decyzji.
   // Szkic przypisania należy do obsady także w OTWARTYM zamówieniu —
-  // „Powrót po przerwie" (0365) wprowadza osobę jako szkic do uzupełnienia,
+  // „Powrót po przerwie" (0368) wprowadza osobę jako szkic do uzupełnienia,
   // a zaplanowane zastępstwo (ticket 09.2026) czeka jako szkic w aktywnym
   // zamówieniu — oba należą do bieżącej obsady, nie do „Zakończonych".
   const isDraftLine = (line: OrderLineRead) =>
@@ -1236,6 +1243,7 @@ export function OrderGroupCard({
     (line) => line.offboarding_case?.status === "pending",
   ).length;
   const isActive = group.status === "active";
+  const isCancelled = group.status === "cancelled";
   // Pilotaż karty konsultanta: WYŁĄCZNIE Centrum e-Zdrowia (po `clientId`, nie
   // po samym `md_optional_total` — zakres opcjonalny bywa też u innych klientów,
   // a ci mają zachować dotychczasowy wiersz). Kosztowe i wspólna pula nie mają
@@ -1282,6 +1290,12 @@ export function OrderGroupCard({
             {periodLabel(group)}
             {group.closure_date
               ? ` · zakończone ${formatDate(group.closure_date)}`
+              : ""}
+            {group.status === "cancelled" && group.cancelled_at
+              ? ` · anulowane ${formatDate(group.cancelled_at.slice(0, 10))}`
+              : ""}
+            {group.status === "cancelled" && group.cancellation_reason
+              ? ` — ${group.cancellation_reason}`
               : ""}
           </p>
           {group.executive_contract ? (
@@ -1492,7 +1506,7 @@ export function OrderGroupCard({
                   zamówienia
                 </button>
               ) : null}
-              {canManage ? (
+              {canManage && !isCancelled ? (
                 <button
                   type="button"
                   onClick={() => onEditGroup(group)}
@@ -1502,7 +1516,18 @@ export function OrderGroupCard({
                 </button>
               ) : null}
 
-              {canManageLifecycle ? (
+              {canManageLifecycle && isCancelled ? (
+                onRestoreGroup ? (
+                  <button
+                    type="button"
+                    onClick={() => onRestoreGroup(group)}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" /> Przywróć anulowane
+                  </button>
+                ) : null
+              ) : null}
+              {canManageLifecycle && !isCancelled ? (
                 <>
                   <button
                     type="button"
@@ -1530,6 +1555,15 @@ export function OrderGroupCard({
                       <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" /> Przywróć
                     </button>
                   ) : null}
+                  {onCancelGroup ? (
+                    <button
+                      type="button"
+                      onClick={() => onCancelGroup(group)}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+                    >
+                      <Ban className="h-3.5 w-3.5" aria-hidden="true" /> Anuluj zamówienie
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     onClick={() => onDeleteGroup(group)}
@@ -1539,6 +1573,16 @@ export function OrderGroupCard({
                     zamówienie
                   </button>
                 </>
+              ) : null}
+              {canManageLifecycle && isCancelled ? (
+                <button
+                  type="button"
+                  onClick={() => onDeleteGroup(group)}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-destructive/40 px-3 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10"
+                >
+                  <Trash2 className="h-3.5 w-3.5" aria-hidden="true" /> Usuń całe
+                  zamówienie
+                </button>
               ) : null}
             </div>
           ) : null}

@@ -1,4 +1,4 @@
-"""Stan kontraktu i jego zamówień sprzed zakończenia współpracy (0365).
+"""Stan kontraktu i jego zamówień sprzed zakończenia współpracy (0368).
 
 Do 09.2026 zakończenie kontraktu nadpisywało dane bez śladu: data końca linii
 zamówienia, status linii i status zamówienia znikały, a sprawa offboardingu MD
@@ -53,7 +53,7 @@ SNAPSHOT_STATUSES: tuple[str, ...] = (
 SNAPSHOT_SOURCE_TERMINATION = "termination"
 """Stan zapisany w chwili zakończenia."""
 SNAPSHOT_SOURCE_HISTORY = "history"
-"""Zakończenie sprzed 0365 — stan odtworzony przy cofnięciu z historii zmian
+"""Zakończenie sprzed 0368 — stan odtworzony przy cofnięciu z historii zmian
 (``order_change_events``) i zapisany dopiero jako ślad cofnięcia."""
 
 

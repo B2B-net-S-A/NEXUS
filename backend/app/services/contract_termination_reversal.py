@@ -10,9 +10,9 @@ ruszało (poza pulą, o której decyzja BLOKUJE cofnięcie).
 
 Dwa źródła stanu „przed":
 
-* **migawka** (``contract_termination_snapshots``, od 0365) — zapisana przy
+* **migawka** (``contract_termination_snapshots``, od 0368) — zapisana przy
   zakończeniu, dokładna;
-* **historia** — zakończenia sprzed 0365. Datę końca przypisania bierzemy
+* **historia** — zakończenia sprzed 0368. Datę końca przypisania bierzemy
   z dziennika zmian zamówień (``order_change_events``: wpis „stara data →
   data zakończenia"); gdy go brak, z daty końca zamówienia (grupy), na którym
   jest konsultant. Zamówienie okresowe bez śladu w dzienniku jest POMIJANE
@@ -40,6 +40,7 @@ from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.client_order_group import (
     GROUP_STATUS_ACTIVE,
     GROUP_STATUS_DRAFT,
+    GROUP_STATUS_LABELS,
     GROUP_STATUS_SCHEDULED,
 )
 from app.models.client_order_offboarding import (
@@ -348,7 +349,7 @@ async def _history_end_dates(
 
 
 async def _plan_from_history(db: AsyncSession, plan: ReversalPlan) -> None:
-    """Zakończenie sprzed 0365: stan „przed" z historii zmian przypisania."""
+    """Zakończenie sprzed 0368: stan „przed" z historii zmian przypisania."""
 
     contract = plan.contract
     terminated_on = plan.terminated_on
@@ -535,15 +536,17 @@ async def _add_blockers(db: AsyncSession, plan: ReversalPlan) -> None:
         seen_groups.add(group.id)
         if group.status in _OPEN_GROUP_STATUSES or closed_by_md_exhaustion(group):
             continue
+        state = group.closure_reason or GROUP_STATUS_LABELS.get(
+            group.status, group.status
+        )
         plan.blockers.append(
             {
                 "code": "order_group_closed",
                 "order_id": order.id,
                 "order_label": group.order_number,
                 "message": (
-                    f"Zamówienie {group.order_number} jest zamknięte "
-                    f"({group.closure_reason or group.status}) — najpierw przywróć "
-                    "samo zamówienie, potem cofnij zakończenie."
+                    f"Zamówienie {group.order_number} jest zamknięte ({state}) "
+                    "— najpierw przywróć samo zamówienie, potem cofnij zakończenie."
                 ),
             }
         )

@@ -250,7 +250,7 @@
       },
       {
         "q": "Gdzie są rzadsze filtry (doświadczenie, języki, firmy)?",
-        "a": "Pod „Więcej filtrów” — szuflada z prawej: doświadczenie i języki, firma i stanowisko, kto dodał i pule, pozostałe.",
+        "a": "Pod „Więcej filtrów” — szuflada z prawej: doświadczenie i języki, firma i stanowisko, kto dodał i pule, pozostałe (tam też filtr po tagach).",
         "anchor": "candidates.list.more"
       },
       {
@@ -295,7 +295,7 @@
       },
       {
         "q": "Jak poprawić stawkę albo dostępność?",
-        "a": "Kliknij fakt na pasku pod nagłówkiem (dostępność, stawka, lokalizacja, tryb pracy) i zapisz. Każdy fakt jest pokazany tylko w tym jednym miejscu.",
+        "a": "Kliknij fakt na pasku pod nagłówkiem (dostępność, stawka, lokalizacja, tryb pracy) i zapisz. Każdy fakt jest pokazany tylko w tym jednym miejscu. Tagi dodajesz przyciskiem „+ Tag” w nagłówku, usuwasz krzyżykiem.",
         "anchor": "candidate.profile.facts"
       },
       {
@@ -307,6 +307,10 @@
         "q": "Gdzie są maile, notatki i rozmowy?",
         "a": "W zakładce „Historia” — z filtrem rodzaju. Rekrutacje i dopasowania są w „Rekrutacje”, CV i umowy w „Pliki i umowy”.",
         "anchor": "candidate.profile.tabs"
+      },
+      {
+        "q": "Jak scalić dwa profile tej samej osoby?",
+        "a": "Admin i Head of Recruitment mają w menu „⋯” pozycję „Scal z…”. Wybierz duplikat, porównaj pola w konflikcie i zatwierdź — rekrutacje, notatki, dokumenty i kontrakty przejdą na ten profil, a duplikat zniknie."
       }
     ],
     "pitfalls": [
@@ -399,7 +403,7 @@
       },
       {
         "q": "Czym różni się „Zakończ zamówienie” od „Zakończ współpracę”?",
-        "a": "„Zakończ zamówienie” zamyka jedno zamówienie i nie rusza umowy. „Zakończ współpracę” wypowiada umowę konsultanta i zamyka wszystkie jego zamówienia u klienta."
+        "a": "„Zakończ zamówienie” zamyka jedno zamówienie i nie rusza umowy. „Zakończ współpracę” wypowiada umowę konsultanta i zamyka wszystkie jego zamówienia u klienta. Zamówienie MD albo kosztowe wpisane przez pomyłkę anulujesz przyciskiem „Anuluj zamówienie” (z powodem); „Przywróć anulowane” przywraca je do poprzedniego stanu."
       },
       {
         "q": "Jak przypisać nową osobę ze szkicu do zamówienia i co z MD osoby, za którą wchodzi?",
@@ -409,7 +413,8 @@
     "pitfalls": [
       "Usunięcie zamówienia może zmienić stawkę w przeszłych miesiącach — okno usuwania pokazuje skutki, przeczytaj je przed potwierdzeniem.",
       "Zamówienia z rozliczonym zużyciem MD albo fakturą nie da się usunąć.",
-      "Osoby zakończonej przez pomyłkę albo wracającej po przerwie nie dodawaj od nowa — użyj „Cofnij zakończenie” albo „Powrót po przerwie” na jej kontrakcie."
+      "Osoby zakończonej przez pomyłkę albo wracającej po przerwie nie dodawaj od nowa — użyj „Cofnij zakończenie” albo „Powrót po przerwie” na jej kontrakcie.",
+      "Zamówienia z rozliczonym zużyciem MD albo fakturą nie da się też anulować — okno pokaże, które miesiące je blokują."
     ],
     "anchors": [
       {

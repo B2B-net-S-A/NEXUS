@@ -108,6 +108,11 @@ async def _open_orders(db: AsyncSession, contract_id: int) -> list[ClientOrder]:
     czyjegoś stanu na podstawie niespójnych danych jest gorsza niż jej brak.
     """
 
+    # Wołający (zakończenie kontraktu) zwykle trzyma już blokadę kontraktu;
+    # helper gwarantuje kolejność kontrakt → zamówienia także gdy nie trzyma.
+    from app.services.contract_lifecycle import lock_contract_then_orders
+
+    await lock_contract_then_orders(db, contract_ids=[contract_id])
     result = await db.execute(
         select(ClientOrder)
         .join(Contract, Contract.id == ClientOrder.contract_id)
@@ -287,7 +292,7 @@ async def apply_contract_order_offboarding(
     effects, cases, events and alerts must succeed or roll back together.
 
     ``contract_before`` to stan kontraktu odczytany przez wołającego PRZED
-    zakończeniem — trafia do migawki (0365), z której „Cofnij zakończenie"
+    zakończeniem — trafia do migawki (0368), z której „Cofnij zakończenie"
     przywraca kontrakt i każde ruszone tu zamówienie.
     """
 

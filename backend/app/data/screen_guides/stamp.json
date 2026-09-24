@@ -2,9 +2,9 @@
   "reviewed_at": "2026-09-24",
   "guides": {
     "calendar": "5e622a7db1c6d091e5b1fe9c45e4a4bc7cec4009655d73d85aa41de139717561",
-    "candidate.profile": "97bc3b10d55c54751563039f37ad4ac62725d7d29dc18a3ba1690f455878a203",
-    "candidates.list": "b4606b0c62db89e6ab4d779cbedc30c0fe4eb21d4535818acb1aa65b50a0f5cd",
-    "client.orders": "f3fc15ce2a16c47f6d64196ef6bd8447d1ffdd667211aa4d5381236e2a1b3894",
+    "candidate.profile": "081477282733e7918a6c2b17db1cc17e919dbacaea3035143ae2014e40e5e60a",
+    "candidates.list": "6bd62ff4d470650ec92f7b53c59a53e7f7e0379dc9a177c53520d52af8a6b919",
+    "client.orders": "b0153167033900f0f8ae5c982920ad1f4e492ad21c6763c836602465928d0aea",
     "contracts.b2b_generator": "ab6aa42710655a89b47bda34d95cd97970f1d6203095caf07984552ac88062a7",
     "contracts.order_mail": "69d28ae62c8903a3f790e808b1967b0f34d2638982893f96e1a261820311c371",
     "finance": "9e9772902db876a6daecdbac5cc3f999dd9716dcb653c3e3dbb397d78bbf5f98",
