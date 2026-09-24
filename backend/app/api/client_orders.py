@@ -158,6 +158,7 @@ from app.services.order_excel_export import (
     is_current_order_period,
     order_type_export_label,
     orders_export_filename,
+    rate_unit_export_label,
 )
 
 router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
@@ -693,6 +694,15 @@ async def _absorb_empty_signing_drafts(
         await detach_order_rate_steps(db, draft)
         await db.delete(draft)
     return absorbed
+
+
+def _export_currency(order: ClientOrderRead) -> Optional[str]:
+    """Waluta stawek zamówienia w arkuszu; różne waluty obu stawek — obie."""
+    revenue = order.rate_client_currency or order.currency
+    cost = order.rate_candidate_currency
+    if revenue and cost and cost != revenue:
+        return f"{revenue} (koszt {cost})"
+    return revenue or cost
 
 
 def _assert_order_period(start: Optional[date], end: Optional[date]) -> None:
@@ -1673,6 +1683,17 @@ async def export_client_orders(
     for kind, item_id in requested:
         if kind == "group":
             group, type_label = group_reads_by_id[item_id]
+            # Wiersz zbiorczy i grupa bez obsady opisują CAŁE zamówienie —
+            # trafiają do arkusza „na dziś" tylko, gdy to zamówienie dziś
+            # obowiązuje. Front wysyła też przyszłe i zakończone karty (S8).
+            if _status_value(getattr(group, "status", "")) in closed_statuses or (
+                not is_current_order_period(
+                    getattr(group, "start_date", None),
+                    getattr(group, "end_date", None),
+                    today,
+                )
+            ):
+                continue
             rows.extend(
                 replace(row, order_type=type_label)
                 for row in export_rows_for_group(
@@ -1696,7 +1717,14 @@ async def export_client_orders(
                 cost_rate=(
                     order.rate_candidate
                     if order.rate_candidate is not None
-                    else contractor.rate_candidate
+                    # Zapas z kontraktu W JEDNOSTCE ZAMÓWIENIA: kontrakt jest
+                    # w zł/h, a zamówienie bywa w MD — surowe 120 obok
+                    # przychodu 1340/MD czytało się jak marża 1220 (S8).
+                    else contract_rate_in_unit(
+                        contractor.rate_candidate,
+                        contractor,  # type: ignore[arg-type]
+                        order.rate_unit,
+                    )
                 ),
                 revenue_rate=order.rate_client,
                 start_date=order.start_date,
@@ -1704,6 +1732,8 @@ async def export_client_orders(
                 order_type=order_type_export_label(
                     effective_standalone_order_type(client_id, order.order_type)
                 ),
+                rate_unit=rate_unit_export_label(order.rate_unit),
+                currency=_export_currency(order),
             )
         )
 

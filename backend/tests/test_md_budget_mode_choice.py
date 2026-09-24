@@ -85,8 +85,8 @@ def test_generic_shared_export_aggregates_once():
     sheet = load_workbook(
         io.BytesIO(build_orders_workbook(rows, include_model_columns=True))
     ).active
-    assert sheet.cell(1, 8).value == "Pozostały budżet MD"
-    assert sheet.cell(2, 8).value == 75
+    assert sheet.cell(1, 10).value == "Pozostały budżet MD"
+    assert sheet.cell(2, 10).value == 75
 
 
 @pytest.mark.asyncio

@@ -37,6 +37,11 @@ class OrderExportRow:
     consumption: Optional[Decimal] = None
     order_type: Optional[str] = None
     remaining_md: Optional[Decimal] = None
+    # Jednostka i waluta obu stawek (S8, audyt 24.09.2026): bez nich arkusz
+    # stawiał 1340 (PLN/MD) obok 120 (zł/h) i 5000 (EUR/mies.) w jednej
+    # kolumnie, jakby to były te same liczby.
+    rate_unit: Optional[str] = None
+    currency: Optional[str] = None
 
 
 BASE_HEADERS = (
@@ -44,10 +49,32 @@ BASE_HEADERS = (
     "Numer zamówienia",
     "Stawka kosztowa",
     "Stawka przychodowa",
+    "Jednostka stawki",
+    "Waluta",
     "Okres zamówienia",
 )
 MODEL_HEADERS = ("Liczba MD / Kwota zamówienia", "Zużycie zamówienia")
 ORDER_TYPE_HEADER = "Typ zamówienia"
+
+RATE_UNIT_LABELS = {
+    "hourly": "godz.",
+    "daily": "MD",
+    "monthly": "mies.",
+    "md": "MD",
+}
+#: Linie zamówień MD/kosztowych niosą stawki PLN za MD (``md_rate_*``).
+GROUP_LINE_RATE_UNIT = "MD"
+GROUP_LINE_CURRENCY = "PLN"
+
+
+def rate_unit_export_label(value: object) -> Optional[str]:
+    """Polska etykieta jednostki stawki w arkuszu."""
+
+    if value is None:
+        return None
+    raw = str(getattr(value, "value", value))
+    return RATE_UNIT_LABELS.get(raw, raw)
+
 
 ORDER_TYPE_LABELS = {
     "md": "MD",
@@ -191,6 +218,8 @@ def export_rows_for_group(
                 remaining_md=line.md_remaining
                 if group.md_budget_mode == "per_person"
                 else None,
+                rate_unit=GROUP_LINE_RATE_UNIT,
+                currency=GROUP_LINE_CURRENCY,
             )
         )
     return rows
@@ -242,6 +271,8 @@ def build_orders_workbook(
             _safe_text(item.order_number),
             item.cost_rate,
             item.revenue_rate,
+            _safe_text(item.rate_unit) if item.rate_unit else None,
+            _safe_text(item.currency) if item.currency else None,
             _period(item),
         ]
         if include_model_columns:
@@ -256,7 +287,7 @@ def build_orders_workbook(
         for column in (3, 4):
             if row[column - 1].value is not None:
                 row[column - 1].number_format = "#,##0.###;[Red]-#,##0.###"
-        for column in (6, 7):
+        for column in (8, 9):
             if column <= len(row) and row[column - 1].value is not None:
                 row[column - 1].number_format = "#,##0.######;[Red]-#,##0.######"
 
@@ -270,6 +301,8 @@ def build_orders_workbook(
         20,
         19,
         21,
+        16,
+        10,
         27,
         *([31, 24] if include_model_columns else []),
         *([18] if include_order_type else []),
