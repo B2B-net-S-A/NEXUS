@@ -215,3 +215,89 @@ async def test_helper_is_a_noop_without_ids():
     db = _RecordingSession(contract_ids=[])
     await lock_contract_then_orders(db)
     assert db.statements == []
+
+
+# ── Audyt 24.09.2026 (blok C, S5): masowe UPDATE i zapisy bez FOR UPDATE ────
+
+MASS_UPDATE_MODULES = (
+    *WRITER_MODULES,
+    "tasks/dl_portal_expiry_scanner.py",
+    "services/contract_order_sync.py",
+)
+
+MASS_UPDATE_EXEMPT: dict[tuple[str, str], str] = {
+    (
+        "services/contract_client_reassign.py",
+        "execute_reassign",
+    ): "lock_contract + lock_orders (helper kontrakt → zamówienia) przed zapisem",
+}
+
+# Writery, które zmieniają pola zamówienia BEZ ``FOR UPDATE`` (więc strażnik
+# wyżej ich nie widzi): zapis pliku PO i przebieg dobowy kosztów. Do 24.09
+# pisały do zamówień przed blokadą kontraktu, którą bierze potem
+# ``commit_order_write``/``resync_contract``.
+FIELD_WRITERS: tuple[tuple[str, str], ...] = (
+    ("api/client_orders.py", "replace_order_po"),
+    ("api/client_orders.py", "delete_order_po"),
+    ("services/contract_order_sync.py", "run_daily_order_cost_sync"),
+    ("tasks/dl_portal_expiry_scanner.py", "_promote_statuses"),
+)
+
+
+def _mass_order_updates(src: str, fn: ast.AST) -> list[int]:
+    lines: list[int] = []
+    for node in ast.walk(fn):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "update"
+            and node.args
+            and isinstance(node.args[0], ast.Name)
+            and node.args[0].id == "ClientOrder"
+        ):
+            lines.append(node.lineno)
+    return lines
+
+
+def test_mass_order_updates_lock_contracts_first():
+    problems: list[str] = []
+    for rel in MASS_UPDATE_MODULES:
+        src = (APP / rel).read_text(encoding="utf-8")
+        for fn in _functions(ast.parse(src)):
+            updates = _mass_order_updates(src, fn)
+            if not updates or (rel, fn.name) in MASS_UPDATE_EXEMPT:
+                continue
+            helpers = _helper_calls(src, fn)
+            if not helpers or min(helpers) > min(updates):
+                problems.append(f"{rel}:{min(updates)} {fn.name}")
+    assert not problems, (
+        "Masowy UPDATE zamówień przed blokadą kontraktów (ABBA). Zawołaj "
+        "`lock_contract_then_orders` przed zapisem:\n" + "\n".join(problems)
+    )
+
+
+def test_field_writers_without_for_update_call_the_helper():
+    problems: list[str] = []
+    for rel, name in FIELD_WRITERS:
+        src = (APP / rel).read_text(encoding="utf-8")
+        fns = [fn for fn in _functions(ast.parse(src)) if fn.name == name]
+        assert fns, f"nie ma już {rel} {name} — zaktualizuj listę"
+        if not _helper_calls(src, fns[0]):
+            problems.append(f"{rel} {name}")
+    assert not problems, "\n".join(problems)
+
+
+def test_mass_update_detector_can_fail():
+    src = (
+        "async def bad(db):\n"
+        "    await db.execute(update(ClientOrder).values(status='completed'))\n"
+        "async def good(db):\n"
+        "    await lock_contract_then_orders(db, order_ids=[1])\n"
+        "    await db.execute(update(ClientOrder).values(status='completed'))\n"
+    )
+    verdict = {}
+    for fn in _functions(ast.parse(src)):
+        updates = _mass_order_updates(src, fn)
+        helpers = _helper_calls(src, fn)
+        verdict[fn.name] = bool(helpers) and min(helpers) < min(updates)
+    assert verdict == {"bad": False, "good": True}

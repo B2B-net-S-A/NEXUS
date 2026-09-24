@@ -52,6 +52,7 @@ from app.models.client_order_group import GROUP_STATUS_COMPLETED, ClientOrderGro
 from app.models.contract import Contract
 from app.models.notification import Notification, NotificationType
 from app.services.contract_lifecycle import (
+    lock_contract_then_orders,
     reconcile_contracts_to_live_orders,
 )
 from app.services.client_identity import client_display_name_expression
@@ -222,23 +223,18 @@ async def _promote_statuses(
         )
         .values(status=FrameworkContractStatus.expired)
     )
-    order_completed = await db.execute(
-        update(ClientOrder)
-        .where(
-            ClientOrder.status == ClientOrderStatus.active,
-            ClientOrder.end_date.is_not(None),
-            ClientOrder.end_date < today,
-            # Zamówienie rozliczane w MD kończy BUDŻET, nie kalendarz. Data
-            # nadal opisuje okres obowiązywania i steruje alertami wygasania
-            # niżej, ale nie domyka linii: konsultant z niewykorzystanymi MD
-            # pracuje dalej, a zamknięty przez skaner wypadał z importu
-            # zużycia (`md_lines_settling_in_month` pyta o linie aktywne), czyli MD
-            # przestawały się odejmować i budżet zamierał na ostatniej
-            # wartości. Statusem linii MD steruje wyłącznie
-            # `client_order_lines.sync_md_line_status`.
-            ClientOrder.md_total.is_(None),
-        )
-        .values(status=ClientOrderStatus.completed)
+    # Zamówienie rozliczane w MD kończy BUDŻET, nie kalendarz. Data nadal
+    # opisuje okres obowiązywania i steruje alertami wygasania niżej, ale nie
+    # domyka linii: konsultant z niewykorzystanymi MD pracuje dalej, a
+    # zamknięty przez skaner wypadał z importu zużycia
+    # (`md_lines_settling_in_month` pyta o linie aktywne), czyli MD przestawały
+    # się odejmować i budżet zamierał na ostatniej wartości. Statusem linii MD
+    # steruje wyłącznie `client_order_lines.sync_md_line_status`.
+    periodic_due = (
+        ClientOrder.status == ClientOrderStatus.active,
+        ClientOrder.end_date.is_not(None),
+        ClientOrder.end_date < today,
+        ClientOrder.md_total.is_(None),
     )
     # Linia MD zamknięta W PRZÓD (zamiana kontraktora z datą w przyszłości,
     # zamknięcie grupy z przyszłą datą) dostaje datę końca od razu, a status
@@ -250,33 +246,55 @@ async def _promote_statuses(
     # nie późniejszą niż koniec linii. Linia MD z samą datą nadal pracuje
     # do wyczerpania budżetu.
     successor = aliased(ClientOrder)
-    md_closed = await db.execute(
-        update(ClientOrder)
-        .where(
-            ClientOrder.status == ClientOrderStatus.active,
-            ClientOrder.md_total.is_not(None),
-            ClientOrder.end_date.is_not(None),
-            ClientOrder.end_date < today,
-            or_(
-                select(successor.id)
-                .where(
-                    successor.predecessor_order_id == ClientOrder.id,
-                    successor.status != ClientOrderStatus.cancelled,
-                )
-                .exists(),
-                select(ClientOrderGroup.id)
-                .where(
-                    ClientOrderGroup.id == ClientOrder.order_group_id,
-                    ClientOrderGroup.status == GROUP_STATUS_COMPLETED,
-                    ClientOrderGroup.closure_date.is_not(None),
-                    ClientOrderGroup.closure_date <= ClientOrder.end_date,
-                )
-                .exists(),
-            ),
-        )
-        .values(status=ClientOrderStatus.completed)
-        .execution_options(synchronize_session=False)
+    md_due = (
+        ClientOrder.status == ClientOrderStatus.active,
+        ClientOrder.md_total.is_not(None),
+        ClientOrder.end_date.is_not(None),
+        ClientOrder.end_date < today,
+        or_(
+            select(successor.id)
+            .where(
+                successor.predecessor_order_id == ClientOrder.id,
+                successor.status != ClientOrderStatus.cancelled,
+            )
+            .exists(),
+            select(ClientOrderGroup.id)
+            .where(
+                ClientOrderGroup.id == ClientOrder.order_group_id,
+                ClientOrderGroup.status == GROUP_STATUS_COMPLETED,
+                ClientOrderGroup.closure_date.is_not(None),
+                ClientOrderGroup.closure_date <= ClientOrder.end_date,
+            )
+            .exists(),
+        ),
     )
+    # Kolejność blokad kontrakt → zamówienia (S5, audyt 24.09.2026): masowy
+    # UPDATE zamówień blokował wiersze zamówień PRZED kontraktami, które zaraz
+    # potem blokuje `reconcile_contracts_to_live_orders` — ABBA z handlerami
+    # kontraktu. Najpierw wybór, potem helper, potem zapis tylko zablokowanych.
+    periodic_ids = list(
+        (await db.scalars(select(ClientOrder.id).where(*periodic_due))).all()
+    )
+    md_ids = list((await db.scalars(select(ClientOrder.id).where(*md_due))).all())
+    await lock_contract_then_orders(db, order_ids=[*periodic_ids, *md_ids])
+    order_completed_count = 0
+    if periodic_ids:
+        order_completed = await db.execute(
+            update(ClientOrder)
+            .where(ClientOrder.id.in_(periodic_ids), *periodic_due)
+            .values(status=ClientOrderStatus.completed)
+            .execution_options(synchronize_session=False)
+        )
+        order_completed_count = order_completed.rowcount or 0
+    md_closed_count = 0
+    if md_ids:
+        md_closed = await db.execute(
+            update(ClientOrder)
+            .where(ClientOrder.id.in_(md_ids), *md_due)
+            .values(status=ClientOrderStatus.completed)
+            .execution_options(synchronize_session=False)
+        )
+        md_closed_count = md_closed.rowcount or 0
     groups_promoted = await materialize_scheduled_order_groups(db, today=today)
     contracts_reconciled = await reconcile_contracts_to_live_orders(
         db,
@@ -284,7 +302,7 @@ async def _promote_statuses(
     )
     return (
         fc_expired.rowcount or 0,
-        (order_completed.rowcount or 0) + (md_closed.rowcount or 0),
+        order_completed_count + md_closed_count,
         groups_promoted,
         contracts_reconciled,
     )

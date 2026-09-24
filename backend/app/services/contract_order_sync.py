@@ -68,7 +68,10 @@ from app.models.app_setting import AppSetting
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.contract import Contract, ContractStatus, RateUnit
 from app.models.contract_client_rate import ContractClientRate
-from app.services.contract_lifecycle import auto_activate_complete_draft
+from app.services.contract_lifecycle import (
+    auto_activate_complete_draft,
+    lock_contract_then_orders,
+)
 from app.services.order_engagement_separation import AUTO_DRAFT_TITLE_PLACEHOLDER
 from app.services.order_rate_snapshots import (
     CONTRACT_RATE_SCALE,
@@ -1154,6 +1157,15 @@ async def run_daily_order_cost_sync(
                 # Savepoint per kontrakt: jeden rekord z danymi, których nie da
                 # się pogodzić, nie może zatrzymać podwyżek wszystkich innych.
                 async with db.begin_nested():
+                    # Kontrakt → zamówienia (S5, 24.09.2026): przebieg pisze
+                    # do zamówień, więc bierze blokady w kolejności handlerów.
+                    await lock_contract_then_orders(
+                        db,
+                        contract_ids=[contract.id],
+                        order_ids=[
+                            o.id for o in orders_by_contract.get(contract.id, [])
+                        ],
+                    )
                     changed = await sync_orders_cost_from_contract(
                         db,
                         contract,

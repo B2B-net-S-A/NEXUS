@@ -3510,10 +3510,15 @@ async def replace_order_po(
     """
     await _assert_client(db, client_id)
     await _require_order_file_read(db, user, client_id)
+    # Kontrakt → zamówienie (S5, 24.09.2026): zapis pliku to UPDATE zamówienia,
+    # a ``commit_order_write`` bierze potem kontrakt FOR UPDATE — bez blokady
+    # w tej kolejności to ABBA z handlerami kontraktu.
+    await lock_contract_then_orders(db, order_ids=[order_id])
     order = await db.scalar(
         select(ClientOrder)
         .options(selectinload(ClientOrder.contract))
         .where(ClientOrder.id == order_id, ClientOrder.client_id == client_id)
+        .with_for_update()
     )
     if order is None:
         raise HTTPException(404, detail="Order not found")
@@ -3579,10 +3584,11 @@ async def delete_order_po(
 
     await _assert_client(db, client_id)
     await _require_order_file_read(db, user, client_id)
+    await lock_contract_then_orders(db, order_ids=[order_id])  # kontrakt → zamówienie
     order = await db.scalar(
-        select(ClientOrder).where(
-            ClientOrder.id == order_id, ClientOrder.client_id == client_id
-        )
+        select(ClientOrder)
+        .where(ClientOrder.id == order_id, ClientOrder.client_id == client_id)
+        .with_for_update()
     )
     if order is None:
         raise HTTPException(404, detail="Order not found")
