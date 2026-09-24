@@ -76,7 +76,7 @@
       },
       {
         "q": "Jak szybko znaleźć karty, na które czekam ja?",
-        "a": "Włącz „Mój ruch” na pasku nad tablicą — zostaną wyróżnione karty z plakietką „Twój ruch” (Twoje albo bez rekrutera), a przygaszone karty innych rekruterów i te, na które czeka Delivery Lead albo osoba od Cpro. Pozostałe filtry (utknęli, rekruter, puste kolumny) są pod „Filtry”.",
+        "a": "Włącz „Mój ruch” na pasku nad tablicą — zostaną wyróżnione karty z plakietką „Twój ruch” (Twoje, bez rekrutera albo wolne w Nowych), a przygaszone karty innych rekruterów, wzięte przez kogoś na 12 h i te, na które czeka Delivery Lead albo osoba od Cpro. Pozostałe filtry (utknęli, rekruter, puste kolumny) są pod „Filtry”.",
         "anchor": "jobs.board.filters"
       },
       {

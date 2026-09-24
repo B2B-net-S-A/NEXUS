@@ -1242,6 +1242,9 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
   it("„Mój ruch” liczy tylko karty, na których plakietka mówi „Twój ruch” (nie cudze i nie DL)", async () => {
     useAuthStore.setState({ user: { id: 5, role: "recruiter", roles: ["recruiter"] } } as never);
     const columns = defaultB2BColumns() as unknown as Array<Record<string, unknown>>;
+    // Nowi: jedna karta wolna („Twój ruch”), druga wzięta na 12 h przez Annę.
+    const nowi = columns[0].items as Array<Record<string, unknown>>;
+    nowi[1] = { ...nowi[1], claim_user_id: 9, claim_user_name: "Anna Kowal", claim_until: "2099-01-01T00:00:00Z" };
     columns[2] = {
       ...columns[2],
       count: 2,
@@ -1260,8 +1263,9 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     };
     renderBoard(columns as never);
     await screen.findByTestId("pipeline-board");
-    // Screening (karta bez rekrutera = „Twój ruch”) + własna karta w „Zweryfikowanym”.
-    expect(screen.getByRole("button", { name: /^Mój ruch/ })).toHaveTextContent("Mój ruch · 2");
+    // Wolna karta w Nowi + Screening (bez rekrutera = „Twój ruch”) + własna
+    // w „Zweryfikowanym”. Poza: karta wzięta przez Annę, cudza, QC oddane DL.
+    expect(screen.getByRole("button", { name: /^Mój ruch/ })).toHaveTextContent("Mój ruch · 3");
   });
 
   it("nawigator doku idzie w kolejności widocznej Tablicy (kolumny od lewej, karty od góry)", async () => {
@@ -1540,6 +1544,10 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     expect(heading.className).toMatch(/xl:pointer-fine:hyphens-auto/);
     expect(heading.className).toMatch(/xl:pointer-fine:\[overflow-wrap:anywhere\]/);
     expect(heading.className).toMatch(/xl:pointer-fine:line-clamp-3/);
+    // Pełna kolumna też nie ucina długiego słowa (196 px przy 1440 px).
+    const full = container.querySelector('[data-colid="def:300"] h3') as HTMLElement;
+    expect(full.className).toMatch(/(^| )hyphens-auto( |$)/);
+    expect(full.className).toMatch(/\[overflow-wrap:break-word\]/);
   });
 
   it("tylko do odczytu: pusta kolumna nie zaprasza do upuszczania", async () => {

@@ -1415,10 +1415,11 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  {step}
  </span>
  )}
- {/* Wąska pusta kolumna (96 px): nazwa etapu zawija się, także w środku
- słowa (dzielenie po polsku, `lang="pl"`) — „Zweryfikowany" ucinało się do
- „Zweryfikowan" (audyt 24.09.2026). Pełna nazwa zostaje w `title`. */}
- <h3 className={cn("text-foreground flex-1 min-w-0 line-clamp-2 leading-tight [overflow-wrap:normal]", density === "compact" ?"text-sm font-medium" :"text-base font-semibold", desktopOverview &&"xl:pointer-fine:line-clamp-2 xl:pointer-fine:whitespace-normal xl:pointer-fine:text-center xl:pointer-fine:text-[10px] xl:pointer-fine:leading-tight xl:pointer-fine:[overflow-wrap:anywhere]", !desktopOverview && narrow &&"xl:pointer-fine:order-last xl:pointer-fine:basis-full xl:pointer-fine:text-xs xl:pointer-fine:font-medium xl:pointer-fine:line-clamp-3 xl:pointer-fine:hyphens-auto xl:pointer-fine:[overflow-wrap:anywhere]")} title={titleOverride ?? columnLabel(col)} lang="pl">
+ {/* Nazwa etapu zawija się na spacjach, a słowo dłuższe niż kolumna —
+ w środku (dzielenie po polsku, `lang="pl"`). „Zweryfikowany" ucinało się
+ do „Zweryfikowan" w wąskiej pustej kolumnie (96 px) i w pełnej przy 1440 px
+ (audyt 24.09.2026). Pełna nazwa zostaje w `title`. */}
+ <h3 className={cn("text-foreground flex-1 min-w-0 line-clamp-2 leading-tight hyphens-auto [overflow-wrap:break-word]", density === "compact" ?"text-sm font-medium" :"text-base font-semibold", desktopOverview &&"xl:pointer-fine:line-clamp-2 xl:pointer-fine:whitespace-normal xl:pointer-fine:text-center xl:pointer-fine:text-[10px] xl:pointer-fine:leading-tight xl:pointer-fine:[overflow-wrap:anywhere]", !desktopOverview && narrow &&"xl:pointer-fine:order-last xl:pointer-fine:basis-full xl:pointer-fine:text-xs xl:pointer-fine:font-medium xl:pointer-fine:line-clamp-3 xl:pointer-fine:hyphens-auto xl:pointer-fine:[overflow-wrap:anywhere]")} title={titleOverride ?? columnLabel(col)} lang="pl">
  {titleOverride ?? columnLabel(col)}
  </h3>
  <Badge size="sm" variant={headerCount > 0 ?"soft" :"outline"} className={cn(desktopOverview &&"xl:pointer-fine:h-4 xl:pointer-fine:min-w-4 xl:pointer-fine:self-center xl:pointer-fine:px-1 xl:pointer-fine:text-[10px]")}>
@@ -2640,8 +2641,8 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // „Mój ruch" — karty, na których plakietka mówi „Twój ruch" (`cardNextStep`
  // — ta sama funkcja i te same kolumny Tablicy co karta). Do 24.09.2026 filtr
  // liczył każdą kartę z ruchem po stronie rekrutera, także tę z imieniem innego
- // rekrutera albo z „DL" w QC CV. Stos wejściowy („review" — Nowi z ogłoszeń)
- // zostaje poza filtrem, jak w „Wymaga ruchu".
+ // rekrutera albo z „DL" w QC CV. Karty w „Nowi" też się liczą — ich
+ // plakietka mówi „Twój ruch" (albo imię osoby, która wzięła je na 12 h).
  const myMoveIds = useMemo(() => {
  const ids = new Set<number>();
  for (const col of [...displayCols, ...cols.filter((c) => isOffTemplate(c))]) {
@@ -2650,7 +2651,6 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  const column = boardKeyByColId.get(colId(col)) ?? null;
  for (const item of col.items) {
  const action = nextActionFor(item, col, { slaDays, group });
- if (action.owner !== "recruiter") continue;
  const step = cardNextStep(action, item, {
  column,
  cproEnabled,
