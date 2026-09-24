@@ -146,6 +146,7 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.trainee_program_decision: _C.kpi,
     # Nowi i pasujący kandydaci
     _T.new_application: _C.candidates,
+    _T.candidate_followup_signal: _C.candidates,
     _T.match_digest: _C.candidates,
     _T.marketplace_match: _C.candidates,
     _T.similar_job_candidates: _C.candidates,

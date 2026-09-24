@@ -677,6 +677,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'request_review_needed'",
     # 0372: decyzja o końcu programu praktykanta.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'trainee_program_decision'",
+    # 0372: follow-up z kandydatem przyniósł zmianę — do właściciela procesu.
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'candidate_followup_signal'",
     # callstatus: zapisywane przez POST /api/cloudtalk/initiate-call. Uśpione,
     # bo CLOUDTALK_ENABLED=false — ale leży dokładnie na ścieżce aktywacji.
     "ALTER TYPE callstatus ADD VALUE IF NOT EXISTS 'initiated'",
@@ -5583,6 +5585,22 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     "CREATE INDEX IF NOT EXISTS ix_trainee_call_items_candidate_date ON trainee_call_items (candidate_id, list_date)",
     "CREATE INDEX IF NOT EXISTS ix_trainee_call_items_user_date ON trainee_call_items (user_id, list_date)",
     "CREATE INDEX IF NOT EXISTS ix_trainee_call_items_later ON trainee_call_items (user_id, later_date) WHERE outcome = 'later'",
+    # 0372: follow-up z kandydatem — wyniki telefonów (kandydat CASCADE, RODO).
+    """CREATE TABLE IF NOT EXISTS candidate_followups (
+    id BIGSERIAL PRIMARY KEY,
+    candidate_id INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+    user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    outcome VARCHAR(16) NOT NULL,
+    callback_on DATE NULL,
+    note_id INTEGER NULL REFERENCES notes(id) ON DELETE SET NULL,
+    details JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT ck_candidate_followups_outcome
+        CHECK (outcome IN ('connected','changed','no_answer','callback','claim')),
+    CONSTRAINT ck_candidate_followups_callback
+        CHECK ((outcome = 'callback') = (callback_on IS NOT NULL))
+)""",
+    "CREATE INDEX IF NOT EXISTS ix_candidate_followups_candidate_created ON candidate_followups (candidate_id, created_at DESC)",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""

@@ -188,6 +188,10 @@ class NotificationType(str, enum.Enum):
     # 0372: praktykant kończy program wdrożenia (5 dni roboczych przed końcem)
     # — decyzja Head of Recruitment; related_entity=(user, id), raz na program.
     trainee_program_decision = "trainee_program_decision"
+    # 0372: follow-up z kandydatem przyniósł zmianę (inna oferta, rezygnacja
+    # z procesu, dostępność) — do właściciela procesu; related_entity=
+    # (candidate, id).
+    candidate_followup_signal = "candidate_followup_signal"
 
 
 class Notification(Base, TimestampMixin):

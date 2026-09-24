@@ -229,3 +229,39 @@ describe("Rekrutacja v5: chip QC, znany brak i „kto ma ruch”", () => {
     ).toBe("Delivery");
   });
 });
+
+describe("odznaka follow-upu (0372) — klient milczy, kto dzwoni do kandydata", () => {
+  const badge = {
+    caller_id: 3,
+    caller_name: "Anna Kowalczyk",
+    due_on: "2026-09-21",
+    state: "overdue" as const,
+    overdue_days: 2,
+    process_count: 3,
+  };
+
+  it("zaległy telefon innej osoby: imię i liczba dni, czerwona odznaka", () => {
+    const badges = cardBadges(item({ followup: badge }), ctx({ column: "cv_sent" }));
+    const f = badges.find((b) => b.key === "followup");
+    expect(f?.label).toBe("Follow-up: Anna K. · zaległy 2 dni");
+    expect(f?.tone).toBe("urgent");
+    expect(f?.title).toContain("w 3 procesach");
+  });
+
+  it("gdy dzwoni patrzący — „Ty”; termin za kilka dni nie zaśmieca karty", () => {
+    const mine = item({ followup: { ...badge, caller_id: 7, state: "today", overdue_days: 0 } });
+    expect(labels(mine, ctx({ column: "client_interview" }))).toContain("Follow-up: Ty · dziś");
+    const later = item({ followup: { ...badge, state: "scheduled", overdue_days: 0 } });
+    expect(cardBadges(later, ctx({ column: "cv_sent" })).some((b) => b.key === "followup")).toBe(
+      false,
+    );
+  });
+
+  it("poza kolumnami czekania na klienta odznaki nie ma", () => {
+    expect(
+      cardBadges(item({ followup: badge }), ctx({ column: "contract" })).some(
+        (b) => b.key === "followup",
+      ),
+    ).toBe(false);
+  });
+});

@@ -106,6 +106,7 @@ from app.api import my_people as my_people_api
 from app.api import academy as academy_api
 from app.api import trainee as trainee_api
 from app.api import board_tasks as board_tasks_api
+from app.api import candidate_followups as candidate_followups_api
 from app.api import interview_cycle as interview_cycle_api
 from app.api import prep_meetings as prep_meetings_api
 from app.api import hiring_managers_analytics as hiring_managers_api
@@ -1113,6 +1114,12 @@ app.include_router(
     board_tasks_api.router,
     prefix="/api/board-tasks",
     tags=["board-tasks"],
+)
+# 0372: follow-up z kandydatem, gdy klient milczy — jeden telefon na osobę.
+app.include_router(
+    candidate_followups_api.router,
+    prefix="/api/candidate-followups",
+    tags=["candidate-followups"],
 )
 app.include_router(
     interview_cycle_api.router,
@@ -2674,6 +2681,7 @@ async def api_health_deep_check():
     from app.models.placement_exclusion import PlacementExclusion
     from app.models.prep_meeting import PrepMeeting, PrepReview, PrepTranscript
     from app.models.trainee import TraineeCallItem, TraineeCallList, TraineeProgram
+    from app.models.candidate_followup import CandidateFollowup
     from app.models.b2b_contract_document import B2BContractDocument
     from app.models.b2b_register_import import B2BRegisterImportRun
     from app.models.cv_qc_run import CvQcRun
@@ -2875,6 +2883,9 @@ async def api_health_deep_check():
         ("trainee_call_items", TraineeCallItem),
         ("prep_transcripts", PrepTranscript),
         ("prep_reviews", PrepReview),
+        # 0372: follow-up z kandydatem — „Czeka na Ciebie” i Tablica czytają
+        # wyniki telefonów, więc brak tabeli = pulpit i kanban 500.
+        ("candidate_followups", CandidateFollowup),
         # 0361: QC CV — tablica czyta stan QC każdej karty, a ruch na
         # „CV wysłane” zapisuje przebieg, więc brak tabeli = kanban 500.
         ("cv_qc_runs", CvQcRun),

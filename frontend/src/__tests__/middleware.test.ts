@@ -194,6 +194,7 @@ describe("linki publiczne działają bez tokenu", () => {
     "/preview/cv-generator",
     "/preview/cv-qc",
     "/preview/cpro-queue",
+    "/preview/candidate-followup",
     "/preview/kariera",
     "/preview/career-share",
     "/preview/candidate-merge",
