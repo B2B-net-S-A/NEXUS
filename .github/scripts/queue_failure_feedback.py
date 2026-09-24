@@ -222,11 +222,26 @@ def build_comment(
                 "i jego własny bieg mógł przejść osobno."
             )
         lines.append("")
-    lines.append(
-        f"_Status `{STATUS_CONTEXT}` na HEAD tego PR-a zniknie przy następnym "
-        "commicie. Komentarz aktualizuje się przy kolejnym wypadnięciu._"
-    )
+    if sets_status(pr, queue_pr):
+        lines.append(
+            f"_Status `{STATUS_CONTEXT}` na HEAD tego PR-a zniknie przy następnym "
+            "commicie. Komentarz aktualizuje się przy kolejnym wypadnięciu._"
+        )
+    else:
+        lines.append(
+            f"_Z kolejki wypadł #{queue_pr} — na tym PR-ze nie ustawiamy statusu "
+            f"`{STATUS_CONTEXT}`. Komentarz aktualizuje się przy kolejnym "
+            "wypadnięciu._"
+        )
     return "\n".join(lines)
+
+
+def sets_status(pr: int, queue_pr: int | None) -> bool:
+    """Czerwony status tylko dla PR-a, którego bieg padł (GitHub zdejmuje z
+    kolejki tylko jego). Pozostałe PR-y grupy mają własne biegi, które mogą
+    przejść — status budziłby auto-fix ich sesji na zielonym PR-ze. Gdy nazwa
+    gałęzi nie wskazuje PR-a, status dostaje cała grupa (jak dotąd)."""
+    return queue_pr is None or pr == queue_pr
 
 
 # ── GitHub (gh) ───────────────────────────────────────────────────────────
@@ -407,6 +422,12 @@ def main(argv: list[str] | None = None) -> int:
             print(
                 f"#{pr}: HEAD nowszy niż bieg — bez statusu; {upsert_comment(args.repo, pr, body + note)}"
             )
+            continue
+        if not sets_status(pr, queue_pr):
+            if args.dry_run:
+                print(f"\n--- #{pr}: bez statusu (wypadł #{queue_pr}) ---\n{body}")
+                continue
+            print(f"#{pr}: bez statusu; {upsert_comment(args.repo, pr, body)}")
             continue
         status = {
             "state": "failure",
