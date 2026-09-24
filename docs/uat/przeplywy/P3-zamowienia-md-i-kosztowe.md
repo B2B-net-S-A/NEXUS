@@ -72,7 +72,7 @@ Jan Próbny 30 × 1100 → zamień na Marię Fikcyjną w fixtures, D8 20 × 1300
 | 23 | `/clients/{{D2}}` → Profil → Konsultanci | osoby z aktywnymi liniami; stawki MD; MRR | — |
 | 24 | `/clients/{{D2}}` → Profil → „Zakończeni” | Maria (kontrakt `draft`, nie `ended` → NIE w Zakończonych, bo decyduje UMOWA) — zapisz, gdzie ląduje | — |
 | 25 | podgląd DL przypisany do D2 → cała zakładka | kwoty widoczne (portfel); akcje cyklu życia widoczne | — |
-| 26 | Pomoc → instrukcja zamówień → data „ostatnia aktualizacja” | równa stemplowi (`stamp_orders_procedure.py`) — jeśli w Fali 3 zmienisz logikę zamówień, CI wymusi przestemplowanie | — |
+| 26 | Pomoc → instrukcja zamówień → data „ostatnia aktualizacja” | dzień ostatniej zmiany treści instrukcji (od 24.09.2026 skrypt `stamp_orders_procedure.py` przestawia ją tylko przy edycji treści) — jeśli w Fali 3 zmienisz logikę zamówień, CI wymusi przegląd i przestemplowanie | — |
 
 ## Sprzątanie
 

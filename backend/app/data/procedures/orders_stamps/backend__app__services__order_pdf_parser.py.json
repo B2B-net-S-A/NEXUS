@@ -1,0 +1,4 @@
+{
+  "sha256": "f3edd78867309649417ce18f350dae784a140dc81d34db5c6e0955ee0c8ea1d0",
+  "source": "backend/app/services/order_pdf_parser.py"
+}

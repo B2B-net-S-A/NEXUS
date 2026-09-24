@@ -1,0 +1,4 @@
+{
+  "sha256": "0e2867e7938452abf1ea0485431ec0cf38cfdd8c66e943b308ed8754cec77435",
+  "source": "backend/app/services/order_policies/bank_pocztowy.py"
+}

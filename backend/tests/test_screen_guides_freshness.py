@@ -14,22 +14,9 @@ from __future__ import annotations
 
 import pytest
 
-from app.data.screen_guides import (
-    REPO_ROOT,
-    SCREEN_KEYS,
-    current_digests,
-    load_guides,
-    load_stamp,
-)
-
-_HINT = (
-    "\n\nCo zrobić:\n"
-    "  1. Przeczytaj przewodnik w backend/app/data/screen_guides/guides.json\n"
-    "     i sprawdź, czy nazwy przycisków i kroki nadal są prawdą.\n"
-    "  2. Popraw wpis (albo nie popraw nic, jeśli zmiana go nie dotyczy).\n"
-    "  3. cd backend && python scripts/stamp_screen_guides.py\n"
-    "  4. Zacommituj przewodnik razem ze stemplem."
-)
+from app.data.review_stamps import GUIDE_STAMPS_REL, guide_drift, orphan_guide_stamps
+from app.data.review_stamps import GUIDES_HINT as _HINT
+from app.data.screen_guides import REPO_ROOT, SCREEN_KEYS, load_guides
 
 EXPECTED_KEYS = set(SCREEN_KEYS)
 
@@ -38,8 +25,8 @@ def _frontend_available() -> bool:
     return (REPO_ROOT / "frontend").is_dir()
 
 
-def _checkable(sources: list[str]) -> bool:
-    return _frontend_available() or not any(s.startswith("frontend/") for s in sources)
+def _checkable_source(relative: str) -> bool:
+    return _frontend_available() or not relative.startswith("frontend/")
 
 
 def test_guides_cover_exactly_the_agreed_screens() -> None:
@@ -85,14 +72,10 @@ def test_anchor_ids_are_unique_and_prefixed_with_the_screen_key() -> None:
 
 
 def test_guides_reviewed_after_screen_change() -> None:
-    stamped = load_stamp()["guides"]
-    current = current_digests()
-    guides = load_guides()
-    drifted = sorted(
-        key
-        for key, digest in current.items()
-        if _checkable(guides[key].sources) and stamped.get(key) != digest
-    )
+    """Każdy ekran ma własny stempel (``stamps/<klucz>.json``) — PR ruszający
+    inny ekran nie przepisuje Twojego, więc kolejka merge'ów ich nie zderza."""
+    drift = guide_drift(checkable=_checkable_source)
+    drifted = sorted(f"{key} ({', '.join(reasons)})" for key, reasons in drift.items())
     assert not drifted, (
         "Zmienił się ekran (albo przewodnik), a przewodnik Jarvisa nie został "
         "przejrzany:\n  · " + "\n  · ".join(drifted) + _HINT
@@ -100,8 +83,12 @@ def test_guides_reviewed_after_screen_change() -> None:
 
 
 def test_stamp_covers_exactly_the_guides() -> None:
-    assert set(load_stamp()["guides"]) == set(load_guides()), (
-        "Stempel rozjechał się z listą przewodników." + _HINT
+    guides = set(load_guides())
+    stamped = {p.stem for p in (REPO_ROOT / GUIDE_STAMPS_REL).glob("*.json")}
+    assert stamped == guides and not orphan_guide_stamps(), (
+        "Stempel rozjechał się z listą przewodników.\n"
+        f"Tylko w stemplach: {sorted(stamped - guides) or '—'}\n"
+        f"Bez stempla: {sorted(guides - stamped) or '—'}" + _HINT
     )
 
 

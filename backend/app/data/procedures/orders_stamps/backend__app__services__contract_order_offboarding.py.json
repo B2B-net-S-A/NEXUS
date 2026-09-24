@@ -1,0 +1,4 @@
+{
+  "sha256": "99a211251e06542fa74bf640ef6837c87b01f9c1deab0c9fbc7801d0b5ee12f9",
+  "source": "backend/app/services/contract_order_offboarding.py"
+}

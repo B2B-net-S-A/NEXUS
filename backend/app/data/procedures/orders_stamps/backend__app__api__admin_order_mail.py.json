@@ -1,0 +1,4 @@
+{
+  "sha256": "98b2fe2401eca9cdd4cd2c96494dd9836a3d98f5736ec4df8308b86ef9161d74",
+  "source": "backend/app/api/admin_order_mail.py"
+}

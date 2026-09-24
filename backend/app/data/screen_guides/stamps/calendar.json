@@ -1,0 +1,8 @@
+{
+  "entry": "3ca1206555824a264241b8d43e002f0fecb38820a83fbe2b7662d8da85dc298b",
+  "guide": "calendar",
+  "sources": {
+    "frontend/src/components/calendar/cycle/AgendaView.tsx": "0de5e91b8943e57a010ea4c605e71e407536e28e30f2a53ce7546209b3623d92",
+    "frontend/src/components/calendar/cycle/CalendarCycleScreen.tsx": "30776b0256cbe7a87d7a34cb710ada22d8048c8488f05a1d58718c8d880cad81"
+  }
+}

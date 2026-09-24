@@ -3,74 +3,54 @@
 
 Uruchom po zmianie czegokolwiek w logice zamówień:
 
-    cd backend && python scripts/stamp_orders_procedure.py
+    cd backend && python3 scripts/stamp_orders_procedure.py
+    cd backend && python3 scripts/stamp_orders_procedure.py \\
+        --only backend/app/services/order_types.py
 
 Skrypt NIE sprawdza treści za Ciebie — nie da się automatycznie stwierdzić, czy
 akapit „co robi system automatycznie" nadal jest prawdą. Robi dwie rzeczy,
 które da się zrobić maszynowo:
 
-  1. zapisuje odciski obserwowanych plików, żeby test przestał przypominać,
-  2. przestawia widoczną w aplikacji datę przeglądu, żeby Delivery Lead wiedział,
-     jak świeża jest instrukcja, którą właśnie czyta.
+  1. zapisuje odciski rozjechanych plików — każdy plik z ORDERS_LOGIC_SOURCES
+     ma własny stempel w ``app/data/procedures/orders_stamps/``, więc PR
+     ruszający inny plik zamówień nie zderzy się z Twoim w kolejce merge'ów;
+  2. jeśli zmieniłeś treść instrukcji, przestawia widoczną w aplikacji datę
+     przeglądu na dzisiejszą. Przegląd, po którym treść się nie zmieniła,
+     daty nie rusza (patrz ``app/data/review_stamps.py`` — dlaczego).
 
 Wolno uruchomić go BEZ zmiany treści — jeżeli przejrzałeś instrukcję i zmiana
 w kodzie jej nie dotyczy, to jest poprawny wynik przeglądu, a nie obejście.
+Szybkie sprawdzenie bez zapisu (też z hooka pre-commit):
+``python3 backend/scripts/check_stamps.py``.
 """
 
 from __future__ import annotations
 
-import re
+import argparse
 import sys
-from datetime import date
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.data.procedures import (  # noqa: E402
-    ORDERS_PROCEDURE,
-    current_digests,
-    load_stamp,
-    write_stamp,
-)
-
-# Linia widoczna w treści procedury — jedyne miejsce, w którym czytelnik widzi,
-# kiedy instrukcję ostatnio skonfrontowano z systemem.
-# Data w treści jest w formacie DD.MM.RRRR (jak każda data w interfejsie —
-# UAT M00-B04); wyrażenie przyjmuje też dawny zapis ISO, żeby pierwsze
-# przestemplowanie po zmianie formatu znalazło starą linię.
-_REVIEWED_LINE = re.compile(
-    r"^> \*\*Zgodność z systemem sprawdzona:\*\* "
-    r"(?:\d{4}-\d{2}-\d{2}|\d{2}\.\d{2}\.\d{4})$",
-    re.MULTILINE,
-)
-
-
-def _restamp_markdown(today: date) -> bool:
-    """Przestaw datę przeglądu w treści. Zwraca ``True``, jeśli coś zmieniono."""
-    path = ORDERS_PROCEDURE.path
-    content = path.read_text(encoding="utf-8")
-    replacement = f"> **Zgodność z systemem sprawdzona:** {today.strftime('%d.%m.%Y')}"
-    updated, count = _REVIEWED_LINE.subn(replacement, content)
-    if count == 0:
-        raise SystemExit(
-            f"Nie znalazłem linii z datą przeglądu w {path.name}.\n"
-            "Instrukcja musi zawierać dokładnie jedną linię w formacie:\n"
-            "  > **Zgodność z systemem sprawdzona:** DD.MM.RRRR"
-        )
-    if updated == content:
-        return False
-    path.write_text(updated, encoding="utf-8")
-    return True
+from app.data.procedures import ORDERS_PROCEDURE  # noqa: E402
+from app.data.review_stamps import stamp_orders  # noqa: E402
 
 
 def main() -> int:
-    today = date.today()
-    digests = current_digests()
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--only",
+        action="append",
+        metavar="ŚCIEŻKA",
+        help="przestempluj tylko ten plik (ścieżka od katalogu repo; można powtórzyć)",
+    )
+    args = parser.parse_args()
 
-    missing = sorted(k for k, v in digests.items() if v == "missing")
-    if missing:
+    try:
+        changed, date_bumped = stamp_orders(only=args.only)
+    except FileNotFoundError as exc:
         print("Nie znalazłem obserwowanych plików:", file=sys.stderr)
-        for path in missing:
+        for path in str(exc).splitlines():
             print(f"  · {path}", file=sys.stderr)
         print(
             "\nJeżeli plik został przeniesiony — popraw ORDERS_LOGIC_SOURCES\n"
@@ -78,34 +58,20 @@ def main() -> int:
             file=sys.stderr,
         )
         return 1
+    except ValueError as exc:
+        print(exc, file=sys.stderr)
+        return 1
 
-    try:
-        previous = load_stamp().get("sources", {})
-    except FileNotFoundError:
-        previous = {}
-
-    changed = sorted(k for k, v in digests.items() if previous.get(k) != v)
-    # Kolejność jest load-bearing: `_restamp_markdown` WALIDUJE treść i potrafi
-    # przerwać skrypt (brak linii z datą). Gdyby stempel szedł pierwszy,
-    # zostawałby z dzisiejszą datą przy nieruszonej treści — a test złapałby to
-    # jako „data w dokumencie różni się od stempla", czyli komunikat opisujący
-    # skutek zamiast przyczyny.
-    md_changed = _restamp_markdown(today)
-    write_stamp(today, digests)
-
-    if changed:
-        print("Przestemplowano po zmianie w:")
-        for path in changed:
-            print(f"  · {path}")
-    else:
-        print("Odciski plików bez zmian.")
-    print(
-        f"Data przeglądu: {today.isoformat()}"
-        + ("" if md_changed else " (bez zmiany w treści instrukcji)")
-    )
-    print("\nPamiętaj o zacommitowaniu obu plików:")
-    print("  · app/data/procedures/orders_procedure_stamp.json")
-    print(f"  · app/data/procedures/{ORDERS_PROCEDURE.filename}")
+    if not changed:
+        print("Stemple instrukcji zamówień bez zmian.")
+        return 0
+    print("Przestemplowano po zmianie w:")
+    for path in changed:
+        print(f"  · {path}")
+    if date_bumped:
+        print("Treść instrukcji się zmieniła — data przeglądu w treści: dzisiejsza.")
+    print("\nZacommituj zmienione pliki z app/data/procedures/orders_stamps/")
+    print(f"(i app/data/procedures/{ORDERS_PROCEDURE.filename}, jeśli ją edytowałeś).")
     return 0
 
 

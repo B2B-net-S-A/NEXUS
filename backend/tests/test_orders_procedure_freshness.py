@@ -27,22 +27,14 @@ from pathlib import Path
 
 import pytest
 
-from app.data.procedures import (
-    ORDERS_LOGIC_SOURCES,
-    ORDERS_PROCEDURE,
-    REPO_ROOT,
-    STAMP_PATH,
-    current_digests,
-    load_stamp,
-)
-
-_RESTAMP_HINT = (
-    "\n\nCo zrobić:\n"
-    "  1. Otwórz app/data/procedures/"
-    f"{ORDERS_PROCEDURE.filename} i sprawdź, czy nadal opisuje prawdę.\n"
-    "  2. Popraw akapity, których zmiana dotyczy (albo nie popraw nic, jeśli nie dotyczy).\n"
-    "  3. cd backend && python scripts/stamp_orders_procedure.py\n"
-    "  4. Zacommituj instrukcję razem ze stemplem."
+from app.data.procedures import ORDERS_LOGIC_SOURCES, ORDERS_PROCEDURE, REPO_ROOT
+from app.data.review_stamps import ORDERS_HINT as _RESTAMP_HINT
+from app.data.review_stamps import (
+    ORDERS_STAMPS_REL,
+    PROCEDURE_REL,
+    orders_drift,
+    orders_watched,
+    stamped_orders_sources,
 )
 
 
@@ -79,15 +71,12 @@ def test_watched_sources_exist() -> None:
 
 
 def test_orders_procedure_reviewed_after_logic_change() -> None:
-    """Zmiana logiki zamówień wymusza przegląd instrukcji dla Delivery Leada."""
-    stamped = load_stamp()["sources"]
-    current = current_digests()
+    """Zmiana logiki zamówień wymusza przegląd instrukcji dla Delivery Leada.
 
-    drifted = sorted(
-        relative
-        for relative in ORDERS_LOGIC_SOURCES
-        if _watched(relative) and stamped.get(relative) != current[relative]
-    )
+    Każdy plik ma własny stempel (``orders_stamps/``) — dwa PR-y ruszające
+    różne pliki zamówień nie zderzają się w kolejce merge'ów.
+    """
+    drifted = [rel for rel in orders_drift(checkable=_watched) if rel != PROCEDURE_REL]
 
     assert not drifted, (
         "Zmieniła się logika procesu zamówień, a instrukcja w Pomoc → Procedury\n"
@@ -104,8 +93,8 @@ def test_stamp_covers_exactly_the_watched_list() -> None:
     ktoś kiedyś uprościł asercję wyżej), a usunięcie pliku z listy zostawiłoby
     w stemplu martwy wpis, który po cichu rośnie z każdym ticketem.
     """
-    stamped = set(load_stamp()["sources"])
-    declared = set(ORDERS_LOGIC_SOURCES)
+    stamped = set(stamped_orders_sources())
+    declared = set(orders_watched())
     assert stamped == declared, (
         "Stempel rozjechał się z listą ORDERS_LOGIC_SOURCES.\n"
         f"Tylko w stemplu: {sorted(stamped - declared) or '—'}\n"
@@ -120,7 +109,7 @@ def test_procedure_content_is_seedable() -> None:
         "Treść instrukcji wygląda na okrojoną — plik ma "
         f"{len(content)} znaków. Seed wysłałby to na produkcję."
     )
-    # Data w treści: DD.MM.RRRR (UAT M00-B04) — stempel JSON trzyma ISO.
+    # Data w treści: DD.MM.RRRR (UAT M00-B04).
     reviewed = re.findall(
         r"^> \*\*Zgodność z systemem sprawdzona:\*\* (\d{2})\.(\d{2})\.(\d{4})$",
         content,
@@ -132,10 +121,20 @@ def test_procedure_content_is_seedable() -> None:
         f"znaleziono {len(reviewed)}. Tę linię przestawia "
         "scripts/stamp_orders_procedure.py."
     )
-    day, month, year = reviewed[0]
-    assert f"{year}-{month}-{day}" == load_stamp()["reviewed_at"], (
-        "Data widoczna w instrukcji różni się od daty w stemplu — czytelnik "
-        "zobaczyłby inną świeżość, niż faktycznie potwierdzono." + _RESTAMP_HINT
+
+
+def test_procedure_text_restamped_after_edit() -> None:
+    """Edycja treści instrukcji wymaga przestemplowania, które przestawia datę.
+
+    Data nie jest już wspólnym stemplem całego mechanizmu (wtedy każdy PR
+    ruszający dowolny plik zamówień przepisywał tę samą linię i zderzał się
+    w kolejce). Treść instrukcji ma własny odcisk; skrypt przestawia datę
+    wyłącznie przy edycji treści. Przegląd bez poprawki daty nie rusza —
+    widoczna data bywa więc starsza od ostatniego potwierdzenia, nigdy nowsza.
+    """
+    assert PROCEDURE_REL not in orders_drift(), (
+        "Treść instrukcji zmieniła się bez przestemplowania — data przeglądu "
+        "w treści nie mówi, kiedy ją ostatnio poprawiono." + _RESTAMP_HINT
     )
 
 
@@ -280,9 +279,10 @@ def test_quoted_thresholds_still_match_configuration() -> None:
 
 
 def test_stamp_file_is_committed() -> None:
-    assert STAMP_PATH.is_file(), (
-        f"Brak {STAMP_PATH.name}. Wygeneruj go: "
-        "cd backend && python scripts/stamp_orders_procedure.py"
+    stamps = REPO_ROOT / ORDERS_STAMPS_REL
+    assert stamps.is_dir() and any(stamps.glob("*.json")), (
+        f"Brak stempli w {ORDERS_STAMPS_REL}. Wygeneruj je: "
+        "cd backend && python3 scripts/stamp_orders_procedure.py"
     )
 
 

@@ -1,0 +1,4 @@
+{
+  "sha256": "2b70feebe4a4964b52f8139ddc35680964aa2ae89912a573bdd84bcbe6db2e89",
+  "source": "backend/app/services/order_policies/velobank.py"
+}
