@@ -84,7 +84,7 @@ def test_combine_job_merges_shards_and_gates_codecov_on_token() -> None:
     codecov = _step(steps, "Upload backend coverage to Codecov")
     assert "env.CODECOV_TOKEN != ''" in codecov["if"]
     frontend_codecov = _step(
-        ci["jobs"]["frontend-lint-build"]["steps"],
+        ci["jobs"]["frontend-vitest"]["steps"],
         "Upload frontend coverage to Codecov",
     )
     assert "env.CODECOV_TOKEN != ''" in frontend_codecov["if"]
@@ -118,7 +118,8 @@ def test_backend_coverage_measures_branches_and_blocks_regressions() -> None:
     assert "backend-coverage-combine" in gate["needs"]
     assert "needs.backend-coverage-combine.result" in gate["steps"][0]["run"]
 
-    frontend_steps = ci["jobs"]["frontend-lint-build"]["steps"]
+    frontend_steps = ci["jobs"]["frontend-vitest"]["steps"]
+    assert "npm run test:coverage" in _step(frontend_steps, "Vitest with coverage")["run"]
     artifact = _step(frontend_steps, "Upload frontend coverage (artifact)")
     assert artifact["with"]["path"] == "frontend/coverage/lcov.info"
     vitest_config = (_WORKFLOWS.parents[1] / "frontend" / "vitest.config.ts").read_text(
@@ -332,7 +333,7 @@ def test_frontend_required_context_always_reports_even_when_skipped() -> None:
         "Lustra backendu czytane przez testy frontendu wyliczamy Z REPO; lista "
         "wpisana w YAML zgniłaby cicho przy pierwszym nowym lustrze."
     )
-    expensive = ("ESLint", "Type check", "Vitest with coverage", "Build", "npm ci")
+    expensive = ("ESLint", "Type check", "Build", "npm ci")
     for name in expensive:
         step = _step(job["steps"], name)
         assert "steps.scope.outputs.run == 'true'" in str(step.get("if", "")), (
@@ -477,9 +478,10 @@ def test_ci_gate_frontend_typecheck_skips_steps_not_the_job_on_prs() -> None:
     notice = _step(job["steps"], "Typy PR-a sprawdza CI")
     assert notice["working-directory"] == ".", "Bez checkoutu nie ma katalogu frontend."
     # Typy PR-a naprawdę sprawdza CI — inaczej pominięcie byłoby dziurą.
-    ci_front = _load("ci.yml")["jobs"]["frontend-lint-build"]
-    assert ci_front["name"] == "Frontend (typecheck + build)"
-    _step(ci_front["steps"], "Type check")
+    jobs = _load("ci.yml")["jobs"]
+    assert jobs["frontend-gate"]["name"] == "Frontend (typecheck + build)"
+    assert "frontend-lint-build" in jobs["frontend-gate"]["needs"]
+    _step(jobs["frontend-lint-build"]["steps"], "Type check")
 
 
 def _run_step_script(script: str, env: dict[str, str], files: list[str]) -> str:
