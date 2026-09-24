@@ -3,7 +3,7 @@
 /**
  * „Czeka na Ciebie" — praca na Tablicach, której nikt nie widzi (0348, v5).
  *
- * Cztery listy z `GET /api/board-tasks`:
+ * Listy z `GET /api/board-tasks`:
  *  - „Czeka na Twój przegląd (DL)" (klienci spoza Nordei) — osoby w kolumnie
  *    „QC CV", które Delivery Lead wysyła do klienta ze stawką albo odrzuca;
  *    wiersz otwiera `DlReviewPanel` (CV, QC, screening, stawka),
@@ -16,7 +16,10 @@
  *  - „Wysłane do Cpro" — od ilu dni czekamy na Nordeę (tylko osoba od Cpro),
  *  - „Prepy przed rozmową u klienta" (0370) — brak prepu, prep słaby albo bez
  *    nagrania; wiersz prowadzi do karty kandydata w kalendarzu. Nic nie
- *    blokuje — to przypomnienie, nie bramka.
+ *    blokuje — to przypomnienie, nie bramka,
+ *  - „Follow-up z kandydatami" (0371) — klient milczy 14 dni, telefon do
+ *    kandydata; jeden na OSOBĘ, także gdy jest w kilku procesach
+ *    (`FollowupSection`).
  *
  * Kolejka „Czeka na DZ" i przegląd DZ (0353) zniknęły — zastąpiło je QC CV.
  * Panel nie renderuje się, gdy nic nie czeka — pusta ramka uczyłaby go
@@ -28,6 +31,7 @@ import { useEffect, useRef, useState } from "react";
 import { AlertTriangle, Clock, Eye, ListOrdered } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { FollowupSection } from "@/components/v2/followups/FollowupSection";
 import { DlReviewPanel } from "@/components/v2/recruitment/DlReviewPanel";
 import { QcStatusBadge } from "@/components/v2/recruitment/QcStatusBadge";
 import {
@@ -139,8 +143,13 @@ export function BoardTasksPanel() {
   if (!data) return null;
   const dlReview = data.dl_review ?? [];
   const preps = data.prep_attention ?? [];
+  const followups = data.followups ?? [];
   const total =
-    dlReview.length + data.cpro_to_send.length + data.cpro_sent.length + preps.length;
+    dlReview.length +
+    data.cpro_to_send.length +
+    data.cpro_sent.length +
+    preps.length +
+    followups.length;
   if (total === 0) return null;
 
   const cproGroups = groupCproByJob(data.cpro_to_send);
@@ -163,6 +172,7 @@ export function BoardTasksPanel() {
         </p>
       </div>
       <div className="grid gap-4 lg:grid-cols-3">
+        <FollowupSection rows={followups} others={data.followups_by_others ?? []} />
         {dlReview.length > 0 && (
           <Section
             title="Czeka na Twój przegląd (DL)"

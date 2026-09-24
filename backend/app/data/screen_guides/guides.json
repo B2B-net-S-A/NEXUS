@@ -176,6 +176,11 @@
         "q": "Co to są odznaki etapu (np. Prep, Umowa podpisana)?",
         "a": "To etapy pomocnicze, które nie mają własnej kolumny — pokazują się na karcie. „Umowa podpisana” włączasz przełącznikiem w karcie. Kontrolę CV robi teraz kolumna „QC CV”.",
         "anchor": "jobs.person.badges"
+      },
+      {
+        "q": "Co znaczy „Follow-up: Anna K. · zaległy 2 dni” i kto dzwoni do kandydata?",
+        "a": "Gdy klient milczy 14 dni po wysłaniu CV, a nikt z nas nie rozmawiał w tym czasie z kandydatem, jedna osoba dzwoni do niego z informacją, że dalej jest w procesie. Jeśli kandydat jest w kilku procesach, dzwoni rekruter procesu, który zaszedł najdalej, i mówi o wszystkich. W karcie, w bloku „Kontakt z kandydatem”, zapiszesz wynik telefonu albo przejmiesz telefon przyciskiem „Zrobię to ja”. Każda notatka o kandydacie przesuwa termin kolejnego telefonu o 14 dni, u wszystkich rekruterów naraz.",
+        "anchor": "jobs.person.followup"
       }
     ],
     "pitfalls": [
@@ -186,10 +191,11 @@
       {"id": "jobs.person.dock", "label": "Karta kandydata", "describe": "Panel osoby wysuwany z prawej po kliknięciu karty."},
       {"id": "jobs.person.actions", "label": "Akcje etapu", "describe": "Przenieś na etap, Inny etap, Odrzuć z powodem, Zrezygnował."},
       {"id": "jobs.person.badges", "label": "Odznaki etapu", "describe": "Etapy pomocnicze, np. Prep, Umowa podpisana."},
-      {"id": "jobs.person.note", "label": "Szybka notatka", "describe": "Pole notatki na dole karty."}
+      {"id": "jobs.person.note", "label": "Szybka notatka", "describe": "Pole notatki na dole karty."},
+      {"id": "jobs.person.followup", "label": "Kontakt z kandydatem", "describe": "Kto dzwoni do kandydata, gdy klient milczy, i kiedy — z przyciskami „Zapisz wynik telefonu” i „Zrobię to ja”."}
     ],
     "help_slug": null,
-    "sources": ["frontend/src/components/v2/jobs/PipelineCandidateDock.tsx"]
+    "sources": ["frontend/src/components/v2/jobs/PipelineCandidateDock.tsx", "frontend/src/components/v2/followups/DockFollowupBlock.tsx"]
   },
   {
     "key": "job.champion",

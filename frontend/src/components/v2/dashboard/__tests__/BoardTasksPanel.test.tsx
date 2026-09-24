@@ -68,10 +68,58 @@ function row(kind: string, over: Record<string, unknown> = {}) {
   };
 }
 
+function followupRow(over: Record<string, unknown> = {}) {
+  return {
+    candidate_id: 21,
+    candidate_name: "Jan Wiśniewski",
+    phone: "600 214 390",
+    due_on: "2026-09-22",
+    state: "overdue",
+    overdue_days: 2,
+    caller_id: 1,
+    caller_name: "Anna Kowalczyk",
+    caller_reason: "furthest",
+    processes: [
+      {
+        job_id: 31,
+        job_title: "Backend Java",
+        client_name: "PKO BP",
+        column: "client_interview",
+        stage_name: "Po Interview",
+        sent_at: "2026-09-01T08:00:00Z",
+        silent_since: "2026-09-09T08:00:00Z",
+        silent_days: 11,
+        owner_id: 1,
+        owner_name: "Anna Kowalczyk",
+      },
+      {
+        job_id: 32,
+        job_title: "Java Developer",
+        client_name: "Nordea",
+        column: "cv_sent",
+        stage_name: "Wysłany do Klienta",
+        sent_at: "2026-09-04T08:00:00Z",
+        silent_since: "2026-09-04T08:00:00Z",
+        silent_days: 16,
+        owner_id: 5,
+        owner_name: "Tomasz Lewandowski",
+      },
+    ],
+    last_contact_at: "2026-09-08T10:00:00Z",
+    last_contact_by: "Anna Kowalczyk",
+    last_contact_kind: "note",
+    no_answer_count: 0,
+    pending: null,
+    ...over,
+  };
+}
+
 function mockQueue(queue: Record<string, unknown>) {
   get.mockImplementation((url: string) => {
     if (url === "/api/board-tasks")
       return Promise.resolve({ data: { window_days: 14, cpro_to_send: [], cpro_sent: [], ...queue } });
+    if (url === "/api/candidate-followups/candidates/21")
+      return Promise.resolve({ data: { candidate_id: 21, followup: followupRow(), history: [] } });
     if (url === "/api/board-tasks/cpro/sender")
       return Promise.resolve({ data: { user_id: 5, user_name: "Kinga Sordyl", until: null } });
     return Promise.resolve({ data: [] });
@@ -219,5 +267,77 @@ describe("BoardTasksPanel — „Czeka na Ciebie” na pulpicie", () => {
     renderPanel();
     await screen.findByRole("region", { name: "Wysłane do Cpro" });
     expect(screen.queryByRole("region", { name: "Prepy przed rozmową u klienta" })).toBeNull();
+  });
+
+  it("follow-up z kandydatami: jedna pozycja na osobę, wszystkie jej procesy, zapis wyniku", async () => {
+    mockQueue({
+      followups: [followupRow()],
+      followups_by_others: [
+        followupRow({
+          candidate_id: 44,
+          candidate_name: "Marek Lis",
+          caller_id: 9,
+          caller_name: "Ewa Nowak",
+          state: "scheduled",
+          due_on: "2026-09-29",
+        }),
+      ],
+    });
+    post.mockResolvedValue({
+      data: { candidate_id: 21, followup: followupRow({ state: "scheduled", due_on: "2026-10-08" }), history: [] },
+    });
+    renderPanel();
+    const section = await screen.findByRole("region", { name: "Follow-up z kandydatami" });
+    const [item] = within(section).getAllByRole("listitem");
+    expect(item).toHaveTextContent("Jan Wiśniewski");
+    expect(item).toHaveTextContent("zaległy 2 dni");
+    expect(item).toHaveTextContent("2 procesy");
+    expect(item).toHaveTextContent("PKO BP · po rozmowie u klienta, 11 dni");
+    expect(item).toHaveTextContent("Nordea · CV wysłane, 16 dni");
+    expect(item).toHaveTextContent("Ostatni kontakt 08.09 (Anna K., notatka)");
+    expect(section).toHaveTextContent("Z 1 Twoim kandydatem follow-up robi ktoś inny");
+    expect(section).toHaveTextContent("Marek Lis: dzwoni Ewa N., termin 29.09");
+
+    await userEvent.click(
+      within(item).getByRole("button", { name: "Zapisz wynik telefonu: Jan Wiśniewski" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    expect(await within(dialog).findByText("Czeka na klienta w 2 procesach")).toBeInTheDocument();
+    await userEvent.type(within(dialog).getByLabelText("Notatka (opcjonalnie)"), "Czeka, dostępny od 01.11.");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Zapisz" }));
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith("/api/candidate-followups/candidates/21/outcome", {
+        outcome: "connected",
+        note: "Czeka, dostępny od 01.11.",
+        callback_on: null,
+        processes: {},
+      }),
+    );
+    expect(showSuccess).toHaveBeenCalledWith("Zapisano. Następny follow-up: 08.10.");
+  });
+
+  it("„coś się zmieniło” wymaga opisu i wysyła decyzję per proces", async () => {
+    mockQueue({ followups: [followupRow()] });
+    renderPanel();
+    const section = await screen.findByRole("region", { name: "Follow-up z kandydatami" });
+    await userEvent.click(
+      within(section).getByRole("button", { name: "Zapisz wynik telefonu: Jan Wiśniewski" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    await within(dialog).findByText("Czeka na klienta w 2 procesach");
+    await userEvent.click(within(dialog).getByLabelText(/Rozmawialiśmy, coś się zmieniło/));
+    const save = within(dialog).getByRole("button", { name: "Zapisz" });
+    expect(save).toBeDisabled();
+    await userEvent.selectOptions(within(dialog).getByLabelText("Proces Nordea"), "withdrawing");
+    await userEvent.type(within(dialog).getByLabelText("Co się zmieniło?"), "Ma inną ofertę.");
+    await userEvent.click(save);
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith("/api/candidate-followups/candidates/21/outcome", {
+        outcome: "changed",
+        note: "Ma inną ofertę.",
+        callback_on: null,
+        processes: { 32: "withdrawing" },
+      }),
+    );
   });
 });

@@ -12,6 +12,7 @@
 
 import type { KanbanItem } from "@/components/v2/pages/kanban-shared";
 import type { BoardColumnKey } from "@/lib/board-stages";
+import { cardBadgeLabel } from "@/lib/candidate-followup";
 
 export type CardBadgeTone =
   | "own"
@@ -195,6 +196,25 @@ export function cardBadges(item: KanbanItem, ctx: CardBadgeContext): CardBadge[]
       key: "client_silence",
       label: `${item.days_in_stage} dni bez odpowiedzi`,
       tone: "wait",
+    });
+  }
+  // 0371: follow-up z kandydatem, gdy klient milczy — kto dzwoni (jeden
+  // telefon na OSOBĘ, także gdy jest w kilku procesach). Tylko termin do
+  // jutra: plakietka „za 9 dni” byłaby szumem na każdej karcie.
+  if (
+    (column === "cv_sent" || column === "client_interview") &&
+    item.followup &&
+    item.followup.state !== "scheduled"
+  ) {
+    const f = item.followup;
+    out.push({
+      key: "followup",
+      label: cardBadgeLabel(f, ctx.viewerId),
+      tone: f.state === "overdue" ? "urgent" : f.state === "today" ? "wait" : "neutral",
+      title:
+        f.process_count > 1
+          ? `Kandydat czeka na klienta w ${f.process_count} procesach — dzwoni jedna osoba i mówi o wszystkich.`
+          : "Klient milczy od 14 dni — telefon do kandydata, że dalej jest w procesie.",
     });
   }
   if (column === "client_interview" && item.interview_badge) {
