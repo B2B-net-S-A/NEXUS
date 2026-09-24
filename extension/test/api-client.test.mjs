@@ -94,3 +94,31 @@ test("nieznany status niesie numer i szczegół, ale nie surowy JSON", () => {
   assert.match(out.error, /HTTP 500/);
   assert.match(out.error, /Internal Server Error/);
 });
+
+test("odświeżenie wysyła refresh token w CIELE, nigdy w URL-u (audyt 24.09.2026)", async () => {
+  const refreshSrc = raw.replace(
+    IMPORT_BLOCK,
+    [
+      "const getAuth = async () => ({ access_token: 'a', refresh_token: 'r-secret', email: 'x' });",
+      "const setAuth = async () => {};",
+      "const clearAuth = async () => {};",
+      "const getBackendUrl = async () => 'https://api.example.test';",
+    ].join("\n"),
+  );
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url, init });
+    if (String(url).endsWith("/api/auth/refresh")) {
+      return new Response(JSON.stringify({ access_token: "a2", refresh_token: "r2" }));
+    }
+    return new Response("{}", { status: calls.length === 1 ? 401 : 200 });
+  };
+  const { apiFetch } = await import(
+    "data:text/javascript;base64," + Buffer.from(refreshSrc, "utf8").toString("base64")
+  );
+  await apiFetch("/api/auth/me");
+  const refresh = calls.find((c) => String(c.url).includes("/api/auth/refresh"));
+  assert.ok(refresh, "brak wywołania odświeżenia po 401");
+  assert.doesNotMatch(String(refresh.url), /r-secret|refresh_token=/);
+  assert.equal(JSON.parse(refresh.init.body).refresh_token, "r-secret");
+});

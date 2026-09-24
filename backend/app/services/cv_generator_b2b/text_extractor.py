@@ -18,6 +18,8 @@ import tempfile
 import time
 from pathlib import Path
 
+from app.core.zip_guard import assert_safe_ooxml
+
 logger = logging.getLogger(__name__)
 
 
@@ -158,6 +160,7 @@ def _extract_docx(data: bytes) -> str:
     from docx.text.paragraph import Paragraph
 
     try:
+        assert_safe_ooxml(data)
         doc = Document(io.BytesIO(data))
     except Exception as exc:
         raise CVTextExtractionError("Nie można odczytać dokumentu DOCX.") from exc

@@ -9,6 +9,11 @@ describe("ssoErrorMessage", () => {
     expect(ssoErrorMessage(undefined)).toBeNull()
   })
 
+  it("tłumaczy odmowy tożsamości i obcego tenanta (audyt 24.09.2026)", () => {
+    expect(ssoErrorMessage("foreign_tenant")).toMatch(/kontem firmowym/)
+    expect(ssoErrorMessage("identity_mismatch")).toMatch(/innej tożsamości/)
+  })
+
   it("tłumaczy account_disabled na komunikat z instrukcją dla użytkownika", () => {
     expect(ssoErrorMessage("account_disabled")).toBe(
       "Twoje konto w NEXUS jest nieaktywne — poproś administratora o jego włączenie.",

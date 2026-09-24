@@ -19,13 +19,16 @@ async function tryRefresh() {
   const auth = await getAuth();
   if (!auth || !auth.refresh_token) return false;
   const backend = await getBackendUrl();
-  // /api/auth/refresh accepts refresh_token as a query param, NOT body
-  // (verified in backend/app/api/auth.py:121).
-  const url = `${backend}/api/auth/refresh?refresh_token=${encodeURIComponent(
-    auth.refresh_token,
-  )}`;
+  // Refresh token WYŁĄCZNIE w ciele — backend od 09.2026 odrzuca wariant
+  // `?refresh_token=` (422), a token w URL-u lądował w access logu API
+  // (audyt bezpieczeństwa 24.09.2026).
+  const url = `${backend}/api/auth/refresh`;
   try {
-    const resp = await fetch(url, { method: "POST" });
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: auth.refresh_token }),
+    });
     if (!resp.ok) return false;
     const data = await resp.json();
     await setAuth({

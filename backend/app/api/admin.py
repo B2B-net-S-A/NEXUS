@@ -94,6 +94,10 @@ class AdminUserUpdate(BaseModel):
     # Imienne uprawnienie do usuwania klientów z profilu (0307). Nie wynika
     # z żadnej roli — nadaje się je konkretnej osobie.
     can_delete_clients: Optional[bool] = None
+    # Odpina konto od tożsamości Microsoft (`azure_oid`). SSO odmawia logowania,
+    # gdy ten sam adres przychodzi z INNYM `oid` (audyt 24.09.2026) — np. konto
+    # odtworzone w Entra; admin świadomie pozwala przypiąć nową tożsamość.
+    clear_microsoft_identity: Optional[bool] = None
 
 
 class ResetPasswordRequest(BaseModel):
@@ -334,6 +338,23 @@ async def update_user(
         user.is_active = data.is_active
     if data.can_delete_clients is not None:
         user.can_delete_clients = data.can_delete_clients
+    if data.clear_microsoft_identity and user.azure_oid:
+        previous_oid = user.azure_oid
+        user.azure_oid = None
+        if user.oauth_provider == "microsoft":
+            user.external_id = None
+        db.add(
+            Activity(
+                entity_type="user",
+                entity_id=user.id,
+                action="microsoft_identity_cleared",
+                user_id=_admin.id,
+                details={
+                    "previous_azure_oid": previous_oid,
+                    "target_email": user.email,
+                },
+            )
+        )
 
     authorization_changed = (
         user.role != original_role

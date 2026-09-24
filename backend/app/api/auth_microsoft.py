@@ -23,6 +23,7 @@ Sentry breadcrumbs. The UUID is jednorazowy (60s TTL, ``consumed_at`` flag).
 # is not fully defined"). Eager annotacje są tu OK — plik jest mały.
 
 import logging
+import re
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -370,6 +371,25 @@ SSO_ERR_AAD_NO_GRAPH_TOKEN = "aad_no_graph_token"
 SSO_ERR_AAD_MAP_INVALID = "aad_role_map_invalid"
 SSO_ERR_AAD_ROLE_INVALID = "aad_role_invalid"
 SSO_ERR_AAD_NO_ROLE = "aad_no_role"
+SSO_ERR_FOREIGN_TENANT = "foreign_tenant"
+SSO_ERR_IDENTITY_MISMATCH = "identity_mismatch"
+
+_GUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I
+)
+
+
+def _expected_tenant_id() -> str | None:
+    """GUID tenanta firmy albo ``None``, gdy konfiguracja go nie zna.
+
+    ``M365_TENANT_ID`` bywa ``common`` (aplikacja wielotenantowa) — wtedy bierzemy
+    ``M365_MAIL_TENANT_ID``, który na produkcji zawsze jest prawdziwym GUID-em.
+    """
+    for value in (settings.M365_TENANT_ID, settings.M365_MAIL_TENANT_ID):
+        value = (value or "").strip()
+        if _GUID_RE.match(value):
+            return value.lower()
+    return None
 
 
 async def _last_admin_sso_redirect(
@@ -502,6 +522,18 @@ async def callback(
             _frontend_login_error_url(SSO_ERR_MISSING_CLAIMS), status_code=302
         )
 
+    # Konto z INNEGO tenanta Entra może nieść w `preferred_username` adres
+    # z naszej domeny (goście, tenanty z niezweryfikowaną domeną — klasa
+    # nOAuth). Przy znanym GUID-zie firmy wpuszczamy wyłącznie jej tenant
+    # (audyt bezpieczeństwa 24.09.2026).
+    expected_tid = _expected_tenant_id()
+    token_tid = str(claims.get("tid") or "").strip().lower()
+    if expected_tid and token_tid and token_tid != expected_tid:
+        logger.warning("sso foreign tenant rejected: tid=%s", token_tid)
+        return RedirectResponse(
+            _frontend_login_error_url(SSO_ERR_FOREIGN_TENANT), status_code=302
+        )
+
     # Domain whitelist — empty list rejects every domain (fail-closed).
     domain = email.split("@")[-1].lower()
     allowed = settings.sso_allowed_domains_list
@@ -566,6 +598,30 @@ async def callback(
             )
         )
     else:
+        # Konto już przypięte do tożsamości Microsoft (`oid`) nie przechodzi na
+        # INNĄ tożsamość z tym samym adresem: UPN bywa nadany ponownie nowej
+        # osobie po odejściu poprzedniej, a dopasowanie po samym e-mailu
+        # oddałoby jej stare konto z rolą (audyt bezpieczeństwa 24.09.2026).
+        # Świadome przepięcie robi administrator, czyszcząc `azure_oid`.
+        if user.azure_oid and user.azure_oid != azure_oid:
+            logger.warning("sso login denied — azure_oid mismatch: user_id=%s", user.id)
+            db.add(
+                Activity(
+                    entity_type="user",
+                    entity_id=user.id,
+                    action="sso_login_denied_identity_mismatch",
+                    user_id=user.id,
+                    details={
+                        "domain": domain,
+                        "provider": "microsoft",
+                        "presented_azure_oid": azure_oid,
+                    },
+                )
+            )
+            await db.commit()
+            return RedirectResponse(
+                _frontend_login_error_url(SSO_ERR_IDENTITY_MISMATCH), status_code=302
+            )
         # Existing email/password user logging in via SSO for the first time:
         # link identity but DO NOT touch role / password_hash / profile_completed.
         user.oauth_provider = "microsoft"

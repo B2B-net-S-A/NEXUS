@@ -22,6 +22,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
+from app.core.printable_html import printable_document
+from app.services.html_sanitizer import sanitize_cv_html
 from app.core.scheduling import business_today
 from app.models.activity import Activity
 from app.models.candidate import Candidate
@@ -317,15 +319,15 @@ async def refresh_original_cv_snapshot(
 
 
 def wrap_printable_cv(body_html: str, stage_id: int, candidate_label: str) -> str:
-    """Printable wrapper z auto-print (mirror contracts._wrap_printable)."""
-    return (
-        '<!DOCTYPE html><html><head><meta charset="utf-8">'
-        f"<title>CV — {candidate_label} (rekrutacja #{stage_id})</title>"
-        "<script>window.addEventListener('load',()=>setTimeout("
-        "()=>window.print(),300));</script>"
-        "</head><body>"
-        f"{body_html}"
-        "</body></html>"
+    """Printable wrapper z auto-print — wspólna otoczka z CSP w <meta>.
+
+    ``candidate_label`` to imię i nazwisko z formularza kariery: escapuje je
+    ``printable_document``, a treść idzie przez allowlistę (także przy
+    snapshotcie, który otwiera się jako blob pod originem aplikacji).
+    """
+    return printable_document(
+        sanitize_cv_html(body_html),
+        f"CV — {candidate_label} (rekrutacja #{stage_id})",
     )
 
 

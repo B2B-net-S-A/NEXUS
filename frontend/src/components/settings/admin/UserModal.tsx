@@ -48,6 +48,7 @@ export function UserModal({ initial, onClose, onSave, loading, error }: UserModa
     roles: initialRoles,
     recruiter_role: initial?.recruiter_role ?? "",
     can_delete_clients: initial?.can_delete_clients ?? false,
+    clear_microsoft_identity: false,
   });
 
   const set = <K extends keyof UserFormData>(field: K, value: UserFormData[K]) =>
@@ -211,6 +212,28 @@ export function UserModal({ initial, onClose, onSave, loading, error }: UserModa
                 Uprawnienie imienne — nie wynika z roli (także administrator go
                 nie ma bez zaznaczenia). Nadanie i odebranie trafia do Historii
                 zdarzeń.
+              </p>
+            </div>
+          )}
+
+          {isEdit && (
+            <div className="border border-border rounded-lg px-3 py-2">
+              <label className="flex items-center gap-2 text-sm font-medium text-foreground">
+                <input
+                  type="checkbox"
+                  checked={form.clear_microsoft_identity}
+                  onChange={(e) =>
+                    set("clear_microsoft_identity", e.target.checked)
+                  }
+                  className="rounded border-border"
+                />
+                Odepnij tożsamość Microsoft
+              </label>
+              <p className="text-xs text-muted-foreground mt-1">
+                Tylko gdy logowanie kończy się błędem „przypisane do innej
+                tożsamości Microsoft” (np. konto odtworzone w Entra). Następne
+                logowanie przypnie konto Microsoft osoby, która się zaloguje —
+                upewnij się, że to właściwa osoba.
               </p>
             </div>
           )}

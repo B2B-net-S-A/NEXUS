@@ -34,6 +34,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import HTMLResponse, StreamingResponse
 from starlette.concurrency import run_in_threadpool
+from app.core.printable_html import printable_document
 from app.models.cv_document_version import CvDocumentVersion
 from app.services.cv_document_assets import (
     generated_assets,
@@ -342,15 +343,15 @@ async def refresh_original_cv(
 
 
 def _wrap_printable_cv(body_html: str, stage_id: int, candidate_label: str) -> str:
-    """Wrap HTML w printable wrapper z auto-print (mirror contracts._wrap_printable)."""
-    return (
-        '<!DOCTYPE html><html><head><meta charset="utf-8">'
-        f"<title>CV — {candidate_label} (rekrutacja #{stage_id})</title>"
-        "<script>window.addEventListener('load',()=>setTimeout("
-        "()=>window.print(),300));</script>"
-        "</head><body>"
-        f"{body_html}"
-        "</body></html>"
+    """Printable wrapper z auto-print — wspólna otoczka z CSP w <meta>.
+
+    ``candidate_label`` to imię i nazwisko z formularza kariery: escapuje je
+    ``printable_document``, a treść idzie przez allowlistę (także przy
+    snapshotcie, który otwiera się jako blob pod originem aplikacji).
+    """
+    return printable_document(
+        sanitize_cv_html(body_html),
+        f"CV — {candidate_label} (rekrutacja #{stage_id})",
     )
 
 
@@ -661,9 +662,7 @@ async def render_branded_cv_for_print(
     )
     # M4 PR-04 (audyt P1.9): printable HTML przechodzi allowlist sanitizer —
     # authenticated flow otwiera blob text/html w nowej karcie.
-    return HTMLResponse(
-        content=_wrap_printable_cv(sanitize_cv_html(draft_html), stage_id, label)
-    )
+    return HTMLResponse(content=_wrap_printable_cv(draft_html, stage_id, label))
 
 
 _render_editor_docx = render_stage_editor_docx

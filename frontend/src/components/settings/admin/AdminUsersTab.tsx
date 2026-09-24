@@ -184,6 +184,9 @@ export function AdminUsersTab({ embedded = false }: AdminUsersTabProps = {}) {
           roles: data.roles,
           recruiter_role: data.recruiter_role,
           can_delete_clients: data.can_delete_clients,
+          ...(data.clear_microsoft_identity
+            ? { clear_microsoft_identity: true }
+            : {}),
         },
       });
     }

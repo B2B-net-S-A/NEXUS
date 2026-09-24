@@ -247,7 +247,11 @@ function ThreadMessageCard({
               <div
                 // Maile HTML (newslettery) niosą tabele i obrazy o stałej
                 // szerokości — bez limitu rozpychały cały panel na telefonie.
-                className="prose prose-sm max-w-none break-words text-foreground [&_img]:h-auto [&_img]:max-w-full [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto"
+                // `contain: paint` + `isolation`: mail od kandydata z
+                // `position: fixed` na cały ekran nie przykryje aplikacji
+                // podrobionym komunikatem — zostaje w ramce wiadomości
+                // (audyt bezpieczeństwa 24.09.2026).
+                className="prose prose-sm relative isolate max-w-none break-words text-foreground [contain:paint] [&_img]:h-auto [&_img]:max-w-full [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto"
                 dangerouslySetInnerHTML={{ __html: bodyHtml }}
               />
             ) : fullMessage?.body_text || email.body_text ? (
