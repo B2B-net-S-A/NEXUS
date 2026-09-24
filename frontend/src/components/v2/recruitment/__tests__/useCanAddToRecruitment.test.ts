@@ -24,7 +24,7 @@ describe("useCanAddToRecruitment — bramka jak proposals/bulk", () => {
     expect([...CAPABILITY_ROLES[ADD_TO_RECRUITMENT_CAPABILITY]].sort()).toEqual([...RECRUITER_PLUS].sort());
   });
 
-  it("praktykant (0372) nie dodaje do rekrutacji — przekazuje przez „Przekaż rekruterowi”", () => {
+  it("praktykant (0373) nie dodaje do rekrutacji — przekazuje przez „Przekaż rekruterowi”", () => {
     expect(hasCapability({ role: "trainee", roles: ["trainee"] }, ADD_TO_RECRUITMENT_CAPABILITY)).toBe(false);
   });
 

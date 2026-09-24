@@ -161,7 +161,7 @@ describe("visibleNavSections", () => {
     expect(viewer).not.toContain("/finance");
   });
 
-  it("praktykant (0372) nie ma menu; panel „Praktykanci” mają admin i HoR", () => {
+  it("praktykant (0373) nie ma menu; panel „Praktykanci” mają admin i HoR", () => {
     expect(hrefs("trainee")).toEqual([]);
     expect(hrefs("head_of_recruitment")).toContain("/trainees");
     expect(hrefs("admin")).toContain("/trainees");

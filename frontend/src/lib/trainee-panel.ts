@@ -1,5 +1,5 @@
 /**
- * Panel „Praktykanci” (0372) — czyste reguły prezentacji dla Head of
+ * Panel „Praktykanci” (0373) — czyste reguły prezentacji dla Head of
  * Recruitment: stan osoby, zdania podsumowań, starczalność puli.
  */
 

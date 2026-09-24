@@ -31,7 +31,7 @@ SEED_DIVERGENCE_AFTER_0273: dict[str, tuple[str, str]] = {
 
 # Role dodane po 0273 — ich wiersze zasiewa ich własna migracja.
 ROLES_ADDED_AFTER_0273: dict[str, str] = {
-    UserRole.trainee.value: "0372_trainee_call_lists.py",
+    UserRole.trainee.value: "0373_trainee_call_lists.py",
 }
 
 

@@ -5,7 +5,7 @@ import { ListChecks } from "lucide-react";
 import { TraineeRulesForm } from "@/components/trainee/TraineeRulesForm";
 import { hasRole, useAuthStore } from "@/store/auth";
 
-// Ustawienia → Rekrutacja → Lista telefonów praktykantów (0372). Bramka jest
+// Ustawienia → Rekrutacja → Lista telefonów praktykantów (0373). Bramka jest
 // lustrem `/api/trainee/rules` — admin i Head of Recruitment.
 export default function TraineeRulesPage() {
   const user = useAuthStore((state) => state.user);

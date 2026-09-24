@@ -67,7 +67,7 @@ export type Capability =
   | "nav.my_relationships"
   | "nav.contracts"
   | "nav.finance"
-  // ── Praktykanci (0372) ─────────────────────────────────────────────────────
+  // ── Praktykanci (0373) ─────────────────────────────────────────────────────
   | "nav.trainee"
   | "nav.trainees";
 
@@ -230,7 +230,7 @@ export const CAPABILITY_ROLES: Record<Capability, readonly UserRole[]> = {
   // ck_users_exclusive_finance_viewer_roles), więc to dwie rozłączne
   // publiczności, a nie suma uprawnień.
   "nav.finance": ["admin", "finance"],
-  // Praktykant (0372) ma WYŁĄCZNIE „Telefony na dziś” — trasy praktykanta
+  // Praktykant (0373) ma WYŁĄCZNIE „Telefony na dziś” — trasy praktykanta
   // `/api/trainee/today|items/*` przyjmują tylko rolę `trainee` (własna
   // lista). Rola jest wyłączna, więc nie dziedziczy niczego z pozostałych
   // wpisów rejestru (świadomie NIE ma jej w `ALL_ROLES`).

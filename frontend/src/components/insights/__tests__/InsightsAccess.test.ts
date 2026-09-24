@@ -67,7 +67,7 @@ describe("dostęp do zakładek Insights", () => {
     "recruiter",
     "sourcer",
     "user",
-    // Praktykant (0372) i tak nie wejdzie na /insights — middleware zawraca
+    // Praktykant (0373) i tak nie wejdzie na /insights — middleware zawraca
     // go na „Telefony na dziś”; tu tylko pilnujemy, że Rada nie jest dla niego.
     "trainee",
   ] as const)("rola %s NIE widzi Rady", (role) => {

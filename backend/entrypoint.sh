@@ -154,7 +154,7 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'finance'",
     # Section RBAC (0268): Talent Community Manager persona.
     "ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'talent_community_manager'",
-    # 0372: praktykant — „Telefony na dziś”.
+    # 0373: praktykant — „Telefony na dziś”.
     "ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'trainee'",
     # notificationtype: 5 trigger types + champion_profile_updated
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'dl_stage_stale_6h'",
@@ -675,7 +675,7 @@ _ENUM_STATEMENTS = [
     # 0371: automat przydziału requestów — poranne zmiany i requesty do decyzji DL.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'request_assignment_changed'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'request_review_needed'",
-    # 0372: decyzja o końcu programu praktykanta.
+    # 0373: decyzja o końcu programu praktykanta.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'trainee_program_decision'",
     # 0372: follow-up z kandydatem przyniósł zmianę — do właściciela procesu.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'candidate_followup_signal'",
@@ -5479,7 +5479,7 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     """CREATE UNIQUE INDEX IF NOT EXISTS ux_job_work_assignments_live ON job_work_assignments (job_id, user_id) WHERE state <> 'released'""",
     """CREATE INDEX IF NOT EXISTS ix_job_work_assignments_user_state ON job_work_assignments (user_id, state)""",
     """CREATE INDEX IF NOT EXISTS ix_job_work_assignments_changed ON job_work_assignments (assigned_at, released_at)""",
-    # 0372: praktykant — rola w CHECK-ach RBAC i wyłączności (przed seedem
+    # 0373: praktykant — rola w CHECK-ach RBAC i wyłączności (przed seedem
     # macierzy w `_DATA_STATEMENTS`, który wstawia wiersze `trainee`), fakty
     # z telefonu w `candidates` i tabele listy. Lustro 1:1 z migracją —
     # pilnuje `test_trainee_migration_mirror.py`.
@@ -6053,7 +6053,7 @@ _DATA_STATEMENTS = [
            SELECT 1 FROM rbac_role_action_permissions
        )
        ON CONFLICT (role, action) DO NOTHING""",
-    # 0372: praktykant nie ma sekcji ani akcji. Wiersze `none` dopisywane także
+    # 0373: praktykant nie ma sekcji ani akcji. Wiersze `none` dopisywane także
     # do istniejącej macierzy (ON CONFLICT: decyzja admina w panelu wygrywa).
     """INSERT INTO rbac_role_section_permissions (role, section, access)
        SELECT 'trainee', section, 'none'
@@ -7576,7 +7576,7 @@ _CONSTRAINT_STATEMENTS = [
             CHECK (termination_party IS NULL OR termination_party IN ('consultant', 'company'))
             NOT VALID;
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
-    # 0341 + 0372: przepięcie (`reassign`) i praktykant (`trainee`) jako źródła
+    # 0341 + 0373: przepięcie (`reassign`) i praktykant (`trainee`) jako źródła
     # propozycji. DROP+ADD w jednym
     # bloku — timeout zamka wycofuje oba, następny start ponawia.
     """DO $$ BEGIN

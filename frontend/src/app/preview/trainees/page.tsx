@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Harness panelu „Praktykanci” i reguł listy (0372) — publiczny, ZERO zapytań.
+ * Harness panelu „Praktykanci” i reguł listy (0373) — publiczny, ZERO zapytań.
  *
  * `?view=panel` (domyślnie) · `rules` (Ustawienia → Lista telefonów praktykantów).
  * Cache zasiany kluczami `traineeKeys`, warstwa `traineeApi` podmieniona na

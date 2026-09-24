@@ -47,7 +47,7 @@ JOB_PROPOSAL_SOURCES = (
     "marketplace",
     # 0341: przepięcie — osoba wysłana do klienta w podobnej rekrutacji.
     "reassign",
-    # 0372: przekazane przez praktykanta po rozmowie telefonicznej.
+    # 0373: przekazane przez praktykanta po rozmowie telefonicznej.
     "trainee",
 )
 JOB_PROPOSAL_STATUSES = ("proposed", "dismissed", "added")

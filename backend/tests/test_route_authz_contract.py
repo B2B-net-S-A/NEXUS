@@ -64,7 +64,7 @@ _GATE_QUALNAME_MARKERS = (
     "require_contract_legal_read_access",
     "require_consultant_options_reader",
     "require_b2b_generator_access",
-    # 0372: trasy „Telefony na dziś” — wyłącznie konto praktykanta, a w serwisie
+    # 0373: trasy „Telefony na dziś” — wyłącznie konto praktykanta, a w serwisie
     # wyłącznie pozycje jego własnej listy (`_own_item`).
     "require_trainee",
 )

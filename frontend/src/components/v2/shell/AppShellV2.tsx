@@ -162,7 +162,7 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
   // shell while the redirect above takes effect.
   if (needsOnboarding) return null;
 
-  // Praktykant (0372) ma jeden ekran: cienki pasek zamiast sidebara, bez
+  // Praktykant (0373) ma jeden ekran: cienki pasek zamiast sidebara, bez
   // palety ⌘K, dzwonka, „Moich ludzi” i Jarvisa (każde z nich pytałoby API,
   // które praktykantowi odmawia).
   if (traineeOnly) return <TraineeShell>{children}</TraineeShell>;

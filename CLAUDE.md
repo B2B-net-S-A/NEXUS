@@ -6836,7 +6836,7 @@ dokumenty i umowa → edycja (program do 10 dni roboczych). Decyzje Artura
   terminu); ustawienia programu i źródła zmienia admin/HoR, pracę z ludźmi
   i terminy — `RecruiterPlus` (router za sekcją Pipeline).
 
-## Praktykant — „Telefony na dziś” (0372, 24.09.2026)
+## Praktykant — „Telefony na dziś” (0373, 24.09.2026)
 
 Nowi sourcerzy/rekruterzy przez pierwsze 40 dni roboczych tylko dzwonią do
 kandydatów z codziennej listy i zapisują fakty, bez których rekruter dzwoni

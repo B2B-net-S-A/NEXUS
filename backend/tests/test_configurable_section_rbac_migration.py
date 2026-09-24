@@ -18,7 +18,7 @@ MIGRATION_PATH = BACKEND_ROOT / "alembic/versions/0269_configurable_section_rbac
 
 # Role dodane po 0269 — ich wiersze zasiewa ich własna migracja, nie 0269.
 ROLES_ADDED_AFTER_0269: dict[str, str] = {
-    UserRole.trainee.value: "0372_trainee_call_lists.py",
+    UserRole.trainee.value: "0373_trainee_call_lists.py",
 }
 
 

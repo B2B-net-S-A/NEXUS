@@ -196,7 +196,7 @@ export const ROLE_SECTION_ACCESS: Record<
     finance: "none",
     system_admin: "none",
   },
-  // Praktykant (0372) nie ma żadnej sekcji produktu — pracuje wyłącznie na
+  // Praktykant (0373) nie ma żadnej sekcji produktu — pracuje wyłącznie na
   // własnej liście telefonów (`/api/trainee/*`, bramka roli w backendzie).
   trainee: {
     sourcing: "none",

@@ -121,7 +121,7 @@ describe("settings-registry — nawigacja", () => {
   });
 });
 
-describe("settings-registry — lista telefonów praktykantów (0372)", () => {
+describe("settings-registry — lista telefonów praktykantów (0373)", () => {
   it("widzą ją admin i Head of Recruitment, nikt inny", () => {
     expect(can(user("admin", {}), "trainee-rules")).toBe(true);
     expect(can(user("head_of_recruitment", {}), "trainee-rules")).toBe(true);
