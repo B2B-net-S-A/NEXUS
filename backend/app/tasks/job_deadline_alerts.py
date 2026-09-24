@@ -47,6 +47,7 @@ from app.services.section_permissions import (
 )
 from app.services.notification_access import user_can_receive_notification
 from app.core.config import settings
+from app.core.scheduling import business_today
 from app.core.database import AsyncSessionLocal
 from app.models.job import Job
 from app.models.job_collaborator import JobCollaborator
@@ -153,8 +154,10 @@ async def _existing_pairs(
 
 async def _scan_and_create(db: AsyncSession) -> int:
     """Utwórz in-app notyfikacje dla nadchodzących deadline'ów. Zwraca # nowych."""
-    # UTC-anchored (host bywa nie-UTC) — zgodnie z resztą kodu.
-    today = datetime.now(timezone.utc).date()
+    # Termin rekrutacji to data w kalendarzu firmy — „za 7 dni” liczymy od dnia
+    # w Europe/Warsaw. Data UTC między północą warszawską a UTC to jeszcze
+    # wczoraj, więc próg od niej wypadał o dzień za wcześnie.
+    today = business_today()
     created = 0
     for days in _active_thresholds():
         target = today + timedelta(days=days)

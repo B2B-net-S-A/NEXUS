@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
+import time_machine
 from sqlalchemy import func, select
 
 from app.core.database import AsyncSessionLocal
@@ -114,6 +116,32 @@ async def test_alert_to_assigned_not_to_outsider_admin():
         assert col_id in recipients
         # Globalny admin nieprzypisany do joba NIE dostaje deadline-alertu.
         assert adm_id not in recipients
+    finally:
+        await _cleanup(job_id, client_id, [rec_id, col_id, adm_id])
+
+
+async def test_threshold_counts_from_the_business_day_right_after_warsaw_midnight():
+    """„Za 7 dni” liczy się od dnia firmy (Europe/Warsaw), nie od daty UTC.
+
+    Między północą warszawską a północą UTC (00:00–02:00 w Warszawie) data UTC
+    to jeszcze wczoraj. Skaner liczył próg od niej, więc w tym oknie alerty
+    wychodziły o dzień za wcześnie, a test (licząc od `business_today()`) padał —
+    złapała to symulacja północy w CI (24.09.2026).
+    """
+    from app.tasks.job_deadline_alerts import _scan_and_create
+
+    day = business_today() + timedelta(days=400)
+    just_after_midnight = datetime.combine(
+        day, time(0, 30), tzinfo=ZoneInfo("Europe/Warsaw")
+    )
+    job_id, rec_id, col_id, adm_id, client_id = await _setup(day + timedelta(days=7))
+    try:
+        with time_machine.travel(just_after_midnight, tick=False):
+            async with AsyncSessionLocal() as db:
+                await _scan_and_create(db)
+                await db.commit()
+        recipients = await _recipients_for(job_id, NotificationType.job_deadline_7d)
+        assert rec_id in recipients
     finally:
         await _cleanup(job_id, client_id, [rec_id, col_id, adm_id])
 
