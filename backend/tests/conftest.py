@@ -118,10 +118,31 @@ def pinned_moment(session_day: date, current_day: date) -> datetime | None:
     )
 
 
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "real_clock: test porównuje zegar Pythona z now() Postgresa, więc "
+        "_pin_business_day go nie przypina (nie może mieć stałych daty z importu)",
+    )
+
+
 @pytest.fixture(autouse=True)
-def _pin_business_day():
-    """Trzymaj „dzisiaj" na dniu, z którego pochodzą stałe modułów testowych."""
+def _pin_business_day(request):
+    """Trzymaj „dzisiaj" na dniu, z którego pochodzą stałe modułów testowych.
+
+    Skutek uboczny przypięcia: zegar Pythona stoi na 23:59 dnia startu sesji,
+    a ``now()`` Postgresa idzie dalej — rozjazd rośnie z każdą minutą biegu po
+    północy (23.09.2026: sześć padów w shardach, które ją przekroczyły). Test
+    porównujący czas z Pythona ze znacznikiem nadanym przez bazę bierze więc
+    punkt odniesienia z bazy (``SELECT now()``) albo, gdy porównanie robi kod
+    produkcyjny (``iat`` tokenu vs ``tokens_valid_after = now()``), ma znacznik
+    ``real_clock``. Dwa kolejne ``datetime.now()`` są przy przypięciu równe —
+    ``a > b`` między nimi nie jest dowodem niczego.
+    """
     pinned = pinned_moment(_SESSION_DAY, business_today())
+    if pinned is not None and request.node.get_closest_marker("real_clock"):
+        yield business_today()
+        return
     if pinned is None:
         yield _SESSION_DAY
         return

@@ -74,7 +74,10 @@ async def test_activation_and_reactivation_exclude_backlog_without_erasing_histo
             assert [notification.id for notification, _ in visible] == [fresh.id]
 
             await delivery.save_policy(db, enabled=False, toggles={}, admin_id=user_id)
-            disabled_event_at = datetime.now(timezone.utc)
+            # Zdarzenie z okresu wyłączenia — przed ponownym włączeniem. Sekunda
+            # wstecz, bo przy zamrożonym zegarze (`_pin_business_day` po północy
+            # warszawskiej) „teraz” zdarzenia i „teraz” reaktywacji były równe.
+            disabled_event_at = datetime.now(timezone.utc) - timedelta(seconds=1)
             while_off = Notification(
                 user_id=user_id,
                 notification_type=NotificationType.job_chat_message,
