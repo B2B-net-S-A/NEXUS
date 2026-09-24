@@ -207,3 +207,31 @@ describe("DraftCompletionModal — jednostka stawek (UAT B25)", () => {
     );
   });
 });
+
+describe("DraftCompletionModal — audyt 24.09 (S12)", () => {
+  it("zerowa albo pusta stawka nie aktywuje kontraktu", async () => {
+    const user = userEvent.setup({ delay: null });
+    renderModal({ rate_client: null });
+
+    const submit = screen.getByRole("button", { name: /Aktywuj kontrakt/i });
+    expect(submit).toBeDisabled();
+    await user.type(screen.getByLabelText(/Stawka przychodowa/), "0");
+    expect(submit).toBeDisabled();
+  });
+
+  it("umowa B2B bez zakończenia nie ma pola daty i nie wysyła daty", async () => {
+    const user = userEvent.setup({ delay: null });
+    renderModal({ contract_type: "b2b", status: "draft" });
+
+    expect(screen.getByTestId("draft-end-date-b2b-indefinite")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Data zakończenia")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Aktywuj kontrakt/i }));
+    await waitFor(() => expect(mocks.update).toHaveBeenCalledTimes(1));
+    expect(mocks.update.mock.calls[0]?.[1]).not.toHaveProperty("end_date");
+  });
+
+  it("umowa o pracę nadal ma datę zakończenia", () => {
+    renderModal({ contract_type: "uop", status: "draft" });
+    expect(screen.getByLabelText("Data zakończenia")).toBeInTheDocument();
+  });
+});

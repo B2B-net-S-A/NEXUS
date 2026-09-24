@@ -6,8 +6,12 @@ the join and exposes it as a dedicated listing so backoffice can:
 
 - See drafts that still need rates / dates ("Do uzupełnienia")
 - See active engagements (the real contractor roster)
-- See contracts ending soon (live contract with end_date within the next 30 days —
-  a date window shared with the register, not the raw stored ContractStatus.ending)
+- See contracts ending („Kończący się”): stored status ``ending`` (every contract
+  terminated with a future end date — since 0367 that can be months ahead) PLUS
+  live contracts whose end date falls in the next 30 days before the nightly
+  cron flips them (audyt 24.09, S6: the tab showed only the 30-day window, so a
+  contract terminated for 31.12 sat in „Aktywni” while its badge said
+  „Kończący się”)
 
 Role scoping:
 - admin / finance → sees the whole organization with financial fields
@@ -22,7 +26,7 @@ The "incomplete drafts" subcount drives the dashboard widget
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import case, func, select
+from sqlalchemy import and_, case, func, not_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -167,6 +171,24 @@ def _to_item(contract: Contract) -> ContractorListItem:
     )
 
 
+# Zakładka „Kończący się” = zapisany status ``ending`` ∪ okno 30 dni; „Aktywni”
+# = reszta żywych. Dwie kopie (SQL i Python) tej samej reguły — liczniki
+# zakładek muszą równać się liczbie wierszy (audyt 24.09, S6).
+def _ending_bucket_clause():
+    return or_(Contract.status == ContractStatus.ending, ending_soon_clause())
+
+
+def _active_bucket_clause():
+    return and_(
+        live_not_ending_clause(),
+        not_(Contract.status == ContractStatus.ending),
+    )
+
+
+def _in_ending_bucket(contract: Contract) -> bool:
+    return contract.status == ContractStatus.ending or is_ending_soon(contract)
+
+
 @router.get("", response_model=ContractorList)
 async def list_contractors(
     current_user: CurrentUser,
@@ -215,9 +237,9 @@ async def list_contractors(
     elif status_filter == ContractStatus.ready_for_signature:
         query = query.where(Contract.status == ContractStatus.ready_for_signature)
     elif status_filter == ContractStatus.ending:
-        query = query.where(ending_soon_clause())
+        query = query.where(_ending_bucket_clause())
     elif status_filter == ContractStatus.active:
-        query = query.where(live_not_ending_clause())
+        query = query.where(_active_bucket_clause())
     else:
         query = query.where(Contract.status.in_(_LIST_STATUSES))
 
@@ -302,7 +324,7 @@ async def contractor_stats(
             stats.draft += 1
             if validate_ready_for_activation(c):
                 stats.drafts_incomplete += 1
-        elif is_ending_soon(c):
+        elif _in_ending_bucket(c):
             stats.ending += 1
         else:
             # Live but not in the ending window (active, or expired-but-not-yet-

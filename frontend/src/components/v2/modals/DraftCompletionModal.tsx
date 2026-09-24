@@ -24,6 +24,8 @@ import {
 } from"@/components/ui/select";
 import { contractsApi, type ContractorListItem } from"@/lib/api";
 import { contractRateUnitSuffix } from"@/lib/rate-unit";
+import { parseDecimalInput } from "@/lib/utils";
+import { B2B_END_DATE_HOW, b2bEndDateLocked } from "@/lib/contract-end-date";
 import {
  canManageCandidateFinance,
  useAuthStore,
@@ -75,6 +77,13 @@ function toFormState(c: ContractorListItem): FormState {
  * body-leasingu, a nie brak danych — wymaganie daty zamykało przycisk
  * „Uzupełnij i aktywuj" na stałe dla kontraktów, których backend już aktywuje.
  */
+/** Stawka > 0 albo `null`. `Number("")` i `Number(" ")` dawały 0 — kontrakt
+ *  aktywował się z zerową stawką (audyt 24.09, S12). */
+export function positiveRate(value: string): number | null {
+ const parsed = parseDecimalInput(value);
+ return parsed !== null && parsed > 0 ? parsed : null;
+}
+
 function formDirtyOrValid(
  form: FormState,
  canManageFinance: boolean
@@ -83,8 +92,8 @@ function formDirtyOrValid(
  form.start_date &&
  form.contract_type &&
  (!canManageFinance ||
- (form.rate_candidate &&
- form.rate_client &&
+ (positiveRate(form.rate_candidate) !== null &&
+ positiveRate(form.rate_client) !== null &&
  form.rate_candidate_currency &&
  form.rate_client_currency))
  );
@@ -136,6 +145,17 @@ export function DraftCompletionModal({
  toFormState(contractor)
  );
  const [error, setError] = React.useState<string | null>(null);
+ // Umowa B2B bez ręcznego zakończenia jest bezterminowa — backend odrzuca
+ // wpisaną datę 422 (`b2b_end_date_requires_termination`), a pole ją
+ // oferowało (audyt 24.09, S12). Zablokowana data NIE jest wysyłana: szkic
+ // z datą przepisaną kiedyś z zamówienia zostaje, jaki był.
+ const endDateLocked = b2bEndDateLocked({
+ contract_type: form.contract_type,
+ status: contractor.status,
+ terminated_at: (contractor as { terminated_at?: string | null }).terminated_at,
+ termination_reason: (contractor as { termination_reason?: string | null })
+ .termination_reason,
+ });
 
  React.useEffect(() => {
  setForm(toFormState(contractor));
@@ -146,15 +166,17 @@ export function DraftCompletionModal({
  mutationFn: async () => {
  const payload: Record<string, unknown> = {
  start_date: form.start_date,
- // Pusty string to nie jest data — backend odrzuciłby go 422.
- // `null` znaczy „bezterminowo" i tak też czyta go bramka aktywacji.
- end_date: form.end_date || null,
  contract_type: form.contract_type,
  work_mode: form.work_mode || null,
  };
+ if (!endDateLocked) {
+ // Pusty string to nie jest data — backend odrzuciłby go 422.
+ // `null` znaczy „bezterminowo" i tak też czyta go bramka aktywacji.
+ payload.end_date = form.end_date || null;
+ }
  if (canManageFinance) {
- payload.rate_candidate = Number(form.rate_candidate);
- payload.rate_client = Number(form.rate_client);
+ payload.rate_candidate = positiveRate(form.rate_candidate);
+ payload.rate_client = positiveRate(form.rate_client);
  payload.rate_candidate_currency = form.rate_candidate_currency;
  payload.rate_client_currency = form.rate_client_currency;
  }
@@ -231,6 +253,15 @@ export function DraftCompletionModal({
  </div>
  <div>
  <Label htmlFor="end_date">Data zakończenia</Label>
+ {endDateLocked ? (
+ <p
+ className="rounded-lg border border-dashed border-border px-3 py-2 text-sm text-muted-foreground"
+ data-testid="draft-end-date-b2b-indefinite"
+ >
+ Bezterminowo. {B2B_END_DATE_HOW}
+ </p>
+ ) : (
+ <>
  <Input
  id="end_date"
  type="date"
@@ -242,6 +273,8 @@ export function DraftCompletionModal({
  <p className="mt-1 text-xs text-muted-foreground">
  Puste = umowa bezterminowa.
  </p>
+ </>
+ )}
  </div>
  {canManageFinance && (
  <>

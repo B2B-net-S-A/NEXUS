@@ -55,9 +55,13 @@ export function attachmentDocType(
 
 /**
  * Podpowiedź „Ostatniego dnia umowy" przy wypowiedzeniu: data złożenia +
- * okres wypowiedzenia z umowy (miesiące). Dzień miesiąca przycinany do końca
- * krótszego miesiąca (31.01 + 1 mies. = 28/29.02). Brak okresu albo daty =
- * brak podpowiedzi — pole zostaje puste do uzupełnienia.
+ * okres wypowiedzenia z umowy (miesiące), ZE SKUTKIEM NA KONIEC MIESIĄCA —
+ * lustro `notice_end_date` w `backend/app/services/b2b_documents/
+ * contract_versions.py` (umowa 2026: doręczone 15.09 przy miesięcznym
+ * okresie → 31.10). Do 24.09 (audyt, N2) podpowiedź dawała „ten sam dzień
+ * za N miesięcy” (15.10), czyli datę niezgodną z umową i z dokumentem
+ * wypowiedzenia z Generatora. Brak okresu albo daty = brak podpowiedzi —
+ * pole zostaje puste do uzupełnienia.
  */
 export function suggestedLastDay(
   signedOn: string,
@@ -68,12 +72,10 @@ export function suggestedLastDay(
   if (!match) return null;
   const year = Number(match[1]);
   const month = Number(match[2]) - 1 + noticePeriodMonths;
-  const day = Number(match[3]);
   const targetYear = year + Math.floor(month / 12);
   const targetMonth = month % 12;
   const lastOfMonth = new Date(Date.UTC(targetYear, targetMonth + 1, 0)).getUTCDate();
-  const d = Math.min(day, lastOfMonth);
-  return `${targetYear}-${String(targetMonth + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  return `${targetYear}-${String(targetMonth + 1).padStart(2, "0")}-${String(lastOfMonth).padStart(2, "0")}`;
 }
 
 export interface TerminationFormState {

@@ -455,3 +455,32 @@ async def test_bulk_extend_keeps_month_end_skips_void_and_logs_only_extended(
             ).all()
         )
     assert logged == {extendable["contract_id"]}
+
+
+async def test_contractors_ending_tab_holds_every_terminated_contract(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """S6: status „Kończący się” z datą za 60 dni siedział w „Aktywnych”."""
+    ids = await _seed(
+        status=ContractStatus.ending,
+        end_date=business_today() + timedelta(days=60),
+    )
+
+    async def _tab(status: str) -> set[int]:
+        found: set[int] = set()
+        page = 1
+        while True:
+            resp = await app_client.get(
+                "/api/contractors",
+                params={"status": status, "page": page, "page_size": 200},
+                headers=app_auth_headers,
+            )
+            assert resp.status_code == 200, resp.text
+            body = resp.json()
+            found |= {item["contract_id"] for item in body["items"]}
+            if page * body["page_size"] >= body["total"]:
+                return found
+            page += 1
+
+    assert ids["contract_id"] in await _tab("ending")
+    assert ids["contract_id"] not in await _tab("active")
