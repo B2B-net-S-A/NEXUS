@@ -9,6 +9,7 @@ from decimal import Decimal
 
 from httpx import AsyncClient
 from openpyxl import load_workbook
+from app.core.scheduling import business_today
 
 
 async def _seed_order(label: str) -> tuple[int, int, int, str]:
@@ -34,7 +35,7 @@ async def _seed_order(label: str) -> tuple[int, int, int, str]:
             candidate_id=candidate.id,
             client_id=client.id,
             status=ContractStatus.active,
-            start_date=date.today() - timedelta(days=30),
+            start_date=business_today() - timedelta(days=30),
             rate_candidate=Decimal("123.456"),
             rate_client=Decimal("180.000"),
         )

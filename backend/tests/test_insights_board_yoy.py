@@ -47,6 +47,7 @@ from app.models.contract import (
 from app.models.job import Job, JobStatus, RemotePolicy
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import User, UserRole
+from app.core.scheduling import business_today
 
 YOY_URL = "/api/insights/board/yoy"
 
@@ -214,7 +215,7 @@ async def test_future_months_are_null_and_the_running_month_is_flagged(
     """
     email, password = await _seed_user(UserRole.admin)
     headers = await _login(yoy_client, email, password)
-    today = date.today()
+    today = business_today()
 
     payload = await _yoy(yoy_client, headers)
 

@@ -734,3 +734,23 @@ def test_every_alert_issue_can_also_be_closed_by_a_green_run() -> None:
         literals = set(re.findall(r'marker="([^"$][^"]*)"', opened))
         literals |= set(re.findall(r'notify "([^"$][^"]*)"', opened))
         assert literals <= set(markers), (name, literals - set(markers))
+
+
+def test_queue_failure_feedback_reports_ejected_merge_group_runs() -> None:
+    """Czerwony bieg kolejki wyrzuca PR, a checki PR-a zostają zielone —
+    62 z 99 biegów w kolejce czerwonych w 27 h (23–24.09.2026), PR-y
+    wyrzucane po 4–6 razy, bo nikt nie mówił sesji, że PR wypadł."""
+    wf = _load("queue-failure-feedback.yml")
+    trigger = _triggers(wf)["workflow_run"]
+    assert trigger["workflows"] == ["CI"]
+    assert trigger["types"] == ["completed"]
+    job = wf["jobs"]["feedback"]
+    condition = " ".join(str(job["if"]).split())
+    assert "github.event.workflow_run.event == 'merge_group'" in condition
+    assert "github.event.workflow_run.conclusion == 'failure'" in condition
+    assert job["permissions"]["statuses"] == "write"
+    assert job["permissions"]["pull-requests"] == "write"
+    assert (
+        "queue_failure_feedback.py"
+        in _step(job["steps"], "Status i komentarz na PR-ach z grupy")["run"]
+    )

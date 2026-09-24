@@ -1,10 +1,11 @@
 """Smoke tests for the new contract analytics endpoints."""
 
 import uuid
-from datetime import date, timedelta
+from datetime import timedelta
 from decimal import Decimal
 
 from httpx import AsyncClient
+from app.core.scheduling import business_today
 
 
 async def test_role_client_mix_shape(app_client: AsyncClient, app_auth_headers: dict):
@@ -71,7 +72,7 @@ async def test_contract_analytics_use_canonical_client_display_name(
 
     marker = uuid.uuid4().hex[:8]
     canonical_name = f"Canonical Analytics Client {marker}"
-    today = date.today()
+    today = business_today()
     async with AsyncSessionLocal() as db:
         client = Client(
             name=f"Raw Analytics Client {marker}",

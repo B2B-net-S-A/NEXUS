@@ -13,7 +13,7 @@ a ``monkeypatch.setattr`` testu wykonuje się później).
 from __future__ import annotations
 
 import uuid
-from datetime import date, timedelta
+from datetime import timedelta
 
 import pytest
 from httpx import AsyncClient
@@ -30,6 +30,7 @@ from app.models.client_framework_contract import (
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.client_order_group import ClientOrderGroup
 from app.models.contract import Contract, ContractStatus
+from app.core.scheduling import business_today
 
 pytestmark = pytest.mark.asyncio
 
@@ -83,7 +84,7 @@ async def _seed(*, with_contract: bool = True) -> dict:
             contract = Contract(
                 candidate_id=cand.id,
                 client_id=client.id,
-                start_date=date.today() - timedelta(days=30),
+                start_date=business_today() - timedelta(days=30),
                 rate_client=15000,
                 rate_candidate=12000,
                 status=ContractStatus.active,
@@ -150,7 +151,7 @@ async def _add_order(
             contract_id=seeded["contract_id"],
             title=title,
             status=status,
-            start_date=date.today() + timedelta(days=start_delta_days),
+            start_date=business_today() + timedelta(days=start_delta_days),
             project_part=project_part,
             executive_contract_id=executive_contract_id,
         )
@@ -560,7 +561,7 @@ async def _add_group_with_line(seeded: dict, *, executive_contract_id: int) -> i
         group = ClientOrderGroup(
             client_id=seeded["client_id"],
             order_number=f"MD/{uuid.uuid4().hex[:6]}",
-            start_date=date.today() - timedelta(days=5),
+            start_date=business_today() - timedelta(days=5),
             status="active",
             order_type="md",
             md_budget_mode="per_person",
@@ -574,7 +575,7 @@ async def _add_group_with_line(seeded: dict, *, executive_contract_id: int) -> i
             order_group_id=group.id,
             title="Linia karty",
             status=ClientOrderStatus.active,
-            start_date=date.today() - timedelta(days=5),
+            start_date=business_today() - timedelta(days=5),
             executive_contract_id=executive_contract_id,
             project_part="cz2",
         )

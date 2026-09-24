@@ -2,12 +2,13 @@
 order — plus P1-NOTIFY-01: episode-aware ending dedup + Slack 2xx-only accounting."""
 
 import uuid
-from datetime import date, timedelta
+from datetime import timedelta
 from types import SimpleNamespace
 
 from app.tasks.contract_alerts import THRESHOLDS_DAYS
+from app.core.scheduling import business_today
 
-_TODAY = date.today()
+_TODAY = business_today()
 
 
 def test_90d_threshold_present():

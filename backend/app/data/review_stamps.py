@@ -38,9 +38,10 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
+from zoneinfo import ZoneInfo
 
 from app.data.procedures import ORDERS_LOGIC_SOURCES, ORDERS_PROCEDURE
 
@@ -207,6 +208,15 @@ REVIEWED_LINE = re.compile(
 )
 
 
+def _business_today() -> date:
+    """„Dziś” kalendarzem firmy, jak ``app.core.scheduling.business_today``.
+
+    Nie importujemy tamtej funkcji, bo moduł ciągnie pakiet ``holidays``,
+    a ten plik ma działać na gołym ``python3`` (hook pre-commit).
+    """
+    return datetime.now(ZoneInfo("Europe/Warsaw")).date()
+
+
 def orders_watched(sources: Sequence[str] = ORDERS_LOGIC_SOURCES) -> List[str]:
     """Pliki ze stemplem: logika zamówień + sama treść instrukcji."""
     return [*sources, PROCEDURE_REL]
@@ -284,7 +294,7 @@ def stamp_orders(
 
     date_bumped = False
     if PROCEDURE_REL in selected:
-        date_bumped = restamp_procedure_date(root, today or date.today())
+        date_bumped = restamp_procedure_date(root, today or _business_today())
     changed = [
         rel
         for rel in selected

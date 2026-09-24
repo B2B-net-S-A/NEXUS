@@ -20,7 +20,7 @@ and the dates are known rather than inherited.
 from __future__ import annotations
 
 import uuid
-from datetime import date, timedelta
+from datetime import timedelta
 from typing import AsyncIterator
 
 import pytest_asyncio
@@ -46,8 +46,8 @@ async def owned_contract() -> AsyncIterator[dict]:
     from app.models.contract import Contract, ContractStatus, ContractType
 
     token = uuid.uuid4().hex[:8]
-    start = date.today() - timedelta(days=30)
-    end = date.today() + timedelta(days=60)
+    start = business_today() - timedelta(days=30)
+    end = business_today() + timedelta(days=60)
 
     async with AsyncSessionLocal() as db:
         cand = Candidate(
@@ -127,7 +127,7 @@ async def test_equipment_crud_roundtrip(
 
     patched = await app_client.patch(
         f"/api/contracts/{cid}/equipment/{eq_id}",
-        json={"returned_date": date.today().isoformat()},
+        json={"returned_date": business_today().isoformat()},
         headers=app_auth_headers,
     )
     assert patched.status_code == 200
@@ -187,7 +187,7 @@ async def test_future_dated_termination_keeps_contract_active(
     the rule explicit instead of flaky.
     """
     cid = owned_contract["id"]
-    effective = date.today() + timedelta(days=5)
+    effective = business_today() + timedelta(days=5)
     assert effective < owned_contract["end_date"]  # genuinely cuts it short
 
     terminated = await app_client.post(

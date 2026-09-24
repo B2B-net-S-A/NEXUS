@@ -40,6 +40,7 @@ from app.services.metric_definitions import (
     VERIFIER_ANCHORED_MILESTONES,
 )
 from app.services.placement_exclusions import not_excluded_placement
+from app.core.scheduling import business_today
 
 logger = logging.getLogger(__name__)
 
@@ -504,7 +505,7 @@ async def report_sales(
     if cached is not None:
         return cached
 
-    today = date.today()
+    today = business_today()
     client_name = client_display_name_expression()
 
     # MRR snapshot — only contracts that are *running today* (already started
@@ -1026,7 +1027,7 @@ async def report_delivery_lead_trend(
     months: int = Query(6, ge=1, le=24),
 ):
     """Trend miesiąc-po-miesiącu dla konkretnego DL. 6M default, max 24M."""
-    today = date.today()
+    today = business_today()
     trend: list[dict] = []
     for i in range(months - 1, -1, -1):
         # Punkt startowy miesiąca (safe month arithmetic).

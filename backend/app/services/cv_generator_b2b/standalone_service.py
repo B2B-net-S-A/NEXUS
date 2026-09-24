@@ -23,7 +23,7 @@ import time
 import unicodedata
 import uuid
 from dataclasses import asdict, dataclass
-from datetime import datetime, timedelta
+from datetime import timedelta
 from pathlib import Path
 from typing import Any, Literal
 
@@ -94,6 +94,7 @@ from app.services.cv_generator_b2b.text_extractor import (
     CVTextExtractionError,
     extract_text_from_file,
 )
+from app.core.scheduling import business_today, local_now
 
 logger = logging.getLogger(__name__)
 
@@ -920,7 +921,7 @@ def _total_experience_months(experience: list[dict[str, Any]]) -> int | None:
     Missing dates or year-only precision make the total unknown. Never replace
     an explicit source claim with a total based on a partially dated history.
     """
-    now = datetime.now()
+    now = local_now()
     now_idx = now.year * 12 + (now.month - 1)
     intervals: list[tuple[int, int]] = []
     for job in experience or []:
@@ -1508,7 +1509,7 @@ def prepare_source_facts(
         raise StandaloneGenerationError(code="ai_failed", message=str(err)) from err
     full_history = source_facts["document"].get("experience") or []
     source_facts["tenure"] = {
-        "as_of": datetime.now().date().isoformat(),
+        "as_of": business_today().isoformat(),
         "precision": "calendar_months",
         "career_months": _total_experience_months(full_history),
         "career_completed_years": _total_experience_years(full_history),

@@ -40,6 +40,7 @@ from app.models.job import Job, JobStatus
 from app.models.recruitment_priority import RecruitmentPriorityDemand
 from app.models.user import User, UserRole
 from app.schemas.dashboard_v2 import DashboardScopePayload
+from app.core.scheduling import business_today
 
 
 @dataclass(frozen=True)
@@ -514,7 +515,6 @@ async def load_recruitment_team_panel(db: AsyncSession, period: Period) -> Any:
 async def load_quarterly_league(db: AsyncSession) -> dict[str, Any]:
     """Liga Mistrzów rekruterów — ZAWSZE bieżący kwartał (reguła konkursu),
     niezależnie od okresu sekcji."""
-    from datetime import date as _date
 
     from app.services import competitions as comp
     from app.services.insights_scoring_config import (
@@ -531,7 +531,7 @@ async def load_quarterly_league(db: AsyncSession) -> dict[str, Any]:
     )
     return {
         "period": period,
-        "days_remaining": comp.days_left_in_quarter(_date.today()),
+        "days_remaining": comp.days_left_in_quarter(business_today()),
         "points_formula": league_points_formula(_config),
         "prizes_pln": {str(k): v for k, v in comp.QUARTERLY_PRIZES_PLN.items()},
         # Ten sam tekst co /api/competitions/current?type=quarterly_champions_recruiter.

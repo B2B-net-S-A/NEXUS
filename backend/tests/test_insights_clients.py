@@ -20,7 +20,7 @@ Cztery rzeczy pod ochroną, każda odpowiadająca konkretnemu defektowi:
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import AsyncIterator
 
@@ -40,6 +40,7 @@ from app.models.contract_client_rate import ContractClientRate
 from app.models.job import Job, JobStatus, RemotePolicy
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import User, UserRole
+from app.core.scheduling import business_today
 
 RANKING = "/api/insights/clients/ranking"
 HIT_RATIO = "/api/insights/clients/hit-ratio"
@@ -104,7 +105,7 @@ async def stale_rate_column_contract() -> AsyncIterator[dict]:
     Jeśli endpoint pokaże 50, czyta z kolumny i defekt wrócił.
     """
     sfx = uuid.uuid4().hex[:8]
-    effective_from = date.today() - timedelta(days=365)
+    effective_from = business_today() - timedelta(days=365)
     async with AsyncSessionLocal() as db:
         client = Client(name=f"InsCliRate-{sfx}")
         candidate = Candidate(
@@ -1017,7 +1018,7 @@ async def one_legged_contracts() -> AsyncIterator[dict]:
     kontraktu = brak kwoty, nie 0,00 zł — jak na profilu).
     """
     sfx = uuid.uuid4().hex[:8]
-    start = date.today() - timedelta(days=90)
+    start = business_today() - timedelta(days=90)
     ids: dict[str, list[int]] = {"contracts": [], "candidates": [], "clients": []}
     async with AsyncSessionLocal() as db:
         client_a = Client(name=f"InsCliLegA-{sfx}")

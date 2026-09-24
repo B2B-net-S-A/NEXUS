@@ -22,15 +22,16 @@ co innego.
 from __future__ import annotations
 
 import uuid
-from datetime import date, timedelta
+from datetime import timedelta
 from decimal import Decimal
 
 import pytest
 from httpx import AsyncClient
+from app.core.scheduling import business_today
 
 pytestmark = pytest.mark.asyncio
 
-_TODAY = date.today()
+_TODAY = business_today()
 _START = _TODAY - timedelta(days=400)
 _STEP = _TODAY - timedelta(days=200)
 

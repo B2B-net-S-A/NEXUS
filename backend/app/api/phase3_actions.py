@@ -36,6 +36,7 @@ from app.services.access_scope import (
     assert_delivery_lead_client_visible,
     resolve_delivery_lead_client_ids,
 )
+from app.core.scheduling import business_today
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -156,7 +157,7 @@ def _calc_experience_years(experience: list) -> int:
         if not isinstance(e, dict):
             continue
         start = e.get("start") or e.get("from")
-        end = e.get("end") or e.get("to") or _date.today().isoformat()
+        end = e.get("end") or e.get("to") or business_today().isoformat()
         try:
             s = _date.fromisoformat(str(start)[:10])
             en = _date.fromisoformat(str(end)[:10])

@@ -203,12 +203,18 @@ jobs:
         run: python -m unittest discover -s ../.github/scripts/tests -p test_sentry_daily_digest.py
       - name: Ruff lint
         run: ruff check app/
+      # Testy mają dług innych reguł, ale „dziś” muszą liczyć kalendarzem firmy
+      # jak kod: `date.today()` (UTC) czerwieniło CI co wieczór 22–24 UTC.
+      - name: Ruff — daty w testach (DTZ005, DTZ011)
+        run: ruff check tests/ --select DTZ005,DTZ011
       - name: Release configuration and remote build wrapper tests (native only)
         run: python3 -m unittest discover -s ../.github/scripts/tests -p 'test_coolify_release*.py'
       - name: Release selection tests (DEP-01, native only)
         run: python3 -m unittest discover -s ../.github/scripts/tests -p 'test_select_release_sha.py'
       - name: Alert issue script tests (OPS-N08, native only)
         run: python3 -m unittest discover -s ../.github/scripts/tests -p 'test_alert_issue.py'
+      - name: Queue feedback and weekly report script tests (native only)
+        run: python3 -m unittest discover -s ../.github/scripts/tests -p 'test_queue_*.py'
       # Osobna bramka od `ruff check` — sam lint NIE łapie fail-i formatowania
       # (ruff 0.15.22).
       - name: Ruff format check

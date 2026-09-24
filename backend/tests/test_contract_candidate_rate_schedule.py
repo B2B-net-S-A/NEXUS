@@ -8,6 +8,7 @@ from httpx import AsyncClient
 from app.api.contracts import _effective_rate_fields
 from app.models.contract import Contract, RateUnit
 from app.models.contract_candidate_rate import ContractCandidateRate
+from app.core.scheduling import business_today
 
 
 # ── Pure resolver unit tests (no DB) ─────────────────────────────────────────
@@ -134,7 +135,7 @@ async def test_create_with_schedule_derives_current_rate(
     if parties is None:
         return
     candidate_id, client_id = parties
-    today = date.today()
+    today = business_today()
     past = (today - timedelta(days=30)).isoformat()
     future = (today + timedelta(days=60)).isoformat()
 
@@ -203,7 +204,7 @@ async def test_patch_replaces_schedule_with_progressive_steps(
     if parties is None:
         return
     candidate_id, client_id = parties
-    today = date.today()
+    today = business_today()
     past = (today - timedelta(days=30)).isoformat()
     mid = (today - timedelta(days=1)).isoformat()
     future = (today + timedelta(days=60)).isoformat()

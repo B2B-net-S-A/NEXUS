@@ -27,13 +27,14 @@ from app.models.client_framework_contract import (
 )
 from app.models.contract import Contract, ContractStatus
 from app.models.user import User, UserRole
+from app.core.scheduling import business_today
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 
 
 async def _seed_directory() -> dict[str, object]:
     suffix = uuid.uuid4().hex[:10]
-    today = date.today()
+    today = business_today()
     async with AsyncSessionLocal() as db:
         alpha = Client(
             name=f"Source Alpha {suffix}",

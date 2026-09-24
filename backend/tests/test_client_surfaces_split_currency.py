@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
+from app.core.scheduling import business_today
 
 pytestmark = pytest.mark.asyncio
 
@@ -31,7 +32,7 @@ async def test_client_profile_and_dashboards_convert_mixed_currency_legs(
     # aggregates still resolve FX against the process date (UTC in CI/prod).
     # A rate from the earlier boundary is visible to both surfaces around
     # Polish midnight.
-    fx_date = date.today()
+    fx_date = business_today()
     suffix = uuid.uuid4().hex[:8]
     async with AsyncSessionLocal() as db:
         # Pick a genuinely free three-character code instead of relying on a
@@ -187,7 +188,7 @@ async def test_missing_fx_never_becomes_a_nominal_margin(monkeypatch) -> None:
     monkeypatch.setattr(my_clients, "rates_to_pln", missing_fx)
     monkeypatch.setattr(my_clients, "effective_rate_fields", effective_fields)
     totals = await my_clients._monthly_margin_total_pln(
-        object(), [contract], date.today()
+        object(), [contract], business_today()
     )
     assert totals.margin == 0
     assert totals.has_margin is False
@@ -204,7 +205,7 @@ async def test_missing_fx_never_becomes_a_nominal_margin(monkeypatch) -> None:
         insights_clients_service, "effective_rate_fields", effective_fields
     )
     totals, incomplete, unpriced = await admin_clients_overview._margin_lookup_pln(
-        object(), [contract], date.today()
+        object(), [contract], business_today()
     )
     assert totals == {}
     assert incomplete == {17}
@@ -251,7 +252,7 @@ async def test_missing_fx_never_becomes_a_nominal_margin(monkeypatch) -> None:
     )
     zero_profile = _finance_rates_in_pln(
         zero_revenue_contract,
-        effective_fields(zero_revenue_contract, date.today()),
+        effective_fields(zero_revenue_contract, business_today()),
         {"ZZZ": None, "PLN": Decimal("1")},
     )
     assert zero_profile["monthly_rate_client"] == Decimal("0")
@@ -259,7 +260,7 @@ async def test_missing_fx_never_becomes_a_nominal_margin(monkeypatch) -> None:
     assert zero_profile["client_missing_fx"] is False
 
     zero_totals = await my_clients._monthly_margin_total_pln(
-        object(), [zero_revenue_contract], date.today()
+        object(), [zero_revenue_contract], business_today()
     )
     assert (zero_totals.margin, zero_totals.has_margin, zero_totals.complete) == (
         Decimal("-100"),
@@ -274,7 +275,7 @@ async def test_missing_fx_never_becomes_a_nominal_margin(monkeypatch) -> None:
         zero_admin_incomplete,
         zero_admin_unpriced,
     ) = await admin_clients_overview._margin_lookup_pln(
-        object(), [zero_revenue_contract], date.today()
+        object(), [zero_revenue_contract], business_today()
     )
     assert zero_admin == {18: Decimal("-100")}
     assert zero_admin_incomplete == set()

@@ -32,6 +32,7 @@ from app.models.contract import (
     ContractWorkMode,
 )
 from app.models.contract_template import ContractTemplate
+from app.core.scheduling import business_today
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
@@ -121,7 +122,7 @@ async def _seed_draft_contract(
         contract = Contract(
             candidate_id=candidate_id,
             client_id=client_id,
-            start_date=date.today(),
+            start_date=business_today(),
             end_date=end_date,
             rate_candidate=rate_candidate,
             rate_client=rate_client,
@@ -327,7 +328,7 @@ async def test_finalize_draft_moves_to_ready_for_signature(
         cli_id,
         rate_candidate=15000,
         rate_client=20000,
-        end_date=date.today() + timedelta(days=120),
+        end_date=business_today() + timedelta(days=120),
         work_mode=ContractWorkMode.remote,
     )
 

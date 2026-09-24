@@ -14,7 +14,7 @@ Coverage:
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import timedelta
 from typing import Any
 
 import pytest
@@ -31,6 +31,7 @@ from app.models.candidate import (
 from app.models.client import Client
 from app.models.contract import Contract, ContractStatus, ContractType, RateUnit
 from app.models.job import Job, JobStatus, RemotePolicy
+from app.core.scheduling import business_today
 
 
 def _patch_pipeline(monkeypatch, *, hits_for_query: list[dict] | None = None):
@@ -119,8 +120,8 @@ async def _seed_contractor_ending_soon(
         contract = Contract(
             candidate_id=cand.id,
             client_id=client.id,
-            start_date=date.today() - timedelta(days=180),
-            end_date=date.today() + timedelta(days=days_until_end),
+            start_date=business_today() - timedelta(days=180),
+            end_date=business_today() + timedelta(days=days_until_end),
             status=ContractStatus.active,
             contract_type=ContractType.b2b,
             rate_unit=RateUnit.monthly,
@@ -243,7 +244,7 @@ async def test_seeking_contractors_includes_ending_contract(
         assert ours[0]["source"] == "ending_contract"
         # ISO date with +14d
         assert ours[0]["contract_end_date"].startswith(
-            (date.today() + timedelta(days=14)).strftime("%Y-%m-%d")
+            (business_today() + timedelta(days=14)).strftime("%Y-%m-%d")
         )
         assert ours[0]["current_client_id"] == client_id
     finally:

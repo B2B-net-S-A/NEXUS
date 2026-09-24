@@ -29,6 +29,7 @@ from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.contract import Contract, ContractStatus
 from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User, UserRole
+from app.core.scheduling import business_today
 
 pytestmark = pytest.mark.asyncio
 
@@ -88,7 +89,7 @@ async def _new_contract(
         c = Contract(
             candidate_id=candidate_id,
             client_id=client_id,
-            start_date=date.today(),
+            start_date=business_today(),
             rate_client=15000,
             rate_candidate=rate_candidate,
             status=ContractStatus.active,
@@ -570,7 +571,7 @@ async def test_my_clients_admin_sees_all(
                     contract_id=contract_id,
                     title="Admin finance visibility",
                     status=ClientOrderStatus.active,
-                    start_date=date.today(),
+                    start_date=business_today(),
                     total_value=Decimal("25000.00"),
                     currency="PLN",
                 )
@@ -649,7 +650,7 @@ async def test_my_clients_dl_sees_money_of_own_portfolio(app_client: AsyncClient
                     contract_id=contract_id,
                     title="DL widzi swoje kwoty",
                     status=ClientOrderStatus.active,
-                    start_date=date.today(),
+                    start_date=business_today(),
                     total_value=Decimal("25000.00"),
                     currency="PLN",
                 )
@@ -739,7 +740,7 @@ async def test_my_clients_hor_with_dl_role_gets_scoped_delivery_money(
                     contract_id=contract_id,
                     title="HoR redaction",
                     status=ClientOrderStatus.active,
-                    start_date=date.today(),
+                    start_date=business_today(),
                     total_value=Decimal("25000.00"),
                     currency="PLN",
                 )
@@ -925,7 +926,7 @@ async def test_monthly_margin_pct_divides_by_monthly_revenue_not_order_value(
                     contract_id=contract_id,
                     title="Zamówienie roczne",
                     status=ClientOrderStatus.active,
-                    start_date=date.today(),
+                    start_date=business_today(),
                     # Wartość CAŁEGO zamówienia — dwunastokrotność miesiąca.
                     # Stary mianownik dałby 3000/180000 = 1,67%.
                     total_value=Decimal("180000.00"),

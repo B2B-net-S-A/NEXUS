@@ -1,8 +1,7 @@
 """Smoke tests for the rate benchmarks admin endpoints."""
 
-from datetime import date
-
 from httpx import AsyncClient
+from app.core.scheduling import business_today
 
 
 async def test_benchmark_create_list_delete(
@@ -17,7 +16,7 @@ async def test_benchmark_create_list_delete(
         "market_median": 180,
         "market_max": 220,
         "source": "Pytest Guide 2026",
-        "source_date": date.today().isoformat(),
+        "source_date": business_today().isoformat(),
         "location": "Warsaw",
     }
     created = await app_client.post(

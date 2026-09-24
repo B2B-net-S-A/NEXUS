@@ -11,10 +11,11 @@ list to the date-based window) had nothing consistent to show.
 from __future__ import annotations
 
 import uuid
-from datetime import date, timedelta
+from datetime import timedelta
 
 import pytest
 from httpx import AsyncClient
+from app.core.scheduling import business_today
 
 
 async def _seed_candidate_minimal() -> int:
@@ -62,8 +63,8 @@ async def _seed_contract(*, status: str, days_to_end: int) -> tuple[int, int, in
             client_id=client_id,
             status=ContractStatus(status),
             contract_type=ContractType.b2b,
-            start_date=date.today() - timedelta(days=120),
-            end_date=date.today() + timedelta(days=days_to_end),
+            start_date=business_today() - timedelta(days=120),
+            end_date=business_today() + timedelta(days=days_to_end),
             rate_client=10000,
             rate_candidate=8000,
             margin=2000,
@@ -172,7 +173,9 @@ from app.services.contract_service import (  # noqa: E402
 
 
 def _c(status, days_to_end):
-    end = None if days_to_end is None else date.today() + timedelta(days=days_to_end)
+    end = (
+        None if days_to_end is None else business_today() + timedelta(days=days_to_end)
+    )
     return SimpleNamespace(status=status, end_date=end)
 
 

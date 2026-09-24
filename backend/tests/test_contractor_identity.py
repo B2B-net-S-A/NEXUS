@@ -1,6 +1,6 @@
 """Business identity used by every aggregate active-contractor counter."""
 
-from datetime import date, timedelta
+from datetime import timedelta
 from decimal import Decimal
 from types import SimpleNamespace
 
@@ -16,6 +16,7 @@ from app.services.contractor_identity import (
     count_unique_contractors,
     summarize_active_contracts,
 )
+from app.core.scheduling import business_today
 
 
 def _candidate(
@@ -140,7 +141,7 @@ async def test_finance_summary_exposes_one_person_and_two_contracts(
     )
 
     data, warnings, quality = await metrics._sum_finance(
-        object(), contracts, on=date.today()
+        object(), contracts, on=business_today()
     )
 
     assert warnings == []
@@ -196,7 +197,7 @@ class _SequentialDb:
 async def test_contractor_stats_deduplicates_active_people_but_keeps_contract_count():
     first_profile = _candidate(40, "Piotr", "Klimczak", "one@example.com")
     duplicate_profile = _candidate(41, "piotr", "KLIMCZAK", "two@example.com")
-    far_end = date.today() + timedelta(days=90)
+    far_end = business_today() + timedelta(days=90)
     contracts = [
         SimpleNamespace(
             status=ContractStatus.active,
@@ -230,7 +231,7 @@ async def test_utilization_deduplicates_denominator_and_bench_gap_per_identity()
     kto NIGDY go nie miał, nie pojawia się tu wcale (audyt 18.09.2026 —
     dzielenie przez całą bazę CV dawało 0,8% zamiast 91,3%).
     """
-    today = date.today()
+    today = business_today()
 
     def _row(candidate, end_date):
         # Kształt wiersza = SELECT populacji (kandydat + end_date + status).

@@ -18,7 +18,7 @@ so the held watermark is the only retry it gets. A crash therefore still holds
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -79,7 +79,7 @@ async def test_attributed_row_errors_stay_visible_without_freezing_it(
         progress.add_error(
             "enrich candidate_name id=287387: backfill failed (ValueError)"
         )
-        progress.started_at = progress.finished_at = datetime.now()
+        progress.started_at = progress.finished_at = datetime.now(timezone.utc)
         return progress
 
     upserts = await _run(

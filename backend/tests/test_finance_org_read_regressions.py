@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import timedelta
 from decimal import Decimal
 from inspect import getsource
 from types import SimpleNamespace
@@ -21,6 +21,7 @@ from app.api import (
 )
 from app.models.candidate_stage_cv import CandidateStageCV
 from app.models.user import User, UserRole
+from app.core.scheduling import business_today
 
 
 def _user(role: UserRole) -> User:
@@ -167,7 +168,7 @@ async def test_finance_can_export_requested_standalone_order_ids(monkeypatch):
     # Eksport bierze wyłącznie zamówienia OBOWIĄZUJĄCE w dniu pobrania (jeden
     # wiersz na konsultanta), więc atrapa musi nieść status i okres obejmujący
     # dziś — inaczej test sprawdzałby wyłącznie pusty arkusz.
-    today = date.today()
+    today = business_today()
     order = SimpleNamespace(
         id=7,
         title="PO-7",

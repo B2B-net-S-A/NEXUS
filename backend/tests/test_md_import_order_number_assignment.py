@@ -25,10 +25,11 @@ from decimal import Decimal
 
 import pytest
 from httpx import AsyncClient
+from app.core.scheduling import business_today
 
 pytestmark = pytest.mark.asyncio
 
-_TODAY = date.today()
+_TODAY = business_today()
 #: Miesiąc raportu: poprzedni pełny miesiąc — raport przychodzi po jego końcu.
 _MONTH_FIRST = (date(_TODAY.year, _TODAY.month, 1) - timedelta(days=1)).replace(day=1)
 _PERIOD = _MONTH_FIRST.strftime("%Y-%m")

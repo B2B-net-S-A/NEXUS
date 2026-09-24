@@ -14,8 +14,9 @@ from decimal import Decimal
 
 from httpx import AsyncClient
 from sqlalchemy import delete, func, select
+from app.core.scheduling import business_today
 
-_TODAY = date.today()
+_TODAY = business_today()
 
 
 async def _headers_for(

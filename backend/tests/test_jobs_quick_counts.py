@@ -18,6 +18,7 @@ from datetime import date, timedelta
 
 import pytest
 from httpx import AsyncClient
+from app.core.scheduling import business_today
 
 
 async def _seed_client() -> int:
@@ -122,7 +123,7 @@ async def test_quick_counts_agree_with_the_list_the_same_filter_returns(
     a obie będą wyglądać na poprawne.
     """
     me = await _me_id(app_client, app_auth_headers)
-    today = date.today()
+    today = business_today()
     window_to = today + timedelta(days=7)
 
     job_ids = [
@@ -209,7 +210,7 @@ async def test_deadline_window_defaults_to_the_next_seven_days(
     app_client: AsyncClient, app_auth_headers: dict
 ):
     """Bez parametrów okno to [dziś, dziś + 7] — lustro presetu „next7" w UI."""
-    today = date.today()
+    today = business_today()
     inside = await _seed_job(deadline=today + timedelta(days=2))
     outside = await _seed_job(deadline=today + timedelta(days=30))
     try:

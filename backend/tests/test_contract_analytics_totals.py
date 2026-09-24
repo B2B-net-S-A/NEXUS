@@ -32,6 +32,7 @@ from app.services.consultant_population import (
     ConsultantPopulation,
     consultant_population,
 )
+from app.core.scheduling import business_today
 
 
 # --- arytmetyka populacji (bez DB) -----------------------------------------
@@ -96,7 +97,7 @@ async def seeded():
     """Jeden pracujący konsultant, jeden na ławce, jeden kandydat bez kontraktu."""
     pytest.importorskip("asyncpg")
     marker = uuid.uuid4().hex[:8]
-    today = date.today()
+    today = business_today()
     async with AsyncSessionLocal() as db:
         client = Client(name=f"Utylizacja {marker}")
         working = Candidate(name="Pracuje", lastname=f"Konsultant{marker}")
@@ -166,7 +167,7 @@ async def test_ended_contract_without_past_end_date_is_bench_not_active(end_offs
     pytest.importorskip("asyncpg")
     from app.services.contractor_identity import candidate_identity_key
 
-    today = date.today()
+    today = business_today()
     marker = uuid.uuid4().hex[:8]
     async with AsyncSessionLocal() as db:
         client = Client(name=f"Utylizacja ended {marker}")

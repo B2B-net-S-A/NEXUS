@@ -131,6 +131,7 @@ from app.services.client_identity import (
     client_display_name,
     client_display_name_expression,
 )
+from app.core.scheduling import business_today
 
 logger = logging.getLogger(__name__)
 
@@ -1403,7 +1404,7 @@ async def generate(
     if contract.candidate_rate_schedule:
         # Cache spójny z harmonogramem — etap obowiązujący dziś (wzorzec z
         # PATCH /api/contracts).
-        contract.rate_candidate = contract.effective_candidate_rate(date.today())
+        contract.rate_candidate = contract.effective_candidate_rate(business_today())
 
     # 3. Upsert B2BContractDetail.
     detail = await db.scalar(

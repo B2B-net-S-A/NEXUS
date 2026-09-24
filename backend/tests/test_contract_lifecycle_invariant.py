@@ -23,7 +23,7 @@ endpoints through the in-process ``app_client``.
 from __future__ import annotations
 
 import uuid
-from datetime import date, timedelta
+from datetime import timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -41,6 +41,7 @@ from app.models.document_signature import DocumentSignature, SignatureStatus
 from app.services import contract_lifecycle as lifecycle
 from app.services.signing import sender as signing_sender
 from app.services.signing.provider import ValidationReport
+from app.core.scheduling import business_today
 from fastapi import HTTPException
 from sqlalchemy import select
 
@@ -102,8 +103,8 @@ async def _seed_contract(
         }
         if complete:
             kwargs.update(
-                start_date=date.today(),
-                end_date=date.today() + timedelta(days=90),
+                start_date=business_today(),
+                end_date=business_today() + timedelta(days=90),
                 rate_candidate=15000,
                 rate_client=20000,
                 work_mode=ContractWorkMode.remote,
@@ -186,7 +187,7 @@ async def test_activate_is_operational_only_and_work_mode_is_optional() -> None:
     contract = Contract(
         id=900563,
         status=ContractStatus.draft,
-        start_date=date.today(),
+        start_date=business_today(),
         rate_candidate=150,
         rate_client=200,
         contract_type=ContractType.b2b,
@@ -214,7 +215,7 @@ async def test_auto_activate_complete_draft_including_future_start() -> None:
     contract = Contract(
         id=900564,
         status=ContractStatus.draft,
-        start_date=date.today() + timedelta(days=30),
+        start_date=business_today() + timedelta(days=30),
         rate_candidate=150,
         rate_client=200,
         contract_type=ContractType.b2b,
@@ -240,7 +241,7 @@ async def test_auto_activate_complete_draft_respects_explicit_status() -> None:
     contract = Contract(
         id=900565,
         status=ContractStatus.draft,
-        start_date=date.today(),
+        start_date=business_today(),
         rate_candidate=150,
         rate_client=200,
         contract_type=ContractType.b2b,
@@ -347,7 +348,7 @@ async def test_create_active_in_manual_register_never_queries_signature_state(
         json={
             "candidate_id": cand_id,
             "client_id": cli_id,
-            "start_date": date.today().isoformat(),
+            "start_date": business_today().isoformat(),
             "rate_candidate": 15000,
             "rate_client": 20000,
             "contract_type": "b2b",
@@ -373,7 +374,7 @@ async def test_patch_active_does_not_require_qualified_signature(
         json={
             "candidate_id": cand_id,
             "client_id": cli_id,
-            "start_date": date.today().isoformat(),
+            "start_date": business_today().isoformat(),
             "rate_candidate": 15000,
             "rate_client": 20000,
             "contract_type": "b2b",
@@ -471,8 +472,8 @@ async def test_create_contract_honours_register_status_body(
         json={
             "candidate_id": cand_id,
             "client_id": cli_id,
-            "start_date": date.today().isoformat(),
-            "end_date": (date.today() + timedelta(days=90)).isoformat(),
+            "start_date": business_today().isoformat(),
+            "end_date": (business_today() + timedelta(days=90)).isoformat(),
             "rate_candidate": 15000,
             "rate_client": 20000,
             "contract_type": "uzlecenie",
@@ -497,7 +498,7 @@ async def test_create_complete_contract_without_status_remains_draft(
         json={
             "candidate_id": cand_id,
             "client_id": cli_id,
-            "start_date": date.today().isoformat(),
+            "start_date": business_today().isoformat(),
             "rate_candidate": 15000,
             "rate_client": 20000,
             "contract_type": "b2b",
@@ -531,7 +532,7 @@ async def test_create_contract_active_requires_complete_draft(
         json={
             "candidate_id": cand_id,
             "client_id": cli_id,
-            "start_date": date.today().isoformat(),
+            "start_date": business_today().isoformat(),
             "contract_type": "b2b",
             "status": selected_status,
         },
@@ -562,7 +563,7 @@ async def test_create_contract_active_accepts_open_ended_period(
         json={
             "candidate_id": cand_id,
             "client_id": cli_id,
-            "start_date": date.today().isoformat(),
+            "start_date": business_today().isoformat(),
             "end_date": None,
             "rate_candidate": 15000,
             "rate_client": 20000,
@@ -593,7 +594,7 @@ async def test_patch_activates_with_rate_sent_only_as_a_schedule(
     ``POST`` miał tę kolejność poprawnie od początku.
     """
     cand_id, cli_id = await _seed_candidate_and_client()
-    start = date.today()
+    start = business_today()
     # Szkic BEZ stawki kandydata — dokładnie ten wiersz, który operator
     # uzupełnia harmonogramem i od razu aktywuje.
     resp = await app_client.post(
@@ -650,7 +651,7 @@ async def test_open_ended_contract_cannot_be_ending(
         json={
             "candidate_id": cand_id,
             "client_id": cli_id,
-            "start_date": date.today().isoformat(),
+            "start_date": business_today().isoformat(),
             "end_date": None,
             "rate_candidate": 15000,
             "rate_client": 20000,
@@ -699,7 +700,7 @@ async def test_patch_contract_honours_register_status_body(
         f"/api/contracts/{cid}/terminate",
         json={
             "termination_reason": "project_ended",
-            "terminated_at": (date.today() - timedelta(days=1)).isoformat(),
+            "terminated_at": (business_today() - timedelta(days=1)).isoformat(),
         },
         headers=app_auth_headers,
     )
@@ -725,7 +726,7 @@ async def test_patch_completing_draft_auto_activates_once(
     resp = await app_client.patch(
         f"/api/contracts/{cid}",
         json={
-            "start_date": (date.today() + timedelta(days=30)).isoformat(),
+            "start_date": (business_today() + timedelta(days=30)).isoformat(),
             "rate_candidate": 15000,
             "rate_client": 20000,
             "contract_type": "b2b",
@@ -759,7 +760,7 @@ async def test_patch_legacy_complete_draft_does_not_auto_activate_incidentally(
         # The client-register dialog always echoes start_date, even when the
         # operator only edits a project field. Presence alone must not promote
         # an already-complete legacy draft.
-        json={"start_date": date.today().isoformat(), "team_name": "Platform"},
+        json={"start_date": business_today().isoformat(), "team_name": "Platform"},
         headers=app_auth_headers,
     )
 
@@ -777,7 +778,7 @@ async def test_patch_complete_draft_with_explicit_draft_stays_draft(
     resp = await app_client.patch(
         f"/api/contracts/{cid}",
         json={
-            "start_date": date.today().isoformat(),
+            "start_date": business_today().isoformat(),
             "rate_candidate": 15000,
             "rate_client": 20000,
             "contract_type": "b2b",
@@ -855,7 +856,7 @@ async def test_register_status_updates_client_active_consultants(
         f"/api/contracts/{cid}/terminate",
         json={
             "termination_reason": "project_ended",
-            "terminated_at": (date.today() - timedelta(days=1)).isoformat(),
+            "terminated_at": (business_today() - timedelta(days=1)).isoformat(),
         },
         headers=app_auth_headers,
     )

@@ -619,8 +619,8 @@ def test_one_shot_exception_rejects_expired_and_naive_windows() -> None:
             user_id=1,
             job_id=2,
             reason="Brak strefy czasowej",
-            valid_from=datetime.now(),
-            expires_at=datetime.now() + timedelta(hours=1),
+            valid_from=datetime.now(),  # noqa: DTZ005 — test celowo podaje czas bez strefy
+            expires_at=datetime.now() + timedelta(hours=1),  # noqa: DTZ005 — j.w.
         )
 
 

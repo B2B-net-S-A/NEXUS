@@ -817,7 +817,7 @@ async def termination_analysis(
     ),
 ):
     """Attrition rollup: reasons × clients, with retention percentage."""
-    today = date.today()
+    today = business_today()
     window_start_month = today.month - window_months
     window_start_year = today.year
     while window_start_month <= 0:

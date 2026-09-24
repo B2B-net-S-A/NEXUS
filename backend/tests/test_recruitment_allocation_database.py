@@ -35,6 +35,7 @@ from app.services.recruitment_allocation import (
     load_workloads,
 )
 from app.services.workforce_availability import WorkforceContext, Delegation
+from app.core.scheduling import business_today
 from tests.test_job_handoff_and_champion_stale import _READY_CHAMPION
 
 pytestmark = pytest.mark.asyncio
@@ -379,7 +380,7 @@ async def test_open_and_new_calendar_onboarding_and_reminders_follow_cover_with_
                 contract_id=contract.id,
                 assigned_to=owner.id,
                 label=f"Operational item {n}",
-                due_date=date.today(),
+                due_date=business_today(),
             )
             for n in range(2)
         ]

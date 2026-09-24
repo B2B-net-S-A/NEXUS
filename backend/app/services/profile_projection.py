@@ -19,6 +19,7 @@ from typing import Any, Iterable, Optional
 
 from sqlalchemy import delete, insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.core.scheduling import business_today
 
 PROFILE_SCHEMA_VERSION = 2
 FIRST_RICH_PROMPT_VERSION = 7
@@ -154,7 +155,7 @@ def build_skill_timeline(
     bez podwójnego liczenia nakładających się okresów. Skill bez żadnej daty
     w CV nie trafia na oś — brak daty nie jest „nigdy".
     """
-    today = today or date.today()
+    today = today or business_today()
     usages: dict[str, _Usage] = {}
 
     def usage_for(name: Any) -> Optional[_Usage]:

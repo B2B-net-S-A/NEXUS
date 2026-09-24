@@ -57,6 +57,7 @@ from app.services.contractor_identity import (
 from app.services.fx_service import amount_to_pln_with_rate, rates_to_pln
 from app.services.order_revenue import order_revenue_rows_to_pln
 from app.schemas.money import to_whole_pln
+from app.core.scheduling import business_today
 
 router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
 
@@ -180,7 +181,7 @@ CanonicalClientDashboardUser = Annotated[
 def _days_to(target: Optional[date]) -> Optional[int]:
     if target is None:
         return None
-    return (target - date.today()).days
+    return (target - business_today()).days
 
 
 # ── My clients list ─────────────────────────────────────────────────────────
@@ -300,7 +301,7 @@ async def list_my_clients(
             )
         )
         revenue_lookup, revenue_incomplete = await order_revenue_rows_to_pln(
-            db, revenue_rows, date.today()
+            db, revenue_rows, business_today()
         )
         # Klient z uprawnieniami, ale bez żadnego zamówienia, dostaje 0 —
         # tak samo jak w `/dashboard`. Pominięty klucz czyta się jak redakcja.
@@ -342,7 +343,7 @@ async def list_my_clients(
             fc_lookup[r.client_id] = (r.status.value, r.expiry_date)
 
     # Expiring soon counter (FC + Order ≤ 30d)
-    today = date.today()
+    today = business_today()
     expiring = {
         row.client_id: row.cnt
         for row in (
@@ -450,7 +451,7 @@ async def client_dashboard(
     revenue_fx_complete = True
     currency_breakdown: dict[str, Decimal] = {}
     if finance_ok:
-        finance_on = date.today()
+        finance_on = business_today()
         revenue_rows = list(
             (
                 await db.execute(
@@ -531,7 +532,7 @@ async def client_dashboard(
                 )
             ).scalars()
         )
-        today = date.today()
+        today = business_today()
         # Tylko kontrakty OBECNE — ta sama reguła co kafel „Aktywne MRR"
         # na profilu tego klienta (UAT B46). Pusta data startu znaczy „start
         # nieznany", nie „planowany" (audyt 18.09.2026).
@@ -606,7 +607,7 @@ async def client_dashboard(
     completed_orders_count = order_status_counts.get(ClientOrderStatus.completed, 0)
 
     # Alerts: framework contracts expiring 30/14/7 dni + ordery ending 30/14/7 dni
-    today = date.today()
+    today = business_today()
     alerts: list[ExpiringAlert] = []
 
     fc_expiring = list(

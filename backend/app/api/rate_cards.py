@@ -1,6 +1,5 @@
 """API for rate cards (per client × role × seniority price lists)."""
 
-from datetime import date as _date
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -17,6 +16,7 @@ from app.schemas.rate_card import (
     RateCardSuggestion,
     RateCardUpdate,
 )
+from app.core.scheduling import business_today
 
 router = APIRouter()
 
@@ -50,7 +50,7 @@ async def list_rate_cards(
     if seniority:
         query = query.where(RateCard.seniority == seniority)
     if active_only:
-        today = _date.today()
+        today = business_today()
         query = query.where(
             (RateCard.valid_from.is_(None)) | (RateCard.valid_from <= today),
             (RateCard.valid_to.is_(None)) | (RateCard.valid_to >= today),
@@ -85,7 +85,7 @@ async def suggest_rate(
     seniority: Optional[str] = Query(None),
 ):
     """Return suggested mid-point rates for a client × role × seniority."""
-    today = _date.today()
+    today = business_today()
     query = (
         select(RateCard)
         .where(

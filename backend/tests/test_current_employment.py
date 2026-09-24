@@ -18,6 +18,7 @@ from app.services.current_employment import (
     current_employment_client_ids,
     is_live_contract,
 )
+from app.core.scheduling import business_today
 
 TODAY = date(2026, 9, 17)
 
@@ -63,7 +64,7 @@ async def _seed() -> dict:
         idle = Candidate(name="Idle", lastname=f"CurEmp-{tag}")
         db.add_all([client_a, client_b, live, future, idle])
         await db.flush()
-        today = date.today()
+        today = business_today()
         db.add_all(
             [
                 Contract(
@@ -110,7 +111,7 @@ async def test_current_employment_client_ids_from_live_contracts():
     w = await _seed()
     async with AsyncSessionLocal() as db:
         out = await current_employment_client_ids(
-            db, [w["live"], w["future"], w["idle"]], today=date.today()
+            db, [w["live"], w["future"], w["idle"]], today=business_today()
         )
     assert out == {w["live"]: {w["a"], w["b"]}, w["future"]: set(), w["idle"]: set()}
 
@@ -121,7 +122,7 @@ async def test_current_employment_client_ids_scoped_to_one_client():
     w = await _seed()
     async with AsyncSessionLocal() as db:
         out = await current_employment_client_ids(
-            db, [w["live"], w["idle"]], client_id=w["b"], today=date.today()
+            db, [w["live"], w["idle"]], client_id=w["b"], today=business_today()
         )
     assert out == {w["live"]: {w["b"]}, w["idle"]: set()}
 
@@ -130,4 +131,4 @@ async def test_current_employment_client_ids_empty_input():
     from app.core.database import AsyncSessionLocal
 
     async with AsyncSessionLocal() as db:
-        assert await current_employment_client_ids(db, [], today=date.today()) == {}
+        assert await current_employment_client_ids(db, [], today=business_today()) == {}

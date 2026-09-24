@@ -46,6 +46,7 @@ from app.models.cv_qc_run import CvQcRun
 from app.models.recruitment_pipeline import CandidateStage
 from app.services import dz_review as dz
 from app.services.dz_review import Block, Requirement, Role
+from app.core.scheduling import business_today
 
 logger = logging.getLogger(__name__)
 
@@ -339,7 +340,7 @@ def experience_years(
     niepełnej historii zaniżałby lata i fałszywie blokował CV.
     """
 
-    today = today or date.today()
+    today = today or business_today()
     now_idx = today.year * 12 + today.month - 1
     intervals: list[tuple[int, int]] = []
     entries = [e for e in (experience or []) if isinstance(e, dict)]
