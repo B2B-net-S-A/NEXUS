@@ -99,7 +99,11 @@ export function lowAnswerNote(row: TraineeOverviewRow, teamPct: number | null): 
  * Na ile dni roboczych starczy pula przy obecnych praktykantach (aktywne
  * programy × dzienna lista). `null` = nikt dziś nie dzwoni.
  */
-export function poolWorkdays(pool: TraineePool, rows: readonly TraineeOverviewRow[]): number | null {
+export function poolWorkdays(
+  pool: TraineePool | null,
+  rows: readonly TraineeOverviewRow[],
+): number | null {
+  if (!pool) return null;
   const active = rows.filter((r) => r.is_active && traineeState(r) !== "ended" && r.program);
   const perDay = active.reduce((sum, r) => sum + (r.program?.daily_list_size ?? 0), 0);
   if (perDay <= 0) return null;

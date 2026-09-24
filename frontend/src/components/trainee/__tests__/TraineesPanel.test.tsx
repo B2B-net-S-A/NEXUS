@@ -74,4 +74,15 @@ describe("TraineesPanel", () => {
     expect(screen.getByText("Do sprawdzenia")).toBeInTheDocument();
     expect(screen.getByText("Poniżej normy")).toBeInTheDocument();
   });
+
+  it("pula jeszcze niepoliczona (pierwsze wejście po wdrożeniu) — komunikat, nie wywrotka", () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+    client.setQueryData(traineeKeys.overview(), { ...previewOverview(), pool: null });
+    render(
+      <QueryClientProvider client={client}>
+        <TraineesPanel />
+      </QueryClientProvider>,
+    );
+    expect(screen.getByText(/Pula nie była jeszcze policzona/)).toBeInTheDocument();
+  });
 });

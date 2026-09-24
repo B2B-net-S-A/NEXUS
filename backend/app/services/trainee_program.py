@@ -1001,13 +1001,24 @@ async def overview(db: AsyncSession) -> dict[str, Any]:
     return {
         "trainees": trainees,
         "team_answered_pct": team,
-        "pool": await lists.load_pool_stats(db),
+        "pool": await _pool_stats_or_compute(db, today),
         "month": {
             "verified_rates": int(verified or 0),
             "handed_over": sum(total for total, _ in month_handovers.values()),
             "in_process": sum(done for _, done in month_handovers.values()),
         },
     }
+
+
+async def _pool_stats_or_compute(db: AsyncSession, today: date) -> dict[str, Any]:
+    """Statystyki puli z nocnego biegu; bez nich (pierwsze wejście po
+    wdrożeniu, zero praktykantów) liczymy raz i zapisujemy."""
+    stats = await lists.load_pool_stats(db)
+    if stats is None:
+        stats = await lists.pool_stats(db, await lists.load_rules(db), today=today)
+        await lists.store_pool_stats(db, stats)
+        await db.commit()
+    return stats
 
 
 async def _program_or_404(db: AsyncSession, user_id: int) -> TraineeProgram:

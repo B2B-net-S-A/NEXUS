@@ -322,7 +322,7 @@ export const PREVIEW_RULES: TraineeRules = {
 
 /** Podgląd puli — w harnessie maleje z każdą zaostrzoną regułą, żeby było widać ruch. */
 export function previewRulesPreview(rules: TraineeRules | null): TraineeRulesPreview {
-  const base = previewOverview().pool;
+  const base = previewOverview().pool ?? { size: 0, open_fit: 0, by_category: [] };
   if (!rules) return base;
   const factor =
     (2 / Math.max(1, rules.min_fits)) *

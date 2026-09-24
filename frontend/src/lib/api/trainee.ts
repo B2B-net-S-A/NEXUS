@@ -199,7 +199,8 @@ export interface TraineePool {
 export interface TraineeOverview {
   trainees: TraineeOverviewRow[];
   team_answered_pct: number | null;
-  pool: TraineePool;
+  /** `null`, dopóki pula nie była jeszcze policzona (pierwszy bieg po wdrożeniu). */
+  pool: TraineePool | null;
   month: { verified_rates: number; handed_over: number; in_process: number };
 }
 

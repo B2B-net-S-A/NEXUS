@@ -458,7 +458,8 @@ export function TraineesPanel() {
 
   const data = overview.data;
   const due = data.trainees.filter((row) => row.program?.decision_due);
-  const workdays = poolWorkdays(data.pool, data.trainees);
+  const pool = data.pool;
+  const workdays = poolWorkdays(pool, data.trainees);
   const activeCount = data.trainees.filter(
     (r) => r.is_active && r.program && traineeState(r) !== "ended",
   ).length;
@@ -516,19 +517,21 @@ export function TraineesPanel() {
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         <section className="flex flex-col gap-2 rounded-xl border border-border bg-card p-4">
           <h2 className="text-sm font-semibold text-foreground">Pula do dzwonienia</h2>
+          {pool ? (
+            <>
           <span className="text-2xl font-bold tabular-nums text-foreground">
-            {NUMBER.format(data.pool.size)} osób
+            {NUMBER.format(pool.size)} osób
           </span>
           <span className="text-sm text-muted-foreground">
-            spełnia dziś reguły listy, {NUMBER.format(data.pool.open_fit)} z nich pasuje do
+            spełnia dziś reguły listy, {NUMBER.format(pool.open_fit)} z nich pasuje do
             otwartych rekrutacji.
             {workdays != null
               ? ` Przy ${activeCount} ${activeCount === 1 ? "praktykancie" : "praktykantach"} wystarczy na ok. ${workdays} dni roboczych, zanim zacznie się odnawiać.`
               : " Dziś nikt nie dzwoni z listy."}
           </span>
-          {data.pool.by_category.length > 0 ? (
+          {pool.by_category.length > 0 ? (
             <ul className="mt-1 space-y-1 text-sm">
-              {data.pool.by_category.map((c) => (
+              {pool.by_category.map((c) => (
                 <li key={c.name} className="flex justify-between gap-2">
                   <span className="text-muted-foreground">{c.name}</span>
                   <span className="tabular-nums text-foreground">{NUMBER.format(c.count)}</span>
@@ -536,6 +539,13 @@ export function TraineesPanel() {
               ))}
             </ul>
           ) : null}
+            </>
+          ) : (
+            <span className="text-sm text-muted-foreground">
+              Pula nie była jeszcze policzona. Policzy się przy pierwszej liście albo
+              w podglądzie reguł.
+            </span>
+          )}
           <Link
             href="/settings/trainee-rules"
             className="mt-auto inline-flex min-h-10 items-center gap-1 text-sm font-medium text-primary underline-offset-4 hover:underline"
