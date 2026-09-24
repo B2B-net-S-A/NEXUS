@@ -397,6 +397,24 @@ describe("JobsListV2 — status jako pigułki", () => {
     mockJobsResponse([jobRow()]);
   });
 
+  it("stan pracy w wierszu ma przedrostek „Praca:” — nie myli się z propozycjami ani statusem „Szukamy”", async () => {
+    mockJobsResponse([
+      jobRow({ id: 201, request_status: "searching", visible_work_state: "to_review" }),
+      jobRow({ id: 202, request_status: "searching", visible_work_state: "client_silent" }),
+    ]);
+    renderJobs();
+    expect(await screen.findByText("Praca: do przeglądu")).toBeInTheDocument();
+    expect(screen.getByText("Praca: klient milczy")).toBeInTheDocument();
+    const table = screen.getByRole("table");
+    expect(within(table).queryByText("Do przejrzenia")).toBeNull();
+  });
+
+  it("strona listy ma dolny odstęp — ostatni wiersz przewija się nad maskotkę Jarvisa", async () => {
+    // CSS: jsdom nie liczy nakładania; pilnujemy samego odstępu (audyt 24.09.2026).
+    renderJobs();
+    expect(await screen.findByTestId("jobs-list-page")).toHaveClass("pb-24");
+  });
+
   it("status „Zamknięta” w zakresie „Otwarte” przełącza na „Wszystkie” (dawniej zawsze 0 wyników)", async () => {
     signInAs("admin");
     window.history.replaceState(null, "", "/jobs");

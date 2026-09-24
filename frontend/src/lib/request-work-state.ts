@@ -30,6 +30,20 @@ export const STATE_LABEL: Record<VisibleState, string> = {
   finished: "Zakończony",
 }
 
+/**
+ * Stan pracy w WIERSZU listy `/jobs` — obok plakietki statusu requestu.
+ * Sam „Do przejrzenia” czytał się jak propozycje do przejrzenia, a „Szukamy
+ * kandydatów” dublował status „Szukamy” w innym znaczeniu (audyt 24.09.2026),
+ * stąd przedrostek „Praca:” — jak nazwa grupy przycisków nad listą.
+ */
+export const ROW_STATE_LABEL: Record<VisibleState, string> = {
+  to_review: "Praca: do przeglądu",
+  searching: "Praca: w toku",
+  champion: "Praca: mamy championa",
+  client_silent: "Praca: klient milczy",
+  finished: "Praca: zakończona",
+}
+
 /** Jedno zdanie: co ten stan znaczy dla zespołu (makieta „Porządek w requestach"). */
 export const STATE_HINT: Record<VisibleState, string> = {
   to_review: "Nikt jeszcze nie zdecydował, czy nad tym pracujemy.",
