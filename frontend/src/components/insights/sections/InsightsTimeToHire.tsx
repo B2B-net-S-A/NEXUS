@@ -101,6 +101,18 @@ export function InsightsTimeToHire({ period }: Props) {
               plus ta liczba daje {totals.hires}.
             </p>
           )}
+          {totals && (totals.outside_scope_hires ?? 0) > 0 && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              Poza tabelą: {totals.outside_scope_hires}{" "}
+              {totals.outside_scope_hires === 1 ? "zatrudnienie" : "zatrudnień"}{" "}
+              kont administracyjnych i spoza rekrutacji — liczą się do sumy{" "}
+              {totals.hires}, ale nie są rekruterem w rankingu.
+            </p>
+          )}
+          <p className="mt-2 text-xs text-muted-foreground">
+            Liczone: pierwsze zatrudnienie pary (kandydat, rekrutacja),
+            przypisane osobie, która przesunęła kandydata na „Zatrudniony”.
+          </p>
         </>
       )}
     </section>

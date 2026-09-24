@@ -446,7 +446,7 @@ async def test_placement_analysis_donuts_sum_to_the_tile_above_them(
     assert sum(c["placements"] for c in after["by_client"]) == totals["placements"]
 
     unattributed = [p for p in after["by_person"] if not p["attributed"]]
-    assert unattributed and unattributed[0]["name"] == "(nieprzypisane)"
+    assert any(p["name"] == "(nieprzypisane)" for p in unattributed)
     assert totals["unattributed_placements"] >= 1
     assert totals["placements_without_job"] == 0
 
@@ -456,6 +456,44 @@ async def test_placement_analysis_donuts_sum_to_the_tile_above_them(
 
     mine = [c for c in after["by_client"] if c["client_id"] == client_id]
     assert mine and mine[0]["placements"] == 2
+
+
+@pytest.mark.asyncio
+async def test_placement_analysis_folds_admin_accounts_into_one_slice(
+    charts_client: AsyncClient,
+):
+    """Konta administracyjne = jeden wycinek, nie „osoba” (decyzja 24.09.2026).
+
+    Ta sama reguła ról co Hall of Fame. Donut dalej sumuje się do kafla, a
+    kafel „Osoby” nie liczy kont administracyjnych.
+    """
+    admin_id, email, password = await _seed_user(UserRole.admin, "hofadm")
+    headers = await _login(charts_client, email, password)
+    window = {
+        "period": "custom",
+        "date_from": f"{TEST_YEAR}-10-01",
+        "date_to": f"{TEST_YEAR}-10-31",
+    }
+    before = await _placements(charts_client, headers, window)
+
+    when = datetime(TEST_YEAR, 10, 7, 10, tzinfo=timezone.utc)
+    for _ in range(2):
+        _, job_id, cand_id = await _seed_job_candidate()
+        await _seed_stage(cand_id, job_id, PipelineStage.hired, when, admin_id)
+
+    after = await _placements(charts_client, headers, window)
+    totals = after["totals"]
+    assert totals["placements"] == before["totals"]["placements"] + 2
+    assert totals["people"] == before["totals"]["people"]
+    assert all(p["user_id"] != admin_id for p in after["by_person"])
+    outside = [
+        p
+        for p in after["by_person"]
+        if p["name"] == "Konta administracyjne i spoza rekrutacji"
+    ]
+    assert outside and outside[0]["attributed"] is False
+    assert totals["outside_scope_placements"] >= 2
+    assert sum(p["placements"] for p in after["by_person"]) == totals["placements"]
 
 
 @pytest.mark.asyncio

@@ -105,6 +105,8 @@ export interface PlacementAnalysisTotals {
   unattributed_placements: number;
   /** Placementy pary, której oferta zniknęła z bazy. */
   placements_without_job: number;
+  /** Placementy kont administracyjnych — jeden wycinek donuta, nie osoba. */
+  outside_scope_placements?: number;
 }
 
 export interface PlacementAnalysisResponse {

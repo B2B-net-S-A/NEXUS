@@ -37,6 +37,10 @@ from app.core.cache import cache_get, cache_set, cache_single_flight
 from app.core.database import get_db
 from app.services.funnel_coverage import STAGES_WITHOUT_TRAFFIT_COVERAGE
 from app.services.insights_competence_matrix import compute_competence_matrix
+from app.services.insights_person_scope import (
+    OUTSIDE_SCOPE_LABEL,
+    outside_scope_user_ids,
+)
 from app.services.insights_invite_links import (
     compute_invite_link_channels,
     count_invite_link_candidates,
@@ -439,7 +443,8 @@ async def insights_time_to_hire(
     rekrutacja ciągnąca się rok podnosi średnią całemu zespołowi).
     """
     resolved = _resolve(period, offset, anchor, date_from, date_to)
-    cache_key = f"insights:recruitment:tth:v1:{resolved.cache_suffix}:{min_hires}"
+    # v2 (24.09.2026): konta administracyjne poza tabelą rekruterów.
+    cache_key = f"insights:recruitment:tth:v2:{resolved.cache_suffix}:{min_hires}"
     async with cache_single_flight(cache_key, db=db):
         cached = await cache_get(cache_key)
         if cached is not None:
@@ -515,10 +520,19 @@ async def insights_time_to_hire(
             )
             names = {int(r["id"]): r["name"] for r in name_rows}
 
+        # Konta bez roli rekrutacyjnej (admin, Finanse…) — reguła Hall of Fame
+        # (decyzja Artura 24.09.2026). Ich zatrudnienia wchodzą w sumę, ale nie
+        # stoją w tabeli „per rekruter”.
+        outside_ids = await outside_scope_user_ids(db, user_ids)
+
         entries = []
         unattributed_hires = 0
+        outside_scope_hires = 0
         for r in rows:
             hires = int(r["hires"])
+            if r["user_id"] is not None and int(r["user_id"]) in outside_ids:
+                outside_scope_hires += hires
+                continue
             if r["user_id"] is None:
                 # Kamien, ktorego nie da sie przypisac nikomu — operator Traffita
                 # bez dopasowania po e-mailu. NIE wolno go po cichu wyciac: suma
@@ -543,13 +557,20 @@ async def insights_time_to_hire(
             )
         entries.sort(key=lambda e: (-e["hires"], e["name"]))
 
-        total_hires = sum(e["hires"] for e in entries) + unattributed_hires
+        total_hires = (
+            sum(e["hires"] for e in entries) + unattributed_hires + outside_scope_hires
+        )
         result = {
             "period": resolved.as_payload(),
             "entries": entries,
             "totals": {
                 "hires": total_hires,
-                "attributed_hires": total_hires - unattributed_hires,
+                "attributed_hires": total_hires
+                - unattributed_hires
+                - outside_scope_hires,
+                # Zatrudnienia kont administracyjnych — w sumie, poza tabelą.
+                "outside_scope_hires": outside_scope_hires,
+                "outside_scope_label": OUTSIDE_SCOPE_LABEL,
                 # Ta liczba MUSI byc wyrenderowana obok sumy kolumny. Bez niej
                 # tabela per osoba nie zgadza sie z lejkiem i czyta sie jak blad.
                 "unattributed_hires": unattributed_hires,
@@ -591,15 +612,22 @@ async def insights_team_activity(
 
     # Klucz NIESIE OKNO i `limit` — obcięta lista pod kluczem pełnej dałaby
     # liczby jednego zapytania pod etykietą drugiego.
-    cache_key = f"insights:recruitment:team-activity:v1:{resolved.cache_suffix}:{limit}"
+    # v2 (24.09.2026): konta administracyjne poza rankingiem osób.
+    cache_key = f"insights:recruitment:team-activity:v2:{resolved.cache_suffix}:{limit}"
     async with cache_single_flight(cache_key, db=db):
         cached = await cache_get(cache_key)
         if cached is not None:
             return cached
 
-        rows = await compute_team_activity(
-            db, since=resolved.start, until=resolved.end, limit=limit
+        # Pełna lista, potem filtr ról i dopiero wtedy `limit` — inaczej konta
+        # administracyjne zabierałyby miejsca w TOP-N. Serwis jest wspólny
+        # z `/api/activities/leaderboard`, więc filtr zostaje tutaj.
+        all_rows = await compute_team_activity(
+            db, since=resolved.start, until=resolved.end, limit=10_000
         )
+        outside_ids = await outside_scope_user_ids(db, [r.user_id for r in all_rows])
+        outside_rows = [r for r in all_rows if r.user_id in outside_ids]
+        rows = [r for r in all_rows if r.user_id not in outside_ids][:limit]
 
         # Mianownik paska: najaktywniejsza osoba w oknie. Pusty ranking daje zero,
         # a `_ratio` zamienia je na `None` — pasek bez skali to brak wartości,
@@ -632,6 +660,14 @@ async def insights_team_activity(
                 # kafel liczony z innego zbioru niż lista pod nim nie daje się
                 # sprawdzić wzrokiem.
                 "actions": sum(e["total_actions"] for e in entries),
+            },
+            # Konta bez roli rekrutacyjnej (reguła Hall of Fame) — jeden wiersz
+            # pod rankingiem, nie osoba w nim.
+            "outside_scope": {
+                "label": OUTSIDE_SCOPE_LABEL,
+                "users": len(outside_rows),
+                "actions": sum(r.total_actions for r in outside_rows),
+                "placements": sum(r.placements for r in outside_rows),
             },
             "coverage": {
                 "source": "user_activities",

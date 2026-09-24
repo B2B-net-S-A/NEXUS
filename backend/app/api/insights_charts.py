@@ -41,6 +41,10 @@ from app.api.deps import CurrentUser
 from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.core.cache import cache_get, cache_set, cache_single_flight
 from app.core.database import get_db
+from app.services.insights_person_scope import (
+    OUTSIDE_SCOPE_LABEL,
+    outside_scope_user_ids,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -307,7 +311,8 @@ async def insights_placement_analysis(
     """
     resolved = _resolve(period, offset, anchor, date_from, date_to)
 
-    cache_key = f"insights:charts:placements:v1:{resolved.cache_suffix}"
+    # v2 (24.09.2026): konta administracyjne jednym wycinkiem.
+    cache_key = f"insights:charts:placements:v2:{resolved.cache_suffix}"
     async with cache_single_flight(cache_key, db=db):
         cached = await cache_get(cache_key)
         if cached is not None:
@@ -371,6 +376,17 @@ async def insights_placement_analysis(
 
         total = sum(int(r["cnt"]) for r in people_rows)
 
+        # Konta bez roli rekrutacyjnej (admin, Finanse…) — jeden wycinek, jak
+        # w Hall of Fame (decyzja Artura 24.09.2026). Na produkcji konto
+        # administracyjne miało 32 z 77 placementów Q3 jako jedna „osoba”.
+        outside_ids = await outside_scope_user_ids(
+            db, [r["user_id"] for r in people_rows]
+        )
+        outside_placements = sum(
+            int(r["cnt"]) for r in people_rows if r["user_id"] in outside_ids
+        )
+        people_rows = [r for r in people_rows if r["user_id"] not in outside_ids]
+
         by_person = [
             {
                 "user_id": r["user_id"],
@@ -391,6 +407,17 @@ async def insights_placement_analysis(
             }
             for r in people_rows
         ]
+        if outside_placements:
+            by_person.append(
+                {
+                    "user_id": None,
+                    "name": OUTSIDE_SCOPE_LABEL,
+                    "placements": outside_placements,
+                    "share_pct": _ratio(outside_placements, total),
+                    "attributed": False,
+                }
+            )
+            by_person.sort(key=lambda p: -p["placements"])
 
         # Klient bez wiersza w `clients` i placement bez oferty lądują w tym samym
         # koszyku „(bez klienta)" — z osobnym licznikiem `placements_without_job`,
@@ -433,8 +460,12 @@ async def insights_placement_analysis(
                 "placements": total,
                 "clients": sum(1 for c in by_client if c["attributed"]),
                 "unattributed_placements": sum(
-                    p["placements"] for p in by_person if not p["attributed"]
+                    p["placements"]
+                    for p in by_person
+                    if not p["attributed"] and p["name"] != OUTSIDE_SCOPE_LABEL
                 ),
+                # Placementy kont administracyjnych — w donucie jednym wycinkiem.
+                "outside_scope_placements": outside_placements,
                 "placements_without_job": placements_without_job,
             },
             "by_person": by_person,

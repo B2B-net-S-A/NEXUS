@@ -444,7 +444,12 @@ async def test_time_to_hire_reports_unattributed_instead_of_hiding_it(
 
     totals = body["totals"]
     assert "unattributed_hires" in totals
-    assert totals["attributed_hires"] + totals["unattributed_hires"] == totals["hires"]
+    assert (
+        totals["attributed_hires"]
+        + totals["unattributed_hires"]
+        + totals["outside_scope_hires"]
+        == totals["hires"]
+    )
 
 
 # ── team-activity (odpowiednik /api/activities/leaderboard) ─────────────────
@@ -553,6 +558,40 @@ async def test_team_activity_window_is_half_open(fx_client: AsyncClient):
     assert mine[0]["candidates_added"] == 1
     # Telefon z lipca NIE może wejść do czerwca.
     assert mine[0]["calls"] == 0
+
+
+@pytest.mark.asyncio
+async def test_team_activity_puts_admin_accounts_outside_the_ranking(
+    fx_client: AsyncClient,
+):
+    """Konta administracyjne poza rankingiem osób (reguła Hall of Fame, 24.09.2026)."""
+    await cache_invalidate("insights:recruitment:team-activity:")
+    year = 1700 + int(uuid.uuid4().hex[:6], 16) % 200
+    admin_id, email, password = await _seed_user(UserRole.admin, "ta-admin")
+    recruiter_id, _, _ = await _seed_user(UserRole.recruiter, "ta-rec")
+    headers = await _login(fx_client, email, password)
+
+    when = datetime(year, 5, 10, 9, tzinfo=timezone.utc)
+    await _seed_activity(admin_id, UserActionType.placement_closed, when)
+    await _seed_activity(recruiter_id, UserActionType.candidate_added, when)
+
+    body = (
+        await fx_client.get(
+            "/api/insights/recruitment/team-activity",
+            headers=headers,
+            params={
+                "period": "custom",
+                "date_from": f"{year}-05-01",
+                "date_to": f"{year}-05-31",
+            },
+        )
+    ).json()
+
+    ids = [e["user_id"] for e in body["entries"]]
+    assert recruiter_id in ids
+    assert admin_id not in ids
+    assert body["outside_scope"]["users"] >= 1
+    assert body["outside_scope"]["placements"] >= 1
 
 
 @pytest.mark.asyncio
