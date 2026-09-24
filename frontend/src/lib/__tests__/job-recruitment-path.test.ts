@@ -52,9 +52,11 @@ function summary(counts: Partial<Record<string, number>> = {}): BoardSummary {
 }
 
 describe("summarizeBoard", () => {
-  it("liczy kolumny Tablicy tą samą regułą co render (Cpro wpada do QC CV)", () => {
+  it("liczy kolumny Tablicy tą samą regułą co render (Cpro wpada do QC CV, ale osobno)", () => {
     const s = summary({ new: 2, qc: 1, cpro: 1, sent: 3, hired: 1, rejected: 5 });
-    expect(s.counts).toMatchObject({ new: 2, cv_qc: 2, cv_sent: 3, hired: 1 });
+    // Kolejka Cpro stoi w kolumnie „QC CV”, ale nie jest „do sprawdzenia w QC”.
+    expect(s.counts).toMatchObject({ new: 2, cv_qc: 1, cv_sent: 3, hired: 1 });
+    expect(s.cproQueue).toBe(1);
     // W procesie = bez zatrudnionych i bez zamkniętych.
     expect(s.inProcess).toBe(7);
   });
@@ -168,6 +170,13 @@ describe("nearestStep — pierwsza pasująca reguła", () => {
       sentence: "Uzupełnij zlecenie (brakuje 3)",
       action: { kind: "order" },
     });
+  });
+
+  it("Nordea: sama kolejka Cpro to nie „Sprawdź CV w QC” — ścieżka mówi „N w kolejce Cpro”", () => {
+    const board = summarizeBoard(board_({ cpro: 3 }), { cproEnabled: true, now: NOW });
+    expect(nearestStep({ ...base, orderMissing: 0, board })?.rule).not.toBe("qc");
+    const cv = buildRecruitmentPath({ orderMissing: 0, board, proposals: 0, headcount: null, now: NOW })[2];
+    expect(cv).toMatchObject({ state: "active", detail: "0 w QC · 3 w kolejce Cpro · 0 wysłanych" });
   });
 
   it("2. osoby w QC CV", () => {

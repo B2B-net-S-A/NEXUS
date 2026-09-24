@@ -22,7 +22,14 @@ import {
 export type BoardColumnCounts = Record<Exclude<BoardColumnKey, "closed">, number>;
 
 export interface BoardSummary {
+  /**
+   * Osoby per kolumna Tablicy. `cv_qc` BEZ kolejki Cpro — osoba z odznaką
+   * „W kolejce Cpro” stoi w kolumnie „QC CV”, ale rekruter nie ma przy niej
+   * nic do sprawdzenia (czeka na osobę od Cpro); liczy ją `cproQueue`.
+   */
   counts: BoardColumnCounts;
+  /** Osoby w kolejce Cpro (Nordea) — odznaka `cpro` w kolumnie „QC CV”. */
+  cproQueue: number;
   /** Osoby w kolumnach procesu (bez zamkniętych i bez „Zatrudniony"). */
   inProcess: number;
   /** Najbliższa zaplanowana rozmowa u klienta (ISO) albo `null`. */
@@ -63,6 +70,7 @@ export function summarizeBoard(
 ): BoardSummary {
   const fold = foldBoardColumns(columns, { cproEnabled: options.cproEnabled });
   const counts = emptyCounts();
+  let cproQueue = 0;
   let inProcess = 0;
   const nowMs = (options.now ?? new Date()).getTime();
   let nextMs: number | null = null;
@@ -71,6 +79,13 @@ export function summarizeBoard(
   for (const f of fold.columns) {
     if (f.key && f.key !== "closed") counts[f.key] += f.count;
     if (f.key !== "hired") inProcess += f.count;
+    if (f.key === "cv_qc") {
+      const queued = (f.items as ReadonlyArray<SummaryItem>).filter(
+        (item) => fold.badgeByItemId.get(item.id) === "cpro",
+      ).length;
+      counts.cv_qc -= queued;
+      cproQueue += queued;
+    }
     if (f.key !== "client_interview") continue;
     for (const item of f.items as ReadonlyArray<SummaryItem>) {
       const at = item.interview_badge?.at;
@@ -83,7 +98,7 @@ export function summarizeBoard(
       }
     }
   }
-  return { counts, inProcess, nextInterviewAt: nextAt };
+  return { counts, cproQueue, inProcess, nextInterviewAt: nextAt };
 }
 
 // ── Ścieżka ──────────────────────────────────────────────────────────────
@@ -180,8 +195,11 @@ function cvStep(board: BoardSummary | null): PathStep {
   if (!board) return { ...base, state: "todo", detail: "—" };
   const { counts } = board;
   const sent = counts.cv_sent;
-  const detail = `${counts.cv_qc} w QC · ${sent} ${plural(sent, "wysłane", "wysłane", "wysłanych")}`;
-  if (counts.cv_qc > 0 || counts.verified > 0) return { ...base, state: "active", detail };
+  const queue = board.cproQueue > 0 ? ` · ${board.cproQueue} w kolejce Cpro` : "";
+  const detail = `${counts.cv_qc} w QC${queue} · ${sent} ${plural(sent, "wysłane", "wysłane", "wysłanych")}`;
+  if (counts.cv_qc > 0 || board.cproQueue > 0 || counts.verified > 0) {
+    return { ...base, state: "active", detail };
+  }
   if (sent > 0 || laterThan(counts, "cv_sent") > 0) return { ...base, state: "done", detail };
   return { ...base, state: "todo", detail };
 }
@@ -257,7 +275,7 @@ export interface NearestStepInput {
 /**
  * Jedno zdanie „co teraz" — PIERWSZA pasująca reguła:
  *  1. zlecenie niekompletne,
- *  2. osoby w QC CV,
+ *  2. osoby w QC CV (bez kolejki Cpro — tam ruch ma osoba od Cpro),
  *  3. osoby w „Zweryfikowany",
  *  4. propozycje z bazy do przejrzenia,
  *  5. pusto w „Nowi" i „Screening" → szukaj w bazie (AI).
