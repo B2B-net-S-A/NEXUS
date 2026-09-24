@@ -1,4 +1,4 @@
 {
-  "sha256": "2cf067bed153e9135b1886100749c8de5a260a83f34d4ef4ab1ff5da6b4e92e4",
+  "sha256": "657a47220666634106193f994c71278c63a31765bc5a5ff5fbffc1f6de7d24f6",
   "source": "backend/app/tasks/dl_portal_expiry_scanner.py"
 }

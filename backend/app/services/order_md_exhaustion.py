@@ -146,6 +146,8 @@ async def sync_md_group_exhaustion(
         # sprawa trzymała zamówienie w „Aktywnych”).
         from app.services.md_pool_used_up import resolve_used_up_offboarding_cases
 
+        # ``autoflush=False``: zapytania niżej muszą widzieć zmiany z sesji.
+        await db.flush()
         await resolve_used_up_offboarding_cases(db, group_id=group.id)
         pending_case = await db.scalar(
             select(ClientOrderOffboardingCase.id)
