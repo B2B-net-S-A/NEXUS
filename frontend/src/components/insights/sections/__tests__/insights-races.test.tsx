@@ -406,39 +406,40 @@ describe("InsightsRaces", () => {
     ).toBeInTheDocument();
   });
 
-  it("stopka opisuje remis tak, jak rozstrzyga go silnik (nie marżą)", async () => {
+  it("stopka opisuje remis tak, jak rozstrzyga go regulamin (22.09.2026)", async () => {
     respond({ [RACES]: racesPayload() });
     renderWithClient(<InsightsRaces month="2020-01" />);
 
-    const notes = await screen.findAllByText(
-      /NEXUS nie rozstrzyga remisu marżą/,
-    );
-    expect(notes).toHaveLength(2);
+    expect(
+      await screen.findByText(/rozstrzyga marża na godzinę/),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/wyżej jest wyższa precyzja/)).toBeInTheDocument();
   });
 
   it("przycisk Pokaż wszystkich odsłania resztę rankingu", async () => {
     const user = userEvent.setup();
     respond({
       [RACES]: racesPayload({
-        placements: [1, 2, 3, 4].map((i) =>
+        placements: [1, 2, 3, 4, 5, 6, 7].map((i) =>
           placEntry({
             user_id: i,
             rank: i,
             name: `Osoba ${i}`,
-            metric_value: 5 - i,
+            metric_value: 8 - i,
           }),
         ),
       }),
     });
     renderWithClient(<InsightsRaces month="2020-01" />);
 
-    expect(await screen.findByText("Osoba 1")).toBeInTheDocument();
-    expect(screen.queryByText("Osoba 4")).not.toBeInTheDocument();
+    // Pierwsza piątka od razu — wyścig ma być czytelny bez klikania.
+    expect(await screen.findByText("Osoba 5")).toBeInTheDocument();
+    expect(screen.queryByText("Osoba 6")).not.toBeInTheDocument();
 
     await user.click(
-      screen.getByRole("button", { name: /Pokaż wszystkich \(4\)/ }),
+      screen.getByRole("button", { name: /Pokaż wszystkich \(7\)/ }),
     );
-    expect(screen.getByText("Osoba 4")).toBeInTheDocument();
+    expect(screen.getByText("Osoba 7")).toBeInTheDocument();
   });
 });
 

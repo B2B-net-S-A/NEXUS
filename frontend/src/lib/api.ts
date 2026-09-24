@@ -651,7 +651,45 @@ export interface MyKpiGoals {
   goals: KpiGoal[];
 }
 
+/** Liczniki „Moje KPI" — dzień, tydzień i miesiąc kalendarzowy. */
+export interface KpiFunnelCounts {
+  day: number;
+  week: number;
+  month: number;
+}
+
+/**
+ * `GET /api/kpis/me/panel` — liczby zalogowanej osoby w bieżącym miesiącu,
+ * atrybucja verifier-anchored (ta sama co wyścigi). Konsument: Insights →
+ * „Mój miesiąc" (24.09.2026).
+ */
+export interface MyKpiPanel {
+  role: string;
+  /** `false` = rola bez własnych KPI i bez aktywności w miesiącu. */
+  applies: boolean;
+  weryfikacje: KpiFunnelCounts;
+  rekomendacje: KpiFunnelCounts;
+  interview_month: number;
+  akceptacje_month: number;
+  placementy_month: number;
+  cv_to_base: KpiFunnelCounts | null;
+  precision: {
+    /** `null` = mniej niż 5 weryfikacji w oknie — „nie policzono", nie 0%. */
+    value_pct: number | null;
+    verified: number;
+    sent: number;
+    target_pct: number;
+    window_days: number;
+  };
+  target_verifications_daily: number;
+  target_placements_monthly: number;
+  target_cv_added_daily: number | null;
+  target_precision_pct: number;
+}
+
 export const kpisApi = {
+  /** „Moje KPI" z bieżącego miesiąca (Insights → Mój miesiąc). */
+  myPanel: () => api.get<MyKpiPanel>("/api/kpis/me/panel"),
   /** KPI rekrutera dla current usera (pusta lista dla ról nieoperacyjnych). */
   myToday: () => api.get<KpiResult[]>("/api/kpis/me/today"),
   /** Cele liderów (DL / HoR / TCM); `kind: "none"` dla pozostałych ról. */

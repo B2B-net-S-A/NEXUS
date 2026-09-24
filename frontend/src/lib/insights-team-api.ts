@@ -90,3 +90,98 @@ export const insightsTeamQueryKeys = {
   teamTable: (p: InsightsPeriodParams) =>
     ["insights", "team", "table", p] as const,
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Widok Zespół (24.09.2026): `/api/insights/team/*` i rekrutacje bez ruchu.
+// Za capability `view_team_kpi` — imienne wyniki cudzej pracy, bez kwot.
+// Atrybucja jak w wyścigach i „Mój miesiąc" (verifier-anchored).
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface TeamPeopleRow {
+  user_id: number;
+  name: string;
+  role: string;
+  is_active: boolean;
+  verifications: number;
+  recommendations: number;
+  interviews: number;
+  placements: number;
+  /** Placementy z TEGO SAMEGO odcinka poprzedniego okresu. */
+  previous_placements: number;
+  /** `null` = w oknie nie upłynął jeszcze żaden dzień roboczy. */
+  verifications_per_workday: number | null;
+  /** Rekomendacje / weryfikacje z 30 dni. `null` = mniej niż 5 weryfikacji. */
+  precision_pct: number | null;
+}
+
+export interface TeamPeopleResponse {
+  period: InsightsPeriod;
+  rows: TeamPeopleRow[];
+  workdays: number;
+  precision_target_pct: number;
+  low_precision_pct: number;
+  totals: {
+    verifications: number;
+    recommendations: number;
+    interviews: number;
+    placements: number;
+    precision_pct: number | null;
+    people: number;
+    unattributed: number;
+  };
+  previous_totals: {
+    verifications: number;
+    recommendations: number;
+    interviews: number;
+    placements: number;
+  };
+}
+
+export type TeamAttentionKind = "stale_jobs" | "low_precision" | "weak_preps";
+
+export interface TeamAttentionItem {
+  kind: TeamAttentionKind;
+  count: number;
+  label: string;
+  /** Raport, który pokazuje listę. `null` = sygnał wskazuje wiersze tabeli. */
+  report: string | null;
+  user_ids?: number[];
+}
+
+export interface StaleJob {
+  job_id: number;
+  title: string;
+  client_id: number | null;
+  client_name: string | null;
+  recruiter_id: number | null;
+  recruiter_name: string | null;
+  last_move_at: string | null;
+  days_without_move: number | null;
+  people: number;
+}
+
+export const insightsTeamSignalsApi = {
+  people: (p: InsightsPeriodParams) =>
+    api
+      .get<TeamPeopleResponse>("/api/insights/team/people", {
+        params: periodQuery(p),
+      })
+      .then((r) => r.data),
+  attention: () =>
+    api
+      .get<{ items: TeamAttentionItem[] }>("/api/insights/team/attention")
+      .then((r) => r.data),
+  staleJobs: () =>
+    api
+      .get<{ days: number; items: StaleJob[]; total: number }>(
+        "/api/insights/recruitment/stale-jobs",
+      )
+      .then((r) => r.data),
+};
+
+export const insightsTeamSignalsQueryKeys = {
+  people: (p: InsightsPeriodParams) =>
+    ["insights", "team", "people", p] as const,
+  attention: () => ["insights", "team", "attention"] as const,
+  staleJobs: () => ["insights", "team", "stale-jobs"] as const,
+};

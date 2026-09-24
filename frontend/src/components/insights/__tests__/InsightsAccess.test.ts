@@ -1,25 +1,24 @@
 /**
- * Kontrakt dostępu do zakładek /insights i identyfikatorów w URL-u.
+ * Kontrakt dostępu do widoków /insights i adresów sprzed przebudowy.
  *
- * Decyzja D7 (2026-08-31) otworzyła Insights dla każdej roli. Decyzja Artura
- * z 21.09.2026 zawęża ją WYŁĄCZNIE dla zakładki Rada: admin, Finanse i Head of
- * Recruitment. Lustro po stronie API to `BoardReader` na `/api/insights/board`,
- * `/board/yoy` i `/clients/ranking` — zmiana listy ról tutaj bez zmiany tam
- * robi split-brain (menu bez danych albo dane bez menu, #1215).
+ * Przebudowa 24.09.2026: pięć widoków. Firma (pieniądze) — WYŁĄCZNIE admin
+ * i Finanse; Head of Recruitment nie widzi kwot (decyzja Artura). Lustro po
+ * stronie API to `BoardReader` na `/api/insights/board` i `/clients/ranking`
+ * — zmiana listy ról tutaj bez zmiany tam robi split-brain (#1215).
  */
 import { describe, expect, it } from "vitest";
 
 import {
   DEFAULT_INSIGHTS_TAB,
-  LEGACY_ANCHOR_CHAPTER,
+  FIRMA_ROLES,
+  LEGACY_ANCHORS,
   LEGACY_TAB_ALIASES,
-  RADA_ROLES,
   getDefaultTabForUser,
   getVisibleInsightTabIds,
-  resolveChapter,
-  resolveInsightsTab,
+  resolveInsightsLocation,
+  type TabId,
 } from "@/components/insights/InsightsView";
-import { CHAPTERS, DEFAULT_CHAPTER } from "@/components/insights/BodyLeasingPanel";
+import { REPORTS, visibleReports } from "@/lib/insights-reports";
 
 type AuthUser = Parameters<typeof getVisibleInsightTabIds>[0];
 
@@ -36,146 +35,204 @@ const ALL_ROLES = [
   "user",
 ] as const;
 
-const user = (role: string, roles?: string[]): AuthUser =>
+const user = (
+  role: string,
+  extra: { roles?: string[]; capabilities?: string[] } = {},
+): NonNullable<AuthUser> =>
   ({
     id: 1,
     email: `${role}@example.com`,
     name: role,
     role,
-    ...(roles ? { roles } : {}),
-  }) as AuthUser;
+    ...extra,
+  }) as NonNullable<AuthUser>;
 
-describe("dostęp do zakładek Insights", () => {
-  it.each(ALL_ROLES)("rola %s widzi Body Leasing", (role) => {
-    expect(getVisibleInsightTabIds(user(role))).toContain("body-leasing");
+const ALL_TABS: TabId[] = ["rywalizacja", "moj-miesiac", "zespol", "firma", "raporty"];
+
+describe("widoki Insights per rola", () => {
+  it.each(ALL_ROLES)("rola %s widzi Rywalizację, Zespół i Raporty", (role) => {
+    const tabs = getVisibleInsightTabIds(user(role));
+    expect(tabs).toEqual(expect.arrayContaining(["rywalizacja", "zespol", "raporty"]));
+    expect(tabs[0]).toBe("rywalizacja");
   });
 
-  it.each(["admin", "finance", "head_of_recruitment"] as const)(
-    "rola %s widzi Radę",
-    (role) => {
-      expect(getVisibleInsightTabIds(user(role))).toEqual([
-        "body-leasing",
-        "rada",
-      ]);
-    },
-  );
-
-  it.each([
-    "delivery_lead",
-    "talent_community_manager",
-    "tac",
-    "recruiter",
-    "sourcer",
-    "user",
-  ] as const)("rola %s NIE widzi Rady", (role) => {
-    expect(getVisibleInsightTabIds(user(role))).toEqual(["body-leasing"]);
+  it("Firmę widzą wyłącznie admin i Finanse", () => {
+    expect(FIRMA_ROLES).toEqual(["admin", "finance"]);
+    for (const role of ALL_ROLES) {
+      const sees = getVisibleInsightTabIds(user(role)).includes("firma");
+      expect(sees, role).toBe(role === "admin" || role === "finance");
+    }
   });
 
-  it("dodatkowa rola HoR przy głównej roli rekrutera otwiera Radę", () => {
-    // `hasRole` patrzy na wszystkie role konta, nie tylko na główną.
-    expect(
-      getVisibleInsightTabIds(user("recruiter", ["recruiter", "head_of_recruitment"])),
-    ).toContain("rada");
-  });
-
-  it("lista ról Rady to dokładnie lustro BoardReader", () => {
-    expect([...RADA_ROLES].sort()).toEqual(
-      ["admin", "finance", "head_of_recruitment"].sort(),
+  it("Head of Recruitment NIE widzi Firmy (decyzja 24.09.2026)", () => {
+    expect(getVisibleInsightTabIds(user("head_of_recruitment"))).not.toContain(
+      "firma",
     );
   });
 
-  it("przed hydracją (brak usera) lista nie jest zawężana", () => {
-    // Brak usera to „jeszcze nie wiemy" — inaczej `?tab=rada` admina zostałby
-    // przepisany na Body Leasing, zanim store zdąży się wczytać.
-    expect(getVisibleInsightTabIds(null as unknown as AuthUser)).toHaveLength(2);
+  it("hybryda HoR + Finanse widzi Firmę — przez rolę Finanse", () => {
+    expect(
+      getVisibleInsightTabIds(
+        user("head_of_recruitment", { roles: ["finance"] }),
+      ),
+    ).toContain("firma");
   });
 
-  it.each(ALL_ROLES)("rola %s ma tę samą zakładkę domyślną", (role) => {
-    expect(getDefaultTabForUser(user(role))).toBe(DEFAULT_INSIGHTS_TAB);
+  it("Mój miesiąc mają role z własnymi KPI (lustro backendu)", () => {
+    for (const role of ["recruiter", "sourcer", "tac", "delivery_lead"]) {
+      expect(getVisibleInsightTabIds(user(role))).toContain("moj-miesiac");
+    }
+    for (const role of ["admin", "finance", "head_of_recruitment", "user"]) {
+      expect(getVisibleInsightTabIds(user(role))).not.toContain("moj-miesiac");
+    }
   });
 
-  it("domyślna zakładka to Body Leasing, domyślny rozdział to Rywalizacja", () => {
-    expect(DEFAULT_INSIGHTS_TAB).toBe("body-leasing");
-    expect(DEFAULT_CHAPTER).toBe("rywalizacja");
+  it("przed hydracją auth pokazuje wszystkie widoki", () => {
+    expect(getVisibleInsightTabIds(null)).toEqual(ALL_TABS);
+  });
+
+  it("domyślny widok to Rywalizacja dla każdego", () => {
+    expect(DEFAULT_INSIGHTS_TAB).toBe("rywalizacja");
+    for (const role of ALL_ROLES) {
+      expect(getDefaultTabForUser(user(role))).toBe("rywalizacja");
+    }
   });
 });
 
-describe("identyfikator zakładki w URL-u", () => {
-  it.each(["body-leasing", "rada"] as const)(
-    "znany identyfikator %s przechodzi bez przepisywania adresu",
-    (tab) => {
-      expect(resolveInsightsTab(tab)).toEqual({ tab, rewrite: false });
-    },
-  );
+describe("raporty per rola", () => {
+  const ids = (role: string, extra = {}) =>
+    visibleReports(user(role, extra)).map((r) => r.id);
 
+  it("ranking klientów z kwotami — tylko admin i Finanse", () => {
+    expect(ids("admin")).toContain("ranking-klientow");
+    expect(ids("finance")).toContain("ranking-klientow");
+    expect(ids("head_of_recruitment")).not.toContain("ranking-klientow");
+    expect(ids("recruiter")).not.toContain("ranking-klientow");
+  });
+
+  it("rekrutacje bez ruchu — tylko z view_team_kpi", () => {
+    expect(
+      ids("head_of_recruitment", { capabilities: ["view_team_kpi"] }),
+    ).toContain("bez-ruchu");
+    expect(ids("recruiter")).not.toContain("bez-ruchu");
+  });
+
+  it("nic nie znika: każdy raport ma pytanie i okno", () => {
+    for (const report of REPORTS) {
+      expect(report.question.length, report.id).toBeGreaterThan(10);
+      expect(report.window.length, report.id).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe("resolveInsightsLocation — nowe adresy", () => {
+  it("znany widok zostaje bez przepisywania", () => {
+    expect(resolveInsightsLocation({ tab: "zespol" })).toEqual({
+      tab: "zespol",
+      report: null,
+      rewrite: false,
+      dropHash: false,
+    });
+  });
+
+  it("raport zostaje przy widoku Raporty", () => {
+    expect(
+      resolveInsightsLocation({ tab: "raporty", report: "doplyw" }),
+    ).toMatchObject({ tab: "raporty", report: "doplyw", rewrite: false });
+  });
+
+  it("nieznany raport przepisuje adres na listę", () => {
+    expect(
+      resolveInsightsLocation({ tab: "raporty", report: "nie-ma" }),
+    ).toMatchObject({ tab: "raporty", report: null, rewrite: true });
+  });
+
+  it("brak parametru = Rywalizacja", () => {
+    expect(resolveInsightsLocation({ tab: null })).toMatchObject({
+      tab: "rywalizacja",
+      rewrite: true,
+    });
+  });
+
+  it("Firma bez uprawnień → rok do roku bez kwot", () => {
+    expect(
+      resolveInsightsLocation(
+        { tab: "firma" },
+        ["rywalizacja", "zespol", "raporty"],
+      ),
+    ).toMatchObject({ tab: "raporty", report: "rok-do-roku", rewrite: true });
+  });
+
+  it("raport spoza uprawnień → lista raportów", () => {
+    expect(
+      resolveInsightsLocation(
+        { tab: "raporty", report: "ranking-klientow" },
+        ALL_TABS,
+        ["rok-do-roku"],
+      ),
+    ).toMatchObject({ tab: "raporty", report: null, rewrite: true });
+  });
+});
+
+describe("resolveInsightsLocation — adresy sprzed 24.09.2026", () => {
   it.each([
-    ["rekrutacja", "body-leasing", "wyniki"],
-    ["delivery-lead", "body-leasing", "klienci"],
-    ["klienci", "body-leasing", "klienci"],
-  ] as const)(
-    "stary link ?tab=%s otwiera %s / rozdział %s",
-    (legacy, tab, chapter) => {
-      expect(resolveInsightsTab(legacy)).toEqual({ tab, rewrite: true, chapter });
-    },
-  );
-
-  it("stary link ?tab=zarzad otwiera Radę", () => {
-    expect(resolveInsightsTab("zarzad")).toEqual({ tab: "rada", rewrite: true });
+    [{ tab: "body-leasing", ch: "rywalizacja" }, "rywalizacja", null],
+    [{ tab: "body-leasing", ch: "wyniki" }, "zespol", null],
+    [{ tab: "body-leasing", ch: "klienci" }, "raporty", "portfele-dl"],
+    [{ tab: "body-leasing" }, "rywalizacja", null],
+    [{ tab: "rekrutacja" }, "zespol", null],
+    [{ tab: "delivery-lead" }, "raporty", "portfele-dl"],
+    [{ tab: "klienci" }, "raporty", "portfele-dl"],
+    [{ tab: "rada" }, "firma", null],
+    [{ tab: "zarzad" }, "firma", null],
+  ] as const)("%j → %s / %s", (input, tab, report) => {
+    expect(resolveInsightsLocation(input)).toMatchObject({
+      tab,
+      report,
+      rewrite: true,
+    });
   });
 
-  it("każdy alias wskazuje na istniejącą zakładkę i rozdział", () => {
-    const known = getVisibleInsightTabIds(user("admin"));
-    const chapters = CHAPTERS.map((c) => c.id);
-    for (const target of Object.values(LEGACY_TAB_ALIASES)) {
-      expect(known).toContain(target.tab);
-      if (target.chapter) expect(chapters).toContain(target.chapter);
+  it("kotwica wygrywa z aliasem: #zrodla to raport Źródła", () => {
+    expect(
+      resolveInsightsLocation({ tab: "rekrutacja", hash: "#zrodla" }),
+    ).toMatchObject({ tab: "raporty", report: "doplyw", dropHash: true });
+  });
+
+  it("rada#klienci (stary link MRR z DynaReportera) → Firma", () => {
+    expect(
+      resolveInsightsLocation({ tab: "rada", hash: "#klienci" }),
+    ).toMatchObject({ tab: "firma" });
+  });
+
+  it("rada dla Head of Recruitment → rok do roku bez kwot", () => {
+    expect(
+      resolveInsightsLocation(
+        { tab: "rada" },
+        getVisibleInsightTabIds(user("head_of_recruitment")),
+      ),
+    ).toMatchObject({ tab: "raporty", report: "rok-do-roku" });
+  });
+
+  it("parametr ch przy nowym widoku jest zdejmowany z adresu", () => {
+    expect(
+      resolveInsightsLocation({ tab: "zespol", ch: "wyniki" }),
+    ).toMatchObject({ tab: "zespol", rewrite: true });
+  });
+
+  it("aliasy i kotwice wskazują tylko istniejące raporty", () => {
+    const known = new Set(REPORTS.map((r) => r.id));
+    for (const target of [
+      ...Object.values(LEGACY_TAB_ALIASES),
+      ...Object.values(LEGACY_ANCHORS),
+    ]) {
+      if (target.report) expect(known.has(target.report), target.report).toBe(true);
     }
-    for (const chapter of Object.values(LEGACY_ANCHOR_CHAPTER)) {
-      expect(chapters).toContain(chapter);
-    }
   });
 
-  it("brak parametru i literówka wracają na zakładkę domyślną", () => {
-    expect(resolveInsightsTab(null)).toEqual({
-      tab: DEFAULT_INSIGHTS_TAB,
-      rewrite: true,
-    });
-    expect(resolveInsightsTab("bodyleasing")).toEqual({
-      tab: DEFAULT_INSIGHTS_TAB,
-      rewrite: true,
-    });
-  });
-
-  it("Rada spoza listy dozwolonych nie zostaje aktywna", () => {
-    // Rekruter wchodzący w link `?tab=rada` ląduje na Body Leasing, a nie
-    // w pustym kontenerze udającym utratę danych.
-    expect(resolveInsightsTab("rada", ["body-leasing"])).toEqual({
-      tab: "body-leasing",
-      rewrite: true,
-    });
-    expect(resolveInsightsTab("zarzad", ["body-leasing"])).toEqual({
-      tab: "body-leasing",
-      rewrite: true,
-    });
-  });
-});
-
-describe("rozdział w URL-u", () => {
-  it("jawne ?ch= wygrywa", () => {
-    expect(resolveChapter("klienci", "#liga", "wyniki")).toBe("klienci");
-  });
-
-  it("stara kotwica wygrywa z rozdziałem aliasu", () => {
-    // `?tab=rekrutacja#liga` znaczy Ligę, a nie Wyniki.
-    expect(resolveChapter(null, "#liga", "wyniki")).toBe("rywalizacja");
-    expect(resolveChapter(null, "#zrodla", undefined)).toBe("wyniki");
-  });
-
-  it("bez kotwicy decyduje alias, a bez aliasu — rozdział domyślny", () => {
-    expect(resolveChapter(null, "", "klienci")).toBe("klienci");
-    expect(resolveChapter(null, "", undefined)).toBe(DEFAULT_CHAPTER);
-    expect(resolveChapter("literowka", "#nieznana", undefined)).toBe(
-      DEFAULT_CHAPTER,
+  it("stare klucze zakładek, których używa backend, są w aliasach", () => {
+    expect(Object.keys(LEGACY_TAB_ALIASES)).toEqual(
+      expect.arrayContaining(["rekrutacja", "delivery-lead", "rada", "klienci", "zarzad"]),
     );
   });
 });

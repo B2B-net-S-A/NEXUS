@@ -727,6 +727,61 @@ def _metric(
     }
 
 
+# Klucze serii składowych, które niosą KWOTY. Wiersze pieniężne rozpoznajemy po
+# jednostce (`pln`) i po `margin_pct` (procent liczony z dwóch kwot).
+_MONEY_COMPONENTS = frozenset(
+    {
+        "margin_with_known_hours_pln",
+        "margin_known_hours",
+        "margin_monthly_pln",
+        "revenue_monthly_pln",
+    }
+)
+_MONEY_METRICS = frozenset({"margin_pct"})
+
+
+def is_money_metric(metric: dict) -> bool:
+    return metric.get("unit") == "pln" or metric.get("key") in _MONEY_METRICS
+
+
+def without_money(result: dict) -> dict:
+    """Odpowiedź rok-do-roku bez kwot — dla Head of Recruitment.
+
+    Decyzja Artura 24.09.2026: HoR widzi rekrutację (placementy, hit ratio,
+    klientów, konsultantów, zejścia), ale nie przychód, koszty ani marżę.
+    Redakcja działa na gotowym wyniku, więc cache zostaje jeden dla obu
+    odbiorców; zwracamy KOPIĘ, nie ruszamy obiektu z cache'u.
+    """
+    stripped = dict(result)
+    stripped["metrics"] = [m for m in result["metrics"] if not is_money_metric(m)]
+    stripped["component_series"] = {
+        key: value
+        for key, value in result["component_series"].items()
+        if key not in _MONEY_COMPONENTS
+    }
+    degraded = result.get("degraded")
+    if degraded is not None:
+        # Brak kursu NBP i ryczałt bez godzin dotyczą wyłącznie kwot.
+        reasons = [
+            r for r in degraded["reasons"] if r not in ("fx_missing", "hours_unknown")
+        ]
+        if not reasons:
+            stripped["degraded"] = None
+        else:
+            unspecified = degraded.get("contracts_without_termination_reason", 0)
+            stripped["degraded"] = {
+                "reasons": reasons,
+                "fx": {"currencies": [], "months_affected": []},
+                "contracts_without_termination_reason": unspecified,
+                "message": (
+                    f"{unspecified} zakończonych kontraktów bez powodu — "
+                    "liczą się do zejść, ale nie mogą trafić do rezygnacji."
+                ),
+            }
+    stripped["money_redacted"] = True
+    return stripped
+
+
 def resolve_years(end_year: Optional[int], count: int, today: date) -> list:
     """Lata do policzenia — rosnąco, kończąc na ``end_year`` (domyślnie bieżący)."""
     last = end_year or today.year
@@ -737,5 +792,7 @@ __all__ = [
     "DEFAULT_YEARS",
     "MAX_YEARS",
     "compute_board_yoy",
+    "is_money_metric",
     "resolve_years",
+    "without_money",
 ]

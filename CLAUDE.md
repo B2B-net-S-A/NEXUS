@@ -389,11 +389,11 @@ ustaliły reguły, które łatwo cofnąć „przy okazji”:
   Rzadki polling działa tylko dlatego, że powrót gniazda (`useNotifications`,
   `onopen` po zerwaniu) odświeża powiadomienia i KPI — nie usuwaj tego odświeżenia.
   Ponowne łączenie ma rozrzut 50–100% (`reconnectDelayMs`), fallback pomija ukrytą kartę.
-- **Sekcje Insights poza pierwszą montują się przez `DeferUntilVisible`** — kotwica
-  `<InsightsSection id>` zostaje na zewnątrz wrappera, a `InsightsSectionNav` przypina
-  cel (`lib/anchor-pin.ts`) na czas doczytywania — bez tego sekcje nad celem rosły
-  po skoku i „Źródła” lądowały 3180 px pod ekranem. Przypięcie ustępuje pierwszej
-  akcji użytkownika. Pilnuje tego `InsightsSectionNavContract.test.ts` i `anchor-pin.test.ts`.
+- **Insights nie ma już długich stron z paskiem sekcji** (przebudowa 24.09.2026):
+  widoki są krótkie, a rzadkie treści żyją w osobnych raportach
+  (`?tab=raporty&report=`), więc `DeferUntilVisible`, `InsightsSectionNav`
+  i `lib/anchor-pin.ts` usunięto. Nie wracaj do jednej strony z kilkunastoma
+  sekcjami — to ją trzeba było doczytywać leniwie i przypinać kotwice.
 - **Drogi snapshot pod jednym kluczem cache liczy jeden wykonawca:** `cache_single_flight`
   z `app/core/cache.py` (podwójne sprawdzenie w środku) + `jitter_seconds` w `cache_set`.
   `_lock` w tym module chroni słownik, nie obliczenie. Przekazuj `db=db`: oczekujący
@@ -5757,26 +5757,37 @@ zakresem świadomie:** Sales, AI Analytics, Przetargi, Premie (moduł sprzedaży
 Decyzje D1–D7 i pełna specyfikacja: `docs/insights-dynareporter-migration-plan.md`
 §0 oraz `docs/insights-etap0-specs.md`.
 
-- **DWIE zakładki od 21.09.2026: `body-leasing` (3 rozdziały w `?ch=`) i
-  `rada`** (makiety: https://claude.ai/artifact/3JijNAob8Vc1d53NgBGMJb, runda F).
-  Dawne Rekrutacja i Delivery Lead zlane w **Body Leasing** — jeden rozdział
-  widać naraz (`BodyLeasingPanel.tsx`, pliki w `components/insights/chapters/`):
-  **Rywalizacja** (domyślny; kampania, Liga, wyścigi, ścieżka rozwoju jako
-  tablica Junior / Senior / Expert, Hall of Fame — BEZ paska okresu),
-  **Wyniki** (Wynik · Dziś i w miesiącu · Zespół · Praca w toku · Dopływ
-  kandydatów; miesiąc) i **Klienci** (portfele DL — jedna tabela, DL jako
-  nagłówek grupy; rok). **Rada** (rok do roku NA GÓRZE jako karty metryk, pod
-  nimi kokpit i ranking klientów) widzą WYŁĄCZNIE admin, Finanse i HoR —
-  `RADA_ROLES` we froncie i `BoardReader` na `/api/insights/board`,
-  `/board/yoy`, `/clients/ranking`. **Usunięte z UI:** Power Calling, LinkedIn
-  (od 23.09.2026 także ich endpointy i sekcja `linkedin` w dashboard v2;
-  tabela `linkedin_daily_metrics` zostaje) oraz cztery sekcje DL zastąpione
-  portfelami. Z pulpitu przeszły: aktywność dnia/miesiąca
-  (`RecruitmentActivityDashboard showNextSteps={false}`, tylko z dostępem do
-  sekcji Rekrutacje), obłożenie (`AllocationWorkloadBoard`, tylko admin/HoR —
-  endpoint `HeadOfRecruitmentOnly`) i kompetencje jako agregat
-  (`/api/insights/recruitment/competence-matrix`). Dokładając sekcję, zacznij
-  od pytania, na czyje pytanie odpowiada — nie od tego, gdzie jest wolne miejsce.
+- **PIĘĆ widoków od 24.09.2026** (makiety: https://claude.ai/artifact/Mkmo9FeBiMbhAyLBgxNh3Q;
+  do tego dnia 2 zakładki i 27 bloków — Artur: „za dużo tego wszystkiego").
+  Każdy widok odpowiada na JEDNO pytanie, ma najwyżej cztery kafle z punktem
+  odniesienia i jedno zdanie wniosku (`lib/insights-views.ts`, czyste funkcje):
+  **Rywalizacja** (pierwsza dla każdego; kampania, obie Ligi Mistrzów, oba
+  wyścigi miesiąca z podświetlonym wierszem zalogowanej osoby, skróty Hall of
+  Fame i ścieżki — BEZ paska okresu; Artur: „Liga i wyścigi — bardzo ważne"),
+  **Mój miesiąc** (role z własnymi KPI: rekruter, sourcer, TAC, DL; `/api/kpis/me/panel`,
+  bieżący miesiąc, bez paska okresu), **Zespół** (kafle i lejek dla każdego;
+  „Do uwagi" i tabela ludzi z przełącznikiem Rekruterzy / Delivery Leadzi tylko
+  z `view_team_kpi`), **Firma** (TYLKO admin i Finanse — `FIRMA_ROLES`
+  i `BoardReader`) oraz **Raporty** (`lib/insights-reports.ts` — rejestr
+  z pytaniem, oknem i bramką; `?tab=raporty&report=<id>` na całą stronę).
+  Widoki: `components/insights/views/`, harness `/preview/insights?as=&view=`.
+  Nowa treść = najpierw pytanie, na które odpowiada; jeśli nie jest jednym
+  z czterech pytań widoków, to jest raport, nie kolejny blok na widoku.
+- **Head of Recruitment NIE widzi pieniędzy (decyzja Artura 24.09.2026).**
+  `BoardReader` = admin + finance (`/board`, `/clients/ranking`, narzędzie
+  Jarvisa `insights_board`); `/board/yoy` stoi na `BoardTrendReader` (+ HoR),
+  a HoR dostaje odpowiedź przez `without_money` (bez metryk `pln`,
+  `margin_pct` i kwot w `component_series`, `money_redacted: true`). Mail
+  zarządu (`kpi_email_reports._BOARD_ROLES`) idzie tylko do admina i Finansów.
+  `/api/competitions/monthly-races` nie oddaje marży/h z rozstrzygania remisu
+  (`_MARGIN_EXTRAS`) — do 24.09 widział ją każdy zalogowany.
+- **Widok Zespół ma własne trasy** (`api/insights_team_signals.py`, capability
+  `VIEW_TEAM_KPI`): `/team/people` (atrybucja verifier-anchored jak wyścigi
+  i „Mój miesiąc", precyzja 30 dni, weryfikacje na dzień roboczy, placementy
+  z TEGO SAMEGO odcinka poprzedniego okresu), `/team/attention` (tylko sygnały
+  ponad próg: rekrutacje bez ruchu 14 dni, precyzja < 50%, słabe prepy — ostatnie
+  tylko admin/HoR) i `/recruitment/stale-jobs`. Kafle bieżącego miesiąca
+  porównują dni 1–N z dniami 1–N poprzedniego (`previousComparablePeriod`).
 - **Tabele rok-do-roku Rady (`GET /api/insights/board/yoy`)** — dwanaście
   miesięcy × trzy lata, z deltą i kolumną „Ocena". Endpoint świadomie NIE
   przyjmuje paska okresu: patrzy na pełne lata kalendarzowe, a wpuszczenie tam
@@ -5855,28 +5866,22 @@ Decyzje D1–D7 i pełna specyfikacja: `docs/insights-dynareporter-migration-pla
     wszystkich 36 miesiącach. Tabela rok-do-roku NIE wchodzi też do eksportu
     CSV zakładki: tamten jest przycinany oknem z paska, a ta siatka jest
     latami — jeden plik pod jedną nazwą oznaczałby dwa różne zakresy.
-- **Stare identyfikatory zakładek i kotwic ŻYJĄ jako aliasy**
-  (`LEGACY_TAB_ALIASES`, `LEGACY_ANCHOR_CHAPTER` w `InsightsView.tsx`):
-  `rekrutacja` → Body Leasing / Wyniki, `delivery-lead` i `klienci` → Body
-  Leasing / Klienci, `zarzad` → Rada; stara kotwica (`#liga`, `#zrodla`…)
-  wybiera rozdział dokładniej niż alias. Nie kasuj ich: te linki są
-  w zakładkach przeglądarki, w zapisanych powiadomieniach i w przekierowaniach
-  `/dynareporter/*`. Rozstrzygają czyste `resolveInsightsTab`
-  i `resolveChapter` (testowalne bez montowania widoku).
-- **Każdy rozdział ma własny domyślny okres i zmiana rozdziału go zeruje**
-  (Wyniki: poprzedni miesiąc, Klienci: rok, Rada: kwartał). Klienci stoją na
-  roku, bo hit ratio stoi na rekrutacjach ZAMKNIĘTYCH w oknie, a tych
+- **Stare identyfikatory zakładek, rozdziałów i kotwic ŻYJĄ jako aliasy**
+  (`LEGACY_TAB_ALIASES`, `LEGACY_CHAPTERS`, `LEGACY_ANCHORS` w `InsightsView.tsx`):
+  `body-leasing` (+`ch=wyniki`) → Zespół, `ch=klienci`/`delivery-lead`/`klienci`
+  → raport Portfele DL, `rada`/`zarzad` → Firma (bez uprawnień: raport Rok do
+  roku bez kwot); stara kotwica (`#zrodla` → raport Źródła) wygrywa z aliasem.
+  Nie kasuj ich: te linki są w zakładkach przeglądarki, w zapisanych
+  powiadomieniach i mailach. Rozstrzyga czyste `resolveInsightsLocation`.
+- **Każdy widok ma własny domyślny okres i zmiana widoku go zeruje**
+  (Zespół: bieżący miesiąc, Firma: kwartał, Portfele DL: rok). Portfele stoją
+  na roku, bo hit ratio stoi na rekrutacjach ZAMKNIĘTYCH w oknie, a tych
   w miesiącu jest kilkanaście na cały zespół — wskaźnik z takiej próbki
   skacze o dziesiątki punktów i czyta się jak awaria.
 - **Portfele DL (`/api/insights/delivery-leads/portfolio`) liczą nagłówek DL
   i wiersze klientów TĄ SAMĄ definicją co `/delivery-leads`** — suma wierszy
   zgadza się z nagłówkiem. Nie mieszaj z `/clients/hit-ratio` (inna definicja
   hit ratio, bez filtra body_leasing).
-- **Sekcje mają kotwice** (`InsightsSection` + `InsightsSectionNav`): tablica
-  `SECTIONS` w panelu jest jednocześnie spisem treści i kontraktem `id`.
-  Dokładając sekcję, dopisz ją do tablicy — inaczej pasek sekcji obiecuje
-  komplet, którego nie ma. `scroll-mt` w `InsightsSection` jest load-bearing:
-  bez niego kotwica chowa nagłówek pod paskiem aplikacji.
 
 - **`/api/insights/*` jest ODDZIELNĄ powierzchnią od `/api/reports/*`
   i `/api/admin/*`.** Tamte trasy są współdzielone z innymi stronami, więc
@@ -5903,8 +5908,8 @@ Decyzje D1–D7 i pełna specyfikacja: `docs/insights-dynareporter-migration-pla
   z `isSuccess`). Bez tego przerwa między ponowieniami react-query pokazuje
   awarię jako „brak danych". Dotyczy też 403: pustka czyta się jak utrata
   danych, nie jak brak uprawnień.
-- **D7: `/insights` widzi KAŻDA zalogowana rola — poza zakładką Rada
-  (21.09.2026, patrz wyżej).** Guard rolowy zdjęty
+- **D7: `/insights` widzi KAŻDA zalogowana rola — poza widokiem Firma
+  (24.09.2026, patrz wyżej).** Guard rolowy zdjęty
   z sześciu luster; `ROLE_CAPABILITIES` i middleware nietknięte. Poszerzone do
   `CurrentUser`: `/api/competitions/current`, `/monthly-races` oraz `/history`
   (ta ostatnia dopiero wtedy, gdy zyskała konsumenta — sekcję „Hall of Fame").

@@ -12,6 +12,7 @@ import {
   Target,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAuthStore } from "@/store/auth";
 import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
 import {
   PER_DAY_REASON_LABEL,
@@ -89,6 +90,11 @@ const RACE_COPY: Record<
      * bez tego zdania jej nieobecność czyta się jak zero placementów.
      */
     populationNote: string | null;
+    /**
+     * Reguła remisu z regulaminu (decyzja 22.09.2026, `award_order`). Bez
+     * kwot — marża jest pieniędzmi, więc ekran mówi tylko, CO rozstrzyga.
+     */
+    tieRule: string;
   }
 > = {
   recommendations: {
@@ -101,6 +107,8 @@ const RACE_COPY: Record<
       "Nikt nie odnotował jeszcze rekomendacji w tym miesiącu. To pusty ranking, nie błąd pobierania.",
     populationNote:
       "Lista pokazuje też osoby, które nie spełniły warunków — z powodem przy nazwisku.",
+    tieRule:
+      "Remis: wyżej jest wyższa precyzja, a przy równej — osoba, która wcześniej doszła do wyniku.",
   },
   placements: {
     icon: Target,
@@ -112,6 +120,8 @@ const RACE_COPY: Record<
       "Nikt nie ma jeszcze dwóch placementów w tym miesiącu. To pusty ranking, nie błąd pobierania.",
     populationNote:
       "Lista zawiera wyłącznie osoby z min. 2 placementami — próg jest w zapytaniu do bazy, więc pozostali w ogóle nie wracają. Nieobecność nie znaczy zera.",
+    tieRule:
+      "Remis: rozstrzyga marża na godzinę z placementów w miesiącu; gdy nie da się jej policzyć albo jest równa — decyduje admin przy zamknięciu miesiąca.",
   },
 };
 
@@ -125,6 +135,9 @@ const RACE_COPY: Record<
  */
 const RACE_THRESHOLD_TOOLTIP =
   "Próg kwalifikacji jest wspólny dla wszystkich: 4 weryfikacje × liczba dni roboczych, które upłynęły w tym miesiącu (Pon–Pt bez świąt). Nie uwzględnia indywidualnych urlopów ani dni roboczych z COMPASSA — te wpływają tylko na plakietkę „/dzień”.";
+
+/** Ile miejsc wyścigu widać bez klikania. */
+const DEFAULT_VISIBLE_ROWS = 5;
 
 /** Polska odmiana — „1 dzień / 2 dni / 5 dni". */
 function daysPl(n: number): string {
@@ -213,15 +226,23 @@ function PrecisionBadge({ entry }: { entry: MonthlyRaceEntry }) {
 function RaceRow({
   entry,
   variant,
+  isMe = false,
 }: {
   entry: MonthlyRaceEntry;
   variant: RaceVariant;
+  isMe?: boolean;
 }) {
   const copy = RACE_COPY[variant];
   const disqualified = describeDisqualification(entry);
 
   return (
-    <li className="flex items-start gap-3 rounded-lg border border-border bg-card px-3 py-2">
+    <li
+      aria-current={isMe ? "true" : undefined}
+      className={cn(
+        "flex items-start gap-3 rounded-lg border px-3 py-2",
+        isMe ? "border-primary/40 bg-primary/10" : "border-border bg-card",
+      )}
+    >
       <span
         className={cn(
           "mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold",
@@ -238,6 +259,7 @@ function RaceRow({
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <span className="truncate text-sm font-semibold text-foreground">
             {entry.name}
+            {isMe ? <span className="ml-1 text-primary">(Ty)</span> : null}
           </span>
           {variant === "recommendations" ? (
             <>
@@ -299,10 +321,16 @@ function RaceCard({
   variant: RaceVariant;
 }) {
   const [showAll, setShowAll] = useState(false);
+  const meId = useAuthStore((state) => state.user?.id ?? null);
   const copy = RACE_COPY[variant];
   const Icon = copy.icon;
   const ranking = race.ranking ?? [];
-  const visible = showAll ? ranking : ranking.slice(0, 3);
+  // Pierwsza piątka i własny wiersz widać od razu (przebudowa 24.09.2026).
+  const visible = showAll
+    ? ranking
+    : ranking.filter(
+        (entry, index) => index < DEFAULT_VISIBLE_ROWS || entry.user_id === meId,
+      );
   const closed = isClosedMonth(race.period);
 
   return (
@@ -376,11 +404,16 @@ function RaceCard({
           <>
             <ol className="space-y-2">
               {visible.map((entry) => (
-                <RaceRow key={entry.user_id} entry={entry} variant={variant} />
+                <RaceRow
+                  key={entry.user_id}
+                  entry={entry}
+                  variant={variant}
+                  isMe={entry.user_id === meId}
+                />
               ))}
             </ol>
 
-            {ranking.length > 3 ? (
+            {ranking.length > visible.length || showAll ? (
               <button
                 type="button"
                 onClick={() => setShowAll((v) => !v)}
@@ -409,10 +442,7 @@ function RaceCard({
           {variant === "recommendations" && ranking.length > 0 ? (
             <p>{RACE_THRESHOLD_TOOLTIP}</p>
           ) : null}
-          <p>
-            Remis: przy tej samej liczbie wyżej jest osoba z wcześniej założonym
-            kontem. NEXUS nie rozstrzyga remisu marżą.
-          </p>
+          <p>{copy.tieRule}</p>
         </div>
       </div>
     </article>
