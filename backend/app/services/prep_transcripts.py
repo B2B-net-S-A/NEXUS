@@ -1,4 +1,4 @@
-"""Pobieranie transkryptów prepów z Teams (0364).
+"""Pobieranie transkryptów prepów z Teams (0369).
 
 Kolejka = ``prep_meetings`` z ``next_fetch_at <= teraz`` i stanem ``waiting``
 (także ``error``/``forbidden`` do ponowienia). Dla każdego prepu:

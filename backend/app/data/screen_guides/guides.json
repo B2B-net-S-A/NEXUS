@@ -335,7 +335,7 @@
     "title": "Rozmowy u klienta",
     "section": "pipeline",
     "roles": ["recruiter", "delivery_lead", "head_of_recruitment"],
-    "what": "Tu prowadzisz cykl rozmowy u klienta: terminy od klienta, wybór terminu, prep, rozmowę, telefon do kandydata do 30 minut po niej i debrief.",
+    "what": "Tu prowadzisz cykl rozmowy u klienta: terminy od klienta, wybór terminu, dwa prepy w Teams, rozmowę, telefon do kandydata do 30 minut po niej i debrief.",
     "tasks": [
       {
         "q": "Co mam dziś zrobić?",
@@ -350,6 +350,11 @@
       {
         "q": "Jak zapisać debrief po rozmowie?",
         "a": "Kliknij „Debrief” przy rozmowie — przycisk włącza się, gdy rozmowa się zacznie. Zapisz, jak poszło, czy kandydat przyjmie ofertę i jakie pytania zadał klient; trafią do przygotowań kolejnych kandydatów.",
+        "anchor": "calendar.todo"
+      },
+      {
+        "q": "Jak zaplanować prep i zobaczyć jego ocenę?",
+        "a": "Przed rozmową u klienta są dwa prepy: Prep 1 prowadzi Delivery Lead, Prep 2 rekruter. W „Do zrobienia” kliknij „Zaplanuj Prep 1” (albo „Zaplanuj Prep 2”), wybierz prowadzącego i termin, potem „Zaplanuj w Teams”. Po spotkaniu przy prepie w Agendzie pojawi się „Ocena prepu” z oceną i transkryptem.",
         "anchor": "calendar.todo"
       },
       {

@@ -260,7 +260,7 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'screening_reassign_suggest'",
     # 0353: podpowiedzi Luny w przeglądzie DZ (Dominik porównuje CV).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'dz_review'",
-    # 0364: ocena prepu z transkryptu Teams (GPT-6 Luna).
+    # 0369: ocena prepu z transkryptu Teams (GPT-6 Luna).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'prep_review'",
     # 0233: cotygodniowy digest dopasowań (match_digest_loop)
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'match_digest'",
@@ -666,7 +666,7 @@ _ENUM_STATEMENTS = [
     # 0352: pipeline v4 — przejęta blokada 12 h i zatrudniony bez zamówienia.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'candidate_claim_taken'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hired_order_missing'",
-    # 0364: prep słaby / bez nagrania / brak prepu przed rozmową u klienta.
+    # 0369: prep słaby / bez nagrania / brak prepu przed rozmową u klienta.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'prep_attention'",
     # callstatus: zapisywane przez POST /api/cloudtalk/initiate-call. Uśpione,
     # bo CLOUDTALK_ENABLED=false — ale leży dokładnie na ścieżce aktywacji.
@@ -5277,7 +5277,7 @@ _COLUMN_STATEMENTS = [
 )""",
     "CREATE INDEX IF NOT EXISTS ix_cv_qc_runs_pair_created "
     "ON cv_qc_runs (candidate_id, job_id, created_at DESC)",
-    # 0364: prepy w Teams — spotkanie, transkrypt i ocena. Lustro 1:1 z
+    # 0369: prepy w Teams — spotkanie, transkrypt i ocena. Lustro 1:1 z
     # migracją — pilnuje `test_prep_meetings_schema.py`.
     """CREATE TABLE IF NOT EXISTS prep_meetings (
     id BIGSERIAL PRIMARY KEY,
@@ -5984,7 +5984,7 @@ _DATA_STATEMENTS = [
     "SELECT 'dz_review', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'dz_review')",
-    # 0364: seed feature'a AI `prep_review` (ocena prepu z transkryptu Teams).
+    # 0369: seed feature'a AI `prep_review` (ocena prepu z transkryptu Teams).
     "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
     "SELECT 'prep_review', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "

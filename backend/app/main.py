@@ -766,7 +766,7 @@ async def lifespan(app: FastAPI):
         "cloudtalk_sync": asyncio.create_task(cloudtalk_sync_loop()),
         "traffit_sync": asyncio.create_task(traffit_daily_sync_loop()),
         "order_mail_ingest": asyncio.create_task(order_mail_ingest_loop()),
-        # 0364: transkrypty prepów z Teams → notatka i ocena prepu. Kończy się
+        # 0369: transkrypty prepów z Teams → notatka i ocena prepu. Kończy się
         # przed pętlą przy TEAMS_PREP_TRANSCRIPTS_ENABLED=false.
         "teams_prep_transcripts": asyncio.create_task(teams_prep_transcripts_loop()),
         # D5: mianownik wskaznikow „na dzien". Petla KONCZY sie przed
@@ -1084,7 +1084,7 @@ app.include_router(
     prefix="/api",
     tags=["interview-cycle"],
 )
-# 0364: prepy w Teams — planowanie Prep 1/2, transkrypt i ocena prepu.
+# 0369: prepy w Teams — planowanie Prep 1/2, transkrypt i ocena prepu.
 app.include_router(
     prep_meetings_api.router,
     prefix="/api",
@@ -1969,7 +1969,7 @@ async def api_health_check():
     # bieg nie przełącza na `degraded`, trzy z rzędu — tak. `running` w
     # kolumnie NIE jest awarią: to bieg w toku albo przerwany restartem
     # (deploy), a o świeżości i tak mówi data ostatniego końca.
-    # 0364: prepy w Teams — app-only kalendarz i transkrypty. Informacyjna.
+    # 0369: prepy w Teams — app-only kalendarz i transkrypty. Informacyjna.
     # `degraded` = w ostatnich 48 h aplikacja dostała 403 (polityka dostępu nie
     # obejmuje organizatora) albo pobranie padło.
     try:
@@ -2801,7 +2801,7 @@ async def api_health_deep_check():
         # 0343: wykluczone placementy — czyta je widok analytics_first_milestones
         # i VERIFIER_ANCHORED_CTE, więc brak tabeli = KPI i Insights 500.
         ("placement_exclusions", PlacementExclusion),
-        # 0364: prepy w Teams — agenda „Rozmowy u klienta” czyta je przy
+        # 0369: prepy w Teams — agenda „Rozmowy u klienta” czyta je przy
         # każdym wejściu, więc brak tabeli = pusty ekran kalendarza.
         ("prep_meetings", PrepMeeting),
         ("prep_transcripts", PrepTranscript),

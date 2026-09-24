@@ -1,4 +1,4 @@
-"""Transkrypt Teams (WebVTT) → wypowiedzi, tekst i role mówców (0364).
+"""Transkrypt Teams (WebVTT) → wypowiedzi, tekst i role mówców (0369).
 
 Czyste funkcje, bez bazy i sieci. Teams oddaje transkrypt jako VTT z tagiem
 mówcy ``<v Imię Nazwisko>`` przy każdej wypowiedzi. Konto z naszego tenanta

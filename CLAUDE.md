@@ -6562,7 +6562,7 @@ Rozmowa u klienta → Telefon ≤30 min → Debrief`. Raport:
 - Harness `/preview/calendar-cycle` (`?as=dl`) — dane fikcyjne, zero zapytań
   (dane agendy przez `dataOverride`, reszta zasiana w cache).
 
-## Prepy w Teams → transkrypt, notatka i ocena prepu (0364, 23.09.2026)
+## Prepy w Teams → transkrypt, notatka i ocena prepu (0369, 23.09.2026)
 
 Zastępuje martwą integrację Fireflies (klucz pusty na prodzie, 0 notatek).
 Przed każdą rozmową u klienta są DWA prepy z kandydatem przez Teams: Prep 1

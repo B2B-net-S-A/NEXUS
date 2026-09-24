@@ -17,7 +17,7 @@ function n(value: number): string {
 }
 
 /**
- * „Jakość prepów" (0364) — prepy z kandydatem przed rozmową u klienta,
+ * „Jakość prepów" (0369) — prepy z kandydatem przed rozmową u klienta,
  * założone z NEXUSA w Teams, per organizator. Tylko admin i Head of
  * Recruitment (serwer odmawia reszcie 403; rozdział w ogóle nie montuje sekcji
  * innym rolom). Okno jest stałe (90 dni) i NIE zależy od paska okresu —

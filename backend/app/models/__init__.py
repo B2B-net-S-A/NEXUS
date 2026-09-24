@@ -714,7 +714,7 @@ from app.models.candidate_consent import CandidateConsent  # noqa: F401
 from app.models.placement_exclusion import PlacementExclusion  # noqa: F401
 from app.models.dz_review_hint import DzReviewHint  # noqa: F401
 
-# 0364: prepy w Teams — spotkanie, transkrypt i ocena prepu.
+# 0369: prepy w Teams — spotkanie, transkrypt i ocena prepu.
 from app.models.prep_meeting import (  # noqa: F401
     PrepMeeting,
     PrepReview,

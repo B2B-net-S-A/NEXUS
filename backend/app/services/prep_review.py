@@ -1,4 +1,4 @@
-"""Ocena prepu z transkryptu Teams + notatka z podsumowaniem (0364, F23).
+"""Ocena prepu z transkryptu Teams + notatka z podsumowaniem (0369, F23).
 
 Decyzje Artura 23.09.2026. Każdy prep oceniany osobno według trzech kryteriów:
 

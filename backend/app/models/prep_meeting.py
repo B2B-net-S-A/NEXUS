@@ -1,4 +1,4 @@
-"""Prepy w Teams: spotkanie, transkrypt i ocena (migracja 0364, 23.09.2026).
+"""Prepy w Teams: spotkanie, transkrypt i ocena (migracja 0369, 23.09.2026).
 
 Przed każdą rozmową u klienta są DWA prepy z kandydatem (Prep 1 prowadzi
 Delivery Lead, Prep 2 — rekruter). NEXUS zakłada spotkanie w kalendarzu

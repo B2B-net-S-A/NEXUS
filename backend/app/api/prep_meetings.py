@@ -1,4 +1,4 @@
-"""Prepy w Teams (0364): planowanie Prep 1/2, transkrypt i ocena prepu.
+"""Prepy w Teams (0369): planowanie Prep 1/2, transkrypt i ocena prepu.
 
 * ``GET  /api/interview-cycle/preps/options`` — czy integracja działa,
   podpowiedzi organizatora dla obu prepów i zespół rekrutacji do wyboru.
