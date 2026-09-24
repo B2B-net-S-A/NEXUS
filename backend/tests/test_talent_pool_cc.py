@@ -89,6 +89,10 @@ LIVE_POOLS: list[tuple[str, str | None]] = [
     ("Test Lead", QA),
     ("Test Manager", QA),
     ("Pentester (blue+red)", INFRA),
+    # Audyt 24.09.2026: polskie nazwy pentestów nie mogą trafiać do QA.
+    ("Tester penetracyjny", INFRA),
+    ("Penetration Tester", INFRA),
+    ("Security Tester", QA),
     ("Performance Tester (jMeter, Loadrunner, Gatling)", QA),
     ("Manual Tester - bazy danych", QA),
     ("Manual Tester (web, mob, sys (bankowość)", QA),

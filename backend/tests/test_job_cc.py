@@ -36,6 +36,10 @@ LIVE_TITLES: list[tuple[str, str | None]] = [
     ("ATOS:FRONTEX: Security Architect - replacement", INFRA),
     ("B2B Red Team: Exploit Developer", INFRA),
     ("Technical IT Security resource MFA - Windows Hello for Business", INFRA),
+    # Audyt 24.09.2026: testy penetracyjne to security (grupa Infra), nie QA.
+    ("Tester penetracyjny (Red Team)", INFRA),
+    ("Specjalista ds. testów penetracyjnych", INFRA),
+    ("Inżynieria testów automatycznych", QA),
     # Precedence: a tester touching ETL stays QA, not data.
     ("Tester Automatyzujący (ETL, bazy danych)", QA),
     # — Data & AI —

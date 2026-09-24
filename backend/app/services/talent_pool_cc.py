@@ -40,6 +40,11 @@ from app.models.competence_category import CompetenceCategory
 # wins. Patterns are case-insensitive regexes; short or ambiguous tokens use
 # ``\b`` word-boundary anchors so e.g. "ai" matches "AI Engineer" but not the
 # "ai" inside "Mainframe".
+# Wzorzec QA nie łapie nazw o testach penetracyjnych — te należą do security.
+# Publiczne dla `job_cc` (polskie „testów” w bloku QA).
+_NOT_PENTEST = r"^(?!.*penetr).*"
+NOT_PENTEST = _NOT_PENTEST
+
 _RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     # 1) QA — testers. Checked first so a "Tester (ETL...)" stays QA rather
     #    than leaking into the data rules, "Security Tester" stays QA rather
@@ -50,9 +55,11 @@ _RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
         (
             r"\bqa\b",
             r"quality assurance",
-            # „Pentester” to security, nie tester oprogramowania.
-            r"(?<!pen)tester",
-            r"\btest\b",
+            # „Pentester” i „Tester penetracyjny” to security, nie tester
+            # oprogramowania (`_NOT_PENTEST` — słowo „penetr…” gdziekolwiek
+            # w nazwie oddaje ją blokowi security).
+            _NOT_PENTEST + r"(?<!pen)tester",
+            _NOT_PENTEST + r"\btest\b",
         ),
     ),
     # 2) Security — od 24.09.2026 część grupy „Infra & Operations & Security
@@ -63,6 +70,8 @@ _RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
         (
             r"pentest",
             r"penetration",
+            # Polskie „penetracyjny”, „testów penetracyjnych”.
+            r"penetrac",
             r"\bsecurity\b",
             r"\bsoc\b",
             r"\bsiem\b",
