@@ -25,7 +25,9 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import os
 import subprocess
+import urllib.request
 import sys
 from dataclasses import dataclass
 
@@ -243,6 +245,42 @@ def gh_json(path: str) -> object:
     return json.loads(gh("api", path))
 
 
+def fetch_job_log(repo: str, job_id: int) -> str:
+    """Log joba z REST API, bez `gh api`.
+
+    Nowszy `gh` na runnerze odmawia wypisania logu z sekwencjami sterującymi
+    terminala („pass --allow-escape-sequences”), a starszy tej flagi nie zna —
+    24.09.2026 komentarz dla #1778 wyszedł przez to bez listy testów. API
+    przekierowuje do podpisanego adresu magazynu, więc token idzie nagłówkiem
+    nieprzenoszonym przy przekierowaniu.
+    """
+    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    if not token:
+        return gh("api", f"repos/{repo}/actions/jobs/{job_id}/logs")
+    request = urllib.request.Request(
+        f"https://api.github.com/repos/{repo}/actions/jobs/{job_id}/logs",
+        headers={"Accept": "application/vnd.github+json"},
+    )
+    request.add_unredirected_header("Authorization", f"Bearer {token}")
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            return response.read().decode("utf-8", errors="replace")
+    except OSError as exc:
+        raise RuntimeError(f"log joba {job_id}: {exc}") from exc
+
+
+def head_changed_after_run(head_committed_at: str, run_started_at: str) -> bool:
+    """PR dostał commit po starcie biegu kolejki — czerwień dotyczy starej wersji.
+
+    24.09.2026: poprawka #1778 była już wypchnięta, a status „Kolejka merge'ów”
+    i tak trafił na nowy HEAD, więc PR świecił się na czerwono za naprawiony błąd.
+    Porównujemy czasy ISO 8601 z API (ta sama strefa UTC, ``Z``).
+    """
+    return bool(head_committed_at and run_started_at) and (
+        head_committed_at > run_started_at
+    )
+
+
 def collect_failures(
     repo: str, run_id: int
 ) -> tuple[list[Failure], list[tuple[str, str]]]:
@@ -256,7 +294,7 @@ def collect_failures(
         if job.get("conclusion") not in ("failure", "timed_out"):
             continue
         try:
-            log_text = gh("api", f"repos/{repo}/actions/jobs/{job['id']}/logs")
+            log_text = fetch_job_log(repo, job["id"])
         except RuntimeError as exc:
             job_errors.append((job["name"], f"nie udało się pobrać logu ({exc})"))
             continue
@@ -351,6 +389,25 @@ def main(argv: list[str] | None = None) -> int:
             continue
         sha = info["head"]["sha"]
         body = build_comment(pr, group, queue_pr, run_url, failures, job_errors)
+        committed = (
+            gh_json(f"repos/{args.repo}/commits/{sha}")
+            .get("commit", {})
+            .get("committer", {})
+            .get("date", "")
+        )
+        if head_changed_after_run(committed, run.get("run_started_at", "")):
+            note = (
+                f"\n\n_Od startu tego biegu PR dostał nowy commit ({sha[:9]}) — "
+                "jeśli to poprawka, status nie jest ustawiany; sprawdź, czy lista wyżej "
+                "jest już nieaktualna._"
+            )
+            if args.dry_run:
+                print(f"\n--- #{pr}: HEAD {sha[:9]} nowszy niż bieg — bez statusu ---")
+                continue
+            print(
+                f"#{pr}: HEAD nowszy niż bieg — bez statusu; {upsert_comment(args.repo, pr, body + note)}"
+            )
+            continue
         status = {
             "state": "failure",
             "context": STATUS_CONTEXT,
