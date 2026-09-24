@@ -1571,6 +1571,9 @@ async def create_job(
             payload["tac_id"] = resolved.tac_id
         if payload.get("delivery_lead_id") is None:
             payload["delivery_lead_id"] = resolved.delivery_lead_id
+            # Główny DL klienta wpisany automatycznie — idzie za jego zmianą
+            # (`job_delivery_lead_fill`, 0376).
+            payload["delivery_lead_auto_filled"] = resolved.delivery_lead_id is not None
 
     # A Delivery Lead creating a recruitment without a resolved client-side
     # DL (no head DL assigned, or none at all) becomes its DL themselves —
@@ -1987,6 +1990,12 @@ async def update_job(
         )
 
     updates = data.model_dump(exclude_unset=True)
+    if (
+        "delivery_lead_id" in updates
+        and updates["delivery_lead_id"] != job.delivery_lead_id
+    ):
+        # Ręczna zmiana DL-a: od teraz nietykalny dla `job_delivery_lead_fill`.
+        job.delivery_lead_auto_filled = False
     if "champion_profile" in updates:
         from app.services.champion_intake import user_edit
 

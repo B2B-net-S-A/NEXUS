@@ -5604,6 +5604,8 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
         CHECK ((outcome = 'callback') = (callback_on IS NOT NULL))
 )""",
     "CREATE INDEX IF NOT EXISTS ix_candidate_followups_candidate_created ON candidate_followups (candidate_id, created_at DESC)",
+    # 0376: DL rekrutacji wpisany automatycznie idzie za głównym DL-em klienta.
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS delivery_lead_auto_filled BOOLEAN NOT NULL DEFAULT false",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""
@@ -7529,6 +7531,29 @@ _DATA_STATEMENTS = [
       AND cv_extracted_data->'_notes_insights'->'preferences'->>'remote_only' = 'true'
       AND EXISTS (SELECT 1 FROM marker)
     """,
+    # 0376 — jednorazowo: otwarte rekrutacje, których DL jest dziś głównym
+    # DL-em klienta, to DL wpisany automatycznie (fill z 24.09.2026).
+    """
+    WITH marker AS (
+        INSERT INTO app_settings (key, value)
+        VALUES ('0376_job_delivery_lead_auto_filled', 'true'::jsonb)
+        ON CONFLICT (key) DO NOTHING
+        RETURNING key
+    ), heads AS (
+        SELECT DISTINCT ON (a.client_id) a.client_id, a.delivery_lead_user_id AS dl_id
+          FROM delivery_lead_client_assignments a
+          JOIN users u ON u.id = a.delivery_lead_user_id AND u.is_active
+         WHERE a.is_head
+         ORDER BY a.client_id, a.id
+    )
+    UPDATE jobs j SET delivery_lead_auto_filled = true
+      FROM heads h
+     WHERE j.client_id = h.client_id
+       AND j.delivery_lead_id = h.dl_id
+       AND j.status IN ('draft', 'published')
+       AND NOT j.delivery_lead_auto_filled
+       AND EXISTS (SELECT 1 FROM marker)
+""",
 ]
 
 

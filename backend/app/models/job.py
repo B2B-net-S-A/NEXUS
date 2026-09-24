@@ -286,6 +286,12 @@ class Job(Base, TimestampMixin):
     delivery_lead_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id"), nullable=True, index=True
     )
+    # 0376: DL wpisał automat (główny DL klienta — `job_delivery_lead_fill`
+    # albo `resolve_default_owners`). Taki DL idzie za zmianą głównego DL-a
+    # klienta; ręczna zmiana w rekrutacji zeruje znacznik.
+    delivery_lead_auto_filled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     # TAC (Talent Acquisition Consultant) — osoba opiekująca się relacją z
     # klientem. Przy POST /jobs auto-ustawiany tylko gdy klient ma dokładnie
     # jedno aktywne przypisanie TAC. Przy wielu równych TAC-ach caller musi
