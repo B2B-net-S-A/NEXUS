@@ -32,6 +32,7 @@ import {
   FEEDBACK_EVENT_TYPES,
   HOURS,
   REMINDER_OPTIONS,
+  isOtherOutlookMeeting,
   type CalendarEvent,
 } from "@/components/calendar/calendar-config";
 import { resolveViewState } from "@/lib/view-state";
@@ -125,6 +126,35 @@ function parseEventIdParam(raw: string | null): number | null {
  * Do 0338 była całą stroną `/calendar`. Zostaje w całości (kolizje, wydarzenia
  * całodniowe, `?event=` z dzwonka), ale jest teraz jednym z trzech widoków.
  */
+/** Kolejność legendy: najpierw cykl rozmów u klienta, potem reszta. */
+const LEGEND_TYPES = [
+  "prep_call",
+  "client_interview",
+  "interview",
+  "screening",
+  "meeting",
+  "deadline",
+] as const;
+
+const SHOW_OUTLOOK_KEY = "nexus:calendar:showOutlook:v1";
+
+/** Wybór jednej osoby w tej przeglądarce; bez dostępu do magazynu = domyślnie schowane. */
+function readShowOutlook(): boolean {
+  try {
+    return window.localStorage.getItem(SHOW_OUTLOOK_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeShowOutlook(value: boolean) {
+  try {
+    window.localStorage.setItem(SHOW_OUTLOOK_KEY, value ? "1" : "0");
+  } catch {
+    // Brak magazynu (tryb prywatny) — wybór działa do przeładowania.
+  }
+}
+
 export default function WeekCalendar() {
   // `useSearchParams` wymaga granicy Suspense na prerenderze (jak `/jobs`) —
   // bez niej `next build` wywala się, mimo że strona renderuje się tylko po
@@ -229,7 +259,14 @@ function CalendarPageInner() {
   // Bez domyślnego `= []`: nieudane pobranie musi być odróżnialne od „wolny
   // tydzień". Pusta siatka bez komunikatu to najdroższa cicha awaria w ATS —
   // rekruter skanuje poniedziałek, widzi zero rozmów i odchodzi.
-  const events = eventsData ?? [];
+  const allEvents = eventsData ?? [];
+  // Zwykłe spotkania z Outlooka są domyślnie schowane (przełącznik nad siatką);
+  // prepy, rozmowy i wszystko z kandydatem albo rekrutacją widać zawsze.
+  const [showOutlook, setShowOutlook] = useState(false);
+  // Po hydracji — serwer nie zna wyboru z tej przeglądarki.
+  useEffect(() => setShowOutlook(readShowOutlook()), []);
+  const hiddenOutlookCount = allEvents.filter(isOtherOutlookMeeting).length;
+  const events = showOutlook ? allEvents : allEvents.filter((ev) => !isOtherOutlookMeeting(ev));
   // `isPending`, nie `isLoading` — przy globalnym `retry: 1` istnieje okno
   // między próbami, w którym isLoading i isError są false, a data undefined;
   // na `isLoading` migał tam pusty tydzień w drodze do stanu błędu.
@@ -280,7 +317,7 @@ function CalendarPageInner() {
     today,
     events,
     currentMonday,
-    upcoming: upcomingQuery.data ?? [],
+    upcoming: (upcomingQuery.data ?? []).filter((ev) => showOutlook || !isOtherOutlookMeeting(ev)),
     failed: calendarFailed || upcomingQuery.isError,
   };
 
@@ -404,6 +441,38 @@ function CalendarPageInner() {
             {/* „Nowe wydarzenie” jest w panelu bocznym — drugi przycisk w
                 nagłówku ucinał się przy węższym oknie (test na produkcji 22.09). */}
           </div>
+        </div>
+
+        {/* Filtr Outlooka i legenda kolorów — nad siatką, a nie pod listą
+            w panelu bocznym, gdzie nikt jej nie widział. */}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-3 md:px-5 py-2 border-b border-border shrink-0 text-xs text-muted-foreground">
+          <label className="inline-flex items-center gap-2 text-sm text-foreground">
+            <input
+              type="checkbox"
+              checked={showOutlook}
+              onChange={(e) => {
+                setShowOutlook(e.target.checked);
+                writeShowOutlook(e.target.checked);
+              }}
+              className="h-4 w-4 accent-primary"
+            />
+            Pozostałe spotkania z Outlooka
+            {hiddenOutlookCount > 0 ? (
+              <span className="text-muted-foreground">({hiddenOutlookCount})</span>
+            ) : null}
+          </label>
+          <ul className="flex flex-wrap items-center gap-x-3 gap-y-1 md:ml-auto" aria-label="Legenda">
+            {LEGEND_TYPES.map((key) => (
+              <li key={key} className="inline-flex items-center gap-1.5">
+                <span className={cn("h-2.5 w-2.5 rounded-full", EVENT_TYPE_CONFIG[key].dotColor)} aria-hidden />
+                {EVENT_TYPE_CONFIG[key].label}
+              </li>
+            ))}
+            <li className="inline-flex items-center gap-1">
+              <AlertTriangle className="h-3 w-3 text-warning" aria-hidden />
+              kolizja z innym spotkaniem
+            </li>
+          </ul>
         </div>
 
         {/* Day headers */}
@@ -980,19 +1049,6 @@ function CalendarSidebar({
         </div>
       )}
 
-      <div className="bg-card dark:bg-muted border border-border dark:border-border rounded-2xl p-4">
-        <div className="text-xs font-bold text-muted-foreground dark:text-muted-foreground uppercase tracking-wide mb-3">
-          Typy wydarzeń
-        </div>
-        <div className="space-y-2">
-          {Object.entries(EVENT_TYPE_CONFIG).map(([key, cfg]) => (
-            <div key={key} className="flex items-center gap-2">
-              <div className={cn("w-2.5 h-2.5 rounded-full shrink-0", cfg.dotColor)} />
-              <span className="text-xs text-muted-foreground">{cfg.label}</span>
-            </div>
-          ))}
-        </div>
-      </div>
     </div>
   );
 }

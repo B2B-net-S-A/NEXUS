@@ -547,6 +547,14 @@ async def test_interview_badges_for_job_only_for_pairs_in_cycle():
     assert badges[with_slots]["kind"] == "choose_slot"
     assert badges[with_slots]["label"] == "Wybierz termin · 2 propozycje"
     assert badges[event_id]["kind"] == "slot"
+    # Karta i dok dostają kroki cyklu (kreski postępu) i id rozmowy.
+    assert [s["key"] for s in badges[event_id]["steps"]] == [
+        "slots", "choice", "prep", "prep2", "interview", "call", "debrief"
+    ]
+    assert badges[event_id]["steps"][0]["state"] == "done"
+    assert isinstance(badges[event_id]["interview_event_id"], int)
+    assert badges[with_slots]["interview_event_id"] is None
+    assert badges[with_slots]["steps"][1]["state"] in {"current", "todo", "waiting", "overdue"}
     async with AsyncSessionLocal() as db:
         assert await interview_badges_for_job(db, job_id=job_id, candidate_ids=[]) == {}
 

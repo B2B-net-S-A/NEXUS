@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils";
 import type { RateUnit } from "@/lib/api";
 import type { FollowupCardBadge } from "@/lib/api/candidateFollowups";
 import type { CandidateContactSummary } from "@/lib/candidate-contact";
+import type { StepKey, StepState } from "@/lib/interview-cycle";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -128,6 +129,10 @@ export interface KanbanItem {
   label: string;
   tone: "wait" | "info" | "ok" | "urgent";
   at?: string | null;
+  /** Siedem kroków cyklu (kreski postępu na karcie i w doku); starszy serwer = brak. */
+  steps?: Array<{ key: StepKey; state: StepState }>;
+  /** Rozmowa u klienta pary — debrief otwiera się prosto z doku. */
+  interview_event_id?: number | null;
  } | null;
  // „Zatrudniony": czy jest uzupełnione zamówienie.
  order_status?: "complete" | "missing" | null;

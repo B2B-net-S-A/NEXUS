@@ -140,7 +140,20 @@ function columns(viewerId: number): KanbanColumn[] {
         interview_badge: { kind: "choose_slot", label: "Wybierz termin · 3 propozycje", tone: "wait" },
       }),
       card("Grzegorz", "Jankowski", {
-        interview_badge: { kind: "prep_done", label: "czw 25.09 · 14:00 · Prep ✓", tone: "info" },
+        interview_badge: {
+          kind: "prep_done",
+          label: "czw 25.09 · 14:00 · Prep ✓",
+          tone: "info",
+          steps: [
+            { key: "slots", state: "done" },
+            { key: "choice", state: "done" },
+            { key: "prep", state: "done" },
+            { key: "prep2", state: "current" },
+            { key: "interview", state: "scheduled" },
+            { key: "call", state: "todo" },
+            { key: "debrief", state: "todo" },
+          ],
+        },
       }),
       card("Magdalena", "Pawlak", {
         interview_badge: { kind: "call_due", label: "Zadzwoń · 18 min po rozmowie", tone: "urgent" },
@@ -154,6 +167,22 @@ function columns(viewerId: number): KanbanColumn[] {
         client_rate_value: 175,
         client_rate_unit: "hourly",
         client_rate_currency: "PLN",
+        // Karta przesunięta dalej z zaległym telefonem — odznaka zostaje (24.09.2026).
+        interview_badge: {
+          kind: "call_due",
+          label: "Zadzwoń · debrief zaległy",
+          tone: "urgent",
+          interview_event_id: 901,
+          steps: [
+            { key: "slots", state: "done" },
+            { key: "choice", state: "done" },
+            { key: "prep", state: "skipped" },
+            { key: "prep2", state: "skipped" },
+            { key: "interview", state: "done" },
+            { key: "call", state: "overdue" },
+            { key: "debrief", state: "todo" },
+          ],
+        },
       }),
     ]),
     col("new", "Umowa wysłana", "external", 20, [card("Krzysztof", "Piotrowski", { days_in_stage: 2 })]),

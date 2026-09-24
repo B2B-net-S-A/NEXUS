@@ -217,7 +217,10 @@ export function cardBadges(item: KanbanItem, ctx: CardBadgeContext): CardBadge[]
           : "Klient milczy od 14 dni — telefon do kandydata, że dalej jest w procesie.",
     });
   }
-  if (column === "client_interview" && item.interview_badge) {
+  // Odznaka rozmowy stoi w KAŻDEJ kolumnie: do 24.09.2026 tylko w „Rozmowie
+  // u klienta”, więc osoba przesunięta dalej (np. na „Umowę”) z zaległym
+  // telefonem po rozmowie wyglądała na załatwioną.
+  if (item.interview_badge) {
     const { kind, tone } = item.interview_badge;
     const title = PREP_BADGE_TITLE[kind];
     out.push({

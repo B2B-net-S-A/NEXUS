@@ -4,7 +4,7 @@
  * Harness wizualny ekranu „Rozmowy u klienta” (`/calendar`, 0338).
  *
  * Renderuje PRODUKCYJNY `CalendarCycleScreen` na danych fikcyjnych:
- * agenda i tablica dostają `dataOverride` (zapytanie wyłączone), a pozostałe
+ * tablica i panel kandydata dostają `dataOverride` (zapytanie wyłączone), a pozostałe
  * klucze (pytania klienta, debrief, siatka tygodnia) są zasiane w cache
  * z `staleTime: Infinity` — strona nie robi ani jednego zapytania, więc może
  * stać w `PUBLIC_PATHS`. `?as=dl` pokazuje ekran oczami Delivery Leada.

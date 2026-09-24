@@ -8,7 +8,7 @@ import {
   debriefAvailable,
   debriefAvailableFromLabel,
   formatDayLabel,
-  groupAgendaByDay,
+  pairAgenda,
   parseCycleParam,
   parseScope,
   parseView,
@@ -60,11 +60,13 @@ function agenda(start: string, kind: AgendaEntry["kind"] = "prep", extra: Partia
 }
 
 describe("interview-cycle — adres", () => {
-  it("?event= zawsze otwiera Tydzień, domyślnie Agenda", () => {
-    expect(parseView(null, false)).toBe("agenda");
+  it("?event= zawsze otwiera Tydzień, domyślnie Tablica (także stare ?view=agenda)", () => {
+    expect(parseView(null, false)).toBe("board");
     expect(parseView("board", false)).toBe("board");
+    expect(parseView("week", false)).toBe("week");
     expect(parseView("board", true)).toBe("week");
-    expect(parseView("cokolwiek", false)).toBe("agenda");
+    expect(parseView("agenda", false)).toBe("board");
+    expect(parseView("cokolwiek", false)).toBe("board");
   });
 
   it("zakres z adresu albo domyślny roli", () => {
@@ -94,13 +96,18 @@ describe("interview-cycle — czas", () => {
     expect(formatDayLabel("2031-06-10T23:30:00Z", now)).toMatch(/^Jutro/);
   });
 
-  it("agenda po dniach, chronologicznie", () => {
-    const days = groupAgendaByDay(
-      [agenda("2031-06-11T08:00:00Z"), agenda("2031-06-10T12:00:00Z"), agenda("2031-06-10T07:00:00Z")],
+  it("wydarzenia jednej pary, chronologicznie (panel kandydata)", () => {
+    const other = { ...agenda("2031-06-10T06:00:00Z"), candidate_id: 999 };
+    const list = pairAgenda(
+      [agenda("2031-06-11T08:00:00Z"), other, agenda("2031-06-10T12:00:00Z"), agenda("2031-06-10T07:00:00Z")],
+      "1-2",
       now,
     );
-    expect(days.map((d) => d.entries.length)).toEqual([2, 1]);
-    expect(days[0].entries[0].start).toBe("2031-06-10T07:00:00Z");
+    expect(list.map((e) => e.start)).toEqual([
+      "2031-06-10T07:00:00Z",
+      "2031-06-10T12:00:00Z",
+      "2031-06-11T08:00:00Z",
+    ]);
   });
 
   it("przeszłe dni znikają, chyba że wisi niezamknięty telefon", () => {

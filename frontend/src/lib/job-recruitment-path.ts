@@ -34,6 +34,13 @@ export interface BoardSummary {
   inProcess: number;
   /** Najbliższa zaplanowana rozmowa u klienta (ISO) albo `null`. */
   nextInterviewAt: string | null;
+  /**
+   * Osoby z telefonem po rozmowie do zrobienia (odznaka `call_due`) —
+   * w DOWOLNEJ kolumnie: karta bywa już przesunięta dalej, a telefon wisi.
+   */
+  callDue: number;
+  /** Kolumna pierwszej takiej osoby (cel przycisku „Najbliższy krok”). */
+  callDueColumn: BoardColumnKey | null;
 }
 
 interface SummaryItem {
@@ -75,9 +82,18 @@ export function summarizeBoard(
   const nowMs = (options.now ?? new Date()).getTime();
   let nextMs: number | null = null;
   let nextAt: string | null = null;
+  let callDue = 0;
+  let callDueColumn: BoardColumnKey | null = null;
 
   for (const f of fold.columns) {
-    if (f.key && f.key !== "closed") counts[f.key] += f.count;
+    if (f.key && f.key !== "closed") {
+      counts[f.key] += f.count;
+      for (const item of f.items as ReadonlyArray<SummaryItem>) {
+        if (item.interview_badge?.kind !== "call_due") continue;
+        callDue += 1;
+        callDueColumn ??= f.key;
+      }
+    }
     if (f.key !== "hired") inProcess += f.count;
     if (f.key === "cv_qc") {
       const queued = (f.items as ReadonlyArray<SummaryItem>).filter(
@@ -98,7 +114,7 @@ export function summarizeBoard(
       }
     }
   }
-  return { counts, cproQueue, inProcess, nextInterviewAt: nextAt };
+  return { counts, cproQueue, inProcess, nextInterviewAt: nextAt, callDue, callDueColumn };
 }
 
 // ── Ścieżka ──────────────────────────────────────────────────────────────
@@ -211,6 +227,15 @@ function interviewsStep(board: BoardSummary | null, now: Date): PathStep {
   const next = board.nextInterviewAt
     ? `najbliższa ${relativeDayLabel(board.nextInterviewAt, now)}`
     : "brak zaplanowanych";
+  if (board.callDue > 0) {
+    // Rozmowa się odbyła, a telefon do kandydata wisi — to nie jest
+    // „brak zaplanowanych”, tylko rzecz do zrobienia teraz.
+    return {
+      ...base,
+      state: "missing",
+      detail: `telefon po rozmowie: ${board.callDue}`,
+    };
+  }
   if (n > 0) {
     return {
       ...base,
@@ -258,7 +283,7 @@ export type NearestStepAction =
 
 export interface NearestStep {
   /** Stały klucz reguły (testy, telemetria). */
-  rule: "order" | "qc" | "verified" | "proposals" | "search";
+  rule: "order" | "call" | "qc" | "verified" | "proposals" | "search";
   sentence: string;
   cta: string;
   action: NearestStepAction;
@@ -275,6 +300,7 @@ export interface NearestStepInput {
 /**
  * Jedno zdanie „co teraz" — PIERWSZA pasująca reguła:
  *  1. zlecenie niekompletne,
+ *  1a. telefon do kandydata po rozmowie u klienta (debrief),
  *  2. osoby w QC CV (bez kolejki Cpro — tam ruch ma osoba od Cpro),
  *  3. osoby w „Zweryfikowany",
  *  4. propozycje z bazy do przejrzenia,
@@ -292,6 +318,17 @@ export function nearestStep(input: NearestStepInput): NearestStep | null {
     };
   }
   if (!board) return null;
+  if (board.callDue > 0 && board.callDueColumn) {
+    return {
+      rule: "call",
+      sentence:
+        board.callDue === 1
+          ? "Zadzwoń do kandydata po rozmowie i zapisz debrief"
+          : `Zadzwoń po rozmowach i zapisz debriefy (${board.callDue})`,
+      cta: "Pokaż",
+      action: { kind: "column", column: board.callDueColumn },
+    };
+  }
   if (board.counts.cv_qc > 0) {
     return {
       rule: "qc",

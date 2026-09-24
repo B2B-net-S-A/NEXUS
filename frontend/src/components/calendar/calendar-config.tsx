@@ -115,6 +115,29 @@ export function isOutlookEvent(ev: Pick<CalendarEvent, "external_source">): bool
   return ev.external_source === OUTLOOK_SOURCE;
 }
 
+/** Typy wydarzeń, które należą do pracy rekrutacyjnej (widać je zawsze). */
+const RECRUITMENT_EVENT_TYPES: ReadonlySet<string> = new Set([
+  "prep_call",
+  "client_interview",
+  "interview",
+  "screening",
+  "deadline",
+]);
+
+/**
+ * Zwykłe spotkanie zsynchronizowane z Outlooka albo z feedu iCal — bez
+ * kandydata, bez rekrutacji i spoza cyklu rozmów. Tydzień chowa je domyślnie
+ * (przełącznik „Pozostałe spotkania z Outlooka”): do 24.09.2026 siatka była
+ * kopią Outlooka, a prepy i rozmowy ginęły wśród dziesiątek „Spotkań”.
+ */
+export function isOtherOutlookMeeting(
+  ev: Pick<CalendarEvent, "external_source" | "event_type" | "candidate_id" | "job_id">,
+): boolean {
+  if (ev.external_source !== OUTLOOK_SOURCE && ev.external_source !== "ical") return false;
+  if (ev.candidate_id != null || ev.job_id != null) return false;
+  return !RECRUITMENT_EVENT_TYPES.has(ev.event_type);
+}
+
 /** Typy, po których zbieramy feedback (reszta to spotkania wewnętrzne). */
 export const FEEDBACK_EVENT_TYPES: ReadonlySet<string> = new Set(["interview", "screening"]);
 
