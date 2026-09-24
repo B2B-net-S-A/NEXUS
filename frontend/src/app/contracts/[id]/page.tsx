@@ -2144,6 +2144,15 @@ export default function ContractDetailPage() {
                         </option>
                       )}
                     </select>
+                    {form.rate_unit !== contract.rate_unit &&
+                      contract.rate_unit !== "daily" && (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Zapis przeliczy stawki i harmonogramy na nową
+                          jednostkę (godziny × liczba godzin w miesiącu).
+                          Kwoty zmienione w tym formularzu traktujemy jako
+                          podane już w nowej jednostce.
+                        </p>
+                      )}
                   </div>
                   {form.rate_unit === "hourly" && (
                     <div>
