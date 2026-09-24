@@ -426,6 +426,13 @@ function OrderLineRow({
   const scheduledTakeover = line.takeover_scheduled === true;
   const pendingButScheduled = pendingOffboarding && line.replaced_by_scheduled === true;
   const endedCooperation = Boolean(line.cooperation_ended_on) && !line.is_active;
+  // Pula osoby wykorzystana w całości — decyzji o MD nie ma (ticket
+  // 4500030067), więc karta mówi, dlaczego.
+  const poolUsedUp =
+    !group.uses_shared_md_pool &&
+    line.md_total != null &&
+    line.md_remaining != null &&
+    line.md_remaining <= 0;
   // „[Osoba] wykorzystał(a) X zł / Y MD na tym zamówieniu przed zakończeniem
   // współpracy" — jedno zdanie dla zamówień MD i kosztowych.
   const usageSentence = consultantUsageSentence(group, line);
@@ -486,7 +493,9 @@ function OrderLineRow({
               </span>
             ) : endedCooperation && !pendingOffboarding ? (
               <span className="rounded bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                Zakończył współpracę
+                {poolUsedUp
+                  ? "Zakończył współpracę · pula wykorzystana"
+                  : "Zakończył współpracę"}
               </span>
             ) : null}
             {line.returned_from_contract_id != null ? (

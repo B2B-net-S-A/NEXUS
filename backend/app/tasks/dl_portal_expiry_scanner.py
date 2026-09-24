@@ -5,7 +5,7 @@ Lifecycle:
 1. ``ClientFrameworkContract``: status=active, expiry_date<today → status=expired
 2. ``ClientOrder``: status=active, end_date<today → status=completed
    (POZA liniami MD — te kończy budżet, nie kalendarz; patrz ``_promote_statuses``)
-2a. ``ClientOrderGroup`` klientów z ``closes_on_md_exhaustion`` (BIK): wszystkie
+2a. ``ClientOrderGroup`` MD z budżetem przy osobie (od 24.09.2026 każdy klient): wszystkie
    osoby wyczerpały limit MD → completed (``order_md_exhaustion``)
 3. ``Contract``: ended/ending + aktywny Order obejmujący dziś → active
 4. Dispatch notyfikacji expiry:

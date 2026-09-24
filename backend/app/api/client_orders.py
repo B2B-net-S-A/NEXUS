@@ -1124,6 +1124,10 @@ async def _assert_no_pending_group_line_offboarding(
         .where(
             ClientOrderOffboardingCase.order_id == order.id,
             ClientOrderOffboardingCase.status == OFFBOARDING_STATUS_PENDING,
+            or_(
+                ClientOrderOffboardingCase.uses_shared_md_pool.is_(True),
+                ClientOrderOffboardingCase.remaining_md_snapshot > 0,
+            ),
         )
         .limit(1)
     )

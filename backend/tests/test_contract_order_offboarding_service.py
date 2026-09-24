@@ -338,47 +338,38 @@ async def test_effective_offboarding_branches_by_type_and_keeps_shared_pool(
     ]
 
 
-async def test_negative_remaining_is_snapshotted_as_zero(monkeypatch):
+async def test_used_up_pool_opens_no_decision(monkeypatch):
+    """Ticket 4500030067: pula wykorzystana w całości (także nadwyżka) —
+    decyzja o 0 MD nie ma sensu, a otwarta sprawa trzymałaby zamówienie
+    w „Aktywnych”. Linia kończy się z wpisem w historii, bez sprawy i alertu."""
     effective = date(2026, 8, 30)
     contract = _contract()
     group = _group(30, "md")
     order = _order(3, contract=contract, order_type="md", group=group)
     order.md_total = Decimal("10")
     db = _FakeDb([], [order])
-    captured: list[Decimal] = []
-
-    async def ensure_case(_db, **kwargs):
-        captured.append(kwargs["remaining_md"])
-        case = ClientOrderOffboardingCase(
-            id=1,
-            contract_id=contract.id,
-            order_id=order.id,
-            order_group_id=group.id,
-            client_id=order.client_id,
-            effective_date=effective,
-            status=OFFBOARDING_STATUS_PENDING,
-            version=1,
-            uses_shared_md_pool=False,
-            remaining_md_snapshot=kwargs["remaining_md"],
-        )
-        return case, True
-
+    ensure_case = AsyncMock()
+    emit_alert = AsyncMock(return_value=[])
     monkeypatch.setattr(
         offboarding, "recompute_remaining", AsyncMock(return_value=Decimal("-2"))
     )
     monkeypatch.setattr(offboarding, "_ensure_md_case", ensure_case)
-    monkeypatch.setattr(
-        offboarding, "emit_md_consultant_ended", AsyncMock(return_value=[])
-    )
+    monkeypatch.setattr(offboarding, "emit_md_consultant_ended", emit_alert)
 
-    await offboarding.apply_contract_order_offboarding(
+    result = await offboarding.apply_contract_order_offboarding(
         db,
         contract_id=contract.id,
         effective_date=effective,
         today=effective,
     )
 
-    assert captured == [Decimal("0.000000")]
+    assert order.status == ClientOrderStatus.completed
+    assert result.md_cases_created == 0
+    ensure_case.assert_not_awaited()
+    emit_alert.assert_not_awaited()
+    events = [item for item in db.added if isinstance(item, ClientOrderGroupEvent)]
+    assert [event.event_type for event in events] == [EVENT_CONSULTANT_ENDED]
+    assert events[0].payload["pool_used_up"] is True
 
 
 async def test_detached_md_line_completes_without_unresolvable_case(monkeypatch):

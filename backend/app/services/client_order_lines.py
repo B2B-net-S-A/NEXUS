@@ -1466,6 +1466,12 @@ async def _refresh_open_offboarding_snapshot(
     refreshed = max(ZERO, quantize_md(remaining))
     if Decimal(str(case.remaining_md_snapshot)) != refreshed:
         case.remaining_md_snapshot = refreshed
+    if refreshed <= ZERO:
+        # Import po zejściu wyzerował pulę — nie ma czego przenosić ani
+        # przywracać, więc sprawa nie czeka na decyzję (ticket 4500030067).
+        from app.services.md_pool_used_up import close_used_up_case
+
+        close_used_up_case(db, case, order)
 
 
 async def recompute_remaining(

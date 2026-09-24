@@ -1,9 +1,10 @@
-"""Zamówienie MD kończy się wyczerpaniem limitów MD, nie datą (BIK).
+"""Zamówienie MD kończy się wyczerpaniem limitów MD, nie datą.
 
 Linie MD już dziś kończą się same, gdy ich budżet zejdzie do zera
 (``client_order_lines.sync_md_line_status``) — ale grupa zostawała ``active``
-bez ani jednej aktywnej osoby. U klientów z polityką
-``closes_on_md_exhaustion`` (dziś BIK) grupa idzie za liniami:
+bez ani jednej aktywnej osoby. Do 24.09.2026 dotyczyło to tylko klientów
+z polityką ``closes_on_md_exhaustion`` (BIK); od ticketu 4500030067 KAŻDE
+zamówienie MD z pulą per osoba idzie za liniami:
 
 * pozostaje **aktywna**, dopóki choć jedna przypisana osoba ma niewykorzystany
   limit MD (albo limitu jeszcze nie ma — osoby bez budżetu nie „wyczerpały"
@@ -30,15 +31,17 @@ zakończenia ręcznego (autor, własny powód) nigdy.
 
 from __future__ import annotations
 
+import calendar
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduling import business_today
 from app.models.client_order import ClientOrder, ClientOrderStatus
+from app.models.md_consumption import ClientOrderMdConsumption
 from app.models.client_order_offboarding import (
     OFFBOARDING_STATUS_PENDING,
     ClientOrderOffboardingCase,
@@ -53,10 +56,6 @@ from app.services.multi_consultant_orders import (
     EVENT_ORDER_CLOSED,
     EVENT_ORDER_REOPENED,
 )
-from app.services.order_policies import (
-    closes_on_md_exhaustion,
-    md_exhaustion_client_ids,
-)
 from app.services.shared_md_orders import uses_shared_md_pool
 
 MD_EXHAUSTED_CLOSURE_REASON = "Wszyscy konsultanci wyczerpali limit MD"
@@ -66,6 +65,22 @@ _ZERO = Decimal("0")
 
 def _remaining(line: ClientOrder) -> Decimal:
     return Decimal(str(line.md_remaining if line.md_remaining is not None else 0))
+
+
+async def _closure_day(db: AsyncSession, line_ids: list[int]) -> Optional[date]:
+    """Ostatni dzień miesiąca ostatniego zejścia — ono wyczerpało pulę
+    (ticket 4500030067: zejście za sierpień → 31.08, nie dzień odczytu)."""
+    if not line_ids:
+        return None
+    last = await db.scalar(
+        select(func.max(ClientOrderMdConsumption.period_month)).where(
+            ClientOrderMdConsumption.order_id.in_(line_ids)
+        )
+    )
+    if not last:
+        return None
+    year, month = (int(part) for part in str(last)[:7].split("-"))
+    return date(year, month, calendar.monthrange(year, month)[1])
 
 
 def closed_by_md_exhaustion(group: ClientOrderGroup) -> bool:
@@ -86,14 +101,12 @@ async def sync_md_group_exhaustion(
 ) -> bool:
     """Dopasuj status zamówienia do limitów MD jego osób. Zwraca, czy się zmienił.
 
-    ``client_id`` pozwala odpuścić klientów spoza polityki bez odczytu z bazy —
-    funkcja jest wołana przy KAŻDYM przeliczeniu pozostałości linii.
-    Zmienia wyłącznie obiekty w sesji; transakcją zarządza wołający.
+    ``client_id`` zostaje w sygnaturze dla wołających (dawniej odcinał klientów
+    spoza polityki BIK). Zmienia wyłącznie obiekty w sesji; transakcją
+    zarządza wołający.
     """
-    if client_id is not None and not closes_on_md_exhaustion(client_id):
-        return False
     group = await db.get(ClientOrderGroup, group_id)
-    if group is None or not closes_on_md_exhaustion(group.client_id):
+    if group is None:
         return False
     if group.is_cost_based or uses_shared_md_pool(group):
         return False  # pula wspólna ma własny stan ``exhausted``
@@ -128,6 +141,12 @@ async def sync_md_group_exhaustion(
         # Nierozstrzygnięta decyzja o pozostałej puli MD (offboarding) trzyma
         # zamówienie otwarte: po zamknięciu „przywróć" i „przenieś" nie
         # miałyby już dokąd wrócić — zostałoby tylko „usuń".
+        # Sprawa z pulą 0 MD nie czeka na decyzję — zamyka się tu sama
+        # (ticket 4500030067: import po zejściu wyzerował pulę, a otwarta
+        # sprawa trzymała zamówienie w „Aktywnych”).
+        from app.services.md_pool_used_up import resolve_used_up_offboarding_cases
+
+        await resolve_used_up_offboarding_cases(db, group_id=group.id)
         pending_case = await db.scalar(
             select(ClientOrderOffboardingCase.id)
             .where(
@@ -138,7 +157,9 @@ async def sync_md_group_exhaustion(
         )
         if pending_case is not None:
             return False
-        closure_day = today or business_today()
+        closure_day = await _closure_day(db, [line.id for line in lines]) or (
+            today or business_today()
+        )
         group.status = GROUP_STATUS_COMPLETED
         group.closure_date = closure_day
         group.closure_reason = MD_EXHAUSTED_CLOSURE_REASON
@@ -149,9 +170,9 @@ async def sync_md_group_exhaustion(
             group_id=group.id,
             event_type=EVENT_ORDER_CLOSED,
             description=(
-                f"Zakończono zamówienie {group.order_number} z dniem "
-                f"{closure_day.isoformat()} — wszyscy konsultanci wyczerpali "
-                "limit MD"
+                f"Zamówienie {group.order_number} zakończone automatycznie "
+                f"z dniem {closure_day.isoformat()} — pula MD wykorzystana "
+                "w całości"
             ),
             payload={
                 "closure_date": closure_day.isoformat(),
@@ -203,20 +224,19 @@ async def reconcile_md_exhausted_groups(
     client_id: Optional[int] = None,
     today: Optional[date] = None,
 ) -> int:
-    """Dociągnij statusy wszystkich zamówień klientów z polityką. Zwraca liczbę zmian.
+    """Dociągnij statusy wszystkich zamówień MD. Zwraca liczbę zmian.
 
     Siatka bezpieczeństwa dla przejść, których nie wywołało przeliczenie linii
     (skaner dobowy, odczyt zakładki). Idempotentna; tylko ``flush``.
     """
-    client_ids = md_exhaustion_client_ids()
-    if client_id is not None:
-        client_ids = client_ids & {client_id}
-    if not client_ids:
-        return 0
+    stmt_filter = (
+        [ClientOrderGroup.client_id == client_id] if client_id is not None else []
+    )
     groups = (
         await db.execute(
             select(ClientOrderGroup.id, ClientOrderGroup.client_id).where(
-                ClientOrderGroup.client_id.in_(client_ids),
+                *stmt_filter,
+                ClientOrderGroup.is_cost_based.is_(False),
                 or_(
                     ClientOrderGroup.status == GROUP_STATUS_ACTIVE,
                     ClientOrderGroup.closure_reason == MD_EXHAUSTED_CLOSURE_REASON,

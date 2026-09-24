@@ -43,7 +43,7 @@ from openpyxl import load_workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 from starlette.concurrency import run_in_threadpool
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -496,6 +496,12 @@ async def _assert_no_pending_offboarding_case(
     query = select(ClientOrderOffboardingCase.id).where(
         ClientOrderOffboardingCase.order_group_id == group_id,
         ClientOrderOffboardingCase.status == OFFBOARDING_STATUS_PENDING,
+        # Sprawa z pulą 0 MD nie blokuje (ticket 4500030067) — i tak zamyka
+        # się sama przy najbliższym przeliczeniu; wspólna pula blokuje zawsze.
+        or_(
+            ClientOrderOffboardingCase.uses_shared_md_pool.is_(True),
+            ClientOrderOffboardingCase.remaining_md_snapshot > 0,
+        ),
     )
     if order_id is not None:
         query = query.where(ClientOrderOffboardingCase.order_id == order_id)

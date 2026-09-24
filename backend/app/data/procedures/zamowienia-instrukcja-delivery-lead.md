@@ -561,6 +561,13 @@ zablokowana jest nie tylko ta osoba, ale **całe zamówienie**: nie zadziała an
 Jeżeli któryś z tych przycisków odmawia bez wyraźnego powodu — poszukaj na
 karcie osoby z czekającą decyzją.
 
+**Decyzja dotyczy tylko osoby, której zostały MD.** Gdy pula osoby jest
+wykorzystana w całości (0 MD), system nie pyta o decyzję: osoba trafia do
+zakończonych z oznaczeniem „Zakończył współpracę · pula wykorzystana”. Tak samo
+czekająca decyzja zamyka się sama, gdy późniejszy import z Finansów wyzeruje
+pulę tej osoby — wpis zostaje w historii zamówienia. Przy wspólnej puli MD
+decyzja o obsadzie jest potrzebna jak dotąd.
+
 ### Przedłużenie tworzy nowe zamówienie, nie edytuje starego
 
 To jest celowe: na podstawie poprzedniego zamówienia wystawiono już faktury,
@@ -1074,9 +1081,13 @@ widać tam było wyłącznie odczyty uruchamiane ręcznie w formularzach.
 
 Automaty chodzą **raz na dobę**, licząc od ostatniego restartu aplikacji — nie ma
 stałej godziny. Wejście na zakładkę „Zamówienia" dodatkowo uruchamia zamówienia
-przyszłe, którym minął dzień startu, i kończy zamówienia BIK, w których wszyscy
-wyczerpali limit MD, ale **niczego nie zamyka po dacie** — na to trzeba poczekać
-na nocny przebieg.
+przyszłe, którym minął dzień startu, i kończy zamówienia MD (z budżetem przy
+osobie — u każdego klienta), w których wszyscy wyczerpali limit MD, ale
+**niczego nie zamyka po dacie** — na to trzeba poczekać na nocny przebieg.
+Zamówienie zakończone przez wyczerpanie puli dostaje datę zakończenia równą
+**ostatniemu dniowi miesiąca**, za który zaraportowano ostatnie zejście,
+i wpis „zakończone automatycznie — pula MD wykorzystana w całości”. Sam brak
+obsady go nie zamyka.
 
 ## Co zawsze robisz ręcznie
 
