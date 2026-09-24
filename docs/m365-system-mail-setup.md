@@ -8,13 +8,17 @@ pokazał `M365_APP_MAIL_ENABLED=true` i nadawcę
 
 ## Konfiguracja docelowa
 
-1. Zarejestruj osobną aplikację „NEXUS System Mail” w Entra. Nadaj tylko
-   aplikacyjne `Mail.Send` dla Microsoft Graph i zgodę administratora. Nie
-   dodawaj jej `Mail.Read`, `Mail.ReadWrite` ani dostępu do kalendarzy.
-2. W Exchange App RBAC przypisz `Application Mail.Send` ze scope obejmującym
-   wyłącznie `nexus-powiadomienia@b2bnetwork.pl`. Zweryfikuj wynik dla tej
-   skrzynki i dla skrzynki spoza zakresu. Nie poszerzaj istniejącej grupy
-   `NEXUS-OrderMail-Scope`.
+1. Zarejestruj osobną aplikację „NEXUS System Mail” w Entra. **Nie nadawaj**
+   jej aplikacyjnego `Mail.Send` w Entra ani zgody administratora na tę rolę.
+   Unscoped grant Entra i scoped grant Exchange App RBAC sumują się: przy obu
+   aplikacja mogłaby wysyłać z każdej skrzynki w tenantcie. Nie dodawaj także
+   `Mail.Read`, `Mail.ReadWrite` ani dostępu do kalendarzy.
+2. W Exchange App RBAC utwórz wskaźnik service principal, zakres obejmujący
+   wyłącznie `nexus-powiadomienia@b2bnetwork.pl` i przypisz w nim rolę
+   `Application Mail.Send`. Sprawdź `Test-ServicePrincipalAuthorization` dla
+   tej skrzynki oraz skrzynki spoza zakresu. Test RBAC nie uwzględnia grantów
+   Entra, dlatego osobno potwierdź, że tam nie ma aplikacyjnego `Mail.Send`.
+   Nie poszerzaj istniejącej grupy `NEXUS-OrderMail-Scope`.
 3. Zapisz w tajnych zmiennych Coolify `M365_APP_MAIL_CLIENT_ID` i
    `M365_APP_MAIL_CLIENT_SECRET`; ustaw
    `M365_MAIL_SENDER_UPN=nexus-powiadomienia@b2bnetwork.pl`. Nie zapisuj
