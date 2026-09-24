@@ -12,6 +12,8 @@
 
 import { useEffect, useState } from "react";
 
+import CallButton from "@/components/calls/CallButton";
+import CallDetailsDialog from "@/components/calls/CallDetailsDialog";
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
 import {
@@ -22,6 +24,7 @@ import {
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { apiErrorMessage } from "@/lib/api-error";
+import api, { type Call } from "@/lib/api";
 import {
   useCandidateFollowup,
   useRecordFollowupOutcome,
@@ -45,6 +48,7 @@ import {
   todayInBusinessTz,
 } from "@/lib/candidate-followup";
 import { cn } from "@/lib/utils";
+import { useCloudTalkEnabled } from "@/hooks/useCloudTalkEnabled";
 
 const TONE_CLASS = {
   danger: "bg-destructive/10 text-destructive",
@@ -105,7 +109,7 @@ function ProcessList({ row }: { row: FollowupRow }) {
   );
 }
 
-function History({ detail }: { detail: FollowupDetail }) {
+function History({ detail, onCall }: { detail: FollowupDetail; onCall: (callId: number) => void }) {
   if (detail.history.length === 0) return null;
   return (
     <div className="mt-4">
@@ -119,6 +123,11 @@ function History({ detail }: { detail: FollowupDetail }) {
             {shortPersonName(h.user_name) || "ktoś z zespołu"} ·{" "}
             {HISTORY_OUTCOME_LABEL[h.outcome] ?? h.outcome}
             {h.callback_on ? ` (${shortDate(h.callback_on)})` : ""}
+            {h.call_id && (
+              <button type="button" className="ml-2 text-primary underline" onClick={() => onCall(h.call_id!)}>
+                {h.has_transcript ? "Transkrypt" : h.has_recording ? "Nagranie" : "Rozmowa CloudTalk"}
+              </button>
+            )}
           </li>
         ))}
       </ul>
@@ -144,6 +153,19 @@ export function CandidateFollowupDialog({
   const [note, setNote] = useState("");
   const [callbackOn, setCallbackOn] = useState("");
   const [flags, setFlags] = useState<Record<number, FollowupProcessFlag>>({});
+  const [callId, setCallId] = useState<number | null>(null);
+  const [openCall, setOpenCall] = useState<Call | null>(null);
+  const cloudTalkEnabled = useCloudTalkEnabled({ enabled: open });
+
+  const showCall = async (id: number) => {
+    if (candidateId == null) return;
+    try {
+      const response = await api.get<Call>(`/api/candidates/${candidateId}/calls/${id}`);
+      setOpenCall(response.data);
+    } catch (error) {
+      showError(apiErrorMessage(error, "Nie udało się wczytać rozmowy."));
+    }
+  };
 
   useEffect(() => {
     if (!open) {
@@ -151,6 +173,8 @@ export function CandidateFollowupDialog({
       setNote("");
       setCallbackOn("");
       setFlags({});
+      setCallId(null);
+      setOpenCall(null);
     }
   }, [open]);
 
@@ -168,6 +192,7 @@ export function CandidateFollowupDialog({
         note: note.trim() || null,
         callback_on: outcome === "callback" ? callbackOn : null,
         processes: outcome === "changed" ? flags : {},
+        ...(callId !== null ? { call_id: callId } : {}),
       },
       {
         onSuccess: (data) => {
@@ -185,6 +210,7 @@ export function CandidateFollowupDialog({
   };
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent size="2xl" className="flex max-h-[92dvh] flex-col p-0" aria-describedby="followup-desc">
         <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border px-5 py-3 pr-14">
@@ -238,7 +264,22 @@ export function CandidateFollowupDialog({
               <p className="mt-2 text-xs text-muted-foreground">
                 Dzwoni {row.caller_name ?? "—"}: {callerReasonSentence(row)}.
               </p>
-              {detail.data && <History detail={detail.data} />}
+              {cloudTalkEnabled && row.phone && (
+                <div className="mt-3 space-y-1">
+                  <CallButton
+                    candidateId={row.candidate_id}
+                    phone={row.phone}
+                    onStarted={(id, linkable) => {
+                      setCallId(linkable ? id : null);
+                      if (!linkable) {
+                        showError("CloudTalk nie zwrócił identyfikatora rozmowy. Nie można bezpiecznie powiązać transkryptu z tym follow-upem.");
+                      }
+                    }}
+                  />
+                  {callId && <p className="text-xs text-muted-foreground">Połączenie CloudTalk zostanie powiązane z tym follow-upem po zapisaniu wyniku.</p>}
+                </div>
+              )}
+              {detail.data && <History detail={detail.data} onCall={showCall} />}
             </div>
             <div className="space-y-4 px-5 py-4">
               <fieldset>
@@ -351,5 +392,7 @@ export function CandidateFollowupDialog({
         </div>
       </DialogContent>
     </Dialog>
+    <CallDetailsDialog call={openCall} open={openCall !== null} onOpenChange={(value) => !value && setOpenCall(null)} />
+    </>
   );
 }

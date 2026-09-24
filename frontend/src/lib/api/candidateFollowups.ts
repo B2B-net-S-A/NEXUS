@@ -65,6 +65,9 @@ export interface FollowupHistoryRow {
   created_at: string;
   callback_on: string | null;
   note: string | null;
+  call_id?: number | null;
+  has_transcript?: boolean;
+  has_recording?: boolean;
 }
 
 export interface FollowupDetail {
@@ -89,6 +92,7 @@ export interface FollowupOutcomeInput {
   note?: string | null;
   callback_on?: string | null;
   processes?: Record<number, FollowupProcessFlag>;
+  call_id?: number | null;
 }
 
 export const candidateFollowupKeys = {

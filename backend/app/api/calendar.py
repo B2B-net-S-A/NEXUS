@@ -1353,7 +1353,7 @@ async def import_ical(
 
 
 class M365InviteRequest(BaseModel):
-    candidate_id: int
+    candidate_id: Optional[int] = None
     job_id: Optional[int] = None
     title: str
     description: Optional[str] = ""
@@ -1414,10 +1414,16 @@ async def create_m365_invite(
             detail="No active Microsoft 365 connection — connect under /settings.",
         )
 
-    candidate = await db.get(Candidate, body.candidate_id)
-    if candidate is None:
+    if body.invite_candidate and body.candidate_id is None:
+        raise HTTPException(status_code=422, detail="candidate is required to invite")
+    candidate = (
+        await db.get(Candidate, body.candidate_id)
+        if body.candidate_id is not None
+        else None
+    )
+    if body.candidate_id is not None and candidate is None:
         raise HTTPException(status_code=404, detail="candidate not found")
-    if body.invite_candidate and not candidate.email:
+    if body.invite_candidate and candidate and not candidate.email:
         raise HTTPException(
             status_code=422,
             detail="candidate has no email — cannot invite",

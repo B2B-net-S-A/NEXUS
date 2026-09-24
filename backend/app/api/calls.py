@@ -10,7 +10,7 @@ Profile enrichment for transcripts.
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -93,6 +93,20 @@ async def list_candidate_calls(
         .order_by(Call.created_at.desc())
     )
     return result.scalars().all()
+
+
+@router.get("/candidates/{candidate_id}/calls/{call_id}", response_model=CallResponse)
+async def get_candidate_call(
+    candidate_id: int,
+    call_id: int,
+    current_user: CandidatePIIAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    """Read one call after checking its candidate; used by follow-up history."""
+    call = await db.get(Call, call_id)
+    if call is None or call.candidate_id != candidate_id:
+        raise HTTPException(status_code=404, detail="Rozmowa nie znaleziona")
+    return call
 
 
 @router.post("/calls", response_model=CallResponse, status_code=status.HTTP_201_CREATED)

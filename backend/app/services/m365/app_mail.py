@@ -6,7 +6,10 @@ W przeciwieństwie do ``app/services/m365/sender.py`` (delegated, ``/me/...``,
 skrzynka konkretnego rekrutera) NIE wymaga per-user OAuth — to kanał dla
 powiadomień systemowych (deadline alerts, reset hasła, chat fallback, …).
 
-Bramkowany ``M365_APP_MAIL_ENABLED`` + kompletem creds. Token z MSAL
+Bramkowany ``M365_APP_MAIL_ENABLED`` + kompletem creds. Dedykowane
+``M365_APP_MAIL_CLIENT_ID/SECRET`` izolują nadawcę od czytnika zamówień;
+gdy oba są puste, pozostaje zgodność wsteczna z ``M365_CLIENT_ID/SECRET``.
+Token z MSAL
 ``ConfidentialClientApplication.acquire_token_for_client`` (scope
 ``.default``), z wbudowanym cache w singletonie aplikacji MSAL. Wszystko
 synchroniczne (jak SMTP-owy ``send_email``), żeby ``send_email`` pozostał
@@ -49,6 +52,8 @@ _msal_app: Optional[msal.ConfidentialClientApplication] = None
 # zmienią (np. rotacja creds / env update bez restartu), przebudowujemy app —
 # inaczej stary klient z nieaktualnym tenantem/sekretem auth-owałby po cichu źle.
 _msal_key: Optional[tuple[str, str, str]] = None
+_mail_msal_app: Optional[msal.ConfidentialClientApplication] = None
+_mail_msal_key: Optional[tuple[str, str, str]] = None
 
 
 # --- Stan wysyłki (trwały, współdzielony) -----------------------------------------
@@ -136,8 +141,7 @@ def is_configured() -> bool:
     return bool(
         settings.M365_APP_MAIL_ENABLED
         and settings.M365_MAIL_SENDER_UPN
-        and settings.M365_CLIENT_ID
-        and settings.M365_CLIENT_SECRET
+        and _mail_credentials() is not None
         and tenant
         and tenant != "common"
     )
@@ -173,7 +177,44 @@ def acquire_app_token(*, force_refresh: bool = False) -> Optional[str]:
         return None
     if force_refresh:
         _get_msal_app().remove_tokens_for_client()
-    return _acquire_token()
+    return _token_from(_get_msal_app())
+
+
+def _mail_credentials() -> Optional[tuple[str, str]]:
+    dedicated_id = settings.M365_APP_MAIL_CLIENT_ID
+    dedicated_secret = settings.M365_APP_MAIL_CLIENT_SECRET
+    if bool(dedicated_id) != bool(dedicated_secret):
+        return None
+    client_id = dedicated_id or settings.M365_CLIENT_ID
+    secret = dedicated_secret or settings.M365_CLIENT_SECRET
+    return (client_id, secret) if client_id and secret else None
+
+
+def _get_mail_msal_app() -> msal.ConfidentialClientApplication:
+    """Osobny cache tokenu nadawcy, bez zmiany tożsamości czytnika zamówień."""
+    global _mail_msal_app, _mail_msal_key
+    credentials = _mail_credentials()
+    if credentials is None:
+        raise ValueError("System mail credentials are incomplete")
+    key = (*credentials, _tenant())
+    with _app_lock:
+        if _mail_msal_app is None or _mail_msal_key != key:
+            _mail_msal_app = msal.ConfidentialClientApplication(
+                client_id=credentials[0],
+                authority=f"https://login.microsoftonline.com/{_tenant()}",
+                client_credential=credentials[1],
+            )
+            _mail_msal_key = key
+        return _mail_msal_app
+
+
+def acquire_mail_token(*, force_refresh: bool = False) -> Optional[str]:
+    if not is_configured():
+        return None
+    app = _get_mail_msal_app()
+    if force_refresh:
+        app.remove_tokens_for_client()
+    return _token_from(app)
 
 
 def _get_msal_app() -> msal.ConfidentialClientApplication:
@@ -192,7 +233,10 @@ def _get_msal_app() -> msal.ConfidentialClientApplication:
 
 
 def _acquire_token() -> Optional[str]:
-    app = _get_msal_app()
+    return acquire_mail_token()
+
+
+def _token_from(app: msal.ConfidentialClientApplication) -> Optional[str]:
     # MSAL zwraca token z cache jeśli ważny; inaczej bije po nowy.
     result = app.acquire_token_for_client(scopes=_SCOPE)
     token = result.get("access_token") if isinstance(result, dict) else None
@@ -310,7 +354,7 @@ def send_via_graph_app(
         if resp.status_code == 401:
             # Only a definite rejection is safe to retry after a token refresh.
             posted = False
-            token = acquire_app_token(force_refresh=True)
+            token = acquire_mail_token(force_refresh=True)
             if not token:
                 _finish(ticket, "token")
                 return False

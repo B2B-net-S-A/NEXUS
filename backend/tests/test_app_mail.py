@@ -31,6 +31,8 @@ def _configure(monkeypatch, **overrides):
         "M365_MAIL_SENDER_UPN": "nexus@example.com",
         "M365_CLIENT_ID": "cid",
         "M365_CLIENT_SECRET": "secret",
+        "M365_APP_MAIL_CLIENT_ID": "",
+        "M365_APP_MAIL_CLIENT_SECRET": "",
         "M365_MAIL_TENANT_ID": "contoso.onmicrosoft.com",
         "M365_TENANT_ID": "common",
     }
@@ -57,6 +59,22 @@ def test_is_configured_false_on_common_tenant(monkeypatch):
 
 def test_is_configured_false_without_sender(monkeypatch):
     _configure(monkeypatch, M365_MAIL_SENDER_UPN="")
+    assert app_mail.is_configured() is False
+
+
+def test_sender_credentials_are_separate_from_order_mail(monkeypatch):
+    _configure(
+        monkeypatch,
+        M365_APP_MAIL_CLIENT_ID="sender-id",
+        M365_APP_MAIL_CLIENT_SECRET="sender-secret",
+    )
+    assert app_mail._mail_credentials() == ("sender-id", "sender-secret")
+    assert app_mail.is_configured() is True
+    assert settings.M365_CLIENT_ID == "cid"
+
+
+def test_partial_sender_credentials_fail_closed(monkeypatch):
+    _configure(monkeypatch, M365_APP_MAIL_CLIENT_ID="sender-id")
     assert app_mail.is_configured() is False
 
 
@@ -204,7 +222,7 @@ def test_401_refreshes_once_then_recovers(monkeypatch):
     monkeypatch.setattr(app_mail, "_acquire_token", lambda: "old")
     refreshes, requests = [], []
     monkeypatch.setattr(
-        app_mail, "acquire_app_token", lambda **kw: refreshes.append(kw) or "new"
+        app_mail, "acquire_mail_token", lambda **kw: refreshes.append(kw) or "new"
     )
 
     def post(*args, **kwargs):

@@ -72,6 +72,7 @@ class InitiateCallRequest(BaseModel):
 
 class InitiateCallResponse(BaseModel):
     call_id: int
+    transcript_linkable: bool
     candidate_id: int
     phone: str
     cloudtalk_response: dict
@@ -392,6 +393,7 @@ async def initiate_call(
 
     return InitiateCallResponse(
         call_id=call.id,
+        transcript_linkable=ct_call_id is not None,
         candidate_id=candidate.id,
         phone=candidate.phone,
         cloudtalk_response=response if isinstance(response, dict) else {},

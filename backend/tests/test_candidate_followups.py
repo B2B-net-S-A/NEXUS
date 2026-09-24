@@ -21,6 +21,7 @@ from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
 from app.models.candidate import Candidate
 from app.models.candidate_followup import CandidateFollowup
+from app.models.call import Call, CallDirection, CallStatus
 from app.models.client import Client
 from app.models.job import Job, JobStatus, RemotePolicy
 from app.models.note import Note, NoteType
@@ -393,6 +394,7 @@ async def _cleanup(world: dict, user_ids: list[int]) -> None:
         await db.execute(
             delete(CandidateFollowup).where(CandidateFollowup.candidate_id == cid)
         )
+        await db.execute(delete(Call).where(Call.candidate_id == cid))
         await db.execute(delete(Note).where(Note.candidate_id == cid))
         await db.execute(
             delete(CandidateStage).where(CandidateStage.candidate_id == cid)
@@ -519,6 +521,81 @@ async def test_one_call_for_the_person_and_outcome_resets_everyone(
             )
         ).json()["history"]
         assert [h["outcome"] for h in history] == ["changed", "connected"]
+    finally:
+        await _cleanup(world, user_ids)
+
+
+@pytest.mark.asyncio
+async def test_followup_links_only_the_users_cloudtalk_call(
+    api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async with AsyncSessionLocal() as db:
+        now = (await db.execute(select(func_now()))).scalar_one()
+    monkeypatch.setattr(
+        settings, "CANDIDATE_FOLLOWUP_SINCE", svc.local_date(now - timedelta(days=60))
+    )
+    users = [await _seed_user(UserRole.recruiter) for _ in range(2)]
+    user_ids = [uid for uid, _ in users]
+    world = await _seed_world(user_ids, now)
+    cid = world["candidate_id"]
+    headers = [await _login(api_client, credentials) for _, credentials in users]
+    async with AsyncSessionLocal() as db:
+        linked = Call(
+            candidate_id=cid,
+            user_id=user_ids[0],
+            direction=CallDirection.outbound,
+            status=CallStatus.completed,
+            cloudtalk_call_id=f"followup-{uuid.uuid4().hex}",
+            transcript="Testowy transkrypt",
+        )
+        unlinked = Call(
+            candidate_id=cid,
+            user_id=user_ids[0],
+            direction=CallDirection.outbound,
+            status=CallStatus.initiated,
+        )
+        db.add_all([linked, unlinked])
+        await db.commit()
+        await db.refresh(linked)
+        await db.refresh(unlinked)
+        linked_id, unlinked_id = linked.id, unlinked.id
+    try:
+        url = f"/api/candidate-followups/candidates/{cid}/outcome"
+        for call_id in (linked_id, unlinked_id):
+            rejected = await api_client.post(
+                url,
+                headers=headers[1],
+                json={"outcome": "no_answer", "call_id": call_id},
+            )
+            assert rejected.status_code == 422, rejected.text
+        no_provider_id = await api_client.post(
+            url,
+            headers=headers[0],
+            json={"outcome": "no_answer", "call_id": unlinked_id},
+        )
+        assert no_provider_id.status_code == 422, no_provider_id.text
+
+        saved = await api_client.post(
+            url, headers=headers[0], json={"outcome": "no_answer", "call_id": linked_id}
+        )
+        assert saved.status_code == 200, saved.text
+        history = saved.json()["history"]
+        assert history[0]["call_id"] == linked_id
+        assert history[0]["has_transcript"] is True
+        assert history[0]["has_recording"] is False
+        duplicate = await api_client.post(
+            url, headers=headers[0], json={"outcome": "no_answer", "call_id": linked_id}
+        )
+        assert duplicate.status_code == 409, duplicate.text
+        visible = await api_client.get(
+            f"/api/candidates/{cid}/calls/{linked_id}", headers=headers[1]
+        )
+        assert visible.status_code == 200, visible.text
+        assert visible.json()["transcript"] == "Testowy transkrypt"
+        wrong_candidate = await api_client.get(
+            f"/api/candidates/{cid + 999999}/calls/{linked_id}", headers=headers[1]
+        )
+        assert wrong_candidate.status_code == 404, wrong_candidate.text
     finally:
         await _cleanup(world, user_ids)
 

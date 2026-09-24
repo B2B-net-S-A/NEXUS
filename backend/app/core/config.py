@@ -956,6 +956,11 @@ class Settings(BaseSettings):
     # admin consent, oraz realnego tenanta (client_credentials nie działa z
     # "common"). Zawężenie do jednej skrzynki: Application Access Policy.
     M365_APP_MAIL_ENABLED: bool = False
+    # Dedykowana aplikacja wyłącznie do wysyłki systemowej. Gdy oba pola są
+    # puste, zgodność wsteczna używa M365_CLIENT_ID/SECRET; częściowa
+    # konfiguracja nie pozwala na wysyłkę.
+    M365_APP_MAIL_CLIENT_ID: str = ""
+    M365_APP_MAIL_CLIENT_SECRET: str = ""
     # UPN/adres skrzynki, z której wychodzą maile systemowe
     # (prod: "nexus-powiadomienia@b2bnetwork.pl").
     M365_MAIL_SENDER_UPN: str = ""

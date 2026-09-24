@@ -189,3 +189,24 @@ async def test_invite_endpoint_passes_form_intent_to_graph(monkeypatch) -> None:
             body, current_user=SimpleNamespace(id=7), db=_Db()
         )
     assert captured["intent_id"] == "invite-form|7|abcdef12-3456"
+
+    # Formularz ogólny tworzy też spotkanie Outlook/Teams bez kandydata.
+    captured.clear()
+    general = calendar_api.M365InviteRequest(
+        title="Spotkanie zespołu",
+        start=datetime(2026, 9, 23, 10, tzinfo=timezone.utc),
+        end=datetime(2026, 9, 23, 11, tzinfo=timezone.utc),
+        event_type="meeting",
+        invite_candidate=False,
+        add_teams_meeting=True,
+        extra_attendees=["kolega@example.com"],
+        client_request_id="general12-3456",
+    )
+    with pytest.raises(_Stop):
+        await calendar_api.create_m365_invite(
+            general, current_user=SimpleNamespace(id=7), db=_Db()
+        )
+    assert captured["candidate"] is None
+    assert captured["extra_attendees"] == ["kolega@example.com"]
+    assert captured["with_teams_meeting"] is True
+    assert captured["intent_id"] == "invite-form|7|general12-3456"

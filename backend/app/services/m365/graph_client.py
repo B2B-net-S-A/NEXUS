@@ -302,9 +302,9 @@ class GraphClient:
     async def delete(self, url: str) -> None:
         await self._request("DELETE", url, expect_json=False)
 
-    async def download(self, url: str) -> bytes:
+    async def download(self, url: str, *, headers: Optional[dict] = None) -> bytes:
         """GET with binary response — e.g. attachment /$value endpoints."""
-        return await self._request("GET", url, expect_json=False)
+        return await self._request("GET", url, headers=headers, expect_json=False)
 
     async def paginate(
         self, url: str, params: Optional[dict] = None
