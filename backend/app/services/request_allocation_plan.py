@@ -19,6 +19,11 @@ zapisu to ``services/request_allocation``. Reguły:
   liczby. Zwalnia tylko wtedy, gdy request wyszedł z puli albo osoba (z
   przypisaniem automatu) przestała być dostępna — i nawet wtedy nie, jeśli ma
   przy tym requeście kandydatów w toku. Ręczne przypisania zostają zawsze.
+* **Decyzja człowieka wygrywa:** osoba zdjęta z requestu ręcznie nie wraca
+  do niego z automatu, dopóki request nie zmieni stanu (``blocked``).
+* **Bez świeżych urlopów** tryb ``auto`` niczego nie przydziela ani nie
+  aktywuje — ale osoba „Poza przydziałem” albo bez kategorii jest zwalniana
+  zawsze, bo to nie zależy od Compassa (``eligible_ids``).
 """
 
 from __future__ import annotations
@@ -32,7 +37,9 @@ RELEASE_REASONS = {
     "client_silent": "Klient milczy",
     "finished": "Request zakończony",
     "to_review": "Request wrócił do przejrzenia",
-    "unavailable": "Osoba niedostępna (urlop albo poza przydziałem)",
+    "unavailable": "Osoba na urlopie",
+    "excluded": "Osoba poza przydziałem",
+    "owner_changed": "Zmiana prowadzącego",
     "manual": "Zdjęte ręcznie",
 }
 
@@ -87,6 +94,12 @@ class PlanInput:
     # False = brak świeżych danych o urlopach: w trybie automatycznym nikt
     # nie dostaje nowego requestu, bo mógłby go dostać ktoś na urlopie.
     availability_known: bool = True
+    # Osoby, które mogłyby dostać request, gdyby nie urlop (rola, kategoria,
+    # „Poza przydziałem”). None = nie wiadomo — wtedy zwolnienie czeka na
+    # dane o urlopach, jak dotąd.
+    eligible_ids: Optional[frozenset[int]] = None
+    # Pary (request, osoba) zdjęte ręcznie w bieżącym stanie requestu.
+    blocked: frozenset[tuple[int, int]] = frozenset()
 
 
 def _bucket(sent: int) -> int:
@@ -172,17 +185,21 @@ def plan_assignments(data: PlanInput) -> list[Change]:
             changes.append(Change("release", row.job_id, row.user_id, row.role, reason))
             continue
         person_gone = row.user_id not in people
-        if (
-            person_gone
-            and row.source == "auto"
-            and data.availability_known
-            and not row.in_process
-        ):
-            changes.append(
-                Change("release", row.job_id, row.user_id, row.role, "unavailable")
+        if person_gone and row.source == "auto" and not row.in_process:
+            not_eligible = (
+                data.eligible_ids is not None and row.user_id not in data.eligible_ids
             )
-            continue
-        if data.mode == "auto" and row.state == "proposed":
+            if not_eligible:
+                changes.append(
+                    Change("release", row.job_id, row.user_id, row.role, "excluded")
+                )
+                continue
+            if data.availability_known:
+                changes.append(
+                    Change("release", row.job_id, row.user_id, row.role, "unavailable")
+                )
+                continue
+        if data.mode == "auto" and row.state == "proposed" and data.availability_known:
             changes.append(Change("activate", row.job_id, row.user_id, row.role, ""))
         covered.add(row.job_id)
         load[row.user_id] = load.get(row.user_id, 0) + 1
@@ -196,10 +213,13 @@ def plan_assignments(data: PlanInput) -> list[Change]:
     candidates = list(people.values())
     for request in sequence:
         role = needed_role(request, data.sourcer_threshold)
-        person = choose_person(request, role, candidates, load, last)
+        allowed = [
+            p for p in candidates if (request.job_id, p.user_id) not in data.blocked
+        ]
+        person = choose_person(request, role, allowed, load, last)
         if person is None and role == "sourcer":
             role = "recruiter"
-            person = choose_person(request, role, candidates, load, last)
+            person = choose_person(request, role, allowed, load, last)
         if person is None:
             continue
         changes.append(Change("assign", request.job_id, person.user_id, role, ""))

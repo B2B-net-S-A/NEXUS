@@ -110,8 +110,13 @@ async def test_unknown_state_is_rejected(
 async def test_board_shows_manual_person_and_champion_is_not_load(
     app_client: AsyncClient, app_auth_headers: dict
 ) -> None:
+    from datetime import datetime, timezone
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.job import Job
+
     searching = await _seed_job(work_state="searching")
-    champion = await _seed_job(work_state="searching", champion=True)
+    champion = await _seed_job(work_state="searching")
     person = await _seed_recruiter()
     for job_id in (searching, champion):
         added = await app_client.post(
@@ -120,6 +125,11 @@ async def test_board_shows_manual_person_and_champion_is_not_load(
             headers=app_auth_headers,
         )
         assert added.status_code == 200, added.text
+    # Champion pojawia się po przypisaniu — osoba zostaje, ale to nie obłożenie.
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, champion)
+        job.champion_found_at = datetime.now(timezone.utc)
+        await db.commit()
 
     board = (
         await app_client.get("/api/request-board", headers=app_auth_headers)
@@ -188,3 +198,69 @@ async def test_rules_validation_is_polish_and_strict(
         headers=app_auth_headers,
     )
     assert good.json() == {"sourcer_threshold": 15, "review_time": "08:30"}
+
+
+async def test_manual_add_needs_a_request_in_work(
+    app_client: AsyncClient, app_auth_headers: dict
+) -> None:
+    person = await _seed_recruiter()
+    for job_id in (
+        await _seed_job(work_state="to_review"),
+        await _seed_job(work_state="searching", champion=True),
+    ):
+        resp = await app_client.post(
+            f"/api/request-board/jobs/{job_id}/people",
+            json={"user_id": person, "role": "recruiter"},
+            headers=app_auth_headers,
+        )
+        assert resp.status_code == 409
+
+
+async def test_lead_recruiter_is_adopted_and_manual_removal_sticks() -> None:
+    from datetime import datetime, timezone
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.job import Job
+    from app.models.job_work_assignment import JobWorkAssignment
+    from app.services.request_allocation import (
+        _adopt_owners,
+        _blocked,
+        manual_remove,
+    )
+
+    job_id = await _seed_job(work_state="searching")
+    owner = await _seed_recruiter()
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        job.recruiter_id = owner
+        await db.commit()
+
+    async def live_rows() -> list[tuple[int, str]]:
+        async with AsyncSessionLocal() as db:
+            return [
+                (row.user_id, row.source)
+                for row in (
+                    await db.scalars(
+                        select(JobWorkAssignment).where(
+                            JobWorkAssignment.job_id == job_id,
+                            JobWorkAssignment.state != "released",
+                        )
+                    )
+                ).all()
+            ]
+
+    async with AsyncSessionLocal() as db:
+        now = datetime.now(timezone.utc)
+        await _adopt_owners(db, blocked=await _blocked(db), now=now)
+        await db.commit()
+    assert await live_rows() == [(owner, "owner")]
+
+    async with AsyncSessionLocal() as db:
+        assert await manual_remove(db, job_id=job_id, user_id=owner)
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        blocked = await _blocked(db)
+        assert (job_id, owner) in blocked
+        await _adopt_owners(db, blocked=blocked, now=datetime.now(timezone.utc))
+        await db.commit()
+    assert await live_rows() == []

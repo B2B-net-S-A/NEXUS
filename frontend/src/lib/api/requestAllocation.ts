@@ -16,7 +16,7 @@ export interface BoardPerson {
   role: "recruiter" | "sourcer"
   /** Propozycja automatu w trybie podglądu — nikogo nie zobowiązuje. */
   proposed: boolean
-  source: "auto" | "manual"
+  source: "auto" | "manual" | "owner"
 }
 
 export interface BoardRequest {

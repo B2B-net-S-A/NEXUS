@@ -3518,6 +3518,14 @@ z kategorią, brak urlopów z Compassa, jednorazowa kolejka przy handoffie) —
 - **„Kto pracuje” = `job_work_assignments`** (wiersz nigdy nie jest kasowany,
   zdjęcie = `released` z powodem — z tego liczą się „Zmiany od wczoraj”).
   NIE `job_collaborators` (auto_cc = cała kategoria) i NIE plan priorytetów.
+  Prowadzący rekrutacji (`jobs.recruiter_id` z handoffu, Traffita, ręki) dostaje
+  wiersz `source='owner'` przy każdym przebiegu (`_adopt_owners`) — inaczej
+  automat dokładałby drugą osobę do requestu, który ktoś już prowadzi; takie
+  wiersze nie są „zmianą” ani dzwonkiem. **Zdjęcie ręczne wygrywa:** para
+  (request, osoba) zdjęta z pulpitu nie wraca z automatu ani jako prowadzący,
+  dopóki request nie zmieni stanu (`_blocked`, po `work_state_changed_at`).
+  „Poza przydziałem”/brak kategorii zwalnia od razu; sam urlop — dopiero przy
+  świeżych danych z Compassa. Bez nich `auto` nie aktywuje też propozycji.
 - **Pulpit**: kafel `request_board` (4 lustra typu kafla, polecany dla
   rekrutera/sourcera/TAC/DL/HoR), `GET /api/request-board`; filtry po stronie
   przeglądarki (`lib/request-board.ts`, adres `rb_*`). Bez podpowiedzi systemu

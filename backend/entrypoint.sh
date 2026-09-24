@@ -5465,7 +5465,7 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     released_at TIMESTAMPTZ NULL,
     release_reason VARCHAR(40) NULL,
     CONSTRAINT ck_job_work_assignments_role CHECK (role IN ('recruiter', 'sourcer')),
-    CONSTRAINT ck_job_work_assignments_source CHECK (source IN ('auto', 'manual')),
+    CONSTRAINT ck_job_work_assignments_source CHECK (source IN ('auto', 'manual', 'owner')),
     CONSTRAINT ck_job_work_assignments_state
         CHECK (state IN ('proposed', 'active', 'released'))
 )""",

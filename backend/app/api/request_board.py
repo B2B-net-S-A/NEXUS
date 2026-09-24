@@ -276,6 +276,8 @@ async def get_request_board(
             .join(User, User.id == JobWorkAssignment.user_id)
             .join(Job, Job.id == JobWorkAssignment.job_id)
             .where(
+                # Wiersz prowadzącego to nie decyzja automatu ani DL-a.
+                JobWorkAssignment.source != "owner",
                 or_(
                     and_(
                         JobWorkAssignment.state != "released",
@@ -285,7 +287,7 @@ async def get_request_board(
                         JobWorkAssignment.state == "released",
                         JobWorkAssignment.released_at >= since,
                     ),
-                )
+                ),
             )
         )
     ).all()
@@ -356,10 +358,26 @@ async def get_request_board(
     )
 
 
-async def _searching_job(db: AsyncSession, job_id: int) -> Job:
+async def _locked_job(db: AsyncSession, job_id: int) -> Job:
     job = await db.scalar(select(Job).where(Job.id == job_id).with_for_update())
     if job is None:
         raise HTTPException(404, "Nie ma takiego requestu.")
+    return job
+
+
+async def _searching_job(db: AsyncSession, job_id: int) -> Job:
+    """Dodać można tylko do requestu w pracy — inaczej automat zwolni osobę."""
+    job = await _locked_job(db, job_id)
+    if (
+        job.status != JobStatus.published
+        or job.work_state != "searching"
+        or job.champion_found_at is not None
+    ):
+        raise HTTPException(
+            409,
+            "Osobę można dodać tylko do requestu w stanie „Szukamy kandydatów” "
+            "bez championa.",
+        )
     return job
 
 
@@ -396,7 +414,7 @@ async def remove_person(
     _current_user: User = Depends(BoardEditor),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    await _searching_job(db, job_id)
+    await _locked_job(db, job_id)
     removed = await manual_remove(db, job_id=job_id, user_id=user_id)
     await db.commit()
     return {"removed": removed}

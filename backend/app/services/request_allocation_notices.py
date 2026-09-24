@@ -51,6 +51,7 @@ async def _assignment_notices(db: AsyncSession, *, now: datetime) -> int:
             )
             .join(Job, Job.id == JobWorkAssignment.job_id)
             .where(
+                JobWorkAssignment.source != "owner",
                 or_(
                     and_(
                         JobWorkAssignment.state == "active",
@@ -60,7 +61,7 @@ async def _assignment_notices(db: AsyncSession, *, now: datetime) -> int:
                         JobWorkAssignment.state == "released",
                         JobWorkAssignment.released_at >= since,
                     ),
-                )
+                ),
             )
         )
     ).all()

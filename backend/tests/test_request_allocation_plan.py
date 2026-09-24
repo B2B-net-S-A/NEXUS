@@ -311,3 +311,79 @@ def test_request_without_category_goes_to_the_least_loaded_person() -> None:
         )
     )
     assert assigned(changes) == {5: 2}
+
+
+@pytest.mark.unit
+def test_person_removed_by_hand_does_not_come_back_to_that_request() -> None:
+    # X zdjęty ręcznie z requestu 10 ma najmniejsze obłożenie, ale automat
+    # bierze kogoś innego — decyzja DL-a wygrywa, dopóki request trwa.
+    changes = plan_assignments(
+        PlanInput(
+            requests=[req(10, DEV)],
+            people=[recruiter(1, DEV), recruiter(2, DEV)],
+            live=[LiveAssignment(20, 2, "recruiter", "auto", "active")],
+            mode="auto",
+            blocked=frozenset({(10, 1)}),
+        )
+    )
+    assert assigned(changes) == {10: 2}
+
+
+@pytest.mark.unit
+def test_nobody_assigned_when_every_capable_person_was_removed_by_hand() -> None:
+    changes = plan_assignments(
+        PlanInput(
+            requests=[req(10, DEV)],
+            people=[recruiter(1, DEV)],
+            live=[],
+            mode="auto",
+            blocked=frozenset({(10, 1)}),
+        )
+    )
+    assert assigned(changes) == {}
+
+
+@pytest.mark.unit
+def test_auto_mode_without_leave_data_does_not_activate_proposals() -> None:
+    changes = plan_assignments(
+        PlanInput(
+            requests=[req(10, DEV)],
+            people=[recruiter(1, DEV)],
+            live=[LiveAssignment(10, 1, "recruiter", "auto", "proposed")],
+            mode="auto",
+            availability_known=False,
+        )
+    )
+    assert [c.kind for c in changes] == []
+
+
+@pytest.mark.unit
+def test_person_out_of_allocation_is_released_even_without_leave_data() -> None:
+    # „Poza przydziałem” nie zależy od Compassa — zwolnienie nie czeka na urlopy.
+    changes = plan_assignments(
+        PlanInput(
+            requests=[req(10, DEV)],
+            people=[recruiter(2, DEV)],
+            live=[LiveAssignment(10, 1, "recruiter", "auto", "active")],
+            mode="shadow",
+            availability_known=False,
+            eligible_ids=frozenset({2}),
+        )
+    )
+    released = [(c.job_id, c.user_id, c.reason) for c in changes if c.kind == "release"]
+    assert released == [(10, 1, "excluded")]
+
+
+@pytest.mark.unit
+def test_person_on_leave_waits_for_leave_data_before_release() -> None:
+    changes = plan_assignments(
+        PlanInput(
+            requests=[req(10, DEV)],
+            people=[],
+            live=[LiveAssignment(10, 1, "recruiter", "auto", "active")],
+            mode="shadow",
+            availability_known=False,
+            eligible_ids=frozenset({1}),
+        )
+    )
+    assert [c for c in changes if c.kind == "release"] == []

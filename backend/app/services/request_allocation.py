@@ -18,6 +18,11 @@ prowadzącym rekrutacji (``jobs.recruiter_id``), jeśli go nie było.
 Urlopy: ``workforce_context`` z Compassa. Bez świeżych danych tryb ``auto``
 nie przydziela nikomu nowych requestów (mógłby trafić ktoś na urlopie), a
 tryb ``shadow`` proponuje dalej i pulpit mówi, że danych o urlopach brak.
+
+Prowadzący rekrutacji (``jobs.recruiter_id`` — z handoffu, z Traffita albo
+wpisany ręcznie) jest przy requeście z urzędu: przebieg dopisuje mu wiersz
+``source='owner'``, więc automat nie dokłada drugiej osoby tylko dlatego, że
+nie widział prowadzącego. Takie wiersze nie są „zmianą” ani dzwonkiem.
 """
 
 from __future__ import annotations
@@ -126,8 +131,13 @@ def _role_set(user: User) -> set[str]:
 
 async def _people(
     db: AsyncSession, *, available_ids: Optional[set[int]]
-) -> list[PersonInfo]:
-    """Kto może dostać request. ``available_ids=None`` = brak danych o urlopach."""
+) -> tuple[list[PersonInfo], frozenset[int]]:
+    """Kto może dostać request i kto mógłby, gdyby nie urlop.
+
+    ``available_ids=None`` = brak danych o urlopach. Drugi element to osoby
+    z rolą, dostępem, kategorią i bez „Poza przydziałem” — niezależnie od
+    urlopu; planer zwalnia resztę bez czekania na Compass.
+    """
     from app.services.section_permissions import (  # noqa: PLC0415
         ProductSection,
         SectionAccess,
@@ -154,10 +164,9 @@ async def _people(
         u
         for u in users
         if section_access_for_user(u, ProductSection.pipeline) >= SectionAccess.write
-        and (available_ids is None or u.id in available_ids)
     ]
     if not users:
-        return []
+        return [], frozenset()
     first: dict[int, set[int]] = {}
     second: dict[int, set[int]] = {}
     for user_id, cc, priority in (
@@ -182,11 +191,15 @@ async def _people(
         ).all()
     )
     people = []
+    eligible: set[int] = set()
     for user in users:
         roles = _role_set(user)
         # Bez żadnej kategorii osoba nie dostaje requestów — tak zdecydował
         # Artur („osoba bez kategorii nie dostaje requestów automatycznie”).
         if user.id not in first and user.id not in second:
+            continue
+        eligible.add(user.id)
+        if available_ids is not None and user.id not in available_ids:
             continue
         people.append(
             PersonInfo(
@@ -198,7 +211,87 @@ async def _people(
                 last_assigned=last.get(user.id),
             )
         )
-    return people
+    return people, frozenset(eligible)
+
+
+async def _blocked(db: AsyncSession) -> frozenset[tuple[int, int]]:
+    """Pary zdjęte ręcznie w BIEŻĄCYM stanie requestu (po ostatniej zmianie)."""
+    rows = (
+        await db.execute(
+            select(JobWorkAssignment.job_id, JobWorkAssignment.user_id)
+            .join(Job, Job.id == JobWorkAssignment.job_id)
+            .where(
+                _pool_clause(),
+                JobWorkAssignment.state == "released",
+                JobWorkAssignment.release_reason == "manual",
+                or_(
+                    Job.work_state_changed_at.is_(None),
+                    JobWorkAssignment.released_at >= Job.work_state_changed_at,
+                ),
+            )
+        )
+    ).all()
+    return frozenset((job_id, user_id) for job_id, user_id in rows)
+
+
+async def _adopt_owners(
+    db: AsyncSession, *, blocked: frozenset[tuple[int, int]], now: datetime
+) -> dict[str, int]:
+    """Prowadzący rekrutacji jest przy requeście — wiersz ``owner``.
+
+    Zmiana prowadzącego zwalnia poprzedni wiersz ``owner``. Prowadzący zdjęty
+    ręcznie z pulpitu nie wraca, dopóki request nie zmieni stanu.
+    """
+    stale = await db.execute(
+        update(JobWorkAssignment)
+        .where(
+            JobWorkAssignment.source == "owner",
+            JobWorkAssignment.state != "released",
+            JobWorkAssignment.job_id == Job.id,
+            or_(
+                Job.recruiter_id.is_(None),
+                Job.recruiter_id != JobWorkAssignment.user_id,
+            ),
+        )
+        .values(state="released", released_at=now, release_reason="owner_changed")
+        .execution_options(synchronize_session=False)
+    )
+    owners = (
+        await db.execute(
+            select(Job.id, Job.recruiter_id)
+            .join(User, User.id == Job.recruiter_id)
+            .where(_pool_clause(), User.is_active.is_(True))
+        )
+    ).all()
+    if not owners:
+        return {"owner_released": stale.rowcount or 0, "owner_adopted": 0}
+    live = set(
+        (
+            await db.execute(
+                select(JobWorkAssignment.job_id, JobWorkAssignment.user_id).where(
+                    JobWorkAssignment.state != "released",
+                    JobWorkAssignment.job_id.in_([job_id for job_id, _ in owners]),
+                )
+            )
+        ).all()
+    )
+    adopted = 0
+    for job_id, user_id in owners:
+        if (job_id, user_id) in live or (job_id, user_id) in blocked:
+            continue
+        db.add(
+            JobWorkAssignment(
+                job_id=job_id,
+                user_id=user_id,
+                role="recruiter",
+                source="owner",
+                state="active",
+                assigned_at=now,
+            )
+        )
+        adopted += 1
+    await db.flush()
+    return {"owner_released": stale.rowcount or 0, "owner_adopted": adopted}
 
 
 async def _live(db: AsyncSession) -> tuple[list[LiveAssignment], dict[int, str]]:
@@ -331,13 +424,19 @@ async def run_request_allocation(
     stats = dict(stats or {})
     rules = await load_rules(db)
     requests = await _requests(db)
-    people = await _people(
+    people, eligible_ids = await _people(
         db,
         available_ids=(
             available_ids
             if availability_fresh and settings.COMPASS_AVAILABILITY_ENABLED
             else None
         ),
+    )
+    blocked = await _blocked(db)
+    owner_counts = (
+        await _adopt_owners(db, blocked=blocked, now=now)
+        if mode != "off"
+        else {"owner_released": 0, "owner_adopted": 0}
     )
     live, out = await _live(db)
     changes = plan_assignments(
@@ -350,6 +449,8 @@ async def run_request_allocation(
             mode=mode,
             availability_known=availability_fresh
             and settings.COMPASS_AVAILABILITY_ENABLED,
+            eligible_ids=eligible_ids,
+            blocked=blocked,
         )
     )
     counts = await _apply(db, changes, mode=mode, now=now)
@@ -363,6 +464,7 @@ async def run_request_allocation(
                 availability_fresh and settings.COMPASS_AVAILABILITY_ENABLED
             ),
             **counts,
+            **owner_counts,
         }
     )
     if _review_due(stats, rules, now):

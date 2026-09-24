@@ -37,7 +37,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.core.database import Base
 
 WORK_ROLES = ("recruiter", "sourcer")
-WORK_SOURCES = ("auto", "manual")
+WORK_SOURCES = ("auto", "manual", "owner")
 WORK_STATES = ("proposed", "active", "released")
 
 
@@ -48,7 +48,8 @@ class JobWorkAssignment(Base):
             "role IN ('recruiter', 'sourcer')", name="ck_job_work_assignments_role"
         ),
         CheckConstraint(
-            "source IN ('auto', 'manual')", name="ck_job_work_assignments_source"
+            "source IN ('auto', 'manual', 'owner')",
+            name="ck_job_work_assignments_source",
         ),
         CheckConstraint(
             "state IN ('proposed', 'active', 'released')",
