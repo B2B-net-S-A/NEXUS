@@ -29,6 +29,7 @@ from app.models.contract import Contract
 from app.models.order_type import OrderType
 from app.services.client_order_lines import (
     consultant_display_name,
+    live_successor_line_id,
     recompute_remaining,
     record_event,
 )
@@ -379,6 +380,15 @@ async def apply_contract_order_offboarding(
             # A detached historical line is no longer part of an actionable
             # multi-consultant order.  Creating a case without a group would
             # leave an alert that has no resolve route or UI destination.
+            order.status = ClientOrderStatus.completed
+            continue
+        if order.id not in existing_by_order and (
+            await live_successor_line_id(db, order.id) is not None
+        ):
+            # Audyt 24.09.2026 (W1): pula tej linii jest już budżetem następcy
+            # z zamiany kontraktora (data zamiany w przyszłości zostawiła
+            # poprzednika aktywnego). Sprawa MD rozdałaby ją drugi raz — linia
+            # kończy się bez decyzji o puli.
             order.status = ClientOrderStatus.completed
             continue
         uses_shared_pool = bool(group and uses_shared_md_pool(group))

@@ -629,18 +629,53 @@ async def test_reimport_with_a_number_reverts_an_earlier_split(
     8,25 przeniesione na następcę. Paczka 2 za ten sam miesiąc wskazuje stare
     zamówienie numerem — całe 22 MD zostaje na nim, a przeniesienie znika
     (bez tego te same MD liczyłyby się dwa razy)."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order import ClientOrder
+    from app.models.client_order_group import ClientOrderGroupEvent
+    from app.models.md_consumption import (
+        ClientOrderMdConsumption,
+        MdConsumptionImport,
+    )
+    from app.services.client_order_lines import recompute_remaining
+
     case = await _ticket_setup(app_client, app_auth_headers, monkeypatch, old_md=13.75)
     finance = await _finance_headers(app_client)
 
-    # Następca aktywny tylko na czas paczki 1 — wtedy wiersz bez numeru trafia
-    # w poprzednika (jedyna linia obejmująca miesiąc poprzedni) i dzieli się.
-    first = await _import(
-        app_client,
-        finance,
-        _sheet([(case["name"], 22, "", 29920)]),
-        period=_prev_period(),
-    )
-    assert first["rows_applied"] == 1, first
+    # Stan po paczce 1 zapisany wprost: od audytu 24.09.2026 (W4) import nie
+    # przenosi nadwyżki na następcę, który nie obejmuje miesiąca raportu, więc
+    # taki podział da się dziś odtworzyć tylko z danymi sprzed tej reguły.
+    async with AsyncSessionLocal() as db:
+        batch = MdConsumptionImport(period_month=_prev_period(), filename="p1.xlsx")
+        db.add(batch)
+        await db.flush()
+        for order_id, md in ((case["old_line"], "13.75"), (case["new_line"], "8.25")):
+            db.add(
+                ClientOrderMdConsumption(
+                    order_id=order_id,
+                    period_month=_prev_period(),
+                    md_reported=Decimal(md),
+                    source="import",
+                    import_id=batch.id,
+                )
+            )
+        db.add(
+            ClientOrderGroupEvent(
+                group_id=case["new"]["id"],
+                order_id=case["new_line"],
+                event_type="transfer_md",
+                description="przejęcie zużycia (8,25 MD)",
+                payload={
+                    "md_transferred": "8.250000",
+                    "period_month": _prev_period(),
+                    "predecessor_group_id": case["old"]["id"],
+                    "successor_group_id": case["new"]["id"],
+                },
+            )
+        )
+        await db.flush()
+        for line_id in (case["old_line"], case["new_line"]):
+            await recompute_remaining(db, await db.get(ClientOrder, line_id))
+        await db.commit()
     assert await _consumptions(case["new_line"]) == {_prev_period(): Decimal("8.25")}
 
     second = await _import(
