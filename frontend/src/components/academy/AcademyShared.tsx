@@ -32,6 +32,40 @@ import { AcademyDocumentsDialog } from "./AcademyDocumentsDialog";
 
 export type ActFn = (app: AcademyApplication, body: ActionBody) => Promise<boolean>;
 
+/**
+ * Stan zapytania o terminy w biurze. Wczytywanie i błąd NIE mogą wyglądać jak
+ * „nie ma terminów” — dzwoniący dodałby wtedy rytm drugi raz.
+ */
+export interface SessionsLoadState {
+  loading: boolean;
+  error: string | null;
+  onRetry: () => void;
+}
+
+/** Komunikat zamiast listy terminów; `null`, gdy terminy są wczytane. */
+export function SessionsNotice({ state }: { state?: SessionsLoadState | null }) {
+  if (!state) return null;
+  if (state.error) {
+    return (
+      <div role="alert" className="flex flex-wrap items-center gap-2 text-sm text-danger">
+        <span>Nie udało się wczytać terminów w biurze: {state.error}</span>
+        <Button size="sm" variant="outline" onClick={state.onRetry}>
+          Ponów
+        </Button>
+      </div>
+    );
+  }
+  if (state.loading) {
+    return <p className="text-sm text-muted-foreground">Wczytuję terminy…</p>;
+  }
+  return null;
+}
+
+/** Czy terminy są niedostępne (wczytywanie albo błąd). */
+export function sessionsUnavailable(state?: SessionsLoadState | null): boolean {
+  return !!state && (state.loading || !!state.error);
+}
+
 /** Generowanie kompletu dokumentów uczestnika (umowa, regulamin…). */
 export interface DocumentsSupport {
   cohort: CohortDates | null | undefined;

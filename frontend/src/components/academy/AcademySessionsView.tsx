@@ -25,7 +25,14 @@ import type {
   RhythmInput,
 } from "@/lib/api/academy";
 
-import { PersonActions, type ActFn, type DocumentsSupport } from "./AcademyShared";
+import {
+  PersonActions,
+  SessionsNotice,
+  sessionsUnavailable,
+  type ActFn,
+  type DocumentsSupport,
+  type SessionsLoadState,
+} from "./AcademyShared";
 
 export function AcademySessionsView({
   program,
@@ -39,6 +46,7 @@ export function AcademySessionsView({
   busyIds,
   now,
   documents,
+  sessionsState,
 }: {
   program: AcademyProgram;
   apps: readonly AcademyApplication[];
@@ -51,6 +59,7 @@ export function AcademySessionsView({
   busyIds: ReadonlySet<number>;
   now: Date;
   documents?: DocumentsSupport;
+  sessionsState?: SessionsLoadState | null;
 }) {
   const visible = sessions.filter((s) => !s.cancelled);
   const defaultId =
@@ -69,7 +78,9 @@ export function AcademySessionsView({
       <div className="space-y-4">
         <section className="space-y-2 rounded-xl border border-border bg-card p-4">
           <h2 className="text-sm font-semibold">Terminy</h2>
-          {visible.length === 0 ? (
+          {sessionsUnavailable(sessionsState) ? (
+            <SessionsNotice state={sessionsState} />
+          ) : visible.length === 0 ? (
             <p className="text-sm text-muted-foreground">Nie ma jeszcze terminów — dodaj rytm poniżej.</p>
           ) : (
             <ul className="space-y-1">

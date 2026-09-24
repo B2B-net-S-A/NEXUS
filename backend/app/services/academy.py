@@ -24,7 +24,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from fastapi.concurrency import run_in_threadpool
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import case, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -58,6 +58,8 @@ FEATURE = AIFeatureKey.academy_screening
 SCREENING_VERSION = 1
 CV_CHAR_LIMIT = 12000
 SCREEN_BATCH = 25
+APPLICATIONS_LIST_LIMIT = 2000
+_CLOSED_STATUSES = ("rejected", "withdrew")
 # Etapy, którymi osoba WCHODZI do rekrutacji z ogłoszenia. Tylko nowy wiersz
 # na tych etapach jest ponownym zgłoszeniem — przesunięcie karty w Traffit
 # (np. na „Odrzucony”) po decyzji w akademii nie może udawać, że ktoś wrócił.
@@ -580,36 +582,61 @@ async def list_applications(
     *,
     statuses: Optional[list[str]] = None,
     q: Optional[str] = None,
-    limit: int = 2000,
-) -> list[dict[str, Any]]:
+    limit: int = APPLICATIONS_LIST_LIMIT,
+) -> tuple[list[dict[str, Any]], int]:
+    """Zgłoszenia programu i łączna liczba pasujących (przed ``limit``).
+
+    Odrzuceni zostają w programie na zawsze, więc wierszy przybywa. Lista NIE
+    może po cichu ucinać najnowszych: najpierw idą osoby w toku (kolejki
+    telefonów, terminy, edycja), potem zamknięte — w obu grupach najnowsze
+    zgłoszenia pierwsze. Gdy ``limit`` coś utnie, są to najstarsze zamknięte,
+    a front pokazuje „pokazano N z M” (liczniki kolejek liczy serwer).
+    """
     from app.models.job import Job  # noqa: PLC0415
 
-    stmt = (
-        select(AcademyApplication, Candidate, AcademySession, Job.title)
-        .join(Candidate, Candidate.id == AcademyApplication.candidate_id)
-        .outerjoin(AcademySession, AcademySession.id == AcademyApplication.session_id)
-        .outerjoin(Job, Job.id == AcademyApplication.source_job_id)
-        .where(AcademyApplication.program_id == program_id)
-    )
+    filters = [AcademyApplication.program_id == program_id]
+    joined_candidate = False
     if statuses:
-        stmt = stmt.where(AcademyApplication.status.in_(statuses))
+        filters.append(AcademyApplication.status.in_(statuses))
     if q:
         escaped = (
             q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         )
         needle = f"%{escaped}%"
-        stmt = stmt.where(
+        joined_candidate = True
+        filters.append(
             or_(
                 func.concat(Candidate.name, " ", Candidate.lastname).ilike(needle),
                 Candidate.email.ilike(needle),
                 Candidate.phone.ilike(needle),
             )
         )
+    stmt = (
+        select(AcademyApplication, Candidate, AcademySession, Job.title)
+        .join(Candidate, Candidate.id == AcademyApplication.candidate_id)
+        .outerjoin(AcademySession, AcademySession.id == AcademyApplication.session_id)
+        .outerjoin(Job, Job.id == AcademyApplication.source_job_id)
+        .where(*filters)
+    )
+    closed_last = case((AcademyApplication.status.in_(_CLOSED_STATUSES), 1), else_=0)
     stmt = stmt.order_by(
-        AcademyApplication.applied_at.asc(), AcademyApplication.id.asc()
+        closed_last,
+        AcademyApplication.applied_at.desc(),
+        AcademyApplication.id.desc(),
     ).limit(limit)
     rows = (await db.execute(stmt)).all()
-    return [application_dict(app, cand, sess, title) for app, cand, sess, title in rows]
+    items = [
+        application_dict(app, cand, sess, title) for app, cand, sess, title in rows
+    ]
+    if len(items) < limit:
+        return items, len(items)
+    total_stmt = select(func.count()).select_from(AcademyApplication).where(*filters)
+    if joined_candidate:
+        total_stmt = total_stmt.join(
+            Candidate, Candidate.id == AcademyApplication.candidate_id
+        )
+    total = int(await db.scalar(total_stmt) or 0)
+    return items, total
 
 
 async def list_applications_by_ids(

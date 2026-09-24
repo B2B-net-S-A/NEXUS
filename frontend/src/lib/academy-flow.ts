@@ -9,6 +9,7 @@
 
 import type {
   AcademyApplication,
+  AcademyCounts,
   AcademySessionRow,
   AcademyStatus,
 } from "@/lib/api/academy";
@@ -177,20 +178,71 @@ export function attendeesOf(
     .sort((a, b) => a.full_name.localeCompare(b.full_name, "pl"));
 }
 
-/** Liczby do kafli widoku edycji. */
-export function editionStats(apps: readonly AcademyApplication[]) {
+/**
+ * Liczby do kafli widoku edycji. Z `counts` (policzone przez serwer) biorą się
+ * liczby, które lista może zaniżać — lista ma limit i ucina najstarszych
+ * zamkniętych (wykluczonych, zrezygnowanych), nigdy osób w toku.
+ */
+export function editionStats(
+  apps: readonly AcademyApplication[],
+  counts?: AcademyCounts | null,
+) {
   const groups = byStatus(apps);
+  const fromServer = (key: string, fallback: number) => {
+    const value = counts?.[key];
+    return typeof value === "number" ? value : fallback;
+  };
+  const serverTotal = counts
+    ? (Object.keys(STATUS_LABELS) as AcademyStatus[]).reduce(
+        (sum, status) => sum + (counts[status] ?? 0),
+        0,
+      )
+    : null;
   return {
-    fromAds: apps.length,
+    fromAds: serverTotal ?? apps.length,
     toCall: groups.to_call.length,
     review: groups.to_call.filter((a) => a.screening_verdict === "review").length,
     scheduled: groups.scheduled.length,
     tasks: groups.task_given.length,
     passed: groups.task_passed.length + groups.contract_sent.length,
     signed: groups.signed.length,
-    excluded: groups.rejected.length,
-    reapplied: groups.rejected.filter((a) => a.reapplied_at).length,
+    excluded: fromServer("rejected", groups.rejected.length),
+    reapplied: fromServer(
+      "reapplied_excluded",
+      groups.rejected.filter((a) => a.reapplied_at).length,
+    ),
   };
+}
+
+/**
+ * Zdanie pod nagłówkiem, gdy lista zgłoszeń została przycięta. `null` = lista
+ * jest kompletna.
+ */
+export function truncatedListNote(shown: number, total: number | null | undefined): string | null {
+  if (typeof total !== "number" || total <= shown) return null;
+  return `Pokazano ${shown} z ${total} zgłoszeń. Osoby w toku są wszystkie; pominięto najstarszych wykluczonych i zrezygnowanych — znajdziesz ich wyszukiwarką.`;
+}
+
+/**
+ * Komunikat po zbiorczej akcji. Przy wykluczaniu mówi wprost, ilu osób NIE
+ * wykluczono i dlaczego (serwer odmawia osobom, które ktoś w międzyczasie
+ * przesunął). `null` = nic nie padło.
+ */
+export function bulkFailureMessage(
+  action: string,
+  failed: readonly { id: number; message: string }[],
+): string | null {
+  if (failed.length === 0) return null;
+  const byMessage = new Map<string, number>();
+  for (const item of failed) byMessage.set(item.message, (byMessage.get(item.message) ?? 0) + 1);
+  const reasons = [...byMessage.entries()]
+    .map(([message, n]) => (byMessage.size > 1 ? `${message} (${n} os.)` : message))
+    .join(" ");
+  const head =
+    action === "reject"
+      ? `Nie wykluczono ${failed.length} os.`
+      : `Nie udało się dla ${failed.length} os.`;
+  return `${head}: ${reasons}`;
 }
 
 /** Dni tygodnia w kolejności pon–nd dla formularza rytmu (0 = poniedziałek). */

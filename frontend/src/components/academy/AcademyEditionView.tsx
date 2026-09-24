@@ -32,6 +32,7 @@ import {
 } from "@/lib/academy-flow";
 import type {
   AcademyApplication,
+  AcademyCounts,
   AcademyProgram,
   AcademySessionRow,
   ActionBody,
@@ -41,10 +42,13 @@ import {
   ExperienceChip,
   PersonActions,
   ReasonsList,
+  SessionsNotice,
   StatusLine,
   VerdictBadge,
+  sessionsUnavailable,
   type ActFn,
   type DocumentsSupport,
+  type SessionsLoadState,
 } from "./AcademyShared";
 
 const CARDS_PER_COLUMN = 30;
@@ -59,6 +63,8 @@ export function AcademyEditionView({
   busyIds,
   now,
   documents,
+  counts,
+  sessionsState,
 }: {
   program: AcademyProgram;
   apps: readonly AcademyApplication[];
@@ -69,10 +75,13 @@ export function AcademyEditionView({
   busyIds: ReadonlySet<number>;
   now: Date;
   documents?: DocumentsSupport;
+  /** Liczniki z serwera — lista ma limit, więc zamkniętych liczy serwer. */
+  counts?: AcademyCounts | null;
+  sessionsState?: SessionsLoadState | null;
 }) {
   const [openId, setOpenId] = React.useState<number | null>(null);
   const groups = React.useMemo(() => byStatus(apps), [apps]);
-  const stats = React.useMemo(() => editionStats(apps), [apps]);
+  const stats = React.useMemo(() => editionStats(apps, counts), [apps, counts]);
   const skipped = React.useMemo(() => lunaSkipped(apps), [apps]);
   const pendingLuna = awaitingLuna(apps);
   const open = apps.find((a) => a.id === openId) ?? null;
@@ -149,7 +158,9 @@ export function AcademyEditionView({
 
       <section className="space-y-2">
         <h2 className="text-sm font-semibold">Spotkania w biurze — najbliższe 7 dni</h2>
-        {weekSessions.length === 0 ? (
+        {sessionsUnavailable(sessionsState) ? (
+          <SessionsNotice state={sessionsState} />
+        ) : weekSessions.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             Brak terminów w tym tygodniu. Dodaj rytm w zakładce „Spotkania”.
           </p>
