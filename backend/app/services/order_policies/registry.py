@@ -179,6 +179,7 @@ def _nordea(result: OrderExtraction, ctx: PolicyContext) -> OrderExtraction:
         text,
         target_consultant=ctx.target_consultant,
         target_given_names=ctx.target_given_names,
+        reapplied=ctx.reapplied,
     )
 
 
@@ -285,6 +286,9 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         exposes_consultant_rows=True,
         table_authoritative=True,
         rate_rules=_nordea_rate_rules,
+        # 24.09.2026: tabela porównywana z zachowanym odczytem modelu
+        # (``model_rows``), a nie sama ze sobą (audyt S2).
+        rule_version="2026-09-24",
     ),
     OrderClientPolicy(
         key="bank_pocztowy",

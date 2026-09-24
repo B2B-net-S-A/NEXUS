@@ -613,12 +613,78 @@ class TestNordeaLayout:
         assert nordea.call_off_number_interleaved(NORDEA) == "277157"
 
     def test_layer_overrides_company_number_picked_by_label_window(self):
-        r = _run("nordea", NORDEA)
+        # Odczyt modelu potwierdza osobę i stawkę z tabeli (S2, audyt 24.09).
+        model = OrderExtraction(
+            source="claude",
+            consultant_rows=[
+                ConsultantOrderRow(
+                    consultant_name="Łukasz Testowy",
+                    rate_client=Decimal("175"),
+                    rate_unit="hour",
+                    uncertain=False,
+                )
+            ],
+        )
+        r, _ = apply_policies(
+            model, PolicyContext(document_text=NORDEA), [policy_by_key("nordea")]
+        )
         assert r.title == "277157"
         assert (r.start_date, r.end_date) == ("2031-02-02", "2031-11-30")
         assert (r.rate_client, r.rate_unit) == (Decimal("175.00"), "hour")
         assert r.consultant_rows[0].consultant_name == "Łukasz Testowy"
         assert r.consultant_rows[0].uncertain is False
+        assert r.uncertain is False
+
+    def test_table_row_is_not_confirmed_by_the_table_itself(self):
+        """S2 (audyt 24.09): bramka porównywała tabelę z ``extract_rows`` — czyli
+        z nią samą. Osobę i stawkę musi powtórzyć zachowany odczyt modelu."""
+        policy = policy_by_key("nordea")
+        # Model nie odczytał nikogo — tabela nie ma czym się potwierdzić.
+        silent = _run("nordea", NORDEA)
+        assert silent.model_rows == []
+        assert silent.consultant_rows[0].uncertain is True
+        assert any("nie potwierdził" in r for r in silent.uncertain_reasons)
+
+        # Inna stawka w odczycie modelu → do sprawdzenia.
+        model = OrderExtraction(
+            source="claude",
+            consultant_rows=[
+                ConsultantOrderRow(
+                    consultant_name="Łukasz Testowy",
+                    rate_client=Decimal("157"),
+                    rate_unit="hour",
+                    uncertain=False,
+                )
+            ],
+        )
+        read, _ = apply_policies(model, PolicyContext(document_text=NORDEA), [policy])
+        assert [r.rate_client for r in read.model_rows] == [Decimal("157")]
+        assert any("różni się od odczytu modelu" in r for r in read.uncertain_reasons)
+
+        # „Przelicz plan": porównanie z ZACHOWANYM odczytem, nie z tabelą,
+        # którą reguła wpisała do ``consultant_rows`` przy pierwszym przebiegu.
+        read.uncertain_reasons = []
+        again, _ = apply_policies(
+            read, PolicyContext(document_text=NORDEA, reapplied=True), [policy]
+        )
+        assert any("różni się od odczytu modelu" in r for r in again.uncertain_reasons)
+        assert policy.rule_version
+
+    def test_saved_reading_from_before_the_rule_is_not_trusted(self):
+        """Zapis sprzed 24.09: ``consultant_rows`` to już tabela — nie dowód."""
+        legacy = _run("nordea", NORDEA)
+        legacy.model_rows = None
+        legacy.uncertain_reasons = []
+        again, _ = apply_policies(
+            legacy,
+            PolicyContext(document_text=NORDEA, reapplied=True),
+            [policy_by_key("nordea")],
+        )
+        assert any(
+            "odczyt zapisany przed zmianą reguły Nordei" in r
+            for r in again.uncertain_reasons
+        )
+        assert again.uncertain is True
 
     def test_quantity_and_subtotal_do_not_determine_rate_or_certainty(self):
         rows = nordea.extract_rows(
