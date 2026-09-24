@@ -40,9 +40,9 @@ from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.client_order import ClientOrder, ClientOrderStatus
+from app.models.contract_candidate_rate import ContractCandidateRate
 from app.models.contract import (
     Contract,
-    ContractCandidateRate,
     ContractStatus,
     ContractType,
     RateUnit,
