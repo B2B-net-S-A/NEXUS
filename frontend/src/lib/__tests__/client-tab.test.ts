@@ -1,7 +1,12 @@
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { isClientTab, positiveIntParam, useClientTab } from "@/lib/client-tab";
+import {
+  isClientTab,
+  positiveIntParam,
+  useClientTab,
+  useForbiddenTabFallback,
+} from "@/lib/client-tab";
 
 describe("useClientTab", () => {
   it("startuje na zakładce z adresu", () => {
@@ -81,6 +86,34 @@ describe("useClientTab", () => {
   it("zakładka „zasady” (karta klienta) jest adresowalna — link „Edytuj kartę” ze strony oferty i z Pomocy", () => {
     const { result } = renderHook(() => useClientTab("zasady"));
     expect(result.current[0]).toBe("zasady");
+  });
+});
+
+describe("useForbiddenTabFallback", () => {
+  it("przed hydracją użytkownika NIE przełącza zakładki z adresu (audyt 24.09, H2)", () => {
+    // Pełne wczytanie `/clients/1?tab=umowy-ramowe`: pierwszy render ma
+    // `user = null`, więc „brak prawa do Umów” jest jeszcze brakiem wiedzy.
+    // Przełączenie na Profil nie było potem cofane.
+    const { result, rerender } = renderHook(
+      ({ allowed, ready }: { allowed: boolean; ready: boolean }) => {
+        const [tab, setTab] = useClientTab("umowy-ramowe");
+        useForbiddenTabFallback(tab, setTab, "umowy-ramowe", allowed, ready);
+        return tab;
+      },
+      { initialProps: { allowed: false, ready: false } },
+    );
+    expect(result.current).toBe("umowy-ramowe");
+    rerender({ allowed: true, ready: true });
+    expect(result.current).toBe("umowy-ramowe");
+  });
+
+  it("po hydracji rola bez prawa trafia na Profil", () => {
+    const { result } = renderHook(() => {
+      const [tab, setTab] = useClientTab("umowy-ramowe");
+      useForbiddenTabFallback(tab, setTab, "umowy-ramowe", false, true);
+      return tab;
+    });
+    expect(result.current).toBe("profil");
   });
 });
 
