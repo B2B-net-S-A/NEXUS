@@ -550,7 +550,11 @@ async def revert_contract(
 
 
 async def reopen_contract(
-    db: AsyncSession, contract: Contract, *, actor_id: Optional[int]
+    db: AsyncSession,
+    contract: Contract,
+    *,
+    actor_id: Optional[int],
+    after_break: bool = False,
 ) -> bool:
     """Heal an ``ended``/``ending`` contract back to ``active`` (e.g. on extend).
 
@@ -569,6 +573,12 @@ async def reopen_contract(
 
     Nie myl jej z `reopen_contract_endpoint` w routerze: mimo nazwy woła on
     `revert_contract` (→ `draft`), a nie tę operację.
+
+    Od 09.2026 reaktywacja domyka też Generator umów B2B
+    (`contract_termination_sync`): jawne przywrócenie („Cofnij zakończenie")
+    odtwarza umowę sprzed zakończenia i czyści dane rozwiązania umowy,
+    a `after_break=True` (nowe zamówienie wskrzesza kontrakt — powrót po
+    przerwie) przy ROZWIĄZANEJ umowie zakłada nową, powiązaną z poprzednią.
     """
     previous = contract.status
     if previous not in (ContractStatus.ended, ContractStatus.ending):
@@ -584,6 +594,16 @@ async def reopen_contract(
             to_status=ContractStatus.active,
         )
     )
+    # Import leniwy: serwis synchronizacji stoi wyżej w grafie importów.
+    from app.services.contract_termination_sync import (
+        on_contract_returned_after_break,
+        undo_contract_termination,
+    )
+
+    if after_break:
+        await on_contract_returned_after_break(db, contract, actor_id=actor_id)
+    else:
+        await undo_contract_termination(db, contract, actor_id=actor_id)
     return True
 
 
@@ -754,7 +774,7 @@ async def sync_contract_to_live_order(
         contract.client_order_end_date = order_end
         changed = True
 
-    if await reopen_contract(db, contract, actor_id=actor_id):
+    if await reopen_contract(db, contract, actor_id=actor_id, after_break=True):
         changed = True
     return changed
 

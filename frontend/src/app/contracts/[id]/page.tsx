@@ -33,7 +33,13 @@ import {
   signedDeleteActionFromError,
   type SignedDeleteRequirement,
 } from "@/components/contracts/SignedContractDeleteConfirmation";
-import { CONTRACT_TERMINATION_REASONS, type ContractTerminationReason } from "@/lib/api";
+import {
+  CONTRACT_TERMINATION_REASONS,
+  type AgreementTerminationMode,
+  type AgreementTerminationParty,
+  type ContractTerminationReason,
+} from "@/lib/api";
+import { ContractTerminationSummary } from "@/components/contracts/ContractTerminationSummary";
 import { ContractDocument, summariseComplianceRisk } from "@/components/ContractDocumentsTab";
 import {
   formatCurrency,
@@ -169,6 +175,12 @@ interface ContractDetail {
   termination_reason: ContractTerminationReason | null;
   termination_lessons: string | null;
   terminated_at: string | null;
+  // Rozwiązanie umowy B2B z okna „Zakończ współpracę" (0367).
+  agreement_termination_mode: AgreementTerminationMode | null;
+  agreement_termination_party: AgreementTerminationParty | null;
+  agreement_termination_signed_on: string | null;
+  agreement_last_day: string | null;
+  notice_period_months: number | null;
   monthly_rate_candidate: number | null;
   monthly_rate_client: number | null;
   monthly_margin: number | null;
@@ -398,6 +410,7 @@ interface EditForm {
   handover_notes: string;
   order_consumption: string;
   order_consumption_unit: string;
+  notice_period_months: string;
 }
 
 function contractToForm(c: ContractDetail): EditForm {
@@ -447,6 +460,7 @@ function contractToForm(c: ContractDetail): EditForm {
     handover_notes: c.handover_notes ?? "",
     order_consumption: c.order_consumption?.toString() ?? "",
     order_consumption_unit: c.order_consumption_unit ?? "rbh",
+    notice_period_months: c.notice_period_months?.toString() ?? "",
   };
 }
 
@@ -776,6 +790,9 @@ export default function ContractDetailPage() {
         parseDecimalInput(form.order_consumption) !== null
           ? form.order_consumption_unit
           : null,
+      notice_period_months: form.notice_period_months
+        ? Number(form.notice_period_months)
+        : null,
     };
     const payload: Record<string, unknown> = financeAmountsOnly
       ? {}
@@ -906,7 +923,17 @@ export default function ContractDetailPage() {
                 aria-label="Zmień status kontraktu"
                 value={contract.status}
                 disabled={statusMutation.isPending}
-                onChange={(event) => statusMutation.mutate(event.target.value)}
+                onChange={(event) => {
+                  // „Zakończony" wyłącznie przez okno „Zakończ współpracę"
+                  // (kontrakt #674). Lista jest kontrolowana wartością z
+                  // serwera, więc „Anuluj" zostawia na niej poprzedni status.
+                  if (event.target.value === "ended") {
+                    setTerminationDate(undefined);
+                    setShowTerminationDialog(true);
+                    return;
+                  }
+                  statusMutation.mutate(event.target.value);
+                }}
                 className="rounded-md border border-border bg-card px-2 py-1 text-sm font-medium"
               >
                 <option value="draft">Draft</option>
@@ -1320,12 +1347,7 @@ export default function ContractDetailPage() {
                     )?.label ?? contract.termination_reason}
                   </p>
                 )}
-                {contract.terminated_at && (
-                  <p className="text-sm">
-                    <span className="text-muted-foreground">Data: </span>
-                    {formatDate(contract.terminated_at)}
-                  </p>
-                )}
+                <ContractTerminationSummary contract={contract} />
                 {contract.termination_lessons && (
                   <p className="text-sm mt-2 whitespace-pre-wrap">
                     <span className="text-muted-foreground block">
@@ -1497,6 +1519,29 @@ export default function ContractDetailPage() {
                       <option value="active">Aktywny</option>
                       <option value="ending">Kończący się</option>
                       <option value="ended">Zakończony</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="contract-edit-notice-period" className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
+                      Okres wypowiedzenia (mies.)
+                    </label>
+                    {/* Podpowiada „Ostatni dzień umowy" w oknie „Zakończ
+                        współpracę" przy wypowiedzeniu. Puste = nie zapisano. */}
+                    <select id="contract-edit-notice-period"
+                      value={form.notice_period_months}
+                      onChange={(e) =>
+                        setForm((f) =>
+                          f ? { ...f, notice_period_months: e.target.value } : f,
+                        )
+                      }
+                      className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground"
+                    >
+                      <option value="">— nie zapisano —</option>
+                      {[1, 2, 3, 6].map((m) => (
+                        <option key={m} value={String(m)}>
+                          {m} {m === 1 ? "miesiąc" : m < 5 ? "miesiące" : "miesięcy"}
+                        </option>
+                      ))}
                     </select>
                   </div>
                 </div>
@@ -2250,6 +2295,11 @@ export default function ContractDetailPage() {
           clientId={contract.client_id}
           readOnly={!canEditContract}
           extensionLocked={b2bExtensionLocked(contract)}
+          // „Zakończ wcześniej" to też zakończenie kontraktu — przez to samo okno.
+          onRequestTermination={() => {
+            setTerminationDate(undefined);
+            setShowTerminationDialog(true);
+          }}
         />
       )}
 
@@ -2416,7 +2466,10 @@ export default function ContractDetailPage() {
 
       {showTerminationDialog && (
         <ContractTerminationDialog
-          contractId={id}
+          contractIds={[id]}
+          candidateName={contract.candidate_name}
+          noticePeriodMonths={contract.notice_period_months}
+          orderEndDate={contract.client_order_end_date}
           // Data z formularza edycji, nie `contract.end_date` z serwera:
           // operator wpisał ją przed chwilą obok statusu „Zakończony" i nie ma
           // jej podawać drugi raz. Pole w dialogu zostaje edytowalne.
