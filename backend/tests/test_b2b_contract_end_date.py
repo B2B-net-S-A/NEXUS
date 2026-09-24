@@ -178,7 +178,9 @@ async def _seed_contract(
     async with AsyncSessionLocal() as db:
         client = Client(name=f"Indefinite B2B {suffix}")
         candidate = Candidate(
-            name="Testowa", lastname=f"Osoba{suffix}", email=f"b2b-{suffix}@example.test"
+            name="Testowa",
+            lastname=f"Osoba{suffix}",
+            email=f"b2b-{suffix}@example.test",
         )
         db.add_all([client, candidate])
         await db.flush()
@@ -278,8 +280,9 @@ async def test_terminate_sets_a_future_date_and_it_can_be_corrected(
     )
     assert resp.status_code == 200, resp.text
     assert resp.json()["end_date"] == first.isoformat()
-    # Umowa wypowiedziana pracuje do daty zakończenia.
-    assert resp.json()["status"] == "active"
+    # Umowa wypowiedziana pracuje do daty zakończenia — od 0367 jako
+    # „Kończący się” (data zakończenia projektu jest włączna).
+    assert resp.json()["status"] == "ending"
     # Po ręcznym zakończeniu datę wolno poprawić w edycji.
     corrected = TODAY + timedelta(days=20)
     resp = await app_client.patch(
@@ -551,9 +554,7 @@ async def test_repair_terminates_ticket_rows_then_clears_unterminated_b2b_dates(
         past = await _contract(past_person["contract_id"])
         assert past.status == ContractStatus.ended
         assert past.end_date == past_end
-        assert (
-            past.termination_reason == ContractTerminationReason.consultant_resigned
-        )
+        assert past.termination_reason == ContractTerminationReason.consultant_resigned
         assert (await _contract(mismatch["contract_id"])).terminated_at is None
 
         # ── Czyszczenie dat B2B ──

@@ -459,11 +459,28 @@ async def apply(
         when = _date(values.get("termination_date"))
         if when is None:
             raise HTTPException(status_code=422, detail="Brak daty rozwiązania umowy.")
+        agreement_termination = None
         if key == "termination_notice":
             termination_reason = ContractTerminationReason(
                 values.get("termination_reason") or "other"
             )
             register_reason = "termination"
+            # Wypowiedzenie przez B2B.net ma komplet danych rozwiązania umowy
+            # (0367): strona, data doręczenia, ostatni dzień umowy. Porozumienie
+            # nie mówi, która strona je zainicjowała — tam kontrakt dostaje
+            # samą datę, a dane rozwiązania uzupełnia okno „Zakończ współpracę”.
+            delivered = _date(values.get("delivery_date"))
+            if delivered is not None and delivered <= when:
+                from app.services.contract_termination_sync import (
+                    AgreementTermination,
+                )
+
+                agreement_termination = AgreementTermination(
+                    mode="notice",
+                    party="company",
+                    signed_on=delivered,
+                    last_day=when,
+                )
         else:
             termination_reason = ContractTerminationReason.mutual_agreement
             register_reason = "mutual_agreement"
@@ -475,6 +492,7 @@ async def apply(
                 when=when,
                 termination_lessons=reason,
                 actor_id=user.id,
+                agreement_termination=agreement_termination,
             )
             summary["terminated_at"] = when.isoformat()
         if parent is not None:

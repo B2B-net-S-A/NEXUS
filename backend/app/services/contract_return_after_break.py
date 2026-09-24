@@ -73,6 +73,8 @@ _COPIED_FIELDS: tuple[str, ...] = (
     "candidate_email",
     "candidate_phone",
     "candidate_subject_ref",
+    # Okres wypowiedzenia z umowy (0367) — podpowiedź w oknie zakończenia.
+    "notice_period_months",
 )
 
 
@@ -300,6 +302,14 @@ async def create_return_after_break(
             user_id=actor_id,
             details=details,
         )
+    )
+    # Generator umów B2B: nowa umowa dla powrotu po przerwie (0367).
+    from app.services.contract_termination_sync import (
+        on_contract_returned_after_break,
+    )
+
+    await on_contract_returned_after_break(
+        db, previous, contract, actor_id=actor_id, today=start_date
     )
     await db.flush()
     return result

@@ -191,6 +191,14 @@ _MERGEABLE_FIELDS = (
     "termination_reason",
     "termination_lessons",
     "terminated_at",
+    # Rozwiązanie umowy B2B i okres wypowiedzenia (0367). CHECK wymaga
+    # kompletu albo niczego; scalenie „puste ← wypełnione" przenosi komplet
+    # z przegranego tylko wtedy, gdy zachowany nie ma żadnego z pól.
+    "agreement_termination_mode",
+    "agreement_termination_party",
+    "agreement_termination_signed_on",
+    "agreement_last_day",
+    "notice_period_months",
     "target_rate_min",
     "target_rate_max",
     "project_code",
@@ -2781,6 +2789,8 @@ def _database_value(field: str, value: Any) -> Any:
         "start_date",
         "end_date",
         "terminated_at",
+        "agreement_termination_signed_on",
+        "agreement_last_day",
         "client_order_start_date",
         "client_order_end_date",
     }:

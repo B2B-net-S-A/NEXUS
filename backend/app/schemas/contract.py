@@ -15,6 +15,11 @@ from app.models.contract import (
     RateUnit,
 )
 
+# Rozwiązanie umowy B2B (0367): wypowiedzenie / porozumienie stron; stronę,
+# która wypowiedziała albo zainicjowała porozumienie — konsultant / b2bnetwork.
+AgreementTerminationMode = Literal["notice", "mutual_agreement"]
+AgreementTerminationParty = Literal["consultant", "company"]
+
 
 # Cztery stany świadomie edytowalne w rejestrze klienta. Stany techniczne
 # ``ready_for_signature`` i ``void`` pozostają wyłącznie w audytowanym
@@ -191,6 +196,9 @@ class ContractStatusUpdate(BaseModel):
 
 class ContractUpdate(BaseModel):
     start_date: Optional[date] = None
+    # Okres wypowiedzenia z umowy (miesiące) — podpowiedź „Ostatniego dnia
+    # umowy" w oknie „Zakończ współpracę". `null` czyści.
+    notice_period_months: Optional[int] = Field(default=None, ge=1, le=24)
     end_date: Optional[date] = None
     client_order_end_date: Optional[date] = None
     rate_candidate: Optional[float] = None
@@ -392,6 +400,12 @@ class ContractResponse(BaseModel):
     terminated_at: Optional[date] = None
     # „Powrót po przerwie" (0368) — nowy kontrakt wskazuje poprzedni.
     returned_from_contract_id: Optional[int] = None
+    # Rozwiązanie umowy B2B z okna „Zakończ współpracę" (0367).
+    agreement_termination_mode: Optional[AgreementTerminationMode] = None
+    agreement_termination_party: Optional[AgreementTerminationParty] = None
+    agreement_termination_signed_on: Optional[date] = None
+    agreement_last_day: Optional[date] = None
+    notice_period_months: Optional[int] = None
     # Per-klient rejestr (migracja 0138)
     project_code: Optional[str] = None
     prolongation_status: ProlongationStatus = ProlongationStatus.unknown
@@ -430,12 +444,41 @@ class ContractResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class AgreementTerminationPayload(BaseModel):
+    """„Rozwiązanie umowy" z okna „Zakończ współpracę" (0367).
+
+    Komplet albo nic: pole wyboru odznaczone = brak obiektu. ``signed_on`` to
+    data złożenia wypowiedzenia albo zawarcia porozumienia (etykieta zależy od
+    trybu), ``last_day`` — ostatni dzień obowiązywania umowy B2B.
+    """
+
+    mode: AgreementTerminationMode
+    party: AgreementTerminationParty
+    signed_on: date
+    last_day: date
+
+    @model_validator(mode="after")
+    def _last_day_not_before_signing(self) -> "AgreementTerminationPayload":
+        if self.last_day < self.signed_on:
+            label = (
+                "złożenia wypowiedzenia"
+                if self.mode == "notice"
+                else "zawarcia porozumienia"
+            )
+            raise ValueError(
+                f"Ostatni dzień umowy nie może być wcześniejszy niż data {label}."
+            )
+        return self
+
+
 class ContractTerminateRequest(BaseModel):
     """Payload dla dedykowanego POST /{id}/terminate."""
 
     termination_reason: ContractTerminationReason
     termination_lessons: Optional[str] = None
     terminated_at: Optional[date] = None  # default = today
+    # Brak = samo zakończenie projektu (umowa B2B trwa dalej).
+    agreement_termination: Optional[AgreementTerminationPayload] = None
 
 
 class ContractBulkTerminateRequest(BaseModel):
@@ -453,6 +496,10 @@ class ContractBulkTerminateRequest(BaseModel):
 
     termination_reason: ContractTerminationReason
     terminated_at: date
+    # Jedno wspólne okno (ticket 09.2026): te same pola co przy pojedynczej
+    # umowie. Puste wnioski NIE kasują zapisanych wcześniej.
+    termination_lessons: Optional[str] = None
+    agreement_termination: Optional[AgreementTerminationPayload] = None
 
 
 class ContractBenchmarkComparison(BaseModel):

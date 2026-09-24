@@ -43,9 +43,9 @@ def test_every_named_object_in_the_migration_exists_in_the_entrypoint():
         assert name in ENTRYPOINT, name
 
 
-def test_migration_chains_after_0366():
+def test_migration_chains_after_0367():
     assert 'revision = "0368_contract_termination_reversal"' in MIGRATION
-    assert 'down_revision = "0366_job_portals"' in MIGRATION
+    assert 'down_revision = "0367_contract_agreement_termination"' in MIGRATION
 
 
 def test_one_shot_repair_runs_at_startup_without_names_in_the_log():

@@ -1,7 +1,7 @@
 """Kontrakty: cofnięcie zakończenia i powrót po przerwie.
 
 Revision ID: 0368_contract_termination_reversal
-Revises: 0366_job_portals
+Revises: 0367_contract_agreement_termination
 
 * ``contract_termination_snapshots`` — stan kontraktu i jego zamówień sprzed
   zakończenia współpracy; na nim stoi „Cofnij zakończenie".
@@ -14,7 +14,7 @@ Lustro w ``entrypoint.sh`` (alembic na prodzie bywa osierocony).
 from alembic import op
 
 revision = "0368_contract_termination_reversal"
-down_revision = "0366_job_portals"
+down_revision = "0367_contract_agreement_termination"
 branch_labels = None
 depends_on = None
 

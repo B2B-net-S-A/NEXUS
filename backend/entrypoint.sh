@@ -622,6 +622,9 @@ _ENUM_STATEMENTS = [
     # doc_type='order' wywala się InvalidTextRepresentationError (DB enum nie
     # zna wartości), gdyby alembic upgrade nie wszedł na prod (multi-head).
     "ALTER TYPE contractdocumenttype ADD VALUE IF NOT EXISTS 'order'",
+    # 0367: załącznik z okna „Zakończ współpracę" — wypowiedzenie/porozumienie.
+    "ALTER TYPE contractdocumenttype ADD VALUE IF NOT EXISTS 'termination_notice'",
+    "ALTER TYPE contractdocumenttype ADD VALUE IF NOT EXISTS 'termination_agreement'",
     # ── Rozjazd zmierzony na produkcji 2026-07-20 przez /api/admin/schema-drift ──
     # Wszystkie cztery: ORM deklaruje etykietę, której typ w bazie nie ma, więc
     # SQLAlchemy wysyła wartość, a Postgres odrzuca ją jako invalid input value.
@@ -4611,6 +4614,23 @@ _COLUMN_STATEMENTS = [
         CONSTRAINT ck_order_pdf_downloads_kind
             CHECK (file_kind IN ('order', 'group', 'amendment'))
     )""",
+    # 0367: zakończenie współpracy — rozwiązanie umowy B2B na kontrakcie
+    # i ślad zakończenia na umowie w Generatorze (CHECK-i w _CONSTRAINT_STATEMENTS).
+    "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS agreement_termination_mode VARCHAR(20)",
+    "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS agreement_termination_party VARCHAR(20)",
+    "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS agreement_termination_signed_on DATE",
+    "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS agreement_last_day DATE",
+    "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS notice_period_months INTEGER",
+    "ALTER TABLE b2b_generated_contracts ADD COLUMN IF NOT EXISTS termination_mode VARCHAR(20)",
+    "ALTER TABLE b2b_generated_contracts ADD COLUMN IF NOT EXISTS termination_party VARCHAR(20)",
+    "ALTER TABLE b2b_generated_contracts ADD COLUMN IF NOT EXISTS termination_signed_on DATE",
+    "ALTER TABLE b2b_generated_contracts ADD COLUMN IF NOT EXISTS project_end_date DATE",
+    "ALTER TABLE b2b_generated_contracts ADD COLUMN IF NOT EXISTS termination_restore JSONB",
+    "ALTER TABLE b2b_generated_contracts ADD COLUMN IF NOT EXISTS previous_generated_contract_id "
+    "INTEGER REFERENCES b2b_generated_contracts(id) ON DELETE SET NULL",
+    "CREATE INDEX IF NOT EXISTS ix_b2b_generated_contracts_previous "
+    "ON b2b_generated_contracts (previous_generated_contract_id)",
+    "ALTER TABLE b2b_generated_contract_status_events ADD COLUMN IF NOT EXISTS details JSONB",
     # 0366: multiposting — kolumny kolejki publikacji w portalach.
     "ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS last_error TEXT",
     "ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0",
@@ -7160,6 +7180,43 @@ _DATA_STATEMENTS = [
 # Bez tego jedna zabłąkana wartość zablokowałaby start kontenera. VALIDATE
 # CONSTRAINT można uruchomić później, świadomie, po policzeniu sierot.
 _CONSTRAINT_STATEMENTS = [
+    # 0367: rozwiązanie umowy B2B na kontrakcie — komplet albo nic; tryb
+    # i strona z zamkniętych słowników (także na umowie w Generatorze).
+    """DO $$ BEGIN
+        ALTER TABLE contracts
+            ADD CONSTRAINT ck_contracts_agreement_termination_coherence
+            CHECK (
+                (
+                    agreement_termination_mode IS NULL
+                    AND agreement_termination_party IS NULL
+                    AND agreement_termination_signed_on IS NULL
+                    AND agreement_last_day IS NULL
+                ) OR (
+                    agreement_termination_mode IN ('notice', 'mutual_agreement')
+                    AND agreement_termination_party IN ('consultant', 'company')
+                    AND agreement_termination_signed_on IS NOT NULL
+                    AND agreement_last_day IS NOT NULL
+                )
+            ) NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    """DO $$ BEGIN
+        ALTER TABLE contracts
+            ADD CONSTRAINT ck_contracts_notice_period_months
+            CHECK (notice_period_months IS NULL OR notice_period_months BETWEEN 1 AND 24)
+            NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    """DO $$ BEGIN
+        ALTER TABLE b2b_generated_contracts
+            ADD CONSTRAINT ck_b2b_generated_contracts_termination_mode
+            CHECK (termination_mode IS NULL OR termination_mode IN ('notice', 'mutual_agreement'))
+            NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    """DO $$ BEGIN
+        ALTER TABLE b2b_generated_contracts
+            ADD CONSTRAINT ck_b2b_generated_contracts_termination_party
+            CHECK (termination_party IS NULL OR termination_party IN ('consultant', 'company'))
+            NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     # 0341: przepięcie (`reassign`) jako źródło propozycji. DROP+ADD w jednym
     # bloku — timeout zamka wycofuje oba, następny start ponawia.
     """DO $$ BEGIN

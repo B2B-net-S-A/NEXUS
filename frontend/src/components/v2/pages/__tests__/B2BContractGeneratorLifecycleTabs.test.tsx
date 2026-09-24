@@ -344,6 +344,8 @@ describe("Zakończone umowy", () => {
       "NIP",
       "Data rozpoczęcia",
       "Data zakończenia umowy",
+      "Data zakończenia zamówienia",
+      "Tryb",
       "Klient",
       "Status umowy",
       "Powód zakończenia projektu",

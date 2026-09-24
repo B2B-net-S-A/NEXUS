@@ -267,6 +267,23 @@ async def test_activation_from_draft_still_demands_the_required_fields():
     assert contract.status == ContractStatus.draft
 
 
+async def test_ending_directly_is_refused_outside_the_termination_window():
+    """Od 0367 „Zakończony" daje wyłącznie okno „Zakończ współpracę"; bez
+    powodu i daty zakończenia projektu zapis statusu jest odrzucany 409.
+    Bezpośrednie przejście zostaje tylko dla wpisu umowy już zakończonej
+    (``POST /contracts``, ``allow_direct_end=True``) — testy niżej."""
+    contract = _contract(ContractStatus.active, end_date=None)
+
+    with pytest.raises(HTTPException) as exc:
+        await _apply_contract_status_change(
+            _FakeDb(), contract, ContractStatus.ended, actor_id=1
+        )
+
+    assert exc.value.status_code == 409
+    assert exc.value.detail["reason"] == "termination_required"
+    assert contract.status == ContractStatus.active
+
+
 async def test_ending_a_contract_pins_the_end_date_so_the_heal_cannot_undo_it():
     """Umowa bezterminowa „jeszcze się nie skończyła" — bez daty status wracał.
 
@@ -277,7 +294,7 @@ async def test_ending_a_contract_pins_the_end_date_so_the_heal_cannot_undo_it():
     contract = _contract(ContractStatus.active, end_date=None)
 
     await _apply_contract_status_change(
-        _FakeDb(), contract, ContractStatus.ended, actor_id=1
+        _FakeDb(), contract, ContractStatus.ended, actor_id=1, allow_direct_end=True
     )
 
     assert contract.status == ContractStatus.ended
@@ -308,6 +325,7 @@ async def test_ending_a_contract_closes_its_open_client_orders():
         contract,
         ContractStatus.ended,
         actor_id=1,
+        allow_direct_end=True,
     )
 
     assert running.end_date == when
@@ -334,6 +352,7 @@ async def test_late_manual_end_uses_the_contracts_historical_end_date():
         contract,
         ContractStatus.ended,
         actor_id=1,
+        allow_direct_end=True,
     )
 
     assert running.end_date == contract_end

@@ -704,6 +704,11 @@ async def execute_reversal(
         else ContractTerminationReason(plan.termination_reason_target)
     )
     contract.termination_lessons = plan.termination_lessons_target
+    # Umowa B2B w Generatorze i dane rozwiązania umowy na kontrakcie (0367)
+    # wracają do stanu sprzed zakończenia razem z kontraktem.
+    from app.services.contract_termination_sync import undo_contract_termination
+
+    await undo_contract_termination(db, contract, actor_id=actor_id)
 
     # 2. Decyzje o puli MD, które zakończenie wystawiło, a nikt ich nie podjął:
     # alerty zamykamy jako nieaktualne (nie „obsłużone" — nikt ich nie
