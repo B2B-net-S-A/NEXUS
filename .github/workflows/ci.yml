@@ -39,7 +39,7 @@ on:
   # head_branch == 'main' w deploy.yml.
   merge_group:
     types: [checks_requested]
-  # Ręczny pełny bieg (8 shardów + pokrycie + pełny frontend) na dowolnej
+  # Ręczny pełny bieg (12 shardów + pokrycie + pełny frontend) na dowolnej
   # gałęzi — zachowuje się jak kolejka, bo warunki pytają o `!= pull_request`.
   # Przydaje się przed merge'em ryzykownej zmiany, żeby nie czekać na kolejkę.
   workflow_dispatch:
@@ -51,12 +51,24 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Pytest podzielony na 8 shardów = 8 OSOBNYCH runnerów, każdy z własnym
+  # Pytest podzielony na 12 shardów = 12 OSOBNYCH runnerów, każdy z własnym
   # postgresem i sekwencyjnym pytestem. Pliki są dzielone według ZMIERZONEGO
   # czasu (`backend/tests/ci_test_durations.json`, podział LPT w conftest), nie
   # po kolei: przy 4 shardach round-robin dawał 14,7–20 min, a całość czekała
-  # na najwolniejszy (22.09.2026). Suma testów to ~57 min, więc 8 wyważonych
-  # shardów ≈ 7 min testów + ~1,5 min narzutu na shard. Biegnie WYŁĄCZNIE
+  # na najwolniejszy (22.09.2026).
+  #
+  # 8 → 12 shardów (24.09.2026), zmierzone na 10 udanych biegach kolejki
+  # (m.in. 35977212280, 35976790305, 35976129242): mediana biegu 13,0 min.
+  # Realny pytest to 70–73 min sumarycznie (krok „Pytest” 386–696 s na shard;
+  # plik czasów mówi ~57 min, bo nie liczy startu pytesta i nowych testów),
+  # narzut joba ~75–80 s (kontenery, pip, migracje, OCR w shardzie 0). Podział
+  # LPT z pliku czasów jest równy co do sekundy — rozrzut 386–696 s to szum
+  # runnerów (najwolniejszy jest za każdym razem inny shard). Przy 12
+  # shardach ~360 s testów na shard. Sam backend nie dawał jednak zysku: od
+  # ~11,4 min (mediana) wolniej kończył wymagany „Frontend (typecheck + build)”
+  # (Vitest z pokryciem ~460 s + build ~130 s w jednym jobie), więc 12 shardów
+  # idzie w parze z wydzieleniem Vitesta do osobnego joba (`frontend-vitest`).
+  # Minuty Actions nic nie kosztują — repo jest publiczne. Biegnie WYŁĄCZNIE
   # w kolejce merge'ów — na PR-ze sito `backend-pr-tests` niżej. To nie jest
   # xdist (wdrożony i wycofany — równolegli workerzy na WSPÓLNEJ bazie psuli
   # testy z globalnymi agregatami, a runner ma 4 vCPU na wszystko): semantyka
@@ -74,7 +86,7 @@ jobs:
       # Jeden padnięty shard nie ubija pozostałych — pełny obraz w 1 przebiegu.
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
     defaults:
       run:
         working-directory: backend
@@ -252,7 +264,7 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
       # Surowy plik danych (nie XML): tylko z niego `coverage combine` potrafi
-      # zsumować 4 shardy w jeden raport. `include-hidden-files` jest
+      # zsumować shardy w jeden raport. `include-hidden-files` jest
       # load-bearing — od upload-artifact v4.4 pliki z kropką są domyślnie
       # POMIJANE, a `.coverage.shard-N` zaczyna się od kropki: bez tej flagi
       # artefakt jest pusty, a job scalający nie ma czego scalić.
@@ -267,7 +279,7 @@ jobs:
           retention-days: 7
 
   backend-coverage-combine:
-    # QA-01: jeden raport pokrycia (linie + gałęzie) z 4 shardów i bramka
+    # QA-01: jeden raport pokrycia (linie + gałęzie) ze wszystkich shardów i bramka
     # „bez spadku": wynik poniżej `.github/coverage-baseline.json` minus
     # tolerancja kończy job czerwienią, a job zbiorczy „Backend (pytest)"
     # (wymagany kontekst) czyta jego wynik. Próg 80% zostaje RAPORTOWY.
@@ -290,7 +302,7 @@ jobs:
       COVERAGE_REPORT_THRESHOLD: "80"
       # Liczba shardów w matrixie `backend-lint-test` — kontrakt w
       # tests/test_ci_deploy_workflows_contract.py pilnuje zgodności.
-      EXPECTED_SHARDS: "8"
+      EXPECTED_SHARDS: "12"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -317,7 +329,7 @@ jobs:
             echo "Brak danych z shardów — raport nie powstał." >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
-          # Komplet wejść: scalenie 7 z 8 shardów daje zaniżony wynik, który
+          # Komplet wejść: scalenie 11 z 12 shardów daje zaniżony wynik, który
           # bramka „bez spadku" wzięłaby za regresję — albo, gorzej, wynik
           # z niepełnego mianownika uznany za prawdziwy.
           if [ "${#files[@]}" -ne "$EXPECTED_SHARDS" ]; then
@@ -379,7 +391,7 @@ jobs:
 
   backend-pr-tests:
     # Sito na PR-ze: tylko testy związane ze zmienionymi plikami, bez pokrycia.
-    # Pełny pytest (8 shardów + pokrycie) biegnie w kolejce merge'ów na drzewie,
+    # Pełny pytest (12 shardów + pokrycie) biegnie w kolejce merge'ów na drzewie,
     # które ląduje na mainie. Reguły wyboru i ich granice:
     # `.github/scripts/select_pr_tests.py`.
     name: Backend (pytest, zmienione pliki)
@@ -421,7 +433,7 @@ jobs:
         run: |
           set -eu
           # Fail-safe: bez listy plików nie zgadujemy — ale też nie puszczamy
-          # 57 minut testów w jednym jobie. Pełny zestaw i tak sprawdzi kolejka.
+          # ~70 minut testów w jednym jobie. Pełny zestaw i tak sprawdzi kolejka.
           if ! files=$(gh api --paginate \
                 "/repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
                 --jq '.[].filename'); then
@@ -437,7 +449,7 @@ jobs:
             echo
             head -1 selection.log
             echo
-            echo "Pełny zestaw (8 shardów + pokrycie) biegnie w kolejce merge'ów."
+            echo "Pełny zestaw (12 shardów + pokrycie) biegnie w kolejce merge'ów."
           } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         if: steps.pick.outputs.count != '0'
@@ -512,18 +524,24 @@ jobs:
           fi
 
   frontend-lint-build:
-    name: Frontend (typecheck + build)
+    # Wymagany kontekst „Frontend (typecheck + build)” dostarcza od 24.09.2026
+    # job zbiorczy `frontend-gate` niżej — tak jak „Backend (pytest)” zbiera
+    # shardy. Ten job robi lint, type-check, build (i sito Vitesta na PR-ze);
+    # pełny Vitest z pokryciem biegnie równolegle w `frontend-vitest`. Razem
+    # w jednym jobie trwały 483–752 s (mediana ~686 s, z czego Vitest ~460 s,
+    # build ~130 s) i po przejściu backendu na 12 shardów to one wyznaczałyby
+    # czas kolejki.
+    name: Frontend (lint + typecheck + build)
     runs-on: ubuntu-latest
     # Same decoupling rationale as backend-lint-test above (PR #118).
     #
     # Job NIE jest pomijany przez `if:` na poziomie joba, choć jego drogie kroki
-    # bywają pominięte (filtr niżej). To jest świadome: „Frontend (typecheck +
-    # build)" jest WYMAGANYM kontekstem rulesetu 22799346, a kolejka merge'ów
-    # ma `grouping_strategy: ALLGREEN`. Pominięty job raportuje się jako
-    # `skipped` i GitHub liczy to za sukces — ale to zachowanie jest cudzą
-    # umową, nie naszą, a jej zmiana zaklinowałaby kolejkę bez żadnego
-    # komunikatu. Job, który zawsze się zgłasza i zawsze kończy zielenią,
-    # nie zależy od tej interpretacji, a oszczędność jest ta sama (~16 z 17 min).
+    # bywają pominięte (filtr niżej). Na PR-ze o wymaganym kontekście decyduje
+    # właśnie ten job (przez `frontend-gate`), a bramka przepuszcza wyłącznie
+    # `success` — job pominięty w całości (`skipped`) dałby czerwony kontekst.
+    # Job, który zawsze się zgłasza i przy PR-ze bez frontendu kończy zielenią,
+    # daje tę samą oszczędność (~16 z 17 min) bez zgadywania, jak GitHub i
+    # bramka potraktują `skipped`.
     permissions:
       contents: read
       # Filtr czyta listę plików PR-a przez API. `permissions:` na jobie
@@ -532,10 +550,6 @@ jobs:
     defaults:
       run:
         working-directory: frontend
-    env:
-      # Jak w `backend-coverage-combine`: token przez `env:` joba, żeby upload
-      # do Codecov dało się pominąć JAWNIE, gdy sekretu nie ma (QA-01).
-      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # Filtr ścieżek (2026-09-20). Do tej zmiany KAŻDY przebieg płacił za pełny
@@ -654,7 +668,8 @@ jobs:
         run: npm run type-check
       # Na PR-ze tylko testy dotknięte zmianą (graf importów Vitesta względem
       # bazy PR-a); zmiana konfiguracji albo package.json uruchamia wszystkie.
-      # Pełny Vitest z pokryciem (7 min) i `next build` biegną w kolejce.
+      # Pełny Vitest z pokryciem (~8 min, job `frontend-vitest`) i `next build`
+      # biegną w kolejce.
       - name: Vitest (testy dotknięte zmianą)
         if: steps.scope.outputs.run == 'true' && github.event_name == 'pull_request'
         env:
@@ -662,13 +677,48 @@ jobs:
         run: |
           git fetch --no-tags --depth=1 origin "$BASE_SHA"
           npx vitest run --changed "$BASE_SHA" --passWithNoTests
+      - name: Build
+        if: steps.scope.outputs.run == 'true' && github.event_name != 'pull_request'
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:8000
+        run: npm run build
+
+  frontend-vitest:
+    # Pełny Vitest z pokryciem, równolegle do lint/type-check/build — tylko
+    # w kolejce merge'ów i w biegu ręcznym (na PR-ze sito „Vitest (testy
+    # dotknięte zmianą)” w `frontend-lint-build`). Jeden job, bez `--shard`:
+    # ~460 s testów + ~30 s przygotowania mieści się pod backendem (~10 min
+    # przy 12 shardach), a pojedynczy bieg zostawia progi pokrycia
+    # (`coverage.thresholds` w vitest.config.ts) i jeden lcov.info bez
+    # scalania raportów. Gdyby Vitest urósł ponad backend, następny krok to
+    # `--shard=i/n` + `--reporter=blob` i `vitest --merge-reports --coverage`.
+    name: Frontend (vitest + pokrycie)
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'pull_request' }}
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      # Jak w `backend-coverage-combine`: token przez `env:` joba, żeby upload
+      # do Codecov dało się pominąć JAWNIE, gdy sekretu nie ma (QA-01).
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+      - name: npm ci
+        run: npm ci --legacy-peer-deps
       - name: Vitest with coverage
         # Progi w vitest.config.ts (`coverage.thresholds`) = bramka „bez spadku"
         # frontendu (QA-01); Vitest kończy się błędem poniżej nich.
-        if: steps.scope.outputs.run == 'true' && github.event_name != 'pull_request'
         run: npm run test:coverage
       - name: Upload frontend coverage (artifact)
-        if: ${{ !cancelled() && steps.scope.outputs.run == 'true' && github.event_name != 'pull_request' }}
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: frontend-coverage
@@ -676,7 +726,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
       - name: Upload frontend coverage to Codecov
-        if: ${{ !cancelled() && steps.scope.outputs.run == 'true' && github.event_name != 'pull_request' && env.CODECOV_TOKEN != '' }}
+        if: ${{ !cancelled() && env.CODECOV_TOKEN != '' }}
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           files: frontend/coverage/lcov.info
@@ -684,11 +734,36 @@ jobs:
           name: frontend-coverage
           fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
-      - name: Build
-        if: steps.scope.outputs.run == 'true' && github.event_name != 'pull_request'
-        env:
-          NEXT_PUBLIC_API_URL: http://localhost:8000
-        run: npm run build
+
+  frontend-gate:
+    # Ruleset 22799346 wymaga kontekstu o nazwie DOKŁADNIE „Frontend (typecheck
+    # + build)”. Zielony wyłącznie gdy lint/type-check/build przeszły, a poza
+    # PR-em także pełny Vitest z pokryciem. `if: always()` jest load-bearing
+    # jak w `backend-pytest-gate`: bez niego padnięty albo anulowany job
+    # zależny zostawiłby wymagany kontekst `skipped` zamiast jawnej czerwieni.
+    name: Frontend (typecheck + build)
+    runs-on: ubuntu-latest
+    needs: [frontend-lint-build, frontend-vitest]
+    if: ${{ always() }}
+    steps:
+      - name: Zbierz wyniki frontendu
+        run: |
+          build="${{ needs.frontend-lint-build.result }}"
+          echo "Lint + type-check + build: $build"
+          if [ "$build" != "success" ]; then
+            echo "::error::Lint, type-check albo build frontendu nie przeszły (result=$build) — szczegóły w jobie „Frontend (lint + typecheck + build)”."
+            exit 1
+          fi
+          # Na PR-ze Vitest z pokryciem nie biegnie (sito jest w jobie wyżej).
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            exit 0
+          fi
+          vitest="${{ needs.frontend-vitest.result }}"
+          echo "Vitest z pokryciem: $vitest"
+          if [ "$vitest" != "success" ]; then
+            echo "::error::Vitest albo bramka pokrycia frontendu nie przeszły (result=$vitest) — szczegóły w jobie „Frontend (vitest + pokrycie)”."
+            exit 1
+          fi
 
   security-scan:
     name: Trivy + hadolint
