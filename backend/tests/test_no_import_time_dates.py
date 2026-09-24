@@ -20,6 +20,7 @@ wywołaniu, czyli tak, jak powinna.
 from __future__ import annotations
 
 import ast
+import warnings
 from pathlib import Path
 
 TESTS_ROOT = Path(__file__).resolve().parent
@@ -131,7 +132,12 @@ def _local_clock_functions(tree: ast.Module) -> set[str]:
 
 
 def find_import_time_dates(path: Path) -> list[tuple[int, str]]:
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    with warnings.catch_warnings():
+        # Ostrzeżenia o sekwencjach w docstringach skanowanych plików należą
+        # do nich, nie do tego testu — bez tego lądują w podsumowaniu biegu.
+        warnings.simplefilter("ignore", SyntaxWarning)
+        warnings.simplefilter("ignore", DeprecationWarning)
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     local_clock = _local_clock_functions(tree)
     hits = {
         (node.lineno, ast.unparse(node))
