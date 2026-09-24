@@ -1,17 +1,17 @@
 {
   "reviewed_at": "2026-09-24",
   "guides": {
-    "calendar": "5e622a7db1c6d091e5b1fe9c45e4a4bc7cec4009655d73d85aa41de139717561",
-    "candidate.profile": "a8e6dcbf2bd0033baa1d32d3d807b72ef7f391fa0dbfb05cf09789a016b11a7b",
-    "candidates.list": "6bd62ff4d470650ec92f7b53c59a53e7f7e0379dc9a177c53520d52af8a6b919",
-    "client.orders": "b0153167033900f0f8ae5c982920ad1f4e492ad21c6763c836602465928d0aea",
-    "contracts.b2b_generator": "98ad34994af25d09292fa5ef1fae71854e7764de82e614ea4984bf202e33d722",
-    "contracts.order_mail": "69d28ae62c8903a3f790e808b1967b0f34d2638982893f96e1a261820311c371",
-    "finance": "9e9772902db876a6daecdbac5cc3f999dd9716dcb653c3e3dbb397d78bbf5f98",
-    "job.champion": "8c1e6748d0da2e78d546b2b57200e6242d5b1532c9638f61ee0cce425a563e5b",
-    "jobs.board": "420bbb3f5017520d9915391fc3faf087765ed04696d7444214abbf5987349c97",
-    "jobs.list": "155a84843e07adda2ebec0856c0a749940bfac7b86a0ca7db97f828c0aabb866",
-    "jobs.person": "601b0f708a3f23e7e7b8ab32408eb0a7e2d78723b0fd897c7cbe8d6d1a76f95e",
-    "jobs.proposals": "6cce5c9f8e95bad49c3b2c9f159ebbf901fa39ea90bd34dafb8865a07733edb4"
+    "calendar": "ce2758971c30d51d8d2574e6ba8022a15871bdf610f3efa72bbeebb7b8b13af3",
+    "candidate.profile": "58210c61ec04e660f2742777c8c41bed8572048c226646b6ab145e049352cffb",
+    "candidates.list": "f1203be2d5c829afe70a159a7a1df6d17e64702f51c183cdf877e37461fbadc2",
+    "client.orders": "159e786ee53b3f72eb9f4f85f8fcf5590f3f2e1b1a5350ff314496a75d2194fa",
+    "contracts.b2b_generator": "c5996af53f830ae44b8c2ed36109d64ffbe044debbe7219cc70dbb978a6799df",
+    "contracts.order_mail": "f2b4158896bfec5b923641721b97fa48bd38c2f409a3d3f37c0d3167b72449ca",
+    "finance": "d2848739c29a87420fb9a66997044a1e54c73d4c53d41d6055c7e772e656a3d5",
+    "job.champion": "d64dc6b481ea0ebf121d827a467f98f4d7be3784ea105785456bf3718311a871",
+    "jobs.board": "debc53cfabbd18373407a464fd718bfac5636286791896d1b2b636234d6f0e9e",
+    "jobs.list": "46bbb6a3ac57d4378852ebac5a2c904faf7657cf755759c5327c0ebcefc10933",
+    "jobs.person": "96c716ffa897ea208319e47f1ac3895c802aaf6028d981504a3577087e3d8d13",
+    "jobs.proposals": "9df39c7ecad03112911ad04710ed4162c75e82c1413887e157e6b38e7085de26"
   }
 }

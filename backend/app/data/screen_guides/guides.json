@@ -107,7 +107,7 @@
     "tasks": [
       {
         "q": "Jak dodać zaproponowaną osobę do rekrutacji?",
-        "a": "Kliknij osobę na liście, sprawdź dopasowanie w panelu z prawej i użyj „Dodaj do rekrutacji”. Skróty: D — dodaj, P — pomiń, strzałki — następna osoba.",
+        "a": "Kliknij osobę na liście, sprawdź dopasowanie w panelu obok listy (na węższym ekranie — pod nią) i użyj „Dodaj do rekrutacji”. Skróty: D — dodaj, P — pomiń, strzałki — następna osoba.",
         "anchor": "jobs.proposals.add"
       },
       {
@@ -359,7 +359,7 @@
       },
       {
         "q": "Jak zobaczyć cały zespół albo zwykły kalendarz?",
-        "a": "Przełączniki „Widok” (Agenda, Tydzień, Tablica) i „Zakres” (Moi kandydaci, Moje rekrutacje, Cały zespół) są w nagłówku. Tydzień to siatka z Outlookiem.",
+        "a": "Przełączniki „Widok” (Agenda, Tydzień, Tablica) i „Zakres” (Moi kandydaci, Moje rekrutacje, Cały zespół; na telefonie skrócone do Moi, Rekrutacje, Zespół) są w nagłówku. Tydzień to siatka z Outlookiem.",
         "anchor": "calendar.views"
       }
     ],

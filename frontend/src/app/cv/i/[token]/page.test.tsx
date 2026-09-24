@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import axios from "axios";
 import Page from "./page";
+import { withMobileCvStyle } from "../../_lib/cv-frame";
 
 vi.mock("next/navigation", () => ({ useParams: () => ({ token: "approved-link" }) }));
 vi.mock("axios", () => ({ default: { get: vi.fn(), post: vi.fn() } }));
@@ -22,7 +23,7 @@ describe("approved public CV", () => {
     vi.mocked(axios.post).mockResolvedValue({ data: { answer: "Tylko szkoleniowo." } });
     render(<Page />);
     const frame = await screen.findByTitle("CV");
-    expect(frame).toHaveAttribute("srcdoc", "<p>Approved text only</p>");
+    expect(frame).toHaveAttribute("srcdoc", withMobileCvStyle("<p>Approved text only</p>"));
     expect(screen.getByText("Zapytaj o kandydata")).toBeInTheDocument();
     fireEvent.click(screen.getByText("Podsumuj ostatnią rolę kandydata."));
     await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
@@ -32,7 +33,7 @@ describe("approved public CV", () => {
     expect(await screen.findByText("Tylko szkoleniowo.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("tab", { name: "Klasyczne" }));
     expect(screen.queryByText("Zapytaj o kandydata")).not.toBeInTheDocument();
-    expect(screen.getByTitle("CV")).toHaveAttribute("srcdoc", "<p>Approved text only</p>");
+    expect(screen.getByTitle("CV")).toHaveAttribute("srcdoc", withMobileCvStyle("<p>Approved text only</p>"));
   });
   it("shows approved evidence next to the exact HTML without jumping to old roles", async () => {
     vi.mocked(axios.get).mockResolvedValue({ data: {
@@ -45,7 +46,7 @@ describe("approved public CV", () => {
     render(<Page />);
     fireEvent.click(await screen.findByRole("button", { name: /AWS/ }));
     expect(screen.getByRole("button", { name: /AWS tylko szkoleniowo/ })).toBeDisabled();
-    expect(screen.getByTitle("CV")).toHaveAttribute("srcdoc", "<p>AWS tylko szkoleniowo.</p>");
+    expect(screen.getByTitle("CV")).toHaveAttribute("srcdoc", withMobileCvStyle("<p>AWS tylko szkoleniowo.</p>"));
     fireEvent.click(screen.getByRole("tab", { name: "Klasyczne" }));
     expect(screen.queryByRole("button", { name: /AWS/ })).not.toBeInTheDocument();
   });
@@ -60,7 +61,7 @@ describe("approved public CV", () => {
     expect(await screen.findByRole("status")).toHaveTextContent(
       ["queued", "running"].includes(status) ? "being prepared" : "unavailable",
     );
-    expect(screen.getByTitle("CV")).toHaveAttribute("srcdoc", "<p>Approved</p>");
+    expect(screen.getByTitle("CV")).toHaveAttribute("srcdoc", withMobileCvStyle("<p>Approved</p>"));
     expect(axios.get).toHaveBeenCalledTimes(1);
   });
 
