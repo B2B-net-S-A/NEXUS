@@ -2153,6 +2153,32 @@ class TraffitImporter:
                     # cichu ucinać za długie wartości i zaczęły je odrzucać:
                     # pojedynczy zbyt długi rekord ma kosztować SIEBIE, nie paczkę.
                     async with self.db.begin_nested():
+                        if existing_id is None:
+                            params = dict(payload)
+                            params["cv_extracted_data"] = json.dumps(
+                                payload["cv_extracted_data"]
+                            )
+                            try:
+                                async with self.db.begin_nested():
+                                    result = await self.db.execute(
+                                        _UPSERT_CANDIDATE, params
+                                    )
+                                    row = result.fetchone()
+                            except IntegrityError as ie:
+                                late_email_id = await self._late_email_owner(
+                                    ie, payload, ext_owned=owner_id is not None
+                                )
+                                if late_email_id is None:
+                                    raise
+                                logger.warning(
+                                    "Candidates ext=%s: mail ma wiersz id=%s "
+                                    "założony po migawce email_to_id — adoptuję",
+                                    payload["external_id"],
+                                    late_email_id,
+                                )
+                                existing_id = late_email_id
+                                email_to_id[email_lc] = late_email_id
+                                ext_to_id[str(payload["external_id"])] = late_email_id
                         if existing_id is not None:
                             # Adopt existing candidate (e.g. from talent_radar).
                             params = {
@@ -2187,12 +2213,6 @@ class TraffitImporter:
                             if record_updates:
                                 updated_candidate_ids.append(candidate_id)
                         else:
-                            params = dict(payload)
-                            params["cv_extracted_data"] = json.dumps(
-                                payload["cv_extracted_data"]
-                            )
-                            result = await self.db.execute(_UPSERT_CANDIDATE, params)
-                            row = result.fetchone()
                             if row is None:
                                 continue
                             candidate_id = row[0]
@@ -2830,6 +2850,36 @@ class TraffitImporter:
     ) -> Optional[int]:
         """Cienki wrapper na :meth:`WithdrawnReasonFallback.resolve`."""
         return withdrawn_fallback.resolve(legacy_enum, job_id, stage_def_id)
+
+    async def _late_email_owner(
+        self, error: IntegrityError, payload: dict[str, Any], *, ext_owned: bool
+    ) -> Optional[int]:
+        """Wiersz z tym mailem, który powstał PO migawce ``email_to_id``.
+
+        ``email_to_id`` jest budowane raz, na starcie fazy. Kandydat założony
+        w Nexusie w trakcie fazy (24.09.2026: to samo CV wgrane do Traffita
+        i do Nexusa w odstępie 2 s) nie jest w mapie, więc rekord Traffita
+        idzie w INSERT i trafia w UNIQUE ``ix_candidates_email``. To ten sam
+        przypadek co adopcja po mailu, tylko spóźniony — adoptujemy.
+
+        Tylko gdy ``external_id`` nie ma właściciela: inaczej konflikt powstał
+        na UPDATE właściciela (Traffit zmienił mu mail na cudzy), a przepięcie
+        ``external_id`` na drugi wiersz byłoby scaleniem, czyli decyzją dedupu.
+        """
+        constraint = "ix_candidates_email"
+        if ext_owned or not payload.get("email"):
+            return None
+        if getattr(
+            error.orig, "constraint_name", None
+        ) != constraint and constraint not in str(error):
+            return None
+        # Konflikt jest na surowym `email` (indeks bez lower), więc szukamy
+        # dokładnie tej wartości — trafia w indeks, bez skanu 590 tys. wierszy.
+        result = await self.db.execute(
+            text("SELECT id FROM candidates WHERE email = :email"),
+            {"email": payload["email"]},
+        )
+        return result.scalar_one_or_none()
 
     async def _build_candidate_external_id_map(self) -> dict[str, int]:
         result = await self.db.execute(
