@@ -35,6 +35,7 @@ import {
   type CheckBaseline,
 } from "@/lib/order-mail-sync";
 import { formatDateTimePl, formatIsoDatePl } from "@/lib/date-pl";
+import { formatMoney } from "@/lib/money";
 
 /**
  * Kolejka zamówień z maila.
@@ -53,17 +54,6 @@ const TABS: Array<{ outcome: OrderMailOutcome; label: string }> = [
   { outcome: "applied", label: "Zapisane ręcznie" },
   { outcome: "unrecognized_client", label: "Nierozpoznane" },
 ];
-
-const plnFormatter = new Intl.NumberFormat("pl-PL", { style: "currency", currency: "PLN", maximumFractionDigits: 2 });
-const formatPLN = (n: number) => plnFormatter.format(n);
-
-function money(value: string | null, unit: string | null): string {
-  if (value == null) return "—";
-  const n = Number(value);
-  const base = Number.isFinite(n) ? formatPLN(n) : value;
-  const u = unit === "hour" ? "/h" : unit === "day" ? "/MD" : unit === "month" ? "/mc" : "";
-  return `${base}${u}`;
-}
 
 function period(a: string | null, b: string | null): string {
   return `${formatIsoDatePl(a)} – ${b ? formatIsoDatePl(b) : "bezterminowo"}`;
@@ -643,6 +633,11 @@ function errorDetail(error: unknown, fallback: string): string {
   return typeof detail === "string" && detail ? detail : fallback;
 }
 
+/** `can_dismiss` z backendu (od 24.09) — pole spoza typu `OrderMailDocument`. */
+function canDismiss(doc: OrderMailDocument): boolean {
+  return (doc as OrderMailDocument & { can_dismiss?: boolean }).can_dismiss === true;
+}
+
 function Detail({ doc, onApply, onDismiss, onRefreshPlan, busy, applyError }: { doc: OrderMailDocument; onApply: () => void; onDismiss: () => void; onRefreshPlan?: () => void; busy: boolean; applyError: string | null }) {
   const ex = doc.extraction;
   // Osoba nieaktywna/nieznaleziona na zamówieniu MD/kosztowym: decyzja w oknie
@@ -705,12 +700,13 @@ function Detail({ doc, onApply, onDismiss, onRefreshPlan, busy, applyError }: { 
               <td className="py-1 pr-2">{r.row_name}</td>
               <td className="pr-2">{period(r.start_date, r.end_date)}</td>
               <td className="pr-2">
-                {money(r.rate_client, r.rate_unit)}
+                {/* Waluta z odczytu dokumentu — 110 EUR nie jest „110 zł” (audyt 24.09, S5). */}
+                {formatMoney(r.rate_client, ex?.currency, r.rate_unit)}
                 {ex?.consultant_rows[r.row_index]?.rate_client_gross != null && (
                   <>
                     {" netto"}
                     <div className="text-xs text-muted-foreground">
-                      {money(ex.consultant_rows[r.row_index].rate_client_gross ?? null, r.rate_unit)} brutto ÷ 1,23
+                      {formatMoney(ex.consultant_rows[r.row_index].rate_client_gross ?? null, ex.currency, r.rate_unit)} brutto ÷ 1,23
                     </div>
                   </>
                 )}
@@ -741,7 +737,7 @@ function Detail({ doc, onApply, onDismiss, onRefreshPlan, busy, applyError }: { 
             </tr>
           ))}
           {(doc.proposal?.rows ?? []).length === 0 && (ex?.consultant_rows ?? []).map((r, i) => (
-            <tr key={i} className="border-t"><td className="py-1">{r.consultant_name}</td><td>{period(r.start_date, r.end_date)}</td><td>{money(r.rate_client, r.rate_unit)}</td><td className="text-muted-foreground">—</td></tr>
+            <tr key={i} className="border-t"><td className="py-1">{r.consultant_name}</td><td>{period(r.start_date, r.end_date)}</td><td>{formatMoney(r.rate_client, ex?.currency, r.rate_unit)}</td><td className="text-muted-foreground">—</td></tr>
           ))}
         </tbody>
       </table>
@@ -798,6 +794,16 @@ function Detail({ doc, onApply, onDismiss, onRefreshPlan, busy, applyError }: { 
             <Check className="mr-1 h-4 w-4" /> Zastosuj
           </Button>
           <Button variant="outline" onClick={onDismiss} disabled={!doc.can_apply || busy}>
+            <X className="mr-1 h-4 w-4" /> Odrzuć
+          </Button>
+        </div>
+      )}
+      {doc.outcome === "unrecognized_client" && canDismiss(doc) && (
+        // Dokument bez rozpoznanego klienta nie ma czego zastosować, ale musi
+        // dać się zdjąć z kolejki — do 24.09 wisiał w „Nierozpoznane” na zawsze
+        // (audyt N2). Bez klienta nie ma przypisanego DL, więc odrzuca admin.
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Button variant="outline" onClick={onDismiss} disabled={busy}>
             <X className="mr-1 h-4 w-4" /> Odrzuć
           </Button>
         </div>

@@ -654,3 +654,69 @@ async def test_locked_queue_read_sees_the_state_after_the_lock(seeded):
         locked = await _load_visible(db, seeded["doc_id"], admin, for_update=True)
         assert locked.outcome == "dismissed"
         await db.rollback()
+
+
+# ── Audyt 24.09, blok B ──────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_missing_pdf_on_disk_is_404_and_hides_the_file_actions(
+    seeded, app_client: AsyncClient
+):
+    """N1: skasowany plik dawał 500 (helper magazynu rzuca FileNotFoundError)
+    w pobraniu i w „Przelicz plan", a kolejka dalej pokazywała przycisk PDF."""
+    headers = await _headers_for_role(app_client, UserRole.admin)
+    async with AsyncSessionLocal() as db:
+        doc = await db.get(OrderMailDocument, seeded["doc_id"])
+        storage_service.get_order_mail_attachment_path(doc.storage_path).unlink()
+
+    detail = await app_client.get(
+        f"/api/order-mail/queue/{seeded['doc_id']}", headers=headers
+    )
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["has_file"] is False
+
+    download = await app_client.get(
+        f"/api/order-mail/queue/{seeded['doc_id']}/file", headers=headers
+    )
+    assert download.status_code == 404
+    assert "nie istnieje na dysku" in download.json()["detail"]
+
+    refresh = await app_client.post(
+        f"/api/order-mail/queue/{seeded['doc_id']}/refresh-plan", headers=headers
+    )
+    assert refresh.status_code == 404
+    assert "nie istnieje na dysku" in refresh.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_admin_can_dismiss_an_unrecognized_document(
+    seeded, app_client: AsyncClient
+):
+    """N2: „Nierozpoznane" nie dało się odrzucić — dokument wisiał na zawsze."""
+    from app.models.order_mail import OUTCOME_DISMISSED, OUTCOME_UNRECOGNIZED
+
+    async with AsyncSessionLocal() as db:
+        doc = await db.get(OrderMailDocument, seeded["doc_id"])
+        doc.outcome = OUTCOME_UNRECOGNIZED
+        doc.client_id = None
+        await db.commit()
+
+    finance = await _headers_for_role(app_client, UserRole.finance)
+    refused = await app_client.post(
+        f"/api/order-mail/queue/{seeded['doc_id']}/dismiss", headers=finance
+    )
+    assert refused.status_code == 403
+
+    admin = await _headers_for_role(app_client, UserRole.admin)
+    detail = await app_client.get(
+        f"/api/order-mail/queue/{seeded['doc_id']}", headers=admin
+    )
+    assert detail.json()["can_dismiss"] is True
+    assert detail.json()["can_apply"] is False
+    dismissed = await app_client.post(
+        f"/api/order-mail/queue/{seeded['doc_id']}/dismiss", headers=admin
+    )
+    assert dismissed.status_code == 200, dismissed.text
+    assert dismissed.json()["outcome"] == OUTCOME_DISMISSED
+    assert dismissed.json()["can_dismiss"] is False
