@@ -351,7 +351,18 @@ async def review_rows(
     szkic (``assign_executive_contract``).
     """
     contracts = await _live_contracts(db, client_id)
-    current_ids = {c.id for c in current_contracts(contracts, business_today())}
+    today = business_today()
+    current_ids = {
+        c.id
+        for c in current_contracts(
+            contracts,
+            today,
+            fallback_start_by_contract={
+                c.id: getattr(representative_order(c, today), "start_date", None)
+                for c in contracts
+            },
+        )
+    }
     frameworks_by_part = {
         fc.project_part: fc.id for fc in await _framework_parts(db, client_id)
     }

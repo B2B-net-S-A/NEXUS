@@ -9,7 +9,7 @@ Dashboard stosuje ten sam per-client guard, po rozwiązaniu merge redirectu.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Annotated, NamedTuple, Optional
 
@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from starlette.responses import RedirectResponse
 
+from app.api.clients import client_time_to_fill, polish_alphabetical_key
 from app.api.deps import CurrentUser, require_delivery_lead_or_admin
 from app.api.financial_access import can_read_client_finance, has_financial_access
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
@@ -50,12 +51,16 @@ from app.services.client_identity import (
 )
 from app.services.contract_rates import RATE_SCHEDULE_LOADS, effective_rate_fields
 from app.services.contractor_identity import (
-    current_contracts,
-    is_current_contract,
+    load_current_contracts,
     summarize_active_contracts,
 )
 from app.services.fx_service import amount_to_pln_with_rate, rates_to_pln
-from app.services.order_revenue import order_revenue_rows_to_pln
+from app.services.order_continuation import order_has_continuation
+from app.services.order_revenue import (
+    client_order_value_rows,
+    order_counts_by_status,
+    order_revenue_rows_to_pln,
+)
 from app.schemas.money import to_whole_pln
 from app.core.scheduling import business_today
 
@@ -77,6 +82,9 @@ _MY_CLIENTS_ORGANIZATION_READ_ROLES = (
 # tego samego klienta, o jedno kliknięcie dalej, liczył go dalej.
 _LIVE_CONTRACT_STATUSES = (ContractStatus.active, ContractStatus.ending)
 
+# Okno „kończy się wkrótce” (umowy ramowe na liście i alerty dashboardu).
+EXPIRING_SOON_DAYS = 30
+
 
 class MonthlyMarginTotals(NamedTuple):
     """Miesięczne agregaty jednego klienta, policzone z TYCH SAMYCH kontraktów.
@@ -92,6 +100,9 @@ class MonthlyMarginTotals(NamedTuple):
     revenue: Decimal
     has_margin: bool
     complete: bool
+    # Obecne kontrakty bez stawki (którejś nogi) — pominięte w sumie. >0 =
+    # kafel niepełny, jak „Aktywne MRR (niepełne)” na profilu (audyt S9).
+    unpriced: int = 0
 
 
 async def _monthly_margin_total_pln(
@@ -123,11 +134,13 @@ async def _monthly_margin_total_pln(
     revenue = Decimal("0")
     has_margin = False
     complete = True
+    unpriced = 0
     for contract in contracts:
         fields = effective_rate_fields(contract, on)
         raw_client = fields["monthly_rate_client"]
         raw_candidate = fields["monthly_rate_candidate"]
         if raw_client is None or raw_candidate is None:
+            unpriced += 1
             continue
         client_fx = fx_rates.get(contract.resolved_rate_client_currency)
         candidate_fx = fx_rates.get(contract.resolved_rate_candidate_currency)
@@ -144,7 +157,7 @@ async def _monthly_margin_total_pln(
         total += Decimal(to_whole_pln(client_pln - candidate_pln))
         revenue += Decimal(to_whole_pln(client_pln))
         has_margin = True
-    return MonthlyMarginTotals(total, revenue, has_margin, complete)
+    return MonthlyMarginTotals(total, revenue, has_margin, complete, unpriced)
 
 
 async def require_client_dashboard_access_after_merge(
@@ -217,7 +230,7 @@ async def list_my_clients(
     clients_stmt = (
         select(Client)
         .where(*visible_client_predicates())
-        .order_by(func.lower(client_name).asc(), Client.id.asc())
+        .order_by(polish_alphabetical_key(client_name).asc(), Client.id.asc())
     )
     clients = list((await db.execute(clients_stmt)).scalars())
     client_ids = [client.id for client in clients]
@@ -258,23 +271,14 @@ async def list_my_clients(
         frozenset(client_ids) if has_financial_access(user) else assigned_client_ids
     )
 
-    # Aktywne ordery — licznik jest operacyjny dla każdego dopuszczonego
-    # czytelnika Delivery, w tym TCM.
+    # Aktywne zamówienia — licznik jest operacyjny dla każdego dopuszczonego
+    # czytelnika Delivery, w tym TCM. Zamówienie MD/kosztowe to jedno
+    # zamówienie, nie liczba osób na nim (audyt W1).
     active_order_counts = {
-        row.client_id: row
-        for row in (
-            await db.execute(
-                select(
-                    ClientOrder.client_id,
-                    func.count().label("active_count"),
-                )
-                .where(
-                    ClientOrder.client_id.in_(client_ids),
-                    ClientOrder.status == ClientOrderStatus.active,
-                )
-                .group_by(ClientOrder.client_id)
-            )
-        )
+        cid: counts.get(ClientOrderStatus.active.value, 0)
+        for cid, counts in order_counts_by_status(
+            await client_order_value_rows(db, client_ids, with_values=False)
+        ).items()
     }
 
     # Kwot nie pobieramy nawet z bazy dla ról bez VIEW_FINANCE. Dzięki temu
@@ -282,24 +286,7 @@ async def list_my_clients(
     active_revenue: dict[int, Decimal] = {}
     lifetime_revenue: dict[int, Decimal] = {}
     if finance_client_ids:
-        revenue_rows = list(
-            await db.execute(
-                select(
-                    ClientOrder.client_id,
-                    ClientOrder.status,
-                    ClientOrder.currency,
-                    func.coalesce(func.sum(ClientOrder.total_value), 0).label(
-                        "sum_val"
-                    ),
-                )
-                .where(ClientOrder.client_id.in_(sorted(finance_client_ids)))
-                .group_by(
-                    ClientOrder.client_id,
-                    ClientOrder.status,
-                    ClientOrder.currency,
-                )
-            )
-        )
+        revenue_rows = await client_order_value_rows(db, finance_client_ids)
         revenue_lookup, revenue_incomplete = await order_revenue_rows_to_pln(
             db, revenue_rows, business_today()
         )
@@ -356,18 +343,20 @@ async def list_my_clients(
                     ClientFrameworkContract.client_id.in_(client_ids),
                     ClientFrameworkContract.status == FrameworkContractStatus.active,
                     ClientFrameworkContract.expiry_date.is_not(None),
-                    ClientFrameworkContract.expiry_date <= today.replace(day=today.day),
+                    # Okno [dziś, dziś + 30 dni] — to samo co alerty
+                    # dashboardu. Do 24.09.2026 warunek był `<= dziś`, więc
+                    # liczył umowy JUŻ wygasłe, a te kończące się pomijał.
+                    ClientFrameworkContract.expiry_date >= today,
+                    ClientFrameworkContract.expiry_date
+                    <= today + timedelta(days=EXPIRING_SOON_DAYS),
                 )
                 .group_by(ClientFrameworkContract.client_id)
             )
         )
     }
-    # ^ uproszczone — daje 0 dla "expiring soon" bo `today + 30d` wymaga datetime
-    # delta. Liczba zostanie dokładnie wyciągnięta w dashboardzie. Tutaj pomocnik.
 
     items: list[MyClientRow] = []
     for c in clients:
-        oa = active_order_counts.get(c.id)
         fc = fc_lookup.get(c.id)
         items.append(
             MyClientRow(
@@ -375,7 +364,7 @@ async def list_my_clients(
                 name=client_display_name(c),
                 industry=getattr(c, "industry", None),
                 is_head_dl=head_lookup.get(c.id, False),
-                active_orders_count=oa.active_count if oa else 0,
+                active_orders_count=active_order_counts.get(c.id, 0),
                 total_revenue_all_time=lifetime_revenue.get(c.id),
                 active_revenue=active_revenue.get(c.id),
                 expiring_soon_count=expiring.get(c.id, 0),
@@ -426,21 +415,14 @@ async def client_dashboard(
         ),
     )
 
-    # Status counts are operational. They deliberately do not select any order
-    # value, rate or currency.
-    order_status_rows = list(
-        (
-            await db.execute(
-                select(
-                    ClientOrder.status,
-                    func.count(ClientOrder.id).label("count"),
-                )
-                .where(ClientOrder.client_id == client_id)
-                .group_by(ClientOrder.status)
-            )
-        )
+    # Liczba i wartość zamówień: samodzielne + zamówienia MD/kosztowe jako
+    # JEDNO zamówienie, bez szkiców (``client_order_value_rows``, audyt W1).
+    # Liczniki są operacyjne; kwoty czytamy z bazy wyłącznie przy prawie do
+    # finansów tego klienta.
+    revenue_rows = await client_order_value_rows(
+        db, [client_id], with_values=finance_ok
     )
-    order_status_counts = {row.status: int(row.count or 0) for row in order_status_rows}
+    order_status_counts = order_counts_by_status(revenue_rows).get(client_id, {})
 
     # Revenue: lifetime total / active / completed. The query itself is
     # finance-gated; TCM never loads raw amounts, while an assigned DL uses the
@@ -452,26 +434,6 @@ async def client_dashboard(
     currency_breakdown: dict[str, Decimal] = {}
     if finance_ok:
         finance_on = business_today()
-        revenue_rows = list(
-            (
-                await db.execute(
-                    select(
-                        ClientOrder.client_id,
-                        ClientOrder.status,
-                        ClientOrder.currency,
-                        func.coalesce(func.sum(ClientOrder.total_value), 0).label(
-                            "sum_val"
-                        ),
-                    )
-                    .where(ClientOrder.client_id == client_id)
-                    .group_by(
-                        ClientOrder.client_id,
-                        ClientOrder.status,
-                        ClientOrder.currency,
-                    )
-                )
-            )
-        )
         revenue_lookup, revenue_incomplete = await order_revenue_rows_to_pln(
             db, revenue_rows, finance_on
         )
@@ -514,6 +476,7 @@ async def client_dashboard(
     monthly_revenue_total: Decimal = Decimal("0")
     has_margin = False
     margin_complete = True
+    margin_unpriced = 0
     if finance_ok:
         # Filtr statusu zszedł do WHERE (wcześniej ładowaliśmy WSZYSTKIE
         # kontrakty klienta — szkice, zakończone, anulowane — żeby odsiać je
@@ -536,13 +499,13 @@ async def client_dashboard(
         # Tylko kontrakty OBECNE — ta sama reguła co kafel „Aktywne MRR"
         # na profilu tego klienta (UAT B46). Pusta data startu znaczy „start
         # nieznany", nie „planowany" (audyt 18.09.2026).
-        contract_rows = current_contracts(contract_rows, today)
-        (
-            monthly_margin_total,
-            monthly_revenue_total,
-            has_margin,
-            margin_complete,
-        ) = await _monthly_margin_total_pln(db, contract_rows, today)
+        contract_rows = await load_current_contracts(db, contract_rows, today)
+        totals = await _monthly_margin_total_pln(db, contract_rows, today)
+        monthly_margin_total = totals.margin
+        monthly_revenue_total = totals.revenue
+        has_margin = totals.has_margin
+        margin_complete = totals.complete
+        margin_unpriced = totals.unpriced
 
     # Marża % = marża MIESIĘCZNA / przychód MIESIĘCZNY, obie nogi z tego samego
     # zbioru kontraktów. Mianownikiem NIE jest suma `ClientOrder.total_value`:
@@ -561,39 +524,24 @@ async def client_dashboard(
         )
 
     # Konsultanci active vs completed (na podstawie kontraktów linkowanych do orderów)
-    active_headcount = summarize_active_contracts(
+    live_contracts = [
         contract
         for contract in count_contracts
         if contract.status in _LIVE_CONTRACT_STATUSES
-        and is_current_contract(contract, today)
+    ]
+    active_headcount = summarize_active_contracts(
+        await load_current_contracts(db, live_contracts, today)
     )
     completed_consultants = sum(
         1 for contract in count_contracts if contract.status == ContractStatus.ended
     )
 
-    # Order velocity — średnio dni od `created_at` do gdy
-    # `linked_contracts == positions_count` dla zakończonych zamówień.
-    completed_orders = list(
-        (
-            await db.execute(
-                select(ClientOrder.start_date, ClientOrder.created_at).where(
-                    ClientOrder.client_id == client_id,
-                    ClientOrder.status == ClientOrderStatus.completed,
-                )
-            )
-        )
-    )
-    velocities: list[float] = []
-    for start_date, created_at in completed_orders:
-        if not start_date:
-            continue
-        # Approx — used `start_date - created_at` jako proxy dla "filled"
-        delta = (start_date - created_at.date()).days
-        if delta >= 0:
-            velocities.append(float(delta))
-    avg_days_to_fill = (
-        round(sum(velocities) / len(velocities), 1) if velocities else None
-    )
+    # Średni czas obsadzenia — TA SAMA definicja co profil klienta (start
+    # kontraktu − otwarcie rekrutacji). Do 24.09.2026 liczyło się tu
+    # `start − created_at` zakończonych zamówień, czyli odległość wpisania
+    # zamówienia do systemu od jego startu, pod etykietą „czas obsadzenia” (S9).
+    avg_ttf, _ttf_not_assessable = await client_time_to_fill(db, client_id)
+    avg_days_to_fill = round(avg_ttf, 1) if avg_ttf is not None else None
 
     # Counts
     fc_count = (
@@ -603,8 +551,10 @@ async def client_dashboard(
             .where(ClientFrameworkContract.client_id == client_id)
         )
     ) or 0
-    active_orders_count = order_status_counts.get(ClientOrderStatus.active, 0)
-    completed_orders_count = order_status_counts.get(ClientOrderStatus.completed, 0)
+    active_orders_count = order_status_counts.get(ClientOrderStatus.active.value, 0)
+    completed_orders_count = order_status_counts.get(
+        ClientOrderStatus.completed.value, 0
+    )
 
     # Alerts: framework contracts expiring 30/14/7 dni + ordery ending 30/14/7 dni
     today = business_today()
@@ -645,6 +595,10 @@ async def client_dashboard(
                     ClientOrder.client_id == client_id,
                     ClientOrder.status == ClientOrderStatus.active,
                     ClientOrder.end_date.is_not(None),
+                    # Zamówienie z dodaną kontynuacją nie wymaga działania —
+                    # ta sama reguła co zakładka „Kończące się 30d” i karta
+                    # w panelu „Moi klienci” (audyt S9).
+                    ~order_has_continuation(),
                 )
             )
         ).all()
@@ -687,6 +641,7 @@ async def client_dashboard(
             else None
         ),
         monthly_margin_pct=margin_pct if finance_ok else None,
+        monthly_margin_unpriced_contracts=margin_unpriced if finance_ok else None,
         active_consultants=active_headcount.contractors,
         active_contracts=active_headcount.active_contracts,
         completed_consultants=completed_consultants,

@@ -62,7 +62,7 @@ from app.services.client_identity import (
 from app.services.contract_rates import RATE_SCHEDULE_LOADS, effective_rate_fields
 from app.services.contractor_identity import (
     count_unique_contractors,
-    current_contracts,
+    load_current_contracts,
 )
 from app.services.fx_service import amount_to_pln_with_rate, rates_to_pln
 from app.services.metric_definitions import DL_HIT_RATIO_TARGET_PCT
@@ -399,7 +399,7 @@ async def compute_client_ranking(
     # profilu klienta i zakładka Analityka (UAT B46); bez niej ranking Rady
     # i profil tego samego klienta pokazywały różne liczby konsultantów i inną
     # marżę. Pusta data startu = start nieznany (audyt 18.09.2026).
-    margin_rows = current_contracts(margin_rows, on)
+    margin_rows = await load_current_contracts(db, margin_rows, on)
     contractor_candidates: dict[int, list] = {}
     active_contracts_lookup: dict[int, int] = {}
     for r in margin_rows:
