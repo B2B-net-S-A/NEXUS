@@ -701,3 +701,54 @@ async def test_md_card_repeats_weekly_and_handling_stops_it(monkeypatch):
     clock.current = moment + timedelta(days=16)
     await _run(rule_md_base_usage_high, monkeypatch, _TODAY + timedelta(days=16))
     assert len(await _alerts(user_id, ALERT_MD_BASE_USAGE_HIGH)) == 2
+
+
+# ── Audyt 24.09.2026 (blok C) ───────────────────────────────────────────────
+
+
+async def test_consultant_who_already_left_gets_no_low_md_card(monkeypatch):
+    """S9: „mało MD" pomija osobę zdjętą z obsady — jak reguła 80% wyżej."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order import ClientOrder
+    from app.models.dl_alert import ALERT_MD_BUDGET_LOW
+    from app.tasks.dl_alerts_scanner import rule_md_budget_low
+
+    client_id = await _seed_client()
+    user_id = await _seed_dl(client_id)
+    contract_id = await _seed_contract(client_id)
+    line_id = await _seed_group_line(
+        client_id, contract_id, end=_FAR_END, md_total="220", consumed="210"
+    )
+    async with AsyncSessionLocal() as db:
+        line = await db.get(ClientOrder, line_id)
+        line.end_date = _TODAY - timedelta(days=30)
+        await db.commit()
+
+    await _run(rule_md_budget_low, monkeypatch)
+    assert await _alerts(user_id, ALERT_MD_BUDGET_LOW) == []
+
+
+async def test_emptied_client_list_closes_open_base_usage_cards(monkeypatch):
+    """N6: zdjęcie klienta z listy zamyka jego karty 80% (bez listy reguła
+    wychodziła przed ``resolve_stale`` i karty wisiały na zawsze)."""
+    from app.core.config import settings
+    from app.models.dl_alert import ALERT_MD_BASE_USAGE_HIGH
+    from app.tasks.dl_alerts_scanner import rule_md_base_usage_high
+
+    client_id = await _seed_client()
+    user_id = await _seed_dl(client_id)
+    contract_id = await _seed_contract(client_id)
+    _gate(monkeypatch, client_id)
+    await _seed_group_line(
+        client_id, contract_id, end=_FAR_END, md_total="100", consumed="90"
+    )
+    await _run(rule_md_base_usage_high, monkeypatch)
+    assert [a.status for a in await _alerts(user_id, ALERT_MD_BASE_USAGE_HIGH)] == [
+        "new"
+    ]
+
+    monkeypatch.setattr(settings, "EXTENDED_ORDER_ALERT_CLIENT_IDS", "")
+    await _run(rule_md_base_usage_high, monkeypatch)
+    assert [a.status for a in await _alerts(user_id, ALERT_MD_BASE_USAGE_HIGH)] == [
+        "resolved"
+    ]

@@ -4556,6 +4556,9 @@ _COLUMN_STATEMENTS = [
     "ON order_change_events (created_at)",
     "CREATE INDEX IF NOT EXISTS ix_order_change_events_order "
     "ON order_change_events (order_id, created_at)",
+    # 0371: waluta sprzed zmiany stawki — listener zapisuje ją przy każdej
+    # zmianie zamówienia, więc bez kolumny pada każdy zapis zamówienia.
+    "ALTER TABLE order_change_events ADD COLUMN IF NOT EXISTS old_currency VARCHAR(3)",
     """CREATE TABLE IF NOT EXISTS order_gaps (
         id SERIAL PRIMARY KEY,
         order_id INTEGER NOT NULL,

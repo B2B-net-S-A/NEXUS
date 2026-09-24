@@ -178,7 +178,17 @@ def fact_from_row(row) -> OrderFact:
         )
         number = row.title or "—"
 
-    if in_group and (row.md_rate_cost is not None or row.md_rate_revenue is not None):
+    line_currency = (
+        row.rate_client_currency or row.rate_candidate_currency or row.currency or "PLN"
+    )
+    # ``md_rate_*`` to kanoniczne PLN/MD. Linia w walucie obcej ma stawki
+    # źródłowe w ``rate_*`` (waluta i jednostka linii) — tak pokazuje je karta
+    # zamówienia; „PLN" przy kwocie przeliczonej z EUR mylił Finanse (S14).
+    if (
+        in_group
+        and str(line_currency).strip().upper() == "PLN"
+        and (row.md_rate_cost is not None or row.md_rate_revenue is not None)
+    ):
         rate_cost, rate_revenue, unit, currency = (
             row.md_rate_cost,
             row.md_rate_revenue,

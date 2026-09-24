@@ -371,13 +371,21 @@ async def _md_low_per_consultant(
     workdays = int(settings.DL_ALERT_HIGH_PRIORITY_WORKDAYS)
     created = 0
     for order in orders:
+        group = order.order_group
+        # Osoba, która zeszła z zamówienia z niewykorzystanym limitem, zostaje
+        # `active` (linię MD kończy budżet, nie data). „Mało MD, przygotuj
+        # przedłużenie" dla kogoś, kto już nie pracuje, to fałszywa karta —
+        # ta sama reguła obsady co ``rule_md_base_usage_high`` (S9).
+        if not is_line_on_active_roster(
+            order, group.end_date if group else None, today=today
+        ):
+            continue
         user_ids = await dl_user_ids_for_client(
             db, order.client_id, scope=recipient_scope
         )
         if not user_ids:
             continue
         live |= _live_keys(ALERT_MD_BUDGET_LOW, f"order:{order.id}", user_ids)
-        group = order.order_group
         number = group.order_number if group else "—"
         client_name = names.get(order.client_id, "Klient")
         who = consultant_display_name(order)
@@ -583,6 +591,11 @@ async def rule_md_base_usage_high(
     """
     extended_ids = extended_order_alert_client_ids()
     if not extended_ids:
+        # Zdjęcie klienta z listy musi zamknąć jego otwarte karty — bez tego
+        # wisiały na zawsze (N6, audyt 24.09.2026).
+        await resolve_stale(
+            db, alert_type=ALERT_MD_BASE_USAGE_HIGH, live_event_keys=set()
+        )
         return 0
     if recipient_scope is None:
         recipient_scope = await load_delivery_alert_recipient_scope(db)
