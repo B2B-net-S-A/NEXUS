@@ -122,6 +122,7 @@ import {
   mergeRegisterPages,
   nextRegisterOffset,
   registerRowWarnings,
+  needsContractLink,
   registerSearchHref,
   type GeneratorTab,
 } from "@/lib/b2b-generator-register";
@@ -2038,6 +2039,121 @@ function RegisterRowWarnings({ row }: { row: B2BGeneratedContractRow }) {
   );
 }
 
+/**
+ * „Powiąż z kontraktem” dla podpisanej umowy ze znacznikiem „brak kontraktora”
+ * (ticket 1460/2026). Admin i Delivery Lead; backend pilnuje reszty reguł
+ * (tylko podpisana, kontrakt nie ma innej umowy, zapis historii).
+ */
+function LinkContractAction({ row }: { row: B2BGeneratedContractRow }) {
+  const user = useAuthStore((s) => s.user);
+  const toast = useToast();
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [raw, setRaw] = useState("");
+  const contractId = /^\d+$/.test(raw.trim()) ? Number(raw.trim()) : null;
+
+  const preview = useQuery({
+    queryKey: ["contract-link-preview", contractId],
+    enabled: open && contractId != null,
+    retry: false,
+    queryFn: () =>
+      api
+        .get<{
+          id: number;
+          candidate_name?: string | null;
+          client_name?: string | null;
+          status: string;
+          start_date?: string | null;
+        }>(`/api/contracts/${contractId}`)
+        .then((r) => r.data),
+  });
+
+  const mut = useMutation({
+    mutationFn: () => b2bGeneratorApi.linkContract(row.id, contractId as number),
+    onSuccess: (res) => {
+      toast.showSuccess(
+        res.document_attached
+          ? `Umowa ${row.contract_number} powiązana z kontraktem #${contractId} — dokument dołączony do kontraktu.`
+          : `Umowa ${row.contract_number} powiązana z kontraktem #${contractId}. ${res.document_note ?? ""}`,
+      );
+      queryClient.invalidateQueries({ queryKey: ["b2b-generated"] });
+      queryClient.invalidateQueries({ queryKey: ["b2b-status-history", row.id] });
+      setOpen(false);
+    },
+    onError: (e) => toast.showError(extractErrorMsg(e)),
+  });
+
+  if (!needsContractLink(row) || !hasRole(user, "admin", "delivery_lead")) {
+    return null;
+  }
+  return (
+    <>
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        className="h-7 text-xs"
+        onClick={() => {
+          setRaw("");
+          setOpen(true);
+        }}
+      >
+        Powiąż z kontraktem
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Powiąż umowę {row.contract_number} z kontraktem</DialogTitle>
+            <DialogDescription>
+              Numer, statusy, podpis i daty umowy się nie zmienią. Osoba i klient
+              umowy przyjmą wartości z kontraktu, dokument umowy trafi do
+              zakładki Dokumenty kontraktu, a w historii umowy zostanie wpis.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor={`link-contract-${row.id}`}>Numer kontraktu</Label>
+            <Input
+              id={`link-contract-${row.id}`}
+              inputMode="numeric"
+              placeholder="np. 341"
+              value={raw}
+              onChange={(e) => setRaw(e.target.value)}
+            />
+            {contractId != null && preview.isSuccess ? (
+              <p className="text-sm">
+                Kontrakt #{preview.data.id}
+                {preview.data.candidate_name ? ` · ${preview.data.candidate_name}` : ""}
+                {preview.data.client_name ? ` · ${preview.data.client_name}` : ""}
+                {preview.data.start_date
+                  ? ` · od ${formatIsoDatePl(preview.data.start_date)}`
+                  : ""}
+              </p>
+            ) : null}
+            {contractId != null && preview.isError ? (
+              <p className="text-sm text-destructive">
+                Nie znaleziono kontraktu #{contractId} albo nie masz do niego dostępu.
+              </p>
+            ) : null}
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
+              Anuluj
+            </Button>
+            <Button
+              type="button"
+              disabled={contractId == null || !preview.isSuccess || mut.isPending}
+              onClick={() => mut.mutate()}
+            >
+              {mut.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
+              Powiąż
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
 export function GeneratedContractsTab({
   searchParam = null,
   canCorrect = true,
@@ -2469,6 +2585,7 @@ export function GeneratedContractsTab({
                             </span>
                           ) : null}
                           <RegisterRowWarnings row={r} />
+                          <LinkContractAction row={r} />
 
                           <div className="flex items-center gap-1">
                             {r.can_change_status ? (

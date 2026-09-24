@@ -218,6 +218,8 @@ export function statusEventDetailsText(
       }
       return parts.join(" · ");
     }
+    case "linked_to_contract":
+      return `Powiązano z kontraktem #${details.contract_id} — umowa miała znacznik „brak kontraktora”`;
     case "contract_termination_undone":
       return `Cofnięto zakończenie współpracy (${contract}) — przywrócono stan sprzed zakończenia`;
     case "contract_returned_after_break":

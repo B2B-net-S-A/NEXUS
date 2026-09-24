@@ -325,11 +325,7 @@ export function registerRowWarnings(
 
   // Umowa z Excela nigdy nie miała kontraktu w NEXUSIE — brak nie jest
   // „usuniętym kontraktem”.
-  if (
-    row.signature_status === "signed_both" &&
-    row.contract_id == null &&
-    !isExcelRow(row)
-  ) {
+  if (needsContractLink(row)) {
     warnings.push({
       tone: "danger",
       text: "Kontrakt usunięty — brak kontraktora",
@@ -381,3 +377,20 @@ export function generatedIdFromHeaders(headers: unknown): number | null {
 // ── Waluty ──────────────────────────────────────────────────────────────────
 
 export const B2B_CURRENCIES = ["PLN", "EUR", "USD", "GBP", "CHF"] as const;
+
+/**
+ * Podpisana umowa bez kontraktora (znacznik „Kontrakt usunięty”) — ta sama
+ * reguła rysuje znacznik i przycisk „Powiąż z kontraktem” (ticket 1460/2026).
+ */
+export function needsContractLink(
+  row: Pick<
+    B2BGeneratedContractRow,
+    "signature_status" | "contract_id" | "source"
+  >,
+): boolean {
+  return (
+    row.signature_status === "signed_both" &&
+    row.contract_id == null &&
+    !isExcelRow(row)
+  );
+}

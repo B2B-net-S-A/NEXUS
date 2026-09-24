@@ -105,3 +105,11 @@ describe("statusEventDetailsText", () => {
     expect(statusEventDetailsText(null)).toBeNull();
   });
 });
+
+describe("statusEventDetailsText — powiązanie z kontraktem", () => {
+  it("opisuje, z którym kontraktem powiązano umowę", () => {
+    expect(
+      statusEventDetailsText({ source: "linked_to_contract", contract_id: 341 }),
+    ).toBe("Powiązano z kontraktem #341 — umowa miała znacznik „brak kontraktora”");
+  });
+});

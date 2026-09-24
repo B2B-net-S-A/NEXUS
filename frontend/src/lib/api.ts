@@ -3403,6 +3403,17 @@ export const b2bGeneratorApi = {
         body,
       )
       .then((r) => r.data),
+  /** Powiąż podpisaną umowę bez kontraktora z istniejącym kontraktem. */
+  linkContract: (id: number, contractId: number) =>
+    api
+      .post<{
+        item: B2BGeneratedContractRow;
+        document_attached: boolean;
+        document_note: string | null;
+      }>(`/api/b2b-generator/generated/${id}/link-contract`, {
+        contract_id: contractId,
+      })
+      .then((r) => r.data),
   checkUop: (body: { text: string; language: string }) =>
     api
       // Sonnet po tekście do 6000 znaków, w serwisie DWIE próby przy
