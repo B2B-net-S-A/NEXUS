@@ -51,7 +51,11 @@ from app.services.order_mail_planner import (
     AUTO_ACTIONS,
     renewal_gap_phrase,
 )
-from app.services.order_pdf_parser import _names_exactly_equivalent
+from app.services.order_pdf_parser import (
+    MD_SCOPE_ORDER,
+    _names_exactly_equivalent,
+    md_scope,
+)
 from app.services.order_rate_snapshots import (
     contract_rate_in_unit,
     convert_order_rate,
@@ -66,6 +70,23 @@ _UNEXPECTED_APPLY_ERROR = (
 )
 
 _RATE_UNIT = {"hour": "hourly", "day": "daily", "month": "monthly"}
+
+
+def _legacy_mail_order_marker(doc_id: int) -> str:
+    """Znacznik zamówienia z maila sprzed 24.09.2026 — bez numeru pozycji."""
+    return f"Zamówienie z maila (dokument #{doc_id})"
+
+
+def _mail_order_marker(doc_id: int, row_index: int) -> str:
+    """Znacznik idempotencji zamówienia z maila: dokument + pozycja w nim."""
+    return f"Zamówienie z maila (dokument #{doc_id}, pozycja {row_index + 1})"
+
+
+SHARED_MD_POOL_REFUSAL = (
+    "Dokument podaje jedną liczbę MD na całe zamówienie dla kilku osób — "
+    "załóż zamówienie ze wspólnym budżetem MD ręcznie w oknie zamówienia "
+    "klienta; zapis z kolejki dałby każdej osobie całą pulę"
+)
 
 
 @dataclass
@@ -313,9 +334,16 @@ async def apply_document(
     if not (doc.proposal or {}).get("apply_result"):
         from app.services.order_mail_ingest import current_proposal, restore_extraction
 
-        proposal, resolved, _ = await current_proposal(
-            db, restore_extraction(doc.extraction), doc.client_id
-        )
+        extraction = restore_extraction(doc.extraction)
+        proposal, resolved, _ = await current_proposal(db, extraction, doc.client_id)
+        if any(r.order_type == "md" for r in proposal.rows) and (
+            md_scope(extraction) == MD_SCOPE_ORDER
+        ):
+            # Ręczne „Zastosuj" nie czyta bramki, a zapis per osoba nie ma gdzie
+            # zapisać wspólnej puli MD — do 24.09 każda osoba dostawała całą
+            # pulę dokumentu (3 osoby × 60 MD). Pulę zakłada człowiek w oknie
+            # zamówienia (audyt 24.09, W1).
+            return ApplyResult(error=SHARED_MD_POOL_REFUSAL)
         if proposal.blocking or not proposal.auto_eligible_actions:
             return ApplyResult(
                 error="; ".join(
@@ -551,14 +579,21 @@ async def _write_document(
                 if applied.action != ACTION_FUTURE:
                     await assert_no_open_md_group_line(db, contract.id)
                 # Drugi guard, gdy `apply_result` nie zdążył się zapisać (crash
-                # między commitem wiersza a zapisem dokumentu): zamówienie z TEGO
-                # dokumentu dla tego kontraktu i numeru już istnieje → nie dublujemy.
-                marker = f"Zamówienie z maila (dokument #{doc.id})"
+                # między commitem wiersza a zapisem dokumentu): zamówienie z TEJ
+                # POZYCJI dokumentu dla tego kontraktu i numeru już istnieje →
+                # nie dublujemy. Znacznik niesie numer pozycji: sam kontrakt
+                # i numer trafiały przy drugiej pozycji tej samej osoby
+                # w zamówienie pierwszej, a druga przepadała (audyt 24.09, W2).
+                # Znacznik bez pozycji to zamówienie zapisane przed tą zmianą —
+                # ponowny zapis takiego dokumentu dalej go rozpoznaje.
+                marker = _mail_order_marker(doc.id, applied.row_index)
                 existing = await db.scalar(
                     select(ClientOrder).where(
                         ClientOrder.contract_id == contract.id,
                         ClientOrder.title == (rp.get("title") or "(bez numeru)"),
-                        ClientOrder.notes == marker,
+                        ClientOrder.notes.in_(
+                            [marker, _legacy_mail_order_marker(doc.id)]
+                        ),
                     )
                 )
                 if existing is not None:
@@ -585,7 +620,7 @@ async def _write_document(
                     or effective.get("rate_client_currency"),
                     rate_candidate_currency=effective.get("rate_candidate_currency"),
                     created_by_user_id=actor_user_id,
-                    notes=f"Zamówienie z maila (dokument #{doc.id})",
+                    notes=marker,
                     **{k: v for k, v in inherited.items() if v is not None},
                     **({"currency": rp["currency"]} if rp.get("currency") else {}),
                 )
