@@ -1,0 +1,22 @@
+<p>{{ document_place }}, {{ document_date }}</p>
+<h1>ANNEX TO THE B2B COOPERATION AGREEMENT</h1>
+<p>The Parties mutually agree to amend the agreement No. {{ base.contract_number }} concluded on {{ base.signing_date }} in Warsaw between:</p>
+<p><strong>{{ company.name }}</strong> with its registered office in {{ company.place }}, {{ company.address }}, NIP (Tax Identification Number): {{ company.nip }}, represented by {{ company.representative }},</p>
+<p>hereinafter referred to as the<strong> “Company” or  “B2BNET”</strong></p>
+<p>and  <strong>{{ g.g_mr }} {{ partner.name or '…' }}</strong> conducting business activity under the name: {{ partner.legal_name or '…' }}, registered in the Central Register and Information on Economic Activity at the address: {{ partner.business_address or '…' }}, Tax Identification Number (NIP): {{ partner.nip or '…' }}, National Business Registry Number (REGON): {{ partner.regon or '…' }},</p>
+<p>hereinafter referred to as the <strong>„Partner”</strong></p>
+<p>B2BNET and the Partner are hereinafter referred to as the "<strong>Parties</strong>"</p>
+<p>The annex, by mutual decision of the Parties, introduces the following amendment to the Agreement: {{ refs.rate_paragraph | replace('ust.', 'section') | replace(' pkt ', ' point ') | replace(' i ', ' and ') }} of the Agreement shall read as follows:</p>
+<h2>§1</h2>
+<ol>
+<li>For the proper performance of the Services, the Partner shall be entitled to remuneration calculated as the product of the number of hours of actual provision of the Services in a given month and an hourly rate of {{ doc.new_rate }} {{ doc.currency }} (in words: {{ doc.new_rate_words }}) net + VAT.</li>
+</ol>
+<h2>§2</h2>
+<ol>
+<li>The agreed amendments shall enter into force on {{ doc.effective_date }}.</li>
+<li>The Parties agree that this annex may be executed in written form or in electronic form using a qualified electronic signature, in accordance with Article 78¹ §1 of the Civil Code.</li>
+<li>The remaining provisions of the contract shall not be changed.</li>
+<li>The annex was drawn up in two identical copies, one for each of the parties.</li>
+</ol>
+<p>________________       ________________</p>
+<p>(signature)                                                                                               (signature)</p>

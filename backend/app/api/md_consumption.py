@@ -2164,7 +2164,7 @@ async def assign_row(
     return await _row_to_read(db, row, batch.period_month)
 
 
-# ── Cofnięcie zakończenia kontraktu (0363) ──────────────────────────────────
+# ── Cofnięcie zakończenia kontraktu (0365) ──────────────────────────────────
 
 
 @dataclass(frozen=True)

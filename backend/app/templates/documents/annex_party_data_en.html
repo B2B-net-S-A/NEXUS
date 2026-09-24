@@ -1,0 +1,20 @@
+<p class="right">{{ document_place }}, {{ document_date }}</p>
+<h1>ANNEX TO THE B2B COOPERATION AGREEMENT</h1>
+<p>The Parties mutually agree to supplement the agreement No. {{ base.contract_number }} concluded on {{ base.signing_date }} in Warsaw between:</p>
+<p><strong>{{ company.name }}</strong> with its registered office in {{ company.place }}, {{ company.address }}, NIP (Tax Identification Number): {{ company.nip }}, represented by {{ company.representative }},</p>
+<p>hereinafter referred to as the<strong> “Company” or  “B2BNET”</strong></p>
+<p>and</p>
+<p><strong>{{ g.g_mr }} {{ partner.name or '…' }}</strong>, residing at {{ partner.home_address or '…' }}, holding an ID card{% if partner.id_document %} No. {{ partner.id_document }}{% endif %}, hereinafter referred to as the “Partner”</p>
+<p><strong>B2BNET</strong> and <strong>Partner</strong> are collectively referred to as the “<strong>Parties</strong>”</p>
+<p>The annex, by mutual decision of the Parties, introduces the following provisions into the Agreement:</p>
+<h2>§1</h2>
+<p><strong>“Partner” within the meaning of the provisions of the B2B cooperation agreement No. {{ base.contract_number }} dated {{ base.signing_date }} is {% if doc.entity_type == 'company' %}the company {{ doc.new_legal_name or '…' }} with its registered office at {{ doc.new_business_address or '…' }}, entered in the Register of Entrepreneurs of the National Court Register under KRS No. {{ doc.company_krs or '…' }}, NIP: {{ doc.new_nip or '…' }}, REGON: {{ doc.new_regon or '…' }}, represented by {{ doc.company_representative or '…' }}.{% else %}{{ g.g_mr }} {{ partner.name or '…' }} conducting business activity under the name: {{ doc.new_legal_name or '…' }}, registered in the Central Register and Information on Economic Activity at the address: {{ doc.new_business_address or '…' }}, Tax Identification Number (NIP): {{ doc.new_nip or '…' }}, National Business Registry Number (REGON): {{ doc.new_regon or '…' }}.{% endif %}</strong></p>
+<h2>§2</h2>
+<ol>
+<li>The agreed amendments shall enter into force on {{ doc.effective_date }}.</li>
+<li>The Parties agree that this annex may be executed in written form or in electronic form using a qualified electronic signature, in accordance with Article 78¹ §1 of the Civil Code.</li>
+<li>The remaining provisions of the contract shall not be changed.</li>
+<li>The annex was drawn up in two identical copies, one for each of the parties.</li>
+</ol>
+<p>________________       ________________</p>
+<p>(signature)                                                                                                (signature)</p>

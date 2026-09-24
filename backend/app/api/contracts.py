@@ -522,7 +522,7 @@ async def _sync_client_orders_to_contract_end(
 
     Zwraca liczbę dotkniętych zamówień — ``/terminate`` zapisuje ją w audycie.
 
-    ``contract_before`` — stan kontraktu sprzed zakończenia (migawka 0363 dla
+    ``contract_before`` — stan kontraktu sprzed zakończenia (migawka 0365 dla
     „Cofnij zakończenie"); wołający czyta go, zanim cokolwiek zmieni.
     """
     result = await apply_contract_order_offboarding(
@@ -5347,7 +5347,7 @@ async def terminate_contract(
     return detail
 
 
-# ── Cofnięcie zakończenia i powrót po przerwie (0363) ────────────────────────
+# ── Cofnięcie zakończenia i powrót po przerwie (0365) ────────────────────────
 
 
 async def _fill_termination_recovery(

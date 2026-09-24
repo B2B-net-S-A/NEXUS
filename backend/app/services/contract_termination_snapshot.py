@@ -1,4 +1,4 @@
-"""Zapis stanu sprzed zakończenia kontraktu (0363).
+"""Zapis stanu sprzed zakończenia kontraktu (0365).
 
 Wołają to wszystkie ścieżki kończące kontrakt — przez
 ``apply_contract_order_offboarding``, jedyne miejsce, które zmienia zamówienia

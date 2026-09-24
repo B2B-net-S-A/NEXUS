@@ -133,6 +133,9 @@ _FIELD_SOURCE_RE = re.compile(
 # list, so a schema addition cannot turn into an unnoticed CASCADE delete.
 _KNOWN_CONTRACT_FKS = {
     ("b2b_contract_details", "contract_id"),
+    # Dokumenty pochodne umowy B2B (0362) należą do tej samej współpracy —
+    # przy scaleniu duplikatu idą za kontraktem, który zostaje.
+    ("b2b_contract_documents", "contract_id"),
     ("b2b_generated_contracts", "contract_id"),
     ("calls", "contract_id"),
     # Durable offboarding decisions belong to the same candidate/client
@@ -149,10 +152,10 @@ _KNOWN_CONTRACT_FKS = {
     ("contract_equipment", "contract_id"),
     ("contract_framework_rates", "contract_id"),
     ("contract_onboarding_items", "contract_id"),
-    # Migawka stanu sprzed zakończenia (0363) opisuje zamówienia TEJ SAMEJ
+    # Migawka stanu sprzed zakończenia (0365) opisuje zamówienia TEJ SAMEJ
     # współpracy — idzie za kontraktem zachowanym jak sprawy offboardingu.
     ("contract_termination_snapshots", "contract_id"),
-    # Powiązanie „Powrót po przerwie” (0363): kontrakt, który wskazywał na
+    # Powiązanie „Powrót po przerwie” (0365): kontrakt, który wskazywał na
     # przegranego, wskazuje po scaleniu na zachowanego (_reparent_fks).
     ("contracts", "returned_from_contract_id"),
     ("document_signatures", "contract_id"),
@@ -233,7 +236,7 @@ _HISTORICAL_REFERENCE_KEYS = frozenset(
 _CONTRACT_LIFECYCLE_FIELDS = {"status", "voided_at", "voided_by"}
 _CONTRACT_DERIVED_FIELDS = {"client_order_start_date", "client_order_end_date"}
 _CONTRACT_AUDIT_FIELDS = {"created_at", "updated_at"}
-# Powiązanie z poprzednim kontraktem („Powrót po przerwie”, 0363) należy do
+# Powiązanie z poprzednim kontraktem („Powrót po przerwie”, 0365) należy do
 # wiersza, nie do współpracy — zostaje na kontrakcie zachowanym.
 _CONTRACT_LINEAGE_FIELDS = {"returned_from_contract_id"}
 # „Usuń szkic" (0357): stan PREZENTACJI karty w zakładce Zamówienia. Ocalały

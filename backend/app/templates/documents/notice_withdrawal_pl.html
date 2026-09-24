@@ -1,0 +1,17 @@
+<h1>Oświadczenie o cofnięciu wypowiedzenia umowy o współpracy</h1>
+<p class="right">Miejscowość, data: {{ document_place }}, {{ document_date }} r.</p>
+<p>{{ company.name }}</p>
+<p>{{ company.address }}</p>
+<p>Dotyczy: umowy o współpracy nr {{ base.contract_number }} z dnia {{ base.signing_date }} r.</p>
+<p>Szanowni Państwo,</p>
+<p>niniejszym cofam złożone przeze mnie wypowiedzenie umowy o współpracy nr {{ base.contract_number }} z dnia {{ base.signing_date }} r., które {{ g.g_przekazal }} Państwu w dniu {{ doc.notice_delivery_date }} r.</p>
+<p>Moją wolą jest kontynuowanie współpracy z B2B.net S.A. na dotychczasowych warunkach. Proszę zatem o uznanie wskazanego wyżej wypowiedzenia za niebyłe oraz o dalsze wykonywanie umowy w niezmienionym kształcie.</p>
+<p>Mając na uwadze, że wypowiedzenie zostało Państwu już doręczone, jego cofnięcie staje się skuteczne z chwilą wyrażenia przez B2B.net S.A. zgody, o którą niniejszym wnoszę.</p>
+<p>Z poważaniem</p>
+<p>{{ partner.name or '…' }}{% if partner.legal_name %}, {{ partner.legal_name }}{% endif %}</p>
+<p>NIP: {{ partner.nip or '…' }}</p>
+<p><strong>Zgoda B2B.net S.A. na cofnięcie wypowiedzenia</strong></p>
+<p>B2B.net S.A. wyraża zgodę na cofnięcie wypowiedzenia, o którym mowa powyżej. Strony zgodnie oświadczają, że umowa o współpracy nr {{ base.contract_number }} z dnia {{ base.signing_date }} r. pozostaje w mocy i jest wykonywana na dotychczasowych warunkach, tak jakby wypowiedzenie nie zostało złożone.</p>
+<p>Data i podpis w imieniu B2B.net S.A.:</p>
+<p>____________________________________</p>
+<p>{{ company.representative_nom }}</p>

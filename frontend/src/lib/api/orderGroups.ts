@@ -85,7 +85,7 @@ export interface OrderLineRead {
   contract_id: number;
   candidate_id: number | null;
   consultant_name: string;
-  // Kontrakt z „Powrotu po przerwie" (0363) wskazuje poprzedni.
+  // Kontrakt z „Powrotu po przerwie" (0365) wskazuje poprzedni.
   returned_from_contract_id?: number | null;
   job_id: number | null;
   job_title: string | null;

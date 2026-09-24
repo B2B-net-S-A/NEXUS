@@ -68,6 +68,8 @@ from app.models.contract_template import ContractTemplate
 from app.models.b2b_contract_role import B2BContractRole, B2BRoleCategory
 from app.models.b2b_contract_detail import B2BContractDetail
 from app.models.b2b_generated_contract import B2BGeneratedContract
+from app.models.b2b_contract_document import B2BContractDocument
+from app.models.b2b_register_import import B2BRegisterImportRow, B2BRegisterImportRun
 from app.models.b2b_generated_contract_status_event import (
     B2BGeneratedContractStatusEvent,
 )
@@ -384,6 +386,9 @@ __all__ = [
     "B2BRoleCategory",
     "B2BContractDetail",
     "B2BGeneratedContract",
+    "B2BContractDocument",
+    "B2BRegisterImportRow",
+    "B2BRegisterImportRun",
     "B2BGeneratedContractStatusEvent",
     "CvGeneratedDocument",
     "Invoice",

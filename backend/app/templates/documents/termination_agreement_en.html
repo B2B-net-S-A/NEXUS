@@ -1,0 +1,26 @@
+<p class="right">{{ document_place }}, {{ document_date }}</p>
+<h1>Agreement on termination of the Contract</h1>
+<p>No. {{ base.contract_number }} signed on {{ base.signing_date }} in Warsaw, between:</p>
+<p><strong>{{ company.name }}</strong> with its registered office in {{ company.place }}, {{ company.address }}, NIP (Tax Identification Number): {{ company.nip }}, represented by {{ company.representative }},</p>
+<p>hereinafter referred to as the “<strong>Company</strong>” or  “<strong>B2BNET</strong>”</p>
+<p>and <strong>{{ g.g_mr }} {{ partner.name or '…' }}</strong> conducting business activity under the name: {{ partner.legal_name or '…' }}, registered in the Central Register and Information on Economic Activity at the address: {{ partner.business_address or '…' }}, Tax Identification Number (NIP): {{ partner.nip or '…' }}, National Business Registry Number (REGON): {{ partner.regon or '…' }},</p>
+<p>hereinafter referred to as “<strong>Partner</strong><strong>”</strong></p>
+<p>B2BNET and the Partner are hereinafter referred to as the "<strong>Parties</strong>"</p>
+<h2>§ 1</h2>
+<p>The Parties unanimously agree to terminate the B2B Cooperation Agreement No. {{ base.contract_number }} dated {{ base.signing_date }} by mutual agreement of the Parties as of {{ doc.termination_date }}. The last day of service provision for B2BNET is {{ doc.last_service_date }}.</p>
+{% if doc.release_non_compete %}
+<h2>§ 2</h2>
+<p>B2B.net S.A. releases the Partner from the non-competition obligation set out in {{ refs.non_compete_paragraph | replace('ust.', 'section') | replace(' pkt ', ' point ') | replace(' i ', ' and ') }} of the Agreement and consents to the Partner being employed directly by, or providing services directly to: {{ doc.non_compete_client_name or '…' }}, its parent companies and other affiliated entities.</p>
+{% endif %}
+<h2>§ {{ 3 if doc.release_non_compete else 2 }}</h2>
+<p>The Partner declares that upon completion of the provision of services to B2BNET, it will return all equipment entrusted to it to the B2BNET customer or to B2BNET in an undamaged condition, taking into account normal wear and tear, without delay, but no later than on the last day of service provision. If this deadline is not met or the equipment is returned in a deteriorated condition, B2BNET shall be entitled to charge the Partner with all costs charged to B2BNET for this reason by the B2BNET customer.</p>
+<h2>§ {{ 4 if doc.release_non_compete else 3 }}</h2>
+<p>The Partner undertakes to keep confidential any information that could in any way harm the good name, reputation or interests of B2BNET, its employees, associates, contractors and affiliated entities, and to refrain from taking any actions, including public statements or publications, that could negatively affect the image or reputation of the Company.</p>
+<h2>§ {{ 5 if doc.release_non_compete else 4 }}</h2>
+<ol>
+<li>The Agreement has been drawn up in 2 counterparts, one for each Party.</li>
+<li>The Parties agree that this agreement may be executed in written form or in electronic form using a qualified electronic signature, in accordance with Article 78¹ §1 of the Civil Code.</li>
+<li>The Partner declares that it has no claims against B2BNET.</li>
+</ol>
+<p>______________________     ________________________</p>
+<p>Signature Signature</p>
