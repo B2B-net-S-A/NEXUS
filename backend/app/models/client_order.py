@@ -55,6 +55,12 @@ class ClientOrder(Base, TimestampMixin):
 
     __tablename__ = "client_orders"
     __table_args__ = (
+        # NOT VALID w bazie (0371): stare wiersze z odwróconym okresem zostają,
+        # nowe i zmieniane muszą mieć koniec nie wcześniej niż start.
+        CheckConstraint(
+            "start_date IS NULL OR end_date IS NULL OR end_date >= start_date",
+            name="ck_client_orders_dates",
+        ),
         CheckConstraint(
             "order_type IS NULL OR order_type IN ('periodic', 'cost', 'md')",
             name="ck_client_orders_order_type",
