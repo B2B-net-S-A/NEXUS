@@ -1156,5 +1156,15 @@ async def interview_badges_for_job(
         for (cid, _jid), snap in snaps.items():
             badge = compute_badge(snap, now, call_window_minutes=call_window)
             if badge is not None:
+                # Kreski postępu na karcie i sekcja rozmowy w doku osoby —
+                # te same kroki co na ekranie „Rozmowy u klienta”; id rozmowy
+                # otwiera debrief prosto z doku.
+                badge["steps"] = [
+                    {"key": s["key"], "state": s["state"]}
+                    for s in compute_steps(snap, now, call_window_minutes=call_window)
+                ]
+                badge["interview_event_id"] = (
+                    snap.interview.id if snap.interview is not None else None
+                )
                 badges[cid] = badge
     return badges

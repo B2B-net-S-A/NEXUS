@@ -15,7 +15,12 @@
  */
 
 export type CycleScope = "mine" | "jobs" | "all";
-export type CycleView = "agenda" | "week" | "board";
+/**
+ * Dwa widoki ekranu: Tablica (domyślna — 7 kroków, kto na czym stoi, co
+ * zrobić) i Tydzień (siatka). Zakładka „Agenda” zniknęła 24.09.2026 (decyzja
+ * Artura) — jej zadania, kroki kandydata i linki Teams są w panelu karty.
+ */
+export type CycleView = "week" | "board";
 
 export type StepKey =
   | "slots"
@@ -382,28 +387,6 @@ export function formatSlot(slot: SlotItem): string {
   return `${day} ${range}`;
 }
 
-export interface AgendaDay {
-  key: string;
-  label: string;
-  entries: AgendaEntry[];
-}
-
-/** Agenda pogrupowana po dniu (strefa Europe/Warsaw), dni chronologicznie. */
-export function groupAgendaByDay(entries: AgendaEntry[], now: Date = new Date()): AgendaDay[] {
-  const map = new Map<string, AgendaDay>();
-  const sorted = [...entries].sort(
-    (a, b) => new Date(a.start).getTime() - new Date(b.start).getTime(),
-  );
-  for (const e of sorted) {
-    const key = dayKey(new Date(e.start));
-    if (!map.has(key)) {
-      map.set(key, { key, label: formatDayLabel(e.start, now), entries: [] });
-    }
-    map.get(key)!.entries.push(e);
-  }
-  return [...map.values()].sort((a, b) => a.key.localeCompare(b.key));
-}
-
 /** Agenda od dziś w przód (przeszłe dni tylko, gdy wisi na nich coś niezamkniętego). */
 export function upcomingAgenda(entries: AgendaEntry[], now: Date = new Date()): AgendaEntry[] {
   const today = dayKey(now);
@@ -471,7 +454,45 @@ export function parseCycleParam(raw: string | null): { candidateId: number; jobI
 export function parseView(raw: string | null, hasEventParam: boolean): CycleView {
   // Link do konkretnego wydarzenia (`?event=`) otwiera je w siatce tygodnia.
   if (hasEventParam) return "week";
-  return raw === "week" || raw === "board" ? raw : "agenda";
+  // `?view=agenda` żyje w zapisanych powiadomieniach (interview_slots.py do
+  // 24.09.2026) — prowadzi teraz na Tablicę, tak jak brak parametru.
+  return raw === "week" ? "week" : "board";
+}
+
+/** Trzy grupy kroków nad kolumnami Tablicy (kolor = faza, nie stan). */
+export const STEP_GROUPS: ReadonlyArray<{
+  key: "arrange" | "prepare" | "interview";
+  label: string;
+  steps: StepKey[];
+}> = [
+  { key: "arrange", label: "Umawianie · DL i klient", steps: ["slots", "choice"] },
+  { key: "prepare", label: "Przygotowanie", steps: ["prep", "prep2"] },
+  { key: "interview", label: "Rozmowa i po rozmowie", steps: ["interview", "call", "debrief"] },
+];
+
+/** Zadania „Do zrobienia” per para, od najpilniejszego (priorytet serwera). */
+export function todosByPair(todos: readonly TodoEntry[]): Map<string, TodoEntry[]> {
+  const map = new Map<string, TodoEntry[]>();
+  for (const t of todos) {
+    const key = pairKey(t);
+    const list = map.get(key);
+    if (list) list.push(t);
+    else map.set(key, [t]);
+  }
+  for (const list of map.values()) list.sort((a, b) => a.priority - b.priority);
+  return map;
+}
+
+/** Wydarzenia agendy jednej pary od dziś w przód (+ niezamknięty telefon). */
+export function pairAgenda(
+  agenda: readonly AgendaEntry[],
+  key: string,
+  now: Date = new Date(),
+): AgendaEntry[] {
+  return upcomingAgenda(
+    agenda.filter((e) => pairKey(e) === key),
+    now,
+  ).sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime());
 }
 
 export function parseScope(raw: string | null, fallback: CycleScope): CycleScope {

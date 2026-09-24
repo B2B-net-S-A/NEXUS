@@ -76,6 +76,25 @@ describe("summarizeBoard", () => {
   });
 });
 
+describe("telefon po rozmowie (debrief)", () => {
+  it("liczy call_due w każdej kolumnie i prowadzi do niego ścieżkę i najbliższy krok", () => {
+    const columns = board({ interview: 0, contract: 0 });
+    columns[7] = {
+      ...columns[7],
+      count: 1,
+      items: [{ id: 950, interview_badge: { kind: "call_due", at: "2026-09-24T09:30:00" } }],
+    };
+    const s = summarizeBoard(columns, { now: NOW });
+    expect(s.callDue).toBe(1);
+    expect(s.callDueColumn).toBe("contract");
+    const path = buildRecruitmentPath({ orderMissing: 0, board: s, proposals: 0, headcount: 1, now: NOW });
+    expect(path[3]).toMatchObject({ state: "missing", detail: "telefon po rozmowie: 1" });
+    expect(
+      nearestStep({ orderMissing: 0, board: s, proposals: 5, canAddCandidates: true }),
+    ).toMatchObject({ rule: "call", action: { kind: "column", column: "contract" } });
+  });
+});
+
 describe("relativeDayLabel", () => {
   it("dziś / jutro / pojutrze / DD.MM", () => {
     expect(relativeDayLabel("2026-09-24T16:00:00", NOW)).toBe("dziś");

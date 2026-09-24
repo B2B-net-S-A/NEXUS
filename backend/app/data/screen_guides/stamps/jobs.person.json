@@ -3,6 +3,6 @@
   "guide": "jobs.person",
   "sources": {
     "frontend/src/components/v2/followups/DockFollowupBlock.tsx": "5a3d77b8646e8d4a8615ca6c2f38de18b33f64d359e9a43e8e0d967b11e39b63",
-    "frontend/src/components/v2/jobs/PipelineCandidateDock.tsx": "34e9f9ed36239913ae4940a02c475cf5d9e3ed96336d962060b602f4a159df54"
+    "frontend/src/components/v2/jobs/PipelineCandidateDock.tsx": "2bf8ad179def1cfca5f7b2a254be78b4941775952874350da155213e5f8bcc99"
   }
 }

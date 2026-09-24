@@ -350,12 +350,12 @@
     "title": "Rozmowy u klienta",
     "section": "pipeline",
     "roles": ["recruiter", "delivery_lead", "head_of_recruitment"],
-    "what": "Tu prowadzisz cykl rozmowy u klienta: terminy od klienta, wybór terminu, dwa prepy w Teams, rozmowę, telefon do kandydata do 30 minut po niej i debrief.",
+    "what": "Tu prowadzisz cykl rozmowy u klienta: terminy od klienta, wybór terminu, dwa prepy w Teams, rozmowę, telefon do kandydata do 30 minut po niej i debrief. Widoki: Tablica (kto na którym kroku) i Tydzień (siatka).",
     "tasks": [
       {
         "q": "Co mam dziś zrobić?",
-        "a": "Zobacz „Do zrobienia” w widoku Agenda — na górze są najpilniejsze sprawy: telefon po rozmowie, zaległy debrief, termin do wyboru.",
-        "anchor": "calendar.todo"
+        "a": "Otwórz Tablicę. Czerwona kolumna „Telefon ≤ 30 min” to telefony do kandydatów po rozmowie. Na każdej karcie stoi najpilniejsza sprawa, np. „Prep słaby”, i przycisk z następnym krokiem.",
+        "anchor": "calendar.board"
       },
       {
         "q": "Jak dodać terminy zaproponowane przez klienta?",
@@ -364,28 +364,28 @@
       },
       {
         "q": "Jak zapisać debrief po rozmowie?",
-        "a": "Kliknij „Debrief” przy rozmowie — przycisk włącza się, gdy rozmowa się zacznie. Zapisz, jak poszło, czy kandydat przyjmie ofertę i jakie pytania zadał klient; trafią do przygotowań kolejnych kandydatów.",
-        "anchor": "calendar.todo"
+        "a": "Na karcie w kolumnie „Telefon ≤ 30 min” kliknij „Zapisz debrief” — przycisk działa od rozpoczęcia rozmowy. Zapisz, jak poszło, czy kandydat przyjmie ofertę i jakie pytania zadał klient; trafią do przygotowań kolejnych kandydatów.",
+        "anchor": "calendar.board"
       },
       {
         "q": "Jak zaplanować prep i zobaczyć jego ocenę?",
-        "a": "Przed rozmową u klienta są dwa prepy: Prep 1 prowadzi Delivery Lead, Prep 2 rekruter. W „Do zrobienia” kliknij „Zaplanuj Prep 1” (albo „Zaplanuj Prep 2”), wybierz prowadzącego i termin, potem „Zaplanuj w Teams”. Po spotkaniu przy prepie w Agendzie pojawi się „Ocena prepu” z oceną i transkryptem.",
-        "anchor": "calendar.todo"
+        "a": "Przed rozmową u klienta są dwa prepy: Prep 1 prowadzi Delivery Lead, Prep 2 rekruter. Kliknij nazwisko na karcie — otworzy się panel kandydata z krokami. Przy kroku Prep kliknij „Zaplanuj”, wybierz prowadzącego i termin. Po spotkaniu w panelu pojawi się „Ocena prepu” z oceną i transkryptem.",
+        "anchor": "calendar.board"
       },
       {
         "q": "Jak zobaczyć cały zespół albo zwykły kalendarz?",
-        "a": "Przełączniki „Widok” (Agenda, Tydzień, Tablica) i „Zakres” (Moi kandydaci, Moje rekrutacje, Cały zespół; na telefonie skrócone do Moi, Rekrutacje, Zespół) są w nagłówku. Tydzień to siatka z Outlookiem.",
+        "a": "Nad Tablicą jest przełącznik „Tydzień / Tablica” i lista „Pokaż” (Moi kandydaci, Moje rekrutacje, Cały zespół). W Tygodniu zwykłe spotkania z Outlooka są schowane — włącza je pole „Pozostałe spotkania z Outlooka”.",
         "anchor": "calendar.views"
       }
     ],
     "pitfalls": [
-      "Bez debriefu kandydat nie wyjdzie z kolumny „Rozmowa u klienta” na tablicy.",
+      "Bez debriefu kandydat nie wyjdzie z kolumny „Rozmowa u klienta” na tablicy rekrutacji.",
       "Zmiana terminu wydarzenia z Outlooka idzie najpierw do Outlooka — bez połączonej skrzynki zapis zostanie odrzucony."
     ],
     "anchors": [
-      {"id": "calendar.todo", "label": "Do zrobienia", "describe": "Lista najpilniejszych spraw cyklu rozmów."},
-      {"id": "calendar.agenda", "label": "Agenda", "describe": "Rozmowy i prepy na dziś, jutro i ten tydzień."},
-      {"id": "calendar.views", "label": "Widok i zakres", "describe": "Przełączniki Agenda / Tydzień / Tablica i zakresu."},
+      {"id": "calendar.board", "label": "Tablica kroków", "describe": "Siedem kroków cyklu, kandydaci w kolumnach, zadania na kartach."},
+      {"id": "calendar.person", "label": "Panel kandydata", "describe": "Kroki, prepy, Teams i pytania klienta wybranej osoby (otwiera się po kliknięciu nazwiska)."},
+      {"id": "calendar.views", "label": "Widok i zakres", "describe": "Przełącznik Tydzień / Tablica i lista „Pokaż”."},
       {
         "id": "calendar.slots",
         "label": "Terminy od klienta",
@@ -396,7 +396,8 @@
     "help_slug": null,
     "sources": [
       "frontend/src/components/calendar/cycle/CalendarCycleScreen.tsx",
-      "frontend/src/components/calendar/cycle/AgendaView.tsx"
+      "frontend/src/components/calendar/cycle/CycleBoard.tsx",
+      "frontend/src/components/calendar/cycle/CycleCandidatePanel.tsx"
     ]
   },
   {

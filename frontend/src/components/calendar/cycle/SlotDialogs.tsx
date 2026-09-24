@@ -192,18 +192,33 @@ export function SlotRequestDialog({
             </button>
           ) : null}
         </fieldset>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div>
-            <label htmlFor="slot-duration" className="mb-1 block text-xs font-semibold text-muted-foreground">
-              Czas rozmowy
-            </label>
-            <select id="slot-duration" value={duration} onChange={(e) => setDuration(Number(e.target.value))} className={INPUT}>
-              {[30, 45, 60, 90, 120].map((m) => (
-                <option key={m} value={m}>
-                  {m} min
-                </option>
-              ))}
-            </select>
+        <div>
+          <span id="slot-duration-label" className="mb-1 block text-xs font-semibold text-muted-foreground">
+            Czas rozmowy
+          </span>
+          {/* Przyciski zamiast listy — pięć wartości widać naraz, jedno kliknięcie. */}
+          <div
+            role="radiogroup"
+            aria-labelledby="slot-duration-label"
+            className="inline-flex flex-wrap rounded-lg bg-muted p-1"
+          >
+            {[30, 45, 60, 90, 120].map((m) => (
+              <button
+                key={m}
+                type="button"
+                role="radio"
+                aria-checked={duration === m}
+                onClick={() => setDuration(m)}
+                className={cn(
+                  "h-8 rounded-md px-3 text-sm",
+                  duration === m
+                    ? "bg-card font-semibold text-foreground shadow-xs"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {m} min
+              </button>
+            ))}
           </div>
         </div>
         <div>

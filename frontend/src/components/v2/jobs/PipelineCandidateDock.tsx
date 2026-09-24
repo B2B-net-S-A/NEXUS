@@ -99,6 +99,7 @@ import {
 } from "@/lib/dock-cv-summary";
 import type { CandidateDocument } from "@/components/v2/files/FilePreviewModal";
 import { DockFollowupBlock } from "@/components/v2/followups/DockFollowupBlock";
+import { DockInterviewCycle } from "@/components/v2/jobs/DockInterviewCycle";
 
 // Edytor brandowanego CV jest ciężki (rich text) — leniwy import jak w
 // CandidateDetailV2, żeby nie puchła zakładka Pipeline dla osób, które go
@@ -1029,6 +1030,23 @@ export function PipelineCandidateDock({
                 na osobę, także gdy jest w kilku procesach. */}
             {item.followup && (
               <DockFollowupBlock candidateId={item.candidate_id} badge={item.followup} />
+            )}
+            {item.interview_badge && (
+              <DockInterviewCycle
+                badge={item.interview_badge}
+                pair={{
+                  candidate_id: item.candidate_id,
+                  candidate_name: fullName,
+                  candidate_email: candidate?.email ?? null,
+                  job_id: jobId,
+                  job_title: jobTitle ?? null,
+                  client_id: null,
+                  client_name: null,
+                }}
+                readOnly={readOnly}
+                onDebrief={setDebriefEventId}
+                onAddClientSlots={onAddClientSlots}
+              />
             )}
             <div className="space-y-2 rounded-lg border border-border bg-muted/20 p-3 text-xs">
               <div className="flex items-center justify-between gap-2 font-medium text-foreground">

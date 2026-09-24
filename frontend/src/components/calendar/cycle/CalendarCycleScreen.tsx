@@ -9,6 +9,7 @@ import WeekCalendar from "@/components/calendar/WeekCalendar";
 import { useInterviewCycle } from "@/lib/api/interviewCycle";
 import {
   interviewStartFor,
+  pairKey,
   parseCycleParam,
   parseScope,
   parseView,
@@ -24,15 +25,14 @@ import { hasSectionAccess } from "@/lib/section-access";
 import { hasRole, useAuthStore } from "@/store/auth";
 import { cn } from "@/lib/utils";
 
-import { AgendaView } from "./AgendaView";
 import { CycleBoard } from "./CycleBoard";
+import { CycleCandidateSheet } from "./CycleCandidatePanel";
 import { DebriefModal } from "./DebriefModal";
 import { PlanPrepDialog } from "./PlanPrepDialog";
 import { PrepReviewDialog } from "./PrepReviewDialog";
 import { SlotDecisionDialog, SlotRequestDialog } from "./SlotDialogs";
 
 const VIEWS: { value: CycleView; label: string }[] = [
-  { value: "agenda", label: "Agenda" },
   { value: "week", label: "Tydzień" },
   { value: "board", label: "Tablica" },
 ];
@@ -48,10 +48,12 @@ type Dialog =
 /**
  * Ekran `/calendar` — „Rozmowy u klienta”.
  *
- * Trzy widoki tych samych danych: Agenda (domyślna, „co mam teraz zrobić”),
- * Tydzień (dawna siatka z Outlookiem) i Tablica (7 kroków, „gdzie utknął
- * który kandydat”). Widok i zakres żyją w adresie (`?view=&scope=`), a link
- * z dzwonka (`?cycle=cand-job`) otwiera kartę konkretnego kandydata.
+ * Dwa widoki: Tablica (domyślna — 7 kroków, „gdzie utknął który kandydat
+ * i co mam zrobić”) i Tydzień (siatka). Zakładki „Agenda” nie ma od
+ * 24.09.2026 (decyzja Artura): jej zadania, kroki kandydata i linki Teams
+ * są w panelu otwieranym z karty. Widok i zakres żyją w adresie
+ * (`?view=&scope=`), a link z dzwonka (`?cycle=cand-job`) otwiera panel
+ * konkretnego kandydata.
  */
 export function CalendarCycleScreen({
   // Harness `/preview/calendar-cycle` podaje stały zegar i dane bez sieci.
@@ -92,9 +94,11 @@ export function CalendarCycleScreen({
 
   // Link z dzwonka: efekt na WARTOŚCI parametru (miękka nawigacja nie
   // odmontowuje strony, więc sam inicjalizator stanu by go przegapił).
+  // Adres jest źródłem prawdy: zniknięcie `?cycle=` (np. „Szczegóły” → Tydzień)
+  // zamyka panel — inaczej otwierał się sam po powrocie na Tablicę.
   useEffect(() => {
     const parsed = parseCycleParam(cycleParam);
-    if (parsed) setSelectedKey(`${parsed.candidateId}-${parsed.jobId}`);
+    setSelectedKey(parsed ? `${parsed.candidateId}-${parsed.jobId}` : null);
   }, [cycleParam]);
 
   // Odliczanie „zostało N min” — przeliczane co 30 s bez nowego zapytania.
@@ -172,40 +176,46 @@ export function CalendarCycleScreen({
             {todoCount > 0 ? ` · do zrobienia: ${todoCount}` : ""}
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2" data-help="calendar.views">
-          <Segmented
-            label="Widok"
-            value={view}
-            options={VIEWS}
-            onChange={(v) => setParams({ view: v === "agenda" ? null : v })}
-          />
-          {view !== "week" ? (
-            <Segmented
-              label="Zakres"
-              value={scope}
-              options={[
-                { value: "mine", label: "Moi kandydaci", shortLabel: "Moi" },
-                { value: "jobs", label: "Moje rekrutacje", shortLabel: "Rekrutacje" },
-                ...(isOversight
-                  ? [{ value: "all" as CycleScope, label: "Cały zespół", shortLabel: "Zespół" }]
-                  : []),
-              ]}
-              onChange={(v) => setParams({ scope: v === defaultScope ? null : v })}
-            />
-          ) : null}
-          {canManageSlots && view !== "week" ? (
-            <button
-              type="button"
-              onClick={() => setDialog({ kind: "slots", pair: null })}
-              data-help="calendar.slots"
-              className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
-            >
-              <CalendarPlus className="h-4 w-4" aria-hidden />
-              Terminy od klienta
-            </button>
-          ) : null}
-        </div>
+        {canManageSlots ? (
+          <button
+            type="button"
+            onClick={() => setDialog({ kind: "slots", pair: null })}
+            data-help="calendar.slots"
+            className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
+          >
+            <CalendarPlus className="h-4 w-4" aria-hidden />
+            Terminy od klienta
+          </button>
+        ) : null}
       </header>
+
+      {/* Jeden pasek sterowania w obu widokach — przełącznik nie skacze. */}
+      <div className="flex flex-wrap items-center gap-3" data-help="calendar.views">
+        <Segmented
+          label="Widok"
+          value={view}
+          options={VIEWS}
+          onChange={(v) => setParams({ view: v === "board" ? null : v, cycle: null })}
+        />
+        {view === "board" ? (
+          <label className="inline-flex items-center gap-2 text-sm text-muted-foreground">
+            <span>Pokaż:</span>
+            <select
+              aria-label="Zakres"
+              value={scope}
+              onChange={(e) => {
+                const v = e.target.value as CycleScope;
+                setParams({ scope: v === defaultScope ? null : v });
+              }}
+              className="h-9 rounded-full border border-border bg-card px-3 text-sm font-semibold text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <option value="mine">Moi kandydaci</option>
+              <option value="jobs">Moje rekrutacje</option>
+              {isOversight ? <option value="all">Cały zespół</option> : null}
+            </select>
+          </label>
+        ) : null}
+      </div>
 
       {view === "week" ? (
         <WeekCalendar />
@@ -219,26 +229,32 @@ export function CalendarCycleScreen({
           description="Lista rozmów nie wczytała się — to nie znaczy, że nic nie czeka."
           onRetry={() => query.refetch()}
         />
-      ) : view === "board" ? (
+      ) : (
         <CycleBoard
           items={data.items}
+          todos={data.todos}
+          now={now}
           canManageSlots={canManageSlots}
           onAction={onAction}
           onSelect={(key) => {
             setSelectedKey(key);
-            setParams({ view: null, cycle: key });
+            setParams({ cycle: key });
           }}
         />
-      ) : (
-        <AgendaView
+      )}
+      {view === "board" && data ? (
+        <CycleCandidateSheet
+          item={data.items.find((i) => pairKey(i) === selectedKey) ?? null}
           data={data}
           now={now}
           canManageSlots={canManageSlots}
           onAction={onAction}
-          selectedKey={selectedKey}
-          onSelect={setSelectedKey}
+          onClose={() => {
+            setSelectedKey(null);
+            if (cycleParam) setParams({ cycle: null });
+          }}
         />
-      )}
+      ) : null}
       {data?.truncated ? (
         <p className="text-xs text-muted-foreground">
           Pokazujemy pierwsze 300 kandydatów w cyklu — zawęź zakres do swoich kandydatów.
@@ -297,8 +313,7 @@ function Segmented<T extends string>({
 }: {
   label: string;
   value: T;
-  /** `shortLabel` — krótsza etykieta poniżej `sm` (trzy opcje zakresu nie mieściły się w 343 px). */
-  options: { value: T; label: string; shortLabel?: string }[];
+  options: { value: T; label: string }[];
   onChange: (value: T) => void;
 }) {
   return (
@@ -313,7 +328,6 @@ function Segmented<T extends string>({
           type="button"
           role="radio"
           aria-checked={o.value === value}
-          aria-label={o.shortLabel ? o.label : undefined}
           onClick={() => onChange(o.value)}
           className={cn(
             "h-8 shrink-0 whitespace-nowrap rounded-md px-3 text-sm",
@@ -322,17 +336,9 @@ function Segmented<T extends string>({
               : "text-muted-foreground hover:text-foreground",
           )}
         >
-          {o.shortLabel ? (
-            <>
-              <span className="sm:hidden">{o.shortLabel}</span>
-              <span className="hidden sm:inline">{o.label}</span>
-            </>
-          ) : (
-            o.label
-          )}
+          {o.label}
         </button>
       ))}
     </div>
   );
 }
-

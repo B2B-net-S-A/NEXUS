@@ -7027,12 +7027,23 @@ prowadzi teraz jeden cykl per para (kandydat, rekrutacja):
 Rozmowa u klienta → Telefon ≤30 min → Debrief`. Raport:
 `docs/calendar-client-interview-cycle-completion-report.md`.
 
-- **Trzy widoki tych samych danych** (`?view=agenda|week|board`, domyślnie
-  agenda): Agenda („Do zrobienia” + dziś/jutro + karta kandydata z 7 krokami
-  i pytaniami klienta), Tydzień (dawna siatka, `components/calendar/WeekCalendar.tsx`,
-  zachowanie `?event=`/`action=feedback` bez zmian) i Tablica (7 kolumn).
-  `?event=` zawsze otwiera Tydzień. Zakres `?scope=mine|jobs|all`: DL/TAC
+- **Dwa widoki: Tablica (domyślna) i Tydzień** (`?view=week`; zakładki
+  „Agenda” nie ma od 24.09.2026 — decyzja Artura). Tablica: 7 kolumn w trzech
+  grupach faz, puste kroki zwinięte, na karcie najpilniejsze zadanie pary
+  spoza jej kolumny; klik w nazwisko (albo `?cycle=c-j` z dzwonka) otwiera
+  panel kandydata (`CycleCandidatePanel`: zadania, 7 kroków, prepy z Teams,
+  ocena prepu, terminy od klienta, pytania klienta, linki do rekrutacji
+  i profilu). `?view=agenda` z zapisanych powiadomień prowadzi na Tablicę
+  (`parseView`) — nie usuwaj aliasu. Tydzień (`WeekCalendar.tsx`, `?event=`/
+  `action=feedback` bez zmian) domyślnie chowa zwykłe spotkania z Outlooka/iCal
+  bez kandydata i rekrutacji (`isOtherOutlookMeeting`, przełącznik w tej
+  przeglądarce). Zakres `?scope=mine|jobs|all` (lista „Pokaż”): DL/TAC
   domyślnie `jobs`, reszta `mine`, `all` tylko admin/HoR (403).
+- **Odznaka rozmowy na Tablicy rekrutacji stoi w KAŻDEJ kolumnie** i niesie
+  `steps` (7 kresek) + `interview_event_id` (`interview_badges_for_job`) —
+  osoba przesunięta dalej z zaległym telefonem wyglądała na załatwioną. Dok
+  osoby ma sekcję „Rozmowa u klienta” (`DockInterviewCycle`), a ścieżka
+  i „Najbliższy krok” liczą `call_due` (`summarizeBoard.callDue`).
 - **Kroki i zadania liczy SERWER** (`services/interview_cycle.py`, czyste
   `compute_steps`/`compute_todos` + hurtowe `load_overview`, stała liczba
   zapytań). Front (`lib/interview-cycle.ts`) tylko prezentuje. Para jest „w cyklu”,

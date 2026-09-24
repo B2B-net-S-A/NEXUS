@@ -97,6 +97,10 @@ describe("odznaki karty — Pipeline v4", () => {
     expect(cardBadges(iv, ctx({ column: "client_interview" }))).toEqual([
       { key: "interview", label: "Zadzwoń · 18 min po rozmowie", tone: "urgent" },
     ]);
+    // Osoba przesunięta dalej z zaległym telefonem: odznaka nie znika
+    // (produkcja 24.09.2026 — karta w „Umowie” wyglądała na załatwioną).
+    expect(labels(iv, ctx({ column: "contract" }))).toContain("Zadzwoń · 18 min po rozmowie");
+    expect(labels(iv, ctx({ column: "cv_sent" }))).toContain("Zadzwoń · 18 min po rozmowie");
     expect(labels(item({ order_status: "missing" }), ctx({ column: "hired" }))).toEqual([
       "Brak zamówienia",
     ]);

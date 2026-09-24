@@ -46,7 +46,7 @@ SLOT_ENTITY = "interview_slot_request"
 
 
 def cycle_link(candidate_id: int, job_id: int) -> str:
-    return f"/calendar?view=agenda&cycle={candidate_id}-{job_id}"
+    return f"/calendar?cycle={candidate_id}-{job_id}"
 
 
 def normalize_slots(

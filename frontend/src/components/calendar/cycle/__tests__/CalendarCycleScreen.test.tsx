@@ -1,10 +1,12 @@
 /**
- * Ekran „Rozmowy u klienta” (0338): agenda, tablica i debrief.
+ * Ekran „Rozmowy u klienta” (0338): Tablica, panel kandydata i debrief.
+ * Zakładka „Agenda” zniknęła 24.09.2026 — jej treść jest w panelu karty.
  *
- * Pilnuje trzech rzeczy, które łatwo zepsuć:
+ * Pilnuje rzeczy, które łatwo zepsuć:
  * - awaria listy NIE wygląda jak „nic nie czeka” (pustka czyta się jak wolny dzień),
- * - „Zadzwoń teraz” prowadzi do debriefu, a debrief wysyła trzy pola z ticketu,
- * - akcje DL (terminy, potwierdzenie) nie pokazują się rekruterowi.
+ * - telefon po rozmowie prowadzi do debriefu, a debrief wysyła trzy pola z ticketu,
+ * - akcje DL (terminy, potwierdzenie) nie pokazują się rekruterowi,
+ * - stare linki (`?view=agenda`, `?cycle=`, `?debrief=`) dalej prowadzą w dobre miejsce.
  */
 import * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -131,8 +133,13 @@ beforeEach(() => {
   });
 });
 
+async function callCard() {
+  const column = await screen.findByRole("listitem", { name: "Telefon ≤ 30 min" });
+  return within(column).getByTestId("cycle-board-card");
+}
+
 describe("CalendarCycleScreen", () => {
-  it("awaria listy to komunikat, nie pusta agenda", async () => {
+  it("awaria listy to komunikat, nie pusta tablica", async () => {
     mocks.get.mockImplementation((url: string) =>
       url === "/api/interview-cycle"
         ? Promise.reject(Object.assign(new Error("500"), { response: { status: 500 } }))
@@ -140,15 +147,29 @@ describe("CalendarCycleScreen", () => {
     );
     renderScreen();
     expect(await screen.findByText(/Nie udało się pobrać danych/)).toBeInTheDocument();
-    expect(screen.queryByText(/Nic nie czeka/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Żaden kandydat nie jest/)).not.toBeInTheDocument();
   });
 
-  it("„Zadzwoń teraz” → debrief wysyła jak poszło, pytania i ofertę", async () => {
+  it("domyślnie Tablica: dwa widoki, bez Agendy", async () => {
+    renderScreen();
+    const views = await screen.findByRole("radiogroup", { name: "Widok" });
+    expect(within(views).getAllByRole("radio").map((r) => r.textContent)).toEqual(["Tydzień", "Tablica"]);
+    expect(within(views).getByRole("radio", { name: "Tablica" })).toHaveAttribute("aria-checked", "true");
+    expect(await screen.findByRole("listitem", { name: "Telefon ≤ 30 min" })).toBeInTheDocument();
+  });
+
+  it("stary link ?view=agenda prowadzi na Tablicę", async () => {
+    mocks.search = "view=agenda";
+    renderScreen();
+    expect(await screen.findByRole("listitem", { name: "Telefon ≤ 30 min" })).toBeInTheDocument();
+  });
+
+  it("telefon po rozmowie: karta odlicza, a „Zapisz debrief” wysyła jak poszło, pytania i ofertę", async () => {
     mocks.put.mockResolvedValue({
       data: { id: 1, calendar_event_id: 44, candidate_id: 11, job_id: 22, outcome: "good", candidate_comment: null, questions: ["Kafka"], offer_acceptance: "likely", acceptance_condition: null, questions_saved: 1 },
     });
     renderScreen();
-    const card = await screen.findByTestId("cycle-call-now");
+    const card = await callCard();
     expect(card).toHaveTextContent("Piotr Nowak");
     expect(card).toHaveTextContent(/zostało \d+ min/);
     fireEvent.click(within(card).getByRole("button", { name: "Zapisz debrief" }));
@@ -177,9 +198,8 @@ describe("CalendarCycleScreen", () => {
 
   it("debrief bez odpowiedzi o ofercie się nie wysyła", async () => {
     renderScreen();
-    fireEvent.click(within(await screen.findByTestId("cycle-call-now")).getByRole("button", { name: "Zapisz debrief" }));
+    fireEvent.click(within(await callCard()).getByRole("button", { name: "Zapisz debrief" }));
     const dialog = await screen.findByRole("dialog", { name: "Debrief po rozmowie u klienta" });
-    // Formularz jest zablokowany, dopóki nie wróci zapisany debrief (poprawka).
     await waitFor(() => expect(within(dialog).getByLabelText("Dobrze")).not.toBeDisabled());
     fireEvent.click(within(dialog).getByLabelText("Średnio"));
     fireEvent.click(within(dialog).getByRole("button", { name: "Zapisz debrief" }));
@@ -187,28 +207,69 @@ describe("CalendarCycleScreen", () => {
     expect(mocks.put).not.toHaveBeenCalled();
   });
 
-  it("karta kandydata pokazuje pytania klienta z poprzednich debriefów", async () => {
+  it("klik w kandydata otwiera panel: kroki, zadanie, linki i pytania klienta", async () => {
     renderScreen();
-    const questions = await screen.findByTestId("cycle-client-questions");
+    const card = await callCard();
+    fireEvent.click(within(card).getByRole("button", { name: /Piotr Nowak — pokaż kroki/ }));
+    expect(mocks.replace).toHaveBeenCalledWith("/calendar?cycle=11-22");
+    const panel = await screen.findByTestId("cycle-candidate-card");
+    expect(within(panel).getByRole("link", { name: /Rekrutacja/ })).toHaveAttribute("href", "/jobs/22?candidate=11");
+    expect(within(panel).getByRole("link", { name: /Profil/ })).toHaveAttribute("href", "/candidates/11");
+    expect(within(panel).getByText("Zadzwoń teraz")).toBeInTheDocument();
+    expect(within(panel).getByRole("list", { name: "Kroki rozmowy u klienta" })).toBeInTheDocument();
+    const questions = await within(panel).findByTestId("cycle-client-questions");
     await waitFor(() => expect(questions).toHaveTextContent("Transakcje w Spring"));
-    // Nazwa klienta nie ma rodzaju — bez „Alior pytał”.
     expect(questions).toHaveTextContent("Pytania klienta Alior z poprzednich rozmów");
   });
 
-  it("bez kandydatów w cyklu nie ma pustej karty kandydata", async () => {
+  it("link z dzwonka ?cycle= otwiera panel tego kandydata", async () => {
+    mocks.search = "cycle=11-22";
+    renderScreen();
+    const panel = await screen.findByTestId("cycle-candidate-card");
+    expect(within(panel).getByText("Alior · Senior Java")).toBeInTheDocument();
+  });
+
+  it("panel nie otwiera się sam po powrocie z Tygodnia (link bez ?cycle=)", async () => {
+    mocks.search = "cycle=11-22";
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    const view = render(
+      <QueryClientProvider client={client}>
+        <CalendarCycleScreen />
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByTestId("cycle-candidate-card")).toBeInTheDocument();
+    // „Szczegóły” → Tydzień (`?cycle=` znika z adresu), potem powrót na Tablicę.
+    mocks.search = "view=week&event=44";
+    view.rerender(
+      <QueryClientProvider client={client}>
+        <CalendarCycleScreen />
+      </QueryClientProvider>,
+    );
+    await screen.findByTestId("week-calendar");
+    mocks.search = "";
+    view.rerender(
+      <QueryClientProvider client={client}>
+        <CalendarCycleScreen />
+      </QueryClientProvider>,
+    );
+    await screen.findByRole("listitem", { name: "Telefon ≤ 30 min" });
+    expect(screen.queryByTestId("cycle-candidate-card")).not.toBeInTheDocument();
+  });
+
+  it("bez kandydatów w cyklu jest komunikat, bez pustego panelu", async () => {
     mocks.get.mockImplementation((url: string) =>
       url === "/api/interview-cycle"
         ? Promise.resolve({ data: { ...overview(), items: [], agenda: [], todos: [] } })
         : Promise.resolve({ data: [] }),
     );
     renderScreen();
-    expect(await screen.findByText(/Nic nie czeka/)).toBeInTheDocument();
-    expect(screen.queryByRole("complementary", { name: "Wybrany kandydat" })).not.toBeInTheDocument();
+    expect(await screen.findByText(/Żaden kandydat nie jest w trakcie/)).toBeInTheDocument();
+    expect(screen.queryByTestId("cycle-candidate-card")).not.toBeInTheDocument();
   });
 
-  it("rekruter nie widzi „Terminy od klienta”, DL widzi", async () => {
+  it("rekruter nie widzi „Terminy od klienta”, DL widzi (także w Tygodniu)", async () => {
     renderScreen();
-    await screen.findByTestId("cycle-call-now");
+    await callCard();
     expect(screen.queryByRole("button", { name: /Terminy od klienta/ })).not.toBeInTheDocument();
 
     mocks.user = { id: 8, role: "delivery_lead", roles: ["delivery_lead"] };
@@ -220,50 +281,32 @@ describe("CalendarCycleScreen", () => {
     );
   });
 
-  it("bez wyboru z linku karta pokazuje PIERWSZĄ osobę z „Do zrobienia” i lista ją zaznacza", async () => {
-    // Kolejność `items` (serwer) różni się od kolejności zadań — na prodzie
-    // karta pokazywała czwartą osobę z listy, a lista nie mówiła, kto wybrany.
-    const base = overview().items[0];
-    const slotsItem = (id: number, name: string) => ({
-      ...base,
-      candidate_id: id,
-      candidate_name: name,
-      current_step: "slots" as const,
-      steps: base.steps.map((st) => ({ ...st, state: st.key === "slots" ? ("current" as const) : ("todo" as const) })),
-    });
-    const later = slotsItem(91, "Zofia Późniejsza");
-    const first = slotsItem(92, "Adam Pierwszy");
-    const todo = (p: { candidate_id: number; candidate_name: string }) => ({
-      ...PAIR,
-      candidate_id: p.candidate_id,
-      candidate_name: p.candidate_name,
-      kind: "slots_missing" as const,
-      priority: 5,
-      due: null,
-      event_id: null,
-      slot_request_id: null,
-    });
-    mocks.get.mockImplementation((url: string) => {
-      if (url === "/api/interview-cycle") {
-        return Promise.resolve({
-          data: { ...overview(), items: [later, first], agenda: [], todos: [todo(first), todo(later)] },
-        });
-      }
-      return Promise.resolve({ data: [] });
-    });
+  it("zakres to lista „Pokaż”, a zmiana zapisuje się w adresie", async () => {
     renderScreen();
-    const card = await screen.findByRole("complementary", { name: "Wybrany kandydat" });
-    expect(within(card).getByText("Adam Pierwszy")).toBeInTheDocument();
-    const current = document.querySelectorAll('[aria-current="true"]');
-    expect(current).toHaveLength(1);
-    expect(current[0]).toHaveTextContent("Adam Pierwszy");
+    const select = await screen.findByRole("combobox", { name: "Zakres" });
+    expect(select).toHaveValue("mine");
+    fireEvent.change(select, { target: { value: "jobs" } });
+    expect(mocks.replace).toHaveBeenCalledWith("/calendar?scope=jobs");
   });
 
-  it("tablica stawia kandydata w kolumnie bieżącego kroku", async () => {
-    mocks.search = "view=board";
+  it("puste kroki są zwinięte, a przełącznik je rozwija", async () => {
     renderScreen();
-    const column = await screen.findByRole("listitem", { name: "Telefon ≤ 30 min" });
-    expect(within(column).getByText("Piotr Nowak")).toBeInTheDocument();
+    expect(await screen.findByRole("listitem", { name: "Terminy od klienta — pusto" })).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("Zwiń puste kroki"));
+    expect(screen.getByRole("listitem", { name: "Terminy od klienta" })).toBeInTheDocument();
+  });
+
+  it("zadanie pary (np. słaby prep) stoi na karcie", async () => {
+    const data = overview();
+    data.todos = [
+      ...data.todos,
+      { ...PAIR, kind: "prep_weak", priority: 3, due: null, event_id: 1, slot_request_id: null },
+    ];
+    mocks.get.mockImplementation((url: string) =>
+      url === "/api/interview-cycle" ? Promise.resolve({ data }) : Promise.resolve({ data: [] }),
+    );
+    renderScreen();
+    expect(await callCard()).toHaveTextContent("Prep słaby — popraw przed rozmową");
   });
 
   it("link z dzwonka (?debrief=) otwiera debrief tej rozmowy", async () => {
@@ -274,14 +317,14 @@ describe("CalendarCycleScreen", () => {
     ).toHaveTextContent("Piotr Nowak");
   });
 
-  it("?event= otwiera Tydzień i nie pyta o agendę", async () => {
+  it("?event= otwiera Tydzień i nie pyta o cykl", async () => {
     mocks.search = "event=44";
     renderScreen();
     expect(await screen.findByTestId("week-calendar")).toBeInTheDocument();
     expect(mocks.get).not.toHaveBeenCalledWith("/api/interview-cycle", expect.anything());
   });
 
-  it("debrief przed rozpoczęciem rozmowy jest nieaktywny, z godziną dostępności", async () => {
+  it("debrief przed rozpoczęciem rozmowy jest w panelu nieaktywny, z godziną dostępności", async () => {
     // Rozmowa za 2 h (test na produkcji 23.09.2026: debrief dało się zapisać dzień
     // przed rozmową i oba kroki wyglądały na zrobione).
     const future = overview();
@@ -302,12 +345,13 @@ describe("CalendarCycleScreen", () => {
       if (url === "/api/interview-cycle") return Promise.resolve({ data: future });
       return Promise.resolve({ data: [] });
     });
+    mocks.search = "cycle=11-22";
     renderScreen();
-    const debrief = await screen.findByRole("button", { name: "Debrief" });
+    const panel = await screen.findByTestId("cycle-candidate-card");
+    const debrief = within(panel).getByRole("button", { name: "Debrief" });
     expect(debrief).toBeDisabled();
     expect(debrief).toHaveAccessibleDescription(/^Debrief po rozmowie — dostępny od /);
-    const card = screen.getByRole("complementary", { name: "Wybrany kandydat" });
-    expect(within(card).queryByRole("button", { name: "Zapisz debrief" })).not.toBeInTheDocument();
+    expect(within(panel).queryByRole("button", { name: "Zapisz debrief" })).not.toBeInTheDocument();
   });
 });
 

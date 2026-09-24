@@ -75,6 +75,7 @@ import { ScreeningSheet } from"@/components/v2/modals/ScreeningSheet";
 import { useToast } from"@/components/Toast";
 import { BoardReviewSection } from "@/components/v2/jobs/BoardReviewSection";
 import { SlotRequestDialog } from "@/components/calendar/cycle/SlotDialogs";
+import { InterviewCycleProgress } from "@/components/calendar/cycle/InterviewCycleProgress";
 import { DlReviewPanel } from "@/components/v2/recruitment/DlReviewPanel";
 import { CvQcDialog } from "@/components/v2/recruitment/CvQcDialog";
 import { MoveNextDialog } from "@/components/v2/recruitment/MoveNextDialog";
@@ -737,6 +738,9 @@ function CardV4Badges({
      {b.label}
     </span>
    ))}
+   {item.interview_badge?.steps?.length ? (
+    <InterviewCycleProgress steps={item.interview_badge.steps} className="mt-0.5 w-full" />
+   ) : null}
    {action && (
     <button
      type="button"
@@ -2560,7 +2564,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  setWorkbench({ candidateId: item.candidate_id, section: "interviews" });
  } else {
  moveNextSuspended.current = false;
- window.open(`/calendar?view=agenda`, "_blank", "noopener");
+ window.open(`/calendar?cycle=${item.candidate_id}-${jobId}`, "_blank", "noopener");
  }
  return;
  case "request_slots":
@@ -2576,7 +2580,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  client_name: null,
  });
  } else {
- window.open(`/calendar?view=agenda`, "_blank", "noopener");
+ window.open(`/calendar?cycle=${item.candidate_id}-${jobId}`, "_blank", "noopener");
  }
  return;
  default:
