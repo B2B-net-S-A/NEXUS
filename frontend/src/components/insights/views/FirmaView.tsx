@@ -14,6 +14,7 @@ import { buildRadaCsvExport } from "@/lib/insights-csv";
 import { reportHref } from "@/lib/insights-reports";
 import {
   compactPln,
+  monthGenitive,
   pctDelta,
   topWithRest,
   yearToDate,
@@ -75,7 +76,7 @@ export function FirmaView() {
     <div className="space-y-6">
       <ViewHeader
         question="Jak zarabia firma?"
-        lede="Kwoty porównujemy z poprzednim okresem — ewidencja kontraktów sprzed 2026 jest niepełna, więc porównanie lat pokazałoby wzrost, którego nie było. Placementy i hit ratio porównujemy rok do roku."
+        lede="Kafle porównujemy z poprzednim okresem — ewidencja kontraktów sprzed 2026 jest niepełna, więc kwoty rok do roku pokazałyby wzrost, którego nie było. Rok do roku pokazuje wykres: placementy i hit ratio z historii pipeline'u."
         actions={
           <PeriodPicker
             value={period}
@@ -317,7 +318,7 @@ function YearOverYearChart({
     const ytd = yearToDate(cur, prev, fullMonths);
     if (ytd && ytd.previous > 0) {
       const change = Math.round((100 * (ytd.current - ytd.previous)) / ytd.previous);
-      sentence = `Od stycznia do ${MONTHS_SHORT[fullMonths - 1]} ${curYear}: ${ytd.current} placementów wobec ${ytd.previous} rok wcześniej (${change >= 0 ? "+" : ""}${change}%).`;
+      sentence = `Od stycznia do ${monthGenitive(fullMonths - 1)} ${curYear}: ${ytd.current} placementów wobec ${ytd.previous} rok wcześniej (${change >= 0 ? "+" : ""}${change}%).`;
     }
   } else if (def.components) {
     const num = data.component_series[def.components.numerator] ?? {};
@@ -327,7 +328,7 @@ function YearOverYearChart({
     if (a && b && b.current > 0 && b.previous > 0) {
       const now = Math.round((100 * a.current) / b.current);
       const before = Math.round((100 * a.previous) / b.previous);
-      sentence = `Od stycznia do ${MONTHS_SHORT[fullMonths - 1]} ${curYear}: hit ratio ${now}% wobec ${before}% rok wcześniej.`;
+      sentence = `Od stycznia do ${monthGenitive(fullMonths - 1)} ${curYear}: hit ratio ${now}% wobec ${before}% rok wcześniej.`;
     }
   }
 

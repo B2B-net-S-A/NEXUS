@@ -188,6 +188,11 @@ const MONTHS_GENITIVE = [
   "grudnia",
 ];
 
+/** „sierpnia" — dopełniacz nazwy miesiąca (0 = styczeń). */
+export function monthGenitive(monthIndex: number): string {
+  return MONTHS_GENITIVE[((monthIndex % 12) + 12) % 12];
+}
+
 /** „w dniach 1–24 sierpnia" — ten sam odcinek poprzedniego miesiąca. */
 export function sameStretchLabel(today: Date): string {
   const { date_to } = previousSameStretch(today);
