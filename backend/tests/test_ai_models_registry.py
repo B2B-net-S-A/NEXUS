@@ -135,6 +135,9 @@ DECISION_2026_09_16 = {
     AIFeatureKey.screening_reassign_suggest: ("F21", "gpt-6-luna"),
     # F22 — decyzja 23.09.2026: podpowiedzi dla zatwierdzającego DZ, jak F18.
     AIFeatureKey.dz_review: ("F22", "gpt-6-luna"),
+    # F23 — decyzja 24.09.2026: sortowanie zgłoszeń do akademii, jak F10.
+    AIFeatureKey.academy_screening: ("F23", "gpt-6-luna"),
+    AIFeatureKey.prep_review: ("F24", "gpt-6-luna"),
 }
 
 
@@ -196,6 +199,7 @@ def test_legacy_settings_defaults_agree_with_the_registry():
         AIFeatureKey.cv_backfill,
         AIFeatureKey.cv_name_backfill,
         AIFeatureKey.screening_reassign_suggest,
+        AIFeatureKey.academy_screening,
     ],
 )
 def test_non_anthropic_functions_fall_back_to_sonnet_5(monkeypatch, feature):

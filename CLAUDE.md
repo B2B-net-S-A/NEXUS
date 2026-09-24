@@ -6590,6 +6590,50 @@ w `entrypoint.sh`, sondy w `/api/health/deep`). Raport:
 - **Poza zakresem świadomie:** widok HoR „czyja lista leży", zmiana atrybucji
   wyścigów.
 
+## Akademia — nabór do programów szkoleniowych (0369, 24.09.2026)
+
+`/academy` (menu „Więcej” → Codzienna praca): ogłoszenia → sortowanie Luny →
+dwuminutowy telefon z zapisem na termin w biurze → spotkanie → zadanie →
+dokumenty i umowa → edycja (program do 10 dni roboczych). Decyzje Artura
+23–24.09.2026. Kod: `api/academy.py`, `services/academy.py` (baza),
+`academy_rules.py` (sortowanie), `academy_flow.py` (przejścia),
+`academy_documents.py` (komplet DOCX); front `components/academy/*`,
+`lib/academy-flow.ts`, harness `/preview/academy`.
+
+- **Stan osoby żyje w `academy_applications`, NIE w `candidate_stages`.**
+  Tablica rekrutacji ma bramki (DL przy „CV wysłane”, debrief, blokada 12 h),
+  których ten przepływ nie ma, a nocny import Traffita pisze etapy
+  ogłoszeń-źródeł. Źródło = rekrutacja podpięta w Ustawieniach; każdy
+  kandydat z wierszem etapu od `since` wpada sam (pętla `academy_intake` co
+  10 min, przycisk „Pobierz zgłoszenia teraz”).
+- **Jedna osoba = jeden wiersz w programie (UNIQUE), więc „nie” jest na
+  zawsze** (decyzja 24.09). Odrzucony, który aplikuje znowu, dostaje tylko
+  `reapplied_at` — nie wraca do telefonów, Luna nie czyta CV drugi raz.
+  Zrezygnował sam (`withdrew`) = wraca na początek. „Przywróć” cofa decyzję.
+- **Luna tylko sortuje; wykluczenie zawsze klika człowiek** (zbiorcze
+  „Zatwierdź” odłożonych bierze powód z sortowania). Umowa uczestnictwa §5a
+  ust. 8 obiecuje brak zautomatyzowanego podejmowania decyzji — nie zamieniaj
+  werdyktu `skip` w automatyczne `rejected`.
+- **Kryteria: polski ojczysty/biegły + doświadczenie ≤ N lat liczone OD KOŃCA
+  STUDIÓW** (praca w trakcie studiów się nie liczy; bez studiów — cała praca;
+  przedziały scalone). Liczbę lat i werdykt liczy KOD z profilu; Luna
+  (`academy_screening`, F23) uzupełnia z CV tylko brakujące fakty, każdy
+  z cytatem obecnym w CV. **Filtra po „polskim” imieniu/nazwisku, narodowości
+  i wieku NIE budujemy** (dyskryminacja — odmowa 24.09.2026); model nie
+  dostaje narodowości z profilu i ma zakaz wnioskowania z imienia.
+- **Dokumenty** (`POST /api/academy/applications/{id}/documents`, ZIP: umowa,
+  zał. 1 harmonogram, oświadczenie, regulamin, protokół Manuala) od etapu
+  „zaliczył zadanie”. **PESEL i adres idą wyłącznie do pliku** — nie do bazy
+  ani logu; puste = kropki do wpisania ręcznie. Daty programu domyślnie:
+  1. dzień roboczy miesiąca edycji + 10 dni roboczych (polskie święta).
+  Szablony `app/templates/academy/*.docx` buduje
+  `scripts/build_academy_templates.py` ze wzorów działu (poza repo) —
+  przykładowe osoby z wzoru protokołu są polami; nowy wzór = ponowny bieg
+  skryptu, nie ręczna edycja DOCX.
+- Terminy w biurze mają limit miejsc (409 `session_full` pod blokadą
+  terminu); ustawienia programu i źródła zmienia admin/HoR, pracę z ludźmi
+  i terminy — `RecruiterPlus` (router za sekcją Pipeline).
+
 ## Kalendarz = „Rozmowy u klienta” (0338, 22.09.2026)
 
 `/calendar` był kopią Outlooka trzech osób: 10 wydarzeń założonych w NEXUSIE
@@ -6646,6 +6690,60 @@ Rozmowa u klienta → Telefon ≤30 min → Debrief`. Raport:
   zostają Outlookowi. Synchronizacja działa tylko dla osób z połączonym M365.
 - Harness `/preview/calendar-cycle` (`?as=dl`) — dane fikcyjne, zero zapytań
   (dane agendy przez `dataOverride`, reszta zasiana w cache).
+
+## Prepy w Teams → transkrypt, notatka i ocena prepu (0370, 23.09.2026)
+
+Zastępuje martwą integrację Fireflies (klucz pusty na prodzie, 0 notatek).
+Przed każdą rozmową u klienta są DWA prepy z kandydatem przez Teams: Prep 1
+prowadzi Delivery Lead, Prep 2 — rekruter (telefon po rozmowie zostaje
+zwykłym telefonem z ręcznym debriefem). Konfiguracja M365: `docs/teams-prep-setup.md`.
+
+- **App-only, OSOBNA rejestracja „NEXUS Teams Prep”** (`TEAMS_PREP_CLIENT_ID/SECRET`,
+  `services/m365/teams_prep_auth.py`, `AppGraphClient(token_provider=…)`), nie
+  „NEXUS ATS - Mailbox and Login”: polityka Exchange zawęża aplikację do
+  SKRZYNEK, nie do uprawnień — skrzynki zespołu w zakresie aplikacji z
+  `Mail.Read` dałyby jej odczyt ich poczty. Spotkanie powstaje w kalendarzu
+  ORGANIZATORA (`POST /users/{upn}/events`, `transactionId`), bo M365 ma
+  połączone 2 z ~30 osób. Edycja i odwołanie prepu idą tą samą aplikacją
+  (`_push_prep_changes`, gałąź w `cancel_event` w `api/calendar.py`).
+- **Tylko prepy założone w NEXUSIE** (`POST /api/interview-cycle/preps`,
+  `prep_meetings` 1:1 z wydarzeniem). Spotkania z Outlooka nie są wciągane
+  (decyzja). Organizator podpowiadany: Prep 1 → `job.delivery_lead_id`, Prep 2 →
+  `interview_slots.default_recruiter_id`; organizator i uczestnicy muszą być
+  w zespole rekrutacji. Zaproszenie niesie akapit o nagrywaniu
+  (`PREP_NOTICE_TEXT`, wersja robocza do akceptacji prawnej); tytuł bez klienta
+  (widzi go kandydat). Po utworzeniu PATCH `recordAutomatically` — porażka nie
+  cofa prepu (`transcription_setup=failed` + „włącz ręcznie”).
+- **Pętla `teams_prep_transcripts`** (`TEAMS_PREP_TRANSCRIPTS_ENABLED`, OFF
+  kończy ją przed pętlą; heartbeat). Stan kolejki w bazie, odświeża termin
+  z Outlooka przed pobraniem, backoff, po `TEAMS_PREP_FETCH_GIVE_UP_HOURS` →
+  `missing` („bez nagrania”); 403 → `forbidden` bez zużywania prób +
+  `checks.teams_prep=degraded`. Do logu tylko kod/klasa błędu.
+- **Transkrypt w `prep_transcripts` BEZ limitu czasu** (decyzja), kaskadą
+  z kandydatem (art. 17; `calendar_events.candidate_id` to SET NULL, dlatego
+  każda tabela ma własny CASCADE). Pełny tekst: `GET …/preps/{id}/transcript`
+  za `ensure_job_read_access` (od #1742 każda rola wewnętrzna, nie tylko zespół). Notatka (`external_source='teams_prep'`) niesie
+  WYŁĄCZNIE podsumowanie — czyta ją nocny `notes_insights` (DeepSeek).
+  Mówcy z VTT (`services/teams_vtt.py`): zespół po nazwisku, kandydat po
+  nazwisku albo jako jedyny mówca spoza zespołu; udział kandydata `None`, gdy
+  nie da się go wskazać — nigdy 0.
+- **Ocena (`services/prep_review.py`, `AIFeatureKey.prep_review`, F24 = GPT-6
+  Luna, zapas Sonnet 5):** punkty buduje KOD (must-have w pisowni DL-a z
+  `dz_review.job_requirements` + pytania klienta z debriefów i przypięte),
+  model daje status i cytat, cytat spoza transkryptu = „nie było (bez
+  dowodu)”. Poziom liczy kod (`PREP_REVIEW_*`); w Prepie 2 punkt zaliczony
+  w Prepie 1 = `covered_in_prep1` poza mianownikiem. **Awaria modelu = `level
+  NULL`, nigdy „słaby”.** Pomiar Luny: `scripts/eval_prep_review.py`.
+- **Bramki MIĘKKIE** (nic nie blokuje): Prep 2 wymagany zawsze, gdy rozmowa
+  u klienta jest w przyszłości (`PREP2_HINT_DAYS` usunięte); todo
+  `prep_weak`/`prep_unrecorded`, `urgent` <24 h; plakietki kanbana
+  `prep_weak`/`prep_missing`; kolejka „Czeka na Ciebie” (`prep_attention`,
+  `services/prep_attention.py` — organizator + HoR/admin) i dzwonek
+  `prep_attention` raz na sprawę (organizator + każdy HoR). Raport HoR:
+  `GET /api/interview-cycle/prep-quality` → Insights → Wyniki → „Jakość prepów”.
+- **Po Fireflies zostaje:** wartość enuma `fireflies_meeting`, migracje
+  0129/0187, `Note.audio_url`/`source_ref`, `enrich_from_meeting` (używane
+  przez „Powiąż + AI” i briefing).
 
 ## Ustawienia = jedno wejście z kafelkami (22.09.2026)
 

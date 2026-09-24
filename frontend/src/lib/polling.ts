@@ -26,3 +26,7 @@ export const DASHBOARD_SECTION_POLL_MS = 5 * 60_000;
 
 /** Obłożenie zespołu w priorytetach — zmienia się przy ruchu w pipeline. */
 export const ALLOCATION_BOARD_POLL_MS = 2 * 60_000;
+
+/** Akademia: zgłoszenia z ogłoszeń dochodzą co 10 min (pętla w tle) — ekran
+ * dociąga je co 2 min, żeby dzwoniący widział świeżą kolejkę bez odświeżania. */
+export const ACADEMY_POLL_MS = 2 * 60_000;

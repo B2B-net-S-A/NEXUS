@@ -947,6 +947,9 @@ const SIDEBAR_ROLE_GATED_WITHOUT_CAPABILITY: readonly string[] = [
   // należą do sekcji, a nie do osobnej capability nawigacyjnej.
   "/calendar",
   "/cv-generator",
+  // Akademia (0369): tak jak Kalendarz — sekcja Pipeline + RecruiterPlus;
+  // lista ról odcina tylko legacy viewera `user`.
+  "/academy",
 ];
 
 describe("kontrakt sidebar ↔ rejestr capability", () => {

@@ -457,7 +457,7 @@ export function ChampionVerificationChecklist({
             </select>
           ) : (
             <div className="text-[11px] text-muted-foreground">
-              Brak meetingów Fireflies podpiętych do tej rekrutacji. Nagraj sesję
+              Brak notatek ze spotkań podpiętych do tej rekrutacji. Nagraj sesję
               (np. tytuł „Briefing: {"{nazwa roli}"}”) albo podepnij meeting w
               panelu „Meetingi i AI” poniżej.
             </div>
@@ -627,7 +627,7 @@ export function ChampionVerificationChecklist({
               ? [b.title, b.attached_by_name, formatDate(b.attached_at)]
                   .filter(Boolean)
                   .join(" · ")
-              : "Brak nagrania z Fireflies"
+              : "Brak nagrania spotkania"
           }
           action={rowAction(
             b.status === "attached",
@@ -840,8 +840,8 @@ export function ChampionVerificationChecklist({
                 </div>
               ) : (
                 <div className="text-[11px] text-muted-foreground">
-                  Nagraj breakout session z Fireflies i opowiedz o roli własnymi
-                  słowami — meeting pojawi się tu po synchronizacji.
+                  Nagraj spotkanie i opowiedz o roli własnymi słowami, potem
+                  podepnij notatkę ze spotkania w panelu „Meetingi i AI”.
                 </div>
               )}
             </div>

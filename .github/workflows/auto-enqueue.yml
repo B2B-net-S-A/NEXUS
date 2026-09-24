@@ -61,6 +61,19 @@ jobs:
             echo "::warning::Brak sekretu QUEUE_BOT_TOKEN — PR #$PR nie został dodany do kolejki automatycznie. Instrukcja w nagłówku .github/workflows/auto-enqueue.yml."
             exit 0
           fi
+          # Stan PR-a TERAZ, nie z chwili zdarzenia: etykiety w `github.event`
+          # to migawka. 24.09.2026 push innej sesji o 08:24 wyprzedził
+          # `wstrzymaj` (08:24:33), job ruszył o 08:25 z migawką bez etykiety
+          # i włączył auto-merge — #1757 wszedł do kolejki mimo wstrzymania.
+          if ! live=$(gh pr view "$PR" --repo "$REPO" --json isDraft,labels \
+                --jq '[.isDraft, ([.labels[].name] | index("wstrzymaj") != null)] | @tsv'); then
+            echo "::notice::PR #$PR: nie udało się odczytać bieżącego stanu — nie włączam auto-merge'a."
+            exit 0
+          fi
+          if [ "$live" != "false	false" ]; then
+            echo "PR #$PR: draft albo \`wstrzymaj\` w bieżącym stanie (draft, wstrzymaj = $live) — pomijam."
+            exit 0
+          fi
           if out=$(gh pr merge "$PR" --repo "$REPO" --squash --auto 2>&1); then
             echo "PR #$PR: auto-merge włączony — wejdzie do kolejki po zielonych testach."
             echo "$out"

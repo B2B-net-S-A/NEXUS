@@ -164,4 +164,60 @@ describe("BoardTasksPanel — „Czeka na Ciebie” na pulpicie", () => {
     expect(within(section).getAllByRole("listitem")).toHaveLength(9);
     expect(within(section).getByRole("button", { name: "Zwiń" })).toHaveAttribute("aria-expanded", "true");
   });
+
+  it("prepy przed rozmową u klienta: sama lista prepów wystarcza, żeby panel był widoczny", async () => {
+    mockQueue({
+      prep_attention: [
+        {
+          reason: "missing",
+          prep_no: 1,
+          candidate_id: 21,
+          candidate_name: "Ewa Prep",
+          job_id: 31,
+          job_title: "Java Developer",
+          interview_event_id: 501,
+          interview_start: "2026-09-25T08:00:00Z",
+          prep_event_id: null,
+          owner_id: 1,
+          urgent: true,
+        },
+        {
+          reason: "unrecorded",
+          prep_no: 2,
+          candidate_id: 22,
+          candidate_name: "Jan Nagranie",
+          job_id: 32,
+          job_title: "Tester",
+          interview_event_id: 502,
+          interview_start: "2026-09-26T12:30:00Z",
+          prep_event_id: 77,
+          owner_id: 1,
+          urgent: false,
+        },
+      ],
+    });
+    renderPanel();
+    const section = await screen.findByRole("region", { name: "Prepy przed rozmową u klienta" });
+    const items = within(section).getAllByRole("listitem");
+    expect(items).toHaveLength(2);
+    expect(within(items[0]).getByRole("link", { name: "Ewa Prep" })).toHaveAttribute(
+      "href",
+      "/calendar?cycle=21-31",
+    );
+    expect(items[0]).toHaveTextContent("Java Developer · Prep 1");
+    expect(items[0]).toHaveTextContent("brak prepu");
+    expect(items[0]).toHaveTextContent("pilne");
+    // 08:00 UTC = 10:00 w Warszawie (czas letni).
+    expect(items[0]).toHaveTextContent("10:00");
+    expect(items[1]).toHaveTextContent("Tester · Prep 2");
+    expect(items[1]).toHaveTextContent("prep bez nagrania");
+    expect(items[1]).not.toHaveTextContent("pilne");
+  });
+
+  it("pusta lista prepów nie dokłada sekcji", async () => {
+    mockQueue({ cpro_sent: [row("cpro_sent")], prep_attention: [] });
+    renderPanel();
+    await screen.findByRole("region", { name: "Wysłane do Cpro" });
+    expect(screen.queryByRole("region", { name: "Prepy przed rozmową u klienta" })).toBeNull();
+  });
 });

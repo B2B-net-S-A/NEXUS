@@ -123,7 +123,7 @@ export interface KanbanItem {
  can_take?: boolean;
  // Terminarz rozmowy u klienta — gotowa odznaka z serwera.
  interview_badge?: {
-  kind: string;
+  kind: InterviewBadgeKind;
   label: string;
   tone: "wait" | "info" | "ok" | "urgent";
   at?: string | null;
@@ -137,6 +137,20 @@ export interface KanbanItem {
   blocking_failed: number;
  } | null;
 }
+
+/** Rodzaje odznaki terminarza — lustro `compute_badge`
+ *  (`backend/app/services/interview_cycle.py`). Etykietę i ton daje serwer. */
+export type InterviewBadgeKind =
+ | "call_due"
+ | "choose_slot"
+ | "awaiting_dl"
+ // 0370: prepy w Teams — przypomnienie, nie bramka.
+ | "prep_weak"
+ | "prep_missing"
+ | "prep2"
+ | "prep_done"
+ | "slot"
+ | "debrief_done";
 
 export interface KanbanColumn {
  stage: string;

@@ -3,14 +3,17 @@
 /**
  * „Czeka na Ciebie" — praca na Tablicach, której nikt nie widzi (0348, v5).
  *
- * Trzy listy z `GET /api/board-tasks`:
+ * Cztery listy z `GET /api/board-tasks`:
  *  - „Czeka na Twój przegląd (DL)" (klienci spoza Nordei) — osoby w kolumnie
  *    „QC CV", które Delivery Lead wysyła do klienta ze stawką albo odrzuca;
  *    wiersz otwiera `DlReviewPanel` (CV, QC, screening, stawka),
  *  - „Do wrzucenia do Cpro" (Nordea) — jedna linia na rekrutację; „Wrzucaj po
  *    kolei" otwiera `CproQueueDialog`. Do Cpro wrzuca JEDNA osoba na całą
  *    firmę, zmienić ją może każdy (decyzja Artura 23.09.2026),
- *  - „Wysłane do Cpro" — od ilu dni czekamy na Nordeę.
+ *  - „Wysłane do Cpro" — od ilu dni czekamy na Nordeę,
+ *  - „Prepy przed rozmową u klienta" (0370) — brak prepu, prep słaby albo bez
+ *    nagrania; wiersz prowadzi do karty kandydata w kalendarzu. Nic nie
+ *    blokuje — to przypomnienie, nie bramka.
  *
  * Kolejka „Czeka na DZ" i przegląd DZ (0353) zniknęły — zastąpiło je QC CV.
  * Panel nie renderuje się, gdy nic nie czeka — pusta ramka uczyłaby go
@@ -19,18 +22,22 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { Clock, Eye, ListOrdered } from "lucide-react";
+import { AlertTriangle, Clock, Eye, ListOrdered } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { DlReviewPanel } from "@/components/v2/recruitment/DlReviewPanel";
 import { QcStatusBadge } from "@/components/v2/recruitment/QcStatusBadge";
 import {
+  PREP_ATTENTION_REASON_LABEL,
   groupCproByJob,
+  prepAttentionLink,
   useBoardTasks,
   useCproSender,
   waitingFor,
   type BoardTaskRow,
+  type PrepAttentionRow,
 } from "@/lib/api/boardTasks";
+import { formatDayLabel, formatTime } from "@/lib/interview-cycle";
 import { countPl } from "@/lib/plural-pl";
 
 import { CproQueueDialog, CproSenderControl } from "./CproQueueDialog";
@@ -39,6 +46,17 @@ export const BOARD_TASKS_ANCHOR = "czeka-na-ciebie";
 
 function boardLink(row: BoardTaskRow): string {
   return `/jobs/${row.job_id}?candidate=${row.candidate_id}`;
+}
+
+function prepRowKey(row: PrepAttentionRow): string {
+  return `${row.interview_event_id}-${row.prep_no}-${row.reason}`;
+}
+
+/** Pilny wiersz (rozmowa tuż-tuż) na czerwono, reszta na bursztynowo. */
+function prepReasonClass(row: PrepAttentionRow): string {
+  return row.urgent
+    ? "bg-destructive/10 text-destructive"
+    : "bg-warning-muted text-warning-muted-foreground";
 }
 
 function RowMeta({ row }: { row: BoardTaskRow }) {
@@ -117,7 +135,9 @@ export function BoardTasksPanel() {
 
   if (!data) return null;
   const dlReview = data.dl_review ?? [];
-  const total = dlReview.length + data.cpro_to_send.length + data.cpro_sent.length;
+  const preps = data.prep_attention ?? [];
+  const total =
+    dlReview.length + data.cpro_to_send.length + data.cpro_sent.length + preps.length;
   if (total === 0) return null;
 
   const cproGroups = groupCproByJob(data.cpro_to_send);
@@ -211,6 +231,45 @@ export function BoardTasksPanel() {
                 Wrzucaj po kolei
               </Button>
             </li>
+          </Section>
+        )}
+
+        {preps.length > 0 && (
+          <Section
+            title="Prepy przed rozmową u klienta"
+            hint="Brak prepu, prep słaby albo bez nagrania — nic nie blokuje, ale warto to nadrobić przed rozmową."
+            count={preps.length}
+            expanded={expanded["prep_attention"] === true}
+            onToggle={() => toggle("prep_attention")}
+          >
+            {shown("prep_attention", preps).map((row) => (
+              <li
+                key={prepRowKey(row)}
+                className={`flex items-center gap-2 px-3 py-2 ${row.urgent ? "bg-destructive/5" : ""}`}
+              >
+                <div className="min-w-0 flex-1">
+                  <Link
+                    href={prepAttentionLink(row)}
+                    className="block truncate text-sm font-medium hover:underline"
+                  >
+                    {row.candidate_name}
+                  </Link>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {row.job_title} · Prep {row.prep_no}
+                  </p>
+                  <p className="text-xs tabular-nums text-muted-foreground">
+                    Rozmowa u klienta: {formatDayLabel(row.interview_start)}, {formatTime(row.interview_start)}
+                  </p>
+                </div>
+                <span
+                  className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${prepReasonClass(row)}`}
+                >
+                  {row.urgent && <AlertTriangle className="h-3 w-3" aria-hidden />}
+                  {PREP_ATTENTION_REASON_LABEL[row.reason]}
+                  {row.urgent && <span className="sr-only"> — pilne</span>}
+                </span>
+              </li>
+            ))}
           </Section>
         )}
 
