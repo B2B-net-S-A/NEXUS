@@ -203,3 +203,18 @@ class MessageTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HeadChangedAfterRunTest(unittest.TestCase):
+    def test_commit_after_run_start_skips_status(self) -> None:
+        self.assertTrue(
+            QFF.head_changed_after_run("2026-09-24T10:30:00Z", "2026-09-24T10:18:04Z")
+        )
+
+    def test_commit_before_run_start_keeps_status(self) -> None:
+        self.assertFalse(
+            QFF.head_changed_after_run("2026-09-24T10:02:00Z", "2026-09-24T10:18:04Z")
+        )
+
+    def test_missing_dates_keep_status(self) -> None:
+        self.assertFalse(QFF.head_changed_after_run("", "2026-09-24T10:18:04Z"))
