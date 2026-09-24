@@ -466,7 +466,7 @@ async def apply(
             )
             register_reason = "termination"
             # Wypowiedzenie przez B2B.net ma komplet danych rozwiązania umowy
-            # (0364): strona, data doręczenia, ostatni dzień umowy. Porozumienie
+            # (0367): strona, data doręczenia, ostatni dzień umowy. Porozumienie
             # nie mówi, która strona je zainicjowała — tam kontrakt dostaje
             # samą datę, a dane rozwiązania uzupełnia okno „Zakończ współpracę”.
             delivered = _date(values.get("delivery_date"))

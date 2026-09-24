@@ -185,7 +185,7 @@ _MERGEABLE_FIELDS = (
     "termination_reason",
     "termination_lessons",
     "terminated_at",
-    # Rozwiązanie umowy B2B i okres wypowiedzenia (0364). CHECK wymaga
+    # Rozwiązanie umowy B2B i okres wypowiedzenia (0367). CHECK wymaga
     # kompletu albo niczego; scalenie „puste ← wypełnione" przenosi komplet
     # z przegranego tylko wtedy, gdy zachowany nie ma żadnego z pól.
     "agreement_termination_mode",

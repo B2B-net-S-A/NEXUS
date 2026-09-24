@@ -60,6 +60,7 @@ import { hasSectionAccess } from "@/lib/section-access";
 import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
 import { HOURS_PER_MONTH } from "@/lib/work-time";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { ContractClientReassignDialog } from "@/components/contracts/ContractClientReassignDialog";
 import {
   canManageCandidateFinance,
   canManageContractStatus,
@@ -174,7 +175,7 @@ interface ContractDetail {
   termination_reason: ContractTerminationReason | null;
   termination_lessons: string | null;
   terminated_at: string | null;
-  // Rozwiązanie umowy B2B z okna „Zakończ współpracę" (0364).
+  // Rozwiązanie umowy B2B z okna „Zakończ współpracę" (0367).
   agreement_termination_mode: AgreementTerminationMode | null;
   agreement_termination_party: AgreementTerminationParty | null;
   agreement_termination_signed_on: string | null;
@@ -844,6 +845,7 @@ export default function ContractDetailPage() {
   };
 
   const [showAddProject, setShowAddProject] = useState(false);
+  const [showReassign, setShowReassign] = useState(false);
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
@@ -1025,6 +1027,14 @@ export default function ContractDetailPage() {
               )}{" "}
               Usuń
             </button>
+            {isAdmin && !impersonating && (
+              <button
+                onClick={() => setShowReassign(true)}
+                className="flex items-center gap-2 border border-border hover:bg-accent px-4 py-2 rounded-lg text-sm font-medium"
+              >
+                <Building2 className="w-4 h-4" /> Przepnij na innego klienta
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -1130,6 +1140,15 @@ export default function ContractDetailPage() {
         error={signedDeleteError}
         onConfirm={(confirmation) => forceDeleteMutation.mutate(confirmation)}
       />
+
+      {isAdmin && (
+        <ContractClientReassignDialog
+          open={showReassign}
+          onOpenChange={setShowReassign}
+          contractId={contract.id}
+          currentClientName={contract.client_name}
+        />
+      )}
 
       {contract.candidate_id != null && (
         <AddProjectDialog

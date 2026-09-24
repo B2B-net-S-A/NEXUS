@@ -71,6 +71,7 @@ from app.models.client import Client
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.client_order_group import (
     GROUP_STATUS_ACTIVE,
+    GROUP_STATUS_CANCELLED,
     GROUP_STATUS_COMPLETED,
     GROUP_STATUS_EXHAUSTED,
     GROUP_STATUS_SCHEDULED,
@@ -110,6 +111,7 @@ from app.schemas.client_order_group import (
     LineConsumptionsResponse,
     LineConsumptionUpsert,
     OrderDraftRead,
+    OrderGroupCancel,
     OrderGroupClose,
     OrderGroupCreate,
     OrderGroupExtend,
@@ -162,7 +164,11 @@ from app.services.cost_orders import (
     quantize_money,
     settle_group,
 )
-from app.services.contract_lifecycle import sync_contract_to_live_order
+from app.services.contract_lifecycle import (
+    lock_contract_then_orders,
+    lock_order_group_lines,
+    sync_contract_to_live_order,
+)
 from app.services.contract_order_sync import (
     detach_order_rate_steps,
     skip_sync_for_contract,
@@ -211,10 +217,12 @@ from app.services.multi_consultant_orders import (
     EVENT_MD_OFFBOARDING_REMOVED,
     EVENT_MD_OFFBOARDING_RESTORED,
     EVENT_MD_OFFBOARDING_TRANSFERRED,
+    EVENT_ORDER_CANCELLED,
     EVENT_ORDER_CLOSED,
     EVENT_ORDER_CREATED,
     EVENT_ORDER_EXTENDED,
     EVENT_ORDER_REOPENED,
+    EVENT_ORDER_RESTORED,
     EVENT_TYPE_LABELS,
     INPUT_MODE_AMOUNT,
     INPUT_MODE_MD,
@@ -1317,6 +1325,9 @@ async def _group_to_read(
         ),
         closure_date=group.closure_date,
         closure_reason=group.closure_reason,
+        cancelled_at=group.cancelled_at,
+        cancellation_reason=group.cancellation_reason,
+        status_before_cancel=group.status_before_cancel,
         order_type=group.order_type,
         is_cost_based=group.is_cost_based,
         budget_amount=group.budget_amount if with_finance else None,
@@ -2253,6 +2264,16 @@ def assert_group_is_reopenable(status: str) -> None:
                 "zamówienia albo załóż nowe."
             ),
         )
+    if status == GROUP_STATUS_CANCELLED:
+        # Anulowanie cofa się przez „Przywróć anulowane" — ono odtwarza stan
+        # sprzed anulowania; „Przywróć" z archiwum zrobiłoby z niego aktywne.
+        raise HTTPException(
+            409,
+            detail=(
+                "To zamówienie jest anulowane — użyj „Przywróć anulowane”, "
+                "żeby wróciło do stanu sprzed anulowania."
+            ),
+        )
     if status != GROUP_STATUS_COMPLETED:
         # Nowy status dorzucony do modelu bez zajrzenia tutaj ma zostać
         # odrzucony, a nie potraktowany jak „zakończone".
@@ -3114,6 +3135,7 @@ async def update_order_group(
     await _assert_client(db, client_id)
     _assert_multi_client(client_id)
     group = await _load_group(db, client_id, group_id)
+    _assert_group_not_cancelled(group)
 
     data = payload.model_dump(exclude_unset=True)
     if not data:
@@ -3127,6 +3149,7 @@ async def update_order_group(
     # decision.  Use the same lock order here so a concurrent PATCH cannot
     # observe "no case yet" and then reactivate or financially change that
     # line after the case has been created.
+    await _lock_group_lines(db, group.id)
     await db.execute(
         select(ClientOrder.id)
         .where(ClientOrder.order_group_id == group.id)
@@ -3452,6 +3475,7 @@ async def delete_order_group(
         master_path = group.file_path
         audit.describe(label=f"Zamówienie {group.order_number}", status=group.status)
 
+        await _lock_group_lines(db, group.id)
         lines_result = await db.execute(
             _line_query()
             .where(ClientOrder.order_group_id == group.id)
@@ -3646,6 +3670,7 @@ async def delete_line(
         # `_line_query()`, nie goły select: zapis historii czyta nazwisko osoby
         # (`consultant_display_name`), a leniwe doczytanie relacji w async to
         # `MissingGreenlet` — 500 bez CORS, w przeglądarce „Network Error".
+        await lock_contract_then_orders(db, order_ids=[line_id])
         line = await db.scalar(
             _line_query()
             .where(ClientOrder.id == line_id, ClientOrder.order_group_id == group.id)
@@ -3718,6 +3743,8 @@ async def keep_line_as_history(
     await _require_order_lifecycle(db, user, client_id)
     _assert_multi_client(client_id)
     group = await _load_group(db, client_id, group_id)
+    _assert_group_not_cancelled(group)
+    await lock_contract_then_orders(db, order_ids=[line_id])
     line = await db.scalar(
         _line_query()
         .where(ClientOrder.id == line_id, ClientOrder.order_group_id == group.id)
@@ -3787,6 +3814,7 @@ async def close_order_group(
 
     if group.status == GROUP_STATUS_COMPLETED:
         raise HTTPException(409, detail="To zamówienie jest już zakończone")
+    _assert_group_not_cancelled(group)
     # Data wcześniejsza niż start zamówienia narusza `ck_client_order_groups_dates`
     # (przepisujemy nią `end_date`) — bez tej bramki wychodzi 500 zamiast
     # informacji, że data jest niemożliwa.
@@ -3804,6 +3832,7 @@ async def close_order_group(
     # mutated; whichever lifecycle action wins becomes the authoritative one,
     # and an already-pending MD decision cannot be invalidated by closing the
     # whole order behind it.
+    await _lock_group_lines(db, group.id)
     locked_lines_result = await db.execute(
         _line_query()
         .where(ClientOrder.order_group_id == group.id)
@@ -3905,6 +3934,7 @@ async def reopen_order_group(
     # Serialize with contract offboarding before checking for its pending case.
     # Without the line locks, a same-day reopen could race the case insert and
     # make an ended consultant active again behind the decision workflow.
+    await _lock_group_lines(db, group.id)
     await db.execute(
         select(ClientOrder.id)
         .where(ClientOrder.order_group_id == group.id)
@@ -4018,6 +4048,253 @@ async def reopen_order_group(
     )
 
 
+async def _lock_group_lines(db: AsyncSession, group_id: int) -> None:
+    """Kontrakty linii → linie: kolejność blokad każdego writera zamówień.
+
+    Synchronizacja kontraktu przed commitem (``commit_order_write``) bierze
+    ``contracts FOR UPDATE``; bez tego kroku writer trzymałby już blokady linii
+    i czekał na kontrakt, który handler kontraktu (wypowiedzenie, aneks, cron)
+    zablokował przed swoimi zamówieniami — ABBA.
+    """
+
+    await lock_order_group_lines(db, [group_id])
+
+
+def _assert_group_not_cancelled(group: ClientOrderGroup) -> None:
+    """Anulowane zamówienie jest tylko do odczytu, dopóki ktoś go nie przywróci.
+
+    Bez tej bramki edycja, zamiana czy rozliczenie zapisałyby się na
+    zamówieniu, które „nie doszło do skutku", a przywrócenie odtworzyłoby
+    stan linii sprzed anulowania, nadpisując te zmiany.
+    """
+
+    if group.status == GROUP_STATUS_CANCELLED:
+        raise HTTPException(
+            409,
+            detail=(
+                f"Zamówienie {group.order_number} jest anulowane — najpierw je "
+                "przywróć („Przywróć anulowane”)."
+            ),
+        )
+
+
+async def _group_settlement_blockers(
+    db: AsyncSession, group: ClientOrderGroup, lines: list[ClientOrder]
+) -> list[str]:
+    """Rozliczenia, które blokują anulowanie — te same co przy usuwaniu."""
+
+    blockers: list[str] = []
+    shared_md_months = await db.scalar(
+        select(func.count(ClientOrderGroupMdConsumption.id)).where(
+            ClientOrderGroupMdConsumption.group_id == group.id
+        )
+    )
+    if shared_md_months:
+        blockers.append(f"rozliczone miesiące wspólnej puli MD ({shared_md_months})")
+    blockers.extend(await settlement_blockers(db, [line.id for line in lines]))
+    return blockers
+
+
+@router.post(
+    "/{client_id}/order-groups/{group_id}/cancel", response_model=OrderGroupRead
+)
+async def cancel_order_group(
+    client_id: int,
+    group_id: int,
+    payload: OrderGroupCancel,
+    user: OrderLifecycleUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Anulowanie zamówienia MD/kosztowego — z możliwością przywrócenia.
+
+    Zamówienie, które nie doszło do skutku albo zostało założone omyłkowo,
+    zostaje w rejestrze razem z historią (usunięcie kasuje dziennik zdarzeń).
+    Wolno anulować WYŁĄCZNIE zamówienie bez rozliczeń — zaraportowane MD
+    i faktury to ślad, na podstawie którego wystawiono faktury; takie
+    zamówienie się kończy, nie anuluje. Stan zamówienia sprzed anulowania
+    trafia do ``status_before_cancel``, a statusy linii do payloadu zdarzenia
+    ``order_cancelled`` — z nich „Przywróć anulowane" odtwarza obsadę.
+    """
+    await _require_order_lifecycle(db, user, client_id)
+    _assert_multi_client(client_id)
+    group = await _load_group(db, client_id, group_id)
+    if group.status == GROUP_STATUS_CANCELLED:
+        raise HTTPException(409, detail="To zamówienie jest już anulowane")
+
+    line_ids = list(
+        (
+            await db.scalars(
+                select(ClientOrder.id).where(ClientOrder.order_group_id == group.id)
+            )
+        ).all()
+    )
+    # Kolejność blokad: kontrakty linii → linie (jak każdy writer zamówień).
+    await lock_contract_then_orders(db, order_ids=line_ids)
+    locked_lines = list(
+        (
+            await db.execute(
+                _line_query()
+                .where(ClientOrder.order_group_id == group.id)
+                .order_by(ClientOrder.id.asc())
+                .with_for_update()
+            )
+        )
+        .scalars()
+        .unique()
+        .all()
+    )
+    await _assert_no_pending_offboarding_case(db, group_id=group.id)
+    blockers = await _group_settlement_blockers(db, group, locked_lines)
+    if blockers:
+        raise HTTPException(
+            409,
+            detail={
+                "code": "order_group_has_settlements",
+                "message": (
+                    f"Zamówienia {group.order_number} nie można anulować — ma "
+                    "rozliczenia: "
+                    + "; ".join(blockers)
+                    + ". Zakończ je zamiast anulować."
+                ),
+                "blockers": blockers,
+            },
+        )
+
+    previous_status = group.status
+    previous_lines: list[dict[str, object]] = []
+    for line in locked_lines:
+        line_status = getattr(line.status, "value", line.status)
+        previous_lines.append({"id": line.id, "previous_status": line_status})
+        if line.status != ClientOrderStatus.cancelled:
+            line.status = ClientOrderStatus.cancelled
+
+    reason = (payload.reason or "").strip() or None
+    group.status_before_cancel = previous_status
+    group.status = GROUP_STATUS_CANCELLED
+    group.cancelled_at = datetime.now(timezone.utc)
+    group.cancelled_by_user_id = user.id
+    group.cancellation_reason = reason
+
+    record_event(
+        db,
+        group_id=group.id,
+        event_type=EVENT_ORDER_CANCELLED,
+        description=(
+            f"Anulowano zamówienie {group.order_number}"
+            + (f" — {reason}" if reason else "")
+        ),
+        payload={
+            "previous_status": previous_status,
+            "reason": reason,
+            "lines": previous_lines,
+        },
+        user_id=user.id,
+    )
+    await commit_order_write(db)
+    await db.refresh(group)
+    return await _group_to_read(
+        db,
+        group,
+        with_finance=await _can_see_finance(db, user, client_id),
+    )
+
+
+@router.post(
+    "/{client_id}/order-groups/{group_id}/restore", response_model=OrderGroupRead
+)
+async def restore_order_group(
+    client_id: int,
+    group_id: int,
+    user: OrderLifecycleUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Cofnięcie anulowania — zamówienie i linie wracają do stanu sprzed niego.
+
+    Linie wracają do statusu zapisanego w zdarzeniu ``order_cancelled``;
+    linia, której wtedy nie było (albo już anulowana), zostaje anulowana.
+    Linia ze statusem sprzed anulowania ``active``, której okres już minął,
+    wraca jako ``completed`` — przywrócenie nie wskrzesza współpracy, która
+    w międzyczasie się skończyła.
+    """
+    await _require_order_lifecycle(db, user, client_id)
+    _assert_multi_client(client_id)
+    group = await _load_group(db, client_id, group_id)
+    if group.status != GROUP_STATUS_CANCELLED:
+        raise HTTPException(409, detail="To zamówienie nie jest anulowane")
+
+    line_ids = list(
+        (
+            await db.scalars(
+                select(ClientOrder.id).where(ClientOrder.order_group_id == group.id)
+            )
+        ).all()
+    )
+    await lock_contract_then_orders(db, order_ids=line_ids)
+    cancelled_event = await db.scalar(
+        select(ClientOrderGroupEvent)
+        .where(
+            ClientOrderGroupEvent.group_id == group.id,
+            ClientOrderGroupEvent.event_type == EVENT_ORDER_CANCELLED,
+        )
+        .order_by(ClientOrderGroupEvent.id.desc())
+        .limit(1)
+    )
+    event_payload = (
+        cancelled_event.payload
+        if cancelled_event is not None and isinstance(cancelled_event.payload, dict)
+        else {}
+    )
+    previous_line_status = {
+        entry.get("id"): entry.get("previous_status")
+        for entry in event_payload.get("lines") or []
+        if isinstance(entry, dict)
+    }
+    today = business_today()
+    restored_lines = 0
+    for line in await lines_for_group(db, group.id):
+        raw = previous_line_status.get(line.id)
+        if raw is None or raw == ClientOrderStatus.cancelled.value:
+            continue
+        try:
+            target = ClientOrderStatus(raw)
+        except ValueError:
+            continue
+        if (
+            target == ClientOrderStatus.active
+            and line.end_date is not None
+            and line.end_date < today
+        ):
+            target = ClientOrderStatus.completed
+        line.status = target
+        restored_lines += 1
+
+    restored_status = group.status_before_cancel or GROUP_STATUS_ACTIVE
+    group.status = restored_status
+    group.status_before_cancel = None
+    group.cancelled_at = None
+    group.cancelled_by_user_id = None
+    group.cancellation_reason = None
+
+    record_event(
+        db,
+        group_id=group.id,
+        event_type=EVENT_ORDER_RESTORED,
+        description=(
+            f"Przywrócono anulowane zamówienie {group.order_number} "
+            f"(stan: {GROUP_STATUS_LABELS.get(restored_status, restored_status)})"
+        ),
+        payload={"restored_status": restored_status, "lines_restored": restored_lines},
+        user_id=user.id,
+    )
+    await commit_order_write(db)
+    await db.refresh(group)
+    return await _group_to_read(
+        db,
+        group,
+        with_finance=await _can_see_finance(db, user, client_id),
+    )
+
+
 @router.post(
     "/{client_id}/order-groups/{group_id}/extend",
     response_model=OrderGroupRead,
@@ -4062,6 +4339,7 @@ async def extend_order_group(
     await _require_order_lifecycle(db, user, client_id)
     _assert_multi_client(client_id)
     source = await _load_group(db, client_id, group_id)
+    _assert_group_not_cancelled(source)
     await _normalize_empty_explicit_md_group(db, source)
     source_uses_shared_md = uses_shared_md_pool(source)
     try:
@@ -4387,6 +4665,7 @@ async def update_line(
     await _assert_client(db, client_id)
     _assert_multi_client(client_id)
     group = await _load_group(db, client_id, group_id)
+    _assert_group_not_cancelled(group)
     has_group_budget = group.is_cost_based or uses_shared_md_pool(group)
     line_budget_fields = {"input_mode", "input_value", "md_remaining", "optional_md"}
     if has_group_budget and supplied & line_budget_fields:
@@ -4405,6 +4684,7 @@ async def update_line(
     # nagłówków CORS, czyli „Network Error" w przeglądarce. Trafiało w KAŻDĄ
     # edycję linii po zamianie kontraktora, i to już PO `commit()` — zmiana
     # zapisywała się, a operator widział błąd bez treści i ponawiał.
+    await lock_contract_then_orders(db, order_ids=[line_id])
     line = await db.scalar(
         _line_query()
         .where(
@@ -4619,6 +4899,7 @@ async def resolve_md_offboarding_case(
     if not await _has_md_line_management_access(db, user, client_id):
         raise deny("decyzję o puli MD podejmuje Delivery Lead albo administrator")
 
+    await _lock_group_lines(db, group_id)
     group = await db.scalar(
         select(ClientOrderGroup)
         .where(
@@ -5019,6 +5300,9 @@ async def take_over_consultant(
             ),
         )
 
+    # Kontrakty linii → linie, zanim zablokujemy odchodzącego (kolejność
+    # blokad wszystkich writerów zamówień).
+    await _lock_group_lines(db, group.id)
     source = await db.scalar(
         _line_query()
         .where(
@@ -5294,7 +5578,9 @@ async def swap_consultant(
     await _assert_client(db, client_id)
     _assert_multi_client(client_id)
     group = await _load_group(db, client_id, group_id)
+    _assert_group_not_cancelled(group)
 
+    await lock_contract_then_orders(db, order_ids=[line_id])
     old = await db.scalar(
         select(ClientOrder)
         .options(selectinload(ClientOrder.contract).selectinload(Contract.candidate))
@@ -5621,6 +5907,7 @@ async def _md_line_for_consumptions(
         ClientOrder.client_id == group.client_id,
     )
     if for_update:
+        await lock_contract_then_orders(db, order_ids=[line_id])
         query = query.with_for_update()
     line = await db.scalar(query)
     if line is None:
@@ -5728,6 +6015,7 @@ async def upsert_line_consumption(
     _assert_multi_client(client_id)
     period_month = _validated_period_month(period_month)
     group = await _load_group(db, client_id, group_id)
+    _assert_group_not_cancelled(group)
     line = await _md_line_for_consumptions(
         db, group=group, line_id=line_id, for_update=True
     )
@@ -5801,6 +6089,7 @@ async def delete_line_consumption(
     _assert_multi_client(client_id)
     period_month = _validated_period_month(period_month)
     group = await _load_group(db, client_id, group_id)
+    _assert_group_not_cancelled(group)
     line = await _md_line_for_consumptions(
         db, group=group, line_id=line_id, for_update=True
     )

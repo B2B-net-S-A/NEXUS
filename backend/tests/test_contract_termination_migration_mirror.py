@@ -1,4 +1,4 @@
-"""0364: kolumny i CHECK-i zakończenia współpracy mają lustro w entrypoincie.
+"""0367: kolumny i CHECK-i zakończenia współpracy mają lustro w entrypoincie.
 
 Prod alembic bywa osierocony — `entrypoint.sh` JEST wdrożeniem. Model czyta
 nowe kolumny przy KAŻDYM odczycie kontraktu, więc brak lustra = 500 na całym
@@ -13,7 +13,7 @@ from pathlib import Path
 BACKEND = Path(__file__).resolve().parents[1]
 ENTRYPOINT = (BACKEND / "entrypoint.sh").read_text()
 MIGRATION = (
-    BACKEND / "alembic" / "versions" / "0364_contract_agreement_termination.py"
+    BACKEND / "alembic" / "versions" / "0367_contract_agreement_termination.py"
 ).read_text()
 
 
@@ -63,9 +63,9 @@ def test_enum_values_and_constraints_are_mirrored():
         assert needle in migration, needle
 
 
-def test_migration_chains_after_b2b_register_import():
-    assert 'revision = "0364_contract_agreement_termination"' in MIGRATION
-    assert 'down_revision = "0363_b2b_register_import"' in MIGRATION
+def test_migration_chains_after_job_portals():
+    assert 'revision = "0367_contract_agreement_termination"' in MIGRATION
+    assert 'down_revision = "0366_job_portals"' in MIGRATION
 
 
 def test_model_enum_matches_migration():

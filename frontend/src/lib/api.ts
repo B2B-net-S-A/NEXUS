@@ -1794,7 +1794,7 @@ export type AgreementTerminationMode = "notice" | "mutual_agreement";
 export type AgreementTerminationParty = "consultant" | "company";
 
 /**
- * „Rozwiązanie umowy" z okna „Zakończ współpracę" (0364). Komplet albo nic —
+ * „Rozwiązanie umowy" z okna „Zakończ współpracę" (0367). Komplet albo nic —
  * odznaczone pole wyboru = brak obiektu w żądaniu.
  */
 export interface AgreementTerminationPayload {
@@ -3404,7 +3404,7 @@ export interface B2BGeneratedListParams {
    */
   contractStatus?: B2BContractStatus[];
   closureReason?: B2BClosureReason;
-  /** Tryb rozwiązania umowy — filtr „Zakończonych umów" (0364). */
+  /** Tryb rozwiązania umowy — filtr „Zakończonych umów" (0367). */
   terminationMode?: AgreementTerminationMode;
   /** Zakres daty ROZPOCZĘCIA USŁUG (`YYYY-MM-DD`), obie granice włącznie. */
   startFrom?: string;
@@ -3440,7 +3440,7 @@ export interface B2BStatusEvent {
   client_name: string | null;
   changed_by_name: string | null;
   created_at: string | null;
-  /** Zmiana wykonana przez zakończenie kontraktu (0364): kontrakt, koniec
+  /** Zmiana wykonana przez zakończenie kontraktu (0367): kontrakt, koniec
    *  projektu i dane rozwiązania umowy. `null` dla ręcznych zmian. */
   details?: {
     source?: string;
@@ -3504,7 +3504,7 @@ export interface B2BGeneratedContractRow {
   closure_reason: B2BClosureReason | null;
   closure_reason_other: string | null;
   closure_date: string | null;
-  /** 0364: zakończenie przeniesione z Kontraktów — „Tryb" i „Data zakończenia
+  /** 0367: zakończenie przeniesione z Kontraktów — „Tryb" i „Data zakończenia
    *  zamówienia" (koniec projektu; `closure_date` to wtedy ostatni dzień umowy). */
   termination_mode?: AgreementTerminationMode | null;
   termination_party?: AgreementTerminationParty | null;

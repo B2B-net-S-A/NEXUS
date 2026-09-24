@@ -2,7 +2,7 @@ import enum
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String
+from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -19,15 +19,25 @@ class Portal(str, enum.Enum):
 
 class PostingStatus(str, enum.Enum):
     draft = "draft"
+    # 0360: zgłoszone do publikacji, czeka na worker portali.
+    publishing = "publishing"
     published = "published"
     expired = "expired"
     removed = "removed"
+    # 0360: portal odmówił albo nie jest skonfigurowany (`last_error`).
+    failed = "failed"
 
 
 class JobPosting(Base, TimestampMixin):
-    """
-    Publikacja oferty pracy na zewnętrznym portalu ogłoszeniowym.
-    Integracja z portalami w przygotowaniu — dane symulowane.
+    """Publikacja rekrutacji na zewnętrznym portalu ogłoszeniowym (0360).
+
+    Wiersz jest też pozycją kolejki: ``publishing`` czeka na worker
+    ``tasks/job_portal_worker``, który woła adapter portalu
+    (``services/job_portals``). Treść idzie WYŁĄCZNIE z zatwierdzonego opisu
+    publicznego — ``public_profile_hash`` mówi, z której wersji. Najwyżej
+    jedna żywa (``publishing``/``published``) publikacja rekrutacji na portal
+    (``uq_job_postings_live_per_portal``). Do 0360 zakładka „Portale”
+    zapisywała tu symulowane wiersze ``SIM-…`` — usunięte migracją.
     """
 
     __tablename__ = "job_postings"
@@ -57,6 +67,22 @@ class JobPosting(Base, TimestampMixin):
 
     views: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     applications: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    # 0360 — kolejka publikacji.
+    last_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    attempts: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
+    payload_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    public_profile_hash: Mapped[Optional[str]] = mapped_column(
+        String(64), nullable=True
+    )
+    created_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    last_synced_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     # Relationships
     job = relationship("Job", back_populates="postings")

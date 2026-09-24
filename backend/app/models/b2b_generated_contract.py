@@ -309,7 +309,7 @@ class B2BGeneratedContract(Base, TimestampMixin):
         DateTime(timezone=True), nullable=True
     )
 
-    # Zakończenie projektu po stronie Kontraktów (0364). Wypełniane, gdy
+    # Zakończenie projektu po stronie Kontraktów (0367). Wypełniane, gdy
     # kontrakt powiązany z umową przechodzi na „Zakończony":
     # * `termination_mode`/`termination_party`/`termination_signed_on` —
     #   rozwiązanie umowy z okna „Zakończ współpracę" (tryb: `notice` |

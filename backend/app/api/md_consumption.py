@@ -83,6 +83,7 @@ from app.schemas.md_consumption import (
     PolkomtelReprocessTarget,
 )
 from app.services import finance_order_matching
+from app.services.contract_lifecycle import lock_contract_then_orders
 from app.services.client_identity import client_display_name_expression
 from app.services.client_order_lines import (
     LineMatch,
@@ -451,6 +452,8 @@ async def _apply_to_line(
     podział nie zależy od tego, którą z nich operator akurat wybrał.
     """
     expected_group_id = group.id if group is not None else match_order.order_group_id
+    # Kolejność blokad writerów zamówień: kontrakt → zamówienie.
+    await lock_contract_then_orders(db, order_ids=[match_order.id])
     locked_order = await db.scalar(
         select(ClientOrder)
         .options(
@@ -555,6 +558,7 @@ async def _lock_finance_target_orders(
     if not order_ids:
         return {}
     ordered_ids = sorted(order_ids)
+    await lock_contract_then_orders(db, order_ids=ordered_ids)
     result = await db.execute(
         select(ClientOrder)
         .options(
