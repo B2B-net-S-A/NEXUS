@@ -1,0 +1,4 @@
+{
+  "sha256": "ddb3cc3637aa23c7563bee498082aacae104a14cfa580282317f6bc66eb75f0e",
+  "source": "backend/app/services/order_rate_snapshots.py"
+}

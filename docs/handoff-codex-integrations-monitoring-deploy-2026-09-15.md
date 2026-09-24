@@ -67,7 +67,7 @@ Konsekwencja zamierzona: **czerwony HEAD maina wstrzymuje wszystkie deploye**, d
    - `.github/workflows/deploy.yml` — kroki smoke muszą porównywać z `ACCEPTED_SHA`/`RELEASE_SHA`, nigdy przez GitHub `compare` API w samym workflow (liczy to wyłącznie skrypt). Zmiany innych PR-ów w raporcie przerwy / timingach startu przyjmij, podając im `"${RELEASE_SHA:-$TARGET_SHA}"`.
    - `backend/tests/test_ci_deploy_workflows_contract.py` — zachowaj testy obu stron.
    - Nowa pętla w `app.state.background_tasks` (`backend/app/main.py`) z maina → `test_loop_heartbeat.py` wywali CI. Dodaj `beat = loop_heartbeat.register(...)` + `beat.tick()` na początku iteracji ALBO wpis w `EXEMPT` w `backend/app/services/loop_heartbeat.py` z konkretnym powodem.
-   - `backend/app/data/procedures/orders_procedure_stamp.json` — jeśli `test_orders_procedure_freshness.py` jest czerwony, przejrzyj zmiany i przestempluj: `cd backend && python scripts/stamp_orders_procedure.py`.
+   - `backend/app/data/procedures/orders_stamps/` (od 24.09.2026 osobny plik stempla na każdy plik zamówień; wcześniej jeden `orders_procedure_stamp.json`) — jeśli `test_orders_procedure_freshness.py` jest czerwony, przejrzyj zmiany i przestempluj: `cd backend && python3 scripts/stamp_orders_procedure.py`. Konflikt tylko wtedy, gdy oba PR-y ruszyły ten sam plik — rozstrzygnij go ponownym uruchomieniem skryptu po rebase.
 3. Sprawdzenia lokalne (lokalny Python to 3.9 — backend testuj w Dockerze, np. obraz `nexus-verify:img` z `--entrypoint bash`; testy bez bazy przez `--noconftest`):
    ```bash
    cd backend && ruff check app/ && ruff format --check app/

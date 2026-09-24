@@ -1,0 +1,8 @@
+{
+  "entry": "de67f8c8e6d14c91ed7d254db5ffe86e9faf71d43c4006ebf750554245651f83",
+  "guide": "job.champion",
+  "sources": {
+    "frontend/src/components/ChampionProfileEditor.tsx": "5058443afaa39d8627e08788e15f96fc926acec0b1e501da9f00fc45233863cd",
+    "frontend/src/components/v2/jobs/JobDetailCompactHeader.tsx": "d8d8d4c9ed472c6dc8379d29a888c7dba991c92da3d832502a5e537ffc6c09dd"
+  }
+}

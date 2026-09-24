@@ -1,0 +1,9 @@
+{
+  "entry": "d5adac53e29c1a36211f057c4442b1b4ddbdb5f6d8d24cfafe7233f0b17ca334",
+  "guide": "client.orders",
+  "sources": {
+    "frontend/src/components/client-profile/orders/AssignToOrderModal.tsx": "4276f76150fef4dd46b0844348ecdf774b3e8428352693930ca8c4ffa424bcbd",
+    "frontend/src/components/client-profile/orders/MultiConsultantOrdersTab.tsx": "d2cea11c3fbcd89a4a03b36d719832d2784bcbb4ed02a3063647f5c645563d53",
+    "frontend/src/components/client-profile/orders/OrderGroupCard.tsx": "745fcd4315b6e852b4c7c3d06d8fbf472b27f8a188b61da488a7aaee8dcb47af"
+  }
+}

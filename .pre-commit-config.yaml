@@ -36,3 +36,11 @@ repos:
         entry: 'DynaMinds|dynaminds(?!-theme-key-legacy)'
         files: \.(py|ts|tsx|js|json|yml|yaml|sh|Dockerfile|md)$
         exclude: '^(README\.md|NEXUS_AUDIT_AND_PLAN\.md|REQUIREMENTS_V[0-9]+\.md|QA_STRATEGY\.md|frontend/package-lock\.json)$'
+      # Stemple przeglądu przewodników Jarvisa i instrukcji zamówień — to samo,
+      # co testy świeżości w CI, bez zapisu i bez zależności (biblioteka
+      # standardowa). Skrypt sam sprawdza, czy commit dotyka obserwowanego pliku.
+      - id: review-stamps
+        name: "Stemple przeglądu (przewodniki ekranów, instrukcja zamówień)"
+        language: system
+        entry: python3 backend/scripts/check_stamps.py
+        files: ^(backend|frontend)/

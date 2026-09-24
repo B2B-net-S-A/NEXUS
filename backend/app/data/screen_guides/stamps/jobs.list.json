@@ -1,0 +1,8 @@
+{
+  "entry": "2e420185242a32859e1c5dcb769a3499cb4e4b5aa8b7da0195e8a4e469430e31",
+  "guide": "jobs.list",
+  "sources": {
+    "frontend/src/components/v2/pages/JobsListV2.tsx": "28d65b149081e4a109d4ac7c88bc525dd90163ade471e245a4348eff0c924862",
+    "frontend/src/lib/request-status.ts": "728e777128c3141c98b45d031da8f05a9f615fcc89a7fb4d43889555ae36a9ff"
+  }
+}

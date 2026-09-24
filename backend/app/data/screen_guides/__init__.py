@@ -15,17 +15,17 @@ względną, jak instrukcję zamówień).
 Przewodnik opisuje ZACHOWANIE EKRANU, więc psuje się, gdy ktoś zmieni ekran —
 nie gdy zmieni się proces. ``sources`` każdego wpisu to pliki, których zmiana
 każe przejrzeć przewodnik; odciski z ostatniego przeglądu leżą w
-``stamp.json``, a pilnuje ich ``tests/test_screen_guides_freshness.py``
-(ten sam mechanizm co instrukcja zamówień). Po przeglądzie:
+``stamps/<klucz ekranu>.json`` (osobny plik na ekran, patrz
+``app/data/review_stamps.py``), a pilnuje ich
+``tests/test_screen_guides_freshness.py`` (ten sam mechanizm co instrukcja
+zamówień). Po przeglądzie:
 
-    cd backend && python scripts/stamp_screen_guides.py
+    cd backend && python3 scripts/stamp_screen_guides.py
 """
 
 from __future__ import annotations
 
-import hashlib
 import json
-from datetime import date
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Optional
@@ -34,7 +34,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 _THIS_DIR = Path(__file__).resolve().parent
 GUIDES_PATH = _THIS_DIR / "guides.json"
-STAMP_PATH = _THIS_DIR / "stamp.json"
 #: Katalog główny repozytorium — ``sources`` są względne wobec niego.
 REPO_ROOT = _THIS_DIR.parents[3]
 
@@ -145,46 +144,3 @@ def guide_for_user(
         for t in guide.tasks
     ]
     return data
-
-
-# ── świeżość ────────────────────────────────────────────────────────────────
-
-
-def digest_of(relative_path: str) -> str:
-    path = REPO_ROOT / relative_path
-    if not path.is_file():
-        return "missing"
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def guide_digest(guide: ScreenGuide) -> str:
-    """Odcisk przewodnika = treść wpisu + odciski jego plików źródłowych.
-
-    Treść wchodzi do odcisku, żeby edycja samego przewodnika też wymagała
-    świadomego przestemplowania (jak data przeglądu instrukcji zamówień).
-    """
-    payload = {
-        "guide": guide.model_dump(),
-        "sources": {rel: digest_of(rel) for rel in guide.sources},
-    }
-    return hashlib.sha256(
-        json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
-    ).hexdigest()
-
-
-def current_digests() -> dict[str, str]:
-    return {key: guide_digest(guide) for key, guide in sorted(load_guides().items())}
-
-
-def load_stamp() -> dict:
-    return json.loads(STAMP_PATH.read_text(encoding="utf-8"))
-
-
-def write_stamp(reviewed_at: date, digests: dict[str, str]) -> None:
-    payload = {
-        "reviewed_at": reviewed_at.isoformat(),
-        "guides": dict(sorted(digests.items())),
-    }
-    STAMP_PATH.write_text(
-        json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
-    )

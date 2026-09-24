@@ -1,0 +1,7 @@
+{
+  "entry": "1be27bd88c0394e331ac1b511bc849b090aef0526e257409417c5c158a345bf2",
+  "guide": "jobs.person",
+  "sources": {
+    "frontend/src/components/v2/jobs/PipelineCandidateDock.tsx": "3b6f5059486eeaa449cf8dd89173277d929ce8ad4cdb5434c75774a31dbd9bb4"
+  }
+}
