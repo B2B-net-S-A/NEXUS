@@ -1,0 +1,58 @@
+name: Queue weekly report
+
+# Tygodniowy raport kolejki merge'ów: ile biegów CI w kolejce padło, które
+# pliki testowe i które PR-y wyrzucały najczęściej, mediana czasu zielonego
+# biegu oraz które czerwone pliki pytest NIE zostałyby wybrane przez sito PR-a
+# (`.github/scripts/select_pr_tests.py`) — kandydaci na nowe reguły sita.
+# Powód: 23–24.09.2026 62 z 99 biegów w kolejce było czerwonych, a PR-y na
+# sicie zielone. Wynik ląduje w jednym issue na tydzień (etykieta
+# `raport-kolejki`); ponowne uruchomienie w tym samym tygodniu je aktualizuje.
+
+on:
+  schedule:
+    # Poniedziałek 06:07 UTC — poza pełną godziną (kolejka runnerów).
+    - cron: "7 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "Ile dni wstecz"
+        default: "7"
+      dry_run:
+        description: "Tylko wypisz raport, bez issue"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: queue-weekly-report
+  cancel-in-progress: false
+
+jobs:
+  report:
+    name: Raport kolejki merge'ów
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Zbierz i opublikuj raport
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          DAYS: ${{ inputs.days || '7' }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+          args=(--repo "$REPO" --days "$DAYS")
+          if [ "$DRY_RUN" = "true" ]; then
+            args+=(--dry-run)
+          fi
+          python3 .github/scripts/queue_weekly_report.py "${args[@]}"
