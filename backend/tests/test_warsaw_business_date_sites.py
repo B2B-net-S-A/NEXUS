@@ -147,3 +147,68 @@ async def test_engagement_inventory_today_is_warsaw_day():
     assert result["count"] == 0 and "error" not in result
     assert ":today" in sql
     assert seen["today"] == date(2026, 9, 25)
+
+
+async def test_delivery_lead_trend_months_start_at_warsaw_midnight(monkeypatch):
+    from app.api import reports
+
+    starts = []
+
+    async def fake_dl_metrics(db, *, period_start, only_dl_id):
+        starts.append(period_start)
+        return [], None
+
+    monkeypatch.setattr(reports, "_compute_dl_metrics", fake_dl_metrics)
+
+    with time_machine.travel(AFTER_WARSAW_MONTH_START, tick=False):
+        result = await reports.report_delivery_lead_trend(
+            dl_id=5, current_user=None, db=None, months=2
+        )
+
+    assert [row["month"] for row in result["trend"]] == ["2026-09", "2026-10"]
+    # Północ warszawska (CEST = UTC+2), a nie 1. dnia 00:00 UTC.
+    assert starts == [
+        datetime(2026, 8, 31, 22, 0, tzinfo=timezone.utc),
+        datetime(2026, 9, 30, 22, 0, tzinfo=timezone.utc),
+    ]
+
+
+def test_bulk_cv_archive_named_with_warsaw_day():
+    from app.api.candidates import _bulk_cv_archive_name
+
+    with time_machine.travel(AFTER_WARSAW_MIDNIGHT, tick=False):
+        assert _bulk_cv_archive_name() == "nexus-cvs-2026-09-25.zip"
+
+
+def test_b2b_register_export_named_with_warsaw_day():
+    from app.api.b2b_contract_generator import _register_export_filename
+
+    with time_machine.travel(AFTER_WARSAW_MIDNIGHT, tick=False):
+        assert _register_export_filename() == "rejestr-umow-b2b-2026-09-25.xlsx"
+
+
+async def test_white_list_lookup_asks_for_warsaw_day(monkeypatch):
+    from app.services.b2b_contract_generator import registry_lookup
+
+    seen = {}
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def get(self, url, params):
+            seen.update(params)
+            return SimpleNamespace(status_code=404)
+
+    monkeypatch.setattr(registry_lookup.httpx, "AsyncClient", FakeClient)
+
+    with time_machine.travel(AFTER_WARSAW_MIDNIGHT, tick=False):
+        assert await registry_lookup.lookup_by_nip("5260250274") is None
+
+    assert seen == {"date": "2026-09-25"}

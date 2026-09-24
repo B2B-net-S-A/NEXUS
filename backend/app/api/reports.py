@@ -1036,11 +1036,9 @@ async def report_delivery_lead_trend(
         while month <= 0:
             month += 12
             year -= 1
-        month_start = datetime(year, month, 1, tzinfo=timezone.utc)
-        if month == 12:
-            datetime(year + 1, 1, 1, tzinfo=timezone.utc)
-        else:
-            datetime(year, month + 1, 1, tzinfo=timezone.utc)
+        # Początek miesiąca o północy warszawskiej (jak trend klienta).
+        month_first = date(year, month, 1)
+        month_start = local_month_bounds(month_first).start_utc
 
         # Snapshot dla okresu miesiąca — używamy period_start = month_start
         # i filtrujemy by `< month_end` przez tymczasowe wybranie z metrics.
@@ -1057,8 +1055,8 @@ async def report_delivery_lead_trend(
         placements = row["placements"] if row else 0
         trend.append(
             {
-                "month": month_start.strftime("%Y-%m"),
-                "month_label": month_start.strftime("%b %Y"),
+                "month": month_first.strftime("%Y-%m"),
+                "month_label": month_first.strftime("%b %Y"),
                 "requests": requests,
                 "vacancies": vacancies,
                 "placements": placements,

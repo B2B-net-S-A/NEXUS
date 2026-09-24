@@ -26,14 +26,29 @@ APP_ROOT = Path(__file__).resolve().parent.parent / "app"
 
 MARKER = re.compile(r"#\s*dzień UTC celowo:\s*\S")
 
+_UTC = r"(?:[\w.]*\.)?(?:utc|UTC)"
+_NOW_UTC = rf"\bnow\(\s*(?:tz\s*=\s*)?{_UTC}\s*\)"
+
 #: (wzorzec, opis dla komunikatu). Szukane w kodzie bez komentarzy, więc
 #: wyjaśnienie „nie CURRENT_DATE” w komentarzu nie jest naruszeniem.
 PATTERNS = (
+    (re.compile(rf"{_NOW_UTC}\s*\.date\(\)"), "datetime.now(timezone.utc).date()"),
+    # Sama data (bez godziny) sformatowana z „teraz” w UTC — np. w nazwie pliku.
+    (
+        re.compile(rf"{_NOW_UTC}\s*\.strftime\(\s*f?[\"']%Y-?%m(?:-?%d)?[\"']\s*\)"),
+        "datetime.now(timezone.utc).strftime('%Y-%m-%d')",
+    ),
+    # `astimezone()` bez strefy = strefa kontenera, czyli UTC.
+    (
+        re.compile(rf"\.astimezone\(\s*(?:{_UTC})?\s*\)\s*\.date\(\)"),
+        ".astimezone().date()",
+    ),
+    # Granica miesiąca o północy UTC zamiast warszawskiej (`local_month_bounds`).
     (
         re.compile(
-            r"\bnow\(\s*(?:tz\s*=\s*)?(?:[\w.]*\.)?(?:utc|UTC)\s*\)\s*\.date\(\)"
+            r"\bdatetime\(\s*[^()]*,\s*1\s*,\s*tzinfo\s*=\s*(?:timezone\.)?(?:utc|UTC)\s*\)"
         ),
-        "datetime.now(timezone.utc).date()",
+        "datetime(rok, miesiąc, 1, tzinfo=timezone.utc)",
     ),
     (re.compile(r"\butcnow\(\)\s*\.date\(\)"), "datetime.utcnow().date()"),
     (re.compile(r"\bCURRENT_DATE\b|\bfunc\.current_date\b"), "SQL CURRENT_DATE"),
@@ -100,8 +115,28 @@ def test_flags_utc_date_variants():
         "e = datetime.now(\n    timezone.utc\n).date()\n"
         'f = "WHERE start_date > CURRENT_DATE"\n'
         "g = select(func.current_date())\n"
+        "h = datetime.now(timezone.utc).strftime('%Y-%m-%d')\n"
+        'i = datetime.now(timezone.utc).strftime("%Y-%m")\n'
+        "j = datetime.now(timezone.utc).astimezone().date()\n"
+        "k = moment.astimezone(timezone.utc).date()\n"
+        "m = datetime(year, month, 1, tzinfo=timezone.utc)\n"
+        "n = datetime(2026, 1, 1, tzinfo=UTC)\n"
     )
-    assert [lineno for lineno, _ in find_violations(source)] == [1, 2, 3, 4, 5, 8, 9]
+    assert [lineno for lineno, _ in find_violations(source)] == [
+        1,
+        2,
+        3,
+        4,
+        5,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+    ]
 
 
 def test_marker_on_same_line_or_line_above_allows():
@@ -132,5 +167,8 @@ def test_timestamp_and_business_today_are_fine():
         "iso = datetime.now(timezone.utc).isoformat()\n"
         "today = business_today()\n"
         "current_date = today\n"
+        "ts = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')\n"
+        "local = moment.astimezone(ZoneInfo('Europe/Warsaw')).date()\n"
+        "noon = datetime(2026, 9, 25, 12, tzinfo=timezone.utc)\n"
     )
     assert find_violations(source) == []
