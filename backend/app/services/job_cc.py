@@ -55,7 +55,13 @@ _JOB_EXTRA_PATTERNS: dict[str, tuple[str, ...]] = {
     # noun forms only ("inżynieria testów", "automatyzacja testowania") —
     # NOT the adjective "testowy" ("Projekt testowy: ..." is metadata).
     # „Specjalista ds. testów penetracyjnych” to security, nie QA.
-    "qa": (NOT_PENTEST + r"(?:testów|testowani)",),
+    "qa": (
+        NOT_PENTEST + r"(?:testów|testowani)",
+        # 24.09.2026: tytuły rekrutacji z Traffita bez kategorii.
+        r"performance engineer",
+        r"\bistqb\b",
+        r"\baqa\b",
+    ),
     # Polish security stems ("bezpieczeństwa chmury" must win before the
     # infra "chmur" rule) + offensive-security roles.
     "security": (
@@ -74,6 +80,7 @@ _JOB_EXTRA_PATTERNS: dict[str, tuple[str, ...]] = {
         r"\betl\b",
         r"power\s*bi",
         r"analityk danych",
+        r"\bkafka\b",
         r"tableau",
         r"\bqlik\b",
         r"business intel",
@@ -88,6 +95,11 @@ _JOB_EXTRA_PATTERNS: dict[str, tuple[str, ...]] = {
         r"tech lead",
         r"team lead",
         r"zarządzan",
+        # 24.09.2026: liczba mnoga i „analiza” (IT Analysts, Business Analysis,
+        # Ekspert ds. analizy biznesowej) + dokumentacja projektowa.
+        r"\banaly(?:sts|sis)\b",
+        r"analiz",
+        r"technical writer",
     ),
     # Polish infra stems + spelling/cloud variants.
     "infra": (
@@ -105,6 +117,19 @@ _JOB_EXTRA_PATTERNS: dict[str, tuple[str, ...]] = {
         r"\bgcp\b",
         r"vmware",
         r"database",
+        # 24.09.2026: warianty z tytułów Traffita (DevSecOps, CI/CD, PaaS…).
+        r"dev[\s-]?sec[\s-]?ops",
+        r"\bci\s*/\s*cd\b",
+        r"\bcicd\b",
+        r"\bpaas\b",
+        r"\bbackup\b",
+        r"systems? engineer",
+        r"environment (?:engineer|owner)",
+        r"application maintenance",
+        r"\bit operations?\b",
+        r"\bcitrix\b",
+        r"\bpulsar\b",
+        r"ingestops",
     ),
     # Polish developer/designer roles + spelling variants. "architekt"
     # (generic) is last-resort here, mirroring the English "architect" rule —
@@ -117,6 +142,7 @@ _JOB_EXTRA_PATTERNS: dict[str, tuple[str, ...]] = {
         r"front[\s-]?end",
         r"back[\s-]?end",
         r"salesforce",
+        r"pl\s*/\s*sql",
         r"architekt",
     ),
 }
@@ -178,3 +204,33 @@ async def resolve_job_cc_id(
     if result.top and not result.tie and result.top.score >= min_hybrid_score:
         return result.top.cc_id
     return None
+
+
+async def classify_missing_job_ccs(db: AsyncSession, job_ids: list[int]) -> int:
+    """Nadaje kategorię rekrutacjom z ``job_ids``, które jej nie mają.
+
+    Ta sama reguła co przy zakładaniu rekrutacji (:func:`resolve_job_cc_id`):
+    najpierw tytuł, potem klasyfikator hybrydowy. Rekrutacja, której żaden
+    poziom nie rozpoznaje pewnie, zostaje bez kategorii. Nie commituje.
+    Woła ją import Traffita dla nowych rekrutacji (24.09.2026) — wcześniej
+    import kategorii nie nadawał wcale.
+    """
+    from app.models.job import Job
+
+    if not job_ids:
+        return 0
+    jobs = (
+        await db.scalars(
+            select(Job).where(
+                Job.id.in_(sorted(set(job_ids))),
+                Job.competence_category_id.is_(None),
+            )
+        )
+    ).all()
+    assigned = 0
+    for job in jobs:
+        cc_id = await resolve_job_cc_id(job, db)
+        if cc_id is not None:
+            job.competence_category_id = cc_id
+            assigned += 1
+    return assigned

@@ -2079,6 +2079,22 @@ Migracja Traffit→Nexus z maja 2026 była **one-shot CLI** (`python -m app.cli.
   bez przytrzymania kandydaci z tego biegu nigdy nie dostaliby pól z CV.
   Fazy importu rdzenia wstrzymują watermark jak dotąd.
 - **DB:** `traffit_sync_state` (PK `phase` + markery `__daily__`/`__full__`) — migracja `0136_traffit_sync_state` (na bazie `0135`).
+- **Rekrutacje z Traffita są w NEXUSIE ARCHIWUM (decyzja Artura 24.09.2026, 0377).**
+  Od 25.09 Delivery Leadzi zakładają rekrutacje w NEXUSIE. Każda rekrutacja
+  z Traffita poza „Prowadzona w NEXUSIE” jest zamknięta i „Zakończona” — teraz
+  i przy każdym nocnym syncu (`services/traffit_job_archive.py`): mapper importu
+  zapisuje `status='closed'` (stan z Traffita w `custom_fields.traffit_status`),
+  a `work_state`/`is_open` (kolumny NEXUSA) ustawia krok po fazie rekrutacji —
+  NIE `_UPSERT_JOB` (test własności kolumn). **`closed_at` zostaje z Traffita**
+  (pusty, dopóki Traffit nie zamknie): hit ratio Ligi DL, Portfeli DL i Roku do
+  roku liczy rekrutacje zamknięte w oknie po `closed_at`, a stempel „dziś” na
+  ~320 rekrutacjach zaniżyłby ligę wypłacającą nagrody. Archiwum zostaje
+  źródłem „Podobnych rekrutacji”, przepięć i Championa; nocny import dalej
+  dopisuje jego etapy. Ponowne otwarcie takiej rekrutacji w NEXUSIE (PATCH
+  statusu, `POST /publish`) sam włącza „Prowadzona w NEXUSIE” (Activity
+  `managed_in_nexus_changed`, `reason=job_reopened`) — inaczej sync zamknąłby ją
+  znowu. Import nadaje nowym rekrutacjom kategorię (`classify_missing_job_ccs`);
+  stare uzupełnia `python -m scripts.backfill_job_cc --commit`.
 - **„Rekrutacja prowadzona w NEXUSIE" — `jobs.managed_in_nexus`** (migracja `0325`
   + lustro w `_COLUMN_STATEMENTS`, decyzja Artura 17.09.2026). Powód: tablica czyta
   NAJNOWSZY wiersz `candidate_stages` per (kandydat, oferta), a nocny import dopisuje
@@ -2951,7 +2967,7 @@ Serwis `services/job_similarity.py`, trasy `api/job_similar.py`.
   wysłaną do klienta (savepoint, nigdy nie rzuca). Zamknięta rekrutacja nie
   przyjmuje przepięć, ale jest źródłem.
 - **Sugestie są deterministyczne**: must-have (Jaccard) 0,55 + tytuł 0,30 +
-  ta sama kategoria 0,15, próg 55, pula 18 miesięcy (także zamknięte) w pamięci
+  ta sama kategoria 0,15, próg 55, pula = CAŁA historia (także zamknięte i archiwum z Traffita; do 24.09.2026 18 miesięcy) w pamięci
   procesu 5 min z indeksem odwróconym. Lista pokazuje „≈" tylko przy
   sugestiach z osobami u klienta. DL wskazuje podobne już przy tworzeniu
   (`POST /api/job-similarity/preview` → po zapisie `POST …/similar`).

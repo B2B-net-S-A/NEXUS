@@ -21,6 +21,22 @@ MGMT = "management_delivery"
 
 # (job_title, expected_slug_or_None) — titles from the prod catalogue.
 LIVE_TITLES: list[tuple[str, str | None]] = [
+    # 24.09.2026 — tytuły z Traffita, które do tego dnia zostawały bez kategorii.
+    ("Inżynier DevSecOps (ZOB-2601)", INFRA),
+    ("PL_CICD Pipeline Engineer X 3 _PEP ID: 4560,4561,4495_TP: 12995 (34141)", INFRA),
+    ("CI/CD Engineer (37263)", INFRA),
+    ("PL_PaaS engineers_PEP ID: 4653_ 15451 (35492)", INFRA),
+    ("BCCM RRP 3.10 Backup Engineer - PL (42508)", INFRA),
+    ("Senior IT systems engineer _PEP ID:4209 (29663)", INFRA),
+    ("PL_Application Maintenance_Calypso_AOAM (35449)", INFRA),
+    ("Nordea: IT Analysts", MGMT),
+    ("Ekspert ds. analizy biznesowej SENIOR (ZOB-2787)", MGMT),
+    ("Business Analysis Expert RITM0732407 - 1 osoba", MGMT),
+    ("CBP_Performance Engineer_PEP ID:4669_TP:16226 (36573)", QA),
+    ("Oracle PL/SQL Oracle -PL (30875)", SW),
+    # Role spoza IT zostają bez kategorii.
+    ("Główny Księgowy/Księgowa", None),
+    ("Employer Branding Consultant (33049)", None),
     # — Security & Quality (testers + security, checked first) —
     ("Tester Middle ZOB-2732", QA),
     ("Tester Senior (ZOB-2741)", QA),

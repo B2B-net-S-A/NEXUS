@@ -7,6 +7,8 @@
  * czyta najnowszy wiersz pary kandydat/oferta — ruch zrobiony w NEXUSIE przegrywał
  * nazajutrz. Po przełączeniu (`POST /api/jobs/{id}/manage-in-nexus`) import omija
  * etapy tej rekrutacji i nie nadpisuje jej tytułu, statusu ani daty zamknięcia.
+ * Od 24.09.2026 rekrutacja z Traffita bez przełącznika jest w NEXUSIE archiwum
+ * (zamknięta, `services/traffit_job_archive.py` po stronie serwera).
  *
  * Dwie powierzchnie, obie w linii odznak nagłówka rekrutacji:
  * - `ManagedInTraffitNotice` — WYŁĄCZNIE dla rekrutacji z Traffita, które nie
@@ -32,13 +34,13 @@ import { apiErrorMessage } from "@/lib/api-error";
 import { formatDate } from "@/lib/utils";
 
 export const MANAGED_IN_NEXUS_LABELS = {
-  notice: "Prowadzona w Traffit — ruchy nadpisze nocny import",
+  notice: "Archiwum z Traffita — nowe rekrutacje zakładaj w NEXUSIE",
   noticeHint:
-    "Nocny import z Traffita zapisuje etapy tej rekrutacji — ruch zrobiony tutaj przegra nazajutrz. Przełącz do NEXUSA, żeby import ich nie ruszał.",
+    "Rekrutacje z Traffita są w NEXUSIE zamknięte (od 25.09.2026): zostają źródłem podobnych rekrutacji, przepięć i profilu Championa, a nocny import dopisuje ich historię. Żeby prowadzić tę rekrutację tutaj, przełącz ją do NEXUSA i otwórz ponownie.",
   switchButton: "Przełącz do NEXUSA",
   enableTitle: "Przełączyć rekrutację do NEXUSA?",
   enableDescription:
-    "Od tej chwili etapy tej rekrutacji zmieniasz tylko w NEXUSIE; import z Traffita ich nie ruszy. Tytuł, status i data zamknięcia także przestaną być pobierane z Traffita.",
+    "Od tej chwili etapy tej rekrutacji zmieniasz tylko w NEXUSIE; import z Traffita ich nie ruszy ani jej nie zamknie. Tytuł, status i data zamknięcia przestaną być pobierane z Traffita. Rekrutacja jest zamknięta — po przełączeniu otwórz ją ponownie w edycji rekrutacji (status).",
   enableConfirm: "Przełącz do NEXUSA",
   cancel: "Anuluj",
   chip: (since: string) => `Prowadzona w NEXUSIE od ${since}`,

@@ -319,6 +319,10 @@ class PhaseProgress:
     # Detal, który nie odpowiedział. Osobno od `errors`, bo wiersz jest
     # zapisany, a luka dopełni się w następnym biegu.
     recruiter_detail_failed: int = 0
+    # Archiwum z Traffita (24.09.2026): ile rekrutacji faza zamknęła w NEXUSIE
+    # („Zakończony”) i ilu nowym nadała kategorię kompetencji.
+    archived: int = 0
+    categorised: int = 0
     error_samples: list[str] = field(default_factory=list)
     # Stable per-row keys ("candidate:48895") for the errors we could attribute
     # to a specific source record. Consumed by the quarantine in
@@ -372,6 +376,8 @@ class PhaseProgress:
             "reassigned": self.reassigned,
             "recruiter_resolved": self.recruiter_resolved,
             "recruiter_detail_failed": self.recruiter_detail_failed,
+            "archived": self.archived,
+            "categorised": self.categorised,
             "error_samples": self.error_samples[:20],
             "error_refs": sorted(self.error_refs),
             "attributed_errors": self.attributed_errors,
@@ -2398,6 +2404,7 @@ class TraffitImporter:
         user_map = await self.build_user_id_map()
         owned_job_exts = await self._build_job_owner_set()
         touched_job_ids: list[int] = []
+        inserted_job_ids: list[int] = []
         # DATA-01: opublikowane rekrutacje nowe albo ze zmienionym
         # tytułem/statusem — zdarzenie dla automatów.
         event_job_ids: list[int] = []
@@ -2453,6 +2460,15 @@ class TraffitImporter:
             except Exception as e:  # noqa: BLE001
                 progress.add_error(f"map recruitment id={raw.get('id')}: {e!r}")
                 continue
+            # Rekrutacja z Traffita jest w NEXUSIE archiwum (decyzja Artura
+            # 24.09.2026, `services/traffit_job_archive.py`): status ZAWSZE
+            # „zamknięta”, a stan z Traffita zostaje w `custom_fields`.
+            # `closed_at` bez zmian — hit ratio liczy daty zamknięcia z Traffita.
+            payload["custom_fields"] = {
+                **(payload.get("custom_fields") or {}),
+                "traffit_status": payload.get("status"),
+            }
+            payload["status"] = "closed"
 
             # Prowadzący jest TYLKO w detalu — odpowiedź listy nie ma pola
             # `responsible_person` (sprawdzone na żywym API 23.09.2026), więc
@@ -2584,6 +2600,8 @@ class TraffitImporter:
                     row = result.fetchone()
                     if row is not None:
                         was_insert = bool(row[1])
+                        if was_insert:
+                            inserted_job_ids.append(int(row[0]))
                         previous = before_import.get(payload["external_id"])
                         managed = bool(row[2])
                         meaningful = (
@@ -2658,6 +2676,32 @@ class TraffitImporter:
                 # reconciler i tak go dogoni. Wywrócenie fazy kosztowałoby
                 # wszystkie rekrutacje zapisane w tym biegu.
                 progress.add_error(f"record job reindex intent: {exc!r}")
+
+        # Archiwum z Traffita: stan „Zakończony” i `is_open=false` to kolumny
+        # NEXUSA, więc nie pisze ich `_UPSERT_JOB` (test własności kolumn) —
+        # robi to ten krok, po fazie. Przełączone „Prowadzona w NEXUSIE” pomija.
+        if not self.dry_run:
+            from app.services.traffit_job_archive import archive_traffit_jobs
+
+            try:
+                async with self.db.begin_nested():
+                    progress.archived = await archive_traffit_jobs(self.db)
+            except Exception as exc:  # noqa: BLE001
+                progress.add_error(f"archive traffit jobs: {exc!r}")
+
+        # Kategoria kompetencji dla nowych rekrutacji z Traffita — import jej
+        # nie nadawał, więc 734 rekrutacje (24.09.2026) nie miały kategorii,
+        # a „Podobne rekrutacje” liczą wspólną kategorię.
+        if inserted_job_ids and not self.dry_run:
+            from app.services.job_cc import classify_missing_job_ccs
+
+            try:
+                async with self.db.begin_nested():
+                    progress.categorised = await classify_missing_job_ccs(
+                        self.db, inserted_job_ids
+                    )
+            except Exception as exc:  # noqa: BLE001
+                progress.add_error(f"classify job categories: {exc!r}")
 
         # Rekrutacja z Traffita nie niesie Delivery Leada — dostaje głównego
         # DL-a klienta (decyzja Artura 24.09.2026). Uzupełnienie, nie nadpis.

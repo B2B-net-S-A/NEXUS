@@ -56,7 +56,7 @@ describe("ManagedInTraffitNotice", () => {
     renderWithQuery(<ManagedInTraffitNotice job={traffitJob} canSwitch />);
     const notice = screen.getByTestId("managed-in-traffit-notice");
     expect(notice.tagName).toBe("SPAN");
-    expect(notice).toHaveTextContent("Prowadzona w Traffit — ruchy nadpisze nocny import");
+    expect(notice).toHaveTextContent("Archiwum z Traffita — nowe rekrutacje zakładaj w NEXUSIE");
     expect(notice).toHaveAttribute("title", MANAGED_IN_NEXUS_LABELS.noticeHint);
     expect(screen.getByTestId("managed-in-nexus-switch")).toHaveTextContent("Przełącz do NEXUSA");
   });
