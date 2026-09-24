@@ -561,6 +561,7 @@ function CalendarPageInner() {
               weekDays={weekDays}
               selectedDay={selectedDay}
               events={events}
+              titleEvents={allEvents}
               today={today}
               conflictPairs={conflictPairs ?? {}}
               onSlotClick={handleSlotClick}
@@ -633,6 +634,7 @@ function WeekGrid({
   weekDays,
   selectedDay,
   events,
+  titleEvents,
   today,
   conflictPairs,
   onSlotClick,
@@ -643,12 +645,16 @@ function WeekGrid({
   /** Dzień widoczny na telefonie (pozostałe kolumny chowa CSS poniżej `md`). */
   selectedDay: Date;
   events: CalendarEvent[];
+  /** Wszystkie wydarzenia tygodnia, także schowane — nazwy w podpowiedzi kolizji. */
+  titleEvents: CalendarEvent[];
   today: Date;
   conflictPairs: Record<string, number[]>;
   onSlotClick: (day: Date, hour: number) => void;
   onEventClick: (ev: CalendarEvent) => void;
 }) {
-  const eventTitleById = new Map(events.map((ev) => [ev.id, ev.title]));
+  // Tytuły kolizji także ze spotkań schowanych filtrem Outlooka — inaczej
+  // podpowiedź brzmiała „Konflikt z: ” bez nazwy.
+  const eventTitleById = new Map(titleEvents.map((ev) => [ev.id, ev.title]));
   const nowMinutes = today.getHours() * 60 + today.getMinutes();
   const nowTop = ((nowMinutes - 8 * 60) / 60) * 56;
 

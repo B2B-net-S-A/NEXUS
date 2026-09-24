@@ -3,7 +3,14 @@
 import Link from "next/link";
 import { ArrowUpRight, Video } from "lucide-react";
 
-import { Sheet, SheetBody, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import {
+  Sheet,
+  SheetBody,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import {
   AGENDA_LABELS,
   PREP_QUALITY_LABELS,
@@ -78,6 +85,9 @@ export function CycleCandidateSheet({
         <SheetContent side="right" size="md">
           <SheetHeader>
             <SheetTitle>{candidateLabel(item)}</SheetTitle>
+            <SheetDescription className="sr-only">
+              Kroki rozmowy u klienta, prepy i pytania klienta — {pairContext(item)}
+            </SheetDescription>
           </SheetHeader>
           <SheetBody>
             <CandidateCycleCard

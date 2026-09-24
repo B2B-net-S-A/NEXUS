@@ -229,6 +229,33 @@ describe("CalendarCycleScreen", () => {
     expect(within(panel).getByText("Alior · Senior Java")).toBeInTheDocument();
   });
 
+  it("panel nie otwiera się sam po powrocie z Tygodnia (link bez ?cycle=)", async () => {
+    mocks.search = "cycle=11-22";
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    const view = render(
+      <QueryClientProvider client={client}>
+        <CalendarCycleScreen />
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByTestId("cycle-candidate-card")).toBeInTheDocument();
+    // „Szczegóły” → Tydzień (`?cycle=` znika z adresu), potem powrót na Tablicę.
+    mocks.search = "view=week&event=44";
+    view.rerender(
+      <QueryClientProvider client={client}>
+        <CalendarCycleScreen />
+      </QueryClientProvider>,
+    );
+    await screen.findByTestId("week-calendar");
+    mocks.search = "";
+    view.rerender(
+      <QueryClientProvider client={client}>
+        <CalendarCycleScreen />
+      </QueryClientProvider>,
+    );
+    await screen.findByRole("listitem", { name: "Telefon ≤ 30 min" });
+    expect(screen.queryByTestId("cycle-candidate-card")).not.toBeInTheDocument();
+  });
+
   it("bez kandydatów w cyklu jest komunikat, bez pustego panelu", async () => {
     mocks.get.mockImplementation((url: string) =>
       url === "/api/interview-cycle"

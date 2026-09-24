@@ -94,9 +94,11 @@ export function CalendarCycleScreen({
 
   // Link z dzwonka: efekt na WARTOŚCI parametru (miękka nawigacja nie
   // odmontowuje strony, więc sam inicjalizator stanu by go przegapił).
+  // Adres jest źródłem prawdy: zniknięcie `?cycle=` (np. „Szczegóły” → Tydzień)
+  // zamyka panel — inaczej otwierał się sam po powrocie na Tablicę.
   useEffect(() => {
     const parsed = parseCycleParam(cycleParam);
-    if (parsed) setSelectedKey(`${parsed.candidateId}-${parsed.jobId}`);
+    setSelectedKey(parsed ? `${parsed.candidateId}-${parsed.jobId}` : null);
   }, [cycleParam]);
 
   // Odliczanie „zostało N min” — przeliczane co 30 s bez nowego zapytania.
