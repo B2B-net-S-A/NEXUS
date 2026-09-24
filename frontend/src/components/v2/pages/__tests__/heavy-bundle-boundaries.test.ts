@@ -133,9 +133,8 @@ describe("ciężkie biblioteki zostają za granicą next/dynamic", () => {
 });
 
 it("„CV do klienta” nie wciąga generatora CV do chunku /jobs/[id]", () => {
-  // Ciężarem nie jest tu zewnętrzna biblioteka, tylko własny komponent:
-  // `CVGeneratorStandaloneV2` to ~1800 linii z comboboxem, dropzone'em i
-  // trzema modalami. Od wersji 3 warsztaty żyją w PANELU OSOBY, a panel jest
+  // Ciężarem nie jest tu zewnętrzna biblioteka, tylko własne komponenty:
+  // warsztaty z formularzami i (dawniej) osadzonym generatorem CV. Od wersji 3 warsztaty żyją w PANELU OSOBY, a panel jest
   // domyślnym widokiem rekrutacji — statyczny import warsztatu gdziekolwiek
   // na ścieżce strona → tabela → panel przenosi ten koszt na KAŻDE otwarcie
   // rekrutacji. Regresja jest cicha jak przy TipTapie: ekran działa, rośnie
@@ -175,12 +174,46 @@ it("„CV do klienta” nie wciąga generatora CV do chunku /jobs/[id]", () => {
   const panel = fs.readFileSync(path.join(recruitmentDir, "PersonPanel.tsx"), "utf8");
   expect(staticSpecifiers(panel)).toContain("./panel-workbenches");
 
+  // Od generatora CV v3 warsztat NIE osadza generatora: karta „CV do klienta”
+  // otwiera go w oknie, a okno ładuje formularz dopiero przy otwarciu.
   const workbench = fs.readFileSync(
     path.join(SRC, "components/v2/jobs/CvHandoffWorkbench.tsx"),
     "utf8",
   );
-  expect(staticSpecifiers(workbench)).toContain(
+  expect(staticSpecifiers(workbench)).toContain("@/components/v2/recruitment/CvToClientCard");
+  expect(staticSpecifiers(workbench)).not.toContain(
     "@/components/v2/pages/CVGeneratorStandaloneV2",
+  );
+});
+
+it("karta „CV do klienta” i okno generatora trzymają generator i edytor za dynamic()", () => {
+  // Karta jest na ścieżce /jobs/[id] (panel osoby) i na profilu kandydata
+  // okno generatora jest montowane przy każdym otwarciu — żadna z nich nie
+  // może wciągnąć formularza generatora ani TipTapa do chunku trasy.
+  const heavy =
+    /^@tiptap\/|CVBrandedEditModal$|cv-generator\/CvGenerator$|CVGeneratorStandaloneV2$/;
+  const files = [
+    "components/v2/recruitment/CvToClientCard.tsx",
+    "components/v2/cv-generator/CvGeneratorDialog.tsx",
+    "components/v2/pages/CandidateDetailV2.tsx",
+    "components/v2/candidate-profile/RecruitmentsTab.tsx",
+    "components/v2/jobs/PipelineCandidateDock.tsx",
+  ];
+  const offenders = files.flatMap((file) =>
+    staticSpecifiers(fs.readFileSync(path.join(SRC, file), "utf8"))
+      .filter((spec) => heavy.test(spec))
+      .map((spec) => `${file} → ${spec}`),
+  );
+  expect(offenders).toEqual([]);
+
+  // …i te moduły naprawdę są ładowane leniwie, a nie usunięte.
+  const card = fs.readFileSync(path.join(SRC, "components/v2/recruitment/CvToClientCard.tsx"), "utf8");
+  expect(card).toMatch(
+    /dynamic\(\s*\(\)\s*=>[\s\S]{0,200}?import\(\s*["']@\/components\/v2\/modals\/CVBrandedEditModal["']/,
+  );
+  const dialog = fs.readFileSync(path.join(SRC, "components/v2/cv-generator/CvGeneratorDialog.tsx"), "utf8");
+  expect(dialog).toMatch(
+    /dynamic\(\s*\(\)\s*=>[\s\S]{0,200}?import\(\s*["']@\/components\/v2\/cv-generator\/CvGenerator["']/,
   );
 });
 

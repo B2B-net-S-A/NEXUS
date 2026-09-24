@@ -10,8 +10,9 @@
  * ruchu przerywa resztę, porażka linku lub stawki PO ruchu jest ostrzeżeniem.
  * Pole stawki do klienta renderuje się wyłącznie przy `canWriteClientRate`
  * (z `GET /api/jobs/{id}` → `can_write_client_rate`) — reszta go nie widzi.
- * Generator CV, reguły klienta i modale snapshotów są zamockowane: mają własne
- * zapytania do innych endpointów, niepowiązane z tym, co testujemy.
+ * Karta „CV do klienta” (generator CV v3) i reguły klienta są zamockowane: mają
+ * własne zapytania i testy (`CvToClientCard.test.tsx`). Od v3 warsztat jest
+ * WYŁĄCZNIE sekcją panelu osoby — pełnoekranowego układu z kolejką już nie ma.
  */
 
 import { render, screen, waitFor, within } from "@testing-library/react";
@@ -32,9 +33,7 @@ const move = vi.fn(async (...a: unknown[]) => {
   calls.push("move");
   return { data: { id: 99 } };
 });
-const originalGet = vi.fn();
 const brandedGet = vi.fn();
-const selectGenerated = vi.fn();
 const shareList = vi.fn();
 const shareRevokeAll = vi.fn();
 const createScreeningShareToken = vi.fn();
@@ -70,10 +69,8 @@ vi.mock("@/lib/api", () => ({
     setRecruitmentClientRate: (...a: unknown[]) =>
       setRecruitmentClientRate(...a),
   },
-  cvGeneratedShareApi: { approvedVersions: async () => ({data: [{id: 81, version: 2, language: "pl", approved_at: "2026-09-09T12:00:00Z"}]}) },
   candidateStageCvApi: {
-    original: { get: (...a: unknown[]) => originalGet(...a) },
-    branded: { get: (...a: unknown[]) => brandedGet(...a), selectGenerated: (...a: unknown[]) => selectGenerated(...a) },
+    branded: { get: (...a: unknown[]) => brandedGet(...a) },
     share: {
       create: (...a: unknown[]) => shareCreate(...a),
       list: (...a: unknown[]) => shareList(...a),
@@ -108,17 +105,11 @@ vi.mock("@/hooks/useCapability", () => ({
   useCapability: () => canManageCvRules,
 }));
 
-// Generator to 1800-linijkowy komponent z własnymi zapytaniami — dla tego testu
-// liczy się wyłącznie, że dostaje prefill.
-vi.mock("@/components/v2/pages/CVGeneratorStandaloneV2", () => ({
-  CVGeneratorStandaloneV2: (p: {
-    prefillCandidateId?: number;
-    prefillJobId?: number;
-    onSelectForRecruitment?: (item: { id: number; filename: string }) => void;
-  }) => (
-    <div data-testid="cv-generator-stub">
-      {`prefill:${p.prefillCandidateId}/${p.prefillJobId}`}
-      {p.onSelectForRecruitment && <button onClick={() => p.onSelectForRecruitment!({ id: 42, filename: "Wybrane.docx" })}>Użyj w rekrutacji</button>}
+// Karta „CV do klienta” ma własne zapytania i testy — tu liczy się, CO dostaje.
+vi.mock("@/components/v2/recruitment/CvToClientCard", () => ({
+  CvToClientCard: (p: { stageId: number; candidateId: number; jobId: number; readOnly: boolean }) => (
+    <div data-testid="cv-to-client-card-stub">
+      {`card:${p.stageId}/${p.candidateId}/${p.jobId}/${p.readOnly ? "ro" : "rw"}`}
     </div>
   ),
 }));
@@ -136,9 +127,6 @@ vi.mock("@/lib/client-playbooks", () => ({
     data: { cv_limit_per_process: 3 },
     isLoading: false,
   }),
-}));
-vi.mock("@/components/v2/modals/CVOriginalPreviewModal", () => ({
-  CVOriginalPreviewModal: () => null,
 }));
 
 import { CvHandoffWorkbench } from "@/components/v2/jobs/CvHandoffWorkbench";
@@ -201,6 +189,7 @@ function renderWorkbench(
         onMoved={onMoved}
         readOnly={false}
         canWriteClientRate
+        focusCandidateId={121}
         {...overrides}
       />
     </QueryClientProvider>,
@@ -228,25 +217,19 @@ beforeEach(() => {
   canManageCvRules = true;
   cvRule = undefined;
   centralPolicy = { managed: false };
-  originalGet.mockResolvedValue({ data: { has_snapshot: true } });
   brandedGet.mockResolvedValue({ data: { status: "finalized" } });
   shareList.mockResolvedValue({ data: [] });
   copyText.mockResolvedValue(true);
 });
 
 describe("CvHandoffWorkbench", () => {
-  it("kolejka pokazuje zweryfikowanych ze stawką kandydata", () => {
+  it("karta „CV do klienta” dostaje etap, osobę i rekrutację — generatora nie ma w warsztacie", () => {
     renderWorkbench();
-    const queue = screen.getByRole("list", { name: "Kandydaci do wysłania CV" });
-    expect(within(queue).getByText("Grzegorz Żebrowski")).toBeTruthy();
-    expect(within(queue).getByText(/118/)).toBeTruthy();
-  });
-
-  it("generator dostaje prefill kandydata i rekrutacji", async () => {
-    renderWorkbench();
-    expect(
-      (await screen.findByTestId("cv-generator-stub")).textContent,
-    ).toContain("prefill:121/7");
+    expect(screen.getByTestId("cv-to-client-card-stub").textContent).toBe("card:21/121/7/rw");
+    // Przygotowanie CV (osadzony generator, „Zastąp szkic i otwórz edytor”)
+    // żyje w karcie i w oknie generatora, nie w warsztacie.
+    expect(screen.queryByRole("button", { name: /Generator CV/ })).toBeNull();
+    expect(screen.queryByText(/Zastąp szkic i otwórz edytor/)).toBeNull();
   });
 
   it("limit CV klienta jest liczony z tablicy, nie zmyślony", () => {
@@ -258,9 +241,9 @@ describe("CvHandoffWorkbench", () => {
     expect(screen.getByText("u klienta jest 1")).toBeTruthy();
   });
 
-  it("pusta kolejka to pusty stan, a 403 to brak uprawnień", () => {
+  it("osoba poza etapem „Zweryfikowany” to zdanie o etapie, a 403 to brak uprawnień", () => {
     const { unmount } = renderWorkbench({ columns: columns([]) });
-    expect(screen.getByText(/Nikt nie czeka na wysyłkę CV/)).toBeTruthy();
+    expect(screen.getByText(/dostępne na etapie „Zweryfikowany”/)).toBeTruthy();
     unmount();
 
     renderWorkbench({
@@ -270,7 +253,7 @@ describe("CvHandoffWorkbench", () => {
       error: { response: { status: 403 } },
     });
     expect(screen.getByText("Brak uprawnień")).toBeTruthy();
-    expect(screen.queryByText(/Nikt nie czeka na wysyłkę CV/)).toBeNull();
+    expect(screen.queryByText(/dostępne na etapie „Zweryfikowany”/)).toBeNull();
   });
 
   it("sekwencja idzie: ruch ze stawką (Pipeline v4) → link na etapie SPRZED ruchu", async () => {
@@ -342,11 +325,11 @@ describe("CvHandoffWorkbench", () => {
     expect(move).not.toHaveBeenCalled();
   });
 
-  it("bez sfinalizowanego CV brandowanego link nie powstaje, a powód jest widoczny", async () => {
+  it("bez zatwierdzonego CV do klienta link nie powstaje, a powód jest widoczny", async () => {
     brandedGet.mockResolvedValue({ data: { status: "draft" } });
     renderWorkbench();
     expect(
-      await screen.findByText(/wymaga sfinalizowanego CV brandowanego/),
+      await screen.findByText(/wymaga zatwierdzonego CV do klienta/),
     ).toBeTruthy();
     await readySendButton();
 
@@ -555,7 +538,7 @@ describe("CvHandoffWorkbench", () => {
   });
 
   // ── Parytet z makietą (fala 3) ─────────────────────────────────────────
-  it("zatwierdzona reguła klienta jest wypisana klockami PRZED generacją", async () => {
+  it("zatwierdzona reguła klienta jest wypisana klockami", async () => {
     cvRule = {
       is_active: true,
       client_name: "PKO BP",
@@ -573,8 +556,9 @@ describe("CvHandoffWorkbench", () => {
     ).toBeTruthy();
     expect(screen.getByText("Zrzut zgody RODO")).toBeTruthy();
     expect(screen.getByText("B2B_Python_G.Zebrowski.docx")).toBeTruthy();
-    // Stopka doku powtarza konsekwencję braku zrzutu — 422 przed naliczeniem.
-    expect(screen.getByText(/odmawia \(422\)/)).toBeTruthy();
+    // Stopka doku mówi, czego brak zgody NIE blokuje: wysyłki. Blokuje pobranie.
+    expect(screen.getByText(/nie da się pobrać/)).toBeTruthy();
+    expect(screen.getByText(/Wysyłki to nie blokuje/)).toBeTruthy();
   });
 
   it("bez zatwierdzonej reguły zostaje baner o jej braku, ale limit CV nadal widać", () => {
@@ -635,11 +619,12 @@ it("successful move must preserve the one-time share link after queue refresh", 
     return <CvHandoffWorkbench jobId={7} jobTitle="Synthetic job" clientId={4}
       columns={columns(remaining ? [item()] : [])}
       isLoading={false} isError={false} error={null} isSuccess
-      onRetry={()=>{}} onMoved={()=>setRemaining(false)} readOnly={false} canWriteClientRate/>;
+      onRetry={()=>{}} onMoved={()=>setRemaining(false)} readOnly={false} canWriteClientRate
+      focusCandidateId={121}/>;
   }
   render(<QueryClientProvider client={qc}><AuditHost/></QueryClientProvider>);
   await userEvent.click(await readySendButton());
-  await screen.findByText(/Nikt nie czeka na wysyłkę CV/);
+  await screen.findByText(/dostępne na etapie „Zweryfikowany”/);
   expect(shareCreate).toHaveBeenCalledOnce();
   expect(move).toHaveBeenCalledOnce();
   expect(screen.queryByText(/abc123/)).not.toBeNull();
@@ -654,13 +639,14 @@ it("retains each result with its original candidate when moving to the next one"
     return <CvHandoffWorkbench jobId={7} jobTitle="Synthetic job" clientId={4}
       columns={columns(step === 0 ? [item()] : step === 1 ? [item({id:22,candidate_id:122,name:"Anna",lastname:"Testowa"})] : [])}
       isLoading={false} isError={false} error={null} isSuccess
-      onRetry={()=>{}} onMoved={()=>setStep((n)=>n+1)} readOnly={false} canWriteClientRate/>;
+      onRetry={()=>{}} onMoved={()=>setStep((n)=>n+1)} readOnly={false} canWriteClientRate
+      focusCandidateId={step === 0 ? 121 : 122}/>;
   }
   render(<QueryClientProvider client={qc}><Host/></QueryClientProvider>);
   await userEvent.click(await readySendButton());
   await screen.findByText(/\/cv\/first/);
   await userEvent.click(await readySendButton());
-  await screen.findByText(/Nikt nie czeka na wysyłkę CV/);
+  await screen.findByText(/dostępne na etapie „Zweryfikowany”/);
   const results = screen.getByRole("region", {name: "Utworzone linki do CV"});
   expect(within(results).getByText(/\/cv\/first/)).toBeTruthy();
   expect(within(results).getByText(/\/cv\/second/)).toBeTruthy();
@@ -671,51 +657,6 @@ it("retains each result with its original candidate when moving to the next one"
   expect(decodeURIComponent(drafts[1].getAttribute("href")!)).toContain("Anna Testowa");
 });
 
-
-describe("wybór konkretnego wyniku generatora", () => {
-  it("wymaga jawnego zastąpienia i wysyła wersję szkicu z chwili wyboru", async () => {
-    brandedGet.mockResolvedValue({ data: { status: "draft", edit_revision: 7, version: 1 } });
-    selectGenerated.mockResolvedValue({ data: { status: "draft", edit_revision: 8, version: 1,
-      generated_document_id: 42, from_generator: true } });
-    renderWorkbench();
-    await userEvent.click(await screen.findByRole("button", { name: "Użyj w rekrutacji" }));
-    expect(selectGenerated).not.toHaveBeenCalled();
-    expect(screen.getByText(/Wczytać „Wybrane.docx”/)).toBeTruthy();
-    await screen.findByRole("option", {name: /Zatwierdzona wersja 2/});
-    await userEvent.selectOptions(screen.getByLabelText("Wersja CV do rekrutacji"), "81");
-    await userEvent.click(screen.getByRole("button", { name: "Zastąp szkic i otwórz edytor" }));
-    await waitFor(() => expect(selectGenerated).toHaveBeenCalledWith(21, 42, 7, 81));
-    expect(await screen.findByText(/Wybrany wynik generatora #42/)).toBeTruthy();
-    expect(shareCreate).not.toHaveBeenCalled();
-    expect(move).not.toHaveBeenCalled();
-  });
-
-  it("po konflikcie zachowuje wybór i nie udaje powodzenia", async () => {
-    brandedGet.mockResolvedValue({ data: { status: "draft", edit_revision: 7, version: 1 } });
-    selectGenerated.mockRejectedValueOnce(new Error("409"));
-    renderWorkbench();
-    await userEvent.click(await screen.findByRole("button", { name: "Użyj w rekrutacji" }));
-    await userEvent.click(screen.getByRole("button", { name: "Zastąp szkic i otwórz edytor" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Nie udało się wybrać CV");
-    expect(screen.getByText(/Wczytać „Wybrane.docx”/)).toBeTruthy();
-    expect(screen.queryByText(/Wybrany wynik generatora #42/)).toBeNull();
-  });
-});
-
-it("przy braku zasobów wraca do generatora bez ponownego zastępowania szkicu", async () => {
-  brandedGet.mockResolvedValue({data: {status: "draft", edit_revision: 7, version: 1}});
-  selectGenerated.mockRejectedValueOnce({response: {data: {detail: {code: "cv_editor_assets_unavailable"}}}});
-  Element.prototype.scrollIntoView = vi.fn();
-  renderWorkbench();
-  await userEvent.click(await screen.findByRole("button", {name: "Użyj w rekrutacji"}));
-  await userEvent.click(screen.getByRole("button", {name: "Zastąp szkic i otwórz edytor"}));
-  expect(await screen.findByRole("alert")).toHaveTextContent("Obecny szkic pozostaje bez zmian");
-  await userEvent.click(screen.getByRole("button", {name: "Przejdź do generatora"}));
-  expect(selectGenerated).toHaveBeenCalledTimes(1);
-  expect(screen.queryByText(/Wczytać „Wybrane.docx”/)).toBeNull();
-  expect(screen.queryByText(/Wybrany wynik generatora #42/)).toBeNull();
-  expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
-});
 
 describe("CvHandoffWorkbench — layout=\"panel\" (rekrutacja v3)", () => {
   const two = () =>
@@ -743,23 +684,16 @@ describe("CvHandoffWorkbench — layout=\"panel\" (rekrutacja v3)", () => {
     expect(brandedGet).not.toHaveBeenCalled();
   });
 
-  it("kluczowe akcje zostają: CV, edytor, stawka, link, karta Championa, linki, generator, reguły", async () => {
+  it("kluczowe akcje zostają: karta CV, stawka, link, karta Championa, linki, reguły", async () => {
     renderWorkbench({ layout: "panel", focusCandidateId: 121 });
     await readySendButton();
-    expect(screen.getByRole("button", { name: "Pokaż" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Edytuj|Stwórz/ })).toBeTruthy();
+    expect(screen.getByTestId("cv-to-client-card-stub")).toBeTruthy();
     expect(screen.getByLabelText("Kwota")).toBeTruthy();
     expect(screen.getByRole("checkbox", { name: /Utwórz link do brandowanego CV/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Utwórz link \(30 dni\)/ })).toBeTruthy();
     expect(screen.getByRole("link", { name: /Mail do klienta/ })).toBeTruthy();
     expect(screen.getByRole("tab", { name: "Linki i historia" })).toBeTruthy();
     expect(screen.getByRole("link", { name: /Reguły CV \(DL\)/ })).toBeTruthy();
-    // Generator jest zwinięty, ale osiągalny — i dostaje prefill.
-    expect(screen.queryByTestId("cv-generator-stub")).toBeNull();
-    await userEvent.click(screen.getByRole("button", { name: /Generator CV/ }));
-    expect(screen.getByTestId("cv-generator-stub").textContent).toContain(
-      "prefill:121/7",
-    );
   });
 
   it("bez `can_write_client_rate` pole stawki znika także w panelu", async () => {

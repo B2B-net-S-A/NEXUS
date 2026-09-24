@@ -83,7 +83,7 @@ export interface ProfileTabProps {
   embedded?: boolean;
   recentActivity: { items: any[]; isPending: boolean };
   onNavigate: ProfileNavigate;
-  /** Otwiera generator CV firmowego. Brak = brak prawa zapisu. */
+  /** Otwiera okno generatora CV. Brak = brak prawa zapisu. */
   onGenerateCv?: () => void;
   /** >0 = rozwiń szczegóły i przewiń do „Dane do umowy” (z zakładki Umowy). */
   jdgFocusRequest?: number;
@@ -165,7 +165,7 @@ export function ProfileTab({
   );
 }
 
-/** Wiersz CV: plik, data, podgląd, generator CV firmowego, ponowny odczyt. */
+/** Wiersz CV: plik, data, podgląd, generator CV, ponowny odczyt. */
 function CvRow({
   candidate,
   readOnly,
@@ -235,7 +235,7 @@ function CvRow({
         {!readOnly && onGenerateCv ? (
           <Button size="sm" variant="outline" onClick={onGenerateCv}>
             <Sparkles className="h-3.5 w-3.5" />
-            Generuj CV firmowe
+            Generuj CV
           </Button>
         ) : null}
       </div>

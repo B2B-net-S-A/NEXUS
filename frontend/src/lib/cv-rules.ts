@@ -1,4 +1,3 @@
-import { withCvGenerationRequest } from "./cv-generation-request";
 /**
  * Reguły CV per klient — typy i wywołania API współdzielone przez edytor
  * (`components/cv-rules/*`), ekran `/settings/cv-rules`, baner w generatorze
@@ -216,35 +215,6 @@ export interface LintResponse {
   unclear_count: number;
 }
 
-export interface PromptPreview {
-  language: CvRuleLanguage;
-  block: string;
-  is_active: boolean;
-}
-
-export interface PreviewVariant {
-  rule_feedback?: {field: string; label: string; status: "satisfied" | "not_applicable" | "conflict" | "needs_review" | "skipped"}[];
-  can_download?: boolean;
-  docx_sha256?: string | null;
-  payload: Record<string, unknown> | null;
-  warnings: string[];
-  filename: string | null;
-}
-
-export interface RulePreview {
-  id: number;
-  client_id: number;
-  candidate_id: number | null;
-  stage_id: number | null;
-  language: string;
-  status: "processing" | "ready" | "failed";
-  error_message: string | null;
-  prompt_block: string | null;
-  with_rule: PreviewVariant | null;
-  without_rule: PreviewVariant | null;
-  created_at: string | null;
-}
-
 export const cvRulesApi = {
   overview: async () =>
     (await api.get<CvRulesOverview>("/api/settings/cv-rules")).data,
@@ -302,25 +272,6 @@ export const cvRulesApi = {
         // zamiast lokalnej liczby — kopie sufitu rozjeżdżają się cicho.
         timeout: SLOW_ENDPOINT_TIMEOUT_MS,
       })
-    ).data,
-  promptPreview: async (clientId: number, language: CvRuleLanguage) =>
-    (
-      await api.get<PromptPreview>(
-        `/api/clients/${clientId}/cv-rule/prompt-preview`,
-        { params: { language } },
-      )
-    ).data,
-  enqueuePreview: async (
-    clientId: number,
-    body: { candidate_id: number; stage_id: number; cv_document_id?: number; language: CvRuleLanguage },
-  ) =>
-    (await withCvGenerationRequest(`/api/clients/${clientId}/cv-rule/preview`, body, key => api.post<RulePreview>(`/api/clients/${clientId}/cv-rule/preview`, body, { headers: { "Idempotency-Key": key } })))
-      .data,
-  getPreview: async (clientId: number, previewId: number) =>
-    (
-      await api.get<RulePreview>(
-        `/api/clients/${clientId}/cv-rule/preview/${previewId}`,
-      )
     ).data,
 };
 

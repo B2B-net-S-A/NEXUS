@@ -80,6 +80,8 @@ import { CVShareLinkModal } from "@/components/v2/modals/CVShareLinkModal";
 import { SendEmailV2 } from "@/components/v2/modals/SendEmailV2";
 import { isOverHourlyBudget } from "@/lib/rate-to-hourly";
 import { CV_CLIENT_LINKS_UI_ENABLED } from "@/lib/cv-generator";
+import { stageCvBadge, stageCvStatus } from "@/lib/cv-to-client";
+import { CvGeneratorDialog } from "@/components/v2/cv-generator/CvGeneratorDialog";
 
 // Edytor brandowanego CV jest ciężki (rich text) — leniwy import jak w
 // CandidateDetailV2, żeby nie puchła zakładka Pipeline dla osób, które go
@@ -440,6 +442,7 @@ export function PipelineCandidateDock({
     });
   const [openOriginal, setOpenOriginal] = useState(false);
   const [openBranded, setOpenBranded] = useState(false);
+  const [openGenerator, setOpenGenerator] = useState(false);
   const [openShare, setOpenShare] = useState(false);
   const [openEmail, setOpenEmail] = useState(false);
   const [noteText, setNoteText] = useState("");
@@ -527,6 +530,8 @@ export function PipelineCandidateDock({
     enabled: isOpen("cv") || openBranded || openShare,
   });
   const brandedStatus = cvBrandedQuery.data?.status ?? "none";
+  const stageCv = stageCvStatus(cvBrandedQuery.data);
+  const stageCvBadgeInfo = stageCvBadge(cvBrandedQuery.data);
 
   // ── Notatki — przypięte do TEJ rekrutacji (candidate_id + job_id) ──────
   const notesQueryKey = useMemo(
@@ -1083,7 +1088,7 @@ export function PipelineCandidateDock({
         <DockSection
           id="cv"
           label={DOCK_SECTION_LABEL.cv}
-          summary={brandedStatus === "finalized" ? "CV firmowe gotowe" : brandedStatus === "draft" ? "CV firmowe w szkicu" : "Oryginał i CV firmowe"}
+          summary={stageCvBadgeInfo?.label ?? "Oryginał i CV do klienta"}
           isNow={nowSection === "cv"}
           open={isOpen("cv")}
           onToggle={() => toggleSection("cv")}
@@ -1103,19 +1108,11 @@ export function PipelineCandidateDock({
                   </Badge>
                 )
               ) : null}
-              {brandedStatus === "finalized" ? (
-                <Badge size="sm" variant="success">
-                  Brandowane: gotowe
+              {cvBrandedQuery.isSuccess ? (
+                <Badge size="sm" variant={stageCvBadgeInfo?.tone ?? "neutral"}>
+                  {stageCvBadgeInfo?.label ?? "CV do klienta: brak"}
                 </Badge>
-              ) : brandedStatus === "draft" ? (
-                <Badge size="sm" variant="info">
-                  Brandowane: draft
-                </Badge>
-              ) : (
-                <Badge size="sm" variant="neutral">
-                  Brandowane: brak
-                </Badge>
-              )}
+              ) : null}
             </div>
             <div className="flex flex-col gap-1.5">
               <Button
@@ -1128,15 +1125,26 @@ export function PipelineCandidateDock({
               </Button>
               {!readOnly && (
                 <>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => setOpenBranded(true)}
-                    className="justify-start"
-                  >
-                    <FileText className="h-3.5 w-3.5" />{" "}
-                    {brandedStatus === "none" ? "Stwórz brandowane" : "Edytuj brandowane"}
-                  </Button>
+                  {stageCv === "ready" ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setOpenBranded(true)}
+                      className="justify-start"
+                    >
+                      <FileText className="h-3.5 w-3.5" /> Edytuj CV
+                    </Button>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setOpenGenerator(true)}
+                      disabled={cvBrandedQuery.isLoading}
+                      className="justify-start"
+                    >
+                      <Sparkles className="h-3.5 w-3.5" /> Generuj CV
+                    </Button>
+                  )}
                   {CV_CLIENT_LINKS_UI_ENABLED && (
                   <Button
                     size="sm"
@@ -1145,7 +1153,7 @@ export function PipelineCandidateDock({
                     onClick={() => setOpenShare(true)}
                     title={
                       brandedStatus !== "finalized"
-                        ? "Najpierw sfinalizuj brandowane CV"
+                        ? "Najpierw zapisz CV do klienta w edytorze"
                         : undefined
                     }
                     className="justify-start"
@@ -1268,10 +1276,24 @@ export function PipelineCandidateDock({
         <CVBrandedEditModal
           open
           onOpenChange={setOpenBranded}
-          onRegenerate={() => window.location.assign(`/cv-generator?candidate_id=${item.candidate_id}&job_id=${jobId}`)}
+          onRegenerate={() => setOpenGenerator(true)}
           stageId={item.id}
           jobTitle={jobLabel}
           candidateName={fullName}
+        />
+      )}
+      {!readOnly && openGenerator && (
+        <CvGeneratorDialog
+          open
+          onOpenChange={setOpenGenerator}
+          candidateId={item.candidate_id}
+          candidateName={fullName}
+          jobId={jobId}
+          onEnqueued={() => {
+            setOpenGenerator(false);
+            showSuccess("CV generuje się w tle. Gdy będzie gotowe, podepnie się do tego etapu.");
+            void queryClient.invalidateQueries({ queryKey: ["cv-branded", item.id] });
+          }}
         />
       )}
       {!readOnly && openShare && (

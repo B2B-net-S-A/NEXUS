@@ -1079,6 +1079,62 @@ wziąć obrazu. Teraz rekruter wgrywa go przy generacji, a renderer wkleja sam.
 - **Poza zakresem świadomie:** publiczny link do CV (`/cv/i/{token}`) i eksport
   HTML nie niosą zrzutu. Wymóg dotyczy dokumentu wysyłanego do banku, a obraz
   niesie adres e-mail kandydata — inny kanał to osobna decyzja.
+- **Pod centralnymi regułami zgoda blokuje POBRANIE, nie generację** (decyzja
+  Artura 23.09.2026). `services/cv_consent_gate.py` (`consent_required` =
+  `central_policy.requires_rodo_consent_block`, `consent_missing`) odpowiada
+  409 `{code:"consent_required"}` na każdej trasie oddającej plik (DOCX, HTML,
+  wersje zatwierdzone, podgląd DOCX/PDF szkicu — generatora i etapu, tworzenie
+  linku). Wyłącznik awaryjny `CV_CONSENT_DOWNLOAD_GATE_ENABLED` (domyślnie ON).
+  Do 23.09 CV dla PKO bez zgody dawało się pobrać i wysłać mailem, bo blokowała
+  tylko „gotowość pakietu”, której nikt nie używał.
+- **Zrzut dołącza się i WYMIENIA po generacji** (`/consent-screenshot` z
+  `generated_id` → `POST /generated/{id}/consent`): serwer renderuje DOCX
+  ponownie i przepina kopię zgody w szkicach; wersja już zatwierdzona dostaje
+  nową wersję bez wywołania AI (treść bez zmian). Blokada dotyczy pliku, nie
+  ruchu karty — „Kanban bez bramek” obowiązuje.
+
+## Generator CV v3 — jeden ekran od osoby (23.09.2026)
+
+Dane z produkcji (23.09): 99,7% generacji szło trybem „Mam tylko plik CV (bez
+procesu)”, a 94% tych osób było już w bazie (88% w procesie). Decyzje Artura
+(makiety: https://claude.ai/artifact/E8QeDEyEQdAec4TVbhjPMW):
+
+- **Start od wyboru osoby** (typeahead także po telefonie). Plik z dysku tylko
+  dla osoby spoza bazy: `POST /api/cv-generator/identify-upload` (bez modelu,
+  e-mail/telefon z nagłówka CV) → „użyj osoby z bazy” / „Dodaj do bazy”
+  (`/candidates/from-cv`) / „Generuj bez dodawania” (`/generate-upload`).
+- **Klient zawsze wymagany**; z procesu wynika sam. `/generate` przyjmuje
+  `stage_id: null` + `client_id` („inny klient (bez procesu)”); wtedy do
+  modelu idą tylko notatki bez rekrutacji (`Note.job_id IS NULL`).
+- **Champion i notatki z procesu, uzupełniane w miejscu i zapisywane w
+  rekrutacji.** Gdy zapis Championa się nie uda, profil z podglądu idzie w
+  żądaniu (`champion_profile`) tylko do tego CV — ta sama lekcja co przy
+  centralnych regułach (spadek „Pod rekrutację” 49% → 12%).
+- **Dwa kafle obróbki** (Redakcja / Pod rekrutację, domyślny z Championa);
+  „Przepisanie” zniknęło z UI (backend przyjmuje). **Język PL · EN · Obie**:
+  `languages: "both"` wymusza drugą wersję także bez reguły; przy języku
+  wymuszonym regułą → 422 przed kwotą. Do snapshotu zadania trafiają tylko
+  wartości niedomyślne. Numer projektu PKO serwer bierze z rekrutacji
+  (`pko_job_reference`), gdy pole jest puste.
+- **Wynik zawsze podpina się do etapu jako szkic „CV do klienta”**, gdy etap
+  go nie ma — także u osoby spoza zespołu (świadome poluzowanie reguły
+  członkostwa). Podpina worker (`attach_as_stage_draft`), więc przeżywa restart.
+- **Jeden formularz we wszystkich miejscach:** strona `/cv-generator`,
+  `CvGeneratorDialog` na profilu kandydata (usunięta kopia `CVGeneratorV2`),
+  karta `CvToClientCard` w panelu osoby rekrutacji. Kod:
+  `components/v2/cv-generator/`. Harness `/preview/cv-generator?state=`.
+- **Wycofane:** stary szablon „CV firmowe / Stwórz brandowane” (HTML z pól
+  profilu, bez reguł klienta, z telefonem i e-mailem kandydata —
+  `cv_html_renderer.py` usunięty — jego arkusz żyje zamrożony w
+  `cv_legacy_template_css.py`, bo publiczny link pokazuje stare CV etapów
+  w tym układzie; GET etapu przy `none` nic nie renderuje,
+  PATCH szablonu 410, finalize przy `none` 409), pola Must/Nice, checkbox „CV
+  poza zleceniem”, CV próbne, osobny krok „Zatwierdź” w edytorze (jeden
+  „Zapisz”; zatwierdzenie z kontrolą AI leci w tle, `lib/cv-background-approval.ts`
+  — serwerowe `finalize` zostaje, bo od wersji zatwierdzonej zależą pakiet,
+  `needs_review` i linki).
+- Ostrzeżenia: „Do sprawdzenia” (kontrola AI, BRAK POKRYCIA, WERYFIKUJ) +
+  zwinięte „Informacje” (`classifyCvWarnings`, nieznany tekst → do sprawdzenia).
 
 ## Generator CV — domyślnie ścieżka sprzed przebudowy (`legacy_v7`, 10.09.2026)
 
@@ -1155,8 +1211,10 @@ technologii w każdym trybie i końcowa kontrola AI. Zespół zgłosił, że CV
   związany z rekrutacją wymaga odczytu tej rekrutacji (`ensure_job_read_access`
   — obejmuje Finanse, więc Finanse może też zatwierdzić/udostępnić cudze CV,
   jak przed 09.09); usunięcie nadal autor albo admin. Lista `/generated` to
-  zakres odczytu **lub** własne CV. Podpięcie CV do etapu w pipeline
-  (`candidate_stage_cv.py`) nadal wymaga członkostwa — to reguła sprzed #1448.
+  zakres odczytu **lub** własne CV. Ręczne podpięcie CV do etapu w pipeline
+  (`candidate_stage_cv.py`, „Użyj”) nadal wymaga członkostwa — to reguła sprzed
+  #1448; automatyczne podpięcie po generacji z procesem (v3) działa dla
+  każdego, ale tylko do etapu bez szkicu.
 - **CV sprzed #1444 da się zatwierdzić.** Wiersze bez `docx_content` i
   `docx_sha256` (każde CV sprzed 10.09, 09:04) dostają DOCX renderowany raz
   z `render_payload` przy zatwierdzeniu, zapisany na wierszu
@@ -1294,31 +1352,22 @@ do modelu.
   pierwszego wiersza zamiast padać. Drugi wiersz jest pełnoprawny: własny wpis
   `Activity` i mapa wymagań interaktywnego CV, a `rule_reminders` NIE każe
   wtedy „pamiętać o drugiej wersji".
-- **Klient w trybie upload podpowiadany z procesu kandydata** (picker
-  kandydata z bazy, wyłącznie po to). Dokładnie jeden klient w procesach =
-  wybrany sam; kilku = przyciski; zero = ręcznie. Generacja BEZ klienta wymaga
-  jawnego checkboxa „CV poza zleceniem" — to była największa dziura: bez
-  klienta nie działa ŻADNA reguła.
+- **Klient jest zawsze wymagany** (generator v3, 23.09.2026 — sekcja „Generator
+  CV v3”). Checkbox „CV poza zleceniem” usunięty: bez klienta nie działa ŻADNA
+  reguła, a tak powstawała ⅓ CV.
 - **Lint instrukcji (`POST …/cv-rule/lint`)** — tani model
   (`CLAUDE_MODEL_CV_BULK`), osobny klucz kwoty `aifeaturekey.cv_rule_lint`
   (enum + seed + lustro w entrypoincie; pilnuje
   `test_ai_feature_enum_entrypoint_mirror.py`). Opinia, nie bramka: pokazuje
   wcześniej granicę, której prompt generatora i tak pilnuje. Linie, których
   model nie ocenił, wracają jako `unclear`, nigdy jako `ok`.
-- **CV próbne (`POST …/cv-rule/preview`)** — ten sam kandydat i rekrutacja
-  U TEGO klienta (cudza rekrutacja → 422), z regułą ZAPISANĄ (także
-  niezatwierdzoną) i bez, obok siebie. Gotowość rekrutacji sprawdzana PRZED
-  kwotą (inaczej DL płaciłby dwie generacje za wiersz „failed"); dwie
-  generacje = DWA obciążenia `cv_generator` naliczone przed kolejką; liczone
-  w tle (2-3 min to więcej niż limit proxy), osobna tabela
-  `client_cv_rule_previews` — nie `cv_generated_documents`, bo podgląd nie
-  jest dokumentem do wysłania. `candidate_id` z **CASCADE** (wiersz niesie
-  pełne CV — usunięcie osoby ma go zabrać), retencja 7 dni sprzątana przy
-  następnym podglądzie TYLKO przy `CV_JOB_INPUT_RETENTION_ENABLED=true`
-  (od 23.09.2026 domyślnie wyłączona — CV nie znikają same), „processing" starsze niż 15 min raportowane jako
-  awaria (Coolify zabija zadanie w tle przy każdym pushu), porażka zapisywana
-  po `rollback()`. Id podglądu żyje w edytorze, nie w zakładce — przełączenie
-  zakładki nie może zgubić wyniku, za który już zapłacono.
+- **CV próbne (`POST …/cv-rule/preview`) USUNIĘTE 23.09.2026** (0 użyć na
+  produkcji; reguły są centralne). Tabela `client_cv_rule_previews`, model
+  i retencja zostają (historia, `candidate_id` z CASCADE); retencja 7 dni biegnie
+  w pętli `cv_source_cleanup` TYLKO przy `CV_JOB_INPUT_RETENTION_ENABLED=true`
+  (od 23.09.2026 domyślnie wyłączona — CV nie znikają same). Zadanie kolejki
+  rodzaju `preview` sprzed wdrożenia jest oznaczane jako nieudane zamiast
+  wołać usunięty worker.
 - **Sygnał zwrotny (`GET …/cv-rule/feedback`)** liczy z ostrzeżeń
   wygenerowanych CV pominięte instrukcje per tekst i domknięcia polityki;
   instrukcja pomijana w co drugim CV to instrukcja do przepisania.
@@ -5900,12 +5949,14 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   polityk (`policy_content_mode`, domyślnie „Pod rekrutację") — ten sam, który
   formularz zaznacza domyślnie. Wiersz dostaje ten sam stempel `central_policy`
   co po kliknięciu.
-  Centralny przepływ NIE odmawia przy generacji braku zgody ani numeru projektu
-  (sprawdza je gotowość pakietu), a obie rzeczy zapadają przy generacji — więc
-  automat sam pomija: zgoda = `consent_screenshot_required`, numer projektu z
-  `managed_policy.require_project_ref` (Energa, Orlen) =
-  `client_rule_inputs_missing`; polityka czekająca na synchronizację (503) =
-  `generation_unavailable`, nie „awaria".
+  Od 23.09.2026 (generator v3) automat pod centralnymi regułami NIE pomija PKO:
+  zgodę dołącza się po generacji, a do tego czasu blokowane jest pobranie
+  (`cv_consent_gate`); numer projektu PKO bierze z rekrutacji
+  (`pko_job_reference`). Pomija nadal: numer projektu z
+  `managed_policy.require_project_ref` bez wartości do wyprowadzenia (Energa,
+  Orlen) = `client_rule_inputs_missing`; polityka czekająca na synchronizację
+  (503) = `generation_unavailable`, nie „awaria". Bez centralnych reguł zgoda
+  dalej daje 422, czyli pominięcie.
   **Klient dwujęzyczny (Alior, BIK, BNP, Santander): automat robi JEDNĄ wersję**
   (decyzja właściciela 21.09.2026) — `enqueue_candidate_generation(languages=
   "primary_only")`, worker pomija drugą wersję TYLKO w pierwszym przebiegu.

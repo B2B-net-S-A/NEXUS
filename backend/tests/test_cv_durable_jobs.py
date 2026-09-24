@@ -19,7 +19,7 @@ def reserved_source_key(monkeypatch):
 
 
 @pytest.mark.parametrize("case", ["valid", "corrupt", "already_claimed"])
-@pytest.mark.parametrize("kind", ["upload", "preview"])
+@pytest.mark.parametrize("kind", ["upload"])
 @pytest.mark.parametrize("stored_quota", [False, True])
 async def test_executor_uses_persisted_inputs_and_never_replays_claimed_job(
     monkeypatch, case, kind, stored_quota
@@ -62,9 +62,6 @@ async def test_executor_uses_persisted_inputs_and_never_replays_claimed_job(
     monkeypatch.setattr(jobs.object_storage, "download_cv", download)
     worker = AsyncMock()
     monkeypatch.setattr(api, "_run_declared", worker)
-    from app.api import client_cv_rules
-
-    monkeypatch.setattr(client_cv_rules, "_run_rule_preview_job", worker)
     await jobs.execute_job(21)
     expected_quota = (
         QuotaState(2, 10, date(2026, 9, 1), "original-admission")
@@ -72,12 +69,9 @@ async def test_executor_uses_persisted_inputs_and_never_replays_claimed_job(
         else None
     )
     if case == "valid":
-        if kind == "upload":
-            worker.assert_awaited_once_with(
-                api._run_generate_upload_job, 11, user_id=7, quota_state=expected_quota
-            )
-        else:
-            worker.assert_awaited_once_with(12, user_id=7, quota_state=expected_quota)
+        worker.assert_awaited_once_with(
+            api._run_generate_upload_job, 11, user_id=7, quota_state=expected_quota
+        )
         assert finish.call_args.kwargs == {"failed": False}
     else:
         worker.assert_not_awaited()
@@ -121,25 +115,63 @@ async def test_second_document_is_registered_under_same_owner():
     assert record.second_generated_id == 12
 
 
-def test_live_durable_preview_does_not_report_arbitrary_fifteen_minute_failure():
-    from datetime import datetime, timedelta, timezone
-    from app.api.client_cv_rules import _preview_read
-
-    row = SimpleNamespace(
-        id=12,
-        client_id=5,
-        candidate_id=2,
-        stage_id=3,
-        language="pl",
-        status="processing",
-        error_message=None,
-        prompt_block=None,
-        with_rule=None,
-        without_rule=None,
-        created_at=datetime.now(timezone.utc) - timedelta(minutes=30),
+@pytest.mark.parametrize("preview_status", ["processing", "ready"])
+async def test_queued_rule_preview_is_retired_without_a_worker(
+    monkeypatch, preview_status
+):
+    """CV próbne wycofane (generator v3): zadanie `preview` z kolejki nie woła
+    workera ani magazynu — podgląd kończy się jako „failed" z komunikatem."""
+    record = SimpleNamespace(
+        input_storage_key="private-test-key",
+        second_generated_id=None,
+        input_sha256="0" * 64,
+        generated_id=None,
+        preview_id=12,
+        quota_snapshot=None,
+        kind="preview",
     )
-    assert _preview_read(row, durable=True).status == "processing"
-    assert _preview_read(row).status == "failed"  # Legacy work has no lease.
+    preview = SimpleNamespace(status=preview_status, error_message=None)
+    db = AsyncMock()
+    db.scalar.return_value = record
+    db.get.side_effect = lambda model, ident: (
+        record if model is jobs.CvGenerationJob else preview
+    )
+    manager = Mock(
+        __aenter__=AsyncMock(return_value=db), __aexit__=AsyncMock(return_value=None)
+    )
+    monkeypatch.setattr(jobs, "AsyncSessionLocal", lambda: manager)
+    monkeypatch.setattr(jobs, "claim_job", AsyncMock(return_value="owner"))
+    finish = AsyncMock()
+    monkeypatch.setattr(jobs, "finish_job", finish)
+    download = Mock(side_effect=AssertionError("preview input must not be read"))
+    monkeypatch.setattr(jobs.object_storage, "download_cv", download)
+    worker = AsyncMock()
+    monkeypatch.setattr(api, "_run_declared", worker)
+
+    await jobs.execute_job(21)
+
+    worker.assert_not_awaited()
+    download.assert_not_called()
+    assert finish.call_args.kwargs == {"failed": True}
+    if preview_status == "processing":
+        assert preview.status == "failed"
+        assert preview.error_message == jobs.PREVIEW_RETIRED_MESSAGE
+    else:
+        assert (preview.status, preview.error_message) == ("ready", None)
+
+
+def test_rule_preview_routes_are_gone():
+    from app.main import app
+
+    # `app.routes` nie jest płaską listą od FastAPI 0.139 — ścieżki z OpenAPI.
+    paths = set(app.openapi()["paths"])
+    assert not [path for path in paths if "/cv-rule/preview" in path]
+    # Podgląd bloku promptu (nie CV próbne) zostaje.
+    assert "/api/clients/{client_id}/cv-rule/prompt-preview" in paths
+    from app.api import client_cv_rules
+
+    for gone in ("_run_rule_preview_job", "PreviewRequest", "PreviewRead"):
+        assert not hasattr(client_cv_rules, gone)
 
 
 @pytest.mark.parametrize("storage_failure", [False, True])

@@ -10,6 +10,7 @@ sanitizer. Testy bez bazy: ``pytest --noconftest``.
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -17,7 +18,6 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from app.services.cv_generator_b2b.html_export import render_interactive_html
-from app.services.cv_html_renderer import _generate_cv_html
 from app.services.html_sanitizer import sanitize_cv_html
 
 _PAYLOAD = {
@@ -42,21 +42,12 @@ def _styles(html: str) -> list[str]:
     return re.findall(r"<style[^>]*>(.*?)</style>", html, re.S | re.I)
 
 
-def _candidate():
-    return SimpleNamespace(
-        name="Jan",
-        lastname="Kowalski",
-        email="jan@example.com",
-        phone=None,
-        location=None,
-        linkedin=None,
-        ai_summary="Backend developer",
-        skills=[{"name": "Python", "level": "senior", "years": 8}],
-        experience=[],
-        education=[],
-        languages=[],
-        competence_category=None,
-    )
+# Stary szablon „CV firmowe” wycofano w generatorze v3 razem z rendererem —
+# w bazie zostały zapisane w nim CV etapów. To jest dokument wygenerowany
+# ostatnią wersją renderera (fikcyjny kandydat Jan Kowalski).
+_LEGACY_BRANDED_HTML = (
+    Path(__file__).parent / "fixtures" / "cv" / "legacy_branded_stage_cv.html"
+).read_text(encoding="utf-8")
 
 
 async def _public_stage_cv(html: str) -> dict:
@@ -100,7 +91,7 @@ async def _public_stage_cv(html: str) -> dict:
 
 
 async def test_public_stage_cv_keeps_branded_template_stylesheet():
-    html = _generate_cv_html(_candidate(), "standard", "pl")
+    html = _LEGACY_BRANDED_HTML
     template_css = _styles(html)[0]
 
     served = (await _public_stage_cv(html))["cv_html"]

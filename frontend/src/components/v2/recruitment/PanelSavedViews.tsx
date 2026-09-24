@@ -194,12 +194,12 @@ export function SavedCvView({
                   : undefined
               }
             >
-              {`CV firmowe: gotowe${brandedStage}`}
+              {`CV do klienta: gotowe${brandedStage}`}
             </Badge>
           ) : brandedCv.status === "draft" ? (
-            <Badge size="sm" variant="info">{`CV firmowe: szkic${brandedStage}`}</Badge>
+            <Badge size="sm" variant="info">{`CV do klienta: szkic${brandedStage}`}</Badge>
           ) : (
-            <Badge size="sm" variant="neutral">CV firmowe: brak</Badge>
+            <Badge size="sm" variant="neutral">CV do klienta: brak</Badge>
           )
         ) : null}
       </div>
@@ -219,7 +219,7 @@ export function SavedCvView({
             <Loader2 className="size-3 animate-spin" aria-hidden /> Wczytywanie…
           </p>
         ) : pair.isError ? (
-          <LoadError what="CV firmowe i linki dla klienta" onRetry={() => void pair.refetch()} />
+          <LoadError what="CV do klienta i linki dla klienta" onRetry={() => void pair.refetch()} />
         ) : pair.isSuccess && links.length === 0 ? (
           <p className="text-xs text-muted-foreground">
             W tej rekrutacji nie utworzono jeszcze linku dla klienta do CV tej osoby.
