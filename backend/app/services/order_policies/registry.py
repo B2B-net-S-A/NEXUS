@@ -179,6 +179,7 @@ def _nordea(result: OrderExtraction, ctx: PolicyContext) -> OrderExtraction:
         text,
         target_consultant=ctx.target_consultant,
         target_given_names=ctx.target_given_names,
+        reapplied=ctx.reapplied,
     )
 
 
@@ -285,6 +286,9 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         exposes_consultant_rows=True,
         table_authoritative=True,
         rate_rules=_nordea_rate_rules,
+        # 24.09.2026: tabela porównywana z zachowanym odczytem modelu
+        # (``model_rows``), a nie sama ze sobą (audyt S2).
+        rule_version="2026-09-24",
     ),
     OrderClientPolicy(
         key="bank_pocztowy",
@@ -293,6 +297,12 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         apply=_bank_pocztowy,
         order=20,
         extract_rows=bank_pocztowy.extract_rows,
+        # „Przelicz plan" stosuje regułę ponownie: odczyt zapisany przed
+        # 24.09.2026 ma wiersz osoby w MD przy stawce dokumentu w godzinach.
+        # Reguła jest idempotentna (``rate_client_md``, jednostka wiersza).
+        reapply_on_refresh=True,
+        # 24.09.2026: wiersze osób też przeliczane MD → h (audyt W3).
+        rule_version="2026-09-24",
     ),
     OrderClientPolicy(
         key="credit_agricole",
@@ -431,7 +441,8 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         rate_rules=bik.apply_rate_rules,
         document_period_authoritative=True,
         # 22.09.2026: okres z dokumentu wiążący (FIN-MAIL-03).
-        rule_version="2026-09-22",
+        # 24.09.2026: stawka po ÷ 1,23 wraca do kwoty z PDF-a (audyt N3).
+        rule_version="2026-09-24",
     ),
     # Kanoniczne ID 15 = Polkomtel (``finance_order_matching.POLKOMTEL_CLIENT_ID``).
     # Zamówienie kosztowe albo MD, zawsze bezterminowe: koniec wyznacza
@@ -451,7 +462,8 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         rate_rules=polkomtel.apply_rate_rules,
         document_period_authoritative=True,
         # 22.09.2026: okres z dokumentu wiążący (FIN-MAIL-03).
-        rule_version="2026-09-22",
+        # 24.09.2026: stawka po ÷ 1,23 wraca do kwoty z PDF-a (audyt N3).
+        rule_version="2026-09-24",
     ),
     # Ten sam szablon „Zlecenie wykonawcze nr CP … / rok" — wyłącznie reguła
     # numeru. Cyfrowy Polsat ma też zamówienia okresowe, więc okres i stawki

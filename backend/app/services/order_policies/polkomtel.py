@@ -664,10 +664,17 @@ def _cross_check_with_model(
 
 
 def apply_rate_rules(result: OrderExtraction, document_text: str) -> OrderExtraction:
-    """„Cena netto 1MD po upuście" — stawka Polkomtela jest zawsze NETTO."""
-    result.rate_client_gross = None
-    for row in result.consultant_rows:
-        row.rate_client_gross = None
+    """„Cena netto 1MD po upuście" — stawka Polkomtela jest zawsze NETTO.
+
+    Idempotentne jak u Nordei, PKO BP i Aliora: odczyt, który przeszedł już
+    ÷ 1,23 (zapisany przed regułą, wiersze modelu bez tabeli), wraca do kwoty
+    z PDF-a. Samo zerowanie oryginału zostawiało zaniżoną stawkę netto
+    bez śladu przeliczenia (audyt 24.09, N3).
+    """
+    for item in [result, *result.consultant_rows]:
+        if item.rate_client_gross is not None:
+            item.rate_client, item.rate_client_gross = item.rate_client_gross, None
+    result.confidence.pop("rate_client_gross", None)
     return result
 
 

@@ -26,6 +26,7 @@ zawsze netto za godzinę; nie uzgadniamy jej z Quantity ani Subtotal.
 from __future__ import annotations
 
 import re
+from dataclasses import replace
 from typing import Optional
 
 from app.services.order_policies._shared import (
@@ -295,12 +296,114 @@ def extract_rows(text: str) -> list[ConsultantOrderRow]:
     return rows
 
 
+_READING_MODEL = "model"
+_READING_NONE = "none"
+_READING_LEGACY = "legacy"
+
+
+def _model_reading(
+    result: OrderExtraction, *, reapplied: bool
+) -> tuple[list[ConsultantOrderRow], str]:
+    """Odczyt osób przez model, z którym porównuje się tabelę — i jego status.
+
+    Lustro reguły Aliora (``alior._model_reading``):
+
+    * ``model_rows`` zachowane przy pierwszym zastosowaniu reguły — ten sam
+      odczyt porównujemy także przy „Przelicz plan";
+    * świeży odczyt (mail, formularz): ``consultant_rows`` prosto od modelu;
+    * „Przelicz plan" na zapisie sprzed 24.09.2026: ``consultant_rows`` to już
+      tabela z PDF-a (reguła zawsze ją podstawiała), więc nie potwierdza
+      niczego — stan ``legacy``, decyduje człowiek.
+
+    Odczyt awaryjny (bez modelu) nie ma czym potwierdzać; zatrzymuje go
+    bramka automatu (``source != "claude"``).
+    """
+    if result.source != "claude":
+        return list(result.model_rows or []), _READING_NONE
+    if result.model_rows is not None:
+        return list(result.model_rows), _READING_MODEL
+    if reapplied:
+        return [], _READING_LEGACY
+    return [replace(row) for row in result.consultant_rows], _READING_MODEL
+
+
+def _cross_check_rows(
+    rows: list[ConsultantOrderRow],
+    reading: list[ConsultantOrderRow],
+    reading_state: str,
+) -> list[str]:
+    """Tabela z PDF-a kontra niezależny odczyt modelu (audyt 24.09, S2).
+
+    Bramka porównuje wiersze odczytu z ``extract_rows`` — a odczyt Nordei JEST
+    tabelą, więc tabela potwierdzała sama siebie. Teraz osobę i stawkę każdego
+    wiersza tabeli musi powtórzyć odczyt modelu; brak wartości w odczycie nie
+    jest zgodą. Oznacza wiersze i zwraca powody dla dokumentu.
+    """
+    reasons: list[str] = []
+    used: set[int] = set()
+    for row in rows:
+        name = row.consultant_name
+        if reading_state == _READING_LEGACY:
+            concern = (
+                f"„{name}”: odczyt zapisany przed zmianą reguły Nordei nie "
+                "potwierdza osób z tabeli — sprawdź osobę, okres i stawkę"
+            )
+        else:
+            matches = [
+                i
+                for i, model in enumerate(reading)
+                if i not in used
+                and _names_exactly_equivalent(
+                    clean_person_name(model.consultant_name), name
+                )
+            ]
+            if not matches:
+                concern = (
+                    f"„{name}”: osoby z tabeli Consultant(s) nie potwierdził "
+                    "odczyt modelu — sprawdź imię i nazwisko"
+                )
+            else:
+                used.add(matches[0])
+                model_rate = reading[matches[0]].rate_client
+                if row.rate_client is None:
+                    concern = None
+                elif model_rate is None:
+                    concern = (
+                        f"„{name}”: odczyt modelu nie potwierdził stawki z tabeli "
+                        "Consultant(s) — sprawdź stawkę"
+                    )
+                elif model_rate != row.rate_client:
+                    concern = (
+                        f"„{name}”: stawka z tabeli Consultant(s) ({row.rate_client}) "
+                        f"różni się od odczytu modelu ({model_rate}) — sprawdź stawkę"
+                    )
+                else:
+                    concern = None
+        if concern:
+            reasons.append(concern)
+            row.uncertain = True
+            row.uncertain_reason = "; ".join(
+                filter(None, [row.uncertain_reason, concern])
+            )
+    if rows and reading_state == _READING_MODEL:
+        # Bez tabeli w ogóle mówi o tym osobny powód — nie mnożymy zdań.
+        for i, model in enumerate(reading):
+            if i in used:
+                continue
+            reasons.append(
+                f"„{clean_person_name(model.consultant_name)}”: pozycja z odczytu "
+                "modelu nie ma wiersza w tabeli Consultant(s) PDF — sprawdź"
+            )
+    return reasons
+
+
 def apply_nordea_layout(
     result: OrderExtraction,
     document_text: str,
     *,
     target_consultant: Optional[str] = None,
     target_given_names: Optional[str] = None,
+    reapplied: bool = False,
 ) -> OrderExtraction:
     """Uzupełnij wynik po ``enforce_nordea_order_number`` o układ z pipeline'u.
 
@@ -313,6 +416,11 @@ def apply_nordea_layout(
     """
     document_text = order_text_only(document_text)
     result = apply_rate_rules(result)
+    # Odczyt modelu zachowany PRZED podmianą wierszy na tabelę — „Przelicz
+    # plan" porównuje tabelę z nim, a nie z własnym wynikiem (S2).
+    reading, reading_state = _model_reading(result, reapplied=reapplied)
+    if reading_state != _READING_NONE:
+        result.model_rows = [replace(row) for row in reading]
     number = call_off_number_interleaved(document_text)
     if number:
         set_field(result, "title", number)
@@ -341,16 +449,23 @@ def apply_nordea_layout(
         result.consultant_rate_matched = True
     # The labeled table is authoritative in every entry path. Keep meaningful
     # model concerns on the same person, but never lose a second table row.
+    concern_source = (
+        reading if reading_state == _READING_MODEL else result.consultant_rows
+    )
     for row in rows:
         concerns = [
             old.uncertain_reason or "Niepewny odczyt wiersza konsultanta"
-            for old in result.consultant_rows
+            for old in concern_source
             if old.uncertain
             and _names_exactly_equivalent(old.consultant_name, row.consultant_name)
         ]
         if concerns:
             row.uncertain = True
             row.uncertain_reason = "; ".join(dict.fromkeys(concerns))
+    if not target_consultant and reading_state != _READING_NONE:
+        for reason in _cross_check_rows(rows, reading, reading_state):
+            if reason not in result.uncertain_reasons:
+                result.uncertain_reasons.append(reason)
     result.consultant_rows = rows
     if not rows:
         reason = "Nie znaleziono osób i stawek w tabeli Consultant(s)"

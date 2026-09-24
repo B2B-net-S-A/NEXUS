@@ -612,6 +612,59 @@ async def test_first_hold_no_longer_notifies_the_delivery_lead(
 
 
 @pytest.mark.asyncio
+async def test_database_error_while_processing_records_failed_row_and_continues(
+    db_session, monkeypatch, tmp_path
+):
+    """S4 (audyt 24.09): błąd bazy w środku przetwarzania nie przerywa biegu.
+
+    Bez wycofania transakcji zapis wiersza FAILED rzucał PendingRollbackError,
+    który przerywał cały bieg skrzynki — kolejne wiadomości czekały do
+    następnego biegu i padały na tym samym załączniku.
+    """
+    from sqlalchemy import text as sql_text
+
+    from app.models.order_mail import OUTCOME_FAILED
+    from app.services import storage_service
+
+    monkeypatch.setattr(storage_service, "STORAGE_ROOT", tmp_path)
+    monkeypatch.setattr(storage_service, "ORDER_MAIL_DIR", tmp_path / "order_mail")
+    monkeypatch.setattr(svc.settings, "ORDER_MAIL_SENDER_ALLOWLIST", "")
+
+    async def broken_process(db, row, payload, *, registry):
+        row.client_key = "bank-a"
+        db.add(row)
+        await db.flush()
+        await db.execute(sql_text("SELECT 1 / 0"))  # transakcja w stanie błędu
+
+    monkeypatch.setattr(svc, "process_pdf_bytes", broken_process)
+    tag = uuid.uuid4().hex[:8]
+    mid = f"db{tag}"
+    fake = _FakeGraph([], {f"graph-{mid}": [_pdf("db.pdf", f"%PDF db {tag}".encode())]})
+    stats = svc.IngestStats()
+    added = await svc._process_message(
+        db_session,
+        fake,
+        None,
+        _msg(mid),
+        stats,
+        registry=ClientRegistry(by_registry_id={}),
+    )
+    assert added is True and stats.failed == 1
+    saved = (
+        await db_session.scalars(
+            select(OrderMailDocument).where(
+                OrderMailDocument.internet_message_id == f"<{mid}-{RUN}@example>"
+            )
+        )
+    ).all()
+    assert len(saved) == 1
+    assert saved[0].outcome == OUTCOME_FAILED
+    assert saved[0].attachment_name == "db.pdf" and saved[0].storage_path
+    assert saved[0].client_key == "bank-a"
+    assert "division by zero" in (saved[0].error or "")
+
+
+@pytest.mark.asyncio
 async def test_ingest_without_connection_records_error(db_session, monkeypatch):
     monkeypatch.setattr(svc.settings, "ORDER_MAIL_UPN", "nobody@example.test")
     stats = await svc.run_order_mail_ingest(reason="test")

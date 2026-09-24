@@ -173,7 +173,7 @@ async def test_return_after_gap_creates_new_order_and_leaves_completed_untouched
         assert renewal.rate_client == Decimal("140")
         assert renewal.rate_candidate == Decimal("100")  # z umowy, nie z PDF-a
         assert renewal.status == ClientOrderStatus.active
-        assert renewal.notes == f"Zamówienie z maila (dokument #{doc.id})"
+        assert renewal.notes == f"Zamówienie z maila (dokument #{doc.id}, pozycja 1)"
         assert renewal.predecessor_order_id is None
         # Pola, których PDF nie niesie, dziedziczą się po poprzednim zamówieniu
         # tej samej współpracy (przegląd 10.09: reaktywacja w miejscu je
@@ -682,4 +682,215 @@ async def test_value_error_subclass_is_a_bug_not_a_writer_refusal(monkeypatch):
         assert not result.ok
         assert "internal detail" not in result.error
         assert "szczegóły w logach serwera" in result.error
+        await db.rollback()
+
+
+# ── Audyt 24.09, blok B ──────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_manual_apply_refuses_a_shared_md_pool(monkeypatch):
+    """W1: ręczne „Zastosuj" nie czyta bramki — dokument z jedną liczbą MD na
+    całe zamówienie dla kilku osób dawał każdej osobie całą pulę."""
+    from app.services import order_mail_ingest
+    from app.services.order_mail_apply import SHARED_MD_POOL_REFUSAL
+    from app.services.order_mail_planner import (
+        ACTION_NEW,
+        DocumentProposal,
+        RowProposal,
+    )
+
+    async def md_plan(db, extraction, client_id):
+        rows = [
+            RowProposal(
+                row_index=i,
+                row_name=row.consultant_name,
+                action=ACTION_NEW,
+                contract_id=None,
+                order_type="md",
+            )
+            for i, row in enumerate(extraction.consultant_rows)
+        ]
+        return (
+            DocumentProposal(
+                client_id=client_id,
+                order_number=extraction.title,
+                is_group_client=True,
+                rows=rows,
+            ),
+            [],
+            {},
+        )
+
+    monkeypatch.setattr(order_mail_ingest, "current_proposal", md_plan)
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"Shared pool mail {uuid.uuid4().hex}")
+        db.add(client)
+        await db.flush()
+        doc = document(client.id, "Jan Pulowy" + uuid.uuid4().hex[:8], "Pula 1")
+        doc.extraction = {
+            **doc.extraction,
+            "md_total": "60",
+            "consultant_rows": [
+                *doc.extraction["consultant_rows"],
+                {
+                    "consultant_name": "Anna Pulowa" + uuid.uuid4().hex[:8],
+                    "rate_client": "140.00",
+                    "rate_unit": "hour",
+                    "uncertain": False,
+                },
+            ],
+        }
+        db.add(doc)
+        await db.flush()
+        result = await apply_document(db, doc, actor_user_id=1)
+        assert not result.ok
+        assert result.error == SHARED_MD_POOL_REFUSAL
+        assert (
+            await db.scalar(
+                select(func.count())
+                .select_from(ClientOrder)
+                .where(ClientOrder.client_id == client.id)
+            )
+            == 0
+        )
+        await db.rollback()
+
+
+async def _active_contract(db):
+    client = Client(name=f"Two positions mail {uuid.uuid4().hex}")
+    candidate = Candidate(name="Jan", lastname="Dwupozycyjny" + uuid.uuid4().hex[:8])
+    db.add_all([client, candidate])
+    await db.flush()
+    contract = Contract(
+        client_id=client.id,
+        candidate_id=candidate.id,
+        status=ContractStatus.active,
+        start_date=date(2033, 1, 1),
+        rate_candidate=Decimal("100"),
+        rate_unit=RateUnit.hourly,
+    )
+    db.add(contract)
+    await db.flush()
+    return client, candidate, contract
+
+
+def _planned_row(index, contract, title, rate):
+    return {
+        "row_index": index,
+        "row_name": "Jan Dwupozycyjny",
+        "action": "new",
+        "contract_id": contract.id,
+        "title": title,
+        "start_date": "2033-09-01",
+        "end_date": "2033-11-30",
+        "rate_client": rate,
+        "rate_unit": "hour",
+        "order_type": "periodic",
+    }
+
+
+@pytest.mark.asyncio
+async def test_writer_guard_is_keyed_by_the_row_of_the_document(monkeypatch):
+    """W2: druga pozycja tej samej osoby nie trafia w zamówienie pierwszej.
+
+    Zabezpieczenie przed duplikatem (kontrakt + numer + dokument) zwracało przy
+    drugiej pozycji zamówienie założone dla pierwszej — druga przepadała.
+    Ponowienie bez zapisanego wyniku nadal niczego nie dubluje.
+    """
+    from app.services import order_mail_apply as writer
+    from app.services.order_mail_planner import AUTO_ACTIONS
+
+    monkeypatch.setattr(writer, "_notify_new_draft", AsyncMock())
+    async with AsyncSessionLocal() as db:
+        client, _, contract = await _active_contract(db)
+        doc = document(client.id, "Jan Dwupozycyjny", "Dwie pozycje")
+        doc.proposal = {
+            "rows": [
+                _planned_row(0, contract, "Dwie pozycje", "150.00"),
+                _planned_row(1, contract, "Dwie pozycje", "130.00"),
+            ]
+        }
+        db.add(doc)
+        await db.flush()
+        result = await writer._write_document(
+            db, doc, actor_user_id=None, only_actions=AUTO_ACTIONS
+        )
+        assert result.ok, result.as_dict()
+        first, second = (r.order_id for r in result.rows)
+        assert first != second
+        orders = {
+            o.id: o
+            for o in (
+                await db.scalars(
+                    select(ClientOrder).where(ClientOrder.contract_id == contract.id)
+                )
+            ).all()
+        }
+        assert (orders[first].rate_client, orders[second].rate_client) == (
+            Decimal("150.00"),
+            Decimal("130.00"),
+        )
+        assert orders[second].notes == (
+            f"Zamówienie z maila (dokument #{doc.id}, pozycja 2)"
+        )
+
+        doc.proposal = {k: v for k, v in doc.proposal.items() if k != "apply_result"}
+        again = await writer._write_document(
+            db, doc, actor_user_id=None, only_actions=AUTO_ACTIONS
+        )
+        assert [r.order_id for r in again.rows] == [first, second]
+        assert (
+            await db.scalar(
+                select(func.count())
+                .select_from(ClientOrder)
+                .where(ClientOrder.contract_id == contract.id)
+            )
+            == 2
+        )
+        await db.rollback()
+
+
+@pytest.mark.asyncio
+async def test_writer_guard_still_recognises_orders_saved_before_row_markers(
+    monkeypatch,
+):
+    """W2: zamówienie zapisane przed 24.09 (znacznik bez pozycji) nie dubluje się."""
+    from app.services import order_mail_apply as writer
+    from app.services.order_mail_planner import AUTO_ACTIONS
+
+    monkeypatch.setattr(writer, "_notify_new_draft", AsyncMock())
+    async with AsyncSessionLocal() as db:
+        client, _, contract = await _active_contract(db)
+        doc = document(client.id, "Jan Dwupozycyjny", "Stary znacznik")
+        doc.proposal = {"rows": [_planned_row(0, contract, "Stary znacznik", "150")]}
+        db.add(doc)
+        await db.flush()
+        legacy = ClientOrder(
+            client_id=client.id,
+            contract_id=contract.id,
+            title="Stary znacznik",
+            status=ClientOrderStatus.draft,
+            order_type="periodic",
+            start_date=date(2033, 9, 1),
+            end_date=date(2033, 11, 30),
+            rate_client=Decimal("150"),
+            rate_unit=RateUnit.hourly,
+            notes=f"Zamówienie z maila (dokument #{doc.id})",
+        )
+        db.add(legacy)
+        await db.flush()
+        result = await writer._write_document(
+            db, doc, actor_user_id=None, only_actions=AUTO_ACTIONS
+        )
+        assert result.ok, result.as_dict()
+        assert result.rows[0].order_id == legacy.id
+        assert (
+            await db.scalar(
+                select(func.count())
+                .select_from(ClientOrder)
+                .where(ClientOrder.contract_id == contract.id)
+            )
+            == 1
+        )
         await db.rollback()

@@ -746,8 +746,18 @@ przygotowuje plan dla osób rozpoznanych w dokumencie. Trzy sytuacje zawsze
 czekają na Ciebie w kolejce: **waluta inna niż PLN** (zapis bierze walutę
 z dokumentu), **okres niepotwierdzony regułą klienta** u BIK, Polkomtela, BNP,
 PFRON i Credit Agricole (tam liczy się wyłącznie okres z dokumentu) oraz
-**powrót po przerwie osoby, która ma w bazie imiennika**. Wartość całego
-dokumentu trafia na zamówienie tylko wtedy, gdy dokument dotyczy jednej osoby. Przy dopasowaniu osoby
+**powrót po przerwie osoby, która ma w bazie imiennika**. Do kolejki trafia
+też **dokument, w którym ta sama osoba ma kilka pozycji** (np. stawka on-site
+i off-site albo dwa okresy) — plan pokazuje przy niej „Pomijany” z powodem,
+a które zamówienia założyć, decydujesz w oknie zamówienia; **zamówienie
+kosztowe dla kilku osób** (kwota zlecenia jest wspólna — automat jej nie dzieli)
+oraz **jedna liczba MD na całe zamówienie dla kilku osób** (wspólną pulę MD
+zakładasz w oknie zamówienia; „Zastosuj” takiego dokumentu odmawia, bo każda
+osoba dostałaby całą pulę). Wartość całego dokumentu trafia na zamówienie tylko
+wtedy, gdy dokument dotyczy jednej osoby i jego stawka nie była brutto (wartość
+całkowita nie jest przeliczana przez 1,23). Przy kilku osobach osoba bez własnej
+stawki albo liczby MD w dokumencie nie dostaje stawki ani MD z nagłówka — pole
+zostaje puste do uzupełnienia. Przy dopasowaniu osoby
 sprawdza **pełną, aktualną listę konsultantów przypisanych umową do tego
 klienta**, także z dawniej zakończonymi umowami. Nie szuka wśród osób innego
 klienta.
@@ -883,7 +893,8 @@ liczby godzin ani MD w planie. Summary jest pomijane przed odczytem danych.**
 **„Przelicz plan"** odświeża oczekujący wpis z zachowanego PDF-a i aktualnej
 listy konsultantów. Użyj go po poprawieniu przypisania osoby albo zasad odczytu.
 Dla PFRON ponownie wybiera aktywny rekord klienta, odczytuje numer z nazwy PDF
-i datę końca z pola „Termin wykonania Prac”. Dla Nordei i Aliora ponownie stosuje
+i datę końca z pola „Termin wykonania Prac”. Dla Nordei, Aliora, PKO BP
+i Banku Pocztowego ponownie stosuje
 regułę odczytu klienta do zachowanego PDF-a — wpis zatrzymany przed poprawką
 reguły przelicza się według aktualnej. Dla pozostałych klientów zachowuje
 rozpoznanego klienta, numer i okres. Ponownie sprawdza stawki oraz dopasowanie osób.
@@ -899,7 +910,8 @@ czeka w „Do weryfikacji" i w „Nierozpoznane", i robi z tym dokładnie to, co
 „Przelicz plan": pewny plan zapisuje się automatycznie, plan z wątpliwością
 zostaje w weryfikacji już z aktualnymi powodami. Nie trzeba przesyłać zamówienia
 ponownie — ten sam PDF wysłany drugi raz system i tak rozpoznaje jako duplikat
-i pomija.
+i pomija. Dokument, którego klienta nie udało się rozpoznać, administrator może
+zdjąć z zakładki „Nierozpoznane” przyciskiem **„Odrzuć”**.
 
 **Pocztę system sprawdza dalej całą dobę** — nowe zamówienie przysłane
 wieczorem pojawia się w kolejce tego samego dnia. Ograniczenie do godzin pracy
@@ -1580,8 +1592,12 @@ Osobne certyfikaty DocuSign („Certificate of Completion”, „Record Tracking
 zamówień. Załącznik bez cech zamówienia także jest pomijany. Właściwy dokument
 z tego samego maila oraz PDF łączący zamówienie z certyfikatem są odczytywane.
 Te trzy reguły nie powodują „odczytu niepewnego”; inne błędy, np. niejasna
-osoba lub okres, nadal wymagają weryfikacji. „Przelicz plan” ponownie
-odczytuje osoby z właściwej tabeli zapisanego PDF-a Nordea.
+osoba lub okres, nadal wymagają weryfikacji. **Osobę i stawkę z tabeli musi
+powtórzyć odczyt AI** — gdy odczyt nie potwierdza osoby albo podaje inną stawkę,
+wpis czeka w weryfikacji z tym zdaniem. „Przelicz plan” ponownie odczytuje osoby
+z właściwej tabeli zapisanego PDF-a Nordea i porównuje je z odczytem AI
+zachowanym przy pierwszym odczycie; wpis odczytany przed 24.09.2026 takiego
+odczytu nie ma i po przeliczeniu zawsze czeka na Twoje sprawdzenie.
 
 **2. Import zamówień z CSV — nie dla Ciebie.** W zakładce „Zamówienia" jest
 zwijany panel **„Import zamówień Nordea z CSV"**, ale **widzi go wyłącznie
@@ -1615,7 +1631,9 @@ Reguła odczytu zmienia liczby, więc warto znać ją w całości:
   przez 8**, z zaokrągleniem **w górę do dwóch miejsc po przecinku**. Jednostka
   stawki przeskakuje na **godzinową**, a system przelicza przy okazji stawkę
   kosztową, którą już wpisałeś. Pod polem zobaczysz „Z dokumentu: … /MD →
-  przeliczono na stawkę godzinową (÷ 8)".
+  przeliczono na stawkę godzinową (÷ 8)". W zamówieniu z maila tak samo
+  przeliczana jest stawka przy **osobie** odczytanej z dokumentu, a „Przelicz
+  plan” stosuje regułę ponownie (bez dzielenia drugi raz).
 * **Jeżeli przeliczona stawka wypadnie poniżej 80 zł/h albo powyżej 300 zł/h**,
   w banerze pojawi się ostrzeżenie o nietypowej stawce. To sygnał, że w dokumencie
   odczytano prawdopodobnie inną liczbę niż stawkę — sprawdź, zanim zapiszesz.
@@ -1652,7 +1670,8 @@ Reguła odczytu zmienia liczby, więc warto znać ją w całości:
   „dni roboczych × stawka". Dotyczy to sytuacji, w której stawkę udało się odczytać.
 * Ta reguła działa **na końcu**, czyli na wyniku pozostałych reguł.
 * **Wartość całkowita zamówienia nie jest przeliczana** — jeśli dokument ją
-  podaje, sprawdź ją samodzielnie.
+  podaje, sprawdź ją samodzielnie. Zamówienie z maila ze stawką brutto nie
+  przejmuje wartości całkowitej z dokumentu — wpisz ją sam, jeśli jest potrzebna.
 * **Powiadomienia:** standardowe.
 
 ### Orlen
@@ -1711,6 +1730,7 @@ Reguła odczytu zmienia liczby, więc warto znać ją w całości:
 * Przy wdrożeniu jednorazowo poprawiane są oczekujące wpisy z tymi błędami.
   Dokumenty z innymi, nierozstrzygniętymi wątpliwościami pozostają bez zmian.
 * **Wartość całkowita zamówienia nie jest przeliczana** — sprawdź ją sam.
+  Zamówienie z maila nie przejmuje jej z dokumentu.
 * Ta reguła **działa zawsze**, bez żadnej konfiguracji.
 * **Powiadomienia:** standardowe.
 
