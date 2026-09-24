@@ -462,13 +462,15 @@ def _pair_status():
 
 
 async def open_counts_for_jobs(
-    db: AsyncSession, job_ids: Sequence[int]
+    db: AsyncSession, job_ids: Sequence[int], *, source: Optional[str] = None
 ) -> dict[int, int]:
     """Ile osób czeka w skrzynce rekrutacji — ZESPOŁOWO, nie per użytkownik.
 
     Jedno zapytanie dla całej strony listy. Ta sama widoczność co
     :func:`list_for_job` ze ``status="proposed"``. Rekrutacje bez otwartych
     propozycji nie trafiają do słownika (wołający czyta ``.get(job_id, 0)``).
+    ``source`` zawęża do par, które ma dane źródło (np. ``full_base`` —
+    nocny przegląd bazy); status pary liczy się jak zwykle ze wszystkich.
     """
     ids = sorted({int(j) for j in job_ids})
     if not ids:
@@ -484,7 +486,14 @@ async def open_counts_for_jobs(
             ~_globally_blacklisted(JobProposal.candidate_id),
         )
         .group_by(JobProposal.job_id, JobProposal.candidate_id)
-        .having(_pair_status() == "proposed")
+        .having(
+            _pair_status() == "proposed",
+            *(
+                (func.bool_or(JobProposal.source == source),)
+                if source is not None
+                else ()
+            ),
+        )
         .subquery()
     )
     rows = await db.execute(

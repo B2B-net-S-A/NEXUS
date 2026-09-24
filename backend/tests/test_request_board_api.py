@@ -293,3 +293,193 @@ async def test_reopened_job_goes_back_to_review(
     assert reopened.status_code == 200, reopened.text
     async with AsyncSessionLocal() as db:
         assert (await db.get(Job, job_id)).work_state == "to_review"
+
+
+async def _live_rows(job_id: int) -> list[tuple[int, str, str]]:
+    from app.core.database import AsyncSessionLocal
+    from app.models.job_work_assignment import JobWorkAssignment
+
+    async with AsyncSessionLocal() as db:
+        return sorted(
+            (row.user_id, row.source, row.state)
+            for row in (
+                await db.scalars(
+                    select(JobWorkAssignment).where(
+                        JobWorkAssignment.job_id == job_id,
+                        JobWorkAssignment.state != "released",
+                    )
+                )
+            ).all()
+        )
+
+
+async def test_automat_release_is_not_undone_by_owner_adoption() -> None:
+    """Audyt 24.09: automat wpisał A jako prowadzącego, potem zwolnił go za
+    urlop. Zwolnienie zdejmuje też prowadzącego (nikt go nie zmieniał), a
+    adopcja nie przywraca A jako ``owner`` w tym samym stanie requestu."""
+    from datetime import datetime, timezone
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.job import Job
+    from app.services.request_allocation import (
+        _adopt_owners,
+        _apply,
+        _auto_released,
+        _blocked,
+    )
+    from app.services.request_allocation_plan import Change
+
+    job_id = await _seed_job(work_state="searching")
+    person = await _seed_recruiter()
+    now = datetime.now(timezone.utc)
+    async with AsyncSessionLocal() as db:
+        # Tryb auto: przydział + wpisanie prowadzącego przez automat.
+        await _apply(
+            db,
+            [Change("assign", job_id, person, "recruiter", "")],
+            mode="auto",
+            now=now,
+        )
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(Job, job_id)).recruiter_id == person
+    assert await _live_rows(job_id) == [(person, "auto", "active")]
+
+    async with AsyncSessionLocal() as db:
+        await _apply(
+            db,
+            [Change("release", job_id, person, "recruiter", "unavailable")],
+            mode="auto",
+            now=datetime.now(timezone.utc),
+        )
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(Job, job_id)).recruiter_id is None
+    assert await _live_rows(job_id) == []
+
+    # Ktoś ręcznie ustawia A prowadzącym (albo ślad został) — adopcja i tak
+    # nie przywraca osoby zwolnionej przez automat w tym stanie requestu.
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        job.recruiter_id = person
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        released = await _auto_released(db)
+        assert (job_id, person) in released
+        await _adopt_owners(
+            db,
+            blocked=await _blocked(db),
+            now=datetime.now(timezone.utc),
+            auto_released=released,
+        )
+        await db.commit()
+    assert await _live_rows(job_id) == []
+
+    # Zmiana stanu requestu kończy epizod — prowadzący znów jest przy nim.
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        job.work_state_changed_at = datetime.now(timezone.utc)
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        await _adopt_owners(
+            db,
+            blocked=await _blocked(db),
+            now=datetime.now(timezone.utc),
+            auto_released=await _auto_released(db),
+        )
+        await db.commit()
+    assert await _live_rows(job_id) == [(person, "owner", "active")]
+
+
+async def test_deactivated_owner_row_is_released() -> None:
+    from datetime import datetime, timezone
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.job import Job
+    from app.models.user import User
+    from app.services.request_allocation import _adopt_owners, _blocked
+
+    job_id = await _seed_job(work_state="searching")
+    owner = await _seed_recruiter()
+    async with AsyncSessionLocal() as db:
+        (await db.get(Job, job_id)).recruiter_id = owner
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        await _adopt_owners(
+            db, blocked=await _blocked(db), now=datetime.now(timezone.utc)
+        )
+        await db.commit()
+    assert await _live_rows(job_id) == [(owner, "owner", "active")]
+    async with AsyncSessionLocal() as db:
+        (await db.get(User, owner)).is_active = False
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        await _adopt_owners(
+            db, blocked=await _blocked(db), now=datetime.now(timezone.utc)
+        )
+        await db.commit()
+    assert await _live_rows(job_id) == []
+
+
+async def test_base_matches_come_from_open_full_base_proposals() -> None:
+    """Audyt 24.09: przegląd ``origin=auto`` żyje 2 dni, propozycje zostają —
+    liczba pasujących w bazie idzie z propozycji ``full_base``."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from app.models.job_proposal import JobProposal
+    from app.services.request_allocation import _requests
+
+    reviewed = await _seed_job(work_state="searching")
+    never = await _seed_job(work_state="searching")
+    async with AsyncSessionLocal() as db:
+        for status, source in (
+            ("proposed", "full_base"),
+            ("proposed", "full_base"),
+            ("dismissed", "full_base"),
+            ("proposed", "new_cv"),
+        ):
+            cand = Candidate(name="Ala", lastname=f"Rb{uuid.uuid4().hex[:8]}")
+            db.add(cand)
+            await db.flush()
+            db.add(
+                JobProposal(
+                    job_id=reviewed, candidate_id=cand.id, source=source, status=status
+                )
+            )
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        infos = {r.job_id: r for r in await _requests(db)}
+    assert infos[reviewed].base_matches == 2
+    assert infos[never].base_matches is None
+
+
+async def test_manual_add_twice_is_idempotent_and_takes_over_auto_row(
+    app_client: AsyncClient, app_auth_headers: dict
+) -> None:
+    from datetime import datetime, timezone
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.job_work_assignment import JobWorkAssignment
+
+    job_id = await _seed_job(work_state="searching")
+    person = await _seed_recruiter()
+    async with AsyncSessionLocal() as db:
+        db.add(
+            JobWorkAssignment(
+                job_id=job_id,
+                user_id=person,
+                role="recruiter",
+                source="auto",
+                state="proposed",
+                assigned_at=datetime.now(timezone.utc),
+            )
+        )
+        await db.commit()
+    for _ in range(2):
+        resp = await app_client.post(
+            f"/api/request-board/jobs/{job_id}/people",
+            json={"user_id": person, "role": "recruiter"},
+            headers=app_auth_headers,
+        )
+        assert resp.status_code == 200, resp.text
+    assert await _live_rows(job_id) == [(person, "manual", "active")]

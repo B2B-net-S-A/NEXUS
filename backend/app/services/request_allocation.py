@@ -32,14 +32,15 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import and_, func, or_, select, update
+from sqlalchemy import and_, func, or_, select, text, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.models.candidate_search_run import CandidateSearchRun
 from app.models.cc_feedback import JobSecondaryCc
 from app.models.competence_category import UserCompetenceCategory
 from app.models.job import Job, JobStatus
+from app.models.job_proposal import JobProposal
 from app.models.job_work_assignment import JobWorkAssignment
 from app.models.recruitment_process import ProcessStatus, RecruitmentProcess
 from app.models.user import User, UserRole
@@ -71,7 +72,6 @@ def _pool_clause():
 
 
 async def _requests(db: AsyncSession) -> list[RequestInfo]:
-    from app.services import candidate_search_store as store  # noqa: PLC0415
     from app.services.job_proposals import open_counts_for_jobs  # noqa: PLC0415
     from app.services.job_similarity import sent_counts  # noqa: PLC0415
 
@@ -95,15 +95,21 @@ async def _requests(db: AsyncSession) -> list[RequestInfo]:
     ).all():
         secondary.setdefault(job_id, set()).add(cc)
     sent = await sent_counts(db, ids)
-    proposals = await open_counts_for_jobs(db, ids)
+    # Liczba pasujących w bazie = otwarte propozycje z nocnego przeglądu
+    # (``full_base``). Wiersze samego przeglądu żyją 2 dni
+    # (``AUTO_FULL_REVIEW_RETENTION_DAYS``), więc „czy był przegląd” czytamy
+    # z propozycji, które zostają — inaczej request wchodzący do puli po
+    # dwóch dniach zawsze dostawał rekrutera.
+    proposals = await open_counts_for_jobs(db, ids, source="full_base")
     reviewed = set(
         (
             await db.scalars(
-                select(CandidateSearchRun.job_id).where(
-                    CandidateSearchRun.job_id.in_(ids),
-                    store.auto_origin_clause(),
-                    CandidateSearchRun.completed_at.is_not(None),
+                select(JobProposal.job_id)
+                .where(
+                    JobProposal.job_id.in_(ids),
+                    JobProposal.source == "full_base",
                 )
+                .distinct()
             )
         ).all()
     )
@@ -234,14 +240,48 @@ async def _blocked(db: AsyncSession) -> frozenset[tuple[int, int]]:
     return frozenset((job_id, user_id) for job_id, user_id in rows)
 
 
+AUTO_RELEASE_REASONS = ("unavailable", "excluded")
+
+
+async def _auto_released(db: AsyncSession) -> frozenset[tuple[int, int]]:
+    """Pary zwolnione przez automat (urlop, „Poza przydziałem”) w BIEŻĄCYM
+    stanie requestu. Adopcja prowadzącego ich nie cofa — inaczej zwolnienie
+    wracało następnym przebiegiem jako wiersz ``owner``, którego planer nie
+    zwalnia nigdy, i request stał „pokryty” przez osobę na urlopie."""
+    rows = (
+        await db.execute(
+            select(JobWorkAssignment.job_id, JobWorkAssignment.user_id)
+            .join(Job, Job.id == JobWorkAssignment.job_id)
+            .where(
+                _pool_clause(),
+                JobWorkAssignment.state == "released",
+                JobWorkAssignment.release_reason.in_(AUTO_RELEASE_REASONS),
+                or_(
+                    Job.work_state_changed_at.is_(None),
+                    JobWorkAssignment.released_at >= Job.work_state_changed_at,
+                ),
+            )
+        )
+    ).all()
+    return frozenset((job_id, user_id) for job_id, user_id in rows)
+
+
 async def _adopt_owners(
-    db: AsyncSession, *, blocked: frozenset[tuple[int, int]], now: datetime
+    db: AsyncSession,
+    *,
+    blocked: frozenset[tuple[int, int]],
+    now: datetime,
+    auto_released: frozenset[tuple[int, int]] = frozenset(),
 ) -> dict[str, int]:
     """Prowadzący rekrutacji jest przy requeście — wiersz ``owner``.
 
-    Zmiana prowadzącego zwalnia poprzedni wiersz ``owner``. Prowadzący zdjęty
-    ręcznie z pulpitu nie wraca, dopóki request nie zmieni stanu.
+    Zmiana prowadzącego zwalnia poprzedni wiersz ``owner``, a nieaktywne konto
+    prowadzącego — jego wiersz (inaczej zostawał na zawsze i nikt nie dostawał
+    requestu). Prowadzący zdjęty ręcznie z pulpitu albo zwolniony przez
+    automat (urlop, „Poza przydziałem”) nie wraca, dopóki request nie zmieni
+    stanu.
     """
+    inactive = select(User.id).where(User.is_active.is_(False))
     stale = await db.execute(
         update(JobWorkAssignment)
         .where(
@@ -251,6 +291,7 @@ async def _adopt_owners(
             or_(
                 Job.recruiter_id.is_(None),
                 Job.recruiter_id != JobWorkAssignment.user_id,
+                JobWorkAssignment.user_id.in_(inactive),
             ),
         )
         .values(state="released", released_at=now, release_reason="owner_changed")
@@ -277,7 +318,8 @@ async def _adopt_owners(
     )
     adopted = 0
     for job_id, user_id in owners:
-        if (job_id, user_id) in live or (job_id, user_id) in blocked:
+        pair = (job_id, user_id)
+        if pair in live or pair in blocked or pair in auto_released:
             continue
         db.add(
             JobWorkAssignment(
@@ -359,12 +401,32 @@ async def _apply(
             JobWorkAssignment.state != "released",
         )
         if change.kind == "release":
+            previous = (
+                await db.execute(
+                    select(JobWorkAssignment.source, JobWorkAssignment.state).where(
+                        live_row
+                    )
+                )
+            ).first()
             await db.execute(
                 update(JobWorkAssignment)
                 .where(live_row)
                 .values(state="released", released_at=now, release_reason=change.reason)
             )
             counts["released"] += 1
+            if (
+                change.reason in AUTO_RELEASE_REASONS
+                and change.role == "recruiter"
+                and previous is not None
+                and previous.source == "auto"
+                and previous.state == "active"
+            ):
+                # Aktywny rekruter automatu był wpisany jako prowadzący przez
+                # ``_set_owner_if_empty``. Jeśli nikt tego potem nie zmienił,
+                # zwolnienie zdejmuje też prowadzącego — inaczej osoba na
+                # urlopie zostawała prowadzącą, a adopcja przywracała ją
+                # przy requeście.
+                await _clear_auto_owner(db, change.job_id, change.user_id)
         elif change.kind == "activate":
             await db.execute(
                 update(JobWorkAssignment)
@@ -391,6 +453,14 @@ async def _apply(
                 await _set_owner_if_empty(db, change.job_id, change.user_id)
     await db.flush()
     return counts
+
+
+async def _clear_auto_owner(db: AsyncSession, job_id: int, user_id: int) -> None:
+    await db.execute(
+        update(Job)
+        .where(Job.id == job_id, Job.recruiter_id == user_id)
+        .values(recruiter_id=None)
+    )
 
 
 async def _set_owner_if_empty(db: AsyncSession, job_id: int, user_id: int) -> None:
@@ -433,8 +503,9 @@ async def run_request_allocation(
         ),
     )
     blocked = await _blocked(db)
+    auto_released = await _auto_released(db) if mode != "off" else frozenset()
     owner_counts = (
-        await _adopt_owners(db, blocked=blocked, now=now)
+        await _adopt_owners(db, blocked=blocked, now=now, auto_released=auto_released)
         if mode != "off"
         else {"owner_released": 0, "owner_adopted": 0}
     )
@@ -487,37 +558,53 @@ async def run_request_allocation(
 async def manual_add(
     db: AsyncSession, *, job_id: int, user_id: int, role: str, actor_id: int
 ) -> JobWorkAssignment:
-    """Ręczne dodanie osoby z pulpitu. Automat nigdy jej nie zdejmie za urlop."""
-    existing = await db.scalar(
-        select(JobWorkAssignment)
-        .where(
-            JobWorkAssignment.job_id == job_id,
-            JobWorkAssignment.user_id == user_id,
-            JobWorkAssignment.state != "released",
-        )
-        .with_for_update()
+    """Ręczne dodanie osoby z pulpitu. Automat nigdy jej nie zdejmie za urlop.
+
+    Wołający trzyma ``allocation_lock`` (przed blokadą rekrutacji). Wstawienie
+    jest idempotentne (``ON CONFLICT DO NOTHING`` na żywej parze), więc
+    podwójne kliknięcie ani przebieg automatu dodający tę samą parę nie kończą
+    się naruszeniem ``ux_job_work_assignments_live`` (goły 500).
+    """
+    live_pair = and_(
+        JobWorkAssignment.job_id == job_id,
+        JobWorkAssignment.user_id == user_id,
+        JobWorkAssignment.state != "released",
     )
     now = datetime.now(timezone.utc)
-    if existing is not None:
-        existing.state = "active"
-        existing.source = "manual"
-        existing.role = role
-        existing.assigned_by = actor_id
-        await db.flush()
-        return existing
-    row = JobWorkAssignment(
-        job_id=job_id,
-        user_id=user_id,
-        role=role,
-        source="manual",
-        state="active",
-        assigned_at=now,
-        assigned_by=actor_id,
+    inserted_id = await db.scalar(
+        pg_insert(JobWorkAssignment)
+        .values(
+            job_id=job_id,
+            user_id=user_id,
+            role=role,
+            source="manual",
+            state="active",
+            assigned_at=now,
+            assigned_by=actor_id,
+        )
+        .on_conflict_do_nothing(
+            index_elements=["job_id", "user_id"],
+            index_where=text("state <> 'released'"),
+        )
+        .returning(JobWorkAssignment.id)
     )
-    db.add(row)
+    if inserted_id is None:
+        # Para już żyje (automat albo drugie kliknięcie) — przejmij ją ręcznie.
+        await db.execute(
+            update(JobWorkAssignment)
+            .where(live_pair)
+            .values(state="active", source="manual", role=role, assigned_by=actor_id)
+            .execution_options(synchronize_session=False)
+        )
     if role == "recruiter":
         await _set_owner_if_empty(db, job_id, user_id)
     await db.flush()
+    row = await db.scalar(
+        select(JobWorkAssignment)
+        .where(live_pair)
+        .execution_options(populate_existing=True)
+    )
+    assert row is not None
     return row
 
 

@@ -31,6 +31,7 @@ from app.models.job_work_assignment import JobWorkAssignment
 from app.models.recruitment_allocation import RecruitmentAllocationState
 from app.models.user import User, UserRole
 from app.services.job_similarity import sent_counts
+from app.services.recruitment_allocation import allocation_lock
 from app.services.request_allocation import (
     changed_since,
     manual_add,
@@ -388,6 +389,10 @@ async def add_person(
     current_user: User = Depends(BoardEditor),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
+    # Ta sama blokada co przebieg automatu, i PRZED blokadą rekrutacji
+    # (kolejność z ``allocation_lock``) — inaczej równoległy przebieg dodający
+    # tę samą parę kończył się naruszeniem unikalności.
+    await allocation_lock(db)
     await _searching_job(db, job_id)
     person = await db.get(User, payload.user_id)
     if person is None or not person.is_active:
@@ -414,6 +419,7 @@ async def remove_person(
     _current_user: User = Depends(BoardEditor),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
+    await allocation_lock(db)
     await _locked_job(db, job_id)
     removed = await manual_remove(db, job_id=job_id, user_id=user_id)
     await db.commit()

@@ -199,7 +199,15 @@ def plan_assignments(data: PlanInput) -> list[Change]:
                     Change("release", row.job_id, row.user_id, row.role, "unavailable")
                 )
                 continue
-        if data.mode == "auto" and row.state == "proposed" and data.availability_known:
+        # Osoby, której nie ma (urlop, „Poza przydziałem”), nie aktywujemy —
+        # także gdy zostaje przy requeście, bo ma kandydatów w toku. Aktywacja
+        # zrobiłaby z niej prowadzącą rekrutacji.
+        if (
+            data.mode == "auto"
+            and row.state == "proposed"
+            and data.availability_known
+            and not person_gone
+        ):
             changes.append(Change("activate", row.job_id, row.user_id, row.role, ""))
         covered.add(row.job_id)
         load[row.user_id] = load.get(row.user_id, 0) + 1
