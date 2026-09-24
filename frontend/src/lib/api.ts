@@ -5394,7 +5394,7 @@ export const microsoft365Api = {
       payload,
     ),
   createInvite: (payload: {
-    candidate_id: number;
+    candidate_id?: number | null;
     title: string;
     description?: string;
     start: string;

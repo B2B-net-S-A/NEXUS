@@ -28,6 +28,7 @@ import {
 import api, {
   candidateProfileApi,
   clientTeamApi,
+  microsoft365Api,
   phase5Api,
 } from "@/lib/api";
 import type {
@@ -39,6 +40,11 @@ import { editableTagText, mergeEditedTags, structuredTagLabels } from "@/lib/can
 import { useClickOutside } from "@/lib/use-click-outside";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { defaultMeetingWindow } from "@/lib/meeting-defaults";
+import { newClientRequestId } from "@/lib/client-request-id";
+import {
+  invalidAttendeeEmails,
+  splitAttendeeEmails,
+} from "@/components/calendar/attendee-emails";
 import {
   CandidateCombobox,
   type CandidateChoice,
@@ -1797,6 +1803,11 @@ export function AddMeetingModal({ onClose, onSuccess }: { onClose: () => void; o
   // Kandydat szukany po stronie serwera — dawny `<select>` z `page_size: 100`
   // nie pozwalał wskazać nikogo spoza pierwszej setki (FE-11).
   const [candidate, setCandidate] = useState<CandidateChoice | null>(null);
+  const [createInOutlook, setCreateInOutlook] = useState(false);
+  const [addTeamsMeeting, setAddTeamsMeeting] = useState(true);
+  const [inviteCandidate, setInviteCandidate] = useState(false);
+  const [attendees, setAttendees] = useState("");
+  const [clientRequestId] = useState(newClientRequestId);
   const candidateLabelId = useId();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -1806,16 +1817,37 @@ export function AddMeetingModal({ onClose, onSuccess }: { onClose: () => void; o
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.title || !form.start_time) { setError("Tytuł i czas rozpoczęcia są wymagane"); return; }
+    if (createInOutlook && !form.end_time) { setError("Podaj godzinę zakończenia spotkania w Outlooku."); return; }
+    const extraAttendees = splitAttendeeEmails(attendees);
+    if (createInOutlook && invalidAttendeeEmails(extraAttendees).length > 0) {
+      setError("Sprawdź adresy e-mail uczestników.");
+      return;
+    }
     setSaving(true); setError("");
     try {
-      await api.post("/api/calendar/events", {
-        title: form.title,
-        event_type: form.event_type,
-        start_time: new Date(form.start_time).toISOString(),
-        end_time: form.end_time ? new Date(form.end_time).toISOString() : undefined,
-        candidate_id: candidate?.id,
-      });
-      onSuccess("Spotkanie zaplanowane pomyślnie");
+      if (createInOutlook) {
+        await microsoft365Api.createInvite({
+          title: form.title,
+          event_type: form.event_type,
+          start: new Date(form.start_time).toISOString(),
+          end: new Date(form.end_time).toISOString(),
+          candidate_id: candidate?.id ?? null,
+          invite_candidate: Boolean(candidate && inviteCandidate),
+          extra_attendees: extraAttendees,
+          add_teams_meeting: addTeamsMeeting,
+          client_request_id: clientRequestId,
+        });
+        onSuccess("Spotkanie utworzone w Outlooku" + (addTeamsMeeting ? " z linkiem Teams" : ""));
+      } else {
+        await api.post("/api/calendar/events", {
+          title: form.title,
+          event_type: form.event_type,
+          start_time: new Date(form.start_time).toISOString(),
+          end_time: form.end_time ? new Date(form.end_time).toISOString() : undefined,
+          candidate_id: candidate?.id,
+        });
+        onSuccess("Spotkanie zaplanowane pomyślnie");
+      }
       onClose();
     } catch (err: any) {
       setError(formErrorMsg(err, "Błąd podczas zapisywania"));
@@ -1834,7 +1866,7 @@ export function AddMeetingModal({ onClose, onSuccess }: { onClose: () => void; o
             <option value="meeting">Spotkanie</option>
             <option value="interview">Rozmowa kwalifikacyjna</option>
             <option value="screening">Screening</option>
-            <option value="call">Rozmowa telefoniczna</option>
+            <option value="prep_call">Rozmowa telefoniczna</option>
             <option value="deadline">Deadline</option>
           </Select>
         </FieldGroup>
@@ -1859,9 +1891,31 @@ export function AddMeetingModal({ onClose, onSuccess }: { onClose: () => void; o
             labelledBy={candidateLabelId}
           />
         </div>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={createInOutlook} onChange={e => setCreateInOutlook(e.target.checked)} />
+          Utwórz też w moim Outlooku
+        </label>
+        {createInOutlook && (
+          <div className="space-y-3 rounded-lg border border-border p-3">
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={addTeamsMeeting} onChange={e => setAddTeamsMeeting(e.target.checked)} />
+              Dodaj link Teams
+            </label>
+            {candidate && (
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={inviteCandidate} onChange={e => setInviteCandidate(e.target.checked)} />
+                Wyślij zaproszenie kandydatowi
+              </label>
+            )}
+            <FieldGroup label="Inni uczestnicy (adresy e-mail)">
+              <Input value={attendees} onChange={e => setAttendees(e.target.value)} placeholder="osoba@firma.pl, druga@firma.pl" />
+            </FieldGroup>
+            <p className="text-xs text-muted-foreground">Zaproszenia wyśle Outlook po zapisaniu spotkania.</p>
+          </div>
+        )}
         <div className="flex justify-end gap-3 pt-1">
           <button type="button" onClick={onClose} className="h-10 px-4 text-sm text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground focus:outline-hidden focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg transition-colors">Anuluj</button>
-          <SaveButton saving={saving} label="Zaplanuj" />
+          <SaveButton saving={saving} label={createInOutlook ? "Utwórz w Outlooku" : "Zaplanuj"} />
         </div>
       </form>
     </Modal>
