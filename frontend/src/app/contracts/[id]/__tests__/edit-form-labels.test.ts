@@ -59,8 +59,10 @@ describe("formularz edycji kontraktu — etykiety dostępności", () => {
 
   it("każda kwota i data etapu ma nazwę z rodzajem stawki i numerem etapu", () => {
     const stageInputs = SRC.match(/aria-label=\{`Etap \$\{idx \+ 1\} stawki [^`]*: (kwota|obowiązuje od|obowiązuje do)`\}/g) ?? [];
-    // 2 harmonogramy × (kwota, od, do)
-    expect(stageInputs).toHaveLength(6);
+    // 2 harmonogramy × (kwota, od). „Obowiązuje do” ukryte (audyt 24.09, N4):
+    // resolver czyta wyłącznie „od”, więc edytowalne „do” nic nie zmieniało.
+    expect(stageInputs).toHaveLength(4);
+    expect(stageInputs.some((s) => s.includes("obowiązuje do"))).toBe(false);
     expect(stageInputs.some((s) => s.includes("z umowy ramowej"))).toBe(true);
     expect(stageInputs.some((s) => s.includes("stawki kandydata"))).toBe(true);
     const removeButtons = SRC.match(/aria-label=\{`Usuń etap \$\{idx \+ 1\} stawki [^`]*`\}/g) ?? [];
