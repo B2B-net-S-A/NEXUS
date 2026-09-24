@@ -1632,6 +1632,11 @@ async def _process_message(
             # trafić do bazy w tej transakcji, a wycofanie go z niej zdejmuje.
             failed = _failed_row(identity, row, exc)
             await db.rollback()
+            # Wycofanie wygasza też wiersz połączenia; następny załącznik czyta
+            # `conn.id` w `_base_row` — w sesji async byłby to MissingGreenlet
+            # (tryb delegowany; app-only ma `conn=None`).
+            if conn is not None:
+                await db.refresh(conn)
             row = failed
             stats.failed += 1
         db.add(row)

@@ -69,9 +69,6 @@ _CONSTRAINT_MESSAGES: dict[str, str] = {
     "client_order_groups_executive_contract_id_fkey": (
         "Wskazana umowa wykonawcza nie istnieje albo należy do innego klienta"
     ),
-    "ck_client_orders_dates": (
-        "Data zakończenia zamówienia jest wcześniejsza niż data rozpoczęcia."
-    ),
     "ck_client_order_groups_dates": (
         "Data zakończenia zamówienia jest wcześniejsza niż data rozpoczęcia."
     ),

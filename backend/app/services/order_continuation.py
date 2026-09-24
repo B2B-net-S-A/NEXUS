@@ -158,6 +158,15 @@ def _covers_after(other: ClientOrder, ended_on: date, today: date) -> bool:
     status = ClientOrderStatus(other.status)
     if status == ClientOrderStatus.cancelled:
         return False
+    # Lustro gałęzi SQL wyżej: aktywne zamówienie z budżetem MD pracuje po
+    # dacie końca (``OrderFact.works_until_md_exhausted``). Bez tego pigułka
+    # „Bez kontynuacji” liczyła inaczej niż karta DL, dzwonek i Finanse.
+    if (
+        status == ClientOrderStatus.active
+        and other.md_total is not None
+        and (other.md_remaining or 0) > 0
+    ):
+        return True
     if (
         status == ClientOrderStatus.draft
         and other.end_date is None

@@ -132,6 +132,22 @@ def test_ending_order_with_added_extension_is_not_reported():
     assert ending_without_successor(orders, today=_TODAY) is None
 
 
+def test_active_md_budget_order_counts_as_continuation_like_the_sql_rule():
+    """Pigułka i karta DL liczą tak samo: aktywne zamówienie z pozostałym
+    budżetem MD pracuje po dacie końca (przegląd integracji 24.09.2026)."""
+    orders = [
+        _order(1),
+        _order(
+            2,
+            start_date=date(2026, 1, 1),
+            end_date=_TODAY - timedelta(days=60),
+            md_total=Decimal("40"),
+            md_remaining=Decimal("5"),
+        ),
+    ]
+    assert ending_without_successor(orders, today=_TODAY) is None
+
+
 def test_empty_signing_draft_does_not_hide_the_ending_order():
     orders = [
         _order(1),

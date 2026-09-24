@@ -330,8 +330,16 @@ async def materialize_scheduled_order_groups(
                     ClientOrderStatus.draft,
                 ):
                     line.status = ClientOrderStatus.completed
-                if line.end_date is None or line.end_date > history_boundary:
-                    line.end_date = history_boundary
+                # Jak przy grupie wyżej: koniec linii nie przed jej startem —
+                # następca startujący tego samego dnia co linia dawałby okres
+                # odwrócony (audyt 24.09.2026).
+                line_end = (
+                    max(history_boundary, line.start_date)
+                    if line.start_date is not None
+                    else history_boundary
+                )
+                if line.end_date is None or line.end_date > line_end:
+                    line.end_date = line_end
 
     if changed:
         await db.flush()

@@ -709,10 +709,9 @@ def _export_currency(order: ClientOrderRead) -> Optional[str]:
 def _assert_order_period(start: Optional[date], end: Optional[date]) -> None:
     """Koniec zamówienia nie może być przed jego początkiem (S7, 24.09.2026).
 
-    Lustro ``ck_client_orders_dates`` (0371, NOT VALID — produkcja ma jedno
-    historyczne zamówienie z odwróconym okresem, więc zapis starych wierszy
-    bez zmiany dat nadal przechodzi). Czytelne 422 zamiast surowego
-    IntegrityError."""
+    Reguła żyje w API, nie w więzie bazy: CHECK (także NOT VALID) Postgres
+    sprawdza przy każdym UPDATE wiersza, więc historyczne zamówienie
+    z odwróconym okresem blokowałoby każdy swój zapis i masowe przebiegi."""
     if start is not None and end is not None and end < start:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
