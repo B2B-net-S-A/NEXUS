@@ -78,6 +78,7 @@ import { SlotRequestDialog } from "@/components/calendar/cycle/SlotDialogs";
 import { DlReviewPanel } from "@/components/v2/recruitment/DlReviewPanel";
 import { CvQcDialog } from "@/components/v2/recruitment/CvQcDialog";
 import { MoveNextDialog } from "@/components/v2/recruitment/MoveNextDialog";
+import { dockNavigationOrder } from "@/lib/board-dock-order";
 import { DebriefRequiredDialog } from "@/components/v2/recruitment/DebriefRequiredDialog";
 import {
  MOVE_REQUIREMENTS_PREFIX,
@@ -2490,27 +2491,6 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  [dockItem, dockItemColId, stageCols, requestMove, showError]
  );
 
- // Nawigator doku „‹ N z M ›" — kolejność TABLICY (kolumna po kolumnie),
- // łącznie z kubełkiem „Poza szablonem": to nadal karty w procesie, a dok
- // musi umieć na nie wejść. Klucz to `candidate_id` (stabilny przez ruchy),
- // dokładnie jak `dockCandidateId`.
- const dockOrder = useMemo(
- () => cols.flatMap((c) => c.items.map((i) => i.candidate_id)),
- [cols]
- );
- const dockIndex = dockItem ? dockOrder.indexOf(dockItem.candidate_id) : -1;
- const selectAdjacentDockCard = useCallback(
- (delta: -1 | 1) => {
- if (dockOrder.length === 0) return;
- const current = dockIndex;
- if (current < 0) return;
- const next = current + delta;
- if (next < 0 || next >= dockOrder.length) return;
- setDockCandidateId(dockOrder[next]);
- },
- [dockOrder, dockIndex]
- );
-
  const handleDockReject = useCallback(() => {
  if (!dockItem || !dockItemColId || !rejectedTemplateCol) return;
  requestReject(dockItem, rejectedTemplateCol);
@@ -2733,6 +2713,27 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  ? base.filter((c) => c.count > 0 || boardKeyByColId.get(colId(c)) === "new")
  : base;
  }, [displayCols, boardFold, showClosed, offTemplateCols, hideEmptyColumns, boardKeyByColId]);
+
+ // Nawigator doku „‹ N z M ›" — kolejność WIDOCZNEJ Tablicy: kolumny od
+ // lewej (także rozwinięci zamknięci i „Poza szablonem"), karty od góry,
+ // bez kart przygaszonych filtrem (`dockNavigationOrder`). Klucz to
+ // `candidate_id` (stabilny przez ruchy), dokładnie jak `dockCandidateId`.
+ const dockOrder = useMemo(
+ () => dockNavigationOrder(visibleCols, isDimmed, dockCandidateId),
+ [visibleCols, isDimmed, dockCandidateId]
+ );
+ const dockIndex = dockItem ? dockOrder.indexOf(dockItem.candidate_id) : -1;
+ const selectAdjacentDockCard = useCallback(
+ (delta: -1 | 1) => {
+ if (dockOrder.length === 0) return;
+ const current = dockIndex;
+ if (current < 0) return;
+ const next = current + delta;
+ if (next < 0 || next >= dockOrder.length) return;
+ setDockCandidateId(dockOrder[next]);
+ },
+ [dockOrder, dockIndex]
+ );
 
  const boardEntries = useMemo(
  () => visibleCols.map((col) => ({ kind: "column" as const, key: colId(col), col })),

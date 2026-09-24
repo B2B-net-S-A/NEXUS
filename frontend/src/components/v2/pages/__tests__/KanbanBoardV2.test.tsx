@@ -1264,6 +1264,35 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     expect(screen.getByRole("button", { name: /^Mój ruch/ })).toHaveTextContent("Mój ruch · 2");
   });
 
+  it("nawigator doku idzie w kolejności widocznej Tablicy (kolumny od lewej, karty od góry)", async () => {
+    // Audyt 24.09.2026: pierwsza karta w „Nowi” miała „12 z 35”, a „←” prowadziło
+    // do ostatniej karty kolumny — dok liczył kolejność z surowych etapów
+    // szablonu, łącznie z ukrytymi zamkniętymi.
+    const columns = defaultB2BColumns() as unknown as Array<Record<string, unknown>>;
+    // Duplikat nazwy z importu stoi na końcu szablonu, a karta renderuje się w „Nowi”.
+    columns.push({
+      stage: "new",
+      name: "Nowi / Analiza CV (#41)",
+      category: "internal",
+      stage_def_id: 399,
+      count: 1,
+      terminal_type: null,
+      items: [{ id: 7399, candidate_id: 8399, stage: "new", name: "Duplikat", lastname: "Importu", days_in_stage: 1 }],
+    });
+    renderBoard(columns as never);
+    await screen.findByTestId("pipeline-board");
+    const cards = Array.from(document.querySelectorAll("[data-kanban-card]")) as HTMLElement[];
+    fireEvent.click(cards[0]);
+    const dock = await screen.findByRole("complementary", { name: "Karta kandydata" });
+    // Nowi (2 + duplikat) + Screening (1); odrzucony (pasek zamkniętych) poza nawigatorem.
+    expect(within(dock).getByText("1 z 4")).toBeInTheDocument();
+    expect(within(dock).getByRole("button", { name: "Poprzednia karta" })).toBeDisabled();
+    fireEvent.click(within(dock).getByRole("button", { name: "Następna karta" }));
+    fireEvent.click(within(dock).getByRole("button", { name: "Następna karta" }));
+    expect(await within(dock).findByText("3 z 4")).toBeInTheDocument();
+    expect(within(dock).getAllByText(/Duplikat Importu/).length).toBeGreaterThan(0);
+  });
+
   it("„Mój ruch” i nazwisko przełączają się w pasku (aria-pressed)", async () => {
     renderBoard(defaultB2BColumns());
     await screen.findByTestId("pipeline-board");
