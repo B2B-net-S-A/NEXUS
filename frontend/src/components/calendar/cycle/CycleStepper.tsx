@@ -6,6 +6,7 @@ import {
   STEP_TITLES,
   formatDayLabel,
   formatTime,
+  prepQualityTone,
   stepTone,
   type CycleStep,
 } from "@/lib/interview-cycle";
@@ -37,14 +38,24 @@ const TITLE: Record<ReturnType<typeof stepTone>, string> = {
   muted: "text-muted-foreground",
 };
 
+const QUALITY_TEXT: Record<ReturnType<typeof prepQualityTone>, string> = {
+  done: "text-success-muted-foreground font-semibold",
+  warn: "text-warning-muted-foreground font-semibold",
+  danger: "text-destructive font-semibold",
+  muted: "",
+};
+
 /** Siedem kroków cyklu pary w pionie. Przycisk akcji dostaje tylko krok bieżący. */
 export function CycleStepper({
   steps,
   action,
+  onPrepReview,
 }: {
   steps: CycleStep[];
   /** Akcja dla kroku bieżącego (np. „Zapisz debrief”). */
   action?: { stepKey: CycleStep["key"]; label: string; onClick: () => void } | null;
+  /** 0370: odbyty prep z NEXUSA (Teams) — otwiera ocenę prepu. */
+  onPrepReview?: (eventId: number) => void;
 }) {
   return (
     <ol className="flex flex-col" aria-label="Kroki rozmowy u klienta">
@@ -79,11 +90,27 @@ export function CycleStepper({
                     STATE_TEXT[step.state],
                     // Telefon: `at` to KONIEC okna, więc „do 13:30”, nie sama godzina.
                     when && step.key === "call" && step.state !== "done" ? `do ${when}` : when,
-                    step.meta && step.meta !== STATE_TEXT[step.state] ? step.meta : null,
+                    !step.quality && step.meta && step.meta !== STATE_TEXT[step.state]
+                      ? step.meta
+                      : null,
                   ]
                     .filter(Boolean)
                     .join(" · ")}
+                  {step.quality && step.meta ? (
+                    <span className={cn("block", QUALITY_TEXT[prepQualityTone(step.quality)])}>
+                      {step.meta}
+                    </span>
+                  ) : null}
                 </div>
+                {step.quality && step.event_id != null && onPrepReview ? (
+                  <button
+                    type="button"
+                    onClick={() => onPrepReview(step.event_id as number)}
+                    className="mt-0.5 text-xs font-semibold text-primary hover:underline"
+                  >
+                    Zobacz ocenę i transkrypt
+                  </button>
+                ) : null}
               </div>
               {action && action.stepKey === step.key ? (
                 <button

@@ -83,6 +83,8 @@ class TestFeatureKeyEnum:
             # porównane z oryginałem i zapytaniem klienta).
             "dz_review",
             "academy_screening",
+            # 0370: ocena prepu z transkryptu Teams.
+            "prep_review",
         }
 
     def test_every_key_has_label_and_data_descriptor(self):

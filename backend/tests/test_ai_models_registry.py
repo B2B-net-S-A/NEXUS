@@ -137,6 +137,7 @@ DECISION_2026_09_16 = {
     AIFeatureKey.dz_review: ("F22", "gpt-6-luna"),
     # F23 — decyzja 24.09.2026: sortowanie zgłoszeń do akademii, jak F10.
     AIFeatureKey.academy_screening: ("F23", "gpt-6-luna"),
+    AIFeatureKey.prep_review: ("F24", "gpt-6-luna"),
 }
 
 

@@ -343,34 +343,6 @@ async def test_apply_rejects_when_not_pending(
     assert r2.status_code == 409, r2.text
 
 
-# ── Fuzzy matcher (Fireflies → Job) ────────────────────────────────────────
-
-
-class _FakeClient:
-    def __init__(self, name: str, website: str | None = None):
-        self.name = name
-        self.website = website
-
-
-class _FakeJob:
-    def __init__(
-        self, id: int, title: str, client: _FakeClient | None, status="published"
-    ):
-        self.id = id
-        self.title = title
-        self.client = client
-        from app.models.job import JobStatus
-
-        self.status = JobStatus.draft if status == "draft" else JobStatus.published
-
-
-def test_token_set_ratio_is_order_insensitive():
-    from app.services.fireflies_job_matcher import _token_set_ratio
-
-    a = _token_set_ratio("Senior Python Developer", "developer python senior")
-    assert a > 0.9
-
-
 # ── CloudTalk webhook (Phase 14 / Faza C) ──────────────────────────────────
 
 
@@ -429,15 +401,6 @@ async def test_cloudtalk_webhook_accepts_valid_hmac(app_client, monkeypatch):
     # No candidate with that phone → no Call row created, but status ok.
     assert resp.json()["status"] == "ok"
 
-
-def test_domain_boost_matches_client_website_host():
-    from app.services.fireflies_job_matcher import _domain_boost
-
-    c = _FakeClient(name="Acme", website="https://acme.com/about")
-    boost = _domain_boost(c, ["jan@acme.com", "other@example.org"])
-    assert boost == 1.0
-    # No matching domain
-    assert _domain_boost(c, ["jan@other.com"]) == 0.0
 
 
 @pytest.mark.asyncio

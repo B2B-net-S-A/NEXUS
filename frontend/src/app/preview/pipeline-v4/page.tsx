@@ -145,6 +145,9 @@ function columns(viewerId: number): KanbanColumn[] {
       card("Magdalena", "Pawlak", {
         interview_badge: { kind: "call_due", label: "Zadzwoń · 18 min po rozmowie", tone: "urgent" },
       }),
+      card("Tomasz", "Mazur", {
+        interview_badge: { kind: "prep_missing", label: "Brak prepu · rozmowa jutro", tone: "urgent" },
+      }),
     ]),
     col("acceptance", "Akceptacja", "external", 19, [
       card("Joanna", "Kaczmarek", {

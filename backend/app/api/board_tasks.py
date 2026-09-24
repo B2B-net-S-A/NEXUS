@@ -30,7 +30,7 @@ from app.models.candidate import Candidate
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.user import UserRole
 from app.services import board_tasks as svc
-from app.services import cpro_sender, move_requirements
+from app.services import cpro_sender, move_requirements, prep_attention
 
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 
@@ -67,6 +67,22 @@ class BoardTaskRow(BaseModel):
     qc_blocking_failed: int = 0
 
 
+class PrepAttentionRow(BaseModel):
+    """Prep przed rozmową u klienta wymagający uwagi (0370)."""
+
+    reason: Literal["missing", "weak", "unrecorded"]
+    prep_no: int
+    candidate_id: int
+    candidate_name: str
+    job_id: int
+    job_title: str
+    interview_event_id: int
+    interview_start: datetime
+    prep_event_id: Optional[int] = None
+    owner_id: Optional[int] = None
+    urgent: bool = False
+
+
 class BoardTasksResponse(BaseModel):
     cpro_to_send: list[BoardTaskRow]
     cpro_sent: list[BoardTaskRow]
@@ -77,6 +93,8 @@ class BoardTasksResponse(BaseModel):
     # wykonuje wyłącznie admin albo Delivery Lead — Head of Recruitment widzi
     # kolejkę, ale serwer odmówiłby mu wysyłki.
     can_send_to_client: bool
+    # 0370: brak prepu, prep słaby albo bez nagrania — organizator i HoR.
+    prep_attention: list[PrepAttentionRow] = []
 
 
 class CproSenderRead(BaseModel):
@@ -139,6 +157,11 @@ async def list_board_tasks(
     snapshot = await svc.load_snapshot(db)
     portfolio = await svc.dl_portfolio_client_ids(db, current_user.id)
     mine = svc.tasks_for_user(snapshot, current_user, portfolio=portfolio)
+    preps = prep_attention.for_user(
+        await prep_attention.load_prep_attention(db, datetime.now(timezone.utc)),
+        current_user,
+    )
+    names, titles = await prep_attention.labels(db, preps)
     return BoardTasksResponse(
         cpro_to_send=[BoardTaskRow(**t.as_dict()) for t in mine[svc.KIND_CPRO_TO_SEND]],
         # Najdłużej czekające na Nordeę na górze — wysłane rośnie w czasie.
@@ -149,6 +172,22 @@ async def list_board_tasks(
         can_send_to_client=current_user.has_any_role(
             UserRole.admin, UserRole.delivery_lead
         ),
+        prep_attention=[
+            PrepAttentionRow(
+                reason=a.reason,
+                prep_no=a.prep_no,
+                candidate_id=a.candidate_id,
+                candidate_name=names.get(a.candidate_id, f"Kandydat #{a.candidate_id}"),
+                job_id=a.job_id,
+                job_title=titles.get(a.job_id, f"Rekrutacja #{a.job_id}"),
+                interview_event_id=a.interview_event_id,
+                interview_start=a.interview_start,
+                prep_event_id=a.prep_event_id,
+                owner_id=a.owner_id,
+                urgent=a.urgent,
+            )
+            for a in preps
+        ],
     )
 
 

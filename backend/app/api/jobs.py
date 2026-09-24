@@ -3103,7 +3103,7 @@ async def set_champion_briefing(
     if note.note_type != NoteType.meeting:
         raise HTTPException(
             status_code=422,
-            detail="Briefing musi być notatką meetingową (Fireflies).",
+            detail="Briefing musi być notatką ze spotkania.",
         )
     from app.services.note_job_link import ensure_note_linkable_to_job
 

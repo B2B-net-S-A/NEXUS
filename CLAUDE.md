@@ -6657,6 +6657,60 @@ Rozmowa u klienta → Telefon ≤30 min → Debrief`. Raport:
 - Harness `/preview/calendar-cycle` (`?as=dl`) — dane fikcyjne, zero zapytań
   (dane agendy przez `dataOverride`, reszta zasiana w cache).
 
+## Prepy w Teams → transkrypt, notatka i ocena prepu (0370, 23.09.2026)
+
+Zastępuje martwą integrację Fireflies (klucz pusty na prodzie, 0 notatek).
+Przed każdą rozmową u klienta są DWA prepy z kandydatem przez Teams: Prep 1
+prowadzi Delivery Lead, Prep 2 — rekruter (telefon po rozmowie zostaje
+zwykłym telefonem z ręcznym debriefem). Konfiguracja M365: `docs/teams-prep-setup.md`.
+
+- **App-only, OSOBNA rejestracja „NEXUS Teams Prep”** (`TEAMS_PREP_CLIENT_ID/SECRET`,
+  `services/m365/teams_prep_auth.py`, `AppGraphClient(token_provider=…)`), nie
+  „NEXUS ATS - Mailbox and Login”: polityka Exchange zawęża aplikację do
+  SKRZYNEK, nie do uprawnień — skrzynki zespołu w zakresie aplikacji z
+  `Mail.Read` dałyby jej odczyt ich poczty. Spotkanie powstaje w kalendarzu
+  ORGANIZATORA (`POST /users/{upn}/events`, `transactionId`), bo M365 ma
+  połączone 2 z ~30 osób. Edycja i odwołanie prepu idą tą samą aplikacją
+  (`_push_prep_changes`, gałąź w `cancel_event` w `api/calendar.py`).
+- **Tylko prepy założone w NEXUSIE** (`POST /api/interview-cycle/preps`,
+  `prep_meetings` 1:1 z wydarzeniem). Spotkania z Outlooka nie są wciągane
+  (decyzja). Organizator podpowiadany: Prep 1 → `job.delivery_lead_id`, Prep 2 →
+  `interview_slots.default_recruiter_id`; organizator i uczestnicy muszą być
+  w zespole rekrutacji. Zaproszenie niesie akapit o nagrywaniu
+  (`PREP_NOTICE_TEXT`, wersja robocza do akceptacji prawnej); tytuł bez klienta
+  (widzi go kandydat). Po utworzeniu PATCH `recordAutomatically` — porażka nie
+  cofa prepu (`transcription_setup=failed` + „włącz ręcznie”).
+- **Pętla `teams_prep_transcripts`** (`TEAMS_PREP_TRANSCRIPTS_ENABLED`, OFF
+  kończy ją przed pętlą; heartbeat). Stan kolejki w bazie, odświeża termin
+  z Outlooka przed pobraniem, backoff, po `TEAMS_PREP_FETCH_GIVE_UP_HOURS` →
+  `missing` („bez nagrania”); 403 → `forbidden` bez zużywania prób +
+  `checks.teams_prep=degraded`. Do logu tylko kod/klasa błędu.
+- **Transkrypt w `prep_transcripts` BEZ limitu czasu** (decyzja), kaskadą
+  z kandydatem (art. 17; `calendar_events.candidate_id` to SET NULL, dlatego
+  każda tabela ma własny CASCADE). Pełny tekst: `GET …/preps/{id}/transcript`
+  za `ensure_job_read_access` (od #1742 każda rola wewnętrzna, nie tylko zespół). Notatka (`external_source='teams_prep'`) niesie
+  WYŁĄCZNIE podsumowanie — czyta ją nocny `notes_insights` (DeepSeek).
+  Mówcy z VTT (`services/teams_vtt.py`): zespół po nazwisku, kandydat po
+  nazwisku albo jako jedyny mówca spoza zespołu; udział kandydata `None`, gdy
+  nie da się go wskazać — nigdy 0.
+- **Ocena (`services/prep_review.py`, `AIFeatureKey.prep_review`, F24 = GPT-6
+  Luna, zapas Sonnet 5):** punkty buduje KOD (must-have w pisowni DL-a z
+  `dz_review.job_requirements` + pytania klienta z debriefów i przypięte),
+  model daje status i cytat, cytat spoza transkryptu = „nie było (bez
+  dowodu)”. Poziom liczy kod (`PREP_REVIEW_*`); w Prepie 2 punkt zaliczony
+  w Prepie 1 = `covered_in_prep1` poza mianownikiem. **Awaria modelu = `level
+  NULL`, nigdy „słaby”.** Pomiar Luny: `scripts/eval_prep_review.py`.
+- **Bramki MIĘKKIE** (nic nie blokuje): Prep 2 wymagany zawsze, gdy rozmowa
+  u klienta jest w przyszłości (`PREP2_HINT_DAYS` usunięte); todo
+  `prep_weak`/`prep_unrecorded`, `urgent` <24 h; plakietki kanbana
+  `prep_weak`/`prep_missing`; kolejka „Czeka na Ciebie” (`prep_attention`,
+  `services/prep_attention.py` — organizator + HoR/admin) i dzwonek
+  `prep_attention` raz na sprawę (organizator + każdy HoR). Raport HoR:
+  `GET /api/interview-cycle/prep-quality` → Insights → Wyniki → „Jakość prepów”.
+- **Po Fireflies zostaje:** wartość enuma `fireflies_meeting`, migracje
+  0129/0187, `Note.audio_url`/`source_ref`, `enrich_from_meeting` (używane
+  przez „Powiąż + AI” i briefing).
+
 ## Ustawienia = jedno wejście z kafelkami (22.09.2026)
 
 `/settings` to strona startowa z pięcioma obszarami (Moje konto · Zespół i

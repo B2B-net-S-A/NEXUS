@@ -42,7 +42,11 @@ export interface CycleStep {
   at: string | null;
   event_id: number | null;
   meta: string | null;
+  /** 0370: jakość odbytego prepu (ocena z transkryptu Teams). */
+  quality?: PrepQuality | null;
 }
+
+export type PrepQuality = "good" | "ok" | "weak" | "unrecorded" | "pending";
 
 export interface SlotItem {
   start: string;
@@ -107,6 +111,10 @@ export interface AgendaEntry extends PairInfo {
   slot_request_id: number | null;
   online_meeting_url: string | null;
   done: boolean;
+  /** 0370: prep założony z NEXUSA (Teams) — ma transkrypt i ocenę. */
+  from_nexus?: boolean;
+  prep_quality?: PrepQuality | null;
+  prep_meta?: string | null;
 }
 
 export type TodoKind =
@@ -116,6 +124,8 @@ export type TodoKind =
   | "slots_confirm"
   | "prep_missing"
   | "prep2_missing"
+  | "prep_weak"
+  | "prep_unrecorded"
   | "slots_missing";
 
 export interface TodoEntry extends PairInfo {
@@ -124,6 +134,8 @@ export interface TodoEntry extends PairInfo {
   due: string | null;
   event_id: number | null;
   slot_request_id: number | null;
+  /** Brak prepu na dobę przed rozmową u klienta. */
+  urgent?: boolean;
 }
 
 export interface CycleOverview {
@@ -188,8 +200,8 @@ export const STEP_TITLES: Record<StepKey, string> = {
 export const STEP_OWNER: Record<StepKey, string> = {
   slots: "DL wpisuje terminy",
   choice: "rekruter ↔ kandydat",
-  prep: "rekruter planuje",
-  prep2: "rekruter planuje",
+  prep: "prowadzi DL",
+  prep2: "prowadzi rekruter",
   interview: "kandydat u klienta",
   call: "rekruter dzwoni",
   debrief: "notatka dla DL",
@@ -208,8 +220,10 @@ export const TODO_LABELS: Record<TodoKind, string> = {
   debrief_overdue: "Debrief zaległy",
   slots_pick: "Terminy czekają na kandydata",
   slots_confirm: "Potwierdź termin u klienta",
-  prep_missing: "Prep bez terminu",
-  prep2_missing: "Drugi prep bez terminu",
+  prep_missing: "Prep 1 bez terminu",
+  prep2_missing: "Prep 2 bez terminu",
+  prep_weak: "Prep słaby — popraw przed rozmową",
+  prep_unrecorded: "Prep bez nagrania",
   slots_missing: "Brak terminów od klienta",
 };
 
@@ -218,10 +232,36 @@ export const TODO_ACTIONS: Record<TodoKind, string> = {
   debrief_overdue: "Uzupełnij",
   slots_pick: "Wybierz termin",
   slots_confirm: "Potwierdź",
-  prep_missing: "Zaplanuj prep",
-  prep2_missing: "Zaplanuj prep 2",
+  prep_missing: "Zaplanuj Prep 1",
+  prep2_missing: "Zaplanuj Prep 2",
+  prep_weak: "Zobacz ocenę",
+  prep_unrecorded: "Szczegóły",
   slots_missing: "Dodaj terminy",
 };
+
+export const PREP_QUALITY_LABELS: Record<PrepQuality, string> = {
+  good: "Prep dobry",
+  ok: "Prep OK",
+  weak: "Prep słaby",
+  unrecorded: "Bez nagrania",
+  pending: "Czeka na transkrypt",
+};
+
+/** Jakość prepu → wariant plakietki (tokeny). */
+export function prepQualityTone(quality: PrepQuality): "done" | "warn" | "danger" | "muted" {
+  switch (quality) {
+    case "good":
+      return "done";
+    case "ok":
+      return "muted";
+    case "weak":
+      return "danger";
+    case "unrecorded":
+      return "warn";
+    default:
+      return "muted";
+  }
+}
 
 export const OFFER_LABELS: Record<OfferAcceptance, string> = {
   yes: "Tak",
@@ -445,6 +485,7 @@ export type CycleAction =
   | { type: "pick"; pair: PairInfo; request: SlotRequest }
   | { type: "confirm"; pair: PairInfo; request: SlotRequest }
   | { type: "plan_prep"; pair: PairInfo; second: boolean }
+  | { type: "prep_review"; pair: PairInfo; eventId: number }
   | { type: "add_slots"; pair: PairInfo | null }
   | { type: "open_event"; eventId: number };
 
@@ -476,6 +517,9 @@ export function actionForTodo(todo: TodoEntry, items: CycleItem[]): CycleAction 
       return { type: "plan_prep", pair, second: false };
     case "prep2_missing":
       return { type: "plan_prep", pair, second: true };
+    case "prep_weak":
+    case "prep_unrecorded":
+      return todo.event_id != null ? { type: "prep_review", pair, eventId: todo.event_id } : null;
     case "slots_missing":
       return { type: "add_slots", pair };
     default:
