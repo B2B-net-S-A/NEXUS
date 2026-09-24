@@ -490,6 +490,21 @@ async def _write_document(
             applied.error = "Brak kontraktu w planie"
             continue
         try:
+            if (
+                applied.action != ACTION_UNCHANGED
+                and rp.get("rate_client")
+                and not rp.get("rate_unit")
+            ):
+                # Stawka bez jednostki (wiersz podał inną kwotę niż dokument
+                # i nie powiedział, za co): jednostka kontraktu przyjęta po
+                # cichu zapisywała np. 1200 zł za MD jako 1200 zł/h (audyt
+                # 24.09.2026). Automat i tak tego nie zapisze (bramka), a
+                # ręczne „Zastosuj" bramki nie czyta — odmawia tutaj.
+                raise ValueError(
+                    f"„{rp.get('row_name') or 'wiersz'}”: stawka z dokumentu nie "
+                    "ma jednostki — uzupełnij jednostkę (godz. / MD / mies.) "
+                    "w oknie zamówienia u tego klienta"
+                )
             if applied.action == ACTION_NEW_DRAFT:
                 contract = await _new_person_contract(db, doc, rp, confirming_user_id)
             else:

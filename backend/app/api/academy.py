@@ -427,8 +427,15 @@ async def list_applications(
     db: AsyncSession = Depends(get_db),
 ):
     await _program_or_404(db, program_id)
-    items = await svc.list_applications(db, program_id, statuses=status or None, q=q)
-    return {"items": items, "counts": await svc.status_counts(db, program_id)}
+    items, total = await svc.list_applications(
+        db, program_id, statuses=status or None, q=q
+    )
+    return {
+        "items": items,
+        "total": total,
+        "truncated": total > len(items),
+        "counts": await svc.status_counts(db, program_id),
+    }
 
 
 @router.post("/applications/{application_id}/actions")
@@ -561,6 +568,21 @@ async def bulk_action(
         action = body.to_input()
         if body.action == "reject" and not (body.reason or "").strip():
             # „Zatwierdź odłożone przez Lunę”: powód = powody sortowania.
+            # Lista w przeglądarce bywa nieaktualna (odświeża się co 2 min),
+            # a odrzucenie jest trwałe — pod blokadą wiersza sprawdzamy, że
+            # osoba NADAL czeka odłożona przez Lunę. Kogoś, kogo ktoś w
+            # międzyczasie przywrócił albo umówił, nie wykluczamy.
+            if row.status != "new" or row.screening_verdict != "skip":
+                failed.append(
+                    {
+                        "id": application_id,
+                        "message": (
+                            "Ta osoba nie czeka już odłożona przez Lunę — ktoś "
+                            "ją przesunął. Nie wykluczono jej."
+                        ),
+                    }
+                )
+                continue
             reasons = [
                 r.get("text")
                 for r in ((row.screening or {}).get("reasons") or [])

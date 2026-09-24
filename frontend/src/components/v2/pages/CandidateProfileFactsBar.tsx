@@ -50,9 +50,14 @@ import {
 } from "@/lib/api";
 import { cn, formatDate } from "@/lib/utils";
 import {
+  B2B_OPTIONS,
+  WORK_TIME_OPTIONS,
   callFactItems,
+  callFactsDraft,
+  callFactsPatch,
   callFactsVerifiedLabel,
   rateFactLabel,
+  type CallFactsDraft,
   type CandidateCallFacts,
 } from "@/lib/candidate-call-facts";
 import {
@@ -887,6 +892,188 @@ function WorkModeEditor({
   );
 }
 
+const SELECT_CLASS =
+  "mt-1 min-h-11 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground focus:outline-hidden focus:ring-2 focus:ring-ring";
+
+/**
+ * Korekta faktów z telefonu praktykanta (audyt 24.09.2026). „Nie wiadomo”
+ * czyści odpowiedź — bramki dopasowań znowu przepuszczają kandydata.
+ */
+function CallFactsEditor({
+  open,
+  onOpenChange,
+  candidate,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  candidate: CandidateProfileFactsBarProps["candidate"];
+}) {
+  const queryClient = useQueryClient();
+  const { showError, showSuccess } = useToast();
+  const [draft, setDraft] = React.useState<CallFactsDraft>(() =>
+    callFactsDraft(candidate),
+  );
+  const [mutationError, setMutationError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (!open) return;
+    setDraft(callFactsDraft(candidate));
+    setMutationError(null);
+    // Stan startowy tylko przy otwarciu — zmiana kandydata w tle nie może
+    // nadpisać tego, co użytkownik właśnie wybiera.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  const patch = callFactsPatch(candidate, draft);
+  const unchanged = Object.keys(patch).length === 0;
+
+  const mutation = useMutation({
+    mutationFn: () => candidateFactsApi.updateCallFacts(candidate.id, patch),
+    onSuccess: () => {
+      setMutationError(null);
+      invalidateCandidateMutation(queryClient, candidate.id, "edit");
+      onOpenChange(false);
+      showSuccess("Fakty z rozmowy poprawione");
+    },
+    onError: (error) => {
+      const message =
+        extractErrorMsg(error) || "Nie udało się poprawić faktów z rozmowy";
+      setMutationError(message);
+      showError(message);
+    },
+  });
+
+  const set = <K extends keyof CallFactsDraft>(key: K, value: CallFactsDraft[K]) =>
+    setDraft((prev) => ({ ...prev, [key]: value }));
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent aria-describedby="candidate-call-facts-dialog-description">
+        <DialogHeader>
+          <DialogTitle>Popraw fakty z rozmowy</DialogTitle>
+          <DialogDescription id="candidate-call-facts-dialog-description">
+            Zmienisz odpowiedzi zapisane po telefonie. „Tylko umowa o pracę”
+            ukrywa kandydata we wszystkich dopasowaniach — „Nie wiadomo”
+            przywraca go do nich. Zmiana zostaje w historii profilu.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogBody className="space-y-4">
+          <div>
+            <Label htmlFor="call-facts-b2b">Forma współpracy</Label>
+            <select
+              id="call-facts-b2b"
+              className={SELECT_CLASS}
+              value={draft.b2b_willingness}
+              onChange={(event) =>
+                set(
+                  "b2b_willingness",
+                  event.target.value as CallFactsDraft["b2b_willingness"],
+                )
+              }
+            >
+              <option value="">Nie wiadomo</option>
+              {B2B_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <Label htmlFor="call-facts-work-time">Wymiar pracy</Label>
+            <select
+              id="call-facts-work-time"
+              className={SELECT_CLASS}
+              value={draft.work_time_preference}
+              onChange={(event) =>
+                set(
+                  "work_time_preference",
+                  event.target.value as CallFactsDraft["work_time_preference"],
+                )
+              }
+            >
+              <option value="">Nie wiadomo</option>
+              {WORK_TIME_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <Label htmlFor="call-facts-below-min">
+              Oferta poniżej minimalnej stawki
+            </Label>
+            <select
+              id="call-facts-below-min"
+              className={SELECT_CLASS}
+              value={draft.accepts_below_min_rate}
+              onChange={(event) =>
+                set(
+                  "accepts_below_min_rate",
+                  event.target.value as CallFactsDraft["accepts_below_min_rate"],
+                )
+              }
+            >
+              <option value="">Nie wiadomo</option>
+              <option value="yes">Można dzwonić</option>
+              <option value="no">Nie dzwonić</option>
+            </select>
+          </div>
+          <div>
+            <Label htmlFor="call-facts-office">Więcej dni w biurze</Label>
+            <select
+              id="call-facts-office"
+              className={SELECT_CLASS}
+              value={draft.accepts_more_office_days}
+              onChange={(event) =>
+                set(
+                  "accepts_more_office_days",
+                  event.target.value as CallFactsDraft["accepts_more_office_days"],
+                )
+              }
+            >
+              <option value="">Nie wiadomo</option>
+              <option value="yes">Można dzwonić</option>
+              <option value="no">Nie dzwonić</option>
+            </select>
+          </div>
+          {mutationError ? (
+            <p
+              role="alert"
+              className="rounded-lg border border-destructive/30 bg-destructive-muted px-3 py-2 text-sm text-destructive-muted-foreground [overflow-wrap:anywhere]"
+            >
+              {mutationError}
+            </p>
+          ) : null}
+        </DialogBody>
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="outline"
+            className="min-h-11 min-w-11"
+            onClick={() => onOpenChange(false)}
+          >
+            Anuluj
+          </Button>
+          <Button
+            type="button"
+            className="min-h-11 min-w-11"
+            loading={mutation.isPending}
+            disabled={unchanged}
+            onClick={() => {
+              setMutationError(null);
+              mutation.mutate();
+            }}
+          >
+            Zapisz poprawkę
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function RateEditor({
   open,
   onOpenChange,
@@ -1112,12 +1299,14 @@ export function CandidateProfileFactsBar({
   const [locationOpen, setLocationOpen] = React.useState(false);
   const [rateOpen, setRateOpen] = React.useState(false);
   const [workModeOpen, setWorkModeOpen] = React.useState(false);
+  const [callFactsOpen, setCallFactsOpen] = React.useState(false);
 
   React.useEffect(() => {
     setLanguagesOpen(false);
     setLocationOpen(false);
     setRateOpen(false);
     setWorkModeOpen(false);
+    setCallFactsOpen(false);
   }, [candidate.id]);
 
   const languagesQuery = useQuery<LanguagesQueryData>({
@@ -1149,7 +1338,7 @@ export function CandidateProfileFactsBar({
     candidate.max_onsite_days_per_week,
   );
   const workModeLabel = formatWorkMode(workMode.modes, workMode.days);
-  const rateLabel = rateFactLabel(candidate);
+  const rateLabel = rateFactLabel(candidate, rateQuery.data?.data.updated_at);
   const verifiedLabel = callFactsVerifiedLabel(candidate);
   const callFacts = callFactItems(candidate);
   const languagesForbidden = requestStatus(languagesQuery.error) === 403;
@@ -1341,7 +1530,27 @@ export function CandidateProfileFactsBar({
               {fact.label}
             </Badge>
           ))}
+          {canEditFacts && callFacts.length ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="min-h-11"
+              aria-label="Popraw fakty z rozmowy"
+              onClick={() => setCallFactsOpen(true)}
+            >
+              <PencilLine aria-hidden="true" className="size-4" />
+              Popraw
+            </Button>
+          ) : null}
         </div>
+      ) : null}
+      {canEditFacts ? (
+        <CallFactsEditor
+          open={callFactsOpen}
+          onOpenChange={setCallFactsOpen}
+          candidate={candidate}
+        />
       ) : null}
 
       {canEditFacts && languagesQuery.data ? (

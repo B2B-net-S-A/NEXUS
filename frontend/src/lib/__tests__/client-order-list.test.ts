@@ -1052,6 +1052,64 @@ describe("audyt 24.09.2026 — reguła „bez kontynuacji” i pigułki", () => 
     ).toBe(false);
   });
 
+  it("osoba pracująca na żywym zamówieniu NIE trafia do „Anulowane” mimo starego anulowanego (audyt 24.09, M4)", () => {
+    // Prod, Nordea: aktywne zamówienie 01.07–31.12 i jeden stary anulowany
+    // szkic — osoba stała w „Anulowane" obok naprawdę anulowanych zamówień.
+    const working = contractor(93, "Paweł", {
+      orders: [
+        ending({ id: 930, status: "cancelled", end_date: "2026-06-30" }),
+        ending({ id: 931, status: "active", start_date: "2026-07-01", end_date: "2026-12-31" }),
+      ],
+    });
+    expect(contractorMatchesPill(working, "cancelled", TODAY)).toBe(false);
+    const withDraft = contractor(94, "Iga", {
+      orders: [
+        ending({ id: 940, status: "cancelled" }),
+        ending({ id: 941, status: "draft", end_date: null }),
+      ],
+    });
+    expect(contractorMatchesPill(withDraft, "cancelled", TODAY)).toBe(false);
+    const onlyHistory = contractor(95, "Ola", {
+      orders: [
+        ending({ id: 950, status: "cancelled" }),
+        ending({ id: 951, status: "completed", end_date: "2026-03-31" }),
+      ],
+    });
+    expect(contractorMatchesPill(onlyHistory, "cancelled", TODAY)).toBe(true);
+  });
+
+  it("filtr „kończy się w ciągu N dni” czyta regułę serwera — także u roli bez kwot (audyt 24.09, M6)", () => {
+    // TCM: serwer redaguje `rate_client` (null), więc lokalna reguła brała
+    // szkic-następcę ZE stawką za porzucony. Serwer mówi: kontynuacja jest.
+    const successorDraft = clientOrder(961, "periodic", {
+      contract_id: 96,
+      status: "draft",
+      start_date: "2026-10-06",
+      end_date: null,
+      rate_client: null,
+    });
+    const redacted = contractor(96, "Tomasz", {
+      orders: [ending({ id: 960, contract_id: 96, rate_client: null }), successorDraft],
+      ending_without_successor_order_id: null,
+      next_ending_without_successor_days: null,
+    });
+    const flagged = contractor(97, "Ewa", {
+      orders: [],
+      ending_without_successor_order_id: null,
+      // Najbliższe zamówienie bez kontynuacji kończy się za 45 dni.
+      next_ending_without_successor_days: 45,
+    });
+    const filter = (endingDays: number) =>
+      filterAndSortContractors(
+        [redacted, flagged],
+        "",
+        { ...DEFAULT_ORDER_LIST_FILTERS, endingSoon: true, endingDays },
+        TODAY,
+      ).map((item) => item.contract_id);
+    expect(filter(30)).toEqual([]);
+    expect(filter(60)).toEqual([97]);
+  });
+
   it("umowa gotowa do podpisu jest w pigułce Draft (N9)", () => {
     const person = contractor(92, "Ewa", {
       contract_status: "ready_for_signature",

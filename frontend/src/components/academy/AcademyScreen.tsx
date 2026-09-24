@@ -11,6 +11,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { EmptyState } from "@/components/ds/EmptyState";
 import { useToast } from "@/components/Toast";
+import { bulkFailureMessage } from "@/lib/academy-flow";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
   academyApi,
@@ -107,11 +108,8 @@ export function AcademyScreen({ programId }: { programId: number }) {
     bulk: async (ids: number[], body: ActionBody) => {
       try {
         const result = await academyApi.bulk(programId, ids, body);
-        if (result.failed.length) {
-          showError(
-            `Nie udało się dla ${result.failed.length} os.: ${result.failed[0].message}`,
-          );
-        }
+        const failure = bulkFailureMessage(body.action, result.failed);
+        if (failure) showError(failure);
         if (result.done.length) showSuccess(`Zapisano dla ${result.done.length} os.`);
       } catch (err) {
         showError(apiErrorMessage(err, "Nie udało się zapisać zmian."));
@@ -234,6 +232,18 @@ export function AcademyScreen({ programId }: { programId: number }) {
       program={program.data}
       apps={applications.data.items}
       sessions={sessions.data ?? []}
+      sessionsState={{
+        loading: sessions.isPending,
+        // Nieudane odświeżenie przy wczytanych terminach zostawia je na
+        // ekranie; błąd zastępuje listę tylko, gdy nic jeszcze nie przyszło.
+        error:
+          sessions.isError && sessions.data === undefined
+            ? apiErrorMessage(sessions.error, "Spróbuj ponownie.")
+            : null,
+        onRetry: () => void sessions.refetch(),
+      }}
+      counts={applications.data.counts}
+      total={applications.data.total ?? null}
       view={view}
       onViewChange={setView}
       handlers={handlers}

@@ -18,7 +18,10 @@ export type TraineeListStatus =
   | "ready"
   | "not_workday"
   | "no_program"
-  | "program_finished";
+  | "program_finished"
+  /** Admin w „podglądzie jako”: lista na dziś jeszcze nie powstała, a podgląd
+   *  jej nie zakłada (tylko odczyt). */
+  | "preview_not_generated";
 
 /** Wynik zamkniętej pozycji. `call` = rozmowa zapisana formularzem. */
 export type TraineeOutcome = "call" | "noanswer" | "later" | "wrong" | "declined";

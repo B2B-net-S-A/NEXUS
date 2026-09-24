@@ -94,15 +94,44 @@ async def _assignment_notices(db: AsyncSession, *, now: datetime) -> int:
     return sent
 
 
-def _every_two_weeks(now: datetime, since: Optional[datetime]) -> bool:
-    """„Klient milczy” przypomina się co 14 dni, nie codziennie."""
+SILENT_EVERY_DAYS = 14
+
+
+def silent_reminder_due(
+    now: datetime, since: Optional[datetime], last_reminded: Optional[str]
+) -> bool:
+    """„Klient milczy” przypomina się co 14 dni, nie codziennie.
+
+    Liczone od OSTATNIEGO wysłanego przypomnienia (``last_reminded``, data ISO
+    z ``stats`` automatu), nie z ``dni % 14 == 0`` — tamto gubiło przypomnienie
+    na kolejne 14 dni, gdy poranny przebieg nie wypadł dokładnie w 14. dniu
+    (pętla stała, deploy w oknie). Przypomnienie z poprzedniego epizodu
+    „Klient milczy” (sprzed ``since``) się nie liczy.
+    """
     if since is None:
         return False
-    days = (now - since).days
-    return days >= 14 and days % 14 == 0
+    if (now - since).days < SILENT_EVERY_DAYS:
+        return False
+    if not last_reminded:
+        return True
+    try:
+        last = datetime.fromisoformat(last_reminded)
+    except ValueError:
+        return True
+    if last.tzinfo is None and now.tzinfo is not None:
+        last = last.replace(tzinfo=now.tzinfo)
+    if last < since:
+        return True
+    return (now - last).days >= SILENT_EVERY_DAYS
 
 
-async def _review_notices(db: AsyncSession, *, now: datetime) -> int:
+async def _review_notices(
+    db: AsyncSession,
+    *,
+    now: datetime,
+    reminded: Optional[dict[str, str]] = None,
+) -> tuple[int, dict[str, str]]:
+    """Zwraca (liczba wysłanych, nowa mapa ``job_id → ostatnie przypomnienie``)."""
     from app.models.recruitment_pipeline import CandidateStage  # noqa: PLC0415
     from app.services.notification_triggers import emit  # noqa: PLC0415
 
@@ -110,6 +139,7 @@ async def _review_notices(db: AsyncSession, *, now: datetime) -> int:
     rows = (
         await db.execute(
             select(
+                Job.id,
                 Job.delivery_lead_id,
                 Job.work_state,
                 Job.created_at,
@@ -124,10 +154,23 @@ async def _review_notices(db: AsyncSession, *, now: datetime) -> int:
             )
         )
     ).all()
+    reminded = dict(reminded or {})
+    silent_ids = {
+        job_id for job_id, _lead, state, _c, _ch in rows if state == "client_silent"
+    }
+    # Mapa trzyma tylko requesty, które nadal milczą — nie rośnie bez końca.
+    reminded = {
+        k: v for k, v in reminded.items() if k.isdigit() and int(k) in silent_ids
+    }
     per_lead: dict[int, dict[str, int]] = {}
-    for lead_id, state, created, changed in rows:
-        if state == "client_silent" and not _every_two_weeks(now, changed or created):
-            continue
+    silent_by_lead: dict[int, list[int]] = {}
+    for job_id, lead_id, state, created, changed in rows:
+        if state == "client_silent":
+            if not silent_reminder_due(
+                now, changed or created, reminded.get(str(job_id))
+            ):
+                continue
+            silent_by_lead.setdefault(lead_id, []).append(job_id)
         bucket = per_lead.setdefault(lead_id, {"new": 0, "silent": 0, "stale": 0})
         bucket["new" if state == "to_review" else "silent"] += 1
 
@@ -185,12 +228,24 @@ async def _review_notices(db: AsyncSession, *, now: datetime) -> int:
             link=REVIEW_LINK,
         )
         sent += int(created is not None)
-    return sent
+        if created is not None:
+            for job_id in silent_by_lead.get(lead_id, []):
+                reminded[str(job_id)] = now.isoformat()
+    return sent, reminded
 
 
 async def send_morning_notices(
-    db: AsyncSession, *, now: datetime, mode: str
-) -> dict[str, int]:
+    db: AsyncSession,
+    *,
+    now: datetime,
+    mode: str,
+    silent_reminded: Optional[dict[str, str]] = None,
+) -> dict:
+    """Liczniki + ``silent_reminded`` (do zapisania w ``stats`` automatu)."""
     assignments = await _assignment_notices(db, now=now) if mode == "auto" else 0
-    reviews = await _review_notices(db, now=now)
-    return {"assignment_notices": assignments, "review_notices": reviews}
+    reviews, reminded = await _review_notices(db, now=now, reminded=silent_reminded)
+    return {
+        "assignment_notices": assignments,
+        "review_notices": reviews,
+        "silent_reminded": reminded,
+    }

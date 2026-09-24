@@ -274,3 +274,62 @@ async def test_refusals(app_client: AsyncClient):
     assert forbidden.status_code == 403
     forbidden = await _merge(app_client, recruiter, survivor, duplicate, "0" * 64)
     assert forbidden.status_code == 403
+
+
+async def test_academy_rejection_survives_merge_with_a_newer_application(
+    app_client: AsyncClient,
+):
+    """Akademia pamięta „nie” na zawsze. Scalenie profilu odrzuconej osoby z jej
+    świeżym profilem (nowe zgłoszenie z innym e-mailem) nie może zostawić
+    NOWSZEGO wiersza „do telefonu” — wygrywa odrzucenie, z śladem powrotu.
+    Ocalały ma świeży wiersz, więc bez tej reguły (remis/nowszy = ocalały)
+    odrzucenie znikałoby razem z duplikatem."""
+    from app.models.academy import AcademyApplication, AcademyProgram
+
+    _, headers = await _user(app_client, UserRole.admin)
+    survivor = await _candidate()
+    duplicate = await _candidate()
+    now = datetime.now(timezone.utc)
+    async with AsyncSessionLocal() as db:
+        program = AcademyProgram(name=f"Merge {uuid.uuid4().hex[:6]}")
+        db.add(program)
+        await db.flush()
+        rejected = AcademyApplication(
+            program_id=program.id,
+            candidate_id=duplicate,
+            applied_at=now - timedelta(days=60),
+            status="rejected",
+            closed_reason="Doświadczenie ponad limit",
+            closed_at=now - timedelta(days=59),
+        )
+        fresh = AcademyApplication(
+            program_id=program.id,
+            candidate_id=survivor,
+            applied_at=now - timedelta(days=1),
+            status="to_call",
+        )
+        db.add_all([rejected, fresh])
+        await db.commit()
+        rejected_id, fresh_id = rejected.id, fresh.id
+
+    preview = await _preview(app_client, headers, survivor, duplicate)
+    assert preview.status_code == 200, preview.text
+    merged = await _merge(
+        app_client, headers, survivor, duplicate, preview.json()["fingerprint"]
+    )
+    assert merged.status_code == 200, merged.text
+
+    async with AsyncSessionLocal() as db:
+        rows = (
+            await db.scalars(
+                select(AcademyApplication).where(
+                    AcademyApplication.program_id == program.id
+                )
+            )
+        ).all()
+        assert [r.id for r in rows] == [rejected_id]
+        kept = rows[0]
+        assert kept.candidate_id == survivor
+        assert kept.status == "rejected"
+        assert kept.reapplied_at is not None
+        assert await db.get(AcademyApplication, fresh_id) is None

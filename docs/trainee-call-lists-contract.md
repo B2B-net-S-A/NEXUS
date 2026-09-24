@@ -7,13 +7,18 @@ Wszystkie trasy pod `/api/trainee`. Kwoty stawek zawsze PLN netto B2B.
 ## Trasy praktykanta (rola `trainee`, tylko własna lista)
 
 ### `GET /api/trainee/today`
-Pierwsze wywołanie dnia generuje listę, jeśli jej nie ma. Poza dniem roboczym
-albo bez aktywnego programu: `items: []` i `status` mówi dlaczego.
+Pierwsze wywołanie dnia generuje listę, jeśli jej nie ma, a pustą listę próbuje
+uzupełnić (pusty ranking liczony ponownie najwyżej co 10 min). Poza dniem
+roboczym albo bez aktywnego programu: `items: []` i `status` mówi dlaczego.
+Admin w „podglądzie jako” niczego nie zapisuje: bez programu `no_program`, bez
+listy `preview_not_generated`. Ranking z rana i oddzwonienia „później” przed
+wpisaniem na listę przechodzą przez twarde warunki puli (czarna lista,
+„nie kontaktować”, umowa, proces w toku).
 
 ```jsonc
 {
   "list_date": "2026-09-24",
-  "status": "ready",            // ready | not_workday | no_program | program_finished
+  "status": "ready",            // ready | not_workday | no_program | program_finished | preview_not_generated
   "program": { "day": 12, "total_days": 40, "status": "active" },
   "counts": { "total": 70, "closed": 32, "open": 38,
               "call": 15, "noanswer": 11, "later": 3, "wrong": 2, "declined": 1 },
@@ -72,9 +77,12 @@ Odpowiedź jak wyżej.
 
 ### `GET /api/trainee/items/{id}/open-jobs`
 `[{ "job_id": 4812, "title": "Senior Java Developer", "recruiter_name": "Marta Nowak" | null, "matched_skills": ["Java","Spring"] }]` — tylko opublikowane rekrutacje, do których kandydat pasuje; bez klienta i budżetu.
+Tylko dla pozycji z dziś z wynikiem `call` — inaczej 409.
 
 ### `POST /api/trainee/items/{id}/handover`
-`{ "job_id": 4812, "note": "≤ 1000" }` → `{ "ok": true }`. Propozycja `source="trainee"` w „Do przejrzenia”.
+`{ "job_id": 4812, "note": "≤ 1000" }` → `{ "ok": true, "reopened_dismissed": bool }`. Propozycja `source="trainee"` w „Do przejrzenia”.
+Tylko pozycja z dziś z wynikiem `call` (409). Pominięta wcześniej propozycja tej pary wraca
+do „Do przejrzenia” (`reopened_dismissed: true`); osoba już dodana do rekrutacji → 409.
 
 ## Trasy Head of Recruitment i admina
 
@@ -114,8 +122,19 @@ Podgląd: `{ "size", "open_fit", "by_category": [...] }`.
 ## Fakty w profilu kandydata (`GET /api/candidates/{id}`)
 Nowe pola odpowiedzi: `b2b_willingness`, `accepts_below_min_rate`, `accepts_more_office_days`,
 `work_time_preference`, `call_facts_verified_at`, `call_facts_verified_by_name`.
-Gdy `call_facts_verified_at` jest ustawione, `expected_rate_hourly` jest minimum z rozmowy.
+Gdy `call_facts_verified_at` jest ustawione, `expected_rate_hourly` jest minimum z rozmowy —
+dopóki ktoś nie zmieni stawki (każda zmiana stawki spoza telefonu praktykanta czyści też
+`accepts_below_min_rate`).
+
+### `PATCH /api/candidates/{id}/call-facts` — korekta faktów (audyt 24.09.2026)
+`{ "b2b_willingness"?, "work_time_preference"?, "accepts_below_min_rate"?, "accepts_more_office_days"? }`
+— częściowy: pominięte pole bez zmian, `null` czyści („nie wiadomo”). Bramka jak pozostałe fakty
+profilu (`candidate.profile_fact.manage`). Ślad: `activities.action = candidate_call_facts_corrected`
+z `details.changes = {pole: {old, new}}`. Pasek faktów profilu ma akcję „Popraw”.
 
 ## Etykiety dopasowań
-`rate_fit`: dodatkowo `"below_min_consented"`; `office_fit`: dodatkowo `"over_consented"`.
-Nowe powody ukrycia: `employment_only`, `work_time_mismatch`.
+`rate_fit`: dodatkowo `"below_min_consented"`; `office_fit`: dodatkowo `"over_consented"`;
+`work_time_fit`: `ok | part_time_only | full_time_only | unknown | not_applicable` — sprzeczny
+wymiar pracy to PLAKIETKA, nie ukrycie (decyzja Artura 24.09.2026).
+Nowy powód ukrycia: `employment_only` (licznik `work_time_mismatch` zostaje w `meta.hidden`
+dla kształtu odpowiedzi i jest zawsze 0).

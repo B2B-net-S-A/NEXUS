@@ -19,9 +19,11 @@ import {
   nextCohort,
   shortDate,
   toIsoDate,
+  truncatedListNote,
 } from "@/lib/academy-flow";
 import type {
   AcademyApplication,
+  AcademyCounts,
   AcademyProgramDetail,
   AcademySessionRow,
   ActionBody,
@@ -36,7 +38,7 @@ import { AcademyEditionView } from "./AcademyEditionView";
 import { AcademyExcludedView } from "./AcademyExcludedView";
 import { AcademySessionsView } from "./AcademySessionsView";
 import { AcademySettingsView } from "./AcademySettingsView";
-import type { ActFn } from "./AcademyShared";
+import type { ActFn, SessionsLoadState } from "./AcademyShared";
 
 export type AcademyView = "edition" | "calls" | "sessions" | "excluded" | "settings";
 
@@ -73,6 +75,9 @@ export function AcademyWorkspace({
   syncing,
   now = new Date(),
   currentUserName = "",
+  counts,
+  total,
+  sessionsState,
 }: {
   program: AcademyProgramDetail;
   apps: readonly AcademyApplication[];
@@ -84,6 +89,12 @@ export function AcademyWorkspace({
   syncing: boolean;
   now?: Date;
   currentUserName?: string;
+  /** Liczniki z serwera (lista zgłoszeń ma limit). */
+  counts?: AcademyCounts | null;
+  /** Wszystkich zgłoszeń pasujących do listy — gdy więcej niż `apps`, lista jest przycięta. */
+  total?: number | null;
+  /** Stan zapytania o terminy — wczytywanie/błąd to nie „brak terminów”. */
+  sessionsState?: SessionsLoadState | null;
 }) {
   const bookable = React.useMemo(() => bookableSessions(sessions, now), [sessions, now]);
   const documents = {
@@ -95,7 +106,11 @@ export function AcademyWorkspace({
     ? ` (${shortDate(program.next_cohort.start)}–${shortDate(program.next_cohort.end)})`
     : "";
   const queueSize = callQueue(apps).length;
-  const excluded = apps.filter((a) => a.status === "rejected").length;
+  const excluded =
+    typeof counts?.rejected === "number"
+      ? counts.rejected
+      : apps.filter((a) => a.status === "rejected").length;
+  const listNote = truncatedListNote(apps.length, total);
   const upcoming = sessions.filter(
     (s) => !s.cancelled && new Date(s.starts_at).getTime() > now.getTime(),
   ).length;
@@ -135,6 +150,11 @@ export function AcademyWorkspace({
         onValueChange={(v) => onViewChange(v as AcademyView)}
         ariaLabel="Widoki akademii"
       />
+      {listNote && view !== "settings" ? (
+        <p className="rounded-lg border border-border bg-muted/60 px-4 py-2 text-xs text-muted-foreground">
+          {listNote}
+        </p>
+      ) : null}
       {program.sources.length === 0 && view !== "settings" ? (
         <div className="rounded-lg border border-warning/30 bg-warning-muted/50 px-4 py-3 text-sm">
           Nie podpięto jeszcze ogłoszeń — nikt nie wpadnie do naboru.{" "}
@@ -159,6 +179,8 @@ export function AcademyWorkspace({
           busyIds={busyIds}
           now={now}
           documents={documents}
+          counts={counts}
+          sessionsState={sessionsState}
         />
       ) : null}
       {view === "calls" ? (
@@ -168,6 +190,7 @@ export function AcademyWorkspace({
           bookable={bookable}
           onAct={handlers.act}
           busyIds={busyIds}
+          sessionsState={sessionsState}
         />
       ) : null}
       {view === "sessions" ? (
@@ -183,6 +206,7 @@ export function AcademyWorkspace({
           busyIds={busyIds}
           now={now}
           documents={documents}
+          sessionsState={sessionsState}
         />
       ) : null}
       {view === "excluded" ? (

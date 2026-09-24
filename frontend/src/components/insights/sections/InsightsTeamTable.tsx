@@ -372,6 +372,24 @@ export function InsightsTeamTable({ period, renderFlags }: Props) {
                   {/* Zawsze widoczne, także gdy wszędzie zero — wiersz, który
                       znika przy zerze, nie pozwala odróżnić „sprawdzone, nic
                       nie brakuje" od „nie sprawdzaliśmy". */}
+                  {totals.outside_scope &&
+                  (totals.outside_scope_users ?? 0) > 0 ? (
+                    <tr className="text-muted-foreground">
+                      <td className="py-2 pr-3 text-xs" colSpan={2}>
+                        {totals.outside_scope_label ??
+                          "Konta administracyjne"}{" "}
+                        ({count(totals.outside_scope_users ?? 0)})
+                      </td>
+                      {METRIC_KEYS.map((key) => (
+                        <td
+                          key={key}
+                          className="px-2 py-2 text-right text-xs tabular-nums"
+                        >
+                          {`+${count(totals.outside_scope?.[key] ?? 0)}`}
+                        </td>
+                      ))}
+                    </tr>
+                  ) : null}
                   <tr className="text-muted-foreground">
                     <td className="py-2 pr-3 text-xs" colSpan={2}>
                       Nieprzypisane (bez autora)
@@ -423,6 +441,10 @@ export function InsightsTeamTable({ period, renderFlags }: Props) {
               powiązać z kontem w NEXUSIE (najczęściej ruch operatora w
               Traffcie). Nie mają wiersza w tabeli, ale wchodzą do lejka —
               dlatego suma widocznych wierszy bywa mniejsza niż liczba z lejka.
+              Konta administracyjne (bez roli rekrutacyjnej) stoją jednym
+              wierszem pod tabelą — jak w Hall of Fame. Liczone: pierwsze
+              wejście pary (kandydat, rekrutacja) na etap, przypisane osobie,
+              która przesunęła kandydata.
             </span>
           </p>
         </>

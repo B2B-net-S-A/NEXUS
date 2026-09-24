@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   awaitingLuna,
   bookableSessions,
+  bulkFailureMessage,
   callQueue,
   cohortLabel,
   editionStats,
@@ -11,6 +12,7 @@ import {
   sessionLabel,
   taskOverdue,
   toIsoDate,
+  truncatedListNote,
 } from "@/lib/academy-flow";
 import type { AcademyApplication, AcademySessionRow } from "@/lib/api/academy";
 
@@ -123,6 +125,43 @@ describe("academy-flow", () => {
       app({ id: 5, status: "rejected", reapplied_at: "2026-09-22T00:00:00Z", closed_reason: "x" }),
     ]);
     expect(stats).toMatchObject({ toCall: 2, review: 1, scheduled: 1, passed: 1, excluded: 1, reapplied: 1 });
+  });
+
+  it("przy przyciętej liście wykluczonych i sumę liczy serwer, nie lista", () => {
+    const apps = [app({ id: 1 }), app({ id: 2, status: "rejected", closed_reason: "x" })];
+    const stats = editionStats(apps, {
+      to_call: 1,
+      rejected: 2400,
+      withdrew: 10,
+      reapplied_excluded: 7,
+    });
+    expect(stats).toMatchObject({ fromAds: 2411, toCall: 1, excluded: 2400, reapplied: 7 });
+    // Bez liczników z serwera (harness) — liczymy z listy jak dotąd.
+    expect(editionStats(apps)).toMatchObject({ fromAds: 2, excluded: 1 });
+  });
+
+  it("informacja „pokazano N z M” tylko przy przyciętej liście", () => {
+    expect(truncatedListNote(2000, 2000)).toBeNull();
+    expect(truncatedListNote(12, undefined)).toBeNull();
+    expect(truncatedListNote(2000, 2501)).toMatch(/^Pokazano 2000 z 2501 zgłoszeń\./);
+  });
+
+  it("zbiorcze wykluczenie mówi, ilu NIE wykluczono i dlaczego", () => {
+    expect(bulkFailureMessage("reject", [])).toBeNull();
+    const moved = "Ta osoba nie czeka już odłożona przez Lunę — ktoś ją przesunął.";
+    expect(
+      bulkFailureMessage("reject", [
+        { id: 1, message: moved },
+        { id: 2, message: moved },
+      ]),
+    ).toBe(`Nie wykluczono 2 os.: ${moved}`);
+    expect(
+      bulkFailureMessage("reject", [
+        { id: 1, message: moved },
+        { id: 2, message: "Nie ma takiego zgłoszenia." },
+      ]),
+    ).toBe(`Nie wykluczono 2 os.: ${moved} (1 os.) Nie ma takiego zgłoszenia. (1 os.)`);
+    expect(bulkFailureMessage("call", [{ id: 1, message: "x" }])).toBe("Nie udało się dla 1 os.: x");
   });
 
   it("etykieta terminu ma dzień tygodnia, datę i godzinę", () => {

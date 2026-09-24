@@ -78,6 +78,7 @@ import { SlotRequestDialog } from "@/components/calendar/cycle/SlotDialogs";
 import { DlReviewPanel } from "@/components/v2/recruitment/DlReviewPanel";
 import { CvQcDialog } from "@/components/v2/recruitment/CvQcDialog";
 import { MoveNextDialog } from "@/components/v2/recruitment/MoveNextDialog";
+import { dockNavigationOrder } from "@/lib/board-dock-order";
 import { DebriefRequiredDialog } from "@/components/v2/recruitment/DebriefRequiredDialog";
 import {
  MOVE_REQUIREMENTS_PREFIX,
@@ -1414,7 +1415,11 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  {step}
  </span>
  )}
- <h3 className={cn("text-foreground flex-1 min-w-0 line-clamp-2 leading-tight [overflow-wrap:normal]", density === "compact" ?"text-sm font-medium" :"text-base font-semibold", desktopOverview &&"xl:pointer-fine:line-clamp-2 xl:pointer-fine:whitespace-normal xl:pointer-fine:text-center xl:pointer-fine:text-[10px] xl:pointer-fine:leading-tight xl:pointer-fine:[overflow-wrap:anywhere]", !desktopOverview && narrow &&"xl:pointer-fine:order-last xl:pointer-fine:basis-full xl:pointer-fine:text-xs xl:pointer-fine:font-medium")} title={titleOverride ?? columnLabel(col)}>
+ {/* Nazwa etapu zawija się na spacjach, a słowo dłuższe niż kolumna —
+ w środku (dzielenie po polsku, `lang="pl"`). „Zweryfikowany" ucinało się
+ do „Zweryfikowan" w wąskiej pustej kolumnie (96 px) i w pełnej przy 1440 px
+ (audyt 24.09.2026). Pełna nazwa zostaje w `title`. */}
+ <h3 className={cn("text-foreground flex-1 min-w-0 line-clamp-2 leading-tight hyphens-auto [overflow-wrap:break-word]", density === "compact" ?"text-sm font-medium" :"text-base font-semibold", desktopOverview &&"xl:pointer-fine:line-clamp-2 xl:pointer-fine:whitespace-normal xl:pointer-fine:text-center xl:pointer-fine:text-[10px] xl:pointer-fine:leading-tight xl:pointer-fine:[overflow-wrap:anywhere]", !desktopOverview && narrow &&"xl:pointer-fine:order-last xl:pointer-fine:basis-full xl:pointer-fine:text-xs xl:pointer-fine:font-medium xl:pointer-fine:line-clamp-3 xl:pointer-fine:hyphens-auto xl:pointer-fine:[overflow-wrap:anywhere]")} title={titleOverride ?? columnLabel(col)} lang="pl">
  {titleOverride ?? columnLabel(col)}
  </h3>
  <Badge size="sm" variant={headerCount > 0 ?"soft" :"outline"} className={cn(desktopOverview &&"xl:pointer-fine:h-4 xl:pointer-fine:min-w-4 xl:pointer-fine:self-center xl:pointer-fine:px-1 xl:pointer-fine:text-[10px]")}>
@@ -2471,26 +2476,20 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  },
  [dockItem, dockItemColId, requestMove, cproEnabled, canReviewAsDl, dockHostKey, jobId, jobTitle, clientId, rejectedTemplateCol]
  );
-
- // Nawigator doku „‹ N z M ›" — kolejność TABLICY (kolumna po kolumnie),
- // łącznie z kubełkiem „Poza szablonem": to nadal karty w procesie, a dok
- // musi umieć na nie wejść. Klucz to `candidate_id` (stabilny przez ruchy),
- // dokładnie jak `dockCandidateId`.
- const dockOrder = useMemo(
- () => cols.flatMap((c) => c.items.map((i) => i.candidate_id)),
- [cols]
- );
- const dockIndex = dockItem ? dockOrder.indexOf(dockItem.candidate_id) : -1;
- const selectAdjacentDockCard = useCallback(
- (delta: -1 | 1) => {
- if (dockOrder.length === 0) return;
- const current = dockIndex;
- if (current < 0) return;
- const next = current + delta;
- if (next < 0 || next >= dockOrder.length) return;
- setDockCandidateId(dockOrder[next]);
+ // Ramka „Następny etap": przekazanie na etap wskazany przez serwer
+ // (`primary.target_stage_def_id` — „QC CV" dla DL, „Wysłać do Cpro").
+ // Ta sama droga co w oknie „Przesuń dalej" (`handleHandToCpro`).
+ const handleDockMoveToStageDef = useCallback(
+ (stageDefId: number) => {
+ if (!dockItem || !dockItemColId) return;
+ const dst = stageCols.find((c) => c.stage_def_id === stageDefId);
+ if (!dst) {
+ showError("Nie znaleziono tego etapu w szablonie tej rekrutacji.");
+ return;
+ }
+ requestMove(dockItem, dockItemColId, dst);
  },
- [dockOrder, dockIndex]
+ [dockItem, dockItemColId, stageCols, requestMove, showError]
  );
 
  const handleDockReject = useCallback(() => {
@@ -2639,20 +2638,30 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  }
  return ids;
  }, [cols, groupByColId, slaDays]);
- // „Mój ruch" — następny krok należy do rekrutera (ta sama funkcja co karta).
+ // „Mój ruch" — karty, na których plakietka mówi „Twój ruch" (`cardNextStep`
+ // — ta sama funkcja i te same kolumny Tablicy co karta). Do 24.09.2026 filtr
+ // liczył każdą kartę z ruchem po stronie rekrutera, także tę z imieniem innego
+ // rekrutera albo z „DL" w QC CV. Karty w „Nowi" też się liczą — ich
+ // plakietka mówi „Twój ruch" (albo imię osoby, która wzięła je na 12 h).
  const myMoveIds = useMemo(() => {
  const ids = new Set<number>();
- for (const col of cols) {
+ for (const col of [...displayCols, ...cols.filter((c) => isOffTemplate(c))]) {
  if (col.category === "terminal") continue;
  const group = groupByColId.get(colId(col));
+ const column = boardKeyByColId.get(colId(col)) ?? null;
  for (const item of col.items) {
- if (nextActionFor(item, col, { slaDays, group }).owner === "recruiter") {
- ids.add(item.id);
- }
+ const action = nextActionFor(item, col, { slaDays, group });
+ const step = cardNextStep(action, item, {
+ column,
+ cproEnabled,
+ stageBadge: boardFold.badgeByItemId.get(item.id) ?? null,
+ viewerId: authUser?.id ?? null,
+ });
+ if (step?.mine) ids.add(item.id);
  }
  }
  return ids;
- }, [cols, groupByColId, slaDays]);
+ }, [displayCols, cols, groupByColId, boardKeyByColId, boardFold, slaDays, cproEnabled, authUser?.id]);
  // „Ostrzeżenia" = weto hiring managera. Od 17.09.2026 nic nie BLOKUJE ruchu
  // (karta „Oczekuje" nie powstaje), więc filtr pokazuje karty z ostrzeżeniem.
  const blockedCount = useMemo(
@@ -2704,6 +2713,27 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  ? base.filter((c) => c.count > 0 || boardKeyByColId.get(colId(c)) === "new")
  : base;
  }, [displayCols, boardFold, showClosed, offTemplateCols, hideEmptyColumns, boardKeyByColId]);
+
+ // Nawigator doku „‹ N z M ›" — kolejność WIDOCZNEJ Tablicy: kolumny od
+ // lewej (także rozwinięci zamknięci i „Poza szablonem"), karty od góry,
+ // bez kart przygaszonych filtrem (`dockNavigationOrder`). Klucz to
+ // `candidate_id` (stabilny przez ruchy), dokładnie jak `dockCandidateId`.
+ const dockOrder = useMemo(
+ () => dockNavigationOrder(visibleCols, isDimmed, dockCandidateId),
+ [visibleCols, isDimmed, dockCandidateId]
+ );
+ const dockIndex = dockItem ? dockOrder.indexOf(dockItem.candidate_id) : -1;
+ const selectAdjacentDockCard = useCallback(
+ (delta: -1 | 1) => {
+ if (dockOrder.length === 0) return;
+ const current = dockIndex;
+ if (current < 0) return;
+ const next = current + delta;
+ if (next < 0 || next >= dockOrder.length) return;
+ setDockCandidateId(dockOrder[next]);
+ },
+ [dockOrder, dockIndex]
+ );
 
  const boardEntries = useMemo(
  () => visibleCols.map((col) => ({ kind: "column" as const, key: colId(col), col })),
@@ -3173,6 +3203,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  primaryBlocked={dockPrimaryMove?.blocked ?? null}
  onClose={closeDock}
  onMoveTo={handleDockMove}
+ onMoveToStageDef={handleDockMoveToStageDef}
  onOpenScreening={handleOpenScreening}
  onReject={handleDockReject}
  onWithdraw={handleDockWithdraw}

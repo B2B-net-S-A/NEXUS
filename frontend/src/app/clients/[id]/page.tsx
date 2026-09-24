@@ -6,6 +6,7 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
   positiveIntParam,
   useClientTab,
+  useForbiddenTabFallback,
   type ClientTab,
 } from "@/lib/client-tab";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -925,11 +926,16 @@ export default function ClientDetailPage() {
   // Do 24.09.2026 zakładkę chowano tylko TCM-owi, a treść pokazywano rolom
   // admin/DL/Finanse — rola z ręcznie nadaną sekcją Delivery widziała pustą
   // zakładkę (audyt N7).
-  useEffect(() => {
-    if (!canViewDeliveryLegal && activeTab === "umowy-ramowe") {
-      setActiveTab("profil");
-    }
-  }, [activeTab, canViewDeliveryLegal, setActiveTab]);
+  // Czeka na hydrację użytkownika — inaczej pełne wczytanie linku
+  // `?tab=umowy-ramowe` zawsze lądowało na Profilu (audyt 24.09.2026).
+  const authHydrated = useAuthStore((state) => state.hydrated);
+  useForbiddenTabFallback(
+    activeTab,
+    setActiveTab,
+    "umowy-ramowe",
+    canViewDeliveryLegal,
+    authHydrated,
+  );
 
   const {
     data: client,

@@ -8,7 +8,7 @@
     "tasks": [
       {
         "q": "Jak przełączyć między moimi, otwartymi i wszystkimi rekrutacjami?",
-        "a": "Użyj przełącznika „Moje / Otwarte / Wszystkie” obok przycisku „Filtry”. Rekruter i Delivery Lead domyślnie widzą swoje, admin, Head of Recruitment i Finanse — otwarte. Zamknięte rekrutacje są tylko w „Wszystkie”. Wybór zapisuje się w adresie, więc link wysłany koledze pokaże to samo.",
+        "a": "Użyj przełącznika „Moje / Otwarte / Wszystkie” obok „Filtry”. Rekruter i Delivery Lead domyślnie widzą swoje, admin, Head of Recruitment i Finanse — otwarte. Status „Zamknięta” przy „Otwartych” sam przełącza na „Wszystkie”. Wybór zapisuje się w adresie, więc link wysłany koledze pokaże to samo.",
         "anchor": "jobs.list.scope"
       },
       {
@@ -35,7 +35,7 @@
       "Pusta lista w zakresie „Moje” nie znaczy, że rekrutacji nie ma — przełącz na „Otwarte” albo „Wszystkie”.",
       "Kolumna „Etapy” ma te same 8 kolumn co tablica (skróty w nagłówku, pełna nazwa po najechaniu).",
       "Sortowanie „Wymaga uwagi” stawia na górze rekrutacje z największą liczbą kandydatów czekających na Twój ruch.",
-      "Przyciski „Praca” pokazują stan nadany przez Delivery Leada w „Porządku w requestach”. „Zakończony” w NEXUSIE nie zamyka rekrutacji w Traffit — zdejmuje ją tylko z pracy i z przydziału ludzi."
+      "Przyciski „Praca” pokazują stan nadany przez Delivery Leada w „Porządku w requestach”, a w wierszu ten sam stan stoi pod statusem jako „Praca: …” (np. „Praca: do przeglądu”). „Zakończony” w NEXUSIE nie zamyka rekrutacji w Traffit — zdejmuje ją tylko z pracy i z przydziału ludzi."
     ],
     "anchors": [
       {"id": "jobs.list.scope", "label": "Moje / Otwarte / Wszystkie", "describe": "Przełącznik zakresu listy rekrutacji z licznikami."},
@@ -76,7 +76,7 @@
       },
       {
         "q": "Jak szybko znaleźć karty, na które czekam ja?",
-        "a": "Włącz „Mój ruch” na pasku nad tablicą — karty, na których następny krok należy do rekrutera, zostaną wyróżnione, reszta przygaszona. Pozostałe filtry (utknęli, rekruter, puste kolumny) są pod „Filtry”.",
+        "a": "Włącz „Mój ruch” na pasku nad tablicą — zostaną wyróżnione karty z plakietką „Twój ruch” (Twoje, bez rekrutera albo wolne w Nowych), a przygaszone karty innych rekruterów, wzięte przez kogoś na 12 h i te, na które czeka Delivery Lead albo osoba od Cpro. Pozostałe filtry (utknęli, rekruter, puste kolumny) są pod „Filtry”.",
         "anchor": "jobs.board.filters"
       },
       {
@@ -128,13 +128,14 @@
       },
       {
         "q": "Co robi „Pomiń”?",
-        "a": "Zdejmuje propozycję z listy tej rekrutacji. Da się ją przywrócić, a nowe CV tej osoby zaproponuje ją ponownie."
+        "a": "Zdejmuje propozycję z listy tej rekrutacji. Da się ją przywrócić, a nowe CV tej osoby albo przekazanie od praktykanta po rozmowie zaproponuje ją ponownie."
       }
     ],
     "pitfalls": [
       "Wynik „nie policzono” to brak danych, nie słabe dopasowanie.",
       "Osoby z ostrzeżeniem (np. konflikt z klientem) są widoczne i da się je dodać — sprawdź powód przed wysłaniem do klienta; weto hiring managera blokuje dodanie.",
-    "Plakietka „poniżej minimum — zgoda na telefon” znaczy, że budżet jest niższy niż minimalna stawka kandydata, ale kandydat zgodził się, żeby do niego dzwonić z taką ofertą."
+    "Plakietka „poniżej minimum — zgoda na telefon” znaczy, że budżet jest niższy niż minimalna stawka kandydata, ale kandydat zgodził się, żeby do niego dzwonić z taką ofertą.",
+    "Plakietka „Szuka części etatu” albo „Tylko pełny etat” znaczy, że wymiar pracy z rozmowy nie pasuje do rekrutacji. Osoba zostaje na liście — sprawdź to z nią przed dodaniem."
     ],
     "anchors": [
       {"id": "jobs.proposals.tabs", "label": "Propozycje / Shortlista", "describe": "Przełącznik między propozycjami z bazy a shortlistą."},
@@ -157,7 +158,7 @@
     "tasks": [
       {
         "q": "Jak przesunąć osobę na kolejny etap?",
-        "a": "Ramka „Następny etap” pod nazwiskiem pokazuje, czego brakuje do kolejnej kolumny, z przyciskiem przy każdym braku, i mówi, czy system zatrzyma ruch (QC CV, stawka do klienta, debrief). Przesuwasz przyciskiem „Przenieś na etap: …”, inny etap wybierzesz w „Inny etap…”. Pełny profil: link „Profil ↗” przy nazwisku.",
+        "a": "Ramka „Następny etap” pod nazwiskiem pokazuje braki do kolejnej kolumny, z przyciskiem przy każdym. Gdy CV wysyła Delivery Lead albo osoba od Cpro, przycisk mówi „Przekaż…”; gdy system zatrzyma ruch, jest wyłączony z powodem. Inny etap wybierzesz w „Inny etap…”, pełny profil — link „Profil ↗” przy nazwisku.",
         "anchor": "jobs.person.actions"
       },
       {
@@ -565,7 +566,7 @@
       },
       {
         "q": "Jak zaimportować raport zużycia MD?",
-        "a": "W „Import zużycia MD” wgraj miesięczny XLSX i wybierz miesiąc. Wiersze dopasowane do jednej osoby schodzą z budżetu, niejednoznaczne czekają na wskazanie zamówienia. Numer zamówienia w „Uwagach” jest wiążący: wiersz trafia tylko na to zamówienie, a gdy się nie da — dostaje „Brak pasującego zamówienia” z przyczyną.",
+        "a": "W „Import zużycia MD” wgraj miesięczny XLSX i wybierz miesiąc. Numer zamówienia w „Uwagach” jest wiążący: gdy wiersza nie da się na nie rozliczyć, dostaje „Brak pasującego zamówienia” albo „Do weryfikacji”. Osoba bez zamówienia MD ma szary status „Bez zamówienia MD”, a faktura rozliczona na zamówieniu kosztowym — „Rozliczono kwotowo”.",
         "anchor": "finance.md_import"
       },
       {

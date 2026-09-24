@@ -462,8 +462,9 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         rate_rules=polkomtel.apply_rate_rules,
         document_period_authoritative=True,
         # 22.09.2026: okres z dokumentu wiążący (FIN-MAIL-03).
-        # 24.09.2026: stawka po ÷ 1,23 wraca do kwoty z PDF-a (audyt N3).
-        rule_version="2026-09-24",
+        # 24.09.2026: stawka po ÷ 1,23 wraca do kwoty z PDF-a (audyt N3) —
+        # wyłącznie w „Zleceniu wykonawczym nr …" (.2, audyt 24.09 wieczór).
+        rule_version="2026-09-24.2",
     ),
     # Ten sam szablon „Zlecenie wykonawcze nr CP … / rok" — wyłącznie reguła
     # numeru. Cyfrowy Polsat ma też zamówienia okresowe, więc okres i stawki

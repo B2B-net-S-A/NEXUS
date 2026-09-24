@@ -1240,6 +1240,18 @@ def _placements_word(count: int) -> str:
     return "placementów"
 
 
+def _verifications_word(count: int) -> str:
+    """„1 weryfikacja", „4 weryfikacje", „5 weryfikacji" — napis wymogu wyścigu.
+
+    Do 24.09.2026 napis zawsze mówił „min. 4 weryfikacji/dzień".
+    """
+    if count == 1:
+        return "weryfikacja"
+    if 2 <= count % 10 <= 4 and not 12 <= count % 100 <= 14:
+        return "weryfikacje"
+    return "weryfikacji"
+
+
 # Marża/h do rozstrzygania remisu wyścigu placementów. `award_order` wpisuje
 # ją w `extras`, bo potrzebuje jej zamrożenie okresu i ekran remisów admina —
 # ale `/api/competitions/monthly-races` czyta każdy zalogowany, a marża to
@@ -1342,7 +1354,8 @@ async def compose_monthly_races(
             [
                 (
                     f"Wymóg: min. {thresholds.verifications_per_day} "
-                    "weryfikacji/dzień roboczy w tym miesiącu"
+                    f"{_verifications_word(thresholds.verifications_per_day)}"
+                    "/dzień roboczy w tym miesiącu"
                 ),
                 (
                     f"Wymóg: min. {int(thresholds.precision_pct)}% "

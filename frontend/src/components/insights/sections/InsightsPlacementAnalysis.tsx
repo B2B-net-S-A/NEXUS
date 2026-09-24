@@ -137,7 +137,15 @@ export function InsightsPlacementAnalysis({ period }: Props) {
           Brak placementów w wybranym oknie.
         </p>
       ) : (
-        <PlacementAnalysisBody data={data} />
+        <>
+          <PlacementAnalysisBody data={data} />
+          <p className="mt-3 text-xs text-muted-foreground">
+            Liczone: pierwsze zatrudnienie pary (kandydat, rekrutacja),
+            przypisane osobie, która przesunęła kandydata na „Zatrudniony”.
+            Konta administracyjne są jednym wycinkiem, nie
+            osobą — jak w Hall of Fame.
+          </p>
+        </>
       )}
     </section>
   );

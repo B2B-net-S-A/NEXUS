@@ -28,10 +28,13 @@ from app.models.job import Job, JobStatus, RemotePolicy
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import User, UserRole
 from app.services.insights_team_signals import (
+    TeamPeople,
+    people_payload,
     previous_matching_window,
     stale_jobs,
     workdays_in_window,
 )
+from app.services.kpi_team import TeamMemberRow, TeamPanelResult, TeamTotals
 
 WARSAW = ZoneInfo("Europe/Warsaw")
 
@@ -75,6 +78,68 @@ def test_quarter_wraps_the_year() -> None:
     assert start == datetime(2025, 10, 1, tzinfo=WARSAW)
 
 
+def _member(uid: int, *, placements: int = 0, verifications: int = 0) -> TeamMemberRow:
+    return TeamMemberRow(
+        user_id=uid,
+        name=f"Osoba {uid}",
+        role="recruiter",
+        weryfikacje=verifications,
+        rekomendacje=0,
+        interview=0,
+        akceptacje=0,
+        placementy=placements,
+        cv_to_base=0,
+        precision_pct=None,
+        precision_verified_30d=0,
+        precision_sent_30d=0,
+    )
+
+
+def _panel(*rows: TeamMemberRow) -> TeamPanelResult:
+    totals = TeamTotals(
+        weryfikacje=sum(r.weryfikacje for r in rows),
+        rekomendacje=0,
+        interview=0,
+        akceptacje=0,
+        placementy=sum(r.placementy for r in rows),
+        cv_to_base=0,
+        precision_pct=None,
+        people=len(rows),
+    )
+    return TeamPanelResult(
+        period="month", precision_target_pct=75, rows=tuple(rows), totals=totals
+    )
+
+
+def test_admin_accounts_are_one_row_and_company_totals_stay() -> None:
+    """Konta administracyjne poza tabelą, jednym wierszem (24.09.2026)."""
+    people = TeamPeople(
+        current=_panel(_member(1, placements=2), _member(99, placements=5)),
+        previous=_panel(_member(1, placements=1), _member(99, placements=3)),
+        workdays=10,
+        outside_user_ids=frozenset({99}),
+    )
+    payload = people_payload(people)
+    assert [r["user_id"] for r in payload["rows"]] == [1]
+    assert payload["outside_scope"]["placements"] == 5
+    assert payload["outside_scope"]["previous_placements"] == 3
+    assert payload["outside_scope"]["people"] == 1
+    # Suma firmy bez zmian.
+    assert payload["totals"]["placements"] == 7
+
+
+def test_person_with_placements_only_in_previous_period_stays_visible() -> None:
+    """Spadek do zera ma być widoczny w kolumnie „vs poprzednio”."""
+    people = TeamPeople(
+        current=_panel(_member(1, placements=2)),
+        previous=_panel(_member(1, placements=1), _member(2, placements=3)),
+        workdays=10,
+    )
+    rows = {r["user_id"]: r for r in people_payload(people)["rows"]}
+    assert rows[2]["placements"] == 0
+    assert rows[2]["previous_placements"] == 3
+
+
 def test_workdays_stop_at_today_and_skip_holidays() -> None:
     start = datetime(2026, 11, 1, tzinfo=WARSAW)
     end = datetime(2026, 12, 1, tzinfo=WARSAW)
@@ -85,7 +150,11 @@ def test_workdays_stop_at_today_and_skip_holidays() -> None:
 
 
 async def _job(
-    *, status: JobStatus, opened_days_ago: int, stage_days_ago: int | None
+    *,
+    status: JobStatus,
+    opened_days_ago: int,
+    stage_days_ago: int | None,
+    work_state: str = "to_review",
 ) -> int:
     now = datetime.now(timezone.utc)
     async with AsyncSessionLocal() as db:
@@ -99,6 +168,7 @@ async def _job(
             remote_policy=RemotePolicy.hybrid,
             client_id=client.id,
             opened_at=now - timedelta(days=opened_days_ago),
+            work_state=work_state,
         )
         db.add(job)
         await db.flush()
@@ -146,6 +216,41 @@ async def test_stale_jobs_are_published_and_silent_for_14_days() -> None:
     assert fresh not in by_id
     assert closed not in by_id
     assert new_empty not in by_id
+
+
+@pytest.mark.asyncio
+async def test_stale_jobs_skip_client_silent_and_finished_requests() -> None:
+    """„Klient milczy" i „Zakończony" to świadomy brak ruchu (audyt 24.09.2026).
+
+    Status z Traffita zostaje `published`, więc bez filtra po `work_state`
+    porządkowanie requestów w `/jobs/review-states` nie zmniejszało sygnału.
+    """
+    searching = await _job(
+        status=JobStatus.published,
+        opened_days_ago=60,
+        stage_days_ago=20,
+        work_state="searching",
+    )
+    silent = await _job(
+        status=JobStatus.published,
+        opened_days_ago=60,
+        stage_days_ago=20,
+        work_state="client_silent",
+    )
+    finished = await _job(
+        status=JobStatus.published,
+        opened_days_ago=60,
+        stage_days_ago=None,
+        work_state="finished",
+    )
+
+    async with AsyncSessionLocal() as db:
+        items = await stale_jobs(db, now=datetime.now(timezone.utc))
+    ids = {item["job_id"] for item in items}
+
+    assert searching in ids
+    assert silent not in ids
+    assert finished not in ids
 
 
 async def _login_as(client: AsyncClient, role: UserRole) -> dict[str, str]:

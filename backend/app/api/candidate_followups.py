@@ -318,7 +318,13 @@ async def _signal_owners(
     body: FollowupOutcomeIn,
     author: User,
 ) -> int:
-    """Dzwonek do właścicieli procesów, których dotyczy zmiana."""
+    """Dzwonek do właścicieli procesów, których dotyczy zmiana.
+
+    Jeden wpis na właściciela, z WSZYSTKIMI jego procesami, których dotyczy
+    zmiana. Drugi sygnał tego samego dnia o tym samym kandydacie nie ginie na
+    dobowym dedupie (`ix_notif_dedup_daily`, audyt 24.09.2026): dopisujemy go
+    do dzisiejszego wpisu i oznaczamy jako nieprzeczytany.
+    """
 
     flagged = {jid for jid, flag in body.processes.items() if flag == "withdrawing"}
     targets = [
@@ -328,31 +334,87 @@ async def _signal_owners(
         and p.owner_id != author.id
         and (not flagged or p.job_id in flagged)
     ]
-    sent = 0
-    seen: set[int] = set()
+    by_owner: dict[int, list[svc.WaitingProcess]] = {}
     for p in targets:
-        if p.owner_id in seen:
-            continue
-        seen.add(p.owner_id)
-        withdrawing = p.job_id in flagged
+        by_owner.setdefault(p.owner_id, []).append(p)
+
+    sent = 0
+    author_name = author.name or author.email
+    for owner_id, processes in by_owner.items():
+        withdrawing = any(p.job_id in flagged for p in processes)
         title = (
             f"{followup.candidate_name} rezygnuje z procesu"
             if withdrawing
             else f"Follow-up: zmiana u {followup.candidate_name}"
         )
-        message = f"{_process_label(p)}. {(author.name or author.email)}: {_snippet(body.note) or ''}".strip()
+        labels = "; ".join(_process_label(p) for p in processes)
+        message = f"{labels}. {author_name}: {_snippet(body.note) or ''}".strip()
         created = await emit(
             db,
-            user_id=p.owner_id,
+            user_id=owner_id,
             title=title,
             message=message,
             ntype=NotificationType.candidate_followup_signal,
             related_entity_type="candidate",
             related_entity_id=followup.candidate_id,
-            link=f"/jobs/{p.job_id}?candidate={followup.candidate_id}",
+            link=f"/jobs/{processes[0].job_id}?candidate={followup.candidate_id}",
         )
-        sent += int(created is not None)
+        if created is not None:
+            sent += 1
+            continue
+        if await _append_to_todays_signal(
+            db,
+            user_id=owner_id,
+            candidate_id=followup.candidate_id,
+            title=title if withdrawing else None,
+            message=message,
+        ):
+            sent += 1
     return sent
+
+
+async def _append_to_todays_signal(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    candidate_id: int,
+    title: Optional[str],
+    message: str,
+) -> bool:
+    """Dopisz sygnał do dzisiejszego wpisu (ten sam dobowy klucz co dedup).
+
+    Brak wpisu = `emit` odmówił przez bramkę odbiorcy (nieaktywne konto, brak
+    sekcji) — wtedy nic nie dopisujemy.
+    """
+    from sqlalchemy import func  # noqa: PLC0415
+
+    from app.core.config import settings  # noqa: PLC0415
+    from app.core.scheduling import business_today  # noqa: PLC0415
+    from app.models.notification import Notification  # noqa: PLC0415
+
+    existing = await db.scalar(
+        select(Notification)
+        .where(
+            Notification.user_id == user_id,
+            Notification.notification_type
+            == NotificationType.candidate_followup_signal,
+            Notification.related_entity_type == "candidate",
+            Notification.related_entity_id == candidate_id,
+            func.date(func.timezone(settings.BUSINESS_TZ, Notification.created_at))
+            == business_today(settings.BUSINESS_TZ),
+        )
+        .order_by(Notification.created_at.desc())
+        .limit(1)
+        .with_for_update()
+    )
+    if existing is None:
+        return False
+    if message not in (existing.message or ""):
+        existing.message = f"{existing.message}\n{message}".strip()[:4000]
+    if title:
+        existing.title = title[:255]
+    existing.is_read = False
+    return True
 
 
 @router.post("/candidates/{candidate_id}/outcome", response_model=FollowupDetail)

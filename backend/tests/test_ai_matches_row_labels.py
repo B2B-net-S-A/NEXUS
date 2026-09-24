@@ -221,7 +221,18 @@ class TestBuildMatchInfoRubricLabels:
         assert info["gaps"] == []
         assert info["rate_fit"] == "unknown"
         assert info["office_fit"] == "unknown"
+        assert info["work_time_fit"] == "not_applicable"
         assert info["missing_must"] == []
+
+    def test_work_time_fit_badge_rides_on_the_row(self) -> None:
+        """„Tylko part-time" przy rekrutacji na etat: wiersz zostaje z plakietką
+        (decyzja 24.09.2026) — rekruter musi wiedzieć, czemu to ryzyko."""
+        inputs = DealbreakerInputs(job_work_mode="fulltime")
+        cand = _candidate(
+            skills=[{"name": "Java"}], work_time_preference="part_time_only"
+        )
+        info = _build_match_info(cand, ["java"], inputs=inputs)
+        assert info["work_time_fit"] == "part_time_only"
 
     def test_matching_skills_and_gaps_shape_is_unchanged_by_rubric_fields(
         self,

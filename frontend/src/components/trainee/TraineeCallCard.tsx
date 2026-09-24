@@ -459,18 +459,6 @@ export function TraineeCallCard({
                   {label}
                 </Button>
               ))}
-              <div className="hidden flex-1 lg:block" />
-              <Button
-                type="button"
-                variant="tertiary"
-                size="lg"
-                className="min-h-11 px-2"
-                disabled={busy}
-                onClick={() => onHandover(item.id)}
-              >
-                Przekaż rekruterowi
-                <ArrowRight className="h-4 w-4" aria-hidden />
-              </Button>
             </div>
           </form>
         </>

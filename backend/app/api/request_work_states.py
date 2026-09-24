@@ -38,6 +38,10 @@ router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 WorkStateEditor = require_roles(UserRole.delivery_lead, UserRole.head_of_recruitment)
 
 MAX_CHANGES = 200
+# Zakładka „Zakończone” niesie całą historię (~3,9 tys. zamkniętych) — lista
+# idzie stronami, a sygnały pipeline'u liczą się tylko dla widocznej strony.
+PAGE_DEFAULT = 200
+PAGE_MAX = 1000
 
 
 class ReviewRow(BaseModel):
@@ -60,6 +64,9 @@ class ReviewResponse(BaseModel):
     tab: str
     counts: dict[str, int]
     rows: list[ReviewRow]
+    # Wszystkich requestów w zakładce (po filtrach) i czy są kolejne strony.
+    total: int = 0
+    has_more: bool = False
 
 
 class StateChange(BaseModel):
@@ -83,6 +90,8 @@ async def list_request_work_states(
     ] = Query("to_review"),
     mine: bool = Query(False),
     q: Optional[str] = Query(None, max_length=120),
+    limit: int = Query(PAGE_DEFAULT, ge=1, le=PAGE_MAX),
+    offset: int = Query(0, ge=0),
     current_user: User = Depends(WorkStateEditor),
     db: AsyncSession = Depends(get_db),
 ) -> ReviewResponse:
@@ -125,7 +134,8 @@ async def list_request_work_states(
         state = visible_state(job.work_state, job.champion_found_at)
         visible[job.id] = state
         counts[state] += 1
-    selected = [job for job in jobs if visible[job.id] == tab]
+    in_tab = [job for job in jobs if visible[job.id] == tab]
+    selected = in_tab[offset : offset + limit]
 
     now = datetime.now(timezone.utc)
     signals = await load_signals(db, selected, now=now)
@@ -171,7 +181,13 @@ async def list_request_work_states(
                 suggestion_reason=hint.reason,
             )
         )
-    return ReviewResponse(tab=tab, counts=counts, rows=rows)
+    return ReviewResponse(
+        tab=tab,
+        counts=counts,
+        rows=rows,
+        total=len(in_tab),
+        has_more=offset + len(selected) < len(in_tab),
+    )
 
 
 @router.patch("")

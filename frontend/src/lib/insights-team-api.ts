@@ -54,7 +54,14 @@ export interface TeamTableTotals {
    * zgadza się z lejkiem, a tabela wygląda na ZEPSUTĄ, nie na niekompletną.
    */
   unattributed: TeamTableCounts;
-  /** `attributed + unattributed` — ta liczba ma się zgadzać z lejkiem. */
+  /**
+   * Dorobek kont spoza ról rekrutacyjnych (admin, Finanse…) — reguła Hall of
+   * Fame (24.09.2026). Nie mają wiersza osoby, ale wchodzą w „Łącznie”.
+   */
+  outside_scope?: TeamTableCounts;
+  outside_scope_users?: number;
+  outside_scope_label?: string;
+  /** `attributed + outside_scope + unattributed` — zgodne z lejkiem. */
   all: TeamTableCounts;
   users: number;
   former_employees: number;
@@ -110,13 +117,29 @@ export interface TeamPeopleRow {
   previous_placements: number;
   /** `null` = w oknie nie upłynął jeszcze żaden dzień roboczy. */
   verifications_per_workday: number | null;
-  /** Rekomendacje / weryfikacje z 30 dni. `null` = mniej niż 5 weryfikacji. */
+  /**
+   * Z par zweryfikowanych w 30 dniach — ile ma „CV wysłane” (kohorta, max
+   * 100%). `null` = mniej niż 5 weryfikacji.
+   */
   precision_pct: number | null;
+}
+
+export interface TeamPeopleOutsideScope {
+  label: string;
+  /** Ile kont miało ruch w bieżącym okresie. */
+  people: number;
+  verifications: number;
+  recommendations: number;
+  interviews: number;
+  placements: number;
+  previous_placements: number;
 }
 
 export interface TeamPeopleResponse {
   period: InsightsPeriod;
   rows: TeamPeopleRow[];
+  /** Konta administracyjne — jeden wiersz pod tabelą (reguła Hall of Fame). */
+  outside_scope?: TeamPeopleOutsideScope;
   workdays: number;
   precision_target_pct: number;
   low_precision_pct: number;

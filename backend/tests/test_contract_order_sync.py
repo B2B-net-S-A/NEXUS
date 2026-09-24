@@ -1501,3 +1501,67 @@ async def test_nightly_pass_fills_missing_revenue_and_only_reports_drift():
     async with AsyncSessionLocal() as db:
         report = await db.get(AppSetting, REVENUE_DRIFT_REPORT_KEY)
     assert report is not None and drift_id in report.value["drift_contract_ids"]
+
+
+# ── Audyt 24.09.2026: przychód z zaślepki „(bez numeru)” nie znika ──────────
+
+
+def _placeholder_contract(order_status=ClientOrderStatus.draft):
+    """Kontrakt z „Dodaj kolejny projekt”: stawka 1000 zł/h skopiowana do
+    zaślepki, a synchronizacja zrobiła z niej krok harmonogramu."""
+    shell = _order(
+        100,
+        title="(bez numeru)",
+        status=order_status,
+        start_date=date(2026, 9, 14),
+        end_date=None,
+        rate_client=Decimal("1000.000"),
+        rate_unit=RateUnit.hourly,
+    )
+    contract = _contract(
+        status=ContractStatus.active,
+        rate_client=Decimal("1000.000"),
+        client_rate_schedule=[
+            ContractClientRate(
+                rate=Decimal("1000.000"),
+                effective_from=date(2026, 9, 14),
+                source_order_id=100,
+                note="Z zamówienia klienta",
+            )
+        ],
+    )
+    return contract, shell
+
+
+async def test_placeholder_step_survives_as_the_contract_own_revenue():
+    """Zaślepka nie jest źródłem przychodu (S4), ale jej krok to kopia stawki
+    umowy — skasowanie go zerowało przychód przy pierwszym przeliczeniu."""
+    contract, shell = _placeholder_contract()
+
+    await sync_contract_from_orders(
+        _FakeDb(), contract, [shell], actor_id=None, today=date(2026, 9, 24)
+    )
+
+    assert [
+        (s.rate, s.effective_from, s.source_order_id)
+        for s in contract.client_rate_schedule
+    ] == [(Decimal("1000.000"), date(2026, 9, 14), None)]
+    assert contract.rate_client == Decimal("1000.000")
+    # Idempotentne: drugi przebieg nic już nie zmienia.
+    outcome = await sync_contract_from_orders(
+        _FakeDb(), contract, [shell], actor_id=None, today=date(2026, 9, 24)
+    )
+    assert outcome.revenue_steps_changed == 0
+    assert contract.rate_client == Decimal("1000.000")
+
+
+async def test_cancelled_placeholder_still_takes_its_step_away():
+    """Anulowane zamówienie (także zaślepka) — bez zmian: krok znika."""
+    contract, shell = _placeholder_contract(ClientOrderStatus.cancelled)
+
+    await sync_contract_from_orders(
+        _FakeDb(), contract, [shell], actor_id=None, today=date(2026, 9, 24)
+    )
+
+    assert contract.client_rate_schedule == []
+    assert contract.rate_client is None

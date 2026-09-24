@@ -596,17 +596,83 @@ describe("MdImportWorkspace", () => {
     await user.click(screen.getByRole("button", { name: /Importuj/ }));
     await screen.findByText(/Wynik importu/);
 
-    const lost = screen.getByText(/Bez zamówienia:/);
-    expect(lost).toHaveTextContent("Bez zamówienia: 1");
+    // U14: liczniki liczą stany wierszy, jeden stan na wiersz.
+    expect(screen.getByText(/Do sprawdzenia:/)).toHaveTextContent("Do sprawdzenia: 1");
+    expect(screen.getByText(/Bez zamówienia MD:/)).toHaveTextContent(
+      "Bez zamówienia MD: 0",
+    );
     expect(screen.getByText(/Rozliczono kwotowo:/)).toHaveTextContent(
       "Rozliczono kwotowo: 2",
-    );
-    expect(screen.getByText(/Faktura bez zamówienia:/)).toHaveTextContent(
-      "Faktura bez zamówienia: 1",
     );
     const failedBadge = screen.getByText("Tylko faktura").closest("span");
     expect(failedBadge?.className).toContain("text-destructive");
     expect(failedBadge?.className).not.toContain("emerald");
+  });
+});
+
+describe("stany wierszy importu (U14)", () => {
+  it("osoba bez zamówienia MD jest szara, rozliczenie kwotowe niebieskie, brak numeru czerwony", async () => {
+    const noMdOrder = row({
+      id: 21,
+      consultant_name: "Piotr Okresowy",
+      status: "unmatched",
+      status_label: "Bez zamówienia MD",
+      matched_order_id: null,
+      matched: null,
+    });
+    const costSettled = row({
+      id: 22,
+      consultant_name: "Anna Kwota",
+      status: "unmatched",
+      status_label: "Rozliczono kwotowo",
+      matched_order_id: null,
+      matched: null,
+      order_number_hint: "4500810000",
+      invoice_amount: 1000,
+      cost_status: "applied",
+      cost_status_label: "Rozliczono",
+    });
+    const missingNumber = row({
+      id: 23,
+      consultant_name: "Ewa Numer",
+      status: "unmatched",
+      status_label: "Brak pasującego zamówienia",
+      matched_order_id: null,
+      matched: null,
+      notes_raw: "4500999999",
+      status_reason: "Zamówienia nr 4500999999 nie ma w NEXUSIE.",
+    });
+    vi.mocked(mdConsumptionApi.upload).mockResolvedValue({
+      data: detail([row(), noMdOrder, costSettled, missingNumber]),
+    } as never);
+
+    const user = userEvent.setup();
+    renderWorkspace();
+    await user.upload(screen.getByLabelText(/Plik XLSX/), new File(["x"], "raport.xlsx"));
+    await user.click(screen.getByRole("button", { name: /Importuj/ }));
+    await screen.findByText(/Wynik importu/);
+
+    expect(screen.getByText(/Zaktualizowano:/)).toHaveTextContent("Zaktualizowano: 1");
+    expect(screen.getByText(/Bez zamówienia MD:/)).toHaveTextContent(
+      "Bez zamówienia MD: 1",
+    );
+    expect(screen.getByText(/Rozliczono kwotowo:/)).toHaveTextContent(
+      "Rozliczono kwotowo: 1",
+    );
+    expect(screen.getByText(/Do sprawdzenia:/)).toHaveTextContent("Do sprawdzenia: 1");
+
+    const neutralBadge = screen.getByText("Bez zamówienia MD").closest("span");
+    expect(neutralBadge?.className).toContain("text-muted-foreground");
+    expect(neutralBadge?.className).not.toContain("destructive");
+    expect(screen.getByText("Piotr Okresowy").className).not.toContain("text-destructive");
+
+    const costBadge = screen.getByText("Rozliczono kwotowo").closest("span");
+    expect(costBadge?.className).toContain("text-sky-700");
+    expect(screen.getByText("Anna Kwota").className).not.toContain("text-destructive");
+
+    const dangerBadge = screen.getByText("Brak pasującego zamówienia").closest("span");
+    expect(dangerBadge?.className).toContain("text-destructive");
+    expect(screen.getByText("Ewa Numer").className).toContain("text-destructive");
   });
 });
 

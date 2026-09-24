@@ -663,14 +663,23 @@ def _cross_check_with_model(
     return reasons
 
 
-def apply_rate_rules(result: OrderExtraction, document_text: str) -> OrderExtraction:
+def apply_rate_rules(
+    result: OrderExtraction, document_text: str
+) -> Optional[OrderExtraction]:
     """„Cena netto 1MD po upuście" — stawka Polkomtela jest zawsze NETTO.
 
     Idempotentne jak u Nordei, PKO BP i Aliora: odczyt, który przeszedł już
     ÷ 1,23 (zapisany przed regułą, wiersze modelu bez tabeli), wraca do kwoty
     z PDF-a. Samo zerowanie oryginału zostawiało zaniżoną stawkę netto
     bez śladu przeliczenia (audyt 24.09, N3).
+
+    Wyłącznie w „Zleceniu wykonawczym nr …" (jak reszta reguł tego klienta
+    i jak BIK sprawdza swój nagłówek). Inny szablon zwraca ``None`` — o rodzaju
+    stawki decyduje ogólne rozpoznanie brutto/netto; „zawsze netto" podnosiło
+    tam kwotę brutto o VAT (audyt 24.09.2026).
     """
+    if not is_executive_order(document_text):
+        return None
     for item in [result, *result.consultant_rows]:
         if item.rate_client_gross is not None:
             item.rate_client, item.rate_client_gross = item.rate_client_gross, None

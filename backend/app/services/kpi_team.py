@@ -33,6 +33,8 @@ from app.services.kpi_panel import (
     _OPERATIONAL_ROLES,
     _PRECISION_MIN_DENOM,
     _PRECISION_WINDOW_DAYS,
+    PRECISION_COHORT_CTE,
+    PRECISION_R30_SQL,
     VERIFIER_ANCHORED_CTE,
 )
 from app.services.kpi_targets import resolve_org_target
@@ -50,16 +52,26 @@ from app.services.kpi_targets import resolve_org_target
 # `[period_start, period_end)` — dla okresów „na żywo" end = teraz (identycznie
 # jak dawny brak górnej granicy), a jawna granica pozwala liczyć zamknięte
 # okna (kwartał/rok/custom) w sekcji „Statystyki rekrutacji".
+# `r30_cnt` to kohorta precyzji (`PRECISION_COHORT_CTE`): pary zweryfikowane
+# w 30 dniach i te z nich, które doszły do „CV wysłane" — ta sama definicja co
+# panel per osoba, więc precyzja nigdy nie przekracza 100%.
 _TEAM_FUNNEL_SQL = text(
     VERIFIER_ANCHORED_CTE
+    + PRECISION_COHORT_CTE
     + """
-    SELECT credit_user AS uid, stage,
-           count(*) FILTER (
-               WHERE reached_at >= :period_start AND reached_at < :period_end
-           ) AS period_cnt,
-           count(*) FILTER (WHERE reached_at >= :rolling30) AS r30_cnt
-    FROM credited
-    GROUP BY credit_user, stage
+    SELECT f.credit_user AS uid, f.stage, f.period_cnt,
+           """
+    + PRECISION_R30_SQL
+    + """ AS r30_cnt
+    FROM (
+        SELECT credit_user, stage,
+               count(*) FILTER (
+                   WHERE reached_at >= :period_start AND reached_at < :period_end
+               ) AS period_cnt
+        FROM credited
+        GROUP BY credit_user, stage
+    ) f
+    LEFT JOIN precision_cohort p ON p.credit_user = f.credit_user
     """
 )
 

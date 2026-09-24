@@ -284,7 +284,13 @@ async def _delivery_lead_targets(db: AsyncSession, job: Job) -> list[int]:
     (incydent notifications 2026-05-22).
     """
     if job.delivery_lead_id:
-        return [job.delivery_lead_id]
+        # Nieaktywny DL = jak brak DL-a (eskalacja do HoR). Inaczej `emit`
+        # odrzucał odbiorcę i alert DL-owy przepadał bez śladu.
+        active = await db.scalar(
+            select(User.is_active).where(User.id == job.delivery_lead_id)
+        )
+        if active:
+            return [job.delivery_lead_id]
     rows = await db.execute(
         select(User.id).where(
             User.roles.contains([UserRole.head_of_recruitment.value]),

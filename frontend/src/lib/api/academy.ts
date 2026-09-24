@@ -264,9 +264,13 @@ export const academyApi = {
     return data;
   },
   async applications(id: number) {
-    const { data } = await api.get<{ items: AcademyApplication[]; counts: AcademyCounts }>(
-      `/api/academy/programs/${id}/applications`,
-    );
+    const { data } = await api.get<{
+      items: AcademyApplication[];
+      counts: AcademyCounts;
+      /** Wszystkich pasujących — lista ma limit (najstarsi zamknięci odpadają). */
+      total?: number;
+      truncated?: boolean;
+    }>(`/api/academy/programs/${id}/applications`);
     return data;
   },
   async action(applicationId: number, body: ActionBody) {

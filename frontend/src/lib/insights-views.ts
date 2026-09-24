@@ -251,6 +251,12 @@ export interface MyMonthFacts {
   leaderName: string | null;
   verificationsToday: number;
   verificationsDailyTarget: number;
+  /** Jestem zakwalifikowanym liderem (`qualified_leader`) — jedyny „Prowadzisz”. */
+  raceLeader?: boolean;
+  /** Remis na 1. miejscu (`leader_tie_user_ids`) — lidera wskaże admin. */
+  raceLeaderTie?: boolean;
+  /** Jestem liderem kwartału wykluczonym z nagrody miesięcznej. */
+  raceExcluded?: boolean;
 }
 
 /** Zdanie na górze „Mojego miesiąca" — jeden wniosek, bez tabelki. */
@@ -264,8 +270,19 @@ export function myMonthSentence(f: MyMonthFacts): string {
         : ` — do celu brakuje ${f.placementsTarget - f.placements}`;
   }
   parts[0] += ".";
+  // `raceRank` to pozycja na liście, nie kolejność nagrodowa. Remisu na
+  // 1. miejscu i wykluczonego lidera kwartału nie ogłaszamy jako prowadzenia —
+  // o nagrodzie decyduje regulamin albo admin (audyt 24.09.2026).
   if (f.raceRank !== null) {
-    if (f.raceRank === 1) {
+    if (f.raceExcluded) {
+      parts.push(
+        `Jesteś ${f.raceRank}. w wyścigu placementów — jako lider kwartału nie bierzesz nagrody miesięcznej.`,
+      );
+    } else if (f.raceLeaderTie) {
+      parts.push(
+        `Jesteś ${f.raceRank}. w wyścigu placementów, a na 1. miejscu jest remis — o nagrodzie zdecyduje admin przy zamknięciu miesiąca.`,
+      );
+    } else if (f.raceLeader) {
       parts.push("Prowadzisz w wyścigu placementów.");
     } else if (f.leaderPlacements !== null && f.leaderName) {
       const gap = Math.max(f.leaderPlacements - f.placements, 0);
@@ -284,6 +301,28 @@ export function myMonthSentence(f: MyMonthFacts): string {
     );
   }
   return parts.join(" ");
+}
+
+/**
+ * Czy pokazać wiersz tabeli „Ludzie” w Zespole. Osoba bez ruchu w okresie
+ * zostaje, gdy miała placementy w poprzednim — spadek do zera ma być widoczny
+ * w kolumnie „vs poprzednio”, a nie znikać razem z wierszem (audyt 24.09.2026).
+ */
+export function isPeopleRowWorthShowing(row: {
+  verifications: number;
+  recommendations: number;
+  interviews: number;
+  placements: number;
+  previous_placements: number;
+}): boolean {
+  return (
+    row.verifications +
+      row.recommendations +
+      row.interviews +
+      row.placements +
+      row.previous_placements >
+    0
+  );
 }
 
 export interface ShareRow {
@@ -314,6 +353,20 @@ export function topWithRest(
   const top3 = priced.slice(0, 3).reduce((sum, r) => sum + r.value, 0);
   return { top, rest, total, top3Share: share(top3) };
 }
+
+/**
+ * Hit ratio DL ma w Insights DWIE świadomie różne definicje (decyzja Artura
+ * 24.09.2026: definicji nie zmieniamy, ekran mówi, jak liczy). Ta sama osoba
+ * ma w Lidze 30% (kwartał, zamknięte), a w Portfelach 6% (rok, wszystkie
+ * zapytania) — bez podpisu czyta się to jak błąd.
+ */
+export const DL_HIT_RATIO_LEAGUE_NOTE =
+  "Hit ratio liczone: placementy w kwartale ÷ rekrutacje zamknięte w tym kwartale. " +
+  "Raport „Portfele Delivery Leadów” liczy inaczej (wszystkie zapytania utworzone w wybranym okresie), więc jego procent jest niższy.";
+
+export const DL_HIT_RATIO_PORTFOLIO_NOTE =
+  "Hit ratio liczone: placementy w wybranym okresie ÷ wszystkie zapytania utworzone w tym okresie (także otwarte). " +
+  "Liga Mistrzów DL liczy inaczej (kwartał, tylko rekrutacje zamknięte), więc jej procent jest wyższy.";
 
 export interface ComparablePeriod {
   params: {
@@ -372,9 +425,14 @@ export function previousComparablePeriod(
     offset === 0 &&
     (p.period === "week" || p.period === "quarter" || p.period === "year")
   ) {
-    const start = periodStartOf(p.period, today);
+    // Dni liczymy na datach BEZ godziny: `today` z `new Date()` niesie
+    // godzinę i od ~12:00 zaokrąglenie wydłużało poprzedni okres o dzień.
+    // `Math.round` zostaje tylko po to, żeby zmiana czasu (23/25 h) nie
+    // zgubiła dnia.
+    const day = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const start = periodStartOf(p.period, day);
     const prevStart = previousPeriodStart(p.period, start);
-    const days = Math.round((today.getTime() - start.getTime()) / 86_400_000);
+    const days = Math.round((day.getTime() - start.getTime()) / 86_400_000);
     const end = addDays(prevStart, days);
     const lastPrevDay = addDays(start, -1);
     return {

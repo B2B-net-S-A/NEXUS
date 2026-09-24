@@ -74,6 +74,26 @@ export function useClientTab(
 }
 
 /**
+ * Zakładka, do której rola nie ma prawa, przełącza się na Profil — ale
+ * dopiero po hydracji użytkownika (`ready`). Przy pełnym wczytaniu strony
+ * pierwszy render ma `user = null`: „brak prawa” jest wtedy brakiem wiedzy,
+ * a przełączenie nie byłoby już cofane (efekt `useClientTab` zależy od
+ * wartości parametru, która się nie zmienia). Tak linki `?tab=umowy-ramowe`
+ * z alertów i maili lądowały na Profilu (audyt 24.09.2026).
+ */
+export function useForbiddenTabFallback(
+  activeTab: ClientTab,
+  setActiveTab: (tab: ClientTab) => void,
+  guardedTab: ClientTab,
+  allowed: boolean,
+  ready: boolean,
+): void {
+  useEffect(() => {
+    if (ready && !allowed && activeTab === guardedTab) setActiveTab("profil");
+  }, [activeTab, allowed, guardedTab, ready, setActiveTab]);
+}
+
+/**
  * Identyfikator z parametru adresu (`?order=`, `?group=`, `?framework=`)
  * albo `null`. Adres pisze człowiek i linki z powiadomień — „abc", „0",
  * „-3" czy „1.5" nie są celem, tylko brakiem celu.

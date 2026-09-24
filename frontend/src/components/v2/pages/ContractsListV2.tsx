@@ -65,6 +65,7 @@ import {
  restoreContractsListScroll,
  takeContractsListScroll,
 } from "@/lib/contracts-list-navigation";
+import { localTodayIso } from "@/lib/client-order-list";
 import { getAuthenticatedRequestHeaders } from "@/lib/session";
 import {
  hasAnalyticsCapability,
@@ -195,10 +196,27 @@ function expiringBannerText(n: number): string {
  return `${n} ${noun} ${verb} w ciągu 30 dni`;
 }
 
-function contractorsCountText(
+/**
+ * „startuje DD.MM" przy umowie „Aktywnej"/„Kończącej się", której start jest
+ * jeszcze przed nami. Status tego nie mówi, a rejestr liczył takie umowy jak
+ * pracujące (audyt 24.09.2026, U5). Status w bazie bez zmian.
+ */
+export function futureStartLabel(
+ status: string | null | undefined,
+ startDate: string | null | undefined,
+ todayIso: string,
+): string | null {
+ if (status !== "active" && status !== "ending") return null;
+ const start = startDate?.slice(0, 10);
+ if (!start || start <= todayIso) return null;
+ return `startuje ${start.slice(8, 10)}.${start.slice(5, 7)}`;
+}
+
+export function contractorsCountText(
  contractors: number,
  contracts: number,
  activeOnly: boolean,
+ futureStart = 0,
 ): string {
  const peopleFew =
  contractors % 10 >= 2 &&
@@ -217,7 +235,10 @@ function contractorsCountText(
  : contractsFew
  ? "aktywne kontrakty"
  : "aktywnych kontraktów";
- return `${contractors} ${contractorNoun} / ${contracts} ${contractNoun}`;
+ // Status „Aktywny" niesie też umowy, które dopiero się zaczną (U5).
+ const futureNote =
+ futureStart > 0 ? ` (w tym ${futureStart} z przyszłym startem)` : "";
+ return `${contractors} ${contractorNoun} / ${contracts} ${contractNoun}${futureNote}`;
  }
 
  const personNoun = contractors === 1 ? "osoba" : peopleFew ? "osoby" : "osób";
@@ -707,6 +728,8 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  const total = data?.total ?? 0;
  const contractorsTotal = data?.contractors_total ?? total;
  const contractsTotal = data?.contracts_total ?? total;
+ const futureStartTotal: number = data?.future_start_total ?? 0;
+ const todayIso = localTodayIso();
  const pageSize = data?.page_size ?? 20;
  const totalPages = Math.max(1, Math.ceil(total / pageSize));
  // Etykieta licznika ma opisywać widok, który użytkownik ma przed sobą.
@@ -782,7 +805,12 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  ?"Ładowanie…"
  : failed
  ?"Nie udało się pobrać listy"
- : contractorsCountText(contractorsTotal, contractsTotal, activeOnly)}
+ : contractorsCountText(
+ contractorsTotal,
+ contractsTotal,
+ activeOnly,
+ futureStartTotal,
+ )}
  </p>
  </div>
  <div className="flex flex-wrap items-center gap-2">
@@ -1148,6 +1176,11 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  const statusBadge = m.status
  ? CONTRACT_STATUS_BADGE[m.status]
  : undefined;
+ const futureStart = futureStartLabel(
+ m.status,
+ m.start_date,
+ todayIso,
+ );
 
  return (
  <TableRow
@@ -1365,6 +1398,14 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  </Badge>
  ) : (
  <span className="text-xs text-muted-foreground">—</span>
+ )}
+ {futureStart && (
+ <span
+ className="mt-0.5 block text-[11px] font-medium text-info-muted-foreground"
+ data-testid="contract-future-start"
+ >
+ {futureStart}
+ </span>
  )}
  </TableCell>
  </TableRow>

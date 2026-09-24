@@ -1508,6 +1508,7 @@ async def list_contractors_with_orders(
             for o in orders_list
         ]
         ending = ending_without_successor(orders_list, today=today)
+        next_ending = ending_without_successor(orders_list, today=today, days=None)
 
         items.append(
             ContractWithOrdersRead(
@@ -1552,6 +1553,9 @@ async def list_contractors_with_orders(
                 ending_without_successor_order_id=(ending.order_id if ending else None),
                 ending_without_successor_end_date=(ending.end_date if ending else None),
                 ending_without_successor_days=ending.days_left if ending else None,
+                next_ending_without_successor_days=(
+                    next_ending.days_left if next_ending else None
+                ),
                 orders=orders_read,
             )
         )

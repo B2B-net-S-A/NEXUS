@@ -24,13 +24,24 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics.periods import Period
+from app.services.insights_person_scope import (
+    OUTSIDE_SCOPE_LABEL,
+    outside_scope_user_ids,
+)
 from app.services.kpi_team import TeamPanelResult, compute_team_panel
 from app.services.order_burn_rate import workdays_between
+from app.services.request_work_state import WORK_STATES
 
 # Rekrutacja opublikowana bez żadnego ruchu w pipeline od tylu dni.
 STALE_JOB_DAYS = 14
 # Precyzja rekomendacji (30 dni) poniżej tej wartości = sygnał dla lidera.
 LOW_PRECISION_PCT = 50.0
+# Stany requestu, w których brak ruchu jest ŚWIADOMY: „Klient milczy" czeka na
+# klienta, „Zakończony" zniknął z list (status z Traffita zostaje `published`).
+# Bez tego porządkowanie requestów w `/jobs/review-states` nie zmniejszało
+# sygnału „bez ruchu" (audyt 24.09.2026).
+QUIET_WORK_STATES = ("client_silent", "finished")
+assert set(QUIET_WORK_STATES) <= set(WORK_STATES)
 
 
 def previous_matching_window(
@@ -80,29 +91,64 @@ class TeamPeople:
     current: TeamPanelResult
     previous: TeamPanelResult
     workdays: int
+    # Konta bez roli rekrutacyjnej (admin, Finanse…) — poza tabelą osób,
+    # jednym wierszem (reguła Hall of Fame, `insights_person_scope`).
+    outside_user_ids: frozenset[int] = frozenset()
+
+
+async def current_team_panel(
+    db: AsyncSession, period: Period, *, now: datetime
+) -> TeamPanelResult:
+    return await compute_team_panel(
+        db, bounds=(period.start, period.end), period_label=period.kind.value, now=now
+    )
 
 
 async def team_people(
     db: AsyncSession, period: Period, *, now: datetime, today: date
 ) -> TeamPeople:
-    current = await compute_team_panel(
-        db, bounds=(period.start, period.end), period_label=period.kind.value, now=now
-    )
+    current = await current_team_panel(db, period, now=now)
     prev_start, prev_end = previous_matching_window(period, now)
     previous = await compute_team_panel(
         db, bounds=(prev_start, prev_end), period_label="previous", now=now
+    )
+    outside = await outside_scope_user_ids(
+        db, [r.user_id for r in current.rows] + [r.user_id for r in previous.rows]
     )
     return TeamPeople(
         current=current,
         previous=previous,
         workdays=workdays_in_window(period.start, period.end, today),
+        outside_user_ids=frozenset(outside),
     )
 
 
 def people_payload(people: TeamPeople) -> dict:
     previous = {r.user_id: r for r in people.previous.rows}
+    outside = people.outside_user_ids
+    outside_row = {
+        "label": OUTSIDE_SCOPE_LABEL,
+        "people": 0,
+        "verifications": 0,
+        "recommendations": 0,
+        "interviews": 0,
+        "placements": 0,
+        "previous_placements": sum(
+            r.placementy for r in people.previous.rows if r.user_id in outside
+        ),
+    }
     rows = []
     for r in people.current.rows:
+        if r.user_id in outside:
+            # Sumy firmy (`totals`) zostają bez zmian — dorobek tych kont jest
+            # osobnym wierszem, nie znika.
+            if r.weryfikacje + r.rekomendacje + r.interview + r.placementy > 0:
+                outside_row["people"] += 1
+            outside_row["verifications"] += r.weryfikacje
+            outside_row["recommendations"] += r.rekomendacje
+            outside_row["interviews"] += r.interview
+            outside_row["placements"] += r.placementy
+            continue
         prev = previous.get(r.user_id)
         rows.append(
             {
@@ -120,8 +166,30 @@ def people_payload(people: TeamPeople) -> dict:
                     if people.workdays
                     else None
                 ),
-                # None = mniej niż 5 weryfikacji w 30 dniach, „nie policzono".
+                # Kohorta: z par zweryfikowanych w 30 dniach, ile ma „CV wysłane"
+                # (≤ 100%). None = mniej niż 5 weryfikacji, „nie policzono".
                 "precision_pct": r.precision_pct,
+            }
+        )
+    # Osoba z placementami w poprzednim okresie, której nie ma w bieżącym
+    # (np. odeszła) — spadek do zera ma być widoczny w kolumnie „vs poprzednio”.
+    current_ids = {r.user_id for r in people.current.rows}
+    for p in people.previous.rows:
+        if p.user_id in current_ids or p.user_id in outside or p.placementy <= 0:
+            continue
+        rows.append(
+            {
+                "user_id": p.user_id,
+                "name": p.name,
+                "role": p.role,
+                "is_active": p.is_active,
+                "verifications": 0,
+                "recommendations": 0,
+                "interviews": 0,
+                "placements": 0,
+                "previous_placements": p.placementy,
+                "verifications_per_workday": 0.0 if people.workdays else None,
+                "precision_pct": p.precision_pct,
             }
         )
     rows.sort(key=lambda row: (-row["placements"], -row["verifications"], row["name"]))
@@ -129,6 +197,7 @@ def people_payload(people: TeamPeople) -> dict:
     prev_totals = people.previous.totals
     return {
         "rows": rows,
+        "outside_scope": outside_row,
         "workdays": people.workdays,
         "precision_target_pct": people.current.precision_target_pct,
         "low_precision_pct": LOW_PRECISION_PCT,
@@ -173,6 +242,7 @@ _STALE_JOBS_SQL = text(
         WHERE cs.job_id = j.id
     ) ls ON TRUE
     WHERE j.status::text = 'published'
+      AND j.work_state <> ALL(CAST(:quiet_states AS text[]))
       AND COALESCE(ls.last_move, j.opened_at, j.created_at) < :cutoff
     ORDER BY COALESCE(ls.last_move, j.opened_at, j.created_at) ASC, j.id ASC
     """
@@ -184,11 +254,22 @@ async def stale_jobs(
 ) -> list[dict]:
     """Opublikowane rekrutacje bez ruchu w pipeline od ``days`` dni.
 
+    Pomija requesty „Klient milczy" i „Zakończony" (``QUIET_WORK_STATES``) —
+    tam brak ruchu jest decyzją, nie zaniedbaniem.
+
     Rekrutacja bez żadnego etapu liczy się od daty otwarcia — pusta tablica
     od trzech tygodni to ten sam problem co tablica, która stanęła.
     """
     rows = (
-        (await db.execute(_STALE_JOBS_SQL, {"cutoff": now - timedelta(days=days)}))
+        (
+            await db.execute(
+                _STALE_JOBS_SQL,
+                {
+                    "cutoff": now - timedelta(days=days),
+                    "quiet_states": list(QUIET_WORK_STATES),
+                },
+            )
+        )
         .mappings()
         .all()
     )
@@ -213,6 +294,8 @@ async def stale_jobs(
 
 __all__ = [
     "LOW_PRECISION_PCT",
+    "current_team_panel",
+    "QUIET_WORK_STATES",
     "STALE_JOB_DAYS",
     "people_payload",
     "previous_matching_window",

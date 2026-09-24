@@ -18,45 +18,38 @@ import {
   mdConsumptionApi,
   type ImportDetail,
   type ImportRow,
-  type ImportRowStatus,
   type PolkomtelReprocessResponse,
   type PolkomtelReprocessTarget,
 } from "@/lib/api/orderGroups";
+import {
+  countImportRowTones,
+  importRowTone,
+  type ImportRowTone,
+} from "@/lib/md-import-row-tone";
 import { pluralPl } from "@/lib/plural-pl";
 import { cn, formatCurrency } from "@/lib/utils";
 
 const inputClass =
   "rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring";
 
-const STATUS_STYLE: Record<ImportRowStatus, { className: string; icon: typeof CheckCircle2 }> = {
+/** Kolor etykiety wg stanu wiersza (`lib/md-import-row-tone.ts`). */
+const TONE_STYLE: Record<ImportRowTone, { className: string; icon: typeof CheckCircle2 }> = {
   applied: { className: "text-emerald-700 bg-emerald-50", icon: CheckCircle2 },
-  needs_assignment: { className: "text-amber-700 bg-amber-50", icon: HelpCircle },
-  unmatched: { className: "text-muted-foreground bg-muted", icon: AlertTriangle },
-  cost_only: { className: "text-sky-700 bg-sky-50", icon: CheckCircle2 },
-  overflow: { className: "text-amber-800 bg-amber-100", icon: AlertTriangle },
-};
-
-/** Styl wiersza „tylko faktura", którego kwota NIE trafiła na zamówienie. */
-const COST_FAILED_STYLE = {
-  className: "text-destructive bg-destructive/10",
-  icon: AlertTriangle,
+  pending: { className: "text-amber-700 bg-amber-50", icon: HelpCircle },
+  cost: { className: "text-sky-700 bg-sky-50", icon: CheckCircle2 },
+  // U14 (audyt 24.09.2026): osoba bez zamówienia MD to zwykły kontraktor
+  // okresowy, nie błąd — szary stan, bez czerwonego nazwiska.
+  neutral: { className: "text-muted-foreground bg-muted", icon: HelpCircle },
+  danger: { className: "text-destructive bg-destructive/10", icon: AlertTriangle },
 };
 
 /**
- * Wiersz, z którego NIC nie zeszło z żadnego budżetu — ani MD po nazwisku,
- * ani kwota po numerze z „Uwag". Audyt 24.09.2026 (N5): licznik „Bez
- * zamówienia" brał `rows_unmatched` z serwera, który liczy też wiersze
- * rozliczone kwotowo (brak linii MD, ale faktura zeszła z puli kosztowej).
+ * Wiersz, z którego NIC nie zeszło z żadnego budżetu i który wymaga uwagi —
+ * numer z „Uwag” bez zamówienia albo faktura bez zamówienia. Osoba bez
+ * zamówienia MD (stan `neutral`) nie jest „zgubiona” (audyt 24.09.2026, U14).
  */
 export function isLostImportRow(row: ImportRow): boolean {
-  // `overflow` czeka na zatwierdzenie — nie jest zgubiony.
-  if (
-    row.status === "applied" ||
-    row.status === "needs_assignment" ||
-    row.status === "overflow"
-  )
-    return false;
-  return row.cost_status !== "applied";
+  return importRowTone(row) === "danger";
 }
 
 /**
@@ -254,10 +247,7 @@ export function MdImportWorkspace() {
       ).length,
     [detail],
   );
-  const lostCount = useMemo(
-    () => (detail?.rows ?? []).filter(isLostImportRow).length,
-    [detail],
-  );
+  const toneCounts = useMemo(() => countImportRowTones(detail?.rows ?? []), [detail]);
 
   const currentReprocessPreview =
     reprocessPreview?.import_id === detail?.id ? reprocessPreview : null;
@@ -361,31 +351,26 @@ export function MdImportWorkspace() {
             </div>
             <div className="flex flex-wrap gap-4 text-xs">
               <span className="text-emerald-700">
-                Zaktualizowano: <strong>{detail.rows_applied}</strong>
+                Zaktualizowano: <strong>{toneCounts.applied}</strong>
               </span>
               <span className="text-amber-700">
-                Wymaga przypisania: <strong>{detail.rows_ambiguous}</strong>
+                Wymaga przypisania: <strong>{toneCounts.pending}</strong>
               </span>
-              <span className="text-muted-foreground">
-                Bez zamówienia: <strong>{lostCount}</strong>
-              </span>
-              {detail.rows_cost_applied + detail.rows_cost_unmatched > 0 ? (
-                <>
-                  <span className="text-sky-700">
-                    Rozliczono kwotowo: <strong>{detail.rows_cost_applied}</strong>
-                  </span>
-                  <span
-                    className={
-                      detail.rows_cost_unmatched > 0
-                        ? "text-destructive"
-                        : "text-muted-foreground"
-                    }
-                  >
-                    Faktura bez zamówienia:{" "}
-                    <strong>{detail.rows_cost_unmatched}</strong>
-                  </span>
-                </>
+              {toneCounts.cost > 0 ? (
+                <span className="text-sky-700">
+                  Rozliczono kwotowo: <strong>{toneCounts.cost}</strong>
+                </span>
               ) : null}
+              <span className="text-muted-foreground">
+                Bez zamówienia MD: <strong>{toneCounts.neutral}</strong>
+              </span>
+              <span
+                className={
+                  toneCounts.danger > 0 ? "text-destructive" : "text-muted-foreground"
+                }
+              >
+                Do sprawdzenia: <strong>{toneCounts.danger}</strong>
+              </span>
             </div>
           </header>
 
@@ -676,29 +661,15 @@ function ImportRowLine({
   onAssign: (orderId: number, confirmOverflow?: boolean) => void;
 }) {
   const [choice, setChoice] = useState("");
-  const costFailedEarly = row.cost_status != null && row.cost_status !== "applied";
-  // N5: wiersz „tylko faktura" ma status wyłącznie kosztowy — zielona ikona
-  // przy nieudanym rozliczeniu mówiłaby „zeszło", gdy nic nie zeszło.
-  const style =
-    row.status === "cost_only" && costFailedEarly
-      ? COST_FAILED_STYLE
-      : STATUS_STYLE[row.status];
+  const tone = importRowTone(row);
+  const style = TONE_STYLE[tone];
   const Icon = style.icon;
-
-  // Wiersz jest „zgubiony" dopiero wtedy, gdy NIC z niego nie zeszło z żadnego
-  // budżetu — ani MD po nazwisku, ani kwota po numerze z „Uwag".
-  //
-  // Dwa rozróżnienia, bez których czerwień kłamie:
-  //  * `cost_status === null` znaczy „wiersz nie dotyczy zamówień kosztowych",
-  //    a nie „nie udało się dopasować" — inaczej KAŻDY wiersz zwykłego arkusza
-  //    MD zapalałby się na czerwono,
-  //  * wiersz rozliczony kosztowo, ale bez linii MD, jest w porządku — u
-  //    Polkomtela to normalny przypadek.
-  const mdSettled = row.status === "applied";
-  const mdPending = row.status === "needs_assignment" || row.status === "overflow";
   const costSettled = row.cost_status === "applied";
-  const costFailed = costFailedEarly;
-  const unmatchedRow = !mdSettled && !mdPending && !costSettled;
+  const costFailed = row.cost_status != null && !costSettled;
+  // Czerwone nazwisko = wiersz, z którego nic nie zeszło, a powinno —
+  // numer z „Uwag” albo faktura bez zamówienia. Osoba bez zamówienia MD
+  // (zwykły kontraktor okresowy) nie jest błędem (audyt 24.09.2026, U14).
+  const unmatchedRow = tone === "danger";
 
   return (
     <tr>

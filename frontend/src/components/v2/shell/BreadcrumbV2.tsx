@@ -8,7 +8,7 @@ import { useQuery } from "@tanstack/react-query";
 import api from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-const SEGMENT_LABELS: Record<string, string> = {
+export const SEGMENT_LABELS: Record<string, string> = {
   "talent-radar": "Talent Radar",
   "": "Dashboard",
   candidates: "Kandydaci",
@@ -68,6 +68,21 @@ const SEGMENT_LABELS: Record<string, string> = {
   "hiring-managers": "Top hiring managers",
   "rate-benchmarks": "Stawki rynkowe",
   "team-structure": "Kompetencje i odpowiedzialności",
+  // Trasy z 23–24.09.2026 (audyt 24.09) — nazwy jak w menu, na kafelkach
+  // Ustawień i w nagłówkach stron. Nową stronę dopisz tutaj: test
+  // „każdy stały segment…" czyta katalog `app/` i odrzuca slug bez nazwy.
+  "403": "Brak dostępu",
+  academy: "Akademia",
+  "b2b-register-import": "Rejestr umów z Excela",
+  "competence-team": "Kategorie kompetencji",
+  contractors: "Kontraktorzy",
+  "kpi-targets": "Cele KPI",
+  "review-states": "Porządek w requestach",
+  seeking: "Dostępni kontraktorzy",
+  "seeking-contractors": "Dostępni kontraktorzy",
+  trainee: "Telefony na dziś",
+  "trainee-rules": "Lista telefonów praktykantów",
+  trainees: "Praktykanci",
 };
 
 /** Segmenty bez własnej strony — okruszek jest tekstem, nie linkiem do 404. */

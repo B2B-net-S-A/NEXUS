@@ -239,12 +239,29 @@ async def _reason_context(db: AsyncSession) -> _ReasonContext:
     )
 
 
+REASON_ORDER_MISSING = "order_missing"
+_REASON_TO_VERIFY = "to_verify"
+
+# Audyt 24.09.2026 (U14): etykiety wierszy importu, które nie zeszły z puli MD.
+# „Brak pasującego zamówienia” (czerwony) zostaje dla numeru z „Uwag”, którego
+# nie ma; osoba bez żadnego zamówienia MD w miesiącu (zwykły kontraktor
+# okresowy) nie jest błędem — ma neutralne „Bez zamówienia MD”, a wiersz
+# rozliczony kwotą — „Rozliczono kwotowo”.
+LABEL_NO_MD_ORDER = "Bez zamówienia MD"
+LABEL_COST_SETTLED = "Rozliczono kwotowo"
+LABEL_ORDER_MISSING = IMPORT_ROW_STATUS_LABELS[IMPORT_ROW_UNMATCHED]
+LABEL_TO_VERIFY = "Do weryfikacji"
+
+
 def _unmatched_reason(
     row: MdConsumptionImportRow,
     period_month: Optional[str],
     context: Optional[_ReasonContext],
-) -> Optional[str]:
+) -> Optional[tuple[str, str]]:
     """Dlaczego wiersz z wiążącym numerem zamówienia nie trafił na żadną linię.
+
+    Zwraca ``(rodzaj, opis)``; rodzaj ``REASON_ORDER_MISSING`` = numeru nie ma
+    w NEXUSIE (status „Brak pasującego zamówienia”), reszta = „Do weryfikacji”.
 
     Liczone przy odczycie (bez kolumny w bazie), więc opis mówi o dzisiejszym
     stanie zamówień — tym, który operator ma poprawić. Numer wiąże się tą samą
@@ -263,7 +280,22 @@ def _unmatched_reason(
     person_lines = context.lines_by_person.get(wanted, []) if wanted else []
     if not hints or not person_lines:
         return None
-    clients = {line.client_id for line in person_lines}
+    # Audyt 24.09.2026 (H6): numer wiąże tylko względem klientów, których
+    # linie import naprawdę brał pod uwagę — z okresu raportu albo wskazane
+    # tym numerem. Dawna linia Polkomtela nie czyni „delegacja 445” u BNP
+    # numerem zamówienia.
+    clients = {
+        line.client_id
+        for line in person_lines
+        if line_settles_in_month(line, period_month, contract=line.contract)
+        or finance_order_matching.finance_order_number_matches(
+            client_id=line.client_id,
+            order_number=context.groups[line.order_group_id].order_number,
+            numeric_hints=hints,
+        )
+    }
+    if not clients:
+        return None
     if finance_order_matching.POLKOMTEL_CLIENT_ID in clients:
         authoritative = list(hints)
     else:
@@ -285,13 +317,13 @@ def _unmatched_reason(
         )
     }
     if not matching_ids:
-        return (
+        return REASON_ORDER_MISSING, (
             f"Zamówienia nr {number} nie ma w NEXUSIE. {not_elsewhere} — "
             "dodaj zamówienie albo popraw numer w arkuszu."
         )
     on_order = [line for line in person_lines if line.order_group_id in matching_ids]
     if not on_order:
-        return (
+        return _REASON_TO_VERIFY, (
             f"Na zamówieniu nr {number} nie ma osoby z arkusza. {not_elsewhere} — "
             "sprawdź numer w arkuszu albo obsadę zamówienia."
         )
@@ -299,19 +331,19 @@ def _unmatched_reason(
     group = context.groups[line.order_group_id]
     label = format_period_month(period_month)
     if group.is_cost_based:
-        return (
+        return _REASON_TO_VERIFY, (
             f"Zamówienie nr {number} jest kosztowe — rozlicza fakturę, nie liczbę MD. "
             f"{not_elsewhere}."
         )
     if not line_settles_in_month(line, period_month, contract=line.contract):
-        return (
+        return _REASON_TO_VERIFY, (
             f"Okres tej osoby na zamówieniu nr {number} "
             f"({_fmt_day(line.start_date)} – "
             f"{_fmt_day(line.end_date) if line.end_date else 'bezterminowo'}) "
             f"nie obejmuje miesiąca raportu ({label}). {not_elsewhere} — "
             "sprawdź okres albo numer zamówienia."
         )
-    return (
+    return _REASON_TO_VERIFY, (
         f"Zamówienie nr {number} nie rozlicza miesiąca raportu ({label}). "
         f"{not_elsewhere} — sprawdź okres i status zamówienia."
     )
@@ -320,6 +352,30 @@ def _unmatched_reason(
 def _overflow_label(md: Optional[Decimal]) -> str:
     label = IMPORT_ROW_STATUS_LABELS[IMPORT_ROW_OVERFLOW]
     return f"{label} o {format_md(md)} MD" if md is not None else label
+
+
+def _row_status_label(row: MdConsumptionImportRow, reason_kind: Optional[str]) -> str:
+    """Jedna etykieta wiersza importu — zgodna z licznikami nagłówka."""
+    if row.status == IMPORT_ROW_OVERFLOW:
+        return _overflow_label(row.overflow_md)
+    if reason_kind is not None:
+        # Wiersz wskazał numer zamówienia, którego nie da się rozliczyć —
+        # ticket 1.1: opis przyczyny w ``status_reason``.
+        return (
+            LABEL_ORDER_MISSING
+            if reason_kind == REASON_ORDER_MISSING
+            else LABEL_TO_VERIFY
+        )
+    if row.status in (IMPORT_ROW_UNMATCHED, IMPORT_ROW_COST_ONLY):
+        if row.cost_status == COST_ROW_APPLIED:
+            return LABEL_COST_SETTLED
+        if row.status == IMPORT_ROW_UNMATCHED:
+            if row.cost_status == COST_ROW_UNMATCHED_NUMBER:
+                return LABEL_ORDER_MISSING
+            if row.cost_status is not None:
+                return LABEL_TO_VERIFY
+            return LABEL_NO_MD_ORDER
+    return IMPORT_ROW_STATUS_LABELS.get(row.status, row.status)
 
 
 async def _row_to_read(
@@ -367,15 +423,9 @@ async def _row_to_read(
                 md_remaining=order.md_remaining,
             )
 
-    status_reason = _unmatched_reason(row, period_month, reason_context)
-    if row.status == IMPORT_ROW_OVERFLOW:
-        status_label = _overflow_label(row.overflow_md)
-    elif status_reason:
-        # Wiersz wskazał numer zamówienia, którego nie da się rozliczyć —
-        # ticket 1.1: „Do weryfikacji” z opisem przyczyny.
-        status_label = "Do weryfikacji"
-    else:
-        status_label = IMPORT_ROW_STATUS_LABELS.get(row.status, row.status)
+    reason = _unmatched_reason(row, period_month, reason_context)
+    status_reason = reason[1] if reason else None
+    status_label = _row_status_label(row, reason[0] if reason else None)
     return ImportRowRead(
         id=row.id,
         row_number=row.row_number,
@@ -483,12 +533,51 @@ def _negative_delta(before, after) -> Decimal:
     return quantize_md(-after)
 
 
-def _booking_overflow(outcome, before_remaining: dict) -> Decimal:
-    """Przekroczenie puli po zapisie zejścia (linia docelowa i następca)."""
-    if outcome is None:
-        return Decimal("0")
-    landed = outcome.order
+async def _remaining_by_line(
+    db: AsyncSession, line_ids
+) -> dict[int, Optional[Decimal]]:
+    """Pozostałość MD linii z bazy (po ``flush`` — sesje mają autoflush=False)."""
+    ids = sorted({int(i) for i in line_ids if i is not None})
+    if not ids:
+        return {}
+    await db.flush()
+    rows = await db.execute(
+        select(ClientOrder.id, ClientOrder.md_remaining).where(ClientOrder.id.in_(ids))
+    )
+    return {oid: remaining for oid, remaining in rows}
+
+
+async def _md_watch_ids(db: AsyncSession, order: ClientOrder) -> set[int]:
+    """Linie, których saldo może zmienić zapis na ``order``: ona sama i rodzina
+    jej zamówienia (poprzednik/następca, następca zamiany, cel przeniesienia
+    puli — korekty ``recompute_remaining``)."""
+    ids = {order.id}
+    if order.order_group_id is not None:
+        ids |= await _md_family_line_ids(db, {order.order_group_id})
+    return ids
+
+
+def _booking_overflow(
+    outcome,
+    before_remaining: dict,
+    after_remaining: Optional[dict] = None,
+) -> Decimal:
+    """Przekroczenie puli po zapisie zejścia.
+
+    Linia docelowa i następca-przedłużenie z wyniku zapisu, a przy
+    ``after_remaining`` także każda obserwowana linia rodziny (audyt
+    24.09.2026, M13): zaległy raport za miesiąc zamiany zmniejsza budżet
+    następcy zamiany w ``recompute_remaining`` i to ON może zejść poniżej zera,
+    choć linia docelowa zostaje na plusie. Liczą się wyłącznie linie z saldem
+    sprzed zapisu — pogorszenie, nie stan zastany.
+    """
     worst = Decimal("0")
+    for oid, after in (after_remaining or {}).items():
+        if oid in before_remaining:
+            worst = max(worst, _negative_delta(before_remaining[oid], after))
+    if outcome is None:
+        return worst
+    landed = outcome.order
     if landed is not None:
         worst = max(
             worst,
@@ -994,10 +1083,14 @@ async def create_import(
                 order_numbers=order_numbers,
                 numbered_candidates=numbered_candidates,
             )
+            row_hints = extract_order_number_candidates(parsed_row.notes_raw)
             authoritative = _authoritative_md_hints(
-                extract_order_number_candidates(parsed_row.notes_raw),
-                named=match_by_name(
-                    candidates + numbered_candidates, parsed_row.consultant_name
+                row_hints,
+                named=_md_row_pool(
+                    consultant_name=parsed_row.consultant_name,
+                    hints=row_hints,
+                    named=match_by_name(candidates, parsed_row.consultant_name),
+                    numbered_candidates=numbered_candidates,
                 ),
                 order_numbers=order_numbers,
             )
@@ -1191,7 +1284,8 @@ async def create_import(
             explicit_order=order_id in explicit_md_orders,
             ignore_period=order_id in period_exempt_orders,
         )
-        overflow = _booking_overflow(outcome, before_remaining)
+        after_remaining = await _remaining_by_line(db, before_remaining)
+        overflow = _booking_overflow(outcome, before_remaining, after_remaining)
         if overflow > Decimal("0"):
             await _rollback_trial(db, savepoint)
             for held in md_rows[order_id]:
@@ -1201,7 +1295,9 @@ async def create_import(
         else:
             await savepoint.commit()
             # Następny zapis porównuje się ze stanem PO tym (rodzina linii
-            # bywa wspólna: przeniesienie nadwyżki na następcę).
+            # bywa wspólna: przeniesienie nadwyżki na następcę, korekta
+            # budżetu następcy zamiany).
+            before_remaining.update(after_remaining)
             for touched in (outcome.order, outcome.successor_order):
                 if touched is not None:
                     before_remaining[touched.id] = touched.md_remaining
@@ -1304,6 +1400,40 @@ def _authoritative_md_hints(
     )
 
 
+def _md_row_pool(
+    *,
+    consultant_name: str,
+    hints: list[str],
+    named: list[LineMatch],
+    numbered_candidates: Optional[list[LineMatch]],
+) -> list[LineMatch]:
+    """Linie, na które wiersz MD może trafić: z okresu + wskazane numerem.
+
+    Audyt 24.09.2026 (H6): linie BIK/Polkomtela spoza okresu
+    (``md_lines_for_numbered_rows``) wchodzą WYŁĄCZNIE, gdy numer z „Uwag”
+    jest numerem ich zamówienia. Doklejane bez tego poszerzały listę
+    klientów, dla których numer wiąże (``_authoritative_md_hints``): osoba
+    z dawną linią Polkomtela dostawała u BNP za „delegacja 445” status
+    „Brak pasującego zamówienia” i nie dało się jej przypisać ręcznie.
+    """
+    in_period_ids = {match.order.id for match in named}
+    extra = [
+        match
+        for match in (
+            match_by_name(numbered_candidates, consultant_name)
+            if numbered_candidates and hints
+            else []
+        )
+        if match.order.id not in in_period_ids
+        and finance_order_matching.finance_order_number_matches(
+            client_id=match.group.client_id,
+            order_number=match.group.order_number,
+            numeric_hints=hints,
+        )
+    ]
+    return named + extra
+
+
 def _match_per_consultant_md_row(
     *,
     parsed_row,
@@ -1331,16 +1461,15 @@ def _match_per_consultant_md_row(
     """
 
     named = match_by_name(candidates, parsed_row.consultant_name)
-    named_extra = (
-        match_by_name(numbered_candidates, parsed_row.consultant_name)
-        if numbered_candidates
-        else []
-    )
-    if not named and not named_extra:
-        return []
     hints = extract_order_number_candidates(parsed_row.notes_raw)
-    in_period_ids = {match.order.id for match in named}
-    pool = named + [m for m in named_extra if m.order.id not in in_period_ids]
+    pool = _md_row_pool(
+        consultant_name=parsed_row.consultant_name,
+        hints=hints,
+        named=named,
+        numbered_candidates=numbered_candidates,
+    )
+    if not pool:
+        return []
     authoritative = _authoritative_md_hints(
         hints, named=pool, order_numbers=order_numbers
     )
@@ -2316,11 +2445,20 @@ async def reprocess_polkomtel_import(
     # Data writes use the same idempotent upsert/settlement functions as a new
     # upload.  One event is produced per changed target; a second APPLY sees no
     # rows to update and produces neither writes nor duplicate history.
+    # Audyt 24.09.2026 (M12): replay nie może zaksięgować zejścia, po którym
+    # saldo spadłoby poniżej zera — ta sama reguła co zwykły import (ticket
+    # 1.1). Zapis idzie próbnie; przy przekroczeniu jest cofany, a wiersze
+    # zostają „Do weryfikacji – przekroczenie puli” do ręcznego zatwierdzenia.
+    held_overflow: dict[int, Decimal] = {}
     for plan in plans:
         if not plan.write_required:
             continue
         if plan.kind == _REPROCESS_MD_LINE:
-            await _apply_to_line(
+            before_remaining = await _remaining_by_line(
+                db, await _md_watch_ids(db, plan.match.order)
+            )
+            savepoint = await db.begin_nested()
+            outcome = await _apply_to_line(
                 db,
                 match_order=plan.match.order,
                 group=plan.match.group,
@@ -2330,15 +2468,34 @@ async def reprocess_polkomtel_import(
                 user_id=user.id,
                 historical_reprocess=True,
             )
+            overflow = _booking_overflow(
+                outcome,
+                before_remaining,
+                await _remaining_by_line(db, before_remaining),
+            )
+            if overflow > Decimal("0"):
+                await _rollback_trial(db, savepoint)
+                held_overflow[id(plan)] = overflow
+            else:
+                await savepoint.commit()
         elif plan.kind == _REPROCESS_SHARED_MD:
-            await _settle_shared_md_and_record(
+            before_used = await shared_md_used_total(db, plan.match.group.id)
+            await db.flush()
+            savepoint = await db.begin_nested()
+            overflow = await _settle_shared_md_and_record(
                 db,
                 group=plan.match.group,
                 period_month=batch.period_month,
                 md_reported=plan.expected_value,
                 import_id=batch.id,
                 user_id=user.id,
+                before_used=before_used,
             )
+            if overflow > Decimal("0"):
+                await _rollback_trial(db, savepoint)
+                held_overflow[id(plan)] = overflow
+            else:
+                await savepoint.commit()
         else:
             await upsert_invoice(
                 db,
@@ -2361,11 +2518,19 @@ async def reprocess_polkomtel_import(
         )
 
     for plan in plans:
+        overflow = held_overflow.get(id(plan))
         for row in plan.rows_to_update:
             row.order_number_hint = plan.match.group.order_number.strip()
             if plan.kind == _REPROCESS_COST:
                 row.matched_group_id = plan.match.group.id
                 row.cost_status = COST_ROW_APPLIED
+            elif overflow is not None:
+                row.status = IMPORT_ROW_OVERFLOW
+                row.overflow_md = overflow
+                row.matched_order_id = plan.match.order.id
+                row.candidate_order_ids = [plan.match.order.id]
+                if plan.kind == _REPROCESS_SHARED_MD:
+                    row.matched_group_id = plan.match.group.id
             else:
                 row.status = IMPORT_ROW_APPLIED
                 row.matched_order_id = plan.match.order.id
@@ -2547,11 +2712,7 @@ async def assign_row(
     # Ticket 1.1: najpierw próbny zapis — zejście, po którym saldo spadłoby
     # poniżej zera, wymaga świadomego zatwierdzenia (``confirm_overflow``).
     await lock_contract_then_orders(db, order_ids=[order.id])
-    before_remaining = {
-        order.id: await db.scalar(
-            select(ClientOrder.md_remaining).where(ClientOrder.id == order.id)
-        )
-    }
+    before_remaining = await _remaining_by_line(db, await _md_watch_ids(db, order))
     await db.flush()
     savepoint = await db.begin_nested()
     outcome = await _apply_to_line(
@@ -2568,7 +2729,9 @@ async def assign_row(
     successor = getattr(outcome, "successor_order", None)
     if successor is not None:
         before_remaining.setdefault(successor.id, None)
-    overflow = _booking_overflow(outcome, before_remaining)
+    overflow = _booking_overflow(
+        outcome, before_remaining, await _remaining_by_line(db, before_remaining)
+    )
     now = datetime.now(timezone.utc)
     if overflow > Decimal("0"):
         await _rollback_trial(db, savepoint)
@@ -2610,6 +2773,50 @@ async def assign_row(
     return await _row_to_read(db, row, batch.period_month)
 
 
+async def _shared_md_newer_or_manual_conflict(
+    db: AsyncSession, *, group: ClientOrderGroup, batch: MdConsumptionImport
+) -> Optional[str]:
+    """Czy miesiąc wspólnej puli zapisał człowiek albo NOWSZA paczka.
+
+    Wołający trzyma blokadę grupy (kolejność writerów: grupa → konsumpcja),
+    więc odczyt wpisu miesiąca jest spójny z zapisem, który po nim nastąpi.
+    Wpis puli nie niesie ``import_id``, więc „nowsza paczka” to paczka za ten
+    miesiąc z wierszem zaksięgowanym na tę grupę.
+    """
+    source = await db.scalar(
+        select(ClientOrderGroupMdConsumption.source).where(
+            ClientOrderGroupMdConsumption.group_id == group.id,
+            ClientOrderGroupMdConsumption.period_month == batch.period_month,
+        )
+    )
+    if source is None:
+        return None
+    number = group.order_number
+    if source == CONSUMPTION_SOURCE_MANUAL:
+        return f"Zamówienie {number}: istnieje ręczne rozliczenie za ten miesiąc."
+    newer = await db.scalar(
+        select(MdConsumptionImport.id)
+        .join(
+            MdConsumptionImportRow,
+            MdConsumptionImportRow.import_id == MdConsumptionImport.id,
+        )
+        .where(
+            MdConsumptionImport.period_month == batch.period_month,
+            MdConsumptionImport.id != batch.id,
+            MdConsumptionImport.created_at >= batch.created_at,
+            MdConsumptionImportRow.matched_group_id == group.id,
+            MdConsumptionImportRow.status == IMPORT_ROW_APPLIED,
+        )
+        .limit(1)
+    )
+    if newer is not None:
+        return (
+            f"Zamówienie {number}: istnieje rozliczenie z nowszego importu; "
+            "starsza partia nie może go nadpisać."
+        )
+    return None
+
+
 async def _approve_shared_md_overflow(
     db: AsyncSession,
     *,
@@ -2633,7 +2840,16 @@ async def _approve_shared_md_overflow(
                 "zamówienia — zatwierdź przekroczenie puli."
             ),
         )
-    group = order.order_group
+    group = await lock_group_for_settlement(
+        db, order.order_group, flush_local_changes=False
+    )
+    # Audyt 24.09.2026 (H7, FIN-MD-07): wstrzymana paczka czeka dowolnie długo,
+    # a zatwierdzenie nadpisuje CAŁY miesiąc puli. Starsza paczka nie może
+    # przykryć nowszej ani sumy wpisanej ręcznie — ta sama reguła co ścieżka
+    # per osoba (``assign_row``).
+    conflict = await _shared_md_newer_or_manual_conflict(db, group=group, batch=batch)
+    if conflict is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=conflict)
     group_rows = list(
         (
             await db.execute(
@@ -2854,7 +3070,12 @@ async def reapply_rows_for_restored_line(
                 RestoredLineImportRow(**{**item.__dict__, "skipped": conflict})
             )
             continue
-        await _apply_to_line(
+        # Audyt 24.09.2026 (M12): przywrócenie linii nie księguje zejścia,
+        # po którym saldo spadłoby poniżej zera — wiersz czeka na zatwierdzenie
+        # w imporcie MD, jak przy zwykłym wgraniu pliku.
+        before_remaining = await _remaining_by_line(db, await _md_watch_ids(db, line))
+        savepoint = await db.begin_nested()
+        outcome = await _apply_to_line(
             db,
             match_order=line,
             group=group,
@@ -2863,6 +3084,29 @@ async def reapply_rows_for_restored_line(
             import_id=locked_batch.id,
             user_id=user_id,
         )
+        overflow = _booking_overflow(
+            outcome, before_remaining, await _remaining_by_line(db, before_remaining)
+        )
+        if overflow > Decimal("0"):
+            await _rollback_trial(db, savepoint)
+            locked_row.status = IMPORT_ROW_OVERFLOW
+            locked_row.overflow_md = overflow
+            locked_row.matched_order_id = line.id
+            locked_row.candidate_order_ids = [line.id]
+            await db.flush()
+            await _recount(db, locked_batch)
+            results.append(
+                RestoredLineImportRow(
+                    **{
+                        **item.__dict__,
+                        "skipped": (
+                            f"{_overflow_label(overflow)} — zatwierdź w imporcie MD."
+                        ),
+                    }
+                )
+            )
+            continue
+        await savepoint.commit()
         locked_row.status = IMPORT_ROW_APPLIED
         locked_row.matched_order_id = line.id
         locked_row.resolved_by_user_id = user_id

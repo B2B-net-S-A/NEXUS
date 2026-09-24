@@ -387,3 +387,24 @@ def test_person_on_leave_waits_for_leave_data_before_release() -> None:
         )
     )
     assert [c for c in changes if c.kind == "release"] == []
+
+
+@pytest.mark.unit
+def test_person_on_leave_with_candidates_in_process_is_not_activated() -> None:
+    # Audyt 24.09: propozycja osoby na urlopie, która zostaje przy requeście
+    # (kandydaci w toku), nie może zostać aktywowana — aktywacja robi z niej
+    # prowadzącą rekrutacji.
+    changes = plan_assignments(
+        PlanInput(
+            requests=[req(10, DEV)],
+            people=[recruiter(2, DEV)],
+            live=[
+                LiveAssignment(10, 1, "recruiter", "auto", "proposed", in_process=True)
+            ],
+            mode="auto",
+            availability_known=True,
+            eligible_ids=frozenset({1, 2}),
+        )
+    )
+    assert [c for c in changes if c.kind == "activate"] == []
+    assert [c for c in changes if c.kind == "release"] == []

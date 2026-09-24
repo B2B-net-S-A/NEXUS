@@ -33,6 +33,7 @@ from app.services.dealbreaker_filters import (
     missing_must_skills,
     office_fit_status,
     rate_fit_status,
+    work_time_fit_status,
     resolve_job_budget_hourly,
 )
 from app.services.pipeline_eligibility import evaluate_candidates_for_job
@@ -243,6 +244,10 @@ def _build_match_info(
         # biurze; sam status wystarcza w tej fali — liczba dni jest follow-upem.
         "rate_fit": rate_fit_status(candidate, inputs) if inputs else "unknown",
         "office_fit": office_fit_status(candidate, inputs) if inputs else "unknown",
+        # Wymiar pracy z rozmowy praktykanta: plakietka, nie ukrycie (24.09.2026).
+        "work_time_fit": (
+            work_time_fit_status(candidate, inputs) if inputs else "not_applicable"
+        ),
         "missing_must": (
             missing_must_skills(candidate, inputs.must_skills) if inputs else []
         ),

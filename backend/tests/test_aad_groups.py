@@ -357,6 +357,57 @@ async def test_sso_callback_grants_role_from_aad_group(
 
 
 @pytest.mark.asyncio
+async def test_sso_callback_trainee_group_starts_and_ends_the_program(
+    app_client_no_redirect, monkeypatch, cleanup_users
+):
+    """Audyt 24.09.2026: rola praktykanta z grupy AAD zakłada program, a jej
+    odebranie kończy go — lustro zmiany roli w panelu admina."""
+    from app.models.trainee import TraineeProgram
+
+    unique = uuid.uuid4().hex[:8]
+    email = f"aad-trainee-{unique}@b2bnetwork.pl"
+    cleanup_users.append(email)
+    trainee_group = f"grp-trainee-{unique}"
+    recruiter_group = f"grp-rec-{unique}"
+    monkeypatch.setattr(settings, "AAD_GROUP_RBAC_ENABLED", True)
+    monkeypatch.setattr(
+        settings,
+        "AAD_GROUP_ROLE_MAP_JSON",
+        json.dumps({trainee_group: "trainee", recruiter_group: "recruiter"}),
+    )
+    _patch_token_exchange_with_access(
+        monkeypatch,
+        {"preferred_username": email, "oid": f"oid-{unique}", "name": "AAD Trainee"},
+    )
+
+    async def _login(group: str) -> None:
+        _patch_fetch_groups(monkeypatch, [{"id": group, "displayName": group}])
+        state = auth_ms_module._sign_login_state("v" * 64)
+        resp = await app_client_no_redirect.get(
+            "/api/auth/microsoft/callback",
+            params={"code": "graph-code", "state": state},
+        )
+        assert resp.status_code == 302, resp.text
+
+    await _login(trainee_group)
+    async with AsyncSessionLocal() as db:
+        user = await db.scalar(select(User).where(User.email == email))
+        assert user is not None and user.role == UserRole.trainee
+        program = await db.scalar(
+            select(TraineeProgram).where(TraineeProgram.user_id == user.id)
+        )
+        assert program is not None and program.status == "active"
+
+    await _login(recruiter_group)
+    async with AsyncSessionLocal() as db:
+        program = await db.scalar(
+            select(TraineeProgram).where(TraineeProgram.user_id == user.id)
+        )
+        assert program.status == "completed"
+        assert program.decision == "promoted"
+
+
+@pytest.mark.asyncio
 async def test_sso_callback_blocks_user_with_no_matching_group(
     app_client_no_redirect, monkeypatch, cleanup_users
 ):

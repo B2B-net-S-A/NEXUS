@@ -2106,6 +2106,8 @@ async def list_contracts(
         select(
             Contract.id.label("contract_id"),
             Contract.candidate_id.label("candidate_id"),
+            Contract.status.label("status"),
+            Contract.start_date.label("start_date"),
         ).select_from(Contract)
     ).subquery()
     identity_key = contractor_identity_sql_expression(
@@ -2121,6 +2123,16 @@ async def list_contracts(
                 .filter(Candidate.id.is_not(None))
                 .label("contractors_total"),
                 func.count(filtered_contracts.c.contract_id).label("contracts_total"),
+                # Status „Aktywny” niesie też umowy, które dopiero się zaczną
+                # (audyt 24.09.2026, U5) — nagłówek mówi, ile ich jest.
+                func.count(filtered_contracts.c.contract_id)
+                .filter(
+                    filtered_contracts.c.status.in_(
+                        (ContractStatus.active, ContractStatus.ending)
+                    ),
+                    filtered_contracts.c.start_date > _today,
+                )
+                .label("future_start_total"),
             )
             .select_from(filtered_contracts)
             .outerjoin(Candidate, Candidate.id == filtered_contracts.c.candidate_id)
@@ -2128,6 +2140,7 @@ async def list_contracts(
     ).one()
     contractors_total = int(totals_row.contractors_total or 0)
     contracts_total = int(totals_row.contracts_total or 0)
+    future_start_total = int(totals_row.future_start_total or 0)
 
     if group_by_candidate:
         # Jeden wiersz na osobę. Grupowanie i stronicowanie odbywają się PO
@@ -2234,6 +2247,7 @@ async def list_contracts(
         total=total,
         contractors_total=contractors_total,
         contracts_total=contracts_total,
+        future_start_total=future_start_total,
         page=page,
         page_size=page_size,
     )

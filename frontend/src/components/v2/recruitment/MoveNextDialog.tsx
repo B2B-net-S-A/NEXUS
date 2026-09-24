@@ -43,14 +43,11 @@ import {
   type BoardColumnKey,
 } from "@/lib/board-stages";
 import { itemFullName } from "@/lib/pipeline-flow";
+import { planPrimaryStep } from "@/lib/move-primary";
 import { MoveRequirementList } from "@/components/v2/recruitment/MoveRequirementList";
 import { cn } from "@/lib/utils";
 
-export const HAND_TO_DL_MESSAGE =
-  "Osoba czeka na Delivery Leada w jego kolejce »Czeka na Ciebie«";
-
-export const NO_QC_STAGE_MESSAGE =
-  "Szablon tej rekrutacji nie ma etapu „QC CV” — poproś Delivery Leada, żeby przesunął osobę dalej.";
+export { HAND_TO_DL_MESSAGE, NO_QC_STAGE_MESSAGE } from "@/lib/move-primary";
 
 export interface MoveNextDialogProps {
   open: boolean;
@@ -188,42 +185,32 @@ export function MoveNextDialog({
 
   const close = () => onOpenChange(false);
 
+  const step = planPrimaryStep(data, gaps.length);
   const runPrimary = () => {
     if (!item || !target || !primary || readOnly) return;
-    if (primary.kind === "hand_to_dl") {
-      // Przegląd DL czyta WYŁĄCZNIE kolumnę „QC CV” — osoba spoza niej nie
-      // czeka u nikogo, więc „przekazanie” = ruch na etap QC CV szablonu.
-      if (primary.target_stage_def_id != null) {
+    switch (step.type) {
+      case "stage":
         close();
-        onHandToCpro(primary.target_stage_def_id);
-        showSuccess(HAND_TO_DL_MESSAGE);
+        onHandToCpro(step.stageDefId);
+        if (step.notice) showSuccess(step.notice);
         return;
-      }
-      if (data?.from_column !== "cv_qc") {
-        showError(NO_QC_STAGE_MESSAGE);
+      case "notice":
+        showSuccess(step.message);
+        close();
         return;
-      }
-      showSuccess(HAND_TO_DL_MESSAGE);
-      close();
-      return;
+      case "error":
+        showError(step.message);
+        return;
+      case "move":
+        close();
+        onMove(target);
+        return;
+      default:
+        return;
     }
-    if (primary.kind === "hand_to_cpro") {
-      if (primary.target_stage_def_id == null) return;
-      close();
-      onHandToCpro(primary.target_stage_def_id);
-      return;
-    }
-    if (primary.kind !== "move" || gaps.length > 0) return;
-    close();
-    onMove(target);
   };
 
-  const primaryDisabled =
-    readOnly ||
-    !primary ||
-    primary.kind === "blocked" ||
-    (primary.kind === "move" && gaps.length > 0) ||
-    (primary.kind === "hand_to_cpro" && primary.target_stage_def_id == null);
+  const primaryDisabled = readOnly || step.type === "disabled";
   const primaryHint = readOnly
     ? "Tylko odczyt."
     : primary?.kind === "blocked" || (primary?.kind === "move" && gaps.length > 0)

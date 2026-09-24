@@ -18,7 +18,16 @@ import type {
   AcademySessionRow,
 } from "@/lib/api/academy";
 
-import { ExperienceChip, ReasonsList, RejectPicker, VerdictBadge, type ActFn } from "./AcademyShared";
+import {
+  ExperienceChip,
+  ReasonsList,
+  RejectPicker,
+  SessionsNotice,
+  VerdictBadge,
+  sessionsUnavailable,
+  type ActFn,
+  type SessionsLoadState,
+} from "./AcademyShared";
 
 type Answer = "yes" | "no" | null;
 
@@ -28,12 +37,14 @@ export function AcademyCallView({
   bookable,
   onAct,
   busyIds,
+  sessionsState,
 }: {
   program: AcademyProgram;
   apps: readonly AcademyApplication[];
   bookable: readonly AcademySessionRow[];
   onAct: ActFn;
   busyIds: ReadonlySet<number>;
+  sessionsState?: SessionsLoadState | null;
 }) {
   const queue = React.useMemo(() => callQueue(apps), [apps]);
   const [currentId, setCurrentId] = React.useState<number | null>(null);
@@ -229,7 +240,9 @@ export function AcademyCallView({
           </section>
           <section className="space-y-3 rounded-xl border border-border bg-card p-5">
             <h3 className="text-base font-semibold">2. Termin spotkania w biurze</h3>
-            {bookable.length === 0 ? (
+            {sessionsUnavailable(sessionsState) ? (
+              <SessionsNotice state={sessionsState} />
+            ) : bookable.length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 Nie ma przyszłych terminów — dodaj rytm w zakładce „Spotkania”.
               </p>

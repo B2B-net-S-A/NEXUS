@@ -109,19 +109,23 @@ export function InsightsFlagAdmin({ userId, userName, flags, types }: Props) {
 
   return (
     <div className="mt-1">
+      {/* Sama ikona, bez napisu: napis „Ostrzeżenia” przy KAŻDYM nazwisku
+          czytał się tak, jakby każdy miał ostrzeżenie (audyt 24.09.2026).
+          Plakietka pojawia się tylko przy aktywnym ostrzeżeniu
+          (`InsightsPerformanceFlags`); to jest wyłącznie przycisk nadawania. */}
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         aria-label={`Zarządzaj ostrzeżeniami — ${label}`}
-        className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+        title="Nadaj lub zdejmij ostrzeżenie"
+        className="hit-area inline-flex items-center rounded p-0.5 text-muted-foreground/60 hover:text-foreground focus-visible:text-foreground"
       >
         {busy ? (
           <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
         ) : (
           <ShieldAlert className="h-3 w-3" aria-hidden="true" />
         )}
-        Ostrzeżenia
       </button>
 
       {open && (

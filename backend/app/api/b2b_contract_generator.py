@@ -2515,6 +2515,41 @@ async def _render_generated_row_docx(
 
 LINK_CONTRACT_EVENT_SOURCE = "linked_to_contract"
 
+_LINK_OTHER_PERSON = (
+    "Kontrakt dotyczy innej osoby niż umowa. Jeśli to ta sama osoba zapisana "
+    "w dwóch rekordach, najpierw scal duplikaty kandydata (profil → „Scal z…”)."
+)
+
+
+async def _assert_link_same_person(
+    db: AsyncSession, row: B2BGeneratedContract, contract: Contract
+) -> None:
+    """Kontrakt musi dotyczyć osoby z umowy (audyt 24.09.2026, M7).
+
+    Zdublowany rekord tej samej osoby (ticket 1460/2026 — po to powstała ta
+    operacja) przechodzi: porównujemy klucz osoby z ``contractor_identity``
+    (imię i nazwisko bez wielkości liter i polskich znaków), ten sam, którym
+    liczymy konsultantów. Inna osoba = 409 — wcześniej dało się podpiąć
+    podpisaną umowę pod kontrakt kogokolwiek.
+    """
+
+    if row.candidate_id is None or row.candidate_id == contract.candidate_id:
+        return
+    from app.services.contractor_identity import candidate_identity_key
+
+    row_person = await db.get(Candidate, row.candidate_id)
+    contract_person = (
+        await db.get(Candidate, contract.candidate_id)
+        if contract.candidate_id is not None
+        else None
+    )
+    if row_person is None:
+        return
+    if contract_person is None or candidate_identity_key(
+        row_person
+    ) != candidate_identity_key(contract_person):
+        raise HTTPException(status_code=409, detail=_LINK_OTHER_PERSON)
+
 
 @router.post(
     "/generated/{generated_id}/link-contract",
@@ -2553,7 +2588,11 @@ async def link_generated_contract_to_contract(
     )
     if row is None:
         raise HTTPException(status_code=404, detail="Wpis nie został znaleziony")
-    await _assert_generator_client_access(db, current_user, row.client_id)
+    # Operacja PRZEPISUJE klienta i osobę wiersza, więc wymaga prawa ZAPISU
+    # u obecnego klienta wiersza — sam odczyt pozwalał Delivery Leadowi
+    # przenieść cudzą umowę do swojego portfela (audyt 24.09.2026, M7).
+    await _assert_generator_client_access(db, current_user, row.client_id, write=True)
+    _reject_excel_row(row)
     if row.signature_status != "signed_both":
         raise HTTPException(
             status_code=409,
@@ -2593,6 +2632,7 @@ async def link_generated_contract_to_contract(
             status_code=409,
             detail=f"Kontrakt #{contract.id} ma już powiązaną umowę {other}.",
         )
+    await _assert_link_same_person(db, row, contract)
 
     previous = {
         "previous_contract_id": row.contract_id,

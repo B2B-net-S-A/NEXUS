@@ -36,8 +36,14 @@ from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import User
 from app.services.job_similarity import CLIENT_STAGES
 
-WORK_STATES = ("to_review", "searching", "client_silent", "finished")
+FINISHED = "finished"
+WORK_STATES = ("to_review", "searching", "client_silent", FINISHED)
 VISIBLE_STATES = ("to_review", "searching", "champion", "client_silent", "finished")
+
+# Zamknięcie rekrutacji = „Zakończony”; ponowne otwarcie wraca do przejrzenia
+# (``update_job``), bo nikt jeszcze nie zdecydował, czy nad nią pracujemy.
+WORK_STATE_FINISHED = "finished"
+WORK_STATE_REOPENED = "to_review"
 
 LABELS = {
     "to_review": "Do przejrzenia",

@@ -194,6 +194,16 @@ class MessageTests(unittest.TestCase):
         self.assertIn("Bieg dotyczył wpisu #1766", body)
         self.assertIn("Frontend: build failed", body)
 
+    def test_status_only_for_the_pr_whose_run_failed(self):
+        self.assertTrue(QFF.sets_status(1766, 1766))
+        self.assertFalse(QFF.sets_status(1749, 1766))
+        # Nazwa gałęzi bez numeru PR-a — jak dotąd cała grupa.
+        self.assertTrue(QFF.sets_status(1749, None))
+        other = QFF.build_comment(1749, [1749, 1766], 1766, "u", [], [])
+        self.assertIn("nie ustawiamy statusu", other)
+        own = QFF.build_comment(1766, [1749, 1766], 1766, "u", [], [])
+        self.assertIn("zniknie przy następnym", own)
+
     def test_single_pr_comment_has_no_group_note(self):
         body = QFF.build_comment(
             1766, [1766], 1766, "u", [QFF.Failure("tsc", "a.ts(1,1)")], []

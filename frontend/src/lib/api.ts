@@ -7,6 +7,7 @@ import { apiSupportsCorrelation, probeTelemetryCapability } from "./telemetry-ca
 import { SLOW_ENDPOINT_TIMEOUT_MS } from "./http-timeouts";
 import { clearSessionArtifacts, getAccessToken } from "./session";
 import type { WorkMode } from "./work-mode";
+import type { CallFactsPatch } from "./candidate-call-facts";
 import type { RequestStatus } from "./request-status";
 import { recordRefusal, refusalCode } from "./help/refusal-tracker";
 import type {
@@ -936,7 +937,17 @@ export const candidateFactsApi = {
         data,
       )
       .then((response) => response.data),
+  /** Korekta faktów z telefonu praktykanta — tylko zmienione pola, `null` czyści. */
+  updateCallFacts: (candidateId: number, data: CallFactsPatch) =>
+    api
+      .patch<CandidateCallFactsResult>(
+        `/api/candidates/${candidateId}/call-facts`,
+        data,
+      )
+      .then((response) => response.data),
 };
+
+export type CandidateCallFactsResult = { candidate_id: number } & Required<CallFactsPatch>;
 
 export type CandidateNotesFactField =
   | "rate"
@@ -1263,6 +1274,9 @@ export const matchingApi = {
           | "city_mismatch"
           | "unknown"
           | "not_required";
+        /** Wymiar pracy z rozmowy praktykanta wobec `Job.work_mode` — plakietka,
+         *  nie ukrycie (24.09.2026). Opcjonalne: starszy backend go nie wysyła. */
+        work_time_fit?: WorkTimeFit;
         /** Must-have z `rubrics.must_skills`, których TEMU kandydatowi brakuje
          *  — węższe niż `gaps` (to porównuje z `required_skills`, który bywa
          *  wywiedziony regexem; `missing_must` tylko z jawnym must bramki). */
@@ -2796,6 +2810,17 @@ export const HIDDEN_LABELS_PL: Record<HiddenReason, string> = {
  *  propozycje). `below_min_consented` (0374): budżet jest poniżej minimum
  *  kandydata, ale kandydat zgodził się w rozmowie na telefon z taką ofertą. */
 export type RateFit = "ok" | "over_budget" | "below_min_consented" | "unknown";
+
+/** Wymiar pracy kandydata (z telefonu praktykanta) wobec rekrutacji. Sprzeczny
+ *  wymiar tylko OSTRZEGA (decyzja 24.09.2026): `part_time_only` = kandydat
+ *  szuka części etatu przy rekrutacji na pełny etat, `full_time_only` =
+ *  odwrotnie. */
+export type WorkTimeFit =
+  | "ok"
+  | "part_time_only"
+  | "full_time_only"
+  | "unknown"
+  | "not_applicable";
 
 /** Suma wszystkich liczników ukrytych, niezależnie od tego, ile rubryk backend
  *  akurat zna — `undefined`/`null` liczy się jako zero na każdym kluczu. */

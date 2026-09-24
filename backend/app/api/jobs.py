@@ -99,7 +99,11 @@ from app.services.section_permissions import (
 )
 from app.api.ws import manager as ws_manager
 from app.core.config import settings
-from app.services.request_work_state import set_work_state
+from app.services.request_work_state import (
+    WORK_STATE_FINISHED,
+    WORK_STATE_REOPENED,
+    set_work_state,
+)
 from app.services.request_work_state import visible_state as _visible_work_state
 from app.services.recruitment_allocation import (
     allocation_lock,
@@ -1382,7 +1386,14 @@ async def jobs_quick_counts(
     # liczba „rejestru" jest zarazem liczbą w zakresie „Otwarte".
     from app.services import job_similarity as _sim  # noqa: PLC0415
 
-    register_ids = select(Job.id).where(jobs_register_base_clause())
+    # Ostatnie etapy par (``DISTINCT ON`` po ``candidate_stages``) tylko dla
+    # NIEZAMKNIĘTYCH: „closed" wynika z samego ``jobs.status`` (pierwsza gałąź
+    # ``request_status_expr``), a zamkniętych z Traffita jest ~4 tys. Zamknięta
+    # rekrutacja łączy się z pustym wierszem podzapytania i dalej liczy się
+    # jako „closed" — liczby bez zmian (audyt 24.09.2026).
+    register_ids = select(Job.id).where(
+        jobs_register_base_clause(), jobs_open_only_clause()
+    )
     status_sq = _sim.request_status_subquery(register_ids)
     # Status liczony w podzapytaniu, grupowanie po jego kolumnie: `CASE`
     # z parametrami w SELECT i GROUP BY dostałby dwa różne zestawy `$n`
@@ -1560,6 +1571,9 @@ async def create_job(
             payload["tac_id"] = resolved.tac_id
         if payload.get("delivery_lead_id") is None:
             payload["delivery_lead_id"] = resolved.delivery_lead_id
+            # Główny DL klienta wpisany automatycznie — idzie za jego zmianą
+            # (`job_delivery_lead_fill`, 0376).
+            payload["delivery_lead_auto_filled"] = resolved.delivery_lead_id is not None
 
     # A Delivery Lead creating a recruitment without a resolved client-side
     # DL (no head DL assigned, or none at all) becomes its DL themselves —
@@ -1976,6 +1990,12 @@ async def update_job(
         )
 
     updates = data.model_dump(exclude_unset=True)
+    if (
+        "delivery_lead_id" in updates
+        and updates["delivery_lead_id"] != job.delivery_lead_id
+    ):
+        # Ręczna zmiana DL-a: od teraz nietykalny dla `job_delivery_lead_fill`.
+        job.delivery_lead_auto_filled = False
     if "champion_profile" in updates:
         from app.services.champion_intake import user_edit
 
@@ -2051,6 +2071,17 @@ async def update_job(
             )
         elif prev_status == JobStatus.closed:
             job.closed_at = None
+            # Lustro zamknięcia (0371): ponownie otwarta rekrutacja wraca do
+            # „Do przejrzenia” — z „Zakończonego” wypadała z puli przydziału,
+            # pulpitu „Requesty” i nocnego przeglądu bazy (audyt 24.09.2026).
+            if job.work_state == WORK_STATE_FINISHED:
+                await set_work_state(
+                    db,
+                    job,
+                    WORK_STATE_REOPENED,
+                    actor_id=current_user.id,
+                    reason="job_reopened",
+                )
 
     db.add(
         Activity(
@@ -2343,6 +2374,18 @@ async def publish_job(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     await _ensure_delivery_lead_job_visible(job, current_user, db)
+    if job.status == JobStatus.closed:
+        # Lustro ponownego otwarcia w PATCH: bez tego rekrutacja opublikowana
+        # z powrotem zostawała „Zakończona” i poza przydziałem (audyt 24.09.2026).
+        job.closed_at = None
+        if job.work_state == WORK_STATE_FINISHED:
+            await set_work_state(
+                db,
+                job,
+                WORK_STATE_REOPENED,
+                actor_id=current_user.id,
+                reason="job_reopened",
+            )
     job.status = JobStatus.published
     db.add(
         Activity(

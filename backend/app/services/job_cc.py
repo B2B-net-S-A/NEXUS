@@ -42,7 +42,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.competence_category import CompetenceCategory
-from app.services.talent_pool_cc import BASE_CC_RULES
+from app.services.talent_pool_cc import BASE_CC_RULES, NOT_PENTEST
 
 # Hybrid-fallback acceptance floor — below this the embedding/keyword blend is
 # too weak to trust for silent auto-assignment.
@@ -54,7 +54,8 @@ HYBRID_MIN_SCORE = 0.30
 _JOB_EXTRA_PATTERNS: dict[str, tuple[str, ...]] = {
     # noun forms only ("inżynieria testów", "automatyzacja testowania") —
     # NOT the adjective "testowy" ("Projekt testowy: ..." is metadata).
-    "qa": (r"testów|testowani",),
+    # „Specjalista ds. testów penetracyjnych” to security, nie QA.
+    "qa": (NOT_PENTEST + r"(?:testów|testowani)",),
     # Polish security stems ("bezpieczeństwa chmury" must win before the
     # infra "chmur" rule) + offensive-security roles.
     "security": (

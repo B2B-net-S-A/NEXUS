@@ -408,6 +408,7 @@ async def apply_takeover_transfer(
 
     from app.api.client_order_groups import _reduce_legacy_md_budget
     from app.services.dl_alerts import handle_offboarding_case_alerts
+    from app.services.md_pool_used_up import offboarding_decision_in_progress
 
     await recompute_remaining(db, source, rebalance=False)
     remaining = max(ZERO, quantize_md(source.md_remaining or 0))
@@ -460,9 +461,13 @@ async def apply_takeover_transfer(
         detail = exc.detail
         message = detail.get("message") if isinstance(detail, dict) else str(detail)
         raise TakeoverError(message, status=exc.status_code) from exc
-    await recompute_remaining(db, source, rebalance=False)
-    await db.flush()
-    await recompute_remaining(db, target, rebalance=False)
+    # Audyt 24.09.2026 (H8): po zdjęciu puli linia ma 0 MD — przeliczenie nie
+    # może samo zamknąć sprawy jako „pula wykorzystana”, bo to przejęcie jest
+    # decyzją o tej puli (i ono zamyka alert DL niżej, ``was_pending``).
+    with offboarding_decision_in_progress(db, source.id):
+        await recompute_remaining(db, source, rebalance=False)
+        await db.flush()
+        await recompute_remaining(db, target, rebalance=False)
 
     now = datetime.now(timezone.utc)
     if case is None:

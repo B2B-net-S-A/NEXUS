@@ -825,6 +825,20 @@ async def callback(
         if authorization_changed:
             user.authorization_version += 1
             user.tokens_valid_after = datetime.now(timezone.utc)
+        if set(prior_effective_roles) != set(role_strs):
+            # Lustro zmiany roli w panelu admina (audyt 24.09.2026): nadanie
+            # roli praktykanta z grupy AAD zakłada program, odebranie go kończy.
+            from app.services import trainee_program
+
+            if user.id is None:
+                await db.flush()
+            await trainee_program.sync_program_for_roles(
+                db,
+                user.id,
+                before=prior_effective_roles,
+                after=list(role_strs),
+                actor_id=None,
+            )
         if entering_finance:
             cleanup_counts = await clear_recruitment_access_for_finance(db, user.id)
             db.add(

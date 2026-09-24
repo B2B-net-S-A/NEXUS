@@ -15,7 +15,8 @@ from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException, status
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, or_, select, text
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -116,9 +117,15 @@ async def start_program(
     start = rules_mod.next_workday(today)
     program = await program_for(db, user_id)
     if program is None:
-        program = TraineeProgram(user_id=user_id, start_date=start)
-        db.add(program)
-    elif program.status != "active":
+        # Dwa równoległe pierwsze GET-y konta bez programu (rola z AAD) — drugi
+        # czeka na unikalności i nic nie wstawia, zamiast kończyć się 500.
+        await db.execute(
+            pg_insert(TraineeProgram)
+            .values(user_id=user_id, start_date=start)
+            .on_conflict_do_nothing(index_elements=[TraineeProgram.user_id])
+        )
+        return await program_for(db, user_id)
+    if program.status != "active":
         program.start_date = start
         program.extended_days = 0
         program.status = "active"
@@ -268,7 +275,12 @@ async def _answered(db: AsyncSession, user_id: Optional[int]) -> Optional[float]
     return rules_mod.answered_pct(int(row[0] or 0), int(row[1] or 0))
 
 
-async def today_view(db: AsyncSession, user: User) -> dict[str, Any]:
+async def today_view(
+    db: AsyncSession, user: User, *, read_only: bool = False
+) -> dict[str, Any]:
+    """Dzień praktykanta. ``read_only`` (admin w „podglądzie jako”) niczego nie
+    zapisuje: nie zakłada programu ani listy — podgląd nie może zjadać
+    kandydatów z puli ani uruchamiać programu za praktykanta."""
     today = business_today()
     program = await program_for(db, user.id)
     base: dict[str, Any] = {
@@ -281,6 +293,8 @@ async def today_view(db: AsyncSession, user: User) -> dict[str, Any]:
         "items": [],
     }
     if program is None:
+        if read_only:
+            return {**base, "status": "no_program"}
         # Rola nadana poza panelem admina (np. grupa AAD przy logowaniu SSO).
         program = await start_program(db, user.id, today=today)
         await db.commit()
@@ -293,10 +307,15 @@ async def today_view(db: AsyncSession, user: User) -> dict[str, Any]:
     if program.status != "active":
         return {**base, "status": "program_finished"}
     call_list = await lists.list_for(db, user.id, today)
-    if call_list is None:
+    if call_list is None or not call_list.size:
         if not rules_mod.is_workday(today) or program.start_date > today:
             return {**base, "status": "not_workday"}
-        call_list = await lists.ensure_list(db, program, today=today)
+        if read_only:
+            if call_list is None:
+                return {**base, "status": "preview_not_generated"}
+        else:
+            # Pusta lista nie jest ostateczna — próbujemy ją uzupełnić.
+            call_list = await lists.ensure_list(db, program, today=today)
         if call_list is None:
             return {**base, "status": "not_workday"}
     rows = (
@@ -712,10 +731,26 @@ async def record_outcome(
 # ── Przekazanie rekruterowi ───────────────────────────────────────────────
 
 
+def _ensure_handover_allowed(item: TraineeCallItem) -> None:
+    """Przekazać rekruterowi można tylko osobę, z którą praktykant DZIŚ
+    rozmawiał (wynik „Rozmowa”) — nie „niezainteresowanego” ani zły numer."""
+    if item.outcome != "call":
+        raise _http(
+            status.HTTP_409_CONFLICT,
+            "Przekazać rekruterowi możesz tylko osobę, z którą zapisałeś rozmowę.",
+        )
+    if item.list_date != business_today():
+        raise _http(
+            status.HTTP_409_CONFLICT,
+            "Przekazać rekruterowi możesz tylko osobę z dzisiejszej listy.",
+        )
+
+
 async def open_jobs(db: AsyncSession, user: User, item_id: int) -> list[dict[str, Any]]:
     from app.services.job_similarity import _load_pool  # noqa: PLC0415
 
     item = await _own_item(db, user, item_id)
+    _ensure_handover_allowed(item)
     candidate = await db.get(Candidate, item.candidate_id)
     skills, display = lists._candidate_skills(candidate.skills if candidate else None)
     pool = await _load_pool(db)
@@ -772,6 +807,21 @@ async def handover(
             "Tej rekrutacji nie ma na liście pasujących otwartych rekrutacji.",
         )
     item = await _own_item(db, user, item_id)
+    statuses = set(
+        (
+            await db.scalars(
+                select(JobProposal.status).where(
+                    JobProposal.job_id == job_id,
+                    JobProposal.candidate_id == item.candidate_id,
+                )
+            )
+        ).all()
+    )
+    if "added" in statuses:
+        raise _http(
+            status.HTTP_409_CONFLICT,
+            "Ta osoba jest już dodana do tej rekrutacji.",
+        )
     await upsert_proposals(
         db,
         job_id,
@@ -783,15 +833,44 @@ async def handover(
         ],
         source="trainee",
     )
+    # Odrzucona wcześniej propozycja tej pary wraca do „Do przejrzenia”:
+    # praktykant przynosi świeżą rozmowę. Bez tego `upsert_proposals` zostawiał
+    # status „pominięty”, a endpoint zwracał ok bez żadnego skutku.
+    reopened = 0
+    if "dismissed" in statuses:
+        result = await db.execute(
+            text(
+                """
+                UPDATE job_proposals AS p
+                SET status = 'proposed',
+                    first_seen_at = now(),
+                    dismissed_at = NULL,
+                    dismissed_by = NULL,
+                    dismissed_cv_revision = NULL,
+                    evidence = (CASE WHEN jsonb_typeof(p.evidence) = 'object'
+                                     THEN p.evidence ELSE '{}'::jsonb END)
+                               || '{"previously_dismissed": true}'::jsonb
+                WHERE p.job_id = :job_id
+                  AND p.candidate_id = :candidate_id
+                  AND p.status = 'dismissed'
+                """
+            ),
+            {"job_id": job_id, "candidate_id": item.candidate_id},
+        )
+        reopened = int(result.rowcount or 0)
     candidate_audit.record_candidate_audit(
         db,
         action=candidate_audit.TRAINEE_HANDOVER,
         user_id=user.id,
         entity_id=item.candidate_id,
-        details={"item_id": item.id, "job_id": job_id},
+        details={
+            "item_id": item.id,
+            "job_id": job_id,
+            "reopened_dismissed": bool(reopened),
+        },
     )
     await db.commit()
-    return {"ok": True}
+    return {"ok": True, "reopened_dismissed": bool(reopened)}
 
 
 # ── Panel Head of Recruitment ─────────────────────────────────────────────

@@ -11,7 +11,7 @@
  */
 
 import Link from "next/link"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice"
@@ -21,6 +21,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { apiErrorMessage } from "@/lib/api-error"
 import {
+  REVIEW_PAGE_SIZE,
   changeWorkStates,
   useRequestReview,
   type ReviewResponse,
@@ -78,6 +79,8 @@ export function RequestReviewView({
   q,
   onQ,
   actions,
+  onMore,
+  loadingMore = false,
 }: {
   data: ReviewResponse
   tab: VisibleState
@@ -87,6 +90,9 @@ export function RequestReviewView({
   q: string
   onQ: (q: string) => void
   actions: RequestReviewActions
+  /** „Pokaż więcej” — gdy lista zakładki ma kolejne strony. */
+  onMore?: () => void
+  loadingMore?: boolean
 }) {
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const total = Object.values(data.counts).reduce((a, b) => a + b, 0)
@@ -271,6 +277,16 @@ export function RequestReviewView({
           </table>
         </div>
       </div>
+      {data.has_more && onMore ? (
+        <div className="flex flex-wrap items-center gap-3">
+          <Button variant="outline" size="sm" disabled={loadingMore} onClick={onMore}>
+            {loadingMore ? "Wczytuję…" : "Pokaż więcej"}
+          </Button>
+          <span className="text-xs text-muted-foreground">
+            Pokazano {data.rows.length} z {data.total ?? data.rows.length}.
+          </span>
+        </div>
+      ) : null}
       <p className="text-xs text-muted-foreground">
         Wszystkich requestów na liście: {total}. „Zakończony” działa w NEXUSIE — w Traffit
         rekrutacja zostaje, jak była.
@@ -283,7 +299,13 @@ export function RequestReview() {
   const [tab, setTab] = useState<VisibleState>("to_review")
   const [mine, setMine] = useState(false)
   const [q, setQ] = useState("")
-  const query = useRequestReview(tab, mine, q.trim())
+  const [limit, setLimit] = useState(REVIEW_PAGE_SIZE)
+  // Nowa zakładka, filtr albo szukanie = od pierwszej strony.
+  const trimmed = q.trim()
+  useEffect(() => {
+    setLimit(REVIEW_PAGE_SIZE)
+  }, [tab, mine, trimmed])
+  const query = useRequestReview(tab, mine, trimmed, limit)
   const queryClient = useQueryClient()
   const { showError, showSuccess } = useToast()
 
@@ -315,6 +337,8 @@ export function RequestReview() {
       onMine={setMine}
       q={q}
       onQ={setQ}
+      onMore={() => setLimit((current) => current + REVIEW_PAGE_SIZE)}
+      loadingMore={query.isFetching && query.isPlaceholderData}
       actions={{
         setState: async (changes) => {
           try {

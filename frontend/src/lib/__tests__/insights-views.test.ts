@@ -6,6 +6,7 @@ import {
   compactPln,
   countDelta,
   gapSentence,
+  isPeopleRowWorthShowing,
   myMonthSentence,
   pctDelta,
   placementsPl,
@@ -132,6 +133,23 @@ describe("okno porównania", () => {
       params: { period: "custom", date_from: "2026-09-14", date_to: "2026-09-17" },
     });
   });
+
+  it("godzina dnia nie wydłuża okna porównania (audyt 24.09.2026)", () => {
+    // `today` z `new Date()` niesie godzinę — od ~12:00 zaokrąglenie różnicy
+    // dni szło w górę i poprzedni okres rósł o dzień (4 dni przeciw 5).
+    for (const hour of [9, 13, 23]) {
+      const today = new Date(2026, 8, 24, hour, 30);
+      expect(
+        previousComparablePeriod({ period: "week", offset: 0 }, today)?.params,
+      ).toEqual({ period: "custom", date_from: "2026-09-14", date_to: "2026-09-17" });
+      expect(
+        previousComparablePeriod({ period: "quarter", offset: 0 }, today)?.params,
+      ).toEqual({ period: "custom", date_from: "2026-04-01", date_to: "2026-06-25" });
+      expect(
+        previousComparablePeriod({ period: "year", offset: 0 }, today)?.params,
+      ).toEqual({ period: "custom", date_from: "2025-01-01", date_to: "2025-09-24" });
+    }
+  });
 });
 
 describe("delty", () => {
@@ -166,6 +184,51 @@ describe("zdanie Mojego miesiąca", () => {
     expect(myMonthSentence(base)).toBe(
       "Masz 2 placementy w tym miesiącu — cel osiągnięty. Jesteś 3. w wyścigu placementów — do prowadzenia (Ola K.) brakuje Ci 2. Dziś 3 z 4 weryfikacji.",
     );
+  });
+
+  it("nie ogłasza lidera przy remisie na 1. miejscu (audyt 24.09.2026)", () => {
+    // Pierwsza pozycja listy to nie kolejność nagrodowa — remis rozstrzyga admin.
+    expect(
+      myMonthSentence({
+        ...base,
+        raceRank: 1,
+        leaderName: null,
+        leaderPlacements: null,
+        raceLeaderTie: true,
+      }),
+    ).toContain("na 1. miejscu jest remis — o nagrodzie zdecyduje admin");
+    const other = myMonthSentence({ ...base, raceRank: 2, raceLeaderTie: true });
+    expect(other).not.toMatch(/Prowadzisz|do prowadzenia/);
+  });
+
+  it("wykluczony lider kwartału nie „prowadzi” w wyścigu miesiąca", () => {
+    const sentence = myMonthSentence({
+      ...base,
+      raceRank: 1,
+      leaderName: null,
+      raceExcluded: true,
+    });
+    expect(sentence).not.toContain("Prowadzisz");
+    expect(sentence).toContain("lider kwartału");
+  });
+
+  it("prowadzi wyłącznie zakwalifikowany lider", () => {
+    expect(
+      myMonthSentence({ ...base, raceRank: 1, raceLeader: true, leaderName: null }),
+    ).toContain("Prowadzisz w wyścigu placementów.");
+  });
+
+  it("tabela Ludzi zostawia osobę ze spadkiem do zera", () => {
+    const zero = {
+      verifications: 0,
+      recommendations: 0,
+      interviews: 0,
+      placements: 0,
+      previous_placements: 0,
+    };
+    expect(isPeopleRowWorthShowing(zero)).toBe(false);
+    expect(isPeopleRowWorthShowing({ ...zero, previous_placements: 3 })).toBe(true);
+    expect(isPeopleRowWorthShowing({ ...zero, verifications: 1 })).toBe(true);
   });
 
   it("poza rankingiem nie wymyśla miejsca", () => {

@@ -120,6 +120,7 @@ NEXUS_OWNED: frozenset[str] = frozenset(
         "competence_category_id",
         "tac_id",
         "delivery_lead_id",
+        "delivery_lead_auto_filled",
         "favorite_candidate_id",
         "hiring_manager_contact_id",
         "created_by",

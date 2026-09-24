@@ -1239,6 +1239,64 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     expect(screen.queryByRole("list", { name: "Grupy etapów pipeline" })).toBeNull();
   });
 
+  it("„Mój ruch” liczy tylko karty, na których plakietka mówi „Twój ruch” (nie cudze i nie DL)", async () => {
+    useAuthStore.setState({ user: { id: 5, role: "recruiter", roles: ["recruiter"] } } as never);
+    const columns = defaultB2BColumns() as unknown as Array<Record<string, unknown>>;
+    // Nowi: jedna karta wolna („Twój ruch”), druga wzięta na 12 h przez Annę.
+    const nowi = columns[0].items as Array<Record<string, unknown>>;
+    nowi[1] = { ...nowi[1], claim_user_id: 9, claim_user_name: "Anna Kowal", claim_until: "2099-01-01T00:00:00Z" };
+    columns[2] = {
+      ...columns[2],
+      count: 2,
+      items: [
+        { id: 7201, candidate_id: 8201, stage: "verified", name: "Ola", lastname: "Moja", days_in_stage: 1, recruiter_id: 5, recruiter_name: "Ja Rekruter" },
+        { id: 7202, candidate_id: 8202, stage: "verified", name: "Ewa", lastname: "Cudza", days_in_stage: 1, recruiter_id: 9, recruiter_name: "Anna Kowal" },
+      ],
+    };
+    // QC CV zaliczone poza Nordeą — ruch ma Delivery Lead („DL”), nie rekruter.
+    columns[3] = {
+      ...columns[3],
+      count: 1,
+      items: [
+        { id: 7301, candidate_id: 8301, stage: "new", name: "Iga", lastname: "Mazur", days_in_stage: 1, recruiter_id: 5, qc: { status: "passed", blocking_failed: 0 } },
+      ],
+    };
+    renderBoard(columns as never);
+    await screen.findByTestId("pipeline-board");
+    // Wolna karta w Nowi + Screening (bez rekrutera = „Twój ruch”) + własna
+    // w „Zweryfikowanym”. Poza: karta wzięta przez Annę, cudza, QC oddane DL.
+    expect(screen.getByRole("button", { name: /^Mój ruch/ })).toHaveTextContent("Mój ruch · 3");
+  });
+
+  it("nawigator doku idzie w kolejności widocznej Tablicy (kolumny od lewej, karty od góry)", async () => {
+    // Audyt 24.09.2026: pierwsza karta w „Nowi” miała „12 z 35”, a „←” prowadziło
+    // do ostatniej karty kolumny — dok liczył kolejność z surowych etapów
+    // szablonu, łącznie z ukrytymi zamkniętymi.
+    const columns = defaultB2BColumns() as unknown as Array<Record<string, unknown>>;
+    // Duplikat nazwy z importu stoi na końcu szablonu, a karta renderuje się w „Nowi”.
+    columns.push({
+      stage: "new",
+      name: "Nowi / Analiza CV (#41)",
+      category: "internal",
+      stage_def_id: 399,
+      count: 1,
+      terminal_type: null,
+      items: [{ id: 7399, candidate_id: 8399, stage: "new", name: "Duplikat", lastname: "Importu", days_in_stage: 1 }],
+    });
+    renderBoard(columns as never);
+    await screen.findByTestId("pipeline-board");
+    const cards = Array.from(document.querySelectorAll("[data-kanban-card]")) as HTMLElement[];
+    fireEvent.click(cards[0]);
+    const dock = await screen.findByRole("complementary", { name: "Karta kandydata" });
+    // Nowi (2 + duplikat) + Screening (1); odrzucony (pasek zamkniętych) poza nawigatorem.
+    expect(within(dock).getByText("1 z 4")).toBeInTheDocument();
+    expect(within(dock).getByRole("button", { name: "Poprzednia karta" })).toBeDisabled();
+    fireEvent.click(within(dock).getByRole("button", { name: "Następna karta" }));
+    fireEvent.click(within(dock).getByRole("button", { name: "Następna karta" }));
+    expect(await within(dock).findByText("3 z 4")).toBeInTheDocument();
+    expect(within(dock).getAllByText(/Duplikat Importu/).length).toBeGreaterThan(0);
+  });
+
   it("„Mój ruch” i nazwisko przełączają się w pasku (aria-pressed)", async () => {
     renderBoard(defaultB2BColumns());
     await screen.findByTestId("pipeline-board");
@@ -1471,6 +1529,25 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     expect(verified.dataset.colid).toBe("def:302");
     expect(screening).not.toHaveAttribute("data-narrow");
     expect(within(screening).queryByTestId("column-drop-hint")).toBeNull();
+  });
+
+  it("wąska pusta kolumna zawija nazwę etapu (także w środku słowa), a pełna nazwa zostaje w title", async () => {
+    // Audyt 24.09.2026: w 96 px „Zweryfikowany” ucinało się do „Zweryfikowan”.
+    // Szerokości jsdom nie liczy — test pilnuje, że nagłówek umie łamać słowo
+    // po polsku i nie obcina go do jednej linii.
+    const { container } = renderBoard(defaultB2BColumns());
+    await screen.findByTestId("pipeline-board");
+    const heading = container.querySelector('[data-colid="def:302"] h3') as HTMLElement;
+    expect(heading).toHaveTextContent("Zweryfikowany");
+    expect(heading).toHaveAttribute("title", "Zweryfikowany");
+    expect(heading).toHaveAttribute("lang", "pl");
+    expect(heading.className).toMatch(/xl:pointer-fine:hyphens-auto/);
+    expect(heading.className).toMatch(/xl:pointer-fine:\[overflow-wrap:anywhere\]/);
+    expect(heading.className).toMatch(/xl:pointer-fine:line-clamp-3/);
+    // Pełna kolumna też nie ucina długiego słowa (196 px przy 1440 px).
+    const full = container.querySelector('[data-colid="def:300"] h3') as HTMLElement;
+    expect(full.className).toMatch(/(^| )hyphens-auto( |$)/);
+    expect(full.className).toMatch(/\[overflow-wrap:break-word\]/);
   });
 
   it("tylko do odczytu: pusta kolumna nie zaprasza do upuszczania", async () => {

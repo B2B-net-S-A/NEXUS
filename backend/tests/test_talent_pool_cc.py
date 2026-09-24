@@ -153,6 +153,10 @@ def test_live_catalogue_has_full_coverage() -> None:
         (None, None),
         # ordering: a tester whose name also mentions a data tool stays QA
         ("Tester (ETL, Spark)", QA),
+        # audyt 24.09.2026: pentest (także po polsku) to security, nie QA
+        ("Tester penetracyjny", INFRA),
+        ("Penetration Tester", INFRA),
+        ("Security Tester", QA),
         # ordering: "Service Manager" is management, "Service Desk" is infra
         ("Service Manager", MGMT),
         ("Service Desk", INFRA),
@@ -169,6 +173,9 @@ def test_live_catalogue_has_full_coverage() -> None:
         "blank",
         "none",
         "tester-with-etl",
+        "pentester-pl-is-security",
+        "penetration-tester-is-security",
+        "security-tester-stays-qa",
         "service-manager",
         "service-desk",
         "solution-architect",

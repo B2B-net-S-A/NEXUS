@@ -4,6 +4,7 @@ import { pluralPl } from "@/lib/plural-pl";
 import { useEffect, useMemo, useState } from "react";
 import { TAC_UI_ENABLED } from "@/lib/tac-ui";
 import {
+  ROW_STATE_LABEL,
   STATE_HINT,
   STATE_LABEL,
   VISIBLE_STATES,
@@ -95,8 +96,10 @@ import {
   initialSentFromUrl,
   resolveScope,
   scopeOverrideFromUrl,
+  scopeForStatuses,
   scopeQueryFlags,
   sentQueryParams,
+  statusesForScope,
   initialPriorityWorkFromUrl,
   initialSearchFromUrl,
   sortOverrideFromUrl,
@@ -644,7 +647,7 @@ function JobsTable({
                     className="mt-1 block text-[11px] text-muted-foreground"
                     title="Stan pracy nad requestem (Porządek w requestach)"
                   >
-                    {STATE_LABEL[job.visible_work_state as VisibleState]}
+                    {ROW_STATE_LABEL[job.visible_work_state as VisibleState]}
                   </span>
                 )}
               </TableCell>
@@ -756,7 +759,9 @@ export function JobsListV2() {
   const [scopeOverride, setScopeOverride] = useState<JobScope | null>(() =>
     scopeOverrideFromUrl(searchParams),
   );
-  const scope = resolveScope(scopeOverride, authUser);
+  // Status „Zamknięta” przy „Otwartych” przełącza na „Wszystkie” — razem
+  // dawały zawsze pustą listę (audyt 24.09.2026).
+  const scope = scopeForStatuses(resolveScope(scopeOverride, authUser), statusFilter);
   const { mine, openOnly } = scopeQueryFlags(scope);
   const [responsibleIds, setResponsibleIds] = useState<number[]>(() =>
     initialIdsFromUrl(searchParams, "responsible"),
@@ -851,6 +856,7 @@ export function JobsListV2() {
   // zostaje. `null` = powrót do domyślnego zakresu roli („Wyczyść").
   const changeScope = (nextScope: JobScope | null) => {
     setScopeOverride(nextScope);
+    setStatusFilter((prev) => statusesForScope(resolveScope(nextScope, authUser), prev));
     setPage(1);
   };
 
@@ -1175,7 +1181,9 @@ export function JobsListV2() {
   };
 
   return (
-    <div className="max-w-[1400px] mx-auto space-y-3">
+    // `pb-24`: maskotka Jarvisa w prawym dolnym rogu zasłaniała ikony akcji
+    // ostatnich wierszy — lista musi dać się przewinąć nad nią (audyt 24.09.2026).
+    <div className="max-w-[1400px] mx-auto space-y-3 pb-24" data-testid="jobs-list-page">
       {/* Nagłówek kompaktowy (makieta „01 Lista", `.lhead`): jedna linia
           zamiast eyebrow + H1 + podpis w trzech wierszach. Lista rekrutacji
           jest ekranem SKANOWANYM — trzy wiersze tytułu zabierały pionową

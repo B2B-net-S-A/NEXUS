@@ -168,6 +168,9 @@ export interface ContractWithOrdersRead {
   ending_without_successor_order_id?: number | null;
   ending_without_successor_end_date?: string | null;
   ending_without_successor_days?: number | null;
+  /** Dni do końca NAJBLIŻSZEGO zamówienia bez kontynuacji (bez horyzontu) —
+   *  filtr „kończy się w ciągu N dni" czyta regułę serwera (audyt 24.09, M6). */
+  next_ending_without_successor_days?: number | null;
   orders: ClientOrderRead[];
 }
 

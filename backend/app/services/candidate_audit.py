@@ -51,6 +51,8 @@ NOTES_FACT_APPLIED = "candidate_notes_fact_applied"
 # 0374: telefon praktykanta zapisał fakty w profilu / przekazał osobę rekruterowi.
 TRAINEE_CALL_SAVED = "candidate_trainee_call_saved"
 TRAINEE_HANDOVER = "candidate_trainee_handover"
+# Ręczna korekta faktów z telefonu praktykanta (audyt 24.09.2026): stare → nowe.
+CALL_FACTS_CORRECTED = "candidate_call_facts_corrected"
 IDENTITY_SOURCE_QUARANTINED = "candidate_identity_source_quarantined"
 IDENTITY_SOURCE_QUARANTINE_OVERRIDDEN = (
     "candidate_identity_source_quarantine_overridden"

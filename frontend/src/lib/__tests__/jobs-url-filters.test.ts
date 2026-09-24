@@ -27,6 +27,8 @@ import {
   sortOverrideFromUrl,
   initialStatusFromUrl,
   initialTypeFromUrl,
+  scopeForStatuses,
+  statusesForScope,
 } from "@/lib/jobs-url-filters";
 
 describe("initialStatusFromUrl", () => {
@@ -371,5 +373,19 @@ describe("„Wysłanych do klienta” → min_sent / max_sent", () => {
   it("nieznana wartość w adresie = dowolnie", () => {
     expect(initialSentFromUrl(new URLSearchParams("sent=100"))).toBe("any");
     expect(initialSentFromUrl(new URLSearchParams("sent=none"))).toBe("none");
+  });
+});
+
+describe("zakres a status „Zamknięta”", () => {
+  it("„Otwarte” + „Zamknięta” = „Wszystkie”; „Moje” i „Wszystkie” bez zmian", () => {
+    expect(scopeForStatuses("open", ["closed"])).toBe("all");
+    expect(scopeForStatuses("open", ["published"])).toBe("open");
+    expect(scopeForStatuses("mine", ["closed"])).toBe("mine");
+    expect(scopeForStatuses("all", ["closed"])).toBe("all");
+  });
+
+  it("jawne „Otwarte” zdejmuje „Zamknięta”, inne zakresy zostawiają status", () => {
+    expect(statusesForScope("open", ["closed", "draft"])).toEqual(["draft"]);
+    expect(statusesForScope("mine", ["closed"])).toEqual(["closed"]);
   });
 });

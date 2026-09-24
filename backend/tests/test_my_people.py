@@ -529,3 +529,16 @@ def test_jarvis_my_people_tools_hide_working_and_mark_unscored():
     assert rows[2]["nie_mozna_dodac"] is True
     assert TOOLS_BY_NAME["my_people"].tier == "read"
     assert TOOLS_BY_NAME["my_people_for_job"].tier == "read"
+
+
+def test_days_since_counts_the_company_calendar_day_not_utc() -> None:
+    """Audyt 24.09.2026: wysyłka o 23:30 UTC to już następny dzień w Warszawie.
+    Dzień znacznika liczymy w strefie firmy, jak ``business_today()``."""
+    from datetime import date
+
+    from app.services.my_people import _days_since
+
+    late_evening_utc = datetime(2026, 9, 22, 23, 30, tzinfo=timezone.utc)
+    # W Warszawie to 23.09 01:30 — dzień przed „dziś” 24.09.
+    assert _days_since(late_evening_utc, date(2026, 9, 24)) == 1
+    assert _days_since(None, date(2026, 9, 24)) is None

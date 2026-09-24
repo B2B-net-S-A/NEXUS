@@ -6,8 +6,11 @@ z ``is_head``). Na produkcji 24.09 DL był wpisany w 4 z 327 otwartych
 rekrutacji, bo import z Traffita tego pola nie ustawia, a zakładanie w NEXUSIE
 (`auto_assign_owners.resolve_default_owners`) robi to tylko dla nowych.
 
-Reguła jest wyłącznie UZUPEŁNIAJĄCA: wpisany DL nigdy nie jest nadpisywany,
-a zamknięte rekrutacje zostają nietknięte — statystyki DL i liga DL i tak
+Reguła jest UZUPEŁNIAJĄCA: DL wpisany przez człowieka nigdy nie jest
+nadpisywany. DL wpisany przez automat (``delivery_lead_auto_filled``, 0376)
+idzie za zmianą głównego DL-a klienta — do audytu 24.09.2026 zostawał przy
+poprzednim, więc nowy DL nie widział przeglądu DL, a po odejściu starego
+przegląd i alerty trafiały donikąd. Zamknięte rekrutacje zostają nietknięte — statystyki DL i liga DL i tak
 liczą je przez głównego DL-a klienta (`insights_dl_scope`,
 `competitions._resolve_dl_id`), więc ich uzupełnienie nic by nie dało.
 Wołają ją: start aplikacji, faza rekrutacji importu z Traffita i zmiana
@@ -32,25 +35,30 @@ _HEADS = """
      ORDER BY a.client_id, a.id
 """
 
+# Puste pole albo DL wpisany przez automat, który nie jest już głównym DL-em.
+_TARGET = """
+       AND (j.delivery_lead_id IS NULL
+            OR (j.delivery_lead_auto_filled AND j.delivery_lead_id <> h.dl_id))
+       AND j.status IN ('draft', 'published')
+"""
+
 _FILL_ALL = text(
     f"""
-    UPDATE jobs j SET delivery_lead_id = h.dl_id
+    UPDATE jobs j SET delivery_lead_id = h.dl_id, delivery_lead_auto_filled = true
       FROM ({_HEADS}) h
      WHERE j.client_id = h.client_id
-       AND j.delivery_lead_id IS NULL
-       AND j.status IN ('draft', 'published')
+       {_TARGET}
     RETURNING j.id
     """
 )
 
 _FILL_CLIENTS = text(
     f"""
-    UPDATE jobs j SET delivery_lead_id = h.dl_id
+    UPDATE jobs j SET delivery_lead_id = h.dl_id, delivery_lead_auto_filled = true
       FROM ({_HEADS}) h
      WHERE j.client_id = h.client_id
        AND j.client_id = ANY(:client_ids)
-       AND j.delivery_lead_id IS NULL
-       AND j.status IN ('draft', 'published')
+       {_TARGET}
     RETURNING j.id
     """
 )
@@ -59,7 +67,8 @@ _FILL_CLIENTS = text(
 async def fill_missing_job_delivery_leads(
     db: AsyncSession, client_ids: Optional[Iterable[int]] = None
 ) -> int:
-    """Wpisuje głównego DL-a klienta w otwarte rekrutacje bez DL-a.
+    """Wpisuje głównego DL-a klienta w otwarte rekrutacje bez DL-a (albo z DL-em
+    wpisanym automatycznie, który przestał być głównym DL-em klienta).
 
     Nie commituje — wołający zapisuje razem ze swoją zmianą. Zwraca liczbę
     uzupełnionych rekrutacji.

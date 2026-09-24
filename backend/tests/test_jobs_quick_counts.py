@@ -302,3 +302,42 @@ async def test_request_status_counts_agree_with_the_status_filter(
         assert counts["request_status_mine"]["searching"] >= 1
     finally:
         await _cleanup(job_ids)
+
+
+@pytest.mark.asyncio
+async def test_request_status_subquery_skips_closed_jobs(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch: pytest.MonkeyPatch
+):
+    """Ostatnie etapy par liczymy tylko dla rekrutacji niezamkniętych.
+
+    Audyt 24.09.2026: ``request_status_subquery`` przeliczał ``DISTINCT ON``
+    po ``candidate_stages`` CAŁEGO rejestru (~4,3 tys. rekrutacji, w tym
+    zamknięte z Traffita) przy każdym wejściu na ``/jobs``. Status „closed”
+    wynika z samego ``jobs.status`` (pierwsza gałąź ``request_status_expr``),
+    więc zamknięte nie potrzebują podzapytania — liczby się nie zmieniają
+    (pilnuje tego test wyżej).
+    """
+    from sqlalchemy.dialects import postgresql
+
+    from app.services import job_similarity
+
+    captured: list = []
+    original = job_similarity.request_status_subquery
+
+    def spy(job_ids):
+        captured.append(job_ids)
+        return original(job_ids)
+
+    monkeypatch.setattr(job_similarity, "request_status_subquery", spy)
+    closed_id = await _seed_job(status="closed")
+    try:
+        counts = await _quick_counts(app_client, app_auth_headers)
+        assert counts["request_status"]["closed"] >= 1
+        assert captured, "quick-counts nie policzył statusów requestu"
+        compiled = captured[-1].compile(dialect=postgresql.dialect())
+        sql = str(compiled)
+        assert "jobs.status !=" in sql or "jobs.status <>" in sql, sql
+        values = {str(getattr(v, "value", v)) for v in compiled.params.values()}
+        assert "closed" in values, compiled.params
+    finally:
+        await _cleanup([closed_id])

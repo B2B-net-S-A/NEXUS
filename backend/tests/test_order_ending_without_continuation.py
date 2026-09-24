@@ -132,9 +132,25 @@ def test_ending_order_with_added_extension_is_not_reported():
     assert ending_without_successor(orders, today=_TODAY) is None
 
 
-def test_active_md_budget_order_counts_as_continuation_like_the_sql_rule():
-    """Pigułka i karta DL liczą tak samo: aktywne zamówienie z pozostałym
-    budżetem MD pracuje po dacie końca (przegląd integracji 24.09.2026)."""
+def test_active_md_budget_group_line_counts_as_continuation_like_the_sql_rule():
+    """Aktywna LINIA MD z pozostałym budżetem pracuje po dacie końca."""
+    from app.services.order_continuation import _covers_after
+
+    line = _order(
+        2,
+        order_group_id=7,
+        start_date=date(2026, 1, 1),
+        end_date=_TODAY - timedelta(days=60),
+        md_total=Decimal("40"),
+        md_remaining=Decimal("5"),
+    )
+    assert _covers_after(line, _TODAY + timedelta(days=10), _TODAY)
+
+
+def test_standalone_periodic_order_with_md_total_is_not_a_continuation():
+    """Samodzielne zamówienie okresowe z ``md_total`` (Credit Agricole) nie
+    jest rozliczane importem MD — jego „pozostałe MD” nie maleją i tłumiły
+    alert każdego kolejnego zamówienia (audyt 24.09.2026, M10)."""
     orders = [
         _order(1),
         _order(
@@ -145,7 +161,86 @@ def test_active_md_budget_order_counts_as_continuation_like_the_sql_rule():
             md_remaining=Decimal("5"),
         ),
     ]
-    assert ending_without_successor(orders, today=_TODAY) is None
+    found = ending_without_successor(orders, today=_TODAY)
+    assert found is not None and found.order_id == 1
+
+
+def test_sql_md_budget_continuation_is_limited_to_group_lines():
+    from sqlalchemy import select
+
+    from app.services.order_continuation import order_has_continuation
+
+    sql = str(
+        select(ClientOrder.id)
+        .where(order_has_continuation(today=_TODAY))
+        .compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True})
+    )
+    assert (
+        "client_orders_1.order_group_id IS NOT NULL AND "
+        "client_orders_1.md_total IS NOT NULL"
+    ) in sql
+
+
+def test_unbounded_horizon_reports_the_nearest_ending_order():
+    """Filtr „kończy się w ciągu N dni” czyta pole bez horyzontu (M6)."""
+    far = _order(1, end_date=_TODAY + timedelta(days=45))
+    assert ending_without_successor([far], today=_TODAY) is None
+    found = ending_without_successor([far], today=_TODAY, days=None)
+    assert found is not None and (found.order_id, found.days_left) == (1, 45)
+
+
+def test_bell_rule_covers_cost_lines_that_the_scanner_closes_by_date():
+    """Dzwonek obejmuje linie BEZ budżetu MD u każdego klienta — skaner
+    domyka je datą (M9). Karta DL i kafel bez zmian."""
+    from sqlalchemy import select
+
+    def compiled(**kwargs) -> str:
+        return str(
+            select(ClientOrder.id)
+            .where(
+                order_ending_without_continuation(
+                    _TODAY,
+                    _TODAY + timedelta(days=30),
+                    extended_client_ids=frozenset(),
+                    today=_TODAY,
+                    **kwargs,
+                )
+            )
+            .compile(
+                dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}
+            )
+        )
+
+    bell = compiled(include_date_closed_lines=True)
+    assert (
+        "client_orders.order_group_id IS NOT NULL AND client_orders.md_total IS NULL"
+    ) in bell
+    assert "client_orders.md_total IS NULL" not in compiled()
+
+
+def test_bell_and_dashboard_tile_both_cover_date_closed_lines():
+    """Dzwonek 30/14/7 i kafel „kończy się w 30 dni” liczą tak samo (M9)."""
+    import ast
+    import inspect
+
+    from app.services.custom_metrics import engine
+    from app.tasks import dl_portal_expiry_scanner
+
+    for function in (dl_portal_expiry_scanner._scan_orders, engine._orders_query):
+        tree = ast.parse(inspect.getsource(function).lstrip())
+        calls = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and getattr(node.func, "id", None) == "order_ending_without_continuation"
+        ]
+        assert calls, function.__name__
+        for call in calls:
+            flags = {kw.arg: kw.value for kw in call.keywords}
+            flag = flags.get("include_date_closed_lines")
+            assert isinstance(flag, ast.Constant) and flag.value is True, (
+                function.__name__
+            )
 
 
 def test_empty_signing_draft_does_not_hide_the_ending_order():
@@ -318,3 +413,4 @@ async def test_contractor_list_carries_the_server_side_ending_flag(
     [card] = resp.json()["contractors"]
     assert card["ending_without_successor_order_id"] == ending_id
     assert card["ending_without_successor_days"] == 12
+    assert card["next_ending_without_successor_days"] == 12

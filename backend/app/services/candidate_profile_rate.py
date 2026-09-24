@@ -79,6 +79,10 @@ def conflicting_profile_rate_currency_clause(currency_column):  # type: ignore[n
     return ~canonical_profile_rate_currency_clause(currency_column)
 
 
+#: Źródło stawki zapisanej przez telefon praktykanta (``trainee_program.NOTE_SOURCE``).
+TRAINEE_CALL_RATE_SOURCE = "trainee_call"
+
+
 def write_profile_rate(candidate: Any, amount: Decimal | None, *, source: str) -> dict:
     """Mutate the complete PLN/hour fact and version under the caller's row lock.
 
@@ -101,6 +105,17 @@ def write_profile_rate(candidate: Any, amount: Decimal | None, *, source: str) -
         "new_version": old_version + 1,
         "source": source,
     }
+    # Zgoda z telefonu praktykanta na oferty poniżej minimum dotyczyła MINIMUM
+    # z tej rozmowy (audyt 24.09.2026). Każda inna zmiana kwoty (ręczna, z notatek,
+    # z importu) ją unieważnia — inaczej rekruter wpisujący stawkę OCZEKIWANĄ
+    # zostawiał bramce budżetu „zgodził się na mniej” przy innej liczbie.
+    if (
+        source != TRAINEE_CALL_RATE_SOURCE
+        and amount != candidate.expected_rate_hourly
+        and getattr(candidate, "accepts_below_min_rate", None) is not None
+    ):
+        details["accepts_below_min_rate_cleared"] = candidate.accepts_below_min_rate
+        candidate.accepts_below_min_rate = None
     candidate.expected_rate_hourly = amount
     candidate.expected_rate_currency = details["new_currency"]
     candidate.profile_rate_version = old_version + 1

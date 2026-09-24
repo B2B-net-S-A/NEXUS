@@ -78,6 +78,11 @@ export interface MonthlyRace {
   ranking: MonthlyRaceEntry[];
   excluded_user_ids: number[];
   qualified_leader: MonthlyRaceEntry | null;
+  /**
+   * Remis na 1. miejscu, którego regulamin nie rozstrzyga — lidera wskaże
+   * admin przy zamknięciu okresu. Pusta lista = brak takiego remisu.
+   */
+  leader_tie_user_ids?: number[];
 }
 
 export interface MonthlyRacesResponse {

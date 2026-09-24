@@ -102,6 +102,12 @@ export interface TimeToHireResponse {
      * się z lejkiem i wygląda na zepsutą zamiast na niekompletną.
      */
     unattributed_hires: number;
+    /**
+     * Zatrudnienia kont spoza ról rekrutacyjnych (admin, Finanse…) — w sumie,
+     * poza tabelą rekruterów (reguła Hall of Fame, 24.09.2026).
+     */
+    outside_scope_hires?: number;
+    outside_scope_label?: string;
   };
   min_hires: number;
 }
@@ -125,6 +131,13 @@ export interface TeamActivityResponse {
   limit: number;
   entries: TeamActivityEntry[];
   totals: { users: number; actions: number };
+  /** Konta spoza ról rekrutacyjnych — jeden wiersz pod rankingiem. */
+  outside_scope?: {
+    label: string;
+    users: number;
+    actions: number;
+    placements: number;
+  };
   /**
    * `user_activities` zapisuje WYŁĄCZNIE czynności wykonane w NEXUSIE — import
    * z Traffita nie tworzy tam ani jednego wiersza. Bez wyrenderowania `note`

@@ -19,12 +19,6 @@ def _month():
     return business_today().strftime("%Y-%m")
 
 
-def _month_end(day):
-    import calendar
-
-    return day.replace(day=calendar.monthrange(day.year, day.month)[1])
-
-
 async def _bik_group(app_client, headers, monkeypatch, *, bik: bool = True):
     client_id, contracts = await _seed_client_with_contracts(2)
     if bik:
@@ -110,9 +104,9 @@ async def test_order_ends_only_when_the_last_person_exhausts_the_limit(
     assert lines == ["completed", "completed"]
     assert state.status == "completed"
     assert state.closure_reason == MD_EXHAUSTED_CLOSURE_REASON
-    # Koniec miesiąca zejścia, które wyczerpało pulę (ticket 4500030067).
-    today = business_today()
-    assert state.closure_date == _month_end(today)
+    # Dzień przeliczenia (audyt 24.09.2026, H9) — koniec miesiąca zejścia
+    # zamykał kolejny miesiąc dla importu.
+    assert state.closure_date == business_today()
     assert state.closed_by_user_id is None
     # Koniec wyznacza limit, nie data — zamówienie zostaje bezterminowe.
     assert state.end_date is None
@@ -174,7 +168,7 @@ async def test_pending_decision_zeroed_by_a_later_import_closes_itself_and_the_o
 ):
     """Ticket 4500030067: sprawa założona przy 13,75 MD, import sierpnia
     zjadł resztę — sprawa zamyka się sama, zamówienie idzie do zakończonych
-    z datą końca miesiąca zejścia."""
+    z dniem przeliczenia (audyt 24.09.2026, H9)."""
     from app.core.database import AsyncSessionLocal
     from app.models.client_order import ClientOrder, ClientOrderStatus
     from app.models.client_order_offboarding import ClientOrderOffboardingCase
@@ -204,7 +198,7 @@ async def test_pending_decision_zeroed_by_a_later_import_closes_itself_and_the_o
 
     state, _ = await _group_state(group["id"])
     assert state.status == "completed"
-    assert state.closure_date == _month_end(business_today())
+    assert state.closure_date == business_today()
     async with AsyncSessionLocal() as db:
         case = await db.scalar(
             select(ClientOrderOffboardingCase).where(

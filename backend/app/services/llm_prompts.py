@@ -1118,7 +1118,7 @@ SCREENING_REASSIGN_SUGGEST = PromptTemplate(
 
 ACADEMY_SCREENING = PromptTemplate(
     name="academy_screening",
-    version=1,
+    version=2,
     expected_format="json",
     system_prompt=(
         "Czytasz CV osoby, która zgłosiła się do akademii szkoleniowej. "
@@ -1128,10 +1128,11 @@ ACADEMY_SCREENING = PromptTemplate(
         "ZAKAZY: nie wnioskuj niczego z imienia, nazwiska, narodowości, miejsca "
         "urodzenia, wyglądu ani wieku — tych danych nie zapisujesz wcale. "
         "Poziom języka polskiego podaj WYŁĄCZNIE na podstawie tego, co CV mówi "
-        "o znajomości języków, albo na podstawie tego, że całe CV jest napisane "
-        "poprawną polszczyzną (wtedy co najwyżej 'fluent'). Jeśli CV nic o tym "
-        "nie mówi — 'unknown'. Nie zgaduj dat: pozycja bez daty w CV nie trafia "
-        "do listy. Studia to uczelnia wyższa (licencjat, inżynier, magister, "
+        "o znajomości języków — cytat musi zawierać słowo o języku polskim "
+        "(np. 'polski — ojczysty'), a przy 'basic' także poziom. Jeśli CV nic "
+        "o tym nie mówi — 'unknown'. Nie zgaduj dat: pozycja bez daty w CV nie "
+        "trafia do listy, a cytat pracy lub studiów musi zawierać podane lata "
+        "(rok rozpoczęcia i zakończenia pracy, rok ukończenia studiów). Studia to uczelnia wyższa (licencjat, inżynier, magister, "
         "doktorat); kursy, bootcampy, szkolenia, studia podyplomowe, MBA "
         "i liceum mają kind 'other'. Odpowiadasz wyłącznie JSON-em."
     ),

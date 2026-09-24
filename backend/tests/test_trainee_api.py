@@ -385,6 +385,12 @@ async def test_handover_creates_trainee_proposal(app_client) -> None:
     headers = _headers(trainee_id, "trainee")
     body = (await app_client.get("/api/trainee/today", headers=headers)).json()
     item_id = next(i["id"] for i in body["items"] if i["candidate_id"] == cand_id)
+    saved = await app_client.post(
+        f"/api/trainee/items/{item_id}/call",
+        headers=headers,
+        json={"b2b_willingness": "b2b"},
+    )
+    assert saved.status_code == 200, saved.text
     open_jobs = await app_client.get(
         f"/api/trainee/items/{item_id}/open-jobs", headers=headers
     )
@@ -453,3 +459,361 @@ async def test_promotion_changes_role_and_ends_program(app_client) -> None:
         )
         assert program.status == "completed"
         assert program.decision == "promoted"
+
+
+# ── Audyt 24.09.2026 ─────────────────────────────────────────────────────────
+
+
+@needs_db
+@pytest.mark.asyncio
+async def test_handover_needs_a_call_today_and_reopens_a_dismissed_proposal(
+    app_client,
+) -> None:
+    """M19: bez zapisanej rozmowy (np. „niezainteresowany”) nie ma przekazania;
+    odrzucona wcześniej propozycja wraca do „Do przejrzenia”, a nie ginie."""
+    from sqlalchemy import select
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.job_proposal import JobProposal
+    from app.services.job_proposals import dismiss, upsert_proposals
+    from app.services.job_similarity import reset_pool_cache
+
+    skill = "Java"
+    async with AsyncSessionLocal() as db:
+        trainee, jobs = await _world(db, skill=skill)
+        declined = await _candidate(db, skill=skill)
+        talked = await _candidate(db, skill=skill)
+        await _list_with(db, trainee, [declined, talked])
+        job_id = jobs[0].id
+        # Ta para była już zaproponowana i pominięta przez rekrutera.
+        await upsert_proposals(
+            db, job_id, [{"candidate_id": talked.id}], source="full_base"
+        )
+        await dismiss(db, job_id=job_id, candidate_id=talked.id, user_id=None)
+        await db.commit()
+        trainee_id, declined_id, talked_id = trainee.id, declined.id, talked.id
+
+    reset_pool_cache()
+    headers = _headers(trainee_id, "trainee")
+    body = (await app_client.get("/api/trainee/today", headers=headers)).json()
+    ids = {i["candidate_id"]: i["id"] for i in body["items"]}
+
+    out = await app_client.post(
+        f"/api/trainee/items/{ids[declined_id]}/outcome",
+        headers=headers,
+        json={"outcome": "declined"},
+    )
+    assert out.status_code == 200, out.text
+    refused = await app_client.post(
+        f"/api/trainee/items/{ids[declined_id]}/handover",
+        headers=headers,
+        json={"job_id": job_id},
+    )
+    assert refused.status_code == 409
+    assert "rozmowę" in refused.json()["detail"]
+    jobs_refused = await app_client.get(
+        f"/api/trainee/items/{ids[declined_id]}/open-jobs", headers=headers
+    )
+    assert jobs_refused.status_code == 409
+
+    open_item = await app_client.post(
+        f"/api/trainee/items/{ids[talked_id]}/handover",
+        headers=headers,
+        json={"job_id": job_id},
+    )
+    assert open_item.status_code == 409  # jeszcze bez rozmowy
+
+    saved = await app_client.post(
+        f"/api/trainee/items/{ids[talked_id]}/call",
+        headers=headers,
+        json={"b2b_willingness": "b2b"},
+    )
+    assert saved.status_code == 200, saved.text
+    handed = await app_client.post(
+        f"/api/trainee/items/{ids[talked_id]}/handover",
+        headers=headers,
+        json={"job_id": job_id, "note": "Szuka od listopada"},
+    )
+    assert handed.status_code == 200, handed.text
+    assert handed.json()["reopened_dismissed"] is True
+    async with AsyncSessionLocal() as db:
+        statuses = set(
+            (
+                await db.scalars(
+                    select(JobProposal.status).where(
+                        JobProposal.job_id == job_id,
+                        JobProposal.candidate_id == talked_id,
+                    )
+                )
+            ).all()
+        )
+    assert statuses == {"proposed"}
+
+
+@needs_db
+@pytest.mark.asyncio
+async def test_list_rechecks_ranked_people_and_callbacks_against_the_pool() -> None:
+    """M17: ranking z rana i oddzwonienia „później” przechodzą przez warunki
+    puli — czarna lista i „nie kontaktować” po rankingu nie trafiają na listę."""
+    from datetime import datetime, timezone
+
+    from sqlalchemy import select
+
+    from app.core.database import AsyncSessionLocal
+    from app.core.scheduling import business_today
+    from app.models.call import Call, CallDirection, CallStatus
+    from app.models.candidate import CandidateStatus
+    from app.models.trainee import TraineeCallItem, TraineeCallList
+
+    skill = _skill()
+    today = business_today()
+    async with AsyncSessionLocal() as db:
+        trainee, _ = await _world(db, skill=skill)
+        ok = await _candidate(db, skill=skill)
+        blacklisted_later = await _candidate(db, skill=skill)
+        callback_ok = await _candidate(db, skill=skill)
+        callback_dnc = await _candidate(db, skill=skill)
+        # Oddzwonienia umówione wcześniej na dziś (pozycje z poprzedniej listy).
+        old_list = TraineeCallList(
+            user_id=trainee.id, list_date=today - timedelta(days=7), size=2
+        )
+        db.add(old_list)
+        await db.flush()
+        for pos, cand in enumerate((callback_ok, callback_dnc), start=1):
+            db.add(
+                TraineeCallItem(
+                    list_id=old_list.id,
+                    user_id=trainee.id,
+                    candidate_id=cand.id,
+                    list_date=old_list.list_date,
+                    position=pos,
+                    outcome="later",
+                    closed_at=datetime.now(timezone.utc) - timedelta(days=7),
+                    later_date=today,
+                    reasons={"fits": 2},
+                )
+            )
+        # Po umówieniu: rekruter usłyszał „nie kontaktujcie się”.
+        db.add(
+            Call(
+                candidate_id=callback_dnc.id,
+                direction=CallDirection.outbound,
+                status=CallStatus.completed,
+                contact_outcome="do_not_contact",
+            )
+        )
+        # Po porannym rankingu: czarna lista.
+        blacklisted_later.status = CandidateStatus.blacklisted
+        await db.flush()
+        await _list_with(db, trainee, [ok, blacklisted_later])
+        await db.commit()
+        rows = (
+            await db.scalars(
+                select(TraineeCallItem.candidate_id).where(
+                    TraineeCallItem.user_id == trainee.id,
+                    TraineeCallItem.list_date == today,
+                )
+            )
+        ).all()
+
+    assert ok.id in rows
+    assert callback_ok.id in rows
+    assert blacklisted_later.id not in rows
+    assert callback_dnc.id not in rows
+
+
+@needs_db
+@pytest.mark.asyncio
+async def test_empty_list_is_filled_on_a_later_attempt() -> None:
+    """M18: pusta lista dnia (pula pusta rano) nie jest ostateczna."""
+    from sqlalchemy import select
+
+    from app.core.database import AsyncSessionLocal
+    from app.core.scheduling import business_today
+    from app.models.trainee import TraineeCallItem, TraineeCallList
+    from app.services import trainee_call_list as lists
+
+    skill = _skill()
+    today = business_today()
+    async with AsyncSessionLocal() as db:
+        trainee, _ = await _world(db, skill=skill)
+        cand = await _candidate(db, skill=skill)
+        programs = [
+            p
+            for p in await lists.active_programs(db, today=today)
+            if p.user_id == trainee.id
+        ]
+        first = await lists.generate_lists(db, programs, today=today, ranked=[])
+        assert first == {trainee.id: 0}
+        await db.commit()
+        empty = await lists.list_for(db, trainee.id, today)
+        assert empty is not None and empty.size == 0
+
+        await _list_with(db, trainee, [cand])
+        await db.commit()
+        lists_today = (
+            await db.scalars(
+                select(TraineeCallList).where(
+                    TraineeCallList.user_id == trainee.id,
+                    TraineeCallList.list_date == today,
+                )
+            )
+        ).all()
+        assert [row.id for row in lists_today] == [empty.id]
+        refreshed = await db.get(TraineeCallList, empty.id)
+        await db.refresh(refreshed)
+        assert refreshed.size == 1
+        items = (
+            await db.scalars(
+                select(TraineeCallItem.candidate_id).where(
+                    TraineeCallItem.list_id == empty.id
+                )
+            )
+        ).all()
+        assert items == [cand.id]
+
+
+@needs_db
+@pytest.mark.asyncio
+async def test_preview_as_trainee_writes_nothing(app_client) -> None:
+    """M21: admin w „podglądzie jako” nie zakłada programu ani listy."""
+    from sqlalchemy import select
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.trainee import TraineeCallList, TraineeProgram
+
+    async with AsyncSessionLocal() as db:
+        trainee = await _user(db, "trainee")
+        admin = await _user(db, "admin")
+        await db.commit()
+        trainee_id, admin_id = trainee.id, admin.id
+
+    resp = await app_client.get(
+        "/api/trainee/today",
+        headers={
+            **_headers(admin_id, "admin"),
+            "X-Impersonate-User-Id": str(trainee_id),
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "no_program"
+    async with AsyncSessionLocal() as db:
+        assert (
+            await db.scalar(
+                select(TraineeProgram).where(TraineeProgram.user_id == trainee_id)
+            )
+        ) is None
+        assert (
+            await db.scalar(
+                select(TraineeCallList).where(TraineeCallList.user_id == trainee_id)
+            )
+        ) is None
+
+
+@needs_db
+@pytest.mark.asyncio
+async def test_first_requests_race_creates_one_program(app_client) -> None:
+    """M21: dwa równoległe pierwsze GET-y konta bez programu → oba 200."""
+    import asyncio
+
+    from sqlalchemy import func, select
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.trainee import TraineeProgram
+
+    async with AsyncSessionLocal() as db:
+        trainee = await _user(db, "trainee")
+        await db.commit()
+        trainee_id = trainee.id
+
+    headers = _headers(trainee_id, "trainee")
+    first, second = await asyncio.gather(
+        app_client.get("/api/trainee/today", headers=headers),
+        app_client.get("/api/trainee/today", headers=headers),
+    )
+    assert first.status_code == 200, first.text
+    assert second.status_code == 200, second.text
+    async with AsyncSessionLocal() as db:
+        count = await db.scalar(
+            select(func.count())
+            .select_from(TraineeProgram)
+            .where(TraineeProgram.user_id == trainee_id)
+        )
+    assert count == 1
+
+
+@needs_db
+@pytest.mark.asyncio
+async def test_recruiter_corrects_call_facts_with_audit(app_client) -> None:
+    """H4: pomyłkowe „Tylko etat” da się cofnąć; zostaje ślad starej wartości,
+    a kandydat wraca do dopasowań."""
+    from sqlalchemy import select
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.activity import Activity
+    from app.models.candidate import Candidate
+    from app.services.dealbreaker_filters import (
+        DealbreakerInputs,
+        apply_dealbreakers,
+    )
+
+    skill = _skill()
+    async with AsyncSessionLocal() as db:
+        recruiter = await _user(db, "recruiter")
+        viewer = await _user(db, "user")
+        cand = await _candidate(
+            db,
+            skill=skill,
+            b2b_willingness="employment_only",
+            work_time_preference="part_time_only",
+            accepts_below_min_rate=True,
+        )
+        await db.commit()
+        recruiter_id, viewer_id, cand_id = recruiter.id, viewer.id, cand.id
+
+    denied = await app_client.patch(
+        f"/api/candidates/{cand_id}/call-facts",
+        headers=_headers(viewer_id, "user"),
+        json={"b2b_willingness": "b2b"},
+    )
+    assert denied.status_code == 403
+
+    empty = await app_client.patch(
+        f"/api/candidates/{cand_id}/call-facts",
+        headers=_headers(recruiter_id, "recruiter"),
+        json={},
+    )
+    assert empty.status_code == 422
+
+    resp = await app_client.patch(
+        f"/api/candidates/{cand_id}/call-facts",
+        headers=_headers(recruiter_id, "recruiter"),
+        json={"b2b_willingness": "b2b", "work_time_preference": None},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {
+        "candidate_id": cand_id,
+        "b2b_willingness": "b2b",
+        "work_time_preference": None,
+        "accepts_below_min_rate": True,
+        "accepts_more_office_days": None,
+    }
+    async with AsyncSessionLocal() as db:
+        saved = await db.get(Candidate, cand_id)
+        assert saved.b2b_willingness == "b2b"
+        assert saved.work_time_preference is None
+        assert saved.accepts_below_min_rate is True  # pominięte pole bez zmian
+        audit = await db.scalar(
+            select(Activity).where(
+                Activity.entity_type == "candidate",
+                Activity.entity_id == cand_id,
+                Activity.action == "candidate_call_facts_corrected",
+            )
+        )
+        assert audit is not None and audit.user_id == recruiter_id
+        assert audit.details["changes"] == {
+            "b2b_willingness": {"old": "employment_only", "new": "b2b"},
+            "work_time_preference": {"old": "part_time_only", "new": None},
+        }
+        kept = apply_dealbreakers([saved], inputs=DealbreakerInputs()).kept
+    assert [c.id for c in kept] == [cand_id]

@@ -156,6 +156,14 @@ export function InsightsTeamActivity({ period, limit = 20 }: Props) {
             </table>
           </div>
 
+          {data?.outside_scope && data.outside_scope.users > 0 && (
+            <p className="mt-3 text-xs text-muted-foreground">
+              Poza rankingiem: {data.outside_scope.label.toLowerCase()} (
+              {count(data.outside_scope.users)}) —{" "}
+              {count(data.outside_scope.actions)} akcji, w tym{" "}
+              {count(data.outside_scope.placements)} placementów.
+            </p>
+          )}
           {data?.coverage?.note && (
             <p className="mt-3 flex items-start gap-1.5 text-xs text-muted-foreground">
               <Info

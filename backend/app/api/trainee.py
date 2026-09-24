@@ -110,9 +110,16 @@ class QualityIn(BaseModel):
 # ── Praktykant ────────────────────────────────────────────────────────────
 
 
+def _is_preview(request: Request) -> bool:
+    """Admin w „podglądzie jako” — GET ma wtedy niczego nie zapisywać."""
+    return getattr(request.state, "impersonator_id", None) is not None
+
+
 @router.get("/today")
-async def get_today(user: TraineeUser, db: AsyncSession = Depends(get_db)):
-    return await program_service.today_view(db, user)
+async def get_today(
+    request: Request, user: TraineeUser, db: AsyncSession = Depends(get_db)
+):
+    return await program_service.today_view(db, user, read_only=_is_preview(request))
 
 
 @router.post("/items/{item_id}/call")
@@ -248,7 +255,7 @@ async def get_rules_preview(
     overrides = _query_rules(request.query_params)
     rules = rules_mod.normalize_rules({**saved, **overrides})
     stats = await lists.pool_stats(db, rules, today=business_today())
-    if rules == saved:
+    if rules == saved and not _is_preview(request):
         await lists.store_pool_stats(db, stats)
         await db.commit()
     return stats

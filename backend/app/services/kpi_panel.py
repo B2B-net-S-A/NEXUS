@@ -281,18 +281,75 @@ VERIFIER_ANCHORED_CTE = """
     )
 """
 
-# Per-user: zliczamy kamienie milowe przypisane do :uid w 4 oknach czasu.
+# Precyzja (30 dni) = KOHORTA: z par (kandydat, rekrutacja), które osoba
+# zweryfikowała w ostatnich 30 dniach, ile doszło potem do „CV wysłane"
+# przypisanego tej samej osobie. Licznik i mianownik z tych samych par i tego
+# samego okna, więc wynik z definicji nie przekracza 100%.
+#
+# Do 24.09.2026 licznik brał każde „CV wysłane" z ostatnich 30 dni, także dla
+# par zweryfikowanych wcześniej: Insights → Zespół pokazywał 900% (45
+# rekomendacji przy 5 weryfikacjach), 200% i 161%. `credit_user IS NULL`
+# (kamień bez autora) nie ma wiersza w tabeli, więc tu go pomijamy.
+PRECISION_COHORT_CTE = """
+    ,
+    precision_verified AS (
+        SELECT credit_user, candidate_id, job_id, min(reached_at) AS verified_at
+        FROM credited
+        WHERE stage = 'verified'
+          AND reached_at >= :rolling30
+          AND credit_user IS NOT NULL
+        GROUP BY credit_user, candidate_id, job_id
+    ),
+    precision_sent AS (
+        SELECT credit_user, candidate_id, job_id, max(reached_at) AS last_sent_at
+        FROM credited
+        WHERE stage = 'cv_sent'
+          AND credit_user IS NOT NULL
+        GROUP BY credit_user, candidate_id, job_id
+    ),
+    precision_cohort AS (
+        SELECT v.credit_user,
+               count(*) AS verified_pairs,
+               count(*) FILTER (WHERE s.last_sent_at >= v.verified_at) AS sent_pairs
+        FROM precision_verified v
+        LEFT JOIN precision_sent s
+          ON s.credit_user = v.credit_user
+         AND s.candidate_id = v.candidate_id
+         AND s.job_id = v.job_id
+        GROUP BY v.credit_user
+    )
+"""
+
+# `r30` niesie liczby kohorty precyzji (tylko dla `verified` i `cv_sent`);
+# dla pozostałych etapów 0 — nikt ich nie czyta.
+PRECISION_R30_SQL = """
+    CASE f.stage
+        WHEN 'verified' THEN COALESCE(p.verified_pairs, 0)
+        WHEN 'cv_sent' THEN COALESCE(p.sent_pairs, 0)
+        ELSE 0
+    END
+"""
+
+# Per-user: zliczamy kamienie milowe przypisane do :uid w 3 oknach czasu
+# + kohortę precyzji z 30 dni.
 _FUNNEL_SQL = text(
     VERIFIER_ANCHORED_CTE
+    + PRECISION_COHORT_CTE
     + """
-    SELECT stage,
-           count(*) FILTER (WHERE reached_at >= :day_start)   AS d,
-           count(*) FILTER (WHERE reached_at >= :week_start)  AS w,
-           count(*) FILTER (WHERE reached_at >= :month_start) AS mo,
-           count(*) FILTER (WHERE reached_at >= :rolling30)   AS r30
-    FROM credited
-    WHERE credit_user = :uid
-    GROUP BY stage
+    SELECT f.stage, f.d, f.w, f.mo,
+           """
+    + PRECISION_R30_SQL
+    + """ AS r30
+    FROM (
+        SELECT stage,
+               count(*) FILTER (WHERE reached_at >= :day_start)   AS d,
+               count(*) FILTER (WHERE reached_at >= :week_start)  AS w,
+               count(*) FILTER (WHERE reached_at >= :month_start) AS mo
+        FROM credited
+        WHERE credit_user = :uid
+        GROUP BY stage
+    ) f
+    LEFT JOIN precision_cohort p ON p.credit_user = :uid
     """
 )
 
@@ -324,7 +381,7 @@ class FunnelCounts:
 
 @dataclass(frozen=True)
 class PrecisionResult:
-    """Precision = rekomendacje ÷ weryfikacje w oknie kroczącym (30 dni).
+    """Precision = z par zweryfikowanych w 30 dniach, ile ma „CV wysłane".
 
     `value_pct` jest None gdy mianownik < _PRECISION_MIN_DENOM (za mała próbka
     — pokazujemy „—" zamiast mylącego odsetka).
@@ -458,6 +515,8 @@ async def compute_my_panel(
 
 
 __all__ = [
+    "PRECISION_COHORT_CTE",
+    "PRECISION_R30_SQL",
     "FunnelCounts",
     "PanelResult",
     "PrecisionResult",

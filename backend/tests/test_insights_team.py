@@ -465,3 +465,72 @@ async def test_broken_period_is_422_not_a_silently_shifted_window(
         params={"period": "custom", "date_from": "2026-01-10", "date_to": "2026-01-01"},
     )
     assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_admin_accounts_are_one_row_outside_the_table(
+    fx_app: AsyncClient, fx_login: AsyncClient
+):
+    """Konta administracyjne poza tabelą osób — reguła Hall of Fame (24.09.2026).
+
+    Na produkcji konto administracyjne miało 42% placementów kwartału jako
+    jedna „osoba". Dorobek zostaje w sumie firmy, jako jeden wiersz.
+    """
+    day = _next_window()
+    admin_id, email, password = await _seed_user(UserRole.admin, name="Admin Konto")
+    recruiter_id, _, _ = await _seed_user(UserRole.recruiter, name="Rekruter Osoba")
+    cand, job = await _seed_pair()
+    cand2, job2 = await _seed_pair()
+    await _seed_stage(
+        candidate_id=cand,
+        job_id=job,
+        stage=PipelineStage.hired,
+        moved_at=_at(day),
+        moved_by=admin_id,
+    )
+    await _seed_stage(
+        candidate_id=cand2,
+        job_id=job2,
+        stage=PipelineStage.hired,
+        moved_at=_at(day),
+        moved_by=recruiter_id,
+    )
+
+    headers = await _headers(fx_login, email, password)
+    body = (await fx_app.get(URL, headers=headers, params=_params(day))).json()
+
+    assert [r["user_id"] for r in body["rows"]] == [recruiter_id]
+    totals = body["totals"]
+    assert totals["attributed"]["placements"] == 1
+    assert totals["outside_scope"]["placements"] == 1
+    assert totals["outside_scope_users"] == 1
+    # Suma firmy bez zmian — zgadza się z lejkiem.
+    assert totals["all"]["placements"] == 2
+
+
+@pytest.mark.asyncio
+async def test_talent_community_manager_stays_in_the_people_table(
+    fx_app: AsyncClient, fx_login: AsyncClient
+):
+    """TCM zostaje w tabeli osób — poza tabelą są wyłącznie konta administracyjne.
+
+    Decyzja Artura z 24.09.2026 dotyczyła kont admina; TCM rekomenduje
+    i domyka placementy jak rekruter (na produkcji 7 placementów w Q3).
+    """
+    day = _next_window()
+    _, email, password = await _seed_user(UserRole.admin, name="Admin Patrzy")
+    tcm_id, _, _ = await _seed_user(UserRole.talent_community_manager, name="TCM Osoba")
+    cand, job = await _seed_pair()
+    await _seed_stage(
+        candidate_id=cand,
+        job_id=job,
+        stage=PipelineStage.hired,
+        moved_at=_at(day),
+        moved_by=tcm_id,
+    )
+
+    headers = await _headers(fx_login, email, password)
+    body = (await fx_app.get(URL, headers=headers, params=_params(day))).json()
+
+    assert tcm_id in [r["user_id"] for r in body["rows"]]
+    assert body["totals"]["outside_scope"]["placements"] == 0

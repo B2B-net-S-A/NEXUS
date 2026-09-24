@@ -276,12 +276,17 @@ _LATEST_SQL = text(
     SELECT l.id, l.candidate_id, l.job_id, l.stage_def_id, l.moved_at,
            l.moved_by, l.task_assignee_id, j.cpro_sender_id,
            COALESCE(j.pipeline_template_id, :default_template_id) AS template_id,
-           j.title, j.client_id, j.delivery_lead_id, cl.name AS client_name,
+           j.title, j.client_id,
+           -- Nieaktywny DL rekrutacji = jak brak DL-a: przegląd idzie do
+           -- portfela klienta, zamiast do konta, którego nikt nie czyta.
+           CASE WHEN dl.is_active THEN j.delivery_lead_id END AS delivery_lead_id,
+           cl.name AS client_name,
            c.name AS cname, c.lastname AS clastname
       FROM latest l
       JOIN jobs j ON j.id = l.job_id
       JOIN candidates c ON c.id = l.candidate_id
       LEFT JOIN clients cl ON cl.id = j.client_id
+      LEFT JOIN users dl ON dl.id = j.delivery_lead_id
      WHERE l.moved_at >= :since
        AND l.stage_def_id = ANY(:stage_def_ids)
     """

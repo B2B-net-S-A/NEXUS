@@ -12,6 +12,7 @@
  */
 
 import type { InsightsPeriodParams } from "@/lib/insights-api";
+import { writePeriodToParams } from "@/lib/insights-period-url";
 import { hasSectionAccess } from "@/lib/section-access";
 import { hasAnalyticsCapability, hasRole, type User } from "@/store/auth";
 
@@ -73,7 +74,7 @@ export const REPORTS: readonly ReportDef[] = [
     title: "Lejek po etapach",
     question:
       "Ile osób doszło do każdego etapu i odznaki Tablicy, a ile stoi tam teraz?",
-    window: "miesiąc",
+    window: "poprzedni miesiąc",
     defaultPeriod: MONTH_CLOSED,
   },
   {
@@ -81,7 +82,7 @@ export const REPORTS: readonly ReportDef[] = [
     group: "Rekrutacja",
     title: "Czas i konwersje",
     question: "Ile trwa droga do zatrudnienia i jaki procent przechodzi dalej?",
-    window: "miesiąc",
+    window: "poprzedni miesiąc",
     defaultPeriod: MONTH_CLOSED,
   },
   {
@@ -106,7 +107,7 @@ export const REPORTS: readonly ReportDef[] = [
     title: "Aktywność zespołu",
     question:
       "Kto ile zweryfikował, wysłał i zatrudnił — i kto ile dodał kandydatów, screeningów i rozmów?",
-    window: "miesiąc",
+    window: "poprzedni miesiąc",
     defaultPeriod: MONTH_CLOSED,
   },
   {
@@ -220,7 +221,17 @@ export function visibleReports(user: ReportUser | null): ReportDef[] {
   return REPORTS.filter((r) => !user || !r.visible || r.visible(user));
 }
 
-/** Adres raportu na całą stronę. */
-export function reportHref(id: ReportId): string {
-  return `/insights?tab=raporty&report=${id}`;
+/**
+ * Adres raportu na całą stronę.
+ *
+ * `period` przenosi okno z widoku, z którego klikamy (np. Zespół → „Lejek po
+ * etapach”). Bez niego raport otwierał się na SWOIM domyślnym oknie
+ * (poprzedni miesiąc), a Zespół stoi na bieżącym — ta sama liczba
+ * „Zweryfikowani” wychodziła 640 i 930, czyli wyglądała na błąd reguły,
+ * a była innym miesiącem (audyt 24.09.2026).
+ */
+export function reportHref(id: ReportId, period?: InsightsPeriodParams): string {
+  const base = new URLSearchParams({ tab: "raporty", report: id });
+  const params = period ? writePeriodToParams(base, period) : base;
+  return `/insights?${params.toString()}`;
 }

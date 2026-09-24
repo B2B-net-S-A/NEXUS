@@ -48,6 +48,10 @@ from app.api.deps import CurrentUser
 from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.core.cache import cache_get, cache_set, cache_single_flight
 from app.core.database import get_db
+from app.services.insights_person_scope import (
+    OUTSIDE_SCOPE_LABEL,
+    outside_scope_user_ids,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -123,7 +127,8 @@ async def insights_team_table(
     # Klucz cache'u NIESIE OKNO (`cache_suffix`). Bez tego liczby jednego
     # okresu wyszłyby pod etykietą drugiego — obie wyglądają wiarygodnie,
     # więc nikt by się nie dowiedział.
-    cache_key = f"insights:team:table:v1:{resolved.cache_suffix}"
+    # v2 (24.09.2026): konta administracyjne jednym wierszem poza tabelą.
+    cache_key = f"insights:team:table:v2:{resolved.cache_suffix}"
     async with cache_single_flight(cache_key, db=db):
         cached = await cache_get(cache_key)
         if cached is not None:
@@ -188,8 +193,18 @@ async def insights_team_table(
             )
             users = {int(u["id"]): dict(u) for u in user_rows}
 
+        # Konta bez roli rekrutacyjnej (admin, Finanse…) — reguła Hall of Fame,
+        # decyzja Artura 24.09.2026. Ich dorobek jest jednym wierszem pod
+        # tabelą, a „Łącznie” dalej zgadza się z lejkiem.
+        outside_ids = await outside_scope_user_ids(db, per_user.keys())
+        outside_scope = _empty_counts()
+
         entries = []
         for user_id, counts in per_user.items():
+            if user_id in outside_ids:
+                for key in _COLUMN_KEYS:
+                    outside_scope[key] += counts[key]
+                continue
             user = users.get(user_id)
             role = str(user["role"]) if user and user["role"] is not None else None
             entries.append(
@@ -233,11 +248,16 @@ async def insights_team_table(
             "totals": {
                 # Suma widocznych wierszy…
                 "attributed": attributed,
+                # …dorobek kont spoza ról rekrutacyjnych (jeden wiersz)…
+                "outside_scope": outside_scope,
+                "outside_scope_users": len(outside_ids),
+                "outside_scope_label": OUTSIDE_SCOPE_LABEL,
                 # …to, czego nie da się przypisać nikomu…
                 "unattributed": unattributed,
-                # …i suma obu, która MUSI zgadzać się z lejkiem org-level.
+                # …i suma wszystkiego, która MUSI zgadzać się z lejkiem org-level.
                 "all": {
-                    key: attributed[key] + unattributed[key] for key in _COLUMN_KEYS
+                    key: attributed[key] + outside_scope[key] + unattributed[key]
+                    for key in _COLUMN_KEYS
                 },
                 "users": len(entries),
                 "former_employees": sum(1 for e in entries if e["is_active"] is False),

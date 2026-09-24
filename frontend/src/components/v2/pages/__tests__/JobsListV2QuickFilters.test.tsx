@@ -397,6 +397,47 @@ describe("JobsListV2 — status jako pigułki", () => {
     mockJobsResponse([jobRow()]);
   });
 
+  it("stan pracy w wierszu ma przedrostek „Praca:” — nie myli się z propozycjami ani statusem „Szukamy”", async () => {
+    mockJobsResponse([
+      jobRow({ id: 201, request_status: "searching", visible_work_state: "to_review" }),
+      jobRow({ id: 202, request_status: "searching", visible_work_state: "client_silent" }),
+    ]);
+    renderJobs();
+    expect(await screen.findByText("Praca: do przeglądu")).toBeInTheDocument();
+    expect(screen.getByText("Praca: klient milczy")).toBeInTheDocument();
+    const table = screen.getByRole("table");
+    expect(within(table).queryByText("Do przejrzenia")).toBeNull();
+  });
+
+  it("strona listy ma dolny odstęp — ostatni wiersz przewija się nad maskotkę Jarvisa", async () => {
+    // CSS: jsdom nie liczy nakładania; pilnujemy samego odstępu (audyt 24.09.2026).
+    renderJobs();
+    expect(await screen.findByTestId("jobs-list-page")).toHaveClass("pb-24");
+  });
+
+  it("status „Zamknięta” w zakresie „Otwarte” przełącza na „Wszystkie” (dawniej zawsze 0 wyników)", async () => {
+    signInAs("admin");
+    window.history.replaceState(null, "", "/jobs");
+    const user = userEvent.setup();
+    renderJobs();
+    await waitFor(() => expect(jobsCalls()).toHaveLength(1));
+    expect(latestParams()).toMatchObject({ open_only: true });
+
+    const statusGroup = within(screen.getByRole("group", { name: "Filtr: Status" }));
+    await user.click(statusGroup.getByRole("button", { name: "Zamknięta" }));
+    await waitFor(() => expect(latestParams()).toMatchObject({ status: ["closed"] }));
+    expect(latestParams().open_only).toBeUndefined();
+    const scope = within(screen.getByRole("group", { name: "Zakres rekrutacji" }));
+    expect(scope.getByRole("button", { name: /Wszystkie/ })).toHaveAttribute("aria-pressed", "true");
+    await waitFor(() => expect(window.location.search).toContain("mine=0"));
+
+    // Powrót do „Otwartych” zdejmuje „Zamknięta” — inaczej lista byłaby pusta.
+    await user.click(scope.getByRole("button", { name: /Otwarte/ }));
+    await waitFor(() => expect(latestParams()).toMatchObject({ open_only: true }));
+    expect(latestParams().status).toBeUndefined();
+    window.history.replaceState(null, "", "/jobs");
+  });
+
   it("pigułka wysyła `status[]`, a „Wszystkie” czyści filtr", async () => {
     const user = userEvent.setup();
     renderJobs();

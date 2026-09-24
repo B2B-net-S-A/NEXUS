@@ -664,7 +664,9 @@ export default function JobDetailPage() {
           return;
         case "cv":
           focusBoardColumn(
-            (boardSummary?.counts.cv_qc ?? 0) > 0 || !(boardSummary?.counts.cv_sent ?? 0)
+            (boardSummary?.counts.cv_qc ?? 0) > 0 ||
+              (boardSummary?.cproQueue ?? 0) > 0 ||
+              !(boardSummary?.counts.cv_sent ?? 0)
               ? "cv_qc"
               : "cv_sent",
           );

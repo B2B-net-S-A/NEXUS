@@ -10,6 +10,7 @@ import {
   type InsightsDlPortfolioLead,
   type InsightsPeriodParams,
 } from "@/lib/insights-api";
+import { DL_HIT_RATIO_PORTFOLIO_NOTE } from "@/lib/insights-views";
 import { cn } from "@/lib/utils";
 import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
 import { barWidth, count, pct } from "./InsightsFormat";
@@ -292,6 +293,9 @@ export function InsightsDlPortfolio({
               </table>
             </div>
           )}
+          <p className="text-xs text-muted-foreground">
+            {DL_HIT_RATIO_PORTFOLIO_NOTE}
+          </p>
           {data.unattributed.requests > 0 || data.unattributed.placements > 0 ? (
             <p className="text-xs text-muted-foreground">
               Bez przypisanego DL: {count(data.unattributed.requests)} zapytań ·{" "}

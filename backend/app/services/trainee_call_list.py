@@ -37,7 +37,14 @@ _POOL_LIMIT = 60_000
 #: Ranking puli liczony raz na dzień i reguły (60 tys. profili w Pythonie to
 #: sekundy) — kolejne listy dnia biorą go z pamięci procesu i pomijają osoby
 #: już rozdane dziś (``_assigned_on``).
-_ranked_cache: dict[tuple[date, str], list["RankedCandidate"]] = {}
+_ranked_cache: dict[tuple[date, str], tuple[datetime, list["RankedCandidate"]]] = {}
+
+#: Pusty ranking nie jest ostateczny (audyt 24.09.2026): liczymy go ponownie,
+#: ale nie częściej niż co tyle — pusta lista praktykanta pyta przy każdym GET.
+_EMPTY_RANKING_RETRY = timedelta(minutes=10)
+
+#: Ile osób z rankingu sprawdzamy jednym zapytaniem przed wpisaniem na listę.
+_RECHECK_MARGIN = 20
 
 #: Sprawy kolejki „Do przedzwonienia”, w które praktykant nie może wchodzić.
 _CONTACT_BUSY_STATES = (
@@ -104,24 +111,20 @@ def _gap_sql(rules: dict[str, Any]) -> str:
     return " OR ".join(f"({p})" for p in parts)
 
 
-def pool_sql(rules: dict[str, Any]) -> str:
-    """Kandydaci do dzwonienia (bez rankingu). Jedno zapytanie."""
+def _hard_conditions_sql() -> str:
+    """Warunki, przy których telefon COŚ psuje — wspólne dla puli i oddzwonień.
+
+    Ta sama lista pilnuje trzech miejsc: pełnej puli, ponownego sprawdzenia
+    osób z rankingu trzymanego w pamięci przez cały dzień i oddzwonień
+    „później” (audyt 24.09.2026 — oddzwonienie omijało wszystkie filtry, więc
+    osoba z czarnej listy albo „nie kontaktować” wracała na listę).
+    """
     busy = ", ".join(f"'{s}'" for s in _CONTACT_BUSY_STATES)
     return f"""
-SELECT c.id, c.competence_category_id, c.skills, c.expected_rate_hourly,
-       c.profile_rate_updated_at, c.b2b_willingness, c.work_time_preference,
-       c.preferences, c.max_onsite_days_per_week, c.accepts_below_min_rate,
-       c.accepts_more_office_days, c.availability_status, c.availability_date
-FROM candidates c
-WHERE c.phone IS NOT NULL
+  c.phone IS NOT NULL
   AND length(regexp_replace(c.phone, '[^0-9]', '', 'g')) >= 9
   AND c.status::text <> 'blacklisted'
   AND c.b2b_willingness IS DISTINCT FROM 'employment_only'
-  AND (c.call_facts_verified_at IS NULL
-       OR c.call_facts_verified_at < now() - make_interval(days => :verified_days))
-  AND (c.last_contacted_at IS NULL
-       OR c.last_contacted_at < now() - make_interval(days => :contact_days))
-  AND ({_gap_sql(rules)})
   AND NOT EXISTS (
       SELECT 1 FROM contracts ct
       WHERE ct.candidate_id = c.id
@@ -134,7 +137,28 @@ WHERE c.phone IS NOT NULL
       SELECT 1 FROM candidate_stages cs
       JOIN jobs j ON j.id = cs.job_id
       WHERE cs.candidate_id = c.id AND j.status::text = 'published'
-        AND cs.moved_at >= now() - make_interval(days => :process_days))
+        AND cs.moved_at >= now() - make_interval(days => :process_days))"""
+
+
+def pool_sql(rules: dict[str, Any], *, only_ids: bool = False) -> str:
+    """Kandydaci do dzwonienia (bez rankingu). Jedno zapytanie.
+
+    ``only_ids`` zawęża do ``:ids`` — ponowne sprawdzenie osób z rankingu
+    policzonego rano, zanim trafią na listę (stan mógł się zmienić w ciągu dnia).
+    """
+    ids_filter = "\n  AND c.id = ANY(:ids)" if only_ids else ""
+    return f"""
+SELECT c.id, c.competence_category_id, c.skills, c.expected_rate_hourly,
+       c.profile_rate_updated_at, c.b2b_willingness, c.work_time_preference,
+       c.preferences, c.max_onsite_days_per_week, c.accepts_below_min_rate,
+       c.accepts_more_office_days, c.availability_status, c.availability_date
+FROM candidates c
+WHERE {_hard_conditions_sql()}{ids_filter}
+  AND (c.call_facts_verified_at IS NULL
+       OR c.call_facts_verified_at < now() - make_interval(days => :verified_days))
+  AND (c.last_contacted_at IS NULL
+       OR c.last_contacted_at < now() - make_interval(days => :contact_days))
+  AND ({_gap_sql(rules)})
   AND NOT EXISTS (
       SELECT 1 FROM calls cl
       WHERE cl.candidate_id = c.id
@@ -148,6 +172,35 @@ WHERE c.phone IS NOT NULL
              OR ti.outcome = 'declined'
              OR (ti.outcome = 'wrong' AND ti.phone_snapshot = c.phone)))
 LIMIT {_POOL_LIMIT}
+"""
+
+
+def callback_sql() -> str:
+    """Oddzwonienia „później”, które nadal wolno wykonać.
+
+    Te same twarde warunki co pula. Świeżość kontaktu liczy się z pominięciem
+    telefonu tego samego praktykanta (to on umówił oddzwonienie), a luka
+    w danych nie jest wymagana (kandydat prosił o telefon).
+    """
+    return f"""
+SELECT c.id
+FROM candidates c
+WHERE c.id = ANY(:ids) AND {_hard_conditions_sql()}
+  AND (c.call_facts_verified_at IS NULL
+       OR c.call_facts_verified_at < now() - make_interval(days => :verified_days))
+  AND NOT EXISTS (
+      SELECT 1 FROM calls cl
+      WHERE cl.candidate_id = c.id
+        AND (cl.contact_outcome = 'do_not_contact'
+             OR (cl.user_id IS DISTINCT FROM :trainee_id
+                 AND COALESCE(cl.started_at, cl.created_at)
+                     >= now() - make_interval(days => :contact_days))))
+  AND NOT EXISTS (
+      SELECT 1 FROM trainee_call_items ti
+      WHERE ti.candidate_id = c.id
+        AND (ti.outcome = 'declined'
+             OR (ti.outcome = 'wrong' AND ti.phone_snapshot = c.phone)
+             OR (ti.user_id <> :trainee_id AND ti.list_date >= :recall_since)))
 """
 
 
@@ -326,6 +379,63 @@ async def _scheduled_later(
     return list(rows.all())
 
 
+async def _callable_ranked(
+    db: AsyncSession, ids: list[int], rules: dict[str, Any], today: date
+) -> set[int]:
+    """Kto z porannego rankingu NADAL nadaje się do telefonu (te same warunki)."""
+    if not ids:
+        return set()
+    rows = await db.execute(
+        text(pool_sql(rules, only_ids=True)),
+        {**_pool_params(rules, today), "ids": ids},
+    )
+    return {row.id for row in rows}
+
+
+async def _callable_callbacks(
+    db: AsyncSession,
+    ids: list[int],
+    rules: dict[str, Any],
+    today: date,
+    *,
+    trainee_id: int,
+) -> set[int]:
+    if not ids:
+        return set()
+    rows = await db.execute(
+        text(callback_sql()),
+        {**_pool_params(rules, today), "ids": ids, "trainee_id": trainee_id},
+    )
+    return {row.id for row in rows}
+
+
+async def _lists_to_fill(
+    db: AsyncSession, programs: list[TraineeProgram], today: date
+) -> list[tuple[TraineeProgram, Optional[TraineeCallList]]]:
+    """Programy bez listy na dziś albo z listą PUSTĄ (audyt 24.09.2026).
+
+    Pusta lista była ostateczna: pula pusta o 5:00 (np. za ostry próg w
+    regułach) zostawiała praktykanta bez pracy na cały dzień, także po
+    poprawieniu reguł. Lista z pozycjami nie jest nigdy przebudowywana.
+    """
+    todo: list[tuple[TraineeProgram, Optional[TraineeCallList]]] = []
+    for program in programs:
+        existing = await list_for(db, program.user_id, today)
+        if existing is None:
+            todo.append((program, None))
+            continue
+        if existing.size:
+            continue
+        has_items = await db.scalar(
+            select(TraineeCallItem.id)
+            .where(TraineeCallItem.list_id == existing.id)
+            .limit(1)
+        )
+        if has_items is None:
+            todo.append((program, existing))
+    return todo
+
+
 async def generate_lists(
     db: AsyncSession,
     programs: list[TraineeProgram],
@@ -333,17 +443,18 @@ async def generate_lists(
     today: date,
     ranked: Optional[list[RankedCandidate]] = None,
 ) -> dict[int, int]:
-    """Listy na ``today`` dla programów, które ich jeszcze nie mają.
+    """Listy na ``today`` dla programów, które ich nie mają albo mają pustą.
 
-    Zwraca ``{user_id: liczba pozycji}`` dla list założonych w tym wywołaniu.
-    Nie commituje — wołający kończy transakcję (blokada doradcza trzyma się
-    do jej końca, więc równoległe wywołanie zobaczy gotowe listy).
+    Zwraca ``{user_id: liczba pozycji}`` dla list założonych albo uzupełnionych
+    w tym wywołaniu. Nie commituje — wołający kończy transakcję (blokada
+    doradcza trzyma się do jej końca, więc równoległe wywołanie zobaczy gotowe
+    listy).
     """
     await db.execute(
         text("SELECT pg_advisory_xact_lock(:k, :d)"),
         {"k": _LOCK_KEY, "d": today.toordinal()},
     )
-    todo = [p for p in programs if await list_for(db, p.user_id, today) is None]
+    todo = await _lists_to_fill(db, programs, today)
     if not todo:
         return {}
     rules = await load_rules(db)
@@ -352,14 +463,31 @@ async def generate_lists(
     assigned = await _assigned_on(db, today)
     cursor = 0
     created: dict[int, int] = {}
-    for program in todo:
-        call_list = TraineeCallList(user_id=program.user_id, list_date=today, size=0)
-        db.add(call_list)
-        await db.flush()
+    skipped_callbacks = 0
+    for program, call_list in todo:
+        if call_list is None:
+            call_list = TraineeCallList(
+                user_id=program.user_id, list_date=today, size=0
+            )
+            db.add(call_list)
+            await db.flush()
         position = 0
         taken: set[int] = assigned
-        for later in await _scheduled_later(db, program.user_id, today):
+        callbacks = await _scheduled_later(db, program.user_id, today)
+        allowed_callbacks = await _callable_callbacks(
+            db,
+            sorted({later.candidate_id for later in callbacks}),
+            rules,
+            today,
+            trainee_id=program.user_id,
+        )
+        for later in callbacks:
             if later.candidate_id in taken:
+                continue
+            if later.candidate_id not in allowed_callbacks:
+                # Kandydat od czasu umówienia oddzwonienia wszedł w proces,
+                # dostał umowę, prosił o spokój albo trafił na czarną listę.
+                skipped_callbacks += 1
                 continue
             taken.add(later.candidate_id)
             position += 1
@@ -376,30 +504,51 @@ async def generate_lists(
                 )
             )
         while position < program.daily_list_size and cursor < len(ranked):
-            item = ranked[cursor]
-            cursor += 1
-            if item.candidate_id in taken:
-                continue
-            taken.add(item.candidate_id)
-            position += 1
-            db.add(
-                TraineeCallItem(
-                    list_id=call_list.id,
-                    user_id=program.user_id,
-                    candidate_id=item.candidate_id,
-                    list_date=today,
-                    position=position,
-                    reasons=_reasons(item),
-                )
+            # Ranking policzono rano; stan kandydata mógł się zmienić w ciągu
+            # dnia — każdą paczkę sprawdzamy ponownie warunkami puli.
+            need = program.daily_list_size - position
+            batch: list[tuple[int, RankedCandidate]] = []
+            scan = cursor
+            while scan < len(ranked) and len(batch) < need + _RECHECK_MARGIN:
+                item = ranked[scan]
+                if item.candidate_id not in taken:
+                    batch.append((scan, item))
+                scan += 1
+            if not batch:
+                cursor = scan
+                break
+            allowed = await _callable_ranked(
+                db, [item.candidate_id for _, item in batch], rules, today
             )
+            cursor = scan
+            for index, item in batch:
+                if position >= program.daily_list_size:
+                    # Reszta paczki czeka na następny program z kolejki.
+                    cursor = index
+                    break
+                if item.candidate_id not in allowed:
+                    continue
+                taken.add(item.candidate_id)
+                position += 1
+                db.add(
+                    TraineeCallItem(
+                        list_id=call_list.id,
+                        user_id=program.user_id,
+                        candidate_id=item.candidate_id,
+                        list_date=today,
+                        position=position,
+                        reasons=_reasons(item),
+                    )
+                )
         call_list.size = position
         created[program.user_id] = position
         await db.flush()
     logger.info(
-        "trainee call lists generated date=%s lists=%s pool=%s",
+        "trainee call lists generated date=%s lists=%s pool=%s skipped_callbacks=%s",
         today.isoformat(),
         created,
         len(ranked),
+        skipped_callbacks,
     )
     return created
 
@@ -416,11 +565,13 @@ async def cached_ranking(
 ) -> list[RankedCandidate]:
     key = (today, repr(sorted(rules.items())))
     cached = _ranked_cache.get(key)
-    if cached is None:
-        _ranked_cache.clear()
-        cached = await rank_pool(db, rules, today=today)
-        _ranked_cache[key] = cached
-    return cached
+    now = datetime.now(timezone.utc)
+    if cached is not None and (cached[1] or now - cached[0] < _EMPTY_RANKING_RETRY):
+        return cached[1]
+    _ranked_cache.clear()
+    ranking = await rank_pool(db, rules, today=today)
+    _ranked_cache[key] = (now, ranking)
+    return ranking
 
 
 def reset_ranking_cache() -> None:
@@ -430,14 +581,15 @@ def reset_ranking_cache() -> None:
 async def ensure_list(
     db: AsyncSession, program: TraineeProgram, *, today: date
 ) -> Optional[TraineeCallList]:
-    """Lista na dziś — założona, jeśli jej brak (dzień roboczy, program trwa)."""
+    """Lista na dziś — założona, jeśli jej brak, i uzupełniona, jeśli pusta
+    (dzień roboczy, program trwa)."""
     existing = await list_for(db, program.user_id, today)
-    if existing is not None:
+    if existing is not None and existing.size:
         return existing
     if not rules_mod.is_workday(today) or program.status != "active":
-        return None
+        return existing
     if program.start_date > today:
-        return None
+        return existing
     await generate_lists(db, [program], today=today)
     await db.commit()
     return await list_for(db, program.user_id, today)

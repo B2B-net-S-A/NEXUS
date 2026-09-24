@@ -720,3 +720,43 @@ async def test_admin_can_dismiss_an_unrecognized_document(
     assert dismissed.status_code == 200, dismissed.text
     assert dismissed.json()["outcome"] == OUTCOME_DISMISSED
     assert dismissed.json()["can_dismiss"] is False
+
+
+# ── Audyt 24.09.2026: stawka bez jednostki ───────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_manual_apply_refuses_rate_without_unit_instead_of_contract_unit(
+    seeded,
+):
+    """Wiersz z własną stawką (inną niż dokument) bez jednostki: planer zostawia
+    jednostkę pustą, a writer brał jednostkę kontraktu — 1200 zł za MD mogło się
+    zapisać jako 1200 zł/h. Ręczne „Zastosuj" odmawia z prośbą o jednostkę."""
+    async with AsyncSessionLocal() as db:
+        doc = await db.get(OrderMailDocument, seeded["doc_id"])
+        # `apply_document` liczy plan od nowa z odczytu, więc brak jednostki
+        # musi być w ODCZYCIE: osoba z inną stawką niż dokument, bez jednostki.
+        row = doc.extraction["consultant_rows"][0]
+        doc.extraction = {
+            **doc.extraction,
+            "consultant_rows": [{**row, "rate_client": "1200.00", "rate_unit": None}],
+        }
+        await db.flush()
+        result = await apply_document(db, doc, actor_user_id=None)
+        # Odmowa pada w writerze (wiersz z błędem) albo już przy przeliczeniu
+        # planu (błąd dokumentu) — w obu przypadkach nic się nie zapisuje.
+        assert not result.ok
+        if result.rows:
+            assert "nie ma jednostki" in (result.rows[0].error or "")
+            assert result.rows[0].order_id is None
+        else:
+            assert result.error
+        orders = (
+            await db.scalars(
+                select(ClientOrder).where(
+                    ClientOrder.contract_id == seeded["contract_id"]
+                )
+            )
+        ).all()
+        assert orders == []
+        await db.rollback()

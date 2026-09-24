@@ -173,6 +173,19 @@ describe("InsightsFlagAdmin", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
+  it("przycisk nadawania nie wypisuje „Ostrzeżenia” przy każdym nazwisku (audyt 24.09.2026)", () => {
+    renderWithClient(
+      <InsightsFlagAdmin userId={42} userName="Jan" flags={[]} types={TYPES} />,
+    );
+    const trigger = screen.getByRole("button", {
+      name: /Zarządzaj ostrzeżeniami — Jan/,
+    });
+    // Dostępność zostaje (aria-label), ale widocznego napisu nie ma — napis
+    // przy każdym wierszu czytał się jak aktywne ostrzeżenie.
+    expect(trigger.textContent?.trim()).toBe("");
+    expect(screen.queryByText("Ostrzeżenia")).toBeNull();
+  });
+
   it("pozwala nadać PIERWSZĄ plakietkę osobie, która nie ma żadnej", async () => {
     renderWithClient(
       <InsightsFlagAdmin userId={42} userName="Jan" flags={[]} types={TYPES} />,
