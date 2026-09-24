@@ -38,14 +38,18 @@ export function workModeLabel(facts: Pick<ProposalFacts, "max_onsite_days_per_we
 export function factsRateLabel(facts: Pick<ProposalFacts, "expected_rate_hourly" | "expected_rate_currency">): string | null {
   const value = facts.expected_rate_hourly;
   if (value == null || !Number.isFinite(value) || value <= 0) return null;
-  const currency = (facts.expected_rate_currency ?? "PLN").toUpperCase();
-  return currency === "PLN" ? formatHourlyRate(value) : `${Math.round(value)} ${currency}/h`;
+  const currency = (facts.expected_rate_currency ?? "PLN").trim().toUpperCase();
+  // „zł”/„ZŁ”/„ZL” z importu to też złotówki.
+  const isPln = currency === "PLN" || currency === "ZŁ" || currency === "ZL";
+  return isPln ? formatHourlyRate(value) : `${Math.round(value)} ${currency}/h`;
 }
 
 /** Linia „Ostatnio: …” — stanowisko, staż, miasto, tryb, dostępność, stawka. */
 export function proposalFactsLine(facts: ProposalFacts | null | undefined, now: Date = new Date()): string | null {
   if (!facts) return null;
-  const role = [facts.title, facts.company ? `@ ${facts.company}` : null].filter(Boolean).join(" ");
+  const role = facts.title
+    ? [facts.title, facts.company ? `@ ${facts.company}` : null].filter(Boolean).join(" ")
+    : facts.company ?? "";
   const parts = [
     role || null,
     yearsLabel(facts.years_experience),
