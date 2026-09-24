@@ -53,7 +53,7 @@ describe("UserModal — exclusive personas", () => {
     );
   });
 
-  it("Praktykant (0371) jest rolą wyłączną — czyści pozostałe role", () => {
+  it("Praktykant (0372) jest rolą wyłączną — czyści pozostałe role", () => {
     const onSave = vi.fn();
     render(
       <UserModal

@@ -317,7 +317,7 @@ const ROLE_ROUTES: RouteAccessRule[] = [
     enforceRoles: true,
   },
   { prefix: "/insights", roles: INSIGHTS_ROLES, section: "insights" },
-  // Praktykanci (0371). `/trainee` = lista telefonów TEGO praktykanta — nawet
+  // Praktykanci (0372). `/trainee` = lista telefonów TEGO praktykanta — nawet
   // admin jej nie otwiera (patrzy w panel `/trainees`). Resolver bierze
   // najdłuższy prefiks, więc `/trainees` nie wpada w regułę `/trainee`.
   { prefix: "/trainee", roles: ["trainee"], enforceRoles: true },
@@ -437,7 +437,7 @@ const PUBLIC_PATHS = [
   "/preview/job-portals",
   "/preview/academy",
   "/preview/request-allocation",
-  // Praktykanci (0371): `/preview/trainee` pokrywa też `/preview/trainees`.
+  // Praktykanci (0372): `/preview/trainee` pokrywa też `/preview/trainees`.
   "/preview/trainee",
   // Strona kariery (kandydaci z LinkedIna) — publiczna z definicji. Na własnym
   // hoście (`kariera.dynaminds.pl`) obsługuje ją `careerHostResponse` niżej;
@@ -478,7 +478,7 @@ function careerHostResponse(request: NextRequest): NextResponse {
 }
 
 /**
- * Trasy dostępne dla praktykanta (0371). Wszystko inne przekierowuje na jego
+ * Trasy dostępne dla praktykanta (0372). Wszystko inne przekierowuje na jego
  * jedyny ekran — nie na /403, bo praktykant nie ma „reszty aplikacji”, do
  * której mógłby trafić przez pomyłkę. `/profile` zostaje (zmiana hasła).
  */

@@ -577,7 +577,7 @@ class CandidateResponse(BaseModel):
     preferences: Optional[Any] = None
     # 0278: trzecia rubryka rekrutacji. 0 = wyłącznie zdalnie.
     max_onsite_days_per_week: Optional[int] = None
-    # Fakty z telefonu praktykanta (0371), tylko do odczytu — zapisuje je
+    # Fakty z telefonu praktykanta (0372), tylko do odczytu — zapisuje je
     # wyłącznie `/api/trainee/items/{id}/call`, nie ogólny PATCH kandydata.
     # Przy `call_facts_verified_at` `expected_rate_hourly` jest MINIMUM z rozmowy.
     b2b_willingness: Optional[Literal["b2b", "would_switch", "employment_only"]] = None

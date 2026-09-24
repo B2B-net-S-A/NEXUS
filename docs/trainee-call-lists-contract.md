@@ -1,4 +1,4 @@
-# Praktykant — kontrakt API (0371)
+# Praktykant — kontrakt API (0372)
 
 Makieta: https://claude.ai/artifact/2cF9QaY3YwoezR8dU8ga7x
 

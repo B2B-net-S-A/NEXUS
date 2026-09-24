@@ -125,7 +125,7 @@ def sanitize_evidence(raw: Any) -> Optional[dict]:
             out["reassign"] = clean_reassign
     trainee = raw.get("trainee")
     if isinstance(trainee, Mapping):
-        # 0371: przekazanie przez praktykanta po rozmowie — kto przekazał
+        # 0372: przekazanie przez praktykanta po rozmowie — kto przekazał
         # i jego wiadomość dla rekrutera (świadomie tekst: po to jest).
         by_user = trainee.get("user_id")
         note = trainee.get("note")

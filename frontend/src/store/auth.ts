@@ -18,7 +18,7 @@ export type UserRole =
   | "recruiter"
   | "sourcer"
   | "user"
-  // Praktykant (0371) — rola WYŁĄCZNA: widzi tylko „Telefony na dziś”
+  // Praktykant (0372) — rola WYŁĄCZNA: widzi tylko „Telefony na dziś”
   // (`/trainee`). Nie łączy się z innymi rolami (lustro finance).
   | "trainee"
 

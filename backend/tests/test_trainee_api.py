@@ -1,4 +1,4 @@
-"""Praktykant — lista telefonów przez API na prawdziwej bazie (0371).
+"""Praktykant — lista telefonów przez API na prawdziwej bazie (0372).
 
 Kontrakty (decyzje Artura 24.09.2026):
 

@@ -1,4 +1,4 @@
-"""Praktykant — „Telefony na dziś” i panel Head of Recruitment (0371).
+"""Praktykant — „Telefony na dziś” i panel Head of Recruitment (0372).
 
 Trasy praktykanta stoją poza sekcjami (praktykant nie ma żadnej) na
 ``TraineeUser`` i widzą wyłącznie pozycje własnej listy; karta kandydata to

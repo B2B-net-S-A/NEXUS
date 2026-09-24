@@ -1,5 +1,5 @@
 /**
- * Fakty z telefonu praktykanta (0371) na profilu kandydata.
+ * Fakty z telefonu praktykanta (0372) na profilu kandydata.
  *
  * Zapisuje je wyłącznie ekran praktykanta; profil tylko pokazuje. Przy
  * `call_facts_verified_at` stawka profilu (`expected_rate_hourly`) jest

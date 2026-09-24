@@ -1,4 +1,4 @@
-"""Praktykant — pula do dzwonienia i codzienne listy (0371).
+"""Praktykant — pula do dzwonienia i codzienne listy (0372).
 
 Deterministycznie, bez AI. Pula = kandydaci, do których telefon NIC nie
 psuje (ma telefon, nie pracuje u nas, nie jest w toczącym się procesie, nikt

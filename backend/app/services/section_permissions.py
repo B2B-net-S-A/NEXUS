@@ -99,7 +99,7 @@ DEFAULT_ROLE_SECTION_ACCESS: dict[UserRole, dict[ProductSection, SectionAccess]]
         pipeline=SectionAccess.read,
         insights=SectionAccess.read,
     ),
-    # 0371: praktykant nie ma żadnej sekcji — jego ekran stoi poza sekcjami
+    # 0372: praktykant nie ma żadnej sekcji — jego ekran stoi poza sekcjami
     # (`/api/trainee/*`, ``TraineeUser``).
     UserRole.trainee: _policy(),
 }

@@ -178,7 +178,7 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     description: "Kto trafia na codzienną listę telefonów praktykantów.",
     keywords: "praktykant praktykanci telefony lista reguly pula stawka dostepnosc",
     route: "/settings/trainee-rules",
-    // `/api/trainee/rules` = admin + Head of Recruitment (0371).
+    // `/api/trainee/rules` = admin + Head of Recruitment (0372).
     gate: { roles: ["admin", "head_of_recruitment"] },
   },
   {

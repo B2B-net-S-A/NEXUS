@@ -340,7 +340,7 @@ describe("/preview/cpro-queue zasiewa każdy stały klucz", () => {
   });
 });
 
-describe("/preview/trainee i /preview/trainees (0371) nie mają sieci", () => {
+describe("/preview/trainee i /preview/trainees (0372) nie mają sieci", () => {
   const today = withoutComments(read("app/preview/trainee/page.tsx"));
   const panel = withoutComments(read("app/preview/trainees/page.tsx"));
 

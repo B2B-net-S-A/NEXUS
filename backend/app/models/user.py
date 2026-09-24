@@ -33,7 +33,7 @@ class UserRole(str, enum.Enum):
     - recruiter           — 100% LinkedIn, dodaje kandydatów
     - sourcer             — 100% ATS + ogłoszenia
     - user                — deprecated legacy viewer; no new provisioning
-    - trainee             — praktykant (0371): przez program wdrożenia widzi
+    - trainee             — praktykant (0372): przez program wdrożenia widzi
                             wyłącznie „Telefony na dziś”; rola wyłączna
 
     ``user`` remains during the expand/contract window so legacy guards keep

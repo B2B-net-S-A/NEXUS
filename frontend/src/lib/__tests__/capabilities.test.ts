@@ -331,7 +331,7 @@ const EXPECTED: Record<
     sourcer: false,
     user: false,
   },
-  // „Telefony na dziś” — wyłącznie praktykant (0371), nawet admin nie.
+  // „Telefony na dziś” — wyłącznie praktykant (0372), nawet admin nie.
   "nav.trainee": {
     admin: false,
     head_of_recruitment: false,
@@ -353,7 +353,7 @@ const EXPECTED: Record<
   },
 };
 
-/** Praktykant (0371) ma jedną capability: własną listę telefonów. */
+/** Praktykant (0372) ma jedną capability: własną listę telefonów. */
 function traineeExpected(capability: Capability): boolean {
   return capability === "nav.trainee";
 }
@@ -952,7 +952,7 @@ describe("kontrakt backend ↔ rejestr capability", () => {
 // ───────────────────────────────────────────────────────────────────────────
 
 /**
- * Role z sidebarem. Praktykant (0371) ma własną powłokę bez menu, więc nie
+ * Role z sidebarem. Praktykant (0372) ma własną powłokę bez menu, więc nie
  * widzi ŻADNEJ pozycji — liczony tu robiłby z każdej pozycji „bramkowaną”.
  */
 const SIDEBAR_ROLES = ALL_ROLES.filter((role) => role !== "trainee");
@@ -980,7 +980,7 @@ const SIDEBAR_HREF_CAPABILITY: Record<string, Capability> = {
   // ekranów Klienci / Kontrakty (wejście z ⌘K), więc nie mają pozycji menu.
   "/contracts": "nav.contracts",
   "/finance": "nav.finance",
-  // Panel „Praktykanci” (0371) — w „Więcej” → Codzienna praca.
+  // Panel „Praktykanci” (0372) — w „Więcej” → Codzienna praca.
   "/trainees": "nav.trainees",
   // `/manager` przekierowuje na `/dashboard` — bez pozycji w menu i palecie
   // (capability `nav.manager` zdjęta 22.09.2026).

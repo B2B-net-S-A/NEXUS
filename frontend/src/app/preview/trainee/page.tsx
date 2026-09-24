@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Harness „Telefony na dziś” (praktykant, 0371) — publiczny, ZERO zapytań.
+ * Harness „Telefony na dziś” (praktykant, 0372) — publiczny, ZERO zapytań.
  *
  * `?state=today` (domyślnie) · `done` (dzień zaliczony) · `handover` (otwarte
  * okno „Przekaż rekruterowi”) · `employment_only` (zaznaczone „Nie, tylko etat”).

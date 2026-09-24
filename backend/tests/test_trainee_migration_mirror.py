@@ -1,4 +1,4 @@
-"""Praktykant (0371): lustro migracji w entrypoint.sh i rejestracje.
+"""Praktykant (0372): lustro migracji w entrypoint.sh i rejestracje.
 
 Prod alembic bywa osierocony — entrypoint JEST wdrożeniem schematu.
 """
@@ -20,7 +20,7 @@ def _squash(text: str) -> str:
 
 def _migration() -> dict:
     ns: dict = {}
-    source = (ROOT / "alembic/versions/0371_trainee_call_lists.py").read_text()
+    source = (ROOT / "alembic/versions/0372_trainee_call_lists.py").read_text()
     exec(compile(source.replace("from alembic import op", ""), "m", "exec"), ns)
     return ns
 

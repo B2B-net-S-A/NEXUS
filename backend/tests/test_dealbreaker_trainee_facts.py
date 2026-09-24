@@ -1,4 +1,4 @@
-"""Fakty z telefonu praktykanta (0371) w bramce dealbreakerów — bez bazy.
+"""Fakty z telefonu praktykanta (0372) w bramce dealbreakerów — bez bazy.
 
 `expected_rate_hourly` jest MINIMUM kandydata, więc sufit budżetu znaczy
 „budżet poniżej minimum". Zgoda na telefon z taką ofertą (albo z większą liczbą
@@ -215,7 +215,7 @@ def test_missing_trainee_facts_never_hide():
         tags=None,
         max_onsite_days_per_week=None,
         raw_cv_text=None,
-    )  # stary obiekt bez kolumn 0371 — getattr zwraca None
+    )  # stary obiekt bez kolumn 0372 — getattr zwraca None
     res = apply_dealbreakers([blank, _cand(2)], inputs=inputs)
     assert [c.id for c in res.kept] == [1, 2]
     assert sum(res.hidden_meta().values()) == 0

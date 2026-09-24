@@ -1,4 +1,4 @@
-"""Praktykant — czyste reguły listy telefonów (0371), bez bazy."""
+"""Praktykant — czyste reguły listy telefonów (0372), bez bazy."""
 
 from __future__ import annotations
 

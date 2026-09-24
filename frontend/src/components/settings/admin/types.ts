@@ -42,7 +42,7 @@ export const ROLES = [
 
 /**
  * Role WYŁĄCZNE — nie łączą się z żadną inną (lustro CHECK-ów w bazie).
- * Praktykant (0371) widzi tylko „Telefony na dziś”; dodatkowa rola
+ * Praktykant (0372) widzi tylko „Telefony na dziś”; dodatkowa rola
  * otworzyłaby mu resztę aplikacji.
  */
 export const EXCLUSIVE_ROLES: readonly string[] = ["finance", "user", "trainee"];

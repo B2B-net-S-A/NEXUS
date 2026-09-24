@@ -80,7 +80,7 @@ export interface ProposalDetail {
   missingMustGate: string[];
   /** Przepięcie (0341): rekrutacja, w której osoba była już u klienta. */
   reassignFrom: ProposalReassignFrom | null;
-  /** Praktykant przekazał osobę po rozmowie (0371). */
+  /** Praktykant przekazał osobę po rozmowie (0372). */
   traineeHandover?: ProposalTraineeHandover | null;
 }
 

@@ -594,7 +594,7 @@ describe("zawężenia ról nadal obowiązują", () => {
   })
 })
 
-describe("praktykant (0371) — jeden ekran", () => {
+describe("praktykant (0372) — jeden ekran", () => {
   const trainee = makeToken({ role: "trainee", roles: ["trainee"], exp: now() + HOUR })
 
   it("może otworzyć „Telefony na dziś” i profil", () => {

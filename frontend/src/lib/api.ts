@@ -2755,7 +2755,7 @@ export const HIDDEN_LABELS_PL: Record<HiddenReason, string> = {
 };
 
 /** Status stawki kandydata wobec budżetu rekrutacji (wiersz `/ai-matches`,
- *  propozycje). `below_min_consented` (0371): budżet jest poniżej minimum
+ *  propozycje). `below_min_consented` (0372): budżet jest poniżej minimum
  *  kandydata, ale kandydat zgodził się w rozmowie na telefon z taką ofertą. */
 export type RateFit = "ok" | "over_budget" | "below_min_consented" | "unknown";
 
