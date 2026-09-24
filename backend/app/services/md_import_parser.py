@@ -193,19 +193,42 @@ def parse_md_value(raw: Any) -> Optional[Decimal]:
     text = str(raw).strip()
     if not text:
         return None
-    text = text.replace("\xa0", "").replace(" ", "").replace(",", ".")
+    text = _normalize_decimal_text(text)
     try:
         return Decimal(text)
     except (InvalidOperation, ValueError):
         return None
 
 
+def _normalize_decimal_text(text: str) -> str:
+    """Tekst liczby z arkusza → zapis z kropką dziesiętną, bez separatorów.
+
+    Audyt 24.09.2026 (S6): „20.900,00 zł" (kropka jako separator tysięcy, jak
+    w polskim Excelu z ustawieniami regionalnymi) i „1,234.56" (format
+    angielski) dawały ``None`` — kwota znikała z rozliczenia bez śladu.
+    Reguła: gdy są oba znaki, separatorem dziesiętnym jest ten stojący dalej
+    w prawo; kilka przecinków albo kilka kropek to separatory tysięcy;
+    pojedynczy przecinek to polski przecinek dziesiętny (jak dotąd).
+    """
+    text = text.replace("\xa0", "").replace("\u202f", "").replace(" ", "")
+    if "," in text and "." in text:
+        if text.rfind(",") > text.rfind("."):
+            return text.replace(".", "").replace(",", ".")
+        return text.replace(",", "")
+    if text.count(",") > 1:
+        return text.replace(",", "")
+    if text.count(".") > 1:
+        return text.replace(".", "")
+    return text.replace(",", ".")
+
+
 def parse_money_value(raw: Any) -> Optional[Decimal]:
     """Komórka → kwota. ``None`` gdy pusta lub nieliczbowa.
 
     Ta sama koercja co przy MD plus zdejmowanie oznaczenia waluty: „20 900,00
-    zł" (z twardą spacją) → ``20900.00``. Bez tego kwoty z polskiego Excela
-    lądowałyby jako nieczytelne i cały wiersz wypadałby z rozliczenia.
+    zł" (z twardą spacją) → ``20900.00``, a także „20.900,00 zł" i „1,234.56".
+    Bez tego kwoty z polskiego Excela lądowałyby jako nieczytelne i cały
+    wiersz wypadałby z rozliczenia.
     """
     if raw is None or isinstance(raw, bool):
         return None
@@ -215,7 +238,7 @@ def parse_money_value(raw: Any) -> Optional[Decimal]:
     if not text:
         return None
     text = re.sub(r"(?i)(pln|zl|zł)", "", text)
-    text = text.replace("\xa0", "").replace(" ", "").replace(",", ".")
+    text = _normalize_decimal_text(text)
     if not text:
         return None
     try:
@@ -480,6 +503,11 @@ def parse_md_sheet(content: bytes) -> ParsedSheet:
                 if invoice_col is not None and invoice_col < len(cells):
                     invoice_value = parse_money_value(cells[invoice_col])
                     invoice_problem = invoice_value_problem(invoice_value)
+                    if invoice_value is None and not _blank_md_cell(cells[invoice_col]):
+                        # S6: niepusta, nieczytelna kwota faktury nie może
+                        # zniknąć po cichu — wiersz idzie do pominiętych
+                        # z powodem, jak kwota nieskończona.
+                        invoice_problem = "nieczytelna kwota faktury"
                     if invoice_problem is not None:
                         parsed.skipped_rows.append(
                             {

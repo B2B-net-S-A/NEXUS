@@ -41,6 +41,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, s
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from starlette.concurrency import run_in_threadpool
 
 from app.api.financial_access import FinanceManageUser
 from app.core.database import get_db
@@ -735,7 +736,9 @@ async def create_import(
         raise HTTPException(400, detail="Pusty plik")
 
     try:
-        parsed = parse_md_sheet(payload)
+        # N6: openpyxl parsuje synchronicznie — duży arkusz blokowałby pętlę
+        # zdarzeń całego procesu (backend to jeden uvicorn).
+        parsed = await run_in_threadpool(parse_md_sheet, payload)
     except MdSheetFormatError as exc:
         raise HTTPException(422, detail=str(exc)) from exc
 
@@ -1006,13 +1009,30 @@ async def create_import(
         )
 
     for group_id in sorted(pending_shared_md):
+        # S5: plik korygujący za ten sam miesiąc niesie zwykle tylko część osób.
+        # Miesiąc puli to JEDNA suma, więc bez tego nadpisałby ją samymi
+        # osobami z pliku, a wkład pozostałych przepadłby bez śladu.
+        present = {
+            order_id
+            for order_id, order in shared_md_orders.items()
+            if order.order_group_id == group_id
+        }
+        carried, carried_names = await _shared_md_carry_over(
+            db,
+            group_id=group_id,
+            period_month=period_month,
+            import_id=batch.id,
+            present_order_ids=present,
+        )
         await _settle_shared_md_and_record(
             db,
             group=shared_md_groups[group_id],
             period_month=period_month,
-            md_reported=pending_shared_md[group_id],
+            md_reported=pending_shared_md[group_id] + carried,
             import_id=batch.id,
             user_id=user.id,
+            carried_md=carried,
+            carried_names=carried_names,
         )
 
     for order_id in sorted(pending_invoices):
@@ -1669,6 +1689,73 @@ def _reprocess_target_read(plan: _PolkomtelReprocessPlan) -> PolkomtelReprocessT
     )
 
 
+async def _shared_md_carry_over(
+    db: AsyncSession,
+    *,
+    group_id: int,
+    period_month: str,
+    import_id: int,
+    present_order_ids: set[int],
+) -> tuple[Decimal, list[str]]:
+    """Wkład osób z WCZEŚNIEJSZYCH importów tego miesiąca, których nie ma w pliku.
+
+    Audyt 24.09.2026 (S5). Wspólna pula trzyma jedną sumę za miesiąc, a plik
+    korygujący przychodzi zwykle z samymi poprawionymi osobami — dotąd jego
+    suma nadpisywała cały miesiąc. Wkład osoby to jej wiersze z NAJNOWSZEJ
+    wcześniejszej paczki, w której była (linia = osoba); osoba obecna w nowym
+    pliku jest liczona wyłącznie z niego.
+
+    Nic nie przenosimy, gdy miesiąc puli zapisał ostatnio człowiek (``source
+    = manual``) — ręczna suma nie ma podziału na osoby, a nadpisanie jej
+    importem to dotychczasowa, opisana w instrukcji reguła.
+    """
+    source = await db.scalar(
+        select(ClientOrderGroupMdConsumption.source).where(
+            ClientOrderGroupMdConsumption.group_id == group_id,
+            ClientOrderGroupMdConsumption.period_month == period_month,
+        )
+    )
+    if source != "import":
+        return Decimal("0"), []
+    rows = (
+        await db.execute(
+            select(
+                MdConsumptionImportRow.import_id,
+                MdConsumptionImportRow.matched_order_id,
+                MdConsumptionImportRow.md_reported,
+                MdConsumptionImportRow.consultant_name,
+            )
+            .join(
+                MdConsumptionImport,
+                MdConsumptionImport.id == MdConsumptionImportRow.import_id,
+            )
+            .where(
+                MdConsumptionImportRow.matched_group_id == group_id,
+                MdConsumptionImportRow.matched_order_id.is_not(None),
+                MdConsumptionImportRow.status == IMPORT_ROW_APPLIED,
+                MdConsumptionImport.period_month == period_month,
+                MdConsumptionImportRow.import_id != import_id,
+            )
+        )
+    ).all()
+    latest: dict[int, int] = {}
+    sums: dict[tuple[int, int], Decimal] = defaultdict(lambda: Decimal("0"))
+    names: dict[int, str] = {}
+    for batch_id, order_id, md, name in rows:
+        if order_id in present_order_ids:
+            continue
+        latest[order_id] = max(latest.get(order_id, batch_id), batch_id)
+        sums[(order_id, batch_id)] += Decimal(str(md))
+        names[order_id] = name
+    carried = quantize_md(
+        sum(
+            (sums[(order_id, batch_id)] for order_id, batch_id in latest.items()),
+            Decimal("0"),
+        )
+    )
+    return carried, sorted({names[order_id] for order_id in latest})
+
+
 async def _settle_shared_md_and_record(
     db: AsyncSession,
     *,
@@ -1677,6 +1764,8 @@ async def _settle_shared_md_and_record(
     md_reported: Decimal,
     import_id: int,
     user_id: int,
+    carried_md: Decimal = Decimal("0"),
+    carried_names: Optional[list[str]] = None,
 ) -> None:
     """Nadpisz miesiąc wspólnej puli, przelicz ją i zapisz historię."""
     # Lock before capturing ``before`` and before the monthly upsert. Two
@@ -1706,6 +1795,15 @@ async def _settle_shared_md_and_record(
         if over_budget > Decimal("0")
         else ""
     )
+    if carried_md > Decimal("0"):
+        # S5: plik nie zawierał tych osób — ich MD z wcześniejszego importu
+        # tego miesiąca zostają w sumie, a historia mówi to wprost.
+        warning += (
+            f" W sumie zostało {format_md(carried_md)} MD z wcześniejszego "
+            "importu tego miesiąca dla osób nieobecnych w tym pliku: "
+            + ", ".join(carried_names or [])
+            + "."
+        )
 
     record_event(
         db,
@@ -1725,6 +1823,7 @@ async def _settle_shared_md_and_record(
             "md_budget_remaining_before": str(before) if before is not None else None,
             "md_budget_remaining_after": str(remaining),
             "import_id": import_id,
+            "md_carried_over": str(quantize_md(carried_md)),
         },
         user_id=user_id,
     )

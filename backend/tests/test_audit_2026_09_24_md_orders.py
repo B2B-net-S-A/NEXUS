@@ -643,3 +643,64 @@ async def test_reopening_an_order_closed_while_exhausted_is_refused(
     reopened = await app_client.post(f"{base}/reopen", headers=app_auth_headers)
     assert reopened.status_code == 409, reopened.text
     assert "wyczerpaną pulę" in reopened.text
+
+
+# ── S5: plik korygujący wspólnej puli MD ────────────────────────────────────
+
+
+async def test_correction_file_keeps_the_md_of_people_it_does_not_mention(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Pierwszy plik: A 10 MD + B 5 MD. Korekta za ten sam miesiąc niesie
+    tylko A (12 MD) — suma miesiąca to 12 + 5, nie same 12."""
+    from tests.test_md_import_shared_budget import (
+        _enable_cyfrowy_polsat,
+        _group_from_list,
+    )
+    from tests.test_order_lifecycle_and_cost import (
+        _cost_line,
+        _create_group as _create_lifecycle_group,
+        _finance_headers as _lifecycle_finance_headers,
+        _import_sheet,
+        _seed_client_with_contracts as _seed_lifecycle,
+        _sheet as _notes_sheet,
+    )
+
+    client_id, contracts, names = await _seed_lifecycle(2)
+    _enable_cyfrowy_polsat(monkeypatch, client_id)
+    number = f"45008{uuid.uuid4().int % 10**5:05d}"
+    group = await _create_lifecycle_group(
+        app_client,
+        app_auth_headers,
+        client_id,
+        [_cost_line(contracts[0]), _cost_line(contracts[1])],
+        order_number=number,
+        is_md_budget_based=True,
+        md_budget_total=50,
+    )
+    finance = await _lifecycle_finance_headers(app_client)
+
+    first = await _import_sheet(
+        app_client,
+        finance,
+        _notes_sheet(
+            [(names[0], 10, f"SAP {number}", 0), (names[1], 5, f"SAP {number}", 0)]
+        ),
+    )
+    assert first["rows_applied"] == 2, first
+    correction = await _import_sheet(
+        app_client, finance, _notes_sheet([(names[0], 12, f"SAP {number}", 0)])
+    )
+    assert correction["rows_applied"] == 1, correction
+
+    body = await _group_from_list(app_client, app_auth_headers, client_id, group["id"])
+    assert body["md_budget_used"] == pytest.approx(17.0)
+    assert body["md_budget_remaining"] == pytest.approx(33.0)
+    events = await app_client.get(
+        f"/api/clients/{client_id}/order-groups/{group['id']}/events",
+        headers=app_auth_headers,
+    )
+    assert any(
+        "nieobecnych w tym pliku" in e["description"] and names[1] in e["description"]
+        for e in events.json()["events"]
+    )
