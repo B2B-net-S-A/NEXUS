@@ -87,9 +87,11 @@ from app.services.client_identity import client_display_name_expression
 from app.services.client_order_lines import (
     LineMatch,
     apply_md_consumption,
+    candidate_name_tokens,
     exhausted_groups_with_month_entry,
     cost_lines_settling_in_month,
     describe_import,
+    format_period_month,
     group_settles_in_month,
     historical_cost_lines,
     historical_md_lines,
@@ -99,6 +101,7 @@ from app.services.client_order_lines import (
     prefer_active_line,
     md_lines_settling_in_month,
     month_bounds,
+    name_tokens,
     record_event,
     shared_md_lines_settling_in_month,
     successor_line_for,
@@ -164,7 +167,156 @@ async def _client_names(db: AsyncSession, client_ids: set[int]) -> dict[int, str
     return {cid: name for cid, name in rows}
 
 
-async def _row_to_read(db: AsyncSession, row: MdConsumptionImportRow) -> ImportRowRead:
+async def _order_number_index(
+    db: AsyncSession,
+) -> finance_order_matching.OrderNumberIndex:
+    """Numery wszystkich zamówień grupowych — do rozpoznania numeru w „Uwagach"."""
+    rows = await db.execute(
+        select(ClientOrderGroup.client_id, ClientOrderGroup.order_number)
+    )
+    return finance_order_matching.build_order_number_index(rows.all())
+
+
+def _fmt_day(value) -> str:
+    return value.strftime("%d.%m.%Y") if value else "—"
+
+
+@dataclass
+class _ReasonContext:
+    """Dane do opisu niedopasowanych wierszy — ładowane raz na odczyt paczki."""
+
+    index: finance_order_matching.OrderNumberIndex
+    groups: dict[int, object]
+    lines_by_person: dict[frozenset[str], list[ClientOrder]]
+
+
+async def _reason_context(db: AsyncSession) -> _ReasonContext:
+    groups = {
+        g.id: g
+        for g in (
+            await db.execute(
+                select(
+                    ClientOrderGroup.id,
+                    ClientOrderGroup.client_id,
+                    ClientOrderGroup.order_number,
+                    ClientOrderGroup.is_cost_based,
+                )
+            )
+        ).all()
+    }
+    lines = (
+        await db.execute(
+            select(ClientOrder)
+            .options(
+                selectinload(ClientOrder.contract).selectinload(Contract.candidate)
+            )
+            .where(
+                ClientOrder.order_group_id.isnot(None),
+                ClientOrder.status != ClientOrderStatus.cancelled,
+            )
+            .order_by(ClientOrder.id.asc())
+        )
+    ).scalars()
+    by_person: dict[frozenset[str], list[ClientOrder]] = defaultdict(list)
+    for line in lines:
+        tokens = candidate_name_tokens(
+            line.contract.candidate if line.contract else None
+        )
+        if tokens:
+            by_person[tokens].append(line)
+    return _ReasonContext(
+        index=finance_order_matching.build_order_number_index(
+            (g.client_id, g.order_number) for g in groups.values()
+        ),
+        groups=groups,
+        lines_by_person=by_person,
+    )
+
+
+def _unmatched_reason(
+    row: MdConsumptionImportRow,
+    period_month: Optional[str],
+    context: Optional[_ReasonContext],
+) -> Optional[str]:
+    """Dlaczego wiersz z wiążącym numerem zamówienia nie trafił na żadną linię.
+
+    Liczone przy odczycie (bez kolumny w bazie), więc opis mówi o dzisiejszym
+    stanie zamówień — tym, który operator ma poprawić. Numer wiąże się tą samą
+    regułą co przy imporcie (klienci tej osoby, ``_authoritative_md_hints``).
+    ``None`` = wiersz bez wiążącego numeru; tam wystarcza sam status.
+    """
+    if (
+        context is None
+        or row.status != IMPORT_ROW_UNMATCHED
+        or not period_month
+        or row.cost_status == COST_ROW_APPLIED
+    ):
+        return None
+    hints = extract_order_number_candidates(row.notes_raw)
+    wanted = name_tokens(row.consultant_name)
+    person_lines = context.lines_by_person.get(wanted, []) if wanted else []
+    if not hints or not person_lines:
+        return None
+    clients = {line.client_id for line in person_lines}
+    if finance_order_matching.POLKOMTEL_CLIENT_ID in clients:
+        authoritative = list(hints)
+    else:
+        authoritative = finance_order_matching.explicit_order_hints(
+            hints, context.index, clients
+        )
+    if not authoritative:
+        return None
+    number = authoritative[0]
+    not_elsewhere = "Zużycie nie trafiło na żadne inne zamówienie tej osoby"
+    matching_ids = {
+        g.id
+        for g in context.groups.values()
+        if g.client_id in clients
+        and finance_order_matching.finance_order_number_matches(
+            client_id=g.client_id,
+            order_number=g.order_number,
+            numeric_hints=authoritative,
+        )
+    }
+    if not matching_ids:
+        return (
+            f"Zamówienia nr {number} nie ma w NEXUSIE. {not_elsewhere} — "
+            "dodaj zamówienie albo popraw numer w arkuszu."
+        )
+    on_order = [line for line in person_lines if line.order_group_id in matching_ids]
+    if not on_order:
+        return (
+            f"Na zamówieniu nr {number} nie ma osoby z arkusza. {not_elsewhere} — "
+            "sprawdź numer w arkuszu albo obsadę zamówienia."
+        )
+    line = on_order[0]
+    group = context.groups[line.order_group_id]
+    label = format_period_month(period_month)
+    if group.is_cost_based:
+        return (
+            f"Zamówienie nr {number} jest kosztowe — rozlicza fakturę, nie liczbę MD. "
+            f"{not_elsewhere}."
+        )
+    if not line_settles_in_month(line, period_month, contract=line.contract):
+        return (
+            f"Okres tej osoby na zamówieniu nr {number} "
+            f"({_fmt_day(line.start_date)} – "
+            f"{_fmt_day(line.end_date) if line.end_date else 'bezterminowo'}) "
+            f"nie obejmuje miesiąca raportu ({label}). {not_elsewhere} — "
+            "sprawdź okres albo numer zamówienia."
+        )
+    return (
+        f"Zamówienie nr {number} nie rozlicza miesiąca raportu ({label}). "
+        f"{not_elsewhere} — sprawdź okres i status zamówienia."
+    )
+
+
+async def _row_to_read(
+    db: AsyncSession,
+    row: MdConsumptionImportRow,
+    period_month: Optional[str] = None,
+    reason_context: Optional[_ReasonContext] = None,
+) -> ImportRowRead:
     """Wiersz importu wraz z opcjami do wyboru (dla „wymaga przypisania")."""
     order_ids: set[int] = set()
     if row.matched_order_id:
@@ -227,6 +379,7 @@ async def _row_to_read(db: AsyncSession, row: MdConsumptionImportRow) -> ImportR
             if int(oid) in options_by_id
         ],
         resolved_at=row.resolved_at,
+        status_reason=_unmatched_reason(row, period_month, reason_context),
     )
 
 
@@ -284,8 +437,13 @@ async def _apply_to_line(
     import_id: int,
     user_id: int,
     historical_reprocess: bool = False,
+    explicit_order: bool = False,
 ) -> None:
     """Zapisz MD na linii i dopisz jeden wpis do historii jej zamówienia.
+
+    ``explicit_order``: wiersz wskazał TO zamówienie numerem z „Uwag" — zużycie
+    zostaje wyłącznie na nim (bez przekierowania na poprzednika i bez
+    przeniesienia nadwyżki na następcę, ticket 23.09.2026).
 
     Grupa, a nie samo ``group_id``: treść wpisu niesie numer zamówienia, a
     podział nadwyżki na następcę potrzebuje numerów obu stron. Obie ścieżki
@@ -353,6 +511,7 @@ async def _apply_to_line(
         import_id=import_id,
         user_id=user_id,
         allow_successor_transfer=not historical_reprocess,
+        explicit_order=explicit_order,
     )
     # FIN-MD-01: miesiąc już raz podzielony rozlicza się od poprzednika — wpis
     # historii ląduje na linii, na której rozliczenie faktycznie się zaczęło.
@@ -440,6 +599,7 @@ def _ordinary_locked_target_is_valid(
     expected_client_id: int,
     period_month: str,
     correctable_exhausted_group_ids: frozenset[int] = frozenset(),
+    order_numbers: Optional[finance_order_matching.OrderNumberIndex] = None,
 ) -> bool:
     """Re-match persisted spreadsheet evidence after line/group lock waits.
 
@@ -517,9 +677,15 @@ def _ordinary_locked_target_is_valid(
         if match_by_name([current_match], row.consultant_name) != [current_match]:
             return False
         hints = extract_order_number_candidates(row.notes_raw)
-        number_is_evidence = kind in ("shared_md", "cost") or (
-            expected_client_id == finance_order_matching.POLKOMTEL_CLIENT_ID
-            and bool(hints)
+        # Wiersz MD z jawnym numerem zamówienia (u każdego klienta, ticket
+        # 23.09.2026; u Polkomtela — każdy numer) musi nadal wskazywać TO
+        # zamówienie po zdjęciu blokad.
+        number_is_evidence = kind in ("shared_md", "cost") or bool(
+            _authoritative_md_hints(
+                hints,
+                named=[current_match],
+                order_numbers=order_numbers,
+            )
         )
         if (
             number_is_evidence
@@ -572,6 +738,7 @@ async def create_import(
     candidates = await md_lines_settling_in_month(db, period_month)
     shared_md_candidates = await shared_md_lines_settling_in_month(db, period_month)
     cost_candidates = await cost_lines_settling_in_month(db, period_month)
+    order_numbers = await _order_number_index(db)
 
     batch = MdConsumptionImport(
         period_month=period_month,
@@ -599,6 +766,9 @@ async def create_import(
     pending_md: dict[int, Decimal] = defaultdict(lambda: Decimal("0"))
     md_orders: dict[int, tuple[ClientOrder, ClientOrderGroup]] = {}
     md_rows: dict[int, list[MdConsumptionImportRow]] = defaultdict(list)
+    # Linie wskazane NUMEREM zamówienia z „Uwag" — zużycie zostaje wyłącznie
+    # na nich (bez przekierowania na poprzednika i przeniesienia na następcę).
+    explicit_md_orders: set[int] = set()
     pending_shared_md: dict[int, Decimal] = defaultdict(lambda: Decimal("0"))
     shared_md_groups: dict[int, ClientOrderGroup] = {}
     shared_md_orders: dict[int, ClientOrder] = {}
@@ -653,10 +823,17 @@ async def create_import(
             and row.matched_order_id is not None
         ):
             shared_md_rows[row.matched_order_id].append(row)
+        md_explicit_applied = False
         if not consultant_in_shared_md:
             matches = _match_per_consultant_md_row(
                 parsed_row=parsed_row,
                 candidates=candidates,
+                order_numbers=order_numbers,
+            )
+            authoritative = _authoritative_md_hints(
+                extract_order_number_candidates(parsed_row.notes_raw),
+                named=match_by_name(candidates, parsed_row.consultant_name),
+                order_numbers=order_numbers,
             )
             if len(matches) == 1:
                 match = matches[0]
@@ -665,16 +842,28 @@ async def create_import(
                 pending_md[match.order.id] += parsed_row.md_reported
                 md_orders[match.order.id] = (match.order, match.group)
                 md_rows[match.order.id].append(row)
+                if authoritative:
+                    md_explicit_applied = True
+                    explicit_md_orders.add(match.order.id)
+                    row.order_number_hint = match.group.order_number.strip()[:64]
             elif len(matches) > 1:
                 row.status = IMPORT_ROW_NEEDS_ASSIGNMENT
                 row.candidate_order_ids = [m.order.id for m in matches]
+            elif authoritative:
+                # Wiersz wskazał zamówienie, którego ta osoba nie rozlicza w tym
+                # miesiącu — zostaje do weryfikacji z numerem z arkusza, a powód
+                # składa `_unmatched_reason` przy odczycie.
+                row.order_number_hint = authoritative[0][:64]
 
         # ── Ścieżka kosztowa: NIEZALEŻNA od dopasowania MD po nazwisku ──
         # Prawidłowo dopasowany numer wspólnej puli MD nie może jednocześnie
         # zgłaszać „brak zamówienia kosztowego o tym numerze". Typy grup są
         # rozłączne, więc taki wiersz kończy routing na ścieżce shared-MD.
         shared_md_applied = consultant_in_shared_md and row.status == IMPORT_ROW_APPLIED
-        if not shared_md_applied:
+        # Numer, który wskazał zamówienie MD tej osoby, jest rozliczony — ścieżka
+        # kosztowa (typy grup są rozłączne) zgłaszałaby przy nim fałszywe
+        # „Brak zamówienia o tym numerze".
+        if not shared_md_applied and not md_explicit_applied:
             cost_match = _match_cost_row(
                 row,
                 parsed_row=parsed_row,
@@ -759,6 +948,7 @@ async def create_import(
             rows=rows,
             expected_client_id=expected_client_by_order[order_id],
             period_month=period_month,
+            order_numbers=order_numbers,
         ):
             raise HTTPException(
                 status.HTTP_409_CONFLICT,
@@ -808,6 +998,7 @@ async def create_import(
             md_reported=md_total,
             import_id=batch.id,
             user_id=user.id,
+            explicit_order=order_id in explicit_md_orders,
         )
 
     for group_id in sorted(pending_shared_md):
@@ -849,44 +1040,79 @@ async def create_import(
     return await _detail(db, batch, parsed_sheet=parsed)
 
 
-def _match_per_consultant_md_row(*, parsed_row, candidates: list[LineMatch]):
-    """Preserve name matching, but use Polkomtel's explicit SAP number.
+def _authoritative_md_hints(
+    hints: list[str],
+    *,
+    named: list[LineMatch],
+    order_numbers: Optional[finance_order_matching.OrderNumberIndex],
+) -> list[str]:
+    """Numery z „Uwag", które wiążą wiersz MD z konkretnym zamówieniem.
 
-    Historical MD imports are name-only.  When a row carries a number that
-    matches a Polkomtel ``SAP`` order, using it resolves the reported bug and
-    prevents a same-name row from landing on another order.  Once an explicit
-    hint is present beside a Polkomtel candidate, a mismatch is authoritative
-    and returns no Polkomtel line instead of falling back to name-only.
+    Polkomtel zachowuje dotychczasową, szerszą regułę: przy jego kandydacie
+    każdy ciąg cyfr jest dowodem (numer SAP). U pozostałych klientów wiąże
+    numer ZNANY jako numer zamówienia klienta tej osoby, a u klienta z numerami
+    z samych cyfr także dostatecznie długi
+    (``finance_order_matching.explicit_order_hints``).
+    """
+    if not hints:
+        return []
+    has_polkomtel_candidate = any(
+        match.group.client_id == finance_order_matching.POLKOMTEL_CLIENT_ID
+        for match in named
+    )
+    if has_polkomtel_candidate:
+        return list(hints)
+    return finance_order_matching.explicit_order_hints(
+        hints, order_numbers, {match.group.client_id for match in named}
+    )
 
-    Rows without a Polkomtel candidate (or without a numeric hint) retain the
-    old BIK/BNP name-only behavior.  Exact numbered matches from neighbouring
-    clients remain in the narrowed set, so a genuine cross-client collision is
-    still ambiguous and never guessed.
+
+def _match_per_consultant_md_row(
+    *,
+    parsed_row,
+    candidates: list[LineMatch],
+    order_numbers: Optional[finance_order_matching.OrderNumberIndex] = None,
+):
+    """Dopasuj wiersz MD per konsultant: nazwisko, a numer zamówienia wiąże.
+
+    Wiersz z jawnym numerem zamówienia (ticket 23.09.2026, BIK: dwa wiersze
+    tej samej osoby, stare i nowe zamówienie w jednym miesiącu) trafia
+    WYŁĄCZNIE na linię tej osoby w zamówieniu o tym numerze. Brak takiej linii
+    = pusta lista — wiersz idzie do weryfikacji, nigdy na inne zamówienie tej
+    osoby. Numer wskazujący kilka różnych zamówień naraz (dwa numery w jednej
+    komórce) zostaje niejednoznaczny — system nie wybiera za człowieka.
+
+    Wiersz bez jawnego numeru zachowuje dopasowanie po samym nazwisku
+    (BNP i inni klienci, których arkusz nie niesie numeru).
     """
 
     named = match_by_name(candidates, parsed_row.consultant_name)
     if not named:
         return []
     hints = extract_order_number_candidates(parsed_row.notes_raw)
-    has_polkomtel_candidate = any(
-        match.group.client_id == finance_order_matching.POLKOMTEL_CLIENT_ID
-        for match in named
+    authoritative = _authoritative_md_hints(
+        hints, named=named, order_numbers=order_numbers
     )
     # Preferencja linii aktywnej dopiero PO zawężeniu numerem — wpięta
     # wcześniej wycinałaby linię, którą numer właśnie miał wskazać.
-    if not has_polkomtel_candidate or not hints:
+    if not authoritative:
         return prefer_active_line(named)
-    return prefer_active_line(
-        [
-            match
-            for match in named
-            if finance_order_matching.finance_order_number_matches(
-                client_id=match.group.client_id,
-                order_number=match.group.order_number,
-                numeric_hints=hints,
-            )
-        ]
-    )
+    numbered = [
+        match
+        for match in named
+        if finance_order_matching.finance_order_number_matches(
+            client_id=match.group.client_id,
+            order_number=match.group.order_number,
+            numeric_hints=authoritative,
+        )
+    ]
+    distinct_orders = {
+        (match.group.client_id, str(match.group.order_number).strip())
+        for match in numbered
+    }
+    if len(distinct_orders) > 1:
+        return numbered
+    return prefer_active_line(numbered)
 
 
 def _match_shared_md_row(
@@ -1588,7 +1814,13 @@ async def _detail(
         .where(MdConsumptionImportRow.import_id == batch.id)
         .order_by(MdConsumptionImportRow.row_number.asc())
     )
-    rows = [await _row_to_read(db, r) for r in result.scalars()]
+    stored = list(result.scalars())
+    context = (
+        await _reason_context(db)
+        if any(r.status == IMPORT_ROW_UNMATCHED and r.notes_raw for r in stored)
+        else None
+    )
+    rows = [await _row_to_read(db, r, batch.period_month, context) for r in stored]
     base = _summary(batch)
     return ImportDetail(
         **base.model_dump(),
@@ -1855,6 +2087,29 @@ async def assign_row(
             ),
         )
 
+    # Numer zamówienia wskazany w wierszu wiąże także ręczne rozstrzygnięcie
+    # (ticket 23.09.2026): wiersz „4500029903" nie może trafić na 4500030067.
+    group_number = order.order_group.order_number if order.order_group else None
+    authoritative = _authoritative_md_hints(
+        extract_order_number_candidates(row.notes_raw),
+        named=[LineMatch(order, order.order_group, row.consultant_name)]
+        if order.order_group is not None
+        else [],
+        order_numbers=await _order_number_index(db),
+    )
+    if authoritative and not finance_order_matching.finance_order_number_matches(
+        client_id=order.client_id,
+        order_number=group_number,
+        numeric_hints=authoritative,
+    ):
+        raise HTTPException(
+            422,
+            detail=(
+                f"Wiersz wskazuje zamówienie nr {authoritative[0]} — nie można "
+                f"przypisać go do zamówienia nr {group_number or '—'}."
+            ),
+        )
+
     # Zapis idzie po kluczu (linia, miesiąc) i NADPISUJE, więc rozstrzygnięcie
     # nie może wysłać samego ``row.md_reported``: gdyby na tę samą linię trafił
     # już inny wiersz tego importu (automatycznie albo wcześniejszym
@@ -1895,6 +2150,7 @@ async def assign_row(
         md_reported=Decimal(str(already_applied or 0)) + row.md_reported,
         import_id=batch.id,
         user_id=user.id,
+        explicit_order=bool(authoritative),
     )
     row.status = IMPORT_ROW_APPLIED
     row.matched_order_id = order.id
@@ -1905,4 +2161,4 @@ async def assign_row(
     await _recount(db, batch)
     await db.commit()
     await db.refresh(row)
-    return await _row_to_read(db, row)
+    return await _row_to_read(db, row, batch.period_month)

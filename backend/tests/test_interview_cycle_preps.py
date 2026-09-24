@@ -1,4 +1,4 @@
-"""Dwa prepy przed rozmową u klienta + ocena prepu w cyklu (0362).
+"""Dwa prepy przed rozmową u klienta + ocena prepu w cyklu (0364).
 
 Decyzje Artura 23.09.2026: Prep 1 i Prep 2 są zawsze wymagane (miękko —
 nic nie blokuje), prep słaby albo bez nagrania daje zadanie, a brak prepu

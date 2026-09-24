@@ -51,7 +51,7 @@ export interface BoardTaskRow {
   qc_blocking_failed?: number | null;
 }
 
-/** 0362: prep przed rozmową u klienta, który wymaga uwagi. Widzi go
+/** 0364: prep przed rozmową u klienta, który wymaga uwagi. Widzi go
  *  organizator prepu, admin i Head of Recruitment. */
 export type PrepAttentionReason = "missing" | "weak" | "unrecorded";
 
@@ -94,7 +94,7 @@ export interface BoardTasksResponse {
   dl_review_window_days?: number;
   /** Ruch na „CV wysłane" ze stawką do klienta — admin i Delivery Lead. */
   can_send_to_client?: boolean;
-  /** 0362: brak prepu, prep słaby albo bez nagrania. Opcjonalne w typie —
+  /** 0364: brak prepu, prep słaby albo bez nagrania. Opcjonalne w typie —
    *  harnessy zasiewają kolejkę sprzed 0355 (brak = pusta lista). */
   prep_attention?: PrepAttentionRow[];
 }

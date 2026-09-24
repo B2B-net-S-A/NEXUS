@@ -1,0 +1,13 @@
+<p class="right">{{ document_place }}, {{ document_date }} r.</p>
+<h1>Wypowiedzenie umowy o współpracę B2B</h1>
+<p>Niniejszym wypowiadam umowę o współpracy B2B o numerze {{ base.contract_number }} zawartą w dniu {{ base.signing_date }} r. w Warszawie pomiędzy:</p>
+<p><strong>{{ company.name }}</strong> z siedzibą w Warszawie, {{ company.address }}, numer NIP: {{ company.nip }}, reprezentowaną przez {{ company.representative }},</p>
+<p>zwaną dalej jako „<strong>B2BNET</strong>”</p>
+<p>a</p>
+<p><strong>{{ g.g_pan }} {{ partner.name_instrumental or partner.name or '…' }}</strong> {{ g.g_prowadzacy }} działalność gospodarczą pod firmą: {{ partner.legal_name or '…' }}, zarejestrowaną w Centralnej Ewidencji i Informacji o Działalności Gospodarczej pod adresem: {{ partner.business_address or '…' }}, NIP: {{ partner.nip or '…' }}, REGON: {{ partner.regon or '…' }},<strong> </strong></p>
+<p>{{ g.g_zwanym }} dalej jako „<strong>Partnerem</strong><strong>”</strong>.</p>
+<p>B2BNET i Partner zwani są w dalszej części „<strong>Stronami</strong>”</p>
+<h2>§ 1</h2>
+<p>B2B.net S.A., działając zgodnie z {{ refs.notice_paragraph }} umowy o współpracy B2B nr {{ base.contract_number }} z dnia {{ base.signing_date }} r., wypowiada niniejszą umowę z zachowaniem okresu wypowiedzenia {{ refs.notice_period_pl }}. Wypowiedzenie zostaje doręczone Partnerowi w dniu {{ doc.delivery_date }} r., a umowa ulega rozwiązaniu z dniem {{ doc.termination_date }} r.</p>
+<p>________________________</p>
+<p>Podpis</p>

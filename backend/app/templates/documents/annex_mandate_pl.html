@@ -1,0 +1,36 @@
+<h1>Aneks do Umowy zlecenie</h1>
+<p>zawarty dnia {{ document_date }} r. w Warszawie pomiędzy:</p>
+<p><strong>{{ company.name }}</strong> z siedzibą w Warszawie, {{ company.address }}, numer NIP: {{ company.nip }}, reprezentowaną przez {{ company.representative }},</p>
+<p>zwaną dalej „Zleceniodawcą”,</p>
+<p>a</p>
+<p><strong>{{ g.g_pan }} {{ partner.name_instrumental or partner.name or '…' }}</strong>, {{ g.g_zamieszkaly }} pod adresem: {{ partner.home_address or '…' }}, PESEL: {{ partner.pesel or '…' }},</p>
+<p>{{ g.g_zwanym }} dalej „<strong>Zleceniobiorcą</strong>”.</p>
+<p>Zleceniodawca i Zleceniobiorca dalej łącznie zwani „<strong>Stronami</strong>” a każdy z osobna „<strong>Stroną</strong>”</p>
+<p>Aneks zgodnym postanowieniem Stron wprowadza do Umowy zlecenie z dnia {{ doc.base_signing_date }} r. następujące zmiany:</p>
+{% set extras = doc.extra_provisions_list if doc.extra_provisions_list is defined else [] %}
+{% if doc.change_period %}
+<h2>§ 1</h2>
+<p><strong>Zmianie ulega § 2 </strong><strong>ust</strong><strong>. 2 Umowy i otrzymuje następujące brzmienie:</strong></p>
+<p>Zleceniobiorca będzie realizował zlecenie w okresie od {{ doc.period_from }} r. do {{ doc.period_to }} r.</p>
+{% endif %}
+{% if doc.change_rate %}
+<h2>§ {{ 1 + (1 if doc.change_period else 0) }}</h2>
+<p><strong>Zmianie ulega § 3 </strong><strong>ust</strong><strong>. 1 Umowy i otrzymuje następujące brzmienie:</strong></p>
+<p>Za wykonanie prac określonych w § 1 Zleceniobiorca otrzyma wynagrodzenie w wysokości {{ doc.gross_hourly_rate }} zł (słownie: {{ doc.gross_hourly_rate_words }}) brutto za każdą godzinę wykonywania zlecenia.</p>
+{% endif %}
+{% if extras %}
+<h2>§ {{ 1 + (1 if doc.change_period else 0) + (1 if doc.change_rate else 0) }}</h2>
+<p><strong>Dodane zostają </strong><strong>następujące </strong><strong>ustępy</strong><strong> w </strong><strong>§ 3 Umowy:</strong></p>
+{% for item in extras %}
+<p>{{ item }}</p>
+{% endfor %}
+{% endif %}
+<h2>§ {{ 1 + (1 if doc.change_period else 0) + (1 if doc.change_rate else 0) + (1 if extras else 0) }}</h2>
+<ol>
+<li>Ustalone zmiany wchodzą w życie z dniem {{ doc.effective_date }} r.</li>
+<li>Strony ustalają, że niniejszy aneks może być zawarty w formie pisemnej lub w formie elektronicznej z wykorzystaniem kwalifikowanego podpisu elektronicznego, zgodnie z art. 78¹ §1 Kodeksu cywilnego.</li>
+<li>Pozostałe postanowienia Umowy nie ulegają zmianie.</li>
+<li>Aneks sporządzono w dwóch jednobrzmiących egzemplarzach po jednym dla każdej ze Stron.</li>
+</ol>
+<p>________________       ________________</p>
+<p>(podpis)                                                                                       (podpis)</p>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   CONTRACT_TERMINATION_REASONS,
@@ -9,6 +10,7 @@ import {
 } from "@/lib/api";
 import { AppModal } from "@/components/ds/AppModal";
 import { warsawToday } from "@/lib/warsaw-date";
+import { documentsHref } from "@/lib/b2b-documents";
 
 interface Props {
   contractId: number;
@@ -147,6 +149,20 @@ export function ContractTerminationDialog({
             placeholder="Np.: Klient — brak budżetu. Klient poprosił o konsultanta na 6 mies., potrzebowali 12 — zbadać wcześniej…"
           />
         </label>
+        {/* Dokument do podpisu (porozumienie / wypowiedzenie) powstaje
+            w generatorze dokumentów — ten dialog zapisuje sam fakt końca. */}
+        <p className="text-xs text-muted-foreground">
+          Potrzebujesz dokumentu do podpisu?{" "}
+          <Link
+            href={documentsHref({
+              newType: "termination_agreement",
+              contractId,
+            })}
+            className="text-primary underline-offset-4 hover:underline"
+          >
+            Wygeneruj porozumienie / wypowiedzenie
+          </Link>
+        </p>
         {mut.isError && (
           <p className="text-xs text-destructive">
             Błąd zapisu. Spróbuj ponownie.

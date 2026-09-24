@@ -576,6 +576,18 @@ async def _assert_cv_qc_gate(
                     "osoba trafi do kolejki na pulpicie."
                 ),
             )
+    # Osoba już w kolejce Cpro przeszła bramkę przy wejściu do niej (albo —
+    # sprzed 24.09.2026 — ręczny przegląd DZ). „✓ Wrzucone” nie liczy QC
+    # drugi raz: CV Nordei to zwykle pliki Word spoza NEXUSA, a obejście ma
+    # tylko DL/admin, więc osoba od Cpro dostawałaby odmowę na zaakceptowanych.
+    if target_column == "cv_sent" and current.stage_def_id is not None:
+        current_name = await db.scalar(
+            select(PipelineStageDef.name).where(
+                PipelineStageDef.id == current.stage_def_id
+            )
+        )
+        if is_cpro_stage(current_name):
+            return
     await cv_qc.assert_qc_passed(
         db, candidate_id=candidate_id, job_id=job_id, user=user, stage=current
     )
@@ -1565,6 +1577,22 @@ async def move_candidate(
                 )
         except Exception as _exc:  # noqa: BLE001 — automat nigdy nie psuje ruchu
             logger.warning("cv_auto_generate spawn failed stage=%s: %s", stage.id, _exc)
+
+    # QC CV (Rekrutacja v5): po wejściu do kolumny „QC CV” QC liczy się samo,
+    # żeby karta, przegląd DL i kolejka Cpro nie mówiły „nie sprawdzone”.
+    # Ten sam wyłącznik co bramka (w testach wyłączony autouse-fixturą).
+    if target_column == "cv_qc":
+        try:
+            from app.core.config import settings as _settings
+            from app.services import cv_qc as _cv_qc
+
+            if _settings.CV_QC_GATE_ENABLED:
+                _spawn(
+                    _cv_qc.run_after_move(stage.id, actor_id),
+                    f"cv_qc stage={stage.id}",
+                )
+        except Exception as _exc:  # noqa: BLE001 — automat nigdy nie psuje ruchu
+            logger.warning("cv_qc spawn failed stage=%s: %s", stage.id, _exc)
 
     resp = _stage_response(
         stage, show_client_rate=user_can_view_client_rate(current_user)

@@ -1,4 +1,4 @@
-"""Graph app-only dla prepów w Teams (0362): kalendarz organizatora i transkrypty.
+"""Graph app-only dla prepów w Teams (0364): kalendarz organizatora i transkrypty.
 
 Wszystkie wywołania idą przez ``AppGraphClient`` z tokenem OSOBNEJ rejestracji
 (``teams_prep_auth``) — patrz tam, dlaczego nie ta od poczty zamówień. Ścieżki

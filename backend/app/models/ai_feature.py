@@ -126,7 +126,7 @@ class AIFeatureKey(str, enum.Enum):
     # (Delivery Lead / Head of Recruitment) i inny strumień wydatku niż
     # recenzja faktów przy generacji.
     dz_review = "dz_review"
-    # Ocena prepu z transkryptu Teams (0362): czy w Prepie 1/2 omówiono
+    # Ocena prepu z transkryptu Teams (0364): czy w Prepie 1/2 omówiono
     # must-have z Championa i przećwiczono pytania tego klienta — punkt po
     # punkcie z cytatem — plus krótkie podsumowanie do notatki kandydata.
     prep_review = "prep_review"

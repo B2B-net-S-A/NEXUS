@@ -81,7 +81,7 @@ class EventRef:
     status: str
     online_meeting_url: Optional[str] = None
     external_source: Optional[str] = None
-    # 0362 — prep założony z NEXUSA (Teams): numer, transkrypt, ocena.
+    # 0364 — prep założony z NEXUSA (Teams): numer, transkrypt, ocena.
     # Dla prepów spoza NEXUSA wszystko puste, a `ordinal` liczy kolejność.
     prep_no: Optional[int] = None
     ordinal: Optional[int] = None
@@ -239,7 +239,7 @@ def compute_steps(
     else:
         steps.append(_step("choice", "todo"))
 
-    # 3–4. Prep i Prep 2 — oba wymagane (0362); po rozmowie już się nie wydarzą.
+    # 3–4. Prep i Prep 2 — oba wymagane (0364); po rozmowie już się nie wydarzą.
     for n, key in ((1, "prep"), (2, "prep2")):
         ev = pair.prep_slot(n)
         if ev is not None and ev.start > now:
@@ -349,7 +349,7 @@ _TODO_PRIORITY = {
     "prep_weak": 6,
     "prep_unrecorded": 7,
 }
-# Brak prepu tuż przed rozmową u klienta jest pilny (0362).
+# Brak prepu tuż przed rozmową u klienta jest pilny (0364).
 PREP_URGENT_HOURS = 24
 
 
@@ -405,7 +405,7 @@ def compute_todos(
     if iv is not None and iv.start > now:
         urgent = iv.start - now <= timedelta(hours=PREP_URGENT_HOURS)
         first, second = pair.prep_slot(1), pair.prep_slot(2)
-        # Najpierw Prep 1 — dwa zadania naraz to szum; Prep 2 zawsze (0362).
+        # Najpierw Prep 1 — dwa zadania naraz to szum; Prep 2 zawsze (0364).
         if first is None:
             add("prep_missing", due=iv.start, event_id=iv.id, urgent=urgent)
         elif second is None:
@@ -636,7 +636,7 @@ async def load_snapshots(
             if p.start <= iv_start and (prev_start is None or p.start > prev_start)
         ]
 
-    # 0362: stan prepów z NEXUSA (numer, transkrypt, ocena) — jedno zapytanie.
+    # 0364: stan prepów z NEXUSA (numer, transkrypt, ocena) — jedno zapytanie.
     prep_ids = [p.id for snap in snaps.values() for p in snap.preps]
     if prep_ids:
         from app.models.prep_meeting import PrepMeeting, PrepReview

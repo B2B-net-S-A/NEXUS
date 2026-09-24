@@ -11,7 +11,7 @@
  *    kolei" otwiera `CproQueueDialog`. Do Cpro wrzuca JEDNA osoba na całą
  *    firmę, zmienić ją może każdy (decyzja Artura 23.09.2026),
  *  - „Wysłane do Cpro" — od ilu dni czekamy na Nordeę,
- *  - „Prepy przed rozmową u klienta" (0362) — brak prepu, prep słaby albo bez
+ *  - „Prepy przed rozmową u klienta" (0364) — brak prepu, prep słaby albo bez
  *    nagrania; wiersz prowadzi do karty kandydata w kalendarzu. Nic nie
  *    blokuje — to przypomnienie, nie bramka.
  *
@@ -156,7 +156,7 @@ export function BoardTasksPanel() {
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-base font-semibold">Czeka na Ciebie</h2>
         <p className="text-xs text-muted-foreground">
-          Ruchy na Tablicach z ostatnich {data.window_days} dni · najdłużej czekający na górze
+          Ruchy na Tablicach z ostatnich {Math.max(data.window_days, data.dl_review_window_days ?? 0)} dni · najdłużej czekający na górze
         </p>
       </div>
       <div className="grid gap-4 lg:grid-cols-3">

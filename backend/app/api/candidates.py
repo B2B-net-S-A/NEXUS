@@ -5348,7 +5348,7 @@ async def delete_candidate(
             sa_delete(JobProposal).where(JobProposal.candidate_id == candidate_id)
         )
     ).rowcount or 0
-    # Prepy w Teams (0362): transkrypty i oceny idą kaskadą z kandydatem —
+    # Prepy w Teams (0364): transkrypty i oceny idą kaskadą z kandydatem —
     # kasujemy je jawnie, żeby liczba trafiła do dowodu wykonania art. 17.
     # Kopia nagrania/transkryptu w M365 organizatora podlega retencji tenanta.
     from app.models.prep_meeting import PrepMeeting, PrepReview, PrepTranscript
