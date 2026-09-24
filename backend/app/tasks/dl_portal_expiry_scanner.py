@@ -59,7 +59,8 @@ from app.services.delivery_alert_recipients import (
     DeliveryAlertRecipientScope,
     load_delivery_alert_recipient_scope,
 )
-from app.services.order_continuation import order_has_continuation
+from app.services.order_alert_policy import extended_order_alert_client_ids
+from app.services.order_continuation import order_ending_without_continuation
 from app.services.order_group_lifecycle import materialize_scheduled_order_groups
 from app.services.order_md_exhaustion import reconcile_md_exhausted_groups
 
@@ -360,11 +361,16 @@ async def _scan_orders(
             .join(Client, Client.id == ClientOrder.client_id)
             .where(
                 ClientOrder.status == ClientOrderStatus.active,
-                ClientOrder.end_date >= today,
-                ClientOrder.end_date <= today + timedelta(days=_HORIZON_DAYS),
-                # Dodana kontynuacja (także szkic) = nic do zrobienia; ta sama
-                # reguła co zakładka „Kończące się 30d" i karta w panelu DL.
-                ~order_has_continuation(),
+                # Jedna reguła „kończy się bez kontynuacji" (audyt 24.09.2026,
+                # S1) — ta sama co karta w panelu DL i pigułka „Bez kontynuacji
+                # 30d": linie MD/kosztowe tylko u klientów z rozszerzonymi
+                # alertami (u pozostałych linię kończy budżet, nie kalendarz).
+                order_ending_without_continuation(
+                    today,
+                    today + timedelta(days=_HORIZON_DAYS),
+                    extended_client_ids=extended_order_alert_client_ids(),
+                    today=today,
+                ),
             )
         )
     )

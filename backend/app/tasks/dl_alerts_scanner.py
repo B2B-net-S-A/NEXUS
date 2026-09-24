@@ -51,7 +51,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Awaitable, Callable
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -126,7 +126,7 @@ from app.services.order_burn_rate import (
     high_priority_threshold,
     md_burn_rate,
 )
-from app.services.order_continuation import order_has_continuation
+from app.services.order_continuation import order_ending_without_continuation
 from app.services.shared_md_orders import uses_shared_md_pool
 from app.services import loop_heartbeat
 
@@ -845,29 +845,16 @@ async def rule_periodic_order_ending(
     extended_ids = extended_order_alert_client_ids()
     result = await db.execute(
         select(ClientOrder)
-        .outerjoin(ClientOrderGroup, ClientOrder.order_group_id == ClientOrderGroup.id)
         .options(selectinload(ClientOrder.contract).selectinload(Contract.candidate))
         .where(
-            or_(
-                ClientOrder.order_group_id.is_(None),
-                # Linia grupy tylko u klienta z listy i tylko w zamówieniu
-                # AKTYWNYM: karta „kończące się" pod zamówieniem zakończonym
-                # przeczyłaby nagłówkowi, pod którym stoi.
-                and_(
-                    ClientOrder.client_id.in_(extended_ids),
-                    ClientOrderGroup.status == GROUP_STATUS_ACTIVE,
-                ),
-            ),
-            ClientOrder.status.in_(
-                (ClientOrderStatus.active, ClientOrderStatus.paused)
-            ),
-            ClientOrder.end_date.isnot(None),
-            ClientOrder.end_date >= start,
-            ClientOrder.end_date <= stop,
-            # Zamówienie z już dodaną kontynuacją (także szkicem) nie wymaga
-            # działania — ta sama reguła co zakładka „Kończące się 30d".
-            # Otwarte karty takich zamówień zamyka `resolve_stale` niżej.
-            ~order_has_continuation(),
+            # Jedna reguła „kończy się bez kontynuacji" (audyt 24.09.2026, S1):
+            # okresowe u wszystkich, linie grup tylko u klientów z listy i tylko
+            # w zamówieniu AKTYWNYM; zamówienie z dodaną kontynuacją (także
+            # uzupełnionym szkicem) nie wymaga działania. Otwarte karty takich
+            # zamówień zamyka `resolve_stale` niżej.
+            order_ending_without_continuation(
+                start, stop, extended_client_ids=extended_ids, today=today
+            )
         )
     )
     orders = list(result.scalars())

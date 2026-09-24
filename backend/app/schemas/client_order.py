@@ -191,6 +191,12 @@ class ContractWithOrdersRead(BaseModel):
     """Karta „szkicu" (ticket 09.2026): żywy kontrakt bez zamówień poza
     szkicami. Taką kartę da się usunąć („Usuń szkic"), a u Centrum e-Zdrowia
     przypisać do zamówienia."""
+    ending_without_successor_order_id: Optional[int] = None
+    """Zamówienie okresowe, które kończy się w ciągu 30 dni BEZ kontynuacji
+    (audyt 24.09.2026, S1 — reguła ``services/order_continuation``). Pigułka
+    „Bez kontynuacji 30d" czyta to pole zamiast liczyć regułę sama."""
+    ending_without_successor_end_date: Optional[date] = None
+    ending_without_successor_days: Optional[int] = None
 
     orders: list[ClientOrderRead] = []
 

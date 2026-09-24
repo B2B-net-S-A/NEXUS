@@ -7354,6 +7354,14 @@ _DATA_STATEMENTS = [
 # Bez tego jedna zabłąkana wartość zablokowałaby start kontenera. VALIDATE
 # CONSTRAINT można uruchomić później, świadomie, po policzeniu sierot.
 _CONSTRAINT_STATEMENTS = [
+    # 0371: koniec zamówienia nie przed jego startem (audyt 24.09.2026, S7).
+    # NOT VALID — produkcja ma historyczne zamówienie z odwróconym okresem.
+    """DO $$ BEGIN
+        ALTER TABLE client_orders
+            ADD CONSTRAINT ck_client_orders_dates
+            CHECK (start_date IS NULL OR end_date IS NULL OR end_date >= start_date)
+            NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     # 0367: rozwiązanie umowy B2B na kontrakcie — komplet albo nic; tryb
     # i strona z zamkniętych słowników (także na umowie w Generatorze).
     """DO $$ BEGIN
