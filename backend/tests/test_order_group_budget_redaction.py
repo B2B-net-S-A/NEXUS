@@ -25,8 +25,6 @@ from app.core.scheduling import business_today
 
 pytestmark = pytest.mark.asyncio
 
-_TODAY = business_today()
-
 
 def _enable(monkeypatch, client_id: int) -> None:
     from app.services import cost_orders as co
@@ -72,7 +70,7 @@ async def _seed_client_with_contract() -> tuple[int, int, str]:
             candidate_id=cand.id,
             client_id=client.id,
             status=ContractStatus.active,
-            start_date=_TODAY - timedelta(days=30),
+            start_date=business_today() - timedelta(days=30),
             rate_candidate=Decimal("100.000"),
             rate_client=Decimal("150.000"),
         )
@@ -127,7 +125,7 @@ async def _create_cost_group(
         f"/api/clients/{client_id}/order-groups",
         json={
             "order_number": f"450{uuid.uuid4().int % 10**7:07d}",
-            "start_date": (_TODAY - timedelta(days=10)).isoformat(),
+            "start_date": (business_today() - timedelta(days=10)).isoformat(),
             "is_cost_based": True,
             "budget_amount": 500000,
             "lines": [
@@ -135,7 +133,7 @@ async def _create_cost_group(
                     "contract_id": contract_id,
                     "rate_cost": 1000,
                     "rate_revenue": 1200,
-                    "start_date": (_TODAY - timedelta(days=10)).isoformat(),
+                    "start_date": (business_today() - timedelta(days=10)).isoformat(),
                 }
             ],
         },
@@ -181,7 +179,7 @@ async def _import_invoice(
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
         },
-        data={"period_month": _TODAY.strftime("%Y-%m")},
+        data={"period_month": business_today().strftime("%Y-%m")},
         headers=headers,
     )
     assert resp.status_code == 201, resp.text
@@ -280,7 +278,7 @@ async def _create_md_group(
         f"/api/clients/{client_id}/order-groups",
         json={
             "order_number": f"CeZ-{uuid.uuid4().hex[:6]}",
-            "start_date": (_TODAY - timedelta(days=10)).isoformat(),
+            "start_date": (business_today() - timedelta(days=10)).isoformat(),
             "order_type": "md",
             "md_budget_mode": "per_person",
             "lines": [
@@ -291,7 +289,7 @@ async def _create_md_group(
                     "input_mode": "md",
                     "input_value": 190,
                     "optional_md": 170,
-                    "start_date": (_TODAY - timedelta(days=10)).isoformat(),
+                    "start_date": (business_today() - timedelta(days=10)).isoformat(),
                 }
             ],
         },

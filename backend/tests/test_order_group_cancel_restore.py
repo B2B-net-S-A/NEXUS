@@ -20,6 +20,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 
+from app.core.scheduling import business_today
 from app.core.database import AsyncSessionLocal
 from app.models.client_order import ClientOrder
 from app.models.client_order_group import ClientOrderGroup, ClientOrderGroupEvent
@@ -28,7 +29,6 @@ from app.models.md_consumption import (
     ClientOrderMdConsumption,
 )
 from tests.test_order_lifecycle_and_cost import (
-    _TODAY,
     _cost_line,
     _create_group,
     _enable_cost,
@@ -140,7 +140,7 @@ async def test_cancel_with_settlements_is_409_and_changes_nothing(
         db.add(
             ClientOrderMdConsumption(
                 order_id=line_id,
-                period_month=_TODAY.strftime("%Y-%m"),
+                period_month=business_today().strftime("%Y-%m"),
                 md_reported=Decimal("5"),
                 source=CONSUMPTION_SOURCE_IMPORT,
             )
@@ -207,7 +207,7 @@ async def test_cancelled_order_is_read_only_until_restored(
     assert patch.status_code == 409
     close = await app_client.post(
         _url(client_id, group["id"], "close"),
-        json={"closure_date": _TODAY.isoformat()},
+        json={"closure_date": business_today().isoformat()},
         headers=app_auth_headers,
     )
     assert close.status_code == 409

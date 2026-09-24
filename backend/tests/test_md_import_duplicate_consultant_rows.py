@@ -26,10 +26,11 @@ from app.core.scheduling import business_today
 
 pytestmark = pytest.mark.asyncio
 
-_TODAY = business_today()
+
 #: Miesiąc importu musi zachodzić na okres linii — inaczej `md_lines_settling_in_month`
 #: nie zwraca nic i test „przechodzi" z zerem zmian.
-_PERIOD = _TODAY.strftime("%Y-%m")
+def _period():
+    return business_today().strftime("%Y-%m")
 
 
 def _sheet(rows: list[tuple[str, float]]) -> bytes:
@@ -86,7 +87,7 @@ async def _seed_client_with_contracts(
                 candidate_id=cand.id,
                 client_id=client.id,
                 status=ContractStatus.active,
-                start_date=_TODAY - timedelta(days=30),
+                start_date=business_today() - timedelta(days=30),
                 rate_candidate=Decimal("100.000"),
                 rate_client=Decimal("150.000"),
             )
@@ -105,7 +106,7 @@ def _md_line(contract_id: int, md_total: int = 50) -> dict:
         "rate_revenue": 1200,
         "input_mode": "md",
         "input_value": md_total,
-        "start_date": (_TODAY - timedelta(days=10)).isoformat(),
+        "start_date": (business_today() - timedelta(days=10)).isoformat(),
     }
 
 
@@ -116,7 +117,7 @@ async def _create_group(
         f"/api/clients/{client_id}/order-groups",
         json={
             "order_number": f"445-{uuid.uuid4().hex[:4]}",
-            "start_date": (_TODAY - timedelta(days=10)).isoformat(),
+            "start_date": (business_today() - timedelta(days=10)).isoformat(),
             "lines": lines,
         },
         headers=headers,
@@ -162,7 +163,7 @@ async def _import(app_client: AsyncClient, headers: dict, payload: bytes) -> dic
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
         },
-        data={"period_month": _PERIOD},
+        data={"period_month": _period()},
         headers=headers,
     )
     assert resp.status_code == 201, resp.text
@@ -314,7 +315,7 @@ async def test_md_beyond_the_budget_flows_onto_the_continuation(
     group = await _create_group(
         app_client, app_auth_headers, client_id, [_md_line(contracts[0], 20)]
     )
-    successor_start = _TODAY - timedelta(days=5)
+    successor_start = business_today() - timedelta(days=5)
     successor = await _extend(
         app_client,
         app_auth_headers,
@@ -376,7 +377,7 @@ async def test_reimporting_the_split_month_does_not_move_md_twice(
     group = await _create_group(
         app_client, app_auth_headers, client_id, [_md_line(contracts[0], 20)]
     )
-    successor_start = _TODAY + timedelta(days=30)
+    successor_start = business_today() + timedelta(days=30)
     successor = await _extend(
         app_client,
         app_auth_headers,
@@ -412,7 +413,7 @@ async def test_reimport_after_materialization_does_not_double_count(
     group = await _create_group(
         app_client, app_auth_headers, client_id, [_md_line(contracts[0], 20)]
     )
-    successor_start = _TODAY - timedelta(days=5)
+    successor_start = business_today() - timedelta(days=5)
     successor = await _extend(
         app_client,
         app_auth_headers,
@@ -457,7 +458,7 @@ async def test_raising_the_budget_takes_the_md_back_from_the_continuation(
     group = await _create_group(
         app_client, app_auth_headers, client_id, [_md_line(contracts[0], 20)]
     )
-    successor_start = _TODAY + timedelta(days=30)
+    successor_start = business_today() + timedelta(days=30)
     successor = await _extend(
         app_client,
         app_auth_headers,
@@ -528,7 +529,7 @@ async def test_manual_assignment_splits_the_same_way_as_the_batch_import(
         client_id,
         [_md_line(contracts[0], 20), _md_line(contracts[1], 50)],
     )
-    successor_start = _TODAY + timedelta(days=30)
+    successor_start = business_today() + timedelta(days=30)
     successor = await _extend(
         app_client,
         app_auth_headers,
@@ -585,7 +586,7 @@ async def test_import_entry_names_the_order_and_the_counter(
     assert group["order_number"] in entry["description"]
     assert "wykorzystano 20 / pozostało 30 MD" in entry["description"]
     # Miesiąc słownie, nie „2026-07" — wpis czyta człowiek.
-    assert _PERIOD not in entry["description"]
+    assert _period() not in entry["description"]
 
 
 # ── Audyt 22.09 r2 (FIN-MD-07) ──────────────────────────────────────────────
@@ -610,7 +611,7 @@ async def test_assigning_an_old_row_does_not_overwrite_a_newer_or_manual_entry(
 
     manual = await app_client.put(
         f"/api/clients/{client_id}/order-groups/{group['id']}"
-        f"/lines/{target}/consumptions/{_PERIOD}",
+        f"/lines/{target}/consumptions/{_period()}",
         json={"md_reported": 7, "status": "accepted"},
         headers=app_auth_headers,
     )

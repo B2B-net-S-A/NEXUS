@@ -8,8 +8,6 @@ from types import SimpleNamespace
 from app.tasks.contract_alerts import THRESHOLDS_DAYS
 from app.core.scheduling import business_today
 
-_TODAY = business_today()
-
 
 def test_90d_threshold_present():
     assert 90 in THRESHOLDS_DAYS
@@ -105,8 +103,8 @@ async def test_prefilter_is_episode_aware():
     # A high, effectively-unique contract id so the assertions are isolated from any
     # other rows in the shared test DB.
     cid = 900_000_000 + (uuid.uuid4().int % 10_000_000)
-    e1 = (_TODAY + timedelta(days=10)).isoformat()  # prior deadline
-    e2 = (_TODAY + timedelta(days=30)).isoformat()  # extended deadline
+    e1 = (business_today() + timedelta(days=10)).isoformat()  # prior deadline
+    e2 = (business_today() + timedelta(days=30)).isoformat()  # extended deadline
     staff_id = await _seed_staff_user()
     async with AsyncSessionLocal() as db:
         db.add(
@@ -133,8 +131,8 @@ async def test_claim_alert_rearms_on_new_deadline():
     from app.tasks.contract_alerts import _claim_alert
 
     cid = 900_000_000 + (uuid.uuid4().int % 10_000_000)
-    e1 = (_TODAY + timedelta(days=10)).isoformat()
-    e2 = (_TODAY + timedelta(days=30)).isoformat()
+    e1 = (business_today() + timedelta(days=10)).isoformat()
+    e2 = (business_today() + timedelta(days=30)).isoformat()
     async with AsyncSessionLocal() as db:
         assert await _claim_alert(db, f"ending:30:{cid}:{e1}") is True
         assert await _claim_alert(db, f"ending:30:{cid}:{e1}") is False
@@ -173,7 +171,7 @@ async def test_slack_summary_returns_false_on_non_2xx(monkeypatch):
     from app.tasks import contract_alerts
 
     monkeypatch.setattr(contract_alerts.httpx, "AsyncClient", _FakeSlackClient(500))
-    events = [(30, SimpleNamespace(id=1, end_date=_TODAY))]
+    events = [(30, SimpleNamespace(id=1, end_date=business_today()))]
     ok = await contract_alerts._post_slack_summary("http://hook.example", events)
     assert ok is False
 
@@ -182,7 +180,7 @@ async def test_slack_summary_returns_true_on_2xx(monkeypatch):
     from app.tasks import contract_alerts
 
     monkeypatch.setattr(contract_alerts.httpx, "AsyncClient", _FakeSlackClient(200))
-    events = [(30, SimpleNamespace(id=1, end_date=_TODAY))]
+    events = [(30, SimpleNamespace(id=1, end_date=business_today()))]
     ok = await contract_alerts._post_slack_summary("http://hook.example", events)
     assert ok is True
 
@@ -213,8 +211,8 @@ async def test_compliance_prefilter_is_episode_aware():
     from app.tasks.contract_alerts import _compliance_already_notified
 
     doc_id = _uniq_id()
-    e1 = (_TODAY + timedelta(days=10)).isoformat()  # prior expiry
-    e2 = (_TODAY + timedelta(days=40)).isoformat()  # renewed expiry
+    e1 = (business_today() + timedelta(days=10)).isoformat()  # prior expiry
+    e2 = (business_today() + timedelta(days=40)).isoformat()  # renewed expiry
     staff_id = await _seed_staff_user()
     async with AsyncSessionLocal() as db:
         db.add(
@@ -254,8 +252,8 @@ async def test_equipment_prefilter_is_episode_aware():
     from app.tasks.contract_alerts import _equipment_already_notified
 
     item_id = _uniq_id()
-    d1 = (_TODAY + timedelta(days=5)).isoformat()  # prior due date
-    d2 = (_TODAY + timedelta(days=90)).isoformat()  # re-issued due date
+    d1 = (business_today() + timedelta(days=5)).isoformat()  # prior due date
+    d2 = (business_today() + timedelta(days=90)).isoformat()  # re-issued due date
     staff_id = await _seed_staff_user()
     async with AsyncSessionLocal() as db:
         db.add(
@@ -285,8 +283,8 @@ async def test_client_order_prefilter_is_episode_aware():
     from app.tasks.contract_alerts import _client_order_already_notified
 
     cid = _uniq_id()
-    o1 = (_TODAY + timedelta(days=15)).isoformat()  # prior order end
-    o2 = (_TODAY + timedelta(days=120)).isoformat()  # extended order end
+    o1 = (business_today() + timedelta(days=15)).isoformat()  # prior order end
+    o2 = (business_today() + timedelta(days=120)).isoformat()  # extended order end
     staff_id = await _seed_staff_user()
     async with AsyncSessionLocal() as db:
         db.add(
@@ -320,8 +318,8 @@ async def test_claim_alert_rearms_per_family_episode():
     from app.tasks.contract_alerts import _claim_alert
 
     ent = _uniq_id()
-    e1 = (_TODAY + timedelta(days=10)).isoformat()
-    e2 = (_TODAY + timedelta(days=50)).isoformat()
+    e1 = (business_today() + timedelta(days=10)).isoformat()
+    e2 = (business_today() + timedelta(days=50)).isoformat()
     async with AsyncSessionLocal() as db:
         for prefix in ("compliance", "equipment", "client_order"):
             # Same episode → one claim only.

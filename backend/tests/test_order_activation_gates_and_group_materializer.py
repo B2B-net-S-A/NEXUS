@@ -49,8 +49,6 @@ from app.models.contract_candidate_rate import ContractCandidateRate
 from app.services.multi_consultant_orders import EVENT_ORDER_CLOSED
 from app.services.order_group_lifecycle import materialize_scheduled_order_groups
 
-_TODAY = business_today()
-
 
 @pytest.fixture(autouse=True)
 def _skip_contract_order_locks(monkeypatch):
@@ -76,7 +74,7 @@ def _contract_with_future_progressive_rate() -> Contract:
     ustawia kolumnę na ``effective_candidate_rate(dziś)``, czyli — dla startu
     w przyszłości — na ``None``.
     """
-    start = _TODAY + timedelta(days=30)
+    start = business_today() + timedelta(days=30)
     contract = Contract(
         candidate_id=1,
         client_id=1,
@@ -99,8 +97,8 @@ def _complete_draft_order(contract: Contract) -> ClientOrder:
         contract=contract,
         title="445/2026",
         status=ClientOrderStatus.draft,
-        start_date=_TODAY,
-        end_date=_TODAY + timedelta(days=365),
+        start_date=business_today(),
+        end_date=business_today() + timedelta(days=365),
         rate_client=Decimal("150.000"),
     )
 
@@ -120,7 +118,7 @@ def test_flat_rate_without_schedule_still_reads_the_column():
     contract = Contract(
         candidate_id=1,
         client_id=1,
-        start_date=_TODAY,
+        start_date=business_today(),
         rate_candidate=Decimal("100.000"),
         candidate_rate_schedule=[],
     )
@@ -133,7 +131,7 @@ def test_missing_rate_everywhere_keeps_the_order_in_draft():
     contract = Contract(
         candidate_id=1,
         client_id=1,
-        start_date=_TODAY,
+        start_date=business_today(),
         rate_candidate=None,
         candidate_rate_schedule=[],
     )
@@ -148,7 +146,10 @@ def test_unloaded_schedule_falls_back_to_the_column_instead_of_500():
     dotyka, więc bramka nie może na niej wybuchnąć.
     """
     contract = Contract(
-        candidate_id=1, client_id=1, start_date=_TODAY, rate_candidate=Decimal("90.000")
+        candidate_id=1,
+        client_id=1,
+        start_date=business_today(),
+        rate_candidate=Decimal("90.000"),
     )
     assert _activation_candidate_rate(contract) == Decimal("90.000")
 
@@ -317,7 +318,7 @@ async def test_successor_promotion_closes_predecessor_with_history_and_end_date(
     przywrócenie), a bez dociągnięcia ``end_date`` karta zakończonego
     zamówienia głosi „do 31.12", choć jego linie są już przycięte.
     """
-    start = _TODAY
+    start = business_today()
     previous = _group(
         1,
         status=GROUP_STATUS_ACTIVE,
@@ -358,7 +359,7 @@ async def test_same_day_replacement_never_writes_an_end_date_before_start():
     poprzednika. Materializer jest wołany z ``list_order_groups``, więc
     naruszenie CHECK-a byłoby 500 przy KAŻDYM otwarciu zakładki.
     """
-    start = _TODAY
+    start = business_today()
     previous = _group(1, status=GROUP_STATUS_ACTIVE, start=start)
     current = _group(2, status=GROUP_STATUS_SCHEDULED, start=start, predecessor=1)
     db = _FakeSession([previous, current], [])
@@ -372,7 +373,7 @@ async def test_same_day_replacement_never_writes_an_end_date_before_start():
 @pytest.mark.asyncio
 async def test_materializer_is_idempotent_and_logs_the_closure_once():
     """Wołane z każdego odczytu listy — powtórka nie może dokładać wpisów."""
-    start = _TODAY
+    start = business_today()
     previous = _group(1, status=GROUP_STATUS_ACTIVE, start=start - timedelta(days=90))
     current = _group(2, status=GROUP_STATUS_SCHEDULED, start=start, predecessor=1)
     db = _FakeSession([previous, current], [])
@@ -392,7 +393,7 @@ async def test_md_family_waits_for_the_budget_not_the_start_date():
     niewykorzystane dni poprzednika przepadały razem z nim w historii — nie
     było ich już jak zafakturować. Dokładnie stan, z którego wziął się ticket.
     """
-    start = _TODAY
+    start = business_today()
     previous = _group(1, status=GROUP_STATUS_ACTIVE, start=start - timedelta(days=90))
     current = _group(2, status=GROUP_STATUS_SCHEDULED, start=start, predecessor=1)
     lines = [
@@ -416,7 +417,7 @@ async def test_md_family_waits_for_the_budget_not_the_start_date():
 @pytest.mark.asyncio
 async def test_md_family_promotes_once_the_budget_is_gone():
     """Wyczerpanie MD — i dopiero ono — przepuszcza kontynuację."""
-    start = _TODAY
+    start = business_today()
     previous = _group(1, status=GROUP_STATUS_ACTIVE, start=start - timedelta(days=90))
     current = _group(2, status=GROUP_STATUS_SCHEDULED, start=start, predecessor=1)
     lines = [
@@ -441,14 +442,14 @@ async def test_md_family_promotes_once_the_budget_is_gone():
 async def test_scheduled_promotion_self_heals_an_empty_generic_phantom_pool():
     """A NOT VALID 0251 check still validates every later status UPDATE."""
 
-    current = _group(1, status=GROUP_STATUS_SCHEDULED, start=_TODAY)
+    current = _group(1, status=GROUP_STATUS_SCHEDULED, start=business_today())
     current.order_type = "md"
     current.is_md_budget_based = True
     current.md_budget_total = Decimal("60")
     current.md_budget_remaining = Decimal("60")
     db = _FakeSession([current], [])
 
-    assert await materialize_scheduled_order_groups(db, today=_TODAY) == 1
+    assert await materialize_scheduled_order_groups(db, today=business_today()) == 1
     assert current.status == GROUP_STATUS_ACTIVE
     assert current.is_md_budget_based is False
     assert current.md_budget_total is None
@@ -463,7 +464,7 @@ async def test_generic_phantom_pool_with_a_line_is_never_rewritten():
         normalize_empty_generic_explicit_md_group,
     )
 
-    group = _group(1, status=GROUP_STATUS_ACTIVE, start=_TODAY)
+    group = _group(1, status=GROUP_STATUS_ACTIVE, start=business_today())
     group.order_type = "md"
     group.is_md_budget_based = True
     group.md_budget_total = Decimal("60")
@@ -485,7 +486,7 @@ async def test_a_predecessor_already_in_history_never_blocks_the_continuation():
     zostawiłoby rodzinę bez ani jednego bieżącego zamówienia — czyli klienta
     bez zamówienia, choć konsultant pracuje.
     """
-    start = _TODAY
+    start = business_today()
     previous = _group(
         1, status=GROUP_STATUS_COMPLETED, start=start - timedelta(days=90)
     )
@@ -512,7 +513,7 @@ async def test_a_cancelled_consultant_budget_does_not_block_the_continuation():
     Wliczanie jego budżetu trzymałoby kontynuację zablokowaną bezterminowo —
     stan nie do odblokowania z interfejsu.
     """
-    start = _TODAY
+    start = business_today()
     previous = _group(1, status=GROUP_STATUS_ACTIVE, start=start - timedelta(days=90))
     current = _group(2, status=GROUP_STATUS_SCHEDULED, start=start, predecessor=1)
     lines = [
@@ -552,7 +553,7 @@ async def test_boundary_defaults_to_the_business_day_not_the_container_clock(
     """
     import app.services.order_group_lifecycle as mod
 
-    start = _TODAY
+    start = business_today()
     monkeypatch.setattr(mod, "business_today", lambda: start)
     current = _group(1, status=GROUP_STATUS_SCHEDULED, start=start)
     db = _FakeSession([current], [])
@@ -583,16 +584,17 @@ def test_initial_status_uses_the_same_boundary_as_the_materializer(monkeypatch):
     """
     import app.api.client_order_groups as mod
 
-    monkeypatch.setattr(mod, "business_today", lambda: _TODAY)
-    assert mod._initial_group_status(_TODAY) == GROUP_STATUS_ACTIVE
-    assert mod._initial_group_status(_TODAY + timedelta(days=1)) == (
+    today = business_today()
+    monkeypatch.setattr(mod, "business_today", lambda: today)
+    assert mod._initial_group_status(today) == GROUP_STATUS_ACTIVE
+    assert mod._initial_group_status(today + timedelta(days=1)) == (
         GROUP_STATUS_SCHEDULED
     )
 
     # Granica cofnięta o dobę (dokładnie to robi zegar UTC przed północą
     # warszawską) — start „dziś" wg firmy przestaje być bieżący.
-    monkeypatch.setattr(mod, "business_today", lambda: _TODAY - timedelta(days=1))
-    assert mod._initial_group_status(_TODAY) == GROUP_STATUS_SCHEDULED
+    monkeypatch.setattr(mod, "business_today", lambda: today - timedelta(days=1))
+    assert mod._initial_group_status(today) == GROUP_STATUS_SCHEDULED
 
 
 # ── 5. Ticket „Draft → Aktywne”: bezterminowy okres nie blokuje aktywacji ───
@@ -690,7 +692,7 @@ def _standalone_draft(client_id: int) -> ClientOrder:
         contract_id=1,
         title="445/2026",
         status=ClientOrderStatus.draft,
-        start_date=_TODAY,
+        start_date=business_today(),
         rate_client=Decimal("1550.000"),
         rate_unit=RateUnit.daily,
         rate_client_currency="PLN",
@@ -933,7 +935,7 @@ async def test_cp_standalone_md_materializes_the_required_shared_group_pool():
 async def test_first_materialized_line_self_heals_empty_explicit_shared_md_group(
     monkeypatch,
 ):
-    existing = _group(55, status=GROUP_STATUS_ACTIVE, start=_TODAY)
+    existing = _group(55, status=GROUP_STATUS_ACTIVE, start=business_today())
     existing.order_number = "445/2026"
     existing.order_type = "md"
     existing.is_md_budget_based = True
@@ -967,7 +969,7 @@ async def test_first_materialized_line_self_heals_empty_explicit_shared_md_group
 async def test_materializer_attaches_to_the_existing_open_group(monkeypatch):
     """BIK prowadzi grupy wieloosobowe — ten sam numer dokleja linię, nie dubluje grupy."""
     _md_client(monkeypatch)
-    existing = _group(55, status=GROUP_STATUS_ACTIVE, start=_TODAY)
+    existing = _group(55, status=GROUP_STATUS_ACTIVE, start=business_today())
     existing.order_number = "445/2026"
     db = _DraftMaterializerSession(
         group=existing, candidate=_Candidate(name="Maciej", lastname="Koc")
@@ -1104,7 +1106,7 @@ async def test_materializer_ignores_a_scheduled_group_and_creates_a_fresh_active
     pigułką „Aktywne" i przed alertem progu MD — zaplanowany dubel numeru
     dostaje więc osobną, świeżą grupę aktywną."""
     _md_client(monkeypatch)
-    scheduled = _group(66, status=GROUP_STATUS_SCHEDULED, start=_TODAY)
+    scheduled = _group(66, status=GROUP_STATUS_SCHEDULED, start=business_today())
     scheduled.order_number = "445/2026"
     db = _DraftMaterializerSession(
         group=scheduled, candidate=_Candidate(name="Jan", lastname="Kowalski")
@@ -1140,15 +1142,15 @@ async def test_materializer_sanitizes_inverted_dates_on_the_new_group(monkeypatc
     _md_client(monkeypatch)
     db = _DraftMaterializerSession(candidate=_Candidate(name="Jan", lastname="Nowak"))
     order = _activated_standalone_order()
-    order.start_date = _TODAY
-    order.end_date = _TODAY - timedelta(days=30)
+    order.start_date = business_today()
+    order.end_date = business_today() - timedelta(days=30)
     group = await materialize_group_for_activated_order(
         db, order, actor_id=7, candidate_rate=None
     )
     assert group is not None
     assert group.end_date is None
     # Daty ZAMÓWIENIA zostają nietknięte — są do poprawienia w wierszu.
-    assert order.end_date == _TODAY - timedelta(days=30)
+    assert order.end_date == business_today() - timedelta(days=30)
 
 
 def test_md_quantity_and_mirror_reject_a_zero_rate(monkeypatch):
@@ -1181,7 +1183,7 @@ def test_md_quantity_and_mirror_reject_a_zero_rate(monkeypatch):
 async def test_completed_line_budget_does_not_block_the_continuation():
     """Poprzednik po zamianie „zachowuje swoje liczby" (linia ``completed``
     z resztą MD) — ta reszta nie może trzymać przedłużenia ``scheduled``."""
-    start = _TODAY
+    start = business_today()
     previous = _group(1, status=GROUP_STATUS_ACTIVE, start=start - timedelta(days=90))
     current = _group(2, status=GROUP_STATUS_SCHEDULED, start=start, predecessor=1)
     lines = [
@@ -1208,7 +1210,7 @@ async def test_completed_line_budget_does_not_block_the_continuation():
 
 @pytest.mark.asyncio
 async def test_pending_offboarding_decision_holds_the_continuation():
-    start = _TODAY
+    start = business_today()
     previous = _group(1, status=GROUP_STATUS_ACTIVE, start=start - timedelta(days=90))
     current = _group(2, status=GROUP_STATUS_SCHEDULED, start=start, predecessor=1)
     lines = [

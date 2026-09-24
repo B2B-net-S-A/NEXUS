@@ -75,8 +75,8 @@ async def test_activation_and_reactivation_exclude_backlog_without_erasing_histo
 
             await delivery.save_policy(db, enabled=False, toggles={}, admin_id=user_id)
             # Zdarzenie z okresu wyłączenia — przed ponownym włączeniem. Sekunda
-            # wstecz, bo przy zamrożonym zegarze (`_pin_business_day` po północy
-            # warszawskiej) „teraz” zdarzenia i „teraz” reaktywacji były równe.
+            # wstecz, bo „teraz” zdarzenia i „teraz” reaktywacji mogą być równe
+            # (zamrożony zegar, zbyt gruba rozdzielczość), a wtedy nie ma „przed”.
             disabled_event_at = datetime.now(timezone.utc) - timedelta(seconds=1)
             while_off = Notification(
                 user_id=user_id,

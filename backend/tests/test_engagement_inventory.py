@@ -30,9 +30,13 @@ from app.core.scheduling import business_today
 
 URL = "/api/admin/engagement-inventory"
 
-_TODAY = business_today()
-_PAST = _TODAY - timedelta(days=30)
-_FUTURE = _TODAY + timedelta(days=30)
+
+def _past():
+    return business_today() - timedelta(days=30)
+
+
+def _future():
+    return business_today() + timedelta(days=30)
 
 
 # ── Seed helpers (bezpośrednio przez ORM, osobna sesja jak w M4) ─────────────
@@ -100,13 +104,13 @@ async def _seed_contract(**overrides) -> int:
         "candidate_id": candidate_id,
         "client_id": client_id,
         "status": ContractStatus.active,
-        "start_date": _PAST,
-        "end_date": _FUTURE,
+        "start_date": _past(),
+        "end_date": _future(),
         "rate_candidate": Decimal("100.000"),
         "rate_client": Decimal("150.000"),
         # far-future scalar so a bare "active" contract does NOT trip
         # active_without_order_coverage by default
-        "client_order_end_date": _FUTURE,
+        "client_order_end_date": _future(),
     }
     fields.update(overrides)
     async with AsyncSessionLocal() as db:
@@ -204,7 +208,7 @@ async def _seed_client_order(
                 client_id=client_id,
                 title=f"Order-{uuid.uuid4().hex[:6]}",
                 status=ClientOrderStatus(status_value),
-                start_date=_PAST,
+                start_date=_past(),
                 end_date=end_date,
             )
         )
@@ -225,7 +229,7 @@ async def _seed_equipment(contract_id: int) -> int:
             contract_id=contract_id,
             item_type=EquipmentItemType.laptop,
             owner=EquipmentOwner.ours,
-            handed_over_date=_PAST,
+            handed_over_date=_past(),
             return_status=EquipmentReturnStatus.pending,
         )
         db.add(e)
@@ -296,7 +300,7 @@ async def _seed_invoice(contract_id: int, invoice_number: str) -> None:
                 contract_id=contract_id,
                 direction=InvoiceDirection.to_client,
                 invoice_number=invoice_number,
-                issue_date=_TODAY,
+                issue_date=business_today(),
                 amount=1000,
                 currency="PLN",
                 status=InvoiceStatus.issued,
@@ -425,14 +429,14 @@ async def test_inventory_detects_anomalies_and_does_not_mutate(
 
     # active ze start w przyszłości (ma dokument)
     c_future = await _seed_contract(
-        client_id=client_id, job_id=job_id, start_date=_FUTURE
+        client_id=client_id, job_id=job_id, start_date=_future()
     )
     await _seed_document(c_future)
 
     # ended z terminated_at w przyszłości (ma reason)
     c_futterm = await _seed_contract(
         status=ContractStatus.ended,
-        terminated_at=_FUTURE,
+        terminated_at=_future(),
         termination_reason=ContractTerminationReason.project_ended,
     )
 
@@ -454,10 +458,12 @@ async def test_inventory_detects_anomalies_and_does_not_mutate(
 
     # legacy_order_date_drift: scalar ≠ max(order.end_date), z aktywnym orderem
     c_drift = await _seed_contract(
-        client_id=client_id, job_id=job_id, client_order_end_date=_FUTURE
+        client_id=client_id, job_id=job_id, client_order_end_date=_future()
     )
     await _seed_document(c_drift)
-    await _seed_client_order(c_drift, client_id, end_date=_FUTURE + timedelta(days=10))
+    await _seed_client_order(
+        c_drift, client_id, end_date=_future() + timedelta(days=10)
+    )
 
     # rate_schedule_same_date_dup: dwa wiersze candidate rate na tę samą datę
     c_ratedup = await _seed_contract(client_id=client_id, job_id=job_id)
@@ -466,7 +472,9 @@ async def test_inventory_detects_anomalies_and_does_not_mutate(
     await _seed_candidate_rate(c_ratedup, date(2026, 1, 1))
 
     # ended bez reason
-    c_noreason = await _seed_contract(status=ContractStatus.ended, terminated_at=_PAST)
+    c_noreason = await _seed_contract(
+        status=ContractStatus.ended, terminated_at=_past()
+    )
 
     # draft + completed signature bez artefaktu → signed_without_activation
     #   + completed_signature_without_artifact
@@ -482,7 +490,7 @@ async def test_inventory_detects_anomalies_and_does_not_mutate(
     sig_stuck = await _seed_signature(c_stuck, "sent", stale_hours=48)
 
     # ended + wydany sprzęt nierozliczony
-    c_asset = await _seed_contract(status=ContractStatus.ended, terminated_at=_PAST)
+    c_asset = await _seed_contract(status=ContractStatus.ended, terminated_at=_past())
     await _seed_equipment(c_asset)
 
     # duplicate b2b contract number

@@ -325,9 +325,8 @@ async def test_places_suggest(app_client, app_auth_headers):
 async def test_contacted_in_period(app_client, app_auth_headers):
     # „Dziś” w czasie polskim według zegara BAZY — to on datuje notatki
     # (`server_default=now()`). `date.today()` (UTC na CI) myliło się między
-    # 22:00 a 24:00 UTC, a `business_today()` po północy warszawskiej zwraca
-    # dzień przypięty przez `_pin_business_day` (conftest), gdy baza jest już
-    # w następnym.
+    # 22:00 a 24:00 UTC, a zegar Pythona i zegar bazy to dwa różne zegary —
+    # punkt odniesienia bierzemy z tego, który datuje wiersze.
     await _seed()
     today = await _db_scalar("SELECT (now() AT TIME ZONE 'Europe/Warsaw')::date")
     yes = await _list(
@@ -361,8 +360,8 @@ async def test_changed_after_sees_a_new_note(app_client, app_auth_headers):
 
     ids = await _seed()
     # Znacznik z zegara bazy, jak `updated_at`/`created_at`. Zegar Pythona
-    # bywa przypięty na 23:59 dnia startu sesji (`_pin_business_day`), a baza
-    # idzie dalej — wiersze z seeda wyglądały wtedy na „zmienione po” znaczniku.
+    # i zegar bazy mogą się rozjechać (23.09.2026: przypięty zegar Pythona) —
+    # wiersze z seeda wyglądały wtedy na „zmienione po” znaczniku.
     mark = await _db_scalar("SELECT clock_timestamp()")
     body = await _list(app_client, app_auth_headers, changed_after=mark.isoformat())
     assert not _keys(body)

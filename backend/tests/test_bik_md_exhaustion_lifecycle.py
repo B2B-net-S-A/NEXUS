@@ -14,7 +14,9 @@ from sqlalchemy import select
 from app.core.scheduling import business_today
 from tests.test_explicit_order_types import _md_line, _seed_client_with_contracts
 
-_MONTH = business_today().strftime("%Y-%m")
+
+def _month():
+    return business_today().strftime("%Y-%m")
 
 
 async def _bik_group(app_client, headers, monkeypatch, *, bik: bool = True):
@@ -56,7 +58,7 @@ async def _consume(line_id: int, md: str) -> None:
     async with AsyncSessionLocal() as db:
         order = await db.get(ClientOrder, line_id)
         await upsert_consumption(
-            db, order=order, period_month=_MONTH, md_reported=Decimal(md)
+            db, order=order, period_month=_month(), md_reported=Decimal(md)
         )
         await db.commit()
 

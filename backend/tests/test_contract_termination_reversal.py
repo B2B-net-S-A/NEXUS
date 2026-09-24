@@ -22,9 +22,14 @@ from app.models.user import UserRole
 from app.core.scheduling import business_today
 from tests._jarvis_helpers import make_user
 
-_TODAY = business_today()
-_THIS_MONTH_START = _TODAY.replace(day=1)
-_ENDED_ON = _THIS_MONTH_START - timedelta(days=1)  # ostatni dzień poprzedniego miesiąca
+
+def _this_month_start():
+    return business_today().replace(day=1)
+
+
+def _ended_on():
+    # ostatni dzień poprzedniego miesiąca
+    return _this_month_start() - timedelta(days=1)
 
 
 def _enable_multi(monkeypatch, *client_ids: int) -> None:
@@ -49,7 +54,7 @@ async def _seed_active_md_consultant(*, used_md: Decimal = Decimal("93")) -> dic
     )
 
     suffix = uuid.uuid4().hex[:6]
-    start = _THIS_MONTH_START - timedelta(days=160)
+    start = _this_month_start() - timedelta(days=160)
     async with AsyncSessionLocal() as db:
         client = Client(name=f"ReversalClient-{suffix}")
         db.add(client)
@@ -134,7 +139,7 @@ async def _terminate(app_client: AsyncClient, headers: dict, contract_id: int) -
         f"/api/contracts/{contract_id}/terminate",
         json={
             "termination_reason": "better_offer",
-            "terminated_at": _ENDED_ON.isoformat(),
+            "terminated_at": _ended_on().isoformat(),
         },
         headers=headers,
     )
@@ -203,7 +208,7 @@ async def test_termination_records_the_state_it_overwrites(
     assert entry["end_date_before"] is None
     assert entry["group_status_before"] == "active"
     assert entry["status_after"] == "completed"
-    assert entry["end_date_after"] == _ENDED_ON.isoformat()
+    assert entry["end_date_after"] == _ended_on().isoformat()
 
 
 # ── Cofnij zakończenie ──────────────────────────────────────────────────────
@@ -406,7 +411,7 @@ async def test_reversal_reapplies_md_import_uploaded_while_ended(
         MdConsumptionImportRow,
     )
 
-    period = _THIS_MONTH_START.strftime("%Y-%m")
+    period = _this_month_start().strftime("%Y-%m")
     async with AsyncSessionLocal() as db:
         batch = MdConsumptionImport(period_month=period, filename="raport.xlsx")
         db.add(batch)
@@ -475,12 +480,12 @@ async def test_return_after_break_creates_a_linked_draft_and_a_draft_assignment(
 
     too_early = await app_client.post(
         f"/api/contracts/{seed['contract_id']}/return-after-break",
-        json={"start_date": _ENDED_ON.isoformat()},
+        json={"start_date": _ended_on().isoformat()},
         headers=app_auth_headers,
     )
     assert too_early.status_code == 422
 
-    start = _TODAY + timedelta(days=10)
+    start = business_today() + timedelta(days=10)
     resp = await app_client.post(
         f"/api/contracts/{seed['contract_id']}/return-after-break",
         json={"start_date": start.isoformat()},
@@ -551,7 +556,7 @@ async def test_return_after_break_requires_an_ended_contract(
     _enable_multi(monkeypatch, seed["client_id"])
     resp = await app_client.post(
         f"/api/contracts/{seed['contract_id']}/return-after-break",
-        json={"start_date": (_TODAY + timedelta(days=3)).isoformat()},
+        json={"start_date": (business_today() + timedelta(days=3)).isoformat()},
         headers=app_auth_headers,
     )
     assert resp.status_code == 409
