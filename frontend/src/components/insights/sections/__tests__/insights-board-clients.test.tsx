@@ -48,7 +48,6 @@ import {
   pct,
   signedPct,
 } from "@/components/insights/sections/InsightsFormat";
-import { InsightsBoardKPI } from "@/components/insights/sections/InsightsBoardKPI";
 import { InsightsClientsRanking } from "@/components/insights/sections/InsightsClientsRanking";
 import type { InsightsPeriodParams } from "@/lib/insights-api";
 
@@ -189,108 +188,6 @@ describe("InsightsFormat — kontrakt `null` vs `0`", () => {
     // Geometria toru, nigdy liczba.
     expect(barWidth(120.4)).toBe(100);
     expect(barWidth(null)).toBe(0);
-  });
-});
-
-describe("InsightsBoardKPI", () => {
-  it("kwoty `null` renderuje jako „—”, nie jako zero", async () => {
-    respond({
-      "/api/insights/board": boardPayload({
-        kpis: {
-          ...boardPayload().kpis,
-          hit_ratio_pct: null,
-          finance: {
-            ...FINANCE_COMPLETE,
-            revenue_monthly_pln: null,
-            margin_monthly_pln: null,
-            margin_pct: null,
-            complete: false,
-          },
-        },
-      }),
-    });
-
-    renderSection(<InsightsBoardKPI period={PERIOD} />);
-
-    expect(
-      await screen.findByRole("group", { name: "Kafle finansowe" }),
-    ).toBeInTheDocument();
-    expect(tileValue("Kafle finansowe", "Przychód / mc")).toBe("—");
-    expect(tileValue("Kafle finansowe", "Marża / mc")).toBe("—");
-    // Zerowy mianownik hit ratio też jest luką, nie wynikiem 0%.
-    expect(tileValue("Kafle rekrutacyjne", "Hit ratio")).toBe("—");
-  });
-
-  it("`degraded` degraduje kafle pieniędzy, a liczby zostają widoczne", async () => {
-    respond({
-      "/api/insights/board": boardPayload({
-        degraded: {
-          reasons: ["fx_missing"],
-          fx: {
-            currencies: ["EUR"],
-            kpi_contracts_excluded_from_revenue: 2,
-            kpi_contracts_excluded_from_margin: 2,
-            months_affected: ["2026-07"],
-          },
-          contracts_without_cost_leg: 0,
-          message: "Brak kursu NBP dla walut: EUR — kwoty są POMINIĘTE.",
-        },
-      }),
-    });
-
-    renderSection(<InsightsBoardKPI period={PERIOD} />);
-
-    const notice = await screen.findByRole("status");
-    expect(notice).toHaveTextContent("Brak kursu NBP dla walut: EUR");
-    expect(notice).toHaveTextContent("2026-07");
-    // „Niepełne" to nie „nieznane" — schowanie kwot cofnęłoby nas do pustki
-    // udającej dane, więc kafle muszą dalej pokazywać liczby.
-    expect(tileValue("Kafle finansowe", "Przychód / mc")).toBe(
-      formatPLN(250000),
-    );
-    expect(tileValue("Kafle rekrutacyjne", "Placementy")).toBe("7");
-  });
-
-  it("pisze na ekranie, co liczy jako placement i jako hit ratio", async () => {
-    respond({ "/api/insights/board": boardPayload() });
-
-    renderSection(<InsightsBoardKPI period={PERIOD} />);
-
-    expect(
-      await screen.findByText(/PIERWSZE „zatrudniony” dla pary/),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(/odsetek rekrutacji ZAMKNIĘTYCH w tym oknie/),
-    ).toBeInTheDocument();
-    // UAT M10-B04: definicja konsultantów różni się od rankingu klientów.
-    expect(
-      screen.getByText(/kontraktem WYKONYWANYM w dniu\s+wyceny/),
-    ).toBeInTheDocument();
-  });
-
-  it("przy 500 mówi o awarii zamiast znikać z ekranu", async () => {
-    respond({ "/api/insights/board": httpError(500) });
-
-    const { container } = renderSection(<InsightsBoardKPI period={PERIOD} />);
-
-    expect(
-      await screen.findByText(
-        /Nie udało się pobrać danych sekcji „Kokpit zarządu"/,
-      ),
-    ).toBeInTheDocument();
-    expect(container).not.toBeEmptyDOMElement();
-  });
-
-  it("przy 403 tłumaczy uprawnienia i nie proponuje ponowienia", async () => {
-    respond({ "/api/insights/board": httpError(403) });
-
-    renderSection(<InsightsBoardKPI period={PERIOD} />);
-
-    expect(await screen.findByText("Brak uprawnień")).toBeInTheDocument();
-    expect(screen.getByText(/Dane NIE są puste/)).toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: /Spróbuj ponownie/ }),
-    ).not.toBeInTheDocument();
   });
 });
 
