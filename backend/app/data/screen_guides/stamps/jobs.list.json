@@ -2,7 +2,7 @@
   "entry": "0bbc61e68de700f29bc728d4fcaa4772fdb1ccfff976f409b57c4f334b2b0f58",
   "guide": "jobs.list",
   "sources": {
-    "frontend/src/components/v2/pages/JobsListV2.tsx": "2865d46dd33d35fbbcd08a0cc1cf6496e3f3ee92c579b487cef6ab7c13cfa50c",
+    "frontend/src/components/v2/pages/JobsListV2.tsx": "6b12367d794e8bb19260572ae7e4e94e7a50bbf217c540a8f02b52800d1db8ac",
     "frontend/src/lib/request-status.ts": "728e777128c3141c98b45d031da8f05a9f615fcc89a7fb4d43889555ae36a9ff"
   }
 }

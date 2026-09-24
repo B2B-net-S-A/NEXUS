@@ -87,11 +87,14 @@ import { DebriefRequiredDialog } from "@/components/v2/recruitment/DebriefRequir
 import { DockNextStage } from "@/components/v2/jobs/DockNextStage";
 import {
   MOVE_REQUIREMENTS_PREFIX,
+  moveRequirementsQueryKey,
   type MoveRequirementAction,
+  type MoveRequirementsResponse,
 } from "@/lib/api/moveRequirements";
 import {
   companyCvSentence,
   dockOriginalCv,
+  pairCompanyCv,
   originalCvSentence,
   type DockProfileCvDoc,
 } from "@/lib/dock-cv-summary";
@@ -632,7 +635,25 @@ export function PipelineCandidateDock({
     profileDocsFailed: profileCvQuery.isError,
     cvFilename: candidate?.cv_filename ?? null,
   });
-  const companyCv = companyCvSentence(cvBrandedQuery.data);
+  // 404 z `…/cv/branded` = etap nie ma własnego CV (brak wiersza CV etapu),
+  // nie awaria. Czy PARA ma CV firmowe, mówi lista wymagań ramki „Następny
+  // etap” — czytana z cache (`enabled: false`), bez drugiego żądania.
+  const brandedMissingOnStage =
+    cvBrandedQuery.isError &&
+    (cvBrandedQuery.error as { response?: { status?: number } } | null)?.response?.status === 404;
+  const brandedFailed = cvBrandedQuery.isError && !brandedMissingOnStage;
+  const nextStageRequirements = useQuery({
+    queryKey: moveRequirementsQueryKey({
+      candidateId: item.candidate_id,
+      jobId,
+      toStageDefId: primaryTarget?.stage_def_id ?? null,
+    }),
+    queryFn: () => null as MoveRequirementsResponse | null,
+    enabled: false,
+  });
+  const companyCv = companyCvSentence(brandedMissingOnStage ? null : cvBrandedQuery.data, {
+    pairHasCompanyCv: pairCompanyCv(nextStageRequirements.data?.items),
+  });
   const profileHref = `/candidates/${item.candidate_id}?${encodeJobBackRef(jobId).toString()}`;
 
   // ── Ramka „Następny etap”: przyciski usuwające braki. Każda akcja otwiera
@@ -1212,7 +1233,7 @@ export function PipelineCandidateDock({
         <DockSection
           id="cv"
           label={DOCK_SECTION_LABEL.cv}
-          summary={cvBrandedQuery.isSuccess ? companyCv.text : "Oryginał i CV firmowe"}
+          summary={cvBrandedQuery.isSuccess || brandedMissingOnStage ? companyCv.text : "Oryginał i CV firmowe"}
           isNow={nowSection === "cv"}
           open={isOpen("cv")}
           onToggle={() => toggleSection("cv")}
@@ -1241,7 +1262,7 @@ export function PipelineCandidateDock({
                   />
                 )}
                 <span className="text-foreground">
-                  {cvBrandedQuery.isError ? "CV firmowe: nie udało się sprawdzić" : companyCv.text}
+                  {brandedFailed ? "CV firmowe: nie udało się sprawdzić" : companyCv.text}
                 </span>
               </li>
               <li className="flex items-start gap-1.5">
