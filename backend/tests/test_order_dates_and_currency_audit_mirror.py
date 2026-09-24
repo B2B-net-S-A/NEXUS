@@ -41,6 +41,6 @@ def test_old_currency_column_is_mirrored_and_on_the_model():
     assert "old_currency" in OrderChangeEvent.__table__.columns
 
 
-def test_migration_chains_after_teams_prep():
+def test_migration_chains_after_request_allocation():
     assert 'revision = "0372_order_dates_and_currency_audit"' in MIGRATION
-    assert 'down_revision = "0370_teams_prep_transcripts"' in MIGRATION
+    assert 'down_revision = "0371_request_allocation"' in MIGRATION
