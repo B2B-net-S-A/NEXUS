@@ -587,6 +587,15 @@ def test_hold_label_and_draft_take_the_pr_out_of_the_queue() -> None:
     )
 
 
+def test_enqueue_rechecks_live_labels_not_the_event_snapshot() -> None:
+    """24.09.2026: push tuż przed `wstrzymaj` dał job z migawką etykiet bez
+    wstrzymania — auto-merge włączył się po etykiecie i PR wszedł do kolejki."""
+    run = _load("auto-enqueue.yml")["jobs"]["enqueue"]["steps"][0]["run"]
+    live = run.index("gh pr view")
+    assert "labels" in run[live:] and "isDraft" in run[live:]
+    assert live < run.index("--auto"), "Sprawdzenie stanu musi być PRZED włączeniem."
+
+
 def test_jobs_with_production_secrets_run_only_from_main() -> None:
     """OPS-N05: workflow_dispatch z dowolnej gałęzi dawał jej wersji pliku
     sekrety produkcji (coolify-ops uruchomiony z gałęzi codex/...)."""
