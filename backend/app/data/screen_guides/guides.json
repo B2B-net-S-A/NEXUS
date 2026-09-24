@@ -164,13 +164,18 @@
         "anchor": "jobs.person.note"
       },
       {
+        "q": "Jak przygotować CV do klienta?",
+        "a": "W sekcji „Oryginał i CV do klienta” kliknij „Generuj CV” — otworzy się generator z tą osobą i tą rekrutacją. Gdy CV już jest, użyj „Edytuj CV”. Jeśli klient wymaga zgody RODO (PKO BP), pobranie CV jest zablokowane, dopóki nie dołączysz zrzutu maila ze zgodą."
+      },
+      {
         "q": "Co to są odznaki etapu (np. Prep, Umowa podpisana)?",
         "a": "To etapy pomocnicze, które nie mają własnej kolumny — pokazują się na karcie. „Umowa podpisana” włączasz przełącznikiem w karcie. Kontrolę CV robi teraz kolumna „QC CV”.",
         "anchor": "jobs.person.badges"
       }
     ],
     "pitfalls": [
-      "Osoba zarezerwowana przez kogoś innego (12 h) nie da się przesunąć, dopóki rezerwacja nie wygaśnie albo ktoś uprawniony jej nie przejmie."
+      "Osoba zarezerwowana przez kogoś innego (12 h) nie da się przesunąć, dopóki rezerwacja nie wygaśnie albo ktoś uprawniony jej nie przejmie.",
+      "CV dla klienta wymagającego zgody RODO da się wygenerować bez zrzutu, ale nie da się go pobrać ani udostępnić, dopóki zrzut nie zostanie dołączony."
     ],
     "anchors": [
       {"id": "jobs.person.dock", "label": "Karta kandydata", "describe": "Panel osoby wysuwany z prawej po kliknięciu karty."},
@@ -304,8 +309,8 @@
         "anchor": "candidate.profile.notes_facts"
       },
       {
-        "q": "Gdzie są maile, notatki i rozmowy?",
-        "a": "W zakładce „Historia” — z filtrem rodzaju. Rekrutacje i dopasowania są w „Rekrutacje”, CV i umowy w „Pliki i umowy”.",
+        "q": "Gdzie są maile, notatki, rozmowy i CV?",
+        "a": "W zakładce „Historia” — z filtrem rodzaju. Rekrutacje i dopasowania są w „Rekrutacje”, CV i umowy w „Pliki i umowy”. Nowe CV do klienta robisz przyciskiem „Generuj CV” w nagłówku: okno generatora otwiera się z tą osobą, a gotowe CV samo trafia do etapu wybranej rekrutacji.",
         "anchor": "candidate.profile.tabs"
       },
       {
