@@ -1659,6 +1659,14 @@ async def _rebalance_swap_successor(db: AsyncSession, order: ClientOrder) -> Non
         succ.md_optional_total, new_optional
     ):
         return
+    # S8 (audyt 24.09.2026): korekta pisze na linii NASTĘPCY — pod blokadą
+    # samego wiersza. Nowa blokada kontraktu tutaj szłaby PO blokadach linii
+    # i grup wołającego (import blokuje kontrakty całej rodziny zamówień
+    # z góry, decyzje o puli — linie grupy). Bez odświeżania obiektu:
+    # niezapisane zmiany następcy w tej sesji muszą przetrwać.
+    await db.execute(
+        select(ClientOrder.id).where(ClientOrder.id == succ.id).with_for_update()
+    )
     previous_total = Decimal(str(succ.md_total))
     succ_name = await _person_name(db, succ)
     succ.md_total = new_total
@@ -1776,6 +1784,13 @@ async def _rebalance_offboarding_transfer(db: AsyncSession, order: ClientOrder) 
         from app.services.order_line_takeover import round_to_tenth
 
         new_transferred = round_to_tenth(new_transferred)
+    # S8: korekta pisze na linii CELU przeniesienia — pod blokadą samego
+    # wiersza (bez nowej blokady kontraktu po blokadach linii i grup
+    # wołającego), bez odświeżania obiektu, żeby niezapisane zmiany celu
+    # w tej sesji przetrwały.
+    await db.execute(
+        select(ClientOrder.id).where(ClientOrder.id == target.id).with_for_update()
+    )
     delta = new_transferred - quantize_md(old_transferred)
     target.md_total = quantize_md(Decimal(str(target.md_total)) + delta)
     if target.md_input_mode == INPUT_MODE_AMOUNT:
@@ -1947,6 +1962,35 @@ class MdConsumptionOutcome:
     group: Optional[ClientOrderGroup] = None
 
 
+async def live_successor_line_id(db: AsyncSession, order_id: int) -> Optional[int]:
+    """Id nieanulowanej linii, która PRZEJĘŁA pulę ``order_id`` zamianą kontraktora.
+
+    Audyt 24.09.2026 (W1). Zamiana kontraktora z datą w przyszłości zostawia
+    poprzednika aktywnego, a jego pozostała pula jest JUŻ budżetem następcy.
+    Zakończenie umowy odchodzącego zakładało mimo to sprawę offboardingu na
+    tę samą pulę — decyzja DL rozdawała ją drugi raz. Linia z żywym następcą
+    z zamiany nie ma więc czego rozdysponować.
+
+    Tylko zamiana (``zamiana_kontraktora`` na linii następcy): zastępstwo
+    przez ``replaces_order_id`` NIE przenosi budżetu, więc decyzja o puli
+    zastąpionej osoby jest nadal potrzebna, a zaplanowane „Wejdź za
+    konsultanta" ma własną regułę (``scheduled_successor_of``).
+    """
+    from app.services.multi_consultant_orders import EVENT_CONSULTANT_SWAPPED
+
+    return await db.scalar(
+        select(ClientOrder.id)
+        .join(ClientOrderGroupEvent, ClientOrderGroupEvent.order_id == ClientOrder.id)
+        .where(
+            ClientOrder.predecessor_order_id == order_id,
+            ClientOrder.status != ClientOrderStatus.cancelled,
+            ClientOrderGroupEvent.event_type == EVENT_CONSULTANT_SWAPPED,
+        )
+        .order_by(ClientOrder.id.asc())
+        .limit(1)
+    )
+
+
 async def successor_line_for(
     db: AsyncSession, order: ClientOrder
 ) -> tuple[Optional[ClientOrder], Optional[ClientOrderGroup]]:
@@ -2083,6 +2127,118 @@ async def _capacity_outside_month(
     return capacity if capacity > ZERO else ZERO
 
 
+async def _latest_md_transfer(
+    db: AsyncSession,
+    *,
+    predecessor_group_id: int,
+    successor_group_id: int,
+    period_month: str,
+) -> Optional[ClientOrderGroupEvent]:
+    """Ostatni wpis ``transfer_md`` z poprzednika na następcę za ten miesiąc.
+
+    Dziennik jest jedynym dowodem, że wpis następcy za miesiąc powstał
+    z przeniesienia nadwyżki, a nie z jego własnego rozliczenia.
+    """
+    return await db.scalar(
+        select(ClientOrderGroupEvent)
+        .where(
+            ClientOrderGroupEvent.group_id == successor_group_id,
+            ClientOrderGroupEvent.event_type == EVENT_MD_TRANSFER,
+            ClientOrderGroupEvent.payload["period_month"].astext == period_month,
+            ClientOrderGroupEvent.payload["predecessor_group_id"].astext
+            == str(predecessor_group_id),
+        )
+        .order_by(ClientOrderGroupEvent.id.desc())
+        .limit(1)
+    )
+
+
+async def _month_split_from_predecessor(
+    db: AsyncSession,
+    *,
+    predecessor_line: ClientOrder,
+    predecessor_group: ClientOrderGroup,
+    successor_group_id: int,
+    period_month: str,
+    import_id: Optional[int],
+) -> bool:
+    """Czy ten miesiąc był już dzielony z poprzednika (FIN-MD-01, W2).
+
+    Wszystkie trzy warunki naraz: wpis poprzednika za miesiąc pochodzi
+    z IMPORTU (ręczny wpis DL nie jest śladem podziału), z INNEJ paczki (wpis
+    z tej samej to osobny wiersz arkusza dla poprzednika) i dziennik ma
+    przeniesienie z tego poprzednika za ten miesiąc.
+    """
+    entry = (
+        await db.execute(
+            select(
+                ClientOrderMdConsumption.source, ClientOrderMdConsumption.import_id
+            ).where(
+                ClientOrderMdConsumption.order_id == predecessor_line.id,
+                ClientOrderMdConsumption.period_month == period_month,
+            )
+        )
+    ).first()
+    if entry is None or entry.source != CONSUMPTION_SOURCE_IMPORT:
+        return False
+    if import_id is not None and entry.import_id == import_id:
+        return False
+    return (
+        await _latest_md_transfer(
+            db,
+            predecessor_group_id=predecessor_group.id,
+            successor_group_id=successor_group_id,
+            period_month=period_month,
+        )
+        is not None
+    )
+
+
+async def _successor_month_entry(
+    db: AsyncSession,
+    *,
+    predecessor_group_id: int,
+    successor_line: ClientOrder,
+    successor_group_id: int,
+    period_month: str,
+) -> tuple[Optional[ClientOrderMdConsumption], bool]:
+    """Wpis następcy za miesiąc i czy jest on PRZENIESIENIEM z poprzednika.
+
+    Audyt 24.09.2026 (W3). Wpis następcy wolno nadpisać tylko wtedy, gdy
+    dziennik potwierdza przeniesienie z poprzednika za ten miesiąc, wpis ma
+    ``source=import`` i niesie dokładnie ostatnio przeniesioną liczbę (albo
+    zero po wcześniejszym cofnięciu). Porównanie liczby odróżnia przeniesienie
+    od własnego wiersza następcy — także z tej samej albo innej paczki. Każdy
+    inny wpis (ręczny DL, własny wiersz arkusza) jest rozliczeniem następcy
+    i przypisanie wiersza poprzednikowi nie może go nadpisać.
+    """
+    entry = await db.scalar(
+        select(ClientOrderMdConsumption).where(
+            ClientOrderMdConsumption.order_id == successor_line.id,
+            ClientOrderMdConsumption.period_month == period_month,
+        )
+    )
+    if entry is None:
+        return None, False
+    if entry.source != CONSUMPTION_SOURCE_IMPORT:
+        return entry, False
+    transfer = await _latest_md_transfer(
+        db,
+        predecessor_group_id=predecessor_group_id,
+        successor_group_id=successor_group_id,
+        period_month=period_month,
+    )
+    if transfer is None:
+        return entry, False
+    value = quantize_md(Decimal(str(entry.md_reported)))
+    transferred = (transfer.payload or {}).get("md_transferred")
+    try:
+        transferred_value = quantize_md(Decimal(str(transferred)))
+    except Exception:  # noqa: BLE001 — dziennik przeżywa dane starsze od walidacji
+        transferred_value = None
+    return entry, value == ZERO or value == transferred_value
+
+
 async def _revert_earlier_transfer(
     db: AsyncSession,
     *,
@@ -2105,26 +2261,21 @@ async def _revert_earlier_transfer(
     successor_line, successor_group = await successor_line_for(db, order)
     if successor_line is None or successor_group is None:
         return
-    transferred = await db.scalar(
-        select(ClientOrderGroupEvent.id)
-        .where(
-            ClientOrderGroupEvent.group_id == successor_group.id,
-            ClientOrderGroupEvent.event_type == EVENT_MD_TRANSFER,
-            ClientOrderGroupEvent.payload["period_month"].astext == period_month,
-            ClientOrderGroupEvent.payload["predecessor_group_id"].astext
-            == str(group.id),
-        )
-        .limit(1)
+    entry, is_transfer = await _successor_month_entry(
+        db,
+        predecessor_group_id=group.id,
+        successor_line=successor_line,
+        successor_group_id=successor_group.id,
+        period_month=period_month,
     )
-    if transferred is None:
-        return
-    entry = await db.scalar(
-        select(ClientOrderMdConsumption).where(
-            ClientOrderMdConsumption.order_id == successor_line.id,
-            ClientOrderMdConsumption.period_month == period_month,
-        )
-    )
-    if entry is None or (import_id is not None and entry.import_id == import_id):
+    # Wpis z tej samej paczki jest własnym wierszem następcy; wpis, który nie
+    # niesie przeniesionej liczby, też (W3) — cofamy wyłącznie przeniesienie.
+    if (
+        entry is None
+        or not is_transfer
+        or (import_id is not None and entry.import_id == import_id)
+        or quantize_md(Decimal(str(entry.md_reported))) == ZERO
+    ):
         return
     from app.services.contract_lifecycle import lock_contract_then_orders
 
@@ -2201,19 +2352,23 @@ async def apply_md_consumption(
         # zamiany zamówień, BIK 23.09.2026) — przekierowanie nadpisywało go
         # liczbą z wiersza następcy.
         pred_line, pred_group = await predecessor_line_for(db, order)
-        pred_entry_import = (
-            await db.execute(
-                select(ClientOrderMdConsumption.import_id).where(
-                    ClientOrderMdConsumption.order_id == pred_line.id,
-                    ClientOrderMdConsumption.period_month == period_month,
-                )
+        # Audyt 24.09.2026 (W2): przekierowanie tylko wtedy, gdy dziennik
+        # POTWIERDZA, że ten miesiąc był już dzielony z poprzednika, a wpis
+        # poprzednika pochodzi z importu. Sam wpis poprzednika z innej paczki
+        # to za mało — ręczny wpis DL (`import_id NULL`) był nadpisywany
+        # liczbą z arkusza następcy.
+        if (
+            pred_line is not None
+            and pred_group is not None
+            and order.order_group_id is not None
+            and await _month_split_from_predecessor(
+                db,
+                predecessor_line=pred_line,
+                predecessor_group=pred_group,
+                successor_group_id=order.order_group_id,
+                period_month=period_month,
+                import_id=import_id,
             )
-            if pred_line is not None
-            else None
-        )
-        pred_entry = pred_entry_import.first() if pred_entry_import else None
-        if pred_entry is not None and (
-            import_id is None or pred_entry.import_id != import_id
         ):
             # Poprzednik to zwykle ten sam kontrakt (ta sama osoba), więc jego
             # blokada już jest — helper dokłada tylko linię, w kolejności kontrakt → linia.
@@ -2227,6 +2382,19 @@ async def apply_md_consumption(
             )
             order, group = pred_line, pred_group
         successor_line, successor_group = await successor_line_for(db, order)
+        if successor_line is not None:
+            # S8: zapis na linii następcy pod blokadą wiersza, na świeżym
+            # stanie. Import blokuje z góry kontrakty i linie całej rodziny
+            # zamówień (kontrakt → linia → grupa), więc tu nie bierzemy nowej
+            # blokady kontraktu — szłaby PO blokadach linii i grup. Flush
+            # przed odświeżeniem: niezapisane zmiany nie mogą przepaść.
+            await db.flush()
+            successor_line = await db.scalar(
+                _line_query()
+                .where(ClientOrder.id == successor_line.id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
     elif allow_successor_transfer and group is not None:
         await _revert_earlier_transfer(
             db,
@@ -2237,9 +2405,31 @@ async def apply_md_consumption(
             user_id=user_id,
         )
 
+    # Wpis następcy za ten miesiąc: nadpisujemy go wyłącznie wtedy, gdy jest
+    # PRZENIESIENIEM z tego poprzednika (W3). Nadwyżka idzie tylko na
+    # następcę, który rozlicza ten miesiąc (W4) — zamówienie zaczynające się
+    # później nie przejmie MD za miesiąc, w którym jeszcze nie obowiązywało.
+    successor_entry: Optional[ClientOrderMdConsumption] = None
+    successor_entry_is_transfer = False
+    successor_receives = False
+    if successor_line is not None and successor_group is not None:
+        successor_entry, successor_entry_is_transfer = await _successor_month_entry(
+            db,
+            predecessor_group_id=order.order_group_id,
+            successor_line=successor_line,
+            successor_group_id=successor_group.id,
+            period_month=period_month,
+        )
+        successor_receives = line_settles_in_month(
+            successor_line,
+            period_month,
+            contract=successor_line.contract,
+            include_draft=True,
+        ) and (successor_entry is None or successor_entry_is_transfer)
+
     applied = value
     overflow = ZERO
-    if successor_line is not None and order.md_total is not None:
+    if successor_receives and order.md_total is not None:
         capacity = await _capacity_outside_month(db, order, period_month)
         if value > capacity:
             applied = capacity
@@ -2259,14 +2449,10 @@ async def apply_md_consumption(
         # Zapis zerowy jest potrzebny, gdy podział już kiedyś nastąpił, a teraz
         # nadwyżki nie ma (np. po podniesieniu budżetu linii bieżącej).
         # Zostawienie starego wiersza policzyłoby te MD drugi raz — na obu
-        # zamówieniach naraz.
-        stale = await db.scalar(
-            select(ClientOrderMdConsumption.id).where(
-                ClientOrderMdConsumption.order_id == successor_line.id,
-                ClientOrderMdConsumption.period_month == period_month,
-            )
-        )
-        if overflow > ZERO or stale is not None:
+        # zamówieniach naraz. Własnego rozliczenia następcy (ręczny wpis,
+        # jego wiersz arkusza) nie ruszamy nigdy (W3).
+        stale = successor_entry is not None and successor_entry_is_transfer
+        if (successor_receives and overflow > ZERO) or stale:
             await upsert_consumption(
                 db,
                 order=successor_line,

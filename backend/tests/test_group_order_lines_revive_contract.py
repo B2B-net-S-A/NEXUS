@@ -94,9 +94,16 @@ async def test_add_live_line_revives_its_ended_contract(
     await _assert_revived_with_order_end(contracts[1], new_end)
 
 
-async def test_swap_to_live_successor_revives_ended_contract(
+async def test_swap_to_an_ended_contract_is_refused_and_does_not_revive_it(
     app_client, app_auth_headers, monkeypatch
 ):
+    """Audyt 24.09.2026 (S1): zamiana ma te same bramki co „Wejdź za
+    konsultanta" — kontrakt zakończony nie wchodzi na zamówienie i nie jest
+    po cichu wskrzeszany. Powrót osoby po przerwie idzie przez „Powrót po
+    przerwie" (nowy kontrakt), nie przez zamianę."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.contract import Contract, ContractStatus
+
     client_id, contracts, _ = await _seed_client_with_contracts(2)
     _enable_for(monkeypatch, client_id)
     new_end = business_today() + timedelta(days=90)
@@ -124,8 +131,11 @@ async def test_swap_to_live_successor_revives_ended_contract(
         },
         headers=app_auth_headers,
     )
-    assert swapped.status_code == 201, swapped.text
-    await _assert_revived_with_order_end(contracts[1], new_end)
+    assert swapped.status_code == 422, swapped.text
+    assert "zakończony" in swapped.json()["detail"]
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, contracts[1])
+        assert contract.status == ContractStatus.ended
 
 
 async def test_scheduled_group_revives_contract_only_when_line_materializes(

@@ -33,7 +33,7 @@ from datetime import date, datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -41,6 +41,7 @@ from app.core.scheduling import business_today
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.client_order_group import (
     GROUP_STATUS_ACTIVE,
+    GROUP_STATUS_COMPLETED,
     ClientOrderGroup,
     ClientOrderGroupEvent,
 )
@@ -625,6 +626,36 @@ async def scheduled_successor_of(
     return None
 
 
+def group_accepts_entry(group: ClientOrderGroup, entry_date: Optional[date]) -> bool:
+    """Czy zaplanowane zastępstwo może jeszcze wejść na to zamówienie (S2).
+
+    Aktywne — tak. Zakończone z datą w przyszłości (``completed`` stawiane od
+    razu, linie pracują do tej daty) — tak, jeżeli dzień wejścia nie wypada po
+    dacie zakończenia. Bez tego zastępstwo na zamówieniu zakończonym „z datą"
+    nigdy by nie weszło.
+    """
+    if group.status == GROUP_STATUS_ACTIVE:
+        return True
+    return (
+        group.status == GROUP_STATUS_COMPLETED
+        and group.closure_date is not None
+        and entry_date is not None
+        and group.closure_date >= entry_date
+    )
+
+
+def _group_accepts_entry_clause():
+    """SQL-owe lustro :func:`group_accepts_entry` (JOIN linia ↔ grupa)."""
+    return or_(
+        ClientOrderGroup.status == GROUP_STATUS_ACTIVE,
+        and_(
+            ClientOrderGroup.status == GROUP_STATUS_COMPLETED,
+            ClientOrderGroup.closure_date.is_not(None),
+            ClientOrderGroup.closure_date >= ClientOrder.start_date,
+        ),
+    )
+
+
 async def activate_due_takeovers(
     db: AsyncSession, *, today: Optional[date] = None
 ) -> int:
@@ -653,7 +684,7 @@ async def activate_due_takeovers(
                     ClientOrder.status == ClientOrderStatus.draft,
                     ClientOrder.predecessor_order_id.is_not(None),
                     ClientOrder.start_date <= day,
-                    ClientOrderGroup.status == GROUP_STATUS_ACTIVE,
+                    _group_accepts_entry_clause(),
                 )
                 .order_by(ClientOrder.id.asc())
             )
@@ -661,21 +692,27 @@ async def activate_due_takeovers(
     )
     activated = 0
     for target in due:
+        # Id zapamiętane PRZED savepointem: po jego wycofaniu obiekt jest
+        # wygaszony, a leniwe doczytanie w async to `MissingGreenlet` (N4).
+        target_id = target.id
         event = await scheduled_takeover_event(db, target)
         if event is None:
             continue
         payload = dict(event.payload or {})
         try:
             async with db.begin_nested():
+                # Kontrakt → zamówienia → grupa: ta sama kolejność co każdy
+                # writer (S4). Grupa blokowana dopiero po liniach.
+                await lock_contract_then_orders(
+                    db, order_ids=[target.predecessor_order_id, target.id]
+                )
                 group = await db.scalar(
                     select(ClientOrderGroup)
                     .where(ClientOrderGroup.id == target.order_group_id)
                     .with_for_update()
                 )
-                # Kontrakt → zamówienia: ta sama kolejność co każdy writer.
-                await lock_contract_then_orders(
-                    db, order_ids=[target.predecessor_order_id, target.id]
-                )
+                if group is None or not group_accepts_entry(group, target.start_date):
+                    continue
                 source = await db.scalar(
                     select(ClientOrder)
                     .options(
@@ -756,7 +793,14 @@ async def activate_due_takeovers(
         except TakeoverError as exc:
             logger.warning(
                 "order_line_takeover: zastępstwo linii %s nie weszło: %s",
-                target.id,
+                target_id,
                 exc,
+            )
+        except Exception:  # noqa: BLE001 — jedno zepsute nie zatrzymuje reszty
+            # N4: savepoint już wycofany; każdy inny błąd (baza, dane) też
+            # nie może zatrzymać pozostałych zastępstw ani całego cyklu.
+            logger.exception(
+                "order_line_takeover: zastępstwo linii %s nie weszło (błąd)",
+                target_id,
             )
     return activated

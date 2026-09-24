@@ -64,6 +64,34 @@ EXEMPT: dict[tuple[str, str], str] = {
         "services/order_mail_apply.py",
         "_renewal_of_completed_order",
     ): "FOR SHARE w pętli _write_document, po blokadzie całego dokumentu",
+    (
+        "services/client_order_lines.py",
+        "_rebalance_swap_successor",
+    ): (
+        "blokada samego wiersza następcy z tej samej grupy (audyt 24.09, S8) — "
+        "nowa blokada kontraktu szłaby po blokadach linii i grup wołającego; "
+        "import blokuje kontrakty rodziny zamówień z góry"
+    ),
+    (
+        "services/client_order_lines.py",
+        "_rebalance_offboarding_transfer",
+    ): (
+        "blokada samego wiersza celu przeniesienia z tej samej grupy (audyt "
+        "24.09, S8) — bez nowej blokady kontraktu po blokadach linii i grup"
+    ),
+}
+
+# Blokady NAGŁÓWKA zamówienia MD/kosztowego (``ClientOrderGroup``) bez helpera
+# wcześniej w tej samej funkcji — z powodem (audyt 24.09.2026, S4).
+GROUP_EXEMPT: dict[tuple[str, str], str] = {
+    (
+        "services/contract_lifecycle.py",
+        "hard_delete_contract",
+    ): "blokuje Contract jako pierwszy, potem jego zamówienia i grupy",
+    (
+        "api/client_order_groups.py",
+        "_lock_group_row",
+    ): "helper wołany PO blokadzie linii (cancel/restore)",
 }
 
 
@@ -95,6 +123,26 @@ def _order_locks(src: str, fn: ast.AST) -> list[int]:
     return lines
 
 
+def _group_locks(src: str, fn: ast.AST) -> list[int]:
+    """Linie ``.with_for_update(`` na zapytaniu o nagłówek zamówienia."""
+
+    lines: list[int] = []
+    for node in ast.walk(fn):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "with_for_update"
+        ):
+            segment = ast.get_source_segment(src, node) or ""
+            head = segment.split(".where(", 1)[0]
+            if (
+                "select(ClientOrderGroup)" in head
+                or "select(ClientOrderGroup.id)" in head
+            ):
+                lines.append(node.lineno)
+    return lines
+
+
 def _helper_calls(src: str, fn: ast.AST) -> list[int]:
     out: list[int] = []
     for node in ast.walk(fn):
@@ -121,6 +169,61 @@ def _violations() -> list[str]:
             if not helpers or min(helpers) > first_lock:
                 problems.append(f"{rel}:{first_lock} {fn.name}")
     return problems
+
+
+def _group_violations() -> list[str]:
+    problems: list[str] = []
+    for rel in WRITER_MODULES:
+        src = (APP / rel).read_text(encoding="utf-8")
+        tree = ast.parse(src)
+        for fn in _functions(tree):
+            locks = _group_locks(src, fn)
+            if not locks or (rel, fn.name) in GROUP_EXEMPT:
+                continue
+            helpers = _helper_calls(src, fn)
+            if not helpers or min(helpers) > min(locks):
+                problems.append(f"{rel}:{min(locks)} {fn.name}")
+    return problems
+
+
+def test_every_group_lock_follows_contract_and_line_locks():
+    """Audyt 24.09.2026 (S4): kontrakt → linia → grupa, nigdy grupa pierwsza.
+
+    „Wejdź za konsultanta" i nocna aktywacja zastępstw blokowały nagłówek
+    zamówienia PRZED kontraktami i liniami, a reszta writerów (zakończenie,
+    przywrócenie, decyzja o puli) robi odwrotnie — ABBA na tej samej grupie.
+    """
+    problems = _group_violations()
+    assert not problems, (
+        "Te funkcje blokują nagłówek zamówienia przed kontraktami i liniami. "
+        "Zawołaj `lock_order_group_lines`/`_lock_group_lines` PRZED blokadą "
+        "grupy albo dopisz wyjątek z powodem:\n" + "\n".join(problems)
+    )
+
+
+def test_group_exemptions_still_exist():
+    for rel, name in GROUP_EXEMPT:
+        src = (APP / rel).read_text(encoding="utf-8")
+        names = {fn.name for fn in _functions(ast.parse(src))}
+        assert name in names, f"nieaktualny wyjątek: {rel} {name}"
+
+
+def test_group_detector_flags_a_group_lock_before_lines():
+    src = (
+        "async def bad(db):\n"
+        "    g = await db.scalar(select(ClientOrderGroup).where(x).with_for_update())\n"
+        "    await _lock_group_lines(db, 1)\n"
+        "async def good(db):\n"
+        "    await _lock_group_lines(db, 1)\n"
+        "    g = await db.scalar(select(ClientOrderGroup).where(x).with_for_update())\n"
+    )
+    tree = ast.parse(src)
+    verdict = {}
+    for fn in _functions(tree):
+        locks = _group_locks(src, fn)
+        helpers = _helper_calls(src, fn)
+        verdict[fn.name] = bool(helpers) and min(helpers) < min(locks)
+    assert verdict == {"bad": False, "good": True}
 
 
 def test_every_order_writer_locks_contracts_first():
