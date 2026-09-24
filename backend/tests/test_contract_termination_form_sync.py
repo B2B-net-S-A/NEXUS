@@ -470,6 +470,85 @@ async def test_return_after_break_creates_follow_up_agreement():
     assert follow_up.render_payload["contract_number"] == follow_up.contract_number
 
 
+async def test_termination_reversal_restores_the_generator_agreement(
+    app_client, app_auth_headers
+):
+    """„Cofnij zakończenie" (``/termination-reversal``) domyka też Generator:
+    umowa wraca do stanu sprzed zakończenia, dane rozwiązania znikają."""
+    cid, gid, _ = await _seed()
+    project_end = TODAY - timedelta(days=1)
+    ended = await app_client.post(
+        f"{PATH}/{cid}/terminate",
+        json={
+            "termination_reason": "project_ended",
+            "terminated_at": project_end.isoformat(),
+            "agreement_termination": _dissolution(project_end, project_end),
+        },
+        headers=app_auth_headers,
+    )
+    assert ended.status_code == 200, ended.text
+    assert (await _generated(gid)).contract_status == "closed"
+
+    resp = await app_client.post(
+        f"{PATH}/{cid}/termination-reversal", headers=app_auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+    contract = await _contract(cid)
+    assert contract.status == ContractStatus.active
+    assert contract.agreement_termination_mode is None
+    assert contract.agreement_last_day is None
+    row = await _generated(gid)
+    assert row.contract_status == "active"
+    assert row.closure_reason is None
+    assert row.termination_mode is None
+    assert row.termination_restore is None
+
+
+async def test_return_after_break_endpoint_links_a_new_agreement(
+    app_client, app_auth_headers
+):
+    """„Powrót po przerwie" (nowy kontrakt) przy rozwiązanej umowie zakłada
+    nową umowę w Generatorze, powiązaną z poprzednią i z NOWYM kontraktem."""
+    cid, gid, _ = await _seed()
+    project_end = TODAY - timedelta(days=30)
+    ended = await app_client.post(
+        f"{PATH}/{cid}/terminate",
+        json={
+            "termination_reason": "project_ended",
+            "terminated_at": project_end.isoformat(),
+            "agreement_termination": _dissolution(project_end, project_end),
+        },
+        headers=app_auth_headers,
+    )
+    assert ended.status_code == 200, ended.text
+
+    start = TODAY + timedelta(days=5)
+    resp = await app_client.post(
+        f"{PATH}/{cid}/return-after-break",
+        json={"start_date": start.isoformat()},
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 201, resp.text
+    new_id = resp.json()["contract_id"]
+
+    previous = await _generated(gid)
+    assert previous.contract_status == "closed"
+    assert previous.contract_id == cid
+    async with AsyncSessionLocal() as db:
+        follow_up = await db.scalar(
+            select(B2BGeneratedContract).where(
+                B2BGeneratedContract.previous_generated_contract_id == gid
+            )
+        )
+    assert follow_up is not None
+    assert follow_up.contract_id == new_id
+    assert follow_up.contract_status == "in_progress"
+    # Poprzedni kontrakt zostaje zakończony razem z danymi rozwiązania umowy.
+    old = await _contract(cid)
+    assert old.status == ContractStatus.ended
+    assert old.agreement_termination_mode == "notice"
+
+
 # ── Zbiorcze „Oznacz zakończone" = to samo okno ──────────────────────────────
 
 
