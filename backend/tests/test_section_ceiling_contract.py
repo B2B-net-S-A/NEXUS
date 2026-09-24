@@ -204,6 +204,8 @@ _EXPECTED_SECTIONS = [
     ("POST", "/api/champion/preview", {S, P}),
     ("POST", "/api/interview-cycle/preps", {P}),
     ("GET", "/api/interview-cycle/preps/{event_id}/transcript", {P}),
+    ("GET", "/api/candidate-followups/candidates/{candidate_id}", {P}),
+    ("POST", "/api/candidate-followups/candidates/{candidate_id}/outcome", {P}),
     ("GET", "/api/skills-admin/skills", {S}),
     ("POST", "/api/skills-admin/unmatched-terms/{term_id}/map", {S}),
     ("GET", "/api/kpis/me/today", {INS}),

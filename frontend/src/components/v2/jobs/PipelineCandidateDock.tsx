@@ -99,6 +99,7 @@ import {
   type DockProfileCvDoc,
 } from "@/lib/dock-cv-summary";
 import type { CandidateDocument } from "@/components/v2/files/FilePreviewModal";
+import { DockFollowupBlock } from "@/components/v2/followups/DockFollowupBlock";
 
 // Edytor brandowanego CV jest ciężki (rich text) — leniwy import jak w
 // CandidateDetailV2, żeby nie puchła zakładka Pipeline dla osób, które go
@@ -1015,6 +1016,11 @@ export function PipelineCandidateDock({
           onToggle={() => toggleSection("process")}
         >
           <div className="space-y-3">
+            {/* 0372: follow-up z kandydatem, gdy klient milczy — jeden telefon
+                na osobę, także gdy jest w kilku procesach. */}
+            {item.followup && (
+              <DockFollowupBlock candidateId={item.candidate_id} badge={item.followup} />
+            )}
             <div className="space-y-2 rounded-lg border border-border bg-muted/20 p-3 text-xs">
               <div className="flex items-center justify-between gap-2 font-medium text-foreground">
                 <span className="truncate">Etap · {currentStageLabel}</span>

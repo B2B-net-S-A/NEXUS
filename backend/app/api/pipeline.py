@@ -1885,7 +1885,11 @@ def _with_next_action_owner(payload: dict, column: StageColumn, group: str) -> d
 
 
 async def build_kanban_view(
-    db: AsyncSession, job: Job, *, viewer: Optional[User] = None
+    db: AsyncSession,
+    job: Job,
+    *,
+    viewer: Optional[User] = None,
+    with_followups: bool = True,
 ) -> KanbanView:
     """The board of ``job`` — shared by ``/kanban/{job_id}`` and ``/my-next-steps``.
 
@@ -2078,6 +2082,34 @@ async def build_kanban_view(
     from app.services.cv_qc import pair_statuses
 
     qc_by_pair = await pair_statuses(db, [(cid, job_id) for cid in candidate_ids])
+    # 0372: follow-up z kandydatem, gdy klient milczy — liczony dla OSOBY (ze
+    # wszystkimi jej procesami), na karcie tylko przy procesie, który czeka.
+    from app.services import candidate_followups
+
+    followups = (
+        await candidate_followups.load_followups_safely(
+            db, now=board_now, candidate_ids=candidate_ids
+        )
+        if with_followups
+        else {}
+    )
+    followup_today = candidate_followups.local_date(board_now)
+    followup_names = await candidate_followups.user_names(
+        db, (f.caller_id for f in followups.values())
+    )
+
+    def _followup_badge(candidate_id: int) -> Optional[dict]:
+        f = followups.get(candidate_id)
+        if f is None or all(p.job_id != job_id for p in f.processes):
+            return None
+        return {
+            "caller_id": f.caller_id,
+            "caller_name": followup_names.get(f.caller_id) if f.caller_id else None,
+            "due_on": f.due_on.isoformat(),
+            "state": f.state(followup_today),
+            "overdue_days": f.overdue_days(followup_today),
+            "process_count": len(f.processes),
+        }
 
     def _stage_resp_with_name(e: CandidateStage) -> dict:
         n, ln = name_by_id.get(e.candidate_id, (None, None))
@@ -2133,6 +2165,7 @@ async def build_kanban_view(
         if e.task_assignee_id is not None:
             payload["task_assignee_name"] = user_name_by_id.get(e.task_assignee_id)
         payload["interview_badge"] = interview_badges.get(e.candidate_id)
+        payload["followup"] = _followup_badge(e.candidate_id)
         if e.stage == PipelineStage.hired:
             payload["order_status"] = order_statuses.get((e.candidate_id, job_id))
         v4 = v4_processes.get(e.candidate_id)
@@ -2347,7 +2380,11 @@ async def my_next_steps(
                 job_id=job.id,
                 title=job.title,
                 client_name=job.client.name if job.client else None,
-                view=await build_kanban_view(db, job, viewer=current_user),
+                # Follow-up (0372) liczy ~14 zapytań na tablicę — „Moje
+                # następne kroki” składa do 25 tablic, a plakietki nie pokazuje.
+                view=await build_kanban_view(
+                    db, job, viewer=current_user, with_followups=False
+                ),
             )
         )
     return MyNextStepsResponse(jobs=out, truncated=truncated)
