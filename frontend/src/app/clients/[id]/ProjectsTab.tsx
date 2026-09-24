@@ -9,6 +9,11 @@ import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { cn } from "@/lib/utils";
 import { AddCandidateToJobModal } from "@/components/client-profile/actions/AddCandidateToJobModal";
 import { CloseJobAsLostModal } from "@/components/client-profile/actions/CloseJobAsLostModal";
+import {
+  canCloseJobAsLost,
+  canMoveInPipeline,
+} from "@/components/client-profile/permissions";
+import { useAuthStore } from "@/store/auth";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -190,6 +195,10 @@ function ProjectsSection({
 // ── Tab ───────────────────────────────────────────────────────────────────────
 
 export function ProjectsTab({ clientId }: { clientId: number }) {
+  // Przyciski tylko dla ról, którym backend nie odmówi (audyt S11).
+  const user = useAuthStore((s) => s.user);
+  const canAddCandidate = canMoveInPipeline(user);
+  const canCloseLost = canCloseJobAsLost(user);
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebouncedValue(search, 300);
   const searching = debouncedSearch.trim().length > 0;
@@ -280,24 +289,28 @@ export function ProjectsTab({ clientId }: { clientId: number }) {
           searching={searching}
           emptyLabel="Brak aktywnych projektów."
           renderActions={(job) =>
-            job.status === "published" ? (
+            job.status === "published" && (canAddCandidate || canCloseLost) ? (
               <>
-                <button
-                  onClick={() => setAddCandidateTo(job)}
-                  title="Dodaj kandydata do pipeline"
-                  className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-900/30 hover:bg-purple-100 dark:hover:bg-purple-900/50 rounded-md transition-colors"
-                >
-                  <UserPlus className="w-3 h-3" />
-                  Dodaj
-                </button>
-                <button
-                  onClick={() => setCloseJobAsLost(job)}
-                  title="Zamknij jako przegraną"
-                  className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-destructive dark:text-red-300 hover:bg-destructive/10 dark:hover:bg-red-900/30 rounded-md transition-colors"
-                >
-                  <XCircle className="w-3 h-3" />
-                  Przegrana
-                </button>
+                {canAddCandidate ? (
+                  <button
+                    onClick={() => setAddCandidateTo(job)}
+                    title="Dodaj kandydata do pipeline"
+                    className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-900/30 hover:bg-purple-100 dark:hover:bg-purple-900/50 rounded-md transition-colors"
+                  >
+                    <UserPlus className="w-3 h-3" />
+                    Dodaj
+                  </button>
+                ) : null}
+                {canCloseLost ? (
+                  <button
+                    onClick={() => setCloseJobAsLost(job)}
+                    title="Zamknij jako przegraną"
+                    className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-destructive dark:text-red-300 hover:bg-destructive/10 dark:hover:bg-red-900/30 rounded-md transition-colors"
+                  >
+                    <XCircle className="w-3 h-3" />
+                    Przegrana
+                  </button>
+                ) : null}
               </>
             ) : null
           }

@@ -17,6 +17,8 @@ import { downloadAuthenticatedFile } from "@/lib/authenticated-files";
 import { hasSectionAccess } from "@/lib/section-access";
 import { hasRole, useAuthStore } from "@/store/auth";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { ConfirmButton } from "@/components/ConfirmDialog";
+import { apiErrorMessage } from "@/lib/api-error";
 import { resolveViewState } from "@/lib/view-state";
 import type {
   FrameworkContractRead,
@@ -93,7 +95,10 @@ export function FrameworkContractsTab({
       showToast("Umowa usunięta / oznaczona jako zastąpiona", "success");
       queryClient.invalidateQueries({ queryKey: ["framework-contracts", clientId] });
     },
-    onError: () => showToast("Nie udało się usunąć", "error"),
+    // 409 niesie listę zamówień/umów wykonawczych, które trzymają szkic
+    // (audyt W3) — pokazujemy ją zamiast ogólnika.
+    onError: (err: unknown) =>
+      showToast(apiErrorMessage(err, "Nie udało się usunąć"), "error"),
   });
 
   // Deep link z panelu „Moi klienci" (`?framework=`): rozwiń i pokaż umowę,
@@ -189,9 +194,7 @@ export function FrameworkContractsTab({
               expanded={expandedFcId === fc.id}
               highlighted={highlightedFcId === fc.id}
               onToggle={() => setExpandedFcId(expandedFcId === fc.id ? null : fc.id)}
-              onDelete={() => {
-                if (confirm(`Usunąć "${fc.name}"?`)) deleteMutation.mutate(fc.id);
-              }}
+              onDelete={() => deleteMutation.mutate(fc.id)}
             />
           ))}
         </ul>
@@ -305,16 +308,20 @@ function FrameworkContractRow({
             </div>
           </div>
           {canEdit && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete();
-              }}
+            // Potwierdzenie w wierszu zamiast natywnego `confirm` (audyt S12).
+            // Szkic znika trwale, podpisana umowa zostaje jako „zastąpiona”.
+            <ConfirmButton
+              onConfirm={onDelete}
+              message={
+                fc.status === "draft"
+                  ? "Usunąć szkic trwale?"
+                  : "Oznaczyć umowę jako zastąpioną?"
+              }
+              confirmLabel={fc.status === "draft" ? "Usuń" : "Oznacz"}
               className="hit-area text-muted-foreground hover:text-destructive p-1"
-              title="Usuń"
             >
-              <Trash2 className="w-4 h-4" />
-            </button>
+              <Trash2 className="w-4 h-4" aria-label="Usuń" />
+            </ConfirmButton>
           )}
         </div>
       </div>
@@ -411,14 +418,13 @@ function AmendmentsSection({ clientId, fcId }: AmendmentsSectionProps) {
                 )}
               </div>
               {canEdit && (
-                <button
-                  onClick={() => {
-                    if (confirm(`Usunąć aneks "${a.name}"?`)) deleteMutation.mutate(a.id);
-                  }}
+                <ConfirmButton
+                  onConfirm={() => deleteMutation.mutate(a.id)}
+                  message={`Usunąć aneks „${a.name}”?`}
                   className="hit-area text-muted-foreground hover:text-destructive p-1"
                 >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
+                  <Trash2 className="w-3.5 h-3.5" aria-label="Usuń aneks" />
+                </ConfirmButton>
               )}
             </li>
           ))}

@@ -338,3 +338,56 @@ describe("AnalyticsTab finance redaction", () => {
     await vi.waitFor(() => expect(getDashboard).toHaveBeenCalledTimes(2));
   });
 });
+
+describe("AnalyticsTab — audyt 24.09.2026", () => {
+  beforeEach(() => {
+    getDashboard.mockReset();
+  });
+
+  afterEach(() => {
+    act(() => {
+      useAuthStore.setState({ user: null, hydrated: true });
+    });
+  });
+
+  it("marża z kontraktami bez stawki ma dopisek „niepełne” (S9)", async () => {
+    act(() => {
+      useAuthStore.setState({ user: financeAdmin(), hydrated: true });
+    });
+    const payload = dashboardWithMoney();
+    (payload.data as unknown as Record<string, unknown>).monthly_margin_unpriced_contracts = 2;
+    getDashboard.mockResolvedValue(payload);
+
+    renderTab(10);
+
+    expect(await screen.findByText("Marża/mc (PLN) (niepełne)")).toBeInTheDocument();
+  });
+
+  it("awaria serwera = komunikat z „Spróbuj ponownie”, 403 = brak uprawnień (S10)", async () => {
+    act(() => {
+      useAuthStore.setState({ user: financeAdmin(), hydrated: true });
+    });
+    getDashboard.mockRejectedValueOnce({ response: { status: 500 } });
+    const { unmount } = renderTab(10);
+    expect(await screen.findByText("Spróbuj ponownie")).toBeInTheDocument();
+    unmount();
+
+    getDashboard.mockRejectedValueOnce({ response: { status: 403 } });
+    renderTab(10);
+    expect(await screen.findByText("Brak uprawnień")).toBeInTheDocument();
+    expect(screen.queryByText("Spróbuj ponownie")).not.toBeInTheDocument();
+  });
+
+  it("odmienia „aktywny kontrakt” (N4)", async () => {
+    act(() => {
+      useAuthStore.setState({ user: financeAdmin(), hydrated: true });
+    });
+    const payload = dashboardWithMoney();
+    (payload.data as unknown as Record<string, unknown>).active_contracts = 1;
+    getDashboard.mockResolvedValue(payload);
+
+    renderTab(10);
+
+    expect(await screen.findByText(/1 aktywny kontrakt ·/)).toBeInTheDocument();
+  });
+});

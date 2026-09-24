@@ -8,6 +8,7 @@
  * czytałoby się jak brak części, a nie brak umowy.
  */
 
+import { useEffect } from "react";
 import {
   frameworkPartHeader,
   useContractStructure,
@@ -41,6 +42,13 @@ export function ExecutiveContractFilter({
     "unassigned",
   ).length;
   const frameworks: FrameworkPartRead[] = structure.data?.framework_contracts ?? [];
+
+  // Ostatni nieprzypisany dostał umowę → pigułka „Nieprzypisani” znika, a filtr
+  // zostawał na niej i tabela pokazywała „Brak konsultantów” bez widocznej
+  // przyczyny (audyt N5). Wracamy na „Wszystkie”.
+  useEffect(() => {
+    if (value === "unassigned" && unassignedCount === 0) onChange("all");
+  }, [value, unassignedCount, onChange]);
 
   return (
     <div

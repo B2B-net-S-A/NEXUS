@@ -802,6 +802,7 @@ async def get_client_profile(
                 start_date=c.start_date,
                 end_date=c.end_date,
                 days_to_end=_days_to(c.end_date),
+                contract_status=getattr(c.status, "value", c.status),
                 monthly_rate_client=rates["monthly_rate_client"],
                 monthly_rate_candidate=rates["monthly_rate_candidate"],
                 monthly_margin=rates["monthly_margin"],

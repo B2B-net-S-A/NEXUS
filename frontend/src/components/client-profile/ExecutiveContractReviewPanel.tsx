@@ -45,9 +45,12 @@ function useExecutiveContractReview(clientId: number) {
 
 interface Props {
   clientId: number;
+  /** Przypisanie = `DlAssignedOrAdmin` — bez uprawnienia panel jest tylko do
+   *  odczytu, zamiast przycisku kończącego się 403 (audyt S11). */
+  canAssign?: boolean;
 }
 
-export function ExecutiveContractReviewPanel({ clientId }: Props) {
+export function ExecutiveContractReviewPanel({ clientId, canAssign = true }: Props) {
   const review = useExecutiveContractReview(clientId);
   const { groups, isSuccess: structureLoaded } = useExecutiveContractOptions(clientId);
   const rows = review.data?.rows ?? [];
@@ -101,8 +104,12 @@ export function ExecutiveContractReviewPanel({ clientId }: Props) {
                 <th className="py-2 pr-4 font-medium">Konsultant</th>
                 <th className="py-2 pr-4 font-medium">Start</th>
                 <th className="py-2 pr-4 font-medium">Dziś</th>
-                <th className="py-2 pr-4 font-medium">Umowa wykonawcza</th>
-                <th className="py-2 text-right font-medium">Akcje</th>
+                {canAssign ? (
+                  <>
+                    <th className="py-2 pr-4 font-medium">Umowa wykonawcza</th>
+                    <th className="py-2 text-right font-medium">Akcje</th>
+                  </>
+                ) : null}
               </tr>
             </thead>
             <tbody>
@@ -113,6 +120,7 @@ export function ExecutiveContractReviewPanel({ clientId }: Props) {
                   row={row}
                   groups={groups}
                   structureLoaded={structureLoaded}
+                  canAssign={canAssign}
                 />
               ))}
             </tbody>
@@ -128,11 +136,13 @@ function ReviewRow({
   row,
   groups,
   structureLoaded,
+  canAssign,
 }: {
   clientId: number;
   row: ExecutiveContractReviewRow;
   groups: ExecutiveContractOptionGroup[];
   structureLoaded: boolean;
+  canAssign: boolean;
 }) {
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
@@ -194,51 +204,55 @@ function ReviewRow({
           ? `dziś: ${projectPartLabel(row.legacy_project_part)}`
           : "dziś: bez części"}
       </td>
-      <td className="py-2 pr-4">
-        <select
-          value={selected}
-          onChange={(e) => setSelected(e.target.value)}
-          aria-label={selectLabel}
-          disabled={assign.isPending || noOptions}
-          className="w-full min-w-[14rem] rounded-md border border-border bg-background px-2 py-1 text-sm disabled:opacity-60"
-        >
-          <option value="">— wybierz —</option>
-          {groups.map((group) => (
-            <optgroup
-              key={group.framework_contract_id}
-              label={
-                group.framework_contract_id === row.suggested_framework_contract_id
-                  ? `${group.label} (ta sama część co dziś)`
-                  : group.label
-              }
+      {canAssign ? (
+        <>
+          <td className="py-2 pr-4">
+            <select
+              value={selected}
+              onChange={(e) => setSelected(e.target.value)}
+              aria-label={selectLabel}
+              disabled={assign.isPending || noOptions}
+              className="w-full min-w-[14rem] rounded-md border border-border bg-background px-2 py-1 text-sm disabled:opacity-60"
             >
-              {group.options.map((ec) => (
-                <option key={ec.id} value={String(ec.id)}>
-                  {ec.number}
-                </option>
+              <option value="">— wybierz —</option>
+              {groups.map((group) => (
+                <optgroup
+                  key={group.framework_contract_id}
+                  label={
+                    group.framework_contract_id === row.suggested_framework_contract_id
+                      ? `${group.label} (ta sama część co dziś)`
+                      : group.label
+                  }
+                >
+                  {group.options.map((ec) => (
+                    <option key={ec.id} value={String(ec.id)}>
+                      {ec.number}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
-            </optgroup>
-          ))}
-        </select>
-        {noOptions ? (
-          <p className="mt-1 text-xs text-muted-foreground">
-            Brak aktywnej umowy wykonawczej — najpierw dodaj ją powyżej.
-          </p>
-        ) : null}
-      </td>
-      <td className="py-2 text-right">
-        <Button
-          size="sm"
-          disabled={!selected || assign.isPending}
-          onClick={() => assign.mutate()}
-          aria-label={`Przypisz: ${row.candidate.name}`}
-        >
-          {assign.isPending ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-          ) : null}
-          Przypisz
-        </Button>
-      </td>
+            </select>
+            {noOptions ? (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Brak aktywnej umowy wykonawczej — najpierw dodaj ją powyżej.
+              </p>
+            ) : null}
+          </td>
+          <td className="py-2 text-right">
+            <Button
+              size="sm"
+              disabled={!selected || assign.isPending}
+              onClick={() => assign.mutate()}
+              aria-label={`Przypisz: ${row.candidate.name}`}
+            >
+              {assign.isPending ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+              ) : null}
+              Przypisz
+            </Button>
+          </td>
+        </>
+      ) : null}
     </tr>
   );
 }

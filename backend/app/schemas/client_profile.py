@@ -97,6 +97,9 @@ class ActiveConsultantItem(BaseModel):
     days_to_end: Optional[int] = (
         None  # null if no end_date; < 30 triggers amber UI, < 7 red
     )
+    # `active` / `ending` — „Przedłuż” na profilu jest wyłącznie dla
+    # kontraktu kończącego się (audyt 24.09.2026, W2).
+    contract_status: Optional[str] = None
     monthly_rate_client: Optional[WholePLN] = None
     # Stawka kosztowa /mc (ticket #5 krok 1: koszt + przychód + marża w wierszu).
     # Dane finansowe — redagowane dla ról bez VIEW_FINANCE jak rodzeństwo.
