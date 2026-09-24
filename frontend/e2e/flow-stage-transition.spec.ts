@@ -246,22 +246,50 @@ test.describe("Pipeline rekrutacji @stack", () => {
     await expectStatus(queue, 404, "kolejka akceptacji nie istnieje");
   });
 
-  test("rekruter spoza zespołu rekrutacji nie przesunie kandydata", async ({ admin, apiAs }) => {
+  test("rekruter spoza zespołu przesuwa kandydata, ale stawki do klienta nie zapisze", async ({
+    admin,
+    apiAs,
+  }) => {
+    // Decyzja 23.09.2026 (#1742): bramka zespołu rekrutacji jest otwarta dla
+    // każdej roli wewnętrznej — rekruter spoza zespołu obsługuje każdą
+    // rekrutację. Zostają bramki RÓL: stawkę do klienta zapisuje DL albo admin.
     const client = await createClient(admin.api);
     const job = await createJob(admin.api, client.id);
     const candidate = await createCandidate(admin.api);
     const recruiter = await apiAs("recruiter");
 
-    const move = await recruiter.api.post("/api/pipeline/move", {
-      data: { candidate_id: candidate.id, job_id: job.id, stage: "screening" },
+    const withRate = await recruiter.api.post("/api/pipeline/move", {
+      data: {
+        candidate_id: candidate.id,
+        job_id: job.id,
+        stage: "screening",
+        client_rate_value: 150,
+        client_rate_unit: "hourly",
+      },
     });
-    await expectStatus(move, 403, "ruch rekrutera spoza zespołu");
-
-    const kanban = await jsonOf<KanbanView>(
+    await expectStatus(withRate, 403, "ruch rekrutera ze stawką do klienta");
+    // …i odmowa niczego nie zapisała.
+    const kanbanAfterDenial = await jsonOf<KanbanView>(
       await admin.api.get(`/api/pipeline/kanban/${job.id}`),
       200,
       "kanban po odmowie"
     );
-    expect(stageOf(kanban, candidate.id)).toBeUndefined();
+    expect(stageOf(kanbanAfterDenial, candidate.id)).toBeUndefined();
+
+    const move = await jsonOf<StageResponse>(
+      await recruiter.api.post("/api/pipeline/move", {
+        data: { candidate_id: candidate.id, job_id: job.id, stage: "screening" },
+      }),
+      200,
+      "ruch rekrutera spoza zespołu"
+    );
+    expect(move.stage).toBe("screening");
+
+    const kanban = await jsonOf<KanbanView>(
+      await admin.api.get(`/api/pipeline/kanban/${job.id}`),
+      200,
+      "kanban po ruchu rekrutera"
+    );
+    expect(stageOf(kanban, candidate.id)).toBe("screening");
   });
 });
