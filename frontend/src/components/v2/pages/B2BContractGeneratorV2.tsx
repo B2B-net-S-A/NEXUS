@@ -3139,7 +3139,6 @@ function LifecycleContractsTab({
                               aria-label={`Zmień status umowy ${r.contract_number}`}
                             >
                               <Pencil className="h-4 w-4" />
-                              <span className="ml-1">Zmień status</span>
                             </Button>
                           ) : null}
                           <Button
