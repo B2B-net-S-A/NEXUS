@@ -35,10 +35,12 @@ vi.mock("@/lib/api", () => ({
 }));
 
 const pushMock = vi.fn();
+// Adres przy montowaniu — czytany leniwie, więc test może go podmienić.
+const navState = { search: "" };
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: pushMock }),
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams(navState.search),
 }));
 
 vi.mock("@/hooks/useCapability", () => ({
@@ -211,15 +213,19 @@ describe("JobsListV2 — filtry Szybkie → parametry zapytania", () => {
     });
   });
 
-  it("„Niezamknięte” wysyła open_only=true — ten sam parametr co dziś", async () => {
+  it("dawny szybki filtr „Niezamknięte” zniknął — zastąpił go zakres „Otwarte” (open_only=true)", async () => {
     const user = userEvent.setup();
     renderJobs();
     await waitFor(() => expect(jobsCalls()).toHaveLength(1));
+    expect(screen.queryByText("Niezamknięte")).not.toBeInTheDocument();
+    expect(screen.queryByText("Moje rekrutacje")).not.toBeInTheDocument();
 
-    await user.click(screen.getByText("Niezamknięte"));
+    const scope = within(screen.getByRole("group", { name: "Zakres rekrutacji" }));
+    await user.click(scope.getByRole("button", { name: /Otwarte/ }));
 
     await waitFor(() => {
-      expect(latestParams()).toMatchObject({ open_only: true });
+      expect(latestParams()).toMatchObject({ open_only: true, sort: "newest" });
+      expect(latestParams().mine).toBeUndefined();
     });
   });
 
@@ -252,11 +258,11 @@ describe("JobsListV2 — filtry Szybkie → parametry zapytania", () => {
     // `recruitment_type: "body_leasing"`, więc "Body leasing" wychodzi
     // DWA razy: jako pigułka Typ w aside i jako pill typu w wierszu listy.
     await user.click(screen.getByRole("button", { name: "Body leasing" }));
-    await user.click(screen.getByText("Niezamknięte"));
+    await user.click(screen.getByText("Potrzebny search"));
     await waitFor(() => {
       expect(latestParams()).toMatchObject({
         recruitment_type: "body_leasing",
-        open_only: true,
+        needs_sourcing: true,
       });
     });
 
@@ -276,7 +282,7 @@ describe("JobsListV2 — filtry Szybkie → parametry zapytania", () => {
     await waitFor(() => {
       const params = latestParams();
       expect(params.recruitment_type).toBeUndefined();
-      expect(params.open_only).toBeUndefined();
+      expect(params.needs_sourcing).toBeUndefined();
     });
   });
 
@@ -337,13 +343,11 @@ describe("JobsListV2 — liczniki filtrów „Szybkie”", () => {
     mockJobsResponse([jobRow()]);
   });
 
-  it("pokazuje liczbę z /api/jobs/quick-counts przy każdej z sześciu pozycji", async () => {
+  it("pokazuje liczbę z /api/jobs/quick-counts przy każdej pozycji", async () => {
     mockQuickCounts();
     renderJobs();
 
     const expected: [RegExp, string][] = [
-      [/Moje rekrutacje/, "12"],
-      [/Niezamknięte/, "318"],
       [/Potrzebny search/, "41"],
       [/Aktywni w searchu/, "27"],
       [/Brak opiekuna TAC/, "63"],
@@ -377,7 +381,7 @@ describe("JobsListV2 — liczniki filtrów „Szybkie”", () => {
     quickCountsMock.mockRejectedValue(new Error("boom"));
     renderJobs();
 
-    const row = await screen.findByRole("button", { name: /Moje rekrutacje/ });
+    const row = await screen.findByRole("button", { name: /Potrzebny search/ });
     expect(within(row).queryByText("0")).not.toBeInTheDocument();
     // Sam filtr działa dalej — licznik jest dodatkiem, nie warunkiem.
     expect(row).toBeEnabled();
@@ -424,7 +428,7 @@ describe("JobsListV2 — liczby per grupa etapów w wierszu", () => {
     useUiStore.setState({ jobsView: "list" });
   });
 
-  it("pokazuje sześć liczb w kolejności lejka, bez rejected/withdrawn", async () => {
+  it("pokazuje osiem liczb w kolejności kolumn Tablicy, bez rejected/withdrawn", async () => {
     mockJobsResponse([
       jobRow({
         stage_breakdown: { new: 3, screening: 2, hired: 1, rejected: 5 },
@@ -433,29 +437,38 @@ describe("JobsListV2 — liczby per grupa etapów w wierszu", () => {
     renderJobs();
     const cell = await screen.findByTestId("job-stage-counts");
     expect(cell).toHaveAccessibleName(
-      "Etapy: Nowi 3, Screening 2, Zweryfikowani 0, U klienta 0, Umowa 0, Zatrudnieni 1",
+      "Etapy: Nowi 3, Screening 2, Zweryfikowany 0, QC CV 0, CV wysłane 0, " +
+        "Rozmowa u klienta 0, Umowa 0, Zatrudniony 1",
     );
-    // `rejected` jest poza sześcioma grupami — nigdzie nie ma „5".
+    // `rejected` jest poza ośmioma kolumnami — nigdzie nie ma „5".
     expect(within(cell).queryByText("5")).not.toBeInTheDocument();
+    // W wierszu same liczby — skróty kolumn stoją RAZ, w nagłówku.
+    expect(within(cell).queryByText("Now")).not.toBeInTheDocument();
+    const header = screen.getByTestId("job-stage-counts-header");
+    expect(header).toHaveTextContent("NowScrZweQCWysRozUmZat");
+    expect(within(header).getByText("QC")).toHaveAttribute("title", "QC CV");
   });
 
-  it("tooltip grupy wymienia PEŁNE nazwy etapów szablonu z liczbami", async () => {
+  it("etap QC CV (kod `interview`) ma własną kolumnę, a tooltip wymienia pełne nazwy etapów", async () => {
     mockJobsResponse([
       jobRow({
         stage_columns: [
           { stage: "new", name: "Nowy", count: 2, category: "internal", order: 0 },
           { stage: "screening", name: "Screening", count: 1, category: "internal", order: 1 },
-          { stage: "new", name: "Przepuszczony przez DZ", count: 4, category: "internal", order: 2 },
-          { stage: "verified", name: "Zweryfikowany", count: 1, category: "internal", order: 3 },
+          { stage: "verified", name: "Zweryfikowany", count: 1, category: "internal", order: 2 },
+          { stage: "interview", name: "Przepuszczony przez DZ", count: 4, category: "internal", order: 3 },
+          { stage: "new", name: "Wysłać do Cpro", count: 1, category: "internal", order: 4 },
         ],
       }),
     ]);
     renderJobs();
     const cell = await screen.findByTestId("job-stage-counts");
     const verified = cell.querySelector('[data-group="verified"]') as HTMLElement;
-    expect(verified).toHaveTextContent("5");
-    expect(verified.getAttribute("title")).toBe(
-      "Zweryfikowani: Przepuszczony przez DZ 4 · Zweryfikowany 1",
+    const qc = cell.querySelector('[data-group="cv_qc"]') as HTMLElement;
+    expect(verified).toHaveTextContent("1");
+    expect(qc).toHaveTextContent("5");
+    expect(qc.getAttribute("title")).toBe(
+      "QC CV: Przepuszczony przez DZ 4 · Wysłać do Cpro 1",
     );
   });
 
@@ -556,7 +569,7 @@ describe("JobsListV2 — zakres „Moje | Wszystkie” i sortowanie", () => {
     expect(window.location.search).toBe("");
   });
 
-  it("segment pokazuje liczniki z quick-counts", async () => {
+  it("segment „Moje | Otwarte | Wszystkie” pokazuje liczniki z quick-counts", async () => {
     renderJobs();
     const scope = within(
       await screen.findByRole("group", { name: "Zakres rekrutacji" }),
@@ -567,9 +580,23 @@ describe("JobsListV2 — zakres „Moje | Wszystkie” i sortowanie", () => {
         "true",
       );
     });
+    expect(scope.getByRole("button", { name: /Otwarte\s*318/ })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
     expect(
       scope.getByRole("button", { name: /Wszystkie\s*4\s?241/ }),
     ).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("„Otwarte” u rekrutera zapisuje open=1 w adresie", async () => {
+    const user = userEvent.setup();
+    renderJobs();
+    await waitFor(() => expect(jobsCalls()).toHaveLength(1));
+    const scope = within(screen.getByRole("group", { name: "Zakres rekrutacji" }));
+    await user.click(scope.getByRole("button", { name: /Otwarte/ }));
+    await waitFor(() => expect(window.location.search).toBe("?open=1"));
+    expect(latestParams()).toMatchObject({ open_only: true });
   });
 
   it("„Wszystkie” zdejmuje `mine`, wraca do „Od najnowszej” i zapisuje mine=0 w adresie", async () => {
@@ -587,16 +614,35 @@ describe("JobsListV2 — zakres „Moje | Wszystkie” i sortowanie", () => {
     await waitFor(() => expect(window.location.search).toBe("?mine=0"));
   });
 
-  it("admin / HoR / Finanse / viewer startują we „Wszystkich”, od najnowszej", async () => {
+  it("admin / HoR / Finanse / viewer startują w „Otwartych” (bez zamkniętych), od najnowszej", async () => {
     for (const role of ["admin", "head_of_recruitment", "finance", "user"]) {
       getMock.mockClear();
       signInAs(role);
       const view = renderJobs();
       await waitFor(() => expect(jobsCalls()).toHaveLength(1));
       expect(latestParams().mine, role).toBeUndefined();
-      expect(latestParams(), role).toMatchObject({ sort: "newest" });
+      expect(latestParams(), role).toMatchObject({ sort: "newest", open_only: true });
       expect(window.location.search).toBe("");
       view.unmount();
+    }
+  });
+
+  it("stare `mine=0` z pulpitu dalej znaczy „Wszystkie” — bez open_only", async () => {
+    signInAs("admin");
+    window.history.replaceState(null, "", "/jobs?mine=0");
+    navState.search = "mine=0";
+    try {
+      renderJobs();
+      await waitFor(() => expect(jobsCalls()).toHaveLength(1));
+      expect(latestParams().open_only).toBeUndefined();
+      expect(latestParams().mine).toBeUndefined();
+      const scope = within(screen.getByRole("group", { name: "Zakres rekrutacji" }));
+      expect(scope.getByRole("button", { name: /Wszystkie/ })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+    } finally {
+      navState.search = "";
     }
   });
 
@@ -607,7 +653,7 @@ describe("JobsListV2 — zakres „Moje | Wszystkie” i sortowanie", () => {
     expect(latestParams()).toMatchObject({ mine: true, sort: "attention" });
   });
 
-  it("jawne „Moje” u admina zapisuje mine=1, a „Wyczyść” wraca do domyślnego roli", async () => {
+  it("jawne „Moje” u admina zapisuje mine=1, a „Wyczyść” wraca do domyślnego roli („Otwarte”)", async () => {
     signInAs("admin");
     const user = userEvent.setup();
     renderJobs();
@@ -622,6 +668,7 @@ describe("JobsListV2 — zakres „Moje | Wszystkie” i sortowanie", () => {
 
     await user.click(screen.getByText("Wyczyść"));
     await waitFor(() => expect(latestParams().mine).toBeUndefined());
+    expect(latestParams()).toMatchObject({ open_only: true });
     await waitFor(() => expect(window.location.search).toBe(""));
   });
 
@@ -673,7 +720,7 @@ describe("JobsListV2 — zwijana kolumna filtrów", () => {
     const toggle = screen.getByRole("button", { name: "Filtry" });
     expect(toggle).toHaveAttribute("aria-expanded", "true");
 
-    await user.click(screen.getByText("Niezamknięte"));
+    await user.click(screen.getByText("Potrzebny search"));
     const counted = await screen.findByRole("button", { name: "Filtry (1)" });
 
     await user.click(counted);
@@ -814,5 +861,193 @@ describe("JobsListV2 — wiersz bez dostępu (can_open === false)", () => {
     expect(pushMock).not.toHaveBeenCalled();
     expect(screen.queryByRole("button", { name: "Podgląd: Cudza" })).toBeNull();
     expect(screen.getByRole("button", { name: "Podgląd: Otwarta" })).toBeEnabled();
+  });
+});
+
+describe("JobsListV2 — lista v5: liczby statusów, termin, nowe filtry", () => {
+  beforeAll(() => {
+    Object.defineProperty(HTMLElement.prototype, "hasPointerCapture", {
+      configurable: true,
+      value: () => false,
+    });
+    Object.defineProperty(HTMLElement.prototype, "setPointerCapture", {
+      configurable: true,
+      value: () => undefined,
+    });
+    Object.defineProperty(HTMLElement.prototype, "releasePointerCapture", {
+      configurable: true,
+      value: () => undefined,
+    });
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: () => undefined,
+    });
+  });
+
+  beforeEach(() => {
+    getMock.mockReset();
+    quickCountsMock.mockReset();
+    useUiStore.setState({ jobsView: "list", jobsFiltersCollapsed: false });
+    window.history.replaceState(null, "", "/jobs");
+    navState.search = "";
+  });
+
+  const statusCounts = {
+    request_status: {
+      searching: 210,
+      champion: 14,
+      contract: 9,
+      filled: 5,
+      incomplete: 80,
+      closed: 3968,
+    },
+    request_status_mine: {
+      searching: 7,
+      champion: 1,
+      contract: 0,
+      filled: 2,
+      incomplete: 2,
+      closed: 30,
+    },
+  };
+
+  it("pigułki statusu requestu pokazują liczby zakresu: „Moje” — moje, „Otwarte” — rejestr", async () => {
+    mockJobsResponse([jobRow()]);
+    quickCountsMock.mockResolvedValue({
+      data: {
+        all: 4286,
+        mine: 42,
+        open: 318,
+        needs_sourcing: 1,
+        active_in_search: 1,
+        owner_missing: 1,
+        deadline_7d: 1,
+        ...statusCounts,
+      },
+    });
+    const user = userEvent.setup();
+    renderJobs();
+    const chips = within(await screen.findByRole("group", { name: "Status requestu" }));
+    await waitFor(() =>
+      expect(chips.getByRole("button", { name: /Szukamy\s*7/ })).toBeInTheDocument(),
+    );
+    expect(chips.getByRole("button", { name: /Umowa\s*0/ })).toBeInTheDocument();
+
+    const scope = within(screen.getByRole("group", { name: "Zakres rekrutacji" }));
+    await user.click(scope.getByRole("button", { name: /Otwarte/ }));
+    await waitFor(() =>
+      expect(chips.getByRole("button", { name: /Szukamy\s*210/ })).toBeInTheDocument(),
+    );
+    expect(chips.getByRole("button", { name: /Do uzupełnienia\s*80/ })).toBeInTheDocument();
+  });
+
+  it("bez liczników statusu (starszy backend) pigułki nie udają zera", async () => {
+    mockJobsResponse([jobRow()]);
+    mockQuickCounts();
+    renderJobs();
+    const chips = within(await screen.findByRole("group", { name: "Status requestu" }));
+    await waitFor(() => expect(quickCountsMock).toHaveBeenCalled());
+    expect(chips.getByRole("button", { name: "Szukamy" })).toBeInTheDocument();
+  });
+
+  it("termin: data + „za N dni” / „po terminie N dni” z tonem, brak = kreska", async () => {
+    const inDays = (n: number) => {
+      const d = new Date();
+      d.setDate(d.getDate() + n);
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      return `${d.getFullYear()}-${m}-${day}`;
+    };
+    mockJobsResponse([
+      jobRow({ id: 1, title: "Po terminie", deadline: inDays(-3) }),
+      jobRow({ id: 2, title: "Wkrótce", deadline: inDays(5) }),
+      jobRow({ id: 3, title: "Daleko", deadline: inDays(30) }),
+      jobRow({ id: 4, title: "Bez terminu", deadline: null }),
+    ]);
+    mockQuickCounts();
+    renderJobs();
+    await screen.findByText("Po terminie");
+    const cells = screen.getAllByTestId("job-deadline");
+    expect(cells.map((c) => c.getAttribute("data-urgency"))).toEqual([
+      "overdue",
+      "soon",
+      "normal",
+    ]);
+    expect(cells[0]).toHaveTextContent("po terminie 3 dni");
+    expect(cells[1]).toHaveTextContent("za 5 dni");
+    expect(cells[2]).toHaveTextContent("za 30 dni");
+    expect(within(cells[0]).getByText("po terminie 3 dni")).toHaveClass("text-destructive");
+    expect(within(cells[1]).getByText("za 5 dni")).toHaveClass("text-warning");
+    const noDeadlineRow = screen.getByText("Bez terminu").closest("tr") as HTMLElement;
+    expect(within(noDeadlineRow).queryByTestId("job-deadline")).not.toBeInTheDocument();
+  });
+
+  it("tytuł w dwóch liniach, „Podobne rekrutacje” to plakietka pod tytułem (bez osobnej kolumny)", async () => {
+    mockJobsResponse([
+      jobRow({
+        id: 31,
+        title: "Bardzo długi tytuł rekrutacji z klientem i technologią w nazwie",
+        client_name: "Bank Demo",
+        similar: {
+          linked_count: 0,
+          linked_first: null,
+          reassigned_count: 0,
+          suggested: { count: 3, sent_count: 4, first: { id: 9, title: "X", reference_number: "#1" } },
+        },
+      }),
+    ]);
+    mockQuickCounts();
+    renderJobs();
+    const title = await screen.findByRole("link", { name: /Bardzo długi tytuł/ });
+    expect(title).toHaveClass("line-clamp-2");
+    expect(screen.queryByRole("columnheader", { name: /Podobne/ })).not.toBeInTheDocument();
+    const badge = screen.getByTestId("job-similar-badge");
+    expect(badge).toHaveTextContent("≈ 3 podobne");
+    expect(badge).toHaveTextContent("Przepnij →");
+    // Plakietka stoi w komórce tytułu, obok klienta.
+    expect(title.closest("td")).toContainElement(badge);
+  });
+
+  it("„Wysłanych do klienta” wysyła min_sent/max_sent i liczy się do „Filtry (N)”", async () => {
+    mockJobsResponse([jobRow()]);
+    mockQuickCounts();
+    const user = userEvent.setup();
+    renderJobs();
+    await waitFor(() => expect(jobsCalls()).toHaveLength(1));
+
+    await user.click(screen.getByRole("combobox", { name: "Filtr: Wysłanych do klienta" }));
+    await user.click(await screen.findByRole("option", { name: "Co najmniej 3 osoby" }));
+    await waitFor(() => expect(latestParams()).toMatchObject({ min_sent: 3 }));
+    expect(latestParams().max_sent).toBeUndefined();
+    expect(await screen.findByRole("button", { name: "Filtry (1)" })).toBeInTheDocument();
+    await waitFor(() => expect(window.location.search).toContain("sent=3"));
+
+    await user.click(screen.getByRole("combobox", { name: "Filtr: Wysłanych do klienta" }));
+    await user.click(await screen.findByRole("option", { name: "Nikt jeszcze" }));
+    await waitFor(() => expect(latestParams()).toMatchObject({ max_sent: 0 }));
+    expect(latestParams().min_sent).toBeUndefined();
+
+    await user.click(screen.getByText("Wyczyść"));
+    await waitFor(() => {
+      expect(latestParams().min_sent).toBeUndefined();
+      expect(latestParams().max_sent).toBeUndefined();
+    });
+  });
+
+  it("Delivery Lead i zakres terminu z adresu idą do API (delivery_lead_id, deadline_from/to)", async () => {
+    navState.search = "lead=5&lead=8&deadline=range&dl_from=2026-10-01&dl_to=2026-10-31";
+    mockJobsResponse([jobRow()]);
+    mockQuickCounts();
+    renderJobs();
+    await waitFor(() => expect(jobsCalls()).toHaveLength(1));
+    expect(latestParams()).toMatchObject({
+      delivery_lead_id: [5, 8],
+      deadline_from: "2026-10-01",
+      deadline_to: "2026-10-31",
+    });
+    // Dwie osoby + termin = 3 zawężenia.
+    expect(screen.getByRole("button", { name: "Filtry (3)" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Termin od")).toHaveValue("2026-10-01");
+    expect(screen.getByLabelText("Termin do")).toHaveValue("2026-10-31");
   });
 });

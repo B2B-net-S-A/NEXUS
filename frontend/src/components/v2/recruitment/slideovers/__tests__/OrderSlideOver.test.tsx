@@ -1,10 +1,22 @@
 import { fireEvent, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ get: vi.fn(), roles: ["admin"] as string[] }));
+const mocks = vi.hoisted(() => ({
+  get: vi.fn(),
+  put: vi.fn(),
+  showSuccess: vi.fn(),
+  showError: vi.fn(),
+  roles: ["admin"] as string[],
+}));
 
 vi.mock("@/lib/api", () => ({
-  default: { get: (...args: unknown[]) => mocks.get(...args) },
+  default: {
+    get: (...args: unknown[]) => mocks.get(...args),
+    put: (...args: unknown[]) => mocks.put(...args),
+  },
+}));
+vi.mock("@/components/Toast", () => ({
+  useToast: () => ({ showSuccess: mocks.showSuccess, showError: mocks.showError }),
 }));
 vi.mock("@/store/auth", () => ({
   useAuthStore: (selector: (s: unknown) => unknown) =>
@@ -110,7 +122,9 @@ describe("OrderSlideOver", () => {
     const missing = await within(dialog).findByRole("region", {
       name: "Braki w zleceniu",
     });
-    expect(within(missing).getByText("Brakuje 2 rzeczy")).toBeInTheDocument();
+    // 9 pozycji bramki (hybryda → także dni i miasto biura) + 2 zdania spoza
+    // lustra — te zostają brakami z własną treścią.
+    expect(within(missing).getByText("9 z 11 gotowe")).toBeInTheDocument();
     expect(within(missing).getByText("Brak hiring managera")).toBeInTheDocument();
     expect(within(dialog).getByText("do 190,00 PLN/h")).toBeInTheDocument();
     expect(within(dialog).getByText("Warszawa / hybryda 2 dni")).toBeInTheDocument();
@@ -215,5 +229,97 @@ describe("OrderSlideOver", () => {
     setup({}, { job: { ...JOB, status: "closed" }, readiness: { closed: true } });
     await screen.findByText("Java 17");
     expect(screen.queryByRole("button", { name: "Zamknij rekrutację" })).not.toBeInTheDocument();
+  });
+});
+
+// ── Braki z działaniem (24.09.2026) ──────────────────────────────────────────
+
+describe("OrderSlideOver — braki z działaniem", () => {
+  const MSG = {
+    context:
+      "Uzupełnij kontekst projektu (o projekcie / obowiązki) w Profilu Championa.",
+    budget:
+      "Uzupełnij budżet stawki kandydata w PLN/h (pole oferty lub stawka w Profilu Championa).",
+    workMode: "Określ tryb pracy: zdalnie, hybrydowo albo stacjonarnie.",
+  };
+  const OPEN_JOB = {
+    ...JOB,
+    remote_policy: null,
+    effective_budget_hourly: null,
+    has_budget_hourly: false,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.roles = ["admin"];
+    mocks.put.mockResolvedValue({ data: {} });
+  });
+
+  it("pasek postępu i sekcja „Gotowe” z tej samej listy braków", async () => {
+    setup({}, { job: OPEN_JOB, readiness: { ready: false, blockers: [MSG.context, MSG.budget, MSG.workMode] } });
+    const missing = await screen.findByRole("region", { name: "Braki w zleceniu" });
+    // Zdalność nieznana → bez dni i miasta biura: 7 pozycji, 3 brakuje.
+    expect(within(missing).getByText("4 z 7 gotowe")).toBeInTheDocument();
+    expect(within(missing).getByRole("progressbar")).toHaveAttribute("aria-valuenow", "4");
+    const done = within(missing).getByRole("list", { name: "Gotowe" });
+    expect(within(done).getByText("Klient: Bank Alfa")).toBeInTheDocument();
+    expect(within(done).getByText("Rola: Java Developer")).toBeInTheDocument();
+    expect(within(done).getByText(/Must-have: Java 17, Kafka/)).toBeInTheDocument();
+  });
+
+  it("budżet zapisuje się na miejscu przez Profil Championa i odświeża gotowość", async () => {
+    setup({}, { job: OPEN_JOB, readiness: { ready: false, blockers: [MSG.budget] } });
+    const input = await screen.findByLabelText("Budżet stawki kandydata w PLN/h");
+    fireEvent.change(input, { target: { value: "abc" } });
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Wpisz samą liczbę");
+    expect(mocks.put).not.toHaveBeenCalled();
+
+    fireEvent.change(input, { target: { value: "150" } });
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
+    await vi.waitFor(() =>
+      expect(mocks.put).toHaveBeenCalledWith("/api/jobs/7/champion-profile", {
+        basics: { rate_value: 150, rate_raw: null },
+      }),
+    );
+    await vi.waitFor(() => expect(mocks.showSuccess).toHaveBeenCalledWith("Budżet zapisany."));
+    // Po zapisie gotowość czytana jest od nowa.
+    await vi.waitFor(() =>
+      expect(mocks.get.mock.calls.filter(([url]) => url === "/api/jobs/7/readiness").length).toBeGreaterThan(1),
+    );
+  });
+
+  it("tryb pracy: trzy przyciski, zapis w Championie", async () => {
+    setup({}, { job: OPEN_JOB, readiness: { ready: false, blockers: [MSG.workMode] } });
+    const group = await screen.findByRole("group", { name: "Tryb pracy" });
+    expect(within(group).getAllByRole("button").map((b) => b.textContent)).toEqual([
+      "Zdalnie",
+      "Hybrydowo",
+      "W biurze",
+    ]);
+    fireEvent.click(within(group).getByRole("button", { name: "W biurze" }));
+    await vi.waitFor(() =>
+      expect(mocks.put).toHaveBeenCalledWith("/api/jobs/7/champion-profile", {
+        basics: { work_mode: "stacjonarnie" },
+      }),
+    );
+  });
+
+  it("kontekst projektu prowadzi do Profilu Championa (i zamyka okno)", async () => {
+    const handlers = setup({}, { job: OPEN_JOB, readiness: { ready: false, blockers: [MSG.context] } });
+    fireEvent.click(await screen.findByRole("button", { name: /Uzupełnij w Championie/ }));
+    expect(handlers.onOpenChange).toHaveBeenCalledWith(false);
+    expect(handlers.onNavigate).toHaveBeenCalledWith("champion");
+  });
+
+  it("bez prawa edycji treści budżet i tryb są tylko linkiem do Championa", async () => {
+    setup(
+      { canEdit: false, canEditContent: false },
+      { job: OPEN_JOB, readiness: { ready: false, blockers: [MSG.budget, MSG.workMode] } },
+    );
+    await screen.findByRole("region", { name: "Braki w zleceniu" });
+    expect(screen.queryByLabelText("Budżet stawki kandydata w PLN/h")).not.toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "Tryb pracy" })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /Zobacz w Championie/ })).toHaveLength(2);
   });
 });

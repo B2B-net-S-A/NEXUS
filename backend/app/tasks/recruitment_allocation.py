@@ -20,10 +20,11 @@ from app.models.recruitment_allocation import (
 from app.models.user import User, UserRole
 from app.services.recruitment_allocation import (
     allocation_lock,
-    allocate_pending,
     load_workloads,
     Workload,
 )
+from app.services.request_allocation import STATS_KEY as REQUEST_ALLOCATION_STATS_KEY
+from app.services.request_allocation import run_request_allocation
 from app.services.recruitment_favorite_work import reconcile_favorite_work
 from app.services.workforce_availability import sync_availability, workforce_context
 
@@ -198,7 +199,21 @@ async def run_allocation_sweep(db):
     now = datetime.now(timezone.utc)
     await reconcile_favorite_work(db)
     context = await workforce_context(db, refresh=True)
-    counts = await allocate_pending(db, context, state)
+    # 0371: przydział ludzi do requestów „Szukamy kandydatów” (automat z
+    # 24.09.2026) zastąpił jednorazową kolejkę `allocate_pending`.
+    previous_stats = state.stats or {}
+    allocation_stats = await run_request_allocation(
+        db,
+        mode=state.mode,
+        availability_fresh=context.fresh,
+        available_ids=set(context.available_ids),
+        stats=previous_stats.get(REQUEST_ALLOCATION_STATS_KEY),
+        now=now,
+    )
+    counts = {
+        "assigned": allocation_stats.get("assigned", 0),
+        "released": allocation_stats.get("released", 0),
+    }
     loads = await load_workloads(db, context, now=now)
     issues = await allocation_issues(db, context, loads)
     # Fingerprint contents, not tick time: unchanged issues do not keep notifying.
@@ -244,6 +259,7 @@ async def run_allocation_sweep(db):
                 )
     state.stats = {
         **counts,
+        REQUEST_ALLOCATION_STATS_KEY: allocation_stats,
         "issues": issues,
         "issues_fingerprint": fingerprint,
         "snapshot_version": context.snapshot_version,

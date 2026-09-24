@@ -160,7 +160,14 @@ async def test_quick_counts_agree_with_the_list_the_same_filter_returns(
             "deadline_7d": await _list_total(app_client, app_auth_headers, window),
         }
 
-        assert counts == expected
+        # Liczniki statusu requestu mają własny test (niżej) — tu tylko
+        # liczniki filtrów „Szybkie".
+        flat = {
+            key: value
+            for key, value in counts.items()
+            if key not in ("request_status", "request_status_mine")
+        }
+        assert flat == expected
         # Sanity: zasiane wiersze naprawdę weszły w te zbiory, więc test nie
         # przechodzi przez porównanie sześciu zer.
         assert counts["mine"] >= 2
@@ -255,4 +262,43 @@ async def test_quick_counts_route_is_not_swallowed_by_the_job_id_path(
         "active_in_search",
         "owner_missing",
         "deadline_7d",
+        "request_status",
+        "request_status_mine",
     }
+
+
+@pytest.mark.asyncio
+async def test_request_status_counts_agree_with_the_status_filter(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Liczba przy pigułce statusu == ``total`` listy z ``request_status``.
+
+    Oba liczą się tym samym wyrażeniem (``request_status_expr``); licznik
+    „moich" == lista z ``mine=true`` i tym samym statusem.
+    """
+    from app.services.job_similarity import REQUEST_STATUSES
+
+    me = await _me_id(app_client, app_auth_headers)
+    job_ids = [
+        await _seed_job(status="draft", recruiter_id=me),
+        await _seed_job(status="closed"),
+        await _seed_job(recruiter_id=me),
+    ]
+    try:
+        counts = await _quick_counts(app_client, app_auth_headers)
+        assert set(counts["request_status"]) == set(REQUEST_STATUSES)
+        assert set(counts["request_status_mine"]) == set(REQUEST_STATUSES)
+        for value in REQUEST_STATUSES:
+            assert counts["request_status"][value] == await _list_total(
+                app_client, app_auth_headers, f"request_status={value}"
+            ), value
+            assert counts["request_status_mine"][value] == await _list_total(
+                app_client, app_auth_headers, f"request_status={value}&mine=true"
+            ), value
+        # Suma po statusach = cały rejestr (każda rekrutacja ma dokładnie jeden).
+        assert sum(counts["request_status"].values()) == counts["all"]
+        assert sum(counts["request_status_mine"].values()) == counts["mine"]
+        assert counts["request_status"]["incomplete"] >= 1
+        assert counts["request_status_mine"]["searching"] >= 1
+    finally:
+        await _cleanup(job_ids)

@@ -2123,7 +2123,26 @@ migrację 0210 i nie może być już nadawany. Pełny opis pierwotnego mechanizm
 - **DB:** `users.email_verified` (BOOLEAN NOT NULL DEFAULT true) + tabela `email_verification_tokens` (bliźniacza do `password_reset_tokens`) — migracja `0139_email_verification` (na bazie `0138_candidate_expected_hourly_rate`; aplikowana przez `alembic upgrade heads`).
 - **Aktywacja na prod:** Coolify → `SSO_ALLOWED_DOMAINS` zawiera `b2bnetwork.pl` (już z SSO) + `SMTP_ENABLED=true` (+ SMTP creds, żeby mail aktywacyjny wyszedł) + `SELF_REGISTRATION_ENABLED=true`.
 
-## Competence Categories (5 CC — podział profili, filtr, badge wszędzie)
+## Competence Categories (od 24.09.2026 CZTERY — podział profili, filtr, badge wszędzie)
+
+**Od 0371 (decyzja Artura 24.09.2026) zespół ma CZTERY kategorie** — podział
+z dawnego InfraReportera: `infrastructure_operations` = „Infra & Operations &
+Security / Data & AI”, `software_development` = „Development”,
+`security_quality` = „QA” (same testy), `management_delivery` = „Management &
+Delivery (PM & BA)”. `data_ai` zostaje w tabeli **nieaktywna** (kasowanie
+blokują dwa FK, a seed w entrypoincie wstawiłby ją z powrotem), wszystkie FK
+przepięte na infra; rekrutacje security z QA też przeszły do infra. Slugi
+i id zostały świadomie — slug siedzi w starym polu tekstowym kandydata
+i w tekście embeddingu, więc nowy slug = przeliczenie wektorów całej bazy.
+SQL: `services/competence_category_four.py` (migracja 0371 + blok
+„competence-categories-four” w entrypoincie, marker w `app_settings`).
+Reguły klasyfikacji (`talent_pool_cc`, `job_cc`) są BLOKAMI z nazwą
+(qa → security → data → management → infra → software), a dodatki `job_cc`
+kluczowane nazwą bloku, nie slugiem — dwa bloki mają ten sam slug. „Pentester”
+to security, nie tester (`(?<!pen)tester`). Kandydatów z dawnego
+„Bezpieczeństwa i Jakości” przelicza admin: `POST
+/api/admin/candidates/backfill-cc?only_missing=false&only_slug=security_quality`.
+Plakietka: `competenceTone(slug)` + alias `data_ai → infra` dla starego pola.
 
 Backbone CC istniał od `0033`/`0041` (5 kategorii zaseedowane w entrypoint `_DATA_STATEMENTS`:
 `infrastructure_operations`, `software_development`, `data_ai`, `security_quality`,
@@ -2431,33 +2450,43 @@ miejsce, nie zbiór funkcji.
   otwiera się sam, a wiersz `can_open === false` nie ma ani nawigacji, ani
   podglądu (dok pytałby o detal → 403). Gałąź kafelka z `pointer-events-none`
   + `aria-disabled` czyta test backendu — nie ruszaj jej.
-- **Domyślny zakres zależy od ROLI** — jedna czysta reguła
-  `defaultMineForUser` (`lib/jobs-url-filters.ts`, semantyka `hasRole`):
-  recruiter, sourcer, tac, talent_community_manager, delivery_lead → „Moje"
-  (także konto wielorolowe z którąkolwiek z nich); admin, head_of_recruitment,
-  finance i viewer `user` → „Wszystkie". Jawne `mine=0/1` w adresie ZAWSZE
-  wygrywa; do adresu trafia tylko zakres INNY niż domyślny roli (czyste `/jobs`
-  znaczy więc co innego u rekrutera i u admina — link „dla kolegi" wysyłaj
-  z jawnym zakresem). Stan to NADPISANIA (`mineOverride`/`sortOverride`,
-  `null` = bez wyboru), bo rolę znamy dopiero po hydratacji store'u; zapytanie
-  listy ma `enabled: hydrated`. „Wyczyść" = `null` = domyślny roli. Pusty
-  zakres „Moje" ma własny komunikat z „Pokaż wszystkie" — to nie pusta baza.
-  Zakres NIE liczy się do „Filtry (N)". Licznik „Wszystkie" to pole `all`
-  z `/api/jobs/quick-counts`.
+- **Zakres: „Moje | Otwarte | Wszystkie” (24.09.2026), domyślny zależy od
+  ROLI** — `defaultScopeForUser` (`lib/jobs-url-filters.ts`, semantyka
+  `hasRole`): recruiter, sourcer, tac, talent_community_manager, delivery_lead
+  → „Moje” (także konto wielorolowe z którąkolwiek z nich); admin,
+  head_of_recruitment, finance i viewer `user` → „Otwarte” (`open_only`,
+  zamknięte tylko w „Wszystkie”; do 24.09 widzieli 4 286 wierszy razem
+  z zamkniętymi). Adres: `mine=1` = Moje, `open=1` = Otwarte, `mine=0` =
+  Wszystkie (stare linki z pulpitu działają). Do adresu trafia tylko zakres
+  INNY niż domyślny roli (czyste `/jobs` znaczy co innego u rekrutera
+  i u admina — link „dla kolegi” wysyłaj z jawnym zakresem). Stan to
+  NADPISANIA (`null` = bez wyboru), bo rolę znamy dopiero po hydratacji;
+  zapytanie listy ma `enabled: hydrated`. Szybkie filtry „Niezamknięte”
+  i „Moje rekrutacje” usunięte — dublowały przełącznik. Zakres NIE liczy się
+  do „Filtry (N)”. Liczniki z `/api/jobs/quick-counts` (`all`, `open`,
+  `mine`), a pigułki statusu requestu mają liczby `request_status`
+  / `request_status_mine` liczone TYM SAMYM `request_status_expr` co filtr.
 - **Sortowanie domyślne zależy od zakresu** (`defaultSortForScope`):
-  „Moje" → `sort=attention` („Wymaga uwagi"), „Wszystkie" → `newest`. Do
-  adresu trafia tylko sortowanie INNE niż domyślne zakresu. Zmiana zakresu
-  przestawia sortowanie wyłącznie wtedy, gdy nie było wybrane jawnie.
+  „Moje” → `sort=attention` („Wymaga uwagi”), „Otwarte”/„Wszystkie” →
+  `newest`. `sort=deadline` = „Najbliższy termin” (bez terminu na końcu).
+- **Filtry listy (24.09.2026):** Termin (po terminie / w tym tygodniu / do 14
+  dni / bez terminu / zakres `dl_from`–`dl_to`), „Wysłanych do klienta”
+  (`sent` → backend `min_sent`/`max_sent`: OSOBY, które w rekrutacji doszły do
+  cv_sent, client_interview, acceptance albo hired wg
+  `analytics_first_milestones`; rozmowa wewnętrzna się nie liczy; min > max =
+  422) i Delivery Lead (`lead` → `delivery_lead_id` jako LISTA; pojedyncze id
+  z portalu DL działa dalej).
 - **Kolumna filtrów jest zwijana** (`store/ui.ts` v7, `jobsFiltersCollapsed`):
   `null` = brak wyboru → rozwinięta od `2xl`, zwinięta poniżej — liczone
   CSS-em (`hidden 2xl:block`), bez migotania przy hydracji. W trybie `null`
   otwarty dok chowa filtry (trzy kolumny ucinały tabeli termin i akcje).
-- **Kolumny:** „Etapy" = sześć liczb z `stage_columns`, grupowanych TĄ SAMĄ
-  funkcją co lejek (`buildStageFunnel`; tooltip `funnelGroupStages` wymienia
-  pełne nazwy etapów szablonu), „Wymaga ruchu" = `needs_action_count`
-  (0 = wyszarzone „na bieżąco", 1–4 ostrzeżenie, 5+ czerwone; brak pola =
-  kreska, nie zero) i „+N propozycji" (`open_proposals_count`, ukryte przy 0)
-  → `/jobs/{id}?tab=people&seg=proposals`. Komórki: `v2/jobs/JobListCells.tsx`.
+- **Kolumny:** „Etapy” = te same 8 kolumn co Tablica (Nowi … Zatrudniony),
+  rozstrzygane `placeStage` z `lib/board-stages.ts` na `stage_columns` wiersza
+  — tą samą regułą co Tablica (QC ma kod `interview`, a mimo to trafia do QC
+  CV); skróty raz w nagłówku, w wierszach same liczby. Tytuł w dwóch liniach,
+  „Podobne rekrutacje” to plakietka pod tytułem (bez osobnej kolumny).
+  „Termin” = data + „za N dni / po terminie N dni” (`lib/job-deadline.ts`).
+  Komórki: `v2/jobs/JobListCells.tsx`.
 - **Słownik tego ekranu:** „Moje rekrutacje", „Brak opiekuna TAC"
   (`tac_id IS NULL`; celowo NIE „Brak właściciela" — kolumna „Właściciel"
   pokazuje `primary_owner`, więc wiersz mówiłby „Marta K." i „brak
@@ -3025,6 +3054,45 @@ Serwis `services/job_similarity.py`, trasy `api/job_similar.py`.
   kolumny); po prawej „N w procesie · M utknęło" i SLA. Filtry PRZYGASZAJĄ karty, nigdy
   ich nie usuwają (indeksy `@hello-pangea/dnd`).
 
+## Rekrutacja — drobne usprawnienia UX (24.09.2026)
+
+Makiety: https://claude.ai/artifact/1gapo2YTWp7oYbZp9pBdBo (decyzje Artura
+24.09: bez kolumny „Co dalej” — lista pokazuje termin; reszta przyjęta).
+
+- **Ścieżka rekrutacji w nagłówku** (`JobRecruitmentPath`,
+  `lib/job-recruitment-path.ts`): Zlecenie → Kandydaci → CV do klienta →
+  Rozmowy → Umowa + pole „Najbliższy krok” (pierwsza pasująca reguła:
+  zlecenie niekompletne → osoby w QC CV → w Zweryfikowanym → propozycje do
+  przejrzenia → pusto w Nowych/Screeningu). Liczone z danych, które strona już
+  pobiera — bez nowych endpointów. Przycisk „Zlecenie” znika z rzędu, gdy
+  ścieżka jest widoczna.
+- **Baner Traffita to plakietka w nagłówku** (`ManagedInNexusSwitch`) — ta sama
+  bramka i okno potwierdzenia.
+- **Tablica:** pasek filtrów i „Zamknięci:” w jednej linii (`DragDropContext`
+  obejmuje pasek, bo chipy są celami upuszczenia); puste kolumny wąskie
+  (96 px, bez zmiany `droppableId`); podpis „co tu robisz” pod nazwą kolumny
+  (`lib/board-column-purpose.ts`, u Nordei wariant Cpro); krok karty
+  Zweryfikowany = „Przygotuj CV do QC”, QC = „Popraw CV / wyślij” (lustro
+  `services/pipeline_next_action.py` + fixture); plakietka „Twój ruch” albo
+  imię/rola osoby z ruchem (`lib/board-card-badges.ts`). Zwykły klik
+  w nazwisko otwiera dok, Ctrl/⌘/środkowy — profil w nowej karcie.
+- **Dok osoby:** ramka „Następny etap” (`DockNextStage`) czyta
+  `move-requirements` i używa tej samej listy co okno „Przesuń dalej”
+  (`MoveRequirementList`); link „Profil ↗”; sekcja CV rozróżnia CV firmowe
+  i oryginał (`lib/dock-cv-summary.ts`) — „brak pliku” tylko, gdy profil na
+  pewno nie ma CV.
+- **Okno Zlecenie:** pasek „X z Y gotowe”, budżet PLN/h i tryb pracy
+  zapisywane na miejscu (ta sama droga co Champion), reszta braków prowadzi do
+  sekcji Championa. Zdania braków rozpoznaje lustro
+  `lib/__fixtures__/job-readiness-blockers.json`, pilnowane przez
+  `test_job_readiness_blockers_mirror.py` — zmieniasz zdanie bramki handoffu,
+  zmień fixture.
+- **Propozycje** (`GET /api/jobs/{id}/proposal-facts`,
+  `services/proposal_facts.py`): stanowisko, staż, miasto, tryb, dostępność,
+  stawka tylko dla ról, które ją widzą, historia u tego klienta; bez danych
+  kontaktowych, stała liczba zapytań, ≤ 100 osób. „Policz dopasowanie dla N”
+  idzie przez `useVisibleMatchScores` (paczki po 20).
+
 ## Rekrutacja v5 — 8 kolumn, strzałka „Przesuń dalej”, QC CV, firmowa kolejka Cpro (0361, 24.09.2026)
 
 Decyzje Artura 23.09.2026, makiety https://claude.ai/artifact/CG4mBk9xcHZAn3y9jcmMeW,
@@ -3402,6 +3470,71 @@ Migracje `0364_application_confirmation`, `0365_order_group_cancel`,
   a zwykłe „Przywróć” (reopen) go nie rusza. Filtry automatów pytają
   pozytywnie o `active`/`exhausted`/`completed`, więc anulowane samo z nich
   wypada — nowy filtr pisz tak samo, nie jako „≠ completed”.
+
+## Przydział ludzi do requestów, stany requestu i pulpit „Requesty i obłożenie” (0371, 24.09.2026)
+
+Decyzje Artura 24.09.2026 (makiety: https://claude.ai/artifact/2oeDE266FbUPQd19tybUQ1 —
+Main, Portfel, C6). Automat z #1390 nigdy nie ruszył na produkcji (0 osób
+z kategorią, brak urlopów z Compassa, jednorazowa kolejka przy handoffie) —
+0371 zastąpił go ciągłym przydziałem.
+
+- **Stan requestu `jobs.work_state` należy do NEXUSA** (`NEXUS_OWNED`, Traffit
+  go nie pisze): `to_review` („Do przejrzenia”, domyślny) · `searching`
+  („Szukamy kandydatów”) · `client_silent` („Klient milczy”) · `finished`
+  („Zakończony” — tylko w NEXUSIE, `jobs.status` z Traffita zostaje).
+  **„Mamy championa” NIE jest wartością** — to `champion_found_at` przy
+  `searching` (`request_work_state.visible_state`, lustro
+  `lib/request-work-state.ts` na `__fixtures__/request-work-state-cases.json`).
+  Powód: 327 „otwartych” w Traffit przy ~20 w pracy (zmierzone 24.09).
+  Handoff i `/jobs/new` → `searching`; zamknięcie → `finished`; terminy od
+  klienta albo ruch na `client_interview`/`acceptance` budzą „Klient milczy”
+  (`wake_on_client_response`, savepoint, nigdy nie rzuca).
+- **„Porządek w requestach”** `/jobs/review-states` (admin/DL/HoR,
+  `api/request_work_states.py`): podpowiedź stanu liczona przy odczycie
+  (`request_work_state.suggest`); **aplikacje z ogłoszeń (`posting`/`new`)
+  NIE są pracą** — 235 z 327 rekrutacji je zbierało bez ruchu rekrutera.
+- **Kategorie ludzi**: Ustawienia → Zespół i dostęp → „Kategorie
+  kompetencji” (`/settings/competence-team`, `api/competence_team.py`,
+  admin/HoR). 1. priorytet jeden na osobę (częściowy UNIQUE), zdjęcie głównej
+  jest dozwolone (stare trasy `/api/team-structure/sourcer-categories` tego nie
+  pozwalały i zostały nietknięte). `users.allocation_excluded` = „Poza
+  przydziałem”. Zasady (próg bazy dla sourcera, godzina przeglądu) w
+  `app_settings['request_allocation_rules']`. Przypisania ze screena:
+  `scripts/seed_competence_team_2026_09.py` (same id kont).
+- **Automat**: czysty planer `services/request_allocation_plan.py` (testy
+  bez bazy) + zapis `services/request_allocation.py`, wołany z
+  `run_allocation_sweep` w miejsce `allocate_pending`. Pula = published +
+  `searching` + bez championa. Kolejność: nikt nie wysłany → 1–2 → 3+, potem
+  termin. ≥ próg pasujących w bazie (otwarte propozycje, tylko gdy był nocny
+  przegląd) → sourcer, inaczej rekruter. 1. priorytet → 2. → inni; przelew do
+  innej kategorii, gdy własna grupa ma o >1 więcej niż minimum zespołu.
+  **Nie przerzuca działających przypisań**; zwalnia tylko przy wyjściu
+  requestu z puli albo niedostępności osoby (auto, bez kandydatów w toku).
+  Ręczne przypisania nie są zwalniane za urlop. Tryby
+  `recruitment_allocation_state.mode`: `shadow` → `proposed` (pulpit pokazuje
+  przerywaną ramką), `auto` → `active` + pierwszy rekruter jako
+  `jobs.recruiter_id`, jeśli puste. Bez świeżych urlopów z Compassa `auto`
+  nie przydziela nowych (shadow proponuje dalej). Pętla działa dopiero przy
+  `RECRUITMENT_ALLOCATION_ENABLED=true`.
+- **„Kto pracuje” = `job_work_assignments`** (wiersz nigdy nie jest kasowany,
+  zdjęcie = `released` z powodem — z tego liczą się „Zmiany od wczoraj”).
+  NIE `job_collaborators` (auto_cc = cała kategoria) i NIE plan priorytetów.
+  Prowadzący rekrutacji (`jobs.recruiter_id` z handoffu, Traffita, ręki) dostaje
+  wiersz `source='owner'` przy każdym przebiegu (`_adopt_owners`) — inaczej
+  automat dokładałby drugą osobę do requestu, który ktoś już prowadzi; takie
+  wiersze nie są „zmianą” ani dzwonkiem. **Zdjęcie ręczne wygrywa:** para
+  (request, osoba) zdjęta z pulpitu nie wraca z automatu ani jako prowadzący,
+  dopóki request nie zmieni stanu (`_blocked`, po `work_state_changed_at`).
+  „Poza przydziałem”/brak kategorii zwalnia od razu; sam urlop — dopiero przy
+  świeżych danych z Compassa. Bez nich `auto` nie aktywuje też propozycji.
+- **Pulpit**: kafel `request_board` (4 lustra typu kafla, polecany dla
+  rekrutera/sourcera/TAC/DL/HoR), `GET /api/request-board`; filtry po stronie
+  przeglądarki (`lib/request-board.ts`, adres `rb_*`). Bez podpowiedzi systemu
+  — Artur ich tu nie chce. Harness `/preview/request-allocation?screen=`.
+- **Powiadomienia** o `review_time`: `request_assignment_changed` (tylko
+  tryb `auto`, jeden wpis na osobę) i `request_review_needed` do DL (nowe do
+  przejrzenia, „Klient milczy” co 14 dni, w poniedziałek „Szukamy” bez pracy
+  od 30 dni).
 
 ## Konta serwisowe / klucze API (`X-API-Key`)
 

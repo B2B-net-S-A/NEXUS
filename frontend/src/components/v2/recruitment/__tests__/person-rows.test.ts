@@ -34,7 +34,7 @@ describe("buildProcessRows", () => {
     const row = byId(rows, 1);
     expect(row.group).toBe("verification");
     // Bez grupy z szablonu ta osoba dostałaby podpowiedź etapu wejściowego.
-    expect(row.nextAction.label).toBe("Wyślij CV do klienta");
+    expect(row.nextAction.label).toBe("Przygotuj CV do QC");
     expect(row.stageLabel).toBe("Wysłać do Cpro");
   });
 
@@ -101,7 +101,7 @@ describe("buildProcessRows", () => {
       }),
     );
     const ready = byId(rows, 1);
-    expect(ready.nextAction.label).toBe("Wyślij CV do klienta");
+    expect(ready.nextAction.label).toBe("Przygotuj CV do QC");
     expect(rowBadges(ready).map((b) => [b.key, b.label, b.tone])).toEqual([
       ["auto-cv", "CV gotowe w tle", "info"],
     ]);

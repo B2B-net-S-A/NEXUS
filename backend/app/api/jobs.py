@@ -99,11 +99,12 @@ from app.services.section_permissions import (
 )
 from app.api.ws import manager as ws_manager
 from app.core.config import settings
+from app.services.request_work_state import set_work_state
+from app.services.request_work_state import visible_state as _visible_work_state
 from app.services.recruitment_allocation import (
     allocation_lock,
     assign_operator,
     release_operator,
-    enqueue_allocation,
 )
 from app.services.workforce_availability import (
     operational_owner_clause,
@@ -615,6 +616,49 @@ def jobs_deadline_clauses(
     return clauses
 
 
+# Etapy „CV wysłane albo dalej" — kamienie milowe po stronie klienta.
+# `interview` (rozmowa WEWNĘTRZNA) świadomie poza: kandydat nie poszedł jeszcze
+# do klienta. `acceptance`/`hired` są w zbiorze, bo import Traffita potrafi
+# przeskoczyć „CV wysłane" — osoba zaakceptowana przez klienta była wysłana.
+SENT_TO_CLIENT_STAGES: tuple[PipelineStage, ...] = (
+    PipelineStage.cv_sent,
+    PipelineStage.client_interview,
+    PipelineStage.acceptance,
+    PipelineStage.hired,
+)
+
+
+def jobs_sent_to_client_subquery(job_ids):
+    """``(job_id, sent_n)`` — OSOBY (distinct kandydat) wysłane do klienta.
+
+    Liczone z widoku ``analytics_first_milestones`` (reguła D2: pierwsze
+    wejście pary na etap; wykluczone placementy już odfiltrowane w widoku),
+    więc powrót na etap nie dubluje osoby. ``job_ids`` — podzapytanie
+    przefiltrowanej listy, żeby widok nie liczył całej bazy.
+    """
+    from sqlalchemy import Enum as SAEnum, Integer, column, table  # noqa: PLC0415
+
+    milestones = table(
+        "analytics_first_milestones",
+        column("candidate_id", Integer),
+        column("job_id", Integer),
+        # Typ enuma, nie String — w bazie kolumna jest natywnym `pipelinestage`.
+        column("stage", SAEnum(PipelineStage, name="pipelinestage")),
+    )
+    return (
+        select(
+            milestones.c.job_id.label("job_id"),
+            func.count(func.distinct(milestones.c.candidate_id)).label("sent_n"),
+        )
+        .where(
+            milestones.c.stage.in_(SENT_TO_CLIENT_STAGES),
+            milestones.c.job_id.in_(job_ids),
+        )
+        .group_by(milestones.c.job_id)
+        .subquery()
+    )
+
+
 @router.get("")
 async def list_jobs(
     current_user: CurrentUser,
@@ -729,11 +773,29 @@ async def list_jobs(
             "job owner and collaborators."
         ),
     ),
-    delivery_lead_id: Optional[int] = Query(
+    delivery_lead_id: Optional[list[int]] = Query(
         None,
         description=(
-            "Filter by Job.delivery_lead_id — single user id. Used by the DL Hub "
-            "Active Jobs tab to show jobs assigned to a specific DL."
+            "Filter by Job.delivery_lead_id — one or more user ids (repeat the "
+            "param, OR-combined). Used by the DL Hub Active Jobs tab (single id) "
+            "and the 'Delivery Lead' filter of the jobs list."
+        ),
+    ),
+    min_sent: Optional[int] = Query(
+        None,
+        ge=0,
+        description=(
+            "Only jobs where AT LEAST this many people (distinct candidates) "
+            "reached 'CV wysłane' or a later client-side stage "
+            "(`analytics_first_milestones`, rule D2)."
+        ),
+    ),
+    max_sent: Optional[int] = Query(
+        None,
+        ge=0,
+        description=(
+            "Only jobs where AT MOST this many people reached 'CV wysłane' or "
+            "later. `max_sent=0` → nobody sent to the client yet."
         ),
     ),
     request_status: Optional[list[str]] = Query(
@@ -742,6 +804,14 @@ async def list_jobs(
             "Filter by computed request status (0341): closed · filled · "
             "contract · champion · incomplete · searching. Repeatable, "
             "OR-combined. Same rule as the `request_status` field of each row."
+        ),
+    ),
+    work_state: Optional[list[str]] = Query(
+        None,
+        description=(
+            "0371: stan pracy nad requestem widoczny dla ludzi — to_review · "
+            "searching · champion · client_silent · finished. Powtarzalny, "
+            "łączony przez LUB (`request_work_state.visible_state`)."
         ),
     ),
     include_stage_counts: bool = Query(
@@ -832,8 +902,8 @@ async def list_jobs(
             query = query.where(Job.deadline.is_not(None))
         else:
             query = query.where(Job.deadline.is_(None))
-    if delivery_lead_id is not None:
-        query = query.where(Job.delivery_lead_id == delivery_lead_id)
+    if delivery_lead_id:
+        query = query.where(Job.delivery_lead_id.in_(delivery_lead_id))
     if mine:
         query = query.where(jobs_mine_clause(current_user))
     if priority_work == PriorityWorkJobFilter.assigned:
@@ -857,6 +927,28 @@ async def list_jobs(
         query = query.outerjoin(status_sq, status_sq.c.job_id == Job.id).where(
             _sim.request_status_expr(status_sq).in_(request_status)
         )
+    if work_state:
+        from app.services.request_work_state import (  # noqa: PLC0415
+            VISIBLE_STATES,
+            visible_state_clause,
+        )
+
+        unknown = sorted(set(work_state) - set(VISIBLE_STATES))
+        if unknown:
+            raise HTTPException(422, f"Nieznany stan requestu: {', '.join(unknown)}")
+        query = query.where(visible_state_clause(work_state))
+    if min_sent is not None or max_sent is not None:
+        if min_sent is not None and max_sent is not None and min_sent > max_sent:
+            raise HTTPException(
+                422, "Zakres „Wysłanych do klienta”: minimum większe niż maksimum."
+            )
+        sent_sq = jobs_sent_to_client_subquery(query.with_only_columns(Job.id))
+        sent_n = func.coalesce(sent_sq.c.sent_n, 0)
+        query = query.outerjoin(sent_sq, sent_sq.c.job_id == Job.id)
+        if min_sent is not None:
+            query = query.where(sent_n >= min_sent)
+        if max_sent is not None:
+            query = query.where(sent_n <= max_sent)
     total = (
         await db.execute(select(func.count()).select_from(query.subquery()))
     ).scalar()
@@ -1190,6 +1282,7 @@ async def list_jobs(
                 "suggested": similar_suggested.get(j.id),
             }
         d["request_status"] = request_status_map.get(j.id, "searching")
+        d["visible_work_state"] = _visible_work_state(j.work_state, j.champion_found_at)
         d["priority_assignment"] = priority_assignment_map.get(j.id)
         d["priority_carry_over_count"] = priority_carry_counts.get(j.id, 0)
         redact_job_for_viewer(d, current_user)
@@ -1280,6 +1373,45 @@ async def jobs_quick_counts(
         )
     ).one()
 
+    # Liczniki pigułek „Status requestu" — TO SAMO wyrażenie co filtr
+    # ``request_status`` w ``list_jobs`` (``request_status_expr``), jedno GROUP BY
+    # na cały rejestr. Obok liczby dla całego rejestru idzie liczba „moich"
+    # (``count() FILTER``), żeby pigułki w zakresie „Moje" nie obiecywały
+    # tysięcy wierszy, których ten zakres nie pokaże. Statusy inne niż
+    # ``closed`` dotyczą z definicji tylko rekrutacji niezamkniętych, więc
+    # liczba „rejestru" jest zarazem liczbą w zakresie „Otwarte".
+    from app.services import job_similarity as _sim  # noqa: PLC0415
+
+    register_ids = select(Job.id).where(jobs_register_base_clause())
+    status_sq = _sim.request_status_subquery(register_ids)
+    # Status liczony w podzapytaniu, grupowanie po jego kolumnie: `CASE`
+    # z parametrami w SELECT i GROUP BY dostałby dwa różne zestawy `$n`
+    # i Postgres nie uznałby ich za to samo wyrażenie.
+    per_job = (
+        select(
+            _sim.request_status_expr(status_sq).label("status"),
+            jobs_mine_clause(current_user).label("is_mine"),
+        )
+        .select_from(Job)
+        .outerjoin(status_sq, status_sq.c.job_id == Job.id)
+        .where(jobs_register_base_clause())
+        .subquery()
+    )
+    status_rows = (
+        await db.execute(
+            select(
+                per_job.c.status,
+                func.count().label("n"),
+                func.count().filter(per_job.c.is_mine).label("mine_n"),
+            ).group_by(per_job.c.status)
+        )
+    ).all()
+    request_status_counts = {value: 0 for value in _sim.REQUEST_STATUSES}
+    request_status_mine = {value: 0 for value in _sim.REQUEST_STATUSES}
+    for status_row in status_rows:
+        request_status_counts[status_row.status] = int(status_row.n)
+        request_status_mine[status_row.status] = int(status_row.mine_n)
+
     return {
         "all": row.all_jobs,
         "mine": row.mine,
@@ -1288,6 +1420,8 @@ async def jobs_quick_counts(
         "active_in_search": row.active_in_search,
         "owner_missing": row.owner_missing,
         "deadline_7d": row.deadline_7d,
+        "request_status": request_status_counts,
+        "request_status_mine": request_status_mine,
     }
 
 
@@ -1905,6 +2039,9 @@ async def update_job(
             # jest decyzją człowieka (handoff), a nie skutkiem ubocznym
             # odblokowania statusu przez sync Traffita.
             job.is_open = False
+            await set_work_state(
+                db, job, "finished", actor_id=current_user.id, reason="job_closed"
+            )
             await maybe_close_job_contact_opportunities(
                 db,
                 job_id=job_id,
@@ -2099,6 +2236,10 @@ async def close_job(
     job.is_open = False
     job.close_reason = data.reason
     job.close_notes = data.notes
+    # 0371: zamknięta w NEXUSIE = „Zakończony” w porządku requestów.
+    await set_work_state(
+        db, job, "finished", actor_id=current_user.id, reason="job_closed"
+    )
     await maybe_close_job_contact_opportunities(
         db,
         job_id=job_id,
@@ -2654,11 +2795,11 @@ async def handoff_job_to_search(
         job.is_open = True
         job.needs_sourcing = True
         job.favorite_sourcing_paused = False
-        request = await enqueue_allocation(
-            db,
-            job=job,
-            actor_user_id=current_user.id,
-            channel=PriorityChannel(payload.channel),
+        # 0371: przydział robi automat na „Szukamy kandydatów” — codzienny
+        # przegląd i przegląd po zdarzeniu (services/request_allocation), bez
+        # jednorazowej kolejki `recruitment_allocation_requests`.
+        await set_work_state(
+            db, job, "searching", actor_id=current_user.id, reason="handoff"
         )
         await db.commit()
         return {
@@ -2666,7 +2807,7 @@ async def handoff_job_to_search(
             "job_id": job.id,
             "recruiter_id": None,
             "snapshot_id": None,
-            "allocation_request_id": request.id,
+            "allocation_request_id": None,
         }
     if payload.recruiter_id is None:
         raise HTTPException(422, "Wybierz prowadzącego albo przydział automatyczny")
@@ -2695,6 +2836,9 @@ async def handoff_job_to_search(
     job.is_open = True
     job.needs_sourcing = True
     job.favorite_sourcing_paused = False
+    await set_work_state(
+        db, job, "searching", actor_id=current_user.id, reason="handoff"
+    )
     db.add(
         Activity(
             entity_type="job",

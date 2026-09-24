@@ -142,6 +142,14 @@ class User(Base, TimestampMixin):
         Boolean, default=False, server_default="false", nullable=False
     )
 
+    # 0371: konto „Poza przydziałem” — automat przydziału requestów pomija
+    # tę osobę (np. rola rekrutera na koncie kogoś, kto nie pracuje przy
+    # requestach). Ustawia admin albo Head of Recruitment w Ustawieniach →
+    # Kategorie kompetencji; każda zmiana zostawia wpis w `activities`.
+    allocation_excluded: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
+
     # First-login onboarding gate.
     # `delivery_lead` and `recruiter` must complete a role-specific onboarding
     # flow (see backend/app/api/onboarding.py) before accessing the app.

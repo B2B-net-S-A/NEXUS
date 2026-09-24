@@ -44,9 +44,18 @@ import { ChampionSectionNav } from "@/components/v2/jobs/ChampionSectionNav";
 import { JobSummaryCard } from "@/components/v2/jobs/JobSummaryCard";
 import { JobReadinessDock } from "@/components/v2/jobs/JobReadinessDock";
 import {
-  ManagedInNexusBanner,
   ManagedInNexusChip,
+  ManagedInTraffitNotice,
 } from "@/components/v2/jobs/ManagedInNexusSwitch";
+import { JobRecruitmentPath } from "@/components/v2/jobs/JobRecruitmentPath";
+import {
+  buildRecruitmentPath,
+  nearestStep as computeNearestStep,
+  summarizeBoard,
+  type NearestStep,
+  type PathStepKey,
+} from "@/lib/job-recruitment-path";
+import type { BoardColumnKey } from "@/lib/board-stages";
 import { AddCandidatesQuickModal } from "@/components/v2/modals/AddCandidatesQuickModal";
 import { AddCandidateFromCVModal } from "@/components/v2/modals/AddCandidateFromCVModal";
 import {
@@ -225,6 +234,10 @@ export default function JobDetailPage() {
   const [addPanelTab, setAddPanelTab] = useState<AddCandidatesTab | null>(null);
   const [showAddFromCv, setShowAddFromCv] = useState(false);
   const [emailCandidateId, setEmailCandidateId] = useState<number | null>(null);
+  // „Ścieżka rekrutacji": skok do kolumny Tablicy (przewinięcie + podświetlenie).
+  const [boardFocus, setBoardFocus] = useState<{ column: BoardColumnKey; seq: number } | null>(
+    null,
+  );
   // Narzędzia AI administratora z menu „…" — niezależnie od tego, czy
   // jakakolwiek propozycja jest zaznaczona.
   const [showAiTools, setShowAiTools] = useState(false);
@@ -593,6 +606,90 @@ export default function JobDetailPage() {
     });
   }, [job, kanban, kanbanColumns, deliveryLeadName]);
 
+  // ── „Ścieżka rekrutacji" + „Najbliższy krok" (24.09.2026) ─────────────
+  // Z danych, które strona już ma: tablica, bramka gotowości zlecenia i liczba
+  // propozycji opublikowana przez kolumnę „Nowi" (`visibleProposalsQuery`).
+  const cproEnabled = job?.cpro_enabled === true;
+  const boardSummary = useMemo(
+    () => (kanban ? summarizeBoard(kanbanColumns, { cproEnabled }) : null),
+    [kanban, kanbanColumns, cproEnabled],
+  );
+  const proposalsCount: number | null =
+    visibleProposalsQuery.data ??
+    (openProposalsQuery.isSuccess ? openProposalsQuery.data.total : null);
+  const pathSteps = useMemo(
+    () =>
+      buildRecruitmentPath({
+        orderMissing: orderMissingCount,
+        board: boardSummary,
+        proposals: proposalsCount,
+        headcount: typeof job?.headcount === "number" ? job.headcount : null,
+      }),
+    [orderMissingCount, boardSummary, proposalsCount, job?.headcount],
+  );
+  const nearest = useMemo(
+    () =>
+      computeNearestStep({
+        orderMissing: orderMissingCount,
+        board: boardSummary,
+        proposals: proposalsCount,
+        canAddCandidates: canWritePipeline,
+      }),
+    [orderMissingCount, boardSummary, proposalsCount, canWritePipeline],
+  );
+  const focusBoardColumn = useCallback(
+    (column: BoardColumnKey) => {
+      if (!showBoard) selectView("board");
+      setBoardFocus((prev) => ({ column, seq: (prev?.seq ?? 0) + 1 }));
+    },
+    [showBoard, selectView],
+  );
+  const openProposals = useCallback(() => {
+    if (canWritePipeline) {
+      setAddPanelTab("proposals");
+      return;
+    }
+    // Bez zapisu panel dodawania się nie otworzy — pełna lista propozycji.
+    selectView("people");
+    selectSegment("proposals");
+  }, [canWritePipeline, selectView, selectSegment]);
+  const handlePathStep = useCallback(
+    (key: PathStepKey) => {
+      switch (key) {
+        case "order":
+          openSlideOver("order");
+          return;
+        case "candidates":
+          openProposals();
+          return;
+        case "cv":
+          focusBoardColumn(
+            (boardSummary?.counts.cv_qc ?? 0) > 0 || !(boardSummary?.counts.cv_sent ?? 0)
+              ? "cv_qc"
+              : "cv_sent",
+          );
+          return;
+        case "interviews":
+          focusBoardColumn("client_interview");
+          return;
+        case "contract":
+          focusBoardColumn("contract");
+          return;
+      }
+    },
+    [openSlideOver, openProposals, focusBoardColumn, boardSummary],
+  );
+  const handleNearest = useCallback(
+    (step: NearestStep) => {
+      const action = step.action;
+      if (action.kind === "order") openSlideOver("order");
+      else if (action.kind === "column") focusBoardColumn(action.column);
+      else if (action.tab === "proposals") openProposals();
+      else if (canWritePipeline) setAddPanelTab("search");
+    },
+    [openSlideOver, focusBoardColumn, openProposals, canWritePipeline],
+  );
+
   // Auto-open tab when job data loads
   useEffect(() => {
     if (job) {
@@ -709,6 +806,9 @@ export default function JobDetailPage() {
               job={job}
               canRevert={canRevertManaged && !impersonating}
             />
+            {/* Rekrutacja z Traffita, jeszcze nieprzełączona — plakietka w linii
+                odznak zamiast dużego banera nad Tablicą (24.09.2026). */}
+            <ManagedInTraffitNotice job={job} canSwitch={canEditJob} />
           </>
         }
         // Jedna linia faktów zamiast rzędu odznak z ikonami: lokalizacja, tryb
@@ -717,6 +817,16 @@ export default function JobDetailPage() {
         subtitle={
           headerSubtitle.length > 0 ? (
             <span className="text-[12px]">{headerSubtitle.join(" · ")}</span>
+          ) : undefined
+        }
+        path={
+          activeView !== "champion" ? (
+            <JobRecruitmentPath
+              steps={pathSteps}
+              nearest={nearest}
+              onStepClick={handlePathStep}
+              onNearestClick={handleNearest}
+            />
           ) : undefined
         }
         kpis={headerKpis}
@@ -1061,7 +1171,6 @@ export default function JobDetailPage() {
       {/* ── Widok „Tablica": kanban bez zmian (przeciąganie, filtry, dok) ── */}
       {showBoard && (
         <div>
-          <ManagedInNexusBanner job={job} canSwitch={canEditJob} />
           <PipelineBoardGate
             state={kanbanViewState}
             hasData={Boolean(kanban)}
@@ -1103,6 +1212,8 @@ export default function JobDetailPage() {
               kanbanQueryState={kanbanQueryState}
               // „Gotowy do Cpro" — odznaka wyłącznie u Nordei (serwer).
               cproEnabled={job.cpro_enabled === true}
+              // „Ścieżka rekrutacji" / „Najbliższy krok" → skok do kolumny.
+              focusColumnRequest={boardFocus}
               // Rekrutacja v5: „Przejrzyj" i „Znajdź w bazie (AI)" w kolumnie Nowi.
               onOpenAddCandidates={canWritePipeline ? (tab) => setAddPanelTab(tab) : undefined}
               // `?candidate=&panel=` (także linki zapisane w powiadomieniach):

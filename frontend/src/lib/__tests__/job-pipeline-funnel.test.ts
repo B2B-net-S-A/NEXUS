@@ -1,92 +1,153 @@
 import { describe, expect, it } from "vitest";
 
+import cases from "@/lib/__fixtures__/board-stage-cases.json";
+import { foldBoardColumns } from "@/lib/board-stages";
 import {
   buildStageFunnel,
+  funnelGroupStages,
   funnelRejectedTotal,
   funnelTooltip,
   funnelTotal,
 } from "@/lib/job-pipeline-funnel";
 
-describe("buildStageFunnel", () => {
-  it("zwraca sześć grup z zerami, gdy brak danych", () => {
+const byKey = (input: Parameters<typeof buildStageFunnel>[0]) =>
+  Object.fromEntries(buildStageFunnel(input).map((g) => [g.key, g.count]));
+
+describe("buildStageFunnel — osiem kolumn Tablicy (lista v5)", () => {
+  it("zwraca osiem kolumn w kolejności Tablicy, z zerami, gdy brak danych", () => {
     const groups = buildStageFunnel(undefined);
-    expect(groups).toHaveLength(6);
-    expect(groups.map((g) => g.count)).toEqual([0, 0, 0, 0, 0, 0]);
     expect(groups.map((g) => g.key)).toEqual([
       "new",
       "screening",
       "verified",
-      "with_client",
+      "cv_qc",
+      "cv_sent",
+      "client_interview",
       "contract",
       "hired",
     ]);
+    expect(groups.map((g) => g.label)).toEqual([
+      "Nowi",
+      "Screening",
+      "Zweryfikowany",
+      "QC CV",
+      "CV wysłane",
+      "Rozmowa u klienta",
+      "Umowa",
+      "Zatrudniony",
+    ]);
+    expect(groups.every((g) => g.count === 0)).toBe(true);
   });
 
-  it("grupuje `prep_call` razem z `new` — rozmowa przed screeningiem", () => {
-    const groups = buildStageFunnel({ new: 3, prep_call: 2 });
-    const nowi = groups.find((g) => g.key === "new");
-    expect(nowi?.count).toBe(5);
+  it("każdy etap z fixture'u Tablicy trafia do tej samej kolumny co na Tablicy", () => {
+    // `board-stage-cases.json` czyta też `placeStage` i backend
+    // (`board_column_for`) — lista nie ma własnej kopii reguły.
+    for (const c of cases.cases) {
+      const groups = byKey({
+        stage_columns: [
+          { stage: c.stage, name: c.name, category: c.category as never, count: 1 },
+        ],
+      });
+      const expected = c.column === "closed" ? null : c.column;
+      const hit = Object.entries(groups).filter(([, n]) => n === 1).map(([k]) => k);
+      expect(hit, c.name).toEqual(expected ? [expected] : []);
+      if (!expected) {
+        expect(
+          funnelRejectedTotal({
+            stage_columns: [
+              { stage: c.stage, name: c.name, category: c.category as never, count: 1 },
+            ],
+          }),
+          c.name,
+        ).toBe(1);
+      }
+    }
   });
 
-  it("grupuje cv_sent/client_interview pod „u klienta”, a interview (wewnętrzny) pod „zweryfikowani”", () => {
-    const groups = buildStageFunnel({
-      cv_sent: 1,
-      interview: 2,
-      client_interview: 3,
+  it("etap QC CV z kodem technicznym `interview` NIE liczy się do „Zweryfikowanych”", () => {
+    const groups = byKey({
+      stage_columns: [
+        { stage: "verified", name: "Zweryfikowany", category: "internal", count: 2 },
+        { stage: "interview", name: "QC CV", category: "internal", count: 3 },
+        { stage: "new", name: "Wysłać do Cpro", category: "internal", count: 1 },
+      ],
     });
-    // `interview` to etap WEWNĘTRZNY (StageCategory.internal) — kandydat nie
-    // był jeszcze u klienta; liczenie go do „u klienta" zawyżało tę grupę.
-    expect(groups.find((g) => g.key === "with_client")?.count).toBe(4);
-    expect(groups.find((g) => g.key === "verified")?.count).toBe(2);
+    expect(groups.verified).toBe(2);
+    expect(groups.cv_qc).toBe(4);
   });
 
-  it("grupuje acceptance/negotiation/onboarding pod „umowa”", () => {
-    const groups = buildStageFunnel({
-      acceptance: 1,
-      negotiation: 1,
-      onboarding: 1,
+  it("zgadza się ze składaniem kolumn Tablicy (`foldBoardColumns`) na szablonie kanonicznym", () => {
+    const columns = [
+      { stage: "posting", name: "Ogłoszenia", category: "internal" as const, count: 4 },
+      { stage: "new", name: "Nowi", category: "internal" as const, count: 1 },
+      { stage: "screening", name: "Screening", category: "internal" as const, count: 2 },
+      { stage: "verified", name: "Zweryfikowany", category: "internal" as const, count: 3 },
+      { stage: "interview", name: "QC CV", category: "internal" as const, count: 5 },
+      { stage: "cv_sent", name: "CV Wysłane", category: "internal" as const, count: 6 },
+      { stage: "new", name: "Preparation Meeting", category: "internal" as const, count: 1 },
+      { stage: "client_interview", name: "Interview Klient", category: "external" as const, count: 7 },
+      { stage: "acceptance", name: "Akceptacja", category: "external" as const, count: 1 },
+      { stage: "new", name: "Umowa wysłana", category: "external" as const, count: 2 },
+      { stage: "hired", name: "Zatrudniony", category: "terminal" as const, count: 8, terminal_type: "hired" as const },
+      { stage: "rejected", name: "Odrzucony", category: "terminal" as const, count: 9, terminal_type: "rejected" as const },
+    ];
+    const board = foldBoardColumns(columns.map((c) => ({ ...c, items: [] })));
+    const boardByKey = Object.fromEntries(
+      board.columns.map((f) => [f.key, f.count]),
+    );
+    const list = byKey({ stage_columns: columns });
+    for (const [key, count] of Object.entries(list)) {
+      expect(count, key).toBe(boardByKey[key] ?? 0);
+    }
+    expect(funnelRejectedTotal({ stage_columns: columns })).toBe(
+      board.closed.reduce((sum, c) => sum + c.count, 0),
+    );
+  });
+
+  it("bez `stage_columns` cofa się do legacy rozkładu po kodzie (ta sama reguła)", () => {
+    const groups = byKey({
+      stage_breakdown: {
+        posting: 1,
+        new: 2,
+        prep_call: 1,
+        screening: 3,
+        verified: 4,
+        interview: 1,
+        cv_sent: 5,
+        client_interview: 6,
+        acceptance: 7,
+        onboarding: 1,
+        hired: 2,
+        rejected: 9,
+      },
     });
-    const umowa = groups.find((g) => g.key === "contract");
-    expect(umowa?.count).toBe(3);
+    expect(groups).toEqual({
+      new: 3,
+      screening: 4,
+      // Bez nazwy etapu QC nie da się odróżnić — kod `interview` → Zweryfikowany.
+      verified: 5,
+      cv_qc: 0,
+      cv_sent: 5,
+      client_interview: 6,
+      contract: 7,
+      hired: 3,
+    });
   });
 
-  it("liczy screening i hired 1:1, bez grupowania", () => {
-    const groups = buildStageFunnel({ screening: 4, hired: 2 });
-    expect(groups.find((g) => g.key === "screening")?.count).toBe(4);
-    expect(groups.find((g) => g.key === "hired")?.count).toBe(2);
-  });
-
-  it("pomija rejected/withdrawn — to stany terminalne, poza sześcioma grupami", () => {
-    const groups = buildStageFunnel({ rejected: 5, withdrawn: 3, new: 1 });
-    expect(funnelTotal(groups)).toBe(1);
-  });
-
-  it("nieznany klucz etapu jest po cichu pomijany (nie wywala listy)", () => {
+  it("nieznany kod etapu nie wywala listy (placeStage → „Nowi”, jak na Tablicy)", () => {
     expect(() => buildStageFunnel({ some_future_stage: 9 })).not.toThrow();
-    expect(funnelTotal(buildStageFunnel({ some_future_stage: 9 }))).toBe(0);
+    expect(byKey({ some_future_stage: 9 }).new).toBe(9);
   });
 });
 
-describe("funnelTotal", () => {
-  it("sumuje wszystkie sześć grup", () => {
-    const groups = buildStageFunnel({
-      new: 1,
-      screening: 2,
-      verified: 3,
-      cv_sent: 4,
-      acceptance: 5,
-      hired: 6,
-    });
-    expect(funnelTotal(groups)).toBe(21);
+describe("funnelTotal / funnelRejectedTotal", () => {
+  it("sumuje osiem kolumn, bez zamkniętych", () => {
+    const groups = buildStageFunnel({ new: 1, screening: 2, cv_sent: 4, hired: 6, rejected: 5 });
+    expect(funnelTotal(groups)).toBe(13);
   });
-});
 
-describe("funnelRejectedTotal", () => {
-  it("sumuje WYŁĄCZNIE rejected + withdrawn", () => {
+  it("zamknięci = odrzuceni + wycofani", () => {
     expect(funnelRejectedTotal({ rejected: 4, withdrawn: 2, new: 9 })).toBe(6);
-  });
-
-  it("brak danych → 0", () => {
     expect(funnelRejectedTotal(undefined)).toBe(0);
     expect(funnelRejectedTotal(null)).toBe(0);
   });
@@ -94,8 +155,9 @@ describe("funnelRejectedTotal", () => {
 
 describe("funnelTooltip", () => {
   it("pomija grupy zerowe", () => {
-    const groups = buildStageFunnel({ new: 2, hired: 1 });
-    expect(funnelTooltip(groups)).toBe("Nowi: 2 · Zatrudnieni: 1");
+    expect(funnelTooltip(buildStageFunnel({ new: 2, hired: 1 }))).toBe(
+      "Nowi: 2 · Zatrudniony: 1",
+    );
   });
 
   it("brak kandydatów → komunikat zamiast pustego stringa", () => {
@@ -105,72 +167,23 @@ describe("funnelTooltip", () => {
   });
 });
 
-/**
- * UAT B33 — lista i szczegóły liczą z JEDNEJ definicji.
- *
- * Kolumny szablonu z wiersza listy (`stage_columns`) są grupowane tą samą
- * funkcją co szyny szczegółów (`groupKanbanColumns`). Własny etap szablonu
- * stojący ZA screeningiem („Przepuszczony przez DZ") niesie `stage: "new"`,
- * więc po samym `stage_breakdown` lista liczyła go do „Nowi", a szczegóły —
- * po pozycji — do „Zweryfikowani" (4/1/1/2 vs 3/1/2/2).
- */
-describe("buildStageFunnel — stage_columns (UAT B33)", () => {
-  const columns = [
-    { stage: "new", category: "internal" as const, count: 3, stage_def_id: 1, name: "Nowy", order: 0 },
-    { stage: "screening", category: "internal" as const, count: 1, stage_def_id: 2, name: "Screening", order: 1 },
-    // Własny etap bez legacy enuma — backend degraduje `stage` do "new".
-    { stage: "new", category: "internal" as const, count: 1, stage_def_id: 3, name: "Przepuszczony przez DZ", order: 2 },
-    { stage: "verified", category: "internal" as const, count: 1, stage_def_id: 4, name: "Zweryfikowany", order: 3 },
-    { stage: "cv_sent", category: "internal" as const, count: 2, stage_def_id: 5, name: "CV Wysłane", order: 4 },
-    { stage: "new", category: "terminal" as const, count: 2, stage_def_id: 6, name: "Zatrudniony", order: 5, terminal_type: "hired" as const },
-    { stage: "new", category: "terminal" as const, count: 4, stage_def_id: 7, name: "Odrzucony", order: 6, terminal_type: "rejected" as const },
-  ];
-  // Legacy rozkład tej samej rekrutacji (po enumie): własny etap = "new".
-  const breakdown = { new: 4, screening: 1, verified: 1, cv_sent: 2, hired: 2, rejected: 4 };
-
-  it("liczy własny etap za screeningiem do „Zweryfikowani”, tak jak szczegóły", () => {
-    const groups = buildStageFunnel({ stage_columns: columns, stage_breakdown: breakdown });
-    const byKey = Object.fromEntries(groups.map((g) => [g.key, g.count]));
-    expect(byKey).toEqual({
-      new: 3,
-      screening: 1,
-      verified: 2,
-      with_client: 2,
-      contract: 0,
-      hired: 2,
-    });
+describe("funnelGroupStages — pełne nazwy etapów w tooltipie kolumny", () => {
+  it("suma nazw w kolumnie = liczba w komórce", () => {
+    const summary = {
+      stage_columns: [
+        { stage: "interview", name: "Przepuszczony przez DZ", category: "internal" as const, count: 2 },
+        { stage: "new", name: "Wysłać do Cpro", category: "internal" as const, count: 1 },
+      ],
+    };
+    const stages = funnelGroupStages(summary);
+    expect(stages.cv_qc).toEqual([
+      { name: "Przepuszczony przez DZ", count: 2 },
+      { name: "Wysłać do Cpro", count: 1 },
+    ]);
+    expect(byKey(summary).cv_qc).toBe(3);
   });
 
-  it("daje te same liczby co grupowanie szyn szczegółów", async () => {
-    const { groupKanbanColumns } = await import("@/lib/pipeline-flow");
-    const detail = Object.fromEntries(
-      groupKanbanColumns(columns.map((c) => ({ ...c, items: [] }))).map((g) => [g.key, g.count]),
-    );
-    const list = Object.fromEntries(
-      buildStageFunnel({ stage_columns: columns }).map((g) => [g.key, g.count]),
-    );
-    expect(list.new).toBe(detail.intake);
-    expect(list.screening).toBe(detail.screening);
-    expect(list.verified).toBe(detail.verification);
-    expect(list.with_client).toBe(detail.client);
-    expect(list.contract + list.hired).toBe(detail.contract);
-    expect(funnelRejectedTotal({ stage_columns: columns })).toBe(detail.closed);
-  });
-
-  it("kandydaci na „Ogłoszenia” liczą się do „Nowi” — tablica i lista mówią to samo", () => {
-    const withPosting = [
-      { stage: "posting", category: "internal" as const, count: 4, stage_def_id: 10, name: "Ogłoszenia", order: 0 },
-      { stage: "new", category: "internal" as const, count: 1, stage_def_id: 11, name: "Nowi", order: 1 },
-    ];
-    const byKey = Object.fromEntries(
-      buildStageFunnel({ stage_columns: withPosting }).map((g) => [g.key, g.count]),
-    );
-    expect(byKey.new).toBe(5);
-  });
-
-  it("bez `stage_columns` cofa się do legacy rozkładu (starsze odpowiedzi)", () => {
-    const groups = buildStageFunnel({ stage_breakdown: breakdown });
-    expect(groups.find((g) => g.key === "new")?.count).toBe(4);
-    expect(funnelRejectedTotal({ stage_breakdown: breakdown })).toBe(4);
+  it("bez `stage_columns` nazw nie znamy", () => {
+    expect(funnelGroupStages({ stage_breakdown: { new: 1 } }).new).toEqual([]);
   });
 });

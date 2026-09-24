@@ -115,6 +115,37 @@ export interface RestoreProposalResponse {
   restored: boolean;
 }
 
+/** Historia osoby u klienta tej rekrutacji (inna jego rekrutacja). */
+export interface ProposalClientHistory {
+  job_id: number;
+  title: string | null;
+  /** Najdalszy etap „do przodu" (legacy enum). */
+  furthest_stage: string;
+  furthest_stage_label: string;
+  outcome: "rejected" | "withdrawn" | "hired" | "in_progress" | (string & {});
+  last_moved_at: string | null;
+}
+
+/** `GET /api/jobs/{id}/proposal-facts` — fakty o osobie, bez kontaktu. */
+export interface ProposalFacts {
+  candidate_id: number;
+  title: string | null;
+  company: string | null;
+  years_experience: number | null;
+  city: string | null;
+  max_onsite_days_per_week: number | null;
+  remote_modes: string[];
+  availability_status: string | null;
+  availability_date: string | null;
+  expected_rate_hourly: number | null;
+  expected_rate_currency: string | null;
+  expected_rate_redacted: boolean;
+  client_history: ProposalClientHistory | null;
+}
+
+/** Sufit jednego zapytania o fakty (`MAX_FACT_CANDIDATES`). */
+export const PROPOSAL_FACTS_MAX_IDS = 100;
+
 /** Sufit `limit` po stronie serwera (`Query(20, le=100)`). */
 export const PROPOSAL_INBOX_MAX_LIMIT = 100;
 export const PROPOSAL_INBOX_PAGE = 20;
@@ -157,6 +188,19 @@ export const jobProposalsApi = {
         `/api/jobs/${jobId}/proposal-inbox/${candidateId}/restore`,
       )
       .then((r) => r.data),
+  /** Fakty hurtowo — najwyżej `PROPOSAL_FACTS_MAX_IDS` osób naraz. */
+  facts: (
+    jobId: number,
+    candidateIds: readonly number[],
+    signal?: AbortSignal,
+  ): Promise<{ job_id: number; items: ProposalFacts[] }> =>
+    api
+      .get<{ job_id: number; items: ProposalFacts[] }>(`/api/jobs/${jobId}/proposal-facts`, {
+        params: { candidate_ids: candidateIds },
+        paramsSerializer: { indexes: null },
+        signal,
+      })
+      .then((r) => r.data),
   latestRun: (jobId: number, signal?: AbortSignal): Promise<LatestRunResponse> =>
     api
       .get<LatestRunResponse>(`/api/candidate-search/jobs/${jobId}/latest-run`, {
@@ -177,6 +221,9 @@ export const jobProposalsKeys = {
   inbox: (jobId: number, limit: number) =>
     ["job-proposals", jobId, "inbox", limit] as const,
   latestRun: (jobId: number) => ["job-proposals", jobId, "latest-run"] as const,
+  /** Fakty o osobach — klucz zawiera posortowane id, żeby lista w innej kolejności trafiała w cache. */
+  facts: (jobId: number, candidateIds: readonly number[]) =>
+    ["job-proposals", jobId, "facts", [...candidateIds].sort((a, b) => a - b).join(",")] as const,
   /** Te same klucze co dotychczasowe sekcje — react-query dzieli z nimi cache. */
   similar: (jobId: number) => ["historical-candidates", jobId] as const,
   recommendations: (jobId: number) => ["proposal-latest", jobId] as const,

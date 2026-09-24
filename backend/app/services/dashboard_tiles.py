@@ -49,6 +49,7 @@ TileType = Literal[
     "recruitment_competence",
     "team_workload",
     "team_allocation",
+    "request_board",
     "contact_oversight",
     "my_clients_alerts",
     "dl_alerts",

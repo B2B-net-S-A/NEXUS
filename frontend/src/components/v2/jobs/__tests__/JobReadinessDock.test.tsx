@@ -389,7 +389,7 @@ describe("JobReadinessDock — dane", () => {
 
   it("ze stageBreakdown z wiersza listy renderuje skrót pipeline'u, bez dodatkowego zapytania", async () => {
     renderDock(501, { new: 3, screening: 2, hired: 1, rejected: 4 });
-    // 3 + 2 + 1 = 6 w sześciu grupach; `rejected` jest terminalny i POZA nimi.
+    // 3 + 2 + 1 = 6 w ośmiu kolumnach; `rejected` jest terminalny i POZA nimi.
     expect(await screen.findByText("Pipeline · 6 kandydatów")).toBeInTheDocument();
     // Zero wywołań poza detalem — `stageBreakdown` przyszedł z propsa, a
     // bramki `/readiness` recruiter NIE pobiera (backend odpowiedziałby 403).
@@ -621,18 +621,21 @@ describe("JobReadinessDock — variant \"list\" (krok 01), zakładki fali 3", ()
     await screen.findByText("Programista Python (ZOB-2947)");
 
     // Skrót w „Gotowość" pomija grupy zerowe…
-    expect(screen.queryByText("Zatrudnieni")).not.toBeInTheDocument();
+    expect(screen.queryByText("Zatrudniony")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("tab", { name: "Pipeline" }));
 
-    // …a pełny rozkład pokazuje je wszystkie.
+    // …a pełny rozkład pokazuje je wszystkie — te same osiem kolumn co
+    // Tablica i wiersz listy (lista v5).
     for (const label of [
       "Nowi",
       "Screening",
-      "Zweryfikowani",
-      "U klienta",
+      "Zweryfikowany",
+      "QC CV",
+      "CV wysłane",
+      "Rozmowa u klienta",
       "Umowa",
-      "Zatrudnieni",
+      "Zatrudniony",
       "Odrzuceni / wycofani",
     ]) {
       expect(await screen.findByText(label)).toBeInTheDocument();

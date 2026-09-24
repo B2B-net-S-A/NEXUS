@@ -4,6 +4,12 @@ import { pluralPl } from "@/lib/plural-pl";
 import { useEffect, useMemo, useState } from "react";
 import { TAC_UI_ENABLED } from "@/lib/tac-ui";
 import {
+  STATE_HINT,
+  STATE_LABEL,
+  VISIBLE_STATES,
+  type VisibleState,
+} from "@/lib/request-work-state";
+import {
   REQUEST_STATUS_FILTER_ORDER,
   REQUEST_STATUS_META,
   requestStatusOf,
@@ -61,9 +67,11 @@ import {
 import { OwnerBadge } from "@/components/v2/jobs/OwnerBadge";
 import { JobReadinessDock } from "@/components/v2/jobs/JobReadinessDock";
 import {
+  JobDeadlineCell,
   RequestStatusBadge,
   SimilarJobsCell,
   JobStageCounts,
+  JobStageCountsHeader,
   STAGE_COUNTS_LEGEND,
 } from "@/components/v2/jobs/JobListCells";
 import { UserMultiSelect } from "@/components/v2/filters/UserMultiSelect";
@@ -76,25 +84,32 @@ import {
 import { useAuthStore } from "@/store/auth";
 import { useUiStore } from "@/store/ui";
 import {
-  defaultMineForUser,
+  deadlineQueryParams,
+  defaultScopeForUser,
   defaultSortForScope,
   encodeJobsListUrl,
   initialDeadlineFromUrl,
+  initialDeadlineRangeFromUrl,
   initialFlagFromUrl,
   initialIdsFromUrl,
-  mineOverrideFromUrl,
-  resolveMine,
+  initialSentFromUrl,
+  resolveScope,
+  scopeOverrideFromUrl,
+  scopeQueryFlags,
+  sentQueryParams,
   initialPriorityWorkFromUrl,
   initialSearchFromUrl,
   sortOverrideFromUrl,
   initialStatusFromUrl,
   initialTypeFromUrl,
   type JobDeadlinePreset,
+  type JobDeadlineRange,
+  type JobScope,
+  type JobSentFilterValue,
   type JobSortFilterValue,
   type JobTypeFilterValue,
 } from "@/lib/jobs-url-filters";
 import { extractSkills } from "@/lib/job-skills";
-import { classifyJobDeadline, formatDateOnly } from "@/lib/job-deadline";
 import { shortenPersonName } from "@/lib/job-header-subtitle";
 import { stageSummaryOf } from "@/lib/job-pipeline-funnel";
 import type {
@@ -179,10 +194,33 @@ const FILTERS_ASIDE_VISIBILITY: Record<FiltersMode, string> = {
 const DEADLINE_OPTIONS: { value: DeadlinePreset; label: string }[] = [
   { value: "any", label: "Termin: dowolny" },
   { value: "overdue", label: "Po terminie" },
+  { value: "this_week", label: "W tym tygodniu" },
   { value: "next7", label: "Najbliższe 7 dni" },
+  { value: "next14", label: "Do 14 dni" },
   { value: "next30", label: "Najbliższe 30 dni" },
   { value: "has", label: "Z terminem" },
   { value: "none", label: "Bez terminu" },
+  { value: "range", label: "Zakres dat…" },
+];
+
+/**
+ * „Wysłanych do klienta" — OSOBY (nie wiersze etapów), które w rekrutacji
+ * doszły do „CV wysłane" albo dalej (backend `min_sent`/`max_sent`).
+ */
+const SENT_OPTIONS: { value: JobSentFilterValue; label: string }[] = [
+  { value: "any", label: "Wysłanych: dowolnie" },
+  { value: "none", label: "Nikt jeszcze" },
+  { value: "1", label: "Co najmniej 1 osoba" },
+  { value: "3", label: "Co najmniej 3 osoby" },
+  { value: "5", label: "Co najmniej 5 osób" },
+];
+
+// Bez `title` na przyciskach: w Chrome `title` potrafi przejąć nazwę dostępną
+// przycisku, a nazwa ma zostać „Otwarte 318". Opis idzie w `aria-describedby`.
+const SCOPE_OPTIONS: { value: JobScope; label: string; hint: string }[] = [
+  { value: "mine", label: "Moje", hint: "Prowadzę albo współpracuję." },
+  { value: "open", label: "Otwarte", hint: "Wszystkie poza zamkniętymi (otwarte i szkice)." },
+  { value: "all", label: "Wszystkie", hint: "Cały rejestr, także zamknięte." },
 ];
 
 type JobSortValue = JobSortFilterValue;
@@ -194,7 +232,8 @@ const SORT_OPTIONS: { value: JobSortValue; label: string }[] = [
   { value: "attention", label: "Wymaga uwagi" },
   { value: "newest", label: "Od najnowszej" },
   { value: "oldest", label: "Od najstarszej" },
-  { value: "deadline", label: "Wg terminu" },
+  // Termin rosnąco, bez terminu na końcu (backend `sort=deadline`).
+  { value: "deadline", label: "Najbliższy termin" },
 ];
 
 const PRIORITY_WORK_OPTIONS: {
@@ -257,40 +296,6 @@ export function JobPriorityWorkBadges({
   );
 }
 
-/** Local-date ISO string (YYYY-MM-DD) — avoids UTC off-by-one near midnight. */
-function isoLocal(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-/** Map a deadline preset to backend query params. */
-function deadlineParams(preset: DeadlinePreset): {
-  deadline_from?: string;
-  deadline_to?: string;
-  has_deadline?: boolean;
-} {
-  if (preset === "any") return {};
-  if (preset === "has") return { has_deadline: true };
-  if (preset === "none") return { has_deadline: false };
-  const today = new Date();
-  const addDays = (n: number) => {
-    const d = new Date(today);
-    d.setDate(d.getDate() + n);
-    return d;
-  };
-  if (preset === "overdue") {
-    // Strictly before today → upper bound is yesterday (inclusive).
-    return { deadline_to: isoLocal(addDays(-1)) };
-  }
-  if (preset === "next7") {
-    return { deadline_from: isoLocal(today), deadline_to: isoLocal(addDays(7)) };
-  }
-  // next30
-  return { deadline_from: isoLocal(today), deadline_to: isoLocal(addDays(30)) };
-}
-
 /**
  * Klucze react-query listy — eksportowane, żeby harness `/preview/jobs-list-v3`
  * zasiewał cache TYM SAMYM kluczem, którego używa komponent. Ręcznie przepisany
@@ -315,7 +320,21 @@ export interface JobsListQueryState {
   page: number;
   /** Status requestu (0341) — pusty/brak = wszystkie. */
   requestStatuses?: readonly RequestStatus[];
+  workStates?: readonly VisibleState[];
+  /** Granice presetu terminu `range` — brak = bez zakresu. */
+  deadlineRange?: JobDeadlineRange;
+  /** Delivery Lead rekrutacji (`delivery_lead_id`, LUB). */
+  deliveryLeadIds?: readonly number[];
+  /** „Wysłanych do klienta" — brak = dowolnie. */
+  sent?: JobSentFilterValue;
 }
+
+const WORK_STATE_CHIPS: readonly VisibleState[] = [
+  "to_review",
+  "searching",
+  "client_silent",
+  "finished",
+];
 
 export function jobsListQueryKey(state: JobsListQueryState): unknown[] {
   return [
@@ -336,12 +355,18 @@ export function jobsListQueryKey(state: JobsListQueryState): unknown[] {
     state.priorityWork,
     state.page,
     state.requestStatuses ?? [],
+    state.workStates ?? [],
+    state.deadline === "range"
+      ? [state.deadlineRange?.from ?? "", state.deadlineRange?.to ?? ""]
+      : [],
+    state.deliveryLeadIds ?? [],
+    state.sent ?? "any",
   ];
 }
 
 /** Okno „Deadline ≤ 7 dni" liczy przeglądarka — ta sama para dat co filtr. */
 export function jobsQuickCountsQueryKey(): unknown[] {
-  const next7 = deadlineParams("next7");
+  const next7 = deadlineQueryParams("next7");
   return ["jobs-quick-counts", next7.deadline_from, next7.deadline_to];
 }
 
@@ -500,33 +525,33 @@ function JobsTable({
   onPreview: (id: number) => void;
   /** `undefined` = brak capability `invite_link.create` — nie renderujemy akcji. */
   onInvite?: (id: number) => void;
-  /** Okno „Podobne rekrutacje" (0341). */
+  /** Okno „Podobne rekrutacje" (0341) — plakietka pod tytułem. */
   onSimilar: (id: number) => void;
 }) {
   return (
     <Table>
       <TableHeader>
         <TableRow className="hover:bg-transparent">
-          {/* Lista v4 (22.09.2026): status requestu, etapy i podobne
-              rekrutacje. „Wymaga ruchu" i „W bazie" zdjęte decyzją Artura —
+          {/* Lista v5 (24.09.2026): etapy = osiem kolumn Tablicy ze skrótami
+              RAZ w nagłówku, „Podobne rekrutacje" jako plakietka pod tytułem.
+              „Wymaga ruchu" i „W bazie" zdjęte decyzją Artura (22.09) —
               kolejność nadal daje sortowanie „Wymaga uwagi". */}
-          {/* Telefon: tabela przewija się w poziomie (7 kolumn ≈ 850 px), więc
+          {/* Telefon: tabela przewija się w poziomie (6 kolumn ≈ 850 px), więc
               kolumna „Rekrutacja" stoi przyklejona — bez niej po przewinięciu
               nie wiadomo, czyj to status i termin. */}
           <TableHead className="max-md:sticky max-md:left-0 max-md:z-20 max-md:bg-background">Rekrutacja</TableHead>
           <TableHead className="w-[150px]">Status</TableHead>
-          <TableHead className="w-[200px]" title={STAGE_COUNTS_LEGEND}>
-            Etapy
+          <TableHead className="w-[250px] py-1.5" title={STAGE_COUNTS_LEGEND}>
+            <span className="sr-only">Etapy</span>
+            <JobStageCountsHeader />
           </TableHead>
-          <TableHead className="w-[210px]">Podobne rekrutacje</TableHead>
-          <TableHead className="w-[104px]">Termin</TableHead>
+          <TableHead className="w-[120px]">Termin</TableHead>
           <TableHead className="w-[120px]">Prowadzi</TableHead>
           <TableHead className="w-[64px]" />
         </TableRow>
       </TableHeader>
       <TableBody>
         {items.map((job: any) => {
-          const deadlineInfo = classifyJobDeadline(job.deadline);
           // `stage_columns`/`stage_breakdown` przychodzą z
           // `GET /api/jobs?include_stage_counts=true` — JEDNO zapytanie GROUP BY
           // na całą stronę, zero zapytań per wiersz. Ich brak (odpowiedź spoza
@@ -561,7 +586,7 @@ function JobsTable({
               }
               className={locked ? "opacity-60" : undefined}
             >
-              <TableCell className="max-w-[320px] max-md:sticky max-md:left-0 max-md:z-10 max-md:w-[200px] max-md:max-w-[200px] max-md:border-r max-md:border-border/60 max-md:bg-card">
+              <TableCell className="max-w-[360px] max-md:sticky max-md:left-0 max-md:z-10 max-md:w-[200px] max-md:max-w-[200px] max-md:border-r max-md:border-border/60 max-md:bg-card">
                 {/* `can_open === false` — ta sama reguła co kafelki: rekrutacja
                     jest w rejestrze, ale detal odpowie 403, więc tytuł nie
                     udaje linku (tabela do 09.2026 prowadziła prosto w ścianę). */}
@@ -569,20 +594,24 @@ function JobsTable({
                   <span
                     aria-disabled="true"
                     title="Nie masz dostępu do tej rekrutacji — poproś o dodanie Cię do jej zespołu."
-                    className="block truncate font-medium text-muted-foreground"
+                    className="line-clamp-2 break-words font-medium leading-snug text-muted-foreground"
                   >
                     {job.title}
                   </span>
                 ) : (
+                  // Dwie linie zamiast jednej (lista v5): tytuły z Traffita
+                  // niosą klienta i technologię w nazwie, a ucięte do jednej
+                  // linii wyglądały identycznie.
                   <Link
                     href={`/jobs/${job.id}`}
                     onClick={(e) => e.stopPropagation()}
-                    className="block truncate font-medium text-foreground hover:text-primary hover:underline"
+                    title={job.title}
+                    className="line-clamp-2 break-words font-medium leading-snug text-foreground hover:text-primary hover:underline"
                   >
                     {job.title}
                   </Link>
                 )}
-                <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
+                <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-muted-foreground">
                   {job.client_name && (
                     <span className="inline-flex min-w-0 items-center gap-0.5" title="Klient">
                       <Building2 className="h-3 w-3 shrink-0" />
@@ -601,10 +630,23 @@ function JobsTable({
                     </span>
                   )}
                   <JobPriorityWorkBadges job={job} />
+                  <SimilarJobsCell
+                    similar={job.similar}
+                    disabled={locked}
+                    onOpen={() => onSimilar(job.id)}
+                  />
                 </div>
               </TableCell>
               <TableCell>
                 <RequestStatusBadge status={job.request_status} />
+                {job.visible_work_state && job.visible_work_state !== "searching" && (
+                  <span
+                    className="mt-1 block text-[11px] text-muted-foreground"
+                    title="Stan pracy nad requestem (Porządek w requestach)"
+                  >
+                    {STATE_LABEL[job.visible_work_state as VisibleState]}
+                  </span>
+                )}
               </TableCell>
               <TableCell>
                 {stageSummary ? (
@@ -623,33 +665,10 @@ function JobsTable({
                   </div>
                 )}
               </TableCell>
-              <TableCell>
-                <SimilarJobsCell
-                  similar={job.similar}
-                  disabled={locked}
-                  onOpen={() => onSimilar(job.id)}
-                />
-              </TableCell>
-              <TableCell>
-                {deadlineInfo.urgency === "none" ? (
-                  <span className="text-xs text-muted-foreground">—</span>
-                ) : (
-                  <span
-                    className={cn(
-                      "whitespace-nowrap text-xs font-medium",
-                      deadlineInfo.urgency === "overdue"
-                        ? "text-destructive"
-                        : deadlineInfo.urgency === "soon"
-                          ? "text-warning"
-                          : "text-muted-foreground",
-                    )}
-                    title={job.created_at ? `Dodano ${formatDate(job.created_at)}` : undefined}
-                  >
-                    {deadlineInfo.urgency === "overdue"
-                      ? "po terminie"
-                      : formatDateOnly(job.deadline)}
-                  </span>
-                )}
+              <TableCell
+                title={job.created_at ? `Dodano ${formatDate(job.created_at)}` : undefined}
+              >
+                <JobDeadlineCell deadline={job.deadline} />
               </TableCell>
               <TableCell>
                 <JobOwnerCell user={job.primary_owner ?? null} />
@@ -730,11 +749,15 @@ export function JobsListV2() {
   // (rola znana dopiero po mount) bez gubienia jawnego `mine=0/1` z adresu.
   const authUser = useAuthStore((s) => s.user);
   const authHydrated = useAuthStore((s) => s.hydrated);
-  const defaultMine = defaultMineForUser(authUser);
-  const [mineOverride, setMineOverride] = useState<boolean | null>(() =>
-    mineOverrideFromUrl(searchParams),
+  // Zakres: „Moje" | „Otwarte" | „Wszystkie" (lista v5). Role prowadzące
+  // startują w „Moich", nadzorujące (admin, HoR, Finanse, viewer) —
+  // w „Otwartych", nie w całym rejestrze z tysiącami zamkniętych.
+  const defaultScope = defaultScopeForUser(authUser);
+  const [scopeOverride, setScopeOverride] = useState<JobScope | null>(() =>
+    scopeOverrideFromUrl(searchParams),
   );
-  const mine = resolveMine(mineOverride, authUser);
+  const scope = resolveScope(scopeOverride, authUser);
+  const { mine, openOnly } = scopeQueryFlags(scope);
   const [responsibleIds, setResponsibleIds] = useState<number[]>(() =>
     initialIdsFromUrl(searchParams, "responsible"),
   );
@@ -753,8 +776,14 @@ export function JobsListV2() {
   const [deadlinePreset, setDeadlinePreset] = useState<DeadlinePreset>(() =>
     initialDeadlineFromUrl(searchParams),
   );
-  const [openOnly, setOpenOnly] = useState(() =>
-    initialFlagFromUrl(searchParams, "open"),
+  const [deadlineRange, setDeadlineRange] = useState<JobDeadlineRange>(() =>
+    initialDeadlineRangeFromUrl(searchParams),
+  );
+  const [deliveryLeadIds, setDeliveryLeadIds] = useState<number[]>(() =>
+    initialIdsFromUrl(searchParams, "lead"),
+  );
+  const [sentFilter, setSentFilter] = useState<JobSentFilterValue>(() =>
+    initialSentFromUrl(searchParams),
   );
   // "Brak opiekuna TAC" jako FILTR (nie tylko badge, makieta „01 Lista").
   // Od 09.2026 filtruje SERWER (`owner_missing` w `GET /api/jobs`, predykat
@@ -769,7 +798,7 @@ export function JobsListV2() {
   const [sortOverride, setSort] = useState<JobSortValue | null>(() =>
     sortOverrideFromUrl(searchParams),
   );
-  const sort: JobSortValue = sortOverride ?? defaultSortForScope(mine);
+  const sort: JobSortValue = sortOverride ?? defaultSortForScope(scope);
   const [priorityWorkFilter, setPriorityWorkFilter] =
     useState<PriorityWorkFilter>(() => initialPriorityWorkFromUrl(searchParams));
   const [page, setPage] = useState(1);
@@ -779,6 +808,14 @@ export function JobsListV2() {
       .getAll("rs")
       .map(requestStatusOf)
       .filter((s): s is RequestStatus => s !== null),
+  );
+  // Stan pracy nad requestem (0371) — adres `ws=` (powtarzalny).
+  const [workStates, setWorkStates] = useState<VisibleState[]>(() =>
+    searchParams
+      .getAll("ws")
+      .filter((s): s is VisibleState =>
+        (VISIBLE_STATES as readonly string[]).includes(s),
+      ),
   );
   const [similarForJob, setSimilarForJob] = useState<number | null>(null);
   const [inviteModalForJob, setInviteModalForJob] = useState<number | null>(null);
@@ -812,8 +849,8 @@ export function JobsListV2() {
   ) as FiltersMode;
   // Sortowanie bez jawnego wyboru samo idzie za zakresem; jawnie wybrane
   // zostaje. `null` = powrót do domyślnego zakresu roli („Wyczyść").
-  const changeScope = (nextMine: boolean | null) => {
-    setMineOverride(nextMine);
+  const changeScope = (nextScope: JobScope | null) => {
+    setScopeOverride(nextScope);
     setPage(1);
   };
 
@@ -828,18 +865,20 @@ export function JobsListV2() {
     const qs = encodeJobsListUrl(
       {
         status: statusFilter,
-        mine,
-        defaultMine,
+        scope,
+        defaultScope,
         type: typeFilter,
         deadline: deadlinePreset,
+        deadlineRange,
         sort,
         q: debouncedSearch,
         responsibleIds,
         clientIds,
         ccIds,
+        deliveryLeadIds,
+        sent: sentFilter,
         needsSourcing,
         activeInSearch,
-        openOnly,
         noOwnerOnly,
         priorityWork: priorityWorkFilter,
       },
@@ -848,6 +887,8 @@ export function JobsListV2() {
     const withStatus = new URLSearchParams(qs);
     withStatus.delete("rs");
     for (const s of requestStatuses) withStatus.append("rs", s);
+    withStatus.delete("ws");
+    for (const s of workStates) withStatus.append("ws", s);
     const qsFull = withStatus.toString();
     const target = qsFull
       ? `${window.location.pathname}?${qsFull}`
@@ -857,24 +898,27 @@ export function JobsListV2() {
     }
   }, [
     statusFilter,
-    mine,
-    defaultMine,
+    scope,
+    defaultScope,
     typeFilter,
     deadlinePreset,
+    deadlineRange,
     sort,
     debouncedSearch,
     responsibleIds,
     clientIds,
     ccIds,
+    deliveryLeadIds,
+    sentFilter,
     needsSourcing,
     activeInSearch,
-    openOnly,
     noOwnerOnly,
     priorityWorkFilter,
     requestStatuses,
+    workStates,
   ]);
 
-  const dl = deadlineParams(deadlinePreset);
+  const dl = deadlineQueryParams(deadlinePreset, deadlineRange);
 
   // Jeden rejestr capability dla nagłówka, pustego stanu i akcji w wierszach
   // (audyt F-19) — wcześniej gate'owany był tylko przycisk w nagłówku.
@@ -910,6 +954,10 @@ export function JobsListV2() {
       priorityWork: priorityWorkFilter,
       page,
       requestStatuses,
+      workStates,
+      deadlineRange,
+      deliveryLeadIds,
+      sent: sentFilter,
     }),
     queryFn: () =>
       api
@@ -920,6 +968,7 @@ export function JobsListV2() {
             recruitment_type: typeFilter !== "all" ? typeFilter : undefined,
             mine: mine ? true : undefined,
             responsible_id: responsibleIds.length ? responsibleIds : undefined,
+            delivery_lead_id: deliveryLeadIds.length ? deliveryLeadIds : undefined,
             client_id: clientIds.length ? clientIds : undefined,
             competence_category_id: ccIds.length ? ccIds : undefined,
             needs_sourcing: needsSourcing ? true : undefined,
@@ -929,10 +978,12 @@ export function JobsListV2() {
             priority_work:
               priorityWorkFilter === "any" ? undefined : priorityWorkFilter,
             request_status: requestStatuses.length ? requestStatuses : undefined,
+            work_state: workStates.length ? workStates : undefined,
             sort,
             ...dl,
+            ...sentQueryParams(sentFilter),
             page,
-            // Mini-lejek w wierszu (6 grup etapów) — JEDNO dodatkowe GROUP BY
+            // Osiem kolumn Tablicy w wierszu — JEDNO dodatkowe GROUP BY
             // na całą stronę wyników (`stage_breakdown` per wiersz), zero
             // zapytań per wiersz. Patrz `lib/job-pipeline-funnel.ts`.
             include_stage_counts: true,
@@ -950,7 +1001,7 @@ export function JobsListV2() {
   // Okno „≤ 7 dni" liczy PRZEGLĄDARKA i wysyła je do backendu, żeby licznik
   // i lista używały tej samej pary dat — serwer w innej strefie czasowej
   // potrafiłby wypaść o dzień inaczej.
-  const next7 = deadlineParams("next7");
+  const next7 = deadlineQueryParams("next7");
   const { data: quickCounts } = useQuery({
     queryKey: jobsQuickCountsQueryKey(),
     queryFn: () =>
@@ -1049,12 +1100,13 @@ export function JobsListV2() {
   // „Wszystkie filtry N" (makieta `.allfilters`) — ile zawężeń jest czynnych.
   // Wyszukiwarka jest POZA tą liczbą: stoi we własnym wierszu narzędzi nad
   // listą i widać ją bez otwierania kolumny filtrów. ZAKRES („Moje" /
-  // „Wszystkie") też: ma własny, zawsze widoczny przełącznik, a „Moje" jest
-  // stanem domyślnym — liczony jako filtr dawałby „Filtry (1)" na starcie.
+  // „Otwarte" / „Wszystkie") też: ma własny, zawsze widoczny przełącznik,
+  // a zakres domyślny liczony jako filtr dawałby „Filtry (1)" na starcie.
   const activeFilterCount =
     (typeFilter !== "all" ? 1 : 0) +
     statusFilter.length +
-    (openOnly ? 1 : 0) +
+    (sentFilter !== "any" ? 1 : 0) +
+    deliveryLeadIds.length +
     (needsSourcing ? 1 : 0) +
     (activeInSearch ? 1 : 0) +
     (noOwnerOnly ? 1 : 0) +
@@ -1063,7 +1115,8 @@ export function JobsListV2() {
     clientIds.length +
     ccIds.length +
     responsibleIds.length +
-    requestStatuses.length;
+    requestStatuses.length +
+    workStates.length;
 
   // „4 241 · pokazuję 12 moich" (makieta). Pierwsza liczba to ZAWSZE `total`
   // z API — czyli ile rekrutacji pasuje do filtrów, nie ile widać. Druga mówi,
@@ -1072,7 +1125,9 @@ export function JobsListV2() {
   const listSummary = (() => {
     const totalLabel = total.toLocaleString("pl-PL");
     if (visibleItems.length === 0) return totalLabel;
-    if (mine) return `${totalLabel} · pokazuję ${visibleItems.length} moich`;
+    if (scope === "mine") {
+      return `${totalLabel} · pokazuję ${visibleItems.length} moich`;
+    }
     if (total > visibleItems.length) {
       return `${totalLabel} · pokazuję ${visibleItems.length} na stronie`;
     }
@@ -1102,6 +1157,7 @@ export function JobsListV2() {
     setTypeFilter("all");
     setStatusFilter([]);
     setRequestStatuses([]);
+    setWorkStates([]);
     // „Wyczyść" wraca do domyślnego zakresu ROLI (`defaultMineForUser`).
     changeScope(null);
     setResponsibleIds([]);
@@ -1110,7 +1166,9 @@ export function JobsListV2() {
     setNeedsSourcing(false);
     setActiveInSearch(false);
     setDeadlinePreset("any");
-    setOpenOnly(false);
+    setDeadlineRange({});
+    setDeliveryLeadIds([]);
+    setSentFilter("any");
     setPriorityWorkFilter("any");
     setNoOwnerOnly(false);
     setPage(1);
@@ -1205,22 +1263,9 @@ export function JobsListV2() {
             <div className="px-2 text-[11px] font-medium text-muted-foreground">
               Szybkie
             </div>
-            <QuickFilterRow
-              active={mine}
-              onClick={() => changeScope(!mine)}
-              label="Moje rekrutacje"
-              count={quickCounts?.mine}
-            />
-            <QuickFilterRow
-              active={openOnly}
-              onClick={() => {
-                setOpenOnly((p) => !p);
-                setPage(1);
-              }}
-              label="Niezamknięte"
-              count={quickCounts?.open}
-              title="Otwarte i szkice"
-            />
+            {/* „Moje rekrutacje" i „Niezamknięte" zeszły do przełącznika
+                zakresu nad tabelą (lista v5) — dwa przełączniki tego samego
+                zawężenia rozjeżdżały się ze sobą. */}
             <QuickFilterRow
               active={needsSourcing}
               onClick={() => {
@@ -1350,6 +1395,23 @@ export function JobsListV2() {
             />
           </div>
 
+          <div className="space-y-1.5">
+            <div className="text-[11px] font-medium text-muted-foreground">
+              Delivery Lead
+            </div>
+            <UserMultiSelect
+              value={deliveryLeadIds}
+              onChange={(ids) => {
+                setDeliveryLeadIds(ids);
+                setPage(1);
+              }}
+              onlyRoles={["delivery_lead"]}
+              placeholder="Dowolny"
+              searchPlaceholder="Szukaj Delivery Leada…"
+              triggerWidthClass="w-full"
+            />
+          </div>
+
           <div className="border-t border-border" />
 
           <div className="space-y-1.5">
@@ -1388,11 +1450,71 @@ export function JobsListV2() {
                 setPage(1);
               }}
             >
-              <SelectTrigger className="h-9 w-full font-medium">
+              <SelectTrigger className="h-9 w-full font-medium" aria-label="Filtr: Termin">
                 <SelectValue placeholder="Termin: dowolny" />
               </SelectTrigger>
               <SelectContent>
                 {DEADLINE_OPTIONS.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>
+                    {o.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {deadlinePreset === "range" && (
+              <div className="space-y-1.5">
+                <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                  <span className="w-5 shrink-0">Od</span>
+                  <Input
+                    type="date"
+                    value={deadlineRange.from ?? ""}
+                    max={deadlineRange.to}
+                    onChange={(e) => {
+                      setDeadlineRange((r) => ({ ...r, from: e.target.value || undefined }));
+                      setPage(1);
+                    }}
+                    aria-label="Termin od"
+                    className="h-8 min-w-0 flex-1 px-2 text-xs"
+                  />
+                </label>
+                <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                  <span className="w-5 shrink-0">Do</span>
+                  <Input
+                    type="date"
+                    value={deadlineRange.to ?? ""}
+                    min={deadlineRange.from}
+                    onChange={(e) => {
+                      setDeadlineRange((r) => ({ ...r, to: e.target.value || undefined }));
+                      setPage(1);
+                    }}
+                    aria-label="Termin do"
+                    className="h-8 min-w-0 flex-1 px-2 text-xs"
+                  />
+                </label>
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-1.5">
+            <div className="text-[11px] font-medium text-muted-foreground">
+              Wysłanych do klienta
+            </div>
+            <Select
+              value={sentFilter}
+              onValueChange={(v) => {
+                setSentFilter(v as JobSentFilterValue);
+                setPage(1);
+              }}
+            >
+              <SelectTrigger
+                className="h-9 w-full font-medium"
+                aria-label="Filtr: Wysłanych do klienta"
+                title="Osoby, które w tej rekrutacji doszły do „CV wysłane” albo dalej"
+              >
+                <SelectValue placeholder="Wysłanych: dowolnie" />
+              </SelectTrigger>
+              <SelectContent>
+                {SENT_OPTIONS.map((o) => (
                   <SelectItem key={o.value} value={o.value}>
                     {o.label}
                   </SelectItem>
@@ -1447,40 +1569,54 @@ export function JobsListV2() {
               Filtry
               {activeFilterCount > 0 ? ` (${activeFilterCount})` : ""}
             </Button>
-            {/* Zakres: „Moje" jest domyślne; jawne „Wszystkie" żyje w adresie
-                jako `mine=0`. Liczniki są GLOBALNE (`/api/jobs/quick-counts`),
-                a ich brak to brak liczby, nie zero. */}
+            {/* Zakres: domyślny zależy od roli („Moje" albo „Otwarte"); jawny
+                wybór żyje w adresie (`mine=1` / `open=1` / `mine=0`). Liczniki
+                są GLOBALNE (`/api/jobs/quick-counts`), a ich brak to brak
+                liczby, nie zero. */}
             <div
               className="flex items-center overflow-hidden rounded-md border border-border"
               role="group"
               aria-label="Zakres rekrutacji"
               data-help="jobs.list.scope"
             >
-              {(
-                [
-                  { value: true, label: "Moje", count: quickCounts?.mine },
-                  { value: false, label: "Wszystkie", count: quickCounts?.all },
-                ] as const
-              ).map((scope) => (
-                <button
-                  key={scope.label}
-                  type="button"
-                  onClick={() => changeScope(scope.value)}
-                  aria-pressed={mine === scope.value}
-                  className={cn(
-                    "flex h-9 items-center gap-1.5 px-3 text-sm transition-colors",
-                    mine === scope.value
-                      ? "bg-primary font-medium text-primary-foreground"
-                      : "text-muted-foreground hover:bg-primary/10",
-                  )}
+              {SCOPE_OPTIONS.map((option) => {
+                const count =
+                  option.value === "mine"
+                    ? quickCounts?.mine
+                    : option.value === "open"
+                      ? quickCounts?.open
+                      : quickCounts?.all;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => changeScope(option.value)}
+                    aria-pressed={scope === option.value}
+                    aria-describedby={`jobs-scope-hint-${option.value}`}
+                    className={cn(
+                      "flex h-9 items-center gap-1.5 px-3 text-sm transition-colors",
+                      scope === option.value
+                        ? "bg-primary font-medium text-primary-foreground"
+                        : "text-muted-foreground hover:bg-primary/10",
+                    )}
+                  >
+                    {option.label}
+                    {count != null && (
+                      <span className="text-xs tabular-nums opacity-80">
+                        {count.toLocaleString("pl-PL")}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+              {SCOPE_OPTIONS.map((option) => (
+                <span
+                  key={option.value}
+                  id={`jobs-scope-hint-${option.value}`}
+                  className="sr-only"
                 >
-                  {scope.label}
-                  {scope.count != null && (
-                    <span className="text-xs tabular-nums opacity-80">
-                      {scope.count.toLocaleString("pl-PL")}
-                    </span>
-                  )}
-                </button>
+                  {option.hint}
+                </span>
               ))}
             </div>
             <div className="min-w-[240px] max-w-lg flex-1" data-help="jobs.list.search">
@@ -1563,6 +1699,14 @@ export function JobsListV2() {
             <span className="mr-1 text-xs text-muted-foreground">Status:</span>
             {REQUEST_STATUS_FILTER_ORDER.map((value) => {
               const on = requestStatuses.includes(value);
+              // Liczba z `/quick-counts` tym samym wyrażeniem co filtr: w „Moich"
+              // — moje, poza nimi — cały rejestr (statusy z tej listy dotyczą
+              // wyłącznie niezamkniętych, więc to zarazem liczba „Otwartych").
+              const statusCounts =
+                scope === "mine"
+                  ? quickCounts?.request_status_mine
+                  : quickCounts?.request_status;
+              const count = statusCounts?.[value];
               return (
                 <button
                   key={value}
@@ -1576,13 +1720,52 @@ export function JobsListV2() {
                     setPage(1);
                   }}
                   className={cn(
-                    "h-7 rounded-full border px-3 text-xs transition-colors",
+                    "inline-flex h-7 items-center gap-1.5 rounded-full border px-3 text-xs transition-colors",
                     on
                       ? "border-primary/40 bg-primary/10 font-semibold text-primary"
                       : "border-border text-muted-foreground hover:bg-muted",
                   )}
                 >
                   {REQUEST_STATUS_META[value].label}
+                  {count != null && (
+                    <span
+                      className={cn(
+                        "tabular-nums",
+                        on ? "text-primary" : "text-muted-foreground/80",
+                      )}
+                    >
+                      {count.toLocaleString("pl-PL")}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+            <span className="ml-3 mr-1 text-xs text-muted-foreground">Praca:</span>
+            {/* „Mamy championa” jest już w statusie wyżej — tu tylko stany
+                prowadzone w „Porządku w requestach”; „Szukamy” jako „W pracy”,
+                żeby nie dublować etykiety statusu. */}
+            {WORK_STATE_CHIPS.map((value) => {
+              const on = workStates.includes(value);
+              return (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={on}
+                  title={STATE_HINT[value]}
+                  onClick={() => {
+                    setWorkStates((prev) =>
+                      on ? prev.filter((s) => s !== value) : [...prev, value],
+                    );
+                    setPage(1);
+                  }}
+                  className={cn(
+                    "h-7 rounded-full border px-3 text-xs transition-colors",
+                    on
+                      ? "border-primary/40 bg-primary/10 font-semibold text-primary"
+                      : "border-border text-muted-foreground hover:bg-muted",
+                  )}
+                >
+                  {value === "searching" ? "W pracy" : STATE_LABEL[value]}
                 </button>
               );
             })}
@@ -1639,15 +1822,16 @@ export function JobsListV2() {
               {/* Pustka POD filtrem to inna wiadomość niż pusta baza —
                   „Utwórz pierwszą" pod aktywnym zawężeniem sugeruje, że
                   w systemie nie ma żadnej rekrutacji. */}
-              {mine && activeFilterCount === 0 && !debouncedSearch ? (
-                // „Moje" jest domyślne — osoba bez własnych rekrutacji (admin,
-                // Finanse) nie może zobaczyć tu „Brak rekrutacji": baza nie
-                // jest pusta, pusty jest tylko jej zakres.
+              {scope !== "all" && activeFilterCount === 0 && !debouncedSearch ? (
+                // Pusty zakres to nie pusta baza — osoba bez własnych
+                // rekrutacji nie może zobaczyć tu „Brak rekrutacji".
                 <p className="text-sm text-muted-foreground">
-                  Nie prowadzisz teraz żadnej rekrutacji.{" "}
+                  {scope === "mine"
+                    ? "Nie prowadzisz teraz żadnej rekrutacji."
+                    : "Nie ma otwartych rekrutacji."}{" "}
                   <button
                     type="button"
-                    onClick={() => changeScope(false)}
+                    onClick={() => changeScope("all")}
                     className="text-primary hover:underline"
                   >
                     Pokaż wszystkie

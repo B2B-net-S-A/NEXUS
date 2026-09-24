@@ -83,6 +83,12 @@ NEXUS_OWNED: frozenset[str] = frozenset(
         "champion_found_by",
         # 0353: osoba wysyłająca do Cpro — ustawia ją zespół w NEXUSIE.
         "cpro_sender_id",
+        # 0371: stan pracy nad requestem („Szukamy / Klient milczy / …”) —
+        # decyzja DL w NEXUSIE; Traffit nie zamyka rekrutacji, więc nie może
+        # tego stanu nadpisywać.
+        "work_state",
+        "work_state_changed_at",
+        "work_state_changed_by",
         "needs_sourcing",
         "favorite_sourcing_paused",
         "description",
