@@ -252,8 +252,9 @@ export function CandidateFilesTab({ candidateId }: { candidateId: number }) {
  {docs.map((doc) => (
  <div
  key={doc.id}
- className="flex items-center gap-3 rounded-lg bg-background/40 border border-border p-3 hover:bg-background/60 transition-colors"
+ className="flex flex-col gap-2 rounded-lg bg-background/40 border border-border p-3 hover:bg-background/60 transition-colors sm:flex-row sm:items-center sm:gap-3"
  >
+ <div className="flex min-w-0 flex-1 items-center gap-3">
  {fileIcon(doc.content_type)}
  <div className="flex-1 min-w-0">
  <div className="flex items-baseline gap-2 flex-wrap">
@@ -298,7 +299,8 @@ export function CandidateFilesTab({ candidateId }: { candidateId: number }) {
  )}
  </div>
  </div>
- <div className="flex items-center gap-3 shrink-0">
+ </div>
+ <div className="flex flex-wrap items-center gap-x-3 gap-y-2 sm:shrink-0">
  {canEditDocuments ? (
  <select
  value={doc.document_kind}
@@ -311,7 +313,7 @@ export function CandidateFilesTab({ candidateId }: { candidateId: number }) {
  }
  disabled={metadataMutation.isPending}
  aria-label={`Rodzaj dokumentu ${doc.filename}`}
- className="rounded-md border border-border bg-card px-2 py-1 text-xs text-foreground"
+ className="min-h-10 rounded-md border border-border bg-card px-2 py-1 text-xs text-foreground sm:min-h-0"
  >
  <option value="cv">CV</option>
  <option value="cover_letter">List motywacyjny</option>

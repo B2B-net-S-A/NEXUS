@@ -5,11 +5,9 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { CalendarPlus } from "lucide-react";
 
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
-import ScheduleInterviewModal from "@/components/calendar/ScheduleInterviewModal";
 import WeekCalendar from "@/components/calendar/WeekCalendar";
 import { useInterviewCycle } from "@/lib/api/interviewCycle";
 import {
-  candidateLabel,
   interviewStartFor,
   parseCycleParam,
   parseScope,
@@ -29,6 +27,8 @@ import { cn } from "@/lib/utils";
 import { AgendaView } from "./AgendaView";
 import { CycleBoard } from "./CycleBoard";
 import { DebriefModal } from "./DebriefModal";
+import { PlanPrepDialog } from "./PlanPrepDialog";
+import { PrepReviewDialog } from "./PrepReviewDialog";
 import { SlotDecisionDialog, SlotRequestDialog } from "./SlotDialogs";
 
 const VIEWS: { value: CycleView; label: string }[] = [
@@ -41,6 +41,7 @@ type Dialog =
   | { kind: "debrief"; pair: PairInfo; eventId: number }
   | { kind: "pick" | "confirm"; pair: PairInfo; request: SlotRequest }
   | { kind: "prep"; pair: PairInfo; second: boolean }
+  | { kind: "prep_review"; pair: PairInfo; eventId: number }
   | { kind: "slots"; pair: PairInfo | null }
   | null;
 
@@ -144,6 +145,9 @@ export function CalendarCycleScreen({
       case "plan_prep":
         setDialog({ kind: "prep", pair: action.pair, second: action.second });
         break;
+      case "prep_review":
+        setDialog({ kind: "prep_review", pair: action.pair, eventId: action.eventId });
+        break;
       case "add_slots":
         setDialog({ kind: "slots", pair: action.pair });
         break;
@@ -180,9 +184,11 @@ export function CalendarCycleScreen({
               label="Zakres"
               value={scope}
               options={[
-                { value: "mine", label: "Moi kandydaci" },
-                { value: "jobs", label: "Moje rekrutacje" },
-                ...(isOversight ? [{ value: "all" as CycleScope, label: "Cały zespół" }] : []),
+                { value: "mine", label: "Moi kandydaci", shortLabel: "Moi" },
+                { value: "jobs", label: "Moje rekrutacje", shortLabel: "Rekrutacje" },
+                ...(isOversight
+                  ? [{ value: "all" as CycleScope, label: "Cały zespół", shortLabel: "Zespół" }]
+                  : []),
               ]}
               onChange={(v) => setParams({ scope: v === defaultScope ? null : v })}
             />
@@ -266,19 +272,19 @@ export function CalendarCycleScreen({
         request={dialog?.kind === "pick" || dialog?.kind === "confirm" ? dialog.request : null}
       />
       {dialog?.kind === "prep" ? (
-        <ScheduleInterviewModal
+        <PlanPrepDialog
           open
           onOpenChange={(o) => !o && setDialog(null)}
-          candidateId={dialog.pair.candidate_id}
-          candidateName={candidateLabel(dialog.pair)}
-          candidateEmail={dialog.pair.candidate_email}
-          defaultJobId={dialog.pair.job_id}
-          defaultEventType="prep_call"
-          defaultTitle={`${dialog.second ? "Prep 2" : "Prep"}: ${candidateLabel(dialog.pair)}${
-            dialog.pair.client_name ? ` — ${dialog.pair.client_name}` : ""
-          }`}
+          pair={dialog.pair}
+          prepNo={dialog.second ? 2 : 1}
         />
       ) : null}
+      <PrepReviewDialog
+        open={dialog?.kind === "prep_review"}
+        onOpenChange={(o) => !o && setDialog(null)}
+        eventId={dialog?.kind === "prep_review" ? dialog.eventId : null}
+        pair={dialog?.kind === "prep_review" ? dialog.pair : null}
+      />
     </div>
   );
 }
@@ -291,26 +297,39 @@ function Segmented<T extends string>({
 }: {
   label: string;
   value: T;
-  options: { value: T; label: string }[];
+  /** `shortLabel` — krótsza etykieta poniżej `sm` (trzy opcje zakresu nie mieściły się w 343 px). */
+  options: { value: T; label: string; shortLabel?: string }[];
   onChange: (value: T) => void;
 }) {
   return (
-    <div role="radiogroup" aria-label={label} className="flex rounded-lg bg-muted p-1">
+    <div
+      role="radiogroup"
+      aria-label={label}
+      className="flex max-w-full overflow-x-auto rounded-lg bg-muted p-1"
+    >
       {options.map((o) => (
         <button
           key={o.value}
           type="button"
           role="radio"
           aria-checked={o.value === value}
+          aria-label={o.shortLabel ? o.label : undefined}
           onClick={() => onChange(o.value)}
           className={cn(
-            "h-8 rounded-md px-3 text-sm",
+            "h-8 shrink-0 whitespace-nowrap rounded-md px-3 text-sm",
             o.value === value
               ? "bg-card font-semibold text-foreground shadow-xs"
               : "text-muted-foreground hover:text-foreground",
           )}
         >
-          {o.label}
+          {o.shortLabel ? (
+            <>
+              <span className="sm:hidden">{o.shortLabel}</span>
+              <span className="hidden sm:inline">{o.label}</span>
+            </>
+          ) : (
+            o.label
+          )}
         </button>
       ))}
     </div>

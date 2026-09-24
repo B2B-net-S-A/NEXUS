@@ -98,13 +98,13 @@ export function UserModal({ initial, onClose, onSave, loading, error }: UserModa
   }, [form.role]);
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-card rounded-xl shadow-2xl w-full max-w-md p-6 space-y-5">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-card rounded-xl shadow-2xl w-full max-w-md p-4 sm:p-6 space-y-5 max-h-[90dvh] overflow-y-auto">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">
             {isEdit ? "Edytuj użytkownika" : "Dodaj użytkownika"}
           </h2>
-          <button onClick={onClose} className="text-muted-foreground hover:text-muted-foreground dark:text-muted-foreground">
+          <button onClick={onClose} aria-label="Zamknij" className="hit-area text-muted-foreground hover:text-muted-foreground dark:text-muted-foreground">
             <X className="w-5 h-5" />
           </button>
         </div>

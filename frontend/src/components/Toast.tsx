@@ -133,7 +133,11 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
       {children}
 
       {/* Toast container */}
-      <div className="fixed bottom-4 right-4 z-9999 flex flex-col gap-2 pointer-events-none">
+      {/* Telefon: na całą szerokość z marginesem, nad dolną krawędzią
+          bezpieczną (iPhone bez przycisku); od `sm` prawy dolny róg jak
+          dotąd, ale nie szerzej niż `max-w-md` — długi komunikat nie
+          rozciąga się na cały ekran. */}
+      <div className="fixed inset-x-4 bottom-[calc(1rem+env(safe-area-inset-bottom))] sm:inset-x-auto sm:right-4 sm:bottom-4 sm:max-w-md z-9999 flex flex-col gap-2 pointer-events-none">
         {toasts.map((toast) => (
           <div
             key={toast.id}
@@ -169,7 +173,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
                 className="w-4 h-4 text-primary shrink-0"
               />
             )}
-            <span className="flex-1">
+            <span className="flex-1 min-w-0 break-words">
               {kidsMode && toast.type === "success" ? `🎉 ${toast.message}` : toast.message}
             </span>
             {toast.type === "action" && toast.actionLabel && (

@@ -23,6 +23,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { apiErrorMessage } from "@/lib/api-error";
 import { useParams } from "next/navigation";
 import axios from "axios";
+import { useFitFrameHeight, withMobileCvStyle } from "../../_lib/cv-frame";
 import {
   AlertCircle,
   CheckCircle2,
@@ -566,7 +567,7 @@ function ChatPanel({
   }
 
   return (
-    <section className="rounded-lg border border-border bg-card shadow-xs flex flex-col print:hidden lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)]">
+    <section className="rounded-lg border border-border bg-card shadow-xs flex flex-col print:hidden lg:sticky lg:top-4 lg:max-h-[calc(100dvh-2rem)]">
       <div className="border-b border-border px-4 py-3">
         <div className="flex items-center gap-2">
           <MessageCircle className="h-4 w-4 text-primary" />
@@ -638,12 +639,12 @@ function ChatPanel({
           onChange={(e) => setInput(e.target.value)}
           maxLength={500}
           placeholder={t.chatPlaceholder}
-          className="flex-1 h-9 rounded-md border border-border bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-hidden focus-visible:ring-2 focus-visible:ring-primary/40"
+          className="min-w-0 flex-1 h-10 md:h-9 rounded-md border border-border bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-hidden focus-visible:ring-2 focus-visible:ring-primary/40"
         />
         <button
           type="submit"
           disabled={sending || !input.trim()}
-          className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-primary text-white disabled:opacity-50 hover:bg-primary/90 transition-colors"
+          className="inline-flex h-10 w-10 md:h-9 md:w-9 shrink-0 items-center justify-center rounded-md bg-primary text-white disabled:opacity-50 hover:bg-primary/90 transition-colors"
           aria-label={t.chatTitle}
         >
           <Send className="h-4 w-4" />
@@ -668,13 +669,8 @@ export default function PublicInteractiveCvPage() {
   const [highlightedExp, setHighlightedExp] = useState<number | null>(null);
   const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cvFrameRef = useRef<HTMLIFrameElement | null>(null);
-  const [cvFrameHeight, setCvFrameHeight] = useState<number | null>(null);
-
-  function fitCvFrame() {
-    const doc = cvFrameRef.current?.contentDocument;
-    const height = doc?.documentElement?.scrollHeight ?? 0;
-    if (height > 0) setCvFrameHeight(height);
-  }
+  // Wysokość liczona przy wczytaniu i przy każdej zmianie szerokości (obrót).
+  const { height: cvFrameHeight, fit: fitCvFrame } = useFitFrameHeight(cvFrameRef);
 
   function printCv() {
     const frameWindow = cvFrameRef.current?.contentWindow;
@@ -872,10 +868,10 @@ export default function PublicInteractiveCvPage() {
           {/* allow-modals: tylko po to, by strona mogła wywołać print() ramki;
               bez allow-scripts treść CV nie wykona żadnego skryptu. */}
           {view.package_documents && <div className="mb-3 flex gap-2 print:hidden" aria-label="Wersje językowe CV">{view.package_documents.map(doc => <button key={doc.language} type="button" className="rounded border px-3 py-2 text-sm" aria-pressed={selectedLanguage === doc.language} onClick={() => setSelectedLanguage(doc.language)}>{doc.language.toUpperCase()}</button>)}</div>}
-          <iframe ref={cvFrameRef} title="CV" srcDoc={view.package_documents?.find(doc => doc.language === selectedLanguage)?.cv_html || view.cv_html}
+          <iframe ref={cvFrameRef} title="CV" srcDoc={withMobileCvStyle(view.package_documents?.find(doc => doc.language === selectedLanguage)?.cv_html || view.cv_html)}
             sandbox="allow-same-origin allow-modals" onLoad={fitCvFrame}
             className="w-full rounded-lg border border-border bg-white"
-            style={{ height: cvFrameHeight ?? "calc(100vh - 220px)", minHeight: 600 }} />
+            style={{ height: cvFrameHeight ?? "70dvh", minHeight: 400 }} />
           </div>
           {showInteractive && view.chat_enabled && (
             <ChatPanel token={token} t={t} suggestions={suggestions} />

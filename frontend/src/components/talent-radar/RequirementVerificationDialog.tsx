@@ -117,7 +117,7 @@ export function RequirementVerificationDialog({ jobId, candidateId, candidateNam
   const [busy, setBusy] = useState(false);
   return <Dialog open={open} onOpenChange={value => { if (!busy) setOpen(value); }}>
     <Button size="sm" variant="outline" onClick={event => { event.stopPropagation(); setOpen(true); }}>Zweryfikuj wymaganie</Button>
-    {open && <DialogContent className="max-h-[85vh] overflow-y-auto" onClick={event => event.stopPropagation()}>
+    {open && <DialogContent className="max-h-[85dvh] overflow-y-auto" onClick={event => event.stopPropagation()}>
       <DialogHeader><DialogTitle>Weryfikacja: {candidateName}</DialogTitle><DialogDescription>Zapisujesz ocenę dla tej rekrutacji. Dowód pozostaje oddzielony od automatycznej ekstrakcji profilu.</DialogDescription></DialogHeader>
       <Editor key={`${jobId}:${candidateId}`} jobId={jobId} candidateId={candidateId} onSaved={onSaved} onBusy={setBusy} />
     </DialogContent>}

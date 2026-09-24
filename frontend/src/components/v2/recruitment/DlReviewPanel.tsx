@@ -523,7 +523,9 @@ export function DlReviewPanel({ task, open, onOpenChange, canSendToClient }: DlR
           </section>
         </SheetBody>
 
-        <SheetFooter className="block space-y-3 sm:block">
+        {/* Stopka niesie ostrzeżenie, formularz odrzucenia i stawkę — na
+            telefonie w poziomie wychodziła poza ekran razem z „Wyślij". */}
+        <SheetFooter className="block max-h-[50dvh] space-y-3 overflow-y-auto sm:block">
           {warning ? (
             <div role="alert" className="flex flex-wrap items-center gap-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs">
               <AlertTriangle className="size-4 shrink-0 text-warning" aria-hidden />

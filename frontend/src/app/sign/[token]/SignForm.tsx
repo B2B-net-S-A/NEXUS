@@ -194,13 +194,25 @@ export default function SignForm({
               powyżej.
             </p>
           ) : previewUrl ? (
-            <iframe
-              src={previewUrl}
-              title="Podgląd umowy"
-              className="w-full h-[460px] rounded-lg border border-border bg-white"
-            />
+            <>
+              {/* Przeglądarki mobilne nie przewijają PDF-a w ramce (Android:
+                  pusto, iOS: tylko 1. strona) — tam główną akcją jest otwarcie pliku. */}
+              <a
+                href={pdfUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex w-full items-center justify-center gap-2 rounded-lg border border-border bg-muted/30 px-4 py-6 text-sm font-medium hover:bg-muted/50 md:hidden"
+              >
+                <FileText className="h-4 w-4" /> Otwórz umowę (PDF)
+              </a>
+              <iframe
+                src={previewUrl}
+                title="Podgląd umowy"
+                className="hidden w-full h-[460px] rounded-lg border border-border bg-white md:block"
+              />
+            </>
           ) : (
-            <div className="flex h-[460px] items-center justify-center rounded-lg border border-border bg-muted/30">
+            <div className="flex h-24 md:h-[460px] items-center justify-center rounded-lg border border-border bg-muted/30">
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
             </div>
           )}

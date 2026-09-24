@@ -107,7 +107,7 @@
     "tasks": [
       {
         "q": "Jak dodać zaproponowaną osobę do rekrutacji?",
-        "a": "Kliknij osobę na liście, sprawdź dopasowanie w panelu z prawej i użyj „Dodaj do rekrutacji”. Skróty: D — dodaj, P — pomiń, strzałki — następna osoba.",
+        "a": "Kliknij osobę na liście, sprawdź dopasowanie w panelu obok listy (na węższym ekranie — pod nią) i użyj „Dodaj do rekrutacji”. Skróty: D — dodaj, P — pomiń, strzałki — następna osoba.",
         "anchor": "jobs.proposals.add"
       },
       {
@@ -340,7 +340,7 @@
     "title": "Rozmowy u klienta",
     "section": "pipeline",
     "roles": ["recruiter", "delivery_lead", "head_of_recruitment"],
-    "what": "Tu prowadzisz cykl rozmowy u klienta: terminy od klienta, wybór terminu, prep, rozmowę, telefon do kandydata do 30 minut po niej i debrief.",
+    "what": "Tu prowadzisz cykl rozmowy u klienta: terminy od klienta, wybór terminu, dwa prepy w Teams, rozmowę, telefon do kandydata do 30 minut po niej i debrief.",
     "tasks": [
       {
         "q": "Co mam dziś zrobić?",
@@ -358,8 +358,13 @@
         "anchor": "calendar.todo"
       },
       {
+        "q": "Jak zaplanować prep i zobaczyć jego ocenę?",
+        "a": "Przed rozmową u klienta są dwa prepy: Prep 1 prowadzi Delivery Lead, Prep 2 rekruter. W „Do zrobienia” kliknij „Zaplanuj Prep 1” (albo „Zaplanuj Prep 2”), wybierz prowadzącego i termin, potem „Zaplanuj w Teams”. Po spotkaniu przy prepie w Agendzie pojawi się „Ocena prepu” z oceną i transkryptem.",
+        "anchor": "calendar.todo"
+      },
+      {
         "q": "Jak zobaczyć cały zespół albo zwykły kalendarz?",
-        "a": "Przełączniki „Widok” (Agenda, Tydzień, Tablica) i „Zakres” (Moi kandydaci, Moje rekrutacje, Cały zespół) są w nagłówku. Tydzień to siatka z Outlookiem.",
+        "a": "Przełączniki „Widok” (Agenda, Tydzień, Tablica) i „Zakres” (Moi kandydaci, Moje rekrutacje, Cały zespół; na telefonie skrócone do Moi, Rekrutacje, Zespół) są w nagłówku. Tydzień to siatka z Outlookiem.",
         "anchor": "calendar.views"
       }
     ],

@@ -371,7 +371,7 @@ export function CproQueueDialog({ open, onClose, initialJobId = null }: CproQueu
 
   return (
     <Dialog open={open} onOpenChange={(next) => (!next ? onClose() : undefined)}>
-      <DialogContent size="2xl" className="flex max-h-[92vh] flex-col p-0" aria-describedby="cpro-queue-desc">
+      <DialogContent size="2xl" className="flex max-h-[92dvh] flex-col p-0" aria-describedby="cpro-queue-desc">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-3 pr-16">
           <div className="min-w-0 space-y-0.5">
             <p className="text-xs uppercase tracking-wider text-muted-foreground">Pulpit · Czeka na Ciebie</p>

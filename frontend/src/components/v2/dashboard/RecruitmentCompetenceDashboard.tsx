@@ -164,7 +164,7 @@ function ErrorCard({ onRetry }: { onRetry: () => void }) {
 function StageGrid({ counts }: { counts: RecruitmentOperationsStageCounts }) {
   return (
     <div
-      className="grid grid-cols-2 gap-2 sm:grid-cols-5"
+      className="grid grid-cols-2 gap-2 @xl:grid-cols-5"
       aria-label="Kandydaci według aktualnego statusu lejka"
     >
       {STAGES.map((stage) => {
@@ -296,7 +296,7 @@ function ProcessExpandedDetail({
     : NO_FAVORITE
 
   return (
-    <div className="grid gap-6 border-t border-border bg-muted/20 p-4 lg:grid-cols-[minmax(220px,0.8fr)_minmax(0,1.7fr)]">
+    <div className="grid gap-6 border-t border-border bg-muted/20 p-4 @4xl:grid-cols-[minmax(220px,0.8fr)_minmax(0,1.7fr)]">
       <section aria-labelledby={`favorite-heading-${jobId}`}>
         <div className="mb-3 flex items-center gap-2">
           <Star className="h-4 w-4 text-primary" />
@@ -354,7 +354,7 @@ function ProcessExpandedDetail({
             podobnych rekrutacji.
           </p>
         ) : detail.similar_processes.length ? (
-          <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+          <div className="mt-3 grid gap-2 @2xl:grid-cols-2 @5xl:grid-cols-3">
             {detail.similar_processes.map((similar) => (
               <Link
                 key={similar.job_id}
@@ -400,7 +400,7 @@ function ProcessRow({
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
       <article>
-        <div className="grid min-w-0 gap-4 p-4 lg:grid-cols-[minmax(190px,0.8fr)_minmax(330px,1.5fr)_minmax(230px,1fr)] lg:items-start">
+        <div className="grid min-w-0 gap-4 p-4 @4xl:grid-cols-[minmax(190px,0.8fr)_minmax(330px,1.5fr)_minmax(230px,1fr)] @4xl:items-start">
           <div className="min-w-0">
             <div className="flex flex-wrap items-start gap-2">
               <Link
@@ -638,7 +638,7 @@ function CategoryGroup({
         <CollapsibleTrigger asChild>
           <button
             type="button"
-            className="flex w-full flex-col gap-3 bg-muted/30 px-4 py-3 text-left transition-colors hover:bg-muted/60 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:flex-row sm:items-center sm:justify-between"
+            className="flex w-full flex-col gap-3 bg-muted/30 px-4 py-3 text-left transition-colors hover:bg-muted/60 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring @xl:flex-row @xl:items-center @xl:justify-between"
           >
             <span className="flex min-w-0 items-center gap-2.5">
               <ChevronDown
@@ -658,7 +658,7 @@ function CategoryGroup({
                 </span>
               </span>
             </span>
-            <span className="flex flex-wrap gap-1.5 pl-6 sm:justify-end sm:pl-0">
+            <span className="flex flex-wrap gap-1.5 pl-6 @xl:justify-end @xl:pl-0">
               <Badge variant="soft" size="sm">
                 {sharedCandidateLabel(category.shared_candidates)}
               </Badge>
@@ -671,7 +671,7 @@ function CategoryGroup({
 
         <CollapsibleContent>
           {category.shared_candidates > 0 ? (
-            <div className="flex flex-col gap-2 border-t border-border bg-primary/5 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-2 border-t border-border bg-primary/5 px-4 py-3 text-sm @xl:flex-row @xl:items-center @xl:justify-between">
               <span className="flex items-center gap-2 text-foreground">
                 <Shuffle className="h-4 w-4 shrink-0 text-primary" />
                 <span>
@@ -795,12 +795,14 @@ export function RecruitmentCompetenceDashboard({
     : 1
 
   return (
+    // `@container`: widżet stoi w kafelku pulpitu (min. w=6 = 422–554 px),
+    // więc układ zależy od szerokości KAFELKA, nie okna (audyt 23.09.2026).
     <section
-      className="space-y-4"
+      className="@container space-y-4"
       data-testid="recruitment-competence-dashboard"
       aria-labelledby="recruitment-competence-heading"
     >
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+      <div className="flex flex-col gap-3 @4xl:flex-row @4xl:items-end @4xl:justify-between">
         <div>
           <h2
             id="recruitment-competence-heading"
@@ -820,8 +822,8 @@ export function RecruitmentCompetenceDashboard({
         ) : null}
       </div>
 
-      <div className="flex flex-col gap-3 sm:flex-row">
-        <div className="relative min-w-0 flex-1 sm:max-w-md">
+      <div className="flex flex-col gap-3 @xl:flex-row">
+        <div className="relative min-w-0 flex-1 @xl:max-w-md">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={search}
@@ -838,7 +840,7 @@ export function RecruitmentCompetenceDashboard({
           }
         >
           <SelectTrigger
-            className="w-full sm:w-64"
+            className="w-full @xl:w-64"
             aria-label="Kategoria kompetencji"
           >
             <SelectValue placeholder="Wszystkie kompetencje" />

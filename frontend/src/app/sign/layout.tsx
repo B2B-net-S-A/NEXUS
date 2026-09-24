@@ -10,6 +10,6 @@ export default function SignLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="min-h-screen bg-background text-foreground">{children}</div>
+    <div className="min-h-screen min-h-dvh bg-background text-foreground">{children}</div>
   );
 }

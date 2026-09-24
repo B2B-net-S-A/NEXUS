@@ -495,7 +495,7 @@ export function ClientsListV2() {
                   )}`}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {/* Jednorazowe czyszczenie — tylko w zakładce, której dotyczy,
               i tylko dla administratora portfela (backend: AdminUser). Po
               wykonaniu ten sam przycisk otwiera raport z dwiema listami. */}
@@ -600,7 +600,7 @@ export function ClientsListV2() {
             <button
               type="button"
               onClick={clearSearch}
-              className="absolute right-2 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="absolute right-2 top-1/2 inline-flex h-7 w-7 pointer-coarse:h-9 pointer-coarse:w-9 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               aria-label="Wyczyść wyszukiwanie"
             >
               <X className="h-4 w-4" aria-hidden="true" />
@@ -645,7 +645,9 @@ export function ClientsListV2() {
                 handleCategoryKeyDown(event, itemCategory)
               }
               className={cn(
-                "flex min-h-24 items-center gap-3 rounded-xl border bg-card p-4 text-left transition-colors",
+                // Na telefonie trzy kafle jeden pod drugim zajmowały ~330 px
+                // wysokości — opis schodzi do `sm`, kafel robi się niższy.
+                "flex items-center gap-3 rounded-xl border bg-card p-3 text-left transition-colors sm:min-h-24 sm:p-4",
                 "hover:border-primary/50 hover:bg-primary/5",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                 selected
@@ -655,7 +657,7 @@ export function ClientsListV2() {
             >
               <span
                 className={cn(
-                  "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl",
+                  "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl sm:h-11 sm:w-11",
                   meta.iconClassName,
                 )}
               >
@@ -665,7 +667,7 @@ export function ClientsListV2() {
                 <span className="block text-sm font-semibold text-foreground">
                   {meta.title}
                 </span>
-                <span className="mt-0.5 block text-xs text-muted-foreground">
+                <span className="mt-0.5 hidden text-xs text-muted-foreground sm:block">
                   {meta.description}
                 </span>
               </span>
@@ -692,7 +694,9 @@ export function ClientsListV2() {
           <Table density="cozy" className="min-w-[900px]">
             <TableHeader>
               <TableRow>
-                <TableHead>Firma</TableHead>
+                {/* Pierwsza kolumna przyklejona: tabela ma 900 px, na telefonie
+                    po przewinięciu w bok wiadomo, czyj to wiersz. */}
+                <TableHead className="sticky left-0 z-10 bg-background">Firma</TableHead>
                 <TableHead>Branża</TableHead>
                 <TableHead>Aktywni konsultanci / kontrakty</TableHead>
                 <TableHead>Start umowy</TableHead>
@@ -858,7 +862,10 @@ export function ClientsListV2() {
                     item.contract_end_override !== null;
                   return (
                     <TableRow key={item.scope_id} interactive>
-                      <TableCell>
+                      {/* Nieprzezroczyste tło przyklejonej komórki zasłaniałoby
+                          podświetlenie wiersza (`hover:bg-primary/10`) — ten sam
+                          odcień nakładamy gradientem na `bg-card`. */}
+                      <TableCell className="sticky left-0 z-10 bg-card [tr:hover_&]:bg-[linear-gradient(hsl(var(--primary)/0.1),hsl(var(--primary)/0.1))]">
                         <div className="flex items-center gap-2">
                           <Link
                             href={`/clients/${item.client_id}`}

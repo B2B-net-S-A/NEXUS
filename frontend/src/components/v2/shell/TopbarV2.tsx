@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Gamepad2, Menu, Moon, Search, Sun } from "lucide-react";
+import { Menu, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
@@ -12,71 +12,7 @@ import { NotificationsDropdown } from "@/components/NotificationsDropdown";
 import { MyKpiWidget } from "@/components/v2/kpi/MyKpiWidget";
 import { PaletteSwitcher } from "./PaletteSwitcher";
 import { MyPeopleTopbarButton } from "@/components/v2/my-people/MyPeopleLauncher";
-import { useThemeStore } from "@/store/theme";
-import { celebrate } from "@/lib/celebrate";
-
-function ThemeToggleButton() {
-  const theme = useThemeStore((s) => s.theme);
-  const toggleTheme = useThemeStore((s) => s.toggleTheme);
-  const [mounted, setMounted] = useState(false);
-
-  // Avoid hydration mismatch — theme is read from localStorage on client only.
-  useEffect(() => setMounted(true), []);
-
-  if (!mounted) {
-    return <div className="h-8 w-8" aria-hidden />;
-  }
-
-  const isDark = theme === "dark";
-  return (
-    <button
-      onClick={toggleTheme}
-      aria-label={isDark ? "Włącz tryb jasny" : "Włącz tryb ciemny"}
-      title={isDark ? "Tryb jasny" : "Tryb ciemny"}
-      className="h-8 w-8 flex items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-    >
-      {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-    </button>
-  );
-}
-
-function KidsModeToggleButton() {
-  const kidsMode = useThemeStore((s) => s.kidsMode);
-  const toggleKidsMode = useThemeStore((s) => s.toggleKidsMode);
-  const [mounted, setMounted] = useState(false);
-
-  // Avoid hydration mismatch — kidsMode is read from localStorage on client only.
-  useEffect(() => setMounted(true), []);
-
-  if (!mounted) {
-    return <div className="h-8 w-8" aria-hidden />;
-  }
-
-  const onToggle = () => {
-    const turningOn = !kidsMode;
-    toggleKidsMode();
-    // Welcome burst when entering the game world (celebrate reads the freshly
-    // set state, so it fires only on enable).
-    if (turningOn) celebrate({ variant: "welcome", message: "Witaj w grze! 🎮" });
-  };
-
-  return (
-    <button
-      onClick={onToggle}
-      aria-label={kidsMode ? "Wyłącz tryb gry" : "Włącz tryb gry (Kids)"}
-      title={kidsMode ? "Wyłącz tryb gry" : "Tryb gry (Kids)"}
-      aria-pressed={kidsMode}
-      className={cn(
-        "h-8 w-8 flex items-center justify-center rounded-md transition-colors",
-        kidsMode
-          ? "bg-primary/10 text-primary"
-          : "text-muted-foreground hover:bg-muted hover:text-foreground"
-      )}
-    >
-      <Gamepad2 className="h-4 w-4" />
-    </button>
-  );
-}
+import { KidsModeToggleButton, ThemeToggleButton } from "./ThemeControls";
 
 interface Props {
   onOpenMobileSidebar: () => void;
@@ -102,19 +38,21 @@ export function TopbarV2({
   return (
     <header
       className={cn(
-        "h-12 shrink-0 flex items-center gap-3 px-4 md:px-5",
+        "h-12 shrink-0 flex items-center gap-2 sm:gap-3 px-3 md:px-5",
         "bg-background border-b border-border"
       )}
     >
       <button
         onClick={onOpenMobileSidebar}
         aria-label="Otwórz menu"
-        className="md:hidden h-8 w-8 flex items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+        className="md:hidden h-10 w-10 -ml-1 shrink-0 flex items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
       >
         <Menu className="h-4 w-4" />
       </button>
 
-      <div className="hidden md:flex min-w-0 max-w-[360px] flex-1 md:flex-none">
+      {/* Okruszki kurczą się (`md:flex-initial`, nie `flex-none`) — na
+          tablecie nie wypychają dzwonka i „Dodaj” poza ekran. */}
+      <div className="hidden md:flex min-w-0 max-w-[360px] flex-1 md:flex-initial">
         <BreadcrumbV2 />
       </div>
 
@@ -122,7 +60,7 @@ export function TopbarV2({
         onClick={onOpenCommandPalette}
         aria-label="Otwórz wyszukiwanie"
         className={cn(
-          "flex-1 max-w-md mx-auto flex items-center gap-2 h-8 px-3",
+          "flex-1 min-w-0 max-w-md mx-auto flex items-center gap-2 h-8 px-3",
           "rounded-md border border-border",
           "bg-muted/50 hover:bg-muted transition-colors",
           "text-left text-sm text-muted-foreground"
@@ -130,17 +68,20 @@ export function TopbarV2({
       >
         <Search className="h-4 w-4 shrink-0" />
         <span className="truncate">Szukaj kandydatów, rekrutacji, klientów…</span>
-        <div className="ml-auto flex items-center gap-1 shrink-0">
+        <div className="ml-auto hidden sm:flex items-center gap-1 shrink-0">
           <Kbd>{isMac ? "⌘" : "Ctrl"}</Kbd>
           <Kbd>K</Kbd>
         </div>
       </button>
 
-      <div className="flex items-center gap-2 shrink-0">
+      <div className="flex items-center gap-1 sm:gap-2 shrink-0">
         <MyKpiWidget variant="compact" className="hidden md:block" />
-        <PaletteSwitcher />
-        <KidsModeToggleButton />
-        <ThemeToggleButton />
+        {/* Na telefonie przełączniki wyglądu są w szufladzie nawigacji. */}
+        <div className="hidden sm:flex items-center gap-2">
+          <PaletteSwitcher />
+          <KidsModeToggleButton />
+          <ThemeToggleButton />
+        </div>
         <MyPeopleTopbarButton />
         <NotificationsDropdown />
         <QuickActionsV2

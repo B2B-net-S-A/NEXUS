@@ -58,7 +58,7 @@ export function FullCandidateSearchStatus({ data, offset, onPage, fetching = fal
           {counts.needs_verification > 0 && ` · ocena niepełna: ${counts.needs_verification}`}
           {counts.failed > 0 && ` · nie udało się ocenić: ${counts.failed}`}
         </p>
-        <div className="flex items-center gap-2 text-xs">
+        <div className="flex flex-wrap items-center gap-2 text-xs">
           <Button size="sm" variant="outline" disabled={offset === 0 || fetching} onClick={() => onPage(Math.max(0, offset - 20))}>Poprzednia</Button>
           <span className="tabular-nums text-muted-foreground">Strona {Math.floor(offset / 20) + 1} · {data.total_after_threshold ?? 0} po progu</span>
           <Button size="sm" variant="outline" disabled={data.next_offset == null || fetching} onClick={() => { if (data.next_offset != null) onPage(data.next_offset); }}>Następna</Button>
@@ -98,7 +98,7 @@ export function FullCandidateSearchStatus({ data, offset, onPage, fetching = fal
       {data.metrics?.elapsed_ms != null && <p className="text-xs text-muted-foreground">
         {`Czas przeglądu: ${(data.metrics.elapsed_ms / 1000).toFixed(1)} s.`}
       </p>}
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <Button variant="outline" disabled={offset === 0 || fetching} onClick={() => onPage(Math.max(0, offset - 20))}>Poprzednia</Button>
         <span>Strona {Math.floor(offset / 20) + 1} · wyników w przeglądzie po progu: {data.total_after_threshold ?? 0}</span>
         <Button variant="outline" disabled={data.next_offset == null || fetching} onClick={() => { if (data.next_offset != null) onPage(data.next_offset); }}>Następna</Button>

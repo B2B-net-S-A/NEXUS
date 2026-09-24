@@ -291,317 +291,320 @@ export function ExtendOrderDialog({
           }
           mutation.mutate();
         }}
-        className="bg-card rounded-lg shadow-xl max-w-md w-full p-6 space-y-3 max-h-[90vh] overflow-auto"
+        className="bg-card rounded-lg shadow-xl max-w-md w-full p-6 flex max-h-[90dvh] flex-col gap-3"
       >
-        <div>
-          <h3 className="text-lg font-semibold">Nowe zamówienie / przedłużenie</h3>
-          <p className="text-xs text-muted-foreground mt-1">
-            Dla: <strong>{contract.candidate_name}</strong> · Contract #{contract.contract_id}
-          </p>
-        </div>
-
-        {/* Baner „Sprawdź dane!" — nad tytułem zamówienia, gdy odczyt niepewny. */}
-        <ExtractedConsultants rows={extractedRows} />
-          {checkData && (
-          <div
-            role="alert"
-            className="flex items-start gap-2 rounded-md border border-orange-300 bg-orange-50 px-3 py-2 text-orange-800 dark:border-orange-800 dark:bg-orange-950/40 dark:text-orange-200"
-          >
-            <AlertTriangle
-              className="w-5 h-5 shrink-0 mt-0.5 text-orange-500"
-              aria-hidden
-            />
-            <div className="text-sm">
-              <span className="font-bold">Sprawdź dane!</span>
-              {checkReasons.length > 0 && (
-                <ul className="mt-1 list-disc list-inside text-xs text-orange-700 dark:text-orange-300 space-y-0.5">
-                  {checkReasons.map((r, i) => (
-                    <li key={i}>{r}</li>
-                  ))}
-                </ul>
-              )}
-            </div>
+        {/* Treść przewija się w środku, przyciski zostają widoczne (dvh:
+            na iOS `vh` liczy duży wiewport i stopka chowała się pod paskiem). */}
+        <div className="-mx-1 min-h-0 flex-1 space-y-3 overflow-y-auto px-1">
+          <div>
+            <h3 className="text-lg font-semibold">Nowe zamówienie / przedłużenie</h3>
+            <p className="text-xs text-muted-foreground mt-1">
+              Dla: <strong>{contract.candidate_name}</strong> · Contract #{contract.contract_id}
+            </p>
           </div>
-        )}
 
-        {consultantRef !== null && (
-          <p
-            role="status"
-            className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-foreground"
-          >
-            Numer ID konsultanta z dokumentu:{" "}
-            <span className="font-semibold">{consultantRef}</span> — potwierdź,
-            że dokument dotyczy tej osoby.
-          </p>
-        )}
-
-        <label className="block">
-          <span className="text-sm">Numer zamówienia</span>
-          <input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            required
-            placeholder="np. 45767"
-            className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
-          />
-          {/* Polityka klientowa nie znalazła numeru — komunikat znika, gdy
-              użytkownik wpisze numer ręcznie (przestaje być aktualny). */}
-          {titleCheck && !title.trim() && (
-            <span className="text-xs text-destructive mt-0.5 block">
-              Sprawdź numer zamówienia
-            </span>
-          )}
-        </label>
-
-        <div className="grid grid-cols-2 gap-3">
-          <label>
-            <span className="text-sm">
-              Start <span className="text-destructive">*</span>
-            </span>
-            <input
-              type="text"
-              inputMode="numeric"
-              pattern={DATE_PATTERN}
-              placeholder={DATE_PLACEHOLDER}
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              onBlur={(e) => setStartDate(normalizeDateInput(e.target.value))}
-              // WYMAGANE, bo bez daty startu przedłużenie jest klasyfikowane
-              // jako ROZPOCZĘTE (`splitOrders` traktuje NULL jak przeszłość,
-              // a backend sortuje NULL na koniec) i wpada do zwiniętej
-              // „Historii zamówień" zamiast do „Przyszłego zamówienia".
-              // Użytkownik zgłasza to jako „zamówienie zniknęło".
-              required
-              className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
-            />
-          </label>
-          <label>
-            <span className="text-sm">Koniec</span>
-            <input
-              type="text"
-              inputMode="numeric"
-              pattern={DATE_PATTERN}
-              placeholder={DATE_PLACEHOLDER}
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-              onBlur={(e) => setEndDate(normalizeDateInput(e.target.value))}
-              className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
-            />
-          </label>
-        </div>
-
-        {canManageFinance && (
-          <div className="space-y-3 rounded-md border border-border bg-muted/20 p-3">
-            <div className="grid grid-cols-2 gap-3">
-              <label>
-                <span className="text-sm">Stawka przychodowa (klient)</span>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={rateClient}
-                  onChange={(e) =>
-                    setRateClient(sanitizeDecimalInput(e.target.value))
-                  }
-                  className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
-                  placeholder="np. 17000"
-                />
-                {/* Bank Pocztowy: dokument podaje stawkę za 1 MD (8 h) — pole
-                    wyżej ma już przeliczoną stawkę godzinową (edytowalną),
-                    a oryginał z dokumentu zostaje widoczny obok. */}
-                {rateMdOriginal !== null && (
-                  <span className="text-xs text-muted-foreground mt-0.5 block">
-                    Z dokumentu: {rateMdOriginal} {rateClientCurrency}/MD →
-                    przeliczono na stawkę godzinową (÷ 8, w górę do 2 miejsc)
-                  </span>
-                )}
-                {grossConversion !== null && (
-                  <span className="text-xs text-muted-foreground mt-0.5 block">
-                    Z dokumentu: {grossConversion.gross} {rateClientCurrency}/h
-                    brutto → {grossConversion.net} {rateClientCurrency}/h netto
-                    (÷ 1,23)
-                  </span>
-                )}
-              </label>
-              <label>
-                <span className="text-sm">Stawka kosztowa (kontraktor)</span>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={rateCandidate}
-                  onChange={(e) =>
-                    setRateCandidate(sanitizeDecimalInput(e.target.value))
-                  }
-                  className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
-                  placeholder="np. 12000"
-                />
-                {rateCandidateNum !== null &&
-                  rateClientNum !== null &&
-                  rateCandidateCurrency === rateClientCurrency && (
-                  <span className="text-xs text-green-700 mt-0.5 block">
-                    marża: {rateClientNum - rateCandidateNum} {rateClientCurrency}
-                  </span>
-                )}
-              </label>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2 sm:items-end">
-              <div className="sm:col-span-2">
-                <OrderRateUnitToggle
-                  value={rateUnit}
-                  rateCandidate={rateCandidate}
-                  rateClient={rateClient}
-                  onValueChange={setRateUnit}
-                onRateCandidateChange={setRateCandidate}
-                onRateClientChange={setRateClient}
-                billingHoursPerMonth={rateBillingHours}
+          {/* Baner „Sprawdź dane!" — nad tytułem zamówienia, gdy odczyt niepewny. */}
+          <ExtractedConsultants rows={extractedRows} />
+            {checkData && (
+            <div
+              role="alert"
+              className="flex items-start gap-2 rounded-md border border-orange-300 bg-orange-50 px-3 py-2 text-orange-800 dark:border-orange-800 dark:bg-orange-950/40 dark:text-orange-200"
+            >
+              <AlertTriangle
+                className="w-5 h-5 shrink-0 mt-0.5 text-orange-500"
+                aria-hidden
               />
+              <div className="text-sm">
+                <span className="font-bold">Sprawdź dane!</span>
+                {checkReasons.length > 0 && (
+                  <ul className="mt-1 list-disc list-inside text-xs text-orange-700 dark:text-orange-300 space-y-0.5">
+                    {checkReasons.map((r, i) => (
+                      <li key={i}>{r}</li>
+                    ))}
+                  </ul>
+                )}
               </div>
-              <OrderCurrencySelect
-                value={rateClientCurrency}
-                onChange={setRateClientCurrency}
-              />
-              <OrderCurrencySelect
-                value={rateCandidateCurrency}
-                onChange={setRateCandidateCurrency}
-                label="Waluta stawki kosztowej"
-                ariaLabel="Waluta stawki kosztowej"
-              />
             </div>
-            {rateClientNum !== null &&
-              rateCandidateNum !== null &&
-              rateClientCurrency !== rateCandidateCurrency && (
-                <p className="text-xs text-muted-foreground">
-                  Marża zostanie pokazana po niezależnym przeliczeniu obu stawek
-                  do PLN.
-                </p>
-              )}
-            {unitChangeNotice ? (
-              <p role="status" className="text-xs text-primary">
-                {unitChangeNotice}
-              </p>
-            ) : null}
-            <label className="block">
-              <span className="text-sm">Total value (opcjonalnie)</span>
+          )}
+
+          {consultantRef !== null && (
+            <p
+              role="status"
+              className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-foreground"
+            >
+              Numer ID konsultanta z dokumentu:{" "}
+              <span className="font-semibold">{consultantRef}</span> — potwierdź,
+              że dokument dotyczy tej osoby.
+            </p>
+          )}
+
+          <label className="block">
+            <span className="text-sm">Numer zamówienia</span>
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              required
+              placeholder="np. 45767"
+              className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
+            />
+            {/* Polityka klientowa nie znalazła numeru — komunikat znika, gdy
+                użytkownik wpisze numer ręcznie (przestaje być aktualny). */}
+            {titleCheck && !title.trim() && (
+              <span className="text-xs text-destructive mt-0.5 block">
+                Sprawdź numer zamówienia
+              </span>
+            )}
+          </label>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <label>
+              <span className="text-sm">
+                Start <span className="text-destructive">*</span>
+              </span>
               <input
                 type="text"
-                inputMode="decimal"
-                value={totalValue}
-                onChange={(e) =>
-                  setTotalValue(sanitizeDecimalInput(e.target.value))
-                }
+                inputMode="numeric"
+                pattern={DATE_PATTERN}
+                placeholder={DATE_PLACEHOLDER}
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                onBlur={(e) => setStartDate(normalizeDateInput(e.target.value))}
+                // WYMAGANE, bo bez daty startu przedłużenie jest klasyfikowane
+                // jako ROZPOCZĘTE (`splitOrders` traktuje NULL jak przeszłość,
+                // a backend sortuje NULL na koniec) i wpada do zwiniętej
+                // „Historii zamówień" zamiast do „Przyszłego zamówienia".
+                // Użytkownik zgłasza to jako „zamówienie zniknęło".
+                required
+                className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
+              />
+            </label>
+            <label>
+              <span className="text-sm">Koniec</span>
+              <input
+                type="text"
+                inputMode="numeric"
+                pattern={DATE_PATTERN}
+                placeholder={DATE_PLACEHOLDER}
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                onBlur={(e) => setEndDate(normalizeDateInput(e.target.value))}
                 className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
               />
             </label>
           </div>
-        )}
 
-        <label className="block">
-          <span className="text-sm">Job ID (rekrutacja, z której przedłużenie)</span>
-          <input
-            type="number"
-            value={jobId}
-            onChange={(e) => setJobId(e.target.value)}
-            className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
-            placeholder={contract.initial_job_id?.toString() ?? "—"}
-          />
-        </label>
+          {canManageFinance && (
+            <div className="space-y-3 rounded-md border border-border bg-muted/20 p-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <label>
+                  <span className="text-sm">Stawka przychodowa (klient)</span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={rateClient}
+                    onChange={(e) =>
+                      setRateClient(sanitizeDecimalInput(e.target.value))
+                    }
+                    className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
+                    placeholder="np. 17000"
+                  />
+                  {/* Bank Pocztowy: dokument podaje stawkę za 1 MD (8 h) — pole
+                      wyżej ma już przeliczoną stawkę godzinową (edytowalną),
+                      a oryginał z dokumentu zostaje widoczny obok. */}
+                  {rateMdOriginal !== null && (
+                    <span className="text-xs text-muted-foreground mt-0.5 block">
+                      Z dokumentu: {rateMdOriginal} {rateClientCurrency}/MD →
+                      przeliczono na stawkę godzinową (÷ 8, w górę do 2 miejsc)
+                    </span>
+                  )}
+                  {grossConversion !== null && (
+                    <span className="text-xs text-muted-foreground mt-0.5 block">
+                      Z dokumentu: {grossConversion.gross} {rateClientCurrency}/h
+                      brutto → {grossConversion.net} {rateClientCurrency}/h netto
+                      (÷ 1,23)
+                    </span>
+                  )}
+                </label>
+                <label>
+                  <span className="text-sm">Stawka kosztowa (kontraktor)</span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={rateCandidate}
+                    onChange={(e) =>
+                      setRateCandidate(sanitizeDecimalInput(e.target.value))
+                    }
+                    className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
+                    placeholder="np. 12000"
+                  />
+                  {rateCandidateNum !== null &&
+                    rateClientNum !== null &&
+                    rateCandidateCurrency === rateClientCurrency && (
+                    <span className="text-xs text-green-700 mt-0.5 block">
+                      marża: {rateClientNum - rateCandidateNum} {rateClientCurrency}
+                    </span>
+                  )}
+                </label>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2 sm:items-end">
+                <div className="sm:col-span-2">
+                  <OrderRateUnitToggle
+                    value={rateUnit}
+                    rateCandidate={rateCandidate}
+                    rateClient={rateClient}
+                    onValueChange={setRateUnit}
+                  onRateCandidateChange={setRateCandidate}
+                  onRateClientChange={setRateClient}
+                  billingHoursPerMonth={rateBillingHours}
+                />
+                </div>
+                <OrderCurrencySelect
+                  value={rateClientCurrency}
+                  onChange={setRateClientCurrency}
+                />
+                <OrderCurrencySelect
+                  value={rateCandidateCurrency}
+                  onChange={setRateCandidateCurrency}
+                  label="Waluta stawki kosztowej"
+                  ariaLabel="Waluta stawki kosztowej"
+                />
+              </div>
+              {rateClientNum !== null &&
+                rateCandidateNum !== null &&
+                rateClientCurrency !== rateCandidateCurrency && (
+                  <p className="text-xs text-muted-foreground">
+                    Marża zostanie pokazana po niezależnym przeliczeniu obu stawek
+                    do PLN.
+                  </p>
+                )}
+              {unitChangeNotice ? (
+                <p role="status" className="text-xs text-primary">
+                  {unitChangeNotice}
+                </p>
+              ) : null}
+              <label className="block">
+                <span className="text-sm">Total value (opcjonalnie)</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={totalValue}
+                  onChange={(e) =>
+                    setTotalValue(sanitizeDecimalInput(e.target.value))
+                  }
+                  className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
+                />
+              </label>
+            </div>
+          )}
 
-        {/* „Umowa wykonawcza" — tylko Centrum e-Zdrowia. */}
-        {ezdrowie && (
           <label className="block">
-            <span className="text-sm">Umowa wykonawcza *</span>
-            <select
-              value={executiveContractId}
-              onChange={(e) => setExecutiveContractId(e.target.value)}
-              aria-label="Umowa wykonawcza"
+            <span className="text-sm">Job ID (rekrutacja, z której przedłużenie)</span>
+            <input
+              type="number"
+              value={jobId}
+              onChange={(e) => setJobId(e.target.value)}
               className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
-            >
-              <option value="">— wybierz —</option>
-              {executiveContracts.groups.map((group) => (
-                <optgroup key={group.framework_contract_id} label={group.label}>
-                  {group.options.map((ec) => (
-                    <option key={ec.id} value={String(ec.id)}>
-                      {executiveContractOptionLabel(ec)}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
-            {executiveContracts.isSuccess && executiveContracts.groups.length === 0 ? (
-              <p className="mt-1 text-xs text-muted-foreground">
-                Dodaj umowę wykonawczą w sekcji Struktura umów na profilu klienta.
-              </p>
-            ) : null}
+              placeholder={contract.initial_job_id?.toString() ?? "—"}
+            />
           </label>
-        )}
 
-        {/* Kafelek załącznika + przycisk odczytu — na dole formularza. Dodanie
-            pliku NIE uruchamia odczytu; to robi dopiero pomarańczowy przycisk. */}
-        <div className="pt-1">
-          <FileDropZone
-            inputId="order-pdf-input"
-            file={file}
-            onPick={(picked) => {
-              // Sam wybór pliku NIC nie zmienia w polach — kasuje tylko baner
-              // z poprzedniego odczytu (dotyczył innego pliku).
-              setFile(picked);
-              setFileError(null);
-              setExtractedRows([]);
-              setCheckData(false);
-              setCheckReasons([]);
-              setTitleCheck(false);
-              setConsultantRef(null);
-              setRateMdOriginal(null);
-              setGrossConversion(null);
-              setUnitChangeNotice(null);
-            }}
-            onError={setFileError}
-            error={fileError}
-            accept=".pdf,.docx,.doc"
-            maxBytes={25 * 1024 * 1024}
-            label="PDF zamówienia od klienta"
-            hint=".pdf / .docx · przeciągnij plik tutaj lub wybierz z dysku · maks. 25 MB"
-          />
-          <div className="mt-2 flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleExtract}
-              disabled={!file || extracting}
-              className="flex-1 inline-flex items-center justify-center gap-2 rounded-md bg-orange-500 px-3 py-2 text-sm font-semibold text-white hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {extracting ? "Odczytywanie…" : "Zczytaj dane z dokumentu"}
-            </button>
-            {file ? (
+          {/* „Umowa wykonawcza" — tylko Centrum e-Zdrowia. */}
+          {ezdrowie && (
+            <label className="block">
+              <span className="text-sm">Umowa wykonawcza *</span>
+              <select
+                value={executiveContractId}
+                onChange={(e) => setExecutiveContractId(e.target.value)}
+                aria-label="Umowa wykonawcza"
+                className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
+              >
+                <option value="">— wybierz —</option>
+                {executiveContracts.groups.map((group) => (
+                  <optgroup key={group.framework_contract_id} label={group.label}>
+                    {group.options.map((ec) => (
+                      <option key={ec.id} value={String(ec.id)}>
+                        {executiveContractOptionLabel(ec)}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+              {executiveContracts.isSuccess && executiveContracts.groups.length === 0 ? (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Dodaj umowę wykonawczą w sekcji Struktura umów na profilu klienta.
+                </p>
+              ) : null}
+            </label>
+          )}
+
+          {/* Kafelek załącznika + przycisk odczytu — na dole formularza. Dodanie
+              pliku NIE uruchamia odczytu; to robi dopiero pomarańczowy przycisk. */}
+          <div className="pt-1">
+            <FileDropZone
+              inputId="order-pdf-input"
+              file={file}
+              onPick={(picked) => {
+                // Sam wybór pliku NIC nie zmienia w polach — kasuje tylko baner
+                // z poprzedniego odczytu (dotyczył innego pliku).
+                setFile(picked);
+                setFileError(null);
+                setExtractedRows([]);
+                setCheckData(false);
+                setCheckReasons([]);
+                setTitleCheck(false);
+                setConsultantRef(null);
+                setRateMdOriginal(null);
+                setGrossConversion(null);
+                setUnitChangeNotice(null);
+              }}
+              onError={setFileError}
+              error={fileError}
+              accept=".pdf,.docx,.doc"
+              maxBytes={25 * 1024 * 1024}
+              label="PDF zamówienia od klienta"
+              hint=".pdf / .docx · przeciągnij plik tutaj lub wybierz z dysku · maks. 25 MB"
+            />
+            <div className="mt-2 flex items-center gap-2">
               <button
                 type="button"
-                aria-label="Usuń plik PDF zamówienia"
-                title="Usuń plik"
-                onClick={() => {
-                  if (
-                    window.confirm(
-                      "Czy na pewno chcesz usunąć plik PDF zamówienia?",
-                    )
-                  ) {
-                    setFile(null);
-                    setFileError(null);
-                    setExtractedRows([]);
-                    setCheckData(false);
-                    setCheckReasons([]);
-                    setTitleCheck(false);
-                    setConsultantRef(null);
-                    setRateMdOriginal(null);
-                    setGrossConversion(null);
-                    setUnitChangeNotice(null);
-                  }
-                }}
-                className="rounded-md border border-destructive/40 p-2 text-destructive hover:bg-destructive/10"
+                onClick={handleExtract}
+                disabled={!file || extracting}
+                className="flex-1 inline-flex items-center justify-center gap-2 rounded-md bg-orange-500 px-3 py-2 text-sm font-semibold text-white hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <Trash2 className="h-4 w-4" aria-hidden />
+                {extracting ? "Odczytywanie…" : "Zczytaj dane z dokumentu"}
               </button>
-            ) : null}
+              {file ? (
+                <button
+                  type="button"
+                  aria-label="Usuń plik PDF zamówienia"
+                  title="Usuń plik"
+                  onClick={() => {
+                    if (
+                      window.confirm(
+                        "Czy na pewno chcesz usunąć plik PDF zamówienia?",
+                      )
+                    ) {
+                      setFile(null);
+                      setFileError(null);
+                      setExtractedRows([]);
+                      setCheckData(false);
+                      setCheckReasons([]);
+                      setTitleCheck(false);
+                      setConsultantRef(null);
+                      setRateMdOriginal(null);
+                      setGrossConversion(null);
+                      setUnitChangeNotice(null);
+                    }
+                  }}
+                  className="rounded-md border border-destructive/40 p-2 text-destructive hover:bg-destructive/10"
+                >
+                  <Trash2 className="h-4 w-4" aria-hidden />
+                </button>
+              ) : null}
+            </div>
           </div>
         </div>
-
-        <div className="flex justify-end gap-2 pt-2">
+        <div className="flex shrink-0 justify-end gap-2 pt-2">
           <button
             type="button"
             onClick={onClose}

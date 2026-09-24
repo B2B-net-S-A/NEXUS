@@ -13,6 +13,7 @@ import {
   Calendar,
   FileSignature,
   FileText,
+  GraduationCap,
   GitBranch,
   Handshake,
   Heart,
@@ -364,6 +365,21 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     // `user` dostałby 403.
     roles: [...CAPABILITY_ROLES["nav.candidates"]],
     placement: "primary",
+    inPalette: true,
+  },
+  {
+    // Akademia (0369): nabór do programów szkoleniowych. Backend:
+    // sekcja Pipeline + RecruiterPlus (role operacyjne) — viewer `user` poza.
+    id: "academy",
+    moreHint: "Nabór z ogłoszeń: telefon, spotkanie, zadanie, umowa",
+    href: "/academy",
+    label: "Akademia",
+    icon: GraduationCap,
+    section: "pipeline",
+    roles: [...CAPABILITY_ROLES["nav.candidates"]],
+    placement: "more",
+    moreGroup: "daily",
+    paletteKeywords: ["akademia rekrutera", "nabór", "szkolenie"],
     inPalette: true,
   },
   {

@@ -86,7 +86,7 @@ export function EntityHeader({
       </div>
 
       {actions ? (
-        <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">
+        <div className="flex shrink-0 flex-wrap items-center gap-2 sm:max-w-[60%] sm:justify-end">
           {actions}
         </div>
       ) : null}

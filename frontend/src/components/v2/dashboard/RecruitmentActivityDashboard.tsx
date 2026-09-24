@@ -227,8 +227,8 @@ function ActivityDetails({
     : 1
 
   return (
-    <div className="border-t border-border bg-muted/20 px-4 py-4 sm:px-5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="border-t border-border bg-muted/20 px-4 py-4 @xl:px-5">
+      <div className="flex flex-col gap-3 @xl:flex-row @xl:items-center @xl:justify-between">
         <div>
           <h3 className="text-sm font-semibold text-foreground">
             Osoby: {metricLabel(metric)}
@@ -280,7 +280,7 @@ function ActivityDetails({
             {query.data.items.map((item, index) => (
               <div
                 key={`${item.candidate.id}-${item.job.id}-${item.reached_at}-${index}`}
-                className="grid gap-2 px-3 py-3 sm:grid-cols-[minmax(180px,0.8fr)_minmax(220px,1fr)_auto] sm:items-center"
+                className="grid gap-2 px-3 py-3 @xl:grid-cols-[minmax(180px,0.8fr)_minmax(220px,1fr)_auto] @xl:items-center"
               >
                 <Link
                   href={item.candidate.href}
@@ -524,9 +524,11 @@ export function RecruitmentActivityDashboard({
     <section
       aria-labelledby="recruitment-activity-heading"
       data-testid="recruitment-activity-dashboard"
-      className="space-y-3"
+      // `@container`: ten sam widżet stoi w kafelku pulpitu (422–554 px)
+      // i na pełnej szerokości w Insights — układ liczony od własnej szerokości.
+      className="@container space-y-3"
     >
-      <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
+      <div className="flex flex-col gap-3 @5xl:flex-row @5xl:items-end @5xl:justify-between">
         <div className={embedded ? "sr-only" : undefined}>
           <h2
             id="recruitment-activity-heading"
@@ -539,9 +541,9 @@ export function RecruitmentActivityDashboard({
             rekrutacje.
           </p>
         </div>
-        <div className="grid gap-2 sm:grid-cols-3">
+        <div className="grid gap-2 @xl:grid-cols-3">
           <Select value={selectedPersonValue} onValueChange={selectPerson}>
-            <SelectTrigger className="w-full sm:w-56" aria-label="Osoba lub zespół">
+            <SelectTrigger className="w-full @xl:w-56" aria-label="Osoba lub zespół">
               <SelectValue placeholder="Osoba lub zespół" />
             </SelectTrigger>
             <SelectContent>
@@ -596,7 +598,7 @@ export function RecruitmentActivityDashboard({
         <div className="space-y-3">
           <Skeleton className="h-24 w-full rounded-xl" />
           <Skeleton className="h-36 w-full rounded-xl" />
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className="grid gap-3 @2xl:grid-cols-2">
             <Skeleton className="h-44 rounded-xl" />
             <Skeleton className="h-44 rounded-xl" />
           </div>
@@ -617,7 +619,7 @@ export function RecruitmentActivityDashboard({
           <Card className="overflow-hidden p-0">
             <div className="border-b border-border bg-muted/20 p-4">
               {query.data.verification_progress ? (
-                <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+                <div className="grid gap-3 @4xl:grid-cols-[minmax(0,1fr)_auto] @4xl:items-center">
                   <div>
                     <div className="flex flex-wrap items-baseline justify-between gap-2">
                       <div>
@@ -677,7 +679,7 @@ export function RecruitmentActivityDashboard({
                 </div>
               )}
             </div>
-            <div className="grid divide-y divide-border sm:grid-cols-2 sm:divide-x sm:divide-y-0 lg:grid-cols-5">
+            <div className="grid divide-y divide-border @xl:grid-cols-2 @xl:divide-x @xl:divide-y-0 @4xl:grid-cols-5">
               {METRICS.map((definition) => {
                 const counts = metricsByKey.get(definition.key) ?? {
                   metric: definition.key,
@@ -712,7 +714,7 @@ export function RecruitmentActivityDashboard({
             ) : null}
           </Card>
 
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className="grid gap-3 @2xl:grid-cols-2">
             {query.data.comparisons.map((comparison) => (
               <ComparisonCard
                 key={comparison.metric}

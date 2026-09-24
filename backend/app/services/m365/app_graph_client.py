@@ -21,7 +21,7 @@ tożsamości użytkownika: konstruktor (brak tokenów z bazy), bramkę
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Callable, Optional
 
 import httpx
 from fastapi.concurrency import run_in_threadpool
@@ -39,8 +39,15 @@ class AppOnlyTokenUnavailable(RuntimeError):
 class AppGraphClient(GraphClient):
     """``GraphClient`` bez użytkownika — ścieżki muszą być ``/users/{upn}/...``."""
 
-    def __init__(self) -> None:  # noqa: D107 — celowo bez super().__init__
+    def __init__(  # noqa: D107 — celowo bez super().__init__
+        self,
+        token_provider: Optional[Callable[..., Optional[str]]] = None,
+    ) -> None:
         # Klasa bazowa deszyfruje tokeny z wiersza połączenia; tu ich nie ma.
+        # ``token_provider`` wybiera REJESTRACJĘ aplikacji: domyślnie czytnik
+        # zamówień (``app_mail``), dla prepów w Teams osobna rejestracja
+        # (``teams_prep_auth``) — patrz docstring tamtego modułu.
+        self._token_provider = token_provider or acquire_app_token
         self._conn = None  # type: ignore[assignment]
         self._db = None  # type: ignore[assignment]
         self._client = httpx.AsyncClient(timeout=30.0, follow_redirects=True)
@@ -66,11 +73,11 @@ class AppGraphClient(GraphClient):
         # rotuje refresh-tokena.
         force = bool(self._access_token)
         token: Optional[str] = await run_in_threadpool(
-            acquire_app_token, force_refresh=force
+            self._token_provider, force_refresh=force
         )
         if not token:
             raise AppOnlyTokenUnavailable(
-                "app-only Graph token unavailable (check M365_CLIENT_ID/SECRET,"
-                " M365_MAIL_TENANT_ID and the app's admin consent)"
+                "app-only Graph token unavailable (check the app registration"
+                " client id/secret, M365_MAIL_TENANT_ID and its admin consent)"
             )
         self._access_token = token

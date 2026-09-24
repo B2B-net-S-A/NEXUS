@@ -624,7 +624,7 @@ export function OrderGroupFormModal({
                     "Nie udało się otworzyć pliku PDF.",
                   )
                 }
-                className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                className="rounded p-1 pointer-coarse:p-2.5 text-muted-foreground hover:bg-muted hover:text-foreground"
               >
                 <ExternalLink className="h-4 w-4" aria-hidden />
               </button>
@@ -642,7 +642,7 @@ export function OrderGroupFormModal({
                     "Nie udało się pobrać pliku PDF.",
                   )
                 }
-                className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                className="rounded p-1 pointer-coarse:p-2.5 text-muted-foreground hover:bg-muted hover:text-foreground"
               >
                 <Download className="h-4 w-4" aria-hidden />
               </button>
@@ -661,7 +661,7 @@ export function OrderGroupFormModal({
                     setCheckReasons([]);
                   }, "Nie udało się usunąć pliku PDF.");
                 }}
-                className="rounded p-1 text-destructive hover:bg-destructive/10"
+                className="rounded p-1 pointer-coarse:p-2.5 text-destructive hover:bg-destructive/10"
               >
                 <Trash2 className="h-4 w-4" aria-hidden />
               </button>

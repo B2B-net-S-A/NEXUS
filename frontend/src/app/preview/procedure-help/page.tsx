@@ -88,9 +88,9 @@ export default function ProcedureHelpPreview() {
   // przewijający okno pokazywał działający skok tam, gdzie na produkcji
   // czytelnik zostawał w miejscu.
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex h-dvh overflow-hidden">
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <main className="mx-auto max-w-5xl flex-1 space-y-8 overflow-y-auto p-6">
+        <main className="mx-auto max-w-5xl flex-1 space-y-8 overflow-y-auto p-4 md:p-6">
           <header>
             <h1 className="text-xl font-semibold text-foreground">
               Harness: treść procedury (Pomoc → Procedury)

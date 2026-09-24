@@ -328,7 +328,7 @@ export default function CandidatesListPreview() {
   return (
     <ToastProvider>
       <QueryClientProvider client={qc}>
-        <div className="min-h-screen bg-background p-6">
+        <div className="min-h-dvh bg-background p-4 sm:p-6">
           <CandidatesListV2 onRequestSearch={() => undefined} />
           <RequestSearchDialog
             open={dialogOpen}

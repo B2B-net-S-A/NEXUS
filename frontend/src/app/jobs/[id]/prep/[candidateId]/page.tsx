@@ -98,7 +98,7 @@ export default function PrepPage() {
 
  if (!Number.isFinite(jobId) || !Number.isFinite(candidateId)) {
  return (
- <div className="p-6 max-w-3xl mx-auto">
+ <div className="md:p-6 max-w-3xl mx-auto">
  <Card variant="default" size="md">
  <CardTitle>Nieprawidłowe parametry URL</CardTitle>
  <CardDescription>
@@ -110,17 +110,17 @@ export default function PrepPage() {
  }
 
  return (
- <div className="p-6 max-w-5xl mx-auto print:p-4 print:max-w-none">
- <header className="flex items-start justify-between gap-4 mb-6 print:mb-4">
- <div>
+ <div className="md:p-6 max-w-5xl mx-auto print:p-4 print:max-w-none">
+ <header className="flex flex-col gap-3 mb-6 sm:flex-row sm:items-start sm:justify-between sm:gap-4 print:mb-4">
+ <div className="min-w-0">
  <p className="text-xs uppercase tracking-wide text-muted-foreground mb-1">
  Przygotowanie do rozmowy
  </p>
- <h1 className="text-2xl font-bold text-foreground">
+ <h1 className="text-xl sm:text-2xl font-bold text-foreground">
  Prep kit · Job #{jobId} · Kandydat #{candidateId}
  </h1>
  </div>
- <div className="flex items-center gap-2 print:hidden">
+ <div className="flex shrink-0 items-center gap-2 print:hidden">
  <Button
  variant="outline"
  size="sm"

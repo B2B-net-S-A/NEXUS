@@ -1,4 +1,4 @@
-"""Cztery endpointy, które ciągnęły do pamięci procesu więcej, niż wypisywały.
+"""Trzy endpointy, które ciągnęły do pamięci procesu więcej, niż wypisywały.
 
 Wspólny wzorzec defektu: pętla `for x in rows: await db.scalar(...)` albo
 `select(Model)` bez limitu i bez projekcji. Każdy z nich przechodził recenzje,
@@ -6,8 +6,6 @@ bo odpowiedź jest POPRAWNA — kosztuje tylko tyle, ile nie widać w teście
 sprawdzającym samą treść. Dlatego te testy patrzą na WYKONANY SQL i na liczbę
 round-tripów, a nie na kształt JSON-a:
 
-* ``GET /api/fireflies/status``      — liczba w kafelku liczona przez `count()`,
-  a nie przez wciągnięcie wszystkich transkryptów (`Note.content` = Text).
 * ``GET /api/clients/{id}/orders``   — dwa SELECT-y na KAŻDE zamówienie znikają;
   kandydat i rekrutacja przychodzą z `selectinload`.
 * ``GET /api/calendar/events``       — trzy SELECT-y na KAŻDE wydarzenie znikają;
@@ -41,7 +39,6 @@ from app.models.client import Client
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.contract import Contract, ContractStatus
 from app.models.job import Job, JobStatus
-from app.models.note import Note, NoteType
 from app.models.user import User, UserRole
 from app.core.scheduling import business_today
 
@@ -109,50 +106,6 @@ async def _login(client: AsyncClient, email: str, password: str) -> dict[str, st
     )
     assert r.status_code == 200, r.text
     return {"Authorization": f"Bearer {r.json()['access_token']}"}
-
-
-# ── /api/fireflies/status ───────────────────────────────────────────────────
-
-
-async def test_fireflies_status_counts_notes_in_the_database(
-    app_client: AsyncClient, app_auth_headers: dict[str, str]
-):
-    """Kafelek dostaje liczbę z `count()`, a nie z długości wciągniętej listy.
-
-    Poprzednia wersja robiła `select(Note)` bez limitu i `len(...all())`, więc
-    żeby pokazać jedną liczbę, przeciągała przez sieć komplet transkryptów
-    spotkań (`Note.content` to Text).
-    """
-    marker = uuid.uuid4().hex
-    async with AsyncSessionLocal() as db:
-        db.add(
-            Note(
-                content=f"# Spotkanie {marker}\n" + ("x" * 500),
-                note_type=NoteType.meeting,
-                source_ref=f"qbudget:{marker}",
-            )
-        )
-        await db.commit()
-
-    try:
-        with capture_sql() as statements:
-            resp = await app_client.get(
-                "/api/fireflies/status", headers=app_auth_headers
-            )
-        assert resp.status_code == 200, resp.text
-        assert resp.json()["transcript_count"] >= 1
-
-        note_selects = _selects_from(statements, "notes")
-        assert note_selects, "endpoint w ogóle nie odpytał tabeli notes"
-        assert all("count(" in s.lower() for s in note_selects), note_selects
-        # Treść notatki nie ma prawa opuścić bazy dla licznika w kafelku.
-        assert not any("notes.content" in s for s in note_selects), note_selects
-    finally:
-        async with AsyncSessionLocal() as db:
-            await db.execute(
-                Note.__table__.delete().where(Note.source_ref == f"qbudget:{marker}")
-            )
-            await db.commit()
 
 
 # ── /api/clients/{id}/orders ────────────────────────────────────────────────

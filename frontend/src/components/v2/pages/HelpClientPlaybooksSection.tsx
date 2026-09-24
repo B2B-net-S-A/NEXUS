@@ -21,7 +21,7 @@
  * dopiero po `isSuccess`, a awaria to alert z ponowieniem, nigdy pustka.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { Building2, Search } from "lucide-react";
@@ -56,6 +56,18 @@ export function HelpClientPlaybooksSection() {
   const [rawQuery, setRawQuery] = useState("");
   const debouncedQuery = useDebouncedValue(rawQuery, 250);
   const [selectedId, setSelectedId] = useState<number | null>(requestedClient);
+  // Poniżej md karta stoi pod listą — po wyborze przewijamy do niej, inaczej
+  // klik wyglądał na martwy (zmieniało się tylko tło wiersza).
+  const cardSectionRef = useRef<HTMLElement | null>(null);
+  const [revealTick, setRevealTick] = useState(0);
+  useEffect(() => {
+    if (revealTick === 0) return;
+    if (window.matchMedia?.("(min-width: 768px)").matches) return;
+    // Bez `behavior: "smooth"`: treść przewija się w zagnieżdżonym kontenerze
+    // powłoki, a tam Chrome cicho pomija płynne przewijanie
+    // (patrz `ProcedureTableOfContents`).
+    cardSectionRef.current?.scrollIntoView?.({ block: "start" });
+  }, [revealTick]);
   useEffect(() => {
     if (requestedClient !== null) setSelectedId(requestedClient);
   }, [requestedClient]);
@@ -135,7 +147,7 @@ export function HelpClientPlaybooksSection() {
         />
         <nav
           aria-label="Lista kart klientów"
-          className="rounded-lg border border-border bg-card overflow-hidden"
+          className="rounded-lg border border-border bg-card overflow-hidden md:max-h-[calc(100dvh-12rem)] md:overflow-y-auto"
         >
           {items.length === 0 ? (
             <p className="p-4 text-sm text-muted-foreground">
@@ -149,7 +161,10 @@ export function HelpClientPlaybooksSection() {
                   <li key={item.client_id}>
                     <button
                       type="button"
-                      onClick={() => setSelectedId(item.client_id)}
+                      onClick={() => {
+                        setSelectedId(item.client_id);
+                        setRevealTick((t) => t + 1);
+                      }}
                       aria-current={active ? "true" : undefined}
                       className={cn(
                         "w-full text-left px-4 py-3 transition-colors hover:bg-primary/10",
@@ -181,7 +196,10 @@ export function HelpClientPlaybooksSection() {
           {items.length} z {allItems.length}
         </p>
       </aside>
-      <section className="rounded-lg border border-border bg-card min-h-[400px] p-6">
+      <section
+        ref={cardSectionRef}
+        className="min-w-0 scroll-mt-4 rounded-lg border border-border bg-card min-h-[400px] p-4 md:p-6"
+      >
         {selectedId === null ? (
           <p className="text-sm text-muted-foreground">Wybierz klienta z listy.</p>
         ) : (

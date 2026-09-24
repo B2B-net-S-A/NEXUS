@@ -145,9 +145,9 @@ export default function ApplicationsQueuePage() {
   const stale = sorted.filter((s) => (ageHours(s.created_at) ?? 0) > STALE_AFTER_HOURS);
 
   return (
-    <main className="mx-auto max-w-[1100px] space-y-6 px-4 py-6 sm:px-6">
-      <header className="flex items-start justify-between gap-4">
-        <div>
+    <main className="mx-auto max-w-[1100px] space-y-6 md:px-6 md:py-6">
+      <header className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0">
           <p className="text-xs uppercase tracking-wide text-muted-foreground">
             Sourcing
           </p>

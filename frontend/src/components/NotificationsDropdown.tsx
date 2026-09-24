@@ -437,6 +437,11 @@ const TYPE_CONFIG: Record<
     icon: <BellRing className="w-3.5 h-3.5" />,
     color: "text-warning",
     bgColor: "bg-warning/15",
+  },  // 0370: prep słaby / bez nagrania / brak prepu przed rozmową u klienta.
+  prep_attention: {
+    icon: <BellRing className="w-3.5 h-3.5" />,
+    color: "text-warning",
+    bgColor: "bg-warning/15",
   },
 };
 
@@ -465,7 +470,10 @@ function parseEventIdFromLink(link?: string | null): number | null {
 // ── Toast notification for real-time events ───────────────────────────────────
 function NotifToast({ notif, onClose }: { notif: WsNotification; onClose: () => void }) {
   return (
-    <div className="fixed bottom-6 right-6 z-300 max-w-sm w-full bg-card dark:bg-muted border border-primary/20 dark:border-primary/90 rounded-2xl shadow-2xl p-4 flex items-start gap-3 animate-fadeIn">
+    // Telefon: pod paskiem górnym, na całą szerokość z marginesem — w prawym
+    // dolnym rogu siedzą toasty i maskotka, a `w-full` + `right-6` wypychało
+    // lewą krawędź poza ekran. Od `sm` jak dotąd (prawy dolny róg).
+    <div className="fixed inset-x-4 top-[calc(3.5rem+env(safe-area-inset-top))] sm:inset-x-auto sm:top-auto sm:right-6 sm:bottom-6 z-300 sm:max-w-sm sm:w-full bg-card dark:bg-muted border border-primary/20 dark:border-primary/90 rounded-2xl shadow-2xl p-4 flex items-start gap-3 animate-fadeIn">
       <div className="w-8 h-8 rounded-full bg-primary/15 dark:bg-primary/40 text-primary flex items-center justify-center shrink-0">
         <Bell className="w-4 h-4" />
       </div>
@@ -473,7 +481,7 @@ function NotifToast({ notif, onClose }: { notif: WsNotification; onClose: () => 
         <p className="text-sm font-bold text-foreground dark:text-foreground leading-tight">{formatNotificationText(notif.title)}</p>
         <p className="text-xs text-muted-foreground dark:text-muted-foreground mt-0.5 line-clamp-2">{formatNotificationText(notif.message)}</p>
       </div>
-      <button onClick={onClose} className="text-muted-foreground hover:text-muted-foreground dark:hover:text-muted-foreground shrink-0">
+      <button onClick={onClose} aria-label="Zamknij powiadomienie" className="-m-2 flex h-10 w-10 items-center justify-center text-muted-foreground hover:text-muted-foreground dark:hover:text-muted-foreground shrink-0 sm:m-0 sm:h-auto sm:w-auto">
         <X className="w-4 h-4" />
       </button>
     </div>
@@ -640,7 +648,9 @@ export function NotificationsDropdown() {
 
         {/* Dropdown */}
         {open && (
-          <div className="absolute right-0 top-full mt-2 w-96 bg-card dark:bg-muted border border-border dark:border-border rounded-2xl shadow-xl z-50 overflow-hidden">
+          // Telefon: panel przypięty do ekranu (dzwonek nie stoi przy prawej
+          // krawędzi, więc 384 px od niego wychodziło poza lewy brzeg).
+          <div className="fixed inset-x-2 top-14 sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-2 sm:w-96 bg-card dark:bg-muted border border-border dark:border-border rounded-2xl shadow-xl z-50 overflow-hidden">
             {/* Header */}
             <div className="flex items-center justify-between px-4 py-3 border-b border-border dark:border-border">
               <div className="flex items-center gap-2">
@@ -708,7 +718,7 @@ export function NotificationsDropdown() {
             )}
 
             {/* List */}
-            <div className="max-h-[420px] overflow-y-auto">
+            <div className="max-h-[min(420px,calc(100dvh-10rem))] overflow-y-auto">
               {notifications.length === 0 ? (
                 <div className="text-center py-10 text-muted-foreground">
                   <Bell className="w-8 h-8 mx-auto mb-2 opacity-30" />
@@ -778,7 +788,7 @@ export function NotificationsDropdown() {
                             disabled={muteMutation.isPending}
                             aria-label={`Nie pokazuj takich: ${notif.category_label ?? notif.category}`}
                             title={`Nie pokazuj takich (${notif.category_label ?? notif.category})`}
-                            className="absolute right-2 bottom-2 p-1 rounded-md bg-card text-muted-foreground opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 hover:text-foreground transition-opacity disabled:opacity-50"
+                            className="absolute right-2 bottom-2 p-1 pointer-coarse:p-2 rounded-md bg-card text-muted-foreground pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 hover:text-foreground transition-opacity disabled:opacity-50"
                           >
                             <BellOff className="w-3.5 h-3.5" />
                           </button>

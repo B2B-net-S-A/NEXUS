@@ -30,6 +30,11 @@ export default function GlobalError({ error, reset }: GlobalErrorProps) {
 
     return (
         <html lang="pl">
+            {/* Root layout nie działa, więc nie ma też domyślnego viewportu —
+                bez tego telefon renderuje stronę w szerokości 980 px. */}
+            <head>
+                <meta name="viewport" content="width=device-width, initial-scale=1" />
+            </head>
             <body
                 style={{
                     margin: 0,
@@ -46,7 +51,7 @@ export default function GlobalError({ error, reset }: GlobalErrorProps) {
                 <div
                     style={{
                         maxWidth: 480,
-                        padding: 32,
+                        padding: 24,
                         textAlign: 'center',
                     }}
                 >
@@ -74,7 +79,8 @@ export default function GlobalError({ error, reset }: GlobalErrorProps) {
                     <button
                         onClick={() => reset()}
                         style={{
-                            padding: '10px 20px',
+                            padding: '12px 20px',
+                            minHeight: 44,
                             borderRadius: 8,
                             border: 'none',
                             background: '#18181b',

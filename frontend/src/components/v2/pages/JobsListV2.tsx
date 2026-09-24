@@ -151,9 +151,12 @@ type FiltersMode = "auto" | "expanded" | "collapsed";
  * (Tailwind nie widzi sklejanych) — `auto` przełącza się CSS-em na `2xl`.
  */
 const LAYOUT_GRID: Record<FiltersMode, { closed: string; open: string }> = {
+  // Trzy kolumny dopiero od `2xl`: przy 1280 px z przypiętym paskiem bocznym
+  // tabela dostawała ~370 px. Na `xl` otwarty dok zajmuje miejsce filtrów
+  // (patrz `FILTERS_ASIDE_VISIBILITY_WITH_DOCK`).
   expanded: {
     closed: "lg:grid-cols-[230px_minmax(0,1fr)]",
-    open: "lg:grid-cols-[230px_minmax(0,1fr)] xl:grid-cols-[230px_minmax(0,1fr)_360px]",
+    open: "lg:grid-cols-[230px_minmax(0,1fr)] xl:grid-cols-[minmax(0,1fr)_360px] 2xl:grid-cols-[230px_minmax(0,1fr)_360px]",
   },
   collapsed: {
     closed: "",
@@ -464,7 +467,7 @@ function JobOwnerCell({ user }: { user?: { name?: string | null } | null }) {
     >
       <span
         aria-hidden="true"
-        className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary text-[9px] font-semibold text-primary-foreground"
+        className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary text-[10px] font-semibold text-primary-foreground"
       >
         {initialsOf(user?.name)}
       </span>
@@ -507,7 +510,10 @@ function JobsTable({
           {/* Lista v4 (22.09.2026): status requestu, etapy i podobne
               rekrutacje. „Wymaga ruchu" i „W bazie" zdjęte decyzją Artura —
               kolejność nadal daje sortowanie „Wymaga uwagi". */}
-          <TableHead>Rekrutacja</TableHead>
+          {/* Telefon: tabela przewija się w poziomie (7 kolumn ≈ 850 px), więc
+              kolumna „Rekrutacja" stoi przyklejona — bez niej po przewinięciu
+              nie wiadomo, czyj to status i termin. */}
+          <TableHead className="max-md:sticky max-md:left-0 max-md:z-20 max-md:bg-background">Rekrutacja</TableHead>
           <TableHead className="w-[150px]">Status</TableHead>
           <TableHead className="w-[200px]" title={STAGE_COUNTS_LEGEND}>
             Etapy
@@ -555,7 +561,7 @@ function JobsTable({
               }
               className={locked ? "opacity-60" : undefined}
             >
-              <TableCell className="max-w-[320px]">
+              <TableCell className="max-w-[320px] max-md:sticky max-md:left-0 max-md:z-10 max-md:w-[200px] max-md:max-w-[200px] max-md:border-r max-md:border-border/60 max-md:bg-card">
                 {/* `can_open === false` — ta sama reguła co kafelki: rekrutacja
                     jest w rejestrze, ale detal odpowie 403, więc tytuł nie
                     udaje linku (tabela do 09.2026 prowadziła prosto w ścianę). */}
@@ -657,7 +663,7 @@ function JobsTable({
                         e.stopPropagation();
                         onInvite(job.id);
                       }}
-                      className="p-1 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                      className="p-1 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors pointer-coarse:p-2.5"
                       title="Wygeneruj link aplikacyjny"
                       aria-label="Wygeneruj link aplikacyjny"
                     >
@@ -676,7 +682,7 @@ function JobsTable({
                       }}
                       aria-pressed={previewId === job.id}
                       className={cn(
-                        "rounded-md p-1 transition-colors focus:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
+                        "rounded-md p-1 transition-colors focus:outline-hidden focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:p-2.5",
                         previewId === job.id
                           ? "bg-primary/10 text-primary"
                           : "text-muted-foreground hover:bg-primary/10 hover:text-primary",
@@ -978,6 +984,17 @@ export function JobsListV2() {
     (j: any) => j.id === effPreviewJobId,
   );
   const dockOpen = effPreviewJobId != null;
+  // Poniżej `xl` dok jest nakładką — Esc ją zamyka jak każdy arkusz.
+  useEffect(() => {
+    if (!dockOpen || typeof window.matchMedia !== "function") return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (window.matchMedia("(min-width: 1280px)").matches) return;
+      setPreviewJobId(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [dockOpen]);
 
   // `undefined` = jeszcze nie wiemy (SSR / brak matchMedia) — nie zgadujemy
   // `aria-expanded`, układ i tak rozstrzyga CSS. W trybie `auto` otwarty dok
@@ -1141,7 +1158,9 @@ export function JobsListV2() {
             "space-y-4 self-start rounded-xl border border-border bg-card p-4",
             filtersMode === "auto" && dockOpen
               ? "hidden"
-              : FILTERS_ASIDE_VISIBILITY[filtersMode],
+              : filtersMode === "expanded" && dockOpen
+                ? "xl:hidden 2xl:block"
+                : FILTERS_ASIDE_VISIBILITY[filtersMode],
           )}
         >
           <div className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
@@ -1764,7 +1783,7 @@ export function JobsListV2() {
                                 e.stopPropagation();
                                 setInviteModalForJob(job.id);
                               }}
-                              className="p-1 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                              className="p-1 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors pointer-coarse:p-2.5"
                               title="Wygeneruj link aplikacyjny"
                               aria-label="Wygeneruj link aplikacyjny"
                             >
@@ -1783,7 +1802,7 @@ export function JobsListV2() {
                               }}
                               aria-pressed={effPreviewJobId === job.id}
                               className={cn(
-                                "rounded-md p-1 transition-colors",
+                                "rounded-md p-1 transition-colors pointer-coarse:p-2.5",
                                 effPreviewJobId === job.id
                                   ? "bg-primary/10 text-primary"
                                   : "text-muted-foreground hover:bg-primary/10 hover:text-primary",
@@ -1919,13 +1938,26 @@ export function JobsListV2() {
           )}
         </div>
 
-        {/* ── Prawy dok: podgląd gotowości — otwiera go ikona „Podgląd" ── */}
+        {/* ── Prawy dok: podgląd gotowości — otwiera go ikona „Podgląd" ──
+            Od `xl` dok jest kolumną siatki. Węziej siatka jest jednokolumnowa,
+            więc dok stałby POD całą listą i klik „Podgląd" nie dawałby
+            widocznego efektu — tam dok wysuwa się z prawej jak arkusz. */}
+        {dockOpen && (
+          <div
+            aria-hidden="true"
+            data-testid="jobs-preview-backdrop"
+            className="fixed inset-0 z-40 bg-card/50 backdrop-blur-[2px] xl:hidden"
+            onClick={() => setPreviewJobId(null)}
+          />
+        )}
         {dockOpen && (
           <aside
             aria-label="Podgląd rekrutacji"
             className={cn(
-              "space-y-2 xl:sticky xl:top-4 xl:self-start",
-              filtersMode === "expanded" && "lg:col-span-2 xl:col-span-1",
+              "space-y-2",
+              "fixed inset-y-0 right-0 z-50 w-full overflow-y-auto border-l border-border bg-background p-4 shadow-xl sm:max-w-[420px]",
+              "xl:inset-auto xl:z-auto xl:w-auto xl:max-w-none xl:overflow-visible xl:border-0 xl:bg-transparent xl:p-0 xl:shadow-none",
+              "xl:sticky xl:top-4 xl:self-start",
             )}
           >
             <div className="flex items-center justify-between gap-2">
@@ -1937,7 +1969,7 @@ export function JobsListV2() {
                 onClick={() => setPreviewJobId(null)}
                 aria-label="Zamknij podgląd"
                 title="Zamknij podgląd"
-                className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground focus:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+                className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground focus:outline-hidden focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:p-2.5"
               >
                 <X className="h-4 w-4" />
               </button>

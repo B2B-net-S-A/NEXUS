@@ -112,7 +112,7 @@ export function ProcedureEditorModal({ procedure, open, onOpenChange, onSaved }:
 
  return (
  <Dialog open={open} onOpenChange={onOpenChange}>
- <DialogContent size="2xl" className="flex flex-col max-h-[90vh]">
+ <DialogContent size="2xl" className="flex flex-col max-h-[90dvh]">
  <DialogHeader>
  <DialogTitle>{title}</DialogTitle>
  </DialogHeader>

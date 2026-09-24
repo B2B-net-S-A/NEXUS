@@ -80,10 +80,10 @@ function ProjectRow({
   // Wiersz to <div>, nie <a> — akcje (przyciski) nie mogą być zagnieżdżone
   // w linku; nawigacja do rekrutacji zostaje na tytule + ikonie.
   return (
-    <div className="flex items-center gap-3 p-3 bg-card dark:bg-muted border border-border dark:border-border rounded-xl hover:border-purple-300 transition-colors group">
+    <div className="flex flex-wrap items-center gap-3 p-3 bg-card dark:bg-muted border border-border dark:border-border rounded-xl hover:border-purple-300 transition-colors group">
       <a
         href={`/jobs/${job.id}`}
-        className="flex items-center gap-3 flex-1 min-w-0"
+        className="flex items-center gap-3 flex-1 basis-48 min-w-0"
       >
         <div className="w-8 h-8 bg-purple-50 dark:bg-purple-900/30 rounded-lg flex items-center justify-center shrink-0">
           <Briefcase className="w-4 h-4 text-purple-600" />
@@ -97,7 +97,9 @@ function ProjectRow({
           )}
         </div>
       </a>
-      <div className="flex items-center gap-2 shrink-0">
+      {/* Na telefonie akcje schodzą pod tytuł — przy `shrink-0` w jednym
+          rzędzie zjadały całą szerokość i tytuł był ucięty do „…". */}
+      <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto sm:shrink-0">
         {actions}
         <span
           className={cn(
@@ -118,6 +120,7 @@ function ProjectRow({
         <a
           href={`/jobs/${job.id}`}
           aria-label={`Przejdź do rekrutacji ${job.title}`}
+          className="hit-area"
         >
           <ExternalLink className="w-3.5 h-3.5 text-muted-foreground group-hover:text-purple-500 transition-colors" />
         </a>

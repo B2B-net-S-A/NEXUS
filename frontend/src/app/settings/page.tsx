@@ -11,9 +11,6 @@ import {
   RefreshCw,
   AlertCircle,
   Loader2,
-  ExternalLink,
-  Mic,
-  Clock,
   HelpCircle,
   Sparkles,
   Sliders,
@@ -33,10 +30,10 @@ import {
   UserRound,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { formatRelativeTime } from "@/lib/utils";
 import Link from "next/link";
 import { SettingsBreadcrumb } from "@/components/settings/SettingsBreadcrumb";
 import Microsoft365Card from "@/components/settings/Microsoft365Card";
+import { TeamsPrepStatusCard } from "@/components/settings/TeamsPrepStatusCard";
 import { NotificationPreferencesPanel } from "@/components/settings/NotificationPreferencesPanel";
 import TeamsNotificationsCard from "@/components/settings/TeamsNotificationsCard";
 import { TraffitSyncCard } from "@/components/settings/TraffitSyncCard";
@@ -62,8 +59,6 @@ import {
   type ProductSection,
   type SectionAccess,
 } from "@/lib/section-access";
-import { countPl } from "@/lib/plural-pl";
-import { stripHtmlTags } from "@/lib/plain-text";
 
 // Lazy-load heavy tabs — content loaded only when tab activated.
 // AdminUsersTab pulls ~30kB+ chunk (user mgmt + modals + import).
@@ -265,172 +260,6 @@ const FINANCE_READ_ONLY_LINKS = new Set([
   "/settings/hiring-managers",
 ]);
 
-// ── Fireflies Card ────────────────────────────────────────────────────────────
-
-function FirefliesCard() {
-  const [syncResult, setSyncResult] = useState<{ synced: number; linked: number; errors: number; error?: string } | null>(null);
-
-  const { data: status, isLoading, refetch } = useQuery({
-    queryKey: ["fireflies-status"],
-    queryFn: () => api.get("/api/fireflies/status").then((r) => r.data),
-    staleTime: 30 * 1000,
-  });
-
-  const { mutate: sync, isPending: syncing } = useMutation({
-    mutationFn: () => api.post("/api/fireflies/sync").then((r) => r.data),
-    onSuccess: (data) => {
-      setSyncResult(data);
-      refetch();
-    },
-  });
-
-  const { data: transcripts } = useQuery({
-    queryKey: ["fireflies-transcripts"],
-    queryFn: () => api.get("/api/fireflies/transcripts?limit=5").then((r) => r.data),
-    staleTime: 60 * 1000,
-  });
-
-  const isConnected = status?.connected && !status?.error;
-  // `connected: false` bez błędu = brak klucza API, nie awaria połączenia (UAT M11-B08).
-  const isNotConfigured = !!status && !status.connected && !status.error;
-
-  return (
-    <div className="bg-card dark:bg-muted rounded-2xl border border-border dark:border-border p-6">
-      <div className="flex items-start gap-4 mb-6">
-        <div className="w-12 h-12 rounded-xl bg-orange-50 flex items-center justify-center shrink-0">
-          <Mic className="w-6 h-6 text-orange-500" />
-        </div>
-        <div className="flex-1">
-          <div className="flex items-center gap-2">
-            <h3 className="text-base font-bold text-foreground dark:text-foreground">Fireflies.ai</h3>
-            <span
-              className={cn(
-                "text-xs px-2 py-0.5 rounded-full font-medium",
-                isLoading || isNotConfigured ? "bg-muted text-muted-foreground" :
-                isConnected ? "bg-green-100 text-green-700" :
-                "bg-destructive/15 text-destructive"
-              )}
-            >
-              {isLoading
-                ? "Sprawdzanie..."
-                : isConnected
-                  ? "Połączony"
-                  : isNotConfigured
-                    ? "Nie skonfigurowano"
-                    : "Błąd połączenia"}
-            </span>
-          </div>
-          <p className="text-sm text-muted-foreground dark:text-muted-foreground mt-0.5">
-            Automatyczna synchronizacja transkrypcji rozmów z kandydatami
-          </p>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-3 gap-4 mb-5">
-        <div className="bg-muted dark:bg-muted rounded-xl p-3 text-center">
-          <p className="text-xl font-bold text-foreground dark:text-foreground">
-            {status?.transcript_count ?? "—"}
-          </p>
-          <p className="text-xs text-muted-foreground dark:text-muted-foreground mt-0.5">Transkrypcji w bazie</p>
-        </div>
-        <div className="bg-muted dark:bg-muted rounded-xl p-3 text-center col-span-2">
-          <div className="flex items-center justify-center gap-1.5">
-            <Clock className="w-3.5 h-3.5 text-muted-foreground" />
-            <p className="text-sm font-medium text-foreground dark:text-muted-foreground">
-              {status?.last_synced_at
-                ? formatRelativeTime(status.last_synced_at)
-                : "Jeszcze nie synchronizowano"}
-            </p>
-          </div>
-          <p className="text-xs text-muted-foreground mt-0.5">Ostatnia synchronizacja</p>
-        </div>
-      </div>
-
-      {status?.error && (
-        <div className="flex items-start gap-2 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-xl px-4 py-3 mb-4">
-          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-          <span>{status.error}</span>
-        </div>
-      )}
-
-      {syncResult && (
-        <div className="bg-primary/10 dark:bg-primary/10 border border-primary/20 dark:border-primary/30 rounded-xl p-4 mb-4 text-sm">
-          <p className="font-semibold text-primary dark:text-primary mb-2">Wynik synchronizacji:</p>
-          <div className="flex gap-4 text-xs">
-            <span className="text-green-700">✓ {syncResult.synced} zsynchronizowanych</span>
-            <span className="text-primary">🔗 {syncResult.linked} powiązanych z kandydatami</span>
-            {syncResult.errors > 0 && (
-              <span className="text-destructive">✕ {countPl(syncResult.errors, "błąd", "błędy", "błędów")}</span>
-            )}
-          </div>
-          {syncResult.error && (
-            <p className="text-destructive mt-1">{syncResult.error}</p>
-          )}
-        </div>
-      )}
-
-      {transcripts && transcripts.length > 0 && (
-        <div className="mb-5">
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
-            Ostatnie transkrypcje
-          </p>
-          <div className="space-y-2">
-            {transcripts.slice(0, 4).map((t: { id: string; title: string; candidate_id?: number; created_at?: string }) => (
-              <div
-                key={t.id}
-                className="flex items-center gap-3 text-sm py-2 border-b border-border dark:border-border last:border-0"
-              >
-                <Mic className="w-3.5 h-3.5 text-orange-400 shrink-0" />
-                <span className="flex-1 truncate text-foreground dark:text-muted-foreground">{stripHtmlTags(t.title)}</span>
-                {t.candidate_id && (
-                  <Link
-                    href={`/candidates/${t.candidate_id}`}
-                    className="text-xs text-primary hover:underline shrink-0"
-                  >
-                    Kandydat →
-                  </Link>
-                )}
-                <span className="text-xs text-muted-foreground shrink-0">
-                  {t.created_at ? formatRelativeTime(t.created_at) : ""}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div className="flex gap-3">
-        <button
-          onClick={() => sync()}
-          disabled={syncing}
-          className="flex items-center gap-2 px-4 py-2 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors"
-        >
-          {syncing ? (
-            <>
-              <Loader2 className="w-4 h-4 animate-spin" />
-              Synchronizuję...
-            </>
-          ) : (
-            <>
-              <RefreshCw className="w-4 h-4" />
-              Synchronizuj
-            </>
-          )}
-        </button>
-        <a
-          href="https://fireflies.ai"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center gap-2 px-4 py-2 border border-border dark:border-border text-muted-foreground dark:text-muted-foreground hover:bg-muted dark:hover:bg-muted rounded-lg text-sm font-medium transition-colors"
-        >
-          <ExternalLink className="w-4 h-4" />
-          Otwórz Fireflies
-        </a>
-      </div>
-    </div>
-  );
-}
-
 // ── Settings page ─────────────────────────────────────────────────────────────
 //
 // Jedno wejście (22.09.2026, propozycja „kafelki"): strona startowa z obszarami,
@@ -491,7 +320,7 @@ function SettingsHome({ areas, user }: { areas: SettingsArea[]; user: Parameters
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Np. rola, reguły CV, Traffit"
-          className="h-12 w-full rounded-xl border border-border bg-card pl-11 pr-4 text-[15px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+          className="h-12 w-full rounded-xl border border-border bg-card pl-11 pr-4 text-base md:text-[15px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
         />
       </label>
       {!searching && (
@@ -550,8 +379,8 @@ function SettingsItemBody({ item, user }: { item: SettingsItem; user: Parameters
       return <SkillDictionaryTab />;
     case "traffit":
       return <TraffitSyncCard />;
-    case "fireflies":
-      return <FirefliesCard />;
+    case "teams-prep":
+      return <TeamsPrepStatusCard />;
     case "history":
       return <EventHistoryTab />;
     case "placements":
@@ -648,7 +477,6 @@ export default function SettingsPage() {
               <p className="mt-0.5 text-sm text-muted-foreground">{view.item.description}</p>
             </div>
           )}
-          {/* Karta Fireflies wymaga sekcji Sourcing — bramka jest w rejestrze. */}
           <SettingsItemBody item={view.item} user={user} />
         </>
       )}
@@ -778,7 +606,7 @@ function OnboardingSettings() {
 
       <div className="mt-6 pt-6 border-t border-border dark:border-border">
         <h4 className="text-sm font-semibold text-foreground dark:text-muted-foreground mb-3">Skróty klawiszowe</h4>
-        <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground dark:text-muted-foreground">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-muted-foreground dark:text-muted-foreground">
           <div className="flex justify-between p-2 bg-muted dark:bg-muted rounded-lg">
             <span>Wyszukiwanie</span>
             <kbd className="font-mono bg-card dark:bg-gray-600 px-1.5 py-0.5 rounded border border-border dark:border-gray-500">⌘K</kbd>

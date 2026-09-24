@@ -356,8 +356,8 @@ function CVBrandedEditContent({
   return (
     <>
       <Dialog open={open} onOpenChange={(value) => void closeEditor(value)}>
-        <DialogContent size="2xl" className="p-0 max-h-[92vh] flex flex-col">
-          {saveProblem && <div role="alert" className="px-5 py-3 border-b border-border text-sm space-y-2">
+        <DialogContent size="2xl" className="p-0 max-h-[92dvh] flex flex-col">
+          {saveProblem && <div role="alert" className="pl-5 pr-16 py-3 border-b border-border text-sm space-y-2">
             <p className="text-destructive">Nie udało się zapisać CV: {saveProblem.message}</p>
             {saveProblem.conflict && <p className="text-muted-foreground">
               Ktoś zapisał nowszą wersję tego CV. Wczytanie aktualnej wersji zastąpi niezapisane poprawki w edytorze.
@@ -372,7 +372,7 @@ function CVBrandedEditContent({
               <Button size="sm" variant="ghost" onClick={() => setConfirmDiscard(true)}>Zamknij bez zapisu</Button>
             </div>
           </div>}
-          <div className="flex items-center justify-between px-5 py-3 border-b border-border">
+          <div className="flex items-center justify-between gap-3 pl-5 pr-16 py-3 border-b border-border">
             <div className="min-w-0">
               <div className="text-xs uppercase tracking-wider text-muted-foreground">
                 CV do klienta

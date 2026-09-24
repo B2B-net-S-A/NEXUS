@@ -283,7 +283,7 @@ function sourceLabel(source: ChampionProfileSuggestion["source_type"]): string {
     case "jd_paste":
       return "Opis od klienta (paste)";
     case "fireflies_meeting":
-      return "Meeting Fireflies";
+      return "Spotkanie (transkrypt)";
     case "cloudtalk_call":
       return "Rozmowa CloudTalk";
     case "manual_consultant_note":

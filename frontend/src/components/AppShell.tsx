@@ -979,7 +979,7 @@ export function AddCandidateModal({ onClose, onSuccess }: { onClose: () => void;
 
   return (
     <Modal title="Dodaj kandydata" onClose={onClose} wide>
-      <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
+      <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[80dvh] overflow-y-auto">
         {error && <ErrorBanner error={error} />}
         {duplicates.length > 0 && (
           <div className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-900/20 p-3 space-y-2">
@@ -1149,7 +1149,7 @@ export function EditCandidateModal({ candidate, onClose, onSuccess }: { candidat
 
   return (
     <Modal title={`Edytuj: ${candidate.name} ${candidate.lastname}`} onClose={onClose} wide>
-      <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
+      <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[80dvh] overflow-y-auto">
         {error && <ErrorBanner error={error} />}
         <CandidateFormFields
           form={form}
@@ -1309,7 +1309,7 @@ function JobFormFields({
           {clients.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </Select>
       </FieldGroup>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <FieldGroup label="Status">
           <Select value={form.status} onChange={e => onChange("status", e.target.value)}>
             <option value="draft">Draft</option>
@@ -1327,7 +1327,7 @@ function JobFormFields({
       <FieldGroup label="Wymagania">
         <Textarea value={form.requirements} onChange={e => onChange("requirements", e.target.value)} rows={3} placeholder="Wymagania techniczne..." />
       </FieldGroup>
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <FieldGroup label="Miasto biura">
           {/* Rubryka biura oferty (0278) — miasto, DO KTÓREGO trzeba dojechać
               przy trybie hybrydowym/stacjonarnym. Kolumna `location` czytana
@@ -1529,7 +1529,7 @@ export function EditJobModal({
 
   return (
     <Modal title={`Edytuj: ${job.title}`} onClose={onClose} wide>
-      <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
+      <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[80dvh] overflow-y-auto">
         {error && <ErrorBanner error={error} />}
         {contentOnly ? (
           <>
@@ -1694,7 +1694,7 @@ export function AddClientModal({
 
   return (
     <Modal title="Dodaj firmę" onClose={onClose} wide>
-      <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
+      <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[80dvh] overflow-y-auto">
         {error && <ErrorBanner error={error} />}
         <ClientFormFields form={form} onChange={onChange} onCheckbox={onCheckbox} />
         <div className="flex justify-end gap-3 pt-1">
@@ -1753,7 +1753,7 @@ export function EditClientModal({ client, onClose, onSuccess }: { client: any; o
 
   return (
     <Modal title={`Edytuj: ${client.name}`} onClose={onClose} wide>
-      <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
+      <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[80dvh] overflow-y-auto">
         {error && <ErrorBanner error={error} />}
         <ClientFormFields form={form} onChange={onChange} onCheckbox={onCheckbox} nameRequired={false} />
         {/* Reguły CV mają WŁASNĄ tabelę i własny zapis — celowo poza payloadem

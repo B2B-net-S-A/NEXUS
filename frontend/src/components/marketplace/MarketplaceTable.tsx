@@ -146,8 +146,10 @@ export function MarketplaceTable({ sourceEvent, emptyHint }: MarketplaceTablePro
           </p>
         </div>
       ) : (
-        <div className="bg-card dark:bg-muted border border-border dark:border-border rounded-2xl overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="bg-card dark:bg-muted border border-border dark:border-border rounded-2xl overflow-x-auto">
+          {/* `overflow-x-auto`, nie `overflow-hidden`: 8 kolumn na telefonie
+              ucinało „Na targu”, „Ważne do” i „zdejmij z targu”. */}
+          <table className="w-full min-w-[760px] text-sm">
             <thead className="bg-muted dark:bg-card/40 text-xs uppercase text-muted-foreground">
               <tr>
                 <th className="w-6"></th>

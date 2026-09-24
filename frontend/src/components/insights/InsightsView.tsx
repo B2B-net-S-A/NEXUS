@@ -215,7 +215,7 @@ export function InsightsView() {
   const radaLocked = !visibleTabIds.includes("rada");
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-6">
+    <div className="max-w-7xl mx-auto space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-4 border-b border-border">
         <div className="flex flex-wrap items-baseline gap-x-8 gap-y-2">
           <h1 className="text-2xl font-bold tracking-tight text-foreground pb-3">

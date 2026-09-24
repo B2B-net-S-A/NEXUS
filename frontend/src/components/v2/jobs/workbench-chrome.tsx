@@ -126,7 +126,7 @@ export function RailSection({
         className,
       )}
     >
-      <span className="text-[9px] font-bold uppercase tracking-[0.11em] text-muted-foreground">
+      <span className="text-[10px] font-bold uppercase tracking-[0.11em] text-muted-foreground">
         {label}
       </span>
       {children}
@@ -410,7 +410,7 @@ export function ReqRow({
       />
       <span className="min-w-0 flex-1 text-foreground">{label}</span>
       {tag != null && (
-        <span className="shrink-0 text-[9.5px] font-bold uppercase tracking-[0.06em] text-muted-foreground">
+        <span className="shrink-0 text-[10px] font-bold uppercase tracking-[0.06em] text-muted-foreground">
           {tag}
         </span>
       )}
@@ -452,7 +452,7 @@ export function WorkbenchDock({
   footer?: ReactNode;
 }) {
   return (
-    <div className="flex max-h-[calc(100vh-2rem)] flex-col rounded-xl border border-border bg-card">
+    <div className="flex max-h-[calc(100dvh-2rem)] flex-col rounded-xl border border-border bg-card">
       <div className="space-y-2.5 border-b border-border p-4">
         <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-primary">
           <span>{name}</span>

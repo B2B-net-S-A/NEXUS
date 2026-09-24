@@ -124,7 +124,7 @@ export function AddToMarketplaceButton({
 
       {open && (
         <div className="fixed inset-0 z-200 flex items-center justify-center bg-black/40 p-4">
-          <div className="bg-card dark:bg-muted rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col">
+          <div className="bg-card dark:bg-muted rounded-2xl shadow-2xl w-full max-w-lg max-h-[85dvh] flex flex-col">
             <div className="flex items-center justify-between px-6 py-4 border-b border-border dark:border-border shrink-0">
               <h2 className="text-lg font-bold text-foreground dark:text-foreground flex items-center gap-2">
                 <Store className="w-5 h-5 text-teal-600" />

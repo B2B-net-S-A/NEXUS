@@ -89,7 +89,7 @@ export function OrderListControls({
           ) : null}
         </summary>
 
-        <div className="mt-3 grid gap-3 border-t border-border pt-3 md:grid-cols-2 xl:grid-cols-4">
+        <div className="mt-3 grid gap-3 border-t border-border pt-3 md:grid-cols-2 2xl:grid-cols-4">
           <fieldset className="grid grid-cols-2 gap-2">
             <legend className="col-span-2 text-xs font-medium text-muted-foreground">
               Data rozpoczęcia
@@ -100,7 +100,7 @@ export function OrderListControls({
                 type="date"
                 value={filters.startFrom}
                 onChange={(event) => update("startFrom", event.target.value)}
-                className="mt-1 w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground"
+                className="mt-1 w-full min-w-0 rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground"
               />
             </label>
             <label className="text-xs text-muted-foreground">
@@ -109,7 +109,7 @@ export function OrderListControls({
                 type="date"
                 value={filters.startTo}
                 onChange={(event) => update("startTo", event.target.value)}
-                className="mt-1 w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground"
+                className="mt-1 w-full min-w-0 rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground"
               />
             </label>
           </fieldset>
@@ -124,7 +124,7 @@ export function OrderListControls({
                 type="date"
                 value={filters.endFrom}
                 onChange={(event) => update("endFrom", event.target.value)}
-                className="mt-1 w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground"
+                className="mt-1 w-full min-w-0 rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground"
               />
             </label>
             <label className="text-xs text-muted-foreground">
@@ -133,7 +133,7 @@ export function OrderListControls({
                 type="date"
                 value={filters.endTo}
                 onChange={(event) => update("endTo", event.target.value)}
-                className="mt-1 w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground"
+                className="mt-1 w-full min-w-0 rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground"
               />
             </label>
           </fieldset>

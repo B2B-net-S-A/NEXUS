@@ -12,7 +12,7 @@ export default function EngagementLayout({
  <div
  data-ui="v2"
  data-ui-theme="apply-light"
- className="min-h-screen bg-background text-foreground"
+ className="min-h-screen min-h-dvh bg-background text-foreground"
  >
  {children}
  </div>

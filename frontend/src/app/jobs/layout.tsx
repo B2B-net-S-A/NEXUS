@@ -18,7 +18,7 @@ export default function JobsLayout({ children }: { children: React.ReactNode }) 
 
   return (
     <div className="flex items-start gap-4 lg:gap-6">
-      <JobTabsRail className="sticky top-0 hidden max-h-[calc(100vh-7rem)] self-start lg:flex" />
+      <JobTabsRail className="sticky top-0 hidden max-h-[calc(100dvh-7rem)] self-start lg:flex" />
       <div className="min-w-0 flex-1">{children}</div>
     </div>
   );

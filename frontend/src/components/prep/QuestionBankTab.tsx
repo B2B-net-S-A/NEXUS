@@ -365,7 +365,7 @@ function CreateQuestionDialog({
  />
  </div>
 
- <div className="grid grid-cols-2 gap-3">
+ <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
  <div>
  <Label>Typ pytania</Label>
  <Select
@@ -550,7 +550,7 @@ function SearchGlobalQuestionsDialog({
  {err && <p className="text-sm text-destructive mt-2">{err}</p>}
  {searching && <CardDescription>Wyszukiwanie…</CardDescription>}
 
- <div className="max-h-[50vh] overflow-y-auto grid gap-2 mt-2">
+ <div className="max-h-[50dvh] overflow-y-auto grid gap-2 mt-2">
  {results.map((q) => (
  <Card key={q.id} variant="default" size="sm">
  <div className="flex items-start justify-between gap-3">

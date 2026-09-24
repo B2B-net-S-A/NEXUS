@@ -247,12 +247,12 @@ export function OwnersTab({ clientId }: { clientId: number }) {
             {tacs.map((t) => (
               <li
                 key={t.id}
-                className="flex items-center justify-between bg-card dark:bg-muted border border-border dark:border-border rounded-lg px-3 py-2"
+                className="flex flex-wrap items-center justify-between gap-2 bg-card dark:bg-muted border border-border dark:border-border rounded-lg px-3 py-2"
               >
-                <div className="flex items-center gap-3">
-                  <UserCircle2 className="w-6 h-6 text-purple-500" />
-                  <div>
-                    <div className="text-sm font-medium flex items-center gap-2">
+                <div className="flex min-w-0 flex-1 items-center gap-3">
+                  <UserCircle2 className="w-6 h-6 shrink-0 text-purple-500" />
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium flex flex-wrap items-center gap-2">
                       {t.name}
                       {t.is_first_priority_for_tac && (
                         <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 dark:bg-purple-950/30 dark:text-purple-300">
@@ -260,13 +260,13 @@ export function OwnersTab({ clientId }: { clientId: number }) {
                         </span>
                       )}
                     </div>
-                    <div className="text-xs text-muted-foreground">
+                    <div className="text-xs text-muted-foreground break-all">
                       {t.email} · {t.role}
                     </div>
                   </div>
                 </div>
                 {canEdit && (
-                  <div className="flex items-center gap-2">
+                  <div className="ml-auto flex items-center gap-2 pointer-coarse:gap-4">
                     {t.is_first_priority_for_tac ? (
                       <span
                         className="text-[11px] text-muted-foreground max-w-48 text-right"
@@ -278,7 +278,7 @@ export function OwnersTab({ clientId }: { clientId: number }) {
                       <button
                         onClick={() => setFirstPriorityTac.mutate(t)}
                         disabled={setFirstPriorityTac.isPending}
-                        className="text-xs px-2 py-1 rounded border border-border dark:border-border hover:bg-muted dark:hover:bg-muted"
+                        className="text-xs px-2 py-1 rounded border border-border dark:border-border hover:bg-muted dark:hover:bg-muted pointer-coarse:min-h-10"
                         title="Ustaw klienta jako pierwszy priorytet tego TAC-a"
                       >
                         Ustaw 1. priorytet
@@ -286,8 +286,9 @@ export function OwnersTab({ clientId }: { clientId: number }) {
                     )}
                     <button
                       onClick={() => removeTac.mutate(t.user_id)}
-                      className="text-muted-foreground hover:text-destructive"
+                      className="hit-area text-muted-foreground hover:text-destructive"
                       title="Usuń przypisanie"
+                      aria-label="Usuń przypisanie"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -375,12 +376,12 @@ export function OwnersTab({ clientId }: { clientId: number }) {
             {dls.map((d) => (
               <li
                 key={d.id}
-                className="flex items-center justify-between bg-card dark:bg-muted border border-border dark:border-border rounded-lg px-3 py-2"
+                className="flex flex-wrap items-center justify-between gap-2 bg-card dark:bg-muted border border-border dark:border-border rounded-lg px-3 py-2"
               >
-                <div className="flex items-center gap-3">
-                  <UserCircle2 className="w-6 h-6 text-primary" />
-                  <div>
-                    <div className="text-sm font-medium flex items-center gap-2">
+                <div className="flex min-w-0 flex-1 items-center gap-3">
+                  <UserCircle2 className="w-6 h-6 shrink-0 text-primary" />
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium flex flex-wrap items-center gap-2">
                       {d.name}
                       {d.is_head && (
                         <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
@@ -388,24 +389,25 @@ export function OwnersTab({ clientId }: { clientId: number }) {
                         </span>
                       )}
                     </div>
-                    <div className="text-xs text-muted-foreground">
+                    <div className="text-xs text-muted-foreground break-all">
                       {d.email} · {d.role}
                     </div>
                   </div>
                 </div>
                 {canEdit && (
-                  <div className="flex items-center gap-2">
+                  <div className="ml-auto flex items-center gap-2 pointer-coarse:gap-4">
                     <button
                       onClick={() => toggleHeadDl.mutate(d.id)}
-                      className="text-xs px-2 py-1 rounded border border-border dark:border-border hover:bg-muted dark:hover:bg-muted"
+                      className="text-xs px-2 py-1 rounded border border-border dark:border-border hover:bg-muted dark:hover:bg-muted pointer-coarse:min-h-10"
                       title={d.is_head ? "Odznacz head" : "Ustaw jako head"}
                     >
                       {d.is_head ? "Usuń head" : "Ustaw head"}
                     </button>
                     <button
                       onClick={() => removeDl.mutate(d.id)}
-                      className="text-muted-foreground hover:text-destructive"
+                      className="hit-area text-muted-foreground hover:text-destructive"
                       title="Usuń przypisanie"
+                      aria-label="Usuń przypisanie"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>

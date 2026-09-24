@@ -41,11 +41,14 @@ function FunnelTable({ rows, groupByUtm }: FunnelTableProps) {
   const maxTotal = rows.reduce((m, r) => Math.max(m, r.candidates_total), 0);
 
   return (
+    // Zewnętrzny div trzyma zaokrąglenie, wewnętrzny przewija szeroką tabelę
+    // (tryb UTM ma 6 kolumn) — wcześniej kolumny ucinało `overflow-hidden`.
     <div className="border border-border rounded-xl overflow-hidden">
-      <table className="w-full text-sm">
+      <div className="overflow-x-auto">
+      <table className="w-full min-w-[520px] text-sm">
         <thead className="bg-muted/50">
           <tr>
-            <th className="text-left px-4 py-3 font-semibold text-foreground">Kanał</th>
+            <th className="max-md:sticky max-md:left-0 max-md:z-10 max-md:bg-muted text-left px-3 py-3 font-semibold text-foreground sm:px-4">Kanał</th>
             {groupByUtm && (
               <>
                 <th className="text-left px-4 py-3 font-semibold text-foreground">UTM source</th>
@@ -65,7 +68,7 @@ function FunnelTable({ rows, groupByUtm }: FunnelTableProps) {
                 key={`${row.channel}-${row.utm_source ?? ""}-${row.utm_campaign ?? ""}-${idx}`}
                 className="border-t border-border hover:bg-muted/30"
               >
-                <td className="px-4 py-3 text-foreground font-medium">{row.channel_label}</td>
+                <td className="max-md:sticky max-md:left-0 max-md:z-10 max-md:bg-card px-3 py-3 text-foreground font-medium sm:px-4">{row.channel_label}</td>
                 {groupByUtm && (
                   <>
                     <td className="px-4 py-3 text-muted-foreground font-mono text-xs">
@@ -100,6 +103,7 @@ function FunnelTable({ rows, groupByUtm }: FunnelTableProps) {
           })}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }
@@ -150,7 +154,7 @@ export function SourcesFunnelSection() {
   });
 
   return (
-    <section className="bg-card rounded-xl border border-border p-6 shadow-xs">
+    <section className="bg-card rounded-xl border border-border p-4 shadow-xs sm:p-6">
       <div className="flex flex-wrap items-center gap-2 mb-4">
         <h2 className="text-base font-semibold text-foreground flex items-center gap-2">
           <Target className="w-5 h-5 text-primary" />

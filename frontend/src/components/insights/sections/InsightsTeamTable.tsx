@@ -199,7 +199,7 @@ export function InsightsTeamTable({ period, renderFlags }: Props) {
     : 0;
 
   return (
-    <section className="bg-card rounded-xl border border-border p-6 shadow-xs">
+    <section className="bg-card rounded-xl border border-border p-4 shadow-xs sm:p-6">
       <h2 className="mb-4 flex items-center gap-2 text-base font-semibold text-foreground">
         <Users className="h-5 w-5 text-primary" aria-hidden="true" />
         Performance per osoba
@@ -247,6 +247,7 @@ export function InsightsTeamTable({ period, renderFlags }: Props) {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border text-xs uppercase text-muted-foreground">
+                  {/* Kolumna „Osoba" przyklejona przy przewijaniu metryk w poziomie. */}
                   <SortableHeader
                     label="Osoba"
                     columnKey="person"
@@ -254,6 +255,7 @@ export function InsightsTeamTable({ period, renderFlags }: Props) {
                     sortDir={sortDir}
                     onSort={toggleSort}
                     align="left"
+                    className="sticky left-0 z-10 bg-card"
                   />
                   <SortableHeader
                     label="Rola"
@@ -279,7 +281,7 @@ export function InsightsTeamTable({ period, renderFlags }: Props) {
               <tbody>
                 {(expanded ? rows : rows.slice(0, TEAM_TABLE_COLLAPSED_ROWS)).map((row, index) => (
                   <tr key={row.user_id} className="border-b border-border/50">
-                    <td className="py-2 pr-3 align-top">
+                    <td className="sticky left-0 z-10 bg-card py-2 pr-3 align-top">
                       <div className="flex items-start gap-2">
                         <span className="flex w-6 shrink-0 justify-center pt-1">
                           {showMedals && index < 3 ? (
@@ -436,6 +438,7 @@ function SortableHeader({
   sortDir,
   onSort,
   align,
+  className,
 }: {
   label: string;
   columnKey: SortKey;
@@ -443,6 +446,7 @@ function SortableHeader({
   sortDir: SortDirection;
   onSort: (key: SortKey) => void;
   align: "left" | "right";
+  className?: string;
 }) {
   const active = sortKey === columnKey;
   const Icon = !active
@@ -456,6 +460,7 @@ function SortableHeader({
       className={cn(
         "py-2 font-medium",
         align === "right" ? "px-2 text-right" : "pr-3 text-left",
+        className,
       )}
       aria-sort={
         active ? (sortDir === "asc" ? "ascending" : "descending") : "none"

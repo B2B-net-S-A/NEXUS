@@ -7,7 +7,7 @@
 
 import "react-grid-layout/css/styles.css"
 
-import { useMemo } from "react"
+import { useEffect, useMemo } from "react"
 import { GridLayout, useContainerWidth, verticalCompactor } from "react-grid-layout"
 
 import type { DashboardTile } from "@/lib/api/userDashboard"
@@ -25,6 +25,9 @@ import { cn } from "@/lib/utils"
 import { DRAG_HANDLE_CLASS, TileFrame, type TileActions } from "./TileFrame"
 
 export const MOBILE_BREAKPOINT = 768
+
+/** Tryb siatki liczony z szerokości KONTENERA — jedno źródło prawdy dla „Edytuj układ". */
+export type DashboardGridMode = "grid" | "list"
 
 const FIXED_HEIGHT_ON_MOBILE = new Set(["metric_chart", "metric_funnel"])
 
@@ -62,11 +65,18 @@ export function DashboardGrid({
   editing,
   actions,
   onLayoutChange,
+  onModeChange,
 }: {
   tiles: DashboardTile[]
   editing: boolean
   actions: TileActions
   onLayoutChange: (tiles: DashboardTile[]) => void
+  /**
+   * Siatka przechodzi w listę przy KONTENERZE < 768 px (okno do ~924 px przy
+   * zwiniętym pasku, ~1104 px przy przypiętym). Rodzic chowa wtedy „Edytuj
+   * układ" — w liście edycja nic by nie robiła (audyt 23.09.2026, P1-01).
+   */
+  onModeChange?: (mode: DashboardGridMode) => void
 }) {
   const { width, containerRef, mounted } = useContainerWidth({ measureBeforeMount: true })
   const layout = useMemo(
@@ -87,6 +97,9 @@ export function DashboardGrid({
     [tiles],
   )
   const mobile = mounted && width < MOBILE_BREAKPOINT
+  useEffect(() => {
+    if (mounted) onModeChange?.(mobile ? "list" : "grid")
+  }, [mounted, mobile, onModeChange])
 
   return (
     <div ref={containerRef} className="w-full">
@@ -109,7 +122,11 @@ export function DashboardGrid({
             if (!editing) return
             onLayoutChange(applyGridPositions(tiles, [...next]))
           }}
-          className={cn(editing && "dashboard-grid-editing")}
+          className={cn(
+            editing && "dashboard-grid-editing",
+            // Uchwyt zmiany rozmiaru na dotyku (iPad poziomo): 32 px zamiast 20.
+            "pointer-coarse:[&_.react-resizable-handle]:h-8! pointer-coarse:[&_.react-resizable-handle]:w-8!",
+          )}
         >
           {tiles.map((tile) => (
             <div key={tile.id} data-testid={`dashboard-tile-${tile.type}`}>

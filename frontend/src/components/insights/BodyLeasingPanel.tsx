@@ -70,7 +70,9 @@ export function BodyLeasingPanel() {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <nav
           aria-label="Rozdziały Body Leasing"
-          className="inline-flex gap-0.5 rounded-lg bg-muted p-1"
+          // Telefon: pełna szerokość z przewijaniem w poziomie zamiast
+          // wypychania strony (trzy przyciski ~330 px, audyt 23.09.2026).
+          className="flex w-full max-w-full gap-0.5 overflow-x-auto rounded-lg bg-muted p-1 sm:inline-flex sm:w-auto"
         >
           {CHAPTERS.map((chapter) => {
             const Icon = chapter.icon;
@@ -82,13 +84,13 @@ export function BodyLeasingPanel() {
                 onClick={() => select(chapter.id)}
                 aria-current={on ? "page" : undefined}
                 className={cn(
-                  "inline-flex min-h-9 items-center gap-2 rounded-md px-4 text-sm font-semibold transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
+                  "inline-flex min-h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-3 text-sm font-semibold transition-colors sm:px-4 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
                   on
                     ? "bg-card text-foreground shadow-xs"
                     : "text-muted-foreground hover:text-foreground",
                 )}
               >
-                <Icon className="h-4 w-4" />
+                <Icon className="hidden h-4 w-4 min-[420px]:block" />
                 {chapter.label}
               </button>
             );

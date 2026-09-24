@@ -99,7 +99,7 @@ function PinnedChip({ pin, onOpen, onUnpin }: PinnedChipProps) {
       className="group inline-flex items-center gap-1.5 pl-1 pr-1.5 py-0.5 rounded-full border border-border bg-background hover:bg-primary/10 hover:border-primary transition-colors max-w-[200px]"
       title={fullName}
     >
-      <Avatar size="sm" className="h-5 w-5 text-[9px]">
+      <Avatar size="sm" className="h-5 w-5 text-[10px]">
         <AvatarFallback>{initials}</AvatarFallback>
       </Avatar>
       <span className="text-xs text-foreground truncate">{fullName}</span>

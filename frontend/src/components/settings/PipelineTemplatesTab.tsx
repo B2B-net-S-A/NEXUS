@@ -291,8 +291,8 @@ export function PipelineTemplatesTab() {
 
   return (
     <>
-      <div className="flex items-center justify-between mb-6">
-        <div>
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-6">
+        <div className="min-w-0">
           <h2 className="text-2xl font-bold text-foreground dark:text-foreground">
             Procesy rekrutacyjne
           </h2>
@@ -316,7 +316,7 @@ export function PipelineTemplatesTab() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         <aside className="bg-card dark:bg-muted rounded-lg border border-border dark:border-border p-3">
           <h3 className="text-sm font-medium text-foreground dark:text-muted-foreground uppercase tracking-wide mb-2">
             Lista procesów
@@ -353,7 +353,7 @@ export function PipelineTemplatesTab() {
           </ul>
         </aside>
 
-        <main className="md:col-span-3">
+        <main className="min-w-0 lg:col-span-3">
           {loading && (
             <div className="bg-card dark:bg-muted rounded-lg p-8 flex justify-center">
               <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
@@ -362,14 +362,14 @@ export function PipelineTemplatesTab() {
           {!loading && detail && (
             <div className="space-y-6">
               <div className="bg-card dark:bg-muted rounded-lg border border-border dark:border-border p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="text-lg font-semibold">{detail.name}</h3>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h3 className="text-lg font-semibold break-words">{detail.name}</h3>
                     <p className="text-sm text-muted-foreground mt-1">
                       {detail.description ?? "Brak opisu."}
                     </p>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <label className="flex items-center gap-2 text-sm">
                       <input
                         type="checkbox"
@@ -402,7 +402,7 @@ export function PipelineTemplatesTab() {
               </div>
 
               <div className="bg-card dark:bg-muted rounded-lg border border-border dark:border-border p-4">
-                <div className="flex items-center justify-between mb-3">
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
                   <h3 className="font-medium">Etapy ({detail.stages.length})</h3>
                   <div className="flex items-center gap-2">
                     {savingOrder && (
@@ -439,7 +439,7 @@ export function PipelineTemplatesTab() {
                               <li
                                 ref={p.innerRef}
                                 {...p.draggableProps}
-                                className="flex items-center gap-3 rounded-md border border-border dark:border-border bg-muted dark:bg-card/40 px-3 py-2"
+                                className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-md border border-border dark:border-border bg-muted dark:bg-card/40 px-3 py-2"
                                 data-testid={`stage-${stage.id}`}
                               >
                                 <span {...p.dragHandleProps} className="cursor-grab text-muted-foreground">
@@ -448,7 +448,7 @@ export function PipelineTemplatesTab() {
                                 <span className="font-mono text-xs text-muted-foreground w-6 text-right">
                                   {idx + 1}
                                 </span>
-                                <span className="font-medium text-sm flex-1">
+                                <span className="font-medium text-sm min-w-0 flex-1 basis-40 break-words">
                                   {stage.name}
                                 </span>
                                 <span
@@ -457,6 +457,9 @@ export function PipelineTemplatesTab() {
                                   {CATEGORY_LABELS[stage.category]}
                                   {stage.terminal_type ? ` · ${stage.terminal_type}` : ""}
                                 </span>
+                                {/* Akcje w osobnej grupie: na wąskim ekranie
+                                    zawijają się pod nazwę zamiast ściskać ją do zera. */}
+                                <div className="ml-auto flex items-center gap-3">
                                 <button
                                   onClick={() =>
                                     setScorecardEditor({
@@ -474,7 +477,7 @@ export function PipelineTemplatesTab() {
                                   }`}
                                 >
                                   <ClipboardList className="w-3.5 h-3.5" />
-                                  Scorecard
+                                  <span className="hidden sm:inline">Scorecard</span>
                                   {stage.scorecard_schema &&
                                     Array.isArray(stage.scorecard_schema.questions) &&
                                     stage.scorecard_schema.questions.length > 0 && (
@@ -494,7 +497,7 @@ export function PipelineTemplatesTab() {
                                   className="text-xs flex items-center gap-1 px-2 py-0.5 rounded text-muted-foreground hover:bg-primary/10 dark:hover:bg-primary/30 hover:text-primary transition-colors"
                                 >
                                   <Bell className="w-3.5 h-3.5" />
-                                  Powiadomienia
+                                  <span className="hidden sm:inline">Powiadomienia</span>
                                 </button>
                                 <button
                                   onClick={() => handleRenameStage(stage)}
@@ -514,6 +517,7 @@ export function PipelineTemplatesTab() {
                                 >
                                   <Trash2 className="w-4 h-4" />
                                 </button>
+                                </div>
                               </li>
                             )}
                           </Draggable>
@@ -526,7 +530,7 @@ export function PipelineTemplatesTab() {
               </div>
 
               <div className="bg-card dark:bg-muted rounded-lg border border-border dark:border-border p-4">
-                <div className="flex items-center justify-between mb-3">
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
                   <h3 className="font-medium">Powody odrzucenia / wycofania</h3>
                   <button
                     onClick={handleAddReason}
@@ -561,10 +565,10 @@ export function PipelineTemplatesTab() {
                         {reasons.map((r) => (
                           <li
                             key={r.id}
-                            className="flex items-center justify-between rounded-md border border-border dark:border-border bg-muted dark:bg-card/40 px-3 py-1.5 text-sm"
+                            className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-md border border-border dark:border-border bg-muted dark:bg-card/40 px-3 py-1.5 text-sm"
                           >
-                            <span>{rejectionReasonLabel(r)}</span>
-                            <div className="flex items-center gap-3">
+                            <span className="min-w-0 break-words">{rejectionReasonLabel(r)}</span>
+                            <div className="ml-auto flex items-center gap-3">
                               <label
                                 className={`flex items-center gap-1.5 text-xs ${
                                   cat === "rejected"

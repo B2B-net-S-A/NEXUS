@@ -52,7 +52,7 @@ export function ContractRateBenchmarkCard({ contractId, currency }: Props) {
           </span>
         )}
       </div>
-      <div className="grid grid-cols-3 gap-4 text-sm">
+      <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-3 sm:gap-4">
         <MetricBlock
           label="Ten kontrakt"
           value={contractRate}

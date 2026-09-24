@@ -367,6 +367,15 @@ def render_interactive_html(
   .rodo {{ font-size: 8.5px; color: #9a9a9a; line-height: 1.35; margin-top: 26px;
            border-top: 1px solid #eee; padding-top: 10px; text-align: justify; }}
   body.classic #tiles {{ display: none; }}
+  /* Wąski ekran (plik otwierany na telefonie): mniejsze marginesy, daty nad treścią. */
+  @media (max-width: 600px) {{
+    body {{ padding: 8px; }}
+    .cv {{ padding: 20px 16px; }}
+    #tiles {{ padding: 14px 16px; }}
+    .edu {{ flex-direction: column; gap: 0; }}
+    .edu-dates {{ flex: none; }}
+    .job-head {{ flex-wrap: wrap; }}
+  }}
   @media print {{
     body {{ background: #fff; padding: 0; }}
     .no-print, .topbar, #tiles {{ display: none !important; }}

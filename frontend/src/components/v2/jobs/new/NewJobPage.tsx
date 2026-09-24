@@ -348,7 +348,7 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
   const recruiters = recruitersQuery.data ?? [];
 
   return (
-    <div className="mx-auto flex w-full max-w-[1400px] flex-col gap-6 px-4 pt-6 md:px-8">
+    <div className="mx-auto flex w-full max-w-[1400px] flex-col gap-6 md:px-2 md:pt-2">
       <PageHeader
         title="Nowa rekrutacja"
         description={
@@ -392,7 +392,7 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
               </button>
             </div>
             {requestText.trim() ? (
-              <div className="max-h-[70vh] overflow-auto whitespace-pre-line rounded-xl border border-border bg-card p-5 text-sm leading-relaxed text-foreground/80">
+              <div className="max-h-[35dvh] overflow-auto whitespace-pre-line rounded-xl border border-border bg-card p-4 sm:p-5 xl:max-h-[70dvh] text-sm leading-relaxed text-foreground/80">
                 {segments.map((seg, i) =>
                   seg.mark ? (
                     <mark
@@ -447,7 +447,7 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
       )}
 
       {step === "review" && (
-        <footer className="mt-2 md:sticky md:bottom-0 z-20 -mx-4 border-t border-border bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80 md:-mx-8">
+        <footer className="sticky bottom-0 z-20 mt-2 -mx-4 border-t [@media(max-height:600px)]:static border-border bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80 md:-mx-8">
           <div className="flex flex-wrap items-center justify-between gap-4 px-4 py-4 md:px-8">
             <div className="flex min-w-0 items-center gap-3">
               <span

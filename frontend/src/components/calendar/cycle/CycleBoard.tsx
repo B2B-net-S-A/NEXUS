@@ -47,7 +47,9 @@ export function CycleBoard({
   }
   return (
     <div
-      className="grid gap-2.5 overflow-x-auto pb-2 grid-cols-[repeat(7,minmax(180px,1fr))]"
+      // Na telefonie kolumna zajmuje ~80% szerokości (widać sąsiednią — wiadomo,
+      // że tablica przewija się w bok), a na dotyku kolumny się dociągają.
+      className="grid gap-2.5 overflow-x-auto pb-2 grid-cols-[repeat(7,80%)] sm:grid-cols-[repeat(7,minmax(180px,1fr))] pointer-coarse:snap-x pointer-coarse:snap-mandatory"
       role="list"
       aria-label="Tablica kroków rozmów u klienta"
     >
@@ -60,7 +62,7 @@ export function CycleBoard({
             role="listitem"
             aria-label={STEP_TITLES[key]}
             className={cn(
-              "flex min-w-0 flex-col gap-2 rounded-xl p-2.5",
+              "flex min-w-0 snap-start flex-col gap-2 rounded-xl p-2.5",
               hot ? "bg-destructive/10" : "bg-muted/60",
             )}
           >

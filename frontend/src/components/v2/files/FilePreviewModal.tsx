@@ -77,6 +77,28 @@ export function fileIcon(_contentType: string | null): ReactNode {
   return <FileText className="h-4 w-4 text-muted-foreground" />;
 }
 
+/** Skaluje strony `docx-preview` (`section.docx`) do szerokości hosta, gdy są
+ *  od niego szersze — na telefonie CV w DOCX czytało się tylko przewijając w bok.
+ *  Na wąskim ekranie zmniejsza też szary margines wokół stron. */
+function fitDocxSectionsToWidth(host: HTMLElement): void {
+  const wrapper = host.querySelector<HTMLElement>(".docx-wrapper");
+  const sections = host.querySelectorAll<HTMLElement>("section.docx");
+  if (!wrapper || sections.length === 0) return;
+  wrapper.style.padding = host.clientWidth < 640 ? "8px" : "";
+  const wrapperStyle = window.getComputedStyle(wrapper);
+  const available =
+    wrapper.clientWidth -
+    (parseFloat(wrapperStyle.paddingLeft) || 0) -
+    (parseFloat(wrapperStyle.paddingRight) || 0);
+  sections.forEach((section) => {
+    section.style.removeProperty("zoom");
+    const natural = section.offsetWidth;
+    if (available > 0 && natural > available) {
+      section.style.setProperty("zoom", String(available / natural));
+    }
+  });
+}
+
 export type PreviewKind = "pdf" | "docx" | "image" | "unsupported";
 
 // Czy plik da się wyświetlić inline w przeglądarce. PDF/obraz mają natywny
@@ -326,6 +348,19 @@ export function FilePreviewContent({
     };
   }, [kind, docxBlob]);
 
+  // DOCX: strona ma szerokość z dokumentu (~794 px A4). Jak PDF — dopasuj do
+  // szerokości okna, przy każdej zmianie szerokości kontenera.
+  useEffect(() => {
+    if (kind !== "docx" || status !== "ready") return;
+    const host = docxHostRef.current;
+    if (!host) return;
+    fitDocxSectionsToWidth(host);
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => fitDocxSectionsToWidth(host));
+    observer.observe(host);
+    return () => observer.disconnect();
+  }, [kind, status, docxBlob]);
+
   // DOCX: podświetlenie po wyrenderowaniu i przy każdej zmianie zapytania.
   useEffect(() => {
     if (kind !== "docx" || status !== "ready") return;
@@ -538,7 +573,7 @@ export function FilePreviewModal({
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
       <DialogContent
         size="full"
-        className="h-[92vh] p-0 gap-0"
+        className="h-[92dvh] p-0 gap-0"
         hideClose
         onEscapeKeyDown={keepDialogOpenOnDocumentSearchEscape}
       >
@@ -563,7 +598,7 @@ export function FilePreviewModal({
                 type="button"
                 onClick={() => setActiveIndex((index) => Math.max(0, index - 1))}
                 disabled={activeIndex === 0}
-                className="rounded-l-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                className="rounded-l-md p-2.5 text-muted-foreground md:p-1.5 transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
                 aria-label="Poprzednie CV"
                 aria-keyshortcuts="ArrowLeft"
               >
@@ -577,7 +612,7 @@ export function FilePreviewModal({
                   )
                 }
                 disabled={activeIndex >= gallery.length - 1}
-                className="rounded-r-md border-l border-border p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                className="rounded-r-md border-l border-border p-2.5 text-muted-foreground md:p-1.5 transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
                 aria-label="Następne CV"
                 aria-keyshortcuts="ArrowRight"
               >
@@ -598,7 +633,7 @@ export function FilePreviewModal({
             <button
               type="button"
               onClick={onClose}
-              className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-primary/10 hover:text-foreground"
+              className="rounded-md p-2.5 text-muted-foreground transition-colors hover:bg-primary/10 hover:text-foreground md:p-1"
               aria-label="Zamknij podgląd dokumentu"
             >
               <X className="h-4 w-4" />

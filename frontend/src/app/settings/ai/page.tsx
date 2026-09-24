@@ -154,7 +154,7 @@ export default function AISettingsPage() {
 
   if (isLoading) {
     return (
-      <div className="container max-w-4xl mx-auto py-8 px-4">
+      <div className="container max-w-4xl mx-auto md:py-8 md:px-4">
         <div className="flex items-center justify-center min-h-[400px]">
           <Loader2 className="w-8 h-8 text-muted-foreground animate-spin" />
         </div>
@@ -168,7 +168,7 @@ export default function AISettingsPage() {
     resolveViewState({ isLoading: false, isError: true, error }) === "forbidden"
   ) {
     return (
-      <div className="container max-w-4xl mx-auto py-8 px-4">
+      <div className="container max-w-4xl mx-auto md:py-8 md:px-4">
         <QueryStateNotice
           state="forbidden"
           description="Raport zużycia AI jest dostępny wyłącznie dla administratora."
@@ -179,7 +179,7 @@ export default function AISettingsPage() {
 
   if (error || !data) {
     return (
-      <div className="container max-w-4xl mx-auto py-8 px-4">
+      <div className="container max-w-4xl mx-auto md:py-8 md:px-4">
         <QueryStateNotice
           state="error"
           description="Nie udało się załadować raportu zużycia AI."
@@ -196,7 +196,7 @@ export default function AISettingsPage() {
   );
 
   return (
-    <div className="container max-w-4xl mx-auto py-8 px-4">
+    <div className="container max-w-4xl mx-auto md:py-8 md:px-4">
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-foreground mt-2">Funkcje AI</h1>
         <p className="text-sm text-muted-foreground mt-1">

@@ -165,7 +165,7 @@ export function AddCandidatesQuickModal({ open, onClose, jobId, jobTitle }: Prop
       <DialogContent
         size="lg"
         hideClose
-        className="rounded-2xl shadow-xl max-h-[88vh]"
+        className="rounded-2xl shadow-xl max-h-[88dvh]"
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">

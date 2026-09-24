@@ -107,7 +107,7 @@ export function PrepInviteModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent size="lg" className="flex flex-col max-h-[90vh]">
+      <DialogContent size="lg" className="flex flex-col max-h-[90dvh]">
         <DialogHeader>
           <DialogTitle>Zaproszenie na spotkanie przygotowujące</DialogTitle>
         </DialogHeader>

@@ -38,7 +38,7 @@ const Login4 = ({
   className,
 }: Login4Props) => {
   return (
-    <section className={cn("h-screen bg-background", className)}>
+    <section className={cn("h-dvh bg-background", className)}>
       <div className="flex h-full items-center justify-center">
         <div className="flex flex-col items-center gap-6 lg:justify-start">
           <div className="flex w-full max-w-sm min-w-sm flex-col items-center gap-y-4 px-6 py-12">

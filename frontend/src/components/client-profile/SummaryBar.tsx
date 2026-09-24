@@ -42,7 +42,7 @@ export function SummaryBar({ summary }: Props) {
     ? `miesięczna marża — suma niepełna: pominięto ${unpriced} ${activeContractsWord(unpriced)} bez stawki`
     : "miesięczna marża";
   return (
-    <div className="grid grid-cols-2 gap-3">
+    <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2">
       <StatsCard
         title="Aktywni konsultanci"
         value={summary.active_consultants}

@@ -124,7 +124,7 @@ export function CandidateCompareModal({
       onClick={onClose}
     >
       <div
-        className="max-h-[85vh] w-full max-w-3xl overflow-auto rounded-xl bg-card p-4 shadow-xl dark:border dark:border-zinc-800"
+        className="max-h-[85dvh] w-full max-w-3xl overflow-auto rounded-xl bg-card p-4 shadow-xl dark:border dark:border-zinc-800"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-3 flex items-center justify-between">
@@ -158,7 +158,7 @@ export function CandidateCompareModal({
               : "Ładowanie…"}
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="relative overflow-x-auto">
             <table className="w-full border-collapse text-sm">
               <thead>
                 <tr className="border-b dark:border-zinc-800">

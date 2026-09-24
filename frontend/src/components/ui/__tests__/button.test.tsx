@@ -20,4 +20,20 @@ describe("Button asChild (UAT B74)", () => {
     expect(screen.getByRole("button", { name: "Zapisz" })).toBeDisabled();
     expect(container.querySelector("svg")).not.toBeNull();
   });
+
+  it("powiększa cel dotyku małych rozmiarów tylko na dotyku", () => {
+    render(
+      <>
+        <Button size="sm">Mały</Button>
+        <Button size="icon" aria-label="Ikona" />
+        <Button size="icon-sm" aria-label="Mała ikona" />
+      </>,
+    );
+    expect(screen.getByRole("button", { name: "Mały" }).className).toContain("pointer-coarse:min-h-10");
+    for (const name of ["Ikona", "Mała ikona"]) {
+      const cls = screen.getByRole("button", { name }).className;
+      expect(cls).toContain("pointer-coarse:min-h-10");
+      expect(cls).toContain("pointer-coarse:min-w-10");
+    }
+  });
 });

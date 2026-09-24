@@ -82,8 +82,11 @@ export interface JarvisPanelProps {
   onShowAnchor?: (anchorId: string) => void;
 }
 
+// Telefon i telefon w poziomie (< 768 px): pełny ekran na wysokość WIDOCZNEGO
+// obszaru (`h-dvh`), od `md` pływające okno. Od `sm` okno 640 px na ekranie
+// wysokim na ~360 px zostawiało na rozmowę kilka linii.
 const FLOATING =
-  "fixed inset-0 z-40 sm:inset-auto sm:bottom-24 sm:right-5 sm:h-[640px] sm:max-h-[calc(100vh-7.5rem)] sm:w-[420px] sm:rounded-2xl sm:border sm:border-border";
+  "fixed inset-x-0 top-0 h-dvh z-40 md:inset-auto md:top-auto md:bottom-24 md:right-5 md:h-[640px] md:max-h-[calc(100dvh-7.5rem)] md:w-[420px] md:rounded-2xl md:border md:border-border";
 const INLINE = "relative h-[640px] w-full max-w-[420px] rounded-2xl border border-border";
 
 function formatWhen(iso: string): string {

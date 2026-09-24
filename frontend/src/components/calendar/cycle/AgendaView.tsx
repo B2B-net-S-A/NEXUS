@@ -1,11 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Phone, Video } from "lucide-react";
 
 import { EmptyState } from "@/components/ds/EmptyState";
 import {
   AGENDA_LABELS,
+  PREP_QUALITY_LABELS,
   TODO_ACTIONS,
   TODO_LABELS,
   actionForItem,
@@ -20,6 +21,7 @@ import {
   interviewStartFor,
   pairContext,
   pairKey,
+  prepQualityTone,
   relativeLabel,
   upcomingAgenda,
   type AgendaEntry,
@@ -48,7 +50,16 @@ const DOT: Record<TodoEntry["kind"], string> = {
   slots_confirm: "bg-warning",
   prep_missing: "bg-primary",
   prep2_missing: "bg-primary",
+  prep_weak: "bg-destructive",
+  prep_unrecorded: "bg-warning",
   slots_missing: "bg-muted-foreground",
+};
+
+const QUALITY_CHIP: Record<ReturnType<typeof prepQualityTone>, string> = {
+  done: "bg-success-muted text-success-muted-foreground",
+  warn: "bg-warning-muted text-warning-muted-foreground",
+  danger: "bg-destructive/10 text-destructive",
+  muted: "bg-muted text-muted-foreground",
 };
 
 export interface AgendaViewProps {
@@ -71,6 +82,23 @@ export function AgendaView({
   onSelect,
 }: AgendaViewProps) {
   const [showAll, setShowAll] = useState(false);
+  // Poniżej xl karta kandydata stoi POD listą i agendą — sam wybór zmieniał
+  // tylko tło wiersza, a karta pojawiała się setki pikseli niżej (martwy klik
+  // na telefonie). Po wyborze przewijamy do karty, gdy układ jest pionowy.
+  const cardRef = useRef<HTMLElement>(null);
+  const [revealTick, setRevealTick] = useState(0);
+  const selectAndReveal = (key: string) => {
+    onSelect(key);
+    setRevealTick((t) => t + 1);
+  };
+  useEffect(() => {
+    if (revealTick === 0) return;
+    if (window.matchMedia?.("(min-width: 1280px)").matches) return;
+    // Bez `behavior: "smooth"`: ekran przewija się w zagnieżdżonym kontenerze
+    // powłoki, a tam Chrome cicho pomija płynne przewijanie
+    // (patrz `ProcedureTableOfContents`).
+    cardRef.current?.scrollIntoView?.({ block: "start" });
+  }, [revealTick]);
   const days = useMemo(
     () => groupAgendaByDay(upcomingAgenda(data.agenda, now), now),
     [data.agenda, now],
@@ -117,13 +145,27 @@ export function AgendaView({
                   )}
                   aria-current={pairKey(t) === selectedPairKey ? "true" : undefined}
                 >
-                  <span className={cn("mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full", DOT[t.kind])} aria-hidden />
+                  <span
+                    className={cn(
+                      "mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full",
+                      t.urgent ? "bg-destructive" : DOT[t.kind],
+                    )}
+                    aria-hidden
+                  />
                   <button
                     type="button"
-                    onClick={() => onSelect(pairKey(t))}
+                    onClick={() => selectAndReveal(pairKey(t))}
                     className="min-w-0 flex-1 text-left"
                   >
-                    <div className="text-xs font-semibold text-muted-foreground">{TODO_LABELS[t.kind]}</div>
+                    <div
+                      className={cn(
+                        "text-xs font-semibold",
+                        t.urgent ? "text-destructive" : "text-muted-foreground",
+                      )}
+                    >
+                      {TODO_LABELS[t.kind]}
+                      {t.urgent ? " · rozmowa w ciągu doby" : ""}
+                    </div>
                     <div className="truncate text-sm font-semibold text-foreground">{candidateLabel(t)}</div>
                     <div className="line-clamp-2 text-xs text-muted-foreground">
                       {pairContext(t)}
@@ -193,7 +235,7 @@ export function AgendaView({
                       }
                       now={now}
                       selected={pairKey(e) === selectedPairKey}
-                      onSelect={() => onSelect(pairKey(e))}
+                      onSelect={() => selectAndReveal(pairKey(e))}
                       onAction={onAction}
                     />
                   ))}
@@ -217,8 +259,9 @@ export function AgendaView({
           „Wybierz kandydata” czytała się jak zepsuty panel). */}
       {selected ? (
       <aside
+        ref={cardRef}
         aria-label="Wybrany kandydat"
-        className="min-w-0 rounded-2xl border border-border bg-card p-4 lg:col-span-2 xl:col-span-1"
+        className="scroll-mt-4 min-w-0 rounded-2xl border border-border bg-card p-4 lg:col-span-2 xl:col-span-1"
       >
         <CandidateCycleCard
           item={selected}
@@ -326,6 +369,16 @@ function AgendaRow({
       <span className={cn("shrink-0 rounded-md px-2 py-1 text-xs font-semibold", CHIP[entry.kind])}>
         {AGENDA_LABELS[entry.kind]}
       </span>
+      {entry.prep_quality ? (
+        <span
+          className={cn(
+            "shrink-0 rounded-md px-2 py-1 text-xs font-semibold",
+            QUALITY_CHIP[prepQualityTone(entry.prep_quality)],
+          )}
+        >
+          {PREP_QUALITY_LABELS[entry.prep_quality]}
+        </span>
+      ) : null}
       <button type="button" onClick={onSelect} className="min-w-[160px] flex-1 text-left">
         <div className="text-sm font-semibold text-foreground">{candidateLabel(entry)}</div>
         <div className="text-xs text-muted-foreground">{pairContext(entry)}</div>
@@ -376,6 +429,17 @@ function AgendaRow({
         {entry.kind === "call" && entry.done ? (
           <span className="text-xs text-success-muted-foreground">debrief zapisany</span>
         ) : null}
+        {entry.from_nexus && past && entry.event_id != null ? (
+          <button
+            type="button"
+            onClick={() =>
+              onAction({ type: "prep_review", pair: entry, eventId: entry.event_id as number })
+            }
+            className="h-8 rounded-md border border-border px-2.5 text-xs font-semibold hover:bg-muted"
+          >
+            Ocena prepu
+          </button>
+        ) : null}
         {entry.kind !== "call" && entry.event_id != null ? (
           <button
             type="button"
@@ -415,6 +479,7 @@ export function CandidateCycleCard({
             ? { stepKey: current.stepKey, label: current.label, onClick: () => onAction(current.action) }
             : null
         }
+        onPrepReview={(eventId) => onAction({ type: "prep_review", pair: item, eventId })}
       />
       {req && req.status !== "cancelled" && req.status !== "confirmed" ? (
         <div className="rounded-lg bg-muted/50 p-3 text-xs">

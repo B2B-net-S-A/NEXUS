@@ -149,7 +149,7 @@ export function RecruitmentsTab({
   const hasData = history.length > 0;
 
   return (
-    <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
+    <div className="grid grid-cols-1 items-start gap-5 @4xl:grid-cols-[minmax(0,1fr)_320px]">
       <div className="min-w-0 space-y-4">
         {isPending && !hasData ? (
           <SectionLoading label="Ładowanie rekrutacji…" />
@@ -265,7 +265,7 @@ export function RecruitmentsTab({
         </section>
       </div>
 
-      <aside className="space-y-4 xl:sticky xl:top-4" aria-label="Sugestie i dane handlowe">
+      <aside className="space-y-4 @4xl:sticky @4xl:top-4" aria-label="Sugestie i dane handlowe">
         <ScreeningSummaryCard candidateId={candidateId} />
         <SuggestedJobsWidget
           candidateId={candidateId}

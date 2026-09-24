@@ -109,7 +109,7 @@ export function CvRuleHistoryTab({ clientId, onRestore, restoreDisabled }: {
           </p>
           {versions.isError ? <p className="text-xs text-destructive">Nie udało się pobrać wersji.</p> : null}
           {versions.data?.map((version) => (
-            <div key={version.version} className="flex items-center justify-between gap-2 rounded-md border p-2 text-sm">
+            <div key={version.version} className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-2 text-sm">
               <span>Wersja {version.version} · {formatDate(version.published_at)}</span>
               <Button variant="outline" size="sm" disabled={restoreDisabled} onClick={() => onRestore(version.version)}>
                 Przywróć do szkicu

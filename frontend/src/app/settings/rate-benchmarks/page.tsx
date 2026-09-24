@@ -93,9 +93,9 @@ function RateBenchmarksAdmin({ readOnly = false }: { readOnly?: boolean }) {
   });
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
-      <header className="flex items-center justify-between">
-        <div>
+    <div className="max-w-6xl mx-auto md:px-4 md:py-8 space-y-6">
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
           <h1 className="text-xl font-semibold">Benchmarki stawek</h1>
           <p className="text-sm text-muted-foreground">
             Stawki rynkowe z raportów branżowych (Hays, No Fluff Jobs, Just Join
@@ -312,8 +312,8 @@ function BenchmarkForm({ onSubmit, onCancel, submitting }: BenchmarkFormProps) {
       onSubmit={submit}
       className="rounded-lg border border-border dark:border-border p-4 space-y-3 bg-muted dark:bg-muted"
     >
-      <div className="grid grid-cols-3 gap-3">
-        <label className="block col-span-2">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <label className="block sm:col-span-2">
           <span className="text-xs text-muted-foreground">Rola</span>
           <input
             value={form.role}
@@ -415,7 +415,7 @@ function BenchmarkForm({ onSubmit, onCancel, submitting }: BenchmarkFormProps) {
             className="mt-1 w-full border border-border dark:border-border rounded-md px-2 py-1.5 text-sm bg-card dark:bg-gray-950"
           />
         </label>
-        <label className="block col-span-2">
+        <label className="block sm:col-span-2">
           <span className="text-xs text-muted-foreground">Źródło</span>
           <input
             value={form.source}

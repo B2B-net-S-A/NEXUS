@@ -71,9 +71,11 @@ export function RecruitmentFunnel({ period }: Props) {
               // reszta czyta się jak wynik, a jest brakiem ewidencji.
               const unrecorded = !s.mapped_from_traffit && s.count === 0;
               return (
-                <div key={s.stage} className="flex items-center gap-3">
+                // Stałe szerokości kolumn tylko od `sm` — na telefonie zjadały
+                // cały pasek (audyt 23.09.2026, P1-09).
+                <div key={s.stage} className="flex items-center gap-2 sm:gap-3">
                   <span
-                    className={`w-44 text-sm truncate ${
+                    className={`w-24 shrink-0 text-sm truncate sm:w-44 ${
                       unrecorded ? "text-muted-foreground" : "text-foreground"
                     }`}
                     title={
@@ -85,7 +87,7 @@ export function RecruitmentFunnel({ period }: Props) {
                     {s.label}
                     {unrecorded && " *"}
                   </span>
-                  <div className="flex-1 h-5 bg-muted rounded-full overflow-hidden">
+                  <div className="min-w-12 flex-1 h-5 bg-muted rounded-full overflow-hidden">
                     <div
                       className={
                         unrecorded
@@ -95,10 +97,10 @@ export function RecruitmentFunnel({ period }: Props) {
                       style={{ width: `${w}%` }}
                     />
                   </div>
-                  <span className="w-12 text-sm text-foreground text-right font-medium">
+                  <span className="w-10 shrink-0 text-sm text-foreground text-right font-medium tabular-nums sm:w-12">
                     {unrecorded ? "—" : s.count}
                   </span>
-                  <span className="w-16 text-xs text-muted-foreground text-right">
+                  <span className="hidden w-16 shrink-0 text-xs text-muted-foreground text-right sm:block">
                     {s.share_pct !== null && !unrecorded
                       ? `${s.share_pct}%`
                       : ""}

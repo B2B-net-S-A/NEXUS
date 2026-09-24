@@ -24,12 +24,15 @@ const buttonVariants = cva(
         destructive: "bg-destructive text-destructive-foreground hover:bg-destructive/90 shadow-xs",
         outline: "bg-transparent border border-border text-foreground hover:bg-muted",
       },
+      // Na dotyku (pointer: coarse) małe rozmiary rosną do 40 px celu —
+      // 32 px to za mało dla palca (audyt responsywności 23.09.2026).
+      // Myszka i desktop bez zmian.
       size: {
-        sm: "h-8 px-3 text-xs rounded-md",
+        sm: "h-8 px-3 text-xs rounded-md pointer-coarse:min-h-10",
         md: "h-9 px-4 text-sm rounded-md",
         lg: "h-10 px-6 text-sm rounded-md",
-        icon: "h-9 w-9 rounded-md",
-        "icon-sm": "h-8 w-8 rounded-md",
+        icon: "h-9 w-9 rounded-md pointer-coarse:min-h-10 pointer-coarse:min-w-10",
+        "icon-sm": "h-8 w-8 rounded-md pointer-coarse:min-h-10 pointer-coarse:min-w-10",
       },
     },
     defaultVariants: {

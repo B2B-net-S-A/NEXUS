@@ -7,6 +7,7 @@ import { Briefcase, Building2, CalendarPlus, Contact2, Link2, Plus, UserPlus } f
 import type { Capability } from "@/lib/capabilities";
 import { useCapabilities } from "@/hooks/useCapability";
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/components/Toast";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -54,7 +55,9 @@ const ACTION_CAPABILITIES = Object.values(ACTION_CAPABILITY);
  */
 export function QuickActionsV2({ externalModal, onExternalModalClear }: Props) {
   const [modal, setModal] = useState<QuickActionModal>(null);
-  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  // Jeden wspólny kontener toastów (`components/Toast.tsx`) — własny toast
+  // w tym samym rogu nakładał się na globalne (audyt responsywności 23.09.2026).
+  const { showSuccess, showError } = useToast();
   const queryClient = useQueryClient();
   const can = useCapabilities();
   const router = useRouter();
@@ -83,8 +86,8 @@ export function QuickActionsV2({ externalModal, onExternalModalClear }: Props) {
   }, [externalModal, onExternalModalClear, can, router]);
 
   const showToast = (message: string, type: "success" | "error" = "success") => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3000);
+    if (type === "error") showError(message);
+    else showSuccess(message);
     // Aktywne listy V2 używają kluczy z sufiksem `-v2` / `calendar-events`.
     // Stare (bezsufiksowe) klucze zostawiamy — są nieszkodliwe, a niektóre
     // ekrany V1 nadal ich używają. Bez kluczy V2 świeżo dodany rekord nie
@@ -171,19 +174,6 @@ export function QuickActionsV2({ externalModal, onExternalModalClear }: Props) {
           if (!v) setModal(null);
         }}
       />
-
-      {toast && (
-        <div
-          className={`fixed bottom-4 right-4 z-9999 px-4 py-3 rounded-md shadow-md text-sm border ${
-            toast.type === "success"
-              ? "bg-card text-foreground border-border"
-              : "bg-destructive text-destructive-foreground border-destructive"
-          }`}
-          role="alert"
-        >
-          {toast.message}
-        </div>
-      )}
     </>
   );
 }

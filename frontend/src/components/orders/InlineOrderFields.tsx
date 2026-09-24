@@ -89,7 +89,7 @@ export function InlineText({
             type="button"
             onClick={begin}
             aria-label={`Edytuj: ${ariaLabel}`}
-            className="text-muted-foreground/50 hover:text-violet-600 transition-colors"
+            className="hit-area text-muted-foreground/50 hover:text-violet-600 transition-colors"
           >
             <Pencil className="w-3 h-3" />
           </button>
@@ -128,7 +128,7 @@ export function InlineText({
         onClick={commit}
         disabled={saving}
         aria-label="Zapisz"
-        className="text-green-600 hover:text-green-700 disabled:opacity-50"
+        className="pointer-coarse:p-2 text-green-600 hover:text-green-700 disabled:opacity-50"
       >
         <Check className="w-3.5 h-3.5" />
       </button>
@@ -138,7 +138,7 @@ export function InlineText({
         onClick={() => setEditing(false)}
         disabled={saving}
         aria-label="Anuluj"
-        className="text-muted-foreground hover:text-destructive disabled:opacity-50"
+        className="pointer-coarse:p-2 text-muted-foreground hover:text-destructive disabled:opacity-50"
       >
         <X className="w-3.5 h-3.5" />
       </button>
@@ -211,7 +211,7 @@ export function InlinePeriod({
             type="button"
             onClick={begin}
             aria-label="Edytuj: okres zamówienia"
-            className="text-muted-foreground/50 hover:text-violet-600 transition-colors"
+            className="hit-area text-muted-foreground/50 hover:text-violet-600 transition-colors"
           >
             <Pencil className="w-3 h-3" />
           </button>
@@ -284,7 +284,7 @@ export function InlinePeriod({
         onClick={commit}
         disabled={saving}
         aria-label="Zapisz"
-        className="text-green-600 hover:text-green-700 disabled:opacity-50"
+        className="pointer-coarse:p-2 text-green-600 hover:text-green-700 disabled:opacity-50"
       >
         <Check className="w-3.5 h-3.5" />
       </button>
@@ -294,7 +294,7 @@ export function InlinePeriod({
         onClick={() => setEditing(false)}
         disabled={saving}
         aria-label="Anuluj"
-        className="text-muted-foreground hover:text-destructive disabled:opacity-50"
+        className="pointer-coarse:p-2 text-muted-foreground hover:text-destructive disabled:opacity-50"
       >
         <X className="w-3.5 h-3.5" />
       </button>

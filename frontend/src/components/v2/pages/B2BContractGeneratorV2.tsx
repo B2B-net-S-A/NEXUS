@@ -570,9 +570,11 @@ export function B2BContractGeneratorV2() {
     // Kolumna „Status umowy" (PR: status + wyszukiwarka) dołożyła szerokości,
     // stąd 6xl → 7xl. Szerszy kontener mieści wszystkie akcje w widocznym
     // obszarze.
-    <div className="mx-auto max-w-7xl p-6">
+    // `p-0 md:p-6`: shell daje już `p-4` — na telefonie podwójny margines
+    // zostawiał ~295 px na treść.
+    <div className="mx-auto max-w-7xl p-0 md:p-6">
       <div className="mb-6 flex items-center gap-3">
-        <FileSignature className="h-7 w-7 text-primary" />
+        <FileSignature className="h-7 w-7 shrink-0 text-primary" />
         <div>
           <h1 className="text-2xl font-semibold">Generator Umów B2B</h1>
           <p className="text-sm text-muted-foreground">
@@ -595,20 +597,20 @@ export function B2BContractGeneratorV2() {
           ) : null}
 
           <Tabs value={activeTab} onValueChange={selectTab}>
-            <TabsList className="mb-4" data-help="contracts.b2b_generator.tabs">
+            <TabsList className="mb-4 overflow-x-auto" data-help="contracts.b2b_generator.tabs">
               {canGenerate ? (
-                <TabsTrigger value="generator">Generator</TabsTrigger>
+                <TabsTrigger value="generator" className="shrink-0 whitespace-nowrap">Generator</TabsTrigger>
               ) : null}
               {/* „Umowy bieżące", nie „aktywne i w trakcie podpisu": od 0328
                   siedzą tu także umowy anulowane (wiersz zostaje pod ręką, żeby
                   dało się go cofnąć na „W trakcie", gdy Partner wróci).
                   Nagłówek wyliczający statusy przestałby być prawdziwy. */}
-              <TabsTrigger value="generated">Umowy bieżące</TabsTrigger>
-              <TabsTrigger value="no-project">Umowy bez projektu</TabsTrigger>
-              <TabsTrigger value="closed">Zakończone umowy</TabsTrigger>
-              <TabsTrigger value="documents">Dokumenty</TabsTrigger>
+              <TabsTrigger value="generated" className="shrink-0 whitespace-nowrap">Umowy bieżące</TabsTrigger>
+              <TabsTrigger value="no-project" className="shrink-0 whitespace-nowrap">Umowy bez projektu</TabsTrigger>
+              <TabsTrigger value="closed" className="shrink-0 whitespace-nowrap">Zakończone umowy</TabsTrigger>
+              <TabsTrigger value="documents" className="shrink-0 whitespace-nowrap">Dokumenty</TabsTrigger>
               {isAdmin ? (
-                <TabsTrigger value="roles">Zakresy ról (admin)</TabsTrigger>
+                <TabsTrigger value="roles" className="shrink-0 whitespace-nowrap">Zakresy ról (admin)</TabsTrigger>
               ) : null}
             </TabsList>
             {/* forceMount: nie odmontowuj formularza przy przejściu na inną
@@ -1267,7 +1269,7 @@ function StartDateRangeFilter({
           aria-expanded={open}
           title="Filtruj po dacie rozpoczęcia"
           className={cn(
-            "rounded p-0.5 transition-colors",
+            "hit-area rounded p-0.5 transition-colors",
             active
               ? "text-primary"
               : "text-muted-foreground hover:text-foreground",
@@ -2222,7 +2224,7 @@ export function GeneratedContractsTab({
       <CardContent>
         {isForbidden(q.error) ? null : (
           <div className="mb-4 flex flex-wrap items-center gap-2">
-            <div className="relative min-w-[18rem] flex-1">
+            <div className="relative w-full min-w-0 flex-1 sm:w-auto sm:min-w-[18rem]">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={search}
@@ -2241,7 +2243,7 @@ export function GeneratedContractsTab({
                 )
               }
             >
-              <SelectTrigger className="w-56" aria-label="Filtr statusu umowy">
+              <SelectTrigger className="w-full sm:w-56" aria-label="Filtr statusu umowy">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -2358,7 +2360,7 @@ export function GeneratedContractsTab({
                       akcje są ikonowe (z `aria-label` i `title`): trzy
                       przyciski z tekstem miały 283 px i zakrywały pół
                       „Status podpisu". */}
-                  <th className="sticky right-0 z-10 bg-card py-2 pl-2 text-right font-medium shadow-[inset_1px_0_0_hsl(var(--border))]">
+                  <th className="bg-card py-2 pl-2 text-right font-medium shadow-[inset_1px_0_0_hsl(var(--border))] md:sticky md:right-0 md:z-10">
                     Akcje
                   </th>
                 </tr>
@@ -2414,7 +2416,7 @@ export function GeneratedContractsTab({
                               }
                             }}
                             disabled={saving}
-                            className="h-8 min-w-[16rem]"
+                            className="h-8 min-w-[12rem] md:min-w-[16rem]"
                             placeholder="Pełna nazwa Klienta"
                           />
                         ) : (
@@ -2591,14 +2593,14 @@ export function GeneratedContractsTab({
                           </span>
                         </div>
                       </td>
-                      <td className="sticky right-0 z-10 bg-card py-2 pl-2 text-right shadow-[inset_1px_0_0_hsl(var(--border))]">
+                      <td className="bg-card py-2 pl-2 text-right shadow-[inset_1px_0_0_hsl(var(--border))] md:sticky md:right-0 md:z-10">
                         <div className="flex items-center justify-end gap-1">
                           {editing ? (
                             <>
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                className="h-8 w-8 p-0"
+                                className="h-8 w-8 p-0 pointer-coarse:h-10 pointer-coarse:w-10"
                                 disabled={saving}
                                 onClick={() => saveEdit(r.id)}
                                 title="Zapisz nazwę Klienta"
@@ -2613,7 +2615,7 @@ export function GeneratedContractsTab({
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                className="h-8 w-8 p-0"
+                                className="h-8 w-8 p-0 pointer-coarse:h-10 pointer-coarse:w-10"
                                 disabled={saving}
                                 onClick={() => setEditingId(null)}
                                 title="Anuluj edycję"
@@ -2637,7 +2639,7 @@ export function GeneratedContractsTab({
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  className="h-8 w-8 p-0"
+                                  className="h-8 w-8 p-0 pointer-coarse:h-10 pointer-coarse:w-10"
                                   onClick={() =>
                                     router.replace(generatorEditHref(r.id), {
                                       scroll: false,
@@ -2653,7 +2655,7 @@ export function GeneratedContractsTab({
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  className="h-8 w-8 p-0"
+                                  className="h-8 w-8 p-0 pointer-coarse:h-10 pointer-coarse:w-10"
                                   onClick={() => startEdit(r)}
                                   title="Edytuj nazwę Klienta"
                                   aria-label="Edytuj nazwę Klienta"
@@ -2665,7 +2667,7 @@ export function GeneratedContractsTab({
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  className="h-8 w-8 p-0"
+                                  className="h-8 w-8 p-0 pointer-coarse:h-10 pointer-coarse:w-10"
                                   disabled={downloading}
                                   onClick={() => downloadMut.mutate(r)}
                                   title="Pobierz DOCX ponownie"
@@ -2682,7 +2684,7 @@ export function GeneratedContractsTab({
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                                  className="h-8 w-8 p-0 pointer-coarse:h-10 pointer-coarse:w-10 text-destructive hover:text-destructive"
                                   disabled={deleting}
                                   onClick={() => confirmDelete(r)}
                                   title="Usuń umowę z listy"
@@ -2904,7 +2906,7 @@ function LifecycleContractsTab({
       <CardContent>
         {isForbidden(q.error) ? null : (
           <div className="mb-4 flex flex-wrap items-center gap-2">
-            <div className="relative min-w-[18rem] flex-1">
+            <div className="relative w-full min-w-0 flex-1 sm:w-auto sm:min-w-[18rem]">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={search}
@@ -2923,7 +2925,7 @@ function LifecycleContractsTab({
               }
             >
               <SelectTrigger
-                className="w-72"
+                className="w-full sm:w-72"
                 aria-label="Filtr powodu zakończenia"
               >
                 <SelectValue />
@@ -3039,7 +3041,7 @@ function LifecycleContractsTab({
                     Powód zakończenia projektu
                   </th>
                   {showActionsColumn ? (
-                    <th className="sticky right-0 z-10 bg-card py-2 pl-2 text-right font-medium shadow-[inset_1px_0_0_hsl(var(--border))]">
+                    <th className="bg-card py-2 pl-2 text-right font-medium shadow-[inset_1px_0_0_hsl(var(--border))] md:sticky md:right-0 md:z-10">
                       Akcje
                     </th>
                   ) : null}
@@ -3102,7 +3104,7 @@ function LifecycleContractsTab({
                       ) || "—"}
                     </td>
                     {showActionsColumn ? (
-                      <td className="sticky right-0 z-10 bg-card py-2 pl-2 text-right shadow-[inset_1px_0_0_hsl(var(--border))]">
+                      <td className="bg-card py-2 pl-2 text-right shadow-[inset_1px_0_0_hsl(var(--border))] md:sticky md:right-0 md:z-10">
                         <div className="flex items-center justify-end gap-1">
                           {r.can_change_status && allowActions ? (
                             <>
@@ -4753,14 +4755,14 @@ export function GeneratorForm({
             />
           </Field>
           <Field label="Data rozpoczęcia usług" required htmlFor={startDateId}>
-            <div className="flex gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row">
               <Select
                 value={startDateMode}
                 onValueChange={(v) =>
                   setStartDateMode(v as "exact" | "not_earlier" | "not_later")
                 }
               >
-                <SelectTrigger className="w-[150px] shrink-0">
+                <SelectTrigger className="w-full sm:w-[150px] sm:shrink-0">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -4779,7 +4781,7 @@ export function GeneratorForm({
           </Field>
           <div className="space-y-3 sm:col-span-2">
             {rateStages.length === 1 ? (
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <Field label="Stawka godz. (netto)" required>
                   <Input
                     type="number"
@@ -4800,7 +4802,7 @@ export function GeneratorForm({
               <>
                 {rateStages.map((stage, i) => (
                   <div key={i} className="flex items-end gap-2">
-                    <div className="grid flex-1 grid-cols-3 gap-3">
+                    <div className="grid min-w-0 flex-1 grid-cols-1 gap-3 sm:grid-cols-3">
                       <Field label={`Stawka godz. (netto) — etap ${i + 1}`} required>
                         <Input
                           type="number"
@@ -4838,7 +4840,7 @@ export function GeneratorForm({
                     </Button>
                   </div>
                 ))}
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                   <Field label="Waluta" htmlFor={currencyId}>
                     <CurrencySelect
                       id={currencyId}
@@ -4911,7 +4913,7 @@ export function GeneratorForm({
       {/* Podgląd */}
       {previewHtml ? (
         <Card>
-          <CardHeader className="flex-row items-center justify-between space-y-0">
+          <CardHeader className="flex-row flex-wrap items-center justify-between gap-2 space-y-0">
             {/* Podgląd nie zapisuje umowy — numer w nim to tylko propozycja,
                 a wydruk nie jest dokumentem z rejestru. */}
             <CardTitle className="text-base">
@@ -4933,7 +4935,7 @@ export function GeneratorForm({
             <iframe
               title="Podgląd umowy"
               sandbox=""
-              className="h-[520px] w-full rounded-lg border bg-white"
+              className="h-[60dvh] min-h-[420px] w-full rounded-lg border bg-white"
               srcDoc={`<style>${PREVIEW_STYLE}</style>${previewHtml}`}
             />
           </CardContent>
@@ -4991,7 +4993,7 @@ function UopPanel({
         <Button
           variant="ghost"
           size="icon"
-          className="h-6 w-6 shrink-0"
+          className="hit-area h-6 w-6 shrink-0"
           onClick={onClose}
           aria-label="Zamknij wynik sprawdzenia AI"
           title="Zamknij"

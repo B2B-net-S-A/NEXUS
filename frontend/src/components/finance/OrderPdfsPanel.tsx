@@ -133,7 +133,7 @@ export function OrderPdfsPanel({
               <ul
                 role="listbox"
                 aria-label="Miesiąc rozpoczęcia"
-                className="space-y-1"
+                className="max-h-64 space-y-1 overflow-y-auto lg:max-h-none lg:overflow-visible"
               >
                 {months.map((item) => (
                   <li key={item.month}>
@@ -175,7 +175,7 @@ export function OrderPdfsPanel({
               W tym miesiącu nie zaczyna się żadne zamówienie z PDF-em.
             </Empty>
           ) : (
-            <ul role="listbox" aria-label="Klienci" className="space-y-1">
+            <ul role="listbox" aria-label="Klienci" className="max-h-64 space-y-1 overflow-y-auto lg:max-h-none lg:overflow-visible">
               {clients.map((client) => {
                 const fresh = newFilesCount(client.files);
                 const busy = zipBusy === `client:${client.client_id}`;
@@ -609,7 +609,7 @@ function PreviewDialog({
 }) {
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-2 sm:p-4"
       onClick={onClose}
     >
       <div
@@ -617,7 +617,7 @@ function PreviewDialog({
         aria-modal="true"
         aria-label={`Podgląd: ${file.download_name}`}
         onClick={(event) => event.stopPropagation()}
-        className="flex h-[85vh] w-full max-w-3xl flex-col gap-3 rounded-xl border border-border bg-card p-4 shadow-xl"
+        className="flex h-[85dvh] w-full max-w-3xl flex-col gap-3 rounded-xl border border-border bg-card p-4 shadow-xl"
       >
         <div className="flex items-start gap-2">
           <div className="min-w-0 flex-1">

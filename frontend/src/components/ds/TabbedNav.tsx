@@ -51,14 +51,20 @@ export function TabbedNav({
       <div
         className={cn(
           "w-full",
-          overflow === "scroll" && "overflow-x-auto overscroll-x-contain",
+          // `wrap` łamał zakładki w 2–3 rzędy na telefonie — poniżej `sm`
+          // przewijamy jeden rząd, od `sm` zostaje zawijanie.
+          overflow === "scroll"
+            ? "overflow-x-auto overscroll-x-contain"
+            : "max-sm:overflow-x-auto max-sm:overscroll-x-contain",
         )}
       >
         <TabsList
           aria-label={ariaLabel}
           className={cn(
             "w-full",
-            overflow === "scroll" ? "min-w-max flex-nowrap" : "flex-wrap",
+            overflow === "scroll"
+              ? "min-w-max flex-nowrap"
+              : "max-sm:min-w-max max-sm:flex-nowrap sm:flex-wrap",
             dense && "gap-0.5",
             listClassName,
           )}

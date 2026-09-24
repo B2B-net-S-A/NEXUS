@@ -286,7 +286,7 @@ export default function JobsListV3Preview() {
   return (
     <ToastProvider>
       <QueryClientProvider client={qc}>
-        <div className="min-h-screen bg-background p-6">
+        <div className="min-h-dvh bg-background p-6">
           <JobsListV2 />
         </div>
       </QueryClientProvider>

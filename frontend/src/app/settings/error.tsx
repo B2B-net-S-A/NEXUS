@@ -20,7 +20,7 @@ export default function SettingsError({ error, reset }: SettingsErrorProps) {
     }, [error])
 
     return (
-        <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4 p-8 text-center">
+        <div className="flex min-h-[60dvh] flex-col items-center justify-center gap-4 p-8 text-center">
             <AlertTriangle className="h-12 w-12 text-amber-500" />
             <h2 className="text-xl font-semibold">Ustawienia chwilowo niedostępne</h2>
             <p className="max-w-md text-sm text-muted-foreground">

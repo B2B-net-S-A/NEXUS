@@ -65,12 +65,49 @@ def test_required_backend_context_is_decided_by_the_sieve_on_prs() -> None:
 
 
 def test_frontend_heavy_steps_run_in_the_queue_and_prs_get_changed_tests() -> None:
-    steps = _load("ci.yml")["jobs"]["frontend-lint-build"]["steps"]
-    for name in ("Vitest with coverage", "Build"):
-        assert "github.event_name != 'pull_request'" in _step(steps, name)["if"]
+    jobs = _load("ci.yml")["jobs"]
+    steps = jobs["frontend-lint-build"]["steps"]
+    assert "github.event_name != 'pull_request'" in _step(steps, "Build")["if"]
+    assert jobs["frontend-vitest"]["if"] == (
+        "${{ github.event_name != 'pull_request' }}"
+    )
     pr = _step(steps, "Vitest (testy dotknięte zmianą)")
     assert "github.event_name == 'pull_request'" in pr["if"]
     assert "--changed" in pr["run"] and "--passWithNoTests" in pr["run"]
+
+
+def test_required_frontend_context_collects_build_and_vitest() -> None:
+    """24.09.2026: Vitest z pokryciem wyszedł z joba builda, żeby wymagany
+    kontekst nie był dłuższy od backendu na 12 shardach. Nazwa kontekstu jest
+    w rulesecie, więc niesie ją job zbiorczy — jak „Backend (pytest)”."""
+    jobs = _load("ci.yml")["jobs"]
+    gate = jobs["frontend-gate"]
+    assert gate["name"] == "Frontend (typecheck + build)", (
+        "Nazwa jest wymaganym kontekstem rulesetu."
+    )
+    assert gate["if"] == "${{ always() }}", (
+        "Bez always() padnięty job zależny zostawia kontekst `skipped`."
+    )
+    assert set(gate["needs"]) == {"frontend-lint-build", "frontend-vitest"}
+    run = gate["steps"][0]["run"]
+    assert '[ "$build" != "success" ]' in run
+    assert '[ "$vitest" != "success" ]' in run
+    # Na PR-ze Vitest z pokryciem jest pominięty — bramka nie może go czytać
+    # jako porażki, ale poza PR-em musi.
+    assert run.index('"pull_request"') < run.index("needs.frontend-vitest.result")
+    names = [job.get("name") for job in jobs.values()]
+    assert names.count("Frontend (typecheck + build)") == 1, (
+        "Dwa joby o nazwie wymaganego kontekstu = niejednoznaczny status."
+    )
+
+
+def test_backend_shard_count_matches_the_measurement() -> None:
+    """12 shardów od 24.09.2026 (pomiar w komentarzu nad jobem). Zmiana liczby
+    to zmiana czasu kolejki — rób ją razem z nowym pomiarem, nie przy okazji."""
+    jobs = _load("ci.yml")["jobs"]
+    shards = jobs["backend-lint-test"]["strategy"]["matrix"]["shard"]
+    assert shards == list(range(12))
+    assert jobs["backend-coverage-combine"]["env"]["EXPECTED_SHARDS"] == "12"
 
 
 def test_test_postgres_skips_disk_flushes_in_both_backend_jobs() -> None:

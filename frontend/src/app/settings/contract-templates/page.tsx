@@ -168,7 +168,7 @@ export default function ContractTemplatesPage() {
   return (
     <RequireRole roles={["admin", "finance"]}>
       <div className="space-y-4 max-w-5xl">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-2xl font-bold">Szablony kontraktów</h1>
           {!editing && canEdit && (
             <button
@@ -192,7 +192,7 @@ export default function ContractTemplatesPage() {
         )}
 
         {!editing && (
-          <div className="bg-card dark:bg-muted rounded-2xl shadow-xs overflow-hidden">
+          <div className="bg-card dark:bg-muted rounded-2xl shadow-xs overflow-x-auto">
             {!data || data.length === 0 ? (
               <div className="p-8 text-center text-sm text-muted-foreground italic">
                 Brak szablonów — utwórz pierwszy, żeby TAC mógł generować umowy z 1 kliknięcia.

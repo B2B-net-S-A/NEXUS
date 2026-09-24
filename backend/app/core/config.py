@@ -532,6 +532,10 @@ class Settings(BaseSettings):
     JARVIS_DAILY_SOFT_LIMIT: int = 50
     # Rozmowy starsze niż tyle dni są kasowane (dane osobowe w treści).
     JARVIS_RETENTION_DAYS: int = 30
+
+    # Akademia (0369): pętla naboru z ogłoszeń i sortowania Luną co 10 min.
+    # Bez programów nic nie robi; wyłączenie nie blokuje przycisku na ekranie.
+    ACADEMY_INTAKE_ENABLED: bool = True
     # Proponowana akcja bez decyzji dłużej niż tyle minut wygasa.
     JARVIS_ACTION_TTL_MINUTES: int = 15
     # Internet (decyzja 21.09.2026): wyszukiwarka tylko w turze, w której
@@ -668,9 +672,6 @@ class Settings(BaseSettings):
     # request (SDK default is 600 s) and retries transient overload/429/529/5xx.
     ANTHROPIC_TIMEOUT_SECONDS: float = 90.0
     ANTHROPIC_MAX_RETRIES: int = 2
-
-    # Fireflies integration
-    FIREFLIES_API_KEY: str = ""
 
     # CEIDG API v3 (dane.biznes.gov.pl) — token JWT do auto-uzupełniania nazwy
     # firmy JDG w Generatorze Umów B2B. Pusty = używamy tylko Białej Listy MF
@@ -1014,6 +1015,34 @@ class Settings(BaseSettings):
     M365_RECORDING_DISCOVERY_LOOKBACK_DAYS: int = 7
     # Max events to inspect per pass — bounds Graph search calls per tick.
     M365_RECORDING_DISCOVERY_BATCH_SIZE: int = 100
+
+    # ── Prepy w Teams (0354, 23.09.2026) ─────────────────────────────────────
+    # Prep 1/2 z kandydatem zakładany z NEXUSA w kalendarzu ORGANIZATORA (DL /
+    # rekruter) i transkrypt z Teams → notatka + ocena prepu. Dostęp app-only
+    # przez OSOBNĄ rejestrację („NEXUS Teams Prep”), nie „NEXUS ATS - Mailbox
+    # and Login”: polityka dostępu Exchange zawęża aplikację do SKRZYNEK, nie
+    # do uprawnień, więc dołożenie skrzynek zespołu do zakresu aplikacji
+    # z `Mail.Read` dałoby jej odczyt ich poczty. Tenant = M365_MAIL_TENANT_ID.
+    TEAMS_PREP_CLIENT_ID: str = ""
+    TEAMS_PREP_CLIENT_SECRET: str = ""
+    # Zakładanie prepów przez aplikację. OFF = trasa prepów odpowiada 503.
+    TEAMS_PREP_APP_ONLY_ENABLED: bool = False
+    # PATCH spotkania z automatycznym nagrywaniem/transkrypcją po utworzeniu.
+    TEAMS_PREP_AUTO_TRANSCRIBE: bool = True
+    # Pętla pobierająca transkrypty (kill-switch — OFF kończy ją przed pętlą).
+    TEAMS_PREP_TRANSCRIPTS_ENABLED: bool = False
+    TEAMS_PREP_POLL_MINUTES: int = 10
+    # Od kiedy po końcu spotkania pytamy o transkrypt i jak długo czekamy,
+    # zanim prep dostanie stan „bez nagrania”.
+    TEAMS_PREP_FETCH_DELAY_MINUTES: int = 10
+    TEAMS_PREP_FETCH_GIVE_UP_HOURS: int = 48
+    # Progi oceny prepu (liczy kod, nie model). Udział kandydata = jego czas
+    # mówienia / (kandydat + zespół).
+    PREP_REVIEW_GOOD_COVERAGE: float = 0.8
+    PREP_REVIEW_WEAK_COVERAGE: float = 0.5
+    PREP_REVIEW_GOOD_TALK_SHARE: float = 0.45
+    PREP_REVIEW_WEAK_TALK_SHARE: float = 0.25
+    PREP_REVIEW_MIN_MINUTES: int = 10
 
     # ── M365 Graph push webhooks (Phase 7.3) ──────────────────────────────────
     # Push notifications replace polling once stable. Default OFF — flip to True

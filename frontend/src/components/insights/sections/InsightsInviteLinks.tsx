@@ -76,7 +76,7 @@ export function InsightsInviteLinks({ period }: Props) {
         Linki aplikacyjne
       </h2>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 min-[420px]:grid-cols-2 md:grid-cols-4 gap-4">
         <KpiCard
           label="Linki"
           value={count(totals?.links)}

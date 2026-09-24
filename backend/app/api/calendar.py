@@ -783,6 +783,17 @@ async def _push_outlook_changes(
     if new_end is not None and new_start is not None and new_end <= new_start:
         raise HTTPException(status_code=422, detail=_END_BEFORE_START)
 
+    # 0370: prep z NEXUSA żyje w kalendarzu organizatora, który zwykle nie ma
+    # połączonego konta M365 — zmieniamy go tą samą aplikacją, która go założyła.
+    from app.services import prep_meetings as prep_meetings_svc
+
+    prep = await prep_meetings_svc.prep_for_event(db, event.id)
+    if prep is not None:
+        await _push_prep_changes(
+            event, prep, changes, fields, new_start=new_start, new_end=new_end
+        )
+        return
+
     conn = (
         await db.scalar(
             select(M365Connection).where(M365Connection.user_id == event.created_by)
@@ -848,6 +859,54 @@ async def _push_outlook_changes(
         event.m365_change_key = change_key
 
 
+async def _push_prep_changes(
+    event: CalendarEvent,
+    prep,
+    changes: dict,
+    fields: list[str],
+    *,
+    new_start: Optional[datetime],
+    new_end: Optional[datetime],
+) -> None:
+    """Zmiana prepu z NEXUSA w kalendarzu organizatora (app-only, 0370)."""
+    from app.services import prep_meetings as prep_meetings_svc
+    from app.services.m365 import teams_prep_graph
+    from app.services.m365.calendar import build_update_payload
+    from app.services.m365.graph_client import GraphRequestError
+
+    moved = bool({"start_time", "end_time"} & set(fields))
+    payload = build_update_payload(
+        title=changes["title"] if "title" in fields else None,
+        description=changes.get("description") if "description" in fields else None,
+        start=new_start if moved else None,
+        end=new_end if moved else None,
+        location=changes.get("location"),
+        set_location="location" in fields,
+    )
+    try:
+        change_key = await teams_prep_graph.update_event(
+            prep.organizer_upn, event.external_id, payload
+        )
+    except GraphRequestError as exc:
+        logger.warning("prep update: Graph %s for event %s", exc.status, event.id)
+        raise HTTPException(
+            status_code=502 if exc.status >= 500 else 409,
+            detail="Outlook nie przyjął zmiany prepu. W NEXUSIE nic nie zostało "
+            "zmienione.",
+        ) from exc
+    except Exception as exc:  # noqa: BLE001 — token, sieć
+        logger.warning("prep update: %s for event %s", type(exc).__name__, event.id)
+        raise HTTPException(
+            status_code=502,
+            detail="Nie udało się połączyć z Outlookiem. W NEXUSIE nic nie zostało "
+            "zmienione.",
+        ) from exc
+    if change_key:
+        event.m365_change_key = change_key
+    if moved and new_end is not None:
+        prep_meetings_svc.reschedule_fetch(prep, new_end)
+
+
 async def _load_mutable_event(
     db: AsyncSession, event_id: int, current_user: User, *, forbidden_detail: str
 ) -> CalendarEvent:
@@ -910,7 +969,26 @@ async def cancel_event(
         )
 
     outlook = "not_applicable"
-    if _is_outlook_event(event):
+    from app.services import prep_meetings as prep_meetings_svc
+
+    prep = await prep_meetings_svc.prep_for_event(db, event.id)
+    if prep is not None and _is_outlook_event(event):
+        from app.services.m365 import teams_prep_graph
+
+        try:
+            outlook = await teams_prep_graph.cancel_event(
+                prep.organizer_upn, event.external_id, "Spotkanie zostało odwołane."
+            )
+        except Exception as exc:  # noqa: BLE001 — Graph, token, sieć
+            logger.warning("prep cancel: %s for event %s", type(exc).__name__, event.id)
+            raise HTTPException(
+                status_code=502,
+                detail="Outlook nie przyjął odwołania prepu — spróbuj ponownie za "
+                "chwilę. W NEXUSIE nic nie zostało zmienione.",
+            ) from exc
+        if prep.transcript_status == "waiting":
+            prep.transcript_status = "cancelled"
+    elif _is_outlook_event(event):
         conn = (
             await db.scalar(
                 select(M365Connection).where(M365Connection.user_id == event.created_by)

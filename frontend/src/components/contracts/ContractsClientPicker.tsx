@@ -55,20 +55,22 @@ export function ContractsClientPicker({ value, onChange }: Props) {
           <Button
             type="button"
             variant="outline"
-            className="min-w-[260px] justify-between font-normal"
+            className="min-w-0 flex-1 justify-between font-normal sm:min-w-[260px] sm:flex-none"
           >
-            <span className="flex items-center gap-2 truncate">
+            <span className="flex min-w-0 items-center gap-2">
               {value ? (
                 <Building2 className="h-4 w-4 shrink-0 text-primary" />
               ) : (
                 <Users className="h-4 w-4 shrink-0 opacity-60" />
               )}
-              {value ? value.name : "Wszyscy klienci (lista globalna)"}
+              <span className="truncate">
+                {value ? value.name : "Wszyscy klienci (lista globalna)"}
+              </span>
             </span>
-            <ChevronsUpDown className="h-4 w-4 opacity-50" />
+            <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
           </Button>
         </PopoverTrigger>
-        <PopoverContent align="start" className="w-[320px] p-0">
+        <PopoverContent align="start" className="w-[min(320px,calc(100vw-2rem))] p-0">
           <Command shouldFilter={false}>
             <CommandInput
               placeholder="Szukaj klienta…"

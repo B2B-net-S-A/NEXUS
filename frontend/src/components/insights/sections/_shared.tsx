@@ -64,7 +64,7 @@ export function KpiCard({
   trend,
 }: KpiCardProps) {
   return (
-    <div className="bg-card rounded-xl border border-border p-5 shadow-xs">
+    <div className="min-w-0 bg-card rounded-xl border border-border p-4 shadow-xs sm:p-5">
       <div className="flex items-start justify-between mb-3">
         <div className={cn("p-2 rounded-lg border", KPI_COLOR_MAP[color])}>
           <Icon className="w-5 h-5" />
@@ -72,7 +72,14 @@ export function KpiCard({
         {trend === "up" && <TrendingUp className="w-4 h-4 text-green-500" />}
         {trend === "down" && <TrendingDown className="w-4 h-4 text-red-400" />}
       </div>
-      <div className="text-2xl font-bold text-foreground">{value}</div>
+      {/* Kwoty PLN mają twardą spację (Intl) i się nie zawijają — na telefonie
+          mniejsza czcionka, a `truncate` + `title` to ostatnia linia obrony. */}
+      <div
+        className="truncate text-lg font-bold tabular-nums text-foreground sm:text-2xl"
+        title={String(value)}
+      >
+        {value}
+      </div>
       <div className="text-sm text-muted-foreground mt-0.5">{label}</div>
       {sub && <div className="text-xs text-muted-foreground mt-1">{sub}</div>}
     </div>

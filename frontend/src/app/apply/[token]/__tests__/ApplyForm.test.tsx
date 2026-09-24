@@ -103,6 +103,36 @@ describe("ApplyForm — walidacja", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("po odmowie walidacji przenosi fokus na pierwsze błędne pole", () => {
+    // Na telefonie błąd przy „Imię” jest nad krawędzią ekranu — bez fokusu
+    // kandydat widzi tylko przycisk i nie wie, co poprawić.
+    const { container } = renderForm();
+    fireEvent.change(field(container, "last_name"), { target: { value: "Nowak" } });
+    fireEvent.change(field(container, "email"), { target: { value: "nie-email" } });
+
+    submit();
+
+    const firstName = field(container, "first_name");
+    expect(firstName).toHaveAttribute("aria-invalid", "true");
+    expect(firstName).toHaveAttribute("aria-describedby", "apply-first_name-error");
+    expect(document.getElementById("apply-first_name-error")).toHaveTextContent(
+      "Imię jest wymagane",
+    );
+    expect(document.activeElement).toBe(firstName);
+    expect(field(container, "last_name")).not.toHaveAttribute("aria-invalid");
+  });
+
+  it("pole CV nie jest etykietą w etykiecie i ma nazwę z opisem pliku", () => {
+    const { container } = renderForm();
+    expect(container.querySelector("label label")).toBeNull();
+    const cv = field(container, "cv");
+    expect(cv).toHaveAttribute("aria-labelledby", "apply-cv-label apply-cv-name");
+    pickCv(container, pdf("CV_Jan_Kowalski_Senior_Java_Developer_2026.pdf"));
+    expect(
+      screen.getByText("CV_Jan_Kowalski_Senior_Java_Developer_2026.pdf"),
+    ).toHaveClass("truncate");
+  });
+
   it("przyjmuje poprawny telefon i LinkedIn z http://", async () => {
     fetchMock.mockResolvedValue(jsonResponse(201));
     const { container } = renderForm();

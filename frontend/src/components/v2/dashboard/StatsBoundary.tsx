@@ -72,7 +72,7 @@ export function StatsBoundary({
   if (state === "refreshing" || state === "stale") {
     return (
       <div className={cn("relative", className)}>
-        <div className="absolute right-2 top-2 z-10 inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">
+        <div className="absolute right-2 top-2 z-10 inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
           <RefreshCw className="h-3 w-3 animate-spin" />
           {state === "stale" ? "dane mogą być nieaktualne" : "odświeżanie…"}
         </div>

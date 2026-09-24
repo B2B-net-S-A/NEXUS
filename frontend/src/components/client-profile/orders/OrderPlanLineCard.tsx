@@ -205,7 +205,7 @@ export function OrderPlanLineCard({
   return (
     <article
       aria-label={`Konsultant: ${heading}`}
-      className="rounded-lg border border-border bg-card p-3 shadow-sm"
+      className="@container rounded-lg border border-border bg-card p-3 shadow-sm"
     >
       <header className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
@@ -241,14 +241,17 @@ export function OrderPlanLineCard({
             aria-label={`Usuń kartę: ${heading}`}
             title="Usuń z zamówienia"
             onClick={onRemove}
-            className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-destructive"
+            className="hit-area rounded p-1 text-muted-foreground hover:bg-muted hover:text-destructive"
           >
             <Trash2 className="h-4 w-4" aria-hidden />
           </button>
         </div>
       </header>
 
-      <div className={`mt-3 grid gap-2 ${showMd ? "sm:grid-cols-2 lg:grid-cols-4" : "sm:grid-cols-2"}`}>
+      {/* Container query, nie breakpoint wiewportu: karta żyje w oknie
+          (max 672 px), które nie szerzeje razem z ekranem — przy `lg:` cztery
+          kafle po ~145 px ściskały etykietę, wartość i jednostkę. */}
+      <div className={`mt-3 grid gap-2 ${showMd ? "@lg:grid-cols-2 @2xl:grid-cols-4" : "@lg:grid-cols-2"}`}>
         <ValueTile
           label="Stawka kosztowa"
           value={draft.rateCost}
@@ -313,14 +316,14 @@ export function OrderPlanLineCard({
             <button
               type="button"
               onClick={() => onChange(keepAsHistory(draft))}
-              className="rounded-md bg-foreground px-2.5 py-1 font-medium text-background"
+              className="rounded-md bg-foreground px-2.5 py-1 pointer-coarse:py-2 font-medium text-background"
             >
               Zostaw jako historię
             </button>
             <button
               type="button"
               onClick={() => onChange(resumeCooperation(draft))}
-              className="rounded-md border border-border bg-background px-2.5 py-1 font-medium text-foreground"
+              className="rounded-md border border-border bg-background px-2.5 py-1 pointer-coarse:py-2 font-medium text-foreground"
             >
               Wznów współpracę
             </button>
@@ -330,14 +333,14 @@ export function OrderPlanLineCard({
                 setReplacing(true);
                 setPicking(false);
               }}
-              className="rounded-md border border-border bg-background px-2.5 py-1 font-medium text-foreground"
+              className="rounded-md border border-border bg-background px-2.5 py-1 pointer-coarse:py-2 font-medium text-foreground"
             >
               Zastąp kimś innym
             </button>
             <button
               type="button"
               onClick={onRemove}
-              className="rounded-md border border-destructive/40 bg-background px-2.5 py-1 font-medium text-destructive"
+              className="rounded-md border border-destructive/40 bg-background px-2.5 py-1 pointer-coarse:py-2 font-medium text-destructive"
             >
               Usuń z zamówienia
             </button>
@@ -345,7 +348,7 @@ export function OrderPlanLineCard({
               <button
                 type="button"
                 onClick={() => onChange(backToOptions(draft))}
-                className="rounded-md px-2.5 py-1 font-medium text-primary underline-offset-2 hover:underline"
+                className="rounded-md px-2.5 py-1 pointer-coarse:py-2 font-medium text-primary underline-offset-2 hover:underline"
               >
                 Wybierz inną pozycję z listy
               </button>
@@ -396,7 +399,7 @@ export function OrderPlanLineCard({
             <button
               type="button"
               onClick={() => edit({ confirmed: true })}
-              className="rounded-md bg-foreground px-2.5 py-1 font-medium text-background"
+              className="rounded-md bg-foreground px-2.5 py-1 pointer-coarse:py-2 font-medium text-background"
             >
               To ta osoba — potwierdzam
             </button>
@@ -406,7 +409,7 @@ export function OrderPlanLineCard({
                 onChange(rejectMatch(draft));
                 setPicking(true);
               }}
-              className="rounded-md border border-border bg-background px-2.5 py-1 font-medium text-foreground"
+              className="rounded-md border border-border bg-background px-2.5 py-1 pointer-coarse:py-2 font-medium text-foreground"
             >
               To nie ta osoba
             </button>
@@ -424,7 +427,7 @@ export function OrderPlanLineCard({
                 key={option.contract_id}
                 type="button"
                 onClick={() => onChange(chooseContract(draft, option))}
-                className="rounded-md border border-border bg-background px-2.5 py-1.5 text-left text-foreground hover:bg-muted"
+                className="rounded-md border border-border bg-background px-2.5 py-1.5 pointer-coarse:py-2.5 text-left text-foreground hover:bg-muted"
               >
                 <span className="font-medium">{option.contractor_name}</span>
                 <span className="text-muted-foreground">
@@ -460,14 +463,14 @@ export function OrderPlanLineCard({
                   setReplacing(true);
                   setPicking(false);
                 }}
-                className="rounded-md border border-border bg-background px-2.5 py-1 font-medium text-foreground"
+                className="rounded-md border border-border bg-background px-2.5 py-1 pointer-coarse:py-2 font-medium text-foreground"
               >
                 Zastąp kimś innym
               </button>
               <button
                 type="button"
                 onClick={onRemove}
-                className="rounded-md border border-destructive/40 bg-background px-2.5 py-1 font-medium text-destructive"
+                className="rounded-md border border-destructive/40 bg-background px-2.5 py-1 pointer-coarse:py-2 font-medium text-destructive"
               >
                 Usuń z zamówienia
               </button>

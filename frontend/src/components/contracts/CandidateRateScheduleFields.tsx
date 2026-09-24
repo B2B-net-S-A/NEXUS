@@ -4,7 +4,7 @@ import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { sanitizeDecimalInput } from "@/lib/utils";
+import { cn, sanitizeDecimalInput } from "@/lib/utils";
 import { type RateScheduleRow } from "@/lib/contract-rate-schedule";
 
 interface Props {
@@ -57,13 +57,21 @@ export function CandidateRateScheduleFields({
 
       <div className="space-y-2">
         {rows.map((row, idx) => (
-          <div key={idx} className="flex items-end gap-2">
+          // Na telefonie etap to karta z polami jedno pod drugim (trzy pola w
+          // wierszu dawały ~70 px na datę); od `sm` jeden wiersz jak dotąd.
+          <div
+            key={idx}
+            className="grid grid-cols-1 gap-2 rounded-md border border-border p-2 sm:grid-cols-[1fr_1fr_1fr_auto] sm:items-end sm:border-0 sm:p-0"
+          >
             <div className="flex-1">
-              {idx === 0 && (
-                <span className="mb-1 block text-xs text-muted-foreground">
-                  Stawka
-                </span>
-              )}
+              <span
+                className={cn(
+                  "mb-1 block text-xs text-muted-foreground",
+                  idx > 0 && "sm:hidden",
+                )}
+              >
+                Stawka
+              </span>
               <Input
                 type="text"
                 inputMode="decimal"
@@ -75,11 +83,14 @@ export function CandidateRateScheduleFields({
               />
             </div>
             <div className="flex-1">
-              {idx === 0 && (
-                <span className="mb-1 block text-xs text-muted-foreground">
-                  Obowiązuje od
-                </span>
-              )}
+              <span
+                className={cn(
+                  "mb-1 block text-xs text-muted-foreground",
+                  idx > 0 && "sm:hidden",
+                )}
+              >
+                Obowiązuje od
+              </span>
               <Input
                 type="date"
                 value={row.effectiveFrom}
@@ -88,11 +99,14 @@ export function CandidateRateScheduleFields({
               />
             </div>
             <div className="flex-1">
-              {idx === 0 && (
-                <span className="mb-1 block text-xs text-muted-foreground">
-                  Obowiązuje do
-                </span>
-              )}
+              <span
+                className={cn(
+                  "mb-1 block text-xs text-muted-foreground",
+                  idx > 0 && "sm:hidden",
+                )}
+              >
+                Obowiązuje do
+              </span>
               <Input
                 type="date"
                 value={row.effectiveTo ?? ""}
@@ -107,12 +121,14 @@ export function CandidateRateScheduleFields({
                 variant="ghost"
                 size="icon"
                 title="Usuń etap stawki"
+                aria-label={`Usuń etap ${idx + 1} stawki`}
+                className="justify-self-end"
                 onClick={() => removeRow(idx)}
               >
                 <X className="h-4 w-4" />
               </Button>
             ) : (
-              <span className="w-9 shrink-0" aria-hidden />
+              <span className="hidden w-9 shrink-0 sm:block" aria-hidden />
             )}
           </div>
         ))}

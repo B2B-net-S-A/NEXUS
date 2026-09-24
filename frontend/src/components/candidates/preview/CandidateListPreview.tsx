@@ -70,7 +70,9 @@ export function CandidateListPreview() {
       />
 
       <div className="hidden overflow-hidden rounded-lg border border-border bg-card lg:block">
-        <div className="overflow-x-auto">
+        {/* `relative`: bez niego absolutny `sr-only` („Akcje”) uciekał z
+            przewijanego kontenera i poszerzał całą stronę. */}
+        <div className="relative overflow-x-auto">
           <table className="min-w-[1100px] w-full border-collapse">
             <thead className="bg-muted/60">
               <tr className="border-b border-border text-left text-xs font-medium text-muted-foreground">

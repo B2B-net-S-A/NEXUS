@@ -17,7 +17,7 @@ export default function ApplyNotFound() {
  <div className="pt-2">
  <Link
  href="/"
- className="inline-flex items-center text-sm font-semibold text-primary hover:underline"
+ className="inline-flex min-h-11 items-center text-sm font-semibold text-primary hover:underline"
  >
  ← Strona główna
  </Link>

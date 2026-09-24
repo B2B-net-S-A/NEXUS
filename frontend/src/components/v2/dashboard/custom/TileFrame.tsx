@@ -68,7 +68,8 @@ export function TileFrame({
             <span
               className={cn(
                 DRAG_HANDLE_CLASS,
-                "flex cursor-grab items-center text-muted-foreground active:cursor-grabbing",
+                // `hit-area` powiększa pole chwytu do ~32 px (tablet w trybie edycji).
+                "hit-area flex cursor-grab touch-none items-center text-muted-foreground active:cursor-grabbing",
               )}
               title="Przeciągnij, aby przesunąć"
               aria-hidden
@@ -144,7 +145,9 @@ export function TileFrame({
       ) : null}
       <div
         className={cn(
-          "min-h-0 flex-1",
+          // `@container`: widżety w kafelku reagują na szerokość KAFELKA,
+          // nie okna (audyt 23.09.2026, P1-02).
+          "@container min-h-0 flex-1",
           tile.type === "metric_number" ? "overflow-hidden" : "overflow-auto",
           editing && "pointer-events-none select-none opacity-80",
         )}
@@ -152,7 +155,9 @@ export function TileFrame({
         {body}
       </div>
       {!showHeader ? (
-        <div className="absolute right-2 top-2 z-10 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+        // Na dotyku menu jest zawsze widoczne — `group-hover` tam nie działa,
+        // a to jedyne miejsce na ustawienia/usunięcie kafelka na telefonie.
+        <div className="absolute right-2 top-2 z-10 transition-opacity focus-within:opacity-100 pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button

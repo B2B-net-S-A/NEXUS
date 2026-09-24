@@ -204,7 +204,7 @@ export function SidebarMoreFlyout({
         collisionPadding={12}
         aria-label="Więcej — pozostałe moduły"
         onKeyDown={moveFocus}
-        className="w-72 max-h-[min(80vh,640px)] overflow-y-auto p-2"
+        className="w-72 max-h-[min(80dvh,640px)] overflow-y-auto p-2"
       >
         <nav aria-label="Więcej" className="space-y-2">
           {groups.map((group) => (

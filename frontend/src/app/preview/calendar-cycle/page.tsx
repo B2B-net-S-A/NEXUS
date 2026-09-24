@@ -20,6 +20,12 @@ import {
   clientQuestionsQueryKey,
   debriefQueryKey,
 } from "@/lib/api/interviewCycle";
+import {
+  prepOptionsQueryKey,
+  prepQueryKey,
+  prepTranscriptQueryKey,
+  type Prep,
+} from "@/lib/api/prepMeetings";
 import type { CycleOverview, CycleStep, PairInfo } from "@/lib/interview-cycle";
 
 const BASE = "/preview/calendar-cycle";
@@ -52,8 +58,9 @@ function st(
   state: CycleStep["state"],
   atIso: string | null = null,
   meta: string | null = null,
+  extra: Partial<CycleStep> = {},
 ): CycleStep {
-  return { key, label: key, state, at: atIso, event_id: null, meta };
+  return { key, label: key, state, at: atIso, event_id: null, meta, ...extra };
 }
 
 function buildOverview(now: Date, scope: "mine" | "jobs"): CycleOverview {
@@ -75,7 +82,8 @@ function buildOverview(now: Date, scope: "mine" | "jobs"): CycleOverview {
     {
       ...pairs.anna,
       steps: [
-        st("slots", "done"), st("choice", "done", at(now, 60 * 23)), st("prep", "done", at(now, -60 * 70)),
+        st("slots", "done"), st("choice", "done", at(now, 60 * 23)),
+        st("prep", "done", at(now, -60 * 70), "ocena: dobry", { event_id: 603, quality: "good" }),
         st("prep2", "scheduled", at(now, 150)), st("interview", "scheduled", at(now, 60 * 23)), st("call", "todo", at(now, 60 * 24)),
         st("debrief", "todo"),
       ],
@@ -94,10 +102,11 @@ function buildOverview(now: Date, scope: "mine" | "jobs"): CycleOverview {
     {
       ...pairs.michal,
       steps: [
-        st("slots", "done"), st("choice", "done", at(now, 60 * 70)), st("prep", "current"),
-        st("prep2", "todo"), st("interview", "scheduled", at(now, 60 * 70)), st("call", "todo"), st("debrief", "todo"),
+        st("slots", "done"), st("choice", "done", at(now, 60 * 70)),
+        st("prep", "done", at(now, -180), "ocena: słaby", { event_id: 601, quality: "weak" }),
+        st("prep2", "current"), st("interview", "scheduled", at(now, 60 * 70)), st("call", "todo"), st("debrief", "todo"),
       ],
-      current_step: "prep", latest_stage: "client_interview", slot_request: null, interview_event_id: 504, debrief: null,
+      current_step: "prep2", latest_stage: "client_interview", slot_request: null, interview_event_id: 504, debrief: null,
     },
     {
       ...pairs.ewa,
@@ -124,7 +133,7 @@ function buildOverview(now: Date, scope: "mine" | "jobs"): CycleOverview {
     call_window_minutes: 30,
     items,
     agenda: [
-      { ...pairs.michal, kind: "prep", start: at(now, -180), end: at(now, -150), event_id: 601, slot_request_id: null, online_meeting_url: "https://teams.example.com/prep", done: false },
+      { ...pairs.michal, kind: "prep", start: at(now, -180), end: at(now, -150), event_id: 601, slot_request_id: null, online_meeting_url: "https://teams.example.com/prep", done: false, from_nexus: true, prep_quality: "weak", prep_meta: "ocena: słaby" },
       { ...pairs.piotr, kind: "interview", start: at(now, -72), end: at(now, -12), event_id: 501, slot_request_id: null, online_meeting_url: null, done: false },
       { ...pairs.piotr, kind: "call", start: at(now, -12), end: at(now, 18), event_id: 501, slot_request_id: null, online_meeting_url: null, done: false },
       { ...pairs.anna, kind: "prep2", start: at(now, 150), end: at(now, 180), event_id: 602, slot_request_id: null, online_meeting_url: "https://teams.example.com/prep2", done: false },
@@ -136,7 +145,8 @@ function buildOverview(now: Date, scope: "mine" | "jobs"): CycleOverview {
       { ...pairs.piotr, kind: "call_now", priority: 0, due: at(now, 18), event_id: 501, slot_request_id: null },
       { ...pairs.ewa, kind: "debrief_overdue", priority: 1, due: at(now, -60 * 70), event_id: 505, slot_request_id: null },
       { ...pairs.tomasz, kind: "slots_pick", priority: 2, due: at(now, 60 * 20), event_id: null, slot_request_id: 71 },
-      { ...pairs.michal, kind: "prep_missing", priority: 4, due: at(now, 60 * 70), event_id: 504, slot_request_id: null },
+      { ...pairs.michal, kind: "prep_weak", priority: 6, due: at(now, 60 * 70), event_id: 601, slot_request_id: null },
+      { ...pairs.michal, kind: "prep2_missing", priority: 6, due: at(now, 60 * 70), event_id: 504, slot_request_id: null },
       ...(scope === "jobs"
         ? [{ ...pairs.oliwia, kind: "slots_missing" as const, priority: 5, due: null, event_id: null, slot_request_id: null }]
         : []),
@@ -164,6 +174,40 @@ function Harness() {
     ];
     for (const p of Object.values(pairs)) qc.setQueryData(clientQuestionsQueryKey(p.job_id), questions);
     for (const id of [501, 502, 504, 505]) qc.setQueryData(debriefQueryKey(id), null);
+    // 0370: ocena prepu i transkrypt (okno „Ocena prepu”), podpowiedzi organizatora.
+    const weakPrep: Prep = {
+      event_id: 601, prep_no: 1, candidate_id: 104, job_id: 4,
+      organizer: { id: 8, name: "Kasia DL" }, start: at(now, -180), end: at(now, -150),
+      online_meeting_url: null, transcription_setup: "enabled", transcript_status: "fetched",
+      talk_share: 0.22, duration_seconds: 28 * 60,
+      review: {
+        status: "ok", level: "weak", coverage: 0.4,
+        criteria: {
+          items: [
+            { key: "must:.NET", label: ".NET", kind: "must", status: "covered", quote: "od pięciu lat piszę w .NET" },
+            { key: "must:Azure", label: "Azure", kind: "must", status: "missing", quote: null },
+            { key: "q:1", label: "Transakcje w Spring — propagacja REQUIRES_NEW", kind: "question", status: "partial", quote: "transakcje zagnieżdżone" },
+          ],
+          own_projects: { told: false, quote: null },
+        },
+        summary: "Prowadząca mówiła większość czasu, kandydat odpowiadał krótko. Azure nie został omówiony.",
+        remaining: ["Azure", "Transakcje w Spring — propagacja REQUIRES_NEW"],
+      },
+    };
+    qc.setQueryData(prepQueryKey(601), weakPrep);
+    qc.setQueryData(prepTranscriptQueryKey(601), {
+      event_id: 601, speakers: [], fetched_at: at(now, -120),
+      text: "Kasia DL: Opowiedz o swoim doświadczeniu.\nMichał Lewandowski: Od pięciu lat piszę w .NET, ostatnio transakcje zagnieżdżone w banku.",
+    });
+    qc.setQueryData(prepQueryKey(603), { ...weakPrep, event_id: 603, candidate_id: 102, job_id: 2, talk_share: 0.61, review: { ...weakPrep.review!, level: "good", coverage: 0.9, remaining: [], summary: "Kandydatka opowiedziała projekty, przećwiczono pytania klienta." } });
+    for (const p of Object.values(pairs)) {
+      qc.setQueryData(prepOptionsQueryKey(p.candidate_id, p.job_id), {
+        enabled: true, auto_transcribe: true,
+        suggested: { "1": { id: 8, name: "Kasia DL" }, "2": { id: 7, name: "Ola Rekruter" } },
+        team: [{ id: 8, name: "Kasia DL" }, { id: 7, name: "Ola Rekruter" }],
+        notice: "Ta rozmowa jest nagrywana i transkrybowana w Microsoft Teams wyłącznie po to, żeby dobrze przygotować Cię do rozmowy z klientem.",
+      });
+    }
     // Siatka tygodnia (zakładka „Tydzień”) — te same klucze co WeekCalendar.
     const monday = mondayOf(now);
     const fromDate = monday.toISOString();
@@ -181,7 +225,7 @@ function Harness() {
   return (
     <QueryClientProvider client={client}>
       <ToastProvider>
-        <main className="min-h-screen bg-background p-6">
+        <main className="min-h-dvh bg-background p-4 md:p-6">
           <p className="mb-4 text-xs text-muted-foreground">
             Podgląd na danych fikcyjnych · {asDl ? "oczami Delivery Leada" : "oczami rekrutera"} ·{" "}
             <a className="text-primary underline" href={asDl ? BASE : `${BASE}?as=dl`}>

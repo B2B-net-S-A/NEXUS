@@ -51,6 +51,38 @@ export interface BoardTaskRow {
   qc_blocking_failed?: number | null;
 }
 
+/** 0370: prep przed rozmową u klienta, który wymaga uwagi. Widzi go
+ *  organizator prepu, admin i Head of Recruitment. */
+export type PrepAttentionReason = "missing" | "weak" | "unrecorded";
+
+export interface PrepAttentionRow {
+  reason: PrepAttentionReason;
+  /** 1 = prep prowadzi Delivery Lead, 2 = rekruter. */
+  prep_no: 1 | 2;
+  candidate_id: number;
+  candidate_name: string;
+  job_id: number;
+  job_title: string;
+  interview_event_id: number;
+  /** Start rozmowy u klienta (ISO). */
+  interview_start: string;
+  prep_event_id: number | null;
+  owner_id: number | null;
+  /** Rozmowa tuż-tuż — wiersz wyróżniony. */
+  urgent: boolean;
+}
+
+export const PREP_ATTENTION_REASON_LABEL: Record<PrepAttentionReason, string> = {
+  missing: "brak prepu",
+  weak: "prep słaby",
+  unrecorded: "prep bez nagrania",
+};
+
+/** Karta kandydata w kalendarzu „Rozmowy u klienta” (`?cycle=c-j`). */
+export function prepAttentionLink(row: Pick<PrepAttentionRow, "candidate_id" | "job_id">): string {
+  return `/calendar?cycle=${row.candidate_id}-${row.job_id}`;
+}
+
 export interface BoardTasksResponse {
   cpro_to_send: BoardTaskRow[];
   cpro_sent: BoardTaskRow[];
@@ -62,6 +94,9 @@ export interface BoardTasksResponse {
   dl_review_window_days?: number;
   /** Ruch na „CV wysłane" ze stawką do klienta — admin i Delivery Lead. */
   can_send_to_client?: boolean;
+  /** 0370: brak prepu, prep słaby albo bez nagrania. Opcjonalne w typie —
+   *  harnessy zasiewają kolejkę sprzed 0355 (brak = pusta lista). */
+  prep_attention?: PrepAttentionRow[];
 }
 
 export const BOARD_TASKS_QUERY_KEY = ["board-tasks"] as const;

@@ -56,7 +56,7 @@ function RegistrationDisabled() {
       </div>
       <Link
         href="/login"
-        className="flex items-center justify-center gap-2 text-sm text-muted-foreground hover:text-foreground"
+        className="flex min-h-11 sm:min-h-0 items-center justify-center gap-2 text-sm text-muted-foreground hover:text-foreground"
       >
         <ArrowLeft className="h-4 w-4" />
         Wróć do logowania
@@ -157,7 +157,7 @@ function RegisterForm() {
             <p className="font-medium text-foreground">Sprawdź swoją skrzynkę</p>
             <p className="text-muted-foreground">
               Jeśli to nowy adres, wysłaliśmy link aktywacyjny na{" "}
-              <strong>{email.trim()}</strong> — kliknij go, aby potwierdzić email i
+              <strong className="break-all">{email.trim()}</strong> — kliknij go, aby potwierdzić email i
               zalogować się (po aktywacji masz dostęp w trybie do odczytu; o szersze
               uprawnienia poproś administratora). Jeśli masz już konto z tym adresem,
               po prostu się zaloguj.
@@ -174,7 +174,7 @@ function RegisterForm() {
           <button
             type="button"
             onClick={handleResend}
-            className="w-full text-center text-sm text-primary hover:text-primary/80 hover:underline underline-offset-4"
+            className="w-full min-h-11 sm:min-h-0 text-center text-sm text-primary hover:text-primary/80 hover:underline underline-offset-4"
           >
             Nie dostałeś maila? Wyślij link ponownie
           </button>
@@ -182,7 +182,7 @@ function RegisterForm() {
 
         <Link
           href="/login"
-          className="flex items-center justify-center gap-2 text-sm text-muted-foreground hover:text-foreground"
+          className="flex min-h-11 sm:min-h-0 items-center justify-center gap-2 text-sm text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="h-4 w-4" />
           Wróć do logowania
@@ -244,11 +244,14 @@ function RegisterForm() {
             required
             minLength={8}
             placeholder="••••••••"
+            className="pr-11"
           />
+          {/* Cel dotykowy 40 px (sama ikona miała 16×16), a pole ma `pr-11`,
+              żeby tekst nie wchodził pod przycisk. */}
           <button
             type="button"
             onClick={() => setShowPassword((s) => !s)}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            className="absolute right-0.5 top-1/2 -translate-y-1/2 inline-flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground hover:text-foreground"
             aria-label={showPassword ? "Ukryj hasło" : "Pokaż hasło"}
           >
             {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -269,7 +272,7 @@ function RegisterForm() {
         />
       </FormField>
 
-      <Button type="submit" variant="primary" size="lg" loading={loading} className="w-full">
+      <Button type="submit" variant="primary" size="lg" loading={loading} className="w-full h-11 sm:h-10">
         {loading ? "Tworzenie konta…" : "Utwórz konto"}
         {!loading && <ArrowRight className="h-4 w-4" />}
       </Button>
@@ -277,7 +280,7 @@ function RegisterForm() {
       <div className="text-center pt-1">
         <Link
           href="/login"
-          className="text-sm text-primary hover:text-primary/80 hover:underline underline-offset-4"
+          className="inline-flex min-h-11 items-center text-sm text-primary hover:text-primary/80 hover:underline underline-offset-4 sm:min-h-0"
         >
           Masz już konto? Zaloguj się
         </Link>

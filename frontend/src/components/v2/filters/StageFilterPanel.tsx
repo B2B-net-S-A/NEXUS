@@ -126,7 +126,7 @@ export function StageFilterPanel({ value, onChange }: StageFilterPanelProps) {
       </PopoverTrigger>
       <PopoverContent
         align="start"
-        className="w-80 space-y-3 max-h-[80vh] overflow-y-auto p-3"
+        className="w-80 space-y-3 max-h-[80dvh] overflow-y-auto p-3"
       >
         <div className="flex items-center justify-between">
           <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">

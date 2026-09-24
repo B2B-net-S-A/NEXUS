@@ -666,7 +666,7 @@ function CompleteOrderButton({
       className={
         compact
           ? "inline-flex items-center gap-1 text-xs text-violet-700 hover:underline"
-          : "flex items-center gap-1 px-2 py-1 text-xs border border-violet-300 text-violet-700 rounded hover:bg-violet-50"
+          : "flex items-center gap-1 px-2 py-1 text-xs border border-violet-300 text-violet-700 rounded hover:bg-violet-50 pointer-coarse:min-h-10"
       }
     >
       <FilePlus2 className="w-3.5 h-3.5" />
@@ -1132,7 +1132,7 @@ function ContractorCard({
     >
       <div className="flex items-start justify-between gap-3 flex-wrap">
         {/* `basis-80` (20rem), nie samo `flex-1 min-w-0`: pasek czterech
-            przycisków jest `shrink-0`, więc bez podłogi bazowej kolumna
+            przycisków ma bazę max-content, więc bez podłogi bazowej kolumna
             tekstu ściskała się do kilkudziesięciu pikseli i kafelek rozsypywał
             się na kilkanaście jednowyrazowych linijek — czyli dokładnie na to,
             czego ten ticket zabrania. Z bazą 20rem wiersz się nie mieści i
@@ -1258,7 +1258,7 @@ function ContractorCard({
                         onChange();
                       }
                     }}
-                    className={`px-1.5 py-0.5 border rounded bg-background text-xs disabled:opacity-60 ${
+                    className={`px-1.5 py-0.5 pointer-coarse:py-1.5 border rounded bg-background text-xs disabled:opacity-60 ${
                       (
                         activeOrder
                           ? activeOrder.executive_contract_id
@@ -1411,7 +1411,12 @@ function ContractorCard({
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+        {/* Bez `shrink-0`: pasek zawinięty do własnej linii miał szerokość
+            max-content (772 px), więc jego `flex-wrap` nigdy się nie włączał
+            i przyciski wychodziły poza kartę na telefonie. `min-w-0` pozwala
+            mu zejść do szerokości karty; o łamaniu linii wiersza nadal
+            decyduje szerokość max-content, więc desktop wygląda jak dotąd. */}
+        <div className="flex flex-wrap items-center gap-1.5 min-w-0 max-w-full">
           {/* Bez `activeOrder &&` — kontraktor bez zamówienia też musi mieć
               czym je założyć; dialog otwiera się pusty, a POST leci dopiero
               przy zapisie. */}
@@ -1430,7 +1435,7 @@ function ContractorCard({
               <CompleteOrderButton onClick={() => openOrderDialog(activeOrder)} />
               <button
                 onClick={onExtend}
-                className="flex items-center gap-1 px-2 py-1 text-xs bg-violet-600 text-white rounded hover:bg-violet-700"
+                className="flex items-center gap-1 px-2 py-1 text-xs bg-violet-600 text-white rounded hover:bg-violet-700 pointer-coarse:min-h-10"
               >
                 <Plus className="w-3.5 h-3.5" />
                 Dodaj przedłużenie
@@ -1446,7 +1451,7 @@ function ContractorCard({
           {canManageOrders && activeOrder && canCloseActiveOrder && (
             <button
               onClick={() => onCloseOrder(activeOrder)}
-              className="flex items-center gap-1 px-2 py-1 text-xs text-foreground border border-border rounded hover:bg-muted"
+              className="flex items-center gap-1 px-2 py-1 text-xs text-foreground border border-border rounded hover:bg-muted pointer-coarse:min-h-10"
             >
               <CalendarX className="w-3.5 h-3.5" />
               Zakończ zamówienie
@@ -1468,7 +1473,7 @@ function ContractorCard({
               type="button"
               disabled={deleteActiveOrder.isPending}
               onClick={() => setDeletingActiveOrder(activeOrder)}
-              className="flex items-center gap-1 px-2 py-1 text-xs text-foreground border border-border rounded hover:bg-muted disabled:opacity-50"
+              className="flex items-center gap-1 px-2 py-1 text-xs text-foreground border border-border rounded hover:bg-muted disabled:opacity-50 pointer-coarse:min-h-10"
             >
               <Trash2 className="w-3.5 h-3.5" />
               Usuń zamówienie
@@ -1479,7 +1484,7 @@ function ContractorCard({
           {canTerminateContractor(contractor.contract_status) && (
             <button
               onClick={onTerminate}
-              className="flex items-center gap-1 px-2 py-1 text-xs text-destructive border border-destructive/40 rounded hover:bg-destructive/10"
+              className="flex items-center gap-1 px-2 py-1 text-xs text-destructive border border-destructive/40 rounded hover:bg-destructive/10 pointer-coarse:min-h-10"
             >
               <UserX className="w-3.5 h-3.5" />
               Zakończ współpracę
@@ -1700,7 +1705,7 @@ function FutureOrderRow({
         <button
           type="button"
           onClick={() => setConfirmingDelete(true)}
-          className="text-muted-foreground hover:text-destructive p-1"
+          className="hit-area text-muted-foreground hover:text-destructive p-1"
           title="Usuń zamówienie"
           aria-label="Usuń zamówienie"
         >
@@ -1835,7 +1840,7 @@ function HistoryOrderRow({
         <button
           type="button"
           onClick={() => setConfirmingDelete(true)}
-          className="text-muted-foreground hover:text-destructive p-1"
+          className="hit-area text-muted-foreground hover:text-destructive p-1"
           title="Usuń zamówienie"
           aria-label="Usuń zamówienie"
         >

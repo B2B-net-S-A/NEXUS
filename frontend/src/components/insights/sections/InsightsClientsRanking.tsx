@@ -99,7 +99,7 @@ export function InsightsClientsRanking({ period }: Props) {
           <div
             role="group"
             aria-label="Kafle rankingu klientów"
-            className="grid grid-cols-2 gap-4 md:grid-cols-4"
+            className="grid grid-cols-1 gap-4 min-[420px]:grid-cols-2 md:grid-cols-4"
           >
             {/* UAT M10-B01: kafel „Aktywne MRR / mc" sumował wartości
                 zamówień (PO), więc marża wychodziła większa od przychodu.
@@ -143,11 +143,13 @@ export function InsightsClientsRanking({ period }: Props) {
           <DefinitionNote>{data.valuation.note}</DefinitionNote>
 
           <div className="max-h-[32rem] overflow-auto rounded-lg border border-border">
-            <table className="w-full text-sm">
-              <thead className="sticky top-0 z-10 border-b border-border bg-muted">
+            {/* `min-w` + przyklejona kolumna „Klient": na telefonie tabela
+                przewija się w poziomie, a nazwa klienta zostaje w kadrze. */}
+            <table className="w-full min-w-[900px] text-sm">
+              <thead className="sticky top-0 z-20 border-b border-border bg-muted">
                 <tr>
                   <th className="px-3 py-2 text-left font-medium">#</th>
-                  <th className="px-3 py-2 text-left font-medium">Klient</th>
+                  <th className="sticky left-0 z-10 bg-muted px-3 py-2 text-left font-medium">Klient</th>
                   <th className="px-3 py-2 text-left font-medium">Head DL</th>
                   <th className="px-3 py-2 text-right font-medium">
                     Przychód/mc
@@ -174,7 +176,7 @@ export function InsightsClientsRanking({ period }: Props) {
                     <td className="px-3 py-2 text-muted-foreground">
                       {idx + 1}
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="sticky left-0 z-10 bg-card px-3 py-2">
                       <Link
                         href={`/clients/${r.client_id}?tab=analityka`}
                         className="flex items-center gap-1 font-medium hover:text-primary"
@@ -245,6 +247,16 @@ export function InsightsClientsRanking({ period }: Props) {
               </tbody>
             </table>
           </div>
+          {/* Wyjaśnienie gwiazdki bez hovera — `title` jest nieosiągalny dotykiem. */}
+          {clients.some(
+            (r) =>
+              !r.monthly_revenue_complete || !r.margin_complete || !r.revenue_complete,
+          ) && (
+            <p className="text-xs text-muted-foreground">
+              <span className="text-amber-600 dark:text-amber-400">*</span> Kwota
+              niepełna — brak kursu NBP albo brak stawki klienta lub kandydata.
+            </p>
+          )}
         </>
       )}
     </section>

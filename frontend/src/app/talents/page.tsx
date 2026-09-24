@@ -457,18 +457,18 @@ function PoolDetailView({
               return (
                 <div
                   key={c.id}
-                  className="flex items-center justify-between px-6 py-4 hover:bg-muted dark:bg-card transition-colors"
+                  className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 sm:px-6 py-4 hover:bg-muted dark:bg-card transition-colors"
                 >
-                  <div className="flex items-center gap-4">
+                  <div className="flex min-w-0 flex-1 items-center gap-4">
                     {/* Avatar */}
                     <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center text-white text-sm font-bold shrink-0">
                       {c.name.charAt(0)}
                       {c.lastname.charAt(0)}
                     </div>
-                    <div>
+                    <div className="min-w-0">
                       <Link
                         href={`/candidates/${c.id}`}
-                        className="font-semibold text-foreground dark:text-foreground hover:text-primary transition-colors"
+                        className="block truncate font-semibold text-foreground dark:text-foreground hover:text-primary transition-colors"
                       >
                         {c.name} {c.lastname}
                       </Link>
@@ -505,7 +505,7 @@ function PoolDetailView({
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-3 shrink-0">
+                  <div className="flex flex-wrap items-center gap-2 sm:gap-3 sm:shrink-0">
                     {c.source_event === "cv_sent" && (
                       c.source_job_id ? (
                         <Link
@@ -742,7 +742,7 @@ function TalentsPageContent() {
               : "Twoje prywatne pule i pule zespołu — wszyscy je widzą, zarządza tylko właściciel"}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {view === "company" && (
             <MultiSelectFilter<number>
               value={selectedCcIds}
@@ -757,7 +757,7 @@ function TalentsPageContent() {
                   ? (ccList.find((cc) => cc.id === selectedCcIds[0])?.name_pl ?? "1 kategoria")
                   : `${count} kategorii`
               }
-              triggerWidthClass="w-[220px]"
+              triggerWidthClass="w-full sm:w-[220px]"
             />
           )}
           <button
