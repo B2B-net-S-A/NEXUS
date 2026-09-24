@@ -40,8 +40,24 @@ def test_month_in_progress_compares_with_same_stretch_of_previous_month() -> Non
     now = datetime(2026, 9, 24, 15, 0, tzinfo=WARSAW)
     period = resolve_period("month", offset=0, now=now)
     start, end = previous_matching_window(period, now)
+    # 1–24 września ↔ 1–24 sierpnia (koniec wyłączny: 25 sierpnia 00:00).
     assert start == datetime(2026, 8, 1, tzinfo=WARSAW)
-    assert end == datetime(2026, 8, 24, 15, 0, tzinfo=WARSAW)
+    assert end == datetime(2026, 8, 25, tzinfo=WARSAW)
+
+
+def test_last_day_of_month_never_spills_into_the_current_month() -> None:
+    now = datetime(2026, 3, 31, 12, 0, tzinfo=WARSAW)
+    period = resolve_period("month", offset=0, now=now)
+    start, end = previous_matching_window(period, now)
+    assert start == datetime(2026, 2, 1, tzinfo=WARSAW)
+    assert end == datetime(2026, 3, 1, tzinfo=WARSAW)
+
+
+def test_end_of_quarter_never_spills_into_the_current_quarter() -> None:
+    now = datetime(2026, 9, 30, 18, 0, tzinfo=WARSAW)
+    period = resolve_period("quarter", offset=0, now=now)
+    _, end = previous_matching_window(period, now)
+    assert end <= period.start
 
 
 def test_closed_month_compares_with_whole_previous_month() -> None:

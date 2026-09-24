@@ -60,8 +60,12 @@ def previous_matching_window(
     else:
         prev_start = start - (end - start)
     if end > now:
-        elapsed = max(now - start, timedelta(0))
-        return prev_start, prev_start + elapsed
+        # Te same DNI kalendarzowe (1–24 września → 1–24 sierpnia), jak
+        # `previousSameStretch` we froncie — kafle i tabela porównują to samo
+        # okno. Koniec nigdy nie wchodzi w bieżący okres: 31 marca porównuje
+        # się z całym lutym, nie z lutym i trzema dniami marca.
+        days = max((now.date() - start.date()).days + 1, 0)
+        return prev_start, min(prev_start + timedelta(days=days), start)
     return prev_start, start
 
 

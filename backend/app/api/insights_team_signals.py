@@ -19,6 +19,11 @@ from app.core.cache import cache_get, cache_set
 from app.core.database import get_db
 from app.core.scheduling import business_today, local_now
 from app.models.user import User, UserRole
+from app.services.section_permissions import (
+    ProductSection,
+    SectionAccess,
+    section_access_for_user,
+)
 from app.services.insights_team_signals import (
     LOW_PRECISION_PCT,
     STALE_JOB_DAYS,
@@ -134,7 +139,12 @@ async def insights_team_attention(
             }
         )
 
-    if current_user.has_any_role(UserRole.admin, UserRole.head_of_recruitment):
+    # Ta sama bramka co raport „Jakość prepów": rola lidera I sekcja Pipeline.
+    if (
+        current_user.has_any_role(UserRole.admin, UserRole.head_of_recruitment)
+        and section_access_for_user(current_user, ProductSection.pipeline)
+        >= SectionAccess.read
+    ):
         # Import leniwy: moduł prepów ciągnie za sobą kalendarz i Teams.
         from app.api.prep_meetings import prep_quality_report
 

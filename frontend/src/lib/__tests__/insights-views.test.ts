@@ -104,6 +104,34 @@ describe("okno porównania", () => {
     });
     expect(previousComparablePeriod({ period: "custom" }, new Date())).toBeNull();
   });
+
+  it("kwartał w toku porównuje z tą samą liczbą dni poprzedniego kwartału", () => {
+    // 1 lipca–24 września = 86 dni ↔ 1 kwietnia–25 czerwca (86 dni) — ta sama
+    // reguła co `previous_matching_window` w backendzie (tabela ludzi).
+    expect(
+      previousComparablePeriod({ period: "quarter", offset: 0 }, new Date(2026, 8, 24)),
+    ).toEqual({
+      params: { period: "custom", date_from: "2026-04-01", date_to: "2026-06-25" },
+      label: "w tym samym odcinku poprzedniego kwartału",
+    });
+  });
+
+  it("ostatni dzień kwartału nie wchodzi w bieżący kwartał", () => {
+    const result = previousComparablePeriod(
+      { period: "quarter", offset: 0 },
+      new Date(2026, 8, 30),
+    );
+    expect(result?.params.date_to).toBe("2026-06-30");
+  });
+
+  it("tydzień w toku: poniedziałek–czwartek ↔ poniedziałek–czwartek", () => {
+    // 24.09.2026 to czwartek.
+    expect(
+      previousComparablePeriod({ period: "week", offset: 0 }, new Date(2026, 8, 24)),
+    ).toMatchObject({
+      params: { period: "custom", date_from: "2026-09-14", date_to: "2026-09-17" },
+    });
+  });
 });
 
 describe("delty", () => {

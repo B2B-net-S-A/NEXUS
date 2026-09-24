@@ -326,11 +326,36 @@ export interface ComparablePeriod {
   label: string;
 }
 
+function addDays(d: Date, days: number): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + days);
+}
+
+/** Początek okresu kalendarzowego zawierającego `d` (tydzień od poniedziałku). */
+function periodStartOf(kind: "week" | "quarter" | "year", d: Date): Date {
+  if (kind === "week") return addDays(d, -((d.getDay() + 6) % 7));
+  if (kind === "quarter") return new Date(d.getFullYear(), Math.floor(d.getMonth() / 3) * 3, 1);
+  return new Date(d.getFullYear(), 0, 1);
+}
+
+function previousPeriodStart(kind: "week" | "quarter" | "year", start: Date): Date {
+  if (kind === "week") return addDays(start, -7);
+  if (kind === "quarter") return new Date(start.getFullYear(), start.getMonth() - 3, 1);
+  return new Date(start.getFullYear() - 1, 0, 1);
+}
+
+const STRETCH_LABEL: Record<"week" | "quarter" | "year", string> = {
+  week: "w tym samym odcinku poprzedniego tygodnia",
+  quarter: "w tym samym odcinku poprzedniego kwartału",
+  year: "w tym samym odcinku poprzedniego roku",
+};
+
 /**
- * Z czym porównać wybrany okres. Bieżący miesiąc → ten sam odcinek
- * poprzedniego miesiąca; każdy inny okres kalendarzowy → cały poprzedni
- * okres tej samej długości. Zakres własny nie ma naturalnego poprzednika —
- * wtedy bez porównania (`null`), zamiast zgadywać.
+ * Z czym porównać wybrany okres. Okres W TOKU → ten sam odcinek poprzedniego
+ * (1–24 września ↔ 1–24 sierpnia; 1 lipca–24 września ↔ 1 kwietnia–24
+ * czerwca), bo część okresu przeciw całemu poprzedniemu dałaby spadek,
+ * którego nie ma. Lustro `previous_matching_window` w backendzie — kafle
+ * i tabela ludzi porównują to samo okno. Okres zamknięty → cały poprzedni.
+ * Zakres własny nie ma naturalnego poprzednika — `null`, zamiast zgadywać.
  */
 export function previousComparablePeriod(
   p: { period: string; offset?: number },
@@ -341,6 +366,24 @@ export function previousComparablePeriod(
     return {
       params: { period: "custom", ...previousSameStretch(today) },
       label: sameStretchLabel(today),
+    };
+  }
+  if (
+    offset === 0 &&
+    (p.period === "week" || p.period === "quarter" || p.period === "year")
+  ) {
+    const start = periodStartOf(p.period, today);
+    const prevStart = previousPeriodStart(p.period, start);
+    const days = Math.round((today.getTime() - start.getTime()) / 86_400_000);
+    const end = addDays(prevStart, days);
+    const lastPrevDay = addDays(start, -1);
+    return {
+      params: {
+        period: "custom",
+        date_from: isoDate(prevStart),
+        date_to: isoDate(end < lastPrevDay ? end : lastPrevDay),
+      },
+      label: STRETCH_LABEL[p.period],
     };
   }
   const labels: Record<string, string> = {
