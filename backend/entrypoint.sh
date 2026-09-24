@@ -8020,7 +8020,7 @@ _CONSTRAINT_STATEMENTS = [
             )) NOT VALID;
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     # 0351: 'cost_only' — wiersz arkusza z samą fakturą, bez liczby MD.
-    # 0374: 'overflow' — wiersz przekraczający pulę czeka na zatwierdzenie.
+    # 0375: 'overflow' — wiersz przekraczający pulę czeka na zatwierdzenie.
     "ALTER TABLE md_consumption_import_rows "
     "ADD COLUMN IF NOT EXISTS overflow_md NUMERIC(16, 6) NULL",
     "ALTER TABLE md_consumption_import_rows "

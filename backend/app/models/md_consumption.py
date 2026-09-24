@@ -48,7 +48,7 @@ IMPORT_ROW_UNMATCHED = "unmatched"
 # FIN-MD-06 (0351): wiersz z samą fakturą (numer + kwota, bez liczby MD) —
 # rozlicza wyłącznie pulę kosztową.
 IMPORT_ROW_COST_ONLY = "cost_only"
-# 0374 (ticket 1.1, 24.09.2026): zaksięgowanie zeszłoby poniżej zera — wiersz
+# 0375 (ticket 1.1, 24.09.2026): zaksięgowanie zeszłoby poniżej zera — wiersz
 # czeka na ręczne zatwierdzenie („Do weryfikacji – przekroczenie puli o X MD”).
 IMPORT_ROW_OVERFLOW = "overflow"
 IMPORT_ROW_STATUSES: tuple[str, ...] = (
@@ -214,7 +214,7 @@ class MdConsumptionImportRow(Base):
     overflow_md: Mapped[Optional[Decimal]] = mapped_column(
         Numeric(16, 6), nullable=True
     )
-    """O ile MD zaksięgowanie przekroczyłoby pulę (status ``overflow``, 0374)."""
+    """O ile MD zaksięgowanie przekroczyłoby pulę (status ``overflow``, 0375)."""
     cost_status: Mapped[Optional[str]] = mapped_column(String(24), nullable=True)
     """``NULL`` = wiersz nie dotyczy rozliczenia kosztowego (brak numeru
     w „Uwagach"). Patrz ``COST_ROW_*``."""

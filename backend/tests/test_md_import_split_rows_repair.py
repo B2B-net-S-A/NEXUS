@@ -228,13 +228,13 @@ def test_entrypoint_runs_the_repair_once():
 
 
 def test_overflow_status_is_mirrored_in_entrypoint_and_migration():
-    """0374: status ``overflow`` i kolumna ``overflow_md`` w migracji i lustrze."""
+    """0375: status ``overflow`` i kolumna ``overflow_md`` w migracji i lustrze."""
     source = open("entrypoint.sh", encoding="utf-8").read()
     migration = open(
-        "alembic/versions/0374_md_import_row_overflow.py", encoding="utf-8"
+        "alembic/versions/0375_md_import_row_overflow.py", encoding="utf-8"
     ).read()
     assert "ADD COLUMN IF NOT EXISTS overflow_md NUMERIC(16, 6) NULL" in source
     assert "'overflow'" in migration
-    block = source[source.index("0374: 'overflow'") :]
+    block = source[source.index("0375: 'overflow'") :]
     block = block[: block.index("END $$")]
     assert "'overflow'" in block

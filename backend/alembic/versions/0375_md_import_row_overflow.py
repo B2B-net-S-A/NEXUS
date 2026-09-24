@@ -1,7 +1,7 @@
 """Import MD: wiersz przekraczający pulę czeka na zatwierdzenie (ticket 1.1, 24.09.2026).
 
-Revision ID: 0374_md_import_row_overflow
-Revises: 0373_order_dates_and_currency_audit
+Revision ID: 0375_md_import_row_overflow
+Revises: 0374_trainee_call_lists
 
 Zaksięgowanie wiersza, po którym saldo osoby (pula per osoba) albo zamówienia
 (pula wspólna) zeszłoby poniżej zera, nie dzieje się już automatycznie. Wiersz
@@ -15,8 +15,8 @@ Lustro w ``entrypoint.sh`` (prod alembic bywa osierocony) — pilnuje
 
 from alembic import op
 
-revision = "0374_md_import_row_overflow"
-down_revision = "0373_order_dates_and_currency_audit"
+revision = "0375_md_import_row_overflow"
+down_revision = "0374_trainee_call_lists"
 branch_labels = None
 depends_on = None
 
