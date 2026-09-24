@@ -39,8 +39,6 @@ from app.core.scheduling import business_today
 
 pytestmark = pytest.mark.asyncio
 
-_TODAY = business_today()
-
 
 async def _user(
     app_client: AsyncClient,
@@ -126,8 +124,8 @@ async def _contract(
             candidate_id=candidate.id,
             client_id=client_id,
             status=status,
-            start_date=_TODAY - timedelta(days=400 if ended else 30),
-            end_date=_TODAY - timedelta(days=30) if ended else None,
+            start_date=business_today() - timedelta(days=400 if ended else 30),
+            end_date=business_today() - timedelta(days=30) if ended else None,
             rate_candidate=Decimal("100.000"),
             rate_client=Decimal("140.000"),
             rate_unit=RateUnit.hourly,
@@ -143,11 +141,11 @@ async def _contract(
                 status=order_status,
                 order_type="periodic",
                 rate_unit=RateUnit.hourly,
-                start_date=_TODAY - timedelta(days=60),
+                start_date=business_today() - timedelta(days=60),
                 end_date=(
-                    _TODAY - timedelta(days=31)
+                    business_today() - timedelta(days=31)
                     if order_status == ClientOrderStatus.completed
-                    else _TODAY + timedelta(days=60)
+                    else business_today() + timedelta(days=60)
                 ),
             )
             db.add(order)
@@ -278,9 +276,9 @@ async def test_working_consultant_on_a_closed_md_order_still_blocks(
         group = ClientOrderGroup(
             client_id=client_id,
             order_number=f"MD-{uuid.uuid4().hex[:6]}",
-            start_date=_TODAY - timedelta(days=60),
+            start_date=business_today() - timedelta(days=60),
             status="completed",
-            closure_date=_TODAY + timedelta(days=20),
+            closure_date=business_today() + timedelta(days=20),
             order_type=None,
             is_md_budget_based=False,
         )
@@ -293,7 +291,7 @@ async def test_working_consultant_on_a_closed_md_order_still_blocks(
                 order_group_id=group.id,
                 title=f"Zamówienie {group.order_number}",
                 status=ClientOrderStatus.active,
-                start_date=_TODAY - timedelta(days=60),
+                start_date=business_today() - timedelta(days=60),
                 rate_unit=RateUnit.daily,
             )
         )

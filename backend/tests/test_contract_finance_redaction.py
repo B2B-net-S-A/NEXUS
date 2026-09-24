@@ -16,8 +16,6 @@ from httpx import AsyncClient
 from sqlalchemy import delete, func, select
 from app.core.scheduling import business_today
 
-_TODAY = business_today()
-
 
 async def _headers_for(
     app_client: AsyncClient,
@@ -103,8 +101,8 @@ async def _seed_contract(*, currency: str = "PLN") -> int:
             candidate_id=cand.id,
             client_id=client.id,
             status=ContractStatus.active,
-            start_date=_TODAY - timedelta(days=10),
-            end_date=_TODAY + timedelta(days=90),
+            start_date=business_today() - timedelta(days=10),
+            end_date=business_today() + timedelta(days=90),
             rate_candidate=Decimal("100.000"),
             rate_client=Decimal("150.000"),
             margin=Decimal("50.000"),
@@ -477,8 +475,8 @@ async def test_tac_cannot_enter_delivery_to_create_contract(
     body = {
         "candidate_id": cand_id,
         "client_id": client_id,
-        "start_date": (_TODAY - timedelta(days=1)).isoformat(),
-        "end_date": (_TODAY + timedelta(days=120)).isoformat(),
+        "start_date": (business_today() - timedelta(days=1)).isoformat(),
+        "end_date": (business_today() + timedelta(days=120)).isoformat(),
         "rate_candidate": 111.0,
         "rate_client": 222.0,
         "status": "active",

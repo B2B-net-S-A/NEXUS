@@ -319,23 +319,47 @@ async def test_contractor_stats_shape(app_client: AsyncClient, app_auth_headers:
 
 
 async def _find_or_create_draft(app_client: AsyncClient, headers: dict) -> dict | None:
-    """Return a draft contract dict — find first, else create one.
+    """Świeży szkic kontraktu tego testu — nigdy „pierwszy z brzegu” z bazy.
 
-    Creating a draft requires a candidate + client + job. Keep the setup
-    defensive: if the fixtures to create those aren't available on this
-    test DB, return None so the caller can skip.
+    Baza jest wspólna dla całego sharda, a szkic założony przez inny test bywa
+    z harmonogramem stawek klienta: po wyzerowaniu `rate_client` stawka dalej
+    wynika z harmonogramu i nie trafia na listę braków. Który szkic był
+    pierwszy, zależało od składu sharda — test padał po przetasowaniu na 12
+    shardów (24.09.2026).
     """
-    existing = await app_client.get(
-        "/api/contractors?status=draft&page_size=1", headers=headers
-    )
-    if existing.status_code == 200 and existing.json()["items"]:
-        item = existing.json()["items"][0]
-        detail = await app_client.get(
-            f"/api/contracts/{item['contract_id']}", headers=headers
+    import uuid
+
+    from app.core.database import AsyncSessionLocal
+
+    unique = uuid.uuid4().hex[:6]
+    async with AsyncSessionLocal() as db:
+        cand = Candidate(
+            name="Szkic",
+            lastname=f"Aktywacja{unique}",
+            email=f"activate-draft-{unique}@example.com",
+            legal_name=f"JDG Szkic {unique}",
+            nip=f"PL{unique}",
         )
-        if detail.status_code == 200:
-            return detail.json()
-    return None
+        cli = Client(
+            name=f"Klient Szkic {unique}",
+            legal_name=f"Klient Szkic Sp. z o.o. {unique}",
+            nip=f"7771{unique}",
+        )
+        db.add_all([cand, cli])
+        await db.flush()
+        contract = Contract(
+            candidate_id=cand.id,
+            client_id=cli.id,
+            start_date=business_today(),
+            contract_type=ContractType.b2b,
+            status=ContractStatus.draft,
+        )
+        db.add(contract)
+        await db.commit()
+        contract_id = contract.id
+    detail = await app_client.get(f"/api/contracts/{contract_id}", headers=headers)
+    assert detail.status_code == 200, detail.text
+    return detail.json()
 
 
 @pytest.mark.asyncio

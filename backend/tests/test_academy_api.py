@@ -26,7 +26,9 @@ needs_db = pytest.mark.skipif(
     not os.environ.get("DATABASE_URL"), reason="wymaga PostgreSQL"
 )
 
-NOW = datetime.now(timezone.utc)
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 async def _user(db, role: str):
@@ -93,7 +95,9 @@ async def _settle():
 def _headers(user_id: int, role: str) -> dict:
     from app.core.security import create_access_token
 
-    return {"Authorization": f"Bearer {create_access_token(subject=user_id, role=role)}"}
+    return {
+        "Authorization": f"Bearer {create_access_token(subject=user_id, role=role)}"
+    }
 
 
 def _row(body: dict, application_id: int) -> dict:
@@ -122,9 +126,9 @@ async def _setup(app_client):
             languages=[{"code": "PL", "lang": "polski", "level": "native"}],
         )
         old_applicant = await _candidate(db, raw_cv_text="stare zgłoszenie")
-        await _apply(db, cand=junior, job=job, at=NOW - timedelta(days=2))
-        await _apply(db, cand=senior, job=job, at=NOW - timedelta(days=1))
-        await _apply(db, cand=old_applicant, job=job, at=NOW - timedelta(days=400))
+        await _apply(db, cand=junior, job=job, at=_now() - timedelta(days=2))
+        await _apply(db, cand=senior, job=job, at=_now() - timedelta(days=1))
+        await _apply(db, cand=old_applicant, job=job, at=_now() - timedelta(days=400))
         await db.commit()
         ids = {
             "admin": admin.id,
@@ -147,7 +151,7 @@ async def _setup(app_client):
     )
     assert resp.status_code == 201, resp.text
     program_id = resp.json()["id"]
-    since = (NOW - timedelta(days=30)).date().isoformat()
+    since = (_now() - timedelta(days=30)).date().isoformat()
     resp = await app_client.post(
         f"/api/academy/programs/{program_id}/sources",
         headers=admin_h,
@@ -160,7 +164,9 @@ async def _setup(app_client):
 def _fake_luna(calls: list):
     def fake(prompt: str) -> str:
         calls.append(prompt)
-        return json.dumps({"polish": {"level": "unknown", "quote": ""}, "education": [], "work": []})
+        return json.dumps(
+            {"polish": {"level": "unknown", "quote": ""}, "education": [], "work": []}
+        )
 
     return fake
 
@@ -186,7 +192,9 @@ async def test_full_flow_luna_sorts_human_decides_and_rejection_is_forever(
     program_id, ids = await _setup(app_client)
     rec_h = _headers(ids["recruiter"], "recruiter")
 
-    resp = await app_client.post(f"/api/academy/programs/{program_id}/sync", headers=rec_h)
+    resp = await app_client.post(
+        f"/api/academy/programs/{program_id}/sync", headers=rec_h
+    )
 
     await _settle()
     assert resp.status_code == 200, resp.text
@@ -206,7 +214,7 @@ async def test_full_flow_luna_sorts_human_decides_and_rejection_is_forever(
     resp = await app_client.post(
         f"/api/academy/programs/{program_id}/sessions",
         headers=rec_h,
-        json={"starts_at": (NOW + timedelta(days=3)).isoformat()},
+        json={"starts_at": (_now() + timedelta(days=3)).isoformat()},
     )
     assert resp.status_code == 201, resp.text
     session_id = resp.json()["id"]
@@ -244,7 +252,9 @@ async def test_full_flow_luna_sorts_human_decides_and_rejection_is_forever(
         )
         await db.commit()
     calls_before = len(calls)
-    resp = await app_client.post(f"/api/academy/programs/{program_id}/sync", headers=rec_h)
+    resp = await app_client.post(
+        f"/api/academy/programs/{program_id}/sync", headers=rec_h
+    )
     await _settle()
     assert resp.status_code == 200, resp.text
     assert resp.json()["reapplied"] == 1
@@ -312,7 +322,7 @@ async def test_session_capacity_and_wrong_stage(app_client, monkeypatch):
         extra = await _candidate(db, raw_cv_text="x")
         from app.models.job import Job
 
-        await _apply(db, cand=extra, job=await db.get(Job, ids["job"]), at=NOW)
+        await _apply(db, cand=extra, job=await db.get(Job, ids["job"]), at=_now())
         await db.commit()
         extra_id = extra.id
     await app_client.post(f"/api/academy/programs/{program_id}/sync", headers=rec_h)
@@ -322,7 +332,7 @@ async def test_session_capacity_and_wrong_stage(app_client, monkeypatch):
     resp = await app_client.post(
         f"/api/academy/programs/{program_id}/sessions",
         headers=rec_h,
-        json={"starts_at": (NOW + timedelta(days=5)).isoformat()},
+        json={"starts_at": (_now() + timedelta(days=5)).isoformat()},
     )
     session_id = resp.json()["id"]
     first = apps[ids["junior"]]
@@ -388,7 +398,9 @@ async def test_person_who_withdrew_returns_on_next_application(app_client, monke
             at=datetime.now(timezone.utc) + timedelta(seconds=5),
         )
         await db.commit()
-    resp = await app_client.post(f"/api/academy/programs/{program_id}/sync", headers=rec_h)
+    resp = await app_client.post(
+        f"/api/academy/programs/{program_id}/sync", headers=rec_h
+    )
     await _settle()
     assert resp.json()["returned"] == 1
     again = (await _apps_by_candidate(app_client, program_id, rec_h))[ids["junior"]]
@@ -411,7 +423,9 @@ async def test_only_admin_or_head_of_recruitment_manage_programs(app_client):
         json={"name": "Akademia bez uprawnień"},
     )
     assert resp.status_code == 403
-    listing = await app_client.get("/api/academy/programs", headers=_headers(rid, "recruiter"))
+    listing = await app_client.get(
+        "/api/academy/programs", headers=_headers(rid, "recruiter")
+    )
     assert listing.status_code == 200
     assert listing.json()["can_manage"] is False
 
@@ -469,7 +483,9 @@ async def test_card_move_in_traffit_is_not_a_new_application(app_client, monkeyp
         )
         await db.commit()
     calls_before = len(calls)
-    resp = await app_client.post(f"/api/academy/programs/{program_id}/sync", headers=rec_h)
+    resp = await app_client.post(
+        f"/api/academy/programs/{program_id}/sync", headers=rec_h
+    )
     await _settle()
     assert resp.json()["returned"] == 0
     again = (await _apps_by_candidate(app_client, program_id, rec_h))[ids["junior"]]
@@ -497,7 +513,7 @@ async def test_absent_person_rescheduled_to_the_same_full_session_is_refused(
             education=[{"level": "master", "school": "UW", "year": 2025}],
             languages=[{"code": "PL", "lang": "polski", "level": "native"}],
         )
-        await _apply(db, cand=other, job=await db.get(Job, ids["job"]), at=NOW)
+        await _apply(db, cand=other, job=await db.get(Job, ids["job"]), at=_now())
         await db.commit()
         other_id = other.id
     await app_client.post(f"/api/academy/programs/{program_id}/sync", headers=rec_h)
@@ -508,7 +524,7 @@ async def test_absent_person_rescheduled_to_the_same_full_session_is_refused(
         await app_client.post(
             f"/api/academy/programs/{program_id}/sessions",
             headers=rec_h,
-            json={"starts_at": (NOW + timedelta(days=4)).isoformat()},
+            json={"starts_at": (_now() + timedelta(days=4)).isoformat()},
         )
     ).json()["id"]
 
@@ -517,9 +533,13 @@ async def test_absent_person_rescheduled_to_the_same_full_session_is_refused(
             f"/api/academy/applications/{app_id}/actions", headers=rec_h, json=body
         )
 
-    assert (await act(a["id"], {"action": "schedule", "session_id": session_id})).status_code == 200
+    assert (
+        await act(a["id"], {"action": "schedule", "session_id": session_id})
+    ).status_code == 200
     assert (await act(a["id"], {"action": "absent"})).status_code == 200
-    assert (await act(b["id"], {"action": "schedule", "session_id": session_id})).status_code == 200
+    assert (
+        await act(b["id"], {"action": "schedule", "session_id": session_id})
+    ).status_code == 200
     again = await act(a["id"], {"action": "schedule", "session_id": session_id})
     assert again.status_code == 409, again.text
     assert again.json()["detail"]["code"] == "session_full"

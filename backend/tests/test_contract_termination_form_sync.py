@@ -30,7 +30,6 @@ from app.models.contract import (
     ContractType,
 )
 
-TODAY = business_today()
 PATH = "/api/contracts"
 
 
@@ -61,7 +60,7 @@ async def _seed(
             client_id=client.id,
             status=status,
             contract_type=ContractType.b2b,
-            start_date=TODAY - timedelta(days=200),
+            start_date=business_today() - timedelta(days=200),
             rate_candidate=Decimal("100.000"),
             rate_client=Decimal("150.000"),
         )
@@ -89,7 +88,7 @@ async def _seed(
                     else None
                 ),
                 closure_date=(
-                    TODAY - timedelta(days=60)
+                    business_today() - timedelta(days=60)
                     if generator_status in ("suspended", "closed")
                     else None
                 ),
@@ -152,14 +151,14 @@ async def test_future_project_end_is_ending_until_that_day_and_keeps_agreement(
     """Projekt kończy się 23.09, wypowiedzenie do 30.09 → do 23.09 „Kończący
     się”; Generator nie rusza się, dopóki kontrakt nie jest „Zakończony”."""
     cid, gid, _ = await _seed()
-    project_end = TODAY + timedelta(days=5)
-    last_day = TODAY + timedelta(days=12)
+    project_end = business_today() + timedelta(days=5)
+    last_day = business_today() + timedelta(days=12)
     resp = await app_client.post(
         f"{PATH}/{cid}/terminate",
         json={
             "termination_reason": "consultant_resigned",
             "terminated_at": project_end.isoformat(),
-            "agreement_termination": _dissolution(TODAY, last_day),
+            "agreement_termination": _dissolution(business_today(), last_day),
         },
         headers=app_auth_headers,
     )
@@ -182,7 +181,7 @@ async def test_today_project_end_is_still_ending(app_client, app_auth_headers):
         f"{PATH}/{cid}/terminate",
         json={
             "termination_reason": "project_ended",
-            "terminated_at": TODAY.isoformat(),
+            "terminated_at": business_today().isoformat(),
         },
         headers=app_auth_headers,
     )
@@ -197,8 +196,8 @@ async def test_nightly_job_ends_the_day_after_and_syncs_generator():
     from app.tasks import contract_alerts
 
     cid, gid, _ = await _seed()
-    project_end = TODAY - timedelta(days=1)
-    last_day = TODAY + timedelta(days=6)
+    project_end = business_today() - timedelta(days=1)
+    last_day = business_today() + timedelta(days=6)
     async with AsyncSessionLocal() as db:
         c = await db.get(Contract, cid)
         c.status = ContractStatus.ending
@@ -207,7 +206,7 @@ async def test_nightly_job_ends_the_day_after_and_syncs_generator():
         c.termination_reason = "consultant_resigned"
         c.agreement_termination_mode = "notice"
         c.agreement_termination_party = "consultant"
-        c.agreement_termination_signed_on = TODAY - timedelta(days=20)
+        c.agreement_termination_signed_on = business_today() - timedelta(days=20)
         c.agreement_last_day = last_day
         await db.commit()
     async with AsyncSessionLocal() as db:
@@ -263,7 +262,7 @@ async def test_past_end_with_dissolution_closes_agreement_immediately(
     app_client, app_auth_headers
 ):
     cid, gid, _ = await _seed()
-    project_end = TODAY - timedelta(days=3)
+    project_end = business_today() - timedelta(days=3)
     resp = await app_client.post(
         f"{PATH}/{cid}/terminate",
         json={
@@ -309,7 +308,7 @@ async def test_project_end_without_dissolution_moves_agreement_to_no_project(
     app_client, app_auth_headers
 ):
     cid, gid, _ = await _seed()
-    project_end = TODAY - timedelta(days=2)
+    project_end = business_today() - timedelta(days=2)
     resp = await app_client.post(
         f"{PATH}/{cid}/terminate",
         json={
@@ -336,7 +335,7 @@ async def test_other_active_project_keeps_agreement_current(
         f"{PATH}/{cid}/terminate",
         json={
             "termination_reason": "project_ended",
-            "terminated_at": (TODAY - timedelta(days=1)).isoformat(),
+            "terminated_at": (business_today() - timedelta(days=1)).isoformat(),
         },
         headers=app_auth_headers,
     )
@@ -354,9 +353,10 @@ async def test_unlinked_agreement_of_the_same_person_is_found(
         f"{PATH}/{cid}/terminate",
         json={
             "termination_reason": "project_ended",
-            "terminated_at": (TODAY - timedelta(days=1)).isoformat(),
+            "terminated_at": (business_today() - timedelta(days=1)).isoformat(),
             "agreement_termination": _dissolution(
-                TODAY - timedelta(days=10), TODAY - timedelta(days=1)
+                business_today() - timedelta(days=10),
+                business_today() - timedelta(days=1),
             ),
         },
         headers=app_auth_headers,
@@ -371,8 +371,10 @@ async def test_last_day_before_signing_is_rejected(app_client, app_auth_headers)
         f"{PATH}/{cid}/terminate",
         json={
             "termination_reason": "project_ended",
-            "terminated_at": TODAY.isoformat(),
-            "agreement_termination": _dissolution(TODAY, TODAY - timedelta(days=1)),
+            "terminated_at": business_today().isoformat(),
+            "agreement_termination": _dissolution(
+                business_today(), business_today() - timedelta(days=1)
+            ),
         },
         headers=app_auth_headers,
     )
@@ -387,7 +389,7 @@ async def test_undo_restores_agreement_and_clears_dissolution(
     app_client, app_auth_headers
 ):
     cid, gid, _ = await _seed(generator_status="suspended")
-    project_end = TODAY - timedelta(days=1)
+    project_end = business_today() - timedelta(days=1)
     ended = await app_client.post(
         f"{PATH}/{cid}/terminate",
         json={
@@ -412,7 +414,7 @@ async def test_undo_restores_agreement_and_clears_dissolution(
     row = await _generated(gid)
     assert row.contract_status == "suspended"
     assert row.closure_reason == "project_completed"
-    assert row.closure_date == TODAY - timedelta(days=60)
+    assert row.closure_date == business_today() - timedelta(days=60)
     assert row.termination_mode is None
     assert row.termination_restore is None
 
@@ -421,7 +423,7 @@ async def test_return_after_break_creates_follow_up_agreement():
     from app.services.contract_lifecycle import sync_contract_to_live_order
 
     cid, gid, _ = await _seed()
-    project_end = TODAY - timedelta(days=40)
+    project_end = business_today() - timedelta(days=40)
     async with AsyncSessionLocal() as db:
         c = await db.get(Contract, cid)
         c.end_date = project_end
@@ -443,10 +445,10 @@ async def test_return_after_break_creates_follow_up_agreement():
         changed = await sync_contract_to_live_order(
             db,
             c,
-            order_start=TODAY - timedelta(days=1),
+            order_start=business_today() - timedelta(days=1),
             order_end=None,
             actor_id=None,
-            today=TODAY,
+            today=business_today(),
         )
         await db.commit()
     assert changed is True
@@ -476,7 +478,7 @@ async def test_termination_reversal_restores_the_generator_agreement(
     """„Cofnij zakończenie" (``/termination-reversal``) domyka też Generator:
     umowa wraca do stanu sprzed zakończenia, dane rozwiązania znikają."""
     cid, gid, _ = await _seed()
-    project_end = TODAY - timedelta(days=1)
+    project_end = business_today() - timedelta(days=1)
     ended = await app_client.post(
         f"{PATH}/{cid}/terminate",
         json={
@@ -510,7 +512,7 @@ async def test_return_after_break_endpoint_links_a_new_agreement(
     """„Powrót po przerwie" (nowy kontrakt) przy rozwiązanej umowie zakłada
     nową umowę w Generatorze, powiązaną z poprzednią i z NOWYM kontraktem."""
     cid, gid, _ = await _seed()
-    project_end = TODAY - timedelta(days=30)
+    project_end = business_today() - timedelta(days=30)
     ended = await app_client.post(
         f"{PATH}/{cid}/terminate",
         json={
@@ -522,7 +524,7 @@ async def test_return_after_break_endpoint_links_a_new_agreement(
     )
     assert ended.status_code == 200, ended.text
 
-    start = TODAY + timedelta(days=5)
+    start = business_today() + timedelta(days=5)
     resp = await app_client.post(
         f"{PATH}/{cid}/return-after-break",
         json={"start_date": start.isoformat()},
@@ -557,7 +559,7 @@ async def test_bulk_end_applies_the_same_form_to_every_contract(
 ):
     first, gid_a, _ = await _seed()
     second, gid_b, _ = await _seed()
-    project_end = TODAY - timedelta(days=1)
+    project_end = business_today() - timedelta(days=1)
     resp = await app_client.post(
         f"{PATH}/bulk-mark-ended",
         params=[("ids", first), ("ids", second)],

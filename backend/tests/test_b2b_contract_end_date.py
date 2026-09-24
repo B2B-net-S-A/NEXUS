@@ -53,7 +53,6 @@ from app.services.b2b_end_date_repair import (
 )
 
 BACKEND = Path(__file__).resolve().parents[1]
-TODAY = business_today()
 
 
 # ── Reguła ───────────────────────────────────────────────────────────────────
@@ -78,7 +77,7 @@ def test_end_date_rule_matrix(contract_type, status, terminated, allowed):
         end_date_allowed(
             contract_type=contract_type,
             status=status,
-            end_date=TODAY + timedelta(days=30),
+            end_date=business_today() + timedelta(days=30),
             manually_terminated=terminated,
         )
         is allowed
@@ -93,10 +92,19 @@ def test_end_date_rule_matrix(contract_type, status, terminated, allowed):
 
 
 def test_target_status_mirrors_terminate_and_the_nightly_cron():
-    assert target_status(TODAY, TODAY) == ContractStatus.ended
-    assert target_status(TODAY - timedelta(days=5), TODAY) == ContractStatus.ended
-    assert target_status(TODAY + timedelta(days=30), TODAY) == ContractStatus.ending
-    assert target_status(TODAY + timedelta(days=31), TODAY) == ContractStatus.active
+    assert target_status(business_today(), business_today()) == ContractStatus.ended
+    assert (
+        target_status(business_today() - timedelta(days=5), business_today())
+        == ContractStatus.ended
+    )
+    assert (
+        target_status(business_today() + timedelta(days=30), business_today())
+        == ContractStatus.ending
+    )
+    assert (
+        target_status(business_today() + timedelta(days=31), business_today())
+        == ContractStatus.active
+    )
 
 
 # ── Lista ze zgłoszenia ──────────────────────────────────────────────────────
@@ -190,7 +198,7 @@ async def _seed_contract(
             contract_type=contract_type,
             work_mode=ContractWorkMode.remote,
             status=status,
-            start_date=TODAY - timedelta(days=200),
+            start_date=business_today() - timedelta(days=200),
             end_date=end_date,
             terminated_at=terminated_at,
             termination_reason=termination_reason,
@@ -222,7 +230,7 @@ async def test_patch_rejects_an_end_date_on_a_live_b2b_contract(
     ids = await _seed_contract()
     resp = await app_client.patch(
         f"/api/contracts/{ids['contract_id']}",
-        json={"end_date": (TODAY + timedelta(days=60)).isoformat()},
+        json={"end_date": (business_today() + timedelta(days=60)).isoformat()},
         headers=app_auth_headers,
     )
     assert resp.status_code == 422, resp.text
@@ -234,7 +242,7 @@ async def test_patch_of_another_field_does_not_trip_over_a_legacy_date(
     app_client, app_auth_headers
 ):
     """Formularz odsyła nieruszaną datę — zapis innego pola przechodzi."""
-    legacy_end = TODAY + timedelta(days=60)
+    legacy_end = business_today() + timedelta(days=60)
     ids = await _seed_contract(end_date=legacy_end)
     resp = await app_client.patch(
         f"/api/contracts/{ids['contract_id']}",
@@ -254,7 +262,7 @@ async def test_patch_of_another_field_does_not_trip_over_a_legacy_date(
 
 async def test_umowa_zlecenie_keeps_its_end_date(app_client, app_auth_headers):
     ids = await _seed_contract(contract_type=ContractType.uzlecenie)
-    target = TODAY + timedelta(days=60)
+    target = business_today() + timedelta(days=60)
     resp = await app_client.patch(
         f"/api/contracts/{ids['contract_id']}",
         json={"end_date": target.isoformat()},
@@ -268,7 +276,7 @@ async def test_terminate_sets_a_future_date_and_it_can_be_corrected(
     app_client, app_auth_headers
 ):
     ids = await _seed_contract()
-    first = TODAY + timedelta(days=40)
+    first = business_today() + timedelta(days=40)
     resp = await app_client.post(
         f"/api/contracts/{ids['contract_id']}/terminate",
         json={
@@ -284,7 +292,7 @@ async def test_terminate_sets_a_future_date_and_it_can_be_corrected(
     # „Kończący się” (data zakończenia projektu jest włączna).
     assert resp.json()["status"] == "ending"
     # Po ręcznym zakończeniu datę wolno poprawić w edycji.
-    corrected = TODAY + timedelta(days=20)
+    corrected = business_today() + timedelta(days=20)
     resp = await app_client.patch(
         f"/api/contracts/{ids['contract_id']}",
         json={"end_date": corrected.isoformat()},
@@ -301,7 +309,7 @@ async def test_create_gives_a_new_b2b_contract_no_end_date_unless_it_ended(
     base = {
         "candidate_id": ids["candidate_id"],
         "client_id": ids["client_id"],
-        "start_date": (TODAY - timedelta(days=400)).isoformat(),
+        "start_date": (business_today() - timedelta(days=400)).isoformat(),
         "rate_candidate": 100,
         "rate_client": 150,
         "contract_type": "b2b",
@@ -314,13 +322,13 @@ async def test_create_gives_a_new_b2b_contract_no_end_date_unless_it_ended(
         base["client_id"] = other.id
     resp = await app_client.post(
         "/api/contracts",
-        json={**base, "end_date": (TODAY + timedelta(days=90)).isoformat()},
+        json={**base, "end_date": (business_today() + timedelta(days=90)).isoformat()},
         headers=app_auth_headers,
     )
     assert resp.status_code == 422, resp.text
     assert resp.json()["detail"]["reason"] == B2B_END_DATE_REASON
     # Wpis historii: umowa już zakończona niesie swoją datę.
-    ended_on = TODAY - timedelta(days=30)
+    ended_on = business_today() - timedelta(days=30)
     resp = await app_client.post(
         "/api/contracts",
         json={**base, "end_date": ended_on.isoformat(), "status": "ended"},
@@ -339,8 +347,8 @@ async def test_extension_amendment_is_refused_for_an_unterminated_b2b_contract(
         f"/api/contracts/{ids['contract_id']}/amendments",
         json={
             "amendment_type": "extension",
-            "effective_date": TODAY.isoformat(),
-            "new_end_date": (TODAY + timedelta(days=180)).isoformat(),
+            "effective_date": business_today().isoformat(),
+            "new_end_date": (business_today() + timedelta(days=180)).isoformat(),
         },
         headers=app_auth_headers,
     )
@@ -353,7 +361,7 @@ async def test_register_reopen_of_an_ended_b2b_contract_makes_it_indefinite(
 ):
     """Ze starą datą nocny cron zakończyłby ją ponownie następnej nocy."""
     ids = await _seed_contract(
-        status=ContractStatus.ended, end_date=TODAY - timedelta(days=10)
+        status=ContractStatus.ended, end_date=business_today() - timedelta(days=10)
     )
     resp = await app_client.patch(
         f"/api/contracts/{ids['contract_id']}",
@@ -377,16 +385,19 @@ async def test_new_contractor_order_window_refuses_a_contract_end_date(
     payload = {
         "candidate_id": ids["candidate_id"],
         "title": "Zamówienie testowe 1/2026",
-        "contract_start_date": TODAY.isoformat(),
-        "order_start_date": TODAY.isoformat(),
-        "order_end_date": (TODAY + timedelta(days=90)).isoformat(),
+        "contract_start_date": business_today().isoformat(),
+        "order_start_date": business_today().isoformat(),
+        "order_end_date": (business_today() + timedelta(days=90)).isoformat(),
         "rate_client": 18000,
         "rate_candidate": 14000,
         "rate_unit": "monthly",
     }
     resp = await app_client.post(
         f"/api/clients/{client_id}/contract-with-order",
-        json={**payload, "contract_end_date": (TODAY + timedelta(days=90)).isoformat()},
+        json={
+            **payload,
+            "contract_end_date": (business_today() + timedelta(days=90)).isoformat(),
+        },
         headers=app_auth_headers,
     )
     assert resp.status_code == 422, resp.text
@@ -416,16 +427,16 @@ async def _drop_markers() -> None:
 
 async def test_repair_terminates_ticket_rows_then_clears_unterminated_b2b_dates():
     await _drop_markers()
-    order_copied = TODAY + timedelta(days=45)
+    order_copied = business_today() + timedelta(days=45)
     # Klasa, którą czyści korekta.
     live = await _seed_contract(end_date=order_copied)
     ending = await _seed_contract(
-        status=ContractStatus.ending, end_date=TODAY + timedelta(days=10)
+        status=ContractStatus.ending, end_date=business_today() + timedelta(days=10)
     )
     # Bez zmian: zakończona, zlecenie, wypowiedziana, aneks early_termination,
     # szkic.
     ended = await _seed_contract(
-        status=ContractStatus.ended, end_date=TODAY - timedelta(days=20)
+        status=ContractStatus.ended, end_date=business_today() - timedelta(days=20)
     )
     zlecenie = await _seed_contract(
         contract_type=ContractType.uzlecenie, end_date=order_copied
@@ -450,10 +461,12 @@ async def test_repair_terminates_ticket_rows_then_clears_unterminated_b2b_dates(
     # Zakończenia ze zgłoszenia: przyszłe (z zamówieniem do skrócenia),
     # dzisiejsze, z przeszłości na kontrakcie zakończonym cronem po dacie
     # zamówienia oraz wpis, którego trójka ID się nie zgadza.
-    future_person = await _seed_contract(end_date=TODAY + timedelta(days=100))
+    future_person = await _seed_contract(
+        end_date=business_today() + timedelta(days=100)
+    )
     today_person = await _seed_contract()
     past_person = await _seed_contract(
-        status=ContractStatus.ended, end_date=TODAY - timedelta(days=2)
+        status=ContractStatus.ended, end_date=business_today() - timedelta(days=2)
     )
     mismatch = await _seed_contract(end_date=order_copied)
     async with AsyncSessionLocal() as db:
@@ -462,15 +475,15 @@ async def test_repair_terminates_ticket_rows_then_clears_unterminated_b2b_dates(
             contract_id=future_person["contract_id"],
             title=f"Zamówienie {uuid.uuid4().hex[:6]}",
             status=ClientOrderStatus.active,
-            start_date=TODAY - timedelta(days=30),
-            end_date=TODAY + timedelta(days=120),
+            start_date=business_today() - timedelta(days=30),
+            end_date=business_today() + timedelta(days=120),
         )
         db.add(order)
         await db.commit()
         order_id = order.id
 
-    future_end = TODAY + timedelta(days=21)
-    past_end = TODAY - timedelta(days=12)
+    future_end = business_today() + timedelta(days=21)
+    past_end = business_today() - timedelta(days=12)
     specs = (
         TicketTermination(
             future_person["contract_id"],
@@ -483,7 +496,7 @@ async def test_repair_terminates_ticket_rows_then_clears_unterminated_b2b_dates(
             today_person["contract_id"],
             today_person["candidate_id"],
             today_person["client_id"],
-            TODAY,
+            business_today(),
             "Klient — No budget",
         ),
         TicketTermination(
@@ -497,7 +510,7 @@ async def test_repair_terminates_ticket_rows_then_clears_unterminated_b2b_dates(
             mismatch["contract_id"],
             mismatch["candidate_id"] + 999_999,
             mismatch["client_id"],
-            TODAY,
+            business_today(),
             "Internalizacja",
         ),
     )
@@ -520,14 +533,17 @@ async def test_repair_terminates_ticket_rows_then_clears_unterminated_b2b_dates(
     try:
         async with AsyncSessionLocal() as db:
             summary = await run_b2b_end_date_repair(
-                db, today=TODAY, terminations=specs, only_contract_ids=scope
+                db, today=business_today(), terminations=specs, only_contract_ids=scope
             )
             await db.commit()
         assert summary is not None
         async with AsyncSessionLocal() as db:
             assert (
                 await run_b2b_end_date_repair(
-                    db, today=TODAY, terminations=specs, only_contract_ids=scope
+                    db,
+                    today=business_today(),
+                    terminations=specs,
+                    only_contract_ids=scope,
                 )
                 is None
             ), "drugi start nie może niczego powtórzyć"
@@ -549,7 +565,7 @@ async def test_repair_terminates_ticket_rows_then_clears_unterminated_b2b_dates(
             assert order.end_date == future_end
         today_contract = await _contract(today_person["contract_id"])
         assert today_contract.status == ContractStatus.ended
-        assert today_contract.end_date == TODAY
+        assert today_contract.end_date == business_today()
         assert today_contract.termination_lessons == "Klient — No budget"
         past = await _contract(past_person["contract_id"])
         assert past.status == ContractStatus.ended
@@ -570,7 +586,7 @@ async def test_repair_terminates_ticket_rows_then_clears_unterminated_b2b_dates(
         # Wpis ze zgłoszenia z niezgodną trójką ID to zwykła żywa umowa B2B.
         assert mismatch["contract_id"] in cleared_ids
         for untouched, expected_end in (
-            (ended, TODAY - timedelta(days=20)),
+            (ended, business_today() - timedelta(days=20)),
             (zlecenie, order_copied),
             (terminated, order_copied),
             (amended, order_copied),
@@ -609,8 +625,8 @@ async def test_repair_terminates_ticket_rows_then_clears_unterminated_b2b_dates(
             {
                 "order_id": order_id,
                 "status": "active",
-                "start_date": (TODAY - timedelta(days=30)).isoformat(),
-                "end_date": (TODAY + timedelta(days=120)).isoformat(),
+                "start_date": (business_today() - timedelta(days=30)).isoformat(),
+                "end_date": (business_today() + timedelta(days=120)).isoformat(),
                 "order_group_id": None,
             }
         ]

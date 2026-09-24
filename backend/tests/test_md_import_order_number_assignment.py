@@ -29,17 +29,38 @@ from app.core.scheduling import business_today
 
 pytestmark = pytest.mark.asyncio
 
-_TODAY = business_today()
+
 #: Miesiąc raportu: poprzedni pełny miesiąc — raport przychodzi po jego końcu.
-_MONTH_FIRST = (date(_TODAY.year, _TODAY.month, 1) - timedelta(days=1)).replace(day=1)
-_PERIOD = _MONTH_FIRST.strftime("%Y-%m")
-_PREV_PERIOD = (_MONTH_FIRST - timedelta(days=1)).strftime("%Y-%m")
+def _month_first():
+    today = business_today()
+    return (date(today.year, today.month, 1) - timedelta(days=1)).replace(day=1)
+
+
+def _period():
+    return _month_first().strftime("%Y-%m")
+
+
+def _prev_period():
+    return (_month_first() - timedelta(days=1)).strftime("%Y-%m")
+
+
 #: Zamiana zamówień w połowie miesiąca raportu (jak 14.08 → 15.08).
-_SPLIT_END = _MONTH_FIRST + timedelta(days=13)
-_SPLIT_START = _SPLIT_END + timedelta(days=1)
-_OLD_START = (_MONTH_FIRST - timedelta(days=70)).replace(day=1)
+def _split_end():
+    return _month_first() + timedelta(days=13)
+
+
+def _split_start():
+    return _split_end() + timedelta(days=1)
+
+
+def _old_start():
+    return (_month_first() - timedelta(days=70)).replace(day=1)
+
+
 #: Koniec współpracy po miesiącu raportu (jak 03.09).
-_LEFT_ON = date(_TODAY.year, _TODAY.month, 1) + timedelta(days=2)
+def _left_on():
+    today = business_today()
+    return date(today.year, today.month, 1) + timedelta(days=2)
 
 
 def _number() -> str:
@@ -87,7 +108,7 @@ async def _seed() -> tuple[int, int, str]:
             candidate_id=cand.id,
             client_id=client.id,
             status=ContractStatus.active,
-            start_date=_OLD_START,
+            start_date=_old_start(),
             rate_candidate=Decimal("1040.000"),
             rate_client=Decimal("1360.000"),
         )
@@ -152,10 +173,10 @@ async def _link_and_end(
         for line_id in line_ids:
             line = await db.get(ClientOrder, line_id)
             line.status = ClientOrderStatus.completed
-            line.end_date = (line_ends or {}).get(line_id, _LEFT_ON)
+            line.end_date = (line_ends or {}).get(line_id, _left_on())
         contract = await db.get(Contract, contract_id)
         contract.status = ContractStatus.ended
-        contract.end_date = _LEFT_ON
+        contract.end_date = _left_on()
         await db.commit()
 
 
@@ -187,8 +208,9 @@ async def _finance_headers(app_client: AsyncClient) -> dict:
 
 
 async def _import(
-    app_client: AsyncClient, headers: dict, payload: bytes, period: str = _PERIOD
+    app_client: AsyncClient, headers: dict, payload: bytes, period: str | None = None
 ) -> dict:
+    period = period or _period()
     resp = await app_client.post(
         "/api/md-consumption/imports",
         files={
@@ -256,8 +278,8 @@ async def _ticket_setup(app_client, headers, monkeypatch, *, old_md: float = 35.
         client_id,
         contract_id,
         number=old_number,
-        start=_OLD_START,
-        end=_SPLIT_END,
+        start=_old_start(),
+        end=_split_end(),
         md_total=old_md,
     )
     new = await _create_group(
@@ -266,7 +288,7 @@ async def _ticket_setup(app_client, headers, monkeypatch, *, old_md: float = 35.
         client_id,
         contract_id,
         number=new_number,
-        start=_SPLIT_START,
+        start=_split_start(),
         end=None,
         md_total=22.24,
     )
@@ -317,8 +339,8 @@ async def test_each_row_lands_only_on_the_order_named_in_it(
     # kosztowego o tym numerze".
     assert all(row["cost_status"] is None for row in detail["rows"]), detail
 
-    assert await _consumptions(case["old_line"]) == {_PERIOD: Decimal("13.75")}
-    assert await _consumptions(case["new_line"]) == {_PERIOD: Decimal("6.25")}
+    assert await _consumptions(case["old_line"]) == {_period(): Decimal("13.75")}
+    assert await _consumptions(case["new_line"]) == {_period(): Decimal("6.25")}
 
     old_after = await _group(
         app_client, app_auth_headers, case["client_id"], case["old"]["id"]
@@ -364,8 +386,8 @@ async def test_manual_assignment_does_not_overwrite_another_row_of_the_import(
         )
         assert resp.status_code == 200, resp.text
 
-    assert await _consumptions(case["old_line"]) == {_PERIOD: Decimal("13.75")}
-    assert await _consumptions(case["new_line"]) == {_PERIOD: Decimal("6.25")}
+    assert await _consumptions(case["old_line"]) == {_period(): Decimal("13.75")}
+    assert await _consumptions(case["new_line"]) == {_period(): Decimal("6.25")}
     assert not any("nadpisano" in d for _, d in await _events(case["old"]["id"]))
 
 
@@ -411,14 +433,14 @@ async def test_a_row_naming_an_order_outside_the_month_goes_to_verification(
     client_id, contract_id, name = await _seed()
     _enable_multi(monkeypatch, client_id)
     old_number, new_number = _number(), _number()
-    before_month = _MONTH_FIRST - timedelta(days=1)
+    before_month = _month_first() - timedelta(days=1)
     old = await _create_group(
         app_client,
         app_auth_headers,
         client_id,
         contract_id,
         number=old_number,
-        start=_OLD_START,
+        start=_old_start(),
         end=before_month,
         md_total=30,
     )
@@ -428,7 +450,7 @@ async def test_a_row_naming_an_order_outside_the_month_goes_to_verification(
         client_id,
         contract_id,
         number=new_number,
-        start=_MONTH_FIRST,
+        start=_month_first(),
         end=None,
         md_total=40,
     )
@@ -465,7 +487,7 @@ async def test_an_unknown_order_number_is_not_guessed(
         client_id,
         contract_id,
         number=_number(),
-        start=_OLD_START,
+        start=_old_start(),
         end=None,
         md_total=40,
     )
@@ -492,8 +514,8 @@ async def test_a_row_without_a_number_keeps_name_matching(
         app_auth_headers,
         client_id,
         contract_id,
-        number=f"87_{_TODAY.year}",
-        start=_OLD_START,
+        number=f"87_{business_today().year}",
+        start=_old_start(),
         end=None,
         md_total=40,
     )
@@ -504,7 +526,7 @@ async def test_a_row_without_a_number_keeps_name_matching(
     )
 
     assert detail["rows_applied"] == 1, detail
-    assert await _consumptions(group["lines"][0]["id"]) == {_PERIOD: Decimal("5")}
+    assert await _consumptions(group["lines"][0]["id"]) == {_period(): Decimal("5")}
 
 
 async def test_overflow_of_a_named_order_is_not_moved_to_its_successor(
@@ -520,11 +542,11 @@ async def test_overflow_of_a_named_order_is_not_moved_to_its_successor(
         app_client,
         finance,
         _sheet([(case["name"], 22, case["old_number"], 29920)]),
-        period=_PREV_PERIOD,
+        period=_prev_period(),
     )
 
     assert detail["rows_applied"] == 1, detail
-    assert await _consumptions(case["old_line"]) == {_PREV_PERIOD: Decimal("22")}
+    assert await _consumptions(case["old_line"]) == {_prev_period(): Decimal("22")}
     assert await _consumptions(case["new_line"]) == {}
 
 
@@ -574,7 +596,7 @@ async def test_a_short_number_of_another_client_does_not_block_name_matching(
         other_id,
         other_contract,
         number=short,
-        start=_OLD_START,
+        start=_old_start(),
         end=None,
         md_total=10,
     )
@@ -583,8 +605,8 @@ async def test_a_short_number_of_another_client_does_not_block_name_matching(
         app_auth_headers,
         client_id,
         contract_id,
-        number=f"87_{_TODAY.year}",
-        start=_OLD_START,
+        number=f"87_{business_today().year}",
+        start=_old_start(),
         end=None,
         md_total=40,
     )
@@ -597,7 +619,7 @@ async def test_a_short_number_of_another_client_does_not_block_name_matching(
     )
 
     assert detail["rows_applied"] == 1, detail
-    assert await _consumptions(group["lines"][0]["id"]) == {_PERIOD: Decimal("5")}
+    assert await _consumptions(group["lines"][0]["id"]) == {_period(): Decimal("5")}
 
 
 async def test_reimport_with_a_number_reverts_an_earlier_split(
@@ -616,19 +638,19 @@ async def test_reimport_with_a_number_reverts_an_earlier_split(
         app_client,
         finance,
         _sheet([(case["name"], 22, "", 29920)]),
-        period=_PREV_PERIOD,
+        period=_prev_period(),
     )
     assert first["rows_applied"] == 1, first
-    assert await _consumptions(case["new_line"]) == {_PREV_PERIOD: Decimal("8.25")}
+    assert await _consumptions(case["new_line"]) == {_prev_period(): Decimal("8.25")}
 
     second = await _import(
         app_client,
         finance,
         _sheet([(case["name"], 22, case["old_number"], 29920)]),
-        period=_PREV_PERIOD,
+        period=_prev_period(),
     )
     assert second["rows_applied"] == 1, second
-    assert await _consumptions(case["old_line"]) == {_PREV_PERIOD: Decimal("22")}
+    assert await _consumptions(case["old_line"]) == {_prev_period(): Decimal("22")}
     assert await _consumptions(case["new_line"]) == {}
     assert any("cofnięto 8,25 MD" in d for _, d in await _events(case["new"]["id"]))
 
@@ -651,14 +673,14 @@ async def _seed_repair_state(app_client, headers, monkeypatch):
 
     case = await _ticket_setup(app_client, headers, monkeypatch)
     async with AsyncSessionLocal() as db:
-        july = MdConsumptionImport(period_month=_PREV_PERIOD, filename="lipiec.xlsx")
-        august = MdConsumptionImport(period_month=_PERIOD, filename="sierpien.xlsx")
+        july = MdConsumptionImport(period_month=_prev_period(), filename="lipiec.xlsx")
+        august = MdConsumptionImport(period_month=_period(), filename="sierpien.xlsx")
         db.add_all([july, august])
         await db.flush()
         for order_id, month, md, batch in (
-            (case["old_line"], _PREV_PERIOD, "13.75", july),
-            (case["old_line"], _PERIOD, "6.25", august),
-            (case["new_line"], _PREV_PERIOD, "8.25", july),
+            (case["old_line"], _prev_period(), "13.75", july),
+            (case["old_line"], _period(), "6.25", august),
+            (case["new_line"], _prev_period(), "8.25", july),
         ):
             db.add(
                 ClientOrderMdConsumption(
@@ -716,23 +738,23 @@ def _repair_case(case, july_id, august_id, event_ids, **overrides):
         successor_order_id=case["new_line"],
         successor_group_id=case["new"]["id"],
         successor_number=case["new_number"],
-        report_month=_PERIOD,
+        report_month=_period(),
         august_import_id=august_id,
-        previous_month=_PREV_PERIOD,
+        previous_month=_prev_period(),
         july_import_id=july_id,
         expected_before={
-            (case["old_line"], _PREV_PERIOD): Decimal("13.75"),
-            (case["old_line"], _PERIOD): Decimal("6.25"),
-            (case["new_line"], _PREV_PERIOD): Decimal("8.25"),
+            (case["old_line"], _prev_period()): Decimal("13.75"),
+            (case["old_line"], _period()): Decimal("6.25"),
+            (case["new_line"], _prev_period()): Decimal("8.25"),
         },
         expected_adjustments={
             case["old_line"]: Decimal("-8.25"),
             case["new_line"]: Decimal("8.25"),
         },
         target={
-            (case["old_line"], _PREV_PERIOD): Decimal("22"),
-            (case["old_line"], _PERIOD): Decimal("13.75"),
-            (case["new_line"], _PERIOD): Decimal("6.25"),
+            (case["old_line"], _prev_period()): Decimal("22"),
+            (case["old_line"], _period()): Decimal("13.75"),
+            (case["new_line"], _period()): Decimal("6.25"),
         },
         wrong_event_ids=event_ids,
     )
@@ -761,10 +783,10 @@ async def test_repair_restores_the_ticket_numbers(
     assert summary["skipped"] is None
 
     assert await _consumptions(case["old_line"]) == {
-        _PREV_PERIOD: Decimal("22"),
-        _PERIOD: Decimal("13.75"),
+        _prev_period(): Decimal("22"),
+        _period(): Decimal("13.75"),
     }
-    assert await _consumptions(case["new_line"]) == {_PERIOD: Decimal("6.25")}
+    assert await _consumptions(case["new_line"]) == {_period(): Decimal("6.25")}
 
     old_after = await _group(
         app_client, app_auth_headers, case["client_id"], case["old"]["id"]
@@ -821,4 +843,4 @@ async def test_repair_leaves_a_hand_corrected_state_alone(
         await db.commit()
     assert summary["applied"] is False
     assert summary["skipped"] == "edited_since_snapshot"
-    assert await _consumptions(case["new_line"]) == {_PREV_PERIOD: Decimal("8.25")}
+    assert await _consumptions(case["new_line"]) == {_prev_period(): Decimal("8.25")}

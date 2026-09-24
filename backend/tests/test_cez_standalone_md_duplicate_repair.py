@@ -36,8 +36,6 @@ from app.services.cez_standalone_md_duplicate_repair import (
     summarize_for_log,
 )
 
-TODAY = business_today()
-
 
 def test_ticket_pins_two_cez_contracts_and_public_receipt_carries_no_names():
     from scripts.show_migration_receipts import is_receipt_key
@@ -66,7 +64,7 @@ async def _seed(
             client_id=client.id,
             contract_type=ContractType.b2b,
             status=contract_status,
-            start_date=TODAY - timedelta(days=60),
+            start_date=business_today() - timedelta(days=60),
             rate_candidate=Decimal("75.000"),
         )
         db.add(contract)
@@ -77,7 +75,7 @@ async def _seed(
             group = ClientOrderGroup(
                 client_id=client.id,
                 order_number=group_number,
-                start_date=TODAY - timedelta(days=60),
+                start_date=business_today() - timedelta(days=60),
                 status=GROUP_STATUS_ACTIVE,
                 order_type="md",
                 md_budget_mode="per_person",
@@ -92,7 +90,7 @@ async def _seed(
                 title=f"Zamówienie {group_number} — linia",
                 order_type="md",
                 status=ClientOrderStatus.active,
-                start_date=TODAY - timedelta(days=60),
+                start_date=business_today() - timedelta(days=60),
                 md_rate_cost=Decimal("600.00"),
                 md_rate_revenue=Decimal("800.00"),
                 md_input_mode="md",
@@ -112,7 +110,7 @@ async def _seed(
             title=f"Zamówienie {group_number} — stare",
             order_type="md",
             status=ClientOrderStatus.active,
-            start_date=TODAY - timedelta(days=60),
+            start_date=business_today() - timedelta(days=60),
             rate_client=Decimal("800.000"),
             rate_unit=RateUnit.daily,
             currency="PLN",
@@ -122,8 +120,8 @@ async def _seed(
             contract_id=contract.id,
             title="Zamówienie historyczne",
             status=ClientOrderStatus.completed,
-            start_date=TODAY - timedelta(days=200),
-            end_date=TODAY - timedelta(days=61),
+            start_date=business_today() - timedelta(days=200),
+            end_date=business_today() - timedelta(days=61),
             rate_client=Decimal("700.000"),
         )
         db.add_all([standalone, other_client_order])

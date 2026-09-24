@@ -25,8 +25,6 @@ from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.services import champion_client_history as history
 from app.services import champion_draft_service
 
-NOW = datetime.now(timezone.utc)
-
 
 def test_scrub_names_replaces_known_names_as_whole_words() -> None:
     text = "Grzegorz Nowak nie znał procesów kartowych, a Grzegorzewski tak."
@@ -37,6 +35,7 @@ def test_scrub_names_replaces_known_names_as_whole_words() -> None:
 
 
 async def _seed(events: int) -> dict:
+    now = datetime.now(timezone.utc)
     tag = uuid.uuid4().hex[:8]
     async with AsyncSessionLocal() as db:
         client = Client(name=f"History Client {tag}")
@@ -63,7 +62,7 @@ async def _seed(events: int) -> dict:
                     candidate_id=candidate.id,
                     job_id=job.id,
                     stage=PipelineStage.cv_sent,
-                    moved_at=NOW,
+                    moved_at=now,
                 )
             )
             db.add(

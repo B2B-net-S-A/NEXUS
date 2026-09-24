@@ -13,8 +13,6 @@ from decimal import Decimal
 import pytest
 from httpx import AsyncClient
 
-_NOW = datetime.now(timezone.utc)
-
 
 async def _seed_user(role_value: str, client_id: int | None = None):
     from app.core.database import AsyncSessionLocal
@@ -75,6 +73,7 @@ async def _seed_client(*, display_name: str | None = None) -> int:
 
 async def test_repeat_after_seven_days_is_a_new_row_not_an_update():
     """Ticket: każde ponowienie ma być widoczne osobno w historii i raporcie."""
+    now = datetime.now(timezone.utc)
     from app.core.database import AsyncSessionLocal
     from app.models.dl_alert import ALERT_MD_BUDGET_LOW, DlAlert
     from app.services.dl_alerts import emit
@@ -93,7 +92,7 @@ async def test_repeat_after_seven_days_is_a_new_row_not_an_update():
             title="t",
             message="m",
             repeat_every_days=7,
-            now=_NOW,
+            now=now,
         )
         assert len(first) == 1
         # Ten sam dzień — bez nowego wpisu.
@@ -106,7 +105,7 @@ async def test_repeat_after_seven_days_is_a_new_row_not_an_update():
             title="t",
             message="m",
             repeat_every_days=7,
-            now=_NOW + timedelta(days=3),
+            now=now + timedelta(days=3),
         )
         assert same_day == []
         # Po tygodniu — NOWY wiersz, nie aktualizacja poprzedniego.
@@ -119,7 +118,7 @@ async def test_repeat_after_seven_days_is_a_new_row_not_an_update():
             title="t",
             message="m",
             repeat_every_days=7,
-            now=_NOW + timedelta(days=8),
+            now=now + timedelta(days=8),
         )
         assert len(later) == 1
         await db.commit()
@@ -137,6 +136,7 @@ async def test_repeat_after_seven_days_is_a_new_row_not_an_update():
 
 async def test_handled_alert_stops_further_repeats():
     """Człowiek powiedział „zajęte" — system przestaje o tym mówić."""
+    now = datetime.now(timezone.utc)
     from app.core.database import AsyncSessionLocal
     from app.models.dl_alert import (
         ALERT_MD_BUDGET_LOW,
@@ -158,12 +158,12 @@ async def test_handled_alert_stops_further_repeats():
             title="t",
             message="m",
             repeat_every_days=7,
-            now=_NOW,
+            now=now,
         )
         await db.commit()
         alert = await db.get(DlAlert, created[0].id)
         alert.status = DL_ALERT_STATUS_HANDLED
-        alert.handled_at = _NOW
+        alert.handled_at = now
         alert.handled_by_user_id = user_id
         await db.commit()
 
@@ -176,13 +176,14 @@ async def test_handled_alert_stops_further_repeats():
             title="t",
             message="m",
             repeat_every_days=7,
-            now=_NOW + timedelta(days=30),
+            now=now + timedelta(days=30),
         )
         assert again == [], "obsłużona sprawa wróciła po tygodniach"
 
 
 async def test_one_off_alert_never_repeats():
     """Wyczerpanie budżetu opisuje stan, który się już nie zmienia."""
+    now = datetime.now(timezone.utc)
     from app.core.database import AsyncSessionLocal
     from app.models.dl_alert import ALERT_COST_ORDER_EXHAUSTED
     from app.services.dl_alerts import emit
@@ -200,7 +201,7 @@ async def test_one_off_alert_never_repeats():
             title="t",
             message="m",
             repeat_every_days=None,
-            now=_NOW,
+            now=now,
         )
         await db.commit()
         assert len(first) == 1
@@ -213,7 +214,7 @@ async def test_one_off_alert_never_repeats():
             title="t",
             message="m",
             repeat_every_days=None,
-            now=_NOW + timedelta(days=365),
+            now=now + timedelta(days=365),
         )
         assert later == []
 

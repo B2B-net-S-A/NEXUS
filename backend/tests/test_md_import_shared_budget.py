@@ -10,8 +10,8 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import func, select
 
+from app.core.scheduling import business_today
 from tests.test_order_lifecycle_and_cost import (
-    _TODAY,
     _cost_line,
     _create_group,
     _enable_cost,
@@ -70,7 +70,7 @@ async def _client_and_contract_for_existing_candidate(
             candidate_id=source.candidate_id,
             client_id=client.id,
             status=ContractStatus.active,
-            start_date=_TODAY - timedelta(days=30),
+            start_date=business_today() - timedelta(days=30),
             rate_candidate=Decimal("100.000"),
             rate_client=Decimal("150.000"),
         )
@@ -137,7 +137,7 @@ async def test_shared_md_requires_an_explicitly_recognized_md_column(
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
         },
-        data={"period_month": _TODAY.strftime("%Y-%m")},
+        data={"period_month": business_today().strftime("%Y-%m")},
         headers=finance,
     )
 
@@ -283,7 +283,7 @@ async def test_shared_md_import_reaches_a_pool_closed_with_a_future_date(
     )
     closed = await app_client.post(
         f"/api/clients/{client_id}/order-groups/{group['id']}/close",
-        json={"closure_date": (_TODAY + timedelta(days=30)).isoformat()},
+        json={"closure_date": (business_today() + timedelta(days=30)).isoformat()},
         headers=app_auth_headers,
     )
     assert closed.status_code == 200, closed.text
