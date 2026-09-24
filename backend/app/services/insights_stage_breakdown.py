@@ -115,8 +115,10 @@ CLIENT_DECISION_PATTERN = r"przez\s+klient"
 DEFINITIONS = {
     "reached": (
         "Doszło — ile par (kandydat, rekrutacja) pierwszy raz weszło na etap "
-        "w wybranym okresie. Zatrudnieni to pierwsze zatrudnienie pary, tak jak "
-        "w lejku i placementach."
+        "w wybranym okresie. Etap rozpoznajemy tak jak Tablica (po nazwie etapu "
+        "szablonu, potem po kodzie). Zatrudnieni to pierwsze zatrudnienie pary, "
+        "tak jak w lejku i placementach. Konwersja liczy się względem ostatniego "
+        "etapu, przez który te osoby przeszły — nigdy ponad 100%."
     ),
     "now": (
         "Teraz — ile osób stoi dziś na tym etapie w opublikowanych rekrutacjach. "

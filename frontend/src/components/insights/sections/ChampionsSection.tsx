@@ -17,6 +17,7 @@ import {
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/auth";
 import { cn } from "@/lib/utils";
+import { DL_HIT_RATIO_LEAGUE_NOTE } from "@/lib/insights-views";
 import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
 import { count, money, pct } from "./InsightsFormat";
 import { SectionError } from "./_shared";
@@ -204,11 +205,14 @@ function PodiumColumn({
   entry,
   variant,
   metricLabel,
+  prize,
 }: {
   rank: PodiumRank;
   entry?: LeagueEntry;
   variant: LeagueVariant;
   metricLabel: string;
+  /** Pula za to miejsce — renderowana POD słupkiem tego miejsca. */
+  prize?: number | null;
 }) {
   const style = RANK_STYLE[rank];
   const Icon = style.icon;
@@ -295,6 +299,23 @@ function PodiumColumn({
         <span aria-hidden="true">{style.medal}</span>
         <span className="ml-1">{rank}</span>
       </div>
+      {prize !== undefined ? (
+        // Kafel nagrody stoi w kolumnie SWOJEGO miejsca. Do 24.09.2026 był
+        // osobnym rzędem 1-2-3 pod podium ułożonym 2-1-3 — pod 2. miejscem
+        // stało „1. miejsce 5000 zł”.
+        <div
+          className="mt-2 w-full min-w-0 rounded-lg border border-border bg-muted/40 p-2 text-center"
+          data-testid={`league-prize-${rank}`}
+        >
+          <p className="text-[11px] text-muted-foreground">{rank}. miejsce</p>
+          <p
+            className="truncate text-xs font-semibold tabular-nums text-foreground sm:text-sm"
+            title={money(prize)}
+          >
+            {money(prize)}
+          </p>
+        </div>
+      ) : null}
     </li>
   );
 }
@@ -426,30 +447,10 @@ function LeagueCard({
                   entry={byRank.get(rank)}
                   variant={variant}
                   metricLabel={metricLabel}
+                  prize={prizes ? (prizes[String(rank)] ?? null) : undefined}
                 />
               ))}
             </ol>
-
-            {prizes ? (
-              <div className="grid grid-cols-3 gap-2">
-                {([1, 2, 3] as PodiumRank[]).map((rank) => (
-                  <div
-                    key={rank}
-                    className="min-w-0 rounded-lg border border-border bg-muted/40 p-2 text-center"
-                  >
-                    <p className="text-[11px] text-muted-foreground">
-                      {rank}. miejsce
-                    </p>
-                    <p
-                      className="truncate text-xs font-semibold tabular-nums text-foreground sm:text-sm"
-                      title={money(prizes[String(rank)])}
-                    >
-                      {money(prizes[String(rank)])}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            ) : null}
 
             <div className="rounded-lg border border-border bg-muted/40 p-3">
               <p className="flex items-center gap-2 text-xs font-medium text-foreground">
@@ -481,6 +482,11 @@ function LeagueCard({
                   "Ranking liczy placementy — bez przeliczania na punkty."
                 )}
               </p>
+              {variant === "placements" ? (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {DL_HIT_RATIO_LEAGUE_NOTE}
+                </p>
+              ) : null}
               {data?.prize_pool_pln ? (
                 <p className="mt-1 text-xs text-muted-foreground">
                   Pula nagród: {money(data.prize_pool_pln)}

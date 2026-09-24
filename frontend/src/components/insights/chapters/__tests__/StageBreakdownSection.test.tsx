@@ -21,6 +21,7 @@ vi.mock("@/lib/api", () => ({
 
 import { StageBreakdownSection } from "@/components/insights/chapters/StageBreakdownSection";
 import {
+  stageConversion,
   stageConversionPct,
   type StageBreakdownResponse,
   type StageBreakdownRow,
@@ -156,18 +157,46 @@ describe("stageConversionPct", () => {
   });
 
   it("zerowy mianownik daje null, nie 0", () => {
-    // Akceptacja (6) liczy się do „Wysłani do klienta” z zerem.
-    expect(stageConversionPct(ROWS, 6)).toBeNull();
+    const rows = [
+      row("verified", "verified", "Zweryfikowani", true, 0),
+      row("cv_sent", "cv_sent", "Wysłani", true, 0),
+    ];
+    expect(stageConversionPct(rows, 1)).toBeNull();
   });
 
-  it("nie przycina do 100% — etap główny większy od poprzedniego", () => {
+  it("etap z zerem, przez który nikt nie przeszedł, nie jest mianownikiem", () => {
+    // Akceptacja (6, 1 osoba) przy „Wysłani do klienta” = 0 liczy się
+    // względem Zweryfikowanych (20), a nie „—” ani ∞.
+    const conversion = stageConversion(ROWS, 6);
+    expect(conversion.pct).toBe(5);
+    expect(conversion.base?.label).toBe("Zweryfikowani");
+  });
+
+  it("etap większy od poprzedniego i bez wcześniejszego = „—”, nie 120%", () => {
     const rows = [
       row("cv_sent", "cv_sent", "Wysłani", true, 10),
       row("client_interview", "after_interview", "Po rozmowie", false, 30),
       row("client_interview", "client_interview", "Rozmowa", true, 12),
     ];
     expect(stageConversionPct(rows, 1)).toBeNull();
-    expect(stageConversionPct(rows, 2)).toBe(120);
+    expect(stageConversionPct(rows, 2)).toBeNull();
+  });
+
+  it("pomija nowy etap QC CV i liczy względem ostatniego, przez który ludzie przeszli (audyt 24.09.2026)", () => {
+    // Produkcja: Zweryfikowani 930, QC CV 217 (etap z 24.09), Wysłani 598 —
+    // było 275,6%.
+    const rows = [
+      row("verified", "verified", "Zweryfikowani", true, 930),
+      row("cv_qc", "qc", "QC CV", true, 217),
+      row("cv_qc", "cpro", "W kolejce Cpro", false, 5),
+      row("cv_sent", "cv_sent", "Wysłani do klienta", true, 598),
+    ];
+    const conversion = stageConversion(rows, 3);
+    expect(conversion.pct).toBe(64.3);
+    expect(conversion.base?.label).toBe("Zweryfikowani");
+    expect(conversion.skipped.map((r) => r.label)).toEqual(["QC CV"]);
+    // QC CV względem Zweryfikowanych zostaje normalnym procentem.
+    expect(stageConversionPct(rows, 1)).toBe(23.3);
   });
 });
 

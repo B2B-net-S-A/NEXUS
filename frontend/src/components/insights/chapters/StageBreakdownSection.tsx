@@ -3,7 +3,7 @@
 import { Info, ListTree, Loader2 } from "lucide-react";
 import { SectionError } from "@/components/insights/sections/_shared";
 import {
-  stageConversionPct,
+  stageConversion,
   useStageBreakdown,
   type ClosedByGroup,
   type StageBreakdownRow,
@@ -169,15 +169,40 @@ function StageTable({ rows }: { rows: StageBreakdownRow[] }) {
                 <td className="py-1.5 pr-3 text-right align-middle tabular-nums text-foreground">
                   {row.now.toLocaleString("pl-PL")}
                 </td>
-                <td className="py-1.5 text-right align-middle tabular-nums text-muted-foreground">
-                  {formatPct(stageConversionPct(rows, index))}
-                </td>
+                <ConversionCell conversion={stageConversion(rows, index)} />
               </tr>
             );
           })}
         </tbody>
       </table>
     </div>
+  );
+}
+
+function ConversionCell({
+  conversion,
+}: {
+  conversion: ReturnType<typeof stageConversion>;
+}) {
+  const skippedLabels = conversion.skipped.map((r) => `„${r.label}”`).join(", ");
+  const title =
+    conversion.skipped.length === 0
+      ? undefined
+      : conversion.base
+        ? `Liczone względem „${conversion.base.label}”: do ${skippedLabels} doszło mniej osób (etap nowy albo pomijany), więc nie jest mianownikiem.`
+        : `Do ${skippedLabels} doszło mniej osób niż tutaj (etap nowy albo pomijany) — procentu nie da się uczciwie policzyć.`;
+  return (
+    <td
+      className="py-1.5 text-right align-middle tabular-nums text-muted-foreground"
+      title={title}
+    >
+      {formatPct(conversion.pct)}
+      {conversion.base && conversion.skipped.length > 0 ? (
+        <span className="block text-[11px] leading-tight">
+          wzgl. {conversion.base.label}
+        </span>
+      ) : null}
+    </td>
   );
 }
 

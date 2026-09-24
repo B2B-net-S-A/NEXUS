@@ -126,7 +126,7 @@ function racesPayload(
       days_remaining: over.daysRemaining ?? 5,
       prize,
       requirements: [
-        "Wymóg: min. 4 weryfikacji/dzień roboczy w tym miesiącu",
+        "Wymóg: min. 4 weryfikacje/dzień roboczy w tym miesiącu",
         "Wymóg: min. 75% precision rate (rekomendacje / weryfikacje)",
         "Lider kwartalny wykluczony z nagrody miesięcznej",
       ],

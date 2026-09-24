@@ -87,7 +87,15 @@ export function MojMiesiacView() {
   const placementsRace = racesQuery.data?.placements;
   const raceRanking = placementsRace?.ranking ?? [];
   const myRaceEntry = raceRanking.find((e) => e.user_id === meId) ?? null;
-  const leader = placementsRace?.qualified_leader ?? raceRanking[0] ?? null;
+  // Pierwsza pozycja listy to NIE kolejność nagrodowa: przy remisie na 1.
+  // miejscu lidera wskaże admin, a lider kwartału jest wykluczony z nagrody.
+  // Nie ogłaszamy wtedy nikogo „prowadzącym” (audyt 24.09.2026).
+  const raceLeaderTie = (placementsRace?.leader_tie_user_ids ?? []).length > 0;
+  const leader = raceLeaderTie
+    ? null
+    : (placementsRace?.qualified_leader ??
+      raceRanking.find((e) => !e.excluded) ??
+      null);
 
   const teamRows = teamQuery.data?.rows ?? [];
   const activeTeam = teamRows.filter((r) => r.recommendations > 0);
@@ -148,6 +156,12 @@ export function MojMiesiacView() {
           placements: panel.placementy_month,
           placementsTarget: panel.target_placements_monthly,
           raceRank: myRaceEntry?.rank ?? null,
+          raceLeader:
+            !raceLeaderTie &&
+            placementsRace?.qualified_leader?.user_id === meId &&
+            meId !== null,
+          raceLeaderTie,
+          raceExcluded: myRaceEntry?.excluded ?? false,
           leaderPlacements: leader?.metric_value ?? null,
           leaderName: leader && leader.user_id !== meId ? leader.name : null,
           verificationsToday: panel.weryfikacje.day,

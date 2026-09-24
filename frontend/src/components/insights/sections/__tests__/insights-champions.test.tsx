@@ -172,6 +172,41 @@ describe("ChampionsSection — podium", () => {
     ).toBeInTheDocument();
   });
 
+  it("nagroda stoi pod SWOIM miejscem podium (audyt 24.09.2026)", async () => {
+    // Podium jest ułożone 2-1-3; osobny rząd nagród 1-2-3 stawiał pod
+    // 2. miejscem „1. miejsce 5000 zł”.
+    respond({ [RECRUITER]: RECRUITER_LEAGUE, [DL]: EMPTY_LEAGUE });
+    renderSection();
+
+    const annaColumn = (await screen.findByText("Anna Kowalska")).closest("li");
+    const bartekColumn = screen.getByText("Bartek Nowak").closest("li");
+    expect(annaColumn).not.toBeNull();
+    expect(bartekColumn).not.toBeNull();
+    const annaPrize = within(annaColumn as HTMLElement).getByTestId(
+      "league-prize-1",
+    );
+    expect(annaPrize).toHaveTextContent("1. miejsce");
+    const bartekPrize = within(bartekColumn as HTMLElement).getByTestId(
+      "league-prize-2",
+    );
+    expect(bartekPrize).toHaveTextContent("2. miejsce");
+    // Kafel nagrody dzieli kolumnę (i kolejność wizualną) z miejscem podium.
+    expect((annaColumn as HTMLElement).className).toContain("order-2");
+    expect((bartekColumn as HTMLElement).className).toContain("order-1");
+  });
+
+  it("Liga DL mówi, jak liczy hit ratio (kwartał, zamknięte rekrutacje)", async () => {
+    respond({ [RECRUITER]: RECRUITER_LEAGUE, [DL]: {
+      ...EMPTY_LEAGUE,
+      top3: [entry({ role: "delivery_lead", hit_ratio: 30.2, requests: 126 })],
+      full_ranking: [entry({ role: "delivery_lead", hit_ratio: 30.2, requests: 126 })],
+    } });
+    renderSection();
+    expect(
+      await screen.findByText(/rekrutacje zamknięte w tym kwartale/),
+    ).toBeInTheDocument();
+  });
+
   it("oznacza niezakwalifikowanego zamiast go ukryć", async () => {
     respond({
       [RECRUITER]: {

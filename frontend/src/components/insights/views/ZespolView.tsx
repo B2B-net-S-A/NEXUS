@@ -25,6 +25,8 @@ import {
 import {
   buildSteps,
   countDelta,
+  DL_HIT_RATIO_PORTFOLIO_NOTE,
+  isPeopleRowWorthShowing,
   previousComparablePeriod,
   weakestStepIndex,
   weakestStepSentence,
@@ -51,6 +53,17 @@ import {
 
 export const ZESPOL_DEFAULT_PERIOD: InsightsPeriodParams = {
   period: "month",
+  offset: 0,
+};
+
+/**
+ * Tabela „Delivery Leadzi” liczy hit ratio z ROKU — jak raport „Portfele
+ * Delivery Leadów”. Z miesiąca (okno Zespołu) wychodziło kilka zamkniętych
+ * rekrutacji na DL i procent skakał o dziesiątki punktów, czytając się jak
+ * awaria (audyt 24.09.2026, M27).
+ */
+export const ZESPOL_DL_PERIOD: InsightsPeriodParams = {
+  period: "year",
   offset: 0,
 };
 
@@ -137,8 +150,8 @@ export function ZespolView() {
         question="Jak idzie zespołowi?"
         lede={
           previous
-            ? `Porównanie: ${previous.label}. Liczymy pierwsze wejście osoby na etap.`
-            : "Liczymy pierwsze wejście osoby na etap."
+            ? `Porównanie: ${previous.label}. Liczone: pierwsze wejście pary (kandydat, rekrutacja) na etap w wybranym okresie.`
+            : "Liczone: pierwsze wejście pary (kandydat, rekrutacja) na etap w wybranym okresie."
         }
         actions={
           <PeriodPicker
@@ -181,7 +194,7 @@ export function ZespolView() {
               <FunnelBars steps={steps} highlight={weakestStepIndex(steps)} />
               {sentence ? <Takeaway>{sentence}</Takeaway> : null}
               <Link
-                href={reportHref("lejek-etapy")}
+                href={reportHref("lejek-etapy", period)}
                 className="text-sm font-semibold text-primary hover:underline"
               >
                 Wszystkie etapy i odznaki Tablicy →
@@ -309,7 +322,7 @@ function PeoplePanel({
       {scope === "recruiters" ? (
         <RecruiterTable period={period} previousLabel={previousLabel} />
       ) : (
-        <DeliveryTable period={period} />
+        <DeliveryTable />
       )}
     </section>
   );
@@ -331,10 +344,9 @@ function RecruiterTable({
     queryFn: () => insightsFlagsApi.list(),
   });
   const data = peopleQuery.data;
-  const rows = (data?.rows ?? []).filter(
-    (r) => r.verifications + r.recommendations + r.interviews + r.placements > 0,
-  );
+  const rows = (data?.rows ?? []).filter(isPeopleRowWorthShowing);
   const quiet = (data?.rows.length ?? 0) - rows.length;
+  const outside = data?.outside_scope;
 
   if (peopleQuery.isPending) return <PanelLoading />;
   if (peopleQuery.isError || !data) {
@@ -392,6 +404,25 @@ function RecruiterTable({
                 />
               ))
             )}
+            {outside && outside.people > 0 ? (
+              <tr className="border-t border-border text-muted-foreground">
+                <td className="sticky left-0 bg-card px-4 py-2.5 text-xs">
+                  {outside.label} ({outside.people})
+                </td>
+                <td className="px-3 py-2.5 text-right text-xs">—</td>
+                <td className="px-3 py-2.5 text-right text-xs tabular-nums">
+                  {outside.recommendations}
+                </td>
+                <td className="px-3 py-2.5 text-right text-xs tabular-nums">
+                  {outside.interviews}
+                </td>
+                <td className="px-3 py-2.5 text-right text-xs tabular-nums">
+                  {outside.placements}
+                </td>
+                <td className="px-3 py-2.5 text-right text-xs">—</td>
+                <td className="px-4 py-2.5 text-right text-xs">—</td>
+              </tr>
+            ) : null}
           </tbody>
         </table>
       </div>
@@ -400,8 +431,13 @@ function RecruiterTable({
         {data.totals.unattributed > 0
           ? `${data.totals.unattributed} ruchów nie da się przypisać nikomu — są w lejku, nie ma ich w tabeli. `
           : ""}
-        Precyzja „—” = mniej niż 5 weryfikacji w 30 dniach. Ta sama atrybucja co
-        wyścigi i „Mój miesiąc”.
+        Liczone jak w wyścigach i „Mój miesiąc”: CV wysłane, rozmowy
+        i placementy pary dostaje osoba, która zweryfikowała kandydata — dlatego
+        liczby różnią się od kafli wyżej i od raportu „Aktywność zespołu” (tam
+        liczy się osoba, która przesunęła etap). Precyzja: z osób
+        zweryfikowanych w ostatnich 30 dniach — ilu wysłano CV do klienta; „—” =
+        mniej niż 5 weryfikacji. Konta administracyjne stoją jednym wierszem
+        pod tabelą, jak w Hall of Fame.
       </p>
     </div>
   );
@@ -473,7 +509,8 @@ function PersonRow({
   );
 }
 
-function DeliveryTable({ period }: { period: InsightsPeriodParams }) {
+function DeliveryTable() {
+  const period = ZESPOL_DL_PERIOD;
   const { data, isPending, isError, error, refetch } = useQuery({
     queryKey: insightsQueryKeys.dlPortfolio(period),
     queryFn: () => insightsBoardApi.dlPortfolio(period),
@@ -538,9 +575,11 @@ function DeliveryTable({ period }: { period: InsightsPeriodParams }) {
         </table>
       </div>
       <p className="text-xs text-muted-foreground">
-        Hit ratio: rekrutacje zamknięte z placementem. Cel {data.hit_ratio_target_pct}%.
-        Klienci każdego DL —{" "}
-        <Link href={reportHref("portfele-dl")} className="font-semibold text-primary hover:underline">
+        Okno: rok {data.period.start.slice(0, 4)}, niezależnie od okresu
+        wybranego wyżej — hit ratio z miesiąca skacze o dziesiątki punktów.{" "}
+        {DL_HIT_RATIO_PORTFOLIO_NOTE} Cel {data.hit_ratio_target_pct}%. Klienci
+        każdego DL —{" "}
+        <Link href={reportHref("portfele-dl", period)} className="font-semibold text-primary hover:underline">
           raport Portfele Delivery Leadów
         </Link>
         .

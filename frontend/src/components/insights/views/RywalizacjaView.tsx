@@ -55,12 +55,15 @@ function Strip({
   detail,
   href,
   linkLabel,
+  onRetry,
 }: {
   eyebrow: string;
   headline: string;
   detail: string | null;
   href: string;
   linkLabel: string;
+  /** Awaria zapytania — przycisk „Ponów”. Awaria ≠ ładowanie („…”). */
+  onRetry?: () => void;
 }) {
   return (
     <section className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-xl border border-border bg-card px-4 py-3 shadow-xs">
@@ -75,6 +78,15 @@ function Strip({
       ) : (
         <span className="flex-1" />
       )}
+      {onRetry ? (
+        <button
+          type="button"
+          onClick={onRetry}
+          className="text-sm font-semibold text-primary hover:underline"
+        >
+          Ponów
+        </button>
+      ) : null}
       <Link
         href={href}
         className="text-sm font-semibold text-primary hover:underline"
@@ -85,8 +97,18 @@ function Strip({
   );
 }
 
+/** Nagłówek paska: awaria mówi to wprost, zamiast wisieć na „…” (audyt 24.09.2026). */
+export function stripHeadline(
+  state: { isSuccess: boolean; isError: boolean },
+  ready: () => string,
+): string {
+  if (state.isError) return "Nie udało się wczytać";
+  if (!state.isSuccess) return "…";
+  return ready();
+}
+
 function HallOfFameStrip() {
-  const { data, isSuccess } = useQuery({
+  const { data, isSuccess, isError, refetch } = useQuery({
     queryKey: ["insights", "hall-of-fame", "all-time"],
     queryFn: () => racesApi.hallOfFameAllTime(),
     staleTime: 5 * 60 * 1000,
@@ -96,13 +118,11 @@ function HallOfFameStrip() {
   return (
     <Strip
       eyebrow="Hall of Fame"
-      headline={
-        !isSuccess
-          ? "…"
-          : first
-            ? `${first.name} · ${first.metric_value} placementów`
-            : "Brak placementów w historii"
-      }
+      headline={stripHeadline({ isSuccess, isError }, () =>
+        first
+          ? `${first.name} · ${first.metric_value} placementów`
+          : "Brak placementów w historii",
+      )}
       detail={
         rest.length
           ? rest
@@ -113,12 +133,13 @@ function HallOfFameStrip() {
       }
       href={reportHref("hall-of-fame")}
       linkLabel="Cały ranking →"
+      onRetry={isError ? () => void refetch() : undefined}
     />
   );
 }
 
 function SeniorityStrip() {
-  const { data, isSuccess } = useQuery({
+  const { data, isSuccess, isError, refetch } = useQuery({
     queryKey: ["insights", "recruitment", "seniority"],
     queryFn: () => insightsApi.seniority(),
     staleTime: 5 * 60 * 1000,
@@ -130,11 +151,11 @@ function SeniorityStrip() {
   return (
     <Strip
       eyebrow="Ścieżka rozwoju"
-      headline={
-        !isSuccess || !levels
-          ? "…"
-          : `${levels.junior} Junior · ${levels.senior} Senior · ${levels.expert} Expert`
-      }
+      headline={stripHeadline({ isSuccess: isSuccess && !!levels, isError }, () =>
+        levels
+          ? `${levels.junior} Junior · ${levels.senior} Senior · ${levels.expert} Expert`
+          : "…",
+      )}
       detail={
         closeToPromotion
           ? `${peopleAre(closeToPromotion)} o 1 placement od awansu`
@@ -142,6 +163,7 @@ function SeniorityStrip() {
       }
       href={reportHref("sciezka")}
       linkLabel="Kto i ile →"
+      onRetry={isError ? () => void refetch() : undefined}
     />
   );
 }

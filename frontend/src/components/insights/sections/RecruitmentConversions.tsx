@@ -120,6 +120,11 @@ export function RecruitmentConversions({ period }: Props) {
               </div>
             );
           })}
+          <p className="text-xs text-muted-foreground">
+            Liczone: pierwsze wejście pary (kandydat, rekrutacja) na etap
+            w wybranym okresie — te same liczby co kafle w widoku Zespół dla tego
+            samego okresu.
+          </p>
         </div>
       )}
     </section>
