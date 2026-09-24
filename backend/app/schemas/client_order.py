@@ -212,6 +212,14 @@ class ClientOrdersGroupedResponse(BaseModel):
     # zakładkę — a zapis kończyłby się 403, co czyta się jak „zapis nie
     # działa", nie jak „nie masz uprawnień".
     can_manage_finance: bool = False
+    # Reguły klienta liczone na SERWERZE (S13, audyt 24.09.2026) — front
+    # zgadywał je po nazwie klienta („nordea") i po liście id w bundlu.
+    nordea_order_import_enabled: bool = False
+    """Import zamówień Nordei (CSV) — klient z polityki ``nordea``."""
+    shared_md_pool_client: bool = False
+    """Klient wspólnej puli MD (Lotte Wedel, Cyfrowy Polsat) — reguła
+    ``shared_md_orders.client_uses_shared_md_pool`` dla grup bez jawnego
+    ``md_budget_mode``."""
 
 
 class ClientOrderExportItem(BaseModel):

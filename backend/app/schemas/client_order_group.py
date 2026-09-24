@@ -18,6 +18,7 @@ from pydantic import (
     BaseModel,
     Field,
     PlainSerializer,
+    computed_field,
     field_validator,
     model_validator,
 )
@@ -669,6 +670,17 @@ class OrderGroupRead(BaseModel):
     md_budget_mode: Optional[Literal["per_person", "shared"]] = None
     md_budget_mode_locked: bool = True
     model_config = {"from_attributes": True}
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def uses_shared_md_pool(self) -> bool:
+        """Wspólna pula MD liczona na SERWERZE (S13, audyt 24.09.2026).
+
+        Front trzymał kopię listy klientów (Lotte Wedel, Cyfrowy Polsat)
+        w bundlu — reguła ``shared_md_orders.uses_shared_md_pool``."""
+        from app.services.shared_md_orders import uses_shared_md_pool
+
+        return uses_shared_md_pool(self)
 
     id: int
     client_id: int

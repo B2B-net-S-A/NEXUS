@@ -96,6 +96,7 @@ from app.schemas.new_contractor_order import (
 )
 from app.services import storage_service
 from app.services.order_gaps import close_gaps_of_deleted_orders
+from app.services.shared_md_orders import client_uses_shared_md_pool
 from app.services.order_continuation import ending_without_successor
 from app.services.ai_quota import AIQuotaExceeded, ai_feature
 from app.services.client_access import deny, resolve_client_access
@@ -1519,6 +1520,8 @@ async def list_contractors_with_orders(
         # 403 na zapisie. Cała zakładka dotyczy jednego klienta, więc jedna
         # flaga na odpowiedź wystarcza.
         can_manage_finance=can_finance,
+        nordea_order_import_enabled=is_client_in_policy("nordea", client_id),
+        shared_md_pool_client=client_uses_shared_md_pool(client_id),
     )
 
 
