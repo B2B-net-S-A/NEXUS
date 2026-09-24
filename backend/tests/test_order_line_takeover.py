@@ -29,8 +29,6 @@ from app.services.order_line_takeover import (
 )
 from app.core.scheduling import business_today
 
-_TODAY = business_today()
-
 
 def _enable_multi(monkeypatch, *client_ids: int) -> None:
     from app.services import multi_consultant_orders as mco
@@ -120,11 +118,11 @@ async def _seed(
     from app.models.order_type import OrderType
 
     suffix = uuid.uuid4().hex[:6]
-    start = _TODAY - timedelta(days=300)
+    start = business_today() - timedelta(days=300)
     if source_state == "ended":
-        departure = _TODAY - timedelta(days=20)
+        departure = business_today() - timedelta(days=20)
     else:
-        departure = _TODAY + timedelta(days=10)
+        departure = business_today() + timedelta(days=10)
 
     async with AsyncSessionLocal() as db:
         client = Client(name=f"TakeoverClient-{suffix}")
@@ -159,7 +157,7 @@ async def _seed(
             candidate_id=kamila.id,
             client_id=client.id,
             status=ContractStatus.active,
-            start_date=_TODAY - timedelta(days=30),
+            start_date=business_today() - timedelta(days=30),
             rate_candidate=Decimal("85"),
             rate_unit=RateUnit.hourly,
         )
@@ -538,7 +536,7 @@ async def _add_recipient(seed: dict) -> int:
             order_type=OrderType.md,
             title="Zamówienie — Kamila",
             status=ClientOrderStatus.active,
-            start_date=_TODAY - timedelta(days=30),
+            start_date=business_today() - timedelta(days=30),
             md_rate_cost=Decimal("680.00"),
             md_rate_revenue=Decimal("1000.00"),
             rate_unit=RateUnit.daily,
@@ -623,7 +621,7 @@ async def test_swap_with_md_pool_transfers_one_to_one(
             "contract_id": seed["kamila_contract_id"],
             "rate_cost": 680,
             "rate_revenue": 1000,
-            "swap_date": _TODAY.isoformat(),
+            "swap_date": business_today().isoformat(),
             "md_transfer_method": "one_to_one",
         },
         headers=app_auth_headers,
@@ -651,7 +649,7 @@ async def test_join_marks_the_line_as_joined(
             "input_mode": "md",
             "input_value": 40,
             "optional_md": 10,
-            "start_date": _TODAY.isoformat(),
+            "start_date": business_today().isoformat(),
             "assignment": "join",
         },
         headers=app_auth_headers,
@@ -683,7 +681,7 @@ async def _seed_draft_card(*, with_active_order: bool = False) -> dict:
             candidate_id=person.id,
             client_id=client.id,
             status=ContractStatus.active,
-            start_date=_TODAY - timedelta(days=10),
+            start_date=business_today() - timedelta(days=10),
             rate_candidate=Decimal("85"),
             rate_unit=RateUnit.hourly,
         )
@@ -698,7 +696,7 @@ async def _seed_draft_card(*, with_active_order: bool = False) -> dict:
                 if with_active_order
                 else ClientOrderStatus.draft
             ),
-            start_date=_TODAY - timedelta(days=10),
+            start_date=business_today() - timedelta(days=10),
             rate_unit=RateUnit.hourly,
             currency="PLN",
             created_at=datetime.now(timezone.utc) - timedelta(days=1),

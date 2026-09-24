@@ -21,6 +21,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 
 from app.core.database import AsyncSessionLocal
+from app.core.scheduling import business_today
 from app.models.b2b_generated_contract import B2BGeneratedContract
 from app.models.client_framework_contract import (
     ClientFrameworkContract,
@@ -33,7 +34,7 @@ from app.models.contract import Contract, ContractStatus, RateUnit
 from app.models.critical_event import CriticalEvent
 from app.models.dl_alert import DlAlert
 from app.models.user import UserRole
-from tests.test_client_deletion import _TODAY, _client, _contract, _user
+from tests.test_client_deletion import _client, _contract, _user
 
 pytestmark = pytest.mark.asyncio
 
@@ -147,7 +148,7 @@ async def test_blockers_return_409_with_the_full_list(app_client: AsyncClient):
         group = ClientOrderGroup(
             client_id=old_client,
             order_number=f"MD-{uuid.uuid4().hex[:6]}",
-            start_date=_TODAY - timedelta(days=30),
+            start_date=business_today() - timedelta(days=30),
             status="active",
             is_md_budget_based=False,
         )
@@ -164,7 +165,7 @@ async def test_blockers_return_409_with_the_full_list(app_client: AsyncClient):
                 order_group_id=group.id,
                 title=f"Zamówienie {group.order_number}",
                 status=ClientOrderStatus.active,
-                start_date=_TODAY - timedelta(days=30),
+                start_date=business_today() - timedelta(days=30),
                 rate_unit=RateUnit.daily,
             )
         )
@@ -231,7 +232,7 @@ async def _contract_extra_order(contract_id: int, client_id: int) -> None:
                 status=ClientOrderStatus.draft,
                 order_type="periodic",
                 rate_unit=RateUnit.hourly,
-                start_date=_TODAY,
+                start_date=business_today(),
             )
         )
         await db.commit()

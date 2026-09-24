@@ -63,9 +63,13 @@ def _skip_contract_order_locks(monkeypatch):
     )
 
 
-_TODAY = business_today()
-_START = _TODAY - timedelta(days=400)
-_STEP = _TODAY - timedelta(days=200)
+def _start():
+    return business_today() - timedelta(days=400)
+
+
+def _step():
+    return business_today() - timedelta(days=200)
+
 
 # Okres 1 = to, co trzymają kolumny legacy. Okres 2 = krok, którego data już
 # minęła — każda dzisiejsza liczba ma pochodzić WŁAŚNIE z niego.
@@ -87,11 +91,11 @@ def _scheduled_contract() -> Contract:
     c.rate_client = _P1_CLIENT
     c.framework_rate = None
     c.candidate_rate_schedule = [
-        ContractCandidateRate(rate=_P1_CANDIDATE, effective_from=_START),
-        ContractCandidateRate(rate=_P2_CANDIDATE, effective_from=_STEP),
+        ContractCandidateRate(rate=_P1_CANDIDATE, effective_from=_start()),
+        ContractCandidateRate(rate=_P2_CANDIDATE, effective_from=_step()),
     ]
     c.client_rate_schedule = [
-        ContractClientRate(rate=_P2_CLIENT, effective_from=_STEP),
+        ContractClientRate(rate=_P2_CLIENT, effective_from=_step()),
     ]
     c.framework_rate_schedule = []
     return c
@@ -107,7 +111,7 @@ def test_rate_write_reaches_the_schedule_the_readers_use():
 
     assert effective_rate_fields(c, today)["rate_candidate"] == Decimal("13500.000")
     # Historia zostaje nietknięta — zmienia się przyszłość, nie przeszłość.
-    day_before_step = _STEP - timedelta(days=1)
+    day_before_step = _step() - timedelta(days=1)
     assert effective_rate_fields(c, day_before_step)["rate_candidate"] == _P1_CANDIDATE
 
 
@@ -363,8 +367,8 @@ async def test_reactivating_an_ended_contract_goes_through_reopen_not_activation
     """Dowód podpisu już istnieje — to powrót, nie świeża aktywacja."""
     contract = _contract(
         ContractStatus.ended,
-        end_date=_TODAY + timedelta(days=30),
-        start_date=_START,
+        end_date=business_today() + timedelta(days=30),
+        start_date=_start(),
         rate_candidate=None,
         rate_client=None,
         work_mode=None,
@@ -403,8 +407,8 @@ async def _seed_scheduled_contract_with_order() -> tuple[int, int, int]:
             candidate_id=cand.id,
             client_id=client.id,
             status=ContractStatus.active,
-            start_date=_START,
-            end_date=_TODAY + timedelta(days=90),
+            start_date=_start(),
+            end_date=business_today() + timedelta(days=90),
             rate_candidate=_P1_CANDIDATE,
             rate_client=_P1_CLIENT,
             margin=_P1_CLIENT - _P1_CANDIDATE,
@@ -418,16 +422,16 @@ async def _seed_scheduled_contract_with_order() -> tuple[int, int, int]:
         db.add_all(
             [
                 ContractCandidateRate(
-                    contract_id=contract.id, rate=_P1_CANDIDATE, effective_from=_START
+                    contract_id=contract.id, rate=_P1_CANDIDATE, effective_from=_start()
                 ),
                 ContractCandidateRate(
-                    contract_id=contract.id, rate=_P2_CANDIDATE, effective_from=_STEP
+                    contract_id=contract.id, rate=_P2_CANDIDATE, effective_from=_step()
                 ),
                 ContractClientRate(
-                    contract_id=contract.id, rate=_P1_CLIENT, effective_from=_START
+                    contract_id=contract.id, rate=_P1_CLIENT, effective_from=_start()
                 ),
                 ContractClientRate(
-                    contract_id=contract.id, rate=_P2_CLIENT, effective_from=_STEP
+                    contract_id=contract.id, rate=_P2_CLIENT, effective_from=_step()
                 ),
             ]
         )
@@ -436,7 +440,7 @@ async def _seed_scheduled_contract_with_order() -> tuple[int, int, int]:
             contract_id=contract.id,
             title="Zamówienie testowe",
             status=ClientOrderStatus.active,
-            start_date=_TODAY - timedelta(days=30),
+            start_date=business_today() - timedelta(days=30),
         )
         db.add(order)
         await db.commit()

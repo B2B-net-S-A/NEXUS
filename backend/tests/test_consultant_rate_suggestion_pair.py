@@ -15,7 +15,6 @@ from app.models.contract import Contract, ContractStatus, RateUnit
 from app.services.client_order_lines import _rate_suggestion
 from app.core.scheduling import business_today
 
-_TODAY = business_today()
 _PLN = {"PLN": Decimal("1")}
 
 
@@ -28,7 +27,7 @@ def _contract(
         candidate_id=1,
         client_id=1,
         status=status,
-        start_date=_TODAY - timedelta(days=days_ago),
+        start_date=business_today() - timedelta(days=days_ago),
         rate_candidate=Decimal(rate),
         rate_unit=RateUnit.daily,
         currency="PLN",
@@ -66,7 +65,7 @@ def test_returning_consultant_warns_without_suggesting() -> None:
                 days_ago=5,
             ),
         ],
-        on=_TODAY,
+        on=business_today(),
         currency_rates=_PLN,
     )
 
@@ -104,7 +103,7 @@ def test_two_drafts_with_different_rates_warn_without_suggesting() -> None:
                 days_ago=2,
             ),
         ],
-        on=_TODAY,
+        on=business_today(),
         currency_rates=_PLN,
     )
 
@@ -142,7 +141,7 @@ def test_live_contract_still_supplies_the_suggestion() -> None:
                 days_ago=5,
             ),
         ],
-        on=_TODAY,
+        on=business_today(),
         currency_rates=_PLN,
     )
 
@@ -162,7 +161,7 @@ def test_hourly_suggestion_uses_eight_hour_md_not_monthly_billing_hours() -> Non
         candidate_id=1,
         client_id=1,
         status=ContractStatus.active,
-        start_date=_TODAY - timedelta(days=30),
+        start_date=business_today() - timedelta(days=30),
         rate_candidate=Decimal("60.000"),
         rate_unit=RateUnit.hourly,
         billing_hours_per_month=160,
@@ -177,7 +176,7 @@ def test_hourly_suggestion_uses_eight_hour_md_not_monthly_billing_hours() -> Non
         rate_to_pln,
         has_different,
         current_id,
-    ) = _rate_suggestion([contract], on=_TODAY, currency_rates=_PLN)
+    ) = _rate_suggestion([contract], on=business_today(), currency_rates=_PLN)
 
     assert suggested == Decimal("480.00")
     assert raw_suggested == Decimal("60.000")

@@ -48,7 +48,6 @@ from app.services.order_mail_resolver import (
 )
 from app.services.order_pdf_parser import ConsultantOrderRow, OrderExtraction
 
-_TODAY = business_today()
 _ENDED_ON = date(2031, 2, 12)
 
 
@@ -210,7 +209,7 @@ async def _seed() -> dict:
                 "Marian",
                 f"Odszedł{suffix}",
                 ContractStatus.ended,
-                _TODAY - timedelta(days=20),
+                business_today() - timedelta(days=20),
             ),
             ("substitute", "Tadeusz", f"Zastępca{suffix}", ContractStatus.active, None),
         )
@@ -224,7 +223,7 @@ async def _seed() -> dict:
                 candidate_id=candidate.id,
                 client_id=client.id,
                 status=status,
-                start_date=_TODAY - timedelta(days=300),
+                start_date=business_today() - timedelta(days=300),
                 end_date=end,
                 rate_candidate=Decimal("700.000"),
                 rate_unit=RateUnit.daily,
@@ -243,7 +242,7 @@ def _line(contract_id: int, order_type: str, **overrides) -> dict:
         "contract_id": contract_id,
         "rate_cost": 700,
         "rate_revenue": 1000,
-        "start_date": (_TODAY - timedelta(days=100)).isoformat(),
+        "start_date": (business_today() - timedelta(days=100)).isoformat(),
     }
     if order_type == "md":
         payload.update({"input_mode": "md", "input_value": 50})
@@ -256,7 +255,7 @@ async def _create_group(
 ) -> dict:
     body = {
         "order_number": f"ZAM-{uuid.uuid4().hex[:8]}",
-        "start_date": (_TODAY - timedelta(days=100)).isoformat(),
+        "start_date": (business_today() - timedelta(days=100)).isoformat(),
         "order_type": order_type,
         "lines": lines,
     }
@@ -436,7 +435,7 @@ async def test_batch_is_all_or_nothing(app_client: AsyncClient, app_auth_headers
         ids["substitute_contract"],
         "cost",
         historical=True,
-        end_date=(_TODAY - timedelta(days=1)).isoformat(),
+        end_date=(business_today() - timedelta(days=1)).isoformat(),
     )
     resp = await app_client.post(
         url, json={"lines": [fine, wrong]}, headers=app_auth_headers

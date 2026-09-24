@@ -29,8 +29,6 @@ from app.models.contract import Contract, ContractStatus, ContractType, RateUnit
 from app.models.contract_client_rate import ContractClientRate
 from app.core.scheduling import business_today
 
-TODAY = business_today()
-
 
 @pytest_asyncio.fixture
 async def two_step_contract():
@@ -47,7 +45,7 @@ async def two_step_contract():
             client_id=client.id,
             contract_type=ContractType.b2b,
             status=ContractStatus.active,
-            start_date=TODAY - timedelta(days=200),
+            start_date=business_today() - timedelta(days=200),
             rate_unit=RateUnit.hourly,
             rate_client=Decimal("185"),
             rate_candidate=Decimal("150"),
@@ -60,8 +58,8 @@ async def two_step_contract():
             contract_id=contract.id,
             title=f"OLD-{marker}",
             status=ClientOrderStatus.active,
-            start_date=TODAY - timedelta(days=200),
-            end_date=TODAY - timedelta(days=100),
+            start_date=business_today() - timedelta(days=200),
+            end_date=business_today() - timedelta(days=100),
             rate_client=Decimal("178"),
         )
         newer = ClientOrder(
@@ -69,7 +67,7 @@ async def two_step_contract():
             contract_id=contract.id,
             title=f"NEW-{marker}",
             status=ClientOrderStatus.active,
-            start_date=TODAY - timedelta(days=99),
+            start_date=business_today() - timedelta(days=99),
             rate_client=Decimal("185"),
         )
         db.add_all([older, newer])
@@ -79,13 +77,13 @@ async def two_step_contract():
                 ContractClientRate(
                     contract_id=contract.id,
                     rate=Decimal("178"),
-                    effective_from=TODAY - timedelta(days=200),
+                    effective_from=business_today() - timedelta(days=200),
                     source_order_id=older.id,
                 ),
                 ContractClientRate(
                     contract_id=contract.id,
                     rate=Decimal("185"),
-                    effective_from=TODAY - timedelta(days=99),
+                    effective_from=business_today() - timedelta(days=99),
                     source_order_id=newer.id,
                 ),
             ]
@@ -115,7 +113,9 @@ async def test_preview_names_the_period_that_gets_repriced(
     assert body["blocked_by"] == []
     assert len(body["rate_changes"]) == 1
     change = body["rate_changes"][0]
-    assert change["effective_from"] == (TODAY - timedelta(days=99)).isoformat()
+    assert (
+        change["effective_from"] == (business_today() - timedelta(days=99)).isoformat()
+    )
     # Brak następnego kroku = okres otwarty do dziś włącznie.
     assert change["effective_until"] is None
     assert float(change["rate"]) == 185.0
@@ -139,8 +139,12 @@ async def test_preview_marks_the_window_of_a_middle_step(
     assert resp.status_code == 200, resp.text
     change = resp.json()["rate_changes"][0]
 
-    assert change["effective_from"] == (TODAY - timedelta(days=200)).isoformat()
-    assert change["effective_until"] == (TODAY - timedelta(days=99)).isoformat()
+    assert (
+        change["effective_from"] == (business_today() - timedelta(days=200)).isoformat()
+    )
+    assert (
+        change["effective_until"] == (business_today() - timedelta(days=99)).isoformat()
+    )
     assert float(change["rate"]) == 178.0
     # Bez kroku obowiązującego model sięga po NAJBLIŻSZY PRZYSZŁY — 185.
     assert float(change["replacement_rate"]) == 185.0
@@ -201,7 +205,7 @@ async def test_preview_flags_a_period_that_loses_all_revenue(
             client_id=client.id,
             contract_type=ContractType.b2b,
             status=ContractStatus.active,
-            start_date=TODAY - timedelta(days=60),
+            start_date=business_today() - timedelta(days=60),
             rate_unit=RateUnit.hourly,
             rate_client=Decimal("190"),
             rate_candidate=Decimal("150"),
@@ -213,7 +217,7 @@ async def test_preview_flags_a_period_that_loses_all_revenue(
             contract_id=contract.id,
             title=f"SOLO-{marker}",
             status=ClientOrderStatus.active,
-            start_date=TODAY - timedelta(days=60),
+            start_date=business_today() - timedelta(days=60),
             rate_client=Decimal("190"),
         )
         db.add(order)
@@ -222,7 +226,7 @@ async def test_preview_flags_a_period_that_loses_all_revenue(
             ContractClientRate(
                 contract_id=contract.id,
                 rate=Decimal("190"),
-                effective_from=TODAY - timedelta(days=60),
+                effective_from=business_today() - timedelta(days=60),
                 source_order_id=order.id,
             )
         )
@@ -272,13 +276,13 @@ async def test_group_line_context_says_the_row_is_deleted(
             client_id=client.id,
             contract_type=ContractType.b2b,
             status=ContractStatus.active,
-            start_date=TODAY - timedelta(days=30),
+            start_date=business_today() - timedelta(days=30),
             rate_unit=RateUnit.hourly,
         )
         group = ClientOrderGroup(
             client_id=client.id,
             order_number=f"G-{marker}",
-            start_date=TODAY - timedelta(days=30),
+            start_date=business_today() - timedelta(days=30),
         )
         db.add_all([contract, group])
         await db.flush()
@@ -288,7 +292,7 @@ async def test_group_line_context_says_the_row_is_deleted(
             order_group_id=group.id,
             title=f"G-{marker}",
             status=ClientOrderStatus.active,
-            start_date=TODAY - timedelta(days=30),
+            start_date=business_today() - timedelta(days=30),
         )
         db.add(line)
         await db.commit()

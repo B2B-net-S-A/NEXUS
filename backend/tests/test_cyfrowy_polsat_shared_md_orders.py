@@ -15,9 +15,6 @@ from app.models.client_order import ClientOrderStatus
 from app.services.cyfrowy_polsat_orders import CYFROWY_POLSAT_CLIENT_ID
 
 
-_TODAY = business_today()
-
-
 async def _seed_cyfrowy_polsat_contracts(count: int = 2) -> list[int]:
     from app.core.database import AsyncSessionLocal
     from app.models.candidate import Candidate
@@ -49,7 +46,7 @@ async def _seed_cyfrowy_polsat_contracts(count: int = 2) -> list[int]:
                 candidate_id=candidate.id,
                 client_id=CYFROWY_POLSAT_CLIENT_ID,
                 status=ContractStatus.active,
-                start_date=_TODAY - timedelta(days=30),
+                start_date=business_today() - timedelta(days=30),
                 rate_candidate=Decimal("100.000"),
                 rate_client=Decimal("150.000"),
             )
@@ -65,7 +62,9 @@ def _shared_line(contract_id: int, *, start_date=None) -> dict:
         "contract_id": contract_id,
         "rate_cost": 1000,
         "rate_revenue": 1200,
-        "start_date": (start_date or (_TODAY - timedelta(days=10))).isoformat(),
+        "start_date": (
+            start_date or (business_today() - timedelta(days=10))
+        ).isoformat(),
     }
 
 
@@ -80,7 +79,7 @@ async def _create_shared_group(
         f"/api/clients/{CYFROWY_POLSAT_CLIENT_ID}/order-groups",
         json={
             "order_number": f"CP-{uuid.uuid4().hex[:8]}",
-            "start_date": (_TODAY - timedelta(days=10)).isoformat(),
+            "start_date": (business_today() - timedelta(days=10)).isoformat(),
             "order_type": "md",
             "is_md_budget_based": True,
             "md_budget_total": total,
@@ -103,7 +102,7 @@ async def test_explicit_cp_md_cannot_bypass_the_shared_pool_policy(
         f"/api/clients/{CYFROWY_POLSAT_CLIENT_ID}/order-groups",
         json={
             "order_number": f"CP-MD-MISSING-{uuid.uuid4().hex[:8]}",
-            "start_date": _TODAY.isoformat(),
+            "start_date": business_today().isoformat(),
             "order_type": "md",
             "lines": [],
         },
@@ -246,7 +245,7 @@ async def test_cyfrowy_polsat_group_requires_exactly_cost_or_shared_md(
     url = f"/api/clients/{CYFROWY_POLSAT_CLIENT_ID}/order-groups"
     base = {
         "order_number": f"CP-{uuid.uuid4().hex[:8]}",
-        "start_date": _TODAY.isoformat(),
+        "start_date": business_today().isoformat(),
         "lines": [],
     }
 
@@ -421,14 +420,14 @@ async def test_shared_md_extend_line_update_and_swap_keep_budget_on_group(
             "contract_id": second_contract,
             "rate_cost": 1050,
             "rate_revenue": 1350,
-            "swap_date": _TODAY.isoformat(),
+            "swap_date": business_today().isoformat(),
         },
         headers=app_auth_headers,
     )
     assert swapped.status_code == 201, swapped.text
     assert swapped.json()["md_total"] is None
 
-    future_start = _TODAY + timedelta(days=30)
+    future_start = business_today() + timedelta(days=30)
     extended = await app_client.post(
         (
             f"/api/clients/{CYFROWY_POLSAT_CLIENT_ID}/order-groups/"

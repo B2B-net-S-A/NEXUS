@@ -21,8 +21,6 @@ from decimal import Decimal
 from httpx import AsyncClient
 from app.core.scheduling import business_today
 
-_TODAY = business_today()
-
 
 async def _seed_client_with_contract(
     *,
@@ -52,7 +50,7 @@ async def _seed_client_with_contract(
             candidate_id=candidate.id,
             client_id=client.id,
             status=ContractStatus.active,
-            start_date=_TODAY - timedelta(days=30),
+            start_date=business_today() - timedelta(days=30),
             rate_candidate=Decimal("1240.000"),
             rate_client=Decimal("1640.000"),
             rate_unit=RateUnit.daily,
@@ -95,7 +93,7 @@ def _md_order_form(contract_id: int, **overrides) -> dict[str, str]:
         "title": f"3728_{uuid.uuid4().hex[:4]}",
         "order_type": "md",
         "order_status": "draft",
-        "start_date": _TODAY.isoformat(),
+        "start_date": business_today().isoformat(),
         "rate_candidate": "1240",
         "rate_client": "1640",
         "rate_unit": "daily",

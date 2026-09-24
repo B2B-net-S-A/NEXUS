@@ -6,8 +6,8 @@ from datetime import date, timedelta
 
 from sqlalchemy import select
 
+from app.core.scheduling import business_today
 from tests.test_multi_consultant_orders import (
-    _TODAY,
     _create_group,
     _enable_for,
     _line_payload,
@@ -19,7 +19,7 @@ async def _mark_ended(contract_id: int) -> date:
     from app.core.database import AsyncSessionLocal
     from app.models.contract import Contract, ContractStatus
 
-    previous_end = _TODAY - timedelta(days=20)
+    previous_end = business_today() - timedelta(days=20)
     async with AsyncSessionLocal() as db:
         contract = await db.get(Contract, contract_id)
         assert contract is not None
@@ -58,13 +58,13 @@ async def test_create_group_with_live_line_revives_ended_contract(
     client_id, contracts, _ = await _seed_client_with_contracts(1)
     _enable_for(monkeypatch, client_id)
     await _mark_ended(contracts[0])
-    new_end = _TODAY + timedelta(days=60)
+    new_end = business_today() + timedelta(days=60)
 
     created = await app_client.post(
         f"/api/clients/{client_id}/order-groups",
         json={
             "order_number": "GROUP-REVIVE-CREATE",
-            "start_date": (_TODAY - timedelta(days=10)).isoformat(),
+            "start_date": (business_today() - timedelta(days=10)).isoformat(),
             "end_date": new_end.isoformat(),
             "lines": [_line_payload(contracts[0], end_date=new_end.isoformat())],
         },
@@ -83,7 +83,7 @@ async def test_add_live_line_revives_its_ended_contract(
         app_client, app_auth_headers, client_id, [_line_payload(contracts[0])]
     )
     await _mark_ended(contracts[1])
-    new_end = _TODAY + timedelta(days=75)
+    new_end = business_today() + timedelta(days=75)
 
     added = await app_client.post(
         f"/api/clients/{client_id}/order-groups/{group['id']}/lines",
@@ -99,12 +99,12 @@ async def test_swap_to_live_successor_revives_ended_contract(
 ):
     client_id, contracts, _ = await _seed_client_with_contracts(2)
     _enable_for(monkeypatch, client_id)
-    new_end = _TODAY + timedelta(days=90)
+    new_end = business_today() + timedelta(days=90)
     group = await app_client.post(
         f"/api/clients/{client_id}/order-groups",
         json={
             "order_number": "GROUP-REVIVE-SWAP",
-            "start_date": (_TODAY - timedelta(days=10)).isoformat(),
+            "start_date": (business_today() - timedelta(days=10)).isoformat(),
             "end_date": new_end.isoformat(),
             "lines": [_line_payload(contracts[0], end_date=new_end.isoformat())],
         },
@@ -120,7 +120,7 @@ async def test_swap_to_live_successor_revives_ended_contract(
             "contract_id": contracts[1],
             "rate_cost": 800,
             "rate_revenue": 950,
-            "swap_date": _TODAY.isoformat(),
+            "swap_date": business_today().isoformat(),
         },
         headers=app_auth_headers,
     )
@@ -139,7 +139,7 @@ async def test_scheduled_group_revives_contract_only_when_line_materializes(
     client_id, contracts, _ = await _seed_client_with_contracts(1)
     _enable_for(monkeypatch, client_id)
     previous_end = await _mark_ended(contracts[0])
-    future_start = _TODAY + timedelta(days=14)
+    future_start = business_today() + timedelta(days=14)
 
     created = await app_client.post(
         f"/api/clients/{client_id}/order-groups",

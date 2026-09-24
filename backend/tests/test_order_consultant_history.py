@@ -23,7 +23,6 @@ from httpx import AsyncClient
 
 from app.core.scheduling import business_today
 
-_TODAY = business_today()
 
 POLKOMTEL_TEXT = """1
 ZLECENIE WYKONAWCZE nr SAP 4500987654 / 2026 rok
@@ -61,7 +60,7 @@ async def _seed() -> dict:
                 "Marian",
                 "Odeszły",
                 ContractStatus.ended,
-                _TODAY - timedelta(days=30),
+                business_today() - timedelta(days=30),
             ),
             ("substitute", "Tadeusz", f"Zastępca{suffix}", ContractStatus.active, None),
         )
@@ -75,7 +74,7 @@ async def _seed() -> dict:
                 candidate_id=candidate.id,
                 client_id=client.id,
                 status=status,
-                start_date=_TODAY - timedelta(days=200),
+                start_date=business_today() - timedelta(days=200),
                 end_date=end,
                 rate_candidate=Decimal("700.000"),
                 rate_unit=RateUnit.daily,
@@ -94,7 +93,7 @@ def _line(contract_id: int, **overrides) -> dict:
         "contract_id": contract_id,
         "rate_cost": 700,
         "rate_revenue": 1280,
-        "start_date": (_TODAY - timedelta(days=100)).isoformat(),
+        "start_date": (business_today() - timedelta(days=100)).isoformat(),
     }
     payload.update(overrides)
     return payload
@@ -107,7 +106,7 @@ async def _create_cost_group(
         f"/api/clients/{client_id}/order-groups",
         json={
             "order_number": f"SAP 45{uuid.uuid4().int % 10**8:08d}",
-            "start_date": (_TODAY - timedelta(days=100)).isoformat(),
+            "start_date": (business_today() - timedelta(days=100)).isoformat(),
             "order_type": "cost",
             "is_cost_based": True,
             "budget_amount": 40000,
@@ -265,7 +264,7 @@ async def test_historical_line_for_a_working_consultant_is_refused(
         f"/api/clients/{ids['client_id']}/order-groups",
         json={
             "order_number": "SAP 4500000001",
-            "start_date": (_TODAY - timedelta(days=100)).isoformat(),
+            "start_date": (business_today() - timedelta(days=100)).isoformat(),
             "order_type": "cost",
             "is_cost_based": True,
             "budget_amount": 40000,
@@ -273,7 +272,7 @@ async def test_historical_line_for_a_working_consultant_is_refused(
                 _line(
                     ids["active_contract"],
                     historical=True,
-                    end_date=(_TODAY - timedelta(days=1)).isoformat(),
+                    end_date=(business_today() - timedelta(days=1)).isoformat(),
                 )
             ],
         },
@@ -487,7 +486,7 @@ async def test_md_order_stays_open_while_an_offboarding_decision_is_pending(
         f"/api/clients/{ids['client_id']}/order-groups",
         json={
             "order_number": f"SAP 46{uuid.uuid4().int % 10**8:08d}",
-            "start_date": (_TODAY - timedelta(days=100)).isoformat(),
+            "start_date": (business_today() - timedelta(days=100)).isoformat(),
             "order_type": "md",
             "md_budget_mode": "per_person",
             "lines": [
@@ -553,13 +552,13 @@ async def test_historical_line_needs_an_ended_status_not_just_terminated_at(
     ids = await _seed()
     async with AsyncSessionLocal() as db:
         contract = await db.get(Contract, ids["active_contract"])
-        contract.terminated_at = _TODAY - timedelta(days=60)
+        contract.terminated_at = business_today() - timedelta(days=60)
         await db.commit()
     resp = await app_client.post(
         f"/api/clients/{ids['client_id']}/order-groups",
         json={
             "order_number": "SAP 4500000002",
-            "start_date": (_TODAY - timedelta(days=100)).isoformat(),
+            "start_date": (business_today() - timedelta(days=100)).isoformat(),
             "order_type": "cost",
             "is_cost_based": True,
             "budget_amount": 40000,
@@ -567,7 +566,7 @@ async def test_historical_line_needs_an_ended_status_not_just_terminated_at(
                 _line(
                     ids["active_contract"],
                     historical=True,
-                    end_date=(_TODAY - timedelta(days=60)).isoformat(),
+                    end_date=(business_today() - timedelta(days=60)).isoformat(),
                 )
             ],
         },
@@ -640,7 +639,7 @@ async def _create_md_group(
         f"/api/clients/{client_id}/order-groups",
         json={
             "order_number": f"CeZ-{uuid.uuid4().hex[:6]}",
-            "start_date": (_TODAY - timedelta(days=100)).isoformat(),
+            "start_date": (business_today() - timedelta(days=100)).isoformat(),
             "order_type": "md",
             "md_budget_mode": "per_person",
             "lines": lines,

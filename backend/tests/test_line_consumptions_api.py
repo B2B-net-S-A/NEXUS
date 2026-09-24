@@ -19,8 +19,8 @@ from datetime import timedelta
 import pytest
 from httpx import AsyncClient
 
+from app.core.scheduling import business_today
 from tests.test_multi_consultant_orders import (
-    _TODAY,
     _enable_for,
     _headers_for,
     _line_payload,
@@ -38,7 +38,7 @@ async def _create_md_group(
         f"/api/clients/{client_id}/order-groups",
         json={
             "order_number": f"CeZ-{uuid.uuid4().hex[:6]}",
-            "start_date": (_TODAY - timedelta(days=10)).isoformat(),
+            "start_date": (business_today() - timedelta(days=10)).isoformat(),
             "order_type": "md",
             "md_budget_mode": "per_person",
             "lines": lines,
@@ -244,7 +244,7 @@ async def test_cost_order_line_has_no_per_person_consumptions(
         f"/api/clients/{client_id}/order-groups",
         json={
             "order_number": f"K-{uuid.uuid4().hex[:6]}",
-            "start_date": (_TODAY - timedelta(days=10)).isoformat(),
+            "start_date": (business_today() - timedelta(days=10)).isoformat(),
             "order_type": "cost",
             "is_cost_based": True,
             "budget_amount": 100000,
@@ -253,7 +253,7 @@ async def test_cost_order_line_has_no_per_person_consumptions(
                     "contract_id": contracts[0],
                     "rate_cost": 1000,
                     "rate_revenue": 1200,
-                    "start_date": (_TODAY - timedelta(days=10)).isoformat(),
+                    "start_date": (business_today() - timedelta(days=10)).isoformat(),
                 }
             ],
         },

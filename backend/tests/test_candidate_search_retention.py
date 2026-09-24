@@ -27,11 +27,6 @@ from app.models.job import Job
 from app.models.user import User, UserRole
 from app.tasks import candidate_search_retention as retention
 
-NOW = datetime.now(timezone.utc)
-OLD = NOW - timedelta(days=10)
-RECENT = NOW - timedelta(days=1)
-CUTOFF = NOW - timedelta(days=7)
-
 
 def _run(user, client, *, state, completed_at=None, **values):
     return CandidateSearchRun(
@@ -46,12 +41,16 @@ def _run(user, client, *, state, completed_at=None, **values):
         population_size=0,
         metrics={},
         completed_at=completed_at,
-        created_at=values.pop("created_at", completed_at or NOW),
+        created_at=values.pop("created_at", completed_at or datetime.now(timezone.utc)),
     )
 
 
 @pytest.mark.asyncio
 async def test_selection_keeps_newest_result_per_author_and_request_and_all_active():
+    now = datetime.now(timezone.utc)
+    old = now - timedelta(days=10)
+    recent = now - timedelta(days=1)
+    cutoff = now - timedelta(days=7)
     async with AsyncSessionLocal() as db:
         try:
             unique = uuid.uuid4().hex
@@ -84,24 +83,24 @@ async def test_selection_keeps_newest_result_per_author_and_request_and_all_acti
                 # Saved recruitment: the newest finished run is recent, so both
                 # older finished runs (a failure included) expire.
                 "job_old_complete": _run(
-                    user, client, state="complete", completed_at=OLD, **j
+                    user, client, state="complete", completed_at=old, **j
                 ),
                 "job_old_failed": _run(
-                    user, client, state="failed", completed_at=OLD, **j
+                    user, client, state="failed", completed_at=old, **j
                 ),
                 "job_recent": _run(
-                    user, client, state="partial", completed_at=RECENT, **j
+                    user, client, state="partial", completed_at=recent, **j
                 ),
                 # Another author's only run for the same job is old — kept.
                 "other_author_only": _run(
-                    other_user, client, state="complete", completed_at=OLD, **j
+                    other_user, client, state="complete", completed_at=old, **j
                 ),
                 # A closed recruitment protects nothing: its only run expires.
                 "closed_job_only": _run(
                     user,
                     client,
                     state="complete",
-                    completed_at=OLD,
+                    completed_at=old,
                     job_id=closed_job.id,
                 ),
                 # Protection is capped: the only run of an open recruitment
@@ -110,7 +109,7 @@ async def test_selection_keeps_newest_result_per_author_and_request_and_all_acti
                     other_user,
                     client,
                     state="complete",
-                    completed_at=NOW
+                    completed_at=now
                     - timedelta(
                         days=settings.CANDIDATE_SEARCH_RETENTION_PROTECT_MAX_DAYS + 5
                     ),
@@ -122,44 +121,44 @@ async def test_selection_keeps_newest_result_per_author_and_request_and_all_acti
                     user,
                     client,
                     state="complete",
-                    completed_at=OLD,
+                    completed_at=old,
                     fingerprint="b" * 64,
                 ),
                 "radar_older": _run(
                     user,
                     client,
                     state="complete",
-                    completed_at=OLD - timedelta(days=1),
+                    completed_at=old - timedelta(days=1),
                     fingerprint="c" * 64,
                 ),
                 "radar_newest_old": _run(
                     user,
                     client,
                     state="partial",
-                    completed_at=OLD + timedelta(hours=1),
+                    completed_at=old + timedelta(hours=1),
                     fingerprint="c" * 64,
                 ),
                 # A failure never protects itself, even as the newest run.
                 "radar_failed_only": _run(
-                    user, client, state="failed", completed_at=OLD, fingerprint="d" * 64
+                    user, client, state="failed", completed_at=old, fingerprint="d" * 64
                 ),
                 # Legacy finished row without completed_at: created_at decides.
                 "radar_legacy": _run(
-                    user, client, state="failed", created_at=OLD, fingerprint="e" * 64
+                    user, client, state="failed", created_at=old, fingerprint="e" * 64
                 ),
                 # Active runs are never touched, however old.
                 "active_queued": _run(
-                    user, client, state="queued", created_at=OLD, **j
+                    user, client, state="queued", created_at=old, **j
                 ),
                 "active_running": _run(
-                    user, client, state="running", created_at=OLD, fingerprint="f" * 64
+                    user, client, state="running", created_at=old, fingerprint="f" * 64
                 ),
             }
             db.add_all(runs.values())
             await db.flush()
 
             expired = set(
-                await retention.expired_run_ids(db, cutoff=CUTOFF, limit=10_000)
+                await retention.expired_run_ids(db, cutoff=cutoff, limit=10_000)
             )
             ids = {name: run.id for name, run in runs.items()}
             assert {
@@ -190,6 +189,9 @@ async def test_selection_keeps_newest_result_per_author_and_request_and_all_acti
 async def test_purge_deletes_results_in_batches_then_the_run_and_prune_honours_cutoff(
     monkeypatch,
 ):
+    now = datetime.now(timezone.utc)
+    old = now - timedelta(days=10)
+    recent = now - timedelta(days=1)
     unique = uuid.uuid4().hex
     async with AsyncSessionLocal() as db:
         user = User(
@@ -203,22 +205,22 @@ async def test_purge_deletes_results_in_batches_then_the_run_and_prune_honours_c
         db.add_all([user, client])
         await db.flush()
         expired = _run(
-            user, client, state="complete", completed_at=OLD, fingerprint="1" * 64
+            user, client, state="complete", completed_at=old, fingerprint="1" * 64
         )
         newest = _run(
-            user, client, state="complete", completed_at=OLD, fingerprint="2" * 64
+            user, client, state="complete", completed_at=old, fingerprint="2" * 64
         )
         older = _run(
             user,
             client,
             state="partial",
-            completed_at=OLD - timedelta(days=1),
+            completed_at=old - timedelta(days=1),
             fingerprint="2" * 64,
         )
         # `expired` is protected as the newest of its request until a newer
         # result arrives; make it the older one of a pair instead.
         replacement = _run(
-            user, client, state="complete", completed_at=RECENT, fingerprint="1" * 64
+            user, client, state="complete", completed_at=recent, fingerprint="1" * 64
         )
         db.add_all([expired, newest, older, replacement])
         await db.flush()
@@ -254,7 +256,7 @@ async def test_purge_deletes_results_in_batches_then_the_run_and_prune_honours_c
         # Other suites may have committed their own old runs; the assertion is
         # about ours, the limit only bounds work.
         monkeypatch.setattr(retention, "RUNS_PER_CYCLE", 10_000)
-        stats = await retention.prune_once(days=7, now=NOW)
+        stats = await retention.prune_once(days=7, now=now)
         assert stats["runs"] >= 2 and stats["results"] >= 7
         async with AsyncSessionLocal() as db:
             left = set(

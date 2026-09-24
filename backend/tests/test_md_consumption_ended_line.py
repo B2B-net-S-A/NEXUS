@@ -28,14 +28,26 @@ from app.core.scheduling import business_today
 
 pytestmark = pytest.mark.asyncio
 
+
 #: Miesiąc raportu leży w przeszłości, tak jak w zgłoszeniu: osoba już zeszła,
 #: a rozliczenie za ten miesiąc dopiero wpływa.
-_TODAY = business_today()
-_REPORTED = date(_TODAY.year, _TODAY.month, 1) - timedelta(days=45)
-_PERIOD = _REPORTED.strftime("%Y-%m")
+def _reported():
+    today = business_today()
+    return date(today.year, today.month, 1) - timedelta(days=45)
+
+
+def _period():
+    return _reported().strftime("%Y-%m")
+
+
 #: Ostatni dzień miesiąca, którego dotyczy raport — wtedy konsultant zszedł.
-_LEFT_ON = date(_TODAY.year, _TODAY.month, 1) - timedelta(days=1)
-_STARTED = _REPORTED - timedelta(days=60)
+def _left_on():
+    today = business_today()
+    return date(today.year, today.month, 1) - timedelta(days=1)
+
+
+def _started():
+    return _reported() - timedelta(days=60)
 
 
 def _sheet(rows: list[tuple[str, float]]) -> bytes:
@@ -87,7 +99,7 @@ async def _seed_client_with_contracts(n: int) -> tuple[int, list[int], list[str]
                 candidate_id=cand.id,
                 client_id=client.id,
                 status=ContractStatus.active,
-                start_date=_STARTED,
+                start_date=_started(),
                 rate_candidate=Decimal("100.000"),
                 rate_client=Decimal("150.000"),
             )
@@ -106,7 +118,7 @@ def _md_line(contract_id: int, md_total: int) -> dict:
         "rate_revenue": 1200,
         "input_mode": "md",
         "input_value": md_total,
-        "start_date": _STARTED.isoformat(),
+        "start_date": _started().isoformat(),
     }
 
 
@@ -117,7 +129,7 @@ async def _create_group(
         f"/api/clients/{client_id}/order-groups",
         json={
             "order_number": f"CeZ-{uuid.uuid4().hex[:6]}",
-            "start_date": _STARTED.isoformat(),
+            "start_date": _started().isoformat(),
             "order_type": "md",
             "md_budget_mode": "per_person",
             "lines": lines,
@@ -156,8 +168,9 @@ async def _finance_headers(app_client: AsyncClient) -> dict:
 
 
 async def _import(
-    app_client: AsyncClient, headers: dict, payload: bytes, period: str = _PERIOD
+    app_client: AsyncClient, headers: dict, payload: bytes, period: str | None = None
 ) -> dict:
+    period = period or _period()
     resp = await app_client.post(
         "/api/md-consumption/imports",
         files={
@@ -183,7 +196,7 @@ async def _group(app_client: AsyncClient, headers: dict, client_id: int, gid: in
 
 
 async def _end_cooperation(
-    line_id: int, *, on: date = _LEFT_ON, status: str = "completed"
+    line_id: int, *, on: date | None = None, status: str = "completed"
 ) -> None:
     """Kształt linii po zejściu konsultanta — jak na produkcji po zasiewie CeZ.
 
@@ -191,6 +204,7 @@ async def _end_cooperation(
     końcowy. Nie ma tu sprawy offboardingu: ta wersja odpowiada wierszom
     CeZ/242/2025, które powstały z importu danych startowych.
     """
+    on = on or _left_on()
     from app.core.database import AsyncSessionLocal
     from app.models.client_order import ClientOrder, ClientOrderStatus
     from app.models.contract import Contract, ContractStatus

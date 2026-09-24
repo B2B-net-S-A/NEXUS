@@ -31,8 +31,9 @@ from app.core.scheduling import business_today
 
 pytestmark = pytest.mark.asyncio
 
-TODAY = business_today()
-WHEN = TODAY - timedelta(days=3)
+
+def _when():
+    return business_today() - timedelta(days=3)
 
 
 async def _seed(
@@ -50,8 +51,8 @@ async def _seed(
         first = Contract(
             candidate_id=cand.id,
             client_id=client.id,
-            start_date=TODAY - timedelta(days=200),
-            end_date=TODAY + timedelta(days=90),
+            start_date=business_today() - timedelta(days=200),
+            end_date=business_today() + timedelta(days=90),
             rate_client=15000,
             rate_candidate=12000,
             status=ContractStatus.active,
@@ -59,8 +60,8 @@ async def _seed(
         second = Contract(
             candidate_id=cand.id,
             client_id=client.id,
-            start_date=TODAY - timedelta(days=150),
-            end_date=TODAY + timedelta(days=60),
+            start_date=business_today() - timedelta(days=150),
+            end_date=business_today() + timedelta(days=60),
             rate_client=14000,
             rate_candidate=11000,
             status=second_status,
@@ -74,8 +75,8 @@ async def _seed(
                 contract_id=first.id,
                 title=f"zamowienie-{suffix}",
                 status=ClientOrderStatus.active,
-                start_date=TODAY - timedelta(days=30),
-                end_date=TODAY + timedelta(days=90),
+                start_date=business_today() - timedelta(days=30),
+                end_date=business_today() + timedelta(days=90),
             )
         )
         ids = (client.id, cand.id, [first.id, second.id])
@@ -147,7 +148,7 @@ async def test_bulk_writes_reason_and_date_on_every_selected_contract(
             _url(ids),
             json={
                 "termination_reason": "client_budget_cut",
-                "terminated_at": WHEN.isoformat(),
+                "terminated_at": _when().isoformat(),
             },
             headers=app_auth_headers,
         )
@@ -161,8 +162,8 @@ async def test_bulk_writes_reason_and_date_on_every_selected_contract(
             assert contract.termination_reason == (
                 ContractTerminationReason.client_budget_cut
             )
-            assert contract.terminated_at == WHEN
-            assert contract.end_date == WHEN
+            assert contract.terminated_at == _when()
+            assert contract.end_date == _when()
             assert contract.status == ContractStatus.ended
 
         # Ten sam offboarding zamówień co przy pojedynczym wypowiedzeniu.
@@ -171,7 +172,7 @@ async def test_bulk_writes_reason_and_date_on_every_selected_contract(
                 select(ClientOrder).where(ClientOrder.contract_id == ids[0])
             )
         assert order is not None
-        assert order.end_date == WHEN
+        assert order.end_date == _when()
         assert order.status == ClientOrderStatus.completed
     finally:
         await _cleanup(client_id, cand_id, ids)
@@ -191,7 +192,7 @@ async def test_audit_entry_keeps_its_action_but_now_carries_reason_and_date(
             _url(ids),
             json={
                 "termination_reason": "project_ended",
-                "terminated_at": WHEN.isoformat(),
+                "terminated_at": _when().isoformat(),
             },
             headers=app_auth_headers,
         )
@@ -201,7 +202,7 @@ async def test_audit_entry_keeps_its_action_but_now_carries_reason_and_date(
         assert len(entries) == 1
         details = entries[0].details or {}
         assert details["termination_reason"] == "project_ended"
-        assert details["terminated_at"] == WHEN.isoformat()
+        assert details["terminated_at"] == _when().isoformat()
         assert details["early"] is True
         # Jeden wpis na kontrakt, nie dwa: helper nie dokłada `terminated`.
         assert await _activities(ids[0], "terminated") == []
@@ -218,7 +219,7 @@ async def test_shortening_a_contract_records_the_early_termination_amendment(
             _url(ids),
             json={
                 "termination_reason": "consultant_resigned",
-                "terminated_at": WHEN.isoformat(),
+                "terminated_at": _when().isoformat(),
             },
             headers=app_auth_headers,
         )
@@ -239,7 +240,7 @@ async def test_shortening_a_contract_records_the_early_termination_amendment(
         assert [a.amendment_type for a in amendments] == [
             ContractAmendmentType.early_termination
         ]
-        assert amendments[0].effective_date == WHEN
+        assert amendments[0].effective_date == _when()
         assert amendments[0].reason == "consultant_resigned"
     finally:
         await _cleanup(client_id, cand_id, ids)
@@ -251,7 +252,7 @@ async def test_replayed_disposition_does_not_double_the_audit_trail(
     client_id, cand_id, ids = await _seed()
     payload = {
         "termination_reason": "mutual_agreement",
-        "terminated_at": WHEN.isoformat(),
+        "terminated_at": _when().isoformat(),
     }
     try:
         first = await app_client.post(_url(ids), json=payload, headers=app_auth_headers)
@@ -286,7 +287,7 @@ async def test_bulk_does_not_wipe_lessons_written_by_a_single_termination(
             _url(ids),
             json={
                 "termination_reason": "client_budget_cut",
-                "terminated_at": WHEN.isoformat(),
+                "terminated_at": _when().isoformat(),
             },
             headers=app_auth_headers,
         )
@@ -299,22 +300,20 @@ async def test_bulk_does_not_wipe_lessons_written_by_a_single_termination(
 
 
 @pytest.mark.parametrize(
-    "payload",
-    [
-        {"terminated_at": WHEN.isoformat()},
-        {"termination_reason": "project_ended"},
-        {},
-    ],
+    "fields",
+    [("terminated_at",), ("termination_reason",), ()],
     ids=["bez-powodu", "bez-daty", "puste"],
 )
 async def test_both_fields_are_required_server_side(
-    app_client: AsyncClient, app_auth_headers: dict[str, str], payload: dict
+    app_client: AsyncClient, app_auth_headers: dict[str, str], fields: tuple[str, ...]
 ):
     """Kryterium akceptacji: bez obu pól operacji nie da się zatwierdzić.
 
     Data jest wymagana świadomie — ``/terminate`` podstawia „dzisiaj", gdy pole
     jest puste, a tu ta sama wartość wjeżdża w N umów naraz.
     """
+    full = {"terminated_at": _when().isoformat(), "termination_reason": "project_ended"}
+    payload = {field: full[field] for field in fields}
     client_id, cand_id, ids = await _seed()
     try:
         resp = await app_client.post(_url(ids), json=payload, headers=app_auth_headers)
@@ -341,7 +340,7 @@ async def test_a_void_contract_in_the_selection_refuses_the_whole_batch(
             _url(ids),
             json={
                 "termination_reason": "project_ended",
-                "terminated_at": WHEN.isoformat(),
+                "terminated_at": _when().isoformat(),
             },
             headers=app_auth_headers,
         )

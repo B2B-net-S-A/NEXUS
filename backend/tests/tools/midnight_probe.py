@@ -13,14 +13,23 @@ Zmierzone tą sondą 17.09.2026 na 28 modułach liczących datę przy imporcie:
     próba kontrolna (zegar ruszony, ta sama data) → 394/394 przechodzi
 
 Ostatni wiersz jest tu najważniejszy: bez niego nie wiadomo, czy pady biorą się
-z rozjazdu daty, czy z samego manipulowania zegarem — a naprawa też manipuluje.
+z rozjazdu daty, czy z samego manipulowania zegarem.
+
+Przypięcie doby w `conftest` usunięto 24.09.2026 (zegar bazy go nie słuchał —
+patrz komentarz w `conftest.py`); zamiast niego moduły nie liczą dat przy
+imporcie, czego pilnuje `test_no_import_time_dates.py`. Sonda przesuwa tylko
+zegar Pythona — `now()` Postgresa zostaje — więc test porównujący czas Pythona
+ze znacznikiem z bazy może paść w OBU biegach (realistycznym i kontrolnym);
+to nie jest błąd daty z importu.
 
 `MIDNIGHT_PROBE_MODE=realistic` (domyślny) odtwarza to, co faktycznie zdarzyło
 się w CI: moduły zaimportowały się przed północą, a test wykonuje się kilka
-minut po niej. `MIDNIGHT_PROBE_DAYS=N` przesuwa o pełne doby — ostrzejsze niż
-rzeczywistość, przydatne do pomiaru zasięgu problemu.
+minut po niej. `MIDNIGHT_PROBE_DAYS=N` (z innym trybem, np.
+`MIDNIGHT_PROBE_MODE=days`, bo tryb realistyczny go ignoruje) przesuwa o pełne
+doby — ostrzejsze niż rzeczywistość, przydatne do pomiaru zasięgu problemu.
 
-`MIDNIGHT_PROBE_DAYS=0` to próba KONTROLNA: zegar ruszony, ale data ta sama.
+`MIDNIGHT_PROBE_MODE=days MIDNIGHT_PROBE_DAYS=0` to próba KONTROLNA: zegar
+ruszony, ale data ta sama.
 Pady w kontroli pochodzą od samego manipulowania zegarem, nie od rozjazdu daty.
 """
 
@@ -47,8 +56,8 @@ def _target() -> datetime:
 
 
 # `pytest_runtest_protocol`, nie `pytest_runtest_call`: przesunięcie musi objąć
-# także SETUP fixture'ów. Naprawa w conftest sprawdza datę przy setupie, więc
-# sonda działająca dopiero w fazie wywołania omijałaby ją i mierzyła nie to.
+# także SETUP fixture'ów — fixture'y liczące datę działałyby inaczej niż sam
+# test, a sonda mierzyłaby nie to.
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_protocol(item, nextitem):
     with time_machine.travel(_target(), tick=True):

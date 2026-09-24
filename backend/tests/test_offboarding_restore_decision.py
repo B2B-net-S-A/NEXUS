@@ -25,8 +25,6 @@ from pydantic import ValidationError
 from app.schemas.client_order_group import OrderOffboardingResolutionRequest
 from app.core.scheduling import business_today
 
-_TODAY = business_today()
-
 
 def _enable_multi(monkeypatch, *client_ids: int) -> None:
     from app.services import multi_consultant_orders as mco
@@ -55,8 +53,8 @@ async def _seed_pending_case(*, shared_pool: bool = False) -> dict:
     from app.models.contract import Contract, ContractStatus, RateUnit
 
     suffix = uuid.uuid4().hex[:6]
-    ended_on = _TODAY - timedelta(days=1)
-    group_end = _TODAY + timedelta(days=120)
+    ended_on = business_today() - timedelta(days=1)
+    group_end = business_today() + timedelta(days=120)
 
     async with AsyncSessionLocal() as db:
         client = Client(name=f"RestoreClient-{suffix}")
@@ -75,7 +73,7 @@ async def _seed_pending_case(*, shared_pool: bool = False) -> dict:
             candidate_id=candidate.id,
             client_id=client.id,
             status=ContractStatus.ended,
-            start_date=_TODAY - timedelta(days=200),
+            start_date=business_today() - timedelta(days=200),
             end_date=ended_on,
             rate_candidate=Decimal("1000.000"),
             rate_client=Decimal("1320.000"),
@@ -87,7 +85,7 @@ async def _seed_pending_case(*, shared_pool: bool = False) -> dict:
         group = ClientOrderGroup(
             client_id=client.id,
             order_number=f"3728_{suffix}",
-            start_date=_TODAY - timedelta(days=200),
+            start_date=business_today() - timedelta(days=200),
             end_date=group_end,
             status=GROUP_STATUS_ACTIVE,
             # LEGACY (`order_type IS NULL`) świadomie: od migracji 0251 CHECK
@@ -110,7 +108,7 @@ async def _seed_pending_case(*, shared_pool: bool = False) -> dict:
             title=f"Zamówienie {group.order_number} — Tomasz Plonka",
             order_type=None,
             status=ClientOrderStatus.completed,
-            start_date=_TODAY - timedelta(days=200),
+            start_date=business_today() - timedelta(days=200),
             end_date=ended_on,
             md_rate_cost=Decimal("1000.00"),
             md_rate_revenue=Decimal("1320.00"),
@@ -205,12 +203,12 @@ def test_restore_rejects_a_recipient_and_a_rate_basis():
 def test_restore_end_date_belongs_only_to_restore():
     with pytest.raises(ValidationError):
         OrderOffboardingResolutionRequest(
-            action="remove", expected_version=1, restore_end_date=_TODAY
+            action="remove", expected_version=1, restore_end_date=business_today()
         )
     request = OrderOffboardingResolutionRequest(
-        action="restore", expected_version=1, restore_end_date=_TODAY
+        action="restore", expected_version=1, restore_end_date=business_today()
     )
-    assert request.restore_end_date == _TODAY
+    assert request.restore_end_date == business_today()
 
 
 # ── Decyzja end-to-end ──────────────────────────────────────────────────────
@@ -339,7 +337,7 @@ async def test_restore_refuses_a_past_end_date(
         _resolve_url(seed),
         json={
             "action": "restore",
-            "restore_end_date": (_TODAY - timedelta(days=2)).isoformat(),
+            "restore_end_date": (business_today() - timedelta(days=2)).isoformat(),
             "expected_version": 1,
         },
         headers=app_auth_headers,
@@ -438,7 +436,7 @@ async def _add_target_line(seed: dict, *, md_total: str = "50") -> int:
             candidate_id=candidate.id,
             client_id=seed["client_id"],
             status=ContractStatus.active,
-            start_date=_TODAY - timedelta(days=100),
+            start_date=business_today() - timedelta(days=100),
             rate_candidate=Decimal("1000.000"),
             rate_client=Decimal("1320.000"),
             rate_unit=RateUnit.daily,
@@ -452,7 +450,7 @@ async def _add_target_line(seed: dict, *, md_total: str = "50") -> int:
             title=f"Zamówienie target {suffix}",
             order_type=None,
             status=ClientOrderStatus.active,
-            start_date=_TODAY - timedelta(days=100),
+            start_date=business_today() - timedelta(days=100),
             md_rate_cost=Decimal("1000.00"),
             md_rate_revenue=Decimal("1320.00"),
             rate_unit=RateUnit.daily,
@@ -480,7 +478,7 @@ async def _report_md_on_source(line_id: int, md: str) -> None:
         await upsert_consumption(
             db,
             order=line,
-            period_month=(_TODAY - timedelta(days=1)).strftime("%Y-%m"),
+            period_month=(business_today() - timedelta(days=1)).strftime("%Y-%m"),
             md_reported=Decimal(md),
         )
         await db.commit()

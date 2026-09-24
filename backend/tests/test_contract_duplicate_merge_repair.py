@@ -40,8 +40,6 @@ from app.services.contract_duplicate_merge_repair import (
     summarize_for_log,
 )
 
-TODAY = business_today()
-
 
 def test_ticket_pins_exactly_one_same_client_pair_by_ids():
     from scripts.show_migration_receipts import is_receipt_key
@@ -78,7 +76,7 @@ async def _seed(
             client_id=client.id,
             contract_type=ContractType.b2b,
             status=ContractStatus.active,
-            start_date=TODAY - timedelta(days=40),
+            start_date=business_today() - timedelta(days=40),
             rate_candidate=Decimal("90.000"),
             rate_client=Decimal(keep_rate_client),
             margin=Decimal(keep_rate_client) - Decimal("90.000"),
@@ -88,9 +86,9 @@ async def _seed(
             client_id=client.id,
             contract_type=ContractType.b2b,
             status=ContractStatus.active,
-            start_date=TODAY - timedelta(days=8),
-            client_order_start_date=TODAY - timedelta(days=8),
-            client_order_end_date=TODAY + timedelta(days=60),
+            start_date=business_today() - timedelta(days=8),
+            client_order_start_date=business_today() - timedelta(days=8),
+            client_order_end_date=business_today() + timedelta(days=60),
             rate_client=Decimal("110.000"),
             project_name=f"Projekt {suffix}",
         )
@@ -101,8 +99,8 @@ async def _seed(
             contract_id=keep.id,
             title=f"Umowa {suffix}",
             status=ClientOrderStatus.completed,
-            start_date=TODAY - timedelta(days=40),
-            end_date=TODAY - timedelta(days=9),
+            start_date=business_today() - timedelta(days=40),
+            end_date=business_today() - timedelta(days=9),
             rate_client=Decimal("110.000"),
         )
         mail_order = ClientOrder(
@@ -110,8 +108,8 @@ async def _seed(
             contract_id=duplicate.id,
             title=f"Zlecenie {suffix}",
             status=ClientOrderStatus.draft,
-            start_date=TODAY - timedelta(days=8),
-            end_date=TODAY + timedelta(days=80),
+            start_date=business_today() - timedelta(days=8),
+            end_date=business_today() + timedelta(days=80),
             rate_client=Decimal("110.000"),
             notes="Zamówienie z maila",
         )
@@ -122,7 +120,7 @@ async def _seed(
                 ContractClientRate(
                     contract_id=duplicate.id,
                     rate=Decimal("110.000"),
-                    effective_from=TODAY - timedelta(days=8),
+                    effective_from=business_today() - timedelta(days=8),
                     source_order_id=mail_order.id,
                     note="Z zamówienia klienta",
                 ),
@@ -151,7 +149,7 @@ async def _seed(
                 ContractCandidateRate(
                     contract_id=duplicate.id,
                     rate=Decimal("70.000"),
-                    effective_from=TODAY - timedelta(days=8),
+                    effective_from=business_today() - timedelta(days=8),
                 )
             )
         await db.commit()
@@ -215,15 +213,15 @@ async def test_repair_merges_the_duplicate_into_the_kept_contract():
             await db.refresh(keep)
             # Pola już uzupełnione zostają bez zmian.
             assert keep.rate_candidate == Decimal("90.000")
-            assert keep.start_date == TODAY - timedelta(days=40)
+            assert keep.start_date == business_today() - timedelta(days=40)
             assert keep.status == ContractStatus.active
             assert keep.end_date is None
             # Puste pola uzupełnione danymi duplikatu.
             assert keep.project_name.startswith("Projekt ")
-            assert keep.client_order_start_date == TODAY - timedelta(days=8)
+            assert keep.client_order_start_date == business_today() - timedelta(days=8)
             # Okres zamówienia liczy synchronizacja z najnowszego zamówienia
             # (duplikat niósł nieaktualny koniec) — dowód, że resync zaszedł.
-            assert keep.client_order_end_date == TODAY + timedelta(days=80)
+            assert keep.client_order_end_date == business_today() + timedelta(days=80)
 
             orders = (
                 await db.scalars(

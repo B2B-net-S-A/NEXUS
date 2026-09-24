@@ -42,8 +42,6 @@ from app.services import auto_full_review as afr
 from app.services import candidate_search_store as store
 from app.tasks import candidate_search_retention as retention
 
-NOW = datetime.now(timezone.utc)
-
 
 def _at(hour: int) -> datetime:
     """Chwila o danej godzinie LOKALNEJ (Europe/Warsaw), dziś."""
@@ -401,9 +399,10 @@ async def test_auto_run_still_follows_the_job_gate(app_client: AsyncClient):
 
 
 async def test_retention_never_protects_an_auto_run():
+    now = datetime.now(timezone.utc)
     owner_id, _ = await _user()
     world = await _job(owner_id=owner_id, event=False)
-    old = NOW - timedelta(days=10)
+    old = now - timedelta(days=10)
 
     def _run(origin: str | None, completed_at: datetime) -> CandidateSearchRun:
         return CandidateSearchRun(
@@ -430,9 +429,9 @@ async def test_retention_never_protects_an_auto_run():
         await db.commit()
         expired = await retention.expired_run_ids(
             db,
-            cutoff=NOW - timedelta(days=7),
+            cutoff=now - timedelta(days=7),
             limit=100_000,
-            protect_after=NOW - timedelta(days=90),
+            protect_after=now - timedelta(days=90),
         )
     assert auto.id in expired
     assert manual.id not in expired
