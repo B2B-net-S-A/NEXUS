@@ -1,0 +1,24 @@
+<p class="right">{{ document_place }}, {{ document_date }} r.</p>
+<h1>ANEKS DO UMOWY O WSPÓŁPRACĘ B2B</h1>
+<p>Strony zgodnie postanawiają dokonać zmian w treści umowy nr {{ base.contract_number }} zawartej dnia {{ base.signing_date }} roku w Warszawie pomiędzy:</p>
+<p><strong>{{ company.name }}</strong> z siedzibą w Warszawie, {{ company.address }}, numer NIP: {{ company.nip }}, reprezentowaną przez {{ company.representative }},</p>
+<p>zwaną dalej jako „<strong>Spółka</strong>” lub „<strong>B2BNET</strong>”</p>
+<p>a</p>
+<p><strong>{{ g.g_pan }} {{ partner.name_instrumental or partner.name or '…' }}</strong> {{ g.g_prowadzacy }} działalność gospodarczą pod firmą: {{ partner.legal_name or '…' }}, zarejestrowaną w Centralnej Ewidencji i Informacji o Działalności Gospodarczej pod adresem: {{ partner.business_address or '…' }}, NIP: {{ partner.nip or '…' }}, REGON: {{ partner.regon or '…' }},</p>
+<p>{{ g.g_zwanym }} dalej<strong> </strong><strong>„Partnerem</strong><strong>”</strong></p>
+<p><strong>B2BNET</strong> i <strong>Partner</strong> łącznie są zwani „Stronami”</p>
+<p>Aneks zgodnym postanowieniem Stron wprowadza do Umowy następującą zmianę w {{ refs.rate_paragraph }}:</p>
+<h2>§ 1</h2>
+<p><u>{{ refs.rate_paragraph }}</u><u> otrzymuje następujące brzmienie:</u></p>
+<ol>
+<li>Z tytułu należytego wykonania Usług Partnerowi przysługuje wynagrodzenie obliczane jako iloczyn liczby godzin faktycznego świadczenia Usług w danym miesiącu oraz stawki godzinowej w wysokości {{ doc.new_rate }} {{ doc.currency }} (słownie: {{ doc.new_rate_words }}) netto + VAT.</li>
+</ol>
+<h2>§ 2</h2>
+<ol>
+<li>Ustalone zmiany wchodzą w życie z dniem {{ doc.effective_date }} r.</li>
+<li>Strony ustalają, że niniejszy aneks może być zawarty i podpisany w formie elektronicznej z wykorzystaniem kwalifikowanego podpisu elektronicznego w rozumieniu art. 3 pkt 12 rozporządzenia Parlamentu Europejskiego i Rady (UE) nr 910/2014 (eIDAS). Zgodnie z art. 78¹ § 1 Kodeksu cywilnego oświadczenie woli złożone w tej formie jest równoważne z oświadczeniem woli złożonym w formie pisemnej.</li>
+<li>Pozostałe postanowienia umowy nie ulegają zmianie.</li>
+<li>W przypadku zawarcia aneksu w formie elektronicznej, o której mowa w ust. 2, aneks sporządza się w jednym egzemplarzu w postaci elektronicznej, który otrzymuje każda ze Stron. W przypadku zawarcia aneksu w formie pisemnej sporządza się go w dwóch jednobrzmiących egzemplarzach, po jednym dla każdej ze Stron.</li>
+</ol>
+<p>________________       ________________</p>
+<p>(podpis)                                                                                                      (podpis)</p>

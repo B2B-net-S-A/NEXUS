@@ -619,7 +619,7 @@ _ENUM_STATEMENTS = [
     # doc_type='order' wywala się InvalidTextRepresentationError (DB enum nie
     # zna wartości), gdyby alembic upgrade nie wszedł na prod (multi-head).
     "ALTER TYPE contractdocumenttype ADD VALUE IF NOT EXISTS 'order'",
-    # 0362: załącznik z okna „Zakończ współpracę" — wypowiedzenie/porozumienie.
+    # 0364: załącznik z okna „Zakończ współpracę" — wypowiedzenie/porozumienie.
     "ALTER TYPE contractdocumenttype ADD VALUE IF NOT EXISTS 'termination_notice'",
     "ALTER TYPE contractdocumenttype ADD VALUE IF NOT EXISTS 'termination_agreement'",
     # ── Rozjazd zmierzony na produkcji 2026-07-20 przez /api/admin/schema-drift ──
@@ -770,8 +770,34 @@ except Exception as _kc_err:  # noqa: BLE001
     _KEYWORD_CORPUS_DDL = []
     _KEYWORD_CORPUS_INDEXES = []
 
+# Dokumenty pochodne umowy B2B (migracja 0362): tabela, typy aneksu i wersja
+# wzoru umowy — JEDNO źródło z migracją (`app/services/b2b_documents/schema_sql.py`).
+try:
+    from app.services.b2b_documents import schema_sql as _b2b_docs
+
+    _ENUM_STATEMENTS.extend(_b2b_docs.ENUM_DDL)
+    _B2B_DOCUMENTS_DDL = list(_b2b_docs.TABLE_DDL)
+    _B2B_DOCUMENTS_BACKFILL = list(_b2b_docs.BACKFILL_DDL)
+except Exception as _b2b_docs_err:  # noqa: BLE001
+    print(f"b2b documents DDL unavailable: {_b2b_docs_err!r}")
+    _B2B_DOCUMENTS_DDL = []
+    _B2B_DOCUMENTS_BACKFILL = []
+
+# Rejestr umów z Excela działu (migracja 0363): kolumny źródła, NULL-owalne
+# `year`/`seq`, częściowy UNIQUE i tabele przebiegów importu — JEDNO źródło
+# z migracją (`app/services/b2b_register_import/schema_sql.py`).
+try:
+    from app.services.b2b_register_import import schema_sql as _b2b_register
+
+    _B2B_REGISTER_DDL = list(_b2b_register.TABLE_DDL)
+except Exception as _b2b_register_err:  # noqa: BLE001
+    print(f"b2b register import DDL unavailable: {_b2b_register_err!r}")
+    _B2B_REGISTER_DDL = []
+
 _COLUMN_STATEMENTS = [
     *_KEYWORD_CORPUS_DDL,
+    *_B2B_DOCUMENTS_DDL,
+    *_B2B_REGISTER_DDL,
     # 0269: configurable product-section RBAC. The tables are created here as
     # an idempotent recovery path when Alembic stopped before stamping head.
     """CREATE TABLE IF NOT EXISTS rbac_policy_state (
@@ -4567,7 +4593,7 @@ _COLUMN_STATEMENTS = [
         CONSTRAINT ck_order_pdf_downloads_kind
             CHECK (file_kind IN ('order', 'group', 'amendment'))
     )""",
-    # 0362: zakończenie współpracy — rozwiązanie umowy B2B na kontrakcie
+    # 0364: zakończenie współpracy — rozwiązanie umowy B2B na kontrakcie
     # i ślad zakończenia na umowie w Generatorze (CHECK-i w _CONSTRAINT_STATEMENTS).
     "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS agreement_termination_mode VARCHAR(20)",
     "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS agreement_termination_party VARCHAR(20)",
@@ -5457,6 +5483,7 @@ END $$
 
 
 _DATA_STATEMENTS = [
+    *_B2B_DOCUMENTS_BACKFILL,
     # 17.09.2026: konflikt z klientem i `client_excluded` przestały zerować wynik
     # (idą do `breakdown.warnings`). Wiersze cache policzone starą regułą mają
     # `total=0` i w `penalties` te kody — unieważniamy je, żeby przeliczyły się
@@ -7077,7 +7104,7 @@ _DATA_STATEMENTS = [
 # Bez tego jedna zabłąkana wartość zablokowałaby start kontenera. VALIDATE
 # CONSTRAINT można uruchomić później, świadomie, po policzeniu sierot.
 _CONSTRAINT_STATEMENTS = [
-    # 0362: rozwiązanie umowy B2B na kontrakcie — komplet albo nic; tryb
+    # 0364: rozwiązanie umowy B2B na kontrakcie — komplet albo nic; tryb
     # i strona z zamkniętych słowników (także na umowie w Generatorze).
     """DO $$ BEGIN
         ALTER TABLE contracts

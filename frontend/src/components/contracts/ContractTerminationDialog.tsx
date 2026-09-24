@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle } from "lucide-react";
 import {
@@ -26,6 +27,7 @@ import {
   type TerminationFormState,
 } from "@/lib/contract-termination";
 import { warsawToday } from "@/lib/warsaw-date";
+import { documentsHref } from "@/lib/b2b-documents";
 
 interface Props {
   /** Jedna umowa = „Zakończ współpracę"; kilka = „Oznacz zakończone" w rejestrze. */
@@ -452,6 +454,23 @@ export function ContractTerminationDialog({
         {blocking && (
           <p role="alert" className="text-xs text-destructive">
             {blocking}
+          </p>
+        )}
+        {/* Dokument do podpisu (porozumienie / wypowiedzenie) powstaje
+            w generatorze dokumentów — ten dialog zapisuje sam fakt końca.
+            Przy zakończeniu zbiorczym link nie ma jednej umowy bazowej. */}
+        {!bulk && (
+          <p className="text-xs text-muted-foreground">
+            Potrzebujesz dokumentu do podpisu?{" "}
+            <Link
+              href={documentsHref({
+                newType: "termination_agreement",
+                contractId: contractIds[0],
+              })}
+              className="text-primary underline-offset-4 hover:underline"
+            >
+              Wygeneruj porozumienie / wypowiedzenie
+            </Link>
           </p>
         )}
         {mut.isError && (

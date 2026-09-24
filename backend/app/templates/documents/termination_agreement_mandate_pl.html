@@ -1,0 +1,25 @@
+<h1>Porozumienie o rozwiązaniu umowy zlecenie</h1>
+<p>Zawarte w dniu {{ document_date }} r. w Warszawie pomiędzy:</p>
+<p><strong>{{ company.name }}</strong> z siedzibą w Warszawie, {{ company.address }}, numer NIP: {{ company.nip }}, reprezentowaną przez {{ company.representative }},</p>
+<p>Zwaną dalej <strong>Zleceniodawcą</strong>,</p>
+<p>a</p>
+<p><strong>{{ g.g_pan }} {{ partner.name_instrumental or partner.name or '…' }}</strong>, {{ g.g_zamieszkaly }} pod adresem: {{ partner.home_address or '…' }}, {{ g.g_legitymujacy }} numerem PESEL: {{ partner.pesel or '…' }},</p>
+<p>{{ g.g_zwanym }} dalej <strong>Zleceniobiorcą</strong>,</p>
+<p>Zleceniodawca i Zleceniobiorca zwani są dalej łącznie <strong>„Stronami”</strong></p>
+<p><u>Strony ustalają:</u></p>
+<h2>§ 1</h2>
+<p>Na mocy niniejszego porozumienia Zleceniobiorca i Zleceniodawca zgodnie postanawiają rozwiązać umowę zlecenie zawartą w dniu {{ doc.base_signing_date }} r. za porozumieniem Stron.</p>
+<h2>§ 2</h2>
+<p>Strony zgodnie oświadczają, że skutek w postaci rozwiązania umowy zlecenie nastąpi w dniu {{ doc.termination_date }} r.</p>
+{% if doc.release_non_compete %}
+<h2>§ 3</h2>
+<p>Zleceniodawca zwalnia Zleceniobiorcę z zakazu konkurencji określonego w umowie zlecenie i zgadza się na bezpośrednie zatrudnienie Zleceniobiorcy lub świadczenie przez Zleceniobiorcę usług bezpośrednio na rzecz: {{ doc.non_compete_client_name or '…' }}, spółek macierzystych oraz innych podmiotów powiązanych.</p>
+{% endif %}
+<h2>§ {{ 4 if doc.release_non_compete else 3 }}</h2>
+<p>Strony ustalają, że niniejsze porozumienie może być zawarte w formie pisemnej lub w formie elektronicznej z wykorzystaniem kwalifikowanego podpisu elektronicznego, zgodnie z art. 78¹ §1 Kodeksu cywilnego.</p>
+<h2>§ {{ 5 if doc.release_non_compete else 4 }}</h2>
+<p>Zleceniobiorca oświadcza, iż nie ma żadnych roszczeń wobec Zleceniodawcy.</p>
+<h2>§ {{ 6 if doc.release_non_compete else 5 }}</h2>
+<p>Porozumienie sporządzono w 2 jednobrzmiących egzemplarzach, po jednym dla każdej ze Stron.</p>
+<p>……………………………………..        ………………………………………</p>
+<p>B2B.net S.A.        Zleceniobiorca</p>

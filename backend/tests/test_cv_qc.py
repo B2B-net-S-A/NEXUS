@@ -27,7 +27,14 @@ from app.models.cv_qc_run import CvQcRun
 from app.models.user import UserRole
 from app.services import cv_qc as qc
 from app.services import dz_review as dz
-from tests.test_board_tasks import _cleanup, _login, _seed_user, _seed_world
+from tests.test_board_tasks import (
+    _cleanup,
+    _login,
+    _move,
+    _seed_user,
+    _seed_world,
+    restore_cpro_sender,
+)
 from tests.test_dz_review import (
     BRANDED_HTML,
     EXPERIENCE,
@@ -688,6 +695,47 @@ async def test_gate_blocks_cv_sent_until_qc_passes_or_dl_overrides(
             await db.commit()
         await _cleanup_qc(world, stage_id)
         await _cleanup(world, [hor_id, dl_id, rec_id])
+
+
+@pytest.mark.asyncio
+async def test_leaving_the_cpro_queue_does_not_repeat_qc(
+    api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """„✓ Wrzucone” nie liczy QC drugi raz — osoba w kolejce Cpro przeszła
+    bramkę przy wejściu (albo sprzed v5 ręczny przegląd DZ). Zostaje
+    zastrzeżenie: wrzuca osoba od Cpro albo admin/DL/HoR."""
+
+    world = await _seed_world()
+    monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", str(world["client_id"]))
+    hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
+    rec_id, rec_creds = await _seed_user(UserRole.recruiter)
+    hor = await _login(api_client, hor_creds)
+    rec = await _login(api_client, rec_creds)
+    try:
+        async with restore_cpro_sender():
+            await api_client.put(
+                "/api/board-tasks/cpro/sender", headers=hor, json={"user_id": None}
+            )
+            # Wejście do kolejki sprzed bramki (jak osoby z przeglądu DZ).
+            monkeypatch.setattr(settings, "CV_QC_GATE_ENABLED", False)
+            await _move(api_client, hor, world, "verified")
+            await _move(api_client, hor, world, "cpro")
+            monkeypatch.setattr(settings, "CV_QC_GATE_ENABLED", True)
+
+            send = {
+                "candidate_id": world["candidate_id"],
+                "job_id": world["job_id"],
+                "stage_def_id": world["defs"]["cv_sent"],
+            }
+            refused = await api_client.post(
+                "/api/pipeline/move", headers=rec, json=send
+            )
+            assert refused.status_code == 403, refused.text
+            moved = await api_client.post("/api/pipeline/move", headers=hor, json=send)
+            assert moved.status_code == 200, moved.text
+            assert await _runs(world) == 0
+    finally:
+        await _cleanup(world, [hor_id, rec_id])
 
 
 @pytest.mark.asyncio

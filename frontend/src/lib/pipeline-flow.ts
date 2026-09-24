@@ -623,3 +623,15 @@ export function formatExpectedRate(item: KanbanItem): string | null {
           : (item.expected_rate_currency ?? "PLN");
   return `${raw} ${shortUnit}`;
 }
+
+/** Stawka do klienta zapisana wcześniej dla pary — podpowiedź dla okna
+ *  stawki przy ruchu na „CV wysłane” (bez niej DL wpisywał ją drugi raz). */
+export function knownClientRate(
+  item: KanbanItem,
+): { value: number; unit: "hourly" | "daily" | "monthly" } | null {
+  const value = Number.parseFloat(String(item.client_rate_value ?? ""));
+  if (!Number.isFinite(value) || value <= 0) return null;
+  const unit = item.client_rate_unit;
+  if (unit !== "hourly" && unit !== "daily" && unit !== "monthly") return null;
+  return { value, unit };
+}

@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { apiErrorMessage } from "@/lib/api-error";
+import { documentsHref } from "@/lib/b2b-documents";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "@/lib/api";
 import { RequireRole } from "@/components/RequireRole";
@@ -22,6 +24,7 @@ import {
   X as StopIcon,
   Loader2,
   AlertCircle,
+  FilePlus2,
 } from "lucide-react";
 
 const TYPE_LABELS: Record<string, string> = {
@@ -231,6 +234,14 @@ export function ContractAmendmentsTab({
                 <StopIcon className="w-4 h-4" /> Zakończ wcześniej
               </button>
             )}
+            {/* Dokument aneksu do podpisu (DOCX) — generator dokumentów
+                w module Generator Umów B2B, umowa bazowa po tym kontrakcie. */}
+            <Link
+              href={documentsHref({ newType: "annex_rate_change", contractId })}
+              className="flex items-center gap-2 border border-border hover:bg-muted text-foreground px-3 py-2 rounded-lg text-sm font-medium"
+            >
+              <FilePlus2 className="w-4 h-4" /> Wygeneruj dokument aneksu
+            </Link>
             {extensionLocked && (
               <p className="basis-full text-xs text-muted-foreground">
                 {B2B_EXTENSION_HINT}

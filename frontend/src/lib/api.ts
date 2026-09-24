@@ -1794,7 +1794,7 @@ export type AgreementTerminationMode = "notice" | "mutual_agreement";
 export type AgreementTerminationParty = "consultant" | "company";
 
 /**
- * „Rozwiązanie umowy" z okna „Zakończ współpracę" (0362). Komplet albo nic —
+ * „Rozwiązanie umowy" z okna „Zakończ współpracę" (0364). Komplet albo nic —
  * odznaczone pole wyboru = brak obiektu w żądaniu.
  */
 export interface AgreementTerminationPayload {
@@ -3160,6 +3160,37 @@ export interface B2BRenderPayload {
 }
 
 export const b2bGeneratorApi = {
+  registerImport: (file: File, dryRun: boolean) => {
+    const form = new FormData();
+    form.append("file", file);
+    return api
+      .post<B2BRegisterImportReport>("/api/b2b-generator/register-import", form, {
+        params: { dry_run: dryRun },
+        // Instancja ma domyślnie `application/json` — bez jawnego nagłówka
+        // FormData pojechałby jako JSON (422 „file required”).
+        headers: { "Content-Type": "multipart/form-data" },
+        // ~1200 wierszy + dopasowania w bazie — dłużej niż domyślne 30 s.
+        timeout: SLOW_ENDPOINT_TIMEOUT_MS,
+      })
+      .then((r) => r.data);
+  },
+  registerImportRuns: () =>
+    api
+      .get<B2BRegisterImportRun[]>("/api/b2b-generator/register-import/runs")
+      .then((r) => r.data),
+  rollbackRegisterImport: (runId: number) =>
+    api
+      .post<{
+        run_id: number;
+        deleted: number;
+        restored: number;
+        missing_cleared: number;
+      }>(`/api/b2b-generator/register-import/runs/${runId}/rollback`)
+      .then((r) => r.data),
+  exportRegisterXlsx: () =>
+    api.get<Blob>("/api/b2b-generator/generated/export.xlsx", {
+      responseType: "blob",
+    }),
   roles: (includeInactive = false) =>
     api
       .get<B2BRole[]>("/api/b2b-generator/roles", {
@@ -3262,6 +3293,10 @@ export const b2bGeneratorApi = {
           ...(params.startTo ? { start_to: params.startTo } : {}),
           ...(params.jobId ? { job_id: params.jobId } : {}),
           ...(params.offset ? { offset: params.offset } : {}),
+          ...(params.source ? { source: params.source } : {}),
+          ...(params.businessDataAnnexPending
+            ? { business_data_annex_pending: true }
+            : {}),
         },
         // `repeat`, nie domyślny `brackets`: FastAPI czyta listę wyłącznie jako
         // powtórzony parametr. Axios domyślnie wysłałby `contract_status[]=…`,
@@ -3369,7 +3404,7 @@ export interface B2BGeneratedListParams {
    */
   contractStatus?: B2BContractStatus[];
   closureReason?: B2BClosureReason;
-  /** Tryb rozwiązania umowy — filtr „Zakończonych umów" (0362). */
+  /** Tryb rozwiązania umowy — filtr „Zakończonych umów" (0364). */
   terminationMode?: AgreementTerminationMode;
   /** Zakres daty ROZPOCZĘCIA USŁUG (`YYYY-MM-DD`), obie granice włącznie. */
   startFrom?: string;
@@ -3385,6 +3420,10 @@ export interface B2BGeneratedListParams {
    * kończył się na `limit` najnowszych wierszach.
    */
   offset?: number;
+  /** Tylko umowy z NEXUSA (`generator`) albo z rejestru Excel działu. */
+  source?: B2BRegisterSource;
+  /** Kolejka umów czekających na aneks „uzupełnienie danych firmy”. */
+  businessDataAnnexPending?: boolean;
 }
 
 /** Wpis dziennika zmian statusu — dialog „Historia statusów". */
@@ -3401,7 +3440,7 @@ export interface B2BStatusEvent {
   client_name: string | null;
   changed_by_name: string | null;
   created_at: string | null;
-  /** Zmiana wykonana przez zakończenie kontraktu (0362): kontrakt, koniec
+  /** Zmiana wykonana przez zakończenie kontraktu (0364): kontrakt, koniec
    *  projektu i dane rozwiązania umowy. `null` dla ręcznych zmian. */
   details?: {
     source?: string;
@@ -3465,7 +3504,7 @@ export interface B2BGeneratedContractRow {
   closure_reason: B2BClosureReason | null;
   closure_reason_other: string | null;
   closure_date: string | null;
-  /** 0362: zakończenie przeniesione z Kontraktów — „Tryb" i „Data zakończenia
+  /** 0364: zakończenie przeniesione z Kontraktów — „Tryb" i „Data zakończenia
    *  zamówienia" (koniec projektu; `closure_date` to wtedy ostatni dzień umowy). */
   termination_mode?: AgreementTerminationMode | null;
   termination_party?: AgreementTerminationParty | null;
@@ -3495,6 +3534,102 @@ export interface B2BGeneratedContractRow {
    */
   linked_contract_status?: string | null;
   linked_contract_end_date?: string | null;
+  /**
+   * Rejestr z Excela działu (0363). Opcjonalne — starszy backend ich nie
+   * wysyła; brak = umowa z generatora.
+   */
+  source?: B2BRegisterSource;
+  /** Numer dokładnie jak w Excelu („264A”, „bez numeru”). */
+  raw_contract_number?: string | null;
+  position?: string | null;
+  contract_kind?: "b2b" | "mandate" | "work" | "employment" | null;
+  start_date_mode?: "exact" | "not_later" | "not_earlier" | null;
+  recruiter_name?: string | null;
+  /** Kody ostrzeżeń z importu (`likely_ended`, `without_project`…). */
+  legacy_flags?: string[];
+  needs_business_data_annex?: boolean;
+  business_data_annex_done_at?: string | null;
+  /** Wiersza nie było w ostatnio wgranym pliku Excela. */
+  excel_missing_since?: string | null;
+}
+
+export type B2BRegisterSource = "generator" | "excel";
+
+export type B2BRegisterImportMode = "dry_run" | "applied" | "rolled_back";
+
+export interface B2BRegisterImportCounters {
+  rows_total: number;
+  contract_rows: number;
+  created: number;
+  updated: number;
+  unchanged: number;
+  skipped: number;
+  cancelled: number;
+  closed: number;
+  likely_ended: number;
+  generator_matches: number;
+  generator_discrepancies: number;
+  number_collisions: number;
+  missing_marked: number;
+  status_kept: number;
+  candidates_matched: number;
+  candidates_unmatched: number;
+  candidates_ambiguous: number;
+  clients_matched: number;
+  clients_internal: number;
+  clients_unknown_rows: number;
+  recruiters_matched: number;
+  recruiters_unknown_rows: number;
+  annex_rows: number;
+  annex_matched: number;
+  annex_unmatched: number;
+  annex_done: number;
+}
+
+export interface B2BRegisterImportReport {
+  run_id: number;
+  mode: B2BRegisterImportMode;
+  filename: string;
+  sha256: string;
+  no_business_sheet_found: boolean;
+  counters: B2BRegisterImportCounters;
+  unmatched_candidates: { row: number; number: string; name: string }[];
+  ambiguous_candidates: {
+    row: number;
+    number: string;
+    name: string;
+    candidate_count: number;
+  }[];
+  unknown_clients: { text: string; reason: string; rows: number }[];
+  unknown_recruiters: { text: string; reason: string; rows: number }[];
+  generator_discrepancies: {
+    row: number;
+    number: string;
+    excel_partner: string | null;
+    nexus_partner: string | null;
+    excel_client: string | null;
+    nexus_client: string | null;
+    differences: ("partner" | "client")[];
+  }[];
+  number_collisions: { number: string; rows: number[]; reason: string }[];
+  status_kept: { row: number; number: string }[];
+  annex: {
+    matched: { row: number; name: string; number: string; done: boolean }[];
+    unmatched: { row: number; name: string; reason: string }[];
+  };
+  skipped_rows: { row: number; reason: string }[];
+}
+
+export interface B2BRegisterImportRun {
+  id: number;
+  mode: B2BRegisterImportMode;
+  filename: string;
+  sha256: string;
+  counters: Partial<B2BRegisterImportCounters>;
+  created_at: string | null;
+  created_by_name: string | null;
+  rolled_back_at: string | null;
+  can_rollback: boolean;
 }
 
 export interface B2BConfirmFullySignedRequest {

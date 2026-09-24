@@ -350,6 +350,8 @@ function AddCandidatesPanelOpen({
   const nice = requirementLabels(requirements.data, "nice");
   const run = proposals.status.run;
   const runData = run.data;
+  // Przegląd w toku: drugi start dublowałby trzyminutowy skan.
+  const scanning = runData != null && searchIsRunning(runData.state);
   const tabLabel: Record<AddCandidatesTab, string> = {
     search: "Szukaj w bazie (AI)",
     proposals: `Propozycje · ${proposalRows.length}`,
@@ -469,16 +471,18 @@ function AddCandidatesPanelOpen({
             <section aria-label="Przegląd bazy" className="space-y-2">
               <div className="flex flex-wrap items-center gap-2">
                 <p className="mr-auto text-xs text-muted-foreground">
-                  {proposals.status.latestRun
-                    ? "Wyniki ostatniego przeglądu całej bazy."
-                    : "Całej bazy jeszcze nie przeszukano."}
+                  {scanning
+                    ? "Przeglądamy całą bazę — potrwa ok. 3 minut."
+                    : proposals.status.latestRun || runData
+                      ? "Wyniki ostatniego przeglądu całej bazy."
+                      : "Całej bazy jeszcze nie przeszukano."}
                 </p>
                 {!readOnly && (
                   <Button
                     size="sm"
                     variant={runData ? "outline" : "primary"}
                     loading={run.starting}
-                    disabled={run.running}
+                    disabled={run.running || scanning}
                     onClick={proposals.status.startRun}
                   >
                     <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />

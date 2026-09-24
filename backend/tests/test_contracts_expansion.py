@@ -152,7 +152,7 @@ async def test_terminate_sets_reason_and_amendment(
 ):
     """Terminating effective TODAY records the reason and the project end.
 
-    Since 0362 the project end date is inclusive: the consultant still works
+    Since 0364 the project end date is inclusive: the consultant still works
     today, so the contract is „Kończący się" and the nightly job flips it to
     `ended` the day after.
     """

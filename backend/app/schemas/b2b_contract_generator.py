@@ -441,7 +441,7 @@ class B2BGeneratedContractItem(BaseModel):
     closure_reason: Optional[B2BClosureReason] = None
     closure_reason_other: Optional[str] = None
     closure_date: Optional[date] = None
-    # 0362 — zakończenie przeniesione z Kontraktów. „Tryb" (wypowiedzenie /
+    # 0364 — zakończenie przeniesione z Kontraktów. „Tryb" (wypowiedzenie /
     # porozumienie stron) i „Data zakończenia zamówienia" (koniec projektu)
     # w „Zakończonych umowach"; `closure_date` to wtedy ostatni dzień UMOWY.
     termination_mode: Optional[Literal["notice", "mutual_agreement"]] = None
@@ -469,6 +469,23 @@ class B2BGeneratedContractItem(BaseModel):
     signed_by_name: Optional[str] = None
     can_confirm_signed: bool = False
     blocked_reason: Optional[str] = None
+    # Rejestr z Excela działu (0363). `excel` = wiersz z pliku, tylko do odczytu
+    # poza statusem handlowym; `generator` = umowa wydana w NEXUSIE.
+    source: Literal["generator", "excel"] = "generator"
+    # Numer dokładnie jak w Excelu („264A”, „bez numeru”) — `contract_number`
+    # jest wtedy tym samym tekstem.
+    raw_contract_number: Optional[str] = None
+    position: Optional[str] = None
+    contract_kind: Optional[Literal["b2b", "mandate", "work", "employment"]] = None
+    start_date_mode: Optional[Literal["exact", "not_later", "not_earlier"]] = None
+    recruiter_name: Optional[str] = None
+    # Kody z `legacy_data.flags` (np. `likely_ended`, `without_project`) —
+    # etykiety PL żyją w `lib/b2b-generator-register.ts`.
+    legacy_flags: list[str] = Field(default_factory=list)
+    needs_business_data_annex: bool = False
+    business_data_annex_done_at: Optional[date] = None
+    # Wiersza nie było w ostatnio wgranym pliku Excela.
+    excel_missing_since: Optional[str] = None
 
 
 class B2BGeneratedContractUpdate(BaseModel):
@@ -604,7 +621,7 @@ class B2BStatusEventItem(BaseModel):
     client_name: Optional[str] = None
     changed_by_name: Optional[str] = None
     created_at: Optional[str] = None
-    # 0362: zmiana wykonana przez zakończenie kontraktu — kontrakt, koniec
+    # 0364: zmiana wykonana przez zakończenie kontraktu — kontrakt, koniec
     # projektu i dane rozwiązania umowy (tryb, strona, daty). NULL dla
     # ręcznych zmian w Generatorze.
     details: Optional[dict] = None

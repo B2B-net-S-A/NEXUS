@@ -1,0 +1,21 @@
+<p class="right">{{ document_place }}, {{ document_date }} r.</p>
+<h1>ANEKS DO UMOWY O WSPÓŁPRACĘ B2B</h1>
+<p>Strony zgodnie postanawiają dokonać uzupełnienia w treści umowy nr {{ base.contract_number }} zawartej dnia {{ base.signing_date }} roku w Warszawie pomiędzy:</p>
+<p><strong>{{ company.name }}</strong> z siedzibą w Warszawie, {{ company.address }}, numer NIP: {{ company.nip }}, reprezentowaną przez {{ company.representative }},</p>
+<p>zwaną dalej jako „Spółka” lub „<strong>B2BNET</strong>”</p>
+<p>a</p>
+<p><strong>{{ g.g_pan }} {{ partner.name_instrumental or partner.name or '…' }}</strong>, {{ g.g_zamieszkaly }} w {{ partner.home_address or '…' }}, {{ g.g_legitymujacy }} dowodem osobistym{% if partner.id_document %} nr {{ partner.id_document }}{% endif %},</p>
+<p>{{ g.g_zwanym }} dalej <strong>„Partnerem”</strong></p>
+<p>B2BNET i Partner łącznie są zwani<strong> „Stronami”</strong></p>
+<p>Aneks, zgodnym postanowieniem Stron, wprowadza do Umowy następujące postanowienia:</p>
+<h2>§1</h2>
+<p><strong>„Partnerem” w rozumieniu zapisów umowy o współpracę B2B nr {{ base.contract_number }} z dnia {{ base.signing_date }} r. jest {% if doc.entity_type == 'company' %}spółka {{ doc.new_legal_name or '…' }} z siedzibą pod adresem: {{ doc.new_business_address or '…' }}, wpisana do rejestru przedsiębiorców Krajowego Rejestru Sądowego pod numerem KRS: {{ doc.company_krs or '…' }}, NIP: {{ doc.new_nip or '…' }}, REGON: {{ doc.new_regon or '…' }}, reprezentowana przez: {{ doc.company_representative or '…' }}.{% else %}{{ g.g_pan_nom }} {{ partner.name or '…' }} {{ g.g_prowadzacy_nom }} działalność gospodarczą pod firmą: {{ doc.new_legal_name or '…' }}, zarejestrowaną w Centralnej Ewidencji i Informacji o Działalności Gospodarczej pod adresem: {{ doc.new_business_address or '…' }}, NIP: {{ doc.new_nip or '…' }}, REGON: {{ doc.new_regon or '…' }}.{% endif %}</strong></p>
+<h2>§2</h2>
+<ol>
+<li>Ustalone zmiany wchodzą w życie z dniem {{ doc.effective_date }} r.</li>
+<li>Strony ustalają, że niniejszy aneks może być zawarty w formie pisemnej lub w formie elektronicznej z wykorzystaniem kwalifikowanego podpisu elektronicznego, zgodnie z art. 78¹ §1 Kodeksu cywilnego.</li>
+<li>Pozostałe postanowienia umowy nie ulegają zmianie.</li>
+<li>Aneks sporządzono w dwóch jednobrzmiących egzemplarzach po jednym dla każdej ze stron.</li>
+</ol>
+<p>________________       ________________</p>
+<p>(podpis)                                                                                                        (podpis)</p>
