@@ -19,7 +19,7 @@ na własne id.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from typing import Any
 
 import pytest
@@ -125,6 +125,15 @@ async def _list_raw(client, headers, **params: Any) -> tuple[int, dict]:
             query.append((key, value))
     resp = await client.get("/api/candidates", params=query, headers=headers)
     return resp.status_code, resp.json()
+
+
+async def _db_scalar(sql: str) -> Any:
+    from sqlalchemy import text
+
+    from app.core.database import AsyncSessionLocal
+
+    async with AsyncSessionLocal() as db:
+        return (await db.execute(text(sql))).scalar_one()
 
 
 def _keys(body: dict) -> set[str]:
@@ -314,11 +323,13 @@ async def test_places_suggest(app_client, app_auth_headers):
 
 @pytest.mark.asyncio
 async def test_contacted_in_period(app_client, app_auth_headers):
-    # „Dziś” w czasie polskim, jak kod — `date.today()` (UTC na CI) myliło
-    # się między 22:00 a 24:00 UTC.
-    from app.core.scheduling import business_today
-
-    today = business_today()
+    # „Dziś” w czasie polskim według zegara BAZY — to on datuje notatki
+    # (`server_default=now()`). `date.today()` (UTC na CI) myliło się między
+    # 22:00 a 24:00 UTC, a `business_today()` po północy warszawskiej zwraca
+    # dzień przypięty przez `_pin_business_day` (conftest), gdy baza jest już
+    # w następnym.
+    await _seed()
+    today = await _db_scalar("SELECT (now() AT TIME ZONE 'Europe/Warsaw')::date")
     yes = await _list(
         app_client,
         app_auth_headers,
@@ -349,7 +360,10 @@ async def test_changed_after_sees_a_new_note(app_client, app_auth_headers):
     from app.models.note import Note
 
     ids = await _seed()
-    mark = datetime.now(timezone.utc)
+    # Znacznik z zegara bazy, jak `updated_at`/`created_at`. Zegar Pythona
+    # bywa przypięty na 23:59 dnia startu sesji (`_pin_business_day`), a baza
+    # idzie dalej — wiersze z seeda wyglądały wtedy na „zmienione po” znaczniku.
+    mark = await _db_scalar("SELECT clock_timestamp()")
     body = await _list(app_client, app_auth_headers, changed_after=mark.isoformat())
     assert not _keys(body)
     async with AsyncSessionLocal() as db:

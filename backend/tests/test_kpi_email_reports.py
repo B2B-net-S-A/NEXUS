@@ -30,9 +30,14 @@ def _at(day: date, hour: int, minute: int = 5) -> datetime:
 
 
 def _far_monday() -> date:
-    base = date(2700 + random.randint(0, 250), 3, 1)
-    base += timedelta(days=random.randint(0, 200))
-    return base - timedelta(days=base.weekday())
+    """Poniedziałek między 8. a 14. dniem miesiąca.
+
+    Pierwszy dzień roboczy miesiąca wypada najpóźniej 4. (weekend + święto),
+    więc tego dnia należny jest tylko raport tygodniowy. Losowy poniedziałek
+    bywał 1. dniem roboczym i wynik dostawał też ``board_monthly_report``.
+    """
+    base = date(2700 + random.randint(0, 250), random.randint(1, 12), 8)
+    return base + timedelta(days=-base.weekday() % 7)
 
 
 # ── Kiedy raport jest należny ────────────────────────────────────────────────
