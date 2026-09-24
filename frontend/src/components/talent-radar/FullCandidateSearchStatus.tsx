@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { searchFailed, searchIsRunning, type CandidateSearchPage } from "@/lib/full-candidate-search-api";
 
 const exclusionLabels: Record<string, string> = {
+  employment_only: "Tylko umowa o pracę",
   over_budget: "Powyżej budżetu",
   // Domyślnie: znane umiejętności nie obejmują technologii must-have. Brak
   // danych o umiejętnościach wyklucza tylko przy polityce „Wyklucz z wyników”.
@@ -11,6 +12,7 @@ const exclusionLabels: Record<string, string> = {
   office_days_exceeded: "Za dużo wymaganych dni w biurze",
   office_city_mismatch: "Niezgodne miasto biura",
   remote_only: "Wyłącznie praca zdalna",
+  work_time_mismatch: "Inny wymiar pracy (full-time/part-time)",
   eligibility_hidden: "Wykluczenie według reguł dopuszczalności",
   unknown: "Brak zapisanej szczegółowej przyczyny",
 };

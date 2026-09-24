@@ -38,7 +38,11 @@ const ALL_ROLES: UserRole[] = [
   "recruiter",
   "sourcer",
   "user",
+  "trainee",
 ];
+
+/** Role z menu — praktykant (0374) ma własną powłokę bez nawigacji. */
+const MENU_ROLES = ALL_ROLES.filter((role) => role !== "trainee");
 
 const sorted = (roles: readonly UserRole[]) => [...roles].sort();
 
@@ -135,7 +139,7 @@ describe("szyna i „Więcej” (rekrutacja v3)", () => {
     ];
     expect(groupsOf("finance")).toEqual(full);
     expect(groupsOf("admin")).toEqual(full);
-    for (const role of ALL_ROLES) {
+    for (const role of MENU_ROLES) {
       for (const group of visiblePrimaryGroups(userOf(role), opts)) {
         expect(group.items.length).toBeGreaterThan(0);
       }
@@ -260,6 +264,8 @@ describe("menu (szyna + „Więcej”, sekcjami) — pozycje per rola identyczne
   ];
   // Akademia (0369) — w „Więcej”, ta sama bramka co Kalendarz.
   const PIPELINE = ["/jobs", "/calendar", "/academy"];
+  // Panel „Praktykanci” (0374) — tylko admin i Head of Recruitment.
+  const PIPELINE_WITH_TRAINEES = [...PIPELINE, "/trainees"];
   const DELIVERY = ["/clients", "/contracts"];
   const INSIGHTS = ["/insights"];
   const SYSTEM = ["/help", "/settings"];
@@ -280,7 +286,7 @@ describe("menu (szyna + „Więcej”, sekcjami) — pozycje per rola identyczne
     ],
     admin: [
       ...SOURCING_OPERATIONAL,
-      ...PIPELINE,
+      ...PIPELINE_WITH_TRAINEES,
       ...DELIVERY,
       ...INSIGHTS,
       "/finance",
@@ -297,7 +303,7 @@ describe("menu (szyna + „Więcej”, sekcjami) — pozycje per rola identyczne
     // HoR nie rozpatruje zgłoszeń (UAT A-B02) i nie ma sekcji Delivery.
     head_of_recruitment: [
       ...SOURCING_OPERATIONAL,
-      ...PIPELINE,
+      ...PIPELINE_WITH_TRAINEES,
       ...INSIGHTS,
       ...SYSTEM,
     ],
@@ -310,6 +316,8 @@ describe("menu (szyna + „Więcej”, sekcjami) — pozycje per rola identyczne
       "/insights",
       ...SYSTEM,
     ],
+    // Praktykant (0374): jeden ekran, bez menu — nawet bez Pomocy i Ustawień.
+    trainee: [],
   };
 
   for (const [role, expected] of Object.entries(EXPECTED) as Array<
@@ -352,7 +360,14 @@ describe("menu (szyna + „Więcej”, sekcjami) — pozycje per rola identyczne
 });
 
 describe("paleta ⌘K ⊆ sidebar", () => {
-  for (const role of ALL_ROLES) {
+  it("praktykant nie ma palety — ani jednej pozycji", () => {
+    const trainee = userOf("trainee");
+    expect(
+      visiblePaletteEntries(trainee, { contactQueueEnabled: true }, () => true),
+    ).toEqual([]);
+  });
+
+  for (const role of MENU_ROLES) {
     for (const contactQueueEnabled of [true, false]) {
       it(`${role} (kolejka: ${contactQueueEnabled})`, () => {
         const user = userOf(role);

@@ -3620,11 +3620,19 @@ async def get_candidate(
         LinkedinSnapshotSummary.model_validate(s)
         for s in (candidate.linkedin_snapshots or [])[:5]
     ]
+    verified_by_name = (
+        await db.scalar(
+            select(User.name).where(User.id == candidate.call_facts_verified_by_user_id)
+        )
+        if candidate.call_facts_verified_by_user_id is not None
+        else None
+    )
     return payload.model_copy(
         update={
             "invite_source": invite_source,
             "linkedin_snapshots": snapshots,
             "contact_case": contact_case,
+            "call_facts_verified_by_name": verified_by_name,
         }
     )
 

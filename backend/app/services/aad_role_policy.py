@@ -43,13 +43,10 @@ def validate_aad_mapped_roles(
 
     exclusive = {
         UserRole.finance,
+        UserRole.trainee,
     }.intersection(mapped_roles)
     if exclusive and len(mapped_roles) != 1:
-        role_name = (
-            UserRole.finance.value
-            if UserRole.finance in exclusive
-            else UserRole.user.value
-        )
+        role_name = sorted(role.value for role in exclusive)[0]
         raise InvalidAadRoleMapping(f"AAD {role_name} role must be exclusive")
 
     return unique_values, mapped_roles

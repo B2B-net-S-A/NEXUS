@@ -111,6 +111,7 @@ export const ALL_USER_ROLES: readonly UserRole[] = [
   "recruiter",
   "sourcer",
   "user",
+  "trainee",
 ];
 
 /**
@@ -192,6 +193,16 @@ export const ROLE_SECTION_ACCESS: Record<
     pipeline: "read",
     delivery: "none",
     insights: "read",
+    finance: "none",
+    system_admin: "none",
+  },
+  // Praktykant (0374) nie ma żadnej sekcji produktu — pracuje wyłącznie na
+  // własnej liście telefonów (`/api/trainee/*`, bramka roli w backendzie).
+  trainee: {
+    sourcing: "none",
+    pipeline: "none",
+    delivery: "none",
+    insights: "none",
     finance: "none",
     system_admin: "none",
   },

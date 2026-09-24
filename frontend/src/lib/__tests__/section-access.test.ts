@@ -115,4 +115,19 @@ describe("central section access matrix", () => {
     expect(sectionAccessForUser(viewer, "insights")).toBe("read");
     expect(sectionAccessForUser(viewer, "delivery")).toBe("none");
   });
+
+  it("praktykant (0374) nie ma żadnej sekcji produktu", () => {
+    const trainee = { role: "trainee" as const };
+    for (const section of [
+      "sourcing",
+      "pipeline",
+      "delivery",
+      "insights",
+      "finance",
+      "system_admin",
+    ] as const) {
+      expect(sectionAccessForUser(trainee, section)).toBe("none");
+      expect(rolesWithSectionAccess(section)).not.toContain("trainee");
+    }
+  });
 });

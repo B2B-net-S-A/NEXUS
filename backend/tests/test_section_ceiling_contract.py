@@ -98,6 +98,12 @@ _SECTIONLESS_ALLOWLIST: dict[str, str] = {
     "POST /api/jarvis/ui-events": "Jarvis: telemetria własnych kliknięć (kod ekranu, bez danych domenowych)",
     "GET /api/help/screens": "przewodniki ekranów — treść pomocy czyta każda rola",
     "GET /api/help/screens/{key}": "przewodnik ekranu — treść pomocy czyta każda rola",
+    # ── Praktykant (0374): brak sekcji, własna lista telefonów ──────────────
+    "GET /api/trainee/today": "praktykant nie ma sekcji — własna lista telefonów, tylko jego pozycje",
+    "POST /api/trainee/items/{item_id}/call": "praktykant: zapis rozmowy z własnej listy",
+    "POST /api/trainee/items/{item_id}/outcome": "praktykant: wynik telefonu z własnej listy",
+    "GET /api/trainee/items/{item_id}/open-jobs": "praktykant: tytuły otwartych rekrutacji pasujących do osoby z jego listy",
+    "POST /api/trainee/items/{item_id}/handover": "praktykant: propozycja do „Do przejrzenia” dla osoby z jego listy",
     # ── Sondy integracji bez danych ─────────────────────────────────────────
     "GET /api/autenti/health": "stan konfiguracji integracji podpisów, bez danych domenowych",
     "GET /api/signing/health": "stan konfiguracji podpisu kwalifikowanego, bez danych domenowych",

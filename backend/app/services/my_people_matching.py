@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Iterable, Optional
 
-from sqlalchemy import select, text
+from sqlalchemy import or_, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -37,6 +37,7 @@ from app.models.recruitment_pipeline import CandidateStage
 from app.services.auto_match_service import AutoMatchUnavailable, scoped_similarity
 from app.services.candidate_job_eligibility import Visibility
 from app.services.current_employment import current_employment_client_ids
+from app.services.dealbreaker_filters import employment_only_refuses_b2b
 from app.services.eligibility_annotation import eligibility_annotation
 
 logger = logging.getLogger(__name__)
@@ -136,6 +137,7 @@ async def score_people_for_job(
         now=datetime.now(timezone.utc),
     )
 
+    by_id = {c.id: c for c in candidates}
     out: list[ScoredPerson] = []
     for i, fit in enumerate(fits):
         cid = int(fit.breakdown.candidate_id)
@@ -146,7 +148,10 @@ async def score_people_for_job(
                 score=display_score(fit.fit_score),
                 measurement=fit.measurement,
                 eligibility=eligibility_annotation(decision),
-                hidden=bool(decision and decision.visibility is Visibility.hidden),
+                # „Tylko umowa o pracę" z rozmowy praktykanta: pracujemy na
+                # B2B, więc tej osoby nie proponujemy do żadnej rekrutacji.
+                hidden=bool(decision and decision.visibility is Visibility.hidden)
+                or employment_only_refuses_b2b(by_id.get(cid)),
             )
         )
         if (i + 1) % YIELD_EVERY == 0:
@@ -206,7 +211,10 @@ async def run_for_job(db: AsyncSession, job: Job) -> dict:
                 await db.scalars(
                     select(Candidate.id).where(
                         Candidate.id.in_(sorted(ids)),
-                        Candidate.status == CandidateStatus.blacklisted,
+                        or_(
+                            Candidate.status == CandidateStatus.blacklisted,
+                            Candidate.b2b_willingness == "employment_only",
+                        ),
                     )
                 )
             ).all()

@@ -52,7 +52,7 @@ function state(over: { entries?: ProposalEntry[]; run?: Record<string, unknown>;
     entries,
     entryById: new Map(entries.map((e) => [e.row.candidateId, e])),
     totalBeforeFilters: over.totalBeforeFilters ?? entries.length,
-    sourceCounts: { all: entries.length, full_base: 0, new_cv: entries.length, similar_projects: 0, recommendation: 0, marketplace: 0 },
+    sourceCounts: { all: entries.length, trainee: 0, full_base: 0, new_cv: entries.length, similar_projects: 0, recommendation: 0, marketplace: 0 },
     status: {
       run: { runId: null, data: undefined, error: null, running: false, starting: false, loading: false, fetching: false, needsNewRun: false, offset: 0, setOffset: vi.fn(), refresh: vi.fn(), ...over.run },
       startRun: vi.fn(), retryRun: vi.fn(), latestRun: null, engineDegraded: false,

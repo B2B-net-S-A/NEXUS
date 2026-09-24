@@ -10,6 +10,7 @@ import {
   RECRUITER_ROLES,
   ROLE_LABELS,
   RECRUITER_ROLE_LABELS,
+  isExclusiveRole,
 } from "./types";
 
 interface UserModalProps {
@@ -31,17 +32,14 @@ export function UserModal({ initial, onClose, onSave, loading, error }: UserModa
       : initial?.role
         ? [initial.role]
         : ["recruiter"];
-  const initialRoles =
-    initialPrimary === "finance" || initialPrimary === "user"
-      ? [initialPrimary]
-      : Array.from(
-          new Set([
-            initialPrimary,
-            ...rawInitialRoles.filter(
-              (role) => role !== "finance" && role !== "user",
-            ),
-          ]),
-        );
+  const initialRoles = isExclusiveRole(initialPrimary)
+    ? [initialPrimary]
+    : Array.from(
+        new Set([
+          initialPrimary,
+          ...rawInitialRoles.filter((role) => !isExclusiveRole(role)),
+        ]),
+      );
   const [form, setForm] = useState<UserFormData>({
     name: initial?.name ?? "",
     email: initial?.email ?? "",
@@ -57,11 +55,11 @@ export function UserModal({ initial, onClose, onSave, loading, error }: UserModa
 
   const setPrimaryRole = (role: string) => {
     setForm((f) => {
-      if (role === "finance" || role === "user") {
+      if (isExclusiveRole(role)) {
         return { ...f, role, roles: [role], recruiter_role: "" };
       }
       const withoutExclusive = f.roles.filter(
-        (value) => value !== "finance" && value !== "user",
+        (value) => !isExclusiveRole(value),
       );
       return {
         ...f,
@@ -75,12 +73,7 @@ export function UserModal({ initial, onClose, onSave, loading, error }: UserModa
 
   const toggleSecondaryRole = (role: string) => {
     setForm((f) => {
-      if (
-        f.role === "finance" ||
-        f.role === "user" ||
-        role === "finance" ||
-        role === "user"
-      ) {
+      if (isExclusiveRole(f.role) || isExclusiveRole(role)) {
         return f;
       }
       const has = f.roles.includes(role);
@@ -169,9 +162,8 @@ export function UserModal({ initial, onClose, onSave, loading, error }: UserModa
               {ROLES.filter((r) => r !== "user" || r === form.role).map((r) => {
                 const isPrimary = r === form.role;
                 const checked = form.roles.includes(r);
-                const primaryIsExclusive =
-                  form.role === "finance" || form.role === "user";
-                const roleIsExclusive = r === "finance" || r === "user";
+                const primaryIsExclusive = isExclusiveRole(form.role);
+                const roleIsExclusive = isExclusiveRole(r);
                 const exclusiveConflict =
                   (primaryIsExclusive && r !== form.role) ||
                   (!primaryIsExclusive && roleIsExclusive);
@@ -198,9 +190,9 @@ export function UserModal({ initial, onClose, onSave, loading, error }: UserModa
             </div>
             <p className="text-xs text-muted-foreground mt-1">
               Osobom z kilkoma rolami (np. DL+TAC) zaznacz obie. Rola podstawowa
-              jest zawsze wybrana. Finanse i Viewer (legacy) są rolami wyłącznymi i nie
-              mogą być łączone z innymi; Viewer nie jest dostępny jako rola
-              dodatkowa.
+              jest zawsze wybrana. Finanse, Praktykant i Viewer (legacy) są rolami
+              wyłącznymi i nie mogą być łączone z innymi; Viewer nie jest
+              dostępny jako rola dodatkowa.
             </p>
           </div>
 

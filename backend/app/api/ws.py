@@ -18,6 +18,7 @@ from uvicorn.protocols.utils import ClientDisconnected
 from sqlalchemy import select
 
 from app.api.candidate_access import user_has_candidate_read
+from app.api.deps import is_trainee_only
 from app.core.database import AsyncSessionLocal
 from app.core.security import (
     decode_token,
@@ -427,7 +428,13 @@ async def _authenticate_ws_token(token: str) -> Optional[User]:
     async with AsyncSessionLocal() as db:
         result = await db.execute(select(User).where(User.id == user_id))
         user = result.scalar_one_or_none()
-        if user and _ws_payload_authorizes_user(payload, user):
+        # Praktykant (0374) nie ma dostępu domenowego — gniazdo zdarzeń też go
+        # nie przyjmuje (lustro `ensure_not_trainee` w `get_current_user`).
+        if (
+            user
+            and _ws_payload_authorizes_user(payload, user)
+            and not is_trainee_only(user)
+        ):
             await resolve_effective_section_access(db, user)
             return user
     return None

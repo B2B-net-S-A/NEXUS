@@ -149,11 +149,13 @@ def test_apply_counts_and_order_are_deterministic():
     assert res.hidden_over_budget == 1
     assert res.hidden_remote_only == 1
     assert res.hidden_meta() == {
+        "employment_only": 0,
         "over_budget": 1,
         "missing_must": 0,
         "office_days_exceeded": 0,
         "office_city_mismatch": 0,
         "remote_only": 1,
+        "work_time_mismatch": 0,
     }
 
 
@@ -388,16 +390,18 @@ def test_remote_only_auto_arms_on_wants_office():
     assert res.kept == [] and res.hidden_remote_only == 1
 
 
-def test_hidden_meta_always_has_five_int_keys():
+def test_hidden_meta_always_has_seven_int_keys():
     from app.services.dealbreaker_filters import DealbreakerResult
 
     meta = DealbreakerResult().hidden_meta()
     assert meta == {
+        "employment_only": 0,
         "over_budget": 0,
         "missing_must": 0,
         "office_days_exceeded": 0,
         "office_city_mismatch": 0,
         "remote_only": 0,
+        "work_time_mismatch": 0,
     }
     assert all(isinstance(v, int) for v in meta.values())
 
@@ -422,11 +426,13 @@ def test_reason_order_budget_must_days_city_remote():
     res = apply_dealbreakers([catches_everything], inputs=inputs)
     assert res.kept == []
     assert res.hidden_meta() == {
+        "employment_only": 0,
         "over_budget": 1,
         "missing_must": 0,
         "office_days_exceeded": 0,
         "office_city_mismatch": 0,
         "remote_only": 0,
+        "work_time_mismatch": 0,
     }
 
 
@@ -535,11 +541,13 @@ def test_kill_switch_restores_pre_rubric_behaviour(monkeypatch):
     res = apply_dealbreakers([remote_only_missing_must], inputs=inputs)
     assert res.kept == [remote_only_missing_must]
     assert res.hidden_meta() == {
+        "employment_only": 0,
         "over_budget": 0,
         "missing_must": 0,
         "office_days_exceeded": 0,
         "office_city_mismatch": 0,
         "remote_only": 0,
+        "work_time_mismatch": 0,
     }
 
 

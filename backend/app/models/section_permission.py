@@ -25,7 +25,8 @@ _ACTION_VALUES = "'b2b_contract_generator', 'b2b_signature_confirmation'"
 _ACTION_ACCESS_VALUES = "'none', 'view', 'generate', 'manage'"
 _ROLE_VALUES = (
     "'admin', 'head_of_recruitment', 'delivery_lead', "
-    "'talent_community_manager', 'finance', 'tac', 'recruiter', 'sourcer', 'user'"
+    "'talent_community_manager', 'finance', 'tac', 'recruiter', 'sourcer', 'user', "
+    "'trainee'"
 )
 
 

@@ -32,6 +32,8 @@ _JOB_FIELDS = (
     "exclude_remote_only",
     "remote_policy",
     "onsite_days_per_week",
+    # Wymiar pracy bramkuje kandydatów „tylko full-time / tylko part-time".
+    "work_mode",
     "deadline",
     "seniority",
     "subcategory",
