@@ -70,9 +70,11 @@ z wymaganą zgodą i sprawdź faktyczny ekran zgody u uczestnika testowego.
 
 Osobno: Teams admin center → Meetings → Meeting settings → Transcript API
 access → Microsoft Graph access. Ten przełącznik jest domyślnie wyłączony i
-blokuje odczyt VTT nawet przy `OnlineMeetingTranscript.Read.All`. Speaker
-attribution jest osobnym ustawieniem. Przed zmianą polityki globalnej
-sprawdź dostęp konkretnych aplikacji i zakres ich uprawnień w Entra.
+blokuje odczyt nawet przy `OnlineMeetingTranscript.Read.All`. Speaker
+attribution jest osobnym ustawieniem; może pozostać wyłączone. Po odmowie
+formatu z mówcami NEXUS pobiera transkrypt bez ich nazw i nie wyliczy udziału
+kandydata w czasie rozmowy. Przed zmianą polityki globalnej sprawdź dostęp
+konkretnych aplikacji i zakres ich uprawnień w Entra.
 
 Uzgodnij informację i zgodę uczestników przed automatycznym nagrywaniem.
 Obecny akapit w zaproszeniu (`PREP_NOTICE_TEXT`) jest roboczy i wymaga

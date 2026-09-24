@@ -167,13 +167,30 @@ async def list_transcripts(user_id: str, meeting_id: str) -> list[TranscriptRef]
 
 
 async def transcript_vtt(user_id: str, meeting_id: str, transcript_id: str) -> str:
-    """Treść transkryptu w formacie WebVTT."""
+    """Treść transkryptu; bez mówców, gdy tenant zabrania atrybucji."""
     url = (
         f"{_user(user_id)}/onlineMeetings/{meeting_id}/transcripts/"
         f"{transcript_id}/content?$format=text/vtt"
     )
     async with _client() as gc:
-        raw = await gc.download(url)
+        try:
+            raw = await gc.download(url)
+        except GraphRequestError as exc:
+            body = exc.body if isinstance(exc.body, dict) else {}
+            error = body.get("error") if isinstance(body.get("error"), dict) else {}
+            inner = error.get("innerError") or error.get("innererror") or {}
+            if not (
+                exc.status == 403
+                and isinstance(inner, dict)
+                and inner.get("code") == "SpeakerAttributionNotAllowed"
+            ):
+                raise
+            # Graph od 07/2026 udostępnia tekst bez nazw mówców. Ten format
+            # wybiera się przez Accept, a nie parametr $format.
+            raw = await gc.download(
+                url.split("?$format=", 1)[0],
+                headers={"Accept": "application/vnd.microsoft.graph.transcript+text"},
+            )
     if isinstance(raw, bytes):
         return raw.decode("utf-8", errors="replace")
     return str(raw or "")
