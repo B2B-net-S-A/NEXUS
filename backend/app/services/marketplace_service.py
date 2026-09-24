@@ -836,7 +836,9 @@ async def rescan_recent_jobs(
     job_ids = [row[0] for row in result.all()]
     for jid in job_ids:
         try:
-            await scan_job_for_marketplace_matches(jid, db)
+            async with AsyncSessionLocal() as job_db:
+                await scan_job_for_marketplace_matches(jid, job_db)
+                await job_db.commit()
         except Exception:
             logger.exception("rescan_recent_jobs: scan failed job_id=%d", jid)
     return len(job_ids)
