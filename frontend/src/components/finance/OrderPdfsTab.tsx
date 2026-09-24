@@ -199,8 +199,11 @@ export function OrderPdfsTab() {
       month={month}
       onMonthChange={changeMonth}
       clients={clientsQuery.data?.clients ?? null}
+      // Lista klientów ma własny stan, niezależny od listy miesięcy (miesiąc
+      // bywa z adresu). Wiązanie z `monthsState === "ready"` robiło z jej
+      // błędu zdanie „w tym miesiącu nie zaczyna się żadne zamówienie”.
       clientsNotice={
-        monthsState === "ready"
+        period !== null
           ? notice(clientsState, () => void clientsQuery.refetch())
           : undefined
       }
