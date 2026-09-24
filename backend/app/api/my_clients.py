@@ -514,6 +514,9 @@ async def client_dashboard(
     monthly_revenue_total: Decimal = Decimal("0")
     has_margin = False
     margin_complete = True
+    # „Dziś” poza gałęzią finansową: czyta je też liczenie aktywnych
+    # konsultantów niżej, a odbiorca bez kwot dostawał tu 500 (NameError).
+    today = business_today()
     if finance_ok:
         # Filtr statusu zszedł do WHERE (wcześniej ładowaliśmy WSZYSTKIE
         # kontrakty klienta — szkice, zakończone, anulowane — żeby odsiać je
@@ -532,7 +535,6 @@ async def client_dashboard(
                 )
             ).scalars()
         )
-        today = business_today()
         # Tylko kontrakty OBECNE — ta sama reguła co kafel „Aktywne MRR"
         # na profilu tego klienta (UAT B46). Pusta data startu znaczy „start
         # nieznany", nie „planowany" (audyt 18.09.2026).
