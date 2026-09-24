@@ -553,6 +553,112 @@ async def test_cv_sent_before_the_start_date_gives_no_followup(
         await _cleanup(world, user_ids)
 
 
+@pytest.mark.asyncio
+async def test_finished_request_gives_no_followup(
+    api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Audyt 24.09.2026: request „Zakończony” w NEXUSIE (status z Traffita
+    zostaje `published`) nie daje telefonów „dalej jesteś w procesie”."""
+
+    async with AsyncSessionLocal() as db:
+        now = (await db.execute(select(func_now()))).scalar_one()
+    monkeypatch.setattr(
+        settings, "CANDIDATE_FOLLOWUP_SINCE", svc.local_date(now - timedelta(days=60))
+    )
+    ids = [await _seed_user(UserRole.recruiter)]
+    user_ids = [uid for uid, _ in ids]
+    world = await _seed_world(user_ids, now)
+    try:
+        async with AsyncSessionLocal() as db:
+            found = await svc.load_followups(
+                db, now=now, candidate_ids=[world["candidate_id"]]
+            )
+            assert world["candidate_id"] in found
+            job = await db.get(Job, world["job_ids"][0])
+            job.work_state = "finished"
+            await db.commit()
+        async with AsyncSessionLocal() as db:
+            found = await svc.load_followups(
+                db, now=now, candidate_ids=[world["candidate_id"]]
+            )
+        assert found == {}
+    finally:
+        await _cleanup(world, user_ids)
+
+
+@pytest.mark.asyncio
+async def test_second_change_signal_the_same_day_is_not_lost(
+    api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Audyt 24.09.2026: dobowy dedup dzwonka nie może połknąć drugiej zmiany
+    (np. rano „rozważa ofertę”, po południu „rezygnuje”). Właściciel dwóch
+    procesów dostaje JEDEN wpis z obydwoma."""
+
+    async with AsyncSessionLocal() as db:
+        now = (await db.execute(select(func_now()))).scalar_one()
+    monkeypatch.setattr(
+        settings, "CANDIDATE_FOLLOWUP_SINCE", svc.local_date(now - timedelta(days=60))
+    )
+    owner_id, _ = await _seed_user(UserRole.recruiter)
+    caller_id, caller_creds = await _seed_user(UserRole.recruiter)
+    user_ids = [owner_id, caller_id]
+    world = await _seed_world([owner_id, owner_id], now)
+    cid = world["candidate_id"]
+    head = await _login(api_client, caller_creds)
+    try:
+        first = await api_client.post(
+            f"/api/candidate-followups/candidates/{cid}/outcome",
+            headers=head,
+            json={"outcome": "changed", "note": "Rozważa inną ofertę."},
+        )
+        assert first.status_code == 200, first.text
+        async with AsyncSessionLocal() as db:
+            signals = (
+                await db.scalars(
+                    select(Notification).where(
+                        Notification.notification_type
+                        == NotificationType.candidate_followup_signal,
+                        Notification.user_id == owner_id,
+                    )
+                )
+            ).all()
+            assert len(signals) == 1
+            # Jeden wpis wymienia OBA procesy tego właściciela.
+            for job_id in world["job_ids"]:
+                job = await db.get(Job, job_id)
+                assert job.title in signals[0].message
+            signals[0].is_read = True
+            await db.commit()
+
+        second = await api_client.post(
+            f"/api/candidate-followups/candidates/{cid}/outcome",
+            headers=head,
+            json={
+                "outcome": "changed",
+                "note": "Rezygnuje z procesu.",
+                "processes": {str(world["job_ids"][1]): "withdrawing"},
+            },
+        )
+        assert second.status_code == 200, second.text
+        async with AsyncSessionLocal() as db:
+            signals = (
+                await db.scalars(
+                    select(Notification).where(
+                        Notification.notification_type
+                        == NotificationType.candidate_followup_signal,
+                        Notification.user_id == owner_id,
+                    )
+                )
+            ).all()
+        assert len(signals) == 1
+        assert "Rozważa inną ofertę." in signals[0].message
+        assert "Rezygnuje z procesu." in signals[0].message
+        assert "rezygnuje z procesu" in signals[0].title
+        assert signals[0].is_read is False
+    finally:
+        await _cleanup(world, user_ids)
+
+
 def func_now():
     """Punkt odniesienia z bazy — etapy i notatki mają czas nadany przez nią."""
 

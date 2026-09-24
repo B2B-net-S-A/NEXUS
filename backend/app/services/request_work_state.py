@@ -36,7 +36,8 @@ from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import User
 from app.services.job_similarity import CLIENT_STAGES
 
-WORK_STATES = ("to_review", "searching", "client_silent", "finished")
+FINISHED = "finished"
+WORK_STATES = ("to_review", "searching", "client_silent", FINISHED)
 VISIBLE_STATES = ("to_review", "searching", "champion", "client_silent", "finished")
 
 LABELS = {

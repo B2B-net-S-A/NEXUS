@@ -281,6 +281,9 @@ WITH sent AS (
     SELECT cs.candidate_id, cs.job_id, min(cs.moved_at) AS sent_at
       FROM candidate_stages cs
       JOIN jobs j ON j.id = cs.job_id AND j.status = 'published'
+       -- Request „Zakończony” w NEXUSIE (status z Traffita zostaje
+       -- 'published'): nie dzwonimy z „dalej jesteś w procesie” (audyt 24.09).
+       AND j.work_state IS DISTINCT FROM :finished_state
      WHERE cs.stage = 'cv_sent'
        AND cs.moved_at >= :since
        {candidate_filter}
@@ -355,7 +358,9 @@ async def _waiting_processes(
     from app.services.board_tasks import _catalog  # noqa: PLC0415 — cykl importu
 
     since = datetime.combine(settings.CANDIDATE_FOLLOWUP_SINCE, time(0), tzinfo=_tz())
-    params: dict = {"since": since}
+    from app.services.request_work_state import FINISHED  # noqa: PLC0415
+
+    params: dict = {"since": since, "finished_state": FINISHED}
     candidate_filter = ""
     if candidate_ids is not None:
         if not candidate_ids:
