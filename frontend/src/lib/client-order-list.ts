@@ -841,6 +841,8 @@ export function lacksCurrentOrder(
   });
 }
 
+const LIVE_ORDER_STATUSES = new Set(["active", "paused", "draft"]);
+
 export function contractorMatchesPill(
   contractor: ContractWithOrdersRead,
   pill: UnifiedOrderPill,
@@ -884,8 +886,13 @@ export function contractorMatchesPill(
   }
   if (pill === "cancelled") {
     // Anulowane zamówienie okresowe (N9) — do 24.09.2026 pigułka łapała
-    // wyłącznie grupy MD/kosztowe.
-    return contractor.orders.some((order) => order.status === "cancelled");
+    // wyłącznie grupy MD/kosztowe. Osoba z żywym zamówieniem (aktywne,
+    // wstrzymane, szkic) pracuje — stary anulowany szkic nie przenosi jej do
+    // „Anulowanych" (audyt 24.09.2026, M4).
+    return (
+      contractor.orders.some((order) => order.status === "cancelled") &&
+      !contractor.orders.some((order) => LIVE_ORDER_STATUSES.has(order.status))
+    );
   }
   return false;
 }
@@ -905,6 +912,28 @@ export function endingWithoutSuccessorOrderId(
     return contractor.ending_without_successor_order_id ?? null;
   }
   return endingOrderWithoutSuccessor(contractor.orders, 30, todayIso)?.id ?? null;
+}
+
+/**
+ * Czy najbliższe zamówienie okresowe BEZ kontynuacji kończy się w `days` dni.
+ *
+ * Regułę liczy serwer (`next_ending_without_successor_days`, bez horyzontu) —
+ * ta sama co pigułka „Bez kontynuacji 30d" i plakietka. Lokalne liczenie
+ * czytało `rate_client`, który rolom bez kwot serwer zeruje, więc szkic-
+ * następca ze stawką wyglądał jak porzucony (audyt 24.09.2026, M6). Zapas
+ * lokalny wyłącznie dla odpowiedzi bez pola (harnessy, starsze mocki).
+ */
+export function endsWithoutSuccessorWithin(
+  contractor: ContractWithOrdersRead,
+  days: number,
+  todayIso = localTodayIso(),
+): boolean {
+  const horizon = normalizedEndingDays(days);
+  if (contractor.next_ending_without_successor_days !== undefined) {
+    const left = contractor.next_ending_without_successor_days;
+    return left !== null && left <= horizon;
+  }
+  return endingOrderWithoutSuccessor(contractor.orders, horizon, todayIso) !== null;
 }
 
 export function orderGroupMatchesPill(
@@ -971,8 +1000,7 @@ export function filterAndSortContractors(
     }
     return (
       !filters.endingSoon ||
-      endingOrderWithoutSuccessor(contractor.orders, endingDays, todayIso) !==
-        null
+      endsWithoutSuccessorWithin(contractor, endingDays, todayIso)
     );
   });
 

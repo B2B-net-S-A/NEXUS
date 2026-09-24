@@ -197,6 +197,11 @@ class ContractWithOrdersRead(BaseModel):
     „Bez kontynuacji 30d" czyta to pole zamiast liczyć regułę sama."""
     ending_without_successor_end_date: Optional[date] = None
     ending_without_successor_days: Optional[int] = None
+    next_ending_without_successor_days: Optional[int] = None
+    """Dni do końca NAJBLIŻSZEGO zamówienia okresowego bez kontynuacji, bez
+    górnej granicy horyzontu. Czyta go filtr „kończy się w ciągu N dni” — ta
+    sama reguła serwera co pigułka, także u ról, którym kwoty są redagowane
+    (audyt 24.09.2026, M6)."""
 
     orders: list[ClientOrderRead] = []
 

@@ -29,6 +29,8 @@ Które zamówienia w ogóle „kończą się": okresowe (bez grupy) u wszystkich
 klientów, a linie zamówień MD/kosztowych WYŁĄCZNIE u klientów z
 ``EXTENDED_ORDER_ALERT_CLIENT_IDS`` i tylko w zamówieniu aktywnym — u
 pozostałych klientów linię kończy wyczerpanie budżetu, nie kalendarz.
+Wyjątek: dzwonek 30/14/7 obejmuje u każdego klienta linie BEZ budżetu MD
+(kosztowe), bo te skaner wygasania domyka datą (M9, audyt 24.09.2026).
 """
 
 from __future__ import annotations
@@ -72,9 +74,14 @@ def order_has_continuation(*, today: Optional[date] = None) -> ColumnElement[boo
     )
     covers_after = or_(
         # Aktywna linia MD z budżetem pracuje po dacie końca — lustro
-        # ``OrderFact.works_until_md_exhausted``.
+        # ``OrderFact.works_until_md_exhausted``. WYŁĄCZNIE linia zamówienia
+        # MD/kosztowego: samodzielne zamówienie okresowe z ``md_total`` (np.
+        # Credit Agricole) nie jest rozliczane importem MD, więc jego
+        # „pozostałe MD” nie maleją i tłumiłyby alert każdego kolejnego
+        # zamówienia kontraktu bez końca (audyt 24.09.2026, M10).
         and_(
             nxt.status == ClientOrderStatus.active,
+            nxt.order_group_id.isnot(None),
             nxt.md_total.isnot(None),
             func.coalesce(nxt.md_remaining, 0) > 0,
         ),
@@ -113,25 +120,41 @@ def order_ending_without_continuation(
     *,
     extended_client_ids: Collection[int],
     today: Optional[date] = None,
+    include_date_closed_lines: bool = False,
 ) -> ColumnElement[bool]:
     """Zamówienie kończy się w ``[start, stop]`` i nie ma kontynuacji.
 
     Predykat dla zapytań po ``ClientOrder`` (bez wymaganego złączenia z grupą).
     Pusta lista klientów rozszerzonych daje ``IN ()`` = fałsz, więc linie grup
     odpadają u wszystkich.
+
+    ``include_date_closed_lines`` (dzwonek 30/14/7) dokłada linie zamówień
+    MD/kosztowych BEZ budżetu MD u każdego klienta: te linie skaner wygasania
+    domyka DATĄ (``_promote_statuses``, ``periodic_due``), więc bez dzwonka
+    gasły bez żadnego ostrzeżenia (audyt 24.09.2026, M9). Linię z budżetem MD
+    kończy wyczerpanie budżetu, nie kalendarz — ta zostaje poza dzwonkiem
+    u klientów spoza listy rozszerzonej.
     """
     active_groups = select(ClientOrderGroup.id).where(
         ClientOrderGroup.status == GROUP_STATUS_ACTIVE
     )
+    scopes = [
+        ClientOrder.order_group_id.is_(None),
+        and_(
+            ClientOrder.client_id.in_(sorted(extended_client_ids)),
+            ClientOrder.order_group_id.in_(active_groups),
+        ),
+    ]
+    if include_date_closed_lines:
+        scopes.append(
+            and_(
+                ClientOrder.order_group_id.isnot(None),
+                ClientOrder.md_total.is_(None),
+            )
+        )
     return and_(
         ClientOrder.status.in_(ENDING_ORDER_STATUSES),
-        or_(
-            ClientOrder.order_group_id.is_(None),
-            and_(
-                ClientOrder.client_id.in_(sorted(extended_client_ids)),
-                ClientOrder.order_group_id.in_(active_groups),
-            ),
-        ),
+        or_(*scopes),
         ClientOrder.end_date.isnot(None),
         ClientOrder.end_date >= start,
         ClientOrder.end_date <= stop,
@@ -158,11 +181,13 @@ def _covers_after(other: ClientOrder, ended_on: date, today: date) -> bool:
     status = ClientOrderStatus(other.status)
     if status == ClientOrderStatus.cancelled:
         return False
-    # Lustro gałęzi SQL wyżej: aktywne zamówienie z budżetem MD pracuje po
-    # dacie końca (``OrderFact.works_until_md_exhausted``). Bez tego pigułka
+    # Lustro gałęzi SQL wyżej: aktywna LINIA MD z budżetem pracuje po dacie
+    # końca (``OrderFact.works_until_md_exhausted``). Bez tego pigułka
     # „Bez kontynuacji” liczyła inaczej niż karta DL, dzwonek i Finanse.
+    # Samodzielne zamówienie okresowe z ``md_total`` się nie liczy (M10).
     if (
         status == ClientOrderStatus.active
+        and other.order_group_id is not None
         and other.md_total is not None
         and (other.md_remaining or 0) > 0
     ):
@@ -184,23 +209,25 @@ def ending_without_successor(
     orders: Sequence[ClientOrder],
     *,
     today: Optional[date] = None,
-    days: int = ENDING_WITHOUT_CONTINUATION_DAYS,
+    days: Optional[int] = ENDING_WITHOUT_CONTINUATION_DAYS,
 ) -> Optional[EndingWithoutSuccessor]:
     """Zamówienie OKRESOWE kontraktu, które kończy się bez kontynuacji.
 
     Ta sama reguła co :func:`order_ending_without_continuation`, liczona na
     zamówieniach okresowych jednego kontraktu (już wczytanych). Z kilku zwraca
-    to, które kończy się najwcześniej.
+    to, które kończy się najwcześniej. ``days=None`` = bez górnej granicy
+    (filtr „kończy się w ciągu N dni” na profilu klienta: najwcześniejsze
+    takie zamówienie odpowiada na pytanie dla KAŻDEGO N).
     """
     today = today or business_today()
-    stop = today + timedelta(days=days)
+    stop = today + timedelta(days=days) if days is not None else None
     periodic = [o for o in orders if o.order_group_id is None]
     found: Optional[ClientOrder] = None
     for order in periodic:
         if ClientOrderStatus(order.status) not in ENDING_ORDER_STATUSES:
             continue
         end = order.end_date
-        if end is None or end < today or end > stop:
+        if end is None or end < today or (stop is not None and end > stop):
             continue
         if any(
             other.id != order.id and _covers_after(other, end, today)

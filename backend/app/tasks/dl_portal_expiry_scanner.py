@@ -383,11 +383,15 @@ async def _scan_orders(
                 # S1) — ta sama co karta w panelu DL i pigułka „Bez kontynuacji
                 # 30d": linie MD/kosztowe tylko u klientów z rozszerzonymi
                 # alertami (u pozostałych linię kończy budżet, nie kalendarz).
+                # Wyjątek: linie BEZ budżetu MD (kosztowe) `_promote_statuses`
+                # domyka datą, więc dzwonek je obejmuje u każdego klienta —
+                # do #1787 widział je zawsze (audyt 24.09.2026, M9).
                 order_ending_without_continuation(
                     today,
                     today + timedelta(days=_HORIZON_DAYS),
                     extended_client_ids=extended_order_alert_client_ids(),
                     today=today,
+                    include_date_closed_lines=True,
                 ),
             )
         )

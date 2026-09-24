@@ -50,7 +50,9 @@ Nad listą masz:
   wymaga działania. Pusty szkic zakładany automatycznie przy podpisie umowy
   (bez stawki i bez daty końca) kontynuacją **nie jest**; „Dodaj
   przedłużenie" go wchłania. Ta sama reguła liczy panel „Moi klienci",
-  dzwonek i kafelek pulpitu. Samo przyszłe
+  dzwonek i kafelek pulpitu. Dzwonek 30/14/7 dni ostrzega dodatkowo o końcu
+  osoby na zamówieniu kosztowym (linii bez budżetu MD) — taką linię system
+  zamyka w dniu jej daty końca. Samo przyszłe
   zamówienie ocenia się tak samo: jeśli ono z kolei kończy się w ciągu 30 dni
   i nic nie ma po nim, karta zostaje w zakładce, a plakietka mówi „przyszłe
   zamówienie … kończy się za N dni". Przy zamówieniach MD/kosztowych
