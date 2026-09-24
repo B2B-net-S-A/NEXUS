@@ -28,6 +28,7 @@ from app.models.competence_category import (
     CompetenceCategory,
     UserCompetenceCategory,
 )
+from app.services.job_delivery_lead_fill import fill_missing_job_delivery_leads
 from app.services.pipeline_latest import latest_stage_ids
 from app.models.job import Job, JobStatus
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
@@ -763,6 +764,9 @@ async def assign_dl_to_client(
             db,
             changed_delivery_lead_ids,
         )
+    if payload.is_head:
+        await db.flush()
+        await fill_missing_job_delivery_leads(db, [payload.client_id])
     await db.commit()
     return {"ok": True}
 
@@ -802,6 +806,9 @@ async def toggle_dl_client_head(
         changed_delivery_lead_ids = {row.delivery_lead_user_id}
     row.is_head = not row.is_head
     await invalidate_delivery_lead_scope_for_users(db, changed_delivery_lead_ids)
+    if row.is_head:
+        await db.flush()
+        await fill_missing_job_delivery_leads(db, [row.client_id])
     await db.commit()
     return {"ok": True, "is_head": row.is_head}
 

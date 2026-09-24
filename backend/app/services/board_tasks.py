@@ -55,10 +55,10 @@ KIND_CPRO_TO_SEND = "cpro_to_send"
 KIND_CPRO_SENT = "cpro_sent"
 KIND_DL_REVIEW = "dl_review"
 
-# Kto widzi przegląd DL: Delivery Lead — rekrutacje przypięte do niego;
-# admin i Head of Recruitment — wyłącznie rekrutacje bez żadnego Delivery
-# Leada (inaczej nikt by ich nie zobaczył). Kolejkę Cpro widzi tylko osoba od
-# Cpro; admin i HoR — tylko wtedy, gdy nikt nie jest ustawiony (decyzja Artura
+# Kto widzi przegląd DL: wyłącznie Delivery Lead rekrutacji — admin i Head of
+# Recruitment nie (rekrutacja bez DL-a dostaje głównego DL-a klienta,
+# `job_delivery_lead_fill`). Kolejkę Cpro widzi tylko osoba od Cpro; admin
+# i HoR — tylko wtedy, gdy nikt nie jest ustawiony (decyzja Artura
 # 24.09.2026). Wysyłkę do klienta i tak rozstrzyga serwer przy ruchu.
 REVIEW_ROLES: tuple[UserRole, ...] = (
     UserRole.admin,
@@ -122,19 +122,11 @@ class BoardTask:
     # od 24.09.2026 tylko zapas, gdy nikt nie wysyła do Cpro na firmę.
     job_sender_id: Optional[int] = None
     job_sender_name: Optional[str] = None
-    # Przegląd DL: klient rekrutacji ma Delivery Leada w portfelu
-    # (`delivery_lead_client_assignments`). Bez niego i bez
-    # `jobs.delivery_lead_id` przegląd trafia do admina i Head of Recruitment.
-    client_has_dl: bool = False
     # Etap QC CV szablonu rekrutacji — „Zwróć do rekrutera" z kolejki Cpro.
     return_stage_def_id: Optional[int] = None
     # Wynik QC CV pary (`cv_qc.pair_statuses`): passed|failed|overridden|unchecked.
     qc_status: Optional[str] = None
     qc_blocking_failed: int = 0
-
-    @property
-    def without_delivery_lead(self) -> bool:
-        return self.delivery_lead_id is None and not self.client_has_dl
 
     def as_dict(self) -> dict:
         return {
@@ -161,7 +153,6 @@ class BoardTask:
             "screening_stage_id": self.screening_stage_id,
             "job_sender_id": self.job_sender_id,
             "job_sender_name": self.job_sender_name,
-            "without_delivery_lead": self.without_delivery_lead,
             "return_stage_def_id": self.return_stage_def_id,
             "qc_status": self.qc_status,
             "qc_blocking_failed": self.qc_blocking_failed,
@@ -333,11 +324,6 @@ async def load_snapshot(
     sent_since = now - timedelta(days=WINDOW_DAYS)
     # Jedna osoba na firmę; stare typowania są zapasem, gdy nikogo nie ma.
     firm_sender_id = (await cpro_sender.effective_sender(db, now)).user_id
-    clients_with_dl = frozenset(
-        (
-            await db.scalars(select(DeliveryLeadClientAssignment.client_id).distinct())
-        ).all()
-    )
     tasks: list[BoardTask] = []
     for r in rows:
         stages = templates.get(r.template_id)
@@ -372,7 +358,6 @@ async def load_snapshot(
                         kind=KIND_DL_REVIEW,
                         target_stage_def_id=stages.cv_sent_id,
                         rejected_stage_def_id=stages.rejected_id,
-                        client_has_dl=r.client_id in clients_with_dl,
                         **base,
                     )
                 )
@@ -547,21 +532,19 @@ def _sees_all(user: User) -> bool:
 
 
 def _sees_dl_review(task: BoardTask, user: User, portfolio: frozenset[int]) -> bool:
-    """Przegląd DL należy do Delivery Leada rekrutacji.
+    """Przegląd DL należy wyłącznie do Delivery Leada rekrutacji.
 
     Delivery Lead wpisany w rekrutacji (``jobs.delivery_lead_id``) wygrywa;
-    bez niego — Delivery Lead z portfelem klienta. Rekrutacja bez żadnego
-    Delivery Leada trafia do admina i Head of Recruitment — inaczej nikt by
-    jej nie przejrzał. Admin i HoR NIE widzą przeglądów cudzych DL.
+    bez niego (zanim `job_delivery_lead_fill` uzupełni pole) — Delivery Lead
+    z portfelem klienta. Admin i Head of Recruitment go nie widzą (decyzja
+    Artura 24.09.2026), chyba że sami mają rolę Delivery Leada.
     """
 
-    if user.has_role(UserRole.delivery_lead):
-        if task.delivery_lead_id is not None:
-            if task.delivery_lead_id == user.id:
-                return True
-        elif task.client_id is not None and task.client_id in portfolio:
-            return True
-    return task.without_delivery_lead and _sees_all(user)
+    if not user.has_role(UserRole.delivery_lead):
+        return False
+    if task.delivery_lead_id is not None:
+        return task.delivery_lead_id == user.id
+    return task.client_id is not None and task.client_id in portfolio
 
 
 def _sees_cpro(task: BoardTask, user: User) -> bool:
@@ -581,8 +564,8 @@ def tasks_for_user(
 ) -> dict[str, list[BoardTask]]:
     """Co z migawki należy do tej osoby (decyzja Artura 24.09.2026).
 
-    * Przegląd DL: Delivery Lead — rekrutacje przypięte do niego (w rekrutacji
-      albo przez portfel klienta); admin i HoR — tylko rekrutacje bez DL.
+    * Przegląd DL: wyłącznie Delivery Lead — rekrutacje przypięte do niego
+      (w rekrutacji albo przez portfel klienta).
     * Do wrzucenia i wysłane do Cpro: tylko osoba od Cpro; do wrzucenia —
       także admin i HoR, gdy nikt nie jest ustawiony.
     """

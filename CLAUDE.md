@@ -3075,9 +3075,15 @@ osobę od Cpro per rekrutacja (0353) i kolejkę „Czeka na DZ” (0348).
 - **Kto widzi „Czeka na Ciebie” (decyzja Artura 24.09.2026, `board_tasks._sees_*`):**
   obie listy Cpro — wyłącznie osoba od Cpro (gdy nikt nie jest ustawiony: listę
   „do wrzucenia” widzi admin i HoR, bo tylko tam da się kogoś ustawić; DL nigdy);
-  przegląd DL — Delivery Lead rekrutacji (`jobs.delivery_lead_id` wygrywa, bez
-  niego portfel klienta), a admin i HoR tylko rekrutacje bez żadnego DL
-  (plakietka „bez DL”). Poranny skrót liczy tą samą regułą.
+  przegląd DL — wyłącznie Delivery Lead rekrutacji (`jobs.delivery_lead_id`
+  wygrywa, bez niego portfel klienta); admin i HoR go nie widzą. Poranny skrót
+  liczy tą samą regułą.
+- **Rekrutacja bez DL-a dostaje głównego DL-a klienta**
+  (`services/job_delivery_lead_fill.py`, 24.09.2026): tylko `draft`/`published`,
+  tylko puste pole (nigdy nadpis), główny DL (`is_head`, aktywny). Woła ją start
+  aplikacji, faza `jobs` importu Traffita i przypisanie/zmiana głównego DL-a
+  klienta. Zamkniętych nie rusza — statystyki DL liczą je przez tego samego
+  głównego DL-a. Skutek: alerty DL-owe tych rekrutacji idą do DL-a, nie do HoR.
 - **„Dodaj kandydatów”** (`AddCandidatesPanel`): jedno wejście z nagłówka i z kolumny
   Nowi, zakładki wyszukiwanie AI z Championa · propozycje · Moi ludzie · ręcznie.
 

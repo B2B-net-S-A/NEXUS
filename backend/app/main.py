@@ -558,6 +558,22 @@ async def lifespan(app: FastAPI):
                 exc_info=True,
             )
 
+    # Rekrutacje bez Delivery Leada dostają głównego DL-a klienta (24.09.2026).
+    # Uzupełnienie jest idempotentne i nigdy nie blokuje startu.
+    try:
+        from app.services.job_delivery_lead_fill import (
+            fill_missing_job_delivery_leads,
+        )
+
+        async with AsyncSessionLocal() as _dl_fill_db:
+            filled_dl = await fill_missing_job_delivery_leads(_dl_fill_db)
+            await _dl_fill_db.commit()
+        logger.info("Job delivery lead fill: filled=%d", filled_dl)
+    except Exception as exc:  # noqa: BLE001
+        logger.error(
+            "Job delivery lead fill failed: %s", type(exc).__name__, exc_info=True
+        )
+
     # Startup: ensure Qdrant collection exists
     import asyncio
     from app.services.embedding_service import init_qdrant_collection
