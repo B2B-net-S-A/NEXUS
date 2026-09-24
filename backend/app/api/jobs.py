@@ -2374,6 +2374,18 @@ async def publish_job(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     await _ensure_delivery_lead_job_visible(job, current_user, db)
+    if job.status == JobStatus.closed:
+        # Lustro ponownego otwarcia w PATCH: bez tego rekrutacja opublikowana
+        # z powrotem zostawała „Zakończona” i poza przydziałem (audyt 24.09.2026).
+        job.closed_at = None
+        if job.work_state == WORK_STATE_FINISHED:
+            await set_work_state(
+                db,
+                job,
+                WORK_STATE_REOPENED,
+                actor_id=current_user.id,
+                reason="job_reopened",
+            )
     job.status = JobStatus.published
     db.add(
         Activity(

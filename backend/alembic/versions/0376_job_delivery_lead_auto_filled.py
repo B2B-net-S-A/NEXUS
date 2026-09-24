@@ -16,7 +16,7 @@ dziś głównym DL-em klienta, dostają ``true`` — tak wyglądają rekrutacje
 uzupełnione 24.09 (i założone z głównym DL-em przez ``resolve_default_owners``).
 
 Lustro w ``entrypoint.sh`` (prod alembic bywa osierocony) — pilnuje
-``test_job_delivery_lead_auto_filled_mirror.py``.
+``test_job_delivery_lead_auto_filled.py``.
 """
 
 from alembic import op

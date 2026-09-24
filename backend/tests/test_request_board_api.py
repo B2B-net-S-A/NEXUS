@@ -295,6 +295,29 @@ async def test_reopened_job_goes_back_to_review(
         assert (await db.get(Job, job_id)).work_state == "to_review"
 
 
+async def test_republish_of_closed_job_goes_back_to_review(
+    app_client: AsyncClient, app_auth_headers: dict
+) -> None:
+    """``POST /publish`` na zamkniętej rekrutacji też zdejmuje „Zakończony”."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.job import Job
+
+    job_id = await _seed_job(work_state="searching")
+    closed = await app_client.patch(
+        f"/api/jobs/{job_id}", json={"status": "closed"}, headers=app_auth_headers
+    )
+    assert closed.status_code == 200, closed.text
+
+    published = await app_client.post(
+        f"/api/jobs/{job_id}/publish", headers=app_auth_headers
+    )
+    assert published.status_code == 200, published.text
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        assert job.work_state == "to_review"
+        assert job.closed_at is None
+
+
 async def _live_rows(job_id: int) -> list[tuple[int, str, str]]:
     from app.core.database import AsyncSessionLocal
     from app.models.job_work_assignment import JobWorkAssignment
