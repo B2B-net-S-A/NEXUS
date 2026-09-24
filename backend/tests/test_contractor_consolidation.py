@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from datetime import date, timedelta
+from datetime import timedelta
 
 import pytest
 from httpx import AsyncClient
@@ -44,6 +44,7 @@ from app.models.contract import (
     RateUnit,
 )
 from app.models.job import Job
+from app.core.scheduling import business_today
 
 pytestmark = pytest.mark.asyncio
 
@@ -103,8 +104,8 @@ async def _seed_contract(
             client_id=client_id,
             contract_type=ContractType.b2b,
             status=status,
-            start_date=date.today() - timedelta(days=30),
-            end_date=date.today() + timedelta(days=90),
+            start_date=business_today() - timedelta(days=30),
+            end_date=business_today() + timedelta(days=90),
             rate_candidate=rate_candidate,
             rate_client=rate_client,
             rate_unit=RateUnit.hourly,
@@ -475,7 +476,7 @@ async def _post_contract(app_client, headers, candidate_id, client_id, **extra):
     payload = {
         "candidate_id": candidate_id,
         "client_id": client_id,
-        "start_date": date.today().isoformat(),
+        "start_date": business_today().isoformat(),
         **extra,
     }
     return await app_client.post("/api/contracts", json=payload, headers=headers)
@@ -878,7 +879,7 @@ async def test_shared_hard_delete_service_applies_fk_policies_and_audits():
         rate = ContractCandidateRate(
             contract_id=cid,
             rate=Decimal("125.000"),
-            effective_from=date.today(),
+            effective_from=business_today(),
         )
         note = Note(content=f"History {marker}", contract_id=cid, candidate_id=cand)
         db.add_all([rate, note])
@@ -1098,7 +1099,7 @@ async def test_hard_delete_serializes_stale_cost_group_settlement(monkeypatch):
         group = ClientOrderGroup(
             client_id=cli,
             order_number=f"LOCK/{marker}",
-            start_date=date.today() - timedelta(days=30),
+            start_date=business_today() - timedelta(days=30),
             is_cost_based=True,
             budget_amount=Decimal("1000.00"),
             budget_remaining=Decimal("1000.00"),
@@ -1258,7 +1259,7 @@ async def test_delete_contract_resettles_cost_order_group(app_client, app_auth_h
         group = ClientOrderGroup(
             client_id=cli,
             order_number=f"GRP/{marker}",
-            start_date=date.today() - timedelta(days=60),
+            start_date=business_today() - timedelta(days=60),
             is_cost_based=True,
             budget_amount=Decimal("1000.00"),
             # CHECK cost_coherence wymaga niepustej reszty przy insercie;

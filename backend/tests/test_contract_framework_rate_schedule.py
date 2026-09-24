@@ -15,6 +15,7 @@ from httpx import AsyncClient
 
 from app.models.contract import Contract
 from app.models.contract_framework_rate import ContractFrameworkRate
+from app.core.scheduling import business_today
 
 
 # ── Pure resolver unit tests (no DB) ─────────────────────────────────────────
@@ -91,7 +92,7 @@ async def test_create_with_framework_schedule_derives_current_rate(
     if parties is None:
         return
     candidate_id, client_id = parties
-    today = date.today()
+    today = business_today()
     past = (today - timedelta(days=30)).isoformat()
     future = (today + timedelta(days=60)).isoformat()
 
@@ -137,7 +138,7 @@ async def test_patch_replaces_framework_schedule(
     if parties is None:
         return
     candidate_id, client_id = parties
-    today = date.today()
+    today = business_today()
     past = (today - timedelta(days=30)).isoformat()
     mid = (today - timedelta(days=1)).isoformat()
     future = (today + timedelta(days=60)).isoformat()

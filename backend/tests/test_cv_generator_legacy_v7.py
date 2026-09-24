@@ -28,6 +28,7 @@ from app.services.cv_generator_b2b.legacy_v7.prompts import (
     get_prompt as legacy_prompt,
 )
 from app.services.cv_generator_b2b.prompts import get_prompt as rebuilt_prompt
+from app.core.scheduling import business_today
 
 _CV_TEXT = (
     "Jan Kowalski\n"
@@ -383,11 +384,10 @@ async def test_editor_approval_skips_the_paid_review_while_evidence_is_advisory(
 
 
 def test_model_gets_todays_date_outside_the_cached_system_prompt(defaults):
-    from datetime import date
 
     _run()
     call = defaults["calls"][0]
-    today = date.today()
+    today = business_today()
     assert "<generation_date>" in call["user"]
     assert today.strftime("%m.%Y") in call["user"]
     # The cached system prompt stays byte-for-byte the frozen v7 one.

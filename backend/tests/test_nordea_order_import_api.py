@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
+from app.core.scheduling import business_today
 
 
 def _csv(name: str, rows: list[tuple[str, date, date, str, str]]) -> bytes:
@@ -84,7 +85,7 @@ async def _seed_nordea() -> tuple[int, int, int, str]:
             candidate_id=candidate.id,
             client_id=client.id,
             status=ContractStatus.active,
-            start_date=date.today() - timedelta(days=365),
+            start_date=business_today() - timedelta(days=365),
             rate_candidate=Decimal("123.456"),
             rate_client=Decimal("150.000"),
             framework_rate=Decimal("110.00"),
@@ -97,8 +98,8 @@ async def _seed_nordea() -> tuple[int, int, int, str]:
             contract_id=contract.id,
             title="OLD-NUMBER",
             status=ClientOrderStatus.active,
-            start_date=date.today() - timedelta(days=100),
-            end_date=date.today() + timedelta(days=100),
+            start_date=business_today() - timedelta(days=100),
+            end_date=business_today() + timedelta(days=100),
             rate_client=Decimal("149.000"),
         )
         db.add(order)
@@ -114,7 +115,7 @@ async def _seed_ended_nordea() -> tuple[int, int, str, date]:
     from app.models.contract import Contract, ContractStatus
 
     suffix = uuid.uuid4().hex[:8]
-    previous_end = date.today() - timedelta(days=30)
+    previous_end = business_today() - timedelta(days=30)
     async with AsyncSessionLocal() as db:
         client = Client(name=f"Nordea Bank ABP {suffix}")
         candidate = Candidate(
@@ -128,7 +129,7 @@ async def _seed_ended_nordea() -> tuple[int, int, str, date]:
             candidate_id=candidate.id,
             client_id=client.id,
             status=ContractStatus.ended,
-            start_date=date.today() - timedelta(days=365),
+            start_date=business_today() - timedelta(days=365),
             end_date=previous_end,
             client_order_end_date=previous_end,
             rate_candidate=Decimal("123.456"),
@@ -153,10 +154,10 @@ async def test_dry_run_then_apply_is_atomic_and_idempotent(
     from app.models.contract import Contract
 
     client_id, contract_id, original_order_id, name = await _seed_nordea()
-    current_start = date.today() - timedelta(days=180)
-    current_end = date.today() + timedelta(days=2)
-    future_start = date.today() + timedelta(days=3)
-    future_end = date.today() + timedelta(days=180)
+    current_start = business_today() - timedelta(days=180)
+    current_end = business_today() + timedelta(days=2)
+    future_start = business_today() + timedelta(days=3)
+    future_end = business_today() + timedelta(days=180)
     content = _csv(
         name,
         [
@@ -239,8 +240,8 @@ async def test_apply_is_blocked_when_a_file_person_is_unmatched(
         [
             (
                 "999999",
-                date.today(),
-                date.today() + timedelta(days=30),
+                business_today(),
+                business_today() + timedelta(days=30),
                 "150",
                 "120",
             )
@@ -265,13 +266,13 @@ async def test_nordea_apply_revives_an_ended_contract_but_preview_rolls_back(
     from app.models.contract import Contract, ContractStatus
 
     client_id, contract_id, name, previous_end = await _seed_ended_nordea()
-    new_end = date.today() + timedelta(days=120)
+    new_end = business_today() + timedelta(days=120)
     content = _csv(
         name,
         [
             (
                 "285493",
-                date.today() - timedelta(days=2),
+                business_today() - timedelta(days=2),
                 new_end,
                 "185",
                 "178",
@@ -337,21 +338,21 @@ async def test_nordea_revives_once_with_the_widest_overlapping_order_horizon(
     from app.models.contract import Contract, ContractStatus
 
     client_id, contract_id, name, _ = await _seed_ended_nordea()
-    shorter_end = date.today() + timedelta(days=30)
-    farther_end = date.today() + timedelta(days=180)
+    shorter_end = business_today() + timedelta(days=30)
+    farther_end = business_today() + timedelta(days=180)
     content = _csv(
         name,
         [
             (
                 "285493-SHORT",
-                date.today() - timedelta(days=20),
+                business_today() - timedelta(days=20),
                 shorter_end,
                 "185",
                 "178",
             ),
             (
                 "285493-LONG",
-                date.today() - timedelta(days=10),
+                business_today() - timedelta(days=10),
                 farther_end,
                 "190",
                 "180",
@@ -390,8 +391,8 @@ async def test_nordea_future_order_does_not_revive_contract_early(
         [
             (
                 "285623",
-                date.today() + timedelta(days=10),
-                date.today() + timedelta(days=120),
+                business_today() + timedelta(days=10),
+                business_today() + timedelta(days=120),
                 "185",
                 "178",
             )
@@ -437,7 +438,7 @@ async def test_import_period_change_revives_completed_order_but_preserves_pause(
     from app.models.client_order import ClientOrder, ClientOrderStatus
 
     client_id, _, order_id, name = await _seed_nordea()
-    today = date.today()
+    today = business_today()
     for previous_status, expected in [
         (ClientOrderStatus.completed, ClientOrderStatus.active),
         (ClientOrderStatus.paused, ClientOrderStatus.paused),

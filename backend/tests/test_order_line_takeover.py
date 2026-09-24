@@ -9,7 +9,7 @@ pozostałych, a suma pozycji zamówienia liczy przeniesione MD raz.
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 
@@ -27,8 +27,9 @@ from app.services.order_line_takeover import (
     split_transferred,
     transferred_md,
 )
+from app.core.scheduling import business_today
 
-_TODAY = date.today()
+_TODAY = business_today()
 
 
 def _enable_multi(monkeypatch, *client_ids: int) -> None:

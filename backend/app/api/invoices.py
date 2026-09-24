@@ -20,6 +20,7 @@ from app.models.contract import Contract
 from app.models.invoice import Invoice, InvoiceDirection, InvoiceStatus
 from app.services.client_identity import client_display_name_expression
 from app.services.fx_service import rates_to_pln
+from app.core.scheduling import business_today
 
 logger = logging.getLogger(__name__)
 
@@ -121,7 +122,7 @@ async def list_invoices(
     if direction:
         query = query.where(Invoice.direction == direction)
     if overdue_only:
-        today = date.today()
+        today = business_today()
         query = query.where(
             Invoice.status.in_([InvoiceStatus.issued, InvoiceStatus.sent]),
             Invoice.due_date.isnot(None),
@@ -160,7 +161,7 @@ async def dso_by_client(
     We aggregate per client × currency in SQL, then convert each subtotal to PLN
     with today's report rate before folding into the per-client total.
     """
-    today = date.today()
+    today = business_today()
     client_name = client_display_name_expression()
 
     # Totals per client × currency (client-facing invoices).

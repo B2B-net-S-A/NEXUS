@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from datetime import datetime
 from typing import Any
 
 from app.services.cv_generator_b2b.champion_builder import ChampionProfileForPrompt
@@ -22,6 +21,7 @@ from app.services.cv_generator_b2b.docx_renderer import (
 from app.services.cv_generator_b2b.standalone_service import (  # noqa: F401
     StandaloneGenerationError,
 )
+from app.core.scheduling import local_now
 
 
 # Letters NFKD cannot decompose to ASCII — transliterate manually so the ASCII
@@ -196,7 +196,7 @@ def _total_experience_years(experience: list[dict[str, Any]]) -> int | None:
     them — it tends to round down ("ponad 4" for a 5-year candidate). Computing
     the figure here makes the why_points headline exact.
     """
-    now = datetime.now()
+    now = local_now()
     now_idx = now.year * 12 + (now.month - 1)
     intervals: list[tuple[int, int]] = []
     for job in experience or []:
@@ -647,7 +647,7 @@ def _derivable_years(candidate_data: dict[str, Any]) -> set[str]:
         if not span:
             continue
         start, end = span
-        now = datetime.now()
+        now = local_now()
         end = min(end, now.year * 12 + (now.month - 1))
         years = max(0, (end - start) // 12)
         allowed.update(str(years + delta) for delta in (0, 1))

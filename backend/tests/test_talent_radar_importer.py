@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.services import talent_radar_importer as tri
+from app.core.scheduling import business_today
 
 
 # ── normalize_seniority ─────────────────────────────────────────────────────
@@ -53,9 +54,9 @@ def test_availability_slash_format():
 def test_availability_immediately_keyword():
     # Returns today
     result = tri.parse_availability("natychmiast")
-    assert result == date.today()
+    assert result == business_today()
     result = tri.parse_availability("ASAP")
-    assert result == date.today()
+    assert result == business_today()
 
 
 def test_availability_none_for_invalid():

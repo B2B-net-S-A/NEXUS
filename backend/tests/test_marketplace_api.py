@@ -16,6 +16,7 @@ from app.models.candidate import AvailabilityStatus, Candidate, CandidateStatus
 from app.models.marketplace_alert_log import MarketplaceAlertLog
 from app.models.talent_pool import TalentPoolMembership
 from app.models.user import User, UserRole
+from app.core.scheduling import business_today
 
 
 pytestmark = pytest.mark.asyncio
@@ -129,14 +130,14 @@ async def test_add_to_marketplace_defaults_30d(
     assert data["candidate_id"] == seeded_candidate
     assert data["source_event"] == "manual"
 
-    expected = date.today() + timedelta(days=30)
+    expected = business_today() + timedelta(days=30)
     assert date.fromisoformat(data["marketplace_until"]) == expected
 
 
 async def test_add_to_marketplace_custom_date(
     app_client: AsyncClient, app_auth_headers: dict, seeded_candidate: int
 ):
-    target = (date.today() + timedelta(days=14)).isoformat()
+    target = (business_today() + timedelta(days=14)).isoformat()
     resp = await app_client.post(
         f"/api/marketplace/candidates/{seeded_candidate}/add",
         json={"marketplace_until": target},

@@ -16,8 +16,8 @@ from __future__ import annotations
 
 import html
 import re
-from datetime import datetime
 from typing import TYPE_CHECKING, Optional
+from app.core.scheduling import business_today
 
 if TYPE_CHECKING:
     from app.models.candidate import Candidate
@@ -80,7 +80,7 @@ def _calc_experience_years(experience: list) -> int:
             ):
                 end_year = int(str(end)[:4])
             else:
-                end_year = datetime.now().year
+                end_year = business_today().year
             if start_year and end_year:
                 total_months += max(0, (end_year - start_year) * 12)
         except Exception:
@@ -175,7 +175,7 @@ def _generate_cv_html(
             if skill_name and skill_name in req_text:
                 job_skills_highlight.append(skill.get("name", ""))
 
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = business_today().isoformat()
 
     contact_rows = ""
     if email:

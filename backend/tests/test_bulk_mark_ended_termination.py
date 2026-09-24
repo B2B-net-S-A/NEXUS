@@ -14,7 +14,7 @@ dyspozycje dzielą teraz jeden helper (``_apply_termination_to_contract``).
 from __future__ import annotations
 
 import uuid
-from datetime import date, timedelta
+from datetime import timedelta
 
 import pytest
 from httpx import AsyncClient
@@ -27,10 +27,11 @@ from app.models.client import Client
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.contract import Contract, ContractStatus, ContractTerminationReason
 from app.models.contract_amendment import ContractAmendment, ContractAmendmentType
+from app.core.scheduling import business_today
 
 pytestmark = pytest.mark.asyncio
 
-TODAY = date.today()
+TODAY = business_today()
 WHEN = TODAY - timedelta(days=3)
 
 

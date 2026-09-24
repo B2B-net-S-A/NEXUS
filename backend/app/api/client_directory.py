@@ -49,6 +49,7 @@ from app.services.client_identity import (
 )
 from app.services.contractor_identity import contractor_identity_sql_expression
 from app.services.polish_ilike import polish_folded_ilike
+from app.core.scheduling import business_today
 
 router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
 
@@ -307,7 +308,7 @@ async def list_client_directory(
     category.
     """
 
-    as_of = date.today()
+    as_of = business_today()
     allowed_client_ids = await _directory_client_scope(current_user, db, mine=mine)
     rows_statement = _directory_rows_statement(
         category=category,
@@ -491,7 +492,7 @@ async def export_client_directory(
     statement = _directory_rows_statement(
         category=category,
         q=q,
-        as_of=date.today(),
+        as_of=business_today(),
         allowed_client_ids=await _directory_client_scope(current_user, db, mine=mine),
     ).limit(limit)
     rows = (await db.execute(statement)).all()

@@ -21,6 +21,7 @@ from app.services.nordea_order_import import (
     _pick_existing_order,
     parse_nordea_csv,
 )
+from app.core.scheduling import business_today
 
 _HEADER = (
     "Numer zamówienia;Kontraktor;Line manager;Start date;End date;"
@@ -210,7 +211,7 @@ async def _seed_nordea() -> tuple[int, int, int, str]:
             candidate_id=candidate.id,
             client_id=client.id,
             status=ContractStatus.active,
-            start_date=date.today() - timedelta(days=365),
+            start_date=business_today() - timedelta(days=365),
             rate_candidate=Decimal("123.456"),
             rate_client=Decimal("150.000"),
             framework_rate=Decimal("110.00"),
@@ -223,8 +224,8 @@ async def _seed_nordea() -> tuple[int, int, int, str]:
             contract_id=contract.id,
             title="222",
             status=ClientOrderStatus.active,
-            start_date=date.today() - timedelta(days=100),
-            end_date=date.today() + timedelta(days=200),
+            start_date=business_today() - timedelta(days=100),
+            end_date=business_today() + timedelta(days=200),
             rate_client=Decimal("149.000"),
         )
         db.add(order)
@@ -270,7 +271,7 @@ async def test_dry_run_names_the_overwritten_order_and_both_values(
 
     client_id, _, order_id, name = await _seed_nordea()
     content = _import_csv(
-        name, "279411", date(2026, 2, 25), date.today() + timedelta(days=30)
+        name, "279411", date(2026, 2, 25), business_today() + timedelta(days=30)
     )
 
     preview = await app_client.post(
@@ -309,7 +310,7 @@ async def test_completed_status_follows_the_business_calendar_not_utc_midnight(
     from app.services import nordea_order_import as service
 
     client_id, _, order_id, name = await _seed_nordea()
-    end = date.today() + timedelta(days=5)
+    end = business_today() + timedelta(days=5)
     monkeypatch.setattr(service, "business_today", lambda: end + timedelta(days=1))
 
     applied = await app_client.post(
@@ -319,7 +320,7 @@ async def test_completed_status_follows_the_business_calendar_not_utc_midnight(
         files={
             "file": (
                 "Nordea.csv",
-                _import_csv(name, "279411", date.today() - timedelta(days=10), end),
+                _import_csv(name, "279411", business_today() - timedelta(days=10), end),
                 "text/csv",
             )
         },

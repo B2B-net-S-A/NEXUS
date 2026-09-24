@@ -19,7 +19,6 @@ to ORM rows and exposes them to the template under the namespaces
 
 from __future__ import annotations
 
-from datetime import date
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -41,6 +40,7 @@ from app.services.access_scope import (
     assert_delivery_lead_client_visible,
     resolve_delivery_lead_client_ids,
 )
+from app.core.scheduling import business_today
 
 router = APIRouter()
 
@@ -207,7 +207,7 @@ def _build_render_context(
         "request": job_ctx,
         "job": job_ctx,
         "user": _user_ctx(current_user),
-        "today": date.today().isoformat(),
+        "today": business_today().isoformat(),
     }
 
 

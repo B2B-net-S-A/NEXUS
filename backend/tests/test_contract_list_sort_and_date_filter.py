@@ -17,6 +17,7 @@ from httpx import AsyncClient
 
 from app.core.database import AsyncSessionLocal
 from app.models.contract import Contract, ContractStatus
+from app.core.scheduling import business_today
 from tests.test_contractor_consolidation import (
     _seed_candidate,
     _seed_client,
@@ -247,7 +248,7 @@ async def test_rate_sort_follows_the_displayed_schedule_rate_not_the_cache(
 
     marker = f"Srs{uuid.uuid4().hex[:6]}"
     ids = await _seed_three(marker)
-    today = date.today()
+    today = business_today()
     async with AsyncSessionLocal() as db:
         # Zenon: cache 200, ale od wczoraj obowiązuje 90 (najniższa ze wszystkich),
         # a przyszły krok 500 nie może jeszcze liczyć się do sortowania.

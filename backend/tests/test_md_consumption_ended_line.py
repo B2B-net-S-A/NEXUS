@@ -24,12 +24,13 @@ from decimal import Decimal
 
 import pytest
 from httpx import AsyncClient
+from app.core.scheduling import business_today
 
 pytestmark = pytest.mark.asyncio
 
 #: Miesiąc raportu leży w przeszłości, tak jak w zgłoszeniu: osoba już zeszła,
 #: a rozliczenie za ten miesiąc dopiero wpływa.
-_TODAY = date.today()
+_TODAY = business_today()
 _REPORTED = date(_TODAY.year, _TODAY.month, 1) - timedelta(days=45)
 _PERIOD = _REPORTED.strftime("%Y-%m")
 #: Ostatni dzień miesiąca, którego dotyczy raport — wtedy konsultant zszedł.

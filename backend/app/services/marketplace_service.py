@@ -43,6 +43,7 @@ from app.models.marketplace_alert_log import MarketplaceAlertLog
 from app.models.notification import NotificationType
 from app.models.talent_pool import TalentPool, TalentPoolMembership
 from app.models.user import User
+from app.core.scheduling import business_today
 
 logger = logging.getLogger(__name__)
 
@@ -210,7 +211,7 @@ async def auto_sync_marketplace_membership(db: AsyncSession) -> SyncCounters:
 
     # ── Phase 2b: remove manual entries po wygaśnięciu ────────────────────
     removed_expired = 0
-    today = date.today()
+    today = business_today()
     res = await db.execute(
         select(TalentPoolMembership.id).where(
             TalentPoolMembership.talent_pool_id == pool.id,
@@ -714,7 +715,7 @@ async def add_candidate_to_marketplace(
         raise ValueError(f"Candidate {candidate_id} not found")
 
     until = marketplace_until or (
-        date.today() + timedelta(days=settings.MARKETPLACE_DEFAULT_DURATION_DAYS)
+        business_today() + timedelta(days=settings.MARKETPLACE_DEFAULT_DURATION_DAYS)
     )
 
     existing = await db.execute(

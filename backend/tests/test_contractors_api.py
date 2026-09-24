@@ -23,6 +23,7 @@ from app.services.contract_service import (
     ENDING_SOON_WINDOW_DAYS,
     validate_ready_for_activation,
 )
+from app.core.scheduling import business_today
 
 
 # ── Unit: validator ─────────────────────────────────────────────────────────
@@ -47,8 +48,8 @@ def test_validate_missing_all_fields_returns_full_list():
 
 def test_validate_all_populated_returns_empty():
     contract = _fake_contract(
-        start_date=date.today(),
-        end_date=date.today() + timedelta(days=90),
+        start_date=business_today(),
+        end_date=business_today() + timedelta(days=90),
         rate_candidate=15000,
         rate_client=20000,
         contract_type="b2b",
@@ -59,7 +60,7 @@ def test_validate_all_populated_returns_empty():
 
 def test_validate_partial_returns_only_missing():
     contract = _fake_contract(
-        start_date=date.today(),
+        start_date=business_today(),
         rate_candidate=15000,
         contract_type="b2b",
     )
@@ -79,7 +80,7 @@ def test_open_ended_contract_is_ready_to_activate():
     na „Aktywny").
     """
     contract = _fake_contract(
-        start_date=date.today(),
+        start_date=business_today(),
         end_date=None,
         rate_candidate=15000,
         rate_client=20000,
@@ -93,7 +94,7 @@ def test_open_ended_contract_is_ready_to_activate():
 def test_work_mode_is_optional_for_activation():
     """Tryb pracy pozostaje edytowalny, ale nie blokuje zapisu Aktywnego."""
     contract = _fake_contract(
-        start_date=date.today(),
+        start_date=business_today(),
         rate_candidate=15000,
         rate_client=20000,
         contract_type="b2b",
@@ -117,14 +118,14 @@ def test_rate_only_in_the_schedule_satisfies_the_gate():
     z komunikatem „brakuje stawki", stojąc obok wypełnionego harmonogramu.
     """
     contract = Contract(
-        start_date=date.today(),
+        start_date=business_today(),
         rate_candidate=None,
         rate_client=20000,
         contract_type=ContractType.b2b,
         work_mode=ContractWorkMode.remote,
     )
     contract.candidate_rate_schedule = [
-        ContractCandidateRate(rate=15000, effective_from=date.today())
+        ContractCandidateRate(rate=15000, effective_from=business_today())
     ]
     assert validate_ready_for_activation(contract) == []
 
@@ -143,7 +144,7 @@ def test_future_only_schedule_also_satisfies_the_gate():
     miał rację. Zostaje jako zapis tej decyzji.
     """
     contract = Contract(
-        start_date=date.today(),
+        start_date=business_today(),
         rate_candidate=None,
         rate_client=20000,
         contract_type=ContractType.b2b,
@@ -151,17 +152,17 @@ def test_future_only_schedule_also_satisfies_the_gate():
     )
     contract.candidate_rate_schedule = [
         ContractCandidateRate(
-            rate=15000, effective_from=date.today() + timedelta(days=30)
+            rate=15000, effective_from=business_today() + timedelta(days=30)
         )
     ]
     assert validate_ready_for_activation(contract) == []
-    assert contract.effective_candidate_rate(date.today()) == 15000
+    assert contract.effective_candidate_rate(business_today()) == 15000
 
 
 def test_empty_schedule_falls_back_to_the_column():
     """Pusty harmonogram → decyduje kolumna; brak obu → brak stawki."""
     contract = Contract(
-        start_date=date.today(),
+        start_date=business_today(),
         rate_candidate=None,
         rate_client=20000,
         contract_type=ContractType.b2b,
@@ -177,7 +178,7 @@ def test_plain_attribute_bag_does_not_explode_on_inspect():
     Stąd ``raiseerr=False``: brak stanu ORM znaczy „nie ma jak sprawdzić
     harmonogramu", a nie „wywal request".
     """
-    bag = _fake_contract(start_date=date.today(), contract_type="b2b")
+    bag = _fake_contract(start_date=business_today(), contract_type="b2b")
     assert validate_ready_for_activation(bag) == [
         "rate_candidate",
         "rate_client",
@@ -282,7 +283,7 @@ async def test_list_contractors_filter_by_status(
         "/api/contractors?status=active", headers=app_auth_headers
     )
     assert resp.status_code == 200, resp.text
-    today = date.today()
+    today = business_today()
     cutoff = today + timedelta(days=ENDING_SOON_WINDOW_DAYS)
     for item in resp.json()["items"]:
         # ``active`` is a date bucket, not an equality filter on the stored
@@ -376,7 +377,7 @@ async def test_activate_draft_happy_path(
     fill = await app_client.patch(
         f"/api/contracts/{draft['id']}",
         json={
-            "start_date": date.today().isoformat(),
+            "start_date": business_today().isoformat(),
             # Bez daty końca: umowa B2B jest bezterminowa (reguła 09.2026).
             "rate_candidate": 15000,
             "rate_client": 20000,
@@ -461,13 +462,13 @@ def test_contractor_item_reads_rates_from_the_schedule_not_the_cache():
         client_rate_schedule=[
             ContractClientRate(
                 rate=Decimal("213"),
-                effective_from=date.today() - timedelta(days=1),
+                effective_from=business_today() - timedelta(days=1),
             )
         ],
         candidate_rate_schedule=[
             ContractCandidateRate(
                 rate=Decimal("165"),
-                effective_from=date.today() - timedelta(days=1),
+                effective_from=business_today() - timedelta(days=1),
             )
         ],
         framework_rate_schedule=[],

@@ -19,6 +19,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from httpx import AsyncClient
+from app.core.scheduling import business_today
 
 # asyncio_mode = auto (pytest.ini) runs the async tests without an explicit mark;
 # the pure-Decimal unit tests below stay synchronous.
@@ -194,7 +195,7 @@ async def _seed_contract(
     from app.core.database import AsyncSessionLocal
     from app.models.contract import Contract, ContractStatus
 
-    today = date.today()
+    today = business_today()
     async with AsyncSessionLocal() as db:
         c = Contract(
             client_id=client_id,
@@ -220,7 +221,7 @@ async def _seed_rate(currency: str, rate: str, on: date | None = None) -> Decima
     from app.core.database import AsyncSessionLocal
     from app.models.fx_rate import FxRate
 
-    on = on or date.today()
+    on = on or business_today()
     async with AsyncSessionLocal() as db:
         existing = await db.scalar(
             select(FxRate).where(
@@ -258,7 +259,7 @@ async def _seed_invoice(
     from app.core.database import AsyncSessionLocal
     from app.models.invoice import Invoice, InvoiceDirection, InvoiceStatus
 
-    today = date.today()
+    today = business_today()
     async with AsyncSessionLocal() as db:
         db.add(
             Invoice(

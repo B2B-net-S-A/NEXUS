@@ -13,6 +13,7 @@ from datetime import date, timedelta
 
 import pytest
 from httpx import AsyncClient
+from app.core.scheduling import business_today
 
 
 async def _seed_user(*, role: str = "recruiter") -> int:
@@ -491,7 +492,7 @@ async def test_jobs_active_in_search_filter(
 async def test_jobs_deadline_range_and_has_deadline(
     app_client: AsyncClient, app_auth_headers: dict
 ):
-    today = date.today()
+    today = business_today()
     j_past = await _seed_job(deadline=today - timedelta(days=10))
     j_soon = await _seed_job(deadline=today + timedelta(days=3))
     j_far = await _seed_job(deadline=today + timedelta(days=60))

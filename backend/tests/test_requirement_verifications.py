@@ -71,7 +71,7 @@ def test_provenance_requires_current_request_and_full_candidate_source():
     "changes",
     [
         {"verified_at": datetime.now(timezone.utc) + timedelta(days=1)},
-        {"verified_at": datetime.now()},
+        {"verified_at": datetime.now()},  # noqa: DTZ005 — celowo bez strefy
         {"evidence": "   "},
         {"usage_context": ""},
         {"reviewer_id": 99},

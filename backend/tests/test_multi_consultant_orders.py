@@ -16,8 +16,9 @@ import pytest
 from httpx import AsyncClient
 
 from tests.test_contract_analytics_fx import _free_test_currency
+from app.core.scheduling import business_today
 
-_TODAY = date.today()
+_TODAY = business_today()
 
 
 # ── Seed ────────────────────────────────────────────────────────────────────

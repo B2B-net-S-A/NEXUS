@@ -33,6 +33,7 @@ from app.services.cv_parser import (
 )
 from app.services.embedding_service import _build_candidate_text_v1
 from app.services.llm_prompts import CV_ENRICHMENT, CV_ENRICHMENT_BULK
+from app.core.scheduling import business_today
 
 V7 = "claude:cv_enrichment:v7"
 
@@ -427,7 +428,7 @@ def test_recency_weights_discount_long_unused_skills(monkeypatch):
     from app.services import scoring_service as ss
 
     monkeypatch.setattr(settings, "AI_SCORING_SKILL_RECENCY", True)
-    this_year = date.today().year
+    this_year = business_today().year
     timeline = [
         {"skill": "Java", "last_used": str(this_year)},
         {"skill": "Scala", "last_used": str(this_year - 5)},

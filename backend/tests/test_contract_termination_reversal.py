@@ -11,7 +11,7 @@ sprawy decyzji, nienaruszone zużycie i pulę MD.
 from __future__ import annotations
 
 import uuid
-from datetime import date, timedelta
+from datetime import timedelta
 from decimal import Decimal
 
 import pytest
@@ -19,9 +19,10 @@ from httpx import AsyncClient
 from sqlalchemy import delete, select
 
 from app.models.user import UserRole
+from app.core.scheduling import business_today
 from tests._jarvis_helpers import make_user
 
-_TODAY = date.today()
+_TODAY = business_today()
 _THIS_MONTH_START = _TODAY.replace(day=1)
 _ENDED_ON = _THIS_MONTH_START - timedelta(days=1)  # ostatni dzień poprzedniego miesiąca
 

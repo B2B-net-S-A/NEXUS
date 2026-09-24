@@ -10,15 +10,16 @@ utworzonym zamówieniu i co zwraca endpoint zasilający formularze.
 from __future__ import annotations
 
 import uuid
-from datetime import date, timedelta
+from datetime import timedelta
 from decimal import Decimal
 
 from httpx import AsyncClient
 
 from app.models.contract import RateUnit
 from app.services.client_default_rate_unit import default_rate_unit_for_client
+from app.core.scheduling import business_today
 
-_TODAY = date.today()
+_TODAY = business_today()
 
 
 async def _seed_client(*, name: str | None = None) -> tuple[int, int, int]:

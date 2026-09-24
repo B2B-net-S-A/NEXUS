@@ -14,6 +14,7 @@ from sqlalchemy import and_, inspect, or_, select
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.contract import Contract, ContractStatus
 from app.services.pipeline_latest import current_hired_stage_exists
+from app.core.scheduling import business_today
 
 
 # Minimum set of fields that must be populated before a draft contract
@@ -77,7 +78,7 @@ def _has_activation_value(contract: Contract, field: str) -> bool:
     if state is None or relation in state.unloaded:
         return False
     resolver = getattr(contract, _RATE_SCHEDULE_RESOLVERS[field], None)
-    return resolver is not None and resolver(date.today()) is not None
+    return resolver is not None and resolver(business_today()) is not None
 
 
 # Pole bramki → (relacja harmonogramu, metoda rozwiązująca krok na dany dzień).
@@ -121,7 +122,7 @@ _LIVE_STATUSES = (ContractStatus.active, ContractStatus.ending)
 
 def ending_soon_window(today: Optional[date] = None) -> tuple[date, date]:
     """Return the inclusive ``[start, cutoff]`` date window for "ending soon"."""
-    start = today or date.today()
+    start = today or business_today()
     return start, start + timedelta(days=ENDING_SOON_WINDOW_DAYS)
 
 

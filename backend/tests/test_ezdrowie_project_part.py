@@ -15,7 +15,7 @@ z realnym id=115.
 from __future__ import annotations
 
 import uuid
-from datetime import date, timedelta
+from datetime import timedelta
 
 import pytest
 from httpx import AsyncClient
@@ -31,6 +31,7 @@ from app.models.client_framework_contract import (
 )
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.contract import Contract, ContractStatus
+from app.core.scheduling import business_today
 
 pytestmark = pytest.mark.asyncio
 
@@ -45,7 +46,7 @@ async def _seed(client_status: ContractStatus = ContractStatus.active):
         contract = Contract(
             candidate_id=cand.id,
             client_id=client.id,
-            start_date=date.today() - timedelta(days=30),
+            start_date=business_today() - timedelta(days=30),
             rate_client=15000,
             rate_candidate=12000,
             status=client_status,
@@ -223,8 +224,8 @@ async def test_flow_b_requires_executive_contract_and_forbids_for_others(
             return {
                 "candidate_id": cand_id,
                 "title": "Nowy kontraktor",
-                "contract_start_date": date.today().isoformat(),
-                "order_start_date": date.today().isoformat(),
+                "contract_start_date": business_today().isoformat(),
+                "order_start_date": business_today().isoformat(),
                 # Admin musi podać obie stawki (admin_finance_fields_required).
                 "rate_client": 16000,
                 "rate_candidate": 12000,
@@ -346,7 +347,7 @@ async def test_patch_executive_contract_and_profile_uses_current_order(
     monkeypatch.setattr("app.services.ezdrowie.EZDROWIE_CLIENT_ID", client_id)
     executives = await _seed_structure(client_id, ("cz2", "cz4", "cz6"))
     try:
-        today = date.today()
+        today = business_today()
         async with AsyncSessionLocal() as db:
             db.add_all(
                 [

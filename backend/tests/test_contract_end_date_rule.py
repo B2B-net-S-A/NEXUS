@@ -27,6 +27,7 @@ from app.core.database import AsyncSessionLocal
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.contract import Contract, ContractStatus, ContractType, ContractWorkMode
+from app.core.scheduling import business_today
 
 pytestmark = pytest.mark.asyncio
 
@@ -46,7 +47,7 @@ async def _seed_active_contract(
             contract_type=contract_type,
             work_mode=ContractWorkMode.remote,
             status=ContractStatus.active,
-            start_date=date.today() - timedelta(days=100),
+            start_date=business_today() - timedelta(days=100),
             end_date=None,
             rate_candidate=15000,
             rate_client=20000,
@@ -62,7 +63,7 @@ async def _post_active_order(app_client, headers, client_id, contract_id, *, end
         data={
             "contract_id": str(contract_id),
             "title": f"K/2026/{uuid.uuid4().hex[:6]}",
-            "start_date": (date.today() - timedelta(days=10)).isoformat(),
+            "start_date": (business_today() - timedelta(days=10)).isoformat(),
             "end_date": end.isoformat(),
             "order_status": "active",
             "rate_client": "20000",
@@ -84,7 +85,7 @@ async def _order(app_client, headers, client_id, order_id):
 async def test_contract_end_date_caps_the_live_order_and_only_shortens(
     app_client, app_auth_headers
 ):
-    today = date.today()
+    today = business_today()
     # Umowa zlecenie: data końca umowy B2B powstaje wyłącznie przez „Zakończ
     # współpracę" (reguła 09.2026, `test_b2b_contract_end_date.py`), więc
     # PATCH samej daty to ścieżka umów z terminem.
@@ -149,7 +150,7 @@ async def test_past_contract_end_date_completes_the_order_at_once(
     app_client, app_auth_headers
 ):
     """Data z przeszłości: zamówienie domknięte od razu, nie za noc."""
-    today = date.today()
+    today = business_today()
     client_id, contract_id = await _seed_active_contract(ContractType.uzlecenie)
     order_id = await _post_active_order(
         app_client,

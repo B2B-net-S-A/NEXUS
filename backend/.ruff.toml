@@ -1,6 +1,12 @@
 # Ruff configuration for NEXUS backend.
 # Defaults are sensible — only opt-out per-file ignores below.
 
+[lint]
+# „Dziś” liczymy kalendarzem firmy (Europe/Warsaw), nie zegarem kontenera (UTC):
+# `app.core.scheduling.business_today()` zamiast `date.today()` (DTZ011),
+# a `datetime.now()` zawsze z jawną strefą (DTZ005).
+extend-select = ["DTZ005", "DTZ011"]
+
 [lint.per-file-ignores]
 # Legacy compat layer: imports after sys.path manipulation. Refactor TODO.
 "app/services/m365/sync.py" = ["E402"]

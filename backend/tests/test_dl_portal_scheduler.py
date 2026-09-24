@@ -13,7 +13,7 @@ statusów zamówień i powiadomień — zero failów.
 from __future__ import annotations
 
 import uuid
-from datetime import date, timedelta
+from datetime import timedelta
 
 import pytest
 from sqlalchemy import select
@@ -32,6 +32,7 @@ from app.models.notification import Notification, NotificationType
 from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User, UserRole
 from app.tasks.dl_portal_expiry_scanner import run_once
+from app.core.scheduling import business_today
 
 pytestmark = pytest.mark.asyncio
 
@@ -83,7 +84,7 @@ async def _new_contract(client_id: int) -> tuple[int, int]:
         contract = Contract(
             candidate_id=candidate.id,
             client_id=client_id,
-            start_date=date.today(),
+            start_date=business_today(),
             rate_client=15000,
             rate_candidate=12000,
             status=ContractStatus.active,
@@ -142,7 +143,7 @@ async def test_status_promotion_active_to_expired():
                 client_id=client_id,
                 name="Wygasla MSA",
                 status=FrameworkContractStatus.active,
-                expiry_date=date.today() - timedelta(days=1),
+                expiry_date=business_today() - timedelta(days=1),
             )
             db.add(fc)
             await db.commit()
@@ -183,7 +184,7 @@ async def test_alert_dispatch_30d_to_dl_and_admin():
                 client_id=client_id,
                 name="MSA expiring 30d",
                 status=FrameworkContractStatus.active,
-                expiry_date=date.today() + timedelta(days=30),
+                expiry_date=business_today() + timedelta(days=30),
             )
             db.add(fc)
             await db.commit()
@@ -224,7 +225,7 @@ async def test_alert_dedup_no_duplicate_on_second_run():
                 client_id=client_id,
                 name="dedup test MSA",
                 status=FrameworkContractStatus.active,
-                expiry_date=date.today() + timedelta(days=14),
+                expiry_date=business_today() + timedelta(days=14),
             )
             db.add(fc)
             await db.commit()
@@ -272,8 +273,8 @@ async def test_extended_order_and_framework_contract_rearm_thresholds():
     admin_id, dl_id, client_id = await _setup_dl_with_client()
     renewed_contract, renewed_candidate = await _new_contract(client_id)
     same_contract, same_candidate = await _new_contract(client_id)
-    new_end = date.today() + timedelta(days=7)
-    fc_end = date.today() + timedelta(days=14)
+    new_end = business_today() + timedelta(days=7)
+    fc_end = business_today() + timedelta(days=14)
     long_ago = datetime.now(timezone.utc) - timedelta(days=60)
     yesterday = datetime.now(timezone.utc) - timedelta(days=1)
     try:
@@ -283,7 +284,7 @@ async def test_extended_order_and_framework_contract_rearm_thresholds():
                 contract_id=renewed_contract,
                 title="Przedłużone zamówienie",
                 status=ClientOrderStatus.active,
-                start_date=date.today() - timedelta(days=90),
+                start_date=business_today() - timedelta(days=90),
                 end_date=new_end,
             )
             same = ClientOrder(
@@ -291,7 +292,7 @@ async def test_extended_order_and_framework_contract_rearm_thresholds():
                 contract_id=same_contract,
                 title="To samo zamówienie",
                 status=ClientOrderStatus.active,
-                start_date=date.today() - timedelta(days=90),
+                start_date=business_today() - timedelta(days=90),
                 end_date=new_end,
             )
             fc = ClientFrameworkContract(
@@ -302,7 +303,7 @@ async def test_extended_order_and_framework_contract_rearm_thresholds():
             )
             db.add_all([renewed, same, fc])
             await db.flush()
-            old_end = (date.today() - timedelta(days=53)).isoformat()
+            old_end = (business_today() - timedelta(days=53)).isoformat()
             db.add_all(
                 [
                     # Poprzedni okres przedłużonego zamówienia — ten sam próg.
@@ -394,7 +395,7 @@ async def test_same_warsaw_day_alert_for_moved_date_does_not_crash_the_run():
     """
     admin_id, dl_id, client_id = await _setup_dl_with_client()
     contract_id, candidate_id = await _new_contract(client_id)
-    end = date.today() + timedelta(days=7)
+    end = business_today() + timedelta(days=7)
     try:
         async with AsyncSessionLocal() as db:
             order = ClientOrder(
@@ -402,7 +403,7 @@ async def test_same_warsaw_day_alert_for_moved_date_does_not_crash_the_run():
                 contract_id=contract_id,
                 title="Przesunięte zamówienie",
                 status=ClientOrderStatus.active,
-                start_date=date.today() - timedelta(days=30),
+                start_date=business_today() - timedelta(days=30),
                 end_date=end,
             )
             db.add(order)
@@ -459,8 +460,8 @@ async def test_contract_typed_alert_with_the_same_id_does_not_crash_the_run():
                 contract_id=contract_id,
                 title="Kolizja numeru",
                 status=ClientOrderStatus.active,
-                start_date=date.today() - timedelta(days=30),
-                end_date=date.today() + timedelta(days=30),
+                start_date=business_today() - timedelta(days=30),
+                end_date=business_today() + timedelta(days=30),
             )
             # Zamówienie po terminie: jego przejście na „completed” musi
             # przetrwać ten sam przebieg.
@@ -469,8 +470,8 @@ async def test_contract_typed_alert_with_the_same_id_does_not_crash_the_run():
                 contract_id=contract_id,
                 title="Zamówienie po terminie",
                 status=ClientOrderStatus.active,
-                start_date=date.today() - timedelta(days=60),
-                end_date=date.today() - timedelta(days=1),
+                start_date=business_today() - timedelta(days=60),
+                end_date=business_today() - timedelta(days=1),
             )
             db.add_all([order, overdue])
             await db.flush()
@@ -583,8 +584,8 @@ async def test_order_alert_dispatched():
                 framework_contract_id=fc.id,
                 title="Order ending 7d",
                 status=ClientOrderStatus.active,
-                start_date=date.today(),
-                end_date=date.today() + timedelta(days=7),
+                start_date=business_today(),
+                end_date=business_today() + timedelta(days=7),
             )
             db.add(o)
             await db.commit()
@@ -687,7 +688,7 @@ async def test_thirty_day_threshold_survives_a_missed_scan_day(days_left: int):
                 contract_id=contract_id,
                 title=f"Zamówienie T-{days_left}",
                 status=ClientOrderStatus.active,
-                start_date=date.today() - timedelta(days=90),
+                start_date=business_today() - timedelta(days=90),
                 end_date=end,
             )
             db.add(order)
@@ -729,7 +730,7 @@ async def test_order_entered_late_takes_the_tightest_threshold_not_thirty():
                 contract_id=contract_id,
                 title="Zamówienie wpisane późno",
                 status=ClientOrderStatus.active,
-                start_date=date.today() - timedelta(days=5),
+                start_date=business_today() - timedelta(days=5),
                 end_date=end,
             )
             db.add(order)

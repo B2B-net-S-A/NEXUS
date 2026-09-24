@@ -85,6 +85,7 @@ from app.services.cv_generator_b2b.standalone_service import (
     _loads_cv_json,
     normalize_content_mode,
 )
+from app.core.scheduling import business_today
 
 logger = logging.getLogger(__name__)
 
@@ -204,7 +205,7 @@ def run_legacy_generation(
     client_rules_block = build_prompt_blocks(client_rule, language)
     if client_rules_block:
         user_parts.append(client_rules_block)
-    user_parts.append(build_generation_date_block(language, date.today()))
+    user_parts.append(build_generation_date_block(language, business_today()))
     if client_rule and client_rule.managed_policy:
         from app.services.cv_generator_b2b.presentation_title import instructions
 

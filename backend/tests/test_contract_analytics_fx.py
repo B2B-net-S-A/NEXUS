@@ -29,6 +29,7 @@ from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.contract import Contract, ContractStatus
 from app.models.fx_rate import FxRate
+from app.core.scheduling import business_today
 from tests._ranking_anchor import anchor_contract, ranking_anchor
 
 #: Okno, o które pytają testy w tym pliku (`?limit=100`). Kotwica MUSI być
@@ -89,7 +90,7 @@ async def _seed_contractor_two_currencies(
     prognozy (agregat, bez rankingu) zostawiają go pustym, żeby nie zaburzać
     różnicy przed/po.
     """
-    await _seed_rate("GBP", "4.1234", date.today())
+    await _seed_rate("GBP", "4.1234", business_today())
     unique = uuid.uuid4().hex[:8]
     async with AsyncSessionLocal() as db:
         client = Client(name=f"FX Client {unique}")
@@ -139,7 +140,7 @@ async def _seed_split_currency_contract(
 
     ``anchor`` — patrz `_seed_contractor_two_currencies`.
     """
-    await _seed_rate(currency, rate_to_pln, date.today())
+    await _seed_rate(currency, rate_to_pln, business_today())
     unique = uuid.uuid4().hex[:8]
     async with AsyncSessionLocal() as db:
         client = Client(name=f"Split FX Client {unique}")
@@ -455,7 +456,7 @@ async def test_revenue_forecast_converts_by_default(
     convert=true response and DIFFERS from the nominal (convert=false) one — the
     seeded CHF contract (rate 5.0) guarantees a non-zero difference.
     """
-    await _seed_rate("CHF", "5.0", date.today())
+    await _seed_rate("CHF", "5.0", business_today())
     unique = uuid.uuid4().hex[:8]
     async with AsyncSessionLocal() as db:
         client = Client(name=f"CHF Client {unique}")
@@ -563,7 +564,7 @@ async def test_revenue_forecast_missing_fx_excluded_not_counted_1to1(
     ), no_rate["fx_warnings"]
     rev_excluded = no_rate["months"][0]["revenue"]
 
-    await _seed_rate(fake_cur, "7.0", date.today())
+    await _seed_rate(fake_cur, "7.0", business_today())
     with_rate = await _forecast()
     rev_included = with_rate["months"][0]["revenue"]
     # Once the rate exists the currency stops being warned about.

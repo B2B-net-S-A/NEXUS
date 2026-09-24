@@ -40,6 +40,7 @@ from app.services.contract_order_sync import (
     sync_contract_from_orders,
     sync_orders_cost_from_contract,
 )
+from app.core.scheduling import business_today
 
 pytestmark = pytest.mark.asyncio
 
@@ -647,7 +648,7 @@ async def test_contract_cost_change_reaches_the_order_through_the_api(
     from app.core.database import AsyncSessionLocal
 
     contract = await _load_contract(ids["contract_id"])
-    assert contract.effective_candidate_rate(date.today()) == Decimal("130")
+    assert contract.effective_candidate_rate(business_today()) == Decimal("130")
     async with AsyncSessionLocal() as db:
         order = await db.get(ClientOrder, ids["order_id"])
         expected = "130.000" if contract_order_sync_mode == "enabled" else "120.000"
@@ -796,7 +797,7 @@ async def test_daily_cost_sync_waits_for_the_repair_marker():
                 ContractCandidateRate(
                     contract_id=contract.id,
                     rate=Decimal("125"),
-                    effective_from=date.today() - timedelta(days=1),
+                    effective_from=business_today() - timedelta(days=1),
                 )
             )
             await db.commit()
@@ -1051,7 +1052,7 @@ async def test_full_contract_form_with_a_stale_cache_does_not_lower_revenue(
     from app.core.database import AsyncSessionLocal
 
     ids = await _seed_signed_contractor(contract_status=ContractStatus.active)
-    today = date.today()
+    today = business_today()
     async with AsyncSessionLocal() as db:
         contract = await db.get(Contract, ids["contract_id"])
         contract.rate_client = Decimal("167.5")
@@ -1133,7 +1134,7 @@ async def test_daily_pass_refreshes_stale_cost_and_old_revenue_caches():
     from app.services.contract_order_sync import _refresh_revenue_caches
 
     ids = await _seed_signed_contractor(contract_status=ContractStatus.active)
-    today = date.today()
+    today = business_today()
     async with AsyncSessionLocal() as db:
         contract = await db.get(Contract, ids["contract_id"])
         contract.rate_client = Decimal("220")

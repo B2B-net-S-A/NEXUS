@@ -34,6 +34,7 @@ from app.models.candidate import Candidate
 from app.models.contract import Contract, ContractStatus
 from app.services.contract_rates import REVENUE_BEARING_STATUSES
 from app.services.contractor_identity import candidate_identity_key
+from app.core.scheduling import business_today
 
 _LIVE_STATUSES = frozenset({ContractStatus.active, ContractStatus.ending})
 
@@ -83,7 +84,7 @@ class ConsultantPopulation:
         i dlatego obie liczby wychodzą z jednego obiektu: kafel „Śr. dni na
         bench” ma pod sobą licznik osób z TEJ SAMEJ ławki.
         """
-        reference = today or date.today()
+        reference = today or business_today()
         gaps = [
             (reference - last_end).days
             for key, last_end in self.bench_last_end.items()
@@ -109,8 +110,8 @@ async def consultant_population(
     wychodziło więcej niż aktywnych kontraktów (kolejka 23.09.2026). Dla dnia
     z przeszłości status mówi o dziś, nie o tamtym dniu, więc decyduje data.
     """
-    on = on or date.today()
-    status_decides = on >= date.today()
+    on = on or business_today()
+    status_decides = on >= business_today()
     rows = (
         await db.execute(
             select(

@@ -6,6 +6,7 @@ from httpx import AsyncClient
 
 from app.api.contracts import _status_after_end_date_change, _synced_client_order_end
 from app.models.contract import ContractStatus
+from app.core.scheduling import business_today
 
 
 # ── Pure unit tests for the client-order-end sync rule (no DB) ────────────────
@@ -125,11 +126,11 @@ async def test_extension_amendment_moves_end_date(
         return
     cid = contracts[0]["id"]
     old_end = contracts[0].get("end_date")
-    target = (date.today() + timedelta(days=365)).isoformat()
+    target = (business_today() + timedelta(days=365)).isoformat()
 
     payload = {
         "amendment_type": "extension",
-        "effective_date": date.today().isoformat(),
+        "effective_date": business_today().isoformat(),
         "new_end_date": target,
         "reason": "E2E test",
     }
@@ -155,7 +156,7 @@ async def test_extension_amendment_moves_end_date(
             f"/api/contracts/{cid}/amendments",
             json={
                 "amendment_type": "extension",
-                "effective_date": date.today().isoformat(),
+                "effective_date": business_today().isoformat(),
                 "new_end_date": old_end,
                 "reason": "revert E2E",
             },
@@ -179,7 +180,7 @@ async def test_rate_change_requires_at_least_one_field(
         f"/api/contracts/{cid}/amendments",
         json={
             "amendment_type": "rate_change",
-            "effective_date": date.today().isoformat(),
+            "effective_date": business_today().isoformat(),
         },
         headers=app_auth_headers,
     )
@@ -201,9 +202,9 @@ async def test_extension_syncs_client_order_end_date(
     if parties is None:
         return
     candidate_id, client_id = parties
-    start = date.today().isoformat()
-    old_end = (date.today() + timedelta(days=90)).isoformat()
-    new_end = (date.today() + timedelta(days=180)).isoformat()
+    start = business_today().isoformat()
+    old_end = (business_today() + timedelta(days=90)).isoformat()
+    new_end = (business_today() + timedelta(days=180)).isoformat()
 
     resp = await app_client.post(
         "/api/contracts",
@@ -234,7 +235,7 @@ async def test_extension_syncs_client_order_end_date(
             f"/api/contracts/{cid}/amendments",
             json={
                 "amendment_type": "extension",
-                "effective_date": date.today().isoformat(),
+                "effective_date": business_today().isoformat(),
                 "new_end_date": new_end,
             },
             headers=app_auth_headers,
@@ -265,9 +266,9 @@ async def test_extension_leaves_untracked_order_end_null(
     if parties is None:
         return
     candidate_id, client_id = parties
-    start = date.today().isoformat()
-    old_end = (date.today() + timedelta(days=90)).isoformat()
-    new_end = (date.today() + timedelta(days=180)).isoformat()
+    start = business_today().isoformat()
+    old_end = (business_today() + timedelta(days=90)).isoformat()
+    new_end = (business_today() + timedelta(days=180)).isoformat()
 
     resp = await app_client.post(
         "/api/contracts",
@@ -292,7 +293,7 @@ async def test_extension_leaves_untracked_order_end_null(
             f"/api/contracts/{cid}/amendments",
             json={
                 "amendment_type": "extension",
-                "effective_date": date.today().isoformat(),
+                "effective_date": business_today().isoformat(),
                 "new_end_date": new_end,
             },
             headers=app_auth_headers,

@@ -105,6 +105,7 @@ from app.services.recruitment_process_commands import (
 )
 from app.services.delivery_alert_recipients import load_delivery_alert_recipient_scope
 from app.services.pipeline_realtime import broadcast_pipeline_changed
+from app.core.scheduling import business_today
 
 # Terminal wynikający wprost z legacy enuma — używane w gałęzi bez szablonu
 # pipeline'u, żeby `KanbanColumn.terminal_type` był wypełniany tak samo jak
@@ -1233,7 +1234,7 @@ async def move_candidate(
                     candidate_id=data.candidate_id,
                     job=job,
                     actor_id=current_user.id,
-                    default_start_date=date.today(),
+                    default_start_date=business_today(),
                     ensure_order=True,
                     # The stage was inserted and flushed just above. The
                     # idempotent guard sees it as latest and never appends a

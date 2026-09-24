@@ -8,7 +8,7 @@ identyfikatorach, które sam utworzył. Osoby, firmy i numery są zmyślone.
 from __future__ import annotations
 
 import uuid
-from datetime import date, timedelta
+from datetime import timedelta
 from decimal import Decimal
 
 import pytest
@@ -35,10 +35,11 @@ from app.models.job import Job, JobStatus
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import User, UserRole
 from app.services.critical_events import audited_deletion
+from app.core.scheduling import business_today
 
 pytestmark = pytest.mark.asyncio
 
-_TODAY = date.today()
+_TODAY = business_today()
 
 
 async def _user(

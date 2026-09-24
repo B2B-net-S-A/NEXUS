@@ -535,7 +535,7 @@ async def list_consultant_options(
                     contract
                 )
 
-    today = date.today()
+    today = business_today()
     currency_rates = await rates_to_pln(
         db,
         {

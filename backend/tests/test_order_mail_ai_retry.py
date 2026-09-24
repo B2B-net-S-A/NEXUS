@@ -20,6 +20,7 @@ from app.services.claude_client import ClaudeOverloaded
 from app.services.order_mail_gate import evaluate
 from app.services.order_pdf_parser import OrderExtraction, parse_order_document
 from app.services.order_policies import policy_by_key
+from app.core.scheduling import business_today
 from tests.test_alior_order_policy import (
     _alior_with_a_pending_next_period,
     old_rule_extraction,
@@ -342,14 +343,13 @@ def _refusing_gate(reason: str):
 
 def _declared_admission(monkeypatch, admitted: list):
     """`check_and_increment` bez bazy — `ai_feature` ustawia prawdziwy kontekst."""
-    from datetime import date
 
     from app.services import ai_quota
 
     async def admit(_db, feature, user_id=None, *, units=1, commit_with_caller=False):
         admitted.append((feature, user_id))
         return ai_quota.QuotaState(
-            used=1, limit=0, period_start=date.today(), operation_id="op-test"
+            used=1, limit=0, period_start=business_today(), operation_id="op-test"
         )
 
     monkeypatch.setattr(ai_quota, "check_and_increment", admit)

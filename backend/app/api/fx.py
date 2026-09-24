@@ -12,6 +12,7 @@ from app.api.deps import AdminUser, CurrentUser
 from app.core.database import get_db
 from app.models.fx_rate import FxRate
 from app.services.fx_service import backfill_nbp_rates, fetch_and_store_nbp_today
+from app.core.scheduling import business_today
 
 router = APIRouter()
 
@@ -85,7 +86,7 @@ async def backfill_rates(
     samo w sobie nie odróżnia „wszystko już było w cache'u" od „NBP nie oddał
     ani jednego zakresu".
     """
-    today = date.today()
+    today = business_today()
     resolved_end = end or today
     resolved_start = start or (resolved_end - timedelta(days=_BACKFILL_DEFAULT_DAYS))
     try:

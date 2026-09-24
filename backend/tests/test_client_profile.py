@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import pytest
 from httpx import AsyncClient
+from app.core.scheduling import business_today
 
 
 pytestmark = pytest.mark.asyncio
@@ -133,7 +134,7 @@ async def _seed_scheduled_contract(*, ended: bool) -> tuple[int, int]:
     niżej zobaczyłyby właśnie tę, przedawnioną wartość.
     """
     import uuid
-    from datetime import date, timedelta
+    from datetime import timedelta
     from decimal import Decimal
 
     from app.core.database import AsyncSessionLocal
@@ -144,7 +145,7 @@ async def _seed_scheduled_contract(*, ended: bool) -> tuple[int, int]:
     from app.models.contract_client_rate import ContractClientRate
     from app.models.job import Job
 
-    today = date.today()
+    today = business_today()
     start = today - timedelta(days=400)
     async with AsyncSessionLocal() as db:
         cand = Candidate(
@@ -332,7 +333,7 @@ async def _seed_contract_with_order_job(*, contract_has_job: bool) -> tuple[int,
     pusty, ale `ClientOrder.job_id` wypełniony (zmierzone 2026-08-14 na 10 klientach).
     """
     import uuid
-    from datetime import date, timedelta
+    from datetime import timedelta
     from decimal import Decimal
 
     from app.core.database import AsyncSessionLocal
@@ -342,7 +343,7 @@ async def _seed_contract_with_order_job(*, contract_has_job: bool) -> tuple[int,
     from app.models.contract import Contract, ContractStatus
     from app.models.job import Job
 
-    today = date.today()
+    today = business_today()
     async with AsyncSessionLocal() as db:
         cand = Candidate(
             name="Fallback",
@@ -444,7 +445,7 @@ async def test_active_mrr_equals_the_sum_of_the_visible_margin_column(
     błędnej implementacji.
     """
     import uuid
-    from datetime import date, timedelta
+    from datetime import timedelta
     from decimal import Decimal
 
     from app.core.database import AsyncSessionLocal
@@ -452,7 +453,7 @@ async def test_active_mrr_equals_the_sum_of_the_visible_margin_column(
     from app.models.client import Client
     from app.models.contract import Contract, ContractStatus
 
-    today = date.today()
+    today = business_today()
     async with AsyncSessionLocal() as db:
         client = Client(name=f"MrrClient-{uuid.uuid4().hex[:6]}")
         db.add(client)
@@ -495,7 +496,7 @@ async def test_active_mrr_equals_the_sum_of_the_visible_margin_column(
 async def _seed_client_with_contracts(rates: list[tuple[str, str | None]]) -> int:
     """Klient z aktywnymi kontraktami godzinowymi; `None` = brak stawki przychodowej."""
     import uuid
-    from datetime import date, timedelta
+    from datetime import timedelta
     from decimal import Decimal
 
     from app.core.database import AsyncSessionLocal
@@ -503,7 +504,7 @@ async def _seed_client_with_contracts(rates: list[tuple[str, str | None]]) -> in
     from app.models.client import Client
     from app.models.contract import Contract, ContractStatus
 
-    today = date.today()
+    today = business_today()
     async with AsyncSessionLocal() as db:
         client = Client(name=f"UnpricedClient-{uuid.uuid4().hex[:6]}")
         db.add(client)
@@ -776,7 +777,7 @@ async def test_profile_preserves_unknown_opening_date(app_client, app_auth_heade
 async def _seed_client_with_planned_contracts() -> tuple[int, dict[str, int]]:
     """Klient z trzema aktywnymi kontraktami: obecny, przyszły, bez daty startu."""
     import uuid
-    from datetime import date, timedelta
+    from datetime import timedelta
     from decimal import Decimal
 
     from app.core.database import AsyncSessionLocal
@@ -784,7 +785,7 @@ async def _seed_client_with_planned_contracts() -> tuple[int, dict[str, int]]:
     from app.models.client import Client
     from app.models.contract import Contract, ContractStatus
 
-    today = date.today()
+    today = business_today()
     starts = {
         "current": today - timedelta(days=30),
         "future": today + timedelta(days=21),
@@ -921,7 +922,7 @@ async def _seed_unit_contract(
     rate_unit: str, candidate_rate: str, client_rate: str
 ) -> tuple[int, int]:
     import uuid
-    from datetime import date, timedelta
+    from datetime import timedelta
     from decimal import Decimal
 
     from app.core.database import AsyncSessionLocal
@@ -929,7 +930,7 @@ async def _seed_unit_contract(
     from app.models.client import Client
     from app.models.contract import Contract, ContractStatus
 
-    today = date.today()
+    today = business_today()
     async with AsyncSessionLocal() as db:
         cand = Candidate(
             name="Jednostka",
@@ -1019,7 +1020,7 @@ async def _seed_contract_with_order(
     z zamówienia — profil ma wtedy pokazać wartość z ZAMÓWIENIA.
     """
     import uuid
-    from datetime import date, timedelta
+    from datetime import timedelta
     from decimal import Decimal
 
     from app.core.database import AsyncSessionLocal
@@ -1029,7 +1030,7 @@ async def _seed_contract_with_order(
     from app.models.client_order_group import ClientOrderGroup
     from app.models.contract import Contract, ContractStatus
 
-    today = date.today()
+    today = business_today()
     suffix = uuid.uuid4().hex[:6]
     dec = lambda v: Decimal(v) if v is not None else None  # noqa: E731
     async with AsyncSessionLocal() as db:

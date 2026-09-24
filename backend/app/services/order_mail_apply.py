@@ -57,6 +57,7 @@ from app.services.order_rate_snapshots import (
     convert_order_rate,
     order_unit_for_contract,
 )
+from app.core.scheduling import business_today
 
 logger = logging.getLogger(__name__)
 
@@ -464,7 +465,7 @@ async def _write_document(
                 continue
             start = _date(rp.get("start_date"))
             end = _date(rp.get("end_date"))
-            effective = effective_rate_fields(contract, start or date.today())
+            effective = effective_rate_fields(contract, start or business_today())
             # Bez jednostki z dokumentu — jednostka, w której zamówienia tej osoby
             # dziedziczą z kontraktu (kontrakt z MD jest dziś w zł/h, a zamówienie
             # zostaje w MD; ticket 14.09.2026).

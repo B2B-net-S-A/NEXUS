@@ -15,6 +15,7 @@ from httpx import AsyncClient
 from app.api.contracts import _effective_rate_fields
 from app.models.contract import Contract, RateUnit
 from app.models.contract_client_rate import ContractClientRate
+from app.core.scheduling import business_today
 
 
 # ── Pure resolver unit tests (no DB) ─────────────────────────────────────────
@@ -109,7 +110,7 @@ async def test_future_rate_change_defers_client_rate(
     if parties is None:
         return
     candidate_id, client_id = parties
-    today = date.today()
+    today = business_today()
     past = (today - timedelta(days=30)).isoformat()
     future = (today + timedelta(days=60)).isoformat()
 

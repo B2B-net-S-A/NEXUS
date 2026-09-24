@@ -11,7 +11,7 @@ Admin/Finance oraz Talent Community Manager widzą wszystkie key relationships
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends
@@ -102,15 +102,15 @@ async def list_my_key_relationships(
 
     rows = (await db.execute(stmt)).all()
 
-    now = datetime.now()
+    now = datetime.now(timezone.utc)
     items: list[MyRelationshipRow] = []
     for r in rows:
         days = None
         if r.last_personal_touchpoint_at is not None:
-            # Make timezone-naive for diff calc
+            # Kolumna timestamptz; wartość bez strefy traktujemy jako UTC.
             ts = r.last_personal_touchpoint_at
-            if ts.tzinfo is not None:
-                ts = ts.replace(tzinfo=None)
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
             days = (now - ts).days
         items.append(
             MyRelationshipRow(

@@ -11,10 +11,11 @@ from __future__ import annotations
 
 import unicodedata
 import uuid
-from datetime import date, timedelta
+from datetime import timedelta
 
 import pytest
 from httpx import AsyncClient
+from app.core.scheduling import business_today
 
 
 async def _seed_searchable_contract(
@@ -54,8 +55,8 @@ async def _seed_searchable_contract(
             job_id=job.id,
             status=ContractStatus.active,
             contract_type=ContractType.b2b,
-            start_date=date.today() - timedelta(days=30),
-            end_date=date.today() + timedelta(days=60),
+            start_date=business_today() - timedelta(days=30),
+            end_date=business_today() + timedelta(days=60),
             rate_client=10000,
             rate_candidate=8000,
             margin=2000,
