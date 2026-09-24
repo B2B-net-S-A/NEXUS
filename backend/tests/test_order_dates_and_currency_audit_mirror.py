@@ -1,4 +1,4 @@
-"""0371: ``old_currency`` ma lustro w entrypoincie; okres zamówienia NIE jest więzem.
+"""0372: ``old_currency`` ma lustro w entrypoincie; okres zamówienia NIE jest więzem.
 
 Prod alembic bywa osierocony — ``entrypoint.sh`` JEST wdrożeniem. Okres
 (koniec nie przed startem) pilnuje API: CHECK — także ``NOT VALID`` — Postgres
@@ -16,7 +16,7 @@ from pathlib import Path
 BACKEND = Path(__file__).resolve().parents[1]
 ENTRYPOINT = (BACKEND / "entrypoint.sh").read_text()
 MIGRATION = (
-    BACKEND / "alembic" / "versions" / "0371_order_dates_and_currency_audit.py"
+    BACKEND / "alembic" / "versions" / "0372_order_dates_and_currency_audit.py"
 ).read_text()
 
 OLD_CURRENCY = (
@@ -42,5 +42,5 @@ def test_old_currency_column_is_mirrored_and_on_the_model():
 
 
 def test_migration_chains_after_teams_prep():
-    assert 'revision = "0371_order_dates_and_currency_audit"' in MIGRATION
+    assert 'revision = "0372_order_dates_and_currency_audit"' in MIGRATION
     assert 'down_revision = "0370_teams_prep_transcripts"' in MIGRATION

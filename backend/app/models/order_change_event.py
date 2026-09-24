@@ -79,7 +79,7 @@ class OrderChangeEvent(Base):
     old_unit: Mapped[Optional[str]] = mapped_column(String(16))
     new_unit: Mapped[Optional[str]] = mapped_column(String(16))
     currency: Mapped[Optional[str]] = mapped_column(String(3))
-    # Waluta PRZED zmianą (0371, audyt 24.09.2026): sama zmiana waluty też
+    # Waluta PRZED zmianą (0372, audyt 24.09.2026): sama zmiana waluty też
     # jest zmianą stawki. NULL w wierszach sprzed tej kolumny.
     old_currency: Mapped[Optional[str]] = mapped_column(String(3))
     old_date: Mapped[Optional[date]] = mapped_column(Date)

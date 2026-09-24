@@ -1,7 +1,7 @@
 """Zamówienia: waluta sprzed zmiany w dzienniku (audyt 24.09.2026).
 
-Revision ID: 0371_order_dates_and_currency_audit
-Revises: 0370_teams_prep_transcripts
+Revision ID: 0372_order_dates_and_currency_audit
+Revises: 0371_request_allocation
 
 S7 — okres zamówienia (koniec nie przed startem) pilnuje API (422,
 ``client_orders._assert_order_period``) i formularze, NIE więz w bazie:
@@ -18,8 +18,8 @@ Lustro w ``entrypoint.sh`` (prod alembic bywa osierocony) — pilnuje
 
 from alembic import op
 
-revision = "0371_order_dates_and_currency_audit"
-down_revision = "0370_teams_prep_transcripts"
+revision = "0372_order_dates_and_currency_audit"
+down_revision = "0371_request_allocation"
 branch_labels = None
 depends_on = None
 
