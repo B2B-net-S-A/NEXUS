@@ -597,6 +597,8 @@ async def test_md_alert_is_case_scoped_and_resolution_handles_all_recipients(
     assert kwargs["offboarding_case_id"] == 501
     assert kwargs["repeat_every_days"] is None
     assert "wspólną pulę MD" in kwargs["message"]
+    # S10 (audyt 24.09.2026): strona czyta `group`, nie `offboardingCase`.
+    assert "&group=30" in kwargs["link"]
 
     handled = await dl_alerts.handle_offboarding_case_alerts(
         db, case_id=501, handled_by_user_id=8

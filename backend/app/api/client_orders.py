@@ -96,6 +96,8 @@ from app.schemas.new_contractor_order import (
 )
 from app.services import storage_service
 from app.services.order_gaps import close_gaps_of_deleted_orders
+from app.services.shared_md_orders import client_uses_shared_md_pool
+from app.services.order_continuation import ending_without_successor
 from app.services.ai_quota import AIQuotaExceeded, ai_feature
 from app.services.client_access import deny, resolve_client_access
 from app.services.client_default_rate_unit import default_rate_unit_for_client
@@ -157,6 +159,7 @@ from app.services.order_excel_export import (
     is_current_order_period,
     order_type_export_label,
     orders_export_filename,
+    rate_unit_export_label,
 )
 
 router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
@@ -646,6 +649,104 @@ def _refresh_md_rate_mirror(order: ClientOrder, *, explicit_fields: set[str]) ->
             ),
         )
     order.md_rate_revenue = md_rate_from_order_rate(order.rate_client)
+
+
+_AUTO_DRAFT_NOTE_PREFIX = "Auto-utworzone"
+
+
+async def _absorb_empty_signing_drafts(
+    db: AsyncSession, *, contract_id: int, keep_order_id: int
+) -> list[int]:
+    """„Dodaj przedłużenie" WCHŁANIA pusty szkic z podpisu umowy (W2, 24.09.2026).
+
+    Szkic zakładany automatycznie przy podpisie (``b2b_contract_automation``)
+    ma start umowy, pusty koniec i pustą stawkę klienta. Obok nowego,
+    prawdziwego zamówienia tej osoby byłby drugim zapisem tej samej
+    współpracy — a do tej poprawki także „następcą" każdego zamówienia, więc
+    alert o końcu nie wychodził nigdy.
+
+    Kasujemy WYŁĄCZNIE wiersz, który na pewno niczego nie niesie: szkic
+    okresowy tego kontraktu bez pliku PO, bez budżetu MD, bez śladu
+    uzupełniania, bez daty końca i bez stawki przychodowej, z notatką
+    automatu albo tytułem-zaślepką. Każdy inny szkic zostaje.
+    """
+    candidates = (
+        await db.scalars(
+            select(ClientOrder).where(
+                ClientOrder.contract_id == contract_id,
+                ClientOrder.id != keep_order_id,
+                ClientOrder.order_group_id.is_(None),
+                ClientOrder.status == ClientOrderStatus.draft,
+                ClientOrder.file_path.is_(None),
+                ClientOrder.md_total.is_(None),
+                ClientOrder.filled_at.is_(None),
+                ClientOrder.end_date.is_(None),
+                or_(ClientOrder.rate_client.is_(None), ClientOrder.rate_client <= 0),
+            )
+        )
+    ).all()
+    absorbed: list[int] = []
+    for draft in candidates:
+        title = (draft.title or "").strip()
+        notes = (draft.notes or "").strip()
+        if title != "(bez numeru)" and not notes.startswith(_AUTO_DRAFT_NOTE_PREFIX):
+            continue
+        absorbed.append(draft.id)
+        await detach_order_rate_steps(db, draft)
+        await db.delete(draft)
+    return absorbed
+
+
+def _export_currency(order: ClientOrderRead) -> Optional[str]:
+    """Waluta stawek zamówienia w arkuszu; różne waluty obu stawek — obie."""
+    revenue = order.rate_client_currency or order.currency
+    cost = order.rate_candidate_currency
+    if revenue and cost and cost != revenue:
+        return f"{revenue} (koszt {cost})"
+    return revenue or cost
+
+
+def _assert_order_period(start: Optional[date], end: Optional[date]) -> None:
+    """Koniec zamówienia nie może być przed jego początkiem (S7, 24.09.2026).
+
+    Lustro ``ck_client_orders_dates`` (0371, NOT VALID — produkcja ma jedno
+    historyczne zamówienie z odwróconym okresem, więc zapis starych wierszy
+    bez zmiany dat nadal przechodzi). Czytelne 422 zamiast surowego
+    IntegrityError."""
+    if start is not None and end is not None and end < start:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Data zakończenia zamówienia jest wcześniejsza niż data "
+                f"rozpoczęcia ({start.isoformat()})."
+            ),
+        )
+
+
+def _validated_total_value(value: Decimal) -> Decimal:
+    """Wartość zamówienia z formularza: skończona, nieujemna, mieści się w kolumnie.
+
+    ``Decimal("NaN")`` przechodził przez ``Decimal(str)`` i zapisywał się do
+    bazy, a przepełnienie NUMERIC(13,3) kończyło się 500 (S6, 24.09.2026).
+    Granice jak ``ClientOrderUpdate.total_value``.
+    """
+    if not value.is_finite() or value < 0:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Wartość zamówienia musi być liczbą nieujemną.",
+        )
+    exponent = value.as_tuple().exponent
+    decimals = -exponent if isinstance(exponent, int) and exponent < 0 else 0
+    # ``adjusted()`` = wykładnik najstarszej cyfry: 10 cyfr całości → 9.
+    if decimals > 3 or (value != 0 and value.adjusted() >= 10):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Wartość zamówienia może mieć najwyżej 10 cyfr przed przecinkiem "
+                "i 3 po nim."
+            ),
+        )
+    return value
 
 
 def _days_to(target: Optional[date]) -> Optional[int]:
@@ -1351,6 +1452,7 @@ async def list_contractors_with_orders(
             _build_order_read(o, c, c.candidate, o.job.title if o.job else None)
             for o in orders_list
         ]
+        ending = ending_without_successor(orders_list, today=today)
 
         items.append(
             ContractWithOrdersRead(
@@ -1392,6 +1494,9 @@ async def list_contractors_with_orders(
                 latest_order_monthly_margin=latest_margin,
                 days_to_latest_end=days_to_end,
                 draft_card=is_draft_card(c),
+                ending_without_successor_order_id=(ending.order_id if ending else None),
+                ending_without_successor_end_date=(ending.end_date if ending else None),
+                ending_without_successor_days=ending.days_left if ending else None,
                 orders=orders_read,
             )
         )
@@ -1415,6 +1520,8 @@ async def list_contractors_with_orders(
         # 403 na zapisie. Cała zakładka dotyczy jednego klienta, więc jedna
         # flaga na odpowiedź wystarcza.
         can_manage_finance=can_finance,
+        nordea_order_import_enabled=is_client_in_policy("nordea", client_id),
+        shared_md_pool_client=client_uses_shared_md_pool(client_id),
     )
 
 
@@ -1579,6 +1686,17 @@ async def export_client_orders(
     for kind, item_id in requested:
         if kind == "group":
             group, type_label = group_reads_by_id[item_id]
+            # Wiersz zbiorczy i grupa bez obsady opisują CAŁE zamówienie —
+            # trafiają do arkusza „na dziś" tylko, gdy to zamówienie dziś
+            # obowiązuje. Front wysyła też przyszłe i zakończone karty (S8).
+            if _status_value(getattr(group, "status", "")) in closed_statuses or (
+                not is_current_order_period(
+                    getattr(group, "start_date", None),
+                    getattr(group, "end_date", None),
+                    today,
+                )
+            ):
+                continue
             rows.extend(
                 replace(row, order_type=type_label)
                 for row in export_rows_for_group(
@@ -1602,7 +1720,14 @@ async def export_client_orders(
                 cost_rate=(
                     order.rate_candidate
                     if order.rate_candidate is not None
-                    else contractor.rate_candidate
+                    # Zapas z kontraktu W JEDNOSTCE ZAMÓWIENIA: kontrakt jest
+                    # w zł/h, a zamówienie bywa w MD — surowe 120 obok
+                    # przychodu 1340/MD czytało się jak marża 1220 (S8).
+                    else contract_rate_in_unit(
+                        contractor.rate_candidate,
+                        contractor,  # type: ignore[arg-type]
+                        order.rate_unit,
+                    )
                 ),
                 revenue_rate=order.rate_client,
                 start_date=order.start_date,
@@ -1610,6 +1735,8 @@ async def export_client_orders(
                 order_type=order_type_export_label(
                     effective_standalone_order_type(client_id, order.order_type)
                 ),
+                rate_unit=rate_unit_export_label(order.rate_unit),
+                currency=_export_currency(order),
             )
         )
 
@@ -1705,8 +1832,13 @@ async def create_order_extension(
     order_status: ClientOrderStatus = Form(ClientOrderStatus.active),
     start_date: Optional[date] = Form(None),
     end_date: Optional[date] = Form(None),
-    rate_candidate: Optional[Decimal] = Form(None),
-    rate_client: Optional[Decimal] = Form(None),
+    # Te same granice co PATCH (``ClientOrderUpdate``): ujemna stawka
+    # aktywowała szkic, a przepełnienie NUMERIC(12,3) kończyło się 500
+    # (audyt 24.09.2026, S6).
+    rate_candidate: Optional[Decimal] = Form(
+        None, ge=0, max_digits=12, decimal_places=3
+    ),
+    rate_client: Optional[Decimal] = Form(None, ge=0, max_digits=12, decimal_places=3),
     rate_unit: Optional[RateUnit] = Form(None),
     billing_hours_per_month: Optional[int] = Form(None, ge=1),
     total_value: Optional[str] = Form(None),
@@ -1738,6 +1870,13 @@ async def create_order_extension(
         if value is not None
     }
     await _assert_client(db, client_id)
+    if order_status in (ClientOrderStatus.completed, ClientOrderStatus.cancelled):
+        # Nowe zamówienie nie może powstać od razu jako historia (S7).
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Nowe zamówienie może być szkicem albo aktywnym zamówieniem.",
+        )
+    _assert_order_period(start_date, end_date)
     if file is not None:
         await _require_order_file_read(db, user, client_id)
     _assert_allowed_order_type(client_id, order_type)
@@ -1846,6 +1985,7 @@ async def create_order_extension(
             total_dec = Decimal(total_value)
         except (InvalidOperation, ValueError) as exc:
             raise HTTPException(400, detail="Invalid total_value") from exc
+        total_dec = _validated_total_value(total_dec)
 
     # Plik zapisujemy DOPIERO po nadaniu Orderowi id (flush niżej) — wcześniej
     # leciało tu `order_id=0`, więc każdy PO z tej ścieżki lądował w jednym
@@ -1918,6 +2058,16 @@ async def create_order_extension(
     # obszary kolejnymi zapisami. Gdy komplet jest już obecny przy tworzeniu,
     # rekord od razu trafia do „Aktywnych”.
     _activate_complete_draft(order)
+    if (
+        order.status == ClientOrderStatus.active
+        and order_type == OrderType.periodic
+        and not _order_has_required_activation_data(order)
+    ):
+        # Domyślny status formularza to „active", ale zamówienie bez numeru,
+        # startu albo stawek nie jest zamówieniem — zapisuje się jako szkic,
+        # który „Uzupełnij zamówienie" aktywuje (S7, 24.09.2026).
+        order.status = ClientOrderStatus.draft
+        order.filled_at = None
     if order.status == ClientOrderStatus.active:
         refresh_periodic_order_status(order)
     if (
@@ -1935,6 +2085,12 @@ async def create_order_extension(
     if order.status == ClientOrderStatus.active:
         await db.flush()
         await _materialize_group_after_activation(db, order, actor_id=user.id)
+    absorbed_draft_ids: list[int] = []
+    if order_type == OrderType.periodic:
+        await db.flush()
+        absorbed_draft_ids = await _absorb_empty_signing_drafts(
+            db, contract_id=contract_id, keep_order_id=order.id
+        )
     contract_revived = await _sync_contract_after_order_extension(
         db, order, contract, actor_id=user.id
     )
@@ -1949,6 +2105,8 @@ async def create_order_extension(
                 "job_id": job_id,
                 "title": title,
                 "status": order.status.value,
+                # Porzucone szkice z podpisu, które to zamówienie zastąpiło (W2).
+                "absorbed_draft_ids": absorbed_draft_ids,
                 # Ślad wskrzeszenia kontraktu przez przedłużenie — bez niego
                 # przejście `ended → active` widać tylko w osi czasu kontraktu,
                 # a przyczyna (dodane zamówienie) zostaje po drugiej stronie.
@@ -2270,6 +2428,13 @@ async def update_order(
     previous_end_date = order.end_date
     was_active = previous_status == ClientOrderStatus.active
     data = payload.model_dump(exclude_unset=True)
+    if "start_date" in data or "end_date" in data:
+        # Tylko przy zmianie dat: zamówienie historyczne z odwróconym okresem
+        # (CHECK 0371 jest NOT VALID) da się nadal edytować w innych polach.
+        _assert_order_period(
+            data.get("start_date", order.start_date),
+            data.get("end_date", order.end_date),
+        )
     requested_type = data.pop("order_type", None)
     if "order_type" in payload.model_fields_set:
         if requested_type is None:
@@ -2595,6 +2760,20 @@ async def close_order(
             detail={
                 "code": "order_already_closed",
                 "message": "To zamówienie jest już zakończone.",
+                "status": order.status.value,
+            },
+        )
+    if order.status == ClientOrderStatus.draft:
+        # Szkic nie był zamówieniem — „zakończony" szkic udawał w rejestrze
+        # historię współpracy (audyt 24.09.2026, N2). Porzucony szkic się usuwa.
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={
+                "code": "order_is_draft",
+                "message": (
+                    "To zamówienie jest szkicem — nie ma czego kończyć. "
+                    "Jeśli nie jest potrzebne, usuń szkic."
+                ),
                 "status": order.status.value,
             },
         )
@@ -3169,6 +3348,7 @@ async def create_contract_with_order(
     # (`order_end_date`). Reguła: `app.services.b2b_contract_end_date`.
     if payload.contract_end_date is not None:
         _reject_b2b_end_date()
+    _assert_order_period(payload.order_start_date, payload.order_end_date)
     _assert_allowed_order_type(client_id, payload.order_type)
     if payload.order_type != OrderType.periodic:
         raise HTTPException(
@@ -3363,10 +3543,15 @@ async def replace_order_po(
     """
     await _assert_client(db, client_id)
     await _require_order_file_read(db, user, client_id)
+    # Kontrakt → zamówienie (S5, 24.09.2026): zapis pliku to UPDATE zamówienia,
+    # a ``commit_order_write`` bierze potem kontrakt FOR UPDATE — bez blokady
+    # w tej kolejności to ABBA z handlerami kontraktu.
+    await lock_contract_then_orders(db, order_ids=[order_id])
     order = await db.scalar(
         select(ClientOrder)
         .options(selectinload(ClientOrder.contract))
         .where(ClientOrder.id == order_id, ClientOrder.client_id == client_id)
+        .with_for_update()
     )
     if order is None:
         raise HTTPException(404, detail="Order not found")
@@ -3432,10 +3617,11 @@ async def delete_order_po(
 
     await _assert_client(db, client_id)
     await _require_order_file_read(db, user, client_id)
+    await lock_contract_then_orders(db, order_ids=[order_id])  # kontrakt → zamówienie
     order = await db.scalar(
-        select(ClientOrder).where(
-            ClientOrder.id == order_id, ClientOrder.client_id == client_id
-        )
+        select(ClientOrder)
+        .where(ClientOrder.id == order_id, ClientOrder.client_id == client_id)
+        .with_for_update()
     )
     if order is None:
         raise HTTPException(404, detail="Order not found")

@@ -903,9 +903,9 @@ describe("OrdersAndContractsTab search", () => {
 // ── Liczniki pigułek (ticket: liczby przy każdej zakładce) ───────────────────
 
 describe("OrdersAndContractsTab — liczniki filtrów", () => {
-  it("każda pigułka pokazuje liczbę, a „Kończące się 30d\" jest podzbiorem „Aktywni\"", async () => {
+  it("każda pigułka pokazuje liczbę, a „Bez kontynuacji 30d\" jest podzbiorem „Aktywni\"", async () => {
     // Trzej kontraktorzy: aktywny kończący się za 10 dni, aktywny bez końca,
-    // zakończony. „Kończące się 30d" celowo liczy się PONOWNIE w „Aktywni" —
+    // zakończony. „Bez kontynuacji 30d" celowo liczy się PONOWNIE w „Aktywni" —
     // suma pigułek nie musi równać się liczbie z „Wszyscy".
     const ending = {
       ...structuredClone(CONTRACTOR),
@@ -951,11 +951,11 @@ describe("OrdersAndContractsTab — liczniki filtrów", () => {
 
     expect(await screen.findByText(/Wszyscy \(3\)/)).toBeInTheDocument();
     expect(screen.getByText(/Aktywni \(2\)/)).toBeInTheDocument();
-    expect(screen.getByText(/Kończące się 30d \(1\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Bez kontynuacji 30d \(1\)/)).toBeInTheDocument();
     expect(screen.getByText(/Zakończeni \(1\)/)).toBeInTheDocument();
   });
 
-  it("zamówienie z dodanym przyszłym zamówieniem nie liczy się do „Kończące się 30d”", async () => {
+  it("zamówienie z dodanym przyszłym zamówieniem nie liczy się do „Bez kontynuacji 30d”", async () => {
     // Ticket 09.2026 (kontrakt #145): 282129 kończy się za 8 dni, ale ma już
     // dodane przyszłe zamówienie 286699 (szkic). Nie wymaga działania.
     const continued = {
@@ -1012,7 +1012,7 @@ describe("OrdersAndContractsTab — liczniki filtrów", () => {
 
     renderTab();
 
-    expect(await screen.findByText(/Kończące się 30d \(1\)/)).toBeInTheDocument();
+    expect(await screen.findByText(/Bez kontynuacji 30d \(1\)/)).toBeInTheDocument();
     const badges = screen.getAllByTestId("order-ending-badge");
     expect(badges).toHaveLength(1);
     expect(badges[0]).toHaveTextContent(

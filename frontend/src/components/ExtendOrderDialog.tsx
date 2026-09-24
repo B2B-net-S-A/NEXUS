@@ -59,7 +59,11 @@ export function ExtendOrderDialog({
   const user = useAuthStore((state) => state.user);
   const canManageFinance =
     serverCanManageFinance ?? canManageCandidateFinance(user);
-  const latest = contract.orders[0]; // assumed already sorted desc
+  // Lista jest posortowana malejąco po starcie; anulowane zamówienie nie może
+  // podpowiadać startu ani stawek przedłużenia (N3, audyt 24.09.2026).
+  const latest =
+    contract.orders.find((order) => order.status !== "cancelled") ??
+    contract.orders[0];
   const rateBillingHours =
     latest?.billing_hours_per_month ??
     contract.billing_hours_per_month ??

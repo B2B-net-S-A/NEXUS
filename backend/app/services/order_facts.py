@@ -25,7 +25,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import Select, and_, func, or_, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.scheduling import DEFAULT_TZ
+from app.core.scheduling import DEFAULT_TZ, business_today
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.client_order import ClientOrder, ClientOrderStatus
@@ -178,7 +178,17 @@ def fact_from_row(row) -> OrderFact:
         )
         number = row.title or "—"
 
-    if in_group and (row.md_rate_cost is not None or row.md_rate_revenue is not None):
+    line_currency = (
+        row.rate_client_currency or row.rate_candidate_currency or row.currency or "PLN"
+    )
+    # ``md_rate_*`` to kanoniczne PLN/MD. Linia w walucie obcej ma stawki
+    # źródłowe w ``rate_*`` (waluta i jednostka linii) — tak pokazuje je karta
+    # zamówienia; „PLN" przy kwocie przeliczonej z EUR mylił Finanse (S14).
+    if (
+        in_group
+        and str(line_currency).strip().upper() == "PLN"
+        and (row.md_rate_cost is not None or row.md_rate_revenue is not None)
+    ):
         rate_cost, rate_revenue, unit, currency = (
             row.md_rate_cost,
             row.md_rate_revenue,
@@ -272,20 +282,48 @@ def siblings_of(
     return siblings.get(sibling_key(fact), [])
 
 
-def covers_after(candidate: OrderFact, ended_on: date) -> bool:
+def is_empty_open_draft(candidate: OrderFact) -> bool:
+    """Porzucony szkic: bez daty końca i bez stawki przychodowej.
+
+    Szkic z podpisu umowy (``b2b_contract_automation``) ma start umowy, pusty
+    koniec i pustą stawkę klienta — do audytu 24.09.2026 (W2) liczył się jako
+    następca KAŻDEGO zamówienia tej osoby, więc kończące się zamówienie nigdy
+    nie trafiało do „Kończących się" ani alertów. Szkic uzupełniony (ze stawką
+    albo datą końca) to nadal zaplanowana kontynuacja.
+    """
+
+    return (
+        candidate.is_draft
+        and candidate.end is None
+        and (candidate.rate_revenue is None or candidate.rate_revenue <= 0)
+    )
+
+
+def covers_after(
+    candidate: OrderFact, ended_on: date, *, today: Optional[date] = None
+) -> bool:
     """Czy zamówienie trwa (albo zacznie się) po ``ended_on``.
 
     Zamówienie bez daty końca liczy się tylko, gdy nie jest zakończone —
     zakończony wiersz bez daty to historia, nie następca. Szkic się liczy
-    (decyzja Artura 14.09: szkic następnego zamówienia = zaplanowane).
+    (decyzja Artura 14.09: szkic następnego zamówienia = zaplanowane) — poza
+    porzuconym szkicem (``is_empty_open_draft``). Zakończone zamówienie z datą
+    końca PO dzisiejszym dniu też nie jest następcą: nikt go już nie wykona
+    (N2, audyt 24.09.2026).
     """
 
     if candidate.is_cancelled:
         return False
     if candidate.works_until_md_exhausted:
         return True
+    if is_empty_open_draft(candidate):
+        return False
     if candidate.end is None:
         return candidate.status != ClientOrderStatus.completed.value
+    if candidate.status == ClientOrderStatus.completed.value and candidate.end > (
+        today or business_today()
+    ):
+        return False
     return candidate.end > ended_on
 
 
@@ -413,26 +451,34 @@ async def load_ending_intents(
             )
         )
     )
-    ended_contracts: dict[int, Optional[date]] = {}
+    # Kontrakt ``ended``/``void`` to SAM w sobie zamiar zakończenia (decyzja
+    # D2, audyt 24.09.2026): współpraca się skończyła, więc żadne jej
+    # zamówienie nie czeka na następcę — niezależnie od tego, czy data końca
+    # umowy wypada przed, czy po końcu zamówienia (zamówienie do 30.08,
+    # umowa zakończona 31.08). Wypowiedzenie umowy, która jeszcze trwa, liczy
+    # się jak dotąd tylko dla zamówień kończących się nie wcześniej niż umowa.
+    terminal_contracts: set[int] = set()
+    terminated_contracts: dict[int, date] = {}
     for contract_id, status, end_date, terminated_at, reason in contracts.all():
         status_value = _value(status)
-        terminal = status_value in (
-            ContractStatus.ended.value,
-            ContractStatus.void.value,
-        )
+        if status_value in (ContractStatus.ended.value, ContractStatus.void.value):
+            terminal_contracts.add(contract_id)
+            continue
         # `terminated_at` przeżywa wznowienie umowy, ale wznowienie czyści
         # datę końca — więc wypowiedzenie liczy się tylko z datą końca.
-        terminated = end_date is not None and (
+        if end_date is not None and (
             terminated_at is not None or reason is not None or contract_id in early
-        )
-        if terminal or terminated:
-            ended_contracts[contract_id] = end_date
+        ):
+            terminated_contracts[contract_id] = end_date
 
     for fact in facts:
-        if fact.contract_id not in ended_contracts or fact.end is None:
+        if fact.end is None:
             continue
-        contract_end = ended_contracts[fact.contract_id]
-        if contract_end is None or contract_end <= fact.end:
+        if fact.contract_id in terminal_contracts:
+            intents.setdefault(fact.order_id, INTENT_CONTRACT_ENDED)
+            continue
+        contract_end = terminated_contracts.get(fact.contract_id)
+        if contract_end is not None and contract_end <= fact.end:
             intents.setdefault(fact.order_id, INTENT_CONTRACT_ENDED)
     return intents
 

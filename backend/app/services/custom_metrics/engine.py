@@ -65,6 +65,11 @@ from app.services.custom_metrics.windows import (
     time_buckets,
 )
 from app.services.fx_service import rates_to_pln_by_date
+from app.services.order_alert_policy import extended_order_alert_client_ids
+from app.services.order_continuation import (
+    ENDING_WITHOUT_CONTINUATION_DAYS,
+    order_ending_without_continuation,
+)
 from app.services.insights_board_money import fold_money, money, running_on
 from app.services.section_permissions import (
     ProductSection,
@@ -74,7 +79,7 @@ from app.services.section_permissions import (
 
 TZ = "Europe/Warsaw"
 TOP_BUCKETS = 20
-ORDERS_ENDING_DAYS = 30
+ORDERS_ENDING_DAYS = ENDING_WITHOUT_CONTINUATION_DAYS
 
 _SOURCE_SECTION: dict[str, Optional[ProductSection]] = {
     "pipeline_moves": ProductSection.pipeline,
@@ -442,21 +447,25 @@ def _contracts_query(definition: MetricDefinition, window: Window):
 
 
 def _orders_query(definition: MetricDefinition, window: Window):
-    # Okres linii zamówienia zbiorczego = COALESCE(linia, grupa) — ta sama
+    # Start linii zamówienia zbiorczego = COALESCE(linia, grupa) — ta sama
     # reguła co `services/order_facts.py`.
     eff_start = func.coalesce(ClientOrder.start_date, ClientOrderGroup.start_date)
-    eff_end = func.coalesce(ClientOrder.end_date, ClientOrderGroup.end_date)
     cols = {"client": ClientOrder.client_id, "_ts_is_date": True}
     conds: list[Any] = []
     ts: Any = None
     if definition.measure == "ending_30_days":
-        conds += [
-            ClientOrder.status.in_(
-                (ClientOrderStatus.active, ClientOrderStatus.paused)
-            ),
-            eff_end >= window.today,
-            eff_end <= window.today + timedelta(days=ORDERS_ENDING_DAYS),
-        ]
+        # Jedna reguła „kończy się bez kontynuacji" (audyt 24.09.2026, S1):
+        # do tego dnia kafelek liczył też zamówienia z dodanym przedłużeniem
+        # i linie MD wszystkich klientów (te kończy budżet, nie kalendarz),
+        # więc pokazywał inną liczbę niż pigułka i panel „Moi klienci".
+        conds.append(
+            order_ending_without_continuation(
+                window.today,
+                window.today + timedelta(days=ORDERS_ENDING_DAYS),
+                extended_client_ids=extended_order_alert_client_ids(),
+                today=window.today,
+            )
+        )
     else:
         ts = eff_start
         conds += [

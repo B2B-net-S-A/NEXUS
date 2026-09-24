@@ -45,16 +45,18 @@ def test_multi_order_workbook_has_typed_values_and_readable_headers():
         "Numer zamówienia",
         "Stawka kosztowa",
         "Stawka przychodowa",
+        "Jednostka stawki",
+        "Waluta",
         "Okres zamówienia",
         "Liczba MD / Kwota zamówienia",
         "Zużycie zamówienia",
     ]
     assert sheet["B2"].value == "274607"
     assert sheet["C2"].value == 100.25
-    assert sheet["F2"].value == 60
-    assert sheet["G3"].value == 45
+    assert sheet["H2"].value == 60
+    assert sheet["I3"].value == 45
     assert sheet.freeze_panes == "A2"
-    assert sheet.auto_filter.ref == "A1:G3"
+    assert sheet.auto_filter.ref == "A1:I3"
 
 
 def test_export_filename_contains_folded_client_name_and_date():
@@ -109,10 +111,12 @@ def test_unified_workbook_adds_order_type_after_full_combined_columns():
         "Numer zamówienia",
         "Stawka kosztowa",
         "Stawka przychodowa",
+        "Jednostka stawki",
+        "Waluta",
         "Okres zamówienia",
         "Liczba MD / Kwota zamówienia",
         "Zużycie zamówienia",
         "Typ zamówienia",
     ]
-    assert sheet["H2"].value == "MD"
-    assert sheet.auto_filter.ref == "A1:H2"
+    assert sheet["J2"].value == "MD"
+    assert sheet.auto_filter.ref == "A1:J2"

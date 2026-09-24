@@ -99,14 +99,16 @@ export function DeleteOrderDialog({
         </>
       }
     >
-      {previewQuery.isLoading ? (
-        <p className="text-sm text-muted-foreground">Sprawdzam skutki…</p>
-      ) : previewQuery.isError ? (
+      {previewQuery.isError ? (
         <p role="alert" className="text-sm text-destructive">
           Nie udało się sprawdzić skutków usunięcia:{" "}
           {apiErrorMessage(previewQuery.error, "nieznany błąd")}. Bez tego nie
           usuwamy — spróbuj ponownie.
         </p>
+      ) : !previewQuery.isSuccess ? (
+        // `!isSuccess`, nie `isLoading`: zapytanie wstrzymane (bez danych,
+        // bez błędu) pisało „nic się nie zmieni" (N4, audyt 24.09.2026).
+        <p className="text-sm text-muted-foreground">Sprawdzam skutki…</p>
       ) : consequences.length === 0 ? (
         <p className="text-sm text-muted-foreground">{NO_SIDE_EFFECTS_TEXT}</p>
       ) : (

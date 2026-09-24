@@ -148,6 +148,9 @@ export function sortOrderLinesByEnd(
   });
 }
 
+// Zapas dla odpowiedzi bez pola `uses_shared_md_pool` (harnessy, stare mocki).
+// Regułę liczy serwer (`shared_md_orders.uses_shared_md_pool`, audyt
+// 24.09.2026, S13) — ta lista nie jest źródłem prawdy.
 const SHARED_MD_POOL_CLIENT_IDS = new Set([155, 38339]);
 
 export function clientUsesSharedMdPool(clientId: number): boolean {
@@ -159,8 +162,11 @@ export function usesSharedMdPool(
   group: Pick<
     OrderGroupRead,
     "client_id" | "is_md_budget_based" | "md_budget_mode"
-  >,
+  > &
+    Partial<Pick<OrderGroupRead, "uses_shared_md_pool">>,
 ): boolean {
+  if (typeof group.uses_shared_md_pool === "boolean")
+    return group.uses_shared_md_pool;
   if (group.md_budget_mode != null)
     return group.md_budget_mode === "shared" && group.is_md_budget_based;
   return group.is_md_budget_based && clientUsesSharedMdPool(group.client_id);
@@ -259,10 +265,24 @@ function coversAfter(
   status: string,
   endDate: string | null | undefined,
   endedOn: string,
+  todayIso: string,
+  revenue?: number | null,
 ): boolean {
   if (status === "cancelled" || status === "exhausted") return false;
   const end = dateOnly(endDate);
+  // Porzucony szkic (bez końca i bez stawki przychodowej — np. szkic z podpisu
+  // umowy) nie jest kontynuacją (audyt 24.09.2026, W2).
+  if (
+    status === "draft" &&
+    end === null &&
+    revenue !== undefined &&
+    (revenue === null || revenue <= 0)
+  ) {
+    return false;
+  }
   if (end === null) return status !== "completed";
+  // Zakończone z datą w przyszłości nikt już nie wykona (N2).
+  if (status === "completed" && end > todayIso) return false;
   return end > endedOn;
 }
 
@@ -278,22 +298,38 @@ function coversAfter(
  * też się kwalifikuje. Z kilku zwraca to, które kończy się najwcześniej.
  */
 export function endingOrderWithoutSuccessor<
-  T extends Pick<ClientOrderRead, "id" | "status" | "start_date" | "end_date">,
+  T extends Pick<ClientOrderRead, "id" | "status" | "start_date" | "end_date"> &
+    Partial<Pick<ClientOrderRead, "rate_client">>,
 >(orders: readonly T[], days: number, todayIso = localTodayIso()): T | null {
   const horizon = normalizedEndingDays(days);
   let found: T | null = null;
   for (const order of orders) {
-    if (order.status === "completed" || order.status === "cancelled") continue;
+    // Lustro serwera (`ENDING_ORDER_STATUSES`): szkic nie jest zamówieniem.
+    if (order.status !== "active" && order.status !== "paused") continue;
     const end = dateOnly(order.end_date);
     if (!isEndingSoon(end, horizon, todayIso)) continue;
     const continued = orders.some(
       (other) =>
-        other.id !== order.id && coversAfter(other.status, other.end_date, end!),
+        other.id !== order.id &&
+        coversAfter(
+          other.status,
+          other.end_date,
+          end!,
+          todayIso,
+          "rate_client" in other ? (other.rate_client ?? null) : undefined,
+        ),
     );
     if (continued) continue;
     if (found === null || end! < dateOnly(found.end_date)!) found = order;
   }
   return found;
+}
+
+/** „dziś" / „za 1 dzień" / „za N dni" — do plakietek końca zamówienia. */
+export function endsInPhrase(days: number | null): string {
+  if (days === null) return "";
+  if (days <= 0) return "dziś";
+  return days === 1 ? "za 1 dzień" : `za ${days} dni`;
 }
 
 /** Dni do końca zamówienia z `endingOrderWithoutSuccessor` (0 = dziś). */
@@ -377,7 +413,8 @@ export function endingGroupWithoutSuccessor(
     const family = families.membersByGroupId.get(candidate.id) ?? [candidate];
     const continued = family.some(
       (other) =>
-        other.id !== candidate.id && coversAfter(other.status, other.end_date, end!),
+        other.id !== candidate.id &&
+        coversAfter(other.status, other.end_date, end!, todayIso),
     );
     if (continued) continue;
     if (found === null || end! < dateOnly(found.end_date)!) found = candidate;
@@ -782,12 +819,7 @@ export function contractClosed(
   contractor: Pick<ContractWithOrdersRead, "contract_status" | "contract_end_date">,
   todayIso = localTodayIso(),
 ): boolean {
-  if (
-    contractor.contract_status !== "ended" &&
-    contractor.contract_status !== "completed"
-  ) {
-    return false;
-  }
+  if (contractor.contract_status !== "ended") return false;
   const end = dateOnly(contractor.contract_end_date);
   return end !== null && end < todayIso;
 }
@@ -822,30 +854,57 @@ export function contractorMatchesPill(
     return (
       contractor.contract_status === "active" ||
       contractor.contract_status === "ending" ||
-      (contractor.contract_status === "draft" &&
+      ((contractor.contract_status === "draft" ||
+        contractor.contract_status === "ready_for_signature") &&
         contractor.orders.some((order) => order.status === "active")) ||
       // Umowa z datą końca dziś albo później: do tego dnia włącznie osoba
       // pracuje, więc jest tu, a nie w „Zakończonych".
-      ((contractor.contract_status === "ended" ||
-        contractor.contract_status === "completed") &&
+      (contractor.contract_status === "ended" &&
         !contractClosed(contractor, todayIso))
     );
   }
   if (pill === "ending_30d") {
-    return endingOrderWithoutSuccessor(contractor.orders, 30, todayIso) !== null;
+    return endingWithoutSuccessorOrderId(contractor, todayIso) !== null;
   }
   if (pill === "completed") {
     return contractClosed(contractor, todayIso);
   }
   if (pill === "draft") {
+    // Umowa „gotowa do podpisu" to też szkic współpracy — do 24.09.2026 nie
+    // trafiała do żadnej pigułki (N9).
+    const draftContract =
+      contractor.contract_status === "draft" ||
+      contractor.contract_status === "ready_for_signature";
     return (
       contractor.draft_card === true ||
       contractor.orders.some((order) => order.status === "draft") ||
-      (contractor.contract_status === "draft" &&
+      (draftContract &&
         !contractor.orders.some((order) => order.status === "active"))
     );
   }
+  if (pill === "cancelled") {
+    // Anulowane zamówienie okresowe (N9) — do 24.09.2026 pigułka łapała
+    // wyłącznie grupy MD/kosztowe.
+    return contractor.orders.some((order) => order.status === "cancelled");
+  }
   return false;
+}
+
+/**
+ * Zamówienie kontraktora, które kończy się w 30 dni BEZ kontynuacji.
+ *
+ * Regułę liczy serwer (`services/order_continuation`, audyt 24.09.2026, S1) —
+ * ta sama co panel „Moi klienci", dzwonek i kafelek pulpitu. Zapas lokalny
+ * wyłącznie dla odpowiedzi bez pola (harnessy, starsze mocki).
+ */
+export function endingWithoutSuccessorOrderId(
+  contractor: ContractWithOrdersRead,
+  todayIso = localTodayIso(),
+): number | null {
+  if (contractor.ending_without_successor_order_id !== undefined) {
+    return contractor.ending_without_successor_order_id ?? null;
+  }
+  return endingOrderWithoutSuccessor(contractor.orders, 30, todayIso)?.id ?? null;
 }
 
 export function orderGroupMatchesPill(

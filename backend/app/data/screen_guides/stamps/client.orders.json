@@ -1,9 +1,9 @@
 {
-  "entry": "d5adac53e29c1a36211f057c4442b1b4ddbdb5f6d8d24cfafe7233f0b17ca334",
+  "entry": "d48eee80da5d4ffcfc0d9a7418d75c3bfb52d5fdfbae588dec97df5dd79a4e1a",
   "guide": "client.orders",
   "sources": {
     "frontend/src/components/client-profile/orders/AssignToOrderModal.tsx": "4276f76150fef4dd46b0844348ecdf774b3e8428352693930ca8c4ffa424bcbd",
-    "frontend/src/components/client-profile/orders/MultiConsultantOrdersTab.tsx": "d2cea11c3fbcd89a4a03b36d719832d2784bcbb4ed02a3063647f5c645563d53",
-    "frontend/src/components/client-profile/orders/OrderGroupCard.tsx": "745fcd4315b6e852b4c7c3d06d8fbf472b27f8a188b61da488a7aaee8dcb47af"
+    "frontend/src/components/client-profile/orders/MultiConsultantOrdersTab.tsx": "68a0670907c527a19f6c65a612deb03a6a159c95e39cb38368c2a4ae0b2463a9",
+    "frontend/src/components/client-profile/orders/OrderGroupCard.tsx": "0afa7a17b88a934894a0ba2bf55677511405046e02e6a74b5b472aa878593c48"
   }
 }

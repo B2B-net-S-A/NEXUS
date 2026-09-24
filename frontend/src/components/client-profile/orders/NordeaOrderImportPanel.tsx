@@ -5,6 +5,7 @@ import { AlertTriangle, CheckCircle2, FileUp } from "lucide-react";
 
 import { useToast } from "@/components/Toast";
 import { api, extractErrorMsg } from "@/lib/api";
+import { ConfirmTwoStepButton } from "@/components/orders/ConfirmTwoStepButton";
 
 interface Discrepancy {
   contractor: string;
@@ -113,22 +114,15 @@ export function NordeaOrderImportPanel({ clientId, onApplied }: Props) {
           >
             {pending === "preview" ? "Sprawdzam…" : "Sprawdź import"}
           </button>
-          <button
-            type="button"
+          <ConfirmTwoStepButton
             disabled={!file || !report?.dry_run || blocking || pending !== null}
-            onClick={() => {
-              if (
-                window.confirm(
-                  `Zastosować import ${report?.rows_total ?? 0} wierszy w danych Nordea?`,
-                )
-              ) {
-                run(false);
-              }
-            }}
+            confirmLabel={`Na pewno zastosować ${report?.rows_total ?? 0} wierszy?`}
+            onConfirm={() => run(false)}
             className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
+            armedClassName="bg-destructive text-destructive-foreground"
           >
             {pending === "apply" ? "Importuję…" : "Zastosuj import"}
-          </button>
+          </ConfirmTwoStepButton>
         </div>
 
         {error ? (

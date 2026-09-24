@@ -403,7 +403,7 @@
       },
       {
         "q": "Komu kończy się zamówienie?",
-        "a": "Kliknij pigułkę „Kończące się 30d”. Są tam tylko zamówienia bez kolejnego zamówienia dla tej osoby.",
+        "a": "Kliknij pigułkę „Bez kontynuacji 30d”. Są tam tylko zamówienia bez kolejnego zamówienia dla tej osoby.",
         "anchor": "client.orders.pills"
       },
       {
@@ -433,7 +433,7 @@
         "describe": "Dodanie zamówienia, także z odczytem PDF.",
         "requires": {"roles": ["admin", "delivery_lead"]}
       },
-      {"id": "client.orders.pills", "label": "Aktywne / Kończące się / Zakończeni", "describe": "Pigułki stanu zamówień z licznikami."},
+      {"id": "client.orders.pills", "label": "Aktywne / Bez kontynuacji / Zakończeni", "describe": "Pigułki stanu zamówień z licznikami."},
       {"id": "client.orders.search", "label": "Wyszukiwanie i eksport", "describe": "Szukanie po numerze i nazwisku, filtry i eksport."}
     ],
     "help_slug": "zamowienia-instrukcja-delivery-lead",

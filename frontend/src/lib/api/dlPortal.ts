@@ -162,6 +162,12 @@ export interface ContractWithOrdersRead {
   /** Karta „szkicu": żywy kontrakt bez zamówień poza szkicami (serwer liczy).
    *  Da się ją usunąć („Usuń szkic"), a u CeZ przypisać do zamówienia. */
   draft_card?: boolean;
+  /** Zamówienie okresowe kończące się w 30 dni BEZ kontynuacji — liczy serwer
+   *  (`services/order_continuation`, audyt 24.09.2026). Pigułka „Bez
+   *  kontynuacji 30d" czyta to pole zamiast liczyć regułę sama. */
+  ending_without_successor_order_id?: number | null;
+  ending_without_successor_end_date?: string | null;
+  ending_without_successor_days?: number | null;
   orders: ClientOrderRead[];
 }
 
@@ -173,6 +179,10 @@ export interface ClientOrdersGroupedResponse {
    *  front nie zna przypisań DL, więc bez tej flagi pokazywałby pola stawek
    *  komuś, kto na zapisie dostanie 403. */
   can_manage_finance: boolean;
+  /** Import zamówień Nordei (CSV) — klient z polityki `nordea` (serwer). */
+  nordea_order_import_enabled?: boolean;
+  /** Klient wspólnej puli MD (Lotte Wedel, Cyfrowy Polsat) — serwer. */
+  shared_md_pool_client?: boolean;
 }
 
 /** Wynik "Zczytaj dane z dokumentu" — odczyt PDF/DOCX zamówienia. */
