@@ -5,23 +5,42 @@ import { Badge } from "@/components/ui/badge";
 import { competenceCategoriesApi, type CompetenceCategoryOut } from "@/lib/api";
 
 /**
- * Coordinated 5-hue token map — one Badge variant per competence-category slug.
- * All variants are design-system tokens (no hardcoded colours), so the set
- * stays legible in light/dark/soft themes.
+ * Cztery kategorie kompetencji zespołu (od 24.09.2026) — jeden wariant Badge
+ * na slug, same tokeny design systemu. Slugi zostały z czasów pięciu
+ * kategorii: `security_quality` to dziś QA, a `infrastructure_operations`
+ * obejmuje też security oraz dane i AI.
  */
-const CC_TONE: Record<
-  string,
-  "info" | "soft" | "success" | "danger" | "warning"
-> = {
+const CC_TONE: Record<string, "info" | "soft" | "success" | "warning"> = {
   infrastructure_operations: "info",
-  software_development: "soft",
-  data_ai: "success",
-  security_quality: "danger",
-  management_delivery: "warning",
+  software_development: "success",
+  security_quality: "warning",
+  management_delivery: "soft",
 };
 
 /**
- * Cached catalog of the 5 active competence categories. Shares the query key
+ * Wycofana kategoria „Dane i AI” należy dziś do grupy Infra. Stare pole
+ * tekstowe kandydata (`competence_category`) nadal może nieść `data_ai`,
+ * a katalog zwraca tylko aktywne kategorie — bez aliasu plakietka by znikła.
+ */
+const RETIRED_SLUG_ALIAS: Record<string, string> = {
+  data_ai: "infrastructure_operations",
+};
+
+/** Wariant Badge dla kategorii — ten sam kolor na pulpicie i w plakietce. */
+export function competenceTone(
+  slug: string | null | undefined,
+): "info" | "soft" | "success" | "warning" | "neutral" {
+  const resolved = resolveSlug(slug)
+  return (resolved && CC_TONE[resolved]) || "neutral"
+}
+
+function resolveSlug(slug: string | null | undefined): string | null {
+  if (!slug) return null;
+  return RETIRED_SLUG_ALIAS[slug] ?? slug;
+}
+
+/**
+ * Cached catalog of the 4 active competence categories. Shares the query key
  * with `CompetenceCategoryMultiSelect`, so opening the filter or rendering a
  * badge warms the same cache — one request per session.
  */
@@ -61,7 +80,7 @@ export function CompetenceCategoryBadge({
     (categoryId != null
       ? data?.find((c) => c.id === categoryId)
       : undefined) ??
-    (slug ? data?.find((c) => c.slug === slug) : undefined);
+    (slug ? data?.find((c) => c.slug === resolveSlug(slug)) : undefined);
   if (!cc) return null;
 
   const tone = CC_TONE[cc.slug] ?? "neutral";
@@ -88,6 +107,6 @@ export function CompetenceCategoryName({
   if (categoryId == null && !slug) return null;
   const cc =
     (categoryId != null ? data?.find((c) => c.id === categoryId) : undefined) ??
-    (slug ? data?.find((c) => c.slug === slug) : undefined);
+    (slug ? data?.find((c) => c.slug === resolveSlug(slug)) : undefined);
   return cc ? <>{cc.name_pl}</> : null;
 }

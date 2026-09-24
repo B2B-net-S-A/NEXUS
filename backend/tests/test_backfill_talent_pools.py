@@ -113,7 +113,7 @@ async def test_backfill_cc_populates_from_source_jobs() -> None:
     """Pool with CC=NULL and memberships tied to a CC-bearing job gets CC."""
     subcategory = f"BFCC-{uuid.uuid4().hex[:6]}"
     pool_name = f"{subcategory} Senior"
-    cc_id = await _get_cc_id("data_ai")
+    cc_id = await _get_cc_id("infrastructure_operations")
 
     job_id = await _seed_job(
         subcategory=subcategory, seniority=Seniority.senior, cc_id=cc_id

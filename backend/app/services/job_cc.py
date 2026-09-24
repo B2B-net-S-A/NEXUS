@@ -25,9 +25,11 @@ Resolution order (``resolve_job_cc_id``):
   3. ``None`` — non-role buckets ("Opportunity", "Stara kadencja") stay NULL.
 
 Rule ordering is load-bearing and mirrors ``talent_pool_cc``:
-security → data → management → infrastructure → software. E.g. "Tester
-Automatyzujący (ETL)" must stay *security_quality*, "Architekt Chmurowy" must
-resolve to *infrastructure_operations* before the generic "architekt" rule in
+QA → security → data → management → infrastructure → software. Security i
+dane należą od 24.09.2026 do grupy Infra (cztery kategorie zespołu), więc
+bloki są kluczowane NAZWĄ bloku, nie slugiem. E.g. "Tester Automatyzujący
+(ETL)" must stay *security_quality* (= QA), "Architekt Chmurowy" must resolve
+to *infrastructure_operations* before the generic "architekt" rule in
 *software_development* fires.
 """
 
@@ -46,13 +48,16 @@ from app.services.talent_pool_cc import BASE_CC_RULES
 # too weak to trust for silent auto-assignment.
 HYBRID_MIN_SCORE = 0.30
 
-# Job-specific pattern extensions per CC slug, applied ON TOP of the shared
+# Job-specific pattern extensions per rule BLOCK, applied ON TOP of the shared
 # talent-pool rules. Same regex conventions: case-insensitive, ``\b`` anchors
 # around short/ambiguous tokens.
 _JOB_EXTRA_PATTERNS: dict[str, tuple[str, ...]] = {
+    # noun forms only ("inżynieria testów", "automatyzacja testowania") —
+    # NOT the adjective "testowy" ("Projekt testowy: ..." is metadata).
+    "qa": (r"testów|testowani",),
     # Polish security stems ("bezpieczeństwa chmury" must win before the
     # infra "chmur" rule) + offensive-security roles.
-    "security_quality": (
+    "security": (
         r"bezpiecze",
         r"cyber",
         r"red team",
@@ -61,13 +66,10 @@ _JOB_EXTRA_PATTERNS: dict[str, tuple[str, ...]] = {
         r"exploit",
         r"vulnerabilit",
         r"\bcsirt\b",
-        # noun forms only ("inżynieria testów", "automatyzacja testowania") —
-        # NOT the adjective "testowy" ("Projekt testowy: ..." is metadata).
-        r"testów|testowani",
     ),
     # Explicit data/BI tokens — checked before management so "Analityk danych"
     # and "Power BI Analyst" don't fall through to the generic analyst rule.
-    "data_ai": (
+    "data": (
         r"\betl\b",
         r"power\s*bi",
         r"analityk danych",
@@ -76,7 +78,7 @@ _JOB_EXTRA_PATTERNS: dict[str, tuple[str, ...]] = {
         r"business intel",
     ),
     # Polish analyst/manager family + tech-lead roles.
-    "management_delivery": (
+    "management": (
         r"analityk",
         r"kierownik",
         r"koordynator",
@@ -87,7 +89,7 @@ _JOB_EXTRA_PATTERNS: dict[str, tuple[str, ...]] = {
         r"zarządzan",
     ),
     # Polish infra stems + spelling/cloud variants.
-    "infrastructure_operations": (
+    "infra": (
         r"chmur",
         r"infrastruktur",
         r"administrator",
@@ -106,7 +108,7 @@ _JOB_EXTRA_PATTERNS: dict[str, tuple[str, ...]] = {
     # Polish developer/designer roles + spelling variants. "architekt"
     # (generic) is last-resort here, mirroring the English "architect" rule —
     # Cloud/Data/Security architects are claimed by earlier categories.
-    "software_development": (
+    "software": (
         r"programist",
         r"projektant",
         r"ui\s*/\s*ux",
@@ -123,10 +125,10 @@ _RULES: tuple[tuple[str, tuple[re.Pattern[str], ...]], ...] = tuple(
         slug,
         tuple(
             re.compile(p, re.IGNORECASE)
-            for p in (*patterns, *_JOB_EXTRA_PATTERNS.get(slug, ()))
+            for p in (*patterns, *_JOB_EXTRA_PATTERNS.get(block, ()))
         ),
     )
-    for slug, patterns in BASE_CC_RULES
+    for block, slug, patterns in BASE_CC_RULES
 )
 
 

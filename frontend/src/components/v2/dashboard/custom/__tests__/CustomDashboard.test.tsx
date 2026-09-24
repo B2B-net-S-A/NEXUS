@@ -90,12 +90,13 @@ describe("własny pulpit", () => {
     expect(await screen.findByText("Twój pulpit jest pusty")).toBeInTheDocument()
     expect(screen.getByText("Polecane dla roli Rekruter")).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole("button", { name: "Dodaj wszystkie 4" }))
+    fireEvent.click(screen.getByRole("button", { name: "Dodaj wszystkie 5" }))
 
     await waitFor(() => expect(saveMock).toHaveBeenCalledTimes(1))
     const [tiles, version] = saveMock.mock.calls[0]
     expect(version).toBe(0)
     expect(tiles.map((t: DashboardTile) => t.type)).toEqual([
+      "request_board",
       "metric_number",
       "my_recruitments",
       "my_next_steps",

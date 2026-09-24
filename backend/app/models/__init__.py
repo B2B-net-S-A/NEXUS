@@ -734,3 +734,6 @@ from app.models.cv_qc_run import CvQcRun  # noqa: F401
 from app.models.competition_period_closure import (  # noqa: F401
     CompetitionPeriodClosure,
 )
+
+# 0371: kto pracuje nad requestem (automat przydziału + ręczne dodanie).
+from app.models.job_work_assignment import JobWorkAssignment  # noqa: F401

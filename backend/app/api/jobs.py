@@ -99,11 +99,12 @@ from app.services.section_permissions import (
 )
 from app.api.ws import manager as ws_manager
 from app.core.config import settings
+from app.services.request_work_state import set_work_state
+from app.services.request_work_state import visible_state as _visible_work_state
 from app.services.recruitment_allocation import (
     allocation_lock,
     assign_operator,
     release_operator,
-    enqueue_allocation,
 )
 from app.services.workforce_availability import (
     operational_owner_clause,
@@ -805,6 +806,14 @@ async def list_jobs(
             "OR-combined. Same rule as the `request_status` field of each row."
         ),
     ),
+    work_state: Optional[list[str]] = Query(
+        None,
+        description=(
+            "0371: stan pracy nad requestem widoczny dla ludzi — to_review · "
+            "searching · champion · client_silent · finished. Powtarzalny, "
+            "łączony przez LUB (`request_work_state.visible_state`)."
+        ),
+    ),
     include_stage_counts: bool = Query(
         False,
         description=(
@@ -918,6 +927,16 @@ async def list_jobs(
         query = query.outerjoin(status_sq, status_sq.c.job_id == Job.id).where(
             _sim.request_status_expr(status_sq).in_(request_status)
         )
+    if work_state:
+        from app.services.request_work_state import (  # noqa: PLC0415
+            VISIBLE_STATES,
+            visible_state_clause,
+        )
+
+        unknown = sorted(set(work_state) - set(VISIBLE_STATES))
+        if unknown:
+            raise HTTPException(422, f"Nieznany stan requestu: {', '.join(unknown)}")
+        query = query.where(visible_state_clause(work_state))
     if min_sent is not None or max_sent is not None:
         if min_sent is not None and max_sent is not None and min_sent > max_sent:
             raise HTTPException(
@@ -1263,6 +1282,7 @@ async def list_jobs(
                 "suggested": similar_suggested.get(j.id),
             }
         d["request_status"] = request_status_map.get(j.id, "searching")
+        d["visible_work_state"] = _visible_work_state(j.work_state, j.champion_found_at)
         d["priority_assignment"] = priority_assignment_map.get(j.id)
         d["priority_carry_over_count"] = priority_carry_counts.get(j.id, 0)
         redact_job_for_viewer(d, current_user)
@@ -2019,6 +2039,9 @@ async def update_job(
             # jest decyzją człowieka (handoff), a nie skutkiem ubocznym
             # odblokowania statusu przez sync Traffita.
             job.is_open = False
+            await set_work_state(
+                db, job, "finished", actor_id=current_user.id, reason="job_closed"
+            )
             await maybe_close_job_contact_opportunities(
                 db,
                 job_id=job_id,
@@ -2213,6 +2236,10 @@ async def close_job(
     job.is_open = False
     job.close_reason = data.reason
     job.close_notes = data.notes
+    # 0371: zamknięta w NEXUSIE = „Zakończony” w porządku requestów.
+    await set_work_state(
+        db, job, "finished", actor_id=current_user.id, reason="job_closed"
+    )
     await maybe_close_job_contact_opportunities(
         db,
         job_id=job_id,
@@ -2768,11 +2795,11 @@ async def handoff_job_to_search(
         job.is_open = True
         job.needs_sourcing = True
         job.favorite_sourcing_paused = False
-        request = await enqueue_allocation(
-            db,
-            job=job,
-            actor_user_id=current_user.id,
-            channel=PriorityChannel(payload.channel),
+        # 0371: przydział robi automat na „Szukamy kandydatów” — codzienny
+        # przegląd i przegląd po zdarzeniu (services/request_allocation), bez
+        # jednorazowej kolejki `recruitment_allocation_requests`.
+        await set_work_state(
+            db, job, "searching", actor_id=current_user.id, reason="handoff"
         )
         await db.commit()
         return {
@@ -2780,7 +2807,7 @@ async def handoff_job_to_search(
             "job_id": job.id,
             "recruiter_id": None,
             "snapshot_id": None,
-            "allocation_request_id": request.id,
+            "allocation_request_id": None,
         }
     if payload.recruiter_id is None:
         raise HTTPException(422, "Wybierz prowadzącego albo przydział automatyczny")
@@ -2809,6 +2836,9 @@ async def handoff_job_to_search(
     job.is_open = True
     job.needs_sourcing = True
     job.favorite_sourcing_paused = False
+    await set_work_state(
+        db, job, "searching", actor_id=current_user.id, reason="handoff"
+    )
     db.add(
         Activity(
             entity_type="job",

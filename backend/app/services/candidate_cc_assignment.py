@@ -165,6 +165,7 @@ async def backfill_candidate_ccs(
     dry_run: bool = False,
     progress: Optional[dict[str, Any]] = None,
     start_after_id: int = 0,
+    only_slugs: Optional[list[str]] = None,
 ) -> dict[str, Any]:
     """Classify candidates into competence categories in bulk.
 
@@ -173,6 +174,11 @@ async def backfill_candidate_ccs(
     touches already-classified or manually-curated profiles. ``only_missing=
     False`` re-classifies **every** candidate (still skips manual rows); use it
     deliberately to refresh the whole corpus after a classifier change.
+
+    ``only_slugs`` zawęża przebieg do kandydatów, których OBECNA główna
+    kategoria ma jeden z podanych slugów — tak po przejściu na cztery kategorie
+    (24.09.2026) przelicza się wyłącznie dawne „Bezpieczeństwo i Jakość” i
+    „Dane i AI”, a nie całą bazę.
 
     ``start_after_id`` is a resume cursor: only candidates with ``id >`` this
     value are scanned. Low-signal candidates below the classification floor are
@@ -189,6 +195,12 @@ async def backfill_candidate_ccs(
     params: dict[str, Any] = {}
     if only_missing:
         conditions.append("competence_category_id IS NULL")
+    if only_slugs:
+        conditions.append(
+            "competence_category_id IN (SELECT id FROM competence_categories "
+            "WHERE slug = ANY(:only_slugs))"
+        )
+        params["only_slugs"] = list(only_slugs)
     if start_after_id:
         conditions.append("id > :start_after_id")
         params["start_after_id"] = start_after_id

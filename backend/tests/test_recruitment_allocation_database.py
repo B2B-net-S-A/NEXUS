@@ -594,8 +594,11 @@ async def test_outbox_is_atomic_and_failed_sweep_is_retryable(monkeypatch):
                 worker, "workforce_context", AsyncMock(return_value=WorkforceContext())
             )
             monkeypatch.setattr(worker, "allocation_issues", AsyncMock(return_value=[]))
+            # 0371: przydział requestów liczy nowy automat, nie kolejka.
             monkeypatch.setattr(
-                worker, "allocate_pending", AsyncMock(return_value={"assigned": 0})
+                worker,
+                "run_request_allocation",
+                AsyncMock(return_value={"assigned": 0}),
             )
             await worker.run_allocation_sweep(db)
             record = await db.get(

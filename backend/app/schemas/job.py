@@ -215,6 +215,11 @@ class JobResponse(BaseModel):
     # 0341: status requestu liczony przez `job_similarity.request_status_expr`
     # (closed · filled · contract · champion · incomplete · searching).
     request_status: Optional[str] = None
+    # 0371: stan pracy nad requestem prowadzony w NEXUSIE (to_review ·
+    # searching · client_silent · finished) i stan widoczny dla ludzi —
+    # `request_work_state.visible_state` (champion przy „Szukamy”).
+    work_state: str = "to_review"
+    visible_work_state: Optional[str] = None
     # Tablica (22.09.2026): odznaka „Gotowy do Cpro" istnieje tylko u Nordei.
     cpro_enabled: bool = False
     # 0353: osoba, która wysyła do Cpro kandydatów tej rekrutacji (Nordea).
