@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ToastProvider } from "@/components/Toast";
-import { MdImportWorkspace } from "@/components/finance/MdImportWorkspace";
+import { MdImportWorkspace, currentMonth } from "@/components/finance/MdImportWorkspace";
 import type {
   ImportDetail,
   ImportRow,
@@ -565,5 +565,19 @@ describe("MdImportWorkspace", () => {
     const failedBadge = screen.getByText("Tylko faktura").closest("span");
     expect(failedBadge?.className).toContain("text-destructive");
     expect(failedBadge?.className).not.toContain("emerald");
+  });
+});
+
+describe("currentMonth (N7)", () => {
+  it("liczy miesiąc z daty lokalnej, nie z UTC", () => {
+    const previousTz = process.env.TZ;
+    process.env.TZ = "Europe/Warsaw";
+    try {
+      // 1 października, 00:30 w Warszawie — w UTC to jeszcze 30 września.
+      expect(currentMonth(new Date(2026, 9, 1, 0, 30))).toBe("2026-10");
+      expect(currentMonth(new Date(2026, 0, 31, 23, 59))).toBe("2026-01");
+    } finally {
+      process.env.TZ = previousTz;
+    }
   });
 });

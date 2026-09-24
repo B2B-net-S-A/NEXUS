@@ -51,8 +51,13 @@ export function isLostImportRow(row: ImportRow): boolean {
   return row.cost_status !== "applied";
 }
 
-function currentMonth(): string {
-  return new Date().toISOString().slice(0, 7);
+/**
+ * Bieżący miesiąc wg zegara użytkownika (RRRR-MM). N7 (audyt 24.09.2026):
+ * `toISOString()` liczy w UTC, więc 1. dnia miesiąca między północą a 1–2:00
+ * czasu polskiego podpowiadał poprzedni miesiąc.
+ */
+export function currentMonth(now: Date = new Date()): string {
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 }
 
 function formatMd(value: number | null | undefined): string {
