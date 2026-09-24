@@ -250,6 +250,7 @@ from app.services.order_group_lifecycle import materialize_scheduled_order_group
 from app.services.order_md_exhaustion import (
     closed_by_md_exhaustion,
     reconcile_md_exhausted_groups,
+    sync_md_group_exhaustion,
 )
 from app.services.order_write_errors import commit_order_write
 from app.services.order_types import (
@@ -5214,7 +5215,9 @@ async def resolve_md_offboarding_case(
                     422, detail="Wskazany konsultant nie jest na zamówieniu"
                 )
             if target.id == source.id:
-                raise HTTPException(422, detail="Nie można przenieść puli na tę samą osobę")
+                raise HTTPException(
+                    422, detail="Nie można przenieść puli na tę samą osobę"
+                )
             if (
                 source.contract is not None
                 and target.contract is not None
@@ -5224,7 +5227,9 @@ async def resolve_md_offboarding_case(
                     422, detail="Nie można przenieść puli na drugi wpis tej samej osoby"
                 )
             if target.status != ClientOrderStatus.active:
-                raise HTTPException(409, detail="Konsultant docelowy nie jest już aktywny")
+                raise HTTPException(
+                    409, detail="Konsultant docelowy nie jest już aktywny"
+                )
             target_name = consultant_display_name(target)
             target_rate = target.md_rate_revenue
             if target_rate is None or target_rate <= 0:
@@ -5248,7 +5253,9 @@ async def resolve_md_offboarding_case(
                         raise HTTPException(
                             422, detail="Brak stawki do przeliczenia puli MD"
                         )
-                    basis_rate = basis_rate_for(transfer_method, source_rate, target_rate)
+                    basis_rate = basis_rate_for(
+                        transfer_method, source_rate, target_rate
+                    )
                     rebalance_evidence["md_transfer_method"] = transfer_method
                 else:
                     basis_rate = (
@@ -5257,7 +5264,9 @@ async def resolve_md_offboarding_case(
                         else target_rate
                     )
                 if basis_rate is None or basis_rate <= 0:
-                    raise HTTPException(422, detail="Brak stawki do przeliczenia puli MD")
+                    raise HTTPException(
+                        422, detail="Brak stawki do przeliczenia puli MD"
+                    )
                 if transfer_method is not None:
                     transferred_md = transferred_md_for(
                         transfer_method, remaining, source_rate, target_rate
@@ -5430,6 +5439,11 @@ async def resolve_md_offboarding_case(
     await handle_offboarding_case_alerts(
         db, case_id=case.id, handled_by_user_id=user.id, now=now
     )
+    # Sprawa była ostatnią rzeczą trzymającą zamówienie otwarte — po decyzji
+    # (osłoniętej przed automatycznym zamknięciem, H8) wyczerpane zamówienie
+    # kończy się od razu, a nie dopiero przy następnym odczycie listy.
+    await db.flush()
+    await sync_md_group_exhaustion(db, group_id, client_id=client_id)
     await commit_order_write(db)
     await db.refresh(case)
     return _offboarding_case_to_read(

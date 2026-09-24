@@ -65,6 +65,8 @@ def test_entrypoint_widens_the_status_check_after_dropping_it():
     add = entrypoint.rfind(f"ADD CONSTRAINT {CONSTRAINT}")
     assert drop != -1 and add != -1
     assert drop < add
-    match = re.match(r"ADD CONSTRAINT \w+ CHECK \(status IN \(([^)]*)\)\)", entrypoint[add:])
+    match = re.match(
+        r"ADD CONSTRAINT \w+ CHECK \(status IN \(([^)]*)\)\)", entrypoint[add:]
+    )
     assert match is not None, entrypoint[add : add + 200]
     assert _statuses(match.group(1)) == set(IMPORT_ROW_STATUSES)

@@ -362,7 +362,9 @@ def _row_status_label(row: MdConsumptionImportRow, reason_kind: Optional[str]) -
         # Wiersz wskazał numer zamówienia, którego nie da się rozliczyć —
         # ticket 1.1: opis przyczyny w ``status_reason``.
         return (
-            LABEL_ORDER_MISSING if reason_kind == REASON_ORDER_MISSING else LABEL_TO_VERIFY
+            LABEL_ORDER_MISSING
+            if reason_kind == REASON_ORDER_MISSING
+            else LABEL_TO_VERIFY
         )
     if row.status in (IMPORT_ROW_UNMATCHED, IMPORT_ROW_COST_ONLY):
         if row.cost_status == COST_ROW_APPLIED:

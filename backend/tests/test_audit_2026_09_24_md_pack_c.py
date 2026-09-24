@@ -525,14 +525,18 @@ async def test_late_swap_month_report_that_sinks_the_successor_is_held(
     from tests.test_order_lifecycle_and_cost import _import_sheet
 
     if business_today().day == 1:
-        pytest.skip("Poprzednik kończy się w poprzednim miesiącu — brak miesiąca zamiany.")
+        pytest.skip(
+            "Poprzednik kończy się w poprzednim miesiącu — brak miesiąca zamiany."
+        )
     client_id, contracts, names = await _seed_client_with_contracts(2)
     _enable_for(monkeypatch, client_id)
     group = await _create_group(
         app_client, app_auth_headers, client_id, [_line_payload(contracts[0])]
     )
     predecessor = group["lines"][0]["id"]
-    successor = await _swap(app_client, app_auth_headers, client_id, group, contracts[1])
+    successor = await _swap(
+        app_client, app_auth_headers, client_id, group, contracts[1]
+    )
     assert await _line_total(successor) == Decimal("50")
     await _report_md(successor, "45")
 
