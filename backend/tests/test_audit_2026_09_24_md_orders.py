@@ -319,9 +319,12 @@ async def test_assigning_to_predecessor_keeps_the_successors_own_entry(
     assert (await _entries(old_line))[_period()] == (Decimal("15"), "import")
     assert (await _entries(new_line))[_period()] == (Decimal("4"), "manual")
 
-    # Nadwyżka też nie nadpisuje własnego wpisu — zostaje na poprzedniku.
-    await _import(app_client, finance, _sheet([(names[0], 30)]), _period())
-    assert (await _entries(old_line))[_period()] == (Decimal("30"), "import")
+    # Nadwyżka też nie nadpisuje własnego wpisu następcy. Zostałaby na
+    # poprzedniku jako ujemne saldo, więc od ticketu 1.1 czeka na
+    # zatwierdzenie — poprzedni wpis zostaje nietknięty.
+    body = await _import(app_client, finance, _sheet([(names[0], 30)]), _period())
+    assert body["rows"][0]["status"] == "overflow"
+    assert (await _entries(old_line))[_period()] == (Decimal("15"), "import")
     assert (await _entries(new_line))[_period()] == (Decimal("4"), "manual")
     assert await _transfer_events(successor["id"]) == []
 
@@ -351,13 +354,18 @@ async def test_overflow_does_not_go_to_a_successor_that_starts_later(
     new_line = successor["lines"][0]["id"]
 
     finance = await _finance_headers(app_client)
-    await _import(app_client, finance, _sheet([(names[0], 30)]), _period())
+    body = await _import(app_client, finance, _sheet([(names[0], 30)]), _period())
 
-    assert (await _entries(old_line))[_period()] == (Decimal("30"), "import")
+    # Ticket 1.1: nadwyżka nie idzie na następcę ani nie ląduje sama jako
+    # ujemne saldo poprzednika — wiersz czeka na zatwierdzenie.
+    [held] = body["rows"]
+    assert held["status"] == "overflow"
+    assert held["overflow_md"] == pytest.approx(10.0)
+    assert await _entries(old_line) == {}
     assert await _entries(new_line) == {}
     assert await _transfer_events(successor["id"]) == []
     line = await _line_row(old_line)
-    assert Decimal(str(line.md_remaining)) == Decimal("-10")
+    assert Decimal(str(line.md_remaining)) == Decimal("20")
 
 
 # ── W5: linia z przeniesioną pulą nie znika bez śladu ───────────────────────

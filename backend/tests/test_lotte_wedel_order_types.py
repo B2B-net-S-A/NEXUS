@@ -386,15 +386,25 @@ async def test_lotte_finance_import_matches_uwagi_for_cost_and_md_and_exhausts(
         ),
     )
 
-    assert detail["rows_applied"] == 1
+    # Ticket 1.1: 12 MD przy puli 10 czeka na zatwierdzenie przekroczenia.
+    assert detail["rows_applied"] == 0
+    assert detail["rows_ambiguous"] == 1
     assert detail["rows_unmatched"] == 1
     assert detail["rows_cost_applied"] == 1
 
     cost_row, md_row = detail["rows"]
     assert cost_row["cost_status"] == "applied"
     assert cost_row["order_number_hint"] == "4500810155"
-    assert md_row["status"] == "applied"
+    assert md_row["status"] == "overflow"
+    assert md_row["overflow_md"] == pytest.approx(2)
     assert md_row["matched"]["order_number"] == "4500810156"
+    approved = await app_client.post(
+        f"/api/md-consumption/imports/{detail['id']}/rows/{md_row['id']}/assign",
+        json={"order_id": md_row["matched_order_id"], "confirm_overflow": True},
+        headers=finance,
+    )
+    assert approved.status_code == 200, approved.text
+    assert approved.json()["status"] == "applied"
 
     cost_body = await _group_from_list(
         app_client, app_auth_headers, client_id, cost["id"]

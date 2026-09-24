@@ -39,6 +39,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy import func, select
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from starlette.concurrency import run_in_threadpool
@@ -67,6 +68,7 @@ from app.models.md_consumption import (
     IMPORT_ROW_APPLIED,
     IMPORT_ROW_COST_ONLY,
     IMPORT_ROW_NEEDS_ASSIGNMENT,
+    IMPORT_ROW_OVERFLOW,
     IMPORT_ROW_STATUS_LABELS,
     IMPORT_ROW_UNMATCHED,
     MdConsumptionImport,
@@ -101,6 +103,7 @@ from app.services.client_order_lines import (
     line_settles_in_month,
     match_by_name,
     prefer_active_line,
+    md_lines_for_numbered_rows,
     md_lines_settling_in_month,
     month_bounds,
     name_tokens,
@@ -131,6 +134,7 @@ from app.services.multi_consultant_orders import (
     format_md,
     quantize_md,
 )
+from app.services.order_policies import md_exhaustion_client_ids
 from app.services.shared_md_orders import (
     shared_md_used_total,
     upsert_shared_md_consumption,
@@ -313,11 +317,17 @@ def _unmatched_reason(
     )
 
 
+def _overflow_label(md: Optional[Decimal]) -> str:
+    label = IMPORT_ROW_STATUS_LABELS[IMPORT_ROW_OVERFLOW]
+    return f"{label} o {format_md(md)} MD" if md is not None else label
+
+
 async def _row_to_read(
     db: AsyncSession,
     row: MdConsumptionImportRow,
     period_month: Optional[str] = None,
     reason_context: Optional[_ReasonContext] = None,
+    merged_rows: int = 1,
 ) -> ImportRowRead:
     """Wiersz importu wraz z opcjami do wyboru (dla „wymaga przypisania")."""
     order_ids: set[int] = set()
@@ -357,13 +367,22 @@ async def _row_to_read(
                 md_remaining=order.md_remaining,
             )
 
+    status_reason = _unmatched_reason(row, period_month, reason_context)
+    if row.status == IMPORT_ROW_OVERFLOW:
+        status_label = _overflow_label(row.overflow_md)
+    elif status_reason:
+        # Wiersz wskazał numer zamówienia, którego nie da się rozliczyć —
+        # ticket 1.1: „Do weryfikacji” z opisem przyczyny.
+        status_label = "Do weryfikacji"
+    else:
+        status_label = IMPORT_ROW_STATUS_LABELS.get(row.status, row.status)
     return ImportRowRead(
         id=row.id,
         row_number=row.row_number,
         consultant_name=row.consultant_name,
         md_reported=row.md_reported,
         status=row.status,
-        status_label=IMPORT_ROW_STATUS_LABELS.get(row.status, row.status),
+        status_label=status_label,
         matched_order_id=row.matched_order_id,
         matched=options_by_id.get(row.matched_order_id or -1),
         notes_raw=row.notes_raw,
@@ -381,7 +400,9 @@ async def _row_to_read(
             if int(oid) in options_by_id
         ],
         resolved_at=row.resolved_at,
-        status_reason=_unmatched_reason(row, period_month, reason_context),
+        status_reason=status_reason,
+        overflow_md=row.overflow_md,
+        merged_rows=merged_rows,
     )
 
 
@@ -416,7 +437,10 @@ async def _recount(db: AsyncSession, batch: MdConsumptionImport) -> None:
     statuses = [s for (s,) in result]
     batch.rows_total = len(statuses)
     batch.rows_applied = sum(1 for s in statuses if s == IMPORT_ROW_APPLIED)
-    batch.rows_ambiguous = sum(1 for s in statuses if s == IMPORT_ROW_NEEDS_ASSIGNMENT)
+    # „Do weryfikacji – przekroczenie puli” też czeka na człowieka.
+    batch.rows_ambiguous = sum(
+        1 for s in statuses if s in (IMPORT_ROW_NEEDS_ASSIGNMENT, IMPORT_ROW_OVERFLOW)
+    )
     batch.rows_unmatched = sum(1 for s in statuses if s == IMPORT_ROW_UNMATCHED)
 
     cost_result = await db.execute(
@@ -427,6 +451,56 @@ async def _recount(db: AsyncSession, batch: MdConsumptionImport) -> None:
     cost_statuses = [c for (c,) in cost_result if c is not None]
     batch.rows_cost_applied = sum(1 for c in cost_statuses if c == COST_ROW_APPLIED)
     batch.rows_cost_unmatched = len(cost_statuses) - batch.rows_cost_applied
+
+
+async def _rollback_trial(db: AsyncSession, savepoint) -> None:
+    """Cofnij próbny zapis i doczytaj obiekty, które savepoint wygasił.
+
+    SQLAlchemy wygasza przy wycofaniu savepointu obiekty zmienione w nim
+    (grupa, linia) — następny dostęp do atrybutu w sesji async to
+    ``MissingGreenlet``. Blokady wierszy z transakcji głównej zostają.
+    """
+    await savepoint.rollback()
+    for obj in list(db.identity_map.values()):
+        state = sa_inspect(obj)
+        if state.persistent and state.expired_attributes:
+            await db.refresh(obj)
+
+
+def _negative_delta(before, after) -> Decimal:
+    """O ile zapis zepchnął saldo poniżej zera (0 = nie zepchnął)."""
+    if after is None:
+        return Decimal("0")
+    after = Decimal(str(after))
+    if after >= 0:
+        return Decimal("0")
+    if before is not None:
+        before = Decimal(str(before))
+        if after >= before:
+            return Decimal("0")  # ten zapis salda nie pogorszył
+        if before < 0:
+            return quantize_md(before - after)
+    return quantize_md(-after)
+
+
+def _booking_overflow(outcome, before_remaining: dict) -> Decimal:
+    """Przekroczenie puli po zapisie zejścia (linia docelowa i następca)."""
+    if outcome is None:
+        return Decimal("0")
+    landed = outcome.order
+    worst = Decimal("0")
+    if landed is not None:
+        worst = max(
+            worst,
+            _negative_delta(before_remaining.get(landed.id), landed.md_remaining),
+        )
+    successor = outcome.successor_order
+    if successor is not None and outcome.transferred:
+        worst = max(
+            worst,
+            _negative_delta(before_remaining.get(successor.id), successor.md_remaining),
+        )
+    return worst
 
 
 async def _apply_to_line(
@@ -440,8 +514,17 @@ async def _apply_to_line(
     user_id: int,
     historical_reprocess: bool = False,
     explicit_order: bool = False,
-) -> None:
+    ignore_period: bool = False,
+    overflow_approved: Optional[Decimal] = None,
+):
     """Zapisz MD na linii i dopisz jeden wpis do historii jej zamówienia.
+
+    Zwraca wynik ``apply_md_consumption`` (linia, na której zapis wylądował,
+    i jej pozostałość) — import sprawdza po nim, czy saldo nie zeszło poniżej
+    zera (ticket 1.1). ``ignore_period``: wiersz z numerem zamówienia BIK
+    (data zamówienia = data wystawienia, ``md_lines_for_numbered_rows``).
+    ``overflow_approved``: człowiek zatwierdził przekroczenie o tyle MD —
+    wpis w historii mówi to wprost.
 
     ``explicit_order``: wiersz wskazał TO zamówienie numerem z „Uwag" — zużycie
     zostaje wyłącznie na nim (bez przekierowania na poprzednika i bez
@@ -473,7 +556,10 @@ async def _apply_to_line(
     # grupy pod blokadą: to ona chroni przed nadpisaniem przez równoległą
     # zmianę obsady.
     line_is_valid = locked_order is not None and line_settles_in_month(
-        locked_order, period_month, contract=locked_order.contract
+        locked_order,
+        period_month,
+        contract=locked_order.contract,
+        ignore_period=ignore_period,
     )
     target_is_valid = line_is_valid
     if target_is_valid and historical_reprocess:
@@ -523,18 +609,24 @@ async def _apply_to_line(
         locked_order = outcome.order
         locked_group = outcome.group
     if locked_group is not None:
+        description = describe_import(
+            locked_order,
+            period_month,
+            outcome.applied,
+            outcome.previous,
+            order_number=locked_group.order_number,
+        )
+        if overflow_approved is not None:
+            description += (
+                f" Przekroczenie puli o {format_md(overflow_approved)} MD "
+                "zatwierdzone ręcznie."
+            )
         record_event(
             db,
             group_id=locked_group.id,
             order_id=locked_order.id,
             event_type=EVENT_MD_IMPORT,
-            description=describe_import(
-                locked_order,
-                period_month,
-                outcome.applied,
-                outcome.previous,
-                order_number=locked_group.order_number,
-            ),
+            description=description,
             payload={
                 # `md_reported` zostaje liczbą Z ARKUSZA, a `md_applied` mówi,
                 # ile z niej przyjęło TO zamówienie — po rozdzieleniu obie
@@ -546,9 +638,15 @@ async def _apply_to_line(
                 "md_previous": str(outcome.previous),
                 "md_remaining": str(locked_order.md_remaining),
                 "import_id": import_id,
+                **(
+                    {"overflow_approved_md": str(overflow_approved)}
+                    if overflow_approved is not None
+                    else {}
+                ),
             },
             user_id=user_id,
         )
+    return outcome
 
 
 async def _lock_finance_target_orders(
@@ -639,8 +737,13 @@ def _ordinary_locked_target_is_valid(
     period_month: str,
     correctable_exhausted_group_ids: frozenset[int] = frozenset(),
     order_numbers: Optional[finance_order_matching.OrderNumberIndex] = None,
+    ignore_period: bool = False,
 ) -> bool:
     """Re-match persisted spreadsheet evidence after line/group lock waits.
+
+    ``ignore_period`` — linia wskazana numerem u klienta, którego data
+    zamówienia nie jest okresem usługi (BIK, ticket 1.1): okres linii nie
+    jest wtedy warunkiem, numer z arkusza nadal jest.
 
     Candidate selection happens before the importer can acquire its locks.  A
     concurrent group PATCH may therefore rename or move the period of an order
@@ -667,8 +770,13 @@ def _ordinary_locked_target_is_valid(
         or contract is None
         or contract.client_id != expected_client_id
         or contract.status == ContractStatus.void
-        or (order.start_date is not None and order.start_date > last)
-        or (order.end_date is not None and order.end_date < first)
+        or (
+            not ignore_period
+            and (
+                (order.start_date is not None and order.start_date > last)
+                or (order.end_date is not None and order.end_date < first)
+            )
+        )
     ):
         return False
 
@@ -683,7 +791,9 @@ def _ordinary_locked_target_is_valid(
     # całą partię 409.
     if kind == "md_line":
         if (
-            not line_settles_in_month(order, period_month, contract=contract)
+            not line_settles_in_month(
+                order, period_month, contract=contract, ignore_period=ignore_period
+            )
             or order.md_total is None
         ):
             return False
@@ -719,11 +829,15 @@ def _ordinary_locked_target_is_valid(
         # Wiersz MD z jawnym numerem zamówienia (u każdego klienta, ticket
         # 23.09.2026; u Polkomtela — każdy numer) musi nadal wskazywać TO
         # zamówienie po zdjęciu blokad.
-        number_is_evidence = kind in ("shared_md", "cost") or bool(
-            _authoritative_md_hints(
-                hints,
-                named=[current_match],
-                order_numbers=order_numbers,
+        number_is_evidence = (
+            kind in ("shared_md", "cost")
+            or ignore_period
+            or bool(
+                _authoritative_md_hints(
+                    hints,
+                    named=[current_match],
+                    order_numbers=order_numbers,
+                )
             )
         )
         if (
@@ -777,6 +891,12 @@ async def create_import(
         raise HTTPException(422, detail=str(exc)) from exc
 
     candidates = await md_lines_settling_in_month(db, period_month)
+    # BIK (ticket 1.1): wiersz z numerem trafia na to zamówienie niezależnie
+    # od jego daty — data zamówienia SAP to data wystawienia, nie okres usługi.
+    numbered_candidates = await md_lines_for_numbered_rows(
+        db, md_exhaustion_client_ids()
+    )
+    in_period_line_ids = {match.order.id for match in candidates}
     shared_md_candidates = await shared_md_lines_settling_in_month(db, period_month)
     cost_candidates = await cost_lines_settling_in_month(db, period_month)
     order_numbers = await _order_number_index(db)
@@ -810,6 +930,8 @@ async def create_import(
     # Linie wskazane NUMEREM zamówienia z „Uwag" — zużycie zostaje wyłącznie
     # na nich (bez przekierowania na poprzednika i przeniesienia na następcę).
     explicit_md_orders: set[int] = set()
+    # …i te z nich, których okres nie obejmuje miesiąca raportu (BIK).
+    period_exempt_orders: set[int] = set()
     pending_shared_md: dict[int, Decimal] = defaultdict(lambda: Decimal("0"))
     shared_md_groups: dict[int, ClientOrderGroup] = {}
     shared_md_orders: dict[int, ClientOrder] = {}
@@ -870,10 +992,13 @@ async def create_import(
                 parsed_row=parsed_row,
                 candidates=candidates,
                 order_numbers=order_numbers,
+                numbered_candidates=numbered_candidates,
             )
             authoritative = _authoritative_md_hints(
                 extract_order_number_candidates(parsed_row.notes_raw),
-                named=match_by_name(candidates, parsed_row.consultant_name),
+                named=match_by_name(
+                    candidates + numbered_candidates, parsed_row.consultant_name
+                ),
                 order_numbers=order_numbers,
             )
             if len(matches) == 1:
@@ -887,6 +1012,8 @@ async def create_import(
                     md_explicit_applied = True
                     explicit_md_orders.add(match.order.id)
                     row.order_number_hint = match.group.order_number.strip()[:64]
+                    if match.order.id not in in_period_line_ids:
+                        period_exempt_orders.add(match.order.id)
             elif len(matches) > 1:
                 row.status = IMPORT_ROW_NEEDS_ASSIGNMENT
                 row.candidate_order_ids = [m.order.id for m in matches]
@@ -1001,6 +1128,7 @@ async def create_import(
             expected_client_id=expected_client_by_order[order_id],
             period_month=period_month,
             order_numbers=order_numbers,
+            ignore_period=order_id in period_exempt_orders,
         ):
             raise HTTPException(
                 status.HTTP_409_CONFLICT,
@@ -1039,10 +1167,20 @@ async def create_import(
                 detail="Zamówienie kosztowe zmieniło się podczas importu.",
             )
 
+    # Ticket 1.1: zejście, po którym saldo spadłoby poniżej zera, nie jest
+    # księgowane automatycznie. Zapis idzie próbnie w savepoincie (ta sama
+    # ścieżka co zwykły zapis — podział na następcę, przekierowanie na
+    # poprzednika), a przy przekroczeniu jest cofany razem ze skutkami
+    # (automatyczne zakończenie zamówienia na błędnym saldzie).
+    before_remaining = {
+        oid: locked.md_remaining for oid, locked in locked_orders.items()
+    }
+    await db.flush()
     for order_id in sorted(pending_md):
         md_total = pending_md[order_id]
         order_obj, order_group = md_orders[order_id]
-        await _apply_to_line(
+        savepoint = await db.begin_nested()
+        outcome = await _apply_to_line(
             db,
             match_order=order_obj,
             group=order_group,
@@ -1051,9 +1189,25 @@ async def create_import(
             import_id=batch.id,
             user_id=user.id,
             explicit_order=order_id in explicit_md_orders,
+            ignore_period=order_id in period_exempt_orders,
         )
+        overflow = _booking_overflow(outcome, before_remaining)
+        if overflow > Decimal("0"):
+            await _rollback_trial(db, savepoint)
+            for held in md_rows[order_id]:
+                held.status = IMPORT_ROW_OVERFLOW
+                held.overflow_md = overflow
+                held.candidate_order_ids = [order_id]
+        else:
+            await savepoint.commit()
+            # Następny zapis porównuje się ze stanem PO tym (rodzina linii
+            # bywa wspólna: przeniesienie nadwyżki na następcę).
+            for touched in (outcome.order, outcome.successor_order):
+                if touched is not None:
+                    before_remaining[touched.id] = touched.md_remaining
 
     for group_id in sorted(pending_shared_md):
+        before_used = await shared_md_used_total(db, group_id)
         # S5: plik korygujący za ten sam miesiąc niesie zwykle tylko część osób.
         # Miesiąc puli to JEDNA suma, więc bez tego nadpisałby ją samymi
         # osobami z pliku, a wkład pozostałych przepadłby bez śladu.
@@ -1069,7 +1223,9 @@ async def create_import(
             import_id=batch.id,
             present_order_ids=present,
         )
-        await _settle_shared_md_and_record(
+        await db.flush()
+        savepoint = await db.begin_nested()
+        overflow = await _settle_shared_md_and_record(
             db,
             group=shared_md_groups[group_id],
             period_month=period_month,
@@ -1078,7 +1234,19 @@ async def create_import(
             user_id=user.id,
             carried_md=carried,
             carried_names=carried_names,
+            before_used=before_used,
         )
+        if overflow > Decimal("0"):
+            # Pula wspólna: cały miesiąc grupy czeka na zatwierdzenie — suma
+            # miesiąca jest jedna, więc nie da się zaksięgować części osób.
+            await _rollback_trial(db, savepoint)
+            for held_order_id in present:
+                for held in shared_md_rows.get(held_order_id, []):
+                    held.status = IMPORT_ROW_OVERFLOW
+                    held.overflow_md = overflow
+                    held.candidate_order_ids = [held_order_id]
+        else:
+            await savepoint.commit()
 
     for order_id in sorted(pending_invoices):
         amount = pending_invoices[order_id]
@@ -1141,6 +1309,7 @@ def _match_per_consultant_md_row(
     parsed_row,
     candidates: list[LineMatch],
     order_numbers: Optional[finance_order_matching.OrderNumberIndex] = None,
+    numbered_candidates: Optional[list[LineMatch]] = None,
 ):
     """Dopasuj wiersz MD per konsultant: nazwisko, a numer zamówienia wiąże.
 
@@ -1153,14 +1322,27 @@ def _match_per_consultant_md_row(
 
     Wiersz bez jawnego numeru zachowuje dopasowanie po samym nazwisku
     (BNP i inni klienci, których arkusz nie niesie numeru).
+
+    ``numbered_candidates`` (ticket 1.1, 24.09.2026): linie klientów, których
+    data zamówienia jest datą wystawienia (BIK). Służą WYŁĄCZNIE wierszom
+    z numerem — zamówienie 4500030845 wystawione 3.09 rozlicza MD za sierpień,
+    choć okres linii sierpnia nie obejmuje. Bez tego wiersz z tym numerem
+    trafiał na inne zamówienie tej osoby (do #1745) albo do weryfikacji.
     """
 
     named = match_by_name(candidates, parsed_row.consultant_name)
-    if not named:
+    named_extra = (
+        match_by_name(numbered_candidates, parsed_row.consultant_name)
+        if numbered_candidates
+        else []
+    )
+    if not named and not named_extra:
         return []
     hints = extract_order_number_candidates(parsed_row.notes_raw)
+    in_period_ids = {match.order.id for match in named}
+    pool = named + [m for m in named_extra if m.order.id not in in_period_ids]
     authoritative = _authoritative_md_hints(
-        hints, named=named, order_numbers=order_numbers
+        hints, named=pool, order_numbers=order_numbers
     )
     # Preferencja linii aktywnej dopiero PO zawężeniu numerem — wpięta
     # wcześniej wycinałaby linię, którą numer właśnie miał wskazać.
@@ -1168,7 +1350,7 @@ def _match_per_consultant_md_row(
         return prefer_active_line(named)
     numbered = [
         match
-        for match in named
+        for match in pool
         if finance_order_matching.finance_order_number_matches(
             client_id=match.group.client_id,
             order_number=match.group.order_number,
@@ -1811,8 +1993,15 @@ async def _settle_shared_md_and_record(
     user_id: int,
     carried_md: Decimal = Decimal("0"),
     carried_names: Optional[list[str]] = None,
-) -> None:
-    """Nadpisz miesiąc wspólnej puli, przelicz ją i zapisz historię."""
+    before_used: Optional[Decimal] = None,
+    overflow_approved: bool = False,
+) -> Decimal:
+    """Nadpisz miesiąc wspólnej puli, przelicz ją i zapisz historię.
+
+    Zwraca, o ile MD ten zapis zepchnął pulę ponad dostępny budżet
+    (``before_used`` = wykorzystanie przed zapisem; ticket 1.1) — import cofa
+    wtedy zapis i zostawia wiersze do zatwierdzenia.
+    """
     # Lock before capturing ``before`` and before the monthly upsert. Two
     # concurrent imports must produce two truthful, serialized transitions,
     # while a budget PATCH must not overwrite a result computed from a newer
@@ -1835,11 +2024,17 @@ async def _settle_shared_md_and_record(
     if available < Decimal("0"):
         available = Decimal("0")
     over_budget = quantize_md(max(Decimal("0"), used - available))
+    new_overflow = Decimal("0")
+    if over_budget > Decimal("0") and (before_used is None or used > before_used):
+        floor = available if before_used is None else max(available, before_used)
+        new_overflow = quantize_md(used - floor)
     warning = (
         f" Raport przekracza dostępny budżet o {format_md(over_budget)} MD."
         if over_budget > Decimal("0")
         else ""
     )
+    if overflow_approved and over_budget > Decimal("0"):
+        warning += " Przekroczenie puli zatwierdzone ręcznie."
     if carried_md > Decimal("0"):
         # S5: plik nie zawierał tych osób — ich MD z wcześniejszego importu
         # tego miesiąca zostają w sumie, a historia mówi to wprost.
@@ -1869,6 +2064,7 @@ async def _settle_shared_md_and_record(
             "md_budget_remaining_after": str(remaining),
             "import_id": import_id,
             "md_carried_over": str(quantize_md(carried_md)),
+            **({"overflow_approved": True} if overflow_approved else {}),
         },
         user_id=user_id,
     )
@@ -1891,6 +2087,7 @@ async def _settle_shared_md_and_record(
         # próg „mało MD" liczy budżet PRZYPISANY OSOBIE, więc dla Lotte Wedel
         # i Cyfrowego Polsatu ten alert jest jedynym sygnałem o końcu budżetu.
         await emit_shared_md_pool_exhausted(db, group)
+    return new_overflow
 
 
 async def _settle_and_record(
@@ -1968,7 +2165,28 @@ async def _detail(
         if any(r.status == IMPORT_ROW_UNMATCHED and r.notes_raw for r in stored)
         else None
     )
-    rows = [await _row_to_read(db, r, batch.period_month, context) for r in stored]
+    per_target: dict[int, int] = defaultdict(int)
+    for r in stored:
+        if r.matched_order_id is not None and r.status in (
+            IMPORT_ROW_APPLIED,
+            IMPORT_ROW_OVERFLOW,
+        ):
+            per_target[r.matched_order_id] += 1
+    rows = [
+        await _row_to_read(
+            db,
+            r,
+            batch.period_month,
+            context,
+            merged_rows=(
+                per_target.get(r.matched_order_id, 1)
+                if r.matched_order_id is not None
+                and r.status in (IMPORT_ROW_APPLIED, IMPORT_ROW_OVERFLOW)
+                else 1
+            ),
+        )
+        for r in stored
+    ]
     base = _summary(batch)
     return ImportDetail(
         **base.model_dump(),
@@ -2194,7 +2412,7 @@ async def assign_row(
     )
     if row is None:
         raise HTTPException(404, detail="Wiersz importu nie istnieje")
-    if row.status != IMPORT_ROW_NEEDS_ASSIGNMENT:
+    if row.status not in (IMPORT_ROW_NEEDS_ASSIGNMENT, IMPORT_ROW_OVERFLOW):
         raise HTTPException(
             409,
             detail="Ten wiersz nie czeka na przypisanie — został już rozstrzygnięty.",
@@ -2220,19 +2438,10 @@ async def assign_row(
     )
     if order is None:
         raise HTTPException(404, detail="Linia zamówienia nie istnieje")
-    # Lista kandydatów powstała przy wgraniu pliku, a rozstrzygnięcie następuje
-    # później — w międzyczasie linia mogła zostać anulowana albo skrócona poza
-    # importowany miesiąc. Zakończenie współpracy przeszkodą NIE jest: to
-    # właśnie po nim przychodzi zaległy raport za miesiąc, w którym konsultant
-    # jeszcze pracował, i człowiek musi mieć jak go przypisać bez odblokowywania
-    # statusu linii.
-    if not line_settles_in_month(order, batch.period_month, contract=order.contract):
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            detail=(
-                "Ta linia nie rozlicza tego miesiąca — została anulowana albo "
-                "jej okres go nie obejmuje. Wybierz inne zamówienie."
-            ),
+
+    if order.order_group is not None and uses_shared_md_pool(order.order_group):
+        return await _approve_shared_md_overflow(
+            db, batch=batch, row=row, order=order, user=user, payload=payload
         )
 
     # Numer zamówienia wskazany w wierszu wiąże także ręczne rozstrzygnięcie
@@ -2257,13 +2466,40 @@ async def assign_row(
                 f"przypisać go do zamówienia nr {group_number or '—'}."
             ),
         )
+    # BIK (ticket 1.1): wiersz z numerem rozlicza zamówienie o tym numerze
+    # niezależnie od jego daty — data zamówienia to data wystawienia.
+    ignore_period = bool(authoritative) and order.client_id in (
+        md_exhaustion_client_ids()
+    )
+
+    # Lista kandydatów powstała przy wgraniu pliku, a rozstrzygnięcie następuje
+    # później — w międzyczasie linia mogła zostać anulowana albo skrócona poza
+    # importowany miesiąc. Zakończenie współpracy przeszkodą NIE jest: to
+    # właśnie po nim przychodzi zaległy raport za miesiąc, w którym konsultant
+    # jeszcze pracował, i człowiek musi mieć jak go przypisać bez odblokowywania
+    # statusu linii.
+    if not line_settles_in_month(
+        order,
+        batch.period_month,
+        contract=order.contract,
+        ignore_period=ignore_period,
+    ):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=(
+                "Ta linia nie rozlicza tego miesiąca — została anulowana albo "
+                "jej okres go nie obejmuje. Wybierz inne zamówienie."
+            ),
+        )
 
     # Zapis idzie po kluczu (linia, miesiąc) i NADPISUJE, więc rozstrzygnięcie
     # nie może wysłać samego ``row.md_reported``: gdyby na tę samą linię trafił
     # już inny wiersz tego importu (automatycznie albo wcześniejszym
     # przypisaniem), jego MD zostałyby skasowane. Wysyłamy sumę wszystkich
     # zastosowanych wierszy tej paczki dla tej linii — to daje ten sam wynik co
-    # ścieżka wsadowa i jest odporne na kolejność rozstrzygania.
+    # ścieżka wsadowa i jest odporne na kolejność rozstrzygania. Wiersze tej
+    # linii wstrzymane przez przekroczenie puli idą razem z tym (były
+    # zsumowane w jedno zejście).
     already_applied = await db.scalar(
         select(func.coalesce(func.sum(MdConsumptionImportRow.md_reported), 0)).where(
             MdConsumptionImportRow.import_id == batch.id,
@@ -2271,6 +2507,25 @@ async def assign_row(
             MdConsumptionImportRow.status == IMPORT_ROW_APPLIED,
             MdConsumptionImportRow.id != row.id,
         )
+    )
+    held_rows = list(
+        (
+            await db.execute(
+                select(MdConsumptionImportRow)
+                .where(
+                    MdConsumptionImportRow.import_id == batch.id,
+                    MdConsumptionImportRow.matched_order_id == order.id,
+                    MdConsumptionImportRow.status == IMPORT_ROW_OVERFLOW,
+                    MdConsumptionImportRow.id != row.id,
+                )
+                .with_for_update()
+            )
+        ).scalars()
+    )
+    md_total = (
+        Decimal(str(already_applied or 0))
+        + row.md_reported
+        + sum((held.md_reported for held in held_rows), Decimal("0"))
     )
     # Audyt 22.09 r2 (FIN-MD-07): starsza paczka nie nadpisuje nowszego ani
     # ręcznego wpisu za ten miesiąc (ta sama reguła co replay Polkomtela).
@@ -2282,29 +2537,143 @@ async def assign_row(
             order.order_group.order_number if order.order_group else str(order.id)
         ),
         batch=batch,
-        expected_value=quantize_md(
-            Decimal(str(already_applied or 0)) + row.md_reported
-        ),
+        expected_value=quantize_md(md_total),
         is_cost=False,
         lock=True,
     )
     if conflict is not None:
         raise HTTPException(status.HTTP_409_CONFLICT, detail=conflict)
-    await _apply_to_line(
+
+    # Ticket 1.1: najpierw próbny zapis — zejście, po którym saldo spadłoby
+    # poniżej zera, wymaga świadomego zatwierdzenia (``confirm_overflow``).
+    await lock_contract_then_orders(db, order_ids=[order.id])
+    before_remaining = {
+        order.id: await db.scalar(
+            select(ClientOrder.md_remaining).where(ClientOrder.id == order.id)
+        )
+    }
+    await db.flush()
+    savepoint = await db.begin_nested()
+    outcome = await _apply_to_line(
         db,
         match_order=order,
         group=order.order_group,
         period_month=batch.period_month,
-        md_reported=Decimal(str(already_applied or 0)) + row.md_reported,
+        md_reported=md_total,
         import_id=batch.id,
         user_id=user.id,
         explicit_order=bool(authoritative),
+        ignore_period=ignore_period,
     )
-    row.status = IMPORT_ROW_APPLIED
-    row.matched_order_id = order.id
-    row.resolved_by_user_id = user.id
-    row.resolved_at = datetime.now(timezone.utc)
+    successor = getattr(outcome, "successor_order", None)
+    if successor is not None:
+        before_remaining.setdefault(successor.id, None)
+    overflow = _booking_overflow(outcome, before_remaining)
+    now = datetime.now(timezone.utc)
+    if overflow > Decimal("0"):
+        await _rollback_trial(db, savepoint)
+        if not payload.confirm_overflow:
+            for held in [row, *held_rows]:
+                held.status = IMPORT_ROW_OVERFLOW
+                held.overflow_md = overflow
+                held.matched_order_id = order.id
+                held.candidate_order_ids = [order.id]
+            await db.flush()
+            await _recount(db, batch)
+            await db.commit()
+            await db.refresh(row)
+            return await _row_to_read(db, row, batch.period_month)
+        await _apply_to_line(
+            db,
+            match_order=order,
+            group=order.order_group,
+            period_month=batch.period_month,
+            md_reported=md_total,
+            import_id=batch.id,
+            user_id=user.id,
+            explicit_order=bool(authoritative),
+            ignore_period=ignore_period,
+            overflow_approved=overflow,
+        )
+    else:
+        await savepoint.commit()
+    for booked in [row, *held_rows]:
+        booked.status = IMPORT_ROW_APPLIED
+        booked.matched_order_id = order.id
+        booked.resolved_by_user_id = user.id
+        booked.resolved_at = now
 
+    await db.flush()
+    await _recount(db, batch)
+    await db.commit()
+    await db.refresh(row)
+    return await _row_to_read(db, row, batch.period_month)
+
+
+async def _approve_shared_md_overflow(
+    db: AsyncSession,
+    *,
+    batch: MdConsumptionImport,
+    row: MdConsumptionImportRow,
+    order: ClientOrder,
+    user,
+    payload: AssignRowRequest,
+) -> ImportRowRead:
+    """Zatwierdzenie miesiąca wspólnej puli wstrzymanego przez przekroczenie.
+
+    Suma miesiąca puli jest jedna, więc zatwierdza się ją całą: wszystkie
+    wstrzymane wiersze tej grupy w tej paczce + wiersze już zastosowane
+    + wkład osób z wcześniejszych importów tego miesiąca (S5).
+    """
+    if row.status != IMPORT_ROW_OVERFLOW or not payload.confirm_overflow:
+        raise HTTPException(
+            409,
+            detail=(
+                "Wiersz wspólnej puli MD rozlicza się razem z całym miesiącem "
+                "zamówienia — zatwierdź przekroczenie puli."
+            ),
+        )
+    group = order.order_group
+    group_rows = list(
+        (
+            await db.execute(
+                select(MdConsumptionImportRow)
+                .where(
+                    MdConsumptionImportRow.import_id == batch.id,
+                    MdConsumptionImportRow.matched_group_id == group.id,
+                    MdConsumptionImportRow.status.in_(
+                        (IMPORT_ROW_APPLIED, IMPORT_ROW_OVERFLOW)
+                    ),
+                )
+                .with_for_update()
+            )
+        ).scalars()
+    )
+    present = {r.matched_order_id for r in group_rows if r.matched_order_id}
+    carried, carried_names = await _shared_md_carry_over(
+        db,
+        group_id=group.id,
+        period_month=batch.period_month,
+        import_id=batch.id,
+        present_order_ids=present,
+    )
+    await _settle_shared_md_and_record(
+        db,
+        group=group,
+        period_month=batch.period_month,
+        md_reported=sum((r.md_reported for r in group_rows), Decimal("0")) + carried,
+        import_id=batch.id,
+        user_id=user.id,
+        carried_md=carried,
+        carried_names=carried_names,
+        overflow_approved=True,
+    )
+    now = datetime.now(timezone.utc)
+    for booked in group_rows:
+        if booked.status == IMPORT_ROW_OVERFLOW:
+            booked.status = IMPORT_ROW_APPLIED
+            booked.resolved_by_user_id = user.id
+            booked.resolved_at = now
     await db.flush()
     await _recount(db, batch)
     await db.commit()

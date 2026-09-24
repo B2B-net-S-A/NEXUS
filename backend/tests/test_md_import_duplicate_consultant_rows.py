@@ -510,22 +510,53 @@ async def test_raising_the_budget_takes_the_md_back_from_the_continuation(
     assert next_line["md_remaining"] == pytest.approx(50.0)
 
 
-async def test_overflow_stays_put_when_there_is_no_continuation(
+async def test_overflow_without_continuation_waits_for_approval(
     app_client: AsyncClient, app_auth_headers: dict, monkeypatch
 ):
-    """Następcy nie wymyślamy — przekroczenie zostaje widoczne na linii."""
+    """Następcy nie wymyślamy — a zejście ponad pulę nie jest księgowane samo.
+
+    Ticket 1.1 (24.09.2026): wiersz, po którym saldo spadłoby poniżej zera,
+    dostaje „Do weryfikacji – przekroczenie puli o X MD”; zapisuje go dopiero
+    świadome zatwierdzenie, z wpisem w historii zamówienia.
+    """
     client_id, contracts, names = await _seed_client_with_contracts(1)
     _enable_multi(monkeypatch, client_id)
     group = await _create_group(
         app_client, app_auth_headers, client_id, [_md_line(contracts[0], 20)]
     )
     finance = await _finance_headers(app_client)
-    await _import(app_client, finance, _sheet([(names[0], 30)]))
+    body = await _import(app_client, finance, _sheet([(names[0], 30)]))
 
+    [held] = body["rows"]
+    assert held["status"] == "overflow"
+    assert held["overflow_md"] == pytest.approx(10.0)
+    assert held["status_label"] == "Do weryfikacji – przekroczenie puli o 10 MD"
+    line = await _line_of(app_client, app_auth_headers, client_id, group["id"])
+    assert line["md_remaining"] == pytest.approx(20.0)
+    assert body["rows_applied"] == 0
+
+    # Samo przypisanie bez zatwierdzenia nadal nic nie księguje.
+    again = await app_client.post(
+        f"/api/md-consumption/imports/{body['id']}/rows/{held['id']}/assign",
+        json={"order_id": held["matched_order_id"]},
+        headers=finance,
+    )
+    assert again.status_code == 200, again.text
+    assert again.json()["status"] == "overflow"
+
+    approved = await app_client.post(
+        f"/api/md-consumption/imports/{body['id']}/rows/{held['id']}/assign",
+        json={"order_id": held["matched_order_id"], "confirm_overflow": True},
+        headers=finance,
+    )
+    assert approved.status_code == 200, approved.text
+    assert approved.json()["status"] == "applied"
     line = await _line_of(app_client, app_auth_headers, client_id, group["id"])
     assert line["md_remaining"] == pytest.approx(-10.0)
     events = await _events(app_client, app_auth_headers, client_id, group["id"])
     assert not [e for e in events if e["event_type"] == "transfer_md"]
+    imported = [e for e in events if e["event_type"] == "import_md"]
+    assert any("zatwierdzone ręcznie" in e["description"] for e in imported)
 
 
 async def test_manual_assignment_splits_the_same_way_as_the_batch_import(

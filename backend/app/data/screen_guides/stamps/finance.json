@@ -3,7 +3,7 @@
   "guide": "finance",
   "sources": {
     "frontend/src/app/finance/page.tsx": "4535cf4f8b206c7d4b7a10b15a61a47665aaa5c36038cb91801606a962cbec21",
-    "frontend/src/components/finance/MdImportWorkspace.tsx": "dd61aac35de9fb4d75ed9820d971f79b1aacf063ad591598b5efff5023d8f8ca",
+    "frontend/src/components/finance/MdImportWorkspace.tsx": "bfddd24e813576e4dfea5a3a54eb1745a3630189015a83a16d2fe41242b9ca3c",
     "frontend/src/components/finance/OrderChangesPanel.tsx": "3eb20084cd091d2844fb7f24d61b26a149d5df2419b2e236ab70b74c3bc55621"
   }
 }

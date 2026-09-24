@@ -246,11 +246,27 @@ async def test_shared_md_clamps_at_zero_warns_and_exhausts_group(
     )
     finance = await _finance_headers(app_client)
 
-    await _import_sheet(
+    detail = await _import_sheet(
         app_client,
         finance,
         _sheet([(names[0], 15, "SAP 4500810003", 0)]),
     )
+    # Ticket 1.1: przekroczenie wspólnej puli nie jest księgowane samo.
+    [held] = [r for r in detail["rows"] if r["status"] == "overflow"]
+    assert held["overflow_md"] == pytest.approx(5.0)
+    pending = await _group_from_list(
+        app_client, app_auth_headers, client_id, group["id"]
+    )
+    assert pending["md_budget_remaining"] == pytest.approx(10.0)
+    assert pending["status"] == "active"
+
+    approved = await app_client.post(
+        f"/api/md-consumption/imports/{detail['id']}/rows/{held['id']}/assign",
+        json={"order_id": held["matched_order_id"], "confirm_overflow": True},
+        headers=finance,
+    )
+    assert approved.status_code == 200, approved.text
+    assert approved.json()["status"] == "applied"
 
     body = await _group_from_list(app_client, app_auth_headers, client_id, group["id"])
     assert body["md_budget_used"] == pytest.approx(15.0)
@@ -267,6 +283,8 @@ async def test_shared_md_clamps_at_zero_warns_and_exhausts_group(
     imported = next(event for event in events if event["event_type"] == "import_md")
     assert imported["payload"]["md_over_budget"] == "5.000000"
     assert "przekracza dostępny budżet" in imported["description"]
+    assert "zatwierdzone ręcznie" in imported["description"]
+    assert imported["payload"]["overflow_approved"] is True
     assert any(event["event_type"] == "wyczerpanie" for event in events)
 
     blocked = await app_client.post(
@@ -487,8 +505,10 @@ async def test_correcting_the_month_that_exhausted_the_pool_reopens_it(
         budget=10,
     )
     finance = await _finance_headers(app_client)
+    # Dokładnie cała pula: wyczerpuje ją bez przekroczenia (przekroczenie
+    # czekałoby na zatwierdzenie — ticket 1.1).
     await _import_sheet(
-        app_client, finance, _sheet([(names[0], 15, "SAP 4500810099", 0)])
+        app_client, finance, _sheet([(names[0], 10, "SAP 4500810099", 0)])
     )
     body = await _group_from_list(app_client, app_auth_headers, client_id, group["id"])
     assert body["status"] == "exhausted"

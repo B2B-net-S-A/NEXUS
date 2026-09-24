@@ -545,9 +545,158 @@ async def test_overflow_of_a_named_order_is_not_moved_to_its_successor(
         period=_prev_period(),
     )
 
-    assert detail["rows_applied"] == 1, detail
+    # Ticket 1.1 (24.09.2026): przekroczenie nie jest księgowane samo —
+    # wiersz czeka na zatwierdzenie, następca dalej nie dostaje nic.
+    [row] = detail["rows"]
+    assert row["status"] == "overflow", row
+    assert row["overflow_md"] == pytest.approx(8.25)
+    assert await _consumptions(case["old_line"]) == {}
+    assert await _consumptions(case["new_line"]) == {}
+
+    approved = await app_client.post(
+        f"/api/md-consumption/imports/{detail['id']}/rows/{row['id']}/assign",
+        json={"order_id": case["old_line"], "confirm_overflow": True},
+        headers=finance,
+    )
+    assert approved.status_code == 200, approved.text
     assert await _consumptions(case["old_line"]) == {_prev_period(): Decimal("22")}
     assert await _consumptions(case["new_line"]) == {}
+
+
+def _next_month_third() -> date:
+    today = business_today()
+    return date(today.year, today.month, 1) + timedelta(days=2)
+
+
+async def _two_orders_one_issued_after_the_month(
+    app_client, headers, *, bik: bool, monkeypatch
+):
+    """Kształt ticketu 1.1: zamówienie A obejmuje miesiąc raportu, zamówienie
+    B wystawiono 3. dnia następnego miesiąca (data SAP = data wystawienia)."""
+    client_id, contract_id, name = await _seed()
+    _enable_multi(monkeypatch, client_id)
+    if bik:
+        monkeypatch.setenv("BIK_ORDER_CLIENT_IDS", str(client_id))
+    else:
+        monkeypatch.delenv("BIK_ORDER_CLIENT_IDS", raising=False)
+    a_number, b_number = _number(), _number()
+    a = await _create_group(
+        app_client,
+        headers,
+        client_id,
+        contract_id,
+        number=a_number,
+        start=_old_start(),
+        end=None,
+        md_total=25,
+    )
+    b = await _create_group(
+        app_client,
+        headers,
+        client_id,
+        contract_id,
+        number=b_number,
+        start=_next_month_third(),
+        end=None,
+        md_total=42,
+    )
+    return {
+        "name": name,
+        "a_number": a_number,
+        "b_number": b_number,
+        "a_line": a["lines"][0]["id"],
+        "b_line": b["lines"][0]["id"],
+    }
+
+
+async def test_bik_rows_of_one_person_land_on_each_named_order(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Ticket 1.1: dwa wiersze tej samej osoby, dwa numery — każde zamówienie
+    dostaje swoje MD, także to wystawione po miesiącu raportu (BIK)."""
+    case = await _two_orders_one_issued_after_the_month(
+        app_client, app_auth_headers, bik=True, monkeypatch=monkeypatch
+    )
+    finance = await _finance_headers(app_client)
+    await _import(
+        app_client,
+        finance,
+        _sheet([(case["name"], 23, case["a_number"], 0)]),
+        period=_prev_period(),
+    )
+
+    detail = await _import(
+        app_client,
+        finance,
+        _sheet(
+            [
+                (case["name"], 2, case["a_number"], 2560),
+                (case["name"], 19, case["b_number"], 24320),
+            ]
+        ),
+    )
+
+    assert detail["rows_applied"] == 2, detail
+    targets = {r["order_number_hint"]: r["matched_order_id"] for r in detail["rows"]}
+    assert targets == {
+        case["a_number"]: case["a_line"],
+        case["b_number"]: case["b_line"],
+    }
+    assert await _consumptions(case["a_line"]) == {
+        _prev_period(): Decimal("23"),
+        _period(): Decimal("2"),
+    }
+    assert await _consumptions(case["b_line"]) == {_period(): Decimal("19")}
+
+
+async def test_outside_bik_a_later_order_still_waits_for_verification(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Poza BIK data zamówienia jest okresem — wiersz z numerem zamówienia,
+    które zaczęło się po miesiącu raportu, nie trafia nigdzie."""
+    case = await _two_orders_one_issued_after_the_month(
+        app_client, app_auth_headers, bik=False, monkeypatch=monkeypatch
+    )
+    finance = await _finance_headers(app_client)
+
+    detail = await _import(
+        app_client,
+        finance,
+        _sheet([(case["name"], 19, case["b_number"], 24320)]),
+    )
+
+    [row] = detail["rows"]
+    assert row["status"] == "unmatched", row
+    assert row["status_label"] == "Do weryfikacji"
+    assert "nie obejmuje miesiąca raportu" in row["status_reason"]
+    assert await _consumptions(case["a_line"]) == {}
+    assert await _consumptions(case["b_line"]) == {}
+
+
+async def test_rows_with_the_same_number_are_summed_and_marked_as_merged(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Ticket 1.1, wymaganie 2: ta sama osoba i ten sam numer — jedno zejście,
+    a podgląd mówi, że połączono wiersze."""
+    case = await _two_orders_one_issued_after_the_month(
+        app_client, app_auth_headers, bik=True, monkeypatch=monkeypatch
+    )
+    finance = await _finance_headers(app_client)
+
+    detail = await _import(
+        app_client,
+        finance,
+        _sheet(
+            [
+                (case["name"], 3, case["a_number"], 0),
+                (case["name"], 4, case["a_number"], 0),
+            ]
+        ),
+    )
+
+    assert detail["rows_applied"] == 2, detail
+    assert {r["merged_rows"] for r in detail["rows"]} == {2}
+    assert await _consumptions(case["a_line"]) == {_period(): Decimal("7")}
 
 
 def test_explicit_hints_bind_only_for_the_persons_clients(monkeypatch):
@@ -684,7 +833,17 @@ async def test_reimport_with_a_number_reverts_an_earlier_split(
         _sheet([(case["name"], 22, case["old_number"], 29920)]),
         period=_prev_period(),
     )
-    assert second["rows_applied"] == 1, second
+    # 22 MD przy budżecie 13,75 — od ticketu 1.1 czeka na zatwierdzenie
+    # przekroczenia, a do tego czasu nic się nie zmienia.
+    [row] = second["rows"]
+    assert row["status"] == "overflow", second
+    assert await _consumptions(case["new_line"]) == {_prev_period(): Decimal("8.25")}
+    approved = await app_client.post(
+        f"/api/md-consumption/imports/{second['id']}/rows/{row['id']}/assign",
+        json={"order_id": case["old_line"], "confirm_overflow": True},
+        headers=finance,
+    )
+    assert approved.status_code == 200, approved.text
     assert await _consumptions(case["old_line"]) == {_prev_period(): Decimal("22")}
     assert await _consumptions(case["new_line"]) == {}
     assert any("cofnięto 8,25 MD" in d for _, d in await _events(case["new"]["id"]))

@@ -60,6 +60,12 @@ class ImportRowRead(BaseModel):
     #: Dlaczego wiersz z jawnym numerem zamówienia nie trafił na żadną linię
     #: (ticket 23.09.2026). ``None`` = wiersz bez numeru albo dopasowany.
     status_reason: Optional[str] = None
+    #: Status ``overflow``: o ile MD zaksięgowanie przekroczyłoby pulę
+    #: (ticket 1.1, 24.09.2026). Zatwierdza się go ręcznie.
+    overflow_md: Optional[MdValue] = None
+    #: Ile wierszy arkusza tej samej osoby z tym samym numerem zamówienia
+    #: zsumowano w jedno zejście (1 = wiersz osobno).
+    merged_rows: int = 1
 
     # ── Rozliczenie kosztowe (Polkomtel) ──
     # `cost_status is None` znaczy „wiersz nie dotyczy zamówień kosztowych",
@@ -98,6 +104,9 @@ class ImportListResponse(BaseModel):
 
 class AssignRowRequest(BaseModel):
     order_id: int
+    #: Świadome zatwierdzenie zejścia, po którym saldo spadnie poniżej zera.
+    #: Bez tego takie przypisanie zostaje „Do weryfikacji – przekroczenie puli”.
+    confirm_overflow: bool = False
 
 
 class PolkomtelReprocessRequest(BaseModel):
