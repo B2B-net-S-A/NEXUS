@@ -41,6 +41,7 @@ from app.services.contract_order_offboarding import (
     apply_contract_order_offboarding,
     reconcile_pending_md_offboarding_alerts,
 )
+from app.services.contract_termination_snapshot import ContractStateBefore
 from app.services.contract_termination_sync import (
     sync_generator_after_contract_ended,
 )
@@ -125,6 +126,7 @@ async def _promote_statuses(db: AsyncSession) -> tuple[int, int]:
         .all()
     )
     for contract in ended_contracts:
+        state_before = ContractStateBefore.of(contract)
         previous_status = contract.status
         contract.status = ContractStatus.ended
         # Automatyczne przejście jest w historii kontraktu (ticket 09.2026,
@@ -148,6 +150,7 @@ async def _promote_statuses(db: AsyncSession) -> tuple[int, int]:
             effective_date=contract.end_date,
             actor_id=None,
             today=today,
+            contract_before=state_before,
         )
         # Generator umów B2B przestawia umowę w chwili, w której kontrakt
         # przechodzi na „Zakończony" — dzień po dacie zakończenia projektu.

@@ -21,6 +21,9 @@ const ACTION_LABELS: Record<string, string> = {
   updated: "Zaktualizowano dane kontraktu",
   status_updated: "Zmieniono status kontraktu",
   terminated: "Zakończono współpracę",
+  termination_reversed: "Cofnięto zakończenie (pomyłka)",
+  return_after_break: "Powrót po przerwie – utworzono nowy kontrakt",
+  contract_reopened: "Przywrócono kontrakt do aktywnych",
   end_date_cleared: "Wyczyszczono datę zakończenia (umowa bezterminowa)",
   synced_with_orders: "Zsynchronizowano z zamówieniami klienta",
   bulk_marked_ended: "Zakończono współpracę (operacja zbiorcza)",
@@ -120,6 +123,15 @@ const DETAIL_LABELS: Record<string, string> = {
   team_name: "Zespół",
   notes: "Notatki",
   fields: "Zmienione pola",
+  message: "Opis",
+  terminated_on: "Data zakończenia (cofniętego)",
+  restored_order_ids: "Przywrócone zamówienia",
+  skipped_order_ids: "Zamówienia bez zmian",
+  decision_cases_removed: "Usunięte decyzje o puli MD",
+  md_import_rows: "Przeliczone wiersze importu MD",
+  alerts_closed: "Zamknięte alerty",
+  returned_from_contract_id: "Poprzedni kontrakt",
+  order_ids: "Zamówienia",
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -153,6 +165,8 @@ const SOURCE_LABELS: Record<string, string> = {
   daily_cost_sync: "dobowa synchronizacja stawek kosztowych zamówień",
   daily_period_backfill: "dobowe uzupełnienie okresu zamówienia",
   b2b_signed_agreement: "podpisana umowa B2B",
+  snapshot: "stan zapisany przy zakończeniu",
+  history: "historia zmian zamówień",
 };
 
 const ENUM_KEYS: Record<string, Record<string, string>> = {
@@ -173,6 +187,10 @@ const ID_LIST_KEYS = new Set([
   "deleted_contract_ids",
   "order_drafts_inherited_rates",
   "mail_orders_activated",
+  "restored_order_ids",
+  "skipped_order_ids",
+  "decision_cases_removed",
+  "order_ids",
 ]);
 
 const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -199,7 +217,12 @@ export function contractDetailValue(key: string, value: unknown): string {
   if (value === null || value === undefined || value === "") return "—";
   if (typeof value === "boolean") return value ? "tak" : "nie";
   if (typeof value === "number") {
-    if (key === "source_order_id" || key === "contract_id" || key === "survivor_contract_id") {
+    if (
+      key === "source_order_id" ||
+      key === "contract_id" ||
+      key === "survivor_contract_id" ||
+      key === "returned_from_contract_id"
+    ) {
       return `#${value}`;
     }
     return value.toLocaleString("pl-PL");

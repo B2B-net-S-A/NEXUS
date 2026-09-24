@@ -398,6 +398,8 @@ class ContractResponse(BaseModel):
     termination_reason: Optional[ContractTerminationReason] = None
     termination_lessons: Optional[str] = None
     terminated_at: Optional[date] = None
+    # „Powrót po przerwie" (0368) — nowy kontrakt wskazuje poprzedni.
+    returned_from_contract_id: Optional[int] = None
     # Rozwiązanie umowy B2B z okna „Zakończ współpracę" (0367).
     agreement_termination_mode: Optional[AgreementTerminationMode] = None
     agreement_termination_party: Optional[AgreementTerminationParty] = None
@@ -584,8 +586,47 @@ class ContractDetailResponse(ContractResponse):
     # widocznych dla wołającego (scope Delivery Leada). FE renderuje z nich
     # przełącznik zakładek nazwanych po kliencie („pracuje u N klientów").
     related_contracts: list[ContractSiblingRef] = []
+    # Cofnięcie zakończenia i powrót po przerwie (0368). Flagi mówią o STANIE
+    # kontraktu; o tym, czy użytkownik może akcję wykonać, decyduje rola
+    # (Admin, Finanse, Talent Community Manager).
+    can_reverse_termination: bool = False
+    can_return_after_break: bool = False
+    termination_reversed_at: Optional[datetime] = None
+    termination_reversed_by_name: Optional[str] = None
+    return_contract_id: Optional[int] = None
 
     model_config = {"from_attributes": True}
+
+
+class ContractReturnAfterBreakRequest(BaseModel):
+    """Payload dla POST /{id}/return-after-break."""
+
+    start_date: date
+
+
+class ContractReturnAfterBreakResponse(BaseModel):
+    contract_id: int
+    returned_from_contract_id: int
+    orders: list[dict[str, Any]] = []
+
+
+class ContractTerminationReversalPlanRead(BaseModel):
+    """Podgląd (GET) i wynik (POST) „Cofnij zakończenie".
+
+    Same ID, daty, statusy i liczby MD — bez kwot, więc bez redakcji
+    finansowej: okno potwierdzenia widzi też Talent Community Manager.
+    """
+
+    contract_id: int
+    source: Literal["snapshot", "history"]
+    terminated_on: Optional[date] = None
+    contract: dict[str, Any]
+    orders: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    blockers: list[dict[str, Any]] = []
+    md_imports: list[dict[str, Any]] = []
+    decision_cases_removed: int = 0
+    executed: bool = False
 
 
 class ContractActivityEntry(BaseModel):

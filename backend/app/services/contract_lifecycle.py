@@ -554,6 +554,7 @@ async def reopen_contract(
     contract: Contract,
     *,
     actor_id: Optional[int],
+    supersede_termination_snapshot: bool = True,
     after_break: bool = False,
 ) -> bool:
     """Heal an ``ended``/``ending`` contract back to ``active`` (e.g. on extend).
@@ -585,6 +586,16 @@ async def reopen_contract(
         return False
     assert_transition(previous, ContractStatus.active)
     contract.status = ContractStatus.active
+    if supersede_termination_snapshot:
+        # Przedłużenie/aneks wskrzesza współpracę NOWYMI zamówieniami — stan
+        # sprzed zakończenia przestał opisywać to, do czego da się wrócić
+        # (0368). Zwykła zmiana statusu z rejestru zamówień nie rusza, więc
+        # tam migawka zostaje otwarta i „Cofnij zakończenie" nadal ją widzi.
+        from app.services.contract_termination_snapshot import (
+            supersede_open_snapshot,
+        )
+
+        await supersede_open_snapshot(db, contract.id)
     db.add(
         _audit(
             contract.id,

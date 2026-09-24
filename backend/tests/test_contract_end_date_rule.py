@@ -205,6 +205,10 @@ async def test_revival_by_live_order_makes_the_contract_indefinite():
         def add(self, value):
             self.added.append(value)
 
+        async def scalar(self, _statement):
+            # Otwarta migawka zakończenia (0368) — tu jej nie ma.
+            return None
+
     db = _Db()
     order_end = today + timedelta(days=90)
     assert await sync_contract_to_live_order(

@@ -249,6 +249,14 @@ class Contract(Base, TimestampMixin):
     termination_lessons: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     terminated_at: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
 
+    # „Powrót po przerwie" (0368): nowy kontrakt osoby, która naprawdę
+    # zakończyła współpracę i wraca po czasie, wskazuje poprzedni. Poprzedni
+    # zostaje zakończony bez zmian — jego zużycie, alerty i finanse są historią,
+    # a nowy liczy się od własnej daty startu. SET NULL: usunięcie starego
+    # kontraktu nie może skasować nowego.
+    returned_from_contract_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("contracts.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     # Rozwiązanie UMOWY B2B (0367) — osobne od końca projektu. Projekt kończy
     # się `terminated_at`/`end_date` i to on rządzi statusem kontraktu; umowa
     # może obowiązywać dłużej (okres wypowiedzenia). Komplet albo nic

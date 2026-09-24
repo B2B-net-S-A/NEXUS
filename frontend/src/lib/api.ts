@@ -1977,6 +1977,60 @@ export interface ContractSiblingRef {
   end_date: string | null;
 }
 
+export interface ContractTerminationReversalOrder {
+  order_id: number;
+  order_group_id: number | null;
+  order_label: string;
+  kind: "group" | "periodic";
+  consultant: string;
+  status_now: string;
+  status_target: string;
+  end_date_now: string | null;
+  end_date_target: string | null;
+  end_date_source: "snapshot" | "history" | "order_end";
+  removes_decision_case: boolean;
+}
+
+export interface ContractTerminationReversalPlan {
+  contract_id: number;
+  source: "snapshot" | "history";
+  terminated_on: string | null;
+  contract: {
+    status_now: string;
+    status_target: string;
+    end_date_now: string | null;
+    end_date_target: string | null;
+    clears_termination: boolean;
+  };
+  orders: ContractTerminationReversalOrder[];
+  skipped: { order_id: number; order_label: string; reason: string }[];
+  blockers: {
+    code: string;
+    message: string;
+    order_id?: number;
+    order_label?: string;
+    decision?: string;
+  }[];
+  md_imports: {
+    import_id: number;
+    row_id: number;
+    period_month: string;
+    filename: string | null;
+    md_reported: string;
+    order_id: number;
+    order_label: string;
+    skipped: string | null;
+  }[];
+  decision_cases_removed: number;
+  executed: boolean;
+}
+
+export interface ContractReturnAfterBreakResult {
+  contract_id: number;
+  returned_from_contract_id: number;
+  orders: { order_id: number; order_label: string; kind: "group" | "periodic" }[];
+}
+
 export const contractsApi = {
   list: (params?: Record<string, unknown>) => api.get("/api/contracts", { params }),
   get: (id: number) => api.get(`/api/contracts/${id}`),
@@ -1999,6 +2053,21 @@ export const contractsApi = {
     api.delete(`/api/contracts/${contractId}/documents/${documentId}`),
   terminate: (id: number, payload: ContractTerminateRequest) =>
     api.post(`/api/contracts/${id}/terminate`, payload),
+  // „Cofnij zakończenie" (pomyłka) — podgląd i wykonanie (0368).
+  terminationReversalPreview: (id: number) =>
+    api.get<ContractTerminationReversalPlan>(
+      `/api/contracts/${id}/termination-reversal`,
+    ),
+  reverseTermination: (id: number) =>
+    api.post<ContractTerminationReversalPlan>(
+      `/api/contracts/${id}/termination-reversal`,
+    ),
+  // „Powrót po przerwie" — nowy kontrakt (szkic) powiązany z tym.
+  returnAfterBreak: (id: number, startDate: string) =>
+    api.post<ContractReturnAfterBreakResult>(
+      `/api/contracts/${id}/return-after-break`,
+      { start_date: startDate },
+    ),
   bulkMarkEnded: (ids: number[], payload: ContractBulkTerminateRequest) => {
     const params = new URLSearchParams();
     ids.forEach((id) => params.append("ids", String(id)));

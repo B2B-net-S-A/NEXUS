@@ -998,6 +998,9 @@ def _line_to_read(
         contract_id=order.contract_id,
         candidate_id=contract.candidate_id if contract else None,
         consultant_name=consultant_display_name(order),
+        returned_from_contract_id=(
+            contract.returned_from_contract_id if contract else None
+        ),
         job_id=order.job_id,
         job_title=None,
         status=order.status.value,
@@ -4835,6 +4838,27 @@ async def update_line(
     for source_field, raw in raw_rates.items():
         setattr(line, source_field, raw)
 
+    # Szkic przypisania w OTWARTYM zamówieniu („Powrót po przerwie", 0368):
+    # osoba wraca na zamówienie z danymi do uzupełnienia. Gdy edycja domyka
+    # komplet — stawka przychodowa i (przy budżecie per osoba) liczba MD —
+    # przypisanie wchodzi do aktywnej obsady tak samo jak linia dodana od razu
+    # z kompletem. Linie szkicu w zamówieniu zaplanowanym zostają szkicami
+    # (aktywuje je zamówienie, nie edycja), a zaplanowane zastępstwo (szkic
+    # z poprzednikiem) wchodzi w dniu startu, nie przy edycji stawki.
+    activated_draft = False
+    if (
+        line.status == ClientOrderStatus.draft
+        and group.status == GROUP_STATUS_ACTIVE
+        and line.predecessor_order_id is None
+        and line.md_rate_revenue is not None
+        and line.md_rate_revenue > 0
+        and (has_group_budget or line.md_total is not None)
+    ):
+        line.status = ClientOrderStatus.active
+        line.filled_at = datetime.now(timezone.utc)
+        changed.append("przypisanie aktywne (szkic uzupełniony)")
+        activated_draft = True
+
     # Przeliczenie budżetu domyka też status linii (`sync_md_line_status` siedzi
     # w `recompute_remaining`): podniesienie budżetu albo ręczna korekta
     # odsłaniają MD, więc konsultant musi wrócić na `active` — inaczej import
@@ -4842,6 +4866,8 @@ async def update_line(
     if not has_group_budget:
         await recompute_remaining(db, line)
     await db.flush()
+    if activated_draft:
+        await _sync_contract_after_live_group_line(db, line, actor_id=user.id)
 
     if changed:
         record_event(

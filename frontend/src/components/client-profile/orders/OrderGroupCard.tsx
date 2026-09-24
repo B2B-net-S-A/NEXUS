@@ -485,6 +485,18 @@ function OrderLineRow({
                 Zakończył współpracę
               </span>
             ) : null}
+            {line.returned_from_contract_id != null ? (
+              <span className="rounded bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800">
+                Powrót po przerwie
+              </span>
+            ) : null}
+            {line.status === "draft" &&
+            group.status !== "draft" &&
+            !scheduledTakeover ? (
+              <span className="rounded bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Draft — uzupełnij
+              </span>
+            ) : null}
             {scheduledTakeover ? (
               <span className="rounded bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
                 Zaplanowane zastępstwo od {formatDate(line.start_date)}
@@ -526,13 +538,15 @@ function OrderLineRow({
                   ? `Zakończył współpracę ${formatDate(line.cooperation_ended_on)}`
                   : line.is_active
                     ? "Konsultant"
-                    : "Zakończony"}
+                    : line.status === "draft" && !scheduledTakeover
+                      ? "Szkic przypisania — uzupełnij budżet i stawki"
+                      : "Zakończony"}
             {line.start_date
-              ? line.is_active || scheduledTakeover
+              ? line.is_active || line.status === "draft" || scheduledTakeover
                 ? ` · od ${formatDate(line.start_date)}`
                 : ` · był na zamówieniu od ${formatDate(line.start_date)}`
               : ""}
-            {!line.is_active && line.end_date
+            {!line.is_active && line.status !== "draft" && line.end_date
               ? ` do ${formatDate(line.end_date)}`
               : ""}
           </p>
@@ -1210,11 +1224,12 @@ export function OrderGroupCard({
   // odpowiadała na dwa różne pytania naraz i zespół czytał ją jako listę
   // pracujących. Sprawa wędruje teraz razem z wierszem do „Zakończone", a żeby
   // nie zniknęła z oczu, nagłówek tej sekcji niesie licznik decyzji.
-  // Zaplanowane zastępstwo (ticket 09.2026) czeka jako szkic w aktywnym
-  // zamówieniu — należy do bieżącej obsady, nie do „Zakończonych".
+  // Szkic przypisania należy do obsady także w OTWARTYM zamówieniu —
+  // „Powrót po przerwie" (0368) wprowadza osobę jako szkic do uzupełnienia,
+  // a zaplanowane zastępstwo (ticket 09.2026) czeka jako szkic w aktywnym
+  // zamówieniu — oba należą do bieżącej obsady, nie do „Zakończonych".
   const isDraftLine = (line: OrderLineRead) =>
-    (group.status === "draft" && line.status === "draft") ||
-    line.takeover_scheduled === true;
+    line.status === "draft" || line.takeover_scheduled === true;
   const currentLines = sortedLines.filter(
     (line) => line.is_active || isDraftLine(line),
   );

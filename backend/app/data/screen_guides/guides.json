@@ -413,6 +413,7 @@
     "pitfalls": [
       "Usunięcie zamówienia może zmienić stawkę w przeszłych miesiącach — okno usuwania pokazuje skutki, przeczytaj je przed potwierdzeniem.",
       "Zamówienia z rozliczonym zużyciem MD albo fakturą nie da się usunąć.",
+      "Osoby zakończonej przez pomyłkę albo wracającej po przerwie nie dodawaj od nowa — użyj „Cofnij zakończenie” albo „Powrót po przerwie” na jej kontrakcie.",
       "Zamówienia z rozliczonym zużyciem MD albo fakturą nie da się też anulować — okno pokaże, które miesiące je blokują."
     ],
     "anchors": [

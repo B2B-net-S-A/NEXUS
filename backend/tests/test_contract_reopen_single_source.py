@@ -37,6 +37,10 @@ class _CollectingDB:
     def add(self, obj: object) -> None:
         self.added.append(obj)
 
+    async def scalar(self, *_args: object, **_kwargs: object) -> None:
+        # Wskrzeszenie zamyka otwartą migawkę zakończenia (0368) — tu jej nie ma.
+        return None
+
     async def execute(self, *_args: object, **_kwargs: object) -> SimpleNamespace:
         # Cofnięcie zakończenia szuka umów w Generatorze (0367) — tu żadnych.
         return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: []))

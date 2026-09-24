@@ -512,6 +512,9 @@ class OrderLineRead(BaseModel):
     contract_id: int
     candidate_id: Optional[int] = None
     consultant_name: str = ""
+    # Kontrakt z „Powrotu po przerwie" (0368) — karta pokazuje plakietkę
+    # i link do poprzedniego kontraktu.
+    returned_from_contract_id: Optional[int] = None
     job_id: Optional[int] = None
     job_title: Optional[str] = None
     status: str
