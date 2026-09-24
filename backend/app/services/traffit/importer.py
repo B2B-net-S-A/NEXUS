@@ -711,6 +711,9 @@ _UPSERT_CANDIDATE = text(
 )
 
 
+_CANDIDATE_EMAIL_UNIQUE = ("ix_candidates_email", "candidates_email_key")
+
+
 # Used when a Traffit candidate's email matches an existing record
 # (e.g. seeded from talent_radar). Adopt the row as Traffit-sourced and
 # stash the previous external_source under cv_extracted_data.legacy_source
@@ -2859,19 +2862,22 @@ class TraffitImporter:
         ``email_to_id`` jest budowane raz, na starcie fazy. Kandydat założony
         w Nexusie w trakcie fazy (24.09.2026: to samo CV wgrane do Traffita
         i do Nexusa w odstępie 2 s) nie jest w mapie, więc rekord Traffita
-        idzie w INSERT i trafia w UNIQUE ``ix_candidates_email``. To ten sam
+        idzie w INSERT i trafia w UNIQUE na ``email``. To ten sam
         przypadek co adopcja po mailu, tylko spóźniony — adoptujemy.
 
         Tylko gdy ``external_id`` nie ma właściciela: inaczej konflikt powstał
         na UPDATE właściciela (Traffit zmienił mu mail na cudzy), a przepięcie
         ``external_id`` na drugi wiersz byłoby scaleniem, czyli decyzją dedupu.
         """
-        constraint = "ix_candidates_email"
         if ext_owned or not payload.get("email"):
             return None
-        if getattr(
-            error.orig, "constraint_name", None
-        ) != constraint and constraint not in str(error):
+        # Ten sam UNIQUE na `email` ma dwie nazwy: prod ma indeks z
+        # `0001_initial` (`ix_candidates_email`), baza testowa — więz z modelu
+        # (`candidates_email_key`).
+        constraint = getattr(error.orig, "constraint_name", None)
+        if constraint not in _CANDIDATE_EMAIL_UNIQUE and not any(
+            name in str(error) for name in _CANDIDATE_EMAIL_UNIQUE
+        ):
             return None
         # Konflikt jest na surowym `email` (indeks bez lower), więc szukamy
         # dokładnie tej wartości — trafia w indeks, bez skanu 590 tys. wierszy.
