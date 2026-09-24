@@ -245,8 +245,11 @@ def _items_for(column: str, f: PairFacts) -> list[_Item]:
                     column,
                     "client_rate",
                     "Stawka do klienta",
-                    OK if f.client_rate else MISSING,
-                    True,
+                    # Brak nie blokuje: okno stawki pyta o nią w samym ruchu
+                    # (test na produkcji 24.09.2026 — czerwony krzyżyk przy
+                    # „wpiszesz ją przy wysyłce” czytał się jak blokada).
+                    OK if f.client_rate else WAITING,
+                    False,
                     None if f.client_rate else "wpiszesz ją przy wysyłce",
                     None
                     if f.client_rate

@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 
 import { contractsApi } from "@/lib/api";
+import { ContractTerminationSummary } from "@/components/contracts/ContractTerminationSummary";
 import { downloadContractDocument } from "@/lib/contract-documents";
 import { useToast } from "@/components/Toast";
 import { Badge } from "@/components/ui/badge";
@@ -263,6 +264,9 @@ function ContractsSection({
                       {c.end_date ? formatDate(c.end_date) : "?"} ·{" "}
                       {c.contract_type?.toUpperCase()}
                     </div>
+                    {c.agreement_termination_mode ? (
+                      <ContractTerminationSummary contract={c} compact />
+                    ) : null}
                   </div>
                   {c.termination_reason ? (
                     <Badge variant="neutral" size="sm">
@@ -335,6 +339,11 @@ function CurrentContractCard({
               {formatDate(contract.start_date)} —{" "}
               {contract.end_date ? formatDate(contract.end_date) : "bezterminowo"}
             </div>
+            {/* Zaplanowane zakończenie (status „Kończący się"): koniec
+                zamówienia i — przy rozwiązaniu — ostatni dzień umowy. */}
+            {contract.terminated_at ? (
+              <ContractTerminationSummary contract={contract} compact />
+            ) : null}
           </div>
           <div className="flex items-center gap-2">
             <Badge

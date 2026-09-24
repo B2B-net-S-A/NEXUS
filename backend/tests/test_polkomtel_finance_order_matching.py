@@ -29,6 +29,17 @@ from tests.test_order_lifecycle_and_cost import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _skip_contract_order_locks(monkeypatch):
+    """Sztuczne sesje tego pliku nie znają blokad; kolejność blokad kontrakt →
+    zamówienia pilnuje ``test_order_writer_lock_order.py``."""
+
+    async def _no_lock(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr("app.api.md_consumption.lock_contract_then_orders", _no_lock)
+
+
 _EXPLICIT_ORDER_HINTS = None
 
 

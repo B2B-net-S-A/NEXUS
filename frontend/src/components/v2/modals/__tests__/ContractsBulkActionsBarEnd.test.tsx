@@ -10,6 +10,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, cleanup, waitFor } from "@testing-library/react";
 import { fireEvent } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 // `vi.mock` jest hoistowane ponad zmienne modułu, więc mock musi powstać
 // wewnątrz `vi.hoisted` — inaczej fabryka sięga po niezainicjalizowaną stałą.
@@ -32,14 +33,17 @@ import { ContractsBulkActionsBarV2 } from "../ContractsBulkActionsBar";
 
 function renderBar() {
   const onDone = vi.fn();
+  const qc = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
   render(
+    <QueryClientProvider client={qc}>
     <ContractsBulkActionsBarV2
       selectedIds={new Set([7, 9])}
       onClear={vi.fn()}
       onDone={onDone}
       onSelectAllVisible={vi.fn()}
       visibleCount={12}
-    />,
+    />
+    </QueryClientProvider>,
   );
   return { onDone };
 }
@@ -72,6 +76,8 @@ describe("ContractsBulkActionsBarV2 — Oznacz zakończone", () => {
       expect(bulkMarkEnded).toHaveBeenCalledWith([7, 9], {
         termination_reason: "project_ended",
         terminated_at: "2026-10-31",
+        termination_lessons: null,
+        agreement_termination: null,
       }),
     );
     await waitFor(() => expect(onDone).toHaveBeenCalled());

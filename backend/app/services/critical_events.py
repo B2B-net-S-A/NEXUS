@@ -56,6 +56,8 @@ EVENT_TYPE_LABELS: dict[str, str] = {
     "order_line.delete": "Usunięcie konsultanta z zamówienia",
     "contract.delete": "Usunięcie kontraktu",
     "contract.force_delete_signed": "Usunięcie kontraktu z podpisaną umową B2B",
+    "contract.client_reassign": "Przepięcie kontraktu na innego klienta",
+    "candidate.merge": "Scalenie duplikatów kandydata",
     "framework_contract.delete": "Usunięcie umowy ramowej",
     "b2b_agreement.delete": "Usunięcie wygenerowanej umowy B2B",
     "order.delete": "Usunięcie zamówienia",

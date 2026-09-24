@@ -48,7 +48,7 @@ import {
 import { TruncatedText } from"@/components/ds/TruncatedText";
 import { QueryStateNotice } from"@/components/ds/QueryStateNotice";
 import { DraftCompletionModal } from"@/components/v2/modals/DraftCompletionModal";
-import { TerminateContractModal } from"@/components/client-profile/actions/TerminateContractModal";
+import { ContractTerminationDialog } from"@/components/contracts/ContractTerminationDialog";
 import {
  buildContractDetailHref,
  buildContractorsListUrl,
@@ -548,15 +548,11 @@ export function ContractorsListV2() {
  )}
 
  {canOperateContracts && terminating && (
- <TerminateContractModal
- contractId={terminating.contract_id}
+ <ContractTerminationDialog
+ contractIds={[terminating.contract_id]}
  candidateName={`${terminating.candidate.name} ${terminating.candidate.lastname}`.trim()}
- clientId={terminating.client_id ?? 0}
  onClose={() => setTerminating(null)}
- onTerminated={() => {
- queryClient.invalidateQueries({ queryKey: ["contractors-v2"] });
- queryClient.invalidateQueries({ queryKey: ["contractors-stats-v2"] });
- }}
+ onSuccess={() => setTerminating(null)}
  />
  )}
 

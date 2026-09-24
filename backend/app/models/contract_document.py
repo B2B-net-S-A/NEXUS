@@ -19,6 +19,9 @@ class ContractDocumentType(str, enum.Enum):
     zus_certificate = "zus_certificate"
     oc_policy = "oc_policy"
     order = "order"
+    # 0367: załącznik z okna „Zakończ współpracę" (rozwiązanie umowy B2B).
+    termination_notice = "termination_notice"
+    termination_agreement = "termination_agreement"
     other = "other"
 
 

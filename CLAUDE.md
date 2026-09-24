@@ -448,9 +448,16 @@ cofnąć „przy okazji”:
   pilnuje test AST w `test_contract_status_concurrency.py`). Bez tego `void`
   i równoległy `revert` na przeterminowanym obiekcie oba przechodziły, a ostatni
   zapis wygrywał. `resync_contract` odświeża pola cyklu życia po blokadzie —
-  obiekt bywa załadowany przed nią. Znany dług: writery zamówień blokują
-  `client_orders` przed `contracts` — kolejność odwrotna niż w cronie
-  i handlerach; nie „ujednolicaj” jej w jednym z miejsc bez drugiego.
+  obiekt bywa załadowany przed nią. **Kolejność blokad jest jedna: kontrakty →
+  zamówienia** (PR2, 23.09.2026 — do tego dnia writery zamówień blokowały
+  `client_orders` przed `contracts`, a `commit_order_write` → `resync_contract`
+  brał kontrakt dopiero przy commicie: ABBA z handlerami kontraktu). Każdy
+  writer zamówień woła `contract_lifecycle.lock_contract_then_orders`
+  (kontrakty rosnąco, potem zamówienia rosnąco; kontrakty zamówień doczytuje
+  sam) albo `lock_order_group_lines` PRZED pierwszą blokadą i zapisem
+  zamówienia; tworzenie zamówienia blokuje kontrakt przed INSERT-em. Pilnuje
+  tego test AST `test_order_writer_lock_order.py` — nowa funkcja z `FOR UPDATE`
+  na `ClientOrder` bez helpera = czerwone CI (wyjątki z powodem w `EXEMPT`).
 - **Zakończenie współpracy przechodzi przez maszynę stanów**
   (`_status_after_termination`, `/terminate` i aneks `early_termination`, od
   15.09.2026). Do tego dnia obie ścieżki liczyły status z samej daty końca:
@@ -3232,6 +3239,72 @@ i polskim powodem.
   klienta i zakładkę Ustawienia → Konflikty. Tabela nie miała wcześniej
   żadnego lustra w `entrypoint.sh` — teraz ma (kolumny, indeksy, CHECK alertu).
 
+## PR2 (23.09.2026): multiposting, scalanie kandydatów, tagi, mail aplikacji, przepięcie kontraktu, anulowanie zamówień MD
+
+Migracje `0364_application_confirmation`, `0365_order_group_cancel`,
+`0366_job_portals` (lustra w `entrypoint.sh`, test `test_pr2_migration_mirror.py`).
+
+- **Multiposting (Pracuj.pl, JustJoinIT) to szkielet za flagami OFF**
+  (`PORTAL_PRACUJ_ENABLED`, `PORTAL_JJIT_ENABLED` + `_API_URL`/`_API_KEY`) —
+  brak dokumentacji API portali. `services/job_portals/` (adaptery
+  `PendingDocumentationAdapter` mówią „czeka na dokumentację”, nigdy nie udają
+  publikacji jak dawne `SIM-…`), kolejka w `job_postings` (`publishing` →
+  worker `tasks/job_portal_worker.py` z `SKIP LOCKED` → `published`/`failed`
+  z polskim `last_error`), częściowy UNIQUE jednej żywej publikacji na portal.
+  Treść WYŁĄCZNIE z zatwierdzonego opisu publicznego (`public_job_payload`),
+  link aplikacji = link rekrutacji na stronie kariery; bez nich 409. Worker
+  kończy się przed pętlą przy obu flagach OFF; `checks.job_portals`
+  informacyjne (`unconfigured` dziś). Sekcja „Portale ogłoszeniowe” w oknie
+  zlecenia renderuje się tylko przy `GET /api/job-portals/config` → `any_ready`.
+  Harness `/preview/job-portals`.
+- **Scalanie duplikatów kandydatów** (`services/candidate_merge.py`,
+  `GET …/{id}/merge-preview?other=`, `POST …/{id}/merge`, admin + HoR,
+  „Scal z…” w menu profilu, harness `/preview/candidate-merge`). Referencje
+  z KATALOGU w chwili uruchomienia (FK do `candidates.id` o dowolnej nazwie
+  kolumny + kolumny `candidate_id` bez FK + FK z modeli); konflikt unikalności
+  rozstrzygany PER WIERSZ (para z tym samym kluczem → zostaje nowszy wiersz,
+  starszy znika, reszta przepięta — nigdy „usuń wszystkie wiersze
+  duplikatu”); `activities`/`notifications`(+link)/`traffit_entity_links`
+  przepinane jawnie. Konflikt pól = wybór człowieka; kontakt duplikatu
+  zostaje w `custom_fields.merged_duplicates`. Duplikat z Traffita oddaje
+  ocalałemu `external_id` (inaczej nocny sync go odtworzy); oba z tego samego
+  systemu = 409 `both_external`. Odcisk jak w `contract_merge`. Historia
+  zdarzeń `candidate.merge` bez nazwisk. Skrypt
+  `scripts/merge_duplicate_candidates.py` ZOSTAJE (partie Talent Radar,
+  własne testy) — do scalania pojedynczych par używaj UI.
+- **Tagi kandydata:** `POST/DELETE /api/candidates/{id}/tags` zmienia JEDEN
+  tag pod blokadą wiersza (obiekty importu Traffita nietknięte, tag
+  porównywany bez wielkości liter), `GET /api/candidates/tags/suggest`
+  (kształt jak `/companies/suggest`). Nie wracaj do zapisu całej listy
+  z przeglądarki — PATCH zastępuje listę i kasował cudze tagi. Filtr „Tagi”
+  w „Więcej filtrów” → „Inne” (URL `tags`, cały tag).
+- **Mail potwierdzenia aplikacji** (`services/application_confirmation_email.py`,
+  rodzaj `application_confirmation` w `notification_delivery.CATALOG`,
+  domyślnie OFF): wołany IDENTYCZNIE z obu gałęzi `submit_application`
+  (nowy e-mail / już w bazie) i budowany wyłącznie z formularza i linku —
+  treść nie może zdradzić, że osoba była w bazie. Tytuł tylko z
+  ZATWIERDZONEGO opisu publicznego. Dedup (HMAC adresu, klucz linku) 24 h
+  w `application_confirmation_sends`; nieudana wysyłka zwalnia rezerwację.
+- **Przepięcie kontraktu na innego klienta** (admin;
+  `GET /api/contracts/{id}/client-reassign-preview?client_id=`, `POST …/client-reassign`,
+  akcja w szczegółach kontraktu): przenosi `contracts.client_id`, zamówienia,
+  wygenerowane umowy B2B (nazwa WYDRUKOWANA zostaje), otwarte braki; otwarte
+  alerty DL starego klienta zamyka jako `resolved`. **409 z listą** przy
+  zamówieniu pod umową ramową/wykonawczą, linii zamówienia MD/kosztowego,
+  PM-ie z innej firmy, czekającej decyzji offboardingu. `ContractUpdate` nadal
+  NIE ma `client_id` — to jedyna droga. Historia zdarzeń bez nazwisk (same
+  kody blokerów).
+- **Anulowanie zamówienia MD/kosztowego z przywróceniem**
+  (`POST …/order-groups/{id}/cancel` i `…/restore`, cykl życia zamówienia):
+  tylko BEZ rozliczeń (ta sama reguła co usunięcie, 409 z listą); grupa
+  `cancelled` pamięta `status_before_cancel`, linie `cancelled`, statusy linii
+  w payloadzie `order_cancelled` — „Przywróć anulowane” je odtwarza (osoba,
+  której okres minął, wraca jako zakończona). Anulowane zamówienie jest tylko
+  do odczytu (PATCH, zakończenie, przedłużenie, linie, rozliczenia → 409),
+  a zwykłe „Przywróć” (reopen) go nie rusza. Filtry automatów pytają
+  pozytywnie o `active`/`exhausted`/`completed`, więc anulowane samo z nich
+  wypada — nowy filtr pisz tak samo, nie jako „≠ completed”.
+
 ## Konta serwisowe / klucze API (`X-API-Key`)
 
 Druga klasa poświadczeń obok JWT użytkownika — dla automatyzacji (cron, CI, skrypty
@@ -4314,6 +4387,45 @@ i zwroty sprzętu, dla których kart nie ma. Panel `MyClientsAlertsPanel` (`pres
   i cache z `updatedAt` w przyszłości — zero zapytań (401 przerzuciłby na /login).
   Checkbox w harnessie woła API — nie klikaj go w podglądzie.
 
+## „Cofnij zakończenie" i „Powrót po przerwie" (0368, 23.09.2026)
+
+Zakończony kontrakt ma dwie osobne akcje (Admin, Finanse, TCM — bez DL;
+bramka `ContractTerminationRecoveryUser` + wyjątek sekcji w
+`section_access._is_contract_termination_recovery`). Zwykła zmiana statusu
+„Zakończony → Aktywny" w rejestrze NIE przenosi się na zamówienia (zgłoszenie:
+linia MD została w „Zakończonych" z decyzją o puli) — front ją przechwytuje.
+
+- **Migawka stanu sprzed zakończenia** (`contract_termination_snapshots`,
+  jeden OTWARTY wiersz na kontrakt) zapisuje `apply_contract_order_offboarding`
+  — JEDYNE miejsce, które zmienia zamówienia przy zakończeniu. Stan kontraktu
+  „przed" podaje wołający (`ContractStateBefore.of(contract)` PRZED mutacją);
+  każda nowa ścieżka kończąca kontrakt musi go przekazać. Kolejne wywołania
+  w epizodzie dopisują zamówienia i aktualizują stan „po", nigdy „przed".
+  `reopen_contract` (przedłużenie/aneks) zamyka migawkę jako `superseded`;
+  zmiana statusu z rejestru — nie (`supersede_termination_snapshot=False`).
+- **Cofnięcie** (`services/contract_termination_reversal.py`): plan liczy ta
+  sama funkcja dla podglądu i wykonania. Zamówienie zmienione po zakończeniu
+  (stan ≠ „po") jest pomijane z powodem. Decyzja `remove`/`transfer` o puli MD
+  = blokada 409 ze wskazaniem zamówienia. Nierozstrzygnięta sprawa
+  offboardingu jest USUWANA (zostawiona blokowałaby nową sprawę przy
+  ponownym zakończeniu z tą datą), jej alerty zamykane jako `resolved`.
+  Zakończenia sprzed 0368: data końca z `order_change_events` („stara →
+  data zakończenia"), a bez wpisu — data końca grupy; zamówienie okresowe bez
+  śladu jest pomijane. Import MD: wiersze `unmatched` z tym nazwiskiem, wgrane
+  po zakończeniu, za miesiące po dacie zakończenia — tą samą ścieżką co
+  `assign_row` (`md_consumption.reapply_rows_for_restored_line`).
+- **Powrót po przerwie** (`services/contract_return_after_break.py`): nowy
+  kontrakt Draft z `returned_from_contract_id`; w otwartym zamówieniu MD/
+  kosztowym szkic linii (`status=draft` w AKTYWNEJ grupie — karta pokazuje go
+  w obsadzie jako „Draft — uzupełnij"; `update_line` aktywuje go, gdy ma
+  stawkę przychodową i budżet), przy okresowym — szkic zamówienia.
+- **Generator B2B idzie razem z kontraktem (0367):** cofnięcie woła
+  `contract_termination_sync.undo_contract_termination` (umowa w Generatorze
+  i dane rozwiązania umowy wracają), powrót po przerwie —
+  `on_contract_returned_after_break` (nowa umowa dla nowego kontraktu).
+- Korekta zgłoszenia: `contract_termination_reversal_repair.py` (trójka ID,
+  blok `repair-termination-reversal` w entrypoincie, marker w `app_settings`).
+
 ## Decyzja Delivery Leada po zakończeniu współpracy konsultanta MD
 
 Terminacja kontraktu domyka linię MD (`completed`, `end_date` ucięta do dnia
@@ -4544,8 +4656,9 @@ trwała. Reguła ma jedno źródło: `app/services/b2b_contract_end_date.py`
   od chwili wypowiedzenia, nie dopiero w dniu końca (dyskryminator: umowa
   przywrócona ma `terminated_at`, ale `end_date IS NULL`).
 - **Zakończenie z datą przyszłą NIE daje dziś statusu „Zakończony"** (P0.7):
-  umowa pracuje do tej daty („Aktywny", w oknie 30 dni „Kończący się"),
-  cron domyka ją dzień po dacie — inaczej osoba znikałaby z MRR przed czasem.
+  umowa pracuje do tej daty (od 23.09.2026 od razu „Kończący się”, także
+  gdy datą jest dziś), cron domyka ją dzień po dacie — inaczej osoba
+  znikałaby z MRR przed czasem. Szczegóły w sekcji niżej.
 - **Jednorazowa korekta:** `app/services/b2b_end_date_repair.py`, blok
   w `entrypoint.sh`, marker `0307_b2b_indefinite_end_date` (paragon: liczby,
   ID, daty) + `repair_details_0307_…` (treść wpisów, poprzednie wartości —
@@ -4558,6 +4671,54 @@ trwała. Reguła ma jedno źródło: `app/services/b2b_contract_end_date.py`
   martwy szkic do MRR przy najbliższej aktywacji). Test
   `test_ticket_lists_all_sixteen_people…` trzyma CI na czerwono, dopóki
   lista nie jest kompletna — marker jest jednorazowy.
+
+## Zakończenie współpracy = okno + rozwiązanie umowy + Generator (0367, 23.09.2026)
+
+Ticket „Zakończenie współpracy — obowiązkowy formularz” (kontrakt #674:
+lista statusu kończyła kontrakt bez powodu i daty). Serwis
+`app/services/contract_termination_sync.py`, okno
+`components/contracts/ContractTerminationDialog.tsx` (jedno dla karty
+kontraktu, formularza edycji, „Zakończ wcześniej” w aneksach, karty
+kontraktora na profilu klienta, listy kontraktorów i zbiorczego „Oznacz
+zakończone”), logika `lib/contract-termination.ts`.
+
+- **„Zakończony” wyłącznie przez `/terminate` albo `/bulk-mark-ended`.**
+  `PATCH /status` i `PATCH /{id}` z `ended` na istniejącej umowie = 409
+  `termination_required`; wyjątek `allow_direct_end` ma tylko POST (wpis
+  umowy zakończonej przed założeniem rekordu). `/terminate` ma role
+  `ContractStatusWriteUser` (admin, DL, TCM) — te same co lista statusu.
+- **Status liczy DATA ZAKOŃCZENIA PROJEKTU** (`_status_after_termination`):
+  data ≥ dziś → „Kończący się”, < dziś → „Zakończony” od razu, nocny
+  `_promote_statuses` przestawia dzień po dacie i zapisuje `Activity`
+  `status_auto_changed`. Ostatni dzień UMOWY statusu nie wydłuża — nie ma
+  statusu „W wypowiedzeniu”.
+- **Rozwiązanie umowy** = `contracts.agreement_termination_*` +
+  `agreement_last_day` (komplet albo nic, CHECK). Odznaczone pole w oknie
+  CZYŚCI zapisane wcześniej dane. `notice_period_months` (edycja kontraktu)
+  podpowiada ostatni dzień przy wypowiedzeniu; brak = puste pole. Załącznik
+  idzie DRUGIM żądaniem do dokumentów kontraktu (`termination_notice` /
+  `termination_agreement`) — padnięty upload nie cofa zakończenia.
+- **Generator zmienia się w chwili „Zakończony”**, nie przy zapisie okna:
+  rozwiązanie → `closed`, `closure_date` = ostatni dzień umowy,
+  `project_end_date` = koniec projektu, `termination_mode`; bez rozwiązania →
+  `suspended` („Umowy bez projektu”), chyba że osoba ma inny trwający
+  kontrakt (`active`/`ending`) — wtedy umowa bez zmian. Wiersz szukany po
+  `contract_id`, zapasowo po kandydacie (bez linku albo z linkiem do
+  kontraktu `ended`/`void`, nigdy do innego żywego). Powód projektu mapuje
+  `_CLOSURE_REASON` na katalog Generatora. Idempotentne po
+  `termination_restore` (migawka stanu sprzed zmiany + `contract_id`).
+- **„Cofnij zakończenie” = `reopen_contract`** (lista statusu na „Aktywny”,
+  aneks przedłużenia, `/bulk-extend`): odtwarza wiersz z migawki, czyści dane
+  rozwiązania na kontrakcie, załącznik zostaje. `reopen_contract(...,
+  after_break=True)` woła wyłącznie `sync_contract_to_live_order` (nowe
+  zamówienie wskrzesza kontrakt = powrót po przerwie): przy ROZWIĄZANEJ
+  umowie zakłada nową umowę `in_progress` z `previous_generated_contract_id`
+  (numer z `_next_seq`), poprzednia zostaje w „Zakończonych”. Lista statusu
+  przy powrocie na „Aktywny” zeruje datę końca umowy B2B (lustro PATCH-a) —
+  inaczej cron kończyłby ją ponownie w nocy.
+- Historia umowy: `b2b_generated_contract_status_events.details` (źródło,
+  kontrakt, daty, tryb, strona); „Zakończone umowy” mają kolumny „Data
+  zakończenia zamówienia”, „Tryb” i filtr `?termination_mode=`.
 
 ## Kontakt do konsultanta na umowie (09.2026, migracja 0320)
 

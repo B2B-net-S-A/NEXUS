@@ -249,6 +249,35 @@ class Contract(Base, TimestampMixin):
     termination_lessons: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     terminated_at: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
 
+    # „Powrót po przerwie" (0368): nowy kontrakt osoby, która naprawdę
+    # zakończyła współpracę i wraca po czasie, wskazuje poprzedni. Poprzedni
+    # zostaje zakończony bez zmian — jego zużycie, alerty i finanse są historią,
+    # a nowy liczy się od własnej daty startu. SET NULL: usunięcie starego
+    # kontraktu nie może skasować nowego.
+    returned_from_contract_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("contracts.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    # Rozwiązanie UMOWY B2B (0367) — osobne od końca projektu. Projekt kończy
+    # się `terminated_at`/`end_date` i to on rządzi statusem kontraktu; umowa
+    # może obowiązywać dłużej (okres wypowiedzenia). Komplet albo nic
+    # (`ck_contracts_agreement_termination_coherence`). Tryb: `notice`
+    # (wypowiedzenie) | `mutual_agreement` (porozumienie stron); strona:
+    # `consultant` | `company` (b2bnetwork). `signed_on` to data złożenia
+    # wypowiedzenia albo zawarcia porozumienia — etykieta zależy od trybu.
+    agreement_termination_mode: Mapped[Optional[str]] = mapped_column(
+        String(20), nullable=True
+    )
+    agreement_termination_party: Mapped[Optional[str]] = mapped_column(
+        String(20), nullable=True
+    )
+    agreement_termination_signed_on: Mapped[Optional[date]] = mapped_column(
+        Date, nullable=True
+    )
+    agreement_last_day: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    # Okres wypowiedzenia z umowy (miesiące) — podpowiedź „Ostatniego dnia
+    # umowy" w oknie zakończenia. NULL = nie zapisano, pole zostaje puste.
+    notice_period_months: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
     # Soft-delete / void metadata — populated when status flips to `void` via
     # the lifecycle service. A void keeps documents + signature evidence (unlike
     # a hard DELETE), so an executed contract stays auditable after annulment.
