@@ -546,9 +546,16 @@ async def run_request_allocation(
             )
 
             async with db.begin_nested():
-                stats["morning_notices"] = await send_morning_notices(
-                    db, now=now, mode=mode
+                notices = await send_morning_notices(
+                    db,
+                    now=now,
+                    mode=mode,
+                    silent_reminded=stats.get("silent_reminded"),
                 )
+            # Kiedy który request „Klient milczy” był ostatnio przypomniany —
+            # rytm 14 dni liczy się od tej daty (`silent_reminder_due`).
+            stats["silent_reminded"] = notices.pop("silent_reminded", {})
+            stats["morning_notices"] = notices
         except Exception:  # noqa: BLE001 — dzwonek nie może zatrzymać przydziału
             logger.exception("[request_allocation] morning notices failed")
         stats["last_review_date"] = local_date.isoformat()
