@@ -531,7 +531,6 @@ def test_jarvis_my_people_tools_hide_working_and_mark_unscored():
     assert TOOLS_BY_NAME["my_people_for_job"].tier == "read"
 
 
-
 def test_days_since_counts_the_company_calendar_day_not_utc() -> None:
     """Audyt 24.09.2026: wysyłka o 23:30 UTC to już następny dzień w Warszawie.
     Dzień znacznika liczymy w strefie firmy, jak ``business_today()``."""

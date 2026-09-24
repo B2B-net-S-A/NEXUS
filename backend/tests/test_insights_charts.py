@@ -486,11 +486,7 @@ async def test_placement_analysis_folds_admin_accounts_into_one_slice(
     assert totals["placements"] == before["totals"]["placements"] + 2
     assert totals["people"] == before["totals"]["people"]
     assert all(p["user_id"] != admin_id for p in after["by_person"])
-    outside = [
-        p
-        for p in after["by_person"]
-        if p["name"] == "Konta administracyjne"
-    ]
+    outside = [p for p in after["by_person"] if p["name"] == "Konta administracyjne"]
     assert outside and outside[0]["attributed"] is False
     assert totals["outside_scope_placements"] >= 2
     assert sum(p["placements"] for p in after["by_person"]) == totals["placements"]

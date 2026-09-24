@@ -555,9 +555,7 @@ async def test_late_recognised_document_is_not_treated_as_a_pre_rule_reading(
     )
     assert not any(_LEGACY_REASON in r for r in refreshed["uncertain_reasons"])
     # Odczyt modelu zachowany — kolejne „Przelicz plan" porównuje tabelę z nim.
-    assert [r["consultant_name"] for r in refreshed["model_rows"]] == [
-        "Jan Testowy"
-    ]
+    assert [r["consultant_name"] for r in refreshed["model_rows"]] == ["Jan Testowy"]
 
 
 @pytest.mark.asyncio

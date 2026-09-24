@@ -4,6 +4,6 @@
   "sources": {
     "frontend/src/app/finance/page.tsx": "4535cf4f8b206c7d4b7a10b15a61a47665aaa5c36038cb91801606a962cbec21",
     "frontend/src/components/finance/MdImportWorkspace.tsx": "4d8c3cc28c85a28adcd9b802c829ebccd20c229b11480331a86e76ebb7d9ac51",
-    "frontend/src/components/finance/OrderChangesPanel.tsx": "3eb20084cd091d2844fb7f24d61b26a149d5df2419b2e236ab70b74c3bc55621"
+    "frontend/src/components/finance/OrderChangesPanel.tsx": "bc54f17fc595fa8a457c54b7b150499e7cb529c8243e9d7f8ab8ce84c4108c93"
   }
 }
