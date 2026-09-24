@@ -7,6 +7,7 @@ import type {
 } from "@/lib/api/orderGroups";
 import {
   effectiveTransferMethod,
+  sourceDepartingRate,
   sourceRemainingMd,
   transferPreview,
 } from "@/lib/order-takeover";
@@ -96,7 +97,7 @@ export function TakeoverTermsFields({
   const preview = transferPreview({
     unit: departing.pool_unit,
     remaining: sourceRemainingMd(departing),
-    departingRate: departing.rate_revenue,
+    departingRate: sourceDepartingRate(departing),
     incomingRate: parseDecimalInput(value.rateRevenue),
   });
   const set = (patch: Partial<TakeoverTermsValue>) => onChange({ ...value, ...patch });

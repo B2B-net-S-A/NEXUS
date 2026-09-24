@@ -127,6 +127,19 @@ export function sourceRemainingMd(line: OrderLineRead): number {
   return Math.max(0, pending?.remaining_md_snapshot ?? line.md_remaining ?? 0);
 }
 
+/**
+ * Stawka odchodzącego do przeliczenia puli — lustro serwera
+ * (`apply_takeover_transfer`): przy sprawie offboardingu czekającej na decyzję
+ * liczy się stawka zapamiętana w sprawie (`rate_revenue_snapshot`), nie bieżąca
+ * stawka linii. Audyt 24.09.2026 (N2): podgląd liczył bieżącą i pokazywał inne
+ * MD, niż potem zapisywał serwer. Lustro `OffboardingDecisionModal`.
+ */
+export function sourceDepartingRate(line: OrderLineRead): number | null {
+  const pending =
+    line.offboarding_case?.status === "pending" ? line.offboarding_case : null;
+  return pending?.rate_revenue_snapshot ?? line.rate_revenue ?? null;
+}
+
 /** Osoby, za które można „wejść" — stan liczy serwer (`takeover_source`). */
 export function takeoverSources(
   groups: readonly OrderGroupRead[],
