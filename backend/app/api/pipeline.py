@@ -1876,7 +1876,11 @@ def _with_next_action_owner(payload: dict, column: StageColumn, group: str) -> d
 
 
 async def build_kanban_view(
-    db: AsyncSession, job: Job, *, viewer: Optional[User] = None
+    db: AsyncSession,
+    job: Job,
+    *,
+    viewer: Optional[User] = None,
+    with_followups: bool = True,
 ) -> KanbanView:
     """The board of ``job`` — shared by ``/kanban/{job_id}`` and ``/my-next-steps``.
 
@@ -2073,8 +2077,12 @@ async def build_kanban_view(
     # wszystkimi jej procesami), na karcie tylko przy procesie, który czeka.
     from app.services import candidate_followups
 
-    followups = await candidate_followups.load_followups(
-        db, now=board_now, candidate_ids=candidate_ids
+    followups = (
+        await candidate_followups.load_followups_safely(
+            db, now=board_now, candidate_ids=candidate_ids
+        )
+        if with_followups
+        else {}
     )
     followup_today = candidate_followups.local_date(board_now)
     followup_names = await candidate_followups.user_names(
@@ -2363,7 +2371,11 @@ async def my_next_steps(
                 job_id=job.id,
                 title=job.title,
                 client_name=job.client.name if job.client else None,
-                view=await build_kanban_view(db, job, viewer=current_user),
+                # Follow-up (0371) liczy ~14 zapytań na tablicę — „Moje
+                # następne kroki” składa do 25 tablic, a plakietki nie pokazuje.
+                view=await build_kanban_view(
+                    db, job, viewer=current_user, with_followups=False
+                ),
             )
         )
     return MyNextStepsResponse(jobs=out, truncated=truncated)

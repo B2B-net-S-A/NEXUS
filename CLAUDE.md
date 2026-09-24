@@ -3154,8 +3154,11 @@ lista w „Czeka na Ciebie” (`followups` w `GET /api/board-tasks`), pole
   „Zrobię to ja” (`claim`) wygrywa bieżącą rundę.
 - **Duplikaty usuwa kontakt KOGOKOLWIEK, nie przydział.** Termin to
   max(najstarsza cisza klienta, ostatni kontakt) + 14 dni kalendarzowych.
-  Kontakt to notatka o kandydacie (każda, także z Traffita), telefon, wysłany
-  mail, minione wydarzenie kalendarza albo wynik `connected`/`changed`.
+  Kontakt to notatka-ROZMOWA (typ telefon/spotkanie/mail, także
+  „Rozmowa telefoniczna”/„Email” z Traffita), telefon, wysłany mail, minione
+  wydarzenie kalendarza albo wynik `connected`/`changed`. Zwykła notatka
+  (np. komentarz przy dodaniu do innej rekrutacji) NIE jest kontaktem —
+  inaczej ukrywałaby przypomnienie na 14 dni (przegląd kodu 24.09.2026).
   „Nie odebrał” NIE jest kontaktem: przesuwa termin o 2 dni robocze, bez
   limitu prób i bez maila (decyzja Artura).
 - **Wchodzą tylko CV wysłane od `CANDIDATE_FOLLOWUP_SINCE` (24.09.2026).**
@@ -3174,6 +3177,9 @@ lista w „Czeka na Ciebie” (`followups` w `GET /api/board-tasks`), pole
   `candidate_followup_signal` do właścicieli procesów oznaczonych jako
   „rezygnuje” (albo do wszystkich), z pominięciem dzwoniącego. Etapu nie
   zmienia.
+- Awaria liczenia NIE kładzie pulpitu ani Tablicy (`load_followups_safely`:
+  savepoint, log, pusta lista). „Moje następne kroki” (do 25 tablic) liczy
+  tablice bez follow-upów (`with_followups=False`).
 - Lista liczy się przy odczycie. Tabela `candidate_followups` trzyma tylko
   wyniki (kandydat CASCADE, RODO). Poranny skrót (`board_tasks_digest`)
   liczy follow-upy każdej roli. Wyłącznik `CANDIDATE_FOLLOWUP_ENABLED`.

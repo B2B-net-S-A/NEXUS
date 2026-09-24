@@ -16,8 +16,9 @@ Reguła (jedno źródło — czytają ją „Czeka na Ciebie”, Tablica, profil
    zaplanowanej rozmowy u klienta ani otwartego wniosku o terminy.
 2. Cisza klienta w procesie trwa od ostatniego ruchu etapu, końca minionej
    rozmowy u klienta albo wniosku o terminy — co nastąpiło później.
-3. Kontakt z kandydatem liczy się od KOGOKOLWIEK: notatka (także z Traffita),
-   telefon, wysłany mail, minione wydarzenie kalendarza, wynik follow-upu.
+3. Kontakt z kandydatem liczy się od KOGOKOLWIEK: notatka-rozmowa (typ
+   telefon/spotkanie/mail, także z Traffita), telefon, wysłany mail, minione
+   wydarzenie kalendarza, wynik follow-upu. Zwykła notatka to nie rozmowa.
    To on usuwa duplikaty: gdy jeden rekruter rozmawiał wczoraj, nikt inny
    nie dostaje zadania.
 4. Termin = max(najstarsza cisza, ostatni kontakt) + 14 dni. „Nie odebrał”
@@ -37,6 +38,7 @@ wyniki telefonów, których nie da się wyliczyć.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Callable, Iterable, Optional
@@ -53,15 +55,22 @@ from app.models.candidate import Candidate
 from app.models.candidate_followup import CONTACT_OUTCOMES, CandidateFollowup
 from app.models.client_interview_slot_request import ClientInterviewSlotRequest
 from app.models.m365 import Email, EmailDirection
-from app.models.note import Note
+from app.models.note import Note, NoteType
 from app.models.pipeline_template import PipelineTemplate
 from app.models.user import User, UserRole
 from app.services.board_stage_badges import BOARD_COLUMN_ORDER, board_column_for
+
+logger = logging.getLogger(__name__)
 
 WAITING_COLUMNS: frozenset[str] = frozenset({"cv_sent", "client_interview"})
 _COLUMN_RANK = {column: rank for rank, column in enumerate(BOARD_COLUMN_ORDER)}
 # Otwarty wniosek o terminy = klient właśnie odpowiedział, czekamy na nas.
 _OPEN_SLOT_STATUSES = ("awaiting_recruiter", "awaiting_dl")
+# Notatki, które są ROZMOWĄ z kandydatem: telefon, spotkanie, mail (także
+# z Traffita — „Rozmowa telefoniczna”, „Spotkanie”, „Email”/„Reply”) i wynik
+# follow-upu (typ „call”). Zwykła notatka (dodanie do innej rekrutacji
+# z komentarzem, uwaga rekrutera) nie ukrywa przypomnienia na 14 dni.
+CONTACT_NOTE_TYPES = (NoteType.call, NoteType.meeting, NoteType.email)
 # Nieudane połączenia nie są kontaktem.
 _FAILED_CALLS = (CallStatus.missed, CallStatus.failed, CallStatus.initiated)
 # Admin i Head of Recruitment widzą osoby, dla których nie ma kto zadzwonić.
@@ -462,7 +471,10 @@ async def _last_contacts(
     notes = (
         await db.execute(
             select(Note.candidate_id, Note.created_at, Note.author_id)
-            .where(Note.candidate_id.in_(candidate_ids))
+            .where(
+                Note.candidate_id.in_(candidate_ids),
+                Note.note_type.in_(CONTACT_NOTE_TYPES),
+            )
             .distinct(Note.candidate_id)
             .order_by(Note.candidate_id, Note.created_at.desc(), Note.id.desc())
         )
@@ -614,6 +626,27 @@ async def load_followups(
             followup.phone = cand.phone
         out[cid] = followup
     return out
+
+
+async def load_followups_safely(
+    db: AsyncSession,
+    *,
+    now: Optional[datetime] = None,
+    candidate_ids: Optional[Iterable[int]] = None,
+) -> dict[int, Followup]:
+    """``load_followups`` dla pulpitu i Tablicy: awaria = pusta lista + log.
+
+    Follow-up to dodatek do ekranu, nie jego treść — padnięte zapytanie
+    (np. brak tabeli po przegranym zamku w entrypoincie) nie może dawać 500
+    całego pulpitu ani tablicy. Savepoint, bo sesja żądania jedzie dalej.
+    """
+
+    try:
+        async with db.begin_nested():
+            return await load_followups(db, now=now, candidate_ids=candidate_ids)
+    except Exception:  # noqa: BLE001
+        logger.exception("candidate_followups: nie udało się policzyć follow-upów")
+        return {}
 
 
 def today_local(now: Optional[datetime] = None) -> date:

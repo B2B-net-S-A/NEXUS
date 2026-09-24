@@ -443,6 +443,21 @@ async def test_one_call_for_the_person_and_outcome_resets_everyone(
             assert _mine(payload, "followups", cid) == []
             assert len(_mine(payload, "followups_by_others", cid)) == 1
 
+        # Zwykła notatka (np. komentarz przy dodaniu do innej rekrutacji) to
+        # nie rozmowa z kandydatem — przypomnienie zostaje.
+        async with AsyncSessionLocal() as db:
+            db.add(
+                Note(
+                    candidate_id=cid,
+                    author_id=user_ids[0],
+                    content="Dodany do kolejnej rekrutacji.",
+                    note_type=NoteType.general,
+                )
+            )
+            await db.commit()
+        still = (await api_client.get("/api/board-tasks", headers=heads[1])).json()
+        assert len(_mine(still, "followups", cid)) == 1
+
         # Karta na Tablicy procesu 1 wie, kto dzwoni.
         board = (
             await api_client.get(
@@ -469,8 +484,8 @@ async def test_one_call_for_the_person_and_outcome_resets_everyone(
             notes = (
                 await db.scalars(select(Note).where(Note.candidate_id == cid))
             ).all()
-        assert len(notes) == 1
-        assert notes[0].note_type == NoteType.call and notes[0].job_id is None
+        calls = [n for n in notes if n.note_type == NoteType.call]
+        assert len(calls) == 1 and calls[0].job_id is None
         after = (await api_client.get("/api/board-tasks", headers=heads[1])).json()
         assert _mine(after, "followups", cid) == []
 

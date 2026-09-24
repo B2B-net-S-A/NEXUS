@@ -175,7 +175,7 @@ async def list_board_tasks(
     names, titles = await prep_attention.labels(db, preps)
     now = datetime.now(timezone.utc)
     today = candidate_followups.local_date(now)
-    all_followups = await candidate_followups.load_followups(db, now=now)
+    all_followups = await candidate_followups.load_followups_safely(db, now=now)
     followups = await serialize_rows(
         db,
         candidate_followups.for_user(all_followups, current_user, today=today),
