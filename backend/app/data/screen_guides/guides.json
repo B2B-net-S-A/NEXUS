@@ -128,13 +128,14 @@
       },
       {
         "q": "Co robi „Pomiń”?",
-        "a": "Zdejmuje propozycję z listy tej rekrutacji. Da się ją przywrócić, a nowe CV tej osoby zaproponuje ją ponownie."
+        "a": "Zdejmuje propozycję z listy tej rekrutacji. Da się ją przywrócić, a nowe CV tej osoby albo przekazanie od praktykanta po rozmowie zaproponuje ją ponownie."
       }
     ],
     "pitfalls": [
       "Wynik „nie policzono” to brak danych, nie słabe dopasowanie.",
       "Osoby z ostrzeżeniem (np. konflikt z klientem) są widoczne i da się je dodać — sprawdź powód przed wysłaniem do klienta; weto hiring managera blokuje dodanie.",
-    "Plakietka „poniżej minimum — zgoda na telefon” znaczy, że budżet jest niższy niż minimalna stawka kandydata, ale kandydat zgodził się, żeby do niego dzwonić z taką ofertą."
+    "Plakietka „poniżej minimum — zgoda na telefon” znaczy, że budżet jest niższy niż minimalna stawka kandydata, ale kandydat zgodził się, żeby do niego dzwonić z taką ofertą.",
+    "Plakietka „Szuka części etatu” albo „Tylko pełny etat” znaczy, że wymiar pracy z rozmowy nie pasuje do rekrutacji. Osoba zostaje na liście — sprawdź to z nią przed dodaniem."
     ],
     "anchors": [
       {"id": "jobs.proposals.tabs", "label": "Propozycje / Shortlista", "describe": "Przełącznik między propozycjami z bazy a shortlistą."},

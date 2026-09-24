@@ -51,6 +51,7 @@ vi.mock("@/lib/api", () => ({
     getProfileRate: vi.fn(),
     updateProfileRate: vi.fn(),
     updateWorkMode: vi.fn(),
+    updateCallFacts: vi.fn(),
   },
   candidateProfileApi: {
     updateLocation: vi.fn(),
@@ -659,6 +660,54 @@ describe("CandidateProfileFactsBar", () => {
     expect(screen.getByText("też part-time")).toBeInTheDocument();
     expect(screen.getByText("poniżej minimum: nie dzwonić")).toBeInTheDocument();
     expect(screen.getByText("więcej dni w biurze: dzwonić")).toBeInTheDocument();
+  });
+
+  // Audyt 24.09.2026: pomyłkowe „Tylko etat” ukrywało kandydata bez drogi
+  // powrotu — pasek ma akcję „Popraw”, wysyła tylko zmienione pola.
+  it("poprawia fakty z rozmowy — „Nie wiadomo” czyści „Tylko etat”", async () => {
+    auth.role = "recruiter";
+    mockedFactsApi.updateCallFacts.mockResolvedValue({
+      candidate_id: 7,
+      b2b_willingness: null,
+      work_time_preference: "part_time_only",
+      accepts_below_min_rate: null,
+      accepts_more_office_days: null,
+    });
+    const user = userEvent.setup();
+    renderBar({
+      call_facts_verified_at: "2026-09-23T10:00:00Z",
+      b2b_willingness: "employment_only",
+      work_time_preference: "part_time_only",
+    });
+
+    await user.click(
+      await screen.findByRole("button", { name: "Popraw fakty z rozmowy" }),
+    );
+    const save = await screen.findByRole("button", { name: "Zapisz poprawkę" });
+    expect(save).toBeDisabled();
+    await user.selectOptions(screen.getByLabelText("Forma współpracy"), "");
+    await user.click(save);
+
+    await waitFor(() =>
+      expect(mockedFactsApi.updateCallFacts).toHaveBeenCalledWith(7, {
+        b2b_willingness: null,
+      }),
+    );
+    expect(showSuccess).toHaveBeenCalledWith("Fakty z rozmowy poprawione");
+  });
+
+  it("nie pokazuje „Popraw” roli bez zapisu faktów", async () => {
+    auth.role = "user";
+    renderBar({
+      call_facts_verified_at: "2026-09-23T10:00:00Z",
+      b2b_willingness: "employment_only",
+    });
+    expect(
+      await screen.findByText("Tylko etat — nie bierzemy pod uwagę"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Popraw fakty z rozmowy" }),
+    ).not.toBeInTheDocument();
   });
 
   it("bez faktów z rozmowy nie pokazuje sekcji rozmowy", async () => {

@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   callFactItems,
+  callFactsDraft,
+  callFactsPatch,
   callFactsVerifiedLabel,
   rateFactLabel,
 } from "@/lib/candidate-call-facts";
@@ -30,6 +32,49 @@ describe("fakty z rozmowy praktykanta", () => {
     expect(rateFactLabel({ call_facts_verified_at: "2026-09-23T10:00:00Z" })).toBe(
       "Minimalna stawka B2B netto",
     );
+  });
+
+  it("stawka zmieniona PO rozmowie nie jest już minimum (audyt 24.09.2026)", () => {
+    const facts = { call_facts_verified_at: "2026-09-23T10:00:00Z" };
+    // Zapis w tej samej rozmowie (ta sama transakcja) — nadal minimum.
+    expect(rateFactLabel(facts, "2026-09-23T10:00:00.400Z")).toBe(
+      "Minimalna stawka B2B netto",
+    );
+    // Stawka sprzed rozmowy — zachowanie bez zmian.
+    expect(rateFactLabel(facts, "2026-07-29T10:00:00Z")).toBe(
+      "Minimalna stawka B2B netto",
+    );
+    // Rekruter wpisał stawkę dzień później.
+    expect(rateFactLabel(facts, "2026-09-24T09:00:00Z")).toBe("Stawka B2B");
+  });
+
+  it("korekta wysyła tylko zmienione pola, „Nie wiadomo” = null", () => {
+    const facts = {
+      b2b_willingness: "employment_only" as const,
+      work_time_preference: "part_time_only" as const,
+      accepts_below_min_rate: true,
+      accepts_more_office_days: null,
+    };
+    const draft = callFactsDraft(facts);
+    expect(draft).toEqual({
+      b2b_willingness: "employment_only",
+      work_time_preference: "part_time_only",
+      accepts_below_min_rate: "yes",
+      accepts_more_office_days: "",
+    });
+    expect(callFactsPatch(facts, draft)).toEqual({});
+    expect(
+      callFactsPatch(facts, {
+        ...draft,
+        b2b_willingness: "b2b",
+        accepts_below_min_rate: "",
+        accepts_more_office_days: "no",
+      }),
+    ).toEqual({
+      b2b_willingness: "b2b",
+      accepts_below_min_rate: null,
+      accepts_more_office_days: false,
+    });
   });
 
   it("tylko etat jest ostrzeżeniem, brak odpowiedzi nie jest faktem", () => {

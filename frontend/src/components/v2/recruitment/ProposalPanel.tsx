@@ -20,6 +20,7 @@ import {
   proposalRateFit,
   reassignReason,
   traineeHandoverReason,
+  WORK_TIME_FIT_WARNING_PL,
   type ProposalEntry,
   type ProposalRequirement,
 } from "@/lib/proposals-merge";
@@ -271,6 +272,14 @@ export function ProposalPanel({
               {detail.officeFit && OFFICE_FIT_LABEL[detail.officeFit] ? ` · ${OFFICE_FIT_LABEL[detail.officeFit]}` : ""}
             </dd>
           </div>
+          {detail.workTimeFit && WORK_TIME_FIT_WARNING_PL[detail.workTimeFit] ? (
+            <div className="flex justify-between gap-3">
+              <dt className="text-muted-foreground">Wymiar pracy</dt>
+              <dd className="font-medium text-warning-muted-foreground">
+                {WORK_TIME_FIT_WARNING_PL[detail.workTimeFit]}
+              </dd>
+            </div>
+          ) : null}
           <div className="flex justify-between gap-3">
             <dt className="text-muted-foreground">Dostępność</dt>
             <dd className="text-foreground">{row.availabilityLabel ?? "brak danych"}</dd>

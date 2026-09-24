@@ -340,3 +340,36 @@ class CandidateWorkModeResponse(BaseModel):
     candidate_id: int
     remote_modes: list[WorkMode]
     max_onsite_days_per_week: Optional[int] = None
+
+
+B2bWillingness = Literal["b2b", "would_switch", "employment_only"]
+WorkTimePreference = Literal["full_time_only", "also_part_time", "part_time_only"]
+
+
+class CandidateCallFactsUpdate(BaseModel):
+    """Korekta faktów z telefonu praktykanta (audyt 24.09.2026).
+
+    Częściowy PATCH: pole pominięte zostaje bez zmian, jawne ``null`` czyści
+    odpowiedź („nie wiadomo” — bramki dopasowań znowu przepuszczają).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    b2b_willingness: Optional[B2bWillingness] = None
+    work_time_preference: Optional[WorkTimePreference] = None
+    accepts_below_min_rate: Optional[bool] = None
+    accepts_more_office_days: Optional[bool] = None
+
+    @model_validator(mode="after")
+    def _not_empty(self) -> "CandidateCallFactsUpdate":
+        if not self.model_fields_set:
+            raise ValueError("Podaj co najmniej jedno pole do poprawienia.")
+        return self
+
+
+class CandidateCallFactsResponse(BaseModel):
+    candidate_id: int
+    b2b_willingness: Optional[B2bWillingness] = None
+    work_time_preference: Optional[WorkTimePreference] = None
+    accepts_below_min_rate: Optional[bool] = None
+    accepts_more_office_days: Optional[bool] = None

@@ -1,9 +1,11 @@
 /**
  * Fakty z telefonu praktykanta (0374) na profilu kandydata.
  *
- * Zapisuje je wyłącznie ekran praktykanta; profil tylko pokazuje. Przy
+ * Zapisuje je ekran praktykanta, a poprawia pasek faktów profilu
+ * (`PATCH /api/candidates/{id}/call-facts`, audyt 24.09.2026 — pomyłkowy
+ * „Tylko etat” ukrywał kandydata bez drogi powrotu). Przy
  * `call_facts_verified_at` stawka profilu (`expected_rate_hourly`) jest
- * MINIMUM z rozmowy, więc etykieta stawki zmienia się razem z tym polem.
+ * MINIMUM z rozmowy, dopóki nikt jej potem nie zmienił.
  */
 export type B2bWillingness = "b2b" | "would_switch" | "employment_only";
 export type WorkTimePreference =
@@ -62,9 +64,94 @@ export function callFactsVerifiedLabel(facts: CandidateCallFacts): string | null
     : `Zweryfikowane telefonicznie ${date}`;
 }
 
-/** Etykieta kafelka stawki: po rozmowie to minimum, nie „oczekiwana” stawka. */
-export function rateFactLabel(facts: CandidateCallFacts): string {
-  return facts.call_facts_verified_at ? "Minimalna stawka B2B netto" : "Stawka B2B";
+/** Zapas na zapis stawki i znacznika rozmowy w jednej transakcji. */
+const SAME_CALL_TOLERANCE_MS = 60_000;
+
+/**
+ * Etykieta kafelka stawki: po rozmowie to minimum, nie „oczekiwana” stawka.
+ * Stawka zmieniona PO rozmowie (`rateUpdatedAt` z `GET …/profile-rate`) nie
+ * jest już minimum z telefonu — wtedy zwykła „Stawka B2B”.
+ */
+export function rateFactLabel(
+  facts: CandidateCallFacts,
+  rateUpdatedAt?: string | null,
+): string {
+  const verified = facts.call_facts_verified_at
+    ? Date.parse(facts.call_facts_verified_at)
+    : Number.NaN;
+  if (Number.isNaN(verified)) return "Stawka B2B";
+  const updated = rateUpdatedAt ? Date.parse(rateUpdatedAt) : Number.NaN;
+  if (!Number.isNaN(updated) && updated > verified + SAME_CALL_TOLERANCE_MS) {
+    return "Stawka B2B";
+  }
+  return "Minimalna stawka B2B netto";
+}
+
+/** Wartości formularza korekty; `""` = „nie wiadomo” (czyści odpowiedź). */
+export type CallFactsDraft = {
+  b2b_willingness: B2bWillingness | "";
+  work_time_preference: WorkTimePreference | "";
+  accepts_below_min_rate: "yes" | "no" | "";
+  accepts_more_office_days: "yes" | "no" | "";
+};
+
+export const B2B_OPTIONS: ReadonlyArray<{ value: B2bWillingness; label: string }> = [
+  { value: "b2b", label: "Pracuje na B2B" },
+  { value: "would_switch", label: "Przejdzie z etatu na B2B" },
+  { value: "employment_only", label: "Tylko umowa o pracę" },
+];
+
+export const WORK_TIME_OPTIONS: ReadonlyArray<{
+  value: WorkTimePreference;
+  label: string;
+}> = [
+  { value: "full_time_only", label: "Tylko pełny etat" },
+  { value: "also_part_time", label: "Pełny etat albo część etatu" },
+  { value: "part_time_only", label: "Tylko część etatu" },
+];
+
+const consentDraft = (value: boolean | null | undefined): "yes" | "no" | "" =>
+  value === true ? "yes" : value === false ? "no" : "";
+
+const consentValue = (value: "yes" | "no" | ""): boolean | null =>
+  value === "yes" ? true : value === "no" ? false : null;
+
+export function callFactsDraft(facts: CandidateCallFacts): CallFactsDraft {
+  return {
+    b2b_willingness: facts.b2b_willingness ?? "",
+    work_time_preference: facts.work_time_preference ?? "",
+    accepts_below_min_rate: consentDraft(facts.accepts_below_min_rate),
+    accepts_more_office_days: consentDraft(facts.accepts_more_office_days),
+  };
+}
+
+export interface CallFactsPatch {
+  b2b_willingness?: B2bWillingness | null;
+  work_time_preference?: WorkTimePreference | null;
+  accepts_below_min_rate?: boolean | null;
+  accepts_more_office_days?: boolean | null;
+}
+
+/** Tylko pola, które się zmieniły — PATCH jest częściowy po stronie serwera. */
+export function callFactsPatch(
+  facts: CandidateCallFacts,
+  draft: CallFactsDraft,
+): CallFactsPatch {
+  const before = callFactsDraft(facts);
+  const patch: CallFactsPatch = {};
+  if (draft.b2b_willingness !== before.b2b_willingness) {
+    patch.b2b_willingness = draft.b2b_willingness || null;
+  }
+  if (draft.work_time_preference !== before.work_time_preference) {
+    patch.work_time_preference = draft.work_time_preference || null;
+  }
+  if (draft.accepts_below_min_rate !== before.accepts_below_min_rate) {
+    patch.accepts_below_min_rate = consentValue(draft.accepts_below_min_rate);
+  }
+  if (draft.accepts_more_office_days !== before.accepts_more_office_days) {
+    patch.accepts_more_office_days = consentValue(draft.accepts_more_office_days);
+  }
+  return patch;
 }
 
 /** Fakty do pokazania, w stałej kolejności; brak odpowiedzi = brak pozycji. */

@@ -10,6 +10,7 @@ import {
   mergeProposals,
   normalizeFitScore,
   traineeHandoverReason,
+  WORK_TIME_FIT_WARNING_PL,
 } from "@/lib/proposals-merge";
 import { PROPOSAL_SOURCE_LABEL } from "@/components/v2/recruitment/types";
 
@@ -143,6 +144,23 @@ describe("mergeProposals", () => {
     const byId = new Map(entries.map((e) => [e.row.candidateId, e.row.warnings]));
     expect(byId.get(1)).toEqual(["hm_veto", "over_budget"]);
     expect(byId.get(2)).toEqual(["client_nda", "over_budget"]);
+  });
+
+  it("sprzeczny wymiar pracy (24.09.2026) to plakietka na wierszu, nie ukrycie", () => {
+    const partTime = {
+      candidate: { id: 1, name: "Anna", lastname: "Nowak1" },
+      match_score: 0.8, matching_skills: [], gaps: [], work_time_fit: "part_time_only",
+    } as unknown as CandidateSearchRow["match"];
+    const ok = { ...partTime, work_time_fit: "ok" } as unknown as CandidateSearchRow["match"];
+    const entries = mergeProposals({
+      run: { runId: "run-1", rows: [runRow(1, 80, { match: partTime }), runRow(2, 70, { match: ok })] },
+    });
+    const byId = new Map(entries.map((e) => [e.row.candidateId, e]));
+    expect(byId.get(1)?.row.warnings).toContain("part_time_only");
+    expect(byId.get(1)?.detail.workTimeFit).toBe("part_time_only");
+    expect(WORK_TIME_FIT_WARNING_PL.part_time_only).toBe("Szuka części etatu");
+    expect(WORK_TIME_FIT_WARNING_PL.full_time_only).toBe("Tylko pełny etat");
+    expect(byId.get(2)?.row.warnings).not.toContain("part_time_only");
   });
 
   it("podsumowanie AI i bramka must-have jadą WYŁĄCZNIE z wiersza żywego przeglądu (jak dawny dok dopasowania)", () => {

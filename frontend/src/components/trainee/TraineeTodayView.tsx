@@ -58,6 +58,12 @@ const NOT_READY_COPY: Record<
     description:
       "Head of Recruitment ustawi datę startu — od tego dnia co rano zobaczysz tu listę osób do telefonu.",
   },
+  preview_not_generated: {
+    icon: CalendarOff,
+    title: "Lista na dziś jeszcze nie powstała",
+    description:
+      "W podglądzie jako praktykant nie zakładamy listy — powstanie, gdy praktykant otworzy ten ekran.",
+  },
   program_finished: {
     icon: GraduationCap,
     title: "Program się zakończył",

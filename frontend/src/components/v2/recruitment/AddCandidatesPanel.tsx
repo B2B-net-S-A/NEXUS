@@ -45,6 +45,7 @@ import { searchIsRunning } from "@/lib/full-candidate-search-api";
 import { matchingRequirementsApi, requirementLabels } from "@/lib/matching-requirements";
 import {
   DEFAULT_PROPOSAL_FILTERS,
+  WORK_TIME_FIT_WARNING_PL,
   formatHourlyRate,
   type ProposalEntry,
 } from "@/lib/proposals-merge";
@@ -107,6 +108,7 @@ const WARNING_LABEL: Record<string, string> = {
   hm_veto: "Weto HM",
   over_budget: "Ponad budżet",
   rejected_by_same_client: "Odrzucony przez tego klienta",
+  ...WORK_TIME_FIT_WARNING_PL,
 };
 
 function eligibilityWarning(eligibility: MatchEligibility | null | undefined) {
@@ -128,7 +130,12 @@ function proposalRow(entry: ProposalEntry, facts?: ProposalFacts | null): PickRo
   const elig = eligibilityWarning(detail.eligibility);
   if (elig) warnings.push(elig);
   for (const code of row.warnings) {
-    if (code === "over_budget" || code === "rejected_by_same_client") {
+    if (
+      code === "over_budget" ||
+      code === "rejected_by_same_client" ||
+      code === "part_time_only" ||
+      code === "full_time_only"
+    ) {
       warnings.push({ key: code, label: WARNING_LABEL[code], blocking: false });
     }
   }

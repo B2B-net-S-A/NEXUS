@@ -128,6 +128,26 @@ def work_time_mismatch(candidate, job_work_mode: Optional[str]) -> bool:
     return False
 
 
+def work_time_fit_status(candidate, inputs: "DealbreakerInputs") -> str:
+    """Plakietka wymiaru pracy na wierszu dopasowania (decyzja Artura 24.09.2026).
+
+    Sprzeczny wymiar NIE ukrywa kandydata — rekruter widzi ostrzeżenie i sam
+    decyduje. ``"part_time_only"`` = kandydat szuka wyłącznie części etatu przy
+    rekrutacji na pełny etat, ``"full_time_only"`` = odwrotnie; ``"ok"`` = znany
+    i zgodny, ``"unknown"`` = kandydat nie podał, ``"not_applicable"`` =
+    rekrutacja bez wymiaru (projekt, Talent Radar).
+    """
+    mode = inputs.job_work_mode
+    if mode not in ("fulltime", "parttime"):
+        return "not_applicable"
+    preference = getattr(candidate, "work_time_preference", None)
+    if preference not in ("full_time_only", "also_part_time", "part_time_only"):
+        return "unknown"
+    if work_time_mismatch(candidate, mode):
+        return preference
+    return "ok"
+
+
 def remote_only_refuses_office(candidate) -> bool:
     """True tylko przy POZYTYWNYM „wyłącznie zdalnie" z notatek.
 
@@ -565,13 +585,16 @@ class DealbreakerResult:
     hidden_office_days_exceeded: int = 0
     hidden_office_city_mismatch: int = 0
     hidden_remote_only: int = 0
+    # Od 24.09.2026 wymiar pracy tylko ostrzega (`work_time_fit_status`), więc
+    # licznik jest zawsze 0 — zostaje dla kształtu `meta.hidden` i starych
+    # przeglądów, które ten powód jeszcze niosą.
     hidden_work_time_mismatch: int = 0
     exclusion_reasons: dict[int, str] = field(default_factory=dict)
 
     def hidden_meta(self) -> dict:
         # Kolejność kluczy = kolejność powodów w pętli `apply_dealbreakers`
         # (tylko etat → budżet → must-have → dni w biurze → miasto →
-        # tylko-zdalnie → wymiar pracy).
+        # tylko-zdalnie); `work_time_mismatch` zawsze 0 od 24.09.2026.
         return {
             "employment_only": self.hidden_employment_only,
             "over_budget": self.hidden_over_budget,
@@ -618,14 +641,15 @@ def apply_dealbreakers(
     zgodność wsteczna z wywołaniami sprzed 0278, które nie znają ``inputs``.
 
     Kolejność powodów jest deterministyczna i STAŁA: tylko etat → budżet →
-    must-have → dni w biurze → miasto biura → tylko-zdalnie → wymiar pracy.
+    must-have → dni w biurze → miasto biura → tylko-zdalnie.
     Pierwszy pasujący powód wygrywa — kandydat łapiący kilka naraz nie migruje
     między licznikami.
 
     Fakty z rozmowy praktykanta (0374): „tylko umowa o pracę" ukrywa zawsze
     (jak budżet — to nie rubryka, więc wyłącznik rubryk go nie dotyczy), zgoda
     na ofertę poniżej minimum albo na więcej dni w biurze zostawia kandydata
-    widocznym, a znany wymiar pracy sprzeczny z `Job.work_mode` ukrywa.
+    widocznym. Znany wymiar pracy sprzeczny z `Job.work_mode` NIE ukrywa
+    (decyzja Artura 24.09.2026) — wiersz niesie plakietkę `work_time_fit`.
 
     Kill-switch ``settings.RUBRIC_DEALBREAKERS_ENABLED`` (default ``True``):
     przy ``False`` trzy nowe predykaty są no-opem, a AUTO ``exclude_remote_only``
@@ -657,8 +681,6 @@ def apply_dealbreakers(
         and effective_inputs.requires_office_days
         and bool(effective_inputs.office_tokens)
     )
-
-    work_time_active = effective_inputs.job_work_mode in ("fulltime", "parttime")
 
     for candidate in candidates:
         if employment_only_refuses_b2b(candidate):
@@ -708,13 +730,6 @@ def apply_dealbreakers(
             result.hidden_remote_only += 1
             if (candidate_id := getattr(candidate, "id", None)) is not None:
                 result.exclusion_reasons[candidate_id] = "remote_only"
-            continue
-        if work_time_active and work_time_mismatch(
-            candidate, effective_inputs.job_work_mode
-        ):
-            result.hidden_work_time_mismatch += 1
-            if (candidate_id := getattr(candidate, "id", None)) is not None:
-                result.exclusion_reasons[candidate_id] = "work_time_mismatch"
             continue
         result.kept.append(candidate)
     return result

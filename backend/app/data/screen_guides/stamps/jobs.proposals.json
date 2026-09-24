@@ -1,8 +1,8 @@
 {
-  "entry": "e539c566a9346d5acc90d7b79931c998a36f4109944214cfeecdabe7e170b1f0",
+  "entry": "4697cd79cbae7b84bd5de0beac3200390803627dfd29659d0682bb372e6ea360",
   "guide": "jobs.proposals",
   "sources": {
-    "frontend/src/components/v2/recruitment/ProposalPanel.tsx": "30a1b98dcf2bba17363922ed3ba68b565c5b8d1510d39697bf0c7dd2b4ac4452",
+    "frontend/src/components/v2/recruitment/ProposalPanel.tsx": "a322ab2d7c6a31e989ae922d957f1de14f978b763d08ba1201fa04d8797037b9",
     "frontend/src/components/v2/recruitment/ProposalsSegment.tsx": "761d029d59d71e6c82ad5f7164c687eb7c6b61bdca689b716b28bd6e98a2f36a"
   }
 }

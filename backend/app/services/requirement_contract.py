@@ -88,7 +88,9 @@ def requirements_for_job(job) -> MatchingRequirements:
 # v3 (SCV-01): C, C++ i C# przestały być jedną umiejętnością.
 # v4 (0374): fakty z rozmowy praktykanta — „tylko etat" i sprzeczny wymiar
 # pracy ukrywają, zgoda na ofertę poniżej minimum / więcej dni w biurze nie.
-MUST_GATE_POLICY_VERSION = "known-technology-gap-v4"
+# v5 (audyt 24.09.2026): sprzeczny wymiar pracy tylko ostrzega (plakietka
+# `work_time_fit`), nie ukrywa.
+MUST_GATE_POLICY_VERSION = "known-technology-gap-v5"
 
 
 def search_dealbreaker_inputs(job, *, exclude_missing_must: bool | None = None):

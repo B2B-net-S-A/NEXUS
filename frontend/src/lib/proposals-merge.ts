@@ -17,6 +17,7 @@ import type {
   MatchEligibility,
   ProposalCandidateItem,
   RateFit,
+  WorkTimeFit,
 } from "@/lib/api";
 import type { CandidateSearchRow } from "@/lib/full-candidate-search-api";
 import type {
@@ -64,6 +65,8 @@ export interface ProposalDetail {
   eligibility: MatchEligibility | null;
   rateFit: RateFit | null;
   officeFit: string | null;
+  /** Sprzeczny wymiar pracy (plakietka, nie ukrycie) — z żywego przeglądu. */
+  workTimeFit?: WorkTimeFit | null;
   similarProjects: ProposalSimilarProject[];
   /** Ten sam klient już tę osobę rozważał / odrzucił (z podobnych projektów). */
   sameClient: boolean;
@@ -191,6 +194,7 @@ function emptyDetail(candidateId: number): ProposalDetail {
     eligibility: null,
     rateFit: null,
     officeFit: null,
+    workTimeFit: null,
     similarProjects: [],
     sameClient: false,
     rejectedBySameClient: false,
@@ -338,6 +342,7 @@ export function mergeProposals(input: MergeProposalsInput): ProposalEntry[] {
       if (row.eligibility) d.detail.eligibility = row.eligibility;
       d.detail.rateFit = row.match?.rate_fit ?? d.detail.rateFit;
       d.detail.officeFit = row.match?.office_fit ?? d.detail.officeFit;
+      d.detail.workTimeFit = row.match?.work_time_fit ?? d.detail.workTimeFit;
       const summary = row.match?.candidate.ai_summary?.trim();
       if (summary) d.detail.aiSummary = summary;
       d.detail.missingMustGate = (row.match?.missing_must ?? []).filter(Boolean);
@@ -409,6 +414,9 @@ export function mergeProposals(input: MergeProposalsInput): ProposalEntry[] {
       (detail.rateFit == null && budget != null && detail.rateHourly != null && detail.rateHourly > budget);
     if (overBudget) warnings.push("over_budget");
     if (detail.rejectedBySameClient) warnings.push("rejected_by_same_client");
+    if (detail.workTimeFit === "part_time_only" || detail.workTimeFit === "full_time_only") {
+      warnings.push(detail.workTimeFit);
+    }
     const handoverNote = detail.traineeHandover?.note?.trim() || null;
     entries.push({
       row: {
@@ -437,6 +445,13 @@ export function mergeProposals(input: MergeProposalsInput): ProposalEntry[] {
   }
   return entries.sort(compareProposals);
 }
+
+/** Etykiety plakietki sprzecznego wymiaru pracy (tylko przypadki ostrzegawcze,
+ *  decyzja 24.09.2026: plakietka, nie ukrycie). Klucz = kod ostrzeżenia wiersza. */
+export const WORK_TIME_FIT_WARNING_PL: Partial<Record<WorkTimeFit, string>> = {
+  part_time_only: "Szuka części etatu",
+  full_time_only: "Tylko pełny etat",
+};
 
 export function compareProposals(a: ProposalEntry, b: ProposalEntry): number {
   // Przepięcia (osoby już wysłane do klienta) zawsze na górze kolejki.

@@ -14,6 +14,8 @@ from app.api.candidate_access import (
 )
 from app.core.database import get_db
 from app.schemas.candidate_profile_facts import (
+    CandidateCallFactsResponse,
+    CandidateCallFactsUpdate,
     CandidateNotesFactApply,
     CandidateNotesFactsResponse,
     CandidateWorkModeResponse,
@@ -430,3 +432,66 @@ async def patch_candidate_work_mode(
         remote_modes=current["modes"],
         max_onsite_days_per_week=current["max_onsite_days"],
     )
+
+
+# ── Korekta faktów z telefonu praktykanta (audyt 24.09.2026) ───────────────
+
+_CALL_FACT_FIELDS = (
+    "b2b_willingness",
+    "work_time_preference",
+    "accepts_below_min_rate",
+    "accepts_more_office_days",
+)
+
+
+def _call_facts_response(candidate) -> CandidateCallFactsResponse:  # type: ignore[no-untyped-def]
+    return CandidateCallFactsResponse(
+        candidate_id=candidate.id,
+        **{field: getattr(candidate, field) for field in _CALL_FACT_FIELDS},
+    )
+
+
+@router.patch(
+    "/{candidate_id}/call-facts",
+    response_model=CandidateCallFactsResponse,
+)
+async def patch_candidate_call_facts(
+    candidate_id: int,
+    payload: CandidateCallFactsUpdate,
+    current_user: CandidateProfileFactsWriteAccess,
+    db: AsyncSession = Depends(get_db),
+) -> CandidateCallFactsResponse:
+    """Popraw fakty z telefonu praktykanta z paska faktów profilu.
+
+    Do audytu 24.09.2026 zapisywał je wyłącznie ekran praktykanta, więc jeden
+    pomyłkowy „Tylko etat” ukrywał kandydata we wszystkich dopasowaniach bez
+    drogi powrotu. Ta sama bramka co pozostałe fakty profilu; ślad w
+    ``activities`` ze starą i nową wartością każdego zmienionego pola.
+    """
+    try:
+        candidate = await _locked_candidate(db, candidate_id)
+    except facts.CandidateNotFoundError:
+        raise _not_found() from None
+    changes: dict[str, dict[str, object]] = {}
+    for field in _CALL_FACT_FIELDS:
+        if field not in payload.model_fields_set:
+            continue
+        old = getattr(candidate, field)
+        new = getattr(payload, field)
+        if old == new:
+            continue
+        changes[field] = {"old": old, "new": new}
+        setattr(candidate, field, new)
+    if changes:
+        candidate_audit.record_candidate_audit(
+            db,
+            action=candidate_audit.CALL_FACTS_CORRECTED,
+            user_id=current_user.id,
+            entity_id=candidate_id,
+            details={"changes": changes},
+        )
+        from app.services.match_score_cache import mark_stale_for_candidate
+
+        await mark_stale_for_candidate(db, candidate_id)
+        await db.commit()
+    return _call_facts_response(candidate)

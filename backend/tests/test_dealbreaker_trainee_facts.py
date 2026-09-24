@@ -3,7 +3,8 @@
 `expected_rate_hourly` jest MINIMUM kandydata, więc sufit budżetu znaczy
 „budżet poniżej minimum". Zgoda na telefon z taką ofertą (albo z większą liczbą
 dni w biurze) zostawia kandydata widocznym z osobnym statusem; „tylko umowa
-o pracę" i sprzeczny wymiar pracy ukrywają. Brak odpowiedzi nigdy nie ukrywa.
+o pracę" ukrywa. Sprzeczny wymiar pracy od 24.09.2026 tylko ostrzega (decyzja
+Artura: plakietka, nie ukrycie). Brak odpowiedzi nigdy nie ukrywa.
 """
 
 from types import SimpleNamespace
@@ -15,6 +16,7 @@ from app.services.dealbreaker_filters import (
     dealbreaker_inputs_for_job,
     office_fit_status,
     rate_fit_status,
+    work_time_fit_status,
     work_time_mismatch,
 )
 
@@ -143,20 +145,51 @@ def test_more_office_days_without_consent_is_hidden():
 # ── wymiar pracy ─────────────────────────────────────────────────────────────
 
 
-def test_part_time_only_hidden_from_fulltime_job():
+def test_part_time_only_stays_visible_with_a_badge_on_fulltime_job():
+    """Decyzja Artura 24.09.2026: „tylko part-time" to plakietka, nie ukrycie.
+
+    Każda rekrutacja ma dziś `work_mode = fulltime` (nic w repo nie ustawia
+    `parttime`), więc ukrywanie wycinało te osoby z KAŻDEGO dopasowania.
+    """
     inputs = DealbreakerInputs(job_work_mode="fulltime")
     cand = _cand(work_time_preference="part_time_only")
     res = apply_dealbreakers([cand], inputs=inputs)
-    assert res.kept == []
-    assert res.hidden_work_time_mismatch == 1
-    assert res.exclusion_reasons == {1: "work_time_mismatch"}
+    assert res.kept == [cand]
+    assert res.hidden_work_time_mismatch == 0
+    assert res.exclusion_reasons == {}
+    assert work_time_fit_status(cand, inputs) == "part_time_only"
 
 
-def test_full_time_only_hidden_from_parttime_job():
+def test_full_time_only_stays_visible_with_a_badge_on_parttime_job():
     inputs = DealbreakerInputs(job_work_mode="parttime")
     cand = _cand(work_time_preference="full_time_only")
     res = apply_dealbreakers([cand], inputs=inputs)
-    assert res.kept == [] and res.hidden_work_time_mismatch == 1
+    assert res.kept == [cand] and res.hidden_work_time_mismatch == 0
+    assert work_time_fit_status(cand, inputs) == "full_time_only"
+
+
+def test_work_time_fit_status_values():
+    full = DealbreakerInputs(job_work_mode="fulltime")
+    assert (
+        work_time_fit_status(_cand(work_time_preference="also_part_time"), full) == "ok"
+    )
+    assert (
+        work_time_fit_status(_cand(work_time_preference="full_time_only"), full) == "ok"
+    )
+    assert work_time_fit_status(_cand(), full) == "unknown"
+    assert (
+        work_time_fit_status(
+            _cand(work_time_preference="part_time_only"),
+            DealbreakerInputs(job_work_mode="contract"),
+        )
+        == "not_applicable"
+    )
+    assert (
+        work_time_fit_status(
+            _cand(work_time_preference="part_time_only"), DealbreakerInputs()
+        )
+        == "not_applicable"
+    )
 
 
 def test_compatible_work_time_passes():
@@ -179,15 +212,17 @@ def test_compatible_work_time_passes():
     assert not work_time_mismatch(_cand(work_time_preference="part_time_only"), None)
 
 
-def test_work_time_is_checked_after_other_reasons():
+def test_work_time_never_hides_even_alongside_other_reasons():
     inputs = DealbreakerInputs(budget_hourly=100.0, job_work_mode="fulltime")
-    cand = _cand(
+    over = _cand(
         expected_rate_hourly=999,
         expected_rate_currency="PLN",
         work_time_preference="part_time_only",
     )
-    res = apply_dealbreakers([cand], inputs=inputs)
+    ok = _cand(2, work_time_preference="part_time_only")
+    res = apply_dealbreakers([over, ok], inputs=inputs)
     assert res.hidden_over_budget == 1 and res.hidden_work_time_mismatch == 0
+    assert res.kept == [ok]
 
 
 def test_inputs_for_job_read_work_mode_enum_and_string():
