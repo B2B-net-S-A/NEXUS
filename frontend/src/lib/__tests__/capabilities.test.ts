@@ -25,6 +25,7 @@ const ALL_ROLES: UserRole[] = [
   "recruiter",
   "sourcer",
   "user",
+  "trainee",
 ];
 
 const mkUser = (role: UserRole) => ({ role });
@@ -38,7 +39,10 @@ const mkUser = (role: UserRole) => ({ role });
  */
 const EXPECTED: Record<
   Capability,
-  Record<Exclude<UserRole, "finance" | "talent_community_manager">, boolean>
+  Record<
+    Exclude<UserRole, "finance" | "talent_community_manager" | "trainee">,
+    boolean
+  >
 > = {
   // POST /api/candidates → RecruiterPlus (od 2026-09-17 z HoR — parytet z rekruterem)
   "candidate.create": {
@@ -327,7 +331,32 @@ const EXPECTED: Record<
     sourcer: false,
     user: false,
   },
+  // „Telefony na dziś” — wyłącznie praktykant (0371), nawet admin nie.
+  "nav.trainee": {
+    admin: false,
+    head_of_recruitment: false,
+    delivery_lead: false,
+    tac: false,
+    recruiter: false,
+    sourcer: false,
+    user: false,
+  },
+  // Panel „Praktykanci” i reguły listy — admin i Head of Recruitment.
+  "nav.trainees": {
+    admin: true,
+    head_of_recruitment: true,
+    delivery_lead: false,
+    tac: false,
+    recruiter: false,
+    sourcer: false,
+    user: false,
+  },
 };
+
+/** Praktykant (0371) ma jedną capability: własną listę telefonów. */
+function traineeExpected(capability: Capability): boolean {
+  return capability === "nav.trainee";
+}
 
 /**
  * Reguła dla `finance` (decyzja produktowa Artura 19.08 — pełny dostęp
@@ -407,7 +436,9 @@ describe("hasCapability — pełna macierz rola × capability", () => {
           ? financeExpected(capability)
           : role === "talent_community_manager"
             ? talentCommunityManagerExpected(capability)
-            : EXPECTED[capability][role];
+            : role === "trainee"
+              ? traineeExpected(capability)
+              : EXPECTED[capability][role];
       it(`${role} ${expected ? "MA" : "NIE ma"} ${capability}`, () => {
         expect(hasCapability(mkUser(role), capability)).toBe(expected);
       });
@@ -440,9 +471,21 @@ describe("hasCapability — przypadki brzegowe", () => {
     expect(hasCapability({ role: "recruiter" }, "job.create")).toBe(false);
   });
 
-  it("admin ma wszystko — żadna bramka go nie blokuje", () => {
+  it("admin ma wszystko — żadna bramka go nie blokuje (poza ekranem praktykanta)", () => {
     for (const capability of ALL_CAPABILITIES) {
-      expect(hasCapability(mkUser("admin"), capability)).toBe(true);
+      // „Telefony na dziś” to lista TEGO praktykanta — admin zagląda do
+      // panelu „Praktykanci”, nie do cudzej listy.
+      expect(hasCapability(mkUser("admin"), capability)).toBe(
+        capability !== "nav.trainee",
+      );
+    }
+  });
+
+  it("praktykant ma WYŁĄCZNIE „Telefony na dziś” — także bez Talent Radaru", () => {
+    for (const capability of ALL_CAPABILITIES) {
+      expect(hasCapability(mkUser("trainee"), capability)).toBe(
+        capability === "nav.trainee",
+      );
     }
   });
 
@@ -855,6 +898,14 @@ const CAPABILITY_BACKEND_MIRROR: Record<
       "ContractReadUser is intersected with the central Delivery section read matrix.",
   },
   "nav.finance": { guards: [["deps", "FinanceModuleUser"]] },
+  "nav.trainee": {
+    productDecision:
+      "Trasy praktykanta (/api/trainee/today|items/*) przyjmują tylko rolę trainee — bramka w api/trainee.py, bez aliasu w deps.py.",
+  },
+  "nav.trainees": {
+    productDecision:
+      "Panel praktykantów i reguły listy (/api/trainee/overview|programs|quality-sample|rules) — admin i Head of Recruitment, bramka w api/trainee.py.",
+  },
 };
 
 describe("job.create = strażnik strony `/jobs/new`", () => {
@@ -900,9 +951,15 @@ describe("kontrakt backend ↔ rejestr capability", () => {
 // `RequireRole`).
 // ───────────────────────────────────────────────────────────────────────────
 
+/**
+ * Role z sidebarem. Praktykant (0371) ma własną powłokę bez menu, więc nie
+ * widzi ŻADNEJ pozycji — liczony tu robiłby z każdej pozycji „bramkowaną”.
+ */
+const SIDEBAR_ROLES = ALL_ROLES.filter((role) => role !== "trainee");
+
 /** Role, dla których `visibleNavSections` pokazuje daną pozycję menu. */
 function rolesSeeingHref(href: string): UserRole[] {
-  return ALL_ROLES.filter((role) =>
+  return SIDEBAR_ROLES.filter((role) =>
     visibleNavSections(
       { role, roles: [role] },
       // `true`, żeby kolejka telefonów w ogóle pojawiła się w inwentarzu —
@@ -923,6 +980,8 @@ const SIDEBAR_HREF_CAPABILITY: Record<string, Capability> = {
   // ekranów Klienci / Kontrakty (wejście z ⌘K), więc nie mają pozycji menu.
   "/contracts": "nav.contracts",
   "/finance": "nav.finance",
+  // Panel „Praktykanci” (0371) — w „Więcej” → Codzienna praca.
+  "/trainees": "nav.trainees",
   // `/manager` przekierowuje na `/dashboard` — bez pozycji w menu i palecie
   // (capability `nav.manager` zdjęta 22.09.2026).
 };
@@ -963,13 +1022,13 @@ describe("kontrakt sidebar ↔ rejestr capability", () => {
 
   it("żadna NOWA pozycja sidebara nie omija rejestru", () => {
     const gated = new Set<string>();
-    for (const role of ALL_ROLES) {
+    for (const role of SIDEBAR_ROLES) {
       for (const section of visibleNavSections(
         { role, roles: [role] },
         { contactQueueEnabled: true },
       )) {
         for (const item of section.items) {
-          if (rolesSeeingHref(item.href).length < ALL_ROLES.length) {
+          if (rolesSeeingHref(item.href).length < SIDEBAR_ROLES.length) {
             gated.add(item.href);
           }
         }
@@ -980,5 +1039,16 @@ describe("kontrakt sidebar ↔ rejestr capability", () => {
       .filter((href) => !SIDEBAR_ROLE_GATED_WITHOUT_CAPABILITY.includes(href))
       .sort();
     expect(unaccounted).toEqual([]);
+  });
+});
+
+describe("praktykant nie widzi menu", () => {
+  it("żadna pozycja sidebara nie jest widoczna dla samej roli `trainee`", () => {
+    expect(
+      visibleNavSections(
+        { role: "trainee", roles: ["trainee"] },
+        { contactQueueEnabled: true },
+      ),
+    ).toEqual([]);
   });
 });

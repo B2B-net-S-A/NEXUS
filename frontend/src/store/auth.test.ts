@@ -11,9 +11,11 @@ import {
   hasSection,
   hasRole,
   hasMinRole,
+  isTraineeOnly,
   onboardingPersona,
   postLoginDestination,
   requiresOnboarding,
+  ROLE_LABELS,
   ROLE_RANK,
   shouldRouteToOnboarding,
   UserRole,
@@ -32,6 +34,7 @@ const ALL_ROLES: UserRole[] = [
   "recruiter",
   "sourcer",
   "user",
+  "trainee",
 ]
 
 const mkUser = (role: UserRole) => ({ role })
@@ -354,9 +357,14 @@ describe("hasMinRole", () => {
 
   it("user spełnia tylko operacyjne minRole=user", () => {
     const user = mkUser("user")
-    for (const minRole of ALL_ROLES.filter((role) => role !== "finance")) {
+    // Finance i praktykant stoją poniżej viewera (rangi pomocnicze).
+    for (const minRole of ALL_ROLES.filter((role) => role !== "finance" && role !== "trainee")) {
       expect(hasMinRole(user, minRole)).toBe(minRole === "user")
     }
+  })
+
+  it("praktykant nie przechodzi nawet legacy minRole=user", () => {
+    expect(hasMinRole(mkUser("trainee"), "user")).toBe(false)
   })
 
   it("finance nie przechodzi nawet legacy minRole=user", () => {
@@ -455,6 +463,41 @@ describe("ROLE_RANK invariants", () => {
     expect(ROLE_RANK.tac).toBeGreaterThan(ROLE_RANK.recruiter)
     expect(ROLE_RANK.recruiter).toBe(ROLE_RANK.sourcer)
     expect(ROLE_RANK.sourcer).toBeGreaterThan(ROLE_RANK.user)
+  })
+
+  it("praktykant jest najniżej z ról operacyjnych (poniżej sourcera i viewera)", () => {
+    expect(ROLE_RANK.trainee).toBeLessThan(ROLE_RANK.sourcer)
+    expect(ROLE_RANK.trainee).toBeLessThan(ROLE_RANK.user)
+    expect(ROLE_RANK.trainee).toBeGreaterThan(ROLE_RANK.finance)
+    expect(ROLE_LABELS.trainee).toBe("Praktykant")
+  })
+})
+
+describe("praktykant (0371) — jeden ekran", () => {
+  const trainee = {
+    role: "trainee" as const,
+    roles: ["trainee" as const],
+    profile_completed: true,
+    force_password_change: false,
+  }
+
+  it("po logowaniu zawsze trafia na „Telefony na dziś”, także z ?next=", () => {
+    expect(postLoginDestination(trainee, "/jobs")).toBe("/trainee")
+    expect(postLoginDestination(trainee)).toBe("/trainee")
+  })
+
+  it("wymuszona zmiana hasła nadal ma pierwszeństwo", () => {
+    expect(postLoginDestination({ ...trainee, force_password_change: true }, "/jobs")).toBe(
+      "/profile?force_password_change=1",
+    )
+  })
+
+  it("isTraineeOnly: tylko rola `trainee` bez żadnej innej", () => {
+    expect(isTraineeOnly(trainee)).toBe(true)
+    expect(isTraineeOnly({ role: "trainee" })).toBe(true)
+    expect(isTraineeOnly({ role: "admin", roles: ["admin", "trainee"] })).toBe(false)
+    expect(isTraineeOnly({ role: "recruiter" })).toBe(false)
+    expect(isTraineeOnly(null)).toBe(false)
   })
 })
 

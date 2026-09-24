@@ -56,6 +56,8 @@ export const ROLE_ACTION_ACCESS: Record<
     b2b_signature_confirmation: "none",
   },
   user: { b2b_contract_generator: "view", b2b_signature_confirmation: "none" },
+  // Praktykant (0371) nie ma dostępu do generatorów — jeden ekran telefonów.
+  trainee: { b2b_contract_generator: "none", b2b_signature_confirmation: "none" },
 };
 
 export interface ActionUser {

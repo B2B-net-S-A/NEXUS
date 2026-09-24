@@ -66,7 +66,10 @@ export type Capability =
   | "nav.order_mail"
   | "nav.my_relationships"
   | "nav.contracts"
-  | "nav.finance";
+  | "nav.finance"
+  // ── Praktykanci (0371) ─────────────────────────────────────────────────────
+  | "nav.trainee"
+  | "nav.trainees";
 
 /** Wszystkie role operacyjne — czyli wszyscy POZA read-only viewerem `user`.
  *  Odpowiednik backendowego `OperationalUser` (deps.py). */
@@ -227,6 +230,14 @@ export const CAPABILITY_ROLES: Record<Capability, readonly UserRole[]> = {
   // ck_users_exclusive_finance_viewer_roles), więc to dwie rozłączne
   // publiczności, a nie suma uprawnień.
   "nav.finance": ["admin", "finance"],
+  // Praktykant (0371) ma WYŁĄCZNIE „Telefony na dziś” — trasy praktykanta
+  // `/api/trainee/today|items/*` przyjmują tylko rolę `trainee` (własna
+  // lista). Rola jest wyłączna, więc nie dziedziczy niczego z pozostałych
+  // wpisów rejestru (świadomie NIE ma jej w `ALL_ROLES`).
+  "nav.trainee": ["trainee"],
+  // Panel „Praktykanci” i reguły listy — `/api/trainee/overview|programs|
+  // quality-sample|rules` dla admina i Head of Recruitment.
+  "nav.trainees": ["admin", "head_of_recruitment"],
 };
 
 type SectionRequirement = {

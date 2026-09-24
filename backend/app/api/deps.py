@@ -408,6 +408,27 @@ def ensure_password_change_not_required(request: Request) -> None:
         )
 
 
+#: Odmowa dostępu domenowego praktykantowi (0371). Praktykant przez program
+#: wdrożenia widzi wyłącznie „Telefony na dziś” (`/api/trainee/*` na
+#: ``TraineeUser``); każda trasa na ``CurrentUser``/``require_roles`` odmawia.
+TRAINEE_RESTRICTED_DETAIL = "trainee_restricted"
+
+
+def is_trainee_only(user: User) -> bool:
+    """Konto wyłącznie z rolą praktykanta (rola jest wyłączna — CHECK)."""
+
+    return {role.value for role in user.get_all_roles()} == {UserRole.trainee.value}
+
+
+def ensure_not_trainee(current_user: User) -> User:
+    if is_trainee_only(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=TRAINEE_RESTRICTED_DETAIL,
+        )
+    return current_user
+
+
 async def get_current_user(
     request: Request,
     credentials: Annotated[Optional[HTTPAuthorizationCredentials], Depends(security)],
@@ -423,6 +444,7 @@ async def get_current_user(
     current_user = await get_authenticated_user(request, credentials, db)
     ensure_password_change_not_required(request)
     current_user = ensure_onboarding_complete(current_user)
+    ensure_not_trainee(current_user)
     from app.services.workforce_availability import workforce_context
 
     await workforce_context(db)
@@ -483,6 +505,25 @@ def require_roles(*roles: UserRole):
 
 AuthenticatedUser = Annotated[User, Depends(get_authenticated_user)]
 CurrentUser = Annotated[User, Depends(get_current_user)]
+
+
+async def require_trainee(
+    request: Request,
+    current_user: User = Depends(get_authenticated_user),
+) -> User:
+    """Trasy „Telefony na dziś” — wyłącznie konto praktykanta (0371)."""
+
+    ensure_password_change_not_required(request)
+    ensure_exclusive_role_configuration(current_user)
+    if not is_trainee_only(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=ROLE_DENIED_DETAIL,
+        )
+    return current_user
+
+
+TraineeUser = Annotated[User, Depends(require_trainee)]
 
 AdminUser = Annotated[User, Depends(require_roles(UserRole.admin))]
 

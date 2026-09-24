@@ -209,6 +209,14 @@ export function BoardReviewSection({
               {note ? (
                 <p className="mt-1 line-clamp-2 text-[11px] text-muted-foreground">{note}</p>
               ) : null}
+              {row.handoverNote ? (
+                <p
+                  className="mt-0.5 line-clamp-2 text-[11px] text-foreground"
+                  title={row.handoverNote}
+                >
+                  „{row.handoverNote}”
+                </p>
+              ) : null}
               {!readOnly ? (
                 <div className="mt-1.5 flex gap-1 pointer-coarse:gap-2">
                   <button

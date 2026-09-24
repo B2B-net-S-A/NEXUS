@@ -142,6 +142,8 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.interview_slot_confirmed: _C.interviews,
     _T.interview_debrief_saved: _C.interviews,
     _T.prep_attention: _C.interviews,
+    # 0371: koniec programu praktykanta — decyzja Head of Recruitment.
+    _T.trainee_program_decision: _C.kpi,
     # Nowi i pasujący kandydaci
     _T.new_application: _C.candidates,
     _T.match_digest: _C.candidates,

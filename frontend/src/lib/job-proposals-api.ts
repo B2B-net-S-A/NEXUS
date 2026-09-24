@@ -65,6 +65,15 @@ export interface ProposalInboxItem {
   eligibility: MatchEligibility | null;
   /** Przepięcie (0341): skąd osoba przychodzi — rekrutacja, etap, data wysłania. */
   reassign_from?: ProposalReassignFrom | null;
+  /** Przekazanie przez praktykanta (0371): kto, kiedy i z jaką notatką. */
+  trainee_handover?: ProposalTraineeHandover | null;
+}
+
+export interface ProposalTraineeHandover {
+  by_name: string | null;
+  note: string | null;
+  /** ISO albo `null`. */
+  at: string | null;
 }
 
 export interface ProposalReassignFrom {

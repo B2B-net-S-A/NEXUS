@@ -154,6 +154,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'finance'",
     # Section RBAC (0268): Talent Community Manager persona.
     "ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'talent_community_manager'",
+    # 0371: praktykant — „Telefony na dziś”.
+    "ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'trainee'",
     # notificationtype: 5 trigger types + champion_profile_updated
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'dl_stage_stale_6h'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'client_feedback_eobd'",
@@ -673,6 +675,8 @@ _ENUM_STATEMENTS = [
     # 0371: automat przydziału requestów — poranne zmiany i requesty do decyzji DL.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'request_assignment_changed'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'request_review_needed'",
+    # 0371: decyzja o końcu programu praktykanta.
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'trainee_program_decision'",
     # callstatus: zapisywane przez POST /api/cloudtalk/initiate-call. Uśpione,
     # bo CLOUDTALK_ENABLED=false — ale leży dokładnie na ścieżce aktywacji.
     "ALTER TYPE callstatus ADD VALUE IF NOT EXISTS 'initiated'",
@@ -828,7 +832,7 @@ _COLUMN_STATEMENTS = [
            updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
            PRIMARY KEY (role, section),
            CONSTRAINT ck_rbac_role_section_permissions_role CHECK (
-               role IN ('admin','head_of_recruitment','delivery_lead','talent_community_manager','finance','tac','recruiter','sourcer','user')
+               role IN ('admin','head_of_recruitment','delivery_lead','talent_community_manager','finance','tac','recruiter','sourcer','user','trainee')
            ),
            CONSTRAINT ck_rbac_role_section_permissions_section CHECK (
                section IN ('sourcing','pipeline','delivery','insights','finance','system_admin')
@@ -862,7 +866,7 @@ _COLUMN_STATEMENTS = [
            updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
            PRIMARY KEY (role, action),
            CONSTRAINT ck_rbac_role_action_permissions_role CHECK (
-               role IN ('admin','head_of_recruitment','delivery_lead','talent_community_manager','finance','tac','recruiter','sourcer','user')
+               role IN ('admin','head_of_recruitment','delivery_lead','talent_community_manager','finance','tac','recruiter','sourcer','user','trainee')
            ),
            CONSTRAINT ck_rbac_role_action_permissions_action CHECK (
                action IN ('b2b_contract_generator')
@@ -5473,6 +5477,112 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     """CREATE UNIQUE INDEX IF NOT EXISTS ux_job_work_assignments_live ON job_work_assignments (job_id, user_id) WHERE state <> 'released'""",
     """CREATE INDEX IF NOT EXISTS ix_job_work_assignments_user_state ON job_work_assignments (user_id, state)""",
     """CREATE INDEX IF NOT EXISTS ix_job_work_assignments_changed ON job_work_assignments (assigned_at, released_at)""",
+    # 0371: praktykant — rola w CHECK-ach RBAC i wyłączności (przed seedem
+    # macierzy w `_DATA_STATEMENTS`, który wstawia wiersze `trainee`), fakty
+    # z telefonu w `candidates` i tabele listy. Lustro 1:1 z migracją —
+    # pilnuje `test_trainee_migration_mirror.py`.
+    """DO $$ BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'ck_rbac_role_section_permissions_role'
+              AND pg_get_constraintdef(oid) LIKE '%trainee%'
+        ) THEN
+            ALTER TABLE rbac_role_section_permissions DROP CONSTRAINT IF EXISTS ck_rbac_role_section_permissions_role;
+            ALTER TABLE rbac_role_section_permissions ADD CONSTRAINT ck_rbac_role_section_permissions_role CHECK (role IN ('admin', 'head_of_recruitment', 'delivery_lead', 'talent_community_manager', 'finance', 'tac', 'recruiter', 'sourcer', 'user', 'trainee'));
+        END IF;
+    END $$""",
+    """DO $$ BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'ck_rbac_role_action_permissions_role'
+              AND pg_get_constraintdef(oid) LIKE '%trainee%'
+        ) THEN
+            ALTER TABLE rbac_role_action_permissions DROP CONSTRAINT IF EXISTS ck_rbac_role_action_permissions_role;
+            ALTER TABLE rbac_role_action_permissions ADD CONSTRAINT ck_rbac_role_action_permissions_role CHECK (role IN ('admin', 'head_of_recruitment', 'delivery_lead', 'talent_community_manager', 'finance', 'tac', 'recruiter', 'sourcer', 'user', 'trainee'));
+        END IF;
+    END $$""",
+    """DO $$ BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'ck_users_exclusive_finance_viewer_roles'
+              AND pg_get_constraintdef(oid) LIKE '%trainee%'
+        ) THEN
+            ALTER TABLE users DROP CONSTRAINT IF EXISTS ck_users_exclusive_finance_viewer_roles;
+            ALTER TABLE users ADD CONSTRAINT ck_users_exclusive_finance_viewer_roles CHECK (CASE WHEN role::text IN ('finance', 'user', 'trainee') THEN roles = jsonb_build_array(role::text) ELSE NOT (roles ?| ARRAY['finance', 'user', 'trainee']::text[]) END) NOT VALID;
+            ALTER TABLE users VALIDATE CONSTRAINT ck_users_exclusive_finance_viewer_roles;
+        END IF;
+    END $$""",
+    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS b2b_willingness VARCHAR(20)",
+    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS accepts_below_min_rate BOOLEAN",
+    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS accepts_more_office_days BOOLEAN",
+    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS work_time_preference VARCHAR(20)",
+    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS call_facts_verified_at TIMESTAMPTZ",
+    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS call_facts_verified_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL",
+    """CREATE TABLE IF NOT EXISTS trainee_programs (
+    id BIGSERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+    start_date DATE NOT NULL,
+    workdays INTEGER NOT NULL DEFAULT 40,
+    extended_days INTEGER NOT NULL DEFAULT 0,
+    daily_list_size INTEGER NOT NULL DEFAULT 70,
+    status VARCHAR(12) NOT NULL DEFAULT 'active',
+    decision_notified_at TIMESTAMPTZ NULL,
+    decided_at TIMESTAMPTZ NULL,
+    decided_by_user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    decision VARCHAR(12) NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT ck_trainee_programs_status
+        CHECK (status IN ('active', 'completed', 'ended')),
+    CONSTRAINT ck_trainee_programs_decision
+        CHECK (decision IS NULL OR decision IN ('promoted', 'extended', 'ended')),
+    CONSTRAINT ck_trainee_programs_numbers
+        CHECK (workdays BETWEEN 1 AND 250 AND extended_days BETWEEN 0 AND 250
+               AND daily_list_size BETWEEN 1 AND 300)
+)""",
+    """CREATE TABLE IF NOT EXISTS trainee_call_lists (
+    id BIGSERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    list_date DATE NOT NULL,
+    generated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    size INTEGER NOT NULL DEFAULT 0,
+    CONSTRAINT uq_trainee_call_lists_user_date UNIQUE (user_id, list_date)
+)""",
+    """CREATE TABLE IF NOT EXISTS trainee_call_items (
+    id BIGSERIAL PRIMARY KEY,
+    list_id BIGINT NOT NULL REFERENCES trainee_call_lists(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    candidate_id INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+    list_date DATE NOT NULL,
+    position INTEGER NOT NULL DEFAULT 0,
+    reasons JSONB NOT NULL DEFAULT '{}',
+    attempts SMALLINT NOT NULL DEFAULT 0,
+    last_attempt_at TIMESTAMPTZ NULL,
+    retry_after TIMESTAMPTZ NULL,
+    outcome VARCHAR(12) NULL,
+    later_date DATE NULL,
+    closed_at TIMESTAMPTZ NULL,
+    phone_snapshot VARCHAR(30) NULL,
+    call_id INTEGER NULL REFERENCES calls(id) ON DELETE SET NULL,
+    note_id INTEGER NULL REFERENCES notes(id) ON DELETE SET NULL,
+    quality_verdict VARCHAR(8) NULL,
+    quality_note TEXT NULL,
+    quality_by_user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    quality_at TIMESTAMPTZ NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT uq_trainee_call_items_list_candidate UNIQUE (list_id, candidate_id),
+    CONSTRAINT ck_trainee_call_items_outcome CHECK (
+        outcome IS NULL OR outcome IN ('call', 'noanswer', 'later', 'wrong', 'declined')),
+    CONSTRAINT ck_trainee_call_items_closed CHECK ((outcome IS NULL) = (closed_at IS NULL)),
+    CONSTRAINT ck_trainee_call_items_later CHECK (
+        (outcome = 'later') = (later_date IS NOT NULL)),
+    CONSTRAINT ck_trainee_call_items_quality CHECK (
+        quality_verdict IS NULL OR quality_verdict IN ('ok', 'issue'))
+)""",
+    "CREATE INDEX IF NOT EXISTS ix_trainee_call_items_candidate_date ON trainee_call_items (candidate_id, list_date)",
+    "CREATE INDEX IF NOT EXISTS ix_trainee_call_items_user_date ON trainee_call_items (user_id, list_date)",
+    "CREATE INDEX IF NOT EXISTS ix_trainee_call_items_later ON trainee_call_items (user_id, later_date) WHERE outcome = 'later'",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""
@@ -5855,7 +5965,13 @@ _DATA_STATEMENTS = [
            ('user', 'delivery', 'none'),
            ('user', 'insights', 'read'),
            ('user', 'finance', 'none'),
-           ('user', 'system_admin', 'none')
+           ('user', 'system_admin', 'none'),
+           ('trainee', 'sourcing', 'none'),
+           ('trainee', 'pipeline', 'none'),
+           ('trainee', 'delivery', 'none'),
+           ('trainee', 'insights', 'none'),
+           ('trainee', 'finance', 'none'),
+           ('trainee', 'system_admin', 'none')
        ) AS defaults(role, section, access)
        WHERE NOT EXISTS (
            SELECT 1 FROM rbac_role_section_permissions
@@ -5912,11 +6028,23 @@ _DATA_STATEMENTS = [
            ('tac', 'b2b_contract_generator', 'manage'),
            ('recruiter', 'b2b_contract_generator', 'manage'),
            ('sourcer', 'b2b_contract_generator', 'manage'),
-           ('user', 'b2b_contract_generator', 'view')
+           ('user', 'b2b_contract_generator', 'view'),
+           ('trainee', 'b2b_contract_generator', 'none')
        ) AS defaults(role, action, access)
        WHERE NOT EXISTS (
            SELECT 1 FROM rbac_role_action_permissions
        )
+       ON CONFLICT (role, action) DO NOTHING""",
+    # 0371: praktykant nie ma sekcji ani akcji. Wiersze `none` dopisywane także
+    # do istniejącej macierzy (ON CONFLICT: decyzja admina w panelu wygrywa).
+    """INSERT INTO rbac_role_section_permissions (role, section, access)
+       SELECT 'trainee', section, 'none'
+       FROM (VALUES ('sourcing'), ('pipeline'), ('delivery'), ('insights'),
+                    ('finance'), ('system_admin')) AS s(section)
+       ON CONFLICT (role, section) DO NOTHING""",
+    """INSERT INTO rbac_role_action_permissions (role, action, access)
+       SELECT DISTINCT 'trainee', action, 'none'
+       FROM rbac_role_action_permissions
        ON CONFLICT (role, action) DO NOTHING""",
     # 0256: seed domyślnej punktacji Insights. `ON CONFLICT DO NOTHING`, więc
     # wartości ustawione wcześniej przez admina zostają nietknięte — ten blok
@@ -7430,14 +7558,25 @@ _CONSTRAINT_STATEMENTS = [
             CHECK (termination_party IS NULL OR termination_party IN ('consultant', 'company'))
             NOT VALID;
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
-    # 0341: przepięcie (`reassign`) jako źródło propozycji. DROP+ADD w jednym
+    # 0341 + 0371: przepięcie (`reassign`) i praktykant (`trainee`) jako źródła
+    # propozycji. DROP+ADD w jednym
     # bloku — timeout zamka wycofuje oba, następny start ponawia.
     """DO $$ BEGIN
         ALTER TABLE job_proposals DROP CONSTRAINT IF EXISTS ck_job_proposals_source;
         ALTER TABLE job_proposals ADD CONSTRAINT ck_job_proposals_source CHECK (
             source IN ('full_base', 'new_cv', 'similar_projects',
-                       'recommendation', 'marketplace', 'reassign'));
+                       'recommendation', 'marketplace', 'reassign', 'trainee'));
     END $$""",
+    """DO $$ BEGIN
+        ALTER TABLE candidates ADD CONSTRAINT ck_candidates_b2b_willingness
+            CHECK (b2b_willingness IS NULL OR b2b_willingness IN ('b2b', 'would_switch', 'employment_only')) NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    "ALTER TABLE candidates VALIDATE CONSTRAINT ck_candidates_b2b_willingness",
+    """DO $$ BEGIN
+        ALTER TABLE candidates ADD CONSTRAINT ck_candidates_work_time_preference
+            CHECK (work_time_preference IS NULL OR work_time_preference IN ('full_time_only', 'also_part_time', 'part_time_only')) NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    "ALTER TABLE candidates VALIDATE CONSTRAINT ck_candidates_work_time_preference",
     # 0339: kształt linku aplikacyjnego — `job` wymaga rekrutacji, `recruiter`
     # (stały link) nie ma rekrutacji i ma slug. DROP+ADD w jednym bloku.
     """DO $$ BEGIN
@@ -7952,9 +8091,9 @@ _CONSTRAINT_STATEMENTS = [
             ADD CONSTRAINT ck_users_exclusive_finance_viewer_roles
             CHECK (
                 CASE
-                    WHEN role::text IN ('finance', 'user')
+                    WHEN role::text IN ('finance', 'user', 'trainee')
                         THEN roles = jsonb_build_array(role::text)
-                    ELSE NOT (roles ?| ARRAY['finance', 'user']::text[])
+                    ELSE NOT (roles ?| ARRAY['finance', 'user', 'trainee']::text[])
                 END
             ) NOT VALID;
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",

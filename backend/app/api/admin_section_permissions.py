@@ -68,9 +68,11 @@ class RoleActionPermissionChange(BaseModel):
 
 class RolePermissionUpdate(BaseModel):
     revision: int = Field(..., ge=1)
-    changes: list[RolePermissionChange] = Field(default_factory=list, max_length=54)
+    changes: list[RolePermissionChange] = Field(
+        default_factory=list, max_length=len(UserRole) * len(ProductSection)
+    )
     action_changes: list[RoleActionPermissionChange] = Field(
-        default_factory=list, max_length=9 * len(ProductAction)
+        default_factory=list, max_length=len(UserRole) * len(ProductAction)
     )
 
 

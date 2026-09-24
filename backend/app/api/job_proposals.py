@@ -39,6 +39,7 @@ ProposalSource = Literal[
     "recommendation",
     "marketplace",
     "reassign",
+    "trainee",
 ]
 
 
@@ -96,6 +97,51 @@ async def _reassign_sources(db, job_id: int, candidate_ids: list[int]) -> dict:
             "sent_at": value.get("sent_at"),
         }
     return out
+
+
+async def _trainee_handovers(db, job_id: int, candidate_ids: list[int]) -> dict:
+    """0371: kto z praktykantów przekazał osobę i co napisał rekruterowi."""
+    from app.models.job_proposal import JobProposal  # noqa: PLC0415
+    from app.models.user import User  # noqa: PLC0415
+
+    if not candidate_ids:
+        return {}
+    rows = (
+        await db.execute(
+            select(
+                JobProposal.candidate_id,
+                JobProposal.evidence,
+                JobProposal.last_seen_at,
+            ).where(
+                JobProposal.job_id == job_id,
+                JobProposal.source == "trainee",
+                JobProposal.candidate_id.in_(candidate_ids),
+            )
+        )
+    ).all()
+    info = {
+        cid: ((ev or {}).get("trainee") or {}, seen)
+        for cid, ev, seen in rows
+        if isinstance((ev or {}).get("trainee"), dict)
+    }
+    user_ids = {v.get("user_id") for v, _ in info.values() if v.get("user_id")}
+    names = (
+        dict(
+            (await db.execute(select(User.id, User.name).where(User.id.in_(user_ids))))
+            .tuples()
+            .all()
+        )
+        if user_ids
+        else {}
+    )
+    return {
+        cid: {
+            "by_name": names.get(value.get("user_id")),
+            "note": value.get("note"),
+            "at": seen.isoformat() if seen else None,
+        }
+        for cid, (value, seen) in info.items()
+    }
 
 
 async def _job(db, user, job_id: int):
@@ -183,6 +229,7 @@ async def list_job_proposals(
     )
     include_finance = user_has_capability(user, AnalyticsCapability.VIEW_FINANCE)
     reassign_from = await _reassign_sources(db, job_id, ids)
+    trainee_handover = await _trainee_handovers(db, job_id, ids)
     items = []
     hidden = 0
     for row in rows:
@@ -210,6 +257,7 @@ async def list_job_proposals(
                     eligibility_annotation(decision) if decision is not None else None
                 ),
                 "reassign_from": reassign_from.get(row.candidate_id),
+                "trainee_handover": trainee_handover.get(row.candidate_id),
             }
         )
     return {

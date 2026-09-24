@@ -100,6 +100,27 @@ describe("useJobProposals", () => {
     expect(result.current.sourceCounts).toMatchObject({ all: 4, full_base: 1, new_cv: 2, similar_projects: 1 });
   });
 
+  it("przekazanie od praktykanta (0371) przechodzi do wiersza: źródło, powód i notatka", async () => {
+    mocks.inbox.mockResolvedValue({
+      ...inboxPage([]),
+      items: [
+        {
+          ...inboxItem(8),
+          sources: ["trainee"],
+          trainee_handover: { by_name: "Ola Kamińska", note: "Szuka od listopada.", at: "2026-09-24T09:00:00Z" },
+        },
+      ],
+      total: 1,
+    });
+    const { result } = setup();
+    await waitFor(() => expect(result.current.rows.some((r) => r.candidateId === 8)).toBe(true));
+    const row = result.current.rows.find((r) => r.candidateId === 8)!;
+    expect(row.sources).toEqual(["trainee"]);
+    expect(row.reason).toBe("Od praktykanta: Ola Kamińska · 24.09");
+    expect(row.handoverNote).toBe("Szuka od listopada.");
+    expect(result.current.sourceCounts).toMatchObject({ trainee: 1 });
+  });
+
   it("dodanie wysyła source/run_id wg pochodzenia wiersza i unieważnia kanban (oba klucze), propozycje i listę rekrutacji", async () => {
     const { result, invalidate } = setup();
     await waitFor(() => expect(result.current.rows).toHaveLength(4));

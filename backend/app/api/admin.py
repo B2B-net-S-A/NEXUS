@@ -44,6 +44,7 @@ from app.services.onboarding_access import (
 )
 from app.services.admin_membership import protect_active_admin_membership
 from app.services.client_identity import visible_client_predicates
+from app.services import trainee_program
 from app.services.critical_events import record_executed
 from app.services.action_permissions import resolve_effective_action_access
 from app.services.section_permissions import resolve_effective_section_access
@@ -118,13 +119,10 @@ def _normalized_role_values(
     exclusive = {
         UserRole.finance.value,
         UserRole.user.value,
+        UserRole.trainee.value,
     }.intersection(values)
     if exclusive and len(values) != 1:
-        role_name = (
-            UserRole.finance.value
-            if UserRole.finance.value in exclusive
-            else UserRole.user.value
-        )
+        role_name = sorted(exclusive)[0]
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"{role_name} role is exclusive and cannot be combined with other roles",
@@ -245,6 +243,9 @@ async def create_user(
     )
     db.add(user)
     await db.flush()
+    await trainee_program.sync_program_for_roles(
+        db, user.id, before=[], after=roles_list, actor_id=_admin.id
+    )
     await db.refresh(user)
     return user
 
@@ -284,9 +285,10 @@ async def update_user(
         final_roles = _normalized_role_values(final_primary, data.roles)
     elif data.role is not None:
         if (
-            final_primary in {UserRole.finance, UserRole.user}
+            final_primary in {UserRole.finance, UserRole.user, UserRole.trainee}
             or UserRole.finance.value in original_roles
             or UserRole.user.value in original_roles
+            or UserRole.trainee.value in original_roles
         ):
             final_roles = [final_primary.value]
         else:
@@ -342,6 +344,13 @@ async def update_user(
     if authorization_changed:
         user.authorization_version += 1
         user.tokens_valid_after = datetime.now(timezone.utc)
+    await trainee_program.sync_program_for_roles(
+        db,
+        user.id,
+        before=original_effective_roles,
+        after=list(user.roles or []),
+        actor_id=_admin.id,
+    )
 
     if entering_finance:
         cleanup_counts = await clear_recruitment_access_for_finance(db, user.id)

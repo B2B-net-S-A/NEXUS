@@ -120,3 +120,18 @@ describe("settings-registry — nawigacja", () => {
     expect(view.kind === "item" && view.area.id).toBe("sys");
   });
 });
+
+describe("settings-registry — lista telefonów praktykantów (0371)", () => {
+  it("widzą ją admin i Head of Recruitment, nikt inny", () => {
+    expect(can(user("admin", {}), "trainee-rules")).toBe(true);
+    expect(can(user("head_of_recruitment", {}), "trainee-rules")).toBe(true);
+    for (const role of ["delivery_lead", "recruiter", "sourcer", "finance", "trainee"]) {
+      expect(can(user(role, {}), "trainee-rules")).toBe(false);
+    }
+  });
+
+  it("ma własną trasę w obszarze Rekrutacja", () => {
+    expect(item("trainee-rules").area).toBe("rec");
+    expect(findSettingsItemByRoute("/settings/trainee-rules")?.id).toBe("trainee-rules");
+  });
+});

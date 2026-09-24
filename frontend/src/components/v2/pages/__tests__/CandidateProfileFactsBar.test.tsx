@@ -628,5 +628,40 @@ describe("CandidateProfileFactsBar", () => {
       screen.getByRole("button", { name: "Zapisz tryb pracy" }),
     ).toBeDisabled();
   });
-});
 
+  // Po telefonie praktykanta stawka profilu jest MINIMUM, a fakty z rozmowy
+  // (0371) stoją pod kafelkami — bez nich pasek wygląda jak dotąd.
+  it("pokazuje fakty z rozmowy i nazywa stawkę minimalną po weryfikacji", async () => {
+    auth.role = "recruiter";
+    renderBar({
+      call_facts_verified_at: "2026-09-23T10:00:00Z",
+      call_facts_verified_by_name: "Kasia Wróbel",
+      b2b_willingness: "employment_only",
+      work_time_preference: "also_part_time",
+      accepts_below_min_rate: false,
+      accepts_more_office_days: true,
+    });
+
+    expect(
+      await screen.findByText("Minimalna stawka B2B netto"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Zweryfikowane telefonicznie 23.09.2026 · Kasia Wróbel"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Tylko etat — nie bierzemy pod uwagę"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("też part-time")).toBeInTheDocument();
+    expect(screen.getByText("poniżej minimum: nie dzwonić")).toBeInTheDocument();
+    expect(screen.getByText("więcej dni w biurze: dzwonić")).toBeInTheDocument();
+  });
+
+  it("bez faktów z rozmowy nie pokazuje sekcji rozmowy", async () => {
+    auth.role = "recruiter";
+    renderBar();
+    expect(await screen.findByText("Stawka B2B")).toBeInTheDocument();
+    expect(
+      screen.queryByLabelText("Fakty z rozmowy telefonicznej"),
+    ).not.toBeInTheDocument();
+  });
+});

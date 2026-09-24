@@ -17,6 +17,7 @@ import {
   GitBranch,
   Handshake,
   Heart,
+  Headset,
   HelpCircle,
   Inbox,
   LayoutDashboard,
@@ -44,7 +45,12 @@ import {
   hasSectionAccess,
   type ProductSection,
 } from "@/lib/section-access";
-import { hasRole, type User, type UserRole } from "@/store/auth";
+import {
+  hasRole,
+  isTraineeOnly,
+  type User,
+  type UserRole,
+} from "@/store/auth";
 
 export type NavIcon = ComponentType<{ className?: string }>;
 
@@ -383,6 +389,22 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     inPalette: true,
   },
   {
+    // Praktykanci (0371): postęp programu, próbka jakości, decyzja po
+    // 40 dniach. Backend: `/api/trainee/overview` itd. = admin + HoR.
+    id: "trainees",
+    moreHint: "Listy telefonów, wyniki praktykantów i decyzja po programie",
+    href: "/trainees",
+    label: "Praktykanci",
+    icon: Headset,
+    section: "pipeline",
+    roles: [...CAPABILITY_ROLES["nav.trainees"]],
+    capability: "nav.trainees",
+    placement: "more",
+    moreGroup: "daily",
+    paletteKeywords: ["praktykant", "telefony", "lista telefonów", "program"],
+    inPalette: true,
+  },
+  {
     id: "clients",
     href: "/clients",
     label: "Klienci",
@@ -546,6 +568,9 @@ function isEntryVisible(
   user: NavUser,
   opts: NavVisibilityOptions,
 ): boolean {
+  // Praktykant ma własną powłokę z jednym ekranem — żadnej pozycji menu,
+  // także tych bez sekcji produktu (Pomoc, Ustawienia).
+  if (isTraineeOnly(user)) return false;
   const productSection = SECTION_META_BY_KEY.get(entry.section)?.section;
   return (
     (!productSection || hasSectionAccess(user, productSection)) &&

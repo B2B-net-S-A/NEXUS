@@ -45,6 +45,7 @@ export type SettingsItemId =
   | "kpi-targets"
   | "mail"
   | "skills"
+  | "trainee-rules"
   | "contracts"
   | "rates"
   | "register-import"
@@ -171,6 +172,14 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     keywords: "umiejetnosci skille technologie aliasy taksonomia slownik cortex",
     // `/api/skills-admin`: HeadOfRecruitmentPlus + zapis sekcji Sourcing.
     gate: { roles: ["admin", "head_of_recruitment"], section: "sourcing", required: "write" },
+  },
+  {
+    id: "trainee-rules", area: "rec", title: "Lista telefonów praktykantów",
+    description: "Kto trafia na codzienną listę telefonów praktykantów.",
+    keywords: "praktykant praktykanci telefony lista reguly pula stawka dostepnosc",
+    route: "/settings/trainee-rules",
+    // `/api/trainee/rules` = admin + Head of Recruitment (0371).
+    gate: { roles: ["admin", "head_of_recruitment"] },
   },
   {
     id: "contracts", area: "deals", title: "Wzory umów",

@@ -161,6 +161,15 @@ describe("visibleNavSections", () => {
     expect(viewer).not.toContain("/finance");
   });
 
+  it("praktykant (0371) nie ma menu; panel „Praktykanci” mają admin i HoR", () => {
+    expect(hrefs("trainee")).toEqual([]);
+    expect(hrefs("head_of_recruitment")).toContain("/trainees");
+    expect(hrefs("admin")).toContain("/trainees");
+    for (const role of ["recruiter", "sourcer", "delivery_lead", "finance", "user"] as UserRole[]) {
+      expect(hrefs(role)).not.toContain("/trainees");
+    }
+  });
+
   it("nie zwraca sekcji bez ani jednej widocznej pozycji", () => {
     for (const role of ["user", "finance", "recruiter"] as UserRole[]) {
       for (const section of visibleNavSections(
@@ -237,7 +246,7 @@ describe("SIDEBAR_VERTICAL_LAYOUT (UAT B57)", () => {
 
 describe("Wyszukiwarka i Talent Radar = tryby ekranu „Kandydaci” (21.09.2026)", () => {
   it("nie stoją w menu żadnej roli", () => {
-    const roles: UserRole[] = ["admin", "head_of_recruitment", "delivery_lead", "talent_community_manager", "tac", "recruiter", "finance", "sourcer", "user"];
+    const roles: UserRole[] = ["admin", "head_of_recruitment", "delivery_lead", "talent_community_manager", "tac", "recruiter", "finance", "sourcer", "user", "trainee"];
     for (const role of roles) {
       const items = hrefs(role);
       expect(items).not.toContain("/candidates/search");

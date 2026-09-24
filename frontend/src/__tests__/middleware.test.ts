@@ -594,6 +594,47 @@ describe("zawężenia ról nadal obowiązują", () => {
   })
 })
 
+describe("praktykant (0371) — jeden ekran", () => {
+  const trainee = makeToken({ role: "trainee", roles: ["trainee"], exp: now() + HOUR })
+
+  it("może otworzyć „Telefony na dziś” i profil", () => {
+    expect(destination("/trainee", trainee)).toBe("pass")
+    expect(destination("/profile", trainee)).toBe("pass")
+  })
+
+  it.each(["/", "/dashboard", "/jobs", "/candidates", "/settings", "/help", "/trainees", "/talent-radar"])(
+    "%s przekierowuje na /trainee (nie /403)",
+    (route) => {
+      expect(destination(route, trainee)).toBe("/trainee")
+    },
+  )
+
+  it("wymuszona zmiana hasła nadal wygrywa", () => {
+    const fpcTrainee = makeToken({ role: "trainee", roles: ["trainee"], exp: now() + HOUR, fpc: true })
+    expect(destination("/trainee", fpcTrainee)).toBe("/profile")
+  })
+
+  it("ekran praktykanta jest tylko dla praktykanta — admin i HoR mają panel", () => {
+    expect(destination("/trainee", validAdmin)).toBe("/403")
+    expect(destination("/trainee", validHeadOfRecruitment)).toBe("/403")
+    expect(destination("/trainees", validAdmin)).toBe("pass")
+    expect(destination("/trainees", validHeadOfRecruitment)).toBe("pass")
+    expect(destination("/settings/trainee-rules", validHeadOfRecruitment)).toBe("pass")
+  })
+
+  it("panel i reguły są zamknięte dla pozostałych ról", () => {
+    for (const token of [validRecruiter, validSourcer, validDeliveryLead, validFinance, validViewer]) {
+      expect(destination("/trainees", token)).toBe("/403")
+      expect(destination("/settings/trainee-rules", token)).toBe("/403")
+    }
+  })
+
+  it("harnessy praktykanta są publiczne", () => {
+    expect(destination("/preview/trainee")).toBe("pass")
+    expect(destination("/preview/trainees")).toBe("pass")
+  })
+})
+
 describe("wymuszona zmiana hasła", () => {
   const fpc = makeToken({ role: "admin", roles: ["admin"], exp: now() + HOUR, fpc: true })
 

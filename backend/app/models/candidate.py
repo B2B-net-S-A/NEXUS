@@ -5,6 +5,7 @@ from typing import Optional
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     Computed,
     Date,
     DateTime,
@@ -79,6 +80,16 @@ class Candidate(Base, TimestampMixin):
             "ix_candidates_external_deleted_at",
             "external_deleted_at",
             postgresql_where=text("external_deleted_at IS NOT NULL"),
+        ),
+        CheckConstraint(
+            "b2b_willingness IS NULL OR b2b_willingness IN "
+            "('b2b', 'would_switch', 'employment_only')",
+            name="ck_candidates_b2b_willingness",
+        ),
+        CheckConstraint(
+            "work_time_preference IS NULL OR work_time_preference IN "
+            "('full_time_only', 'also_part_time', 'part_time_only')",
+            name="ck_candidates_work_time_preference",
         ),
     )
 
@@ -201,6 +212,30 @@ class Candidate(Base, TimestampMixin):
     # ekstrakcja notatek AI (FILL_EMPTY, nigdy nie nadpisuje wartości człowieka).
     max_onsite_days_per_week: Mapped[Optional[int]] = mapped_column(
         Integer, nullable=True
+    )
+
+    # ── Fakty z telefonu praktykanta (0371) ─────────────────────────────
+    # Minimalna stawka B2B netto trafia do `expected_rate_hourly` (jedna stawka
+    # profilu, którą czytają bramki budżetu). Tu zostaje to, czego stawka nie
+    # wyrazi. `employment_only` = nie przejdzie na B2B → wyszukiwarka AI
+    # i dopasowania nie biorą osoby pod uwagę (`dealbreaker_filters`).
+    # Zgody: `True` = dzwonić z ofertą poniżej minimum / z większą liczbą dni
+    # w biurze (widoczny z ostrzeżeniem); `False`/`None` = bramka chowa jak dotąd.
+    b2b_willingness: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    accepts_below_min_rate: Mapped[Optional[bool]] = mapped_column(
+        Boolean, nullable=True
+    )
+    accepts_more_office_days: Mapped[Optional[bool]] = mapped_column(
+        Boolean, nullable=True
+    )
+    work_time_preference: Mapped[Optional[str]] = mapped_column(
+        String(20), nullable=True
+    )
+    call_facts_verified_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    call_facts_verified_by_user_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
 
     # "Champion" flag — top performer (verified high quality)

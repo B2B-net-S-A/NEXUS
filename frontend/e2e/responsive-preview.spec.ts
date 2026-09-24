@@ -67,6 +67,12 @@ const PAGES = [
   "/preview/procedure-help",
   "/preview/recruitment-v3",
   "/preview/talent-radar",
+  "/preview/trainee",
+  "/preview/trainee?state=done",
+  "/preview/trainee?state=handover",
+  "/preview/trainee?state=employment_only",
+  "/preview/trainees",
+  "/preview/trainees?view=rules",
 ] as const;
 
 async function pageOverflowPx(page: Page): Promise<number> {

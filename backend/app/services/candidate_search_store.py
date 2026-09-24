@@ -386,11 +386,13 @@ async def save_metrics(db, run_id: str, token: str, metrics: dict):
 
 
 EXCLUSION_CATEGORIES = (
+    "employment_only",
     "over_budget",
     "missing_must",
     "office_days_exceeded",
     "office_city_mismatch",
     "remote_only",
+    "work_time_mismatch",
     "eligibility_hidden",
 )
 

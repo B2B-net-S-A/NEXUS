@@ -317,6 +317,20 @@ const ROLE_ROUTES: RouteAccessRule[] = [
     enforceRoles: true,
   },
   { prefix: "/insights", roles: INSIGHTS_ROLES, section: "insights" },
+  // Praktykanci (0371). `/trainee` = lista telefonów TEGO praktykanta — nawet
+  // admin jej nie otwiera (patrzy w panel `/trainees`). Resolver bierze
+  // najdłuższy prefiks, więc `/trainees` nie wpada w regułę `/trainee`.
+  { prefix: "/trainee", roles: ["trainee"], enforceRoles: true },
+  {
+    prefix: "/trainees",
+    roles: ["admin", "head_of_recruitment"],
+    enforceRoles: true,
+  },
+  {
+    prefix: "/settings/trainee-rules",
+    roles: ["admin", "head_of_recruitment"],
+    enforceRoles: true,
+  },
   // `/profile`, `/settings` (i każda inna trasa bez wpisu) nie
   // potrzebują osobnej bramki rolowej — deny-by-default już wymaga logowania.
 ];
@@ -423,6 +437,8 @@ const PUBLIC_PATHS = [
   "/preview/job-portals",
   "/preview/academy",
   "/preview/request-allocation",
+  // Praktykanci (0371): `/preview/trainee` pokrywa też `/preview/trainees`.
+  "/preview/trainee",
   // Strona kariery (kandydaci z LinkedIna) — publiczna z definicji. Na własnym
   // hoście (`kariera.dynaminds.pl`) obsługuje ją `careerHostResponse` niżej;
   // tu jest wejście pod `/kariera/*` na hoście aplikacji (dev, podgląd, grafiki
@@ -459,6 +475,20 @@ function careerHostResponse(request: NextRequest): NextResponse {
   url.search = "";
   // Trasa-łapacz pod /kariera wywołuje notFound() → status 404 + terminalowe 404.
   return NextResponse.rewrite(url);
+}
+
+/**
+ * Trasy dostępne dla praktykanta (0371). Wszystko inne przekierowuje na jego
+ * jedyny ekran — nie na /403, bo praktykant nie ma „reszty aplikacji”, do
+ * której mógłby trafić przez pomyłkę. `/profile` zostaje (zmiana hasła).
+ */
+function isTraineeAllowedPath(pathname: string): boolean {
+  return (
+    pathname === "/trainee" ||
+    pathname.startsWith("/trainee/") ||
+    pathname === "/profile" ||
+    pathname.startsWith("/profile/")
+  );
 }
 
 function resolveAccessRule(pathname: string): RouteAccessRule | undefined {
@@ -536,6 +566,17 @@ export function middleware(request: NextRequest) {
     payload.role as string,
     ...(payload.roles ?? []),
   ]);
+
+  // Praktykant (rola wyłączna) widzi WYŁĄCZNIE „Telefony na dziś”. Bramka
+  // stoi przed regułami tras: `/jobs` ma go zaprowadzić na jego listę, a nie
+  // na /403. Wymuszona zmiana hasła i tak działa niżej (`/profile` przepuszczamy).
+  if (
+    userRoles.size === 1 &&
+    userRoles.has("trainee") &&
+    !isTraineeAllowedPath(pathname)
+  ) {
+    return NextResponse.redirect(new URL("/trainee", request.url));
+  }
   if (accessRule?.section && payload.sa) {
     if (
       !hasSignedSectionAccess(

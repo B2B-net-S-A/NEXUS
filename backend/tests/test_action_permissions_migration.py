@@ -29,6 +29,12 @@ SEED_DIVERGENCE_AFTER_0273: dict[str, tuple[str, str]] = {
 }
 
 
+# Role dodane po 0273 — ich wiersze zasiewa ich własna migracja.
+ROLES_ADDED_AFTER_0273: dict[str, str] = {
+    UserRole.trainee.value: "0371_trainee_call_lists.py",
+}
+
+
 def _seeded_generator_access(role: UserRole) -> str:
     current = DEFAULT_ROLE_ACTION_ACCESS[role][ProductAction.b2b_contract_generator]
     divergence = SEED_DIVERGENCE_AFTER_0273.get(role.value)
@@ -53,7 +59,11 @@ def _migration_module():
 def test_migration_seed_exactly_matches_bootstrap_matrix() -> None:
     migration = _migration_module()
     action = ProductAction.b2b_contract_generator
-    expected = {role.value: _seeded_generator_access(role) for role in UserRole}
+    expected = {
+        role.value: _seeded_generator_access(role)
+        for role in UserRole
+        if role.value not in ROLES_ADDED_AFTER_0273
+    }
     assert migration.ACTION == action.value
     assert migration.ROLE_DEFAULTS == expected
     upgrade_source = inspect.getsource(migration.upgrade)
@@ -103,3 +113,14 @@ def test_signature_recovery_uses_migration_only_when_policy_is_missing() -> None
     assert "pg_get_constraintdef(oid)" in block
     assert "migration.upgrade()" in block
     assert "FOR UPDATE" in block
+
+
+def test_roles_added_after_0273_are_seeded_by_their_own_migration() -> None:
+    for role, migration_file in ROLES_ADDED_AFTER_0273.items():
+        source = (MIGRATION_PATH.parent / migration_file).read_text()
+        assert "INSERT INTO rbac_role_action_permissions" in source
+        assert f"SELECT DISTINCT '{role}', action, 'none'" in source
+        assert all(
+            access.name == "none"
+            for access in DEFAULT_ROLE_ACTION_ACCESS[UserRole(role)].values()
+        )

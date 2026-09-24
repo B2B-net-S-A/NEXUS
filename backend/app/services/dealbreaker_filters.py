@@ -89,6 +89,45 @@ def budget_excludes(candidate, budget_hourly: float) -> bool:
     return cand > budget_hourly
 
 
+def candidate_consents_below_min_rate(candidate) -> bool:
+    """Zgoda z rozmowy telefonicznej na oferty poniżej minimalnej stawki.
+
+    Praktykant wpisuje MINIMUM kandydata w ``expected_rate_hourly``, więc sufit
+    budżetu znaczy „budżet poniżej minimum". Jawne „dzwońcie mimo to" (tylko
+    ``True``, nie brak odpowiedzi) zostawia takiego kandydata na liście.
+    """
+    return getattr(candidate, "accepts_below_min_rate", None) is True
+
+
+def candidate_consents_more_office_days(candidate) -> bool:
+    """Zgoda z rozmowy na więcej dni w biurze niż zadeklarowane maksimum."""
+    return getattr(candidate, "accepts_more_office_days", None) is True
+
+
+def employment_only_refuses_b2b(candidate) -> bool:
+    """True tylko przy POZYTYWNYM „tylko umowa o pracę" z rozmowy telefonicznej.
+
+    Pracujemy wyłącznie na B2B, więc taka osoba nie jest kandydatem do żadnej
+    rekrutacji. Brak odpowiedzi przechodzi — „nieznany przechodzi".
+    """
+    return getattr(candidate, "b2b_willingness", None) == "employment_only"
+
+
+def work_time_mismatch(candidate, job_work_mode: Optional[str]) -> bool:
+    """True tylko przy ZNANYM wymiarze po obu stronach, który się wyklucza.
+
+    „Tylko part-time" nie pasuje do etatu pełnego, „tylko full-time" — do
+    części etatu. ``also_part_time`` pasuje do obu, a ``contract`` (projekt)
+    nie mówi o wymiarze, więc nie bramkuje.
+    """
+    preference = getattr(candidate, "work_time_preference", None)
+    if job_work_mode == "fulltime":
+        return preference == "part_time_only"
+    if job_work_mode == "parttime":
+        return preference == "full_time_only"
+    return False
+
+
 def remote_only_refuses_office(candidate) -> bool:
     """True tylko przy POZYTYWNYM „wyłącznie zdalnie" z notatek.
 
@@ -131,6 +170,9 @@ class DealbreakerInputs:
     office_tokens: frozenset[str] = frozenset()  # location_tokens(miasto biura)
     wants_office: bool = False  # onsite/hybrid ALBO dni w biurze > 0
     exclude_unknown_skill_evidence: bool = False
+    # `Job.work_mode` jako napis (fulltime | parttime | contract). Talent Radar
+    # nie zna wymiaru pracy — None wyłącza bramkę wymiaru.
+    job_work_mode: Optional[str] = None
     verification_job_id: Optional[int] = None
     verification_fingerprint: Optional[str] = None
 
@@ -457,6 +499,9 @@ def dealbreaker_inputs_for_job(job) -> DealbreakerInputs:
         or bool(getattr(job, "exclude_remote_only", False))
     )
 
+    work_mode = getattr(job, "work_mode", None)
+    work_mode = getattr(work_mode, "value", work_mode)
+
     return DealbreakerInputs(
         budget_hourly=budget,
         must_skills=must,
@@ -464,28 +509,42 @@ def dealbreaker_inputs_for_job(job) -> DealbreakerInputs:
         onsite_days_per_week=days,
         office_tokens=office_tokens,
         wants_office=wants_office,
+        job_work_mode=work_mode if isinstance(work_mode, str) else None,
     )
 
 
 def rate_fit_status(candidate, inputs: DealbreakerInputs) -> str:
-    """`"ok" | "over_budget" | "unknown"` — status stawki dla etykiety wiersza."""
+    """`"ok" | "over_budget" | "below_min_consented" | "unknown"` — status stawki.
+
+    ``below_min_consented``: budżet jest poniżej minimum kandydata, ale kandydat
+    zgodził się w rozmowie na telefon z taką ofertą — bramka go nie ukrywa.
+    """
     if inputs.budget_hourly is None:
         return "unknown"
     cand_rate = _candidate_rate_pln_hourly(candidate)
     if cand_rate is None:
         return "unknown"
-    return "over_budget" if cand_rate > inputs.budget_hourly else "ok"
+    if cand_rate <= inputs.budget_hourly:
+        return "ok"
+    if candidate_consents_below_min_rate(candidate):
+        return "below_min_consented"
+    return "over_budget"
 
 
 def office_fit_status(candidate, inputs: DealbreakerInputs) -> str:
-    """`"ok" | "days_exceeded" | "city_mismatch" | "unknown" | "not_required"`.
+    """`"ok" | "days_exceeded" | "over_consented" | "city_mismatch" | "unknown" |
+    "not_required"`.
 
     `"not_required"` gdy oferta w ogóle nie wymaga jawnej liczby dni w biurze —
-    odróżnia „biuro nas nie dotyczy" od „nie wiemy, ile dni".
+    odróżnia „biuro nas nie dotyczy" od „nie wiemy, ile dni". `"over_consented"`:
+    oferta chce więcej dni niż deklaracja kandydata, ale kandydat zgodził się
+    w rozmowie na telefon z taką ofertą.
     """
     if not inputs.requires_office_days:
         return "not_required"
     if office_days_exceeded(candidate, inputs.onsite_days_per_week):
+        if candidate_consents_more_office_days(candidate):
+            return "over_consented"
         return "days_exceeded"
     if office_city_mismatch(
         candidate, inputs.office_tokens, required_days=inputs.onsite_days_per_week
@@ -500,22 +559,27 @@ def office_fit_status(candidate, inputs: DealbreakerInputs) -> str:
 @dataclass
 class DealbreakerResult:
     kept: list = field(default_factory=list)
+    hidden_employment_only: int = 0
     hidden_over_budget: int = 0
     hidden_missing_must: int = 0
     hidden_office_days_exceeded: int = 0
     hidden_office_city_mismatch: int = 0
     hidden_remote_only: int = 0
+    hidden_work_time_mismatch: int = 0
     exclusion_reasons: dict[int, str] = field(default_factory=dict)
 
     def hidden_meta(self) -> dict:
         # Kolejność kluczy = kolejność powodów w pętli `apply_dealbreakers`
-        # (budżet → must-have → dni w biurze → miasto → tylko-zdalnie).
+        # (tylko etat → budżet → must-have → dni w biurze → miasto →
+        # tylko-zdalnie → wymiar pracy).
         return {
+            "employment_only": self.hidden_employment_only,
             "over_budget": self.hidden_over_budget,
             "missing_must": self.hidden_missing_must,
             "office_days_exceeded": self.hidden_office_days_exceeded,
             "office_city_mismatch": self.hidden_office_city_mismatch,
             "remote_only": self.hidden_remote_only,
+            "work_time_mismatch": self.hidden_work_time_mismatch,
         }
 
 
@@ -553,9 +617,15 @@ def apply_dealbreakers(
     ``budget_hourly`` (legacy) nadpisuje ``inputs.budget_hourly``, gdy podane —
     zgodność wsteczna z wywołaniami sprzed 0278, które nie znają ``inputs``.
 
-    Kolejność powodów jest deterministyczna i STAŁA: budżet → must-have →
-    dni w biurze → miasto biura → tylko-zdalnie. Pierwszy pasujący powód
-    wygrywa — kandydat łapiący kilka naraz nie migruje między licznikami.
+    Kolejność powodów jest deterministyczna i STAŁA: tylko etat → budżet →
+    must-have → dni w biurze → miasto biura → tylko-zdalnie → wymiar pracy.
+    Pierwszy pasujący powód wygrywa — kandydat łapiący kilka naraz nie migruje
+    między licznikami.
+
+    Fakty z rozmowy praktykanta (0371): „tylko umowa o pracę" ukrywa zawsze
+    (jak budżet — to nie rubryka, więc wyłącznik rubryk go nie dotyczy), zgoda
+    na ofertę poniżej minimum albo na więcej dni w biurze zostawia kandydata
+    widocznym, a znany wymiar pracy sprzeczny z `Job.work_mode` ukrywa.
 
     Kill-switch ``settings.RUBRIC_DEALBREAKERS_ENABLED`` (default ``True``):
     przy ``False`` trzy nowe predykaty są no-opem, a AUTO ``exclude_remote_only``
@@ -588,8 +658,19 @@ def apply_dealbreakers(
         and bool(effective_inputs.office_tokens)
     )
 
+    work_time_active = effective_inputs.job_work_mode in ("fulltime", "parttime")
+
     for candidate in candidates:
-        if budget_active and budget_excludes(candidate, effective_budget):
+        if employment_only_refuses_b2b(candidate):
+            result.hidden_employment_only += 1
+            if (candidate_id := getattr(candidate, "id", None)) is not None:
+                result.exclusion_reasons[candidate_id] = "employment_only"
+            continue
+        if (
+            budget_active
+            and budget_excludes(candidate, effective_budget)
+            and not candidate_consents_below_min_rate(candidate)
+        ):
             result.hidden_over_budget += 1
             if (candidate_id := getattr(candidate, "id", None)) is not None:
                 result.exclusion_reasons[candidate_id] = "over_budget"
@@ -605,8 +686,10 @@ def apply_dealbreakers(
             if (candidate_id := getattr(candidate, "id", None)) is not None:
                 result.exclusion_reasons[candidate_id] = "missing_must"
             continue
-        if days_active and office_days_exceeded(
-            candidate, effective_inputs.onsite_days_per_week
+        if (
+            days_active
+            and office_days_exceeded(candidate, effective_inputs.onsite_days_per_week)
+            and not candidate_consents_more_office_days(candidate)
         ):
             result.hidden_office_days_exceeded += 1
             if (candidate_id := getattr(candidate, "id", None)) is not None:
@@ -625,6 +708,13 @@ def apply_dealbreakers(
             result.hidden_remote_only += 1
             if (candidate_id := getattr(candidate, "id", None)) is not None:
                 result.exclusion_reasons[candidate_id] = "remote_only"
+            continue
+        if work_time_active and work_time_mismatch(
+            candidate, effective_inputs.job_work_mode
+        ):
+            result.hidden_work_time_mismatch += 1
+            if (candidate_id := getattr(candidate, "id", None)) is not None:
+                result.exclusion_reasons[candidate_id] = "work_time_mismatch"
             continue
         result.kept.append(candidate)
     return result

@@ -99,6 +99,9 @@ DEFAULT_ROLE_SECTION_ACCESS: dict[UserRole, dict[ProductSection, SectionAccess]]
         pipeline=SectionAccess.read,
         insights=SectionAccess.read,
     ),
+    # 0371: praktykant nie ma żadnej sekcji — jego ekran stoi poza sekcjami
+    # (`/api/trainee/*`, ``TraineeUser``).
+    UserRole.trainee: _policy(),
 }
 
 # Backwards-compatible export name. Tests use it as the migration seed contract.

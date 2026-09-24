@@ -27,13 +27,16 @@ class ResultFilters:
         if self.skill.strip():
             conditions.append(evidence["skills"].contains([self.skill.strip().lower()]))
         if self.rate != "all":
+            # „Ponad budżet" obejmuje też kandydata, który zgodził się w rozmowie
+            # na ofertę poniżej swojego minimum — nadal jest ponad budżetem.
             conditions.append(
-                evidence["rate"].astext
-                == {
-                    "in": "ok",
-                    "over": "over_budget",
-                    "unknown": "unknown",
-                }[self.rate]
+                evidence["rate"].astext.in_(
+                    {
+                        "in": ("ok",),
+                        "over": ("over_budget", "below_min_consented"),
+                        "unknown": ("unknown",),
+                    }[self.rate]
+                )
             )
         if self.stage != "all":
             if self.job_id is None:

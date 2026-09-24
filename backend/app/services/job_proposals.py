@@ -57,6 +57,9 @@ def _short(value: Any) -> Optional[str]:
     return text[:_MAX_NAME_LEN] if text else None
 
 
+_MAX_TRAINEE_NOTE = 1000
+
+
 def _names(values: Any) -> list[str]:
     if not isinstance(values, (list, tuple)):
         return []
@@ -120,6 +123,17 @@ def sanitize_evidence(raw: Any) -> Optional[dict]:
                 clean_reassign[key] = value[:32]
         if clean_reassign.get("job_id") is not None:
             out["reassign"] = clean_reassign
+    trainee = raw.get("trainee")
+    if isinstance(trainee, Mapping):
+        # 0371: przekazanie przez praktykanta po rozmowie — kto przekazał
+        # i jego wiadomość dla rekrutera (świadomie tekst: po to jest).
+        by_user = trainee.get("user_id")
+        note = trainee.get("note")
+        if isinstance(by_user, int) and not isinstance(by_user, bool):
+            clean_trainee: dict[str, Any] = {"user_id": by_user}
+            if isinstance(note, str) and note.strip():
+                clean_trainee["note"] = note.strip()[:_MAX_TRAINEE_NOTE]
+            out["trainee"] = clean_trainee
     if raw.get(PREVIOUSLY_DISMISSED_KEY) is True:
         out[PREVIOUSLY_DISMISSED_KEY] = True
     return out or None

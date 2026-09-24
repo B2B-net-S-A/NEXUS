@@ -122,6 +122,7 @@ const STAGE_PILL_CLASS: Record<PipelineGroupKey, string> = {
 
 const SOURCE_PILL_CLASS: Record<ProposalSource, string> = {
   reassign: "border border-primary/40 bg-primary/5 font-semibold text-primary",
+  trainee: "border border-success/30 bg-success-muted font-semibold text-success-muted-foreground",
   full_base: "bg-muted text-muted-foreground",
   new_cv: "bg-primary/10 text-primary",
   similar_projects: "bg-info-muted text-info-muted-foreground",
@@ -410,7 +411,19 @@ export function PeopleTable({
           width: "minmax(0,1.5fr)",
           render: (row) =>
             row.kind === "proposal" ? (
-              <span title={row.reason ?? undefined}>{dash(row.reason)}</span>
+              row.handoverNote ? (
+                <span className="flex min-w-0 flex-col">
+                  <span title={row.reason ?? undefined}>{dash(row.reason)}</span>
+                  <span
+                    className="line-clamp-2 text-xs text-muted-foreground"
+                    title={row.handoverNote}
+                  >
+                    {row.handoverNote}
+                  </span>
+                </span>
+              ) : (
+                <span title={row.reason ?? undefined}>{dash(row.reason)}</span>
+              )
             ) : null,
         },
         ...tail,

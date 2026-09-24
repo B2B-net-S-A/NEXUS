@@ -16,6 +16,11 @@ from app.services.section_permissions import (
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 MIGRATION_PATH = BACKEND_ROOT / "alembic/versions/0269_configurable_section_rbac.py"
 
+# Role dodane po 0269 — ich wiersze zasiewa ich własna migracja, nie 0269.
+ROLES_ADDED_AFTER_0269: dict[str, str] = {
+    UserRole.trainee.value: "0371_trainee_call_lists.py",
+}
+
 
 def _migration_module():
     spec = importlib.util.spec_from_file_location("section_rbac_0269", MIGRATION_PATH)
@@ -33,6 +38,7 @@ def test_migration_seed_exactly_matches_bootstrap_matrix() -> None:
             for section in ProductSection
         }
         for role in UserRole
+        if role.value not in ROLES_ADDED_AFTER_0269
     }
     assert migration.ROLE_DEFAULTS == expected
     assert tuple(migration.SECTIONS) == tuple(
@@ -66,3 +72,14 @@ def test_entrypoint_recovery_seed_is_complete_and_never_overwrites_admin_edits()
         for section in ProductSection:
             access = DEFAULT_ROLE_SECTION_ACCESS[role][section].name
             assert f"('{role.value}', '{section.value}', '{access}')" in seed
+
+
+def test_roles_added_after_0269_are_seeded_by_their_own_migration() -> None:
+    for role, migration_file in ROLES_ADDED_AFTER_0269.items():
+        source = (BACKEND_ROOT / "alembic/versions" / migration_file).read_text()
+        assert "INSERT INTO rbac_role_section_permissions" in source
+        assert f"SELECT '{role}', section, 'none'" in source
+        assert all(
+            DEFAULT_ROLE_SECTION_ACCESS[UserRole(role)][section].name == "none"
+            for section in ProductSection
+        )

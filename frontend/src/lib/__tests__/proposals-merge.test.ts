@@ -9,7 +9,9 @@ import {
   filterProposals,
   mergeProposals,
   normalizeFitScore,
+  traineeHandoverReason,
 } from "@/lib/proposals-merge";
+import { PROPOSAL_SOURCE_LABEL } from "@/components/v2/recruitment/types";
 
 function inboxItem(id: number, over: Partial<ProposalInboxItem> = {}, name = "Anna"): ProposalInboxItem {
   return {
@@ -160,6 +162,45 @@ describe("mergeProposals", () => {
     expect(byId.get(1)?.missingMustGate).toEqual(["AWS"]);
     expect(byId.get(2)?.aiSummary).toBeNull();
     expect(byId.get(2)?.missingMustGate).toEqual([]);
+  });
+
+  it("przekazanie od praktykanta (0371): źródło, powód z datą, notatka, zaraz za przepięciem", () => {
+    const entries = mergeProposals({
+      inbox: [
+        inboxItem(1, { score: 95 }),
+        inboxItem(2, {
+          score: 40,
+          sources: ["trainee"],
+          trainee_handover: {
+            by_name: "Ola Kamińska",
+            note: "Minimum 145 zł/h netto B2B, maks. 2 dni w biurze.",
+            at: "2026-09-24T10:12:00Z",
+          },
+        }),
+        inboxItem(3, {
+          sources: ["reassign"],
+          reassign_from: {
+            job_id: 7, title: "Java", reference_number: null, client_name: "PKO BP",
+            stage: "cv_sent", sent_at: "2026-09-01",
+          },
+        }),
+      ],
+    });
+    expect(entries.map((e) => e.row.candidateId)).toEqual([3, 2, 1]);
+    const trainee = entries[1];
+    expect(trainee.row.sources).toEqual(["trainee"]);
+    expect(PROPOSAL_SOURCE_LABEL.trainee).toBe("Od praktykanta");
+    expect(trainee.row.reason).toBe("Od praktykanta: Ola Kamińska · 24.09");
+    expect(trainee.row.handoverNote).toBe("Minimum 145 zł/h netto B2B, maks. 2 dni w biurze.");
+    expect(trainee.detail.traineeHandover?.by_name).toBe("Ola Kamińska");
+    // Bez przekazania wiersz nie niesie notatki.
+    expect(entries[2].row.handoverNote).toBeUndefined();
+  });
+
+  it("przekazanie bez nazwiska i daty nie zmyśla danych", () => {
+    expect(traineeHandoverReason({ by_name: null, note: null, at: null })).toBe(
+      "Od praktykanta: praktykant",
+    );
   });
 
   it("nieznane źródło z backendu nie wywraca scalenia", () => {
