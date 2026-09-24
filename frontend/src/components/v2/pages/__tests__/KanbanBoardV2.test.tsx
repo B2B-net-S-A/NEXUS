@@ -1498,6 +1498,21 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     expect(within(screening).queryByTestId("column-drop-hint")).toBeNull();
   });
 
+  it("wąska pusta kolumna zawija nazwę etapu (także w środku słowa), a pełna nazwa zostaje w title", async () => {
+    // Audyt 24.09.2026: w 96 px „Zweryfikowany” ucinało się do „Zweryfikowan”.
+    // Szerokości jsdom nie liczy — test pilnuje, że nagłówek umie łamać słowo
+    // po polsku i nie obcina go do jednej linii.
+    const { container } = renderBoard(defaultB2BColumns());
+    await screen.findByTestId("pipeline-board");
+    const heading = container.querySelector('[data-colid="def:302"] h3') as HTMLElement;
+    expect(heading).toHaveTextContent("Zweryfikowany");
+    expect(heading).toHaveAttribute("title", "Zweryfikowany");
+    expect(heading).toHaveAttribute("lang", "pl");
+    expect(heading.className).toMatch(/xl:pointer-fine:hyphens-auto/);
+    expect(heading.className).toMatch(/xl:pointer-fine:\[overflow-wrap:anywhere\]/);
+    expect(heading.className).toMatch(/xl:pointer-fine:line-clamp-3/);
+  });
+
   it("tylko do odczytu: pusta kolumna nie zaprasza do upuszczania", async () => {
     const { container } = renderBoard(defaultB2BColumns(), undefined, true);
     await screen.findByTestId("pipeline-board");
