@@ -268,6 +268,33 @@ def test_rates_are_always_net_without_gross_detection():
     assert all(r.rate_client_gross is None for r in result.consultant_rows)
 
 
+def test_rate_already_divided_by_vat_returns_to_the_pdf_amount():
+    """N3 (audyt 24.09): stawka po ÷ 1,23 wraca do kwoty z PDF-a.
+
+    Reguła zerowała sam oryginał brutto, więc odczyt zapisany przed nią
+    (albo wiersze modelu bez rozpoznanej tabeli) zostawał z zaniżoną stawką
+    netto i bez śladu przeliczenia. Tak robią Nordea, PKO BP i Alior.
+    """
+    divided = OrderExtraction(
+        rate_client=Decimal("682.93"),
+        rate_client_gross=Decimal("840.00"),
+        consultant_rows=[
+            ConsultantOrderRow(
+                consultant_name="Jan Testowy",
+                rate_client=Decimal("682.93"),
+                rate_client_gross=Decimal("840.00"),
+                rate_unit="day",
+            )
+        ],
+        source="claude",
+    )
+    ruled = polkomtel.apply_rate_rules(divided, "")
+    ruled = polkomtel.apply_rate_rules(ruled, "")  # idempotentne
+    for item in [ruled, *ruled.consultant_rows]:
+        assert (item.rate_client, item.rate_client_gross) == (Decimal("840.00"), None)
+    assert policy_by_key("polkomtel").rule_version == "2026-09-24"
+
+
 # ── Rejestr ─────────────────────────────────────────────────────────────────
 
 
