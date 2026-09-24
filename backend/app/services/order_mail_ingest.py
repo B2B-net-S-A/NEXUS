@@ -844,10 +844,18 @@ async def refresh_review_plan(db: AsyncSession, row: OrderMailDocument) -> None:
         # Tabela z PDF-a jest źródłem prawdy (Nordea, Alior): reguła klienta
         # działa ponownie na zapisanym odczycie, bez modelu. Dokument sprzed
         # poprawki reguły nie może zostać w kolejce z jej starymi powodami.
+        # „Ponownie" tylko wtedy, gdy reguła już raz na tym odczycie działała:
+        # dokument, którego klienta rozpoznano dopiero przy ponownej
+        # weryfikacji, niesie wiersze PROSTO od modelu — nie tabelę z reguły.
+        # Traktowany jak zapis sprzed zmiany reguły Nordei dostawał trwały
+        # powód „odczyt zapisany przed zmianą reguły” i nigdy nie dopisywał
+        # się sam po podpisie umowy (audyt 24.09.2026, M11).
         extraction, applied = apply_policies(
             extraction,
             PolicyContext(
-                document_text=doc.text, filename=row.attachment_name, reapplied=True
+                document_text=doc.text,
+                filename=row.attachment_name,
+                reapplied=not policies_pending,
             ),
             policies,
         )

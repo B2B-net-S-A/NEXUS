@@ -499,3 +499,76 @@ def test_only_consultant_table_supplies_people_even_when_other_sections_look_lik
     assert [r.consultant_name for r in nordea.extract_rows(text)] == ["Jan Testowy"]
     assert "Anna Kontaktowa" not in nordea.parser_text(text)
     assert nordea.extract_rows(decoy) == []
+
+
+# ── Audyt 24.09.2026, M11: stan „legacy” tylko dla odczytu po starej regule ──
+
+
+_LEGACY_REASON = "odczyt zapisany przed zmianą reguły Nordei"
+
+
+async def _refresh_saved(monkeypatch, tmp_path, *, client_policy, meta):
+    monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", "77")
+    saved = model_extraction("")
+    saved.rate_unit = "hour"
+    saved.md_total = None
+    saved.consultant_rows[0].rate_unit = "hour"
+    saved.consultant_rows[0].md_total = None
+    assert saved.model_rows is None
+    row = SimpleNamespace(
+        client_id=77,
+        extraction=ingest.extraction_to_json(saved),
+        storage_path="order.pdf",
+        attachment_name="order.pdf",
+        identification_method="registry_id",
+        client_policy=client_policy,
+        document_meta=meta,
+        error=None,
+    )
+    doc = OrderDocumentText(ORDER, 4, False, False, None, 0.0)
+    monkeypatch.setattr(ingest, "extract_order_text", lambda *a: doc)
+    monkeypatch.setattr(
+        ingest.storage_service, "get_order_mail_attachment_path", lambda p: tmp_path / p
+    )
+    monkeypatch.setattr(
+        ingest,
+        "parse_order_document",
+        AsyncMock(side_effect=AssertionError("Refresh must not call the model")),
+    )
+    monkeypatch.setattr(ingest, "_plan_and_gate", AsyncMock())
+    await ingest.refresh_review_plan(db_without_client_merges(), row)
+    return row.extraction
+
+
+@pytest.mark.asyncio
+async def test_late_recognised_document_is_not_treated_as_a_pre_rule_reading(
+    monkeypatch, tmp_path
+):
+    """Klienta rozpoznano dopiero przy ponownej weryfikacji: wiersze są PROSTO
+    od modelu (reguła Nordei nigdy na nich nie działała). Trwały powód „odczyt
+    sprzed zmiany reguły" blokował automat na zawsze."""
+    refreshed = await _refresh_saved(
+        monkeypatch,
+        tmp_path,
+        client_policy=None,
+        meta={"policies_pending": True},
+    )
+    assert not any(_LEGACY_REASON in r for r in refreshed["uncertain_reasons"])
+    # Odczyt modelu zachowany — kolejne „Przelicz plan" porównuje tabelę z nim.
+    assert [r["consultant_name"] for r in refreshed["model_rows"]] == [
+        "Jan Testowy"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_reading_saved_by_the_old_nordea_rule_still_needs_a_human(
+    monkeypatch, tmp_path
+):
+    """Zapis po starej regule: ``consultant_rows`` to już tabela — nie dowód."""
+    refreshed = await _refresh_saved(
+        monkeypatch,
+        tmp_path,
+        client_policy=policy_by_key("nordea").display_name,
+        meta={},
+    )
+    assert any(_LEGACY_REASON in r for r in refreshed["uncertain_reasons"])
