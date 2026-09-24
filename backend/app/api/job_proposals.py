@@ -100,7 +100,7 @@ async def _reassign_sources(db, job_id: int, candidate_ids: list[int]) -> dict:
 
 
 async def _trainee_handovers(db, job_id: int, candidate_ids: list[int]) -> dict:
-    """0373: kto z praktykantów przekazał osobę i co napisał rekruterowi."""
+    """0374: kto z praktykantów przekazał osobę i co napisał rekruterowi."""
     from app.models.job_proposal import JobProposal  # noqa: PLC0415
     from app.models.user import User  # noqa: PLC0415
 

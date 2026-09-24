@@ -34,7 +34,7 @@ export interface TraineeTopBarProps {
 }
 
 /**
- * Pasek praktykanta (0373): logo, „Telefony na dziś”, data, osoba z dniem
+ * Pasek praktykanta (0374): logo, „Telefony na dziś”, data, osoba z dniem
  * programu i wylogowanie. Bez menu, palety ⌘K, dzwonka i Jarvisa —
  * praktykant ma jeden ekran.
  */

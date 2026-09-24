@@ -3,7 +3,7 @@
 import { TraineesPanel } from "@/components/trainee/TraineesPanel";
 import { hasRole, useAuthStore } from "@/store/auth";
 
-// Panel „Praktykanci” (0373) — lustro bramki `/api/trainee/overview`
+// Panel „Praktykanci” (0374) — lustro bramki `/api/trainee/overview`
 // (admin + Head of Recruitment).
 export default function TraineesPage() {
   const user = useAuthStore((state) => state.user);

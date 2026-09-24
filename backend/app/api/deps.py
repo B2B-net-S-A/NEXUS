@@ -408,7 +408,7 @@ def ensure_password_change_not_required(request: Request) -> None:
         )
 
 
-#: Odmowa dostępu domenowego praktykantowi (0373). Praktykant przez program
+#: Odmowa dostępu domenowego praktykantowi (0374). Praktykant przez program
 #: wdrożenia widzi wyłącznie „Telefony na dziś” (`/api/trainee/*` na
 #: ``TraineeUser``); każda trasa na ``CurrentUser``/``require_roles`` odmawia.
 TRAINEE_RESTRICTED_DETAIL = "trainee_restricted"
@@ -511,7 +511,7 @@ async def require_trainee(
     request: Request,
     current_user: User = Depends(get_authenticated_user),
 ) -> User:
-    """Trasy „Telefony na dziś” — wyłącznie konto praktykanta (0373)."""
+    """Trasy „Telefony na dziś” — wyłącznie konto praktykanta (0374)."""
 
     ensure_password_change_not_required(request)
     ensure_exclusive_role_configuration(current_user)

@@ -1,4 +1,4 @@
-"""Praktykant — program wdrożenia i codzienna lista telefonów (0373).
+"""Praktykant — program wdrożenia i codzienna lista telefonów (0374).
 
 Decyzje Artura 24.09.2026: nowa osoba przez pierwsze 40 dni roboczych dzwoni
 wyłącznie do kandydatów z listy układanej co noc (popyt × luki w danych ×

@@ -214,7 +214,7 @@ class Candidate(Base, TimestampMixin):
         Integer, nullable=True
     )
 
-    # ── Fakty z telefonu praktykanta (0373) ─────────────────────────────
+    # ── Fakty z telefonu praktykanta (0374) ─────────────────────────────
     # Minimalna stawka B2B netto trafia do `expected_rate_hourly` (jedna stawka
     # profilu, którą czytają bramki budżetu). Tu zostaje to, czego stawka nie
     # wyrazi. `employment_only` = nie przejdzie na B2B → wyszukiwarka AI

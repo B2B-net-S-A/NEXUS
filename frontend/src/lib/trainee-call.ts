@@ -1,5 +1,5 @@
 /**
- * „Telefony na dziś” — czysta logika ekranu praktykanta (0373).
+ * „Telefony na dziś” — czysta logika ekranu praktykanta (0374).
  *
  * Bez Reacta i bez sieci: stan formularza rozmowy → ciało żądania, walidacja,
  * etykiety braków i wyników, kolejność listy. Komponenty tylko to renderują.

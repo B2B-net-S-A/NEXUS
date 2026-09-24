@@ -41,7 +41,7 @@ const ALL_ROLES: UserRole[] = [
   "trainee",
 ];
 
-/** Role z menu — praktykant (0373) ma własną powłokę bez nawigacji. */
+/** Role z menu — praktykant (0374) ma własną powłokę bez nawigacji. */
 const MENU_ROLES = ALL_ROLES.filter((role) => role !== "trainee");
 
 const sorted = (roles: readonly UserRole[]) => [...roles].sort();
@@ -264,7 +264,7 @@ describe("menu (szyna + „Więcej”, sekcjami) — pozycje per rola identyczne
   ];
   // Akademia (0369) — w „Więcej”, ta sama bramka co Kalendarz.
   const PIPELINE = ["/jobs", "/calendar", "/academy"];
-  // Panel „Praktykanci” (0373) — tylko admin i Head of Recruitment.
+  // Panel „Praktykanci” (0374) — tylko admin i Head of Recruitment.
   const PIPELINE_WITH_TRAINEES = [...PIPELINE, "/trainees"];
   const DELIVERY = ["/clients", "/contracts"];
   const INSIGHTS = ["/insights"];
@@ -316,7 +316,7 @@ describe("menu (szyna + „Więcej”, sekcjami) — pozycje per rola identyczne
       "/insights",
       ...SYSTEM,
     ],
-    // Praktykant (0373): jeden ekran, bez menu — nawet bez Pomocy i Ustawień.
+    // Praktykant (0374): jeden ekran, bez menu — nawet bez Pomocy i Ustawień.
     trainee: [],
   };
 

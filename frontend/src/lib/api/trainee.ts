@@ -1,5 +1,5 @@
 /**
- * Praktykanci — codzienne listy telefonów (0373).
+ * Praktykanci — codzienne listy telefonów (0374).
  *
  * Typy są lustrem kontraktu `docs/trainee-call-lists-contract.md`
  * (`backend/app/api/trainee.py`). Klucze react-query są eksportowane, żeby

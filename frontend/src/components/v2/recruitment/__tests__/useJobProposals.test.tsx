@@ -100,7 +100,7 @@ describe("useJobProposals", () => {
     expect(result.current.sourceCounts).toMatchObject({ all: 4, full_base: 1, new_cv: 2, similar_projects: 1 });
   });
 
-  it("przekazanie od praktykanta (0373) przechodzi do wiersza: źródło, powód i notatka", async () => {
+  it("przekazanie od praktykanta (0374) przechodzi do wiersza: źródło, powód i notatka", async () => {
     mocks.inbox.mockResolvedValue({
       ...inboxPage([]),
       items: [

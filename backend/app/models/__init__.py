@@ -722,7 +722,7 @@ from app.models.candidate_consent import CandidateConsent  # noqa: F401
 from app.models.placement_exclusion import PlacementExclusion  # noqa: F401
 from app.models.dz_review_hint import DzReviewHint  # noqa: F401
 
-# 0373: praktykant — program wdrożenia i codzienna lista telefonów.
+# 0374: praktykant — program wdrożenia i codzienna lista telefonów.
 from app.models.trainee import (  # noqa: F401
     TraineeCallItem,
     TraineeCallList,

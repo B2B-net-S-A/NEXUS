@@ -116,7 +116,7 @@ describe("central section access matrix", () => {
     expect(sectionAccessForUser(viewer, "delivery")).toBe("none");
   });
 
-  it("praktykant (0373) nie ma żadnej sekcji produktu", () => {
+  it("praktykant (0374) nie ma żadnej sekcji produktu", () => {
     const trainee = { role: "trainee" as const };
     for (const section of [
       "sourcing",

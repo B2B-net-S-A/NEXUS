@@ -164,7 +164,7 @@ describe("mergeProposals", () => {
     expect(byId.get(2)?.missingMustGate).toEqual([]);
   });
 
-  it("przekazanie od praktykanta (0373): źródło, powód z datą, notatka, zaraz za przepięciem", () => {
+  it("przekazanie od praktykanta (0374): źródło, powód z datą, notatka, zaraz za przepięciem", () => {
     const entries = mergeProposals({
       inbox: [
         inboxItem(1, { score: 95 }),

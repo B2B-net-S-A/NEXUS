@@ -622,7 +622,7 @@ def apply_dealbreakers(
     Pierwszy pasujący powód wygrywa — kandydat łapiący kilka naraz nie migruje
     między licznikami.
 
-    Fakty z rozmowy praktykanta (0373): „tylko umowa o pracę" ukrywa zawsze
+    Fakty z rozmowy praktykanta (0374): „tylko umowa o pracę" ukrywa zawsze
     (jak budżet — to nie rubryka, więc wyłącznik rubryk go nie dotyczy), zgoda
     na ofertę poniżej minimum albo na więcej dni w biurze zostawia kandydata
     widocznym, a znany wymiar pracy sprzeczny z `Job.work_mode` ukrywa.

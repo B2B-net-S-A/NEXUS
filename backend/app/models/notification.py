@@ -185,7 +185,7 @@ class NotificationType(str, enum.Enum):
     # milczy” od 14 dni albo „Szukamy” bez pracy od 30 dni;
     # related_entity=(user, id), jeden zbiorczy wpis na odbiorcę i dzień.
     request_review_needed = "request_review_needed"
-    # 0373: praktykant kończy program wdrożenia (5 dni roboczych przed końcem)
+    # 0374: praktykant kończy program wdrożenia (5 dni roboczych przed końcem)
     # — decyzja Head of Recruitment; related_entity=(user, id), raz na program.
     trainee_program_decision = "trainee_program_decision"
     # 0372: follow-up z kandydatem przyniósł zmianę (inna oferta, rezygnacja

@@ -1,4 +1,4 @@
-"""Praktykant — dzień pracy, zapis rozmowy, panel Head of Recruitment (0373).
+"""Praktykant — dzień pracy, zapis rozmowy, panel Head of Recruitment (0374).
 
 Zapis rozmowy to jedna transakcja pod blokadą wiersza kandydata: fakty
 w profilu (minimalna stawka przez ``write_profile_rate``), notatka w historii,

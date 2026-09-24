@@ -107,7 +107,7 @@ export interface TraineeTodayViewProps {
   traineeName?: string;
 }
 
-/** „Telefony na dziś” — jedyny ekran praktykanta (0373). */
+/** „Telefony na dziś” — jedyny ekran praktykanta (0374). */
 export function TraineeTodayView({
   initialForm,
   initialHandoverOpen = false,

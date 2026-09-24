@@ -57,7 +57,7 @@ export const PROPOSAL_SOURCE_LABEL: Record<ProposalSource, string> = {
   // Pierwsze w słowniku = pierwsze w kolumnie „Źródło" i na liście filtrów.
   // Przepięcie (0341): osoba wysłana już do klienta przy podobnym requeście.
   reassign: "↻ Przepięcie",
-  // Praktykant (0373) po rozmowie przekazał osobę do tej rekrutacji.
+  // Praktykant (0374) po rozmowie przekazał osobę do tej rekrutacji.
   trainee: "Od praktykanta",
   full_base: "Cała baza",
   new_cv: "Nowe CV",
@@ -103,7 +103,7 @@ export interface ProposalPersonRow extends PersonRowBase {
   previouslyDismissed: boolean;
   /** Identyfikator przeglądu bazy, z którego pochodzi wynik (telemetria). */
   runId: string | null;
-  /** Notatka praktykanta przy przekazaniu (0373) — tylko przy źródle `trainee`. */
+  /** Notatka praktykanta przy przekazaniu (0374) — tylko przy źródle `trainee`. */
   handoverNote?: string | null;
 }
 

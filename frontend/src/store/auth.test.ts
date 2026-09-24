@@ -473,7 +473,7 @@ describe("ROLE_RANK invariants", () => {
   })
 })
 
-describe("praktykant (0373) — jeden ekran", () => {
+describe("praktykant (0374) — jeden ekran", () => {
   const trainee = {
     role: "trainee" as const,
     roles: ["trainee" as const],

@@ -98,7 +98,7 @@ _SECTIONLESS_ALLOWLIST: dict[str, str] = {
     "POST /api/jarvis/ui-events": "Jarvis: telemetria własnych kliknięć (kod ekranu, bez danych domenowych)",
     "GET /api/help/screens": "przewodniki ekranów — treść pomocy czyta każda rola",
     "GET /api/help/screens/{key}": "przewodnik ekranu — treść pomocy czyta każda rola",
-    # ── Praktykant (0373): brak sekcji, własna lista telefonów ──────────────
+    # ── Praktykant (0374): brak sekcji, własna lista telefonów ──────────────
     "GET /api/trainee/today": "praktykant nie ma sekcji — własna lista telefonów, tylko jego pozycje",
     "POST /api/trainee/items/{item_id}/call": "praktykant: zapis rozmowy z własnej listy",
     "POST /api/trainee/items/{item_id}/outcome": "praktykant: wynik telefonu z własnej listy",

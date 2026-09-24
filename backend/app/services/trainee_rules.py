@@ -1,4 +1,4 @@
-"""Praktykant — czyste reguły listy telefonów (0373).
+"""Praktykant — czyste reguły listy telefonów (0374).
 
 Bez bazy: reguły z ``app_settings``, dni robocze programu, braki w profilu,
 dopasowanie kandydata do rekrutacji i przeliczenie minimalnej stawki. Moduły

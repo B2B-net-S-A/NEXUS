@@ -389,7 +389,7 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     inPalette: true,
   },
   {
-    // Praktykanci (0373): postęp programu, próbka jakości, decyzja po
+    // Praktykanci (0374): postęp programu, próbka jakości, decyzja po
     // 40 dniach. Backend: `/api/trainee/overview` itd. = admin + HoR.
     id: "trainees",
     moreHint: "Listy telefonów, wyniki praktykantów i decyzja po programie",

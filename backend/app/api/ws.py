@@ -428,7 +428,7 @@ async def _authenticate_ws_token(token: str) -> Optional[User]:
     async with AsyncSessionLocal() as db:
         result = await db.execute(select(User).where(User.id == user_id))
         user = result.scalar_one_or_none()
-        # Praktykant (0373) nie ma dostępu domenowego — gniazdo zdarzeń też go
+        # Praktykant (0374) nie ma dostępu domenowego — gniazdo zdarzeń też go
         # nie przyjmuje (lustro `ensure_not_trainee` w `get_current_user`).
         if (
             user

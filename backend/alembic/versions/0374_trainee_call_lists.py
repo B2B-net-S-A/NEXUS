@@ -1,7 +1,7 @@
 """Praktykant: rola, codzienna lista telefonów i fakty z rozmowy w profilu.
 
-Revision ID: 0373_trainee_call_lists
-Revises: 0372_candidate_followups
+Revision ID: 0374_trainee_call_lists
+Revises: 0373_order_dates_and_currency_audit
 
 Decyzje Artura 24.09.2026: nowi sourcerzy/rekruterzy przez pierwsze 40 dni
 roboczych dzwonią tylko do kandydatów z codziennej listy i zapisują fakty,
@@ -16,8 +16,8 @@ Lustro w ``entrypoint.sh`` (prod alembic bywa osierocony) — pilnuje
 
 from alembic import op
 
-revision = "0373_trainee_call_lists"
-down_revision = "0372_candidate_followups"
+revision = "0374_trainee_call_lists"
+down_revision = "0373_order_dates_and_currency_audit"
 branch_labels = None
 depends_on = None
 

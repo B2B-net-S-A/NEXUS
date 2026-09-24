@@ -3,7 +3,7 @@
 import { TraineeTodayView } from "@/components/trainee/TraineeTodayView";
 import { isTraineeOnly, useAuthStore } from "@/store/auth";
 
-// „Telefony na dziś” (0373) — jedyny ekran praktykanta. Middleware wpuszcza
+// „Telefony na dziś” (0374) — jedyny ekran praktykanta. Middleware wpuszcza
 // tu wyłącznie rolę `trainee`; strona pilnuje tego samego po hydratacji, bo
 // trasy praktykanta w API i tak odmówią każdej innej roli.
 export default function TraineePage() {

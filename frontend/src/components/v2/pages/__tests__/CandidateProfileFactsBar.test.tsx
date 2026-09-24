@@ -635,7 +635,7 @@ describe("CandidateProfileFactsBar", () => {
   });
 
   // Po telefonie praktykanta stawka profilu jest MINIMUM, a fakty z rozmowy
-  // (0373) stoją pod kafelkami — bez nich pasek wygląda jak dotąd.
+  // (0374) stoją pod kafelkami — bez nich pasek wygląda jak dotąd.
   it("pokazuje fakty z rozmowy i nazywa stawkę minimalną po weryfikacji", async () => {
     auth.role = "recruiter";
     renderBar({

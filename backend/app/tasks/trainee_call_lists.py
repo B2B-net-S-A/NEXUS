@@ -1,4 +1,4 @@
-"""Pętla list telefonów praktykantów (0373).
+"""Pętla list telefonów praktykantów (0374).
 
 Rano w dni robocze (okno ``TRAINEE_CALL_LISTS_HOUR``–+1 h, ``BUSINESS_TZ``)
 składa listy wszystkim aktywnym programom i zapisuje statystyki puli; raz na
