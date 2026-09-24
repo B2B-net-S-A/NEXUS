@@ -107,8 +107,9 @@ def test_recruiter_sees_only_own_cpro_tasks() -> None:
             _task(svc.KIND_CPRO_TO_SEND, stage_id=2, assignee_id=70),
             _task(svc.KIND_CPRO_TO_SEND, stage_id=3, assignee_id=None),
             _task(svc.KIND_CPRO_TO_SEND, stage_id=4, assignee_id=71),
-            _task(svc.KIND_CPRO_SENT, stage_id=5, moved_by=70),
-            _task(svc.KIND_CPRO_SENT, stage_id=6, moved_by=71),
+            # Wysłane widzi osoba od Cpro, nie ten, kto przesunął kartę.
+            _task(svc.KIND_CPRO_SENT, stage_id=5, assignee_id=70, moved_by=71),
+            _task(svc.KIND_CPRO_SENT, stage_id=6, assignee_id=71, moved_by=70),
             _task(svc.KIND_DL_REVIEW, stage_id=7),
         ]
     )
@@ -120,19 +121,37 @@ def test_recruiter_sees_only_own_cpro_tasks() -> None:
     assert mine[svc.KIND_DL_REVIEW] == []
 
 
-def test_hor_sees_own_cpro_first_then_unassigned_then_others() -> None:
+def test_hor_sees_own_cpro_then_unassigned_but_never_someone_elses() -> None:
+    """Decyzja Artura 24.09.2026: kolejka Cpro jest wyłącznie osoby od Cpro.
+    Admin i HoR widzą ją tylko wtedy, gdy nikt nie jest ustawiony."""
     old = datetime.now(timezone.utc) - timedelta(days=3)
     snap = svc.BoardTaskSnapshot(
         tasks=[
             _task(svc.KIND_CPRO_TO_SEND, stage_id=1, assignee_id=71, since=old),
             _task(svc.KIND_CPRO_TO_SEND, stage_id=2, assignee_id=None, since=old),
             _task(svc.KIND_CPRO_TO_SEND, stage_id=3, assignee_id=60),
+            _task(svc.KIND_CPRO_SENT, stage_id=4, assignee_id=71),
+            _task(svc.KIND_CPRO_SENT, stage_id=5, assignee_id=None),
+        ]
+    )
+    for role in (UserRole.head_of_recruitment, UserRole.admin):
+        mine = svc.tasks_for_user(snap, _user(60, role), portfolio=frozenset())
+        assert [t.stage_id for t in mine[svc.KIND_CPRO_TO_SEND]] == [3, 2]
+        assert mine[svc.KIND_CPRO_SENT] == []
+
+
+def test_delivery_lead_never_sees_the_cpro_queue() -> None:
+    snap = svc.BoardTaskSnapshot(
+        tasks=[
+            _task(svc.KIND_CPRO_TO_SEND, stage_id=1, assignee_id=None, client_id=7),
+            _task(svc.KIND_CPRO_TO_SEND, stage_id=2, assignee_id=71, client_id=7),
+            _task(svc.KIND_CPRO_SENT, stage_id=3, assignee_id=71, client_id=7),
         ]
     )
     mine = svc.tasks_for_user(
-        snap, _user(60, UserRole.head_of_recruitment), portfolio=frozenset()
+        snap, _user(50, UserRole.delivery_lead), portfolio=frozenset({7})
     )
-    assert [t.stage_id for t in mine[svc.KIND_CPRO_TO_SEND]] == [3, 2, 1]
+    assert mine[svc.KIND_CPRO_TO_SEND] == [] and mine[svc.KIND_CPRO_SENT] == []
 
 
 def test_classify_template_finds_the_rejected_terminal_stage() -> None:
@@ -149,23 +168,38 @@ def test_classify_template_finds_the_rejected_terminal_stage() -> None:
     assert stages.qc_id is None
 
 
-def test_dl_review_is_scoped_to_the_portfolio_and_never_to_recruiters() -> None:
+def test_dl_review_belongs_to_the_recruitments_delivery_lead() -> None:
+    """Decyzja Artura 24.09.2026: DL widzi tylko rekrutacje przypięte do
+    siebie; admin i HoR — tylko te bez żadnego Delivery Leada."""
     snap = svc.BoardTaskSnapshot(
         tasks=[
-            _task(svc.KIND_DL_REVIEW, stage_id=1, client_id=7),
-            _task(svc.KIND_DL_REVIEW, stage_id=2, client_id=8),
+            # Portfel DL 50, bez DL w rekrutacji.
+            _task(svc.KIND_DL_REVIEW, stage_id=1, client_id=7, client_has_dl=True),
+            # Klient z innym DL w portfelu.
+            _task(svc.KIND_DL_REVIEW, stage_id=2, client_id=8, client_has_dl=True),
+            # DL 50 wpisany w rekrutacji — spoza portfela.
             _task(svc.KIND_DL_REVIEW, stage_id=3, client_id=9, delivery_lead_id=50),
+            # Klient z portfela DL 50, ale rekrutacja ma wpisanego innego DL.
+            _task(
+                svc.KIND_DL_REVIEW,
+                stage_id=4,
+                client_id=7,
+                client_has_dl=True,
+                delivery_lead_id=51,
+            ),
+            # Rekrutacja bez żadnego Delivery Leada.
+            _task(svc.KIND_DL_REVIEW, stage_id=5, client_id=10),
         ]
     )
     dl = _user(50, UserRole.delivery_lead)
     mine = svc.tasks_for_user(snap, dl, portfolio=frozenset({7}))
     assert [t.stage_id for t in mine[svc.KIND_DL_REVIEW]] == [1, 3]
 
-    hor = _user(60, UserRole.head_of_recruitment)
-    assert (
-        len(svc.tasks_for_user(snap, hor, portfolio=frozenset())[svc.KIND_DL_REVIEW])
-        == 3
-    )
+    for role in (UserRole.head_of_recruitment, UserRole.admin):
+        orphans = svc.tasks_for_user(snap, _user(60, role), portfolio=frozenset())
+        assert [t.stage_id for t in orphans[svc.KIND_DL_REVIEW]] == [5]
+        assert orphans[svc.KIND_DL_REVIEW][0].as_dict()["without_delivery_lead"]
+
     rec = _user(70, UserRole.recruiter)
     assert (
         svc.tasks_for_user(snap, rec, portfolio=frozenset({7}))[svc.KIND_DL_REVIEW]
@@ -422,6 +456,9 @@ async def test_nordea_cpro_queue_with_one_sender_for_the_company(
             rec_queue = (await api_client.get("/api/board-tasks", headers=rec)).json()
             todo = _rows(rec_queue, "cpro_to_send", cid)
             assert len(todo) == 1 and todo[0]["assignee_id"] == rec_id
+            # Od teraz kolejka jest tylko osoby od Cpro — HoR jej nie widzi.
+            hor_queue = (await api_client.get("/api/board-tasks", headers=hor)).json()
+            assert _rows(hor_queue, "cpro_to_send", cid) == []
 
             # Kolejka firmowa widzi każdy — pogrupowana po rekrutacji.
             cpro = (
@@ -575,12 +612,16 @@ async def test_dl_review_lists_people_in_the_qc_column_not_in_verified(
             expected_rate_currency="PLN",
         )
         # Zweryfikowany NIE jest jeszcze w przeglądzie DL — CV nie przeszło QC.
-        queue = (await api_client.get("/api/board-tasks", headers=hor)).json()
+        queue = (await api_client.get("/api/board-tasks", headers=dl_in)).json()
         assert _rows(queue, "dl_review", cid) == []
 
         # Każdy, kto rusza kartą, przesuwa na „QC CV” (bez roli DZ).
         await _move(api_client, rec, world, "qc")
-        queue = (await api_client.get("/api/board-tasks", headers=hor)).json()
+        # Rekrutacja ma swojego DL — HoR jej przeglądu nie widzi.
+        hor_queue = (await api_client.get("/api/board-tasks", headers=hor)).json()
+        assert _rows(hor_queue, "dl_review", cid) == []
+        assert hor_queue["can_send_to_client"] is False
+        queue = (await api_client.get("/api/board-tasks", headers=dl_in)).json()
         review = _rows(queue, "dl_review", cid)
         assert len(review) == 1
         row = review[0]
@@ -595,7 +636,7 @@ async def test_dl_review_lists_people_in_the_qc_column_not_in_verified(
         assert row["screening_stage_id"] is not None
         assert row["screening_stage_id"] != row["stage_id"]
         assert row["qc_status"] == "unchecked"
-        assert queue["can_send_to_client"] is False
+        assert row["without_delivery_lead"] is False
         assert queue["dl_review_window_days"] == svc.DL_REVIEW_WINDOW_DAYS
 
         assert (
@@ -649,7 +690,13 @@ async def test_assignee_on_ready_move_still_sets_the_job_fallback(
             await _move(api_client, hor, world, "cpro", task_assignee_id=rec_id)
             async with AsyncSessionLocal() as db:
                 assert (await db.get(Job, jid)).cpro_sender_id == rec_id
-            queue = (await api_client.get("/api/board-tasks", headers=hor)).json()
-            assert _rows(queue, "cpro_to_send", cid)[0]["assignee_id"] == rec_id
+            async with AsyncSessionLocal() as db:
+                snapshot = await svc.load_snapshot(db)
+            todo = [
+                t
+                for t in snapshot.tasks
+                if t.kind == svc.KIND_CPRO_TO_SEND and t.candidate_id == cid
+            ]
+            assert todo[0].assignee_id == rec_id
     finally:
         await _cleanup(world, [hor_id, rec_id])
