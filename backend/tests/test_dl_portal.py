@@ -716,6 +716,35 @@ async def test_my_clients_dashboard_redacts_finance_outside_the_portfolio(
         await _cleanup([own, other], [dl_id], [])
 
 
+async def test_my_clients_dashboard_without_finance_counts_active_contracts(
+    app_client: AsyncClient,
+):
+    """Bez prawa do kwot zakładka Analityka nadal liczy aktywnych konsultantów.
+
+    Do 24.09.2026 „dziś” było ustawiane wyłącznie w gałęzi z finansami, więc
+    odbiorca bez kwot dostawał 500 u każdego klienta z aktywnym kontraktem
+    (poprzedni test używa klienta bez kontraktów i tego nie widział).
+    """
+    own = await _new_client()
+    other = await _new_client()
+    candidate_id = await _new_candidate()
+    await _new_contract(other, candidate_id)
+    dl_id, dl_email, dl_pwd = await _new_user(UserRole.delivery_lead)
+    await _assign_dl(dl_id, own)
+    try:
+        headers = await _login(app_client, dl_email, dl_pwd)
+        resp = await app_client.get(
+            f"/api/my-clients/{other}/dashboard", headers=headers
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["active_consultants"] == 1
+        assert body["active_contracts"] == 1
+        assert "monthly_margin_total" not in body
+    finally:
+        await _cleanup([own, other], [dl_id], [candidate_id])
+
+
 async def test_my_clients_hor_with_dl_role_gets_scoped_delivery_money(
     app_client: AsyncClient,
 ):
