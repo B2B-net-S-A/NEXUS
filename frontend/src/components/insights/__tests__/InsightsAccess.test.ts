@@ -33,6 +33,7 @@ const ALL_ROLES = [
   "recruiter",
   "sourcer",
   "user",
+  "trainee",
 ] as const;
 
 const user = (

@@ -47,6 +47,8 @@ JOB_PROPOSAL_SOURCES = (
     "marketplace",
     # 0341: przepięcie — osoba wysłana do klienta w podobnej rekrutacji.
     "reassign",
+    # 0374: przekazane przez praktykanta po rozmowie telefonicznej.
+    "trainee",
 )
 JOB_PROPOSAL_STATUSES = ("proposed", "dismissed", "added")
 
@@ -59,7 +61,7 @@ class JobProposal(Base):
         ),
         CheckConstraint(
             "source IN ('full_base', 'new_cv', 'similar_projects', "
-            "'recommendation', 'marketplace', 'reassign')",
+            "'recommendation', 'marketplace', 'reassign', 'trainee')",
             name="ck_job_proposals_source",
         ),
         CheckConstraint(

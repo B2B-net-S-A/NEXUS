@@ -109,7 +109,7 @@
     "title": "Do przejrzenia",
     "section": "pipeline",
     "roles": ["recruiter", "sourcer", "delivery_lead"],
-    "what": "Tu przeglądasz kandydatów zaproponowanych do tej rekrutacji — z przeglądu całej bazy, nowych CV, podobnych rekrutacji — oraz shortlistę.",
+    "what": "Tu przeglądasz kandydatów zaproponowanych do tej rekrutacji — z przeglądu całej bazy, nowych CV, podobnych rekrutacji, od praktykantów po rozmowie telefonicznej — oraz shortlistę.",
     "tasks": [
       {
         "q": "Jak dodać zaproponowaną osobę do rekrutacji?",
@@ -133,12 +133,13 @@
     ],
     "pitfalls": [
       "Wynik „nie policzono” to brak danych, nie słabe dopasowanie.",
-      "Osoby z ostrzeżeniem (np. konflikt z klientem) są widoczne i da się je dodać — sprawdź powód przed wysłaniem do klienta; weto hiring managera blokuje dodanie."
+      "Osoby z ostrzeżeniem (np. konflikt z klientem) są widoczne i da się je dodać — sprawdź powód przed wysłaniem do klienta; weto hiring managera blokuje dodanie.",
+    "Plakietka „poniżej minimum — zgoda na telefon” znaczy, że budżet jest niższy niż minimalna stawka kandydata, ale kandydat zgodził się, żeby do niego dzwonić z taką ofertą."
     ],
     "anchors": [
       {"id": "jobs.proposals.tabs", "label": "Propozycje / Shortlista", "describe": "Przełącznik między propozycjami z bazy a shortlistą."},
       {"id": "jobs.proposals.review", "label": "Przegląd bazy", "describe": "Stan ostatniego przeglądu i przycisk uruchomienia nowego."},
-      {"id": "jobs.proposals.sources", "label": "Źródło propozycji", "describe": "Pigułki źródła: przegląd bazy, nowe CV, podobne rekrutacje, przepięcia."},
+      {"id": "jobs.proposals.sources", "label": "Źródło propozycji", "describe": "Pigułki źródła: przegląd bazy, nowe CV, podobne rekrutacje, przepięcia, od praktykanta."},
       {"id": "jobs.proposals.add", "label": "Dodaj do rekrutacji", "describe": "Dodanie wybranej osoby do Nowych."}
     ],
     "help_slug": null,

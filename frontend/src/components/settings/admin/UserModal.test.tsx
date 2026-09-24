@@ -53,6 +53,43 @@ describe("UserModal — exclusive personas", () => {
     );
   });
 
+  it("Praktykant (0374) jest rolą wyłączną — czyści pozostałe role", () => {
+    const onSave = vi.fn();
+    render(
+      <UserModal
+        initial={{ role: "recruiter", roles: ["recruiter", "tac"] }}
+        onClose={vi.fn()}
+        onSave={onSave}
+        loading={false}
+      />,
+    );
+
+    fireEvent.change(screen.getAllByRole("combobox")[0], {
+      target: { value: "trainee" },
+    });
+
+    expect(screen.getByRole("checkbox", { name: /Praktykant/ })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "TAC" })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: "Rekruter" })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({ role: "trainee", roles: ["trainee"], recruiter_role: "" }),
+    );
+  });
+
+  it("praktykanta nie da się dołożyć jako roli dodatkowej", () => {
+    render(
+      <UserModal
+        initial={{ role: "sourcer", roles: ["sourcer"] }}
+        onClose={vi.fn()}
+        onSave={vi.fn()}
+        loading={false}
+      />,
+    );
+    expect(screen.getByRole("checkbox", { name: "Praktykant" })).toBeDisabled();
+  });
+
   it("removes Finance when switching back to an operational primary role", () => {
     const onSave = vi.fn();
     render(

@@ -33,6 +33,8 @@ class UserRole(str, enum.Enum):
     - recruiter           — 100% LinkedIn, dodaje kandydatów
     - sourcer             — 100% ATS + ogłoszenia
     - user                — deprecated legacy viewer; no new provisioning
+    - trainee             — praktykant (0374): przez program wdrożenia widzi
+                            wyłącznie „Telefony na dziś”; rola wyłączna
 
     ``user`` remains during the expand/contract window so legacy guards keep
     failing closed while accounts are migrated to ``recruiter``.
@@ -47,6 +49,7 @@ class UserRole(str, enum.Enum):
     recruiter = "recruiter"
     sourcer = "sourcer"
     user = "user"
+    trainee = "trainee"
 
 
 class User(Base, TimestampMixin):
@@ -67,9 +70,9 @@ class User(Base, TimestampMixin):
         CheckConstraint(
             """
             CASE
-                WHEN role::text IN ('finance', 'user')
+                WHEN role::text IN ('finance', 'user', 'trainee')
                     THEN roles = jsonb_build_array(role::text)
-                ELSE NOT (roles ?| ARRAY['finance', 'user']::text[])
+                ELSE NOT (roles ?| ARRAY['finance', 'user', 'trainee']::text[])
             END
             """,
             name="ck_users_exclusive_finance_viewer_roles",
@@ -314,17 +317,14 @@ class User(Base, TimestampMixin):
             self.roles = [primary_str] + current
 
     def ensure_exclusive_roles(self) -> None:
-        """Finance and legacy viewer are exclusive personas."""
+        """Finance, legacy viewer and trainee are exclusive personas."""
 
         role_values = {role.value for role in self.get_all_roles()}
         exclusive = {
             UserRole.finance.value,
             UserRole.user.value,
+            UserRole.trainee.value,
         }.intersection(role_values)
         if exclusive and len(role_values) != 1:
-            role_name = (
-                UserRole.finance.value
-                if UserRole.finance.value in exclusive
-                else UserRole.user.value
-            )
+            role_name = sorted(exclusive)[0]
             raise ValueError(f"{role_name} role cannot be combined with other roles")

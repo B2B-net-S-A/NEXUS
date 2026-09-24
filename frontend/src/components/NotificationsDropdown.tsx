@@ -454,6 +454,11 @@ const TYPE_CONFIG: Record<
     color: "text-warning",
     bgColor: "bg-warning/15",
   },
+  trainee_program_decision: {
+    icon: <Users className="w-3.5 h-3.5" />,
+    color: "text-primary",
+    bgColor: "bg-primary/10",
+  },
 };
 
 /** Nieznany (nowy) typ dostaje neutralny dzwonek, nie ikonę „nowy kandydat". */

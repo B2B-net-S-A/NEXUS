@@ -105,6 +105,7 @@ from app.api import my_clients as my_clients_api
 from app.api import my_relationships as my_relationships_api
 from app.api import my_people as my_people_api
 from app.api import academy as academy_api
+from app.api import trainee as trainee_api
 from app.api import board_tasks as board_tasks_api
 from app.api import candidate_followups as candidate_followups_api
 from app.api import interview_cycle as interview_cycle_api
@@ -679,6 +680,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.candidate_search_retention import candidate_search_retention_loop
     from app.tasks.jarvis_retention import jarvis_retention_loop
     from app.tasks.academy_intake import academy_intake_loop
+    from app.tasks.trainee_call_lists import trainee_call_lists_loop
 
     # audyt 22.09 r2 (DATA-03/04/PROD-10): retencja kolejek i dziennika automatów.
     from app.tasks.queue_retention import queue_retention_loop
@@ -727,6 +729,7 @@ async def lifespan(app: FastAPI):
         # Jarvis (0330): retencja rozmów (dane osobowe) i wygaszanie propozycji.
         "jarvis_retention": asyncio.create_task(jarvis_retention_loop()),
         "academy_intake": asyncio.create_task(academy_intake_loop()),
+        "trainee_call_lists": asyncio.create_task(trainee_call_lists_loop()),
         # audyt 22.09 r2 (DATA-03/04/PROD-10): dziennik auto-matcha, kolejki.
         "queue_retention": asyncio.create_task(queue_retention_loop()),
         "calendar_reminder": asyncio.create_task(calendar_reminder_loop()),
@@ -1102,6 +1105,11 @@ app.include_router(
     academy_api.router,
     prefix="/api/academy",
     tags=["academy"],
+)
+app.include_router(
+    trainee_api.router,
+    prefix="/api/trainee",
+    tags=["trainee"],
 )
 app.include_router(
     board_tasks_api.router,
@@ -2680,6 +2688,7 @@ async def api_health_deep_check():
     from app.models.candidate_consent import CandidateConsent
     from app.models.placement_exclusion import PlacementExclusion
     from app.models.prep_meeting import PrepMeeting, PrepReview, PrepTranscript
+    from app.models.trainee import TraineeCallItem, TraineeCallList, TraineeProgram
     from app.models.candidate_followup import CandidateFollowup
     from app.models.b2b_contract_document import B2BContractDocument
     from app.models.b2b_register_import import B2BRegisterImportRun
@@ -2877,6 +2886,9 @@ async def api_health_deep_check():
         # 0370: prepy w Teams — agenda „Rozmowy u klienta” czyta je przy
         # każdym wejściu, więc brak tabeli = pusty ekran kalendarza.
         ("prep_meetings", PrepMeeting),
+        ("trainee_programs", TraineeProgram),
+        ("trainee_call_lists", TraineeCallList),
+        ("trainee_call_items", TraineeCallItem),
         ("prep_transcripts", PrepTranscript),
         ("prep_reviews", PrepReview),
         # 0372: follow-up z kandydatem — „Czeka na Ciebie” i Tablica czytają

@@ -18,6 +18,9 @@ export type UserRole =
   | "recruiter"
   | "sourcer"
   | "user"
+  // Praktykant (0374) — rola WYŁĄCZNA: widzi tylko „Telefony na dziś”
+  // (`/trainee`). Nie łączy się z innymi rolami (lustro finance).
+  | "trainee"
 
 // Ranga — liczbowa reprezentacja pozwala na porównanie "min rola".
 // Legacy rank helper only. Section/action access is defined by explicit
@@ -37,6 +40,9 @@ export const ROLE_RANK: Record<UserRole, number> = {
   recruiter: 2,
   sourcer: 2,
   user: 1,
+  // Najniżej z ról operacyjnych — praktykant nie przechodzi żadnej bramki
+  // rangowej. Finance zostaje minimum (rola rozłączna, fail-closed).
+  trainee: 0.5,
 }
 
 export const ROLE_LABELS: Record<UserRole, string> = {
@@ -49,6 +55,7 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   recruiter: "Rekruter",
   sourcer: "Sourcer",
   user: "User",
+  trainee: "Praktykant",
 }
 
 /** Identyfikatory modułów DynaReportera (migracja B.0, 0111). Lista
@@ -226,7 +233,20 @@ export function postLoginDestination(
     return "/profile?force_password_change=1"
   }
   if (shouldRouteToOnboarding(user)) return "/onboarding"
+  // Praktykant ma jeden ekran — `?next=` do innej trasy i tak odbiłby się
+  // w middleware z powrotem na `/trainee`.
+  if (isTraineeOnly(user)) return "/trainee"
   return fallback
+}
+
+/** Konto praktykanta: rola `trainee` i żadna inna (rola jest wyłączna, ale
+ *  stara sesja albo błędne dane nie mogą zamknąć w „Telefonach” admina). */
+export function isTraineeOnly(
+  user: { role: UserRole; roles?: readonly UserRole[] } | null | undefined,
+): boolean {
+  if (!user) return false
+  const roles = getUserRoles(user)
+  return roles.length === 1 && roles[0] === "trainee"
 }
 
 // ── Role helpers ────────────────────────────────────────────────────────────

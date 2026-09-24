@@ -68,6 +68,7 @@ DEFAULT_ROLE_ACTION_ACCESS: dict[UserRole, dict[ProductAction, ActionAccess]] = 
     UserRole.recruiter: _policy(b2b_contract_generator=ActionAccess.manage),
     UserRole.sourcer: _policy(b2b_contract_generator=ActionAccess.manage),
     UserRole.user: _policy(b2b_contract_generator=ActionAccess.view),
+    UserRole.trainee: _policy(),
 }
 
 

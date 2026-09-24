@@ -340,6 +340,34 @@ describe("/preview/cpro-queue zasiewa każdy stały klucz", () => {
   });
 });
 
+describe("/preview/trainee i /preview/trainees (0374) nie mają sieci", () => {
+  const today = withoutComments(read("app/preview/trainee/page.tsx"));
+  const panel = withoutComments(read("app/preview/trainees/page.tsx"));
+
+  it("zasiewają klucze tymi samymi funkcjami co ekrany", () => {
+    expect(today).toContain("setQueryData(traineeKeys.today(), today)");
+    expect(today).toContain("setQueryData(traineeKeys.openJobs(item.id)");
+    expect(panel).toContain("setQueryData(traineeKeys.overview(), overview)");
+    expect(panel).toContain("setQueryData(traineeKeys.qualitySample(row.user_id)");
+    expect(panel).toContain("setQueryData(traineeKeys.rules(), PREVIEW_RULES)");
+    expect(panel).toContain("setQueryData(traineeKeys.rulesPreview(PREVIEW_RULES)");
+  });
+
+  it("ekrany biorą klucze z `traineeKeys`, nie z literałów", () => {
+    const api = withoutComments(read("lib/api/trainee.ts"));
+    expect(literalQueryKeys(api)).toEqual([]);
+    expect(api).toContain("queryKey: traineeKeys.today()");
+  });
+
+  it("odcinają sieć i przywracają warstwę API przy odmontowaniu", () => {
+    for (const source of [today, panel]) {
+      expect(source).toContain("api.interceptors.request.use(");
+      expect(source).toContain("api.interceptors.request.eject(");
+      expect(source).toContain("Object.assign(traineeApi, REAL_TRAINEE_API)");
+    }
+  });
+});
+
 describe("/preview/insights zasiewa każdy stały klucz widoków", () => {
   it("nie zostawia klucza, który uruchomiłby zapytanie i przerzucił na /login", () => {
     const harness = withoutComments(read("app/preview/insights/page.tsx")).replace(

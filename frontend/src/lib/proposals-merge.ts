@@ -16,11 +16,13 @@ import type {
   HistoricalCandidate,
   MatchEligibility,
   ProposalCandidateItem,
+  RateFit,
 } from "@/lib/api";
 import type { CandidateSearchRow } from "@/lib/full-candidate-search-api";
 import type {
   ProposalInboxItem,
   ProposalReassignFrom,
+  ProposalTraineeHandover,
 } from "@/lib/job-proposals-api";
 import { SEARCH_AVAILABILITY_OPTIONS } from "@/lib/search-availability";
 import {
@@ -60,7 +62,7 @@ export interface ProposalDetail {
   availabilityDate: string | null;
   requirements: ProposalRequirement[];
   eligibility: MatchEligibility | null;
-  rateFit: "ok" | "over_budget" | "unknown" | null;
+  rateFit: RateFit | null;
   officeFit: string | null;
   similarProjects: ProposalSimilarProject[];
   /** Ten sam klient już tę osobę rozważał / odrzucił (z podobnych projektów). */
@@ -78,6 +80,8 @@ export interface ProposalDetail {
   missingMustGate: string[];
   /** Przepięcie (0341): rekrutacja, w której osoba była już u klienta. */
   reassignFrom: ProposalReassignFrom | null;
+  /** Praktykant przekazał osobę po rozmowie (0374). */
+  traineeHandover?: ProposalTraineeHandover | null;
 }
 
 export interface ProposalEntry {
@@ -195,7 +199,16 @@ function emptyDetail(candidateId: number): ProposalDetail {
     aiSummary: null,
     missingMustGate: [],
     reassignFrom: null,
+    traineeHandover: null,
   };
+}
+
+/** „Od praktykanta: Ola Kamińska · 24.09". Notatka idzie osobną linią. */
+export function traineeHandoverReason(handover: ProposalTraineeHandover): string {
+  const who = handover.by_name?.trim() || "praktykant";
+  const day = handover.at ? handover.at.slice(0, 10).split("-") : null;
+  const when = day && day.length === 3 ? ` · ${day[2]}.${day[1]}` : "";
+  return `Od praktykanta: ${who}${when}`;
 }
 
 /** „Wysłany do PKO BP · Senior Java Developer · 26.08.2026". */
@@ -296,6 +309,10 @@ export function mergeProposals(input: MergeProposalsInput): ProposalEntry[] {
     if (d.detail.requirements.length === 0) d.detail.requirements = reqs;
     const reason = reasonFromRequirements(reqs);
     if (reason) d.reasons.inbox = reason;
+    if (item.trainee_handover) {
+      d.detail.traineeHandover ??= item.trainee_handover;
+      d.reasons.inbox = traineeHandoverReason(item.trainee_handover);
+    }
     if (item.reassign_from) {
       d.detail.reassignFrom ??= item.reassign_from;
       d.reasons.inbox = reassignReason(item.reassign_from);
@@ -385,11 +402,14 @@ export function mergeProposals(input: MergeProposalsInput): ProposalEntry[] {
           : detail.eligibility.reason_code,
       );
     }
+    // Zgoda na ofertę poniżej minimum nie zmienia faktu: stawka jest ponad budżetem.
     const overBudget =
       detail.rateFit === "over_budget" ||
+      detail.rateFit === "below_min_consented" ||
       (detail.rateFit == null && budget != null && detail.rateHourly != null && detail.rateHourly > budget);
     if (overBudget) warnings.push("over_budget");
     if (detail.rejectedBySameClient) warnings.push("rejected_by_same_client");
+    const handoverNote = detail.traineeHandover?.note?.trim() || null;
     entries.push({
       row: {
         kind: "proposal",
@@ -401,13 +421,16 @@ export function mergeProposals(input: MergeProposalsInput): ProposalEntry[] {
         fitScore: d.scores.length ? Math.max(...d.scores) : null,
         warnings,
         sources: SOURCE_ORDER.filter((s) => d.sources.has(s)),
-        // Przepięcie tłumaczy się samo — „był już u klienta" bije resztę powodów.
-        reason: detail.reassignFrom
-          ? (d.reasons.inbox ?? null)
-          : (d.reasons.run ?? d.reasons.similar ?? d.reasons.recommendation ?? d.reasons.inbox ?? null),
+        // Przepięcie tłumaczy się samo — „był już u klienta" bije resztę powodów;
+        // przekazanie od praktykanta (po rozmowie) — zaraz za nim.
+        reason:
+          detail.reassignFrom || detail.traineeHandover
+            ? (d.reasons.inbox ?? null)
+            : (d.reasons.run ?? d.reasons.similar ?? d.reasons.recommendation ?? d.reasons.inbox ?? null),
         isNew: d.isNew,
         previouslyDismissed: d.previouslyDismissed,
         runId: d.runId,
+        ...(handoverNote ? { handoverNote } : {}),
       },
       detail,
     });
@@ -420,6 +443,10 @@ export function compareProposals(a: ProposalEntry, b: ProposalEntry): number {
   const ra = a.row.sources.includes("reassign");
   const rb = b.row.sources.includes("reassign");
   if (ra !== rb) return ra ? -1 : 1;
+  // Zaraz za nimi osoby przekazane przez praktykanta — po rozmowie, świeże dane.
+  const ta = a.row.sources.includes("trainee");
+  const tb = b.row.sources.includes("trainee");
+  if (ta !== tb) return ta ? -1 : 1;
   const sa = a.row.fitScore;
   const sb = b.row.fitScore;
   if (sa !== sb) {
@@ -467,7 +494,7 @@ export function proposalRateFit(
   budgetHourly: number | null,
 ): "in" | "over" | "unknown" {
   if (detail.rateFit === "ok") return "in";
-  if (detail.rateFit === "over_budget") return "over";
+  if (detail.rateFit === "over_budget" || detail.rateFit === "below_min_consented") return "over";
   if (detail.rateHourly == null || budgetHourly == null) return "unknown";
   return detail.rateHourly > budgetHourly ? "over" : "in";
 }

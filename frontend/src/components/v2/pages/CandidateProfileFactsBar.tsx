@@ -50,6 +50,12 @@ import {
 } from "@/lib/api";
 import { cn, formatDate } from "@/lib/utils";
 import {
+  callFactItems,
+  callFactsVerifiedLabel,
+  rateFactLabel,
+  type CandidateCallFacts,
+} from "@/lib/candidate-call-facts";
+import {
   WORK_MODES,
   WORK_MODE_LABELS,
   formatWorkMode,
@@ -149,7 +155,7 @@ interface CandidateProfileFactsBarProps {
     notice_period_unit?: string | null;
     preferences?: unknown;
     max_onsite_days_per_week?: number | null;
-  };
+  } & CandidateCallFacts;
 }
 
 /**
@@ -1143,6 +1149,9 @@ export function CandidateProfileFactsBar({
     candidate.max_onsite_days_per_week,
   );
   const workModeLabel = formatWorkMode(workMode.modes, workMode.days);
+  const rateLabel = rateFactLabel(candidate);
+  const verifiedLabel = callFactsVerifiedLabel(candidate);
+  const callFacts = callFactItems(candidate);
   const languagesForbidden = requestStatus(languagesQuery.error) === 403;
   const rateForbidden = requestStatus(rateQuery.error) === 403;
 
@@ -1270,11 +1279,11 @@ export function CandidateProfileFactsBar({
 
         {canViewAndEditRate && !rateForbidden ? (
           rateQuery.isPending ? (
-            <FactLoading label="Stawka B2B" />
+            <FactLoading label={rateLabel} />
           ) : rateQuery.isError ? (
             <FactShell
               icon={<WalletCards className="size-4" />}
-              label="Stawka B2B"
+              label={rateLabel}
               muted
               action={
                 <Button
@@ -1294,7 +1303,7 @@ export function CandidateProfileFactsBar({
           ) : rateQuery.data ? (
             <FactShell
               icon={<WalletCards className="size-4" />}
-              label="Stawka B2B"
+              label={rateLabel}
               muted={rateQuery.data.data.amount == null}
               action={
                 <EditFactButton
@@ -1309,6 +1318,31 @@ export function CandidateProfileFactsBar({
         ) : null}
         <FollowupFact candidateId={candidate.id} />
       </section>
+
+      {verifiedLabel || callFacts.length ? (
+        <div
+          aria-label="Fakty z rozmowy telefonicznej"
+          className="mt-2 flex flex-wrap items-center gap-1.5"
+        >
+          {verifiedLabel ? (
+            <Badge
+              variant="success"
+              className="h-auto max-w-full whitespace-normal break-words py-0.5"
+            >
+              {verifiedLabel}
+            </Badge>
+          ) : null}
+          {callFacts.map((fact) => (
+            <Badge
+              key={fact.key}
+              variant={fact.tone === "danger" ? "danger" : "outline"}
+              className="h-auto max-w-full whitespace-normal break-words py-0.5"
+            >
+              {fact.label}
+            </Badge>
+          ))}
+        </div>
+      ) : null}
 
       {canEditFacts && languagesQuery.data ? (
         <LanguagesEditor

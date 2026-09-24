@@ -536,6 +536,12 @@ class Settings(BaseSettings):
     # Akademia (0369): pętla naboru z ogłoszeń i sortowania Luną co 10 min.
     # Bez programów nic nie robi; wyłączenie nie blokuje przycisku na ekranie.
     ACADEMY_INTAKE_ENABLED: bool = True
+    # Praktykant (0374): poranne listy telefonów i powiadomienie o końcu
+    # programu. Bez praktykantów nic nie robi; lista i tak powstaje przy
+    # pierwszym otwarciu ekranu, więc wyłączenie nie zostawia nikogo bez pracy.
+    TRAINEE_CALL_LISTS_ENABLED: bool = True
+    # Godzina (BUSINESS_TZ), od której pętla składa listy danego dnia.
+    TRAINEE_CALL_LISTS_HOUR: int = 5
     # Proponowana akcja bez decyzji dłużej niż tyle minut wygasa.
     JARVIS_ACTION_TTL_MINUTES: int = 15
     # Internet (decyzja 21.09.2026): wyszukiwarka tylko w turze, w której

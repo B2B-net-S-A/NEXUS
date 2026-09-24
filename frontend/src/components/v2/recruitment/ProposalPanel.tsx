@@ -19,6 +19,7 @@ import {
   formatHourlyRate,
   proposalRateFit,
   reassignReason,
+  traineeHandoverReason,
   type ProposalEntry,
   type ProposalRequirement,
 } from "@/lib/proposals-merge";
@@ -53,6 +54,7 @@ export interface ProposalPanelProps {
 const OFFICE_FIT_LABEL: Record<string, string> = {
   ok: "Pasuje do trybu pracy i biura",
   days_exceeded: "Za dużo wymaganych dni w biurze",
+  over_consented: "Więcej dni w biurze — zgoda na telefon",
   city_mismatch: "Inne miasto niż biuro",
   not_required: "Biuro nie jest wymagane",
 };
@@ -186,6 +188,23 @@ export function ProposalPanel({
         </p>
       )}
 
+      {detail.traineeHandover && (
+        <div
+          role="note"
+          className="rounded-md border border-success/30 bg-success-muted px-3 py-2 text-xs text-success-muted-foreground"
+        >
+          <p>
+            <b className="font-semibold">Od praktykanta.</b>{" "}
+            {traineeHandoverReason(detail.traineeHandover)} — po rozmowie telefonicznej.
+          </p>
+          {detail.traineeHandover.note ? (
+            <p className="mt-1 whitespace-pre-line text-foreground">
+              {detail.traineeHandover.note}
+            </p>
+          ) : null}
+        </div>
+      )}
+
       <div className="rounded-lg bg-muted/60 p-3">
         <Section title="Dlaczego pasuje">
           <p className="leading-snug text-foreground">
@@ -234,7 +253,15 @@ export function ProposalPanel({
                 ? "Stawka ukryta (brak dostępu do finansów)"
                 : `${formatHourlyRate(detail.rateHourly) ?? "brak stawki"}${
                     budgetHourly != null ? ` / budżet ${formatBudgetHourly(budgetHourly)} PLN/h` : " / budżet nieokreślony"
-                  }${rateFit === "over" ? " — ponad budżet" : rateFit === "in" ? " — w budżecie" : ""}`}
+                  }${
+                    detail.rateFit === "below_min_consented"
+                      ? " — poniżej minimum — zgoda na telefon"
+                      : rateFit === "over"
+                        ? " — ponad budżet"
+                        : rateFit === "in"
+                          ? " — w budżecie"
+                          : ""
+                  }`}
             </dd>
           </div>
           <div className="flex justify-between gap-3">

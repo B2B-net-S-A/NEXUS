@@ -1255,10 +1255,11 @@ export const matchingApi = {
         /** Rubryki 0278 na WIERSZU — status dealbreakerów dla TEGO kandydata,
          *  widoczny nawet gdy wiersz przetrwał tylko dzięki `warn`-exemption.
          *  Opcjonalne: starszy backend ich nie wysyła. */
-        rate_fit?: "ok" | "over_budget" | "unknown";
+        rate_fit?: RateFit;
         office_fit?:
           | "ok"
           | "days_exceeded"
+          | "over_consented"
           | "city_mismatch"
           | "unknown"
           | "not_required";
@@ -2766,11 +2767,13 @@ export interface CandidateMatch {
  * dni → miasto → zdalnie), pierwszy pasujący powód wygrywa.
  */
 export type HiddenReason =
+  | "employment_only"
   | "over_budget"
   | "missing_must"
   | "office_days_exceeded"
   | "office_city_mismatch"
-  | "remote_only";
+  | "remote_only"
+  | "work_time_mismatch";
 
 /** `meta.hidden` / `snapshot.hidden` — liczniki per powód, wszystkie opcjonalne
  *  (starszy backend albo snapshot sprzed 0237/0278 może nie znać części kluczy). */
@@ -2780,12 +2783,19 @@ export type HiddenCounters = Partial<Record<HiddenReason, number>>;
  *  gdzie `meta.hidden`/`snapshot.hidden` się pojawia — ukrywanie nigdy nie
  *  jest ciche (reguła „awaria ≠ pustka"). */
 export const HIDDEN_LABELS_PL: Record<HiddenReason, string> = {
+  employment_only: "tylko umowa o pracę",
   over_budget: "powyżej budżetu rekrutacji",
   missing_must: "bez technologii must-have",
   office_days_exceeded: "za mało dni w biurze",
   office_city_mismatch: "inne miasto niż biuro",
   remote_only: "tylko-zdalnych",
+  work_time_mismatch: "inny wymiar pracy (full-time/part-time)",
 };
+
+/** Status stawki kandydata wobec budżetu rekrutacji (wiersz `/ai-matches`,
+ *  propozycje). `below_min_consented` (0374): budżet jest poniżej minimum
+ *  kandydata, ale kandydat zgodził się w rozmowie na telefon z taką ofertą. */
+export type RateFit = "ok" | "over_budget" | "below_min_consented" | "unknown";
 
 /** Suma wszystkich liczników ukrytych, niezależnie od tego, ile rubryk backend
  *  akurat zna — `undefined`/`null` liczy się jako zero na każdym kluczu. */
