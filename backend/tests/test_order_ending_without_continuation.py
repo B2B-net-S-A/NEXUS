@@ -218,6 +218,31 @@ def test_bell_rule_covers_cost_lines_that_the_scanner_closes_by_date():
     assert "client_orders.md_total IS NULL" not in compiled()
 
 
+def test_bell_and_dashboard_tile_both_cover_date_closed_lines():
+    """Dzwonek 30/14/7 i kafel „kończy się w 30 dni” liczą tak samo (M9)."""
+    import ast
+    import inspect
+
+    from app.services.custom_metrics import engine
+    from app.tasks import dl_portal_expiry_scanner
+
+    for function in (dl_portal_expiry_scanner._scan_orders, engine._orders_query):
+        tree = ast.parse(inspect.getsource(function).lstrip())
+        calls = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and getattr(node.func, "id", None) == "order_ending_without_continuation"
+        ]
+        assert calls, function.__name__
+        for call in calls:
+            flags = {kw.arg: kw.value for kw in call.keywords}
+            flag = flags.get("include_date_closed_lines")
+            assert isinstance(flag, ast.Constant) and flag.value is True, (
+                function.__name__
+            )
+
+
 def test_empty_signing_draft_does_not_hide_the_ending_order():
     orders = [
         _order(1),

@@ -458,12 +458,15 @@ def _orders_query(definition: MetricDefinition, window: Window):
         # do tego dnia kafelek liczył też zamówienia z dodanym przedłużeniem
         # i linie MD wszystkich klientów (te kończy budżet, nie kalendarz),
         # więc pokazywał inną liczbę niż pigułka i panel „Moi klienci".
+        # Linie BEZ budżetu MD (kosztowe) skaner domyka datą, więc liczą się
+        # u każdego klienta — tak jak w dzwonku (audyt 24.09.2026, M9).
         conds.append(
             order_ending_without_continuation(
                 window.today,
                 window.today + timedelta(days=ORDERS_ENDING_DAYS),
                 extended_client_ids=extended_order_alert_client_ids(),
                 today=window.today,
+                include_date_closed_lines=True,
             )
         )
     else:
