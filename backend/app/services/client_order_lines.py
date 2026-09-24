@@ -1590,7 +1590,19 @@ async def _rebalance_swap_successor(db: AsyncSession, order: ClientOrder) -> Non
     )
     if len(successors) != 1 or successors[0].md_total is None:
         return
-    succ = successors[0]
+    # S8 (audyt 24.09.2026): korekta pisze na linii NASTĘPCY — pod blokadą,
+    # w kolejności kontrakt → linia, i na świeżym stanie wiersza.
+    from app.services.contract_lifecycle import lock_contract_then_orders
+
+    await lock_contract_then_orders(db, order_ids=[successors[0].id])
+    succ = await db.scalar(
+        select(ClientOrder)
+        .where(ClientOrder.id == successors[0].id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if succ is None or succ.md_total is None:
+        return
     event = await db.scalar(
         select(ClientOrderGroupEvent)
         .where(
@@ -1727,7 +1739,17 @@ async def _rebalance_offboarding_transfer(db: AsyncSession, order: ClientOrder) 
         order.md_total, payload.get("source_md_total_after")
     ) or not _same_md(order.md_optional_total, payload.get("source_md_optional_after")):
         return  # linia odchodzącego edytowana ręcznie
-    target = await db.get(ClientOrder, case.target_order_id)
+    # S8: korekta pisze na linii CELU przeniesienia — pod blokadą, kontrakt →
+    # linia, na świeżym stanie wiersza.
+    from app.services.contract_lifecycle import lock_contract_then_orders
+
+    await lock_contract_then_orders(db, order_ids=[case.target_order_id])
+    target = await db.scalar(
+        select(ClientOrder)
+        .where(ClientOrder.id == case.target_order_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
     if target is None or target.md_total is None:
         return
     if not _same_md(target.md_total, payload.get("target_md_total_after")):
