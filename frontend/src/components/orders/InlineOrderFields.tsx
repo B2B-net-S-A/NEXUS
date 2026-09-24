@@ -15,6 +15,7 @@ import {
   DATE_PLACEHOLDER,
   normalizeDateInput,
 } from "@/lib/dateInput";
+import { orderPeriodError } from "@/lib/order-period";
 
 /** Data kalendarzowa (YYYY-MM-DD) z wartości ISO — bez strefy czasowej. */
 export function dateOnly(value: string | null): string | null {
@@ -180,6 +181,11 @@ export function InlinePeriod({
     const nextEnd = end.trim() ? normalizeDateInput(end) : null;
     if (nextStart === dateOnly(startDate) && nextEnd === dateOnly(endDate)) {
       setEditing(false);
+      return;
+    }
+    const periodError = orderPeriodError(nextStart, nextEnd);
+    if (periodError) {
+      onError(periodError);
       return;
     }
     setSaving(true);

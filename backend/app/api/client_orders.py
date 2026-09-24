@@ -723,6 +723,58 @@ def _assert_order_period(start: Optional[date], end: Optional[date]) -> None:
         )
 
 
+async def _assert_no_duplicate_order_number(
+    db: AsyncSession,
+    contract_id: int,
+    title: str,
+    start: Optional[date],
+    end: Optional[date],
+) -> None:
+    """Ta sama osoba nie dostaje drugiego zamówienia o tym samym numerze na
+    nachodzący okres (ticket OIT/0569/2026/ITVM, 24.09.2026: „Dodaj
+    przedłużenie” z tym samym PDF-em dało drugie zamówienie 01.01.2027 →
+    31.12.2026 obok poprawnego 01.10–31.12.2026). Lustro frontu:
+    ``lib/order-period.ts`` ``duplicateOrderError``."""
+    number = " ".join((title or "").split()).upper()
+    # Zaślepka „(bez numeru)” nie jest numerem — szkiców bez numeru bywa kilka.
+    if not number or number == "(BEZ NUMERU)":
+        return
+    rows = (
+        await db.execute(
+            select(
+                ClientOrder.id,
+                ClientOrder.title,
+                ClientOrder.start_date,
+                ClientOrder.end_date,
+            ).where(
+                ClientOrder.contract_id == contract_id,
+                ClientOrder.status != ClientOrderStatus.cancelled,
+            )
+        )
+    ).all()
+    for row in rows:
+        if " ".join((row.title or "").split()).upper() != number:
+            continue
+        starts_before_other_ends = (
+            start is None or row.end_date is None or start <= row.end_date
+        )
+        ends_after_other_starts = (
+            end is None or row.start_date is None or end >= row.start_date
+        )
+        if starts_before_other_ends and ends_after_other_starts:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "duplicate_order_number",
+                    "message": (
+                        f"Zamówienie {row.title} na ten okres już istnieje — "
+                        "popraw istniejące zamiast dodawać drugie."
+                    ),
+                    "order_id": row.id,
+                },
+            )
+
+
 def _validated_total_value(value: Decimal) -> Decimal:
     """Wartość zamówienia z formularza: skończona, nieujemna, mieści się w kolumnie.
 
@@ -1926,6 +1978,9 @@ async def create_order_extension(
     # niczego nie dubluje.
     if order_type == OrderType.periodic:
         await assert_no_open_md_group_line(db, contract.id)
+    await _assert_no_duplicate_order_number(
+        db, contract.id, title, start_date, end_date
+    )
 
     effective = effective_rate_fields(contract, start_date or business_today())
     # Przedłużenie DZIEDZICZY jednostkę kontraktu (razem z jego stawkami), więc

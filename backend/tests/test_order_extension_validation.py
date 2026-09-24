@@ -211,3 +211,50 @@ async def test_closing_a_draft_is_refused_with_a_hint(app_client, app_auth_heade
     )
     assert resp.status_code == 409, resp.text
     assert resp.json()["detail"]["code"] == "order_is_draft"
+
+
+async def test_same_number_on_overlapping_period_is_refused(
+    app_client, app_auth_headers
+):
+    """Ticket OIT/0569/2026/ITVM: ten sam PDF przez „Dodaj przedłużenie” dał
+    drugie zamówienie o tym samym numerze. Drugie na nachodzący okres → 409,
+    rozłączny okres (kolejne przedłużenie pod tym samym numerem) przechodzi."""
+    client_id, contract_id = await _seed()
+    today = business_today()
+    number = f"OIT/{uuid.uuid4().hex[:4]}/2026/ITVM"
+    first = await app_client.post(
+        f"/api/clients/{client_id}/orders",
+        data=_form(
+            contract_id,
+            title=number,
+            start_date=(today + timedelta(days=10)).isoformat(),
+            end_date=(today + timedelta(days=90)).isoformat(),
+        ),
+        headers=app_auth_headers,
+    )
+    assert first.status_code == 201, first.text
+
+    duplicate = await app_client.post(
+        f"/api/clients/{client_id}/orders",
+        data=_form(
+            contract_id,
+            title=f" {number.lower()} ",
+            start_date=(today + timedelta(days=30)).isoformat(),
+            end_date=(today + timedelta(days=90)).isoformat(),
+        ),
+        headers=app_auth_headers,
+    )
+    assert duplicate.status_code == 409, duplicate.text
+    assert duplicate.json()["detail"]["code"] == "duplicate_order_number"
+
+    later = await app_client.post(
+        f"/api/clients/{client_id}/orders",
+        data=_form(
+            contract_id,
+            title=number,
+            start_date=(today + timedelta(days=91)).isoformat(),
+            end_date=(today + timedelta(days=180)).isoformat(),
+        ),
+        headers=app_auth_headers,
+    )
+    assert later.status_code == 201, later.text
