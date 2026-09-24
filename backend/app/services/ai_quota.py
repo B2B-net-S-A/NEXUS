@@ -24,7 +24,7 @@ import contextvars
 import logging
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import date
 from typing import Optional
 from uuid import uuid4
 
@@ -32,6 +32,7 @@ from sqlalchemy import select, func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.scheduling import business_today
 from app.models.ai_metering import AIOperation, AIProviderCall
 
 from app.models.ai_feature import (
@@ -76,9 +77,13 @@ class QuotaState:
 
 
 def _current_period_start() -> date:
-    """First day of the current calendar month, UTC."""
-    now = datetime.now(timezone.utc).date()
-    return now.replace(day=1)
+    """Pierwszy dzień bieżącego miesiąca w kalendarzu firmy (Europe/Warsaw).
+
+    Limit miesięczny to limit firmy, pokazywany w Ustawienia → AI jako „ten
+    miesiąc". Miesiąc UTC zaczynał się o 01:00/02:00 czasu warszawskiego, więc
+    wywołania z pierwszych godzin 1. dnia szły jeszcze na konto poprzedniego.
+    """
+    return business_today().replace(day=1)
 
 
 async def get_master_enabled(db: AsyncSession) -> bool:

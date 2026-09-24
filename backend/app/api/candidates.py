@@ -46,6 +46,7 @@ from sqlalchemy.orm import aliased, selectinload
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.scheduling import business_today
 from app.core.http_headers import content_disposition
 from app.core.rate_limit import limiter
 from app.models.candidate import AvailabilityStatus, Candidate, CandidateStatus
@@ -6617,6 +6618,11 @@ def _sanitize_zip_component(value: str) -> str:
     return cleaned[:200] or "_"
 
 
+def _bulk_cv_archive_name() -> str:
+    """Nazwa paczki CV z datą w kalendarzu firmy (Europe/Warsaw), nie dniem UTC."""
+    return f"nexus-cvs-{business_today().isoformat()}.zip"
+
+
 @router.post("/bulk-cv-download")
 async def bulk_cv_download(
     payload: BulkCvDownloadRequest,
@@ -6726,7 +6732,7 @@ async def bulk_cv_download(
     )
     await db.commit()
 
-    archive_name = f"nexus-cvs-{datetime.now(timezone.utc).strftime('%Y-%m-%d')}.zip"
+    archive_name = _bulk_cv_archive_name()
     headers = {
         "Content-Disposition": f'attachment; filename="{archive_name}"',
         "X-Included-Count": str(included),

@@ -352,8 +352,9 @@ class AIUsageLog(Base):
     Legacy counts still contribute to quotas; legacy tokens are unreliable
     because nullable actors allowed duplicate rows and token-update fanout.
 
-    `period_start` = first day of the calendar month (UTC). The 1st-of-month
-    reset is enforced by query: SELECT … WHERE period_start = date_trunc('month', NOW()).
+    `period_start` = first day of the calendar month in the company calendar
+    (Europe/Warsaw, `ai_quota._current_period_start`). The 1st-of-month reset is
+    enforced by query: SELECT … WHERE period_start = <that date>.
     """
 
     __tablename__ = "ai_usage_log"
