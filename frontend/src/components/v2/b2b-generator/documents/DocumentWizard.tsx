@@ -526,7 +526,7 @@ export function DocumentWizard({
                       title="Podgląd dokumentu"
                       sandbox=""
                       srcDoc={previewHtml}
-                      className="h-[70vh] w-full rounded-lg border border-border bg-card"
+                      className="h-[70dvh] w-full rounded-lg border border-border bg-card"
                     />
                   </div>
                 ) : null}

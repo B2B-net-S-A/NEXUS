@@ -17,6 +17,7 @@ import { expect, test, type Page } from "@playwright/test";
 const WIDTHS = [360, 390, 768, 1024, 1280] as const;
 
 const PAGES = [
+  "/preview/b2b-documents",
   "/preview/calendar-cycle",
   "/preview/calendar-cycle?as=dl",
   "/preview/candidates",
