@@ -87,9 +87,8 @@ import { DebriefRequiredDialog } from "@/components/v2/recruitment/DebriefRequir
 import { DockNextStage } from "@/components/v2/jobs/DockNextStage";
 import {
   MOVE_REQUIREMENTS_PREFIX,
-  moveRequirementsQueryKey,
+  useMoveRequirements,
   type MoveRequirementAction,
-  type MoveRequirementsResponse,
 } from "@/lib/api/moveRequirements";
 import {
   companyCvSentence,
@@ -343,6 +342,11 @@ export interface PipelineCandidateDockProps {
   primaryBlocked?: { col: KanbanColumn; reason: string } | null;
   onClose: () => void;
   onMoveTo: (col: KanbanColumn) => void;
+  /**
+   * Ruch na etap szablonu wskazany przez serwer w ramce „Następny etap”
+   * (przekazanie DL na „QC CV”, kolejka Cpro u Nordei).
+   */
+  onMoveToStageDef?: (stageDefId: number) => void;
   onOpenScreening: (stageId: number, name: string) => void;
   onReject: () => void;
   /** Pipeline v4: „Zrezygnował" — rezygnacja kandydata z powodem. */
@@ -445,6 +449,7 @@ export function PipelineCandidateDock({
   primaryBlocked = null,
   onClose,
   onMoveTo,
+  onMoveToStageDef,
   onOpenScreening,
   onReject,
   onWithdraw,
@@ -638,19 +643,22 @@ export function PipelineCandidateDock({
   // 404 z `…/cv/branded` = etap nie ma własnego CV (brak wiersza CV etapu),
   // nie awaria. Czy PARA ma CV firmowe, mówi lista wymagań ramki „Następny
   // etap” — czytana z cache (`enabled: false`), bez drugiego żądania.
+  // Obserwator MUSI mieć ten sam `queryFn` co ramka (`useMoveRequirements`):
+  // react-query bierze opcje zapytania z ostatniego `setOptions`, a efekty
+  // rodzica biegną po efektach dziecka — atrapa `queryFn: () => null`
+  // (#1789) zerowała ramkę przy każdym `invalidateQueries` (audyt 24.09.2026).
   const brandedMissingOnStage =
     cvBrandedQuery.isError &&
     (cvBrandedQuery.error as { response?: { status?: number } } | null)?.response?.status === 404;
   const brandedFailed = cvBrandedQuery.isError && !brandedMissingOnStage;
-  const nextStageRequirements = useQuery({
-    queryKey: moveRequirementsQueryKey({
+  const nextStageRequirements = useMoveRequirements(
+    {
       candidateId: item.candidate_id,
       jobId,
       toStageDefId: primaryTarget?.stage_def_id ?? null,
-    }),
-    queryFn: () => null as MoveRequirementsResponse | null,
-    enabled: false,
-  });
+    },
+    false,
+  );
   const companyCv = companyCvSentence(brandedMissingOnStage ? null : cvBrandedQuery.data, {
     pairHasCompanyCv: pairCompanyCv(nextStageRequirements.data?.items),
   });
@@ -875,6 +883,7 @@ export function PipelineCandidateDock({
                 target={primaryTarget}
                 readOnly={readOnly}
                 onMove={onMoveTo}
+                onMoveToStageDef={onMoveToStageDef}
                 onAction={handleRequirementAction}
                 canAct={canActOnRequirement}
                 refreshToken={item}

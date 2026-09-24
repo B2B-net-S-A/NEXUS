@@ -48,10 +48,12 @@ vi.mock("@/lib/api", () => ({
   extractErrorMsg: (e: unknown) => (e instanceof Error ? e.message : "Błąd"),
 }));
 
+const toastSuccess = vi.fn();
+const toastError = vi.fn();
 vi.mock("@/components/Toast", () => ({
   useToast: () => ({
-    showSuccess: vi.fn(),
-    showError: vi.fn(),
+    showSuccess: (...a: unknown[]) => toastSuccess(...a),
+    showError: (...a: unknown[]) => toastError(...a),
   }),
 }));
 
@@ -128,8 +130,11 @@ function stageCol(
 
 type DockProps = ComponentProps<typeof PipelineCandidateDock>;
 
+let lastQueryClient: QueryClient | null = null;
+
 function renderDock(overrides: Partial<DockProps> = {}) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  lastQueryClient = qc;
   const props: DockProps = {
     item: baseItem(),
     jobId: 10,
@@ -631,7 +636,22 @@ describe("PipelineCandidateDock — następny etap, profil i CV", () => {
   });
 
   it("ramka pokazuje numer i nazwę kolumny, licznik braków i przycisk, który usuwa brak", async () => {
-    routeApiGet({});
+    routeApiGet({
+      requirements: requirements({
+        items: [
+          {
+            key: "screening_sheet",
+            label: "Arkusz screeningu",
+            status: "missing",
+            blocking: false,
+            detail: "odpowiedzi jeszcze nie zapisane",
+            action: { kind: "open_screening", label: "Otwórz screening", stage_id: 777 },
+          },
+          { key: "availability", label: "Dostępność", status: "ok", blocking: false },
+        ],
+        primary: { kind: "move", label: "Przesuń na „Zweryfikowany”" },
+      }),
+    });
     const user = userEvent.setup();
     const onOpenScreening = vi.fn();
     const onMoveTo = vi.fn();
@@ -648,6 +668,92 @@ describe("PipelineCandidateDock — następny etap, profil i CV", () => {
     // Główny przycisk działa mimo braków (serwer tego nie blokuje).
     await user.click(screen.getByRole("button", { name: "Przenieś na etap: Zweryfikowany" }));
     expect(onMoveTo).toHaveBeenCalledWith(target);
+  });
+
+  it("primary „blocked”: przycisk wyłączony z powodem, bez obietnicy „możesz przenieść”", async () => {
+    routeApiGet({});
+    const onMoveTo = vi.fn();
+    renderDock({
+      primaryTarget: stageCol("verified", "Zweryfikowany", { stage_def_id: 5 }),
+      onMoveTo,
+      item: baseItem({ stage: "new" }),
+    });
+    expect(await screen.findByTestId("dock-next-stage-counter")).toHaveTextContent("brakuje 1 z 2");
+    const button = screen.getByRole("button", { name: "Przenieś na etap: Zweryfikowany" });
+    expect(button).toBeDisabled();
+    expect(screen.getByText("Najpierw uzupełnij: Arkusz screeningu.")).toBeInTheDocument();
+    expect(screen.queryByTestId("dock-next-stage-reminder")).toBeNull();
+  });
+
+  it("hand_to_dl (rekruter): przycisk przekazuje na „QC CV” jak okno „Przesuń dalej”, bez ruchu na „CV wysłane”", async () => {
+    routeApiGet({
+      requirements: requirements({
+        from_column: "verified",
+        to_column: "cv_sent",
+        items: [
+          { key: "client_rate", label: "Stawka do klienta", status: "waiting", blocking: false },
+        ],
+        primary: { kind: "hand_to_dl", label: "Przekaż Delivery Leadowi", target_stage_def_id: 41 },
+        owner_note: "CV wysyła Delivery Lead — trafi do jego „Czeka na Ciebie”.",
+      }),
+    });
+    const user = userEvent.setup();
+    const onMoveTo = vi.fn();
+    const onMoveToStageDef = vi.fn();
+    renderDock({
+      primaryTarget: stageCol("cv_sent", "CV wysłane", { stage_def_id: 9 }),
+      onMoveTo,
+      onMoveToStageDef,
+      item: baseItem({ stage: "verified" }),
+    });
+    const button = await screen.findByRole("button", { name: "Przekaż Delivery Leadowi" });
+    expect(screen.queryByTestId("dock-next-stage-reminder")).toBeNull();
+    await user.click(button);
+    expect(onMoveToStageDef).toHaveBeenCalledWith(41);
+    expect(onMoveTo).not.toHaveBeenCalled();
+    expect(toastSuccess).toHaveBeenCalledWith(expect.stringContaining("Delivery Leada"));
+  });
+
+  it("hand_to_cpro (Nordea): przycisk wrzuca do kolejki Cpro, nie na „Wysłane do Cpro”", async () => {
+    routeApiGet({
+      requirements: requirements({
+        from_column: "cv_qc",
+        to_column: "cv_sent",
+        items: [{ key: "cpro_upload", label: "Wrzucenie do Cpro", status: "waiting", blocking: false }],
+        primary: { kind: "hand_to_cpro", label: "Przekaż do kolejki Cpro", target_stage_def_id: 45 },
+      }),
+    });
+    const user = userEvent.setup();
+    const onMoveTo = vi.fn();
+    const onMoveToStageDef = vi.fn();
+    renderDock({
+      primaryTarget: stageCol("cv_sent", "Wysłane do Cpro", { stage_def_id: 9 }),
+      onMoveTo,
+      onMoveToStageDef,
+      item: baseItem({ stage: "interview" }),
+    });
+    await user.click(await screen.findByRole("button", { name: "Przekaż do kolejki Cpro" }));
+    expect(onMoveToStageDef).toHaveBeenCalledWith(45);
+    expect(onMoveTo).not.toHaveBeenCalled();
+  });
+
+  it("po unieważnieniu wymagań (akcja z ramki) lista i licznik zostają — dok nie zeruje zapytania", async () => {
+    // #1789 dołożył drugi obserwator z `queryFn: () => null`: react-query brał
+    // go jako funkcję zapytania i refetch po `invalidateQueries` dawał `null`.
+    routeApiGet({});
+    renderDock({
+      primaryTarget: stageCol("verified", "Zweryfikowany", { stage_def_id: 5 }),
+      item: baseItem({ stage: "new" }),
+    });
+    expect(await screen.findByTestId("dock-next-stage-counter")).toHaveTextContent("brakuje 1 z 2");
+    await lastQueryClient!.invalidateQueries({ queryKey: ["move-requirements"] });
+    await waitFor(() =>
+      expect(
+        apiGet.mock.calls.filter(([url]) => String(url).startsWith("/api/pipeline/move-requirements")).length,
+      ).toBeGreaterThanOrEqual(2),
+    );
+    expect(screen.getByTestId("dock-next-stage-counter")).toHaveTextContent("brakuje 1 z 2");
+    expect(screen.getByText("Arkusz screeningu")).toBeInTheDocument();
   });
 
   it("etap bez własnego CV (404) przy CV firmowym pary: bez „nie udało się sprawdzić” i bez „brak”", async () => {

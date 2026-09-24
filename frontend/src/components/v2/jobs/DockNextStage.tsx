@@ -6,29 +6,33 @@
  * Mówi to samo co okno „Przesuń dalej” (`MoveNextDialog`) — z tej samej
  * odpowiedzi serwera (`GET /api/pipeline/move-requirements`) i tą samą listą
  * (`MoveRequirementList`) — ale od razu po otwarciu karty, zanim ktoś kliknie
- * ruch. Główny przycisk robi DOKŁADNIE to, co robił dotąd przycisk „Przenieś
- * na etap” (`onMove` → `requestMove` tablicy): okna stawki, ostrzeżenia
- * i bramki serwera działają bez zmian.
+ * ruch. Główny przycisk słucha `primary.kind` z odpowiedzi serwera tą samą
+ * regułą co okno (`planPrimaryStep`): „move” = ruch na następną kolumnę
+ * (`onMove` → `requestMove` tablicy — okna stawki, ostrzeżenia i bramki
+ * serwera bez zmian), „hand_to_dl”/„hand_to_cpro” = przekazanie jak w oknie,
+ * „blocked” = przycisk wyłączony z powodem. Do 24.09.2026 ramka ignorowała
+ * `primary` i obiecywała ruch, którego serwer albo tablica odmawiały.
  *
- * Serwer zatrzymuje ruch tylko przy bramce QC CV, stawce do klienta (DL)
- * i debriefie — przy innych brakach ramka mówi wprost, że to przypomnienie.
  * Awaria wymagań nie blokuje przycisku ruchu.
  */
 
 import { useEffect, useMemo, useRef } from "react";
 import { AlertCircle, ArrowRight, Loader2 } from "lucide-react";
 
+import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
 import type { KanbanColumn } from "@/components/v2/pages/kanban-shared";
 import { MoveRequirementList } from "@/components/v2/recruitment/MoveRequirementList";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
+  isBlockingGap,
   summarizeRequirements,
   useMoveRequirements,
   type MoveRequirementAction,
   type MoveRequirementsResponse,
 } from "@/lib/api/moveRequirements";
 import { boardColumnLabel, boardColumnStep, type BoardColumnKey } from "@/lib/board-stages";
+import { planPrimaryStep } from "@/lib/move-primary";
 import { countPl } from "@/lib/plural-pl";
 
 /**
@@ -54,6 +58,12 @@ export interface DockNextStageProps {
   target: KanbanColumn;
   readOnly: boolean;
   onMove: (target: KanbanColumn) => void;
+  /**
+   * Ruch na wskazany etap szablonu (`primary.target_stage_def_id`): „QC CV”
+   * przy przekazaniu Delivery Leadowi, „Wysłać do Cpro” u Nordei. Bez niego
+   * przekazanie jest nieaktywne (nie zgadujemy etapu).
+   */
+  onMoveToStageDef?: (stageDefId: number) => void;
   onAction: (action: MoveRequirementAction) => void;
   canAct: (action: MoveRequirementAction) => boolean;
   /**
@@ -69,10 +79,12 @@ export function DockNextStage({
   target,
   readOnly,
   onMove,
+  onMoveToStageDef,
   onAction,
   canAct,
   refreshToken,
 }: DockNextStageProps) {
+  const { showSuccess, showError } = useToast();
   const toStageDefId = target.stage_def_id ?? null;
   const params = useMemo(
     () => ({ candidateId, jobId, toStageDefId }),
@@ -93,6 +105,37 @@ export function DockNextStage({
   const heading = nextStageHeading(data, target.name ?? target.stage);
   const askedDuringMove = data?.primary?.kind === "move";
   const summary = data ? summarizeRequirements(data.items ?? []) : null;
+  const gaps = (data?.items ?? []).filter((i) => isBlockingGap(i, askedDuringMove)).length;
+  // Bez odpowiedzi serwera (ładowanie, awaria) przycisk robi zwykły ruch —
+  // serwer i tak sprawdzi swoje bramki.
+  const step = data?.primary ? planPrimaryStep(data, gaps) : ({ type: "move" } as const);
+  const primaryKind = data?.primary?.kind ?? "move";
+  const handsOver = primaryKind === "hand_to_dl" || primaryKind === "hand_to_cpro";
+  const buttonDisabled =
+    step.type === "disabled" || (step.type === "stage" && onMoveToStageDef == null);
+  const buttonLabel = handsOver && data?.primary ? data.primary.label : `Przenieś na etap: ${heading.label}`;
+  const blockedHint =
+    primaryKind === "blocked" && data?.primary ? data.primary.label : null;
+  const runPrimary = () => {
+    switch (step.type) {
+      case "move":
+        onMove(target);
+        return;
+      case "stage":
+        if (!onMoveToStageDef) return;
+        onMoveToStageDef(step.stageDefId);
+        if (step.notice) showSuccess(step.notice);
+        return;
+      case "notice":
+        showSuccess(step.message);
+        return;
+      case "error":
+        showError(step.message);
+        return;
+      default:
+        return;
+    }
+  };
 
   return (
     <section
@@ -151,7 +194,7 @@ export function DockNextStage({
               Bez: {summary.enforced.map((i) => i.label).join(", ")} system nie przepuści ruchu.
               {summary.reminders.length > 0 ? " Pozostałe braki to przypomnienie." : ""}
             </p>
-          ) : summary.reminders.length > 0 ? (
+          ) : summary.reminders.length > 0 && askedDuringMove ? (
             <p className="text-[11px] leading-snug text-muted-foreground" data-testid="dock-next-stage-reminder">
               {summary.reminders.length === 1 ? "Ten brak to przypomnienie" : `${countPl(summary.reminders.length, "brak", "braki", "braków")} to przypomnienie`}, nie blokada —
               możesz przenieść osobę już teraz.
@@ -164,10 +207,23 @@ export function DockNextStage({
       ) : null}
 
       {!readOnly && (
-        <Button size="sm" onClick={() => onMove(target)} className="w-full justify-center">
-          Przenieś na etap: {heading.label}
-          <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
-        </Button>
+        <>
+          <Button
+            size="sm"
+            onClick={runPrimary}
+            disabled={buttonDisabled}
+            aria-describedby={blockedHint ? "dock-next-stage-blocked" : undefined}
+            className="w-full justify-center"
+          >
+            {buttonLabel}
+            {primaryKind !== "hand_to_dl" && <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />}
+          </Button>
+          {blockedHint && (
+            <p id="dock-next-stage-blocked" className="text-[11px] leading-snug text-muted-foreground">
+              {blockedHint}.
+            </p>
+          )}
+        </>
       )}
     </section>
   );

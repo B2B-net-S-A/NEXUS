@@ -2471,6 +2471,21 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  },
  [dockItem, dockItemColId, requestMove, cproEnabled, canReviewAsDl, dockHostKey, jobId, jobTitle, clientId, rejectedTemplateCol]
  );
+ // Ramka „Następny etap": przekazanie na etap wskazany przez serwer
+ // (`primary.target_stage_def_id` — „QC CV" dla DL, „Wysłać do Cpro").
+ // Ta sama droga co w oknie „Przesuń dalej" (`handleHandToCpro`).
+ const handleDockMoveToStageDef = useCallback(
+ (stageDefId: number) => {
+ if (!dockItem || !dockItemColId) return;
+ const dst = stageCols.find((c) => c.stage_def_id === stageDefId);
+ if (!dst) {
+ showError("Nie znaleziono tego etapu w szablonie tej rekrutacji.");
+ return;
+ }
+ requestMove(dockItem, dockItemColId, dst);
+ },
+ [dockItem, dockItemColId, stageCols, requestMove, showError]
+ );
 
  // Nawigator doku „‹ N z M ›" — kolejność TABLICY (kolumna po kolumnie),
  // łącznie z kubełkiem „Poza szablonem": to nadal karty w procesie, a dok
@@ -3173,6 +3188,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  primaryBlocked={dockPrimaryMove?.blocked ?? null}
  onClose={closeDock}
  onMoveTo={handleDockMove}
+ onMoveToStageDef={handleDockMoveToStageDef}
  onOpenScreening={handleOpenScreening}
  onReject={handleDockReject}
  onWithdraw={handleDockWithdraw}
