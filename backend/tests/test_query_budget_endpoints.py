@@ -25,7 +25,7 @@ import io
 import re
 import uuid
 from contextlib import contextmanager
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from httpx import AsyncClient
@@ -40,6 +40,7 @@ from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.contract import Contract, ContractStatus
 from app.models.job import Job, JobStatus
 from app.models.user import User, UserRole
+from app.core.scheduling import business_today
 
 pytestmark = pytest.mark.asyncio
 
@@ -128,7 +129,7 @@ async def _seed_client_with_orders(order_count: int) -> tuple[int, int, int, int
         contract = Contract(
             candidate_id=cand.id,
             client_id=client.id,
-            start_date=date.today() - timedelta(days=30),
+            start_date=business_today() - timedelta(days=30),
             rate_client=15000,
             rate_candidate=12000,
             status=ContractStatus.active,
@@ -143,7 +144,7 @@ async def _seed_client_with_orders(order_count: int) -> tuple[int, int, int, int
                     job_id=job.id,
                     title=f"Zamówienie {i} {suffix}",
                     status=ClientOrderStatus.active,
-                    start_date=date.today() - timedelta(days=30 * (i + 1)),
+                    start_date=business_today() - timedelta(days=30 * (i + 1)),
                 )
             )
         await db.commit()

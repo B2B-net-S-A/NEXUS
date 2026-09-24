@@ -1,4 +1,3 @@
-from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
@@ -22,6 +21,7 @@ from app.models.user import User, UserRole
 from app.services.access_scope import apply_activity_feed_scope
 from app.services.dashboard_metrics import compute_kpi_snapshot
 from app.services.contractor_identity import summarize_active_contracts
+from app.core.scheduling import business_today
 
 router = APIRouter(dependencies=INSIGHTS_SECTION_DEPENDENCIES)
 
@@ -89,7 +89,7 @@ async def get_kpis(
         )
         active_headcount = summarize_active_contracts(active_contract_rows)
 
-        first_of_month = date.today().replace(day=1)
+        first_of_month = business_today().replace(day=1)
         # PR 4: pierwsze osiągnięcia `hired` (kanoniczny view) zamiast liczenia
         # każdego ruchu na etap hired (multi-count przy cofnięciach).
         placements_this_month = (

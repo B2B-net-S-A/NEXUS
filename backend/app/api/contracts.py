@@ -1222,7 +1222,7 @@ def _to_detail(contract: Contract) -> ContractDetailResponse:
         "job_title": contract.job.title if contract.job else None,
     }
     # Derive current candidate + client rates / margin from the schedules.
-    data.update(_effective_rate_fields(contract, date.today()))
+    data.update(_effective_rate_fields(contract, business_today()))
     return ContractDetailResponse(**data)
 
 
@@ -1340,7 +1340,7 @@ def _apply_contract_list_filters(
     if margin_min is not None:
         query = query.where(Contract.margin >= margin_min)
     if expiring_in_days is not None:
-        today = date.today()
+        today = business_today()
         cutoff = today + timedelta(days=expiring_in_days)
         query = query.where(
             Contract.end_date.isnot(None),
@@ -1940,7 +1940,9 @@ async def list_contracts(
         order_end_from=order_end_from,
         order_end_to=order_end_to,
     )
-    sort_expr = _contract_sort_expression(sort_by, date.today()) if sort_by else None
+    sort_expr = (
+        _contract_sort_expression(sort_by, business_today()) if sort_by else None
+    )
 
     def _scoped_filtered(base_query):
         """Scope DL + komplet filtrów — jedna reguła dla obu trybów listy."""
@@ -1959,7 +1961,7 @@ async def list_contracts(
         selectinload(Contract.client_rate_schedule),
         selectinload(Contract.framework_rate_schedule),
     )
-    _today = date.today()
+    _today = business_today()
 
     # Headline metadata is independent from row grouping/pagination.  Build it
     # from the exact same scoped+filtered contract set, then apply the shared
@@ -2296,7 +2298,7 @@ async def export_contracts(
     contracts = list(result.scalars().all())
     latest_order_dates = await _latest_order_end_dates(db, [c.id for c in contracts])
 
-    today = date.today()
+    today = business_today()
     rows = [
         _contract_export_row(c, latest_order_dates.get(c.id), today) for c in contracts
     ]
@@ -2992,10 +2994,10 @@ async def create_contract(
     await db.flush()
     if schedule_input:
         # Keep the cached column consistent with the schedule (current step).
-        contract.rate_candidate = contract.effective_candidate_rate(date.today())
+        contract.rate_candidate = contract.effective_candidate_rate(business_today())
     if framework_schedule_input:
         # Keep the cached framework_rate consistent with the current step.
-        contract.framework_rate = contract.effective_framework_rate(date.today())
+        contract.framework_rate = contract.effective_framework_rate(business_today())
     # Wybrany w rejestrze status ustawiamy DOPIERO TERAZ, tą samą funkcją co
     # PATCH — jedna reguła, jedno miejsce. Kolejność jest nośna w obie strony:
     # wiersz ma już `id` (audyt cyklu życia i wyszukanie podpisów go
@@ -3230,12 +3232,12 @@ async def expiring_contracts(
     contract (the banner would read 0 while dozens are genuinely expiring).
     This matches the active+ending set the Slack expiry summary already uses.
     """
-    cutoff = date.today() + timedelta(days=days)
+    cutoff = business_today() + timedelta(days=days)
     expiring_query = (
         select(Contract)
         .where(
             Contract.end_date <= cutoff,
-            Contract.end_date >= date.today(),
+            Contract.end_date >= business_today(),
             Contract.status.in_([ContractStatus.active, ContractStatus.ending]),
         )
         # Eager-load the schedule: it's a serialized field on ContractResponse,
@@ -3253,7 +3255,7 @@ async def expiring_contracts(
         allowed_client_ids,
     )
     result = await db.execute(expiring_query)
-    today = date.today()
+    today = business_today()
     items = [
         ContractResponse.model_validate(
             {
@@ -3590,7 +3592,9 @@ async def update_contract(
         # schedule clears history and defers to the plain `rate_candidate` field
         # (set above by the setattr loop when present in this same PATCH).
         if contract.candidate_rate_schedule:
-            contract.rate_candidate = contract.effective_candidate_rate(date.today())
+            contract.rate_candidate = contract.effective_candidate_rate(
+                business_today()
+            )
     if framework_sent:
         contract.framework_rate_schedule = [
             ContractFrameworkRate(
@@ -3606,7 +3610,9 @@ async def update_contract(
         # clears history and defers to the plain `framework_rate` field (set by the
         # setattr loop when present in this same PATCH).
         if contract.framework_rate_schedule:
-            contract.framework_rate = contract.effective_framework_rate(date.today())
+            contract.framework_rate = contract.effective_framework_rate(
+                business_today()
+            )
     # Kontrakt wciąż w MD (sprzed korekty 0309) — zapis przelicza CAŁY kontrakt
     # na zł/h. Wszystkie kwoty (także przysłane w tym żądaniu) są wtedy w MD.
     normalized_from_daily = apply_contract_hourly_policy(contract)
@@ -5000,7 +5006,7 @@ async def create_contract_amendment(
                 contract.client_rate_schedule.append(
                     ContractClientRate(
                         rate=contract.rate_client,
-                        effective_from=contract.start_date or date.today(),
+                        effective_from=contract.start_date or business_today(),
                         note="Stawka początkowa",
                         created_by=current_user.id,
                     )
@@ -5030,8 +5036,8 @@ async def create_contract_amendment(
         # Current rates derived from the (updated) schedules — a future-dated
         # step won't change today's rate until it takes effect. Keep the cached
         # columns consistent so direct reads + the margin event see today's rate.
-        contract.rate_candidate = contract.effective_candidate_rate(date.today())
-        contract.rate_client = contract.effective_client_rate(date.today())
+        contract.rate_candidate = contract.effective_candidate_rate(business_today())
+        contract.rate_client = contract.effective_client_rate(business_today())
         contract.margin = contract.calculate_margin()
 
     elif data.amendment_type == ContractAmendmentType.scope_change:

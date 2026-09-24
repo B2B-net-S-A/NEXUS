@@ -203,6 +203,10 @@ jobs:
         run: python -m unittest discover -s ../.github/scripts/tests -p test_sentry_daily_digest.py
       - name: Ruff lint
         run: ruff check app/
+      # Testy mają dług innych reguł, ale „dziś” muszą liczyć kalendarzem firmy
+      # jak kod: `date.today()` (UTC) czerwieniło CI co wieczór 22–24 UTC.
+      - name: Ruff — daty w testach (DTZ005, DTZ011)
+        run: ruff check tests/ --select DTZ005,DTZ011
       - name: Release configuration and remote build wrapper tests (native only)
         run: python3 -m unittest discover -s ../.github/scripts/tests -p 'test_coolify_release*.py'
       - name: Release selection tests (DEP-01, native only)

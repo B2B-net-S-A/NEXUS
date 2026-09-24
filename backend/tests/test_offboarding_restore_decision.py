@@ -15,7 +15,7 @@ DECYZJĄ operatora — oryginalna przepadła przy offboardingu.
 from __future__ import annotations
 
 import uuid
-from datetime import date, timedelta
+from datetime import timedelta
 from decimal import Decimal
 
 import pytest
@@ -23,8 +23,9 @@ from httpx import AsyncClient
 from pydantic import ValidationError
 
 from app.schemas.client_order_group import OrderOffboardingResolutionRequest
+from app.core.scheduling import business_today
 
-_TODAY = date.today()
+_TODAY = business_today()
 
 
 def _enable_multi(monkeypatch, *client_ids: int) -> None:

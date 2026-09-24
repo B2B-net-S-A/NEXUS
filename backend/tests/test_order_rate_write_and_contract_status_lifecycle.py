@@ -29,7 +29,7 @@ wartość, a system zachowuje się tak, jakby nic się nie stało.
 from __future__ import annotations
 
 import uuid
-from datetime import date, timedelta
+from datetime import timedelta
 from decimal import Decimal
 
 import pytest
@@ -63,7 +63,7 @@ def _skip_contract_order_locks(monkeypatch):
     )
 
 
-_TODAY = date.today()
+_TODAY = business_today()
 _START = _TODAY - timedelta(days=400)
 _STEP = _TODAY - timedelta(days=200)
 

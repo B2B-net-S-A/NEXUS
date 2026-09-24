@@ -18,6 +18,7 @@ from app.api.client_orders import _compute_monthly_margin
 from app.models.client_order import ClientOrder
 from app.models.contract import Contract, ContractStatus, RateUnit
 from app.services.contract_rates import effective_rate_fields
+from app.core.scheduling import business_today
 
 
 def _rate_contract(*, client_currency: str, candidate_currency: str) -> Contract:
@@ -135,7 +136,7 @@ async def _seed_parties_and_source() -> tuple[int, int, int, int]:
             candidate_id=candidate.id,
             client_id=source_client.id,
             status=ContractStatus.draft,
-            start_date=date.today() - timedelta(days=30),
+            start_date=business_today() - timedelta(days=30),
             rate_client=Decimal("100"),
             rate_candidate=Decimal("80"),
             currency="PLN",
@@ -162,7 +163,7 @@ async def test_create_patch_and_auto_order_currency_compatibility(
         "candidate_id": candidate_id,
         "client_id": target_client_id,
         "source_contract_id": source_contract_id,
-        "start_date": date.today().isoformat(),
+        "start_date": business_today().isoformat(),
         "rate_client": 100,
         "rate_candidate": 300,
         "rate_client_currency": "eur",
@@ -330,7 +331,7 @@ async def test_legacy_create_sets_both_and_conflicting_payload_is_rejected(
     base = {
         "candidate_id": candidate_id,
         "client_id": target_client_id,
-        "start_date": date.today().isoformat(),
+        "start_date": business_today().isoformat(),
         "rate_client": 100,
         "rate_candidate": 80,
     }
@@ -395,7 +396,7 @@ async def test_candidate_only_eur_still_exposes_detail_nbp_snapshot(
         json={
             "candidate_id": candidate_id,
             "client_id": target_client_id,
-            "start_date": date.today().isoformat(),
+            "start_date": business_today().isoformat(),
             "rate_client_currency": "PLN",
             "rate_candidate_currency": "EUR",
         },

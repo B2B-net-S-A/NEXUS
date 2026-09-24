@@ -26,10 +26,11 @@ from sqlalchemy import text
 
 from app.core.config import settings
 from app.main import app
+from app.core.scheduling import business_today
 
 URL = "/api/admin/engagement-inventory"
 
-_TODAY = date.today()
+_TODAY = business_today()
 _PAST = _TODAY - timedelta(days=30)
 _FUTURE = _TODAY + timedelta(days=30)
 

@@ -52,6 +52,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.candidate_location_writer import normalize_candidate_location
 from app.services.dedup_service import find_candidate_duplicates
+from app.core.scheduling import business_today
 
 # Wartość zapisywana w `external_source` / `provenance`. Nazwa „Talent Radar"
 # należy od 2026-08-11 do modułu wyszukiwania (`/api/talent-radar/search`);
@@ -240,7 +241,7 @@ def parse_availability(raw: Optional[str]) -> Optional[date]:
         return None
     s = raw.strip().lower()
     if s in _AVAILABILITY_KEYWORDS:
-        return date.today()
+        return business_today()
     # Try ISO date formats
     for fmt in ("%Y-%m-%d", "%d.%m.%Y", "%d/%m/%Y"):
         try:

@@ -15,6 +15,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 from app.services.shared_md_orders import uses_shared_md_pool
+from app.core.scheduling import business_today
 
 if TYPE_CHECKING:
     from app.schemas.client_order_group import OrderGroupRead
@@ -293,5 +294,5 @@ def orders_export_filename(
     normalized = unicodedata.normalize("NFKD", client_name)
     ascii_name = normalized.encode("ascii", "ignore").decode("ascii")
     safe_name = re.sub(r"[^A-Za-z0-9]+", "_", ascii_name).strip("_") or "Klient"
-    stamp = (generated_on or date.today()).strftime("%d.%m.%Y")
+    stamp = (generated_on or business_today()).strftime("%d.%m.%Y")
     return f"Zamowienia_{safe_name}_{stamp}.xlsx"

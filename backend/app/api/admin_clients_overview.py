@@ -13,7 +13,6 @@ klientów i DL to widok zarządczy; per-client scope dla DL to osobna decyzja �
 
 from __future__ import annotations
 
-from datetime import date
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends
@@ -39,6 +38,7 @@ from app.services.insights_clients import (
     margin_lookup_pln,
 )
 from app.services.order_revenue import order_revenue_rows_to_pln
+from app.core.scheduling import business_today
 
 router = APIRouter()
 
@@ -58,7 +58,7 @@ async def clients_overview(
     _user: FinanceReadUser,
     db: AsyncSession = Depends(get_db),
 ):
-    rows = await compute_client_ranking(db, on=date.today())
+    rows = await compute_client_ranking(db, on=business_today())
     return [OverviewRow.model_validate(row) for row in rows]
 
 
@@ -125,7 +125,7 @@ async def kpi_by_dl(
         )
     )
     dl_revenue_lookup, dl_revenue_incomplete = await order_revenue_rows_to_pln(
-        db, dl_revenue_rows, date.today()
+        db, dl_revenue_rows, business_today()
     )
     active_orders_by_client: dict[int, int] = {}
     for row in dl_revenue_rows:
@@ -176,7 +176,7 @@ async def kpi_by_dl(
                 )
             ).scalars()
         )
-        today = date.today()
+        today = business_today()
         # Tylko kontrakty OBECNE — ta sama reguła co profil i ranking (B46).
         margin_rows_dl = current_contracts(margin_rows_dl, today)
         active_headcount = summarize_active_contracts(margin_rows_dl)

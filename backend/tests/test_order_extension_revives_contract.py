@@ -24,6 +24,7 @@ from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.contract import Contract, ContractStatus, ContractType, ContractWorkMode
 from app.services.contract_lifecycle import order_period_covers
+from app.core.scheduling import business_today
 
 pytestmark = pytest.mark.asyncio
 
@@ -461,7 +462,7 @@ async def test_running_extension_moves_contractor_back_to_active(
     app_client, app_auth_headers
 ):
     """Scenariusz (a) z ticketu — przedłużenie trwające dziś."""
-    today = date.today()
+    today = business_today()
     client_id, contract_id = await _seed_ended_contract(
         end_date=today - timedelta(days=60)
     )
@@ -497,7 +498,7 @@ async def test_patch_that_completes_a_running_draft_revives_the_contract(
     active and must apply the same Contract invariant as „Dodaj przedluzenie".
     """
 
-    today = date.today()
+    today = business_today()
     previous_end = today - timedelta(days=45)
     new_end = today + timedelta(days=90)
     client_id, contract_id = await _seed_ended_contract(end_date=previous_end)
@@ -538,7 +539,7 @@ async def test_active_order_metadata_patch_does_not_backfill_legacy_contract(
 
     from app.models.client_order import ClientOrder, ClientOrderStatus
 
-    today = date.today()
+    today = business_today()
     previous_contract_end = today - timedelta(days=45)
     client_id, contract_id = await _seed_ended_contract(end_date=previous_contract_end)
     original_order_end = today + timedelta(days=30)
@@ -585,7 +586,7 @@ async def test_active_order_metadata_patch_does_not_backfill_legacy_contract(
 
 async def test_future_extension_leaves_the_contract_alone(app_client, app_auth_headers):
     """Scenariusz (b) — przedłużenie zaczynające się w przyszłości."""
-    today = date.today()
+    today = business_today()
     previous_end = today - timedelta(days=60)
     client_id, contract_id = await _seed_ended_contract(end_date=previous_end)
 
@@ -772,7 +773,7 @@ async def test_daily_scanner_revives_only_live_active_orders():
 async def test_open_ended_running_extension_makes_the_contract_indefinite(
     app_client, app_auth_headers
 ):
-    today = date.today()
+    today = business_today()
     client_id, contract_id = await _seed_ended_contract(
         end_date=today - timedelta(days=10),
         client_order_end_date=today - timedelta(days=10),
@@ -803,7 +804,7 @@ async def test_running_extension_moves_the_tracked_client_order_end(
     app_client, app_auth_headers
 ):
     """Śledzony „Koniec zamówienia u klienta" idzie za nowym horyzontem…"""
-    today = date.today()
+    today = business_today()
     client_id, contract_id = await _seed_ended_contract(
         end_date=today - timedelta(days=60),
         client_order_end_date=today - timedelta(days=60),
@@ -831,7 +832,7 @@ async def test_filled_order_period_is_mirrored_on_the_contract(
     zamówienia JEST polem kontraktu — osobnym od okresu umowy — i pochodzi
     z najnowszego uzupełnionego zamówienia, więc nie jest wymyślony.
     """
-    today = date.today()
+    today = business_today()
     client_id, contract_id = await _seed_ended_contract(
         end_date=today - timedelta(days=60), client_order_end_date=None
     )
@@ -854,7 +855,7 @@ async def test_draft_extension_is_not_evidence_of_running_work(
     app_client, app_auth_headers
 ):
     """Szkic nie jest zobowiązaniem — nie wolno nim wskrzeszać kontraktu."""
-    today = date.today()
+    today = business_today()
     previous_end = today - timedelta(days=60)
     client_id, contract_id = await _seed_ended_contract(end_date=previous_end)
 
@@ -884,7 +885,7 @@ async def test_void_contract_is_never_touched_by_an_order(app_client, app_auth_h
     cichu zmieniałoby jej `end_date` — a `ALLOWED_TRANSITIONS[void]` jest
     pustym zbiorem właśnie dlatego, że z tego stanu nie ma wyjścia.
     """
-    today = date.today()
+    today = business_today()
     previous_end = today - timedelta(days=60)
     client_id, contract_id = await _seed_ended_contract(
         end_date=previous_end, status=ContractStatus.void
@@ -909,7 +910,7 @@ async def test_draft_contract_is_not_activated_through_an_order(
     app_client, app_auth_headers
 ):
     """Szkic ma WŁASNY walidowany cykl życia — nie wchodzi się w przychód bokiem."""
-    today = date.today()
+    today = business_today()
     previous_end = today - timedelta(days=60)
     client_id, contract_id = await _seed_ended_contract(
         end_date=previous_end, status=ContractStatus.draft
@@ -937,7 +938,7 @@ async def test_active_contract_horizon_is_left_alone(app_client, app_auth_header
     i nikt o to nie prosił — rozszerzenie tego „przy okazji" byłoby zmianą
     zachowania poza zakresem ticketu.
     """
-    today = date.today()
+    today = business_today()
     contract_end = today + timedelta(days=10)
     client_id, contract_id = await _seed_ended_contract(
         end_date=contract_end, status=ContractStatus.active
@@ -1081,7 +1082,7 @@ async def test_terminated_contract_with_future_end_is_not_revived():
     """Wypowiedzenie z przyszłą datą wygrywa z trwającym zamówieniem."""
     from datetime import datetime, timezone
 
-    today = date.today()
+    today = business_today()
     planned_end = today + timedelta(days=20)
     _, contract_id = await _seed_ended_contract(
         end_date=planned_end, status=ContractStatus.ending
@@ -1104,7 +1105,7 @@ async def test_early_termination_amendment_blocks_revival():
         ContractAmendmentType,
     )
 
-    today = date.today()
+    today = business_today()
     planned_end = today + timedelta(days=10)
     _, contract_id = await _seed_ended_contract(
         end_date=planned_end, status=ContractStatus.ending
@@ -1127,7 +1128,7 @@ async def test_early_termination_amendment_blocks_revival():
 
 async def test_non_b2b_contract_keeps_its_end_date():
     """Umowa zlecenie: data końca jest częścią umowy — zamówienie jej nie zeruje."""
-    today = date.today()
+    today = business_today()
     planned_end = today + timedelta(days=15)
     _, contract_id = await _seed_ended_contract(
         end_date=planned_end, status=ContractStatus.ending
@@ -1147,7 +1148,7 @@ async def test_ended_terminated_contract_still_returns_with_a_new_order():
     """Decyzja: umowa już zakończona (data < dziś) wraca NOWYM zamówieniem."""
     from datetime import datetime, timezone
 
-    today = date.today()
+    today = business_today()
     _, contract_id = await _seed_ended_contract(end_date=today - timedelta(days=40))
     async with AsyncSessionLocal() as db:
         contract = await db.get(Contract, contract_id)

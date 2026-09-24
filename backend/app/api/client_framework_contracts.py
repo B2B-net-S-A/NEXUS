@@ -51,6 +51,7 @@ from app.schemas.client_framework_contract import (
     ClientFrameworkContractUpdate,
 )
 from app.services import storage_service
+from app.core.scheduling import business_today
 
 router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
 
@@ -107,7 +108,7 @@ def _validate_upload(file: UploadFile) -> None:
 def _days_to(target: Optional[date]) -> Optional[int]:
     if target is None:
         return None
-    return (target - date.today()).days
+    return (target - business_today()).days
 
 
 async def _to_read(

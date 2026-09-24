@@ -15,12 +15,13 @@ różnica decyduje, czy zgłoszenie wróci.
 from __future__ import annotations
 
 import uuid
-from datetime import date, timedelta
+from datetime import timedelta
 from decimal import Decimal
 
 from httpx import AsyncClient
+from app.core.scheduling import business_today
 
-_TODAY = date.today()
+_TODAY = business_today()
 
 
 async def _seed_client_with_contract(

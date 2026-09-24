@@ -19,7 +19,7 @@ import ast
 import asyncio
 import pathlib
 import uuid
-from datetime import date, timedelta
+from datetime import timedelta
 
 import pytest
 from httpx import AsyncClient
@@ -33,6 +33,7 @@ from app.models.contract import (
     ContractWorkMode,
 )
 from app.services.contract_lifecycle import void_contract
+from app.core.scheduling import business_today
 
 pytestmark = pytest.mark.asyncio
 
@@ -58,8 +59,8 @@ async def _seed_active_contract(
             client_id=cli.id,
             contract_type=ContractType.b2b,
             status=status,
-            start_date=date.today(),
-            end_date=date.today() + timedelta(days=90),
+            start_date=business_today(),
+            end_date=business_today() + timedelta(days=90),
             rate_candidate=15000,
             rate_client=20000,
             work_mode=ContractWorkMode.remote,
@@ -295,7 +296,7 @@ async def test_terminate_does_not_resurrect_a_void_contract(
     cid = await _seed_active_contract()
     await _void_now(app_client, app_auth_headers, cid)
 
-    for terminated_at in (date.today(), date.today() + timedelta(days=30)):
+    for terminated_at in (business_today(), business_today() + timedelta(days=30)):
         resp = await app_client.post(
             f"/api/contracts/{cid}/terminate",
             json={
@@ -324,7 +325,7 @@ async def test_early_termination_amendment_does_not_resurrect_a_void_contract(
         f"/api/contracts/{cid}/amendments",
         json={
             "amendment_type": "early_termination",
-            "effective_date": (date.today() + timedelta(days=10)).isoformat(),
+            "effective_date": (business_today() + timedelta(days=10)).isoformat(),
         },
         headers=app_auth_headers,
     )
@@ -340,7 +341,7 @@ async def test_future_termination_of_a_draft_does_not_activate_it(
     """Szkic z przyszłą datą zakończenia dostawał `active` — z pominięciem
     bramki aktywacji. Teraz zostaje szkicem."""
     cid = await _seed_active_contract(ContractStatus.draft)
-    future = date.today() + timedelta(days=30)
+    future = business_today() + timedelta(days=30)
 
     resp = await app_client.post(
         f"/api/contracts/{cid}/terminate",
@@ -365,7 +366,7 @@ async def test_future_termination_of_a_draft_does_not_activate_it(
         await db.execute(
             update(Contract)
             .where(Contract.id == cid)
-            .values(end_date=date.today() - timedelta(days=1))
+            .values(end_date=business_today() - timedelta(days=1))
         )
         await db.commit()
     async with AsyncSessionLocal() as db:
@@ -386,7 +387,7 @@ async def test_nightly_job_leaves_untouched_drafts_alone():
         await db.execute(
             update(Contract)
             .where(Contract.id == cid)
-            .values(end_date=date.today() - timedelta(days=1))
+            .values(end_date=business_today() - timedelta(days=1))
         )
         await db.commit()
     async with AsyncSessionLocal() as db:

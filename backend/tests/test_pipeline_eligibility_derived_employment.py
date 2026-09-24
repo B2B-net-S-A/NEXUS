@@ -9,10 +9,11 @@ z ostrzeżeniem ``current_employment`` w ``warnings``.
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
 from httpx import AsyncClient
 from sqlalchemy import select
+from app.core.scheduling import business_today
 
 
 async def _seed(*, contract_status: str = "active") -> dict:
@@ -44,7 +45,7 @@ async def _seed(*, contract_status: str = "active") -> dict:
             Contract(
                 candidate_id=cand.id,
                 client_id=client.id,
-                start_date=date.today() - timedelta(days=30),
+                start_date=business_today() - timedelta(days=30),
                 status=ContractStatus(contract_status),
             )
         )

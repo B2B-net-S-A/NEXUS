@@ -17,6 +17,7 @@ import app.models  # noqa: F401  (zarejestruj wszystkie mappery)
 from httpx import AsyncClient
 
 from app.services.pipeline_next_action import NUDGE_DAYS
+from app.core.scheduling import business_today
 
 CUSTOM_AFTER_SCREENING = "Przepuszczony przez DZ"
 CUSTOM_AT_CLIENT = "Preparation Meeting"
@@ -193,7 +194,7 @@ async def test_counts_are_absent_without_stage_counts(
 async def test_sort_attention_orders_and_paginates_stably(
     app_client: AsyncClient, app_auth_headers: dict
 ):
-    today = date.today()
+    today = business_today()
     worlds = {
         # „Nowy" nie liczy się do „wymaga ruchu" — trzy karty dalej w procesie.
         "three": await _seed(

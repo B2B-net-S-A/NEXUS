@@ -7,7 +7,7 @@ zastosowane).
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import timedelta
 
 import pytest
 import pytest_asyncio
@@ -23,6 +23,7 @@ from app.services.marketplace_service import (
     is_significant_job_update,
     remove_candidate_from_marketplace,
 )
+from app.core.scheduling import business_today
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -253,7 +254,7 @@ async def test_auto_sync_removes_expired_manual(clean_db):
     )
 
     # Wstaw ręczny wrzut z wczoraj.
-    yesterday = date.today() - timedelta(days=1)
+    yesterday = business_today() - timedelta(days=1)
     await add_candidate_to_marketplace(
         clean_db,
         candidate_id=cand.id,
@@ -279,7 +280,7 @@ async def test_add_candidate_upgrades_auto_to_manual(clean_db):
     await clean_db.commit()
 
     # Ręczny "Wrzuć na targ" nadpisuje na manual + ustawia marketplace_until.
-    future = date.today() + timedelta(days=14)
+    future = business_today() + timedelta(days=14)
     m = await add_candidate_to_marketplace(
         clean_db,
         candidate_id=cand.id,

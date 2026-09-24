@@ -8,7 +8,7 @@ z groszowymi marżami dawały różnicę o złotówki między ekranami.
 from __future__ import annotations
 
 import uuid
-from datetime import date, timedelta
+from datetime import timedelta
 from decimal import Decimal
 
 import pytest
@@ -19,6 +19,7 @@ from app.core.database import AsyncSessionLocal
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.contract import Contract, ContractStatus, ContractType, RateUnit
+from app.core.scheduling import business_today
 
 
 @pytest.mark.asyncio
@@ -43,7 +44,7 @@ async def test_client_margin_is_the_same_on_every_surface(
                     client_id=client.id,
                     contract_type=ContractType.b2b,
                     status=ContractStatus.active,
-                    start_date=date.today() - timedelta(days=30),
+                    start_date=business_today() - timedelta(days=30),
                     rate_unit=RateUnit.monthly,
                     currency="PLN",
                     rate_client_currency="PLN",
@@ -61,7 +62,7 @@ async def test_client_margin_is_the_same_on_every_surface(
                 client_id=client.id,
                 contract_type=ContractType.b2b,
                 status=ContractStatus.active,
-                start_date=date.today() + timedelta(days=20),
+                start_date=business_today() + timedelta(days=20),
                 rate_unit=RateUnit.monthly,
                 currency="PLN",
                 rate_client_currency="PLN",
@@ -124,13 +125,13 @@ async def test_client_margin_is_the_same_on_every_surface(
                     .where(
                         Contract.id.in_(ids["contracts"]),
                         Contract.start_date.is_not(None),
-                        Contract.start_date <= date.today(),
+                        Contract.start_date <= business_today(),
                     )
                     .options(selectinload(Contract.candidate), *RATE_SCHEDULE_LOADS)
                 )
             ).all()
             assert len(loaded) == 2, "planowany kontrakt nie wchodzi do kokpitu"
-            fold = fold_money(loaded, date.today(), {"PLN": Decimal("1")})
+            fold = fold_money(loaded, business_today(), {"PLN": Decimal("1")})
         assert fold.margin == profile_mrr
         assert fold.revenue == row["monthly_revenue_total"]
     finally:

@@ -22,7 +22,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal
-from app.core.scheduling import is_business_day, local_now
+from app.core.scheduling import business_today, is_business_day, local_now
 from app.models.fx_rate import FxRate
 
 logger = logging.getLogger(__name__)
@@ -319,7 +319,7 @@ async def get_rate_to_pln(
     cur = (currency or "PLN").upper()
     if cur == "PLN":
         return Decimal("1"), True
-    target = on or date.today()
+    target = on or business_today()
     # Find closest rate not newer than `target`; fall back to most recent overall.
     res = await db.execute(
         select(FxRate)
@@ -374,7 +374,7 @@ async def get_rate_snapshot_to_pln(
     cur = (currency or "").upper()
     if not cur or cur == "PLN":
         return None
-    target = on or date.today()
+    target = on or business_today()
     row = (
         await db.execute(
             select(FxRate)
@@ -436,7 +436,7 @@ async def rates_to_pln(
     procent. Sygnał o zamrożonym cache'u należy do operatora i jedzie przez
     ``/api/health.checks.fx``, a nie przez ciche wycinanie pieniędzy z raportu.
     """
-    on = on or date.today()
+    on = on or business_today()
     out: dict[str, Optional[Decimal]] = {}
     for raw in currencies:
         code = (raw or "PLN").upper()
@@ -536,7 +536,7 @@ async def fx_age_days(db: AsyncSession, currency: str) -> Optional[int]:
     row = res.scalar_one_or_none()
     if row is None:
         return None
-    return (date.today() - row.effective_date).days
+    return (business_today() - row.effective_date).days
 
 
 _ = timedelta  # silence unused-import warning if tests add variations later

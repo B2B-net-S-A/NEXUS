@@ -651,7 +651,7 @@ def _refresh_md_rate_mirror(order: ClientOrder, *, explicit_fields: set[str]) ->
 def _days_to(target: Optional[date]) -> Optional[int]:
     if target is None:
         return None
-    return (target - date.today()).days
+    return (target - business_today()).days
 
 
 def _normalize_monthly(

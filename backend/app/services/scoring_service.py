@@ -42,6 +42,7 @@ from app.services import champion_view
 from app.services.candidate_job_eligibility import extract_excluded_client_ids
 from app.services.champion_job_sync import champion_work_mode_to_remote
 from app.services.location_utils import city_tokens, tokens_overlap
+from app.core.scheduling import business_today
 
 logger = logging.getLogger(__name__)
 
@@ -273,7 +274,7 @@ def scoring_algorithm_version() -> str:
     # Waga świeżości skilli liczy wiek od bieżącego roku — przełom roku zmienia
     # wynik bez żadnej edycji, więc rok wchodzi do klucza cache tylko przy fladze.
     if getattr(settings, "AI_SCORING_SKILL_RECENCY", False):
-        payload["skill_recency_year"] = date.today().year
+        payload["skill_recency_year"] = business_today().year
     payload["skill_evidence_contract"] = "2026-09-08-source-union-modality"
     payload["requirement_contract"] = "2026-09-09-and-of-or"
     payload["budget_contract"] = "2026-09-09-explicit-budget-currency"
@@ -1092,7 +1093,7 @@ def _skill_recency_weights(
             )
     if not last_used_by_skill:
         return {}
-    current_year = date.today().year
+    current_year = business_today().year
     weights: dict[str, float] = {}
     for label in labels:
         if "met" in (
@@ -1492,7 +1493,7 @@ def _parse_champion_date(
         return None
     text_value = raw.strip()
     if _ASAP.search(text_value):
-        return today or date.today()
+        return today or business_today()
     m = _DATE_PATTERNS[0].search(text_value)
     if m:
         y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
@@ -1558,7 +1559,7 @@ def _notes_available_date(
     availability = _notes_insights(candidate).get("availability")
     if not isinstance(availability, dict):
         return None
-    base = today or date.today()
+    base = today or business_today()
     explicit = _parse_champion_date(availability.get("available_from"), today=base)
     if explicit:
         return explicit

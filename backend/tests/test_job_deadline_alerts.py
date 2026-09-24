@@ -16,6 +16,7 @@ from app.models.job_collaborator import JobCollaborator
 from app.models.notification import Notification, NotificationType
 from app.models.user import User, UserRole
 from app.tasks.job_deadline_alerts import run_once
+from app.core.scheduling import business_today
 
 pytestmark = pytest.mark.asyncio
 
@@ -103,7 +104,7 @@ async def _recipients_for(job_id: int, ntype: NotificationType) -> set[int]:
 
 async def test_alert_to_assigned_not_to_outsider_admin():
     """7 dni przed deadline → owner + collaborator; NIE globalny admin spoza joba."""
-    deadline = date.today() + timedelta(days=7)
+    deadline = business_today() + timedelta(days=7)
     job_id, rec_id, col_id, adm_id, client_id = await _setup(deadline)
     try:
         summary = await run_once()
@@ -119,7 +120,7 @@ async def test_alert_to_assigned_not_to_outsider_admin():
 
 async def test_no_alert_for_draft_job():
     """Draft (status != published) z deadline w progu → brak notyfikacji."""
-    deadline = date.today() + timedelta(days=7)
+    deadline = business_today() + timedelta(days=7)
     job_id, rec_id, col_id, adm_id, client_id = await _setup(
         deadline, status=JobStatus.draft
     )
@@ -133,7 +134,7 @@ async def test_no_alert_for_draft_job():
 
 async def test_no_alert_outside_thresholds():
     """Deadline za 5 dni (poza {7,3,1}) → brak notyfikacji."""
-    deadline = date.today() + timedelta(days=5)
+    deadline = business_today() + timedelta(days=5)
     job_id, rec_id, col_id, adm_id, client_id = await _setup(deadline)
     try:
         await run_once()
@@ -153,7 +154,7 @@ async def test_no_alert_outside_thresholds():
 
 async def test_dedup_no_duplicate_on_second_run():
     """Druga iteracja nie tworzy duplikatów dla (job, user, próg)."""
-    deadline = date.today() + timedelta(days=3)
+    deadline = business_today() + timedelta(days=3)
     job_id, rec_id, col_id, adm_id, client_id = await _setup(deadline)
     try:
         await run_once()
@@ -192,7 +193,7 @@ async def test_email_dispatch_marks_sent_on_success(
 
     monkeypatch.setattr(jda, "send_email", _fake_send)
 
-    deadline = date.today() + timedelta(days=7)
+    deadline = business_today() + timedelta(days=7)
     job_id, rec_id, col_id, adm_id, client_id = await _setup(deadline)
     try:
         summary = await run_once()
@@ -256,7 +257,7 @@ async def test_email_dispatch_via_delegated_connection(
     monkeypatch.setattr(jda, "send_system_email", _fake_send_system)
     monkeypatch.setattr(jda, "send_email", _no_send_email)
 
-    deadline = date.today() + timedelta(days=7)
+    deadline = business_today() + timedelta(days=7)
     job_id, rec_id, col_id, adm_id, client_id = await _setup(deadline)
     try:
         summary = await run_once()
@@ -293,7 +294,7 @@ async def test_email_dispatch_releases_claim_on_failure(
     monkeypatch.setattr(settings, "SMTP_HOST", "smtp.test")
     monkeypatch.setattr(jda, "send_email", lambda *a, **k: False)
 
-    deadline = date.today() + timedelta(days=1)
+    deadline = business_today() + timedelta(days=1)
     job_id, rec_id, col_id, adm_id, client_id = await _setup(deadline)
     try:
         summary = await run_once()

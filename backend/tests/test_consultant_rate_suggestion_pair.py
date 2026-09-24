@@ -8,13 +8,14 @@ statusów cicho przywraca ekran, na którym pod PUSTYM polem stoi zdanie
 „Wstawiono stawkę z aktywnego kontraktu".
 """
 
-from datetime import date, timedelta
+from datetime import timedelta
 from decimal import Decimal
 
 from app.models.contract import Contract, ContractStatus, RateUnit
 from app.services.client_order_lines import _rate_suggestion
+from app.core.scheduling import business_today
 
-_TODAY = date.today()
+_TODAY = business_today()
 _PLN = {"PLN": Decimal("1")}
 
 

@@ -45,6 +45,7 @@ from app.services.ai_quota import (
     _current_period_start,
     get_usage_summary_for_period,
 )
+from app.core.scheduling import business_today
 
 logger = logging.getLogger(__name__)
 
@@ -268,7 +269,7 @@ async def get_auto_match_overview(
     from app.core.config import settings
     from sqlalchemy import text
 
-    since = date.today() - timedelta(days=7)
+    since = business_today() - timedelta(days=7)
     decisions = dict(
         (
             await db.execute(

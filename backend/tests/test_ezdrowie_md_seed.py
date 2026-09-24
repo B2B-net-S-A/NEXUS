@@ -28,6 +28,7 @@ from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.client_order_group import ClientOrderGroup
 from app.models.contract import Contract, ContractStatus
 from app.models.md_consumption import ClientOrderMdConsumption
+from app.core.scheduling import business_today
 
 pytestmark = pytest.mark.asyncio
 
@@ -436,7 +437,7 @@ async def test_completed_predecessor_with_active_contract_is_not_revived(
     _patch_gate(monkeypatch, seed["client_id"])
     alfa = seed["people"]["alfa"]
     beta = seed["people"]["beta"]
-    today = date.today().isoformat()
+    today = business_today().isoformat()
     manifest = {
         "client_id": seed["client_id"],
         "supersede_order_ids": [],
@@ -480,7 +481,7 @@ async def test_completed_predecessor_with_active_contract_is_not_revived(
     async with AsyncSessionLocal() as db:
         prev = await db.scalar(select(ClientOrder).where(ClientOrder.id == lines["prev"]["order_id"]))
         assert prev.status == ClientOrderStatus.completed
-        assert prev.end_date == date.today()
+        assert prev.end_date == business_today()
         # Kontrakt aktywnej osoby NIE dostał stawki z linii zakończonej.
         contract = await db.scalar(select(Contract).where(Contract.id == beta["contract_id"]))
         assert Decimal(str(contract.rate_client)) == Decimal("100")

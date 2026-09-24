@@ -36,6 +36,7 @@ from app.services.cv_generator_b2b.language_aliases import (
     resolve_alias,
     translate_role_title,
 )
+from app.core.scheduling import business_today
 
 # Tokeny rozpoznawane we wzorze nazwy pliku. Nieznany token zostaje w nazwie
 # dosłownie — lepiej, żeby rekruter zobaczył „{FOO}" w pliku i poprawił wzór,
@@ -616,7 +617,7 @@ def build_filename(
         TOKEN_POSITION: _apply_word_separator(position or "", sep),
         TOKEN_FULL_NAME: _apply_word_separator(candidate_name or "", sep),
         TOKEN_PROJECT: _apply_word_separator(project or "", sep),
-        TOKEN_DATE: (today or date.today()).isoformat(),
+        TOKEN_DATE: (today or business_today()).isoformat(),
     }
 
     warnings: list[str] = []

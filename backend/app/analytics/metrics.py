@@ -54,6 +54,7 @@ from app.services.contractor_identity import (
     summarize_active_contracts,
 )
 from app.services.fx_service import amount_to_pln_with_rate
+from app.core.scheduling import business_today
 
 # Stage'y milestone'ów w kolejności lejka.
 FUNNEL_STAGES = ["verified", "cv_sent", "interview", "client_interview", "hired"]
@@ -77,7 +78,7 @@ def _dec(value: Decimal | int | float | None) -> str | None:
 
 async def overview(db: AsyncSession, period: Period) -> dict[str, Any]:
     """Bezpieczne agregaty operacyjne — bez PII, bez finansów, bez nazw."""
-    today = date.today()
+    today = business_today()
 
     candidates_total = (await db.execute(select(func.count(Candidate.id)))).scalar()
     candidates_active = (
@@ -503,7 +504,7 @@ async def _active_contracts(
     (niepodpisany dokument). Zarząd widział wtedy przychód, który nigdy nie
     zostanie zafakturowany.
     """
-    on = on or date.today()
+    on = on or business_today()
     stmt = (
         select(Contract)
         .where(
@@ -557,7 +558,7 @@ async def _sum_finance(
     gdy kontrakt ma tylko jedną nogę stawki (liczniki
     ``contracts_without_cost_leg`` / ``contracts_without_revenue_leg``).
     """
-    on = on or date.today()
+    on = on or business_today()
     currencies = {
         currency
         for c in contracts
@@ -701,7 +702,7 @@ def finance_as_of(period: Period) -> date:
     """
     last_day = (period.end - timedelta(days=1)).date()
     tz = period.start.tzinfo
-    today = datetime.now(tz).date() if tz else date.today()
+    today = datetime.now(tz).date() if tz else business_today()
     return min(last_day, today)
 
 
@@ -719,7 +720,7 @@ async def finance_summary(
 def _month_starts_back(n: int, *, today: date | None = None) -> list[date]:
     """Ostatnie n początków miesięcy (rosnąco) — prawdziwa arytmetyka
     kalendarza (28/29/30/31 dni), nie timedelta(30)."""
-    today = today or date.today()
+    today = today or business_today()
     y, m = today.year, today.month
     out: list[date] = []
     for _ in range(n):
@@ -742,7 +743,7 @@ async def finance_trend(
     a punkty zawsze liczyły się od dziś — koperta opisywała inne okno niż
     dane (audyt statystyk A09).
     """
-    anchor = min(end or date.today(), date.today())
+    anchor = min(end or business_today(), business_today())
     month_starts = _month_starts_back(months, today=anchor)
     earliest = month_starts[0]
     stmt = (
@@ -925,7 +926,7 @@ async def client_operations(
     db: AsyncSession, period: Period, client_id: int
 ) -> dict[str, Any]:
     """Operacyjny widok klienta — bez kwot (TAC/HoR-safe)."""
-    today = date.today()
+    today = business_today()
     open_jobs = (
         await db.execute(
             select(func.count(Job.id)).where(

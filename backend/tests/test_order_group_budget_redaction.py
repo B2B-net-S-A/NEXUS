@@ -16,15 +16,16 @@ from __future__ import annotations
 
 import io
 import uuid
-from datetime import date, timedelta
+from datetime import timedelta
 from decimal import Decimal
 
 import pytest
 from httpx import AsyncClient
+from app.core.scheduling import business_today
 
 pytestmark = pytest.mark.asyncio
 
-_TODAY = date.today()
+_TODAY = business_today()
 
 
 def _enable(monkeypatch, client_id: int) -> None:

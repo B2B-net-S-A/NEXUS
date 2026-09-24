@@ -13,15 +13,16 @@ aktualizuje, a nie dubluje":
 """
 
 import uuid
-from datetime import date, timedelta
+from datetime import timedelta
 from decimal import Decimal
 
 import pytest
 from httpx import AsyncClient
+from app.core.scheduling import business_today
 
 pytestmark = pytest.mark.asyncio
 
-_TODAY = date.today()
+_TODAY = business_today()
 _PDF = b"%PDF-1.4\n% minimalny plik\n"
 
 

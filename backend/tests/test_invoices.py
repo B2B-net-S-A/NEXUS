@@ -1,8 +1,9 @@
 """Tests for Phase 9 C1 — invoice ledger."""
 
-from datetime import date, timedelta
+from datetime import timedelta
 
 from httpx import AsyncClient
+from app.core.scheduling import business_today
 
 
 async def test_list_invoices_ok(app_client: AsyncClient, app_auth_headers: dict):
@@ -26,8 +27,8 @@ async def test_invoice_round_trip_and_mark_paid(
         "contract_id": cid,
         "direction": "to_client",
         "invoice_number": "TEST/2026/01",
-        "issue_date": date.today().isoformat(),
-        "due_date": (date.today() + timedelta(days=14)).isoformat(),
+        "issue_date": business_today().isoformat(),
+        "due_date": (business_today() + timedelta(days=14)).isoformat(),
         "amount": 10000,
         "currency": "PLN",
     }
@@ -40,7 +41,7 @@ async def test_invoice_round_trip_and_mark_paid(
 
     paid = await app_client.patch(
         f"/api/invoices/{inv['id']}",
-        json={"status": "paid", "paid_date": date.today().isoformat()},
+        json={"status": "paid", "paid_date": business_today().isoformat()},
         headers=app_auth_headers,
     )
     assert paid.status_code == 200
@@ -87,7 +88,7 @@ async def test_invoice_contract_not_found(
             "contract_id": 999999,
             "direction": "to_client",
             "invoice_number": "X",
-            "issue_date": date.today().isoformat(),
+            "issue_date": business_today().isoformat(),
             "amount": 1,
         },
         headers=app_auth_headers,

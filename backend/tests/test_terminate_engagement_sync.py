@@ -12,7 +12,7 @@ w obu modelach:
 from __future__ import annotations
 
 import uuid
-from datetime import date, timedelta
+from datetime import timedelta
 
 import pytest
 from httpx import AsyncClient
@@ -197,7 +197,7 @@ async def test_future_dated_terminate_keeps_order_running_until_date(
     app_client: AsyncClient, app_auth_headers: dict[str, str]
 ):
     client_id, cand_id, contract_id = await _seed_with_orders()
-    when = date.today() + timedelta(days=14)
+    when = business_today() + timedelta(days=14)
     try:
         resp = await app_client.post(
             f"/api/contracts/{contract_id}/terminate",

@@ -1,7 +1,7 @@
 """Tests for Phase 9 B4 — contract analytics endpoints."""
 
 import uuid
-from datetime import date, timedelta
+from datetime import timedelta
 
 from httpx import AsyncClient
 from sqlalchemy import delete
@@ -10,6 +10,7 @@ from app.core.database import AsyncSessionLocal
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.contract import Contract, ContractStatus, ContractType
+from app.core.scheduling import business_today
 from tests._ranking_anchor import anchor_contract, ranking_anchor
 
 #: Ile wierszy zwracają rankowane endpointy analityki BEZ `?limit=`
@@ -115,8 +116,8 @@ async def test_role_client_mix_sigma_deduplicates_person_across_clients(
                     client_id=client.id,
                     contract_type=ContractType.b2b,
                     status=ContractStatus.active,
-                    start_date=date.today() - timedelta(days=10),
-                    end_date=date.today() + timedelta(days=30),
+                    start_date=business_today() - timedelta(days=10),
+                    end_date=business_today() + timedelta(days=30),
                 )
                 for candidate, client in zip(candidates, clients, strict=True)
             ]
@@ -206,8 +207,8 @@ async def test_ending_contracts_count_as_active_in_analytics(
                 client_id=ids["client"],
                 contract_type=ContractType.b2b,
                 status=ContractStatus.ending,
-                start_date=date.today() - timedelta(days=100),
-                end_date=date.today() + timedelta(days=10),
+                start_date=business_today() - timedelta(days=100),
+                end_date=business_today() + timedelta(days=10),
                 rate_unit=RateUnit.monthly,
                 rate_client=Decimal("20000"),
                 rate_candidate=Decimal("15000"),
@@ -283,14 +284,14 @@ async def test_location_distribution_skips_contracts_not_started_yet(
                     client_id=client.id,
                     contract_type=ContractType.b2b,
                     status=ContractStatus.active,
-                    start_date=date.today() - timedelta(days=5),
+                    start_date=business_today() - timedelta(days=5),
                 ),
                 Contract(
                     candidate_id=future.id,
                     client_id=client.id,
                     contract_type=ContractType.b2b,
                     status=ContractStatus.active,
-                    start_date=date.today() + timedelta(days=20),
+                    start_date=business_today() + timedelta(days=20),
                 ),
             ]
             db.add_all(contracts)

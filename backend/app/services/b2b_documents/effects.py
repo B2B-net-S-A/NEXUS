@@ -51,6 +51,7 @@ from app.models.contract_amendment import ContractAmendment, ContractAmendmentTy
 from app.models.contract_document import ContractDocument, ContractDocumentType
 from app.models.user import User
 from app.services.b2b_documents.registry import DocumentType
+from app.core.scheduling import business_today
 
 logger = logging.getLogger(__name__)
 
@@ -551,7 +552,7 @@ async def _add_amendment(
         amendment_type=amendment_type,
         old_values=old,
         new_values=new,
-        effective_date=effective or date.today(),
+        effective_date=effective or business_today(),
         reason=reason,
         document_id=document_id,
         created_by=actor_id,
@@ -565,7 +566,7 @@ async def _add_amendment(
             user_id=actor_id,
             details={
                 "new": new,
-                "effective_date": (effective or date.today()).isoformat(),
+                "effective_date": (effective or business_today()).isoformat(),
             },
         )
     )

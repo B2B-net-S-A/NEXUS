@@ -10,7 +10,6 @@ Word v4 table read and the stored profile themselves stay uncapped.
 """
 
 import time
-from datetime import date
 
 from app.services.champion_intake import MAX_TEXT
 from app.services.cv_generator_b2b import standalone_service as svc
@@ -25,6 +24,7 @@ from app.services.cv_generator_b2b.legacy_v7 import pipeline as legacy_pipeline
 from app.services.cv_generator_b2b.legacy_v7.champion import (
     build_champion_section as build_legacy_champion_section,
 )
+from app.core.scheduling import business_today
 from tests.test_cv_generator_content_mode import (
     _CV_TEXT,
     captured_prompt,  # noqa: F401 — pytest fixture
@@ -151,7 +151,7 @@ def test_prompt_is_byte_identical_for_a_normal_champion(
             f"<champion_profile>\n{section}\n</champion_profile>\n\n"
             # M05-B01: dzisiejsza data dla liczenia „obecnie" (poza cache'owanym
             # promptem systemowym).
-            + legacy_pipeline.build_generation_date_block("pl", date.today())
+            + legacy_pipeline.build_generation_date_block("pl", business_today())
         )
     else:
         # v10 składa wiadomość z faktów źródłowych — porównujemy sam blok.

@@ -14,7 +14,7 @@ usunięcie zamówienia 351 przecenia marzec–sierpień z 185,00 na 178,00 zł/h
 from __future__ import annotations
 
 import uuid
-from datetime import date, timedelta
+from datetime import timedelta
 from decimal import Decimal
 
 import pytest
@@ -27,8 +27,9 @@ from app.models.client import Client
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.contract import Contract, ContractStatus, ContractType, RateUnit
 from app.models.contract_client_rate import ContractClientRate
+from app.core.scheduling import business_today
 
-TODAY = date.today()
+TODAY = business_today()
 
 
 @pytest_asyncio.fixture

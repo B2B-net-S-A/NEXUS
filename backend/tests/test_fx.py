@@ -1,10 +1,10 @@
 """Tests for Phase 9 C4 — FX rates + conversion."""
 
-from datetime import date
 from decimal import Decimal
 
 import pytest
 from httpx import AsyncClient
+from app.core.scheduling import business_today
 
 
 async def test_list_fx_ok(app_client: AsyncClient, app_auth_headers: dict):
@@ -38,5 +38,5 @@ async def test_convert_missing_currency_graceful_fallback():
     from app.services.fx_service import convert_to_pln
 
     async with AsyncSessionLocal() as db:
-        result = await convert_to_pln(db, 1000, "XYZ", on=date.today())
+        result = await convert_to_pln(db, 1000, "XYZ", on=business_today())
     assert result == Decimal(1000)

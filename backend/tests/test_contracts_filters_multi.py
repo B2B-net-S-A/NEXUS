@@ -16,10 +16,11 @@ how much unrelated data happens to exist.
 from __future__ import annotations
 
 import uuid
-from datetime import date, timedelta
+from datetime import timedelta
 
 import pytest
 from httpx import AsyncClient
+from app.core.scheduling import business_today
 
 
 async def _seed_candidate_minimal(marker: str) -> int:
@@ -68,8 +69,8 @@ async def _seed_contract(
             client_id=client_id,
             status=ContractStatus(status),
             contract_type=ContractType(contract_type),
-            start_date=date.today() - timedelta(days=30),
-            end_date=date.today() + timedelta(days=60),
+            start_date=business_today() - timedelta(days=30),
+            end_date=business_today() + timedelta(days=60),
             rate_client=10000,
             rate_candidate=8000,
             margin=2000,
@@ -113,8 +114,8 @@ async def _seed_contract_named(
             client_id=client_id,
             status=ContractStatus(status),
             contract_type=ContractType("b2b"),
-            start_date=date.today() - timedelta(days=30),
-            end_date=date.today() + timedelta(days=60),
+            start_date=business_today() - timedelta(days=30),
+            end_date=business_today() + timedelta(days=60),
             rate_client=10000,
             rate_candidate=8000,
             margin=2000,

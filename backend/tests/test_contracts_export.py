@@ -38,6 +38,7 @@ from app.models.contract import (
     ProlongationStatus,
     RateUnit,
 )
+from app.core.scheduling import business_today
 
 XLSX_MEDIA = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
@@ -254,7 +255,7 @@ async def _seed_contract(
 
     cand_id = await _seed_candidate_minimal()
     client_id = await _seed_client_minimal()
-    order_end = date.today() + timedelta(days=90)
+    order_end = business_today() + timedelta(days=90)
 
     async with AsyncSessionLocal() as db:
         c = C(
@@ -262,9 +263,9 @@ async def _seed_contract(
             client_id=client_id,
             status=ContractStatus(status),
             contract_type=ContractType.b2b,
-            start_date=date.today() - timedelta(days=30),
-            end_date=date.today() + timedelta(days=60),
-            client_order_end_date=date.today() + timedelta(days=45),
+            start_date=business_today() - timedelta(days=30),
+            end_date=business_today() + timedelta(days=60),
+            client_order_end_date=business_today() + timedelta(days=45),
             rate_client=Decimal("10000"),
             rate_candidate=Decimal("8000"),
             margin=Decimal("2000"),
@@ -281,7 +282,7 @@ async def _seed_contract(
                     contract_id=c.id,
                     title="PO-2026",
                     status=ClientOrderStatus.active,
-                    start_date=date.today() - timedelta(days=30),
+                    start_date=business_today() - timedelta(days=30),
                     end_date=order_end,
                 )
             )
@@ -353,11 +354,11 @@ async def test_export_defaults_to_xlsx_with_client_rates_and_order_dates(
         # Order dates: contract-level PO end + latest ClientOrder end.
         assert (
             by["Koniec zamówienia u klienta"]
-            == (date.today() + timedelta(days=45)).isoformat()
+            == (business_today() + timedelta(days=45)).isoformat()
         )
         assert (
             by["Najnowsze zamówienie do"]
-            == (date.today() + timedelta(days=90)).isoformat()
+            == (business_today() + timedelta(days=90)).isoformat()
         )
     finally:
         await _cleanup([seeded])

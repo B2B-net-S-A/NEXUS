@@ -43,6 +43,7 @@ from app.models.app_setting import AppSetting
 from app.models.contract import Contract, ContractStatus
 from app.models.document_signature import DocumentSignature, SignatureStatus
 from app.services.contract_service import validate_ready_for_activation
+from app.core.scheduling import business_today
 
 
 HardDeleteBlocker = Literal["completed_signature", "signed_generated_contract"]
@@ -730,7 +731,7 @@ async def sync_contract_to_live_order(
     if contract.status not in (ContractStatus.ended, ContractStatus.ending):
         return False
 
-    today_ = today or date.today()
+    today_ = today or business_today()
     if not order_period_covers(order_start, order_end, today_):
         return False
 

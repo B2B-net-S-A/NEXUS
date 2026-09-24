@@ -76,6 +76,7 @@ from app.schemas.similar_job_candidates import (
 from app.services.canonical_text import build_job_query_variants
 from app.services.retrieval_pool import retrieve_candidate_pool
 from app.services.section_permissions import SectionAccess
+from app.core.scheduling import business_today
 
 logger = logging.getLogger(__name__)
 
@@ -1536,7 +1537,7 @@ async def seeking_contractors(
     across all candidates. Per-candidate cost is one Voyage embed + one Qdrant
     search — the unavoidable minimum for personalized ranking.
     """
-    from datetime import date, timedelta
+    from datetime import timedelta
 
     from app.models.contract import Contract, ContractStatus
     from app.services.recommendation_filters import (
@@ -1556,7 +1557,7 @@ async def seeking_contractors(
     delivery_lead_client_ids = await resolve_delivery_lead_client_ids(current_user, db)
 
     # 1. Build the candidate pool (union of two sources).
-    horizon = date.today() + timedelta(days=horizon_days)
+    horizon = business_today() + timedelta(days=horizon_days)
 
     # Source A: contractors with end_date within horizon (status active or ending)
     ending_query = select(

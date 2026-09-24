@@ -1254,7 +1254,7 @@ async def jobs_quick_counts(
     sześcioma — sześć osobnych rund po bazie przy każdej zmianie filtra jest
     dokładnie tym kosztem, przez który tych liczników wcześniej nie było.
     """
-    today = date.today()
+    today = business_today()
     window_from = deadline_from if deadline_from is not None else today
     window_to = deadline_to if deadline_to is not None else today + timedelta(days=7)
     deadline_clauses = jobs_deadline_clauses(window_from, window_to)

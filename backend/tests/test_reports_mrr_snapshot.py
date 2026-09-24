@@ -17,6 +17,7 @@ from decimal import Decimal
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
+from app.core.scheduling import business_today
 
 
 async def _seed_client_and_candidate(
@@ -116,7 +117,7 @@ async def test_mrr_excludes_future_contracts(
     """Contract z start_date w przyszłości NIE powinien liczyć się do MRR."""
     suffix = uuid.uuid4().hex[:6]
     client_id, cand_id = await _seed_client_and_candidate(suffix)
-    today = date.today()
+    today = business_today()
     # Contract starts next month — status=active ale jeszcze nie zaczął
     await _seed_contract(
         client_id,
@@ -150,7 +151,7 @@ async def test_mrr_excludes_ended_contracts(
     """Contract z end_date w przeszłości NIE powinien liczyć się do MRR."""
     suffix = uuid.uuid4().hex[:6]
     client_id, cand_id = await _seed_client_and_candidate(suffix)
-    today = date.today()
+    today = business_today()
     # Ended last month — status=active still (bug-state)
     await _seed_contract(
         client_id,
@@ -175,7 +176,7 @@ async def test_mrr_includes_running_contract(
     """Contract running today (start<=today, end IS NULL) MUSI liczyć się do MRR."""
     suffix = uuid.uuid4().hex[:6]
     client_id, cand_id = await _seed_client_and_candidate(suffix)
-    today = date.today()
+    today = business_today()
     contract_id = await _seed_contract(
         client_id,
         cand_id,
@@ -209,7 +210,7 @@ async def test_sales_contract_lists_use_canonical_client_display_name(
         suffix,
         display_name=f"  {canonical_name}  ",
     )
-    today = date.today()
+    today = business_today()
     contract_id = await _seed_contract(
         client_id,
         cand_id,
