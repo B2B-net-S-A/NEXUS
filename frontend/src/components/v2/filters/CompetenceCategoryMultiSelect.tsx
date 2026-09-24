@@ -15,7 +15,7 @@ interface CompetenceCategoryMultiSelectProps {
 }
 
 /**
- * Dropdown multi-select over the 5 NEXUS competence categories, populated from
+ * Dropdown multi-select over the 4 NEXUS competence categories, populated from
  * `GET /api/competence-categories?active_only=true`. Mirrors the dropdown look
  * of the other jobs-list filters (status, client) rather than the chip layout
  * of `CompetenceCategoryFilter`, which is purpose-built for the sourcing brief.

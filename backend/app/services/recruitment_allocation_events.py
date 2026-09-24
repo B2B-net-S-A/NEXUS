@@ -17,7 +17,7 @@ _WATCHED_TABLES = frozenset(
         "recruitment_priority_assignments",
         "recruitment_priority_plan_members",
         "user_competence_categories",
-        "job_secondary_ccs",
+        "job_secondary_cc",
     }
 )
 

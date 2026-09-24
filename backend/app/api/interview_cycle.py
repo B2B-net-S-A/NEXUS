@@ -565,6 +565,15 @@ async def create_slot_request(
         ),
         actor_id=actor_id,
     )
+    # 0371: terminy od klienta = klient się odezwał → „Klient milczy” wraca
+    # do „Szukamy kandydatów”. Nigdy nie rzuca.
+    from app.services.request_work_state import (  # noqa: PLC0415
+        wake_on_client_response,
+    )
+
+    await wake_on_client_response(
+        db, job_id=body.job_id, stage=None, reason="client_slots"
+    )
     await db.commit()
     await db.refresh(req)
     if moved is not None:

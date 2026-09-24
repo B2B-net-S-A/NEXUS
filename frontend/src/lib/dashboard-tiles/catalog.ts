@@ -229,6 +229,17 @@ export const TILE_DEFINITIONS: Record<TileType, TileDefinition> = {
       needsRole(["head_of_recruitment"], "Dla Head of Recruitment"),
     ),
   },
+  request_board: {
+    type: "request_board",
+    label: "Requesty i obłożenie",
+    description:
+      "Requesty „Szukamy kandydatów” po kategoriach, kto przy nich pracuje i ile kto ma — na daily.",
+    category: "team",
+    defaultSize: { w: 12, h: 8 },
+    minSize: { w: 8, h: 5 },
+    ownChrome: true,
+    availability: needsSection("pipeline", "Rekrutacje"),
+  },
   team_allocation: {
     type: "team_allocation",
     label: "Alokacja zespołu",
@@ -526,9 +537,9 @@ export const TILE_TEMPLATES: TileTemplate[] = [
 // ── Polecane dla roli (pusty pulpit) ─────────────────────────────────────────
 
 const RECOMMENDED_BY_ROLE: Partial<Record<UserRole, string[]>> = {
-  recruiter: ["cv_sent_week", "my_recruitments", "my_next_steps", "calendar_today"],
-  sourcer: ["cv_sent_week", "my_recruitments", "my_next_steps", "calendar_today"],
-  tac: ["cv_sent_week", "my_recruitments", "my_next_steps", "calendar_today"],
+  recruiter: ["request_board", "cv_sent_week", "my_recruitments", "my_next_steps", "calendar_today"],
+  sourcer: ["request_board", "cv_sent_week", "my_recruitments", "my_next_steps", "calendar_today"],
+  tac: ["request_board", "cv_sent_week", "my_recruitments", "my_next_steps", "calendar_today"],
   talent_community_manager: [
     "recruitment_activity",
     "funnel",
@@ -536,12 +547,14 @@ const RECOMMENDED_BY_ROLE: Partial<Record<UserRole, string[]>> = {
     "calendar_today",
   ],
   head_of_recruitment: [
+    "request_board",
     "recruitment_activity",
     "team_workload",
     "funnel",
     "contact_oversight",
   ],
   delivery_lead: [
+    "request_board",
     "my_clients_alerts",
     "orders_ending",
     "active_contracts",

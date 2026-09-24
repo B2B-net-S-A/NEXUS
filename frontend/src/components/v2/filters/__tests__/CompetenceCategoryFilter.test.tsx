@@ -59,9 +59,9 @@ describe("CompetenceCategoryFilter", () => {
     );
     render(<CompetenceCategoryFilter selected={[]} onChange={vi.fn()} />);
     expect(screen.getByRole("group")).toBeInTheDocument();
-    // 5 skeleton tiles regardless of fetched count
+    // 4 skeleton tiles (four team categories) regardless of fetched count
     expect(screen.getByRole("group").querySelectorAll(".animate-pulse")).toHaveLength(
-      5,
+      4,
     );
     resolve(FAKE_CCS);
     await waitFor(() =>

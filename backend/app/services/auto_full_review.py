@@ -36,7 +36,7 @@ from datetime import datetime, time, timedelta, timezone
 from typing import Optional
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import exists, func, or_, select
+from sqlalchemy import case, exists, func, or_, select
 
 from app.core.config import settings
 from app.models.activity import Activity
@@ -133,12 +133,17 @@ async def pending_job_ids(db, *, now: datetime, limit: int = _PICK_LIMIT) -> lis
         select(Job.id)
         .where(
             Job.status == JobStatus.published,
+            # 0371: „Klient milczy” i „Zakończony” to requesty, nad którymi
+            # nikt nie pracuje — nocny limit przeglądów idzie na te w pracy.
+            Job.work_state.in_(("searching", "to_review")),
             or_(Job.recruiter_id.is_not(None), Job.tac_id.is_not(None)),
             event_at.is_not(None),
             or_(last_auto.is_(None), event_at > last_auto),
             ~ran_tonight,
         )
-        .order_by(event_at, Job.id)
+        # „Szukamy kandydatów” pierwsze: od liczby pasujących w bazie zależy,
+        # czy automat przydziału da rekrutera, czy wystarczy sourcer.
+        .order_by(case((Job.work_state == "searching", 0), else_=1), event_at, Job.id)
         .limit(limit)
     )
     return [int(job_id) for (job_id,) in rows.all()]

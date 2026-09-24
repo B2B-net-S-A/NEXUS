@@ -178,6 +178,13 @@ class NotificationType(str, enum.Enum):
     # na dobę przed rozmową u klienta. Do organizatora prepu i Head of
     # Recruitment; related_entity=(calendar_event, id) — jeden wpis na sprawę.
     prep_attention = "prep_attention"
+    # 0371: automat przydziału requestów — rano JEDEN wpis na osobę („Od dziś:
+    # X. Zwolnione: Y (champion)”); related_entity=(user, id), dedup dobowy.
+    request_assignment_changed = "request_assignment_changed"
+    # 0371: request do decyzji DL — nowy z Traffita „Do przejrzenia”, „Klient
+    # milczy” od 14 dni albo „Szukamy” bez pracy od 30 dni;
+    # related_entity=(user, id), jeden zbiorczy wpis na odbiorcę i dzień.
+    request_review_needed = "request_review_needed"
 
 
 class Notification(Base, TimestampMixin):

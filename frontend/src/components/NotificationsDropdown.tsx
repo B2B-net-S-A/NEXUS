@@ -422,6 +422,17 @@ const TYPE_CONFIG: Record<
     color: "text-primary",
     bgColor: "bg-primary/15",
   },
+  // 0371: automat przydziału requestów i requesty do decyzji DL.
+  request_assignment_changed: {
+    icon: <ListChecks className="w-3.5 h-3.5" />,
+    color: "text-primary",
+    bgColor: "bg-primary/15",
+  },
+  request_review_needed: {
+    icon: <BellRing className="w-3.5 h-3.5" />,
+    color: "text-warning",
+    bgColor: "bg-warning/15",
+  },
   cpro_send_assigned: {
     icon: <Send className="w-3.5 h-3.5" />,
     color: "text-primary",

@@ -422,6 +422,7 @@ const PUBLIC_PATHS = [
   "/preview/candidate-merge",
   "/preview/job-portals",
   "/preview/academy",
+  "/preview/request-allocation",
   // Strona kariery (kandydaci z LinkedIna) — publiczna z definicji. Na własnym
   // hoście (`kariera.dynaminds.pl`) obsługuje ją `careerHostResponse` niżej;
   // tu jest wejście pod `/kariera/*` na hoście aplikacji (dev, podgląd, grafiki

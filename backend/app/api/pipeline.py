@@ -1450,6 +1450,15 @@ async def move_candidate(
         await on_candidate_sent(
             db, job_id=data.job_id, candidate_id=stage.candidate_id, stage=legacy_enum
         )
+        # 0371: klient zaprosił na rozmowę / zaakceptował → „Klient milczy”
+        # wraca do „Szukamy kandydatów”. Nigdy nie rzuca.
+        from app.services.request_work_state import (  # noqa: PLC0415
+            wake_on_client_response,
+        )
+
+        await wake_on_client_response(
+            db, job_id=data.job_id, stage=legacy_enum, reason="client_stage"
+        )
 
     actor_id = current_user.id
     await db.commit()
@@ -3245,6 +3254,13 @@ async def bulk_move_candidates(
         await on_candidate_sent(
             db, job_id=data.job_id, candidate_id=cid, stage=bulk_stage
         )
+    from app.services.request_work_state import (  # noqa: PLC0415
+        wake_on_client_response,
+    )
+
+    await wake_on_client_response(
+        db, job_id=data.job_id, stage=bulk_stage, reason="client_stage"
+    )
 
     actor_id = current_user.id
     await db.commit()

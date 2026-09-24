@@ -12,15 +12,17 @@ from app.services.talent_pool_cc import classify_pool_name_to_cc_slug
 
 INFRA = "infrastructure_operations"
 SW = "software_development"
-DATA = "data_ai"
-SEC = "security_quality"
+# Od 24.09.2026 cztery kategorie: dane i security należą do grupy Infra,
+# a `security_quality` to samo QA (services/competence_category_four.py).
+DATA = INFRA
+QA = "security_quality"
 MGMT = "management_delivery"
 
 # (pool_name, expected_slug_or_None) — exact names from the prod catalogue.
 LIVE_POOLS: list[tuple[str, str | None]] = [
     ("Senior Angular", SW),
     ("DevOps Engineers", INFRA),
-    ("QA Automation", SEC),
+    ("QA Automation", QA),
     ("Java Backend Senior", SW),
     ("Targ kandydatów", None),
     ("PM", MGMT),
@@ -35,9 +37,9 @@ LIVE_POOLS: list[tuple[str, str | None]] = [
     ("Helpdesk L2", INFRA),
     ("Helpdesk L1", INFRA),
     ("Service Desk", INFRA),
-    ("SOC", SEC),
-    ("IAM Engineer, Vulnerability Management", SEC),
-    ("Security Engineer", SEC),
+    ("SOC", INFRA),
+    ("IAM Engineer, Vulnerability Management", INFRA),
+    ("Security Engineer", INFRA),
     ("Oracle DBA", INFRA),
     ("MS DBA", INFRA),
     ("NOC Engineer", INFRA),
@@ -83,21 +85,21 @@ LIVE_POOLS: list[tuple[str, str | None]] = [
     ("Rollout / Release Manager", MGMT),
     ("Program Manager", MGMT),
     ("IT Project Manager", MGMT),
-    ("Test Architect", SEC),
-    ("Test Lead", SEC),
-    ("Test Manager", SEC),
-    ("Pentester (blue+red)", SEC),
-    ("Performance Tester (jMeter, Loadrunner, Gatling)", SEC),
-    ("Manual Tester - bazy danych", SEC),
-    ("Manual Tester (web, mob, sys (bankowość)", SEC),
-    ("Tester embedded", SEC),
-    ("Tester Automatyzujący (Cypress, JavaScript)", SEC),
-    ("Tester Automatyzujący (Playwright, TypeScript)", SEC),
-    ("Tester Automatyzujący (C#, Selenium)", SEC),
-    ("Tester Automatyzujący (Python, PyTest)", SEC),
-    ("Tester Automatyzujący (ETL, bazy danych)", SEC),
-    ("Tester Automatyzujący (Python, Robot Framework)", SEC),
-    ("Tester Automatyzujący (Java, Selenium)", SEC),
+    ("Test Architect", QA),
+    ("Test Lead", QA),
+    ("Test Manager", QA),
+    ("Pentester (blue+red)", INFRA),
+    ("Performance Tester (jMeter, Loadrunner, Gatling)", QA),
+    ("Manual Tester - bazy danych", QA),
+    ("Manual Tester (web, mob, sys (bankowość)", QA),
+    ("Tester embedded", QA),
+    ("Tester Automatyzujący (Cypress, JavaScript)", QA),
+    ("Tester Automatyzujący (Playwright, TypeScript)", QA),
+    ("Tester Automatyzujący (C#, Selenium)", QA),
+    ("Tester Automatyzujący (Python, PyTest)", QA),
+    ("Tester Automatyzujący (ETL, bazy danych)", QA),
+    ("Tester Automatyzujący (Python, Robot Framework)", QA),
+    ("Tester Automatyzujący (Java, Selenium)", QA),
     ("FullStack .NET", SW),
     ("FullStack JS", SW),
     ("FullStack Java", SW),
@@ -150,14 +152,14 @@ def test_live_catalogue_has_full_coverage() -> None:
         ("   ", None),
         (None, None),
         # ordering: a tester whose name also mentions a data tool stays QA
-        ("Tester (ETL, Spark)", SEC),
+        ("Tester (ETL, Spark)", QA),
         # ordering: "Service Manager" is management, "Service Desk" is infra
         ("Service Manager", MGMT),
         ("Service Desk", INFRA),
         # generic architect → software; domain architects keep their domain
         ("Solution Architect", SW),
         ("Data Architect", DATA),
-        # word-boundary guard: "ai" inside a word must not trigger data_ai
+        # word-boundary guard: "ai" inside a word must not trigger the data rules
         ("Mainframe Specialist", INFRA),
         # case/whitespace insensitivity
         ("  pYtHoN  ", SW),

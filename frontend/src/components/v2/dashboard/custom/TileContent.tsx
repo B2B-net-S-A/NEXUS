@@ -21,6 +21,7 @@ import {
 } from "@/components/v2/dashboard/RecruitmentCompetenceDashboard"
 import { MyKpiWidget } from "@/components/v2/kpi/MyKpiWidget"
 import { MyPriorityQueue, TeamAllocationBoard } from "@/components/v2/priority-work"
+import { RequestBoard } from "@/components/v2/request-board/RequestBoard"
 import { AllocationWorkloadBoard } from "@/components/v2/priority-work/AllocationWorkloadBoard"
 import type { DashboardTile } from "@/lib/api/userDashboard"
 import { TILE_DEFINITIONS } from "@/lib/dashboard-tiles/catalog"
@@ -81,6 +82,8 @@ export function TileContent({ tile }: { tile: DashboardTile }) {
       return <AllocationWorkloadBoard />
     case "team_allocation":
       return <TeamAllocationBoard />
+    case "request_board":
+      return <RequestBoard />
     case "contact_oversight":
       return <ContactOversightPanel />
     case "my_clients_alerts":
