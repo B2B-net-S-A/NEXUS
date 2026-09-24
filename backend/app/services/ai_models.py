@@ -43,6 +43,7 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F20 | job_public_description           | claude-sonnet-5 (z Haiku)|
 | F21 | screening_reassign_suggest       | gpt-6-luna (z Sonnet 5)  |
 | F22 | dz_review                        | gpt-6-luna (z Sonnet 5)  |
+| F23 | academy_screening                | gpt-6-luna (z Sonnet 5)  |
 | F16 | embeddingi (``VOYAGE_MODEL``)    | voyage-3 — config.py     |
 | F17 | reranker (``RERANKER_ENABLED``)  | wyłączony — config.py    |
 
@@ -286,6 +287,15 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "zatwierdzającego DZ to zadanie „znajdź i zacytuj” (must-have w CV, pogrubienia, "
         "pokrycie w rolach) — to samo, w czym Luna wygrała F7/F18; recenzent ma być innym "
         "modelem niż generator CV (F4 = Sonnet 5). Wynik doradczy, nigdy bramka.",
+    ),
+    AIFeatureKey.academy_screening: ModelChoice(
+        default=GPT_LUNA,
+        env_vars=("ACADEMY_SCREENING_MODEL",),
+        fallbacks=(SONNET_5,),
+        rationale="F23 (decyzja Artura 24.09.2026, POZA badaniem 16.09). Sortowanie "
+        "zgłoszeń do akademii to odczyt dat edukacji i pracy oraz poziomu polskiego z CV "
+        "z cytatem — to samo co F10 (Luna wybrana pomiarem 22.09). Liczbę lat i werdykt "
+        "liczy kod; decyzję „nie” klika człowiek.",
     ),
     AIFeatureKey.cv_name_backfill: ModelChoice(
         default=GPT_LUNA,

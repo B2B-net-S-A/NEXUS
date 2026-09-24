@@ -82,6 +82,7 @@ class TestFeatureKeyEnum:
             # 0353: podpowiedzi Luny w przeglądzie DZ (CV dla klienta
             # porównane z oryginałem i zapytaniem klienta).
             "dz_review",
+            "academy_screening",
         }
 
     def test_every_key_has_label_and_data_descriptor(self):

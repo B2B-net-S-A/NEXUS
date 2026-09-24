@@ -527,6 +527,10 @@ class Settings(BaseSettings):
     JARVIS_DAILY_SOFT_LIMIT: int = 50
     # Rozmowy starsze niż tyle dni są kasowane (dane osobowe w treści).
     JARVIS_RETENTION_DAYS: int = 30
+
+    # Akademia (0369): pętla naboru z ogłoszeń i sortowania Luną co 10 min.
+    # Bez programów nic nie robi; wyłączenie nie blokuje przycisku na ekranie.
+    ACADEMY_INTAKE_ENABLED: bool = True
     # Proponowana akcja bez decyzji dłużej niż tyle minut wygasa.
     JARVIS_ACTION_TTL_MINUTES: int = 15
     # Internet (decyzja 21.09.2026): wyszukiwarka tylko w turze, w której

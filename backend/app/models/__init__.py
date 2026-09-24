@@ -702,6 +702,13 @@ from app.models.mail_delivery import MailDeliveryState  # noqa: F401
 from app.models.job_proposal import JobProposal  # noqa: F401
 from app.models.job_similar_link import JobSimilarLink  # noqa: F401
 from app.models.my_people import MyPeopleJobMatch, MyPeopleOverride  # noqa: F401
+# 0369: Akademia — nabór do programów szkoleniowych.
+from app.models.academy import (  # noqa: F401
+    AcademyApplication,
+    AcademyProgram,
+    AcademyProgramSource,
+    AcademySession,
+)
 from app.models.user_dashboard import UserDashboard  # noqa: F401
 from app.models.client_interview_slot_request import (  # noqa: F401
     ClientInterviewSlotRequest,
