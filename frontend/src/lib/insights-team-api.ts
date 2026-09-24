@@ -110,7 +110,10 @@ export interface TeamPeopleRow {
   previous_placements: number;
   /** `null` = w oknie nie upłynął jeszcze żaden dzień roboczy. */
   verifications_per_workday: number | null;
-  /** Rekomendacje / weryfikacje z 30 dni. `null` = mniej niż 5 weryfikacji. */
+  /**
+   * Z par zweryfikowanych w 30 dniach — ile ma „CV wysłane” (kohorta, max
+   * 100%). `null` = mniej niż 5 weryfikacji.
+   */
   precision_pct: number | null;
 }
 

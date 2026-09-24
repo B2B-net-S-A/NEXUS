@@ -120,7 +120,8 @@ def people_payload(people: TeamPeople) -> dict:
                     if people.workdays
                     else None
                 ),
-                # None = mniej niż 5 weryfikacji w 30 dniach, „nie policzono".
+                # Kohorta: z par zweryfikowanych w 30 dniach, ile ma „CV wysłane"
+                # (≤ 100%). None = mniej niż 5 weryfikacji, „nie policzono".
                 "precision_pct": r.precision_pct,
             }
         )
