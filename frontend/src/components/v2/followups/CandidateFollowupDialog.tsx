@@ -192,7 +192,7 @@ export function CandidateFollowupDialog({
         note: note.trim() || null,
         callback_on: outcome === "callback" ? callbackOn : null,
         processes: outcome === "changed" ? flags : {},
-        call_id: callId,
+        ...(callId !== null ? { call_id: callId } : {}),
       },
       {
         onSuccess: (data) => {
