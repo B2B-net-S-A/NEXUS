@@ -30,7 +30,11 @@ from app.models.client_framework_contract import ClientFrameworkContract
 from app.models.user import User
 from app.schemas.client_contract_amendment import ClientContractAmendmentRead
 from app.services import storage_service
-from app.services.client_access import deny, resolve_client_access
+from app.services.client_access import (
+    assert_client_writable,
+    deny,
+    resolve_client_access,
+)
 
 router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
 
@@ -40,12 +44,19 @@ _ALLOWED_EXT = (".pdf", ".docx", ".doc")
 
 
 async def _assert_fc(
-    db: AsyncSession, client_id: int, fc_id: int
+    db: AsyncSession, client_id: int, fc_id: int, *, write: bool = False
 ) -> ClientFrameworkContract:
-    """Verify client + framework contract existence + relationship."""
-    client = await db.scalar(select(Client).where(Client.id == client_id))
-    if not client:
-        raise HTTPException(404, detail="Client not found")
+    """Verify client + framework contract existence + relationship.
+
+    ``write`` — zapis wyłącznie na widocznym kliencie (usunięty, scalony albo
+    ukryty → 404; audyt 24.09.2026, S1).
+    """
+    if write:
+        await assert_client_writable(db, client_id)
+    else:
+        client = await db.scalar(select(Client).where(Client.id == client_id))
+        if not client:
+            raise HTTPException(404, detail="Client not found")
     fc = await db.scalar(
         select(ClientFrameworkContract).where(
             ClientFrameworkContract.id == fc_id,
@@ -143,7 +154,18 @@ async def create_amendment(
 ):
     import json
 
-    await _assert_fc(db, client_id, fc_id)
+    await _assert_fc(db, client_id, fc_id, write=True)
+    # Lustro długości kolumn — za długa nazwa albo nazwa pliku dawały 500 z bazy
+    # po zapisaniu pliku na dysku (audyt S3).
+    name = name.strip()
+    if not name:
+        raise HTTPException(422, detail="Podaj nazwę aneksu.")
+    if len(name) > 255:
+        raise HTTPException(422, detail="Nazwa aneksu: najwyżej 255 znaków.")
+    if file is not None and len(file.filename or "") > 255:
+        raise HTTPException(
+            422, detail="Nazwa pliku jest za długa (najwyżej 255 znaków). Skróć ją."
+        )
 
     def _parse_json(raw: Optional[str], label: str) -> Optional[dict[str, Any]]:
         if raw is None or raw == "":
@@ -255,7 +277,7 @@ async def send_amendment_to_autenti(
         send_pdf_to_autenti,
     )
 
-    await _assert_fc(db, client_id, fc_id)
+    await _assert_fc(db, client_id, fc_id, write=True)
     a = await db.scalar(
         select(ClientContractAmendment).where(
             ClientContractAmendment.id == amendment_id,
@@ -282,7 +304,7 @@ async def delete_amendment(
     user: DlAssignedOrAdmin,
     db: AsyncSession = Depends(get_db),
 ):
-    await _assert_fc(db, client_id, fc_id)
+    await _assert_fc(db, client_id, fc_id, write=True)
     a = await db.scalar(
         select(ClientContractAmendment).where(
             ClientContractAmendment.id == amendment_id,
@@ -292,8 +314,7 @@ async def delete_amendment(
     if a is None:
         raise HTTPException(404, detail="Amendment not found")
 
-    if a.file_path:
-        storage_service.delete_client_contract_amendment(a.file_path)
+    file_path = a.file_path
     await db.delete(a)
     db.add(
         Activity(
@@ -305,3 +326,7 @@ async def delete_amendment(
         )
     )
     await db.commit()
+    # Plik kasujemy PO udanym commicie — nieudana transakcja nie może
+    # zostawić wiersza bez pliku (audyt W3).
+    if file_path:
+        storage_service.delete_client_contract_amendment(file_path)

@@ -33,6 +33,7 @@ from app.schemas.client import (
     ClientSafeResponse,
     ClientUpdate,
 )
+from app.services.client_access import assert_client_writable
 from app.services.access_scope import (
     apply_delivery_lead_client_scope,
     assert_delivery_lead_client_visible,
@@ -1135,10 +1136,10 @@ async def update_client(
         client_id,
         await resolve_delivery_lead_client_ids(current_user, db),
     )
-    result = await db.execute(select(Client).where(Client.id == client_id))
-    client = result.scalar_one_or_none()
-    if not client:
-        raise HTTPException(status_code=404, detail="Client not found")
+    # Zapis tylko na widocznym kliencie — usunięty, scalony albo ukryty
+    # klient nie ma profilu, więc edycja tworzyła dane nie do zobaczenia
+    # (audyt 24.09.2026, S1).
+    client = await assert_client_writable(db, client_id)
     updates = data.model_dump(exclude_unset=True)
     from app.services.cv_generator_b2b import central_policies
 
@@ -1200,6 +1201,12 @@ async def merge_client_into(
     if target.hidden or target.archived_at is not None:
         raise HTTPException(
             status_code=409, detail="Cel scalenia jest ukryty/zarchiwizowany"
+        )
+    if target.deleted_at is not None:
+        # Usunięty klient nie ma profilu — scalenie przekierowałoby profil
+        # duplikatu w próżnię (audyt N10).
+        raise HTTPException(
+            status_code=422, detail="Nie można scalić z usuniętym klientem."
         )
     if source.merged_into_client_id is not None:
         if source.merged_into_client_id == target_id:

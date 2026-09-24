@@ -376,3 +376,170 @@ async def test_expiring_soon_counts_only_window_not_expired(
         assert row["expiring_soon_count"] == 1
     finally:
         await _cleanup(client_id)
+
+
+# ── W3: szkic umowy ramowej z zależnościami ────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_deleting_draft_framework_contract_in_use_is_409(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+) -> None:
+    client_id = await _client()
+    try:
+        contract_id = await _contract(client_id, await _candidate())
+        async with AsyncSessionLocal() as db:
+            fc = ClientFrameworkContract(
+                client_id=client_id,
+                name="Szkic w użyciu",
+                status=FrameworkContractStatus.draft,
+            )
+            db.add(fc)
+            await db.flush()
+            fc_id = fc.id
+            db.add(
+                ClientOrder(
+                    client_id=client_id,
+                    contract_id=contract_id,
+                    framework_contract_id=fc_id,
+                    title="pod szkicem",
+                    status=ClientOrderStatus.active,
+                    start_date=business_today(),
+                )
+            )
+            await db.commit()
+        resp = await app_client.delete(
+            f"/api/clients/{client_id}/framework-contracts/{fc_id}",
+            headers=app_auth_headers,
+        )
+        assert resp.status_code == 409, resp.text
+        assert "zamówienia: 1" in resp.text
+        async with AsyncSessionLocal() as db:
+            assert await db.get(ClientFrameworkContract, fc_id) is not None
+    finally:
+        await _cleanup(client_id)
+
+
+# ── S1: zapis na usuniętym kliencie ────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_writes_on_deleted_client_are_404(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+) -> None:
+    from datetime import datetime, timezone
+
+    client_id = await _client()
+    try:
+        async with AsyncSessionLocal() as db:
+            client = await db.get(Client, client_id)
+            client.deleted_at = datetime.now(timezone.utc)
+            await db.commit()
+        base = f"/api/clients/{client_id}"
+        attempts = [
+            app_client.patch(base, json={"industry": "IT"}, headers=app_auth_headers),
+            app_client.post(
+                f"{base}/knowledge",
+                json={"category": "general", "content": "x"},
+                headers=app_auth_headers,
+            ),
+            app_client.post(
+                f"{base}/framework-contracts",
+                data={"name": "MSA"},
+                headers=app_auth_headers,
+            ),
+            app_client.put(
+                f"{base}/contract-terms",
+                json={"payment_net_days": 30},
+                headers=app_auth_headers,
+            ),
+        ]
+        for attempt in attempts:
+            resp = await attempt
+            assert resp.status_code == 404, resp.text
+    finally:
+        await _cleanup(client_id)
+
+
+# ── S3 / N10: czytelne 422 zamiast 500 ─────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_explicit_null_and_bad_references_are_422(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+) -> None:
+    client_id = await _client()
+    other_id = await _client()
+    try:
+        resp = await app_client.patch(
+            f"/api/clients/{client_id}",
+            json={"status": None},
+            headers=app_auth_headers,
+        )
+        assert resp.status_code == 422, resp.text
+
+        async with AsyncSessionLocal() as db:
+            foreign = ClientFrameworkContract(
+                client_id=other_id,
+                name="Cudza",
+                status=FrameworkContractStatus.active,
+            )
+            db.add(foreign)
+            await db.commit()
+            foreign_id = foreign.id
+        resp = await app_client.post(
+            f"/api/clients/{client_id}/framework-contracts",
+            data={"name": "Nowa", "parent_contract_id": str(foreign_id)},
+            headers=app_auth_headers,
+        )
+        assert resp.status_code == 422, resp.text
+        resp = await app_client.post(
+            f"/api/clients/{client_id}/framework-contracts",
+            data={"name": "x" * 300},
+            headers=app_auth_headers,
+        )
+        assert resp.status_code == 422, resp.text
+        resp = await app_client.post(
+            f"/api/clients/{client_id}/framework-contracts",
+            data={"name": "Ok"},
+            headers=app_auth_headers,
+        )
+        assert resp.status_code == 201, resp.text
+        resp = await app_client.patch(
+            f"/api/clients/{client_id}/framework-contracts/{resp.json()['id']}",
+            json={"name": None},
+            headers=app_auth_headers,
+        )
+        assert resp.status_code == 422, resp.text
+        resp = await app_client.put(
+            f"/api/clients/{client_id}/contract-terms",
+            json={"payment_currency": "ZŁOTY"},
+            headers=app_auth_headers,
+        )
+        assert resp.status_code == 422, resp.text
+    finally:
+        await _cleanup(client_id)
+        await _cleanup(other_id)
+
+
+@pytest.mark.asyncio
+async def test_merge_into_deleted_client_is_422(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+) -> None:
+    from datetime import datetime, timezone
+
+    source_id = await _client()
+    target_id = await _client()
+    try:
+        async with AsyncSessionLocal() as db:
+            target = await db.get(Client, target_id)
+            target.deleted_at = datetime.now(timezone.utc)
+            await db.commit()
+        resp = await app_client.post(
+            f"/api/clients/{source_id}/merge-into/{target_id}",
+            headers=app_auth_headers,
+        )
+        assert resp.status_code == 422, resp.text
+    finally:
+        await _cleanup(source_id)
+        await _cleanup(target_id)

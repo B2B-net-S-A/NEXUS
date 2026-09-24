@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 ExecutiveContractStatus = Literal["active", "ended"]
 
@@ -71,6 +71,21 @@ class ExecutiveContractUpdate(BaseModel):
     number: Optional[str] = Field(None, min_length=1, max_length=64)
     status: Optional[ExecutiveContractStatus] = None
     notes: Optional[str] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _required_fields_not_null(cls, data):
+        """Jawny ``null`` numeru albo statusu = 422 po polsku, nie 500 z bazy.
+
+        PATCH jest częściowy, więc ``None`` znaczyłoby „wyczyść”, a obie
+        kolumny są NOT NULL (audyt 24.09.2026, S3).
+        """
+        if isinstance(data, dict):
+            if "number" in data and data["number"] is None:
+                raise ValueError("Podaj numer umowy wykonawczej")
+            if "status" in data and data["status"] is None:
+                raise ValueError("Podaj status umowy wykonawczej")
+        return data
 
     @field_validator("number")
     @classmethod

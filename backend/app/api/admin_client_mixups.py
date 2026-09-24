@@ -43,7 +43,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -240,8 +240,15 @@ async def client_mixups(
     # Rodzina = klienci dzielący znaczący token nazwy. Grupujemy po TOKENIE,
     # bo to on jest nośnikiem pomyłki („cardif” w dwóch różnych rekordach).
     by_token: dict[str, list[Client]] = {}
+    # Tokeny ze WSZYSTKICH nazw klienta: wyświetlanej, prawnej i źródłowej.
+    # Do 24.09.2026 tylko `display_name or name`, więc klient przemianowany
+    # w NEXUSIE znikał z rodziny swojej nazwy prawnej (audyt N13).
     for client in clients:
-        for token in name_tokens(client.display_name or client.name):
+        tokens: set[str] = set()
+        for raw in (client.display_name, client.legal_name, client.name):
+            if raw:
+                tokens.update(name_tokens(raw))
+        for token in tokens:
             by_token.setdefault(token, []).append(client)
 
     needle = _fold(q).strip() if q else None
@@ -274,8 +281,13 @@ async def client_mixups(
     generated = list(
         (
             await db.scalars(
+                # Umowa wygenerowana bez rekrutacji nie ma `client_id` —
+                # trafia do rodziny po NAZWIE wydrukowanej na umowie (N13).
                 select(B2BGeneratedContract).where(
-                    B2BGeneratedContract.client_id.in_(family_client_ids)
+                    or_(
+                        B2BGeneratedContract.client_id.in_(family_client_ids),
+                        B2BGeneratedContract.client_id.is_(None),
+                    )
                 )
             )
         ).all()
@@ -328,7 +340,10 @@ async def client_mixups(
             )
         gen_rows: list[MixupGeneratedContractRow] = []
         for row in generated:
-            if row.client_id not in group_ids:
+            if row.client_id is None:
+                if token not in name_tokens(row.client_name or ""):
+                    continue
+            elif row.client_id not in group_ids:
                 continue
             jc_id = job_client_id.get(row.job_id) if row.job_id else None
             mismatch = jc_id is not None and jc_id != row.client_id

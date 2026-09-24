@@ -33,18 +33,25 @@ from app.api.deps import (
     get_current_user,
 )
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
-from app.services.client_access import deny, resolve_client_access
+from app.services.client_access import (
+    assert_client_writable,
+    deny,
+    resolve_client_access,
+)
 from app.services.critical_events import audited_deletion
 from app.services.autenti.client_contracts_sender import ClientDocSendRequest
 from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.client import Client
 from app.models.client_contract_amendment import ClientContractAmendment
+from app.models.client_contract_terms import ClientContractTerms
+from app.models.client_executive_contract import ClientExecutiveContract
 from app.models.client_framework_contract import (
     ClientFrameworkContract,
     FrameworkContractSignedVia,
     FrameworkContractStatus,
 )
+from app.models.client_order import ClientOrder
 from app.schemas.client_framework_contract import (
     ClientFrameworkContractListResponse,
     ClientFrameworkContractRead,
@@ -74,6 +81,67 @@ async def _assert_client(db: AsyncSession, client_id: int) -> None:
     # Klient usunięty z profilu (0307) nie ma już profilu ani zakładki Umowy.
     if client is None or client.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Client not found")
+
+
+async def _validate_references(
+    db: AsyncSession,
+    client_id: int,
+    *,
+    fc_id: Optional[int],
+    parent_contract_id: Optional[int],
+    contract_terms_id: Optional[int],
+) -> None:
+    """Powiązania umowy ramowej muszą wskazywać rekordy TEGO klienta.
+
+    Do 24.09.2026 nieistniejące id kończyło się 500 z bazy (FK), a id
+    z innego klienta — cichym zapisem cudzej umowy jako „poprzedniej wersji”
+    (audyt S3).
+    """
+    if parent_contract_id is not None:
+        if fc_id is not None and parent_contract_id == fc_id:
+            raise HTTPException(
+                422, detail="Umowa nie może być poprzednią wersją samej siebie."
+            )
+        parent_client = await db.scalar(
+            select(ClientFrameworkContract.client_id).where(
+                ClientFrameworkContract.id == parent_contract_id
+            )
+        )
+        if parent_client != client_id:
+            raise HTTPException(
+                422,
+                detail="Poprzednia wersja musi być umową ramową tego samego klienta.",
+            )
+    if contract_terms_id is not None:
+        terms_client = await db.scalar(
+            select(ClientContractTerms.client_id).where(
+                ClientContractTerms.id == contract_terms_id
+            )
+        )
+        if terms_client != client_id:
+            raise HTTPException(
+                422,
+                detail="Warunki umowy muszą należeć do tego samego klienta.",
+            )
+
+
+def _validate_text_fields(
+    *, name: Optional[str], currency: Optional[str], filename: Optional[str]
+) -> None:
+    """Lustro długości kolumn — 422 po polsku zamiast 500 z bazy (audyt S3)."""
+    if name is not None:
+        if not name.strip():
+            raise HTTPException(422, detail="Podaj nazwę umowy ramowej.")
+        if len(name) > 255:
+            raise HTTPException(422, detail="Nazwa umowy: najwyżej 255 znaków.")
+    if currency is not None and len(currency) > 3:
+        raise HTTPException(
+            422, detail="Waluta to trzyliterowy kod, np. PLN albo EUR."
+        )
+    if filename is not None and len(filename) > 255:
+        raise HTTPException(
+            422, detail="Nazwa pliku jest za długa (najwyżej 255 znaków). Skróć ją."
+        )
 
 
 async def _require_legal_docs_reader(
@@ -111,14 +179,25 @@ def _days_to(target: Optional[date]) -> Optional[int]:
     return (target - business_today()).days
 
 
-async def _to_read(
-    db: AsyncSession, fc: ClientFrameworkContract
-) -> ClientFrameworkContractRead:
-    amendments_count = await db.scalar(
-        select(func.count())
-        .select_from(ClientContractAmendment)
-        .where(ClientContractAmendment.framework_contract_id == fc.id)
+async def _amendment_counts(db: AsyncSession, fc_ids: list[int]) -> dict[int, int]:
+    """Liczba aneksów per umowa — jedno zapytanie dla całej listy (audyt N14)."""
+    if not fc_ids:
+        return {}
+    rows = await db.execute(
+        select(ClientContractAmendment.framework_contract_id, func.count())
+        .where(ClientContractAmendment.framework_contract_id.in_(fc_ids))
+        .group_by(ClientContractAmendment.framework_contract_id)
     )
+    return {int(fc_id): int(count) for fc_id, count in rows}
+
+
+async def _to_read(
+    db: AsyncSession,
+    fc: ClientFrameworkContract,
+    amendments_count: Optional[int] = None,
+) -> ClientFrameworkContractRead:
+    if amendments_count is None:
+        amendments_count = (await _amendment_counts(db, [fc.id])).get(fc.id, 0)
     return ClientFrameworkContractRead(
         id=fc.id,
         client_id=fc.client_id,
@@ -167,7 +246,8 @@ async def list_framework_contracts(
         stmt = stmt.where(ClientFrameworkContract.status == status_filter)
     stmt = stmt.order_by(ClientFrameworkContract.effective_date.desc().nullslast())
     rows = list((await db.execute(stmt)).scalars().all())
-    items = [await _to_read(db, fc) for fc in rows]
+    counts = await _amendment_counts(db, [fc.id for fc in rows])
+    items = [await _to_read(db, fc, counts.get(fc.id, 0)) for fc in rows]
     return ClientFrameworkContractListResponse(items=items, total=len(items))
 
 
@@ -215,7 +295,20 @@ async def create_framework_contract(
     contract_terms_id: Optional[int] = Form(None),
     notes: Optional[str] = Form(None),
 ):
-    await _assert_client(db, client_id)
+    # Zapis tylko na widocznym kliencie (usunięty/scalony/ukryty → 404, S1).
+    await assert_client_writable(db, client_id)
+    _validate_text_fields(
+        name=name,
+        currency=currency,
+        filename=file.filename if file is not None else None,
+    )
+    await _validate_references(
+        db,
+        client_id,
+        fc_id=None,
+        parent_contract_id=parent_contract_id,
+        contract_terms_id=contract_terms_id,
+    )
     if (
         effective_date is not None
         and expiry_date is not None
@@ -291,7 +384,7 @@ async def update_framework_contract(
     user: DlAssignedOrAdmin,
     db: AsyncSession = Depends(get_db),
 ):
-    await _assert_client(db, client_id)
+    await assert_client_writable(db, client_id)
     fc = await db.scalar(
         select(ClientFrameworkContract).where(
             ClientFrameworkContract.id == fc_id,
@@ -302,6 +395,13 @@ async def update_framework_contract(
         raise HTTPException(404, detail="Framework contract not found")
 
     data = payload.model_dump(exclude_unset=True)
+    await _validate_references(
+        db,
+        client_id,
+        fc_id=fc_id,
+        parent_contract_id=data.get("parent_contract_id"),
+        contract_terms_id=data.get("contract_terms_id"),
+    )
     next_effective_date = data.get("effective_date", fc.effective_date)
     next_expiry_date = data.get("expiry_date", fc.expiry_date)
     if (
@@ -330,6 +430,30 @@ async def update_framework_contract(
     return await _to_read(db, fc)
 
 
+async def _draft_delete_blockers(db: AsyncSession, fc_id: int) -> list[str]:
+    """Rekordy trzymające umowę ramową kluczem RESTRICT — opis po polsku."""
+    blockers: list[str] = []
+    order_count = (
+        await db.scalar(
+            select(func.count())
+            .select_from(ClientOrder)
+            .where(ClientOrder.framework_contract_id == fc_id)
+        )
+    ) or 0
+    if order_count:
+        blockers.append(f"zamówienia: {order_count}")
+    executive = list(
+        await db.scalars(
+            select(ClientExecutiveContract.number)
+            .where(ClientExecutiveContract.framework_contract_id == fc_id)
+            .order_by(ClientExecutiveContract.number)
+        )
+    )
+    if executive:
+        blockers.append("umowy wykonawcze: " + ", ".join(executive))
+    return blockers
+
+
 @router.delete(
     "/{client_id}/framework-contracts/{fc_id}",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -352,7 +476,7 @@ async def delete_framework_contract(
         entity_id=fc_id,
         client_id=client_id,
     ) as audit:
-        await _assert_client(db, client_id)
+        await assert_client_writable(db, client_id)
         fc = await db.scalar(
             select(ClientFrameworkContract).where(
                 ClientFrameworkContract.id == fc_id,
@@ -363,9 +487,41 @@ async def delete_framework_contract(
             raise HTTPException(404, detail="Framework contract not found")
         audit.describe(label=fc.name, status=fc.status.value)
 
+        files_to_delete: list[str] = []
+        amendment_files: list[str] = []
         if fc.status == FrameworkContractStatus.draft:
+            # Zamówienia i umowy wykonawcze trzymają umowę ramową kluczem
+            # RESTRICT — do 24.09.2026 plik znikał z dysku, a potem DELETE
+            # padał na FK jako 500 i szkic zostawał bez pliku (audyt W3).
+            # Odmowa 409 z listą PRZED jakąkolwiek zmianą.
+            blockers = await _draft_delete_blockers(db, fc.id)
+            if blockers:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "framework_contract_in_use",
+                        "message": (
+                            "Szkicu nie da się usunąć — wskazują na niego: "
+                            + "; ".join(blockers)
+                            + ". Odepnij je albo oznacz umowę jako zastąpioną."
+                        ),
+                        "blockers": blockers,
+                    },
+                )
             if fc.file_path:
-                storage_service.delete_client_framework_contract(fc.file_path)
+                files_to_delete.append(fc.file_path)
+            amendment_files = [
+                path
+                for path in (
+                    await db.scalars(
+                        select(ClientContractAmendment.file_path).where(
+                            ClientContractAmendment.framework_contract_id == fc.id,
+                            ClientContractAmendment.file_path.is_not(None),
+                        )
+                    )
+                )
+                if path
+            ]
             await db.delete(fc)
             audit.result_note = "Szkic umowy ramowej usunięty trwale."
         else:
@@ -384,6 +540,12 @@ async def delete_framework_contract(
             )
         )
         await db.commit()
+    # Pliki kasujemy PO udanym commicie — nieudana transakcja nie może
+    # zostawić rekordu bez pliku (audyt W3).
+    for path in files_to_delete:
+        storage_service.delete_client_framework_contract(path)
+    for path in amendment_files:
+        storage_service.delete_client_contract_amendment(path)
 
 
 # ── File upload (replace) + download ────────────────────────────────────────
@@ -400,7 +562,8 @@ async def replace_framework_contract_file(
     db: AsyncSession = Depends(get_db),
     file: UploadFile = File(...),
 ):
-    await _assert_client(db, client_id)
+    await assert_client_writable(db, client_id)
+    _validate_text_fields(name=None, currency=None, filename=file.filename)
     fc = await db.scalar(
         select(ClientFrameworkContract).where(
             ClientFrameworkContract.id == fc_id,
@@ -420,9 +583,7 @@ async def replace_framework_contract_file(
         storage_service.delete_client_framework_contract(new_path)
         raise HTTPException(413, detail="File too large")
 
-    if fc.file_path:
-        storage_service.delete_client_framework_contract(fc.file_path)
-
+    old_path = fc.file_path
     fc.filename = file.filename
     fc.file_path = new_path
     fc.content_type = file.content_type
@@ -431,6 +592,9 @@ async def replace_framework_contract_file(
     fc.uploaded_at = datetime.now(timezone.utc)
 
     await db.commit()
+    # Stary plik dopiero po udanym commicie (audyt W3).
+    if old_path:
+        storage_service.delete_client_framework_contract(old_path)
     await db.refresh(fc)
     return await _to_read(db, fc)
 
@@ -457,7 +621,7 @@ async def send_framework_contract_to_autenti(
         send_pdf_to_autenti,
     )
 
-    await _assert_client(db, client_id)
+    await assert_client_writable(db, client_id)
     fc = await db.scalar(
         select(ClientFrameworkContract).where(
             ClientFrameworkContract.id == fc_id,
