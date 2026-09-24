@@ -21,9 +21,16 @@ const ACTION_LABELS: Record<string, string> = {
   updated: "Zaktualizowano dane kontraktu",
   status_updated: "Zmieniono status kontraktu",
   terminated: "Zakończono współpracę",
+  termination_reversed: "Cofnięto zakończenie (pomyłka)",
+  return_after_break: "Powrót po przerwie – utworzono nowy kontrakt",
+  contract_reopened: "Przywrócono kontrakt do aktywnych",
   end_date_cleared: "Wyczyszczono datę zakończenia (umowa bezterminowa)",
   synced_with_orders: "Zsynchronizowano z zamówieniami klienta",
   bulk_marked_ended: "Zakończono współpracę (operacja zbiorcza)",
+  // 0367 — okno „Zakończ współpracę" i synchronizacja z Generatorem B2B.
+  status_auto_changed: "Automatyczna zmiana statusu (dzień po zakończeniu projektu)",
+  termination_undone: "Cofnięto zakończenie współpracy",
+  returned_after_break: "Powrót po przerwie",
   contracts_merged: "Scalono zduplikowane kontrakty",
   draft_initialized: "Przygotowano szkic do podpisu",
   draft_finalized: "Zamknięto szkic i przekazano do podpisu",
@@ -82,6 +89,12 @@ const DETAIL_LABELS: Record<string, string> = {
   terminated_at: "Data zakończenia współpracy",
   termination_lessons: "Kto i dlaczego",
   early: "Przed planowanym końcem",
+  agreement_termination: "Rozwiązanie umowy B2B",
+  agreement_termination_cleared: "Usunięto dane rozwiązania umowy",
+  generated_contracts_restored: "Przywrócone umowy w Generatorze",
+  agreement_was_terminated: "Umowa była rozwiązana",
+  follow_up_generated_contract_ids: "Nowe umowy w Generatorze",
+  end_date: "Data zakończenia projektu",
   business_day: "Dzień roboczy",
   contract_id: "Kontrakt",
   survivor_contract_id: "Kontrakt zachowany",
@@ -110,6 +123,15 @@ const DETAIL_LABELS: Record<string, string> = {
   team_name: "Zespół",
   notes: "Notatki",
   fields: "Zmienione pola",
+  message: "Opis",
+  terminated_on: "Data zakończenia (cofniętego)",
+  restored_order_ids: "Przywrócone zamówienia",
+  skipped_order_ids: "Zamówienia bez zmian",
+  decision_cases_removed: "Usunięte decyzje o puli MD",
+  md_import_rows: "Przeliczone wiersze importu MD",
+  alerts_closed: "Zamknięte alerty",
+  returned_from_contract_id: "Poprzedni kontrakt",
+  order_ids: "Zamówienia",
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -143,6 +165,8 @@ const SOURCE_LABELS: Record<string, string> = {
   daily_cost_sync: "dobowa synchronizacja stawek kosztowych zamówień",
   daily_period_backfill: "dobowe uzupełnienie okresu zamówienia",
   b2b_signed_agreement: "podpisana umowa B2B",
+  snapshot: "stan zapisany przy zakończeniu",
+  history: "historia zmian zamówień",
 };
 
 const ENUM_KEYS: Record<string, Record<string, string>> = {
@@ -163,6 +187,10 @@ const ID_LIST_KEYS = new Set([
   "deleted_contract_ids",
   "order_drafts_inherited_rates",
   "mail_orders_activated",
+  "restored_order_ids",
+  "skipped_order_ids",
+  "decision_cases_removed",
+  "order_ids",
 ]);
 
 const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -189,7 +217,12 @@ export function contractDetailValue(key: string, value: unknown): string {
   if (value === null || value === undefined || value === "") return "—";
   if (typeof value === "boolean") return value ? "tak" : "nie";
   if (typeof value === "number") {
-    if (key === "source_order_id" || key === "contract_id" || key === "survivor_contract_id") {
+    if (
+      key === "source_order_id" ||
+      key === "contract_id" ||
+      key === "survivor_contract_id" ||
+      key === "returned_from_contract_id"
+    ) {
       return `#${value}`;
     }
     return value.toLocaleString("pl-PL");
@@ -222,6 +255,19 @@ export function contractDetailValue(key: string, value: unknown): string {
   }
   if (typeof value === "object") {
     const obj = value as Record<string, unknown>;
+    if (key === "agreement_termination") {
+      const signedOn =
+        typeof obj.signed_on === "string" ? formatIsoDatePl(obj.signed_on) : "—";
+      const lastDay =
+        typeof obj.last_day === "string" ? formatIsoDatePl(obj.last_day) : "—";
+      const notice = obj.mode === "notice";
+      return [
+        notice ? "Wypowiedzenie" : "Porozumienie stron",
+        `strona: ${obj.party === "company" ? "b2bnetwork" : "Konsultant"}`,
+        `${notice ? "złożone" : "zawarte"} ${signedOn}`,
+        `ostatni dzień umowy ${lastDay}`,
+      ].join(" · ");
+    }
     // `rate_unit: {from, to}` z synchronizacji jednostki kontrakt ↔ zamówienie.
     if ("from" in obj && "to" in obj) {
       const from = contractDetailValue(key, obj.from);

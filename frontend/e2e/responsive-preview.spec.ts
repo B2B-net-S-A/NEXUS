@@ -34,6 +34,7 @@ const PAGES = [
   "/preview/contract-candidate-contact",
   "/preview/contracts-consolidation",
   "/preview/cpro-queue",
+  "/preview/cv-generator",
   "/preview/cv-generator-client-rules",
   "/preview/cv-qc",
   "/preview/custom-dashboard",

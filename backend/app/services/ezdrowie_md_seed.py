@@ -74,6 +74,7 @@ from app.schemas.ezdrowie_md_seed import (
     SeedPersonReport,
     SeedTotals,
 )
+from app.services.contract_lifecycle import lock_contract_then_orders
 from app.services.candidate_identity_quarantine import normalize_person_name_part
 from app.services.client_order_lines import (
     consumed_md,
@@ -429,6 +430,9 @@ async def _create_line(
 ) -> ClientOrder:
     contract = person.contract
     assert contract is not None
+    # Kolejność writerów zamówień: kontrakt przed nową linią (INSERT bierze na
+    # nim FOR KEY SHARE, a synchronizacja przed commitem — FOR UPDATE).
+    await lock_contract_then_orders(db, contract_ids=[contract.id])
     who = person.candidate
     display = (
         f"{who.name or ''} {who.lastname or ''}".strip()
@@ -586,6 +590,7 @@ async def _supersede_drafts(
 ) -> tuple[list[dict], list[str]]:
     superseded: list[dict] = []
     blockers: list[str] = []
+    await lock_contract_then_orders(db, order_ids=order_ids)
     for order_id in order_ids:
         order = await db.scalar(select(ClientOrder).where(ClientOrder.id == order_id))
         if order is None or order.client_id != client_id:

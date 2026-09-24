@@ -33,7 +33,7 @@ import {
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Info, Loader2, Maximize2, Minimize2, Send, X } from "lucide-react";
+import { Loader2, Maximize2, Minimize2, Send, X } from "lucide-react";
 
 import api, { candidatesApi, extractErrorMsg } from "@/lib/api";
 import { useToast } from "@/components/Toast";
@@ -61,13 +61,6 @@ import {
   countHired,
   primaryForwardMove,
 } from "@/lib/pipeline-flow";
-import {
-  BACKGROUND_EVENTS_STEP,
-  autoCvSkipReason,
-  jobBackgroundEventsApi,
-  jobBackgroundEventsQueryKey,
-  latestAutoCvSkip,
-} from "@/lib/job-background-events";
 import { isOverHourlyBudget } from "@/lib/rate-to-hourly";
 import { encodeJobBackRef } from "@/lib/url-filters";
 import { cn, formatDate } from "@/lib/utils";
@@ -177,36 +170,6 @@ function daysPhrase(days: number): string {
  * i jej nie eksportuje. Używamy DOKŁADNIE tych samych tras i kluczy zapytań,
  * więc notatka dodana tutaj jest od razu widoczna w doku i na profilu.
  */
-/**
- * Dlaczego automat NIE przygotował CV tej osoby (np. reguła klienta wymaga
- * zrzutu zgody RODO). Źródłem jest „Praca w tle" rekrutacji — ten sam klucz
- * zapytania co okno „Historia i czat", bez osobnego endpointu. Informacja, nie
- * bramka: ładowanie, błąd i brak zdarzenia nie rysują nic.
- */
-function AutoCvSkipNotice({ jobId, candidateId }: { jobId: number; candidateId: number }) {
-  const query = useQuery({
-    queryKey: jobBackgroundEventsQueryKey(jobId, BACKGROUND_EVENTS_STEP),
-    queryFn: () => jobBackgroundEventsApi.list(jobId, BACKGROUND_EVENTS_STEP),
-    retry: false,
-    staleTime: 30_000,
-  });
-  const skipped = latestAutoCvSkip(query.data?.items ?? [], candidateId);
-  if (!skipped) return null;
-  return (
-    <p
-      role="note"
-      data-testid="auto-cv-skip-notice"
-      className="mb-2 flex items-start gap-2 rounded-lg border border-info/25 bg-info-muted px-3 py-2 text-xs text-info-muted-foreground"
-    >
-      <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-      <span>
-        CV nie zostało wygenerowane automatycznie: {autoCvSkipReason(skipped)}. Możesz je
-        wygenerować ręcznie poniżej.
-      </span>
-    </p>
-  );
-}
-
 function NotesSection({
   row,
   jobId,
@@ -635,9 +598,8 @@ export function PersonPanel({
         );
       case "cv":
         return (
-          <>
-          {/* Tylko w kolejce „CV do klienta": po wysyłce powód jest historią. */}
-          {inCvWorkbench ? <AutoCvSkipNotice jobId={jobId} candidateId={candidateId} /> : null}
+          // Karta „CV do klienta” (gotowe / generuje się / brak / powód
+          // pominięcia auto-CV) jest w warsztacie; po wysyłce — podgląd.
           <CvHandoffWorkbench
             layout="panel"
             focusCandidateId={candidateId}
@@ -665,7 +627,6 @@ export function PersonPanel({
               />
             }
           />
-          </>
         );
       case "interviews":
         return (

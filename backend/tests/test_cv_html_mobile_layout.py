@@ -1,7 +1,8 @@
 """Publiczne CV (/cv/{token}, /cv/i/{token}, plik HTML) czytelne na telefonie.
 
 Audyt responsywności 23.09.2026 (P0): szablon brandowanego CV miał sztywną
-siatkę ``230px 1fr`` i tylko ``@media print`` — przy ~340 px iframe'a na treść
+siatkę ``230px 1fr`` i tylko ``@media print`` (od generatora v3 jest to
+zamrożony arkusz ``cv_legacy_template_css``) — przy ~340 px iframe'a na treść
 doświadczenia zostawało ~40 px, słowo na linię. Oba szablony muszą mieć
 zapytanie dla wąskiego ekranu.
 """
@@ -9,10 +10,9 @@ zapytanie dla wąskiego ekranu.
 from __future__ import annotations
 
 import re
-from types import SimpleNamespace
 
 from app.services.cv_generator_b2b.html_export import render_interactive_html
-from app.services.cv_html_renderer import _generate_cv_html
+from app.services.cv_legacy_template_css import LEGACY_BRANDED_CSS
 
 
 def _media_block(html: str, query: str) -> str:
@@ -29,26 +29,10 @@ def _media_block(html: str, query: str) -> str:
     raise AssertionError("niezamknięty blok @media")
 
 
-def _candidate() -> SimpleNamespace:
-    return SimpleNamespace(
-        name="Jan",
-        lastname="Mobilny",
-        email=None,
-        phone=None,
-        location=None,
-        linkedin=None,
-        ai_summary="",
-        skills=[],
-        experience=[],
-        education=[],
-        languages=[],
-        competence_category=None,
-        years_experience=None,
-    )
-
-
 def test_branded_cv_stacks_sidebar_on_narrow_screens():
-    html = _generate_cv_html(_candidate(), "standard", "pl")
+    # Szablon wycofano w generatorze v3 — stare CV etapów pokazuje publiczny
+    # link z zamrożonym arkuszem, więc to on musi znać wąski ekran.
+    html = LEGACY_BRANDED_CSS
     block = _media_block(html, "@media (max-width: 640px)")
     assert re.search(r"\.cv-body\s*\{\s*grid-template-columns:\s*1fr", block)
     assert re.search(r"\.cv-header-date\s*\{[^}]*position:\s*static", block)

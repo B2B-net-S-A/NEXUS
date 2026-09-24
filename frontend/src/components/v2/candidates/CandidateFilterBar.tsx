@@ -69,6 +69,7 @@ import {
 import { TalentPoolMultiSelect } from "@/components/v2/filters/TalentPoolMultiSelect";
 import { AddedByMultiSelect } from "@/components/v2/filters/AddedByMultiSelect";
 import { CompanyAutocomplete } from "@/components/v2/filters/CompanyAutocomplete";
+import { TAG_SUGGEST_ENDPOINT } from "@/lib/api/candidateTags";
 import { ClientMultiSelect } from "@/components/v2/filters/ClientMultiSelect";
 import { RecruitmentMultiSelect } from "@/components/v2/filters/RecruitmentMultiSelect";
 import { AdvancedSearchPopover } from "@/components/v2/filters/AdvancedSearchPopover";
@@ -423,6 +424,7 @@ export function CandidateFilterBar({
     (filters.recentlyChangedJobs ? 1 : 0);
   const sourceCount = filters.poolIds.length + filters.addedByIds.length;
   const otherCount =
+    filters.tags.length +
     filters.status.length +
     filters.openTo.length +
     (filters.hideUnknown ? 1 : 0) +
@@ -662,6 +664,18 @@ export function CandidateFilterBar({
                 </div>
               </RailGroup>
               <RailGroup title="Inne" activeCount={otherCount}>
+                <div className="space-y-1">
+                  <FieldLabel>Tagi</FieldLabel>
+                  <CompanyAutocomplete
+                    value={filters.tags}
+                    onChange={(v) => onPatch({ tags: v })}
+                    placeholder="np. senior, bankowość"
+                    suggestEndpoint={TAG_SUGGEST_ENDPOINT}
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    Cały tag, bez wielkości liter — kandydat musi mieć każdy wybrany.
+                  </p>
+                </div>
                 <div className="space-y-1">
                   <FieldLabel>Kolejne grupy „którekolwiek” (LUB)</FieldLabel>
                   <p className="text-[11px] text-muted-foreground">

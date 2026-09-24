@@ -28,10 +28,15 @@ Reguły, które łatwo cofnąć „przy okazji":
   wspólna ścieżka (język polityki); tryb od #1647 serwer bierze z żądania, więc
   automat prosi o tryb z katalogu polityk („Pod rekrutację"), a bez Championa
   ``central_policies.resolve_mode`` schodzi do Redakcji z komunikatem. Wiersz
-  dostaje ten sam stempel ``central_policy`` co po kliknięciu. Wymogi,
-  które centralny przepływ sprawdza dopiero przy gotowości PAKIETU, a które
-  zapadają przy generacji (zrzut zgody, numer projektu), automat traktuje jak
-  brak wejścia: pominięcie z powodem, nie dokument nie do udostępnienia.
+  dostaje ten sam stempel ``central_policy`` co po kliknięciu.
+* Generator v3 (23.09.2026), auto-CV dla PKO BP pod centralnymi regułami:
+  brak zrzutu zgody NIE jest już powodem pominięcia — dokument powstaje,
+  a jego POBRANIE blokuje ``cv_consent_gate`` do czasu dołączenia zgody
+  (``POST /generated/{id}/consent``). Numer projektu wynika z rekrutacji
+  (``cv_packages.pko_job_reference``, numer ZOB); pominięcie zostaje tylko
+  wtedy, gdy reguła go wymaga, a rekrutacja go nie niesie (Energa, Orlen).
+  Bez centralnych reguł zrzut zgody jest wymogiem GENERACJI (422) — automat
+  pomija jak dotąd.
 """
 
 from __future__ import annotations
@@ -205,23 +210,33 @@ async def _enqueue(db, *, stage_id: int, user_id: int) -> Optional[tuple[int, in
         )
         return None
     rule = snapshot_rule(resolved_rule)
-    if rule is not None and getattr(rule, "requires_rodo_consent_block", False):
-        # Zrzut zgody wgrywa człowiek — automat nie ma skąd go wziąć.
+    if (
+        not central_policies.enabled()
+        and rule is not None
+        and getattr(rule, "requires_rodo_consent_block", False)
+    ):
+        # Bez centralnych reguł zrzut zgody jest wymogiem generacji (422),
+        # a automat nie ma skąd go wziąć. Pod centralnymi regułami dokument
+        # powstaje, a pobranie blokuje `cv_consent_gate` (generator v3).
         await _record(
             db, action=ACTION_SKIPPED, reason="consent_screenshot_required", **base
         )
         return None
     managed = getattr(resolved_rule, "managed_policy", None)
+    from app.api.cv_generator_b2b import derived_project_ref
+
+    project_ref = derived_project_ref(resolved_rule, job, "")
     if (
         central_policies.enabled()
         and isinstance(managed, dict)
         and managed.get("require_project_ref")
+        and not project_ref
     ):
         # Centralne reguły (0331) przenoszą wymóg numeru projektu z walidacji
         # generacji do gotowości PAKIETU: numer jest stemplowany na dokumencie
-        # przy generacji i nie da się go potem uzupełnić. Automat numeru nie
-        # zna, więc dokument byłby na zawsze nieudostępnialnym szkicem
-        # („Brak numeru projektu / zapytania"), za który naliczono już AI.
+        # przy generacji i nie da się go potem uzupełnić. Gdy rekrutacja go
+        # nie niesie (numer ZOB u PKO BP), automat go nie zna, więc dokument
+        # byłby na zawsze nieudostępnialnym szkicem, za który naliczono AI.
         await _record(
             db,
             action=ACTION_SKIPPED,
@@ -253,7 +268,7 @@ async def _enqueue(db, *, stage_id: int, user_id: int) -> Optional[tuple[int, in
             language=language,
             blind_cv=False,
             content_mode=content_mode,
-            project_ref="",
+            project_ref=project_ref,
             origin="auto",
             source_cv_revision=revision,
             # Decyzja właściciela (21.09.2026): automat robi JEDNĄ wersję
@@ -350,14 +365,19 @@ async def _after_generation(*, stage_id: int, user_id: int, generated_id: int) -
 
 
 async def attach_as_stage_draft(
-    *, stage_id: int, user_id: int, generated_id: int
+    *,
+    stage_id: int,
+    user_id: int,
+    generated_id: int,
+    activity_action: str = "branded_cv_attached_by_automation",
 ) -> bool:
     """Podepnij gotowe auto-CV jako SZKIC brandowanego CV etapu — tylko gdy etap
     nie ma jeszcze żadnego szkicu (``branded_status == "none"``).
 
     To ta sama operacja co „Zastąp szkic i otwórz edytor" w warsztacie wysyłki
     CV (`apply_generated_to_stage_cv`): wynik to ``draft``, NIGDY zatwierdzenie —
-    zatwierdza człowiek przez `finalize`. Istniejącego szkicu (także domyślnego,
+    zatwierdza człowiek przez `finalize`. Tą samą drogą idzie ręczna generacja
+    z etapem (generator v3, ``activity_action`` inny niż automatu). Istniejącego szkicu (także domyślnego,
     którego ktoś mógł już edytować) automat nie nadpisuje; dokument zostaje
     wtedy pierwszy na liście „wybór z wygenerowanych" z ``needs_review``.
     Nigdy nie rzuca.
@@ -391,7 +411,7 @@ async def attach_as_stage_draft(
                 csv,
                 generated,
                 user_id=user_id,
-                activity_action="branded_cv_attached_by_automation",
+                activity_action=activity_action,
             )
             await db.commit()
             return True

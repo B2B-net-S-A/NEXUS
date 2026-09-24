@@ -69,3 +69,63 @@ async def test_preview_source_cleanup_commits_with_owner_deletion(commit):
                 delete(CvSourceCleanup).where(CvSourceCleanup.storage_key == key)
             )
             await db.commit()
+
+
+async def test_sweep_without_client_retires_old_previews_of_every_client():
+    """Generator v3: CV próbnych nie da się już zlecić, więc retencja nie może
+    czekać na „kolejny podgląd tego klienta" — pętla `cv_source_cleanup` woła
+    ją dla WSZYSTKICH klientów (`client_id=None`). Świeży podgląd zostaje."""
+    from app.services.cv_preview_retention import PREVIEW_RETENTION
+
+    client_ids: list[int] = []
+    try:
+        async with AsyncSessionLocal() as db:
+            previews = []
+            for age in (timedelta(days=3650), timedelta(days=3649), timedelta(days=1)):
+                client = Client(
+                    name=f"Retention sweep {uuid4().hex}",
+                    status=ClientStatus.active,
+                    hidden=False,
+                )
+                db.add(client)
+                await db.flush()
+                client_ids.append(client.id)
+                preview = ClientCvRulePreview(
+                    client_id=client.id,
+                    status="ready",
+                    language="pl",
+                    created_at=datetime.now(timezone.utc) - age,
+                )
+                db.add(preview)
+                await db.flush()
+                previews.append(preview.id)
+            await db.commit()
+        old_a, old_b, fresh = previews
+        async with AsyncSessionLocal() as db:
+            await retire_previews(
+                db, None, datetime.now(timezone.utc) - PREVIEW_RETENTION
+            )
+            await db.commit()
+        async with AsyncSessionLocal() as db:
+            assert await db.get(ClientCvRulePreview, old_a) is None
+            assert await db.get(ClientCvRulePreview, old_b) is None
+            assert await db.get(ClientCvRulePreview, fresh) is not None
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(ClientCvRulePreview).where(
+                    ClientCvRulePreview.client_id.in_(client_ids)
+                )
+            )
+            await db.execute(delete(Client).where(Client.id.in_(client_ids)))
+            await db.commit()
+
+
+async def test_cleanup_loop_runs_the_preview_sweep_for_all_clients():
+    import inspect
+
+    from app.services import cv_source_cleanup
+
+    source = inspect.getsource(cv_source_cleanup.recovery_loop)
+    assert "retire_previews" in source
+    assert "db, None, datetime.now(timezone.utc) - PREVIEW_RETENTION" in source

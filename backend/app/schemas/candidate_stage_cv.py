@@ -69,8 +69,8 @@ class CVBrandedUpdate(BaseModel):
     """PATCH body — exactly one of {content_html} or {template+language} must be set.
 
     * `content_html` → save edited Tiptap HTML.
-    * `template` and/or `language` → re-render via `_generate_cv_html()` and
-       overwrite `branded_draft_html` (UI confirms with user before swap).
+    * `template` and/or `language` → 410 (the legacy HTML template was
+       retired in generator v3; drafts come from the CV generator).
     """
 
     expected_revision: int = Field(ge=0)

@@ -68,6 +68,9 @@ vi.mock("@/store/auth", () => ({
     ["admin", "delivery_lead"].includes(mocks.role) &&
     mocks.deliveryAccess === "write",
   canViewClientFinance: () => mocks.role === "admin",
+  canRecoverContractTermination: () =>
+    ["admin", "finance", "talent_community_manager"].includes(mocks.role) &&
+    mocks.deliveryAccess !== "none",
 }));
 
 vi.mock("@/components/RequireRole", () => ({

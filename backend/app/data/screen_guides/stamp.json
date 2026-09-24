@@ -2,16 +2,16 @@
   "reviewed_at": "2026-09-24",
   "guides": {
     "calendar": "5e622a7db1c6d091e5b1fe9c45e4a4bc7cec4009655d73d85aa41de139717561",
-    "candidate.profile": "97bc3b10d55c54751563039f37ad4ac62725d7d29dc18a3ba1690f455878a203",
-    "candidates.list": "b4606b0c62db89e6ab4d779cbedc30c0fe4eb21d4535818acb1aa65b50a0f5cd",
-    "client.orders": "67692b875a67b43e1f0ea75939a29e7244eda9a729aebfd5decdd22606d5a35a",
-    "contracts.b2b_generator": "ab6aa42710655a89b47bda34d95cd97970f1d6203095caf07984552ac88062a7",
+    "candidate.profile": "a8e6dcbf2bd0033baa1d32d3d807b72ef7f391fa0dbfb05cf09789a016b11a7b",
+    "candidates.list": "6bd62ff4d470650ec92f7b53c59a53e7f7e0379dc9a177c53520d52af8a6b919",
+    "client.orders": "b0153167033900f0f8ae5c982920ad1f4e492ad21c6763c836602465928d0aea",
+    "contracts.b2b_generator": "98ad34994af25d09292fa5ef1fae71854e7764de82e614ea4984bf202e33d722",
     "contracts.order_mail": "69d28ae62c8903a3f790e808b1967b0f34d2638982893f96e1a261820311c371",
     "finance": "9e9772902db876a6daecdbac5cc3f999dd9716dcb653c3e3dbb397d78bbf5f98",
     "job.champion": "8c1e6748d0da2e78d546b2b57200e6242d5b1532c9638f61ee0cce425a563e5b",
-    "jobs.board": "6860be41dc6e5e282b31c892a01e4f1fa820bc12fac6032f3d8bbcad18e4191f",
+    "jobs.board": "420bbb3f5017520d9915391fc3faf087765ed04696d7444214abbf5987349c97",
     "jobs.list": "155a84843e07adda2ebec0856c0a749940bfac7b86a0ca7db97f828c0aabb866",
-    "jobs.person": "c3ed3eb45e1ee67a2b62a3889e6f31f093e57cb262922e36a04871a55cb61f13",
+    "jobs.person": "601b0f708a3f23e7e7b8ab32408eb0a7e2d78723b0fd897c7cbe8d6d1a76f95e",
     "jobs.proposals": "6cce5c9f8e95bad49c3b2c9f159ebbf901fa39ea90bd34dafb8865a07733edb4"
   }
 }

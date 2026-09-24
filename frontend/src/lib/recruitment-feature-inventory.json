@@ -23,10 +23,10 @@
   {
    "id": "cv.branded",
    "area": "cv",
-   "opis": "CV firmowe: edytor / wybór / wersje",
-   "file": "components/v2/jobs/CvHandoffWorkbench.tsx",
-   "marker": "branded",
-   "v3_home": "panel szeroki → CV"
+   "opis": "CV do klienta: podgląd, edytor (zapis + zatwierdzenie w tle), wersje, „Użyj nowej wersji”",
+   "file": "components/v2/recruitment/CvToClientCard.tsx",
+   "marker": "CVBrandedEditModal",
+   "v3_home": "panel → CV → karta „CV do klienta”"
   },
   {
    "id": "cv.client-rate",
@@ -658,9 +658,9 @@
    "id": "cv.auto-generated-needs-review",
    "area": "cv",
    "opis": "Plakietka „wygenerowane automatycznie — sprawdź przed wysyłką” na liście wygenerowanych CV (auto-CV przypięte pierwsze przez serwer)",
-   "file": "components/v2/pages/CVGeneratorStandaloneV2.tsx",
+   "file": "components/v2/recruitment/CvToClientCard.tsx",
    "marker": "wygenerowane automatycznie — sprawdź przed wysyłką",
-   "v3_home": "panel → CV → Wygenerowane CV"
+   "v3_home": "panel → CV → karta „CV do klienta”"
   },
   {
    "id": "screening.note-suggestions",
@@ -674,9 +674,9 @@
    "id": "cv.auto-generate-skip-reason",
    "area": "cv",
    "opis": "Informacja w sekcji CV, dlaczego automat nie wygenerował CV tej osoby (np. reguła klienta wymaga zrzutu zgody RODO) — z „Pracy w tle”",
-   "file": "components/v2/recruitment/PersonPanel.tsx",
+   "file": "components/v2/recruitment/CvToClientCard.tsx",
    "marker": "AutoCvSkipNotice",
-   "v3_home": "panel → CV"
+   "v3_home": "panel → CV → karta „CV do klienta” (stan „brak CV”)"
   },
   {
    "id": "list.request-status",
@@ -847,6 +847,30 @@
    "file": "components/v2/recruitment/AddCandidatesPanel.tsx",
    "marker": "AddCandidatesPanel",
    "v3_home": "Tablica → nagłówek / kolumna Nowi → Dodaj kandydatów"
+  },
+  {
+   "id": "cv.to-client-card",
+   "area": "cv",
+   "opis": "Karta „CV do klienta” w panelu osoby (generator CV v3): gotowe / generuje się / brak („Generuj CV” otwiera okno generatora z osobą i rekrutacją) / stary szablon tylko do odczytu; uwagi kontroli AI; plik CV kandydata z podglądem oryginału",
+   "file": "components/v2/recruitment/CvToClientCard.tsx",
+   "marker": "export function CvToClientCard",
+   "v3_home": "panel → CV"
+  },
+  {
+   "id": "cv.to-client-consent",
+   "area": "cv",
+   "opis": "Zgoda RODO na karcie „CV do klienta”: brak zrzutu wyłącza tylko pobranie DOCX, dołączenie zrzutu w miejscu (ConsentAttachButton)",
+   "file": "components/v2/recruitment/CvToClientCard.tsx",
+   "marker": "ConsentAttachButton",
+   "v3_home": "panel → CV → karta „CV do klienta”"
+  },
+  {
+   "id": "cv.to-client-use-newer",
+   "area": "cv",
+   "opis": "„Użyj nowej wersji” — podpięcie nowszej gotowej generacji do etapu (select-generated) zamiast dawnego „Zastąp szkic i otwórz edytor”",
+   "file": "components/v2/recruitment/CvToClientCard.tsx",
+   "marker": "Użyj nowej wersji",
+   "v3_home": "panel → CV → karta „CV do klienta”"
   }
  ]
 }

@@ -63,6 +63,7 @@ from app.schemas.contract import (
     ContractClientRateEntry,
     ContractFrameworkRateEntry,
     ContractCreate,
+    AgreementTerminationPayload,
     ContractDetailResponse,
     ContractEurPlnRate,
     ContractDraftFinalizeResponse,
@@ -76,6 +77,9 @@ from app.schemas.contract import (
     ContractStatusUpdate,
     ContractReopenRequest,
     ContractResponse,
+    ContractReturnAfterBreakRequest,
+    ContractReturnAfterBreakResponse,
+    ContractTerminationReversalPlanRead,
     ContractBulkTerminateRequest,
     ContractTemplateBrief,
     ContractTerminateRequest,
@@ -145,6 +149,26 @@ from app.services.contract_service import (
     validate_ready_for_activation,
 )
 from app.services.contract_order_offboarding import apply_contract_order_offboarding
+from app.services.contract_termination_snapshot import ContractStateBefore
+from app.services.contract_return_after_break import (
+    create_return_after_break,
+    existing_return,
+)
+from app.services.contract_termination_reversal import (
+    ReversalBlocked,
+    ReversalUnavailable,
+    build_reversal_plan,
+    execute_reversal,
+    latest_reversal,
+    reversal_available,
+)
+from app.services.order_write_errors import commit_order_write
+from app.services.contract_termination_sync import (
+    AgreementTermination,
+    contract_agreement_termination,
+    set_contract_agreement_termination,
+    sync_generator_after_contract_ended,
+)
 from app.services.cost_orders import is_cost_order_client
 from app.services.order_rate_snapshots import (
     CONTRACT_RATE_SCALE,
@@ -203,6 +227,23 @@ ContractReadUser = Annotated[
         )
     ),
 ]
+
+# „Cofnij zakończenie" i „Powrót po przerwie" (ticket 09.2026): Admin, Finanse
+# i Talent Community Manager. Świadomie BEZ Delivery Leada — to korekta
+# administracyjna (pomyłka albo nowy kontrakt), nie decyzja o obsadzie.
+# Finanse i TCM mają Delivery do odczytu, więc bramka sekcji przepuszcza te
+# dwa polecenia wprost (``section_access._is_contract_termination_recovery``).
+ContractTerminationRecoveryUser = Annotated[
+    User,
+    Depends(
+        require_roles(
+            UserRole.admin,
+            UserRole.finance,
+            UserRole.talent_community_manager,
+        )
+    ),
+]
+
 
 ContractStatusWriteUser = Annotated[
     User,
@@ -445,13 +486,37 @@ def _status_after_termination(
     * ``draft``/``ready_for_signature`` z datą końca w przyszłości dostawały
       ``active`` z pominięciem bramki aktywacji. Teraz status zostaje, a dzień
       po dacie końca nadal można je zakończyć (``→ ended`` jest legalne).
+
+    Od 09.2026 (ticket „Zakończenie współpracy — obowiązkowy formularz”)
+    o statusie decyduje DATA ZAKOŃCZENIA PROJEKTU: do tego dnia włącznie
+    „Kończący się”, od następnego „Zakończony” (materializuje nocny
+    ``_promote_statuses``), a data z przeszłości daje „Zakończony” od razu.
+    Wcześniej przyszła data zostawiała „Aktywny” aż do okna 30 dni, a data
+    dzisiejsza kończyła umowę w dniu, w którym konsultant jeszcze pracuje.
+    Ostatni dzień UMOWY (okres wypowiedzenia) statusu nie wydłuża.
     """
-    target = _status_after_end_date_change(ContractStatus.ended, end_date, today)
-    if current in (
-        ContractStatus.draft,
-        ContractStatus.ready_for_signature,
-    ) and target in (ContractStatus.active, ContractStatus.ending):
-        return current
+    if end_date is not None and end_date < today:
+        target = ContractStatus.ended
+    elif end_date is not None:
+        target = ContractStatus.ending
+    else:
+        target = ContractStatus.active
+    if current in (ContractStatus.draft, ContractStatus.ready_for_signature):
+        # Szkic nie ma fazy „Kończący się” (nie pracuje w MRR, a nocny cron
+        # szkiców nie promuje): dzień zakończenia i wcześniej = „Zakończony”
+        # od razu, data przyszła zostawia status.
+        if end_date is not None and end_date <= today:
+            target = ContractStatus.ended
+        else:
+            return current
+    if current == target:
+        return target
+    if current == ContractStatus.ended and target == ContractStatus.ending:
+        # Korekta daty zakończonej umowy na przyszłą: maszyna stanów nie zna
+        # krawędzi `ended → ending`, ale zna `ended → active → ending` — to
+        # ta sama droga co reaktywacja, tylko od razu z datą końca.
+        assert_transition(current, ContractStatus.active)
+        return target
     assert_transition(current, target)
     return target
 
@@ -462,6 +527,7 @@ async def _sync_client_orders_to_contract_end(
     when: date,
     *,
     actor_id: Optional[int] = None,
+    contract_before: Optional[ContractStateBefore] = None,
 ) -> int:
     """JEDNA data końca w obu modelach — kontrakt i jego zamówienia klienta.
 
@@ -486,12 +552,16 @@ async def _sync_client_orders_to_contract_end(
     o zamówieniu nieistniejącej już współpracy.
 
     Zwraca liczbę dotkniętych zamówień — ``/terminate`` zapisuje ją w audycie.
+
+    ``contract_before`` — stan kontraktu sprzed zakończenia (migawka 0368 dla
+    „Cofnij zakończenie"); wołający czyta go, zanim cokolwiek zmieni.
     """
     result = await apply_contract_order_offboarding(
         db,
         contract_id=contract_id,
         effective_date=when,
         actor_id=actor_id,
+        contract_before=contract_before,
     )
     return result.affected_orders
 
@@ -502,8 +572,16 @@ async def _apply_contract_status_change(
     target: ContractStatus,
     *,
     actor_id: Optional[int],
+    allow_direct_end: bool = False,
 ) -> None:
     """Jedyne wejście dla zapisu ``status`` z rejestru umów — POST i PATCH.
+
+    ``ended`` na ISTNIEJĄCEJ umowie odmawia 409 ``termination_required``
+    (ticket 09.2026): każde zakończenie przechodzi przez okno „Zakończ
+    współpracę” (``/terminate``), bo tylko ono zapisuje powód, datę końca
+    projektu i rozwiązanie umowy B2B, a status liczy z daty. Lista rozwijana
+    kończyła kontrakt #674 bez żadnego z nich. ``allow_direct_end`` ma
+    wyłącznie POST — wpis umowy, która skończyła się przed założeniem rekordu.
 
     Rejestr umów ma listę rozwijaną ze statusem i ta lista MA działać — ticket
     jest słuszny. Czym innym jest jednak „zapisz wybraną wartość do kolumny",
@@ -534,13 +612,30 @@ async def _apply_contract_status_change(
     if target == contract.status:
         return
 
+    if target == ContractStatus.ended and not allow_direct_end:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "message": (
+                    "Kontrakt kończy się oknem „Zakończ współpracę” — podaj "
+                    "powód i datę zakończenia projektu."
+                ),
+                "reason": "termination_required",
+            },
+        )
+
     if target == ContractStatus.active:
         if contract.status in (ContractStatus.ended, ContractStatus.ending):
             # Powrót zakończonej/kończącej się umowy to REAKTYWACJA, nie
             # świeża aktywacja: dowód podpisu już istnieje z chwili, w której
             # umowę wykonano pierwszy raz. `reopen_contract` ma tę regułę i
             # zapisuje `contract_reopened` z `from_status`/`to_status`.
-            await reopen_contract(db, contract, actor_id=actor_id)
+            await reopen_contract(
+                db,
+                contract,
+                actor_id=actor_id,
+                supersede_termination_snapshot=False,
+            )
         else:
             # Aktywność jest stanem operacyjnym rejestru, niezależnym od
             # dostępności i weryfikowalności zewnętrznego podpisu. Jedyna
@@ -616,6 +711,7 @@ async def _apply_contract_status_change(
     assert_transition(contract.status, target)
 
     if target == ContractStatus.ended:
+        state_before = ContractStateBefore.of(contract)
         today = business_today()
         # Bez tego `_status_after_end_date_change` (niżej w handlerze oraz w
         # dziennym cronie) natychmiast cofnąłby `ended` na `active`, bo umowa
@@ -628,10 +724,27 @@ async def _apply_contract_status_change(
         # zamówienia po spóźnionym ręcznym oznaczeniu kontraktu jako zakończony.
         assert contract.end_date is not None
         await _sync_client_orders_to_contract_end(
-            db, contract.id, contract.end_date, actor_id=actor_id
+            db,
+            contract.id,
+            contract.end_date,
+            actor_id=actor_id,
+            contract_before=state_before,
         )
 
     contract.status = target
+
+
+def _agreement_termination(
+    payload: Optional[AgreementTerminationPayload],
+) -> Optional[AgreementTermination]:
+    if payload is None:
+        return None
+    return AgreementTermination(
+        mode=payload.mode,
+        party=payload.party,
+        signed_on=payload.signed_on,
+        last_day=payload.last_day,
+    )
 
 
 async def _apply_termination_to_contract(
@@ -644,6 +757,7 @@ async def _apply_termination_to_contract(
     overwrite_lessons: bool = True,
     actor_id: Optional[int],
     activity_action: str = "terminated",
+    agreement_termination: Optional[AgreementTermination] = None,
 ) -> None:
     """Zakończenie współpracy na JEDNYM kontrakcie — wspólne dla obu dyspozycji.
 
@@ -672,6 +786,7 @@ async def _apply_termination_to_contract(
     wznowionej i zakończonej ponownie z listy.
     """
     previous_end_date = contract.end_date
+    state_before = ContractStateBefore.of(contract)
     # Odmowa PRZED jakimkolwiek zapisem (także zamówień i ścieżki powtórzenia):
     # unieważniona umowa nie może wrócić przez „Zakończ współpracę".
     effective_end = (
@@ -691,6 +806,7 @@ async def _apply_termination_to_contract(
         and contract.termination_reason == termination_reason
         and contract.end_date is not None
         and contract.end_date <= when
+        and contract_agreement_termination(contract) == agreement_termination
     ):
         # Retry pozostaje audytowo idempotentny, ale naprawia ewentualny brak
         # sprawy/alertu MD po przerwanym wcześniejszym wdrożeniu. Serwis ma
@@ -701,12 +817,21 @@ async def _apply_termination_to_contract(
             when,
             actor_id=actor_id,
         )
+        # To samo dla Generatora: synchronizacja jest idempotentna po migawce.
+        await sync_generator_after_contract_ended(db, contract, actor_id=actor_id)
         return
 
     contract.terminated_at = when
     contract.termination_reason = termination_reason
     if overwrite_lessons:
         contract.termination_lessons = termination_lessons
+    elif termination_lessons:
+        # Wspólne okno zbiorcze: wpisane wnioski obowiązują całą dyspozycję,
+        # puste pole nie kasuje notatki zapisanej wcześniej.
+        contract.termination_lessons = termination_lessons
+    # Okno jest źródłem prawdy dla TEGO zakończenia: odznaczone „Rozwiązanie
+    # umowy" czyści dane rozwiązania zapisane wcześniej (ticket, pkt 2.4).
+    set_contract_agreement_termination(contract, agreement_termination)
     # Keep end_date coherent — never let it lag the termination date.
     if contract.end_date is None or contract.end_date > when:
         contract.end_date = when
@@ -722,6 +847,7 @@ async def _apply_termination_to_contract(
         contract.id,
         when,
         actor_id=actor_id,
+        contract_before=state_before,
     )
 
     # Audit amendment if the contract was cut short.
@@ -760,11 +886,27 @@ async def _apply_termination_to_contract(
                 "terminated_at": when.isoformat(),
                 "early": early,
                 "synced_orders": synced_orders,
+                "status": contract.status.value,
+                **(
+                    {
+                        "agreement_termination": {
+                            "mode": agreement_termination.mode,
+                            "party": agreement_termination.party,
+                            "signed_on": agreement_termination.signed_on.isoformat(),
+                            "last_day": agreement_termination.last_day.isoformat(),
+                        }
+                    }
+                    if agreement_termination is not None
+                    else {}
+                ),
             },
         )
     )
     # Zamówienia skrócone do daty zakończenia → okres zamówienia w kontrakcie.
     await resync_contract_safely(db, contract, actor_id=actor_id)
+    # Data zakończenia projektu z przeszłości = „Zakończony” od razu, więc
+    # Generator przestawia umowę teraz; przyszła data — w nocy, dzień po niej.
+    await sync_generator_after_contract_ended(db, contract, actor_id=actor_id)
 
 
 def _normalize_contract_currency(value: object, field: str) -> str:
@@ -1049,6 +1191,12 @@ def _to_detail(contract: Contract) -> ContractDetailResponse:
         "termination_reason": contract.termination_reason,
         "termination_lessons": contract.termination_lessons,
         "terminated_at": contract.terminated_at,
+        "returned_from_contract_id": contract.returned_from_contract_id,
+        "agreement_termination_mode": contract.agreement_termination_mode,
+        "agreement_termination_party": contract.agreement_termination_party,
+        "agreement_termination_signed_on": contract.agreement_termination_signed_on,
+        "agreement_last_day": contract.agreement_last_day,
+        "notice_period_months": contract.notice_period_months,
         "project_code": contract.project_code,
         "prolongation_status": contract.prolongation_status,
         "engagement_model": contract.engagement_model,
@@ -2867,6 +3015,7 @@ async def create_contract(
             contract,
             ContractStatus(requested_status),
             actor_id=current_user.id,
+            allow_direct_end=True,
         )
     draft_order: Optional[ClientOrder] = None
     if source_contract_id is not None and not is_cost_order_client(contract.client_id):
@@ -3056,9 +3205,11 @@ async def bulk_mark_ended(
             c,
             termination_reason=data.termination_reason,
             when=data.terminated_at,
+            termination_lessons=(data.termination_lessons or "").strip() or None,
             overwrite_lessons=False,
             actor_id=current_user.id,
             activity_action="bulk_marked_ended",
+            agreement_termination=_agreement_termination(data.agreement_termination),
         )
         changed += 1
     await db.commit()
@@ -3156,6 +3307,7 @@ async def get_contract(
     await _ensure_delivery_lead_contract_visible(contract, current_user, db)
     detail = _to_detail(contract)
     detail.related_contracts = await _related_contracts_for(db, contract, current_user)
+    await _fill_termination_recovery(db, contract, detail)
     can_view_finance = can_read_client_finance(
         current_user,
         client_id=contract.client_id,
@@ -3377,6 +3529,7 @@ async def update_contract(
     await _ensure_delivery_lead_contract_visible(contract, current_user, db)
     previous_end_date = contract.end_date
     previous_start_date = contract.start_date
+    state_before = ContractStateBefore.of(contract)
     # Audyt 22.09 r2 (FIN-03): formularz pokazuje stawkę EFEKTYWNĄ z
     # harmonogramu (``GET /contracts/{id}`` → ``effective_rate_fields``), nie
     # kolumnę cache'u. Porównanie z kolumną robiło z „zmiany na wartość starej
@@ -3559,7 +3712,11 @@ async def update_contract(
         and not (status_sent and contract.status == ContractStatus.ended)
     ):
         orders_synced_to_end = await _sync_client_orders_to_contract_end(
-            db, contract.id, contract.end_date, actor_id=current_user.id
+            db,
+            contract.id,
+            contract.end_date,
+            actor_id=current_user.id,
+            contract_before=state_before,
         )
     # Ręczna stawka przychodowa w kontrakcie z harmonogramem — krok od dziś,
     # inaczej resolver (czytający harmonogram, nie kolumnę) by ją zignorował.
@@ -3726,6 +3883,16 @@ async def update_contract_status(
     await _apply_contract_status_change(
         db, contract, data.status, actor_id=current_user.id
     )
+    # „Cofnij zakończenie” z listy statusu: umowa B2B wraca BEZTERMINOWA —
+    # lustro PATCH-a kontraktu. Ze starą datą nocny cron zakończyłby ją
+    # ponownie następnej nocy, a Generator znów przeniósłby umowę.
+    if (
+        is_b2b(contract.contract_type)
+        and previous_status in (ContractStatus.ended, ContractStatus.ending)
+        and contract.status == ContractStatus.active
+        and contract.end_date is not None
+    ):
+        contract.end_date = None
     db.add(
         Activity(
             entity_type="contract",
@@ -4882,6 +5049,7 @@ async def create_contract_amendment(
 
     elif data.amendment_type == ContractAmendmentType.early_termination:
         end = data.new_end_date or data.effective_date
+        state_before = ContractStateBefore.of(contract)
         # Odmowa przed zapisem daty: aneks nie wskrzesza unieważnionej umowy.
         new_status = _status_after_termination(contract.status, end, business_today())
         contract.end_date = end
@@ -4895,9 +5063,13 @@ async def create_contract_amendment(
             contract.id,
             end,
             actor_id=current_user.id,
+            contract_before=state_before,
         )
         new_values["end_date"] = end.isoformat()
         new_values["status"] = contract.status.value
+        await sync_generator_after_contract_ended(
+            db, contract, actor_id=current_user.id
+        )
 
     # Synchronizacja z zamówieniami: aneks stawki zmienia koszt w KONTRAKCIE
     # (zamówienia dostają go od daty aneksu; przyszła podwyżka wejdzie w swoim
@@ -5241,7 +5413,10 @@ async def delete_contract_equipment(
 async def terminate_contract(
     contract_id: int,
     data: ContractTerminateRequest,
-    current_user: DeliveryLeadPlus,
+    # Te same role co lista statusu (`PATCH /{id}/status`): od 09.2026
+    # „Zakończony” z listy otwiera to okno, więc TCM — który mógł zakończyć
+    # kontrakt listą — musi móc je zapisać (decyzja 10.09: TCM w całej org.).
+    current_user: ContractStatusWriteUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Mark the contract as ended with a structured reason and optional lessons.
@@ -5278,6 +5453,7 @@ async def terminate_contract(
         when=when,
         termination_lessons=data.termination_lessons,
         actor_id=current_user.id,
+        agreement_termination=_agreement_termination(data.agreement_termination),
     )
     await db.flush()
     await db.refresh(contract)
@@ -5285,6 +5461,137 @@ async def terminate_contract(
     if not await _can_read_contract_finance(contract, current_user, db):
         _redact_contract_finance(detail)
     return detail
+
+
+# ── Cofnięcie zakończenia i powrót po przerwie (0368) ────────────────────────
+
+
+async def _fill_termination_recovery(
+    db: AsyncSession, contract: Contract, detail: ContractDetailResponse
+) -> None:
+    detail.can_reverse_termination = await reversal_available(db, contract)
+    successor = await existing_return(db, contract.id)
+    detail.return_contract_id = successor.id if successor is not None else None
+    detail.can_return_after_break = (
+        contract.status == ContractStatus.ended and successor is None
+    )
+    reversal = await latest_reversal(db, contract.id)
+    if reversal is not None:
+        detail.termination_reversed_at = reversal.reversed_at
+        if reversal.reversed_by_user_id is not None:
+            author = await db.get(User, reversal.reversed_by_user_id)
+            if author is not None:
+                detail.termination_reversed_by_name = author.name or author.email
+
+
+async def _lock_contract_for_recovery(db: AsyncSession, contract_id: int) -> Contract:
+    contract = await db.scalar(
+        select(Contract)
+        .where(Contract.id == contract_id)
+        .options(
+            selectinload(Contract.candidate),
+            selectinload(Contract.client),
+            selectinload(Contract.job),
+            selectinload(Contract.candidate_rate_schedule),
+            selectinload(Contract.client_rate_schedule),
+            selectinload(Contract.framework_rate_schedule),
+        )
+        .with_for_update()
+    )
+    if contract is None:
+        raise HTTPException(status_code=404, detail="Contract not found")
+    return contract
+
+
+@router.get(
+    "/{contract_id}/termination-reversal",
+    response_model=ContractTerminationReversalPlanRead,
+)
+async def preview_termination_reversal(
+    contract_id: int,
+    current_user: ContractTerminationRecoveryUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Okno potwierdzenia „Cofnij zakończenie": co wróci i co blokuje akcję.
+
+    Tylko odczyt — ten sam plan liczy potem wykonanie (pod blokadą).
+    """
+    contract = await db.scalar(select(Contract).where(Contract.id == contract_id))
+    if contract is None:
+        raise HTTPException(status_code=404, detail="Contract not found")
+    try:
+        plan = await build_reversal_plan(db, contract)
+    except ReversalUnavailable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "nothing_to_reverse", "message": str(exc)},
+        ) from exc
+    return ContractTerminationReversalPlanRead(**plan.as_json())
+
+
+@router.post(
+    "/{contract_id}/termination-reversal",
+    response_model=ContractTerminationReversalPlanRead,
+)
+async def reverse_termination(
+    contract_id: int,
+    current_user: ContractTerminationRecoveryUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """„Cofnij zakończenie" — kontrakt zakończono przez pomyłkę.
+
+    Kontrakt i każde zamówienie ruszone przez zakończenie wracają do stanu
+    sprzed niego; decyzja o puli MD podjęta po zakończeniu blokuje akcję (409
+    z listą: które zamówienie, jaka decyzja). Bez limitu czasu.
+    """
+    contract = await _lock_contract_for_recovery(db, contract_id)
+    try:
+        plan = await execute_reversal(db, contract, actor_id=current_user.id)
+    except ReversalUnavailable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "nothing_to_reverse", "message": str(exc)},
+        ) from exc
+    except ReversalBlocked as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "termination_reversal_blocked",
+                "message": " ".join(b["message"] for b in exc.plan.blockers),
+                "blockers": exc.plan.blockers,
+            },
+        ) from exc
+    result = plan.as_json()
+    await commit_order_write(db, actor_id=current_user.id)
+    return ContractTerminationReversalPlanRead(**result, executed=True)
+
+
+@router.post(
+    "/{contract_id}/return-after-break",
+    response_model=ContractReturnAfterBreakResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def return_after_break(
+    contract_id: int,
+    data: ContractReturnAfterBreakRequest,
+    current_user: ContractTerminationRecoveryUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """„Powrót po przerwie" — nowy kontrakt (szkic) powiązany z poprzednim.
+
+    Poprzedni kontrakt zostaje zakończony bez zmian; na jego zamówieniach
+    konsultant dostaje nowe przypisanie w statusie Szkic.
+    """
+    contract = await _lock_contract_for_recovery(db, contract_id)
+    result = await create_return_after_break(
+        db, contract, start_date=data.start_date, actor_id=current_user.id
+    )
+    await commit_order_write(db, actor_id=current_user.id)
+    return ContractReturnAfterBreakResponse(
+        contract_id=result.contract.id,
+        returned_from_contract_id=contract.id,
+        orders=result.orders,
+    )
 
 
 # ── Notes + Calls timeline per contract ──────────────────────────────────────

@@ -1788,10 +1788,29 @@ export const interviewFeedbackApi = {
 };
 
 // ── Contracts ─────────────────────────────────────────────────────────────────
+/** Tryb rozwiązania umowy B2B: wypowiedzenie / porozumienie stron. */
+export type AgreementTerminationMode = "notice" | "mutual_agreement";
+/** Kto wypowiedział albo zainicjował porozumienie. */
+export type AgreementTerminationParty = "consultant" | "company";
+
+/**
+ * „Rozwiązanie umowy" z okna „Zakończ współpracę" (0367). Komplet albo nic —
+ * odznaczone pole wyboru = brak obiektu w żądaniu.
+ */
+export interface AgreementTerminationPayload {
+  mode: AgreementTerminationMode;
+  party: AgreementTerminationParty;
+  /** Data złożenia wypowiedzenia albo zawarcia porozumienia (YYYY-MM-DD). */
+  signed_on: string;
+  /** Ostatni dzień obowiązywania umowy B2B (YYYY-MM-DD). */
+  last_day: string;
+}
+
 export interface ContractTerminateRequest {
   termination_reason: ContractTerminationReason;
   termination_lessons?: string | null;
   terminated_at?: string | null;
+  agreement_termination?: AgreementTerminationPayload | null;
 }
 
 /**
@@ -1804,6 +1823,9 @@ export interface ContractTerminateRequest {
 export interface ContractBulkTerminateRequest {
   termination_reason: ContractTerminationReason;
   terminated_at: string; // YYYY-MM-DD
+  /** Puste = wnioski zapisane wcześniej zostają. */
+  termination_lessons?: string | null;
+  agreement_termination?: AgreementTerminationPayload | null;
 }
 
 export type ContractTerminationReason =
@@ -1955,6 +1977,60 @@ export interface ContractSiblingRef {
   end_date: string | null;
 }
 
+export interface ContractTerminationReversalOrder {
+  order_id: number;
+  order_group_id: number | null;
+  order_label: string;
+  kind: "group" | "periodic";
+  consultant: string;
+  status_now: string;
+  status_target: string;
+  end_date_now: string | null;
+  end_date_target: string | null;
+  end_date_source: "snapshot" | "history" | "order_end";
+  removes_decision_case: boolean;
+}
+
+export interface ContractTerminationReversalPlan {
+  contract_id: number;
+  source: "snapshot" | "history";
+  terminated_on: string | null;
+  contract: {
+    status_now: string;
+    status_target: string;
+    end_date_now: string | null;
+    end_date_target: string | null;
+    clears_termination: boolean;
+  };
+  orders: ContractTerminationReversalOrder[];
+  skipped: { order_id: number; order_label: string; reason: string }[];
+  blockers: {
+    code: string;
+    message: string;
+    order_id?: number;
+    order_label?: string;
+    decision?: string;
+  }[];
+  md_imports: {
+    import_id: number;
+    row_id: number;
+    period_month: string;
+    filename: string | null;
+    md_reported: string;
+    order_id: number;
+    order_label: string;
+    skipped: string | null;
+  }[];
+  decision_cases_removed: number;
+  executed: boolean;
+}
+
+export interface ContractReturnAfterBreakResult {
+  contract_id: number;
+  returned_from_contract_id: number;
+  orders: { order_id: number; order_label: string; kind: "group" | "periodic" }[];
+}
+
 export const contractsApi = {
   list: (params?: Record<string, unknown>) => api.get("/api/contracts", { params }),
   get: (id: number) => api.get(`/api/contracts/${id}`),
@@ -1977,6 +2053,21 @@ export const contractsApi = {
     api.delete(`/api/contracts/${contractId}/documents/${documentId}`),
   terminate: (id: number, payload: ContractTerminateRequest) =>
     api.post(`/api/contracts/${id}/terminate`, payload),
+  // „Cofnij zakończenie" (pomyłka) — podgląd i wykonanie (0368).
+  terminationReversalPreview: (id: number) =>
+    api.get<ContractTerminationReversalPlan>(
+      `/api/contracts/${id}/termination-reversal`,
+    ),
+  reverseTermination: (id: number) =>
+    api.post<ContractTerminationReversalPlan>(
+      `/api/contracts/${id}/termination-reversal`,
+    ),
+  // „Powrót po przerwie" — nowy kontrakt (szkic) powiązany z tym.
+  returnAfterBreak: (id: number, startDate: string) =>
+    api.post<ContractReturnAfterBreakResult>(
+      `/api/contracts/${id}/return-after-break`,
+      { start_date: startDate },
+    ),
   bulkMarkEnded: (ids: number[], payload: ContractBulkTerminateRequest) => {
     const params = new URLSearchParams();
     ids.forEach((id) => params.append("ids", String(id)));
@@ -3264,6 +3355,9 @@ export const b2bGeneratorApi = {
           ...(params.closureReason
             ? { closure_reason: params.closureReason }
             : {}),
+          ...(params.terminationMode
+            ? { termination_mode: params.terminationMode }
+            : {}),
           ...(params.startFrom ? { start_from: params.startFrom } : {}),
           ...(params.startTo ? { start_to: params.startTo } : {}),
           ...(params.jobId ? { job_id: params.jobId } : {}),
@@ -3379,6 +3473,8 @@ export interface B2BGeneratedListParams {
    */
   contractStatus?: B2BContractStatus[];
   closureReason?: B2BClosureReason;
+  /** Tryb rozwiązania umowy — filtr „Zakończonych umów" (0367). */
+  terminationMode?: AgreementTerminationMode;
   /** Zakres daty ROZPOCZĘCIA USŁUG (`YYYY-MM-DD`), obie granice włącznie. */
   startFrom?: string;
   startTo?: string;
@@ -3413,6 +3509,19 @@ export interface B2BStatusEvent {
   client_name: string | null;
   changed_by_name: string | null;
   created_at: string | null;
+  /** Zmiana wykonana przez zakończenie kontraktu (0367): kontrakt, koniec
+   *  projektu i dane rozwiązania umowy. `null` dla ręcznych zmian. */
+  details?: {
+    source?: string;
+    contract_id?: number;
+    project_end_date?: string | null;
+    agreement_terminated?: boolean;
+    mode?: AgreementTerminationMode;
+    party?: AgreementTerminationParty;
+    signed_on?: string;
+    agreement_last_day?: string;
+    previous_contract_number?: string;
+  } | null;
 }
 
 /**
@@ -3464,6 +3573,13 @@ export interface B2BGeneratedContractRow {
   closure_reason: B2BClosureReason | null;
   closure_reason_other: string | null;
   closure_date: string | null;
+  /** 0367: zakończenie przeniesione z Kontraktów — „Tryb" i „Data zakończenia
+   *  zamówienia" (koniec projektu; `closure_date` to wtedy ostatni dzień umowy). */
+  termination_mode?: AgreementTerminationMode | null;
+  termination_party?: AgreementTerminationParty | null;
+  termination_signed_on?: string | null;
+  project_end_date?: string | null;
+  previous_generated_contract_id?: number | null;
   can_change_status: boolean;
   candidate_id: number | null;
   job_id: number | null;
@@ -5930,6 +6046,136 @@ export const cvGeneratedShareApi = {
       `/api/cv-generator/generated/share-token/${tokenOrKey}`,
       reason ? { params: { reason } } : undefined,
     ),
+};
+
+// ── Generator CV v3 (lista „Moje CV”, osoba spoza bazy, zgoda po generacji) ──
+
+/** Wynik niezależnej kontroli AI treści (0327) — same liczby, bez cytatów. */
+export interface CvFactualReviewSummary {
+  status: "verified" | "advisory" | "unavailable";
+  findings: number;
+  model?: string | null;
+  reason?: string | null;
+}
+
+/** Wiersz `GET /api/cv-generator/generated` — lista „Moje CV” i widok wyniku. */
+export interface GeneratedCvItem {
+  id: number;
+  approved_version_id?: number | null;
+  central_policy?: Record<string, unknown> | null;
+  /** Główny dokument pakietu językowego (PL + EN); `null` = sam jest główny. */
+  package_id?: number | null;
+  candidate_id?: number | null;
+  job_id?: number | null;
+  job_title?: string | null;
+  client_id?: number | null;
+  client_name?: string | null;
+  candidate_name: string;
+  position?: string | null;
+  language: string;
+  blind: boolean;
+  mode: string;
+  content_mode?: string | null;
+  /** `auto` = zakolejkował system po ruchu na „Zweryfikowany”. */
+  origin?: "auto" | "manual" | (string & {}) | null;
+  stage_id?: number | null;
+  needs_review?: boolean;
+  filename: string;
+  status: "processing" | "ready" | "failed";
+  job_status?: "queued" | "running" | "complete" | "failed" | "interrupted" | null;
+  error_message?: string | null;
+  warnings?: string[];
+  factual_review?: CvFactualReviewSummary | null;
+  created_at?: string | null;
+  created_by_name?: string | null;
+  can_download: boolean;
+  can_delete: boolean;
+  /** Klient wymaga zrzutu zgody RODO na końcu CV (dziś PKO BP). */
+  consent_required?: boolean;
+  /** Zrzutu jeszcze nie ma — pobranie DOCX/HTML kończy się 409. */
+  consent_missing?: boolean;
+}
+
+export interface CvGeneratedListParams {
+  mine?: boolean;
+  days?: number;
+  q?: string;
+  candidate_id?: number;
+  job_id?: number;
+  stage_id?: number;
+  before_id?: number;
+  limit?: number;
+}
+
+/** Podobna osoba w bazie dla wgranego pliku CV (`POST /identify-upload`). */
+export interface CvIdentifyMatch {
+  candidate_id: number;
+  full_name: string;
+  /** Kody: `identical_file`, `email_exact`, `phone_exact` (bez wywołania modelu). */
+  match_reasons: string[];
+}
+
+/** Wynik dołączenia / wymiany zrzutu zgody w gotowym CV (cały pakiet). */
+export interface CvConsentAttachResult {
+  package_id: number;
+  replaced: boolean;
+  document_ids: number[];
+  reapproved_version_ids: number[];
+}
+
+export interface CvGenerateEnqueued {
+  id: number;
+  status: string;
+  candidate_name: string;
+}
+
+/** `POST /api/cv-generator/generate` — wariant bez etapu wymaga `client_id`. */
+export interface CvGeneratePayload {
+  candidate_id: number;
+  stage_id: number | null;
+  client_id: number | null;
+  cv_document_id: number;
+  project_ref: string;
+  language: "pl" | "en";
+  languages: "one" | "both";
+  blind_cv: boolean;
+  content_mode: "basic" | "polished" | "tailored";
+  position?: string;
+  champion_profile?: ChampionProfile;
+  consent_screenshot_token?: string;
+  /** Tylko bez procesu: notatki idą do tego CV, nie do profilu kandydata. */
+  screening_notes?: string;
+}
+
+export const cvGeneratorApi = {
+  listGenerated: (params: CvGeneratedListParams) =>
+    api.get<GeneratedCvItem[]>("/api/cv-generator/generated", { params }),
+  identifyUpload: (file: File) => {
+    const fd = new FormData();
+    fd.append("cv_file", file);
+    return api.post<{ matches: CvIdentifyMatch[] }>(
+      "/api/cv-generator/identify-upload",
+      fd,
+      { headers: { "Content-Type": "multipart/form-data" }, timeout: 60_000 },
+    );
+  },
+  /** Zrzut zgody dla JUŻ wygenerowanego CV — podpis przypisania do wiersza. */
+  uploadConsentForGenerated: (generatedId: number, file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("generated_id", String(generatedId));
+    return api.post<{ consent_token: string; filename: string }>(
+      "/api/cv-generator/consent-screenshot",
+      fd,
+      { headers: { "Content-Type": "multipart/form-data" }, timeout: 60_000 },
+    );
+  },
+  attachConsent: (generatedId: number, consentToken: string) =>
+    api.post<CvConsentAttachResult>(`/api/cv-generator/generated/${generatedId}/consent`, {
+      consent_screenshot_token: consentToken,
+    }, { timeout: SLOW_ENDPOINT_TIMEOUT_MS }),
+  deleteGenerated: (generatedId: number) =>
+    api.delete(`/api/cv-generator/generated/${generatedId}`),
 };
 
 // ── Settings → AI (Traffit gap #5) ───────────────────────────────────────────

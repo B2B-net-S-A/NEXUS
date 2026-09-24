@@ -22,7 +22,8 @@ Reguły (każda dokłada pliki, żadna nie odejmuje):
   go importują; ``conftest.py`` → nic ponad resztę (dotyka wszystkiego, tego
   PR nie sprawdzi, sprawdzi kolejka);
 * każdy inny plik (workflow, skrypt, dokument, plik frontendu czytany przez
-  testy-lustra) → testy, które wymieniają jego ścieżkę.
+  testy-lustra) → testy, które wymieniają jego ścieżkę;
+* strażnicy całego repo (``_ALWAYS``) → zawsze, niezależnie od zmian.
 
 Wejście: lista zmienionych plików (ścieżki od korzenia repo) na stdin.
 Wyjście: ścieżki testów od katalogu ``backend/``, po jednej w linii.
@@ -51,6 +52,19 @@ _HUB_MODULES = {
     "app/models/__init__.py",
     "app/core/security.py",
 }
+
+# Strażnicy całego repo: sprawdzają stan drzewa (stemple przewodników
+# i procedury zamówień, jedna głowa Alembica), a nie konkretny moduł, więc
+# żadna reguła wyżej ich nie wybiera. Wyrzucały PR-y z kolejki merge'ów
+# najczęściej — 40 wyrzuceń 23–24.09.2026: stempel przewodników 34×,
+# procedury zamówień 20×, dwie głowy Alembica 13×. PR był na tym zielony,
+# więc `auto-enqueue` po każdym pushu wrzucał go z powrotem na ten sam pad.
+# Razem ~1 s testów; job sita i tak biegnie równolegle z frontendem.
+_ALWAYS = (
+    "tests/test_screen_guides_freshness.py",
+    "tests/test_orders_procedure_freshness.py",
+    "tests/test_contract_order_workflows_migration.py",
+)
 
 
 def _test_files() -> dict[str, str]:
@@ -85,7 +99,7 @@ def _module_patterns(rel_from_backend: str) -> list[re.Pattern[str]]:
 def select(changed: list[str]) -> tuple[set[str], set[str]]:
     """Zwraca (wybrane wprost, wybrane pośrednio)."""
     tests = _test_files()
-    direct: set[str] = set()
+    direct: set[str] = {t for t in _ALWAYS if t in tests}
     indirect: set[str] = set()
     for raw in changed:
         path = raw.strip()

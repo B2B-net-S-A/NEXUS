@@ -37,9 +37,25 @@ class _CollectingDB:
     def add(self, obj: object) -> None:
         self.added.append(obj)
 
+    async def scalar(self, *_args: object, **_kwargs: object) -> None:
+        # Wskrzeszenie zamyka otwartą migawkę zakończenia (0368) — tu jej nie ma.
+        return None
+
+    async def execute(self, *_args: object, **_kwargs: object) -> SimpleNamespace:
+        # Cofnięcie zakończenia szuka umów w Generatorze (0367) — tu żadnych.
+        return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: []))
+
 
 def _contract(status: ContractStatus) -> SimpleNamespace:
-    return SimpleNamespace(id=7, status=status)
+    return SimpleNamespace(
+        id=7,
+        status=status,
+        candidate_id=None,
+        agreement_termination_mode=None,
+        agreement_termination_party=None,
+        agreement_termination_signed_on=None,
+        agreement_last_day=None,
+    )
 
 
 @pytest.mark.asyncio

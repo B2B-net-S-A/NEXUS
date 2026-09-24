@@ -70,7 +70,10 @@ export function ConsentScreenshotField({
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
   const requestVersion = useRef(0);
-  const hasSubject = !!context.cvFile || !!(context.candidateId && context.stageId);
+  // Źródło przypisania: plik z dysku, proces (osoba + etap) albo — generator
+  // v3 — osoba bez procesu z jawnie wybranym klientem.
+  const hasSubject =
+    !!context.cvFile || !!(context.candidateId && (context.stageId || context.clientId));
 
   useEffect(() => {
     requestVersion.current += 1;
@@ -106,7 +109,7 @@ export function ConsentScreenshotField({
         fd.append("cv_sha256", Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join(""));
       } else {
         fd.append("candidate_id", String(context.candidateId));
-        fd.append("stage_id", String(context.stageId));
+        if (context.stageId) fd.append("stage_id", String(context.stageId));
       }
       if (context.projectRef !== undefined) fd.append("project_ref", context.projectRef);
       if (context.bindingStageId) fd.append("binding_stage_id", String(context.bindingStageId));
@@ -152,7 +155,7 @@ export function ConsentScreenshotField({
         {required ? (
           <span className="font-normal text-destructive" data-field-mark="required"> * wymagane</span>
         ) : requiredForSending ? (
-          <span className="font-normal text-warning-muted-foreground" data-field-mark="sending"> — wymagane do wysyłki klientowi</span>
+          <span className="font-normal text-warning-muted-foreground" data-field-mark="sending"> — bez niego CV się nie pobierze</span>
         ) : (
           <span className="font-normal text-muted-foreground" data-field-mark="optional"> (opcjonalnie)</span>
         )}
@@ -161,10 +164,10 @@ export function ConsentScreenshotField({
         {required
           ? "Ten klient wymaga zrzutu maila ze zgodą kandydata — trafi automatycznie na koniec CV."
           : requiredForSending
-            ? "CV wygenerujesz bez zrzutu, ale pakietu nie wyślesz klientowi, dopóki go nie dołączysz — trafi automatycznie na koniec CV."
+            ? "CV wygenerujesz bez zrzutu, ale nie pobierzesz go, dopóki zrzutu nie dołączysz (możesz też po generacji) — trafi automatycznie na koniec CV."
             : "Jeśli wgrasz, zrzut trafi automatycznie na koniec CV."}
       </p>
-      {!hasSubject && <p className="text-[11px] text-muted-foreground">Najpierw wybierz osobę i rekrutację albo wgraj plik CV.</p>}
+      {!hasSubject && <p className="text-[11px] text-muted-foreground">Najpierw wybierz osobę i proces (albo klienta) lub wgraj plik CV.</p>}
 
       {value ? (
         <div

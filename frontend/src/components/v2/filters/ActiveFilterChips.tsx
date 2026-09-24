@@ -392,6 +392,17 @@ function collectChips(
  }),
  });
  });
+ filters.tags.forEach((tag) => {
+ chips.push({
+ key: `tag:${tag}`,
+ label: `Tag: ${tag}`,
+ clear: () =>
+ onUpdate({
+ tags: filters.tags.filter((x) => x !== tag),
+ page: 1,
+ }),
+ });
+ });
  filters.workedAtClientIds.forEach((id) => {
  const name = clientsById?.get(id) ?? `Klient #${id}`;
  chips.push({
@@ -636,6 +647,7 @@ export function ActiveFilterChips({
  currentCompany: [],
  pastCompany: [],
  currentTitle: [],
+ tags: [],
  workedAtClientIds: [],
  recruitmentIds: [],
  recruitmentMatch: "assigned",

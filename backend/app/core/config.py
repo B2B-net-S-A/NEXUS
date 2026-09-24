@@ -502,6 +502,11 @@ class Settings(BaseSettings):
     # wejścia = pominięcie z Activity `cv_auto_generate_skipped`. False = brak
     # jakiegokolwiek efektu po ruchu (stan sprzed 21.09).
     CV_AUTO_GENERATE_ON_VERIFIED: bool = True
+    # Pobranie CV klienta, którego centralna polityka wymaga zrzutu zgody RODO
+    # (PKO BP), jest zablokowane (409 `consent_required`), dopóki zrzut nie jest
+    # dołączony — generacja przechodzi, zgodę można dołączyć po niej. False =
+    # wyłącznik awaryjny: pobrania działają jak przed 23.09.2026.
+    CV_CONSENT_DOWNLOAD_GATE_ENABLED: bool = True
 
     # ── QC CV — bramka przed „CV wysłane”/Cpro (Rekrutacja v5, 0361) ─────────
     # Ruch pary z kolumn Nowi/Screening/Zweryfikowany/QC CV na „CV wysłane”
@@ -1338,6 +1343,19 @@ class Settings(BaseSettings):
     # (rewokowalny, audytowalny), a pusty env czyni ten mechanizm bezczynnym.
     # Nie loguje sekretu; przy złym formacie nie wywraca startu (log + no-op).
     COMPASS_INTEGRATION_BOOTSTRAP_KEY: str = ""
+
+    # ── Multiposting (0360): Pracuj.pl i JustJoinIT ─────────────────────────
+    # Szkielet bez dokumentacji API portali: flagi OFF = portal niewidoczny
+    # w UI, publikacja 409, worker kończy się przed pętlą. Włączona flaga bez
+    # adresu i klucza = `checks.job_portals: misconfigured`.
+    PORTAL_PRACUJ_ENABLED: bool = False
+    PORTAL_PRACUJ_API_URL: str = ""
+    PORTAL_PRACUJ_API_KEY: str = ""
+    PORTAL_JJIT_ENABLED: bool = False
+    PORTAL_JJIT_API_URL: str = ""
+    PORTAL_JJIT_API_KEY: str = ""
+    JOB_PORTAL_WORKER_INTERVAL_SECONDS: int = 60
+    JOB_PORTAL_MAX_ATTEMPTS: int = 5
 
     TRAFFIT_SYNC_ENABLED: bool = False
     # Skutki uboczne dla etapów przychodzących z importu.

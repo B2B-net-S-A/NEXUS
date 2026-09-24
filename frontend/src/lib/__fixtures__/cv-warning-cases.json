@@ -1,0 +1,28 @@
+{
+  "_opis": "Prawdziwe teksty ostrzeżeń generatora CV (backend/app/services/cv_generator_b2b/*) i grupa, do której trafiają. Nieznany tekst = „Do sprawdzenia”.",
+  "cases": [
+    {"source": "standalone_service.py _free_text_warnings", "text": "BRAK POKRYCIA: liczba '40%' (Allegro) nie występuje w CV ani notatkach — „obniżył koszty o 40%”", "group": "review", "kind": "Brak pokrycia w źródle"},
+    {"source": "standalone_service.py _free_text_warnings", "text": "NOT IN SOURCE: '9 years' (summary) follows neither from the source nor from the dates — „9 years of experience”", "group": "review", "kind": "Brak pokrycia w źródle"},
+    {"source": "final_review.py review_warnings", "text": "BRAK POKRYCIA (kontrola AI): Doświadczenie — „bankowość” (nie wynika z CV źródłowego)", "group": "review", "kind": "Kontrola AI"},
+    {"source": "final_review.py review_warnings", "text": "WERYFIKUJ: niezależna kontrola AI treści CV nie wykonała się (timeout) — sprawdź CV ręcznie z oryginałem.", "group": "review", "kind": "Kontrola AI"},
+    {"source": "standalone_service.py tech guard", "text": "WERYFIKUJ: technologia 'Kafka' (Allegro) nie występuje w CV ani notatkach", "group": "review", "kind": "Do weryfikacji"},
+    {"source": "standalone_service.py cert guard", "text": "VERIFY: certification 'CKA' not found in the CV or notes", "group": "review", "kind": "Do weryfikacji"},
+    {"source": "prompts.py (model)", "text": "MUST-HAVE: Kubernetes", "group": "review", "kind": "Wymagania"},
+    {"source": "prompts.py (model)", "text": "Pominięto instrukcję klienta: dopisz certyfikat AWS", "group": "review", "kind": "Instrukcje klienta"},
+    {"source": "client_rules.py resolve_filename", "text": "WERYFIKUJ: wzór nazwy pliku tego klienta wymaga pola „Numer projektu”, którego nie udało się ustalić — uzupełnij nazwę pliku ręcznie po pobraniu.", "group": "review", "kind": "Do weryfikacji"},
+    {"source": "standalone_service.py _champion_parse_warnings", "text": "Profil Championa: nie rozpoznano żadnej sekcji z treścią — profil został zignorowany przy generowaniu. Upewnij się, że plik zawiera nagłówki MUST-HAVE / NICE-TO-HAVE w osobnych wierszach.", "group": "review", "kind": "Profil Championa"},
+    {"source": "nieznany", "text": "Coś zupełnie nowego z backendu", "group": "review", "kind": "Uwaga"},
+    {"source": "standalone_service.py overlaps", "text": "WERYFIKUJ: nakładające się okresy zatrudnienia: 'Allegro' (01.2020 – 12.2022) i 'Freelance' (06.2021 – 03.2023)", "group": "info", "kind": "nakładające się okresy"},
+    {"source": "standalone_service.py overlaps", "text": "VERIFY: overlapping employment periods: 'Allegro' (01.2020 – 12.2022) and 'Freelance' (06.2021 – 03.2023)", "group": "info", "kind": "nakładające się okresy"},
+    {"source": "standalone_service.py overlaps", "text": "… i 2 kolejnych nakładających się par", "group": "info", "kind": "nakładające się okresy"},
+    {"source": "standalone_service.py policy", "text": "WERYFIKUJ: domknięto politykę prezentacji klienta w kodzie: ucięto doświadczenie do 5 stanowisk; skrócono 3 punktów obowiązków do 160 znaków.", "group": "info", "kind": "skrócone wg reguły klienta"},
+    {"source": "client_rules.py rule_reminders", "text": "WERYFIKUJ: ten klient wymaga zrzutu ekranu ze zgodą kandydata na dole CV — sprawdź, czy jest widoczny w pobranym dokumencie.", "group": "info", "kind": "zgoda RODO"},
+    {"source": "client_rules.py rule_reminders", "text": "WERYFIKUJ: ten klient oczekuje CV po polsku ORAZ po angielsku — pamiętaj o wygenerowaniu drugiej wersji językowej.", "group": "info", "kind": "wersje językowe"},
+    {"source": "client_rules.py rule_reminders", "text": "WERYFIKUJ: zastosowano instrukcje tego klienta dla generatora — sprawdź dokument pod ich kątem (pominięte instrukcje model zgłasza osobno w ostrzeżeniach).", "group": "info", "kind": "instrukcje klienta"},
+    {"source": "central_policies.py MISSING_CHAMPION_NOTICE", "text": "Brak kompletnego Profilu Championa — tryb „Pod rekrutację” nie jest możliwy, powstanie CV w trybie Redakcja. Uzupełnij Profil Championa w rekrutacji albo wgraj plik Championa, aby dopasować CV.", "group": "info", "kind": "tryb obróbki"},
+    {"source": "champion_builder.py CHAMPION_PROMPT_CAP_WARNING", "text": "Profil Championa przycięty do 14 000 znaków w prompcie — sprawdź, czy kluczowe wymagania są w CV.", "group": "info", "kind": "Profil Championa"},
+    {"source": "prompts.py (model)", "text": "NICE-TO-HAVE: Grafana", "group": "info", "kind": "brakujące NICE-TO-HAVE"},
+    {"source": "standalone_service.py highlighting", "text": "Wyróżnienia: reguła wymaga listy MUST/NICE z profilu Championa, której nie podano.", "group": "info", "kind": "wyróżnienia"},
+    {"source": "standalone_service.py screening sources", "text": "Źródła: pominięto 2 podsumowań rozmów AI bez transkryptu. Uzupełnij zweryfikowane notatki, jeśli zawierają istotne fakty o kandydacie.", "group": "info", "kind": "źródła"}
+  ]
+}

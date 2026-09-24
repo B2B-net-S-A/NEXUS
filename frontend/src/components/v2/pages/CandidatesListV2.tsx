@@ -457,6 +457,9 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  const [currentTitleFilter, setCurrentTitleFilter] = useState<string[]>(
  (searchParams.get("title") ??"").split("|").filter(Boolean)
  );
+ const [tagsFilter, setTagsFilter] = useState<string[]>(
+ (searchParams.get("tags") ??"").split("|").filter(Boolean)
+ );
  // Lata doświadczenia (min–max). null bound = open. Parsed with the same
  // clamp as decodeFilters so URL → state and saved searches agree.
  const [experienceMin, setExperienceMin] = useState<number | null>(
@@ -685,6 +688,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  currentCompany: currentCompanyFilter,
  pastCompany: pastCompanyFilter,
  currentTitle: currentTitleFilter,
+ tags: tagsFilter,
  workedAtClientIds,
  recruitmentIds,
  recruitmentMatch,
@@ -733,6 +737,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  currentCompanyFilter,
  pastCompanyFilter,
  currentTitleFilter,
+ tagsFilter,
  workedAtClientIds,
  recruitmentIds,
  recruitmentMatch,
@@ -1093,6 +1098,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  currentCompanyFilter.length +
  pastCompanyFilter.length +
  currentTitleFilter.length +
+ tagsFilter.length +
  workedAtClientIds.length +
  recruitmentIds.length +
  (experienceMin !== null || experienceMax !== null ? 1 : 0) +
@@ -1141,6 +1147,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  if (patch.currentCompany !== undefined) setCurrentCompanyFilter(patch.currentCompany);
  if (patch.pastCompany !== undefined) setPastCompanyFilter(patch.pastCompany);
  if (patch.currentTitle !== undefined) setCurrentTitleFilter(patch.currentTitle);
+ if (patch.tags !== undefined) setTagsFilter(patch.tags);
  if (patch.workedAtClientIds !== undefined)
  setWorkedAtClientIds(patch.workedAtClientIds);
  if (patch.recruitmentIds !== undefined) setRecruitmentIds(patch.recruitmentIds);

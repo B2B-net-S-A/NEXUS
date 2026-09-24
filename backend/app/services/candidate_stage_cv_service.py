@@ -306,3 +306,168 @@ async def refresh_original_cv_snapshot(
         current.source,
     )
     return csv_row
+
+
+# ── Zatwierdzenie brandowanego CV etapu (wyjęte z handlera, generator v3) ────
+#
+# Jedna ścieżka dla przycisku „Zatwierdź" (`POST …/cv/branded/finalize`) i dla
+# ponownego zatwierdzenia po dołączeniu zgody RODO (`cv_consent_attach`).
+# Wołający trzyma blokadę wiersza i sprawdził rewizję oraz stan szkicu.
+
+
+def wrap_printable_cv(body_html: str, stage_id: int, candidate_label: str) -> str:
+    """Printable wrapper z auto-print (mirror contracts._wrap_printable)."""
+    return (
+        '<!DOCTYPE html><html><head><meta charset="utf-8">'
+        f"<title>CV — {candidate_label} (rekrutacja #{stage_id})</title>"
+        "<script>window.addEventListener('load',()=>setTimeout("
+        "()=>window.print(),300));</script>"
+        "</head><body>"
+        f"{body_html}"
+        "</body></html>"
+    )
+
+
+async def render_stage_editor_docx(csv, content_html: str) -> tuple[bytes, bytes]:
+    """DOCX z treści edytora i ZAMROŻONYCH zasobów etapu (szablon, zgoda)."""
+    from fastapi import HTTPException
+
+    from app.services.cv_approved_docx import ApprovedDocxError, render_approved_docx
+    from app.services.cv_document_assets import default_template
+    from app.services.html_sanitizer import sanitize_cv_html
+
+    template = csv.branded_template_content or await run_in_threadpool(default_template)
+    try:
+        docx = await run_in_threadpool(
+            render_approved_docx,
+            sanitize_cv_html(content_html),
+            template,
+            consent=csv.branded_consent_content,
+            language=csv.branded_language or "pl",
+        )
+    except ApprovedDocxError as error:
+        raise HTTPException(422, str(error)) from error
+    return docx, template
+
+
+async def finalize_stage_cv(
+    db: AsyncSession,
+    csv: CandidateStageCV,
+    content_html: str,
+    user_id: int,
+    *,
+    review_override: Optional[dict] = None,
+    activity_details: Optional[dict] = None,
+):
+    """Szkic → zatwierdzona wersja (DOCX z zamrożonych zasobów). Bez commitu.
+
+    ``review_override`` (wyłącznie ponowne zatwierdzenie po dołączeniu zgody,
+    gdy treść jest bajt w bajt ta sama co w zatwierdzonej wersji): zapis
+    poprzedniej kontroli treści zamiast nowej — BEZ wywołania AI. Treść się
+    nie zmieniła, zmienił się tylko obraz zgody pod nią.
+
+    Zwraca ``(version, snapshot_filename, snapshot_size)``.
+    """
+    from io import BytesIO
+
+    from fastapi import HTTPException
+
+    from app.services import storage_service
+    from app.services.cv_approval_provenance import approval_provenance
+    from app.services.cv_approved_docx import RENDERER_VERSION
+    from app.services.cv_document_versions import freeze_approved_version
+    from app.services.cv_version_map_jobs import schedule_approved_map
+    from app.services.html_sanitizer import sanitize_cv_html
+
+    stage_id = csv.candidate_stage_id
+    csv.branded_draft_html = sanitize_cv_html(content_html)
+    if not csv.branded_draft_html.strip():
+        raise HTTPException(
+            status_code=422,
+            detail="Brandowane CV jest puste — wygeneruj treść przed finalize.",
+        )
+
+    candidate = await db.scalar(
+        select(Candidate).where(Candidate.id == csv.candidate_id)
+    )
+    candidate_label = (
+        f"{candidate.name}_{candidate.lastname}".replace(" ", "_")
+        if candidate
+        else f"stage_{stage_id}"
+    )
+    today = datetime.now(timezone.utc).date().isoformat()
+    filename = f"cv_brandowane_{candidate_label}_v{csv.branded_version}_{today}.html"
+
+    # Render the exact submitted/sanitized content once, before approval. The
+    # stored bytes are subsequently downloaded without accessing live sources.
+    docx, template = await render_stage_editor_docx(csv, csv.branded_draft_html)
+    if review_override is not None:
+        content_review = review_override
+    else:
+        from app.services.cv_approval_review import review_for_approval
+
+        content_review = await review_for_approval(
+            db, csv, csv.branded_draft_html, user_id
+        )
+
+    docx_filename = (
+        csv.branded_docx_filename or filename.removesuffix(".html") + ".docx"
+    )
+    metadata = {
+        **(csv.branded_render_metadata or {}),
+        **approval_provenance(csv.branded_draft_html, csv.branded_render_metadata),
+        "content_review": content_review,
+        "requires_content_review": False,
+        "renderer_version": RENDERER_VERSION,
+        "template_sha256": hashlib.sha256(template).hexdigest(),
+        "consent_sha256": hashlib.sha256(csv.branded_consent_content).hexdigest()
+        if csv.branded_consent_content
+        else None,
+    }
+    snapshot_html = wrap_printable_cv(csv.branded_draft_html, stage_id, candidate_label)
+    blob = snapshot_html.encode("utf-8")
+    relative_path, size = storage_service.save_branded_cv(
+        candidate_stage_id=stage_id,
+        upload_filename=filename,
+        source=BytesIO(blob),
+    )
+
+    csv.edit_revision += 1
+    csv.branded_updated_at = datetime.now(timezone.utc)
+    csv.branded_updated_by = user_id
+    csv.branded_status = "finalized"
+    csv.branded_finalized_at = datetime.now(timezone.utc)
+    csv.branded_finalized_by = user_id
+    csv.branded_snapshot_path = relative_path
+    csv.branded_snapshot_filename = filename
+    csv.branded_snapshot_size_bytes = size
+
+    csv.branded_docx_filename = docx_filename
+    csv.branded_template_content = template
+    csv.branded_render_metadata = metadata
+    version = await freeze_approved_version(
+        db,
+        csv,
+        docx_content=docx,
+        docx_filename=docx_filename,
+        render_metadata=metadata,
+    )
+    await schedule_approved_map(db, version, user_id)
+    db.add(
+        Activity(
+            entity_type="candidate_stage_cv",
+            entity_id=csv.id,
+            action="branded_cv_finalized",
+            user_id=user_id,
+            details={
+                "candidate_stage_id": stage_id,
+                "snapshot_filename": filename,
+                "size_bytes": size,
+                "document_version_id": version.id,
+                "version": version.version,
+                "content_sha256": version.content_sha256,
+                **(activity_details or {}),
+            },
+        )
+    )
+    return version, filename, size

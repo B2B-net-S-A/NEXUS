@@ -6,14 +6,14 @@ Bez arkusza klient otwierający ``/cv/{token}`` albo ``/cv/i/{token}`` widział
 jednak CV bez stylów szablonu. Arkusz dokładamy tutaj wyłącznie z kodu: to
 ``<style>`` z renderera szablonu wywołanego bez danych kandydata, więc zmiana
 szablonu (np. blok ``@media``) przechodzi też do linków, a nic z treści CV nie
-trafia do ``<style>``.
+trafia do ``<style>``. Stary szablon brandowany (wycofany w generatorze v3)
+ma arkusz zamrożony w ``cv_legacy_template_css``.
 """
 
 from __future__ import annotations
 
 import re
 from functools import lru_cache
-from types import SimpleNamespace
 
 from app.services.html_sanitizer import sanitize_cv_html
 
@@ -43,26 +43,11 @@ def _document_css() -> str:
     return _template_style(render_interactive_html({}, [])) + _EDITED_MARKUP_CSS
 
 
-@lru_cache(maxsize=None)
 def _branded_css() -> str:
-    """Arkusz starego szablonu brandowanego CV etapu (``.cv-wrapper``)."""
-    from app.services.cv_html_renderer import _generate_cv_html
+    """Arkusz wycofanego szablonu brandowanego CV etapu (``.cv-wrapper``)."""
+    from app.services.cv_legacy_template_css import LEGACY_BRANDED_CSS
 
-    blank = SimpleNamespace(
-        name="",
-        lastname="",
-        email=None,
-        phone=None,
-        location=None,
-        linkedin=None,
-        ai_summary="",
-        skills=[],
-        experience=[],
-        education=[],
-        languages=[],
-        competence_category=None,
-    )
-    return _template_style(_generate_cv_html(blank, "standard", "pl"))
+    return LEGACY_BRANDED_CSS
 
 
 def public_cv_document(html: str | None) -> str:

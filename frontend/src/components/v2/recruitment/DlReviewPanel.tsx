@@ -37,6 +37,7 @@ import { useToast } from "@/components/Toast";
 import { CvQcDialog } from "@/components/v2/recruitment/CvQcDialog";
 import { QcStatusBadge } from "@/components/v2/recruitment/QcStatusBadge";
 import { SavedScreeningView } from "@/components/v2/recruitment/PanelSavedViews";
+import { ConsentAttachButton } from "@/components/v2/cv-generator/ConsentAttachButton";
 import type { KanbanItem } from "@/components/v2/pages/kanban-shared";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import api from "@/lib/api";
@@ -154,6 +155,8 @@ interface GeneratedCvRow {
   needs_review?: boolean;
   error_message?: string | null;
   created_at?: string | null;
+  /** Reguła klienta wymaga zrzutu zgody RODO, a dokument go nie ma — pobranie odpowie 409. */
+  consent_missing?: boolean;
 }
 
 function pickCv(rows: GeneratedCvRow[] | undefined): GeneratedCvRow | null {
@@ -179,7 +182,10 @@ function CvPreview({ candidateId, jobId }: { candidateId: number; jobId: number 
   const cv = pickCv(query.data);
   const hostRef = useRef<HTMLDivElement | null>(null);
   const [render, setRender] = useState<"idle" | "loading" | "ready" | "error">("idle");
-  const readyId = cv?.status === "ready" ? cv.id : null;
+  // Bez zgody RODO serwer odmawia pobrania pliku (409) — nie próbujemy go
+  // renderować, tylko prosimy o zrzut.
+  const consentMissing = cv?.status === "ready" && cv.consent_missing === true;
+  const readyId = cv?.status === "ready" && !consentMissing ? cv.id : null;
 
   useEffect(() => {
     if (readyId == null) return;
@@ -235,7 +241,7 @@ function CvPreview({ candidateId, jobId }: { candidateId: number; jobId: number 
             Do przeglądu
           </Badge>
         ) : null}
-        {cv?.status === "ready" ? (
+        {cv?.status === "ready" && !consentMissing ? (
           <Button size="sm" variant="outline" className="ml-auto" onClick={() => void download()}>
             <Download className="h-3.5 w-3.5" />
             Pobierz DOCX
@@ -265,6 +271,25 @@ function CvPreview({ candidateId, jobId }: { candidateId: number; jobId: number 
         <p role="alert" className="text-xs text-destructive">
           Generowanie CV nie powiodło się{cv.error_message ? `: ${cv.error_message}` : "."}
         </p>
+      ) : consentMissing ? (
+        <div
+          role="note"
+          data-testid="dl-review-consent-missing"
+          className="space-y-2 rounded-lg border border-destructive/25 bg-destructive-muted px-3 py-3 text-xs text-destructive-muted-foreground"
+        >
+          <p className="font-medium">Brak zgody RODO (PKO BP)</p>
+          <p>
+            Reguła klienta wymaga zrzutu maila ze zgodą kandydata na końcu CV. Bez niego CV
+            nie da się pobrać ani obejrzeć — dołącz zrzut, a dokument przerysuje się bez
+            ponownej generacji.
+          </p>
+          <ConsentAttachButton
+            compact
+            generatedId={cv.id}
+            hasConsent={false}
+            onAttached={() => void query.refetch()}
+          />
+        </div>
       ) : (
         <div className="relative max-h-[28rem] min-h-40 overflow-auto rounded-lg border border-border bg-muted/30 p-2">
           {render !== "ready" ? (

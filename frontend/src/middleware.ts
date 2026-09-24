@@ -341,7 +341,7 @@ const ROLE_ROUTES: RouteAccessRule[] = [
 //   `/preview/order-new-from-pdf`, `/preview/finance-order-changes`,
 //   `/preview/finance-order-pdfs`, `/preview/order-takeover`,
 //   `/preview/contract-candidate-contact`, `/preview/cv-search`,
-//   `/preview/recruitment-v3`, `/preview/pipeline-v4`,
+//   `/preview/recruitment-v3`, `/preview/pipeline-v4`, `/preview/cv-generator`,
 //   `/preview/jobs-list-v3`, `/preview/calendar-cycle`, `/preview/cv-qc`,
 //   `/preview/cpro-queue`,
 //   `/preview/kpi-targets`,
@@ -390,6 +390,7 @@ const PUBLIC_PATHS = [
   "/preview/procedure-help",
   "/preview/champion-profile",
   "/preview/cv-generator-client-rules",
+  "/preview/cv-generator",
   "/preview/client-playbook",
   "/preview/inactive-clients-cleanup",
   "/preview/order-new-from-pdf",
@@ -411,6 +412,8 @@ const PUBLIC_PATHS = [
   "/preview/b2b-documents",
   "/preview/kariera",
   "/preview/career-share",
+  "/preview/candidate-merge",
+  "/preview/job-portals",
   // Strona kariery (kandydaci z LinkedIna) — publiczna z definicji. Na własnym
   // hoście (`kariera.dynaminds.pl`) obsługuje ją `careerHostResponse` niżej;
   // tu jest wejście pod `/kariera/*` na hoście aplikacji (dev, podgląd, grafiki

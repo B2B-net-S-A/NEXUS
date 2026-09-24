@@ -48,7 +48,6 @@ import { TabbedNav } from "@/components/ds/TabbedNav";
 
 import { CvRuleHistoryTab } from "./CvRuleHistoryTab";
 import { CvRulePlaybookTab } from "./CvRulePlaybookTab";
-import { CvRulePreviewTab } from "./CvRulePreviewTab";
 import { CvRuleSettingsTab } from "./CvRuleSettingsTab";
 
 const MODE_LABEL: Record<CvContentMode, string> = Object.fromEntries(
@@ -57,7 +56,6 @@ const MODE_LABEL: Record<CvContentMode, string> = Object.fromEntries(
 
 const TABS = [
   { value: "settings", label: "Ustawienia" },
-  { value: "preview", label: "Podgląd" },
   { value: "playbook", label: "Karta klienta" },
   { value: "history", label: "Historia" },
 ];
@@ -135,10 +133,6 @@ export function CvRuleEditor({
   const [loadFailed, setLoadFailed] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [copySource, setCopySource] = useState<ClientRef | null>(null);
-  // Id CV próbnego trzymane TU, nie w zakładce: przełączenie zakładki
-  // odmontowuje jej stan, a zadanie w tle (i dwa obciążenia kwoty) już
-  // poszło — wynik musi dać się obejrzeć po powrocie.
-  const [previewId, setPreviewId] = useState<number | null>(null);
   // Karta ma WŁASNY szkic w zakładce. Odmontowanie przy przełączeniu zakładki
   // (jak robią pozostałe) kasowałoby niezapisane 20 000 znaków markdownu, więc
   // po pierwszym wejściu zakładka zostaje zamontowana i tylko chowana. Montaż
@@ -175,7 +169,6 @@ export function CvRuleEditor({
     setLoadFailed(false);
     setConfirmingDelete(false);
     setCopySource(null);
-    setPreviewId(null);
     // Zakładka startowa liczona TU, nie z efektu po `tab`: przy starcie na
     // karcie oba efekty biegną w jednym przebiegu i sam reset `visited`
     // zostawiłby ją niezamontowaną, mimo że jest aktywna.
@@ -202,7 +195,6 @@ export function CvRuleEditor({
     void queryClient.invalidateQueries({ queryKey: ["client-cv-rule", clientId] });
     void queryClient.invalidateQueries({ queryKey: ["cv-rule-history", clientId] });
     void queryClient.invalidateQueries({ queryKey: ["cv-rule-versions", clientId] });
-    void queryClient.invalidateQueries({ queryKey: ["cv-rule-prompt-preview", clientId] });
   };
 
   const save = async (confirm: boolean) => {
@@ -392,14 +384,6 @@ export function CvRuleEditor({
             <div className={tab === "playbook" ? undefined : "hidden"}>
               <CvRulePlaybookTab clientId={clientId} />
             </div>
-          ) : null}
-          {tab === "preview" ? (
-            <CvRulePreviewTab
-              clientId={clientId}
-              dirty={dirty}
-              previewId={previewId}
-              onPreviewId={setPreviewId}
-            />
           ) : null}
           {tab === "history" ? <CvRuleHistoryTab clientId={clientId} onRestore={restoreVersion} restoreDisabled={dirty || busy} /> : null}
         </div>

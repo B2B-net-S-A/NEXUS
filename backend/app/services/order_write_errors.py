@@ -81,6 +81,13 @@ _CONSTRAINT_MESSAGES: dict[str, str] = {
     "ck_client_order_groups_explicit_type_coherence": (
         "Typ zamówienia nie zgadza się z jego sposobem rozliczenia."
     ),
+    "ck_client_order_groups_status": (
+        "Nieznany stan zamówienia — odśwież stronę i spróbuj ponownie."
+    ),
+    "ck_client_order_groups_cancel_coherence": (
+        "Anulowane zamówienie musi pamiętać stan sprzed anulowania — odśwież "
+        "stronę i spróbuj ponownie."
+    ),
     "ck_client_order_group_events_type": (
         "Nieznany typ zdarzenia w historii zamówienia — zgłoś to jako błąd "
         "aplikacji, zmiana nie została zapisana."
