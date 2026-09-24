@@ -26,6 +26,8 @@ import { TabsContent } from "@/components/ui/tabs";
 import { TabbedNav } from "@/components/ds/TabbedNav";
 import { EditCandidateModal } from "@/components/AppShell";
 import { canHardDeleteCandidate } from "@/lib/candidate-delete-access";
+import { canMergeCandidates } from "@/lib/api/candidateMerge";
+import { CandidateMergeDialog } from "@/components/v2/candidate-profile/CandidateMergeDialog";
 import { ConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { SendEmailV2 } from "@/components/v2/modals/SendEmailV2";
 import { CvGeneratorDialog } from "@/components/v2/cv-generator/CvGeneratorDialog";
@@ -437,6 +439,8 @@ export function CandidateDetailV2({
   // Trwałe usunięcie profilu — wyłącznie admin (migracja 0224 odpina umowy,
   // endpoint sprząta Qdranta i pliki w object storage).
   const canDeleteCandidate = canWriteSourcing && canHardDeleteCandidate(currentUser);
+  const canMerge = canWriteSourcing && canMergeCandidates(currentUser);
+  const [mergeOpen, setMergeOpen] = useState(false);
   const deleteMut = useMutation({
     mutationFn: () => candidatesApi.delete(id),
     onSuccess: () => {
@@ -613,6 +617,7 @@ export function CandidateDetailV2({
           onMarketplace: () => setMarketplaceOpen(true),
           onEditIdentity: candidate.identity_sync ? () => setEditingIdentity(true) : undefined,
           onDelete: canDeleteCandidate ? () => setDeleteOpen(true) : undefined,
+          onMerge: canMerge ? () => setMergeOpen(true) : undefined,
         }}
       />
 
@@ -773,6 +778,20 @@ export function CandidateDetailV2({
             onConflict={() => void contactCaseQuery.refetch()}
           />
         </>
+      ) : null}
+      {canMerge && candidate ? (
+        <CandidateMergeDialog
+          open={mergeOpen}
+          onOpenChange={setMergeOpen}
+          candidate={{
+            id: candidateNumericId,
+            name: candidate.name,
+            lastname: candidate.lastname,
+            email: candidate.email,
+            phone: candidate.phone,
+            linkedin: candidate.linkedin,
+          }}
+        />
       ) : null}
       {canDeleteCandidate ? (
         <ConfirmV2

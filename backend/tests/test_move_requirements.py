@@ -125,7 +125,10 @@ def test_delivery_lead_sends_after_qc_and_with_a_client_rate() -> None:
 
     no_rate = build_requirements(replace(base, qc_status="passed"), "cv_sent")
     rate = _item(no_rate, "client_rate")
-    assert rate["status"] == "missing" and rate["action"]["kind"] == "set_client_rate"
+    # Okno stawki pyta o nią w samym ruchu — brak nie blokuje przycisku.
+    assert rate["status"] == "waiting" and rate["blocking"] is False
+    assert rate["action"]["kind"] == "set_client_rate"
+    assert no_rate["primary"]["kind"] == "move"
 
     ready = build_requirements(
         replace(base, qc_status="overridden", client_rate=True), "cv_sent"

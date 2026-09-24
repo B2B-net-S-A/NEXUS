@@ -24,8 +24,11 @@ czy e-mail już był w bazie):
   listę — zostaje sam dokument i powiadomienie.
 
 Zgoda jest zapisywana w tej samej transakcji co kandydat/zgłoszenie. Po
-commicie właściciel linku dostaje powiadomienie ``new_application`` — nigdy
-nie wywraca odpowiedzi (kandydat już jest w bazie).
+commicie właściciel linku dostaje powiadomienie ``new_application``, a
+kandydat — gdy admin włączył rodzaj „Potwierdzenie aplikacji” — mail
+potwierdzenia o treści identycznej w obu gałęziach
+(``application_confirmation_email``). Żadne z nich nie wywraca odpowiedzi
+(kandydat już jest w bazie).
 """
 
 from __future__ import annotations
@@ -270,6 +273,9 @@ async def submit_application(
             blacklisted=blacklisted,
             blocked_reason=blocked_reason,
         )
+        await _confirm_to_applicant(
+            db, ref=ref, applicant=applicant, background_tasks=background_tasks
+        )
         return {"ok": True, "status": "received"}
 
     candidate = await _create_candidate(
@@ -288,10 +294,38 @@ async def submit_application(
         duplicate=False,
     )
 
+    await _confirm_to_applicant(
+        db, ref=ref, applicant=applicant, background_tasks=background_tasks
+    )
+
     # Lookup przez moduł (nie import nazwy): testy podmieniają
     # `public_share._invite_post_apply_task`.
     background_tasks.add_task(public_share._invite_post_apply_task, candidate_id)
     return {"ok": True, "status": "received"}
+
+
+async def _confirm_to_applicant(
+    db: AsyncSession,
+    *,
+    ref: LinkRef,
+    applicant: ApplicantInput,
+    background_tasks: BackgroundTasks,
+) -> None:
+    """Mail potwierdzenia — to samo wywołanie w obu gałęziach.
+
+    Wejścia wyłącznie z formularza i linku (nigdy z istniejącego profilu),
+    więc treść nie zdradza, że adres był już w bazie. Nigdy nie rzuca.
+    """
+    from app.services.application_confirmation_email import schedule_confirmation
+
+    await schedule_confirmation(
+        db,
+        background_tasks=background_tasks,
+        email=applicant.email,
+        first_name=applicant.first_name,
+        job_id=ref.link.job_id,
+        link_key=ref.digest,
+    )
 
 
 async def _record_duplicate_application(

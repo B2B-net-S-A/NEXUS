@@ -85,6 +85,8 @@ export interface OrderLineRead {
   contract_id: number;
   candidate_id: number | null;
   consultant_name: string;
+  // Kontrakt z „Powrotu po przerwie" (0368) wskazuje poprzedni.
+  returned_from_contract_id?: number | null;
   job_id: number | null;
   job_title: string | null;
   status: string;
@@ -176,7 +178,7 @@ export interface OrderLineRead {
 export type MdTransferMethod = "one_to_one" | "departing_rate" | "incoming_rate";
 
 export type OrderGroupStatus =
-  "draft" | "active" | "scheduled" | "completed" | "exhausted";
+  "draft" | "active" | "scheduled" | "completed" | "exhausted" | "cancelled";
 
 export interface OrderGroupRead {
   md_budget_mode?: "per_person" | "shared" | null;
@@ -195,6 +197,10 @@ export interface OrderGroupRead {
   status_label: string;
   closure_date: string | null;
   closure_reason: string | null;
+  /** Anulowanie (0359): kiedy, dlaczego i do jakiego stanu wróci „Przywróć anulowane". */
+  cancelled_at?: string | null;
+  cancellation_reason?: string | null;
+  status_before_cancel?: OrderGroupStatus | null;
 
   is_cost_based: boolean;
   /** Flaga przechowywania wspólnej puli; nowe zamówienia mają jawny md_budget_mode. */
@@ -587,6 +593,9 @@ export interface ImportRow {
   matched: ImportLineOption | null;
   options: ImportLineOption[];
   resolved_at: string | null;
+  /** Dlaczego wiersz z numerem zamówienia nie trafił na żadną linię
+   * (ticket 23.09.2026); `null` = wiersz bez numeru albo dopasowany. */
+  status_reason?: string | null;
   notes_raw: string | null;
   order_number_hint: string | null;
   invoice_amount: number | null;
@@ -678,6 +687,20 @@ export const orderGroupsApi = {
   reopen: (clientId: number, groupId: number) =>
     api.post<OrderGroupRead>(
       `/api/clients/${clientId}/order-groups/${groupId}/reopen`,
+      {},
+    ),
+
+  /** Anulowanie — tylko zamówienie bez rozliczeń (409 z listą w przeciwnym razie). */
+  cancel: (clientId: number, groupId: number, reason: string | null) =>
+    api.post<OrderGroupRead>(
+      `/api/clients/${clientId}/order-groups/${groupId}/cancel`,
+      { reason },
+    ),
+
+  /** Cofnięcie anulowania — zamówienie i linie wracają do stanu sprzed niego. */
+  restore: (clientId: number, groupId: number) =>
+    api.post<OrderGroupRead>(
+      `/api/clients/${clientId}/order-groups/${groupId}/restore`,
       {},
     ),
 

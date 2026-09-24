@@ -145,6 +145,9 @@ _ENUM_STATEMENTS = [
     """DO $$ BEGIN
         CREATE TYPE adjustmentstatus AS ENUM ('draft', 'approved');
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    # 0366: multiposting — kolejka publikacji (czeka na worker / nieudana).
+    "ALTER TYPE postingstatus ADD VALUE IF NOT EXISTS 'publishing'",
+    "ALTER TYPE postingstatus ADD VALUE IF NOT EXISTS 'failed'",
     # userrole: head_of_recruitment (migration 0029_notifications_triggers)
     "ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'head_of_recruitment'",
     # Role dashboards/RBAC cutover (0210): exclusive Finance persona.
@@ -619,6 +622,9 @@ _ENUM_STATEMENTS = [
     # doc_type='order' wywala się InvalidTextRepresentationError (DB enum nie
     # zna wartości), gdyby alembic upgrade nie wszedł na prod (multi-head).
     "ALTER TYPE contractdocumenttype ADD VALUE IF NOT EXISTS 'order'",
+    # 0367: załącznik z okna „Zakończ współpracę" — wypowiedzenie/porozumienie.
+    "ALTER TYPE contractdocumenttype ADD VALUE IF NOT EXISTS 'termination_notice'",
+    "ALTER TYPE contractdocumenttype ADD VALUE IF NOT EXISTS 'termination_agreement'",
     # ── Rozjazd zmierzony na produkcji 2026-07-20 przez /api/admin/schema-drift ──
     # Wszystkie cztery: ORM deklaruje etykietę, której typ w bazie nie ma, więc
     # SQLAlchemy wysyła wartość, a Postgres odrzuca ją jako invalid input value.
@@ -767,8 +773,34 @@ except Exception as _kc_err:  # noqa: BLE001
     _KEYWORD_CORPUS_DDL = []
     _KEYWORD_CORPUS_INDEXES = []
 
+# Dokumenty pochodne umowy B2B (migracja 0362): tabela, typy aneksu i wersja
+# wzoru umowy — JEDNO źródło z migracją (`app/services/b2b_documents/schema_sql.py`).
+try:
+    from app.services.b2b_documents import schema_sql as _b2b_docs
+
+    _ENUM_STATEMENTS.extend(_b2b_docs.ENUM_DDL)
+    _B2B_DOCUMENTS_DDL = list(_b2b_docs.TABLE_DDL)
+    _B2B_DOCUMENTS_BACKFILL = list(_b2b_docs.BACKFILL_DDL)
+except Exception as _b2b_docs_err:  # noqa: BLE001
+    print(f"b2b documents DDL unavailable: {_b2b_docs_err!r}")
+    _B2B_DOCUMENTS_DDL = []
+    _B2B_DOCUMENTS_BACKFILL = []
+
+# Rejestr umów z Excela działu (migracja 0363): kolumny źródła, NULL-owalne
+# `year`/`seq`, częściowy UNIQUE i tabele przebiegów importu — JEDNO źródło
+# z migracją (`app/services/b2b_register_import/schema_sql.py`).
+try:
+    from app.services.b2b_register_import import schema_sql as _b2b_register
+
+    _B2B_REGISTER_DDL = list(_b2b_register.TABLE_DDL)
+except Exception as _b2b_register_err:  # noqa: BLE001
+    print(f"b2b register import DDL unavailable: {_b2b_register_err!r}")
+    _B2B_REGISTER_DDL = []
+
 _COLUMN_STATEMENTS = [
     *_KEYWORD_CORPUS_DDL,
+    *_B2B_DOCUMENTS_DDL,
+    *_B2B_REGISTER_DDL,
     # 0269: configurable product-section RBAC. The tables are created here as
     # an idempotent recovery path when Alembic stopped before stamping head.
     """CREATE TABLE IF NOT EXISTS rbac_policy_state (
@@ -1191,7 +1223,10 @@ _COLUMN_STATEMENTS = [
                                      'zakonczenie_konsultanta',
                                      'decyzja_md_wymagana',
                                      'usuniecie_puli_md',
-                                     'przeniesienie_puli_md'))
+                                     'przeniesienie_puli_md',
+                                     'przywrocenie_konsultanta',
+                                     'order_cancelled',
+                                     'order_restored'))
        )""",
     """CREATE INDEX IF NOT EXISTS ix_client_order_group_events_group
        ON client_order_group_events (group_id)""",
@@ -4077,6 +4112,21 @@ _COLUMN_STATEMENTS = [
     "closed_at TIMESTAMPTZ NULL",
     "ALTER TABLE client_order_groups ADD COLUMN IF NOT EXISTS "
     "closed_by_user_id INTEGER NULL",
+    # 0365 — anulowanie zamówienia MD/kosztowego z przywróceniem. Stan sprzed
+    # anulowania i autor; statusy linii żyją w payloadzie zdarzenia.
+    "ALTER TABLE client_order_groups ADD COLUMN IF NOT EXISTS "
+    "status_before_cancel VARCHAR(16) NULL",
+    "ALTER TABLE client_order_groups ADD COLUMN IF NOT EXISTS "
+    "cancelled_at TIMESTAMPTZ NULL",
+    "ALTER TABLE client_order_groups ADD COLUMN IF NOT EXISTS "
+    "cancelled_by_user_id INTEGER NULL",
+    "ALTER TABLE client_order_groups ADD COLUMN IF NOT EXISTS "
+    "cancellation_reason TEXT NULL",
+    """DO $$ BEGIN
+        ALTER TABLE client_order_groups
+            ADD CONSTRAINT fk_client_order_groups_cancelled_by_users
+            FOREIGN KEY (cancelled_by_user_id) REFERENCES users (id) ON DELETE SET NULL;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     """DO $$ BEGIN
         ALTER TABLE client_order_groups
             ADD CONSTRAINT fk_client_order_groups_closed_by_users
@@ -4564,6 +4614,42 @@ _COLUMN_STATEMENTS = [
         CONSTRAINT ck_order_pdf_downloads_kind
             CHECK (file_kind IN ('order', 'group', 'amendment'))
     )""",
+    # 0367: zakończenie współpracy — rozwiązanie umowy B2B na kontrakcie
+    # i ślad zakończenia na umowie w Generatorze (CHECK-i w _CONSTRAINT_STATEMENTS).
+    "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS agreement_termination_mode VARCHAR(20)",
+    "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS agreement_termination_party VARCHAR(20)",
+    "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS agreement_termination_signed_on DATE",
+    "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS agreement_last_day DATE",
+    "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS notice_period_months INTEGER",
+    "ALTER TABLE b2b_generated_contracts ADD COLUMN IF NOT EXISTS termination_mode VARCHAR(20)",
+    "ALTER TABLE b2b_generated_contracts ADD COLUMN IF NOT EXISTS termination_party VARCHAR(20)",
+    "ALTER TABLE b2b_generated_contracts ADD COLUMN IF NOT EXISTS termination_signed_on DATE",
+    "ALTER TABLE b2b_generated_contracts ADD COLUMN IF NOT EXISTS project_end_date DATE",
+    "ALTER TABLE b2b_generated_contracts ADD COLUMN IF NOT EXISTS termination_restore JSONB",
+    "ALTER TABLE b2b_generated_contracts ADD COLUMN IF NOT EXISTS previous_generated_contract_id "
+    "INTEGER REFERENCES b2b_generated_contracts(id) ON DELETE SET NULL",
+    "CREATE INDEX IF NOT EXISTS ix_b2b_generated_contracts_previous "
+    "ON b2b_generated_contracts (previous_generated_contract_id)",
+    "ALTER TABLE b2b_generated_contract_status_events ADD COLUMN IF NOT EXISTS details JSONB",
+    # 0366: multiposting — kolumny kolejki publikacji w portalach.
+    "ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS last_error TEXT",
+    "ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS payload_hash VARCHAR(64)",
+    "ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS public_profile_hash VARCHAR(64)",
+    "ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS created_by INTEGER "
+    "REFERENCES users (id) ON DELETE SET NULL",
+    "ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS last_synced_at TIMESTAMPTZ",
+    # 0364: dedup maila potwierdzenia aplikacji (HMAC adresu + klucz linku,
+    # jeden mail na parę w 24 h). Bez tabeli zgłoszenie przechodzi, ale mail
+    # się nie wysyła (błąd połykany w `schedule_confirmation`).
+    """CREATE TABLE IF NOT EXISTS application_confirmation_sends (
+        id SERIAL PRIMARY KEY,
+        email_key VARCHAR(64) NOT NULL,
+        link_key VARCHAR(64) NOT NULL,
+        sent_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT uq_application_confirmation_sends_pair
+            UNIQUE (email_key, link_key)
+    )""",
     # 0355: historia edytora „Cele KPI" i znacznik raportów KPI mailem
     # (UNIQUE kind+period_key = raport wychodzi najwyżej raz, także po restarcie).
     """CREATE TABLE IF NOT EXISTS kpi_target_events (
@@ -4596,6 +4682,38 @@ _COLUMN_STATEMENTS = [
         CONSTRAINT ck_kpi_email_report_runs_status
             CHECK (status IN ('claimed', 'sent', 'skipped', 'failed'))
     )""",
+    # 0368: „Cofnij zakończenie" (stan kontraktu i zamówień sprzed
+    # zakończenia) i „Powrót po przerwie" (nowy kontrakt wskazuje poprzedni).
+    """CREATE TABLE IF NOT EXISTS contract_termination_snapshots (
+        id SERIAL PRIMARY KEY,
+        contract_id INTEGER NOT NULL
+            REFERENCES contracts(id) ON DELETE CASCADE,
+        effective_date DATE,
+        status VARCHAR(16) NOT NULL DEFAULT 'open',
+        source VARCHAR(16) NOT NULL DEFAULT 'termination',
+        contract_before JSONB NOT NULL,
+        orders JSONB NOT NULL DEFAULT '[]'::jsonb,
+        created_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        closed_at TIMESTAMPTZ,
+        reversed_at TIMESTAMPTZ,
+        reversed_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        reversal_payload JSONB,
+        CONSTRAINT ck_contract_termination_snapshots_status
+            CHECK (status IN ('open', 'reversed', 'superseded')),
+        CONSTRAINT ck_contract_termination_snapshots_source
+            CHECK (source IN ('termination', 'history')),
+        CONSTRAINT ck_contract_termination_snapshots_reversed
+            CHECK (status <> 'reversed' OR reversed_at IS NOT NULL)
+    )""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_contract_termination_snapshots_open "
+    "ON contract_termination_snapshots (contract_id) WHERE status = 'open'",
+    "CREATE INDEX IF NOT EXISTS ix_contract_termination_snapshots_contract "
+    "ON contract_termination_snapshots (contract_id, id)",
+    "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS returned_from_contract_id "
+    "INTEGER REFERENCES contracts(id) ON DELETE SET NULL",
+    "CREATE INDEX IF NOT EXISTS ix_contracts_returned_from_contract_id "
+    "ON contracts (returned_from_contract_id)",
     # 0320: godzinowa ponowna weryfikacja wstrzymanych zamowien z maila.
     # Kody powodow sa rownolegle do `gate_reasons` — recheck rozstrzyga po
     # kodzie, czy zamowienie czeka na podpis umowy, czy utknelo na czyms innym.
@@ -5437,6 +5555,10 @@ END $$
 
 
 _DATA_STATEMENTS = [
+    *_B2B_DOCUMENTS_BACKFILL,
+    # 0366: symulowane „publikacje” SIM-… z dawnej zakładki portali — to nie
+    # były prawdziwe ogłoszenia. Idempotentne (drugi start nic nie znajdzie).
+    "DELETE FROM job_postings WHERE external_id LIKE 'SIM-%'",
     # 17.09.2026: konflikt z klientem i `client_excluded` przestały zerować wynik
     # (idą do `breakdown.warnings`). Wiersze cache policzone starą regułą mają
     # `total=0` i w `penalties` te kody — unieważniamy je, żeby przeliczyły się
@@ -5908,7 +6030,8 @@ _DATA_STATEMENTS = [
                ALTER TABLE client_order_groups
                    ADD CONSTRAINT ck_client_order_groups_status
                    CHECK (
-                       status IN ('draft', 'active', 'scheduled', 'completed', 'exhausted')
+                       status IN ('draft', 'active', 'scheduled', 'completed',
+                                  'exhausted', 'cancelled')
                    ) NOT VALID;
            END IF;
 
@@ -7057,6 +7180,43 @@ _DATA_STATEMENTS = [
 # Bez tego jedna zabłąkana wartość zablokowałaby start kontenera. VALIDATE
 # CONSTRAINT można uruchomić później, świadomie, po policzeniu sierot.
 _CONSTRAINT_STATEMENTS = [
+    # 0367: rozwiązanie umowy B2B na kontrakcie — komplet albo nic; tryb
+    # i strona z zamkniętych słowników (także na umowie w Generatorze).
+    """DO $$ BEGIN
+        ALTER TABLE contracts
+            ADD CONSTRAINT ck_contracts_agreement_termination_coherence
+            CHECK (
+                (
+                    agreement_termination_mode IS NULL
+                    AND agreement_termination_party IS NULL
+                    AND agreement_termination_signed_on IS NULL
+                    AND agreement_last_day IS NULL
+                ) OR (
+                    agreement_termination_mode IN ('notice', 'mutual_agreement')
+                    AND agreement_termination_party IN ('consultant', 'company')
+                    AND agreement_termination_signed_on IS NOT NULL
+                    AND agreement_last_day IS NOT NULL
+                )
+            ) NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    """DO $$ BEGIN
+        ALTER TABLE contracts
+            ADD CONSTRAINT ck_contracts_notice_period_months
+            CHECK (notice_period_months IS NULL OR notice_period_months BETWEEN 1 AND 24)
+            NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    """DO $$ BEGIN
+        ALTER TABLE b2b_generated_contracts
+            ADD CONSTRAINT ck_b2b_generated_contracts_termination_mode
+            CHECK (termination_mode IS NULL OR termination_mode IN ('notice', 'mutual_agreement'))
+            NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    """DO $$ BEGIN
+        ALTER TABLE b2b_generated_contracts
+            ADD CONSTRAINT ck_b2b_generated_contracts_termination_party
+            CHECK (termination_party IS NULL OR termination_party IN ('consultant', 'company'))
+            NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     # 0341: przepięcie (`reassign`) jako źródło propozycji. DROP+ADD w jednym
     # bloku — timeout zamka wycofuje oba, następny start ponawia.
     """DO $$ BEGIN
@@ -7230,11 +7390,24 @@ _CONSTRAINT_STATEMENTS = [
                 AND (md_rate_revenue IS NULL OR md_rate_revenue > 0)
             ) NOT VALID;
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    # 0365 dokłada 'cancelled' (anulowanie z przywróceniem) i spójność
+    # `status_before_cancel` — DROP+ADD, bo nazwa więzu się nie zmienia.
     "ALTER TABLE client_order_groups DROP CONSTRAINT IF EXISTS ck_client_order_groups_status",
     """DO $$ BEGIN
         ALTER TABLE client_order_groups
             ADD CONSTRAINT ck_client_order_groups_status
-            CHECK (status IN ('draft', 'active', 'scheduled', 'completed', 'exhausted')) NOT VALID;
+            CHECK (status IN ('draft', 'active', 'scheduled', 'completed',
+                              'exhausted', 'cancelled')) NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    "ALTER TABLE client_order_groups DROP CONSTRAINT IF EXISTS ck_client_order_groups_cancel_coherence",
+    """DO $$ BEGIN
+        ALTER TABLE client_order_groups
+            ADD CONSTRAINT ck_client_order_groups_cancel_coherence
+            CHECK (
+                (status = 'cancelled' AND status_before_cancel IN
+                    ('draft', 'active', 'scheduled', 'completed', 'exhausted'))
+                OR (status <> 'cancelled' AND status_before_cancel IS NULL)
+            ) NOT VALID;
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     # 0238 — master PDF grupy i automatyczna kopia na kontrakcie. Sprawdzamy
     # semantycznie po kolumnie/target table, nie wyłącznie po nazwie więzu.
@@ -7439,7 +7612,8 @@ _CONSTRAINT_STATEMENTS = [
                 'przywrocenie', 'wyczerpanie', 'przedluzenie', 'import_faktur',
                 'transfer_md', 'zakonczenie_konsultanta',
                 'decyzja_md_wymagana', 'usuniecie_puli_md',
-                'przeniesienie_puli_md', 'przywrocenie_konsultanta'
+                'przeniesienie_puli_md', 'przywrocenie_konsultanta',
+                'order_cancelled', 'order_restored'
             ));
     END $$""",
     # 0250 — trzecia decyzja offboardingowa („restore"). Poszerzenie MUSI
@@ -7766,6 +7940,9 @@ _CONSTRAINT_STATEMENTS = [
 # tutaj byłoby martwym kodem: CREATE INDEX IF NOT EXISTS i tak by je pominął.
 _INDEX_STATEMENTS = [
     *_KEYWORD_CORPUS_INDEXES,
+    # 0366: najwyżej jedna żywa publikacja rekrutacji na portal.
+    "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS uq_job_postings_live_per_portal "
+    "ON job_postings (job_id, portal) WHERE status IN ('publishing', 'published')",
     # 0339: slug linku unikalny; jeden nieodwołany stały link na rekrutera.
     "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS ux_candidate_invite_links_slug "
     "ON candidate_invite_links (slug) WHERE slug IS NOT NULL",
@@ -8879,6 +9056,77 @@ async def repair():
             )
             return
     print(f"contract start-date repair: {summarize_for_log(summary)}")
+
+asyncio.run(repair())
+PY
+
+# Import MD za sierpień 2026 (ticket 23.09.2026) — jednorazowo: wiersz
+# z numerem zamówienia nadpisał wartość innego wiersza tej samej osoby na
+# zamówieniu-poprzedniku, a lipcowa nadwyżka przeszła na zamówienie, które
+# w lipcu nie istniało. Przypięte do ID i stanu z 23.09 (inna wartość =
+# pominięcie z kodem). Logika w `app/services/md_import_order_number_repair.py`;
+# marker w `app_settings` + advisory lock. Log: wyłącznie liczby, ID i kody.
+startup_phase "repair-md-import-order-number"
+echo "Orders: correct MD import rows assigned across orders (one-shot)..."
+python - <<'PY' || echo "md import order-number repair skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.md_import_order_number_repair import (
+    run_md_import_order_number_repair,
+    summarize_for_log,
+)
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_md_import_order_number_repair(db)
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001 — treść błędu może nieść dane zamówień
+            await db.rollback()
+            sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+            print(
+                f"md import order-number repair failed ({type(exc).__name__}, "
+                f"sqlstate={sqlstate}); nothing written, next start retries"
+            )
+            return
+    print(f"md import order-number repair: {summarize_for_log(summary)}")
+
+asyncio.run(repair())
+PY
+
+# „Cofnij zakończenie" ze zgłoszenia 23.09.2026 — jednorazowo: kontrakt
+# zakończony przez pomyłkę i przywrócony samą zmianą statusu (zamówienie
+# zostało w „Zakończonych"). Ta sama operacja co przycisk; logika
+# w `app/services/contract_termination_reversal_repair.py`, przypięta do
+# trójki ID. Marker w `app_settings` + advisory lock; porażka nie zapisuje
+# niczego — następny start ponawia. Log: wyłącznie liczby i ID.
+startup_phase "repair-termination-reversal"
+echo "Contracts: termination reversal from 23.09 ticket (one-shot)..."
+python - <<'PY' || echo "termination reversal repair skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.contract_termination_reversal_repair import (
+    run_termination_reversal_repair,
+    summarize_for_log,
+)
+from app.services.order_write_errors import commit_order_write
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_termination_reversal_repair(db)
+            await commit_order_write(db)
+        except Exception as exc:  # noqa: BLE001 — treść błędu może nieść dane umów
+            await db.rollback()
+            sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+            print(
+                f"termination reversal repair failed ({type(exc).__name__}, "
+                f"sqlstate={sqlstate}); nothing written, next start retries"
+            )
+            return
+    print(f"termination reversal repair: {summarize_for_log(summary)}")
 
 asyncio.run(repair())
 PY

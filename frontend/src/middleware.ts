@@ -345,6 +345,7 @@ const ROLE_ROUTES: RouteAccessRule[] = [
 //   `/preview/jobs-list-v3`, `/preview/calendar-cycle`, `/preview/cv-qc`,
 //   `/preview/cpro-queue`,
 //   `/preview/kpi-targets`,
+//   `/preview/b2b-documents`,
 //   `/preview/candidates-list` (publiczny przez prefiks `/preview/candidates`)
 //                — konkretne harnessy designu, po których może chodzić nightly
 //                  Playwright (`e2e/candidate-ux-preview.spec.ts`) bez sesji.
@@ -408,8 +409,11 @@ const PUBLIC_PATHS = [
   "/preview/cv-qc",
   "/preview/cpro-queue",
   "/preview/kpi-targets",
+  "/preview/b2b-documents",
   "/preview/kariera",
   "/preview/career-share",
+  "/preview/candidate-merge",
+  "/preview/job-portals",
   // Strona kariery (kandydaci z LinkedIna) — publiczna z definicji. Na własnym
   // hoście (`kariera.dynaminds.pl`) obsługuje ją `careerHostResponse` niżej;
   // tu jest wejście pod `/kariera/*` na hoście aplikacji (dev, podgląd, grafiki

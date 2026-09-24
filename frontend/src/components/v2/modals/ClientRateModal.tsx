@@ -38,6 +38,9 @@ interface Props {
   /** Stawka kandydata z weryfikacji (np. „140 PLN/h”) — punkt odniesienia dla
    *  DL przy wpisywaniu stawki do klienta (decyzja 23.09.2026). */
   candidateRateLabel?: string | null;
+  /** Stawka do klienta zapisana wcześniej w tej rekrutacji — podstawiona,
+   *  żeby okno nie pytało o coś, co już znamy (test na produkcji 24.09.2026). */
+  initialRate?: { value: number; unit: RateUnit } | null;
 }
 
 const UNIT_LABELS: Record<RateUnit, string> = {
@@ -61,11 +64,14 @@ export function ClientRateModal({
   onSkip,
   required = false,
   candidateRateLabel = null,
+  initialRate = null,
 }: Props) {
-  const [rate, setRate] = useState<string>("");
+  const [rate, setRate] = useState<string>(initialRate ? String(initialRate.value) : "");
   // Wymagana stawka (przegląd DL) jest godzinowa jak w makiecie; stary
   // opcjonalny wariant zostaje przy miesięcznej.
-  const [unit, setUnit] = useState<RateUnit>(required ? "hourly" : "monthly");
+  const [unit, setUnit] = useState<RateUnit>(
+    initialRate?.unit ?? (required ? "hourly" : "monthly"),
+  );
   const currency = "PLN";
 
   const numericRate = Number.parseFloat(rate.replace(",", "."));

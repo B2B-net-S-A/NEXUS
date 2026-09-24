@@ -87,8 +87,13 @@ async def complete_signed_mail_drafts(db, contract_id, *, actor_id=None):
         _activate_complete_draft,
         _materialize_group_after_activation,
     )
-    from app.services.contract_lifecycle import sync_contract_to_live_order
+    from app.services.contract_lifecycle import (
+        lock_contract_then_orders,
+        sync_contract_to_live_order,
+    )
 
+    # Kontrakt blokowany PRZED szkicami zamówień (kolejność writerów zamówień).
+    await lock_contract_then_orders(db, contract_ids=[contract_id])
     contract = await db.scalar(
         select(Contract)
         .where(Contract.id == contract_id)

@@ -127,6 +127,27 @@ async def test_deleted_number_is_neither_suggested_nor_accepted_again(
     assert suggested != int(number.split("/")[0])
 
 
+async def test_deleted_number_written_with_spaces_still_blocks_reuse():
+    """Stary wpis dziennika „1518 / 2026” blokuje „1518/2026” — porównanie
+    idzie po postaci kanonicznej, nie po napisie."""
+    from app.api.b2b_contract_generator import _deleted_contract_numbers
+    from app.models.activity import Activity
+
+    seq = 900_000 + int(uuid.uuid4().int % 50_000)
+    async with AsyncSessionLocal() as db:
+        db.add(
+            Activity(
+                entity_type="b2b_generated_contract",
+                entity_id=0,
+                action="deleted",
+                details={"contract_number": f" {seq} / 2026 "},
+            )
+        )
+        await db.commit()
+        numbers = await _deleted_contract_numbers(db)
+    assert f"{seq}/2026" in numbers
+
+
 async def test_a_deleted_typo_number_does_not_inflate_the_numbering(
     app_client, app_auth_headers
 ):

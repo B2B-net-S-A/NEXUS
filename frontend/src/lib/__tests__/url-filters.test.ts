@@ -48,6 +48,7 @@ describe("url-filters", () => {
       currentCompany: ["Google", "Intel, Inc."],
       pastCompany: ["Allegro"],
       currentTitle: ["Senior Engineer"],
+      tags: ["senior", "bankowość"],
       workedAtClientIds: [10, 11],
       recruitmentIds: [42, 7],
       recruitmentMatch: "not_assigned",

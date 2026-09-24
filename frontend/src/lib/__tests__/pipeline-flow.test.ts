@@ -742,3 +742,17 @@ describe("bulkMoveFailureMessage (REC-06)", () => {
     );
   });
 });
+
+describe("knownClientRate — stawka do klienta już zapisana dla pary", () => {
+  it("podstawia zapisaną stawkę, ignoruje brak i śmieci", async () => {
+    const { knownClientRate } = await import("@/lib/pipeline-flow");
+    const base = { id: 1, candidate_id: 1 } as unknown as import("@/components/v2/pages/kanban-shared").KanbanItem;
+    expect(knownClientRate({ ...base, client_rate_value: "170.00", client_rate_unit: "hourly" })).toEqual({
+      value: 170,
+      unit: "hourly",
+    });
+    expect(knownClientRate({ ...base, client_rate_value: null })).toBeNull();
+    expect(knownClientRate({ ...base, client_rate_value: "0", client_rate_unit: "hourly" })).toBeNull();
+    expect(knownClientRate({ ...base, client_rate_value: "170", client_rate_unit: null })).toBeNull();
+  });
+});

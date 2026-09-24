@@ -53,6 +53,7 @@ from app.models.client_order_offboarding import (
     ClientOrderOffboardingCase,
 )
 from app.models.contract import Contract, ContractStatus
+from app.services.contract_lifecycle import lock_contract_then_orders
 from app.services.client_order_lines import (
     _swap_split_remaining,
     consultant_display_name,
@@ -670,6 +671,10 @@ async def activate_due_takeovers(
                     select(ClientOrderGroup)
                     .where(ClientOrderGroup.id == target.order_group_id)
                     .with_for_update()
+                )
+                # Kontrakt → zamówienia: ta sama kolejność co każdy writer.
+                await lock_contract_then_orders(
+                    db, order_ids=[target.predecessor_order_id, target.id]
                 )
                 source = await db.scalar(
                     select(ClientOrder)

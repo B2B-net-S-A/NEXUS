@@ -16,6 +16,7 @@ from typing import Optional
 
 from sqlalchemy import (
     JSON,
+    Boolean,
     CheckConstraint,
     Date,
     DateTime,
@@ -24,6 +25,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -35,7 +37,40 @@ from app.models.base import TimestampMixin
 class B2BGeneratedContract(Base, TimestampMixin):
     __tablename__ = "b2b_generated_contracts"
     __table_args__ = (
-        Index("uq_b2b_generated_contracts_year_seq", "year", "seq", unique=True),
+        # Częściowy od 0363: wiersze z Excela z numerem spoza formatu („264A”,
+        # „bez numeru”, „zlecenie”) nie mają `seq`, a numer kanoniczny nadal
+        # nie może się powtórzyć w obrębie roku.
+        Index(
+            "uq_b2b_generated_contracts_year_seq",
+            "year",
+            "seq",
+            unique=True,
+            postgresql_where=text("seq IS NOT NULL"),
+            sqlite_where=text("seq IS NOT NULL"),
+        ),
+        # Wiersz z Excela ma stały klucz (numer albo skrót wiersza) — po nim
+        # ponowny import aktualizuje zamiast dopisywać duplikat.
+        Index(
+            "ux_b2b_generated_contracts_excel_source_key",
+            "source_key",
+            unique=True,
+            postgresql_where=text("source = 'excel'"),
+            sqlite_where=text("source = 'excel'"),
+        ),
+        CheckConstraint(
+            "source IN ('generator', 'excel')",
+            name="ck_b2b_generated_contracts_source",
+        ),
+        CheckConstraint(
+            "contract_kind IS NULL OR "
+            "contract_kind IN ('b2b', 'mandate', 'work', 'employment')",
+            name="ck_b2b_generated_contracts_contract_kind",
+        ),
+        CheckConstraint(
+            "start_date_mode IS NULL OR "
+            "start_date_mode IN ('exact', 'not_later', 'not_earlier')",
+            name="ck_b2b_generated_contracts_start_date_mode",
+        ),
         CheckConstraint(
             "signature_status IN ('unsigned', 'signed_both')",
             name="ck_b2b_generated_contracts_signature_status",
@@ -108,8 +143,11 @@ class B2BGeneratedContract(Base, TimestampMixin):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    year: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
-    seq: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Oba NULL-owalne od 0363: wiersz z Excela bez daty podpisania nie ma
+    # roku, a numer spoza formatu „liczba/rok” nie ma `seq` (surowy numer
+    # żyje w `raw_contract_number`).
+    year: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
+    seq: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     contract_number: Mapped[str] = mapped_column(String(64), nullable=False)
     # UWAGA: to IMIĘ I NAZWISKO osoby fizycznej (pole „Imię i nazwisko"
     # w generatorze), NIE nazwa firmy. Nazwa firmy z GUS/CEIDG siedzi
@@ -219,6 +257,83 @@ class B2BGeneratedContract(Base, TimestampMixin):
     # SQLite w testach (constraint-test tworzy tabelę na sqlite).
     render_payload: Mapped[Optional[dict]] = mapped_column(
         JSON().with_variant(JSONB(), "postgresql"), nullable=True
+    )
+    # Wersja wzoru umowy, z której wydano dokument (0362). Od niej zależą
+    # numery paragrafów cytowane w aneksach i okres wypowiedzenia
+    # (services/b2b_documents/contract_versions.py). NULL = nieznana
+    # (wiersz z importu Excela) — formularz dokumentu pyta wtedy o paragraf.
+    template_version: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+
+    # ── Rejestr z Excela działu (0363) ──────────────────────────────────────
+    # Excel „UMOWY I ZAMÓWIENIA” jest prowadzony RÓWNOLEGLE z NEXUSEM, więc
+    # import jest powtarzalny. `generator` = wiersz wydany w NEXUSIE (import go
+    # nigdy nie zmienia), `excel` = wiersz z pliku, tylko do odczytu poza
+    # statusem handlowym (services/b2b_register_import).
+    source: Mapped[str] = mapped_column(
+        String(16), default="generator", server_default="generator", nullable=False
+    )
+    # Klucz wiersza w Excelu: „n:<numer>” albo „h:<skrót>” dla „bez numeru” /
+    # „zlecenie”. Unikalny wśród wierszy `excel` (indeks częściowy).
+    source_key: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    # Numer dokładnie tak, jak stoi w kolumnie B („264A”, „bez numeru”).
+    raw_contract_number: Mapped[Optional[str]] = mapped_column(
+        String(64), nullable=True
+    )
+    # b2b | mandate (zlecenie) | work (dzieło) | employment (UoP).
+    contract_kind: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    # exact | not_later („nie później niż”) | not_earlier („nie wcześniej niż”).
+    start_date_mode: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    position: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    recruiter_user_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    # UWAGI, ZMIANY W UMOWIE, rozliczenia, mail powitalny, kolory komórek,
+    # flagi (`flags`) — wszystko, co nie ma własnej kolumny.
+    legacy_data: Mapped[Optional[dict]] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql"), nullable=True
+    )
+    # Umowa podpisana przed założeniem działalności — czeka na aneks
+    # „uzupełnienie danych firmy” (arkusz „Bez działalności”).
+    needs_business_data_annex: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=text("false"), nullable=False
+    )
+    business_data_annex_done_at: Mapped[Optional[date]] = mapped_column(
+        Date, nullable=True
+    )
+    import_run_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("b2b_register_import_runs.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    # Wiersza nie było w ostatnio wgranym pliku — nie kasujemy, oznaczamy.
+    excel_missing_since: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    # Zakończenie projektu po stronie Kontraktów (0367). Wypełniane, gdy
+    # kontrakt powiązany z umową przechodzi na „Zakończony":
+    # * `termination_mode`/`termination_party`/`termination_signed_on` —
+    #   rozwiązanie umowy z okna „Zakończ współpracę" (tryb: `notice` |
+    #   `mutual_agreement`; strona: `consultant` | `company`);
+    # * `project_end_date` — „Data zakończenia zamówienia" (ostatni dzień
+    #   pracy na projekcie); `closure_date` przy rozwiązaniu = ostatni dzień
+    #   UMOWY, więc to są dwie różne daty;
+    # * `termination_restore` — stan wiersza sprzed zmiany wykonanej przez
+    #   zakończenie kontraktu (+ `contract_id`, który ją wykonał). „Cofnij
+    #   zakończenie" odtwarza go 1:1; NULL = wiersz nie zmienił się przez
+    #   zakończenie kontraktu (ręczna zmiana statusu w Generatorze).
+    termination_mode: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    termination_party: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    termination_signed_on: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    project_end_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    termination_restore: Mapped[Optional[dict]] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql"), nullable=True
+    )
+    # Powrót po przerwie przy rozwiązanej umowie zakłada NOWĄ umowę — ta
+    # kolumna wskazuje poprzednią (zostaje w „Zakończonych" bez zmian).
+    previous_generated_contract_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("b2b_generated_contracts.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
     )
 
     def __repr__(self) -> str:

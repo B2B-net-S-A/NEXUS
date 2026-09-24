@@ -190,6 +190,8 @@ async def test_revival_by_live_order_makes_the_contract_indefinite():
 
         async def execute(self, statement):
             return SimpleNamespace(
+                # Powrót po przerwie szuka umów w Generatorze (0367) — brak.
+                scalars=lambda: SimpleNamespace(all=lambda: []),
                 one_or_none=lambda: (
                     contract.status,
                     contract.end_date,
@@ -197,11 +199,15 @@ async def test_revival_by_live_order_makes_the_contract_indefinite():
                     ContractType.b2b,
                     None,
                     None,
-                )
+                ),
             )
 
         def add(self, value):
             self.added.append(value)
+
+        async def scalar(self, _statement):
+            # Otwarta migawka zakończenia (0368) — tu jej nie ma.
+            return None
 
     db = _Db()
     order_end = today + timedelta(days=90)

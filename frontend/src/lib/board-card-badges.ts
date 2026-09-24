@@ -161,7 +161,10 @@ export function cardBadges(item: KanbanItem, ctx: CardBadgeContext): CardBadge[]
   }
   // Przegląd DL (Rekrutacja v5): osoby w „QC CV" poza Nordeą — Delivery Lead
   // sprawdza CV, wpisuje stawkę do klienta i wysyła.
-  if (column === "cv_qc" && !ctx.cproEnabled) {
+  // DL czeka dopiero na CV, które przeszło QC (albo przepuszczone) — przy
+  // niesprawdzonym lub niezaliczonym QC ruch ma rekruter.
+  const qcDone = item.qc?.status === "passed" || item.qc?.status === "overridden";
+  if (column === "cv_qc" && !ctx.cproEnabled && qcDone) {
     out.push({
       key: "dl_review",
       label: `Czeka na DL · ${daysLabel(item.days_in_stage ?? 0)}`,
@@ -307,6 +310,9 @@ export function cardNextStep(
   if (ctx.column === "cv_qc") {
     if (item.qc?.status === "failed") {
       return { who: "Ty", mine: true, label: "Popraw CV wg QC" };
+    }
+    if (ctx.stageBadge !== "cpro" && item.qc?.status !== "passed" && item.qc?.status !== "overridden") {
+      return { who: "Ty", mine: true, label: "Sprawdź QC CV" };
     }
     if (ctx.cproEnabled) {
       return ctx.stageBadge === "cpro"

@@ -68,6 +68,8 @@ from app.models.contract_template import ContractTemplate
 from app.models.b2b_contract_role import B2BContractRole, B2BRoleCategory
 from app.models.b2b_contract_detail import B2BContractDetail
 from app.models.b2b_generated_contract import B2BGeneratedContract
+from app.models.b2b_contract_document import B2BContractDocument
+from app.models.b2b_register_import import B2BRegisterImportRow, B2BRegisterImportRun
 from app.models.b2b_generated_contract_status_event import (
     B2BGeneratedContractStatusEvent,
 )
@@ -124,6 +126,7 @@ from app.models.client_playbook_event import ClientPlaybookEvent
 from app.models.client_cleanup import ClientCleanupRun, PurgedClient
 from app.models.critical_event import CriticalEvent
 from app.models.order_change_check import OrderChangeCheck, OrderPdfDownload
+from app.models.application_confirmation_send import ApplicationConfirmationSend
 from app.models.order_change_event import OrderChangeEvent
 from app.models.order_gap import OrderGap
 from app.models.insights_scoring_config import InsightsScoringConfig
@@ -281,6 +284,7 @@ from app.models.client_contract_amendment import ClientContractAmendment
 from app.models.client_executive_contract import ClientExecutiveContract
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.client_order_offboarding import ClientOrderOffboardingCase
+from app.models.contract_termination_snapshot import ContractTerminationSnapshot
 from app.models.client_order_group import (
     ClientOrderGroup,
     ClientOrderGroupEvent,
@@ -383,6 +387,9 @@ __all__ = [
     "B2BRoleCategory",
     "B2BContractDetail",
     "B2BGeneratedContract",
+    "B2BContractDocument",
+    "B2BRegisterImportRow",
+    "B2BRegisterImportRun",
     "B2BGeneratedContractStatusEvent",
     "CvGeneratedDocument",
     "Invoice",
@@ -431,6 +438,7 @@ __all__ = [
     "OrderChangeCheck",
     "OrderChangeEvent",
     "OrderPdfDownload",
+    "ApplicationConfirmationSend",
     "OrderGap",
     "InsightsScoringConfig",
     "UserWorkdayPeriod",
@@ -564,6 +572,7 @@ __all__ = [
     "ClientExecutiveContract",
     "ClientOrder",
     "ClientOrderOffboardingCase",
+    "ContractTerminationSnapshot",
     "ClientOrderGroup",
     "ClientOrderGroupEvent",
     "ClientOrderGroupMdConsumption",

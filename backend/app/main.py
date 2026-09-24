@@ -33,6 +33,8 @@ from app.api import (
     candidate_contact,
     candidate_pins,
     candidate_scoring,
+    candidate_tags,
+    candidate_merge,
     candidate_activity_summary,
     candidate_identity_quarantine,
     candidate_profile_facts,
@@ -138,6 +140,8 @@ from app.api import public_engagement
 from app.api import public_interview_confirmation
 from app.api import cv_generator_b2b
 from app.api import b2b_contract_generator
+from app.api import b2b_documents
+from app.api import b2b_register_import
 from app.api import jarvis as jarvis_api
 from app.api import candidate_stage_cv as candidate_stage_cv_api
 from app.api import calendar
@@ -211,6 +215,8 @@ from app.api import oauth_clients as oauth_clients_api
 from app.api import oauth_token as oauth_token_api
 from app.api import service_accounts as service_accounts_api
 from app.api import candidate_sources as candidate_sources_api
+from app.api import contract_client_reassign as contract_client_reassign_api
+from app.api import job_portals as job_portals_api
 from app.api import candidates_bulk as candidates_bulk_api
 from app.api import dictionaries as dictionaries_api
 from app.api import entity_fields as entity_fields_api
@@ -634,6 +640,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.cloudtalk_sync import cloudtalk_sync_loop
     from app.tasks.compass_workdays_sync import compass_workdays_sync_loop
     from app.tasks.compass_lifecycle_sync import compass_lifecycle_sync_loop
+    from app.tasks.job_portal_worker import job_portal_worker_loop
     from app.tasks.traffit_sync import traffit_daily_sync_loop
     from app.tasks.order_mail_ingest import order_mail_ingest_loop
     from app.tasks.notes_insights_sync import notes_insights_sync_loop
@@ -763,6 +770,9 @@ async def lifespan(app: FastAPI):
         # tylko po to, zeby sprawdzic te sama flage.
         "compass_workdays_sync": asyncio.create_task(compass_workdays_sync_loop()),
         "compass_lifecycle_sync": asyncio.create_task(compass_lifecycle_sync_loop()),
+        # 0360: kolejka publikacji na portalach — kończy się przed pętlą,
+        # gdy żaden portal nie jest włączony.
+        "job_portal_worker": asyncio.create_task(job_portal_worker_loop()),
         "notes_insights_sync": asyncio.create_task(notes_insights_sync_loop()),
         "weekly_eval": asyncio.create_task(weekly_eval_loop()),
         "match_digest": asyncio.create_task(match_digest_loop()),
@@ -927,6 +937,13 @@ app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 # to an int and return 422.
 app.include_router(
     candidate_pins.router, prefix="/api/candidates", tags=["candidate-pins"]
+)
+# Tagi: `/tags/suggest` też musi stać przed `/{candidate_id}` kandydatów.
+app.include_router(
+    candidate_tags.router, prefix="/api/candidates", tags=["candidate-tags"]
+)
+app.include_router(
+    candidate_merge.router, prefix="/api/candidates", tags=["candidate-merge"]
 )
 app.include_router(candidates.router, prefix="/api/candidates", tags=["candidates"])
 app.include_router(
@@ -1146,6 +1163,12 @@ app.include_router(
 )
 app.include_router(notes.router, prefix="/api/notes", tags=["notes"])
 app.include_router(contracts.router, prefix="/api/contracts", tags=["contracts"])
+# Multiposting (0360): szkielet Pracuj.pl + JustJoinIT za flagami OFF.
+app.include_router(job_portals_api.router, prefix="/api", tags=["job-portals"])
+# Przepięcie kontraktu na innego klienta (admin) — jedyna droga zmiany klienta.
+app.include_router(
+    contract_client_reassign_api.router, prefix="/api/contracts", tags=["contracts"]
+)
 app.include_router(contractors.router, prefix="/api/contractors", tags=["contractors"])
 app.include_router(rate_cards.router, prefix="/api/rate-cards", tags=["rate-cards"])
 app.include_router(
@@ -1160,6 +1183,16 @@ app.include_router(
 )
 app.include_router(
     b2b_contract_generator.router,
+    prefix="/api/b2b-generator",
+    tags=["b2b-generator"],
+)
+app.include_router(
+    b2b_documents.router,
+    prefix="/api/b2b-generator",
+    tags=["b2b-generator"],
+)
+app.include_router(
+    b2b_register_import.router,
     prefix="/api/b2b-generator",
     tags=["b2b-generator"],
 )
@@ -2021,6 +2054,21 @@ async def api_health_check():
     # instalacji, a osoba `exited` zachowywała dostęp. Stempel ostatniego
     # biegu żyje w `app_settings['compass_lifecycle_state']`
     # (`record_sync_outcome`). Sonda informacyjna — nigdy `unhealthy`.
+    # 0360: multiposting — informacyjne, nie zmienia `status`. Dziś wszystkie
+    # portale są wyłączone (brak dokumentacji API), więc `unconfigured`.
+    try:
+        from app.services import job_portals as _job_portals
+
+        if not _job_portals.any_enabled():
+            checks["job_portals"] = "unconfigured"
+        else:
+            from app.services.job_portals.service import failed_recently
+
+            async with AsyncSessionLocal() as session:
+                _failed = await asyncio.wait_for(failed_recently(session), timeout=1.0)
+            checks["job_portals"] = _job_portals.health_state(_failed)
+    except Exception:  # noqa: BLE001 — sonda informacyjna
+        checks["job_portals"] = "unknown"
     if not settings.COMPASS_LIFECYCLE_ENABLED:
         checks["compass_lifecycle"] = "unconfigured"
     elif not (settings.COMPASS_LIFECYCLE_URL and settings.COMPASS_LIFECYCLE_SECRET):
@@ -2466,6 +2514,7 @@ async def api_health_deep_check():
     from app.models.client_cleanup import ClientCleanupRun, PurgedClient
     from app.models.critical_event import CriticalEvent
     from app.models.order_change_check import OrderChangeCheck, OrderPdfDownload
+    from app.models.application_confirmation_send import ApplicationConfirmationSend
     from app.models.order_change_event import OrderChangeEvent
     from app.models.order_gap import OrderGap
     from app.models.insights_scoring_config import InsightsScoringConfig
@@ -2544,6 +2593,8 @@ async def api_health_deep_check():
     from app.models.job_public_profile import JobPublicProfile
     from app.models.candidate_consent import CandidateConsent
     from app.models.placement_exclusion import PlacementExclusion
+    from app.models.b2b_contract_document import B2BContractDocument
+    from app.models.b2b_register_import import B2BRegisterImportRun
     from app.models.cv_qc_run import CvQcRun
 
     core_checks = [
@@ -2565,6 +2616,10 @@ async def api_health_deep_check():
             "b2b_generated_contract_status_events",
             B2BGeneratedContractStatusEvent,
         ),
+        # 0362/0363: dokumenty pochodne (aneksy, rozwiązania) i przebiegi
+        # importu rejestru z Excela.
+        ("b2b_contract_documents", B2BContractDocument),
+        ("b2b_register_import_runs", B2BRegisterImportRun),
         # Zamówienia wielo-konsultantowe (0227). Bez tych sond zakładka
         # „Zamówienia" trzech klientów rozliczanych na MD wywalałaby
         # UndefinedTable przy zielonym deployu — dokładnie tryb awarii
@@ -2620,6 +2675,9 @@ async def api_health_deep_check():
         # „Zrobione” i każde pobranie PDF-u zamówienia.
         ("order_change_checks", OrderChangeCheck),
         ("order_pdf_downloads", OrderPdfDownload),
+        # 0358: dedup maila potwierdzenia aplikacji. Brak tabeli nie wywraca
+        # zgłoszenia, ale cicho wyłącza mail — sonda to pokazuje.
+        ("application_confirmation_sends", ApplicationConfirmationSend),
         # 0355: historia „Cele KPI" (bez tabeli pada każdy zapis celu)
         # i znacznik raportów KPI mailem (bez niego pętla raportów stoi).
         ("kpi_target_events", KpiTargetEvent),

@@ -14,6 +14,7 @@ import {
   Ban,
   Calendar,
   CalendarPlus,
+  Combine,
   FileText,
   Linkedin,
   Mail,
@@ -50,10 +51,8 @@ import type { PresenceViewer } from "@/hooks/usePresence";
 import type { CandidateRiskProfile } from "@/types/candidate-risk";
 import { CandidateProfileFactsBar } from "@/components/v2/pages/CandidateProfileFactsBar";
 import { IdentityEditor } from "@/components/v2/pages/CandidateIdentityEditor";
-import {
-  getCandidateInitials,
-  getTagName,
-} from "@/components/v2/pages/candidate-list-helpers";
+import { getCandidateInitials } from "@/components/v2/pages/candidate-list-helpers";
+import { CandidateTagsEditor } from "./CandidateTagsEditor";
 import { candidateHeadline, pickHeaderWarning } from "./profile-helpers";
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- payload kandydata jest luźno typowany */
@@ -133,6 +132,8 @@ export interface ProfileHeaderActions {
   onEditIdentity?: () => void;
   /** Tylko admin (`canHardDeleteCandidate`). */
   onDelete?: () => void;
+  /** „Scal z…” — admin i Head of Recruitment (`canMergeCandidates`). */
+  onMerge?: () => void;
 }
 
 export interface ProfileHeaderProps {
@@ -177,15 +178,6 @@ export function ProfileHeader({
     employmentState: candidate.employment?.state,
     riskLevel: riskProfile?.level,
   });
-  const tagNames: string[] = Array.isArray(candidate.tags)
-    ? Array.from(
-        new Set(
-          (candidate.tags as unknown[])
-            .map((t) => getTagName(t))
-            .filter((n): n is string => typeof n === "string"),
-        ),
-      )
-    : [];
 
   return (
     <Card variant="default" size="md" className="overflow-hidden p-0!">
@@ -274,18 +266,11 @@ export function ProfileHeader({
                   ) : null}
                 </div>
 
-                {tagNames.length > 0 ? (
-                  <div className="mt-2 flex flex-wrap gap-1">
-                    {tagNames.map((name) => (
-                      <span
-                        key={name}
-                        className="rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary"
-                      >
-                        #{name}
-                      </span>
-                    ))}
-                  </div>
-                ) : null}
+                <CandidateTagsEditor
+                  candidateId={candidateId}
+                  tags={candidate.tags}
+                  canEdit={canWrite && Number.isFinite(candidateId)}
+                />
               </>
             )}
           </div>
@@ -433,6 +418,11 @@ function HeaderActions({
           <MenuItem icon={<Store className="h-4 w-4" />} onSelect={actions.onMarketplace}>
             Wrzuć na targ
           </MenuItem>
+          {actions.onMerge ? (
+            <MenuItem icon={<Combine className="h-4 w-4" />} onSelect={actions.onMerge}>
+              Scal z…
+            </MenuItem>
+          ) : null}
           {/* Trwałe usunięcie — tylko admin. Brak pozycji zamiast `disabled`:
               wyszarzona opcja zapraszałaby do proszenia o nią. */}
           {actions.onDelete ? (

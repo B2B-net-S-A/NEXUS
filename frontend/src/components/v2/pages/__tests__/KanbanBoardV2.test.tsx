@@ -1267,8 +1267,8 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     expect(within(qcCol).getByText("Iga Mazur")).toBeTruthy();
     expect(within(qcCol).queryByText("DZ ✓")).toBeNull();
     expect(within(qcCol).getByTestId("card-qc-chip")).toHaveTextContent("QC nie sprawdzone");
-    // Poza Nordeą osoba w QC CV czeka na przegląd DL.
-    expect(within(qcCol).getByTestId("card-next-who")).toHaveTextContent("DL");
+    // Niesprawdzone QC: ruch ma rekruter („Sprawdź QC CV”), nie DL.
+    expect(within(qcCol).getByTestId("card-next-who")).toHaveTextContent("Ty");
     // Odrzuceni i wycofani nie zajmują kolumn — pasek z celami upuszczenia.
     const bar = screen.getByTestId("board-closed-bar");
     expect(bar).toHaveTextContent("Odrzucony przez nas 1");
