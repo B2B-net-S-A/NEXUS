@@ -15,6 +15,11 @@ from app.models.contract import (
     RateUnit,
 )
 
+# Rozwiązanie umowy B2B (0367): wypowiedzenie / porozumienie stron; stronę,
+# która wypowiedziała albo zainicjowała porozumienie — konsultant / b2bnetwork.
+AgreementTerminationMode = Literal["notice", "mutual_agreement"]
+AgreementTerminationParty = Literal["consultant", "company"]
+
 
 # Cztery stany świadomie edytowalne w rejestrze klienta. Stany techniczne
 # ``ready_for_signature`` i ``void`` pozostają wyłącznie w audytowanym
@@ -191,6 +196,9 @@ class ContractStatusUpdate(BaseModel):
 
 class ContractUpdate(BaseModel):
     start_date: Optional[date] = None
+    # Okres wypowiedzenia z umowy (miesiące) — podpowiedź „Ostatniego dnia
+    # umowy" w oknie „Zakończ współpracę". `null` czyści.
+    notice_period_months: Optional[int] = Field(default=None, ge=1, le=24)
     end_date: Optional[date] = None
     client_order_end_date: Optional[date] = None
     rate_candidate: Optional[float] = None
@@ -390,6 +398,14 @@ class ContractResponse(BaseModel):
     termination_reason: Optional[ContractTerminationReason] = None
     termination_lessons: Optional[str] = None
     terminated_at: Optional[date] = None
+    # „Powrót po przerwie" (0368) — nowy kontrakt wskazuje poprzedni.
+    returned_from_contract_id: Optional[int] = None
+    # Rozwiązanie umowy B2B z okna „Zakończ współpracę" (0367).
+    agreement_termination_mode: Optional[AgreementTerminationMode] = None
+    agreement_termination_party: Optional[AgreementTerminationParty] = None
+    agreement_termination_signed_on: Optional[date] = None
+    agreement_last_day: Optional[date] = None
+    notice_period_months: Optional[int] = None
     # Per-klient rejestr (migracja 0138)
     project_code: Optional[str] = None
     prolongation_status: ProlongationStatus = ProlongationStatus.unknown
@@ -428,12 +444,41 @@ class ContractResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class AgreementTerminationPayload(BaseModel):
+    """„Rozwiązanie umowy" z okna „Zakończ współpracę" (0367).
+
+    Komplet albo nic: pole wyboru odznaczone = brak obiektu. ``signed_on`` to
+    data złożenia wypowiedzenia albo zawarcia porozumienia (etykieta zależy od
+    trybu), ``last_day`` — ostatni dzień obowiązywania umowy B2B.
+    """
+
+    mode: AgreementTerminationMode
+    party: AgreementTerminationParty
+    signed_on: date
+    last_day: date
+
+    @model_validator(mode="after")
+    def _last_day_not_before_signing(self) -> "AgreementTerminationPayload":
+        if self.last_day < self.signed_on:
+            label = (
+                "złożenia wypowiedzenia"
+                if self.mode == "notice"
+                else "zawarcia porozumienia"
+            )
+            raise ValueError(
+                f"Ostatni dzień umowy nie może być wcześniejszy niż data {label}."
+            )
+        return self
+
+
 class ContractTerminateRequest(BaseModel):
     """Payload dla dedykowanego POST /{id}/terminate."""
 
     termination_reason: ContractTerminationReason
     termination_lessons: Optional[str] = None
     terminated_at: Optional[date] = None  # default = today
+    # Brak = samo zakończenie projektu (umowa B2B trwa dalej).
+    agreement_termination: Optional[AgreementTerminationPayload] = None
 
 
 class ContractBulkTerminateRequest(BaseModel):
@@ -451,6 +496,10 @@ class ContractBulkTerminateRequest(BaseModel):
 
     termination_reason: ContractTerminationReason
     terminated_at: date
+    # Jedno wspólne okno (ticket 09.2026): te same pola co przy pojedynczej
+    # umowie. Puste wnioski NIE kasują zapisanych wcześniej.
+    termination_lessons: Optional[str] = None
+    agreement_termination: Optional[AgreementTerminationPayload] = None
 
 
 class ContractBenchmarkComparison(BaseModel):
@@ -537,8 +586,47 @@ class ContractDetailResponse(ContractResponse):
     # widocznych dla wołającego (scope Delivery Leada). FE renderuje z nich
     # przełącznik zakładek nazwanych po kliencie („pracuje u N klientów").
     related_contracts: list[ContractSiblingRef] = []
+    # Cofnięcie zakończenia i powrót po przerwie (0368). Flagi mówią o STANIE
+    # kontraktu; o tym, czy użytkownik może akcję wykonać, decyduje rola
+    # (Admin, Finanse, Talent Community Manager).
+    can_reverse_termination: bool = False
+    can_return_after_break: bool = False
+    termination_reversed_at: Optional[datetime] = None
+    termination_reversed_by_name: Optional[str] = None
+    return_contract_id: Optional[int] = None
 
     model_config = {"from_attributes": True}
+
+
+class ContractReturnAfterBreakRequest(BaseModel):
+    """Payload dla POST /{id}/return-after-break."""
+
+    start_date: date
+
+
+class ContractReturnAfterBreakResponse(BaseModel):
+    contract_id: int
+    returned_from_contract_id: int
+    orders: list[dict[str, Any]] = []
+
+
+class ContractTerminationReversalPlanRead(BaseModel):
+    """Podgląd (GET) i wynik (POST) „Cofnij zakończenie".
+
+    Same ID, daty, statusy i liczby MD — bez kwot, więc bez redakcji
+    finansowej: okno potwierdzenia widzi też Talent Community Manager.
+    """
+
+    contract_id: int
+    source: Literal["snapshot", "history"]
+    terminated_on: Optional[date] = None
+    contract: dict[str, Any]
+    orders: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    blockers: list[dict[str, Any]] = []
+    md_imports: list[dict[str, Any]] = []
+    decision_cases_removed: int = 0
+    executed: bool = False
 
 
 class ContractActivityEntry(BaseModel):

@@ -32,8 +32,8 @@ typ.
 
 Nad listą masz:
 
-* sześć filtrów z licznikami: **Wszystkie**, **Aktywne**, **⚠️ Kończące się 30d**,
-  **Zakończeni**, **Wyczerpane**, **📝 Draft (do uzupełnienia)**.
+* siedem filtrów z licznikami: **Wszystkie**, **Aktywne**, **⚠️ Kończące się 30d**,
+  **Zakończeni**, **Wyczerpane**, **Anulowane**, **📝 Draft (do uzupełnienia)**.
   **O tym, kto jest w „Zakończonych", decyduje wyłącznie umowa z modułu
   Kontrakty** — jej status i data zakończenia — nigdy sam upływ okresu
   zamówienia. Osoba z datą końca umowy 30.09 jest w „Aktywnych" do 30.09
@@ -250,6 +250,14 @@ jest istotna:
 * **Zakończ współpracę** — wypowiada **umowę**. Domyka wszystkie zamówienia tego
   kontraktu i — przy zamówieniach MD — otwiera decyzję o niewykorzystanych
   dniach. Tego użyj, gdy konsultant naprawdę odchodzi od klienta.
+  Okno pyta o powód i **datę zakończenia projektu** — do tego dnia włącznie
+  kontrakt jest „Kończący się", od następnego sam przechodzi do
+  „Zakończonych" (data z przeszłości = „Zakończony" od razu). Zaznacz
+  **„Rozwiązanie umowy"**, gdy razem z projektem kończy się umowa B2B
+  (wypowiedzenie albo porozumienie stron, ostatni dzień umowy, skan pisma) —
+  wtedy w Generatorze umowa trafia do „Zakończonych umów"; bez zaznaczenia
+  czeka w „Umowach bez projektu". Innej drogi do „Zakończonego" nie ma: lista
+  statusu i „Oznacz zakończone" otwierają to samo okno.
   Umowy **unieważnionej** nie da się zakończyć — system odmówi, bo to już
   stan końcowy. Szkic zakończony z datą w przyszłości zostaje szkicem do tej
   daty, a dzień po niej sam przechodzi do „Zakończonych".
@@ -450,6 +458,8 @@ datę; samo pozostawienie kompletnego szkicu nie aktywuje go.
 | **Dodaj przedłużenie** | zakłada **nowe** zamówienie podpięte pod obecne (patrz niżej) |
 | **Zakończ** | okienko „Zakończ zamówienie": obowiązkowa data + opcjonalny powód |
 | **Przywróć** | cofa zakończenie — pokazuje się przy **każdym** zamówieniu ze statusem „Zakończone", także takim, które system domknął sam; przy zamówieniu MD z budżetem przy osobie wskrzesza też konsultantów, którym zostały dni i nie minęła data. Zamówienia **wyczerpanego** nie przywrócisz — tam trzeba podnieść budżet |
+| **Anuluj zamówienie** | dla zamówienia, które **nie doszło do skutku** albo zostało założone omyłkowo, a chcesz zachować jego historię. Zamówienie i jego konsultanci dostają status „Anulowane”, znikają z aktywnych zamówień, sum, alertów i rozliczeń, ale zostają w rejestrze (filtr **Anulowane**). **Zamówienia z rozliczeniami (zaraportowane MD, faktury) nie anulujesz** — system odmówi i wskaże, co blokuje; wtedy właściwą akcją jest **Zakończ**. Anulowanego zamówienia nie edytujesz, nie kończysz ani nie przedłużasz |
+| **Przywróć anulowane** | cofa anulowanie: zamówienie wraca do stanu sprzed niego (np. „Aktywne”), a konsultanci — do swoich statusów; osoba, której okres w międzyczasie minął, wraca jako zakończona |
 | **Usuń całe zamówienie** | służy do wycofania **pomyłki** i jest nieodwracalne: zamówienie znika razem ze swoją historią. **Zamówienia z rozliczeniami system nie usunie** — odmówi i wskaże, co je blokuje (rozliczone MD, zaimportowane faktury). Wtedy właściwą akcją jest **Zakończ**. Razem z zamówieniem znikają jego linie — **nie powstają z nich osobne zamówienia okresowe**. Okno usuwania pokazuje skutki dla umów: jeśli zamówienie niosło jedyną stawkę klienta na umowie, umowa zostaje **bez przychodu** (stawka klienta i marża znikają), a gdy są inne zamówienia — okres, którego dotyczyło, przejdzie na ich stawkę |
 | **Historia zamówienia** | rozwijana lista zdarzeń z datą, wykonawcą (wpis bez osoby = zmiana automatyczna) i opisem: utworzenie, dodania i zamiany konsultantów, importy, decyzje o MD, zakończenia. Zapis nowego szkicu MD, zmiana jego trybu, aktywacja i zapis miesięcznego zużycia wspólnej puli również zostawiają wpis |
 
@@ -1206,6 +1216,35 @@ Sposób przeliczenia opisuje „Przejęcie pozostałych MD" niżej.
 
 Przy **wspólnej puli MD** decyzja tylko zdejmuje osobę z obsady — pula nie jest
 pomniejszana ani nikomu przypisywana, bo i tak była wspólna.
+
+### Zakończono przez pomyłkę albo osoba wraca po przerwie
+
+Zakończonego kontraktu **nie przywracasz zmianą statusu** — zwykła zmiana
+statusu nie przenosi się na zamówienia. Na karcie kontraktu są dwie osobne
+akcje (Admin, Finanse, Talent Community Manager):
+
+* **Cofnij zakończenie** — kontrakt zakończono przez pomyłkę. Kontrakt i każde
+  zamówienie, które zakończenie zmieniło, wracają do stanu sprzed zakończenia:
+  osoba wraca do **„Aktywnej obsady"**, data końca przypisania wraca do
+  poprzedniej (z historii zmian; gdy jej brak — do daty końca zamówienia),
+  znikają „Zakończenie współpracy", „Wymagana decyzja o pozostałej puli MD"
+  i ich alerty. Zużycie MD, pula i stawki się nie zmieniają. Importy MD
+  wgrane w czasie zakończenia za miesiące po dacie zakończenia są przeliczane
+  dla tej osoby. Przed wykonaniem okno pokazuje, które zamówienia i importy
+  wrócą. **Akcja jest zablokowana, jeśli na zamówieniu podjęto już decyzję
+  o pozostałej puli MD** (usunięcie albo przeniesienie) — okno mówi, na którym
+  zamówieniu i jaka to decyzja.
+* **Powrót po przerwie** — osoba naprawdę zakończyła współpracę i wraca.
+  Powstaje **nowy kontrakt (Draft)** z plakietką „POWRÓT PO PRZERWIE"
+  i linkiem do poprzedniego; poprzedni zostaje zakończony bez zmian. Na
+  otwartym zamówieniu MD/kosztowym osoba pojawia się jako **nowe przypisanie
+  „Draft — uzupełnij"** w „Aktywnej obsadzie"; gdy przez **Edytuj linię**
+  uzupełnisz stawki i budżet, przypisanie staje się aktywne. Poprzednie
+  przypisanie zostaje w „Zakończonych" razem ze swoim zużyciem. Przy
+  zamówieniu okresowym powstaje szkic zamówienia do uzupełnienia.
+
+Obie akcje zostawiają wpis w historii kontraktu i zamówienia (kto, kiedy,
+która akcja); wpisy o zakończeniu zostają.
 
 ---
 

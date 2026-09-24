@@ -21,6 +21,7 @@ from app.models.client_order_offboarding import (
     OFFBOARDING_STATUS_PENDING,
     ClientOrderOffboardingCase,
 )
+from app.models.contract_termination_snapshot import ContractTerminationSnapshot
 from app.models.contract import Contract
 from app.models.dl_alert import DL_ALERT_STATUS_NEW, DlAlert
 from app.schemas.client_order_group import OrderOffboardingResolutionRequest
@@ -33,6 +34,19 @@ from app.services.multi_consultant_orders import (
 )
 
 pytestmark = pytest.mark.asyncio
+
+
+@pytest.fixture(autouse=True)
+def _skip_contract_order_locks(monkeypatch):
+    """Sztuczne sesje tego pliku nie znają blokad; kolejność blokad kontrakt →
+    zamówienia pilnuje ``test_order_writer_lock_order.py``."""
+
+    async def _no_lock(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(
+        "app.services.contract_lifecycle.lock_contract_then_orders", _no_lock
+    )
 
 
 async def test_standard_order_routes_block_a_pending_group_line_case() -> None:
@@ -72,6 +86,13 @@ class _FakeDb:
 
     def add(self, value):
         self.added.append(value)
+
+    async def scalar(self, *_args, **_kwargs):
+        # Migawka zakończenia (0368): brak otwartego wiersza epizodu.
+        return None
+
+    async def get(self, *_args, **_kwargs):
+        return None
 
 
 def _contract(contract_id: int = 91) -> Contract:
@@ -170,7 +191,14 @@ async def test_future_effective_date_only_clips_periods_and_cancels_not_started(
         assert order.end_date == effective
     ensure_case.assert_not_awaited()
     emit_alert.assert_not_awaited()
-    assert db.added == []
+    # Jedyny zapis to migawka stanu sprzed zakończenia (0368) — bez zdarzeń
+    # i alertów, bo żadne zamówienie jeszcze się nie zakończyło.
+    snapshots = [
+        item for item in db.added if isinstance(item, ContractTerminationSnapshot)
+    ]
+    assert [item for item in db.added if item not in snapshots] == []
+    assert len(snapshots) == 1
+    assert {entry["order_id"] for entry in snapshots[0].orders} == {1, 2, 3, 4}
 
 
 async def test_offboarding_scope_is_the_ended_contract_not_sibling_clients(

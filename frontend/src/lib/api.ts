@@ -1788,10 +1788,29 @@ export const interviewFeedbackApi = {
 };
 
 // ── Contracts ─────────────────────────────────────────────────────────────────
+/** Tryb rozwiązania umowy B2B: wypowiedzenie / porozumienie stron. */
+export type AgreementTerminationMode = "notice" | "mutual_agreement";
+/** Kto wypowiedział albo zainicjował porozumienie. */
+export type AgreementTerminationParty = "consultant" | "company";
+
+/**
+ * „Rozwiązanie umowy" z okna „Zakończ współpracę" (0367). Komplet albo nic —
+ * odznaczone pole wyboru = brak obiektu w żądaniu.
+ */
+export interface AgreementTerminationPayload {
+  mode: AgreementTerminationMode;
+  party: AgreementTerminationParty;
+  /** Data złożenia wypowiedzenia albo zawarcia porozumienia (YYYY-MM-DD). */
+  signed_on: string;
+  /** Ostatni dzień obowiązywania umowy B2B (YYYY-MM-DD). */
+  last_day: string;
+}
+
 export interface ContractTerminateRequest {
   termination_reason: ContractTerminationReason;
   termination_lessons?: string | null;
   terminated_at?: string | null;
+  agreement_termination?: AgreementTerminationPayload | null;
 }
 
 /**
@@ -1804,6 +1823,9 @@ export interface ContractTerminateRequest {
 export interface ContractBulkTerminateRequest {
   termination_reason: ContractTerminationReason;
   terminated_at: string; // YYYY-MM-DD
+  /** Puste = wnioski zapisane wcześniej zostają. */
+  termination_lessons?: string | null;
+  agreement_termination?: AgreementTerminationPayload | null;
 }
 
 export type ContractTerminationReason =
@@ -1955,6 +1977,60 @@ export interface ContractSiblingRef {
   end_date: string | null;
 }
 
+export interface ContractTerminationReversalOrder {
+  order_id: number;
+  order_group_id: number | null;
+  order_label: string;
+  kind: "group" | "periodic";
+  consultant: string;
+  status_now: string;
+  status_target: string;
+  end_date_now: string | null;
+  end_date_target: string | null;
+  end_date_source: "snapshot" | "history" | "order_end";
+  removes_decision_case: boolean;
+}
+
+export interface ContractTerminationReversalPlan {
+  contract_id: number;
+  source: "snapshot" | "history";
+  terminated_on: string | null;
+  contract: {
+    status_now: string;
+    status_target: string;
+    end_date_now: string | null;
+    end_date_target: string | null;
+    clears_termination: boolean;
+  };
+  orders: ContractTerminationReversalOrder[];
+  skipped: { order_id: number; order_label: string; reason: string }[];
+  blockers: {
+    code: string;
+    message: string;
+    order_id?: number;
+    order_label?: string;
+    decision?: string;
+  }[];
+  md_imports: {
+    import_id: number;
+    row_id: number;
+    period_month: string;
+    filename: string | null;
+    md_reported: string;
+    order_id: number;
+    order_label: string;
+    skipped: string | null;
+  }[];
+  decision_cases_removed: number;
+  executed: boolean;
+}
+
+export interface ContractReturnAfterBreakResult {
+  contract_id: number;
+  returned_from_contract_id: number;
+  orders: { order_id: number; order_label: string; kind: "group" | "periodic" }[];
+}
+
 export const contractsApi = {
   list: (params?: Record<string, unknown>) => api.get("/api/contracts", { params }),
   get: (id: number) => api.get(`/api/contracts/${id}`),
@@ -1977,6 +2053,21 @@ export const contractsApi = {
     api.delete(`/api/contracts/${contractId}/documents/${documentId}`),
   terminate: (id: number, payload: ContractTerminateRequest) =>
     api.post(`/api/contracts/${id}/terminate`, payload),
+  // „Cofnij zakończenie" (pomyłka) — podgląd i wykonanie (0368).
+  terminationReversalPreview: (id: number) =>
+    api.get<ContractTerminationReversalPlan>(
+      `/api/contracts/${id}/termination-reversal`,
+    ),
+  reverseTermination: (id: number) =>
+    api.post<ContractTerminationReversalPlan>(
+      `/api/contracts/${id}/termination-reversal`,
+    ),
+  // „Powrót po przerwie" — nowy kontrakt (szkic) powiązany z tym.
+  returnAfterBreak: (id: number, startDate: string) =>
+    api.post<ContractReturnAfterBreakResult>(
+      `/api/contracts/${id}/return-after-break`,
+      { start_date: startDate },
+    ),
   bulkMarkEnded: (ids: number[], payload: ContractBulkTerminateRequest) => {
     const params = new URLSearchParams();
     ids.forEach((id) => params.append("ids", String(id)));
@@ -3264,6 +3355,9 @@ export const b2bGeneratorApi = {
           ...(params.closureReason
             ? { closure_reason: params.closureReason }
             : {}),
+          ...(params.terminationMode
+            ? { termination_mode: params.terminationMode }
+            : {}),
           ...(params.startFrom ? { start_from: params.startFrom } : {}),
           ...(params.startTo ? { start_to: params.startTo } : {}),
           ...(params.jobId ? { job_id: params.jobId } : {}),
@@ -3379,6 +3473,8 @@ export interface B2BGeneratedListParams {
    */
   contractStatus?: B2BContractStatus[];
   closureReason?: B2BClosureReason;
+  /** Tryb rozwiązania umowy — filtr „Zakończonych umów" (0367). */
+  terminationMode?: AgreementTerminationMode;
   /** Zakres daty ROZPOCZĘCIA USŁUG (`YYYY-MM-DD`), obie granice włącznie. */
   startFrom?: string;
   startTo?: string;
@@ -3413,6 +3509,19 @@ export interface B2BStatusEvent {
   client_name: string | null;
   changed_by_name: string | null;
   created_at: string | null;
+  /** Zmiana wykonana przez zakończenie kontraktu (0367): kontrakt, koniec
+   *  projektu i dane rozwiązania umowy. `null` dla ręcznych zmian. */
+  details?: {
+    source?: string;
+    contract_id?: number;
+    project_end_date?: string | null;
+    agreement_terminated?: boolean;
+    mode?: AgreementTerminationMode;
+    party?: AgreementTerminationParty;
+    signed_on?: string;
+    agreement_last_day?: string;
+    previous_contract_number?: string;
+  } | null;
 }
 
 /**
@@ -3464,6 +3573,13 @@ export interface B2BGeneratedContractRow {
   closure_reason: B2BClosureReason | null;
   closure_reason_other: string | null;
   closure_date: string | null;
+  /** 0367: zakończenie przeniesione z Kontraktów — „Tryb" i „Data zakończenia
+   *  zamówienia" (koniec projektu; `closure_date` to wtedy ostatni dzień umowy). */
+  termination_mode?: AgreementTerminationMode | null;
+  termination_party?: AgreementTerminationParty | null;
+  termination_signed_on?: string | null;
+  project_end_date?: string | null;
+  previous_generated_contract_id?: number | null;
   can_change_status: boolean;
   candidate_id: number | null;
   job_id: number | null;

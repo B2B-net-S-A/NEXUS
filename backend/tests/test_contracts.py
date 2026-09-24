@@ -332,9 +332,10 @@ async def test_contract_register_fields_round_trip(
     assert row["prolongation_status"] == "yes"
     assert row["hours_pool_remaining"] == 150
 
-    status_only = await app_client.patch(
-        f"/api/contracts/{cid}",
-        json={"status": "ended"},
+    # „Zakończony" wyłącznie przez okno „Zakończ współpracę" (0367).
+    status_only = await app_client.post(
+        f"/api/contracts/{cid}/terminate",
+        json={"termination_reason": "project_ended", "terminated_at": "2026-05-01"},
         headers=app_auth_headers,
     )
     assert status_only.status_code == 200, status_only.text

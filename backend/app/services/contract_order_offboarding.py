@@ -32,6 +32,11 @@ from app.services.client_order_lines import (
     recompute_remaining,
     record_event,
 )
+from app.services.contract_termination_snapshot import (
+    ContractStateBefore,
+    OrderStateChange,
+    record_termination_snapshot,
+)
 from app.services.dl_alerts import emit_md_consultant_ended
 from app.services.multi_consultant_orders import (
     EVENT_CONSULTANT_ENDED,
@@ -103,6 +108,11 @@ async def _open_orders(db: AsyncSession, contract_id: int) -> list[ClientOrder]:
     czyjegoś stanu na podstawie niespójnych danych jest gorsza niż jej brak.
     """
 
+    # Wołający (zakończenie kontraktu) zwykle trzyma już blokadę kontraktu;
+    # helper gwarantuje kolejność kontrakt → zamówienia także gdy nie trzyma.
+    from app.services.contract_lifecycle import lock_contract_then_orders
+
+    await lock_contract_then_orders(db, contract_ids=[contract_id])
     result = await db.execute(
         select(ClientOrder)
         .join(Contract, Contract.id == ClientOrder.contract_id)
@@ -274,11 +284,16 @@ async def apply_contract_order_offboarding(
     effective_date: date,
     actor_id: Optional[int] = None,
     today: Optional[date] = None,
+    contract_before: Optional[ContractStateBefore] = None,
 ) -> ContractOrderOffboardingResult:
     """Apply all type-specific order effects for one ended Contract.
 
     The function intentionally does not commit.  Contract status, order
     effects, cases, events and alerts must succeed or roll back together.
+
+    ``contract_before`` to stan kontraktu odczytany przez wołającego PRZED
+    zakończeniem — trafia do migawki (0368), z której „Cofnij zakończenie"
+    przywraca kontrakt i każde ruszone tu zamówienie.
     """
 
     materialization_day = today or business_today()
@@ -302,6 +317,14 @@ async def apply_contract_order_offboarding(
     existing_by_order = {case.order_id: case for case in existing_cases}
 
     orders = await _open_orders(db, contract_id)
+    before_state = {
+        order.id: (
+            str(order.status.value),
+            order.end_date,
+            None if order.order_group is None else order.order_group.status,
+        )
+        for order in orders
+    }
     cancelled_future = 0
     periodic_completed = 0
     cost_completed = 0
@@ -394,6 +417,29 @@ async def apply_contract_order_offboarding(
                 actor_id=actor_id,
             )
         case_context[case.id] = (case, order, group)
+
+    if orders or contract_before is not None:
+        await record_termination_snapshot(
+            db,
+            contract_id=contract_id,
+            effective_date=effective_date,
+            contract_before=contract_before,
+            changes=[
+                OrderStateChange(
+                    order_id=order.id,
+                    order_group_id=order.order_group_id,
+                    status_before=before_state[order.id][0],
+                    end_date_before=before_state[order.id][1],
+                    group_status_before=before_state[order.id][2],
+                    status_after=str(order.status.value),
+                    end_date_after=order.end_date,
+                )
+                for order in orders
+                if (str(order.status.value), order.end_date)
+                != before_state[order.id][:2]
+            ],
+            actor_id=actor_id,
+        )
 
     alerts_created = 0
     for case_id in sorted(case_context):

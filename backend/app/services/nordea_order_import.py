@@ -354,7 +354,10 @@ async def import_nordea_orders(
     from app.models.client_order import ClientOrder, ClientOrderStatus
     from app.models.contract import Contract
     from app.models.contract_framework_rate import ContractFrameworkRate
-    from app.services.contract_lifecycle import sync_contract_to_live_order
+    from app.services.contract_lifecycle import (
+        lock_contract_then_orders,
+        sync_contract_to_live_order,
+    )
     from app.services.order_rate_snapshots import inherited_order_rate_fields
     from app.services.periodic_order_lifecycle import refresh_periodic_order_status
 
@@ -379,6 +382,18 @@ async def import_nordea_orders(
             )
         ).scalars()
     )
+    if not dry_run:
+        # Kolejność blokad writerów zamówień: wszystkie kontrakty klienta
+        # rosnąco, potem ich zamówienia — zanim import dotknie pierwszego
+        # zamówienia. Bez tego import (zamówienie → kontrakt przy
+        # synchronizacji) zakleszczał się z zakończeniem kontraktu.
+        await lock_contract_then_orders(
+            db,
+            contract_ids=[contract.id for contract in contracts],
+            order_ids=[
+                order.id for contract in contracts for order in contract.client_orders
+            ],
+        )
     by_name: dict[str, list[Any]] = defaultdict(list)
     nexus_names: dict[str, str] = {}
     for contract in contracts:

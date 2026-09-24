@@ -79,6 +79,13 @@ EVENT_MD_OFFBOARDING_TRANSFERRED = "przeniesienie_puli_md"
 # różne operacje na dwóch różnych poziomach — po latach nie dałoby się
 # odpowiedzieć, czy wracało zamówienie, czy jedna osoba.
 EVENT_MD_OFFBOARDING_RESTORED = "przywrocenie_konsultanta"
+# Anulowanie całego zamówienia i jego przywrócenie (0356). Osobne od
+# `zakonczenie`/`przywrocenie`: zakończenie to normalny koniec współpracy,
+# anulowanie — zamówienie, które nie doszło do skutku albo było pomyłką.
+# Payload anulowania niesie statusy linii sprzed anulowania — z nich
+# przywrócenie odtwarza obsadę.
+EVENT_ORDER_CANCELLED = "order_cancelled"
+EVENT_ORDER_RESTORED = "order_restored"
 # Decyzje o osobie na zamówieniu zapisywane jako `zakonczenie_konsultanta`
 # z `payload.reason` (bez nowego typu w CHECK-u bazy): osoba usunięta
 # z zamówienia z wykorzystaną kwotą/MD oraz „Zostaw jako historię".
@@ -101,6 +108,8 @@ EVENT_TYPES: tuple[str, ...] = (
     EVENT_MD_OFFBOARDING_REMOVED,
     EVENT_MD_OFFBOARDING_TRANSFERRED,
     EVENT_MD_OFFBOARDING_RESTORED,
+    EVENT_ORDER_CANCELLED,
+    EVENT_ORDER_RESTORED,
 )
 
 # Status rozliczenia miesiąca na linii (Faza B, 09.2026). Etykiety PL żyją
@@ -134,6 +143,8 @@ EVENT_TYPE_LABELS: dict[str, str] = {
     EVENT_MD_OFFBOARDING_REMOVED: "Usunięcie pozostałej puli MD",
     EVENT_MD_OFFBOARDING_TRANSFERRED: "Przeniesienie pozostałej puli MD",
     EVENT_MD_OFFBOARDING_RESTORED: "Przywrócenie konsultanta na zamówieniu",
+    EVENT_ORDER_CANCELLED: "Anulowanie zamówienia",
+    EVENT_ORDER_RESTORED: "Przywrócenie anulowanego zamówienia",
 }
 
 

@@ -29,7 +29,10 @@ from app.models.activity import Activity
 from app.models.order_mail import OrderMailDocument
 from app.services import storage_service
 from app.services.advanced_candidate_search import fold_polish
-from app.services.contract_lifecycle import sync_contract_to_live_order
+from app.services.contract_lifecycle import (
+    lock_contract_then_orders,
+    sync_contract_to_live_order,
+)
 from app.services.contract_order_sync import (
     apply_contract_hourly_policy,
     pending_order_contract_ids,
@@ -412,6 +415,25 @@ async def _write_document(
         for r in ((proposal.get("apply_result") or {}).get("rows") or [])
         if r.get("order_id")
     }
+
+    # Kolejność blokad writerów zamówień: WSZYSTKIE kontrakty dokumentu rosnąco,
+    # potem zamówienia, których plan dotyka. Pętla niżej blokuje je jeszcze raz
+    # (już trzymane), ale dokument wieloosobowy nie przeplata „kontrakt A,
+    # zamówienie A, kontrakt B” z handlerem kontraktu B.
+    def _plan_ids(key: str) -> list[int]:
+        ids: list[int] = []
+        for row in rows:
+            try:
+                ids.append(int(row.get(key)))
+            except (TypeError, ValueError):
+                continue
+        return ids
+
+    await lock_contract_then_orders(
+        db,
+        contract_ids=_plan_ids("contract_id"),
+        order_ids=_plan_ids("target_order_id"),
+    )
     for rp in rows:
         applied = AppliedRow(
             row_index=rp.get("row_index", 0), action=rp.get("action", "")

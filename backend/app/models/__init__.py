@@ -126,6 +126,7 @@ from app.models.client_playbook_event import ClientPlaybookEvent
 from app.models.client_cleanup import ClientCleanupRun, PurgedClient
 from app.models.critical_event import CriticalEvent
 from app.models.order_change_check import OrderChangeCheck, OrderPdfDownload
+from app.models.application_confirmation_send import ApplicationConfirmationSend
 from app.models.order_change_event import OrderChangeEvent
 from app.models.order_gap import OrderGap
 from app.models.insights_scoring_config import InsightsScoringConfig
@@ -283,6 +284,7 @@ from app.models.client_contract_amendment import ClientContractAmendment
 from app.models.client_executive_contract import ClientExecutiveContract
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.client_order_offboarding import ClientOrderOffboardingCase
+from app.models.contract_termination_snapshot import ContractTerminationSnapshot
 from app.models.client_order_group import (
     ClientOrderGroup,
     ClientOrderGroupEvent,
@@ -436,6 +438,7 @@ __all__ = [
     "OrderChangeCheck",
     "OrderChangeEvent",
     "OrderPdfDownload",
+    "ApplicationConfirmationSend",
     "OrderGap",
     "InsightsScoringConfig",
     "UserWorkdayPeriod",
@@ -569,6 +572,7 @@ __all__ = [
     "ClientExecutiveContract",
     "ClientOrder",
     "ClientOrderOffboardingCase",
+    "ContractTerminationSnapshot",
     "ClientOrderGroup",
     "ClientOrderGroupEvent",
     "ClientOrderGroupMdConsumption",

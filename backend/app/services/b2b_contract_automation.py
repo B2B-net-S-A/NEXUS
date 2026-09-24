@@ -520,6 +520,11 @@ async def _ensure_open_order(
     # zamówieniach tej samej osoby, co u Polkomtela jest legalne).
     if not should_auto_create_order(job.client_id):
         return None, False, ORDER_SKIPPED_COST_CLIENT
+    # Kolejność writerów zamówień: kontrakt (zwykle już trzymany przez
+    # potwierdzenie podpisu) → jego zamówienia.
+    from app.services.contract_lifecycle import lock_contract_then_orders
+
+    await lock_contract_then_orders(db, contract_ids=[contract.id])
     orders = list(
         (
             await db.execute(

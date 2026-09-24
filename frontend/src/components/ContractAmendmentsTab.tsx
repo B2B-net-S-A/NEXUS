@@ -96,6 +96,7 @@ export function ContractAmendmentsTab({
   clientId,
   readOnly = false,
   extensionLocked = false,
+  onRequestTermination,
 }: {
   contractId: number;
   clientId: number;
@@ -103,6 +104,10 @@ export function ContractAmendmentsTab({
   /** Umowa B2B bez ręcznego zakończenia — aneks przedłużający jest odrzucany
    *  przez backend, więc przycisk go nie oferuje (`b2bExtensionLocked`). */
   extensionLocked?: boolean;
+  /** „Zakończ wcześniej" otwiera okno „Zakończ współpracę" (ticket 09.2026) —
+   *  zakończenie kontraktu ma jedno wejście, które zapisuje powód, datę końca
+   *  projektu i rozwiązanie umowy. Bez callbacku przycisku nie ma. */
+  onRequestTermination?: () => void;
 }) {
   const queryClient = useQueryClient();
   const user = useAuthStore((state) => state.user);
@@ -220,15 +225,15 @@ export function ContractAmendmentsTab({
             >
               <LayoutGrid className="w-4 h-4" /> Zmień zakres
             </button>
-            <button
-              onClick={() => {
-                setForm(emptyAmendmentForm("early_termination"));
-                setShowForm(true);
-              }}
-              className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded-lg text-sm font-medium"
-            >
-              <StopIcon className="w-4 h-4" /> Zakończ wcześniej
-            </button>
+            {onRequestTermination && (
+              <button
+                type="button"
+                onClick={onRequestTermination}
+                className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded-lg text-sm font-medium"
+              >
+                <StopIcon className="w-4 h-4" /> Zakończ wcześniej
+              </button>
+            )}
             {/* Dokument aneksu do podpisu (DOCX) — generator dokumentów
                 w module Generator Umów B2B, umowa bazowa po tym kontrakcie. */}
             <Link
