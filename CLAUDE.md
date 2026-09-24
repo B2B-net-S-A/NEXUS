@@ -3070,6 +3070,12 @@ osobę od Cpro per rekrutacja (0353) i kolejkę „Czeka na DZ” (0348).
   jako zapas, pasek „Do Cpro wysyła” nad Tablicą usunięty.
 - **Przegląd DL** = osoby w kolumnie QC CV u klientów innych niż Nordea (z wynikiem
   QC), nie osoby w „Zweryfikowanym”.
+- **Kto widzi „Czeka na Ciebie” (decyzja Artura 24.09.2026, `board_tasks._sees_*`):**
+  obie listy Cpro — wyłącznie osoba od Cpro (gdy nikt nie jest ustawiony: listę
+  „do wrzucenia” widzi admin i HoR, bo tylko tam da się kogoś ustawić; DL nigdy);
+  przegląd DL — Delivery Lead rekrutacji (`jobs.delivery_lead_id` wygrywa, bez
+  niego portfel klienta), a admin i HoR tylko rekrutacje bez żadnego DL
+  (plakietka „bez DL”). Poranny skrót liczy tą samą regułą.
 - **„Dodaj kandydatów”** (`AddCandidatesPanel`): jedno wejście z nagłówka i z kolumny
   Nowi, zakładki wyszukiwanie AI z Championa · propozycje · Moi ludzie · ręcznie.
 

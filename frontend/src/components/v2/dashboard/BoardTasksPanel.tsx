@@ -7,10 +7,14 @@
  *  - „Czeka na Twój przegląd (DL)" (klienci spoza Nordei) — osoby w kolumnie
  *    „QC CV", które Delivery Lead wysyła do klienta ze stawką albo odrzuca;
  *    wiersz otwiera `DlReviewPanel` (CV, QC, screening, stawka),
+ *    Delivery Lead widzi wyłącznie rekrutacje przypięte do siebie; admin
+ *    i HoR — tylko rekrutacje bez DL (plakietka „bez DL"),
  *  - „Do wrzucenia do Cpro" (Nordea) — jedna linia na rekrutację; „Wrzucaj po
  *    kolei" otwiera `CproQueueDialog`. Do Cpro wrzuca JEDNA osoba na całą
- *    firmę, zmienić ją może każdy (decyzja Artura 23.09.2026),
- *  - „Wysłane do Cpro" — od ilu dni czekamy na Nordeę,
+ *    firmę (decyzja Artura 23.09.2026) i tylko ona widzi obie listy Cpro
+ *    (24.09.2026); gdy nikt nie jest ustawiony — admin i HoR, żeby ktoś ją
+ *    ustawił,
+ *  - „Wysłane do Cpro" — od ilu dni czekamy na Nordeę (tylko osoba od Cpro),
  *  - „Prepy przed rozmową u klienta" (0370) — brak prepu, prep słaby albo bez
  *    nagrania; wiersz prowadzi do karty kandydata w kalendarzu. Nic nie
  *    blokuje — to przypomnienie, nie bramka.
@@ -180,6 +184,14 @@ export function BoardTasksPanel() {
                   </button>
                   <RowMeta row={row} />
                 </div>
+                {row.without_delivery_lead && (
+                  <span
+                    className="shrink-0 rounded-full bg-warning-muted px-2 py-0.5 text-xs font-medium text-warning-muted-foreground"
+                    title="Ta rekrutacja nie ma Delivery Leada — przypisz go klientowi albo przejrzyj sam."
+                  >
+                    bez DL
+                  </span>
+                )}
                 <QcStatusBadge row={row} />
                 <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
                   {waitingFor(row.since)}

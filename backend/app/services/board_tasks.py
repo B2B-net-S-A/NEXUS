@@ -55,8 +55,11 @@ KIND_CPRO_TO_SEND = "cpro_to_send"
 KIND_CPRO_SENT = "cpro_sent"
 KIND_DL_REVIEW = "dl_review"
 
-# Kto widzi przegląd DL i kolejkę Cpro całej firmy (Delivery Lead — w swoim
-# portfelu). Wysyłkę do klienta i tak rozstrzyga serwer przy ruchu.
+# Kto widzi przegląd DL: Delivery Lead — rekrutacje przypięte do niego;
+# admin i Head of Recruitment — wyłącznie rekrutacje bez żadnego Delivery
+# Leada (inaczej nikt by ich nie zobaczył). Kolejkę Cpro widzi tylko osoba od
+# Cpro; admin i HoR — tylko wtedy, gdy nikt nie jest ustawiony (decyzja Artura
+# 24.09.2026). Wysyłkę do klienta i tak rozstrzyga serwer przy ruchu.
 REVIEW_ROLES: tuple[UserRole, ...] = (
     UserRole.admin,
     UserRole.delivery_lead,
@@ -119,11 +122,19 @@ class BoardTask:
     # od 24.09.2026 tylko zapas, gdy nikt nie wysyła do Cpro na firmę.
     job_sender_id: Optional[int] = None
     job_sender_name: Optional[str] = None
+    # Przegląd DL: klient rekrutacji ma Delivery Leada w portfelu
+    # (`delivery_lead_client_assignments`). Bez niego i bez
+    # `jobs.delivery_lead_id` przegląd trafia do admina i Head of Recruitment.
+    client_has_dl: bool = False
     # Etap QC CV szablonu rekrutacji — „Zwróć do rekrutera" z kolejki Cpro.
     return_stage_def_id: Optional[int] = None
     # Wynik QC CV pary (`cv_qc.pair_statuses`): passed|failed|overridden|unchecked.
     qc_status: Optional[str] = None
     qc_blocking_failed: int = 0
+
+    @property
+    def without_delivery_lead(self) -> bool:
+        return self.delivery_lead_id is None and not self.client_has_dl
 
     def as_dict(self) -> dict:
         return {
@@ -150,6 +161,7 @@ class BoardTask:
             "screening_stage_id": self.screening_stage_id,
             "job_sender_id": self.job_sender_id,
             "job_sender_name": self.job_sender_name,
+            "without_delivery_lead": self.without_delivery_lead,
             "return_stage_def_id": self.return_stage_def_id,
             "qc_status": self.qc_status,
             "qc_blocking_failed": self.qc_blocking_failed,
@@ -161,6 +173,8 @@ class BoardTaskSnapshot:
     """Wszystkie otwarte zadania kolejki — liczone raz, filtrowane per osoba."""
 
     tasks: list[BoardTask] = field(default_factory=list)
+    # Osoba od Cpro na firmę obowiązująca w chwili odczytu (po zastępstwie).
+    firm_sender_id: Optional[int] = None
 
 
 def classify_template(defs: Iterable[PipelineStageDef]) -> TemplateStages:
@@ -319,6 +333,11 @@ async def load_snapshot(
     sent_since = now - timedelta(days=WINDOW_DAYS)
     # Jedna osoba na firmę; stare typowania są zapasem, gdy nikogo nie ma.
     firm_sender_id = (await cpro_sender.effective_sender(db, now)).user_id
+    clients_with_dl = frozenset(
+        (
+            await db.scalars(select(DeliveryLeadClientAssignment.client_id).distinct())
+        ).all()
+    )
     tasks: list[BoardTask] = []
     for r in rows:
         stages = templates.get(r.template_id)
@@ -353,6 +372,7 @@ async def load_snapshot(
                         kind=KIND_DL_REVIEW,
                         target_stage_def_id=stages.cv_sent_id,
                         rejected_stage_def_id=stages.rejected_id,
+                        client_has_dl=r.client_id in clients_with_dl,
                         **base,
                     )
                 )
@@ -372,14 +392,19 @@ async def load_snapshot(
             )
         elif effective in stages.cv_sent_ids and r.moved_at >= sent_since:
             tasks.append(
-                BoardTask(kind=KIND_CPRO_SENT, target_stage_def_id=None, **base)
+                BoardTask(
+                    kind=KIND_CPRO_SENT,
+                    target_stage_def_id=None,
+                    assignee_id=firm_sender_id or r.cpro_sender_id,
+                    **base,
+                )
             )
 
     await _attach_dl_review_details(db, catalog, tasks)
     await _attach_qc_statuses(db, tasks)
     await _attach_versions_and_names(db, tasks)
     tasks.sort(key=lambda t: t.since)
-    return BoardTaskSnapshot(tasks=tasks)
+    return BoardTaskSnapshot(tasks=tasks, firm_sender_id=firm_sender_id)
 
 
 async def _attach_versions_and_names(db: AsyncSession, tasks: list[BoardTask]) -> None:
@@ -521,48 +546,62 @@ def _sees_all(user: User) -> bool:
     return user.has_any_role(UserRole.admin, UserRole.head_of_recruitment)
 
 
-def _in_portfolio(task: BoardTask, user: User, portfolio: frozenset[int]) -> bool:
-    return task.delivery_lead_id == user.id or (
-        task.client_id is not None and task.client_id in portfolio
-    )
+def _sees_dl_review(task: BoardTask, user: User, portfolio: frozenset[int]) -> bool:
+    """Przegląd DL należy do Delivery Leada rekrutacji.
+
+    Delivery Lead wpisany w rekrutacji (``jobs.delivery_lead_id``) wygrywa;
+    bez niego — Delivery Lead z portfelem klienta. Rekrutacja bez żadnego
+    Delivery Leada trafia do admina i Head of Recruitment — inaczej nikt by
+    jej nie przejrzał. Admin i HoR NIE widzą przeglądów cudzych DL.
+    """
+
+    if user.has_role(UserRole.delivery_lead):
+        if task.delivery_lead_id is not None:
+            if task.delivery_lead_id == user.id:
+                return True
+        elif task.client_id is not None and task.client_id in portfolio:
+            return True
+    return task.without_delivery_lead and _sees_all(user)
+
+
+def _sees_cpro(task: BoardTask, user: User) -> bool:
+    """Kolejka Cpro jest wyłącznie osoby od Cpro.
+
+    Gdy nikt nie jest ustawiony, zadania do wrzucenia widzi admin i Head of
+    Recruitment — żeby ktoś mógł ustawić osobę (jedyne miejsce to ten panel).
+    """
+
+    if task.assignee_id is not None:
+        return task.assignee_id == user.id
+    return task.kind == KIND_CPRO_TO_SEND and _sees_all(user)
 
 
 def tasks_for_user(
     snapshot: BoardTaskSnapshot, user: User, *, portfolio: frozenset[int]
 ) -> dict[str, list[BoardTask]]:
-    """Co z migawki należy do tej osoby.
+    """Co z migawki należy do tej osoby (decyzja Artura 24.09.2026).
 
-    * Przegląd DL: admin, Delivery Lead i Head of Recruitment; Delivery Lead
-      tylko w swoim portfelu.
-    * Do wysłania do Cpro: osoba od Cpro zawsze; role przeglądu — także
-      nieprzypisane i cudze (ktoś musi zastąpić nieobecnego).
-    * Wysłane: kto przesunął na „Wysłane do Cpro", albo role przeglądu.
+    * Przegląd DL: Delivery Lead — rekrutacje przypięte do niego (w rekrutacji
+      albo przez portfel klienta); admin i HoR — tylko rekrutacje bez DL.
+    * Do wrzucenia i wysłane do Cpro: tylko osoba od Cpro; do wrzucenia —
+      także admin i HoR, gdy nikt nie jest ustawiony.
     """
 
-    can_review = user.has_any_role(*REVIEW_ROLES)
-    sees_all = _sees_all(user)
     out: dict[str, list[BoardTask]] = {
         KIND_CPRO_TO_SEND: [],
         KIND_CPRO_SENT: [],
         KIND_DL_REVIEW: [],
     }
     for t in snapshot.tasks:
-        scoped = sees_all or _in_portfolio(t, user, portfolio)
         if t.kind == KIND_DL_REVIEW:
-            if can_review and scoped:
+            if _sees_dl_review(t, user, portfolio):
                 out[t.kind].append(t)
-        elif t.kind == KIND_CPRO_TO_SEND:
-            if t.assignee_id == user.id or (can_review and scoped):
-                out[KIND_CPRO_TO_SEND].append(t)
-        elif t.kind == KIND_CPRO_SENT:
-            if t.moved_by == user.id or (can_review and scoped):
-                out[KIND_CPRO_SENT].append(t)
-    # Moje zadania Cpro na górze, potem nieprzypisane, potem cudze.
+        elif t.kind in (KIND_CPRO_TO_SEND, KIND_CPRO_SENT):
+            if _sees_cpro(t, user):
+                out[t.kind].append(t)
+    # Moje zadania Cpro na górze, potem nieprzypisane.
     out[KIND_CPRO_TO_SEND].sort(
-        key=lambda t: (
-            0 if t.assignee_id == user.id else 1 if t.assignee_id is None else 2,
-            t.since,
-        )
+        key=lambda t: (0 if t.assignee_id == user.id else 1, t.since)
     )
     return out
 
@@ -585,8 +624,8 @@ async def digest_counts(
 
     Wysłane do Cpro nie są zadaniem — czekamy na Nordeę — więc skrót ich nie
     liczy. Osoba od Cpro dostaje liczbę osób w kolejce; kolejka bez nikogo
-    ustawionego trafia do Head of Recruitment i do Delivery Leadów, w których
-    portfelu jest klient.
+    ustawionego trafia do Head of Recruitment. Przegląd DL — ta sama reguła co
+    panel (`_sees_dl_review`).
     """
 
     if not snapshot.tasks:
@@ -604,7 +643,7 @@ async def digest_counts(
     ).all()
     portfolios: dict[int, frozenset[int]] = {}
     for u in users:
-        if u.has_role(UserRole.delivery_lead) and not _sees_all(u):
+        if u.has_role(UserRole.delivery_lead):
             portfolios[u.id] = await dl_portfolio_client_ids(db, u.id)
 
     counts: dict[int, dict[str, int]] = {}
@@ -615,18 +654,17 @@ async def digest_counts(
         ] += 1
 
     for t in snapshot.tasks:
-        if t.kind == KIND_CPRO_TO_SEND and t.assignee_id is not None:
-            bump(t.assignee_id, "cpro_mine")
-            continue
-        if t.kind not in (KIND_CPRO_TO_SEND, KIND_DL_REVIEW):
-            continue
-        key = {
-            KIND_CPRO_TO_SEND: "cpro_unassigned",
-            KIND_DL_REVIEW: "dl_review",
-        }[t.kind]
-        for u in users:
-            if _sees_all(u) or _in_portfolio(t, u, portfolios.get(u.id, frozenset())):
-                bump(u.id, key)
+        if t.kind == KIND_CPRO_TO_SEND:
+            if t.assignee_id is not None:
+                bump(t.assignee_id, "cpro_mine")
+                continue
+            for u in users:
+                if u.has_role(UserRole.head_of_recruitment):
+                    bump(u.id, "cpro_unassigned")
+        elif t.kind == KIND_DL_REVIEW:
+            for u in users:
+                if _sees_dl_review(t, u, portfolios.get(u.id, frozenset())):
+                    bump(u.id, "dl_review")
     return {uid: DigestLine(**c) for uid, c in counts.items()}
 
 
