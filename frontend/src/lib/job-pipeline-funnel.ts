@@ -1,52 +1,56 @@
 /**
- * Grupowanie surowych etapów pipeline'u (`CandidateStage.stage`, patrz
- * `STAGE_LABEL` w `app/dashboard/delivery-lead/_components/tabs/ActiveJobsTab.tsx`)
- * w sześć grup mini-lejka listy rekrutacji (makieta „01 Lista”, krok C2-flow #4):
- * nowi · screening · zweryfikowani · u klienta · umowa · zatrudnieni.
+ * Skrót pipeline'u z wiersza listy rekrutacji: te same 8 kolumn co Tablica
+ * (Rekrutacja v5, decyzja Artura 23.09.2026) — Nowi · Screening ·
+ * Zweryfikowany · QC CV · CV wysłane · Rozmowa u klienta · Umowa ·
+ * Zatrudniony.
+ *
+ * Kolumnę etapu rozstrzyga WYŁĄCZNIE `placeStage` z `lib/board-stages.ts`
+ * (lustro `board_column_for` w backendzie, wspólny fixture
+ * `__fixtures__/board-stage-cases.json`) — ta sama reguła co na Tablicy, nie
+ * własna kopia po kodzie etapu. Bez niej etap „QC CV" / „Przepuszczony przez
+ * DZ" (kod techniczny `interview` albo `new`) liczyłby się do
+ * „Zweryfikowanych" albo „Nowych".
  *
  * Osobny moduł, a nie funkcja lokalna w `JobsListV2` — test wiąże się z TĄ SAMĄ
- * funkcją, której używa komponent (wzorzec `jobs-url-filters.ts`).
+ * funkcją, której używa komponent (wzorzec `jobs-url-filters.ts`). Czyta go też
+ * dok podglądu (`JobReadinessDock`), więc lista i dok mówią tymi samymi grupami.
  *
  * Dane wejściowe: `GET /api/jobs?include_stage_counts=true` — każdy wiersz
- * dostaje `stage_breakdown: {<stage>: count}` jednym dodatkowym GROUP BY na
+ * dostaje `stage_columns` (kolumny szablonu z liczbami, te same co tablica)
+ * i legacy `stage_breakdown: {<stage>: count}` jednym dodatkowym GROUP BY na
  * całą stronę wyników (`backend/app/api/jobs.py::list_jobs`), zero zapytań
  * per wiersz.
  */
 
 import type { KanbanColumn } from "@/components/v2/pages/kanban-shared";
-import { terminalOf } from "@/lib/kanban-terminal";
-import { countHired, groupKanbanColumns } from "@/lib/pipeline-flow";
+import {
+  BOARD_COLUMN_LABEL,
+  BOARD_COLUMN_ORDER,
+  placeStage,
+  type BoardColumnKey,
+} from "@/lib/board-stages";
 
 /**
- * Kolumna szablonu z liczbą, bez kart — `stage_columns` z wiersza listy
- * (`GET /api/jobs?include_stage_counts=true`). Te same pola co `KanbanColumn`
- * tablicy (`GET /api/pipeline/kanban/{id}`), z których `groupKanbanColumns`
- * rozpoznaje grupę: enum, kategoria, nazwa, pozycja, terminal.
+ * Kolumna szablonu z liczbą, bez kart — `stage_columns` z wiersza listy.
+ * Te same pola co `KanbanColumn` tablicy (`GET /api/pipeline/kanban/{id}`).
  */
 export type StageColumnSummary = Omit<KanbanColumn, "items"> & {
   items?: KanbanColumn["items"];
 };
 
 /**
- * Skrót pipeline'u z wiersza listy. `stage_columns` jest źródłem prawdy —
- * grupowane TĄ SAMĄ funkcją co szyny szczegółów (`groupKanbanColumns`), więc
- * lista i szczegóły nie mogą pokazać różnych liczb dla tej samej rekrutacji
- * (UAT B33: „Przepuszczony przez DZ" liczony raz do Nowych, raz do
- * Zweryfikowanych). Legacy `stage_breakdown` (po enumie) zostaje fallbackiem
- * dla odpowiedzi sprzed tego pola.
+ * Skrót pipeline'u z wiersza listy. `stage_columns` jest źródłem prawdy (nazwa
+ * etapu rozpoznaje „QC CV", „Wysłać do Cpro", „Umowa wysłana"…); legacy
+ * `stage_breakdown` (po samym enumie) zostaje fallbackiem dla odpowiedzi sprzed
+ * tego pola.
  */
 export interface PipelineStageSummary {
   stage_columns?: readonly StageColumnSummary[] | null;
   stage_breakdown?: Record<string, number> | null;
 }
 
-export type FunnelGroupKey =
-  | "new"
-  | "screening"
-  | "verified"
-  | "with_client"
-  | "contract"
-  | "hired";
+/** Kolumna Tablicy bez paska zamkniętych. */
+export type FunnelGroupKey = Exclude<BoardColumnKey, "closed">;
 
 export interface FunnelGroup {
   key: FunnelGroupKey;
@@ -54,50 +58,31 @@ export interface FunnelGroup {
   count: number;
 }
 
-export const FUNNEL_GROUP_ORDER: readonly FunnelGroupKey[] = [
-  "new",
-  "screening",
-  "verified",
-  "with_client",
-  "contract",
-  "hired",
-];
+export const FUNNEL_GROUP_ORDER: readonly FunnelGroupKey[] =
+  BOARD_COLUMN_ORDER.filter((k): k is FunnelGroupKey => k !== "closed");
 
 export const FUNNEL_GROUP_LABELS: Record<FunnelGroupKey, string> = {
-  new: "Nowi",
-  screening: "Screening",
-  verified: "Zweryfikowani",
-  with_client: "U klienta",
-  contract: "Umowa",
-  hired: "Zatrudnieni",
+  new: BOARD_COLUMN_LABEL.new,
+  screening: BOARD_COLUMN_LABEL.screening,
+  verified: BOARD_COLUMN_LABEL.verified,
+  cv_qc: BOARD_COLUMN_LABEL.cv_qc,
+  cv_sent: BOARD_COLUMN_LABEL.cv_sent,
+  client_interview: BOARD_COLUMN_LABEL.client_interview,
+  contract: BOARD_COLUMN_LABEL.contract,
+  hired: BOARD_COLUMN_LABEL.hired,
 };
 
-// `prep_call` to rozmowa PRZED formalnym screeningiem — liczymy ją do "nowi",
-// nie do "screening" (screening = etap `screening` wprost). `rejected` i
-// `withdrawn` to stany terminalne odejścia z procesu — świadomie POZA sześcioma
-// grupami (mini-lejek pokazuje postęp, nie odpady); ich sumę liczy
-// `funnelRejectedTotal` osobno, dla dociekliwych.
-const STAGE_TO_GROUP: Record<string, FunnelGroupKey> = {
-  // `posting` (kandydaci z ogłoszeń) w mini-lejku liczy się do „nowi" —
-  // sześć grup to skrót, osobną kolumnę ma pełna tablica.
-  posting: "new",
-  new: "new",
-  prep_call: "new",
-  screening: "screening",
-  verified: "verified",
-  cv_sent: "with_client",
-  // `interview` = interview WEWNĘTRZNY / techniczny (`StageCategory.internal`
-  // w `models/recruitment_pipeline.py`) — kandydat nie poszedł jeszcze do
-  // klienta, więc liczy się do „zweryfikowani", nie do „u klienta".
-  interview: "verified",
-  client_interview: "with_client",
-  acceptance: "contract",
-  negotiation: "contract",
-  onboarding: "contract",
-  hired: "hired",
+/** Skróty kolumn — raz w nagłówku kolumny „Etapy" listy (pełna nazwa w `title`). */
+export const FUNNEL_GROUP_SHORT: Record<FunnelGroupKey, string> = {
+  new: "Now",
+  screening: "Scr",
+  verified: "Zwe",
+  cv_qc: "QC",
+  cv_sent: "Wys",
+  client_interview: "Roz",
+  contract: "Um",
+  hired: "Zat",
 };
-
-const TERMINAL_NEGATIVE_STAGES: readonly string[] = ["rejected", "withdrawn"];
 
 function isStageSummary(
   input: PipelineStageSummary | Record<string, number>,
@@ -108,14 +93,13 @@ function isStageSummary(
   );
 }
 
-/** Kolumny szablonu z wiersza listy jako `KanbanColumn[]` (bez kart). */
 function stageColumnsOf(
   input: PipelineStageSummary | Record<string, number> | null | undefined,
-): KanbanColumn[] | null {
+): readonly StageColumnSummary[] | null {
   if (!input || !isStageSummary(input) || !Array.isArray(input.stage_columns)) {
     return null;
   }
-  return input.stage_columns.map((c) => ({ ...c, items: c.items ?? [] }));
+  return input.stage_columns;
 }
 
 function stageBreakdownOf(
@@ -139,58 +123,47 @@ export function stageSummaryOf(
   return { stage_columns: row.stage_columns, stage_breakdown: row.stage_breakdown };
 }
 
+/** Każdy wpis (kolumna szablonu albo legacy enum) z kolumną Tablicy. */
+function placedEntries(
+  input: PipelineStageSummary | Record<string, number> | null | undefined,
+): Array<{ column: BoardColumnKey; name: string | null; count: number }> {
+  const columns = stageColumnsOf(input);
+  if (columns) {
+    return columns.map((col) => ({
+      column: placeStage(col).column,
+      name: col.name ?? col.stage ?? null,
+      count: typeof col.count === "number" ? col.count : 0,
+    }));
+  }
+  const breakdown = stageBreakdownOf(input);
+  if (!breakdown) return [];
+  return Object.entries(breakdown)
+    .filter(([, count]) => typeof count === "number")
+    .map(([stage, count]) => ({
+      column: placeStage({ stage }).column,
+      name: null,
+      count,
+    }));
+}
+
 /**
- * `stage_breakdown` surowy z API → sześć grup w stałej kolejności (zawsze
- * wszystkie sześć kluczy, licznik 0 gdy brak kandydatów na danym etapie —
- * stały kształt ułatwia renderowanie paska bez warunków na brakujące klucze).
+ * Wiersz listy → osiem kolumn Tablicy w stałej kolejności (zawsze wszystkie
+ * klucze, 0 gdy nikogo — stały kształt upraszcza render). Odrzuceni i wycofani
+ * (kolumna `closed`) są POZA ośmioma grupami — liczy ich `funnelRejectedTotal`.
  *
- * Nieznany klucz etapu (przyszła wartość enuma, której ta mapa jeszcze nie zna)
- * jest po cichu pomijany z sumy — CELOWO: literówka w mapowaniu ma dać zaniżony
- * pasek, którego brak da się zauważyć na oko, a nie wyjątek wywalający całą listę.
+ * Nieznany kod etapu (przyszła wartość enuma) wpada tam, gdzie wpadłby na
+ * Tablicy (`placeStage` → „Nowi") — lista nie może pokazać innej liczby niż
+ * tablica.
  */
 export function buildStageFunnel(
   input: PipelineStageSummary | Record<string, number> | null | undefined,
 ): FunnelGroup[] {
-  const totals: Record<FunnelGroupKey, number> = {
-    new: 0,
-    screening: 0,
-    verified: 0,
-    with_client: 0,
-    contract: 0,
-    hired: 0,
-  };
-  const columns = stageColumnsOf(input);
-  if (columns) {
-    // Jedna definicja grup z szynami szczegółów. „Umowa → zatrudnieni" jest
-    // tam jedną grupą; mini-lejek listy rozdziela z niej zatrudnionych, żeby
-    // ostatni kubełek mówił o wyniku, nie o etapie.
-    const groups = groupKanbanColumns(columns);
-    const hired = countHired(columns);
-    for (const g of groups) {
-      if (g.key === "intake") totals.new += g.count;
-      // „Ogłoszenia" to też kandydaci na wejściu — bez tej linii mini-lejek
-      // listy i dok „Gotowość" gubiły ich (lista „1·0·0", tablica 5 kart).
-      else if (g.key === "posting") totals.new += g.count;
-      else if (g.key === "screening") totals.screening += g.count;
-      else if (g.key === "verification") totals.verified += g.count;
-      else if (g.key === "client") totals.with_client += g.count;
-      else if (g.key === "contract") totals.contract += g.count - hired;
-    }
-    totals.hired += hired;
-    return FUNNEL_GROUP_ORDER.map((key) => ({
-      key,
-      label: FUNNEL_GROUP_LABELS[key],
-      count: totals[key],
-    }));
-  }
-  const stageBreakdown = stageBreakdownOf(input);
-  if (stageBreakdown) {
-    for (const [stage, count] of Object.entries(stageBreakdown)) {
-      const group = STAGE_TO_GROUP[stage];
-      if (group && typeof count === "number") {
-        totals[group] += count;
-      }
-    }
+  const totals = Object.fromEntries(
+    FUNNEL_GROUP_ORDER.map((key) => [key, 0]),
+  ) as Record<FunnelGroupKey, number>;
+  for (const entry of placedEntries(input)) {
+    if (entry.column === "closed") continue;
+    totals[entry.column] += entry.count;
   }
   return FUNNEL_GROUP_ORDER.map((key) => ({
     key,
@@ -199,25 +172,18 @@ export function buildStageFunnel(
   }));
 }
 
-/** Suma sześciu grup — "ile kandydatów jest gdziekolwiek w tej rekrutacji". */
+/** Suma ośmiu grup — "ile kandydatów jest gdziekolwiek w tej rekrutacji". */
 export function funnelTotal(groups: readonly FunnelGroup[]): number {
   return groups.reduce((sum, g) => sum + g.count, 0);
 }
 
-/** Odrzuceni + wycofani — poza sześcioma grupami, liczeni osobno. */
+/** Odrzuceni + wycofani (+ rezerwa) — poza ośmioma grupami, liczeni osobno. */
 export function funnelRejectedTotal(
   input: PipelineStageSummary | Record<string, number> | null | undefined,
 ): number {
-  const columns = stageColumnsOf(input);
-  if (columns) {
-    return groupKanbanColumns(columns).find((g) => g.key === "closed")?.count ?? 0;
-  }
-  const stageBreakdown = stageBreakdownOf(input);
-  if (!stageBreakdown) return 0;
-  return TERMINAL_NEGATIVE_STAGES.reduce(
-    (sum, stage) => sum + (stageBreakdown[stage] ?? 0),
-    0,
-  );
+  return placedEntries(input)
+    .filter((entry) => entry.column === "closed")
+    .reduce((sum, entry) => sum + entry.count, 0);
 }
 
 /** Krótki opis do `title` (tooltip) paska — pomija grupy zerowe. */
@@ -233,51 +199,28 @@ export interface FunnelStageDetail {
   count: number;
 }
 
-const PIPELINE_TO_FUNNEL_GROUP: Record<string, FunnelGroupKey | undefined> = {
-  intake: "new",
-  posting: "new",
-  screening: "screening",
-  verification: "verified",
-  client: "with_client",
-  contract: "contract",
-};
-
 /**
- * Pełne nazwy etapów wchodzących w każdą z sześciu grup, z liczbami — żeby
- * zwarta liczba w wierszu listy dała się rozwinąć tooltipem do tego, co widać
- * na tablicy („Zweryfikowani: Przepuszczony przez DZ 2 · Wysłać do Cpro 1").
- *
- * Grupowanie idzie TĄ SAMĄ funkcją co `buildStageFunnel`, więc suma nazw
- * w tooltipie równa się liczbie w komórce. Bez `stage_columns` (stara
- * odpowiedź z samym `stage_breakdown`) nazw nie znamy — zwracamy puste listy,
- * a konsument pokazuje samą nazwę grupy.
+ * Pełne nazwy etapów szablonu wchodzących w każdą z ośmiu kolumn, z liczbami
+ * — zwarta liczba w wierszu listy rozwija się tooltipem do tego, co widać na
+ * tablicy („QC CV: Przepuszczony przez DZ 2 · Wysłać do Cpro 1"). Grupuje ta
+ * sama reguła co `buildStageFunnel`, więc suma nazw równa się liczbie
+ * w komórce. Bez `stage_columns` nazw nie znamy — puste listy.
  */
 export function funnelGroupStages(
   input: PipelineStageSummary | Record<string, number> | null | undefined,
 ): Record<FunnelGroupKey, FunnelStageDetail[]> {
-  const out: Record<FunnelGroupKey, FunnelStageDetail[]> = {
-    new: [],
-    screening: [],
-    verified: [],
-    with_client: [],
-    contract: [],
-    hired: [],
-  };
-  const columns = stageColumnsOf(input);
-  if (!columns) return out;
-  for (const group of groupKanbanColumns(columns)) {
-    const target = PIPELINE_TO_FUNNEL_GROUP[group.key];
-    if (!target) continue;
-    for (const col of group.columns) {
-      const key: FunnelGroupKey =
-        target === "contract" && terminalOf(col) === "hired" ? "hired" : target;
-      out[key].push({ name: col.name ?? col.stage, count: col.count ?? 0 });
-    }
+  const out = Object.fromEntries(
+    FUNNEL_GROUP_ORDER.map((key) => [key, [] as FunnelStageDetail[]]),
+  ) as Record<FunnelGroupKey, FunnelStageDetail[]>;
+  if (!stageColumnsOf(input)) return out;
+  for (const entry of placedEntries(input)) {
+    if (entry.column === "closed") continue;
+    out[entry.column].push({ name: entry.name ?? "", count: entry.count });
   }
   return out;
 }
 
-/** `title` jednej grupy: „Nowi: Nowy 2 · Prep call 1" albo sama nazwa + suma. */
+/** `title` jednej grupy: „Nowi: Nowy 2 · Ogłoszenia 1" albo nazwa + suma. */
 export function funnelGroupTitle(
   group: FunnelGroup,
   stages: readonly FunnelStageDetail[],

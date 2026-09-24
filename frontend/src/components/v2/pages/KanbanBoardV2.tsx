@@ -96,6 +96,7 @@ import {
  type BoardColumnKey,
  type StageBadgeKey,
 } from "@/lib/board-stages";
+import { boardColumnPurpose } from "@/lib/board-column-purpose";
 import { hasRole, useAuthStore } from "@/store/auth";
 import {
  CARD_BADGE_TONE_CLASS,
@@ -225,6 +226,9 @@ interface KanbanBoardV2Props {
  /** Panel „Dodaj kandydatów" (Rekrutacja v5) — otwiera go strona; bez tej
   *  funkcji kolumna „Nowi" pokazuje dawne karty propozycji. */
  onOpenAddCandidates?: (tab: "search" | "proposals") => void;
+ /** „Ścieżka rekrutacji" w nagłówku: przewiń do kolumny Tablicy i podświetl
+  *  ją na chwilę. `seq` rozróżnia kolejne kliknięcia tej samej kolumny. */
+ focusColumnRequest?: { column: BoardColumnKey; seq: number } | null;
 }
 
 const CATEGORY_COLOR: Record<string, string> = {
@@ -566,10 +570,23 @@ function NextActionRow({
  ) : label ? (
   <Icon className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
  ) : null}
- <span className="min-w-0 flex-1 truncate">{label}</span>
+ {/* Dwie linie zamiast ucinania: „Twój ruch" / imię zabiera miejsce,
+ a „Przygotuj C…" nie mówi, co zrobić. */}
+ <span className="min-w-0 flex-1 line-clamp-2" title={label}>{label}</span>
  {advance}
  </div>
  );
+}
+
+/** Zwykły klik lewym przyciskiem — bez modyfikatorów „otwórz w nowej karcie". */
+export function isPlainLeftClick(e: {
+ button: number;
+ metaKey: boolean;
+ ctrlKey: boolean;
+ shiftKey: boolean;
+ altKey: boolean;
+}): boolean {
+ return e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey;
 }
 
 /** Ton chipu QC — tokeny, jak odznaki karty. */
@@ -635,27 +652,30 @@ const STAGE_BADGE_TONE: Record<StageBadgeKey, string> = {
 // (sprzed 0352, import) liczy się jako „przez nas", jak w statystykach.
 const CLOSED_BY_SEP = "::";
 type ClosedRejectBy = "recruiter" | "delivery_lead" | "client";
-const CLOSED_REJECT_GROUPS: { by: ClosedRejectBy; label: string }[] = [
- { by: "recruiter", label: "Odrzucony przez nas" },
- { by: "delivery_lead", label: "Odrzucony przez DL" },
- { by: "client", label: "Odrzucony przez klienta" },
+// `short` stoi na chipie po „Zamknięci:" w pasku filtrów (24.09.2026),
+// `label` — w nazwie dostępnej i dymku.
+const CLOSED_REJECT_GROUPS: { by: ClosedRejectBy; label: string; short: string }[] = [
+ { by: "recruiter", label: "Odrzucony przez nas", short: "przez nas" },
+ { by: "delivery_lead", label: "Odrzucony przez DL", short: "przez DL" },
+ { by: "client", label: "Odrzucony przez klienta", short: "przez klienta" },
 ];
 
 function closedChips(closed: KanbanColumn[]) {
  return closed.flatMap((c) => {
  const terminal = terminalOf(c);
  if (terminal === "withdrawn") {
- return [{ col: c, droppableId: colId(c), label: "Zrezygnował", count: c.count }];
+ return [{ col: c, droppableId: colId(c), label: "Zrezygnował", short: "zrezygnował", count: c.count }];
  }
  if (terminal === "rejected") {
- return CLOSED_REJECT_GROUPS.map(({ by, label }) => ({
+ return CLOSED_REJECT_GROUPS.map(({ by, label, short }) => ({
  col: c,
  droppableId: `${colId(c)}${CLOSED_BY_SEP}${by}`,
  label,
+ short,
  count: c.items.filter((i) => (i.ended_by ?? "recruiter") === by).length,
  }));
  }
- return [{ col: c, droppableId: colId(c), label: null as string | null, count: c.count }];
+ return [{ col: c, droppableId: colId(c), label: columnLabel(c), short: columnLabel(c), count: c.count }];
  });
 }
 
@@ -763,7 +783,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  const v5 = React.useContext(BoardV4Context);
  const boardKey = v5?.columnByItemId.get(item.id) ?? null;
  const nextStep = v5
- ? cardNextStep(nextAction, item, { column: boardKey, cproEnabled: v5.cproEnabled, stageBadge })
+ ? cardNextStep(nextAction, item, { column: boardKey, cproEnabled: v5.cproEnabled, stageBadge, viewerId: v5.viewerId })
  : null;
  const nextColumnLabel = v5 && !readOnly ? v5.nextColumnLabel(item) : null;
  const forwardGap = nextColumnLabel ? knownForwardGap(item, boardKey) : null;
@@ -925,9 +945,10 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  )}
 
  {/* Krok 04 Pipeline (flow C2): klik w TREŚĆ karty otwiera dok „Karta
- w procesie" (`handleCardClick` na kontenerze). Do profilu prowadzi
- wyłącznie nazwisko (link niżej) oraz „Pełny profil" w doku. Wcześniej
- link owijał całą treść, więc dok dało się otworzyć tylko z paddingu. */}
+ w procesie" (`handleCardClick` na kontenerze). Od 24.09.2026 także
+ zwykły klik w nazwisko otwiera dok (wcześniej wyrzucał na profil,
+ czyli z rekrutacji); profil w nowej karcie daje Ctrl/⌘-klik na
+ nazwisku i „Pełny profil" w doku. */}
  {/* Wiersz 1 makiety: nazwisko (do dwóch linii, bez ucinania w połowie)
  + pierścień wyniku po prawej. Wielki awatar kandydata odpadł razem
  z jednolinijkowym nazwiskiem — przy ~176 px szerokości kolumny to on
@@ -942,7 +963,17 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  href={`/candidates/${item.candidate_id}?${encodeJobBackRef(jobId).toString()}`}
  aria-label={fullName}
  aria-describedby={accessibleDetails ? detailsId : undefined}
- onClick={(e) => e.stopPropagation()}
+ // Zwykły klik w nazwisko otwiera dok osoby — jak klik w kartę — i NIE
+ // wyrzuca z rekrutacji (24.09.2026). Ctrl/⌘/Shift/środkowy przycisk
+ // zostawiamy przeglądarce: profil w nowej karcie, prawdziwy `href` dla
+ // czytników ekranu i „Kopiuj adres linku".
+ onClick={(e) => {
+ e.stopPropagation();
+ if (isPlainLeftClick(e)) {
+ e.preventDefault();
+ onOpenDock(item);
+ }
+ }}
  // `break-words`, NIE `overflow-wrap:anywhere` — to drugie łamie nazwisko
  // w środku wyrazu przy ~176 px kolumny („Wojcie/ch Wyleżoł"), czyli robi
  // dokładnie to, czego ta karta miała się pozbyć.
@@ -1272,6 +1303,11 @@ interface ColProps {
  extraCount?: number;
  /** Numer kroku procesu (1–8) w nagłówku kolumny Tablicy; `null` = bez numeru. */
  step?: number | null;
+ /** „Co tu robisz" pod nazwą kolumny (`lib/board-column-purpose.ts`);
+  *  `null` = własny etap szablonu — zostaje dawna linia SLA. */
+ purpose?: string | null;
+ /** Krótkie podświetlenie po skoku ze „Ścieżki rekrutacji". */
+ highlighted?: boolean;
 }
 
 const KanbanColumnV2 = memo(function KanbanColumnV2({
@@ -1301,8 +1337,15 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  badgeByItemId,
  extraCount = 0,
  step = null,
+ purpose = null,
+ highlighted = false,
 }: ColProps) {
  const headerCount = col.count + extraCount;
+ // Pusta kolumna jest WĄSKA (24.09.2026): przy 1440 px osiem kolumn mieści się
+ // bez przewijania, gdy połowa jest pusta. Tylko na desktopie z myszą i poza
+ // trybem kafelków (tam kolumny i tak dzielą szerokość); `droppableId`
+ // i indeksy kart się nie zmieniają, więc upuszczanie działa jak dotąd.
+ const narrow = headerCount === 0 && prepend == null;
  const dropId = colId(col);
  // `Boolean(...)` obowiązkowo — @hello-pangea/dnd ma twardy invariant
  // („isDropDisabled must be a boolean"), a `undefined` wywala całą tablicę.
@@ -1336,10 +1379,15 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  // przewijania. Kolumny: podłoga 12,5 rem (200 px), nadmiar przewija się
  // w poziomie — patrz `lib/kanban-view-preferences.ts`.
  fullPipelineDesktop && desktopOverview &&"xl:pointer-fine:w-0 xl:pointer-fine:min-w-0 xl:pointer-fine:basis-0 xl:pointer-fine:grow xl:pointer-fine:shrink",
- fullPipelineDesktop && !desktopOverview &&"xl:pointer-fine:w-auto xl:pointer-fine:min-w-[12.5rem] xl:pointer-fine:basis-[12.5rem] xl:pointer-fine:grow"
+ // Podłoga 11,5 rem (184 px) — przy 12,5 rem cztery kolumny z kartami
+ // i cztery wąskie puste nie mieściły się w 1440 px z przypiętym paskiem.
+ fullPipelineDesktop && !desktopOverview && !narrow &&"xl:pointer-fine:w-auto xl:pointer-fine:min-w-[11.5rem] xl:pointer-fine:basis-[11.5rem] xl:pointer-fine:grow",
+ !desktopOverview && narrow &&"xl:pointer-fine:w-24 xl:pointer-fine:min-w-24 xl:pointer-fine:basis-24 xl:pointer-fine:grow-0",
+ highlighted &&"ring-2 ring-primary"
  )}
+ data-narrow={narrow && !desktopOverview ? "true" : undefined}
  >
- <div className={cn("sticky top-0 z-10 rounded-t-lg bg-background/95 backdrop-blur-xs border-b border-border flex items-center gap-2", density === "compact" ?"px-3 py-2" :"px-4 py-3", desktopOverview &&"xl:pointer-fine:min-h-14 xl:pointer-fine:flex-col xl:pointer-fine:items-stretch xl:pointer-fine:gap-1 xl:pointer-fine:px-1 xl:pointer-fine:py-1.5")}>
+ <div className={cn("sticky top-0 z-10 rounded-t-lg bg-background/95 backdrop-blur-xs border-b border-border flex items-center gap-2", density === "compact" ?"px-3 py-2" :"px-4 py-3", desktopOverview &&"xl:pointer-fine:min-h-14 xl:pointer-fine:flex-col xl:pointer-fine:items-stretch xl:pointer-fine:gap-1 xl:pointer-fine:px-1 xl:pointer-fine:py-1.5", !desktopOverview && narrow &&"xl:pointer-fine:flex-wrap xl:pointer-fine:gap-1 xl:pointer-fine:px-2")}>
  {col.category && (
  <Tooltip>
  <TooltipTrigger asChild>
@@ -1366,7 +1414,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  {step}
  </span>
  )}
- <h3 className={cn("text-foreground flex-1 min-w-0 line-clamp-2 leading-tight [overflow-wrap:normal]", density === "compact" ?"text-sm font-medium" :"text-base font-semibold", desktopOverview &&"xl:pointer-fine:line-clamp-2 xl:pointer-fine:whitespace-normal xl:pointer-fine:text-center xl:pointer-fine:text-[10px] xl:pointer-fine:leading-tight xl:pointer-fine:[overflow-wrap:anywhere]")} title={titleOverride ?? columnLabel(col)}>
+ <h3 className={cn("text-foreground flex-1 min-w-0 line-clamp-2 leading-tight [overflow-wrap:normal]", density === "compact" ?"text-sm font-medium" :"text-base font-semibold", desktopOverview &&"xl:pointer-fine:line-clamp-2 xl:pointer-fine:whitespace-normal xl:pointer-fine:text-center xl:pointer-fine:text-[10px] xl:pointer-fine:leading-tight xl:pointer-fine:[overflow-wrap:anywhere]", !desktopOverview && narrow &&"xl:pointer-fine:order-last xl:pointer-fine:basis-full xl:pointer-fine:text-xs xl:pointer-fine:font-medium")} title={titleOverride ?? columnLabel(col)}>
  {titleOverride ?? columnLabel(col)}
  </h3>
  <Badge size="sm" variant={headerCount > 0 ?"soft" :"outline"} className={cn(desktopOverview &&"xl:pointer-fine:h-4 xl:pointer-fine:min-w-4 xl:pointer-fine:self-center xl:pointer-fine:px-1 xl:pointer-fine:text-[10px]")}>
@@ -1374,17 +1422,25 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  </Badge>
  </div>
 
- {/* Druga linia nagłówka: SLA klienta po lewej, najstarsza karta po prawej.
- „SLA: —" zamiast pustki — cisza czytałaby się jak „zdążamy", a prawda
- jest taka, że na tej kolumnie nikt nic nie mierzy. */}
+ {/* Druga linia nagłówka (24.09.2026): „co tu robisz" po lewej, SLA
+ klienta / najstarsza karta po prawej. Własny etap szablonu (bez znanego
+ znaczenia) zostaje przy dawnym „SLA: —" — cisza czytałaby się jak
+ „zdążamy". Pełna informacja o SLA siedzi w `title`. */}
  <div
  data-column-sla={dropId}
+ title={[slaHint.left, slaHint.right].filter(Boolean).join(" · ")}
  className={cn(
- "flex items-center justify-between gap-2 border-b border-border px-3 pb-1.5 pt-1 text-[10px] text-muted-foreground",
+ "flex items-start justify-between gap-2 border-b border-border px-3 pb-1.5 pt-1 text-[10px] text-muted-foreground",
+ !desktopOverview && narrow && "xl:pointer-fine:flex-wrap xl:pointer-fine:gap-0.5 xl:pointer-fine:px-2",
  desktopOverview && "xl:pointer-fine:hidden"
  )}
  >
- <span className="min-w-0 truncate">{slaHint.left}</span>
+ <span
+ data-column-purpose={purpose ? "true" : undefined}
+ className={cn("min-w-0", purpose ? "line-clamp-2 font-medium leading-snug text-foreground/80" : "truncate")}
+ >
+ {purpose ?? slaHint.left}
+ </span>
  {slaHint.right && (
  <span
  className={cn(
@@ -1469,6 +1525,18 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  )}
  </Draggable>
  ))}
+ {headerCount === 0 && !snapshot.isDraggingOver && !readOnly && !noDrop && (
+ <div
+ aria-hidden="true"
+ data-testid="column-drop-hint"
+ className={cn(
+ "rounded-md border border-dashed border-border px-1 py-6 text-center text-[10px] text-muted-foreground",
+ desktopOverview && "xl:pointer-fine:hidden"
+ )}
+ >
+ upuść tutaj
+ </div>
+ )}
  {provided.placeholder}
  </div>
  )}
@@ -1488,7 +1556,7 @@ const MIN_COLUMN_HEIGHT = 280;
 // `p-4` obszaru treści powłoki (góra + dół) — patrz pomiar planszy na telefonie.
 const MOBILE_MAIN_PADDING_Y = 32;
 
-export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoading, headerCollapsed, offTemplate, readOnly = false, clientId = null, initialDockCandidateId = null, onInitialDockHandled, onDockCandidateChange, workbenchContext, kanbanQueryState, initialWorkbench = null, onInitialWorkbenchHandled, cproEnabled = false, onOpenAddCandidates }: KanbanBoardV2Props) {
+export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoading, headerCollapsed, offTemplate, readOnly = false, clientId = null, initialDockCandidateId = null, onInitialDockHandled, onDockCandidateChange, workbenchContext, kanbanQueryState, initialWorkbench = null, onInitialWorkbenchHandled, cproEnabled = false, onOpenAddCandidates, focusColumnRequest = null }: KanbanBoardV2Props) {
  const density = useUiStore((s) => s.density);
  const setDensity = useUiStore((s) => s.setDensity);
  // Krok 04 Pipeline (flow C2, PR 3/7): globalny przełącznik, jak `density` —
@@ -1867,6 +1935,24 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  },
  [scrollToColumn]
  );
+
+ // Skok ze „Ścieżki rekrutacji" (nagłówek strony): przewiń i podświetl.
+ const [highlightColId, setHighlightColId] = useState<string | null>(null);
+ const handledFocusSeq = useRef<number | null>(null);
+ useEffect(() => {
+ if (!focusColumnRequest || handledFocusSeq.current === focusColumnRequest.seq) return;
+ const fold = boardFold.columns.find((f) => f.key === focusColumnRequest.column);
+ if (!fold) return;
+ handledFocusSeq.current = focusColumnRequest.seq;
+ const id = colId(fold.host);
+ focusColumn(id);
+ setHighlightColId(id);
+ }, [focusColumnRequest, boardFold, focusColumn]);
+ useEffect(() => {
+ if (!highlightColId) return;
+ const timer = window.setTimeout(() => setHighlightColId(null), 1600);
+ return () => window.clearTimeout(timer);
+ }, [highlightColId]);
 
  const initialFocusApplied = useRef(false);
  useEffect(() => {
@@ -2682,9 +2768,62 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  });
  const desktopOverview = viewMode === "tiles";
 
+ // Zamknięci w JEDNEJ linii z filtrami (24.09.2026): „Zamknięci:" + chipy.
+ // Każdy chip jest celem upuszczenia (odrzucenie z powodem jak dotąd), klik
+ // rozwija ich pełne kolumny na końcu tablicy.
+ const closedBar =
+ boardFold.closed.length > 0 ? (
+ <span
+ data-testid="board-closed-bar"
+ data-help="jobs.board.closed"
+ className="inline-flex flex-wrap items-center gap-1 text-[11px]"
+ >
+ <span className="text-muted-foreground">Zamknięci:</span>
+ {showClosed ? (
+ <button
+ type="button"
+ onClick={() => setShowClosed(false)}
+ className="rounded-full border border-border px-2 py-0.5 text-muted-foreground hover:bg-accent pointer-coarse:min-h-9"
+ >
+ Zwiń zamkniętych
+ </button>
+ ) : (
+ closedChips(boardFold.closed).map(({ droppableId, label, short, count }) => (
+ <Droppable key={droppableId} droppableId={droppableId} isDropDisabled={readOnly}>
+ {(provided, snapshot) => (
+ <span
+ ref={provided.innerRef}
+ {...provided.droppableProps}
+ className={cn(
+ "inline-flex rounded-full border border-dashed border-border transition-colors",
+ snapshot.isDraggingOver && "border-destructive bg-destructive/10"
+ )}
+ >
+ <button
+ type="button"
+ onClick={() => setShowClosed(true)}
+ aria-label={`${label}: ${count} — pokaż kolumny zamkniętych`}
+ title={`${label} — upuść tu kartę albo kliknij, żeby zobaczyć osoby`}
+ className="px-2 py-0.5 text-muted-foreground hover:text-foreground pointer-coarse:min-h-9"
+ >
+ {short}{" "}
+ <span className="font-semibold tabular-nums text-foreground">{count}</span>
+ </button>
+ <span className="hidden">{provided.placeholder}</span>
+ </span>
+ )}
+ </Droppable>
+ ))
+ )}
+ </span>
+ ) : null;
+
  return (
  <BoardV4Context.Provider value={boardV4}>
  <div className="relative space-y-3">
+ {/* DragDropContext obejmuje też pasek filtrów: chipy zamkniętych stoją
+ w nim (jedna linia, 24.09.2026) i są celami upuszczenia. */}
+ <DragDropContext onDragEnd={onDragEnd}>
  {/* Krok 04 Pipeline: lewa kolumna filtrów i tablica. Dok „Karta
  kandydata" NIE zajmuje kolumny siatki — wysuwa się z prawej dopiero po
  kliknięciu karty (przegląd UX 17.09.2026: stała trzecia kolumna zjadała
@@ -2727,6 +2866,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  (sum, c) => sum + (c.category === "terminal" ? 0 : c.count),
  0
  )}
+ closed={closedBar}
  />
 
  <div className={cn("min-w-0 space-y-3", dockItem && dockItemColLabel !== null &&"lg:pr-[380px]")}>
@@ -2858,52 +2998,6 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  )}
 
  {/* Board */}
- <DragDropContext onDragEnd={onDragEnd}>
- {/* Odrzuceni / wycofani (i rezerwa) nie zajmują kolumn — pasek nad
- tablicą. Każdy chip jest celem upuszczenia (odrzucenie z powodem jak
- dotąd), klik rozwija ich pełne kolumny. */}
- {boardFold.closed.length > 0 && (
- <div
- data-testid="board-closed-bar"
- data-help="jobs.board.closed"
- className="mb-2 flex flex-wrap items-center justify-end gap-1.5 text-xs"
- >
- {showClosed ? (
- <button
- type="button"
- onClick={() => setShowClosed(false)}
- className="rounded-md border border-border px-2 py-1 text-muted-foreground hover:bg-accent"
- >
- Zwiń zamkniętych
- </button>
- ) : (
- closedChips(boardFold.closed).map(({ col: c, droppableId, label, count }) => (
- <Droppable key={droppableId} droppableId={droppableId} isDropDisabled={readOnly}>
- {(provided, snapshot) => (
- <div
- ref={provided.innerRef}
- {...provided.droppableProps}
- className={cn(
- "rounded-md border border-dashed border-border transition-colors",
- snapshot.isDraggingOver && "border-destructive bg-destructive/10"
- )}
- >
- <button
- type="button"
- onClick={() => setShowClosed(true)}
- className="px-2 py-1 text-muted-foreground hover:text-foreground"
- >
- {label ?? columnLabel(c)}{" "}
- <span className="font-semibold tabular-nums text-foreground">{count}</span> →
- </button>
- <div className="hidden">{provided.placeholder}</div>
- </div>
- )}
- </Droppable>
- ))
- )}
- </div>
- )}
  <div
  ref={boardRef}
  data-testid="pipeline-board"
@@ -2995,6 +3089,12 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  slaDays={slaDays}
  badgeByItemId={boardFold.badgeByItemId}
  step={boardColumnStep(boardKeyByColId.get(entry.key))}
+ purpose={boardColumnPurpose(boardKeyByColId.get(entry.key), {
+ cproEnabled,
+ hired: entry.col.count,
+ headcount: workbenchContext?.headcount ?? null,
+ })}
+ highlighted={highlightColId === entry.key}
  {...(boardLabelByColId.has(entry.key)
  ? { titleOverride: boardLabelByColId.get(entry.key) }
  : {})}
@@ -3021,10 +3121,10 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  </>
  )}
  </div>
- </DragDropContext>
  </div>
 
  </div>
+ </DragDropContext>
 
  {dockItem && dockItemColLabel !== null && (
  // Tablet (768–1023): dok nakrywa prawe kolumny planszy, a plansza nie ma

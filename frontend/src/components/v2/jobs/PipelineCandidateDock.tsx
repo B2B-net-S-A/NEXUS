@@ -80,8 +80,22 @@ import { CVShareLinkModal } from "@/components/v2/modals/CVShareLinkModal";
 import { SendEmailV2 } from "@/components/v2/modals/SendEmailV2";
 import { isOverHourlyBudget } from "@/lib/rate-to-hourly";
 import { CV_CLIENT_LINKS_UI_ENABLED } from "@/lib/cv-generator";
-import { stageCvBadge, stageCvStatus } from "@/lib/cv-to-client";
+import { stageCvStatus } from "@/lib/cv-to-client";
 import { CvGeneratorDialog } from "@/components/v2/cv-generator/CvGeneratorDialog";
+import { CvQcDialog } from "@/components/v2/recruitment/CvQcDialog";
+import { DebriefRequiredDialog } from "@/components/v2/recruitment/DebriefRequiredDialog";
+import { DockNextStage } from "@/components/v2/jobs/DockNextStage";
+import {
+  MOVE_REQUIREMENTS_PREFIX,
+  type MoveRequirementAction,
+} from "@/lib/api/moveRequirements";
+import {
+  companyCvSentence,
+  dockOriginalCv,
+  originalCvSentence,
+  type DockProfileCvDoc,
+} from "@/lib/dock-cv-summary";
+import type { CandidateDocument } from "@/components/v2/files/FilePreviewModal";
 
 // Edytor brandowanego CV jest ciężki (rich text) — leniwy import jak w
 // CandidateDetailV2, żeby nie puchła zakładka Pipeline dla osób, które go
@@ -92,6 +106,13 @@ import { CvGeneratorDialog } from "@/components/v2/cv-generator/CvGeneratorDialo
 const deferMenuAction = (action: () => void) => {
   window.setTimeout(action, 0);
 };
+
+// Podgląd CV z profilu (PDF/DOCX) — ten sam modal co karta CV na profilu
+// kandydata; leniwie, bo niesie podgląd DOCX i pdf.js.
+const FilePreviewModal = dynamic(
+  () => import("@/components/v2/files/FilePreviewModal").then((m) => m.FilePreviewModal),
+  { ssr: false }
+);
 
 const CVBrandedEditModal = dynamic(
   () =>
@@ -213,6 +234,7 @@ interface CandidateDetail {
   max_onsite_days_per_week?: number | null;
   linkedin_current_title?: string | null;
   linkedin_current_company?: string | null;
+  cv_filename?: string | null;
 }
 
 /** Etykiety statusu kandydata — lustro `CandidateStatus` z backendu. */
@@ -446,6 +468,10 @@ export function PipelineCandidateDock({
   const [openShare, setOpenShare] = useState(false);
   const [openEmail, setOpenEmail] = useState(false);
   const [noteText, setNoteText] = useState("");
+  // Okna akcji z ramki „Następny etap” (te same, które otwiera „Przesuń dalej”).
+  const [qcStageId, setQcStageId] = useState<number | null>(null);
+  const [debriefEventId, setDebriefEventId] = useState<number | null>(null);
+  const [profileCvPreviewId, setProfileCvPreviewId] = useState<number | null>(null);
 
   // Zmiana kandydata (nowy klik na tablicy) — wróć na pierwszą zakładkę i
   // wyczyść niedokończony draft notatki; inaczej dok pokazywałby zakładkę
@@ -531,7 +557,18 @@ export function PipelineCandidateDock({
   });
   const brandedStatus = cvBrandedQuery.data?.status ?? "none";
   const stageCv = stageCvStatus(cvBrandedQuery.data);
-  const stageCvBadgeInfo = stageCvBadge(cvBrandedQuery.data);
+  // Oryginał z profilu — pytamy tylko, gdy etap nie ma kopii ze zgłoszenia.
+  // Klucz wspólny z kartą CV na profilu kandydata.
+  const snapshotMissing = cvOriginalQuery.isSuccess && !cvOriginalQuery.data?.has_snapshot;
+  const profileCvQuery = useQuery<CandidateDocument[]>({
+    queryKey: candidateQueryKeys.cvDocuments(item.candidate_id),
+    queryFn: () =>
+      api
+        .get<CandidateDocument[]>(`/api/candidates/${item.candidate_id}/documents?kind=cv`)
+        .then((r) => (Array.isArray(r.data) ? r.data : [])),
+    enabled: isOpen("cv") && (snapshotMissing || cvOriginalQuery.isError),
+    staleTime: 30_000,
+  });
 
   // ── Notatki — przypięte do TEJ rekrutacji (candidate_id + job_id) ──────
   const notesQueryKey = useMemo(
@@ -586,6 +623,74 @@ export function PipelineCandidateDock({
     staleTime: 60_000,
   });
   const candidate = candidateDetailQuery.data ?? null;
+
+  const originalCv = dockOriginalCv({
+    snapshot: cvOriginalQuery.data,
+    snapshotLoading: cvOriginalQuery.isLoading,
+    profileDocs: profileCvQuery.data as DockProfileCvDoc[] | undefined,
+    profileDocsFailed: profileCvQuery.isError,
+    cvFilename: candidate?.cv_filename ?? null,
+  });
+  const companyCv = companyCvSentence(cvBrandedQuery.data);
+  const profileHref = `/candidates/${item.candidate_id}?${encodeJobBackRef(jobId).toString()}`;
+
+  // ── Ramka „Następny etap”: przyciski usuwające braki. Każda akcja otwiera
+  //    istniejące okno; przycisku, którego dok nie umie obsłużyć, nie ma.
+  const verifiedTarget =
+    primaryTarget?.stage === "verified"
+      ? primaryTarget
+      : (moveTargets.find((t) => t.col.stage === "verified" && !t.blockedReason)?.col ?? null);
+  const refreshMoveRequirements = () => {
+    void queryClient.invalidateQueries({ queryKey: MOVE_REQUIREMENTS_PREFIX });
+  };
+  const canActOnRequirement = (action: MoveRequirementAction): boolean => {
+    switch (action.kind) {
+      case "open_screening":
+      case "open_qc":
+      case "generate_cv":
+        return true;
+      case "set_candidate_rate":
+        return verifiedTarget != null;
+      case "set_client_rate":
+        return Boolean(onOpenWorkbench);
+      case "open_debrief":
+        return action.event_id != null || Boolean(onOpenWorkbench);
+      case "request_slots":
+        return Boolean(onAddClientSlots);
+      default:
+        return false;
+    }
+  };
+  const handleRequirementAction = (action: MoveRequirementAction) => {
+    const stageId = action.stage_id ?? item.id;
+    switch (action.kind) {
+      case "open_screening":
+        onOpenScreening(stageId, fullName);
+        return;
+      case "open_qc":
+        setQcStageId(stageId);
+        return;
+      case "generate_cv":
+        setOpenGenerator(true);
+        return;
+      case "set_candidate_rate":
+        // Stawkę kandydata zapisuje ruch na „Zweryfikowany” (okno stawki).
+        if (verifiedTarget) onMoveTo(verifiedTarget);
+        return;
+      case "set_client_rate":
+        onOpenWorkbench?.("cv");
+        return;
+      case "open_debrief":
+        if (action.event_id != null) setDebriefEventId(action.event_id);
+        else onOpenWorkbench?.("interviews");
+        return;
+      case "request_slots":
+        onAddClientSlots?.();
+        return;
+      default:
+        return;
+    }
+  };
 
   const availabilityLabel = candidate?.availability_date
     ? `od ${formatDate(candidate.availability_date)}`
@@ -663,8 +768,19 @@ export function PipelineCandidateDock({
             {initials}
           </div>
           <div className="min-w-0 flex-1">
-            <div className="truncate text-sm font-semibold text-foreground">
-              {fullName}
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="truncate text-sm font-semibold text-foreground">
+                {fullName}
+              </span>
+              <Link
+                href={profileHref}
+                target="_blank"
+                rel="noopener"
+                aria-label={`Profil kandydata ${fullName} — otwiera się w nowej karcie`}
+                className="inline-flex shrink-0 items-center gap-0.5 rounded-md px-1 text-[11px] font-semibold text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                Profil <span aria-hidden="true">↗</span>
+              </Link>
             </div>
             {/* Podtytuł: stanowisko · firma · miasto · wynik. Człony, których
                 nie znamy, po prostu nie wchodzą — myślnik w środku listy
@@ -731,14 +847,16 @@ export function PipelineCandidateDock({
         {!readOnly && (
           <div className="space-y-1.5" data-help="jobs.person.actions">
             {primaryTarget ? (
-              <Button
-                size="sm"
-                onClick={() => onMoveTo(primaryTarget)}
-                className="w-full justify-center"
-              >
-                <ChevronRight className="h-3.5 w-3.5" />
-                Przenieś na etap: {primaryTarget.name ?? primaryTarget.stage}
-              </Button>
+              <DockNextStage
+                candidateId={item.candidate_id}
+                jobId={jobId}
+                target={primaryTarget}
+                readOnly={readOnly}
+                onMove={onMoveTo}
+                onAction={handleRequirementAction}
+                canAct={canActOnRequirement}
+                refreshToken={item}
+              />
             ) : primaryBlocked ? (
               <div className="space-y-1">
                 <Button
@@ -823,7 +941,7 @@ export function PipelineCandidateDock({
               <PersonMoreMenu
                 onOpenCv={() => setOpenOriginal(true)}
                 onSendEmail={() => setOpenEmail(true)}
-                profileHref={`/candidates/${item.candidate_id}?${encodeJobBackRef(jobId).toString()}`}
+                profileHref={profileHref}
               />
             </div>
           </div>
@@ -860,7 +978,7 @@ export function PipelineCandidateDock({
           <PersonMoreMenu
             onOpenCv={() => setOpenOriginal(true)}
             onSendEmail={() => setOpenEmail(true)}
-            profileHref={`/candidates/${item.candidate_id}?${encodeJobBackRef(jobId).toString()}`}
+            profileHref={profileHref}
           />
         )}
       </div>
@@ -1088,41 +1206,78 @@ export function PipelineCandidateDock({
         <DockSection
           id="cv"
           label={DOCK_SECTION_LABEL.cv}
-          summary={stageCvBadgeInfo?.label ?? "Oryginał i CV do klienta"}
+          summary={cvBrandedQuery.isSuccess ? companyCv.text : "Oryginał i CV firmowe"}
           isNow={nowSection === "cv"}
           open={isOpen("cv")}
           onToggle={() => toggleSection("cv")}
         >
           <div className="space-y-3">
-            <div className="flex flex-wrap items-center gap-1.5">
-              {cvOriginalQuery.isLoading ? (
-                <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
-              ) : cvOriginalQuery.data ? (
-                cvOriginalQuery.data.has_snapshot ? (
-                  <Badge size="sm" variant="success">
-                    CV oryginalne
-                  </Badge>
+            {/* Dwa dokumenty, dwa zdania: CV firmowe etapu i oryginał — ze
+                zgłoszenia albo z profilu. Brak kopii w zgłoszeniu to nie
+                „brak CV”, jeśli profil je ma. */}
+            <ul className="space-y-1 text-xs" data-testid="dock-cv-state">
+              <li className="flex items-start gap-1.5">
+                {cvBrandedQuery.isLoading ? (
+                  <Loader2 className="mt-0.5 h-3 w-3 animate-spin text-muted-foreground" aria-hidden="true" />
                 ) : (
-                  <Badge size="sm" variant="warning">
-                    Brak CV w momencie zgłoszenia
-                  </Badge>
-                )
-              ) : null}
-              {cvBrandedQuery.isSuccess ? (
-                <Badge size="sm" variant={stageCvBadgeInfo?.tone ?? "neutral"}>
-                  {stageCvBadgeInfo?.label ?? "CV do klienta: brak"}
-                </Badge>
-              ) : null}
-            </div>
+                  <span
+                    aria-hidden="true"
+                    className={cn(
+                      "mt-1 h-2 w-2 shrink-0 rounded-full",
+                      companyCv.tone === "success"
+                        ? "bg-success"
+                        : companyCv.tone === "info"
+                          ? "bg-primary"
+                          : companyCv.tone === "warning"
+                            ? "bg-warning"
+                            : "bg-muted-foreground",
+                    )}
+                  />
+                )}
+                <span className="text-foreground">
+                  {cvBrandedQuery.isError ? "CV firmowe: nie udało się sprawdzić" : companyCv.text}
+                </span>
+              </li>
+              <li className="flex items-start gap-1.5">
+                <span
+                  aria-hidden="true"
+                  className={cn(
+                    "mt-1 h-2 w-2 shrink-0 rounded-full",
+                    originalCv.kind === "none" ? "bg-warning" : originalCv.kind === "loading" ? "bg-border" : "bg-success",
+                  )}
+                />
+                <span className="text-foreground">{originalCvSentence(originalCv)}</span>
+              </li>
+            </ul>
             <div className="flex flex-col gap-1.5">
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => setOpenOriginal(true)}
-                className="justify-start"
-              >
-                <FileText className="h-3.5 w-3.5" /> Pokaż CV oryginalne
-              </Button>
+              {originalCv.kind === "snapshot" || originalCv.kind === "unknown" ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setOpenOriginal(true)}
+                  className="justify-start"
+                >
+                  <FileText className="h-3.5 w-3.5" /> Pokaż CV oryginalne
+                </Button>
+              ) : originalCv.kind === "profile" ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setProfileCvPreviewId(originalCv.doc.id)}
+                  className="justify-start"
+                >
+                  <FileText className="h-3.5 w-3.5" /> Pokaż CV z profilu
+                </Button>
+              ) : originalCv.kind === "none" ? (
+                <Link
+                  href={`${profileHref}&tab=documents`}
+                  target="_blank"
+                  rel="noopener"
+                  className="text-xs font-medium text-primary hover:underline"
+                >
+                  Dodaj CV w profilu kandydata ↗
+                </Link>
+              ) : null}
               {!readOnly && (
                 <>
                   {stageCv === "ready" ? (
@@ -1263,6 +1418,51 @@ export function PipelineCandidateDock({
         </div>
       )}
 
+      {profileCvPreviewId != null && profileCvQuery.data && (
+        <FilePreviewModal
+          documents={profileCvQuery.data}
+          initialDocumentId={profileCvPreviewId}
+          candidateId={item.candidate_id}
+          onClose={() => setProfileCvPreviewId(null)}
+          onDownload={(doc) =>
+            import("@/components/v2/files/FilePreviewModal")
+              .then((m) => m.downloadDocumentBlob(item.candidate_id, doc))
+              .catch(() => showError("Nie udało się pobrać pliku."))
+          }
+        />
+      )}
+      {qcStageId != null && (
+        <CvQcDialog
+          stageId={qcStageId}
+          open
+          onClose={() => {
+            setQcStageId(null);
+            refreshMoveRequirements();
+          }}
+          onChanged={() => {
+            void queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
+            void queryClient.invalidateQueries({ queryKey: ["kanban", jobId] });
+            refreshMoveRequirements();
+          }}
+        />
+      )}
+      {debriefEventId != null && (
+        <DebriefRequiredDialog
+          open
+          onOpenChange={(open) => {
+            if (open) return;
+            setDebriefEventId(null);
+            refreshMoveRequirements();
+          }}
+          eventId={debriefEventId}
+          candidateName={fullName}
+          jobId={jobId}
+          onSaved={() => {
+            setDebriefEventId(null);
+            refreshMoveRequirements();
+          }}
+        />
+      )}
       {openOriginal && (
         <CVOriginalPreviewModal
           open
@@ -1293,6 +1493,7 @@ export function PipelineCandidateDock({
             setOpenGenerator(false);
             showSuccess("CV generuje się w tle. Gdy będzie gotowe, podepnie się do tego etapu.");
             void queryClient.invalidateQueries({ queryKey: ["cv-branded", item.id] });
+            refreshMoveRequirements();
           }}
         />
       )}

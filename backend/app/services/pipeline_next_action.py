@@ -219,7 +219,15 @@ def _base_action(
         return ("Uzupełnij arkusz screeningu", tone, "screening")
 
     if group == "verification":
-        return ("Wyślij CV do klienta", "normal", "cv")
+        # Rekrutacja v5: po „Zweryfikowany" stoi „QC CV", nie klient
+        # (lustro `nextActionFor`, 24.09.2026). Import leniwy: reguła nazwy
+        # QC żyje w `board_stage_badges`, który ciągnie modele i polityki
+        # zamówień — ten moduł ma zostać lekki przy imporcie.
+        from app.services.board_stage_badges import is_qc_stage
+
+        if is_qc_stage(col.name):
+            return ("Popraw CV / wyślij", "normal", "cv")
+        return ("Przygotuj CV do QC", "normal", "cv")
 
     if group == "client":
         if col.stage == CV_SENT_STAGE:

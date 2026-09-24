@@ -327,14 +327,14 @@
    },
    "sla_days": null,
    "expected": {
-    "label": "Wyślij CV do klienta",
+    "label": "Przygotuj CV do QC",
     "tone": "normal",
     "kind": "cv",
     "owner": "recruiter"
    }
   },
   {
-   "name": "własny etap po screeningu",
+   "name": "etap DZ po screeningu to QC CV",
    "group": "verification",
    "column": {
     "stage": "new",
@@ -349,7 +349,51 @@
    },
    "sla_days": null,
    "expected": {
-    "label": "Wyślij CV do klienta",
+    "label": "Popraw CV / wyślij",
+    "tone": "normal",
+    "kind": "cv",
+    "owner": "recruiter"
+   }
+  },
+  {
+   "name": "QC CV (nazwa od 24.09.2026)",
+   "group": "verification",
+   "column": {
+    "stage": "interview",
+    "category": "internal",
+    "terminal_type": null,
+    "name": "QC CV"
+   },
+   "item": {
+    "days_in_stage": 2,
+    "screening_done": null,
+    "hm_veto": false
+   },
+   "sla_days": null,
+   "expected": {
+    "label": "Popraw CV / wyślij",
+    "tone": "normal",
+    "kind": "cv",
+    "owner": "recruiter"
+   }
+  },
+  {
+   "name": "własny etap wewnętrzny po screeningu (nie QC)",
+   "group": "verification",
+   "column": {
+    "stage": "new",
+    "category": "internal",
+    "terminal_type": null,
+    "name": "Rozmowa z DL"
+   },
+   "item": {
+    "days_in_stage": 1,
+    "screening_done": null,
+    "hm_veto": false
+   },
+   "sla_days": null,
+   "expected": {
+    "label": "Przygotuj CV do QC",
     "tone": "normal",
     "kind": "cv",
     "owner": "recruiter"

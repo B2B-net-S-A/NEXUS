@@ -80,6 +80,18 @@ vi.mock("@/components/v2/pages/DopasowanieTab", () => ({
   DopasowanieTab: () => <div data-testid="dopasowanie-tab-stub" />,
 }));
 
+// Okna akcji z ramki „Następny etap” — dok tylko je otwiera ze stageId.
+const qcDialog = vi.fn();
+vi.mock("@/components/v2/recruitment/CvQcDialog", () => ({
+  CvQcDialog: (props: Record<string, unknown>) => {
+    qcDialog(props);
+    return <div data-testid="cv-qc-dialog" />;
+  },
+}));
+vi.mock("@/components/v2/recruitment/DebriefRequiredDialog", () => ({
+  DebriefRequiredDialog: () => <div data-testid="debrief-dialog" />,
+}));
+
 import { PipelineCandidateDock, nowSectionForStage } from "@/components/v2/jobs/PipelineCandidateDock";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
@@ -296,8 +308,8 @@ describe("PipelineCandidateDock", () => {
     const user = userEvent.setup();
     renderDock();
     await user.click(screen.getByRole("button", { name: /^CV/ }));
-    expect(await screen.findByText("CV do klienta: brak")).toBeInTheDocument();
-    expect(screen.queryByText(/Stwórz brandowane|CV firmowe/)).toBeNull();
+    expect(await screen.findByText("CV firmowe: brak")).toBeInTheDocument();
+    expect(screen.queryByText(/Stwórz brandowane/)).toBeNull();
     await user.click(await screen.findByRole("button", { name: /Generuj CV/ }));
     expect(screen.getByTestId("cv-generator-dialog")).toBeInTheDocument();
     expect(generatorDialog).toHaveBeenLastCalledWith(
@@ -310,7 +322,7 @@ describe("PipelineCandidateDock", () => {
     brandedGet.mockResolvedValue({ data: { status: "draft", from_generator: true, edit_revision: 1, version: 1 } });
     renderDock();
     await user.click(screen.getByRole("button", { name: /^CV/ }));
-    expect(await screen.findByText("CV do klienta: szkic")).toBeInTheDocument();
+    expect(await screen.findByText("CV firmowe: szkic")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Edytuj CV/ })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Generuj CV/ })).toBeNull();
   });
@@ -370,7 +382,7 @@ describe("PipelineCandidateDock", () => {
 
   it("bez kontekstu warsztatów dok nie pokazuje ich przycisków", async () => {
     renderDock({ item: { ...baseItem(), stage: "verified" } });
-    await screen.findByRole("button", { name: /Pokaż CV oryginalne/ });
+    await screen.findByText(/Oryginał CV:/);
     expect(screen.queryByRole("button", { name: /Wysyłka CV do klienta/ })).toBeNull();
   });
 });
@@ -566,5 +578,195 @@ describe("PipelineCandidateDock — nawigator, oś czasu i główna akcja", () =
         note_type: "general",
       }),
     );
+  });
+});
+
+// ── Ramka „Następny etap”, link do profilu i jasna sekcja CV (24.09.2026) ──
+
+describe("PipelineCandidateDock — następny etap, profil i CV", () => {
+  const requirements = (overrides: Record<string, unknown> = {}) => ({
+    from_column: "new",
+    to_column: "verified",
+    skipped_columns: ["screening"],
+    items: [
+      {
+        key: "screening_sheet",
+        label: "Arkusz screeningu",
+        status: "missing",
+        blocking: true,
+        detail: "odpowiedzi jeszcze nie zapisane",
+        action: { kind: "open_screening", label: "Otwórz screening", stage_id: 777 },
+      },
+      { key: "availability", label: "Dostępność", status: "ok", blocking: false },
+    ],
+    primary: { kind: "blocked", label: "Najpierw uzupełnij: Arkusz screeningu" },
+    owner_note: null,
+    ...overrides,
+  });
+
+  function routeApiGet(opts: {
+    requirements?: unknown;
+    requirementsError?: boolean;
+    profileDocs?: unknown[];
+  }) {
+    apiGet.mockImplementation((url: string) => {
+      if (url.startsWith("/api/pipeline/move-requirements")) {
+        if (opts.requirementsError) return Promise.reject(new Error("boom"));
+        return Promise.resolve({ data: opts.requirements ?? requirements() });
+      }
+      if (url.includes("/documents?kind=cv")) {
+        return Promise.resolve({ data: opts.profileDocs ?? [] });
+      }
+      return Promise.resolve({ data: { items: [] } });
+    });
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getForStage.mockResolvedValue({ data: { screening_answers: null } });
+    originalGet.mockResolvedValue({ data: { has_snapshot: false } });
+    brandedGet.mockResolvedValue({ data: { status: "none" } });
+    candidatesGet.mockResolvedValue({ data: { email: "anna@example.com" } });
+    apiPost.mockResolvedValue({ data: {} });
+  });
+
+  it("ramka pokazuje numer i nazwę kolumny, licznik braków i przycisk, który usuwa brak", async () => {
+    routeApiGet({});
+    const user = userEvent.setup();
+    const onOpenScreening = vi.fn();
+    const onMoveTo = vi.fn();
+    const target = stageCol("verified", "Zweryfikowany", { stage_def_id: 5 });
+    renderDock({ primaryTarget: target, onOpenScreening, onMoveTo, item: baseItem({ stage: "new" }) });
+
+    expect(await screen.findByText(/Następny etap: 3 · Zweryfikowany/)).toBeInTheDocument();
+    expect(screen.getByTestId("dock-next-stage-counter")).toHaveTextContent("brakuje 1 z 2");
+    expect(screen.getByTestId("dock-next-stage-reminder")).toHaveTextContent(/przypomnienie, nie blokada/);
+
+    await user.click(screen.getByRole("button", { name: "Otwórz screening" }));
+    expect(onOpenScreening).toHaveBeenCalledWith(777, "Anna Kowalska");
+
+    // Główny przycisk działa mimo braków (serwer tego nie blokuje).
+    await user.click(screen.getByRole("button", { name: "Przenieś na etap: Zweryfikowany" }));
+    expect(onMoveTo).toHaveBeenCalledWith(target);
+  });
+
+  it("brak pilnowany przez serwer (QC CV) jest nazwany wprost", async () => {
+    routeApiGet({
+      requirements: requirements({
+        to_column: "cv_sent",
+        items: [
+          {
+            key: "cv_qc",
+            label: "QC CV",
+            status: "missing",
+            blocking: true,
+            action: { kind: "open_qc", label: "Otwórz QC CV", stage_id: 501 },
+          },
+        ],
+      }),
+    });
+    const user = userEvent.setup();
+    renderDock({ primaryTarget: stageCol("cv_sent", "CV wysłane", { stage_def_id: 9 }) });
+
+    expect(await screen.findByTestId("dock-next-stage-enforced")).toHaveTextContent(
+      "Bez: QC CV system nie przepuści ruchu.",
+    );
+    await user.click(screen.getByRole("button", { name: "Otwórz QC CV" }));
+    expect(screen.getByTestId("cv-qc-dialog")).toBeInTheDocument();
+    expect(qcDialog).toHaveBeenLastCalledWith(expect.objectContaining({ stageId: 501 }));
+  });
+
+  it("przycisk, którego dok nie umie obsłużyć, się nie renderuje", async () => {
+    routeApiGet({
+      requirements: requirements({
+        to_column: "client_interview",
+        items: [
+          {
+            key: "client_slot",
+            label: "Termin od klienta",
+            status: "waiting",
+            blocking: false,
+            action: { kind: "request_slots", label: "Dodaj terminy od klienta", stage_id: 501 },
+          },
+        ],
+      }),
+    });
+    renderDock({ primaryTarget: stageCol("client_interview", "Rozmowa u klienta", { stage_def_id: 11 }) });
+    expect(await screen.findByText("Termin od klienta")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Dodaj terminy od klienta" })).toBeNull();
+  });
+
+  it("awaria wymagań to krótki komunikat, a przycisk ruchu działa dalej", async () => {
+    routeApiGet({ requirementsError: true });
+    const user = userEvent.setup();
+    const onMoveTo = vi.fn();
+    const target = stageCol("verified", "Zweryfikowany", { stage_def_id: 5 });
+    renderDock({ primaryTarget: target, onMoveTo });
+
+    expect(await screen.findByText(/Nie udało się sprawdzić wymagań/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Przenieś na etap: Zweryfikowany" }));
+    expect(onMoveTo).toHaveBeenCalledWith(target);
+  });
+
+  it("link „Profil ↗” prowadzi do profilu kandydata z powrotem do rekrutacji, w nowej karcie", () => {
+    routeApiGet({});
+    renderDock();
+    const link = screen.getByRole("link", { name: /Profil kandydata Anna Kowalska/ });
+    expect(link.getAttribute("href")).toMatch(/^\/candidates\/42\?/);
+    expect(link.getAttribute("href")).toContain("jobId=10");
+    expect(link).toHaveAttribute("target", "_blank");
+  });
+
+  it("CV: bez kopii w zgłoszeniu, ale z plikiem w profilu — „z profilu”, nie „brak CV”", async () => {
+    routeApiGet({
+      profileDocs: [
+        {
+          id: 3,
+          filename: "cv.pdf",
+          is_primary: true,
+          uploaded_at: "2026-09-01T10:00:00Z",
+          created_at: "2026-09-01T10:00:00Z",
+          content_type: "application/pdf",
+          size_bytes: 10,
+          document_kind: "cv",
+          external_source: null,
+        },
+      ],
+    });
+    const user = userEvent.setup();
+    renderDock();
+    await user.click(screen.getByRole("button", { name: /^CV/ }));
+
+    expect(await screen.findByText(/Oryginał CV: z profilu \(1\.09\.2026\) — do zgłoszenia nie dołączono pliku/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Pokaż CV z profilu/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Pokaż CV oryginalne/ })).toBeNull();
+    expect(screen.queryByText(/Brak CV w momencie zgłoszenia/)).toBeNull();
+  });
+
+  it("CV: „brak pliku” tylko, gdy ani zgłoszenie, ani profil nie ma CV", async () => {
+    routeApiGet({ profileDocs: [] });
+    const user = userEvent.setup();
+    renderDock();
+    await user.click(screen.getByRole("button", { name: /^CV/ }));
+    expect(
+      await screen.findByText("Oryginał CV: brak pliku — ani w zgłoszeniu, ani w profilu kandydata"),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Pokaż CV/ })).toBeNull();
+  });
+
+  it("CV: kopia ze zgłoszenia i zatwierdzone CV firmowe — oba z datą", async () => {
+    routeApiGet({});
+    originalGet.mockResolvedValue({
+      data: { has_snapshot: true, original_snapshot_at: "2026-08-20T08:00:00Z", original_cv_filename: "a.pdf" },
+    });
+    brandedGet.mockResolvedValue({
+      data: { status: "finalized", from_generator: true, finalized_at: "2026-09-02T08:00:00Z" },
+    });
+    const user = userEvent.setup();
+    renderDock();
+    await user.click(screen.getByRole("button", { name: /^CV/ }));
+    expect(await screen.findByText(/Oryginał CV: dołączony do zgłoszenia · 20\.08\.2026/)).toBeInTheDocument();
+    expect(await screen.findByText("CV firmowe: zatwierdzone 2.09.2026")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Pokaż CV oryginalne/ })).toBeInTheDocument();
   });
 });

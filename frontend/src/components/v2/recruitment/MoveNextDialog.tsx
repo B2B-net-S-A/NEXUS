@@ -17,7 +17,7 @@
  */
 
 import { useMemo } from "react";
-import { AlertCircle, ArrowRight, Check, Clock, Loader2, X } from "lucide-react";
+import { AlertCircle, ArrowRight, Loader2 } from "lucide-react";
 
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
@@ -36,7 +36,6 @@ import {
   isBlockingGap,
   useMoveRequirements,
   type MoveRequirementAction,
-  type MoveRequirementItem,
 } from "@/lib/api/moveRequirements";
 import {
   BOARD_COLUMN_ORDER,
@@ -44,6 +43,7 @@ import {
   type BoardColumnKey,
 } from "@/lib/board-stages";
 import { itemFullName } from "@/lib/pipeline-flow";
+import { MoveRequirementList } from "@/components/v2/recruitment/MoveRequirementList";
 import { cn } from "@/lib/utils";
 
 export const HAND_TO_DL_MESSAGE =
@@ -145,16 +145,6 @@ function StepBar({
       })}
     </ol>
   );
-}
-
-function StatusIcon({ status }: { status: MoveRequirementItem["status"] }) {
-  if (status === "ok") {
-    return <Check className="h-4 w-4 shrink-0 text-success" aria-label="Spełnione" />;
-  }
-  if (status === "waiting") {
-    return <Clock className="h-4 w-4 shrink-0 text-warning" aria-label="W toku" />;
-  }
-  return <X className="h-4 w-4 shrink-0 text-destructive" aria-label="Brakuje" />;
 }
 
 export function MoveNextDialog({
@@ -308,50 +298,14 @@ export function MoveNextDialog({
                   Ten krok nie ma wymagań — możesz przesuwać.
                 </p>
               ) : (
-                <ul aria-label="Wymagania przejścia" className="divide-y divide-border rounded-md border border-border">
-                  {data.items.map((req) => {
-                    const action = req.action?.kind ? req.action : null;
-                    const blocking = isBlockingGap(req, askedDuringMove);
-                    const askedLater =
-                      req.status === "missing" &&
-                      askedDuringMove &&
-                      (req.action?.kind === "set_candidate_rate" || req.action?.kind === "set_client_rate");
-                    return (
-                      <li
-                        key={req.key}
-                        data-requirement={req.key}
-                        data-status={req.status}
-                        className="flex items-start gap-2 px-3 py-2 text-sm"
-                      >
-                        <StatusIcon status={req.status} />
-                        <div className="min-w-0 flex-1">
-                          <p className={cn("font-medium", blocking ? "text-foreground" : "text-foreground/90")}>
-                            {req.label}
-                            {!req.blocking && req.status !== "ok" && (
-                              <span className="ml-1 text-xs font-normal text-muted-foreground">
-                                (nie blokuje)
-                              </span>
-                            )}
-                          </p>
-                          {req.detail && <p className="text-xs text-muted-foreground">{req.detail}</p>}
-                          {askedLater && (
-                            <p className="text-xs text-muted-foreground">Zapytamy o nią przy przesunięciu.</p>
-                          )}
-                        </div>
-                        {action && req.status !== "ok" && !readOnly && item && !askedLater && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="shrink-0"
-                            onClick={() => onAction(action, item)}
-                          >
-                            {action.label ?? "Uzupełnij"}
-                          </Button>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
+                <MoveRequirementList
+                  items={data.items}
+                  askedDuringMove={askedDuringMove}
+                  readOnly={readOnly || !item}
+                  onAction={(action) => {
+                    if (item) onAction(action, item);
+                  }}
+                />
               )}
               {data.owner_note && (
                 <p data-testid="move-next-owner-note" className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">

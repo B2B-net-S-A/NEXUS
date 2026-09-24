@@ -22,6 +22,7 @@ interface UserBrief {
  name: string;
  email?: string | null;
  role?: string | null;
+ roles?: string[] | null;
 }
 
 interface UserMultiSelectProps {
@@ -31,6 +32,13 @@ interface UserMultiSelectProps {
  searchPlaceholder?: string;
  /** Tailwind width class for trigger; defaults to `w-[220px]`. */
  triggerWidthClass?: string;
+ /**
+  * Tylko osoby z którąkolwiek z tych ról (rola główna albo dodatkowa) —
+  * np. picker „Delivery Lead" na liście rekrutacji. Filtr po stronie
+  * przeglądarki na tym samym katalogu (`["users-directory"]`), więc bez
+  * drugiego zapytania i bez nowego klucza cache.
+  */
+ onlyRoles?: readonly string[];
 }
 
 const DEFAULT_TRIGGER_WIDTH ="w-[220px]";
@@ -47,6 +55,7 @@ export function UserMultiSelect({
  placeholder ="Dowolny rekruter",
  searchPlaceholder ="Szukaj rekrutera…",
  triggerWidthClass = DEFAULT_TRIGGER_WIDTH,
+ onlyRoles,
 }: UserMultiSelectProps) {
  const [open, setOpen] = useState(false);
  const { data } = useQuery<UserBrief[]>({
@@ -54,7 +63,11 @@ export function UserMultiSelect({
  queryFn: () => api.get("/api/users").then((r) => r.data),
  staleTime: 60_000,
  });
- const users = data ?? [];
+ const users = (data ?? []).filter(
+ (u) =>
+ !onlyRoles ||
+ onlyRoles.some((r) => u.role === r || (u.roles ?? []).includes(r)),
+ );
  const selected = new Set(value);
 
  const toggle = (id: number) => {

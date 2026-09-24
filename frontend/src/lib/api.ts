@@ -7,6 +7,7 @@ import { apiSupportsCorrelation, probeTelemetryCapability } from "./telemetry-ca
 import { SLOW_ENDPOINT_TIMEOUT_MS } from "./http-timeouts";
 import { clearSessionArtifacts, getAccessToken } from "./session";
 import type { WorkMode } from "./work-mode";
+import type { RequestStatus } from "./request-status";
 import { recordRefusal, refusalCode } from "./help/refusal-tracker";
 import type {
   RoleActionPermissionChange,
@@ -1489,6 +1490,13 @@ export interface JobQuickCounts {
   active_in_search: number;
   owner_missing: number;
   deadline_7d: number;
+  /**
+   * Liczniki pigułek „Status requestu" — to samo wyrażenie co filtr
+   * `request_status` (cały rejestr); `request_status_mine` — w zakresie
+   * „Moje". Opcjonalne: starszy backend ich nie zwraca (brak = brak liczby).
+   */
+  request_status?: Partial<Record<RequestStatus, number>>;
+  request_status_mine?: Partial<Record<RequestStatus, number>>;
 }
 
 /** Pola `JobResponse`, które czyta przełącznik „prowadzona w NEXUSIE" (0325). */

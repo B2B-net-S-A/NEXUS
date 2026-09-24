@@ -115,7 +115,7 @@ vi.mock("@/components/v2/jobs/ChampionSectionNav", () => ({ ChampionSectionNav: 
 vi.mock("@/components/v2/jobs/JobSummaryCard", () => ({ JobSummaryCard: () => null }));
 vi.mock("@/components/v2/jobs/JobReadinessDock", () => ({ JobReadinessDock: () => null }));
 vi.mock("@/components/v2/jobs/ManagedInNexusSwitch", () => ({
-  ManagedInNexusBanner: () => null,
+  ManagedInTraffitNotice: () => null,
   ManagedInNexusChip: () => null,
 }));
 vi.mock("@/components/v2/jobs/JobShortlist", () => ({
@@ -198,7 +198,9 @@ describe("strona rekrutacji — widoki", () => {
         workbenchContext: expect.objectContaining({ clientId: 3, clientName: "Bank Alfa", canCloseJob: true }),
       }),
     );
-    expect(await screen.findByText("brakuje 2")).toBeInTheDocument();
+    // Krok 1 „Ścieżki rekrutacji" niesie braki zlecenia (zamiast przycisku „Zlecenie").
+    expect(await screen.findByText("brakuje 2 — uzupełnij")).toBeInTheDocument();
+    expect(screen.queryByTestId("open-order")).not.toBeInTheDocument();
   });
 
   it("„Do przejrzenia” (propozycje z bazy i shortlista) to osobny ekran z powrotem na Tablicę", async () => {
@@ -297,7 +299,7 @@ describe("strona rekrutacji — okna z nagłówka i z warsztatów", () => {
   it("przyciski nagłówka otwierają okna i zapisują je w adresie", async () => {
     renderPage();
     await screen.findByTestId("kanban");
-    await userEvent.click(screen.getByTestId("open-order"));
+    await userEvent.click(screen.getByTestId("path-step-order"));
     expect(await screen.findByTestId("order-window")).toBeInTheDocument();
     expect(window.location.search).toBe("?win=order");
     act(() => (seen.order?.onOpenChange as (open: boolean) => void)(false));
@@ -357,5 +359,56 @@ describe("strona rekrutacji — poprawki po integracji v3", () => {
     expect(window.location.search).toContain("win=order");
     // Widok pod oknem zostaje — okno nie przełącza strony.
     expect(screen.getByTestId("champion-editor")).toBeInTheDocument();
+  });
+});
+
+describe("strona rekrutacji — ścieżka rekrutacji i najbliższy krok", () => {
+  const COLUMNS = [
+    { stage: "new", name: "Nowi", category: "internal", stage_def_id: 1, count: 1, items: [{ id: 11, candidate_id: 101, stage: "new" }] },
+    { stage: "screening", name: "Screening", category: "internal", stage_def_id: 2, count: 0, items: [] },
+    { stage: "verified", name: "Zweryfikowany", category: "internal", stage_def_id: 3, count: 0, items: [] },
+    { stage: "new", name: "QC CV", category: "internal", stage_def_id: 4, count: 2, items: [{ id: 41, candidate_id: 401, stage: "new" }, { id: 42, candidate_id: 402, stage: "new" }] },
+    { stage: "cv_sent", name: "CV Wysłane", category: "internal", stage_def_id: 5, count: 0, items: [] },
+    { stage: "client_interview", name: "Interview Klient", category: "external", stage_def_id: 6, count: 0, items: [] },
+  ];
+
+  it("kolejność reguł: braki zlecenia wygrywają, a „Zlecenie” w ścieżce otwiera okno", async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === "/api/jobs/42") return Promise.resolve({ data: { ...JOB, headcount: 1 } });
+      if (url === "/api/pipeline/kanban/42") return Promise.resolve({ data: { columns: COLUMNS, off_template: null } });
+      if (url === "/api/jobs/42/readiness") {
+        return Promise.resolve({ data: { ready: false, blockers: ["Brak HM", "Brak budżetu"] } });
+      }
+      return Promise.resolve({ data: [] });
+    });
+    renderPage();
+    const nearest = await screen.findByTestId("job-nearest-step");
+    expect(nearest).toHaveAttribute("data-rule", "order");
+    expect(nearest).toHaveTextContent("Uzupełnij zlecenie (brakuje 2)");
+    expect(screen.getByTestId("path-step-cv")).toHaveTextContent("2 w QC · 0 wysłanych");
+    expect(screen.getByTestId("path-step-contract")).toHaveTextContent("obsada 0 / 1");
+    await userEvent.click(screen.getByRole("button", { name: /Otwórz zlecenie/ }));
+    await waitFor(() => expect(seen.order).toMatchObject({ open: true }));
+  });
+
+  it("bez braków zlecenia najbliższy krok to QC CV, a klik przekazuje Tablicy skok do kolumny", async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === "/api/jobs/42") return Promise.resolve({ data: JOB });
+      if (url === "/api/pipeline/kanban/42") return Promise.resolve({ data: { columns: COLUMNS, off_template: null } });
+      if (url === "/api/jobs/42/readiness") return Promise.resolve({ data: { ready: true, blockers: [] } });
+      return Promise.resolve({ data: [] });
+    });
+    renderPage();
+    const nearest = await screen.findByTestId("job-nearest-step");
+    await waitFor(() => expect(nearest).toHaveAttribute("data-rule", "qc"));
+    expect(nearest).toHaveTextContent("Sprawdź CV w QC (2)");
+    await userEvent.click(screen.getByRole("button", { name: /Pokaż QC CV/ }));
+    await waitFor(() =>
+      expect(seen.kanban).toMatchObject({ focusColumnRequest: { column: "cv_qc", seq: 1 } }),
+    );
+    await userEvent.click(screen.getByTestId("path-step-interviews"));
+    await waitFor(() =>
+      expect(seen.kanban).toMatchObject({ focusColumnRequest: { column: "client_interview", seq: 2 } }),
+    );
   });
 });

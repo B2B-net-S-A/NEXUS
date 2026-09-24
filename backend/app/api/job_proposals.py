@@ -224,6 +224,79 @@ async def list_job_proposals(
     }
 
 
+@router.get("/jobs/{job_id}/proposal-facts")
+async def job_proposal_facts(
+    job_id: int,
+    user: CurrentUser,
+    candidate_ids: list[int] = Query([]),
+    db: AsyncSession = Depends(get_db),
+):
+    """Fakty o osobach z propozycji — hurtowo, bez kontaktu.
+
+    Dwa zapytania niezależnie od liczby osób (kandydaci + historia etapów
+    u klienta tej rekrutacji). Dostęp jak skrzynka propozycji
+    (``_authorized_job``); stawka tylko dla ról z odczytem finansów — tak samo
+    jak w wierszu skrzynki.
+    """
+    from app.analytics.capabilities import (  # noqa: PLC0415
+        AnalyticsCapability,
+        user_has_capability,
+    )
+    from app.models.job import Job  # noqa: PLC0415
+    from app.models.recruitment_pipeline import CandidateStage  # noqa: PLC0415
+    from app.services import proposal_facts  # noqa: PLC0415
+
+    ids = list(dict.fromkeys(candidate_ids))
+    if len(ids) > proposal_facts.MAX_FACT_CANDIDATES:
+        raise HTTPException(
+            422,
+            f"Najwyżej {proposal_facts.MAX_FACT_CANDIDATES} osób w jednym zapytaniu.",
+        )
+    job = await _job(db, user, job_id)
+    if not ids:
+        return {"job_id": job_id, "items": []}
+
+    candidates = (
+        (await db.execute(select(Candidate).where(Candidate.id.in_(ids))))
+        .scalars()
+        .all()
+    )
+    history: dict[int, dict] = {}
+    if job.client_id is not None:
+        rows = (
+            await db.execute(
+                select(
+                    CandidateStage.candidate_id,
+                    CandidateStage.job_id,
+                    Job.title,
+                    CandidateStage.stage,
+                    CandidateStage.moved_at,
+                )
+                .join(Job, Job.id == CandidateStage.job_id)
+                .where(
+                    Job.client_id == job.client_id,
+                    CandidateStage.job_id != job_id,
+                    CandidateStage.candidate_id.in_(ids),
+                )
+            )
+        ).all()
+        history = proposal_facts.client_history(
+            proposal_facts.StageRow(*row) for row in rows
+        )
+    include_rate = user_has_capability(user, AnalyticsCapability.VIEW_FINANCE)
+    by_id = {c.id: c for c in candidates}
+    return {
+        "job_id": job_id,
+        "items": [
+            proposal_facts.candidate_facts(
+                by_id[cid], include_rate=include_rate, history=history.get(cid)
+            )
+            for cid in ids
+            if cid in by_id
+        ],
+    }
+
+
 class DismissProposalBody(BaseModel):
     """Skąd przyszło „Pomiń" osoby, której skrzynka jeszcze nie zna."""
 

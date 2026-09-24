@@ -22,7 +22,7 @@
  * blokuje zaznaczenie — jak w szybkim dodawaniu.
  */
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FileUp, Search, Sparkles, UserPlus } from "lucide-react";
 
@@ -48,7 +48,21 @@ import {
   formatHourlyRate,
   type ProposalEntry,
 } from "@/lib/proposals-merge";
+import {
+  jobProposalsApi,
+  jobProposalsKeys,
+  PROPOSAL_FACTS_MAX_IDS,
+  type ProposalFacts,
+} from "@/lib/job-proposals-api";
+import { unmeasuredReason } from "@/lib/match-breakdown";
+import {
+  clientHistoryLine,
+  proposalFactsLine,
+  sortByClientHistory,
+  type ProposalSortMode,
+} from "@/lib/proposal-facts";
 import { cn } from "@/lib/utils";
+import { useVisibleMatchScores } from "@/hooks/useVisibleMatchScores";
 
 import { RecruitmentSheet } from "./slideovers/RecruitmentSheet";
 import { PROPOSAL_SOURCE_LABEL } from "./types";
@@ -83,6 +97,8 @@ interface PickRow {
   rateLabel: string | null;
   availabilityLabel: string | null;
   note: string | null;
+  /** Linia faktów (stanowisko, staż, miasto, tryb, dostępność, stawka). */
+  facts?: string | null;
   sourceLabel: string | null;
   warnings: Array<{ key: string; label: string; blocking: boolean }>;
 }
@@ -105,7 +121,7 @@ function eligibilityWarning(eligibility: MatchEligibility | null | undefined) {
   };
 }
 
-function proposalRow(entry: ProposalEntry): PickRow {
+function proposalRow(entry: ProposalEntry, facts?: ProposalFacts | null): PickRow {
   const { row, detail } = entry;
   const source = row.sources.includes("reassign") ? "reassign" : row.sources[0];
   const warnings: PickRow["warnings"] = [];
@@ -122,7 +138,9 @@ function proposalRow(entry: ProposalEntry): PickRow {
     fitScore: row.fitScore,
     rateLabel: row.rateLabel,
     availabilityLabel: row.availabilityLabel,
-    note: row.reason ?? detail.title,
+    // Historia u TEGO klienta mówi więcej niż „był w podobnym projekcie”.
+    note: clientHistoryLine(facts?.client_history) ?? row.reason ?? (facts ? null : detail.title),
+    facts: proposalFactsLine(facts),
     sourceLabel: source ? PROPOSAL_SOURCE_LABEL[source] : null,
     warnings,
   };
@@ -157,6 +175,7 @@ function PickList({
   readOnly,
   emptyText,
   label,
+  renderScore,
 }: {
   rows: PickRow[];
   selected: ReadonlySet<number>;
@@ -164,6 +183,8 @@ function PickList({
   readOnly: boolean;
   emptyText: string;
   label: string;
+  /** Własna komórka wyniku (Propozycje: dopasowanie liczone na żądanie). */
+  renderScore?: (row: PickRow) => ReactNode;
 }) {
   if (rows.length === 0) {
     return <p className="py-4 text-sm text-muted-foreground">{emptyText}</p>;
@@ -193,19 +214,20 @@ function PickList({
                 <label htmlFor={inputId} className="min-w-0 truncate text-sm font-medium text-foreground">
                   {row.fullName}
                 </label>
-                <span
-                  className={cn(
-                    "shrink-0 text-xs font-bold tabular-nums",
-                    row.fitScore != null ? "text-primary" : "font-normal text-muted-foreground",
-                  )}
-                  title={row.fitScore != null ? "Dopasowanie do rekrutacji" : "Dopasowania nie policzono"}
-                >
-                  {row.fitScore != null ? `${Math.round(row.fitScore)}%` : "nie policzono"}
-                </span>
+                {renderScore ? (
+                  renderScore(row)
+                ) : (
+                  <ScoreBadge score={row.fitScore} />
+                )}
               </div>
-              <p className="text-xs text-muted-foreground">
-                {[row.rateLabel ?? "stawka —", row.availabilityLabel].filter(Boolean).join(" · ")}
-              </p>
+              {/* Fakty zamiast pustych pól — nieznane po prostu nie wchodzą. */}
+              {row.facts ? (
+                <p className="text-xs text-muted-foreground">{row.facts}</p>
+              ) : row.rateLabel || row.availabilityLabel ? (
+                <p className="text-xs text-muted-foreground">
+                  {[row.rateLabel, row.availabilityLabel].filter(Boolean).join(" · ")}
+                </p>
+              ) : null}
               {row.note && <p className="line-clamp-2 text-xs text-muted-foreground">{row.note}</p>}
               {(row.sourceLabel || row.warnings.length > 0) && (
                 <div className="mt-1 flex flex-wrap gap-1">
@@ -232,6 +254,20 @@ function PickList({
         );
       })}
     </ul>
+  );
+}
+
+function ScoreBadge({ score }: { score: number | null }) {
+  return (
+    <span
+      className={cn(
+        "shrink-0 text-xs font-bold tabular-nums",
+        score != null ? "text-primary" : "font-normal text-muted-foreground",
+      )}
+      title={score != null ? "Dopasowanie do rekrutacji" : "Dopasowania nie policzono"}
+    >
+      {score != null ? `${Math.round(score)}%` : "nie policzono"}
+    </span>
   );
 }
 
@@ -277,16 +313,130 @@ function AddCandidatesPanelOpen({
   const myPeople = useMyPeopleForJob(jobId, tab === "my_people");
 
   const searchRows = useMemo(
-    () => proposals.entries.filter((e) => e.detail.origins.includes("run")).map(proposalRow),
+    () => proposals.entries.filter((e) => e.detail.origins.includes("run")).map((e) => proposalRow(e)),
     [proposals.entries],
   );
-  const proposalRows = useMemo(
-    () =>
-      proposals.entries
-        .filter((e) => e.detail.origins.some((o) => o !== "run"))
-        .map(proposalRow),
+  const proposalEntries = useMemo(
+    () => proposals.entries.filter((e) => e.detail.origins.some((o) => o !== "run")),
     [proposals.entries],
   );
+  // Klucz ze zbioru id — odświeżenie listy z tymi samymi osobami nie gubi
+  // faktów ani policzonych dopasowań.
+  const proposalIdsKey = proposalEntries.map((e) => e.row.candidateId).join(",");
+  const proposalIds = useMemo(
+    () => (proposalIdsKey ? proposalIdsKey.split(",").map(Number) : []),
+    [proposalIdsKey],
+  );
+  const factsQuery = useQuery({
+    queryKey: jobProposalsKeys.facts(jobId, proposalIds),
+    queryFn: async ({ signal }) => {
+      const chunks: number[][] = [];
+      for (let i = 0; i < proposalIds.length; i += PROPOSAL_FACTS_MAX_IDS) {
+        chunks.push(proposalIds.slice(i, i + PROPOSAL_FACTS_MAX_IDS));
+      }
+      const pages = await Promise.all(chunks.map((ids) => jobProposalsApi.facts(jobId, ids, signal)));
+      return pages.flatMap((page) => page.items);
+    },
+    enabled: tab === "proposals" && proposalIds.length > 0,
+    staleTime: 60_000,
+  });
+  const factsById = useMemo(
+    () => new Map((factsQuery.data ?? []).map((f) => [f.candidate_id, f] as const)),
+    [factsQuery.data],
+  );
+  const [sortMode, setSortMode] = useState<ProposalSortMode>("client_first");
+  const anyClientHistory = useMemo(
+    () => (factsQuery.data ?? []).some((f) => f.client_history != null),
+    [factsQuery.data],
+  );
+  const proposalRows = useMemo(() => {
+    const rows = proposalEntries.map((e) => proposalRow(e, factsById.get(e.row.candidateId) ?? null));
+    return sortMode === "client_first" ? sortByClientHistory(rows, factsById) : rows;
+  }, [proposalEntries, factsById, sortMode]);
+
+  // Dopasowanie na żądanie — ta sama ścieżka co kolumna wyszukiwarki
+  // (`/api/search/candidates/scores`, paczki po 20, limit i ponowienia 429
+  // w `useVisibleMatchScores`). Liczymy tylko osoby bez wyniku.
+  const unscoredKey = proposalEntries
+    .filter((e) => e.row.fitScore == null)
+    .map((e) => e.row.candidateId)
+    .join(",");
+  const unscoredNow = useMemo(
+    () => new Set(unscoredKey ? unscoredKey.split(",").map(Number) : []),
+    [unscoredKey],
+  );
+  // Lista dla `useVisibleMatchScores` tylko ROŚNIE: hook traktuje każdą nową
+  // tożsamość listy jako nowy zestaw i czyści wyniki. Dodanie osoby do
+  // rekrutacji zdejmuje ją z propozycji — bez tego pozostali traciliby
+  // policzone dopasowanie i zostawali na „liczę…” bez przycisku „Policz”.
+  const [scoreIds, setScoreIds] = useState<readonly number[]>([]);
+  useEffect(() => {
+    setScoreIds((prev) => {
+      const known = new Set(prev);
+      const added = [...unscoredNow].filter((id) => !known.has(id));
+      return added.length > 0 ? [...prev, ...added] : prev;
+    });
+  }, [unscoredNow]);
+  const scoreItems = useMemo(() => scoreIds.map((id) => ({ id })), [scoreIds]);
+  const matchScores = useVisibleMatchScores(jobId, scoreItems);
+  const [scoreRequested, setScoreRequested] = useState<ReadonlySet<number>>(() => new Set());
+  // Nowa osoba na liście = nowy zestaw w hooku (wyniki wyzerowane), więc
+  // „liczę…” nie może zostać przy osobach, o które pytaliśmy wcześniej.
+  useEffect(() => {
+    setScoreRequested(new Set());
+  }, [scoreItems]);
+  // Do policzenia: osoby wciąż na liście, o które jeszcze nie pytaliśmy.
+  // Odpowiedź „ocena niepełna” i błąd mają własne stany wiersza (błąd — „ponów”).
+  const scoreCandidates = scoreItems.filter(
+    ({ id }) =>
+      unscoredNow.has(id) &&
+      !scoreRequested.has(id) &&
+      matchScores.scores[String(id)] == null &&
+      matchScores.breakdowns[String(id)] == null &&
+      matchScores.failures[String(id)] == null,
+  );
+  const requestScores = () => {
+    const ids = scoreCandidates.map(({ id }) => id);
+    setScoreRequested((prev) => new Set([...prev, ...ids]));
+    for (const id of ids) matchScores.onRowVisible(id);
+  };
+  const renderProposalScore = (row: PickRow): ReactNode => {
+    if (row.fitScore != null) return <ScoreBadge score={row.fitScore} />;
+    const key = String(row.candidateId);
+    const score = matchScores.scores[key];
+    if (typeof score === "number") return <ScoreBadge score={score} />;
+    const failure = matchScores.failures[key];
+    if (failure === "forbidden") {
+      return <span className="shrink-0 text-xs text-muted-foreground">brak dostępu</span>;
+    }
+    if (failure === "retry") {
+      return (
+        <button
+          type="button"
+          onClick={matchScores.retry}
+          className="shrink-0 text-xs font-medium text-primary hover:underline"
+        >
+          nie policzono — ponów
+        </button>
+      );
+    }
+    const breakdown = matchScores.breakdowns[key];
+    if (breakdown) {
+      const reason = unmeasuredReason(breakdown.measurement);
+      return (
+        <span
+          className="shrink-0 cursor-help text-xs text-muted-foreground"
+          title={reason ? `Ocena niepełna: ${reason}` : "Ocena niepełna"}
+        >
+          Ocena niepełna
+        </span>
+      );
+    }
+    if (scoreRequested.has(row.candidateId)) {
+      return <span className="shrink-0 text-xs text-muted-foreground" role="status">liczę…</span>;
+    }
+    return <ScoreBadge score={null} />;
+  };
   const inJob = useMemo(() => new Set(pipelineCandidateIds ?? []), [pipelineCandidateIds]);
   const myPeopleRows = useMemo(
     () =>
@@ -541,14 +691,60 @@ function AddCandidatesPanelOpen({
               Wczytuję propozycje…
             </p>
           ) : (
-            <PickList
-              label="Propozycje"
-              rows={proposalRows}
-              selected={selectedIds}
-              onToggle={(row) => toggle(row, "proposal")}
-              readOnly={readOnly}
-              emptyText="Nikt nie czeka w propozycjach."
-            />
+            <>
+              {proposalRows.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2" data-testid="proposals-toolbar">
+                  {scoreCandidates.length > 0 && (
+                    <Button size="sm" variant="outline" onClick={requestScores}>
+                      <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+                      Policz dopasowanie dla {scoreCandidates.length}
+                    </Button>
+                  )}
+                  {anyClientHistory && (
+                    <div role="group" aria-label="Kolejność propozycji" className="ml-auto flex gap-1">
+                      {(
+                        [
+                          ["client_first", "Najpierw byli u tego klienta"],
+                          ["proposals", "Kolejność propozycji"],
+                        ] as const
+                      ).map(([mode, label]) => (
+                        <button
+                          key={mode}
+                          type="button"
+                          aria-pressed={sortMode === mode}
+                          onClick={() => setSortMode(mode)}
+                          className={cn(
+                            "inline-flex h-7 items-center rounded-full border px-2.5 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                            sortMode === mode
+                              ? "border-primary bg-primary text-primary-foreground"
+                              : "border-border bg-card text-foreground hover:bg-muted",
+                          )}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              {factsQuery.isError && (
+                <p role="alert" className="text-xs text-muted-foreground">
+                  {apiErrorMessage(factsQuery.error, "Nie wczytano szczegółów osób.")}{" "}
+                  <button type="button" className="font-medium text-primary underline" onClick={() => void factsQuery.refetch()}>
+                    Ponów
+                  </button>
+                </p>
+              )}
+              <PickList
+                label="Propozycje"
+                rows={proposalRows}
+                selected={selectedIds}
+                onToggle={(row) => toggle(row, "proposal")}
+                readOnly={readOnly}
+                emptyText="Nikt nie czeka w propozycjach."
+                renderScore={renderProposalScore}
+              />
+            </>
           ))}
 
         {tab === "my_people" &&

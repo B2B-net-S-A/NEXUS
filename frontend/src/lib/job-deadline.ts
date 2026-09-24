@@ -5,6 +5,8 @@
  * dla uzasadnienia wzorca (test wiąże się z tą samą funkcją co komponent).
  */
 
+import { countPl } from "@/lib/plural-pl";
+
 export type DeadlineUrgency = "none" | "overdue" | "soon" | "normal";
 
 export interface JobDeadlineInfo {
@@ -61,4 +63,17 @@ export function formatDateOnly(value: string | null | undefined): string {
     : new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
   return new Intl.DateTimeFormat("pl-PL").format(date);
+}
+
+/**
+ * Względny opis terminu obok daty w wierszu listy: „dziś", „za 3 dni",
+ * „po terminie 2 dni". Brak terminu → `null` (komórka pokazuje „—").
+ */
+export function deadlineRelativeLabel(info: JobDeadlineInfo): string | null {
+  if (info.daysLeft == null) return null;
+  if (info.daysLeft === 0) return "dziś";
+  if (info.daysLeft < 0) {
+    return `po terminie ${countPl(-info.daysLeft, "dzień", "dni", "dni")}`;
+  }
+  return `za ${countPl(info.daysLeft, "dzień", "dni", "dni")}`;
 }

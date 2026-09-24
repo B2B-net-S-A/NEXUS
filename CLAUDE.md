@@ -2430,33 +2430,43 @@ miejsce, nie zbiór funkcji.
   otwiera się sam, a wiersz `can_open === false` nie ma ani nawigacji, ani
   podglądu (dok pytałby o detal → 403). Gałąź kafelka z `pointer-events-none`
   + `aria-disabled` czyta test backendu — nie ruszaj jej.
-- **Domyślny zakres zależy od ROLI** — jedna czysta reguła
-  `defaultMineForUser` (`lib/jobs-url-filters.ts`, semantyka `hasRole`):
-  recruiter, sourcer, tac, talent_community_manager, delivery_lead → „Moje"
-  (także konto wielorolowe z którąkolwiek z nich); admin, head_of_recruitment,
-  finance i viewer `user` → „Wszystkie". Jawne `mine=0/1` w adresie ZAWSZE
-  wygrywa; do adresu trafia tylko zakres INNY niż domyślny roli (czyste `/jobs`
-  znaczy więc co innego u rekrutera i u admina — link „dla kolegi" wysyłaj
-  z jawnym zakresem). Stan to NADPISANIA (`mineOverride`/`sortOverride`,
-  `null` = bez wyboru), bo rolę znamy dopiero po hydratacji store'u; zapytanie
-  listy ma `enabled: hydrated`. „Wyczyść" = `null` = domyślny roli. Pusty
-  zakres „Moje" ma własny komunikat z „Pokaż wszystkie" — to nie pusta baza.
-  Zakres NIE liczy się do „Filtry (N)". Licznik „Wszystkie" to pole `all`
-  z `/api/jobs/quick-counts`.
+- **Zakres: „Moje | Otwarte | Wszystkie” (24.09.2026), domyślny zależy od
+  ROLI** — `defaultScopeForUser` (`lib/jobs-url-filters.ts`, semantyka
+  `hasRole`): recruiter, sourcer, tac, talent_community_manager, delivery_lead
+  → „Moje” (także konto wielorolowe z którąkolwiek z nich); admin,
+  head_of_recruitment, finance i viewer `user` → „Otwarte” (`open_only`,
+  zamknięte tylko w „Wszystkie”; do 24.09 widzieli 4 286 wierszy razem
+  z zamkniętymi). Adres: `mine=1` = Moje, `open=1` = Otwarte, `mine=0` =
+  Wszystkie (stare linki z pulpitu działają). Do adresu trafia tylko zakres
+  INNY niż domyślny roli (czyste `/jobs` znaczy co innego u rekrutera
+  i u admina — link „dla kolegi” wysyłaj z jawnym zakresem). Stan to
+  NADPISANIA (`null` = bez wyboru), bo rolę znamy dopiero po hydratacji;
+  zapytanie listy ma `enabled: hydrated`. Szybkie filtry „Niezamknięte”
+  i „Moje rekrutacje” usunięte — dublowały przełącznik. Zakres NIE liczy się
+  do „Filtry (N)”. Liczniki z `/api/jobs/quick-counts` (`all`, `open`,
+  `mine`), a pigułki statusu requestu mają liczby `request_status`
+  / `request_status_mine` liczone TYM SAMYM `request_status_expr` co filtr.
 - **Sortowanie domyślne zależy od zakresu** (`defaultSortForScope`):
-  „Moje" → `sort=attention` („Wymaga uwagi"), „Wszystkie" → `newest`. Do
-  adresu trafia tylko sortowanie INNE niż domyślne zakresu. Zmiana zakresu
-  przestawia sortowanie wyłącznie wtedy, gdy nie było wybrane jawnie.
+  „Moje” → `sort=attention` („Wymaga uwagi”), „Otwarte”/„Wszystkie” →
+  `newest`. `sort=deadline` = „Najbliższy termin” (bez terminu na końcu).
+- **Filtry listy (24.09.2026):** Termin (po terminie / w tym tygodniu / do 14
+  dni / bez terminu / zakres `dl_from`–`dl_to`), „Wysłanych do klienta”
+  (`sent` → backend `min_sent`/`max_sent`: OSOBY, które w rekrutacji doszły do
+  cv_sent, client_interview, acceptance albo hired wg
+  `analytics_first_milestones`; rozmowa wewnętrzna się nie liczy; min > max =
+  422) i Delivery Lead (`lead` → `delivery_lead_id` jako LISTA; pojedyncze id
+  z portalu DL działa dalej).
 - **Kolumna filtrów jest zwijana** (`store/ui.ts` v7, `jobsFiltersCollapsed`):
   `null` = brak wyboru → rozwinięta od `2xl`, zwinięta poniżej — liczone
   CSS-em (`hidden 2xl:block`), bez migotania przy hydracji. W trybie `null`
   otwarty dok chowa filtry (trzy kolumny ucinały tabeli termin i akcje).
-- **Kolumny:** „Etapy" = sześć liczb z `stage_columns`, grupowanych TĄ SAMĄ
-  funkcją co lejek (`buildStageFunnel`; tooltip `funnelGroupStages` wymienia
-  pełne nazwy etapów szablonu), „Wymaga ruchu" = `needs_action_count`
-  (0 = wyszarzone „na bieżąco", 1–4 ostrzeżenie, 5+ czerwone; brak pola =
-  kreska, nie zero) i „+N propozycji" (`open_proposals_count`, ukryte przy 0)
-  → `/jobs/{id}?tab=people&seg=proposals`. Komórki: `v2/jobs/JobListCells.tsx`.
+- **Kolumny:** „Etapy” = te same 8 kolumn co Tablica (Nowi … Zatrudniony),
+  rozstrzygane `placeStage` z `lib/board-stages.ts` na `stage_columns` wiersza
+  — tą samą regułą co Tablica (QC ma kod `interview`, a mimo to trafia do QC
+  CV); skróty raz w nagłówku, w wierszach same liczby. Tytuł w dwóch liniach,
+  „Podobne rekrutacje” to plakietka pod tytułem (bez osobnej kolumny).
+  „Termin” = data + „za N dni / po terminie N dni” (`lib/job-deadline.ts`).
+  Komórki: `v2/jobs/JobListCells.tsx`.
 - **Słownik tego ekranu:** „Moje rekrutacje", „Brak opiekuna TAC"
   (`tac_id IS NULL`; celowo NIE „Brak właściciela" — kolumna „Właściciel"
   pokazuje `primary_owner`, więc wiersz mówiłby „Marta K." i „brak
@@ -3023,6 +3033,45 @@ Serwis `services/job_similarity.py`, trasy `api/job_similar.py`.
   aktywnych (utknęli, bez akcji, ostrzeżenia, poza szablonem, rekruter, puste
   kolumny); po prawej „N w procesie · M utknęło" i SLA. Filtry PRZYGASZAJĄ karty, nigdy
   ich nie usuwają (indeksy `@hello-pangea/dnd`).
+
+## Rekrutacja — drobne usprawnienia UX (24.09.2026)
+
+Makiety: https://claude.ai/artifact/1gapo2YTWp7oYbZp9pBdBo (decyzje Artura
+24.09: bez kolumny „Co dalej” — lista pokazuje termin; reszta przyjęta).
+
+- **Ścieżka rekrutacji w nagłówku** (`JobRecruitmentPath`,
+  `lib/job-recruitment-path.ts`): Zlecenie → Kandydaci → CV do klienta →
+  Rozmowy → Umowa + pole „Najbliższy krok” (pierwsza pasująca reguła:
+  zlecenie niekompletne → osoby w QC CV → w Zweryfikowanym → propozycje do
+  przejrzenia → pusto w Nowych/Screeningu). Liczone z danych, które strona już
+  pobiera — bez nowych endpointów. Przycisk „Zlecenie” znika z rzędu, gdy
+  ścieżka jest widoczna.
+- **Baner Traffita to plakietka w nagłówku** (`ManagedInNexusSwitch`) — ta sama
+  bramka i okno potwierdzenia.
+- **Tablica:** pasek filtrów i „Zamknięci:” w jednej linii (`DragDropContext`
+  obejmuje pasek, bo chipy są celami upuszczenia); puste kolumny wąskie
+  (96 px, bez zmiany `droppableId`); podpis „co tu robisz” pod nazwą kolumny
+  (`lib/board-column-purpose.ts`, u Nordei wariant Cpro); krok karty
+  Zweryfikowany = „Przygotuj CV do QC”, QC = „Popraw CV / wyślij” (lustro
+  `services/pipeline_next_action.py` + fixture); plakietka „Twój ruch” albo
+  imię/rola osoby z ruchem (`lib/board-card-badges.ts`). Zwykły klik
+  w nazwisko otwiera dok, Ctrl/⌘/środkowy — profil w nowej karcie.
+- **Dok osoby:** ramka „Następny etap” (`DockNextStage`) czyta
+  `move-requirements` i używa tej samej listy co okno „Przesuń dalej”
+  (`MoveRequirementList`); link „Profil ↗”; sekcja CV rozróżnia CV firmowe
+  i oryginał (`lib/dock-cv-summary.ts`) — „brak pliku” tylko, gdy profil na
+  pewno nie ma CV.
+- **Okno Zlecenie:** pasek „X z Y gotowe”, budżet PLN/h i tryb pracy
+  zapisywane na miejscu (ta sama droga co Champion), reszta braków prowadzi do
+  sekcji Championa. Zdania braków rozpoznaje lustro
+  `lib/__fixtures__/job-readiness-blockers.json`, pilnowane przez
+  `test_job_readiness_blockers_mirror.py` — zmieniasz zdanie bramki handoffu,
+  zmień fixture.
+- **Propozycje** (`GET /api/jobs/{id}/proposal-facts`,
+  `services/proposal_facts.py`): stanowisko, staż, miasto, tryb, dostępność,
+  stawka tylko dla ról, które ją widzą, historia u tego klienta; bez danych
+  kontaktowych, stała liczba zapytań, ≤ 100 osób. „Policz dopasowanie dla N”
+  idzie przez `useVisibleMatchScores` (paczki po 20).
 
 ## Rekrutacja v5 — 8 kolumn, strzałka „Przesuń dalej”, QC CV, firmowa kolejka Cpro (0361, 24.09.2026)
 

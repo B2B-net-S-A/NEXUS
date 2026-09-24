@@ -615,6 +615,49 @@ def jobs_deadline_clauses(
     return clauses
 
 
+# Etapy „CV wysłane albo dalej" — kamienie milowe po stronie klienta.
+# `interview` (rozmowa WEWNĘTRZNA) świadomie poza: kandydat nie poszedł jeszcze
+# do klienta. `acceptance`/`hired` są w zbiorze, bo import Traffita potrafi
+# przeskoczyć „CV wysłane" — osoba zaakceptowana przez klienta była wysłana.
+SENT_TO_CLIENT_STAGES: tuple[PipelineStage, ...] = (
+    PipelineStage.cv_sent,
+    PipelineStage.client_interview,
+    PipelineStage.acceptance,
+    PipelineStage.hired,
+)
+
+
+def jobs_sent_to_client_subquery(job_ids):
+    """``(job_id, sent_n)`` — OSOBY (distinct kandydat) wysłane do klienta.
+
+    Liczone z widoku ``analytics_first_milestones`` (reguła D2: pierwsze
+    wejście pary na etap; wykluczone placementy już odfiltrowane w widoku),
+    więc powrót na etap nie dubluje osoby. ``job_ids`` — podzapytanie
+    przefiltrowanej listy, żeby widok nie liczył całej bazy.
+    """
+    from sqlalchemy import Enum as SAEnum, Integer, column, table  # noqa: PLC0415
+
+    milestones = table(
+        "analytics_first_milestones",
+        column("candidate_id", Integer),
+        column("job_id", Integer),
+        # Typ enuma, nie String — w bazie kolumna jest natywnym `pipelinestage`.
+        column("stage", SAEnum(PipelineStage, name="pipelinestage")),
+    )
+    return (
+        select(
+            milestones.c.job_id.label("job_id"),
+            func.count(func.distinct(milestones.c.candidate_id)).label("sent_n"),
+        )
+        .where(
+            milestones.c.stage.in_(SENT_TO_CLIENT_STAGES),
+            milestones.c.job_id.in_(job_ids),
+        )
+        .group_by(milestones.c.job_id)
+        .subquery()
+    )
+
+
 @router.get("")
 async def list_jobs(
     current_user: CurrentUser,
@@ -729,11 +772,29 @@ async def list_jobs(
             "job owner and collaborators."
         ),
     ),
-    delivery_lead_id: Optional[int] = Query(
+    delivery_lead_id: Optional[list[int]] = Query(
         None,
         description=(
-            "Filter by Job.delivery_lead_id — single user id. Used by the DL Hub "
-            "Active Jobs tab to show jobs assigned to a specific DL."
+            "Filter by Job.delivery_lead_id — one or more user ids (repeat the "
+            "param, OR-combined). Used by the DL Hub Active Jobs tab (single id) "
+            "and the 'Delivery Lead' filter of the jobs list."
+        ),
+    ),
+    min_sent: Optional[int] = Query(
+        None,
+        ge=0,
+        description=(
+            "Only jobs where AT LEAST this many people (distinct candidates) "
+            "reached 'CV wysłane' or a later client-side stage "
+            "(`analytics_first_milestones`, rule D2)."
+        ),
+    ),
+    max_sent: Optional[int] = Query(
+        None,
+        ge=0,
+        description=(
+            "Only jobs where AT MOST this many people reached 'CV wysłane' or "
+            "later. `max_sent=0` → nobody sent to the client yet."
         ),
     ),
     request_status: Optional[list[str]] = Query(
@@ -832,8 +893,8 @@ async def list_jobs(
             query = query.where(Job.deadline.is_not(None))
         else:
             query = query.where(Job.deadline.is_(None))
-    if delivery_lead_id is not None:
-        query = query.where(Job.delivery_lead_id == delivery_lead_id)
+    if delivery_lead_id:
+        query = query.where(Job.delivery_lead_id.in_(delivery_lead_id))
     if mine:
         query = query.where(jobs_mine_clause(current_user))
     if priority_work == PriorityWorkJobFilter.assigned:
@@ -857,6 +918,18 @@ async def list_jobs(
         query = query.outerjoin(status_sq, status_sq.c.job_id == Job.id).where(
             _sim.request_status_expr(status_sq).in_(request_status)
         )
+    if min_sent is not None or max_sent is not None:
+        if min_sent is not None and max_sent is not None and min_sent > max_sent:
+            raise HTTPException(
+                422, "Zakres „Wysłanych do klienta”: minimum większe niż maksimum."
+            )
+        sent_sq = jobs_sent_to_client_subquery(query.with_only_columns(Job.id))
+        sent_n = func.coalesce(sent_sq.c.sent_n, 0)
+        query = query.outerjoin(sent_sq, sent_sq.c.job_id == Job.id)
+        if min_sent is not None:
+            query = query.where(sent_n >= min_sent)
+        if max_sent is not None:
+            query = query.where(sent_n <= max_sent)
     total = (
         await db.execute(select(func.count()).select_from(query.subquery()))
     ).scalar()
@@ -1280,6 +1353,45 @@ async def jobs_quick_counts(
         )
     ).one()
 
+    # Liczniki pigułek „Status requestu" — TO SAMO wyrażenie co filtr
+    # ``request_status`` w ``list_jobs`` (``request_status_expr``), jedno GROUP BY
+    # na cały rejestr. Obok liczby dla całego rejestru idzie liczba „moich"
+    # (``count() FILTER``), żeby pigułki w zakresie „Moje" nie obiecywały
+    # tysięcy wierszy, których ten zakres nie pokaże. Statusy inne niż
+    # ``closed`` dotyczą z definicji tylko rekrutacji niezamkniętych, więc
+    # liczba „rejestru" jest zarazem liczbą w zakresie „Otwarte".
+    from app.services import job_similarity as _sim  # noqa: PLC0415
+
+    register_ids = select(Job.id).where(jobs_register_base_clause())
+    status_sq = _sim.request_status_subquery(register_ids)
+    # Status liczony w podzapytaniu, grupowanie po jego kolumnie: `CASE`
+    # z parametrami w SELECT i GROUP BY dostałby dwa różne zestawy `$n`
+    # i Postgres nie uznałby ich za to samo wyrażenie.
+    per_job = (
+        select(
+            _sim.request_status_expr(status_sq).label("status"),
+            jobs_mine_clause(current_user).label("is_mine"),
+        )
+        .select_from(Job)
+        .outerjoin(status_sq, status_sq.c.job_id == Job.id)
+        .where(jobs_register_base_clause())
+        .subquery()
+    )
+    status_rows = (
+        await db.execute(
+            select(
+                per_job.c.status,
+                func.count().label("n"),
+                func.count().filter(per_job.c.is_mine).label("mine_n"),
+            ).group_by(per_job.c.status)
+        )
+    ).all()
+    request_status_counts = {value: 0 for value in _sim.REQUEST_STATUSES}
+    request_status_mine = {value: 0 for value in _sim.REQUEST_STATUSES}
+    for status_row in status_rows:
+        request_status_counts[status_row.status] = int(status_row.n)
+        request_status_mine[status_row.status] = int(status_row.mine_n)
+
     return {
         "all": row.all_jobs,
         "mine": row.mine,
@@ -1288,6 +1400,8 @@ async def jobs_quick_counts(
         "active_in_search": row.active_in_search,
         "owner_missing": row.owner_missing,
         "deadline_7d": row.deadline_7d,
+        "request_status": request_status_counts,
+        "request_status_mine": request_status_mine,
     }
 
 

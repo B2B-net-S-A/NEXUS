@@ -77,6 +77,12 @@ interface JobDetailCompactHeaderProps {
   /** Jedna linia faktów pod tytułem (patrz `lib/job-header-subtitle.ts`). */
   subtitle?: ReactNode;
   metadata?: ReactNode;
+  /**
+   * „Ścieżka rekrutacji" (5 kroków) + „Najbliższy krok" — pod metadanymi,
+   * nad rzędem przycisków. Gdy jest, krok 1 „Zlecenie" otwiera okno zlecenia,
+   * więc osobny przycisk „Zlecenie" znika z rzędu (bez dublowania).
+   */
+  path?: ReactNode;
   /** Trzy liczby właściwe dla aktywnego kroku (`lib/job-header-kpis.ts`). */
   kpis?: JobHeaderKpi[];
   presence?: ReactNode;
@@ -192,6 +198,7 @@ export function JobDetailCompactHeader({
   badges,
   subtitle,
   metadata,
+  path,
   kpis,
   presence,
   activeView,
@@ -382,6 +389,8 @@ export function JobDetailCompactHeader({
           />
         </div>
 
+        {path}
+
         {/* `flex-wrap` zamiast `overflow-x-auto`: przy ciasnym oknie pasek ma
             się ZŁAMAĆ, a nie schować końcówkę za niewidoczny pasek przewijania.
             Przycisk, którego nie widać, nie istnieje dla użytkownika. */}
@@ -406,21 +415,23 @@ export function JobDetailCompactHeader({
             className="flex min-w-0 flex-wrap items-center gap-1.5"
             aria-label="Sekcje rekrutacji"
           >
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={onOpenOrder}
-              data-testid="open-order"
-            >
-              <ClipboardList className="h-4 w-4" aria-hidden="true" />
-              Zlecenie
-              {missing != null ? (
-                <Badge variant="warning" size="sm" className="tabular-nums">
-                  brakuje {missing}
-                </Badge>
-              ) : null}
-            </Button>
+            {path == null ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={onOpenOrder}
+                data-testid="open-order"
+              >
+                <ClipboardList className="h-4 w-4" aria-hidden="true" />
+                Zlecenie
+                {missing != null ? (
+                  <Badge variant="warning" size="sm" className="tabular-nums">
+                    brakuje {missing}
+                  </Badge>
+                ) : null}
+              </Button>
+            ) : null}
             <Button
               type="button"
               size="sm"
