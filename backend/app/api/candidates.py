@@ -4778,6 +4778,33 @@ async def reparse_primary_cv(
     return {"status": "queued", "document_id": document.id}
 
 
+# Typy, które przeglądarka może wyrenderować w karcie (`disposition=inline`)
+# bez wykonania kodu na originie API. `content_type` dokumentu pochodzi
+# z uploadu albo importu (Traffit, poczta M365, formularz kariery) — wiersz
+# z `text/html` albo `image/svg+xml` otwarty inline byłby XSS-em na originie
+# API. Reszta zawsze jako `attachment`; podgląd w UI pobiera bajty `fetch`-em,
+# więc nagłówek dyspozycji go nie dotyczy.
+_INLINE_SAFE_MEDIA_TYPES = frozenset(
+    {
+        "application/pdf",
+        "image/png",
+        "image/jpeg",
+        "image/gif",
+        "image/webp",
+    }
+)
+
+
+def _safe_document_disposition(
+    media_type: Optional[str],
+    requested: Literal["attachment", "inline"],
+) -> Literal["attachment", "inline"]:
+    if requested != "inline":
+        return "attachment"
+    base = (media_type or "").split(";", 1)[0].strip().lower()
+    return "inline" if base in _INLINE_SAFE_MEDIA_TYPES else "attachment"
+
+
 @router.get("/{candidate_id}/documents/{doc_id}/content")
 async def download_candidate_document(
     candidate_id: int,
@@ -4808,6 +4835,7 @@ async def download_candidate_document(
 
     filename = doc.filename or f"document-{doc.id}"
     media_type = doc.content_type or "application/octet-stream"
+    disposition = _safe_document_disposition(media_type, disposition)
 
     candidate_audit.record_candidate_audit(
         db,
@@ -4902,6 +4930,8 @@ async def get_candidate_document_url(
         raise HTTPException(status_code=404, detail="Document not found")
 
     filename = doc.filename or f"document-{doc.id}"
+    # Presigned URL renderuje się na originie bucketu — ta sama allowlista.
+    disposition = _safe_document_disposition(doc.content_type, disposition)
 
     candidate_audit.record_candidate_audit(
         db,
