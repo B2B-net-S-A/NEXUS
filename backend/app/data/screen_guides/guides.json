@@ -4,7 +4,7 @@
     "title": "Lista rekrutacji",
     "section": "pipeline",
     "roles": ["recruiter", "sourcer", "delivery_lead", "head_of_recruitment", "admin"],
-    "what": "Tu widzisz wszystkie rekrutacje: swoje albo całej firmy, ze statusem requestu, etapami kandydatów i liczbą nowych propozycji.",
+    "what": "Tu widzisz wszystkie rekrutacje: swoje albo całej firmy, ze statusem requestu, etapami kandydatów i liczbą nowych propozycji. Pierwsza linia to tytuł dla rekrutera, pod nią klient oraz nazwa i numer od klienta.",
     "tasks": [
       {
         "q": "Jak przełączyć między moimi, otwartymi i wszystkimi rekrutacjami?",
@@ -13,7 +13,7 @@
       },
       {
         "q": "Jak znaleźć konkretną rekrutację albo zawęzić listę?",
-        "a": "Wpisz w pole wyszukiwania tytuł, klienta albo technologię i wybierz status (z liczbą przy każdym). Pod „Filtry” są m.in. „Termin” (po terminie, w tym tygodniu, do 14 dni, bez terminu, zakres dat), „Wysłanych do klienta” (nikt, co najmniej 1, 3, 5) i „Delivery Lead”. Sortowanie „Najbliższy termin” ustawia listę według daty.",
+        "a": "Wpisz w pole wyszukiwania tytuł, klienta, technologię albo numer u klienta i wybierz status (z liczbą przy każdym). Pod „Filtry” są m.in. „Termin” (po terminie, w tym tygodniu, do 14 dni, bez terminu, zakres dat), „Wysłanych do klienta” (nikt, co najmniej 1, 3, 5) i „Delivery Lead”. Sortowanie „Najbliższy termin” ustawia listę według daty.",
         "anchor": "jobs.list.search"
       },
       {
@@ -226,7 +226,8 @@
     ],
     "pitfalls": [
       "Stack MUST z sekcji 3 jest tym, po czym system dopasowuje kandydatów — sama proza w opisie projektu wystarcza gorzej.",
-      "Budżet podany zakresem jest zapisywany jako górna granica stawki godzinowej."
+      "Budżet podany zakresem jest zapisywany jako górna granica stawki godzinowej.",
+      "Tytuł w nagłówku to tytuł dla rekrutera: składa się sam z profilu (rola, must-have, lata, dziedzina), dopóki nikt go nie zmieni w „Edytuj rekrutację”. Do klienta idą nazwa i numer od klienta."
     ],
     "anchors": [
       {"id": "job.champion.intake", "label": "Wygeneruj z opisu klienta", "describe": "Wypełnienie profilu z opisu klienta przez AI."},

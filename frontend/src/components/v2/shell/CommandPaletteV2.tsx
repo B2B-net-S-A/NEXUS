@@ -33,6 +33,7 @@ import { useCapabilities } from "@/hooks/useCapability";
 import { useAuthStore } from "@/store/auth";
 import { openJarvis } from "@/lib/jarvis/events";
 import { listedSettingsItems, settingsItemHref } from "@/lib/settings-registry";
+import { jobClientLine, jobDisplayTitle } from "@/lib/job-names";
 
 interface Props {
   /** `undefined` = user nie ma capability `candidate.create` (patrz AppShellV2). */
@@ -59,6 +60,8 @@ interface RawSearchItem {
   linkedin_current_title?: string | null;
   city?: string | null;
   title?: string | null;
+  working_title?: string | null;
+  client_reference?: string | null;
   client_name?: string | null;
   industry?: string | null;
 }
@@ -167,8 +170,9 @@ export function CommandPaletteV2({
                 (j) => ({
                   type: "job" as const,
                   id: j.id,
-                  title: j.title ?? `Rekrutacja #${j.id}`,
-                  subtitle: j.client_name ?? null,
+                  // 0380: tytuł dla rekrutera; pod nim klient, nazwa i numer od klienta.
+                  title: jobDisplayTitle(j),
+                  subtitle: jobClientLine(j) || null,
                 }),
               );
               flush();

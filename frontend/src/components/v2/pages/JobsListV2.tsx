@@ -68,6 +68,7 @@ import {
 import { OwnerBadge } from "@/components/v2/jobs/OwnerBadge";
 import { JobReadinessDock } from "@/components/v2/jobs/JobReadinessDock";
 import {
+  JobClientNames,
   JobDeadlineCell,
   RequestStatusBadge,
   SimilarJobsCell,
@@ -113,6 +114,7 @@ import {
   type JobTypeFilterValue,
 } from "@/lib/jobs-url-filters";
 import { extractSkills } from "@/lib/job-skills";
+import { jobDisplayTitle } from "@/lib/job-names";
 import { shortenPersonName } from "@/lib/job-header-subtitle";
 import { stageSummaryOf } from "@/lib/job-pipeline-funnel";
 import type {
@@ -599,7 +601,7 @@ function JobsTable({
                     title="Nie masz dostępu do tej rekrutacji — poproś o dodanie Cię do jej zespołu."
                     className="line-clamp-2 break-words font-medium leading-snug text-muted-foreground"
                   >
-                    {job.title}
+                    {jobDisplayTitle(job)}
                   </span>
                 ) : (
                   // Dwie linie zamiast jednej (lista v5): tytuły z Traffita
@@ -608,10 +610,10 @@ function JobsTable({
                   <Link
                     href={`/jobs/${job.id}`}
                     onClick={(e) => e.stopPropagation()}
-                    title={job.title}
+                    title={jobDisplayTitle(job)}
                     className="line-clamp-2 break-words font-medium leading-snug text-foreground hover:text-primary hover:underline"
                   >
-                    {job.title}
+                    {jobDisplayTitle(job)}
                   </Link>
                 )}
                 <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-muted-foreground">
@@ -621,8 +623,9 @@ function JobsTable({
                       <span className="truncate">{job.client_name}</span>
                     </span>
                   )}
+                  <JobClientNames job={job} />
                   {job.reference_number && (
-                    <span className="font-mono text-[10px]" title="Numer referencyjny">
+                    <span className="font-mono text-[10px]" title="Nasz numer rekrutacji">
                       {job.reference_number}
                     </span>
                   )}
@@ -1946,8 +1949,11 @@ export function JobsListV2() {
                           zerowej szerokości — tytuł znikał z kafelka. */}
                       <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
                         <div className="min-w-[160px] flex-1">
-                          <h3 className="font-semibold text-foreground text-base truncate">
-                            {job.title}
+                          <h3
+                            className="font-semibold text-foreground text-base truncate"
+                            title={jobDisplayTitle(job)}
+                          >
+                            {jobDisplayTitle(job)}
                           </h3>
                           <div className="flex items-center gap-2 flex-wrap">
                             {job.client_name && (
@@ -1956,10 +1962,11 @@ export function JobsListV2() {
                                 {job.client_name}
                               </p>
                             )}
+                            <JobClientNames job={job} />
                             {job.reference_number && (
                               <span
                                 className="font-mono text-[10px] text-muted-foreground/80"
-                                title="Numer referencyjny"
+                                title="Nasz numer rekrutacji"
                               >
                                 {job.reference_number}
                               </span>

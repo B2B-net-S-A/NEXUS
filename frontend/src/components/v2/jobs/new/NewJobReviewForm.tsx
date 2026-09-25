@@ -10,6 +10,7 @@ import { ChampionExperienceFields } from "@/components/champion/ChampionExperien
 import { hasExperience } from "@/lib/champion-experience";
 import {
   FIELD_BASIS_LABEL,
+  effectiveWorkingTitle,
   markEdited,
   newQuestionKey,
   type FieldBasis,
@@ -205,6 +206,58 @@ function TagListInput({
   );
 }
 
+/**
+ * Tytuł dla rekrutera (0380): podpowiedź składana na żywo z roli, must-have,
+ * lat i dziedziny — ta sama reguła co na serwerze. Ręczna zmiana ją zamraża,
+ * „Wróć do podpowiedzi” odmraża. Nigdy nie idzie do klienta.
+ */
+function WorkingTitleField({
+  id,
+  form,
+  onChange,
+}: {
+  id: string;
+  form: IntakeForm;
+  onChange: (updater: (form: IntakeForm) => IntakeForm) => void;
+}) {
+  const value = effectiveWorkingTitle(form);
+  return (
+    <div className="flex flex-col gap-2" data-testid="working-title-field">
+      <FieldLabel
+        htmlFor={id}
+        basis={form.workingTitleTouched ? "manual" : "ai"}
+        hint="widzi go tylko zespół"
+      >
+        Tytuł dla rekrutera
+      </FieldLabel>
+      <Input
+        id={id}
+        value={value}
+        maxLength={255}
+        onChange={(e) =>
+          onChange((f) => ({
+            ...f,
+            workingTitle: e.target.value,
+            workingTitleTouched: true,
+          }))
+        }
+        placeholder="uzupełni się z roli, must-have i lat doświadczenia"
+      />
+      {form.workingTitleTouched && (
+        <button
+          type="button"
+          className="self-start text-xs font-medium text-primary hover:underline"
+          onClick={() =>
+            onChange((f) => ({ ...f, workingTitle: "", workingTitleTouched: false }))
+          }
+        >
+          Wróć do podpowiedzi
+        </button>
+      )}
+    </div>
+  );
+}
+
 interface NewJobReviewFormProps {
   form: IntakeForm;
   onChange: (updater: (form: IntakeForm) => IntakeForm) => void;
@@ -222,6 +275,9 @@ export function NewJobReviewForm({
 }: NewJobReviewFormProps) {
   const ids = {
     title: useId(),
+    clientTitle: useId(),
+    clientReference: useId(),
+    workingTitle: useId(),
     rate: useId(),
     days: useId(),
     city: useId(),
@@ -274,6 +330,44 @@ export function NewJobReviewForm({
   return (
     <div className="flex flex-col gap-4">
       <section className="flex flex-col gap-5 rounded-xl border border-border bg-card p-4 sm:p-6">
+        {/* 0380: nazwa i numer od klienta idą do klienta (CV, plik, Cpro). */}
+        <div className="grid gap-4 md:grid-cols-3">
+          <div className="flex flex-col gap-2 md:col-span-2">
+            <FieldLabel
+              htmlFor={ids.clientTitle}
+              basis={basis("client_title")}
+              hint="tak, jak napisał klient"
+            >
+              Nazwa od klienta
+            </FieldLabel>
+            <Input
+              id={ids.clientTitle}
+              value={form.clientTitle}
+              onChange={(e) =>
+                set("clientTitle", e.target.value, "client_title")
+              }
+              placeholder="np. Programista Java (ZOB 48213)"
+            />
+          </div>
+          <div className="flex flex-col gap-2">
+            <FieldLabel
+              htmlFor={ids.clientReference}
+              basis={basis("client_reference")}
+            >
+              Numer u klienta
+            </FieldLabel>
+            <Input
+              id={ids.clientReference}
+              value={form.clientReference}
+              maxLength={120}
+              onChange={(e) =>
+                set("clientReference", e.target.value, "client_reference")
+              }
+              placeholder="np. ZOB 48213"
+            />
+          </div>
+        </div>
+
         <div className="flex flex-col gap-2">
           <FieldLabel
             htmlFor={ids.title}
@@ -308,6 +402,12 @@ export function NewJobReviewForm({
           basis={basis("nice")}
           tone="muted"
           placeholder="opcjonalnie"
+        />
+
+        <WorkingTitleField
+          id={ids.workingTitle}
+          form={form}
+          onChange={onChange}
         />
 
         <div className="grid gap-4 md:grid-flow-row-dense md:grid-cols-2 lg:grid-cols-4">

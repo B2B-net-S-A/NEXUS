@@ -6,6 +6,7 @@ import {
   buildChampionPayload,
   markEdited,
   buildJobPayload,
+  effectiveWorkingTitle,
   formFromIntake,
   highlightSegments,
   missingFor,
@@ -121,6 +122,29 @@ describe("payloady zapisu", () => {
     ]) {
       expect(payload).not.toHaveProperty(gone);
     }
+  });
+
+  it("trzy nazwy (0380): nazwa i numer od klienta idą do rekrutacji, tytuł dla rekrutera tylko po ręcznej zmianie", () => {
+    const form = formFromIntake({
+      ...INTAKE,
+      client_title: "Programista Java (ZOB 48213)",
+      client_reference: "ZOB 48213",
+      working_title_suggestion: "Senior Java Developer · Java 17+, Spring Boot · 5+ lat",
+    });
+    const opts = { clientId: 7, requestText: "", templateJobId: null };
+    const auto = buildJobPayload(form, opts);
+    expect(auto.title).toBe("Programista Java (ZOB 48213)");
+    expect(auto.client_reference).toBe("ZOB 48213");
+    expect(auto).not.toHaveProperty("working_title");
+    // Podpowiedź liczy się na żywo z pól formularza, dopóki nikt jej nie zmienił.
+    expect(effectiveWorkingTitle({ ...form, seniorityYears: 7 })).toBe(
+      "Senior Java Developer · Java 17+, Spring Boot · 7+ lat",
+    );
+    const manual = buildJobPayload(
+      { ...form, workingTitle: "Java do płatności", workingTitleTouched: true },
+      opts,
+    );
+    expect(manual.working_title).toBe("Java do płatności");
   });
 
   it("praca zdalna czyści biuro, szablon dokleja from_job_id", () => {

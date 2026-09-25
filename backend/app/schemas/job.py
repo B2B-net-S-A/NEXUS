@@ -59,6 +59,10 @@ class JobCreate(BaseModel):
     work_mode: WorkMode = WorkMode.fulltime
     headcount: int = 1
     reference_number: Optional[str] = None
+    # 0380: numer zapytania klienta i tytuł dla rekrutera (`job_working_title`).
+    # Brak ``working_title`` = składa go serwer i przelicza przy zmianach.
+    client_reference: Optional[str] = Field(default=None, max_length=120)
+    working_title: Optional[str] = Field(default=None, max_length=255)
     industry: Optional[str] = None
     subcategory: Optional[str] = None
     custom_fields: Optional[dict] = None
@@ -125,6 +129,10 @@ class JobUpdate(BaseModel):
     work_mode: Optional[WorkMode] = None
     headcount: Optional[int] = None
     reference_number: Optional[str] = None
+    client_reference: Optional[str] = Field(default=None, max_length=120)
+    # Wartość = ręczny tytuł (automat wyłączony); pusty napis albo null =
+    # powrót do tytułu składanego automatycznie.
+    working_title: Optional[str] = Field(default=None, max_length=255)
     industry: Optional[str] = None
     subcategory: Optional[str] = None
     custom_fields: Optional[dict] = None
@@ -244,6 +252,9 @@ class JobResponse(BaseModel):
     work_mode: WorkMode = WorkMode.fulltime
     headcount: int = 1
     reference_number: Optional[str] = None
+    client_reference: Optional[str] = None
+    working_title: Optional[str] = None
+    working_title_auto: bool = True
     industry: Optional[str] = None
     subcategory: Optional[str] = None
     custom_fields: Optional[Any] = None

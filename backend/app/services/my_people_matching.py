@@ -39,6 +39,7 @@ from app.services.candidate_job_eligibility import Visibility
 from app.services.current_employment import current_employment_client_ids
 from app.services.dealbreaker_filters import employment_only_refuses_b2b
 from app.services.eligibility_annotation import eligibility_annotation
+from app.services.job_working_title import display_title
 
 logger = logging.getLogger(__name__)
 
@@ -297,7 +298,7 @@ async def run_for_job(db: AsyncSession, job: Job) -> dict:
             created = await emit(
                 db,
                 user_id=uid,
-                title=f"Nowa rekrutacja: {job.title} — {_people_phrase(len(fresh))} pasuje",
+                title=f"Nowa rekrutacja: {display_title(job)} — {_people_phrase(len(fresh))} pasuje",
                 message=f"Z Twojej listy „Moi ludzie”: {top}{more}.",
                 ntype=NotificationType.my_people_match,
                 related_entity_type="job",

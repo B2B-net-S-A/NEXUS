@@ -204,6 +204,16 @@ class Job(Base, TimestampMixin):
     reference_number: Mapped[Optional[str]] = mapped_column(
         String(50), nullable=True, unique=True
     )
+    # 0380: trzy nazwy rekrutacji. ``title`` = nazwa od klienta (idzie do
+    # klienta i do wektora oferty), ``client_reference`` = numer zapytania
+    # klienta (ZOB, SAP…; CV, nazwa pliku, Cpro), ``working_title`` = tytuł
+    # dla rekrutera składany z Championa (`job_working_title`) — wyłącznie
+    # ekrany wewnętrzne. Dopóki ``working_title_auto``, przelicza się sam.
+    client_reference: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    working_title: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    working_title_auto: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
     industry: Mapped[Optional[str]] = mapped_column(
         String(50), nullable=True, index=True
     )

@@ -69,7 +69,7 @@ function prepReasonClass(row: PrepAttentionRow): string {
 function RowMeta({ row }: { row: BoardTaskRow }) {
   return (
     <p className="truncate text-xs text-muted-foreground">
-      {row.job_title}
+      {row.job_working_title?.trim() || row.job_title}
       {row.client_name ? ` · ${row.client_name}` : ""}
     </p>
   );

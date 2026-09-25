@@ -670,6 +670,8 @@ READ_TOOLS: tuple[JarvisTool, ...] = (
             (
                 "id",
                 "title",
+                "working_title",
+                "client_reference",
                 "status",
                 "client_name",
                 "client_id",

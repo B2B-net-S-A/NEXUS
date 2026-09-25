@@ -71,6 +71,10 @@ class BoardTaskRow(BaseModel):
     # Przegląd DL i kolejka Cpro: wynik QC CV pary.
     qc_status: Optional[Literal["passed", "failed", "overridden", "unchecked"]] = None
     qc_blocking_failed: int = 0
+    # 0380: ``job_title`` = nazwa od klienta; tytuł dla rekrutera i numer u
+    # klienta osobno (Cpro dostaje nazwę i numer klienta).
+    job_working_title: Optional[str] = None
+    client_reference: Optional[str] = None
 
 
 class PrepAttentionRow(BaseModel):
@@ -149,6 +153,8 @@ class CproQueueItem(BaseModel):
 class CproQueueJob(BaseModel):
     job_id: int
     job_title: str
+    job_working_title: Optional[str] = None
+    client_reference: Optional[str] = None
     client_name: Optional[str] = None
     oldest_since: datetime
     items: list[CproQueueItem]
@@ -334,6 +340,8 @@ async def get_cpro_queue(
             group = CproQueueJob(
                 job_id=t.job_id,
                 job_title=t.job_title,
+                job_working_title=t.job_working_title,
+                client_reference=t.client_reference,
                 client_name=t.client_name,
                 oldest_since=t.since,
                 items=[],

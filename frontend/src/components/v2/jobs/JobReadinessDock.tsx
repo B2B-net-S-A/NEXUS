@@ -69,6 +69,7 @@ import {
   ReadinessRow,
   type ReadinessRowState,
 } from "@/components/v2/jobs/ReadinessRow";
+import { jobClientLine, jobDisplayTitle } from "@/lib/job-names";
 
 export type JobReadinessDockVariant = "list" | "champion";
 
@@ -815,8 +816,9 @@ export function JobReadinessDock({
     </div>
   ) : null;
 
+  // 0380: klient · „nazwa od klienta” · numer u klienta, potem typ i nasz numer.
   const subtitle = [
-    job.client_name,
+    jobClientLine(job),
     RECRUITMENT_TYPE_LABEL[job.recruitment_type as string] ?? job.recruitment_type,
     job.reference_number,
   ]
@@ -957,8 +959,9 @@ export function JobReadinessDock({
               <Link
                 href={`/jobs/${jobId}`}
                 className="block truncate text-sm font-semibold text-foreground hover:text-primary hover:underline"
+                title={jobDisplayTitle(job)}
               >
-                {job.title}
+                {jobDisplayTitle(job)}
               </Link>
               {subtitle && (
                 <div className="truncate text-xs text-muted-foreground">
@@ -1185,7 +1188,7 @@ export function JobReadinessDock({
           open={showAddCandidates}
           onClose={() => setShowAddCandidates(false)}
           jobId={jobId}
-          jobTitle={job.title}
+          jobTitle={jobDisplayTitle(job)}
         />
       )}
       {editScope !== "none" && showEdit && (

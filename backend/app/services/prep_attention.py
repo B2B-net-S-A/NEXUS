@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.calendar_event import CalendarEvent, EventStatus, EventType
 from app.models.candidate import Candidate
 from app.models.job import Job
+from app.services.job_working_title import job_display_title_expr
 from app.models.user import User, UserRole
 from app.services.interview_cycle import (
     PREP_URGENT_HOURS,
@@ -168,7 +169,10 @@ async def labels(
     titles: dict[int, str] = {}
     if job_ids:
         for jid, title in (
-            await db.execute(select(Job.id, Job.title).where(Job.id.in_(job_ids)))
+            # Ekran wewnętrzny: tytuł dla rekrutera, a bez niego nazwa od klienta.
+            await db.execute(
+                select(Job.id, job_display_title_expr()).where(Job.id.in_(job_ids))
+            )
         ).all():
             titles[jid] = title or f"Rekrutacja #{jid}"
     return names, titles

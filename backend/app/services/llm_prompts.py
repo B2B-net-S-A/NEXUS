@@ -945,7 +945,7 @@ CV_REQUIREMENT_MAP = PromptTemplate(
 
 JOB_REQUEST_INTAKE = PromptTemplate(
     name="job_request_intake",
-    version=2,
+    version=3,
     expected_format="json",
     system_prompt=(
         "Jesteś senior rekruterem IT w polskiej agencji body leasingu. "
@@ -960,7 +960,8 @@ JOB_REQUEST_INTAKE = PromptTemplate(
         "kandydata, pytania screeningowe, pytania do klienta) możesz przygotować "
         'sam — oznacz basis: "request" (wprost z maila), "client_history" '
         '(z kontekstu klienta) albo "ai" (twoja propozycja). '
-        "(3) Pola quote, evidence i rate_quote to DOSŁOWNE fragmenty tekstu "
+        "(3) Pola quote, evidence, rate_quote, client_title i client_reference "
+        "to DOSŁOWNE fragmenty tekstu "
         "requestu (kopiuj znak w znak, bez zmian). "
         "(4) Nie wymieniaj żadnych osób z imienia ani nazwiska. "
         "(5) Odpowiedź to czysty JSON bez komentarzy i bez code fences."
@@ -977,6 +978,8 @@ JOB_REQUEST_INTAKE = PromptTemplate(
         "Zwróć JSON:\n"
         "{{\n"
         '  "role_name": str|null,            // nazwa stanowiska, np. "Senior Java Developer"\n'
+        '  "client_title": str|null,         // nazwa stanowiska DOKŁADNIE tak, jak napisał ją klient (z numerem, jeśli jest w nazwie), np. "Programista Java (ZOB 48213)"\n'
+        '  "client_reference": str|null,     // numer zapytania klienta DOKŁADNIE z tekstu, np. "ZOB 48213", "SAP 4500123456", "REQ-2291"; nie nasz numer i nie numer umowy\n'
         '  "must": [str],                     // POJEDYNCZE technologie wymagane, max 10\n'
         '  "nice": [str],                     // POJEDYNCZE technologie mile widziane, max 8\n'
         '  "seniority_min_years": int|null,   // minimalne lata doświadczenia, tylko gdy podane\n'

@@ -45,6 +45,7 @@ from app.models.job import Job
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import User
 from app.services.debrief_gate import debrief_saved_after_start
+from app.services.job_working_title import job_display_title_expr
 
 Scope = Literal["mine", "jobs", "all"]
 StepState = Literal[
@@ -770,7 +771,7 @@ async def _labels(
     if job_ids:
         for jid, title, client_id, client_name in (
             await db.execute(
-                select(Job.id, Job.title, Job.client_id, Client.name)
+                select(Job.id, job_display_title_expr(), Job.client_id, Client.name)
                 .outerjoin(Client, Client.id == Job.client_id)
                 .where(Job.id.in_(job_ids))
             )

@@ -560,6 +560,8 @@ def jobs_search_clause(q: str):
     return or_(
         polish_folded_ilike(Job.title, needle),
         polish_folded_ilike(Job.reference_number, needle),
+        polish_folded_ilike(Job.working_title, needle),
+        polish_folded_ilike(Job.client_reference, needle),
         client_match,
         polish_folded_ilike(cast(Job.must_skills, Text), needle),
     )
@@ -1609,6 +1611,17 @@ async def create_job(
             client_id=payload.get("client_id"),
         )
 
+    # 0380: numer u klienta i tytuł dla rekrutera. Jawny tytuł = ręczny
+    # (automat wyłączony); brak = składa go `job_working_title` niżej.
+    from app.services.job_working_title import normalize_client_reference
+
+    payload["client_reference"] = normalize_client_reference(
+        payload.get("client_reference")
+    )
+    manual_working_title = (payload.get("working_title") or "").strip() or None
+    payload["working_title"] = manual_working_title
+    payload["working_title_auto"] = manual_working_title is None
+
     job = Job(**payload, created_by=current_user.id)
 
     # Per-client pipeline template auto-pick (Traffit gap #1). If caller
@@ -1645,6 +1658,10 @@ async def create_job(
 
     db.add(job)
     await db.flush()
+
+    from app.services.job_working_title import refresh_working_title
+
+    await refresh_working_title(db, job)
 
     # Auto-generate a human-readable reference number (Traffit parity) when
     # the caller didn't supply one and it wasn't carried over from a Traffit
@@ -1996,6 +2013,19 @@ async def update_job(
     ):
         # Ręczna zmiana DL-a: od teraz nietykalny dla `job_delivery_lead_fill`.
         job.delivery_lead_auto_filled = False
+    # 0380: ręczny tytuł dla rekrutera wyłącza automat, pusty go przywraca.
+    working_title_reset = False
+    if "working_title" in updates:
+        manual = (updates["working_title"] or "").strip() or None
+        updates["working_title"] = manual
+        job.working_title_auto = manual is None
+        working_title_reset = manual is None
+    if "client_reference" in updates:
+        from app.services.job_working_title import normalize_client_reference
+
+        updates["client_reference"] = normalize_client_reference(
+            updates["client_reference"]
+        )
     if "champion_profile" in updates:
         from app.services.champion_intake import user_edit
 
@@ -2031,6 +2061,19 @@ async def update_job(
     for k, v in updates.items():
         setattr(job, k, v)
     _assert_delivery_lead_job_visible(job, delivery_lead_pairs)
+    if (
+        working_title_reset
+        or {
+            "title",
+            "must_skills",
+            "client_reference",
+            "champion_profile",
+        }
+        & updates.keys()
+    ):
+        from app.services.job_working_title import refresh_working_title
+
+        await refresh_working_title(db, job)
 
     # Phase 15 / Phase D: re-extract train_name if title/description changed
     # and the DL hasn't set one manually. Never overrides a DL-provided tag.
@@ -2656,9 +2699,14 @@ async def _save_champion_profile(
         # przepadły), ale re-embed + inwalidacja cache'u wyników NIE
         # odpaliłyby się same — bez tego wypełnienie pustych kolumn nigdy
         # nie dotarłoby do rankingu recruitera.
+        from app.services.job_working_title import refresh_working_title
+
+        title_changed = await refresh_working_title(db, job)
         if columns_filled or sync_fields or "stack" in (payload or {}):
             await db.commit()
             await refresh_job_matching(job.id, db)
+        elif title_changed:
+            await db.commit()
         return {
             "job_id": job.id,
             "champion_profile": _champion_response(job.champion_profile),
@@ -2666,6 +2714,10 @@ async def _save_champion_profile(
         }
 
     apply_requirement_source_update(job, "champion_profile", new_profile)
+    # 0380: tytuł dla rekrutera idzie za Championem, dopóki nikt go nie zmienił.
+    from app.services.job_working_title import refresh_working_title
+
+    await refresh_working_title(db, job)
     db.add(
         Activity(
             entity_type="job",

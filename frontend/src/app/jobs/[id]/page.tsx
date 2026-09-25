@@ -101,6 +101,7 @@ import { RequestRequirementsRail } from "@/components/v2/recruitment/RequestRequ
 import { JobAIActions } from "@/components/v2/recruitment/JobAIActions";
 import { EmailTemplateModal } from "@/components/v2/recruitment/EmailTemplateModal";
 import { OrderSlideOver } from "@/components/v2/recruitment/slideovers/OrderSlideOver";
+import { jobClientTitle, jobDisplayTitle } from "@/lib/job-names";
 import { QuestionBankSlideOver } from "@/components/v2/recruitment/slideovers/QuestionBankSlideOver";
 import { HistoryChatSlideOver } from "@/components/v2/recruitment/slideovers/HistoryChatSlideOver";
 import { ManualSearchSlideOver } from "@/components/v2/recruitment/slideovers/ManualSearchSlideOver";
@@ -695,7 +696,7 @@ export default function JobDetailPage() {
   // Auto-open tab when job data loads
   useEffect(() => {
     if (job) {
-      openTab("job", Number(id), job.title);
+      openTab("job", Number(id), jobDisplayTitle(job));
     }
   }, [job, id, openTab]);
 
@@ -765,9 +766,11 @@ export default function JobDetailPage() {
   return (
     <div className="space-y-2">
       <JobDetailCompactHeader
-        title={job.title}
+        title={jobDisplayTitle(job)}
         clientName={job.client_name}
         referenceNumber={job.reference_number}
+        clientTitle={jobClientTitle(job)}
+        clientReference={job.client_reference}
         badges={
           <>
             {job.recruitment_type &&
@@ -994,7 +997,7 @@ export default function JobDetailPage() {
         open={canWritePipeline && showAddCandidates}
         onClose={() => setShowAddCandidates(false)}
         jobId={Number(id)}
-        jobTitle={job.title}
+        jobTitle={jobDisplayTitle(job)}
       />
 
       {/* Narzędzia AI administratora (kryteria, scoring, embedding) — wejście

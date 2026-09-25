@@ -73,10 +73,16 @@ export function cproAvailabilityText(value: string | null): string {
 }
 
 /** Tekst do schowka — to samo, co widać w wierszu, bez żadnych ukrytych pól. */
-export function cproCopyText(item: CproQueueItem, job: Pick<CproQueueJob, "job_title">): string {
+export function cproCopyText(
+  item: CproQueueItem,
+  job: Pick<CproQueueJob, "job_title" | "client_reference">,
+): string {
+  // Nazwa i numer od klienta (0380) — tak, jak klient zna swoje zapytanie.
+  const reference = job.client_reference?.trim();
   return [
     item.candidate_name,
     `Rekrutacja: ${job.job_title}`,
+    ...(reference ? [`Numer u klienta: ${reference}`] : []),
     `Stawka do Cpro: ${cproRateText(item)}`,
     `Dostępność: ${cproAvailabilityText(item.availability)}`,
   ].join("\n");

@@ -21,6 +21,7 @@ import { EMPTY_INTAKE_FORM, type IntakeForm } from "@/lib/job-request-intake";
 const CLIENT = { id: 1, name: "[Klient testowy]" };
 
 const REQUEST = `Cześć,
+zapytanie ZOB 48213 „Programista Java — płatności kartowe (ZOB 48213)”:
 szukamy Senior Java Developera do zespołu płatności kartowych (projekt migracji core'u na mikroserwisy, ok. 12 miesięcy z opcją przedłużenia).
 
 Wymagania: Java 17+, Spring Boot, Kafka, doświadczenie z PostgreSQL. Mile widziane: Kubernetes.
@@ -36,6 +37,8 @@ Pozdrawiam`;
 const FULL_FORM: IntakeForm = {
   ...EMPTY_INTAKE_FORM,
   title: "Senior Java Developer",
+  clientTitle: "Programista Java — płatności kartowe (ZOB 48213)",
+  clientReference: "ZOB 48213",
   must: ["Java 17+", "Spring Boot", "Kafka", "PostgreSQL"],
   nice: ["Kubernetes"],
   seniorityYears: 5,
