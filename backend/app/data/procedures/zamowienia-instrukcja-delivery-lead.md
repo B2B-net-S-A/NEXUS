@@ -1148,9 +1148,10 @@ widać tam było wyłącznie odczyty uruchamiane ręcznie w formularzach.
   pulą. Domknięte zamówienie NIE przenosi osoby do „Zakończonych" — o tym
   decyduje umowa (patrz opis filtrów wyżej); osoba bez kolejnego zamówienia
   dostaje dopisek „Brak aktywnego zamówienia".
-  **Jedynym wyjątkiem są konsultanci z własnym budżetem MD** — tam o końcu
-  decyduje budżet, nie kalendarz, więc osoba z niewykorzystanymi dniami pracuje
-  dalej.
+  **Jedynym wyjątkiem są konsultanci z własnym budżetem MD na zamówieniu MD** —
+  tam o końcu decyduje budżet, nie kalendarz, więc osoba z niewykorzystanymi
+  dniami pracuje dalej. Zamówienie okresowe z wpisaną liczbą MD (np. Credit
+  Agricole) kończy data, jak każde okresowe.
 * **Samego zamówienia zbiorczego data nie zamyka.** Numer zostaje „Aktywny",
   dopóki nie klikniesz **Zakończ** albo dopóki nie wyczerpie się budżet — więc
   można do niego dopisywać kolejne osoby także po dacie z dokumentu, mimo że

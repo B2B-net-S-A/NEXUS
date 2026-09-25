@@ -3965,8 +3965,20 @@ async def update_contract(
         coerced_status = _status_after_end_date_change(
             contract.status, contract.end_date, today
         )
+        # Obie gałęzie niżej (korekta daty rozwiązanej umowy i reaktywacja przez
+        # `reopen_contract`) są odpowiedzią na ZMIANĘ daty końca w tym żądaniu.
+        # PATCH innego pola (notatka, stawka) na zakończonej umowie z pustą albo
+        # przyszłą datą szedł nimi również i `undo_contract_termination`
+        # kasował podpisane rozwiązanie i przestawiał wiersz Generatora (audyt
+        # 25.09.2026, runda 2). Bez zmiany daty zostaje dawne leczenie samego
+        # statusu (ostatnia gałąź), jak przed PR #1833.
+        end_date_changed = (
+            "end_date" in data.model_fields_set
+            and contract.end_date != previous_end_date
+        )
         if (
-            coerced_status != contract.status
+            end_date_changed
+            and coerced_status != contract.status
             and contract.status == ContractStatus.ended
             and contract.agreement_termination_mode is not None
             and contract.end_date is not None
@@ -3984,7 +3996,8 @@ async def update_contract(
             contract.status = ContractStatus.ending
             updates["status"] = contract.status.value
         elif (
-            coerced_status != contract.status
+            end_date_changed
+            and coerced_status != contract.status
             and contract.status == ContractStatus.ended
         ):
             # Nowa data końca wskrzesza ZAKOŃCZONĄ umowę — to reaktywacja jak
