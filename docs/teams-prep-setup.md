@@ -4,6 +4,31 @@ Kod jest wdrożony z wyłączonymi przełącznikami. Do czasu tych kroków okno
 „Zaplanuj prep” działa jak dotąd (zwykłe zaproszenie przez połączone konto
 M365), a sonda `checks.teams_prep` mówi `unconfigured`.
 
+## Stan tenanta 25.09.2026
+
+- Osobna aplikacja **NEXUS Teams Prep** została zarejestrowana.
+  Administrator zatwierdził aplikacyjne `OnlineMeetings.ReadWrite.All`,
+  `OnlineMeetingTranscript.Read.All`
+  i `User.ReadBasic.All`. Nie ma delegowanego `User.Read` ani nieograniczonego
+  `Calendars.ReadWrite` w Entra.
+- Exchange App RBAC przyznał `Application Calendars.ReadWrite` przez zakres
+  `NEXUS-TeamsPrep-Calendar-Scope` i grupę `NEXUS-Meetings-Scope`. Test dla
+  `ewa.kalata@b2bnetwork.pl` zwrócił `InScope=True`, a dla
+  `artur.twardowski@b2bnetwork.pl` `InScope=False`.
+- Teams `Microsoft Graph access` dla transkryptów jest włączony. Polityka
+  aplikacji `NEXUS-TeamsPrep-ApplicationAccess` i polityka spotkań
+  `NEXUS-TeamsPrep-AutoRecording` są przypisane 13 organizatorom z aktywną
+  skrzynką. Odczyt polityki potwierdził `AutoRecording=Enabled`,
+  `AllowCloudRecording=True`, `AllowTranscription=True` i
+  `ExplicitRecordingConsent=Enabled`. W porównaniu z ich poprzednią polityką
+  globalną zmieniła się tylko wymagana zgoda uczestnika.
+- Adres Wiktorii Deneki to `wiktoria.deneka@b2bnetwork.pl`. Wstępne
+  sprawdzenie błędnego adresu `wiktoria.denka@...` dało fałszywy brak skrzynki;
+  poprawny adres rozwiązuje się do `UserMailbox`.
+- Do uruchomienia pozostają sekret aplikacji w GitHub Actions/Coolify,
+  włączenie flag po zapisaniu sekretu, wdrożenie i kontrolowany test pełnego
+  przepływu. Sam odczyt polityk nie potwierdza nagrania ani importu transkryptu.
+
 ## 1. Nowa rejestracja aplikacji w Entra ID
 
 Osobna od „NEXUS ATS - Mailbox and Login”. Polityka dostępu Exchange zawęża

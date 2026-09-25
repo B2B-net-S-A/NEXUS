@@ -1,5 +1,18 @@
 # Poczta systemowa NEXUS — osobna aplikacja nadawcza
 
+## Stan tenanta 25.09.2026
+
+Utworzono osobną aplikację **NEXUS System Mail**. Entra pokazuje „No permissions
+added”; aplikacja nie ma tam nieograniczonego `Mail.Send`. W Exchange App
+RBAC rola `Application Mail.Send` jest ograniczona zakresem
+`NEXUS-SystemMail-Sender-Scope`, którego jedynym bezpośrednim członkiem jest
+`nexus-powiadomienia@b2bnetwork.pl`. Test zwrócił `InScope=True` dla tej
+skrzynki i `InScope=False` dla `artur.twardowski@b2bnetwork.pl`.
+
+`M365_APP_MAIL_CLIENT_ID` i `M365_MAIL_SENDER_UPN` zapisano w Coolify przez
+workflow `Coolify set env` bez wdrożenia. Do uruchomienia pozostają sekret
+aplikacji, wdrożenie oraz kontrolowany test wysyłki i dostarczenia.
+
 Stan potwierdzony 24.09.2026: Entra „NEXUS ATS - Mailbox and Login” ma
 `Application Mail.Read`, ale `Mail.Send` tylko delegowane. Odczyt konfiguracji
 Coolify przez `app-mail-config-audit` ([bieg 36048980367](https://github.com/B2B-net-S-A/NEXUS/actions/runs/36048980367))
