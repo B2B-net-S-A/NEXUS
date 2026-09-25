@@ -12,6 +12,7 @@ Te pliki są po to, żeby następny audyt **nie zaczynał od zera**: wiadomo, co
 | 2 | `8d9755da2` | 1 krytyczne, 5 wysokich, 10 średnich, 3 niskie (15 z 19 to niekompletne poprawki r1) | PR #1836 (`9d85252d8`) | [runda-2.md](runda-2.md) |
 | 3 | `9d85252d8` | 10 wysokich, 12 średnich, 9 niskich (1 regresja r2, reszta z nowych obszarów) | PR #1840 (`c72f411a4`) | [runda-3.md](runda-3.md) |
 | 4 | `c72f411a4` | 10 wysokich, 16 średnich, 5 niskich (10 to luki poprawek r3) | PR #1844 (`8da65ef74`) | [runda-4.md](runda-4.md) |
+| 5 | `8da65ef74` | 1 wysokie, 1 średnio-wysokie, 2 średnie, 4 niskie (1 luka poprawek r4) | PR #1849 | [runda-5.md](runda-5.md) (w PR #1849) |
 
 Reguły, które wynikły z napraw (i których nie wolno cofnąć „przy okazji”), są w `CLAUDE.md`, sekcja „Audyt 25.09.2026 — reguły po naprawie” z podsekcjami „Runda 2”, „Runda 3”, „Runda 4”.
 
@@ -38,5 +39,7 @@ Reguły, które wynikły z napraw (i których nie wolno cofnąć „przy okazji�
 ## Obszary sprawdzone i czyste (skrót — szczegóły w raportach rund)
 
 - Uprawnienia trasa po trasie: ~40 plików API w rundzie 3 + 30 routerów w rundzie 4 (m.in. stawki, konta serwisowe, OAuth, struktura zespołu, MD, Insights DL, priority work, przydziały, portale, akademia, praktykant, follow-upy, QC, pulpit, Jarvis, Finanse, historia zdarzeń, usuwanie klientów). Kontrakt bramek sekcji `test_section_ceiling_contract.py`.
-- Lustro DDL w `entrypoint.sh` vs migracje 0350–0384 (runda 5, w toku).
-- Pętle tła: heartbeat/`EXEMPT`, obsługa wyjątków, brak blokad wierszy w trakcie HTTP/modelu (runda 5, w toku).
+- Lustro DDL w `entrypoint.sh` vs migracje 0350–0384 (runda 5, skrypt porównujący).
+- 65 pętli tła: heartbeat/`EXEMPT`, obsługa wyjątków, brak blokad wierszy w trakcie HTTP/modelu (runda 5).
+- Powierzchnie publiczne i uwierzytelnianie: 41 tras bez logowania, auth/SSO/OAuth/klucze serwisowe/WebSocket/pliki/SSRF/CORS (runda 5).
+- Wyszukiwanie kandydatów (wiersze wymagań, v1/v2, zapisane wyszukiwania, podpowiedzi) i import Traffita poza fazami plików/CV/enrich/workflows/sources/talents (runda 5).
