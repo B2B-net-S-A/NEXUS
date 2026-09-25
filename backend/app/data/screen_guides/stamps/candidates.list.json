@@ -3,6 +3,6 @@
   "guide": "candidates.list",
   "sources": {
     "frontend/src/components/v2/candidates/CandidateFilterBar.tsx": "e43f6629a444621c5dc4ff0b2225fc3c52a560e6118140a0b203b8642ee1d60a",
-    "frontend/src/components/v2/pages/CandidatesListV2.tsx": "33e5a6a9b0997f0720f82082aefeb8057cc3a4e88154e51437938ea741769c46"
+    "frontend/src/components/v2/pages/CandidatesListV2.tsx": "7d2413ef8539c82ca39836c2ec1abc7aaf36e44ec120c01a03624b14ee0f5d1f"
   }
 }

@@ -2729,6 +2729,19 @@ trzy tryby z 21.09 (Baza / Wyszukiwanie / Z treści requestu).
 - **Stare adresy:** `?mode=search` bez `job` jest przepisywane na adres listy
   (`lib/candidates-search-redirect.ts`); `?mode=search&job=` (ręczne szukanie
   z rekrutacji) nadal renderuje `CandidateSearchView`; `/talent-radar` bez zmian.
+- **„Szukaj ręcznie” w oknie rekrutacji = ta lista w trybie osadzonym**
+  (`CandidatesListV2 embed`, decyzja Artura 25.09.2026 — wcześniej stary
+  formularz `CandidateSearchView`). Stan startuje z filtrów rekrutacji
+  (`ManualSearchPanel.jobListFilters`: tytuł po znaczeniu, must-have jako
+  „Mile widziane”, pierwsze miasto, kategoria, status bez czarnej listy),
+  NIGDY z adresu strony rekrutacji. Osoby już w rekrutacji ukrywa zapytanie
+  (`recruitment_match=not_assigned`, `candidatesListFiltersForQuery`) — poza
+  chipami i „Wyczyść”. Dochodzi kolumna „Dop.” (`jobOnly`, osobny klucz
+  kolumn `candidates-table-job-search`, telefon domyślnie schowany, żeby
+  „Dodaj” mieściło się w oknie), a „Dodaj” / „Dodaj N do Nowych” woła
+  `proposals/bulk` ze źródłem `manual_search`. Świadomie odpadły: przypięte
+  zapisane wyszukiwania, diagnostyka pustego wyniku, shortlista, opcje etapu,
+  notatki i tagów przy dodawaniu. Harness `/preview/candidates-list?embed=1`.
 - **Podgląd kandydata** (`CandidateQuickView`) jest odchudzony: fakty
   (dostępność, stawka z `quick-view` — `expected_rate_hourly`, lokalizacja),
   kontakt, „W procesie”, ostatnia notatka, „Przypisz” i „Otwórz profil”.
@@ -3009,8 +3022,28 @@ Serwis `services/job_similarity.py`, trasy `api/job_similar.py`.
   `on_candidate_sent` w `/move` i `/bulk-move` przepina każdą kolejną osobę
   wysłaną do klienta (savepoint, nigdy nie rzuca). Zamknięta rekrutacja nie
   przyjmuje przepięć, ale jest źródłem.
+- **Panel „Podobne rekrutacje” na stronie rekrutacji = przepięcie jednym
+  kliknięciem** (`SimilarJobsPanel`, `?win=similar`, 25.09.2026; okno
+  `SimilarJobsDialog` zostało wyłącznie na liście rekrutacji). Rekrutacja
+  NIGDY nie jest zaznaczona sama (incydent 23.09: zapis szkicu przepiął 41
+  osób); kliknięcie rekrutacji (podpowiedź albo `GET …/similar/search`, także
+  zamknięte) zaznacza wszystkich wysłanych w niej do klienta
+  (`GET …/similar/people`, `sim.sent_people`: reguła `REASSIGN_STAGES`, także
+  odrzuceni przez klienta), zatrudnionych i obecnych w rekrutacji nie da się
+  wybrać. `POST …/similar/reassign` w jednej transakcji: sprawdza, że każda
+  osoba jest `selectable` (inaczej 422 i zero zapisu), łączy rekrutacje,
+  zapisuje propozycję `reassign` w statusie `proposed` (`propose_selected`,
+  wskrzesza pominiętą — wejście dostaje `entry_source=reassign`)
+  i dodaje do „Nowych” ścieżką „Biorę” (blokada 12 h, weto HM = pominięcie).
+  „Cofnij” w komunikacie zdejmuje dodanych i rozłącza nowe połączenia
+  (propozycje zostają `added` — świadomie). `?tab=similar` z powiadomień
+  o propozycjach AI zostaje przy „Do przejrzenia”, nie przy panelu. Pasek
+  w „Nowych” i reguła „Najbliższego kroku” `similar` tylko otwierają panel.
+  Karta niesie `reassign_from_reference` („↻ z ZOB-1725”).
 - **Sugestie są deterministyczne**: must-have (Jaccard) 0,55 + tytuł 0,30 +
-  ta sama kategoria 0,15, próg 55, pula = CAŁA historia (także zamknięte i archiwum z Traffita; do 24.09.2026 18 miesięcy) w pamięci
+  ta sama kategoria 0,15, próg 55; **ten sam klient liczy się jak ta sama
+  kategoria** (lepsze z dwóch, nie suma — od 25.09.2026; ZOB-3006 i ZOB-1725
+  PKO BP w różnych kategoriach miały 30 pkt, teraz 60), pula = CAŁA historia (także zamknięte i archiwum z Traffita; do 24.09.2026 18 miesięcy) w pamięci
   procesu 5 min z indeksem odwróconym. Lista pokazuje „≈" tylko przy
   sugestiach z osobami u klienta. DL wskazuje podobne już przy tworzeniu
   (`POST /api/job-similarity/preview` → po zapisie `POST …/similar`).

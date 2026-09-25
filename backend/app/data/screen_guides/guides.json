@@ -75,6 +75,11 @@
         "anchor": "jobs.board.review"
       },
       {
+        "q": "Jak dodać osoby, które klient już zna z podobnych rekrutacji?",
+        "a": "Kliknij „Podobne rekrutacje” w nagłówku albo pasek „osób wysłanych do klienta w podobnych rekrutacjach” na górze kolumny Nowi. Kliknij rekrutację z podpowiedzi albo wpisz inną w polu u góry — system zaznaczy wszystkich wysłanych tam do klienta, poza zatrudnionymi. „Przepnij N osób do Nowych” dodaje ich jednym kliknięciem, a połączone rekrutacje przepinają kolejne wysłane osoby same. Pomyłkę cofniesz przyciskiem „Cofnij” w komunikacie.",
+        "anchor": "jobs.board.review"
+      },
+      {
         "q": "Jak szybko znaleźć karty, na które czekam ja?",
         "a": "Włącz „Mój ruch” na pasku nad tablicą — zostaną wyróżnione karty z plakietką „Twój ruch” (Twoje, bez rekrutera albo wolne w Nowych), a przygaszone karty innych rekruterów, wzięte przez kogoś na 12 h i te, na które czeka Delivery Lead albo osoba od Cpro. Pozostałe filtry (utknęli, rekruter, puste kolumny) są pod „Filtry”.",
         "anchor": "jobs.board.filters"
