@@ -52,13 +52,14 @@ class Recorder:
         return httpx.Response(500, json={"title": "unexpected", "status": 500})
 
 
-def _api(routes, tokens=None) -> tuple[JjitApi, Recorder]:
+def _api(routes) -> tuple[JjitApi, Recorder]:
     recorder = Recorder(routes)
     issued: list[bool] = []
 
     async def token(force: bool) -> str:
+        # Każde żądanie pobiera token; wymuszone odświeżenie daje nowy.
         issued.append(force)
-        return (tokens or ["t1", "t2"])[len(issued) - 1]
+        return "t2" if force else "t1"
 
     api = JjitApi(
         token, transport=httpx.MockTransport(recorder), base_url="https://api.test"
