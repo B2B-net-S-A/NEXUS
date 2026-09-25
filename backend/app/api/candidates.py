@@ -348,6 +348,24 @@ class CandidateFilterSpec(BaseModel):
             return [value]
         return value
 
+    @model_validator(mode="after")
+    def ranges_are_ordered(self) -> "CandidateFilterSpec":
+        """Odwrócony przedział stawki/stażu to 422 — ta sama reguła co
+        wyszukiwarka (UAT B28, runda 2 audytu 25.09.2026). Eksport „z filtra”
+        (POST) dostaje ją z walidacji ciała; GET listy sprawdza wcześniej
+        (`_reject_reversed_ranges`), bo tam spec powstaje w handlerze."""
+        from app.schemas.candidate_search import (  # noqa: PLC0415
+            EXPERIENCE_RANGE_REVERSED_MSG,
+            RATE_RANGE_REVERSED_MSG,
+            raise_if_range_reversed,
+        )
+
+        raise_if_range_reversed(
+            self.min_experience, self.max_experience, EXPERIENCE_RANGE_REVERSED_MSG
+        )
+        raise_if_range_reversed(self.min_rate, self.max_rate, RATE_RANGE_REVERSED_MSG)
+        return self
+
 
 class CandidateExportRequest(BaseModel):
     format: Literal["csv", "xlsx"] = "csv"
@@ -367,6 +385,29 @@ class CandidateExportRequest(BaseModel):
 
 def _build_response(data: dict) -> dict:
     return {"success": True, "data": data}
+
+
+def _reject_reversed_ranges(
+    *,
+    min_rate: Optional[Decimal],
+    max_rate: Optional[Decimal],
+    min_experience: Optional[int],
+    max_experience: Optional[int],
+) -> None:
+    """422 po polsku dla odwróconego zakresu na liście — przed zbudowaniem
+    `CandidateFilterSpec`, którego błąd walidacji w handlerze byłby 500."""
+    from app.schemas.candidate_search import reversed_range_message  # noqa: PLC0415
+
+    message = reversed_range_message(
+        experience_min=min_experience,
+        experience_max=max_experience,
+        rate_min=min_rate,
+        rate_max=max_rate,
+    )
+    if message is not None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=message
+        )
 
 
 def _reject_retired_candidate_query(request: Request) -> None:
@@ -1067,7 +1108,11 @@ async def _build_candidate_filtered_query(
             Candidate.id.in_(semantic_pool_ids) if semantic_pool_ids else false()
         )
     elif f.q:
-        literal_clause = await predicates.prepare_literal_text(db, f.q)
+        try:
+            literal_clause = await predicates.prepare_literal_text(db, f.q)
+        except predicates.LiteralTextTooShort as exc:
+            # `q` z samych spacji wokół jednej litery przechodzi `min_length=2`.
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         if literal_clause is not None:
             query = query.where(literal_clause)
 
@@ -2028,6 +2073,12 @@ async def list_candidates(
     ),
 ):
     _reject_retired_candidate_query(request)
+    _reject_reversed_ranges(
+        min_rate=min_rate,
+        max_rate=max_rate,
+        min_experience=min_experience,
+        max_experience=max_experience,
+    )
     filters = CandidateFilterSpec(
         status=status,
         location=location,

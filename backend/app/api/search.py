@@ -211,6 +211,16 @@ async def _text_plan(
     return q_text, applied, interpretation.as_dict()
 
 
+async def _literal_text_or_422(db: AsyncSession, q_text: str) -> Any:
+    """Dopasowanie dosłowne albo 422 po polsku — ta sama reguła co lista
+    (`q` min. 2 znaki). Jedna litera nie daje warunku i do rundy 2 audytu
+    (25.09.2026) zwracała całą bazę."""
+    try:
+        return await predicates.prepare_literal_text(db, q_text)
+    except predicates.LiteralTextTooShort as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 def _fts_clause(q: str) -> Any:
     """Match candidates whose ``fts_doc`` matches the user query.
 
@@ -534,7 +544,7 @@ async def candidate_search_diagnostics(
     # ekran, na którym rekruter szuka przyczyny — i był kierowany pod zły adres.
     query_label = "Zapytanie tekstowe"
     if text_applied == "literal":
-        literal_clause = await predicates.prepare_literal_text(db, q_text)
+        literal_clause = await _literal_text_or_422(db, q_text)
         if literal_clause is not None:
             query_clauses.append(literal_clause)
         query_label = "Zapytanie (dopasowanie dosłowne)"
@@ -668,7 +678,7 @@ async def advanced_candidate_search(
         # Osoba (nazwisko / e-mail / telefon) albo jawne `text_mode=literal`:
         # TO SAMO dopasowanie co `?q=` na liście — fraza w dowolnym polu,
         # literówki w tożsamości, telefon niezależny od zapisu.
-        literal_clause = await predicates.prepare_literal_text(db, q_text)
+        literal_clause = await _literal_text_or_422(db, q_text)
         if literal_clause is not None:
             clauses.append(literal_clause)
     elif q_text:
