@@ -33,9 +33,17 @@ def project_number(value):
 
 
 def pko_job_reference(job):
-    """PKO request ID is the explicit ZOB token, never the ATS internal reference."""
+    """Numer zapytania klienta z rekrutacji (numer projektu w CV).
+
+    Od 0378 źródłem jest ``jobs.client_reference`` („ZOB 48213” → „48213”).
+    Rekrutacje bez tego pola (archiwum Traffita) czytamy jak dotąd: jawny token
+    ZOB w tytule albo numerze, nigdy nasz numer wewnętrzny.
+    """
     if job is None:
         return None
+    explicit = project_number(getattr(job, "client_reference", None) or "")
+    if explicit:
+        return explicit
     values = set()
     for value in (getattr(job, "reference_number", None), getattr(job, "title", None)):
         values.update(

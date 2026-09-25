@@ -131,6 +131,10 @@ class BoardTask:
     # Wynik QC CV pary (`cv_qc.pair_statuses`): passed|failed|overridden|unchecked.
     qc_status: Optional[str] = None
     qc_blocking_failed: int = 0
+    # 0378: ``job_title`` = nazwa od klienta (tekst kopiowany do Cpro);
+    # ekrany wewnętrzne pokazują tytuł dla rekrutera, gdy jest.
+    job_working_title: Optional[str] = None
+    client_reference: Optional[str] = None
 
     def as_dict(self) -> dict:
         return {
@@ -140,6 +144,8 @@ class BoardTask:
             "candidate_name": self.candidate_name,
             "job_id": self.job_id,
             "job_title": self.job_title,
+            "job_working_title": self.job_working_title,
+            "client_reference": self.client_reference,
             "client_id": self.client_id,
             "client_name": self.client_name,
             "since": self.since,
@@ -276,7 +282,7 @@ _LATEST_SQL = text(
     SELECT l.id, l.candidate_id, l.job_id, l.stage_def_id, l.moved_at,
            l.moved_by, l.task_assignee_id, j.cpro_sender_id,
            COALESCE(j.pipeline_template_id, :default_template_id) AS template_id,
-           j.title, j.client_id,
+           j.title, j.working_title, j.client_reference, j.client_id,
            -- Nieaktywny DL rekrutacji = jak brak DL-a: przegląd idzie do
            -- portfela klienta, zamiast do konta, którego nikt nie czyta.
            CASE WHEN dl.is_active THEN j.delivery_lead_id END AS delivery_lead_id,
@@ -350,6 +356,8 @@ async def load_snapshot(
             candidate_name=name,
             job_id=r.job_id,
             job_title=r.title,
+            job_working_title=r.working_title,
+            client_reference=r.client_reference,
             client_id=r.client_id,
             client_name=r.client_name,
             since=r.moved_at,

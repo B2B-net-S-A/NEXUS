@@ -192,7 +192,8 @@ async def _pair_stats(db: AsyncSession, user_id: int) -> dict[int, dict]:
     ),
     last_send AS (
         SELECT DISTINCT ON (o.candidate_id)
-               o.candidate_id, cs.moved_at, j.title, cl.name AS client_name
+               o.candidate_id, cs.moved_at,
+               COALESCE(j.working_title, j.title) AS title, cl.name AS client_name
         FROM owned o
         JOIN candidate_stages cs
           ON cs.candidate_id = o.candidate_id AND cs.job_id = o.job_id
@@ -373,7 +374,7 @@ async def unseen_matches(
     rows = await db.execute(
         text(
             """
-            SELECT m.job_id, j.title, m.candidate_id,
+            SELECT m.job_id, COALESCE(j.working_title, j.title) AS title, m.candidate_id,
                    c.name || ' ' || c.lastname AS full_name, m.score, m.created_at
             FROM my_people_job_matches m
             JOIN jobs j ON j.id = m.job_id AND j.status = 'published'

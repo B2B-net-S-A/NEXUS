@@ -5449,6 +5449,11 @@ _COLUMN_STATEMENTS = [
 )""",
     "CREATE INDEX IF NOT EXISTS ix_prep_meetings_fetch_queue ON prep_meetings (transcript_status, next_fetch_at)",
     "CREATE INDEX IF NOT EXISTS ix_prep_meetings_pair ON prep_meetings (candidate_id, job_id)",
+    # 0378: trzy nazwy rekrutacji — numer u klienta i tytuł dla rekrutera
+    # (`job_working_title.py`). Pilnuje `test_job_working_title.py`.
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS client_reference VARCHAR(120)",
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS working_title VARCHAR(255)",
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS working_title_auto BOOLEAN NOT NULL DEFAULT true",
     # 0371: automat przydziału requestów — konto „Poza przydziałem”, stan pracy
     # nad requestem (Traffit go nie nadpisuje) i „kto pracuje”. Jedno źródło:
     # `app/services/request_allocation_schema.py` — pilnuje
@@ -9253,6 +9258,33 @@ async def promote():
     print(f"pending verification promotion: {summary or 'nothing to do'}")
 
 asyncio.run(promote())
+PY
+
+# Trzy nazwy rekrutacji (0378, 25.09.2026) — jednorazowo: tytuł dla rekrutera
+# (składany z Championa, a bez niego z tytułu i must-have) i numer u klienta
+# (tylko jednoznaczny ZOB z tytułu albo numeru) dla istniejących rekrutacji.
+# Reguła jest w Pythonie: `app/services/job_working_title.py`. Rusza wyłącznie
+# puste pola; marker w `app_settings` + advisory lock → drugi start kończy się
+# od razu. Log: same liczby.
+startup_phase "job-names-backfill"
+echo "Job names: one-shot working titles and client references..."
+python - <<'PY' || echo "job names backfill skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.job_working_title import fill_missing_job_names
+
+async def fill():
+    async with AsyncSessionLocal() as db:
+        try:
+            receipt = await fill_missing_job_names(db)
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            raise
+    print(f"job names backfill: {receipt or 'nothing to do'}")
+
+asyncio.run(fill())
 PY
 
 # Cztery kategorie kompetencji + stany startowe requestów (0371, 24.09.2026).

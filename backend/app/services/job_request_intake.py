@@ -109,6 +109,12 @@ class RequestIntake:
     ask_client: list[str] = field(default_factory=list)
     # Ścieżka pola formularza → "request" | "client_history" | "ai".
     provenance: dict[str, str] = field(default_factory=dict)
+    # ── od v3 (0378): trzy nazwy rekrutacji ──
+    # Dosłowne fragmenty zapytania: nazwa stanowiska od klienta i jego numer.
+    client_title: Optional[str] = None
+    client_reference: Optional[str] = None
+    # Tytuł dla rekrutera złożony KODEM z pól wyżej (`job_working_title`).
+    working_title_suggestion: Optional[str] = None
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -322,6 +328,14 @@ def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:
         evidence.append(rate_quote)
 
     role_name = _text(data.get("role_name"), 255)
+    # Nazwa i numer od klienta: tylko dosłowny fragment zapytania — inaczej
+    # do CV i do Cpro poszłoby coś, czego klient nie napisał.
+    client_title = _text(data.get("client_title"), 255)
+    if client_title and not _in_text(client_title, folded_text):
+        client_title = None
+    client_reference = _text(data.get("client_reference"), 120)
+    if client_reference and not _in_text(client_reference, folded_text):
+        client_reference = None
     must = _names(data.get("must"), MAX_MUST)
     nice = [
         n
@@ -376,12 +390,35 @@ def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:
         )
     if ask_client:
         provenance["ask_client"] = "ai"
+    for key, present in (
+        ("client_title", client_title),
+        ("client_reference", client_reference),
+    ):
+        if present:
+            provenance[key] = "request"
+
+    from app.services.job_working_title import compose_working_title
+
+    seniority_min_years = _int_in(data.get("seniority_min_years"), 0, 40)
+    working_title_suggestion = compose_working_title(
+        role_name,
+        must,
+        seniority_min_years,
+        next(
+            (
+                d["name"]
+                for d in experience.get("domains", [])
+                if d.get("level") == "must"
+            ),
+            None,
+        ),
+    )
 
     return RequestIntake(
         role_name=role_name,
         must=must,
         nice=nice,
-        seniority_min_years=_int_in(data.get("seniority_min_years"), 0, 40),
+        seniority_min_years=seniority_min_years,
         rate_budget_hourly=rate_budget,
         rate_quote=rate_quote,
         rate_note=rate_note,
@@ -413,6 +450,9 @@ def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:
         selling_points=selling_points,
         ask_client=ask_client,
         provenance=provenance,
+        client_title=client_title,
+        client_reference=client_reference,
+        working_title_suggestion=working_title_suggestion,
     )
 
 

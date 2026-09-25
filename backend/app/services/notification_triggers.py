@@ -49,6 +49,7 @@ from app.models.user import User, UserRole
 from app.schemas.pipeline import STAGE_LABELS
 from app.services.calendar_auto_complete import mark_ended_interviews_completed
 from app.services.notification_access import notification_recipient_has_access
+from app.services.job_working_title import display_title
 
 logger = logging.getLogger(__name__)
 
@@ -350,7 +351,7 @@ async def check_dl_stage_stale_6h(
                 title="Kandydat czeka na decyzję DL",
                 message=(
                     f"Kandydat #{stage.candidate_id} siedzi w etapie 'CV wysłane' "
-                    f"od {hours}h w ofercie '{job.title}' (#{job.id}). "
+                    f"od {hours}h w ofercie '{display_title(job)}' (#{job.id}). "
                     "Przepuść go dalej albo odrzuć."
                 ),
                 link=f"/jobs/{job.id}?candidate={stage.candidate_id}",
@@ -424,7 +425,7 @@ async def check_client_feedback_eobd(
                 title="Zapytaj klienta o feedback",
                 message=(
                     f"Kandydat #{event.candidate_id} miał dziś rozmowę u klienta "
-                    f"w ofercie '{job.title}' (#{job.id}). Brak zanotowanego "
+                    f"w ofercie '{display_title(job)}' (#{job.id}). Brak zanotowanego "
                     "feedbacku — złap go do końca dnia pracy."
                 ),
                 link=f"/jobs/{job.id}?candidate={event.candidate_id}",
@@ -709,7 +710,7 @@ async def check_stage_stuck_7d(
             title="Kandydat utknął na etapie",
             message=(
                 f"{who} od {days} dni na etapie „{label}” w rekrutacji "
-                f"„{job.title}” — zadzwoń i sprawdź, czy dalej jest zainteresowany."
+                f"„{display_title(job)}” — zadzwoń i sprawdź, czy dalej jest zainteresowany."
             ),
             link=f"/jobs/{job.id}?candidate={stage.candidate_id}",
             ntype=NotificationType.stage_stuck_7d,
