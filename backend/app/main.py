@@ -2690,6 +2690,7 @@ async def api_health_deep_check():
     from app.models.prep_meeting import PrepMeeting, PrepReview, PrepTranscript
     from app.models.trainee import TraineeCallItem, TraineeCallList, TraineeProgram
     from app.models.candidate_followup import CandidateFollowup
+    from app.models.followup_meeting import FollowupMeeting
     from app.models.b2b_contract_document import B2BContractDocument
     from app.models.b2b_register_import import B2BRegisterImportRun
     from app.models.cv_qc_run import CvQcRun
@@ -2894,6 +2895,7 @@ async def api_health_deep_check():
         # 0372: follow-up z kandydatem — „Czeka na Ciebie” i Tablica czytają
         # wyniki telefonów, więc brak tabeli = pulpit i kanban 500.
         ("candidate_followups", CandidateFollowup),
+        ("followup_meetings", FollowupMeeting),
         # 0361: QC CV — tablica czyta stan QC każdej karty, a ruch na
         # „CV wysłane” zapisuje przebieg, więc brak tabeli = kanban 500.
         ("cv_qc_runs", CvQcRun),

@@ -12,7 +12,6 @@
 
 import { useEffect, useState } from "react";
 
-import CallButton from "@/components/calls/CallButton";
 import CallDetailsDialog from "@/components/calls/CallDetailsDialog";
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
@@ -28,10 +27,13 @@ import api, { type Call } from "@/lib/api";
 import {
   useCandidateFollowup,
   useRecordFollowupOutcome,
+  useScheduleFollowupMeeting,
+  type FollowupTeamsTranscript,
   type FollowupDetail,
   type FollowupOutcome,
   type FollowupProcessFlag,
   type FollowupRow,
+  type FollowupTeamsMeeting,
 } from "@/lib/api/candidateFollowups";
 import {
   HISTORY_OUTCOME_LABEL,
@@ -48,7 +50,6 @@ import {
   todayInBusinessTz,
 } from "@/lib/candidate-followup";
 import { cn } from "@/lib/utils";
-import { useCloudTalkEnabled } from "@/hooks/useCloudTalkEnabled";
 
 const TONE_CLASS = {
   danger: "bg-destructive/10 text-destructive",
@@ -135,6 +136,26 @@ function History({ detail, onCall }: { detail: FollowupDetail; onCall: (callId: 
   );
 }
 
+function MeetingList({ meetings, onTranscript }: { meetings: FollowupTeamsMeeting[]; onTranscript: (id: number) => void }) {
+  if (meetings.length === 0) return null;
+  return (
+    <div className="mt-3 space-y-2 text-xs">
+      <h4 className="font-semibold">Spotkania Teams</h4>
+      {meetings.map((meeting) => (
+        <div key={meeting.id} className="border-t border-border pt-2">
+          <span>{new Date(meeting.start).toLocaleString("pl-PL")}</span>
+          {meeting.join_url && <a href={meeting.join_url} target="_blank" rel="noreferrer" className="ml-2 text-primary underline">Dołącz w Teams</a>}
+          {meeting.recording_url && <a href={meeting.recording_url} target="_blank" rel="noreferrer" className="ml-2 text-primary underline">Nagranie</a>}
+          {meeting.transcript_status === "fetched" ? (
+            <button type="button" onClick={() => onTranscript(meeting.id)} className="ml-2 text-primary underline">Transkrypt</button>
+          ) : <span className="ml-2 text-muted-foreground">Transkrypt: {meeting.transcript_status}</span>}
+          {meeting.transcription_setup === "failed" && <p className="mt-1 text-destructive">Włącz nagrywanie i transkrypcję ręcznie w Teams.</p>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export interface CandidateFollowupDialogProps {
   candidateId: number | null;
   open: boolean;
@@ -149,13 +170,52 @@ export function CandidateFollowupDialog({
   const { showSuccess, showError } = useToast();
   const detail = useCandidateFollowup(candidateId, open);
   const record = useRecordFollowupOutcome(candidateId ?? 0);
+  const schedule = useScheduleFollowupMeeting(candidateId ?? 0);
   const [outcome, setOutcome] = useState<FollowupOutcome>("connected");
   const [note, setNote] = useState("");
   const [callbackOn, setCallbackOn] = useState("");
   const [flags, setFlags] = useState<Record<number, FollowupProcessFlag>>({});
-  const [callId, setCallId] = useState<number | null>(null);
   const [openCall, setOpenCall] = useState<Call | null>(null);
-  const cloudTalkEnabled = useCloudTalkEnabled({ enabled: open });
+  const [meetingStart, setMeetingStart] = useState("");
+  const [meetingEnd, setMeetingEnd] = useState("");
+  const [meetingRequestId, setMeetingRequestId] = useState("");
+  const [transcript, setTranscript] = useState<FollowupTeamsTranscript | null>(null);
+
+  const scheduleMeeting = () => {
+    if (!candidateId || !meetingStart || !meetingEnd) return;
+    const start = new Date(meetingStart);
+    const end = new Date(meetingEnd);
+    if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || start <= new Date() || end <= start) {
+      showError("Podaj przyszły początek i późniejszy koniec spotkania.");
+      return;
+    }
+    const requestId = meetingRequestId || crypto.randomUUID();
+    setMeetingRequestId(requestId);
+    schedule.mutate(
+      { start: start.toISOString(), end: end.toISOString(), client_request_id: requestId },
+      {
+        onSuccess: () => {
+          setMeetingRequestId("");
+          setMeetingStart("");
+          setMeetingEnd("");
+          showSuccess("Spotkanie Teams utworzone. Zaproszenie wysłano do kandydata.");
+        },
+        onError: (error) => showError(apiErrorMessage(error, "Nie udało się zaplanować spotkania Teams.")),
+      },
+    );
+  };
+
+  const showTranscript = async (meetingId: number) => {
+    if (!candidateId) return;
+    try {
+      const response = await api.get<FollowupTeamsTranscript>(
+        `/api/candidate-followups/candidates/${candidateId}/teams-meetings/${meetingId}/transcript`,
+      );
+      setTranscript(response.data);
+    } catch (error) {
+      showError(apiErrorMessage(error, "Nie udało się wczytać transkryptu."));
+    }
+  };
 
   const showCall = async (id: number) => {
     if (candidateId == null) return;
@@ -173,8 +233,11 @@ export function CandidateFollowupDialog({
       setNote("");
       setCallbackOn("");
       setFlags({});
-      setCallId(null);
       setOpenCall(null);
+      setTranscript(null);
+      setMeetingStart("");
+      setMeetingEnd("");
+      setMeetingRequestId("");
     }
   }, [open]);
 
@@ -192,7 +255,6 @@ export function CandidateFollowupDialog({
         note: note.trim() || null,
         callback_on: outcome === "callback" ? callbackOn : null,
         processes: outcome === "changed" ? flags : {},
-        ...(callId !== null ? { call_id: callId } : {}),
       },
       {
         onSuccess: (data) => {
@@ -246,9 +308,11 @@ export function CandidateFollowupDialog({
         ) : !detail.isSuccess ? (
           <p className="px-5 py-6 text-sm text-muted-foreground">Wczytywanie…</p>
         ) : !row ? (
-          <p className="px-5 py-6 text-sm">
-            Ten kandydat nie czeka już na odpowiedź klienta — follow-up nie jest potrzebny.
-          </p>
+          <div className="overflow-y-auto px-5 py-6 text-sm">
+            <p>Ten kandydat nie czeka już na odpowiedź klienta — follow-up nie jest potrzebny.</p>
+            <MeetingList meetings={detail.data.meetings ?? []} onTranscript={showTranscript} />
+            <History detail={detail.data} onCall={showCall} />
+          </div>
         ) : (
           <div className="grid min-h-0 flex-1 overflow-y-auto md:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
             <div className="border-b border-border px-5 py-4 md:border-b-0 md:border-r">
@@ -264,21 +328,20 @@ export function CandidateFollowupDialog({
               <p className="mt-2 text-xs text-muted-foreground">
                 Dzwoni {row.caller_name ?? "—"}: {callerReasonSentence(row)}.
               </p>
-              {cloudTalkEnabled && row.phone && (
-                <div className="mt-3 space-y-1">
-                  <CallButton
-                    candidateId={row.candidate_id}
-                    phone={row.phone}
-                    onStarted={(id, linkable) => {
-                      setCallId(linkable ? id : null);
-                      if (!linkable) {
-                        showError("CloudTalk nie zwrócił identyfikatora rozmowy. Nie można bezpiecznie powiązać transkryptu z tym follow-upem.");
-                      }
-                    }}
-                  />
-                  {callId && <p className="text-xs text-muted-foreground">Połączenie CloudTalk zostanie powiązane z tym follow-upem po zapisaniu wyniku.</p>}
-                </div>
-              )}
+              <div className="mt-4 space-y-2 rounded-lg border border-border p-3">
+                <h4 className="text-sm font-semibold">Rozmowa w Teams</h4>
+                <p className="text-xs text-muted-foreground">Kandydat dostanie zaproszenie Outlook. Spotkanie zostanie nagrane, a transkrypt trafi do NEXUS.</p>
+                <label className="block text-xs">Początek
+                  <input type="datetime-local" value={meetingStart} onChange={(e) => setMeetingStart(e.target.value)} className="mt-1 w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm" />
+                </label>
+                <label className="block text-xs">Koniec
+                  <input type="datetime-local" value={meetingEnd} onChange={(e) => setMeetingEnd(e.target.value)} className="mt-1 w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm" />
+                </label>
+                <Button size="sm" onClick={scheduleMeeting} disabled={!meetingStart || !meetingEnd || schedule.isPending}>
+                  {schedule.isPending ? "Planowanie…" : "Zaplanuj spotkanie Teams"}
+                </Button>
+                <MeetingList meetings={detail.data?.meetings ?? []} onTranscript={showTranscript} />
+              </div>
               {detail.data && <History detail={detail.data} onCall={showCall} />}
             </div>
             <div className="space-y-4 px-5 py-4">
@@ -393,6 +456,13 @@ export function CandidateFollowupDialog({
       </DialogContent>
     </Dialog>
     <CallDetailsDialog call={openCall} open={openCall !== null} onOpenChange={(value) => !value && setOpenCall(null)} />
+    <Dialog open={transcript !== null} onOpenChange={(value) => !value && setTranscript(null)}>
+      <DialogContent size="2xl" aria-describedby="followup-transcript-desc">
+        <DialogTitle>Transkrypt rozmowy Teams</DialogTitle>
+        <DialogDescription id="followup-transcript-desc">Zapis rozmowy z kandydatem w NEXUS.</DialogDescription>
+        <pre className="max-h-[70vh] overflow-auto whitespace-pre-wrap text-sm">{transcript?.text}</pre>
+      </DialogContent>
+    </Dialog>
     </>
   );
 }

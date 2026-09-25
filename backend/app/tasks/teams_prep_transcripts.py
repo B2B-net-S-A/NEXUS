@@ -14,6 +14,7 @@ from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.services import loop_heartbeat
 from app.services.prep_transcripts import run_once
+from app.services.followup_meetings import fetch_due as fetch_followup_transcripts
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +41,7 @@ async def teams_prep_transcripts_loop() -> None:
             if settings.TEAMS_PREP_TRANSCRIPTS_ENABLED:
                 async with AsyncSessionLocal() as db:
                     stats = await run_once(db)
+                    followup_fetched = await fetch_followup_transcripts(db)
                 if stats.checked or stats.cancelled:
                     logger.info(
                         "teams_prep_transcripts: checked=%s fetched=%s missing=%s "
@@ -52,6 +54,8 @@ async def teams_prep_transcripts_loop() -> None:
                         stats.errors,
                         stats.cancelled,
                     )
+                if followup_fetched:
+                    logger.info("teams followups: fetched=%s", followup_fetched)
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001

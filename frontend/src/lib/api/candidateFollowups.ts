@@ -75,6 +75,23 @@ export interface FollowupDetail {
   /** `null` = kandydat nie czeka na odpowiedź klienta. */
   followup: FollowupRow | null;
   history: FollowupHistoryRow[];
+  meetings: FollowupTeamsMeeting[];
+}
+
+export interface FollowupTeamsMeeting {
+  id: number;
+  start: string;
+  end: string | null;
+  join_url: string | null;
+  recording_url: string | null;
+  transcription_setup: string;
+  transcript_status: string;
+}
+
+export interface FollowupTeamsTranscript {
+  meeting_id: number;
+  text: string;
+  fetched_at: string;
 }
 
 /** Plakietka follow-upu na karcie Tablicy (`followup` w payloadzie kanbana). */
@@ -133,6 +150,15 @@ export function useRecordFollowupOutcome(candidateId: number) {
           input,
         )
         .then((r) => r.data),
+    onSuccess: (data) => invalidate(candidateId, data),
+  });
+}
+
+export function useScheduleFollowupMeeting(candidateId: number) {
+  const invalidate = useInvalidateFollowup();
+  return useMutation({
+    mutationFn: (input: { start: string; end: string; client_request_id: string }) =>
+      api.post<FollowupDetail>(`/api/candidate-followups/candidates/${candidateId}/teams-meetings`, input).then((r) => r.data),
     onSuccess: (data) => invalidate(candidateId, data),
   });
 }

@@ -1,4 +1,4 @@
-# Prepy w Teams — konfiguracja Microsoft 365 (jednorazowo, administrator)
+# Prepy i follow-upy w Teams — konfiguracja Microsoft 365 (jednorazowo, administrator)
 
 Kod jest wdrożony z wyłączonymi przełącznikami. Do czasu tych kroków okno
 „Zaplanuj prep” działa jak dotąd (zwykłe zaproszenie przez połączone konto
@@ -15,7 +15,7 @@ do zakresu tamtej aplikacji (ma `Mail.Read`) dałoby jej odczyt ich poczty.
 2. API permissions → Microsoft Graph → **Application permissions**:
    - `OnlineMeetings.ReadWrite.All` — identyfikator spotkania i włączenie
      automatycznej transkrypcji,
-   - `OnlineMeetingTranscript.Read.All` — pobranie transkryptu,
+   - `OnlineMeetingTranscript.Read.All` — pobranie transkryptu prepu i follow-upu,
    - `User.ReadBasic.All` — identyfikator obiektu organizatora
      (ścieżki `onlineMeetings` go wymagają).
 3. **Grant admin consent** tylko dla powyższych uprawnień. Dostęp do kalendarzy
@@ -27,7 +27,7 @@ do zakresu tamtej aplikacji (ma `Mail.Read`) dałoby jej odczyt ich poczty.
 ## 2. Grupa, do której aplikacja ma dostęp
 
 Mail-enabled security group **NEXUS-Meetings-Scope** (ukryta w GAL), członkowie:
-wszyscy Delivery Leadzi i rekruterzy prowadzący prepy.
+wszyscy Delivery Leadzi i rekruterzy prowadzący prepy lub follow-upy.
 
 ## 3. Zawężenie dostępu (PowerShell)
 
@@ -105,6 +105,25 @@ TEAMS_PREP_TRANSCRIPTS_ENABLED=true
    a w notatkach kandydata podsumowanie.
 6. Pomiar modeli: `python -m scripts.eval_prep_review --limit 20` w kontenerze
    backendu (po ok. 20 prepach).
+
+## 7. Follow-up w Teams
+
+W profilu kandydata, przy aktywnym follow-upie, przycisk „Zaplanuj follow-up
+w Teams” zakłada spotkanie w kalendarzu osoby zapisującej. Kandydat otrzymuje
+zaproszenie z informacją o nagrywaniu. NEXUS próbuje włączyć automatyczne
+nagranie i transkrypcję tymi samymi uprawnieniami co prep. Stan konfiguracji
+jest widoczny przy spotkaniu; gdy Graph odmówi, prowadzący musi włączyć
+nagrywanie ręcznie. Po zakończeniu kolejka pobiera transkrypt do NEXUS.
+Transkrypt jest widoczny w profilu kandydata również po zakończeniu rundy
+follow-upu. Identyfikator żądania chroni przed podwójnym zaproszeniem.
+Historyczne połączenia CloudTalk pozostają w historii, ale nowe follow-upy
+korzystają z Teams.
+
+Sprawdzenie: zaplanuj kontrolowane spotkanie z testowym kandydatem, otwórz
+link Teams, potwierdź informację i zgodę na nagrywanie, zakończ spotkanie,
+a następnie sprawdź `transcript_status=fetched` i tekst transkryptu w NEXUS.
+Sam fakt utworzenia zaproszenia nie potwierdza nagrywania ani pobrania
+transkryptu.
 
 ## Czego NEXUS nie kasuje
 
