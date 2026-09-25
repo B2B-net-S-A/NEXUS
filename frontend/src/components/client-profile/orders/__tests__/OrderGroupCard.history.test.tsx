@@ -8,13 +8,13 @@ import {
   type OrderGroupFocusRequest,
 } from "@/components/client-profile/orders/OrderGroupCard";
 import type {
-  OrderGroupEvent,
   OrderGroupRead,
+  OrderHistoryEntry,
   OrderLineRead,
 } from "@/lib/api/orderGroups";
 
 vi.mock("@/lib/api/orderGroups", () => ({
-  orderGroupsApi: { events: vi.fn() },
+  orderGroupsApi: { events: vi.fn(), history: vi.fn() },
 }));
 
 import { orderGroupsApi } from "@/lib/api/orderGroups";
@@ -109,21 +109,38 @@ function successor(): OrderGroupRead {
   });
 }
 
-function event(overrides: Partial<OrderGroupEvent> = {}): OrderGroupEvent {
+function entry(overrides: Partial<OrderHistoryEntry> = {}): OrderHistoryEntry {
   return {
-    id: 1,
+    key: "ev-1",
+    category: "order",
     event_type: "utworzenie",
-    event_label: "Utworzenie",
-    description: "Zamówienie utworzone.",
+    type_label: "Utworzenie zamówienia",
+    created_at: "2026-05-01T10:00:00Z",
+    author_id: null,
+    author_name: null,
+    summary: "Zamówienie utworzone.",
     order_id: null,
-    payload: null,
+    person_name: null,
+    person_names: [],
+    changes: [],
+    balance_before: null,
+    balance_after: null,
+    details: [],
+    import_id: null,
+    import_period_month: null,
+    import_people: null,
+    import_md: null,
     related_group_id: null,
     related_order_number: null,
-    created_by_user_id: null,
-    created_by_name: null,
-    created_at: "2026-05-01T10:00:00Z",
     ...overrides,
   };
+}
+
+function mockHistory(entries: OrderHistoryEntry[]) {
+  const people = [...new Set(entries.flatMap((e) => e.person_names))].sort();
+  vi.mocked(orderGroupsApi.history).mockResolvedValue({
+    data: { entries, people },
+  } as never);
 }
 
 const noop = () => {};
@@ -182,41 +199,40 @@ describe("OrderGroupCard — historia zamówienia", () => {
   it("każdy wpis nazywa wykonawcę: osobę, samo id po usunięciu konta albo system", async () => {
     // UAT B50: historia mówiła CO i KIEDY, ale nie KTO — nie dało się ustalić,
     // kto zmienił budżet. Pusty autor to zdarzenie automatyczne, nie brak danych.
-    vi.mocked(orderGroupsApi.events).mockResolvedValue({
-      data: {
-        events: [
-          event({
-            id: 20,
-            event_type: "edycja_reczna",
-            event_label: "Edycja ręczna",
-            description: "Zmieniono: budżet MD.",
-            created_by_user_id: 5,
-            created_by_name: "Anna Testowa",
-            created_at: "2026-05-02T09:15:00Z",
-          }),
-          event({
-            id: 21,
-            event_type: "dodanie_konsultanta",
-            event_label: "Dodanie konsultanta",
-            description: "Dodano osobę.",
-            created_by_user_id: 9,
-            created_by_name: null,
-          }),
-          event({
-            id: 22,
-            event_type: "zakonczenie",
-            event_label: "Zakończenie",
-            description: "Zamówienie zakończone — budżet MD wyczerpany.",
-          }),
-        ],
-      },
-    } as never);
+    mockHistory([
+      entry({
+        key: "edit-20",
+        category: "edits",
+        event_type: "edycja_reczna",
+        type_label: "Edycja",
+        summary: "budżet MD: 50 MD → 60 MD.",
+        changes: [{ label: "budżet MD", before: "50 MD", after: "60 MD" }],
+        author_id: 5,
+        author_name: "Anna Testowa",
+        created_at: "2026-05-02T09:15:00Z",
+      }),
+      entry({
+        key: "ev-21",
+        category: "consultants",
+        event_type: "dodanie_konsultanta",
+        type_label: "Dodanie konsultanta",
+        summary: "Dodano osobę.",
+        author_id: 9,
+        author_name: null,
+      }),
+      entry({
+        key: "ev-22",
+        event_type: "zakonczenie",
+        type_label: "Zakończenie zamówienia",
+        summary: "Zamówienie zakończone — budżet MD wyczerpany.",
+      }),
+    ]);
     const user = userEvent.setup();
 
     renderCard({ group: group() });
     await openHistory(user);
 
-    const edited = (await screen.findByText("Edycja ręczna")).closest("li");
+    const edited = (await screen.findByText("Edycja")).closest("li");
     expect(edited).toHaveTextContent("Anna Testowa");
     // Godzina obok daty — dwa wpisy tego samego dnia dało się dotąd tylko
     // uporządkować, nie umiejscowić w czasie.
@@ -225,33 +241,32 @@ describe("OrderGroupCard — historia zamówienia", () => {
     expect(screen.getByText("Dodanie konsultanta").closest("li")).toHaveTextContent(
       "Użytkownik #9",
     );
-    expect(screen.getByText("Zakończenie").closest("li")).toHaveTextContent(
+    expect(screen.getByText("Zakończenie zamówienia").closest("li")).toHaveTextContent(
       "Automatycznie (system)",
     );
   });
 
   it("wpis transfer_md ma własną ikonę i klikalny numer zamówienia powiązanego", async () => {
-    vi.mocked(orderGroupsApi.events).mockResolvedValue({
-      data: {
-        events: [
-          event({
-            id: 10,
-            event_type: "edycja_reczna",
-            event_label: "Edycja ręczna",
-            description: "Zmieniono: budżet MD.",
-          }),
-          event({
-            id: 11,
-            event_type: "transfer_md",
-            event_label: "Przeniesienie MD",
-            description:
-              "Zamówienie zakończone — budżet MD wyczerpany, kontynuacja na zamówieniu nr 4500029903",
-            related_group_id: 16,
-            related_order_number: "4500029903",
-          }),
-        ],
-      },
-    } as never);
+    mockHistory([
+      entry({
+        key: "edit-10",
+        category: "edits",
+        event_type: "edycja_reczna",
+        type_label: "Edycja",
+        summary: "Zmieniono: budżet MD.",
+        changes: [{ label: "budżet MD", before: null, after: null }],
+      }),
+      entry({
+        key: "ev-11",
+        category: "consumption",
+        event_type: "transfer_md",
+        type_label: "Przeniesienie MD",
+        summary:
+          "Zamówienie zakończone — budżet MD wyczerpany, kontynuacja na zamówieniu nr 4500029903",
+        related_group_id: 16,
+        related_order_number: "4500029903",
+      }),
+    ]);
     const onFocusGroup = vi.fn();
     const user = userEvent.setup();
 
@@ -263,7 +278,7 @@ describe("OrderGroupCard — historia zamówienia", () => {
     // Przeniesienie MD to ruch MIĘDZY zamówieniami — ikona musi się różnić od
     // wpisu edycji, inaczej kolumna ikon nic nie rozróżnia.
     expect(transferRow!.querySelector(".lucide-arrow-left-right")).not.toBeNull();
-    const editRow = screen.getByText("Edycja ręczna").closest("li");
+    const editRow = screen.getByText("Edycja").closest("li");
     expect(editRow!.querySelector(".lucide-pencil")).not.toBeNull();
     expect(editRow!.querySelector(".lucide-arrow-left-right")).toBeNull();
 
@@ -274,21 +289,18 @@ describe("OrderGroupCard — historia zamówienia", () => {
   });
 
   it("wpis bez related_group_id renderuje sam tekst, bez martwego przycisku", async () => {
-    vi.mocked(orderGroupsApi.events).mockResolvedValue({
-      data: {
-        events: [
-          event({
-            id: 12,
-            event_type: "transfer_md",
-            event_label: "Przeniesienie MD",
-            description:
-              "Zamówienie zakończone — budżet MD wyczerpany, kontynuacja na zamówieniu nr 4500029904",
-            related_group_id: null,
-            related_order_number: "4500029904",
-          }),
-        ],
-      },
-    } as never);
+    mockHistory([
+      entry({
+        key: "ev-12",
+        category: "consumption",
+        event_type: "transfer_md",
+        type_label: "Przeniesienie MD",
+        summary:
+          "Zamówienie zakończone — budżet MD wyczerpany, kontynuacja na zamówieniu nr 4500029904",
+        related_group_id: null,
+        related_order_number: "4500029904",
+      }),
+    ]);
     const user = userEvent.setup();
 
     renderCard({ group: group() });
@@ -541,7 +553,7 @@ describe("OrderGroupCard — zakresy MD, następca i nagłówek CeZ", () => {
     ).toBeDisabled();
     expect(onDeleteLine).not.toHaveBeenCalled();
     expect(
-      screen.getByRole("button", { name: "Rozliczenia miesięczne — Marcin Następca" }),
+      screen.getByRole("button", { name: "Zużycie MD — Marcin Następca" }),
     ).toBeInTheDocument();
   });
 
@@ -618,7 +630,7 @@ describe("OrderGroupCard — zakresy MD, następca i nagłówek CeZ", () => {
   it("wiersz MD per osoba ma przycisk rozliczeń miesięcznych; kosztowe i wspólna pula — nie", () => {
     renderCard({ group: scopedGroup() });
     expect(
-      screen.getByRole("button", { name: "Rozliczenia miesięczne — Marcin Następca" }),
+      screen.getByRole("button", { name: "Zużycie MD — Marcin Następca" }),
     ).toBeInTheDocument();
   });
 });
@@ -626,7 +638,9 @@ describe("OrderGroupCard — zakresy MD, następca i nagłówek CeZ", () => {
 describe("OrderGroupCard — kto stoi w „Zakończonych\u201d", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(orderGroupsApi.events).mockResolvedValue({ data: [] } as never);
+    vi.mocked(orderGroupsApi.history).mockResolvedValue({
+      data: { entries: [], people: [] },
+    } as never);
   });
 
   /** Osoba po zejściu ma DALEJ `status: "active"` — linia MD kończy się

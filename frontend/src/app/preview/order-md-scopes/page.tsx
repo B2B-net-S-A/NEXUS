@@ -19,6 +19,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { OrderGroupCard } from "@/components/client-profile/orders/OrderGroupCard";
 import { lineConsumptionsQueryKey } from "@/components/client-profile/orders/LineMonthlyHistoryDialog";
+import { orderHistoryQueryKey } from "@/components/client-profile/orders/OrderHistoryPanel";
 import type {
   LineConsumptionRow,
   OrderGroupListResponse,
@@ -320,7 +321,10 @@ export default function OrderMdScopesPreview() {
       total_consultants: LINES.length,
     });
     for (const item of CASES) {
-      qc.setQueryData(["order-group-events", CLIENT_ID, item.group.id], { events: [] });
+      qc.setQueryData(orderHistoryQueryKey(CLIENT_ID, item.group.id), {
+        entries: [],
+        people: [],
+      });
       for (const row of item.group.lines) {
         // Pierwsza osoba ma wpisy, reszta pusty stan — oba do obejrzenia.
         qc.setQueryData(lineConsumptionsQueryKey(CLIENT_ID, item.group.id, row.id), {

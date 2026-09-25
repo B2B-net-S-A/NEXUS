@@ -49,6 +49,9 @@ const ACTION_LABELS: Record<string, string> = {
   document_deleted: "Usunięto dokument",
   b2b_generated: "Wygenerowano umowę B2B",
   auto_drafted_from_order_mail: "Założono szkic z zamówienia z maila",
+  // Ticket 7 (09.2026): techniczne zmiany pól linii zamówienia MD (waluta,
+  // jednostka stawki) — historia zamówienia ich nie pokazuje.
+  order_line_fields_changed: "Zmiana pól technicznych na zamówieniu",
   deleted: "Usunięto kontrakt",
   force_deleted_signed: "Usunięto podpisany kontrakt (wymuszone)",
 };
@@ -132,6 +135,8 @@ const DETAIL_LABELS: Record<string, string> = {
   alerts_closed: "Zamknięte alerty",
   returned_from_contract_id: "Poprzedni kontrakt",
   order_ids: "Zamówienia",
+  order_number: "Numer zamówienia",
+  changes: "Zmiany",
 };
 
 const STATUS_LABELS: Record<string, string> = {

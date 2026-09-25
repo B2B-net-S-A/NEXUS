@@ -428,6 +428,14 @@
         "a": "„Zakończ zamówienie” zamyka jedno zamówienie i nie rusza umowy. „Zakończ współpracę” wypowiada umowę konsultanta i zamyka wszystkie jego zamówienia u klienta. Zamówienie MD albo kosztowe wpisane przez pomyłkę anulujesz przyciskiem „Anuluj zamówienie” (z powodem); „Przywróć anulowane” przywraca je do poprzedniego stanu."
       },
       {
+        "q": "Gdzie zobaczę zużycie MD osoby miesiąc po miesiącu?",
+        "a": "Kliknij przycisk „Zużycie” przy osobie (mały wykres i ostatni miesiąc). Okno pokazuje saldo po każdym miesiącu, numer zamówienia z importu i korekty pod miesiącem. Pomarańczowy przycisk z kropką znaczy: ujemne saldo, brak zejścia za poprzedni miesiąc albo wiersz importu do weryfikacji."
+      },
+      {
+        "q": "Co zrobił import MD z zamówieniami tego klienta?",
+        "a": "Otwórz zakładkę „Importy MD” na profilu klienta albo kliknij „Otwórz import →” przy imporcie w historii zamówienia. Zobaczysz wiersze tego klienta ze statusem: Zaksięgowano, Do weryfikacji albo Błąd. Wiersz z innym numerem zamówienia jest wyróżniony."
+      },
+      {
         "q": "Jak przypisać nową osobę ze szkicu do zamówienia i co z MD osoby, za którą wchodzi?",
         "a": "Na karcie osoby w pigułce „Draft” kliknij „Przypisz do zamówienia” (Centrum e-Zdrowia): dołącz, wejdź za konsultanta albo nowe zamówienie. Przy puli w MD pozostałe MD przechodzą 1:1, przy puli w kwocie wybierasz stawkę — okno pokazuje wynik. Pustą kartę usuniesz przyciskiem „Usuń szkic” (kontrakt zostaje)."
       }
@@ -452,7 +460,9 @@
     "sources": [
       "frontend/src/components/client-profile/orders/MultiConsultantOrdersTab.tsx",
       "frontend/src/components/client-profile/orders/OrderGroupCard.tsx",
-      "frontend/src/components/client-profile/orders/AssignToOrderModal.tsx"
+      "frontend/src/components/client-profile/orders/AssignToOrderModal.tsx",
+      "frontend/src/components/client-profile/orders/ConsumptionButton.tsx",
+      "frontend/src/components/client-profile/orders/ClientMdImportsTab.tsx"
     ]
   },
   {

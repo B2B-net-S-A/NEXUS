@@ -99,6 +99,7 @@ from app.api import client_framework_contracts
 from app.api import client_executive_contracts
 from app.api import client_contract_amendments
 from app.api import client_order_groups as client_order_groups_api
+from app.api import client_md_imports as client_md_imports_api
 from app.api import client_orders as client_orders_api
 from app.api import dl_alerts as dl_alerts_api
 from app.api import md_consumption as md_consumption_api
@@ -1086,6 +1087,11 @@ app.include_router(
     client_order_groups_api.router,
     prefix="/api/clients",
     tags=["client-order-groups"],
+)
+app.include_router(
+    client_md_imports_api.router,
+    prefix="/api/clients",
+    tags=["client-md-imports"],
 )
 app.include_router(
     md_consumption_api.router,

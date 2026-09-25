@@ -44,6 +44,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 from starlette.concurrency import run_in_threadpool
 from sqlalchemy import delete, func, or_, select
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -93,9 +94,13 @@ from app.models.client_order_offboarding import (
 )
 from app.models.md_consumption import (
     CONSUMPTION_SOURCE_MANUAL,
+    IMPORT_ROW_APPLIED,
+    IMPORT_ROW_NEEDS_ASSIGNMENT,
+    IMPORT_ROW_OVERFLOW,
     ClientOrderInvoiceConsumption,
     ClientOrderMdConsumption,
     MdConsumptionImport,
+    MdConsumptionImportRow,
 )
 from app.models.contract import Contract, ContractStatus, RateUnit
 from app.models.contract_document import ContractDocument, ContractDocumentType
@@ -107,6 +112,10 @@ from app.schemas.client_executive_contract import ExecutiveContractBrief
 from app.schemas.client_order_group import (
     ConsultantOptionRead,
     ConsultantOptionsResponse,
+    LineConsumptionCorrection,
+    LineConsumptionForeignWarning,
+    LineConsumptionImportRef,
+    LineConsumptionPoint,
     LineConsumptionRow,
     LineConsumptionsResponse,
     LineConsumptionUpsert,
@@ -118,6 +127,10 @@ from app.schemas.client_order_group import (
     OrderGroupEventRead,
     OrderGroupEventsResponse,
     OrderGroupExportRequest,
+    OrderHistoryChangeRead,
+    OrderHistoryDetailRead,
+    OrderHistoryEntryRead,
+    OrderHistoryResponse,
     OrderGroupExtractionResult,
     OrderGroupListResponse,
     OrderGroupRead,
@@ -134,6 +147,19 @@ from app.schemas.client_order_group import (
     OrderPlanLineRead,
 )
 from app.services.ai_quota import AIQuotaExceeded, ai_feature
+from app.services.md_consumption_view import (
+    ConsumptionIn,
+    CorrectionEventIn,
+    CorrectionOut,
+    ImportRefIn,
+    build_consumption_view,
+)
+from app.services.order_history import (
+    FINANCE_CHANGE_LABELS,
+    HistoryEntry,
+    RawEvent,
+    build_history,
+)
 from app.services.client_identity import client_display_name
 from app.services.critical_events import audited_deletion
 from app.services.client_order_lines import (
@@ -1251,6 +1277,7 @@ async def _group_to_read(
             item.job_title = job_titles.get(item.job_id)
         reads.append(item)
     await _apply_line_history(db, group, lines, reads)
+    await _apply_consumption_signals(db, group, lines, reads)
     reads.sort(
         key=lambda item: (
             normalize_person_name_part(item.consultant_name),
@@ -1265,15 +1292,12 @@ async def _group_to_read(
     # zawartości `payload`, a jedna definicja użyta w obu miejscach jest warta
     # więcej niż zaoszczędzone wiersze (dziennik jednej grupy to kilkadziesiąt
     # pozycji, nie tysiące).
-    event_rows = await db.execute(
-        select(ClientOrderGroupEvent.event_type, ClientOrderGroupEvent.payload).where(
-            ClientOrderGroupEvent.group_id == group.id
+    # Ticket 7 (25.09.2026): licznik liczy wpisy HISTORII BIZNESOWEJ (import
+    # = jeden wpis, seria edycji = jeden wpis) — ten sam widok co lista.
+    event_count = len(
+        build_history(
+            await _raw_history_events(db, group.id), person_name=lambda _oid: None
         )
-    )
-    event_count = sum(
-        1
-        for event_type, payload in event_rows
-        if not _is_technical_event(event_type, payload)
     )
 
     budget_used: Optional[Decimal] = None
@@ -1437,6 +1461,101 @@ def _added_later(group_created: Optional[datetime], added: Optional[datetime]) -
         return added - group_created > _LATE_ADDITION
     except TypeError:  # jedna z dat bez strefy — nie zgadujemy pochodzenia
         return False
+
+
+#: Ile ostatnich miesięcy pokazuje mini-wykres przycisku „Zużycie MD".
+CONSUMPTION_SPARK_MONTHS = 6
+
+
+def _previous_month(today: date) -> str:
+    first = today.replace(day=1) - timedelta(days=1)
+    return f"{first.year:04d}-{first.month:02d}"
+
+
+async def _apply_consumption_signals(
+    db: AsyncSession,
+    group: ClientOrderGroup,
+    lines: list[ClientOrder],
+    reads: list[OrderLineRead],
+) -> None:
+    """Mini-wykres i ostrzeżenia przycisku „Zużycie MD" (ticket 7, 25.09.2026).
+
+    Tylko linie z budżetem MD per osoba — kosztowe i wspólna pula nie mają
+    zejść przy konsultancie. Stała liczba zapytań na kartę: jedno o import za
+    poprzedni miesiąc, jedno o wiersze importu czekające na weryfikację.
+    """
+    if group.is_cost_based or uses_shared_md_pool(group):
+        return
+    md_lines = [line for line in lines if line.md_total is not None]
+    if not md_lines:
+        return
+    today = business_today()
+    previous = _previous_month(today)
+    prev_start, prev_end = month_bounds(previous)
+    previous_imported = (
+        await db.scalar(
+            select(MdConsumptionImport.id)
+            .where(MdConsumptionImport.period_month == previous)
+            .limit(1)
+        )
+        is not None
+    )
+    pending_rows = await db.execute(
+        select(
+            MdConsumptionImportRow.matched_order_id,
+            MdConsumptionImportRow.candidate_order_ids,
+        ).where(
+            MdConsumptionImportRow.status.in_(
+                (IMPORT_ROW_NEEDS_ASSIGNMENT, IMPORT_ROW_OVERFLOW)
+            ),
+            MdConsumptionImportRow.resolved_at.is_(None),
+        )
+    )
+    to_verify: set[int] = set()
+    for matched_id, candidate_ids in pending_rows.all():
+        if matched_id is not None:
+            to_verify.add(int(matched_id))
+        for oid in candidate_ids or []:
+            try:
+                to_verify.add(int(oid))
+            except (TypeError, ValueError):
+                continue
+    by_id = {line.id: line for line in md_lines}
+    for item in reads:
+        line = by_id.get(item.id)
+        if line is None:
+            continue
+        loaded = sa_inspect(line).attrs.md_consumptions.loaded_value
+        consumptions = (
+            sorted(loaded, key=lambda c: c.period_month)
+            if isinstance(loaded, list)
+            else []
+        )
+        item.consumption_recent = [
+            LineConsumptionPoint(period_month=c.period_month, md=c.md_reported)
+            for c in consumptions[-CONSUMPTION_SPARK_MONTHS:]
+        ]
+        flags: list[str] = []
+        if line.md_remaining is not None and Decimal(str(line.md_remaining)) < 0:
+            flags.append("negative_balance")
+        start = line.start_date or group.start_date
+        end = line.end_date or group.end_date
+        worked_previous = (
+            line.status != ClientOrderStatus.draft
+            and line.status != ClientOrderStatus.cancelled
+            and (start is None or start <= prev_end)
+            and (end is None or end >= prev_start)
+        )
+        if (
+            previous_imported
+            and worked_previous
+            and not any(c.period_month == previous for c in consumptions)
+        ):
+            flags.append("missing_previous_month")
+            item.consumption_missing_month = previous
+        if line.id in to_verify:
+            flags.append("import_to_verify")
+        item.consumption_flags = flags  # type: ignore[assignment]
 
 
 async def _apply_line_history(
@@ -2721,6 +2840,168 @@ async def list_group_events(
     return OrderGroupEventsResponse(events=events)
 
 
+async def _raw_history_events(db: AsyncSession, group_id: int) -> list[RawEvent]:
+    """Dziennik zamówienia bez wpisów technicznych poziomu zamówienia."""
+    result = await db.execute(
+        select(ClientOrderGroupEvent, User.name)
+        .outerjoin(User, User.id == ClientOrderGroupEvent.created_by_user_id)
+        .where(ClientOrderGroupEvent.group_id == group_id)
+        .order_by(
+            ClientOrderGroupEvent.created_at.asc(), ClientOrderGroupEvent.id.asc()
+        )
+    )
+    return [
+        RawEvent(
+            id=ev.id,
+            event_type=ev.event_type,
+            description=ev.description,
+            order_id=ev.order_id,
+            payload=ev.payload,
+            created_at=ev.created_at,
+            author_id=ev.created_by_user_id,
+            author_name=author_name,
+        )
+        for ev, author_name in result.all()
+        if not _is_technical_event(ev.event_type, ev.payload)
+    ]
+
+
+async def _history_person_names(
+    db: AsyncSession, events: list[RawEvent]
+) -> dict[int, str]:
+    """Imię i nazwisko osoby linii — z kontraktu, a gdy linii już nie ma,
+    z ``payload.consultant`` zdarzenia dodania (dziennik przeżywa linię)."""
+    order_ids = {ev.order_id for ev in events if ev.order_id is not None}
+    names: dict[int, str] = {}
+    if order_ids:
+        rows = await db.execute(
+            select(ClientOrder.id, Candidate.name, Candidate.lastname)
+            .join(Contract, Contract.id == ClientOrder.contract_id)
+            .join(Candidate, Candidate.id == Contract.candidate_id)
+            .where(ClientOrder.id.in_(order_ids))
+        )
+        for order_id, first, last in rows:
+            full = f"{first or ''} {last or ''}".strip()
+            if full:
+                names[order_id] = full
+    for ev in events:
+        consultant = (ev.payload or {}).get("consultant")
+        if ev.order_id is not None and ev.order_id not in names:
+            if isinstance(consultant, str) and consultant.strip():
+                names[ev.order_id] = consultant.strip()
+    return names
+
+
+def _history_entry_to_read(
+    entry: HistoryEntry,
+    *,
+    with_finance: bool,
+    read_only_tcm: bool,
+    related: tuple[Optional[int], Optional[str]],
+) -> OrderHistoryEntryRead:
+    def text(value: str) -> str:
+        return value if with_finance else (_redact_amounts(value) or value)
+
+    changes = [
+        OrderHistoryChangeRead(
+            label=change.label,
+            before=(
+                change.before
+                if with_finance or change.label not in FINANCE_CHANGE_LABELS
+                else None
+            ),
+            after=(
+                change.after
+                if with_finance or change.label not in FINANCE_CHANGE_LABELS
+                else None
+            ),
+        )
+        for change in entry.changes
+    ]
+    summary = entry.summary
+    if read_only_tcm and entry.import_id is None:
+        summary = entry.type_label
+    return OrderHistoryEntryRead(
+        key=entry.key,
+        category=entry.category,  # type: ignore[arg-type]
+        event_type=entry.event_type,
+        type_label=entry.type_label,
+        created_at=entry.created_at,
+        author_id=entry.author_id,
+        author_name=entry.author_name,
+        summary=text(summary),
+        order_id=entry.order_id,
+        person_name=entry.person_name,
+        person_names=entry.person_names,
+        changes=changes,
+        balance_before=entry.balance_before,
+        balance_after=entry.balance_after,
+        details=[
+            OrderHistoryDetailRead(
+                created_at=detail.created_at,
+                author_id=detail.author_id,
+                author_name=detail.author_name,
+                text=entry.type_label if read_only_tcm else text(detail.text),
+            )
+            for detail in entry.details
+        ],
+        import_id=entry.import_id,
+        import_period_month=entry.import_period_month,
+        import_people=entry.import_people,
+        import_md=entry.import_md,
+        related_group_id=related[0],
+        related_order_number=related[1],
+    )
+
+
+@router.get(
+    "/{client_id}/order-groups/{group_id}/history",
+    response_model=OrderHistoryResponse,
+)
+async def list_group_history(
+    client_id: int,
+    group_id: int,
+    user: OrderGroupSafeReadUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Historia BIZNESOWA zamówienia (ticket 7, 25.09.2026) — od najnowszego.
+
+    Import MD to jeden wpis na import, edycje tej samej osoby przez tego samego
+    autora w 15 minut — jeden wpis z wynikiem netto. Pojedyncze zejścia MD są
+    w oknie „Zużycie MD" osoby, pola techniczne w Timeline kontraktu. Surowy
+    dziennik zostaje pod ``/events``.
+    """
+    await _require_safe_group_read(db, user, client_id)
+    _assert_multi_client(client_id)
+    await _load_group(db, client_id, group_id)
+    events = await _raw_history_events(db, group_id)
+    names = await _history_person_names(db, events)
+    entries = build_history(events, person_name=lambda oid: names.get(oid or 0))
+    by_id = {ev.id: ev for ev in events}
+    with_finance = await _can_see_finance(db, user, client_id)
+    read_only_tcm = _is_read_only_tcm(user)
+    reads: list[OrderHistoryEntryRead] = []
+    for entry in entries:
+        related: tuple[Optional[int], Optional[str]] = (None, None)
+        if len(entry.source_event_ids) == 1:
+            source = by_id.get(entry.source_event_ids[0])
+            if source is not None and source.event_type == EVENT_MD_TRANSFER:
+                related = _related_order(group_id, source)
+        reads.append(
+            _history_entry_to_read(
+                entry,
+                with_finance=with_finance,
+                read_only_tcm=read_only_tcm,
+                related=related,
+            )
+        )
+    people = sorted(
+        {name for entry in entries for name in entry.person_names},
+        key=normalize_person_name_part,
+    )
+    return OrderHistoryResponse(entries=reads, people=people)
+
+
 # Audyt 22.09 r2 (FIN-MD-05): opis wpisu historii niesie kwoty („1320 zł/MD",
 # „Wartość pozostała bez zmian: 60000 zł"). ``payload`` znikał rolom bez
 # finansów, ale ``description`` szedł bez redakcji (wyjątkiem był tylko TCM).
@@ -2739,7 +3020,7 @@ def _redact_amounts(text: Optional[str]) -> Optional[str]:
 
 
 def _related_order(
-    group_id: int, event: ClientOrderGroupEvent
+    group_id: int, event: ClientOrderGroupEvent | RawEvent
 ) -> tuple[Optional[int], Optional[str]]:
     """Druga strona przejęcia zużycia MD — do klikalnego numeru w historii.
 
@@ -4809,6 +5090,61 @@ async def _add_line_to_group(
     return line
 
 
+def _money_md(value: Optional[Decimal]) -> str:
+    """„1 280 zł/MD" — kwota stawki PLN/MD do wpisu historii."""
+    if value is None:
+        return "—"
+    amount = Decimal(str(value)).quantize(Decimal("0.01"))
+    text = f"{amount:,.2f}".replace(",", " ").replace(".", ",")
+    if text.endswith(",00"):
+        text = text[:-3]
+    return f"{text} zł/MD"
+
+
+def _line_edit_snapshot(line: ClientOrder) -> dict[str, tuple[str, bool]]:
+    """Wartości pól linii do porównania „przed → po": etykieta → (tekst, techniczne)."""
+
+    def md(value: Optional[Decimal]) -> str:
+        return "—" if value is None else f"{format_md(value)} MD"
+
+    return {
+        "stawka kosztowa": (_money_md(line.md_rate_cost), False),
+        "stawka przychodowa": (_money_md(line.md_rate_revenue), False),
+        "budżet MD": (md(line.md_total), False),
+        "zakres opcjonalny MD": (md(line.md_optional_total), False),
+        "ręczna korekta MD": (md(line.md_manual_adjustment or Decimal("0")), False),
+        "data zakończenia": (
+            line.end_date.isoformat() if line.end_date else "bezterminowo",
+            False,
+        ),
+        "waluta stawki kosztowej": (
+            (line.rate_candidate_currency or line.currency or "PLN").upper(),
+            True,
+        ),
+        "waluta stawki przychodowej": (
+            (line.rate_client_currency or line.currency or "PLN").upper(),
+            True,
+        ),
+        "jednostka stawki": (
+            (line.rate_unit.value if line.rate_unit else "daily"),
+            True,
+        ),
+    }
+
+
+def _line_edit_diff(
+    before: dict[str, tuple[str, bool]], after: dict[str, tuple[str, bool]]
+) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
+    business: dict[str, list[str]] = {}
+    technical: dict[str, list[str]] = {}
+    for label, (old, is_technical) in before.items():
+        new = after[label][0]
+        if old == new:
+            continue
+        (technical if is_technical else business)[label] = [old, new]
+    return business, technical
+
+
 @router.patch(
     "/{client_id}/order-groups/{group_id}/lines/{line_id}",
     response_model=OrderLineRead,
@@ -4868,7 +5204,12 @@ async def update_line(
         )
 
     data = payload.model_dump(exclude_unset=True)
-    changed: list[str] = []
+    # Ticket 7 (25.09.2026): historia pokazuje „przed → po", a nie listę pól
+    # wysłanych przez formularz (ten odsyła komplet przy każdym zapisie, więc
+    # KAŻDA edycja mówiła „zmieniono: stawka kosztowa, data zakończenia,
+    # budżet MD"). Migawka przed i po zapisie; różnica = realne zmiany.
+    snapshot_before = _line_edit_snapshot(line)
+    remaining_before = line.md_remaining
     raw_rates: dict[str, Decimal] = {}
     for field, currency_field, source_field in (
         ("rate_cost", "rate_candidate_currency", "rate_candidate"),
@@ -4929,16 +5270,13 @@ async def update_line(
             setattr(line, currency_field, data[currency_field])
             if currency_field == "rate_client_currency":
                 line.currency = data[currency_field]
-            changed.append(currency_field)
     if "rate_cost" in data:
         line.rate_candidate = data["rate_cost"]
         line.md_rate_cost = data["rate_cost"]
-        changed.append("stawka kosztowa")
     if "rate_revenue" in data:
         line.rate_client = data["rate_revenue"]
     if "end_date" in data:
         line.end_date = data["end_date"]
-        changed.append("data zakończenia")
 
     # Stawka przychodowa i budżet przeliczają md_total razem — zmiana samej
     # stawki przy trybie „kwota" musi zmienić liczbę MD, inaczej zamówienie
@@ -4965,13 +5303,11 @@ async def update_line(
         line.md_rate_revenue = rate_revenue
         line.md_input_mode = input_mode
         line.md_input_value = input_value
-        changed.append("budżet MD")
     elif "rate_revenue" in data:
         # Wspólna pula (kosztowa albo MD) nie zależy od stawki pojedynczej
         # linii. Zmiana stawki nie może próbować odtworzyć nieistniejącego
         # per-line `input_value`.
         line.md_rate_revenue = data["rate_revenue"]
-        changed.append("stawka przychodowa")
 
     if "optional_md" in data:
         # Jawne `null` czyści opcję („brak opcji w umowie" jest stanem);
@@ -4979,7 +5315,6 @@ async def update_line(
         line.md_optional_total = (
             None if data["optional_md"] is None else quantize_md(data["optional_md"])
         )
-        changed.append("zakres opcjonalny MD")
 
     if "md_remaining" in data and data["md_remaining"] is not None:
         # Korekta zapisywana jako RÓŻNICA, nie nadpisanie. Nadpisanie
@@ -4993,7 +5328,6 @@ async def update_line(
         line.md_manual_adjustment = quantize_md(
             Decimal(str(data["md_remaining"])) - natural
         )
-        changed.append("ręczna korekta MD")
 
     for source_field, raw in raw_rates.items():
         setattr(line, source_field, raw)
@@ -5016,7 +5350,6 @@ async def update_line(
     ):
         line.status = ClientOrderStatus.active
         line.filled_at = datetime.now(timezone.utc)
-        changed.append("przypisanie aktywne (szkic uzupełniony)")
         activated_draft = True
 
     # Przeliczenie budżetu domyka też status linii (`sync_md_line_status` siedzi
@@ -5029,15 +5362,28 @@ async def update_line(
     if activated_draft:
         await _sync_contract_after_live_group_line(db, line, actor_id=user.id)
 
-    if changed:
+    business_diff, technical_diff = _line_edit_diff(
+        snapshot_before, _line_edit_snapshot(line)
+    )
+    if activated_draft:
+        business_diff["przypisanie"] = ["szkic", "aktywne"]
+    if business_diff or technical_diff:
+        labels = list(business_diff) + list(technical_diff)
         record_event(
             db,
             group_id=group_id,
             order_id=line.id,
             event_type=EVENT_MANUAL_EDIT,
             description=(
-                f"{consultant_display_name(line)} — zmieniono: "
-                + ", ".join(changed)
+                f"{consultant_display_name(line)} — "
+                + (
+                    "; ".join(
+                        f"{label}: {pair[0]} → {pair[1]}"
+                        for label, pair in business_diff.items()
+                    )
+                    if business_diff
+                    else "zmiana pól technicznych"
+                )
                 + (
                     "."
                     if has_group_budget
@@ -5045,7 +5391,14 @@ async def update_line(
                 )
             ),
             payload={
-                "changed": changed,
+                "changed": labels,
+                "diff": business_diff,
+                "technical": technical_diff,
+                "md_remaining_before": (
+                    None
+                    if has_group_budget or remaining_before is None
+                    else str(remaining_before)
+                ),
                 "md_remaining": (None if has_group_budget else str(line.md_remaining)),
             },
             user_id=user.id,
@@ -6216,6 +6569,7 @@ async def _line_read_after_write(
         refreshed, with_finance=with_finance, group_end_date=group.end_date
     )
     await _apply_line_history(db, group, [refreshed], [item])
+    await _apply_consumption_signals(db, group, [refreshed], [item])
     return item
 
 
@@ -6261,7 +6615,145 @@ async def list_line_consumptions(
     if exists is None:
         raise HTTPException(404, detail="Linia nie istnieje w tym zamówieniu")
     rows = await consumption_rows(db, line_id)
-    return LineConsumptionsResponse(rows=[_consumption_row_to_read(r) for r in rows])
+    line = await db.get(ClientOrder, line_id)
+    view = build_consumption_view(
+        [
+            ConsumptionIn(
+                period_month=r.period_month,
+                md_reported=Decimal(str(r.md_reported)),
+                source=r.source,
+            )
+            for r in rows
+        ],
+        remaining=line.md_remaining if line is not None else None,
+        import_refs=await _line_import_refs(db, line_id),
+        corrections=await _line_consumption_corrections(db, group.id, line_id),
+        order_number=group.order_number,
+    )
+    reads: list[LineConsumptionRow] = []
+    for r in rows:
+        item = _consumption_row_to_read(r)
+        month = view.months.get(r.period_month)
+        if month is not None:
+            item.source_kind = month.source_kind  # type: ignore[assignment]
+            item.balance_after = month.balance_after
+            item.import_rows = [
+                LineConsumptionImportRef(
+                    import_id=ref.import_id,
+                    row_number=ref.row_number,
+                    order_number_hint=ref.order_number_hint,
+                    md_reported=ref.md_reported,
+                    foreign=ref.foreign,
+                )
+                for ref in month.import_rows
+            ]
+            item.corrections = [_correction_read(c) for c in month.corrections]
+        reads.append(item)
+    budget: Optional[Decimal] = None
+    if line is not None and line.md_total is not None:
+        budget = quantize_md(
+            line_budget_total(line) + Decimal(str(line.md_manual_adjustment or 0))
+        )
+    return LineConsumptionsResponse(
+        rows=reads,
+        order_number=group.order_number,
+        md_budget=budget,
+        md_used=quantize_md(view.used),
+        md_remaining=line.md_remaining if line is not None else None,
+        foreign_import_warnings=[
+            LineConsumptionForeignWarning(
+                period_month=month,
+                order_number=ref.order_number_hint or "—",
+                md=ref.md_reported,
+                import_id=ref.import_id,
+                row_number=ref.row_number,
+            )
+            for month, ref in view.foreign
+        ],
+        removed_months=[_correction_read(c) for c in view.removed],
+    )
+
+
+def _correction_read(correction: CorrectionOut) -> LineConsumptionCorrection:
+    return LineConsumptionCorrection(
+        created_at=correction.created_at,
+        period_month=correction.period_month,
+        author_name=correction.author_name,
+        from_md=correction.from_md,
+        from_source=correction.from_source,  # type: ignore[arg-type]
+        to_md=correction.to_md,
+        removed=correction.removed,
+    )
+
+
+async def _line_import_refs(
+    db: AsyncSession, line_id: int
+) -> dict[str, list[ImportRefIn]]:
+    """Wiersze importu zaksięgowane na tę linię, per miesiąc raportu.
+
+    Przy kilku importach tego samego miesiąca liczy się NAJNOWSZY (to on
+    nadpisał zejście); ręczny wpis kasuje ``import_id`` na zejściu, więc
+    numer pochodzenia bierzemy z wierszy importu, nie z wpisu.
+    """
+    result = await db.execute(
+        select(MdConsumptionImportRow, MdConsumptionImport.period_month)
+        .join(
+            MdConsumptionImport,
+            MdConsumptionImport.id == MdConsumptionImportRow.import_id,
+        )
+        .where(
+            MdConsumptionImportRow.matched_order_id == line_id,
+            MdConsumptionImportRow.status.in_(
+                (IMPORT_ROW_APPLIED, IMPORT_ROW_OVERFLOW)
+            ),
+        )
+        .order_by(
+            MdConsumptionImport.created_at.asc(),
+            MdConsumptionImportRow.row_number.asc(),
+        )
+    )
+    latest: dict[str, int] = {}
+    collected: dict[tuple[str, int], list[ImportRefIn]] = {}
+    for row, period_month in result.all():
+        latest[period_month] = row.import_id
+        collected.setdefault((period_month, row.import_id), []).append(
+            ImportRefIn(
+                import_id=row.import_id,
+                row_number=row.row_number,
+                order_number_hint=row.order_number_hint,
+                md_reported=Decimal(str(row.md_reported)),
+            )
+        )
+    return {month: collected[(month, iid)] for month, iid in latest.items()}
+
+
+async def _line_consumption_corrections(
+    db: AsyncSession, group_id: int, line_id: int
+) -> list[CorrectionEventIn]:
+    """Ręczne zejścia MD osoby z dziennika — do „↳ korekta" pod miesiącem."""
+    result = await db.execute(
+        select(ClientOrderGroupEvent, User.name)
+        .outerjoin(User, User.id == ClientOrderGroupEvent.created_by_user_id)
+        .where(
+            ClientOrderGroupEvent.group_id == group_id,
+            ClientOrderGroupEvent.order_id == line_id,
+            ClientOrderGroupEvent.event_type == EVENT_MANUAL_EDIT,
+        )
+        .order_by(ClientOrderGroupEvent.created_at.asc())
+    )
+    out: list[CorrectionEventIn] = []
+    for event, author_name in result.all():
+        payload = event.payload or {}
+        if payload.get("changed") != ["zejście MD"]:
+            continue
+        out.append(
+            CorrectionEventIn(
+                created_at=event.created_at,
+                author_name=author_name,
+                payload=payload,
+            )
+        )
+    return out
 
 
 @router.put(

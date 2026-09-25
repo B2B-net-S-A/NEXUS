@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 24.09.2026
+> **Zgodność z systemem sprawdzona:** 25.09.2026
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -474,10 +474,43 @@ datę; samo pozostawienie kompletnego szkicu nie aktywuje go.
 | **Anuluj zamówienie** | dla zamówienia, które **nie doszło do skutku** albo zostało założone omyłkowo, a chcesz zachować jego historię. Zamówienie i jego konsultanci dostają status „Anulowane”, znikają z aktywnych zamówień, sum, alertów i rozliczeń, ale zostają w rejestrze (filtr **Anulowane**). **Zamówienia z rozliczeniami (zaraportowane MD, faktury) nie anulujesz** — system odmówi i wskaże, co blokuje; wtedy właściwą akcją jest **Zakończ**. Anulowanego zamówienia nie edytujesz, nie kończysz ani nie przedłużasz |
 | **Przywróć anulowane** | cofa anulowanie: zamówienie wraca do stanu sprzed niego (np. „Aktywne”), a konsultanci — do swoich statusów; osoba, której okres w międzyczasie minął, wraca jako zakończona |
 | **Usuń całe zamówienie** | służy do wycofania **pomyłki** i jest nieodwracalne: zamówienie znika razem ze swoją historią. **Zamówienia z rozliczeniami system nie usunie** — odmówi i wskaże, co je blokuje (rozliczone MD, zaimportowane faktury). Wtedy właściwą akcją jest **Zakończ**. Razem z zamówieniem znikają jego linie — **nie powstają z nich osobne zamówienia okresowe**. Okno usuwania pokazuje skutki dla umów: jeśli zamówienie niosło jedyną stawkę klienta na umowie, umowa zostaje **bez przychodu** (stawka klienta i marża znikają), a gdy są inne zamówienia — okres, którego dotyczyło, przejdzie na ich stawkę |
-| **Historia zamówienia** | rozwijana lista zdarzeń z datą, wykonawcą (wpis bez osoby = zmiana automatyczna) i opisem: utworzenie, dodania i zamiany konsultantów, importy, decyzje o MD, zakończenia. Zapis nowego szkicu MD, zmiana jego trybu, aktywacja i zapis miesięcznego zużycia wspólnej puli również zostawiają wpis |
+| **Historia zamówienia** | rozwijana lista **zdarzeń biznesowych**: data · autor (wpis bez osoby = zmiana automatyczna) · rodzaj · osoba · co zmieniono w formie „przed → po" · saldo osoby po zmianie (ujemne na czerwono, obok „było …"). Są w niej: utworzenie, przedłużenie, zakończenie i anulowanie zamówienia, dodanie, zamiana i usunięcie konsultanta, decyzje o osobie i o puli MD, zmiany stawek i budżetu MD osoby oraz **jeden wpis na każdy import MD** („Import MD za sierpień 2026 – 2 osoby, 25 MD") z odsyłaczem **„Otwórz import →"** do zakładki **Importy MD**. Kilka edycji tej samej osoby przez tę samą osobę w odstępie do 15 minut to **jeden wpis z wynikiem netto** — pojedyncze zmiany rozwiniesz przyciskiem „▸ N zmian". Nad listą są filtry: **typ zdarzenia** (Wszystko / Zamówienie / Konsultanci / Zużycie MD / Edycje) i **osoba**. **Nie ma tu** pojedynczych zejść i korekt MD (są w oknie **Zużycie MD** osoby) ani technicznych zmian pól, np. waluty czy jednostki stawki (są w zakładce **Timeline** kontraktu osoby, z polskimi nazwami pól). Zapis nowego szkicu MD, zmiana jego trybu, aktywacja i zapis miesięcznego zużycia wspólnej puli również zostawiają wpis |
 
 Przy każdym konsultancie masz osobno: **Edytuj linię**, **Zamień kontraktora**
 (tylko przy aktywnej linii) i **Usuń konsultanta z zamówienia**.
+
+### Zużycie MD osoby
+
+Przy każdej osobie z własnym budżetem MD stoi przycisk **„Zużycie"** z małym
+wykresem słupkowym ostatnich miesięcy i ostatnią wartością, np.
+„Zużycie · sie 3,7". Przycisk jest **pomarańczowy z kropką**, gdy saldo osoby
+jest ujemne, brakuje zejścia za poprzedni miesiąc (a import za ten miesiąc już
+był) albo któryś wiersz importu tej osoby czeka „Do weryfikacji" — podpowiedź
+po najechaniu mówi, który powód. Osoby zakończone mają ten sam przycisk
+w sekcji „Zakończone" rozwiniętej karty.
+
+Okno **Zużycie MD** pokazuje u góry wykorzystane, budżet i pozostało, a w tabeli
+miesiąc po miesiącu: **MD**, **Nr z importu** (numer zamówienia z „Uwag"
+wiersza arkusza), **Źródło** (import / ręcznie / ręczna korekta), **Saldo po
+miesiącu** (ujemne na czerwono), autora i notatkę. **Korekty miesiąca stoją
+pod jego wierszem**, np. „↳ korekta: 24.09.2026 14:23 · Anna Korycka · import
+4 MD → ręcznie 3,7 MD". Gdy zużycie któregoś miesiąca przyszło z wiersza
+importu z **innym numerem zamówienia**, nad tabelą stoi ostrzeżenie z tym
+numerem i liczbą MD. Nowy wpis dodajesz, wybierając **miesiąc z listy**
+(miesiące okresu osoby na zamówieniu); miesiąc, który ma już wpis, jest
+oznaczony „ma wpis (nadpisze)".
+
+### Zakładka „Importy MD"
+
+Na profilu klienta, obok „Zamówień", jest zakładka **Importy MD**: lista
+importów zużycia, które dotknęły zamówień tego klienta — miesiąc, data
+i autor importu, nazwa pliku, liczba wierszy, zaksięgowanych i do
+weryfikacji. Po otwarciu importu widać jego wiersze **tylko tego klienta**:
+numer wiersza w arkuszu, osobę, numer z importu, zamówienie docelowe, MD,
+kwotę (tylko z dostępem do finansów) i status — **Zaksięgowano**, **Do
+weryfikacji** z powodem albo **Błąd**. Wiersz, w którym numer z importu różni
+się od zamówienia docelowego, jest wyróżniony („inny numer"). Rozstrzyganie
+wierszy robi dalej Finanse w **Finanse → Import zużycia MD**.
 
 ### Kto stoi w „Aktywnej obsadzie", a kto w „Zakończonych"
 
@@ -1920,7 +1953,7 @@ Reguła odczytu zmienia liczby, więc warto znać ją w całości:
   dotychczasowego pola, **bez domyślnego wyboru umowy**. Konsultant bez
   żadnego zamówienia dostaje przy przypisaniu szkic zamówienia do uzupełnienia.
 * **Karta konsultanta na zamówieniu MD** (tylko u tego klienta) ma trzy części:
-  u góry imię i nazwisko z ikonami akcji (rozliczenia miesięczne, edycja,
+  u góry imię i nazwisko z przyciskiem **Zużycie** i ikonami akcji (edycja,
   zamiana kontraktora, usunięcie z zamówienia); pośrodku stawka oraz bloki
   **Podstawa** i **Opcja** — każdy z „wykorzystano / limit MD", procentem
   i **„Pozostało N MD"**; na dole pasek **„Łącznie"**. Gdy umowa nie ma opcji,

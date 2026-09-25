@@ -1,9 +1,11 @@
 {
-  "entry": "d48eee80da5d4ffcfc0d9a7418d75c3bfb52d5fdfbae588dec97df5dd79a4e1a",
+  "entry": "9a10931c23fb241b094104a598d7815e83f4ecb3391771ad34380b568c948358",
   "guide": "client.orders",
   "sources": {
     "frontend/src/components/client-profile/orders/AssignToOrderModal.tsx": "4276f76150fef4dd46b0844348ecdf774b3e8428352693930ca8c4ffa424bcbd",
+    "frontend/src/components/client-profile/orders/ClientMdImportsTab.tsx": "874ae892bf856468eaa681484d95c5dcdf4d11747bbb5f1fba103e827bf46dc9",
+    "frontend/src/components/client-profile/orders/ConsumptionButton.tsx": "be21df1c4864f82d6f883abaf86dc2e838e3d053b874ae45e052b48392d4bbe7",
     "frontend/src/components/client-profile/orders/MultiConsultantOrdersTab.tsx": "68a0670907c527a19f6c65a612deb03a6a159c95e39cb38368c2a4ae0b2463a9",
-    "frontend/src/components/client-profile/orders/OrderGroupCard.tsx": "3f9ca72cb97cb09e3b2f2658bf8eb9ec219f8965150e39bb73e927cb8158e882"
+    "frontend/src/components/client-profile/orders/OrderGroupCard.tsx": "ad018157019a5af6a86297ac385ef9d788ad11f53809eafeafee15d83585d438"
   }
 }

@@ -500,6 +500,11 @@ class OrderOffboardingCaseRead(BaseModel):
     updated_at: datetime
 
 
+class LineConsumptionPoint(BaseModel):
+    period_month: str
+    md: MdValue
+
+
 class OrderLineRead(BaseModel):
     source_rate_cost: Optional[MoneyPLN] = None
     source_rate_revenue: Optional[MoneyPLN] = None
@@ -585,6 +590,17 @@ class OrderLineRead(BaseModel):
 
     offboarding_case: Optional[OrderOffboardingCaseRead] = None
     """Nierozwiązana lub historyczna decyzja po zakończeniu współpracy."""
+
+    # ── Przycisk „Zużycie MD" (ticket 7, 25.09.2026) ──
+    consumption_recent: list[LineConsumptionPoint] = Field(default_factory=list)
+    """Zejścia z ostatnich miesięcy (najstarsze pierwsze) — mini-wykres."""
+    consumption_flags: list[
+        Literal["negative_balance", "missing_previous_month", "import_to_verify"]
+    ] = Field(default_factory=list)
+    """Powody pomarańczowego przycisku: ujemne saldo, brak zejścia za
+    poprzedni miesiąc (gdy import za niego już był), wiersz importu tej osoby
+    „Do weryfikacji"."""
+    consumption_missing_month: Optional[str] = None
 
     # ── Historia osoby na zamówieniu (ticket 09.2026) ──
     origin: Optional[Literal["document", "manual"]] = None
@@ -770,9 +786,63 @@ class LineConsumptionRow(BaseModel):
     created_by_name: Optional[str] = None
     updated_at: Optional[datetime] = None
 
+    # ── Okno „Zużycie MD" (ticket 7, 25.09.2026) ──
+    source_kind: Literal["import", "manual", "manual_correction"] = "import"
+    """Źródło do kolumny „Źródło": ręczna korekta = ręczny wpis, który
+    nadpisał liczbę z importu za ten miesiąc."""
+    balance_after: Optional[MdValue] = None
+    """Saldo osoby po tym miesiącu (ujemne = przekroczenie). Liczone wstecz od
+    dzisiejszej pozostałości, więc ostatni wiersz zgadza się z paskiem karty."""
+    import_rows: list["LineConsumptionImportRef"] = Field(default_factory=list)
+    corrections: list["LineConsumptionCorrection"] = Field(default_factory=list)
+
+
+class LineConsumptionImportRef(BaseModel):
+    """Wiersz importu MD, z którego pochodzi zużycie miesiąca."""
+
+    import_id: int
+    row_number: int
+    order_number_hint: Optional[str] = None
+    md_reported: MdValue
+    foreign: bool = False
+    """Numer z „Uwag" wskazuje INNE zamówienie niż to, na które zaksięgowano."""
+
+
+class LineConsumptionCorrection(BaseModel):
+    """„↳ korekta: 24.09.2026 14:23 · Anna Korycka · import 4 MD → ręcznie 3,7 MD"."""
+
+    created_at: datetime
+    period_month: Optional[str] = None
+    author_name: Optional[str] = None
+    from_md: Optional[MdValue] = None
+    from_source: Literal["import", "manual", "none"] = "none"
+    to_md: Optional[MdValue] = None
+    removed: bool = False
+
+
+class LineConsumptionForeignWarning(BaseModel):
+    period_month: str
+    order_number: str
+    md: MdValue
+    import_id: int
+    row_number: int
+
 
 class LineConsumptionsResponse(BaseModel):
     rows: list[LineConsumptionRow] = Field(default_factory=list)
+    order_number: Optional[str] = None
+    md_budget: Optional[MdValue] = None
+    """Budżet osoby: podstawa + opcja + ręczna korekta budżetu."""
+    md_used: Optional[MdValue] = None
+    md_remaining: Optional[MdValue] = None
+    foreign_import_warnings: list[LineConsumptionForeignWarning] = Field(
+        default_factory=list
+    )
+    removed_months: list[LineConsumptionCorrection] = Field(default_factory=list)
+    """Korekty miesięcy, których wpis usunięto — nie mają już wiersza."""
+
+
+LineConsumptionRow.model_rebuild()
 
 
 class LineConsumptionUpsert(BaseModel):
@@ -854,6 +924,62 @@ class OrderGroupExportRequest(BaseModel):
 
 class OrderGroupEventsResponse(BaseModel):
     events: list[OrderGroupEventRead] = Field(default_factory=list)
+
+
+class OrderHistoryChangeRead(BaseModel):
+    """Jedna zmiana wpisu historii w formie „przed → po" (ticket 7, 09.2026).
+
+    ``before``/``after`` puste = wpis sprzed 25.09.2026 (dziennik zapisywał
+    wtedy same nazwy pól) albo kwota zredagowana roli bez finansów."""
+
+    label: str
+    before: Optional[str] = None
+    after: Optional[str] = None
+
+
+class OrderHistoryDetailRead(BaseModel):
+    """Pozycja rozwinięcia „▸ X zmian" — jedna edycja z serii."""
+
+    created_at: datetime
+    author_id: Optional[int] = None
+    author_name: Optional[str] = None
+    text: str
+
+
+class OrderHistoryEntryRead(BaseModel):
+    """Wpis BIZNESOWEJ historii zamówienia (``GET …/history``).
+
+    W odróżnieniu od ``OrderGroupEventRead`` (surowy dziennik) wpis bywa
+    złożony: jeden import MD, seria edycji tej samej osoby w 15 minut.
+    ``category`` zasila filtr typu nad listą."""
+
+    key: str
+    category: Literal["order", "consultants", "consumption", "edits"]
+    event_type: str
+    type_label: str
+    created_at: datetime
+    author_id: Optional[int] = None
+    author_name: Optional[str] = None
+    summary: str
+    order_id: Optional[int] = None
+    person_name: Optional[str] = None
+    person_names: list[str] = Field(default_factory=list)
+    changes: list[OrderHistoryChangeRead] = Field(default_factory=list)
+    balance_before: Optional[MdValue] = None
+    balance_after: Optional[MdValue] = None
+    details: list[OrderHistoryDetailRead] = Field(default_factory=list)
+    import_id: Optional[int] = None
+    import_period_month: Optional[str] = None
+    import_people: Optional[int] = None
+    import_md: Optional[MdValue] = None
+    related_group_id: Optional[int] = None
+    related_order_number: Optional[str] = None
+
+
+class OrderHistoryResponse(BaseModel):
+    entries: list[OrderHistoryEntryRead] = Field(default_factory=list)
+    people: list[str] = Field(default_factory=list)
+    """Osoby z wpisów — opcje filtra „osoba", alfabetycznie."""
 
 
 class ConsultantOptionRead(BaseModel):

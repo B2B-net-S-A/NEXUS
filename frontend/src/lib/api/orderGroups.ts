@@ -112,6 +112,13 @@ export interface OrderLineRead {
   unsettled_total: number | null;
   /** Ostatni zaimportowany miesiąc bez zejścia dla tej linii („2026-07"). */
   missing_consumption_month: string | null;
+  /** Przycisk „Zużycie MD" (ticket 7, 09.2026): zejścia z ostatnich miesięcy,
+   *  najstarsze pierwsze — mini-wykres. Puste przy kosztowym / wspólnej puli. */
+  consumption_recent?: LineConsumptionPoint[];
+  /** Powody pomarańczowego przycisku (liczone na serwerze). */
+  consumption_flags?: LineConsumptionFlag[];
+  /** Miesiąc bez zejścia przy fladze `missing_previous_month` („2026-08"). */
+  consumption_missing_month?: string | null;
   /** Decyzja po zakończeniu współpracy na zamówieniu MD. `pending` oznacza,
    *  że linia zostaje oznaczona alarmowo do czasu decyzji Delivery Leada. */
   offboarding_case?: OrderOffboardingCaseRead | null;
@@ -535,10 +542,143 @@ export interface LineConsumptionRow {
   import_id: number | null;
   created_by_name: string | null;
   updated_at: string | null;
+  /** Kolumna „Źródło": ręczna korekta = ręczny wpis nadpisujący import. */
+  source_kind?: "import" | "manual" | "manual_correction";
+  /** Saldo osoby po tym miesiącu (ujemne = przekroczenie). */
+  balance_after?: number | null;
+  import_rows?: LineConsumptionImportRef[];
+  corrections?: LineConsumptionCorrection[];
+}
+
+export interface LineConsumptionPoint {
+  period_month: string;
+  md: number;
+}
+
+export type LineConsumptionFlag =
+  | "negative_balance"
+  | "missing_previous_month"
+  | "import_to_verify";
+
+export interface LineConsumptionImportRef {
+  import_id: number;
+  row_number: number;
+  order_number_hint: string | null;
+  md_reported: number;
+  /** Numer z „Uwag" wskazuje inne zamówienie niż to, na które zaksięgowano. */
+  foreign: boolean;
+}
+
+export interface LineConsumptionCorrection {
+  created_at: string;
+  period_month?: string | null;
+  author_name: string | null;
+  from_md: number | null;
+  from_source: "import" | "manual" | "none";
+  to_md: number | null;
+  removed: boolean;
+}
+
+export interface LineConsumptionForeignWarning {
+  period_month: string;
+  order_number: string;
+  md: number;
+  import_id: number;
+  row_number: number;
 }
 
 export interface LineConsumptionsResponse {
   rows: LineConsumptionRow[];
+  order_number?: string | null;
+  md_budget?: number | null;
+  md_used?: number | null;
+  md_remaining?: number | null;
+  foreign_import_warnings?: LineConsumptionForeignWarning[];
+  removed_months?: LineConsumptionCorrection[];
+}
+
+// ── Historia zamówienia (ticket 7, 09.2026) ─────────────────────────────────
+
+export type OrderHistoryCategory = "order" | "consultants" | "consumption" | "edits";
+
+export interface OrderHistoryChange {
+  label: string;
+  /** `null` = wpis sprzed 25.09.2026 (bez wartości) albo kwota zredagowana. */
+  before: string | null;
+  after: string | null;
+}
+
+export interface OrderHistoryDetail {
+  created_at: string;
+  author_id: number | null;
+  author_name: string | null;
+  text: string;
+}
+
+export interface OrderHistoryEntry {
+  key: string;
+  category: OrderHistoryCategory;
+  event_type: string;
+  type_label: string;
+  created_at: string;
+  author_id: number | null;
+  author_name: string | null;
+  summary: string;
+  order_id: number | null;
+  person_name: string | null;
+  person_names: string[];
+  changes: OrderHistoryChange[];
+  balance_before: number | null;
+  balance_after: number | null;
+  details: OrderHistoryDetail[];
+  import_id: number | null;
+  import_period_month: string | null;
+  import_people: number | null;
+  import_md: number | null;
+  related_group_id: number | null;
+  related_order_number: string | null;
+}
+
+export interface OrderHistoryResponse {
+  entries: OrderHistoryEntry[];
+  people: string[];
+}
+
+// ── Importy MD klienta (ticket 7, 09.2026) ──────────────────────────────────
+
+export type ClientMdImportRowState = "booked" | "to_verify" | "error" | "neutral";
+
+export interface ClientMdImportSummary {
+  id: number;
+  period_month: string;
+  filename: string | null;
+  created_at: string;
+  uploaded_by_name: string | null;
+  rows_total: number;
+  rows_booked: number;
+  rows_to_verify: number;
+  rows_error: number;
+  md_booked: number;
+}
+
+export interface ClientMdImportRow {
+  id: number;
+  row_number: number;
+  consultant_name: string;
+  order_number_hint: string | null;
+  target_order_number: string | null;
+  target_group_id: number | null;
+  md_reported: number;
+  invoice_amount: number | null;
+  state: ClientMdImportRowState;
+  state_label: string;
+  status_label: string;
+  status_reason: string | null;
+  number_mismatch: boolean;
+}
+
+export interface ClientMdImportDetail extends ClientMdImportSummary {
+  rows: ClientMdImportRow[];
 }
 
 export interface LineConsumptionUpsert {
@@ -854,6 +994,22 @@ export const orderGroupsApi = {
   events: (clientId: number, groupId: number) =>
     api.get<{ events: OrderGroupEvent[] }>(
       `/api/clients/${clientId}/order-groups/${groupId}/events`,
+    ),
+
+  /** Historia biznesowa (zgrupowana) — to czyta karta zamówienia. */
+  history: (clientId: number, groupId: number) =>
+    api.get<OrderHistoryResponse>(
+      `/api/clients/${clientId}/order-groups/${groupId}/history`,
+    ),
+
+  listClientMdImports: (clientId: number) =>
+    api.get<{ imports: ClientMdImportSummary[] }>(
+      `/api/clients/${clientId}/md-imports`,
+    ),
+
+  getClientMdImport: (clientId: number, importId: number) =>
+    api.get<ClientMdImportDetail>(
+      `/api/clients/${clientId}/md-imports/${importId}`,
     ),
 };
 

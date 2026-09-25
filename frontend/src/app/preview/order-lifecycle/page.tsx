@@ -16,12 +16,21 @@ import { useMemo, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import {
+  ClientMdImportsTab,
+  clientMdImportsQueryKey,
+} from "@/components/client-profile/orders/ClientMdImportsTab";
+import { lineConsumptionsQueryKey } from "@/components/client-profile/orders/LineMonthlyHistoryDialog";
+import {
   OrderGroupCard,
   type OrderGroupFocusRequest,
 } from "@/components/client-profile/orders/OrderGroupCard";
+import { orderHistoryQueryKey } from "@/components/client-profile/orders/OrderHistoryPanel";
 import type {
-  OrderGroupEvent,
+  ClientMdImportDetail,
+  ClientMdImportSummary,
+  LineConsumptionsResponse,
   OrderGroupRead,
+  OrderHistoryEntry,
   OrderLineRead,
 } from "@/lib/api/orderGroups";
 
@@ -102,22 +111,278 @@ function group(overrides: Partial<OrderGroupRead> = {}): OrderGroupRead {
   };
 }
 
-function event(overrides: Partial<OrderGroupEvent> = {}): OrderGroupEvent {
+function entry(overrides: Partial<OrderHistoryEntry> = {}): OrderHistoryEntry {
   return {
-    id: 1,
+    key: "ev-1",
+    category: "order",
     event_type: "utworzenie",
-    event_label: "Utworzenie",
-    description: "Zamówienie utworzone.",
+    type_label: "Utworzenie zamówienia",
+    created_at: "2026-03-01T10:00:00Z",
+    author_id: 7,
+    author_name: "Anna Przykładowa",
+    summary: "Utworzono zamówienie.",
     order_id: null,
-    payload: null,
+    person_name: null,
+    person_names: [],
+    changes: [],
+    balance_before: null,
+    balance_after: null,
+    details: [],
+    import_id: null,
+    import_period_month: null,
+    import_people: null,
+    import_md: null,
     related_group_id: null,
     related_order_number: null,
-    created_by_user_id: null,
-    created_by_name: null,
-    created_at: "2026-03-01T10:00:00Z",
     ...overrides,
   };
 }
+
+/** Historia zamówienia 4500030197 (BIK) w kształcie z produkcji po ticket 7:
+ *  23 wpisy dziennika → 10 wpisów biznesowych. */
+const BIK_HISTORY: OrderHistoryEntry[] = [
+  entry({
+    key: "ev-530",
+    category: "edits",
+    event_type: "edycja_reczna",
+    type_label: "Edycja",
+    created_at: "2026-09-24T16:16:50Z",
+    author_id: null,
+    author_name: null,
+    summary:
+      "Korekta importu MD: za 2026-08 zaksięgowano 2 MD z wiersza z numerem 4500030197; " +
+      "19 MD z wiersza z numerem 4500030845 przeniesiono na zamówienie 4500030845.",
+    order_id: 145,
+    person_name: "Paweł Łaski",
+    person_names: ["Paweł Łaski"],
+    balance_before: -19,
+    balance_after: 0,
+  }),
+  entry({
+    key: "edit-522",
+    category: "edits",
+    event_type: "edycja_reczna",
+    type_label: "Edycja",
+    created_at: "2026-09-24T12:25:01Z",
+    summary: "6 zmian w serii edycji",
+    order_id: 146,
+    person_name: "Konrad Teper",
+    person_names: ["Konrad Teper"],
+    changes: [
+      { label: "ręczna korekta MD", before: null, after: null },
+      { label: "stawka kosztowa", before: null, after: null },
+      { label: "budżet MD", before: null, after: null },
+    ],
+    balance_before: -4,
+    balance_after: 5.963,
+    details: [
+      { created_at: "2026-09-24T12:22:18Z", author_id: 7, author_name: "Anna Przykładowa", text: "Zmieniono: ręczna korekta MD. Pozostało 3,7 MD." },
+      { created_at: "2026-09-24T12:22:48Z", author_id: 7, author_name: "Anna Przykładowa", text: "Zmieniono: ręczna korekta MD. Pozostało 5,963 MD." },
+      { created_at: "2026-09-24T12:23:47Z", author_id: 7, author_name: "Anna Przykładowa", text: "Zejście MD za sierpień 2026: 4 → 3,7 MD. Pozostało 6,263 MD." },
+      { created_at: "2026-09-24T12:24:16Z", author_id: 7, author_name: "Anna Przykładowa", text: "Zmieniono: stawka kosztowa, data zakończenia, budżet MD. Pozostało 9,963 MD." },
+      { created_at: "2026-09-24T12:24:35Z", author_id: 7, author_name: "Anna Przykładowa", text: "Zejście MD za sierpień 2026: 3,7 MD. Pozostało 9,963 MD." },
+      { created_at: "2026-09-24T12:25:01Z", author_id: 7, author_name: "Anna Przykładowa", text: "Zmieniono: ręczna korekta MD. Pozostało 5,963 MD." },
+    ],
+  }),
+  entry({
+    key: "import-import_md-2",
+    category: "consumption",
+    event_type: "import_md",
+    type_label: "Import MD",
+    created_at: "2026-09-23T11:40:03Z",
+    summary: "Import MD za sierpień 2026 – 2 osoby, 25 MD",
+    person_names: ["Paweł Łaski", "Konrad Teper"],
+    import_id: 2,
+    import_period_month: "2026-08",
+    import_people: 2,
+    import_md: 25,
+  }),
+  entry({
+    key: "ev-481",
+    event_type: "zakonczenie",
+    type_label: "Zakończenie zamówienia",
+    created_at: "2026-09-23T11:40:03Z",
+    author_id: null,
+    author_name: null,
+    summary:
+      "Zakończono zamówienie 4500030197 z dniem 2026-09-23 — wszyscy konsultanci wyczerpali limit MD",
+  }),
+  entry({
+    key: "edit-900",
+    category: "edits",
+    event_type: "edycja_reczna",
+    type_label: "Edycja",
+    created_at: "2026-09-25T09:10:00Z",
+    summary: "stawka kosztowa: 560 zł/MD → 580 zł/MD; budżet MD: 9,66 MD → 10 MD.",
+    order_id: 146,
+    person_name: "Konrad Teper",
+    person_names: ["Konrad Teper"],
+    changes: [
+      { label: "stawka kosztowa", before: "560 zł/MD", after: "580 zł/MD" },
+      { label: "budżet MD", before: "9,66 MD", after: "10 MD" },
+    ],
+    balance_before: 5.963,
+    balance_after: 6.303,
+  }),
+  entry({
+    key: "import-import_md-1",
+    category: "consumption",
+    event_type: "import_md",
+    type_label: "Import MD",
+    created_at: "2026-08-31T11:19:05Z",
+    summary: "Import MD za lipiec 2026 – 2 osoby, 44,75 MD",
+    person_names: ["Paweł Łaski", "Konrad Teper"],
+    import_id: 1,
+    import_period_month: "2026-07",
+    import_people: 2,
+    import_md: 44.75,
+  }),
+  entry({
+    key: "ev-115",
+    category: "consultants",
+    event_type: "dodanie_konsultanta",
+    type_label: "Dodanie konsultanta",
+    created_at: "2026-08-21T09:52:11Z",
+    summary: "Konrad Teper — stawka kosztowa 560.00 zł/MD, przychodowa 1000.00 zł/MD, budżet 9.66 MD",
+    order_id: 146,
+    person_name: "Konrad Teper",
+    person_names: ["Konrad Teper"],
+  }),
+  entry({
+    key: "ev-112",
+    created_at: "2026-08-21T09:31:15Z",
+    summary: "Utworzono zamówienie nr 4500030197 (2026-05-01 → 2026-08-31)",
+  }),
+].sort((a, b) => b.created_at.localeCompare(a.created_at));
+
+const TEPER_CONSUMPTIONS: LineConsumptionsResponse = {
+  order_number: "4500030197",
+  md_budget: 35.713,
+  md_used: 25.45,
+  md_remaining: 5.963,
+  foreign_import_warnings: [],
+  removed_months: [],
+  rows: [
+    {
+      period_month: "2026-07",
+      md_reported: 21.75,
+      status: null,
+      note: null,
+      source: "import",
+      source_kind: "import",
+      import_id: 1,
+      created_by_name: "Anna Przykładowa",
+      updated_at: "2026-08-31T11:19:05Z",
+      balance_after: 9.663,
+      import_rows: [
+        { import_id: 1, row_number: 31, order_number_hint: "4500030197", md_reported: 21.75, foreign: false },
+      ],
+      corrections: [],
+    },
+    {
+      period_month: "2026-08",
+      md_reported: 3.7,
+      status: null,
+      note: "Przeliczona stawka",
+      source: "manual",
+      source_kind: "manual_correction",
+      import_id: null,
+      created_by_name: "Anna Przykładowa",
+      updated_at: "2026-09-24T12:24:35Z",
+      balance_after: 5.963,
+      import_rows: [
+        { import_id: 2, row_number: 12, order_number_hint: "4500030197", md_reported: 4, foreign: false },
+      ],
+      corrections: [
+        { created_at: "2026-09-24T12:23:47Z", period_month: "2026-08", author_name: "Anna Przykładowa", from_md: 4, from_source: "import", to_md: 3.7, removed: false },
+        { created_at: "2026-09-24T12:24:35Z", period_month: "2026-08", author_name: "Anna Przykładowa", from_md: 3.7, from_source: "manual", to_md: 3.7, removed: false },
+      ],
+    },
+  ],
+};
+
+const LASKI_CONSUMPTIONS: LineConsumptionsResponse = {
+  order_number: "4500030197",
+  md_budget: 25,
+  md_used: 44,
+  md_remaining: -19,
+  removed_months: [],
+  foreign_import_warnings: [
+    { period_month: "2026-08", order_number: "4500030845", md: 19, import_id: 2, row_number: 36 },
+  ],
+  rows: [
+    {
+      period_month: "2026-07",
+      md_reported: 23,
+      status: null,
+      note: null,
+      source: "import",
+      source_kind: "import",
+      import_id: 1,
+      created_by_name: "Anna Przykładowa",
+      updated_at: "2026-08-31T11:19:05Z",
+      balance_after: 2,
+      import_rows: [
+        { import_id: 1, row_number: 30, order_number_hint: "4500030197", md_reported: 23, foreign: false },
+      ],
+      corrections: [],
+    },
+    {
+      period_month: "2026-08",
+      md_reported: 21,
+      status: "protocol",
+      note: null,
+      source: "import",
+      source_kind: "import",
+      import_id: 2,
+      created_by_name: "Anna Przykładowa",
+      updated_at: "2026-09-23T11:40:03Z",
+      balance_after: -19,
+      import_rows: [
+        { import_id: 2, row_number: 35, order_number_hint: "4500030197", md_reported: 2, foreign: false },
+        { import_id: 2, row_number: 36, order_number_hint: "4500030845", md_reported: 19, foreign: true },
+      ],
+      corrections: [],
+    },
+  ],
+};
+
+const IMPORTS: ClientMdImportSummary[] = [
+  {
+    id: 2,
+    period_month: "2026-08",
+    filename: "zuzycie_MD_sierpien_2026.xlsx",
+    created_at: "2026-09-23T11:40:03Z",
+    uploaded_by_name: "Anna Przykładowa",
+    rows_total: 4,
+    rows_booked: 3,
+    rows_to_verify: 1,
+    rows_error: 0,
+    md_booked: 25,
+  },
+  {
+    id: 1,
+    period_month: "2026-07",
+    filename: "zuzycie_MD_lipiec_2026.xlsx",
+    created_at: "2026-08-31T11:19:05Z",
+    uploaded_by_name: "Anna Przykładowa",
+    rows_total: 2,
+    rows_booked: 2,
+    rows_to_verify: 0,
+    rows_error: 0,
+    md_booked: 44.75,
+  },
+];
+
+const IMPORT_DETAIL: ClientMdImportDetail = {
+  ...IMPORTS[0],
+  rows: [
+    { id: 1, row_number: 12, consultant_name: "Konrad Teper", order_number_hint: "4500030197", target_order_number: "4500030197", target_group_id: 51, md_reported: 4, invoice_amount: null, state: "booked", state_label: "Zaksięgowano", status_label: "Zaktualizowano", status_reason: null, number_mismatch: false },
+    { id: 2, row_number: 35, consultant_name: "Paweł Łaski", order_number_hint: "4500030197", target_order_number: "4500030197", target_group_id: 51, md_reported: 2, invoice_amount: null, state: "booked", state_label: "Zaksięgowano", status_label: "Zaktualizowano", status_reason: null, number_mismatch: false },
+    { id: 3, row_number: 36, consultant_name: "Paweł Łaski", order_number_hint: "4500030845", target_order_number: "4500030197", target_group_id: 51, md_reported: 19, invoice_amount: null, state: "booked", state_label: "Zaksięgowano", status_label: "Zaktualizowano", status_reason: null, number_mismatch: true },
+    { id: 4, row_number: 40, consultant_name: "Marta Przykładowa", order_number_hint: "4500031000", target_order_number: null, target_group_id: null, md_reported: 20, invoice_amount: null, state: "to_verify", state_label: "Do weryfikacji", status_label: "Wymaga przypisania", status_reason: "Osoba jest na dwóch zamówieniach klienta — wybierz zamówienie.", number_mismatch: false },
+  ],
+};
 
 /** `events` domyślnie puste — to też stan do obejrzenia (pusta historia nie
  *  może wyglądać jak awaria pobrania). */
@@ -125,8 +390,69 @@ const CASES: Array<{
   title: string;
   why: string;
   group: OrderGroupRead;
-  events?: OrderGroupEvent[];
+  history?: OrderHistoryEntry[];
+  consumptions?: Record<number, LineConsumptionsResponse>;
 }> = [
+  {
+    title: "Ticket 7 — historia, „Zużycie MD” i importy (BIK 4500030197)",
+    why:
+      "Historia tylko biznesowa: import = jeden wpis z „Otwórz import →”, sześć edycji " +
+      "Konrada Tepera = jeden wpis „▸ 6 zmian”, „Zakończono zamówienie” raz. Przycisk " +
+      "„Zużycie · sie 3,7” z mini-wykresem; pomarańczowy przy ujemnym saldzie, braku " +
+      "zejścia za poprzedni miesiąc albo wierszu importu do weryfikacji.",
+    group: group({
+      id: 51,
+      client_id: 18,
+      order_number: "4500030197",
+      start_date: "2026-05-01",
+      end_date: "2026-08-31",
+      status: "active",
+      event_count: 8,
+      lines: [
+        line({
+          id: 145,
+          group_id: 51,
+          consultant_name: "Paweł Łaski",
+          start_date: "2026-05-01",
+          md_total: 25,
+          md_remaining: -19,
+          consumption_recent: [
+            { period_month: "2026-07", md: 23 },
+            { period_month: "2026-08", md: 2 },
+          ],
+          consumption_flags: ["negative_balance", "import_to_verify"],
+        }),
+        line({
+          id: 146,
+          group_id: 51,
+          consultant_name: "Konrad Teper",
+          start_date: "2026-05-01",
+          md_total: 31.41,
+          md_remaining: 5.963,
+          consumption_recent: [
+            { period_month: "2026-06", md: 12 },
+            { period_month: "2026-07", md: 21.75 },
+            { period_month: "2026-08", md: 3.7 },
+          ],
+          consumption_flags: [],
+        }),
+        line({
+          id: 147,
+          group_id: 51,
+          consultant_name: "Ewa Bezzejścia",
+          start_date: "2026-05-01",
+          md_total: 20,
+          md_remaining: 12,
+          consumption_recent: [{ period_month: "2026-07", md: 8 }],
+          consumption_flags: ["missing_previous_month"],
+          consumption_missing_month: "2026-08",
+        }),
+      ],
+      active_consultants: 3,
+    }),
+    history: BIK_HISTORY,
+    consumptions: { 145: LASKI_CONSUMPTIONS, 146: TEPER_CONSUMPTIONS },
+  },
   {
     title: "Zamówienie MD — stan normalny",
     why: "Pasek MD wypełniony POZOSTAŁOŚCIĄ, komplet akcji cyklu życia.",
@@ -373,46 +699,43 @@ const CASES: Array<{
         }),
       ],
     }),
-    events: [
-      event({ id: 101, description: "Zamówienie utworzone przez import PDF." }),
-      event({
-        id: 102,
-        event_type: "dodanie_konsultanta",
-        event_label: "Dodanie konsultanta",
-        description: "Dodano konsultanta Jan Kowalski (50 MD).",
-        created_at: "2026-03-02T09:00:00Z",
-      }),
-      event({
-        id: 103,
-        event_type: "import_md",
-        event_label: "Import MD",
-        description:
-          "Za lipiec 2026 zużyto 20 MD z zamówienia nr 4500030067 — " +
-          "wykorzystano 45 / pozostało 5 MD.",
-        created_at: "2026-08-05T08:00:00Z",
-      }),
-      event({
-        id: 104,
+    history: [
+      entry({
+        key: "ev-104",
+        category: "consumption",
         event_type: "transfer_md",
-        event_label: "Przeniesienie MD",
-        description:
+        type_label: "Przejęcie zużycia MD",
+        created_at: "2026-08-20T08:05:00Z",
+        summary:
+          "Zamówienie zakończone — budżet MD wyczerpany, kontynuacja na " +
+          "zamówieniu nr 4500029904",
+      }),
+      entry({
+        key: "ev-103",
+        category: "consumption",
+        event_type: "transfer_md",
+        type_label: "Przejęcie zużycia MD",
+        created_at: "2026-08-20T08:00:00Z",
+        summary:
           "Zamówienie zakończone — budżet MD wyczerpany, kontynuacja na " +
           "zamówieniu nr 4500029903",
         related_group_id: 16,
         related_order_number: "4500029903",
-        created_at: "2026-08-20T08:00:00Z",
       }),
-      event({
-        id: 105,
-        event_type: "transfer_md",
-        event_label: "Przeniesienie MD",
-        description:
-          "Zamówienie zakończone — budżet MD wyczerpany, kontynuacja na " +
-          "zamówieniu nr 4500029904",
-        related_group_id: null,
-        related_order_number: "4500029904",
-        created_at: "2026-08-20T08:05:00Z",
+      entry({
+        key: "import-import_md-9",
+        category: "consumption",
+        event_type: "import_md",
+        type_label: "Import MD",
+        created_at: "2026-08-05T08:00:00Z",
+        summary: "Import MD za lipiec 2026 – 1 osoba, 20 MD",
+        person_names: ["Jan Kowalski"],
+        import_id: 9,
+        import_period_month: "2026-07",
+        import_people: 1,
+        import_md: 20,
       }),
+      entry({ key: "ev-101", summary: "Zamówienie utworzone przez import PDF." }),
     ],
   },
 ];
@@ -425,6 +748,7 @@ export default function OrderLifecyclePreview() {
   const [focusRequest, setFocusRequest] = useState<OrderGroupFocusRequest | null>(
     null,
   );
+  const [selectedImport, setSelectedImport] = useState<number | null>(null);
 
   const queryClient = useMemo(() => {
     const qc = new QueryClient({
@@ -442,13 +766,26 @@ export default function OrderLifecyclePreview() {
         },
       },
     });
-    // Historia jest lazy (`enabled: historyOpen`), więc bez zasiania jej
-    // rozwinięcie trafiłoby w sieć.
+    // Historia i okno zużycia pobierają dane dopiero po rozwinięciu —
+    // bez zasiania ich otwarcie trafiłoby w sieć.
     for (const item of CASES) {
-      qc.setQueryData(["order-group-events", item.group.client_id, item.group.id], {
-        events: item.events ?? [],
+      const people = [
+        ...new Set((item.history ?? []).flatMap((e) => e.person_names)),
+      ].sort();
+      qc.setQueryData(orderHistoryQueryKey(item.group.client_id, item.group.id), {
+        entries: item.history ?? [],
+        people,
       });
+      for (const ln of item.group.lines) {
+        qc.setQueryData(
+          lineConsumptionsQueryKey(item.group.client_id, item.group.id, ln.id),
+          item.consumptions?.[ln.id] ?? { rows: [] },
+        );
+      }
     }
+    qc.setQueryData(clientMdImportsQueryKey(18), { imports: IMPORTS });
+    qc.setQueryData([...clientMdImportsQueryKey(18), 2], IMPORT_DETAIL);
+    qc.setQueryData([...clientMdImportsQueryKey(18), 1], { ...IMPORTS[1], rows: [] });
     return qc;
   }, []);
 
@@ -497,6 +834,21 @@ export default function OrderLifecyclePreview() {
             />
           </section>
         ))}
+
+        <section className="flex flex-col gap-2" id="importy-md">
+          <div>
+            <h2 className="text-sm font-semibold">Zakładka „Importy MD” (profil klienta)</h2>
+            <p className="text-xs text-muted-foreground">
+              Lista importów, które dotknęły klienta; po otwarciu — wiersze ze statusem.
+              Wiersz z numerem innym niż zamówienie docelowe jest wyróżniony.
+            </p>
+          </div>
+          <ClientMdImportsTab
+            clientId={18}
+            selectedImportId={selectedImport}
+            onSelectImport={setSelectedImport}
+          />
+        </section>
       </main>
     </QueryClientProvider>
   );

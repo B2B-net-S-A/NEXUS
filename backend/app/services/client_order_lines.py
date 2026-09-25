@@ -2643,6 +2643,25 @@ def record_event(
     payload: Optional[dict] = None,
     user_id: Optional[int] = None,
 ) -> ClientOrderGroupEvent:
+    # Ticket 7 (25.09.2026): to samo zdarzenie zapisane dwa razy w jednej
+    # transakcji (dwie ścieżki przeliczenia wołające ten sam hak) dawało dwa
+    # identyczne wpisy „Zakończono zamówienie" z tą samą minutą. Identyczny,
+    # jeszcze niezapisany wpis w sesji = ten sam fakt — zwracamy istniejący.
+    try:
+        pending = list(db.new)
+    except (AttributeError, TypeError):  # atrapa sesji w testach jednostkowych
+        pending = []
+    for existing in pending:
+        if (
+            isinstance(existing, ClientOrderGroupEvent)
+            and existing.group_id == group_id
+            and existing.order_id == order_id
+            and existing.event_type == event_type
+            and existing.description == description
+            and existing.payload == payload
+            and existing.created_by_user_id == user_id
+        ):
+            return existing
     event = ClientOrderGroupEvent(
         group_id=group_id,
         order_id=order_id,

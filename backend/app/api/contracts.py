@@ -3610,7 +3610,78 @@ async def contract_activities(
                 created_at=activity.created_at,
             )
         )
-    return entries
+    entries.extend(await _order_line_technical_entries(db, contract_id, limit))
+    entries.sort(key=lambda entry: entry.created_at, reverse=True)
+    return entries[:limit]
+
+
+async def _order_line_technical_entries(
+    db: AsyncSession, contract_id: int, limit: int
+) -> list[ContractActivityEntry]:
+    """Techniczne zmiany pól linii zamówień tego kontraktu (ticket 7, 09.2026).
+
+    Historia zamówienia pokazuje wyłącznie zdarzenia biznesowe — waluty,
+    jednostka stawki czy dzielnik godzin trafiają TU, z polskimi nazwami pól.
+    Źródłem jest dziennik zamówienia (jeden zapis, dwa widoki), więc także
+    wpisy sprzed tej zmiany są widoczne. ``id`` ujemne = wpis spoza tabeli
+    ``activities`` (klucz listy, nie odsyłacz).
+    """
+    from app.models.client_order_group import ClientOrderGroup, ClientOrderGroupEvent
+    from app.services.multi_consultant_orders import EVENT_MANUAL_EDIT
+    from app.services.order_history import RawEvent, technical_changes
+
+    rows = await db.execute(
+        select(ClientOrderGroupEvent, ClientOrderGroup.order_number, User.email)
+        .join(ClientOrder, ClientOrder.id == ClientOrderGroupEvent.order_id)
+        .join(ClientOrderGroup, ClientOrderGroup.id == ClientOrderGroupEvent.group_id)
+        .outerjoin(User, User.id == ClientOrderGroupEvent.created_by_user_id)
+        .where(
+            ClientOrder.contract_id == contract_id,
+            ClientOrderGroupEvent.event_type == EVENT_MANUAL_EDIT,
+        )
+        .order_by(ClientOrderGroupEvent.created_at.desc())
+        .limit(limit * 4)
+    )
+    out: list[ContractActivityEntry] = []
+    for event, order_number, user_email in rows.all():
+        changes = technical_changes(
+            RawEvent(
+                id=event.id,
+                event_type=event.event_type,
+                description=event.description,
+                order_id=event.order_id,
+                payload=event.payload,
+                created_at=event.created_at,
+                author_id=event.created_by_user_id,
+                author_name=user_email,
+            )
+        )
+        if not changes:
+            continue
+        details: dict = {
+            "order_number": order_number,
+            "fields": [change.label for change in changes],
+        }
+        described = [
+            f"{change.label}: {change.before or '—'} → {change.after or '—'}"
+            for change in changes
+            if change.before is not None or change.after is not None
+        ]
+        if described:
+            details["changes"] = described
+        out.append(
+            ContractActivityEntry(
+                id=-event.id,
+                action="order_line_fields_changed",
+                details=details,
+                user_id=event.created_by_user_id,
+                user_name=user_email,
+                created_at=event.created_at,
+            )
+        )
+        if len(out) >= limit:
+            break
+    return out
 
 
 @router.get(
