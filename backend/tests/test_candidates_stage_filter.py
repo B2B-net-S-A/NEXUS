@@ -495,14 +495,15 @@ async def test_filter_stage_moved_before_is_inclusive_of_whole_day(
     app_client: AsyncClient, app_auth_headers: dict
 ):
     """A move late on the `stage_moved_before` day is still included (the bound
-    is the start of the NEXT day, exclusive)."""
+    is the start of the NEXT day, exclusive). Doba w kalendarzu firmy:
+    21:30 UTC = 23:30 w Warszawie (CEST) 31.05."""
     job_id = await _seed_job()
     cand = await _seed_candidate()
     await _seed_stage(
         cand,
         job_id,
         "verified",
-        moved_at=datetime(2026, 5, 31, 23, 30, tzinfo=timezone.utc),
+        moved_at=datetime(2026, 5, 31, 21, 30, tzinfo=timezone.utc),
     )
     try:
         r = await app_client.get(
@@ -853,14 +854,15 @@ async def test_filter_sent_to_client_to_is_inclusive_of_whole_day(
     app_client: AsyncClient, app_auth_headers: dict
 ):
     """A `cv_sent` move late on the `sent_to_client_to` day is still included
-    (the upper bound is the start of the NEXT day, exclusive)."""
+    (the upper bound is the start of the NEXT day, exclusive). 21:30 UTC =
+    23:30 w Warszawie 31.05."""
     job_id = await _seed_job()
     cand = await _seed_candidate()
     await _seed_stage(
         cand,
         job_id,
         "cv_sent",
-        moved_at=datetime(2026, 5, 31, 23, 30, tzinfo=timezone.utc),
+        moved_at=datetime(2026, 5, 31, 21, 30, tzinfo=timezone.utc),
     )
     try:
         r = await app_client.get(
@@ -982,3 +984,102 @@ async def test_active_recruitments_includes_terminal_stage(
         assert rec["stage"] == "rejected"
     finally:
         await _cleanup(candidate_ids=[cand], job_ids=[job_id])
+
+
+# ── Doba filtrów dat = kalendarz firmy (Europe/Warsaw), jak „kontakt” ───────
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "stage, day_param",
+    [
+        ("cv_sent", "sent_to_client"),
+        ("verified", "stage_moved"),
+    ],
+)
+async def test_date_filters_count_the_day_in_warsaw_not_utc(
+    app_client: AsyncClient, app_auth_headers: dict, stage, day_param
+):
+    """00:30 w Warszawie 1.06 to 22:30 UTC 31.05. Liczone w UTC wpadało do maja,
+    a filtr „kontakt” (Warszawa) liczył je w czerwcu — jedna lista, dwie doby."""
+    job_id = await _seed_job()
+    cand = await _seed_candidate()
+    await _seed_stage(
+        cand,
+        job_id,
+        stage,
+        moved_at=datetime(2026, 5, 31, 22, 30, tzinfo=timezone.utc),
+    )
+    if day_param == "sent_to_client":
+        may = "sent_to_client_to=2026-05-31"
+        june = "sent_to_client_from=2026-06-01"
+    else:
+        may = f"pipeline_stage={stage}&stage_moved_before=2026-05-31"
+        june = f"pipeline_stage={stage}&stage_moved_after=2026-06-01"
+    try:
+        r_may = await app_client.get(
+            f"/api/candidates?{may}&page_size=100", headers=app_auth_headers
+        )
+        r_june = await app_client.get(
+            f"/api/candidates?{june}&page_size=100", headers=app_auth_headers
+        )
+        assert r_may.status_code == 200, r_may.text
+        assert r_june.status_code == 200, r_june.text
+        assert cand not in [item["id"] for item in r_may.json()["items"]]
+        assert cand in [item["id"] for item in r_june.json()["items"]]
+    finally:
+        await _cleanup(candidate_ids=[cand], job_ids=[job_id])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "param",
+    [
+        "stage_moved_before=9999-12-31",
+        "stage_moved_after=9999-12-31",
+        "sent_to_client_to=9999-12-31",
+        "contacted=yes&contacted_to=9999-12-31",
+        "contacted=no&contacted_from=0001-01-01",
+    ],
+)
+async def test_out_of_range_filter_date_is_422_not_500(
+    app_client: AsyncClient, app_auth_headers: dict, param
+):
+    """`9999-12-31 + 1 dzień` przepełniało `date` → 500 bez CORS."""
+    r = await app_client.get(
+        f"/api/candidates?{param}&page_size=1", headers=app_auth_headers
+    )
+    assert r.status_code == 422, r.text
+
+
+@pytest.mark.asyncio
+async def test_out_of_range_filter_date_in_export_body_is_422(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    r = await app_client.post(
+        "/api/candidates/export",
+        json={
+            "format": "csv",
+            "scope": "filtered",
+            "filters": {"sent_to_client_to": "9999-12-31"},
+            "candidate_ids": [],
+            "limit": 10,
+        },
+        headers=app_auth_headers,
+    )
+    assert r.status_code == 422, r.text
+
+
+def test_business_date_range_is_warsaw_and_never_overflows():
+    from datetime import date
+
+    from app.services.candidate_search_predicates import business_date_range
+
+    start, end = business_date_range(date(2026, 6, 1), date(2026, 6, 1))
+    assert start == datetime(2026, 5, 31, 22, 0, tzinfo=timezone.utc)
+    assert end == datetime(2026, 6, 1, 22, 0, tzinfo=timezone.utc)
+    # Zima: CET = UTC+1.
+    start, _ = business_date_range(date(2026, 1, 15), None)
+    assert start == datetime(2026, 1, 14, 23, 0, tzinfo=timezone.utc)
+    # Koniec kalendarza: brak górnej granicy zamiast OverflowError.
+    assert business_date_range(None, date.max) == (None, None)

@@ -453,6 +453,42 @@ async def test_nda_over_budget_is_hidden_into_over_budget(
         await _cleanup_over_budget_world(world)
 
 
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_vetoed_employment_only_is_hidden_anyway(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """„Tylko umowa o pracę” ukrywa zawsze — zwolnienie weta HM z dealbreakerów
+    nie może przywrócić osoby, która nie jest kandydatem do żadnej rekrutacji."""
+    from sqlalchemy import update
+
+    world = await _seed_over_budget_world(with_veto=True)
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(Candidate)
+            .where(Candidate.id == world["candidate_id"])
+            .values(b2b_willingness="employment_only")
+        )
+        await db.commit()
+    try:
+        body = await _fallback_matches(
+            app_client, app_auth_headers, world["job_id"], monkeypatch
+        )
+        assert world["candidate_id"] not in _ids(body), (
+            "weto HM przywróciło osobę „tylko umowa o pracę” na listę"
+        )
+        assert body["meta"]["hidden"]["employment_only"] >= 1
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                update(Candidate)
+                .where(Candidate.id == world["candidate_id"])
+                .values(b2b_willingness=None)
+            )
+            await db.commit()
+        await _cleanup_over_budget_world(world)
+
+
 # ── rubryka must-have (0278): ukrywanie na obu gałęziach ─────────────────────
 
 

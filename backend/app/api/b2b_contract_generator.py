@@ -36,6 +36,7 @@ from app.api.deps import AdminUser
 from app.api.recruitment_access import ensure_job_membership
 from app.api.section_access import SOURCING_SECTION_DEPENDENCIES
 from app.core.database import get_db
+from app.core.export_safety import safe_row
 from app.models.activity import Activity
 from app.models.b2b_contract_detail import B2BContractDetail
 from app.models.b2b_contract_role import B2BContractRole
@@ -2260,34 +2261,34 @@ def _build_register_xlsx(
                 if row.contract_status == "cancelled"
                 else None
             )
+        # Tekst z pliku działu i z formularza generatora ma zostać tekstem
+        # (formula injection) — `safe_row`, daty i liczby bez zmian.
         sheet.append(
-            [
-                name,
-                number,
-                row.client_name,
-                position,
-                kind,
-                signing,
-                start,
-                end,
-                excel.get("loyalty"),
-                recruiter,
-                # Wolny tekst działu bywa o stawkach („zmiana stawki od…”) —
-                # tylko dla ról, które widzą wszystkie stawki (admin, Finanse).
-                excel.get("settlement_info") if include_free_text else None,
-                excel.get("welcome_mail"),
-                excel.get("notes") if include_free_text else None,
-                excel.get("changes") if include_free_text else None,
-            ]
+            safe_row(
+                [
+                    name,
+                    number,
+                    row.client_name,
+                    position,
+                    kind,
+                    signing,
+                    start,
+                    end,
+                    excel.get("loyalty"),
+                    recruiter,
+                    # Wolny tekst działu bywa o stawkach („zmiana stawki od…”) —
+                    # tylko dla ról, które widzą wszystkie stawki (admin, Finanse).
+                    excel.get("settlement_info") if include_free_text else None,
+                    excel.get("welcome_mail"),
+                    excel.get("notes") if include_free_text else None,
+                    excel.get("changes") if include_free_text else None,
+                ]
+            )
         )
     for cells in sheet.iter_rows(min_row=2):
         for cell in cells:
             if isinstance(cell.value, date):
                 cell.number_format = "DD.MM.YYYY"
-            elif cell.data_type == "f":
-                # openpyxl zamienia napis zaczynający się od „=” w formułę —
-                # tekst z pliku działu ma zostać tekstem (formula injection).
-                cell.data_type = "s"
     buffer = BytesIO()
     workbook.save(buffer)
     return buffer.getvalue()

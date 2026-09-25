@@ -336,12 +336,17 @@ async def _post_slack_summary(webhook: str, events: list[tuple[int, Contract]]) 
         ":hourglass_flowing_sand: *Wygasające kontrakty* — "
         f"{len(events)} nadchodzące terminy:\n" + "\n".join(lines)
     )
+    # Do logu idzie wyłącznie kod HTTP albo klasa wyjątku: adres webhooka
+    # Slacka JEST sekretem, a `raise_for_status()` i część błędów transportu
+    # niosą pełny URL w treści wyjątku (log → Loki/Sentry).
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.post(webhook, json={"text": text})
-            resp.raise_for_status()
     except Exception as e:  # noqa: BLE001
-        logger.warning("contract_alerts: slack post failed %s", e)
+        logger.warning("contract_alerts: slack post failed (%s)", type(e).__name__)
+        return False
+    if resp.status_code >= 400:
+        logger.warning("contract_alerts: slack post failed (HTTP %s)", resp.status_code)
         return False
     return True
 

@@ -24,7 +24,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
 
-from app.services.order_excel_export import _safe_text
+from app.core.export_safety import safe_cell
 
 GAP_HEADERS = (
     "ID kontraktu",
@@ -53,7 +53,7 @@ def _cell(value: Any) -> Any:
     if value is None:
         return "—"
     if isinstance(value, str):
-        return _safe_text(value)
+        return safe_cell(value)
     return value
 
 

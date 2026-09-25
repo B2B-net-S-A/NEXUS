@@ -31,6 +31,7 @@ from app.core.printable_html import (
     printable_document,
 )
 from app.core.database import get_db
+from app.core.export_safety import safe_row
 from app.core.scheduling import business_today
 from app.core.work_time import HOURS_PER_MONTH, MD_PER_MONTH
 from app.models.activity import Activity
@@ -2478,7 +2479,7 @@ async def export_contracts(
             cell.font = Font(bold=True)
         ws.freeze_panes = "A2"  # keep the header row visible while scrolling
         for row in rows:
-            ws.append(row)
+            ws.append(safe_row(row))
 
         buf = BytesIO()
         wb.save(buf)
@@ -2499,7 +2500,7 @@ async def export_contracts(
     writer = csv.writer(buf, quoting=csv.QUOTE_MINIMAL)
     writer.writerow(_CONTRACT_EXPORT_COLUMNS)
     for row in rows:
-        writer.writerow(row)
+        writer.writerow(safe_row(row))
     filename = f"kontrakty_{ts}.csv"
     return StreamingResponse(
         iter(["\ufeff" + buf.getvalue()]),
@@ -2663,7 +2664,7 @@ async def export_client_register(
         cell.font = Font(bold=True)
     ws.freeze_panes = "A2"  # nag\u0142\u00f3wek widoczny przy przewijaniu
     for row in rows:
-        ws.append(row)
+        ws.append(safe_row(row))
 
     buf = BytesIO()
     wb.save(buf)

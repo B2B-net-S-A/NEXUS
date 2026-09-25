@@ -66,6 +66,22 @@ async def test_exited_deactivates_the_account(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_deactivation_log_carries_ids_not_emails(monkeypatch, caplog):
+    """Logi przebiegu niosą liczby i ID — adres e-mail zostaje w Activity."""
+    email = f"lc-log-{uuid.uuid4().hex[:8]}@b2bnetwork.pl"
+    uid = await _seed_user(email)
+    _configure(monkeypatch, [{"email": email, "employment_status": "exited"}])
+
+    with caplog.at_level(logging.INFO, logger=compass_lifecycle.__name__):
+        async with AsyncSessionLocal() as db:
+            result = await compass_lifecycle.sync_user_lifecycle(db)
+
+    assert uid in result.deactivated_user_ids
+    assert email not in caplog.text
+    assert str(uid) in caplog.text
+
+
+@pytest.mark.asyncio
 async def test_offboarding_does_not_deactivate(monkeypatch):
     """COMPASS sam przepuszcza `offboarding` wszędzie.
 
