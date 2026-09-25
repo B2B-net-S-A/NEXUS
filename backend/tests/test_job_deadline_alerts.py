@@ -347,3 +347,59 @@ async def test_email_dispatch_releases_claim_on_failure(
         assert all(n.email_send_started_at is None for n in rows)
     finally:
         await _cleanup(job_id, client_id, [rec_id, col_id, adm_id])
+
+
+async def test_email_dispatch_uncertain_outcome_keeps_claim_and_never_resends(
+    monkeypatch, routine_notification_email_enabled
+):
+    """Audyt 25.09.2026: ReadTimeout po wysłaniu `/send` (wynik nieznany)
+    zwalniał rezerwację, więc kolejny przebieg wysyłał alert drugi raz. Teraz
+    wiersz dostaje `email_delivery_uncertain`, rezerwacja zostaje, a drugi
+    przebieg go nie bierze."""
+    import app.tasks.job_deadline_alerts as jda
+
+    sentinel_conn = object()
+    calls: list[str] = []
+
+    async def _fake_get_conn(db):
+        return sentinel_conn
+
+    async def _uncertain_send(db, connection, *, to, **kw):
+        calls.append(to)
+        return jda.DELIVERY_UNCERTAIN
+
+    monkeypatch.setattr(jda, "get_system_sender_connection", _fake_get_conn)
+    monkeypatch.setattr(jda, "send_system_email", _uncertain_send)
+
+    deadline = business_today() + timedelta(days=1)
+    job_id, rec_id, col_id, adm_id, client_id = await _setup(deadline)
+    try:
+        first = await run_once()
+        sent_to = list(calls)
+        assert first["emails_sent"] == 0
+        assert sent_to
+
+        second = await run_once()
+        assert second["emails_sent"] == 0
+        # Żaden adresat nie dostał drugiej próby.
+        assert calls == sent_to
+
+        async with AsyncSessionLocal() as db:
+            rows = list(
+                (
+                    await db.execute(
+                        select(Notification).where(
+                            Notification.related_entity_type == "job",
+                            Notification.related_entity_id == job_id,
+                            Notification.notification_type
+                            == NotificationType.job_deadline_1d,
+                        )
+                    )
+                ).scalars()
+            )
+        assert rows
+        assert all(n.email_sent_at is None for n in rows)
+        assert all(n.email_delivery_uncertain for n in rows)
+        assert all(n.email_send_started_at is not None for n in rows)
+    finally:
+        await _cleanup(job_id, client_id, [rec_id, col_id, adm_id])
