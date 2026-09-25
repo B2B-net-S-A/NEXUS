@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.gzip import DEFAULT_EXCLUDED_CONTENT_TYPES, GZipMiddleware
 
 from app.core.config import settings
 from app.core.database import engine, Base
@@ -913,6 +914,25 @@ app.add_middleware(
 app.add_middleware(RequestCorrelationMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(LegacyStatsDeprecationMiddleware)
+
+# Kompresja odpowiedzi (25.09.2026). Przed nią nic po drodze nie kompresowało
+# (API nie stoi za Cloudflare, Traefik bez middleware `compress`): jedno
+# wyszukiwanie na liście kandydatów ściągało 0,4–1 MB JSON-a. Najbardziej
+# zewnętrzna warstwa, więc kompresuje odpowiedź już z nagłówkami CORS.
+# SSE Jarvisa (`text/event-stream`) jest w domyślnych wyjątkach Starlette —
+# kompresja buforowałaby strumień. Pliki biurowe i PDF są już skompresowane.
+app.add_middleware(
+    GZipMiddleware,
+    minimum_size=1024,
+    compresslevel=5,
+    exclude_content_types=(
+        *DEFAULT_EXCLUDED_CONTENT_TYPES,
+        "application/pdf",
+        "application/octet-stream",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ),
+)
 
 app.add_middleware(
     CORSMiddleware,
