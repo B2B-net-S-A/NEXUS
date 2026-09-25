@@ -115,3 +115,19 @@ describe("polecane na pusty pulpit", () => {
     }
   });
 });
+
+describe("announcedTile", () => {
+  it("ogłasza „Requesty i obłożenie” osobie z ułożonym pulpitem bez tego kafelka", async () => {
+    const { announcedTile } = await import("@/lib/dashboard-tiles/catalog");
+    const admin = user("admin");
+    expect(announcedTile(admin, [{ type: "note" }], new Set())?.type).toBe("request_board");
+    expect(announcedTile(admin, [{ type: "request_board" }], new Set())).toBeNull();
+    expect(announcedTile(admin, [{ type: "note" }], new Set(["request_board"]))).toBeNull();
+  });
+
+  it("nie ogłasza kafelka roli, której nie jest polecany", async () => {
+    const { announcedTile } = await import("@/lib/dashboard-tiles/catalog");
+    const finance = user("finance");
+    expect(announcedTile(finance, [{ type: "note" }], new Set())).toBeNull();
+  });
+});
