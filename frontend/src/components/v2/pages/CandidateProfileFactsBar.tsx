@@ -17,6 +17,7 @@ import {
   WalletCards,
 } from "lucide-react";
 import { useCandidateFollowup } from "@/lib/api/candidateFollowups";
+import { CandidateFollowupDialog } from "@/components/v2/followups/CandidateFollowupDialog";
 import { pluralPl } from "@/lib/plural-pl";
 import {
   followupDueLabel,
@@ -170,17 +171,26 @@ interface CandidateProfileFactsBarProps {
  * to podpowiedź, nie dane profilu.
  */
 function FollowupFact({ candidateId }: { candidateId: number }) {
+  const [open, setOpen] = React.useState(false);
   const query = useCandidateFollowup(candidateId);
   const row = query.data?.followup;
-  if (!row) return null;
-  const caller = row.caller_name ? shortPersonName(row.caller_name) : "brak opiekuna";
+  const hasMeetings = (query.data?.meetings?.length ?? 0) > 0;
+  if (!row && !hasMeetings) return null;
+  const caller = row?.caller_name ? shortPersonName(row.caller_name) : "brak opiekuna";
   return (
+    <>
     <FactShell icon={<PhoneCall className="size-4" />} label="Kontakt">
-      {row.processes.length}{" "}
-      {pluralPl(row.processes.length, "proces czeka", "procesy czekają", "procesów czeka")} na
-      klienta ·{" "}
-      {lastContactLabel(row)} · następny: {followupDueLabel(row)}, {caller}
+      {row && <>
+        {row.processes.length}{" "}
+        {pluralPl(row.processes.length, "proces czeka", "procesy czekają", "procesów czeka")} na
+        klienta · {lastContactLabel(row)} · następny: {followupDueLabel(row)}, {caller}
+      </>}
+      <button type="button" className="ml-2 text-primary underline" onClick={() => setOpen(true)}>
+        {hasMeetings ? "Spotkania i transkrypty Teams" : "Zaplanuj follow-up w Teams"}
+      </button>
     </FactShell>
+    <CandidateFollowupDialog candidateId={candidateId} open={open} onOpenChange={setOpen} />
+    </>
   );
 }
 

@@ -5609,6 +5609,28 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
         CHECK ((outcome = 'callback') = (callback_on IS NOT NULL))
 )""",
     "CREATE INDEX IF NOT EXISTS ix_candidate_followups_candidate_created ON candidate_followups (candidate_id, created_at DESC)",
+    # 0378: spotkania follow-up w Teams i transkrypty usuwane z kandydatem.
+    """CREATE TABLE IF NOT EXISTS followup_meetings (
+    id BIGSERIAL PRIMARY KEY,
+    candidate_id INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+    calendar_event_id INTEGER NOT NULL UNIQUE REFERENCES calendar_events(id) ON DELETE CASCADE,
+    organizer_user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    organizer_upn VARCHAR(320) NOT NULL,
+    organizer_aad_id VARCHAR(64) NULL,
+    online_meeting_id VARCHAR(512) NULL,
+    client_request_id VARCHAR(80) NOT NULL UNIQUE,
+    transcription_setup VARCHAR(20) NOT NULL DEFAULT 'pending',
+    transcript_status VARCHAR(20) NOT NULL DEFAULT 'waiting',
+    fetch_attempts INTEGER NOT NULL DEFAULT 0,
+    next_fetch_at TIMESTAMPTZ NULL,
+    last_error VARCHAR(120) NULL,
+    transcript_vtt TEXT NULL,
+    transcript_text TEXT NULL,
+    transcript_fetched_at TIMESTAMPTZ NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+)""",
+    "CREATE INDEX IF NOT EXISTS ix_followup_meetings_candidate ON followup_meetings (candidate_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_followup_meetings_queue ON followup_meetings (transcript_status, next_fetch_at)",
     # 0376: DL rekrutacji wpisany automatycznie idzie za głównym DL-em klienta.
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS delivery_lead_auto_filled BOOLEAN NOT NULL DEFAULT false",
 ]

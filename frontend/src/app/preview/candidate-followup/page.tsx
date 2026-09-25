@@ -144,6 +144,7 @@ const BOARD_TASKS: BoardTasksResponse = {
 const DETAIL: FollowupDetail = {
   candidate_id: 21,
   followup: JAN,
+  meetings: [],
   history: [
     {
       outcome: "connected",
@@ -169,6 +170,7 @@ export default function CandidateFollowupPreviewPage() {
         candidate_id: row.candidate_id,
         followup: row,
         history: [],
+        meetings: [],
       });
     }
     return qc;
