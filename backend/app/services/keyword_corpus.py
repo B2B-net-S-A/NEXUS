@@ -212,7 +212,7 @@ CREATE OR REPLACE FUNCTION {FOLD_FUNCTION}(t text)
 RETURNS text LANGUAGE plpgsql IMMUTABLE PARALLEL SAFE AS $$
 DECLARE
     s text := translate(
-        lower(translate(coalesce(t, ''), '{FOLD_SRC}', '{FOLD_DST}')), '/\', '  '
+        lower(translate(coalesce(t, ''), '{FOLD_SRC}', '{FOLD_DST}')), '/\-', '   '
     );
 BEGIN
     IF s ~ '[#+]|\.net' THEN
@@ -486,6 +486,26 @@ NOTES_WRAPPED_COUNT_SQL = (
 )
 NOTES_UNWRAP_RECEIPT_KEY = "0385_traffit_note_content_unwrap"
 
+# Wersja składania tekstu (``candidate_keyword_fold``). Zmiana funkcji = podbij
+# numer: pętla uzupełniania przeliczy WSZYSTKIE wiersze obu kolumn, a nowa
+# ścieżka zapytań czeka na koniec (``fold_ready()``). Historia:
+# 1 — 0385 (polskie znaki, ukośnik, c#/c++/f#/.net);
+# 2 — 0386 myślnik jako spacja: parser tsvector rozbijał „cd-driven” na
+#     `cd-driven`, `cd`, `driven`, więc fraza „ci/cd” nie łączyła się
+#     z „CI/CD-driven” (porównanie na produkcji 26.09.2026).
+FOLD_VERSION = 2
+FOLD_VERSION_KEY = "keyword_fold_fts_version"
+FOLD_RECOMPUTE_BATCH_SQL = (
+    "UPDATE candidates SET keyword_doc = NULL WHERE id IN ("
+    " SELECT id FROM candidates WHERE id > :after ORDER BY id LIMIT :limit"
+    ") RETURNING id, keyword_fold_fts IS NOT NULL"
+)
+NOTES_RECOMPUTE_BATCH_SQL = (
+    f"UPDATE notes SET content = {NOTE_UNWRAP_FUNCTION}(content) WHERE id IN ("
+    " SELECT id FROM notes WHERE id > :after ORDER BY id LIMIT :limit"
+    ") RETURNING id, content_fold_fts IS NOT NULL"
+)
+
 
 # ── Gotowość (czy wszystkie wiersze mają korpus) ─────────────────────────────
 
@@ -567,11 +587,11 @@ def force_folded_search(value: bool) -> Iterator[None]:
 
 # ── Lustro w Pythonie: składanie tekstu (wycinki pod wynikiem) ──────────────
 
-_FOLD_MAP = str.maketrans(FOLD_SRC + "/\\", FOLD_DST + "  ")
+_FOLD_MAP = str.maketrans(FOLD_SRC + "/\\-", FOLD_DST + "   ")
 
 
 def fold_text(value: str) -> str:
-    """Polskie znaki → ASCII, małe litery, ukośnik → spacja.
+    """Polskie znaki → ASCII, małe litery, ukośnik i myślnik → spacja.
 
     Lustro pierwszego kroku ``candidate_keyword_fold`` BEZ słów specjalnych —
     zachowuje długość tekstu (poza rzadkimi znakami, których ``lower`` zmienia
