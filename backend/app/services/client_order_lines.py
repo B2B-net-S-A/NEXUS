@@ -1868,15 +1868,39 @@ async def _rebalance_offboarding_transfer(db: AsyncSession, order: ClientOrder) 
         select(ClientOrder.id).where(ClientOrder.id == target.id).with_for_update()
     )
     delta = new_transferred - quantize_md(old_transferred)
-    target.md_total = quantize_md(Decimal(str(target.md_total)) + delta)
+    previous_target_total = Decimal(str(target.md_total))
+    if delta >= 0:
+        target.md_total = quantize_md(previous_target_total + delta)
+    else:
+        # Audyt 25.09.2026: po przejęciu z zakresem opcjonalnym („Wejdź za
+        # konsultanta") pula celu siedzi w podstawie I opcji — ujemna korekta
+        # zdejmowana w całości z `md_total` potrafiła zejść poniżej zera
+        # (podstawa 17, opcja 170, korekta −50 → −33). Lustro
+        # `_reduce_legacy_md_budget`: najpierw opcja, potem podstawa, żadna
+        # poniżej zera; nadwyżka (tylko przy ręcznie zmienionej opcji) idzie
+        # do korekty ręcznej, żeby pozostało zgadzało się z przeliczeniem.
+        cut = -delta
+        if target.md_optional_total is not None:
+            optional_total = Decimal(str(target.md_optional_total))
+            optional_cut = min(optional_total, max(ZERO, cut))
+            target.md_optional_total = quantize_md(optional_total - optional_cut)
+            cut -= optional_cut
+        base_cut = min(previous_target_total, max(ZERO, cut))
+        target.md_total = quantize_md(previous_target_total - base_cut)
+        overflow = cut - base_cut
+        if overflow > 0:
+            target.md_manual_adjustment = quantize_md(
+                Decimal(str(target.md_manual_adjustment or 0)) - overflow
+            )
+    base_delta = Decimal(str(target.md_total)) - previous_target_total
     if target.md_input_mode == INPUT_MODE_AMOUNT:
         target.md_input_value = quantize_md(
-            Decimal(str(target.md_input_value or 0)) + delta * target_rate
+            Decimal(str(target.md_input_value or 0)) + base_delta * target_rate
         )
     else:
         target.md_input_mode = INPUT_MODE_MD
         target.md_input_value = quantize_md(
-            Decimal(str(target.md_input_value or 0)) + delta
+            Decimal(str(target.md_input_value or 0)) + base_delta
         )
     payload.update(
         {

@@ -167,7 +167,9 @@ zapis sam założy szkic.
 zakłada **jednocześnie umowę i pierwsze zamówienie**. Pola:
 
 * **Kandydat \*** — wyszukiwarka po imieniu, e-mailu, umiejętności
-* **Rekrutacja (opcjonalnie)**
+* **Rekrutacja (opcjonalnie)** — musi być rekrutacją **tego klienta**;
+  rekrutacji innego klienta system nie przyjmie (tak samo przy przedłużeniu
+  i edycji zamówienia)
 * **Numer zamówienia \*** — np. 45767
 * **Początek umowy \*** — początek umowy z konsultantem. **Daty końca umowy
   tu nie ma:** umowa B2B jest bezterminowa, dopóki ktoś jej nie zakończy
@@ -211,6 +213,11 @@ przyszłych.
 Jeżeli szkic ma typ **MD** albo **kosztowy**, dochodzi piąty warunek: musi mieć
 odpowiednio **liczbę MD** albo **kwotę zamówienia**. Bez tego zostaje w Drafcie,
 mimo kompletu pozostałych pól.
+
+Szkicu nie da się też **przestawić na Aktywne ręcznie**, dopóki czegoś
+z tej listy brakuje — zapis odmówi i wymieni braki (np. „uzupełnij: data
+startu”). Szkicu nie da się ustawić jako **Zakończone** — niepotrzebny szkic
+usuń.
 
 **Data zakończenia NIE jest wymagana.** Umowa bezterminowa jest normalnym stanem
 docelowym, a nie brakiem danych — nie wpisuj daty „na oko" tylko po to, żeby
@@ -663,6 +670,9 @@ Zamiany nie zapiszesz, gdy:
 * nowa osoba ma **zakończony albo unieważniony** kontrakt u tego klienta
   (powrót po przerwie idzie przez „Powrót po przerwie", nie przez zamianę),
 * nowa osoba **już pracuje** na tym zamówieniu — także na innym kontrakcie.
+* na miejsce tej osoby jest już **zaplanowane zastępstwo** („Wejdź za
+  konsultanta” z datą wejścia w przyszłości) — anuluj je albo poczekaj na
+  datę wejścia; inaczej te same pozostałe MD przeszłyby na dwie osoby.
 
 Do **Historii zamówienia** trafiają zawsze obie stawki (stara i nowa) oraz data
 zamiany. Liczby MD wpisują się tam tylko przy budżecie przypisanym

@@ -4208,6 +4208,14 @@ async def close_order_group(
         .with_for_update()
     )
     locked_lines = list(locked_lines_result.scalars().unique().all())
+    # Audyt 25.09.2026: status sprawdzony wyżej pochodzi z odczytu SPRZED
+    # blokad — dwa równoległe „Zakończ” przechodziły oba i drugie zapisywało
+    # drugie „Zakończono zamówienie” (z pustą listą linii, więc „Przywróć”
+    # nie miało czego odtworzyć). Decyzja zapada na świeżym nagłówku.
+    group = await _lock_group_row(db, group.id)
+    if group.status == GROUP_STATUS_COMPLETED:
+        raise HTTPException(409, detail="To zamówienie jest już zakończone")
+    _assert_group_not_cancelled(group)
     await _assert_no_pending_offboarding_case(db, group_id=group.id)
 
     # `business_today()`, nie `date.today()` — ten sam dzień graniczny, którym
@@ -4352,6 +4360,10 @@ async def reopen_order_group(
         .order_by(ClientOrder.id)
         .with_for_update()
     )
+    # Audyt 25.09.2026: status i data zakończenia na świeżym nagłówku pod
+    # blokadą — dwa równoległe „Przywróć” przechodziły oba, a drugie czytało
+    # zdarzenie zakończenia i przycinało daty już przywróconego zamówienia.
+    group = await _lock_group_row(db, group.id)
     await _assert_no_pending_offboarding_case(db, group_id=group.id)
 
     assert_group_is_reopenable(group.status)
@@ -6168,6 +6180,18 @@ async def swap_consultant(
     if old is None:
         raise HTTPException(404, detail="Linia nie istnieje w tym zamówieniu")
     await _assert_no_pending_offboarding_case(db, group_id=group.id, order_id=old.id)
+    # Audyt 25.09.2026: zaplanowane „Wejdź za konsultanta" już rozdysponowało
+    # pulę tej osoby — w dniu wejścia `activate_due_takeovers` przeniesie ją
+    # na zastępstwo. Zamiana teraz dałaby tę samą pulę następcy z zamiany,
+    # a nocne wejście przeniosłoby ją drugi raz.
+    if await scheduled_successor_of(db, old.id) is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=(
+                "Na miejsce tej osoby jest już zaplanowane zastępstwo — anuluj "
+                "je albo poczekaj na datę wejścia."
+            ),
+        )
     # Zamówienie KOSZTOWE nie ma budżetu per linia — pula mieszka na grupie,
     # a linia z definicji ma `md_total = None` (`_build_line`). Warunek pisany
     # pod tryb MD odrzucał więc KAŻDĄ zamianę u klienta kosztowego, i to
