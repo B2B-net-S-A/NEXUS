@@ -1438,7 +1438,27 @@ async def assert_qc_passed(
             .limit(1)
         )
     if stage is None:
-        return None
+        # Para bez wiersza etapu (kandydat wysłany przez API wprost na „CV
+        # wysłane”/Cpro) nie ma CV firmowego etapu, więc QC nie ma czego
+        # sprawdzić — to nie jest „przeszło”. Przechodzi wyłącznie obejście
+        # DL/admina zapisane dla pary (runda 2 audytu 25.09.2026).
+        override = await _latest_override(db, candidate_id, job_id)
+        if override is not None:
+            return {"passed": False, "override": override}
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "CV_QC_FAILED",
+                "message": (
+                    "CV nie przeszło QC: kandydat nie ma jeszcze etapu z CV "
+                    "firmowym. Dodaj go do rekrutacji i przygotuj CV przed "
+                    "wysłaniem."
+                ),
+                "blocking_failed": 1,
+                "stage_id": None,
+                "candidate_id": candidate_id,
+            },
+        )
     result = await run_qc(
         db,
         stage,
