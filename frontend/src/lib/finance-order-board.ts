@@ -5,6 +5,7 @@
 // Klucz pozycji i stan odhaczenia liczy SERWER — tu tylko układ i opis.
 
 import type {
+  InvoiceLine,
   OrderChangeItem,
   OrderChangesResponse,
   OrderChangesTab,
@@ -93,6 +94,8 @@ export interface BoardItem {
   pdf: OrderPdfRef | null;
   /** Do sortowania chronologicznego w karcie. */
   sortAt: string;
+  /** Nordea, Wejścia: gotowa pozycja faktury cyklicznej (ticket 8). */
+  invoiceLines?: InvoiceLine[] | null;
 }
 
 function cardKeyOf(item: {
@@ -245,6 +248,7 @@ function entryItem(item: OrderEntryItem, index: number): BoardItem {
     before: null,
     after: ratesText(item),
     note: item.status === "draft" ? "szkic" : null,
+    invoiceLines: item.invoice_lines ?? null,
   };
 }
 
@@ -570,6 +574,31 @@ export function withCheck(
     exits: patch(data.exits),
     ending_orders: patch(data.ending_orders),
     gaps: patch(data.gaps),
+  };
+}
+
+/**
+ * Zapisana poprawka pozycji faktury. Serwer oddaje WSZYSTKIE linie zamówienia,
+ * a karta pokazuje tylko linie swojej osoby — podmieniamy je po indeksie.
+ */
+export function withInvoiceLines(
+  data: OrderChangesResponse,
+  orderId: number,
+  saved: InvoiceLine[],
+): OrderChangesResponse {
+  const byIndex = new Map(saved.map((line) => [line.index, line]));
+  return {
+    ...data,
+    entries: data.entries.map((entry) =>
+      entry.order_id === orderId && entry.invoice_lines
+        ? {
+            ...entry,
+            invoice_lines: entry.invoice_lines.map(
+              (line) => byIndex.get(line.index) ?? line,
+            ),
+          }
+        : entry,
+    ),
   };
 }
 

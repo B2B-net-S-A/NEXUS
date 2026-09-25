@@ -59,6 +59,9 @@ from app.schemas.finance import (
     FinanceTotals,
 )
 from app.schemas.finance_order_changes import (
+    InvoiceLine,
+    InvoiceLinesResponse,
+    InvoiceLineUpdate,
     OrderChangesPeriod,
     OrderChangesResponse,
     OrderChangesSummaryResponse,
@@ -75,7 +78,7 @@ from app.schemas.finance_order_pdfs import (
 )
 from app.core.http_headers import content_disposition_attachment
 from app.services import finance_order_pdfs
-from app.services import order_change_checks
+from app.services import nordea_invoice_lines, order_change_checks
 from app.services import storage_service
 from app.services.section_permissions import (
     ProductSection,
@@ -981,6 +984,46 @@ async def set_order_change_check(
     )
     await db.commit()
     return OrderCheckResponse(item_key=payload.item_key, done=done)
+
+
+@router.put(
+    "/order-changes/invoice-lines/{order_id}", response_model=InvoiceLinesResponse
+)
+async def update_invoice_line(
+    order_id: int,
+    payload: InvoiceLineUpdate,
+    request: Request,
+    user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Ręczna poprawka pozycji faktury Nordei (ticket 8) — zapis przy zamówieniu.
+
+    Te same osoby co „Zrobione" (``_can_check``). Poprawka zostaje przy
+    zamówieniu także po odhaczeniu wejścia i w kolejnych miesiącach.
+    """
+
+    if _impersonating(request):
+        raise HTTPException(
+            status_code=403, detail="W trybie podglądu nie można zapisywać zmian."
+        )
+    try:
+        lines = await nordea_invoice_lines.save_line(
+            db,
+            order_id,
+            index=payload.index,
+            text=payload.text,
+            user_id=user.id,
+            user_name=user.name or user.email,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except nordea_invoice_lines.InvoiceLineError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    await db.commit()
+    return InvoiceLinesResponse(
+        order_id=order_id,
+        lines=[InvoiceLine.model_validate(line) for line in lines],
+    )
 
 
 @router.get("/order-changes/history", response_model=OrderHistoryResponse)
