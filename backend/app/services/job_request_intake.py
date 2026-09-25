@@ -36,7 +36,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.client import Client
-from app.services import champion_intake
+from app.services import champion_intake, keyword_suggest
 from app.services.champion_document import folded
 from app.services.llm_prompts import JOB_REQUEST_INTAKE
 
@@ -53,6 +53,8 @@ MAX_ASK_CLIENT = 5
 MAX_DISQUALIFIERS = 8
 MAX_SEARCH_ROWS = 4
 MAX_SEARCH_WORDS = 6
+# Rdzeń słowa z gwiazdką („bankow*”) — krótszy łapałby przypadkowe słowa.
+MIN_SEARCH_STEM = 4
 _BASES = ("request", "client_history", "ai")
 
 _WORK_MODES = {
@@ -194,31 +196,109 @@ def _word_in_text(word: str, folded_text: str) -> bool:
     return re.search(pattern, folded_text) is not None
 
 
-def _search_rows(value: Any, folded_text: str) -> list[list[str]]:
-    """Wiersze wymagań do wyszukiwania — tylko słowa, które są w mailu."""
+def _technology_keys() -> set[str]:
+    return {
+        key
+        for entry in keyword_suggest.catalog()
+        for key in (entry.key, *entry.alias_keys)
+    }
+
+
+def _search_stem(word: str) -> Optional[str]:
+    """Rdzeń słowa z gwiazdką (``bankow*`` → ``bankow``) albo ``None``."""
+    stem = word[:-1].strip()
+    needle = _fold(stem)
+    # Jedno słowo — wyszukiwarka zna gwiazdkę na końcu słowa, nie frazy.
+    if "*" in stem or " " in needle or len(needle) < MIN_SEARCH_STEM:
+        return None
+    return stem
+
+
+def _grounded_search_word(
+    word: str, folded_text: str, technologies: set[str]
+) -> Optional[str]:
+    """Słowo wiersza, jeśli stoi w mailu; ``None``, gdy go tam nie ma.
+
+    Rdzeń z gwiazdką (``bankow*``) przechodzi, gdy zaczyna słowo z maila
+    i ma co najmniej ``MIN_SEARCH_STEM`` liter — wyszukiwarka szuka całych
+    słów, więc „bankowości” nie znalazłoby „bankowość” ani „bankowy”.
+    Gwiazdka przy nazwie technologii ze słownika znika: „Java*” łapałoby
+    JavaScript.
+    """
+    if not word.endswith("*"):
+        return word if _word_in_text(word, folded_text) else None
+    stem = _search_stem(word)
+    if stem is None:
+        return None
+    if re.search(r"(?<![0-9a-z])" + re.escape(_fold(stem)), folded_text) is None:
+        return None
+    if keyword_suggest.fold(stem) in technologies:
+        return stem if _word_in_text(stem, folded_text) else None
+    return word
+
+
+_POLISH_LETTERS = frozenset("ąćęłńóśźż")
+
+
+def _translated_search_word(word: str, technologies: set[str]) -> Optional[str]:
+    """Angielski odpowiednik słowa z maila (decyzja Artura 25.09.2026) —
+    jedyne słowo wiersza, którego może nie być w mailu. Nigdy technologia
+    (tę klient musiałby dopuścić sam) ani słowo z polskimi literami (to nie
+    jest odpowiednik, tylko inna forma, której w mailu nie ma)."""
+    if _POLISH_LETTERS & set(word.casefold()):
+        return None
+    if word.endswith("*"):
+        stem = _search_stem(word)
+        if stem is None or keyword_suggest.fold(stem) in technologies:
+            return None
+        return word
+    return None if keyword_suggest.fold(word) in technologies else word
+
+
+def _search_rows(value: Any, folded_text: str) -> tuple[list[list[str]], bool]:
+    """Wiersze wymagań do wyszukiwania — słowa z maila i najwyżej jeden
+    angielski odpowiednik na wiersz, tylko obok słowa z maila. Drugi element:
+    czy któryś wiersz niesie odpowiednik (wtedy to „propozycja AI”)."""
     if not isinstance(value, list):
-        return []
+        return [], False
+    technologies = _technology_keys()
     rows: list[list[str]] = []
+    translated = False
     for raw_row in value:
         words = raw_row if isinstance(raw_row, list) else [raw_row]
         row: list[str] = []
+        grounded = 0
+        extra: Optional[str] = None
         for raw in words:
             word = _text(raw, 100)
             if not word:
                 continue
             word = " ".join(word.replace("|", " ").split())
-            if len(word) < 2 or not _word_in_text(word, folded_text):
+            if len(word) < 2:
                 continue
-            if word.casefold() in {w.casefold() for w in row}:
+            kept = _grounded_search_word(word, folded_text, technologies)
+            is_extra = kept is None
+            if is_extra:
+                if extra is not None:
+                    continue
+                kept = _translated_search_word(word, technologies)
+            if kept is None or kept.casefold() in {w.casefold() for w in row}:
                 continue
-            row.append(word)
+            if is_extra:
+                extra = kept
+            else:
+                grounded += 1
+            row.append(kept)
             if len(row) >= MAX_SEARCH_WORDS:
                 break
-        if row and row not in rows:
+        if not grounded:
+            continue
+        if row not in rows:
             rows.append(row)
+            translated = translated or extra is not None
         if len(rows) >= MAX_SEARCH_ROWS:
             break
-    return rows
+    return rows, translated
 
 
 def _questions(value: Any) -> list[IntakeQuestion]:
@@ -428,7 +508,9 @@ def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:
     search_keywords = _text(search.get("keywords"), 500)
     target_companies = _text(search.get("target_companies"), 500)
     disqualifiers = _strings(search.get("disqualifiers"), MAX_DISQUALIFIERS, 200)
-    search_requirements = _search_rows(search.get("requirements"), folded_text)
+    search_requirements, search_translated = _search_rows(
+        search.get("requirements"), folded_text
+    )
     selling_raw = data.get("selling_points")
     selling = selling_raw if isinstance(selling_raw, dict) else {}
     selling_points = _text(selling.get("text"), 800)
@@ -449,6 +531,8 @@ def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:
     ):
         if present:
             provenance[key] = "request"
+    if search_translated:
+        provenance["search_requirements"] = "ai"
     search_basis = _basis(search.get("basis"))
     for key, present in (
         ("search_keywords", search_keywords),

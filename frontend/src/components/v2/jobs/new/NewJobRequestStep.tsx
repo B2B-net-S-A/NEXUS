@@ -14,6 +14,7 @@ import { MIN_REQUEST_CHARS } from "@/lib/job-request-intake";
 const WHAT_AI_READS = [
   "Rola",
   "Must-have i mile widziane",
+  "Wymagania do wyszukiwania w bazie",
   "Budżet PLN/h",
   "Tryb pracy, dni w biurze, miasto",
   "O projekcie (2 zdania)",
