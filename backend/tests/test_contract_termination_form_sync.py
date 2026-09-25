@@ -419,6 +419,62 @@ async def test_undo_restores_agreement_and_clears_dissolution(
     assert row.termination_restore is None
 
 
+async def test_patching_a_later_end_date_reopens_through_the_lifecycle(
+    app_client, app_auth_headers
+):
+    """Audyt 25.09.2026: nowa data końca na ZAKOŃCZONEJ umowie zapisywała
+    status wprost — Generator zostawał w „Umowach bez projektu”, nie było
+    wpisu `contract_reopened`, migawka zakończenia wisiała otwarta, a umowa
+    wypowiedziana z datą przyszłą dostawała „Aktywny” zamiast „Kończący się”."""
+    from app.models.contract_termination_snapshot import (
+        SNAPSHOT_STATUS_SUPERSEDED,
+        ContractTerminationSnapshot,
+    )
+
+    cid, gid, _ = await _seed()
+    ended = await app_client.post(
+        f"{PATH}/{cid}/terminate",
+        json={
+            "termination_reason": "project_ended",
+            "terminated_at": (business_today() - timedelta(days=2)).isoformat(),
+        },
+        headers=app_auth_headers,
+    )
+    assert ended.status_code == 200, ended.text
+    assert ended.json()["status"] == "ended"
+    assert (await _generated(gid)).contract_status == "suspended"
+
+    later = business_today() + timedelta(days=20)
+    resp = await app_client.patch(
+        f"{PATH}/{cid}", json={"end_date": later.isoformat()}, headers=app_auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "ending"
+    assert resp.json()["end_date"] == later.isoformat()
+    assert (await _generated(gid)).contract_status == "active"
+    async with AsyncSessionLocal() as db:
+        actions = set(
+            (
+                await db.scalars(
+                    select(Activity.action).where(
+                        Activity.entity_type == "contract", Activity.entity_id == cid
+                    )
+                )
+            ).all()
+        )
+        snapshots = set(
+            (
+                await db.scalars(
+                    select(ContractTerminationSnapshot.status).where(
+                        ContractTerminationSnapshot.contract_id == cid
+                    )
+                )
+            ).all()
+        )
+    assert "contract_reopened" in actions
+    assert snapshots == {SNAPSHOT_STATUS_SUPERSEDED}
+
+
 async def test_return_after_break_creates_follow_up_agreement():
     from app.services.contract_lifecycle import sync_contract_to_live_order
 
