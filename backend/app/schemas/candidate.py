@@ -827,6 +827,10 @@ class CandidateList(BaseModel):
     # Tryb semantyczny: pula retrievalu osiągnęła sufit
     # (`SEARCH_HYBRID_POOL_SIZE`) — pasujących osób może być więcej.
     result_cap_reached: bool = False
+    # Kolejność faktycznie użyta. Przy `sort=match` bez wektora (brak kontekstu,
+    # awaria Voyage/Qdranta, przełącznik OFF) lista wraca do "newest" — front
+    # mówi wtedy, że kolejność według dopasowania jest chwilowo niedostępna.
+    sort_applied: Optional[str] = None
 
 
 class CandidateFromCVDuplicate(BaseModel):

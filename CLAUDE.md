@@ -7842,6 +7842,38 @@ kluczowe 0,9–2 s, „c#” 5,9 s; 68% czasu „java” zjadał regex po `keywo
   tymczasowy). `skills_manually_curated` zostaje nieodłożone (po zmianie liczy
   się dla 50 osób; odłożenie = `MissingGreenlet` i inny odcisk weryfikacji).
 
+## Kolejność „Dopasowanie” i górne pole listy (25.09.2026)
+
+Test na 120 rekrutacjach (`python -m scripts.eval_manual_search_order`, tylko
+odczyt): przy „najnowsi” pierwsza strona „Szukaj ręcznie” zawierała osobę,
+którą zespół potem zweryfikował, w 33% rekrutacji; przy dopasowaniu wektorowym
+— 83% (wektor kolumny „Dop.”), cała baza bez wymagań — 80%. Proste sortowania
+w bazie (ts_rank, słowa w profilu, świeżość CV) NIE pomagały — nie wracaj do nich.
+
+- **`sort=match`** (`services/candidate_match_order.py`, przełącznik
+  `CANDIDATE_MATCH_SORT`): w „Szukaj ręcznie” (jedna `recruitment_id` +
+  `not_assigned`) wektor = `request_vector(build_request_context(job, profile))`
+  — TEN SAM co `/scores`, więc kolejność zgadza się z kolumną „Dop.”; na liście
+  — wektor słów z wierszy wymagań. Kolejność: „Mile widziane” → osoby z danymi
+  przed brakami → osoby z wektorem wg podobieństwa → najnowsi (decyzje Artura).
+  Zbiór > 30 tys. = 3 000 najbliższych z indeksu, reszta od najnowszych.
+  Gotowa kolejność 5 min we WŁASNEJ, ograniczonej pamięci modułu (32 wpisy,
+  LRU; klucz: filtry, wektor, osoba, ostatni ruch w rekrutacji) — NIE
+  w `app/core/cache.py`, który nie ma limitu ani sprzątania, a lista bywa
+  długa na ~60 tys. id. Brak wektora/awaria = „najnowsi” i
+  `sort_applied="newest"` w odpowiedzi — front mówi to zdaniem.
+- **Front** (`lib/url-filters.ts` `effectiveSort`/`matchSortAvailable`): bez
+  tekstu i bez jawnego wyboru, przy wierszach wymagań albo w „Szukaj ręcznie”
+  → `match`; jawne „Najnowsi” wygrywa. `ManualSearchPanel` bez wymagań
+  w Championie NIE wpisuje już tytułu jako tekstu po znaczeniu (limit 200) —
+  cała baza według dopasowania.
+- **Górne pole**: przy „Szukaj” w trybie auto `GET /api/candidates/keywords/classify`
+  (`keyword_suggest.classify_skills` — dokładna nazwa/alias ze słownika, każde
+  słowo) zamienia same nazwy technologii na wiersze wymagań; słowo będące
+  imieniem/nazwiskiem w bazie albo miastem ≥ 20 tys. zostawia tekst.
+  „Szukaj „…” po znaczeniu” cofa zamianę (tryb `semantic`). Wywołanie bez
+  ponowień i z limitem 1,5 s — podpowiedź, nie bramka.
+
 ## Dwa silniki wyszukiwania — jedna semantyka filtrów (09.2026)
 
 NEXUS ma DWA silniki wyszukiwania kandydatów, które UI połączy w jeden ekran

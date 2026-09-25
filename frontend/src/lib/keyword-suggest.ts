@@ -284,3 +284,42 @@ export function useKeywordSuggestions(query: string, enabled: boolean) {
     data: enabled && result && result.key === current ? result.data : undefined,
   };
 }
+
+export interface KeywordClassification {
+  skills: string[];
+  as_requirements: boolean;
+}
+
+/** Czy tekst z górnego pola w ogóle może być listą technologii (bez e-maila,
+ *  telefonu i długich zdań) — bez tego nie pytamy serwera. */
+export function mayBeSkillList(text: string): boolean {
+  const value = text.trim();
+  if (value.length < 2 || value.length > 120 || value.includes("@")) return false;
+  const words = value.split(/[\s,;]+/).filter(Boolean);
+  if (words.length === 0 || words.length > 8) return false;
+  if (/\d{5,}/.test(value.replace(/[\s()+-]/g, ""))) return false;
+  return /\p{L}/u.test(value);
+}
+
+/**
+ * Górne pole listy (decyzja Artura 25.09.2026): same nazwy technologii szukamy
+ * jak wierszy wymagań — wszyscy ze słowem, a nie 200 osób „po znaczeniu”.
+ * Podpowiedź, nie bramka: krótki limit czasu i bez ponowień, a każdy błąd
+ * znaczy „zostaw tekst jak jest”.
+ */
+export async function classifyKeywords(text: string): Promise<KeywordClassification | null> {
+  try {
+    const { data } = await api.get<KeywordClassification>("/api/candidates/keywords/classify", {
+      params: { q: text },
+      timeout: 1500,
+      // Interceptor `lib/api.ts` ponawia odczyty przy braku sieci do ~22 s —
+      // „Szukaj” nie może na to czekać.
+      _transientRetryCount: Number.MAX_SAFE_INTEGER,
+    } as Parameters<typeof api.get>[1]);
+    return data && typeof data.as_requirements === "boolean" && Array.isArray(data.skills)
+      ? data
+      : null;
+  } catch {
+    return null;
+  }
+}

@@ -111,6 +111,47 @@ class SkillMatch:
     starts: bool
 
 
+_MAX_PHRASE_WORDS = 4
+_CLASSIFY_SPLIT = re.compile(r"[\s,;]+")
+
+
+@dataclass(frozen=True)
+class Classification:
+    skills: tuple[str, ...]
+    all_skills: bool
+
+
+def classify_skills(query: str) -> Classification:
+    """Czy tekst to same nazwy technologii (górne pole listy, 25.09.2026).
+
+    Dopasowanie DOKŁADNE nazwy albo aliasu ze słownika (bez wielkości liter
+    i polskich znaków), najdłuższe frazy najpierw („spring boot” jako jedna
+    umiejętność). ``all_skills`` tylko, gdy każde słowo należy do jakiejś
+    nazwy — zdanie opisowe („senior java z bankowością”) zostaje tekstem.
+    Nazwiska i miejscowości sprawdza wołający (baza, spis miejscowości).
+    """
+    words = [w for w in _CLASSIFY_SPLIT.split(fold(query)) if w]
+    if not words or not _catalog:
+        return Classification(skills=(), all_skills=False)
+    index: dict[str, str] = {}
+    for entry in _catalog:
+        index.setdefault(entry.key, entry.label)
+        for alias_key in entry.alias_keys:
+            index.setdefault(alias_key, entry.label)
+    found: list[str] = []
+    i = 0
+    while i < len(words):
+        for j in range(min(len(words), i + _MAX_PHRASE_WORDS), i, -1):
+            label = index.get(" ".join(words[i:j]))
+            if label is not None:
+                found.append(label)
+                i = j
+                break
+        else:
+            return Classification(skills=tuple(dict.fromkeys(found)), all_skills=False)
+    return Classification(skills=tuple(dict.fromkeys(found)), all_skills=True)
+
+
 def match_skills(query: str, limit: int) -> list[SkillMatch]:
     """Umiejętności pasujące początkiem nazwy, słowa nazwy albo aliasu.
 
