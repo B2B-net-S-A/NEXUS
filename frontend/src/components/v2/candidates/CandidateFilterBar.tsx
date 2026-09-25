@@ -109,6 +109,10 @@ export interface CandidateFilterBarProps {
   onClearAll: () => void;
   /** Etykieta przycisku w szufladzie „Więcej filtrów” („Pokaż 312 kandydatów”). */
   resultLabel?: string;
+  /** Liczba zmian czekających na „Szukaj”. */
+  pendingCount?: number;
+  /** „Szukaj” — stosuje filtry robocze (bez niego zmiany działają od razu). */
+  onSearch?: () => void;
   className?: string;
 }
 
@@ -397,6 +401,8 @@ export function CandidateFilterBar({
   activeCount,
   onClearAll,
   resultLabel,
+  pendingCount = 0,
+  onSearch,
   className,
 }: CandidateFilterBarProps) {
   const [moreOpen, setMoreOpen] = useState(false);
@@ -451,6 +457,8 @@ export function CandidateFilterBar({
         id={keywordsId}
         filters={filters}
         onPatch={onPatch}
+        onSearch={onSearch}
+        pendingCount={pendingCount}
         className={keywordsOpen ? undefined : "max-md:hidden"}
       />
 
@@ -540,7 +548,13 @@ export function CandidateFilterBar({
           onClear={() => onSkillsChange({ required: [], preferred: [], excluded: [] })}
           contentClassName="w-[360px] max-w-[calc(100vw-2rem)]"
         >
-          <SkillBucketsField value={skills} onChange={onSkillsChange} compact />
+          <SkillBucketsField
+            value={skills}
+            onChange={onSkillsChange}
+            compact
+            suggest={{ skillsOnly: true }}
+            onSubmitEmpty={onSearch}
+          />
         </FilterPill>
         <FilterPill
           label="Dostępność"
@@ -585,7 +599,11 @@ export function CandidateFilterBar({
         <SheetContent side="right" size="sm">
           <SheetHeader>
             <SheetTitle>Więcej filtrów</SheetTitle>
-            <SheetDescription>Wyniki aktualizują się na bieżąco.</SheetDescription>
+            <SheetDescription>
+              {onSearch
+                ? "Zmiany zastosujesz przyciskiem „Szukaj”."
+                : "Wyniki aktualizują się na bieżąco."}
+            </SheetDescription>
           </SheetHeader>
           <SheetBody>
             <div className="text-sm" data-testid="candidate-more-filters">
@@ -686,6 +704,7 @@ export function CandidateFilterBar({
                     value={{ ...phrases, any: phrases.any.slice(1) }}
                     hideHeader
                     sections={["any"]}
+                    suggest={{}}
                     onChange={(next) => onPatch({ qAny: [filters.qAny[0] ?? [], ...next.any] })}
                   />
                 </div>
@@ -714,9 +733,21 @@ export function CandidateFilterBar({
             </div>
           </SheetBody>
           <SheetFooter>
-            <Button variant="primary" onClick={() => setMoreOpen(false)}>
-              {resultLabel ? `Pokaż ${resultLabel}` : "Gotowe"}
-            </Button>
+            {onSearch ? (
+              <Button
+                variant="primary"
+                onClick={() => {
+                  onSearch();
+                  setMoreOpen(false);
+                }}
+              >
+                {pendingCount > 0 ? `Szukaj (${pendingCount})` : "Gotowe"}
+              </Button>
+            ) : (
+              <Button variant="primary" onClick={() => setMoreOpen(false)}>
+                {resultLabel ? `Pokaż ${resultLabel}` : "Gotowe"}
+              </Button>
+            )}
           </SheetFooter>
         </SheetContent>
       </Sheet>

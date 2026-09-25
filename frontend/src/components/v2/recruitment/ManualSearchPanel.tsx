@@ -83,6 +83,8 @@ export function ManualSearchPanel({
       hideHeader
       onBulkAdded={onBulkAdded}
       readOnly={readOnly}
+      // Ostatnie wyszukiwanie tej rekrutacji wraca po ponownym otwarciu okna.
+      memoryKey={jobId}
     />
   );
 }

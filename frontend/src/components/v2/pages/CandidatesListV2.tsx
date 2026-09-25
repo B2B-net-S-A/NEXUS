@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type UIEvent } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -16,6 +16,7 @@ import {
   Download,
   FileArchive,
   FileText,
+  History,
   Link as LinkIcon,
   Lock,
   Plus,
@@ -24,6 +25,7 @@ import {
   Upload,
   UserPlus,
   Users,
+  X,
   XCircle,
 } from "lucide-react";
 import api, { savedSearchesApi } from "@/lib/api";
@@ -52,6 +54,21 @@ import {
   getCandidateListViewState,
 } from "@/components/v2/pages/candidate-list-query";
 import { useCandidateSearchDebounce } from "@/hooks/useCandidateSearchDebounce";
+import {
+  carryImmediate,
+  filterChangeCount,
+  isBareListQuery,
+  listSearchKeywords,
+  listSearchLabel,
+  resolveInitialListParams,
+} from "@/lib/candidate-list-staging";
+import {
+  clearListSearch,
+  pushRecentSearch,
+  readListSearch,
+  writeListSearch,
+} from "@/lib/search-memory";
+import { RecentSearchesMenu } from "@/components/v2/filters/RecentSearchesMenu";
 import {
   FieldSnippets,
   MAX_FIELD_SNIPPETS,
@@ -349,7 +366,18 @@ export interface CandidatesListV2Props {
 export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}) {
   const router = useRouter();
   const { showSuccess } = useToast();
-  const searchParams = useSearchParams();
+  const routeParams = useSearchParams();
+  // Goły adres (menu, „Wróć”, inna strona) = ostatnie wyszukiwanie z tej karty
+  // (`search-memory`), zamiast startu od zera.
+  const [initialList] = useState(() => {
+    const memory = readListSearch();
+    return {
+      ...resolveInitialListParams(new URLSearchParams(routeParams?.toString() ?? ""), memory),
+      memory,
+    };
+  });
+  const searchParams = initialList.params;
+  const [restoredBanner, setRestoredBanner] = useState(initialList.restored);
   const candidatesPageSize = useUiStore((s) => s.candidatesPageSize);
   const setCandidatesPageSize = useUiStore((s) => s.setCandidatesPageSize);
   // Kolumny tabeli — wybór każdej osoby (lista ukrytych, w przeglądarce).
@@ -610,12 +638,6 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  onCommit: commitSearchValue,
  });
 
- const commitSearch = () => {
- if (searchDraft === search) return;
- setSearch(searchDraft);
- setPage(1);
- };
-
  // Saved-search alerty — aktywny zapisany search (z menu „Zapisane” lub z
  // linku powiadomienia `?ss=`) + znacznik czasu sprzed bieżącego otwarcia
  // (previous last_viewed_at z POST /saved-searches/{id}/viewed). Kandydaci
@@ -762,6 +784,100 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  ],
  );
 
+ // Filtry robocze (`filtersSnapshot`) kontra zastosowane (`applied`): zmiany
+ // czekają na „Szukaj” (decyzja 25.09.2026). Od razu działa tylko sortowanie
+ // i strona przy tych samych kryteriach (`carryImmediate`). Zapytanie, adres,
+ // eksport, zapis wyszukiwania i linki do profilu czytają `applied`.
+ const [applied, setApplied] = useState<CandidateFilters>(filtersSnapshot);
+ const [applyTick, setApplyTick] = useState(0);
+ const applyRequestedRef = useRef(false);
+ const requestApply = useCallback(() => {
+ applyRequestedRef.current = true;
+ setApplyTick((t) => t + 1);
+ }, []);
+ useEffect(() => {
+ if (applyRequestedRef.current) {
+ applyRequestedRef.current = false;
+ setApplied(filtersSnapshot);
+ return;
+ }
+ setApplied((prev) => carryImmediate(prev, filtersSnapshot));
+ }, [filtersSnapshot, applyTick]);
+ const resultsPage = applied.page;
+ const goToPage = useCallback((next: number) => {
+ setPage(next);
+ setApplied((prev) => ({ ...prev, page: next }));
+ }, []);
+ const draftForCompare = useMemo(
+ () => ({ ...filtersSnapshot, q: searchDraft }),
+ [filtersSnapshot, searchDraft],
+ );
+ const pendingCount = useMemo(
+ () => filterChangeCount(draftForCompare, applied),
+ [draftForCompare, applied],
+ );
+ const runSearch = () => {
+ if (searchDraft !== search) setSearch(searchDraft);
+ setPage(1);
+ requestApply();
+ const next = { ...filtersSnapshot, q: searchDraft, page: 1 };
+ pushRecentSearch(currentUser?.id, {
+ kind: "list",
+ jobId: null,
+ label: listSearchLabel(next),
+ query: encodeFilterCriteria(next).toString(),
+ keywords: listSearchKeywords(next),
+ total: null,
+ });
+ };
+ const undoPending = () => {
+ setSearchDraft(applied.q);
+ applyFiltersPatch({ ...applied });
+ };
+
+ // Pamięć tej karty: ostatnie zastosowane wyszukiwanie (powrót z profilu).
+ const memoryQuery = useMemo(
+ () => encodeFilters({ ...applied, savedSearchId: null, view: "list" }).toString(),
+ [applied],
+ );
+ useEffect(() => {
+ writeListSearch({ query: memoryQuery });
+ }, [memoryQuery]);
+ // Menu „Kandydaci” na otwartej liście zdejmuje parametry z adresu, ale
+ // komponent zostaje — oddajemy adres zamiast rozjazdu z tym, co widać.
+ const skipRouteRestoreRef = useRef(false);
+ useEffect(() => {
+ if (skipRouteRestoreRef.current) {
+ skipRouteRestoreRef.current = false;
+ return;
+ }
+ if (typeof window === "undefined" || window.location.pathname !== CANDIDATES_LIST_PATH) return;
+ const route = new URLSearchParams(routeParams?.toString() ?? "");
+ if (!isBareListQuery(route) || !memoryQuery) return;
+ window.history.replaceState(null, "", `${CANDIDATES_LIST_PATH}?${encodeFilters(applied).toString()}`);
+ setRestoredBanner(true);
+ // eslint-disable-next-line react-hooks/exhaustive-deps
+ }, [routeParams]);
+ // Przewinięcie listy i ostatnio otwarta osoba — przywracane po powrocie.
+ const [lastOpenedId] = useState<number | null>(() =>
+ initialList.restored || initialList.memory?.query === encodeFilters({ ...filtersSnapshot, savedSearchId: null, view: "list" }).toString()
+ ? initialList.memory?.lastOpenedId ?? null
+ : null,
+ );
+ const scrollSavedAtRef = useRef(0);
+ const onListScroll = (event: UIEvent<HTMLDivElement>) => {
+ const now = Date.now();
+ if (now - scrollSavedAtRef.current < 200) return;
+ scrollSavedAtRef.current = now;
+ writeListSearch({ query: memoryQuery, scrollTop: event.currentTarget.scrollTop });
+ };
+ const startNewSearch = () => {
+ clearListSearch();
+ setRestoredBanner(false);
+ resetAllFilters();
+ requestApply();
+ };
+
  // Sync URL -----------------------------------------------------
  // Pierwszy zapis i zmiany „neutralne" (pole wyszukiwania, strona, widok) →
  // replaceState; zmiana filtra/sortowania → pushState, więc „Wstecz" cofa
@@ -775,31 +891,31 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  const restoringHistoryRef = useRef(false);
  useEffect(() => {
  const previous = lastSyncedFiltersRef.current;
- lastSyncedFiltersRef.current = filtersSnapshot;
+ lastSyncedFiltersRef.current = applied;
  const restoring = restoringHistoryRef.current;
  restoringHistoryRef.current = false;
  // Lista mogła zostać opuszczona (Wstecz do profilu) — nie nadpisujemy
  // cudzego adresu.
  if (window.location.pathname !== CANDIDATES_LIST_PATH) return;
- const qs = encodeFilters(filtersSnapshot).toString();
+ const qs = encodeFilters(applied).toString();
  const target = qs ? `${CANDIDATES_LIST_PATH}?${qs}` : CANDIDATES_LIST_PATH;
  const current = `${window.location.pathname}${window.location.search}`;
  if (
  previous === null ||
  restoring ||
  target === current ||
- isHistoryNeutralChange(previous, filtersSnapshot)
+ isHistoryNeutralChange(previous, applied)
  ) {
  window.history.replaceState(null, "", target);
  } else {
  window.history.pushState(null, "", target);
  }
- }, [filtersSnapshot]);
+ }, [applied]);
 
  // Data --------------------------------------------------------
  const candidatesApiParams = useMemo(
- () => candidatesListApiParams(filtersSnapshot, page, candidatesPageSize),
- [filtersSnapshot, page, candidatesPageSize],
+ () => candidatesListApiParams(applied, applied.page, candidatesPageSize),
+ [applied, candidatesPageSize],
  );
  const {
  data,
@@ -831,14 +947,25 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  useEffect(() => {
  if (!data || isFetching || data.items.length > 0 || data.total <= 0) return;
  const lastPage = Math.max(1, Math.ceil(data.total / data.page_size));
- if (data.page > lastPage) setPage(lastPage);
+ if (data.page > lastPage) goToPage(lastPage);
+ }, [data, isFetching, goToPage]);
+ // Powrót do listy: przewinięcie z pamięci tej karty, raz, po pierwszych danych.
+ const scrollRestoredRef = useRef(false);
+ useEffect(() => {
+ if (scrollRestoredRef.current || !data || isFetching) return;
+ scrollRestoredRef.current = true;
+ const memory = initialList.memory;
+ if (!memory || memory.scrollTop <= 0 || memory.query !== memoryQuery) return;
+ const el = parentRef.current;
+ if (el) el.scrollTop = memory.scrollTop;
+ // eslint-disable-next-line react-hooks/exhaustive-deps
  }, [data, isFetching]);
 
  // Płaska, odduplikowana lista fraz wyszukiwania (q + q_all + q_any) — używana
  // do podświetlenia <mark> w snippetach CV. `q_none` celowo pomijamy: fraz
  // wykluczających nie podświetlamy. Tokeny <2 znaki odpadają (zaśmiecają mark).
  const searchTerms = useMemo(() => {
- const raw = [...search.split(/\s+/), ...qAll, ...qAnyGroups.flat()];
+ const raw = [...applied.q.split(/\s+/), ...applied.qAll, ...applied.qAny.flat()];
  const seen = new Set<string>();
  const out: string[] = [];
  for (const term of raw) {
@@ -850,7 +977,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  out.push(norm);
  }
  return out;
- }, [search, qAll, qAnyGroups]);
+ }, [applied]);
  const hasSearchTerms = searchTerms.length > 0;
 
  // Virtualization ---------------------------------------------
@@ -911,10 +1038,10 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  const selectionCriteriaKey = useMemo(
  () =>
  encodeFilterCriteria({
- ...filtersSnapshot,
+ ...applied,
  sort: "newest",
  }).toString(),
- [filtersSnapshot],
+ [applied],
  );
  const previousSelectionCriteria = useRef(selectionCriteriaKey);
  useEffect(() => {
@@ -1023,7 +1150,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  if (scope === "selected" && selectedIds.size === 0) return;
  try {
  const request = buildCandidateExportRequest(
- filtersSnapshot,
+ applied,
  format,
  scope,
  selectedIds,
@@ -1195,11 +1322,14 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  const current = lastSyncedFiltersRef.current;
  if (current && filtersEqual({ ...current, ...decoded }, current)) return;
  restoringHistoryRef.current = true;
+ // „Wstecz” do gołego wpisu listy to cofnięcie filtra, nie powrót z innej strony.
+ skipRouteRestoreRef.current = true;
  applyFiltersPatchRef.current(decoded);
+ requestApply();
  };
  window.addEventListener("popstate", onPopState);
  return () => window.removeEventListener("popstate", onPopState);
- }, []);
+ }, [requestApply]);
 
  // Współdzielone przez szufladę „Filtry" i skróty w pasku narzędzi.
  const patchFiltersFromFields = (patch: Partial<CandidateFilters>) =>
@@ -1314,7 +1444,10 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  variant="outline"
  size="sm"
  className="mt-3"
- onClick={resetAllFilters}
+ onClick={() => {
+ resetAllFilters();
+ requestApply();
+ }}
  >
  Wyczyść filtry
  </Button>
@@ -1368,7 +1501,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
   };
   const canExport = hasRole(currentUser, ...EXPORT_ROLES);
   const shownSort = effectiveSort(filtersSnapshot);
-  const hasText = search.trim().length >= 2;
+  const hasText = applied.q.trim().length >= 2;
   const sortOptions = (["relevance", "newest", "oldest", "name"] as const).filter(
     (value) => value !== "relevance" || hasText || sortBy === "relevance",
   );
@@ -1377,7 +1510,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
   const openDetailAt = (candidateId: number) => {
     setDetailId(candidateId);
     const idx = items.findIndex((c) => c.id === candidateId);
-    if (idx >= 0) setDetailPosition((page - 1) * pageSize + idx + 1);
+    if (idx >= 0) setDetailPosition((resultsPage - 1) * pageSize + idx + 1);
   };
 
   const filterBar = (
@@ -1393,6 +1526,8 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
       activeCount={totalActiveFilters}
       onClearAll={resetAllFilters}
       resultLabel={isLoading ? undefined : candidatesCountLabel(total)}
+      pendingCount={pendingCount}
+      onSearch={runSearch}
     />
   );
 
@@ -1464,7 +1599,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                   value={searchDraft}
                   onChange={(e) => setSearchDraft(e.target.value)}
                   onKeyDown={(event) => {
-                    if (event.key === "Enter") commitSearch();
+                    if (event.key === "Enter") runSearch();
                   }}
                 />
               </div>
@@ -1501,12 +1636,59 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                 onTextModeChange={(mode) => {
                   setTextMode(mode);
                   setPage(1);
+                  requestApply();
                 }}
               />
             ) : null}
           </div>
 
+          {restoredBanner && (
+            <div
+              role="status"
+              className="flex flex-wrap items-center gap-3 rounded-lg border border-success/30 bg-success-muted px-3 py-2 text-sm text-success-muted-foreground"
+            >
+              <History className="h-4 w-4 shrink-0" aria-hidden />
+              <span className="min-w-0 flex-1">
+                <strong className="font-semibold">Wróciłeś do swojego wyszukiwania.</strong>{" "}
+                Filtry, strona i miejsce na liście są takie, jak je zostawiłeś.
+              </span>
+              <Button variant="outline" size="sm" onClick={startNewSearch}>
+                Nowe wyszukiwanie
+              </Button>
+              <button
+                type="button"
+                aria-label="Zamknij informację"
+                onClick={() => setRestoredBanner(false)}
+                className="hit-area rounded-sm p-0.5 hover:bg-foreground/10"
+              >
+                <X className="h-4 w-4" aria-hidden />
+              </button>
+            </div>
+          )}
+
           {filterBar}
+
+          {pendingCount > 0 && (
+            <div
+              role="status"
+              className="flex flex-wrap items-center gap-3 rounded-lg border border-warning/40 bg-warning-muted px-3 py-2 text-sm text-warning-muted-foreground"
+            >
+              <span className="min-w-0 flex-1">
+                <strong className="font-semibold">
+                  {pendingCount === 1
+                    ? "1 zmiana czeka na „Szukaj”"
+                    : `${pendingCount} zmian${pendingCount < 5 ? "y czekają" : " czeka"} na „Szukaj”`}
+                </strong>{" "}
+                — tabela pokazuje jeszcze wyniki dla poprzednich filtrów.
+              </span>
+              <Button variant="outline" size="sm" onClick={undoPending}>
+                Cofnij zmiany
+              </Button>
+              <Button variant="primary" size="sm" onClick={runSearch}>
+                <Search className="h-4 w-4" aria-hidden /> Szukaj
+              </Button>
+            </div>
+          )}
 
           <div className="flex flex-wrap items-center gap-2" aria-live="polite">
             <span className="text-sm font-medium text-foreground">
@@ -1525,8 +1707,20 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
               omitKey={isChipShownOnFilterBar}
             />
             <div className="ml-auto flex flex-wrap items-center gap-2" data-help="candidates.list.saved">
+              <RecentSearchesMenu
+                kind="list"
+                onPick={(entry) => {
+                  const decoded: Partial<CandidateFilters> = decodeFilters(
+                    new URLSearchParams(entry.query),
+                  );
+                  delete decoded.view;
+                  applyFiltersPatch({ ...decoded, page: 1, savedSearchId: null });
+                  requestApply();
+                  clearSelection();
+                }}
+              />
               <SavedSearchesMenu
-                currentQs={encodeFilterCriteria(filtersSnapshot).toString()}
+                currentQs={encodeFilterCriteria(applied).toString()}
                 onApply={(qs, ssId, previousViewedAt, newCandidateIds) => {
                   setNewSince(previousViewedAt);
                   setNewMatchIds(new Set(newCandidateIds));
@@ -1536,6 +1730,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                     page: 1,
                     savedSearchId: ssId,
                   });
+                  requestApply();
                   clearSelection();
                 }}
               />
@@ -1598,7 +1793,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
               const idx = items.findIndex((c) => c.id === id);
               // Przypięty spoza bieżącej strony nie ma pozycji na liście —
               // podgląd bez „poprzedni/następny".
-              setDetailPosition(idx >= 0 ? (page - 1) * pageSize + idx + 1 : 0);
+              setDetailPosition(idx >= 0 ? (resultsPage - 1) * pageSize + idx + 1 : 0);
             }}
           />
 
@@ -1616,7 +1811,12 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
             </div>
           )}
 
-          <div className="overflow-hidden rounded-lg border border-border bg-card">
+          <div
+            className={cn(
+              "overflow-hidden rounded-lg border border-border bg-card transition-opacity",
+              pendingCount > 0 && "opacity-50",
+            )}
+          >
             {/* Jeden kontener przewija w obu osiach: nagłówek jest przyklejony
                 u góry, kolumna „Kandydat” (poniżej lg) przy lewej krawędzi.
                 Na telefonie kontener nie ma własnej wysokości — przewija się
@@ -1624,6 +1824,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
             <div
               ref={parentRef}
               data-testid="candidate-list-scroll"
+              onScroll={onListScroll}
               className="relative overflow-auto md:h-[calc(100dvh-300px)] md:min-h-[360px]"
             >
             {/* Nagłówek kolumn to zwykłe etykiety, bez ról tabeli: wiersze są
@@ -1694,7 +1895,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                       (newSinceTs !== null &&
                         !!candidate.created_at &&
                         Date.parse(candidate.created_at) > newSinceTs);
-                    const position = (page - 1) * pageSize + virtualRow.index + 1;
+                    const position = (resultsPage - 1) * pageSize + virtualRow.index + 1;
                     const openDetail = () => openDetailAt(candidate.id);
                     const snippet = hasSearchTerms ? candidate.match_snippet : null;
                     const fieldSnippets = hasSearchTerms ? candidate.match_snippets ?? [] : [];
@@ -1734,6 +1935,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                           "group flex cursor-pointer flex-col overflow-clip border-b border-border transition-colors",
                           "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
                           isNewMatch ? "bg-success-muted/40" : "bg-card",
+                          candidate.id === lastOpenedId && "bg-primary/5 shadow-[inset_3px_0_0_var(--primary)]",
                           "hover:bg-muted/50",
                           isSelected && "bg-primary/5!",
                         )}
@@ -1765,8 +1967,11 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                             <div className="min-w-0">
                               <div className="flex min-w-0 items-center gap-1.5">
                                 <Link
-                                  href={`/candidates/${candidate.id}?${encodeNavContext(filtersSnapshot, position).toString()}`}
-                                  onClick={(e) => e.stopPropagation()}
+                                  href={`/candidates/${candidate.id}?${encodeNavContext(applied, position).toString()}`}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    writeListSearch({ query: memoryQuery, lastOpenedId: candidate.id });
+                                  }}
                                   className="min-w-0 truncate font-medium text-foreground hover:text-primary hover:underline"
                                   title={fullName}
                                 >
@@ -1777,6 +1982,11 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                                 {isNewMatch ? (
                                   <Badge size="sm" variant="success" className="shrink-0">
                                     Nowy
+                                  </Badge>
+                                ) : null}
+                                {candidate.id === lastOpenedId ? (
+                                  <Badge size="sm" variant="info" className="shrink-0">
+                                    Ostatnio otwarta
                                   </Badge>
                                 ) : null}
                                 {contactFeature.enabled ? (
@@ -1933,7 +2143,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
             {!isLoading && items.length > 0 && (
               <div className="flex min-h-12 flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t border-border bg-muted/40 px-4 py-2 text-sm">
                 <span className="whitespace-nowrap text-muted-foreground">
-                  {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} z{" "}
+                  {(resultsPage - 1) * pageSize + 1}–{Math.min(resultsPage * pageSize, total)} z{" "}
                   {total.toLocaleString("pl-PL")}
                 </span>
                 <div className="flex flex-wrap items-center gap-2">
@@ -1943,7 +2153,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                       const next = Number(value) as CandidatesPageSize;
                       if (!CANDIDATES_PAGE_SIZES.includes(next)) return;
                       setCandidatesPageSize(next);
-                      applyFiltersPatch({ page: 1 });
+                      goToPage(1);
                     }}
                   >
                     <SelectTrigger aria-label="Liczba kandydatów na stronie" className="h-9 w-auto whitespace-nowrap rounded-md sm:h-8 sm:w-[152px]">
@@ -1960,16 +2170,16 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                   <Button
                     size="sm"
                     variant="outline"
-                    disabled={page <= 1}
-                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={resultsPage <= 1}
+                    onClick={() => goToPage(Math.max(1, resultsPage - 1))}
                   >
                     Poprzednia
                   </Button>
                   <Button
                     size="sm"
                     variant="outline"
-                    disabled={page >= totalPages}
-                    onClick={() => setPage((p) => p + 1)}
+                    disabled={resultsPage >= totalPages}
+                    onClick={() => goToPage(resultsPage + 1)}
                   >
                     Następna <ChevronRight className="h-3.5 w-3.5" />
                   </Button>
@@ -1986,7 +2196,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
         onCompare={() =>
           // Link niesie kontekst listy — „Wróć do kandydatów" oddaje filtry,
           // stronę i zaznaczenie (UAT B21).
-          router.push(encodeCompareHref(filtersSnapshot, Array.from(selectedIds)))
+          router.push(encodeCompareHref(applied, Array.from(selectedIds)))
         }
         onDownloadCvs={() => void doBulkDownloadCvs()}
         downloadingCvs={isDownloadingZip}
@@ -2074,7 +2284,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                 detailPosition <= 0
                   ? undefined
                   : {
-                      filters: filtersSnapshot,
+                      filters: applied,
                       position: detailPosition,
                       pageItems: items.map((c) => ({
                         id: c.id,
@@ -2084,7 +2294,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                       total,
                       // Przy keepPreviousData strona odpowiedzi może być inna niż
                       // strona kontrolek — nawigacja liczy z odpowiedzi.
-                      pageNumber: data?.page ?? page,
+                      pageNumber: data?.page ?? resultsPage,
                       pageSize,
                       onNavigate: ({ candidateId, position }) => {
                         setDetailId(candidateId);
@@ -2092,7 +2302,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                         // Lista idzie za nawigacją, żeby po zamknięciu podglądu
                         // stała na stronie, na której ta się skończyła.
                         const nextListPage = Math.floor((position - 1) / pageSize) + 1;
-                        if (nextListPage !== page) setPage(nextListPage);
+                        if (nextListPage !== resultsPage) goToPage(nextListPage);
                       },
                     }
               }

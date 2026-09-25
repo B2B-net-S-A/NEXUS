@@ -2,13 +2,14 @@
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Info, MapPin, X } from "lucide-react";
+import { Info, MapPin, Search, X } from "lucide-react";
 import api from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
-import { ChipField } from "@/components/v2/filters/AdvancedSearchPopover";
+import { ChipField, type ChipFieldSuggest } from "@/components/v2/filters/AdvancedSearchPopover";
 import { AddedByMultiSelect } from "@/components/v2/filters/AddedByMultiSelect";
 import {
   KEYWORD_SCOPE_OPTIONS,
@@ -18,6 +19,9 @@ import {
 } from "@/lib/url-filters";
 
 type Patch = (patch: Partial<CandidateFilters>) => void;
+
+/** Podpowiedzi w polach słów: słownik z bazy i ostatnio używane słowa. */
+const KEYWORD_SUGGEST: ChipFieldSuggest = {};
 
 function SectionTitle({ children, id }: { children: ReactNode; id?: string }) {
   return (
@@ -55,11 +59,16 @@ export function KeywordFields({
   onPatch,
   id,
   className,
+  onSearch,
+  pendingCount = 0,
 }: {
   filters: CandidateFilters;
   onPatch: Patch;
   id?: string;
   className?: string;
+  /** „Szukaj” — zmiany słów i filtrów czekają na ten przycisk (25.09.2026). */
+  onSearch?: () => void;
+  pendingCount?: number;
 }) {
   const scopeId = useId();
   const anyGroup0 = filters.qAny[0] ?? [];
@@ -69,7 +78,10 @@ export function KeywordFields({
       role="group"
       aria-label="Słowa kluczowe"
       className={cn(
-        "grid gap-x-4 gap-y-3 rounded-lg border border-border bg-card p-3 md:grid-cols-2 lg:grid-cols-[1.2fr_1fr_1fr_auto]",
+        "grid gap-x-4 gap-y-3 rounded-lg border border-border bg-card p-3 md:grid-cols-2",
+        onSearch
+          ? "lg:grid-cols-[1.2fr_1fr_1fr_auto_auto]"
+          : "lg:grid-cols-[1.2fr_1fr_1fr_auto]",
         className,
       )}
     >
@@ -81,6 +93,8 @@ export function KeywordFields({
           placeholder="np. Java, Kafka"
           tone="emerald"
           ariaLabel="Zawiera wszystkie ze słów"
+          suggest={KEYWORD_SUGGEST}
+          onSubmitEmpty={onSearch}
         />
       </div>
       <div className="min-w-0 space-y-1">
@@ -91,6 +105,8 @@ export function KeywordFields({
           placeholder="np. Spring, Quarkus"
           tone="sky"
           ariaLabel="Zawiera którekolwiek ze słów"
+          suggest={KEYWORD_SUGGEST}
+          onSubmitEmpty={onSearch}
         />
       </div>
       <div className="min-w-0 space-y-1">
@@ -101,6 +117,8 @@ export function KeywordFields({
           placeholder="np. junior, stażysta"
           tone="rose"
           ariaLabel="Nie zawiera żadnego ze słów"
+          suggest={KEYWORD_SUGGEST}
+          onSubmitEmpty={onSearch}
         />
       </div>
       <div className="space-y-1 lg:w-40">
@@ -120,7 +138,7 @@ export function KeywordFields({
             </PopoverTrigger>
             <PopoverContent align="end" className="w-72 text-xs leading-snug text-muted-foreground">
               Całe słowa: „java” nie znajdzie „JavaScript”. Gwiazdka szuka początku słowa:
-              „bankow*” znajdzie „bankowość” i „bankowym”. Enter albo przecinek dodaje słowo.
+              „bankow*” znajdzie „bankowość” i „bankowym”. Pod polem są podpowiedzi — Enter dodaje zaznaczoną, przecinek dodaje słowo dokładnie jak wpisane. Wyniki zmieniają się po kliknięciu „Szukaj”.
             </PopoverContent>
           </Popover>
         </div>
@@ -137,6 +155,34 @@ export function KeywordFields({
           ))}
         </select>
       </div>
+      {onSearch && (
+        <div className="flex items-end md:col-span-2 lg:col-span-1">
+          <Button
+            type="button"
+            variant="primary"
+            onClick={onSearch}
+            className={cn(
+              "h-9 w-full gap-2 lg:w-auto lg:min-w-[124px]",
+              pendingCount > 0 && "ring-4 ring-primary/20",
+            )}
+            data-help="candidates.list.search"
+          >
+            <Search className="h-4 w-4" aria-hidden />
+            Szukaj
+            {pendingCount > 0 && (
+              <>
+                <span
+                  aria-hidden
+                  className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary-foreground px-1.5 text-xs font-bold text-primary"
+                >
+                  {pendingCount}
+                </span>
+                <span className="sr-only">(niezastosowane zmiany: {pendingCount})</span>
+              </>
+            )}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

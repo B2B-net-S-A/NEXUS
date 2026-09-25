@@ -7205,6 +7205,37 @@ Widok wynika wyłącznie z adresu (`?area=`, `?item=`); stare `?tab=` mapuje
   i `case` w `SettingsItemBody` (albo `route` dla osobnej strony).
 - `ownHeader` = komponent ma własny nagłówek; strona rysuje wtedy tylko ścieżkę.
 
+## Wyszukiwanie ręczne: podpowiedzi, przycisk „Szukaj”, pamięć (25.09.2026)
+
+Makiety: https://claude.ai/artifact/6JCbPSp86E7uzAxcyNmqW4. Dotyczy listy
+`/candidates` i „Szukaj ręcznie” rekrutacji (`CandidateSearchView`).
+
+- **Zmiany filtrów czekają na „Szukaj”** (albo Enter w pustym polu słów / w polu
+  tekstu). Lista trzyma szkic (`filtersSnapshot`) i zastosowane (`applied`);
+  zapytanie, adres, eksport, zapis wyszukiwania i linki do profilu czytają
+  `applied`. Od razu działa tylko sortowanie i strona przy tych samych
+  kryteriach (`lib/candidate-list-staging.ts`, `carryImmediate`). Akcje „całe
+  wyszukiwanie naraz” (zapisane, „Wstecz”, tryb tekstu, „Ostatnie
+  wyszukiwania”) wołają `requestApply()`. W `CandidateSearchView` `draft` vs
+  `request`, licznik `searchRequestChangeCount`.
+- **Podpowiedzi** `GET /api/candidates/keywords/suggest` (`services/keyword_suggest.py`):
+  słownik `skills` + aliasy w pamięci procesu (przebudowa w
+  `refresh_alias_map`), stanowiska (to samo zapytanie co `/titles/suggest`),
+  liczba osób z `keyword_fts` w savepoincie z limitem czasu i pamięcią 1 h —
+  `null` = nie policzono, nigdy błąd. Wstawiana jest nazwa kanoniczna; słowa
+  kluczowe NIE rozwijają aliasów, więc alias to tylko wyjaśnienie. Front:
+  `ChipField`/`SkillBucketsField` z propem `suggest` (bez niego zachowanie jak
+  dawniej), pobieranie bez react-query (`useKeywordSuggestions`, pole żyje też
+  bez `QueryClientProvider`). W rekrutacji na górze must/nice Championa.
+- **Pamięć** (`lib/search-memory.ts`, czyści ją wylogowanie): goły adres
+  `/candidates` odtwarza ostatnie zastosowane wyszukiwanie tej karty
+  (sessionStorage: filtry, przewinięcie, ostatnio otwarta osoba) z banerem
+  „Nowe wyszukiwanie”; „Wstecz” do gołego wpisu to cofnięcie filtra, nie
+  przywrócenie. „Szukaj ręcznie” pamięta per (osoba, rekrutacja) 30 dni.
+  „Ostatnie wyszukiwania” = 10 wpisów per osoba w localStorage. Testy listy
+  MUSZĄ czyścić pamięć w `beforeEach` — inaczej goły adres testu przywraca
+  filtry poprzedniego.
+
 ## Dwa silniki wyszukiwania — jedna semantyka filtrów (09.2026)
 
 NEXUS ma DWA silniki wyszukiwania kandydatów, które UI połączy w jeden ekran

@@ -48,7 +48,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.scheduling import business_today
 from app.core.http_headers import content_disposition
-from app.core.rate_limit import limiter
+from app.core.rate_limit import limiter, user_or_ip_key
 from app.models.candidate import AvailabilityStatus, Candidate, CandidateStatus
 from app.models.candidate_document import (
     CandidateDocument,
@@ -2629,24 +2629,52 @@ async def suggest_titles(
     Groups by lowercased role — same MVP trade-off (collapses "Senior Engineer"
     / "senior engineer" to one suggestion).
     """
-    pat = contains_pattern(q.strip().lower()) if q.strip() else ""
-    sql = text(
-        "SELECT lower(elem->>'role') AS role, COUNT(DISTINCT c.id) AS n "
-        "FROM candidates c, "
-        "jsonb_array_elements("
-        "CASE WHEN jsonb_typeof(c.experience) = 'array' "
-        "THEN c.experience ELSE '[]'::jsonb END"
-        ") AS elem "
-        "WHERE elem ? 'role' "
-        "AND elem->>'role' IS NOT NULL "
-        "AND elem->>'role' <> '' "
-        "AND (:pat = '' OR lower(elem->>'role') LIKE :pat) "
-        "GROUP BY lower(elem->>'role') "
-        "ORDER BY n DESC, role ASC "
-        "LIMIT :lim"
+    from app.services.keyword_suggest import suggest_titles as _suggest_titles
+
+    rows = await _suggest_titles(db, q, limit)
+    return [TitleSuggestion(name=name, count=n) for name, n in rows]
+
+
+# ── Autocomplete: słowa kluczowe wyszukiwania ręcznego ──────────────────────
+
+
+class KeywordSuggestion(BaseModel):
+    """Podpowiedź do pola słów kluczowych (``services/keyword_suggest``)."""
+
+    label: str
+    kind: Literal["skill", "title", "prefix"]
+    insert: str
+    alias: Optional[str] = None
+    category: Optional[str] = None
+    # Przybliżenie z indeksu pełnotekstowego; ``None`` = nie policzono.
+    count: Optional[int] = None
+
+
+class KeywordSuggestResponse(BaseModel):
+    items: list[KeywordSuggestion]
+    wildcard: Optional[KeywordSuggestion] = None
+
+
+@router.get("/keywords/suggest", response_model=KeywordSuggestResponse)
+@limiter.limit("120/minute", key_func=user_or_ip_key)
+async def suggest_keywords(
+    request: Request,
+    current_user: CandidateSearchAccess,
+    db: AsyncSession = Depends(get_db),
+    q: str = Query("", max_length=100),
+    limit: int = Query(6, ge=1, le=10),
+) -> KeywordSuggestResponse:
+    """Technologie ze słownika (z aliasami) i stanowiska do pól „Zawiera
+    wszystkie / którekolwiek / żadnego” oraz koszyków umiejętności."""
+    from app.services import keyword_suggest
+
+    result = await keyword_suggest.suggest(db, q, limit)
+    return KeywordSuggestResponse(
+        items=[KeywordSuggestion(**item.__dict__) for item in result.items],
+        wildcard=(
+            KeywordSuggestion(**result.wildcard.__dict__) if result.wildcard else None
+        ),
     )
-    result = await db.execute(sql, {"pat": pat, "lim": limit})
-    return [TitleSuggestion(name=row[0], count=int(row[1])) for row in result]
 
 
 # ── Bulk export (Phase 7b.4) ────────────────────────────────────────────────

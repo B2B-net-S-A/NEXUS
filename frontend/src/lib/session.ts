@@ -13,6 +13,7 @@
  */
 
 import { clearTalentRadarSession } from "./talent-radar-session";
+import { clearSearchMemory } from "./search-memory";
 
 /**
  * Klucz JWT — wydzielony ze zbioru poniżej, bo czyta go nie tylko teardown,
@@ -122,6 +123,8 @@ export function clearSessionArtifacts(): void {
   // kandydatów — nazwiska i dopasowania nie mogą doczekać w karcie na
   // kolejną osobę logującą się na tym samym stanowisku.
   clearTalentRadarSession();
+  // Ostatnie wyszukiwania i przewinięcie listy — słowa i filtry innej osoby.
+  clearSearchMemory();
   if (typeof window !== "undefined") {
     try {
       for (let i = window.localStorage.length - 1; i >= 0; i -= 1) {

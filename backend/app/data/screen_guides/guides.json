@@ -256,8 +256,18 @@
     "tasks": [
       {
         "q": "Jak szukać po słowach kluczowych?",
-        "a": "Użyj trzech pól nad listą: „Zawiera wszystkie”, „Zawiera którekolwiek” i „Nie zawiera żadnego”. Słowa pasują w całości: „java” nie znajdzie „JavaScript”; gwiazdka „java*” szuka początku słowa.",
+        "a": "Użyj trzech pól nad listą: „Zawiera wszystkie”, „Zawiera którekolwiek” i „Nie zawiera żadnego”. Pod polem pojawiają się podpowiedzi z bazy z liczbą osób — strzałki wybierają, Enter dodaje. Słowa pasują w całości: „java” nie znajdzie „JavaScript”; gwiazdka „java*” szuka początku słowa.",
         "anchor": "candidates.list.filters"
+      },
+      {
+        "q": "Dlaczego lista nie zmienia się po ustawieniu filtra?",
+        "a": "Zmiany słów i filtrów czekają na przycisk „Szukaj” (albo Enter w pustym polu). Liczba na przycisku mówi, ile zmian czeka; „Cofnij zmiany” wraca do tego, co widzisz w tabeli.",
+        "anchor": "candidates.list.search"
+      },
+      {
+        "q": "Jak wrócić do poprzedniego wyszukiwania?",
+        "a": "Po powrocie z profilu albo z innej strony lista sama wraca do ostatniego wyszukiwania, strony i miejsca na liście. Starsze wyszukiwania są pod „Ostatnie wyszukiwania”.",
+        "anchor": "candidates.list.recent"
       },
       {
         "q": "Jak znaleźć kandydatów pod request klienta?",
@@ -286,6 +296,8 @@
     ],
     "anchors": [
       {"id": "candidates.list.filters", "label": "Pasek filtrów", "describe": "Słowa kluczowe i przyciski filtrów nad tabelą."},
+      {"id": "candidates.list.search", "label": "Szukaj", "describe": "Przycisk, który stosuje zmienione słowa i filtry."},
+      {"id": "candidates.list.recent", "label": "Ostatnie wyszukiwania", "describe": "Dziesięć ostatnich wyszukiwań w tej przeglądarce."},
       {"id": "candidates.list.request", "label": "Z requestu", "describe": "Wyszukiwanie z treści requestu, pliku Championa albo rekrutacji."},
       {"id": "candidates.list.more", "label": "Więcej filtrów", "describe": "Szuflada z rzadszymi filtrami."},
       {"id": "candidates.list.saved", "label": "Zapisane, sortowanie, kolumny", "describe": "Zapisane wyszukiwania, sortowanie i wybór kolumn."},
@@ -294,6 +306,7 @@
     "help_slug": null,
     "sources": [
       "frontend/src/components/v2/candidates/CandidateFilterBar.tsx",
+      "frontend/src/components/v2/candidates/CandidateSearchFields.tsx",
       "frontend/src/components/v2/pages/CandidatesListV2.tsx"
     ]
   },

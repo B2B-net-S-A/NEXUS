@@ -12,6 +12,8 @@
  * wychodzi do sieci ani nie przerzuca na /login.
  *
  * `?dialog=1` otwiera od razu okno „Szukaj z requestu" (do zrzutów ekranu).
+ * Podpowiedzi słów kluczowych odpowiadają z lokalnego słownika (bez sieci);
+ * zmiana filtra pokazuje pasek „czeka na Szukaj”.
  * Dane są fikcyjne — repo jest publiczne.
  */
 
@@ -32,6 +34,11 @@ import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import { candidateContactQueryKeys } from "@/lib/candidate-contact";
 import { cloudTalkStatusQueryKey } from "@/hooks/useCloudTalkEnabled";
 import { DEFAULT_FILTERS, decodeFilters } from "@/lib/url-filters";
+import {
+  KEYWORD_SUGGEST_ENDPOINT,
+  foldKeyword,
+  type KeywordSuggestion,
+} from "@/lib/keyword-suggest";
 import { useAuthStore } from "@/store/auth";
 
 const daysAgo = (days: number) => {
@@ -226,6 +233,47 @@ const SNIPPETS: Record<number, Array<{ field: string; text: string; highlights: 
   502: [snippet("Treść CV", "…JavaScript, TypeScript i Java 11 w projektach e-commerce, Kafka Streams…")],
 };
 
+/** Fikcyjny słownik podpowiedzi (kształt `GET /api/candidates/keywords/suggest`). */
+const FAKE_SKILLS: Array<{ label: string; alias?: string; count: number }> = [
+  { label: "Java", count: 4120 },
+  { label: "JavaScript", alias: "js", count: 5310 },
+  { label: "Java EE", alias: "jee", count: 880 },
+  { label: "Kafka", count: 1640 },
+  { label: "Kotlin", count: 930 },
+  { label: "Kubernetes", alias: "k8s", count: 2480 },
+  { label: "Spring", count: 3320 },
+  { label: "Spring Boot", alias: "springboot", count: 2870 },
+  { label: "Python", alias: "py", count: 3950 },
+  { label: "PostgreSQL", alias: "postgres", count: 2210 },
+  { label: "React", count: 2740 },
+];
+
+function fakeKeywordSuggestions(q: string) {
+  const t = foldKeyword(q);
+  const items: KeywordSuggestion[] = FAKE_SKILLS.filter(
+    (s) =>
+      foldKeyword(s.label).startsWith(t) ||
+      foldKeyword(s.label).split(" ").some((w) => w.startsWith(t)) ||
+      (s.alias ?? "").startsWith(t),
+  )
+    .slice(0, 5)
+    .map((s) => ({
+      label: s.label,
+      kind: "skill" as const,
+      insert: s.label,
+      alias: s.alias && !foldKeyword(s.label).startsWith(t) ? s.alias : null,
+      category: "language",
+      count: s.count,
+    }));
+  if (t.length >= 3 && "java developer".startsWith(t.slice(0, 4))) {
+    items.push({ label: "java developer", kind: "title", insert: "java developer", alias: null, category: null, count: 2150 });
+  }
+  return {
+    items,
+    wildcard: t.length >= 3 ? { label: `${q}*`, kind: "prefix" as const, insert: `${q}*`, count: 9100 } : null,
+  };
+}
+
 function searchParamsNow(): URLSearchParams {
   return new URLSearchParams(typeof window === "undefined" ? "" : window.location.search);
 }
@@ -298,9 +346,21 @@ export default function CandidatesListPreview() {
   const [dialogOpen, setDialogOpen] = useState(false);
 
   useEffect(() => {
-    const blocker = api.interceptors.request.use((config) =>
-      Promise.reject(new AxiosError("preview: sieć wyłączona", "ECONNABORTED", config)),
-    );
+    const blocker = api.interceptors.request.use((config) => {
+      // Podpowiedzi słów kluczowych odpowiadają lokalnie ze słownika harnessu.
+      if (config.url === KEYWORD_SUGGEST_ENDPOINT) {
+        const q = String((config.params as { q?: string } | undefined)?.q ?? "");
+        config.adapter = async () => ({
+          data: fakeKeywordSuggestions(q),
+          status: 200,
+          statusText: "OK",
+          headers: {},
+          config,
+        });
+        return config;
+      }
+      return Promise.reject(new AxiosError("preview: sieć wyłączona", "ECONNABORTED", config));
+    });
     useAuthStore.setState({
       user: {
         id: 1,

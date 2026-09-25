@@ -52,6 +52,7 @@ describe("ManualSearchPanel", () => {
       hideHeader: true,
       onBulkAdded,
       readOnly: true,
+      memoryKey: 7,
     });
   });
 
