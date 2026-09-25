@@ -18,11 +18,17 @@ Każdy moduł w ``app/`` budujący CSV/XLSX z danych użytkownika woła
 
 from __future__ import annotations
 
+import re
 from typing import Any, Iterable
 
 # `\t` i `\r` na początku też uruchamiają interpretację w części arkuszy
 # (OWASP „CSV Injection”), więc traktujemy je jak znak formuły.
 FORMULA_PREFIXES: tuple[str, ...] = ("=", "+", "-", "@", "\t", "\r")
+
+# Telefon „+48 600 100 200” i kwota „-1 200,50” zaczynają się od `+`/`-`, ale
+# same cyfry i separatory nie wywołają funkcji ani linku — apostrof psułby
+# tylko najczęstszą kolumnę eksportu kandydatów (telefon). `=` nie ma wyjątku.
+_NUMBER_LIKE = re.compile(r"[+-][\d\s().,/-]*\d[\d\s().,/-]*")
 
 
 def safe_cell(value: Any) -> Any:
@@ -33,6 +39,8 @@ def safe_cell(value: Any) -> Any:
     """
 
     if isinstance(value, str) and value.startswith(FORMULA_PREFIXES):
+        if _NUMBER_LIKE.fullmatch(value):
+            return value
         return f"'{value}"
     return value
 

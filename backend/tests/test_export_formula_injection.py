@@ -54,6 +54,19 @@ def test_safe_cell_keeps_numbers_and_dates_as_they_are(value):
     assert safe_cell(value) is value
 
 
+@pytest.mark.parametrize(
+    "value", ["+48 600 100 200", "-1 200,50", "+48 (22) 123-45-67"]
+)
+def test_safe_cell_leaves_phone_and_amount_text_alone(value):
+    """Same cyfry i separatory nie są formułą z funkcją ani linkiem."""
+    assert safe_cell(value) == value
+
+
+@pytest.mark.parametrize("value", ["+1+1", "-2+3*A1", "+cmd", "-", "=48"])
+def test_safe_cell_still_prefixes_arithmetic_and_text(value):
+    assert safe_cell(value) == "'" + value
+
+
 def test_safe_row_protects_each_cell():
     assert safe_row([1, "=1+1", "Jan", None]) == [1, "'=1+1", "Jan", None]
 
@@ -86,7 +99,8 @@ def test_candidate_export_row_escapes_user_text():
     assert row["id"] == 987654
     assert row["name"] == "'" + PAYLOAD
     assert row["lastname"] == "'@SUM(1+1)"
-    assert row["phone"] == "'+48 600 100 200"
+    # Telefon to same cyfry — nie wywoła funkcji, więc zostaje bez apostrofu.
+    assert row["phone"] == "+48 600 100 200"
     assert row["location"] == "'-2+3"
     assert row["email"] == "kandydat@example.com"
 
