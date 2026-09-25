@@ -1642,7 +1642,9 @@ async def next_number(
     db: AsyncSession = Depends(get_db),
 ):
     """Sugerowany kolejny WOLNY numer umowy `<seq>/<rok>` (edytowalny w UI)."""
-    year = datetime.now(timezone.utc).year
+    # Rok kalendarza firmy (Europe/Warsaw): 1 stycznia między 00:00 a 01:00
+    # zegar UTC mówi jeszcze o poprzednim roku.
+    year = business_today().year
     seq = await _next_seq(db)
     return B2BNextNumberResponse(contract_number=f"{seq}/{year}", year=year, seq=seq)
 
@@ -1746,9 +1748,7 @@ async def render_standalone(
     # innego dokumentu niż wydany.
     override_key, override_ops = resolve_override(payload.client_name, lang)
     default_year = (
-        payload.signing_date.year
-        if payload.signing_date
-        else datetime.now(timezone.utc).year
+        payload.signing_date.year if payload.signing_date else business_today().year
     )
     suggested_seq = await _next_seq(db)
     suggested = f"{suggested_seq}/{default_year}"
@@ -3495,6 +3495,17 @@ async def update_generated_contract(
         prev_date = row.closure_date
 
         row.contract_status = new_status
+        # Ręczna zmiana statusu jest decyzją człowieka i wygrywa z migawką
+        # zakończenia kontraktu: bez tego „Cofnij zakończenie" albo powrót po
+        # przerwie odtwarzały stan sprzed synchronizacji i nadpisywały to, co
+        # ktoś świadomie ustawił (audyt 25.09.2026, runda 3). Umowa, która
+        # wychodzi z „Zakończonych", traci też tryb rozwiązania — opisywał
+        # zakończenie, które właśnie cofnięto.
+        row.termination_restore = None
+        if old_status == "closed" and new_status != "closed":
+            row.termination_mode = None
+            row.termination_party = None
+            row.termination_signed_on = None
         if new_status in B2B_CLOSING_STATUSES:
             row.closure_reason = payload.closure_reason
             row.closure_reason_other = (

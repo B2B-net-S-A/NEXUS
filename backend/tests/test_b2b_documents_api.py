@@ -17,6 +17,7 @@ import pytest
 from sqlalchemy import select
 
 from app.core.database import AsyncSessionLocal
+from app.core.scheduling import business_today
 from app.services.b2b_documents.contract_versions import default_refs, notice_end_date
 from app.services.b2b_documents.registry import TYPES, missing_required, strip_sensitive
 from tests.test_b2b_generated_contract_status import (
@@ -211,9 +212,16 @@ async def test_generating_changes_nothing_and_signing_terminates(
         assert contract.terminated_at == date(2026, 10, 31)
         assert contract.termination_reason == ContractTerminationReason.mutual_agreement
         row = await db.get(B2BGeneratedContract, rid)
-        assert row.contract_status == "closed"
-        assert row.closure_reason == "mutual_agreement"
-        assert row.closure_date == date(2026, 10, 31)
+        if date(2026, 10, 31) >= business_today():
+            # Umowa obowiązuje do daty rozwiązania — zamknie ją nocny cron po
+            # zakończeniu kontraktu (audyt 25.09.2026, runda 3). Dokument
+            # zostawia na wierszu tylko tryb rozwiązania.
+            assert row.contract_status == "active"
+            assert row.closure_date is None
+        else:
+            assert row.contract_status == "closed"
+            assert row.closure_date == date(2026, 10, 31)
+        assert row.termination_mode == "mutual_agreement"
 
     again = await app_client.post(
         f"{BASE}/documents/{doc_id}/confirm-signed", headers=app_auth_headers
