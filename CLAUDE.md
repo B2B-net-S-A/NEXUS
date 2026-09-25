@@ -6946,6 +6946,50 @@ które łatwo cofnąć „przy okazji”:
   wiąże rozmowę z kandydatem po każdym narzędziu (od razu w bazie), blokada tury to
   `TurnClaim` przedłużany co krok, `JARVIS_MAX_TOKENS_PER_STEP` = 4000.
 
+### Runda 2 (25.09.2026, po PR #1833)
+
+Raport: https://claude.ai/artifact/Hcs6cYoiaJ187RmuFMZspY. Główna przyczyna rundy 2:
+poprawka w jednej ścieżce, a ta sama reguła żyła w bliźniaczej — przy każdej poprawce
+grep wzorca w całym katalogu; nowy zapis do tabeli z częściowym UNIQUE sprawdzaj na
+przypadek drugiego wiersza.
+
+- **Poczta.** Wpis bez sha (`uq_order_mail_documents_message_no_attachment`) jest jeden
+  na wiadomość — kolejne załączniki bez treści dopisują się do opisu istniejącego wpisu
+  „Nieudane” i nie trzymają znacznika; wpisy dziennika zapisuje `_add_journal_row`
+  (savepoint + `IntegrityError`). Za duży PDF = wpis „Nieudane” z sha, bez pliku.
+  `_first_with_sha` pomija `failed` i `duplicate_attachment`. „Nieudane” da się odrzucić
+  (admin albo przypisany DL); zdanie „system ponawia sam” liczy serwer
+  (`failed_retry_pending` — lustro `_failed_candidate_ids`). `error` wpisów i stanu biegu
+  = klasa wyjątku po polsku, nigdy `repr`.
+- **Kontrakty.** Cofnięcie zakończenia z celem Aktywny/Kończący się i minioną datą końca
+  = bloker `end_date_passed` (najpierw aneks); bez migawki i aneksu data końca równa
+  dniu zakończenia jest śladem zakończenia → umowa wraca bezterminowa. Reaktywacja
+  i korekta daty rozwiązanej umowy w `PATCH /contracts/{id}` WYŁĄCZNIE przy zmianie
+  `end_date` w tym żądaniu. Skaner wygasania domyka datą każde samodzielne zamówienie
+  (także z `md_total`); wyjątek „budżet, nie kalendarz” dotyczy tylko linii grup MD.
+- **Rekrutacja.** Para bez żadnego wiersza etapu liczy bramki od „Nowi” — bez CV
+  firmowego QC odmawia 409 `CV_QC_FAILED` (`stage_id: null`), przechodzi tylko obejście
+  DL/admina. `gate_stage_row` liczy kolumny jednym odczytem definicji etapów.
+  `/bulk-move` robi efekty po commicie per osoba przez `_post_commit_effect`. Rekruter
+  wniosku o terminy (jawny i podpowiadany) przechodzi `slot_recruiter_eligible`.
+  Przekazanie od praktykanta osoby `employment_only` PRZECHODZI (decyzja Artura
+  25.09.2026) — propozycja niesie `evidence.trainee.employment_only` i plakietkę
+  „Tylko umowa o pracę”.
+- **Wyszukiwanie.** Odwrócony zakres stawki/stażu = 422 także na liście i w eksporcie
+  (`reversed_range_message`); niepusty tekst dosłowny krótszy niż 2 znaki = 422
+  (`LiteralTextTooShort`). Północ dnia firmy: `app.core.scheduling.local_day_start_utc`.
+- **Integracje.** Każdy savepoint w importerze Traffita decyduje o sesji przez
+  `_recover_session` (rollback tylko po utracie połączenia / `PendingRollbackError`;
+  utracona paczka = błąd nieprzypisany, watermark stoi) — pilnuje
+  `test_every_savepoint_handler_decides_about_the_session`. Nowa publikacja na portal,
+  która anulowała zaległe zamknięcie wiersza `failed`, dziedziczy sprzątanie
+  (`remote_state='inherited_cleanup'`) — wycofanie przed workerem kolejkuje `close`.
+  Test `spawn` skanuje całe `app/` (wyjątki z powodem).
+- **Frontend.** Każdy picker z listą z zapytania: `PickerQueryState` (albo `loadState`
+  w `MultiSelectFilter`), `CommandEmpty` wyłącznie przy `isSuccess`; `isLoading ? … :
+  <CommandEmpty>` to błąd (v5: po awarii `isLoading=false`). Wyszukiwarka włączana po
+  otwarciu listy podaje `isLoading` jako `isPending`.
+
 ## Narzędzia rekrutera — reguły po audycie 17.09.2026
 
 Audyt `docs/recruiter-tools-audit-2026-09-17.md`, raport z poprawek
