@@ -73,6 +73,22 @@ REQUEST_STATUSES = (
     "searching",
 )
 
+# Stan requestu w JEDNYM rzędzie pigułek listy `/jobs` (25.09.2026): status
+# requestu i stan pracy złożone w jedną wartość na rekrutację. Wartości się
+# wykluczają, więc kilka pigułek naraz to LUB (samo `request_status` +
+# `work_state` łączyły się przez AND). Kolejność = pierwszeństwo w CASE.
+REQUEST_STAGES = (
+    "closed",
+    "filled",
+    "contract",
+    "champion",
+    "incomplete",
+    "finished",
+    "client_silent",
+    "to_review",
+    "searching",
+)
+
 MIN_SCORE = 55
 MAX_SUGGESTIONS = 5
 _POOL_TTL_SECONDS = 300
@@ -864,6 +880,43 @@ def request_status_expr(sq):
         (Job.status == JobStatus.draft, "incomplete"),
         else_="searching",
     )
+
+
+def request_stage_expr(sq):
+    """Jedna wartość stanu requestu na rekrutację (lista `/jobs`, 25.09.2026).
+
+    Najpierw fakty z pipeline'u i championa (jak ``request_status_expr``),
+    potem stan pracy prowadzony w NEXUSIE (`jobs.work_state`). Szkic jest
+    „Do uzupełnienia” niezależnie od stanu pracy."""
+    hired = func.coalesce(sq.c.hired_n, 0)
+    return case(
+        (Job.status == JobStatus.closed, "closed"),
+        (and_(hired > 0, hired >= func.greatest(Job.headcount, 1)), "filled"),
+        (func.coalesce(sq.c.contract_n, 0) > 0, "contract"),
+        (Job.champion_found_at.is_not(None), "champion"),
+        (Job.status == JobStatus.draft, "incomplete"),
+        (Job.work_state == "finished", "finished"),
+        (Job.work_state == "client_silent", "client_silent"),
+        (Job.work_state == "searching", "searching"),
+        else_="to_review",
+    )
+
+
+async def request_statuses_and_stages(
+    db: AsyncSession, job_ids: Sequence[int]
+) -> dict[int, tuple[str, str]]:
+    """``{job_id: (request_status, request_stage)}`` jednym zapytaniem."""
+    if not job_ids:
+        return {}
+    sq = request_status_subquery(list(job_ids))
+    rows = (
+        await db.execute(
+            select(Job.id, request_status_expr(sq), request_stage_expr(sq))
+            .outerjoin(sq, sq.c.job_id == Job.id)
+            .where(Job.id.in_(list(job_ids)))
+        )
+    ).all()
+    return {job_id: (status, stage) for job_id, status, stage in rows}
 
 
 async def request_statuses(db: AsyncSession, job_ids: Sequence[int]) -> dict[int, str]:

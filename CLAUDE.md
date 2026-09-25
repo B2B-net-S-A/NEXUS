@@ -2501,23 +2501,44 @@ miejsce, nie zbiór funkcji.
   NADPISANIA (`null` = bez wyboru), bo rolę znamy dopiero po hydratacji;
   zapytanie listy ma `enabled: hydrated`. Szybkie filtry „Niezamknięte”
   i „Moje rekrutacje” usunięte — dublowały przełącznik. Zakres NIE liczy się
-  do „Filtry (N)”. Liczniki z `/api/jobs/quick-counts` (`all`, `open`,
-  `mine`), a pigułki statusu requestu mają liczby `request_status`
-  / `request_status_mine` liczone TYM SAMYM `request_status_expr` co filtr.
+  do liczby ustawionych filtrów. Liczniki z `/api/jobs/quick-counts` (`all`,
+  `open`, `mine`).
 - **Sortowanie domyślne zależy od zakresu** (`defaultSortForScope`):
   „Moje” → `sort=attention` („Wymaga uwagi”), „Otwarte”/„Wszystkie” →
   `newest`. `sort=deadline` = „Najbliższy termin” (bez terminu na końcu).
-- **Filtry listy (24.09.2026):** Termin (po terminie / w tym tygodniu / do 14
-  dni / bez terminu / zakres `dl_from`–`dl_to`), „Wysłanych do klienta”
-  (`sent` → backend `min_sent`/`max_sent`: OSOBY, które w rekrutacji doszły do
-  cv_sent, client_interview, acceptance albo hired wg
-  `analytics_first_milestones`; rozmowa wewnętrzna się nie liczy; min > max =
-  422) i Delivery Lead (`lead` → `delivery_lead_id` jako LISTA; pojedyncze id
-  z portalu DL działa dalej).
-- **Kolumna filtrów jest zwijana** (`store/ui.ts` v7, `jobsFiltersCollapsed`):
-  `null` = brak wyboru → rozwinięta od `2xl`, zwinięta poniżej — liczone
-  CSS-em (`hidden 2xl:block`), bez migotania przy hydracji. W trybie `null`
-  otwarty dok chowa filtry (trzy kolumny ucinały tabeli termin i akcje).
+- **Filtry = pasek nad tabelą, nie kolumna (25.09.2026, wariant A z makiet
+  https://claude.ai/artifact/4nGFAJ6N3NpjVWvLH9yjBH).** Z kolumny zniknęły
+  filtry bez danych albo dublujące: Typ, „Potrzebny search” (flaga nigdzie nie
+  ustawiona), „Aktywni w searchu” (liczył zamknięte), „Deadline ≤ 7 dni”
+  (= Termin), Status (= zakres), Priority Work (0 planów w historii), „Osoba
+  odpowiedzialna” (TAC nieużywany). Stare klucze adresu (`type`, `status`,
+  `responsible`, `sourcing`, `active_search`, `no_owner`, `priority`) NIE są
+  filtrem — zostają w `MANAGED_KEYS`, więc pierwszy zapis zdejmuje je z adresu;
+  `rs`/`ws` mapują się na pigułki stanu (`initialStagesFromUrl`). Parametry
+  API zostają (kompatybilność).
+  - **Jeden rząd „Stan requestu”**: Do uzupełnienia · Do przejrzenia · Szukamy
+    · Mamy championa · Umowa · Klient milczy (`lib/request-stage.ts`). Serwer
+    liczy JEDNĄ wartość na rekrutację — `job_similarity.request_stage_expr`
+    (closed → filled → contract → champion → szkic → work_state finished →
+    client_silent → searching → to_review) — parametr `request_stage`
+    (powtarzalny, LUB), pole wiersza `request_stage`, liczby `request_stage`
+    / `request_stage_mine`. Nie składaj tego z `request_status` + `work_state`
+    — te łączą się przez AND.
+  - **Pasek** (`components/v2/jobs/JobsFilterBar.tsx`, przycisk z okienkiem
+    `components/v2/filters/FilterBarPill.tsx` wspólny z listą kandydatów):
+    Klient, Delivery Lead (`lead`), **Kto pracuje** (`who` → `worked_by`,
+    „Ja” = własne id, „Nikt” = `nobody=1` → `nobody_working`), Kategoria,
+    Termin (preset + zakres `dl_from`–`dl_to`), „Więcej filtrów” z „Wysłanych
+    do klienta” (`sent` → `min_sent`/`max_sent`, OSOBY z
+    `analytics_first_milestones`). Przełączniki „Po terminie” (= Termin
+    `overdue`), „Nikt nie pracuje”, „Nikogo nie wysłano” (= `sent=none`)
+    z liczbami `attention` („Otwarte”) / `attention_mine` („Moje”);
+    „Wszystkie” bez liczb (objęłyby archiwum). Datę „Po terminie” liczy
+    przeglądarka i wysyła jako `overdue_to`.
+  - **„Kto pracuje” = `job_work_assignments.state <> 'released'`** — tak samo
+    jak pulpit „Requesty i obłożenie” i automat przydziału (propozycja z trybu
+    cienia się liczy). `jobs_worked_by_clause` / `jobs_nobody_working_clause`;
+    `worked_by` razem z `nobody_working=true` to LUB („ja albo nikt”).
 - **Kolumny:** „Etapy” = te same 8 kolumn co Tablica (Nowi … Zatrudniony),
   rozstrzygane `placeStage` z `lib/board-stages.ts` na `stage_columns` wiersza
   — tą samą regułą co Tablica (QC ma kod `interview`, a mimo to trafia do QC

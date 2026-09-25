@@ -495,9 +495,28 @@ dla niej nic się nie zmienia.
 której współpraca się skończyła, a Ty nie rozstrzygnąłeś jeszcze, co zrobić z jej
 niewykorzystanym limitem, stoi od razu w dolnej sekcji — „Aktywna obsada" ma mówić
 wyłącznie o tym, kto dziś pracuje. Żeby decyzja nie zginęła, nagłówek sekcji mówi,
-ile ich czeka: **„Zakończone · 2 wymagają decyzji"**, a przyciski
-**Zostaw jako historię / Zastąp kimś innym / Usuń z zamówienia** stoją przy
-wierszu tak samo jak wcześniej.
+ile osób jest w sekcji i ile czeka: **„Zakończone (3) · 2 wymagają decyzji"**.
+Sekcja z czekającą decyzją jest rozwinięta, a karty z decyzją stoją na górze —
+na czerwonym tle, z przyciskiem **Podejmij decyzję**. Gdy nic nie czeka, sekcja
+jest zwinięta do samego nagłówka.
+
+**Karta osoby w „Zakończonych" jest zwinięta do jednej linii:** imię i nazwisko,
+plakietka, okres na zamówieniu („01.05.2026 – 31.08.2026"), wykorzystanie
+(„25,45 MD · 25 450,00 zł" — kwotę widzi rola z dostępem do stawek) i po prawej
+przycisk **Podejmij decyzję** albo szary opis podjętej decyzji („Zostawiony jako
+historia", „Zastąpiony przez …", „Pula MD przeniesiona"). Plakietki są tylko
+dwie:
+
+* **Zakończył współpracę** — umowa B2B rozwiązana (wypowiedzenie albo
+  porozumienie stron);
+* **Zakończył projekt** — osoba skończyła pracę na tym zamówieniu, a umowa B2B
+  nadal obowiązuje.
+
+Kliknięcie w kartę albo w **Szczegóły** pokazuje resztę: stawki (tylko role
+z dostępem do stawek), pasek puli MD, kto i kiedy dodał osobę ręcznie, stan
+umowy (ostatni dzień umowy i tryb albo „Umowa B2B nadal obowiązuje"), przycisk
+**Zużycie MD** i ikonę edycji. To, że wykorzystana kwota nie wraca do puli,
+mówi ikona **i** przy nagłówku sekcji.
 
 Dwie rzeczy, które celowo działają inaczej, niż mógłbyś się spodziewać:
 
@@ -526,17 +545,17 @@ powstaje z niego nowe zamówienie okresowe, a pozostałe zamówienia tej osoby n
 zmieniają się. Stawka klienta zapisana z tej linii znika jednak z umowy —
 okno usuwania (już nie zwykłe „OK / Anuluj”) mówi, czy umowa przejdzie na
 stawkę innego zamówienia, czy zostanie **bez przychodu**. Osoby, która ma już
-zafakturowaną kwotę albo zaraportowane MD, **nie usuniesz** (kosz jest
-wyszarzony, a system odmówi): usunięcie skasowałoby jej rozliczenia. Gdy
-współpraca się skończyła, użyj **Zostaw jako historię**, **Zastąp kimś innym**
-albo **Zakończ**.
+zafakturowaną kwotę albo zaraportowane MD, **nie usuniesz** (kosz i opcja
+w oknie decyzji są wyszarzone, a system odmówi): usunięcie skasowałoby jej
+rozliczenia. Gdy współpraca się skończyła, użyj **Podejmij decyzję** →
+**Zostaw jako historię** albo **Zastąp kimś innym**, albo **Zakończ**.
 
-**Zastąpienie nie zwraca zużycia do puli — u każdego klienta.** Pod osobą, która nie jest już na aktywnej obsadzie, stoi zdanie w rodzaju
-**„Jan Kowalski wykorzystał(a) 12 000,00 zł / 12 MD na tym zamówieniu przed
-zakończeniem współpracy — ta kwota nie wraca do puli dostępnej dla innych
-konsultantów"** (na zamówieniu kosztowym — kwota faktur; na zamówieniu MD —
-liczba MD, a przy dostępie do kwot także ich wartość). Zastępca dostaje własny
-budżet — MD i kwota wykorzystane przez poprzednika zostają przy poprzedniku.
+**Zastąpienie nie zwraca zużycia do puli — u każdego klienta.** Karta osoby
+w „Zakończonych" pokazuje, ile wykorzystała (na zamówieniu kosztowym — kwota
+faktur; na zamówieniu MD — liczba MD, a przy dostępie do kwot także ich
+wartość), a ikona **i** przy nagłówku sekcji przypomina, że ta kwota nie wraca
+do puli dostępnej dla innych konsultantów. Zastępca dostaje własny budżet — MD
+i kwota wykorzystane przez poprzednika zostają przy poprzedniku.
 
 **Każde usunięcie trafia do Historii zdarzeń.** Usunięcie całego zamówienia,
 konsultanta z zamówienia albo zamówienia okresowego — a także próba, której
@@ -545,19 +564,21 @@ Admina i Finansów): kto, kiedy, czego dotyczyło i z jakim wynikiem. Ten zapis
 zostaje także wtedy, gdy historia samego zamówienia znika razem z nim.
 
 Przy osobie, która **zakończyła współpracę**, a została na zamówieniu, karta
-pokazuje: „Ta osoba nie ma już aktywnej współpracy…" i trzy przyciski:
+ma przycisk **Podejmij decyzję**. Otwiera on okno z trzema opcjami:
 **Zostaw jako historię** (zapisuje, kto i kiedy zdecydował), **Zastąp kimś
 innym** (na zamówieniu MD z pulą przy osobie nowa osoba **przejmuje pozostałe MD**
 odchodzącej — zasady w „Przejęcie pozostałych MD" niżej; na zamówieniu
 kosztowym i przy wspólnej puli dołącza **obok**, a historia zapisze, za kogo jest
 zastępstwem) i **Usuń z zamówienia** (tylko gdy osoba
-nie ma rozliczeń — inaczej przycisk jest wyszarzony). Przy zamówieniu MD
-z czekającą decyzją o pozostałych MD najpierw obowiązuje przycisk „Podejmij
-decyzję" (niżej).
+nie ma rozliczeń — inaczej opcja jest wyszarzona). Po decyzji karta robi się
+szara, a w szczegółach jest przycisk **Zmień decyzję** — zostawienie jako
+historii da się jeszcze zamienić na zastępstwo albo usunięcie. Przy zamówieniu
+MD z czekającą decyzją o pozostałych MD to samo okno prowadzi do decyzji
+o puli (niżej).
 
 Gdy po
-zakończeniu współpracy czeka decyzja o pozostałych MD, **ikonki znikają, a na ich
-miejscu stoi czerwony przycisk „Podejmij decyzję"**. Dopóki go nie klikniesz,
+zakończeniu współpracy czeka decyzja o pozostałych MD, **„Podejmij decyzję"
+prowadzi do okna „Decyzja o pozostałej puli MD"**. Dopóki jej nie podejmiesz,
 zablokowana jest nie tylko ta osoba, ale **całe zamówienie**: nie zadziała ani
 „Uzupełnij zamówienie", ani „Zakończ", „Przywróć" i „Usuń całe zamówienie".
 Jeżeli któryś z tych przycisków odmawia bez wyraźnego powodu — poszukaj na
@@ -565,7 +586,7 @@ karcie osoby z czekającą decyzją.
 
 **Decyzja dotyczy tylko osoby, której zostały MD.** Gdy pula osoby jest
 wykorzystana w całości (0 MD), system nie pyta o decyzję: osoba trafia do
-zakończonych z oznaczeniem „Zakończył współpracę · pula wykorzystana”. Tak samo
+zakończonych z opisem „Pula MD wykorzystana”. Tak samo
 czekająca decyzja zamyka się sama, gdy późniejszy import z Finansów wyzeruje
 pulę tej osoby — wpis zostaje w historii zamówienia. Przy wspólnej puli MD
 decyzja o obsadzie jest potrzebna jak dotąd.

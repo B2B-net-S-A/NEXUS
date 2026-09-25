@@ -29,7 +29,11 @@ describe("Harness /preview/order-md-scopes", () => {
     expect(screen.getAllByText(/Wykorzystano wartości umowy/)).toHaveLength(1);
     // Karta konsultanta CeZ: zastąpiony → następca, brak opcji w umowie,
     // przekroczenie i korekta ręczna wprost przy „Łącznie".
-    expect(screen.getAllByText("Zastąpiony")).toHaveLength(2);
+    // Zastąpiony stoi w zwiniętej sekcji „Zakończone” (nic nie czeka na decyzję).
+    const completedToggles = screen.getAllByRole("button", { name: "Zakończone (1)" });
+    expect(completedToggles).toHaveLength(2);
+    await user.click(completedToggles[0]);
+    expect(screen.getByText("Zastąpiony przez Marcin Następca")).toBeInTheDocument();
     expect(screen.getAllByText("Brak opcji w umowie").length).toBeGreaterThan(0);
     expect(screen.getAllByText(/przekroczono o 8 MD/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/w tym korekta \+10 MD/).length).toBeGreaterThan(0);
