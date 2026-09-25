@@ -127,3 +127,25 @@ class TestCancelledRequestsAreDropped:
         exc = ValueError("real bug")
         hint = {"exc_info": (type(exc), exc, None)}
         assert _sentry_before_send(_app_event(), hint) is not None
+
+
+class TestGracefulShutdownLogIsDropped:
+    """NEXUS-BE-3S: uvicorn przy każdym deployu loguje na ERROR ucięcie
+    żądań po UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN — świadomy limit, nie błąd."""
+
+    @staticmethod
+    def _record(name: str, msg: str):
+        import logging
+
+        return logging.LogRecord(name, logging.ERROR, __file__, 1, msg, (3,), None)
+
+    def test_uvicorn_shutdown_cancel_is_dropped(self):
+        record = self._record(
+            "uvicorn.error",
+            "Cancel %s running task(s), timeout graceful shutdown exceeded",
+        )
+        assert _sentry_before_send({}, {"log_record": record}) is None
+
+    def test_other_uvicorn_errors_are_kept(self):
+        record = self._record("uvicorn.error", "Exception in ASGI application")
+        assert _sentry_before_send({}, {"log_record": record}) is not None
