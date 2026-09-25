@@ -418,8 +418,9 @@ class Settings(BaseSettings):
     # (`scripts/compare_keyword_fold_fts.py`) i po uzupełnieniu kolumn przez
     # pętlę `keyword_corpus_backfill` (do tego czasu zawsze stara ścieżka).
     KEYWORD_SEARCH_FOLDED_FTS: bool = False
-    # Lista kandydatów: filtr i sortowanie po samych identyfikatorach, liczba
-    # osobnym `count(*)`, pełne wiersze tylko dla strony (`_list_page_ids_first`).
+    # Lista kandydatów: filtr, sortowanie i `count(*) OVER()` po samych
+    # identyfikatorach (filtr raz), pełne wiersze tylko dla strony
+    # (`_list_page_ids_first`).
     # Wyniki i kolejność bez zmian; `false` wraca do `count(*) OVER()` na
     # pełnych wierszach (385 ms bez filtra, audyt 25.09.2026).
     CANDIDATE_LIST_IDS_FIRST: bool = True

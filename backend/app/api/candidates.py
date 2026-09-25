@@ -1487,37 +1487,45 @@ async def _list_page_ids_first(
     page: int,
     page_size: int,
 ) -> tuple[list[Candidate], int, list[list[str]]]:
-    """Strona listy: najpierw identyfikatory, potem 50 pełnych wierszy.
+    """Strona listy: identyfikatory z liczbą w jednym przebiegu, potem pełne wiersze.
 
     Audyt 25.09.2026: ``count(*) OVER()`` na ``select(Candidate)`` przepuszczał
     przez sortowanie CAŁY wynik ze wszystkimi kolumnami (tekst CV, JSON-y) —
-    bez filtra 170 MB na dysk tymczasowy i 385 ms, przy „java” ~160 ms. Tu
-    filtr i sortowanie idą po samych identyfikatorach, liczba osobnym
-    ``count(*)``, a relacje i szerokie kolumny ładują się tylko dla strony.
-    Kolejność, liczba i zachowanie strony poza zakresem — jak dotąd.
+    bez filtra 170 MB na dysk tymczasowy i 385 ms. Tu to samo okno liczy się
+    na samych identyfikatorach (bez filtra ~50 ms), więc filtr słów kluczowych
+    wykonuje się RAZ — osobne ``count(*)`` liczyłoby drogi regex dwa razy.
+    Relacje i szerokie kolumny ładują się tylko dla strony. Kolejność, liczba
+    i zachowanie strony poza zakresem — jak dotąd.
     """
     query, q_any_groups = await _build_candidate_filtered_query(
         db, filters, semantic_pool_ids=pool_ids
     )
     ids_query = query.with_only_columns(Candidate.id)
-    total = int(
-        await db.scalar(
-            select(func.count()).select_from(ids_query.order_by(None).subquery())
-        )
-        or 0
-    )
-    if not total:
-        return [], 0, q_any_groups
     page_query = _apply_candidate_sort(
         ids_query, filters, q_any_groups, pool_order=pool_ids
     )
-    page_ids = list(
-        (
-            await db.execute(page_query.offset((page - 1) * page_size).limit(page_size))
-        ).scalars()
-    )
-    if not page_ids:
+    rows = (
+        await db.execute(
+            page_query.add_columns(func.count().over().label("total_count"))
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+    ).all()
+    if not rows:
+        total = 0
+        if page > 1:
+            # Strona poza zakresem: okno nie niesie sumy (brak wierszy).
+            total = int(
+                await db.scalar(
+                    select(func.count()).select_from(
+                        ids_query.order_by(None).subquery()
+                    )
+                )
+                or 0
+            )
         return [], total, q_any_groups
+    page_ids = [row[0] for row in rows]
+    total = int(rows[0].total_count)
     loaded = (
         await db.execute(
             select(Candidate)

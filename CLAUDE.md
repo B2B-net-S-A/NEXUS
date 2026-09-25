@@ -7786,7 +7786,7 @@ kluczowe 0,9–2 s, „c#” 5,9 s; 68% czasu „java” zjadał regex po `keywo
   analizy AI). Paragon: `app_settings['0385_traffit_note_content_unwrap']`.
 - **Lista `GET /api/candidates` liczy „najpierw id”** (`_list_page_ids_first`,
   wyłącznik `CANDIDATE_LIST_IDS_FIRST`): filtr i sortowanie po samych
-  identyfikatorach, liczba osobnym `count(*)`, pełne wiersze z relacjami tylko
+  identyfikatorach, liczba z okna `count(*) OVER()` na samych id (filtr raz — osobne `count(*)` liczyłoby regex dwa razy), pełne wiersze z relacjami tylko
   dla strony. Nie wracaj do `count(*) OVER()` na `select(Candidate)` — przepuszczał
   przez sortowanie wszystkie kolumny (bez filtra 385 ms, 170 MB na dysk
   tymczasowy). `skills_manually_curated` zostaje nieodłożone (po zmianie liczy
