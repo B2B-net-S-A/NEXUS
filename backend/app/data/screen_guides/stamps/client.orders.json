@@ -1,5 +1,5 @@
 {
-  "entry": "a9707a027d22d87399551d811399f8f9d701f4299ccbe66b4e6e9c82bfd49b50",
+  "entry": "596cf3e3726a81a4a062b8e638d119224920aebeaf6abf85940e94713e80b26f",
   "guide": "client.orders",
   "sources": {
     "frontend/src/components/client-profile/orders/AssignToOrderModal.tsx": "4276f76150fef4dd46b0844348ecdf774b3e8428352693930ca8c4ffa424bcbd",

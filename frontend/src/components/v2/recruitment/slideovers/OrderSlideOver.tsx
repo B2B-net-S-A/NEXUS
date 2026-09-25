@@ -419,6 +419,8 @@ function scrollToWhenReady(anchor: string, timeoutMs = 3000): void {
   if (typeof window === "undefined") return;
   const started = Date.now();
   const tick = () => {
+    // Timer potrafi odpalić po rozmontowaniu (w testach — po zamknięciu jsdom).
+    if (typeof document === "undefined") return;
     const el = document.getElementById(anchor);
     if (el) {
       el.scrollIntoView?.({ block: "start", behavior: "smooth" });
