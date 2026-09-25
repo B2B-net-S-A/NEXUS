@@ -2519,6 +2519,91 @@ class TraffitImporter:
             ).fetchall()
         }
 
+        # Commit paczkami (audyt 25.09.2026). Faza trzymała JEDNĄ transakcję
+        # przez cały feed — przy pełnym biegu ~4,3 tys. zapytań HTTP o detal
+        # rekrutacji (5 rps ≈ 15 min) z otwartą transakcją i blokadami wierszy
+        # `jobs`. Wszystko, co dotąd szło „po fazie” i dotyczy zapisanych
+        # wierszy (zdarzenia dla automatów, intencje indeksu, archiwum,
+        # kategorie), idzie teraz z KAŻDĄ paczką, w tej samej transakcji co jej
+        # wiersze — bo stan „przed importem” (`before_import`) jest migawką ze
+        # startu fazy: rekrutacja zapisana w przerwanym biegu nie byłaby w
+        # następnym „zmieniona” i nie dostałaby już intencji ani zdarzenia.
+        commit_every = 200
+        since_commit = 0
+
+        async def _flush_batch() -> None:
+            nonlocal since_commit
+            # Audyt 22.09 r2 (DATA-01/PROD-03): import Traffita (99% rekrutacji)
+            # NIE zapisywał zdarzeń rekrutacji, więc nocny przegląd bazy,
+            # auto-match nowej rekrutacji i dzwonek „Moi ludzie" nie ruszyły
+            # ani razu od 21.09 (0 wierszy z `job_id` w kolejce).
+            from app.services.auto_match_outbox import enqueue_job
+
+            for job_id in event_job_ids:
+                try:
+                    await enqueue_job(self.db, job_id=job_id, trigger="traffit_job")
+                    progress.job_events += 1
+                except Exception as exc:  # noqa: BLE001
+                    # Brak zdarzenia = rekrutacja poczeka na ręczną zmianę;
+                    # nie wywracamy importu rekrutacji.
+                    logger.warning("Jobs: enqueue_job job=%s failed: %r", job_id, exc)
+            event_job_ids.clear()
+
+            # Intencja przeindeksowania rekrutacji — jak dla kandydatów.
+            # `_UPSERT_JOB` nadpisuje `title`, a tytuł WCHODZI do tekstu
+            # embeddingu (`_build_job_text`), więc każda nocna zmiana tytułu
+            # zostawiała wektor nieaktualny NA STAŁE. Audyt 18.09.2026: 128 z 307
+            # opublikowanych rekrutacji (41,7%) bez wektora.
+            #
+            # Zapis PRZED commitem, w tej samej transakcji — import wycofany nie
+            # może zostawić intencji dla wierszy, których nie ma.
+            if touched_job_ids:
+                from app.services.index_outbox_service import (
+                    JOB,
+                    record_bulk_reindex,
+                )
+
+                try:
+                    progress.index_intents += await record_bulk_reindex(
+                        self.db, JOB, list(touched_job_ids)
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    # Brak intencji to opóźniony wektor, nie utracony import —
+                    # reconciler i tak go dogoni.
+                    progress.add_error(f"record job reindex intent: {exc!r}")
+                touched_job_ids.clear()
+
+            # Archiwum z Traffita: stan „Zakończony” i `is_open=false` to kolumny
+            # NEXUSA, więc nie pisze ich `_UPSERT_JOB` (test własności kolumn) —
+            # robi to ten krok. Przełączone „Prowadzona w NEXUSIE” pomija.
+            # Idempotentny UPDATE — z każdą paczką, żeby zatwierdzona paczka nie
+            # pokazała rekrutacji z Traffita jako otwartych do końca fazy.
+            from app.services.traffit_job_archive import archive_traffit_jobs
+
+            try:
+                async with self.db.begin_nested():
+                    progress.archived += await archive_traffit_jobs(self.db)
+            except Exception as exc:  # noqa: BLE001
+                progress.add_error(f"archive traffit jobs: {exc!r}")
+
+            # Kategoria kompetencji dla nowych rekrutacji z Traffita — import jej
+            # nie nadawał, więc 734 rekrutacje (24.09.2026) nie miały kategorii,
+            # a „Podobne rekrutacje” liczą wspólną kategorię.
+            if inserted_job_ids:
+                from app.services.job_cc import classify_missing_job_ccs
+
+                try:
+                    async with self.db.begin_nested():
+                        progress.categorised += await classify_missing_job_ccs(
+                            self.db, list(inserted_job_ids)
+                        )
+                except Exception as exc:  # noqa: BLE001
+                    progress.add_error(f"classify job categories: {exc!r}")
+                inserted_job_ids.clear()
+
+            await self.db.commit()
+            since_commit = 0
+
         async for raw in self.traffit.get_paginated(
             "/recruitments/",
             page_size=self.batch_size,
@@ -2710,70 +2795,12 @@ class TraffitImporter:
                 progress.inserted += 1
             else:
                 progress.updated += 1
+            since_commit += 1
+            if since_commit >= commit_every:
+                await _flush_batch()
 
         if not self.dry_run:
-            # Audyt 22.09 r2 (DATA-01/PROD-03): import Traffita (99% rekrutacji)
-            # NIE zapisywał zdarzeń rekrutacji, więc nocny przegląd bazy,
-            # auto-match nowej rekrutacji i dzwonek „Moi ludzie" nie ruszyły
-            # ani razu od 21.09 (0 wierszy z `job_id` w kolejce).
-            from app.services.auto_match_outbox import enqueue_job
-
-            for job_id in event_job_ids:
-                try:
-                    await enqueue_job(self.db, job_id=job_id, trigger="traffit_job")
-                    progress.job_events += 1
-                except Exception as exc:  # noqa: BLE001
-                    # Brak zdarzenia = rekrutacja poczeka na ręczną zmianę;
-                    # nie wywracamy importu rekrutacji.
-                    logger.warning("Jobs: enqueue_job job=%s failed: %r", job_id, exc)
-
-        # Intencja przeindeksowania rekrutacji — jak dla kandydatów.
-        # `_UPSERT_JOB` nadpisuje `title`, a tytuł WCHODZI do tekstu embeddingu
-        # (`_build_job_text`), więc każda nocna zmiana tytułu zostawiała wektor
-        # nieaktualny NA STAŁE: importer nie zapisywał dla ofert żadnej
-        # intencji, a reconciler, który by to wyłapał, był wyłączony. Audyt
-        # 18.09.2026: 128 z 307 opublikowanych rekrutacji (41,7%) bez wektora.
-        #
-        # Zapis PRZED commitem, w tej samej transakcji — import wycofany nie
-        # może zostawić intencji dla wierszy, których nie ma.
-        if touched_job_ids and not self.dry_run:
-            from app.services.index_outbox_service import JOB, record_bulk_reindex
-
-            try:
-                progress.index_intents = await record_bulk_reindex(
-                    self.db, JOB, touched_job_ids
-                )
-            except Exception as exc:  # noqa: BLE001
-                # Brak intencji to opóźniony wektor, nie utracony import —
-                # reconciler i tak go dogoni. Wywrócenie fazy kosztowałoby
-                # wszystkie rekrutacje zapisane w tym biegu.
-                progress.add_error(f"record job reindex intent: {exc!r}")
-
-        # Archiwum z Traffita: stan „Zakończony” i `is_open=false` to kolumny
-        # NEXUSA, więc nie pisze ich `_UPSERT_JOB` (test własności kolumn) —
-        # robi to ten krok, po fazie. Przełączone „Prowadzona w NEXUSIE” pomija.
-        if not self.dry_run:
-            from app.services.traffit_job_archive import archive_traffit_jobs
-
-            try:
-                async with self.db.begin_nested():
-                    progress.archived = await archive_traffit_jobs(self.db)
-            except Exception as exc:  # noqa: BLE001
-                progress.add_error(f"archive traffit jobs: {exc!r}")
-
-        # Kategoria kompetencji dla nowych rekrutacji z Traffita — import jej
-        # nie nadawał, więc 734 rekrutacje (24.09.2026) nie miały kategorii,
-        # a „Podobne rekrutacje” liczą wspólną kategorię.
-        if inserted_job_ids and not self.dry_run:
-            from app.services.job_cc import classify_missing_job_ccs
-
-            try:
-                async with self.db.begin_nested():
-                    progress.categorised = await classify_missing_job_ccs(
-                        self.db, inserted_job_ids
-                    )
-            except Exception as exc:  # noqa: BLE001
-                progress.add_error(f"classify job categories: {exc!r}")
+            await _flush_batch()
 
         # Rekrutacja z Traffita nie niesie Delivery Leada — dostaje głównego
         # DL-a klienta (decyzja Artura 24.09.2026). Uzupełnienie, nie nadpis.
