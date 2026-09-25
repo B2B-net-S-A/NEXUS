@@ -67,6 +67,9 @@ globalna ma już `Meeting recording` i `Transcription` włączone, ale
 `Require participant agreement for recording, transcription, and Copilot` jest
 wyłączone. Przed automatycznym nagrywaniem przypisz organizatorom politykę
 z wymaganą zgodą i sprawdź faktyczny ekran zgody u uczestnika testowego.
+Sprawdź też `AutoRecording=Enabled` dla tych organizatorów: Microsoft wymaga
+tej polityki, aby ustawienie „Record and transcribe automatically” było
+dostępne. Samo `allowTranscription=true` jedynie zezwala na transkrypcję.
 
 Osobno: Teams admin center → Meetings → Meeting settings → Transcript API
 access → Microsoft Graph access. Ten przełącznik jest domyślnie wyłączony i
