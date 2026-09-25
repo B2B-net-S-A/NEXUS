@@ -9743,6 +9743,40 @@ async def repair():
 asyncio.run(repair())
 PY
 
+# Zdublowane kontakty klienta z Traffita (25.09.2026) — jednorazowo: trzy pary
+# tej samej osoby u tego samego klienta. Zostaje kontakt o niższym id, drugi
+# rekord Traffita dostaje alias (`traffit_contact_aliases`), żeby nocny import
+# go nie odtworzył. Logika w `app/services/contact_duplicate_merge.py`,
+# przypięta do id. Marker + advisory lock; porażka nie zapisuje niczego.
+startup_phase "repair-contact-duplicates"
+echo "Contacts: merge Traffit duplicates from 25.09 (one-shot)..."
+python - <<'PY' || echo "contact duplicate merge skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.contact_duplicate_merge import (
+    run_contact_duplicate_merge,
+    summarize_for_log,
+)
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_contact_duplicate_merge(db)
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001 — treść błędu może nieść dane osób
+            await db.rollback()
+            sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+            print(
+                f"contact duplicate merge failed ({type(exc).__name__}, "
+                f"sqlstate={sqlstate}); nothing written, next start retries"
+            )
+            return
+    print(f"contact duplicate merge: {summarize_for_log(summary)}")
+
+asyncio.run(repair())
+PY
+
 # Zdublowane maile M365 (INT-14, audyt 22.09.2026) — jednorazowo: ta sama
 # skrzynka + ten sam internetMessageId = jeden wiersz (zostaje ten z kluczem
 # wysyłki, inaczej najstarszy; przejmuje aktualne ID Graph, kandydata,

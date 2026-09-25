@@ -3028,6 +3028,14 @@ Artura: osobę wpisuje każdy, kto redaguje rekrutację (także rekruter).
   klienta (`hiring_manager_contact_id`); nazwy kontaktów nie idą do promptu.
   `/jobs/new` zapisuje HM zaraz po `POST /api/jobs` — awaria = toast, rekrutacja
   zostaje.
+- **Duplikaty kontaktów z Traffita scala się ALIASEM, nie samym usunięciem**
+  (`services/contact_duplicate_merge.py`): faza `contacts` nocnego syncu
+  przegląda wszystkie `/crm_persons/` i robi upsert po `external_id`, więc
+  usunięty duplikat wróciłby następnej nocy. Scalenie przepina rekrutacje
+  i kontrakty na kontakt o niższym id, uzupełnia jego puste pola i zapisuje
+  `app_settings['traffit_contact_aliases']` (id rekordu Traffita → kontakt),
+  a import pomija rekordy z aliasem (`skipped`). Pierwsze 3 pary: blok
+  `repair-contact-duplicates` w entrypoincie (25.09.2026).
 
 ## Trzy nazwy rekrutacji (0380, 25.09.2026)
 

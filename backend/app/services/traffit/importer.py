@@ -1540,11 +1540,20 @@ class TraffitImporter:
 
         client_map = await self._build_client_external_id_map()
         orphan_id = await self._ensure_orphan_client()
+        # Rekordy Traffita scalone w inny kontakt (ta sama osoba dwa razy
+        # w Trafficie). Bez tego upsert po external_id odtwarzałby co noc
+        # usunięty duplikat — `services/contact_duplicate_merge.py`.
+        from app.services.contact_duplicate_merge import load_traffit_contact_aliases
+
+        merged_ids = set(await load_traffit_contact_aliases(self.db))
 
         async for raw in self.traffit.get_paginated(
             "/crm_persons/", page_size=self.batch_size
         ):
             progress.processed += 1
+            if str(raw.get("id")) in merged_ids:
+                progress.skipped += 1
+                continue
             try:
                 payload = traffit_crm_person_to_nexus(raw, client_map, orphan_id)
             except Exception as e:  # noqa: BLE001
