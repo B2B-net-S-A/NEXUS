@@ -28,6 +28,9 @@ export const clientQuestionPoolQueryKey = (
   id: number,
   limit: number,
 ) => ["interview-cycle", "client-questions", "pool", by, id, limit] as const;
+/** Archiwum rozmów (0383) wybrane po technologiach roli tej rekrutacji. */
+export const clientQuestionArchiveQueryKey = (jobId: number) =>
+  ["interview-cycle", "client-questions", "archive", jobId] as const;
 export const debriefQueryKey = (eventId: number) =>
   ["interview-cycle", "debrief", eventId] as const;
 export const interviewEventQueryKey = (eventId: number) =>
@@ -93,12 +96,25 @@ export const interviewCycleApi = {
         params: by === "job" ? { job_id: id, limit } : { client_id: id, limit },
       })
       .then((r) => r.data),
+  clientQuestionArchive: (jobId: number, limit = 20) =>
+    api
+      .get<ArchiveQuestion[]>("/api/interview-cycle/client-questions/archive", {
+        params: { job_id: jobId, limit },
+      })
+      .then((r) => r.data),
 };
 
 export interface ClientQuestion {
   id: number;
   text: string;
   created_at: string | null;
+}
+
+export interface ArchiveQuestion {
+  id: number;
+  text: string;
+  /** Technologie tej rekrutacji, o które pyta pytanie. */
+  matched: string[];
 }
 
 export function useInterviewCycle(
@@ -111,6 +127,19 @@ export function useInterviewCycle(
     enabled,
     refetchInterval: CYCLE_REFETCH_MS,
     staleTime: 30_000,
+  });
+}
+
+/**
+ * Archiwum pytań z rozmów tego klienta (Excel rekruterów sprzed NEXUSA),
+ * tylko o technologie tej roli. Pobierane dopiero po rozwinięciu sekcji.
+ */
+export function useClientQuestionArchive(jobId: number | null, enabled: boolean) {
+  return useQuery({
+    queryKey: clientQuestionArchiveQueryKey(jobId ?? 0),
+    queryFn: () => interviewCycleApi.clientQuestionArchive(jobId as number),
+    enabled: enabled && jobId != null,
+    staleTime: 5 * 60_000,
   });
 }
 

@@ -138,6 +138,8 @@ DECISION_2026_09_16 = {
     # F23 — decyzja 24.09.2026: sortowanie zgłoszeń do akademii, jak F10.
     AIFeatureKey.academy_screening: ("F23", "gpt-6-luna"),
     AIFeatureKey.prep_review: ("F24", "gpt-6-luna"),
+    # F25 — decyzja 25.09.2026: jednorazowy import archiwum pytań z interview.
+    AIFeatureKey.interview_question_import: ("F25", "gpt-6-luna"),
 }
 
 

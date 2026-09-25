@@ -268,6 +268,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'academy_screening'",
     # 0370: ocena prepu z transkryptu Teams (GPT-6 Luna).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'prep_review'",
+    # 0383: import archiwum pytań z interview (GPT-6 Luna, jednorazowy skrypt).
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'interview_question_import'",
     # 0233: cotygodniowy digest dopasowań (match_digest_loop)
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'match_digest'",
     # Autenti e-signature (migration 0079_autenti_signatures): 4 nowe wartości
@@ -662,6 +664,9 @@ _ENUM_STATEMENTS = [
     # InvalidTextRepresentationError.
     "ALTER TYPE eventtype ADD VALUE IF NOT EXISTS 'client_interview'",
     "ALTER TYPE interviewquestionsource ADD VALUE IF NOT EXISTS 'client_debrief'",
+    # 0383: archiwum pytań z interview (Excel rekruterów) — osobne źródło,
+    # którego nie czytają listy „najnowsze N pytań klienta”.
+    "ALTER TYPE interviewquestionsource ADD VALUE IF NOT EXISTS 'legacy_import'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'interview_slots_requested'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'interview_slot_chosen'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'interview_slot_confirmed'",
@@ -6328,6 +6333,11 @@ _DATA_STATEMENTS = [
     "SELECT 'prep_review', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'prep_review')",
+    # 0383: seed feature'a AI `interview_question_import` (import archiwum pytań).
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'interview_question_import', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'interview_question_import')",
     # 0238: jednorazowa korekta dziewięciu kontraktów BIK. Marker i UPDATE są
     # jednym statementem: entrypoint leci przy każdym starcie, więc bez guardu
     # ponownie aktywowałby kontrakt świadomie zakończony później przez admina.

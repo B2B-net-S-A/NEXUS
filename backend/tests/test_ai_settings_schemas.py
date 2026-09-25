@@ -85,6 +85,8 @@ class TestFeatureKeyEnum:
             "academy_screening",
             # 0370: ocena prepu z transkryptu Teams.
             "prep_review",
+            # 0383: import archiwum pytań z interview (jednorazowy skrypt).
+            "interview_question_import",
         }
 
     def test_every_key_has_label_and_data_descriptor(self):

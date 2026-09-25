@@ -1839,8 +1839,16 @@ async def create_job(
         activity_details = {"source_job_id": src_job.id}
         # Skopiuj pinned interview questions (job_questions) z source jobu —
         # idempotentne dzięki unique (job_id, question_id) na junction table.
+        # Bez archiwum rozmów (0383): stara rekrutacja ma przypięte dziesiątki
+        # pytań z Excela rekruterów, a przypięte pytanie wchodzi do oceny prepu
+        # — kopia hurtem dałaby każdemu prepowi nowej rekrutacji ocenę „słaby”.
+        # Archiwum dociera do nowej rekrutacji po roli (prep-kit).
         if data.copy_questions:
-            from app.models.interview_question import JobQuestion
+            from app.models.interview_question import (
+                InterviewQuestion,
+                InterviewQuestionSource,
+                JobQuestion,
+            )
 
             existing_links = (
                 await db.execute(
@@ -1849,7 +1857,16 @@ async def create_job(
                         JobQuestion.is_pinned,
                         JobQuestion.added_by_source,
                         JobQuestion.order_index,
-                    ).where(JobQuestion.job_id == src_job.id)
+                    )
+                    .join(
+                        InterviewQuestion,
+                        InterviewQuestion.id == JobQuestion.question_id,
+                    )
+                    .where(
+                        JobQuestion.job_id == src_job.id,
+                        InterviewQuestion.source
+                        != InterviewQuestionSource.legacy_import,
+                    )
                 )
             ).all()
             for question_id, is_pinned, added_by_source, order_index in existing_links:

@@ -288,6 +288,13 @@ class ClientQuestionOut(BaseModel):
     created_at: Optional[datetime] = None
 
 
+class ArchiveQuestionOut(BaseModel):
+    id: int
+    text: str
+    # Technologie tej rekrutacji, o które pyta pytanie — dlaczego je widać.
+    matched: list[str]
+
+
 # ── Pomocnicze ───────────────────────────────────────────────────────────────
 
 
@@ -415,6 +422,11 @@ async def _save_client_questions(
                 )
                 if question is None:
                     continue
+            saved += 1
+        elif question.source == InterviewQuestionSource.legacy_import:
+            # Klient zadał znowu pytanie z archiwum rozmów (0383) — od teraz to
+            # zwykły debrief i trafia do list „co klient pytał ostatnio”.
+            question.source = InterviewQuestionSource.client_debrief
             saved += 1
         if job_id is not None:
             pinned = await db.scalar(
@@ -898,4 +910,40 @@ async def list_client_questions(
     ).scalars()
     return [
         ClientQuestionOut(id=q.id, text=q.text, created_at=q.created_at) for q in rows
+    ]
+
+
+@router.get(
+    "/interview-cycle/client-questions/archive",
+    response_model=list[ArchiveQuestionOut],
+)
+async def list_client_question_archive(
+    current_user: RecruitmentReadAccess,
+    job_id: int = Query(...),
+    limit: int = Query(20, ge=1, le=50),
+    db: AsyncSession = Depends(get_db),
+) -> list[ArchiveQuestionOut]:
+    """Archiwum rozmów tego klienta (0383), wybrane po technologiach roli.
+
+    Osobna trasa, a nie pole w ``client-questions``: tamta lista to „co klient
+    pytał ostatnio” i ma zostać taka sama jak przed importem archiwum.
+    """
+    from app.services.client_question_archive import archive_questions_for_role
+    from app.services.question_suggestions import job_requirement_names
+
+    await ensure_job_read_access(db, current_user, job_id)
+    job = await db.get(Job, job_id)
+    if job is None or job.client_id is None:
+        return []
+    matches = await archive_questions_for_role(
+        db,
+        client_id=job.client_id,
+        requirement_names=job_requirement_names(job),
+        limit=limit,
+    )
+    return [
+        ArchiveQuestionOut(
+            id=m.question.id, text=m.question.text, matched=list(m.matched)
+        )
+        for m in matches
     ]

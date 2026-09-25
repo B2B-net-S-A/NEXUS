@@ -111,6 +111,44 @@ describe("ChampionClientQuestionsPanel", () => {
     expect(await screen.findByTestId("champion-client-question-1")).toBeInTheDocument();
   });
 
+  it("archiwum rozmów pobiera się dopiero po rozwinięciu i pokazuje, co pasuje", async () => {
+    mocks.get.mockImplementation((url: string) =>
+      Promise.resolve({
+        data:
+          url === "/api/interview-cycle/client-questions/archive"
+            ? [{ id: 40, text: "Jak działa garbage collector w Javie?", matched: ["java"] }]
+            : POOL,
+      }),
+    );
+    const { onAddScreening } = renderPanel();
+    await screen.findByTestId("champion-client-question-3");
+    expect(mocks.get).not.toHaveBeenCalledWith(
+      "/api/interview-cycle/client-questions/archive",
+      expect.anything(),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Z archiwum rozmów/ }));
+    const row = await screen.findByTestId("champion-archive-question-40");
+    expect(mocks.get).toHaveBeenCalledWith("/api/interview-cycle/client-questions/archive", {
+      params: { job_id: 22, limit: 20 },
+    });
+    expect(row).toHaveTextContent("pasuje: java");
+    fireEvent.click(within(row).getByRole("button", { name: "Dodaj do pytań screeningowych" }));
+    expect(onAddScreening).toHaveBeenCalledWith("Jak działa garbage collector w Javie?");
+  });
+
+  it("puste archiwum mówi to wprost", async () => {
+    mocks.get.mockImplementation((url: string) =>
+      Promise.resolve({
+        data: url === "/api/interview-cycle/client-questions/archive" ? [] : POOL,
+      }),
+    );
+    renderPanel();
+    await screen.findByTestId("champion-client-question-3");
+    fireEvent.click(screen.getByRole("button", { name: /Z archiwum rozmów/ }));
+    expect(await screen.findByText(/Brak pytań z archiwum/)).toBeInTheDocument();
+  });
+
   it("normalizacja pomija punktor, białe znaki i wielkość liter", () => {
     expect(normalizeQuestion("• Jak   TESTUJESZ? ")).toBe("jak testujesz?");
   });

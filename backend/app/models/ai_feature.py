@@ -134,6 +134,10 @@ class AIFeatureKey(str, enum.Enum):
     # must-have z Championa i przećwiczono pytania tego klienta — punkt po
     # punkcie z cytatem — plus krótkie podsumowanie do notatki kandydata.
     prep_review = "prep_review"
+    # Import archiwum pytań z interview (0383): Luna rozbija wpis z Excela
+    # rekruterów na pojedyncze pytania klienta z cytatem źródła i odsiewa
+    # oceny kandydata oraz nazwiska. Jednorazowy skrypt, nie ścieżka aplikacji.
+    interview_question_import = "interview_question_import"
 
 
 # Human-readable labels surfaced in the Settings UI (PL — primary language
@@ -163,6 +167,7 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.dz_review: "Przegląd DZ — podpowiedzi do CV dla klienta",
     AIFeatureKey.academy_screening: "Akademia — sortowanie zgłoszeń z ogłoszeń",
     AIFeatureKey.prep_review: "Ocena prepu z transkryptu Teams",
+    AIFeatureKey.interview_question_import: "Import archiwum pytań z rozmów u klienta",
 }
 
 
@@ -279,6 +284,11 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
         "Transkrypt prepu z Teams (wypowiedzi z podpisem: kandydat / zespół)",
         "Must-have rekrutacji i pytania, które zadaje ten klient",
         "(bez stawek, nazwy klienta i notatek rekruterów)",
+    ],
+    AIFeatureKey.interview_question_import: [
+        "Nazwa roli (bez nazwisk) i notatka rekrutera z archiwalnej rozmowy u klienta",
+        "Notatka bywa z imieniem kandydata lub rozmówcy — kod odrzuca pytania z osobą",
+        "(bez nazwy klienta, stawek i danych kandydata z bazy)",
     ],
 }
 
