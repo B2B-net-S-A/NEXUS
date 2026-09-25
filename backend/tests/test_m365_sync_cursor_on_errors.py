@@ -67,6 +67,13 @@ class _FakeDB:
     async def refresh(self, instance) -> None:
         pass
 
+    async def get(self, *_args, **_kwargs):
+        # Znacznik ponownego odczytu kalendarza (`sensitivity`, R3-7) — brak.
+        return None
+
+    async def execute(self, *_args, **_kwargs):
+        return None
+
 
 class _CheckpointDB(_FakeDB):
     """Rollback restores the last committed cursor, as a real refresh does."""

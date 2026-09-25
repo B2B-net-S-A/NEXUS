@@ -61,6 +61,11 @@ const TABS: Array<{ outcome: OrderMailOutcome; label: string }> = [
 
 const FAILED_MANUAL_NOTE =
   "Nie będzie ponawiany — wprowadź zamówienie ręcznie w oknie zamówienia klienta i odrzuć wpis.";
+// Bez prawa odrzucenia (`can_dismiss` z serwera) zdanie nie każe klikać
+// przycisku, którego ta osoba nie ma (np. Finanse bez portfela — runda 3
+// audytu 25.09.2026).
+const FAILED_MANUAL_NOTE_READ_ONLY =
+  "Nie będzie ponawiany — zamówienie trzeba wprowadzić ręcznie w oknie zamówienia klienta; wpis odrzuci admin albo Delivery Lead klienta.";
 
 /**
  * Zdanie o automatycznych ponowieniach wpisu „Nieudane”.
@@ -71,17 +76,18 @@ const FAILED_MANUAL_NOTE =
  * niż 7 dni, których system nigdy już nie weźmie.
  */
 export function failedRetryNote(
-  doc: Pick<OrderMailDocument, "document_meta" | "failed_retry_pending">,
+  doc: Pick<OrderMailDocument, "document_meta" | "failed_retry_pending" | "can_dismiss">,
 ): string {
   const retry = (doc.document_meta?.failed_retry ?? null) as { attempts?: number } | null;
   const attempts = Number(retry?.attempts ?? 0);
   if (doc.failed_retry_pending === true) {
     return `Przetwarzanie nie powiodło się. System ponawia je sam z zapisanego PDF-a (próba ${attempts} z 3, przez 7 dni od nadejścia maila).`;
   }
+  const manual = doc.can_dismiss === true ? FAILED_MANUAL_NOTE : FAILED_MANUAL_NOTE_READ_ONLY;
   if (attempts >= 3) {
-    return `System próbował przetworzyć ten dokument ponownie 3 razy bez skutku. ${FAILED_MANUAL_NOTE}`;
+    return `System próbował przetworzyć ten dokument ponownie 3 razy bez skutku. ${manual}`;
   }
-  return FAILED_MANUAL_NOTE;
+  return manual;
 }
 
 function period(a: string | null, b: string | null): string {

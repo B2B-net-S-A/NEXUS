@@ -234,11 +234,63 @@ async def _display_names(
             names["job_id"] = str(resp.data["title"]) + (
                 f" / {client}" if client else ""
             )
+    # Nazwy puli i sprawy klienta też z odczytu — nigdy z tekstu modelu
+    # (audyt 25.09.2026, R3-4: karta mówiła to, co napisał model).
+    if isinstance(args.get("pool_id"), int):
+        resp = await transport.call(RequestSpec("GET", "/api/talent-pools"))
+        pools = resp.data if resp.ok and isinstance(resp.data, list) else []
+        for pool in pools:
+            if isinstance(pool, dict) and pool.get("id") == args["pool_id"]:
+                if pool.get("name"):
+                    names["pool_id"] = str(pool["name"])
+                break
+    if isinstance(args.get("alert_id"), int):
+        resp = await transport.call(RequestSpec("GET", "/api/dl-alerts/cards"))
+        cards = (
+            resp.data.get("cards") if resp.ok and isinstance(resp.data, dict) else None
+        )
+        for card in cards or []:
+            if isinstance(card, dict) and card.get("id") == args["alert_id"]:
+                if card.get("title"):
+                    names["alert_id"] = str(card["title"])[:80]
+                break
     return names
 
 
 class ProposalRejected(Exception):
     """Propozycja zapisu nie przeszła sprawdzenia serwera — wraca do modelu."""
+
+
+async def _resolve_debrief_event(
+    transport: JarvisTransport, args: dict[str, Any]
+) -> dict[str, Any]:
+    """Kandydat i rekrutacja debriefu — z wydarzenia, nie ze słów modelu.
+
+    Zapis idzie po ``event_id``, więc karta musi opisywać osobę z TEGO
+    wydarzenia. Do 25.09.2026 karta pokazywała ``candidate_id`` podany przez
+    model, a debrief lądował pod inną rozmową (audyt R3-4).
+    """
+    resp = await transport.call(
+        RequestSpec("GET", f"/api/interview-cycle/events/{args['event_id']}")
+    )
+    if not resp.ok or not isinstance(resp.data, dict):
+        raise ProposalRejected(describe_error(resp))
+    candidate_id = resp.data.get("candidate_id")
+    if not isinstance(candidate_id, int):
+        raise ProposalRejected("To wydarzenie nie jest rozmową kandydata u klienta.")
+    claimed = args.get("candidate_id")
+    if claimed is not None and claimed != candidate_id:
+        raise ProposalRejected(
+            f"Wydarzenie #{args['event_id']} dotyczy innego kandydata "
+            f"(#{candidate_id}) — sprawdź event_id w my_interview_cycle."
+        )
+    resolved = {**args, "candidate_id": candidate_id}
+    job_id = resp.data.get("job_id")
+    if isinstance(job_id, int):
+        resolved["job_id"] = job_id
+    else:
+        resolved.pop("job_id", None)
+    return resolved
 
 
 async def _resolve_move_stage(
@@ -292,6 +344,8 @@ async def prepare_proposal(
         resolved = await _resolve_move_stage(transport, args)
         args = resolved["args"]
         extra["from_stage"] = resolved["from_stage"]
+    if tool.name == "save_interview_debrief":
+        args = await _resolve_debrief_event(transport, args)
     display = await _display_names(transport, args)
     text = tool.preview({**args, "_display": display}) if tool.preview else tool.label
     if extra.get("from_stage"):

@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.calendar_event import CalendarEvent, EventStatus, EventType
 from app.services.calendar_all_day import normalize_all_day
+from app.services.calendar_privacy import PRIVATE_EVENT_TITLE, is_private_marker
 
 logger = logging.getLogger(__name__)
 
@@ -237,6 +238,12 @@ async def import_ical_url(
             summary = str(component.get("SUMMARY") or "Spotkanie").strip()[:255]
             description = str(component.get("DESCRIPTION") or "") or None
             location = str(component.get("LOCATION") or "") or None
+            # CLASS:PRIVATE/CONFIDENTIAL = sam zajęty termin, bez treści
+            # (lustro `sensitivity` z synchronizacji Outlooka, R3-7).
+            if is_private_marker(component.get("CLASS")):
+                summary = PRIVATE_EVENT_TITLE
+                description = None
+                location = None
 
             raw_start = getattr(component.get("DTSTART"), "dt", None)
             dtstart = _to_datetime(raw_start)
