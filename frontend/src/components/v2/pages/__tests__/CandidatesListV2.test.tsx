@@ -18,6 +18,14 @@ let listItems: Array<Record<string, unknown> & { id: number }> = [];
 let listTotal = 0;
 let listExtra: Record<string, unknown> = {};
 
+const classifyMock = vi.hoisted(() =>
+  vi.fn(async (): Promise<{ skills: string[]; as_requirements: boolean } | null> => null),
+);
+vi.mock("@/lib/keyword-suggest", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/keyword-suggest")>()),
+  classifyKeywords: classifyMock,
+}));
+
 vi.mock("next/link", () => ({
   default: ({
     href,
@@ -654,6 +662,31 @@ describe("CandidatesListV2", () => {
       await waitFor(() => expect(pushState).toHaveBeenCalledTimes(1));
       expect(String(pushState.mock.calls[0][2])).toContain("status=active");
       expect(await screen.findByText("Status: Aktywni")).toBeTruthy();
+    });
+
+    it("same nazwy technologii w górnym polu idą jak wiersze wymagań", async () => {
+      classifyMock.mockResolvedValueOnce({ skills: ["Java"], as_requirements: true });
+      renderList();
+      fireEvent.change(screen.getByLabelText("Szukaj kandydatów"), {
+        target: { value: "java" },
+      });
+      fireEvent.keyDown(screen.getByLabelText("Szukaj kandydatów"), { key: "Enter" });
+
+      expect(await screen.findByText(/Czytam jako wymagania: Java/)).toBeTruthy();
+      await waitFor(async () => {
+        const last = (await candidateCalls()).at(-1);
+        expect(last?.q_any_group).toEqual(["Java"]);
+        expect(last?.q).toBeFalsy();
+        expect(last?.sort).toBe("match");
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /po znaczeniu/ }));
+      await waitFor(async () => {
+        const last = (await candidateCalls()).at(-1);
+        expect(last?.q).toBe("java");
+        expect(last?.text_mode).toBe("semantic");
+        expect(last?.q_any_group ?? []).toEqual([]);
+      });
     });
 
     it("pisanie w polu wyszukiwania tylko podmienia wpis", async () => {

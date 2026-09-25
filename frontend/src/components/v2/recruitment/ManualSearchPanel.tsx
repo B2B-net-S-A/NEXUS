@@ -130,10 +130,14 @@ export function championSearchRequirements(job: Pick<ManualSearchJob, "champion_
 }
 
 /**
- * Filtry startowe listy z rekrutacji. Tytuł szuka po znaczeniu — tak jak
- * dotychczasowy tryb hybrydowy; w trybie „auto" dwa słowa z wielkiej litery
- * („Analityk Systemowy") wyglądałyby na nazwisko i szłyby dosłownie.
- * Status bez czarnej listy (serwer i tak by ją odrzucił przy dodaniu).
+ * Filtry startowe listy z rekrutacji. Status bez czarnej listy (serwer i tak
+ * by ją odrzucił przy dodaniu).
+ *
+ * Bez wymagań w Championie (decyzja Artura 25.09.2026): cała baza spoza
+ * rekrutacji ułożona według dopasowania do rekrutacji (`sort=match`, ten sam
+ * wektor co kolumna „Dop.”). Dawniej tytuł szedł jako tekst po znaczeniu,
+ * co ucinało listę do 200 osób; test na 120 rekrutacjach: właściwa osoba na
+ * pierwszej stronie w 80% rekrutacji przy całej bazie według dopasowania.
  *
  * Z wymaganiami do wyszukiwania (sekcja 2 Championa, decyzja Artura
  * 25.09.2026) start to wiersze i wykluczenia DL-a, a tytuł NIE idzie jako
@@ -159,7 +163,8 @@ export function jobListFilters(
   }
   return {
     ...filters,
-    textMode: filters.q ? "semantic" : filters.textMode,
+    q: "",
+    textMode: "auto",
     status: ["active", "passive"],
   };
 }

@@ -424,6 +424,12 @@ class Settings(BaseSettings):
     # Wyniki i kolejność bez zmian; `false` wraca do `count(*) OVER()` na
     # pełnych wierszach (385 ms bez filtra, audyt 25.09.2026).
     CANDIDATE_LIST_IDS_FIRST: bool = True
+    # Kolejność „Dopasowanie” (`sort=match`, `services/candidate_match_order.py`):
+    # podobieństwo wektora rekrutacji / wierszy wymagań do kandydatów. Test na
+    # 120 rekrutacjach (25.09.2026): pierwsza strona z właściwą osobą w 83%
+    # rekrutacji zamiast 33% przy „najnowsi”. `false` = „najnowsi” z informacją
+    # w `sort_applied`.
+    CANDIDATE_MATCH_SORT: bool = True
     # Jednorazowa migracja zapisanych wyszukiwań kandydatów na wspólną semantykę
     # filtrów (`services/saved_search_migration.py`) przy starcie skanera alertów.
     # Domyślnie OFF: migracja wstrzymuje alerty zapisów, których wynik się

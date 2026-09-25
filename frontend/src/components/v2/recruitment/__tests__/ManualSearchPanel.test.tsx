@@ -22,6 +22,7 @@ vi.mock("@/components/v2/pages/CandidatesListV2", () => ({
 
 import { jobListFilters, ManualSearchPanel } from "@/components/v2/recruitment/ManualSearchPanel";
 import type { CandidatesListEmbed } from "@/components/v2/pages/CandidatesListV2";
+import { effectiveSort } from "@/lib/url-filters";
 
 const JOB = {
   id: 7,
@@ -68,10 +69,15 @@ describe("ManualSearchPanel — lista Kandydatów osadzona w rekrutacji", () => 
       onAdded: onBulkAdded,
     });
     // Must-have z kontraktu rekrutacji podnoszą w kolejności (jak dotąd),
-    // tytuł bez klienta i numeru szuka po znaczeniu, miasto i kategoria z rekrutacji.
+    // miasto i kategoria z rekrutacji. Tytuł NIE idzie jako tekst po znaczeniu
+    // (limit 200 osób) — bez wymagań w Championie lista pokazuje całą bazę
+    // według dopasowania do rekrutacji (decyzja 25.09.2026).
     expect(embed.initialFilters.skillsPreferred).toEqual(["SQL", "UML"]);
-    expect(embed.initialFilters.q).toBe("Analityk Systemowy");
-    expect(embed.initialFilters.textMode).toBe("semantic");
+    expect(embed.initialFilters.q).toBe("");
+    expect(embed.initialFilters.textMode).toBe("auto");
+    expect(
+      effectiveSort({ ...embed.initialFilters, recruitmentIds: [7], recruitmentMatch: "not_assigned" }),
+    ).toBe("match");
     expect(embed.initialFilters.location).toBe("Warszawa");
     expect(embed.initialFilters.competenceCategoryIds).toEqual([5]);
     expect(embed.initialFilters.status).toEqual(["active", "passive"]);

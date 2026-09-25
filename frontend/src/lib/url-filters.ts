@@ -15,7 +15,7 @@ import type { OpenToValue } from "@/lib/filter-options";
 import { normalizeLanguageFilters } from "@/lib/candidate-languages";
 import { cleanRows, requirementRows } from "@/lib/keyword-requirements";
 
-export type SortMode = "newest" | "oldest" | "name" | "relevance";
+export type SortMode = "newest" | "oldest" | "name" | "relevance" | "match";
 /** Jak czytać tekst `q` — `auto` = decyduje backend („Rozumiem to jako…"). */
 export type TextModeFilter = "auto" | "literal" | "semantic";
 export type SkillCombine = "and" | "or";
@@ -409,7 +409,10 @@ export function encodeFilters(f: CandidateFilters): URLSearchParams {
 export function decodeFilters(sp: URLSearchParams): CandidateFilters {
   const sortRaw = sp.get("sort");
   const sort: SortMode =
-    sortRaw === "oldest" || sortRaw === "name" || sortRaw === "relevance"
+    sortRaw === "oldest" ||
+    sortRaw === "name" ||
+    sortRaw === "relevance" ||
+    sortRaw === "match"
       ? sortRaw
       : "newest";
   const tmRaw = sp.get("tm");
@@ -751,14 +754,34 @@ export function keywordCount(
   return filters.qAll.length + filters.qAny.flat().length + filters.qNone.length;
 }
 
+type SortContext = Pick<CandidateFilters, "q" | "sort" | "sortExplicit"> &
+  Partial<Pick<CandidateFilters, "qAll" | "qAny" | "recruitmentIds" | "recruitmentMatch">>;
+
+/**
+ * Czy jest z czym porównać kandydatów dla kolejności „Dopasowanie”: okno
+ * „Szukaj ręcznie” (jedna rekrutacja, osoby spoza niej) albo wiersze wymagań.
+ */
+export function matchSortAvailable(filters: SortContext): boolean {
+  const jobScope =
+    (filters.recruitmentIds?.length ?? 0) === 1 && filters.recruitmentMatch === "not_assigned";
+  return jobScope || cleanRows(requirementRows(filters.qAll ?? [], filters.qAny ?? [])).length > 0;
+}
+
 /**
  * Sortowanie wysyłane do API. Wpisany tekst bez jawnego wyboru sortowania =
  * trafność (dla wyszukiwania po znaczeniu to kolejność puli; decyzja
- * 22.09.2026). Jawny wybór rekrutera wygrywa zawsze.
+ * 22.09.2026). Bez tekstu, ale z rekrutacją albo wierszami wymagań =
+ * „Dopasowanie” (decyzja Artura 25.09.2026: na 120 rekrutacjach pierwsza
+ * strona z właściwą osobą w 83% zamiast 33% przy „najnowsi”). Jawny wybór
+ * rekrutera wygrywa zawsze.
  */
-export function effectiveSort(filters: Pick<CandidateFilters, "q" | "sort" | "sortExplicit">): SortMode {
+export function effectiveSort(filters: SortContext): SortMode {
   const hasText = filters.q.trim().length >= 2;
-  if (hasText && filters.sort === "newest" && !filters.sortExplicit) return "relevance";
+  if (filters.sort === "newest" && !filters.sortExplicit) {
+    if (hasText) return "relevance";
+    if (matchSortAvailable(filters)) return "match";
+  }
+  if (filters.sort === "match" && !matchSortAvailable(filters)) return "newest";
   return filters.sort;
 }
 

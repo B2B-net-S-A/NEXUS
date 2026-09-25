@@ -328,7 +328,7 @@ class CandidateFilterSpec(BaseModel):
     sent_to_client_from: Optional[FilterDate] = None
     sent_to_client_to: Optional[FilterDate] = None
     competence_category_id: Optional[list[int]] = None
-    sort: Literal["newest", "oldest", "name", "relevance"] = "newest"
+    sort: Literal["newest", "oldest", "name", "relevance", "match"] = "newest"
     id_after: Optional[int] = Field(None, ge=1)
     updated_after: Optional[datetime] = None
     # Skaner alertów zapisanych wyszukiwań: zmiana wiersza ALBO nowa notatka /
@@ -1382,16 +1382,28 @@ def _apply_candidate_sort(
     sortowanie — tak samo jak chipy podbijające ranking w wyszukiwarce
     (decyzja 17.09.2026); żądany `sort` rozstrzyga w obrębie tej samej liczby
     trafień. Bez `skills_preferred` kolejność jest dokładnie taka jak dotąd."""
+    preferred_rank, unknown_rank = _sort_prefix_exprs(filters)
+    if preferred_rank is not None:
+        query = query.order_by(preferred_rank.desc())
+    if unknown_rank is not None:
+        query = query.order_by(unknown_rank.asc())
+    return _apply_requested_sort(query, filters, q_any_groups, pool_order=pool_order)
+
+
+def _sort_prefix_exprs(filters: CandidateFilterSpec):
+    """(„Mile widziane” malejąco, liczba braków rosnąco) — wyrażenia albo ``None``.
+
+    Wspólne dla każdego sortowania i dla kolejności „Dopasowanie”
+    (``candidate_match_order``), żeby oba liczyły je tak samo."""
     from app.services import candidate_search_predicates as predicates
 
     preferred_rank = predicates.skills_preferred_rank(
         predicates.skill_buckets_from_list(skills_preferred=filters.skills_preferred)
     )
-    if preferred_rank is not None:
-        query = query.order_by(preferred_rank.desc())
     # v2: osoby przepuszczone „na brak danych" (plakietka „brak …") idą za
     # osobami z potwierdzonym dopasowaniem — w obrębie tej samej liczby braków
     # obowiązuje żądany `sort`. Przy `hide_unknown` braków nie ma w wyniku.
+    unknown_rank = None
     if filters.semantics_version == 2 and not filters.hide_unknown:
         unknown_rank = predicates.unknown_count_rank(
             location_active=bool(
@@ -1403,9 +1415,7 @@ def _apply_candidate_sort(
             ),
             rate_active=filters.min_rate is not None or filters.max_rate is not None,
         )
-        if unknown_rank is not None:
-            query = query.order_by(unknown_rank.asc())
-    return _apply_requested_sort(query, filters, q_any_groups, pool_order=pool_order)
+    return preferred_rank, unknown_rank
 
 
 def _apply_requested_sort(
@@ -1535,6 +1545,49 @@ async def _list_page_ids_first(
     ).scalars()
     by_id = {candidate.id: candidate for candidate in loaded}
     return [by_id[cid] for cid in page_ids if cid in by_id], total, q_any_groups
+
+
+async def _list_page_match(
+    db: AsyncSession,
+    user,
+    filters: CandidateFilterSpec,
+    *,
+    pool_ids: Optional[list[int]],
+    page: int,
+    page_size: int,
+) -> Optional[tuple[list[Candidate], int, list[list[str]]]]:
+    """Strona w kolejności „Dopasowanie” albo ``None`` (wołający: „najnowsi”)."""
+    from app.services import candidate_match_order
+
+    query, q_any_groups = await _build_candidate_filtered_query(
+        db, filters, semantic_pool_ids=pool_ids
+    )
+    ordered = await candidate_match_order.ordered_ids(
+        db,
+        user,
+        filters,
+        query.with_only_columns(Candidate.id),
+        q_any_groups,
+        _sort_prefix_exprs(filters),
+    )
+    if ordered is None:
+        return None
+    page_ids = ordered[(page - 1) * page_size : page * page_size]
+    if not page_ids:
+        return [], len(ordered), q_any_groups
+    loaded = (
+        await db.execute(
+            select(Candidate)
+            .options(*_candidate_list_options())
+            .where(Candidate.id.in_(page_ids))
+        )
+    ).scalars()
+    by_id = {candidate.id: candidate for candidate in loaded}
+    return (
+        [by_id[cid] for cid in page_ids if cid in by_id],
+        len(ordered),
+        q_any_groups,
+    )
 
 
 async def _list_page_window_count(
@@ -2124,9 +2177,13 @@ async def list_candidates(
     ),
     sort: str = Query(
         "newest",
-        pattern="^(newest|oldest|name|relevance)$",
+        pattern="^(newest|oldest|name|relevance|match)$",
         description=(
             "Sort order. 'newest' = created_at DESC; 'oldest' = created_at ASC; "
+            "'match' = similarity to the recruitment (single `recruitment_id` + "
+            "`recruitment_match=not_assigned`) or to the keyword rows — falls "
+            "back to 'newest' (see `sort_applied`) when there is nothing to "
+            "compare with or the vector store fails; "
             "'name' = name ASC, lastname ASC; 'relevance' = trigram similarity "
             "between query phrase and name+lastname+email DESC (auto-falls "
             "back to 'newest' when no `q` / `q_all` / `q_any` is provided). "
@@ -2248,7 +2305,26 @@ async def list_candidates(
     if semantic_pool is not None and "sort" not in request.query_params:
         filters = filters.model_copy(update={"sort": "relevance"})
     pool_ids = semantic_pool.ids if semantic_pool is not None else None
-    if settings.CANDIDATE_LIST_IDS_FIRST:
+    sort_applied = filters.sort
+    match_page = None
+    if filters.sort == "match":
+        if settings.CANDIDATE_MATCH_SORT:
+            match_page = await _list_page_match(
+                db,
+                current_user,
+                filters,
+                pool_ids=pool_ids,
+                page=page,
+                page_size=page_size,
+            )
+        if match_page is None:
+            # Brak wektora (brak kontekstu, dostępu, awaria Voyage/Qdranta)
+            # albo przełącznik OFF — „najnowsi”, a odpowiedź mówi to wprost.
+            sort_applied = "newest"
+            filters = filters.model_copy(update={"sort": "newest"})
+    if match_page is not None:
+        items, total, q_any_groups = match_page
+    elif settings.CANDIDATE_LIST_IDS_FIRST:
         items, total, q_any_groups = await _list_page_ids_first(
             db, filters, pool_ids=pool_ids, page=page, page_size=page_size
         )
@@ -2647,6 +2723,7 @@ async def list_candidates(
         result_cap_reached=bool(
             semantic_pool is not None and semantic_pool.cap_reached
         ),
+        sort_applied=sort_applied,
     )
 
 
@@ -2796,6 +2873,49 @@ async def suggest_keywords(
             KeywordSuggestion(**result.wildcard.__dict__) if result.wildcard else None
         ),
     )
+
+
+_CLASSIFY_CITY_POPULATION = 20_000
+
+
+class KeywordClassifyResponse(BaseModel):
+    skills: list[str]
+    # Wszystkie słowa to nazwy technologii i żadne nie jest nazwiskiem ani
+    # miejscowością — front zamienia je wtedy na wiersze wymagań.
+    as_requirements: bool
+
+
+@router.get("/keywords/classify", response_model=KeywordClassifyResponse)
+@limiter.limit("120/minute", key_func=user_or_ip_key)
+async def classify_keywords(
+    request: Request,
+    current_user: CandidateSearchAccess,
+    db: AsyncSession = Depends(get_db),
+    q: str = Query("", max_length=200),
+) -> KeywordClassifyResponse:
+    """Górne pole listy: czy wpisano same nazwy technologii (decyzja Artura
+    25.09.2026). Wtedy lista szuka ich jak wierszy wymagań — wszyscy ze słowem,
+    a nie 200 osób „po znaczeniu”. Słowo, które jest też imieniem/nazwiskiem
+    w bazie albo miejscowością, zostawia tekst bez zmian."""
+    from app.services import keyword_suggest, pl_places
+    from app.services import candidate_search_predicates as predicates
+
+    result = keyword_suggest.classify_skills(q)
+    if not result.all_skills:
+        return KeywordClassifyResponse(
+            skills=list(result.skills), as_requirements=False
+        )
+    for word in keyword_suggest.fold(q).replace(",", " ").split():
+        place = pl_places.resolve(word)
+        # Tylko miasta (≥ 20 tys.) — jak podpowiedź lokalizacji w wierszach
+        # wymagań: „Kotlin” to też wieś, a nikt nie szuka jej w tym polu.
+        if (
+            place is not None and place.population >= _CLASSIFY_CITY_POPULATION
+        ) or await predicates.person_token_exists(db, word):
+            return KeywordClassifyResponse(
+                skills=list(result.skills), as_requirements=False
+            )
+    return KeywordClassifyResponse(skills=list(result.skills), as_requirements=True)
 
 
 # ── Bulk export (Phase 7b.4) ────────────────────────────────────────────────

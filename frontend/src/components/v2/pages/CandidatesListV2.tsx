@@ -135,6 +135,7 @@ import {
   decodeSelectedIds,
   decodeSkillsExpr,
   effectiveSort,
+  matchSortAvailable,
   encodeCompareHref,
   encodeFilterCriteria,
   encodeFilters,
@@ -155,6 +156,7 @@ import {
   type RecentlyChangedJobs,
   type TextModeFilter,
 } from "@/lib/url-filters";
+import { classifyKeywords, mayBeSkillList } from "@/lib/keyword-suggest";
 import {
   countSkillConstraints,
   parseSkillExpression,
@@ -213,7 +215,14 @@ const SORT_LABELS: Record<CandidateFilters["sort"], string> = {
   oldest: "Najstarsi",
   // Backend sortuje po NAZWISKU, potem imieniu, bez polskich znaków.
   name: "Nazwisko A–Z",
+  // Podobieństwo do wierszy wymagań; w „Szukaj ręcznie” — do rekrutacji
+  // (`sortLabel`). Backend: `services/candidate_match_order.py`.
+  match: "Dopasowanie do wymagań",
 };
+
+function sortLabel(value: CandidateFilters["sort"], inRecruitment: boolean): string {
+  return value === "match" && inRecruitment ? "Dopasowanie do rekrutacji" : SORT_LABELS[value];
+}
 
 // Deterministyczna kolorystyka awatara wg ID kandydata (ten sam kandydat =
 // ten sam kolor między odświeżeniami).
@@ -302,6 +311,8 @@ interface CandidateListResponse {
   search_degraded?: boolean;
   /** Pula wyników po znaczeniu jest przycięta. */
   result_cap_reached?: boolean;
+  /** Kolejność faktycznie użyta (przy braku wektorów „match” → „newest”). */
+  sort_applied?: string | null;
 }
 
 /**
@@ -537,7 +548,7 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
  );
  const [sortBy, setSortBy] = useState<CandidateFilters["sort"]>(() => {
  const raw = searchParams.get("sort");
- return raw === "oldest" || raw === "name" || raw === "relevance"
+ return raw === "oldest" || raw === "name" || raw === "relevance" || raw === "match"
  ? raw
  : "newest";
  });
@@ -949,11 +960,34 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
  () => filterChangeCount(draftForCompare, applied),
  [draftForCompare, applied],
  );
- const runSearch = () => {
- if (searchDraft !== search) setSearch(searchDraft);
+ // Górne pole: same nazwy technologii → wiersze wymagań (decyzja 25.09.2026).
+ const [convertedText, setConvertedText] = useState<{
+ text: string;
+ skills: string[];
+ previousRows: string[][];
+ } | null>(null);
+ const runSearch = async () => {
+ let text = searchDraft;
+ let rows = qAny;
+ setConvertedText(null);
+ if (textMode === "auto" && mayBeSkillList(text)) {
+ const result = await classifyKeywords(text.trim());
+ if (result?.as_requirements && result.skills.length > 0) {
+ const existing = new Set(qAny.flat().map((word) => word.toLowerCase()));
+ const added = result.skills
+ .filter((skill) => !existing.has(skill.toLowerCase()))
+ .map((skill) => [skill]);
+ setConvertedText({ text, skills: result.skills, previousRows: qAny });
+ rows = [...qAny, ...added];
+ setQAny(rows);
+ setSearchDraft("");
+ text = "";
+ }
+ }
+ if (text !== search) setSearch(text);
  setPage(1);
  requestApply();
- const next = { ...filtersSnapshot, q: searchDraft, page: 1 };
+ const next = { ...filtersSnapshot, q: text, qAny: rows, page: 1 };
  pushRecentSearch(currentUser?.id, {
  kind: embed ? "job" : "list",
  jobId: embed?.jobId ?? null,
@@ -962,6 +996,16 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
  keywords: listSearchKeywords(next),
  total: null,
  });
+ };
+ const searchByMeaning = () => {
+ if (!convertedText) return;
+ setQAny(convertedText.previousRows);
+ setSearchDraft(convertedText.text);
+ setSearch(convertedText.text);
+ setTextMode("semantic");
+ setConvertedText(null);
+ setPage(1);
+ requestApply();
  };
  const undoPending = () => {
  setSearchDraft(applied.q);
@@ -1739,10 +1783,17 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
     excluded: skillBuckets.none,
   };
   const canExport = hasRole(currentUser, ...EXPORT_ROLES);
-  const shownSort = effectiveSort(filtersSnapshot);
+  const sortContext = candidatesListFiltersForQuery(
+    filtersSnapshot,
+    embedJobId != null ? { jobId: embedJobId } : null,
+  );
+  const shownSort = effectiveSort(sortContext);
   const hasText = applied.q.trim().length >= 2;
-  const sortOptions = (["relevance", "newest", "oldest", "name"] as const).filter(
-    (value) => value !== "relevance" || hasText || sortBy === "relevance",
+  const canMatch = matchSortAvailable(sortContext);
+  const sortOptions = (["match", "relevance", "newest", "oldest", "name"] as const).filter(
+    (value) =>
+      (value !== "relevance" || hasText || sortBy === "relevance") &&
+      (value !== "match" || canMatch || sortBy === "match"),
   );
   const pastedRequest = looksLikePastedRequest(searchDraft);
 
@@ -1883,6 +1934,23 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
                 }}
               />
             ) : null}
+            {data?.sort_applied === "newest" && effectiveSort(queryFilters) === "match" ? (
+              <p className="text-xs text-muted-foreground" role="status">
+                Kolejność według dopasowania jest chwilowo niedostępna — pokazujemy najnowszych.
+              </p>
+            ) : null}
+            {convertedText && applied.q === "" ? (
+              <p className="text-xs text-muted-foreground" role="status">
+                Czytam jako wymagania: {convertedText.skills.join(", ")}.{" "}
+                <button
+                  type="button"
+                  className="font-medium text-primary underline-offset-2 hover:underline"
+                  onClick={searchByMeaning}
+                >
+                  Szukaj „{convertedText.text}” po znaczeniu
+                </button>
+              </p>
+            ) : null}
           </div>
 
           {restoredBanner && (
@@ -2019,7 +2087,7 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
                 <SelectContent>
                   {sortOptions.map((value) => (
                     <SelectItem key={value} value={value}>
-                      {SORT_LABELS[value]}
+                      {sortLabel(value, embedJobId != null)}
                     </SelectItem>
                   ))}
                 </SelectContent>
