@@ -357,7 +357,7 @@ const ROLE_ROUTES: RouteAccessRule[] = [
 //                  i wystawiło go publicznie.
 //   `/preview/candidates`, `/preview/candidate-profile`, `/preview/contact-queue`,
 //   `/preview/talent-radar`, `/preview/order-consultant-picker`,
-//   `/preview/order-tile`,
+//   `/preview/order-tile`, `/preview/order-ended-lines`,
 //   `/preview/procedure-help`, `/preview/champion-profile`,
 //   `/preview/client-playbook`, `/preview/inactive-clients-cleanup`,
 //   `/preview/order-new-from-pdf`, `/preview/finance-order-changes`,
@@ -401,6 +401,7 @@ const PUBLIC_PATHS = [
   "/preview/order-consultant-picker",
   "/preview/order-lifecycle",
   "/preview/order-md-scopes",
+  "/preview/order-ended-lines",
   "/preview/order-takeover",
   "/preview/ezdrowie-contract-structure",
   "/preview/order-tile",

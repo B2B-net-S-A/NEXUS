@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { OrderGroupCard } from "@/components/client-profile/orders/OrderGroupCard";
@@ -155,7 +155,8 @@ describe("OrderGroupCard — nazwisko prowadzi do kontraktu z tego wiersza", () 
       }),
     );
 
-    expect(screen.getByRole("heading", { name: "Zakończone" })).toBeInTheDocument();
+    // Bez decyzji do podjęcia sekcja jest zwinięta — rozwijamy ją.
+    fireEvent.click(screen.getByRole("button", { name: "Zakończone (1)" }));
     expect(
       screen.getByRole("link", { name: "Historyczny Konsultant" }),
     ).toHaveAttribute("href", "/contracts/700");

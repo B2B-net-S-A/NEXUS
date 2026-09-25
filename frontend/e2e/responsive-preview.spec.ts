@@ -61,6 +61,7 @@ const PAGES = [
   "/preview/new-job?state=request",
   "/preview/new-job?state=gaps",
   "/preview/order-consultant-picker",
+  "/preview/order-ended-lines",
   "/preview/order-lifecycle",
   "/preview/order-mail",
   "/preview/order-md-scopes",

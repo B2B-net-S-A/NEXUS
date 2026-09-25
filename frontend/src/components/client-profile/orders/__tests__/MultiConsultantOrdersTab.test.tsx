@@ -1280,9 +1280,14 @@ describe("MultiConsultantOrdersTab — cykl życia", () => {
 
     renderTab();
 
-    const completedHeading = await screen.findByRole("heading", {
-      name: "Zakończone",
-    });
+    // Nic nie czeka na decyzję — sekcja zwinięta; zafakturowana kwota i numer
+    // zamówienia są w rozwinięciu karty (ticket 6).
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Zakończone (1)" }));
+    await user.click(
+      screen.getByRole("button", { name: "Pokaż szczegóły — Anna Zakończona" }),
+    );
+    const completedHeading = screen.getByRole("heading", { name: /^Zakończone/ });
     const completedSection = completedHeading.closest("section");
     expect(completedSection).not.toBeNull();
     expect(completedSection).toHaveTextContent("Anna Zakończona");
@@ -1337,9 +1342,14 @@ describe("MultiConsultantOrdersTab — cykl życia", () => {
 
     renderTab();
 
-    const badge = await screen.findByText("Zakończenie współpracy");
-    const departingRow = badge.closest("li");
-    expect(departingRow).toHaveClass("bg-destructive/10");
+    const decide = await screen.findByRole("button", {
+      name: "Podejmij decyzję — Jan Odchodzący",
+    });
+    const departingRow = decide.closest("li");
+    expect(departingRow).toHaveClass("border-destructive/50");
+    await user.click(
+      screen.getByRole("button", { name: "Pokaż szczegóły — Jan Odchodzący" }),
+    );
     expect(departingRow).toHaveTextContent(/Wymagana decyzja/);
     // Zwykłe usunięcie jest ukryte — sprawę trzeba rozstrzygnąć endpointem,
     // który jednocześnie obsłuży alert dashboardu.
@@ -1350,14 +1360,13 @@ describe("MultiConsultantOrdersTab — cykl życia", () => {
     ).not.toBeInTheDocument();
     const listCallsBeforeDecision = vi.mocked(orderGroupsApi.list).mock.calls.length;
 
+    await user.click(decide);
     await user.click(
-      screen.getByRole("button", {
-        name: "Podejmij decyzję o MD — Jan Odchodzący",
-      }),
+      screen.getByRole("button", { name: /Zdecyduj o pozostałej puli MD/ }),
     );
     expect(
       screen.getByRole("dialog", {
-        name: "Zakończenie współpracy — decyzja o MD",
+        name: "Decyzja o pozostałej puli MD",
       }),
     ).toBeInTheDocument();
     expect(
@@ -1398,7 +1407,7 @@ describe("MultiConsultantOrdersTab — cykl życia", () => {
     );
     expect(
       screen.queryByRole("dialog", {
-        name: "Zakończenie współpracy — decyzja o MD",
+        name: "Decyzja o pozostałej puli MD",
       }),
     ).not.toBeInTheDocument();
   });
