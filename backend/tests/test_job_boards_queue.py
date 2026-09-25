@@ -461,3 +461,55 @@ async def test_unpublish_during_first_worker_attempt_queues_close(api, rocket_re
     body = resp.json()
     assert body["status"] == "publishing"
     assert body["pending_action"] == "close"
+
+
+async def _failed_attempt_with_cleanup(api, monkeypatch) -> tuple[dict, int, int]:
+    """Próba A: timeouty do końca prób → `failed` + zaległe zamknięcie."""
+    monkeypatch.setattr(settings, "JOB_PORTAL_MAX_ATTEMPTS", 1)
+    headers, job_id = await _ready_job(api)
+    await api.post(_url(job_id), json={"options": OPTIONS}, headers=headers)
+    FakeRocket.fail_with = [PortalError("timeout", retryable=True)]
+    await _process(job_id)
+    old = await _posting(job_id)
+    assert old.status == PostingStatus.failed
+    assert old.pending_action == "close"
+    return headers, job_id, old.id
+
+
+async def test_unpublish_of_new_posting_keeps_cleanup_of_failed_attempt(
+    api, rocket_ready, monkeypatch
+):
+    """Audyt 25.09.2026, runda 2: nowa publikacja B anuluje zaległe zamknięcie
+    A (żeby nie zamknąć SWOJEGO ogłoszenia). Gdy B zostanie wycofana, zanim
+    worker ją weźmie, nie może zniknąć jako „nigdy niewysłana” — ogłoszenie
+    z próby A zostałoby na portalu bez nikogo, kto je zamknie."""
+    headers, job_id, old_id = await _failed_attempt_with_cleanup(api, monkeypatch)
+    resp = await api.post(_url(job_id), json={"options": OPTIONS}, headers=headers)
+    assert resp.status_code == 200, resp.text
+
+    resp = await api.post(_url(job_id, "unpublish"), headers=headers)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["pending_action"] == "close"
+
+    new = await _posting(job_id)
+    assert new.id != old_id
+    FakeRocket.calls = []
+    await process_one(new.id)
+    # Bez id ogłoszenia — zamknięcie po naszym stałym externalId pary.
+    assert FakeRocket.calls == [("close", external_ref_for(job_id, Portal.rocketjobs))]
+    assert (await _posting(job_id)).status == PostingStatus.removed
+
+
+async def test_certain_refusal_of_new_posting_keeps_inherited_cleanup(
+    api, rocket_ready, monkeypatch
+):
+    """Pewna odmowa publikacji B nie mówi nic o ogłoszeniu z próby A —
+    sprzątanie odziedziczone po A zostaje w kolejce."""
+    headers, job_id, _old_id = await _failed_attempt_with_cleanup(api, monkeypatch)
+    resp = await api.post(_url(job_id), json={"options": OPTIONS}, headers=headers)
+    assert resp.status_code == 200, resp.text
+    FakeRocket.fail_with = [PortalError("Brak kodów", retryable=False)]
+    await _process(job_id)
+    new = await _posting(job_id)
+    assert new.status == PostingStatus.failed
+    assert new.pending_action == "close"
