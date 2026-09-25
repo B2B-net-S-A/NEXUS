@@ -41,7 +41,9 @@ export type RecruitmentSlideOver =
   | "order"
   | "questions"
   | "history-chat"
-  | "manual-search";
+  | "manual-search"
+  // Panel „Podobne rekrutacje” — przepięcia jednym kliknięciem (25.09.2026).
+  | "similar";
 
 /** Skąd pochodzi propozycja (kolumna „Źródło"; jedna osoba może mieć kilka). */
 export type ProposalSource =

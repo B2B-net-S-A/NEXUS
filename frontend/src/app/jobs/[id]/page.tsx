@@ -14,9 +14,10 @@ import { PipelineBoardGate } from "@/components/v2/jobs/PipelineBoardGate";
 import { EditJobModal } from "@/components/AppShell";
 import { AIJobWriterModal } from "@/components/v2/jobs/AIJobWriterModal";
 import { RequestStatusBadge } from "@/components/v2/jobs/JobListCells";
-import { SimilarJobsDialog } from "@/components/v2/jobs/SimilarJobsDialog";
+import { SimilarJobsPanel } from "@/components/v2/jobs/SimilarJobsPanel";
 import { CHAMPION_ROLES, requestStatusOf } from "@/lib/request-status";
 import { similarJobsApi, useSimilarJobs } from "@/lib/similar-jobs-api";
+import { similarPeopleWaiting } from "@/lib/similar-reassign";
 import { toggleChampionFound } from "@/lib/champion-found-toggle";
 import { useToast } from "@/components/Toast";
 import { countHired } from "@/lib/pipeline-flow";
@@ -207,9 +208,13 @@ export default function JobDetailPage() {
   // 0341: „Mamy championa" oznacza Delivery Lead (lustro `_CHAMPION_ROLES`).
   const canMarkChampion =
     canWritePipeline && CHAMPION_ROLES.some((role) => hasRole(authUser, role));
-  const [similarOpen, setSimilarOpen] = useState(false);
   const [championPending, setChampionPending] = useState(false);
   const similarJobs = useSimilarJobs(jobId, canWritePipeline);
+  // Ile osób czeka na przepięcie w podpowiadanych (niepołączonych) podobnych
+  // rekrutacjach — nagłówek, pasek w „Nowych” i „Najbliższy krok”.
+  const similarPeopleCount = Array.isArray(similarJobs.data?.suggestions)
+    ? similarPeopleWaiting(similarJobs.data.suggestions)
+    : null;
   // POST /api/invite-links → RecruiterPlus. Ta sama capability bramkuje akcję
   // na liście ofert — bez niej read-only `user` widział tu przycisk wiodący
   // prosto w 403 (audyt F-19).
@@ -624,8 +629,9 @@ export default function JobDetailPage() {
         board: boardSummary,
         proposals: proposalsCount,
         canAddCandidates: canWritePipeline,
+        similarPeople: similarPeopleCount,
       }),
-    [orderMissingCount, boardSummary, proposalsCount, canWritePipeline],
+    [orderMissingCount, boardSummary, proposalsCount, canWritePipeline, similarPeopleCount],
   );
   const focusBoardColumn = useCallback(
     (column: BoardColumnKey) => {
@@ -675,6 +681,7 @@ export default function JobDetailPage() {
     (step: NearestStep) => {
       const action = step.action;
       if (action.kind === "order") openSlideOver("order");
+      else if (action.kind === "similar") openSlideOver("similar");
       else if (action.kind === "column") focusBoardColumn(action.column);
       else if (action.tab === "proposals") openProposals();
       else if (canWritePipeline) setAddPanelTab("search");
@@ -832,7 +839,7 @@ export default function JobDetailPage() {
         orderMissingCount={orderMissingCount}
         onOpenHistoryChat={() => openSlideOver("history-chat")}
         onOpenQuestions={() => openSlideOver("questions")}
-        onOpenSimilar={canWritePipeline ? () => setSimilarOpen(true) : undefined}
+        onOpenSimilar={canWritePipeline ? () => openSlideOver("similar") : undefined}
         // Odpowiedź spoza kontraktu (brak list) = brak odznaki, nie wywrotka.
         similarLinkedCount={
           Array.isArray(similarJobs.data?.linked) ? similarJobs.data.linked.length : null
@@ -842,6 +849,7 @@ export default function JobDetailPage() {
             ? similarJobs.data.suggestions.filter((s) => s.sent_count > 0).length
             : null
         }
+        similarPeopleCount={similarPeopleCount}
         championFound={job.champion_found_at != null}
         championPending={championPending}
         onToggleChampion={
@@ -918,15 +926,14 @@ export default function JobDetailPage() {
         />
       )}
 
-      {similarOpen && (
-        <SimilarJobsDialog
-          jobId={jobId}
-          open
-          onOpenChange={(v) => {
-            if (!v) setSimilarOpen(false);
-          }}
-        />
-      )}
+      {/* Panel przepięć (25.09.2026) — `?win=similar`; SimilarJobsDialog
+          został wyłącznie na liście rekrutacji. */}
+      <SimilarJobsPanel
+        jobId={jobId}
+        open={slideOver === "similar"}
+        onOpenChange={slideOverOpenChange("similar")}
+        readOnly={!canWritePipeline}
+      />
 
       {/* AI Writer Modal */}
       {canEditJobContentFields && showAIWriter && (
@@ -1200,6 +1207,16 @@ export default function JobDetailPage() {
               focusColumnRequest={boardFocus}
               // Rekrutacja v5: „Przejrzyj" i „Znajdź w bazie (AI)" w kolumnie Nowi.
               onOpenAddCandidates={canWritePipeline ? (tab) => setAddPanelTab(tab) : undefined}
+              // Panel przepięć (25.09.2026): pasek w „Nowych” tylko go otwiera.
+              similarReassign={
+                canWritePipeline && similarPeopleCount
+                  ? {
+                      count: similarPeopleCount,
+                      clientName: job.client_name ?? null,
+                      onOpen: () => openSlideOver("similar"),
+                    }
+                  : null
+              }
               // `?candidate=&panel=` (także linki zapisane w powiadomieniach):
               // od razu warsztat tej osoby na właściwej sekcji.
               initialWorkbench={

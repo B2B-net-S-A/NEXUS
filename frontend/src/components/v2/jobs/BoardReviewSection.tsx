@@ -17,7 +17,7 @@
 
 import { useEffect } from "react";
 import Link from "next/link";
-import { Check, Sparkles, X } from "lucide-react";
+import { Check, RefreshCw, Sparkles, X } from "lucide-react";
 
 import { jobProposalsHref } from "@/components/v2/jobs/JobListCells";
 import { PROPOSAL_SOURCE_LABEL } from "@/components/v2/recruitment/types";
@@ -31,6 +31,14 @@ import { cn } from "@/lib/utils";
 // otwiera „Przejrzyj wszystkich N".
 export const BOARD_REVIEW_LIMIT = 3;
 
+/** Pasek przepięć w „Nowych” (25.09.2026) — liczy strona z GET /similar. */
+export interface SimilarReassignHint {
+  /** Osoby wysłane do klienta w podpowiadanych podobnych rekrutacjach. */
+  count: number;
+  clientName: string | null;
+  onOpen: () => void;
+}
+
 export function BoardReviewSection({
   jobId,
   readOnly,
@@ -40,6 +48,7 @@ export function BoardReviewSection({
   onTotalChange,
   compact = false,
   onOpenPanel,
+  similarReassign = null,
 }: {
   jobId: number;
   readOnly: boolean;
@@ -58,6 +67,8 @@ export function BoardReviewSection({
    */
   compact?: boolean;
   onOpenPanel?: (tab: "search" | "proposals") => void;
+  /** Pasek „↻ N osób…” nad propozycjami; tylko przy liczbie > 0. */
+  similarReassign?: SimilarReassignHint | null;
 }) {
   const proposals = useJobProposals(jobId, {
     filters: DEFAULT_PROPOSAL_FILTERS,
@@ -95,6 +106,22 @@ export function BoardReviewSection({
         data-testid="board-review"
         data-help="jobs.board.review"
       >
+        {!readOnly && similarReassign && similarReassign.count > 0 ? (
+          <button
+            type="button"
+            onClick={similarReassign.onOpen}
+            data-testid="board-similar-reassign"
+            className="flex w-full items-start gap-2 rounded-md border border-primary/40 bg-primary/10 px-2 py-1.5 text-left text-xs hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <RefreshCw className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" aria-hidden="true" />
+            <span className="min-w-0 flex-1 leading-snug text-foreground">
+              <b className="font-semibold tabular-nums">{similarReassign.count}</b>{" "}
+              {sentPeopleNoun(similarReassign.count)} do{" "}
+              {similarReassign.clientName ?? "klienta"} w podobnych rekrutacjach
+            </span>
+            <span className="shrink-0 font-semibold text-primary">Pokaż</span>
+          </button>
+        ) : null}
         <div className="flex items-center justify-between gap-2 rounded-md border border-dashed border-primary/40 bg-primary/5 px-2 py-1.5 text-xs">
           <span className="min-w-0 font-medium leading-snug text-foreground">
             Propozycje z bazy ·{" "}
@@ -260,4 +287,13 @@ export function BoardReviewSection({
       ) : null}
     </div>
   );
+}
+
+/** „1 osoba wysłana”, „3 osoby wysłane”, „5 osób wysłanych”. */
+function sentPeopleNoun(n: number): string {
+  if (n === 1) return "osoba wysłana";
+  const last = n % 10;
+  const lastTwo = n % 100;
+  if (last >= 2 && last <= 4 && (lastTwo < 12 || lastTwo > 14)) return "osoby wysłane";
+  return "osób wysłanych";
 }

@@ -52,6 +52,9 @@ const LEGACY_TAB_TARGETS: Readonly<Record<string, LegacyJobTabTarget>> = {
   contract: { view: "people", segment: "group:contract", panelSection: "contract" },
   notes: { view: "people", panelSection: "notes" },
   "ai-matching": { view: "people", segment: "proposals" },
+  // Zostaje przy „Do przejrzenia”: `?tab=similar` niosą powiadomienia
+  // o propozycjach AI (auto_match_service, candidate_search_worker,
+  // similar_job_notify). Panel przepięć otwiera `?win=similar`.
   similar: { view: "people", segment: "proposals" },
   "manual-search": { view: "people", slideOver: "manual-search" },
   // Symulowane portale ogłoszeniowe usunięte 23.09.2026 — stary link otwiera
@@ -105,6 +108,7 @@ const SLIDE_OVERS: readonly RecruitmentSlideOver[] = [
   "questions",
   "history-chat",
   "manual-search",
+  "similar",
 ];
 const HISTORY_TABS: readonly JobHistoryChatTab[] = [
   "all",

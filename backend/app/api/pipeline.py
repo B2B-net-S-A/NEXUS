@@ -2035,14 +2035,17 @@ async def build_kanban_view(
         if p.reassign_from_job_id is not None
     }
     reassign_titles: dict[int, str] = {}
+    reassign_refs: dict[int, Optional[str]] = {}
     if reassign_job_ids:
-        reassign_titles = dict(
-            (
-                await db.execute(
-                    select(Job.id, Job.title).where(Job.id.in_(reassign_job_ids))
+        for rid, rtitle, rref in (
+            await db.execute(
+                select(Job.id, Job.title, Job.reference_number).where(
+                    Job.id.in_(reassign_job_ids)
                 )
-            ).all()
-        )
+            )
+        ).all():
+            reassign_titles[rid] = rtitle
+            reassign_refs[rid] = rref
     board_now = datetime.now(timezone.utc)
     # Odznaki terminarza rozmowy u klienta i status zamówienia zatrudnionych —
     # po jednym zapytaniu hurtowym (liczone w serwisach, front tylko rysuje).
@@ -2174,6 +2177,9 @@ async def build_kanban_view(
             payload["reassign_from_job_id"] = v4.reassign_from_job_id
             if v4.reassign_from_job_id is not None:
                 payload["reassign_from_title"] = reassign_titles.get(
+                    v4.reassign_from_job_id
+                )
+                payload["reassign_from_reference"] = reassign_refs.get(
                     v4.reassign_from_job_id
                 )
             claim = candidate_claim.claim_state(v4)

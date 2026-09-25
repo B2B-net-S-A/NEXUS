@@ -10,6 +10,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
+import type { BulkProposalsResponse } from "@/lib/candidate-search-api";
 
 export interface SimilarJobItem {
   id: number;
@@ -37,6 +38,37 @@ export interface LinkSimilarResponse extends SimilarJobsPayload {
   reassigned_now: number;
 }
 
+/** Jak skończył się proces osoby w rekrutacji źródłowej. */
+export type SentOutcome =
+  | "in_progress"
+  | "rejected_by_client"
+  | "rejected"
+  | "withdrawn"
+  | "hired";
+
+/** Osoba wysłana do klienta w podobnej rekrutacji (panel przepięć). */
+export interface SentPerson {
+  candidate_id: number;
+  name: string;
+  furthest_stage: string;
+  /** Data pierwszego wysłania do klienta (RRRR-MM-DD). */
+  sent_at: string | null;
+  outcome: SentOutcome;
+  already_in_job: boolean;
+  /** Serwer: nie zatrudniony w źródle i jeszcze nie w tej rekrutacji. */
+  selectable: boolean;
+}
+
+export interface SimilarPeoplePayload {
+  job_id: number;
+  jobs: Array<{ job_id: number; people: SentPerson[] }>;
+}
+
+export interface ReassignResponse extends BulkProposalsResponse {
+  /** Rekrutacje połączone TYM wywołaniem (do „Cofnij”). */
+  linked_now: number[];
+}
+
 export interface SimilarPreviewInput {
   title: string;
   must_skills: string[];
@@ -51,6 +83,10 @@ export interface ChampionFoundResponse {
 }
 
 export const similarJobsKey = (jobId: number) => ["similar-jobs", jobId] as const;
+export const similarPeopleKey = (jobId: number, otherId: number) =>
+  ["similar-people", jobId, otherId] as const;
+export const similarSearchKey = (jobId: number, q: string) =>
+  ["similar-jobs-search", jobId, q] as const;
 
 export const similarJobsApi = {
   get: (jobId: number) =>
@@ -62,6 +98,26 @@ export const similarJobsApi = {
   unlink: (jobId: number, otherId: number) =>
     api
       .delete<SimilarJobsPayload>(`/api/jobs/${jobId}/similar/${otherId}`)
+      .then((r) => r.data),
+  people: (jobId: number, otherIds: number[]) =>
+    api
+      .get<SimilarPeoplePayload>(`/api/jobs/${jobId}/similar/people`, {
+        params: { job_ids: otherIds },
+        paramsSerializer: { indexes: null },
+      })
+      .then((r) => r.data),
+  search: (jobId: number, q: string) =>
+    api
+      .get<{ items: SimilarJobItem[] }>(`/api/jobs/${jobId}/similar/search`, {
+        params: { q },
+      })
+      .then((r) => r.data.items),
+  reassign: (jobId: number, jobIds: number[], candidateIds: number[]) =>
+    api
+      .post<ReassignResponse>(`/api/jobs/${jobId}/similar/reassign`, {
+        job_ids: jobIds,
+        candidate_ids: candidateIds,
+      })
       .then((r) => r.data),
   preview: (input: SimilarPreviewInput) =>
     api
@@ -108,6 +164,37 @@ export function useUnlinkSimilarJob(jobId: number) {
     onSuccess: (data) => {
       qc.setQueryData(similarJobsKey(jobId), data);
       invalidateAfterLink(qc, jobId);
+    },
+  });
+}
+
+/** Ludzie wysłani do klienta w jednej podobnej rekrutacji (na kliknięcie). */
+export function useSimilarPeople(jobId: number, otherId: number, enabled = true) {
+  return useQuery({
+    queryKey: similarPeopleKey(jobId, otherId),
+    queryFn: () =>
+      similarJobsApi.people(jobId, [otherId]).then((data) => data.jobs[0]?.people ?? []),
+    enabled: enabled && jobId > 0 && otherId > 0,
+    staleTime: 30_000,
+  });
+}
+
+/**
+ * Przepięcie jednym kliknięciem: połącz rekrutacje i dodaj wskazanych do
+ * „Nowych”. Odświeża tablicę (oba klucze kanbana — liczbowy i tekstowy),
+ * skrzynkę propozycji i podobne rekrutacje.
+ */
+export function useReassignFromSimilar(jobId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ jobIds, candidateIds }: { jobIds: number[]; candidateIds: number[] }) =>
+      similarJobsApi.reassign(jobId, jobIds, candidateIds),
+    onSuccess: () => {
+      invalidateAfterLink(qc, jobId);
+      qc.invalidateQueries({ queryKey: ["similar-people", jobId] });
+      qc.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
+      qc.invalidateQueries({ queryKey: ["kanban", jobId] });
+      qc.invalidateQueries({ queryKey: ["pipeline-scores"] });
     },
   });
 }
