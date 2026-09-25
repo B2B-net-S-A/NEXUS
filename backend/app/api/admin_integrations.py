@@ -19,6 +19,7 @@ from sqlalchemy import desc, select
 from app.api.deps import AdminUser
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
+from app.core.tasks import spawn
 from app.models.integration_run import IntegrationRun
 from app.services.integration_runs import run_to_dict
 from app.services.integrations.jjit import runner
@@ -56,13 +57,15 @@ async def trigger_jjit_run(payload: JjitRunRequest, admin: AdminUser) -> dict:
         payload.dry_run,
         payload.since,
     )
-    _manual_task = asyncio.create_task(
+    # `spawn`: referencja trzymana także poza `_manual_task` i log porażki.
+    _manual_task = spawn(
         runner.run_once(
             dry_run=payload.dry_run,
             since=payload.since,
             states=payload.states,
             limit=payload.limit,
-        )
+        ),
+        "jjit_manual_run",
     )
     return {
         "started": True,

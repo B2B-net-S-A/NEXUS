@@ -1,4 +1,3 @@
-import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
@@ -14,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
+from app.core.tasks import spawn
 from app.models.candidate import Candidate
 from app.models.recruitment_pipeline import (
     CandidateStage,
@@ -122,27 +122,11 @@ router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 logger = logging.getLogger(__name__)
 
 
-# Referencje zadań w tle (fire-and-forget ``create_task`` gubi je pod GC —
-# pętla zdarzeń trzyma tylko słabą referencję). Wzorzec z app/api/cortex.py,
-# rozszerzony o log: powiadomienie Teams padłe w zadaniu nie ma czytelnika,
-# więc bez done_callbacku znika bez śladu.
-_bg_tasks: set[asyncio.Task] = set()
-
-
 def _spawn(coro, label: str) -> None:
-    task = asyncio.create_task(coro)
-    _bg_tasks.add(task)
-
-    def _done(finished: asyncio.Task) -> None:
-        _bg_tasks.discard(finished)
-        if finished.cancelled():
-            logger.warning("pipeline background task cancelled: %s", label)
-            return
-        exc = finished.exception()
-        if exc is not None:
-            logger.exception("pipeline background task failed: %s", label, exc_info=exc)
-
-    task.add_done_callback(_done)
+    # Wspólny `app.core.tasks.spawn`: trzymana referencja (goły `create_task`
+    # gubi zadanie pod GC) i log porażki — powiadomienie Teams padłe w zadaniu
+    # nie ma czytelnika. Nazwa `_spawn` zostaje: testy ją podmieniają.
+    spawn(coro, f"pipeline:{label}")
 
 
 async def _post_commit_effect(

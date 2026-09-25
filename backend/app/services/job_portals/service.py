@@ -54,6 +54,13 @@ ACTION_PUBLISH = "publish"
 ACTION_UPDATE = "update"
 ACTION_CLOSE = "close"
 
+# Znacznik w ``remote_state`` świeżego wiersza: nowa publikacja anulowała
+# zaległe zamknięcie po niepewnej próbie tej pary (``_cancel_stale_cleanup``)
+# i przejęła obowiązek sprzątania. ``remote_state`` nowego wiersza jest puste
+# do pierwszej odpowiedzi portalu, a ta znacznik nadpisuje (publikacja przejęła
+# ogłoszenie albo portal odpowiedział, że go nie ma).
+_INHERITED_CLEANUP = "inherited_cleanup"
+
 # Konto do ponownego połączenia: wiersz czeka, próby się nie zużywają.
 _RECONNECT_WAIT = timedelta(hours=1)
 _BACKOFF_CAP_SECONDS = 3600
@@ -256,7 +263,7 @@ async def request_publish(
     )
     built = await build_content(db, job, options=normalized)
     _checked_options(portal, built.content, normalized)
-    await _cancel_stale_cleanup(db, job.id, portal)
+    inherited_cleanup = await _cancel_stale_cleanup(db, job.id, portal)
     posting = JobPosting(
         job_id=job.id,
         portal=portal,
@@ -267,6 +274,7 @@ async def request_publish(
         payload_hash=built.payload_hash,
         public_profile_hash=built.profile_hash,
         created_by=user_id,
+        remote_state=_INHERITED_CLEANUP if inherited_cleanup else None,
     )
     db.add(posting)
     await db.flush()
@@ -329,7 +337,7 @@ def _maybe_sent(posting: JobPosting) -> bool:
     )
 
 
-async def _cancel_stale_cleanup(db: AsyncSession, job_id: int, portal: Portal) -> None:
+async def _cancel_stale_cleanup(db: AsyncSession, job_id: int, portal: Portal) -> bool:
     """Nowa publikacja anuluje zaległe zamknięcie po niepewnej publikacji.
 
     Wiersz ``failed`` z ``pending_action = close`` (timeouty do końca prób —
@@ -338,6 +346,11 @@ async def _cancel_stale_cleanup(db: AsyncSession, job_id: int, portal: Portal) -
     zamknięcie zamknęłoby NOWE, opłacone ogłoszenie. Anulujemy je: nowa
     publikacja najpierw szuka ogłoszenia po externalId i przejmie to, które
     mogło powstać, zamiast kupować drugie (audyt 25.09.2026).
+
+    Zwraca True, gdy coś anulowano — nowy wiersz dziedziczy wtedy sprzątanie
+    (``_INHERITED_CLEANUP``): wycofany, zanim worker go wziął, nie może zniknąć
+    jako „nigdy niewysłany”, bo ogłoszenie z poprzedniej próby zostałoby na
+    portalu bez nikogo, kto je zamknie (audyt 25.09.2026, runda 2).
     """
     stale = (
         await db.scalars(
@@ -358,6 +371,7 @@ async def _cancel_stale_cleanup(db: AsyncSession, job_id: int, portal: Portal) -
             "Zamknięcie anulowane — nowa publikacja przejmie ogłoszenie, "
             "jeśli poprzednia próba je utworzyła."
         )
+    return bool(stale)
 
 
 async def request_unpublish(
@@ -378,8 +392,16 @@ async def request_unpublish(
     return posting
 
 
+def _inherits_cleanup(posting: JobPosting) -> bool:
+    return posting.remote_state == _INHERITED_CLEANUP
+
+
 def _close_or_drop(posting: JobPosting) -> None:
-    if posting.status == PostingStatus.publishing and not _maybe_sent(posting):
+    if (
+        posting.status == PostingStatus.publishing
+        and not _maybe_sent(posting)
+        and not _inherits_cleanup(posting)
+    ):
         posting.status = PostingStatus.removed
         posting.pending_action = None
         posting.last_error = None
@@ -687,9 +709,12 @@ def _give_up(
     if action == ACTION_PUBLISH:
         posting.status = PostingStatus.failed
         posting.pending_action = None
-        if uncertain:
+        if uncertain or _inherits_cleanup(posting):
             # Timeouty do końca prób: ogłoszenie mogło powstać. Zamknięcie po
             # naszym externalId sprząta je, jeśli jest (bez niego — no-op).
+            # To samo, gdy wiersz odziedziczył sprzątanie po wcześniejszej
+            # niepewnej próbie — pewna odmowa TEJ publikacji nie mówi nic
+            # o ogłoszeniu z tamtej.
             posting.pending_action = ACTION_CLOSE
             posting.attempts = 0
             posting.next_attempt_at = _now() + _RECONNECT_WAIT
