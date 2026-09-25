@@ -143,6 +143,11 @@ _SEARCH_DOC_UNACCENT = column("search_doc_unaccented", Text)
 # bez CV (indeks trigramowy); ``keyword_fts`` — profil + CV (GIN).
 _KEYWORD_DOC = column("keyword_doc", Text)
 _KEYWORD_FTS = column("keyword_fts", TSVECTOR)
+# Korpus złożony (0385): profil + CV i notatki bez polskich znaków, ukośnik
+# jako spacja, ``c#``/``c++``/``f#``/``.net`` jako słowa. Przy
+# ``KEYWORD_SEARCH_FOLDED_FTS`` zastępuje regexy (``_folded_whole_word_match``).
+_KEYWORD_FOLD_FTS = column("keyword_fold_fts", TSVECTOR)
+_NOTE_FOLD_FTS = column("content_fold_fts", TSVECTOR)
 
 # Polish diacritic → ASCII fold, both cases. MUST stay byte-for-byte in sync with
 # migration 0159 (_FOLD_SRC/_FOLD_DST) and the entrypoint.sh safety-net copy, so
@@ -362,6 +367,83 @@ def _corpus_folded(folded_pattern: str) -> ColumnElement:
     )
 
 
+def folded_tsquery(term: KeywordTerm) -> Optional[ColumnElement]:
+    """Zapytanie do korpusu złożonego albo ``None`` (wtedy zostaje regex).
+
+    Tekst zapytania przechodzi przez TĘ SAMĄ funkcję SQL co dokument
+    (``candidate_keyword_fold``), więc „c#”, „Kraków” i „ci/cd” składają się
+    identycznie po obu stronach. Całe słowo → ``to_tsquery`` (+ wariant
+    ``słowo.js``, bo parser trzyma „Vue.js” jako jeden token); gwiazdka na końcu
+    → prefiks ostatniego słowa; wszystko inne (fraza, „node.js”, „c# developer”)
+    → ``phraseto_tsquery``, czyli słowa obok siebie tak, jak je rozbije parser
+    dokumentu. Gwiazdka z przodu nie ma odpowiednika w indeksie.
+    """
+    if term.open_start or not any(ch.isalnum() for ch in term.text):
+        return None
+    fold_fn = getattr(func, keyword_corpus.FOLD_FUNCTION)
+
+    def fold(value: str) -> ColumnElement:
+        return fold_fn(value, type_=Text)
+
+    if term.open_end:
+        if not (term.is_plain_word or term.is_plain_phrase):
+            return None
+        # Tekst jest alfanumeryczny (sprawdzone wyżej), więc po złożeniu nie
+        # niesie operatorów tsquery — tylko litery, cyfry i pojedyncze spacje.
+        prefix = (
+            func.replace(
+                func.btrim(fold(term.text), type_=Text), " ", " <-> ", type_=Text
+            )
+            + ":*"
+        )
+        return func.to_tsquery(_FTS_CONFIG, prefix)
+    if term.is_plain_word:
+        query = func.to_tsquery(_FTS_CONFIG, fold(term.text))
+        if term.text.isascii():
+            query = query.op("||")(
+                func.to_tsquery(_FTS_CONFIG, fold(term.text) + ".js:*")
+            )
+        return query
+    return func.phraseto_tsquery(_FTS_CONFIG, fold(term.text))
+
+
+def keyword_fold_fts_column() -> ColumnElement:
+    """``candidates.keyword_fold_fts`` (kolumna spoza ORM) dla liczników."""
+    return _KEYWORD_FOLD_FTS
+
+
+def _folded_whole_word_match(
+    term: KeywordTerm, scope: str, pattern: str
+) -> Optional[ColumnElement]:
+    """Całe słowo przez indeks korpusu złożonego; ``None`` = stara ścieżka."""
+    query = folded_tsquery(term)
+    if query is None:
+        return None
+    match = _KEYWORD_FOLD_FTS.op("@@")(query)
+    if keyword_corpus.notes_folded_search_enabled():
+        notes_branch = select(Note.candidate_id).where(
+            Note.candidate_id.is_not(None), _NOTE_FOLD_FTS.op("@@")(query)
+        )
+    else:
+        notes_branch = select(Note.candidate_id).where(
+            Note.candidate_id.is_not(None), Note.content.op("~*")(pattern)
+        )
+    if scope == "notes":
+        return Candidate.id.in_(notes_branch)
+    if scope in ("cv", "title", "skills"):
+        # Indeks wybiera wiersze, regex pola potwierdza zakres — jak dotąd,
+        # tylko teraz także dla „c#” (dawniej regex bez wstępnego filtra).
+        field = {
+            "cv": Candidate.raw_cv_text,
+            "title": _experience_roles_text(),
+            "skills": _skill_names_text(),
+        }[scope]
+        return Candidate.id.in_(
+            select(Candidate.id).where(match, field.op("~*")(pattern))
+        )
+    return Candidate.id.in_(union(select(Candidate.id).where(match), notes_branch))
+
+
 def _whole_word_match(term: KeywordTerm, scope: str = "all") -> ColumnElement:
     """Całe słowo / fraza / gwiazdka (``keyword_terms``) w wybranym zakresie.
 
@@ -377,6 +459,10 @@ def _whole_word_match(term: KeywordTerm, scope: str = "all") -> ColumnElement:
     regex czyta tylko kandydatów, którzy i tak mają to słowo.
     """
     pattern = pg_regex(term)
+    if keyword_corpus.folded_search_enabled():
+        folded = _folded_whole_word_match(term, scope, pattern)
+        if folded is not None:
+            return folded
     folded_pattern = pg_regex(
         KeywordTerm(
             raw=term.raw,

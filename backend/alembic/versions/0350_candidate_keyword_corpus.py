@@ -35,7 +35,7 @@ def upgrade() -> None:
     for stmt in kc.COLUMN_DDL:
         op.execute(stmt)
     op.execute(kc.JSON_TEXT_FUNCTION_DDL)
-    op.execute(kc.TRIGGER_FUNCTION_DDL)
+    op.execute(kc.TRIGGER_FUNCTION_DDL_0350)
     op.execute(kc.TRIGGER_DDL)
     with op.get_context().autocommit_block():
         for stmt in kc.index_ddl(concurrently=True):

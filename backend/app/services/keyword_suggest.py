@@ -262,7 +262,11 @@ async def count_candidates(
     obowiązuje w savepoincie, więc przekroczenie nie psuje transakcji żądania.
     """
     result: dict[str, Optional[int]] = {v: None for v in values}
-    if not values or not keyword_corpus.ready():
+    if not values:
+        return result
+    if keyword_corpus.folded_search_enabled():
+        return await _count_folded(db, values, result)
+    if not keyword_corpus.ready():
         return result
     now = time.monotonic()
     missing: list[tuple[str, str, Optional[str]]] = []
@@ -319,6 +323,72 @@ async def count_candidates(
             continue
         result[value] = n
         _count_cache[fold(value)] = (now, n)
+    return result
+
+
+async def _count_one_within_timeout(db: AsyncSession, stmt) -> Optional[int]:
+    try:
+        async with db.begin_nested():
+            previous = (
+                await db.execute(text("SELECT current_setting('statement_timeout')"))
+            ).scalar_one()
+            await db.execute(
+                text("SELECT set_config('statement_timeout', :ms, true)"),
+                {"ms": f"{COUNT_TIMEOUT_MS}ms"},
+            )
+            n = int((await db.execute(stmt)).scalar_one() or 0)
+            await db.execute(
+                text("SELECT set_config('statement_timeout', :prev, true)"),
+                {"prev": previous},
+            )
+            return n
+    except Exception as exc:  # noqa: BLE001 — liczba to dodatek, nie bramka
+        logger.warning("keyword suggest count skipped (%s)", type(exc).__name__)
+        return None
+
+
+async def _count_folded(
+    db: AsyncSession, values: Sequence[str], result: dict[str, Optional[int]]
+) -> dict[str, Optional[int]]:
+    """Liczby z korpusu złożonego — to samo zapytanie co lista, więc liczba przy
+    podpowiedzi zgadza się z wynikiem. Liczy też „c#”, „c++”, „.net”, „node.js”
+    (pojedynczy token w indeksie). Frazy i słowa z ukośnikiem/myślnikiem
+    pomijamy: sprawdzanie pozycji w każdym wierszu to sekundy."""
+    from sqlalchemy import func, select  # noqa: PLC0415
+
+    from app.models.candidate import Candidate  # noqa: PLC0415
+    from app.services.advanced_candidate_search import (  # noqa: PLC0415
+        folded_tsquery,
+        keyword_fold_fts_column,
+    )
+
+    now = time.monotonic()
+    if len(_count_cache) > _COUNT_CACHE_MAX:
+        _count_cache.clear()
+    for value in values:
+        key = "fold:" + fold(value)
+        cached = _cached(key, now)
+        if cached is not None:
+            result[value] = cached
+            continue
+        term = parse_keyword(value)
+        if term is None or term.open_start or len(term.words) != 1:
+            continue
+        if any(ch in term.text for ch in "/\\-"):
+            continue
+        query = folded_tsquery(term)
+        if query is None:
+            continue
+        stmt = (
+            select(func.count())
+            .select_from(Candidate)
+            .where(keyword_fold_fts_column().op("@@")(query))
+        )
+        n = await _count_one_within_timeout(db, stmt)
+        if n is None:
+            continue
+        result[value] = n
+        _count_cache[key] = (now, n)
     return result
 
 
