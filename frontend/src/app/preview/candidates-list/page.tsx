@@ -12,6 +12,8 @@
  * wychodzi do sieci ani nie przerzuca na /login.
  *
  * `?dialog=1` otwiera od razu okno „Szukaj z requestu" (do zrzutów ekranu).
+ * `?embed=1` pokazuje listę tak, jak widzi ją okno „Szukaj ręcznie"
+ * rekrutacji (tryb osadzony, 25.09.2026) — w ramce szerokości okna.
  * Dane są fikcyjne — repo jest publiczne.
  */
 
@@ -25,8 +27,10 @@ import {
   CANDIDATES_BASE_TOTAL_QUERY_KEY,
   CandidatesListV2,
   candidatesListApiParams,
+  candidatesListFiltersForQuery,
   candidatesListQueryKey,
 } from "@/components/v2/pages/CandidatesListV2";
+import { jobListFilters } from "@/components/v2/recruitment/ManualSearchPanel";
 import { RequestSearchDialog } from "@/components/v2/candidates/RequestSearchDialog";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import { candidateContactQueryKeys } from "@/lib/candidate-contact";
@@ -226,6 +230,17 @@ const SNIPPETS: Record<number, Array<{ field: string; text: string; highlights: 
   502: [snippet("Treść CV", "…JavaScript, TypeScript i Java 11 w projektach e-commerce, Kafka Streams…")],
 };
 
+/** Rekrutacja, z której harness otwiera „Szukaj ręcznie" (`?embed=1`). */
+const EMBED_JOB = {
+  id: 42,
+  title: "Klient Demo: Senior Java Developer (DEMO-101)",
+  must_skills: ["Java", "Spring", "Kafka"],
+  location: "Warszawa",
+  remote_policy: "hybrid",
+  competence_category_id: 2,
+};
+const EMBED_FILTERS = jobListFilters(EMBED_JOB, null);
+
 function searchParamsNow(): URLSearchParams {
   return new URLSearchParams(typeof window === "undefined" ? "" : window.location.search);
 }
@@ -262,6 +277,16 @@ function seededClient(): QueryClient {
     voivodeships: ["dolnośląskie", "małopolskie", "mazowieckie", "pomorskie", "śląskie"],
     max_radius_km: 300,
   });
+  qc.setQueryData(
+    candidatesListQueryKey(
+      candidatesListApiParams(
+        candidatesListFiltersForQuery(EMBED_FILTERS, { jobId: EMBED_JOB.id }),
+        1,
+        50,
+      ),
+    ),
+    { items: CANDIDATES, total: 143, page: 1, page_size: 50, text_mode_applied: "semantic" },
+  );
   qc.setQueryData(CANDIDATES_BASE_TOTAL_QUERY_KEY, {
     items: [],
     total: 12481,
@@ -296,6 +321,7 @@ export default function CandidatesListPreview() {
   const [ready, setReady] = useState(false);
   const [qc] = useState(seededClient);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [embedMode, setEmbedMode] = useState(false);
 
   useEffect(() => {
     const blocker = api.interceptors.request.use((config) =>
@@ -317,6 +343,7 @@ export default function CandidatesListPreview() {
       hydrated: true,
     });
     setDialogOpen(new URLSearchParams(window.location.search).get("dialog") === "1");
+    setEmbedMode(new URLSearchParams(window.location.search).get("embed") === "1");
     setReady(true);
     return () => api.interceptors.request.eject(blocker);
   }, []);
@@ -329,7 +356,24 @@ export default function CandidatesListPreview() {
     <ToastProvider>
       <QueryClientProvider client={qc}>
         <div className="min-h-dvh bg-background p-4 sm:p-6">
-          <CandidatesListV2 onRequestSearch={() => undefined} />
+          {embedMode ? (
+            <div className="ml-auto max-w-[min(1100px,92vw)] rounded-xl border border-border bg-card p-5 shadow-lg">
+              <h2 className="text-lg font-semibold">Szukaj ręcznie</h2>
+              <p className="mb-4 text-sm text-muted-foreground">
+                Filtry wypełnione z rekrutacji „{EMBED_JOB.title}”. Osoby, które już w niej są, nie
+                pojawią się w wynikach.
+              </p>
+              <CandidatesListV2
+                embed={{
+                  jobId: EMBED_JOB.id,
+                  jobTitle: EMBED_JOB.title,
+                  initialFilters: EMBED_FILTERS,
+                }}
+              />
+            </div>
+          ) : (
+            <CandidatesListV2 onRequestSearch={() => undefined} />
+          )}
           <RequestSearchDialog
             open={dialogOpen}
             onOpenChange={setDialogOpen}

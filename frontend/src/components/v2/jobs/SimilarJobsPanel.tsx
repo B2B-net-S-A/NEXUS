@@ -105,7 +105,7 @@ export function SimilarJobsPanel({
   const plan = planReassign(chosen, peopleByJob, excluded);
   const count = plan.candidateIds.length;
 
-  const linked = similar.data?.linked ?? [];
+  const linked = useMemo(() => similar.data?.linked ?? [], [similar.data]);
   const linkedIds = useMemo(() => new Set(linked.map((j) => j.id)), [linked]);
   const suggestions = similar.data?.suggestions ?? [];
   const extra = manual.filter(
