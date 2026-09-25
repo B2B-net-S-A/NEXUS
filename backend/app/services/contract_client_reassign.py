@@ -46,16 +46,17 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from sqlalchemy import select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.activity import Activity
 from app.models.b2b_generated_contract import B2BGeneratedContract
+from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.client_order import ClientOrder
 from app.models.client_order_offboarding import ClientOrderOffboardingCase
 from app.models.contact import Contact
-from app.models.contract import Contract
+from app.models.contract import Contract, ContractStatus
 from app.models.contract_framework_rate import ContractFrameworkRate
 from app.models.dl_alert import (
     DL_ALERT_STATUS_HANDLED,
@@ -77,6 +78,17 @@ BLOCKER_ORDER_GROUP_LINE = "order_group_line"
 BLOCKER_ORDER_OTHER_CLIENT = "order_other_client"
 BLOCKER_PM_CONTACT = "pm_contact_other_client"
 BLOCKER_OFFBOARDING_PENDING = "offboarding_pending"
+BLOCKER_DUPLICATE_AT_TARGET = "duplicate_contract_at_target"
+
+# Lustro ``_DUPLICATE_GUARD_STATUSES`` z ``app/api/contracts.py`` (blokada
+# duplikatu kontraktora przy zakładaniu kontraktu) — import routera zamknąłby
+# cykl importów; zgodność pilnuje test.
+LIVE_CONTRACT_STATUSES = (
+    ContractStatus.draft,
+    ContractStatus.ready_for_signature,
+    ContractStatus.active,
+    ContractStatus.ending,
+)
 
 WARNING_JOB_CLIENT = "job_client_differs"
 WARNING_B2B_PRINTED_NAME = "b2b_printed_client_name"
@@ -234,6 +246,41 @@ async def _load_target(
     return target
 
 
+async def _live_contract_at_target(
+    db: AsyncSession, contract: Contract, target_client_id: int
+) -> Optional[int]:
+    """Żywy kontrakt TEJ SAMEJ osoby u klienta docelowego (audyt 25.09.2026).
+
+    Ta sama reguła tożsamości co blokada duplikatu przy zakładaniu kontraktu
+    (``_assert_no_duplicate_contract``): ``candidate_id`` albo e-mail bez
+    wielkości liter i białych znaków. Dotyczy tylko przepinania kontraktu
+    żywego — zakończony obok żywego to historia, nie duplikat.
+    """
+    if contract.status not in LIVE_CONTRACT_STATUSES:
+        return None
+    email = await db.scalar(
+        select(Candidate.email).where(Candidate.id == contract.candidate_id)
+    )
+    email_norm = (email or "").strip().lower()
+    identity = [Contract.candidate_id == contract.candidate_id]
+    if email_norm:
+        identity.append(
+            func.lower(func.btrim(Candidate.email, " \t\r\n")) == email_norm
+        )
+    return await db.scalar(
+        select(Contract.id)
+        .join(Candidate, Candidate.id == Contract.candidate_id)
+        .where(
+            Contract.client_id == target_client_id,
+            Contract.id != contract.id,
+            Contract.status.in_(LIVE_CONTRACT_STATUSES),
+            or_(*identity),
+        )
+        .order_by(Contract.id)
+        .limit(1)
+    )
+
+
 async def build_plan(
     db: AsyncSession,
     contract: Contract,
@@ -374,6 +421,21 @@ async def build_plan(
                     ),
                 }
             )
+
+    duplicate_id = await _live_contract_at_target(db, contract, target.id)
+    if duplicate_id is not None:
+        plan.blockers.append(
+            {
+                "code": BLOCKER_DUPLICATE_AT_TARGET,
+                "ids": [duplicate_id],
+                "message": (
+                    "Ta osoba ma już żywy kontrakt u klienta docelowego "
+                    f"(Kontrakt #{duplicate_id}). Przepięcie dałoby dwa "
+                    "kontrakty tej samej osoby u jednego klienta — najpierw "
+                    "zakończ albo scal jeden z nich."
+                ),
+            }
+        )
 
     pending_cases = list(
         (

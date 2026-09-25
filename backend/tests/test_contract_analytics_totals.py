@@ -429,6 +429,70 @@ async def test_contract_without_a_start_date_counts_as_current_in_utilization():
     assert key in population.active_keys
 
 
+@pytest.mark.parametrize(
+    ("order_offset", "current"),
+    [(1, False), (-1, True)],
+    ids=["order-starts-tomorrow", "order-started-yesterday"],
+)
+async def test_dateless_contract_asks_its_orders_whether_it_already_runs(
+    order_offset, current
+):
+    """Audyt 25.09.2026 (reguła S5): kontrakt bez daty startu, którego jedyne
+    zamówienie zaczyna się jutro, jest PLANOWANY — tak liczy profil klienta
+    i katalog. Analityka (margin-totals, ranking, utylizacja) liczyła go jako
+    obecny, więc ten sam klient miał inne MRR w Finansach niż na profilu."""
+    pytest.importorskip("asyncpg")
+    from app.api.contract_analytics import _load_live_contracts, _started_by
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+    from app.services.contractor_identity import candidate_identity_key
+
+    marker = uuid.uuid4().hex[:8]
+    today = business_today()
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"Start z zamówienia {marker}")
+        person = Candidate(name="Planowany", lastname=f"Konsultant{marker}")
+        db.add_all([client, person])
+        await db.flush()
+        contract = Contract(
+            candidate_id=person.id,
+            client_id=client.id,
+            contract_type=ContractType.b2b,
+            status=ContractStatus.active,
+            start_date=None,
+            rate_unit=RateUnit.monthly,
+            rate_client=Decimal("20000"),
+            rate_candidate=Decimal("15000"),
+        )
+        db.add(contract)
+        await db.flush()
+        db.add(
+            ClientOrder(
+                client_id=client.id,
+                contract_id=contract.id,
+                title=f"ZAM-{marker}",
+                status=ClientOrderStatus.active,
+                order_type="periodic",
+                rate_unit=RateUnit.monthly,
+                start_date=today + timedelta(days=order_offset),
+            )
+        )
+        await db.commit()
+        contract_id = contract.id
+        key = candidate_identity_key(person)
+
+        live_ids = {c.id for c in await _load_live_contracts(db, today)}
+        counted = await db.scalar(
+            select(func.count(Contract.id)).where(
+                Contract.id == contract_id, _started_by(today)
+            )
+        )
+        population = await consultant_population(db)
+
+    assert (contract_id in live_ids) is current
+    assert counted == (1 if current else 0)
+    assert (key in population.active_keys) is current
+
+
 async def test_shortened_contract_counts_as_ended_early(
     app_client: AsyncClient, app_auth_headers: dict
 ):

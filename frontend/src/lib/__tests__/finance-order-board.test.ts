@@ -106,6 +106,27 @@ describe("karta zamówienia", () => {
     ).toBe("Zam. 1 · 01.10.2026 – bezterminowo · X");
   });
 
+  it("stara strona zmiany stawki jest w swojej walucie", () => {
+    const [item] = boardItems(
+      data([
+        change({
+          kind: "rate_revenue",
+          old_amount: 1000,
+          new_amount: 1000,
+          old_unit: "daily",
+          new_unit: "daily",
+          currency: "EUR",
+          old_currency: "PLN",
+          old_date: null,
+          new_date: null,
+        }),
+      ]),
+      "changes",
+    );
+    expect(item.before).toBe("1000,00 zł/dzień");
+    expect(item.after).toBe("1000,00 EUR/dzień");
+  });
+
   it("grupuje zmiany jednego zamówienia i zbiera etykiety typów", () => {
     const items = boardItems(
       data([

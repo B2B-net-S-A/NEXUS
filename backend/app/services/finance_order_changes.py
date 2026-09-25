@@ -690,6 +690,7 @@ async def _changes(
                 old_unit=event.old_unit,
                 new_unit=event.new_unit,
                 currency=event.currency,
+                old_currency=event.old_currency,
                 old_date=event.old_date,
                 new_date=event.new_date,
                 is_whole_order=whole,
@@ -1135,7 +1136,7 @@ def _change_description(item: OrderChangeItem) -> tuple[str, str, str]:
     )
     return (
         label,
-        _rate(item.old_amount, item.old_unit, item.currency),
+        _rate(item.old_amount, item.old_unit, item.old_currency or item.currency),
         _rate(item.new_amount, item.new_unit, item.currency),
     )
 

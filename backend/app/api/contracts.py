@@ -458,6 +458,11 @@ async def _assert_b2b_end_date_update(
         _reject_b2b_end_date()
 
 
+# Okno „Kończący się” nocnego crona (`contract_alerts._promote_statuses`:
+# active → ending, gdy data końca wypada w ciągu 30 dni).
+_ENDING_WINDOW_DAYS = 30
+
+
 def _status_after_end_date_change(
     status: ContractStatus, end_date: Optional[date], today: date
 ) -> ContractStatus:
@@ -3953,11 +3958,36 @@ async def update_contract(
     # jest heurystyką. Bez tego wyjątku wybranie „Zakończony" dla umowy
     # bezterminowej zostałoby natychmiast cofnięte na `active` w tym samym
     # żądaniu — zapis zwracałby 200 i nie robił nic.
+    reopened_by_end_date = False
     if not status_sent:
+        today = business_today()
         coerced_status = _status_after_end_date_change(
-            contract.status, contract.end_date, business_today()
+            contract.status, contract.end_date, today
         )
-        if coerced_status != contract.status:
+        if (
+            coerced_status != contract.status
+            and contract.status == ContractStatus.ended
+        ):
+            # Nowa data końca wskrzesza ZAKOŃCZONĄ umowę — to reaktywacja jak
+            # przy aneksie przedłużającym, więc idzie przez `reopen_contract`:
+            # wpis `contract_reopened`, Generator B2B i dane rozwiązania umowy
+            # wracają (`undo_contract_termination`), migawka zakończenia
+            # zamknięta. Do 25.09.2026 był tu surowy zapis statusu — umowa
+            # wracała do aktywnych, a Generator zostawał w „Zakończonych”.
+            await reopen_contract(db, contract, actor_id=current_user.id)
+            reopened_by_end_date = True
+            # Status z daty jak po zakończeniu z datą przyszłą
+            # (`_status_after_termination`): umowa wypowiedziana albo kończąca
+            # się w oknie nocnego crona (30 dni) jest „Kończący się”, nie
+            # „Aktywny”.
+            if contract.end_date is not None and (
+                contract.terminated_at is not None
+                or contract.end_date <= today + timedelta(days=_ENDING_WINDOW_DAYS)
+            ):
+                assert_transition(contract.status, ContractStatus.ending)
+                contract.status = ContractStatus.ending
+            updates["status"] = contract.status.value
+        elif coerced_status != contract.status:
             contract.status = coerced_status
             updates["status"] = coerced_status.value  # reflect the outcome in audit
     # Reguła zakładki „Zakończeni" (09.2026): data końca umowy wpisana w module
@@ -3981,7 +4011,10 @@ async def update_contract(
             contract.id,
             contract.end_date,
             actor_id=current_user.id,
-            contract_before=state_before,
+            # Po reaktywacji stan „przed” opisuje ZAKOŃCZONĄ umowę — nowa
+            # migawka z nim pozwoliłaby „Cofnij zakończenie” wrócić do
+            # zakończenia, które właśnie cofnięto.
+            contract_before=None if reopened_by_end_date else state_before,
         )
     # Ręczna stawka przychodowa w kontrakcie z harmonogramem — krok od dziś,
     # inaczej resolver (czytający harmonogram, nie kolumnę) by ją zignorował.
