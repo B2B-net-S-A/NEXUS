@@ -517,14 +517,11 @@ async def load_quarterly_league(db: AsyncSession) -> dict[str, Any]:
     niezależnie od okresu sekcji."""
 
     from app.services import competitions as comp
-    from app.services.insights_scoring_config import (
-        get_scoring_config,
-        league_points_formula,
-    )
+    from app.services.insights_scoring_config import league_points_formula
 
     period = comp.current_quarter_period()
     ranked = await comp.quarterly_champions_recruiter(db, period)
-    _config = await get_scoring_config(db)
+    _config = await comp.league_scoring_config(db, period)
     _year, _quarter = comp.parse_quarter(period)
     _required_placements = comp.required_placements_for_quarter(
         _year, _quarter, _config
@@ -543,7 +540,15 @@ async def load_quarterly_league(db: AsyncSession) -> dict[str, Any]:
             f"{'placement' if _required_placements == 1 else 'placementów'} "
             "w kwartale (próg rośnie z każdym miesiącem kwartału)."
         ),
-        "ranked": [r.to_dict() for r in ranked],
+        # Numeracja i kwoty z `award_order` — ta sama co `/api/competitions/current`
+        # i zamrożenie; niezakwalifikowany ma `rank: None`, nie miejsce na podium.
+        "ranked": comp.award_ranked_rows(
+            comp.CompetitionType.quarterly_champions_recruiter,
+            ranked,
+            await comp.award_order(
+                db, comp.CompetitionType.quarterly_champions_recruiter, period, ranked
+            ),
+        ),
     }
 
 

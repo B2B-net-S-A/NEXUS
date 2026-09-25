@@ -43,14 +43,18 @@ import { SectionError } from "./_shared";
 
 // ── Kontrakt z `/api/competitions/current` ──────────────────────────────
 
-/** Pozycja rankingu: `RankedUser.to_dict()` + `rank`/`prize_pln` dla top3. */
+/**
+ * Pozycja rankingu: `RankedUser.to_dict()` + `rank`/`prize_pln`/`tied`
+ * z kolejności nagrodowej (`award_ranked_rows`). `rank: null` = osoba bez
+ * miejsca w klasyfikacji (niezakwalifikowana albo wykluczona).
+ */
 interface LeagueEntry {
   user_id: number;
   name: string;
   /** Punkty (Liga Rekrutacja) albo placementy (Liga DL). */
   metric_value: number;
   hit_ratio?: number | null;
-  rank?: number;
+  rank?: number | null;
   prize_pln?: number | null;
   role?: string | null;
   placements?: number | null;
@@ -378,11 +382,14 @@ function LeagueCard({
     top3.map((entry, index) => [entry.rank ?? index + 1, entry]),
   );
   const podiumIds = new Set(top3.map((entry) => entry.user_id));
-  // `full_ranking` nie niesie `rank` — numer bierzemy z pozycji, tak jak
-  // backend przy budowie podium.
+  // Numer miejsca liczy backend (`award_ranked_rows`) — ta sama kolejność
+  // nagrodowa co podium. Osoba niezakwalifikowana albo wykluczona ma
+  // `rank: null`: stoi na liście bez numeru. Do 25.09.2026 numer brano
+  // z pozycji w liście, więc niezakwalifikowany lider i zwycięzca podium
+  // mieli oba „#1”.
   const rest = fullRanking
-    .map((entry, index) => ({ entry, rank: index + 1 }))
-    .filter((row) => !podiumIds.has(row.entry.user_id));
+    .filter((entry) => !podiumIds.has(entry.user_id))
+    .map((entry) => ({ entry, rank: entry.rank ?? null }));
   // Miejsca 4–8 i własny wiersz widać od razu (przebudowa 24.09.2026: liga
   // ma być czytelna bez klikania). Reszta za „Pokaż wszystkich".
   const visibleRest = showAll
@@ -542,8 +549,15 @@ function LeagueCard({
                           )}
                         >
                           <div className="flex min-w-0 items-center gap-3">
-                            <span className="w-7 shrink-0 text-xs font-semibold text-muted-foreground">
-                              #{rank}
+                            <span
+                              className="w-7 shrink-0 text-xs font-semibold text-muted-foreground"
+                              title={
+                                rank === null
+                                  ? "Bez miejsca w klasyfikacji nagrodowej"
+                                  : undefined
+                              }
+                            >
+                              {rank === null ? "—" : `#${rank}`}
                             </span>
                             <div className="min-w-0">
                               <p className="truncate text-sm font-medium text-foreground">

@@ -292,6 +292,43 @@ describe("ChampionsSection — podium", () => {
     expect(screen.getAllByText("Wolne miejsce")).toHaveLength(2);
   });
 
+  it("lista pod podium bierze numer z serwera — niezakwalifikowany bez „#1” (R4-14)", async () => {
+    // Serwer (`award_ranked_rows`): kolejność nagrodowa 1..n, potem osoby bez
+    // miejsca (`rank: null`). Do 25.09.2026 numer brano z pozycji w liście
+    // i niezakwalifikowany lider oraz zwycięzca podium mieli oba „#1”.
+    const podium = RECRUITER_LEAGUE.top3;
+    respond({
+      [RECRUITER]: {
+        ...RECRUITER_LEAGUE,
+        // Kolejność listy nie niesie numeru — o miejscu mówi wyłącznie `rank`.
+        full_ranking: [
+          entry({
+            user_id: 4,
+            name: "Dawid Zieliński",
+            rank: null,
+            prize_pln: null,
+            metric_value: 900,
+            qualified: false,
+            required_placements: 2,
+            disqualification_reasons: ["MIN_PLACEMENTS_NOT_MET"],
+          }),
+          ...podium,
+          entry({ user_id: 5, name: "Ewa Mazur", rank: 4, metric_value: 150 }),
+        ],
+      },
+      [DL]: EMPTY_LEAGUE,
+    });
+
+    renderSection();
+
+    const dawid = (await screen.findByText(/Dawid Zieliński/)).closest("li");
+    const ewa = screen.getByText(/Ewa Mazur/).closest("li");
+    expect(within(dawid as HTMLElement).queryByText("#1")).not.toBeInTheDocument();
+    expect(within(dawid as HTMLElement).getByText("—")).toBeInTheDocument();
+    expect(within(ewa as HTMLElement).getByText("#4")).toBeInTheDocument();
+    expect(screen.queryAllByText("#1")).toHaveLength(0);
+  });
+
   it("pusty ranking to pusty stan, nie awaria", async () => {
     respond({
       [RECRUITER]: { ...RECRUITER_LEAGUE, top3: [], full_ranking: [] },

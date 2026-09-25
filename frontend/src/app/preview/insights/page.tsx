@@ -94,7 +94,9 @@ function seeded(): QueryClient {
   qc.setQueryData(["insights", "champions", "quarterly_champions_recruiter"], {
     type: "quarterly_champions_recruiter", period: "2026-Q3", is_frozen: false, days_remaining: 6,
     top3: recruiterLeague.slice(0, 3).map((e, i) => ({ ...e, rank: i + 1, prize_pln: i === 0 ? 10000 : 0 })),
-    full_ranking: recruiterLeague, requirement: "Minimum 2 placementy w kwartale.",
+    // Numer miejsca niesie serwer (`award_ranked_rows`), jak w `/current`.
+    full_ranking: recruiterLeague.map((e, i) => ({ ...e, rank: i + 1 })),
+    requirement: "Minimum 2 placementy w kwartale.",
     points_formula: { placement: 5, interview: 2, recommendation: 1 },
     quarterly_prizes_pln: { "1": 10000, "2": 0, "3": 0 }, prize_pool_pln: null,
   });
@@ -106,7 +108,8 @@ function seeded(): QueryClient {
   ];
   qc.setQueryData(["insights", "champions", "quarterly_champions_dl"], {
     type: "quarterly_champions_dl", period: "2026-Q3", is_frozen: false, days_remaining: 6,
-    top3: dlLeague.slice(0, 3).map((e, i) => ({ ...e, rank: i + 1 })), full_ranking: dlLeague,
+    top3: dlLeague.slice(0, 3).map((e, i) => ({ ...e, rank: i + 1 })),
+    full_ranking: dlLeague.map((e, i) => ({ ...e, rank: i + 1 })),
     requirement: null, points_formula: null, quarterly_prizes_pln: null, prize_pool_pln: null,
   });
 

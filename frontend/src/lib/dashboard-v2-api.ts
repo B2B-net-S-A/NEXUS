@@ -245,7 +245,8 @@ export interface RecruitmentFunnelConversions {
 }
 
 export interface CompetitionRankingEntry {
-  rank: number;
+  /** `null` = na liście, ale bez miejsca w klasyfikacji nagrodowej. */
+  rank: number | null;
   user_id: number;
   name: string;
   metric_value: number;
