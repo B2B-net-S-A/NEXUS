@@ -345,6 +345,34 @@ def _term_patterns(terms: list[str], whole_words: bool) -> list:
     return patterns
 
 
+def _folded_term_patterns(terms: list[str]) -> list:
+    """Wzorce do tekstu złożonego (``keyword_corpus.fold_text``) — przy
+    korpusie złożonym filtr znajduje „Kraków” dla „krakow”, więc wycinek musi
+    go też pokazać. Pusta lista, gdy ścieżka złożona jest wyłączona."""
+    from app.services import keyword_corpus
+    from app.services.keyword_terms import KeywordTerm, parse_keyword, py_regex
+
+    if not keyword_corpus.folded_search_enabled():
+        return []
+    patterns = []
+    for raw in terms:
+        term = parse_keyword(raw)
+        if term is None:
+            continue
+        folded = keyword_corpus.fold_text(term.text)
+        patterns.append(
+            py_regex(
+                KeywordTerm(
+                    raw=term.raw,
+                    text=" ".join(folded.split()),
+                    open_end=term.open_end,
+                    open_start=term.open_start,
+                )
+            )
+        )
+    return patterns
+
+
 def extract_field_snippets(
     candidate: Candidate,
     terms: list[str],
@@ -359,6 +387,7 @@ def extract_field_snippets(
     patterns = _term_patterns(terms, whole_words)
     if not patterns:
         return []
+    folded_patterns = _folded_term_patterns(terms) if whole_words else []
     allowed = _SCOPE_FIELDS.get(scope)
     out: list[dict] = []
     for label, text in _structured_corpus(candidate, notes_contents):
@@ -366,12 +395,23 @@ def extract_field_snippets(
             break
         if not text or (allowed is not None and label not in allowed):
             continue
-        spans: list[tuple[int, int]] = []
+        found: set[tuple[int, int]] = set()
         for pattern in patterns:
-            spans.extend((m.start(), m.end()) for m in pattern.finditer(text))
-        if not spans:
+            found.update((m.start(), m.end()) for m in pattern.finditer(text))
+        if folded_patterns:
+            from app.services.keyword_corpus import fold_text
+
+            folded_text = fold_text(text)
+            # Składanie zachowuje długość, więc pozycje wskazują oryginał;
+            # rzadki znak, który ``lower`` wydłuża, wyłącza tę część.
+            if len(folded_text) == len(text):
+                for pattern in folded_patterns:
+                    found.update(
+                        (m.start(), m.end()) for m in pattern.finditer(folded_text)
+                    )
+        if not found:
             continue
-        spans.sort()
+        spans = sorted(found)
         windows = _coalesce(spans, _MERGE_GAP)[:_FIELD_WINDOWS]
         pieces: list[str] = []
         highlights: list[list[int]] = []

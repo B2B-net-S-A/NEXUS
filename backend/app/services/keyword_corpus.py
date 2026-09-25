@@ -34,12 +34,31 @@ EXCLUSIVE``. Istniejące wiersze uzupełnia pętla ``keyword_corpus_backfill`` p
 starcie (NIE migracja — backfill 0143 w starcie kontenera dał 6 minut 502).
 Do czasu jej końca zapytania dla wierszy bez korpusu wracają do starych kolumn
 (``ready()``).
+
+Korpus złożony (migracja 0385, audyt szybkości 25.09.2026):
+
+* ``candidates.keyword_fold_fts`` — ``to_tsvector('simple', fold(profil + CV))``,
+  gdzie ``fold`` (``candidate_keyword_fold``) zdejmuje polskie znaki, zmienia
+  ukośnik na spację i zapisuje ``c++``/``c#``/``f#``/``.net`` jako zwykłe słowa.
+  Zastępuje w zapytaniu regex po ``keyword_doc``: ten rozpakowywał tekst z TOAST
+  dla każdego pasującego kandydata (629 z 918 ms przy „java”, a dokładał 2 osoby
+  z 15 710). Przy okazji: „krakow” znajduje „Kraków” także w CV, a „scrum” —
+  zapis „Agile/Scrum” (parser tsvector trzyma go jako jedno słowo).
+* ``notes.content_fold_fts`` — to samo dla notatek, po rozpakowaniu treści
+  zapisanej przez import z Traffita jako JSON (``note_search_text``).
+
+Zapytanie przechodzi na nowe kolumny dopiero przy ``KEYWORD_SEARCH_FOLDED_FTS``
+i po uzupełnieniu (``fold_ready()`` / ``notes_ready()``).
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from contextlib import contextmanager
+from contextvars import ContextVar
+from typing import Any, Iterator, Optional
+
+from app.services.keyword_terms import DOT_PREFIXES, WORD_CLASS_PG
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +135,28 @@ TRIGGER_NAME = "trg_candidates_keyword_corpus"
 FTS_INDEX = "ix_candidates_keyword_fts"
 DOC_INDEX = "ix_candidates_keyword_doc_trgm"
 
+FOLD_FUNCTION = "candidate_keyword_fold"
+NOTE_TEXT_FUNCTION = "note_search_text"
+NOTE_TRIGGER_FUNCTION = "notes_fold_fts_refresh"
+NOTE_TRIGGER_NAME = "trg_notes_fold_fts"
+FOLD_FTS_INDEX = "ix_candidates_keyword_fold_fts"
+NOTE_FOLD_FTS_INDEX = "ix_notes_content_fold_fts"
+NOTE_CAP = 200_000
+
+# Słowa ze znakami, które parser tsvector gubi („c#” → „c”, „c++” → „c”). Zapis
+# jako zwykłe słowo po obu stronach (dokument i zapytanie przechodzą przez tę
+# samą funkcję SQL), więc „c#” znajduje „C#”, a nie każde „C”. Spacja po tokenie
+# zachowuje dzisiejszą regułę: ``c++`` znajduje „C++17” (granica słowa tylko po
+# stronie litery). ``.net`` jak ``pg_regex``: po granicy słowa albo po
+# ``asp|ado|vb`` — „B2B.net” z klauzuli zgody zostaje nietknięte.
+SPECIAL_TOKENS: tuple[tuple[str, str], ...] = (
+    ("c++", "cplusplus"),
+    ("c#", "csharp"),
+    ("f#", "fsharp"),
+    (".net", "dotnet"),
+)
+_DOT_PREFIXES_SQL = "|".join(DOT_PREFIXES)
+
 
 def _sql_array(keys: tuple[str, ...]) -> str:
     if not keys:
@@ -161,6 +202,122 @@ def profile_text_sql(prefix: str = "NEW.") -> str:
     return f"left(concat_ws(' ', {', '.join(parts)}), {PROFILE_CAP})"
 
 
+# Tekst do korpusu złożonego: bez polskich znaków, małe litery, ukośnik jako
+# spacja, słowa specjalne jako zwykłe słowa. Ta SAMA funkcja składa zapytanie
+# (``phraseto_tsquery('simple', candidate_keyword_fold(:term))``), więc dokument
+# i zapytanie nie mogą się rozjechać. Regexy tylko przy znakach, które je
+# potrzebują — trigger liczy się przy każdym zapisie kandydata z importu.
+FOLD_FUNCTION_DDL = rf"""
+CREATE OR REPLACE FUNCTION {FOLD_FUNCTION}(t text)
+RETURNS text LANGUAGE plpgsql IMMUTABLE PARALLEL SAFE AS $$
+DECLARE
+    s text := translate(
+        lower(translate(coalesce(t, ''), '{FOLD_SRC}', '{FOLD_DST}')), '/\', '  '
+    );
+BEGIN
+    IF s ~ '[#+]|\.net' THEN
+        s := regexp_replace(s, '(^|[^{WORD_CLASS_PG}])c\+\+', '\1 cplusplus ', 'g');
+        s := regexp_replace(s, '(^|[^{WORD_CLASS_PG}])c#', '\1 csharp ', 'g');
+        s := regexp_replace(s, '(^|[^{WORD_CLASS_PG}])f#', '\1 fsharp ', 'g');
+        s := regexp_replace(
+            s,
+            '(^|[^{WORD_CLASS_PG}]|{_DOT_PREFIXES_SQL})\.net($|[^{WORD_CLASS_PG}])',
+            '\1 dotnet \2',
+            'g'
+        );
+    END IF;
+    RETURN s;
+END;
+$$;
+"""
+
+# Import z Traffita zapisywał treść notatki jako cały obiekt JSON
+# (``{"content":"<div>Toruń…","state":…}``) — Traffit wysyła ``content``
+# jako NAPIS z JSON-em w środku, a promocja brała go w całości. Profil
+# rozpakowuje to przy wyświetlaniu, ale wyszukiwanie widziało ``ń``
+# zamiast „ń”. Tę funkcję woła promocja notatek (``traffit/importer.py``),
+# indeks notatek i jednorazowa naprawa w pętli uzupełniania.
+NOTE_UNWRAP_FUNCTION = "note_unwrap_json"
+NOTE_UNWRAP_FUNCTION_DDL = f"""
+CREATE OR REPLACE FUNCTION {NOTE_UNWRAP_FUNCTION}(c text)
+RETURNS text LANGUAGE plpgsql IMMUTABLE PARALLEL SAFE AS $$
+DECLARE
+    j jsonb;
+BEGIN
+    IF c IS NULL OR left(c, 1) <> '{{' OR NOT pg_input_is_valid(c, 'jsonb') THEN
+        RETURN c;
+    END IF;
+    j := c::jsonb;
+    IF jsonb_typeof(j) = 'object' AND jsonb_typeof(j -> 'content') = 'string'
+       AND coalesce(j ->> 'content', '') <> '' THEN
+        RETURN j ->> 'content';
+    END IF;
+    RETURN c;
+END;
+$$;
+"""
+
+NOTE_TEXT_FUNCTION_DDL = f"""
+CREATE OR REPLACE FUNCTION {NOTE_TEXT_FUNCTION}(c text)
+RETURNS text LANGUAGE plpgsql IMMUTABLE PARALLEL SAFE AS $$
+DECLARE
+    s text := coalesce({NOTE_UNWRAP_FUNCTION}(c), '');
+    j jsonb;
+BEGIN
+    -- Inny JSON (np. maile z formularza: to/subject/body) — same wartości tekstowe,
+    -- bez kluczy, jak w korpusie kandydata.
+    IF left(s, 1) = '{{' AND pg_input_is_valid(s, 'jsonb') THEN
+        j := s::jsonb;
+        s := coalesce((
+            SELECT string_agg(v #>> '{{}}', ' ')
+            FROM jsonb_path_query(j, 'strict $.** ? (@.type() == "string")') AS v
+        ), '');
+    END IF;
+    s := regexp_replace(s, '<[^>]*>', ' ', 'g');
+    s := replace(replace(replace(s, '&nbsp;', ' '), '&amp;', '&'), '&quot;', '"');
+    s := replace(replace(replace(s, '&#39;', ''''), '&apos;', ''''), '&oacute;', 'ó');
+    s := replace(s, '&Oacute;', 'Ó');
+    s := regexp_replace(s, '&#?[[:alnum:]]+;', ' ', 'g');
+    RETURN {FOLD_FUNCTION}(left(s, {NOTE_CAP}));
+END;
+$$;
+"""
+
+NOTE_TRIGGER_FUNCTION_DDL = f"""
+CREATE OR REPLACE FUNCTION {NOTE_TRIGGER_FUNCTION}()
+RETURNS trigger AS $$
+BEGIN
+    NEW.content_fold_fts := to_tsvector('simple', {NOTE_TEXT_FUNCTION}(NEW.content));
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+"""
+
+NOTE_TRIGGER_DDL = f"""
+CREATE OR REPLACE TRIGGER {NOTE_TRIGGER_NAME}
+BEFORE INSERT OR UPDATE OF content ON notes
+FOR EACH ROW EXECUTE FUNCTION {NOTE_TRIGGER_FUNCTION}();
+"""
+
+# Wersja z migracji 0350 — zamrożona: łańcuch migracji na świeżej bazie
+# przechodzi przez 0351–0384 BEZ kolumny ``keyword_fold_fts``, więc trigger
+# z 0350 nie może jej jeszcze dotykać. Bieżącą wersję zakłada 0385.
+TRIGGER_FUNCTION_DDL_0350 = f"""
+CREATE OR REPLACE FUNCTION {TRIGGER_FUNCTION}()
+RETURNS trigger AS $$
+DECLARE
+    profile text := {profile_text_sql("NEW.")};
+BEGIN
+    NEW.keyword_doc := lower(translate(profile, '{FOLD_SRC}', '{FOLD_DST}'));
+    NEW.keyword_fts := to_tsvector(
+        'simple',
+        profile || ' ' || coalesce(left(NEW.raw_cv_text, {CV_CAP}), '')
+    );
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+"""
+
 TRIGGER_FUNCTION_DDL = f"""
 CREATE OR REPLACE FUNCTION {TRIGGER_FUNCTION}()
 RETURNS trigger AS $$
@@ -171,6 +328,10 @@ BEGIN
     NEW.keyword_fts := to_tsvector(
         'simple',
         profile || ' ' || coalesce(left(NEW.raw_cv_text, {CV_CAP}), '')
+    );
+    NEW.keyword_fold_fts := to_tsvector(
+        'simple',
+        {FOLD_FUNCTION}(profile || ' ' || coalesce(left(NEW.raw_cv_text, {CV_CAP}), ''))
     );
     RETURN NEW;
 END;
@@ -201,6 +362,48 @@ def index_ddl(*, concurrently: bool) -> list[str]:
     return [stmt.format(concurrently=word) for stmt in INDEX_DDL]
 
 
+# Korpus złożony (0385). Osobno od COLUMN_DDL/INDEX_DDL, bo tamte czyta
+# migracja 0350 — historia migracji nie może zmieniać znaczenia.
+FOLD_COLUMN_DDL: tuple[str, ...] = (
+    "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS keyword_fold_fts tsvector",
+    "ALTER TABLE notes ADD COLUMN IF NOT EXISTS content_fold_fts tsvector",
+)
+FOLD_FUNCTION_DDLS: tuple[str, ...] = (
+    FOLD_FUNCTION_DDL,
+    NOTE_UNWRAP_FUNCTION_DDL,
+    NOTE_TEXT_FUNCTION_DDL,
+    NOTE_TRIGGER_FUNCTION_DDL,
+    NOTE_TRIGGER_DDL,
+    TRIGGER_FUNCTION_DDL,
+    TRIGGER_DDL,
+)
+FOLD_INDEX_DDL: tuple[str, ...] = (
+    f"CREATE INDEX {{concurrently}} IF NOT EXISTS {FOLD_FTS_INDEX} "
+    "ON candidates USING GIN (keyword_fold_fts)",
+    f"CREATE INDEX {{concurrently}} IF NOT EXISTS {NOTE_FOLD_FTS_INDEX} "
+    "ON notes USING GIN (content_fold_fts)",
+)
+
+
+def fold_index_ddl(*, concurrently: bool) -> list[str]:
+    word = "CONCURRENTLY" if concurrently else ""
+    return [stmt.format(concurrently=word) for stmt in FOLD_INDEX_DDL]
+
+
+def schema_ddl() -> list[str]:
+    """Pełny, idempotentny DDL korpusu dla siatki w ``entrypoint.sh``."""
+    return [
+        *COLUMN_DDL,
+        *FOLD_COLUMN_DDL,
+        JSON_TEXT_FUNCTION_DDL,
+        *FOLD_FUNCTION_DDLS,
+    ]
+
+
+def schema_index_ddl() -> list[str]:
+    return [*index_ddl(concurrently=True), *fold_index_ddl(concurrently=True)]
+
+
 # Wiersz bez korpusu = ``keyword_doc IS NULL`` (trigger zawsze wpisuje napis,
 # choćby pusty). ``SET keyword_doc = NULL`` odpala trigger (``UPDATE OF``),
 # który od razu wylicza obie kolumny.
@@ -217,9 +420,47 @@ PENDING_EXISTS_SQL = (
 )
 
 
+# Korpus złożony: paczki po kluczu ``id > :after`` (bez ponownego skanu NULL-i
+# od początku tabeli przy każdej paczce). ``SET keyword_doc = NULL`` odpala
+# trigger, który liczy wszystkie trzy kolumny.
+FOLD_BACKFILL_BATCH_SQL = (
+    "UPDATE candidates SET keyword_doc = NULL WHERE id IN ("
+    " SELECT id FROM candidates WHERE keyword_fold_fts IS NULL AND id > :after"
+    " ORDER BY id LIMIT :limit"
+    ") RETURNING id, keyword_fold_fts IS NOT NULL"
+)
+FOLD_PENDING_EXISTS_SQL = (
+    "SELECT EXISTS (SELECT 1 FROM candidates WHERE keyword_fold_fts IS NULL)"
+)
+
+# Notatki: jedna aktualizacja uzupełnia indeks i rozpakowuje treść zapisaną
+# przez import jako JSON. Dla pozostałych notatek ``note_unwrap_json`` zwraca
+# treść bez zmian (``SET content = content`` — odpala trigger). ``updated_at``
+# zostaje nietknięte: od niego zależy odcisk nocnej analizy notatek przez AI
+# (zmiana = ponowna płatna analiza wszystkich). Notatka w kształcie
+# ``{"content":"…"}`` jest zawsze nieedytowana — edycja w interfejsie zapisuje
+# ją już rozpakowaną (``unwrapNoteContent`` w formularzu).
+NOTES_BACKFILL_BATCH_SQL = (
+    f"UPDATE notes SET content = {NOTE_UNWRAP_FUNCTION}(content) WHERE id IN ("
+    " SELECT id FROM notes WHERE content_fold_fts IS NULL AND id > :after"
+    " ORDER BY id LIMIT :limit"
+    ") RETURNING id, content_fold_fts IS NOT NULL"
+)
+NOTES_PENDING_EXISTS_SQL = (
+    "SELECT EXISTS (SELECT 1 FROM notes WHERE content_fold_fts IS NULL)"
+)
+NOTES_WRAPPED_COUNT_SQL = (
+    "SELECT count(*) FROM notes WHERE content LIKE '{\"content\":%' "
+    f"AND {NOTE_UNWRAP_FUNCTION}(content) IS DISTINCT FROM content"
+)
+NOTES_UNWRAP_RECEIPT_KEY = "0385_traffit_note_content_unwrap"
+
+
 # ── Gotowość (czy wszystkie wiersze mają korpus) ─────────────────────────────
 
 _ready = False
+_fold_ready = False
+_notes_ready = False
 
 
 def ready() -> bool:
@@ -236,6 +477,77 @@ def ready() -> bool:
 def mark_ready(value: bool = True) -> None:
     global _ready
     _ready = value
+
+
+def fold_ready() -> bool:
+    """Każdy kandydat ma ``keyword_fold_fts`` (stan procesu, jak ``ready()``)."""
+    return _fold_ready
+
+
+def mark_fold_ready(value: bool = True) -> None:
+    global _fold_ready
+    _fold_ready = value
+
+
+def notes_ready() -> bool:
+    """Każda notatka ma ``content_fold_fts``."""
+    return _notes_ready
+
+
+def mark_notes_ready(value: bool = True) -> None:
+    global _notes_ready
+    _notes_ready = value
+
+
+def folded_search_enabled() -> bool:
+    """Nowa ścieżka słów kluczowych: przełącznik ON i korpus złożony gotowy.
+
+    ContextVar ``force_folded_search`` wygrywa — skrypt porównujący i testy
+    liczą tę samą prośbę starą i nową ścieżką w jednym procesie.
+    """
+    forced = _FORCE_FOLDED.get()
+    if forced is not None:
+        return forced
+    from app.core.config import settings  # noqa: PLC0415
+
+    return bool(getattr(settings, "KEYWORD_SEARCH_FOLDED_FTS", False)) and _fold_ready
+
+
+def notes_folded_search_enabled() -> bool:
+    forced = _FORCE_FOLDED.get()
+    if forced is not None:
+        return forced
+    return folded_search_enabled() and _notes_ready
+
+
+_FORCE_FOLDED: ContextVar[Optional[bool]] = ContextVar(
+    "keyword_force_folded_search", default=None
+)
+
+
+@contextmanager
+def force_folded_search(value: bool) -> Iterator[None]:
+    token = _FORCE_FOLDED.set(value)
+    try:
+        yield
+    finally:
+        _FORCE_FOLDED.reset(token)
+
+
+# ── Lustro w Pythonie: składanie tekstu (wycinki pod wynikiem) ──────────────
+
+_FOLD_MAP = str.maketrans(FOLD_SRC + "/\\", FOLD_DST + "  ")
+
+
+def fold_text(value: str) -> str:
+    """Polskie znaki → ASCII, małe litery, ukośnik → spacja.
+
+    Lustro pierwszego kroku ``candidate_keyword_fold`` BEZ słów specjalnych —
+    zachowuje długość tekstu (poza rzadkimi znakami, których ``lower`` zmienia
+    długość), więc pozycje trafienia w tekście złożonym wskazują to samo
+    miejsce w oryginale. Wołający sprawdza długość, zanim użyje pozycji.
+    """
+    return value.translate(_FOLD_MAP).lower()
 
 
 # ── Lustro w Pythonie (wycinki pod wynikiem) ─────────────────────────────────

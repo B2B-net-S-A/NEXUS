@@ -1479,6 +1479,89 @@ def _apply_requested_sort(
     return query.order_by(Candidate.created_at.desc(), Candidate.id.desc())
 
 
+async def _list_page_ids_first(
+    db: AsyncSession,
+    filters: CandidateFilterSpec,
+    *,
+    pool_ids: Optional[list[int]],
+    page: int,
+    page_size: int,
+) -> tuple[list[Candidate], int, list[list[str]]]:
+    """Strona listy: najpierw identyfikatory, potem 50 pełnych wierszy.
+
+    Audyt 25.09.2026: ``count(*) OVER()`` na ``select(Candidate)`` przepuszczał
+    przez sortowanie CAŁY wynik ze wszystkimi kolumnami (tekst CV, JSON-y) —
+    bez filtra 170 MB na dysk tymczasowy i 385 ms, przy „java” ~160 ms. Tu
+    filtr i sortowanie idą po samych identyfikatorach, liczba osobnym
+    ``count(*)``, a relacje i szerokie kolumny ładują się tylko dla strony.
+    Kolejność, liczba i zachowanie strony poza zakresem — jak dotąd.
+    """
+    query, q_any_groups = await _build_candidate_filtered_query(
+        db, filters, semantic_pool_ids=pool_ids
+    )
+    ids_query = query.with_only_columns(Candidate.id)
+    total = int(
+        await db.scalar(
+            select(func.count()).select_from(ids_query.order_by(None).subquery())
+        )
+        or 0
+    )
+    if not total:
+        return [], 0, q_any_groups
+    page_query = _apply_candidate_sort(
+        ids_query, filters, q_any_groups, pool_order=pool_ids
+    )
+    page_ids = list(
+        (
+            await db.execute(page_query.offset((page - 1) * page_size).limit(page_size))
+        ).scalars()
+    )
+    if not page_ids:
+        return [], total, q_any_groups
+    loaded = (
+        await db.execute(
+            select(Candidate)
+            .options(*_candidate_list_options())
+            .where(Candidate.id.in_(page_ids))
+        )
+    ).scalars()
+    by_id = {candidate.id: candidate for candidate in loaded}
+    return [by_id[cid] for cid in page_ids if cid in by_id], total, q_any_groups
+
+
+async def _list_page_window_count(
+    db: AsyncSession,
+    filters: CandidateFilterSpec,
+    *,
+    pool_ids: Optional[list[int]],
+    page: int,
+    page_size: int,
+) -> tuple[list[Candidate], int, list[list[str]]]:
+    """Dawna ścieżka (``CANDIDATE_LIST_IDS_FIRST=false``): jedno zapytanie
+    z ``count(*) OVER()`` na pełnych wierszach."""
+    query, q_any_groups = await _build_candidate_filtered_query(
+        db, filters, load_list_relations=True, semantic_pool_ids=pool_ids
+    )
+    filtered_query = query
+    query = _apply_candidate_sort(query, filters, q_any_groups, pool_order=pool_ids)
+    query = query.offset((page - 1) * page_size).limit(page_size)
+    result = await db.execute(
+        query.add_columns(func.count().over().label("total_count"))
+    )
+    rows = result.all()
+    items = [row[0] for row in rows]
+    total = rows[0].total_count if rows else 0
+    if not rows and page > 1:
+        # Strona poza zakresem (np. po usunięciu kandydatów albo z URL-a) nie ma
+        # wierszy, więc okno `count() OVER()` nie niesie sumy. Bez osobnego
+        # zliczenia lista mówiła „0 wyników” i nie dawała paginacji do powrotu.
+        total = int(
+            await db.scalar(select(func.count()).select_from(filtered_query.subquery()))
+            or 0
+        )
+    return items, total, q_any_groups
+
+
 @router.get("", response_model=CandidateList)
 async def list_candidates(
     current_user: CandidateSearchAccess,
@@ -2156,39 +2239,14 @@ async def list_candidates(
     semantic_pool, text_interpretation = await _resolve_semantic_text(db, filters)
     if semantic_pool is not None and "sort" not in request.query_params:
         filters = filters.model_copy(update={"sort": "relevance"})
-    query, q_any_groups = await _build_candidate_filtered_query(
-        db,
-        filters,
-        load_list_relations=True,
-        semantic_pool_ids=semantic_pool.ids if semantic_pool is not None else None,
-    )
-    filtered_query = query
-    query = _apply_candidate_sort(
-        query,
-        filters,
-        q_any_groups,
-        pool_order=semantic_pool.ids if semantic_pool is not None else None,
-    )
-    query = query.offset((page - 1) * page_size).limit(page_size)
-    # Single pass: `count(*) OVER()` carries the full (pre-LIMIT) filtered total
-    # on every returned row, so the search filter executes once for both the
-    # page and the count. No partition/order in the window → it counts the whole
-    # filtered set, matching the previous `count(query.subquery())` exactly (the
-    # base query has no row-fanning joins — all relations are selectinload'd).
-    # Empty result → no rows → total 0.
-    result = await db.execute(
-        query.add_columns(func.count().over().label("total_count"))
-    )
-    rows = result.all()
-    items = [row[0] for row in rows]
-    total = rows[0].total_count if rows else 0
-    if not rows and page > 1:
-        # Strona poza zakresem (np. po usunięciu kandydatów albo z URL-a) nie ma
-        # wierszy, więc okno `count() OVER()` nie niesie sumy. Bez osobnego
-        # zliczenia lista mówiła „0 wyników” i nie dawała paginacji do powrotu.
-        total = int(
-            await db.scalar(select(func.count()).select_from(filtered_query.subquery()))
-            or 0
+    pool_ids = semantic_pool.ids if semantic_pool is not None else None
+    if settings.CANDIDATE_LIST_IDS_FIRST:
+        items, total, q_any_groups = await _list_page_ids_first(
+            db, filters, pool_ids=pool_ids, page=page, page_size=page_size
+        )
+    else:
+        items, total, q_any_groups = await _list_page_window_count(
+            db, filters, pool_ids=pool_ids, page=page, page_size=page_size
         )
 
     # Phase D1: resolve which weight profile to use for the match-stats column.
