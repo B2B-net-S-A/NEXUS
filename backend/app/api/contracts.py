@@ -180,6 +180,7 @@ from app.services.contract_termination_sync import (
 from app.services.cost_orders import is_cost_order_client
 from app.services.order_line_takeover import (
     TAKEOVER_CANCEL_EXTENDED,
+    TAKEOVER_CANCEL_TERMINATION_UNDONE,
     cancel_scheduled_takeovers_for_contract,
 )
 from app.services.order_rate_snapshots import (
@@ -3970,6 +3971,30 @@ async def update_contract(
     # jest heurystyką. Bez tego wyjątku wybranie „Zakończony" dla umowy
     # bezterminowej zostałoby natychmiast cofnięte na `active` w tym samym
     # żądaniu — zapis zwracałby 200 i nie robił nic.
+    # Data końca przesunięta W PRZÓD albo wyczyszczona (bezterminowo) = osoba
+    # pracuje dłużej niż do dnia, od którego zaplanowano „Wejdź za
+    # konsultanta”. Lustro aneksu przedłużenia i `/bulk-extend`: zastępstwo
+    # odpada z wpisem w historii zamówienia, zanim gałęzie niżej (korekta
+    # daty rozwiązanej umowy, reaktywacja, odwołanie „Kończącego się”) zdążą
+    # je pominąć. Do 25.09.2026 (audyt, runda 5) PATCH daty go nie ruszał —
+    # nocne wejście przenosiło pulę wstecz z dawną datą wejścia, a okresy
+    # obu osób nakładały się.
+    if (
+        "end_date" in data.model_fields_set
+        and previous_end_date is not None
+        and (contract.end_date is None or contract.end_date > previous_end_date)
+        and not (status_sent and contract.status == ContractStatus.ended)
+    ):
+        await cancel_scheduled_takeovers_for_contract(
+            db,
+            contract,
+            code=(
+                TAKEOVER_CANCEL_EXTENDED
+                if contract.end_date is not None
+                else TAKEOVER_CANCEL_TERMINATION_UNDONE
+            ),
+            actor_id=current_user.id,
+        )
     reopened_by_end_date = False
     if not status_sent:
         today = business_today()

@@ -7,7 +7,7 @@ Starlette i tak przyjmował całe ciało multipart na dysk tymczasowy, a strażn
 NUL buforuje ciała JSON w pamięci — jedno żądanie z gigabajtem danych
 zajmowało dysk albo RAM procesu, zanim cokolwiek odpowiedziało.
 
-Czyste ASGI (wzorzec ``null_character_guard``): dla POST/PUT/PATCH
+Czyste ASGI (wzorzec ``null_character_guard``): dla POST/PUT/PATCH/DELETE
 ``Content-Length`` ponad limit → 413 od razu, bez czytania ciała; bez
 nagłówka (``Transfer-Encoding: chunked``) liczymy bajty w ``receive`` i po
 przekroczeniu zwracamy 413, o ile odpowiedź jeszcze się nie zaczęła.
@@ -23,7 +23,13 @@ from starlette.exceptions import HTTPException
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-_BODY_METHODS = frozenset({"POST", "PUT", "PATCH"})
+#: Metody, których ciało ktoś w aplikacji czyta. JEDNA stała dla limitu i dla
+#: strażnika NUL (``null_character_guard`` ją importuje): strażnik buforuje
+#: ciało DELETE w pamięci, więc DELETE poza limitem pozwalał anonimowo
+#: wyczerpać pamięć jedynego procesu uvicorna (audyt 25.09.2026, runda 5).
+#: GET/HEAD/OPTIONS zostają poza obiema — nikt ich ciała nie czyta, a uvicorn
+#: wstrzymuje odczyt gniazda, gdy aplikacja nie odbiera danych.
+REQUEST_BODY_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
 REQUEST_BODY_TOO_LARGE = "request_body_too_large"
 
@@ -70,7 +76,7 @@ class BodySizeLimitMiddleware:
         return self.path_limits.get(path, self.max_bytes)
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http" or scope.get("method") not in _BODY_METHODS:
+        if scope["type"] != "http" or scope.get("method") not in REQUEST_BODY_METHODS:
             await self.app(scope, receive, send)
             return
 

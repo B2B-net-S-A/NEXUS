@@ -5,6 +5,7 @@ print-to-PDF dialog for actual document generation — no weasyprint/pango
 in the Coolify image.
 """
 
+from html import escape
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -23,6 +24,7 @@ from app.api.contract_access import (
 from app.api.deps import AdminUser
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.core.database import get_db
+from app.core.printable_html import PRINTABLE_CSP_NO_SCRIPT, printable_document
 from app.models.contract import Contract
 from app.models.contract_template import ContractTemplate
 from app.models.b2b_contract_detail import B2BContractDetail
@@ -358,30 +360,37 @@ async def render_template_for_contract(
         )
     except TemplateError as e:
         raise HTTPException(status_code=422, detail=f"Render error: {e}")
-    # Wrap in a minimal printable skeleton.
-    html = (
-        '<!DOCTYPE html><html><head><meta charset="utf-8">'
-        f"<title>{tpl.name} — kontrakt #{contract.id}</title>"
-        "<style>"
-        "body{font-family:'Helvetica',sans-serif;max-width:780px;margin:40px auto;line-height:1.55;color:#222;}"
-        "h1,h2,h3{color:#111}"
-        ".meta{color:#666;font-size:0.9em;margin-bottom:2em}"
-        "@media print{body{margin:0}}"
-        "</style></head><body>"
-        f'<div class="meta">Wygenerowano z szablonu: {tpl.name}</div>'
-        f"{rendered}"
-        "</body></html>"
-    )
     # Rendered template HTML is authored by users and served same-origin — an
     # explicit restrictive CSP blocks stored XSS (M5-P0.10). No legit script in
     # this skeleton, so scripts are denied outright; inline styles + data:
     # images are allowed so the formatting still renders.
     return HTMLResponse(
-        content=html,
-        headers={
-            "Content-Security-Policy": (
-                "default-src 'none'; style-src 'unsafe-inline'; "
-                "img-src data:; font-src data:"
-            )
-        },
+        content=_printable_template_html(tpl.name, contract.id, rendered),
+        headers={"Content-Security-Policy": PRINTABLE_CSP_NO_SCRIPT},
+    )
+
+
+_TEMPLATE_STYLE = (
+    "<style>"
+    "body{font-family:'Helvetica',sans-serif;max-width:780px;margin:40px auto;line-height:1.55;color:#222;}"
+    "h1,h2,h3{color:#111}"
+    ".meta{color:#666;font-size:0.9em;margin-bottom:2em}"
+    "@media print{body{margin:0}}"
+    "</style>"
+)
+
+
+def _printable_template_html(name: str, contract_id: int, rendered: str) -> str:
+    """Wyrenderowany szablon w otoczce z CSP w ``<meta>``.
+
+    Front otwiera ten HTML przez ``document.write`` w nowym oknie pod
+    originem aplikacji — nagłówek CSP z odpowiedzi tam nie obowiązuje, więc
+    polityka jedzie w dokumencie (audyt 25.09.2026, runda 5). Nazwa szablonu
+    jest escapowana; treść renderuje Jinja z autoescape zmiennych.
+    """
+    return printable_document(
+        f'<div class="meta">Wygenerowano z szablonu: {escape(name)}</div>{rendered}',
+        f"{name} — kontrakt #{contract_id}",
+        head_extra=_TEMPLATE_STYLE,
+        autoprint=False,
     )
