@@ -12,7 +12,6 @@ zaległości (operator odpala kilka razy, każdy bieg zjada kolejny budżet).
 # UWAGA: bez `from __future__ import annotations` — PEP 563 + slowapi #579
 # zamienia Annotated guardy w wymagane parametry QUERY (trap z CLAUDE.md).
 
-import asyncio
 from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException, Request, status
@@ -20,6 +19,7 @@ from fastapi import APIRouter, HTTPException, Request, status
 from app.api.deps import AdminUser
 from app.core.config import settings
 from app.core.rate_limit import limiter
+from app.core.tasks import spawn
 from app.tasks.notes_insights_sync import run_and_persist, sync_is_running
 
 router = APIRouter()
@@ -43,7 +43,8 @@ async def trigger_notes_insights_sync(
             detail="A notes insights run is already in progress",
         )
 
-    asyncio.create_task(run_and_persist())
+    # `spawn`: trzymana referencja i log porażki (goły `create_task` — nie).
+    spawn(run_and_persist(), "notes_insights_sync")
     return {
         "status": "started",
         "batch_limit": settings.NOTES_INSIGHTS_SYNC_BATCH_LIMIT,

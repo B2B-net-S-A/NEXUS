@@ -50,6 +50,7 @@ from app.core.export_safety import safe_row
 from app.core.scheduling import business_today
 from app.core.http_headers import content_disposition
 from app.core.rate_limit import limiter, user_or_ip_key
+from app.core.tasks import spawn
 from app.models.candidate import AvailabilityStatus, Candidate, CandidateStatus
 from app.models.candidate_document import (
     CandidateDocument,
@@ -3095,7 +3096,10 @@ async def create_candidate(
             candidate=candidate,
             recruiter_name=current_user.name or current_user.email,
         )
-        asyncio.create_task(notify_teams("candidate_added", teams_db_payload))
+        spawn(
+            notify_teams("candidate_added", teams_db_payload),
+            "teams_notify:candidate_added",
+        )
     except Exception as exc:  # noqa: BLE001 — never block create on a notifier
         logger.warning("Teams notify (candidate_added) scheduling failed: %s", exc)
 

@@ -33,6 +33,7 @@ from app.core.config import settings
 from app.core.database import AsyncSessionLocal, get_db
 from app.core.rate_limit import client_ip_key, limiter, user_or_ip_key
 from app.core.scheduling import DEFAULT_TZ, business_today, local_now
+from app.core.tasks import spawn
 from app.models.ai_feature import AIFeatureKey
 from app.models.jarvis import (
     JARVIS_UI_EVENTS,
@@ -55,9 +56,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# Zadania tur uruchomione w tle — silne referencje, żeby GC nie zebrał
-# zadania, którego klient się rozłączył (tura i tak dokończy się i zapisze).
-_RUNNING: set[asyncio.Task] = set()
 _HEARTBEAT_SECONDS = 10.0
 
 
@@ -238,9 +236,9 @@ async def _stream(events: AsyncIterator[dict[str, Any]]) -> AsyncIterator[str]:
         finally:
             await queue.put(None)
 
-    task = asyncio.create_task(produce())
-    _RUNNING.add(task)
-    task.add_done_callback(_RUNNING.discard)
+    # `spawn` trzyma silną referencję, żeby GC nie zebrał tury, której klient
+    # się rozłączył (tura i tak dokończy się i zapisze).
+    spawn(produce(), "jarvis_turn")
     while True:
         try:
             event = await asyncio.wait_for(queue.get(), timeout=_HEARTBEAT_SECONDS)
