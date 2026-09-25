@@ -33,7 +33,7 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F8  | uop_check                        | gpt-6-luna (z Sonnet 5)  |
 | F9  | cv_parser                        | claude-sonnet-5          |
 | F10 | cv_backfill + cv_name_backfill   | gpt-6-luna (z Sonnet 5)  |
-| F11 | notes_extraction                 | deepseek-v4-pro (z Haiku)|
+| F11 | notes_extraction                 | gpt-6-luna (z Sonnet 5)  |
 | F12 | candidate_summary                | gpt-6-luna (z Sonnet 5)  |
 | F13 | champion_draft                   | gpt-6-luna (z Sonnet 5)  |
 | F14 | cv_rule_lint                     | claude-sonnet-5 (z Haiku)|
@@ -199,11 +199,14 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "Osobny klucz jest po to, żeby dało się ją zgasić bez nocnego syncu.",
     ),
     AIFeatureKey.notes_extraction: ModelChoice(
-        default=DEEPSEEK_PRO,
+        default=GPT_LUNA,
         env_vars=("NOTES_EXTRACTION_MODEL",),
         fallbacks=(SONNET_5,),
-        rationale="F11. Fakty z notatek: DeepSeek V4 Pro 0.15 nieugruntowanych vs 0.56 "
-        "u Haiku i 0.33 u Sonneta 5 (badanie 16.09).",
+        rationale="F11. Od 25.09.2026 (decyzja Artura: bez DeepSeek, konto bez środków) "
+        "GPT-6 Luna: 0.22 nieugruntowanych wartości na kandydata na prompcie v5 "
+        "(60 przypadków, 0 błędów, 0.00055 USD) vs DeepSeek V4 Pro 0.15 i Sonnet 5 "
+        "0.33 (22.09). Stawka PLN/h spoza notatek nie wchodzi do profilu "
+        "(_drop_ungrounded_rate).",
     ),
     AIFeatureKey.champion_profile_parse: ModelChoice(
         default=SONNET_5,

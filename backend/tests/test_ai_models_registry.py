@@ -117,7 +117,7 @@ DECISION_2026_09_16 = {
     # Ta sama robota co F10 (odczyt CV), więc ten sam model. Osobny klucz jest
     # po to, żeby dało się zgasić ścieżkę użytkownika bez nocnego syncu.
     AIFeatureKey.experience_dates_on_demand: ("F10", "claude-sonnet-5"),
-    AIFeatureKey.notes_extraction: ("F11", "deepseek-v4-pro"),
+    AIFeatureKey.notes_extraction: ("F11", "gpt-6-luna"),
     # F12/F13 — pomiar gpt-6-luna 22.09.2026: remis z dotychczasowym modelem.
     AIFeatureKey.candidate_summary: ("F12", "gpt-6-luna"),
     AIFeatureKey.champion_draft: ("F13", "gpt-6-luna"),
@@ -222,9 +222,11 @@ def test_jarvis_chain_stays_on_anthropic(monkeypatch):
     assert all(provider_of(model) == ANTHROPIC for model in chain)
 
 
-def test_providers_in_use_lists_openai_and_deepseek(monkeypatch):
+def test_providers_in_use_lists_only_openai(monkeypatch):
+    """25.09.2026: DeepSeek wycofany (konto bez środków, decyzja Artura) —
+    sonda zdrowia nie pyta już o jego klucz."""
     _clear_model_overrides(monkeypatch)
-    assert ai_models.providers_in_use() == ["deepseek", "openai"]
+    assert ai_models.providers_in_use() == ["openai"]
 
 
 def test_registry_snapshot_reports_provider_and_key(monkeypatch):
@@ -238,8 +240,7 @@ def test_registry_snapshot_reports_provider_and_key(monkeypatch):
     snap = ai_models.registry_snapshot()
     assert snap["mindy_chat"]["provider"] == "openai"
     assert snap["mindy_chat"]["key_configured"] is True
-    assert snap["notes_extraction"]["provider"] == "deepseek"
-    assert snap["notes_extraction"]["key_configured"] is False
+    assert snap["notes_extraction"]["provider"] == "openai"
     assert snap["scoring"]["provider"] == "anthropic"
 
 

@@ -424,3 +424,80 @@ async def test_unrecoverable_ai_json_does_not_receive_extra_provider_retries(mon
     with pytest.raises(ValueError):
         await extractor.extract_insights("Synthetic notes")
     assert provider.await_count == 1
+
+
+def _model_reply(payload: str):
+    from unittest.mock import AsyncMock
+
+    return AsyncMock(
+        return_value=SimpleNamespace(
+            content=[SimpleNamespace(type="text", text=payload)]
+        )
+    )
+
+
+async def test_rate_absent_from_notes_never_reaches_the_profile(monkeypatch):
+    """25.09.2026 (zamiana DeepSeek → Luna 6): każdy model czasem dopisuje
+    wartość, której w notatkach nie ma (pomiar 22.09: 0,15–0,55 na kandydata).
+    Stawka zasila bramkę budżetu, więc kwota spoza notatek nie może wejść do
+    profilu — niezależnie od modelu."""
+    from app.services import notes_insights_extractor as extractor
+
+    monkeypatch.setattr(
+        extractor,
+        "run_in_threadpool",
+        _model_reply('{"expected_rate": {"value": 160, "currency": "PLN", "period": "h"}}'),
+    )
+    parsed = await extractor.extract_insights(
+        "[2026-09-12]\nKandydat oczekuje 150 zł/h netto na B2B, start za miesiąc."
+    )
+    assert parsed["expected_rate"]["value"] is None
+    assert parsed["expected_rate"]["ungrounded_value"] == 160
+    cand = _cand()
+    _apply(cand, parsed)
+    assert cand.expected_rate_hourly is None
+
+
+async def test_rate_present_in_notes_is_kept(monkeypatch):
+    from app.services import notes_insights_extractor as extractor
+
+    monkeypatch.setattr(
+        extractor,
+        "run_in_threadpool",
+        _model_reply('{"expected_rate": {"value": 160, "currency": "PLN", "period": "h"}}'),
+    )
+    parsed = await extractor.extract_insights(
+        "[2026-09-12]\nWidełki 150-160zł/h, elastyczny przy dłuższym projekcie."
+    )
+    assert parsed["expected_rate"]["value"] == 160
+    cand = _cand()
+    _apply(cand, parsed)
+    assert cand.expected_rate_hourly == Decimal("160.00")
+
+
+async def test_date_header_digits_do_not_ground_a_rate(monkeypatch):
+    from app.services import notes_insights_extractor as extractor
+
+    monkeypatch.setattr(
+        extractor,
+        "run_in_threadpool",
+        _model_reply('{"expected_rate": {"value": 12, "currency": "PLN", "period": "h"}}'),
+    )
+    parsed = await extractor.extract_insights("[2026-09-12]\nRozmowa o dostępności.")
+    assert parsed["expected_rate"]["value"] is None
+
+
+async def test_monthly_amount_in_words_is_left_for_the_card(monkeypatch):
+    """„UoP od 20 tysięcy” → 20000/mc: poprawna interpretacja, a stawka
+    miesięczna i tak nie trafia do profilu — kontrola jej nie rusza."""
+    from app.services import notes_insights_extractor as extractor
+
+    monkeypatch.setattr(
+        extractor,
+        "run_in_threadpool",
+        _model_reply(
+            '{"expected_rate": {"value": 20000, "currency": null, "period": "month"}}'
+        ),
+    )
+    parsed = await extractor.extract_insights("[2026-05-10]\nUoP od 20 tysięcy.")
+    assert parsed["expected_rate"]["value"] == 20000

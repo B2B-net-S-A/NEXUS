@@ -6620,7 +6620,7 @@ zakończyło się decyzją Artura wdrożoną w rejestrze `services/ai_models.py`
 |---|---|---|---|---|---|
 | F1 | scoring | Sonnet 5 | F9 | cv_parser | Sonnet 5 |
 | F2 | champion_profile_parse | Sonnet 5 (z Haiku) | F10 | cv_backfill, cv_name_backfill | **GPT-6 Luna** (z Sonnet 5, od 22.09) |
-| F3 | cv_requirement_map | Sonnet 5 | F11 | notes_extraction | DeepSeek V4 Pro (z Haiku) |
+| F3 | cv_requirement_map | Sonnet 5 | F11 | notes_extraction | **GPT-6 Luna** (z Sonnet 5, od 25.09) |
 | F4 | cv_generator | Sonnet 5 (z 4.6) | F12 | candidate_summary | **GPT-6 Luna** (z Sonnet 5, od 22.09) |
 | F5 | cv_interactive_chat | GPT-6 Luna (z Sonnet 5) | F13 | champion_draft | **GPT-6 Luna** (z Sonnet 5, od 22.09) |
 | F6 | job_description_generator | Sonnet 5 | F14 | cv_rule_lint | Sonnet 5 (z Haiku) |
@@ -6660,6 +6660,14 @@ zakończyło się decyzją Artura wdrożoną w rejestrze `services/ai_models.py`
   16.09: 2 z 6 poprawnych zamówień do ręcznego sprawdzenia. Badanie 16.09 i tak
   zalecało zostawić odczyt na Sonnecie. `order_pdf_parser._MODEL` liczy się przy
   imporcie, więc zmiana `ORDER_PARSER_MODEL` w Coolify wymaga restartu.
+- **DeepSeek wycofany 25.09.2026 (decyzja Artura).** Konto zeszło do −0,01 USD
+  i nocny odczyt notatek (F11) dostawał 402 dla każdego kandydata (~1000
+  zdarzeń Sentry na noc). F11 przeszedł na GPT-6 Luna (pomiar 25.09 na prompcie
+  v5: 0,22 nieugruntowanych wartości/kandydata, 1/60 w stawce — miesięczna,
+  poprawna). Stawka PLN/h z notatek wchodzi do profilu tylko, gdy ta liczba
+  stoi w notatce (`_drop_ungrounded_rate`). Bieg staje na pierwszym 401/402/403
+  (`status=provider_unavailable`). Kod dostawcy DeepSeek zostaje, ale żadna
+  funkcja go nie używa, więc sonda zdrowia o niego nie pyta.
 - **Rejestr jest JEDYNYM miejscem „funkcja → model".** Dostawca wynika z NAZWY
   modelu (`llm_providers.provider_of`: `claude-*` → Anthropic, `gpt-*` →
   OpenAI, `deepseek*` → DeepSeek). Nie dokładaj literałów modeli ani osobnych
@@ -7338,7 +7346,7 @@ zwykłym telefonem z ręcznym debriefem). Konfiguracja M365: `docs/teams-prep-se
   z kandydatem (art. 17; `calendar_events.candidate_id` to SET NULL, dlatego
   każda tabela ma własny CASCADE). Pełny tekst: `GET …/preps/{id}/transcript`
   za `ensure_job_read_access` (od #1742 każda rola wewnętrzna, nie tylko zespół). Notatka (`external_source='teams_prep'`) niesie
-  WYŁĄCZNIE podsumowanie — czyta ją nocny `notes_insights` (DeepSeek).
+  WYŁĄCZNIE podsumowanie — czyta ją nocny `notes_insights` (GPT-6 Luna).
   Mówcy z VTT (`services/teams_vtt.py`): zespół po nazwisku, kandydat po
   nazwisku albo jako jedyny mówca spoza zespołu; udział kandydata `None`, gdy
   nie da się go wskazać — nigdy 0.

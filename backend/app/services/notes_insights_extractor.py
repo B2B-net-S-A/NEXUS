@@ -37,7 +37,7 @@ from app.core.terminal_failure import terminal_operation
 from app.models.candidate import AvailabilityStatus, Candidate
 from app.services.cv_enrichment import normalize_llm_skills
 from app.models.ai_feature import AIFeatureKey
-from app.services.ai_models import model_for
+from app.services.ai_models import fallbacks_for, model_for
 
 logger = logging.getLogger(__name__)
 
@@ -235,6 +235,54 @@ def _validated_insights(parsed: Any) -> dict:
     return parsed
 
 
+_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
+# Z separatorem tysięcy („1 200”) i bez — „150 160” to też dwie osobne liczby.
+_GROUPED_NUMBER_RE = re.compile(r"\d{1,3}(?:[ \u00a0]\d{3})+(?:[.,]\d+)?")
+_PLAIN_NUMBER_RE = re.compile(r"\d+(?:[.,]\d+)?")
+
+
+def _numbers_in(text_value: str) -> set[Decimal]:
+    """Liczby zapisane w notatkach (bez dat z nagłówków ``[RRRR-MM-DD]``)."""
+    found: set[Decimal] = set()
+    cleaned = _DATE_RE.sub(" ", text_value)
+    tokens = _GROUPED_NUMBER_RE.findall(cleaned) + _PLAIN_NUMBER_RE.findall(cleaned)
+    for token in tokens:
+        compact = token.replace(" ", "").replace("\u00a0", "").replace(",", ".")
+        try:
+            found.add(Decimal(compact))
+        except ArithmeticError:
+            continue
+    return found
+
+
+def _drop_ungrounded_rate(parsed: dict, notes_blob: str) -> dict:
+    """Stawka, której kwoty nie ma w notatkach, nie wchodzi do profilu.
+
+    Każdy model czasem dopisuje wartość spoza tekstu (pomiar 22.09.2026:
+    0,15–0,55 takich wartości na kandydata), a stawka PLN/h z notatek zasila
+    bramkę budżetu. Kwota zostaje w ``ungrounded_value`` — do wglądu, nie do
+    zapisu.
+    """
+    rate = parsed.get("expected_rate")
+    if not isinstance(rate, dict):
+        return parsed
+    # Do profilu idzie wyłącznie PLN/h; „UoP od 20 tysięcy” miesięcznie model
+    # słusznie zamienia na 20000, a ta kwota zostaje tylko na karcie.
+    if str(rate.get("currency") or "").upper() != "PLN" or rate.get("period") != "h":
+        return parsed
+    value = rate.get("value")
+    if value is None or isinstance(value, bool):
+        return parsed
+    try:
+        amount = Decimal(str(value))
+    except ArithmeticError:
+        return parsed
+    if amount in _numbers_in(notes_blob):
+        return parsed
+    parsed["expected_rate"] = {**rate, "value": None, "ungrounded_value": value}
+    return parsed
+
+
 @terminal_operation("notes-extraction")
 async def extract_insights(notes_blob: str) -> dict:
     """Jedno wywołanie Haiku → sparsowany dict (unia v1+v2).
@@ -247,6 +295,7 @@ async def extract_insights(notes_blob: str) -> dict:
     msg = await run_in_threadpool(
         call_claude,
         model=EXTRACTION_MODEL,
+        fallback_models=fallbacks_for(AIFeatureKey.notes_extraction),
         # 4000, nie 2500: unia schematów v1+v2 przy bogatych notatkach
         # potrafiła przekroczyć 2500 i ucinała JSON (prod, id=25176).
         max_tokens=4000,
@@ -260,14 +309,15 @@ async def extract_insights(notes_blob: str) -> dict:
         raise ValueError("brak obiektu JSON w odpowiedzi modelu")
     payload = raw[start : raw.rfind("}") + 1] if raw.rfind("}") > start else raw[start:]
     try:
-        return _validated_insights(json.loads(payload))
+        parsed = _validated_insights(json.loads(payload))
     except json.JSONDecodeError:
         # Naprawa dostaje PEŁNY ogon (raw[start:]), nie payload ucięty na
         # ostatnim '}' — przy uciętej odpowiedzi wcześniejszy wewnętrzny '}'
         # obcinał wszystko za sobą, zanim naprawa cokolwiek zobaczyła.
         # Postamble po poprawnym JSON-ie nieosiągalny: wtedy pierwszy parse
         # payloadu po prostu się udaje.
-        return _validated_insights(json.loads(_close_open_json(raw[start:])))
+        parsed = _validated_insights(json.loads(_close_open_json(raw[start:])))
+    return _drop_ungrounded_rate(parsed, notes_blob)
 
 
 def stamp_no_content(
