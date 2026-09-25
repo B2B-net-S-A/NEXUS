@@ -390,13 +390,44 @@ def fold_index_ddl(*, concurrently: bool) -> list[str]:
     return [stmt.format(concurrently=word) for stmt in FOLD_INDEX_DDL]
 
 
+def _when_column_exists(ddl: str, table: str, column: str) -> str:
+    """DDL wykonany tylko, gdy kolumna już jest.
+
+    Siatka w ``entrypoint.sh`` wykonuje instrukcje pojedynczo z limitem
+    czekania na blokadę. Gdyby ``ADD COLUMN`` przegrał blokadę (np. z nocnym
+    ``pg_dump``), a nowa funkcja triggera się założyła, KAŻDY zapis kandydata
+    padałby na brakującym polu ``NEW.keyword_fold_fts``. Migracja 0385 jest
+    jedną transakcją i tej osłony nie potrzebuje.
+    """
+    body = ddl.strip().rstrip(";")
+    return f"""
+DO $guard$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = '{table}' AND column_name = '{column}'
+    ) THEN
+        EXECUTE $ddl${body}$ddl$;
+    END IF;
+END
+$guard$;
+"""
+
+
 def schema_ddl() -> list[str]:
     """Pełny, idempotentny DDL korpusu dla siatki w ``entrypoint.sh``."""
     return [
         *COLUMN_DDL,
         *FOLD_COLUMN_DDL,
         JSON_TEXT_FUNCTION_DDL,
-        *FOLD_FUNCTION_DDLS,
+        FOLD_FUNCTION_DDL,
+        NOTE_UNWRAP_FUNCTION_DDL,
+        NOTE_TEXT_FUNCTION_DDL,
+        _when_column_exists(NOTE_TRIGGER_FUNCTION_DDL, "notes", "content_fold_fts"),
+        _when_column_exists(NOTE_TRIGGER_DDL, "notes", "content_fold_fts"),
+        _when_column_exists(TRIGGER_FUNCTION_DDL, "candidates", "keyword_fold_fts"),
+        TRIGGER_DDL,
     ]
 
 
