@@ -116,6 +116,11 @@ interface JobDetailCompactHeaderProps {
   /** Sugerowane podobne (niepołączone) — odznaka „≈ N". */
   similarSuggestedCount?: number | null;
   /**
+   * Ile osób z podpowiadanych (niepołączonych) podobnych rekrutacji da się
+   * przepiąć — odznaka „N do przepięcia” (panel przepięć, 25.09.2026).
+   */
+  similarPeopleCount?: number | null;
+  /**
    * „Mamy championa" (0341) — przełącznik Delivery Leada. `undefined` = rola
    * bez prawa (brak przycisku); status widać wtedy w odznace statusu.
    */
@@ -218,6 +223,7 @@ export function JobDetailCompactHeader({
   onOpenSimilar,
   similarLinkedCount,
   similarSuggestedCount,
+  similarPeopleCount,
   championFound,
   onToggleChampion,
   championPending,
@@ -489,11 +495,15 @@ export function JobDetailCompactHeader({
                 variant="outline"
                 onClick={onOpenSimilar}
                 data-testid="open-similar"
-                title="Połącz podobne rekrutacje — osoby wysłane tam do klienta trafią do „Do przejrzenia”"
+                title="Podobne rekrutacje — przepnij do „Nowych” osoby wysłane tam do klienta"
               >
                 <Link2 className="h-4 w-4" aria-hidden="true" />
                 Podobne rekrutacje
-                {similarLinkedCount ? (
+                {similarPeopleCount ? (
+                  <Badge size="sm" variant="info" className="tabular-nums">
+                    {similarPeopleCount} do przepięcia
+                  </Badge>
+                ) : similarLinkedCount ? (
                   <Badge size="sm" variant="info" className="tabular-nums">
                     ↻ {similarLinkedCount}
                   </Badge>

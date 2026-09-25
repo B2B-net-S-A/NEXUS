@@ -34,6 +34,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AiStatusBanner } from "@/components/jobs/AiStatusBanner";
 import { FiltersPanel } from "@/components/v2/filters/FiltersPanel";
+import { scoreBadgeClass } from "@/lib/match-score-badge";
 import { SEARCH_AVAILABILITY_OPTIONS } from "@/lib/search-availability";
 import {
   candidateSearchApi,
@@ -95,19 +96,10 @@ import {
   decodeSearchRequest,
   encodeSearchRequest,
   searchRequestChangeCount,
-  searchRequestLabel,
   searchRequestValidationError,
 } from "@/lib/candidate-search-request";
 import { matchingRequirementsApi, requirementLabels } from "@/lib/matching-requirements";
-import {
-  clearJobSearch,
-  pushRecentSearch,
-  readJobSearch,
-  writeJobSearch,
-} from "@/lib/search-memory";
-import { useAuthStore } from "@/store/auth";
 import type { ChipFieldSuggest } from "@/components/v2/filters/AdvancedSearchPopover";
-import { RecentSearchesMenu } from "@/components/v2/filters/RecentSearchesMenu";
 import {
   MATCH_SCORES_MAX_CANDIDATES,
   useVisibleMatchScores,
@@ -231,20 +223,6 @@ interface CandidateSearchViewProps {
    * linie) — pod polem pojawia się „Szukaj jak z requestu", które to woła.
    */
   onUseAsRequest?: (text: string) => void;
-  /**
-   * Pamięć ostatniego wyszukiwania w tej rekrutacji (id rekrutacji): panel
-   * „Szukaj ręcznie” po ponownym otwarciu wraca do tego, co tu zostawiono.
-   */
-  memoryKey?: number;
-}
-
-/** „dziś 10:42”, „wczoraj 16:03”, „22.09 11:20”. */
-function formatRestoredAt(at: number, now = Date.now()): string {
-  const date = new Date(at);
-  const time = date.toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" });
-  if (date.toDateString() === new Date(now).toDateString()) return `dziś ${time}`;
-  if (date.toDateString() === new Date(now - 86_400_000).toDateString()) return `wczoraj ${time}`;
-  return `${date.toLocaleDateString("pl-PL", { day: "2-digit", month: "2-digit" })} ${time}`;
 }
 
 /**
@@ -265,10 +243,8 @@ export function CandidateSearchView({
   hideHeader = false,
   persistUrlParams,
   onUseAsRequest,
-  memoryKey,
 }: CandidateSearchViewProps) {
   const searchParams = useSearchParams();
-  const userId = useAuthStore((s) => s.user?.id ?? null);
   // Samodzielna wyszukiwarka: rekruter może wskazać rekrutację („Szukasz do
   // rekrutacji?”). Wybrana rekrutacja działa dokładnie jak `addToJob` —
   // ocena dopasowania, zaznaczanie, dodawanie — i siedzi w URL-u (`?job=`),
@@ -310,21 +286,10 @@ export function CandidateSearchView({
   // Stary `?s=` (sprzed v2: `skills_must`, `open_to_*`…) otwiera się dalej —
   // `toSearchSemanticsV2` przekłada pola legacy na kubełki tym samym
   // adapterem, którym migrowane są zapisane wyszukiwania.
-  // Ostatnie wyszukiwanie tej rekrutacji (`search-memory`) — czytane raz.
-  const [restoredFromMemory] = useState(() =>
-    memoryKey !== undefined && !syncUrl ? readJobSearch(userId, memoryKey) : null,
-  );
-  const [restoredBanner, setRestoredBanner] = useState(restoredFromMemory !== null);
   // `request` = zastosowane (idzie do API i adresu), `draft` = to, co panel
   // filtrów właśnie edytuje. Zmiany czekają na „Szukaj” (25.09.2026); od razu
   // działa tylko sortowanie, strona, zapisane wyszukiwanie i wybór rekrutacji.
   const [request, setRequest] = useState<CandidateSearchRequest>(() => {
-    if (restoredFromMemory) {
-      return toSearchSemanticsV2({
-        ...(restoredFromMemory.request as Partial<CandidateSearchRequest>),
-        ...(jobContext ? { exclude_in_job_id: jobContext.id } : {}),
-      } as CandidateSearchRequest);
-    }
     return syncUrl
       ? toSearchSemanticsV2(
           decodeSearchRequest(
@@ -347,17 +312,6 @@ export function CandidateSearchView({
     },
     [],
   );
-  // Zapis tylko po działaniu osoby („Szukaj”, sortowanie, strona, zapisane,
-  // ostatnie) — nie przy otwarciu. Inaczej nietknięte filtry z rekrutacji
-  // zapisałyby się i przykryły nowe wymagania Championa przy kolejnym otwarciu.
-  const rememberRef = useRef(false);
-  const remember = useCallback(() => {
-    rememberRef.current = true;
-  }, []);
-  useEffect(() => {
-    if (memoryKey === undefined || !rememberRef.current) return;
-    writeJobSearch(userId, memoryKey, request as unknown as Record<string, unknown>);
-  }, [memoryKey, userId, request]);
   const requirementsQuery = useQuery({
     queryKey: ["matching-requirements", jobContext?.id ?? 0],
     queryFn: () => matchingRequirementsApi.get(jobContext!.id),
@@ -572,7 +526,6 @@ export function CandidateSearchView({
     clearSelection();
     // Zapis legacy (surowe żądanie: `skills_must` = ranking) i v3 kończą w tym
     // samym kształcie v2 — adapter zapisów decyduje o kubełkach.
-    remember();
     applyNow(
       toSearchSemanticsV2({
         ...DEFAULT_REQUEST,
@@ -889,45 +842,16 @@ export function CandidateSearchView({
     // Nowy zestaw filtrów unieważnia zaznaczenie (zaznaczonych może nie być
     // w nowym wyniku) — strona je zachowuje (``setPage``).
     clearSelection();
-    setRestoredBanner(false);
-    remember();
     setRequest({ ...draft, page: 1 });
-    if (jobContext) {
-      const keywords = [
-        ...(draft.q_all ?? []),
-        ...(draft.q_any_groups ?? []).flat(),
-        ...(draft.q_none ?? []),
-        ...(draft.skills_required ?? []),
-        ...(draft.skills_preferred ?? []),
-      ].filter((w): w is string => typeof w === "string" && w.trim().length > 0);
-      pushRecentSearch(userId, {
-        kind: "job",
-        jobId: jobContext.id,
-        label: searchRequestLabel(draft),
-        query: JSON.stringify({ ...draft, page: 1 }),
-        keywords,
-        total: null,
-      });
-    }
-  };
-
-  const restoreJobDefaults = () => {
-    clearSelection();
-    setRestoredBanner(false);
-    rememberRef.current = false;
-    if (memoryKey !== undefined) clearJobSearch(userId, memoryKey);
-    applyNow(baseRequest);
   };
 
   const setSort = (sort: SortMode) => {
     clearSelection();
-    remember();
     setRequest({ ...request, sort, page: 1 });
     setDraft((d) => ({ ...d, sort }));
   };
 
   const setPage = (page: number) => {
-    remember();
     setRequest({ ...request, page });
   };
 
@@ -1086,49 +1010,6 @@ export function CandidateSearchView({
           )}
         </section>
       )}
-
-      {restoredBanner && restoredFromMemory && (
-        <div
-          role="status"
-          className="flex flex-wrap items-center gap-3 rounded-lg border border-primary/25 bg-primary/5 px-3 py-2 text-sm text-foreground"
-        >
-          <RotateCcw className="h-4 w-4 shrink-0 text-primary" aria-hidden />
-          <span className="min-w-0 flex-1">
-            <strong className="font-semibold">Przywrócono Twoje ostatnie wyszukiwanie w tej rekrutacji</strong>{" "}
-            ({formatRestoredAt(restoredFromMemory.at)}
-            {(request.page ?? 1) > 1 ? `, strona ${request.page}` : ""}).
-          </span>
-          <Button variant="outline" size="sm" onClick={restoreJobDefaults}>
-            Wróć do filtrów z rekrutacji
-          </Button>
-        </div>
-      )}
-
-      <div className="flex flex-wrap items-center justify-end gap-2">
-        {jobContext && (
-          <RecentSearchesMenu
-            kind="job"
-            jobId={jobContext.id}
-            onPick={(entry) => {
-              try {
-                const parsed = JSON.parse(entry.query) as Partial<CandidateSearchRequest>;
-                clearSelection();
-                remember();
-                applyNow(
-                  toSearchSemanticsV2({
-                    ...DEFAULT_REQUEST,
-                    ...parsed,
-                    exclude_in_job_id: jobContext.id,
-                    page: 1,
-                  }),
-                );
-              } catch {
-                /* uszkodzony wpis — nic nie zmieniamy */
-              }
-            }}
-          />
-        )}
-      </div>
 
       {pendingCount > 0 && (
         <div
@@ -1746,13 +1627,7 @@ function useReportWhenVisible(
   }, [ref, id, onVisible, fallback]);
 }
 
-export function scoreBadgeClass(score: number): string {
-  if (score >= 70)
-    return "bg-success-muted text-success-muted-foreground";
-  if (score >= 40)
-    return "bg-warning-muted text-warning-muted-foreground";
-  return "bg-muted text-muted-foreground";
-}
+export { scoreBadgeClass };
 
 function CandidateSearchRow({
   item,

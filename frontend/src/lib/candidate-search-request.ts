@@ -225,18 +225,3 @@ export function searchRequestChangeCount(
   }
   return changes;
 }
-
-/** Krótki opis wyszukiwania do menu „Ostatnie wyszukiwania”. */
-export function searchRequestLabel(request: CandidateSearchRequest): string {
-  const parts: string[] = [];
-  if (request.q?.trim()) parts.push(`„${request.q.trim()}”`);
-  if (request.q_all?.length) parts.push(request.q_all.join(" + "));
-  for (const group of request.q_any_groups ?? []) {
-    if (group.length) parts.push(`(${group.join(" lub ")})`);
-  }
-  if (request.q_none?.length) parts.push(`bez ${request.q_none.join(", ")}`);
-  if (request.skills_required?.length) parts.push(`musi: ${request.skills_required.join(", ")}`);
-  if (request.skills_preferred?.length) parts.push(`mile: ${request.skills_preferred.join(", ")}`);
-  if (request.location_cities?.length) parts.push(request.location_cities.join(", "));
-  return parts.length ? parts.join(" · ") : "Bez słów kluczowych";
-}

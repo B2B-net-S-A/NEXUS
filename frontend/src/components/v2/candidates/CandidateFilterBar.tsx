@@ -113,6 +113,12 @@ export interface CandidateFilterBarProps {
   pendingCount?: number;
   /** „Szukaj” — stosuje filtry robocze (bez niego zmiany działają od razu). */
   onSearch?: () => void;
+  /**
+   * „Szukaj ręcznie” z rekrutacji: zapytanie samo ukrywa osoby z tej
+   * rekrutacji, więc filtr „Brał udział w rekrutacji” byłby nadpisany —
+   * zamiast udawać, że działa, pokazujemy zdanie wyjaśnienia.
+   */
+  recruitmentFilterLocked?: boolean;
   className?: string;
 }
 
@@ -403,6 +409,7 @@ export function CandidateFilterBar({
   resultLabel,
   pendingCount = 0,
   onSearch,
+  recruitmentFilterLocked = false,
   className,
 }: CandidateFilterBarProps) {
   const [moreOpen, setMoreOpen] = useState(false);
@@ -539,6 +546,7 @@ export function CandidateFilterBar({
             onPatch={onPatch}
             stage={stage}
             onStageChange={onStageChange}
+            recruitmentFilterLocked={recruitmentFilterLocked}
           />
         </FilterPill>
         <FilterPill
@@ -760,11 +768,13 @@ function HistoryFields({
   onPatch,
   stage,
   onStageChange,
+  recruitmentFilterLocked = false,
 }: {
   filters: CandidateFilters;
   onPatch: (patch: Partial<CandidateFilters>) => void;
   stage: StageFilterValue;
   onStageChange: (patch: Partial<StageFilterValue>) => void;
+  recruitmentFilterLocked?: boolean;
 }) {
   return (
     <div className="space-y-3">
@@ -773,11 +783,18 @@ function HistoryFields({
       </p>
       <div className="space-y-1">
         <FieldLabel>Brał udział w rekrutacji</FieldLabel>
+        {recruitmentFilterLocked ? (
+          <p className="text-xs text-muted-foreground" data-testid="recruitment-filter-locked">
+            Tu szukasz do tej rekrutacji — osoby, które już w niej są, są ukryte.
+            Filtr po innych rekrutacjach jest na liście Kandydatów.
+          </p>
+        ) : (
         <RecruitmentMultiSelect
           value={filters.recruitmentIds}
           onChange={(v) => onPatch({ recruitmentIds: v })}
         />
-        {filters.recruitmentIds.length > 0 && (
+        )}
+        {!recruitmentFilterLocked && filters.recruitmentIds.length > 0 && (
           <div className="flex gap-1.5 pt-1">
             {(
               [

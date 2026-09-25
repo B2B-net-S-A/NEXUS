@@ -57,7 +57,7 @@ vi.mock("@/components/v2/pages/JobShortlistPanel", () => ({
 }));
 
 import { CandidateSearchView } from "@/components/v2/pages/CandidateSearchView";
-import { clearSearchMemory, readJobSearch, writeJobSearch } from "@/lib/search-memory";
+import { clearSearchMemory } from "@/lib/search-memory";
 import { useAuthStore } from "@/store/auth";
 
 function emptyPage() {
@@ -113,42 +113,5 @@ describe("CandidateSearchView — przycisk „Szukaj”", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Cofnij zmiany" }));
     expect(screen.getByTestId("draft-q").textContent).toBe("");
     expect(screen.getByTestId("pending").textContent).toBe("0");
-  });
-});
-
-describe("CandidateSearchView — pamięć wyszukiwania w rekrutacji", () => {
-  const job = { id: 5, title: "Java Developer" };
-
-  it("zapamiętuje zastosowane wyszukiwanie tej rekrutacji", async () => {
-    renderView({ addToJob: job, memoryKey: 5, initial: { q: "java" } });
-    await waitFor(() => expect(search).toHaveBeenCalledTimes(1));
-    fireEvent.click(screen.getByRole("button", { name: "zmień szkic" }));
-    fireEvent.click(screen.getByRole("button", { name: "szukaj" }));
-    await waitFor(() => expect(readJobSearch(7, 5)?.request).toMatchObject({ q: "kafka" }));
-  });
-
-  it("po ponownym otwarciu wraca do ostatniego wyszukiwania i pozwala wrócić do filtrów rekrutacji", async () => {
-    writeJobSearch(7, 5, { q: "python", page: 2, exclude_in_job_id: 5 });
-    renderView({ addToJob: job, memoryKey: 5, initial: { q: "java" } });
-    await waitFor(() => expect(search).toHaveBeenCalled());
-    expect(search.mock.calls[0][0]).toMatchObject({ q: "python", page: 2, exclude_in_job_id: 5 });
-    expect(
-      screen.getByText("Przywrócono Twoje ostatnie wyszukiwanie w tej rekrutacji"),
-    ).toBeTruthy();
-
-    fireEvent.click(screen.getByRole("button", { name: "Wróć do filtrów z rekrutacji" }));
-    await waitFor(() => expect(search.mock.calls.at(-1)?.[0]).toMatchObject({ q: "java" }));
-    expect(readJobSearch(7, 5)).toBeNull();
-    expect(screen.queryByText("Przywrócono Twoje ostatnie wyszukiwanie w tej rekrutacji")).toBeNull();
-  });
-
-  it("bez pamięci startuje od filtrów rekrutacji i samo otwarcie niczego nie zapisuje", async () => {
-    renderView({ addToJob: job, memoryKey: 5, initial: { q: "java" } });
-    await waitFor(() => expect(search).toHaveBeenCalled());
-    expect(search.mock.calls[0][0]).toMatchObject({ q: "java" });
-    // Nietknięte filtry nie mogą przykryć nowych wymagań Championa przy
-    // kolejnym otwarciu okna.
-    expect(readJobSearch(7, 5)).toBeNull();
-    expect(screen.queryByText("Przywrócono Twoje ostatnie wyszukiwanie w tej rekrutacji")).toBeNull();
   });
 });

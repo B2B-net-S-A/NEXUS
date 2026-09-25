@@ -1,22 +1,24 @@
 "use client";
 
 /**
- * „Szukaj ręcznie" rekrutacji — wyszukiwarka kandydatów z filtrami wstępnie
- * wypełnionymi z rekrutacji i zbiorczym dodawaniem trafień do pipeline'u.
+ * „Szukaj ręcznie" rekrutacji — od 25.09.2026 ta sama lista co ekran
+ * „Kandydaci" (pasek słów kluczowych, przyciski filtrów, tabela), w trybie
+ * osadzonym (`CandidatesListV2 embed`). Decyzja Artura: wygląd i silnik jak
+ * lista; odpadły przypięte zapisane wyszukiwania, diagnostyka pustego wyniku,
+ * shortlista i opcje etapu/notatki/tagów przy dodawaniu.
  *
- * Wyniesione 1:1 z lokalnego `ManualSearchTab` w `app/jobs/[id]/page.tsx`
- * (widok „jedna tabela", 09.2026): dawna zakładka staje się oknem wysuwanym,
- * a komponent lokalny dla strony nie dał się zaimportować. Zachowanie jest
- * identyczne — przypięte zapisane wyszukiwania, zatwierdzone wyszukiwania
- * z Profilu Championa i zbiorcze dodawanie żyją w `CandidateSearchView`,
- * którego ten panel tylko zasila. Osoby będące już w rekrutacji wycina serwer
- * (`exclude_in_job_id`).
+ * Filtry startują z rekrutacji (`buildJobSearchPrefill` → filtry listy),
+ * tekst tytułu liczy się po znaczeniu (jak dotąd w trybie hybrydowym), osoby
+ * już w rekrutacji ukrywa zapytanie (`recruitment_match=not_assigned`), a
+ * „Dodaj" wpisuje do „Nowych" (`proposals/bulk`, źródło `manual_search`).
  */
 
 import { useQuery } from "@tanstack/react-query";
 
-import { CandidateSearchView } from "@/components/v2/pages/CandidateSearchView";
+import { CandidatesListV2 } from "@/components/v2/pages/CandidatesListV2";
+import { searchRequestToListFilters } from "@/lib/candidates-search-redirect";
 import { buildJobSearchPrefill } from "@/lib/job-search-prefill";
+import type { CandidateFilters } from "@/lib/url-filters";
 import {
   matchingRequirementsApi,
   requirementLabels,
@@ -52,9 +54,9 @@ export function ManualSearchPanel({
   readOnly = false,
 }: ManualSearchPanelProps) {
   // Wymagania obowiązkowe z zapisanego kontraktu rekrutacji — ten sam, którego
-  // używa przegląd całej bazy. `CandidateSearchView` czyta `initial` tylko przy
-  // montowaniu (inicjalizator `useState`), więc montujemy go dopiero PO
-  // odpowiedzi, a `key` przemontowuje formularz, gdy wymagania się zmienią.
+  // używa przegląd całej bazy. Lista czyta filtry startowe tylko przy
+  // montowaniu, więc montujemy ją dopiero PO odpowiedzi, a `key`
+  // przemontowuje ją, gdy wymagania się zmienią.
   const savedReqs = useQuery({
     queryKey: ["matching-requirements", jobId],
     queryFn: () => matchingRequirementsApi.get(jobId),
@@ -69,22 +71,37 @@ export function ManualSearchPanel({
   const mustLabels = savedReqs.isSuccess
     ? requirementLabels(savedReqs.data, "must")
     : null;
-  const initial = buildJobSearchPrefill(job, mustLabels);
 
   return (
-    <CandidateSearchView
+    <CandidatesListV2
       // Klucz z TREŚCI wymagań, nie z `dataUpdatedAt`: odświeżenie przy powrocie
       // do karty z identycznymi danymi nie może kasować wpisanych filtrów.
       key={mustLabels ? `must:${mustLabels.join("|")}` : "must:fallback"}
-      initial={initial}
-      addToJob={{ id: jobId, title: job.title }}
-      // Okno „Szukaj ręcznie" ma własny tytuł — drugi („Wyszukiwanie
-      // kandydatów") tuż pod nim dublował nagłówek (test manualny 22.09.2026).
-      hideHeader
-      onBulkAdded={onBulkAdded}
-      readOnly={readOnly}
-      // Ostatnie wyszukiwanie tej rekrutacji wraca po ponownym otwarciu okna.
-      memoryKey={jobId}
+      embed={{
+        jobId,
+        jobTitle: job.title,
+        initialFilters: jobListFilters(job, mustLabels),
+        readOnly,
+        onAdded: onBulkAdded,
+      }}
     />
   );
+}
+
+/**
+ * Filtry startowe listy z rekrutacji. Tytuł szuka po znaczeniu — tak jak
+ * dotychczasowy tryb hybrydowy; w trybie „auto" dwa słowa z wielkiej litery
+ * („Analityk Systemowy") wyglądałyby na nazwisko i szłyby dosłownie.
+ * Status bez czarnej listy (serwer i tak by ją odrzucił przy dodaniu).
+ */
+export function jobListFilters(
+  job: ManualSearchJob,
+  mustLabels: readonly string[] | null,
+): CandidateFilters {
+  const filters = searchRequestToListFilters(buildJobSearchPrefill(job, mustLabels));
+  return {
+    ...filters,
+    textMode: filters.q ? "semantic" : filters.textMode,
+    status: ["active", "passive"],
+  };
 }

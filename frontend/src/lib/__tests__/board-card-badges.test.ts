@@ -64,6 +64,12 @@ describe("odznaki karty — Pipeline v4", () => {
   it("przepięcie niesie rekrutację źródłową", () => {
     const re = item({ entry_source: "reassign", reassign_from_title: "Java · PKO BP" });
     expect(labels(re, ctx())[0]).toBe("Przepięcie · Java · PKO BP");
+    const withRef = item({
+      entry_source: "reassign",
+      reassign_from_title: "Analityk Systemowy",
+      reassign_from_reference: "ZOB-1725",
+    });
+    expect(labels(withRef, ctx())[0]).toBe("↻ z ZOB-1725");
   });
 
   it("„Czeka na DL” w QC CV poza Nordeą, u Nordei nie, w Zweryfikowanym nie", () => {
