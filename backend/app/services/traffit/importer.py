@@ -353,6 +353,42 @@ class PhaseProgress:
         # failing rows is a systemic fault, and counting the overflow as
         # unattributable keeps the watermark frozen, which is the safe answer.
 
+    # ── Błędy niesione przez kursor wznowienia (audyt 25.09.2026) ──────────
+    #
+    # Faza z kursorem stron, przerwana w połowie (deploy zabija proces), nie
+    # zwraca `PhaseProgress` — jej błędy wierszy sprzed przerwania ginęły razem
+    # z procesem. Wznowiony przebieg zaczynał od kursora, nie widział ich,
+    # kończył się „czysto” i przesuwał `__daily__` nad wierszami, które nigdy
+    # się nie zaimportowały. Kursor niesie więc stan błędów, a wznowienie
+    # przyjmuje go z powrotem — dalej blokują watermark, dopóki faza nie przejdzie
+    # całego feedu od nowa (kursor wyczyszczony → kolejny bieg ponawia wiersze).
+    #
+    # Wracają jako błędy NIEPRZYPISANE, świadomie: wiersze sprzed kursora nie są
+    # w tym biegu ponawiane, więc doliczanie ich do kwarantanny zaparkowałoby
+    # wiersz po kilku przerwanych biegach, choć ani razu go nie spróbowano.
+
+    def error_carry(self) -> dict[str, Any]:
+        """Stan błędów do zapisania w kursorze wznowienia (kumulatywny)."""
+        return {"errors": self.errors, "refs": sorted(self.error_refs)[:50]}
+
+    def absorb_carried_errors(self, carried: Any) -> None:
+        """Przyjmij błędy przerwanej próby zapisane w kursorze."""
+        if not isinstance(carried, dict):
+            return
+        try:
+            total = max(0, int(carried.get("errors") or 0))
+        except (TypeError, ValueError):
+            return
+        if not total:
+            return
+        self.errors += total
+        refs = [r for r in (carried.get("refs") or []) if isinstance(r, str)]
+        if len(self.error_samples) < 20:
+            self.error_samples.append(
+                f"{total} błąd(y) z przerwanej próby (wznowienie z kursora)"
+                + (f": {', '.join(refs[:10])}" if refs else "")
+            )
+
     def as_dict(self) -> dict[str, Any]:
         return {
             "phase": self.phase,
@@ -1120,6 +1156,26 @@ def needs_session_rollback(error: BaseException, *, past_savepoint: bool) -> boo
     if past_savepoint:
         return True
     return bool(getattr(error, "connection_invalidated", False))
+
+
+def safe_db_error(error: BaseException) -> str:
+    """Opis błędu bazy BEZ wartości z wiersza (audyt 25.09.2026).
+
+    ``repr(IntegrityError)`` niesie `DETAIL: Key (email)=(jan@…) already
+    exists` — adres kandydata lądował w logu kontenera (→ Loki) i w
+    `error_samples` fazy, czyli w `/sync/status`. Dla błędów bazy zostaje
+    klasa i nazwa ograniczenia; to wystarcza do diagnozy (wiersz wskazuje
+    `ext=` w komunikacie), a treść wiersza sprawdza się w bazie.
+    """
+    orig = getattr(error, "orig", None)
+    if orig is None:
+        return repr(error)
+    constraint = getattr(orig, "constraint_name", None)
+    if constraint is None:
+        diag = getattr(orig, "diag", None)
+        constraint = getattr(diag, "constraint_name", None)
+    kind = type(orig).__name__
+    return f"{type(error).__name__}({kind}, constraint={constraint or '?'})"
 
 
 _UPSERT_CANDIDATE_DOCUMENT = text(
@@ -2105,6 +2161,9 @@ class TraffitImporter:
         ):
             start_page = max(1, int(_cursor.get("page") or 1))
             logger.info("Candidates: resuming from page %d", start_page)
+            # Błędy wierszy sprzed przerwania wracają z kursora — inaczej
+            # wznowiony, „czysty” przebieg przesunąłby watermark nad nimi.
+            progress.absorb_carried_errors(_cursor.get("carried_errors"))
 
         current_page = start_page
         saw_fallback = False
@@ -2292,6 +2351,7 @@ class TraffitImporter:
                                     "page": current_page,
                                     "since": since_iso,
                                     "page_size": self.batch_size,
+                                    "carried_errors": progress.error_carry(),
                                 },
                             )
                         await self.db.commit()
@@ -2309,7 +2369,10 @@ class TraffitImporter:
                             progress.errors,
                         )
                 except Exception as e:  # noqa: BLE001
-                    msg = f"upsert candidate ext={payload.get('external_id')}: {e!r}"
+                    msg = (
+                        f"upsert candidate ext={payload.get('external_id')}: "
+                        f"{safe_db_error(e)}"
+                    )
                     progress.add_error(msg)
                     if progress.errors <= 5 or progress.errors % 200 == 0:
                         logger.warning("Candidates upsert error: %s", msg[:300])
@@ -2478,6 +2541,91 @@ class TraffitImporter:
                 )
             ).fetchall()
         }
+
+        # Commit paczkami (audyt 25.09.2026). Faza trzymała JEDNĄ transakcję
+        # przez cały feed — przy pełnym biegu ~4,3 tys. zapytań HTTP o detal
+        # rekrutacji (5 rps ≈ 15 min) z otwartą transakcją i blokadami wierszy
+        # `jobs`. Wszystko, co dotąd szło „po fazie” i dotyczy zapisanych
+        # wierszy (zdarzenia dla automatów, intencje indeksu, archiwum,
+        # kategorie), idzie teraz z KAŻDĄ paczką, w tej samej transakcji co jej
+        # wiersze — bo stan „przed importem” (`before_import`) jest migawką ze
+        # startu fazy: rekrutacja zapisana w przerwanym biegu nie byłaby w
+        # następnym „zmieniona” i nie dostałaby już intencji ani zdarzenia.
+        commit_every = 200
+        since_commit = 0
+
+        async def _flush_batch() -> None:
+            nonlocal since_commit
+            # Audyt 22.09 r2 (DATA-01/PROD-03): import Traffita (99% rekrutacji)
+            # NIE zapisywał zdarzeń rekrutacji, więc nocny przegląd bazy,
+            # auto-match nowej rekrutacji i dzwonek „Moi ludzie" nie ruszyły
+            # ani razu od 21.09 (0 wierszy z `job_id` w kolejce).
+            from app.services.auto_match_outbox import enqueue_job
+
+            for job_id in event_job_ids:
+                try:
+                    await enqueue_job(self.db, job_id=job_id, trigger="traffit_job")
+                    progress.job_events += 1
+                except Exception as exc:  # noqa: BLE001
+                    # Brak zdarzenia = rekrutacja poczeka na ręczną zmianę;
+                    # nie wywracamy importu rekrutacji.
+                    logger.warning("Jobs: enqueue_job job=%s failed: %r", job_id, exc)
+            event_job_ids.clear()
+
+            # Intencja przeindeksowania rekrutacji — jak dla kandydatów.
+            # `_UPSERT_JOB` nadpisuje `title`, a tytuł WCHODZI do tekstu
+            # embeddingu (`_build_job_text`), więc każda nocna zmiana tytułu
+            # zostawiała wektor nieaktualny NA STAŁE. Audyt 18.09.2026: 128 z 307
+            # opublikowanych rekrutacji (41,7%) bez wektora.
+            #
+            # Zapis PRZED commitem, w tej samej transakcji — import wycofany nie
+            # może zostawić intencji dla wierszy, których nie ma.
+            if touched_job_ids:
+                from app.services.index_outbox_service import (
+                    JOB,
+                    record_bulk_reindex,
+                )
+
+                try:
+                    progress.index_intents += await record_bulk_reindex(
+                        self.db, JOB, list(touched_job_ids)
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    # Brak intencji to opóźniony wektor, nie utracony import —
+                    # reconciler i tak go dogoni.
+                    progress.add_error(f"record job reindex intent: {exc!r}")
+                touched_job_ids.clear()
+
+            # Archiwum z Traffita: stan „Zakończony” i `is_open=false` to kolumny
+            # NEXUSA, więc nie pisze ich `_UPSERT_JOB` (test własności kolumn) —
+            # robi to ten krok. Przełączone „Prowadzona w NEXUSIE” pomija.
+            # Idempotentny UPDATE — z każdą paczką, żeby zatwierdzona paczka nie
+            # pokazała rekrutacji z Traffita jako otwartych do końca fazy.
+            from app.services.traffit_job_archive import archive_traffit_jobs
+
+            try:
+                async with self.db.begin_nested():
+                    progress.archived += await archive_traffit_jobs(self.db)
+            except Exception as exc:  # noqa: BLE001
+                progress.add_error(f"archive traffit jobs: {exc!r}")
+
+            # Kategoria kompetencji dla nowych rekrutacji z Traffita — import jej
+            # nie nadawał, więc 734 rekrutacje (24.09.2026) nie miały kategorii,
+            # a „Podobne rekrutacje” liczą wspólną kategorię.
+            if inserted_job_ids:
+                from app.services.job_cc import classify_missing_job_ccs
+
+                try:
+                    async with self.db.begin_nested():
+                        progress.categorised += await classify_missing_job_ccs(
+                            self.db, list(inserted_job_ids)
+                        )
+                except Exception as exc:  # noqa: BLE001
+                    progress.add_error(f"classify job categories: {exc!r}")
+                inserted_job_ids.clear()
+
+            await self.db.commit()
+            since_commit = 0
 
         async for raw in self.traffit.get_paginated(
             "/recruitments/",
@@ -2670,70 +2818,12 @@ class TraffitImporter:
                 progress.inserted += 1
             else:
                 progress.updated += 1
+            since_commit += 1
+            if since_commit >= commit_every:
+                await _flush_batch()
 
         if not self.dry_run:
-            # Audyt 22.09 r2 (DATA-01/PROD-03): import Traffita (99% rekrutacji)
-            # NIE zapisywał zdarzeń rekrutacji, więc nocny przegląd bazy,
-            # auto-match nowej rekrutacji i dzwonek „Moi ludzie" nie ruszyły
-            # ani razu od 21.09 (0 wierszy z `job_id` w kolejce).
-            from app.services.auto_match_outbox import enqueue_job
-
-            for job_id in event_job_ids:
-                try:
-                    await enqueue_job(self.db, job_id=job_id, trigger="traffit_job")
-                    progress.job_events += 1
-                except Exception as exc:  # noqa: BLE001
-                    # Brak zdarzenia = rekrutacja poczeka na ręczną zmianę;
-                    # nie wywracamy importu rekrutacji.
-                    logger.warning("Jobs: enqueue_job job=%s failed: %r", job_id, exc)
-
-        # Intencja przeindeksowania rekrutacji — jak dla kandydatów.
-        # `_UPSERT_JOB` nadpisuje `title`, a tytuł WCHODZI do tekstu embeddingu
-        # (`_build_job_text`), więc każda nocna zmiana tytułu zostawiała wektor
-        # nieaktualny NA STAŁE: importer nie zapisywał dla ofert żadnej
-        # intencji, a reconciler, który by to wyłapał, był wyłączony. Audyt
-        # 18.09.2026: 128 z 307 opublikowanych rekrutacji (41,7%) bez wektora.
-        #
-        # Zapis PRZED commitem, w tej samej transakcji — import wycofany nie
-        # może zostawić intencji dla wierszy, których nie ma.
-        if touched_job_ids and not self.dry_run:
-            from app.services.index_outbox_service import JOB, record_bulk_reindex
-
-            try:
-                progress.index_intents = await record_bulk_reindex(
-                    self.db, JOB, touched_job_ids
-                )
-            except Exception as exc:  # noqa: BLE001
-                # Brak intencji to opóźniony wektor, nie utracony import —
-                # reconciler i tak go dogoni. Wywrócenie fazy kosztowałoby
-                # wszystkie rekrutacje zapisane w tym biegu.
-                progress.add_error(f"record job reindex intent: {exc!r}")
-
-        # Archiwum z Traffita: stan „Zakończony” i `is_open=false` to kolumny
-        # NEXUSA, więc nie pisze ich `_UPSERT_JOB` (test własności kolumn) —
-        # robi to ten krok, po fazie. Przełączone „Prowadzona w NEXUSIE” pomija.
-        if not self.dry_run:
-            from app.services.traffit_job_archive import archive_traffit_jobs
-
-            try:
-                async with self.db.begin_nested():
-                    progress.archived = await archive_traffit_jobs(self.db)
-            except Exception as exc:  # noqa: BLE001
-                progress.add_error(f"archive traffit jobs: {exc!r}")
-
-        # Kategoria kompetencji dla nowych rekrutacji z Traffita — import jej
-        # nie nadawał, więc 734 rekrutacje (24.09.2026) nie miały kategorii,
-        # a „Podobne rekrutacje” liczą wspólną kategorię.
-        if inserted_job_ids and not self.dry_run:
-            from app.services.job_cc import classify_missing_job_ccs
-
-            try:
-                async with self.db.begin_nested():
-                    progress.categorised = await classify_missing_job_ccs(
-                        self.db, inserted_job_ids
-                    )
-            except Exception as exc:  # noqa: BLE001
-                progress.add_error(f"classify job categories: {exc!r}")
+            await _flush_batch()
 
         # Rekrutacja z Traffita nie niesie Delivery Leada — dostaje głównego
         # DL-a klienta (decyzja Artura 24.09.2026). Uzupełnienie, nie nadpis.
@@ -3102,9 +3192,10 @@ class TraffitImporter:
                     # sobie nie mówi NIKOMU, że tej osoby już u źródła nie ma.
                     # Nagrobek zostaje na wierszu.
                     if not self.dry_run:
-                        res = await self.db.execute(
-                            _TOMBSTONE_CANDIDATE, {"id": row.id}
-                        )
+                        async with self.db.begin_nested():
+                            res = await self.db.execute(
+                                _TOMBSTONE_CANDIDATE, {"id": row.id}
+                            )
                         if res.rowcount:
                             progress.tombstoned += 1
                     continue
@@ -3169,25 +3260,39 @@ class TraffitImporter:
                     content_type=None,
                 )
 
-                await self.db.execute(
-                    text(
-                        """
-                        UPDATE candidates SET
-                            cv_storage_key = :storage_key,
-                            cv_filename = :filename,
-                            updated_at = NOW()
-                        WHERE id = :id
-                        """
-                    ),
-                    {
-                        "storage_key": cv_storage_key,
-                        "filename": filename,
-                        "id": row.id,
-                    },
-                )
+                # SAVEPOINT per wiersz (audyt 25.09.2026): błąd jednego zapisu
+                # cofa tylko ten wiersz. Do tej zmiany `rollback()` sesji
+                # zabierał całą paczkę (do 99 wskaźników CV, których pliki już
+                # leżały w magazynie).
+                async with self.db.begin_nested():
+                    await self.db.execute(
+                        text(
+                            """
+                            UPDATE candidates SET
+                                cv_storage_key = :storage_key,
+                                cv_filename = :filename,
+                                updated_at = NOW()
+                            WHERE id = :id
+                            """
+                        ),
+                        {
+                            "storage_key": cv_storage_key,
+                            "filename": filename,
+                            "id": row.id,
+                        },
+                    )
                 progress.inserted += 1
-                since_commit += 1
-                if since_commit >= commit_every:
+            except Exception as e:  # noqa: BLE001
+                # `ext=` w komunikacie: `_ERROR_REF_RE` przypisuje błąd do
+                # wiersza, więc kwarantanna może go zaparkować. Dawne
+                # „emp {id}: …” było nieprzypisane i zamrażało `__daily__`
+                # na stałe przy jednym trwale zepsutym kandydacie.
+                progress.add_error(f"cv candidate ext={traffit_id}: {e!r}")
+                continue
+
+            since_commit += 1
+            if since_commit >= commit_every:
+                try:
                     if cursor_phase is not None:
                         # Same transaction as the rows it accounts for.
                         #
@@ -3203,16 +3308,17 @@ class TraffitImporter:
                             cursor_phase, {"after_id": row.id}
                         )
                     await self.db.commit()
-                    since_commit = 0
-                    logger.info(
-                        "CV download progress: %d/%d",
-                        progress.processed,
-                        progress.total_source,
-                    )
-            except Exception as e:  # noqa: BLE001
-                progress.add_error(f"emp {traffit_id}: {e!r}")
-                await self.db.rollback()
+                except Exception as e:  # noqa: BLE001
+                    # Padnięty commit cofa paczkę — błąd całej paczki, nie
+                    # wiersza, więc (nieprzypisany) trzyma watermark.
+                    progress.add_error(f"cv batch commit: {e!r}")
+                    await self.db.rollback()
                 since_commit = 0
+                logger.info(
+                    "CV download progress: %d/%d",
+                    progress.processed,
+                    progress.total_source,
+                )
 
         if not self.dry_run:
             if cursor_phase is not None:
@@ -3663,9 +3769,10 @@ class TraffitImporter:
                     # sobie nie mówi NIKOMU, że tej osoby już u źródła nie ma.
                     # Nagrobek zostaje na wierszu.
                     if not self.dry_run:
-                        res = await self.db.execute(
-                            _TOMBSTONE_CANDIDATE, {"id": row.id}
-                        )
+                        async with self.db.begin_nested():
+                            res = await self.db.execute(
+                                _TOMBSTONE_CANDIDATE, {"id": row.id}
+                            )
                         if res.rowcount:
                             progress.tombstoned += 1
                     continue
@@ -3703,74 +3810,95 @@ class TraffitImporter:
                     filename = f.get("name") or f"file-{file_id}"
                     is_primary = bool(f.get("is_primary", False))
                     uploaded_at_raw = f.get("file_uploaded") or f.get("created_at")
+                    try:
+                        token = await self.traffit._ensure_token()  # noqa: SLF001
+                        url = (
+                            f"{self.traffit.config.api_base}"
+                            f"/employees/{traffit_id}/files/{file_id}/content"
+                        )
+                        await self.traffit._throttle()  # noqa: SLF001
+                        content_resp = await self.traffit._http.get(  # noqa: SLF001
+                            url,
+                            headers={"Authorization": f"Bearer {token}"},
+                        )
+                        if content_resp.status_code in _GONE_STATUS_CODES:
+                            # File removed in Traffit between listing and fetch.
+                            progress.gone_upstream += 1
+                            continue
+                        if content_resp.status_code != 200:
+                            progress.add_error(
+                                f"fetch file {file_id} candidate ext={traffit_id}: "
+                                f"HTTP {content_resp.status_code}"
+                            )
+                            continue
 
-                    token = await self.traffit._ensure_token()  # noqa: SLF001
-                    url = (
-                        f"{self.traffit.config.api_base}"
-                        f"/employees/{traffit_id}/files/{file_id}/content"
-                    )
-                    await self.traffit._throttle()  # noqa: SLF001
-                    content_resp = await self.traffit._http.get(  # noqa: SLF001
-                        url,
-                        headers={"Authorization": f"Bearer {token}"},
-                    )
-                    if content_resp.status_code in _GONE_STATUS_CODES:
-                        # File removed in Traffit between listing and fetch.
-                        progress.gone_upstream += 1
-                        continue
-                    if content_resp.status_code != 200:
+                        file_bytes = content_resp.content
+                        content_type = content_resp.headers.get("content-type", "")
+                        # Strip charset suffix (e.g. "application/pdf; charset=utf-8")
+                        if ";" in content_type:
+                            content_type = content_type.split(";", 1)[0].strip()
+
+                        # Parse uploaded_at z formatu Traffita
+                        from app.services.traffit.mappers import _parse_traffit_datetime
+
+                        uploaded_at = _parse_traffit_datetime(uploaded_at_raw)
+
+                        # Upload do Hetzner Object Storage (audit-2026-05-07 Faza 3).
+                        # Bez S3 envów — fallback na BYTEA byłby tutaj kuszący ale
+                        # mamy 49k rekordów już w S3, więc dla spójności wymagamy
+                        # storage_key set. Brak envów → propagated wyjątek z upload_cv,
+                        # cron retry później gdy env vars są dostępne.
+                        from app.services.object_storage import upload_cv
+
+                        # Sync boto3 put — offload off the event loop.
+                        storage_key = await run_in_threadpool(
+                            upload_cv,
+                            content=file_bytes,
+                            filename=filename[:500],
+                            content_type=content_type[:100] if content_type else None,
+                        )
+
+                        doc_params = {
+                            "candidate_id": row.id,
+                            "filename": filename[:500],
+                            "storage_key": storage_key,
+                            "content_type": content_type[:100]
+                            if content_type
+                            else None,
+                            "size_bytes": len(file_bytes),
+                            "document_kind": _traffit_document_kind(
+                                filename,
+                                is_primary=is_primary,
+                            ),
+                            "is_primary": is_primary,
+                            "uploaded_at": uploaded_at,
+                            "external_id": ext_id,
+                            "external_source": "traffit",
+                        }
+                        # SAVEPOINT per plik: plik już leży w magazynie, więc
+                        # błąd zapisu jednego dokumentu nie może cofnąć
+                        # dokumentów zapisanych wcześniej w tej paczce.
+                        async with self.db.begin_nested():
+                            await self._upsert_candidate_document(doc_params)
+                    except Exception as e:  # noqa: BLE001
                         progress.add_error(
-                            f"fetch file {file_id} candidate ext={traffit_id}: "
-                            f"HTTP {content_resp.status_code}"
+                            f"store file {file_id} candidate ext={traffit_id}: {e!r}"
                         )
                         continue
-
-                    file_bytes = content_resp.content
-                    content_type = content_resp.headers.get("content-type", "")
-                    # Strip charset suffix (e.g. "application/pdf; charset=utf-8")
-                    if ";" in content_type:
-                        content_type = content_type.split(";", 1)[0].strip()
-
-                    # Parse uploaded_at z formatu Traffita
-                    from app.services.traffit.mappers import _parse_traffit_datetime
-
-                    uploaded_at = _parse_traffit_datetime(uploaded_at_raw)
-
-                    # Upload do Hetzner Object Storage (audit-2026-05-07 Faza 3).
-                    # Bez S3 envów — fallback na BYTEA byłby tutaj kuszący ale
-                    # mamy 49k rekordów już w S3, więc dla spójności wymagamy
-                    # storage_key set. Brak envów → propagated wyjątek z upload_cv,
-                    # cron retry później gdy env vars są dostępne.
-                    from app.services.object_storage import upload_cv
-
-                    # Sync boto3 put — offload off the event loop.
-                    storage_key = await run_in_threadpool(
-                        upload_cv,
-                        content=file_bytes,
-                        filename=filename[:500],
-                        content_type=content_type[:100] if content_type else None,
-                    )
-
-                    doc_params = {
-                        "candidate_id": row.id,
-                        "filename": filename[:500],
-                        "storage_key": storage_key,
-                        "content_type": content_type[:100] if content_type else None,
-                        "size_bytes": len(file_bytes),
-                        "document_kind": _traffit_document_kind(
-                            filename,
-                            is_primary=is_primary,
-                        ),
-                        "is_primary": is_primary,
-                        "uploaded_at": uploaded_at,
-                        "external_id": ext_id,
-                        "external_source": "traffit",
-                    }
-                    await self._upsert_candidate_document(doc_params)
                     progress.inserted += 1
 
-                since_commit += 1
-                if since_commit >= commit_every:
+            except Exception as e:  # noqa: BLE001
+                # `ext=` w komunikacie (audyt 25.09.2026): dawne „emp {id}: …”
+                # nie pasowało do `_ERROR_REF_RE`, więc błąd był nieprzypisany
+                # i zamrażał `__daily__` na stałe, a `rollback()` sesji cofał
+                # dokumenty całej paczki, których pliki już były w magazynie.
+                # Zapisy mają własne savepointy, więc sesja jest zdrowa.
+                progress.add_error(f"files candidate ext={traffit_id}: {e!r}")
+                continue
+
+            since_commit += 1
+            if since_commit >= commit_every:
+                try:
                     if cursor_phase is not None:
                         # Stage the sweep cursor in the SAME transaction as the
                         # documents it accounts for. Committing them separately
@@ -3780,20 +3908,21 @@ class TraffitImporter:
                             cursor_phase, {"after_id": row.id}
                         )
                     await self.db.commit()
-                    since_commit = 0
-                    logger.info(
-                        "Files import progress: %d/%d candidates "
-                        "(inserted=%d skipped=%d errors=%d)",
-                        progress.processed,
-                        progress.total_source,
-                        progress.inserted,
-                        progress.skipped,
-                        progress.errors,
-                    )
-            except Exception as e:  # noqa: BLE001
-                progress.add_error(f"emp {traffit_id}: {e!r}")
-                await self.db.rollback()
+                except Exception as e:  # noqa: BLE001
+                    # Padnięty commit cofa paczkę — błąd paczki, nie wiersza,
+                    # więc (nieprzypisany) trzyma watermark.
+                    progress.add_error(f"files batch commit: {e!r}")
+                    await self.db.rollback()
                 since_commit = 0
+                logger.info(
+                    "Files import progress: %d/%d candidates "
+                    "(inserted=%d skipped=%d errors=%d)",
+                    progress.processed,
+                    progress.total_source,
+                    progress.inserted,
+                    progress.skipped,
+                    progress.errors,
+                )
 
         if not self.dry_run:
             if cursor_phase is not None:
@@ -4042,6 +4171,9 @@ class TraffitImporter:
                 # never skips.
                 start_page = max(1, int(_cursor.get("page") or 1))
                 logger.info("Pipelines: resuming from page %d", start_page)
+                # Błędy wierszy sprzed przerwania wracają z kursora — inaczej
+                # wznowiony, „czysty” przebieg przesunąłby watermark nad nimi.
+                progress.absorb_carried_errors(_cursor.get("carried_errors"))
 
             current_page = start_page
             # If the tenant rejects the filter (HTTP 400) the client drops it
@@ -4058,6 +4190,7 @@ class TraffitImporter:
                     "page": current_page,
                     "since": since_iso,
                     "page_size": self.batch_size,
+                    "carried_errors": progress.error_carry(),
                 }
 
             async for page_no, items in self.traffit.get_pages(
@@ -4449,6 +4582,9 @@ class TraffitImporter:
             # ON CONFLICT) rather than page+1, so a mid-page commit never skips.
             start_page = max(1, int(_cursor.get("page") or 1))
             logger.info("Activities: resuming from page %d", start_page)
+            # Błędy wierszy sprzed przerwania wracają z kursora — inaczej
+            # wznowiony, „czysty” przebieg przesunąłby watermark nad nimi.
+            progress.absorb_carried_errors(_cursor.get("carried_errors"))
 
         # Wrap the paginated fetch so a terminal transport failure mid-stream
         # (httpx.ReadTimeout on a large catch-up page, or a non-200 page raised
@@ -4495,52 +4631,63 @@ class TraffitImporter:
             if self.dry_run:
                 progress.inserted += 1
                 continue
+            # SAVEPOINT per wiersz (audyt 25.09.2026). Do tej zmiany błąd
+            # jednego wiersza robił `rollback()` CAŁEJ paczki (do 499 aktywności
+            # od ostatniego commitu), a licznik błędów wskazywał tylko ten jeden
+            # wiersz — kwarantanna parkowała go po kilku biegach i watermark
+            # przesuwał się nad resztą paczki, której nikt już nie importował.
             try:
-                result = await self.db.execute(
-                    text(
-                        """
-                        INSERT INTO activities (
-                            external_id, external_source,
-                            entity_type, entity_id, action, details,
-                            user_id, created_at, updated_at
-                        ) VALUES (
-                            :external_id, 'traffit',
-                            :entity_type, :entity_id, :action,
-                            CAST(:details AS JSONB),
-                            :user_id, NOW(), NOW()
-                        )
-                        ON CONFLICT (external_source, external_id)
-                        WHERE external_id IS NOT NULL
-                        DO UPDATE SET
-                            details   = EXCLUDED.details,
-                            user_id   = COALESCE(EXCLUDED.user_id, activities.user_id),
-                            updated_at = NOW()
-                        RETURNING id, (xmax = 0) AS was_insert
-                        """
-                    ),
-                    {
-                        "external_id": payload["external_id"],
-                        "entity_type": payload["entity_type"],
-                        "entity_id": payload["entity_id"],
-                        "action": payload["action"],
-                        "details": json.dumps(payload["details"]),
-                        "user_id": payload["user_id"],
-                    },
+                async with self.db.begin_nested():
+                    result = await self.db.execute(
+                        text(
+                            """
+                            INSERT INTO activities (
+                                external_id, external_source,
+                                entity_type, entity_id, action, details,
+                                user_id, created_at, updated_at
+                            ) VALUES (
+                                :external_id, 'traffit',
+                                :entity_type, :entity_id, :action,
+                                CAST(:details AS JSONB),
+                                :user_id, NOW(), NOW()
+                            )
+                            ON CONFLICT (external_source, external_id)
+                            WHERE external_id IS NOT NULL
+                            DO UPDATE SET
+                                details   = EXCLUDED.details,
+                                user_id   = COALESCE(EXCLUDED.user_id, activities.user_id),
+                                updated_at = NOW()
+                            RETURNING id, (xmax = 0) AS was_insert
+                            """
+                        ),
+                        {
+                            "external_id": payload["external_id"],
+                            "entity_type": payload["entity_type"],
+                            "entity_id": payload["entity_id"],
+                            "action": payload["action"],
+                            "details": json.dumps(payload["details"]),
+                            "user_id": payload["user_id"],
+                        },
+                    )
+                    row = result.fetchone()
+            except Exception as e:  # noqa: BLE001
+                progress.add_error(
+                    f"upsert activity ext={payload.get('external_id')}: {e!r}"
                 )
-                row = result.fetchone()
-                if row is None:
-                    continue
-                if row[1]:
-                    progress.inserted += 1
-                else:
-                    progress.updated += 1
-                since_commit += 1
-                if since_commit >= commit_every:
+                continue
+            if row is None:
+                continue
+            if row[1]:
+                progress.inserted += 1
+            else:
+                progress.updated += 1
+            since_commit += 1
+            if since_commit >= commit_every:
+                try:
                     # Stage the resume cursor in the SAME transaction as the row
-                    # batch, then one commit → rows + cursor persist atomically
-                    # (a row-error rollback drops both, leaving the last good
-                    # cursor). Skip once the filter was dropped (page numbers no
-                    # longer map to since_iso).
+                    # batch, then one commit → rows + cursor persist atomically.
+                    # Skip once the filter was dropped (page numbers no longer
+                    # map to since_iso).
                     if not saw_fallback:
                         await self._write_mode_cursor(
                             _ACTIVITIES_CURSOR_PHASE,
@@ -4549,22 +4696,22 @@ class TraffitImporter:
                                 "page": current_page,
                                 "since": since_iso,
                                 "page_size": self.batch_size,
+                                "carried_errors": progress.error_carry(),
                             },
                         )
                     await self.db.commit()
-                    since_commit = 0
-                    logger.info(
-                        "Activities progress: %d/%d (page %d)",
-                        progress.processed,
-                        progress.total_source,
-                        current_page,
-                    )
-            except Exception as e:  # noqa: BLE001
-                progress.add_error(
-                    f"upsert activity ext={payload.get('external_id')}: {e!r}"
-                )
-                await self.db.rollback()
+                except Exception as e:  # noqa: BLE001
+                    # Padnięty commit cofa całą paczkę — błąd nieprzypisany do
+                    # wiersza, więc trzyma watermark (kolejny bieg ją powtórzy).
+                    progress.add_error(f"activities batch commit: {e!r}")
+                    await self.db.rollback()
                 since_commit = 0
+                logger.info(
+                    "Activities progress: %d/%d (page %d)",
+                    progress.processed,
+                    progress.total_source,
+                    current_page,
+                )
 
         if not self.dry_run and since_commit > 0:
             if not saw_fallback:
@@ -4575,6 +4722,7 @@ class TraffitImporter:
                         "page": current_page,
                         "since": since_iso,
                         "page_size": self.batch_size,
+                        "carried_errors": progress.error_carry(),
                     },
                 )
             await self.db.commit()

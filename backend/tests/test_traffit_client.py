@@ -421,3 +421,97 @@ async def test_get_pages_400_fallback_fires_at_start_page_and_resets() -> None:
     assert seen[1] == {"page": 1, "filtered": False}
     assert [pno for pno, _ in pages] == [1, 2]
     assert sum(len(items) for _, items in pages) == 3
+
+
+@pytest.mark.asyncio
+async def test_skip_on_5xx_stops_after_consecutive_5xx_when_total_unknown() -> None:
+    """Audyt 25.09.2026: przy padniętym `total_count` (liczba stron nieznana)
+    każda strona 5xx dawała tylko `page += 1` — pętla bez końca trzymała blokadę
+    syncu. Po N kolejnych 5xx przebieg ma się przerwać WYJĄTKIEM (a nie cichym
+    końcem, który faza wzięłaby za ostatnią stronę i przesunęła watermark)."""
+    calls: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/oauth2/token":
+            return _token_route(request)
+        page = int(request.headers.get("X-Request-Current-Page", "1"))
+        calls.append(page)
+        return httpx.Response(500, text="boom")
+
+    config = TraffitConfig(
+        tenant="test",
+        client_id="cid",
+        client_secret="secret",
+        throttle_rps=0,
+        max_retries=0,
+        max_consecutive_5xx=5,
+    )
+    skipped: list[int] = []
+    async with TraffitClient(config) as client:
+        client._http = httpx.AsyncClient(
+            transport=httpx.MockTransport(handler), follow_redirects=True
+        )
+        try:
+            with pytest.raises(RuntimeError, match="5xx"):
+                async for _ in client.get_paginated(
+                    "/sources/",
+                    page_size=10,
+                    skip_on_5xx=True,
+                    on_page_skipped=lambda page, status: skipped.append(page),
+                ):
+                    pass
+        finally:
+            await client._http.aclose()
+            client._http = None
+
+    # 1 sonda total_count (page=1, padła) + 5 stron danych, potem stop.
+    assert calls == [1, 1, 2, 3, 4, 5]
+    assert skipped == [1, 2, 3, 4, 5]
+
+
+@pytest.mark.asyncio
+async def test_skip_on_5xx_resets_counter_after_a_good_page() -> None:
+    """Pojedyncze, rozproszone strony 5xx (znany bug `/sources/`) nadal są
+    pomijane — licznik liczy tylko strony 5xx Z RZĘDU."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/oauth2/token":
+            return _token_route(request)
+        page = int(request.headers.get("X-Request-Current-Page", "1"))
+        size = int(request.headers.get("X-Request-Page-Size", "10"))
+        if size == 1:
+            return httpx.Response(500, text="count down")
+        if page in (2, 3, 5, 6):
+            return httpx.Response(500, text="boom")
+        if page == 7:
+            return httpx.Response(200, json=[], headers={"X-Result-Page-Size": "2"})
+        return httpx.Response(
+            200,
+            json=[{"id": page * 10}, {"id": page * 10 + 1}],
+            headers={"X-Result-Page-Size": "2"},
+        )
+
+    config = TraffitConfig(
+        tenant="test",
+        client_id="cid",
+        client_secret="secret",
+        throttle_rps=0,
+        max_retries=0,
+        max_consecutive_5xx=3,
+    )
+    async with TraffitClient(config) as client:
+        client._http = httpx.AsyncClient(
+            transport=httpx.MockTransport(handler), follow_redirects=True
+        )
+        try:
+            items = [
+                it
+                async for it in client.get_paginated(
+                    "/sources/", page_size=2, skip_on_5xx=True
+                )
+            ]
+        finally:
+            await client._http.aclose()
+            client._http = None
+
+    assert [it["id"] for it in items] == [10, 11, 40, 41]

@@ -16,18 +16,63 @@ połączeń).
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from datetime import datetime
 from typing import Optional
 
+import httpx
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.models.m365 import M365Connection
-from app.services.m365.graph_client import GraphClient
+from app.services.m365.graph_client import GraphClient, GraphRequestError
 
 logger = logging.getLogger(__name__)
+
+# Wynik „nie wiadomo” (audyt 25.09.2026). `send_system_email` zwraca
+# True (Graph przyjął), False (na pewno nie wysłano — wolno ponowić) albo
+# None (żądanie `/send` wyszło, odpowiedź zginęła — mail MÓGŁ wyjść).
+# Do tej zmiany ReadTimeout na `/send` kończył się usunięciem draftu
+# i `False`, więc wołający zwalniał rezerwację i wysyłał drugi raz.
+DELIVERY_UNCERTAIN: None = None
+
+# Błędy po wysłaniu żądania, przy których serwer mógł je przyjąć: zginęła
+# odpowiedź albo połączenie po nadaniu (GraphClient nie ponawia POST-ów po
+# nich — INT-06). Twardy limit czasu GraphClienta (599) też tu należy.
+_UNCERTAIN_TRANSPORT = (httpx.ReadTimeout, httpx.ReadError, httpx.RemoteProtocolError)
+
+
+def recipient_ref(address: str) -> str:
+    """Skrót adresu do logu — log nie niesie adresu ani tematu (PII)."""
+    return hashlib.sha256(address.strip().lower().encode("utf-8")).hexdigest()[:12]
+
+
+def _is_uncertain_send_error(exc: BaseException) -> bool:
+    if isinstance(exc, _UNCERTAIN_TRANSPORT):
+        return True
+    return isinstance(exc, GraphRequestError) and getattr(exc, "status", None) == 599
+
+
+def app_mail_send_outcome(ok: bool) -> Optional[bool]:
+    """Wynik wysyłki kanałem app-only/SMTP w tym samym wątku co wysyłka.
+
+    `send_via_graph_app` zwraca bool, a „nie wiadomo” zostawia w fladze
+    wątku (`last_delivery_uncertain`), więc tę funkcję trzeba wołać w wątku,
+    w którym poszła wysyłka (wewnątrz `asyncio.to_thread`). Blokada polityki
+    wysyłek nie uruchamia wysyłki, więc wtedy flaga jest nieaktualna.
+    """
+    if ok:
+        return True
+    if not settings.M365_APP_MAIL_ENABLED:
+        return False
+    from app.services.m365.app_mail import last_delivery_uncertain
+    from app.services.notification_delivery import last_send_policy_blocked
+
+    if not last_send_policy_blocked() and last_delivery_uncertain():
+        return DELIVERY_UNCERTAIN
+    return False
 
 
 async def get_system_sender_connection(db: AsyncSession) -> Optional[M365Connection]:
@@ -58,11 +103,13 @@ async def send_system_email(
     html_body: Optional[str] = None,
     delivery_kind: str | None = None,
     event_at: datetime | None = None,
-) -> bool:
-    """Wyślij mail systemowy przez delegated Graph (draft + send). True gdy poszedł.
+) -> Optional[bool]:
+    """Wyślij mail systemowy przez delegated Graph (draft + send).
 
-    Best-effort — nie rzuca; loguje i zwraca bool, żeby outbox (claim/mark) mógł
-    zignorować wynik i wznowić w kolejnym przebiegu. HTML gdy podany, inaczej Text.
+    True — Graph przyjął; False — na pewno nie wysłano (wolno ponowić);
+    ``None`` (:data:`DELIVERY_UNCERTAIN`) — żądanie `/send` wyszło, a odpowiedź
+    zginęła: mail mógł wyjść, więc wołający NIE może zwolnić rezerwacji
+    i wysłać drugi raz. Nie rzuca. HTML gdy podany, inaczej Text.
     """
     if html_body:
         body = {"contentType": "HTML", "content": html_body}
@@ -79,7 +126,7 @@ async def send_system_email(
             message_id = draft.get("id") if isinstance(draft, dict) else None
             if not message_id:
                 logger.warning(
-                    "system_mail: draft bez id (to=%s subject=%r)", to, subject
+                    "system_mail: draft bez id (to_ref=%s)", recipient_ref(to)
                 )
                 return False
             try:
@@ -98,7 +145,22 @@ async def send_system_email(
                                 message_id,
                             )
                         return False
-                await gc.post(f"/me/messages/{message_id}/send", json={})
+                try:
+                    await gc.post(f"/me/messages/{message_id}/send", json={})
+                except Exception as send_exc:  # noqa: BLE001
+                    if _is_uncertain_send_error(send_exc):
+                        # Graph mógł przyjąć wysyłkę — draftu NIE usuwamy
+                        # (jeśli wyszedł, już go nie ma; jeśli nie, zostaje
+                        # śladem do ręcznego sprawdzenia w skrzynce nadawcy).
+                        logger.warning(
+                            "system_mail: wynik wysyłki nieznany to_ref=%s "
+                            "message=%s error=%s — bez ponowienia",
+                            recipient_ref(to),
+                            message_id,
+                            type(send_exc).__name__,
+                        )
+                        return DELIVERY_UNCERTAIN
+                    raise
             except Exception:
                 # Wersja robocza już powstała — sprzątnij sierotę z Drafts, żeby
                 # nieudane wysyłki nie akumulowały śmieci w skrzynce nadawcy.
@@ -113,17 +175,15 @@ async def send_system_email(
                 raise
     except Exception as exc:  # noqa: BLE001
         logger.warning(
-            "system_mail send failed to=%s subject=%r error=%s",
-            to,
-            subject,
+            "system_mail send failed to_ref=%s error=%s",
+            recipient_ref(to),
             type(exc).__name__,
         )
         return False
 
     logger.info(
-        "system_mail sent to=%s subject=%r via=%s",
-        to,
-        subject,
-        connection.mailbox_upn,
+        "system_mail sent to_ref=%s connection=%s",
+        recipient_ref(to),
+        getattr(connection, "id", None),
     )
     return True
