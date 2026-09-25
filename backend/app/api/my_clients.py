@@ -39,6 +39,8 @@ from app.schemas.my_clients import (
     MyClientRow,
 )
 from app.services.access_scope import (
+    apply_delivery_lead_client_scope,
+    assert_delivery_lead_client_visible,
     resolve_delivery_lead_client_ids,
     resolve_delivery_lead_finance_client_ids,
 )
@@ -182,6 +184,11 @@ async def require_client_dashboard_access_after_merge(
         return current_user
 
     await require_delivery_lead_or_admin(current_user=current_user)
+    if delivery_scoped:
+        # Portal DL pokazuje wyłącznie klientów z portfela (25.09.2026).
+        assert_delivery_lead_client_visible(
+            canonical.id, await resolve_delivery_lead_client_ids(current_user, db)
+        )
     return current_user
 
 
@@ -209,10 +216,14 @@ async def list_my_clients(
     user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
-    """Organization-wide client register for Delivery-facing personas."""
-    # A concrete set still identifies the Delivery Lead persona, even though it
-    # now contains every client. This keeps its assigned-client finance
-    # exception separate from organization-wide VIEW_FINANCE.
+    """Client register for Delivery-facing personas.
+
+    A Delivery Lead sees its portfolio (``resolve_delivery_lead_client_ids`` —
+    assigned clients since 25.09.2026, every client under
+    ``DL_CLIENT_SCOPE=all``); organization readers see every client.
+    """
+    # A concrete set identifies the Delivery Lead persona and keeps its
+    # assigned-client finance exception separate from VIEW_FINANCE.
     delivery_lead_client_ids = await resolve_delivery_lead_client_ids(user, db)
     is_delivery_scoped = delivery_lead_client_ids is not None
     is_organization_reader = (
@@ -227,16 +238,18 @@ async def list_my_clients(
             detail="Only Delivery Leads or organization readers can view clients",
         )
 
-    clients_stmt = (
+    clients_stmt = apply_delivery_lead_client_scope(
         select(Client)
         .where(*visible_client_predicates())
-        .order_by(polish_alphabetical_key(client_name).asc(), Client.id.asc())
+        .order_by(polish_alphabetical_key(client_name).asc(), Client.id.asc()),
+        Client.id,
+        delivery_lead_client_ids,
     )
     clients = list((await db.execute(clients_stmt)).scalars())
     client_ids = [client.id for client in clients]
 
-    # Assignment still answers "is this person the head DL?" and which client
-    # finance they own. It no longer decides which clients are listed.
+    # Assignment also answers "is this person the head DL?" and which client
+    # finance they own.
     head_lookup: dict[int, bool] = {}
     assigned_client_ids: frozenset[int] = frozenset()
     if is_delivery_scoped:

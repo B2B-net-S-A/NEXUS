@@ -378,20 +378,21 @@ async def list_conflict_registry(
             status_code=422,
             detail=f"Nieznany stan: {state}. Dozwolone: {', '.join(_STATES)}.",
         )
+    # Ta sama granica co profil klienta: od 25.09.2026 DL widzi rejestr
+    # wyłącznie klientów ze swojego portfela (także bez filtra klienta).
+    delivery_client_ids = await resolve_delivery_lead_client_ids(current_user, db)
     if client_id is not None:
-        # Ta sama bramka co profil klienta. Dziś `resolve_delivery_lead_client_ids`
-        # oddaje DL wszystkich klientów (portal organizacyjny), więc realnie
-        # odcina tylko nieistniejące ID — zostaje, żeby zawężenie zakresu DL
-        # objęło rejestr bez zmiany w tym pliku.
-        assert_delivery_lead_client_visible(
-            client_id, await resolve_delivery_lead_client_ids(current_user, db)
-        )
+        assert_delivery_lead_client_visible(client_id, delivery_client_ids)
 
     now = datetime.now(timezone.utc)
     unexpired = active_unexpired_clause(now)
     filters = []
     if client_id is not None:
         filters.append(CandidateConflict.client_id == client_id)
+    elif delivery_client_ids is not None:
+        filters.append(
+            CandidateConflict.client_id.in_(sorted(delivery_client_ids) or [-1])
+        )
     if candidate_id is not None:
         filters.append(CandidateConflict.candidate_id == candidate_id)
     if type is not None:

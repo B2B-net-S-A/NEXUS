@@ -22,6 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, DlAssignedOrAdmin
+from app.api.delivery_client_scope import DELIVERY_CLIENT_SCOPE_DEPENDENCIES
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.models.client import Client
@@ -38,7 +39,9 @@ from app.services import executive_contracts as service
 from app.services.client_access import assert_client_writable
 from app.services.ezdrowie import is_ezdrowie_client
 
-router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
+router = APIRouter(
+    dependencies=[*DELIVERY_SECTION_DEPENDENCIES, *DELIVERY_CLIENT_SCOPE_DEPENDENCIES]
+)
 
 ONLY_EZDROWIE_MESSAGE = (
     "Struktura umów wykonawczych dotyczy wyłącznie Centrum e-Zdrowia"

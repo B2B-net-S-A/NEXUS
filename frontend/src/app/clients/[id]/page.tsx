@@ -1010,9 +1010,13 @@ export default function ClientDetailPage() {
         <QueryStateNotice
           state={clientViewState === "empty" ? "not_found" : clientViewState}
           description={
-            clientViewState === "forbidden"
-              ? "Nie masz uprawnień do tego klienta. Rekord istnieje — poproś administratora o dostęp."
-              : undefined
+            clientViewState !== "forbidden"
+              ? undefined
+              : user?.delivery_client_scope === "assigned"
+                ? // Od 25.09.2026 DL widzi w Klientach, Kontraktach i Zamówieniach
+                  // tylko klientów z przypisania; rekrutacje zostają otwarte.
+                  "Ten klient jest poza Twoim portfelem. Jego rekrutacje znajdziesz w module Rekrutacje, a o przypisanie klienta poproś administratora albo Head of Recruitment."
+                : "Nie masz uprawnień do tego klienta. Rekord istnieje — poproś administratora o dostęp."
           }
           onRetry={() => void refetch()}
         />

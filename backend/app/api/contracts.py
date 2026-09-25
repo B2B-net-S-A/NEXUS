@@ -3543,7 +3543,7 @@ async def _related_contracts_for(
     """Pozostałe kontrakty tej samej osoby — zasilają zakładki per klient.
 
     Bez `void` (anulowane nie są zakładką do przeglądania) i w operacyjnym
-    scope Delivery Leada, który obejmuje wszystkich klientów. Referencje nie
+    scope Delivery Leada (klienci z portfela, 25.09.2026). Referencje nie
     niosą kwot; pełny detal redaguje je niezależnie per klient. Kolejność:
     żywe przed papierowymi, w obrębie statusu najnowsza pierwsza.
     """

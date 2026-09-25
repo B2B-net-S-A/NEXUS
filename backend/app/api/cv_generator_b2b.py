@@ -1609,7 +1609,7 @@ async def client_rule_for_generation(
             client_policy="" if has_row is not None else None,
         )
     snap = snapshot_rule(rule)
-    access = await resolve_client_access(db, current_user, client.id)
+    access = await resolve_client_access(db, current_user, client.id, purpose="org")
     sees_client_knowledge = bool(access.can_view_knowledge)
     return ClientCvRuleForGeneration(
         client_id=client.id,

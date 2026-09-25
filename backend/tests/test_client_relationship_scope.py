@@ -79,8 +79,17 @@ async def test_admin_and_head_keep_unrestricted_client_oversight(
 
 
 @pytest.mark.asyncio
-async def test_delivery_lead_uses_all_clients_while_tac_uses_assignments() -> None:
+async def test_delivery_lead_uses_assignments_in_delivery_and_all_clients_for_org() -> (
+    None
+):
+    """Od 25.09.2026 DL w modułach Delivery widzi tylko przypisanych klientów.
+
+    ``purpose="org"`` (rekrutacje, generator B2B, zespół klienta) zostaje przy
+    wszystkich klientach, a TAC — przy swoich jawnych przypisaniach.
+    """
+
     dl_db = SimpleNamespace(scalars=AsyncMock(return_value=_Rows([10, 20])))
+    org_db = SimpleNamespace(scalars=AsyncMock(return_value=_Rows([10, 20, 30])))
     tac_db = SimpleNamespace(scalars=AsyncMock(return_value=_Rows([30, 40])))
 
     assert await resolve_client_team_client_ids(
@@ -88,9 +97,18 @@ async def test_delivery_lead_uses_all_clients_while_tac_uses_assignments() -> No
         _user(UserRole.delivery_lead),
     ) == frozenset({10, 20})
     dl_sql = str(dl_db.scalars.await_args.args[0])
-    assert "FROM clients" in dl_sql
-    assert "delivery_lead_client_assignments" not in dl_sql
+    assert "delivery_lead_client_assignments" in dl_sql
     assert "client_tac_assignments" not in dl_sql
+
+    assert await resolve_client_team_client_ids(
+        org_db,
+        _user(UserRole.delivery_lead),
+        purpose="org",
+    ) == frozenset({10, 20, 30})
+    org_sql = str(org_db.scalars.await_args.args[0])
+    assert "FROM clients" in org_sql
+    assert "delivery_lead_client_assignments" not in org_sql
+    assert "client_tac_assignments" not in org_sql
 
     assert await resolve_client_team_client_ids(
         tac_db,
@@ -112,8 +130,9 @@ async def test_valid_dl_tac_hybrid_uses_only_dl_assignments() -> None:
     assert await resolve_client_team_client_ids(db, hybrid) == frozenset({10, 20})
     assert db.scalars.await_count == 1
     rendered = str(db.scalars.await_args.args[0])
-    assert "FROM clients" in rendered
-    assert "delivery_lead_client_assignments" not in rendered
+    # Od 25.09.2026 zakres Delivery DL-a = jego przypisania (nie cała baza);
+    # przypisania TAC nadal nie są dokładane.
+    assert "delivery_lead_client_assignments" in rendered
     assert "client_tac_assignments" not in rendered
 
 
@@ -369,7 +388,9 @@ async def test_recruitment_operator_global_client_scope_uses_only_assigned_jobs(
 
 
 @pytest.mark.asyncio
-async def test_hybrid_visible_scope_uses_all_clients_from_dl_role() -> None:
+async def test_hybrid_visible_scope_uses_dl_assignments_from_dl_role() -> None:
+    """DL+rekruter: zakres Delivery z przypisań DL (25.09.2026), bez Jobów."""
+
     db = SimpleNamespace(scalars=AsyncMock(return_value=_Rows([10, 77])))
     hybrid = _user(
         UserRole.delivery_lead,
@@ -378,6 +399,70 @@ async def test_hybrid_visible_scope_uses_all_clients_from_dl_role() -> None:
 
     assert await resolve_client_visible_client_ids(db, hybrid) == frozenset({10, 77})
     assert db.scalars.await_count == 1
+    rendered = str(db.scalars.await_args.args[0])
+    assert "delivery_lead_client_assignments" in rendered
+    assert "jobs.recruiter_id" not in rendered
+
+
+@pytest.mark.asyncio
+async def test_hybrid_visible_scope_uses_all_clients_for_org_purpose() -> None:
+    db = SimpleNamespace(scalars=AsyncMock(return_value=_Rows([10, 77, 99])))
+    hybrid = _user(
+        UserRole.delivery_lead,
+        roles=[UserRole.delivery_lead.value, UserRole.recruiter.value],
+    )
+
+    assert await resolve_client_visible_client_ids(
+        db, hybrid, purpose="org"
+    ) == frozenset({10, 77, 99})
+    assert db.scalars.await_count == 1
+    assert "FROM clients" in str(db.scalars.await_args.args[0])
+
+
+@pytest.mark.asyncio
+async def test_dl_client_scope_all_restores_every_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Wyłącznik ``DL_CLIENT_SCOPE=all`` przywraca stan z #1365."""
+
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "DL_CLIENT_SCOPE", "all")
+    db = SimpleNamespace(scalars=AsyncMock(return_value=_Rows([10, 20, 30])))
+
+    assert await resolve_client_team_client_ids(
+        db, _user(UserRole.delivery_lead)
+    ) == frozenset({10, 20, 30})
+    assert "FROM clients" in str(db.scalars.await_args.args[0])
+
+
+@pytest.mark.asyncio
+async def test_unassigned_delivery_lead_is_denied_delivery_but_not_org_surfaces() -> (
+    None
+):
+    empty_db = SimpleNamespace(scalars=AsyncMock(return_value=_Rows([])))
+    denied = await resolve_client_access(
+        empty_db, _user(UserRole.delivery_lead), client_id=77
+    )
+    assert not denied.is_client_team
+    assert not denied.can_view_contacts
+    assert not denied.can_view_knowledge
+    assert not denied.can_view_legal_documents
+    assert not denied.can_edit_contacts
+
+    # ``org``: zespół klienta liczy się z całej bazy, przypisania (puste)
+    # nadal bramkują zapisy prawne.
+    org_db = SimpleNamespace(
+        scalars=AsyncMock(side_effect=[_Rows([77]), _Rows([])]),
+    )
+    org_access = await resolve_client_access(
+        org_db, _user(UserRole.delivery_lead), client_id=77, purpose="org"
+    )
+    assert org_access.is_client_team
+    assert org_access.can_view_knowledge
+    assert org_access.can_view_legal_documents
+    assert not org_access.is_delivery_lead_assigned
+    assert not org_access.can_edit_legal_documents
 
 
 @pytest.mark.asyncio

@@ -18,26 +18,39 @@ from httpx import AsyncClient
 from app.api import order_mail_queue as queue_api
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
+from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User, UserRole
 from app.services import order_mail_ingest as svc
 
 
-async def _headers_for_role(app_client: AsyncClient, role: UserRole) -> dict[str, str]:
+async def _headers_for_role(
+    app_client: AsyncClient,
+    role: UserRole,
+    *,
+    assigned_client_id: int | None = None,
+) -> dict[str, str]:
     tag = uuid.uuid4().hex[:8]
     email = f"order-mail-sync-{role.value}-{tag}@example.com"
     password = f"P4ss_{tag}!"
     async with AsyncSessionLocal() as db:
-        db.add(
-            User(
-                email=email,
-                password_hash=hash_password(password),
-                name=f"Order Mail Sync {role.value}",
-                role=role,
-                roles=[role.value],
-                is_active=True,
-                profile_completed=True,
-            )
+        user = User(
+            email=email,
+            password_hash=hash_password(password),
+            name=f"Order Mail Sync {role.value}",
+            role=role,
+            roles=[role.value],
+            is_active=True,
+            profile_completed=True,
         )
+        db.add(user)
+        await db.flush()
+        if assigned_client_id is not None:
+            db.add(
+                DeliveryLeadClientAssignment(
+                    delivery_lead_user_id=user.id,
+                    client_id=assigned_client_id,
+                )
+            )
         await db.commit()
     login = await app_client.post(
         "/api/auth/login", json={"email": email, "password": password}
@@ -177,10 +190,11 @@ async def test_recheck_history_numbers_are_counted_from_the_visible_entries(
 ):
     """Liczniki liczone z WIDOCZNYCH wpisów, nie przepisane z biegu.
 
-    Delivery Lead ma dostęp operacyjny do wszystkich klientów
-    (``resolve_delivery_lead_client_ids``), ale historia jest zdenormalizowana:
-    wpis może wskazywać klienta, którego już nie ma. Globalne „sprawdzono 3"
-    nad listą z dwoma wierszami to ekran, który sam sobie przeczy.
+    Delivery Lead widzi wpisy klientów ze swojego portfela
+    (``resolve_delivery_lead_client_ids`` — od 25.09.2026 tylko przypisani),
+    a historia jest zdenormalizowana: wpis może wskazywać klienta, którego
+    już nie ma albo spoza portfela. Globalne „sprawdzono 3" nad listą z dwoma
+    wierszami to ekran, który sam sobie przeczy.
     """
     from app.models.client import Client
     from app.models.order_mail import OrderMailRecheckRun
@@ -190,6 +204,7 @@ async def test_recheck_history_numbers_are_counted_from_the_visible_entries(
         client = Client(name=f"Recheck API scope {uuid.uuid4().hex[:8]}")
         db.add(client)
         await db.flush()
+        scoped_client_id = client.id
         db.add(
             OrderMailRecheckRun(
                 started_at=datetime.now(timezone.utc),
@@ -245,7 +260,9 @@ async def test_recheck_history_numbers_are_counted_from_the_visible_entries(
     )
     assert (run["checked"], run["applied"], run["held"]) == (3, 2, 1)
 
-    dl = await _headers_for_role(app_client, UserRole.delivery_lead)
+    dl = await _headers_for_role(
+        app_client, UserRole.delivery_lead, assigned_client_id=scoped_client_id
+    )
     scoped = await app_client.get("/api/order-mail/recheck-runs", headers=dl)
     assert scoped.status_code == 200, scoped.text
     assert scoped.json()["scoped"] is True

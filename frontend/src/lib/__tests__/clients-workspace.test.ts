@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  clientsMineToggleAvailable,
   legacyRedirectTarget,
   resolveClientsMine,
   resolveClientsView,
@@ -13,6 +14,14 @@ describe("clients-workspace", () => {
     expect(resolveClientsMine(true, "0")).toBe(false);
     expect(resolveClientsMine(false, "1")).toBe(false);
     expect(resolveClientsMine(false, null)).toBe(false);
+  });
+
+  it("DL z zakresem „assigned” nie ma „Moi / Wszyscy” — serwer i tak pokazuje tylko jego klientów", () => {
+    expect(clientsMineToggleAvailable(true, "assigned")).toBe(false);
+    expect(clientsMineToggleAvailable(true, "all")).toBe(true);
+    // Stary cache bez pola: przełącznik zostaje, lista i tak idzie z serwera.
+    expect(clientsMineToggleAvailable(true, undefined)).toBe(true);
+    expect(clientsMineToggleAvailable(false, "all")).toBe(false);
   });
 
   it("tryby ekranów: nieznana wartość = widok domyślny", () => {

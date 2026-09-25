@@ -11,7 +11,7 @@
 import * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { CycleOverview } from "@/lib/interview-cycle";
 
@@ -56,6 +56,23 @@ vi.mock("@/store/auth", async (orig) => {
 
 import { CalendarCycleScreen } from "@/components/calendar/cycle/CalendarCycleScreen";
 import { DebriefDialog } from "@/components/calendar/cycle/DebriefDialog";
+
+// Zegar przypięty na dzisiejsze południe: dane są względne wobec „teraz”, a
+// panel kandydata pokazuje wydarzenia od dzisiejszego dnia. Między 00:00
+// a 01:12 rozmowa sprzed 72 min wypadała na wczoraj i test padał co noc
+// (kolejka merge'ów 26.09.2026). Fałszujemy tylko `Date` — timery zostają
+// prawdziwe, więc `findBy*`/`waitFor` działają bez zmian.
+vi.useFakeTimers({ toFake: ["Date"] });
+vi.setSystemTime(
+  (() => {
+    const noon = new Date();
+    noon.setHours(12, 0, 0, 0);
+    return noon;
+  })(),
+);
+afterAll(() => {
+  vi.useRealTimers();
+});
 
 const NOW = Date.now();
 const iso = (minutesFromNow: number) => new Date(NOW + minutesFromNow * 60_000).toISOString();

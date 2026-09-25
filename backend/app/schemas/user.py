@@ -113,6 +113,11 @@ class UserResponse(BaseModel):
     # requestów do /api/analytics/v1 dopóki tryb != live (fail-closed;
     # w shadow legacy UI pozostaje nietknięte — plan §8).
     analytics_v1_mode: str = "off"
+    # Zakres klientów Delivery Leada w modułach Delivery (25.09.2026):
+    # ``assigned`` = tylko klienci z przypisania, ``all`` = wszyscy (wyłącznik
+    # ``DL_CLIENT_SCOPE`` albo rola czytająca Delivery całej organizacji).
+    # ``None`` dla kont spoza persony DL. Front chowa wtedy „Moi / Wszyscy”.
+    delivery_client_scope: Optional[Literal["assigned", "all"]] = None
     created_at: datetime
     updated_at: datetime
 

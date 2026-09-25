@@ -61,6 +61,7 @@ from app.api.deps import (
     require_delivery_lead_or_admin,
     require_roles,
 )
+from app.api.delivery_client_scope import DELIVERY_CLIENT_SCOPE_DEPENDENCIES
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.core.scheduling import business_today
@@ -309,7 +310,9 @@ from app.services.order_settlements import (
     settlement_blockers,
 )
 
-router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
+router = APIRouter(
+    dependencies=[*DELIVERY_SECTION_DEPENDENCIES, *DELIVERY_CLIENT_SCOPE_DEPENDENCIES]
+)
 
 MAX_GROUP_PDF_BYTES = 25 * 1024 * 1024
 
@@ -402,7 +405,7 @@ async def _require_group_read(db: AsyncSession, user: User, client_id: int) -> N
     """Ta sama decyzja dostępu co przy zamówieniach jednoosobowych.
 
     Lustro ``client_orders._require_client_order_read``: Delivery Lead widzi
-    operacyjny rekord każdego klienta, a serializer osobno redaguje stawki poza
+    operacyjny rekord klientów ze swojego portfela, a serializer osobno redaguje stawki poza
     przypisanym portfelem. Finance ma organizacyjny business-read.
     """
     await _assert_client(db, client_id)

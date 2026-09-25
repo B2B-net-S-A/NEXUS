@@ -224,6 +224,8 @@ async def test_finance_can_export_requested_standalone_order_ids(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_consultant_options_allow_every_dl_and_add_finance():
+    # Bramka ROLI trasy: każdy DL przechodzi. Zakres klienta (od 25.09.2026
+    # tylko przypisani klienci DL) sprawdza handler przez `_require_group_read`.
     class AssignedResult:
         def scalar_one_or_none(self):
             return object()

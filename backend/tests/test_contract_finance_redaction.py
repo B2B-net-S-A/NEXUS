@@ -345,9 +345,28 @@ async def test_delivery_lead_sees_assigned_client_rates(app_client: AsyncClient)
     assert body["rate_candidate_currency"] == "PLN"
 
 
-async def test_delivery_lead_reads_unassigned_client_contract_without_finance(
+async def test_delivery_lead_cannot_open_unassigned_client_contract(
     app_client: AsyncClient,
 ):
+    """Od 25.09.2026 DL widzi w Kontraktach tylko klientów z przypisaniem."""
+
+    cid = await _seed_contract()
+    headers = await _headers_for(app_client, "delivery_lead")
+
+    response = await app_client.get(f"/api/contracts/{cid}", headers=headers)
+
+    assert response.status_code == 403, response.text
+
+
+async def test_delivery_lead_reads_unassigned_client_contract_without_finance(
+    app_client: AsyncClient,
+    monkeypatch,
+):
+    """Wyłącznik ``DL_CLIENT_SCOPE=all`` (stan z #1365): detal bez kwot."""
+
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "DL_CLIENT_SCOPE", "all")
     cid = await _seed_contract()
     headers = await _headers_for(app_client, "delivery_lead")
 
@@ -366,7 +385,7 @@ async def test_delivery_lead_reads_unassigned_client_contract_without_finance(
 async def test_delivery_lead_opaque_contract_documents_stay_assignment_bound(
     app_client: AsyncClient,
 ):
-    """Structured detail is global, but an unredactable file must not be."""
+    """Unredactable files stay assignment-bound (as does the detail since 25.09)."""
 
     cid = await _seed_contract()
     unassigned = await _headers_for(app_client, "delivery_lead")

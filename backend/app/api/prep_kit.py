@@ -25,7 +25,7 @@ from app.services.client_access import (
 )
 from app.services.access_scope import (
     assert_delivery_lead_client_visible,
-    resolve_delivery_lead_client_ids,
+    resolve_delivery_lead_org_client_ids,
 )
 from app.services.question_suggestions import suggest_questions_for_prep
 
@@ -198,7 +198,7 @@ async def generate_prep_kit(
     # authorize.
     assert_delivery_lead_client_visible(
         job.client_id,
-        await resolve_delivery_lead_client_ids(current_user, db),
+        await resolve_delivery_lead_org_client_ids(current_user, db),
     )
 
     # ── Fetch Candidate ──────────────────────────────────────────────────────
@@ -228,7 +228,9 @@ async def generate_prep_kit(
     # stays gated by the CandidatePIIAccess role dependency above.
     if job.client_id:
         await assert_client_exists(db, job.client_id)
-        access = await resolve_client_access(db, current_user, job.client_id)
+        access = await resolve_client_access(
+            db, current_user, job.client_id, purpose="org"
+        )
         if not access.can_view_knowledge:
             raise deny("brak dostępu do wiedzy tego klienta")
 

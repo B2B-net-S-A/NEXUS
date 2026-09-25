@@ -38,7 +38,7 @@ from app.models.job import Job
 from app.models.user_email_template import UserEmailTemplate
 from app.services.access_scope import (
     assert_delivery_lead_client_visible,
-    resolve_delivery_lead_client_ids,
+    resolve_delivery_lead_org_client_ids,
 )
 from app.core.scheduling import business_today
 
@@ -394,7 +394,7 @@ async def render_template(
         if job is not None:
             assert_delivery_lead_client_visible(
                 job.client_id,
-                await resolve_delivery_lead_client_ids(current_user, db),
+                await resolve_delivery_lead_org_client_ids(current_user, db),
             )
 
     ctx = _build_render_context(

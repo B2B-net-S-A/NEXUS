@@ -427,8 +427,47 @@ async def test_grouped_list_redacts_member_rates_for_non_finance(app_client):
         assert member["margin"] is None
 
 
-async def test_grouped_list_and_siblings_give_dl_all_clients_with_redaction(app_client):
-    """DL widzi umowy obu klientów, ale finanse tylko klienta przypisanego."""
+async def test_grouped_list_and_siblings_limit_dl_to_assigned_clients(app_client):
+    """Od 25.09.2026 DL widzi w Kontraktach wyłącznie przypisanych klientów.
+
+    Grupa osoby, zakładki „inne umowy tej osoby” i detal kończą się na
+    portfelu DL — umowa u klienta bez przypisania nie wychodzi nigdzie.
+    """
+    marker = f"Dla{uuid.uuid4().hex[:6]}"
+    cand = await _seed_candidate(marker, email=f"{marker.lower()}@example.com")
+    client_a = await _seed_client(f"PortfelDL {marker}")
+    client_b = await _seed_client(f"ObcyKlient {marker}")
+    id_a = await _seed_contract(cand, client_a)
+    id_b = await _seed_contract(cand, client_b)
+
+    dl_headers = await _role_headers(
+        app_client, "delivery_lead", assigned_client_id=client_a
+    )
+
+    grouped = await app_client.get(
+        "/api/contracts",
+        params={"q": marker, "group_by_candidate": "true", "page_size": 50},
+        headers=dl_headers,
+    )
+    assert grouped.status_code == 200, grouped.text
+    body = grouped.json()
+    assert body["total"] == 1
+    [row] = body["items"]
+    assert {member["id"] for member in row["group_members"]} == {id_a}
+
+    detail = await app_client.get(f"/api/contracts/{id_a}", headers=dl_headers)
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["related_contracts"] == []
+
+    outside = await app_client.get(f"/api/contracts/{id_b}", headers=dl_headers)
+    assert outside.status_code == 403, outside.text
+
+
+async def test_grouped_list_and_siblings_give_dl_all_clients_with_redaction(
+    app_client, monkeypatch
+):
+    """``DL_CLIENT_SCOPE=all`` (stan z #1365): obu klientów, finanse jednego."""
+    monkeypatch.setattr(settings, "DL_CLIENT_SCOPE", "all")
     marker = f"Dls{uuid.uuid4().hex[:6]}"
     cand = await _seed_candidate(marker, email=f"{marker.lower()}@example.com")
     client_a = await _seed_client(f"PortfelDL {marker}")

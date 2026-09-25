@@ -56,6 +56,7 @@ from app.services.action_permissions import (
 )
 from app.services.client_access import (
     ADMIN_LIKE_ROLES,
+    ClientScopePurpose,
     deny,
     resolve_client_access,
     resolve_client_team_client_ids,
@@ -110,15 +111,21 @@ async def assert_contract_legal_client_access(
     client_id: int | None,
     *,
     write: bool = False,
+    purpose: ClientScopePurpose = "delivery",
 ) -> None:
-    """Authorize one legal entity against its authoritative client relation."""
+    """Authorize one legal entity against its authoritative client relation.
+
+    ``purpose="org"`` is used by the B2B generator: a Delivery Lead reads every
+    client there (decision 25.09.2026); Delivery legal surfaces keep the
+    assigned-client scope.
+    """
 
     if client_id is None:
         if user.has_any_role(*ADMIN_LIKE_ROLES):
             return
         raise deny("dokument prawny bez klienta jest dostępny tylko Admin/HoR")
 
-    access = await resolve_client_access(db, user, client_id)
+    access = await resolve_client_access(db, user, client_id, purpose=purpose)
     allowed = (
         access.can_edit_legal_documents if write else access.can_view_legal_documents
     )
@@ -158,10 +165,12 @@ async def apply_contract_legal_client_scope(
     client_column,
     db: AsyncSession,
     user: User,
+    *,
+    purpose: ClientScopePurpose = "delivery",
 ):
     """Scope legal list queries before sorting/limiting."""
 
-    client_ids = await resolve_client_team_client_ids(db, user)
+    client_ids = await resolve_client_team_client_ids(db, user, purpose=purpose)
     if client_ids is None:
         return statement
     return statement.where(client_column.in_(sorted(client_ids) or [-1]))
@@ -247,7 +256,9 @@ async def require_b2b_generator_access(
     if current_user.has_any_role(*B2B_GENERATOR_UNCONDITIONAL_ROLES):
         return current_user
     if current_user.has_role(UserRole.delivery_lead):
-        client_ids = await resolve_client_team_client_ids(db, current_user)
+        client_ids = await resolve_client_team_client_ids(
+            db, current_user, purpose="org"
+        )
         if client_ids:
             return current_user
         raise deny("Generator wymaga co najmniej jednego klienta w organizacji")

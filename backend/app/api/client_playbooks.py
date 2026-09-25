@@ -254,7 +254,7 @@ async def _require_client_playbook_access(
     klienta); `can_view_knowledge` = admin-like OR czytelnik organizacyjny OR
     zespół klienta OR przypisanie do rekrutacji u tego klienta.
     """
-    access = await resolve_client_access(db, user, client_id)
+    access = await resolve_client_access(db, user, client_id, purpose="org")
     allowed = access.can_edit_knowledge if write else access.can_view_knowledge
     if not allowed:
         action = "edycja" if write else "odczyt historii"

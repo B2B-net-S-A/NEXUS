@@ -424,7 +424,14 @@ async def test_order_rate_zero_not_masked_by_contract_rate(
 
 async def test_dl_unassigned_can_create_operational_order_without_finance(
     app_client: AsyncClient,
+    monkeypatch,
 ):
+    # Ścieżka bez finansów u klienta spoza przypisania istnieje tylko przy
+    # wyłączniku `DL_CLIENT_SCOPE=all` — domyślnie taki zapis to 403
+    # (`test_dl_client_scope.py`).
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "DL_CLIENT_SCOPE", "all")
     client_id = await _new_client()
     cand_id = await _new_candidate()
     contract_id = await _new_contract(client_id, cand_id)
@@ -663,15 +670,12 @@ async def test_my_clients_dl_sees_money_of_own_portfolio(app_client: AsyncClient
         rows = resp.json()
         ids = [r["client_id"] for r in rows]
         assert own in ids
-        assert other in ids
+        # Od 25.09.2026 portal DL listuje wyłącznie klientów z portfela.
+        assert other not in ids
         row = next(r for r in rows if r["client_id"] == own)
         assert row["active_orders_count"] == 1
         assert Decimal(str(row["total_revenue_all_time"])) == Decimal("25000.00")
         assert Decimal(str(row["active_revenue"])) == Decimal("25000.00")
-        other_row = next(r for r in rows if r["client_id"] == other)
-        assert other_row["is_head_dl"] is False
-        assert "total_revenue_all_time" not in other_row
-        assert "active_revenue" not in other_row
 
         dashboard = await app_client.get(
             f"/api/my-clients/{own}/dashboard",
@@ -690,10 +694,36 @@ async def test_my_clients_dl_sees_money_of_own_portfolio(app_client: AsyncClient
         await _cleanup([own, other], [dl_id], [candidate_id])
 
 
-async def test_my_clients_dashboard_redacts_finance_outside_the_portfolio(
+async def test_my_clients_dashboard_denied_outside_the_portfolio(
     app_client: AsyncClient,
 ):
-    """Dashboard jest globalny dla DL, lecz kwoty kończą się na portfelu."""
+    """Od 25.09.2026 Analityka klienta tylko dla klientów z portfela DL."""
+    own = await _new_client()
+    other = await _new_client()
+    dl_id, dl_email, dl_pwd = await _new_user(UserRole.delivery_lead)
+    await _assign_dl(dl_id, own)
+    try:
+        headers = await _login(app_client, dl_email, dl_pwd)
+        denied = await app_client.get(
+            f"/api/my-clients/{other}/dashboard", headers=headers
+        )
+        assert denied.status_code == 403, denied.text
+        allowed = await app_client.get(
+            f"/api/my-clients/{own}/dashboard", headers=headers
+        )
+        assert allowed.status_code == 200, allowed.text
+    finally:
+        await _cleanup([own, other], [dl_id], [])
+
+
+async def test_my_clients_dashboard_redacts_finance_outside_the_portfolio(
+    app_client: AsyncClient,
+    monkeypatch,
+):
+    """``DL_CLIENT_SCOPE=all`` (#1365): dashboard globalny, kwoty z portfela."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "DL_CLIENT_SCOPE", "all")
     own = await _new_client()
     other = await _new_client()
     dl_id, dl_email, dl_pwd = await _new_user(UserRole.delivery_lead)
@@ -718,13 +748,19 @@ async def test_my_clients_dashboard_redacts_finance_outside_the_portfolio(
 
 async def test_my_clients_dashboard_without_finance_counts_active_contracts(
     app_client: AsyncClient,
+    monkeypatch,
 ):
     """Bez prawa do kwot zakładka Analityka nadal liczy aktywnych konsultantów.
 
     Do 24.09.2026 „dziś” było ustawiane wyłącznie w gałęzi z finansami, więc
     odbiorca bez kwot dostawał 500 u każdego klienta z aktywnym kontraktem
     (poprzedni test używa klienta bez kontraktów i tego nie widział).
+    Od 25.09.2026 DL otwiera Analitykę tylko u swoich klientów (tam widzi
+    kwoty), więc gałąź „bez kwot” odtwarza wyłącznik ``DL_CLIENT_SCOPE=all``.
     """
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "DL_CLIENT_SCOPE", "all")
     own = await _new_client()
     other = await _new_client()
     candidate_id = await _new_candidate()

@@ -13,8 +13,10 @@ Polityka (fail-closed; decyzje produktowe "wg polityki" domyślnie NA NIE):
   współdzielonym narzędziom Sourcing/Pipeline, ale bramka sekcji odcina ich od
   endpointów Delivery.
 - ``delivery_lead`` — zarządzanie kontaktami/wiedzą i wgląd w dokumenty
-  prawne wszystkich klientów. Przypisanie wskazuje właściciela i nadal
-  bramkuje finanse oraz konsekwentne zapisy prawne.
+  prawne klientów, do których ma przypisanie (od 25.09.2026,
+  ``DL_CLIENT_SCOPE``; ``purpose="org"`` = wszyscy klienci dla narzędzi
+  rekrutacji i generatora B2B). Przypisanie nadal bramkuje finanse oraz
+  konsekwentne zapisy prawne.
 - ``tac`` — ten sam resolver wyłącznie klienta z jawnym
   ``ClientTacAssignment``. Brak przypisań jest prawdziwym deny-all, nigdy
   fallbackiem do całej organizacji.
@@ -39,6 +41,7 @@ Polityka (fail-closed; decyzje produktowe "wg polityki" domyślnie NA NIE):
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 from fastapi import Depends, HTTPException, status
 from sqlalchemy import or_, select
@@ -59,7 +62,16 @@ from app.models.job import Job
 from app.models.job_collaborator import JobCollaborator
 from app.models.team_structure import ClientTacAssignment
 from app.models.user import User, UserRole
-from app.services.access_scope import resolve_delivery_lead_assigned_client_ids
+from app.services.access_scope import (
+    delivery_lead_scope_is_assigned,
+    delivery_lead_sees_whole_delivery,
+    resolve_delivery_lead_assigned_client_ids,
+)
+
+# ``delivery`` = moduły Delivery (Klienci, Kontrakty, Zamówienia): DL tylko
+# swoich klientów. ``org`` = narzędzia rekrutacji i generator B2B: DL
+# wszystkich klientów (rekrutacje są otwarte, decyzja 23.09.2026).
+ClientScopePurpose = Literal["delivery", "org"]
 
 # Historyczny graf organizacyjny używany również przez współdzielone narzędzia
 # Pipeline. Prawa Delivery wynikają dodatkowo z centralnej bramki sekcji.
@@ -203,15 +215,18 @@ async def _job_assigned_client_ids(
 async def resolve_client_team_client_ids(
     db: AsyncSession,
     user: User,
+    *,
+    purpose: ClientScopePurpose = "delivery",
 ) -> frozenset[int] | None:
     """Resolve the client graph for DL/TAC client-team capabilities.
 
     ``None`` means unrestricted Admin or plain Head of Recruitment oversight.
-    Delivery Lead receives the concrete set of every client; keeping a set
-    preserves fail-closed handling for client-less legal entities and the
-    role's narrow finance exceptions. DL assignments remain ownership metadata
-    used for routing and notifications, not an authorization boundary. A plain
-    TAC still receives only its ``ClientTacAssignment`` rows.
+    Delivery Lead receives a concrete set; keeping a set preserves fail-closed
+    handling for client-less legal entities and the role's narrow finance
+    exceptions. For ``purpose="delivery"`` the set is the DL's assigned
+    clients (any assignment, 25.09.2026) unless ``DL_CLIENT_SCOPE=all`` or the
+    account also reads Delivery org-wide (TCM); ``purpose="org"`` is every
+    client. A plain TAC still receives only its ``ClientTacAssignment`` rows.
     """
 
     if user.has_role(UserRole.admin) or (
@@ -222,6 +237,14 @@ async def resolve_client_team_client_ids(
 
     client_ids: set[int] = set()
     if user.has_role(UserRole.delivery_lead):
+        if (
+            purpose == "delivery"
+            and delivery_lead_scope_is_assigned()
+            and not delivery_lead_sees_whole_delivery(user)
+            and not user.has_role(UserRole.finance)
+        ):
+            assigned = await resolve_delivery_lead_assigned_client_ids(user, db)
+            return frozenset(assigned or ())
         client_ids.update((await db.scalars(select(Client.id))).all())
         return frozenset(int(client_id) for client_id in client_ids)
     if user.has_role(UserRole.tac):
@@ -240,14 +263,17 @@ async def resolve_client_team_client_ids(
 async def resolve_client_visible_client_ids(
     db: AsyncSession,
     user: User,
+    *,
+    purpose: ClientScopePurpose = "delivery",
 ) -> frozenset[int] | None:
     """Resolve all clients whose operational surface the user may read.
 
-    Admin/HoR, Delivery Lead and organization readers remain unrestricted. TAC
-    contributes only explicit relationship assignments. Recruiter/Sourcer
-    contribute only clients reached through their exact Job or JobCollaborator
-    membership, unless the account also holds Delivery Lead — then all clients
-    are visible.
+    Admin/HoR and organization readers remain unrestricted. Delivery Lead gets
+    the client-team set of ``purpose`` (assigned clients for Delivery, every
+    client for ``org``). TAC contributes only explicit relationship
+    assignments. Recruiter/Sourcer contribute only clients reached through
+    their exact Job or JobCollaborator membership, unless the account also
+    holds Delivery Lead — then the DL set applies.
     Empty is authoritative deny-all and never means organization-wide fallback.
     """
 
@@ -258,7 +284,7 @@ async def resolve_client_visible_client_ids(
     if user.has_any_role(*ORGANIZATION_READ_ROLES) and not delivery_scoped:
         return None
 
-    client_ids = await resolve_client_team_client_ids(db, user)
+    client_ids = await resolve_client_team_client_ids(db, user, purpose=purpose)
     if client_ids is None:
         return None
 
@@ -269,7 +295,11 @@ async def resolve_client_visible_client_ids(
 
 
 async def resolve_client_access(
-    db: AsyncSession, user: User, client_id: int
+    db: AsyncSession,
+    user: User,
+    client_id: int,
+    *,
+    purpose: ClientScopePurpose = "delivery",
 ) -> ClientAccess:
     """Zbuduj decyzję dostępu. Zakłada, że klient istnieje (404 wcześniej)."""
     delivery_scoped = user.has_role(UserRole.delivery_lead) and not user.has_any_role(
@@ -287,7 +317,9 @@ async def resolve_client_access(
     has_delivery_write = (
         section_access_for_user(user, ProductSection.delivery) >= SectionAccess.write
     )
-    client_team_client_ids = await resolve_client_team_client_ids(db, user)
+    client_team_client_ids = await resolve_client_team_client_ids(
+        db, user, purpose=purpose
+    )
     is_client_team = (
         client_team_client_ids is None or client_id in client_team_client_ids
     )
