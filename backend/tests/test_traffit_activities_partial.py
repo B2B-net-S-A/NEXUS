@@ -26,12 +26,35 @@ class _FakeResult:
         return (1, True)  # (id, was_insert)
 
 
+class _Nested:
+    """Atrapa savepointu: liczy wycofania pojedynczych wierszy."""
+
+    def __init__(self, db: "_FakeDB") -> None:
+        self.db = db
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, *a):
+        if exc_type is not None:
+            self.db.savepoint_rollbacks += 1
+        return False
+
+
 class _FakeDB:
-    def __init__(self) -> None:
+    def __init__(self, fail_external_ids: frozenset[str] = frozenset()) -> None:
         self.commits = 0
         self.rollbacks = 0
+        self.savepoint_rollbacks = 0
+        self.fail_external_ids = fail_external_ids
+        self.saved: list[str] = []
 
-    async def execute(self, *a, **k):
+    async def execute(self, stmt=None, params=None, **k):
+        ext = (params or {}).get("external_id")
+        if ext is not None:
+            if ext in self.fail_external_ids:
+                raise RuntimeError("simulated row failure")
+            self.saved.append(ext)
         return _FakeResult()
 
     async def commit(self) -> None:
@@ -39,6 +62,9 @@ class _FakeDB:
 
     async def rollback(self) -> None:
         self.rollbacks += 1
+
+    def begin_nested(self):
+        return _Nested(self)
 
 
 class _FakeTraffit:
@@ -167,3 +193,60 @@ async def test_activities_total_count_timeout_does_not_skip_import(monkeypatch) 
     assert progress.processed == 3
     assert progress.errors == 0
     promote.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_activity_row_error_rolls_back_only_that_row(monkeypatch) -> None:
+    """Audyt 25.09.2026: błąd jednego wiersza robił `rollback()` całej paczki
+    (do 499 aktywności). Teraz wiersz ma własny savepoint — pozostałe zostają,
+    a błąd jest przypisany do wiersza (`activity:<ext>`), więc kwarantanna
+    parkuje tylko ten jeden."""
+
+    class _PagesTraffit(_FakeTraffit):
+        async def get_pages(
+            self, path, *, page_size=100, filter_=None, start_page=1, **kw
+        ):
+            yield start_page, [{"id": i + 1} for i in range(5)]
+
+    db = _FakeDB(fail_external_ids=frozenset({"3"}))
+    imp = TraffitImporter(
+        _PagesTraffit(yield_count=5), db, dry_run=False, batch_size=100
+    )
+    monkeypatch.setattr(
+        imp, "_build_candidate_external_id_map", AsyncMock(return_value={})
+    )
+    monkeypatch.setattr(imp, "build_user_id_map", AsyncMock(return_value={}))
+    monkeypatch.setattr(imp, "promote_notes", AsyncMock(return_value=0))
+    monkeypatch.setattr(
+        importer_mod,
+        "traffit_activity_to_activity",
+        lambda raw, cand_map, user_map: {
+            "external_id": str(raw["id"]),
+            "entity_type": "candidate",
+            "entity_id": 1,
+            "action": "note",
+            "details": {},
+            "user_id": None,
+        },
+    )
+    monkeypatch.setattr(
+        importer_mod,
+        "backfill_rejection_notes_from_activities",
+        AsyncMock(return_value=0),
+    )
+    monkeypatch.setattr(
+        importer_mod,
+        "backfill_rejection_descriptions_from_activities",
+        AsyncMock(return_value=0),
+    )
+
+    progress = await imp.import_candidate_activities(since=None)
+
+    assert db.saved == ["1", "2", "4", "5"]
+    assert progress.inserted == 4
+    # Wycofany wyłącznie savepoint zepsutego wiersza — nie cała transakcja.
+    assert db.savepoint_rollbacks == 1
+    assert db.rollbacks == 0
+    assert progress.errors == 1
+    assert progress.error_refs == {"activity:3"}
+    assert progress.attributed_errors == 1

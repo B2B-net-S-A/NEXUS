@@ -112,6 +112,9 @@ class LifecycleSyncResult:
     people_received: int = 0
     matched_users: int = 0
     deactivated: list[str] = field(default_factory=list)
+    # Identyfikatory do logu przebiegu — adresy e-mail zostają w wyniku
+    # (`as_payload`, Activity), ale nie trafiają do logów (Loki/Sentry).
+    deactivated_user_ids: list[int] = field(default_factory=list)
     already_inactive: int = 0
     # `exited` w COMPASSIE, a konto aktywne, bo admin włączył je ŚWIADOMIE
     # w tym epizodzie odejścia — w wyniku z adresem, żeby ktoś mógł to
@@ -491,6 +494,7 @@ async def sync_user_lifecycle(db) -> LifecycleSyncResult:
             )
         )
         result.deactivated.append(email)
+        result.deactivated_user_ids.append(user.id)
 
     # Stan zapisujemy przy KAŻDYM udanym przebiegu — to on niesie początek
     # epizodu odejścia, do którego porównujemy włączenia admina.
@@ -503,10 +507,11 @@ async def sync_user_lifecycle(db) -> LifecycleSyncResult:
     # nie może raportować `ok` (wyjątek stąd łapie pętla i stempluje błąd).
     await record_sync_outcome(db, ok=True)
     if result.deactivated:
+        # Logi niosą liczby i ID, bez e-maili (adresy są w Activity).
         logger.info(
-            "compass_lifecycle deactivated=%s emails=%s",
+            "compass_lifecycle deactivated=%s user_ids=%s",
             len(result.deactivated),
-            sorted(result.deactivated),
+            sorted(result.deactivated_user_ids),
         )
     if result.skipped_reenabled_user_ids:
         # Te konta wracają w KAŻDYM przebiegu — tylko liczba i identyfikatory.

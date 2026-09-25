@@ -36,6 +36,11 @@ class TraffitConfig:
     connect_timeout_s: float = 10.0
     read_timeout_s: float = 180.0
     max_retries: int = 3
+    # Ile stron 5xx z rzędu wolno pominąć (``skip_on_5xx``), gdy liczby stron
+    # nie znamy. Bez sufitu pętla stronicowania szła w nieskończoność: padnięte
+    # ``total_count`` = brak liczby stron, a każda kolejna strona 5xx to tylko
+    # ``page += 1`` — przebieg trzymał blokadę syncu bez końca.
+    max_consecutive_5xx: int = 5
 
     @property
     def base_url(self) -> str:
@@ -62,6 +67,7 @@ class TraffitConfig:
         throttle = float(os.environ.get("TRAFFIT_THROTTLE_RPS", "5"))
         read_timeout = float(os.environ.get("TRAFFIT_READ_TIMEOUT_S", "180"))
         connect_timeout = float(os.environ.get("TRAFFIT_CONNECT_TIMEOUT_S", "10"))
+        max_consecutive_5xx = int(os.environ.get("TRAFFIT_MAX_CONSECUTIVE_5XX", "5"))
         return cls(
             tenant=tenant,
             client_id=client_id,
@@ -69,6 +75,7 @@ class TraffitConfig:
             throttle_rps=throttle,
             connect_timeout_s=connect_timeout,
             read_timeout_s=read_timeout,
+            max_consecutive_5xx=max(1, max_consecutive_5xx),
         )
 
 
@@ -322,6 +329,10 @@ class TraffitClient:
                     total_pages_known = (total + page_size - 1) // page_size
             except Exception:  # noqa: BLE001
                 total_pages_known = None
+        # Kolejne strony 5xx pominięte z rzędu. Przy NIEZNANEJ liczbie stron
+        # jedynym sygnałem końca jest krótka/pusta strona 200 — seria 5xx go
+        # nie da nigdy, więc bez tego licznika pętla nie kończy się sama.
+        consecutive_5xx = 0
 
         while True:
             extra_headers = {
@@ -368,6 +379,19 @@ class TraffitClient:
                         on_page_skipped(page, resp.status_code)
                     if total_pages_known and page >= total_pages_known:
                         return
+                    consecutive_5xx += 1
+                    if (
+                        not total_pages_known
+                        and consecutive_5xx >= self.config.max_consecutive_5xx
+                    ):
+                        # Wyjątek, nie ``return``: czysty koniec generatora
+                        # wygląda jak ostatnia strona, faza melduje ``ok``
+                        # i watermark przesuwa się nad nieprzeczytany ogon.
+                        raise RuntimeError(
+                            f"GET {path}: {consecutive_5xx} stron z rzędu HTTP 5xx "
+                            f"(ostatnia page={page}) przy nieznanej liczbie stron "
+                            "— przerywam przebieg"
+                        )
                     page += 1
                     continue
                 raise RuntimeError(
@@ -395,6 +419,7 @@ class TraffitClient:
                 raise RuntimeError(
                     f"Expected list, got {type(items)} from {path} page={page}"
                 )
+            consecutive_5xx = 0
             if not items:
                 return
             yield page, items

@@ -16,7 +16,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Annotated, List, Optional
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import distinct, func, or_, select
+from sqlalchemy import distinct, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from pydantic import BaseModel, PlainSerializer
@@ -43,7 +43,8 @@ from app.services.insights_board_money import (
 from app.services.contractor_identity import (
     candidate_identity_key,
     contractor_identity_sql_expression,
-    current_contracts,
+    current_contract_clause,
+    load_current_contracts,
 )
 
 logger = logging.getLogger(__name__)
@@ -106,8 +107,12 @@ def _contract_currencies(contracts) -> set[str]:
 
 
 def _started_by(today: date):
-    """SQL-owe lustro ``is_current_contract``: start nie później niż dziś albo brak daty."""
-    return or_(Contract.start_date.is_(None), Contract.start_date <= today)
+    """SQL-owe lustro ``is_current_contract`` z datą startu z zamówień.
+
+    Kontrakt bez daty startu, którego wszystkie zamówienia startują później,
+    jest planowany — tak liczy profil klienta i katalog (audyt 25.09.2026).
+    """
+    return current_contract_clause(today)
 
 
 async def _load_live_contracts(db: AsyncSession, today: date) -> list[Contract]:
@@ -129,7 +134,9 @@ async def _load_live_contracts(db: AsyncSession, today: date) -> list[Contract]:
         .scalars()
         .all()
     )
-    return current_contracts(rows, today)
+    # Data startu dopowiedziana z zamówień (``load_fallback_starts``) — ta
+    # sama reguła co profil klienta i ``_started_by``.
+    return await load_current_contracts(db, rows, today)
 
 
 async def _resolve_rate_cache(db, currencies) -> dict[str, tuple[Decimal, bool]]:

@@ -103,6 +103,8 @@ class TurnInput:
 class _TurnState:
     conversation_id: uuid.UUID
     entities: set[tuple[str, int]] = field(default_factory=set)
+    # Żeton blokady tury (`store.TurnClaim`) — przedłużany z każdym krokiem.
+    claim: Optional[store.TurnClaim] = None
 
 
 # ── pomocniki ──────────────────────────────────────────────────────────────
@@ -373,29 +375,42 @@ async def execute_read(
 # ── tura ───────────────────────────────────────────────────────────────────
 
 
-async def claim(turn: TurnInput) -> uuid.UUID:
+def _lock_seconds() -> float:
+    return settings.JARVIS_TURN_TIMEOUT_SECONDS + 60
+
+
+async def claim(turn: TurnInput) -> store.TurnClaim:
     """Rezerwuje rozmowę na turę PRZED otwarciem strumienia (409 zamiast SSE)."""
     return await store.claim_turn(
         user_id=turn.user_id,
         conversation_id=turn.conversation_id,
         first_message=turn.message or "Nowa rozmowa",
         context=turn.screen,
-        lock_seconds=settings.JARVIS_TURN_TIMEOUT_SECONDS + 60,
+        lock_seconds=_lock_seconds(),
     )
 
 
 async def run_turn(
-    turn: TurnInput, conversation_id: uuid.UUID
+    turn: TurnInput, claimed: store.TurnClaim
 ) -> AsyncIterator[dict[str, Any]]:
     """Generator zdarzeń tury na zarezerwowanej rozmowie (``claim``).
 
     Pierwsze zdarzenie to zawsze ``conversation``; rezerwacja jest zwalniana
     w ``finally`` — także gdy klient się rozłączył albo model zawiódł.
     """
+    conversation_id = claimed.conversation_id
+    # „Zatrzymaj” kliknięte po końcu poprzedniej tury (albo przy turze, która
+    # padła przed sprzątaniem) nie może przerwać NOWEJ tury tej rozmowy.
+    _CANCEL_REQUESTS.discard(conversation_id)
     state = _TurnState(
-        conversation_id=conversation_id, entities=_screen_entities(turn.screen)
+        conversation_id=conversation_id,
+        entities=_screen_entities(turn.screen),
+        claim=claimed,
     )
     try:
+        # Powiązanie z kandydatem z ekranu od razu — tura ubita w połowie
+        # (deploy) nie może zostawić rozmowy o nim bez powiązania (RODO).
+        await _link_now(state, state.entities)
         yield {"type": "conversation", "conversation_id": str(conversation_id)}
         async for event in _run_loop(turn, state):
             yield event
@@ -411,7 +426,38 @@ async def _finish_turn(state: _TurnState) -> None:
     _CANCEL_REQUESTS.discard(state.conversation_id)
     if state.entities:
         await store.link_entities(state.conversation_id, state.entities)
-    await store.release_turn(state.conversation_id)
+    if state.claim is not None:
+        await store.release_turn(state.claim)
+
+
+async def _link_now(state: _TurnState, entities: set[tuple[str, int]]) -> None:
+    """Zapisz powiązanie rozmowy z kandydatami ZARAZ po narzędziu.
+
+    Wynik narzędzia trafia do historii rozmowy (dane osobowe) przed końcem
+    tury — do 25.09.2026 powiązanie zapisywało dopiero ``_finish_turn``,
+    więc tura ubita w połowie zostawiała rozmowę, której usunięcie kandydata
+    (art. 17) nie kasowało.
+    """
+    if not entities:
+        return
+    try:
+        await store.link_entities(state.conversation_id, entities)
+    except Exception:  # noqa: BLE001 — `_finish_turn` spróbuje jeszcze raz
+        logger.exception(
+            "jarvis: nie udało się powiązać rozmowy %s z kandydatami",
+            state.conversation_id,
+        )
+
+
+async def _extend_lock(state: _TurnState) -> bool:
+    """Przedłuż własną blokadę tury; False = przejęła ją inna tura."""
+    if state.claim is None:
+        return True
+    renewed = await store.extend_turn(state.claim, _lock_seconds())
+    if renewed is None:
+        return False
+    state.claim = renewed
+    return True
 
 
 def _user_content(turn: TurnInput) -> list[dict[str, Any]]:
@@ -511,6 +557,15 @@ async def _steps(
     for step in range(max(1, settings.JARVIS_MAX_STEPS)):
         if _cancelled(state):
             yield {"type": "message", "markdown": CANCELLED_MESSAGE, "final": True}
+            return
+        if not await _extend_lock(state):
+            # Blokada wygasła i rozmowę przejęła inna tura — nie piszemy
+            # równolegle do tej samej historii.
+            yield {
+                "type": "error",
+                "message": "Ta rozmowa jest już obsługiwana w innym oknie — odśwież panel.",
+                "code": "turn_lost",
+            }
             return
         remaining = deadline - time.monotonic()
         if remaining < 5:
@@ -738,8 +793,14 @@ async def _handle_tool(
                 "status": "done" if ok else "error",
             }
         )
-        if ok and tool.entity_type == "candidate":
-            state.entities |= collect_entities(tool, args, shaped)
+        if ok:
+            # Każde narzędzie, nie tylko „kandydackie”: `global_search`,
+            # kalendarz i powiadomienia też zwracają nazwiska z `candidate_id`
+            # albo linkiem `/candidates/{id}` (audyt 25.09.2026 — rozmowy po
+            # nich przeżywały usunięcie kandydata).
+            found = collect_entities(tool, args, shaped)
+            state.entities |= found
+            await _link_now(state, found)
         return _tool_result(use_id, content, is_error=not ok)
 
     # write — tylko propozycja
@@ -771,8 +832,9 @@ async def _handle_tool(
         args=final_args,
         preview=preview,
     )
-    if tool.entity_type == "candidate":
-        state.entities |= collect_entities(tool, final_args, None)
+    found = collect_entities(tool, final_args, preview)
+    state.entities |= found
+    await _link_now(state, found)
     events.append(
         {
             "type": "step",

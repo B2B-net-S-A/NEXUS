@@ -298,3 +298,92 @@ async def test_get_system_sender_connection_none_when_upn_empty(monkeypatch):
     monkeypatch.setattr(settings, "M365_MAIL_SENDER_UPN", "")
     async with AsyncSessionLocal() as db:
         assert await sysmail.get_system_sender_connection(db) is None
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        "read_timeout",
+        "read_error",
+        "hard_timeout",
+    ],
+)
+async def test_send_system_email_uncertain_outcome_keeps_draft(
+    monkeypatch, caplog, error
+):
+    """Audyt 25.09.2026: ReadTimeout na `/send` kończył się usunięciem draftu
+    i `False` — wołający zwalniał rezerwację i wysyłał drugi raz, choć Graph
+    mógł już przyjąć wiadomość. Teraz: wynik „nie wiadomo” (None), draft
+    zostaje, a log nie niesie adresu ani tematu."""
+    import httpx
+
+    from app.services.m365.graph_client import GraphRequestError
+
+    errors = {
+        "read_timeout": httpx.ReadTimeout("timed out"),
+        "read_error": httpx.ReadError("reset"),
+        "hard_timeout": GraphRequestError(599, "hard timeout after 120s"),
+    }
+    deleted: list[str] = []
+
+    def _behavior(url, json):
+        if url == "/me/messages":
+            return {"id": "m-1"}
+        raise errors[error]
+
+    monkeypatch.setattr(sysmail, "GraphClient", _fake_graph(_behavior, deleted=deleted))
+    with caplog.at_level("INFO", logger=sysmail.logger.name):
+        ok = await sysmail.send_system_email(
+            db=None,
+            connection=_Conn(),
+            to="osoba.prywatna@example.com",
+            subject="Alert: Jan Kowalski",
+            text_body="t",
+        )
+
+    assert ok is sysmail.DELIVERY_UNCERTAIN
+    assert ok is None
+    assert deleted == []
+    joined = " ".join(r.getMessage() for r in caplog.records)
+    assert "osoba.prywatna@example.com" not in joined
+    assert "Jan Kowalski" not in joined
+    assert sysmail.recipient_ref("osoba.prywatna@example.com") in joined
+
+
+async def test_send_system_email_success_log_has_no_pii(monkeypatch, caplog):
+    monkeypatch.setattr(
+        sysmail, "GraphClient", _fake_graph(lambda url, json: {"id": "m-2"})
+    )
+    with caplog.at_level("INFO", logger=sysmail.logger.name):
+        ok = await sysmail.send_system_email(
+            db=None,
+            connection=_Conn(),
+            to="osoba.prywatna@example.com",
+            subject="Alert: Jan Kowalski",
+            text_body="t",
+        )
+    assert ok is True
+    joined = " ".join(r.getMessage() for r in caplog.records)
+    assert "osoba.prywatna@example.com" not in joined
+    assert "Jan Kowalski" not in joined
+
+
+def test_app_mail_outcome_reads_thread_flag(monkeypatch):
+    """Kanał app-only: `send_via_graph_app` zwraca bool, a „nie wiadomo”
+    zostawia we fladze wątku — `app_mail_send_outcome` zamienia to na None."""
+    import app.services.m365.app_mail as app_mail
+    import app.services.notification_delivery as delivery
+
+    monkeypatch.setattr(settings, "M365_APP_MAIL_ENABLED", True)
+    monkeypatch.setattr(app_mail, "last_delivery_uncertain", lambda: True)
+    monkeypatch.setattr(delivery, "last_send_policy_blocked", lambda: False)
+    assert sysmail.app_mail_send_outcome(False) is None
+    assert sysmail.app_mail_send_outcome(True) is True
+
+    monkeypatch.setattr(app_mail, "last_delivery_uncertain", lambda: False)
+    assert sysmail.app_mail_send_outcome(False) is False
+
+    # Blokada polityki nie uruchamia wysyłki — flaga wątku jest nieaktualna.
+    monkeypatch.setattr(app_mail, "last_delivery_uncertain", lambda: True)
+    monkeypatch.setattr(delivery, "last_send_policy_blocked", lambda: True)
+    assert sysmail.app_mail_send_outcome(False) is False

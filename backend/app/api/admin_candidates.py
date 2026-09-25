@@ -25,7 +25,6 @@ RBAC: admin only (``AdminUser`` dependency).
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import unicodedata
 from datetime import datetime, timezone
@@ -37,6 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AdminUser
 from app.core.database import AsyncSessionLocal, get_db
+from app.core.tasks import spawn
 from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.services import candidate_audit
@@ -111,7 +111,7 @@ async def trigger_backfill_names(
             status_code=status.HTTP_409_CONFLICT,
             detail="A backfill run is already in progress",
         )
-    asyncio.create_task(_run_backfill(limit, prefer_llm))
+    spawn(_run_backfill(limit, prefer_llm), "backfill_names")
     return {"status": "started", "limit": limit, "prefer_llm": prefer_llm}
 
 
@@ -221,8 +221,9 @@ async def trigger_backfill_cc(
             status_code=status.HTTP_409_CONFLICT,
             detail="A competence-category backfill is already in progress",
         )
-    asyncio.create_task(
-        _run_cc_backfill(limit, only_missing, start_after_id, only_slug or None)
+    spawn(
+        _run_cc_backfill(limit, only_missing, start_after_id, only_slug or None),
+        "backfill_cc",
     )
     return {
         "status": "started",
@@ -321,7 +322,10 @@ async def trigger_backfill_cv_fields(
             status_code=status.HTTP_409_CONFLICT,
             detail="A cv-fields backfill run is already in progress",
         )
-    asyncio.create_task(_run_cv_fields_backfill(limit, after_id, calibration_log))
+    spawn(
+        _run_cv_fields_backfill(limit, after_id, calibration_log),
+        "backfill_cv_fields",
+    )
     return {"status": "started", "limit": limit, "after_id": after_id}
 
 
@@ -401,7 +405,10 @@ async def trigger_backfill_experience_dates(
             status_code=status.HTTP_409_CONFLICT,
             detail="An experience-dates backfill run is already in progress",
         )
-    asyncio.create_task(_run_experience_dates_backfill(limit, after_id))
+    spawn(
+        _run_experience_dates_backfill(limit, after_id),
+        "backfill_experience_dates",
+    )
     return {"status": "started", "limit": limit, "after_id": after_id}
 
 

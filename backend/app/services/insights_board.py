@@ -411,7 +411,11 @@ async def compute_board(
                 "revenue_monthly_pln": money(current_fold.revenue),
                 "consultant_cost_monthly_pln": money(current_fold.cost),
                 "margin_monthly_pln": money(current_fold.margin),
-                "margin_pct": ratio(current_fold.margin, current_fold.revenue),
+                # Mianownik = przychód kontraktów ze ZNANĄ marżą — kontrakt bez
+                # stawki kosztowej zaniżałby procent (audyt 25.09.2026, jak
+                # ``contract_analytics._margin_pct``); liczba takich kontraktów
+                # jedzie obok w ``contracts_without_cost_leg``.
+                "margin_pct": ratio(current_fold.margin, current_fold.margin_revenue),
                 "active_consultants": current_fold.consultants,
                 "active_contracts": current_fold.active_contracts,
                 "priced_contracts": current_fold.priced_contracts,

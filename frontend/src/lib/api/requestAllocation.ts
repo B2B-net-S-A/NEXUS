@@ -113,6 +113,8 @@ export interface ReviewRow {
   applications_14d: number
   suggested_state: WorkState | null
   suggestion_reason: string
+  /** Rekrutacja zamknięta — stanu pracy nie zmienia się, dopóki jej nie otworzą. */
+  closed?: boolean
 }
 
 export interface ReviewResponse {

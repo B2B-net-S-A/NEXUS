@@ -902,6 +902,8 @@ async def send_pending_alert_emails(db: AsyncSession) -> int:
     from app.services.email import email_channel_enabled, send_email
     from app.services.notification_delivery import guarded_send, load_policy
     from app.services.m365.system_mail import (
+        DELIVERY_UNCERTAIN,
+        app_mail_send_outcome,
         get_system_sender_connection,
         send_system_email,
     )
@@ -925,6 +927,8 @@ async def send_pending_alert_emails(db: AsyncSession) -> int:
                 DlAlert.email_sent_at.is_(None),
                 DlAlert.created_at >= policy.cutoff_for("delivery_alert"),
                 DlAlert.payload["email"].as_boolean().is_(True),
+                # Wynik poprzedniej wysyłki nieznany — nie wysyłamy drugi raz.
+                DlAlert.payload["email_delivery_uncertain"].as_boolean().isnot(True),
                 or_(
                     DlAlert.email_send_started_at.is_(None),
                     DlAlert.email_send_started_at <= stale_cutoff,
@@ -956,6 +960,7 @@ async def send_pending_alert_emails(db: AsyncSession) -> int:
                 # Odhaczona albo zamknięta w międzyczasie — bez maila.
                 DlAlert.status == DL_ALERT_STATUS_NEW,
                 DlAlert.email_sent_at.is_(None),
+                DlAlert.payload["email_delivery_uncertain"].as_boolean().isnot(True),
                 or_(
                     DlAlert.email_send_started_at.is_(None),
                     DlAlert.email_send_started_at <= stale_cutoff,
@@ -979,7 +984,7 @@ async def send_pending_alert_emails(db: AsyncSession) -> int:
             "sprawa jest załatwiona — przypomnienia przestaną przychodzić.\n\n"
             "— Nexus ATS"
         )
-        ok = False
+        ok: bool | None = False
         try:
             if not (await load_policy(db)).allows("delivery_alert", alert.created_at):
                 await db.execute(
@@ -1000,22 +1005,48 @@ async def send_pending_alert_emails(db: AsyncSession) -> int:
                     event_at=alert.created_at,
                 )
             else:
-                ok = await asyncio.to_thread(
-                    guarded_send,
-                    "delivery_alert",
-                    alert.created_at,
-                    send_email,
-                    user.email,
-                    subject,
-                    text_body,
-                    None,
-                )
+                to_addr = user.email
+
+                def _send_app_only(
+                    created_at=alert.created_at, to_addr=to_addr
+                ) -> bool | None:
+                    # Flaga „nie wiadomo” żyje w wątku wysyłki — liczona tutaj.
+                    return app_mail_send_outcome(
+                        guarded_send(
+                            "delivery_alert",
+                            created_at,
+                            send_email,
+                            to_addr,
+                            subject,
+                            text_body,
+                            None,
+                        )
+                    )
+
+                ok = await asyncio.to_thread(_send_app_only)
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "dl_alerts email failed alert=%d: %s", alert_id, type(exc).__name__
             )
+        if ok is DELIVERY_UNCERTAIN:
+            # Mail mógł wyjść (odpowiedź Graphu zginęła). Zwolnienie rezerwacji
+            # oznaczało drugą wysyłkę tego samego alertu — zamiast tego wiersz
+            # wypada z kolejki z flagą w `payload` (bez migracji; tabela nie ma
+            # kolumny na ten stan). Rezerwacja zostaje jako ślad próby.
+            await db.execute(
+                update(DlAlert)
+                .where(DlAlert.id == alert_id)
+                .values(
+                    payload={
+                        **(alert.payload or {}),
+                        "email_delivery_uncertain": True,
+                    }
+                )
+            )
+            await db.commit()
+            continue
         await db.execute(
             update(DlAlert)
             .where(DlAlert.id == alert_id)

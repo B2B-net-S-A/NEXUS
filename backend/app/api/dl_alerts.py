@@ -38,6 +38,7 @@ from sqlalchemy.orm import selectinload
 from app.api.deps import require_roles
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.core.database import get_db
+from app.core.export_safety import safe_cell
 from app.core.scheduling import business_today
 from app.models.activity import Activity
 from app.models.dl_alert import (
@@ -468,10 +469,10 @@ async def export_alerts(
         read = _to_read(alert)
         sheet.append(
             [
-                _formula_safe(read.recipient_name),
-                _formula_safe(read.client_name),
-                _formula_safe(read.alert_type_label),
-                _formula_safe(read.message),
+                safe_cell(read.recipient_name),
+                safe_cell(read.client_name),
+                safe_cell(read.alert_type_label),
+                safe_cell(read.message),
                 read.created_at.isoformat(timespec="seconds"),
                 (
                     read.handled_at.isoformat(timespec="seconds")
@@ -493,16 +494,3 @@ async def export_alerts(
         media_type=_XLSX_MEDIA,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
-
-
-# Ta sama osłona co w eksporcie katalogu klientów: komórka tekstowa zaczynająca
-# się od =, +, -, @ (albo tabulatora/CR, którymi da się je przemycić) jest
-# wykonywana jako formuła po otwarciu pliku. Treść alertu zawiera nazwy
-# klientów i numery zamówień wpisane przez ludzi, więc jest tekstem obcym.
-_FORMULA_INJECTION_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
-
-
-def _formula_safe(value):
-    if isinstance(value, str) and value[:1] in _FORMULA_INJECTION_PREFIXES:
-        return "'" + value
-    return value

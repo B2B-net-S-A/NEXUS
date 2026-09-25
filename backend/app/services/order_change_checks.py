@@ -480,8 +480,10 @@ def _event_summary(event: OrderChangeEvent) -> str:
         if event.field == "rate_cost"
         else "Zmiana stawki przychodowej"
     )
+    # Stara strona w SWOJEJ walucie — zmiana samej waluty też jest zmianą.
+    old_currency = event.old_currency or event.currency
     return (
-        f"{label}: {_rate(event.old_amount, event.old_unit, event.currency)} → "
+        f"{label}: {_rate(event.old_amount, event.old_unit, old_currency)} → "
         f"{_rate(event.new_amount, event.new_unit, event.currency)}"
     )
 

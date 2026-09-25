@@ -256,6 +256,7 @@ async def request_publish(
     )
     built = await build_content(db, job, options=normalized)
     _checked_options(portal, built.content, normalized)
+    await _cancel_stale_cleanup(db, job.id, portal)
     posting = JobPosting(
         job_id=job.id,
         portal=portal,
@@ -313,8 +314,50 @@ def external_ref_for(job_id: int, portal: Portal) -> str:
 
 
 def _maybe_sent(posting: JobPosting) -> bool:
-    """Czy ``POST`` mógł już pójść (worker brał wiersz co najmniej raz)."""
-    return (posting.attempts or 0) > 0 or posting.external_id is not None
+    """Czy ``POST`` mógł już pójść (worker brał wiersz co najmniej raz).
+
+    ``next_attempt_at`` ustawia wyłącznie dzierżawa workera (``claim_batch``)
+    i odstęp po próbie — świeży wiersz ma tam NULL. Do 25.09.2026 liczyły się
+    tylko ``attempts``, a te rosną dopiero PO odpowiedzi portalu: wycofanie
+    w trakcie pierwszej wysyłki usuwało wiersz jako „nigdy niewysłany”,
+    a opłacone ogłoszenie zostawało na portalu bez możliwości zamknięcia.
+    """
+    return (
+        (posting.attempts or 0) > 0
+        or posting.external_id is not None
+        or posting.next_attempt_at is not None
+    )
+
+
+async def _cancel_stale_cleanup(db: AsyncSession, job_id: int, portal: Portal) -> None:
+    """Nowa publikacja anuluje zaległe zamknięcie po niepewnej publikacji.
+
+    Wiersz ``failed`` z ``pending_action = close`` (timeouty do końca prób —
+    ogłoszenie MOGŁO powstać) zamyka ogłoszenie po naszym STAŁYM externalId.
+    Ten sam externalId niesie nowa publikacja tej pary, więc zaległe
+    zamknięcie zamknęłoby NOWE, opłacone ogłoszenie. Anulujemy je: nowa
+    publikacja najpierw szuka ogłoszenia po externalId i przejmie to, które
+    mogło powstać, zamiast kupować drugie (audyt 25.09.2026).
+    """
+    stale = (
+        await db.scalars(
+            select(JobPosting)
+            .where(
+                JobPosting.job_id == job_id,
+                JobPosting.portal == portal,
+                JobPosting.status == PostingStatus.failed,
+                JobPosting.pending_action == ACTION_CLOSE,
+            )
+            .with_for_update()
+        )
+    ).all()
+    for old in stale:
+        old.pending_action = None
+        old.next_attempt_at = None
+        old.last_error = (
+            "Zamknięcie anulowane — nowa publikacja przejmie ogłoszenie, "
+            "jeśli poprzednia próba je utworzyła."
+        )
 
 
 async def request_unpublish(

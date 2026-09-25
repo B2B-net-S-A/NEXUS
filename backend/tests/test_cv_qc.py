@@ -739,6 +739,121 @@ async def test_leaving_the_cpro_queue_does_not_repeat_qc(
 
 
 @pytest.mark.asyncio
+async def test_fallback_sender_of_the_job_can_upload_without_firm_sender(
+    api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Audyt 25.09.2026: bez osoby od Cpro na firmę kolejka pokazuje zadanie
+    osobie zapasowej rekrutacji (`jobs.cpro_sender_id`) — ta osoba musi móc
+    je wrzucić („✓ Wrzucone”), a nie dostawać 403. Inny rekruter dalej 403."""
+
+    world = await _seed_world()
+    monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", str(world["client_id"]))
+    hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
+    rec_id, rec_creds = await _seed_user(UserRole.recruiter)
+    other_id, other_creds = await _seed_user(UserRole.recruiter)
+    hor = await _login(api_client, hor_creds)
+    rec = await _login(api_client, rec_creds)
+    other = await _login(api_client, other_creds)
+    try:
+        async with restore_cpro_sender():
+            await api_client.put(
+                "/api/board-tasks/cpro/sender", headers=hor, json={"user_id": None}
+            )
+            monkeypatch.setattr(settings, "CV_QC_GATE_ENABLED", False)
+            await _move(api_client, hor, world, "verified")
+            await _move(api_client, hor, world, "cpro", task_assignee_id=rec_id)
+            monkeypatch.setattr(settings, "CV_QC_GATE_ENABLED", True)
+
+            # HoR widzi zadanie z osobą zapasową, bo nikt nie jest na firmę.
+            queue = (await api_client.get("/api/board-tasks", headers=hor)).json()
+            todo = [
+                r
+                for r in queue["cpro_to_send"]
+                if r["candidate_id"] == world["candidate_id"]
+            ]
+            assert len(todo) == 1 and todo[0]["assignee_id"] == rec_id
+
+            send = {
+                "candidate_id": world["candidate_id"],
+                "job_id": world["job_id"],
+                "stage_def_id": world["defs"]["cv_sent"],
+            }
+            refused = await api_client.post(
+                "/api/pipeline/move", headers=other, json=send
+            )
+            assert refused.status_code == 403, refused.text
+            moved = await api_client.post("/api/pipeline/move", headers=rec, json=send)
+            assert moved.status_code == 200, moved.text
+    finally:
+        await _cleanup(world, [hor_id, rec_id, other_id])
+
+
+async def _rejected_stage_def_id(world: dict) -> int:
+    from app.models.pipeline_template import PipelineStageDef
+
+    async with AsyncSessionLocal() as db:
+        return await db.scalar(
+            select(PipelineStageDef.id).where(
+                PipelineStageDef.template_id == world["template_id"],
+                PipelineStageDef.is_terminal.is_(True),
+            )
+        )
+
+
+@pytest.mark.asyncio
+async def test_closed_pair_does_not_skip_qc_on_the_way_to_cv_sent(
+    api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Audyt 25.09.2026: „Nowi → Odrzucony → CV wysłane” omijało QC, bo bramka
+    patrzyła na bieżącą kolumnę („Zamknięci”). Liczy się kolumna sprzed
+    zamknięcia — tu „Zweryfikowany”, więc bez CV firmowego 409."""
+
+    monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", "")
+    world = await _seed_world()
+    dl_id, dl_creds = await _seed_user(UserRole.delivery_lead)
+    dl = await _login(api_client, dl_creds)
+    try:
+        await _move(api_client, dl, world, "verified")
+        rejected = await api_client.post(
+            "/api/pipeline/move",
+            headers=dl,
+            json={
+                "candidate_id": world["candidate_id"],
+                "job_id": world["job_id"],
+                "stage_def_id": await _rejected_stage_def_id(world),
+                "rejection_reason": "Stawka",
+            },
+        )
+        assert rejected.status_code == 200, rejected.text
+
+        monkeypatch.setattr(settings, "CV_QC_GATE_ENABLED", True)
+        refused = await api_client.post(
+            "/api/pipeline/move",
+            headers=dl,
+            json={
+                "candidate_id": world["candidate_id"],
+                "job_id": world["job_id"],
+                "stage_def_id": world["defs"]["cv_sent"],
+                "client_rate_value": "180",
+                "client_rate_unit": "hourly",
+                "client_rate_currency": "PLN",
+            },
+        )
+        assert refused.status_code == 409, refused.text
+        assert refused.json()["detail"]["code"] == "CV_QC_FAILED"
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(CvQcRun).where(
+                    CvQcRun.candidate_id == world["candidate_id"],
+                    CvQcRun.job_id == world["job_id"],
+                )
+            )
+            await db.commit()
+        await _cleanup(world, [dl_id])
+
+
+@pytest.mark.asyncio
 async def test_gate_switch_off_lets_the_move_through(
     api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:

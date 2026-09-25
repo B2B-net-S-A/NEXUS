@@ -1,6 +1,6 @@
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
-from typing import Any, Literal, Optional
+from typing import Annotated, Any, Literal, Optional
 import asyncio
 import hashlib
 import io
@@ -46,6 +46,7 @@ from sqlalchemy.orm import aliased, selectinload
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.export_safety import safe_row
 from app.core.scheduling import business_today
 from app.core.http_headers import content_disposition
 from app.core.rate_limit import limiter, user_or_ip_key
@@ -134,6 +135,11 @@ from app.services.hiring_manager_verdicts import (
 )
 from app.services.experience_end import sql_current_end_literals
 from app.services.polish_ilike import contains_pattern
+from app.services.candidate_search_predicates import (
+    FILTER_DATE_MAX,
+    FILTER_DATE_MIN,
+    business_date_range,
+)
 from app.services.pipeline_eligibility import assert_candidate_move_eligible
 from app.services.pipeline_latest import current_hired_stage_exists
 from app.services.text_cleaning import clean_rich_text
@@ -234,6 +240,10 @@ class DuplicateCheckPayload(BaseModel):
     exclude_candidate_id: Optional[int] = None
 
 
+# Data filtra listy: poza zakresem = 422, nie przepełnienie `date` i 500.
+FilterDate = Annotated[date, Field(ge=FILTER_DATE_MIN, le=FILTER_DATE_MAX)]
+
+
 class CandidateFilterSpec(BaseModel):
     """Canonical candidate filters shared by list and export endpoints."""
 
@@ -300,22 +310,22 @@ class CandidateFilterSpec(BaseModel):
     voivodeship: Optional[list[str]] = None
     # Kontakt z kandydatem w okresie (notatki, rozmowy, maile z Traffita).
     contacted: Optional[Literal["yes", "no"]] = None
-    contacted_from: Optional[date] = None
-    contacted_to: Optional[date] = None
+    contacted_from: Optional[FilterDate] = None
+    contacted_to: Optional[FilterDate] = None
     contacted_by: Optional[list[int]] = None
     pipeline_stage: Optional[list[PipelineStage]] = None
     stage_category: Optional[list[StageCategory]] = None
     stage_current_only: Optional[bool] = None
     stage_moved_by: Optional[list[int]] = None
-    stage_moved_after: Optional[date] = None
-    stage_moved_before: Optional[date] = None
+    stage_moved_after: Optional[FilterDate] = None
+    stage_moved_before: Optional[FilterDate] = None
     stage_client_id: Optional[list[int]] = None
     # "Data wysłania do klienta" — dedykowany filtr po dacie rekomendacji
     # kandydata do klienta (przejście na etap `cv_sent`). Niezależny od
     # ogólnego rodzinnego filtra `stage_*`: dopasowuje kandydatów z DOWOLNYM
     # ruchem na `cv_sent` w oknie dat (historycznie), inclusive `YYYY-MM-DD`.
-    sent_to_client_from: Optional[date] = None
-    sent_to_client_to: Optional[date] = None
+    sent_to_client_from: Optional[FilterDate] = None
+    sent_to_client_to: Optional[FilterDate] = None
     competence_category_id: Optional[list[int]] = None
     sort: Literal["newest", "oldest", "name", "relevance"] = "newest"
     id_after: Optional[int] = Field(None, ge=1)
@@ -1173,19 +1183,9 @@ async def _build_candidate_filtered_query(
             if category in categories
         )
 
-    moved_after_dt = (
-        datetime.combine(f.stage_moved_after, datetime.min.time(), tzinfo=timezone.utc)
-        if f.stage_moved_after
-        else None
-    )
-    moved_before_dt = (
-        datetime.combine(
-            f.stage_moved_before + timedelta(days=1),
-            datetime.min.time(),
-            tzinfo=timezone.utc,
-        )
-        if f.stage_moved_before
-        else None
+    # Doba w kalendarzu firmy (Europe/Warsaw) — ta sama reguła co „kontakt”.
+    moved_after_dt, moved_before_dt = business_date_range(
+        f.stage_moved_after, f.stage_moved_before
     )
 
     def move_predicates(moved_by_col, moved_at_col, job_id_col) -> list:
@@ -1283,23 +1283,10 @@ async def _build_candidate_filtered_query(
     # HISTORYCZNY i osobny od rodzinnego `stage_*`: „kogo wysłaliśmy do klienta
     # w maju" to fakt o zdarzeniu (`cv_sent`), nie o bieżącym etapie — kandydat,
     # który po wysyłce poszedł na rozmowę u klienta, nadal się liczy. Zakres dat
-    # włącznie, jak przy `stage_moved_*`: dolna granica = 00:00 UTC dnia `from`,
-    # górna = 00:00 UTC dnia PO `to` (cały dzień `to` w środku).
-    sent_from_dt = (
-        datetime.combine(
-            f.sent_to_client_from, datetime.min.time(), tzinfo=timezone.utc
-        )
-        if f.sent_to_client_from
-        else None
-    )
-    sent_to_dt = (
-        datetime.combine(
-            f.sent_to_client_to + timedelta(days=1),
-            datetime.min.time(),
-            tzinfo=timezone.utc,
-        )
-        if f.sent_to_client_to
-        else None
+    # włącznie, jak przy `stage_moved_*`: dolna granica = 00:00 dnia `from`,
+    # górna = 00:00 dnia PO `to` — doba w kalendarzu firmy (Europe/Warsaw).
+    sent_from_dt, sent_to_dt = business_date_range(
+        f.sent_to_client_from, f.sent_to_client_to
     )
     if sent_from_dt is not None or sent_to_dt is not None:
         sent_conditions = [
@@ -1857,10 +1844,16 @@ async def list_candidates(
         ),
     ),
     contacted_from: Optional[date] = Query(
-        None, description="Contact period start (inclusive)."
+        None,
+        ge=FILTER_DATE_MIN,
+        le=FILTER_DATE_MAX,
+        description="Contact period start (inclusive).",
     ),
     contacted_to: Optional[date] = Query(
-        None, description="Contact period end (inclusive)."
+        None,
+        ge=FILTER_DATE_MIN,
+        le=FILTER_DATE_MAX,
+        description="Contact period end (inclusive).",
     ),
     contacted_by: Optional[list[int]] = Query(
         None, description="Only contacts made by these users."
@@ -1923,19 +1916,23 @@ async def list_candidates(
     ),
     stage_moved_after: Optional[date] = Query(
         None,
+        ge=FILTER_DATE_MIN,
+        le=FILTER_DATE_MAX,
         description=(
             "Filter by WHEN the candidate was moved onto the matched stage — "
             "lower bound (inclusive), `YYYY-MM-DD`. Matches "
-            "`CandidateStage.moved_at >= 00:00 UTC` of this day. Correlated "
+            "`CandidateStage.moved_at >= 00:00 Europe/Warsaw` of this day. Correlated "
             "with the stage filter exactly like `stage_moved_by`."
         ),
     ),
     stage_moved_before: Optional[date] = Query(
         None,
+        ge=FILTER_DATE_MIN,
+        le=FILTER_DATE_MAX,
         description=(
             "Filter by WHEN the candidate was moved onto the matched stage — "
             "upper bound (inclusive), `YYYY-MM-DD`. Matches "
-            "`CandidateStage.moved_at < 00:00 UTC` of the NEXT day, so the "
+            "`CandidateStage.moved_at < 00:00 Europe/Warsaw` of the NEXT day, so the "
             "whole `before` day is included."
         ),
     ),
@@ -1957,21 +1954,25 @@ async def list_candidates(
     ),
     sent_to_client_from: Optional[date] = Query(
         None,
+        ge=FILTER_DATE_MIN,
+        le=FILTER_DATE_MAX,
         description=(
             "Send-date filter (Data wysłania do klienta) — lower bound "
             "(inclusive), `YYYY-MM-DD`. Matches candidates who reached the "
             "`cv_sent` stage (CV wysłane do klienta / rekomendacja) with "
-            "`CandidateStage.moved_at >= 00:00 UTC` of this day. Independent of "
+            "`CandidateStage.moved_at >= 00:00 Europe/Warsaw` of this day. Independent of "
             "`pipeline_stage`/`stage_*`; always HISTORICAL — any `cv_sent` move "
             "in the window counts, even if the candidate has since advanced."
         ),
     ),
     sent_to_client_to: Optional[date] = Query(
         None,
+        ge=FILTER_DATE_MIN,
+        le=FILTER_DATE_MAX,
         description=(
             "Send-date filter (Data wysłania do klienta) — upper bound "
             "(inclusive), `YYYY-MM-DD`. Matches `cv_sent` moves with "
-            "`CandidateStage.moved_at < 00:00 UTC` of the NEXT day, so the whole "
+            "`CandidateStage.moved_at < 00:00 Europe/Warsaw` of the NEXT day, so the whole "
             "`to` day is included. Pairs with `sent_to_client_from`."
         ),
     ),
@@ -2723,24 +2724,28 @@ def _row_for_export(c: Candidate) -> list:
         c.expected_rate_hourly,
         c.expected_rate_currency,
     )
-    return [
-        c.id,
-        c.name or "",
-        c.lastname or "",
-        c.email or "",
-        c.phone or "",
-        c.location or "",
-        c.competence_category or "",
-        c.years_it_experience if c.years_it_experience is not None else "",
-        _skill_names_flat(c.skills),
-        _skill_names_flat(c.tags),
-        c.status.value if c.status else "",
-        c.source or "",
-        profile_rate if profile_rate is not None else "",
-        c.availability_date.isoformat() if c.availability_date else "",
-        "true" if c.champion else "false",
-        c.created_at.isoformat() if c.created_at else "",
-    ]
+    # Imię, nazwisko i lokalizacja przychodzą też z publicznego formularza
+    # strony kariery — tekst nie może zostać formułą w Excelu (safe_row).
+    return safe_row(
+        [
+            c.id,
+            c.name or "",
+            c.lastname or "",
+            c.email or "",
+            c.phone or "",
+            c.location or "",
+            c.competence_category or "",
+            c.years_it_experience if c.years_it_experience is not None else "",
+            _skill_names_flat(c.skills),
+            _skill_names_flat(c.tags),
+            c.status.value if c.status else "",
+            c.source or "",
+            profile_rate if profile_rate is not None else "",
+            c.availability_date.isoformat() if c.availability_date else "",
+            "true" if c.champion else "false",
+            c.created_at.isoformat() if c.created_at else "",
+        ]
+    )
 
 
 @router.get("/export")
@@ -4775,6 +4780,33 @@ async def reparse_primary_cv(
     return {"status": "queued", "document_id": document.id}
 
 
+# Typy, które przeglądarka może wyrenderować w karcie (`disposition=inline`)
+# bez wykonania kodu na originie API. `content_type` dokumentu pochodzi
+# z uploadu albo importu (Traffit, poczta M365, formularz kariery) — wiersz
+# z `text/html` albo `image/svg+xml` otwarty inline byłby XSS-em na originie
+# API. Reszta zawsze jako `attachment`; podgląd w UI pobiera bajty `fetch`-em,
+# więc nagłówek dyspozycji go nie dotyczy.
+_INLINE_SAFE_MEDIA_TYPES = frozenset(
+    {
+        "application/pdf",
+        "image/png",
+        "image/jpeg",
+        "image/gif",
+        "image/webp",
+    }
+)
+
+
+def _safe_document_disposition(
+    media_type: Optional[str],
+    requested: Literal["attachment", "inline"],
+) -> Literal["attachment", "inline"]:
+    if requested != "inline":
+        return "attachment"
+    base = (media_type or "").split(";", 1)[0].strip().lower()
+    return "inline" if base in _INLINE_SAFE_MEDIA_TYPES else "attachment"
+
+
 @router.get("/{candidate_id}/documents/{doc_id}/content")
 async def download_candidate_document(
     candidate_id: int,
@@ -4805,6 +4837,7 @@ async def download_candidate_document(
 
     filename = doc.filename or f"document-{doc.id}"
     media_type = doc.content_type or "application/octet-stream"
+    disposition = _safe_document_disposition(media_type, disposition)
 
     candidate_audit.record_candidate_audit(
         db,
@@ -4899,6 +4932,8 @@ async def get_candidate_document_url(
         raise HTTPException(status_code=404, detail="Document not found")
 
     filename = doc.filename or f"document-{doc.id}"
+    # Presigned URL renderuje się na originie bucketu — ta sama allowlista.
+    disposition = _safe_document_disposition(doc.content_type, disposition)
 
     candidate_audit.record_candidate_audit(
         db,

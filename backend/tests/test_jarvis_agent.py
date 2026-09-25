@@ -438,3 +438,45 @@ async def test_conversation_list_and_delete_are_owner_scoped(app_client, monkeyp
             f"/api/jarvis/conversations/{conversation_id}", headers=owner
         )
     ).status_code == 204
+
+
+async def test_candidate_delete_erases_conversation_found_via_global_search(
+    app_client, monkeypatch, app_auth_headers
+):
+    """Audyt 25.09.2026: `global_search` zwraca nazwisko i `/candidates/{id}`,
+    ale nie jest narzędziem „kandydackim”, więc rozmowa nie była wiązana
+    z osobą i przeżywała jej usunięcie (art. 17)."""
+    lastname = f"Szukana-{uuid.uuid4().hex[:6]}"
+    candidate_id = await make_candidate(lastname)
+    model = ScriptedModel(
+        [
+            fake_message(tool_block("global_search", {"query": lastname})),
+            fake_message(text_block("Znalazłem jedną osobę.")),
+        ]
+    )
+    enable_jarvis(monkeypatch, model)
+    _, headers = await make_user(UserRole.admin)
+    events = parse_sse((await _chat(app_client, headers, f"Kto to {lastname}?")).text)
+    conversation_id = uuid.UUID(events[0]["conversation_id"])
+
+    async with AsyncSessionLocal() as db:
+        linked = (
+            (
+                await db.execute(
+                    select(JarvisConversationEntity.entity_id).where(
+                        JarvisConversationEntity.conversation_id == conversation_id,
+                        JarvisConversationEntity.entity_type == "candidate",
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert candidate_id in linked
+
+    deleted = await app_client.delete(
+        f"/api/candidates/{candidate_id}", headers=app_auth_headers
+    )
+    assert deleted.status_code == 204, deleted.text
+    async with AsyncSessionLocal() as db:
+        assert await db.get(JarvisConversation, conversation_id) is None

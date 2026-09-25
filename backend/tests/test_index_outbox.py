@@ -181,3 +181,51 @@ async def test_drain_once_processes_pending():
     async with AsyncSessionLocal() as db:
         counts = await outbox.drain_once(db, batch=10, reindex_fn=_ok)
     assert counts.get("done", 0) >= 2
+
+
+@pytest.mark.asyncio
+async def test_failed_event_waits_for_backoff_before_retry():
+    """Audyt 25.09.2026: `failed` było brane od razu w następnym ticku, więc
+    5 prób mijało w sekundach. Teraz wpis czeka odstęp zależny od liczby prób
+    (1, 5, 15, 60 min), liczony od `updated_at`."""
+    fresh = await _insert_event(entity_id=BASE + 20, status="failed", attempts=1)
+    due = await _insert_event(entity_id=BASE + 21, status="failed", attempts=2)
+    not_due = await _insert_event(entity_id=BASE + 22, status="failed", attempts=3)
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            text(
+                "UPDATE match_index_outbox SET updated_at = now() - interval '6 minutes' "
+                "WHERE id IN (:a, :b)"
+            ),
+            {"a": due, "b": not_due},
+        )
+        await db.commit()
+
+    async with AsyncSessionLocal() as db:
+        claimed = {ev.id for ev in await outbox.claim_batch(db, 1000)}
+        await db.rollback()
+
+    assert due in claimed  # 2 próby → 5 min minęło
+    assert fresh not in claimed  # 1 próba → 1 min jeszcze nie minęła
+    assert not_due not in claimed  # 3 próby → 15 min jeszcze nie minęło
+
+
+@pytest.mark.asyncio
+async def test_provider_outage_does_not_burn_attempts(monkeypatch):
+    """Awaria dostawcy embeddingów nie zużywa limitu prób — inaczej jedna
+    awaria Voyage'a zamieniała backlog w `dead`."""
+    monkeypatch.setattr(settings, "AI_INDEX_MAX_ATTEMPTS", 5)
+    monkeypatch.setattr(outbox, "_embedding_provider_down", lambda: True)
+
+    async def _boom(_t, _i, _op):
+        raise RuntimeError("voyage down")
+
+    ev_id = await _insert_event(entity_id=BASE + 23, attempts=4)
+    async with AsyncSessionLocal() as db:
+        ev = await db.get(IndexOutboxEvent, ev_id)
+        status = await outbox.process_event(db, ev, reindex_fn=_boom)
+        await db.commit()
+    assert status == "failed"
+    async with AsyncSessionLocal() as db:
+        ev = await db.get(IndexOutboxEvent, ev_id)
+        assert ev.attempts == 4

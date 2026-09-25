@@ -344,11 +344,11 @@ async def test_bulk_export_is_limited_to_admin_and_finance(app_client: AsyncClie
 
 async def test_export_escapes_formula_injection():
     """Treść alertu niesie nazwy wpisane przez ludzi — to tekst obcy."""
-    from app.api.dl_alerts import _formula_safe
+    from app.core.export_safety import safe_cell
 
-    assert _formula_safe("=1+1") == "'=1+1"
-    assert _formula_safe("@SUM(A1)") == "'@SUM(A1)"
-    assert _formula_safe("Polkomtel") == "Polkomtel"
+    assert safe_cell("=1+1") == "'=1+1"
+    assert safe_cell("@SUM(A1)") == "'@SUM(A1)"
+    assert safe_cell("Polkomtel") == "Polkomtel"
 
 
 # ── Reguły skanera ──────────────────────────────────────────────────────────

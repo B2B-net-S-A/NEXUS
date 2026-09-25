@@ -308,6 +308,63 @@ class TestPlanner:
         assert titles_collide("4500030751", "4500030752") is False
         assert titles_collide("OIT/0189/2031/ITVM", "OIT/0189/2031/ITVM") is True
 
+    @pytest.mark.parametrize(
+        "a,b,expected",
+        [
+            # Ten sam numer — musi się zgadzać.
+            ("4500030751", "30751", True),
+            ("SAP 4500030751", "4500030751", True),
+            ("Zamówienie nr 4500030751", "30751", True),
+            ("4500 030 751", "4500030751", True),
+            ("830/2031", "830/2031", True),
+            ("oit / 0189/2031/itvm", "OIT/0189/2031/ITVM", True),
+            ("22", "Zlecenie nr 22", True),
+            # Różne numery — nie mogą się zgadzać (audyt 25.09.2026): końcówka
+            # cyfr wyciągniętych z numeru ze strukturą łączyła cudze zamówienia.
+            ("830/2031", "1830/2031", False),
+            ("4/2031", "34/2031", False),
+            ("3/07/2031/BL", "13/07/2031/BL", False),
+            ("ABC/12345", "12345", False),
+            ("4500030751", "4500030752", False),
+            ("1234", "11234", False),
+            ("", "12345", False),
+        ],
+    )
+    def test_titles_collide_table(self, a, b, expected):
+        assert titles_collide(a, b) is expected
+        assert titles_collide(b, a) is expected
+
+    def test_md_group_line_draft_is_never_filled_as_periodic_order(self):
+        """Szkic linii zamówienia MD/kosztowego ma własny cykl życia (budżet,
+        zamiana kontraktora). Wypełniony jak zamówienie okresowe dostawał
+        numer, okres i stawkę z PDF-a automatem (audyt 25.09.2026) — teraz
+        idzie do człowieka (``ACTION_GROUP``), także przy tym samym numerze."""
+        from app.services.order_mail_planner import ACTION_GROUP
+
+        for title in ("7/2031", "445"):
+            p = plan_document(
+                client_id=1,
+                extraction=_extraction([_row("A A")]),
+                resolved=[_resolved(0, "A A", contract_id=10)],
+                existing_orders_by_contract={
+                    10: [
+                        ExistingOrder(
+                            80,
+                            "draft",
+                            title,
+                            date(2031, 4, 1),
+                            None,
+                            order_group_id=77,
+                        )
+                    ]
+                },
+                is_group_client=True,
+                today=TODAY,
+            )
+            assert p.rows[0].action == ACTION_GROUP, title
+            assert p.rows[0].target_order_id is None
+            assert p.auto_eligible_actions is False
+
     def test_group_client_and_unresolved_person(self):
         """Zamówienie MD: osoba nieznaleziona czeka na decyzję DL (ticket 09.2026).
 

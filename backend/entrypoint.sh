@@ -8593,6 +8593,12 @@ _INDEX_STATEMENTS = [
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_candidate_conflicts_active_expires "
     "ON candidate_conflicts (expires_at) "
     "WHERE active = true AND expires_at IS NOT NULL",
+    # 0384: follow-upy z kandydatem (wysłania CV od stałej daty — okno rośnie)
+    # i godzinowa retencja telemetrii Jarvisa po `created_at`.
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_candidate_stages_cv_sent_moved_at "
+    "ON candidate_stages (moved_at) WHERE stage = 'cv_sent'",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_jarvis_ui_events_created_at "
+    "ON jarvis_ui_events (created_at)",
 ]
 
 

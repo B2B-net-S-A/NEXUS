@@ -8,6 +8,7 @@ własną sesję i zamyka ją od razu.
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable, Optional
 
@@ -35,6 +36,21 @@ class ConversationNotFound(Exception):
     """Rozmowa nie istnieje albo należy do kogoś innego (celowo to samo)."""
 
 
+@dataclass(frozen=True)
+class TurnClaim:
+    """Rezerwacja tury: rozmowa + żeton blokady.
+
+    Żetonem jest dokładna wartość ``busy_until`` zapisana przy rezerwacji
+    (i przy każdym przedłużeniu). Zwolnienie i przedłużenie działają tylko
+    na WŁASNEJ blokadzie — tura, której blokada wygasła i którą przejęła
+    następna, nie zdejmie cudzej rezerwacji w swoim ``finally`` (audyt
+    25.09.2026). Bez nowej kolumny: znacznik czasu ma mikrosekundy.
+    """
+
+    conversation_id: uuid.UUID
+    token: datetime
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -51,7 +67,7 @@ async def claim_turn(
     first_message: str,
     context: Optional[dict[str, Any]],
     lock_seconds: float,
-) -> uuid.UUID:
+) -> TurnClaim:
     """Zakłada/rezerwuje rozmowę na jedną turę. Jedna trwająca tura na osobę."""
     now = _now()
     until = now + timedelta(seconds=lock_seconds)
@@ -77,7 +93,7 @@ async def claim_turn(
             )
             db.add(conversation)
             await db.commit()
-            return conversation.id
+            return TurnClaim(conversation.id, until)
         claimed = await db.execute(
             update(JarvisConversation)
             .where(
@@ -104,14 +120,37 @@ async def claim_turn(
                 raise ConversationNotFound()
             raise TurnBusy()
         await db.commit()
-        return row[0]
+        return TurnClaim(row[0], until)
 
 
-async def release_turn(conversation_id: uuid.UUID) -> None:
+async def extend_turn(claim: TurnClaim, lock_seconds: float) -> Optional[TurnClaim]:
+    """Przedłuża WŁASNĄ blokadę tury; None = blokada już nie jest nasza."""
+    until = _now() + timedelta(seconds=lock_seconds)
+    async with AsyncSessionLocal() as db:
+        row = (
+            await db.execute(
+                update(JarvisConversation)
+                .where(
+                    JarvisConversation.id == claim.conversation_id,
+                    JarvisConversation.busy_until == claim.token,
+                )
+                .values(busy_until=until)
+                .returning(JarvisConversation.id)
+            )
+        ).first()
+        await db.commit()
+    return TurnClaim(claim.conversation_id, until) if row is not None else None
+
+
+async def release_turn(claim: TurnClaim) -> None:
+    """Zwalnia blokadę tylko wtedy, gdy nadal jest nasza (żeton)."""
     async with AsyncSessionLocal() as db:
         await db.execute(
             update(JarvisConversation)
-            .where(JarvisConversation.id == conversation_id)
+            .where(
+                JarvisConversation.id == claim.conversation_id,
+                JarvisConversation.busy_until == claim.token,
+            )
             .values(busy_until=None, updated_at=_now())
         )
         await db.commit()

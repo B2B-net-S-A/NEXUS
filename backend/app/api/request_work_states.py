@@ -58,6 +58,9 @@ class ReviewRow(BaseModel):
     applications_14d: int
     suggested_state: Optional[str]
     suggestion_reason: str
+    # Rekrutacja zamknięta (zakładka „Zakończone”) — stanu pracy nie da się
+    # zmienić, dopóki ktoś jej nie otworzy; front chowa wtedy przyciski.
+    closed: bool = False
 
 
 class ReviewResponse(BaseModel):
@@ -179,6 +182,7 @@ async def list_request_work_states(
                 applications_14d=sig.applications_14d,
                 suggested_state=hint.state,
                 suggestion_reason=hint.reason,
+                closed=job.status != JobStatus.published,
             )
         )
     return ReviewResponse(
@@ -209,6 +213,22 @@ async def change_request_work_states(
     )
     if len(jobs) != len(wanted):
         raise HTTPException(404, "Część requestów nie istnieje.")
+    # Stan pracy dotyczy otwartej rekrutacji. Zamknięta (np. w zakładce
+    # „Zakończone”) po „Szukamy” dostawała `searching` przy `status=closed`
+    # i znikała z listy, bo lista bierze opublikowane albo zakończone
+    # (audyt 25.09.2026). „Zakończony” zostaje dozwolony — zgadza się ze
+    # stanem zamkniętej rekrutacji. Sprawdzamy całą paczkę przed zapisem.
+    closed = [
+        job
+        for job in jobs
+        if job.status != JobStatus.published and wanted[job.id] != "finished"
+    ]
+    if closed:
+        raise HTTPException(
+            409,
+            f"Najpierw otwórz rekrutację „{closed[0].title}” — zamknięta "
+            "rekrutacja może mieć tylko stan „Zakończony”.",
+        )
     changed = []
     try:
         for job in jobs:

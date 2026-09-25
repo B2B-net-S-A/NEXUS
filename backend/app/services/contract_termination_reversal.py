@@ -64,6 +64,7 @@ from app.models.dl_alert import (
     ALERT_PERIODIC_ORDER_ENDING,
 )
 from app.models.order_change_event import FIELD_END_DATE, OrderChangeEvent
+from app.services.b2b_contract_end_date import is_b2b
 from app.services.client_order_lines import (
     consultant_display_name,
     recompute_remaining,
@@ -485,9 +486,15 @@ async def _history_contract_end_date(
     Skrócenie umowy zostawia aneks ``early_termination`` ze starą datą; bez
     niego umowa była bezterminowa (reguła umów B2B) albo kończyła się właśnie
     wtedy — i wtedy nie ma czego cofać w samej dacie.
+
+    Umowa zlecenie i o pracę bez aneksu zachowuje BIEŻĄCĄ datę końca (audyt
+    25.09.2026): tam data końca jest częścią umowy, a nie śladem zakończenia,
+    więc jej wyzerowanie zamieniałoby umowę terminową w bezterminową, której
+    nikt nie podpisał.
     """
+    fallback = None if is_b2b(contract.contract_type) else contract.end_date
     if terminated_on is None:
-        return None
+        return fallback
     amendment = await db.scalar(
         select(ContractAmendment)
         .where(
@@ -500,7 +507,7 @@ async def _history_contract_end_date(
     )
     if amendment is not None and isinstance(amendment.old_values, dict):
         return _parse_date(amendment.old_values.get("end_date"))
-    return None
+    return fallback
 
 
 async def _add_blockers(db: AsyncSession, plan: ReversalPlan) -> None:
@@ -643,6 +650,17 @@ async def build_reversal_plan(
         plan.end_date_target is None or plan.end_date_target > today
     ):
         plan.status_target = ContractStatus.active
+    # „Kończący się" przed zakończeniem (nocny cron przestawia active → ending
+    # 30 dni przed datą końca, zanim ktoś zakończy umowę) wraca jako
+    # „Kończący się" tylko z datą końca od dziś w przód — bez daty albo
+    # z datą minioną taki status nie istnieje (`_status_after_end_date_change`),
+    # więc celem jest „Aktywny" (resztę zrobi nocny cron). Maszyna stanów nie
+    # zna `ended → ending`; wykonanie idzie `ended → active → ending`
+    # (`_status_path`). Do 25.09.2026 cel `ending` kończył się 409.
+    if plan.status_target == ContractStatus.ending and (
+        plan.end_date_target is None or plan.end_date_target < today
+    ):
+        plan.status_target = ContractStatus.active
 
     restored_ids = {item.order_id for item in plan.orders}
     plan.pending_case_ids = [
@@ -693,6 +711,22 @@ def _import_json(row: Any, item: OrderRestore) -> dict[str, Any]:
 # ── Wykonanie ───────────────────────────────────────────────────────────────
 
 
+def _status_path(
+    current: ContractStatus, target: ContractStatus
+) -> list[ContractStatus]:
+    """Kolejne statusy od ``current`` do ``target`` po legalnych krawędziach.
+
+    Jedyny przypadek dwóch kroków: zakończona umowa wracająca do „Kończący
+    się" — `ended → active → ending`, ta sama droga co w
+    `_status_after_termination` (korekta daty zakończonej umowy na przyszłą).
+    """
+    if target == current:
+        return []
+    if current == ContractStatus.ended and target == ContractStatus.ending:
+        return [ContractStatus.active, ContractStatus.ending]
+    return [target]
+
+
 def _describe_restore(item: OrderRestore, contract_id: int) -> str:
     horizon = (
         "bezterminowo"
@@ -719,9 +753,10 @@ async def execute_reversal(
 
     # 1. Kontrakt.
     current = ContractStatus(_value(contract.status))
-    if plan.status_target != current:
-        assert_transition(current, plan.status_target)
-        contract.status = plan.status_target
+    for step in _status_path(current, plan.status_target):
+        assert_transition(current, step)
+        current = step
+    contract.status = plan.status_target
     contract.end_date = plan.end_date_target
     contract.terminated_at = plan.terminated_at_target
     contract.termination_reason = (

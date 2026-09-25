@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.export_safety import safe_row
 from app.models.candidate import Candidate, CandidateStatus
 from app.models.activity import Activity
 
@@ -407,22 +408,25 @@ def _candidate_export_row(c) -> list:
         c.expected_rate_currency,
     )
 
-    return [
-        c.id,
-        c.name or "",
-        c.lastname or "",
-        c.email or "",
-        c.phone or "",
-        c.location or "",
-        c.source or "",
-        c.status.value if c.status else "",
-        skills_str,
-        profile_rate if profile_rate is not None else "",
-        created,
-        "tak" if c.open_to_side_projects else "",
-        "tak" if c.open_to_sales_support else "",
-        "tak" if c.open_to_expert_consult else "",
-    ]
+    # Tekst z formularza kariery i importów nie może zostać formułą Excela.
+    return safe_row(
+        [
+            c.id,
+            c.name or "",
+            c.lastname or "",
+            c.email or "",
+            c.phone or "",
+            c.location or "",
+            c.source or "",
+            c.status.value if c.status else "",
+            skills_str,
+            profile_rate if profile_rate is not None else "",
+            created,
+            "tak" if c.open_to_side_projects else "",
+            "tak" if c.open_to_sales_support else "",
+            "tak" if c.open_to_expert_consult else "",
+        ]
+    )
 
 
 def _build_candidates_csv(candidates) -> bytes:

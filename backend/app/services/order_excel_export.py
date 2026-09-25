@@ -14,6 +14,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
+from app.core.export_safety import safe_cell
 from app.services.shared_md_orders import uses_shared_md_pool
 from app.core.scheduling import business_today
 
@@ -225,12 +226,6 @@ def export_rows_for_group(
     return rows
 
 
-def _safe_text(value: str) -> str:
-    """Prevent user-controlled text from becoming an Excel formula."""
-
-    return f"'{value}" if value.startswith(("=", "+", "-", "@")) else value
-
-
 def _period(row: OrderExportRow) -> str:
     start = row.start_date.strftime("%d.%m.%Y") if row.start_date else "—"
     end = row.end_date.strftime("%d.%m.%Y") if row.end_date else "bezterminowo"
@@ -267,18 +262,18 @@ def build_orders_workbook(
 
     for item in rows:
         values: list[object] = [
-            _safe_text(item.consultant_name),
-            _safe_text(item.order_number),
+            safe_cell(item.consultant_name),
+            safe_cell(item.order_number),
             item.cost_rate,
             item.revenue_rate,
-            _safe_text(item.rate_unit) if item.rate_unit else None,
-            _safe_text(item.currency) if item.currency else None,
+            safe_cell(item.rate_unit) if item.rate_unit else None,
+            safe_cell(item.currency) if item.currency else None,
             _period(item),
         ]
         if include_model_columns:
             values.extend([item.allocation, item.consumption])
         if include_order_type:
-            values.append(_safe_text(item.order_type or ""))
+            values.append(safe_cell(item.order_type or ""))
         if include_remaining:
             values.append(item.remaining_md)
         sheet.append(values)

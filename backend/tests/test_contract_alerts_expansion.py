@@ -185,6 +185,50 @@ async def test_slack_summary_returns_true_on_2xx(monkeypatch):
     assert ok is True
 
 
+_SECRET_HOOK = "https://hooks.slack.com/services/T000/B000/sekretnyTOKEN123"
+
+
+async def test_slack_summary_failure_log_never_carries_the_webhook_url(
+    monkeypatch, caplog
+):
+    """Adres webhooka Slacka jest sekretem. `raise_for_status()` wkładało pełny
+    URL do treści HTTPStatusError, a ta szła do `logger.warning` (→ Loki)."""
+    import logging
+
+    from app.tasks import contract_alerts
+
+    monkeypatch.setattr(contract_alerts.httpx, "AsyncClient", _FakeSlackClient(404))
+    events = [(30, SimpleNamespace(id=1, end_date=business_today()))]
+    with caplog.at_level(logging.WARNING, logger=contract_alerts.logger.name):
+        ok = await contract_alerts._post_slack_summary(_SECRET_HOOK, events)
+    assert ok is False
+    assert "404" in caplog.text
+    assert "hooks.slack.com" not in caplog.text
+    assert "sekretnyTOKEN123" not in caplog.text
+
+
+async def test_slack_summary_transport_error_log_never_carries_the_webhook_url(
+    monkeypatch, caplog
+):
+    import logging
+
+    import httpx
+
+    from app.tasks import contract_alerts
+
+    class _Broken(_FakeSlackClient):
+        async def post(self, url, *args, **kwargs):
+            raise httpx.ConnectError(f"cannot reach {url}")
+
+    monkeypatch.setattr(contract_alerts.httpx, "AsyncClient", _Broken(0))
+    events = [(30, SimpleNamespace(id=1, end_date=business_today()))]
+    with caplog.at_level(logging.WARNING, logger=contract_alerts.logger.name):
+        ok = await contract_alerts._post_slack_summary(_SECRET_HOOK, events)
+    assert ok is False
+    assert "ConnectError" in caplog.text
+    assert "sekretnyTOKEN123" not in caplog.text
+
+
 # ── F-29: episode-aware dedup for compliance / equipment / client-order ──────
 #
 # Before the fix, these three families keyed dedup on the ENTITY ID alone (e.g.
