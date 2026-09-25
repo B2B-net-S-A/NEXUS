@@ -92,7 +92,12 @@ async def test_public_question_uses_exact_approval_before_calling_chat(
         status="ready", mode="upload", render_payload={"name": "Old content"}
     )
     row = SimpleNamespace(
-        document_version_id=None if case == "legacy" else 71, generated_document=doc
+        document_version_id=None if case == "legacy" else 71,
+        generated_document=doc,
+        # Limit wyświetleń czyta chat od rundy 5 audytu — link bez limitu.
+        max_views=None,
+        view_count=0,
+        last_viewed_at=None,
     )
     monkeypatch.setattr(api, "_load_generated_share", AsyncMock(return_value=row))
     monkeypatch.setattr(

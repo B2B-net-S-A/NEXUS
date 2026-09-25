@@ -96,7 +96,13 @@ async def test_endpoint_answers_timeout_with_readable_message(
 
     doc = SimpleNamespace(status="ready", mode="upload", render_payload={"name": "X"})
     row = SimpleNamespace(
-        token="v2$synthetic", document_version_id=None, generated_document=doc
+        token="v2$synthetic",
+        document_version_id=None,
+        generated_document=doc,
+        # Limit wyświetleń czyta chat od rundy 5 audytu — link bez limitu.
+        max_views=None,
+        view_count=0,
+        last_viewed_at=None,
     )
     monkeypatch.setattr(api, "_load_generated_share", AsyncMock(return_value=row))
     monkeypatch.setattr(api, "_interactive_flags", AsyncMock(return_value=(True, True)))
