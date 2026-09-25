@@ -178,6 +178,12 @@ async def test_worked_by_counts_live_assignments_only(
         assert await _ids(
             app_client, app_auth_headers, f"q={token}&nobody_working=false"
         ) == {active, proposed}
+        # „Kto pracuje: ja, nikt” = LUB, nie pusta część wspólna.
+        assert await _ids(
+            app_client,
+            app_auth_headers,
+            f"q={token}&worked_by={me}&nobody_working=true",
+        ) == {active, proposed, released, nobody}
     finally:
         await _cleanup([active, proposed, released, nobody])
 

@@ -865,7 +865,8 @@ async def list_jobs(
         None,
         description=(
             "True → tylko requesty bez żadnego żywego przypisania osoby; "
-            "False → tylko te, przy których ktoś pracuje."
+            "False → tylko te, przy których ktoś pracuje. Razem z `worked_by` "
+            "(true) = LUB: requesty tych osób albo bez nikogo."
         ),
     ),
     include_stage_counts: bool = Query(
@@ -999,11 +1000,18 @@ async def list_jobs(
         query = query.outerjoin(stage_sq, stage_sq.c.job_id == Job.id).where(
             _sim.request_stage_expr(stage_sq).in_(request_stage)
         )
-    if worked_by:
-        query = query.where(jobs_worked_by_clause(worked_by))
-    if nobody_working is not None:
-        nobody = jobs_nobody_working_clause()
-        query = query.where(nobody if nobody_working else not_(nobody))
+    # „Kto pracuje: ja, nikt” = którykolwiek z warunków (LUB). Przez AND
+    # („ktoś pracuje” i „nikt nie pracuje”) lista byłaby zawsze pusta.
+    if worked_by and nobody_working:
+        query = query.where(
+            or_(jobs_worked_by_clause(worked_by), jobs_nobody_working_clause())
+        )
+    else:
+        if worked_by:
+            query = query.where(jobs_worked_by_clause(worked_by))
+        if nobody_working is not None:
+            nobody = jobs_nobody_working_clause()
+            query = query.where(nobody if nobody_working else not_(nobody))
     if min_sent is not None or max_sent is not None:
         if min_sent is not None and max_sent is not None and min_sent > max_sent:
             raise HTTPException(

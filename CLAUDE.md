@@ -2537,7 +2537,8 @@ miejsce, nie zbiór funkcji.
     przeglądarka i wysyła jako `overdue_to`.
   - **„Kto pracuje” = `job_work_assignments.state <> 'released'`** — tak samo
     jak pulpit „Requesty i obłożenie” i automat przydziału (propozycja z trybu
-    cienia się liczy). `jobs_worked_by_clause` / `jobs_nobody_working_clause`.
+    cienia się liczy). `jobs_worked_by_clause` / `jobs_nobody_working_clause`;
+    `worked_by` razem z `nobody_working=true` to LUB („ja albo nikt”).
 - **Kolumny:** „Etapy” = te same 8 kolumn co Tablica (Nowi … Zatrudniony),
   rozstrzygane `placeStage` z `lib/board-stages.ts` na `stage_columns` wiersza
   — tą samą regułą co Tablica (QC ma kod `interview`, a mimo to trafia do QC
