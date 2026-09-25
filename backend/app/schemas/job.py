@@ -1,7 +1,14 @@
 from datetime import date, datetime
 from typing import Literal, Any, List, Optional
 
-from pydantic import BaseModel, Field, computed_field, field_validator
+from pydantic import (
+    BaseModel,
+    EmailStr,
+    Field,
+    computed_field,
+    field_validator,
+    model_validator,
+)
 
 from app.models.job import (
     JobCloseReason,
@@ -44,7 +51,7 @@ class JobCreate(BaseModel):
     tac_id: Optional[int] = None
     delivery_lead_id: Optional[int] = None
     # Hiring manager — Contact w firmie klienta odpowiedzialny za rekrutację
-    # (migracja 0097, 2026-05-11). Nullable, validated że należy do client_id.
+    # (migracja 0097, 2026-05-11). Nullable; od 25.09.2026 musi należeć do client_id.
     hiring_manager_contact_id: Optional[int] = None
     portals: Optional[Any] = None
 
@@ -354,6 +361,48 @@ class JobManageInNexusRequest(BaseModel):
     """Body `POST /api/jobs/{id}/manage-in-nexus`."""
 
     enabled: bool
+
+
+class HiringManagerNewPerson(BaseModel):
+    """Osoba wpisana ręcznie — serwis zakłada ją jako kontakt klienta."""
+
+    name: str = Field(min_length=1, max_length=255)
+    position: Optional[str] = Field(default=None, max_length=255)
+    email: Optional[EmailStr] = None
+
+    @field_validator("position", "email", mode="before")
+    @classmethod
+    def _blank_is_none(cls, value: Any) -> Any:
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
+
+class JobHiringManagerRequest(BaseModel):
+    """Body `PUT /api/jobs/{id}/hiring-manager` — dokładnie jedno z trzech."""
+
+    contact_id: Optional[int] = Field(default=None, gt=0)
+    new_person: Optional[HiringManagerNewPerson] = None
+    clear: bool = False
+
+    @model_validator(mode="after")
+    def _exactly_one(self) -> "JobHiringManagerRequest":
+        chosen = sum(
+            (self.contact_id is not None, self.new_person is not None, self.clear)
+        )
+        if chosen != 1:
+            raise ValueError(
+                "Wybierz osobę z listy, wpisz nową albo wyczyść pole — jedno z trzech."
+            )
+        return self
+
+
+class HiringManagerOption(BaseModel):
+    """Pozycja listy wyboru HM — bez danych kontaktowych."""
+
+    id: int
+    name: str
+    position: Optional[str] = None
 
 
 class JobHandoffRequest(BaseModel):

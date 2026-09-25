@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from typing import Any, Optional
 
 from sqlalchemy import select
@@ -115,6 +115,14 @@ class RequestIntake:
     client_reference: Optional[str] = None
     # Tytuł dla rekrutera złożony KODEM z pól wyżej (`job_working_title`).
     working_title_suggestion: Optional[str] = None
+    # ── od v4 (25.09.2026): hiring manager z treści requestu ──
+    # Dosłowne cytaty (zwykle podpis maila). `hiring_manager_contact_id` to
+    # istniejący kontakt klienta dopasowany KODEM (`job_hiring_manager`) —
+    # nazwy kontaktów nie trafiają do promptu.
+    hiring_manager_name: Optional[str] = None
+    hiring_manager_position: Optional[str] = None
+    hiring_manager_email: Optional[str] = None
+    hiring_manager_contact_id: Optional[int] = None
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -336,7 +344,18 @@ def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:
     client_reference = _text(data.get("client_reference"), 120)
     if client_reference and not _in_text(client_reference, folded_text):
         client_reference = None
-    for quote in (client_title, client_reference):
+    # Hiring manager: ta sama reguła dosłownego cytatu. Bez imienia i nazwiska
+    # stanowisko i e-mail nie mają kogo opisać, więc odpadają razem z nim.
+    hm_name = _text(data.get("hiring_manager_name"), 255)
+    if hm_name and not _in_text(hm_name, folded_text):
+        hm_name = None
+    hm_position = _text(data.get("hiring_manager_position"), 255) if hm_name else None
+    if hm_position and not _in_text(hm_position, folded_text):
+        hm_position = None
+    hm_email = _text(data.get("hiring_manager_email"), 255) if hm_name else None
+    if hm_email and ("@" not in hm_email or not _in_text(hm_email, folded_text)):
+        hm_email = None
+    for quote in (client_title, client_reference, hm_name):
         if quote and quote not in evidence:
             evidence.append(quote)
     must = _names(data.get("must"), MAX_MUST)
@@ -396,6 +415,7 @@ def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:
     for key, present in (
         ("client_title", client_title),
         ("client_reference", client_reference),
+        ("hiring_manager", hm_name),
     ):
         if present:
             provenance[key] = "request"
@@ -456,6 +476,9 @@ def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:
         client_title=client_title,
         client_reference=client_reference,
         working_title_suggestion=working_title_suggestion,
+        hiring_manager_name=hm_name,
+        hiring_manager_position=hm_position,
+        hiring_manager_email=hm_email,
     )
 
 
@@ -493,4 +516,35 @@ async def read_request(
         system_prompt=JOB_REQUEST_INTAKE.system_prompt or "",
         max_tokens=6000,
     )
-    return normalize_model_output(raw, text)
+    return await match_hiring_manager(
+        db, client_id=client_id, intake=normalize_model_output(raw, text)
+    )
+
+
+async def match_hiring_manager(
+    db: AsyncSession, *, client_id: int, intake: RequestIntake
+) -> RequestIntake:
+    """Wskazuje istniejący kontakt klienta, jeśli to ta sama osoba co w mailu.
+
+    Tym samym matcherem co zapis HM (`job_hiring_manager`), żeby podpowiedź
+    i zapis nie rozjechały się (podpowiedź „nowa osoba”, zapis „istniejący”).
+    Awaria dopasowania nie psuje odczytu — zostaje sama podpowiedź nazwiska.
+    """
+    if not intake.hiring_manager_name:
+        return intake
+    from app.services.job_hiring_manager import match_client_contact
+
+    try:
+        async with db.begin_nested():
+            contact = await match_client_contact(
+                db,
+                client_id=client_id,
+                name=intake.hiring_manager_name,
+                email=intake.hiring_manager_email,
+            )
+    except Exception:  # noqa: BLE001 — podpowiedź to dodatek, nie warunek odczytu
+        logger.warning("job_request_intake: hiring manager match failed", exc_info=True)
+        return intake
+    if contact is None:
+        return intake
+    return replace(intake, hiring_manager_contact_id=contact.id)

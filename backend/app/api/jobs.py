@@ -64,7 +64,9 @@ from app.schemas.job import (
     JobCloseRequest,
     JobCollaboratorAdd,
     JobCreate,
+    HiringManagerOption,
     JobHandoffRequest,
+    JobHiringManagerRequest,
     JobManageInNexusRequest,
     JobOwnerAssignment,
     JobResponse,
@@ -1769,6 +1771,15 @@ async def create_job(
     payload["working_title"] = manual_working_title
     payload["working_title_auto"] = manual_working_title is None
 
+    if payload.get("hiring_manager_contact_id") is not None:
+        from app.services.job_hiring_manager import assert_contact_of_client
+
+        await assert_contact_of_client(
+            db,
+            contact_id=payload["hiring_manager_contact_id"],
+            client_id=payload.get("client_id"),
+        )
+
     job = Job(**payload, created_by=current_user.id)
 
     # Per-client pipeline template auto-pick (Traffit gap #1). If caller
@@ -1986,6 +1997,23 @@ async def list_train_names(
     rows = (await db.execute(stmt)).all()
     items = [row[0] for row in rows if row[0]]
     return {"items": items}
+
+
+@router.get("/hiring-manager-options", response_model=list[HiringManagerOption])
+async def list_hiring_manager_options(
+    current_user: JobEditUser,
+    client_id: int = Query(..., gt=0),
+    db: AsyncSession = Depends(get_db),
+):
+    """Kontakty klienta do wyboru hiring managera (25.09.2026).
+
+    Osobna, wąska lista zamiast ``GET /api/clients/{id}/contacts``: tamta jest
+    za bramką zespołu klienta, więc rekruter jej nie dostaje, a HM wybiera
+    każdy, kto redaguje rekrutację. Tylko id, imię i nazwisko, stanowisko.
+    """
+    from app.services.job_hiring_manager import hiring_manager_options
+
+    return await hiring_manager_options(db, client_id=client_id)
 
 
 @router.get("/{job_id}", response_model=JobResponse)
@@ -2208,6 +2236,30 @@ async def update_job(
     for k, v in updates.items():
         setattr(job, k, v)
     _assert_delivery_lead_job_visible(job, delivery_lead_pairs)
+    # Hiring manager musi być kontaktem klienta rekrutacji. Jawnie wskazany
+    # z innej firmy = 422; zmiana klienta zdejmuje HM poprzedniego klienta,
+    # zamiast zostawić na rekrutacji osobę z cudzej firmy (25.09.2026).
+    if job.hiring_manager_contact_id is not None and (
+        {"hiring_manager_contact_id", "client_id"} & set(updates)
+    ):
+        from app.services.job_hiring_manager import assert_contact_of_client
+
+        if "hiring_manager_contact_id" in updates:
+            await assert_contact_of_client(
+                db,
+                contact_id=job.hiring_manager_contact_id,
+                client_id=job.client_id,
+            )
+        else:
+            from app.models.contact import Contact  # noqa: PLC0415
+
+            hm_client_id = await db.scalar(
+                select(Contact.client_id).where(
+                    Contact.id == job.hiring_manager_contact_id
+                )
+            )
+            if hm_client_id != job.client_id:
+                job.hiring_manager_contact_id = None
     if (
         working_title_reset
         or {
@@ -2592,6 +2644,81 @@ async def set_job_managed_in_nexus(
         # Commit, nie rollback: zwalnia blokadę FOR UPDATE, a `rollback()`
         # wygasiłby `current_user`, którego `get_job` jeszcze używa.
         await db.commit()
+    return await get_job(job_id=job_id, current_user=current_user, db=db)
+
+
+@router.put("/{job_id}/hiring-manager", response_model=JobResponse)
+async def set_job_hiring_manager(
+    job_id: int,
+    data: JobHiringManagerRequest,
+    current_user: JobEditUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Hiring manager rekrutacji: kontakt z listy, nowa osoba albo brak (25.09.2026).
+
+    Nową osobę zakłada serwis jako kontakt KLIENTA tej rekrutacji — po
+    dopasowaniu do istniejących kontaktów, żeby weto HM nie rozbiło się na
+    duplikaty. Bramka jak w PATCH: pole nie jest w ``JOB_MEMBER_LOCKED_FIELDS``,
+    więc rekruter prowadzący i współpracownicy też je ustawiają (decyzja
+    Artura), bez uprawnienia do edycji kontaktów klienta.
+    """
+    from app.services.job_hiring_manager import (
+        assert_contact_of_client,
+        find_or_create_contact,
+    )
+
+    job = (
+        await db.execute(select(Job).where(Job.id == job_id).with_for_update())
+    ).scalar_one_or_none()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    delivery_lead_pairs = await _delivery_lead_job_pairs(current_user, db)
+    _assert_delivery_lead_job_visible(job, delivery_lead_pairs)
+    await ensure_job_editor(db, current_user, job, fields={"hiring_manager_contact_id"})
+
+    previous = job.hiring_manager_contact_id
+    created = False
+    if data.clear:
+        contact_id = None
+    else:
+        if data.contact_id is not None:
+            contact = await assert_contact_of_client(
+                db, contact_id=data.contact_id, client_id=job.client_id
+            )
+        else:
+            person = data.new_person
+            assert person is not None  # walidator schematu: dokładnie jedno
+            resolved = await find_or_create_contact(
+                db,
+                client_id=job.client_id,
+                name=person.name,
+                position=person.position,
+                email=str(person.email) if person.email else None,
+                actor_id=current_user.id,
+                job_id=job.id,
+            )
+            contact, created = resolved.contact, resolved.created
+        contact_id = contact.id
+
+    if contact_id != previous:
+        job.hiring_manager_contact_id = contact_id
+        db.add(
+            Activity(
+                entity_type="job",
+                entity_id=job_id,
+                action="hiring_manager_changed",
+                user_id=current_user.id,
+                details={
+                    "previous": previous,
+                    "contact_id": contact_id,
+                    "contact_created": created,
+                },
+            )
+        )
+    # Commit także bez zmiany: zwalnia blokadę FOR UPDATE i zapisuje ewentualne
+    # uzupełnienie pustego stanowiska/e-maila kontaktu (fill-only).
+    await db.commit()
+    await db.refresh(job)
     return await get_job(job_id=job_id, current_user=current_user, db=db)
 
 

@@ -237,6 +237,13 @@ describe("/preview/new-job zasiewa każdy stały klucz", () => {
       'queryKey="clients-lookup-new-job"',
     );
   });
+
+  it("zasiewa listę kontaktów pola „Hiring manager” (klucz z parametrem)", () => {
+    // `literalQueryKeys` pomija klucze z parametrem — pilnujemy go jawnie.
+    expect(read("lib/hiring-manager.ts")).toContain('["hiring-manager-options", clientId]');
+    expect(harness).toContain('["hiring-manager-options", 1]');
+    expect(harness).toContain("const CLIENT = { id: 1,");
+  });
 });
 
 describe("/preview/cv-generator renderuje z propsów i nie ma sieci", () => {

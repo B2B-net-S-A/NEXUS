@@ -40,7 +40,9 @@ Budżet do 170 zł/h netto B2B. Start najlepiej 1 listopada.
 
 Na rozmowie zapytamy o transakcyjność w systemach rozproszonych.
 
-Pozdrawiam`;
+Pozdrawiam
+Anna Przykładowa
+Kierownik Zespołu Płatności`;
 
 const FULL_FORM: IntakeForm = {
   ...EMPTY_INTAKE_FORM,
@@ -88,7 +90,15 @@ const FULL_FORM: IntakeForm = {
     { key: "a1", text: "Ile etapów ma rekrutacja i kto decyduje?" },
     { key: "a2", text: "Jak duży jest zespół i w jakim języku pracuje?" },
   ],
+  // 25.09.2026: hiring manager z podpisu maila — nowa osoba dla klienta.
+  hiringManager: {
+    kind: "new",
+    name: "Anna Przykładowa",
+    position: "Kierownik Zespołu Płatności",
+    email: null,
+  },
   provenance: {
+    hiring_manager: "request",
     role: "request",
     must: "request",
     nice: "request",
@@ -232,6 +242,11 @@ function Harness() {
       stateKey === "portals" ? PORTALS_ON : PORTALS_OFF,
     );
     qc.setQueryData(jobPortalKeys.dictionaries("rocketjobs"), DICTIONARY);
+    // Lista kontaktów klienta w polu „Hiring manager” (`hiringManagerOptionsKey`).
+    qc.setQueryData(["hiring-manager-options", 1], [
+      { id: 501, name: "Tomasz Przykładowy", position: "Dyrektor IT" },
+      { id: 502, name: "Ewa Wzorcowa", position: null },
+    ]);
     return qc;
   });
   return (

@@ -49,6 +49,7 @@ import { SimilarJobsPicker } from "./SimilarJobsPicker";
 import { ClientAskedBeforeHint } from "./ClientAskedBeforeHint";
 import { plural } from "@/components/v2/jobs/SimilarJobsDialog";
 import { similarJobsApi } from "@/lib/similar-jobs-api";
+import { saveHiringManager } from "@/lib/hiring-manager";
 import {
   fetchPortalConfig,
   fetchPublicDraft,
@@ -348,6 +349,18 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
       return;
     }
     invalidateJobs();
+    // Hiring manager: osobna trasa, bo nową osobę zakłada jako kontakt
+    // klienta. Dodatek — jego awaria nie cofa rekrutacji (da się go ustawić
+    // w oknie zlecenia).
+    if (form.hiringManager) {
+      try {
+        await saveHiringManager(jobId, form.hiringManager);
+      } catch (e) {
+        showError(
+          `Rekrutacja zapisana, ale hiring manager nie: ${apiErrorMessage(e, "błąd")}. Ustaw go w oknie zlecenia.`,
+        );
+      }
+    }
     const championTab = `/jobs/${jobId}?tab=champion`;
     try {
       await api.put(
@@ -476,7 +489,13 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
       {step === "request" ? (
         <NewJobRequestStep
           client={client}
-          onClientChange={setClient}
+          onClientChange={(next) => {
+            // Hiring manager to osoba z firmy klienta — inny klient, inna osoba.
+            if (next?.id !== client?.id) {
+              setForm((f) => ({ ...f, hiringManager: null }));
+            }
+            setClient(next);
+          }}
           text={requestText}
           onTextChange={setRequestText}
           file={file}
@@ -543,6 +562,7 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
               onChange={setForm}
               missing={missing}
               highlightMissing={readByAi || templateJobId != null}
+              clientId={client?.id ?? null}
             />
             {!preview && (
               <SimilarJobsPicker

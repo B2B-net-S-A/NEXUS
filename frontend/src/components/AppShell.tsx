@@ -55,6 +55,12 @@ import {
   CandidateCombobox,
   type CandidateChoice,
 } from "@/components/calendar/CandidateCombobox";
+import { HiringManagerCombobox } from "@/components/jobs/HiringManagerCombobox";
+import {
+  sameChoice,
+  saveHiringManager,
+  type HiringManagerChoice,
+} from "@/lib/hiring-manager";
 
 // ── Breadcrumb helper ────────────────────────────────────────────────────────
 
@@ -1203,9 +1209,6 @@ interface JobFormData {
   // podpowiedziany; przy kilku równorzędnych TAC-ach wybór musi być jawny.
   tac_id: string;
   delivery_lead_id: string;
-  // Hiring manager po stronie klienta — Contact w firmie klienta odpowiedzialny
-  // za rekrutację (migracja 0097, 2026-05-11). Autocomplete z Contacts klienta.
-  hiring_manager_contact_id: string;
   pipeline_template_id: string;
   // AI CC matching (migracja 0041)
   competence_category_id: string;
@@ -1232,13 +1235,19 @@ function jobToForm(j: any): JobFormData {
     recruiter_id: j.recruiter_id ? String(j.recruiter_id) : "",
     tac_id: j.tac_id ? String(j.tac_id) : "",
     delivery_lead_id: j.delivery_lead_id ? String(j.delivery_lead_id) : "",
-    hiring_manager_contact_id: j.hiring_manager_contact_id
-      ? String(j.hiring_manager_contact_id)
-      : "",
     pipeline_template_id: j.pipeline_template_id ? String(j.pipeline_template_id) : "",
     competence_category_id: j.competence_category_id ? String(j.competence_category_id) : "",
     train_name: j.train_name ?? "",
   };
+}
+
+// Hiring manager po stronie klienta (migracja 0097) — osobny stan formularza,
+// bo zapisuje go `PUT /api/jobs/{id}/hiring-manager`, która umie też założyć
+// nową osobę jako kontakt klienta (25.09.2026).
+function jobHiringManager(j: any): HiringManagerChoice | null {
+  return j.hiring_manager_contact_id && j.hiring_manager_name
+    ? { kind: "contact", id: j.hiring_manager_contact_id, name: j.hiring_manager_name }
+    : null;
 }
 
 function JobFormFields({
@@ -1246,12 +1255,17 @@ function JobFormFields({
   onChange,
   clients,
   users,
+  hiringManager,
+  onHiringManagerChange,
 }: {
   form: JobFormData;
   onChange: (k: keyof JobFormData, v: string) => void;
   clients: any[];
   users: any[];
+  hiringManager: HiringManagerChoice | null;
+  onHiringManagerChange: (value: HiringManagerChoice | null) => void;
 }) {
+  const hiringManagerLabelId = useId();
   // 22.09.2026 (strona `/jobs/new`): TAC, Program/Train, typ rekrutacji,
   // widełki PLN/mies., priorytet, szablon procesu i kategoria kompetencji
   // zniknęły z tworzenia I z edycji — ustawia je backend, dane zostają.
@@ -1268,33 +1282,6 @@ function JobFormFields({
     staleTime: 30_000,
   });
   const headDl = clientTeam?.delivery_leads.find(d => d.is_head);
-
-  // Hiring manager autocomplete — fetch Contacts klienta (2026-05-11).
-  // Key relationships first (gwiazdka), potem alfabetycznie.
-  const { data: clientContacts = [] } = useQuery<Array<{
-    id: number;
-    name: string;
-    position: string | null;
-    is_decision_maker: boolean;
-    is_key_relationship: boolean;
-    relationship_strength: string | null;
-  }>>({
-    queryKey: ["client-contacts-for-hiring-manager", clientIdNum],
-    queryFn: async () => {
-      if (clientIdNum === null) return [];
-      const res = await api.get(`/api/clients/${clientIdNum}/contacts`);
-      return res.data;
-    },
-    enabled: clientIdNum !== null,
-    staleTime: 30_000,
-  });
-  const sortedContactsForHM = [...clientContacts].sort((a, b) => {
-    if (a.is_key_relationship !== b.is_key_relationship)
-      return a.is_key_relationship ? -1 : 1;
-    if (a.is_decision_maker !== b.is_decision_maker)
-      return a.is_decision_maker ? -1 : 1;
-    return a.name.localeCompare(b.name);
-  });
 
   // Auto-fill Delivery Leada z head DL klienta, gdy pole puste.
   useEffect(() => {
@@ -1407,34 +1394,22 @@ function JobFormFields({
           </p>
         )}
       </FieldGroup>
-      <FieldGroup label="Hiring manager (osoba zatrudniająca u klienta)">
-        <Select
-          value={form.hiring_manager_contact_id}
-          onChange={e => onChange("hiring_manager_contact_id", e.target.value)}
-          disabled={!form.client_id}
+      {/* Nie `FieldGroup`: wiąże etykietę tylko z Input/Select/Textarea,
+          a combobox dostaje nazwę przez `aria-labelledby`. */}
+      <div>
+        <span
+          id={hiringManagerLabelId}
+          className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1"
         >
-          <option value="">— brak hiring managera —</option>
-          {sortedContactsForHM.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.is_key_relationship ? "★ " : ""}
-              {c.name}
-              {c.position ? ` · ${c.position}` : ""}
-              {c.is_decision_maker ? " (decydent)" : ""}
-              {c.relationship_strength ? ` · ${c.relationship_strength}` : ""}
-            </option>
-          ))}
-        </Select>
-        {!form.client_id && (
-          <p className="text-[11px] text-muted-foreground mt-1">
-            Najpierw wybierz klienta, żeby zobaczyć listę kontaktów.
-          </p>
-        )}
-        {form.client_id && sortedContactsForHM.length === 0 && (
-          <p className="text-[11px] text-amber-700 mt-1">
-            Brak kontaktów u tego klienta. Dodaj kontakt w zakładce Zespół klienta.
-          </p>
-        )}
-      </FieldGroup>
+          Hiring manager (osoba zatrudniająca u klienta)
+        </span>
+        <HiringManagerCombobox
+          clientId={clientIdNum}
+          value={hiringManager}
+          onChange={onHiringManagerChange}
+          labelledBy={hiringManagerLabelId}
+        />
+      </div>
     </>
   );
 }
@@ -1512,6 +1487,9 @@ export function EditJobModal({
   scope?: "full" | "content";
 }) {
   const [form, setForm] = useState<JobFormData>(() => jobToForm(job));
+  const [hiringManager, setHiringManager] = useState<HiringManagerChoice | null>(
+    () => jobHiringManager(job),
+  );
   // 0380: numer u klienta i tytuł dla rekrutera — osobny szkic, bo PATCH
   // wysyła je tylko po zmianie (pusty tytuł = powrót do automatu).
   const [names, setNames] = useState<JobNamesDraft>(() => jobNamesDraft(job));
@@ -1535,6 +1513,9 @@ export function EditJobModal({
   const onChange = (k: keyof JobFormData, v: string) =>
     setForm((current) => {
       if (k === "client_id" && current.client_id !== v) {
+        // Hiring manager to osoba z firmy klienta — przy zmianie klienta
+        // znika (serwer robi to samo, `update_job`).
+        setHiringManager(null);
         return {
           ...current,
           client_id: v,
@@ -1583,11 +1564,18 @@ export function EditJobModal({
         // szablon, kategoria, Program/Train) NIE są wysyłane — PATCH czyta
         // `model_fields_set`, więc wartości w bazie zostają nietknięte.
         delivery_lead_id: form.delivery_lead_id ? Number(form.delivery_lead_id) : null,
-        hiring_manager_contact_id: form.hiring_manager_contact_id
-          ? Number(form.hiring_manager_contact_id)
-          : null,
         ...jobNamesPatch(job, names),
       });
+      if (!sameChoice(hiringManager, jobHiringManager(job))) {
+        try {
+          await saveHiringManager(job.id, hiringManager);
+        } catch (err: any) {
+          setError(
+            `Rekrutacja zapisana, ale hiring manager nie: ${formErrorMsg(err, "błąd zapisu")}`,
+          );
+          return;
+        }
+      }
       onSuccess("Rekrutacja zaktualizowana");
       onClose();
     } catch (err: any) {
@@ -1614,7 +1602,14 @@ export function EditJobModal({
           </>
         ) : (
           <>
-            <JobFormFields form={form} onChange={onChange} clients={clients} users={users} />
+            <JobFormFields
+              form={form}
+              onChange={onChange}
+              clients={clients}
+              users={users}
+              hiringManager={hiringManager}
+              onHiringManagerChange={setHiringManager}
+            />
             <JobNamesFields job={job} names={names} onChange={setNames} />
           </>
         )}
