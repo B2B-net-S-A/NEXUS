@@ -16,6 +16,7 @@ import {
  CommandList,
  CommandSeparator,
 } from"@/components/ui/command";
+import { PickerQueryState } from"@/components/v2/filters/PickerQueryState";
 
 interface UserBrief {
  id: number;
@@ -58,7 +59,7 @@ export function UserMultiSelect({
  onlyRoles,
 }: UserMultiSelectProps) {
  const [open, setOpen] = useState(false);
- const { data } = useQuery<UserBrief[]>({
+ const { data, isPending, isError, isSuccess, refetch } = useQuery<UserBrief[]>({
  queryKey: ["users-directory"],
  queryFn: () => api.get("/api/users").then((r) => r.data),
  staleTime: 60_000,
@@ -107,7 +108,14 @@ export function UserMultiSelect({
  <Command>
  <CommandInput placeholder={searchPlaceholder} />
  <CommandList>
- <CommandEmpty>Brak użytkowników.</CommandEmpty>
+ <PickerQueryState
+ isPending={isPending}
+ isError={isError}
+ onRetry={() => void refetch()}
+ loadingLabel="Ładowanie listy osób…"
+ errorLabel="Nie udało się pobrać listy osób."
+ />
+ {isSuccess && <CommandEmpty>Brak użytkowników.</CommandEmpty>}
  <CommandGroup>
  {users.map((u) => {
  const isSelected = selected.has(u.id);
