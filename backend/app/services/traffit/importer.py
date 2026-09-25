@@ -1158,6 +1158,26 @@ def needs_session_rollback(error: BaseException, *, past_savepoint: bool) -> boo
     return bool(getattr(error, "connection_invalidated", False))
 
 
+def safe_db_error(error: BaseException) -> str:
+    """Opis błędu bazy BEZ wartości z wiersza (audyt 25.09.2026).
+
+    ``repr(IntegrityError)`` niesie `DETAIL: Key (email)=(jan@…) already
+    exists` — adres kandydata lądował w logu kontenera (→ Loki) i w
+    `error_samples` fazy, czyli w `/sync/status`. Dla błędów bazy zostaje
+    klasa i nazwa ograniczenia; to wystarcza do diagnozy (wiersz wskazuje
+    `ext=` w komunikacie), a treść wiersza sprawdza się w bazie.
+    """
+    orig = getattr(error, "orig", None)
+    if orig is None:
+        return repr(error)
+    constraint = getattr(orig, "constraint_name", None)
+    if constraint is None:
+        diag = getattr(orig, "diag", None)
+        constraint = getattr(diag, "constraint_name", None)
+    kind = type(orig).__name__
+    return f"{type(error).__name__}({kind}, constraint={constraint or '?'})"
+
+
 _UPSERT_CANDIDATE_DOCUMENT = text(
     """
     INSERT INTO candidate_documents (
@@ -2349,7 +2369,10 @@ class TraffitImporter:
                             progress.errors,
                         )
                 except Exception as e:  # noqa: BLE001
-                    msg = f"upsert candidate ext={payload.get('external_id')}: {e!r}"
+                    msg = (
+                        f"upsert candidate ext={payload.get('external_id')}: "
+                        f"{safe_db_error(e)}"
+                    )
                     progress.add_error(msg)
                     if progress.errors <= 5 or progress.errors % 200 == 0:
                         logger.warning("Candidates upsert error: %s", msg[:300])
