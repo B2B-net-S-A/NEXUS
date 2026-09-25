@@ -1,10 +1,8 @@
 {
-  "entry": "5752910a11b9710e6ed237ac7a4f9710f985c6136b8f79bec2cc8df94a1c138d",
+  "entry": "596cf3e3726a81a4a062b8e638d119224920aebeaf6abf85940e94713e80b26f",
   "guide": "client.orders",
   "sources": {
     "frontend/src/components/client-profile/orders/AssignToOrderModal.tsx": "4276f76150fef4dd46b0844348ecdf774b3e8428352693930ca8c4ffa424bcbd",
-    "frontend/src/components/client-profile/orders/EndedLineCard.tsx": "e84ae911cc29fec0abdeba5a92ad858d15037c0a2649285187e83c5952b837c4",
-    "frontend/src/components/client-profile/orders/EndedLineDecisionDialog.tsx": "f290217dd3ce37849b9f933171493a7dc111ae1bf76cd44f3be455c6bbca6411",
     "frontend/src/components/client-profile/orders/MultiConsultantOrdersTab.tsx": "68a0670907c527a19f6c65a612deb03a6a159c95e39cb38368c2a4ae0b2463a9",
     "frontend/src/components/client-profile/orders/OrderGroupCard.tsx": "78537ee21c7cee70acaa87cfbaed4a9c3e2639b317c7fc7d3dae6fbb1acc3144"
   }

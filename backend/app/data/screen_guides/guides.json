@@ -419,11 +419,6 @@
         "anchor": "client.orders.pills"
       },
       {
-        "q": "Jak znaleźć zamówienie po numerze albo nazwisku?",
-        "a": "Wpisz numer albo nazwisko w pole wyszukiwania nad listą. Tam też jest eksport widocznej listy do Excela.",
-        "anchor": "client.orders.search"
-      },
-      {
         "q": "Czym różni się „Zakończ zamówienie” od „Zakończ współpracę”?",
         "a": "„Zakończ zamówienie” zamyka jedno zamówienie i nie rusza umowy. „Zakończ współpracę” wypowiada umowę konsultanta i zamyka wszystkie jego zamówienia u klienta. Zamówienie MD albo kosztowe wpisane przez pomyłkę anulujesz przyciskiem „Anuluj zamówienie” (z powodem); „Przywróć anulowane” przywraca je do poprzedniego stanu."
       },
@@ -433,7 +428,7 @@
       },
       {
         "q": "Co zrobić z osobą w sekcji „Zakończone” zamówienia MD?",
-        "a": "Czerwona karta z przyciskiem „Podejmij decyzję” czeka na Ciebie: w oknie wybierasz „Zostaw jako historię”, „Zastąp kimś innym”, „Usuń z zamówienia” albo decyzję o pozostałej puli MD. Plakietka „Zakończył współpracę” znaczy, że umowa B2B jest rozwiązana, a „Zakończył projekt” — że umowa nadal obowiązuje. Stawki, pasek puli, stan umowy i „Zużycie MD” pokazuje kliknięcie w kartę."
+        "a": "Czerwona karta czeka na Ciebie: „Podejmij decyzję” — zostaw jako historię, zastąp, usuń albo zdecyduj o puli MD. „Zakończył współpracę” = umowa B2B rozwiązana, „Zakończył projekt” = umowa nadal obowiązuje. Stawki, pulę, stan umowy i „Zużycie MD” pokazuje kliknięcie w kartę."
       }
     ],
     "pitfalls": [
@@ -456,8 +451,6 @@
     "sources": [
       "frontend/src/components/client-profile/orders/MultiConsultantOrdersTab.tsx",
       "frontend/src/components/client-profile/orders/OrderGroupCard.tsx",
-      "frontend/src/components/client-profile/orders/EndedLineCard.tsx",
-      "frontend/src/components/client-profile/orders/EndedLineDecisionDialog.tsx",
       "frontend/src/components/client-profile/orders/AssignToOrderModal.tsx"
     ]
   },
