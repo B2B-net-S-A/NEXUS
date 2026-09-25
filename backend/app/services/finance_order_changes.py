@@ -1296,8 +1296,8 @@ def build_order_changes_workbook(
                 "Typ zamówienia",
                 "Status",
                 "Wprowadził(a)",
-                *DONE_HEADERS,
                 "Pozycja faktury",
+                *DONE_HEADERS,
             ],
             [
                 [
@@ -1313,13 +1313,13 @@ def build_order_changes_workbook(
                     ORDER_TYPE_LABELS.get(item.order_type, item.order_type),
                     "Szkic" if item.status == ClientOrderStatus.draft.value else "",
                     _author_label(item),
-                    *_done_cells(item, zone),
                     # Nordea: jedna pozycja na osobę, każda w osobnej linii komórki.
                     "\n".join(line.text for line in item.invoice_lines or []),
+                    *_done_cells(item, zone),
                 ]
                 for item in data.entries
             ],
-            [28, 28, 22, 16, 16, 16, 18, 11, 9, 15, 10, 22, 11, 22, 18, 70],
+            [28, 28, 22, 16, 16, 16, 18, 11, 9, 15, 10, 22, 70, 11, 22, 18],
         )
     if "exits" in wanted:
         _exit_like_sheet(workbook, f"Zejścia ({data.counts.exits})", data.exits, zone)

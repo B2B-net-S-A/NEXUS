@@ -172,7 +172,8 @@ async def _seed_nordea_order(monkeypatch, *, env: bool = True) -> dict[str, obje
 
     suffix = uuid.uuid4().hex[:8]
     # Daleki miesiąc — baza testowa jest wspólna i nie jest czyszczona.
-    first = date(2150 + int(suffix[:4], 16) % 40, 1 + int(suffix[4:6], 16) % 12, 1)
+    # API przyjmuje lata 2000–2100 (``_validate_period``).
+    first = date(2060 + int(suffix[:4], 16) % 40, 1 + int(suffix[4:6], 16) % 12, 1)
     async with AsyncSessionLocal() as db:
         client = Client(name=f"Nordea Test {suffix}")
         candidate = Candidate(
