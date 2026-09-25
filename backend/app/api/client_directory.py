@@ -22,6 +22,7 @@ from app.api.clients import polish_alphabetical_key
 from app.api.deps import AdminUser, OperationalUser
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.core.database import get_db
+from app.core.export_safety import safe_cell
 from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.models.client import Client
@@ -474,22 +475,8 @@ def _directory_contract_end_cell(row) -> str:
     return row.expiry_date.isoformat()
 
 
-# Spreadsheet formula-injection guard. A free-text cell we write verbatim that
-# begins with =, +, -, @ (or a tab/CR that can smuggle one in) is executed as a
-# formula when the file is opened in Excel / Google Sheets. display_name /
-# scope_label / industry / legal_name are user-settable DB values, so we prefix
-# them with an apostrophe (the OWASP-standard mitigation) — the spreadsheet then
-# renders the literal text. openpyxl also treats a leading "=" string as a
-# formula, so this protects the xlsx path too. Ints and ISO dates pass through.
-_FORMULA_INJECTION_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
-
-
-def _formula_safe(value):
-    if isinstance(value, str) and value[:1] in _FORMULA_INJECTION_PREFIXES:
-        return "'" + value
-    return value
-
-
+# Osłona przed wstrzyknięciem formuły: display_name / scope_label / industry /
+# legal_name to wartości wpisywane przez ludzi — `safe_cell` (app.core.export_safety).
 def _directory_export_row(row, *, can_view_legal: bool) -> list:
     values = [
         row.client_id,
@@ -505,7 +492,7 @@ def _directory_export_row(row, *, can_view_legal: bool) -> list:
     ]
     if can_view_legal:
         values.extend([row.legal_name or "", row.nip or "", row.regon or ""])
-    return [_formula_safe(value) for value in values]
+    return [safe_cell(value) for value in values]
 
 
 @router.get("/directory/export")

@@ -46,6 +46,7 @@ from sqlalchemy.orm import aliased, selectinload
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.export_safety import safe_row
 from app.core.scheduling import business_today
 from app.core.http_headers import content_disposition
 from app.core.rate_limit import limiter, user_or_ip_key
@@ -2721,24 +2722,28 @@ def _row_for_export(c: Candidate) -> list:
         c.expected_rate_hourly,
         c.expected_rate_currency,
     )
-    return [
-        c.id,
-        c.name or "",
-        c.lastname or "",
-        c.email or "",
-        c.phone or "",
-        c.location or "",
-        c.competence_category or "",
-        c.years_it_experience if c.years_it_experience is not None else "",
-        _skill_names_flat(c.skills),
-        _skill_names_flat(c.tags),
-        c.status.value if c.status else "",
-        c.source or "",
-        profile_rate if profile_rate is not None else "",
-        c.availability_date.isoformat() if c.availability_date else "",
-        "true" if c.champion else "false",
-        c.created_at.isoformat() if c.created_at else "",
-    ]
+    # Imię, nazwisko i lokalizacja przychodzą też z publicznego formularza
+    # strony kariery — tekst nie może zostać formułą w Excelu (safe_row).
+    return safe_row(
+        [
+            c.id,
+            c.name or "",
+            c.lastname or "",
+            c.email or "",
+            c.phone or "",
+            c.location or "",
+            c.competence_category or "",
+            c.years_it_experience if c.years_it_experience is not None else "",
+            _skill_names_flat(c.skills),
+            _skill_names_flat(c.tags),
+            c.status.value if c.status else "",
+            c.source or "",
+            profile_rate if profile_rate is not None else "",
+            c.availability_date.isoformat() if c.availability_date else "",
+            "true" if c.champion else "false",
+            c.created_at.isoformat() if c.created_at else "",
+        ]
+    )
 
 
 @router.get("/export")
