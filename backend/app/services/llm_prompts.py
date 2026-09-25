@@ -423,7 +423,9 @@ INTERVIEW_PREP = PromptTemplate(
 
 CHAMPION_PROFILE_FROM_JD = PromptTemplate(
     name="champion_profile_from_jd",
-    version=1,
+    # v2 (audyt 25.09.2026, r3): basics.rate_raw — dosłowny cytat stawki;
+    # budżet liczy kod (`champion_draft_service._ground_basics_rate`).
+    version=2,
     expected_format="json",
     system_prompt=(
         "Jesteś senior rekruterem IT w polskiej agencji staffing. "
@@ -450,6 +452,7 @@ CHAMPION_PROFILE_FROM_JD = PromptTemplate(
         '    "role_name": str|null,\n'
         '    "seniority_min_years": int|null,\n'
         '    "rate_value": float|null,\n'
+        '    "rate_raw": str|null,\n'
         '    "work_mode": "stacjonarnie"|"hybrydowo"|"zdalnie"|null,\n'
         '    "onsite_days_per_week": int|null,\n'
         '    "candidate_location_pref": str|null,\n'
@@ -494,6 +497,7 @@ CHAMPION_PROFILE_FROM_JD = PromptTemplate(
         '    "documents": 0.0\n'
         "  }}\n"
         "}}\n\n"
+        "Stawka: basics.rate_value podawaj WYŁĄCZNIE razem z basics.rate_raw = DOSŁOWNY fragment źródła, w którym stoi stawka (np. „do 140 zł/h netto”). Bez takiego fragmentu zostaw oba pola puste — budżet liczy system z fragmentu, nie z liczby. "
         "Limity: screening_questions max 8 pozycji, każda z krótkim ideal_answer; "
         "deal_breaker wypełnij TYLKO gdy klient wyraźnie wskazał dyskwalifikator. "
         "project.about MUSI zmieścić się w 2 zdaniach — nadmiar POMIŃ, nie przenoś "
@@ -509,7 +513,9 @@ CHAMPION_PROFILE_FROM_JD = PromptTemplate(
 
 CHAMPION_PROFILE_ENRICH_FROM_MEETING = PromptTemplate(
     name="champion_profile_enrich_from_meeting",
-    version=1,
+    # v2 (audyt 25.09.2026, r3): basics.rate_raw — dosłowny cytat stawki;
+    # budżet liczy kod (`champion_draft_service._ground_basics_rate`).
+    version=2,
     expected_format="json",
     system_prompt=(
         "Jesteś senior rekruterem IT. Analizujesz transkrypt rozmowy "
@@ -546,6 +552,7 @@ CHAMPION_PROFILE_ENRICH_FROM_MEETING = PromptTemplate(
         "Dla sekcji których NIE chcesz aktualizować — pomiń całkowicie. "
         "rationale = krótki cytat/fragment z transkryptu uzasadniający zmianę "
         "(1-2 zdania, po polsku). "
+        "Stawka: basics.rate_value podawaj WYŁĄCZNIE razem z basics.rate_raw = DOSŁOWNY fragment źródła, w którym stoi stawka (np. „do 140 zł/h netto”). Bez takiego fragmentu zostaw oba pola puste — budżet liczy system z fragmentu, nie z liczby. "
         "Dla screening_questions.value dodawaj TYLKO nowe pytania których brak "
         "w obecnym profilu — nie powielaj."
     ),
@@ -554,7 +561,9 @@ CHAMPION_PROFILE_ENRICH_FROM_MEETING = PromptTemplate(
 
 CHAMPION_PROFILE_ENRICH_FROM_CALL = PromptTemplate(
     name="champion_profile_enrich_from_call",
-    version=1,
+    # v2 (audyt 25.09.2026, r3): basics.rate_raw — dosłowny cytat stawki;
+    # budżet liczy kod (`champion_draft_service._ground_basics_rate`).
+    version=2,
     expected_format="json",
     system_prompt=(
         "Jesteś senior rekruterem IT. Analizujesz krótki transkrypt rozmowy "
@@ -580,6 +589,7 @@ CHAMPION_PROFILE_ENRICH_FROM_CALL = PromptTemplate(
         "---\n\n"
         "Zwróć delta-patch JSON z TYLKO sekcjami do aktualizacji "
         "(format identyczny jak dla meeting enrichment). "
+        "Stawka: basics.rate_value podawaj WYŁĄCZNIE razem z basics.rate_raw = DOSŁOWNY fragment źródła, w którym stoi stawka (np. „do 140 zł/h netto”). Bez takiego fragmentu zostaw oba pola puste — budżet liczy system z fragmentu, nie z liczby. "
         "Ze względu na krótki format rozmowy ogranicz confidence do max 0.8. "
         "Dla sekcji których NIE chcesz aktualizować — pomiń całkowicie."
     ),
@@ -588,7 +598,9 @@ CHAMPION_PROFILE_ENRICH_FROM_CALL = PromptTemplate(
 
 CHAMPION_PROFILE_FROM_HISTORICAL_JOBS = PromptTemplate(
     name="champion_profile_from_historical_jobs",
-    version=1,
+    # v2 (audyt 25.09.2026, r3): basics.rate_raw — dosłowny cytat stawki;
+    # budżet liczy kod (`champion_draft_service._ground_basics_rate`).
+    version=2,
     expected_format="json",
     system_prompt=(
         "Jesteś senior rekruterem IT w polskiej agencji staffing. "
@@ -646,6 +658,7 @@ CHAMPION_PROFILE_FROM_HISTORICAL_JOBS = PromptTemplate(
         "Confidence: 0.8-1.0 dla verbatim copy z pojedynczego matcha o "
         "similarity >= 0.85; 0.5-0.8 dla kompozycji/unionu; 0.3-0.5 gdy "
         "sygnał słaby (tylko 1-2 matches). "
+        "Stawka: basics.rate_value podawaj WYŁĄCZNIE razem z basics.rate_raw = DOSŁOWNY fragment opisu od klienta (nie z historycznych ról), w którym stoi stawka (np. „do 140 zł/h netto”). Bez takiego fragmentu zostaw oba pola puste — budżet liczy system z fragmentu, nie z liczby. "
         "screening_questions.value: max 5 pozycji; jeśli historia nie pokrywa "
         "pytania wystarczająco często (>=60% matches) — nie dodawaj go."
     ),

@@ -103,6 +103,51 @@ def alert_list_params(filters: Optional[dict]) -> Optional[dict]:
     return payloads.with_literal_text(api_params)
 
 
+# Zapisy z odwróconym zakresem, o których ten proces już zalogował.
+_REVERSED_RANGE_LOGGED: set[int] = set()
+
+
+def _as_number(value: Any) -> Any:
+    from decimal import Decimal, InvalidOperation
+
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return Decimal(str(value).strip())
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def reversed_range(params: dict) -> Optional[str]:
+    """Odwrócony zakres stawki albo stażu w parametrach listy — zdanie po
+    polsku albo None. Ta sama reguła co `GET /api/candidates` (od rundy 2
+    audytu lista odpowiada na taki zakres 422)."""
+    from app.schemas.candidate_search import reversed_range_message
+
+    return reversed_range_message(
+        experience_min=_as_number(params.get("min_experience")),
+        experience_max=_as_number(params.get("max_experience")),
+        rate_min=_as_number(params.get("min_rate")),
+        rate_max=_as_number(params.get("max_rate")),
+    )
+
+
+def _skip_reversed_range(search_id: int, params: dict) -> bool:
+    """Zapis z odwróconym zakresem nie ma trafień (tak działał v1) — skaner
+    nie pyta listy, która odpowiedziałaby 422, i loguje to RAZ na proces,
+    a nie w każdym biegu (audyt 25.09.2026, r3)."""
+    message = reversed_range(params)
+    if message is None:
+        return False
+    if search_id not in _REVERSED_RANGE_LOGGED:
+        _REVERSED_RANGE_LOGGED.add(search_id)
+        logger.info(
+            "saved_search_alerts: search %s has a reversed range — no matches",
+            search_id,
+        )
+    return True
+
+
 def polish_candidates(n: int) -> str:
     """`1 nowy kandydat` / `3 nowi kandydaci` / `7 nowych kandydatów`."""
     if n == 1:
@@ -214,7 +259,11 @@ async def _baseline_one(client, db, ss, owner) -> None:
         authorization_version=owner.authorization_version,
     )
     scan_start = datetime.now(timezone.utc)
-    items = await _replay_match_items(client, token, build_base_params(api_params))
+    base_params = build_base_params(api_params)
+    if _skip_reversed_range(ss.id, base_params):
+        items = []
+    else:
+        items = await _replay_match_items(client, token, base_params)
     ids = [int(it["id"]) for it in items]
     await _log_candidates(db, ss.id, ids, notified_at=None)
     ss.last_scanned_at = scan_start
@@ -253,7 +302,10 @@ async def _incremental_one(client, db, ss, owner) -> bool:
     # Zmiana wiersza ALBO nowa notatka / dokument — notatka dodana w NEXUSIE
     # nie rusza `candidates.updated_at`, a słowa kluczowe przeszukują notatki.
     params["changed_after"] = ss.last_scanned_at.isoformat()
-    items = await _replay_match_items(client, token, params)
+    if _skip_reversed_range(ss.id, params):
+        items = []
+    else:
+        items = await _replay_match_items(client, token, params)
 
     # Advance the watermark even when nothing new — a quiet pass still moves
     # time forward so the next run's window starts here (at-least-once: we use

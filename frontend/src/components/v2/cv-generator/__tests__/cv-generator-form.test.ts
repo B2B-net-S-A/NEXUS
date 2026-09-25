@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import type { ChampionProfile } from "@/lib/api";
 import type { RecruitmentOption } from "@/lib/cv-generator";
 
 import {
@@ -8,6 +9,7 @@ import {
   autoProcessChoice,
   buildGeneratePayload,
   buildUploadFormData,
+  championImportPayload,
   defaultLanguageChoice,
   defaultProcessingMode,
   formatCvListDate,
@@ -273,5 +275,27 @@ describe("pozostałe", () => {
     expect(formatCvListDate(new Date(2026, 8, 22, 16, 2).toISOString(), now)).toMatch(/^wczoraj 16:02$/);
     expect(formatCvListDate(new Date(2026, 8, 19, 9, 0).toISOString(), now)).toBe("19.09");
     expect(formatCvListDate(null, now)).toBe("");
+  });
+});
+
+describe("zapis Championa z dokumentu", () => {
+  it("wysyła tylko niepuste pola i nigdy notatek zespołu", () => {
+    const profile = {
+      basics: { role_name: "Java Developer", rate_value: null, rate_raw: "", language: "  " },
+      stack: { must: [{ name: "Java" }], nice: [], notes: "" },
+      project: { about: "", responsibilities: "" },
+      screening_questions: [],
+      insights: [],
+      client_history: { status: "ok" },
+      verification: { status: "done" },
+      intake: { unresolved: {}, template_version: "v5" },
+      _source: "champion_upload",
+    } as unknown as ChampionProfile;
+    expect(championImportPayload(profile)).toEqual({
+      basics: { role_name: "Java Developer" },
+      stack: { must: [{ name: "Java" }] },
+      intake: { template_version: "v5" },
+      _source: "champion_upload",
+    });
   });
 });

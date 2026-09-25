@@ -2479,9 +2479,9 @@ async def generate_from_upload(
     # so this multipart marker resolves correctly even under the slowapi
     # `@limiter.limit` wrapper. Annotated form is the FastAPI-recommended style.
     cv_file: Annotated[UploadFile, File(description="Plik CV (PDF / DOCX)")],
-    # Klient, pod którego idzie to CV. OPCJONALNY — generator służy też do CV
-    # robionych poza konkretnym zleceniem, a wymuszony wybór zamieniłby brak
-    # wiedzy w zgadywanie. Bez klienta wszystko działa jak dotąd.
+    # Klient, pod którego idzie to CV. Wymagany (generator v3, jak `/generate`)
+    # — z rekrutacji (`stage_id`) wynika sam, bez niej podaje go rekruter.
+    # Opcjonalny w formularzu tylko dlatego, że z etapem nie trzeba go słać.
     client_id: Optional[int] = Form(None),
     candidate_id: Annotated[Optional[int], Form(ge=1)] = None,
     stage_id: Annotated[Optional[int], Form(ge=1)] = None,
@@ -2675,6 +2675,16 @@ async def generate_from_upload(
     )
 
     imported_profile = None
+    if champion_bytes and effective_mode == "tailored" and not champion_profile_json:
+        # Plik CV sprawdzamy PRZED płatnym podglądem AI Championa niżej —
+        # nieczytelne CV i tak kończy się 422, a podgląd kosztowałby wywołanie
+        # modelu za generację, która nie ruszy (audyt 25.09.2026, r3).
+        try:
+            await run_in_threadpool(
+                validate_cv_file, cv_bytes, cv_file.filename or "cv.pdf"
+            )
+        except StandaloneGenerationError as error:
+            raise HTTPException(422, error.message) from error
     if champion_profile_json or (champion_bytes and effective_mode == "tailored"):
         from app.services.champion_intake import prepare_profile, enforce_operation
         from types import SimpleNamespace
@@ -2763,6 +2773,16 @@ async def generate_from_upload(
         await run_in_threadpool(validate_upload_inputs, gen_payload)
     except StandaloneGenerationError as error:
         raise HTTPException(422, error.message) from error
+
+    # Generator v3: klient zawsze wymagany — lustro `/generate` („inny klient
+    # bez procesu”). Bez niego nie obowiązuje żadna reguła klienta (nazwa
+    # pliku, język, zgoda RODO). Z etapem klienta wyznacza rekrutacja, jak
+    # w `/generate`. Po walidacji plików, przed wierszem i kwotą.
+    if client_id is None and stage_id is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Wybierz klienta, dla którego powstaje CV.",
+        )
 
     # Provisional label until Claude parses the real name out of the CV.
     provisional = Path(cv_file.filename or "").stem or "Nowe CV"

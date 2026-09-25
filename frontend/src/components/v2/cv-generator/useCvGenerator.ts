@@ -40,6 +40,7 @@ import {
   autoProcessChoice,
   buildGeneratePayload,
   buildUploadFormData,
+  championImportPayload,
   defaultLanguageChoice,
   defaultProcessingMode,
   missingInputs,
@@ -444,8 +445,10 @@ export function useCvGenerator({
     setChampionBusy(true);
     try {
       const { data } = await api.get<{ fingerprint: string }>(`/api/jobs/${jobId}/champion-profile`);
+      // Tylko pola niesione przez dokument, bez notatek zespołu — generator
+      // nie widzi zapisanego profilu, więc nie może go nadpisywać pustymi.
       await api.post(`/api/jobs/${jobId}/champion-profile/apply-import`, {
-        profile,
+        profile: championImportPayload(profile),
         expected_fingerprint: data.fingerprint,
         sync_fields: [],
       });

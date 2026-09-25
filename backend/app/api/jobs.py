@@ -1826,14 +1826,15 @@ async def create_job(
     # import. Done post-flush so we have the persisted client_id; the UNIQUE
     # constraint on jobs.reference_number backstops concurrent creates.
     if not job.reference_number:
-        from datetime import datetime, timezone
-
+        from app.core.scheduling import business_today
         from app.services.job_reference import generate_job_reference_number
 
+        # Rok numeru = rok kalendarza firmy (Europe/Warsaw). Z UTC rekrutacja
+        # założona 1 stycznia przed 01:00 dostawała numer poprzedniego roku.
         job.reference_number = await generate_job_reference_number(
             db,
             client_id=job.client_id,
-            year=datetime.now(timezone.utc).year,
+            year=business_today().year,
         )
 
     # Persist secondary CC links (manual from caller, if any)
@@ -2219,14 +2220,18 @@ async def update_job(
             updates["client_reference"]
         )
     if "champion_profile" in updates:
+        from app.api.champion_intake import invalid_champion_profile
         from app.services.champion_intake import user_edit
 
-        updates["champion_profile"] = user_edit(
-            job.champion_profile,
-            updates["champion_profile"] or {},
-            current_user.id,
-            actor_name=(current_user.name or "").strip() or current_user.email,
-        )
+        try:
+            updates["champion_profile"] = user_edit(
+                job.champion_profile,
+                updates["champion_profile"] or {},
+                current_user.id,
+                actor_name=(current_user.name or "").strip() or current_user.email,
+            )
+        except (ValueError, TypeError, AttributeError) as exc:
+            raise invalid_champion_profile(exc) from exc
     from app.services.requirement_contract import invalidate_changed_requirements
 
     invalidate_changed_requirements(job, updates)
@@ -2939,14 +2944,21 @@ async def _save_champion_profile(
         )
     old_profile = dict(job.champion_profile or {})
     normalized_old = ChampionProfile.model_validate(old_profile).model_dump(mode="json")
-    new_profile = user_edit(
-        old_profile,
-        payload or {},
-        current_user.id,
-        imported=imported,
-        actor_name=(current_user.name or "").strip() or current_user.email,
-    )
-    profile = ChampionProfile.model_validate(new_profile)
+    # Zły kształt albo typ sekcji w ładunku (np. `"basics": "x"`) = 422 po
+    # polsku, nie 500 z normalizacji (audyt 25.09.2026, r3).
+    from app.api.champion_intake import invalid_champion_profile
+
+    try:
+        new_profile = user_edit(
+            old_profile,
+            payload or {},
+            current_user.id,
+            imported=imported,
+            actor_name=(current_user.name or "").strip() or current_user.email,
+        )
+        profile = ChampionProfile.model_validate(new_profile)
+    except (ValueError, TypeError, AttributeError) as exc:
+        raise invalid_champion_profile(exc) from exc
     # Explicit reconciliation can change recruitment columns even when the
     # profile text stays the same; an empty selection performs no writes.
     sync_selected_rubrics(job, new_profile, sync_fields or [])
@@ -2959,7 +2971,7 @@ async def _save_champion_profile(
     stack_must = [{"name": item.name, "level": None} for item in profile.stack.must]
     stack_nice = [{"name": item.name, "level": None} for item in profile.stack.nice]
     # Migawka kolumn, które czyta matching — po synchronizacji stacku widać,
-    # czy zapis zmienił coś poza treścią profilu (patrz `search_rows_only`).
+    # czy zapis zmienił coś poza treścią profilu (patrz `requirements_unchanged`).
     matching_columns_before = deepcopy(
         (job.must_skills, job.nice_skills, job.matching_requirements)
     )
@@ -3003,21 +3015,31 @@ async def _save_champion_profile(
     # before a schema field existed (e.g. `advisory`) must not read as a change
     # — that would turn every no-op save into a write plus a notification.
     intake_changed = normalized_old.get("intake") != new_profile.get("intake")
-    # Same wymagania do wyszukiwania w bazie (sekcja 2, 25.09.2026) czyta
-    # wyłącznie „Szukaj ręcznie”: odcisk rankingu, wektor oferty i kolumny
-    # rekrutacji zostają, więc bez przeliczenia dopasowań i bez zdarzenia dla
-    # automatów (nocny przegląd, auto-match). Treść profilu i tak się zapisuje,
-    # a zespół dostaje powiadomienie.
-    search_rows_only = (
+    # Zapis, który nie zmienia WYMAGAŃ roli — same notatki (sekcja 8), same
+    # wymagania do wyszukiwania w bazie (sekcja 2, czyta je wyłącznie „Szukaj
+    # ręcznie”) albo jedno i drugie — nie przelicza dopasowań i nie budzi
+    # automatów (nocny przegląd, auto-match). Odcisk rankingu, wektor oferty
+    # i kolumny rekrutacji zostają. Porównanie idzie po
+    # `champion_view.requirement_source` z kluczami pomijanymi przez odcisk
+    # rankingu (`RANKING_IGNORED_KEYS` — węższe niż `_NON_REQUIREMENT_KEYS`,
+    # więc np. zmiana `intake` nadal przelicza). Do rundy 3 audytu
+    # (25.09.2026) zwolnienie obejmowało tylko `["search"]`, więc samo
+    # odhaczenie notatki „do dopytania” unieważniało wszystkie wyniki.
+    # Treść profilu i tak się zapisuje, a zespół dostaje powiadomienie.
+    requirements_unchanged = (
         not imported
-        and fields_changed == ["search"]
+        and bool(fields_changed)
         and not intake_changed
         and not columns_filled
         and not sync_fields
         and deepcopy((job.must_skills, job.nice_skills, job.matching_requirements))
         == matching_columns_before
-        and champion_view.without_search_rows(normalized_old.get("search"))
-        == champion_view.without_search_rows(new_profile.get("search"))
+        and champion_view.requirement_source(
+            normalized_old, ignored=champion_view.RANKING_IGNORED_KEYS
+        )
+        == champion_view.requirement_source(
+            new_profile, ignored=champion_view.RANKING_IGNORED_KEYS
+        )
     )
     if not fields_changed and not imported and old_profile and not intake_changed:
         # Brak zmiany TREŚCI profilu nie znaczy brak zmiany dla silnika
@@ -3090,13 +3112,13 @@ async def _save_champion_profile(
     # top-weighted scoring inputs — re-embed the job and invalidate cached match
     # scores so the Delivery Lead's work actually reaches the recruiter's ranking
     # (previously this write bypassed the refresh update_job does).
-    if not search_rows_only:
+    if not requirements_unchanged:
         await refresh_job_matching(job.id, db)
 
     # Zmiana Championa to istotna zmiana wymagań: opublikowana rekrutacja wraca
     # do auto-matchu nowych CV i do nocnego pełnego przeglądu bazy (21.09.2026).
     # Własna sesja, nigdy nie rzuca.
-    if job.status == JobStatus.published and not search_rows_only:
+    if job.status == JobStatus.published and not requirements_unchanged:
         from app.services.auto_match_outbox import enqueue_job_safe
 
         await enqueue_job_safe(job.id)
