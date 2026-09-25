@@ -15,7 +15,6 @@ Phase 3 adds ``POST /webhook``; Phase 4 adds ``/withdraw`` + ``/remind``.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
@@ -30,6 +29,7 @@ from app.api.deps import CurrentUser, DeliveryLeadPlus, require_roles
 from app.api.section_access import ProductSection, require_section_access
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.tasks import spawn
 from app.models.activity import Activity
 from app.models.document_signature import DocumentSignature, SignatureStatus
 from app.models.user import User, UserRole
@@ -108,7 +108,7 @@ async def send_contract_for_signature(
     )
     # Schedule async send AFTER commit. Detached from request lifecycle —
     # owns its own DB session via AsyncSessionLocal in the function.
-    asyncio.create_task(send_to_autenti(sig.id))
+    spawn(send_to_autenti(sig.id), f"send_to_autenti(signature={sig.id})")
     return AutentiSendResponse(
         signature_id=sig.id,
         contract_id=sig.contract_id,

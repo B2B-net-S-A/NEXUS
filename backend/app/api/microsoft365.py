@@ -20,7 +20,6 @@ Routes:
 # this file (PEP 585 built-in generics, `Optional`) without the future
 # import, so removing it is purely a fix, not a downgrade.
 
-import asyncio
 import hmac
 import logging
 import time
@@ -44,6 +43,7 @@ from app.core.config import settings
 from app.core.database import AsyncSessionLocal, get_db
 from app.core.encryption import TokenCipherNotConfigured, get_token_cipher
 from app.core.rate_limit import limiter
+from app.core.tasks import spawn as spawn_background
 from app.models.m365 import GraphSubscription, M365Connection, M365SyncStatus
 from app.models.user import User
 from app.services.m365 import oauth as m365_oauth
@@ -58,30 +58,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-# Referencje zadań w tle (fire-and-forget ``create_task`` gubi je pod GC —
-# pętla zdarzeń trzyma tylko słabą referencję, więc zadanie może zniknąć
-# w połowie backfillu albo synchronizacji z webhooka, bez żadnego śladu).
-# Wzorzec przeniesiony z app/api/cortex.py, rozszerzony o log wyjątku: bez
-# niego padnięte zadanie jest niewidoczne, bo nikt nie czyta jego wyniku.
-_bg_tasks: set[asyncio.Task] = set()
-
-
-def _spawn(coro, label: str) -> None:
-    task = asyncio.create_task(coro)
-    _bg_tasks.add(task)
-
-    def _done(finished: asyncio.Task) -> None:
-        _bg_tasks.discard(finished)
-        if finished.cancelled():
-            # Redeploy Coolify ubija pętlę zdarzeń — to nie jest błąd, ale ma
-            # zostawić ślad, żeby ucięty backfill dało się później wyjaśnić.
-            logger.warning("m365 background task cancelled: %s", label)
-            return
-        exc = finished.exception()
-        if exc is not None:
-            logger.exception("m365 background task failed: %s", label, exc_info=exc)
-
-    task.add_done_callback(_done)
+# Zadania w tle z trzymaną referencją i logiem porażki — wspólny wzorzec
+# w `app/core/tasks.py` (tu powstał; nazwa `_spawn` zostaje, bo testy ją
+# podmieniają).
+_spawn = spawn_background
 
 
 # ── Schemas ─────────────────────────────────────────────────────────────────
