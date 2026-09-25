@@ -50,7 +50,7 @@ from app.services.ai_models import fallbacks_for, model_for
 from app.services.ai_quota import ai_feature
 from app.services.llm_prompts import ACADEMY_SCREENING
 from app.services.prompt_fencing import fence
-from app.core.scheduling import business_today
+from app.core.scheduling import business_today, local_day_start_utc
 
 logger = logging.getLogger(__name__)
 
@@ -108,14 +108,10 @@ async def intake_program(db: AsyncSession, program_id: int) -> dict[str, int]:
     for source in sources:
         conditions = [CandidateStage.job_id == source.job_id]
         if source.since is not None:
+            # „Od dnia” to doba w kalendarzu firmy, nie północ UTC — inaczej
+            # zgłoszenie z 00:30 czasu polskiego w dniu `since` przepadało.
             conditions.append(
-                CandidateStage.moved_at
-                >= datetime(
-                    source.since.year,
-                    source.since.month,
-                    source.since.day,
-                    tzinfo=timezone.utc,
-                )
+                CandidateStage.moved_at >= local_day_start_utc(source.since)
             )
         rows = (
             await db.execute(
