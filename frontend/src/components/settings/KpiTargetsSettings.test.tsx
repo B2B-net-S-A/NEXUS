@@ -7,7 +7,30 @@ import {
   type KpiTargetsMatrix,
 } from "@/lib/api/kpiTargets";
 
-import { KpiRoleTable, KpiUserTable } from "./KpiTargetsSettings";
+import {
+  KpiRoleTable,
+  KpiTargetsSettings,
+  KpiUserTable,
+} from "./KpiTargetsSettings";
+
+const hooks = vi.hoisted(() => ({ matrix: null as unknown }));
+
+vi.mock("@/lib/api/kpiTargets", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/api/kpiTargets")>();
+  const idle = { isPending: false, mutateAsync: vi.fn() };
+  return {
+    ...actual,
+    useKpiTargets: () => ({
+      isError: false,
+      isSuccess: true,
+      data: hooks.matrix,
+      refetch: vi.fn(),
+    }),
+    useSaveRoleDefault: () => idle,
+    useSaveUserTarget: () => idle,
+    useKpiTargetHistory: () => ({ isSuccess: true, data: [] }),
+  };
+});
 
 const MATRIX: KpiTargetsMatrix = {
   kpis: [
@@ -124,5 +147,19 @@ describe("KpiUserTable", () => {
     await waitFor(() =>
       expect(onSave).toHaveBeenCalledWith(7, "daily_first_verifications", null),
     );
+  });
+});
+
+describe("KpiTargetsSettings — nota o progu wyścigu (R4-15)", () => {
+  it("mówi, że zmiana progu działa w wyścigu od następnego miesiąca", () => {
+    // Progi wyścigu z nagrodą są migawką miesiąca (`monthly_race_thresholds`),
+    // więc nota „działa od razu dla bieżącego miesiąca” obiecywała coś, czego
+    // silnik nie robi (audyt 25.09.2026).
+    hooks.matrix = MATRIX;
+    render(<KpiTargetsSettings />);
+    const note = screen.getByRole("note");
+    expect(note).toHaveTextContent(/od następnego miesiąca/);
+    expect(note).not.toHaveTextContent(/od razu/);
+    expect(note).not.toHaveTextContent(/dla bieżącego miesiąca/);
   });
 });

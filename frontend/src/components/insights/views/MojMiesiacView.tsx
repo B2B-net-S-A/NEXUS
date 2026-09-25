@@ -280,6 +280,17 @@ export function MojMiesiacView() {
                 ? ` — do podium brakuje ${Math.max(podiumThird.metric_value - league.me.metric_value, 0)} pkt.`
                 : "."}
             </p>
+          ) : league?.me ? (
+            // Na liście, ale bez miejsca w klasyfikacji nagrodowej (próg
+            // placementów niespełniony) — numer z pozycji listy ogłaszał tu
+            // „1. miejsce” komuś, kto nagrody nie dostanie (audyt 25.09.2026).
+            <p className="border-t border-border pt-3 text-sm text-muted-foreground">
+              Liga Mistrzów (kwartał):{" "}
+              <strong className="text-foreground">
+                {league.me.metric_value ?? 0} pkt, bez miejsca w klasyfikacji
+              </strong>{" "}
+              — warunek udziału nie jest jeszcze spełniony.
+            </p>
           ) : null}
           <Link
             href="/insights?tab=rywalizacja"

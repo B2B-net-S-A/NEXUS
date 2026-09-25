@@ -147,10 +147,18 @@ async def snapshot_current_month_thresholds(today: date | None = None) -> None:
     miesiąca obowiązuje dopiero od następnego — zwycięzcy wyścigu z nagrodą
     nie da się przestawić wstecz edycją celu.
     """
-    period = comp_service.current_month_period(today or business_today())
+    today = today or business_today()
+    period = comp_service.current_month_period(today)
     try:
         async with AsyncSessionLocal() as db:
             await comp_service.snapshot_monthly_race_thresholds(db, period)
+            # Punktacja Ligi bieżącego kwartału (R4-16): zmiana wag albo progów
+            # placementów w trakcie kwartału obowiązuje od następnego — Ligi
+            # z nagrodą i wykluczenia lidera z wyścigów nie da się przestawić
+            # wstecz edycją konfiguracji.
+            await comp_service.snapshot_league_scoring_config(
+                db, comp_service.current_quarter_period(today)
+            )
             await db.commit()
     except asyncio.CancelledError:
         raise

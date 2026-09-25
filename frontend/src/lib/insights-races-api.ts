@@ -307,8 +307,10 @@ export interface MyCompetitionPositionEntry {
   user_id: number;
   name: string;
   metric_value: number;
-  rank?: number;
+  /** `null` = na liście, ale bez miejsca w klasyfikacji nagrodowej. */
+  rank?: number | null;
   placements?: number | null;
+  qualified?: boolean;
 }
 
 export interface MyCompetitionPosition {
@@ -339,7 +341,9 @@ export const racesApi = {
 
   /**
    * Pozycja zalogowanej osoby w bieżącym konkursie (`/my-position`): numer
-   * miejsca, własny wpis i ±2 sąsiadów. `rank: null` = poza rankingiem.
+   * miejsca, własny wpis i ±2 sąsiadów. `rank: null` i `me: null` = poza
+   * rankingiem; `rank: null` przy wpisie `me` = na liście, ale bez miejsca
+   * w klasyfikacji nagrodowej (niezakwalifikowany, wykluczony).
    */
   myPosition: (type: CompetitionTypeKey) =>
     api

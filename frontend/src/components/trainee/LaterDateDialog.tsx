@@ -11,6 +11,8 @@ interface LaterDateDialogProps {
   personName: string;
   /** Dzień listy (RRRR-MM-DD) — od niego liczymy „po dziś”. */
   listDate: string;
+  /** Ostatni dzień programu (RRRR-MM-DD) — później lista już nie powstanie. */
+  programEnd?: string | null;
   busy: boolean;
   onCancel: () => void;
   onConfirm: (date: string) => void;
@@ -21,6 +23,7 @@ export function LaterDateDialog({
   open,
   personName,
   listDate,
+  programEnd = null,
   busy,
   onCancel,
   onConfirm,
@@ -33,7 +36,7 @@ export function LaterDateDialog({
       setTouched(false);
     }
   }, [open, listDate]);
-  const error = laterDateError(date, listDate);
+  const error = laterDateError(date, listDate, programEnd);
 
   return (
     <AppModal
@@ -70,6 +73,7 @@ export function LaterDateDialog({
           id="trainee-later-date"
           type="date"
           min={nextBusinessDay(listDate)}
+          max={programEnd ?? undefined}
           value={date}
           onChange={(e) => {
             setDate(e.target.value);
