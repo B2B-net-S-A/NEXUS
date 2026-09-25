@@ -1604,7 +1604,9 @@ async def _apply_line_history(
             item.cooperation_ended_on = item.offboarding_case.effective_date
         contract = line.contract
         if contract is not None:
-            contract_type = getattr(contract.contract_type, "value", contract.contract_type)
+            contract_type = getattr(
+                contract.contract_type, "value", contract.contract_type
+            )
             item.contract_type = contract_type or None
             item.agreement_termination_mode = contract.agreement_termination_mode
             item.agreement_last_day = contract.agreement_last_day
