@@ -71,7 +71,7 @@ class BoardTaskRow(BaseModel):
     # Przegląd DL i kolejka Cpro: wynik QC CV pary.
     qc_status: Optional[Literal["passed", "failed", "overridden", "unchecked"]] = None
     qc_blocking_failed: int = 0
-    # 0378: ``job_title`` = nazwa od klienta; tytuł dla rekrutera i numer u
+    # 0379: ``job_title`` = nazwa od klienta; tytuł dla rekrutera i numer u
     # klienta osobno (Cpro dostaje nazwę i numer klienta).
     job_working_title: Optional[str] = None
     client_reference: Optional[str] = None

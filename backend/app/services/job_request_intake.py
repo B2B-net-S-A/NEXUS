@@ -109,7 +109,7 @@ class RequestIntake:
     ask_client: list[str] = field(default_factory=list)
     # Ścieżka pola formularza → "request" | "client_history" | "ai".
     provenance: dict[str, str] = field(default_factory=dict)
-    # ── od v3 (0378): trzy nazwy rekrutacji ──
+    # ── od v3 (0379): trzy nazwy rekrutacji ──
     # Dosłowne fragmenty zapytania: nazwa stanowiska od klienta i jego numer.
     client_title: Optional[str] = None
     client_reference: Optional[str] = None

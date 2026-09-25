@@ -1450,7 +1450,7 @@ function JobFormFields({
  * w bazie zostają nietknięte). Patrz `lib/job-edit-access.ts`.
  */
 /**
- * Numer u klienta i tytuł dla rekrutera (0378). „Tytuł stanowiska” wyżej
+ * Numer u klienta i tytuł dla rekrutera (0379). „Tytuł stanowiska” wyżej
  * zostaje nazwą od klienta — to ona idzie do klienta w CV i do Cpro.
  */
 function JobNamesFields({
@@ -1514,7 +1514,7 @@ export function EditJobModal({
   scope?: "full" | "content";
 }) {
   const [form, setForm] = useState<JobFormData>(() => jobToForm(job));
-  // 0378: numer u klienta i tytuł dla rekrutera — osobny szkic, bo PATCH
+  // 0379: numer u klienta i tytuł dla rekrutera — osobny szkic, bo PATCH
   // wysyła je tylko po zmianie (pusty tytuł = powrót do automatu).
   const [names, setNames] = useState<JobNamesDraft>(() => jobNamesDraft(job));
   const [saving, setSaving] = useState(false);

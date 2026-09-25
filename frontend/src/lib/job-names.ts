@@ -1,5 +1,5 @@
 /**
- * Trzy nazwy rekrutacji (0378, 25.09.2026).
+ * Trzy nazwy rekrutacji (0379, 25.09.2026).
  *
  * - `title` — nazwa od klienta. Idzie do klienta (CV, plik, Cpro).
  * - `client_reference` — numer zapytania klienta (ZOB, SAP, numer w Cpro).

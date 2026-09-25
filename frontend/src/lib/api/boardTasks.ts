@@ -26,7 +26,7 @@ export interface BoardTaskRow {
   candidate_name: string;
   job_id: number;
   job_title: string;
-  /** 0378: tytuł dla rekrutera (ekrany wewnętrzne); `job_title` = nazwa od klienta. */
+  /** 0379: tytuł dla rekrutera (ekrany wewnętrzne); `job_title` = nazwa od klienta. */
   job_working_title?: string | null;
   client_reference?: string | null;
   client_id: number | null;
@@ -156,7 +156,7 @@ export interface CproQueueItem {
 export interface CproQueueJob {
   job_id: number;
   job_title: string;
-  /** 0378: tytuł dla rekrutera (ekrany wewnętrzne); `job_title` = nazwa od klienta. */
+  /** 0379: tytuł dla rekrutera (ekrany wewnętrzne); `job_title` = nazwa od klienta. */
   job_working_title?: string | null;
   client_reference?: string | null;
   client_name: string | null;

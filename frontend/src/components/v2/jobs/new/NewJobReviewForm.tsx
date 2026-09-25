@@ -207,7 +207,7 @@ function TagListInput({
 }
 
 /**
- * Tytuł dla rekrutera (0378): podpowiedź składana na żywo z roli, must-have,
+ * Tytuł dla rekrutera (0379): podpowiedź składana na żywo z roli, must-have,
  * lat i dziedziny — ta sama reguła co na serwerze. Ręczna zmiana ją zamraża,
  * „Wróć do podpowiedzi” odmraża. Nigdy nie idzie do klienta.
  */
@@ -330,7 +330,7 @@ export function NewJobReviewForm({
   return (
     <div className="flex flex-col gap-4">
       <section className="flex flex-col gap-5 rounded-xl border border-border bg-card p-4 sm:p-6">
-        {/* 0378: nazwa i numer od klienta idą do klienta (CV, plik, Cpro). */}
+        {/* 0379: nazwa i numer od klienta idą do klienta (CV, plik, Cpro). */}
         <div className="grid gap-4 md:grid-cols-3">
           <div className="flex flex-col gap-2 md:col-span-2">
             <FieldLabel

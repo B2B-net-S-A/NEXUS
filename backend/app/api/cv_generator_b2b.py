@@ -3885,7 +3885,7 @@ async def effective_central_policy(
     )
 
     return {
-        # 0378: numer u klienta podpowiadamy każdej regule, która go wymaga
+        # 0379: numer u klienta podpowiadamy każdej regule, która go wymaga
         # (PKO BP, Energa, Orlen), nie tylko przy zgodzie RODO.
         "project_ref": pko_job_reference(job)
         if rule.requires_rodo_consent_block or _rule_requires_project_ref(rule)

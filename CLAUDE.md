@@ -2948,7 +2948,7 @@ template” → `/jobs/new?from=<id>`) prowadzi na stronę.
   Champion i handoff to `DeliveryLeadPlus`. Harness `/preview/new-job`
   (`?state=request|review|gaps`, zero zapytań).
 
-## Trzy nazwy rekrutacji (0378, 25.09.2026)
+## Trzy nazwy rekrutacji (0379, 25.09.2026)
 
 Decyzja Artura: rekruter ma widzieć, czego szukamy, a klient dostaje swoje nazwy.
 

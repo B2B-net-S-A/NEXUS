@@ -131,7 +131,7 @@ class BoardTask:
     # Wynik QC CV pary (`cv_qc.pair_statuses`): passed|failed|overridden|unchecked.
     qc_status: Optional[str] = None
     qc_blocking_failed: int = 0
-    # 0378: ``job_title`` = nazwa od klienta (tekst kopiowany do Cpro);
+    # 0379: ``job_title`` = nazwa od klienta (tekst kopiowany do Cpro);
     # ekrany wewnętrzne pokazują tytuł dla rekrutera, gdy jest.
     job_working_title: Optional[str] = None
     client_reference: Optional[str] = None

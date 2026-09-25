@@ -35,7 +35,7 @@ def project_number(value):
 def pko_job_reference(job):
     """Numer zapytania klienta z rekrutacji (numer projektu w CV).
 
-    Od 0378 źródłem jest ``jobs.client_reference``. Numer jest dosłownym
+    Od 0379 źródłem jest ``jobs.client_reference``. Numer jest dosłownym
     cytatem z maila, więc token ZOB czytamy w dowolnym zapisie („ZOB: 48213”,
     „nr ZOB/48213” → „48213”); numer bez tokenu ZOB (np. „SAP 4500123456”)
     idzie tak, jak go zapisano. Rekrutacje bez tego pola (archiwum Traffita)

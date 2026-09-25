@@ -170,7 +170,7 @@ export function CommandPaletteV2({
                 (j) => ({
                   type: "job" as const,
                   id: j.id,
-                  // 0378: tytuł dla rekrutera; pod nim klient, nazwa i numer od klienta.
+                  // 0379: tytuł dla rekrutera; pod nim klient, nazwa i numer od klienta.
                   title: jobDisplayTitle(j),
                   subtitle: jobClientLine(j) || null,
                 }),

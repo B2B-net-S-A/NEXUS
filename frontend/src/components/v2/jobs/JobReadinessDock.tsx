@@ -816,7 +816,7 @@ export function JobReadinessDock({
     </div>
   ) : null;
 
-  // 0378: klient · „nazwa od klienta” · numer u klienta, potem typ i nasz numer.
+  // 0379: klient · „nazwa od klienta” · numer u klienta, potem typ i nasz numer.
   const subtitle = [
     jobClientLine(job),
     RECRUITMENT_TYPE_LABEL[job.recruitment_type as string] ?? job.recruitment_type,

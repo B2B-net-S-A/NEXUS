@@ -1,7 +1,7 @@
 """Trzy nazwy rekrutacji: numer u klienta i tytuł dla rekrutera (25.09.2026).
 
-Revision ID: 0378_job_client_reference_working_title
-Revises: 0377_traffit_jobs_archive
+Revision ID: 0379_job_client_reference_working_title
+Revises: 0378_archive_jobs_before_nexus_start
 
 ``jobs.title`` zostaje nazwą od klienta — idzie do klienta (CV, plik, Cpro)
 i do wektora oferty, więc jego znaczenie się nie zmienia. Dochodzą:
@@ -20,8 +20,8 @@ alembic bywa osierocony) — pilnuje ``test_job_working_title.py``.
 
 from alembic import op
 
-revision = "0378_job_client_reference_working_title"
-down_revision = "0377_traffit_jobs_archive"
+revision = "0379_job_client_reference_working_title"
+down_revision = "0378_archive_jobs_before_nexus_start"
 branch_labels = None
 depends_on = None
 
@@ -41,4 +41,4 @@ def upgrade() -> None:
 def downgrade() -> None:
     for column in ("working_title_auto", "working_title", "client_reference"):
         op.execute(f"ALTER TABLE jobs DROP COLUMN IF EXISTS {column}")
-    op.execute("DELETE FROM app_settings WHERE key = 'job_names_backfill_0378'")
+    op.execute("DELETE FROM app_settings WHERE key = 'job_names_backfill_0379'")

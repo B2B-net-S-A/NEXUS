@@ -1,4 +1,4 @@
-"""Trzy nazwy rekrutacji (0378, 25.09.2026).
+"""Trzy nazwy rekrutacji (0379, 25.09.2026).
 
 - reguła tytułu dla rekrutera = ten sam plik przypadków co front;
 - lustro migracji w ``entrypoint.sh`` (prod alembic bywa osierocony);
@@ -34,7 +34,7 @@ MIGRATION = (
     BACKEND
     / "alembic"
     / "versions"
-    / "0378_job_client_reference_working_title.py"
+    / "0379_job_client_reference_working_title.py"
 )
 CASES = json.loads(
     (ROOT / "frontend/src/lib/__fixtures__/job-working-title-cases.json").read_text()
@@ -66,11 +66,11 @@ def test_compose_drops_trailing_parts_before_cutting_the_role() -> None:
 
 
 def test_migration_is_chained_and_mirrored() -> None:
-    spec = importlib.util.spec_from_file_location("m0378", MIGRATION)
+    spec = importlib.util.spec_from_file_location("m0379", MIGRATION)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(module)
-    assert module.down_revision == "0377_traffit_jobs_archive"
+    assert module.down_revision == "0378_archive_jobs_before_nexus_start"
     entrypoint = _collapse((BACKEND / "entrypoint.sh").read_text())
     for statement in module.ADD_COLUMNS:
         assert "IF NOT EXISTS" in statement

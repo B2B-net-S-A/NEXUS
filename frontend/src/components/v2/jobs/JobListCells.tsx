@@ -36,7 +36,7 @@ import {
 import { jobClientTitle, type JobNames } from "@/lib/job-names";
 
 /**
- * Nazwa od klienta i numer u klienta pod tytułem dla rekrutera (0378).
+ * Nazwa od klienta i numer u klienta pod tytułem dla rekrutera (0379).
  * Nazwa tylko wtedy, gdy różni się od tytułu w pierwszej linii.
  */
 export function JobClientNames({ job }: { job: JobNames }) {
