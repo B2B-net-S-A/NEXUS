@@ -76,6 +76,7 @@ from app.models.order_change_event import OrderChangeEvent
 from app.models.order_gap import GAP_STATUS_FILLED_LATE, GAP_STATUS_OPEN, OrderGap
 from app.models.user import User
 from app.schemas.finance_order_changes import (
+    InvoiceLine,
     OrderChangeItem,
     OrderChangesCounts,
     OrderChangesPeriod,
@@ -101,6 +102,7 @@ from app.services.order_facts import (
     siblings_of,
     successor_of,
 )
+from app.services import nordea_invoice_lines
 from app.services.order_gaps import gap_orders_with_ending_intent
 
 MONTH_LABELS_PL = (
@@ -463,6 +465,20 @@ async def _entries(
         if classes[fact.order_id].kind == "new"
         and not (fact.is_draft and sibling_key(fact) in covered)
     ]
+    # Nordea: gotowa pozycja faktury cyklicznej z PDF-a (ticket 8).
+    invoice = await nordea_invoice_lines.entry_lines(
+        db,
+        [
+            (item.order_id, item.client_id, item.consultant_name)
+            for item in items
+            if item.order_id is not None and item.client_id is not None
+        ],
+    )
+    for item in items:
+        if item.order_id in invoice:
+            item.invoice_lines = [
+                InvoiceLine.model_validate(line) for line in invoice[item.order_id]
+            ]
     return sorted(items, key=_sort_key), facts, classes
 
 
@@ -1280,6 +1296,7 @@ def build_order_changes_workbook(
                 "Typ zamówienia",
                 "Status",
                 "Wprowadził(a)",
+                "Pozycja faktury",
                 *DONE_HEADERS,
             ],
             [
@@ -1296,11 +1313,13 @@ def build_order_changes_workbook(
                     ORDER_TYPE_LABELS.get(item.order_type, item.order_type),
                     "Szkic" if item.status == ClientOrderStatus.draft.value else "",
                     _author_label(item),
+                    # Nordea: jedna pozycja na osobę, każda w osobnej linii komórki.
+                    "\n".join(line.text for line in item.invoice_lines or []),
                     *_done_cells(item, zone),
                 ]
                 for item in data.entries
             ],
-            [28, 28, 22, 16, 16, 16, 18, 11, 9, 15, 10, 22, 11, 22, 18],
+            [28, 28, 22, 16, 16, 16, 18, 11, 9, 15, 10, 22, 70, 11, 22, 18],
         )
     if "exits" in wanted:
         _exit_like_sheet(workbook, f"Zejścia ({data.counts.exits})", data.exits, zone)

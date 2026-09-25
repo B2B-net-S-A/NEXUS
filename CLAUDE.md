@@ -5834,6 +5834,16 @@ wypowiedziana umowa, szkic następnego zamówienia ani decyzja offboardingu MD /
   w `RoleDashboard` dla presetu `delivery-lead` (od #1304 nie była nigdzie).
 - **Dodatkowy projekt** liczony przy odczycie: zamówienie startujące w miesiącu,
   gdy osoba ma w dniu startu trwające (nie szkic) zamówienie u INNEGO klienta.
+- **Nordea w Wejściach: gotowa pozycja faktury cyklicznej** (ticket 8, 0382,
+  `services/nordea_invoice_lines.py`): `NIDS: <NIIDS number>, IT Retail Banking,
+  Nordea Contact: <Contact person z „Invoice reference”>, Contractor: <osoba
+  z „Consultant(s)”> ID:`. Zapis w `client_orders.invoice_lines` (JSONB) przy
+  wgraniu PDF-a (`_attach_po_bytes` — formularz i poczta), zamówienia sprzed
+  wdrożenia dosypuje bieg `order_gaps`; ręczna poprawka
+  `PUT /api/finance/order-changes/invoice-lines/{order_id}` (te same osoby co
+  „Zrobione”) zostaje przy zamówieniu, a podmiana PDF-a ją nadpisuje. Klient
+  Nordea = bramka reguły odczytu (`NORDEA_ORDER_NUMBER_CLIENT_IDS`). Nieodczytane
+  pole = `[brak]` + ostrzeżenie; parser sprawdzony 25.09 na 60/60 PDF-ach z prod.
 - Harness wizualny (publiczny, zero zapytań): `/preview/finance-order-changes`.
 
 ## Audyt pomylonych klientów — `GET /api/admin/client-mixups`

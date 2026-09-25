@@ -596,6 +596,11 @@
         "anchor": "finance.order_changes"
       },
       {
+        "q": "Skąd wziąć pozycję faktury cyklicznej dla Nordei?",
+        "a": "W „Zmianach w zamówieniach” → Wejścia karta nowego zamówienia Nordei ma pole „Pozycja faktury” (NIDS, IT Retail Banking, osoba kontaktowa i konsultant z PDF-a). Kliknij „Kopiuj”. Pole oznaczone „[brak]” popraw przez „Edytuj” — poprawka zapisuje się przy zamówieniu i zostaje po „Zrobione”.",
+        "anchor": "finance.order_changes"
+      },
+      {
         "q": "Jak zaimportować raport zużycia MD?",
         "a": "W „Import zużycia MD” wgraj miesięczny XLSX i wybierz miesiąc. Numer zamówienia w „Uwagach” jest wiążący: gdy wiersza nie da się na nie rozliczyć, dostaje „Brak pasującego zamówienia” albo „Do weryfikacji”. Osoba bez zamówienia MD ma szary status „Bez zamówienia MD”, a faktura rozliczona na zamówieniu kosztowym — „Rozliczono kwotowo”.",
         "anchor": "finance.md_import"

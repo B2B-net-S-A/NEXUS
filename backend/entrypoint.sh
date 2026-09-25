@@ -5475,6 +5475,9 @@ _COLUMN_STATEMENTS = [
 )""",
     "CREATE INDEX IF NOT EXISTS ix_prep_meetings_fetch_queue ON prep_meetings (transcript_status, next_fetch_at)",
     "CREATE INDEX IF NOT EXISTS ix_prep_meetings_pair ON prep_meetings (candidate_id, job_id)",
+    # 0382: pozycja faktury Nordei zapisana przy zamówieniu
+    # (`nordea_invoice_lines.py`). Pilnuje `test_nordea_invoice_lines.py`.
+    "ALTER TABLE client_orders ADD COLUMN IF NOT EXISTS invoice_lines JSONB NULL",
     # 0380: trzy nazwy rekrutacji — numer u klienta i tytuł dla rekrutera
     # (`job_working_title.py`). Pilnuje `test_job_working_title.py`.
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS client_reference VARCHAR(120)",

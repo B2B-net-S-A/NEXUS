@@ -13,7 +13,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.schemas.finance import MoneyPLN
 
@@ -75,6 +75,30 @@ class OrderRef(BaseModel):
     from_order_mail: bool = False
 
 
+class InvoiceLine(BaseModel):
+    """Pozycja faktury cyklicznej Nordei zapisana przy zamówieniu (ticket 8).
+
+    ``index`` to pozycja linii w zapisie zamówienia — pod nim idzie ręczna
+    poprawka. ``[brak]`` w ``text`` = pole nieodczytane z PDF-a.
+    """
+
+    index: int
+    consultant: Optional[str] = None
+    text: str
+    edited_by_name: Optional[str] = None
+    edited_at: Optional[datetime] = None
+
+
+class InvoiceLineUpdate(BaseModel):
+    index: int = Field(ge=0)
+    text: str = Field(min_length=1, max_length=500)
+
+
+class InvoiceLinesResponse(BaseModel):
+    order_id: int
+    lines: list[InvoiceLine]
+
+
 class OrderEntryItem(OrderRef):
     """Wejście = osoba, która zaczyna z nami współpracę po raz pierwszy.
 
@@ -96,6 +120,8 @@ class OrderEntryItem(OrderRef):
     currency: Optional[str] = None
     order_type: OrderTypeCode
     status: str
+    # Tylko Nordea: gotowa pozycja faktury (``None`` = inny klient).
+    invoice_lines: Optional[list[InvoiceLine]] = None
 
 
 # Bez „continuation": osoba, która pracuje dalej (następca albo linia MD

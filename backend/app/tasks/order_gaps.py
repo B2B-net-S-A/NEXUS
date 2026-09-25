@@ -8,6 +8,10 @@ nie psują.
 
 Uzupełnienie braku NIE czeka na tę pętlę: robi to ``commit_order_write`` przy
 zapisie zamówienia, a odczyt zakładki w Finansach dosypuje świeże wykrycia.
+
+Ten sam bieg dosypuje formułę faktury Nordei zamówieniom z PDF-em, które jej
+nie mają (``nordea_invoice_lines.fill_missing``) — przy starcie obejmuje to
+zamówienia sprzed wdrożenia.
 """
 
 from __future__ import annotations
@@ -20,7 +24,7 @@ from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.scheduling import seconds_until_local_time
 from app.services.order_gaps import GapRunResult, run_order_gaps
-from app.services import loop_heartbeat
+from app.services import loop_heartbeat, nordea_invoice_lines
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +38,25 @@ async def run_once() -> GapRunResult:
             await db.rollback()
             raise
     logger.info("Order gaps run: %s", result)
+    await _fill_nordea_invoice_lines()
     return result
+
+
+async def _fill_nordea_invoice_lines() -> None:
+    """Formuła faktury Nordei dla zamówień, którym jej brakuje (ticket 8).
+
+    Osobna sesja i osobny błąd: odczyt PDF-ów nie może wstrzymać Braków.
+    """
+    async with AsyncSessionLocal() as db:
+        try:
+            filled = await nordea_invoice_lines.fill_missing(db)
+            await db.commit()
+        except Exception:  # noqa: BLE001
+            await db.rollback()
+            logger.exception("Nordea invoice lines backfill failed")
+            return
+    if filled:
+        logger.info("Nordea invoice lines filled: %d", filled)
 
 
 async def order_gaps_loop() -> None:
