@@ -45,6 +45,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from functools import reduce
 from typing import Any, Iterable, Literal, Optional, Sequence
@@ -1453,6 +1454,36 @@ def geo_clause(
 # ═══════════════════════════════════════════════════════════════════════════
 
 
+# Filtry dat listy („kontakt w okresie”, „przesunięty na etap”, „wysłany do
+# klienta”) przyjmują daty z tego zakresu — dalej 422. `9999-12-31 + 1 dzień`
+# przepełniało `date` i kończyło żądanie 500 (bez CORS: „Network Error”).
+FILTER_DATE_MIN = date(1900, 1, 1)
+FILTER_DATE_MAX = date(2100, 12, 31)
+
+
+def business_date_range(
+    date_from: Optional[date], date_to: Optional[date]
+) -> tuple[Optional[datetime], Optional[datetime]]:
+    """Półotwarte okno ``[date_from 00:00, date_to + 1 dzień 00:00)``.
+
+    Doba liczy się w kalendarzu firmy (Europe/Warsaw), nie w UTC — jedna reguła
+    dla wszystkich filtrów dat listy (do 25.09.2026 „kontakt” liczył Warszawę,
+    a „etap” i „wysłany do klienta” UTC, więc ruch o 00:30 w nocy wpadał do
+    dnia poprzedniego). Górna granica przy dacie końca kalendarza jest pusta
+    zamiast przepełnienia — walidacja wejścia i tak odrzuca takie daty.
+    """
+    from zoneinfo import ZoneInfo
+
+    from app.core.scheduling import DEFAULT_TZ
+
+    zone = ZoneInfo(DEFAULT_TZ)
+    start = datetime.combine(date_from, time.min, tzinfo=zone) if date_from else None
+    end = None
+    if date_to is not None and date_to < date.max:
+        end = datetime.combine(date_to + timedelta(days=1), time.min, tzinfo=zone)
+    return start, end
+
+
 def contact_clause(
     *,
     mode: Optional[str],
@@ -1472,20 +1503,10 @@ def contact_clause(
     """
     if mode not in ("yes", "no"):
         return None
-    from datetime import datetime, time, timedelta
-    from zoneinfo import ZoneInfo
-
-    from app.core.scheduling import DEFAULT_TZ
     from app.models.call import Call
     from app.models.note import Note
 
-    zone = ZoneInfo(DEFAULT_TZ)
-    start = datetime.combine(date_from, time.min, tzinfo=zone) if date_from else None
-    end = (
-        datetime.combine(date_to + timedelta(days=1), time.min, tzinfo=zone)
-        if date_to
-        else None
-    )
+    start, end = business_date_range(date_from, date_to)
     users = list(dict.fromkeys(by_user_ids or []))
 
     def window(at_col, user_col) -> list[ColumnElement]:
