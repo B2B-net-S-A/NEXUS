@@ -112,7 +112,6 @@ function jobRow(overrides: Record<string, unknown> = {}) {
     headcount: 1,
     candidate_count: 0,
     tac_id: 7,
-    recruitment_type: "body_leasing",
     ...overrides,
   };
 }

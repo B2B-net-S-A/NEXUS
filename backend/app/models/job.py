@@ -171,6 +171,9 @@ class Job(Base, TimestampMixin):
         Boolean, nullable=False, default=False, server_default="false"
     )
 
+    # MARTWA kolumna (25.09.2026, decyzja Artura: „bez typów rekrutacji”).
+    # Nic jej nie czyta ani nie pokazuje; zostaje w bazie tylko dlatego, że
+    # usunięcie to osobna migracja. Nie dokładaj logiki zależnej od typu.
     recruitment_type: Mapped[RecruitmentType] = mapped_column(
         Enum(RecruitmentType),
         default=RecruitmentType.body_leasing,
@@ -289,8 +292,8 @@ class Job(Base, TimestampMixin):
         ForeignKey("competence_categories.id"), nullable=True, index=True
     )
     recruiter_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
-    # Delivery Lead odpowiedzialny za realizację requesta (body leasing).
-    # NULL dla sales_project/tender lub gdy nieprzypisany. Fallback przy
+    # Delivery Lead odpowiedzialny za realizację requesta.
+    # NULL gdy nieprzypisany. Fallback przy
     # raportowaniu: `delivery_lead_client_assignments.is_head=true` dla
     # client_id.
     delivery_lead_id: Mapped[Optional[int]] = mapped_column(

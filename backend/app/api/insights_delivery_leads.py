@@ -70,7 +70,6 @@ from app.services.insights_dl_scope import (
     DL_HEAD_CTE as _DL_HEAD_CTE,
     HIT_RATIO_TARGET_PCT,
     JOBS_SCOPED_CTE as _JOBS_SCOPED_CTE,
-    RECRUITMENT_TYPE,
 )
 from app.services.insights_dl_scope import ratio_pct as _ratio
 from app.services.insights_dl_portfolio import compute_dl_portfolio
@@ -118,7 +117,7 @@ async def insights_delivery_leads(
 
     params = {"start": resolved.start, "end": resolved.end}
 
-    # 1. Zapytania i wakaty — oferty body_leasing UTWORZONE w oknie.
+    # 1. Zapytania i wakaty — rekrutacje UTWORZONE w oknie.
     demand_rows = (
         (
             await db.execute(
@@ -290,7 +289,6 @@ async def insights_delivery_leads(
 
     result = {
         "period": resolved.as_payload(),
-        "recruitment_type": RECRUITMENT_TYPE,
         "hit_ratio_target_pct": HIT_RATIO_TARGET_PCT,
         # Otwarty pipeline nie jest liczony w oknie — patrz zapytanie 3.
         "open_pipeline_scope": "snapshot_now",
@@ -401,7 +399,6 @@ async def insights_dl_placements_by_client(
                 WHERE fm.stage = 'hired'
                   AND fm.first_reached_at >= :start
                   AND fm.first_reached_at < :end
-                  AND j.recruitment_type = '{RECRUITMENT_TYPE}'
                 GROUP BY j.client_id, {_CLIENT_DISPLAY_NAME_SQL}
                 ORDER BY placements DESC, {_CLIENT_DISPLAY_NAME_SQL} ASC
                 """
@@ -416,7 +413,6 @@ async def insights_dl_placements_by_client(
     total = sum(int(r["placements"]) for r in rows)
     result = {
         "period": resolved.as_payload(),
-        "recruitment_type": RECRUITMENT_TYPE,
         "total_placements": total,
         "clients": [
             {
@@ -562,7 +558,6 @@ async def insights_delivery_lead_trend(
         "name": user_row["name"],
         "is_active": bool(user_row["is_active"]),
         "months": months,
-        "recruitment_type": RECRUITMENT_TYPE,
         # Seria NIE jest kumulatywna — każdy punkt to osobne okno [start, end).
         "cumulative": False,
         "trend": trend,

@@ -7,7 +7,6 @@ from app.models.job import (
     JobCloseReason,
     JobPriority,
     JobStatus,
-    RecruitmentType,
     RemotePolicy,
     Seniority,
     WorkMode,
@@ -33,7 +32,6 @@ class JobCreate(BaseModel):
     status: JobStatus = JobStatus.draft
     priority: JobPriority = JobPriority.medium
     needs_sourcing: bool = False
-    recruitment_type: RecruitmentType = RecruitmentType.body_leasing
     deadline: Optional[date] = None
     # client_id: required od migracji 0120 (2026-05-27). NOT NULL na DB.
     # Tworzenie joba bez klienta zwraca 422 — orphan recordy nigdy nie wpadną
@@ -111,7 +109,6 @@ class JobUpdate(BaseModel):
     status: Optional[JobStatus] = None
     priority: Optional[JobPriority] = None
     needs_sourcing: Optional[bool] = None
-    recruitment_type: Optional[RecruitmentType] = None
     deadline: Optional[date] = None
     client_id: Optional[int] = None
     recruiter_id: Optional[int] = None
@@ -233,7 +230,6 @@ class JobResponse(BaseModel):
     # 0353: osoba, która wysyła do Cpro kandydatów tej rekrutacji (Nordea).
     cpro_sender_id: Optional[int] = None
     cpro_sender_name: Optional[str] = None
-    recruitment_type: RecruitmentType
     deadline: Optional[date]
     client_id: Optional[int]
     client_name: Optional[str] = None  # denormalized (coalesce(display_name, name))

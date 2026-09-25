@@ -28,7 +28,7 @@ from app.models.candidate import Candidate
 from app.models.candidate_conflict import CandidateConflict, ConflictType
 from app.models.contract import Contract, ContractStatus
 from app.services.pipeline_latest import latest_stage_ids
-from app.models.job import Job, JobStatus, RecruitmentType
+from app.models.job import Job, JobStatus
 from app.models.job_collaborator import JobCollaborator
 from app.models.activity import Activity
 from app.models.notification import Notification, NotificationType
@@ -694,7 +694,6 @@ async def list_jobs(
             "(`needs_action_count` DESC), then overdue deadlines, then deadline."
         ),
     ),
-    recruitment_type: Optional[RecruitmentType] = None,
     client_id: Optional[list[int]] = Query(
         None,
         description=(
@@ -878,8 +877,6 @@ async def list_jobs(
         query = query.where(Job.status.in_(status))
     if open_only:
         query = query.where(jobs_open_only_clause())
-    if recruitment_type:
-        query = query.where(Job.recruitment_type == recruitment_type)
     if client_id:
         query = query.where(Job.client_id.in_(client_id))
     if q:

@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.client import Client
 from app.models.client_directory import ClientAlias
 from app.models.contact import Contact
-from app.models.job import Job, JobStatus, RecruitmentType
+from app.models.job import Job, JobStatus
 from app.models.job_public_profile import DEFAULT_PUBLIC_SECTIONS, JobPublicProfile
 from app.models.user import User
 from app.services import champion_view
@@ -253,11 +253,8 @@ def public_params(job: Job) -> dict[str, Any]:
     onsite = job.onsite_days_per_week
     if onsite is None and isinstance(basics.get("onsite_days_per_week"), int):
         onsite = basics.get("onsite_days_per_week")
-    contract = (
-        "B2B"
-        if getattr(job, "recruitment_type", None) == RecruitmentType.body_leasing
-        else None
-    )
+    # Bez typów rekrutacji (25.09.2026): każda rekrutacja to współpraca B2B.
+    contract = "B2B"
     return {
         "city": _clean(job.location) or _clean(basics.get("candidate_location_pref")),
         "remote_policy": remote,

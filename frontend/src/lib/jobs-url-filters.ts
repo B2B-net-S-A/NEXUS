@@ -127,16 +127,6 @@ export function scopeQueryFlags(scope: JobScope): {
 // przepadło. Teraz lista zapisuje je (razem ze statusem i „moimi") do URL-a,
 // a przy montowaniu odtwarza.
 
-// Wartości `recruitment_type` z backendu (`RecruitmentType`). `all` = brak
-// parametru — nigdy nie trafia do URL-a ani do API.
-export const JOB_TYPE_VALUES = [
-  "all",
-  "body_leasing",
-  "sales_project",
-  "tender",
-] as const;
-export type JobTypeFilterValue = (typeof JOB_TYPE_VALUES)[number];
-
 export const JOB_DEADLINE_PRESETS = [
   "any",
   "overdue",
@@ -277,11 +267,6 @@ function pickFromUrl<T extends string>(
     : fallback;
 }
 
-/** `?type=tender` → `"tender"`; brak/nieznana wartość → `"all"`. */
-export function initialTypeFromUrl(params: URLSearchParams): JobTypeFilterValue {
-  return pickFromUrl(params, "type", JOB_TYPE_VALUES, "all");
-}
-
 /** `?deadline=none` → `"none"`; brak/nieznana wartość → `"any"`. */
 export function initialDeadlineFromUrl(
   params: URLSearchParams,
@@ -367,7 +352,6 @@ export interface JobsListUrlState {
   scope: JobScope;
   /** Domyślny zakres ROLI (`defaultScopeForUser`) — jego nie zapisujemy. */
   defaultScope: JobScope;
-  type: JobTypeFilterValue;
   deadline: JobDeadlinePreset;
   /** Granice presetu `range` — zapisywane tylko przy nim. */
   deadlineRange?: JobDeadlineRange;
@@ -393,6 +377,8 @@ const SCOPE_URL: Record<JobScope, [key: string, value: string]> = {
 const MANAGED_KEYS = [
   "status",
   "mine",
+  // Typów rekrutacji nie ma (25.09.2026) — stary `?type=` z zapisanych linków
+  // jest zdejmowany z adresu przy pierwszym zapisie filtrów.
   "type",
   "deadline",
   "dl_from",
@@ -431,7 +417,6 @@ export function encodeJobsListUrl(
     const [key, value] = SCOPE_URL[state.scope];
     next.set(key, value);
   }
-  if (state.type !== "all") next.set("type", state.type);
   if (state.deadline !== "any") next.set("deadline", state.deadline);
   if (state.deadline === "range") {
     const { from, to } = state.deadlineRange ?? {};

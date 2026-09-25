@@ -29,11 +29,6 @@ CLIENT_VISIBLE_SQL = (
 # (`metric_definitions`, liść grafu importów, więc bez wciągania `reports`).
 HIT_RATIO_TARGET_PCT = DL_HIT_RATIO_TARGET_PCT
 
-# Ranking DL dotyczy WYŁĄCZNIE ofert body_leasing — `sales_project` i `tender`
-# mają inny cykl życia i nie mają Delivery Leada. Konsekwencja: liczby nie
-# zsumują się do lejka org-level, który typu nie filtruje. Koperta to mówi.
-RECRUITMENT_TYPE = "body_leasing"
-
 # Rozwiązanie DL dla oferty: własny `delivery_lead_id`, a gdy pusty — główny
 # opiekun klienta (`is_head`). Jedno źródło dla wszystkich trzech zapytań.
 DL_HEAD_CTE = """
@@ -44,7 +39,8 @@ DL_HEAD_CTE = """
     )
 """
 
-JOBS_SCOPED_CTE = f"""
+# Bez typów rekrutacji (decyzja 25.09.2026): ranking DL liczy każdą rekrutację.
+JOBS_SCOPED_CTE = """
     jobs_scoped AS (
         SELECT j.id,
                j.created_at,
@@ -54,7 +50,6 @@ JOBS_SCOPED_CTE = f"""
                COALESCE(j.delivery_lead_id, h.delivery_lead_user_id) AS dl_id
         FROM jobs j
         LEFT JOIN dl_head h ON h.client_id = j.client_id
-        WHERE j.recruitment_type = '{RECRUITMENT_TYPE}'
     )
 """
 

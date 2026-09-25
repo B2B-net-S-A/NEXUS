@@ -111,7 +111,6 @@ def _user(role: UserRole) -> User:
         rate_cards.get_rate_card,
         rate_benchmarks.list_benchmarks,
         reports.report_sales,
-        reports.report_tenders,
         contract_analytics.margin_by_client,
         contract_analytics.revenue_forecast,
     ],

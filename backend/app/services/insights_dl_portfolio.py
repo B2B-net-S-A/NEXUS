@@ -7,7 +7,7 @@ wierszowi ``GET /api/insights/delivery-leads`` dla tego samego okna. Dlatego:
 
 * Zapytania i placementy liczymy RAZ na parę (DL, klient) — nagłówek to suma
   wierszy, nie osobne zapytanie, które mogłoby się rozjechać.
-* Fragmenty SQL (rozwiązanie DL per oferta, typ ``body_leasing``, placement
+* Fragmenty SQL (rozwiązanie DL per oferta, placement
   D2 = pierwsze ``hired`` z ``analytics_first_milestones``) pochodzą z
   ``insights_dl_scope`` — tego samego modułu, z którego czyta ranking.
 * Klient schowany / zarchiwizowany / scalony NIE znika z portfela: jego oferty
@@ -31,7 +31,6 @@ from app.services.insights_dl_scope import (
     DL_HEAD_CTE,
     HIT_RATIO_TARGET_PCT,
     JOBS_SCOPED_CTE,
-    RECRUITMENT_TYPE,
     ratio_pct,
 )
 
@@ -454,7 +453,6 @@ async def compute_dl_portfolio(db: AsyncSession, period: Period) -> dict:
     return {
         "period": period.as_payload(),
         "previous_period": previous.as_payload(),
-        "recruitment_type": RECRUITMENT_TYPE,
         "hit_ratio_target_pct": HIT_RATIO_TARGET_PCT,
         "alert_rule": {
             "drop_pp": ALERT_DROP_PP,

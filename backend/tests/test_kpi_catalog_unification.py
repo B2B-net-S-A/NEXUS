@@ -309,7 +309,9 @@ async def test_delivery_lead_goals_count_portfolio_placements():
             title=f"KpiGoal {uuid.uuid4().hex[:6]}",
             client_id=client.id,
             delivery_lead_id=dl_id,
-            recruitment_type=RecruitmentType.body_leasing,
+            # Typów rekrutacji nie ma (25.09.2026): stara wartość w martwej
+            # kolumnie nie wyklucza rekrutacji z ligi DL ani z celów.
+            recruitment_type=RecruitmentType.tender,
             # Mianownik hit ratio = rekrutacje ZAMKNIĘTE w kwartale (definicja
             # ligi DL od 22.09.2026, `competitions.dl_portfolio_counts`).
             closed_at=now - timedelta(minutes=1),

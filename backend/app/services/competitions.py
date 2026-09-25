@@ -44,7 +44,7 @@ from app.services.competition_rules import (
     placement_margin_per_hour_by_user,
     recommendation_tiebreak,
 )
-from app.models.job import Job, RecruitmentType
+from app.models.job import Job
 from app.models.recruitment_pipeline import PipelineStage
 from app.models.user import User, UserRole
 from app.services.metric_definitions import (
@@ -418,14 +418,14 @@ def days_left_in_month(today: Optional[date] = None) -> int:
 async def dl_portfolio_counts(
     db: AsyncSession, *, start: datetime, end: datetime
 ) -> tuple[dict[int, int], dict[int, int]]:
-    """Placementy i requesty body leasing per Delivery Lead w oknie.
+    """Placementy i requesty per Delivery Lead w oknie.
 
     Placement = PIERWSZE wejście pary (kandydat, oferta) na `hired` w oknie
     (widok `analytics_first_milestones`, definicja D2). Do 22.09.2026 liczyliśmy
     wiersze `CandidateStage`, więc powrót na etap albo zdublowany import
     liczył jedną osobę dwa razy — w lidze wypłacającej 5000/3000/2000 zł.
 
-    Hit ratio = te placementy / rekrutacje body leasing ZAMKNIĘTE w kwartale
+    Hit ratio = te placementy / rekrutacje ZAMKNIĘTE w kwartale
     (`jobs.closed_at`). Wcześniej mianownikiem były rekrutacje UTWORZONE
     w kwartale, czyli placementy z rekrutacji otwartych dawno temu dzielone
     przez zapytania, które dopiero ruszyły — dwie różne populacje w jednym
@@ -456,15 +456,10 @@ async def dl_portfolio_counts(
                 WHERE fm.stage::text = 'hired'
                   AND fm.first_reached_at >= :start
                   AND fm.first_reached_at < :end
-                  AND j.recruitment_type::text = :body_leasing
                 GROUP BY j.id, j.delivery_lead_id, j.client_id
                 """
             ),
-            {
-                "start": start,
-                "end": end,
-                "body_leasing": RecruitmentType.body_leasing.value,
-            },
+            {"start": start, "end": end},
         )
     ).all()
     placements_by_dl: dict[int, int] = {}
@@ -474,9 +469,8 @@ async def dl_portfolio_counts(
             continue
         placements_by_dl[dl_id] = placements_by_dl.get(dl_id, 0) + int(r.cnt)
 
-    # Mianownik hit ratio: rekrutacje body leasing ZAMKNIĘTE w kwartale.
+    # Mianownik hit ratio: rekrutacje ZAMKNIĘTE w kwartale.
     req_q = select(Job.id, Job.delivery_lead_id, Job.client_id).where(
-        Job.recruitment_type == RecruitmentType.body_leasing,
         Job.closed_at >= start,
         Job.closed_at < end,
     )
