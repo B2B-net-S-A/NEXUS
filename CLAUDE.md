@@ -7361,8 +7361,11 @@ Makiety: https://claude.ai/artifact/6JCbPSp86E7uzAxcyNmqW4. Dotyczy listy
 - **Podpowiedzi** `GET /api/candidates/keywords/suggest` (`services/keyword_suggest.py`):
   słownik `skills` + aliasy w pamięci procesu (przebudowa w
   `refresh_alias_map`), stanowiska (to samo zapytanie co `/titles/suggest`),
-  liczba osób z `keyword_fts` w savepoincie z limitem czasu i pamięcią 1 h —
-  `null` = nie policzono, nigdy błąd. Wstawiana jest nazwa kanoniczna; słowa
+  liczba osób z `keyword_fts` — osobne zapytanie na słowo (savepoint, limit
+  czasu, pamięć 1 h), WYŁĄCZNIE dla pojedynczych słów i `jav*`: zbiorcze
+  `count(*) FILTER (WHERE keyword_fts @@ …)` trwało na produkcji 3 s, a fraza
+  (`java <-> developer`) 1,8–3,6 s, bo sprawdza pozycje w każdym wierszu —
+  `null` = nie policzono, nigdy błąd. Stanowiska z pamięcią 10 min. Wstawiana jest nazwa kanoniczna; słowa
   kluczowe NIE rozwijają aliasów, więc alias to tylko wyjaśnienie. Front:
   `ChipField`/`SkillBucketsField` z propem `suggest` (bez niego zachowanie jak
   dawniej), pobieranie bez react-query (`useKeywordSuggestions`, pole żyje też
