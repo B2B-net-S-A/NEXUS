@@ -336,6 +336,9 @@ def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:
     client_reference = _text(data.get("client_reference"), 120)
     if client_reference and not _in_text(client_reference, folded_text):
         client_reference = None
+    for quote in (client_title, client_reference):
+        if quote and quote not in evidence:
+            evidence.append(quote)
     must = _names(data.get("must"), MAX_MUST)
     nice = [
         n

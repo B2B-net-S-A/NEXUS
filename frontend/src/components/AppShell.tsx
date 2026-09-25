@@ -42,6 +42,12 @@ import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { defaultMeetingWindow } from "@/lib/meeting-defaults";
 import { newClientRequestId } from "@/lib/client-request-id";
 import {
+  jobNamesDraft,
+  jobNamesPatch,
+  type JobNames,
+  type JobNamesDraft,
+} from "@/lib/job-names";
+import {
   invalidAttendeeEmails,
   splitAttendeeEmails,
 } from "@/components/calendar/attendee-emails";
@@ -1443,6 +1449,59 @@ function JobFormFields({
  * ich i NIE wysyłamy w PATCH (backend czyta `model_fields_set`, więc wartości
  * w bazie zostają nietknięte). Patrz `lib/job-edit-access.ts`.
  */
+/**
+ * Numer u klienta i tytuł dla rekrutera (0378). „Tytuł stanowiska” wyżej
+ * zostaje nazwą od klienta — to ona idzie do klienta w CV i do Cpro.
+ */
+function JobNamesFields({
+  job,
+  names,
+  onChange,
+}: {
+  job: JobNames;
+  names: JobNamesDraft;
+  onChange: (next: JobNamesDraft) => void;
+}) {
+  const shown = names.workingTitleManual ? names.workingTitle : (job.working_title ?? "");
+  return (
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <FieldGroup label="Numer u klienta">
+        <Input
+          value={names.clientReference}
+          maxLength={120}
+          onChange={(e) => onChange({ ...names, clientReference: e.target.value })}
+          placeholder="np. ZOB 48213"
+        />
+      </FieldGroup>
+      <div className="sm:col-span-2">
+        <FieldGroup label="Tytuł dla rekrutera">
+          <Input
+            value={shown}
+            maxLength={255}
+            onChange={(e) =>
+              onChange({ ...names, workingTitle: e.target.value, workingTitleManual: true })
+            }
+            placeholder="składa się sam z roli, must-have i lat doświadczenia"
+          />
+        </FieldGroup>
+        <p className="mt-1 text-xs text-muted-foreground">
+          {names.workingTitleManual ? (
+            <button
+              type="button"
+              className="font-medium text-primary hover:underline"
+              onClick={() => onChange({ ...names, workingTitle: "", workingTitleManual: false })}
+            >
+              Przywróć automatyczny
+            </button>
+          ) : (
+            "Automatyczny — zmieni się po zmianie profilu. Widzi go tylko zespół."
+          )}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export function EditJobModal({
   job,
   onClose,
@@ -1455,6 +1514,9 @@ export function EditJobModal({
   scope?: "full" | "content";
 }) {
   const [form, setForm] = useState<JobFormData>(() => jobToForm(job));
+  // 0378: numer u klienta i tytuł dla rekrutera — osobny szkic, bo PATCH
+  // wysyła je tylko po zmianie (pusty tytuł = powrót do automatu).
+  const [names, setNames] = useState<JobNamesDraft>(() => jobNamesDraft(job));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const contentOnly = scope === "content";
@@ -1493,6 +1555,7 @@ export function EditJobModal({
         await api.patch(`/api/jobs/${job.id}`, {
           description: form.description || undefined,
           requirements: form.requirements || undefined,
+          ...jobNamesPatch(job, names),
         });
         onSuccess("Rekrutacja zaktualizowana");
         onClose();
@@ -1525,6 +1588,7 @@ export function EditJobModal({
         hiring_manager_contact_id: form.hiring_manager_contact_id
           ? Number(form.hiring_manager_contact_id)
           : null,
+        ...jobNamesPatch(job, names),
       });
       onSuccess("Rekrutacja zaktualizowana");
       onClose();
@@ -1539,6 +1603,7 @@ export function EditJobModal({
         {error && <ErrorBanner error={error} />}
         {contentOnly ? (
           <>
+            <JobNamesFields job={job} names={names} onChange={setNames} />
             <FieldGroup label="Opis">
               <Textarea value={form.description} onChange={e => onChange("description", e.target.value)} rows={6} placeholder="Opis stanowiska..." />
             </FieldGroup>
@@ -1550,7 +1615,10 @@ export function EditJobModal({
             </p>
           </>
         ) : (
-          <JobFormFields form={form} onChange={onChange} clients={clients} users={users} />
+          <>
+            <JobFormFields form={form} onChange={onChange} clients={clients} users={users} />
+            <JobNamesFields job={job} names={names} onChange={setNames} />
+          </>
         )}
         <div className="flex justify-end gap-3 pt-1">
           <button type="button" onClick={onClose} className="h-10 px-4 text-sm text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground focus:outline-hidden focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg transition-colors">Anuluj</button>

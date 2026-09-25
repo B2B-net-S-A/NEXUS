@@ -379,6 +379,7 @@ function MissingBlock({
 interface OrderJob {
   title?: string | null;
   client_name?: string | null;
+  client_reference?: string | null;
   remote_policy?: string | null;
   location?: string | null;
   onsite_days_per_week?: number | null;
@@ -602,6 +603,12 @@ function OrderBody({
             value={job.deadline ? formatDate(job.deadline) : "nie ustawiono"}
           />
           <Fact label="Klient" value={job.client_name?.trim() || "—"} />
+          {/* 0378: to, co idzie do klienta — nazwa i numer z jego zapytania. */}
+          <Fact label="Nazwa od klienta" value={job.title?.trim() || "—"} />
+          <Fact
+            label="Numer u klienta"
+            value={job.client_reference?.trim() || "nie podano"}
+          />
         </dl>
         {must.length > 0 || nice.length > 0 ? (
           <ul className="flex flex-wrap gap-1.5" aria-label="Wymagania">

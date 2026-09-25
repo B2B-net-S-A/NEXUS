@@ -33,6 +33,35 @@ import {
   formatDateOnly,
   type DeadlineUrgency,
 } from "@/lib/job-deadline";
+import { jobClientTitle, type JobNames } from "@/lib/job-names";
+
+/**
+ * Nazwa od klienta i numer u klienta pod tytułem dla rekrutera (0378).
+ * Nazwa tylko wtedy, gdy różni się od tytułu w pierwszej linii.
+ */
+export function JobClientNames({ job }: { job: JobNames }) {
+  const clientTitle = jobClientTitle(job);
+  const reference = job.client_reference?.trim();
+  if (!clientTitle && !reference) return null;
+  return (
+    <>
+      {clientTitle && (
+        <span className="min-w-0 max-w-[260px] truncate" title={`Nazwa od klienta: ${clientTitle}`}>
+          „{clientTitle}”
+        </span>
+      )}
+      {reference && (
+        <span
+          className="font-mono text-[10px] font-medium text-foreground/80"
+          title="Numer u klienta"
+          data-testid="client-reference"
+        >
+          {reference}
+        </span>
+      )}
+    </>
+  );
+}
 
 /** Legenda nagłówka kolumny — te same nazwy co tooltipy komórek. */
 export const STAGE_COUNTS_LEGEND = FUNNEL_GROUP_ORDER.map(

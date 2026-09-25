@@ -95,7 +95,7 @@ const ENTITY_NAME_FETCHERS: Record<string, (id: string) => Promise<string>> = {
   },
   jobs: async (id) => {
     const r = await api.get(`/api/jobs/${id}`);
-    return r.data.title ?? id;
+    return r.data.working_title || r.data.title || id;
   },
   clients: async (id) => {
     const r = await api.get(`/api/clients/${id}`);

@@ -73,6 +73,12 @@ interface JobDetailCompactHeaderProps {
    */
   clientName?: string | null;
   referenceNumber?: string | null;
+  /**
+   * 0378: nazwa od klienta (gdy tytuł w nagłówku to tytuł dla rekrutera)
+   * i numer u klienta — to, co idzie do klienta w CV i do Cpro.
+   */
+  clientTitle?: string | null;
+  clientReference?: string | null;
   badges?: ReactNode;
   /** Jedna linia faktów pod tytułem (patrz `lib/job-header-subtitle.ts`). */
   subtitle?: ReactNode;
@@ -195,6 +201,8 @@ export function JobDetailCompactHeader({
   title,
   clientName,
   referenceNumber,
+  clientTitle,
+  clientReference,
   badges,
   subtitle,
   metadata,
@@ -282,13 +290,33 @@ export function JobDetailCompactHeader({
               )
             }
             badges={
-              referenceNumber || badges ? (
+              referenceNumber || clientTitle || clientReference || badges ? (
                 <>
+                  {clientTitle ? (
+                    <Badge
+                      variant="outline"
+                      className="max-w-[320px] truncate font-normal"
+                      title={`Nazwa od klienta: ${clientTitle}`}
+                      data-testid="header-client-title"
+                    >
+                      „{clientTitle}”
+                    </Badge>
+                  ) : null}
+                  {clientReference ? (
+                    <Badge
+                      variant="info"
+                      className="font-mono"
+                      title="Numer u klienta"
+                      data-testid="header-client-reference"
+                    >
+                      {clientReference}
+                    </Badge>
+                  ) : null}
                   {referenceNumber ? (
                     <Badge
                       variant="outline"
                       className="font-mono"
-                      title="Numer referencyjny rekrutacji"
+                      title="Nasz numer rekrutacji"
                     >
                       {referenceNumber}
                     </Badge>

@@ -10,6 +10,7 @@
  */
 
 import type { ChampionExperience, ExperienceItem, ExperienceKind } from "@/lib/api";
+import { composeWorkingTitle } from "@/lib/job-names";
 
 export type RemotePolicyValue = "remote" | "hybrid" | "onsite";
 
@@ -42,7 +43,9 @@ export type ProvenanceKey =
   | "disqualifiers"
   | "selling_points"
   | "questions"
-  | "ask_client";
+  | "ask_client"
+  | "client_title"
+  | "client_reference";
 
 export interface AskClientItem {
   key: string;
@@ -59,7 +62,15 @@ export interface IntakeQuestionForm {
 }
 
 export interface IntakeForm {
+  /** Rola (sekcja 1 Championa); bez nazwy od klienta — także tytuł rekrutacji. */
   title: string;
+  /** 0378: nazwa stanowiska od klienta — dosłownie z maila; idzie do klienta. */
+  clientTitle: string;
+  /** 0378: numer zapytania klienta (ZOB, SAP…) — CV, nazwa pliku, Cpro. */
+  clientReference: string;
+  /** 0378: tytuł dla rekrutera; dopóki `workingTitleTouched` = false, liczony z pól. */
+  workingTitle: string;
+  workingTitleTouched: boolean;
   must: string[];
   nice: string[];
   seniorityYears: number | null;
@@ -124,6 +135,10 @@ export interface RequestIntakeResponse {
   selling_points?: string | null;
   ask_client?: string[];
   provenance?: Partial<Record<string, string>>;
+  // ── od v3 (0378) ──
+  client_title?: string | null;
+  client_reference?: string | null;
+  working_title_suggestion?: string | null;
 }
 
 export const EMPTY_EXPERIENCE_FORM: ChampionExperience = {
@@ -135,6 +150,10 @@ export const EMPTY_EXPERIENCE_FORM: ChampionExperience = {
 
 export const EMPTY_INTAKE_FORM: IntakeForm = {
   title: "",
+  clientTitle: "",
+  clientReference: "",
+  workingTitle: "",
+  workingTitleTouched: false,
   must: [],
   nice: [],
   seniorityYears: null,
@@ -206,6 +225,10 @@ export function formFromIntake(intake: RequestIntakeResponse): IntakeForm {
     })),
     provenance,
     title: intake.role_name ?? "",
+    clientTitle: intake.client_title ?? "",
+    clientReference: intake.client_reference ?? "",
+    workingTitle: intake.working_title_suggestion ?? "",
+    workingTitleTouched: false,
     must: intake.must ?? [],
     nice: intake.nice ?? [],
     seniorityYears: intake.seniority_min_years ?? null,
@@ -230,6 +253,25 @@ export function formFromIntake(intake: RequestIntakeResponse): IntakeForm {
       origin: q.from_request ? "request" : "ai",
     })),
   };
+}
+
+/**
+ * Podpowiedź tytułu dla rekrutera z bieżących pól formularza — ta sama reguła
+ * co `job_working_title.compose_working_title` na serwerze.
+ */
+export function suggestedWorkingTitle(form: IntakeForm): string {
+  const domain = form.experience.domains.find((d) => d.level !== "nice")?.name ?? null;
+  return composeWorkingTitle(form.title, form.must, form.seniorityYears, domain) ?? "";
+}
+
+/** Tytuł dla rekrutera widoczny w formularzu: ręczny albo podpowiedź. */
+export function effectiveWorkingTitle(form: IntakeForm): string {
+  return form.workingTitleTouched ? form.workingTitle : suggestedWorkingTitle(form);
+}
+
+/** Tytuł rekrutacji (`jobs.title`): nazwa od klienta, a bez niej rola. */
+export function jobTitleFor(form: IntakeForm): string {
+  return form.clientTitle.trim() || form.title.trim();
 }
 
 // ── Braki wobec „Przekaż do searchu” ─────────────────────────────────────────
@@ -305,7 +347,7 @@ export function buildJobPayload(
 ): Record<string, unknown> {
   const remote = form.remotePolicy || null;
   const payload: Record<string, unknown> = {
-    title: form.title.trim(),
+    title: jobTitleFor(form),
     client_id: opts.clientId,
     auto_suggest_cc: true,
     remote_policy: remote,
@@ -314,6 +356,10 @@ export function buildJobPayload(
   };
   const description = opts.requestText.trim();
   if (description) payload.description = description;
+  if (form.clientReference.trim()) payload.client_reference = form.clientReference.trim();
+  // Bez ręcznej zmiany serwer składa tytuł sam (i przelicza go po Championie).
+  if (form.workingTitleTouched && form.workingTitle.trim())
+    payload.working_title = form.workingTitle.trim();
   if (form.must.length > 0) payload.must_skills = form.must;
   if (form.nice.length > 0) payload.nice_skills = form.nice;
   if (remote !== "remote" && form.city.trim())
