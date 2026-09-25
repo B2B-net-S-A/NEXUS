@@ -570,7 +570,8 @@ async def test_content_update_counts_rows_with_update_already_in_flight() -> Non
     idle = _posting(pending=None)
     db = AsyncMock()
     db.scalars.return_value = _Scalars([queued, idle])
-    assert await service.queue_content_update(db, 1) == 2
+    # Nowo zakolejkowany jest tylko wiersz bez zlecenia; ten w toku już czeka.
+    assert await service.queue_content_update(db, 1) == 1
     # Dzierżawa w toku nietknięta — drugi tick nie weźmie tego samego wiersza.
     assert queued.next_attempt_at == NOW + timedelta(minutes=10)
     assert idle.pending_action == service.ACTION_UPDATE
@@ -675,18 +676,23 @@ async def test_db_apply_suggestion_refreshes_the_working_title(
     from app.models.job import Job
     from app.services.champion_draft_service import apply_suggestion
 
+    from app.models.client import Client
+
     me = await app_client.get("/api/auth/me", headers=app_auth_headers)
     assert me.status_code == 200, me.text
-    created = await app_client.post(
-        "/api/jobs",
-        json={
-            "title": f"Programista R4 {uuid.uuid4().hex[:6]}",
-            "must_skills": ["Java"],
-        },
-        headers=app_auth_headers,
-    )
-    assert created.status_code in (200, 201), created.text
-    job_id = created.json()["id"]
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"Synthetic R4 {uuid.uuid4().hex[:8]}")
+        db.add(client)
+        await db.flush()
+        job = Job(
+            title=f"Programista R4 {uuid.uuid4().hex[:6]}",
+            client_id=client.id,
+            must_skills=[{"name": "Java", "level": None}],
+            working_title_auto=True,
+        )
+        db.add(job)
+        await db.commit()
+        job_id = job.id
     async with AsyncSessionLocal() as db:
         suggestion = ChampionProfileSuggestion(
             job_id=job_id,

@@ -201,6 +201,9 @@ async def test_prep_review_counts_an_archive_question_only_once_pinned():
     from app.services import prep_review
 
     w = await _world()
+    # Przypięcie przez człowieka niesie jego id (API zawsze je zapisuje) —
+    # przypięcie importu bez człowieka ocena prepu pomija (audyt runda 4).
+    pinned_by, _ = await _user(UserRole.recruiter)
     async with AsyncSessionLocal() as db:
         db.add(
             JobQuestion(
@@ -208,6 +211,7 @@ async def test_prep_review_counts_an_archive_question_only_once_pinned():
                 question_id=w["oracle"],
                 is_pinned=True,
                 added_by_source=JobQuestionAddedBySource.manual,
+                added_by_user_id=pinned_by,
             )
         )
         await db.commit()

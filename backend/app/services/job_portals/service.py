@@ -480,10 +480,13 @@ async def queue_content_update(db: AsyncSession, job_id: int) -> int:
             .with_for_update()
         )
     ).all()
+    queued = 0
     for posting in rows:
         if posting.pending_action is None:
             _queue(posting, ACTION_UPDATE)
-    return len(rows)
+            queued += 1
+    # Liczba NOWO zakolejkowanych — wiersz, który już czeka, nie jest dublem.
+    return queued
 
 
 async def has_live_postings(db: AsyncSession, job_id: int) -> bool:

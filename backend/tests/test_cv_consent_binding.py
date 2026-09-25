@@ -134,7 +134,9 @@ async def test_generation_rejects_foreign_attachment_before_quota_and_background
             response = await client.post(
                 "/cv-generator/generate-upload",
                 files={"cv_file": ("person-b.pdf", b"person B", "application/pdf")},
-                data={"consent_screenshot_token": token},
+                # Klient zawsze wymagany (generator v3) — bez niego odmowa
+                # „Wybierz klienta” padałaby przed sprawdzeniem zgody.
+                data={"consent_screenshot_token": token, "client_id": "1"},
             )
     assert response.status_code == 422, response.text
     assert "Zrzut zgody" in response.json()["detail"]
