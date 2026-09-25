@@ -35,7 +35,7 @@ from decimal import Decimal
 from typing import Any, Awaitable, Callable, Optional
 
 from fastapi.concurrency import run_in_threadpool
-from sqlalchemy import func, inspect as sa_inspect, select, text
+from sqlalchemy import and_, func, inspect as sa_inspect, or_, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -51,6 +51,7 @@ from app.models.order_mail import (
     GATE_AUTO,
     GATE_REVIEW,
     OUTCOME_AUTO_APPLIED,
+    OUTCOME_DISMISSED,
     OUTCOME_DUPLICATE,
     OUTCOME_FAILED,
     OUTCOME_IGNORED_NO_PDF,
@@ -626,6 +627,23 @@ async def _message_logged(
     return await db.scalar(stmt.limit(1)) is not None
 
 
+def dismissed_unprocessed_clause():
+    """Wpis odrzucony, z którego nic nie przeczytano (dawne „Nieudane”)."""
+    dismissed_from = OrderMailDocument.document_meta["dismissed_from"].astext
+    return and_(
+        OrderMailDocument.outcome == OUTCOME_DISMISSED,
+        or_(
+            dismissed_from == OUTCOME_FAILED,
+            and_(
+                dismissed_from.is_(None),
+                func.coalesce(func.jsonb_typeof(OrderMailDocument.extraction), "null")
+                == "null",
+                OrderMailDocument.error.is_not(None),
+            ),
+        ),
+    )
+
+
 async def _first_with_sha(db: AsyncSession, sha: str) -> Optional[OrderMailDocument]:
     """Pierwszy PRZETWORZONY wpis z tym plikiem — oryginał dla duplikatu.
 
@@ -637,12 +655,17 @@ async def _first_with_sha(db: AsyncSession, sha: str) -> Optional[OrderMailDocum
     ponowienie takiego wpisu (``order_mail_recheck``) brało jego duplikat za
     oryginał i zamieniało jedyny egzemplarz zamówienia w „duplikat” duplikatu,
     więc PDF nie był czytany nigdy (audyt 25.09.2026, runda 2).
+    Odrzucony wpis „Nieudane” też nie: odrzucenie nie zmienia faktu, że nic
+    z niego nie przeczytano (runda 3). Rozpoznajemy go po stemplu
+    ``dismissed_from`` (od rundy 3), a wpisy odrzucone wcześniej — po kształcie
+    wpisu nieudanego: bez odczytu (``extraction``) i z błędem przetwarzania.
     """
     return await db.scalar(
         select(OrderMailDocument)
         .where(
             OrderMailDocument.attachment_sha256 == sha,
             OrderMailDocument.outcome.not_in((OUTCOME_FAILED, OUTCOME_DUPLICATE)),
+            ~dismissed_unprocessed_clause(),
         )
         .order_by(OrderMailDocument.id.asc())
         .limit(1)
@@ -1589,6 +1612,24 @@ def _failed_row(
     )
 
 
+_JOURNAL_UNIQUE_PREFIX = "uq_order_mail_documents_"
+
+
+def _is_journal_unique_conflict(error: IntegrityError) -> bool:
+    """Czy to konflikt na indeksie unikalnym dziennika wiadomości.
+
+    Tylko ten konflikt znaczy „wpis zapisał już równoległy bieg”. Każdy inny
+    błąd spójności (np. więz zamówienia z ``process_pdf_bytes``) ma przerwać
+    bieg i trafić do logu, a nie po cichu dać „pominięty” (audyt 25.09.2026).
+    """
+    name = getattr(error.orig, "constraint_name", None)
+    if not name:
+        name = getattr(getattr(error.orig, "diag", None), "constraint_name", None)
+    if name:
+        return str(name).startswith(_JOURNAL_UNIQUE_PREFIX)
+    return _JOURNAL_UNIQUE_PREFIX in str(error)
+
+
 async def _add_journal_row(db: AsyncSession, row: OrderMailDocument) -> bool:
     """Dopisz wpis dziennika i zatwierdź; ``False``, gdy już go ktoś zapisał.
 
@@ -1602,9 +1643,10 @@ async def _add_journal_row(db: AsyncSession, row: OrderMailDocument) -> bool:
         async with db.begin_nested():
             db.add(row)
     except IntegrityError as exc:
+        if not _is_journal_unique_conflict(exc):
+            raise
         logger.warning(
-            "order_mail: journal row for message not written (already exists?): %r",
-            exc,
+            "order_mail: journal row for message not written (already exists)"
         )
         await db.commit()
         return False
@@ -1825,14 +1867,18 @@ async def _process_message(
         db.add(row)
         try:
             await db.commit()
-        except IntegrityError:
+        except IntegrityError as exc:
             # Ten sam załącznik zapisał równoległy bieg (bieg ręczny i z pętli,
             # dwa kontenery przy deployu) — `uq_order_mail_documents_message_*`.
             # Wycofujemy CAŁĄ transakcję, nie savepoint: `process_pdf_bytes`
             # mógł już zapisać zamówienie, a bez wpisu w dzienniku zostałby
             # drugi zapis tego samego zamówienia (przegląd PR #1836).
-            logger.warning("order_mail: attachment already journaled by a parallel run")
+            # Każdy inny konflikt (więz zamówienia) przerywa bieg — nie jest
+            # „wpisem równoległego biegu” (audyt 25.09.2026, runda 3).
             await db.rollback()
+            if not _is_journal_unique_conflict(exc):
+                raise
+            logger.warning("order_mail: attachment already journaled by a parallel run")
             if conn is not None:
                 await db.refresh(conn)
             stats.skipped_existing += 1

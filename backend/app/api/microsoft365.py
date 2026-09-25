@@ -131,6 +131,24 @@ def _frontend_callback_url(status_param: str, message: Optional[str] = None) -> 
     return f"{base}/microsoft365/callback?{urlencode(query)}"
 
 
+def _mailbox_belongs_to_user(mailbox_upn: Optional[str], user: User) -> bool:
+    """Czy skrzynka z id_token to skrzynka tego konta NEXUS.
+
+    Logowanie przez Microsoft zakłada konto po ``preferred_username``
+    (``users.email``) i zapamiętuje go w ``users.microsoft_upn``, więc oba
+    adresy są legalne; porównanie bez wielkości liter.
+    """
+    mailbox = (mailbox_upn or "").strip().casefold()
+    if not mailbox:
+        return False
+    known = {
+        (address or "").strip().casefold()
+        for address in (user.email, getattr(user, "microsoft_upn", None))
+    }
+    known.discard("")
+    return mailbox in known
+
+
 # ── Routes ──────────────────────────────────────────────────────────────────
 
 
@@ -212,10 +230,35 @@ async def callback(
 
     try:
         bundle = await m365_oauth.exchange_code(code, pkce_verifier)
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
+        # Szczegóły wyjątku (odpowiedź Microsoftu, fragmenty tokenów) tylko
+        # w logu — adres przekierowania trafia do historii przeglądarki.
         logger.exception("m365 code exchange failed")
         return RedirectResponse(
-            _frontend_callback_url("error", f"Token exchange failed: {exc!r}"),
+            _frontend_callback_url(
+                "error",
+                "Nie udało się połączyć ze skrzynką Microsoft 365 — spróbuj ponownie.",
+            ),
+            status_code=302,
+        )
+
+    # Podpisany `state` mówi, KTÓRE konto NEXUS zaczęło łączenie, ale nie,
+    # CZYJA skrzynka wróciła: link logowania otwarty w przeglądarce innej osoby
+    # (albo zalogowanej w Microsoft na inne konto) podpinał jej pocztę pod
+    # konto inicjatora — NEXUS czytał ją i wysyłał z niej maile jako ona
+    # (audyt 25.09.2026, R3-2). Skrzynka musi być skrzynką właściciela konta.
+    # Brak adresu w id_token = nie da się tego potwierdzić, więc odmowa.
+    if not _mailbox_belongs_to_user(bundle.mailbox_upn, user):
+        logger.warning(
+            "m365 callback rejected — mailbox of another person: user_id=%s",
+            user_id,
+        )
+        return RedirectResponse(
+            _frontend_callback_url(
+                "error",
+                "Połączono skrzynkę innej osoby — zaloguj się w Microsoft jako "
+                f"{user.email}",
+            ),
             status_code=302,
         )
 
