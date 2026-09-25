@@ -7,6 +7,7 @@ import {
   ChevronDown,
   Clock3,
   History,
+  Info,
   Pencil,
   Plus,
   Repeat,
@@ -36,30 +37,29 @@ import { formatDate, formatPLN } from "@/types/client-profile";
 import { isEzdrowieClient } from "@/lib/ezdrowie";
 import { MD_TRANSFER_METHOD_LABELS } from "@/lib/order-takeover";
 
-import {
-  consultantUsageSentence,
-  hasScopedMd,
-  lineHasSettlements,
-} from "@/lib/order-line-usage";
+import { requiresDecision, sortEndedLines } from "@/lib/order-ended-line";
+import { hasScopedMd, lineHasSettlements } from "@/lib/order-line-usage";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { EndedLineCard } from "./EndedLineCard";
+import { EndedLineDecisionDialog } from "./EndedLineDecisionDialog";
 import { LineMonthlyHistoryDialog } from "./LineMonthlyHistoryDialog";
 import { OrderHistoryPanel } from "./OrderHistoryPanel";
 import { ConsumptionButton } from "./ConsumptionButton";
 import { formatMd, MdBudgetBar } from "./MdBudgetBar";
 import { MdScopeBars, MdScopePanels, MdScopeTotalBar } from "./MdScopeBars";
 import { OrderTypeBadge } from "./OrderTypeBadge";
+import {
+  displayLineRate,
+  focusOrderLine,
+  initials,
+  orderLineAnchorId,
+} from "./order-line-display";
+
+export { orderLineAnchorId } from "./order-line-display";
 
 const SETTLED_LINE_DELETE_HINT =
   "Nie można usunąć — konsultant ma rozliczenia (MD lub faktury). " +
   "Użyj „Zostaw jako historię” albo „Zakończ”.";
-
-function initials(name: string): string {
-  const parts = name.split(/\s+/).filter(Boolean);
-  if (!parts.length) return "?";
-  return parts
-    .slice(0, 2)
-    .map((p) => p[0]?.toUpperCase() ?? "")
-    .join("");
-}
 
 function periodLabel(group: OrderGroupRead): string {
   const from = formatDate(group.start_date);
@@ -85,25 +85,6 @@ function executiveContractLabel(
   return roman
     ? `Umowa wykonawcza ${contract.number} · Cz. ${roman}`
     : `Umowa wykonawcza ${contract.number}`;
-}
-
-/** Kotwica wiersza obsady — cel przejścia „→ następca" z wiersza osoby
- *  zastąpionej. Następca bywa w innej sekcji (aktywna obsada vs zakończone),
- *  więc przewijamy po id, nie po pozycji na liście. */
-export function orderLineAnchorId(lineId: number): string {
-  return `order-line-${lineId}`;
-}
-
-/** Przewinięcie do wiersza następcy z krótkim podświetleniem. Bez celu w DOM
- *  (następca na innej karcie) — nic; przycisk nie może udawać nawigacji. */
-function focusOrderLine(lineId: number) {
-  const el = document.getElementById(orderLineAnchorId(lineId));
-  if (!el) return;
-  el.scrollIntoView({ behavior: "smooth", block: "center" });
-  el.classList.add("ring-2", "ring-primary", "ring-inset");
-  window.setTimeout(() => {
-    el.classList.remove("ring-2", "ring-primary", "ring-inset");
-  }, 1600);
 }
 
 /** Pasek wykorzystania pozycji MD zamówienia (podstawa + opcja) — CeZ. */
@@ -174,14 +155,6 @@ export function orderGroupAnchorId(groupId: number): string {
 /** Żądanie „pokaż zamówienie X" płynące z wpisu `transfer_md`.
  *  `nonce` jest nośnikiem POWTÓRZENIA: samo id nie zmienia stanu, więc drugie
  *  kliknięcie tego samego numeru (po odjechaniu wzrokiem) przepadałoby po cichu. */
-function displayLineRate(line: OrderLineRead, side: "cost" | "revenue") {
-  const currency = (side === "cost" ? line.rate_candidate_currency : line.rate_client_currency) ?? "PLN";
-  const amount = side === "cost" ? (line.source_rate_cost ?? line.rate_cost) : (line.source_rate_revenue ?? line.rate_revenue);
-  if (amount == null) return "—";
-  if (currency === "PLN") return `${formatPLN(amount)}/MD`;
-  return `${new Intl.NumberFormat("pl-PL", { maximumFractionDigits: 3 }).format(amount)} ${currency}/MD`;
-}
-
 export interface OrderGroupFocusRequest {
   groupId: number;
   nonce: number;
@@ -300,9 +273,6 @@ interface OrderLineRowProps {
   onEditLine: (group: OrderGroupRead, line: OrderLineRead) => void;
   onSwapLine: (group: OrderGroupRead, line: OrderLineRead) => void;
   onDeleteLine: (group: OrderGroupRead, line: OrderLineRead) => void;
-  onResolveOffboarding: (group: OrderGroupRead, line: OrderLineRead) => void;
-  onKeepHistory?: (group: OrderGroupRead, line: OrderLineRead) => void;
-  onReplaceLine?: (group: OrderGroupRead, line: OrderLineRead) => void;
   /** „Zużycie MD" — wpisy MD per miesiąc tej osoby (podgląd i edycja). */
   onShowConsumptions?: (group: OrderGroupRead, line: OrderLineRead) => void;
   /** Karta konsultanta CeZ (pilotaż) zamiast jednego rzędu. */
@@ -311,9 +281,9 @@ interface OrderLineRowProps {
   cardSurface?: boolean;
 }
 
-/** Jeden wiersz obsady. Stan `pending` jest częścią domeny, nie dekoracją:
- *  zwykłe akcje są wtedy ukryte, żeby nie dało się usunąć linii bokiem i
- *  pozostawić alertu Delivery Leada bez rozstrzygnięcia. */
+/** Wiersz BIEŻĄCEJ obsady: osoby pracujące, szkice przypisań i zaplanowane
+ *  zastępstwa. Osoby, które zeszły z zamówienia (także z czekającą decyzją
+ *  o puli MD), renderuje `EndedLineCard` w sekcji „Zakończone". */
 function OrderLineRow({
   group,
   line,
@@ -324,61 +294,20 @@ function OrderLineRow({
   onEditLine,
   onSwapLine,
   onDeleteLine,
-  onResolveOffboarding,
-  onKeepHistory,
-  onReplaceLine,
   onShowConsumptions,
   scopedCardLayout = false,
   cardSurface = false,
 }: OrderLineRowProps) {
-  const pendingOffboarding = line.offboarding_case?.status === "pending";
-  const completedCostLine = group.is_cost_based && !line.is_active;
   const sharedMd = usesSharedMdPool(group);
-  const removed = Boolean(line.removed_from_order);
   // Rozliczenia miesięczne mają sens tylko przy własnym budżecie MD osoby —
   // zamówienie kosztowe rozlicza faktury, wspólna pula nie ma wpisów per osoba.
   const perPersonMd = !group.is_cost_based && !sharedMd;
   const replacedBy =
     line.replaced_by_order_id != null ? line.replaced_by_consultant_name : null;
-  // B2 (ticket 09.2026): MD przeniesione na następcę nie są już „pozostało"
-  // u osoby odchodzącej — pasek pokazuje zero, a zdanie mówi, kto je przejął.
-  const transferredOut =
-    line.replaced_by_md != null &&
-    (line.replaced_by_kind === "swap" || line.replaced_by_kind === "takeover") &&
-    !line.replaced_by_scheduled &&
-    !line.is_active;
-  const barLine: OrderLineRead = transferredOut ? { ...line, md_remaining: 0 } : line;
   const scheduledTakeover = line.takeover_scheduled === true;
-  const pendingButScheduled = pendingOffboarding && line.replaced_by_scheduled === true;
-  const endedCooperation = Boolean(line.cooperation_ended_on) && !line.is_active;
-  // Pula osoby wykorzystana w całości — decyzji o MD nie ma (ticket
-  // 4500030067), więc karta mówi, dlaczego.
-  const poolUsedUp =
-    !group.uses_shared_md_pool &&
-    line.md_total != null &&
-    line.md_remaining != null &&
-    line.md_remaining <= 0;
-  // „[Osoba] wykorzystał(a) X zł / Y MD na tym zamówieniu przed zakończeniem
-  // współpracy" — jedno zdanie dla zamówień MD i kosztowych.
-  const usageSentence = consultantUsageSentence(group, line);
   // Usunięcie kasuje linię trwale — z rozliczeniami serwer odmawia (409).
   const hasSettlements = lineHasSettlements(line);
-  // Osoba z zakończoną współpracą, która została na zamówieniu, a nikt jeszcze
-  // o niej nie zdecydował (zamówienie MD z czekającą sprawą ma swój formularz).
-  // Zastąpiona osoba MA już decyzję — następcę; pytanie „Zastąp kimś innym"
-  // przy niej byłoby prośbą o drugie zastępstwo tej samej pozycji.
-  const needsDecision =
-    endedCooperation &&
-    !removed &&
-    line.replaced_by_order_id == null &&
-    !line.history_kept_at &&
-    !line.offboarding_case &&
-    (canManage || canManageLifecycle);
-  const hasHistoryNotes =
-    (line.origin === "manual" && Boolean(line.added_at)) ||
-    Boolean(usageSentence) ||
-    Boolean(line.history_kept_at) ||
-    needsDecision;
+  const addedManually = line.origin === "manual" && Boolean(line.added_at);
 
   // Kawałki wiersza składane w dwa układy: domyślny (jeden rząd — BIK,
   // Polkomtel, BNP; DOM identyczny jak przed kartą CeZ) i karta konsultanta
@@ -387,12 +316,7 @@ function OrderLineRow({
     <>
       <div className="flex min-w-[13rem] flex-1 items-center gap-3">
         <Avatar className="h-8 w-8">
-          <AvatarFallback
-            className={cn(
-              "bg-primary/10 text-[11px] font-semibold text-primary",
-              pendingOffboarding && "bg-destructive/15 text-destructive",
-            )}
-          >
+          <AvatarFallback className="bg-primary/10 text-[11px] font-semibold text-primary">
             {initials(line.consultant_name)}
           </AvatarFallback>
         </Avatar>
@@ -407,22 +331,6 @@ function OrderLineRow({
               name={line.consultant_name}
               className="truncate"
             />
-            {pendingOffboarding ? (
-              <span className="rounded bg-destructive px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-destructive-foreground">
-                Zakończenie współpracy
-              </span>
-            ) : null}
-            {removed ? (
-              <span className="rounded bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                Usunięty z zamówienia
-              </span>
-            ) : endedCooperation && !pendingOffboarding ? (
-              <span className="rounded bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                {poolUsedUp
-                  ? "Zakończył współpracę · pula wykorzystana"
-                  : "Zakończył współpracę"}
-              </span>
-            ) : null}
             {line.returned_from_contract_id != null ? (
               <span className="rounded bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800">
                 Powrót po przerwie
@@ -460,63 +368,14 @@ function OrderLineRow({
               </span>
             ) : null}
           </p>
-          <p
-            className={cn(
-              "text-xs text-muted-foreground",
-              line.is_active && "truncate",
-            )}
-          >
+          <p className={cn("text-xs text-muted-foreground", line.is_active && "truncate")}>
             {scheduledTakeover
               ? "Zaplanowane zastępstwo"
-              : pendingOffboarding
-              ? "Współpraca zakończona"
-              : removed
-                ? "Usunięty z zamówienia"
-                : endedCooperation
-                  ? `Zakończył współpracę ${formatDate(line.cooperation_ended_on)}`
-                  : line.is_active
-                    ? "Konsultant"
-                    : line.status === "draft" && !scheduledTakeover
-                      ? "Szkic przypisania — uzupełnij budżet i stawki"
-                      : "Zakończony"}
-            {line.start_date
-              ? line.is_active || line.status === "draft" || scheduledTakeover
-                ? ` · od ${formatDate(line.start_date)}`
-                : ` · był na zamówieniu od ${formatDate(line.start_date)}`
-              : ""}
-            {!line.is_active && line.status !== "draft" && line.end_date
-              ? ` do ${formatDate(line.end_date)}`
-              : ""}
+              : line.is_active
+                ? "Konsultant"
+                : "Szkic przypisania — uzupełnij budżet i stawki"}
+            {line.start_date ? ` · od ${formatDate(line.start_date)}` : ""}
           </p>
-          {pendingButScheduled ? (
-            <p role="status" className="mt-1 text-xs font-medium text-foreground">
-              Zastępstwo zaplanowane: {line.replaced_by_consultant_name} od{" "}
-              {formatDate(line.replaced_by_start_date ?? null)} — pozostałe MD
-              przejdą automatycznie w dniu wejścia.
-            </p>
-          ) : pendingOffboarding && line.offboarding_case ? (
-            <p role="status" className="mt-1 text-xs font-medium text-destructive">
-              Kontrakt zakończył się {formatDate(line.offboarding_case.effective_date)}.
-              Wymagana decyzja o pozostałej puli MD
-              {line.offboarding_case.uses_shared_md_pool
-                ? " (wspólna pula pozostaje bez zmian)."
-                : // Migawka sprawy idzie za rozliczeniami (import po zejściu
-                  // zmniejsza pulę), więc liczba jest stanem na dziś.
-                  line.offboarding_case.remaining_md_snapshot > 0
-                  ? `: pozostało ${formatMd(line.offboarding_case.remaining_md_snapshot)} MD.`
-                  : ": pula wykorzystana w całości (0 MD do przeniesienia)."}
-            </p>
-          ) : null}
-          {completedCostLine ? (
-            <p className="mt-1 text-xs text-muted-foreground">
-              Zamówienie nr {group.order_number} · zafakturowano {" "}
-              {line.invoiced_total == null
-                ? "—"
-                : line.invoiced_total === 0
-                  ? "brak faktur"
-                  : formatPLN(line.invoiced_total)}
-            </p>
-          ) : null}
           {line.assignment_kind === "takeover" && line.takeover_from_name ? (
             <p className="truncate text-xs text-muted-foreground">
               {scheduledTakeover ? "Przejmie po" : "Przejęła po"}:{" "}
@@ -531,8 +390,7 @@ function OrderLineRow({
               zastąpił: {line.predecessor_consultant_name}
             </p>
           ) : null}
-          {line.replaced_by_order_id != null &&
-          (line.replaced_by_kind === "takeover" || line.replaced_by_kind === "swap") ? (
+          {line.replaced_by_order_id != null ? (
             <p className="truncate text-xs text-muted-foreground">
               {line.replaced_by_scheduled ? "Zastąpi go" : "Zastąpiony przez"}:{" "}
               <button
@@ -546,20 +404,6 @@ function OrderLineRow({
               {line.replaced_by_start_date
                 ? ` od ${formatDate(line.replaced_by_start_date)}`
                 : ""}
-              {transferredOut && line.replaced_by_md != null
-                ? ` · przejęła ${formatMd(line.replaced_by_md)} MD`
-                : ""}
-            </p>
-          ) : line.replaced_by_order_id != null ? (
-            <p className="truncate text-xs text-muted-foreground">
-              <button
-                type="button"
-                onClick={() => focusOrderLine(line.replaced_by_order_id as number)}
-                aria-label={`Pokaż następcę${replacedBy ? `: ${replacedBy}` : ""}`}
-                className="font-medium text-primary underline-offset-2 hover:underline"
-              >
-                → {replacedBy ?? "następca"}
-              </button>
             </p>
           ) : null}
           {line.missing_consumption_month ? (
@@ -632,10 +476,10 @@ function OrderLineRow({
         // Podstawa + opcja — dwa paski ZUŻYCIA WYŁĄCZNIE na karcie przypiętej
         // do umowy wykonawczej (CeZ); BIK/Polkomtel dostają dotychczasowy
         // pasek „pozostało / całość" — backend zwraca `md_base_used` także im.
-        <MdScopeBars line={barLine} className="ml-auto" />
+        <MdScopeBars line={line} className="ml-auto" />
       ) : (
         <MdBudgetBar
-          remaining={barLine.md_remaining}
+          remaining={line.md_remaining}
           total={line.md_total}
           className="ml-auto"
         />
@@ -653,24 +497,7 @@ function OrderLineRow({
 
   const actionsBlock = (
     <>
-      {pendingOffboarding && !pendingButScheduled ? (
-        <div className="ml-auto flex flex-col items-end gap-1">
-          {canManage ? (
-            <button
-              type="button"
-              onClick={() => onResolveOffboarding(group, line)}
-              aria-label={`Podejmij decyzję o MD — ${line.consultant_name}`}
-              className="rounded-md bg-destructive px-3 py-1.5 text-xs font-semibold text-destructive-foreground transition-colors hover:bg-destructive/90"
-            >
-              Podejmij decyzję
-            </button>
-          ) : (
-            <span className="text-xs font-medium text-destructive">
-              Oczekuje na decyzję Delivery Leada
-            </span>
-          )}
-        </div>
-      ) : (canManage || canEditAmounts || canManageLifecycle) && !removed ? (
+      {canManage || canEditAmounts || canManageLifecycle ? (
         <div className="flex items-center gap-1">
           {!canManage && canEditAmounts ? (
             <button
@@ -735,92 +562,29 @@ function OrderLineRow({
     </>
   );
 
-  const notesBlock = (
-    <>
-      {hasHistoryNotes ? (
-        <div className="basis-full space-y-1 pl-11">
-          {line.origin === "manual" && line.added_at ? (
-            <p className="text-xs text-muted-foreground">
-              Dodany ręcznie {formatDate(line.added_at)}
-              {line.added_by_name ? ` przez ${line.added_by_name}` : ""}
-              {line.replaces_name ? ` jako zastępstwo za ${line.replaces_name}` : ""}.
-              {group.has_file
-                ? " Dokument zamówienia (PDF) podpięto także do profilu tej osoby."
-                : ""}
-            </p>
-          ) : null}
-          {usageSentence ? (
-            <p className="text-xs font-medium text-foreground">{usageSentence}</p>
-          ) : null}
-          {line.history_kept_at ? (
-            <p className="text-xs text-muted-foreground">
-              Zostawiono jako historię {formatDate(line.history_kept_at)}
-              {line.history_kept_by_name ? ` — ${line.history_kept_by_name}` : ""}.
-            </p>
-          ) : null}
-          {needsDecision ? (
-            <div
-              role="status"
-              className="mt-2 rounded-md border border-border bg-muted/40 p-2 text-xs text-muted-foreground"
-            >
-              <p>
-                Ta osoba nie ma już aktywnej współpracy. Pozostaje widoczna na
-                zamówieniu wraz z historią wykorzystania — jej kwota nie wraca do
-                puli dostępnego budżetu.
-              </p>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {onKeepHistory ? (
-                  <button
-                    type="button"
-                    onClick={() => onKeepHistory(group, line)}
-                    className="rounded-md border border-border bg-background px-2.5 py-1 font-medium text-foreground hover:bg-muted"
-                  >
-                    Zostaw jako historię
-                  </button>
-                ) : null}
-                {canManage && onReplaceLine && group.can_add_consultant ? (
-                  <button
-                    type="button"
-                    onClick={() => onReplaceLine(group, line)}
-                    className="rounded-md border border-border bg-background px-2.5 py-1 font-medium text-foreground hover:bg-muted"
-                  >
-                    Zastąp kimś innym
-                  </button>
-                ) : null}
-                {canManageLifecycle ? (
-                  <button
-                    type="button"
-                    onClick={() => onDeleteLine(group, line)}
-                    disabled={hasSettlements}
-                    title={hasSettlements ? SETTLED_LINE_DELETE_HINT : undefined}
-                    className="rounded-md border border-destructive/40 bg-background px-2.5 py-1 font-medium text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    Usuń z zamówienia
-                  </button>
-                ) : null}
-              </div>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-    </>
-  );
+  const notesBlock = addedManually ? (
+    <div className="basis-full space-y-1 pl-11">
+      <p className="text-xs text-muted-foreground">
+        Dodany ręcznie {formatDate(line.added_at)}
+        {line.added_by_name ? ` przez ${line.added_by_name}` : ""}
+        {line.replaces_name ? ` jako zastępstwo za ${line.replaces_name}` : ""}.
+        {group.has_file
+          ? " Dokument zamówienia (PDF) podpięto także do profilu tej osoby."
+          : ""}
+      </p>
+    </div>
+  ) : null;
+
   if (scopedCardLayout) {
     return (
       <li
         id={orderLineAnchorId(line.id)}
         className={cn(
           "rounded-xl border border-border bg-card px-4 py-3",
-          !line.is_active &&
-            !pendingOffboarding &&
-            !needsDecision &&
-            !scheduledTakeover &&
-            "opacity-60",
+          !line.is_active && !scheduledTakeover && "opacity-60",
           searchQuery.trim() &&
             consultantMatchesQuery(line.consultant_name, searchQuery) &&
             "bg-primary/10 ring-1 ring-inset ring-primary/20",
-          pendingOffboarding &&
-            "border-destructive/50 bg-destructive/10 opacity-100 ring-1 ring-inset ring-destructive/20",
         )}
       >
         <div className="flex flex-wrap items-start gap-x-4 gap-y-2">
@@ -849,10 +613,10 @@ function OrderLineRow({
               </span>
             </p>
           </div>
-          <MdScopePanels line={barLine} />
+          <MdScopePanels line={line} />
         </div>
-        <MdScopeTotalBar line={barLine} className="mt-2" />
-        {hasHistoryNotes ? <div className="mt-2">{notesBlock}</div> : null}
+        <MdScopeTotalBar line={line} className="mt-2" />
+        {notesBlock ? <div className="mt-2">{notesBlock}</div> : null}
       </li>
     );
   }
@@ -863,16 +627,10 @@ function OrderLineRow({
       className={cn(
         "flex flex-wrap items-center gap-x-5 gap-y-2 py-2",
         cardSurface && "rounded-xl border border-border bg-card px-4",
-        !line.is_active &&
-            !pendingOffboarding &&
-            !needsDecision &&
-            !scheduledTakeover &&
-            "opacity-60",
+        !line.is_active && !scheduledTakeover && "opacity-60",
         searchQuery.trim() &&
           consultantMatchesQuery(line.consultant_name, searchQuery) &&
           "rounded-md bg-primary/10 px-2 ring-1 ring-inset ring-primary/20",
-        pendingOffboarding &&
-          "my-1 rounded-lg border border-destructive/50 bg-destructive/10 px-3 opacity-100 ring-1 ring-inset ring-destructive/20",
       )}
     >
       {nameBlock}
@@ -1132,6 +890,7 @@ export function OrderGroupCard({
   // osobie także wtedy, gdy nowa odpowiedź jeszcze nie dotarła.
   const [consumptionLine, setConsumptionLine] = useState<OrderLineRead | null>(null);
   const servedFocusRef = useRef<number | null>(null);
+  const [decisionLine, setDecisionLine] = useState<OrderLineRead | null>(null);
 
   // Żądanie adresuje tę kartę, gdy celem jest ona sama albo któreś z jej
   // zagnieżdżonych przyszłych zamówień. Zagnieżdżone istnieją w DOM dopiero po
@@ -1174,12 +933,28 @@ export function OrderGroupCard({
   const activeLines = currentLines.filter((line) => line.is_active);
   // „Zakończone" sortują się datą zejścia malejąco, nie alfabetem: sekcja mówi,
   // kto ostatnio zszedł z zamówienia.
-  const completedLines = sortOrderLinesByEnd(
-    sortedLines.filter((line) => !line.is_active && !isDraftLine(line)),
+  // Karty wymagające decyzji idą na górę (ticket 6, 09.2026).
+  const completedLines = sortEndedLines(
+    sortOrderLinesByEnd(
+      sortedLines.filter((line) => !line.is_active && !isDraftLine(line)),
+    ),
   );
-  const pendingDecisions = completedLines.filter(
-    (line) => line.offboarding_case?.status === "pending",
-  ).length;
+  const pendingDecisions = completedLines.filter(requiresDecision).length;
+  const completedMatchesSearch =
+    searchQuery.trim() !== "" &&
+    completedLines.some((line) =>
+      consultantMatchesQuery(line.consultant_name, searchQuery),
+    );
+  // Sekcja „Zakończone": zwinięta, gdy nic nie czeka na decyzję. Stan startowy
+  // liczony od razu (bez mignięcia zwiniętej sekcji przed efektem). Raz otwarta
+  // zostaje otwarta — karta, o której właśnie zdecydowano, nie może zniknąć
+  // spod ręki razem z sekcją.
+  const [completedOpen, setCompletedOpen] = useState(
+    () => pendingDecisions > 0 || completedMatchesSearch,
+  );
+  useEffect(() => {
+    if (pendingDecisions > 0 || completedMatchesSearch) setCompletedOpen(true);
+  }, [pendingDecisions, completedMatchesSearch]);
   const isActive = group.status === "active";
   const isCancelled = group.status === "cancelled";
   // Pilotaż karty konsultanta: WYŁĄCZNIE Centrum e-Zdrowia (po `clientId`, nie
@@ -1376,9 +1151,6 @@ export function OrderGroupCard({
                         onEditLine={onEditLine}
                         onSwapLine={onSwapLine}
                         onDeleteLine={onDeleteLine}
-                        onResolveOffboarding={onResolveOffboarding}
-                        onKeepHistory={onKeepHistory}
-                        onReplaceLine={onReplaceLine}
                         onShowConsumptions={(_group, selected) => setConsumptionLine(selected)}
                         scopedCardLayout={usesScopedCard(line)}
                         cardSurface={currentLines.some(usesScopedCard)}
@@ -1393,43 +1165,82 @@ export function OrderGroupCard({
                   aria-labelledby={`order-group-${group.id}-completed-heading`}
                   className="border-t border-border pt-4"
                 >
-                  <h4
-                    id={`order-group-${group.id}-completed-heading`}
-                    className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
-                  >
-                    Zakończone
-                    {pendingDecisions > 0 ? (
-                      <span className="ml-2 font-semibold normal-case tracking-normal text-amber-600 dark:text-amber-500">
-                        {`· ${pendingDecisions} ${
-                          pendingDecisions === 1
-                            ? "wymaga decyzji"
-                            : "wymagają decyzji"
-                        }`}
-                      </span>
-                    ) : null}
-                  </h4>
-                  <ul className={lineListClass(completedLines)}>
-                    {completedLines.map((line) => (
-                      <OrderLineRow
-                        key={line.id}
-                        group={group}
-                        line={line}
-                        searchQuery={searchQuery}
-                        canManage={canManage}
-                        canEditAmounts={canEditAmounts}
-                        canManageLifecycle={canManageLifecycle}
-                        onEditLine={onEditLine}
-                        onSwapLine={onSwapLine}
-                        onDeleteLine={onDeleteLine}
-                        onResolveOffboarding={onResolveOffboarding}
-                        onKeepHistory={onKeepHistory}
-                        onReplaceLine={onReplaceLine}
-                        onShowConsumptions={(_group, selected) => setConsumptionLine(selected)}
-                        scopedCardLayout={usesScopedCard(line)}
-                        cardSurface={completedLines.some(usesScopedCard)}
-                      />
-                    ))}
-                  </ul>
+                  <div className="mb-1 flex items-center gap-1">
+                    <h4
+                      id={`order-group-${group.id}-completed-heading`}
+                      className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => setCompletedOpen((v) => !v)}
+                        aria-expanded={completedOpen}
+                        aria-controls={`order-group-${group.id}-completed-list`}
+                        className="inline-flex items-center gap-1 rounded uppercase hover:text-foreground"
+                      >
+                        <ChevronDown
+                          className={cn(
+                            "h-3.5 w-3.5 transition-transform",
+                            !completedOpen && "-rotate-90",
+                          )}
+                          aria-hidden="true"
+                        />
+                        {`Zakończone (${completedLines.length})`}
+                        {pendingDecisions > 0 ? (
+                          <span className="ml-1 font-semibold normal-case tracking-normal text-destructive">
+                            {`· ${pendingDecisions} ${
+                              pendingDecisions === 1
+                                ? "wymaga decyzji"
+                                : "wymagają decyzji"
+                            }`}
+                          </span>
+                        ) : null}
+                      </button>
+                    </h4>
+                    {/* Jedno miejsce na zasadę puli — wcześniej stała przy
+                        każdej karcie osobno, dwa razy na karcie. */}
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <button
+                          type="button"
+                          aria-label="Co dzieje się z wykorzystaną kwotą"
+                          className="hit-area rounded-full p-0.5 text-muted-foreground hover:text-foreground"
+                        >
+                          <Info className="h-3.5 w-3.5" aria-hidden="true" />
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent className="max-w-xs text-xs text-muted-foreground">
+                        Kwota i MD wykorzystane przez osoby z tej sekcji nie wracają
+                        do puli dostępnej dla innych konsultantów.
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                  {completedOpen ? (
+                    <ul
+                      id={`order-group-${group.id}-completed-list`}
+                      className="mt-2 flex flex-col gap-2"
+                    >
+                      {completedLines.map((line) => (
+                        <EndedLineCard
+                          key={line.id}
+                          group={group}
+                          line={line}
+                          highlighted={
+                            searchQuery.trim() !== "" &&
+                            consultantMatchesQuery(line.consultant_name, searchQuery)
+                          }
+                          canManage={canManage}
+                          canEditAmounts={canEditAmounts}
+                          canManageLifecycle={canManageLifecycle}
+                          onEditLine={onEditLine}
+                          onSwapLine={onSwapLine}
+                          onDeleteLine={onDeleteLine}
+                          onDecide={setDecisionLine}
+                          onShowConsumptions={setConsumptionLine}
+                          scopedPanels={usesScopedCard(line)}
+                        />
+                      ))}
+                    </ul>
+                  ) : null}
                 </section>
               ) : null}
             </div>
@@ -1575,6 +1386,18 @@ export function OrderGroupCard({
           </div>
         </div>
       ) : null}
+
+      <EndedLineDecisionDialog
+        group={decisionLine ? group : null}
+        line={decisionLine}
+        onClose={() => setDecisionLine(null)}
+        canManage={canManage}
+        canManageLifecycle={canManageLifecycle}
+        onKeepHistory={onKeepHistory}
+        onReplaceLine={onReplaceLine}
+        onDeleteLine={onDeleteLine}
+        onResolveOffboarding={onResolveOffboarding}
+      />
 
       {consumptionLine ? (
         <LineMonthlyHistoryDialog

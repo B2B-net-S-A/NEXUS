@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -410,27 +410,37 @@ describe("OrderGroupCard — historia zamówienia", () => {
       </QueryClientProvider>,
     );
 
+    // Aktywna obsada bez zmian: plakietka i notka o ręcznym dodaniu.
     expect(screen.getByText("Dodany ręcznie")).toBeInTheDocument();
     expect(
       screen.getByText(/przez Anna Przykładowa jako zastępstwo za Marian Odeszły/),
     ).toBeInTheDocument();
     expect(screen.getByText(/PDF\) podpięto także do profilu tej osoby/)).toBeInTheDocument();
-    expect(screen.getByText(/Zakończył współpracę 12\.08\.2026/)).toBeInTheDocument();
-    // Ticket 09.2026: kto, ile i kiedy — wprost przy osobie, która odeszła.
-    expect(
-      screen.getByText(
-        /Marian Odeszły wykorzystał\(a\) 25\s720,00\szł na tym zamówieniu przed zakończeniem współpracy — ta kwota nie wraca do puli/,
-      ),
-    ).toBeInTheDocument();
-    expect(screen.getByText(/nie ma już aktywnej współpracy/)).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Zostaw jako historię" }));
+    // Ticket 6: zwinięta karta — kto, plakietka, okres, wykorzystanie, decyzja.
+    const card = document.getElementById("order-line-7")!;
+    expect(card).toHaveTextContent("Zakończył projekt");
+    expect(card).toHaveTextContent("30.03.2026 – 12.08.2026");
+    expect(card).toHaveTextContent(/25\s720,00\szł/);
+    expect(card).not.toHaveTextContent(/nie wraca do puli/);
+    expect(card).not.toHaveTextContent(/nie ma już aktywnej współpracy/);
+    expect(screen.queryByRole("button", { name: /Zostaw jako historię/ })).toBeNull();
+
+    const decide = () =>
+      user.click(screen.getByRole("button", { name: "Podejmij decyzję — Marian Odeszły" }));
+
+    await decide();
+    await user.click(screen.getByRole("button", { name: /Zostaw jako historię/ }));
     expect(onKeepHistory).toHaveBeenCalledWith(expect.anything(), ended);
-    await user.click(screen.getByRole("button", { name: "Zastąp kimś innym" }));
+
+    await decide();
+    await user.click(screen.getByRole("button", { name: /Zastąp kimś innym/ }));
     expect(onReplaceLine).toHaveBeenCalledWith(expect.anything(), ended);
+
     // Osoba ma zafakturowaną kwotę — usunięcie kasuje linię trwale, więc
-    // serwer odmówiłby (409); przycisk jest wyłączony zawczasu.
-    expect(screen.getByRole("button", { name: "Usuń z zamówienia" })).toBeDisabled();
+    // serwer odmówiłby (409); opcja jest wyłączona zawczasu.
+    await decide();
+    expect(screen.getByRole("button", { name: /Usuń z zamówienia/ })).toBeDisabled();
     expect(onDeleteLine).not.toHaveBeenCalled();
   });
 });
@@ -490,11 +500,16 @@ describe("OrderGroupCard — zakresy MD, następca i nagłówek CeZ", () => {
       const user = userEvent.setup();
       renderCard({ group: scopedGroup() });
 
-      expect(screen.getByText("Zastąpiony")).toBeInTheDocument();
+      // Zastąpiony nie czeka na decyzję — sekcja „Zakończone” jest zwinięta.
+      await user.click(screen.getByRole("button", { name: "Zakończone (1)" }));
       // Istniejąca linia „zastąpił:" u następcy zostaje.
       expect(screen.getByText("zastąpił: Tomasz Zastąpiony")).toBeInTheDocument();
 
-      await user.click(screen.getByRole("button", { name: "Pokaż następcę: Marcin Następca" }));
+      const successorLink = screen.getByRole("button", {
+        name: "Pokaż następcę: Marcin Następca",
+      });
+      expect(successorLink).toHaveTextContent("Zastąpiony przez Marcin Następca");
+      await user.click(successorLink);
       expect(scrolled).toContain(document.getElementById("order-line-2"));
       expect(document.getElementById("order-line-2")).toHaveClass("ring-primary");
     } finally {
@@ -504,6 +519,10 @@ describe("OrderGroupCard — zakresy MD, następca i nagłówek CeZ", () => {
 
   it("linia z zakresami dostaje dwa paski zużycia, a bez zakresów — stary pasek „pozostało”", () => {
     renderCard({ group: scopedGroup() });
+    fireEvent.click(screen.getByRole("button", { name: "Zakończone (1)" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Pokaż szczegóły — Tomasz Zastąpiony" }),
+    );
 
     const successorRow = document.getElementById("order-line-2")!;
     expect(successorRow.querySelector('[aria-label="Podstawa — wykorzystano MD"]')).not.toBeNull();
@@ -521,6 +540,10 @@ describe("OrderGroupCard — zakresy MD, następca i nagłówek CeZ", () => {
     const onSwapLine = vi.fn();
     const onDeleteLine = vi.fn();
     renderCard({ group: scopedGroup(), clientId: 115, onEditLine, onSwapLine, onDeleteLine });
+    await user.click(screen.getByRole("button", { name: "Zakończone (1)" }));
+    await user.click(
+      screen.getByRole("button", { name: "Pokaż szczegóły — Tomasz Zastąpiony" }),
+    );
 
     const successorRow = document.getElementById("order-line-2")!;
     expect(successorRow).toHaveClass("rounded-xl", "bg-card");
@@ -599,11 +622,14 @@ describe("OrderGroupCard — zakresy MD, następca i nagłówek CeZ", () => {
 
   it("osoba już zastąpiona nie dostaje pytania „Zastąp kimś innym” — decyzja już zapadła", () => {
     renderCard({ group: scopedGroup() });
+    fireEvent.click(screen.getByRole("button", { name: "Zakończone (1)" }));
     const replacedRow = document.getElementById("order-line-1")!;
-    expect(replacedRow).toHaveTextContent("Zastąpiony");
-    expect(screen.queryByRole("button", { name: "Zastąp kimś innym" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Zostaw jako historię" })).toBeNull();
-    expect(screen.queryByText(/nie ma już aktywnej współpracy/)).toBeNull();
+    expect(replacedRow).toHaveTextContent("Zastąpiony przez Marcin Następca");
+    expect(
+      screen.queryByRole("button", { name: /Podejmij decyzję — Tomasz Zastąpiony/ }),
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: /Zastąp kimś innym/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Zostaw jako historię/ })).toBeNull();
   });
 
   it("nagłówek: umowa wykonawcza z częścią, pasek pozycji MD i wartość umowy dla ról z finansami", () => {
@@ -678,7 +704,7 @@ describe("OrderGroupCard — kto stoi w „Zakończonych\u201d", () => {
     });
 
     const active = screen.getByRole("region", { name: "Aktywna obsada" });
-    const ended = screen.getByRole("region", { name: "Zakończone" });
+    const ended = screen.getByRole("region", { name: /^Zakończone/ });
     expect(active).toHaveTextContent("Aktywna Osoba");
     expect(active).not.toHaveTextContent("Zenon Ostatni");
 
@@ -691,7 +717,8 @@ describe("OrderGroupCard — kto stoi w „Zakończonych\u201d", () => {
     expect(order[1]).toContain("Anna Wczesna");
   });
 
-  it("wiersz w „Zakończonych” niesie okres, zużycie i datę zejścia", () => {
+  it("zwinięta karta: kto, plakietka, okres i wykorzystanie — reszta po rozwinięciu", async () => {
+    const user = userEvent.setup();
     renderCard({
       group: group({
         active_consultants: 0,
@@ -702,17 +729,122 @@ describe("OrderGroupCard — kto stoi w „Zakończonych\u201d", () => {
             start_date: "2026-05-01",
             end_date: "2026-08-31",
             cooperation_ended_on: "2026-08-31",
+            md_used: 25.45,
+            rate_revenue: 1000,
+            origin: "manual",
+            added_at: "2026-08-21T09:00:00Z",
+            added_by_name: "Anna Przykładowa",
+            contract_type: "b2b",
           }),
         ],
       }),
     });
 
-    const ended = screen.getByRole("region", { name: "Zakończone" });
-    expect(ended).toHaveTextContent(/Zakończył współpracę 31\.08\.2026/);
-    expect(ended).toHaveTextContent(/był na zamówieniu od 01\.05\.2026 do 31\.08\.2026/);
-    expect(ended).toHaveTextContent(
-      /Marian Odeszły wykorzystał\(a\).*na tym zamówieniu przed zakończeniem współpracy/,
-    );
+    const card = document.getElementById("order-line-2")!;
+    // Kryterium 1: tylko kto, plakietka, okres, wykorzystanie i decyzja.
+    expect(card).toHaveTextContent("Zakończył projekt");
+    expect(card).toHaveTextContent("01.05.2026 – 31.08.2026");
+    expect(card).toHaveTextContent(/25,45 MD · 25\s450,00\szł/);
+    expect(
+      screen.getByRole("button", { name: "Podejmij decyzję — Marian Odeszły" }),
+    ).toBeInTheDocument();
+    // Kryterium 2: bez „Dodany ręcznie”, autora, zdania o puli, stawek i paska.
+    expect(card).not.toHaveTextContent(/Dodany ręcznie/i);
+    expect(card).not.toHaveTextContent("Anna Przykładowa");
+    expect(card).not.toHaveTextContent(/nie wraca do puli/);
+    expect(card).not.toHaveTextContent(/koszt\./);
+    expect(card.querySelector('[role="progressbar"]')).toBeNull();
+    // Kryterium 5: zasada puli raz, przy nagłówku sekcji.
+    expect(
+      screen.getByRole("button", { name: "Co dzieje się z wykorzystaną kwotą" }),
+    ).toBeInTheDocument();
+
+    // Kryterium 3: rozwinięcie — stawki, pasek, ręczne dodanie, umowa, zużycie MD.
+    await user.click(screen.getByRole("button", { name: "Pokaż szczegóły — Marian Odeszły" }));
+    expect(card).toHaveTextContent(/koszt\. 1\s?000,00\szł\/MD/);
+    expect(card.querySelector('[role="progressbar"]')).not.toBeNull();
+    expect(card).toHaveTextContent("Dodany ręcznie 21.08.2026 przez Anna Przykładowa.");
+    expect(card).toHaveTextContent("Umowa B2B nadal obowiązuje");
+    expect(
+      screen.getByRole("button", { name: "Zużycie MD — Marian Odeszły" }),
+    ).toBeInTheDocument();
+  });
+
+  it("umowa rozwiązana: plakietka „Zakończył współpracę”, w rozwinięciu ostatni dzień i tryb", async () => {
+    const user = userEvent.setup();
+    renderCard({
+      group: group({
+        lines: [
+          departed({
+            id: 2,
+            consultant_name: "Marian Odeszły",
+            cooperation_ended_on: "2026-08-31",
+            history_kept_at: "2026-09-01T09:00:00Z",
+            contract_type: "b2b",
+            agreement_termination_mode: "mutual_agreement",
+            agreement_last_day: "2026-08-31",
+          }),
+        ],
+      }),
+    });
+
+    await user.click(screen.getByRole("button", { name: "Zakończone (1)" }));
+    const card = document.getElementById("order-line-2")!;
+    expect(card).toHaveTextContent("Zakończył współpracę");
+    // Po decyzji: szara karta z opisem, bez przycisku.
+    expect(card).toHaveTextContent("Zostawiony jako historia");
+    expect(card).not.toHaveClass("border-destructive/50");
+    expect(screen.queryByRole("button", { name: /Podejmij decyzję/ })).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Pokaż szczegóły — Marian Odeszły" }));
+    expect(card).toHaveTextContent("Ostatni dzień umowy: 31.08.2026 · Porozumienie stron");
+    expect(screen.getByRole("button", { name: "Zmień decyzję" })).toBeInTheDocument();
+  });
+
+  it("żadna karta nie używa starych nazw zakończenia", () => {
+    renderCard({
+      group: group({
+        lines: [
+          departed({
+            id: 2,
+            consultant_name: "Anna Zejście",
+            cooperation_ended_on: "2026-08-31",
+            offboarding_case: {
+              id: 7,
+              contract_id: 100,
+              order_id: 2,
+              order_group_id: 15,
+              client_id: 18,
+              effective_date: "2026-08-31",
+              status: "pending",
+              version: 1,
+              uses_shared_md_pool: false,
+              remaining_md_snapshot: 20,
+              rate_cost_snapshot: null,
+              rate_revenue_snapshot: null,
+              currency_snapshot: null,
+              order_number_snapshot: null,
+              resolution: null,
+              target_order_id: null,
+              rate_basis: null,
+              resolution_payload: null,
+              resolved_at: null,
+              resolved_by_user_id: null,
+              created_by_user_id: null,
+              created_at: "2026-08-31T10:00:00Z",
+              updated_at: "2026-08-31T10:00:00Z",
+            },
+          }),
+          departed({ id: 3, consultant_name: "Piotr Domknięty", status: "completed" }),
+        ],
+      }),
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Pokaż szczegóły — Piotr Domknięty" }));
+    const text = document.body.textContent ?? "";
+    expect(text).not.toMatch(/Zakończenie współpracy/);
+    expect(text).not.toMatch(/Zakończony\b/);
+    const card = document.getElementById("order-line-2")!;
+    expect(card).toHaveClass("border-destructive/50");
   });
 
   it("zamiana kontraktora zostaje dostępna, dopóki linia jest aktywna w bazie", () => {
@@ -732,14 +864,17 @@ describe("OrderGroupCard — kto stoi w „Zakończonych\u201d", () => {
       }),
     });
 
+    fireEvent.click(screen.getByRole("button", { name: "Zakończone (2)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Pokaż szczegóły — Marian Odeszły" }));
+    fireEvent.click(screen.getByRole("button", { name: "Pokaż szczegóły — Domknięta Linia" }));
     // Serwer (`swap_consultant`) pyta o status linii, nie o obsadę — bramka
     // po `is_active` blokowałaby zamianę, na którą serwer pozwala.
     expect(
       screen.getByRole("button", { name: "Zamień kontraktora — Marian Odeszły" }),
     ).toBeEnabled();
     expect(
-      screen.getByRole("button", { name: "Zamień kontraktora — Domknięta Linia" }),
-    ).toBeDisabled();
+      screen.queryByRole("button", { name: "Zamień kontraktora — Domknięta Linia" }),
+    ).toBeNull();
   });
 });
 

@@ -214,7 +214,7 @@ export function OffboardingDecisionModal({
       open={open}
       onOpenChange={onOpenChange}
       size="lg"
-      title="Zakończenie współpracy — decyzja o MD"
+      title="Decyzja o pozostałej puli MD"
       description={
         group && line
           ? `Zamówienie nr ${group.order_number} · ${line.consultant_name}`

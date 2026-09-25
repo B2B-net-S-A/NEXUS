@@ -625,6 +625,14 @@ class OrderLineRead(BaseModel):
     """Data zakończenia współpracy tej osoby (kontrakt zakończony), jeśli
     współpraca się skończyła — nawet gdy linia zostaje na zamówieniu."""
 
+    contract_type: Optional[Literal["b2b", "uop", "uzlecenie"]] = None
+    agreement_termination_mode: Optional[Literal["notice", "mutual_agreement"]] = None
+    agreement_last_day: Optional[date] = None
+    """Rozwiązanie UMOWY osoby (0367) — osobne od końca pracy na zamówieniu.
+    Karta w „Zakończonych" rozróżnia po nim „Zakończył współpracę" (umowa
+    rozwiązana) od „Zakończył projekt" (umowa B2B nadal obowiązuje). Bez kwot,
+    więc bez redakcji finansowej."""
+
     md_used: Optional[MdValue] = None
     """Zaraportowane MD tej osoby na tym zamówieniu (operacyjne, bez redakcji)."""
 

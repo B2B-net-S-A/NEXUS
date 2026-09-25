@@ -137,6 +137,11 @@ export interface OrderLineRead {
   cooperation_ended_on?: string | null;
   /** Zaraportowane MD tej osoby na zamówieniu (operacyjne). */
   md_used?: number | null;
+  /** Rozwiązanie UMOWY osoby (0367) — odróżnia „Zakończył współpracę"
+   *  (umowa rozwiązana) od „Zakończył projekt" (umowa B2B trwa). */
+  contract_type?: "b2b" | "uop" | "uzlecenie" | null;
+  agreement_termination_mode?: "notice" | "mutual_agreement" | null;
+  agreement_last_day?: string | null;
   /** Decyzja „Zostaw jako historię". */
   history_kept_at?: string | null;
   history_kept_by_name?: string | null;

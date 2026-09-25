@@ -759,7 +759,7 @@ export function OrderGroupFormModal({
               <li key={draft.key}>
                 {line.consultant_name}
                 {ended
-                  ? " — nie ma już aktywnej współpracy; zostaw / zastąp / usuń tę osobę przy jej linii na karcie zamówienia (jej wykorzystana kwota i MD nie wrócą do puli)"
+                  ? " — nie ma już aktywnej współpracy; zostaw / zastąp / usuń tę osobę przyciskiem „Podejmij decyzję” w sekcji „Zakończone” karty zamówienia (jej wykorzystana kwota i MD nie wrócą do puli)"
                   : differs
                     ? ` — dokument podaje inne ${differs} niż linia na zamówieniu; zmień je w „Edytuj linię”`
                     : " — jest na zamówieniu, nic nie dopisujemy"}

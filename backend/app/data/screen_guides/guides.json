@@ -429,6 +429,10 @@
       {
         "q": "Jak przypisać nową osobę ze szkicu do zamówienia i co z MD osoby, za którą wchodzi?",
         "a": "Na karcie osoby w pigułce „Draft” kliknij „Przypisz do zamówienia” (Centrum e-Zdrowia): dołącz, wejdź za konsultanta albo nowe zamówienie. Przy puli w MD pozostałe MD przechodzą 1:1, przy puli w kwocie wybierasz stawkę — okno pokazuje wynik. Pustą kartę usuniesz przyciskiem „Usuń szkic” (kontrakt zostaje)."
+      },
+      {
+        "q": "Co zrobić z osobą w sekcji „Zakończone” zamówienia MD?",
+        "a": "Czerwona karta czeka na Ciebie: „Podejmij decyzję” — zostaw jako historię, zastąp, usuń albo zdecyduj o puli MD. „Zakończył współpracę” = umowa B2B rozwiązana, „Zakończył projekt” = umowa nadal obowiązuje. Stawki, pulę, stan umowy i „Zużycie MD” pokazuje kliknięcie w kartę."
       }
     ],
     "pitfalls": [
