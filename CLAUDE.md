@@ -7672,8 +7672,16 @@ w „Więcej filtrów”) jeden edytor wierszy (`RequirementRowsField`, logika
   `exclude`; sekcja 2, osobna karta w edytorze POZA grupą „proza” — pierwszy
   wiersz przełączał tę grupę i pole gubiło fokus). `keywords` to odtąd „Frazy
   do LinkedIna” (szukanie poza NEXUSEM). Luna proponuje 2–4 wiersze na
-  `/jobs/new` (`JOB_REQUEST_INTAKE` v5); każde słowo musi stać w mailu jako
-  CAŁE słowo (`_word_in_text` — `_in_text` to podłańcuch). Obok liczba osób
+  `/jobs/new` (`JOB_REQUEST_INTAKE` v6); każde słowo musi stać w mailu jako
+  CAŁE słowo (`_word_in_text` — `_in_text` to podłańcuch), a słowo, które się
+  odmienia, jako rdzeń z gwiazdką (`_grounded_search_word`: początek słowa
+  z maila, ≥ 4 litery, bez spacji; gwiazdka przy technologii ze słownika
+  znika, bo „Java*” łapie JavaScript). Test na produkcji 25.09: v5 dała
+  wiersz „bankowości” — 55 osób, „bankow*” — 323, „bankow* lub banking” —
+  903. Dlatego wiersz może nieść JEDEN angielski odpowiednik spoza maila
+  (decyzja Artura 25.09.2026, `_translated_search_word`): tylko obok słowa
+  z maila, nigdy technologia ze słownika ani słowo z polskimi literami;
+  wtedy blok ma plakietkę „propozycja AI”, nie „z maila”. Obok liczba osób
   w bazie (lista, aktywni i pasywni). Handoff wymaga co najmniej jednego
   wiersza (`job_readiness.MSG_SEARCH_REQUIREMENTS`, tylko handoff — alokacja
   czyta bramkę briefu). Automaty ich NIE czytają: `champion_view.requirement_source`
@@ -7805,6 +7813,14 @@ Semantyka v2 (decyzje właściciela produktu, wiążące dla OBU endpointów):
   tylko rankingiem), `skills_none` → „Wyklucz” (`lib/candidate-search-semantics.ts`).
   Migracja nie oznacza zapisów v3 z listy jako zmienionych
   (`list_payload_is_unified`).
+- **Zapis z dawnej wyszukiwarki ręcznej otwiera się na liście** (surowe
+  żądanie bez `qs` albo v3 z `origin: search_request`): `listQsFromSavedSearch`
+  przekłada go `searchRequestToListFilters` — tym samym adapterem co stare
+  adresy `?s=`. Do 25.09.2026 lista pokazywała natywny `alert()` z odesłaniem
+  do „Wyszukaj manualnie” rekrutacji, a tego ekranu od #1815 nie ma. Dzwonek
+  na takim zapisie nie przebudowuje filtrów (skaner i tak ich nie odtworzy),
+  tylko prosi o zapisanie go ponownie z listy. Menu nie używa `alert()` —
+  zamrażał kartę i automatyzację przeglądarki.
 ## Własny pulpit startowy (0337, 21.09.2026)
 
 `/dashboard` to od 21.09.2026 pulpit, który każdy układa sam z kafelków

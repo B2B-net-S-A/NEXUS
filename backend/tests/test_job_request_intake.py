@@ -105,9 +105,21 @@ def test_one_question_is_not_enough() -> None:
     assert intake.MISSING_QUESTIONS in normalize_model_output(raw, REQUEST).missing
 
 
-def test_search_requirements_keep_only_whole_words_from_the_request() -> None:
+def _technologies(monkeypatch, *names: str) -> None:
+    """Słownik umiejętności w pamięci — na nim kod poznaje technologię."""
+    from app.services import keyword_suggest
+
+    monkeypatch.setattr(keyword_suggest, "_catalog", ())
+    keyword_suggest.load_catalog(
+        [(i, name, "language") for i, name in enumerate(names, start=1)], []
+    )
+
+
+def test_search_requirements_keep_only_whole_words_from_the_request(monkeypatch) -> None:
     """v5 (25.09.2026): słowo spoza maila odpada, kawałek słowa też („go”
-    w „google” to nie Go), puste wiersze znikają, najwyżej 4 wiersze."""
+    w „google” to nie Go), puste wiersze znikają, najwyżej 4 wiersze.
+    Technologia spoza maila („Kotlin”) nie jest angielskim odpowiednikiem."""
+    _technologies(monkeypatch, "Kotlin", "Go")
     text = "Szukamy dewelopera: Java, Kafka albo RabbitMQ. Znajomość google cloud."
     raw = {
         "search": {
@@ -126,6 +138,74 @@ def test_search_requirements_keep_only_whole_words_from_the_request() -> None:
     assert result.search_requirements == [["Java"], ["Kafka", "RabbitMQ"], ["Google"], ["cloud"]]
     assert result.provenance.get("search_requirements") == "request"
     assert intake.MISSING_SEARCH not in result.missing
+
+
+def test_search_requirements_accept_a_stem_of_a_word_from_the_request(monkeypatch) -> None:
+    """v6 (25.09.2026): polskie słowo się odmienia, a wyszukiwarka szuka całych
+    słów — wiersz „bankowości” z maila „doświadczenie w bankowości” znalazł na
+    produkcji 55 osób, „bankow*” 323. Rdzeń z gwiazdką przechodzi, gdy zaczyna
+    słowo z maila i ma co najmniej 4 litery. Gwiazdka przy nazwie technologii
+    ze słownika znika („Java*” łapałoby JavaScript)."""
+    _technologies(monkeypatch, "Java")
+    text = "Doświadczenie w bankowości i płatnościach kartowych. Java, Kafka."
+    raw = {
+        "search": {
+            "requirements": [
+                ["bankow*"],
+                ["płatnoś*", "Kafka"],
+                ["Java*"],
+                ["Kafka"],
+            ]
+        }
+    }
+    result = normalize_model_output(raw, text)
+    assert result.search_requirements == [
+        ["bankow*"],
+        ["płatnoś*", "Kafka"],
+        ["Java"],
+        ["Kafka"],
+    ]
+    assert result.provenance.get("search_requirements") == "request"
+    # Za krótki rdzeń, rdzeń ze środka słowa i gwiazdka z przodu nie są
+    # słowami z maila — sam taki wiersz odpada.
+    for bad in ("ban*", "kowości*", "*kartow", "ubezpiecz*"):
+        alone = normalize_model_output({"search": {"requirements": [[bad]]}}, text)
+        assert alone.search_requirements == [], bad
+
+
+def test_search_rows_take_one_english_equivalent_next_to_a_word_from_the_request(
+    monkeypatch,
+) -> None:
+    """Decyzja Artura 25.09.2026: w wierszu może stać JEDEN angielski
+    odpowiednik polskiego słowa z maila („bankow* lub banking” — 903 osoby
+    zamiast 323). Tylko obok słowa z maila, nigdy technologia; wtedy wiersze
+    są „propozycją AI”, a nie „z maila”."""
+    _technologies(monkeypatch, "Kotlin")
+    text = "Doświadczenie w bankowości i ubezpieczeniach. Java."
+    raw = {
+        "search": {
+            "requirements": [
+                ["bankow*", "banking", "finance"],
+                ["insurance"],
+                ["Java", "Kotlin"],
+                ["ubezpiecz*", "insuranc*"],
+            ]
+        }
+    }
+    result = normalize_model_output(raw, text)
+    assert result.search_requirements == [
+        ["bankow*", "banking"],
+        ["Java"],
+        ["ubezpiecz*", "insuranc*"],
+    ]
+    assert result.provenance.get("search_requirements") == "ai"
+    # Polska forma spoza maila nie jest odpowiednikiem — zostaje samo słowo
+    # z maila, a wiersz jest „z maila”.
+    polish = normalize_model_output(
+        {"search": {"requirements": [["bankow*", "finansów", "kowości*"]]}}, text
+    )
+    assert polish.search_requirements == [["bankow*"]]
+    assert polish.provenance.get("search_requirements") == "request"
 
 
 def test_missing_search_requirements_are_reported() -> None:

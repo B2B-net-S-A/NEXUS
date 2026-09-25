@@ -1,3 +1,6 @@
+import type { CandidateSearchRequest } from "@/lib/candidate-search-api";
+import { searchRequestToListFilters } from "@/lib/candidates-search-redirect";
+import { detectSavedSearchFormat } from "@/lib/saved-search-format";
 import {
   DEFAULT_FILTERS,
   decodeFilters,
@@ -47,10 +50,22 @@ export function filtersFromCandidateSavedSearch(
  * - zapis przypięty do dawnych zasad („Zostaw po staremu",
  *   `keep_legacy_semantics`) → `sv=1`, bo bez `sv` lista liczy w v2;
  * - zapis v3 z `request.hide_unknown` (migracja zapisów z listy) → `hu=1`.
+ *
+ * Zapis z dawnej wyszukiwarki ręcznej (surowe żądanie albo v3 z `origin:
+ * "search_request"`) nie ma `qs`. Od jednej listy (22.09.2026) i „Szukaj
+ * ręcznie” w oknie rekrutacji (#1815) żaden ekran go nie otwierał, więc
+ * przekładamy go tym samym adapterem co stare adresy `?mode=search&s=`.
  */
 export function listQsFromSavedSearch(filters: unknown): string {
   if (!filters || typeof filters !== "object" || Array.isArray(filters)) return "";
   const f = filters as Record<string, unknown>;
+  if (detectSavedSearchFormat(f) === "search_request") {
+    const request =
+      f.version === 3 && f.request && typeof f.request === "object" ? f.request : f;
+    return encodeFilterCriteria(
+      searchRequestToListFilters(request as CandidateSearchRequest),
+    ).toString();
+  }
   const params = new URLSearchParams(typeof f.qs === "string" ? f.qs : "");
   if (f.keep_legacy_semantics === true) params.set("sv", "1");
   const request = f.request;

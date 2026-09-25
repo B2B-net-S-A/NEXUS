@@ -878,10 +878,18 @@ CV_REQUIREMENT_MAP = PromptTemplate(
 # FAKT z maila: kod (`job_request_intake._search_rows`) odrzuca słowo, którego
 # nie ma w mailu jako całego słowa. „Szukaj ręcznie” startuje od tych wierszy,
 # a handoff wymaga co najmniej jednego.
+#
+# v6 (25.09.2026): słowo, które się odmienia, idzie jako rdzeń z gwiazdką.
+# Test na produkcji: v5 przepisała „doświadczenie w bankowości” jako wiersz
+# „bankowości” — wyszukiwarka szuka całych słów, więc znalazła 55 osób,
+# a „bankow*” 323. Kod przepuszcza rdzeń, który zaczyna słowo z maila.
+# Do tego jeden angielski odpowiednik w wierszu (decyzja Artura 25.09.2026:
+# „bankow* lub banking” — 903 osoby), jedyne słowo spoza maila; wtedy wiersze
+# są „propozycją AI”, nie „z maila”.
 
 JOB_REQUEST_INTAKE = PromptTemplate(
     name="job_request_intake",
-    version=5,
+    version=6,
     expected_format="json",
     system_prompt=(
         "Jesteś senior rekruterem IT w polskiej agencji body leasingu. "
@@ -941,7 +949,7 @@ JOB_REQUEST_INTAKE = PromptTemplate(
         '  "project_about": str|null,         // cel projektu, MAKSYMALNIE 2 zdania po polsku\n'
         '  "responsibilities": str|null,      // obowiązki, krótko po polsku\n'
         '  "search": {{\n'
-        '    "requirements": [[str]],         // 2–4 wymagania do wyszukiwania w bazie; każde to lista wariantów tego samego wymagania, słowa DOSŁOWNIE z maila\n'
+        '    "requirements": [[str]],         // 2–4 wymagania do wyszukiwania w bazie; każde to lista wariantów tego samego wymagania, słowa z maila (odmieniane — rdzeń z gwiazdką) + najwyżej jeden angielski odpowiednik\n'
         '    "keywords": str,                 // frazy do wyszukiwarki kandydatów, oddzielone przecinkami\n'
         '    "target_companies": str,         // firmy, z których warto szukać (może być pusty)\n'
         '    "disqualifiers": [str],          // kogo odrzucamy od razu, tylko gdy wynika z maila\n'
@@ -966,7 +974,17 @@ JOB_REQUEST_INTAKE = PromptTemplate(
         "KAŻDE wymaganie; w jednym wymaganiu wystarczy jeden wariant. Wariant to inny "
         "zapis albo zamiennik, który klient sam dopuszcza, np. "
         '[["Java"], ["Kafka", "RabbitMQ"]] dla „Java oraz Kafka lub RabbitMQ”. '
-        "Każde słowo musi stać w mailu dosłownie (kod odrzuca inne). Pojedyncze "
+        "Każde słowo musi stać w mailu (kod odrzuca inne). Wyszukiwarka szuka "
+        "CAŁYCH słów, a polskie słowa się odmieniają: „bankowości” nie znajdzie "
+        "„bankowość” ani „bankowy”. Słowo, które się odmienia, wpisz jako rdzeń "
+        "z gwiazdką — początek słowa z maila, co najmniej 4 litery, np. "
+        "„bankow*” dla „doświadczenie w bankowości”, „płatnoś*” dla „płatności "
+        "kartowych”. Nazwy technologii wpisuj w całości, bez gwiazdki („Java”, "
+        "bo „Java*” łapie też JavaScript). Większość CV jest po angielsku: gdy "
+        "słowo z maila jest po polsku (dziedzina, obszar biznesu), dodaj w tym "
+        "samym wierszu JEDEN angielski odpowiednik, np. "
+        '["bankow*", "banking"] — to jedyne słowo, którego może nie być w mailu. '
+        "Technologii nie tłumacz i nie dopisuj innych. Pojedyncze "
         "technologie albo krótkie nazwy, nie zdania, bez numerów wersji "
         "(„Java”, nie „Java 17+” — wersja zawęża do osób, które napisały ten sam "
         "numer); nie wpisuj miasta, stażu (junior/senior) ani nazwy roli — do "
