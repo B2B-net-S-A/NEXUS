@@ -330,7 +330,11 @@ export function CandidateFollowupDialog({
               </p>
               <div className="mt-4 space-y-2 rounded-lg border border-border p-3">
                 <h4 className="text-sm font-semibold">Rozmowa w Teams</h4>
-                <p className="text-xs text-muted-foreground">Kandydat dostanie zaproszenie Outlook. Spotkanie zostanie nagrane, a transkrypt trafi do NEXUS.</p>
+                <p className="text-xs text-muted-foreground">
+                  Po poprawnym zaplanowaniu kandydat dostanie zaproszenie Outlook.
+                  NEXUS spróbuje automatycznie włączyć nagrywanie i transkrypcję;
+                  ich stan zobaczysz przy spotkaniu.
+                </p>
                 <label className="block text-xs">Początek
                   <input type="datetime-local" value={meetingStart} onChange={(e) => setMeetingStart(e.target.value)} className="mt-1 w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm" />
                 </label>
