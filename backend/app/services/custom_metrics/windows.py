@@ -8,10 +8,13 @@ granice miesiąca i strefa czasowa liczyły się tak samo jak w Insights.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
-from app.analytics.periods import Period, resolve_period
+from app.analytics.periods import ANALYTICS_TIMEZONE, Period, resolve_period
 from app.services.insights_board_money import MONTH_LABELS_PL
+
+_TZ = ZoneInfo(ANALYTICS_TIMEZONE)
 
 _ROLLING_DAYS = {
     "last_7_days": 7,
@@ -63,15 +66,33 @@ class Window:
         """Pierwszy dzień PO oknie (half-open)."""
         return self.period.end.date()
 
+    @property
+    def asof(self) -> date:
+        """Dzień wyceny stanu okna: ostatni dzień okresu albo dziś, co wcześniej.
+
+        „Marża w sierpniu" to stan z 31 sierpnia, a nie dzisiejsze MRR —
+        stawka zmieniona we wrześniu nie może przepisać wyniku sierpnia.
+        """
+        return min(self.end_date - timedelta(days=1), self.today)
+
     def previous(self) -> "Window":
-        span = self.end_date - self.start_date
-        prev_end = self.start_date
-        prev_start = prev_end - span
+        """Poprzedni okres liczony TYM SAMYM odcinkiem co Insights.
+
+        Okres w toku porównujemy z tymi samymi dniami poprzedniego okresu
+        (1–3 października ↔ 1–3 września), zamknięty — z całym poprzednim.
+        Do 25.09.2026 brało okno tej samej długości wstecz (1–3.10 ↔
+        28–30.09), więc kafel z porównaniem pokazywał spadek, którego nie ma.
+        Reguła jest jedna: `insights_team_signals.previous_matching_window`.
+        """
+        from app.services.insights_team_signals import previous_matching_window
+
+        now = datetime.combine(self.today, time(12), tzinfo=_TZ)
+        prev_start, prev_end = previous_matching_window(self.period, now)
         return Window(
             resolve_period(
                 "custom",
-                date_from=prev_start,
-                date_to=prev_end - timedelta(days=1),
+                date_from=prev_start.date(),
+                date_to=prev_end.date() - timedelta(days=1),
             ),
             self.today,
         )

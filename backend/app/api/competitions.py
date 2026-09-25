@@ -27,6 +27,23 @@ from app.services import competitions as comp_service
 router = APIRouter(dependencies=INSIGHTS_SECTION_DEPENDENCIES)
 
 
+def _check_period_format(ctype: CompetitionType, period: Optional[str]) -> None:
+    """Zły format okresu = 422 po polsku, nie 500 z `parse_month`."""
+    if period is None or ctype == CompetitionType.hall_of_fame:
+        return
+    try:
+        comp_service.validate_period_format(ctype, period)
+    except comp_service.PeriodValidationError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message)
+
+
+# Marża/h z rozstrzygania remisu wyścigu placementów (`award_order`) to
+# pieniądze — ranking czyta każdy zalogowany (lustro `_MARGIN_EXTRAS`
+# w `compose_monthly_races`).
+def _public_entry(entry: dict) -> dict:
+    return {k: v for k, v in entry.items() if k not in comp_service._MARGIN_EXTRAS}
+
+
 def _parse_type(type_str: str) -> CompetitionType:
     try:
         return CompetitionType(type_str)
@@ -82,6 +99,7 @@ async def get_current(
     """Live ranking (bez zapisu do DB). Pokazuje TOP 10 + meta (countdown,
     system punktowy, pula nagród, warunek udziału)."""
     ctype = _parse_type(type)
+    _check_period_format(ctype, period)
     key = f"{_CACHE_PREFIX}current:{ctype.value}:{period or ''}"
     async with cache_single_flight(key, db=db):
         cached = await cache_get(key)
@@ -116,20 +134,21 @@ async def _compute_current(
     else:
         ranked = await comp_service.compute_live(db, ctype, period)
 
-    award_ranked = (
-        comp_service.qualified_for_award(ranked)
-        if ctype == CompetitionType.monthly_recommendations
-        else ranked
-    )
-    top3 = award_ranked[:3]
-    # Dopasuj nagrody live (dla preview).
+    # Podium liczy TA SAMA funkcja co zamrożenie (`award_order`): kwalifikacja,
+    # wykluczenie lidera kwartału z wyścigu miesięcznego i remisy. Do 25.09.2026
+    # ekran brał `ranked[:3]` (poza wyścigiem rekomendacji) — podium i kwoty
+    # różniły się od tego, co potem wypłacało zamrożenie. Miejsce objęte
+    # remisem, którego regulamin nie rozstrzyga, nie ma kwoty (`tied`).
+    order = await comp_service.award_order(db, ctype, period, ranked)
+    held = {pos for tie in order.ties for pos in tie.positions}
     top3_with_prizes = [
         {
-            **r.to_dict(),
-            "rank": idx + 1,
-            "prize_pln": comp_service._prize_for(ctype, idx + 1),
+            **_public_entry(r.to_dict()),
+            "rank": idx,
+            "prize_pln": 0 if idx in held else comp_service._prize_for(ctype, idx),
+            "tied": idx in held,
         }
-        for idx, r in enumerate(top3)
+        for idx, r in enumerate(order.ordered[:3], start=1)
     ]
 
     # Meta fields (gamifikacja jak w InfraReporterze).
@@ -181,7 +200,13 @@ async def _compute_current(
         "type": ctype.value,
         "period": period,
         "top3": top3_with_prizes,
-        "full_ranking": [r.to_dict() for r in ranked],
+        "full_ranking": [_public_entry(r.to_dict()) for r in ranked],
+        # Remisy na płatnych miejscach, o których zdecyduje admin przy
+        # zamknięciu okresu — same pozycje i osoby, bez marży.
+        "ties": [
+            {"positions": tie.positions, "user_ids": tie.user_ids} for tie in order.ties
+        ],
+        "excluded_user_ids": order.excluded_user_ids,
         "is_frozen": False,
         "target_pct": (
             comp_service.HIT_RATIO_TARGET
@@ -219,6 +244,7 @@ async def monthly_races(
     """
     # Kompozycja (rankingi + wykluczenie lidera kwartału) wyniesiona do
     # serwisu — composite dashboardu używa dokładnie tej samej funkcji.
+    _check_period_format(CompetitionType.monthly_recommendations, period)
     key = f"{_CACHE_PREFIX}monthly-races:{period or ''}"
     async with cache_single_flight(key, db=db):
         cached = await cache_get(key)
@@ -309,6 +335,13 @@ async def freeze(
                 "nie ma okresu do zamknięcia."
             ),
         )
+    # Zamrożenie jest nieodwracalne (write-once), więc okres musi mieć
+    # właściwy format i być zakończony (R3-14, audyt 25.09.2026).
+    try:
+        comp_service.validate_period_format(ctype, period)
+        comp_service.ensure_period_ended(ctype, period, business_today())
+    except comp_service.PeriodValidationError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message)
     created = await comp_service.freeze_competition(db, ctype, period)
     await cache_invalidate(_CACHE_PREFIX)
     # `len(created)` to rozmiar podium, nie liczba ZAPISANYCH wierszy — przy
@@ -374,6 +407,7 @@ async def my_position(
 ):
     """Pozycja zalogowanego usera w bieżącym konkursie + kontekst (±2)."""
     ctype = _parse_type(type)
+    _check_period_format(ctype, period)
     if period is None:
         if ctype in (
             CompetitionType.quarterly_champions_dl,
