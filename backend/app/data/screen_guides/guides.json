@@ -13,12 +13,12 @@
       },
       {
         "q": "Jak znaleźć konkretną rekrutację albo zawęzić listę?",
-        "a": "Wpisz w pole wyszukiwania tytuł, klienta, technologię albo numer u klienta i wybierz stan requestu (z liczbą przy każdym). Pod nim jest pasek filtrów: „Klient”, „Delivery Lead”, „Kto pracuje” (Ty, wybrane osoby albo requesty bez nikogo), „Kategoria”, „Termin” (po terminie, w tym tygodniu, do 14 dni, bez terminu, zakres dat) i „Więcej filtrów” z „Wysłanych do klienta”. Obok stoją szybkie przełączniki „Po terminie”, „Nikt nie pracuje” i „Nikogo nie wysłano”. Ustawiony filtr pokazuje swoją wartość, a krzyżyk obok go zdejmuje. Sortowanie „Najbliższy termin” ustawia listę według daty.",
+        "a": "Wpisz tytuł, klienta, technologię albo numer u klienta i wybierz stan requestu. Pasek pod nim ma „Klient”, „Delivery Lead”, „Kto pracuje” (Ty, wybrane osoby albo nikt), „Kategoria”, „Termin” i „Więcej filtrów”, a obok przełączniki „Po terminie”, „Nikt nie pracuje” i „Nikogo nie wysłano”. Krzyżyk przy filtrze go zdejmuje.",
         "anchor": "jobs.list.search"
       },
       {
         "q": "Co pokazuje status requestu?",
-        "a": "Każda rekrutacja ma jeden stan. „Do uzupełnienia” — zlecenie jest szkicem i nie trafiło jeszcze do searchu. „Do przejrzenia” — nikt jeszcze nie zdecydował, czy nad nią pracujemy. „Szukamy” trwa, dopóki Delivery Lead nie oznaczy „Mamy championa”. „Umowa” znaczy, że ktoś jest na etapie umowy. „Klient milczy” — klient nie odpowiada i nikt nad nią teraz nie pracuje. Kilka stanów naraz pokazuje rekrutacje w którymkolwiek z nich.",
+        "a": "Każda rekrutacja ma jeden stan. „Do uzupełnienia” — szkic, jeszcze nie w searchu. „Do przejrzenia” — nikt nie zdecydował, czy nad nią pracujemy. „Szukamy” trwa do „Mamy championa”. „Umowa” — ktoś jest na etapie umowy. „Klient milczy” — klient nie odpowiada. Kilka stanów naraz pokazuje rekrutacje w którymkolwiek z nich.",
         "anchor": "jobs.list.status"
       },
       {
@@ -51,7 +51,7 @@
       }
     ],
     "help_slug": null,
-    "sources": ["frontend/src/components/v2/pages/JobsListV2.tsx", "frontend/src/components/v2/jobs/JobsFilterBar.tsx", "frontend/src/lib/request-stage.ts", "frontend/src/lib/request-status.ts"]
+    "sources": ["frontend/src/components/v2/pages/JobsListV2.tsx", "frontend/src/components/v2/jobs/JobsFilterBar.tsx", "frontend/src/lib/request-stage.ts"]
   },
   {
     "key": "jobs.board",
