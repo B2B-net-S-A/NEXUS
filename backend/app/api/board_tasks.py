@@ -311,7 +311,12 @@ async def get_cpro_queue(
     jobs: dict[int, CproQueueJob] = {}
     for t in to_send:
         pair = (t.candidate_id, t.job_id)
-        rate = rates.get(pair) if show_rate else None
+        # Bez osoby na firmę wrzuca osoba zapasowa rekrutacji — to ona
+        # wpisuje stawkę do Cpro, więc widzi ją przy swoich zadaniach.
+        fallback_sender = (
+            snapshot.firm_sender_id is None and t.assignee_id == current_user.id
+        )
+        rate = rates.get(pair) if show_rate or fallback_sender else None
         cv = cvs.get(pair)
         item = CproQueueItem(
             stage_id=t.stage_id,

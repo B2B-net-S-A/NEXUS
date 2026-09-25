@@ -121,9 +121,29 @@ def test_recruiter_sees_only_own_cpro_tasks() -> None:
     assert mine[svc.KIND_DL_REVIEW] == []
 
 
-def test_hor_sees_own_cpro_then_unassigned_but_never_someone_elses() -> None:
-    """Decyzja Artura 24.09.2026: kolejka Cpro jest wyłącznie osoby od Cpro.
-    Admin i HoR widzą ją tylko wtedy, gdy nikt nie jest ustawiony."""
+def test_hor_never_sees_the_queue_of_the_firm_sender() -> None:
+    """Decyzja Artura 24.09.2026: kolejka Cpro jest wyłącznie osoby od Cpro."""
+    snap = svc.BoardTaskSnapshot(
+        tasks=[
+            _task(svc.KIND_CPRO_TO_SEND, stage_id=1, assignee_id=71),
+            _task(svc.KIND_CPRO_SENT, stage_id=4, assignee_id=71),
+        ],
+        firm_sender_id=71,
+    )
+    for role in (UserRole.head_of_recruitment, UserRole.admin):
+        mine = svc.tasks_for_user(snap, _user(60, role), portfolio=frozenset())
+        assert mine[svc.KIND_CPRO_TO_SEND] == []
+        assert mine[svc.KIND_CPRO_SENT] == []
+    sender = svc.tasks_for_user(
+        snap, _user(71, UserRole.recruiter), portfolio=frozenset()
+    )
+    assert [t.stage_id for t in sender[svc.KIND_CPRO_TO_SEND]] == [1]
+
+
+def test_without_firm_sender_hor_sees_fallback_tasks_too() -> None:
+    """Audyt 25.09.2026: bez osoby na firmę zadanie z osobą ZAPASOWĄ
+    (`jobs.cpro_sender_id`) widzi ta osoba ORAZ admin i HoR — inaczej nikt,
+    kto może ustawić osobę firmową, nie wiedział, że kolejka stoi."""
     old = datetime.now(timezone.utc) - timedelta(days=3)
     snap = svc.BoardTaskSnapshot(
         tasks=[
@@ -136,8 +156,52 @@ def test_hor_sees_own_cpro_then_unassigned_but_never_someone_elses() -> None:
     )
     for role in (UserRole.head_of_recruitment, UserRole.admin):
         mine = svc.tasks_for_user(snap, _user(60, role), portfolio=frozenset())
-        assert [t.stage_id for t in mine[svc.KIND_CPRO_TO_SEND]] == [3, 2]
+        assert [t.stage_id for t in mine[svc.KIND_CPRO_TO_SEND]] == [3, 1, 2]
         assert mine[svc.KIND_CPRO_SENT] == []
+    fallback = svc.tasks_for_user(
+        snap, _user(71, UserRole.recruiter), portfolio=frozenset()
+    )
+    assert [t.stage_id for t in fallback[svc.KIND_CPRO_TO_SEND]] == [1]
+    assert [t.stage_id for t in fallback[svc.KIND_CPRO_SENT]] == [4]
+
+
+class _DigestDb:
+    """Minimalna sesja dla `digest_counts`: lista aktywnych użytkowników."""
+
+    def __init__(self, users: list) -> None:
+        self._users = users
+
+    async def scalars(self, _query):
+        return SimpleNamespace(all=lambda: self._users)
+
+
+@pytest.mark.asyncio
+async def test_digest_counts_fallback_tasks_for_hor_without_firm_sender() -> None:
+    """Poranny skrót liczy tak jak panel: bez osoby na firmę HoR dostaje
+    także zadania z osobą zapasową, a zapasowa osoba — swoje, raz."""
+    hor = _user(60, UserRole.head_of_recruitment)
+    fallback_hor = _user(61, UserRole.head_of_recruitment)
+    tasks = [
+        _task(svc.KIND_CPRO_TO_SEND, stage_id=1, assignee_id=70),
+        _task(svc.KIND_CPRO_TO_SEND, stage_id=2, assignee_id=None),
+        _task(svc.KIND_CPRO_TO_SEND, stage_id=3, assignee_id=61),
+    ]
+    counts = await svc.digest_counts(
+        _DigestDb([hor, fallback_hor]), svc.BoardTaskSnapshot(tasks=tasks)
+    )
+    assert counts[70].cpro_mine == 1
+    assert counts[60].cpro_unassigned == 3
+    assert counts[61].cpro_mine == 1 and counts[61].cpro_unassigned == 2
+
+    with_firm = await svc.digest_counts(
+        _DigestDb([hor, fallback_hor]),
+        svc.BoardTaskSnapshot(
+            tasks=[_task(svc.KIND_CPRO_TO_SEND, stage_id=1, assignee_id=70)],
+            firm_sender_id=70,
+        ),
+    )
+    assert with_firm[70].cpro_mine == 1
+    assert 60 not in with_firm and 61 not in with_firm
 
 
 def test_delivery_lead_never_sees_the_cpro_queue() -> None:

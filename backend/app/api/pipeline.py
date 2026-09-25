@@ -544,18 +544,13 @@ async def _assert_cv_qc_gate(
     target_is_cpro = stage_def is not None and is_cpro_stage(stage_def.name)
     if target_column != "cv_sent" and not target_is_cpro:
         return
-    current = await db.scalar(
-        select(CandidateStage)
-        .where(
-            CandidateStage.candidate_id == candidate_id,
-            CandidateStage.job_id == job_id,
-        )
-        .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
-        .limit(1)
+    # Para w „Zamkniętych" liczy się kolumną sprzed zamknięcia — inaczej
+    # „Nowi → Odrzucony → CV wysłane" omijało QC i osobę od Cpro.
+    current, current_column = await pipeline_move_rules.gate_stage_row(
+        db, candidate_id=candidate_id, job_id=job_id
     )
     if current is None:
         return
-    current_column = await candidate_claim.stage_column(db, current)
     if not cv_qc.gate_applies(current_column, target_column, target_is_cpro):
         return
     # U Nordei „CV wysłane" = „Wysłane do Cpro": wrzuca osoba od Cpro
@@ -566,7 +561,16 @@ async def _assert_cv_qc_gate(
     if target_column == "cv_sent" and cpro_enabled_for_client(client_id):
         from app.services import cpro_sender
 
-        if not await cpro_sender.can_send_to_cpro(db, user):
+        # Bez osoby na firmę wrzuca też osoba zapasowa tej rekrutacji — ta
+        # sama, której kolejka pokazuje zadanie (`board_tasks._sees_cpro`).
+        job_sender_id = await db.scalar(
+            select(Job.cpro_sender_id).where(Job.id == job_id)
+        )
+        if not await cpro_sender.can_send_to_cpro(
+            db,
+            user,
+            fallback_sender_ids=(job_sender_id, current.task_assignee_id),
+        ):
             sender = await cpro_sender.effective_sender(db)
             names = await cpro_sender.user_names(db, {sender.user_id})
             who = names.get(sender.user_id) or "osoba wyznaczona do Cpro"
