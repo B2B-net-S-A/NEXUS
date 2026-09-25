@@ -1120,6 +1120,12 @@ async def preview_document(data, filename, *, db=None, model=None, max_text=None
     }
 
 
+def _without_search_rows(section, value):
+    from app.services.champion_view import without_search_rows
+
+    return without_search_rows(value) if section == "search" else value
+
+
 def user_edit(old, patch, actor_id, *, imported=False, actor_name=None):
     from app.services.champion_insights import merge_insights
 
@@ -1151,16 +1157,24 @@ def user_edit(old, patch, actor_id, *, imported=False, actor_name=None):
     changed = any(merged[k] != normalized[k] for k in SECTION_KEYS)
     if not changed and not imported and old:
         return normalized
-    # Sama sekcja 8 (notatki) to nie zmiana profilu roli: bez `prepare_profile`,
+    # Sama sekcja 8 (notatki) i same wymagania do wyszukiwania w bazie
+    # (sekcja 2, 25.09.2026) to nie zmiana profilu roli: bez `prepare_profile`,
     # który przestemplowałby `intake.applied_at`. `intake` wchodzi do odcisku
-    # rankingu, więc odhaczenie „do dopytania” unieważniałoby pełny przegląd
-    # bazy (409) — a notatka nie zmienia tego, kogo szukamy.
+    # rankingu, więc odhaczenie „do dopytania” albo dopisanie wiersza
+    # unieważniałoby pełny przegląd bazy (409) — a żadne z nich nie zmienia
+    # tego, kogo szukają automaty. Walidacja normalizuje wiersze, więc pusty
+    # wiersz z edytora daje profil równy zapisanemu (bez zmiany).
     if (
         not imported
         and old
-        and all(merged[k] == normalized[k] for k in SECTION_KEYS if k != "insights")
+        and all(
+            _without_search_rows(k, merged[k]) == _without_search_rows(k, normalized[k])
+            for k in SECTION_KEYS
+            if k != "insights"
+        )
     ):
-        return ChampionProfile.model_validate(merged).model_dump(mode="json")
+        edited = ChampionProfile.model_validate(merged).model_dump(mode="json")
+        return normalized if edited == normalized else edited
     if imported:
         from app.services.champion_profile_ingest import PARSER_VERSION
 

@@ -1,5 +1,6 @@
 import enum
 import logging
+from copy import deepcopy
 from datetime import date, datetime, timedelta, timezone
 from typing import Annotated, Optional
 
@@ -2906,6 +2907,7 @@ async def _save_champion_profile(
     can refetch and show an inline "someone just updated this" banner.
     """
     from app.schemas.champion import ChampionProfile
+    from app.services import champion_view
     from app.services.champion_job_sync import fill_job_columns_from_champion
     from app.services.job_matching_refresh import refresh_job_matching
 
@@ -2956,6 +2958,11 @@ async def _save_champion_profile(
     # wszystkiego, co naprawdę go czyta.
     stack_must = [{"name": item.name, "level": None} for item in profile.stack.must]
     stack_nice = [{"name": item.name, "level": None} for item in profile.stack.nice]
+    # Migawka kolumn, które czyta matching — po synchronizacji stacku widać,
+    # czy zapis zmienił coś poza treścią profilu (patrz `search_rows_only`).
+    matching_columns_before = deepcopy(
+        (job.must_skills, job.nice_skills, job.matching_requirements)
+    )
     # Synchronizujemy, gdy edytor PRZYSŁAŁ sekcję `stack` — także wtedy, gdy
     # przysłał ją pustą. Warunek `if stack_must:` sprawiał, że wyczyszczenie
     # stacku w edytorze nigdy nie czyściło kolumn: Delivery Lead widział pustą
@@ -2996,6 +3003,22 @@ async def _save_champion_profile(
     # before a schema field existed (e.g. `advisory`) must not read as a change
     # — that would turn every no-op save into a write plus a notification.
     intake_changed = normalized_old.get("intake") != new_profile.get("intake")
+    # Same wymagania do wyszukiwania w bazie (sekcja 2, 25.09.2026) czyta
+    # wyłącznie „Szukaj ręcznie”: odcisk rankingu, wektor oferty i kolumny
+    # rekrutacji zostają, więc bez przeliczenia dopasowań i bez zdarzenia dla
+    # automatów (nocny przegląd, auto-match). Treść profilu i tak się zapisuje,
+    # a zespół dostaje powiadomienie.
+    search_rows_only = (
+        not imported
+        and fields_changed == ["search"]
+        and not intake_changed
+        and not columns_filled
+        and not sync_fields
+        and deepcopy((job.must_skills, job.nice_skills, job.matching_requirements))
+        == matching_columns_before
+        and champion_view.without_search_rows(normalized_old.get("search"))
+        == champion_view.without_search_rows(new_profile.get("search"))
+    )
     if not fields_changed and not imported and old_profile and not intake_changed:
         # Brak zmiany TREŚCI profilu nie znaczy brak zmiany dla silnika
         # matchingu: `columns_filled`/synchronizacja stacku żyją na `job`,
@@ -3067,12 +3090,13 @@ async def _save_champion_profile(
     # top-weighted scoring inputs — re-embed the job and invalidate cached match
     # scores so the Delivery Lead's work actually reaches the recruiter's ranking
     # (previously this write bypassed the refresh update_job does).
-    await refresh_job_matching(job.id, db)
+    if not search_rows_only:
+        await refresh_job_matching(job.id, db)
 
     # Zmiana Championa to istotna zmiana wymagań: opublikowana rekrutacja wraca
     # do auto-matchu nowych CV i do nocnego pełnego przeglądu bazy (21.09.2026).
     # Własna sesja, nigdy nie rzuca.
-    if job.status == JobStatus.published:
+    if job.status == JobStatus.published and not search_rows_only:
         from app.services.auto_match_outbox import enqueue_job_safe
 
         await enqueue_job_safe(job.id)

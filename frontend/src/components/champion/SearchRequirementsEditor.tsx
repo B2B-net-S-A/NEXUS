@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { RequirementRowsField } from "@/components/v2/candidates/RequirementRowsField";
-import { candidatesApi } from "@/lib/api";
+import { fetchCandidateListPage } from "@/components/v2/pages/candidate-list-query";
 import { cleanRows, describeKeywordSearch } from "@/lib/keyword-requirements";
 import { DEFAULT_FILTERS, filtersToApiParams } from "@/lib/url-filters";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
@@ -22,7 +22,9 @@ export function peopleCountLabel(n: number): string {
 /**
  * Ile osób w bazie spełnia wymagania — ten sam silnik i te same statusy co
  * „Szukaj ręcznie” (lista kandydatów, aktywni i pasywni), więc liczba
- * zgadza się z tym, co rekruter zobaczy po otwarciu wyszukiwania.
+ * zgadza się z tym, co rekruter zobaczy po otwarciu wyszukiwania. Zapytanie
+ * idzie funkcją listy: tablice lecą jako powtórzony parametr, a forma
+ * `status[]=` byłaby dla serwera innym polem i liczba objęłaby całą bazę.
  */
 function useRequirementsCount(rows: string[][], exclude: string[], enabled: boolean) {
   const key = useDebouncedValue(JSON.stringify({ rows, exclude }), 500);
@@ -31,7 +33,7 @@ function useRequirementsCount(rows: string[][], exclude: string[], enabled: bool
     queryKey: ["search-requirements-count", key],
     enabled: enabled && settled.rows.length > 0,
     staleTime: 60_000,
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       const params = filtersToApiParams(
         {
           ...DEFAULT_FILTERS,
@@ -42,8 +44,8 @@ function useRequirementsCount(rows: string[][], exclude: string[], enabled: bool
         1,
         { page_size: 1 },
       );
-      const { data } = await candidatesApi.list(params);
-      return typeof data?.total === "number" ? (data.total as number) : null;
+      const data = await fetchCandidateListPage<{ total?: unknown }>(params, signal);
+      return typeof data?.total === "number" ? data.total : null;
     },
   });
 }
@@ -78,6 +80,14 @@ export function SearchRequirementsEditor({
   const clean = cleanRows(rows);
   const count = useRequirementsCount(clean, exclude, countEnabled && !readOnly);
   const sentence = describeKeywordSearch({ rows, exclude, scopeLabel: null });
+  // Odpowiedź bez liczby to „nie wiemy”, nie wieczne „Liczę…”.
+  const countLabel = count.isSuccess
+    ? count.data != null
+      ? `~${peopleCountLabel(count.data)} w bazie`
+      : null
+    : count.isError
+      ? "Nie udało się policzyć osób w bazie."
+      : "Liczę osoby w bazie…";
   if (readOnly) {
     return (
       <p className={cn("text-sm text-foreground", className)}>
@@ -99,14 +109,8 @@ export function SearchRequirementsEditor({
         className="flex flex-wrap items-baseline gap-x-2 gap-y-1 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-sm"
         aria-live="polite"
       >
-        {clean.length > 0 && countEnabled && (
-          <span className="font-semibold tabular-nums text-primary">
-            {count.isSuccess && count.data != null
-              ? `~${peopleCountLabel(count.data)} w bazie`
-              : count.isError
-                ? "Nie udało się policzyć osób w bazie."
-                : "Liczę osoby w bazie…"}
-          </span>
+        {clean.length > 0 && countEnabled && countLabel && (
+          <span className="font-semibold tabular-nums text-primary">{countLabel}</span>
         )}
         <span className="text-foreground">
           {clean.length === 0

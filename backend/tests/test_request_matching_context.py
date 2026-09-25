@@ -128,6 +128,35 @@ def test_champion_search_rows_are_normalised_not_rejected():
     assert ChampionSearch.model_validate({"requirements": None}).requirements == []
 
 
+def test_saving_only_search_rows_keeps_the_ranking_fingerprint():
+    """Zapis prawdziwą ścieżką edytora (`user_edit`): same wiersze wyszukiwania
+    nie idą przez `prepare_profile`, więc `intake` nie dostaje nowego stempla,
+    a odcisk pełnego przeglądu zostaje (inaczej odczyt wyników kończył się 409).
+    Pusty wiersz z edytora nie jest zmianą. Frazy obok wierszy nadal są."""
+    from app.services import champion_view
+    from app.services.champion_intake import user_edit
+
+    def ranking(profile):
+        return champion_view.requirement_source(
+            profile, ignored=champion_view.RANKING_IGNORED_KEYS
+        )
+
+    stored = user_edit({}, {"basics": {"role_name": "Java Developer"}}, 1)
+    edited = user_edit(
+        stored, {"search": {"requirements": [["Java"]], "exclude": ["junior"]}}, 1
+    )
+    assert edited["search"]["requirements"] == [["Java"]]
+    assert edited["search"]["exclude"] == ["junior"]
+    assert edited["intake"] == stored["intake"]
+    assert ranking(edited) == ranking(stored)
+
+    again = user_edit(edited, {"search": {"requirements": [["Java"], []]}}, 1)
+    assert again == edited
+
+    keywords = user_edit(edited, {"search": {"keywords": "java, kafka"}}, 1)
+    assert ranking(keywords) != ranking(edited)
+
+
 @pytest.mark.asyncio
 async def test_same_base_fit_is_independent_of_screening_and_conflicts():
     target = make_job(must_skills=["Python"])

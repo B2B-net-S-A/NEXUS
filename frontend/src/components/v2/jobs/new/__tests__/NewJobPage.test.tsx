@@ -36,10 +36,6 @@ vi.mock("@/lib/api", () => {
     // `similarJobsApi` (podobne rekrutacje) woła nazwany eksport `api`.
     api: client,
     jobsApi: { handoff: (...a: unknown[]) => mocks.handoff(...a) },
-    // Liczba osób w bazie przy wymaganiach do wyszukiwania (25.09.2026).
-    candidatesApi: {
-      list: () => Promise.resolve({ data: { total: 12, items: [] } }),
-    },
     championApi: {
       refreshClientHistory: (...a: unknown[]) => mocks.refreshClientHistory(...a),
     },

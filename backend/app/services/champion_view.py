@@ -332,7 +332,15 @@ RANKING_IGNORED_KEYS = frozenset(
 # „Szukaj ręcznie” — decyzja Artura: automaty (przegląd bazy, propozycje)
 # liczą z must/nice. Ich edycja nie może więc ani skasować zatwierdzonego
 # kontraktu wymagań, ani zmienić odcisku rankingu (409 na pełnym przeglądzie).
-_SEARCH_ONLY_KEYS = ("requirements", "exclude")
+SEARCH_ONLY_KEYS = ("requirements", "exclude")
+
+
+def without_search_rows(search: Any) -> Any:
+    """Sekcja `search` bez wierszy wyszukiwania — jedna reguła dla odcisku
+    wymagań i dla zapisu edytora (`champion_intake.user_edit`)."""
+    if isinstance(search, Mapping) and any(k in search for k in SEARCH_ONLY_KEYS):
+        return {k: v for k, v in search.items() if k not in SEARCH_ONLY_KEYS}
+    return search
 
 
 def requirement_source(
@@ -344,15 +352,14 @@ def requirement_source(
     z wartością domyślną, a jej pojawienie się nie jest zmianą wymagań. Tak
     samo pusta lista `insights` i pusty blok `client_history`, gdy wołający
     ich nie pomija. Z sekcji `search` zawsze wypadają wiersze wyszukiwania
-    (`_SEARCH_ONLY_KEYS`) — dla obu porównań, więc profile sprzed tych pól
+    (`SEARCH_ONLY_KEYS`) — dla obu porównań, więc profile sprzed tych pól
     i po nich dają ten sam odcisk.
     """
     if not isinstance(profile, Mapping):
         return profile
     out = {k: v for k, v in profile.items() if k not in ignored}
-    search = out.get("search")
-    if isinstance(search, Mapping) and any(k in search for k in _SEARCH_ONLY_KEYS):
-        out["search"] = {k: v for k, v in search.items() if k not in _SEARCH_ONLY_KEYS}
+    if "search" in out:
+        out["search"] = without_search_rows(out["search"])
     exp = out.get("experience")
     if (
         isinstance(exp, Mapping)

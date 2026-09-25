@@ -37,13 +37,14 @@ vi.mock("@/lib/api", async (importOriginal) => {
       get: (...args: unknown[]) => getMock(...args),
       put: (...args: unknown[]) => putMock(...args),
     },
-    // Liczba osób w bazie przy wymaganiach do wyszukiwania (sekcja 2).
-    candidatesApi: {
-      ...actual.candidatesApi,
-      list: (...args: unknown[]) => listMock(...args),
-    },
   };
 });
+
+// Liczba osób w bazie przy wymaganiach do wyszukiwania (sekcja 2) idzie
+// kanoniczną funkcją listy kandydatów.
+vi.mock("@/components/v2/pages/candidate-list-query", () => ({
+  fetchCandidateListPage: (...args: unknown[]) => listMock(...args),
+}));
 
 // Panel źródeł ma WŁASNE zapytania (notatki, oczekujące propozycje) — dla
 // testu zapisu wystarczy, że się nie montuje z siecią.
@@ -269,7 +270,7 @@ describe("ChampionProfileEditor — wymagania do wyszukiwania (sekcja 2)", () =>
     useAuthStore.setState({ user: { ...recruiter, role: "admin", roles: ["admin"] } as User });
     getMock.mockResolvedValue({ data: { job_id: 15, champion_profile: {} } });
     putMock.mockResolvedValue({ data: { job_id: 15, champion_profile: {} } });
-    listMock.mockResolvedValue({ data: { total: 46, items: [] } });
+    listMock.mockResolvedValue({ total: 46, items: [] });
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
       <QueryClientProvider client={client}>
@@ -287,6 +288,7 @@ describe("ChampionProfileEditor — wymagania do wyszukiwania (sekcja 2)", () =>
       () =>
         expect(listMock).toHaveBeenLastCalledWith(
           expect.objectContaining({ q_any_group: ["Kafka|RabbitMQ"], page_size: 1 }),
+          expect.anything(),
         ),
       { timeout: 3000 },
     );

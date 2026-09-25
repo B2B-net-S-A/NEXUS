@@ -7628,7 +7628,12 @@ w „Więcej filtrów”) jeden edytor wierszy (`RequirementRowsField`, logika
   wiersza (`job_readiness.MSG_SEARCH_REQUIREMENTS`, tylko handoff — alokacja
   czyta bramkę briefu). Automaty ich NIE czytają: `champion_view.requirement_source`
   wycina `search.requirements`/`exclude`, więc edycja nie kasuje kontraktu
-  wymagań ani odcisku pełnego przeglądu.
+  wymagań ani odcisku pełnego przeglądu. Zapis SAMYCH wierszy omija
+  `prepare_profile` jak notatki (`user_edit` — inaczej nowy stempel `intake`
+  zmieniał odcisk i odczyt przeglądu dawał 409), a handler nie woła wtedy
+  `refresh_job_matching` ani `enqueue_job_safe` (`search_rows_only`). Licznik
+  osób idzie `fetchCandidateListPage` — `candidatesApi.list` wysyła `status[]=`
+  i serwer liczył całą bazę.
 - **„Szukaj ręcznie”** startuje od tych wierszy (`jobListFilters`, profil
   z zapytania `["champion-profile", jobId]` — świeży po zapisie DL-a); wtedy
   tytuł NIE idzie jako tekst po znaczeniu (pula semantyczna zawężała), must-have
