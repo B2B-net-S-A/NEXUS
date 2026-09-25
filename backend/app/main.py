@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from datetime import datetime, timezone
 import os
@@ -307,6 +308,11 @@ def _sentry_before_send(event: dict, hint: dict) -> dict | None:
         return None
     if not (exc_info and len(exc_info) >= 2):
         return scrub_event(event)
+    # Anulowanie (klient zamknął kartę w trakcie uploadu CV, restart kontenera)
+    # to nie błąd kodu, ale SQLAlchemy i uvicorn logują je na ERROR — do
+    # 25.09.2026 kilka zdarzeń dziennie (NEXUS-BE-3Q/3R/47).
+    if isinstance(exc_info[1], asyncio.CancelledError):
+        return None
     if not _is_transient_anthropic_exc(exc_info[1]):
         return scrub_event(event)
     for value in (event.get("exception") or {}).get("values", []):
