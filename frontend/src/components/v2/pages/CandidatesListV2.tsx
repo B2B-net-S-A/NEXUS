@@ -63,6 +63,7 @@ import {
   listSearchKeywords,
   listSearchLabel,
   resolveInitialListParams,
+  sameCriteria,
 } from "@/lib/candidate-list-staging";
 import {
   clearJobSearch,
@@ -999,6 +1000,23 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
  setRestoredBanner(true);
  // eslint-disable-next-line react-hooks/exhaustive-deps
  }, [routeParams]);
+ // Baner listy mówi „Filtry… są takie, jak je zostawiłeś” — po zastosowaniu
+ // innych kryteriów (zapis z „Zapisanych”, „Szukaj”, „Wstecz”) przestałby mówić
+ // prawdę. Strona i sortowanie go nie zdejmują. Okno rekrutacji zostawia swój
+ // baner: „Przywrócono…” opisuje zdarzenie, a „Wróć do filtrów z rekrutacji”
+ // jest jedyną drogą do filtrów startowych.
+ const restoredCriteriaRef = useRef<CandidateFilters | null>(null);
+ useEffect(() => {
+ if (!restoredBanner || forJob) {
+ restoredCriteriaRef.current = null;
+ return;
+ }
+ if (restoredCriteriaRef.current === null) {
+ restoredCriteriaRef.current = applied;
+ return;
+ }
+ if (!sameCriteria(restoredCriteriaRef.current, applied)) setRestoredBanner(false);
+ }, [applied, restoredBanner, forJob]);
  // Przewinięcie listy i ostatnio otwarta osoba — przywracane po powrocie.
  const [lastOpenedId] = useState<number | null>(() =>
  initialList.restored || initialList.memory?.query === encodeFilters({ ...filtersSnapshot, savedSearchId: null, view: "list" }).toString()
