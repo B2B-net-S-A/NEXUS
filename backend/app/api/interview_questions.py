@@ -256,11 +256,19 @@ async def list_questions(
     client_id: Optional[int] = Query(None, description="-1 = tylko globalne"),
     q: Optional[str] = Query(None, description="Fuzzy search w tekście pytania"),
     limit: int = Query(50, ge=1, le=200),
+    include_archive: bool = Query(
+        False,
+        description="Dołącz archiwum pytań z rozmów (Excel rekruterów, 0383)",
+    ),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[InterviewQuestionOut]:
     stmt = select(InterviewQuestion)
     conds = []
+    if not include_archive:
+        # Archiwum to ~tysiąc pytań u jednego klienta — bez tego wypełniłoby
+        # każde wyszukiwanie w Bazie pytań (sortowanie po dacie importu).
+        conds.append(InterviewQuestion.source != InterviewQuestionSource.legacy_import)
     if cc_id is not None:
         conds.append(InterviewQuestion.competence_category_id == cc_id)
     if seniority is not None:

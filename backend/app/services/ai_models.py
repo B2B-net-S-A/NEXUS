@@ -45,6 +45,7 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F22 | dz_review                        | gpt-6-luna (z Sonnet 5)  |
 | F23 | academy_screening                | gpt-6-luna (z Sonnet 5)  |
 | F24 | prep_review                      | gpt-6-luna (z Sonnet 5)  |
+| F25 | interview_question_import        | gpt-6-luna (z Sonnet 5)  |
 | F16 | embeddingi (``VOYAGE_MODEL``)    | voyage-3 — config.py     |
 | F17 | reranker (``RERANKER_ENABLED``)  | wyłączony — config.py    |
 
@@ -310,6 +311,15 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "rozmowie); cytat spoza transkryptu jest odrzucany, a poziom oceny liczy kod. "
         "Pomiar Luna vs Sonnet na pierwszych prawdziwych prepach: "
         "scripts/eval_prep_review.py. Wynik doradczy, nigdy bramka.",
+    ),
+    AIFeatureKey.interview_question_import: ModelChoice(
+        default=GPT_LUNA,
+        env_vars=("INTERVIEW_QUESTION_IMPORT_MODEL",),
+        fallbacks=(SONNET_5,),
+        rationale="F25 (decyzja Artura 25.09.2026, POZA badaniem 16.09). Jednorazowy "
+        "import archiwum pytań z interview: „znajdź i zacytuj” pytania klienta w "
+        "notatce rekrutera, jak F22/F24. Cytat spoza wpisu odrzuca kod, a całość "
+        "przegląda człowiek przed zapisem.",
     ),
     AIFeatureKey.cv_name_backfill: ModelChoice(
         default=GPT_LUNA,

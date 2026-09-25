@@ -47,6 +47,12 @@ class InterviewQuestionSource(str, enum.Enum):
     imported_from_champion = "imported_from_champion"
     # 0338: pytanie, które klient zadał kandydatowi na rozmowie (z debriefu).
     client_debrief = "client_debrief"
+    # 0383: pytanie z archiwum rozmów (Excel „Pytania z interview” rekruterów,
+    # zbierany przed NEXUSEM). Osobne źródło, bo czytelnicy „najnowsze N
+    # pytań klienta” (prep, ocena prepu, Luna) filtrują po `client_debrief`,
+    # a archiwum ma docierać do nowej rekrutacji WYŁĄCZNIE po roli
+    # (`client_question_archive.py`, przypięcia do podobnych rekrutacji).
+    legacy_import = "legacy_import"
 
 
 class InterviewQuestionType(str, enum.Enum):

@@ -5508,7 +5508,9 @@ export type InterviewQuestionSource =
   | "manual"
   | "auto_generated"
   | "imported_from_champion"
-  | "client_debrief";
+  | "client_debrief"
+  // 0383: archiwum pytań z rozmów (Excel rekruterów sprzed NEXUSA).
+  | "legacy_import";
 
 export type InterviewQuestionTypeLiteral =
   | "technical"
@@ -5534,6 +5536,7 @@ export type SuggestionTier =
   | "pinned"
   | "legacy_champion"
   | "client_debrief"
+  | "client_archive"
   | "tier_1_same_cc"
   | "tier_2_secondary_cc"
   | "tier_3_client_knowledge"
@@ -5607,6 +5610,8 @@ export interface ListInterviewQuestionsParams {
   client_id?: number;
   q?: string;
   limit?: number;
+  /** Dołącz archiwum pytań z rozmów (domyślnie ukryte — ~tysiąc pytań u klienta). */
+  include_archive?: boolean;
 }
 
 export const interviewQuestionsApi = {

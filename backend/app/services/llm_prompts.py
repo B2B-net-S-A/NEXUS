@@ -1157,6 +1157,42 @@ ACADEMY_SCREENING = PromptTemplate(
 )
 
 
+LEGACY_INTERVIEW_QUESTIONS = PromptTemplate(
+    name="legacy_interview_questions",
+    version=1,
+    expected_format="json",
+    system_prompt=(
+        "Czytasz notatkę rekrutera po rozmowie kandydata u klienta (archiwum "
+        "sprzed NEXUSA). Twoje jedyne zadanie: wypisać pytania i tematy, o które "
+        "KLIENT pytał kandydata, każde z DOSŁOWNYM cytatem z notatki (skopiuj "
+        "fragment znak w znak). "
+        "Pytanie zapisz jako krótkie pytanie do kandydata w języku notatki "
+        "(najwyżej 300 znaków); samo hasło tematu („Kafka”, „SOLID - Liskov”) "
+        "zamień na pytanie, nie dodając nic spoza notatki. Kod do analizy albo "
+        "zadanie opisz jednym zdaniem. "
+        "POMIŃ: ocenę kandydata, jego samopoczucie, stres, życie prywatne, "
+        "przebieg i atmosferę rozmowy, wynik rekrutacji, stawki. "
+        "Nie wpisuj imion ani nazwisk w pytaniach — każdą osobę wymienioną "
+        "w notatce (kandydata, rozmówców klienta, rekruterów) wypisz w polu "
+        "people. Oczekiwaną odpowiedź podaj tylko wtedy, gdy notatka ją mówi. "
+        "Odpowiadasz wyłącznie JSON-em."
+    ),
+    template=(
+        "{entry}\n\n"
+        "Zwróć JSON dokładnie w tym kształcie:\n"
+        "{{\n"
+        '  "questions": [\n'
+        '    {{"question": "pytanie do kandydata", "quote": "cytat z notatki", '
+        '"topic": "temat/technologia albo null", "ideal_answer": "cytat z notatki albo null", '
+        '"question_type": "technical|behavioral|motivation|experience"}}\n'
+        "  ],\n"
+        '  "people": ["imię i nazwisko albo samo imię"]\n'
+        "}}\n\n"
+        "Notatka bez żadnego pytania klienta: questions []."
+    ),
+)
+
+
 # ── Registry (for logging + future A/B) ─────────────────────────────────────
 
 ALL_TEMPLATES: dict[str, PromptTemplate] = {
@@ -1177,5 +1213,6 @@ ALL_TEMPLATES: dict[str, PromptTemplate] = {
         CHAMPION_CLIENT_HISTORY,
         SCREENING_REASSIGN_SUGGEST,
         ACADEMY_SCREENING,
+        LEGACY_INTERVIEW_QUESTIONS,
     )
 }

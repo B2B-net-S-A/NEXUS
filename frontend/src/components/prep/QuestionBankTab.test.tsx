@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { QuestionBankTab } from "@/components/prep/QuestionBankTab";
@@ -73,5 +73,37 @@ describe("QuestionBankTab read-only", () => {
     expect(
       screen.getByRole("button", { name: "Odepnij" }),
     ).toBeInTheDocument();
+  });
+
+  it("searches this client's conversation archive only when asked", async () => {
+    questionApi.listForJob.mockResolvedValue({ data: [] });
+    questionApi.list.mockResolvedValue({
+      data: [
+        {
+          ...pinnedQuestion.question,
+          id: 31,
+          text: "Jak działa garbage collector w Javie?",
+          source: "legacy_import",
+          client_id: 3,
+        },
+      ],
+    });
+
+    render(<QuestionBankTab jobId={12} clientId={3} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Z bazy/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Szukaj" }));
+    expect(questionApi.list).toHaveBeenLastCalledWith({ q: undefined, limit: 50 });
+
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /archiwum rozmów tego klienta/ }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Szukaj" }));
+    expect(questionApi.list).toHaveBeenLastCalledWith({
+      q: undefined,
+      limit: 50,
+      include_archive: true,
+      client_id: 3,
+    });
+    expect(await screen.findByText("archiwum rozmów")).toBeInTheDocument();
   });
 });

@@ -5,6 +5,8 @@ przechodząc przez hierarchię źródeł:
 
   1. Pinned — `JobQuestion WHERE job_id = self.id AND is_pinned = true`
   2. Legacy — `Job.champion_profile.screening_questions`
+     (+ pytania z debriefów tego klienta i archiwum rozmów po technologiach
+     roli — `client_question_archive.py`)
   3. Tier 1 — jobs z tym samym primary CC, cosine >= 0.70
   4. Tier 2 — jobs z overlapping secondary CC, cosine >= 0.55
   5. Tier 3 — `ClientKnowledge` kategorii `interview_questions` (per klient)
@@ -58,7 +60,8 @@ class SuggestedQuestion:
     source_tier: (
         str  # "pinned" | "legacy_champion" | "client_debrief" | "tier_1_same_cc" |
     )
-    # "tier_2_secondary_cc" | "tier_3_client_knowledge" | "tier_4_auto_generated"
+    # "client_archive" | "tier_2_secondary_cc" | "tier_3_client_knowledge" |
+    # "tier_4_auto_generated"
     question_id: Optional[int] = None
     source_job_id: Optional[int] = None
     ideal_answer: Optional[str] = None
@@ -124,6 +127,11 @@ async def _tier_pinned(db: AsyncSession, job: Job) -> list[SuggestedQuestion]:
 # rośnie z każdą rozmową, a prep ma być krótki.
 CLIENT_DEBRIEF_LIMIT = 15
 
+# Archiwum pytań z rozmów (Excel rekruterów, 0383): tylko pytania o
+# technologie tej roli, najwyżej tyle — prep ma być krótki.
+ARCHIVE_TIER = "client_archive"
+CLIENT_ARCHIVE_LIMIT = 10
+
 
 async def _tier_client_debrief(db: AsyncSession, job: Job) -> list[SuggestedQuestion]:
     """Pytania, które TEN klient zadawał kandydatom (najnowsze najpierw)."""
@@ -139,6 +147,41 @@ async def _tier_client_debrief(db: AsyncSession, job: Job) -> list[SuggestedQues
         .limit(CLIENT_DEBRIEF_LIMIT)
     )
     return [_q_from_iq(iq, "client_debrief") for iq in result.scalars().all()]
+
+
+async def _tier_client_archive(
+    db: AsyncSession, job: Job, requirement_names: set[str]
+) -> list[SuggestedQuestion]:
+    """Archiwum rozmów tego klienta, wybrane po technologiach roli."""
+    from app.services.client_question_archive import archive_questions_for_role
+
+    matches = await archive_questions_for_role(
+        db,
+        client_id=job.client_id,
+        requirement_names=requirement_names,
+        limit=CLIENT_ARCHIVE_LIMIT,
+    )
+    return [_q_from_iq(m.question, ARCHIVE_TIER) for m in matches]
+
+
+def _take_missing(
+    bucket: list[SuggestedQuestion], seen: set[str], target_count: int
+) -> list[SuggestedQuestion]:
+    """Z kubełka fallbacku bierze tylko tyle nowych pytań, ile brakuje.
+
+    Stara rekrutacja z kilkudziesięcioma przypiętymi pytaniami (archiwum
+    rozmów) zalewałaby inaczej prep całym kubełkiem.
+    """
+    out: list[SuggestedQuestion] = []
+    for q in bucket:
+        if len(seen) >= target_count:
+            break
+        key = _normalize_dedup_key(q.text)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(q)
+    return out
 
 
 def _tier_legacy_champion(job: Job) -> list[SuggestedQuestion]:
@@ -226,7 +269,17 @@ async def _questions_for_jobs(
     # sortuj po cosine desc, potem po question_id asc (deterministic)
     sorted_items = sorted(best.values(), key=lambda x: (-x[2], x[0].id))
     return [
-        _q_from_iq(iq, source_tier, source_job_id=source_job_id, cosine_score=score)
+        _q_from_iq(
+            iq,
+            # Pytanie z archiwum rozmów przypięte do podobnej (starej)
+            # rekrutacji — etykieta ma mówić, że to klient pytał, a nie
+            # „z podobnego projektu”.
+            ARCHIVE_TIER
+            if iq.source == InterviewQuestionSource.legacy_import
+            else source_tier,
+            source_job_id=source_job_id,
+            cosine_score=score,
+        )
         for iq, source_job_id, score in sorted_items
     ]
 
@@ -567,6 +620,7 @@ async def suggest_questions_for_prep(
             if _fits_job(q, requirement_names)
         ]
     )
+    buckets.append(await _tier_client_archive(db, job, requirement_names))
 
     # Dolewamy fallbacki tylko jeśli brak
     current_unique: set[str] = set()
@@ -580,17 +634,13 @@ async def suggest_questions_for_prep(
         tier1, tier1_degraded = await _tier_same_cc_similar(db, job)
         tier1 = [q for q in tier1 if _fits_job(q, requirement_names)]
         degraded = degraded or tier1_degraded
-        buckets.append(tier1)
-        for q in tier1:
-            current_unique.add(_normalize_dedup_key(q.text))
+        buckets.append(_take_missing(tier1, current_unique, target_count))
 
     if len(current_unique) < target_count:
         tier2, tier2_degraded = await _tier_secondary_cc(db, job)
         tier2 = [q for q in tier2 if _fits_job(q, requirement_names)]
         degraded = degraded or tier2_degraded
-        buckets.append(tier2)
-        for q in tier2:
-            current_unique.add(_normalize_dedup_key(q.text))
+        buckets.append(_take_missing(tier2, current_unique, target_count))
 
     if len(current_unique) < target_count:
         tier3 = [
