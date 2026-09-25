@@ -74,6 +74,19 @@ class _FakeDB:
     async def rollback(self):
         self.rollbacks += 1
 
+    def begin_nested(self):
+        return _Nested()
+
+
+class _Nested:
+    """Atrapa ``db.begin_nested()`` — savepoint per wiersz aktywności."""
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
 
 class _FakeTraffit:
     """`get_pages` honours `start_page` (skips earlier pages) and can raise a

@@ -289,3 +289,64 @@ async def test_delta_mode_leaves_the_sweep_cursor_untouched() -> None:
     assert db.upserted == ["100-1"]
     assert db.cursor_writes == []
     assert db.cursor == {"after_id": 42}
+
+
+class _CountingNested:
+    def __init__(self, db) -> None:
+        self.db = db
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        if exc_type is not None:
+            self.db.savepoint_rollbacks += 1
+        return False
+
+
+class _FailingDocDB(_FakeDB):
+    """Zapis wskazanego dokumentu rzuca — jak naruszenie więzu w bazie."""
+
+    def __init__(self, *a, fail_external_ids=(), **kw) -> None:
+        super().__init__(*a, **kw)
+        self.fail_external_ids = set(fail_external_ids)
+        self.savepoint_rollbacks = 0
+
+    def begin_nested(self):
+        return _CountingNested(self)
+
+    async def execute(self, stmt, params=None):
+        sql = str(stmt)
+        p = params or {}
+        if (
+            "INSERT INTO candidate_documents" in sql
+            and p.get("external_id") in self.fail_external_ids
+        ):
+            raise RuntimeError("simulated constraint violation")
+        return await super().execute(stmt, params)
+
+
+@pytest.mark.asyncio
+async def test_failed_document_write_keeps_the_rest_and_is_attributed() -> None:
+    """Audyt 25.09.2026: błąd zapisu jednego dokumentu robił `rollback()` sesji
+    (paczka do 49 kandydatów, których pliki już leżały w magazynie), a
+    komunikat „emp {id}: …” nie pasował do `_ERROR_REF_RE` — nieprzypisany
+    błąd zamrażał `__daily__` na stałe. Teraz cofa się tylko ten dokument,
+    a błąd wskazuje kandydata, więc kwarantanna może go zaparkować."""
+    db = _FailingDocDB(
+        candidates=[(1, "100"), (2, "200"), (3, "300")],
+        fail_external_ids={"200-2"},
+    )
+    traffit = _FakeTraffit({"100": _files(1), "200": _files(1, 2), "300": _files(1)})
+
+    progress = await _importer(db, traffit).import_candidate_files(since=_SINCE)
+
+    assert db.upserted == ["100-1", "200-1", "300-1"]
+    assert progress.inserted == 3
+    assert db.rollbacks == 0
+    # Wycofane wyłącznie savepointy tego dokumentu (helper zapisu ma własny,
+    # zagnieżdżony) — nigdy transakcja całej paczki.
+    assert db.savepoint_rollbacks >= 1
+    assert progress.errors == 1
+    assert progress.error_refs == {"candidate:200"}
+    assert progress.attributed_errors == 1

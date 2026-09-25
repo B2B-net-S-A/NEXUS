@@ -3102,9 +3102,10 @@ class TraffitImporter:
                     # sobie nie mówi NIKOMU, że tej osoby już u źródła nie ma.
                     # Nagrobek zostaje na wierszu.
                     if not self.dry_run:
-                        res = await self.db.execute(
-                            _TOMBSTONE_CANDIDATE, {"id": row.id}
-                        )
+                        async with self.db.begin_nested():
+                            res = await self.db.execute(
+                                _TOMBSTONE_CANDIDATE, {"id": row.id}
+                            )
                         if res.rowcount:
                             progress.tombstoned += 1
                     continue
@@ -3169,25 +3170,39 @@ class TraffitImporter:
                     content_type=None,
                 )
 
-                await self.db.execute(
-                    text(
-                        """
-                        UPDATE candidates SET
-                            cv_storage_key = :storage_key,
-                            cv_filename = :filename,
-                            updated_at = NOW()
-                        WHERE id = :id
-                        """
-                    ),
-                    {
-                        "storage_key": cv_storage_key,
-                        "filename": filename,
-                        "id": row.id,
-                    },
-                )
+                # SAVEPOINT per wiersz (audyt 25.09.2026): błąd jednego zapisu
+                # cofa tylko ten wiersz. Do tej zmiany `rollback()` sesji
+                # zabierał całą paczkę (do 99 wskaźników CV, których pliki już
+                # leżały w magazynie).
+                async with self.db.begin_nested():
+                    await self.db.execute(
+                        text(
+                            """
+                            UPDATE candidates SET
+                                cv_storage_key = :storage_key,
+                                cv_filename = :filename,
+                                updated_at = NOW()
+                            WHERE id = :id
+                            """
+                        ),
+                        {
+                            "storage_key": cv_storage_key,
+                            "filename": filename,
+                            "id": row.id,
+                        },
+                    )
                 progress.inserted += 1
-                since_commit += 1
-                if since_commit >= commit_every:
+            except Exception as e:  # noqa: BLE001
+                # `ext=` w komunikacie: `_ERROR_REF_RE` przypisuje błąd do
+                # wiersza, więc kwarantanna może go zaparkować. Dawne
+                # „emp {id}: …” było nieprzypisane i zamrażało `__daily__`
+                # na stałe przy jednym trwale zepsutym kandydacie.
+                progress.add_error(f"cv candidate ext={traffit_id}: {e!r}")
+                continue
+
+            since_commit += 1
+            if since_commit >= commit_every:
+                try:
                     if cursor_phase is not None:
                         # Same transaction as the rows it accounts for.
                         #
@@ -3203,16 +3218,17 @@ class TraffitImporter:
                             cursor_phase, {"after_id": row.id}
                         )
                     await self.db.commit()
-                    since_commit = 0
-                    logger.info(
-                        "CV download progress: %d/%d",
-                        progress.processed,
-                        progress.total_source,
-                    )
-            except Exception as e:  # noqa: BLE001
-                progress.add_error(f"emp {traffit_id}: {e!r}")
-                await self.db.rollback()
+                except Exception as e:  # noqa: BLE001
+                    # Padnięty commit cofa paczkę — błąd całej paczki, nie
+                    # wiersza, więc (nieprzypisany) trzyma watermark.
+                    progress.add_error(f"cv batch commit: {e!r}")
+                    await self.db.rollback()
                 since_commit = 0
+                logger.info(
+                    "CV download progress: %d/%d",
+                    progress.processed,
+                    progress.total_source,
+                )
 
         if not self.dry_run:
             if cursor_phase is not None:
@@ -3663,9 +3679,10 @@ class TraffitImporter:
                     # sobie nie mówi NIKOMU, że tej osoby już u źródła nie ma.
                     # Nagrobek zostaje na wierszu.
                     if not self.dry_run:
-                        res = await self.db.execute(
-                            _TOMBSTONE_CANDIDATE, {"id": row.id}
-                        )
+                        async with self.db.begin_nested():
+                            res = await self.db.execute(
+                                _TOMBSTONE_CANDIDATE, {"id": row.id}
+                            )
                         if res.rowcount:
                             progress.tombstoned += 1
                     continue
@@ -3703,74 +3720,95 @@ class TraffitImporter:
                     filename = f.get("name") or f"file-{file_id}"
                     is_primary = bool(f.get("is_primary", False))
                     uploaded_at_raw = f.get("file_uploaded") or f.get("created_at")
+                    try:
+                        token = await self.traffit._ensure_token()  # noqa: SLF001
+                        url = (
+                            f"{self.traffit.config.api_base}"
+                            f"/employees/{traffit_id}/files/{file_id}/content"
+                        )
+                        await self.traffit._throttle()  # noqa: SLF001
+                        content_resp = await self.traffit._http.get(  # noqa: SLF001
+                            url,
+                            headers={"Authorization": f"Bearer {token}"},
+                        )
+                        if content_resp.status_code in _GONE_STATUS_CODES:
+                            # File removed in Traffit between listing and fetch.
+                            progress.gone_upstream += 1
+                            continue
+                        if content_resp.status_code != 200:
+                            progress.add_error(
+                                f"fetch file {file_id} candidate ext={traffit_id}: "
+                                f"HTTP {content_resp.status_code}"
+                            )
+                            continue
 
-                    token = await self.traffit._ensure_token()  # noqa: SLF001
-                    url = (
-                        f"{self.traffit.config.api_base}"
-                        f"/employees/{traffit_id}/files/{file_id}/content"
-                    )
-                    await self.traffit._throttle()  # noqa: SLF001
-                    content_resp = await self.traffit._http.get(  # noqa: SLF001
-                        url,
-                        headers={"Authorization": f"Bearer {token}"},
-                    )
-                    if content_resp.status_code in _GONE_STATUS_CODES:
-                        # File removed in Traffit between listing and fetch.
-                        progress.gone_upstream += 1
-                        continue
-                    if content_resp.status_code != 200:
+                        file_bytes = content_resp.content
+                        content_type = content_resp.headers.get("content-type", "")
+                        # Strip charset suffix (e.g. "application/pdf; charset=utf-8")
+                        if ";" in content_type:
+                            content_type = content_type.split(";", 1)[0].strip()
+
+                        # Parse uploaded_at z formatu Traffita
+                        from app.services.traffit.mappers import _parse_traffit_datetime
+
+                        uploaded_at = _parse_traffit_datetime(uploaded_at_raw)
+
+                        # Upload do Hetzner Object Storage (audit-2026-05-07 Faza 3).
+                        # Bez S3 envów — fallback na BYTEA byłby tutaj kuszący ale
+                        # mamy 49k rekordów już w S3, więc dla spójności wymagamy
+                        # storage_key set. Brak envów → propagated wyjątek z upload_cv,
+                        # cron retry później gdy env vars są dostępne.
+                        from app.services.object_storage import upload_cv
+
+                        # Sync boto3 put — offload off the event loop.
+                        storage_key = await run_in_threadpool(
+                            upload_cv,
+                            content=file_bytes,
+                            filename=filename[:500],
+                            content_type=content_type[:100] if content_type else None,
+                        )
+
+                        doc_params = {
+                            "candidate_id": row.id,
+                            "filename": filename[:500],
+                            "storage_key": storage_key,
+                            "content_type": content_type[:100]
+                            if content_type
+                            else None,
+                            "size_bytes": len(file_bytes),
+                            "document_kind": _traffit_document_kind(
+                                filename,
+                                is_primary=is_primary,
+                            ),
+                            "is_primary": is_primary,
+                            "uploaded_at": uploaded_at,
+                            "external_id": ext_id,
+                            "external_source": "traffit",
+                        }
+                        # SAVEPOINT per plik: plik już leży w magazynie, więc
+                        # błąd zapisu jednego dokumentu nie może cofnąć
+                        # dokumentów zapisanych wcześniej w tej paczce.
+                        async with self.db.begin_nested():
+                            await self._upsert_candidate_document(doc_params)
+                    except Exception as e:  # noqa: BLE001
                         progress.add_error(
-                            f"fetch file {file_id} candidate ext={traffit_id}: "
-                            f"HTTP {content_resp.status_code}"
+                            f"store file {file_id} candidate ext={traffit_id}: {e!r}"
                         )
                         continue
-
-                    file_bytes = content_resp.content
-                    content_type = content_resp.headers.get("content-type", "")
-                    # Strip charset suffix (e.g. "application/pdf; charset=utf-8")
-                    if ";" in content_type:
-                        content_type = content_type.split(";", 1)[0].strip()
-
-                    # Parse uploaded_at z formatu Traffita
-                    from app.services.traffit.mappers import _parse_traffit_datetime
-
-                    uploaded_at = _parse_traffit_datetime(uploaded_at_raw)
-
-                    # Upload do Hetzner Object Storage (audit-2026-05-07 Faza 3).
-                    # Bez S3 envów — fallback na BYTEA byłby tutaj kuszący ale
-                    # mamy 49k rekordów już w S3, więc dla spójności wymagamy
-                    # storage_key set. Brak envów → propagated wyjątek z upload_cv,
-                    # cron retry później gdy env vars są dostępne.
-                    from app.services.object_storage import upload_cv
-
-                    # Sync boto3 put — offload off the event loop.
-                    storage_key = await run_in_threadpool(
-                        upload_cv,
-                        content=file_bytes,
-                        filename=filename[:500],
-                        content_type=content_type[:100] if content_type else None,
-                    )
-
-                    doc_params = {
-                        "candidate_id": row.id,
-                        "filename": filename[:500],
-                        "storage_key": storage_key,
-                        "content_type": content_type[:100] if content_type else None,
-                        "size_bytes": len(file_bytes),
-                        "document_kind": _traffit_document_kind(
-                            filename,
-                            is_primary=is_primary,
-                        ),
-                        "is_primary": is_primary,
-                        "uploaded_at": uploaded_at,
-                        "external_id": ext_id,
-                        "external_source": "traffit",
-                    }
-                    await self._upsert_candidate_document(doc_params)
                     progress.inserted += 1
 
-                since_commit += 1
-                if since_commit >= commit_every:
+            except Exception as e:  # noqa: BLE001
+                # `ext=` w komunikacie (audyt 25.09.2026): dawne „emp {id}: …”
+                # nie pasowało do `_ERROR_REF_RE`, więc błąd był nieprzypisany
+                # i zamrażał `__daily__` na stałe, a `rollback()` sesji cofał
+                # dokumenty całej paczki, których pliki już były w magazynie.
+                # Zapisy mają własne savepointy, więc sesja jest zdrowa.
+                progress.add_error(f"files candidate ext={traffit_id}: {e!r}")
+                continue
+
+            since_commit += 1
+            if since_commit >= commit_every:
+                try:
                     if cursor_phase is not None:
                         # Stage the sweep cursor in the SAME transaction as the
                         # documents it accounts for. Committing them separately
@@ -3780,20 +3818,21 @@ class TraffitImporter:
                             cursor_phase, {"after_id": row.id}
                         )
                     await self.db.commit()
-                    since_commit = 0
-                    logger.info(
-                        "Files import progress: %d/%d candidates "
-                        "(inserted=%d skipped=%d errors=%d)",
-                        progress.processed,
-                        progress.total_source,
-                        progress.inserted,
-                        progress.skipped,
-                        progress.errors,
-                    )
-            except Exception as e:  # noqa: BLE001
-                progress.add_error(f"emp {traffit_id}: {e!r}")
-                await self.db.rollback()
+                except Exception as e:  # noqa: BLE001
+                    # Padnięty commit cofa paczkę — błąd paczki, nie wiersza,
+                    # więc (nieprzypisany) trzyma watermark.
+                    progress.add_error(f"files batch commit: {e!r}")
+                    await self.db.rollback()
                 since_commit = 0
+                logger.info(
+                    "Files import progress: %d/%d candidates "
+                    "(inserted=%d skipped=%d errors=%d)",
+                    progress.processed,
+                    progress.total_source,
+                    progress.inserted,
+                    progress.skipped,
+                    progress.errors,
+                )
 
         if not self.dry_run:
             if cursor_phase is not None:
@@ -4495,52 +4534,63 @@ class TraffitImporter:
             if self.dry_run:
                 progress.inserted += 1
                 continue
+            # SAVEPOINT per wiersz (audyt 25.09.2026). Do tej zmiany błąd
+            # jednego wiersza robił `rollback()` CAŁEJ paczki (do 499 aktywności
+            # od ostatniego commitu), a licznik błędów wskazywał tylko ten jeden
+            # wiersz — kwarantanna parkowała go po kilku biegach i watermark
+            # przesuwał się nad resztą paczki, której nikt już nie importował.
             try:
-                result = await self.db.execute(
-                    text(
-                        """
-                        INSERT INTO activities (
-                            external_id, external_source,
-                            entity_type, entity_id, action, details,
-                            user_id, created_at, updated_at
-                        ) VALUES (
-                            :external_id, 'traffit',
-                            :entity_type, :entity_id, :action,
-                            CAST(:details AS JSONB),
-                            :user_id, NOW(), NOW()
-                        )
-                        ON CONFLICT (external_source, external_id)
-                        WHERE external_id IS NOT NULL
-                        DO UPDATE SET
-                            details   = EXCLUDED.details,
-                            user_id   = COALESCE(EXCLUDED.user_id, activities.user_id),
-                            updated_at = NOW()
-                        RETURNING id, (xmax = 0) AS was_insert
-                        """
-                    ),
-                    {
-                        "external_id": payload["external_id"],
-                        "entity_type": payload["entity_type"],
-                        "entity_id": payload["entity_id"],
-                        "action": payload["action"],
-                        "details": json.dumps(payload["details"]),
-                        "user_id": payload["user_id"],
-                    },
+                async with self.db.begin_nested():
+                    result = await self.db.execute(
+                        text(
+                            """
+                            INSERT INTO activities (
+                                external_id, external_source,
+                                entity_type, entity_id, action, details,
+                                user_id, created_at, updated_at
+                            ) VALUES (
+                                :external_id, 'traffit',
+                                :entity_type, :entity_id, :action,
+                                CAST(:details AS JSONB),
+                                :user_id, NOW(), NOW()
+                            )
+                            ON CONFLICT (external_source, external_id)
+                            WHERE external_id IS NOT NULL
+                            DO UPDATE SET
+                                details   = EXCLUDED.details,
+                                user_id   = COALESCE(EXCLUDED.user_id, activities.user_id),
+                                updated_at = NOW()
+                            RETURNING id, (xmax = 0) AS was_insert
+                            """
+                        ),
+                        {
+                            "external_id": payload["external_id"],
+                            "entity_type": payload["entity_type"],
+                            "entity_id": payload["entity_id"],
+                            "action": payload["action"],
+                            "details": json.dumps(payload["details"]),
+                            "user_id": payload["user_id"],
+                        },
+                    )
+                    row = result.fetchone()
+            except Exception as e:  # noqa: BLE001
+                progress.add_error(
+                    f"upsert activity ext={payload.get('external_id')}: {e!r}"
                 )
-                row = result.fetchone()
-                if row is None:
-                    continue
-                if row[1]:
-                    progress.inserted += 1
-                else:
-                    progress.updated += 1
-                since_commit += 1
-                if since_commit >= commit_every:
+                continue
+            if row is None:
+                continue
+            if row[1]:
+                progress.inserted += 1
+            else:
+                progress.updated += 1
+            since_commit += 1
+            if since_commit >= commit_every:
+                try:
                     # Stage the resume cursor in the SAME transaction as the row
-                    # batch, then one commit → rows + cursor persist atomically
-                    # (a row-error rollback drops both, leaving the last good
-                    # cursor). Skip once the filter was dropped (page numbers no
-                    # longer map to since_iso).
+                    # batch, then one commit → rows + cursor persist atomically.
+                    # Skip once the filter was dropped (page numbers no longer
+                    # map to since_iso).
                     if not saw_fallback:
                         await self._write_mode_cursor(
                             _ACTIVITIES_CURSOR_PHASE,
@@ -4552,19 +4602,18 @@ class TraffitImporter:
                             },
                         )
                     await self.db.commit()
-                    since_commit = 0
-                    logger.info(
-                        "Activities progress: %d/%d (page %d)",
-                        progress.processed,
-                        progress.total_source,
-                        current_page,
-                    )
-            except Exception as e:  # noqa: BLE001
-                progress.add_error(
-                    f"upsert activity ext={payload.get('external_id')}: {e!r}"
-                )
-                await self.db.rollback()
+                except Exception as e:  # noqa: BLE001
+                    # Padnięty commit cofa całą paczkę — błąd nieprzypisany do
+                    # wiersza, więc trzyma watermark (kolejny bieg ją powtórzy).
+                    progress.add_error(f"activities batch commit: {e!r}")
+                    await self.db.rollback()
                 since_commit = 0
+                logger.info(
+                    "Activities progress: %d/%d (page %d)",
+                    progress.processed,
+                    progress.total_source,
+                    current_page,
+                )
 
         if not self.dry_run and since_commit > 0:
             if not saw_fallback:

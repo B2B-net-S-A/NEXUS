@@ -66,6 +66,19 @@ class _FakeDB:
     async def rollback(self):
         pass
 
+    def begin_nested(self):
+        return _Nested()
+
+
+class _Nested:
+    """Atrapa savepointu — nagrobek i zapisy wierszy mają własne savepointy."""
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
 
 class _StatusTraffit:
     """Answers each employee's file listing with a caller-chosen status code.
