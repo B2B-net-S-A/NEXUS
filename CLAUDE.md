@@ -6669,7 +6669,7 @@ zakończyło się decyzją Artura wdrożoną w rejestrze `services/ai_models.py`
 | F4 | cv_generator | Sonnet 5 (z 4.6) | F12 | candidate_summary | **GPT-6 Luna** (z Sonnet 5, od 22.09) |
 | F5 | cv_interactive_chat | GPT-6 Luna (z Sonnet 5) | F13 | champion_draft | **GPT-6 Luna** (z Sonnet 5, od 22.09) |
 | F6 | job_description_generator | Sonnet 5 | F14 | cv_rule_lint | Sonnet 5 (z Haiku) |
-| F7 | order_parser | **GPT-6 Luna** (z Sonnet 5, od 22.09) | F15 | mindy_chat | GPT-6 Luna |
+| F7 | order_parser | **Sonnet 5** (od 25.09; 22–25.09 GPT-6 Luna) | F15 | mindy_chat | GPT-6 Luna |
 | F8 | uop_check | GPT-6 Luna | F16/F17 | `VOYAGE_MODEL` / `RERANKER_ENABLED` | voyage-3 / wyłączony |
 | F18 | cv_factual_verification | GPT-6 Luna (z Sonnet 5) | | | |
 
@@ -6681,7 +6681,8 @@ zakończyło się decyzją Artura wdrożoną w rejestrze `services/ai_models.py`
   wymaga pomiaru jak w badaniu — nie samej zmiany wersji.
 - **Pomiar GPT-6 Luna 22.09.2026** (harness `/root/nexus-model-eval`, te same
   przypadki co 16.09, 14 zadań, 0,79 USD) przeniósł na Lunę 6 decyzją Artura:
-  F7 zamówienia (błędy krytyczne 3,9% vs 4,7% Sonneta, 0 cichych), F12
+  F7 zamówienia (błędy krytyczne 3,9% vs 4,7% Sonneta, 0 cichych — cofnięte
+  25.09, patrz niżej), F12
   podsumowanie aktywności (96,7% poprawnych jak DeepSeek, bez wysyłki poza EOG),
   F13 szkic Championa (remis) i F10 masowe uzupełnianie pól/nazwisk z CV
   (0,07 vs 0,08 wymyślonej technologii na CV). **Parser CV (F9) zostaje na
@@ -6698,7 +6699,11 @@ zakończyło się decyzją Artura wdrożoną w rejestrze `services/ai_models.py`
   w `prompt_tokens_details.cache_write_tokens`; `parse_response` odejmuje go
   od wejścia, a `_PRICES` dla OpenAI to czwórka (wejście, wyjście, odczyt,
   zapis). Do 22.09 zapis był wyceniany jak zwykłe wejście.
-- **F7 był na Sonnecie 5 od 21.09 do 22.09.2026** (powrót z GPT-5.6 Luna; od 22.09 GPT-6 Luna — obserwuj kolejkę Nordei). GPT-5.6 Luna czytała
+- **F7 = Sonnet 5 od 25.09.2026 — Luna już DWA razy przegrała na fladze niepewności.**
+  21.09 powrót z GPT-5.6 Luna, 22.09 przejście na GPT-6 Lunę po pomiarze, 25.09
+  zespół zgłosił, że Luna 6 ciągle daje „odczyt niepewny”. Pomiar 22.09 liczył
+  trafność pól, nie flagę `uncertain` — przy kolejnej próbie Luny licz też odsetek
+  odczytów niepewnych na poprawnych zamówieniach. GPT-5.6 Luna czytała
   zamówienia poprawnie, ale oznaczała odczyt jako `uncertain` bez konkretnego
   powodu („oznaczony przez model jako niepewny", echo instrukcji promptu), a
   bramka poczty traktuje każdą niepewność jako powód do kolejki — Nordea po

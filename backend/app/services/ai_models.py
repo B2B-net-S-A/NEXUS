@@ -29,7 +29,7 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F4  | cv_generator                     | claude-sonnet-5 (z 4.6)  |
 | F5  | cv_interactive_chat              | gpt-6-luna (z Sonnet 5)  |
 | F6  | job_description_generator        | claude-sonnet-5          |
-| F7  | order_parser                     | gpt-6-luna (z Sonnet 5)  |
+| F7  | order_parser                     | claude-sonnet-5 (25.09)  |
 | F8  | uop_check                        | gpt-6-luna (z Sonnet 5)  |
 | F9  | cv_parser                        | claude-sonnet-5          |
 | F10 | cv_backfill + cv_name_backfill   | gpt-6-luna (z Sonnet 5)  |
@@ -58,7 +58,8 @@ funkcji (np. ``CV_FACTUAL_VERIFICATION_MODEL=gpt-5.6-luna``).
 Pomiar gpt-6-luna na przypadkach badania 16.09 (22.09.2026, harness
 ``/root/nexus-model-eval``, decyzja Artura tego dnia) przeniósł na Lunę 6 trzy
 kolejne funkcje, w których wyszła na remis z dotychczasowym modelem: F7 odczyt
-zamówień (błędy krytyczne 3,9% vs 4,7% Sonneta, 0 cichych), F12 podsumowanie
+zamówień (błędy krytyczne 3,9% vs 4,7% Sonneta, 0 cichych — 25.09 z powrotem na
+Sonnecie, bo Luna 6 ciągle oznaczała odczyty jako niepewne), F12 podsumowanie
 aktywności (96,7% poprawnych jak DeepSeek, dane zostają u dostawcy z DPA)
 i F13 szkic Championa (recall 0,62 vs 0,60, precyzja 0,88 vs 0,90). Po nich
 F10 masowe uzupełnianie pól i nazwisk z CV (wymyślone technologie 0,07 vs 0,08
@@ -154,19 +155,18 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "0,60 / 0,90 Sonneta 5, 0 dopisanych pozycji u obu (pomiar 22.09), 28× taniej.",
     ),
     AIFeatureKey.order_parser: ModelChoice(
-        default=GPT_LUNA,
+        default=SONNET_5,
         env_vars=("ORDER_PARSER_MODEL",),
         # settings_attr obok tego samego env: wierne odtworzenie oryginału
         # `os.environ.get("ORDER_PARSER_MODEL","") or settings.ORDER_PARSER_MODEL`.
         # env_vars (os.environ) wygrywa i zwykle to wystarcza; settings_attr
         # łapie wariant z pliku .env, który pydantic czyta, a os.environ nie widzi.
         settings_attr="ORDER_PARSER_MODEL",
-        fallbacks=(SONNET_5,),
-        rationale="F7. Odczyt PDF zamówień: GPT-6 Luna (decyzja Artura 22.09.2026). Na 127 "
-        "zamówieniach badania: błędy krytyczne 3,9% vs 4,7% Sonneta 5, 0 cichych, trafność "
-        "pól 0,960 vs 0,963, 34× taniej. 21.09 wróciliśmy z GPT-5.6 Luna na Sonneta, bo "
-        "Luna 5.6 oznaczała poprawne odczyty Nordei jako niepewne bez powodu (2 z 6 do "
-        "kolejki) — przy Lunie 6 obserwuj kolejkę Nordei.",
+        rationale="F7. Odczyt PDF zamówień: Sonnet 5 (decyzja Artura 25.09.2026, drugi powrót "
+        "z Luny). Zespół zgłosił, że GPT-6 Luna ciągle oznacza odczyt jako niepewny — bramka "
+        "poczty wysyła każdy taki odczyt do kolejki zamiast zapisu automatycznego. Ten sam "
+        "objaw miała GPT-5.6 Luna (21.09: 2 z 6 zamówień Nordei). Pomiar 22.09 na 127 "
+        "zamówieniach nie liczył flagi niepewności, tylko trafność pól (0,960 vs 0,963).",
     ),
     AIFeatureKey.cv_requirement_map: ModelChoice(
         default=SONNET_5,
