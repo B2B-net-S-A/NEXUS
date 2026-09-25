@@ -362,6 +362,21 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     inPalette: true,
   },
   {
+    // Stany requestów (0371): ustawia DL, nadzoruje HoR i admin — lustro
+    // bramki strony `/jobs/review-states` i API `request_work_states`.
+    // W menu nie stoi (wejście jest na liście rekrutacji), paleta ma skrót.
+    id: "request-review-states",
+    href: "/jobs/review-states",
+    label: "Porządek w requestach",
+    icon: Briefcase,
+    section: "pipeline",
+    roles: ["admin", "delivery_lead", "head_of_recruitment"],
+    placement: "primary",
+    paletteKeywords: ["requesty", "stany", "klient milczy", "szukamy", "porządek"],
+    inPalette: true,
+    inSidebar: false,
+  },
+  {
     id: "calendar",
     href: "/calendar",
     label: "Kalendarz",

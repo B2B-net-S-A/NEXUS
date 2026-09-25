@@ -111,6 +111,33 @@ function structuredCloneSafe<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+/**
+ * Kafelek na samą górę, pełną szerokością — reszta układu zjeżdża w dół
+ * o jego wysokość, więc nic się nie nakłada ani nie przestawia względem
+ * siebie. Dla kafelków, które mają być widoczne od razu po wejściu (nowość
+ * dodana z banera), a nie gdzieś pod ułożonym już pulpitem.
+ */
+export function prependTemplate(
+  tiles: DashboardTile[],
+  template: TileTemplate,
+): DashboardTile[] {
+  if (tiles.length >= MAX_TILES) return tiles;
+  const def = TILE_DEFINITIONS[template.type];
+  const size = template.size ?? def.defaultSize;
+  return [
+    {
+      id: newId(),
+      type: template.type,
+      x: 0,
+      y: 0,
+      w: GRID_COLUMNS,
+      h: size.h,
+      config: structuredCloneSafe(template.config),
+    },
+    ...tiles.map((t) => ({ ...t, y: t.y + size.h })),
+  ];
+}
+
 export function duplicateTile(
   tiles: DashboardTile[],
   id: string,

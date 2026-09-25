@@ -73,7 +73,7 @@ import {
   JobStageCountsHeader,
   STAGE_COUNTS_LEGEND,
 } from "@/components/v2/jobs/JobListCells";
-import { useAuthStore } from "@/store/auth";
+import { hasRole, useAuthStore } from "@/store/auth";
 import { useUiStore } from "@/store/ui";
 import {
   deadlineQueryParams,
@@ -836,6 +836,14 @@ export function JobsListV2() {
               : listSummary}
         </p>
         <div className="ml-auto flex items-center gap-2">
+          {/* Stany requestów ustawia DL (lustro bramki strony i API
+              `request_work_states`) — bez tego linku ekran był osiągalny
+              wyłącznie z kafelka pulpitu, którego nikt jeszcze nie miał. */}
+          {hasRole(authUser, "admin", "delivery_lead", "head_of_recruitment") && (
+            <Button size="sm" variant="outline" asChild>
+              <Link href="/jobs/review-states">Porządek w requestach</Link>
+            </Button>
+          )}
           {/* Capability `job.create` = backendowy TacPlus (POST /api/jobs). */}
           {canCreateJob && (
             <Button size="sm" variant="primary" onClick={() => router.push("/jobs/new")} data-help="jobs.list.new">
