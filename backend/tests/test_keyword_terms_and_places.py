@@ -211,9 +211,61 @@ def test_short_wildcard_is_ignored_and_bare_star_is_no_keyword():
 def test_whole_word_tsquery_has_path_variants():
     from app.services.keyword_terms import tsquery_path_variants
 
-    assert tsquery_path_variants(parse_keyword("Java")) == "'java/':* | 'java-':*"
+    assert (
+        tsquery_path_variants(parse_keyword("Java"))
+        == "'java/':* | 'java-':* | 'java.js':*"
+    )
     assert tsquery_path_variants(parse_keyword("java*")) is None
     assert tsquery_path_variants(parse_keyword("łódź")) is None
+
+
+def test_dot_variant_is_only_js_and_dot_net_for_its_prefixes():
+    """„b2b” nie może łapać klauzuli „B2B.net S.A.” z prawie każdego CV."""
+    from app.services.keyword_terms import tsquery_path_variants
+
+    assert "'vue.js':*" in tsquery_path_variants(parse_keyword("Vue"))
+    assert "'asp.net':*" in tsquery_path_variants(parse_keyword("ASP"))
+    b2b = tsquery_path_variants(parse_keyword("b2b"))
+    assert "b2b.net" not in b2b
+    assert "'b2b.':*" not in b2b
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "document, word, expected",
+    [
+        ("Vue.js developer", "vue", True),
+        ("Backend: Node.js, Express.js", "node", True),
+        ("Frontend w React.JS", "react", True),
+        ("ASP.NET MVC", "asp", True),
+        # Klauzula zgody w prawie każdym CV — „b2b” jej NIE znajduje.
+        ("zgoda na przetwarzanie przez B2B.net S.A.", "b2b", False),
+        # E-mail to token-host — imię z adresu nie jest trafieniem.
+        ("kontakt: vue.kowalski@example.com", "vue", False),
+        ("JavaScript, TypeScript", "java", False),
+    ],
+)
+async def test_path_variants_match_in_postgres(document, word, expected):
+    """Parser tsvector decyduje, co jest jednym tokenem — sprawdzamy w bazie."""
+    from sqlalchemy import text
+
+    from app.core.database import AsyncSessionLocal
+    from app.services.keyword_terms import tsquery_path_variants, tsquery_text
+
+    term = parse_keyword(word)
+    async with AsyncSessionLocal() as db:
+        matched = await db.scalar(
+            text(
+                "SELECT to_tsvector('simple', :doc) @@ "
+                "(to_tsquery('simple', :q) || CAST(:v AS tsquery))"
+            ),
+            {
+                "doc": document,
+                "q": tsquery_text(term),
+                "v": tsquery_path_variants(term),
+            },
+        )
+    assert matched is expected
 
 
 def test_phrase_matches_hyphen_and_slash():

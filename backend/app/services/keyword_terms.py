@@ -183,13 +183,24 @@ def tsquery_path_variants(term: KeywordTerm) -> Optional[str]:
     tak ukośnik zostaje w leksemie. Małe litery ASCII: wariant dotyczy słów
     technicznych; słowo z polskimi literami i tak łapie ``to_tsquery``.
     Zmierzone na produkcji 22.09.2026: „java” 13 920 osób zamiast 13 877, 48 ms.
+
+    Kropka: „Vue.js”, „Node.js” parser trzyma jako jeden token-HOST
+    (``vue.js``), więc „vue” nie znajdowało CV z samym „Vue.js”. Dokładamy
+    ``'vue.js':*`` — celowo TYLKO końcówkę ``.js``, nie ogólne ``'vue.':*``:
+    prawie każde CV ma klauzulę zgody „B2B.net S.A.”, a e-maile i domeny to
+    też tokeny-hosty, więc ogólny wariant zrobiłby z „b2b” albo „jan” trafienie
+    w każdym CV (ta sama pułapka co przy ``.net`` — ``DOT_PREFIXES``).
+    ``.net`` dostają wyłącznie ``DOT_PREFIXES`` („asp” → „ASP.NET”).
     """
     if not term.is_plain_word or term.open_end or term.open_start:
         return None
     word = term.text.lower()
     if not word.isascii():
         return None
-    return f"'{word}/':* | '{word}-':*"
+    variants = [f"'{word}/':*", f"'{word}-':*", f"'{word}.js':*"]
+    if word in DOT_PREFIXES:
+        variants.append(f"'{word}.net':*")
+    return " | ".join(variants)
 
 
 def tsquery_text(term: KeywordTerm) -> Optional[str]:
