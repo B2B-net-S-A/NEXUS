@@ -72,7 +72,7 @@ import { CompanyAutocomplete } from "@/components/v2/filters/CompanyAutocomplete
 import { TAG_SUGGEST_ENDPOINT } from "@/lib/api/candidateTags";
 import { ClientMultiSelect } from "@/components/v2/filters/ClientMultiSelect";
 import { RecruitmentMultiSelect } from "@/components/v2/filters/RecruitmentMultiSelect";
-import { AdvancedSearchPopover } from "@/components/v2/filters/AdvancedSearchPopover";
+import { cleanRows, requirementRows } from "@/lib/keyword-requirements";
 import {
   StageFilterPanel,
   type StageFilterValue,
@@ -119,6 +119,8 @@ export interface CandidateFilterBarProps {
    * zamiast udawać, że działa, pokazujemy zdanie wyjaśnienia.
    */
   recruitmentFilterLocked?: boolean;
+  /** Zdanie nad wierszami słów (okno rekrutacji: skąd są wymagania). */
+  keywordsSourceNote?: string;
   className?: string;
 }
 
@@ -321,13 +323,14 @@ export function CandidateFilterBar({
   pendingCount = 0,
   onSearch,
   recruitmentFilterLocked = false,
+  keywordsSourceNote,
   className,
 }: CandidateFilterBarProps) {
   const [moreOpen, setMoreOpen] = useState(false);
   // Na telefonie pas słów kluczowych zajmowałby pół ekranu — chowa się za
   // przyciskiem; od `md` stoi zawsze. Ustawione słowa otwierają go od razu.
-  const keywordCount =
-    filters.qAll.length + (filters.qAny[0]?.length ?? 0) + filters.qNone.length;
+  const keywordRows = requirementRows(phrases.all, phrases.any);
+  const keywordCount = cleanRows(keywordRows).flat().length + filters.qNone.length;
   const [keywordsOpen, setKeywordsOpen] = useState(keywordCount > 0);
   const keywordsId = useId();
   const mine =
@@ -351,8 +354,7 @@ export function CandidateFilterBar({
     filters.tags.length +
     filters.status.length +
     filters.openTo.length +
-    (filters.hideUnknown ? 1 : 0) +
-    filters.qAny.slice(1).flat().length;
+    (filters.hideUnknown ? 1 : 0);
 
   return (
     <section aria-label="Filtry kandydatów" className={cn("space-y-2 text-sm", className)} data-help="candidates.list.filters">
@@ -374,6 +376,8 @@ export function CandidateFilterBar({
       <KeywordFields
         id={keywordsId}
         filters={filters}
+        rows={keywordRows}
+        sourceNote={keywordsSourceNote}
         onPatch={onPatch}
         onSearch={onSearch}
         pendingCount={pendingCount}
@@ -612,20 +616,6 @@ export function CandidateFilterBar({
                   <p className="text-[11px] text-muted-foreground">
                     Cały tag, bez wielkości liter — kandydat musi mieć każdy wybrany.
                   </p>
-                </div>
-                <div className="space-y-1">
-                  <FieldLabel>Kolejne grupy „którekolwiek” (LUB)</FieldLabel>
-                  <p className="text-[11px] text-muted-foreground">
-                    Każda grupa musi mieć co najmniej jedno trafienie, np. (React lub Vue) i (Java lub Kotlin).
-                    Pierwsza grupa to pole „Zawiera którekolwiek” nad tabelą.
-                  </p>
-                  <AdvancedSearchPopover
-                    value={{ ...phrases, any: phrases.any.slice(1) }}
-                    hideHeader
-                    sections={["any"]}
-                    suggest={{}}
-                    onChange={(next) => onPatch({ qAny: [filters.qAny[0] ?? [], ...next.any] })}
-                  />
                 </div>
                 <CompactPills
                   label="Status w bazie"

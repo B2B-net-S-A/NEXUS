@@ -68,11 +68,10 @@ describe("url-filters", () => {
       semanticsVersion: 1,
       view: "tiles",
       savedSearchId: 7,
-      qAll: ["react native", "typescript"],
-      qAny: [
-        ["next.js", "remix"],
-        ["go", "rust"],
-      ],
+      // Słowa kluczowe to wiersze wymagań (25.09.2026) — adres niesie same
+      // wiersze, więc `qAll` wraca pusty (jego słowa to wiersze na początku).
+      qAll: [],
+      qAny: [["react native"], ["typescript"], ["next.js", "remix"], ["go", "rust"]],
       qNone: ["junior", "stażysta"],
       qScope: "cv",
       locationRadiusKm: 50,
@@ -89,11 +88,29 @@ describe("url-filters", () => {
   it("advanced search buckets use pipe so commas in phrases survive", () => {
     const withCommas: CandidateFilters = {
       ...DEFAULT_FILTERS,
-      qAll: ["Intel, Inc.", "A/B testing"],
+      qAny: [["Intel, Inc.", "A/B testing"]],
     };
     const encoded = encodeFilters(withCommas);
-    expect(encoded.get("q_all")).toBe("Intel, Inc.|A/B testing");
-    expect(decodeFilters(encoded).qAll).toEqual(["Intel, Inc.", "A/B testing"]);
+    expect(encoded.getAll("q_any")).toEqual(["Intel, Inc.|A/B testing"]);
+    expect(decodeFilters(encoded).qAny).toEqual([["Intel, Inc.", "A/B testing"]]);
+  });
+
+  it("stare `qAll` idzie w adresie jako wiersze na początku (to samo znaczenie)", () => {
+    const encoded = encodeFilters({
+      ...DEFAULT_FILTERS,
+      qAll: ["Java", "Kafka"],
+      qAny: [["Spring", "Quarkus"]],
+    });
+    expect(encoded.has("q_all")).toBe(false);
+    expect(encoded.getAll("q_any")).toEqual(["Java", "Kafka", "Spring|Quarkus"]);
+  });
+
+  it("kolejność wierszy przeżywa zapis i odczyt adresu", () => {
+    const filters: CandidateFilters = {
+      ...DEFAULT_FILTERS,
+      qAny: [["Kafka", "RabbitMQ"], ["Java"], ["bank", "finanse"]],
+    };
+    expect(decodeFilters(encodeFilters(filters)).qAny).toEqual(filters.qAny);
   });
 
   it("empty advanced buckets stay out of the URL", () => {
@@ -108,12 +125,12 @@ describe("url-filters", () => {
     expect(encoded.has("q_none")).toBe(false);
   });
 
-  it("decodes advanced buckets from pipe-separated query string", () => {
+  it("stary adres z `q_all` otwiera się jako wiersze wymagań (zakładki, zapisy)", () => {
     const decoded = decodeFilters(
       sp("q_all=react%20native|typescript&q_any=next.js&q_none=junior|stażysta"),
     );
-    expect(decoded.qAll).toEqual(["react native", "typescript"]);
-    expect(decoded.qAny).toEqual([["next.js"]]);
+    expect(decoded.qAll).toEqual([]);
+    expect(decoded.qAny).toEqual([["react native"], ["typescript"], ["next.js"]]);
     expect(decoded.qNone).toEqual(["junior", "stażysta"]);
   });
 
@@ -556,7 +573,7 @@ describe("filtry z porównania z Traffitem (22.09.2026)", () => {
       1,
     );
     expect(params).toMatchObject({
-      q_all: ["java"],
+      q_any_group: ["java"],
       q_scope: "title",
       location: "Kraków",
       location_radius_km: 25,

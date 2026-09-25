@@ -12,6 +12,7 @@ import {
 } from "@/lib/url-filters";
 import { locationSummary, rateSummary } from "@/lib/candidate-filter-groups";
 import type { ListSearchMemory } from "@/lib/search-memory";
+import { cleanRows, requirementRows } from "@/lib/keyword-requirements";
 
 /** Kryteria bez tego, co działa od razu (strona, sortowanie, widok). */
 function criteriaTokens(filters: CandidateFilters): string[] {
@@ -100,9 +101,9 @@ export function listSearchKeywords(filters: CandidateFilters): string[] {
 export function listSearchLabel(filters: CandidateFilters): string {
   const parts: string[] = [];
   if (filters.q.trim()) parts.push(`„${filters.q.trim()}”`);
-  if (filters.qAll.length) parts.push(filters.qAll.join(" + "));
-  for (const group of filters.qAny) {
-    if (group.length) parts.push(`(${group.join(" lub ")})`);
+  const rows = cleanRows(requirementRows(filters.qAll, filters.qAny));
+  if (rows.length) {
+    parts.push(rows.map((row) => (row.length > 1 ? `(${row.join(" lub ")})` : row[0])).join(" + "));
   }
   if (filters.qNone.length) parts.push(`bez ${filters.qNone.join(", ")}`);
   const rate = rateSummary(filters);

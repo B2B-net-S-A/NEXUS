@@ -52,7 +52,7 @@ describe("candidate-list-staging", () => {
   it("opis do menu „Ostatnie wyszukiwania”", () => {
     expect(
       listSearchLabel(f({ qAll: ["Java", "Kafka"], qAny: [["Spring", "Quarkus"]], qNone: ["junior"], rateMax: 160 })),
-    ).toBe("Java + Kafka · (Spring lub Quarkus) · bez junior · do 160 zł/h");
+    ).toBe("Java + Kafka + (Spring lub Quarkus) · bez junior · do 160 zł/h");
     expect(listSearchLabel(DEFAULT_FILTERS)).toBe("Wszyscy kandydaci");
     expect(listSearchLabel(f({ q: "tester", status: ["active"] }))).toBe("„tester” · +1 filtr");
   });

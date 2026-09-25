@@ -23,6 +23,8 @@ export interface KeywordSuggestion {
   alias?: string | null;
   category?: string | null;
   count?: number | null;
+  /** Inne zapisy tej umiejętności ze słownika (przycisk „+ z wariantami”). */
+  variants?: string[] | null;
 }
 
 export interface KeywordSuggestResponse {
@@ -42,6 +44,8 @@ export interface SuggestionOption {
   kindLabel: string;
   count: number | null;
   group: SuggestionGroup;
+  /** Warianty dodawane razem z `insert` (pozycja „+ z wariantami”). */
+  variants?: string[];
 }
 
 export const GROUP_LABEL: Record<SuggestionGroup, string> = {
@@ -121,6 +125,24 @@ export function buildSuggestionOptions({
     used.add(key);
     out.push(option);
   };
+  // Druga pozycja tej samej umiejętności: nazwa + warianty pisowni jednym
+  // wyborem (decyzja 25.09.2026 — warianty dodaje przycisk, nigdy automat).
+  // Warianty, które już są w polu, odpadają; bez nich pozycji nie ma.
+  const pushVariants = (item: KeywordSuggestion) => {
+    const variants = (item.variants ?? []).filter((v) => !used.has(foldKeyword(v)));
+    if (variants.length === 0) return;
+    out.push({
+      key: `variants:${item.insert}`,
+      insert: item.insert,
+      hit: "",
+      rest: `${item.label} + ${variants.join(", ")}`,
+      note: "",
+      kindLabel: "Z wariantami",
+      count: null,
+      group: "base",
+      variants,
+    });
+  };
 
   for (const item of context) {
     if (!matchesQuery(item.label, trimmed)) continue;
@@ -164,6 +186,7 @@ export function buildSuggestionOptions({
         count: item.count ?? null,
         group: "base",
       });
+      if (item.kind === "skill") pushVariants(item);
     }
     if (!skillsOnly && response.wildcard) {
       push({

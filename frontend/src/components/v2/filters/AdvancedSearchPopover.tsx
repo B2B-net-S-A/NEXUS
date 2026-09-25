@@ -1,6 +1,13 @@
 "use client";
 
-import { useId, useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
+import {
+  useId,
+  useMemo,
+  useState,
+  type ChangeEvent,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
 import { Plus, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -131,6 +138,10 @@ export function ChipField({
   suggest,
   onSubmitEmpty,
   inputId,
+  layout = "stacked",
+  joiner,
+  maxChips = MAX_PER_BUCKET,
+  invalid = false,
 }: {
   chips: string[];
   onChange: (next: string[]) => void;
@@ -141,6 +152,16 @@ export function ChipField({
   suggest?: ChipFieldSuggest;
   onSubmitEmpty?: () => void;
   inputId?: string;
+  /**
+   * `inline` — chipy i pole w jednej ramce, jak wiersz wymagań (25.09.2026);
+   * `stacked` — chipy nad polem (dotychczasowy układ).
+   */
+  layout?: "stacked" | "inline";
+  /** Słowo między chipami w układzie `inline` (np. „lub”). */
+  joiner?: string;
+  maxChips?: number;
+  /** Czerwona ramka (brak wymaganego pola). */
+  invalid?: boolean;
 }) {
   const [draft, setDraft] = useState("");
   const [open, setOpen] = useState(false);
@@ -150,7 +171,7 @@ export function ChipField({
   const [highlight, setHighlight] = useState(-1);
   const listId = useId();
   const userId = useAuthStore((s) => s.user?.id ?? null);
-  const limitReached = chips.length >= MAX_PER_BUCKET;
+  const limitReached = chips.length >= maxChips;
   const suggestions = useKeywordSuggestions(draft, Boolean(suggest) && open);
   const recent = useMemo(
     () => (suggest && open ? recentKeywords(userId) : []),
@@ -171,16 +192,18 @@ export function ChipField({
 
   const commit = () => {
     if (!draft.trim()) return;
+    // `|` rozdziela słowa grupy w adresie — w słowie zamieniamy go na spację,
+    // inaczej po odświeżeniu „a|b” wracało jako dwa osobne słowa.
     const fresh = draft
       .split(",")
-      .map((x) => x.trim())
+      .map((x) => x.replace(/\|/g, " ").replace(/\s+/g, " ").trim())
       .filter((x) => x.length >= MIN_PHRASE_LEN);
     if (fresh.length > 0) onChange(dedupeCaseInsensitive([...chips, ...fresh]));
     setDraft("");
   };
 
   const pick = (option: SuggestionOption) => {
-    onChange(dedupeCaseInsensitive([...chips, option.insert]));
+    onChange(dedupeCaseInsensitive([...chips, option.insert, ...(option.variants ?? [])]));
     setDraft("");
     setHighlight(-1);
   };
@@ -221,71 +244,93 @@ export function ChipField({
     }
   };
 
+  const chipBadges = chips.map((phrase, i) => (
+    <span key={`${phrase}-${i}`} className="inline-flex items-center gap-1.5">
+      <Badge
+        variant="outline"
+        className={cn("gap-1 pl-2 pr-1 py-0.5 font-normal", TONE_CLASSES[tone])}
+      >
+        <span className="max-w-[min(180px,60vw)] truncate">{phrase}</span>
+        <button
+          type="button"
+          onClick={() => removeAt(i)}
+          title="Usuń frazę"
+          aria-label={`Usuń frazę ${phrase}`}
+          className="pointer-coarse:hit-area inline-flex items-center justify-center rounded hover:bg-foreground/10"
+        >
+          <X className="w-3 h-3" />
+        </button>
+      </Badge>
+      {joiner && layout === "inline" && i < chips.length - 1 && (
+        <span className="text-xs font-medium text-muted-foreground">{joiner}</span>
+      )}
+    </span>
+  ));
+  const inputProps = {
+    id: inputId,
+    type: "text",
+    value: draft,
+    onChange: (e: ChangeEvent<HTMLInputElement>) => {
+      setDraft(e.target.value);
+      setHighlight(-1);
+      setOpen(true);
+    },
+    onKeyDown: handleKeyDown,
+    onFocus: () => setOpen(true),
+    onBlur: () => {
+      setOpen(false);
+      commit();
+    },
+    placeholder: limitReached ? `Limit ${maxChips} fraz osiągnięty` : placeholder,
+    disabled: limitReached,
+    "aria-label": ariaLabel,
+    "aria-invalid": invalid || undefined,
+    autoComplete: "off",
+    ...(suggest
+      ? {
+          role: "combobox",
+          "aria-expanded": showList,
+          "aria-controls": listId,
+          "aria-autocomplete": "list" as const,
+          "aria-activedescendant": active >= 0 ? `${listId}-${active}` : undefined,
+        }
+      : {}),
+  };
+  const suggestionList = showList && (
+    <KeywordSuggestionList
+      id={listId}
+      options={options}
+      activeIndex={active}
+      onPick={pick}
+      onHover={setHighlight}
+      canSubmit={Boolean(onSubmitEmpty)}
+    />
+  );
+
+  if (layout === "inline") {
+    return (
+      <div
+        className={cn(
+          "relative flex min-h-10 flex-wrap items-center gap-1.5 rounded-lg border bg-card px-2 py-1 transition-colors duration-150 focus-within:border-primary",
+          invalid ? "border-destructive" : "border-border",
+        )}
+      >
+        {chipBadges}
+        <input
+          {...inputProps}
+          className="h-7 min-w-[8rem] flex-1 bg-transparent text-sm outline-hidden placeholder:text-muted-foreground disabled:cursor-not-allowed"
+        />
+        {suggestionList}
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-1.5">
-      {chips.length > 0 && (
-        <div className="flex flex-wrap gap-1">
-          {chips.map((phrase, i) => (
-            <Badge
-              key={`${phrase}-${i}`}
-              variant="outline"
-              className={cn("gap-1 pl-2 pr-1 py-0.5 font-normal", TONE_CLASSES[tone])}
-            >
-              <span className="max-w-[min(180px,60vw)] truncate">{phrase}</span>
-              <button
-                type="button"
-                onClick={() => removeAt(i)}
-                title="Usuń frazę"
-                aria-label={`Usuń frazę ${phrase}`}
-                className="pointer-coarse:hit-area inline-flex items-center justify-center rounded hover:bg-foreground/10"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            </Badge>
-          ))}
-        </div>
-      )}
+      {chips.length > 0 && <div className="flex flex-wrap gap-1">{chipBadges}</div>}
       <div className="relative">
-        <Input
-          id={inputId}
-          type="text"
-          value={draft}
-          onChange={(e) => {
-            setDraft(e.target.value);
-            setHighlight(-1);
-            setOpen(true);
-          }}
-          onKeyDown={handleKeyDown}
-          onFocus={() => setOpen(true)}
-          onBlur={() => {
-            setOpen(false);
-            commit();
-          }}
-          placeholder={limitReached ? `Limit ${MAX_PER_BUCKET} fraz osiągnięty` : placeholder}
-          disabled={limitReached}
-          aria-label={ariaLabel}
-          autoComplete="off"
-          className="h-8 text-sm"
-          {...(suggest
-            ? {
-                role: "combobox",
-                "aria-expanded": showList,
-                "aria-controls": listId,
-                "aria-autocomplete": "list" as const,
-                "aria-activedescendant": active >= 0 ? `${listId}-${active}` : undefined,
-              }
-            : {})}
-        />
-        {showList && (
-          <KeywordSuggestionList
-            id={listId}
-            options={options}
-            activeIndex={active}
-            onPick={pick}
-            onHover={setHighlight}
-            canSubmit={Boolean(onSubmitEmpty)}
-          />
-        )}
+        <Input {...inputProps} className="h-8 text-sm" />
+        {suggestionList}
       </div>
     </div>
   );

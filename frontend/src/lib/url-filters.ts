@@ -13,6 +13,7 @@ import {
 } from "@/lib/skill-expression";
 import type { OpenToValue } from "@/lib/filter-options";
 import { normalizeLanguageFilters } from "@/lib/candidate-languages";
+import { cleanRows, requirementRows } from "@/lib/keyword-requirements";
 
 export type SortMode = "newest" | "oldest" | "name" | "relevance";
 /** Jak czytać tekst `q` — `auto` = decyduje backend („Rozumiem to jako…"). */
@@ -192,13 +193,12 @@ export interface CandidateFilters {
   semanticsVersion: 1 | 2;
   view: CandidatesView;
   savedSearchId: number | null;
-  // Traffit-style advanced search buckets. Each phrase matches ILIKE
-  // across name/email/CV/ai_summary/competence_category/experience/skills/tags.
-  qAll: string[]; // every phrase must match (AND)
-  // ANY bucket = list of OR-groups that AND together. Each inner array is one
-  // OR-group (phrases OR'd); groups AND with each other. `[["a","b"],["c"]]`
-  // means `(a OR b) AND c`. A single group is the classic "any of these" and
-  // round-trips from legacy `?q_any=a|b` URLs (decoded as one group).
+  // Słowa kluczowe jako lista wymagań (25.09.2026, `lib/keyword-requirements`):
+  // `qAny` to wiersze w kolejności — OR w wierszu, AND między wierszami
+  // (`[["a","b"],["c"]]` = `(a OR b) AND c`). `qAll` zostaje tylko dla źródeł
+  // spoza adresu (stare zapisy, prefill); adres i API niosą same wiersze,
+  // a `decodeFilters` zamienia stare `q_all` na wiersze na początku.
+  qAll: string[]; // legacy: każde słowo = osobny wiersz
   qAny: string[][];
   qNone: string[]; // none of these phrases may match (NOT)
   /**
@@ -387,11 +387,11 @@ export function encodeFilters(f: CandidateFilters): URLSearchParams {
   }
   // v2 jest domyślne — `sv` w adresie tylko dla zapisu przypiętego do v1.
   if (f.semanticsVersion === 1) p.set("sv", "1");
-  if (f.qAll.length) p.set("q_all", PIPE(f.qAll));
-  // One repeated `q_any` param per OR-group (each pipe-joined). Empty groups
-  // are skipped. Legacy single-param `?q_any=a|b` decodes back to one group.
-  for (const group of f.qAny) {
-    if (group.length) p.append("q_any", PIPE(group));
+  // Każdy wiersz wymagań = jeden powtarzany `q_any` (słowa przez `|`), także
+  // jednowyrazowy — kolejność wierszy przeżywa odświeżenie. Stare `q_all`
+  // idzie jako wiersze na początku (tak samo czyta je `decodeFilters`).
+  for (const group of cleanRows(requirementRows(f.qAll, f.qAny))) {
+    p.append("q_any", PIPE(group));
   }
   if (f.qNone.length) p.set("q_none", PIPE(f.qNone));
   if (f.qScope !== "all") p.set("q_in", f.qScope);
@@ -499,9 +499,15 @@ export function decodeFilters(sp: URLSearchParams): CandidateFilters {
     semanticsVersion: sp.get("sv") === "1" ? 1 : 2,
     view,
     savedSearchId,
-    qAll: parsePipe(sp.get("q_all")),
-    // Each repeated `q_any` value is one pipe-joined OR-group. Drop empties.
-    qAny: sp.getAll("q_any").map(parsePipe).filter((g) => g.length > 0),
+    // Stare `q_all` (zakładki, zapisy sprzed 25.09.2026) → wiersz na słowo,
+    // na początku; potem powtarzane `q_any` — każde to jeden wiersz.
+    qAll: [],
+    qAny: cleanRows(
+      requirementRows(
+        parsePipe(sp.get("q_all")),
+        sp.getAll("q_any").map(parsePipe),
+      ),
+    ),
     qNone: parsePipe(sp.get("q_none")),
     qScope: KEYWORD_SCOPES.has(sp.get("q_in") ?? "")
       ? (sp.get("q_in") as KeywordScope)
@@ -706,11 +712,9 @@ export function filtersToApiParams(
     open_to: filters.openTo.length ? filters.openTo : undefined,
     recently_changed_jobs: filters.recentlyChangedJobs ?? undefined,
     semantics_version: filters.semanticsVersion,
-    q_all: filters.qAll.length ? filters.qAll : undefined,
-    // ANY OR-groups → one repeated `q_any_group` value per group (pipe-joined).
-    q_any_group: filters.qAny.some((g) => g.length)
-      ? filters.qAny.filter((g) => g.length).map((g) => g.join("|"))
-      : undefined,
+    // Wiersze wymagań → powtarzany `q_any_group` (słowa przez `|`); stare
+    // `qAll` idzie jako wiersze jednowyrazowe (to samo znaczenie co `q_all`).
+    q_any_group: keywordRowsParam(filters),
     q_none: filters.qNone.length ? filters.qNone : undefined,
     // Zakres słów kluczowych i promień — tylko wspólna semantyka (v2).
     q_scope:
@@ -731,6 +735,13 @@ export function filtersToApiParams(
         : undefined,
     ...extras,
   };
+}
+
+function keywordRowsParam(
+  filters: Pick<CandidateFilters, "qAll" | "qAny">,
+): string[] | undefined {
+  const rows = cleanRows(requirementRows(filters.qAll, filters.qAny));
+  return rows.length ? rows.map((row) => row.join("|")) : undefined;
 }
 
 /** Ile słów kluczowych (wszystkie + którekolwiek + wykluczone) jest ustawionych. */

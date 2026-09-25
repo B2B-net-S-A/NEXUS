@@ -440,6 +440,8 @@ export interface CandidatesListEmbed {
   readOnly?: boolean;
   /** Po udanym dodaniu (np. odświeżenie tablicy rekrutacji). */
   onAdded?: () => void;
+  /** Zdanie nad słowami kluczowymi, gdy wiersze przyszły z rekrutacji. */
+  keywordsNote?: string;
 }
 
 export interface CandidatesListV2Props {
@@ -477,10 +479,16 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
       const userId = useAuthStore.getState().user?.id ?? null;
       const saved = readJobSearch(userId, embed.jobId);
       const query = typeof saved?.request.query === "string" ? saved.request.query : null;
+      // Pamięć niesie odcisk filtrów startowych rekrutacji: inny odcisk =
+      // DL zmienił wymagania po ostatnim wyszukiwaniu tej osoby. Zostaje jej
+      // wyszukiwanie (decyzja 25.09.2026), baner mówi o zmianie.
+      const seed = saved?.request.seed;
       return {
         params: query !== null ? new URLSearchParams(query) : (embedSeed as URLSearchParams),
         restored: query !== null,
         restoredAt: query !== null ? saved?.at ?? null : null,
+        seedChanged:
+          query !== null && typeof seed === "string" && seed !== embedSeed?.toString(),
         memory: null,
       };
     }
@@ -488,6 +496,7 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
     return {
       ...resolveInitialListParams(new URLSearchParams(routeSearchParams?.toString() ?? ""), memory),
       restoredAt: null,
+      seedChanged: false,
       memory,
     };
   });
@@ -719,20 +728,15 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
  v === "side_projects" || v === "sales_support" || v === "expert_consult"
  )
  );
- // Traffit-style boolean buckets — pipe-separated in URL, serialized as repeating
- // query params when calling the API.
- const [qAll, setQAll] = useState<string[]>(
- (searchParams.get("q_all") ??"").split("|").filter(Boolean)
+ // Słowa kluczowe = lista wymagań (`lib/keyword-requirements`). Adres czyta
+ // jeden parser (`decodeFilters`) — stare `q_all` wraca jako wiersze na
+ // początku, więc kolejność wierszy i licznik zmian są te same co w adresie.
+ const [initialKeywords] = useState(() =>
+ decodeFilters(new URLSearchParams(searchParams.toString())),
  );
- const [qAny, setQAny] = useState<string[][]>(
- searchParams
- .getAll("q_any")
- .map((g) => g.split("|").map((s) => s.trim()).filter(Boolean))
- .filter((g) => g.length > 0)
- );
- const [qNone, setQNone] = useState<string[]>(
- (searchParams.get("q_none") ??"").split("|").filter(Boolean)
- );
+ const [qAll, setQAll] = useState<string[]>(initialKeywords.qAll);
+ const [qAny, setQAny] = useState<string[][]>(initialKeywords.qAny);
+ const [qNone, setQNone] = useState<string[]>(initialKeywords.qNone);
  // Cleaned ANY OR-groups: drop empty strings + empty groups. The popover may
  // hold a transient empty group (an open input row); strip those before they
  // reach the URL, the API query, or the active-filter count.
@@ -973,8 +977,11 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
  return;
  }
  if (!rememberRef.current) return;
- writeJobSearch(currentUser?.id, embedMemoryJobId, { query: memoryQuery });
- }, [memoryQuery, embedMemoryJobId, currentUser?.id]);
+ writeJobSearch(currentUser?.id, embedMemoryJobId, {
+ query: memoryQuery,
+ seed: embedSeed?.toString() ?? null,
+ });
+ }, [memoryQuery, embedMemoryJobId, currentUser?.id, embedSeed]);
  // Menu „Kandydaci” na otwartej liście zdejmuje parametry z adresu, ale
  // komponent zostaje — oddajemy adres zamiast rozjazdu z tym, co widać.
  const skipRouteRestoreRef = useRef(false);
@@ -1735,6 +1742,7 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
       pendingCount={pendingCount}
       onSearch={runSearch}
       recruitmentFilterLocked={forJob}
+      keywordsSourceNote={embed?.keywordsNote}
     />
   );
 
@@ -1854,7 +1862,12 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
           {restoredBanner && (
             <div
               role="status"
-              className="flex flex-wrap items-center gap-3 rounded-lg border border-success/30 bg-success-muted px-3 py-2 text-sm text-success-muted-foreground"
+              className={cn(
+                "flex flex-wrap items-center gap-3 rounded-lg border px-3 py-2 text-sm",
+                initialList.seedChanged
+                  ? "border-warning/40 bg-warning-muted text-warning-muted-foreground"
+                  : "border-success/30 bg-success-muted text-success-muted-foreground",
+              )}
             >
               <History className="h-4 w-4 shrink-0" aria-hidden />
               {embed ? (
@@ -1871,6 +1884,8 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
                       })})`
                     : ""}
                   .
+                  {initialList.seedChanged &&
+                    " Wymagania rekrutacji zmieniły się od tego czasu."}
                 </span>
               ) : (
                 <span className="min-w-0 flex-1">
