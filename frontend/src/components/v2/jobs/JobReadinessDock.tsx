@@ -53,7 +53,6 @@ import {
 } from "@/lib/job-pipeline-funnel";
 import { EditJobModal } from "@/components/AppShell";
 import { AddCandidatesQuickModal } from "@/components/v2/modals/AddCandidatesQuickModal";
-import { RECRUITMENT_TYPE_LABEL } from "@/lib/recruitment-type";
 import {
   ChampionVerificationChecklist,
   championVerificationDone,
@@ -816,10 +815,9 @@ export function JobReadinessDock({
     </div>
   ) : null;
 
-  // 0380: klient · „nazwa od klienta” · numer u klienta, potem typ i nasz numer.
+  // 0380: klient · „nazwa od klienta” · numer u klienta, potem nasz numer.
   const subtitle = [
     jobClientLine(job),
-    RECRUITMENT_TYPE_LABEL[job.recruitment_type as string] ?? job.recruitment_type,
     job.reference_number,
   ]
     .filter(Boolean)

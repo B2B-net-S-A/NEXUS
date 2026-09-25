@@ -19,12 +19,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatDate } from "@/lib/utils";
 import { countPl } from "@/lib/plural-pl";
-import { RECRUITMENT_TYPE_LABEL } from "@/lib/recruitment-type";
 
 export interface JobSummaryCardJob {
   title: string;
   client_name?: string | null;
-  recruitment_type?: string | null;
   salary_min?: number | null;
   salary_max?: number | null;
   location?: string | null;
@@ -91,12 +89,6 @@ export function JobSummaryCard({ job, onEdit }: JobSummaryCardProps) {
   const fields: Array<{ label: string; value: string }> = [
     { label: "Tytuł", value: job.title?.trim() || "—" },
     { label: "Klient", value: job.client_name?.trim() || "—" },
-    {
-      label: "Typ",
-      value: job.recruitment_type
-        ? (RECRUITMENT_TYPE_LABEL[job.recruitment_type] ?? job.recruitment_type)
-        : "—",
-    },
     {
       // Makieta podpisuje to pole „Widełki klienta" — świadomie NIE przejmujemy
       // tej etykiety. `salary_min/max` to WYNAGRODZENIE Z OFERTY (patrz wyżej);

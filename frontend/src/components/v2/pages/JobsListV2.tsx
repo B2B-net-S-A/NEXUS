@@ -105,13 +105,11 @@ import {
   initialSearchFromUrl,
   sortOverrideFromUrl,
   initialStatusFromUrl,
-  initialTypeFromUrl,
   type JobDeadlinePreset,
   type JobDeadlineRange,
   type JobScope,
   type JobSentFilterValue,
   type JobSortFilterValue,
-  type JobTypeFilterValue,
 } from "@/lib/jobs-url-filters";
 import { extractSkills } from "@/lib/job-skills";
 import { jobDisplayTitle } from "@/lib/job-names";
@@ -121,23 +119,6 @@ import type {
   PriorityChannel,
   PriorityRank,
 } from "@/lib/priority-work-api";
-
-// `recruitment_type` z backendu (`RecruitmentType`, `body_leasing` |
-// `sales_project` | `tender`) — do 2026-09 ten filtr wysyłał `"sales"` /
-// `"tenders"`, które nie są prawidłowymi wartościami enuma. FastAPI waliduje
-// query param typu Enum, więc kliknięcie zakładki „Sales" lub „Przetargi"
-// kończyło się 422 i całą listą renderowaną jako awaria — dokładnie ten sam
-// gatunek błędu, który wcześniej naprawiono dla `ContractTypeValue` w
-// `filter-options.ts` (tam wartości też były przepisane z tego enuma).
-// Etykiety zostają PL/EN tak jak dziś — to wartości WYSYŁANE do API się liczą.
-type JobType = JobTypeFilterValue;
-
-const FILTER_TABS: { value: JobType; label: string }[] = [
-  { value: "all", label: "Wszystkie" },
-  { value: "body_leasing", label: "Body leasing" },
-  { value: "sales_project", label: "Sales" },
-  { value: "tender", label: "Przetargi" },
-];
 
 const STATUS_VARIANT: Record<
   string, "success" | "soft" | "neutral" | "warning" | "danger"
@@ -310,7 +291,6 @@ export function JobPriorityWorkBadges({
 export interface JobsListQueryState {
   search: string;
   status: readonly JobStatusValue[];
-  type: JobTypeFilterValue;
   mine: boolean;
   responsibleIds: readonly number[];
   clientIds: readonly number[];
@@ -346,7 +326,6 @@ export function jobsListQueryKey(state: JobsListQueryState): unknown[] {
     "jobs-v2",
     state.search,
     state.status,
-    state.type,
     state.mine ? 1 : 0,
     state.responsibleIds,
     state.clientIds,
@@ -746,9 +725,6 @@ export function JobsListV2() {
   const [statusFilter, setStatusFilter] = useState<JobStatusValue[]>(
     () => initialStatusFromUrl(searchParams)
   );
-  const [typeFilter, setTypeFilter] = useState<JobType>(() =>
-    initialTypeFromUrl(searchParams),
-  );
   // Zakres i sortowanie trzymamy jako NADPISANIA (`null` = „bez wyboru"):
   // zakres obowiązujący to jawny wybór albo domyślny roli, a sortowanie bez
   // wyboru idzie za zakresem. Dzięki temu lista reaguje na hydratację store'u
@@ -876,7 +852,6 @@ export function JobsListV2() {
         status: statusFilter,
         scope,
         defaultScope,
-        type: typeFilter,
         deadline: deadlinePreset,
         deadlineRange,
         sort,
@@ -909,7 +884,6 @@ export function JobsListV2() {
     statusFilter,
     scope,
     defaultScope,
-    typeFilter,
     deadlinePreset,
     deadlineRange,
     sort,
@@ -949,7 +923,6 @@ export function JobsListV2() {
     queryKey: jobsListQueryKey({
       search: debouncedSearch,
       status: statusFilter,
-      type: typeFilter,
       mine,
       responsibleIds,
       clientIds,
@@ -974,7 +947,6 @@ export function JobsListV2() {
           params: {
             q: debouncedSearch || undefined,
             status: statusFilter.length ? statusFilter : undefined,
-            recruitment_type: typeFilter !== "all" ? typeFilter : undefined,
             mine: mine ? true : undefined,
             responsible_id: responsibleIds.length ? responsibleIds : undefined,
             delivery_lead_id: deliveryLeadIds.length ? deliveryLeadIds : undefined,
@@ -1112,7 +1084,6 @@ export function JobsListV2() {
   // „Otwarte" / „Wszystkie") też: ma własny, zawsze widoczny przełącznik,
   // a zakres domyślny liczony jako filtr dawałby „Filtry (1)" na starcie.
   const activeFilterCount =
-    (typeFilter !== "all" ? 1 : 0) +
     statusFilter.length +
     (sentFilter !== "any" ? 1 : 0) +
     deliveryLeadIds.length +
@@ -1163,7 +1134,6 @@ export function JobsListV2() {
     viewState === "error";
 
   const resetFilters = () => {
-    setTypeFilter("all");
     setStatusFilter([]);
     setRequestStatuses([]);
     setWorkStates([]);
@@ -1243,32 +1213,6 @@ export function JobsListV2() {
               Wyczyść
             </button>
           </div>
-
-          <div className="space-y-1.5">
-            <div className="text-[11px] font-medium text-muted-foreground">Typ</div>
-            {/* `role="group"` + nazwa: obie grupy pigułek mają pozycję
-                „Wszystkie", więc bez tego dwa różne przyciski miałyby w tym
-                samym widoku identyczną nazwę dostępną. */}
-            <div
-              className="flex flex-wrap gap-1"
-              role="group"
-              aria-label="Filtr: Typ"
-            >
-              {FILTER_TABS.map((tab) => (
-                <FilterPill
-                  key={tab.value}
-                  active={typeFilter === tab.value}
-                  onClick={() => {
-                    setTypeFilter(tab.value);
-                    setPage(1);
-                  }}
-                  label={tab.label}
-                />
-              ))}
-            </div>
-          </div>
-
-          <div className="border-t border-border" />
 
           <div className="space-y-1">
             <div className="px-2 text-[11px] font-medium text-muted-foreground">

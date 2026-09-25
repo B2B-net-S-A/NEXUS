@@ -121,7 +121,6 @@ function jobRow(overrides: Record<string, unknown> = {}) {
     headcount: 1,
     candidate_count: 0,
     tac_id: 7,
-    recruitment_type: "body_leasing",
     ...overrides,
   };
 }
@@ -249,59 +248,25 @@ describe("JobsListV2 — filtry Szybkie → parametry zapytania", () => {
     });
   });
 
-  it("„Wyczyść” resetuje filtr Typ i „Szybkie” razem", async () => {
+  it("typów rekrutacji nie ma: brak grupy „Typ”, zapytanie bez `recruitment_type`, stary `?type=` znika z adresu", async () => {
+    window.history.replaceState(null, "", "/jobs?type=tender");
     const user = userEvent.setup();
     renderJobs();
     await waitFor(() => expect(jobsCalls()).toHaveLength(1));
 
-    // `getByRole("button", ...)`, NIE `getByText` — fixture ma
-    // `recruitment_type: "body_leasing"`, więc "Body leasing" wychodzi
-    // DWA razy: jako pigułka Typ w aside i jako pill typu w wierszu listy.
-    await user.click(screen.getByRole("button", { name: "Body leasing" }));
+    expect(screen.queryByRole("group", { name: "Filtr: Typ" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Przetargi" })).not.toBeInTheDocument();
+    expect(latestParams().recruitment_type).toBeUndefined();
+
     await user.click(screen.getByText("Potrzebny search"));
     await waitFor(() => {
-      expect(latestParams()).toMatchObject({
-        recruitment_type: "body_leasing",
-        needs_sourcing: true,
-      });
-    });
-
-    // Realna poprawka w tym kroku: „Sales"/„Przetargi" wysyłają wartości
-    // ENUMA (`sales_project`/`tender`), nie etykiety — stary kod wysyłał
-    // `sales`/`tenders` i dostawał 422.
-    await user.click(screen.getByRole("button", { name: "Sales" }));
-    await waitFor(() => {
-      expect(latestParams()).toMatchObject({ recruitment_type: "sales_project" });
-    });
-    await user.click(screen.getByRole("button", { name: "Przetargi" }));
-    await waitFor(() => {
-      expect(latestParams()).toMatchObject({ recruitment_type: "tender" });
+      expect(latestParams()).toMatchObject({ needs_sourcing: true });
+      expect(new URLSearchParams(window.location.search).get("type")).toBeNull();
     });
 
     await user.click(screen.getByText("Wyczyść"));
     await waitFor(() => {
-      const params = latestParams();
-      expect(params.recruitment_type).toBeUndefined();
-      expect(params.needs_sourcing).toBeUndefined();
-    });
-  });
-
-  it("typ rekrutacji ląduje w URL-u i znika z niego po „Wyczyść” (M03-B01)", async () => {
-    window.history.replaceState(null, "", "/jobs");
-    const user = userEvent.setup();
-    renderJobs();
-    await waitFor(() => expect(jobsCalls()).toHaveLength(1));
-
-    await user.click(screen.getByRole("button", { name: "Przetargi" }));
-    await waitFor(() => {
-      expect(new URLSearchParams(window.location.search).get("type")).toBe(
-        "tender",
-      );
-    });
-
-    await user.click(screen.getByText("Wyczyść"));
-    await waitFor(() => {
-      expect(window.location.search).toBe("");
+      expect(latestParams().needs_sourcing).toBeUndefined();
     });
   });
 });
@@ -443,8 +408,8 @@ describe("JobsListV2 — status jako pigułki", () => {
     renderJobs();
     await waitFor(() => expect(jobsCalls()).toHaveLength(1));
 
-    // Grupy pigułek Typ i Status obie mają pozycję „Wszystkie" — stąd
-    // zapytanie w obrębie nazwanej grupy, a nie po samej nazwie przycisku.
+    // Zapytanie w obrębie nazwanej grupy, a nie po samej nazwie przycisku —
+    // „Wszystkie” występuje na ekranie więcej niż raz.
     const statusGroup = within(
       screen.getByRole("group", { name: "Filtr: Status" }),
     );

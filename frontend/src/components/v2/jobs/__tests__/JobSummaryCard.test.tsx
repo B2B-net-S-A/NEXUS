@@ -10,7 +10,6 @@ import { JobSummaryCard } from "@/components/v2/jobs/JobSummaryCard";
 const fullJob = {
   title: "Programista Python",
   client_name: "PKO Bank Polski",
-  recruitment_type: "body_leasing",
   salary_min: 15000,
   salary_max: 22000,
   location: "Warszawa / hybryda",
@@ -21,12 +20,13 @@ const fullJob = {
 };
 
 describe("JobSummaryCard — dane", () => {
-  it("renderuje sześć pól z wartościami zlecenia", () => {
+  it("renderuje pola z wartościami zlecenia — bez typu rekrutacji", () => {
     render(<JobSummaryCard job={fullJob} />);
 
     expect(screen.getByText("Programista Python")).toBeInTheDocument();
     expect(screen.getByText("PKO Bank Polski")).toBeInTheDocument();
-    expect(screen.getByText("Body leasing")).toBeInTheDocument();
+    // Typów rekrutacji nie ma (25.09.2026).
+    expect(screen.queryByText("Typ")).not.toBeInTheDocument();
     // `toLocaleString("pl-PL")` grupuje tysiące spacją NIEROZDZIELAJĄCĄ
     // (U+00A0). Testing Library normalizuje TYLKO tekst z DOM-u (kolapsuje
     // `\s+`, w tym U+00A0, do zwykłej spacji) — matcher-string porównuje z
@@ -102,13 +102,12 @@ describe("JobSummaryCard — lokalizacja składa miasto, tryb i dni w biurze", (
 });
 
 describe("JobSummaryCard — pola brakujące renderują się jako „—”, nie znikają", () => {
-  it("brak klienta/typu/widełek/lokalizacji/deadline'u", () => {
+  it("brak klienta/widełek/lokalizacji/deadline'u", () => {
     render(
       <JobSummaryCard
         job={{
           title: "Rola bez reszty pól",
           client_name: null,
-          recruitment_type: null,
           salary_min: null,
           salary_max: null,
           location: null,
@@ -116,8 +115,8 @@ describe("JobSummaryCard — pola brakujące renderują się jako „—”, nie
         }}
       />,
     );
-    // 5 pól bez klienta/typu/widełek/lokalizacji/deadline'u — tytuł ma wartość.
-    expect(screen.getAllByText("—")).toHaveLength(5);
+    // 4 pola bez klienta/widełek/lokalizacji/deadline'u — tytuł ma wartość.
+    expect(screen.getAllByText("—")).toHaveLength(4);
   });
 
   it("tylko jeden koniec widełek (dolny) formatuje się jako „od X PLN”", () => {
@@ -128,11 +127,6 @@ describe("JobSummaryCard — pola brakujące renderują się jako „—”, nie
   it("tylko górny koniec widełek formatuje się jako „do X PLN”", () => {
     render(<JobSummaryCard job={{ ...fullJob, salary_min: null }} />);
     expect(screen.getByText("do 22 000 PLN/mies.")).toBeInTheDocument();
-  });
-
-  it("typ nieznany w słowniku pokazuje surową wartość zamiast zniknąć", () => {
-    render(<JobSummaryCard job={{ ...fullJob, recruitment_type: "unknown_type" }} />);
-    expect(screen.getByText("unknown_type")).toBeInTheDocument();
   });
 });
 

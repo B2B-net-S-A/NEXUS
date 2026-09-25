@@ -4,7 +4,7 @@ Decyzja Artura (22.09.2026, punkt 7 audytu ról i targetów):
 
 - **Delivery Lead**: hit ratio 30% i placementy w portfelu. Liczby i okno są
   TE SAME co w Lidze Mistrzów DL (`competitions.dl_portfolio_counts`: kwartał
-  kalendarzowy, oferty body leasing, DL oferty albo head DL klienta; próg
+  kalendarzowy, wszystkie rekrutacje, DL oferty albo head DL klienta; próg
   `HIT_RATIO_TARGET` i `QUARTERLY_MIN_PLACEMENTS`). Dzięki temu „twoje hit
   ratio" na pulpicie i miejsce na podium liczą się z jednego zapytania.
 - **Head of Recruitment i TCM**: cele ZESPOŁOWE, bez osobistych. Zespół to

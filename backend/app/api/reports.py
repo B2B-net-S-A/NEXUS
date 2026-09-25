@@ -1,6 +1,6 @@
 """
 Nexus ATS — Reporting Module
-Generates live reports from ATS data (recruitment, sales, delivery, tenders, board).
+Generates live reports from ATS data (recruitment, sales, delivery, board).
 """
 
 import logging
@@ -27,7 +27,7 @@ from app.models.competence_category import (
 )
 from app.models.contract import Contract, ContractStatus
 from app.services import job_data_trust
-from app.models.job import Job, JobCloseReason, JobStatus, RecruitmentType
+from app.models.job import Job, JobCloseReason, JobStatus
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User, UserRole
@@ -243,7 +243,6 @@ async def report_recruitment(
     current_user: RecruitmentRankingUser,
     db: AsyncSession = Depends(get_db),
     period: str = Query("month", enum=["week", "month", "quarter", "year"]),
-    recruitment_type: Optional[str] = Query(None),
 ):
     """Lejek rekrutacyjny + rozbicie per rekruter (atrybucja verifier-anchored).
 
@@ -255,22 +254,14 @@ async def report_recruitment(
 
     Cache 5 min; klucz nie zawiera okna, bo okno jest funkcją `period`.
     """
-    cache_key = f"reports:recruitment:{period}:{recruitment_type}"
+    cache_key = f"reports:recruitment:{period}"
     cached = await cache_get(cache_key)
     if cached is not None:
         return cached
 
     start = _period_start(period)
 
-    rtype_clause = ""
     base_params: dict = {"period_start": start}
-    if recruitment_type and recruitment_type != "all":
-        try:
-            RecruitmentType(recruitment_type)
-            rtype_clause = "AND j.recruitment_type::text = :rtype"
-            base_params["rtype"] = recruitment_type
-        except ValueError:
-            pass
 
     # Global funnel counts (across all recruiters). Definicje KPI Artura
     # (spójne z panelem „Moje KPI" / app/services/kpi_panel.py):
@@ -292,7 +283,7 @@ async def report_recruitment(
     # nie sumuje się do własnego nagłówka, podważa obie liczby naraz.
     totals_sql = text(
         VERIFIER_ANCHORED_CTE
-        + f"""
+        + """
         SELECT c.stage,
                count(*) AS cnt,
                count(*) FILTER (WHERE c.credit_user IS NULL) AS unattributed
@@ -300,7 +291,6 @@ async def report_recruitment(
         JOIN jobs j ON j.id = c.job_id
         WHERE c.reached_at >= :period_start
           AND c.stage IN ('verified', 'cv_sent', 'interview', 'hired')
-          {rtype_clause}
         GROUP BY c.stage
         """
     )
@@ -333,14 +323,13 @@ async def report_recruitment(
     # kanoniczny view, bez lookbacku) zamiast zdublowanej kopii SQL-a.
     per_recruiter_sql = text(
         VERIFIER_ANCHORED_CTE
-        + f"""
+        + """
         SELECT c.credit_user, c.stage, count(*) AS cnt
         FROM credited c
         JOIN jobs j ON j.id = c.job_id
         WHERE c.reached_at >= :period_start
           AND c.credit_user IS NOT NULL
           AND c.stage IN ('verified', 'cv_sent', 'interview', 'hired')
-          {rtype_clause}
         GROUP BY c.credit_user, c.stage
         """
     )
@@ -455,7 +444,6 @@ async def report_recruitment(
 
     result_data = {
         "period": period,
-        "recruitment_type": recruitment_type,
         "funnel": {
             "weryfikacje_count": weryfikacje,
             "rekomendacje_count": rekomendacje,
@@ -764,9 +752,9 @@ async def _compute_dl_metrics(
     period_start: Optional[datetime],
     only_dl_id: Optional[int] = None,
 ) -> tuple[list[dict], dict]:
-    """Zwraca (per_dl_rows, overall_totals) dla body_leasing Jobów.
+    """Zwraca (per_dl_rows, overall_totals) dla rekrutacji.
 
-    - requests / vacancies liczone z Jobów body_leasing **utworzonych** w okresie
+    - requests / vacancies liczone z rekrutacji **utworzonych** w okresie
     - placements = PIERWSZE wejście pary (kandydat, oferta) na `hired`
       (widok `analytics_first_milestones`, `first_reached_at` w okresie)
       dla Jobów tych DL
@@ -776,21 +764,15 @@ async def _compute_dl_metrics(
     """
     fallback = await _dl_head_fallback_map(db)
 
-    # 1. Jobs body_leasing stworzone w okresie.
-    jobs_q = (
-        select(
-            Job.id,
-            Job.delivery_lead_id,
-            Job.client_id,
-            Job.headcount,
-            Job.status,
-            Client.name.label("client_name"),
-        )
-        .outerjoin(Client, Job.client_id == Client.id)
-        .where(
-            Job.recruitment_type == RecruitmentType.body_leasing,
-        )
-    )
+    # 1. Rekrutacje stworzone w okresie.
+    jobs_q = select(
+        Job.id,
+        Job.delivery_lead_id,
+        Job.client_id,
+        Job.headcount,
+        Job.status,
+        Client.name.label("client_name"),
+    ).outerjoin(Client, Job.client_id == Client.id)
     if period_start is not None:
         jobs_q = jobs_q.where(Job.created_at >= period_start)
     jobs_rows = (await db.execute(jobs_q)).all()
@@ -836,14 +818,11 @@ async def _compute_dl_metrics(
         FROM analytics_first_milestones fm
         JOIN jobs j ON j.id = fm.job_id
         WHERE fm.stage = 'hired'
-          AND j.recruitment_type = :recruitment_type
           {period_clause}
         GROUP BY j.id, j.delivery_lead_id, j.client_id
         """
     )
-    placement_params: dict[str, object] = {
-        "recruitment_type": RecruitmentType.body_leasing.value
-    }
+    placement_params: dict[str, object] = {}
     if period_start:
         placement_params["period_start"] = period_start
     placement_rows = (
@@ -868,7 +847,6 @@ async def _compute_dl_metrics(
         Job.client_id,
         Job.headcount,
     ).where(
-        Job.recruitment_type == RecruitmentType.body_leasing,
         Job.status.in_([JobStatus.draft, JobStatus.published]),
     )
     open_rows = (await db.execute(open_q)).all()
@@ -996,7 +974,7 @@ async def report_delivery_leads(
     period: str = Query("month", enum=["week", "month", "quarter", "year"]),
 ):
     """Delivery Lead performance: requests, vacancies, placements, hit ratio,
-    fill rate, open pipeline. Dotyczy wyłącznie Jobów `body_leasing`.
+    fill rate, open pipeline.
 
     Cached for 5 minutes.
     """
@@ -1565,95 +1543,6 @@ async def report_client_trend(
         )
 
     return {"client_id": client_id, "months": months, "trend": trend}
-
-
-# ── Tenders Report ─────────────────────────────────────────────────────────────
-
-
-@router.get("/tenders")
-async def report_tenders(
-    # Raport zawiera wartości przetargów: wyłącznie Finance/Admin.
-    current_user: FinanceReadUser,
-    db: AsyncSession = Depends(get_db),
-    period: str = Query("year", enum=["week", "month", "quarter", "year"]),
-):
-    """
-    Tenders (przetargi) report: total, won, lost, pending, win rate.
-    Cached for 5 minutes.
-    """
-    cache_key = f"reports:tenders:{period}"
-    cached = await cache_get(cache_key)
-    if cached is not None:
-        return cached
-
-    start = _period_start(period)
-
-    tenders_q = (
-        select(Job, Client.name.label("client_name"))
-        .outerjoin(Client, Job.client_id == Client.id)
-        .where(
-            Job.recruitment_type == RecruitmentType.tender,
-            Job.created_at >= start,
-        )
-    )
-    tenders_rows = (await db.execute(tenders_q)).all()
-
-    total = len(tenders_rows)
-
-    # PR 4 (plan analytics §3.2/§4.2): wynik przetargu z Job.close_reason
-    # (filled_by_us = wygrana; inny powód = przegrana; zamknięty BEZ powodu
-    # = nieznany), nie z heurystyki po priority. Otwarte = w_toku.
-    lost_list = []
-    won_list = []
-    pending_list = []
-    unknown_list = []
-
-    for r in tenders_rows:
-        j = r.Job
-        value = j.salary_max or j.salary_min or 0
-        entry = {
-            "job_id": j.id,
-            "job_title": j.title,
-            "client": r.client_name or "—",
-            "status": j.status.value,
-            "value": value,
-            "deadline": str(j.deadline) if j.deadline else None,
-            "close_reason": j.close_reason.value if j.close_reason else None,
-        }
-        if j.status.value == "closed":
-            if j.close_reason is None:
-                entry["result"] = "nieznana"
-                unknown_list.append(entry)
-            elif j.close_reason.value == "filled_by_us":
-                entry["result"] = "wygrana"
-                won_list.append(entry)
-            else:
-                entry["result"] = "przegrana"
-                lost_list.append(entry)
-        else:
-            entry["result"] = "w_toku"
-            pending_list.append(entry)
-
-    won_count = len(won_list)
-    lost_count = len(lost_list)
-    pending_count = len(pending_list)
-    unknown_count = len(unknown_list)
-    win_rate = _safe_pct(won_count, won_count + lost_count)
-
-    per_tender = won_list + lost_list + unknown_list + pending_list
-
-    result_data = {
-        "period": period,
-        "total_tenders": total,
-        "won": won_count,
-        "lost": lost_count,
-        "pending": pending_count,
-        "unknown": unknown_count,
-        "win_rate": win_rate,
-        "per_tender": per_tender,
-    }
-    await cache_set(cache_key, result_data, ttl_seconds=300)
-    return result_data
 
 
 # ── Invite-link channel report ─────────────────────────────────────────────

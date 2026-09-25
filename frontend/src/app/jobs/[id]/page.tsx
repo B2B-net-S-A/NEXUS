@@ -111,17 +111,6 @@ import type {
   RecruitmentSlideOver,
 } from "@/components/v2/recruitment/types";
 
-// ── Recruitment type config ───────────────────────────────────────────────────
-
-const RECRUITMENT_TYPE_CONFIG: Record<
-  string,
-  { label: string; variant: "soft" | "success" | "warning" }
-> = {
-  body_leasing: { label: "Body Leasing", variant: "soft" },
-  sales_project: { label: "Sprzedaż", variant: "success" },
-  tender: { label: "Przetarg", variant: "warning" },
-};
-
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 /**
@@ -773,16 +762,6 @@ export default function JobDetailPage() {
         clientReference={job.client_reference}
         badges={
           <>
-            {job.recruitment_type &&
-            RECRUITMENT_TYPE_CONFIG[job.recruitment_type] ? (
-              <Badge
-                variant={
-                  RECRUITMENT_TYPE_CONFIG[job.recruitment_type].variant
-                }
-              >
-                {RECRUITMENT_TYPE_CONFIG[job.recruitment_type].label}
-              </Badge>
-            ) : null}
             {/* Status requestu (0341) zastępuje techniczny „Aktywna/Szkic" —
                 ta sama reguła co kolumna „Status" na liście. */}
             {requestStatusOf(job.request_status) ? (

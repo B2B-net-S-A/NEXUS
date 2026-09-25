@@ -510,7 +510,8 @@ async def test_placements_by_client_uses_the_d2_definition(fx_client: AsyncClien
 
     Tam placement to KAŻDY wiersz `hired` i tylko dla ofert zamkniętych — dwie
     definicje na jednym ekranie dają dwie różne sumy pod tą samą etykietą.
-    Poza tym `sales_project` nie należy do body leasingu i nie może tu wejść.
+    Typów rekrutacji nie ma (25.09.2026): rekrutacja ze starą wartością
+    `sales_project` w martwej kolumnie liczy się jak każda inna.
     """
     await _flush_cache()
     dl_id, _, _ = await _seed_user(UserRole.delivery_lead, "donut")
@@ -550,8 +551,8 @@ async def test_placements_by_client_uses_the_d2_definition(fx_client: AsyncClien
     ).json()
     by_id = {c["client_id"]: c for c in body["clients"]}
     assert by_id[client_a]["placements"] == 2
-    assert by_id[client_b]["placements"] == 1  # `sales_project` NIE wchodzi
-    assert body["recruitment_type"] == "body_leasing"
+    assert by_id[client_b]["placements"] == 2  # stara wartość typu nie wyklucza
+    assert "recruitment_type" not in body
     assert by_id[client_a]["share_pct"] is not None
 
 

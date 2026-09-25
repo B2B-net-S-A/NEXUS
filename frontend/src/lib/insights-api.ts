@@ -656,7 +656,6 @@ export interface InsightsDeliveryLeadRow {
 export interface InsightsDeliveryLeadsResponse {
   period: InsightsPeriod;
   /** Ranking dotyczy WYŁĄCZNIE ofert tego typu — nie zsumuje się do lejka. */
-  recruitment_type: string;
   hit_ratio_target_pct: number;
   /** `snapshot_now` = otwarty pipeline NIE jest liczony w oknie. */
   open_pipeline_scope: string;
@@ -688,7 +687,6 @@ export interface InsightsDeliveryLeadsResponse {
 
 export interface InsightsPlacementsByClientResponse {
   period: InsightsPeriod;
-  recruitment_type: string;
   total_placements: number;
   clients: Array<{
     client_id: number | null;
@@ -703,7 +701,6 @@ export interface InsightsDeliveryLeadTrendResponse {
   name: string;
   is_active: boolean;
   months: number;
-  recruitment_type: string;
   /** `false` — każdy punkt to OSOBNE okno [start, end), nie ogon do dziś. */
   cumulative: boolean;
   trend: Array<{

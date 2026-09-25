@@ -171,7 +171,6 @@ const jobFixture = {
   client_id: 42,
   client_name: "PKO Bank Polski",
   reference_number: "16/9/2026/MW/4903",
-  recruitment_type: "body_leasing",
   must_skills: ["Python", "Django"],
   nice_skills: ["AWS"],
   has_budget_hourly: true,
@@ -334,7 +333,7 @@ describe("JobReadinessDock — dane", () => {
 
     expect(await screen.findByText("Programista Python (ZOB-2947)")).toBeInTheDocument();
     expect(
-      screen.getByText("PKO Bank Polski · Body leasing · 16/9/2026/MW/4903"),
+      screen.getByText("PKO Bank Polski · 16/9/2026/MW/4903"),
     ).toBeInTheDocument();
 
     // 5/5 — wszystkie pozycje checklisty spełnione w fixture.

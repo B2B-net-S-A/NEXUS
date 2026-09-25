@@ -1120,13 +1120,11 @@ export const adminApi = {
 
 // ── Reports ───────────────────────────────────────────────────────────────────
 export const reportsApi = {
-  recruitment: (params: { period?: string; recruitment_type?: string }) =>
+  recruitment: (params: { period?: string }) =>
     api.get("/api/reports/recruitment", { params }),
   sales: () => api.get("/api/reports/sales"),
   deliveryLeads: (params: { period?: string }) =>
     api.get("/api/reports/delivery-leads", { params }),
-  tenders: (params: { period?: string }) =>
-    api.get("/api/reports/tenders", { params }),
   inviteLinks: (params: { period?: string }) =>
     api.get("/api/reports/invite-links", { params }),
 };

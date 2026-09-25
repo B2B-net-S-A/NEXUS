@@ -1186,7 +1186,6 @@ export function EditCandidateModal({ candidate, onClose, onSuccess }: { candidat
 interface JobFormData {
   title: string;
   client_id: string;
-  recruitment_type: string;
   status: string;
   description: string;
   requirements: string;
@@ -1219,7 +1218,6 @@ function jobToForm(j: any): JobFormData {
   return {
     title: j.title ?? "",
     client_id: j.client_id ? String(j.client_id) : "",
-    recruitment_type: j.recruitment_type ?? "body_leasing",
     status: j.status ?? "draft",
     description: j.description ?? "",
     requirements: j.requirements ?? "",

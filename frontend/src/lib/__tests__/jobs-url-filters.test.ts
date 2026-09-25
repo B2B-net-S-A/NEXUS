@@ -26,7 +26,6 @@ import {
   sentQueryParams,
   sortOverrideFromUrl,
   initialStatusFromUrl,
-  initialTypeFromUrl,
   scopeForStatuses,
   statusesForScope,
 } from "@/lib/jobs-url-filters";
@@ -113,7 +112,7 @@ describe("domyślny zakres zależy od ROLI (lista v5: Moje | Otwarte | Wszystkie
   });
 
   it("do adresu trafia tylko zakres INNY niż domyślny roli — i przeżywa odczyt", () => {
-    const base = { status: [], type: "all", deadline: "any" } as const;
+    const base = { status: [], deadline: "any" } as const;
     // rekruter (domyślnie „Moje”)
     expect(
       encodeJobsListUrl({ ...base, scope: "all", defaultScope: "mine", sort: "newest" }),
@@ -151,7 +150,7 @@ describe("domyślne sortowanie idzie za zakresem", () => {
   });
 
   it("domyślne sortowanie zakresu nie trafia do adresu, inne — tak", () => {
-    const base = { status: [], type: "all", deadline: "any", defaultScope: "mine" } as const;
+    const base = { status: [], deadline: "any", defaultScope: "mine" } as const;
     expect(encodeJobsListUrl({ ...base, scope: "mine", sort: "attention" })).toBe("");
     expect(encodeJobsListUrl({ ...base, scope: "mine", sort: "newest" })).toBe("sort=newest");
     expect(encodeJobsListUrl({ ...base, scope: "all", sort: "attention" })).toBe(
@@ -160,19 +159,17 @@ describe("domyślne sortowanie idzie za zakresem", () => {
   });
 });
 
-// M03-B01: typ, termin i sortowanie żyły tylko w `useState` — F5 zwracało
+// M03-B01: termin i sortowanie żyły tylko w `useState` — F5 zwracało
 // pełną listę. Test sprawdza obie strony: zapis do URL-a i odtworzenie.
-describe("typ, termin, sortowanie w URL-u", () => {
-  it("odtwarza wszystkie trzy filtry z adresu", () => {
-    const params = new URLSearchParams("type=tender&deadline=none&sort=oldest");
-    expect(initialTypeFromUrl(params)).toBe("tender");
+describe("termin, sortowanie w URL-u", () => {
+  it("odtwarza filtry z adresu", () => {
+    const params = new URLSearchParams("deadline=none&sort=oldest");
     expect(initialDeadlineFromUrl(params)).toBe("none");
     expect(sortOverrideFromUrl(params)).toBe("oldest");
   });
 
   it("brak albo nieznana wartość = domyślna, nie 422", () => {
-    const params = new URLSearchParams("type=sales&deadline=jutro&sort=");
-    expect(initialTypeFromUrl(params)).toBe("all");
+    const params = new URLSearchParams("deadline=jutro&sort=");
     expect(initialDeadlineFromUrl(params)).toBe("any");
     // Brak wyboru = sortowanie idzie za zakresem.
     expect(sortOverrideFromUrl(params)).toBeNull();
@@ -183,14 +180,12 @@ describe("typ, termin, sortowanie w URL-u", () => {
       status: ["published", "draft"],
       scope: "mine",
       defaultScope: "open",
-      type: "body_leasing",
       deadline: "next7",
       sort: "deadline",
     });
     const params = new URLSearchParams(qs);
     expect(initialStatusFromUrl(params)).toEqual(["published", "draft"]);
     expect(scopeOverrideFromUrl(params)).toBe("mine");
-    expect(initialTypeFromUrl(params)).toBe("body_leasing");
     expect(initialDeadlineFromUrl(params)).toBe("next7");
     expect(sortOverrideFromUrl(params)).toBe("deadline");
   });
@@ -201,7 +196,6 @@ describe("typ, termin, sortowanie w URL-u", () => {
         status: [],
         scope: "mine",
         defaultScope: "mine",
-        type: "all",
         deadline: "any",
         sort: "attention",
       }),
@@ -210,14 +204,15 @@ describe("typ, termin, sortowanie w URL-u", () => {
 
   it("zdejmuje nieaktualne wartości, zostawia cudze parametry", () => {
     const qs = encodeJobsListUrl(
-      { status: [], scope: "all", defaultScope: "mine", type: "tender", deadline: "any", sort: "newest" },
+      { status: [], scope: "all", defaultScope: "mine", deadline: "any", sort: "newest" },
       new URLSearchParams("mine=0&status=published&type=body_leasing&foo=bar"),
     );
     const params = new URLSearchParams(qs);
     expect(params.getAll("status")).toEqual([]);
     // Jawne „Wszystkie" ZOSTAJE w adresie (inaczej F5 wracałoby do „Moich").
     expect(params.get("mine")).toBe("0");
-    expect(params.get("type")).toBe("tender");
+    // Typów rekrutacji nie ma (25.09.2026): stary `?type=` znika z adresu.
+    expect(params.get("type")).toBeNull();
     expect(params.get("foo")).toBe("bar");
   });
 });
@@ -229,7 +224,6 @@ describe("pozostałe filtry listy w URL-u (audyt 17.09.2026)", () => {
       status: ["published"],
       scope: "open",
       defaultScope: "mine",
-      type: "tender",
       deadline: "range",
       deadlineRange: { from: "2026-10-01", to: "2026-10-31" },
       sort: "oldest",
@@ -247,7 +241,6 @@ describe("pozostałe filtry listy w URL-u (audyt 17.09.2026)", () => {
     const params = new URLSearchParams(qs);
     expect(mod.initialStatusFromUrl(params)).toEqual(["published"]);
     expect(mod.scopeOverrideFromUrl(params)).toBe("open");
-    expect(mod.initialTypeFromUrl(params)).toBe("tender");
     expect(mod.initialDeadlineFromUrl(params)).toBe("range");
     expect(mod.initialDeadlineRangeFromUrl(params)).toEqual({
       from: "2026-10-01",
@@ -273,7 +266,6 @@ describe("pozostałe filtry listy w URL-u (audyt 17.09.2026)", () => {
         status: [],
         scope: "mine",
         defaultScope: "mine",
-        type: "all",
         deadline: "any",
         sort: "attention",
         q: "",
