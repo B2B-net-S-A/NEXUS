@@ -689,6 +689,11 @@ async def _write_document(
                     content_type="application/pdf",
                     user=actor,
                 )
+                from app.services import nordea_invoice_lines
+
+                await nordea_invoice_lines.refresh_on_upload_async(
+                    order, storage_service.get_client_order_po_path(order.file_path)
+                )
             # Copy a cost only from the contract's own schedule, preserving
             # unit/currency. A first unsigned engagement has no such cost.
             if order.rate_candidate is None:

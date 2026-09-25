@@ -457,3 +457,48 @@ def test_chat_view_gate_rule():
     assert not chat_view_limit_exhausted(2, 2, now - timedelta(minutes=30), now=now)
     assert chat_view_limit_exhausted(2, 2, now - timedelta(hours=3), now=now)
     assert chat_view_limit_exhausted(2, 2, None, now=now)
+
+
+# ── Bliźniak R5-6: OCR przy uploadzie PDF-a Nordei poza pętlą zdarzeń ───────
+
+
+@pytest.mark.asyncio
+async def test_nordea_upload_reads_the_pdf_in_a_worker_thread(monkeypatch) -> None:
+    """Przegląd PR #1849: odczyt PDF-a (OCR) przy uploadzie blokował pętlę
+    zdarzeń jedynego procesu uvicorna — teraz idzie w wątku."""
+    import threading
+    from types import SimpleNamespace
+
+    from app.services import nordea_invoice_lines as svc
+
+    loop_thread = threading.get_ident()
+    seen: dict[str, int] = {}
+
+    def fake_read(path, filename):
+        seen["thread"] = threading.get_ident()
+        return {"source": "pdf", "lines": []}
+
+    monkeypatch.setattr(svc, "is_nordea", lambda _client_id: True)
+    monkeypatch.setattr(svc, "read_pdf_payload", fake_read)
+    order = SimpleNamespace(client_id=1, filename="po.pdf", invoice_lines=None)
+    await svc.refresh_on_upload_async(order, "/tmp/po.pdf")
+    assert order.invoice_lines == {"source": "pdf", "lines": []}
+    assert seen["thread"] != loop_thread
+
+
+def test_attach_po_bytes_never_reads_the_pdf_synchronously() -> None:
+    """``_attach_po_bytes`` jest synchroniczne i wołane z handlerów async —
+    nie może samo czytać PDF-a (OCR); robi to wołający w wątku."""
+    import ast
+    import inspect
+
+    from app.api import client_orders
+
+    tree = ast.parse(inspect.getsource(client_orders._attach_po_bytes))
+    called = {
+        node.func.attr
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+    }
+    assert "refresh_on_upload" not in called
+    assert "read_pdf_payload" not in called

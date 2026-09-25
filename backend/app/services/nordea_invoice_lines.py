@@ -192,6 +192,30 @@ def refresh_on_upload(order: ClientOrder, abs_path: Path | str) -> None:
     order.invoice_lines = read_pdf_payload(abs_path, order.filename)
 
 
+async def refresh_on_upload_async(order: ClientOrder, abs_path: Path | str) -> None:
+    """Asynchroniczny odpowiednik ``refresh_on_upload`` dla handlerów i poczty.
+
+    Odczyt PDF-a (przy skanie OCR do 10 stron) idzie w wątku — synchronicznie
+    blokował pętlę zdarzeń jedynego procesu uvicorna na czas OCR (przegląd
+    PR #1849, bliźniak R5-6).
+    """
+    if not is_nordea(order.client_id):
+        return
+    order.invoice_lines = await asyncio.to_thread(
+        read_pdf_payload, abs_path, order.filename
+    )
+
+
+def clear_on_new_upload(order: ClientOrder) -> None:
+    """Nowy PDF = formuła poprzedniego dokumentu przestaje obowiązywać.
+
+    Nową formułę dopisuje ``refresh_on_upload_async`` po zapisie pliku (albo
+    pętla ``order_gaps``) — tu bez odczytu, bo woła to kod synchroniczny.
+    """
+    if is_nordea(order.client_id):
+        order.invoice_lines = None
+
+
 def clear_on_file_delete(order: ClientOrder) -> None:
     """Usunięcie PDF-a zdejmuje formułę odczytaną z niego (nie ręczną)."""
     payload = order.invoice_lines
