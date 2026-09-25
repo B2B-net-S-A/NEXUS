@@ -797,6 +797,45 @@ async def test_mail_without_a_journal_row_is_marked_unprocessed(
 
 
 @pytest.mark.asyncio
+async def test_old_unprocessed_mail_becomes_failed_and_stops_holding(
+    db_session, monkeypatch
+):
+    """Przegląd PR #1833: trwale zepsuty mail nie może trzymać znacznika bez
+    końca — po `ORDER_MAIL_UNPROCESSED_HOLD_HOURS` dostaje wpis „Nieudane”."""
+    from app.models.order_mail import OUTCOME_FAILED
+
+    monkeypatch.setattr(svc.settings, "ORDER_MAIL_SENDER_ALLOWLIST", "")
+    monkeypatch.setattr(svc.settings, "ORDER_MAIL_UNPROCESSED_HOLD_HOURS", 24)
+    registry = ClientRegistry(by_registry_id={})
+    mid = f"old{uuid.uuid4().hex[:8]}"
+    received = (datetime.now(timezone.utc) - timedelta(hours=30)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
+
+    stats = svc.IngestStats()
+    added = await svc._process_message(
+        db_session,
+        _BrokenAttachmentsGraph([], {}),
+        None,
+        _msg(mid, received=received),
+        stats,
+        registry=registry,
+    )
+    assert added is True
+    assert stats.unprocessed_messages == 0
+    assert stats.earliest_unprocessed_at is None
+    rows = (
+        await db_session.scalars(
+            select(OrderMailDocument).where(
+                OrderMailDocument.internet_message_id == f"<{mid}-{RUN}@example>"
+            )
+        )
+    ).all()
+    assert [r.outcome for r in rows] == [OUTCOME_FAILED]
+    assert "RuntimeError" in (rows[0].error or "")
+
+
+@pytest.mark.asyncio
 async def test_ingest_without_connection_records_error(db_session, monkeypatch):
     monkeypatch.setattr(svc.settings, "ORDER_MAIL_UPN", "nobody@example.test")
     stats = await svc.run_order_mail_ingest(reason="test")

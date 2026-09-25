@@ -3968,6 +3968,24 @@ async def update_contract(
         if (
             coerced_status != contract.status
             and contract.status == ContractStatus.ended
+            and contract.agreement_termination_mode is not None
+            and contract.end_date is not None
+        ):
+            # Umowa z ROZWIĄZANIEM (wypowiedzenie albo porozumienie) i nową,
+            # późniejszą datą końca to korekta daty, nie reaktywacja: dane
+            # rozwiązania, wiersz Generatora B2B („Zakończone”) i migawka
+            # zostają (przegląd PR #1833 — `undo_contract_termination` kasował
+            # podpisane rozwiązanie, a status i tak wracał na „Kończący się”,
+            # więc po nowej dacie Generator trafiał do „Umów bez projektu”).
+            # Do tej daty umowa pracuje: `ended → active → ending`.
+            assert_transition(contract.status, ContractStatus.active)
+            contract.status = ContractStatus.active
+            assert_transition(contract.status, ContractStatus.ending)
+            contract.status = ContractStatus.ending
+            updates["status"] = contract.status.value
+        elif (
+            coerced_status != contract.status
+            and contract.status == ContractStatus.ended
         ):
             # Nowa data końca wskrzesza ZAKOŃCZONĄ umowę — to reaktywacja jak
             # przy aneksie przedłużającym, więc idzie przez `reopen_contract`:

@@ -231,6 +231,11 @@ async def _retry_failed_one(
     w trakcie odczytu (deploy) nie może dawać nieskończonych prób. Przetwarzanie
     trzyma blokadę wiersza — ta sama ścieżka co nowy mail
     (``process_pdf_bytes``: rozpoznanie klienta, odczyt, plan, bramka, zapis).
+    Świadomie inaczej niż ``retry_ai_fallback_documents`` (odczyt poza blokadą):
+    wpisu ``failed`` nie rusza żadna akcja kolejki (nie ma „Zastosuj” ani
+    „Odrzuć”), a bieg jest jeden naraz (blokada biegu skrzynki), więc blokada
+    wiersza na czas odczytu nikogo nie wstrzymuje — a rozdzielenie
+    ``process_pdf_bytes`` na odczyt i zapis zdublowałoby ścieżkę nowego maila.
     """
     from app.services.order_mail_ingest import _first_with_sha, process_pdf_bytes
 

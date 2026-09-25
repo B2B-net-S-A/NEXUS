@@ -1031,7 +1031,9 @@ zdjąć z zakładki „Nierozpoznane” przyciskiem **„Odrzuć”**.
 wieczorem pojawia się w kolejce tego samego dnia. Gdy przy sprawdzeniu nie da się
 pobrać załącznika maila (chwilowa awaria skrzynki), mail nie przepada: kolejne
 sprawdzenie pyta o niego ponownie, a do tego czasu pasek pod „Pobierz zamówienia
-z maila” pokazuje sprawdzenie jako częściowe. Ograniczenie do godzin pracy
+z maila” pokazuje sprawdzenie jako częściowe. Jeśli załącznika nie da się pobrać
+przez dobę, mail trafia do zakładki **„Nieudane”** — otwórz go w Outlooku
+i wprowadź zamówienie ręcznie w oknie zamówienia klienta. Ograniczenie do godzin pracy
 dotyczy wyłącznie ponownego przeliczania tego, co już w kolejce wisi. Przycisk
 **„Pobierz zamówienia z maila"** działa o każdej porze i przelicza wstrzymane
 wpisy od razu, także po 18:00.

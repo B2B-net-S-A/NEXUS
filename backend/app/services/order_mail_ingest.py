@@ -1573,6 +1573,44 @@ def _failed_row(
     )
 
 
+async def _hold_or_record_failed(
+    db: AsyncSession,
+    conn: Optional[M365Connection],
+    msg: dict[str, Any],
+    message_id: str,
+    received: Optional[datetime],
+    stats: IngestStats,
+    *,
+    reason: str,
+    attachment_name: Optional[str] = None,
+) -> bool:
+    """Mail (albo załącznik), którego nie udało się przetworzyć.
+
+    Świeży trzyma znacznik skrzynki (następny bieg zapyta o niego jeszcze raz).
+    Starszy niż ``ORDER_MAIL_UNPROCESSED_HOLD_HOURS`` dostaje wpis „Nieudane”
+    i przestaje trzymać: trwale zepsuta wiadomość nie może zamrozić skrzynki
+    ani kazać co godzinę pobierać załączników wszystkich późniejszych maili.
+    Wiadomość z wpisem w dzienniku (wróciła tylko z nakładki okna) pomijamy.
+    Zwraca True, gdy dopisano wpis.
+    """
+
+    if await _message_logged(db, message_id, attachment_name=attachment_name):
+        return False
+    hold = timedelta(hours=max(settings.ORDER_MAIL_UNPROCESSED_HOLD_HOURS, 1))
+    if received is not None:
+        at = received if received.tzinfo else received.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) - at > hold:
+            row = _base_row(conn, msg)
+            row.attachment_name = attachment_name
+            row.outcome = OUTCOME_FAILED
+            row.error = reason[:2000]
+            db.add(row)
+            await db.commit()
+            return True
+    stats.mark_unprocessed(received)
+    return False
+
+
 async def _process_message(
     db: AsyncSession,
     gc: GraphClient,
@@ -1607,11 +1645,15 @@ async def _process_message(
     except Exception as exc:  # noqa: BLE001
         stats.failed += 1
         stats.errors.append(f"attachments {message_id[:40]}: {exc!r}"[:300])
-        # Wiadomość z wpisem w dzienniku przetworzył już wcześniejszy bieg
-        # (wróciła tylko z nakładki okna) — nie ma czego pilnować.
-        if not await _message_logged(db, message_id):
-            stats.mark_unprocessed(received)
-        return False
+        return await _hold_or_record_failed(
+            db,
+            conn,
+            msg,
+            message_id,
+            received,
+            stats,
+            reason=f"Nie udało się pobrać załączników: {type(exc).__name__}",
+        )
     pdfs = [
         att
         for att in page.get("value", [])
@@ -1638,12 +1680,17 @@ async def _process_message(
         if not raw_b64:
             stats.failed += 1
             stats.errors.append(f"no contentBytes {message_id[:40]}")
-            if not await _message_logged(
+            if await _hold_or_record_failed(
                 db,
+                conn,
+                msg,
                 message_id,
+                received,
+                stats,
+                reason="Graph nie zwrócił treści załącznika (brak contentBytes).",
                 attachment_name=(att.get("name") or "zamowienie.pdf")[:255],
             ):
-                stats.mark_unprocessed(received)
+                added = True
             continue
         payload = base64.b64decode(raw_b64)
         if len(payload) > max_bytes:

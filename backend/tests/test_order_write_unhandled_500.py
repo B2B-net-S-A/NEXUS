@@ -313,6 +313,8 @@ async def test_flow_b_refuses_a_job_of_another_client_in_polish(
             "candidate_id": candidate_id,
             "title": "ZAM-1",
             "contract_start_date": business_today().isoformat(),
+            "rate_client": "150",
+            "rate_candidate": "120",
             "job_id": foreign_job,
         },
         headers=app_auth_headers,

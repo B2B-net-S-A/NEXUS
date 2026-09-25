@@ -617,6 +617,11 @@ class Settings(BaseSettings):
     ORDER_MAIL_POLL_INTERVAL_MINUTES: int = 60
     ORDER_MAIL_INITIAL_LOOKBACK_DAYS: int = 7
     ORDER_MAIL_OVERLAP_HOURS: int = 2
+    # Mail bez wpisu w dzienniku (błąd `/attachments`, brak `contentBytes`)
+    # trzyma znacznik skrzynki najwyżej tyle godzin; starszy dostaje wpis
+    # „Nieudane” i przestaje trzymać — inaczej jeden trwale zepsuty mail
+    # kazałby co godzinę pobierać załączniki wszystkich późniejszych.
+    ORDER_MAIL_UNPROCESSED_HOLD_HOURS: int = 24
     ORDER_MAIL_MAX_ATTACHMENT_MB: int = 25
     # CSV domen nadawców, z których przyjmujemy załączniki; pusta = wszystkie
     # (rozpoznanie klienta i tak wymaga numeru rejestrowego z rejestru, a

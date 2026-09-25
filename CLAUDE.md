@@ -6885,7 +6885,9 @@ które łatwo cofnąć „przy okazji”:
   odmawia starego planu). Mail bez wpisu w dzienniku (błąd `/attachments`, brak
   `contentBytes`) zatrzymuje `last_seen_received_at` na swoim `received_at − 1 s`,
   także cofając znacznik; bieg ma `partial` i `stats.unprocessed_messages`, a
-  `checks.order_mail` = `degraded` (`order_mail_health_verdict`). Wpis `failed` NIE jest
+  `checks.order_mail` = `degraded` (`order_mail_health_verdict`). Trzyma najwyżej
+  `ORDER_MAIL_UNPROCESSED_HOLD_HOURS` (24 h) — starszy dostaje wpis „Nieudane”
+  i przestaje trzymać (jeden zepsuty mail nie może zamrozić skrzynki). Wpis `failed` NIE jest
   końcowy: ponowna weryfikacja przetwarza go z zapisanego PDF-a (młodszy niż 7 dni,
   najwyżej 3 próby, `document_meta.failed_retry`, próba liczona przed odczytem);
   `_first_with_sha` pomija `failed`. Kolejka ma zakładkę „Nieudane”.
@@ -6903,7 +6905,9 @@ które łatwo cofnąć „przy okazji”:
   `ended → active → ending`; bez daty albo z datą miniona — `active`. Cofnięcie bez
   migawki zachowuje datę końca umowy zlecenie/UoP (B2B nadal bezterminowa). PATCH daty
   końca na umowie „Zakończony” to reaktywacja przez `reopen_contract` (wpis historii,
-  Generator B2B wraca, migawka `superseded`). Przepięcie na innego klienta odmawia
+  Generator B2B wraca, migawka `superseded`) — CHYBA ŻE umowa ma rozwiązanie
+  (`agreement_termination_mode`): wtedy to korekta daty (`ended → active → ending`),
+  rozwiązanie, wiersz Generatora i migawka zostają. Przepięcie na innego klienta odmawia
   (`duplicate_contract_at_target`), gdy osoba ma tam żywy kontrakt. Reguła „obecny
   kontrakt” w SQL ma JEDNĄ definicję: `contractor_identity.current_contract_clause(as_of)`
   (katalog, analityka kontraktów, `consultant_population`). Marża % Rady dzieli przez

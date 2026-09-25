@@ -475,6 +475,42 @@ async def test_patching_a_later_end_date_reopens_through_the_lifecycle(
     assert snapshots == {SNAPSHOT_STATUS_SUPERSEDED}
 
 
+async def test_later_end_date_on_dissolved_contract_keeps_the_dissolution(
+    app_client, app_auth_headers
+):
+    """Przegląd PR #1833: umowa z podpisanym rozwiązaniem i nową, późniejszą
+    datą końca to korekta daty, nie reaktywacja. Rozwiązanie i wiersz
+    Generatora („Zakończone”) zostają, a umowa do tej daty jest „Kończący się”
+    — dawniej `undo_contract_termination` kasował rozwiązanie, więc po nowej
+    dacie Generator lądował w „Umowach bez projektu”."""
+    cid, gid, _ = await _seed()
+    project_end = business_today() - timedelta(days=3)
+    ended = await app_client.post(
+        f"{PATH}/{cid}/terminate",
+        json={
+            "termination_reason": "client_budget_cut",
+            "terminated_at": project_end.isoformat(),
+            "agreement_termination": _dissolution(
+                project_end, project_end, mode="mutual_agreement"
+            ),
+        },
+        headers=app_auth_headers,
+    )
+    assert ended.status_code == 200, ended.text
+    assert (await _generated(gid)).contract_status == "closed"
+
+    later = business_today() + timedelta(days=20)
+    resp = await app_client.patch(
+        f"{PATH}/{cid}", json={"end_date": later.isoformat()}, headers=app_auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["status"] == "ending"
+    assert body["end_date"] == later.isoformat()
+    assert body["agreement_termination_mode"] == "mutual_agreement"
+    assert (await _generated(gid)).contract_status == "closed"
+
+
 async def test_return_after_break_creates_follow_up_agreement():
     from app.services.contract_lifecycle import sync_contract_to_live_order
 
