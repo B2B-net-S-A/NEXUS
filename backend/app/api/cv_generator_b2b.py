@@ -2603,6 +2603,17 @@ async def generate_from_upload(
             id=previous.id, status="processing", candidate_name=previous.candidate_name
         )
 
+    # Generator v3: klient zawsze wymagany — lustro `/generate` („inny klient
+    # bez procesu”). Bez niego nie obowiązuje żadna reguła klienta (nazwa
+    # pliku, język, zgoda RODO). Z etapem klienta wyznacza rekrutacja, jak
+    # w `/generate`. PRZED płatnym podglądem AI Championa, wierszem i kwotą —
+    # do 25.09.2026 odmowa padała po podglądzie (audyt, runda 4).
+    if client_id is None and stage_id is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Wybierz klienta, dla którego powstaje CV.",
+        )
+
     mode_notice: str | None = None
     # Sufit trybu treści obowiązuje teraz TAKŻE w uploadzie — o ile rekruter
     # wskazał klienta. Do tej pory ta ścieżka (99,9% ruchu) omijała go zawsze,
@@ -2773,16 +2784,6 @@ async def generate_from_upload(
         await run_in_threadpool(validate_upload_inputs, gen_payload)
     except StandaloneGenerationError as error:
         raise HTTPException(422, error.message) from error
-
-    # Generator v3: klient zawsze wymagany — lustro `/generate` („inny klient
-    # bez procesu”). Bez niego nie obowiązuje żadna reguła klienta (nazwa
-    # pliku, język, zgoda RODO). Z etapem klienta wyznacza rekrutacja, jak
-    # w `/generate`. Po walidacji plików, przed wierszem i kwotą.
-    if client_id is None and stage_id is None:
-        raise HTTPException(
-            status_code=422,
-            detail="Wybierz klienta, dla którego powstaje CV.",
-        )
 
     # Provisional label until Claude parses the real name out of the CV.
     provisional = Path(cv_file.filename or "").stem or "Nowe CV"

@@ -149,6 +149,14 @@ describe("BoardTasksPanel — „Czeka na Ciebie” na pulpicie", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
+  it("admin / DL Nordei widzi przełącznik osoby od Cpro także przy pustej kolejce", async () => {
+    mockQueue({ can_set_cpro_sender: true });
+    renderPanel();
+    const bar = await screen.findByRole("region", { name: "Osoba od Cpro" });
+    expect(await within(bar).findByText("Do Cpro wrzuca: Kinga Sordyl")).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "Czeka na Ciebie" })).toBeNull();
+  });
+
   it("nie ma już kolejki „Czeka na DZ” ani przeglądu DZ", async () => {
     mockQueue({ dz: [row("dz")], cpro_sent: [row("cpro_sent")] });
     renderPanel();

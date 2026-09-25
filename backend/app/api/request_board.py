@@ -150,6 +150,9 @@ async def get_request_board(
                 .where(
                     JobWorkAssignment.job_id.in_(ids or [0]),
                     JobWorkAssignment.state != "released",
+                    # Martwe konto nie pracuje przy requeście — automat zwalnia
+                    # jego wiersz przy najbliższym przebiegu (runda 4).
+                    User.is_active.is_(True),
                 )
                 .order_by(JobWorkAssignment.assigned_at)
             )

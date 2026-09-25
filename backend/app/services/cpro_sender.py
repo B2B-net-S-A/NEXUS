@@ -3,9 +3,18 @@
 Decyzja Artura 23.09.2026: nie osoba per rekrutacja (0353,
 ``jobs.cpro_sender_id``) ani per kandydat (0348,
 ``candidate_stages.task_assignee_id``), tylko jedna osoba na całą firmę,
-którą zmienia KAŻDY z zespołu. Powód: u Nordei wrzucanie do Cpro robi w
+którą (do 25.09.2026) zmieniał każdy z zespołu. Powód: u Nordei wrzucanie do Cpro robi w
 praktyce jedna osoba, a typowanie per rekrutacja zostawiało rekrutacje bez
 nikogo — kolejka rosła, a dzwonek nie miał do kogo pójść.
+
+Od 25.09.2026 (decyzja Artura, audyt runda 4) osobę USTAWIA wyłącznie admin
+albo Delivery Lead przypisany do klienta Nordei (``can_set_sender``) — osoba
+od Cpro widzi stawki do klienta w kolejce, więc samodzielne ustawienie się
+rekrutera omijało regułę „stawki do klienta nie widzi rekruter" (#1742).
+
+Nieaktywne konto nie jest osobą od Cpro (``effective_sender``): dezaktywacja
+niczego nie czyści w ustawieniu, a martwe konto trzymało kolejkę, której nikt
+nie widział. Brak aktywnej osoby = jak „nikt nie ustawiony".
 
 Zastępstwo: ``until`` to ostatni dzień zastępstwa (włącznie). Od dnia po nim
 wraca ``fallback_user_id`` — osoba, która wysyłała, zanim ustawiono
@@ -148,8 +157,9 @@ def next_state(
             fallback = now_state.fallback_user_id
         else:
             fallback = now_state.user_id
-        if fallback == user_id:
-            fallback = None
+        # Zastępstwo z datą dla osoby, która i tak wysyła na stałe: po dacie
+        # ta sama osoba wysyła dalej. Wyzerowany powrót zostawiał kolejkę bez
+        # nikogo od dnia po zastępstwie (audyt 25.09.2026, runda 4).
     return CproSenderState(
         user_id=user_id,
         until=until,
@@ -174,7 +184,61 @@ async def effective_sender(
     today = (
         now.astimezone(_business_tz()).date() if now is not None else business_today()
     )
-    return effective(await load_state(db), today)
+    state = effective(await load_state(db), today)
+    wanted = {i for i in (state.user_id, state.fallback_user_id) if i is not None}
+    if not wanted:
+        return state
+    active = await active_user_ids(db, wanted)
+    if state.user_id is not None and state.user_id not in active:
+        # Martwe konto = nikt nie ustawiony: kolejkę widzi admin i HoR, a
+        # uprawnieni mogą wskazać nową osobę (audyt 25.09.2026, runda 4).
+        return replace(state, user_id=None, until=None, fallback_user_id=None)
+    if state.fallback_user_id is not None and state.fallback_user_id not in active:
+        return replace(state, fallback_user_id=None)
+    return state
+
+
+async def active_user_ids(db: AsyncSession, ids: Iterable[Optional[int]]) -> set[int]:
+    """Które z ``ids`` to aktywne konta."""
+
+    wanted = {i for i in ids if i is not None}
+    if not wanted:
+        return set()
+    return set(
+        (
+            await db.scalars(
+                select(User.id).where(User.id.in_(wanted), User.is_active.is_(True))
+            )
+        ).all()
+    )
+
+
+async def can_set_sender(db: AsyncSession, user: User) -> bool:
+    """Kto może USTAWIĆ osobę od Cpro (decyzja Artura 25.09.2026).
+
+    Admin albo Delivery Lead przypisany do klienta Nordei (portfel DL —
+    ``resolve_delivery_lead_assigned_client_ids``). Osoba od Cpro widzi
+    stawki do klienta, więc rekruter nie może wskazać siebie ani nikogo.
+    """
+
+    if user.has_role(UserRole.admin):
+        return True
+    if not user.has_role(UserRole.delivery_lead):
+        return False
+    from app.services.access_scope import (  # noqa: PLC0415
+        resolve_delivery_lead_assigned_client_ids,
+    )
+    from app.services.board_stage_badges import (  # noqa: PLC0415
+        cpro_enabled_for_client,
+    )
+
+    assigned = await resolve_delivery_lead_assigned_client_ids(user, db) or frozenset()
+    return any(cpro_enabled_for_client(cid) for cid in assigned)
+
+
+SET_SENDER_FORBIDDEN = (
+    "Osobę od Cpro ustawia admin albo Delivery Lead przypisany do Nordei."
+)
 
 
 def _business_tz():
@@ -322,7 +386,10 @@ __all__ = [
     "CPRO_MOVE_ROLES",
     "SETTING_KEY",
     "CproSenderState",
+    "SET_SENDER_FORBIDDEN",
+    "active_user_ids",
     "can_send_to_cpro",
+    "can_set_sender",
     "describe",
     "effective",
     "effective_sender",

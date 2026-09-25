@@ -37,6 +37,7 @@ const SENDER: CproSender = {
   fallback_user_name: null,
   set_by_name: "Marta Kowalska",
   set_at: daysAgo(5),
+  can_set: true,
 };
 
 const item = (over: Partial<CproQueueItem>): CproQueueItem => ({

@@ -622,10 +622,15 @@ def _live_work_assignment_job_ids(user_ids: Optional[list[int]] = None):
 
     „Pracuje” = przypisanie niezwolnione (``state <> 'released'``), tak jak
     liczą pulpit „Requesty i obłożenie” i automat przydziału — przypisanie
-    zaproponowane w trybie cienia też się liczy."""
+    zaproponowane w trybie cienia też się liczy. Liczą się wyłącznie aktywne
+    konta — przypisanie martwego konta nie jest pracą (audyt 25.09.2026)."""
     from app.models.job_work_assignment import JobWorkAssignment  # noqa: PLC0415
 
-    subq = select(JobWorkAssignment.job_id).where(JobWorkAssignment.state != "released")
+    subq = (
+        select(JobWorkAssignment.job_id)
+        .join(User, User.id == JobWorkAssignment.user_id)
+        .where(JobWorkAssignment.state != "released", User.is_active.is_(True))
+    )
     if user_ids is not None:
         subq = subq.where(JobWorkAssignment.user_id.in_(user_ids))
     return subq

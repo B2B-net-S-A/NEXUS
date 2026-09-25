@@ -23,8 +23,9 @@ Przebieg (w kontenerze backendu; Excel NIE trafia do repo — niesie nazwiska)::
   powtórka nic nie dubluje (dedup po kliencie i znormalizowanym tekście).
 * ``--retag plan.json --plan nowy.json`` przelicza same tagi technologii
   w gotowym planie (bez modelu) — po poprawce rozpoznawania technologii.
-* ``--rollback`` usuwa pytania ``legacy_import`` (przypięcia znikają kaskadą);
-  pytania, które klient zadał znowu w debriefie, mają już źródło
+* ``--rollback`` usuwa pytania ``legacy_import`` (przypięcia znikają kaskadą)
+  i przypięcia, które import dodał do pytań już istniejących (``pinned_ids``
+  z paragonu); pytania, które klient zadał znowu w debriefie, mają już źródło
   ``client_debrief`` i zostają.
 
 Paragon w ``app_settings['legacy_interview_questions_import']``: same liczby
@@ -589,6 +590,7 @@ async def apply_plan(db: Any, plan: dict[str, Any]) -> dict[str, Any]:
     if plan.get("version") != PLAN_VERSION:
         raise ValueError("nieznana wersja planu")
     inserted: list[int] = []
+    pinned_ids: list[int] = []
     reused = 0
     pinned = 0
     for n, q in enumerate(plan.get("questions") or []):
@@ -629,18 +631,18 @@ async def apply_plan(db: Any, plan: dict[str, Any]) -> dict[str, Any]:
             )
         )
         if exists is None:
-            db.add(
-                JobQuestion(
-                    job_id=job_id,
-                    question_id=question.id,
-                    is_pinned=True,
-                    added_by_source=JobQuestionAddedBySource.manual,
-                    added_by_user_id=None,
-                    order_index=PIN_ORDER_BASE + n,
-                )
+            link = JobQuestion(
+                job_id=job_id,
+                question_id=question.id,
+                is_pinned=True,
+                added_by_source=JobQuestionAddedBySource.manual,
+                added_by_user_id=None,
+                order_index=PIN_ORDER_BASE + n,
             )
+            db.add(link)
             await db.flush()
             pinned += 1
+            pinned_ids.append(link.id)
     receipt = {
         "plan_sha256": plan_sha256(plan),
         "applied_at": datetime.now(timezone.utc).isoformat(),
@@ -649,6 +651,10 @@ async def apply_plan(db: Any, plan: dict[str, Any]) -> dict[str, Any]:
         "reused": reused,
         "pinned": pinned,
         "inserted_ids": inserted,
+        # Przypięcia importu — także do pytań, które już były w banku
+        # (``reused``). Rollback zdejmuje je po id; kaskada z usuniętych
+        # pytań archiwum obejmuje wyłącznie nowe pytania.
+        "pinned_ids": pinned_ids,
     }
     setting = await db.get(AppSetting, RECEIPT_KEY)
     if setting is None:
@@ -661,24 +667,56 @@ async def apply_plan(db: Any, plan: dict[str, Any]) -> dict[str, Any]:
 
 
 async def rollback(db: Any) -> int:
-    """Usuwa pytania z archiwum (przypięcia kasują się kaskadą). Commit robi wołający."""
+    """Usuwa pytania z archiwum (ich przypięcia kasują się kaskadą) oraz
+    przypięcia, które import dodał do pytań już istniejących w banku (id
+    z paragonu, ``pinned_ids``). Commit robi wołający."""
     from sqlalchemy import delete
 
     from app.models.app_setting import AppSetting
-    from app.models.interview_question import InterviewQuestion, InterviewQuestionSource
+    from app.models.interview_question import (
+        InterviewQuestion,
+        InterviewQuestionSource,
+        JobQuestion,
+    )
 
+    setting = await db.get(AppSetting, RECEIPT_KEY)
+    pin_ids = sorted(
+        {
+            int(pin_id)
+            for run in ((setting.value or {}).get("runs") or [] if setting else [])
+            for pin_id in (run.get("pinned_ids") or [])
+        }
+    )
+    unpinned = 0
+    if pin_ids:
+        # Wyłącznie przypięcia bez człowieka — ktoś mógł je od tego czasu
+        # przejąć ręcznie (nie da się, ale warunek jest tani i bezpieczny).
+        unpinned = int(
+            (
+                await db.execute(
+                    delete(JobQuestion).where(
+                        JobQuestion.id.in_(pin_ids),
+                        JobQuestion.added_by_user_id.is_(None),
+                    )
+                )
+            ).rowcount
+            or 0
+        )
     result = await db.execute(
         delete(InterviewQuestion).where(
             InterviewQuestion.source == InterviewQuestionSource.legacy_import
         )
     )
     removed = int(result.rowcount or 0)
-    setting = await db.get(AppSetting, RECEIPT_KEY)
     if setting is not None:
         value = dict(setting.value or {})
         value["rolled_back"] = [
             *(value.get("rolled_back") or []),
-            {"at": datetime.now(timezone.utc).isoformat(), "removed": removed},
+            {
+                "at": datetime.now(timezone.utc).isoformat(),
+                "removed": removed,
+                "unpinned": unpinned,
+            },
         ]
         setting.value = value
     return removed
@@ -712,7 +750,9 @@ async def _main(args: argparse.Namespace) -> int:
         async with AsyncSessionLocal() as db:
             receipt = await apply_plan(db, plan)
             await db.commit()
-        summary = {k: v for k, v in receipt.items() if k != "inserted_ids"}
+        summary = {
+            k: v for k, v in receipt.items() if k not in ("inserted_ids", "pinned_ids")
+        }
         print(f"KONIEC apply: {summary}")
         return 0
     entries, unknown = parse_workbook(Path(args.xlsx))

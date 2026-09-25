@@ -106,6 +106,9 @@ export interface BoardTasksResponse {
   followups?: FollowupRow[];
   /** 0372: Twoi kandydaci, z którymi follow-up robi ktoś inny. */
   followups_by_others?: FollowupRow[];
+  /** Osobę od Cpro ustawia admin albo Delivery Lead Nordei (25.09.2026) —
+   *  przełącznik stoi także wtedy, gdy sekcja Cpro jest pusta. */
+  can_set_cpro_sender?: boolean;
 }
 
 export const BOARD_TASKS_QUERY_KEY = ["board-tasks"] as const;
@@ -133,6 +136,8 @@ export interface CproSender {
   fallback_user_name: string | null;
   set_by_name: string | null;
   set_at: string | null;
+  /** Czy pytający może zmienić osobę (admin albo Delivery Lead Nordei). */
+  can_set?: boolean;
 }
 
 export interface CproQueueItem {
