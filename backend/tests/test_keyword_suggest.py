@@ -95,6 +95,33 @@ def test_variants_skip_short_polish_and_redundant_aliases(catalog):
     )
 
 
+def test_alias_that_is_a_word_of_the_name_suggests_that_word(catalog):
+    """Decyzja Artura 25.09.2026: na produkcji „kafka” znajduje 4569 osób,
+    a fraza „Apache Kafka” 1704. Gdy podpowiedź trafia przez alias, który jest
+    osobnym słowem nazwy, wstawiamy to słowo (szersze), a nazwa zostaje
+    wyjaśnieniem. „springboot” i „k8s” nie są słowami nazwy — dalej nazwa."""
+    keyword_suggest.load_catalog(
+        [
+            (1, "Apache Kafka", "x"),
+            (2, "Spring Boot", "x"),
+            (3, "Kubernetes", "x"),
+            (4, "Node.js", "x"),
+        ],
+        [(1, "kafka"), (2, "springboot"), (3, "k8s"), (4, "node")],
+    )
+
+    def first(query: str) -> tuple[str, str, str | None]:
+        s = keyword_suggest.skill_suggestions(query, 6)[0]
+        return s.label, s.insert, s.alias
+
+    assert first("kafka") == ("Kafka", "Kafka", "Apache Kafka")
+    assert first("kaf") == ("Kafka", "Kafka", "Apache Kafka")
+    assert first("apache") == ("Apache Kafka", "Apache Kafka", None)
+    assert first("springboot") == ("Spring Boot", "Spring Boot", "springboot")
+    assert first("k8s") == ("Kubernetes", "Kubernetes", "k8s")
+    assert first("node") == ("Node.js", "Node.js", None)
+
+
 def test_wildcard_needs_three_letters():
     assert keyword_suggest.wildcard_for("ja") is None
     assert keyword_suggest.wildcard_for("jav") == "jav*"

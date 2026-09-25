@@ -363,6 +363,43 @@ class SuggestResult:
     wildcard: Optional[Suggestion]
 
 
+def _label_word(entry: SkillEntry, alias: Optional[str]) -> Optional[str]:
+    """Słowo nazwy równe aliasowi („Kafka” w „Apache Kafka” dla „kafka”).
+
+    Słowa kluczowe dopasowują całe słowa, więc samo słowo znajduje każdego,
+    kogo znajdzie fraza, i tych, którzy nie piszą całej nazwy: na produkcji
+    „kafka” 4569 osób, „Apache Kafka” 1704 (decyzja Artura 25.09.2026).
+    """
+    if not alias:
+        return None
+    key = fold(alias)
+    return next((w for w in entry.label.split() if fold(w) == key), None)
+
+
+def skill_suggestions(query: str, limit: int) -> list[Suggestion]:
+    """Podpowiedzi ze słownika, bez liczby osób (tę dolicza ``suggest``).
+
+    Wstawiana jest nazwa kanoniczna („Springboot” → „Spring Boot”), chyba że
+    podpowiedź trafiła przez alias będący osobnym słowem nazwy — wtedy to
+    słowo, bo fraza zawęża wynik (``_label_word``).
+    """
+    out: list[Suggestion] = []
+    for m in match_skills(query, limit):
+        word = _label_word(m.entry, m.alias)
+        out.append(
+            Suggestion(
+                label=word or m.entry.label,
+                kind="skill",
+                insert=word or m.entry.label,
+                alias=m.entry.label if word else m.alias,
+                category=m.entry.category or None,
+                count=None,
+                variants=skill_variants(m.entry),
+            )
+        )
+    return out
+
+
 def wildcard_for(query: str) -> Optional[str]:
     """``jav`` → ``jav*`` (rdzeń co najmniej ``MIN_WILDCARD_CORE`` znaków)."""
     core = " ".join((query or "").split()).strip("*").strip()
@@ -375,19 +412,7 @@ async def suggest(db: AsyncSession, query: str, limit: int) -> SuggestResult:
     q = " ".join((query or "").split())
     if not fold(q):
         return SuggestResult(items=[], wildcard=None)
-    skill_matches = match_skills(q, limit)
-    items: list[Suggestion] = [
-        Suggestion(
-            label=m.entry.label,
-            kind="skill",
-            insert=m.entry.label,
-            alias=m.alias,
-            category=m.entry.category or None,
-            count=None,
-            variants=skill_variants(m.entry),
-        )
-        for m in skill_matches
-    ]
+    items: list[Suggestion] = skill_suggestions(q, limit)
     if len(fold(q)) >= 3 and len(items) < limit:
         seen = {fold(s.label) for s in items}
         for role, _n in await _titles_within_timeout(db, q, 3):

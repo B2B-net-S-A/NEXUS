@@ -44,6 +44,38 @@ describe("keyword-suggest", () => {
     expect(js?.note).toBe("(też: js)");
   });
 
+  it("słowo z pełnej nazwy pokazuje tę nazwę jako wyjaśnienie (Kafka — Apache Kafka)", () => {
+    // Serwer wstawia samo „Kafka”, bo fraza „Apache Kafka” zawęża wynik
+    // (decyzja 25.09.2026) — pełną nazwę widać obok, choć słowo podświetlone.
+    const options = buildSuggestionOptions({
+      query: "kafka",
+      existing: [],
+      response: {
+        items: [
+          {
+            label: "Kafka",
+            kind: "skill" as const,
+            insert: "Kafka",
+            alias: "Apache Kafka",
+            count: 4569,
+          },
+        ],
+        wildcard: null,
+      },
+    });
+    expect(options[0]).toMatchObject({
+      insert: "Kafka",
+      hit: "Kafka",
+      note: "(też: Apache Kafka)",
+      count: 4569,
+    });
+    // Alias, który nie zawiera nazwy, dalej milczy przy podświetleniu.
+    const js = buildSuggestionOptions({ query: "jav", existing: [], response }).find(
+      (o) => o.insert === "JavaScript",
+    );
+    expect(js?.note).toBe("");
+  });
+
   it("koszyki umiejętności: bez stanowisk i wzorców", () => {
     const options = buildSuggestionOptions({ query: "jav", existing: [], response, skillsOnly: true });
     expect(options.map((o) => o.insert)).toEqual(["Java", "JavaScript", "jav"]);
