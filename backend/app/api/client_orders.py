@@ -220,6 +220,31 @@ async def _assert_client(db: AsyncSession, client_id: int) -> Client:
     return client
 
 
+async def _assert_job_of_client(
+    db: AsyncSession, client_id: int, job_id: Optional[int]
+) -> None:
+    """Rekrutacja zamówienia musi istnieć i należeć do tego klienta.
+
+    Jedna bramka dla POST (przedłużenie), PATCH i Flow B (nowy kontraktor).
+    Do audytu 25.09.2026 POST jej nie miał: nieistniejące `job_id` kończyło
+    się 500 na kluczu obcym, a rekrutacja INNEGO klienta zapisywała się
+    i przepinała zamówienie pod cudzy projekt.
+    """
+    if job_id is None:
+        return
+    job_ok = await db.scalar(
+        select(Job.id).where(Job.id == job_id, Job.client_id == client_id)
+    )
+    if job_ok is None:
+        raise HTTPException(
+            422,
+            detail=(
+                "Wskazana rekrutacja nie istnieje albo należy do innego "
+                "klienta (job_id)."
+            ),
+        )
+
+
 async def _require_client_order_read(
     db: AsyncSession,
     user,
@@ -408,6 +433,40 @@ def _activation_candidate_rate(contract: Contract) -> Optional[Decimal]:
     if "candidate_rate_schedule" in inspect(contract).unloaded:
         return contract.rate_candidate
     return contract.effective_candidate_rate(business_today())
+
+
+def _missing_activation_fields(order: ClientOrder) -> list[str]:
+    """Czego brakuje szkicowi do aktywacji — lustro
+    :func:`_order_has_required_activation_data`, nazwane po polsku.
+
+    Audyt 25.09.2026: jawny ``PATCH {"status": "active"}`` omijał bramkę
+    kompletności zamówienia okresowego (POST zamienia takie zamówienie
+    w szkic), więc aktywne zamówienie bez numeru czy stawek trafiało do MRR.
+    Odmowa ma nazwać braki, żeby dało się je uzupełnić jednym zapisem.
+    """
+    missing: list[str] = []
+    title = (order.title or "").strip()
+    if not title or title == "(bez numeru)":
+        missing.append("numer zamówienia")
+    if order.start_date is None:
+        missing.append("data startu")
+    if order.rate_client is None:
+        missing.append("stawka przychodowa")
+    if order.rate_candidate is None and not (
+        order.contract is not None
+        and _activation_candidate_rate(order.contract) is not None
+    ):
+        missing.append("stawka kosztowa")
+    effective_type = effective_standalone_order_type(order.client_id, order.order_type)
+    if effective_type == OrderType.cost and not (
+        order.total_value is not None and order.total_value > 0
+    ):
+        missing.append("kwota zamówienia")
+    if effective_type == OrderType.md and not (
+        order.md_total is not None and order.md_total > 0
+    ):
+        missing.append("liczba MD")
+    return missing
 
 
 def _order_has_required_activation_data(order: ClientOrder) -> bool:
@@ -1942,6 +2001,7 @@ async def create_order_extension(
             detail="Nowe zamówienie może być szkicem albo aktywnym zamówieniem.",
         )
     _assert_order_period(start_date, end_date)
+    await _assert_job_of_client(db, client_id, job_id)
     if file is not None:
         await _require_order_file_read(db, user, client_id)
     _assert_allowed_order_type(client_id, order_type)
@@ -2611,21 +2671,7 @@ async def update_order(
                     "klienta (framework_contract_id)."
                 ),
             )
-    if data.get("job_id") is not None:
-        job_ok = await db.scalar(
-            select(Job.id).where(
-                Job.id == data["job_id"],
-                Job.client_id == client_id,
-            )
-        )
-        if job_ok is None:
-            raise HTTPException(
-                422,
-                detail=(
-                    "Wskazana rekrutacja nie istnieje albo należy do innego "
-                    "klienta (job_id)."
-                ),
-            )
+    await _assert_job_of_client(db, client_id, data.get("job_id"))
     if (
         "executive_contract_id" in data
         and "project_part" not in data
@@ -2668,6 +2714,43 @@ async def update_order(
         _apply_md_order_quantity(order, md_quantity)
         await recompute_remaining(db, order)
     _refresh_md_rate_mirror(order, explicit_fields=payload.model_fields_set)
+    if (
+        "status" in payload.model_fields_set
+        and previous_status == ClientOrderStatus.draft
+        and order.order_group_id is None
+    ):
+        if order.status == ClientOrderStatus.completed:
+            # Audyt 25.09.2026: ta sama odmowa co `/close` — „zakończony”
+            # szkic udawał w rejestrze historię współpracy, której nie było.
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "order_is_draft",
+                    "message": (
+                        "To zamówienie jest szkicem — nie ma czego kończyć. "
+                        "Jeśli nie jest potrzebne, usuń szkic."
+                    ),
+                    "status": previous_status.value,
+                },
+            )
+        if order.status == ClientOrderStatus.active:
+            # Ta sama bramka co POST (tam niekompletne „aktywne” zapisuje się
+            # jako szkic). Tu status jest jawną prośbą, więc odmawiamy
+            # z listą braków zamiast po cichu zostawić szkic.
+            missing = _missing_activation_fields(order)
+            if missing:
+                raise HTTPException(
+                    status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail={
+                        "code": "order_incomplete",
+                        "message": (
+                            "Zamówienia nie można aktywować — uzupełnij: "
+                            + ", ".join(missing)
+                            + "."
+                        ),
+                        "missing": missing,
+                    },
+                )
 
     auto_activated = _auto_activate_unless_status_explicit(
         order, explicit_fields=payload.model_fields_set
@@ -3452,14 +3535,7 @@ async def create_contract_with_order(
     if cand is None:
         raise HTTPException(404, detail="Candidate not found")
 
-    if payload.job_id is not None:
-        job = await db.scalar(
-            select(Job).where(Job.id == payload.job_id, Job.client_id == client_id)
-        )
-        if job is None:
-            raise HTTPException(
-                400, detail="job_id must be a Job belonging to this client"
-            )
+    await _assert_job_of_client(db, client_id, payload.job_id)
 
     if payload.framework_contract_id is not None:
         fc = await db.scalar(
