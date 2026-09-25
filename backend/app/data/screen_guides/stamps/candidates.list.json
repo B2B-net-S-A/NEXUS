@@ -1,5 +1,5 @@
 {
-  "entry": "dc3a2b1688f604bc236d8fa636a57468cb87d4cafa9474b316639d0e1da08b5a",
+  "entry": "f99e92dada933c1b22787edc842c3392bb2f3372b14f0b18a28106354c0327a4",
   "guide": "candidates.list",
   "sources": {
     "frontend/src/components/v2/candidates/CandidateFilterBar.tsx": "c9576193a370ea20b47f24b952e972275590eddfc96b9be58dae12a5d1f63eff",

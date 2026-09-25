@@ -54,7 +54,7 @@ export function RecentSearchesMenu({
       }}
     >
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="md" data-help="candidates.list.recent">
+        <Button variant="outline" size="md">
           <History className="h-4 w-4" aria-hidden />
           Ostatnie wyszukiwania
           <ChevronDown className="h-3.5 w-3.5 opacity-60" aria-hidden />
