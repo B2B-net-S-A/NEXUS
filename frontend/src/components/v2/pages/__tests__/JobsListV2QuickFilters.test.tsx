@@ -1,12 +1,9 @@
 /**
- * Lewa kolumna filtrów (krok 01 „Lista", program „flow w języku C2", PR 4/7).
- *
- * Zakres tego pliku: NOWA logika tego PR-a — filtry „Szybkie" wysyłają te
- * SAME parametry zapytania co dziś (tylko przeniesione z rzędu pigułek do
- * pionowej listy w aside), `include_stage_counts` jest zawsze włączone, a
- * „Brak opiekuna TAC" zawęża WYŁĄCZNIE bieżącą, już wczytaną stronę (bez
- * dodatkowego zapytania). `JobReadinessDock` jest zamockowany — ma własny
- * plik testów i nie jest przedmiotem tego pliku.
+ * Lista rekrutacji: pasek filtrów nad tabelą (25.09.2026), rząd „Stan
+ * requestu”, zakres, sortowanie, wiersze. Filtry wysyłają parametry do
+ * serwera (`request_stage`, `worked_by`, `nobody_working`, …), a liczby
+ * przychodzą z `GET /api/jobs/quick-counts`. `JobReadinessDock` jest
+ * zamockowany — ma własny plik testów.
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -131,17 +128,15 @@ function mockJobsResponse(items: ReturnType<typeof jobRow>[]) {
   });
 }
 
-/** Liczniki „Szybkich" — GLOBALNE, z `GET /api/jobs/quick-counts`. */
-function mockQuickCounts(overrides: Record<string, number> = {}) {
+/** Liczniki zakresu, pigułek i przełączników — z `GET /api/jobs/quick-counts`. */
+function mockQuickCounts(overrides: Record<string, unknown> = {}) {
   quickCountsMock.mockResolvedValue({
     data: {
       all: 4241,
       mine: 12,
       open: 318,
-      needs_sourcing: 41,
-      active_in_search: 27,
-      owner_missing: 63,
-      deadline_7d: 9,
+      attention: { overdue: 4, nobody_working: 7, nobody_sent: 11 },
+      attention_mine: { overdue: 1, nobody_working: 0, nobody_sent: 2 },
       ...overrides,
     },
   });
@@ -200,18 +195,6 @@ describe("JobsListV2 — filtry Szybkie → parametry zapytania", () => {
     expect(latestParams()).toMatchObject({ include_stage_counts: true });
   });
 
-  it("„Potrzebny search” wysyła needs_sourcing=true — ten sam parametr co dziś", async () => {
-    const user = userEvent.setup();
-    renderJobs();
-    await waitFor(() => expect(jobsCalls()).toHaveLength(1));
-
-    await user.click(screen.getByText("Potrzebny search"));
-
-    await waitFor(() => {
-      expect(latestParams()).toMatchObject({ needs_sourcing: true });
-    });
-  });
-
   it("dawny szybki filtr „Niezamknięte” zniknął — zastąpił go zakres „Otwarte” (open_only=true)", async () => {
     const user = userEvent.setup();
     renderJobs();
@@ -228,79 +211,112 @@ describe("JobsListV2 — filtry Szybkie → parametry zapytania", () => {
     });
   });
 
-  it("„Deadline ≤ 7 dni” wysyła okno deadline_from/deadline_to (bez ponownego wywoływania po wyłączeniu)", async () => {
+  it("kolumny filtrów nie ma: bez „Typ”, „Szybkie”, „Status”, „Priority Work” i „Osoba odpowiedzialna”", async () => {
+    renderJobs();
+    await waitFor(() => expect(jobsCalls()).toHaveLength(1));
+    expect(screen.queryByRole("complementary", { name: /Filtry/ })).not.toBeInTheDocument();
+    for (const text of [
+      "Potrzebny search",
+      "Aktywni w searchu",
+      "Deadline ≤ 7 dni",
+      "Priority Work",
+      "Osoba odpowiedzialna",
+      "Wszystkie filtry",
+    ]) {
+      expect(screen.queryByText(text), text).not.toBeInTheDocument();
+    }
+    expect(screen.queryByRole("group", { name: "Filtr: Status" })).not.toBeInTheDocument();
+    const params = latestParams();
+    for (const key of [
+      "status",
+      "recruitment_type",
+      "needs_sourcing",
+      "active_in_search",
+      "owner_missing",
+      "priority_work",
+      "responsible_id",
+      "request_status",
+      "work_state",
+    ]) {
+      expect(params[key], key).toBeUndefined();
+    }
+  });
+
+  it("stare klucze adresu nie zawężają listy i znikają z adresu; `rs`/`ws` przechodzą w pigułkę stanu", async () => {
+    navState.search =
+      "type=tender&status=closed&responsible=4&sourcing=1&active_search=1&priority=assigned&rs=champion&ws=finished";
+    window.history.replaceState(null, "", `/jobs?${navState.search}`);
+    renderJobs();
+    await waitFor(() => expect(jobsCalls()).toHaveLength(1));
+    expect(latestParams()).toMatchObject({ request_stage: ["champion"] });
+    expect(latestParams().status).toBeUndefined();
+    await waitFor(() => {
+      const params = new URLSearchParams(window.location.search);
+      expect(params.getAll("stage")).toEqual(["champion"]);
+      for (const key of ["type", "status", "responsible", "sourcing", "active_search", "priority", "rs", "ws"]) {
+        expect(params.get(key), key).toBeNull();
+      }
+    });
+    navState.search = "";
+    window.history.replaceState(null, "", "/jobs");
+  });
+
+  it("„Po terminie” wysyła termin do wczoraj, a drugi klik go zdejmuje", async () => {
     const user = userEvent.setup();
     renderJobs();
     await waitFor(() => expect(jobsCalls()).toHaveLength(1));
 
-    await user.click(screen.getByText("Deadline ≤ 7 dni"));
+    await user.click(screen.getByRole("button", { name: /Po terminie/ }));
     await waitFor(() => {
       const params = latestParams();
-      expect(params.deadline_from).toEqual(expect.any(String));
-      expect(params.deadline_to).toEqual(expect.any(String));
-    });
-
-    await user.click(screen.getByText("Deadline ≤ 7 dni"));
-    await waitFor(() => {
-      const params = latestParams();
+      expect(params.deadline_to).toMatch(/^\d{4}-\d{2}-\d{2}$/);
       expect(params.deadline_from).toBeUndefined();
-      expect(params.deadline_to).toBeUndefined();
     });
+    expect(screen.getByRole("button", { name: /Po terminie/ })).toHaveAttribute("aria-pressed", "true");
+
+    await user.click(screen.getByRole("button", { name: /Po terminie/ }));
+    await waitFor(() => expect(latestParams().deadline_to).toBeUndefined());
   });
 
-  it("typów rekrutacji nie ma: brak grupy „Typ”, zapytanie bez `recruitment_type`, stary `?type=` znika z adresu", async () => {
-    window.history.replaceState(null, "", "/jobs?type=tender");
+  it("„Nikt nie pracuje” wysyła nobody_working, „Nikogo nie wysłano” — max_sent=0", async () => {
     const user = userEvent.setup();
     renderJobs();
     await waitFor(() => expect(jobsCalls()).toHaveLength(1));
 
-    expect(screen.queryByRole("group", { name: "Filtr: Typ" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Przetargi" })).not.toBeInTheDocument();
-    expect(latestParams().recruitment_type).toBeUndefined();
-
-    await user.click(screen.getByText("Potrzebny search"));
+    await user.click(screen.getByRole("button", { name: /Nikt nie pracuje/ }));
+    await waitFor(() => expect(latestParams()).toMatchObject({ nobody_working: true }));
+    await user.click(screen.getByRole("button", { name: /Nikogo nie wysłano/ }));
+    await waitFor(() => expect(latestParams()).toMatchObject({ nobody_working: true, max_sent: 0 }));
     await waitFor(() => {
-      expect(latestParams()).toMatchObject({ needs_sourcing: true });
-      expect(new URLSearchParams(window.location.search).get("type")).toBeNull();
+      const params = new URLSearchParams(window.location.search);
+      expect(params.get("nobody")).toBe("1");
+      expect(params.get("sent")).toBe("none");
     });
 
-    await user.click(screen.getByText("Wyczyść"));
+    await user.click(screen.getByRole("button", { name: /Wyczyść filtry/ }));
     await waitFor(() => {
-      expect(latestParams().needs_sourcing).toBeUndefined();
+      expect(latestParams().nobody_working).toBeUndefined();
+      expect(latestParams().max_sent).toBeUndefined();
     });
-  });
-});
-
-describe("JobsListV2 — „Brak opiekuna TAC” filtruje SERWER", () => {
-  beforeEach(() => {
-    getMock.mockReset();
-    quickCountsMock.mockReset();
-    mockQuickCounts();
-    useUiStore.setState({ jobsView: "list" });
+    window.history.replaceState(null, "", "/jobs");
   });
 
-  it("wysyła owner_missing=true zamiast zawężać wczytaną stronę w przeglądarce", async () => {
-    // Regresja, którą to zastępuje: filtr działał lokalnie, więc zawężał
-    // wyłącznie 20 wczytanych wierszy, a paginacja dalej obiecywała strony,
-    // na których nie było czego zawężać.
-    mockJobsResponse([jobRow({ id: 1, title: "Bez ownera", tac_id: null })]);
+  it("„Kto pracuje” → „Ja” wysyła worked_by z id zalogowanej osoby", async () => {
     const user = userEvent.setup();
     renderJobs();
     await waitFor(() => expect(jobsCalls()).toHaveLength(1));
 
-    // `getByRole("button", ...)`, NIE `getByText` — wiersz bez opiekuna TAC ma
-    // WŁASNY badge „Brak opiekuna TAC" (status), więc tekst wychodzi dwukrotnie.
-    await user.click(
-      screen.getByRole("button", { name: /Brak opiekuna TAC/ }),
-    );
+    await user.click(screen.getByRole("button", { name: /Kto pracuje/ }));
+    await user.click(await screen.findByRole("checkbox", { name: "Ja" }));
+    await waitFor(() => expect(latestParams()).toMatchObject({ worked_by: [7] }));
+    expect(screen.getByRole("button", { name: /Kto pracuje: ja/ })).toBeInTheDocument();
 
-    await waitFor(() => {
-      expect(latestParams()).toMatchObject({ owner_missing: true });
-    });
+    await user.click(screen.getByRole("button", { name: "Wyczyść: Kto pracuje" }));
+    await waitFor(() => expect(latestParams().worked_by).toBeUndefined());
   });
 });
 
-describe("JobsListV2 — liczniki filtrów „Szybkie”", () => {
+describe("JobsListV2 — liczniki przełączników „wymaga uwagi”", () => {
   beforeEach(() => {
     getMock.mockReset();
     quickCountsMock.mockReset();
@@ -308,52 +324,47 @@ describe("JobsListV2 — liczniki filtrów „Szybkie”", () => {
     mockJobsResponse([jobRow()]);
   });
 
-  it("pokazuje liczbę z /api/jobs/quick-counts przy każdej pozycji", async () => {
+  it("w „Moich” liczby zakresu „Moje”, w „Otwartych” — rejestru, we „Wszystkich” — bez liczb", async () => {
     mockQuickCounts();
+    const user = userEvent.setup();
     renderJobs();
 
-    const expected: [RegExp, string][] = [
-      [/Potrzebny search/, "41"],
-      [/Aktywni w searchu/, "27"],
-      [/Brak opiekuna TAC/, "63"],
-      [/Deadline ≤ 7 dni/, "9"],
-    ];
-    for (const [label, count] of expected) {
-      const row = await screen.findByRole("button", { name: label });
-      // `waitFor`, nie samo `getByText`: przycisk filtra istnieje od
-      // pierwszego renderu, a licznik dolatuje osobnym zapytaniem.
-      await waitFor(() => {
-        expect(within(row).getByText(count)).toBeInTheDocument();
-      });
-    }
+    const overdue = await screen.findByRole("button", { name: /Po terminie/ });
+    await waitFor(() => expect(within(overdue).getByText("1")).toBeInTheDocument());
+
+    const scope = within(screen.getByRole("group", { name: "Zakres rekrutacji" }));
+    await user.click(scope.getByRole("button", { name: /Otwarte/ }));
+    await waitFor(() =>
+      expect(within(screen.getByRole("button", { name: /Po terminie/ })).getByText("4")).toBeInTheDocument(),
+    );
+    expect(within(screen.getByRole("button", { name: /Nikt nie pracuje/ })).getByText("7")).toBeInTheDocument();
+
+    await user.click(scope.getByRole("button", { name: /Wszystkie/ }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /Po terminie/ })).toHaveTextContent(/^Po terminie$/),
+    );
+    window.history.replaceState(null, "", "/jobs");
   });
 
-  it("wysyła to samo okno dat, którego używa preset „Najbliższe 7 dni”", async () => {
-    // Gdyby okno liczył serwer, licznik i lista mogłyby wypaść o dzień
-    // inaczej dla użytkownika w innej strefie czasowej.
+  it("wysyła datę „Po terminie” liczoną w przeglądarce", async () => {
     mockQuickCounts();
     renderJobs();
-
     await waitFor(() => expect(quickCountsMock).toHaveBeenCalled());
-    const params = quickCountsMock.mock.calls.at(-1)?.[0] as
-      | { deadline_from?: string; deadline_to?: string }
-      | undefined;
-    expect(params?.deadline_from).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    expect(params?.deadline_to).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    const params = quickCountsMock.mock.calls.at(-1)?.[0] as { overdue_to?: string } | undefined;
+    expect(params?.overdue_to).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
   it("bez odpowiedzi z licznikami nie pokazuje zera — brak liczby to nie „zero w bazie”", async () => {
     quickCountsMock.mockRejectedValue(new Error("boom"));
     renderJobs();
 
-    const row = await screen.findByRole("button", { name: /Potrzebny search/ });
-    expect(within(row).queryByText("0")).not.toBeInTheDocument();
-    // Sam filtr działa dalej — licznik jest dodatkiem, nie warunkiem.
-    expect(row).toBeEnabled();
+    const toggle = await screen.findByRole("button", { name: /Nikt nie pracuje/ });
+    expect(within(toggle).queryByText("0")).not.toBeInTheDocument();
+    expect(toggle).toBeEnabled();
   });
 });
 
-describe("JobsListV2 — status jako pigułki", () => {
+describe("JobsListV2 — stan requestu w wierszu", () => {
   beforeEach(() => {
     getMock.mockReset();
     quickCountsMock.mockReset();
@@ -362,67 +373,22 @@ describe("JobsListV2 — status jako pigułki", () => {
     mockJobsResponse([jobRow()]);
   });
 
-  it("stan pracy w wierszu ma przedrostek „Praca:” — nie myli się z propozycjami ani statusem „Szukamy”", async () => {
+  it("wiersz pokazuje jeden stan requestu — ten sam co pigułka nad listą", async () => {
     mockJobsResponse([
-      jobRow({ id: 201, request_status: "searching", visible_work_state: "to_review" }),
-      jobRow({ id: 202, request_status: "searching", visible_work_state: "client_silent" }),
+      jobRow({ id: 201, request_status: "searching", request_stage: "to_review" }),
+      jobRow({ id: 202, request_status: "searching", request_stage: "client_silent" }),
     ]);
     renderJobs();
-    expect(await screen.findByText("Praca: do przeglądu")).toBeInTheDocument();
-    expect(screen.getByText("Praca: klient milczy")).toBeInTheDocument();
-    const table = screen.getByRole("table");
-    expect(within(table).queryByText("Do przejrzenia")).toBeNull();
+    const table = await screen.findByRole("table");
+    await waitFor(() => expect(within(table).getByText("Do przejrzenia")).toBeInTheDocument());
+    expect(within(table).getByText("Klient milczy")).toBeInTheDocument();
+    expect(within(table).queryByText(/^Praca:/)).toBeNull();
   });
 
   it("strona listy ma dolny odstęp — ostatni wiersz przewija się nad maskotkę Jarvisa", async () => {
     // CSS: jsdom nie liczy nakładania; pilnujemy samego odstępu (audyt 24.09.2026).
     renderJobs();
     expect(await screen.findByTestId("jobs-list-page")).toHaveClass("pb-24");
-  });
-
-  it("status „Zamknięta” w zakresie „Otwarte” przełącza na „Wszystkie” (dawniej zawsze 0 wyników)", async () => {
-    signInAs("admin");
-    window.history.replaceState(null, "", "/jobs");
-    const user = userEvent.setup();
-    renderJobs();
-    await waitFor(() => expect(jobsCalls()).toHaveLength(1));
-    expect(latestParams()).toMatchObject({ open_only: true });
-
-    const statusGroup = within(screen.getByRole("group", { name: "Filtr: Status" }));
-    await user.click(statusGroup.getByRole("button", { name: "Zamknięta" }));
-    await waitFor(() => expect(latestParams()).toMatchObject({ status: ["closed"] }));
-    expect(latestParams().open_only).toBeUndefined();
-    const scope = within(screen.getByRole("group", { name: "Zakres rekrutacji" }));
-    expect(scope.getByRole("button", { name: /Wszystkie/ })).toHaveAttribute("aria-pressed", "true");
-    await waitFor(() => expect(window.location.search).toContain("mine=0"));
-
-    // Powrót do „Otwartych” zdejmuje „Zamknięta” — inaczej lista byłaby pusta.
-    await user.click(scope.getByRole("button", { name: /Otwarte/ }));
-    await waitFor(() => expect(latestParams()).toMatchObject({ open_only: true }));
-    expect(latestParams().status).toBeUndefined();
-    window.history.replaceState(null, "", "/jobs");
-  });
-
-  it("pigułka wysyła `status[]`, a „Wszystkie” czyści filtr", async () => {
-    const user = userEvent.setup();
-    renderJobs();
-    await waitFor(() => expect(jobsCalls()).toHaveLength(1));
-
-    // Zapytanie w obrębie nazwanej grupy, a nie po samej nazwie przycisku —
-    // „Wszystkie” występuje na ekranie więcej niż raz.
-    const statusGroup = within(
-      screen.getByRole("group", { name: "Filtr: Status" }),
-    );
-
-    await user.click(statusGroup.getByRole("button", { name: "Zamknięta" }));
-    await waitFor(() => {
-      expect(latestParams()).toMatchObject({ status: ["closed"] });
-    });
-
-    await user.click(statusGroup.getByRole("button", { name: "Wszystkie" }));
-    await waitFor(() => {
-      expect(latestParams().status).toBeUndefined();
-    });
   });
 });
 
@@ -508,18 +474,19 @@ describe("JobsListV2 — status requestu i podobne rekrutacje (lista v4)", () =>
     expect(screen.queryByTestId("job-needs-action")).not.toBeInTheDocument();
   });
 
-  it("pigułka statusu wysyła `request_status` i zapisuje go w adresie", async () => {
+  it("pigułka stanu wysyła `request_stage` i zapisuje go w adresie", async () => {
     const user = userEvent.setup();
     mockJobsResponse([jobRow()]);
     renderJobs();
     await waitFor(() => expect(jobsCalls()).toHaveLength(1));
-    await user.click(
-      within(screen.getByRole("group", { name: "Status requestu" })).getByRole("button", {
-        name: "Mamy championa",
-      }),
+    const chips = within(screen.getByRole("group", { name: "Stan requestu" }));
+    await user.click(chips.getByRole("button", { name: "Mamy championa" }));
+    await user.click(chips.getByRole("button", { name: "Klient milczy" }));
+    await waitFor(() =>
+      expect(latestParams().request_stage).toEqual(["champion", "client_silent"]),
     );
-    await waitFor(() => expect(latestParams().request_status).toEqual(["champion"]));
-    expect(window.location.search).toContain("rs=champion");
+    expect(window.location.search).toContain("stage=champion");
+    expect(window.location.search).toContain("stage=client_silent");
   });
 
   it("„≈ podobne” otwiera okno przepięć, „↻” pokazuje połączoną rekrutację", async () => {
@@ -672,7 +639,7 @@ describe("JobsListV2 — zakres „Moje | Wszystkie” i sortowanie", () => {
     );
     await waitFor(() => expect(window.location.search).toBe("?mine=1"));
 
-    await user.click(screen.getByText("Wyczyść"));
+    await user.click(screen.getByRole("button", { name: /Wyczyść filtry/ }));
     await waitFor(() => expect(latestParams().mine).toBeUndefined());
     expect(latestParams()).toMatchObject({ open_only: true });
     await waitFor(() => expect(window.location.search).toBe(""));
@@ -686,7 +653,7 @@ describe("JobsListV2 — zakres „Moje | Wszystkie” i sortowanie", () => {
     await user.click(scope.getByRole("button", { name: /Wszystkie/ }));
     await waitFor(() => expect(latestParams().mine).toBeUndefined());
 
-    await user.click(screen.getByText("Wyczyść"));
+    await user.click(screen.getByRole("button", { name: /Wyczyść filtry/ }));
     await waitFor(() => expect(latestParams()).toMatchObject({ mine: true }));
   });
 
@@ -706,54 +673,6 @@ describe("JobsListV2 — zakres „Moje | Wszystkie” i sortowanie", () => {
     ).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Pokaż wszystkie" }));
     await waitFor(() => expect(latestParams().mine).toBeUndefined());
-  });
-});
-
-describe("JobsListV2 — zwijana kolumna filtrów", () => {
-  beforeEach(() => {
-    getMock.mockReset();
-    quickCountsMock.mockReset();
-    mockQuickCounts();
-    useUiStore.setState({ jobsView: "list", jobsFiltersCollapsed: false });
-    mockJobsResponse([jobRow()]);
-    window.history.replaceState(null, "", "/jobs");
-  });
-
-  it("przycisk „Filtry (N)” liczy czynne zawężenia (bez zakresu) i zwija kolumnę", async () => {
-    const user = userEvent.setup();
-    renderJobs();
-    await waitFor(() => expect(jobsCalls()).toHaveLength(1));
-    const toggle = screen.getByRole("button", { name: "Filtry" });
-    expect(toggle).toHaveAttribute("aria-expanded", "true");
-
-    await user.click(screen.getByText("Potrzebny search"));
-    const counted = await screen.findByRole("button", { name: "Filtry (1)" });
-
-    await user.click(counted);
-    expect(useUiStore.getState().jobsFiltersCollapsed).toBe(true);
-    expect(counted).toHaveAttribute("aria-expanded", "false");
-    expect(
-      screen.getByRole("complementary", {
-        name: "Filtry listy rekrutacji",
-        hidden: true,
-      }),
-    ).toHaveClass("hidden");
-  });
-
-  it("bez zapisanego wyboru kolumna filtrów jest zwinięta (lista v4)", async () => {
-    useUiStore.setState({ jobsFiltersCollapsed: null });
-    renderJobs();
-    await waitFor(() => expect(jobsCalls()).toHaveLength(1));
-    expect(screen.getByRole("button", { name: "Filtry" })).toHaveAttribute(
-      "aria-expanded",
-      "false",
-    );
-    expect(
-      screen.getByRole("complementary", {
-        name: "Filtry listy rekrutacji",
-        hidden: true,
-      }),
-    ).toHaveClass("hidden");
   });
 });
 
@@ -893,47 +812,36 @@ describe("JobsListV2 — lista v5: liczby statusów, termin, nowe filtry", () =>
   beforeEach(() => {
     getMock.mockReset();
     quickCountsMock.mockReset();
-    useUiStore.setState({ jobsView: "list", jobsFiltersCollapsed: false });
+    useUiStore.setState({ jobsView: "list" });
     window.history.replaceState(null, "", "/jobs");
     navState.search = "";
   });
 
-  const statusCounts = {
-    request_status: {
+  const stageCounts = {
+    request_stage: {
+      incomplete: 80,
+      to_review: 40,
       searching: 210,
       champion: 14,
       contract: 9,
-      filled: 5,
-      incomplete: 80,
-      closed: 3968,
+      client_silent: 6,
     },
-    request_status_mine: {
+    request_stage_mine: {
+      incomplete: 2,
+      to_review: 1,
       searching: 7,
       champion: 1,
       contract: 0,
-      filled: 2,
-      incomplete: 2,
-      closed: 30,
+      client_silent: 0,
     },
   };
 
-  it("pigułki statusu requestu pokazują liczby zakresu: „Moje” — moje, „Otwarte” — rejestr", async () => {
+  it("pigułki stanu pokazują liczby zakresu: „Moje” — moje, „Otwarte” — rejestr", async () => {
     mockJobsResponse([jobRow()]);
-    quickCountsMock.mockResolvedValue({
-      data: {
-        all: 4286,
-        mine: 42,
-        open: 318,
-        needs_sourcing: 1,
-        active_in_search: 1,
-        owner_missing: 1,
-        deadline_7d: 1,
-        ...statusCounts,
-      },
-    });
+    mockQuickCounts({ mine: 42, ...stageCounts });
     const user = userEvent.setup();
     renderJobs();
-    const chips = within(await screen.findByRole("group", { name: "Status requestu" }));
+    const chips = within(await screen.findByRole("group", { name: "Stan requestu" }));
     await waitFor(() =>
       expect(chips.getByRole("button", { name: /Szukamy\s*7/ })).toBeInTheDocument(),
     );
@@ -945,13 +853,16 @@ describe("JobsListV2 — lista v5: liczby statusów, termin, nowe filtry", () =>
       expect(chips.getByRole("button", { name: /Szukamy\s*210/ })).toBeInTheDocument(),
     );
     expect(chips.getByRole("button", { name: /Do uzupełnienia\s*80/ })).toBeInTheDocument();
+    expect(chips.getByRole("button", { name: /Klient milczy\s*6/ })).toBeInTheDocument();
+    // Jeden rząd: bez osobnego „Praca:” i bez „Obsadzona”/„Zakończony”.
+    expect(chips.queryByRole("button", { name: /Obsadzona|Zakończony|W pracy/ })).toBeNull();
   });
 
-  it("bez liczników statusu (starszy backend) pigułki nie udają zera", async () => {
+  it("bez liczników stanu (starszy backend) pigułki nie udają zera", async () => {
     mockJobsResponse([jobRow()]);
     mockQuickCounts();
     renderJobs();
-    const chips = within(await screen.findByRole("group", { name: "Status requestu" }));
+    const chips = within(await screen.findByRole("group", { name: "Stan requestu" }));
     await waitFor(() => expect(quickCountsMock).toHaveBeenCalled());
     expect(chips.getByRole("button", { name: "Szukamy" })).toBeInTheDocument();
   });
@@ -965,14 +876,14 @@ describe("JobsListV2 — lista v5: liczby statusów, termin, nowe filtry", () =>
       return `${d.getFullYear()}-${m}-${day}`;
     };
     mockJobsResponse([
-      jobRow({ id: 1, title: "Po terminie", deadline: inDays(-3) }),
+      jobRow({ id: 1, title: "Zaległa", deadline: inDays(-3) }),
       jobRow({ id: 2, title: "Wkrótce", deadline: inDays(5) }),
       jobRow({ id: 3, title: "Daleko", deadline: inDays(30) }),
       jobRow({ id: 4, title: "Bez terminu", deadline: null }),
     ]);
     mockQuickCounts();
     renderJobs();
-    await screen.findByText("Po terminie");
+    await screen.findByText("Zaległa");
     const cells = screen.getAllByTestId("job-deadline");
     expect(cells.map((c) => c.getAttribute("data-urgency"))).toEqual([
       "overdue",
@@ -1014,26 +925,23 @@ describe("JobsListV2 — lista v5: liczby statusów, termin, nowe filtry", () =>
     expect(title.closest("td")).toContainElement(badge);
   });
 
-  it("„Wysłanych do klienta” wysyła min_sent/max_sent i liczy się do „Filtry (N)”", async () => {
+  it("„Wysłanych do klienta” (w „Więcej filtrów”) wysyła min_sent/max_sent i liczy się do „Wyczyść filtry (N)”", async () => {
     mockJobsResponse([jobRow()]);
     mockQuickCounts();
     const user = userEvent.setup();
     renderJobs();
     await waitFor(() => expect(jobsCalls()).toHaveLength(1));
 
+    await user.click(screen.getByRole("button", { name: /Więcej filtrów/ }));
     await user.click(screen.getByRole("combobox", { name: "Filtr: Wysłanych do klienta" }));
     await user.click(await screen.findByRole("option", { name: "Co najmniej 3 osoby" }));
     await waitFor(() => expect(latestParams()).toMatchObject({ min_sent: 3 }));
     expect(latestParams().max_sent).toBeUndefined();
-    expect(await screen.findByRole("button", { name: "Filtry (1)" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Wyczyść filtry (1)" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Więcej filtrów: wysłanych: co najmniej 3 osoby/ })).toBeInTheDocument();
     await waitFor(() => expect(window.location.search).toContain("sent=3"));
 
-    await user.click(screen.getByRole("combobox", { name: "Filtr: Wysłanych do klienta" }));
-    await user.click(await screen.findByRole("option", { name: "Nikt jeszcze" }));
-    await waitFor(() => expect(latestParams()).toMatchObject({ max_sent: 0 }));
-    expect(latestParams().min_sent).toBeUndefined();
-
-    await user.click(screen.getByText("Wyczyść"));
+    await user.click(screen.getByRole("button", { name: "Wyczyść: Więcej filtrów" }));
     await waitFor(() => {
       expect(latestParams().min_sent).toBeUndefined();
       expect(latestParams().max_sent).toBeUndefined();
@@ -1044,6 +952,7 @@ describe("JobsListV2 — lista v5: liczby statusów, termin, nowe filtry", () =>
     navState.search = "lead=5&lead=8&deadline=range&dl_from=2026-10-01&dl_to=2026-10-31";
     mockJobsResponse([jobRow()]);
     mockQuickCounts();
+    const user = userEvent.setup();
     renderJobs();
     await waitFor(() => expect(jobsCalls()).toHaveLength(1));
     expect(latestParams()).toMatchObject({
@@ -1051,9 +960,11 @@ describe("JobsListV2 — lista v5: liczby statusów, termin, nowe filtry", () =>
       deadline_from: "2026-10-01",
       deadline_to: "2026-10-31",
     });
-    // Dwie osoby + termin = 3 zawężenia.
-    expect(screen.getByRole("button", { name: "Filtry (3)" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Termin od")).toHaveValue("2026-10-01");
+    // Delivery Lead + termin = 2 przyciski z ustawionym filtrem.
+    expect(screen.getByRole("button", { name: "Wyczyść filtry (2)" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Termin: 01\.10–31\.10/ }));
+    expect(await screen.findByLabelText("Termin od")).toHaveValue("2026-10-01");
     expect(screen.getByLabelText("Termin do")).toHaveValue("2026-10-31");
+    navState.search = "";
   });
 });

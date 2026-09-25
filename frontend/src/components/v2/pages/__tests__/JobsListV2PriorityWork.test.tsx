@@ -16,7 +16,7 @@ vi.mock("@/lib/api", () => ({
   default: {
     get: (...args: unknown[]) => getMock(...args),
   },
-  // Liczniki filtrów „Szybkie" — lista woła je przy każdym renderze; ten plik
+  // Liczniki paska filtrów — lista woła je przy każdym renderze; ten plik
   // ich nie testuje, więc atrapa oddaje puste liczby.
   jobsApi: {
     quickCounts: () =>
@@ -156,23 +156,16 @@ describe("JobsListV2 Priority Work", () => {
     expect(screen.getByText("Carry-over: 2")).toBeInTheDocument()
   })
 
-  it("sends the selected Priority Work filter to GET /api/jobs", async () => {
-    const user = userEvent.setup()
+  // Filtra Priority Work na liście nie ma (25.09.2026 — w historii nie
+  // powstał ani jeden plan); plakietki w wierszu zostają.
+  it("does not send priority_work — the list has no Priority Work filter", async () => {
     renderJobs()
     await waitFor(() => expect(jobsCalls()).toHaveLength(1))
-
-    await user.click(
-      screen.getByRole("combobox", { name: "Filtr Priority Work" }),
-    )
-    await user.click(
-      screen.getByRole("option", { name: "Przydzielone w planie" }),
-    )
-
-    await waitFor(() => {
-      const latestCall = jobsCalls().at(-1)
-      expect(latestCall?.[1]).toMatchObject({
-        params: expect.objectContaining({ priority_work: "assigned" }),
-      })
+    expect(
+      screen.queryByRole("combobox", { name: "Filtr Priority Work" }),
+    ).not.toBeInTheDocument()
+    expect(jobsCalls().at(-1)?.[1]).not.toMatchObject({
+      params: expect.objectContaining({ priority_work: expect.anything() }),
     })
   })
 
@@ -197,7 +190,7 @@ describe("JobsListV2 Priority Work", () => {
 
     renderJobs()
 
-    // Filtr w kolumnie „Szybkie" i plakietka w wierszu — ta sama etykieta.
+    // Plakietka w wierszu (filtr „Brak opiekuna TAC” zniknął 25.09.2026).
     expect(
       (await screen.findAllByText("Brak opiekuna TAC")).length,
     ).toBeGreaterThan(0)

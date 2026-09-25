@@ -4,18 +4,16 @@ import { pluralPl } from "@/lib/plural-pl";
 import { useEffect, useMemo, useState } from "react";
 import { TAC_UI_ENABLED } from "@/lib/tac-ui";
 import {
-  ROW_STATE_LABEL,
-  STATE_HINT,
-  STATE_LABEL,
-  VISIBLE_STATES,
-  type VisibleState,
-} from "@/lib/request-work-state";
+  REQUEST_STAGE_CHIPS,
+  REQUEST_STAGE_META,
+  initialStagesFromUrl,
+  type RequestStage,
+} from "@/lib/request-stage";
+import { jobsActiveFilterCount } from "@/lib/jobs-filter-groups";
 import {
-  REQUEST_STATUS_FILTER_ORDER,
-  REQUEST_STATUS_META,
-  requestStatusOf,
-  type RequestStatus,
-} from "@/lib/request-status";
+  JobsFilterBar,
+  type JobsFilterBarValue,
+} from "@/components/v2/jobs/JobsFilterBar";
 import { SimilarJobsDialog } from "@/components/v2/jobs/SimilarJobsDialog";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -33,7 +31,6 @@ import {
   MapPin,
   Plus,
   Search,
-  SlidersHorizontal,
   Sparkles,
   UserSquare2,
   Users,
@@ -70,19 +67,12 @@ import { JobReadinessDock } from "@/components/v2/jobs/JobReadinessDock";
 import {
   JobClientNames,
   JobDeadlineCell,
-  RequestStatusBadge,
+  RequestStageBadge,
   SimilarJobsCell,
   JobStageCounts,
   JobStageCountsHeader,
   STAGE_COUNTS_LEGEND,
 } from "@/components/v2/jobs/JobListCells";
-import { UserMultiSelect } from "@/components/v2/filters/UserMultiSelect";
-import { ClientMultiSelect } from "@/components/v2/filters/ClientMultiSelect";
-import { CompetenceCategoryMultiSelect } from "@/components/v2/filters/CompetenceCategoryMultiSelect";
-import {
-  JOB_STATUS_OPTIONS,
-  type JobStatusValue,
-} from "@/lib/filter-options";
 import { useAuthStore } from "@/store/auth";
 import { useUiStore } from "@/store/ui";
 import {
@@ -94,17 +84,13 @@ import {
   initialDeadlineRangeFromUrl,
   initialFlagFromUrl,
   initialIdsFromUrl,
+  initialSearchFromUrl,
   initialSentFromUrl,
   resolveScope,
   scopeOverrideFromUrl,
-  scopeForStatuses,
   scopeQueryFlags,
   sentQueryParams,
-  statusesForScope,
-  initialPriorityWorkFromUrl,
-  initialSearchFromUrl,
   sortOverrideFromUrl,
-  initialStatusFromUrl,
   type JobDeadlinePreset,
   type JobDeadlineRange,
   type JobScope,
@@ -140,67 +126,6 @@ const STATUS_LABEL: Record<string, string> = {
   lost: "Utracona",
 };
 
-type DeadlinePreset = JobDeadlinePreset;
-
-/** Od tej szerokości kolumna filtrów jest domyślnie rozwinięta (Tailwind `2xl`). */
-const FILTERS_AUTO_EXPAND_QUERY = "(min-width: 1536px)";
-
-type FiltersMode = "auto" | "expanded" | "collapsed";
-
-/**
- * Siatka strony dla 3 stanów filtrów × 2 stanów doku. Pełne literały klas
- * (Tailwind nie widzi sklejanych) — `auto` przełącza się CSS-em na `2xl`.
- */
-const LAYOUT_GRID: Record<FiltersMode, { closed: string; open: string }> = {
-  // Trzy kolumny dopiero od `2xl`: przy 1280 px z przypiętym paskiem bocznym
-  // tabela dostawała ~370 px. Na `xl` otwarty dok zajmuje miejsce filtrów
-  // (patrz `FILTERS_ASIDE_VISIBILITY_WITH_DOCK`).
-  expanded: {
-    closed: "lg:grid-cols-[230px_minmax(0,1fr)]",
-    open: "lg:grid-cols-[230px_minmax(0,1fr)] xl:grid-cols-[minmax(0,1fr)_360px] 2xl:grid-cols-[230px_minmax(0,1fr)_360px]",
-  },
-  collapsed: {
-    closed: "",
-    open: "xl:grid-cols-[minmax(0,1fr)_360px]",
-  },
-  // Tryb `auto` z otwartym dokiem CHOWA filtry: trzy kolumny na 1400 px
-  // ucinały tabeli termin i akcje. Jawnie rozwinięte filtry zostają.
-  auto: {
-    closed: "2xl:grid-cols-[230px_minmax(0,1fr)]",
-    open: "xl:grid-cols-[minmax(0,1fr)_360px]",
-  },
-};
-
-const FILTERS_ASIDE_VISIBILITY: Record<FiltersMode, string> = {
-  expanded: "",
-  collapsed: "hidden",
-  auto: "hidden 2xl:block",
-};
-
-const DEADLINE_OPTIONS: { value: DeadlinePreset; label: string }[] = [
-  { value: "any", label: "Termin: dowolny" },
-  { value: "overdue", label: "Po terminie" },
-  { value: "this_week", label: "W tym tygodniu" },
-  { value: "next7", label: "Najbliższe 7 dni" },
-  { value: "next14", label: "Do 14 dni" },
-  { value: "next30", label: "Najbliższe 30 dni" },
-  { value: "has", label: "Z terminem" },
-  { value: "none", label: "Bez terminu" },
-  { value: "range", label: "Zakres dat…" },
-];
-
-/**
- * „Wysłanych do klienta" — OSOBY (nie wiersze etapów), które w rekrutacji
- * doszły do „CV wysłane" albo dalej (backend `min_sent`/`max_sent`).
- */
-const SENT_OPTIONS: { value: JobSentFilterValue; label: string }[] = [
-  { value: "any", label: "Wysłanych: dowolnie" },
-  { value: "none", label: "Nikt jeszcze" },
-  { value: "1", label: "Co najmniej 1 osoba" },
-  { value: "3", label: "Co najmniej 3 osoby" },
-  { value: "5", label: "Co najmniej 5 osób" },
-];
-
 // Bez `title` na przyciskach: w Chrome `title` potrafi przejąć nazwę dostępną
 // przycisku, a nazwa ma zostać „Otwarte 318". Opis idzie w `aria-describedby`.
 const SCOPE_OPTIONS: { value: JobScope; label: string; hint: string }[] = [
@@ -210,7 +135,6 @@ const SCOPE_OPTIONS: { value: JobScope; label: string; hint: string }[] = [
 ];
 
 type JobSortValue = JobSortFilterValue;
-type PriorityWorkFilter = "any" | "assigned" | "carry_over" | "either";
 
 const SORT_OPTIONS: { value: JobSortValue; label: string }[] = [
   // `sort=attention`: najpierw rekrutacje z największą liczbą kandydatów
@@ -220,16 +144,6 @@ const SORT_OPTIONS: { value: JobSortValue; label: string }[] = [
   { value: "oldest", label: "Od najstarszej" },
   // Termin rosnąco, bez terminu na końcu (backend `sort=deadline`).
   { value: "deadline", label: "Najbliższy termin" },
-];
-
-const PRIORITY_WORK_OPTIONS: {
-  value: PriorityWorkFilter;
-  label: string;
-}[] = [
-  { value: "any", label: "Priority Work: wszystko" },
-  { value: "assigned", label: "Przydzielone w planie" },
-  { value: "carry_over", label: "Tylko carry-over" },
-  { value: "either", label: "Plan lub carry-over" },
 ];
 
 interface JobPriorityWorkSummary {
@@ -282,6 +196,17 @@ export function JobPriorityWorkBadges({
   );
 }
 
+const EMPTY_FILTERS: JobsFilterBarValue = {
+  clientIds: [],
+  deliveryLeadIds: [],
+  workedBy: [],
+  nobodyWorking: false,
+  ccIds: [],
+  deadline: "any",
+  deadlineRange: {},
+  sent: "any",
+};
+
 /**
  * Klucze react-query listy — eksportowane, żeby harness `/preview/jobs-list-v3`
  * zasiewał cache TYM SAMYM kluczem, którego używa komponent. Ręcznie przepisany
@@ -290,161 +215,55 @@ export function JobPriorityWorkBadges({
  */
 export interface JobsListQueryState {
   search: string;
-  status: readonly JobStatusValue[];
   mine: boolean;
-  responsibleIds: readonly number[];
+  openOnly: boolean;
+  sort: JobSortFilterValue;
+  page: number;
+  /** Pigułki „Stan requestu” (`request_stage`, LUB) — pusty = wszystkie. */
+  stages: readonly RequestStage[];
   clientIds: readonly number[];
   ccIds: readonly number[];
-  needsSourcing: boolean;
-  activeInSearch: boolean;
+  /** Delivery Lead rekrutacji (`delivery_lead_id`, LUB). */
+  deliveryLeadIds: readonly number[];
+  /** „Kto pracuje” — id osób (`worked_by`, LUB). */
+  workedBy: readonly number[];
+  /** „Nikt nie pracuje” (`nobody_working=true`). */
+  nobodyWorking: boolean;
   deadline: JobDeadlinePreset;
-  openOnly: boolean;
-  noOwnerOnly: boolean;
-  sort: JobSortFilterValue;
-  priorityWork: "any" | "assigned" | "carry_over" | "either";
-  page: number;
-  /** Status requestu (0341) — pusty/brak = wszystkie. */
-  requestStatuses?: readonly RequestStatus[];
-  workStates?: readonly VisibleState[];
   /** Granice presetu terminu `range` — brak = bez zakresu. */
   deadlineRange?: JobDeadlineRange;
-  /** Delivery Lead rekrutacji (`delivery_lead_id`, LUB). */
-  deliveryLeadIds?: readonly number[];
   /** „Wysłanych do klienta" — brak = dowolnie. */
   sent?: JobSentFilterValue;
 }
-
-const WORK_STATE_CHIPS: readonly VisibleState[] = [
-  "to_review",
-  "searching",
-  "client_silent",
-  "finished",
-];
 
 export function jobsListQueryKey(state: JobsListQueryState): unknown[] {
   return [
     "jobs-v2",
     state.search,
-    state.status,
     state.mine ? 1 : 0,
-    state.responsibleIds,
+    state.openOnly ? 1 : 0,
+    state.sort,
+    state.page,
+    state.stages,
     state.clientIds,
     state.ccIds,
-    state.needsSourcing ? 1 : 0,
-    state.activeInSearch ? 1 : 0,
+    state.deliveryLeadIds,
+    state.workedBy,
+    state.nobodyWorking ? 1 : 0,
     state.deadline,
-    state.openOnly ? 1 : 0,
-    state.noOwnerOnly ? 1 : 0,
-    state.sort,
-    state.priorityWork,
-    state.page,
-    state.requestStatuses ?? [],
-    state.workStates ?? [],
     state.deadline === "range"
       ? [state.deadlineRange?.from ?? "", state.deadlineRange?.to ?? ""]
       : [],
-    state.deliveryLeadIds ?? [],
     state.sent ?? "any",
   ];
 }
 
-/** Okno „Deadline ≤ 7 dni" liczy przeglądarka — ta sama para dat co filtr. */
-export function jobsQuickCountsQueryKey(): unknown[] {
-  const next7 = deadlineQueryParams("next7");
-  return ["jobs-quick-counts", next7.deadline_from, next7.deadline_to];
-}
-
-/** Pigułka filtra w lewej kolumnie (makieta `.fp`) — Typ i Status. */
-function FilterPill({
-  active,
-  onClick,
-  label,
-}: {
-  active: boolean;
-  onClick: () => void;
-  label: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={cn(
-        "rounded-full border px-2 py-0.5 text-[11px] transition-colors",
-        active
-          ? "border-primary bg-primary text-primary-foreground"
-          : "border-border bg-background text-foreground hover:bg-accent",
-      )}
-    >
-      {label}
-    </button>
-  );
-}
-
 /**
- * Wiersz w sekcji "Szybkie" lewej kolumny filtrów (makieta „01 Lista").
- *
- * `count` jest GLOBALNY — pochodzi z `GET /api/jobs/quick-counts`, który liczy
- * wszystkie sześć faset JEDNYM zapytaniem (`count(*) FILTER (WHERE …)`) tymi
- * samymi predykatami, co filtry listy. Do 09.2026 licznik miał tu tylko „Brak
- * ownera requestu" i opisywał WYŁĄCZNIE wczytaną stronę — „63" znaczyło „63
- * na dwudziestu widocznych wierszach", czyli liczbę, której nie dało się
- * zinterpretować.
- *
- * `count === undefined` (liczniki jeszcze się ładują albo ich zapytanie padło)
- * renderuje BRAK liczby, nie zero: zero jest zdaniem o bazie, a nie o tym, że
- * czegoś nie wiemy.
+ * Liczniki pigułek i przełączników. Okno „Po terminie” (termin do wczoraj)
+ * liczy przeglądarka — ta sama data co filtr, żeby licznik i lista się zgadzały.
  */
-function QuickFilterRow({
-  active,
-  onClick,
-  label,
-  count,
-  tone = "neutral",
-  title,
-}: {
-  active: boolean;
-  onClick: () => void;
-  label: string;
-  count?: number;
-  tone?: "neutral" | "warning" | "danger";
-  title?: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      title={title}
-      className={cn(
-        "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors",
-        active
-          ? "bg-primary/10 font-medium text-primary"
-          : "text-foreground hover:bg-accent",
-      )}
-    >
-      <span
-        aria-hidden="true"
-        className={cn(
-          "h-1.5 w-1.5 shrink-0 rounded-full",
-          tone === "warning"
-            ? "bg-warning"
-            : tone === "danger"
-              ? "bg-destructive"
-              : "bg-muted-foreground/40",
-        )}
-      />
-      {/* Etykieta ZAWIJA się zamiast ucinać: przy czterocyfrowym liczniku
-          („Brak opiekuna TAC 4236") `truncate` zostawiał „Brak ownera req…",
-          a to ta sama etykieta, po której użytkownik rozpoznaje filtr. */}
-      <span className="min-w-0 flex-1 leading-snug">{label}</span>
-      {count != null && (
-        <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-          {count}
-        </span>
-      )}
-    </button>
-  );
+export function jobsQuickCountsQueryKey(): unknown[] {
+  return ["jobs-quick-counts", deadlineQueryParams("overdue").deadline_to];
 }
 
 /**
@@ -623,15 +442,10 @@ function JobsTable({
                 </div>
               </TableCell>
               <TableCell>
-                <RequestStatusBadge status={job.request_status} />
-                {job.visible_work_state && job.visible_work_state !== "searching" && (
-                  <span
-                    className="mt-1 block text-[11px] text-muted-foreground"
-                    title="Stan pracy nad requestem (Porządek w requestach)"
-                  >
-                    {ROW_STATE_LABEL[job.visible_work_state as VisibleState]}
-                  </span>
-                )}
+                <RequestStageBadge
+                  stage={job.request_stage}
+                  fallbackStatus={job.request_status}
+                />
               </TableCell>
               <TableCell className="px-2">
                 {stageSummary ? (
@@ -712,19 +526,13 @@ function JobsTable({
 }
 
 export function JobsListV2() {
-  // Stan początkowy z URL-a. Bez tego deep-linki były atrapą: pulpit prowadzi
-  // na `/jobs?mine=0&status=published`, a lista i tak startowała z pustymi
-  // filtrami, więc użytkownik dostawał WSZYSTKIE oferty (z Draftami włącznie)
-  // i nie miał sygnału, że kliknięty filtr nie zadziałał.
-  //
-  // Czytane raz, przy montowaniu. Status, „moje", typ, termin i sortowanie są
-  // potem ZAPISYWANE z powrotem do URL-a (efekt niżej, M03-B01) — inaczej F5
-  // i „Wstecz" z profilu rekrutacji gubiły zawężenie bez słowa.
+  // Stan początkowy z URL-a, czytany raz przy montowaniu, a potem ZAPISYWANY
+  // z powrotem (efekt niżej) — F5 i „Wstecz" z profilu rekrutacji nie gubią
+  // zawężenia. Klucze kolumny filtrów sprzed 25.09.2026 (typ, status, osoba
+  // odpowiedzialna, „Szybkie”, Priority Work, `rs`/`ws`) nie są już filtrem:
+  // `rs`/`ws` mapują się na pigułki stanu, reszta znika z adresu.
   const searchParams = useSearchParams();
   const [search, setSearch] = useState(() => initialSearchFromUrl(searchParams));
-  const [statusFilter, setStatusFilter] = useState<JobStatusValue[]>(
-    () => initialStatusFromUrl(searchParams)
-  );
   // Zakres i sortowanie trzymamy jako NADPISANIA (`null` = „bez wyboru"):
   // zakres obowiązujący to jawny wybór albo domyślny roli, a sortowanie bez
   // wyboru idzie za zakresem. Dzięki temu lista reaguje na hydratację store'u
@@ -738,69 +546,30 @@ export function JobsListV2() {
   const [scopeOverride, setScopeOverride] = useState<JobScope | null>(() =>
     scopeOverrideFromUrl(searchParams),
   );
-  // Status „Zamknięta” przy „Otwartych” przełącza na „Wszystkie” — razem
-  // dawały zawsze pustą listę (audyt 24.09.2026).
-  const scope = scopeForStatuses(resolveScope(scopeOverride, authUser), statusFilter);
+  const scope = resolveScope(scopeOverride, authUser);
   const { mine, openOnly } = scopeQueryFlags(scope);
-  const [responsibleIds, setResponsibleIds] = useState<number[]>(() =>
-    initialIdsFromUrl(searchParams, "responsible"),
+  const [stages, setStages] = useState<RequestStage[]>(() =>
+    initialStagesFromUrl(searchParams),
   );
-  const [clientIds, setClientIds] = useState<number[]>(() =>
-    initialIdsFromUrl(searchParams, "client"),
-  );
-  const [ccIds, setCcIds] = useState<number[]>(() =>
-    initialIdsFromUrl(searchParams, "cc"),
-  );
-  const [needsSourcing, setNeedsSourcing] = useState(() =>
-    initialFlagFromUrl(searchParams, "sourcing"),
-  );
-  const [activeInSearch, setActiveInSearch] = useState(() =>
-    initialFlagFromUrl(searchParams, "active_search"),
-  );
-  const [deadlinePreset, setDeadlinePreset] = useState<DeadlinePreset>(() =>
-    initialDeadlineFromUrl(searchParams),
-  );
-  const [deadlineRange, setDeadlineRange] = useState<JobDeadlineRange>(() =>
-    initialDeadlineRangeFromUrl(searchParams),
-  );
-  const [deliveryLeadIds, setDeliveryLeadIds] = useState<number[]>(() =>
-    initialIdsFromUrl(searchParams, "lead"),
-  );
-  const [sentFilter, setSentFilter] = useState<JobSentFilterValue>(() =>
-    initialSentFromUrl(searchParams),
-  );
-  // "Brak opiekuna TAC" jako FILTR (nie tylko badge, makieta „01 Lista").
-  // Od 09.2026 filtruje SERWER (`owner_missing` w `GET /api/jobs`, predykat
-  // `tac_id IS NULL`). Wcześniej zawężał wyłącznie już wczytaną stronę, więc
-  // „63" obok nazwy filtra opisywało dwadzieścia widocznych wierszy, a nie
-  // bazę — i paginacja pokazywała strony, na których nie było czego zawężać.
-  // Przy wyłączonej funkcji TAC stary link z `?no_owner=1` nie może zawężać
-  // listy ukrytym filtrem, którego nie da się zobaczyć ani zdjąć.
-  const [noOwnerOnly, setNoOwnerOnly] = useState(
-    () => TAC_UI_ENABLED && initialFlagFromUrl(searchParams, "no_owner"),
-  );
+  const [filterValue, setFilterValue] = useState<JobsFilterBarValue>(() => ({
+    clientIds: initialIdsFromUrl(searchParams, "client"),
+    deliveryLeadIds: initialIdsFromUrl(searchParams, "lead"),
+    workedBy: initialIdsFromUrl(searchParams, "who"),
+    nobodyWorking: initialFlagFromUrl(searchParams, "nobody"),
+    ccIds: initialIdsFromUrl(searchParams, "cc"),
+    deadline: initialDeadlineFromUrl(searchParams),
+    deadlineRange: initialDeadlineRangeFromUrl(searchParams),
+    sent: initialSentFromUrl(searchParams),
+  }));
   const [sortOverride, setSort] = useState<JobSortValue | null>(() =>
     sortOverrideFromUrl(searchParams),
   );
   const sort: JobSortValue = sortOverride ?? defaultSortForScope(scope);
-  const [priorityWorkFilter, setPriorityWorkFilter] =
-    useState<PriorityWorkFilter>(() => initialPriorityWorkFromUrl(searchParams));
   const [page, setPage] = useState(1);
-  // Status requestu (0341) — adres `rs=` (powtarzalny), jak pozostałe filtry.
-  const [requestStatuses, setRequestStatuses] = useState<RequestStatus[]>(() =>
-    searchParams
-      .getAll("rs")
-      .map(requestStatusOf)
-      .filter((s): s is RequestStatus => s !== null),
-  );
-  // Stan pracy nad requestem (0371) — adres `ws=` (powtarzalny).
-  const [workStates, setWorkStates] = useState<VisibleState[]>(() =>
-    searchParams
-      .getAll("ws")
-      .filter((s): s is VisibleState =>
-        (VISIBLE_STATES as readonly string[]).includes(s),
-      ),
-  );
+  const patchFilters = (patch: Partial<JobsFilterBarValue>) => {
+    setFilterValue((prev) => ({ ...prev, ...patch }));
+    setPage(1);
+  };
   const [similarForJob, setSimilarForJob] = useState<number | null>(null);
   const [inviteModalForJob, setInviteModalForJob] = useState<number | null>(null);
   // Dok podglądu (gotowość rekrutacji) otwiera ikona „Podgląd" w wierszu —
@@ -812,30 +581,10 @@ export function JobsListV2() {
   const router = useRouter();
   const jobsView = useUiStore((s) => s.jobsView);
   const setJobsView = useUiStore((s) => s.setJobsView);
-  // Kolumna filtrów: `null` = brak wyboru → domyślne wg szerokości okna
-  // (rozwinięta od `2xl`), liczone CSS-em, więc bez migotania przy hydracji.
-  const filtersPref = useUiStore((s) => s.jobsFiltersCollapsed);
-  const setFiltersCollapsed = useUiStore((s) => s.setJobsFiltersCollapsed);
-  const [wideViewport, setWideViewport] = useState<boolean | null>(null);
-  useEffect(() => {
-    if (typeof window.matchMedia !== "function") return;
-    const media = window.matchMedia(FILTERS_AUTO_EXPAND_QUERY);
-    const sync = () => setWideViewport(media.matches);
-    sync();
-    media.addEventListener("change", sync);
-    return () => media.removeEventListener("change", sync);
-  }, []);
-  // Lista v4: kolumna filtrów domyślnie ZWINIĘTA — codzienne zawężenia
-  // (status, zakres, szukanie) stoją nad tabelą. Rozwinięcie zapamiętuje się.
-  // `as FiltersMode`: tryb „auto" zostaje w typie dla gałęzi układu (dok).
-  const filtersMode = (
-    filtersPref === false ? "expanded" : "collapsed"
-  ) as FiltersMode;
   // Sortowanie bez jawnego wyboru samo idzie za zakresem; jawnie wybrane
   // zostaje. `null` = powrót do domyślnego zakresu roli („Wyczyść").
   const changeScope = (nextScope: JobScope | null) => {
     setScopeOverride(nextScope);
-    setStatusFilter((prev) => statusesForScope(resolveScope(nextScope, authUser), prev));
     setPage(1);
   };
 
@@ -849,59 +598,29 @@ export function JobsListV2() {
   useEffect(() => {
     const qs = encodeJobsListUrl(
       {
-        status: statusFilter,
         scope,
         defaultScope,
-        deadline: deadlinePreset,
-        deadlineRange,
+        deadline: filterValue.deadline,
+        deadlineRange: filterValue.deadlineRange,
         sort,
         q: debouncedSearch,
-        responsibleIds,
-        clientIds,
-        ccIds,
-        deliveryLeadIds,
-        sent: sentFilter,
-        needsSourcing,
-        activeInSearch,
-        noOwnerOnly,
-        priorityWork: priorityWorkFilter,
+        stages,
+        clientIds: filterValue.clientIds,
+        ccIds: filterValue.ccIds,
+        deliveryLeadIds: filterValue.deliveryLeadIds,
+        workedBy: filterValue.workedBy,
+        nobodyWorking: filterValue.nobodyWorking,
+        sent: filterValue.sent,
       },
       new URLSearchParams(window.location.search),
     );
-    const withStatus = new URLSearchParams(qs);
-    withStatus.delete("rs");
-    for (const s of requestStatuses) withStatus.append("rs", s);
-    withStatus.delete("ws");
-    for (const s of workStates) withStatus.append("ws", s);
-    const qsFull = withStatus.toString();
-    const target = qsFull
-      ? `${window.location.pathname}?${qsFull}`
-      : window.location.pathname;
+    const target = qs ? `${window.location.pathname}?${qs}` : window.location.pathname;
     if (target !== `${window.location.pathname}${window.location.search}`) {
       window.history.replaceState(window.history.state, "", target);
     }
-  }, [
-    statusFilter,
-    scope,
-    defaultScope,
-    deadlinePreset,
-    deadlineRange,
-    sort,
-    debouncedSearch,
-    responsibleIds,
-    clientIds,
-    ccIds,
-    deliveryLeadIds,
-    sentFilter,
-    needsSourcing,
-    activeInSearch,
-    noOwnerOnly,
-    priorityWorkFilter,
-    requestStatuses,
-    workStates,
-  ]);
+  }, [scope, defaultScope, sort, debouncedSearch, stages, filterValue]);
 
-  const dl = deadlineQueryParams(deadlinePreset, deadlineRange);
+  const dl = deadlineQueryParams(filterValue.deadline, filterValue.deadlineRange);
 
   // Jeden rejestr capability dla nagłówka, pustego stanu i akcji w wierszach
   // (audyt F-19) — wcześniej gate'owany był tylko przycisk w nagłówku.
@@ -922,47 +641,38 @@ export function JobsListV2() {
     enabled: authHydrated,
     queryKey: jobsListQueryKey({
       search: debouncedSearch,
-      status: statusFilter,
       mine,
-      responsibleIds,
-      clientIds,
-      ccIds,
-      needsSourcing,
-      activeInSearch,
-      deadline: deadlinePreset,
       openOnly,
-      noOwnerOnly,
       sort,
-      priorityWork: priorityWorkFilter,
       page,
-      requestStatuses,
-      workStates,
-      deadlineRange,
-      deliveryLeadIds,
-      sent: sentFilter,
+      stages,
+      clientIds: filterValue.clientIds,
+      ccIds: filterValue.ccIds,
+      deliveryLeadIds: filterValue.deliveryLeadIds,
+      workedBy: filterValue.workedBy,
+      nobodyWorking: filterValue.nobodyWorking,
+      deadline: filterValue.deadline,
+      deadlineRange: filterValue.deadlineRange,
+      sent: filterValue.sent,
     }),
     queryFn: () =>
       api
         .get("/api/jobs", {
           params: {
             q: debouncedSearch || undefined,
-            status: statusFilter.length ? statusFilter : undefined,
             mine: mine ? true : undefined,
-            responsible_id: responsibleIds.length ? responsibleIds : undefined,
-            delivery_lead_id: deliveryLeadIds.length ? deliveryLeadIds : undefined,
-            client_id: clientIds.length ? clientIds : undefined,
-            competence_category_id: ccIds.length ? ccIds : undefined,
-            needs_sourcing: needsSourcing ? true : undefined,
-            active_in_search: activeInSearch ? true : undefined,
             open_only: openOnly ? true : undefined,
-            owner_missing: noOwnerOnly ? true : undefined,
-            priority_work:
-              priorityWorkFilter === "any" ? undefined : priorityWorkFilter,
-            request_status: requestStatuses.length ? requestStatuses : undefined,
-            work_state: workStates.length ? workStates : undefined,
+            request_stage: stages.length ? stages : undefined,
+            client_id: filterValue.clientIds.length ? filterValue.clientIds : undefined,
+            competence_category_id: filterValue.ccIds.length ? filterValue.ccIds : undefined,
+            delivery_lead_id: filterValue.deliveryLeadIds.length
+              ? filterValue.deliveryLeadIds
+              : undefined,
+            worked_by: filterValue.workedBy.length ? filterValue.workedBy : undefined,
+            nobody_working: filterValue.nobodyWorking ? true : undefined,
             sort,
             ...dl,
-            ...sentQueryParams(sentFilter),
+            ...sentQueryParams(filterValue.sent),
             page,
             // Osiem kolumn Tablicy w wierszu — JEDNO dodatkowe GROUP BY
             // na całą stronę wyników (`stage_breakdown` per wiersz), zero
@@ -977,23 +687,24 @@ export function JobsListV2() {
     placeholderData: keepPreviousData,
   });
 
-  // Liczniki sześciu filtrów „Szybkie" — JEDNO zapytanie na całą kolumnę,
-  // niezależne od stronicowania i od pozostałych filtrów (makieta „01 Lista").
-  // Okno „≤ 7 dni" liczy PRZEGLĄDARKA i wysyła je do backendu, żeby licznik
-  // i lista używały tej samej pary dat — serwer w innej strefie czasowej
-  // potrafiłby wypaść o dzień inaczej.
-  const next7 = deadlineQueryParams("next7");
+  // Liczniki zakresu, pigułek stanu i trzech przełączników — JEDNO zapytanie
+  // (`/api/jobs/quick-counts`, marker parytetu „quick-counts”), niezależne od
+  // stronicowania i od pozostałych filtrów. Datę „Po terminie” liczy
+  // PRZEGLĄDARKA — ta sama, którą dostaje filtr terminu.
+  const overdueTo = deadlineQueryParams("overdue").deadline_to;
   const { data: quickCounts } = useQuery({
     queryKey: jobsQuickCountsQueryKey(),
-    queryFn: () =>
-      jobsApi
-        .quickCounts({
-          deadline_from: next7.deadline_from,
-          deadline_to: next7.deadline_to,
-        })
-        .then((r) => r.data),
+    queryFn: () => jobsApi.quickCounts({ overdue_to: overdueTo }).then((r) => r.data),
     staleTime: 60_000,
   });
+  const attentionCounts =
+    scope === "mine"
+      ? quickCounts?.attention_mine
+      : scope === "open"
+        ? quickCounts?.attention
+        : undefined;
+  const stageCounts =
+    scope === "mine" ? quickCounts?.request_stage_mine : quickCounts?.request_stage;
 
   const isLoading = queryLoading || !authHydrated;
   const items = data?.items ?? [];
@@ -1028,26 +739,6 @@ export function JobsListV2() {
     return () => window.removeEventListener("keydown", onKey);
   }, [dockOpen]);
 
-  // `undefined` = jeszcze nie wiemy (SSR / brak matchMedia) — nie zgadujemy
-  // `aria-expanded`, układ i tak rozstrzyga CSS. W trybie `auto` otwarty dok
-  // chowa filtry (patrz `LAYOUT_GRID`).
-  const autoExpanded = (wide: boolean) => wide && !dockOpen;
-  const filtersExpanded: boolean | undefined =
-    filtersMode === "auto"
-      ? wideViewport == null
-        ? undefined
-        : autoExpanded(wideViewport)
-      : filtersMode === "expanded";
-  const toggleFilters = () => {
-    const expandedNow =
-      filtersMode === "auto"
-        ? typeof window.matchMedia === "function" &&
-          autoExpanded(window.matchMedia(FILTERS_AUTO_EXPAND_QUERY).matches)
-        : filtersMode === "expanded";
-    setFiltersCollapsed(expandedNow);
-  };
-
-
   // Nawigacja „N z M" w doku — strzałki przesuwają wybór po wierszach BIEŻĄCEJ
   // strony (makieta „01 Lista"). Świadomie nie przeskakują na kolejną stronę:
   // dok czyta `stage_breakdown` i `can_open` z wiersza, więc wyjście poza
@@ -1078,25 +769,9 @@ export function JobsListV2() {
     else router.push(href);
   };
 
-  // „Wszystkie filtry N" (makieta `.allfilters`) — ile zawężeń jest czynnych.
-  // Wyszukiwarka jest POZA tą liczbą: stoi we własnym wierszu narzędzi nad
-  // listą i widać ją bez otwierania kolumny filtrów. ZAKRES („Moje" /
-  // „Otwarte" / „Wszystkie") też: ma własny, zawsze widoczny przełącznik,
-  // a zakres domyślny liczony jako filtr dawałby „Filtry (1)" na starcie.
-  const activeFilterCount =
-    statusFilter.length +
-    (sentFilter !== "any" ? 1 : 0) +
-    deliveryLeadIds.length +
-    (needsSourcing ? 1 : 0) +
-    (activeInSearch ? 1 : 0) +
-    (noOwnerOnly ? 1 : 0) +
-    (deadlinePreset !== "any" ? 1 : 0) +
-    (priorityWorkFilter !== "any" ? 1 : 0) +
-    clientIds.length +
-    ccIds.length +
-    responsibleIds.length +
-    requestStatuses.length +
-    workStates.length;
+  // Ile zawężeń jest ustawionych (pusty stan „Brak wyników dla filtrów”
+  // i „Wyczyść filtry (N)”). Zakres i szukajka poza liczbą — widać je zawsze.
+  const activeFilterCount = jobsActiveFilterCount({ ...filterValue, stages });
 
   // „4 241 · pokazuję 12 moich" (makieta). Pierwsza liczba to ZAWSZE `total`
   // z API — czyli ile rekrutacji pasuje do filtrów, nie ile widać. Druga mówi,
@@ -1134,22 +809,10 @@ export function JobsListV2() {
     viewState === "error";
 
   const resetFilters = () => {
-    setStatusFilter([]);
-    setRequestStatuses([]);
-    setWorkStates([]);
-    // „Wyczyść" wraca do domyślnego zakresu ROLI (`defaultMineForUser`).
+    setStages([]);
+    // „Wyczyść" wraca do domyślnego zakresu ROLI.
     changeScope(null);
-    setResponsibleIds([]);
-    setClientIds([]);
-    setCcIds([]);
-    setNeedsSourcing(false);
-    setActiveInSearch(false);
-    setDeadlinePreset("any");
-    setDeadlineRange({});
-    setDeliveryLeadIds([]);
-    setSentFilter("any");
-    setPriorityWorkFilter("any");
-    setNoOwnerOnly(false);
+    setFilterValue(EMPTY_FILTERS);
     setPage(1);
   };
 
@@ -1182,348 +845,17 @@ export function JobsListV2() {
         </div>
       </div>
 
-      {/* Grid jak C2: lewa kolumna filtrów, środek, dok gotowości */}
+      {/* Lista + dok gotowości. Filtry stoją paskiem nad tabelą (25.09.2026)
+          — lewa kolumna zabierała tabeli 230 px i znikała przy otwartym doku. */}
       <div
         className={cn(
           "grid grid-cols-1 gap-4",
-          LAYOUT_GRID[filtersMode][dockOpen ? "open" : "closed"],
+          dockOpen && "xl:grid-cols-[minmax(0,1fr)_360px]",
         )}
       >
-        {/* ── Lewa kolumna: filtry (zwijana, stan w `store/ui.ts`) ──── */}
-        <aside
-          id="jobs-filters-rail"
-          aria-label="Filtry listy rekrutacji"
-          className={cn(
-            "space-y-4 self-start rounded-xl border border-border bg-card p-4",
-            filtersMode === "auto" && dockOpen
-              ? "hidden"
-              : filtersMode === "expanded" && dockOpen
-                ? "xl:hidden 2xl:block"
-                : FILTERS_ASIDE_VISIBILITY[filtersMode],
-          )}
-        >
-          <div className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
-            <SlidersHorizontal className="h-4 w-4 text-primary" />
-            Filtry
-            <button
-              type="button"
-              onClick={resetFilters}
-              className="ml-auto text-[11px] font-normal text-primary hover:underline"
-            >
-              Wyczyść
-            </button>
-          </div>
-
-          <div className="space-y-1">
-            <div className="px-2 text-[11px] font-medium text-muted-foreground">
-              Szybkie
-            </div>
-            {/* „Moje rekrutacje" i „Niezamknięte" zeszły do przełącznika
-                zakresu nad tabelą (lista v5) — dwa przełączniki tego samego
-                zawężenia rozjeżdżały się ze sobą. */}
-            <QuickFilterRow
-              active={needsSourcing}
-              onClick={() => {
-                setNeedsSourcing((p) => !p);
-                setPage(1);
-              }}
-              label="Potrzebny search"
-              count={quickCounts?.needs_sourcing}
-              tone="warning"
-              title="Wymagają sourcingu"
-            />
-            <QuickFilterRow
-              active={activeInSearch}
-              onClick={() => {
-                setActiveInSearch((p) => !p);
-                setPage(1);
-              }}
-              label="Aktywni w searchu"
-              count={quickCounts?.active_in_search}
-              title="Rekruter aktywnie szuka"
-            />
-            {TAC_UI_ENABLED && (
-            <QuickFilterRow
-              active={noOwnerOnly}
-              onClick={() => {
-                setNoOwnerOnly((p) => !p);
-                setPage(1);
-              }}
-              label="Brak opiekuna TAC"
-              count={quickCounts?.owner_missing}
-              tone="danger"
-              title="Bez opiekuna TAC"
-            />
-            )}
-            <QuickFilterRow
-              active={deadlinePreset === "next7"}
-              onClick={() => {
-                setDeadlinePreset((p) => (p === "next7" ? "any" : "next7"));
-                setPage(1);
-              }}
-              label="Deadline ≤ 7 dni"
-              count={quickCounts?.deadline_7d}
-              tone="warning"
-              title="Termin w ciągu 7 dni"
-            />
-          </div>
-
-          <div className="border-t border-border" />
-
-          {/* Status jako pigułki, nie select (makieta „01 Lista"). Trzy wartości
-              `JobStatus` mieszczą się w rzędzie, a rozwijana lista chowała
-              najczęstsze zawężenie listy za dodatkowym kliknięciem.
-              Etykiety CELOWO te same, co plakietka statusu w wierszu
-              (`STATUS_LABEL`) — pigułka „Szkic" nad wierszami opisanymi
-              „Draft" kazałaby zgadywać, czy to na pewno ten sam stan. */}
-          <div className="space-y-1.5">
-            <div className="text-[11px] font-medium text-muted-foreground">Status</div>
-            <div
-              className="flex flex-wrap gap-1"
-              role="group"
-              aria-label="Filtr: Status"
-            >
-              <FilterPill
-                active={statusFilter.length === 0}
-                onClick={() => {
-                  setStatusFilter([]);
-                  setPage(1);
-                }}
-                label="Wszystkie"
-              />
-              {JOB_STATUS_OPTIONS.map((option) => (
-                <FilterPill
-                  key={option.value}
-                  active={statusFilter.includes(option.value)}
-                  onClick={() => {
-                    setStatusFilter((previous) =>
-                      previous.includes(option.value)
-                        ? previous.filter((v) => v !== option.value)
-                        : [...previous, option.value],
-                    );
-                    setPage(1);
-                  }}
-                  label={STATUS_LABEL[option.value] ?? option.label}
-                />
-              ))}
-            </div>
-          </div>
-
-          <div className="space-y-1.5">
-            <div className="text-[11px] font-medium text-muted-foreground">Klient</div>
-            <ClientMultiSelect
-              value={clientIds}
-              onChange={(ids) => {
-                setClientIds(ids);
-                setPage(1);
-              }}
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <div className="text-[11px] font-medium text-muted-foreground">
-              Kategoria
-            </div>
-            <CompetenceCategoryMultiSelect
-              value={ccIds}
-              onChange={(ids) => {
-                setCcIds(ids);
-                setPage(1);
-              }}
-              triggerWidthClass="w-full"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <div className="text-[11px] font-medium text-muted-foreground">
-              Osoba odpowiedzialna
-            </div>
-            <UserMultiSelect
-              value={responsibleIds}
-              onChange={(ids) => {
-                setResponsibleIds(ids);
-                setPage(1);
-              }}
-              placeholder="Osoba odpowiedzialna"
-              searchPlaceholder="Szukaj osoby…"
-              triggerWidthClass="w-full"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <div className="text-[11px] font-medium text-muted-foreground">
-              Delivery Lead
-            </div>
-            <UserMultiSelect
-              value={deliveryLeadIds}
-              onChange={(ids) => {
-                setDeliveryLeadIds(ids);
-                setPage(1);
-              }}
-              onlyRoles={["delivery_lead"]}
-              placeholder="Dowolny"
-              searchPlaceholder="Szukaj Delivery Leada…"
-              triggerWidthClass="w-full"
-            />
-          </div>
-
-          <div className="border-t border-border" />
-
-          <div className="space-y-1.5">
-            <div className="text-[11px] font-medium text-muted-foreground">
-              Priority Work
-            </div>
-            <Select
-              value={priorityWorkFilter}
-              onValueChange={(value) => {
-                setPriorityWorkFilter(value as PriorityWorkFilter);
-                setPage(1);
-              }}
-            >
-              <SelectTrigger
-                className="h-9 w-full font-medium"
-                aria-label="Filtr Priority Work"
-              >
-                <SelectValue placeholder="Priority Work: wszystko" />
-              </SelectTrigger>
-              <SelectContent>
-                {PRIORITY_WORK_OPTIONS.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-1.5">
-            <div className="text-[11px] font-medium text-muted-foreground">Termin</div>
-            <Select
-              value={deadlinePreset}
-              onValueChange={(v) => {
-                setDeadlinePreset(v as DeadlinePreset);
-                setPage(1);
-              }}
-            >
-              <SelectTrigger className="h-9 w-full font-medium" aria-label="Filtr: Termin">
-                <SelectValue placeholder="Termin: dowolny" />
-              </SelectTrigger>
-              <SelectContent>
-                {DEADLINE_OPTIONS.map((o) => (
-                  <SelectItem key={o.value} value={o.value}>
-                    {o.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {deadlinePreset === "range" && (
-              <div className="space-y-1.5">
-                <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                  <span className="w-5 shrink-0">Od</span>
-                  <Input
-                    type="date"
-                    value={deadlineRange.from ?? ""}
-                    max={deadlineRange.to}
-                    onChange={(e) => {
-                      setDeadlineRange((r) => ({ ...r, from: e.target.value || undefined }));
-                      setPage(1);
-                    }}
-                    aria-label="Termin od"
-                    className="h-8 min-w-0 flex-1 px-2 text-xs"
-                  />
-                </label>
-                <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                  <span className="w-5 shrink-0">Do</span>
-                  <Input
-                    type="date"
-                    value={deadlineRange.to ?? ""}
-                    min={deadlineRange.from}
-                    onChange={(e) => {
-                      setDeadlineRange((r) => ({ ...r, to: e.target.value || undefined }));
-                      setPage(1);
-                    }}
-                    aria-label="Termin do"
-                    className="h-8 min-w-0 flex-1 px-2 text-xs"
-                  />
-                </label>
-              </div>
-            )}
-          </div>
-
-          <div className="space-y-1.5">
-            <div className="text-[11px] font-medium text-muted-foreground">
-              Wysłanych do klienta
-            </div>
-            <Select
-              value={sentFilter}
-              onValueChange={(v) => {
-                setSentFilter(v as JobSentFilterValue);
-                setPage(1);
-              }}
-            >
-              <SelectTrigger
-                className="h-9 w-full font-medium"
-                aria-label="Filtr: Wysłanych do klienta"
-                title="Osoby, które w tej rekrutacji doszły do „CV wysłane” albo dalej"
-              >
-                <SelectValue placeholder="Wysłanych: dowolnie" />
-              </SelectTrigger>
-              <SelectContent>
-                {SENT_OPTIONS.map((o) => (
-                  <SelectItem key={o.value} value={o.value}>
-                    {o.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Licznik czynnych zawężeń (makieta `.allfilters`). Kolumna jest
-              długa i przewijana razem ze stroną — bez tej liczby łatwo
-              patrzeć na wynik zawężony filtrem, którego nie widać na ekranie. */}
-          <div
-            className="flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-border px-2 py-1.5 text-[11px] text-muted-foreground"
-            aria-live="polite"
-          >
-            <SlidersHorizontal className="h-3 w-3" aria-hidden="true" />
-            Wszystkie filtry
-            <span className="font-semibold text-primary tabular-nums">
-              {activeFilterCount}
-            </span>
-          </div>
-
-          {/* Ta sama akcja co w nagłówku (makieta ma ją w obu miejscach) —
-              po przescrollowaniu długiej kolumny filtrów przycisk z nagłówka
-              jest już poza ekranem. */}
-          {canCreateJob && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="w-full"
-              onClick={() => router.push("/jobs/new")}
-            >
-              <Plus className="h-4 w-4" /> Nowa rekrutacja
-            </Button>
-          )}
-        </aside>
-
         {/* ── Środek: wyszukiwarka, sortowanie, lista/kafelki ───────── */}
         <div className="min-w-0 space-y-3">
           <div className="flex flex-wrap items-center gap-2">
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={toggleFilters}
-              aria-expanded={filtersExpanded}
-              aria-controls="jobs-filters-rail"
-              data-help="jobs.list.filters"
-              className="h-9"
-            >
-              <SlidersHorizontal className="h-4 w-4" />
-              Filtry
-              {activeFilterCount > 0 ? ` (${activeFilterCount})` : ""}
-            </Button>
             {/* Zakres: domyślny zależy od roli („Moje" albo „Otwarte"); jawny
                 wybór żyje w adresie (`mine=1` / `open=1` / `mine=0`). Liczniki
                 są GLOBALNE (`/api/jobs/quick-counts`), a ich brak to brak
@@ -1643,33 +975,29 @@ export function JobsListV2() {
             </div>
           </div>
 
-          {/* Status requestu (0341) — codzienne zawężenie, zawsze na wierzchu.
-              Klik przełącza; kilka naraz = LUB (serwer: `request_status`). */}
+          {/* Stan requestu (25.09.2026) — JEDEN rząd zamiast „Status:” i „Praca:”.
+              Serwer liczy jedną wartość na rekrutację (`request_stage`), więc
+              kilka pigułek naraz to LUB. Liczby z `/quick-counts` tym samym
+              wyrażeniem: w „Moich” — moje, poza nimi — cały rejestr (pigułki
+              dotyczą wyłącznie niezamkniętych, więc to zarazem „Otwarte”). */}
           <div
             className="flex flex-wrap items-center gap-1.5"
             role="group"
-            aria-label="Status requestu"
+            aria-label="Stan requestu"
             data-help="jobs.list.status"
           >
-            <span className="mr-1 text-xs text-muted-foreground">Status:</span>
-            {REQUEST_STATUS_FILTER_ORDER.map((value) => {
-              const on = requestStatuses.includes(value);
-              // Liczba z `/quick-counts` tym samym wyrażeniem co filtr: w „Moich"
-              // — moje, poza nimi — cały rejestr (statusy z tej listy dotyczą
-              // wyłącznie niezamkniętych, więc to zarazem liczba „Otwartych").
-              const statusCounts =
-                scope === "mine"
-                  ? quickCounts?.request_status_mine
-                  : quickCounts?.request_status;
-              const count = statusCounts?.[value];
+            <span className="mr-1 text-xs text-muted-foreground">Stan requestu</span>
+            {REQUEST_STAGE_CHIPS.map((value) => {
+              const on = stages.includes(value);
+              const count = stageCounts?.[value];
               return (
                 <button
                   key={value}
                   type="button"
                   aria-pressed={on}
-                  title={REQUEST_STATUS_META[value].hint}
+                  title={REQUEST_STAGE_META[value].hint}
                   onClick={() => {
-                    setRequestStatuses((prev) =>
+                    setStages((prev) =>
                       on ? prev.filter((s) => s !== value) : [...prev, value],
                     );
                     setPage(1);
@@ -1681,7 +1009,7 @@ export function JobsListV2() {
                       : "border-border text-muted-foreground hover:bg-muted",
                   )}
                 >
-                  {REQUEST_STATUS_META[value].label}
+                  {REQUEST_STAGE_META[value].label}
                   {count != null && (
                     <span
                       className={cn(
@@ -1692,35 +1020,6 @@ export function JobsListV2() {
                       {count.toLocaleString("pl-PL")}
                     </span>
                   )}
-                </button>
-              );
-            })}
-            <span className="ml-3 mr-1 text-xs text-muted-foreground">Praca:</span>
-            {/* „Mamy championa” jest już w statusie wyżej — tu tylko stany
-                prowadzone w „Porządku w requestach”; „Szukamy” jako „W pracy”,
-                żeby nie dublować etykiety statusu. */}
-            {WORK_STATE_CHIPS.map((value) => {
-              const on = workStates.includes(value);
-              return (
-                <button
-                  key={value}
-                  type="button"
-                  aria-pressed={on}
-                  title={STATE_HINT[value]}
-                  onClick={() => {
-                    setWorkStates((prev) =>
-                      on ? prev.filter((s) => s !== value) : [...prev, value],
-                    );
-                    setPage(1);
-                  }}
-                  className={cn(
-                    "h-7 rounded-full border px-3 text-xs transition-colors",
-                    on
-                      ? "border-primary/40 bg-primary/10 font-semibold text-primary"
-                      : "border-border text-muted-foreground hover:bg-muted",
-                  )}
-                >
-                  {value === "searching" ? "W pracy" : STATE_LABEL[value]}
                 </button>
               );
             })}
@@ -1740,6 +1039,16 @@ export function JobsListV2() {
               ) : null;
             })()}
           </div>
+
+          <JobsFilterBar
+            value={filterValue}
+            onPatch={patchFilters}
+            meId={authUser?.id ?? null}
+            attention={attentionCounts}
+            activeCount={activeFilterCount}
+            canClear={activeFilterCount > 0 || scopeOverride !== null}
+            onClearAll={resetFilters}
+          />
 
           {/* Wyniki — kafelki lub lista */}
           {isLoading ? (

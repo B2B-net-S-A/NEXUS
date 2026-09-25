@@ -71,6 +71,7 @@ const MINE = [
   {
     id: 901,
     request_status: "champion",
+    request_stage: "champion",
     similar: {
       linked_count: 1,
       linked_first: { id: 7712, title: "Java Developer (Spring)", reference_number: "REF-2026-0712" },
@@ -99,6 +100,7 @@ const MINE = [
   {
     id: 902,
     request_status: "searching",
+    request_stage: "searching",
     similar: {
       linked_count: 0,
       linked_first: null,
@@ -128,6 +130,7 @@ const MINE = [
   {
     id: 903,
     request_status: "contract",
+    request_stage: "contract",
     similar: { linked_count: 0, linked_first: null, reassigned_count: 0, suggested: null },
     title: "Analityk biznesowy",
     reference_number: "REF-2026-0903",
@@ -151,6 +154,7 @@ const OPEN = [
   {
     id: 904,
     request_status: "incomplete",
+    request_stage: "incomplete",
     similar: { linked_count: 0, linked_first: null, reassigned_count: 0, suggested: null },
     title: "Tester automatyzujący",
     reference_number: "REF-2026-0904",
@@ -170,6 +174,7 @@ const OPEN = [
   {
     id: 905,
     request_status: "searching",
+    request_stage: "searching",
     similar: { linked_count: 0, linked_first: null, reassigned_count: 0, suggested: null },
     title: "Architekt rozwiązań (cudza, bez dostępu)",
     reference_number: "REF-2026-0905",
@@ -193,6 +198,7 @@ const ALL = [
   {
     id: 906,
     request_status: "closed",
+    request_stage: "closed",
     similar: { linked_count: 0, linked_first: null, reassigned_count: 0, suggested: null },
     title: "Frontend Developer React (zamknięta, z Traffita)",
     reference_number: "REF-2025-0142",
@@ -212,16 +218,14 @@ const ALL = [
 
 const BASE: Omit<JobsListQueryState, "mine" | "openOnly" | "sort"> = {
   search: "",
-  status: [],
-  responsibleIds: [],
+  page: 1,
+  stages: [],
   clientIds: [],
   ccIds: [],
-  needsSourcing: false,
-  activeInSearch: false,
+  deliveryLeadIds: [],
+  workedBy: [],
+  nobodyWorking: false,
   deadline: "any",
-  noOwnerOnly: false,
-  priorityWork: "any",
-  page: 1,
 };
 
 const page = (items: unknown[]) => ({
@@ -278,8 +282,26 @@ function seededClient(): QueryClient {
       incomplete: 0,
       closed: 0,
     },
+    request_stage: {
+      incomplete: 3,
+      to_review: 4,
+      searching: 6,
+      champion: 1,
+      contract: 1,
+      client_silent: 2,
+    },
+    request_stage_mine: {
+      incomplete: 0,
+      to_review: 1,
+      searching: 1,
+      champion: 1,
+      contract: 1,
+      client_silent: 0,
+    },
+    attention: { overdue: 1, nobody_working: 2, nobody_sent: 5 },
+    attention_mine: { overdue: 1, nobody_working: 0, nobody_sent: 1 },
   });
-  // Rozwijane filtry kolumny (klucze z samych literałów — pilnuje ich
+  // Okienka paska filtrów (klucze z samych literałów — pilnuje ich
   // `harness-seeds.test.ts`).
   qc.setQueryData(["clients-lookup"], []);
   qc.setQueryData(["users-directory"], []);

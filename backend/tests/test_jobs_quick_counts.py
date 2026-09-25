@@ -160,12 +160,20 @@ async def test_quick_counts_agree_with_the_list_the_same_filter_returns(
             "deadline_7d": await _list_total(app_client, app_auth_headers, window),
         }
 
-        # Liczniki statusu requestu mają własny test (niżej) — tu tylko
-        # liczniki filtrów „Szybkie".
+        # Liczniki statusu requestu mają własny test (niżej), a stanu requestu
+        # i przełączników paska — `test_jobs_list_stage_and_workers.py`.
         flat = {
             key: value
             for key, value in counts.items()
-            if key not in ("request_status", "request_status_mine")
+            if key
+            not in (
+                "request_status",
+                "request_status_mine",
+                "request_stage",
+                "request_stage_mine",
+                "attention",
+                "attention_mine",
+            )
         }
         assert flat == expected
         # Sanity: zasiane wiersze naprawdę weszły w te zbiory, więc test nie
@@ -264,6 +272,10 @@ async def test_quick_counts_route_is_not_swallowed_by_the_job_id_path(
         "deadline_7d",
         "request_status",
         "request_status_mine",
+        "request_stage",
+        "request_stage_mine",
+        "attention",
+        "attention_mine",
     }
 
 
