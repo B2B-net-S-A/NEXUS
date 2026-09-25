@@ -1,5 +1,5 @@
 {
-  "_comment": "Tytuł dla rekrutera (0379). Czytają go OBA: backend/tests/test_job_working_title.py (compose_working_title) i frontend/src/lib/__tests__/job-names.test.ts (composeWorkingTitle). Zmiana reguły = zmiana tego pliku i obu implementacji.",
+  "_comment": "Tytuł dla rekrutera (0380). Czytają go OBA: backend/tests/test_job_working_title.py (compose_working_title) i frontend/src/lib/__tests__/job-names.test.ts (composeWorkingTitle). Zmiana reguły = zmiana tego pliku i obu implementacji.",
   "cases": [
     {
       "name": "pełny komplet",

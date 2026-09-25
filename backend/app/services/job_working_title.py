@@ -1,4 +1,4 @@
-"""Trzy nazwy rekrutacji (0379, decyzja Artura 25.09.2026).
+"""Trzy nazwy rekrutacji (0380, decyzja Artura 25.09.2026).
 
 * ``jobs.title`` — nazwa od klienta. Idzie do klienta (stanowisko w CV, nazwa
   pliku, Cpro) i do wektora oferty, więc jej znaczenie się nie zmienia.
@@ -34,7 +34,7 @@ SEPARATOR = " · "
 MAX_LEN = 255
 CLIENT_REFERENCE_MAX = 120
 MUST_IN_TITLE = 2
-BACKFILL_MARKER = "job_names_backfill_0379"
+BACKFILL_MARKER = "job_names_backfill_0380"
 
 _WHITESPACE = re.compile(r"\s+")
 _ZOB = re.compile(r"\bZOB[\s_-]*(\d+)\b", re.IGNORECASE)

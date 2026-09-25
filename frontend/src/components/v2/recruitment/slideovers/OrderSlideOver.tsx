@@ -603,7 +603,7 @@ function OrderBody({
             value={job.deadline ? formatDate(job.deadline) : "nie ustawiono"}
           />
           <Fact label="Klient" value={job.client_name?.trim() || "—"} />
-          {/* 0379: to, co idzie do klienta — nazwa i numer z jego zapytania. */}
+          {/* 0380: to, co idzie do klienta — nazwa i numer z jego zapytania. */}
           <Fact label="Nazwa od klienta" value={job.title?.trim() || "—"} />
           <Fact
             label="Numer u klienta"

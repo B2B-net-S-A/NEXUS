@@ -64,11 +64,11 @@ export interface IntakeQuestionForm {
 export interface IntakeForm {
   /** Rola (sekcja 1 Championa); bez nazwy od klienta — także tytuł rekrutacji. */
   title: string;
-  /** 0379: nazwa stanowiska od klienta — dosłownie z maila; idzie do klienta. */
+  /** 0380: nazwa stanowiska od klienta — dosłownie z maila; idzie do klienta. */
   clientTitle: string;
-  /** 0379: numer zapytania klienta (ZOB, SAP…) — CV, nazwa pliku, Cpro. */
+  /** 0380: numer zapytania klienta (ZOB, SAP…) — CV, nazwa pliku, Cpro. */
   clientReference: string;
-  /** 0379: tytuł dla rekrutera; dopóki `workingTitleTouched` = false, liczony z pól. */
+  /** 0380: tytuł dla rekrutera; dopóki `workingTitleTouched` = false, liczony z pól. */
   workingTitle: string;
   workingTitleTouched: boolean;
   must: string[];
@@ -135,7 +135,7 @@ export interface RequestIntakeResponse {
   selling_points?: string | null;
   ask_client?: string[];
   provenance?: Partial<Record<string, string>>;
-  // ── od v3 (0379) ──
+  // ── od v3 (0380) ──
   client_title?: string | null;
   client_reference?: string | null;
   working_title_suggestion?: string | null;

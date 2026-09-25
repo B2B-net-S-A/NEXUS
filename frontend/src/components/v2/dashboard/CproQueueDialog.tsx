@@ -77,7 +77,7 @@ export function cproCopyText(
   item: CproQueueItem,
   job: Pick<CproQueueJob, "job_title" | "client_reference">,
 ): string {
-  // Nazwa i numer od klienta (0379) — tak, jak klient zna swoje zapytanie.
+  // Nazwa i numer od klienta (0380) — tak, jak klient zna swoje zapytanie.
   const reference = job.client_reference?.trim();
   return [
     item.candidate_name,

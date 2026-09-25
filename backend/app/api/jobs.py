@@ -1611,7 +1611,7 @@ async def create_job(
             client_id=payload.get("client_id"),
         )
 
-    # 0379: numer u klienta i tytuł dla rekrutera. Jawny tytuł = ręczny
+    # 0380: numer u klienta i tytuł dla rekrutera. Jawny tytuł = ręczny
     # (automat wyłączony); brak = składa go `job_working_title` niżej.
     from app.services.job_working_title import normalize_client_reference
 
@@ -2013,7 +2013,7 @@ async def update_job(
     ):
         # Ręczna zmiana DL-a: od teraz nietykalny dla `job_delivery_lead_fill`.
         job.delivery_lead_auto_filled = False
-    # 0379: ręczny tytuł dla rekrutera wyłącza automat, pusty go przywraca.
+    # 0380: ręczny tytuł dla rekrutera wyłącza automat, pusty go przywraca.
     working_title_reset = False
     if "working_title" in updates:
         manual = (updates["working_title"] or "").strip() or None
@@ -2714,7 +2714,7 @@ async def _save_champion_profile(
         }
 
     apply_requirement_source_update(job, "champion_profile", new_profile)
-    # 0379: tytuł dla rekrutera idzie za Championem, dopóki nikt go nie zmienił.
+    # 0380: tytuł dla rekrutera idzie za Championem, dopóki nikt go nie zmienił.
     from app.services.job_working_title import refresh_working_title
 
     await refresh_working_title(db, job)

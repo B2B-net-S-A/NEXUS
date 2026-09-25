@@ -124,7 +124,7 @@ describe("payloady zapisu", () => {
     }
   });
 
-  it("trzy nazwy (0379): nazwa i numer od klienta idą do rekrutacji, tytuł dla rekrutera tylko po ręcznej zmianie", () => {
+  it("trzy nazwy (0380): nazwa i numer od klienta idą do rekrutacji, tytuł dla rekrutera tylko po ręcznej zmianie", () => {
     const form = formFromIntake({
       ...INTAKE,
       client_title: "Programista Java (ZOB 48213)",

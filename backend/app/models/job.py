@@ -204,7 +204,7 @@ class Job(Base, TimestampMixin):
     reference_number: Mapped[Optional[str]] = mapped_column(
         String(50), nullable=True, unique=True
     )
-    # 0379: trzy nazwy rekrutacji. ``title`` = nazwa od klienta (idzie do
+    # 0380: trzy nazwy rekrutacji. ``title`` = nazwa od klienta (idzie do
     # klienta i do wektora oferty), ``client_reference`` = numer zapytania
     # klienta (ZOB, SAP…; CV, nazwa pliku, Cpro), ``working_title`` = tytuł
     # dla rekrutera składany z Championa (`job_working_title`) — wyłącznie

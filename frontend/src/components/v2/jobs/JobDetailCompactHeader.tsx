@@ -74,7 +74,7 @@ interface JobDetailCompactHeaderProps {
   clientName?: string | null;
   referenceNumber?: string | null;
   /**
-   * 0379: nazwa od klienta (gdy tytuł w nagłówku to tytuł dla rekrutera)
+   * 0380: nazwa od klienta (gdy tytuł w nagłówku to tytuł dla rekrutera)
    * i numer u klienta — to, co idzie do klienta w CV i do Cpro.
    */
   clientTitle?: string | null;
