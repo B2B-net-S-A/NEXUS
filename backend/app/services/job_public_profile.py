@@ -305,6 +305,31 @@ def sections_with_approved_content(
     return out
 
 
+def approved_params(job: Job, sections: Any) -> dict[str, Any]:
+    """Parametry rekrutacji tak, jak widzi je strona publiczna: z migawki
+    zatwierdzenia, gdy jest, a bez niej (opisy sprzed 25.09.2026) na żywo.
+    Jedna reguła dla strony rekrutacji i listy na stronie rekrutera."""
+    snapshot = stored_approved_content(sections)
+    params = public_params(job)
+    if snapshot is None:
+        return params
+    return {**params, **{key: snapshot.get(key) for key in _SNAPSHOT_PARAMS}}
+
+
+def approved_content_stale(job: Job, sections: Any) -> bool:
+    """Czy pola zamrożone przy zatwierdzeniu różnią się dziś od rekrutacji —
+    strona pokazuje wtedy stan z zatwierdzenia, a edytor musi to powiedzieć."""
+    snapshot = stored_approved_content(sections)
+    if snapshot is None:
+        return False
+    live = public_params(job)
+    return (
+        _names(snapshot.get("must")) != _names(_stack_names(job, "must"))
+        or _names(snapshot.get("nice")) != _names(_stack_names(job, "nice"))
+        or any(snapshot.get(key) != live.get(key) for key in _SNAPSHOT_PARAMS)
+    )
+
+
 def _names(value: Any) -> list[str]:
     return [str(name)[:200] for name in (value or []) if isinstance(name, str)][:20]
 
@@ -330,14 +355,10 @@ def public_job_payload(
     if snapshot is None:
         must = _stack_names(job, "must")
         nice = _stack_names(job, "nice")
-        params = public_params(job)
     else:
         must = _names(snapshot.get("must"))
         nice = _names(snapshot.get("nice"))
-        params = {
-            **public_params(job),
-            **{key: snapshot.get(key) for key in _SNAPSHOT_PARAMS},
-        }
+    params = approved_params(job, sections)
     return {
         "slug": link_slug,
         "title": title,

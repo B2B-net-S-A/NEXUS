@@ -486,3 +486,46 @@ async def test_excel_row_suspended_by_sync_can_return_to_a_project(
     )
     assert back.status_code == 200, back.text
     assert (await _generated(gid)).contract_status == "active"
+
+
+async def test_same_status_patch_keeps_the_termination_snapshot(
+    app_client, app_auth_headers
+):
+    """Przegląd PR #1840: poprawka powodu w „Zakończonych” (closed → closed)
+    nie jest zmianą statusu — migawka zostaje, a „Cofnij zakończenie” dalej
+    przywraca umowę."""
+    from tests.test_contract_termination_form_sync import _dissolution, _seed
+
+    cid, gid, _ = await _seed(generator_status="suspended")
+    project_end = business_today() - timedelta(days=1)
+    ended = await app_client.post(
+        f"{CONTRACTS}/{cid}/terminate",
+        json={
+            "termination_reason": "project_ended",
+            "terminated_at": project_end.isoformat(),
+            "agreement_termination": _dissolution(project_end, project_end),
+        },
+        headers=app_auth_headers,
+    )
+    assert ended.status_code == 200, ended.text
+    assert (await _generated(gid)).termination_restore is not None
+
+    fixed = await app_client.patch(
+        f"{GENERATOR}/generated/{gid}",
+        json={
+            "contract_status": "closed",
+            "closure_reason": "project_completed",
+            "closure_date": project_end.isoformat(),
+        },
+        headers=app_auth_headers,
+    )
+    assert fixed.status_code == 200, fixed.text
+    row = await _generated(gid)
+    assert row.closure_reason == "project_completed"
+    assert row.termination_restore is not None
+
+    reversal = await app_client.post(
+        f"{CONTRACTS}/{cid}/termination-reversal", headers=app_auth_headers
+    )
+    assert reversal.status_code == 200, reversal.text
+    assert (await _generated(gid)).contract_status == "suspended"

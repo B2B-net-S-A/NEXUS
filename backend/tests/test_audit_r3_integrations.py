@@ -16,6 +16,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+import pytest_asyncio
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.exc import IntegrityError
 
@@ -588,6 +589,14 @@ async def test_dismiss_stamps_the_previous_outcome(monkeypatch) -> None:
 
 
 # ── Z bazą (CI) ──────────────────────────────────────────────────────────────
+
+
+@pytest_asyncio.fixture
+async def db_session():
+    from app.core.database import AsyncSessionLocal
+
+    async with AsyncSessionLocal() as session:
+        yield session
 
 
 @pytest.mark.asyncio

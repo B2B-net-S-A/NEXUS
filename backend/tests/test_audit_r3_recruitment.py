@@ -681,3 +681,36 @@ def test_apply_takes_only_a_rate_derived_from_its_quote():
     merged = _merge_basics(current, {"rate_value": 140, "rate_raw": "do 140 zł/h"})
     assert merged["rate_value"] == 140
     assert merged["rate_raw"] == "do 140 zł/h"
+
+
+def test_recruiter_page_city_and_stale_flag_come_from_the_snapshot():
+    """Przegląd PR #1840: lista na stronie rekrutera czyta miasto z migawki
+    zatwierdzenia (jak strona rekrutacji), a edytor wie, że rekrutacja
+    zmieniła się od zatwierdzenia."""
+    from types import SimpleNamespace
+
+    from app.services import job_public_profile as jpp
+
+    job = SimpleNamespace(
+        champion_profile={},
+        remote_policy=None,
+        onsite_days_per_week=None,
+        seniority=None,
+        location="Warszawa (PKO BP)",
+        must_skills=["Java"],
+        nice_skills=[],
+    )
+    snapshot = {
+        "must": ["Java"],
+        "nice": [],
+        "city": "Warszawa",
+        "start": None,
+        "duration": None,
+    }
+    sections = jpp.sections_with_approved_content({}, snapshot)
+    assert jpp.approved_params(job, sections)["city"] == "Warszawa"
+    assert jpp.approved_params(job, {})["city"] == "Warszawa (PKO BP)"
+    assert jpp.approved_content_stale(job, sections) is True
+    job.location = "Warszawa"
+    assert jpp.approved_content_stale(job, sections) is False
+    assert jpp.approved_content_stale(job, {}) is False

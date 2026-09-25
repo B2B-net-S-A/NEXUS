@@ -1873,15 +1873,30 @@ async def _process_message(
             # Wycofujemy CAŁĄ transakcję, nie savepoint: `process_pdf_bytes`
             # mógł już zapisać zamówienie, a bez wpisu w dzienniku zostałby
             # drugi zapis tego samego zamówienia (przegląd PR #1836).
-            # Każdy inny konflikt (więz zamówienia) przerywa bieg — nie jest
-            # „wpisem równoległego biegu” (audyt 25.09.2026, runda 3).
+            # Każdy inny konflikt (więz zamówienia ujawniony dopiero przy
+            # commicie) NIE jest „wpisem równoległego biegu”: załącznik idzie
+            # do „Nieudanych” z zachowanym plikiem (ponawia go recheck), a bieg
+            # jedzie dalej. Przerwanie biegu zamrażało znacznik skrzynki na tej
+            # wiadomości w każdym kolejnym biegu (przegląd PR #1840).
+            journal_conflict = _is_journal_unique_conflict(exc)
+            failed = None if journal_conflict else _failed_row(identity, row, exc)
             await db.rollback()
-            if not _is_journal_unique_conflict(exc):
-                raise
-            logger.warning("order_mail: attachment already journaled by a parallel run")
             if conn is not None:
                 await db.refresh(conn)
-            stats.skipped_existing += 1
+            if failed is None:
+                logger.warning(
+                    "order_mail: attachment already journaled by a parallel run"
+                )
+                stats.skipped_existing += 1
+                continue
+            logger.error(
+                "order_mail: integrity error on commit for %s (%s)",
+                failed.attachment_name,
+                type(exc).__name__,
+            )
+            stats.failed += 1
+            if await _add_journal_row(db, failed):
+                added = True
             continue
         added = True
         if row.outcome == OUTCOME_NEEDS_REVIEW:

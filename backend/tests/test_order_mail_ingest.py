@@ -730,6 +730,64 @@ async def test_database_error_while_processing_records_failed_row_and_continues(
     assert "SELECT" not in saved[0].error and "division" not in saved[0].error
 
 
+@pytest.mark.asyncio
+async def test_foreign_integrity_error_on_commit_records_failed_row_and_continues(
+    db_session, monkeypatch, tmp_path
+):
+    """Przegląd PR #1840: błąd spójności innego więzu niż dziennik ujawniony
+    dopiero przy commicie nie przerywa biegu (znacznik skrzynki stałby na tej
+    wiadomości w każdym kolejnym biegu) — załącznik idzie do „Nieudanych”."""
+    from sqlalchemy.exc import IntegrityError
+
+    from app.models.order_mail import OUTCOME_FAILED
+    from app.services import storage_service
+
+    monkeypatch.setattr(storage_service, "STORAGE_ROOT", tmp_path)
+    monkeypatch.setattr(storage_service, "ORDER_MAIL_DIR", tmp_path / "order_mail")
+    monkeypatch.setattr(svc.settings, "ORDER_MAIL_SENDER_ALLOWLIST", "")
+
+    async def ok_process(db, row, payload, *, registry):
+        row.client_key = "bank-c"
+
+    monkeypatch.setattr(svc, "process_pdf_bytes", ok_process)
+    real_commit = db_session.commit
+    calls = {"n": 0}
+
+    async def commit_once_broken():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            await db_session.rollback()
+            orig = Exception("violates check constraint")
+            orig.constraint_name = "ck_client_orders_md_coherence"
+            raise IntegrityError("INSERT", {}, orig)
+        await real_commit()
+
+    monkeypatch.setattr(db_session, "commit", commit_once_broken)
+    tag = uuid.uuid4().hex[:8]
+    mid = f"ie{tag}"
+    fake = _FakeGraph([], {f"graph-{mid}": [_pdf("ie.pdf", f"%PDF ie {tag}".encode())]})
+    stats = svc.IngestStats()
+    added = await svc._process_message(
+        db_session,
+        fake,
+        None,
+        _msg(mid),
+        stats,
+        registry=ClientRegistry(by_registry_id={}),
+    )
+    assert added is True and stats.failed == 1 and stats.skipped_existing == 0
+    saved = (
+        await db_session.scalars(
+            select(OrderMailDocument).where(
+                OrderMailDocument.internet_message_id == f"<{mid}-{RUN}@example>"
+            )
+        )
+    ).all()
+    assert len(saved) == 1
+    assert saved[0].outcome == OUTCOME_FAILED
+    assert saved[0].attachment_name == "ie.pdf" and saved[0].storage_path
+
+
 class _BrokenAttachmentsGraph(_FakeGraph):
     async def get(self, url, params=None):
         raise RuntimeError("graph 503")

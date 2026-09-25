@@ -353,6 +353,10 @@ async def _profile_response(
         ),
         approved_at=profile.approved_at if profile else None,
         approved_by_name=approved_by_name,
+        approved_content_stale=(
+            status_value == jpp.STATUS_APPROVED
+            and jpp.approved_content_stale(job, profile.sections if profile else None)
+        ),
         findings=[f.as_dict() for f in findings],
         preview=preview,
     )

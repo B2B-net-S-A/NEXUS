@@ -3500,8 +3500,12 @@ async def update_generated_contract(
         # przerwie odtwarzały stan sprzed synchronizacji i nadpisywały to, co
         # ktoś świadomie ustawił (audyt 25.09.2026, runda 3). Umowa, która
         # wychodzi z „Zakończonych", traci też tryb rozwiązania — opisywał
-        # zakończenie, które właśnie cofnięto.
-        row.termination_restore = None
+        # zakończenie, które właśnie cofnięto. Zapis tego samego statusu (np.
+        # poprawka powodu w „Zakończonych”) nie jest zmianą statusu i migawki
+        # nie rusza — inaczej „Cofnij zakończenie” nie przywracałoby umowy
+        # (przegląd PR #1840).
+        if new_status != old_status:
+            row.termination_restore = None
         if old_status == "closed" and new_status != "closed":
             row.termination_mode = None
             row.termination_party = None
