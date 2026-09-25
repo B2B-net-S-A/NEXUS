@@ -7574,6 +7574,35 @@ WHERE external_source = 'traffit'
   AND NOT managed_in_nexus
   AND (status <> 'closed' OR is_open OR work_state <> 'finished')
 """,
+    # 0378 — jednorazowo: każda rekrutacja sprzed 25.09.2026 (start NEXUSA)
+    # do archiwum. Lustro `services/job_archive_cutover.py` (pilnuje
+    # `test_job_archive_cutover.py`); znacznik w app_settings.
+    """
+WITH marker AS (
+    INSERT INTO app_settings (key, value)
+    VALUES ('0378_archive_jobs_before_nexus_start', to_jsonb(true))
+    ON CONFLICT (key) DO NOTHING
+    RETURNING key
+), archived AS (
+    UPDATE jobs
+    SET status = 'closed',
+        is_open = false,
+        work_state = 'finished',
+        work_state_changed_at = CASE
+            WHEN work_state <> 'finished' THEN now() ELSE work_state_changed_at END,
+        updated_at = now()
+    WHERE created_at < make_timestamptz(2026, 9, 25, 0, 0, 0, 'Europe/Warsaw')
+      AND (status <> 'closed' OR is_open OR work_state <> 'finished')
+      AND EXISTS (SELECT 1 FROM marker)
+    RETURNING id
+)
+INSERT INTO activities (entity_type, entity_id, action, details, external_source)
+SELECT 'job', id, 'archived',
+       jsonb_build_object('reason', 'archive_before_nexus_start',
+                          'cutoff', '2026-09-25'),
+       'manual'
+  FROM archived
+""",
 ]
 
 
