@@ -63,6 +63,7 @@ from app.services.delivery_alert_recipients import (
 from app.services.order_alert_policy import extended_order_alert_client_ids
 from app.services.order_continuation import order_ending_without_continuation
 from app.services.order_group_lifecycle import materialize_scheduled_order_groups
+from app.services.order_line_takeover import scheduled_takeover_draft_clause
 from app.services.order_md_exhaustion import reconcile_md_exhausted_groups
 
 logger = logging.getLogger(__name__)
@@ -266,6 +267,10 @@ async def _promote_statuses(
             .where(
                 successor.predecessor_order_id == ClientOrder.id,
                 successor.status != ClientOrderStatus.cancelled,
+                # Szkic zaplanowanego „Wejdź za konsultanta” nie jest
+                # następcą: odchodzący pracuje do swojej daty, a zastępstwo
+                # wchodzi dopiero po niej (audyt 25.09.2026, runda 4).
+                ~scheduled_takeover_draft_clause(successor),
             )
             .exists(),
             select(ClientOrderGroup.id)
