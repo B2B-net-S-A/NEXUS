@@ -3386,8 +3386,12 @@ osobę od Cpro per rekrutacja (0353) i kolejkę „Czeka na DZ” (0348).
   przesuwa na „CV wysłane” bez CV firmowego). U Nordei ta sama bramka pilnuje, że
   na „Wysłane do Cpro” przesuwa osoba od Cpro, admin, DL albo HoR.
 - **Osoba od Cpro = jedna na firmę** (`services/cpro_sender.py`,
-  `app_settings['cpro_sender']`): zmienia KAŻDY z zespołu (decyzja Artura),
-  opcjonalnie z datą „do kiedy” — po niej wraca poprzednia osoba.
+  `app_settings['cpro_sender']`): ustawia WYŁĄCZNIE admin albo Delivery Lead
+  przypisany do klienta Nordei (`cpro_sender.can_set_sender`, decyzja Artura
+  25.09.2026 — do tego dnia zmieniał każdy, a osoba od Cpro widzi stawki do
+  klienta w kolejce, więc rekruter mógł sam się ustawić i je zobaczyć),
+  opcjonalnie z datą „do kiedy” — po niej wraca poprzednia osoba. Nieaktywne
+  konto (także po zastępstwie) liczy się jak „nikt nie ustawiony”.
   `GET/PUT /api/board-tasks/cpro/sender`, kolejka pogrupowana po rekrutacji
   `GET /api/board-tasks/cpro/queue` (`CproQueueDialog` na pulpicie: rekrutacja po
   rekrutacji, „✓ Wrzucone” = zwykły `/move`). `jobs.cpro_sender_id` zostaje w bazie
