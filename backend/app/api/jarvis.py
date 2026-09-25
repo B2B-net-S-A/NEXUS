@@ -345,7 +345,7 @@ async def jarvis_chat(
         web=payload.web,
     )
     try:
-        conversation_id = await agent.claim(turn)
+        claimed = await agent.claim(turn)
     except store.TurnBusy:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -356,7 +356,7 @@ async def jarvis_chat(
             status_code=status.HTTP_404_NOT_FOUND, detail="Nie ma takiej rozmowy."
         )
     return StreamingResponse(
-        _stream(agent.run_turn(turn, conversation_id)),
+        _stream(agent.run_turn(turn, claimed)),
         media_type="text/event-stream",
         headers=_SSE_HEADERS,
     )
