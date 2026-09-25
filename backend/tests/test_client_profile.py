@@ -683,10 +683,26 @@ async def test_delivery_lead_sees_the_same_columns_in_the_archive(
     assert row["monthly_margin"] == 6000
 
 
-async def test_delivery_lead_outside_finance_portfolio_gets_redacted_profile(
+async def test_delivery_lead_outside_portfolio_cannot_open_profile(
     app_client: AsyncClient,
 ) -> None:
-    """DL opens every client profile, while foreign-client rates stay hidden."""
+    """Od 25.09.2026 DL otwiera profil wyłącznie przypisanych klientów."""
+    client_id, _contract_id = await _seed_scheduled_contract(ended=False)
+    email, password = await _seed_delivery_lead(None)
+    headers = await _login_headers(app_client, email, password)
+
+    resp = await app_client.get(f"/api/clients/{client_id}/profile", headers=headers)
+    assert resp.status_code == 403, resp.text
+
+
+async def test_delivery_lead_outside_finance_portfolio_gets_redacted_profile(
+    app_client: AsyncClient,
+    monkeypatch,
+) -> None:
+    """``DL_CLIENT_SCOPE=all`` (#1365): każdy profil, cudze stawki ukryte."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "DL_CLIENT_SCOPE", "all")
     client_id, contract_id = await _seed_scheduled_contract(ended=False)
     email, password = await _seed_delivery_lead(None)
     headers = await _login_headers(app_client, email, password)

@@ -345,6 +345,12 @@ async def test_write_needs_delivery_section_write_read_is_operational(
 async def test_delivery_lead_writes_for_all_clients(
     app_client: AsyncClient,
 ):
+    """Karta klienta zostaje org-wide dla DL (``purpose="org"``).
+
+    Zawężenie DL do przypisanych klientów w modułach Delivery (25.09.2026)
+    świadomie nie obejmuje karty — zastępuje ona wzory z Pomocy i DL
+    prowadzi ją dla rekrutacji u dowolnego klienta.
+    """
     cid = await _make_client(_unique("Playbook portfolio"))
     try:
         stranger = await _headers_for(app_client, "delivery_lead")

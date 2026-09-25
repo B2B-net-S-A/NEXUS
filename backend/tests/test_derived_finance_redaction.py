@@ -168,21 +168,21 @@ def test_shortlist_html_and_template_context_redact_salary_by_default() -> None:
         (
             generate_prep_kit,
             (
-                "resolve_delivery_lead_client_ids",
+                "resolve_delivery_lead_org_client_ids",
                 "assert_delivery_lead_client_visible",
             ),
         ),
         (
             recommend_jobs_for_candidate,
             (
-                "resolve_delivery_lead_client_ids",
+                "resolve_delivery_lead_org_client_ids",
                 "apply_delivery_lead_client_scope",
             ),
         ),
         (
             seeking_contractors,
             (
-                "resolve_delivery_lead_client_ids",
+                "resolve_delivery_lead_org_client_ids",
                 "apply_delivery_lead_client_scope",
                 "_assert_salary_filter_access",
             ),
@@ -190,21 +190,21 @@ def test_shortlist_html_and_template_context_redact_salary_by_default() -> None:
         (
             send_candidate_shortlist_email,
             (
-                "resolve_delivery_lead_client_ids",
+                "resolve_delivery_lead_org_client_ids",
                 "assert_delivery_lead_client_visible",
             ),
         ),
         (
             prepare_client_proposal,
             (
-                "resolve_delivery_lead_client_ids",
+                "resolve_delivery_lead_org_client_ids",
                 "assert_delivery_lead_client_visible",
             ),
         ),
         (
             render_template,
             (
-                "resolve_delivery_lead_client_ids",
+                "resolve_delivery_lead_org_client_ids",
                 "assert_delivery_lead_client_visible",
             ),
         ),

@@ -47,6 +47,7 @@ import { useCapability } from "@/hooks/useCapability";
 import { hasRole, useAuthStore } from "@/store/auth";
 import {
   CLIENTS_MINE_ROLES,
+  clientsMineToggleAvailable,
   resolveClientsMine,
 } from "@/lib/clients-workspace";
 import { AddClientModal } from "@/components/AppShell";
@@ -206,7 +207,10 @@ export function ClientsListV2() {
   const user = useAuthStore((state) => state.user);
   // „Moi / Wszyscy" (dawny osobny „Panel klientów"). Tylko osoby z
   // przypisaniem klienta (DL, TAC) mają „Moich"; dla nich to widok domyślny.
-  const mineAvailable = hasRole(user, ...CLIENTS_MINE_ROLES);
+  const mineAvailable = clientsMineToggleAvailable(
+    hasRole(user, ...CLIENTS_MINE_ROLES),
+    user?.delivery_client_scope,
+  );
   const mine = resolveClientsMine(mineAvailable, searchParams.get("mine"));
 
   const [category, setCategory] =

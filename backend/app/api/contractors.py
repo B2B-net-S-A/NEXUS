@@ -16,7 +16,7 @@ the join and exposes it as a dedicated listing so backoffice can:
 Role scoping:
 - admin / finance → sees the whole organization with financial fields
 - talent_community_manager → sees the whole organization without financial fields
-- delivery_lead → sees all clients; financial fields only for assigned clients
+- delivery_lead → sees assigned clients (25.09.2026); financial fields only for assigned clients
 - every other role → 403 at the Delivery section boundary
 
 The "incomplete drafts" subcount drives the dashboard widget

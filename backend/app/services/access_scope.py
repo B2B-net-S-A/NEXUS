@@ -4,6 +4,11 @@ Capabilities answer *what* a user may see.  This module answers *whose / which
 client's* rows may participate in that view.  Keeping the two concerns separate
 lets every Delivery Lead work across the full client portfolio without turning
 the role into an Admin or Finance persona.
+
+Delivery modules (Klienci, Kontrakty, Zamówienia, skrzynka zamówień) use
+``resolve_delivery_lead_client_ids`` — since 25.09.2026 only the DL's assigned
+clients (``DL_CLIENT_SCOPE``). Recruitment surfaces keep the whole portfolio via
+``resolve_delivery_lead_org_client_ids``; dashboards via ``resolve_dashboard_scope``.
 """
 
 from dataclasses import dataclass
@@ -13,6 +18,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import and_, or_, select, union
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.models.activity import Activity
 from app.models.client import Client
 from app.models.job import Job, JobStatus
@@ -220,18 +226,31 @@ async def _delivery_lead_operator_ids(user: User, db: AsyncSession) -> frozenset
     )
 
 
-async def resolve_delivery_lead_client_ids(
+def delivery_lead_scope_is_assigned() -> bool:
+    """``DL_CLIENT_SCOPE``: anything but ``all`` narrows (fail-closed)."""
+
+    return (settings.DL_CLIENT_SCOPE or "").strip().lower() != "all"
+
+
+def delivery_lead_sees_whole_delivery(user: User) -> bool:
+    """DL accounts whose other role already reads Delivery org-wide.
+
+    Talent Community Manager reads every client's Delivery surfaces; adding
+    the DL role must not take that away.
+    """
+
+    return user.has_role(UserRole.talent_community_manager)
+
+
+async def resolve_delivery_lead_org_client_ids(
     user: User,
     db: AsyncSession,
 ) -> frozenset[int] | None:
-    """Return the canonical all-client boundary for a Delivery Lead.
+    """Every current client for a Delivery Lead — recruitment surfaces only.
 
-    ``None`` means the caller is not governed by the DL persona boundary
-    (Admin/Finance oversight or a non-DL operational role). Any account that
-    actually holds Delivery Lead receives every current client id, even if it
-    also holds a recruitment role. Returning the concrete ids (rather than
-    ``None``) preserves the role's narrow, Delivery-only finance exceptions
-    without granting the global ``VIEW_FINANCE`` capability.
+    Recruitment stays open to everyone (decision 23.09.2026), so screens such
+    as recommendations, prep kit or email templates must not follow the
+    Delivery narrowing. ``None`` has the same meaning as below.
     """
 
     if user.has_any_role(UserRole.admin, UserRole.finance):
@@ -243,15 +262,35 @@ async def resolve_delivery_lead_client_ids(
     )
 
 
+async def resolve_delivery_lead_client_ids(
+    user: User,
+    db: AsyncSession,
+) -> frozenset[int] | None:
+    """Client boundary of a Delivery Lead in the Delivery modules.
+
+    ``None`` means the caller is not governed by the DL persona boundary
+    (Admin/Finance oversight or a non-DL operational role). A Delivery Lead
+    sees only clients with ANY row in ``delivery_lead_client_assignments``
+    (head or not — decision 25.09.2026). ``DL_CLIENT_SCOPE=all`` restores the
+    #1365 behaviour (every client). Returning concrete ids (rather than
+    ``None``) preserves the role's narrow finance exceptions without granting
+    the global ``VIEW_FINANCE`` capability.
+    """
+
+    if not delivery_lead_scope_is_assigned() or delivery_lead_sees_whole_delivery(user):
+        return await resolve_delivery_lead_org_client_ids(user, db)
+    return await resolve_delivery_lead_assigned_client_ids(user, db)
+
+
 async def resolve_delivery_lead_assigned_client_ids(
     user: User,
     db: AsyncSession,
 ) -> frozenset[int] | None:
     """Return clients for which the Delivery Lead is an explicit owner.
 
-    Operational access is organization-wide, but ownership still gates narrow
-    finance exceptions, rate-bearing opaque files and consequential legal
-    writes. ``None`` means the caller is not governed by the DL ownership path.
+    Since 25.09.2026 this is also the Delivery read boundary
+    (``resolve_delivery_lead_client_ids``); it keeps gating finance exceptions,
+    rate-bearing opaque files and consequential legal writes. ``None`` means the caller is not governed by the DL ownership path.
     """
 
     if user.has_any_role(UserRole.admin, UserRole.finance):

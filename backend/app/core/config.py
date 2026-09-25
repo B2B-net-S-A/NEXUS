@@ -1755,6 +1755,13 @@ class Settings(BaseSettings):
     # `emit` nie zapisuje niczego. Trasy odczytu zostają (log historyczny musi
     # dać się przeczytać nawet po wyłączeniu generowania nowych wpisów).
     DL_ALERTS_ENABLED: bool = True
+    # Zakres klientów Delivery Leada w modułach Delivery (Klienci, Kontrakty,
+    # Zamówienia, skrzynka zamówień). `assigned` = tylko klienci z wierszem
+    # w `delivery_lead_client_assignments` (decyzja Artura 25.09.2026);
+    # `all` = stan z #1365 (wszyscy klienci), wyłącznik bez deployu.
+    # Rekrutacje, generator B2B i pulpity zostają org-wide niezależnie od
+    # tej wartości. Każda inna wartość niż `all` znaczy `assigned`.
+    DL_CLIENT_SCOPE: str = "assigned"
     # Co ile godzin przemiata warunki. 24 h jak sąsiednie skanery — te alerty
     # dotyczą spraw mierzonych w dniach, nie w minutach.
     DL_ALERTS_INTERVAL_HOURS: float = 24.0

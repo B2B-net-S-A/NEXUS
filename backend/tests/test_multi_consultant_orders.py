@@ -234,7 +234,11 @@ async def test_assigned_delivery_lead_can_add_a_consultant_with_rates(
 async def test_unassigned_delivery_lead_reads_redacted_but_cannot_write_rates(
     app_client: AsyncClient, app_auth_headers: dict, monkeypatch
 ):
-    """Każdy DL widzi grupę; stawki i ich zapis pozostają przy właścicielu."""
+    """DL bez przypisania nie zapisuje stawek ani (od 25.09.2026) nie czyta.
+
+    Wyłącznik ``DL_CLIENT_SCOPE=all`` przywraca odczyt operacyjny (#1365),
+    ale kwoty zostają zredagowane.
+    """
     client_id, contracts, _ = await _seed_client_with_contracts(1)
     _enable_for(monkeypatch, client_id)
     group = await _create_group(
@@ -275,7 +279,16 @@ async def test_unassigned_delivery_lead_reads_redacted_but_cannot_write_rates(
     )
     assert swap.status_code == 403, swap.text
 
-    # Odczyt operacyjny jest globalny, ale kwoty są zredagowane.
+    # Od 25.09.2026 DL czyta zamówienia wyłącznie przypisanych klientów.
+    denied = await app_client.get(
+        f"/api/clients/{client_id}/order-groups", headers=other_dl
+    )
+    assert denied.status_code == 403, denied.text
+
+    # ``DL_CLIENT_SCOPE=all``: odczyt operacyjny, kwoty zredagowane.
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "DL_CLIENT_SCOPE", "all")
     read = await app_client.get(
         f"/api/clients/{client_id}/order-groups", headers=other_dl
     )

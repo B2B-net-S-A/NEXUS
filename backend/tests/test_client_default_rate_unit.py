@@ -182,10 +182,15 @@ async def test_endpoint_returns_client_default(
 
 
 async def test_operational_order_without_unit_takes_client_default(
-    app_client: AsyncClient, app_auth_headers: dict[str, str]
+    app_client: AsyncClient, app_auth_headers: dict[str, str], monkeypatch
 ) -> None:
     """Rekord operacyjny (bez stawek/jednostki) dostaje jednostkę klienta,
     a nie serwerowy `monthly`. Ścieżka Delivery Leada bez uprawnień finansowych."""
+    # DL bez przypisania pisze u klienta tylko przy `DL_CLIENT_SCOPE=all`
+    # (od 25.09.2026 domyślnie 403 — `test_dl_client_scope.py`).
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "DL_CLIENT_SCOPE", "all")
     client_id, contract_id, candidate_id = await _seed_client()
     await _seed_orders(client_id, contract_id, [RateUnit.hourly, RateUnit.hourly])
     dl_headers = await _unassigned_dl_headers(app_client)

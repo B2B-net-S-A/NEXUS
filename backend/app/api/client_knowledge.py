@@ -22,6 +22,7 @@ from app.core.database import get_db
 from app.models.client_knowledge import ClientKnowledge, KnowledgeCategory
 from app.models.user import User
 from app.api.deps import CurrentUser, get_current_user
+from app.api.delivery_client_scope import DELIVERY_CLIENT_SCOPE_DEPENDENCIES
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.services.client_access import (
     assert_client_exists,
@@ -31,7 +32,9 @@ from app.services.client_access import (
     resolve_client_access,
 )
 
-router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
+router = APIRouter(
+    dependencies=[*DELIVERY_SECTION_DEPENDENCIES, *DELIVERY_CLIENT_SCOPE_DEPENDENCIES]
+)
 
 
 class ClientKnowledgeCreate(BaseModel):

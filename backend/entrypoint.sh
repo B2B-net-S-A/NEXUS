@@ -9783,6 +9783,40 @@ async def repair():
 asyncio.run(repair())
 PY
 
+# Dokończenie scalenia E-Zdrowie 37721 → eZdrowie 115 (25.09.2026) —
+# jednorazowo: rekrutacje i kontrakty (z zamówieniami i umowami B2B), które
+# nocny import przypinał do ukrytego duplikatu. Import już podąża za
+# `merged_into_client_id`. Logika w `app/services/ezdrowie_client_merge_repair.py`,
+# przypięta do id; marker + advisory lock; porażka nie zapisuje niczego.
+startup_phase "repair-ezdrowie-merge"
+echo "Clients: finish E-Zdrowie merge 37721 -> 115 (one-shot)..."
+python - <<'PY' || echo "ezdrowie client merge skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.ezdrowie_client_merge_repair import (
+    run_ezdrowie_client_merge,
+    summarize_for_log,
+)
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_ezdrowie_client_merge(db)
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001
+            await db.rollback()
+            sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+            print(
+                f"ezdrowie client merge failed ({type(exc).__name__}, "
+                f"sqlstate={sqlstate}); nothing written, next start retries"
+            )
+            return
+    print(f"ezdrowie client merge: {summarize_for_log(summary)}")
+
+asyncio.run(repair())
+PY
+
 # Zdublowane maile M365 (INT-14, audyt 22.09.2026) — jednorazowo: ta sama
 # skrzynka + ten sam internetMessageId = jeden wiersz (zostaje ten z kluczem
 # wysyłki, inaczej najstarszy; przejmuje aktualne ID Graph, kandydata,

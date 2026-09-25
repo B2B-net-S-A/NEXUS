@@ -9,6 +9,8 @@ from app.core.security import has_usable_password
 from app.models.user import User, UserRole
 from app.schemas.user import DashboardDataScope, DashboardPreset, UserResponse
 from app.services.access_scope import (
+    delivery_lead_scope_is_assigned,
+    delivery_lead_sees_whole_delivery,
     resolve_dashboard_scope,
     resolve_delivery_lead_finance_client_ids,
 )
@@ -80,6 +82,16 @@ async def build_user_response(user: User, db: AsyncSession) -> UserResponse:
         )
     response.data_scope = DashboardDataScope(**scope_payload)
     response.analytics_v1_mode = settings.ANALYTICS_V1_MODE
+    if user.has_role(UserRole.delivery_lead) and not user.has_any_role(
+        UserRole.admin,
+        UserRole.finance,
+    ):
+        response.delivery_client_scope = (
+            "assigned"
+            if delivery_lead_scope_is_assigned()
+            and not delivery_lead_sees_whole_delivery(user)
+            else "all"
+        )
     response.effective_section_access = dict(
         getattr(user, "effective_section_access", {})
     )

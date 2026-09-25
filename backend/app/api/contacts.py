@@ -8,7 +8,7 @@ mógł zmieniać kontakty i prywatne notatki relacyjne. Teraz decyzje podejmuje
 - odczyt listy jest współdzielony z Pipeline i zawężany grafem klient/Job;
 - ``relationship_notes`` (dane prywatne) tylko admin lub uprawniony owner —
   pozostali dostają projekcję BEZ tego pola (nie ``null``);
-- create/update/delete: admin lub Delivery Lead dla każdego klienta;
+- create/update/delete: admin lub Delivery Lead u klientów z portfela;
 - owner relacji może edytować pola relacyjne swojego kontaktu;
 - zmiana ``key_relationship_owner_id``: admin (wyjątek: claim None → self);
 - każda mutacja zostawia audit event w ``activities`` (bez wartości pól
@@ -232,7 +232,7 @@ async def list_all_contacts(
     """Kontakty cross-client (globalna wyszukiwarka).
 
     Admin, HoR, Finance i TCM widzą organizację w zakresie swojej projekcji.
-    DL widzi wszystkich klientów, TAC swoje jawne przypisania, a
+    DL widzi klientów z portfela (25.09.2026), TAC swoje jawne przypisania, a
     recruiter/sourcer klientów osiągalnych przez Job. Pusty graf relacji jest
     deny-all.
     """

@@ -20,6 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import DlAssignedOrAdmin, get_current_user
+from app.api.delivery_client_scope import DELIVERY_CLIENT_SCOPE_DEPENDENCIES
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.services.autenti.client_contracts_sender import ClientDocSendRequest
 from app.core.database import get_db
@@ -36,7 +37,9 @@ from app.services.client_access import (
     resolve_client_access,
 )
 
-router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
+router = APIRouter(
+    dependencies=[*DELIVERY_SECTION_DEPENDENCIES, *DELIVERY_CLIENT_SCOPE_DEPENDENCIES]
+)
 
 
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024

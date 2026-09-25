@@ -1660,8 +1660,9 @@ link). API: `app/api/client_playbooks.py`.
   obowiązującej reguły CV zdejmuje zatwierdzenie; adres biura na tym samym
   wierszu wyłączałby wymuszanie nazwy pliku do ponownego zatwierdzenia.
 - **Bramki (lustro reguł CV po #1351):** zapis i historia = `DeliverySectionUser`
-  (sekcja Delivery) + graf klienta `resolve_client_access` (admin i — od #1365 —
-  Delivery Lead org-wide). **Odczyt karty i przeglądu = `OperationalUser`,
+  (sekcja Delivery) + graf klienta `resolve_client_access` z `purpose="org"`
+  (admin i Delivery Lead dla każdego klienta — ten sam formularz jest
+  w edytorze reguł CV, a te są otwarte). **Odczyt karty i przeglądu = `OperationalUser`,
   org-wide, bez grafu klienta** — świadome odstępstwo: karta zastępuje 14 wzorów
   Word w Pomocy, które czytał każdy zalogowany, a rekruter czyta ją PRZED
   przypisaniem do rekrutacji. `off_limits` (z `client_contract_terms`) jedzie
@@ -1693,6 +1694,37 @@ link). API: `app/api/client_playbooks.py`.
 - **Nie przenoś na kartę `selling_points`/`consultant_insight`/`historical_questions`
   bez A/B** — zasilają wektor oferty i prompt generatora CV (949 ofert).
 - Poza zakresem MVP: `DELETE`/`copy-from` karty, alerty z pól strukturalnych (SLA).
+## Delivery Lead widzi tylko swoich klientów w modułach Delivery (25.09.2026)
+
+Decyzja Artura 25.09.2026 cofa org-wide odczyt z #1365 — ale tylko w Delivery.
+DL widzi klienta, gdy ma DOWOLNY wiersz w `delivery_lead_client_assignments`
+(główny albo nie — zastępstwo na urlop = dopisanie drugiego DL).
+
+- **Jedno źródło:** `access_scope.resolve_delivery_lead_client_ids` (zakres
+  Delivery) i `client_access.resolve_client_team_client_ids(..., purpose=)`
+  (`"delivery"` domyślnie, fail-closed; `"org"` = wszyscy klienci). Przez nie
+  zawężają się: Klienci (lista, katalog, profil, kontakty, wiedza, materiały,
+  umowy ramowe/wykonawcze, reguły powiadomień), Kontrakty i kontraktorzy,
+  Zamówienia, grupy i importy MD, skrzynka zamówień z maila, portal DL
+  (`/my-clients`, `/my-clients/{id}/dashboard`), Kluczowe relacje, szablony
+  umów, rejestr konfliktów per klient, kubełek klientów w wyszukiwarce.
+- **Zostaje org-wide (świadomie):** rekrutacje (rekomendacje, prep-kit, szablony
+  maili, akcje shortlisty — `resolve_delivery_lead_org_client_ids`), reguły CV
+  i generator CV, zapis karty klienta, `GET /api/clients/{id}/team` (podpowiedź
+  DL w formularzu rekrutacji), `/api/clients-lookup` (pickery klienta
+  w rekrutacji), **Generator umów B2B** (`purpose="org"`; stawki i zapis nadal
+  tylko u przypisanych — bez zmian), pulpity, KPI i Insights
+  (`resolve_dashboard_scope` nietknięty).
+- **Wyjątki persony:** DL + admin/finance/talent_community_manager widzi
+  wszystko (TCM czyta Delivery całej organizacji).
+- **Wyłącznik bez deployu:** `DL_CLIENT_SCOPE=all` przywraca stan z #1365.
+  `/api/auth/me` niesie `delivery_client_scope` (`assigned|all|null`) — front
+  chowa „Moi / Wszyscy” na liście klientów i na 403 profilu pisze „Ten klient
+  jest poza Twoim portfelem”.
+- **Nowa powierzchnia Delivery** = te resolvery. Nowa powierzchnia rekrutacji,
+  która czyta klienta, = `purpose="org"` / `resolve_delivery_lead_org_client_ids`,
+  inaczej DL straci ją u cudzych klientów. Pilnuje `tests/test_dl_client_scope.py`.
+
 ## Delivery Lead widzi kwoty własnego portfela (profil klienta + Analityka)
 
 Kwoty JEDNEGO klienta redaguje wspólna reguła **`can_read_client_finance`
@@ -2070,6 +2102,13 @@ Migracja Traffit→Nexus z maja 2026 była **one-shot CLI** (`python -m app.cli.
 - **Wznawialność (kursory) — bo Coolify restartuje kontener przy KAŻDYM pushu na main, a pełne biegi trwają godziny.** Faza bez kursora startuje po restarcie od zera i przy deployach częstszych niż tydzień może **nigdy** nie dojść do ogona. Kursory ma dziś: `candidates`, `candidate_activities` i `pipelines` (po numerze strony, `get_pages(start_page=)`), oraz `candidate_files`, `candidates_cv`, `candidates_enrich_names` (po `after_id` + budżet). **`candidate_sources` świadomie NIE ma kursora** — ta faza agreguje wszystkie wiersze w pamięci i zapisuje dopiero na końcu, więc kursor na stronie N pomijałby strony 1..N-1, których dane nigdy nie zostały zapisane; kursor wymagałby wcześniej inkrementalnego zapisu. Zamiast tego strony gubione przez `skip_on_5xx` (znany server-side bug `/sources/`) są liczone do `skipped_pages` i widoczne w `/sync/status` — celowo NIE jako `add_error`, bo nieatrybutowalny błąd przypiąłby `degraded` na stałe. Kursor siedzi w `traffit_sync_state.cursor_payload` na wierszu **fazy z `_phase_plan`** (nie `PhaseProgress.phase` — te bywają różne, np. `candidate_files` vs `candidates_files`; pomyłka zakłada widmowy wiersz w `/sync/status`). **Sloty są per tryb** (`{"delta": {...}, "full": {...}}`): numery stron delty są filtrowane po `since`, fulla nie, więc wspólny slot powodował, że nocna delta najpierw nadpisywała, a potem kasowała zaparkowaną pozycję fulla — wznawianie fulla było mechanicznie obecne i praktycznie martwe. Stary płaski kształt jest migrowany przy odczycie. Po HTTP 400 na filtrze klient zdejmuje filtr i restartuje od strony 1 → `saw_fallback` wstrzymuje zapis kursora (numery stron przestają odpowiadać `since`).
 - **Faza `workflows` (szablony pipeline'ów) — zapis wsadowy pod SET-WIDE unique.** `pipeline_stage_defs` ma dwa ograniczenia obejmujące CAŁY szablon (`uq_stage_order_in_template (template_id, "order")` i `uq_stage_name_in_template (template_id, name)`), a wiersze pisane są **po jednym**, kluczem `(external_source, external_id)`. Przepisanie zbioru wiersz po wierszu pod ograniczeniem zbiorowym działa tylko wtedy, gdy żaden stan POŚREDNI nie koliduje — a zamiana kolejności w Traffit gwarantuje kolizję (stan B bierze pozycję 3, którą wciąż trzyma jeszcze nieprzepisany stan A). Cyklicznej zamiany nie da się rozwiązać kolejnością zapisów. Żadne z ograniczeń **nie jest DEFERRABLE** (entrypoint.sh obchodzi tę samą krawędź trikiem z przesunięciem), więc `_rewrite_template_stage_defs` najpierw **parkuje** wszystkie wiersze szablonu na `("order" = -id, name = '~<id>')` — unikalne per wiersz, bo `id` to PK, a ujemne pozycje nigdy nie spotkają docelowego układu (wszystkie ≥ 0) — i dopiero potem kładzie właściwy układ, już w dowolnej kolejności. **Stany, których Traffit przestał wysyłać, NIE są kasowane** (`candidate_stages.stage_def_id` na nie wskazuje — dlatego importer dawno porzucił DELETE+INSERT); dostają pozycje **za** żywymi, z zachowaniem względnej kolejności i nazw, a jeśli żywy stan zabrał nazwę wycofanego — ustępuje wycofany (żywy jest bieżącą prawdą). Każdy workflow siedzi w **SAVEPOINCIE**: stary handler wołał `db.rollback()`, czyli rollback SESJI, a faza commituje raz na końcu — jeden zepsuty workflow kasował wszystkie zapisane wcześniej w tym biegu. Na prodzie `processed: 2, updated: 2, errors: 1` nie znaczyło „1 z 2 padł", tylko „0 z 2 zapisanych", 23 biegi z rzędu.
 - **Nagrobki (`candidates.external_deleted_at`, migracja `0221`).** 404/410 z Traffita było wcześniej wyłącznie **liczone** (`gone_upstream`), a licznik żyje tyle co statystyki biegu — więc informacja „tej osoby już u źródła nie ma" nie docierała nigdzie: rekruter widział zwykły profil, `reconcile` pokazywał rozjazd bez wyjaśnienia, a każdy kolejny sweep pytał o tego samego nieistniejącego kandydata. Trzy rzeczy, których ten mechanizm **celowo nie robi**: (1) **nie kasuje wiersza** — profil w Nexusie ma własną wartość niezależną od Traffita (notatki, etapy, ślady RODO), więc usunięcie u źródła nie jest zgodą na usunięcie NASZYCH danych; (2) **nie stawia nagrobka za brakujący PLIK** — 404 na `/employees/{id}/files` to odpowiedź o osobie, 404 na pobraniu pliku tylko o pliku, a pomylenie tych poziomów oznaczałoby oznaczanie profili jako usunięte z powodu jednego nieudanego załącznika; (3) **nie utrwala pomyłki** — upsert kandydata czyści znacznik, więc powrót w żywym feedzie `/employees/` kasuje nagrobek (bez tego pojedyncze 404 przy chwilowej awarii Traffita zostawiałoby trwałe kłamstwo). Warunek `external_deleted_at IS NULL` w UPDATE sprawia, że znacznik zapamiętuje **pierwszą** obserwację zniknięcia — inaczej data mówiłaby „kiedy ostatnio sprawdzaliśmy", a licznik `tombstoned` rósłby w nieskończoność zamiast odpowiadać, czy zniknęło coś **nowego**.
+- **Klient scalony (`merged_into_client_id`) kieruje Traffita na klienta
+  kanonicznego** (25.09.2026, `_build_client_external_id_map` →
+  `_canonical_client_id`). Wiersz duplikatu zostaje ukrytym nagrobkiem
+  z `external_id` — NIE kasuj go, bo to on mapuje id Traffita. Do tej daty
+  nocny import przypinał kontakty i rekrutacje do ukrytego duplikatu
+  (E-Zdrowie 37721 → 115: 24 rekrutacje i kontrakt; dokończenie scalenia
+  `services/ezdrowie_client_merge_repair.py`, blok `repair-ezdrowie-merge`).
 - **Ochrona dopisana do JEDNEJ ścieżki zapisu kandydata nie działa** (18.09.2026). Importer ma dwie gałęzie: `_UPSERT_CANDIDATE` (po `(external_source, external_id)`) i `_UPDATE_CANDIDATE_ADOPT` (po MAILU). **Produkcja chodzi drugą** — `email_to_id` jest budowane BEZ filtra `external_source`, więc kandydat już zaimportowany dopasowuje się sam do siebie po mailu. Czyszczenie nagrobka i lepka blacklista były wyłącznie w upsercie, więc: raz postawiony nagrobek nie znikał NIGDY (74 wiersze, w tym DWÓCH pracujących konsultantów niewidocznych dla automatu zamówień z maila — ten filtruje `external_deleted_at IS NULL`, więc jednemu założyłby drugiego kandydata i drugi kontrakt, a drugiemu podpiąłby zamówienie pod imiennika), a blacklista założona w NEXUSIE byłaby zdejmowana przy najbliższym syncu. Obie gałęzie mają teraz obie ochrony; pilnuje tego `test_traffit_adopt_path_protections.py`. **Dokładając cokolwiek do jednej z nich, sprawdź drugą.** Znany, nienaprawiony dług tej samej klasy: adopt przepisuje `cv_extracted_data.legacy_source` na `'traffit'` przy każdym biegu, niszcząc atrybucję pochodzenia, którą deklaruje zachowywać.
 - **Mapa `email_to_id` to migawka ze startu fazy `candidates` — wiersz założony w Nexusie W TRAKCIE fazy też adoptujemy** (24.09.2026). Rekruterka wgrała to samo CV do Traffita i do Nexusa w odstępie ~2 s (`source='cv_upload'`, `external_source='manual'`, bez `external_id`); faza zbudowała mapę minutę wcześniej, poszła w INSERT i trafiła w UNIQUE na SUROWYM `email` (bez `lower`; na prodzie indeks `ix_candidates_email`, w bazie testowej CI ten sam więz nazywa się `candidates_email_key` — łap po obu nazwach, sama nazwa z produ przechodzi testy tylko przypadkiem albo wcale). Dwa takie rekordy (ext 65050/65051) zamroziły watermark `__daily__` → `traffit=degraded`. Teraz INSERT idzie we własnym savepoincie, a konflikt na UNIQUE maila przy `external_id` BEZ właściciela kończy się adopcją wiersza z tym mailem (`_late_email_owner`); gdy `external_id` ma już właściciela, błąd zostaje (przepięcie = scalenie, decyzja dedupu) i idzie do kwarantanny. Pilnuje `test_traffit_email_race_adopt.py`. **Przy każdej mapie budowanej na starcie fazy zakładaj, że baza zmieni się w trakcie** — błąd UNIQUE na wierszu, którego „nie było” w mapie, jest wyścigiem, nie złymi danymi. Diagnoza: ucięty `error_samples` nie mówi, które ograniczenie — pobierz rekord z Traffita (`TraffitClient._get_raw('/employees/<id>')` w kontenerze backendu, `docker exec -i … python -`) i porównaj mail z `candidates`.
 - **Health:** `/api/health.checks.traffit` = `unconfigured` (off) / `misconfigured` (brak secretów) / `degraded` (włączony, brak świeżego runu / errors) / `healthy` (ostatni `__daily__` < 36h, status ok). **To sonda ŚWIEŻOŚCI, nie kompletności** — `healthy` nie znaczy, że dane się zgadzają z Traffitem (tak właśnie luka w plikach/CV żyła miesiącami przy zielonym healthu).
