@@ -71,7 +71,8 @@ export function SkillBucketsField({
 }: SkillBucketsFieldProps) {
   const [draft, setDraft] = useState("");
   const [open, setOpen] = useState(false);
-  const [highlight, setHighlight] = useState(0);
+  // -1 = nic nie zaznaczone: Enter dodaje wpisany tekst (np. „java|kotlin”).
+  const [highlight, setHighlight] = useState(-1);
   const listId = useId();
   const suggestions = useKeywordSuggestions(draft, Boolean(suggest) && open);
   const options = suggest
@@ -136,7 +137,7 @@ export function SkillBucketsField({
 
   const pick = (option: SuggestionOption) => {
     commit(option.insert);
-    setHighlight(0);
+    setHighlight(-1);
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
@@ -145,7 +146,7 @@ export function SkillBucketsField({
       setHighlight((h) => Math.min(h + 1, options.length - 1));
     } else if (showList && e.key === "ArrowUp") {
       e.preventDefault();
-      setHighlight((h) => Math.max(h - 1, 0));
+      setHighlight((h) => Math.max(h - 1, -1));
     } else if (showList && e.key === "Escape") {
       e.preventDefault();
       e.stopPropagation();
@@ -178,7 +179,7 @@ export function SkillBucketsField({
             value={draft}
             onChange={(e) => {
               setDraft(e.target.value);
-              setHighlight(0);
+              setHighlight(-1);
               setOpen(true);
             }}
             onKeyDown={onKeyDown}

@@ -138,13 +138,17 @@ describe("CandidateSearchView — pamięć wyszukiwania w rekrutacji", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Wróć do filtrów z rekrutacji" }));
     await waitFor(() => expect(search.mock.calls.at(-1)?.[0]).toMatchObject({ q: "java" }));
+    expect(readJobSearch(7, 5)).toBeNull();
     expect(screen.queryByText("Przywrócono Twoje ostatnie wyszukiwanie w tej rekrutacji")).toBeNull();
   });
 
-  it("bez pamięci startuje od filtrów rekrutacji", async () => {
+  it("bez pamięci startuje od filtrów rekrutacji i samo otwarcie niczego nie zapisuje", async () => {
     renderView({ addToJob: job, memoryKey: 5, initial: { q: "java" } });
     await waitFor(() => expect(search).toHaveBeenCalled());
     expect(search.mock.calls[0][0]).toMatchObject({ q: "java" });
+    // Nietknięte filtry nie mogą przykryć nowych wymagań Championa przy
+    // kolejnym otwarciu okna.
+    expect(readJobSearch(7, 5)).toBeNull();
     expect(screen.queryByText("Przywrócono Twoje ostatnie wyszukiwanie w tej rekrutacji")).toBeNull();
   });
 });

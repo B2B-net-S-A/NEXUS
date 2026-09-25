@@ -156,3 +156,28 @@ async def test_real_timeout_inside_count_candidates_returns_nulls(catalog, monke
         from sqlalchemy import text
 
         assert (await db.execute(text("SELECT 1"))).scalar_one() == 1
+
+
+@pytest.mark.asyncio
+async def test_titles_failure_degrades_to_skills_only(catalog, monkeypatch):
+    """Przegląd stanowisk po limicie czasu: podpowiedzi bez stanowisk, sesja żyje."""
+    from sqlalchemy import text
+
+    from app.core.database import AsyncSessionLocal
+
+    monkeypatch.setattr(keyword_corpus, "_ready", False)
+
+    async with AsyncSessionLocal() as db:
+        real_execute = db.execute
+
+        async def execute(stmt, *args, **kwargs):
+            if "jsonb_array_elements" in str(stmt):
+                raise RuntimeError("canceling statement due to statement timeout")
+            return await real_execute(stmt, *args, **kwargs)
+
+        monkeypatch.setattr(db, "execute", execute)
+        result = await keyword_suggest.suggest(db, "java", 6)
+        assert [s.label for s in result.items] == ["Java", "Java EE", "JavaScript"]
+        assert all(s.kind == "skill" for s in result.items)
+        monkeypatch.setattr(db, "execute", real_execute)
+        assert (await db.execute(text("SELECT 1"))).scalar_one() == 1

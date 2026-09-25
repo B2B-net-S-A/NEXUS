@@ -228,24 +228,31 @@ export function clearKeywordSuggestCache(): void {
 export function useKeywordSuggestions(query: string, enabled: boolean) {
   const debounced = useDebouncedValue(query.trim(), 200);
   const key = foldKeyword(debounced);
-  const [data, setData] = useState<KeywordSuggestResponse | undefined>(undefined);
+  // Odpowiedź pamięta, dla jakiego tekstu przyszła — lista nigdy nie pokazuje
+  // (ani nie wstawia Enterem) podpowiedzi do poprzedniego słowa.
+  const [result, setResult] = useState<{ key: string; data: KeywordSuggestResponse } | null>(
+    null,
+  );
   useEffect(() => {
     if (!enabled || !key) return;
     const hit = cache.get(key);
     if (hit && Date.now() - hit.at < CACHE_TTL_MS) {
-      setData(hit.data);
+      setResult({ key, data: hit.data });
       return;
     }
     const controller = new AbortController();
     fetchKeywordSuggestions(debounced, controller.signal)
       .then((result) => {
         cache.set(key, { at: Date.now(), data: result });
-        if (!controller.signal.aborted) setData(result);
+        if (!controller.signal.aborted) setResult({ key, data: result });
       })
       .catch(() => {
         // Podpowiedzi to dodatek: awaria zostawia listę bez pozycji z bazy.
       });
     return () => controller.abort();
   }, [enabled, key, debounced]);
-  return { data: enabled && key ? data : undefined };
+  const current = foldKeyword(query.trim());
+  return {
+    data: enabled && result && result.key === current ? result.data : undefined,
+  };
 }

@@ -99,7 +99,12 @@ import {
   searchRequestValidationError,
 } from "@/lib/candidate-search-request";
 import { matchingRequirementsApi, requirementLabels } from "@/lib/matching-requirements";
-import { pushRecentSearch, readJobSearch, writeJobSearch } from "@/lib/search-memory";
+import {
+  clearJobSearch,
+  pushRecentSearch,
+  readJobSearch,
+  writeJobSearch,
+} from "@/lib/search-memory";
 import { useAuthStore } from "@/store/auth";
 import type { ChipFieldSuggest } from "@/components/v2/filters/AdvancedSearchPopover";
 import { RecentSearchesMenu } from "@/components/v2/filters/RecentSearchesMenu";
@@ -342,8 +347,15 @@ export function CandidateSearchView({
     },
     [],
   );
+  // Zapis tylko po działaniu osoby („Szukaj”, sortowanie, strona, zapisane,
+  // ostatnie) — nie przy otwarciu. Inaczej nietknięte filtry z rekrutacji
+  // zapisałyby się i przykryły nowe wymagania Championa przy kolejnym otwarciu.
+  const rememberRef = useRef(false);
+  const remember = useCallback(() => {
+    rememberRef.current = true;
+  }, []);
   useEffect(() => {
-    if (memoryKey === undefined) return;
+    if (memoryKey === undefined || !rememberRef.current) return;
     writeJobSearch(userId, memoryKey, request as unknown as Record<string, unknown>);
   }, [memoryKey, userId, request]);
   const requirementsQuery = useQuery({
@@ -560,6 +572,7 @@ export function CandidateSearchView({
     clearSelection();
     // Zapis legacy (surowe żądanie: `skills_must` = ranking) i v3 kończą w tym
     // samym kształcie v2 — adapter zapisów decyduje o kubełkach.
+    remember();
     applyNow(
       toSearchSemanticsV2({
         ...DEFAULT_REQUEST,
@@ -877,6 +890,7 @@ export function CandidateSearchView({
     // w nowym wyniku) — strona je zachowuje (``setPage``).
     clearSelection();
     setRestoredBanner(false);
+    remember();
     setRequest({ ...draft, page: 1 });
     if (jobContext) {
       const keywords = [
@@ -900,16 +914,20 @@ export function CandidateSearchView({
   const restoreJobDefaults = () => {
     clearSelection();
     setRestoredBanner(false);
+    rememberRef.current = false;
+    if (memoryKey !== undefined) clearJobSearch(userId, memoryKey);
     applyNow(baseRequest);
   };
 
   const setSort = (sort: SortMode) => {
     clearSelection();
+    remember();
     setRequest({ ...request, sort, page: 1 });
     setDraft((d) => ({ ...d, sort }));
   };
 
   const setPage = (page: number) => {
+    remember();
     setRequest({ ...request, page });
   };
 
@@ -1095,6 +1113,7 @@ export function CandidateSearchView({
               try {
                 const parsed = JSON.parse(entry.query) as Partial<CandidateSearchRequest>;
                 clearSelection();
+                remember();
                 applyNow(
                   toSearchSemanticsV2({
                     ...DEFAULT_REQUEST,

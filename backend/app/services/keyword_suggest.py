@@ -164,6 +164,32 @@ async def suggest_titles(db: AsyncSession, q: str, limit: int) -> list[tuple[str
     return [(row[0], int(row[1])) for row in result]
 
 
+async def _titles_within_timeout(
+    db: AsyncSession, q: str, limit: int
+) -> list[tuple[str, int]]:
+    """Stanowiska z limitem czasu w savepoincie — pełny przegląd
+    ``experience`` przy każdym znaku nie może trzymać połączenia; po
+    przekroczeniu lista zostaje bez stanowisk."""
+    try:
+        async with db.begin_nested():
+            previous = (
+                await db.execute(text("SELECT current_setting('statement_timeout')"))
+            ).scalar_one()
+            await db.execute(
+                text("SELECT set_config('statement_timeout', :ms, true)"),
+                {"ms": f"{COUNT_TIMEOUT_MS}ms"},
+            )
+            rows = await suggest_titles(db, q, limit)
+            await db.execute(
+                text("SELECT set_config('statement_timeout', :prev, true)"),
+                {"prev": previous},
+            )
+            return rows
+    except Exception as exc:  # noqa: BLE001 — podpowiedź to dodatek
+        logger.warning("keyword suggest titles skipped (%s)", type(exc).__name__)
+        return []
+
+
 _count_cache: dict[str, tuple[float, int]] = {}
 
 
@@ -298,7 +324,7 @@ async def suggest(db: AsyncSession, query: str, limit: int) -> SuggestResult:
     ]
     if len(fold(q)) >= 3 and len(items) < limit:
         seen = {fold(s.label) for s in items}
-        for role, _n in await suggest_titles(db, q, 3):
+        for role, _n in await _titles_within_timeout(db, q, 3):
             if fold(role) in seen:
                 continue
             items.append(

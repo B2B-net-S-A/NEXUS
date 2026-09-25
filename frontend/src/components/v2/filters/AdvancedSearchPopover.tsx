@@ -144,7 +144,10 @@ export function ChipField({
 }) {
   const [draft, setDraft] = useState("");
   const [open, setOpen] = useState(false);
-  const [highlight, setHighlight] = useState(0);
+  // -1 = nic nie zaznaczone: Enter dodaje wpisany tekst, dopóki ktoś nie
+  // wybierze podpowiedzi strzałką (inaczej „junior” + Enter dodawał
+  // pierwszą pozycję z listy, np. stanowisko „junior java developer”).
+  const [highlight, setHighlight] = useState(-1);
   const listId = useId();
   const userId = useAuthStore((s) => s.user?.id ?? null);
   const limitReached = chips.length >= MAX_PER_BUCKET;
@@ -179,7 +182,7 @@ export function ChipField({
   const pick = (option: SuggestionOption) => {
     onChange(dedupeCaseInsensitive([...chips, option.insert]));
     setDraft("");
-    setHighlight(0);
+    setHighlight(-1);
   };
 
   const removeAt = (index: number) => {
@@ -192,7 +195,7 @@ export function ChipField({
       setHighlight((h) => Math.min(h + 1, options.length - 1));
     } else if (showList && e.key === "ArrowUp") {
       e.preventDefault();
-      setHighlight((h) => Math.max(h - 1, 0));
+      setHighlight((h) => Math.max(h - 1, -1));
     } else if (e.key === "Escape" && showList) {
       e.preventDefault();
       e.stopPropagation();
@@ -249,7 +252,7 @@ export function ChipField({
           value={draft}
           onChange={(e) => {
             setDraft(e.target.value);
-            setHighlight(0);
+            setHighlight(-1);
             setOpen(true);
           }}
           onKeyDown={handleKeyDown}

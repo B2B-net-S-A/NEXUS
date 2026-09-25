@@ -80,7 +80,7 @@ export function KeywordSuggestionList({
           <kbd className="font-semibold text-foreground">↑ ↓</kbd> wybierz
         </span>
         <span>
-          <kbd className="font-semibold text-foreground">Enter</kbd> dodaj
+          <kbd className="font-semibold text-foreground">Enter</kbd> dodaj zaznaczone albo wpisane
         </span>
         <span>
           <kbd className="font-semibold text-foreground">,</kbd> dodaj jak wpisane

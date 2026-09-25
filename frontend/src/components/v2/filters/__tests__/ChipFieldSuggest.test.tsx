@@ -70,9 +70,30 @@ describe("ChipField z podpowiedziami", () => {
     );
     expect(screen.getByText(/^~4\s?120$/)).toBeTruthy();
     expect(input).toHaveAttribute("aria-expanded", "true");
+    // Nic nie jest zaznaczone, dopóki nie użyjesz strzałki.
+    expect(input).not.toHaveAttribute("aria-activedescendant");
+    fireEvent.keyDown(input, { key: "ArrowDown" });
     fireEvent.keyDown(input, { key: "ArrowDown" });
     fireEvent.keyDown(input, { key: "Enter" });
     expect(onChange).toHaveBeenLastCalledWith(["JavaScript"]);
+  });
+
+  it("Enter bez wyboru strzałką dodaje dokładnie wpisany tekst", async () => {
+    const { onChange, input } = renderField();
+    await typeAndWait(input, "jav");
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onChange).toHaveBeenLastCalledWith(["jav"]);
+  });
+
+  it("nie pokazuje podpowiedzi do poprzedniego słowa, zanim przyjdą nowe", async () => {
+    const { onChange, input } = renderField();
+    await typeAndWait(input, "jav");
+    get.mockReturnValue(new Promise(() => {}));
+    fireEvent.change(input, { target: { value: "kafka" } });
+    expect(screen.queryByText("JavaScript")).toBeNull();
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onChange).toHaveBeenLastCalledWith(["kafka"]);
   });
 
   it("klik w podpowiedź dodaje ją bez dodawania wpisanego tekstu", async () => {
