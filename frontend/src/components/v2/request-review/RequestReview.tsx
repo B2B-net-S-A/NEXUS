@@ -99,7 +99,10 @@ export function RequestReviewView({
   const suggestions = useMemo(
     () =>
       data.rows
-        .filter((r) => selected.has(r.job_id) && r.suggested_state && r.suggested_state !== tab)
+        .filter(
+          (r) =>
+            !r.closed && selected.has(r.job_id) && r.suggested_state && r.suggested_state !== tab,
+        )
         .map((r) => ({ job_id: r.job_id, state: r.suggested_state as WorkState })),
     [data.rows, selected, tab],
   )
@@ -215,13 +218,17 @@ export function RequestReviewView({
                 data.rows.map((row: ReviewRow) => (
                   <tr key={row.job_id} className="border-b border-border last:border-0">
                     <td className="px-4 py-2">
-                      <input
-                        type="checkbox"
-                        aria-label={`Zaznacz: ${row.title}`}
-                        className="h-4 w-4 accent-primary"
-                        checked={selected.has(row.job_id)}
-                        onChange={() => toggle(row.job_id)}
-                      />
+                      {/* Zamkniętej rekrutacji nie da się przełączyć (serwer: 409),
+                          więc nie wchodzi też do zmian hurtowych. */}
+                      {row.closed ? null : (
+                        <input
+                          type="checkbox"
+                          aria-label={`Zaznacz: ${row.title}`}
+                          className="h-4 w-4 accent-primary"
+                          checked={selected.has(row.job_id)}
+                          onChange={() => toggle(row.job_id)}
+                        />
+                      )}
                     </td>
                     <td className="px-2 py-2">
                       <Link href={`/jobs/${row.job_id}`} className="font-semibold hover:underline">
@@ -252,23 +259,29 @@ export function RequestReviewView({
                       )}
                     </td>
                     <td className="px-4 py-2">
-                      <div className="flex flex-wrap gap-1.5">
-                        {tab === "champion" ? (
-                          <Button size="sm" variant="outline" onClick={() => actions.dropChampion(row.job_id)}>
-                            Champion odpadł
-                          </Button>
-                        ) : null}
-                        {ACTIONS.filter((a) => a.state !== tab).map((a) => (
-                          <Button
-                            key={a.state}
-                            size="sm"
-                            variant="outline"
-                            onClick={() => actions.setState([{ job_id: row.job_id, state: a.state }])}
-                          >
-                            {a.label}
-                          </Button>
-                        ))}
-                      </div>
+                      {row.closed ? (
+                        <span className="text-xs text-muted-foreground">
+                          Rekrutacja zamknięta — najpierw ją otwórz.
+                        </span>
+                      ) : (
+                        <div className="flex flex-wrap gap-1.5">
+                          {tab === "champion" ? (
+                            <Button size="sm" variant="outline" onClick={() => actions.dropChampion(row.job_id)}>
+                              Champion odpadł
+                            </Button>
+                          ) : null}
+                          {ACTIONS.filter((a) => a.state !== tab).map((a) => (
+                            <Button
+                              key={a.state}
+                              size="sm"
+                              variant="outline"
+                              onClick={() => actions.setState([{ job_id: row.job_id, state: a.state }])}
+                            >
+                              {a.label}
+                            </Button>
+                          ))}
+                        </div>
+                      )}
                     </td>
                   </tr>
                 ))
