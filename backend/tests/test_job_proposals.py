@@ -436,6 +436,19 @@ def test_evidence_keeps_requirement_names_and_drops_free_text():
     assert proposals.sanitize_evidence("tekst") is None
 
 
+def test_trainee_evidence_keeps_the_employment_only_flag():
+    clean = proposals.sanitize_evidence(
+        {"trainee": {"user_id": 5, "note": " Szuka ", "employment_only": True}}
+    )
+    assert clean == {
+        "trainee": {"user_id": 5, "note": "Szuka", "employment_only": True}
+    }
+    # Flaga to wyłącznie literalne `True`.
+    assert proposals.sanitize_evidence(
+        {"trainee": {"user_id": 5, "employment_only": "tak"}}
+    ) == {"trainee": {"user_id": 5}}
+
+
 # ── API ─────────────────────────────────────────────────────────────────────
 
 

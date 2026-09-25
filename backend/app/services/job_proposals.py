@@ -133,6 +133,9 @@ def sanitize_evidence(raw: Any) -> Optional[dict]:
             clean_trainee: dict[str, Any] = {"user_id": by_user}
             if isinstance(note, str) and note.strip():
                 clean_trainee["note"] = note.strip()[:_MAX_TRAINEE_NOTE]
+            # Kandydat deklaruje wyłącznie umowę o pracę — plakietka na karcie.
+            if trainee.get("employment_only") is True:
+                clean_trainee["employment_only"] = True
             out["trainee"] = clean_trainee
     if raw.get(PREVIOUSLY_DISMISSED_KEY) is True:
         out[PREVIOUSLY_DISMISSED_KEY] = True

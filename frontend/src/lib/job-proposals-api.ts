@@ -74,6 +74,8 @@ export interface ProposalTraineeHandover {
   note: string | null;
   /** ISO albo `null`. */
   at: string | null;
+  /** Kandydat deklaruje wyłącznie umowę o pracę — ostrzeżenie, nie blokada. */
+  employment_only?: boolean;
 }
 
 export interface ProposalReassignFrom {

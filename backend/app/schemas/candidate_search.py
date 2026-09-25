@@ -180,6 +180,27 @@ EXPERIENCE_RANGE_REVERSED_MSG = (
 RATE_RANGE_REVERSED_MSG = "Minimalna stawka nie może być większa niż maksymalna."
 
 
+def reversed_range_message(
+    *,
+    experience_min: Any = None,
+    experience_max: Any = None,
+    rate_min: Any = None,
+    rate_max: Any = None,
+) -> Optional[str]:
+    """Pierwszy odwrócony przedział (min > max) jako zdanie po polsku albo
+    ``None``. Ta sama reguła dla wyszukiwarki i listy kandydatów (GET
+    ``/api/candidates`` i eksport z filtra) — do rundy 2 audytu (25.09.2026)
+    lista odwrócony zakres przyjmowała i zwracała same osoby bez danych."""
+
+    for low, high, message in (
+        (experience_min, experience_max, EXPERIENCE_RANGE_REVERSED_MSG),
+        (rate_min, rate_max, RATE_RANGE_REVERSED_MSG),
+    ):
+        if low is not None and high is not None and low > high:
+            return message
+    return None
+
+
 def raise_if_range_reversed(low: Any, high: Any, message: str) -> None:
     """Wspólna reguła dla obu schematów wyszukiwania (legacy i V3)."""
     if low is not None and high is not None and low > high:

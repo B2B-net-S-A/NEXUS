@@ -45,6 +45,7 @@ import { searchIsRunning } from "@/lib/full-candidate-search-api";
 import { matchingRequirementsApi, requirementLabels } from "@/lib/matching-requirements";
 import {
   DEFAULT_PROPOSAL_FILTERS,
+  EMPLOYMENT_ONLY_WARNING_PL,
   WORK_TIME_FIT_WARNING_PL,
   formatHourlyRate,
   type ProposalEntry,
@@ -108,6 +109,7 @@ const WARNING_LABEL: Record<string, string> = {
   hm_veto: "Weto HM",
   over_budget: "Ponad budżet",
   rejected_by_same_client: "Odrzucony przez tego klienta",
+  employment_only: EMPLOYMENT_ONLY_WARNING_PL,
   ...WORK_TIME_FIT_WARNING_PL,
 };
 
@@ -134,7 +136,8 @@ function proposalRow(entry: ProposalEntry, facts?: ProposalFacts | null): PickRo
       code === "over_budget" ||
       code === "rejected_by_same_client" ||
       code === "part_time_only" ||
-      code === "full_time_only"
+      code === "full_time_only" ||
+      code === "employment_only"
     ) {
       warnings.push({ key: code, label: WARNING_LABEL[code], blocking: false });
     }

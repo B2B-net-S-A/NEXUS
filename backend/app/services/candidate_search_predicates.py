@@ -806,13 +806,31 @@ def literal_text_clause(q: str) -> Optional[ColumnElement]:
     return phrase if phrase is not None else phone
 
 
+LITERAL_TEXT_TOO_SHORT_MSG = "Wpisz co najmniej 2 znaki."
+
+
+class LiteralTextTooShort(ValueError):
+    """Niepusty tekst dosłowny, który nie daje żadnego warunku (1 znak)."""
+
+
 async def prepare_literal_text(db: Any, q: str) -> Optional[ColumnElement]:
-    """Ustawia ``pg_trgm.similarity_threshold`` (SET LOCAL) i zwraca klauzulę."""
+    """Ustawia ``pg_trgm.similarity_threshold`` (SET LOCAL) i zwraca klauzulę.
+
+    Niepusty tekst, z którego nie powstaje warunek (np. jedna litera), to
+    ``LiteralTextTooShort`` — wołający odpowiada 422. Do rundy 2 audytu
+    (25.09.2026) ``None`` znaczyło „brak warunku”, więc `q="a"` w trybie
+    dosłownym zwracało CAŁĄ bazę. Pusty tekst nadal daje ``None``.
+    """
+    clause = literal_text_clause(q)
+    if clause is None:
+        if (q or "").strip():
+            raise LiteralTextTooShort(LITERAL_TEXT_TOO_SHORT_MSG)
+        return None
     threshold = literal_text_threshold(q)
     if threshold is not None:
         # Wartość jest jedną z dwóch stałych powyżej — nie pochodzi z wejścia.
         await db.execute(text(f"SET LOCAL pg_trgm.similarity_threshold = {threshold}"))
-    return literal_text_clause(q)
+    return clause
 
 
 # ═══════════════════════════════════════════════════════════════════════════

@@ -575,11 +575,11 @@ async def _assert_cv_qc_gate(
         return
     # Para w „Zamkniętych" liczy się kolumną sprzed zamknięcia — inaczej
     # „Nowi → Odrzucony → CV wysłane" omijało QC i osobę od Cpro.
+    # Para bez wierszy liczy się od „Nowych” (`current` = None) — świeży
+    # kandydat wysłany przez API wprost na „CV wysłane” nie omija bramki.
     current, current_column = await pipeline_move_rules.gate_stage_row(
         db, candidate_id=candidate_id, job_id=job_id
     )
-    if current is None:
-        return
     if not cv_qc.gate_applies(current_column, target_column, target_is_cpro):
         return
     # U Nordei „CV wysłane" = „Wysłane do Cpro": wrzuca osoba od Cpro
@@ -598,7 +598,10 @@ async def _assert_cv_qc_gate(
         if not await cpro_sender.can_send_to_cpro(
             db,
             user,
-            fallback_sender_ids=(job_sender_id, current.task_assignee_id),
+            fallback_sender_ids=(
+                job_sender_id,
+                current.task_assignee_id if current is not None else None,
+            ),
         ):
             sender = await cpro_sender.effective_sender(db)
             names = await cpro_sender.user_names(db, {sender.user_id})
@@ -614,7 +617,11 @@ async def _assert_cv_qc_gate(
     # sprzed 24.09.2026 — ręczny przegląd DZ). „✓ Wrzucone” nie liczy QC
     # drugi raz: CV Nordei to zwykle pliki Word spoza NEXUSA, a obejście ma
     # tylko DL/admin, więc osoba od Cpro dostawałaby odmowę na zaakceptowanych.
-    if target_column == "cv_sent" and current.stage_def_id is not None:
+    if (
+        target_column == "cv_sent"
+        and current is not None
+        and current.stage_def_id is not None
+    ):
         current_name = await db.scalar(
             select(PipelineStageDef.name).where(
                 PipelineStageDef.id == current.stage_def_id
@@ -3329,34 +3336,34 @@ async def bulk_move_candidates(
     await db.commit()
     await broadcast_pipeline_changed(db, data.job_id, actor_id)
 
-    # Phase 17 (migracja 0068): recompute risk dla każdego kandydata.
-    # Best-effort — pojedynczy fail nie blokuje response ani nie zostawia
-    # sesji w failed transaction (M4 PR-02).
+    # Efekty po commicie — każdy w savepoincie (`_post_commit_effect`), osobno
+    # dla każdej osoby: błąd jednej nie cofa efektów pozostałych i nie wygasza
+    # obiektów sesji. Do rundy 2 audytu (25.09.2026) `db.rollback()` po
+    # błędzie wygaszał `current_user`, kolejne odczyty `current_user.id`
+    # kończyły się połykanym MissingGreenlet, a reszta paczki nie trafiała do
+    # pul talentów (commit był dopiero po pętli).
     from app.services.candidate_risk import on_candidate_stage_change
 
-    try:
-        for cid in unique_ids:
+    for cid in unique_ids:
+
+        async def _recompute_risk(cid: int = cid) -> None:
             await on_candidate_stage_change(db, cid)
-        await db.commit()
-    except Exception as _exc:  # noqa: BLE001
-        logger.warning("bulk risk recompute failed: %s", _exc)
-        try:
-            await db.rollback()
-        except Exception:  # noqa: BLE001
-            pass
+
+        await _post_commit_effect(
+            db, f"bulk risk recompute candidate={cid}", _recompute_risk
+        )
 
     # Auto-add to a talent pool when the bulk move is "CV → klient" (same
     # signal as the single /move path). Best-effort: a failure must not affect
     # the move that already committed above.
     if data.stage == PipelineStage.cv_sent:
-        import logging as _logging
-
         from app.services.talent_pool_auto_add import auto_add_on_cv_sent
 
         pool_job = await db.scalar(select(Job).where(Job.id == data.job_id))
         if pool_job is not None:
             for cid in unique_ids:
-                try:
+
+                async def _auto_add_to_pool(cid: int = cid) -> None:
                     pool_candidate = await db.scalar(
                         select(Candidate).where(Candidate.id == cid)
                     )
@@ -3364,17 +3371,14 @@ async def bulk_move_candidates(
                         db=db,
                         candidate_id=cid,
                         job=pool_job,
-                        user_id=current_user.id,
+                        user_id=actor_id,
                         candidate=pool_candidate,
                     )
-                except Exception as e:  # noqa: BLE001
-                    await db.rollback()
-                    _logging.getLogger(__name__).warning(
-                        "bulk auto_add_on_cv_sent failed candidate=%s job=%s: %s",
-                        cid,
-                        data.job_id,
-                        e,
-                    )
-            await db.commit()
+
+                await _post_commit_effect(
+                    db,
+                    f"bulk auto_add_on_cv_sent candidate={cid} job={data.job_id}",
+                    _auto_add_to_pool,
+                )
 
     return {"moved": moved, "stage": data.stage.value, "job_id": data.job_id}

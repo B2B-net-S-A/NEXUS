@@ -24,6 +24,7 @@ from app.core.database import AsyncSessionLocal
 from app.models.activity import Activity
 from app.models.candidate_stage_cv import CandidateStageCV
 from app.models.cv_qc_run import CvQcRun
+from app.models.recruitment_pipeline import CandidateStage
 from app.models.user import UserRole
 from app.services import cv_qc as qc
 from app.services import dz_review as dz
@@ -850,6 +851,70 @@ async def test_closed_pair_does_not_skip_qc_on_the_way_to_cv_sent(
                 )
             )
             await db.commit()
+        await _cleanup(world, [dl_id])
+
+
+@pytest.mark.asyncio
+async def test_fresh_pair_without_stage_rows_does_not_skip_qc(
+    api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Runda 2 audytu 25.09.2026: para bez żadnego wiersza etapu (świeży
+    kandydat wysłany przez API wprost na „CV wysłane”) omijała QC i osobę od
+    Cpro, bo bramka kończyła się na „brak wiersza”. Para bez wierszy stoi na
+    początku drogi („Nowi”), a bez CV firmowego QC nie przechodzi — także
+    w paczce (`/bulk-move`)."""
+
+    monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", "")
+    monkeypatch.setattr(settings, "CV_QC_GATE_ENABLED", True)
+    world = await _seed_world()
+    dl_id, dl_creds = await _seed_user(UserRole.delivery_lead)
+    dl = await _login(api_client, dl_creds)
+    rate = {
+        "client_rate_value": "180",
+        "client_rate_unit": "hourly",
+        "client_rate_currency": "PLN",
+    }
+    try:
+        refused = await api_client.post(
+            "/api/pipeline/move",
+            headers=dl,
+            json={
+                "candidate_id": world["candidate_id"],
+                "job_id": world["job_id"],
+                "stage_def_id": world["defs"]["cv_sent"],
+                **rate,
+            },
+        )
+        assert refused.status_code == 409, refused.text
+        detail = refused.json()["detail"]
+        assert detail["code"] == "CV_QC_FAILED"
+        assert detail["stage_id"] is None
+
+        bulk = await api_client.post(
+            "/api/pipeline/bulk-move",
+            headers=dl,
+            json={
+                "candidate_ids": [world["candidate_id"]],
+                "job_id": world["job_id"],
+                "stage": "cv_sent",
+                **rate,
+            },
+        )
+        assert bulk.status_code == 409, bulk.text
+        assert bulk.json()["detail"]["code"] == "CV_QC_FAILED"
+        async with AsyncSessionLocal() as db:
+            assert (
+                await db.scalar(
+                    select(func.count())
+                    .select_from(CandidateStage)
+                    .where(
+                        CandidateStage.candidate_id == world["candidate_id"],
+                        CandidateStage.job_id == world["job_id"],
+                    )
+                )
+                == 0
+            )
+    finally:
         await _cleanup(world, [dl_id])
 
 

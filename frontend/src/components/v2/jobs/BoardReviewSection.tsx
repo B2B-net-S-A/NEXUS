@@ -23,7 +23,7 @@ import { jobProposalsHref } from "@/components/v2/jobs/JobListCells";
 import { PROPOSAL_SOURCE_LABEL } from "@/components/v2/recruitment/types";
 import { useJobProposals } from "@/components/v2/recruitment/useJobProposals";
 import { boardReviewCountLabel, boardReviewState } from "@/lib/board-review-state";
-import { DEFAULT_PROPOSAL_FILTERS } from "@/lib/proposals-merge";
+import { DEFAULT_PROPOSAL_FILTERS, EMPLOYMENT_ONLY_WARNING_PL } from "@/lib/proposals-merge";
 import { cn } from "@/lib/utils";
 
 // 3, nie 6 (test na produkcji 23.09.2026): przy kilkudziesięciu przepięciach
@@ -231,6 +231,11 @@ export function BoardReviewSection({
                   )}
                 >
                   {label}
+                </span>
+              ) : null}
+              {row.warnings.includes("employment_only") ? (
+                <span className="ml-1 mt-1 inline-block rounded bg-warning-muted px-1.5 text-[10.5px] font-semibold text-warning-muted-foreground">
+                  {EMPLOYMENT_ONLY_WARNING_PL}
                 </span>
               ) : null}
               {note ? (

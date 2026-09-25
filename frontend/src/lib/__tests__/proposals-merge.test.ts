@@ -5,6 +5,7 @@ import type { CandidateSearchRow } from "@/lib/full-candidate-search-api";
 import type { ProposalInboxItem } from "@/lib/job-proposals-api";
 import {
   DEFAULT_PROPOSAL_FILTERS,
+  EMPLOYMENT_ONLY_WARNING_PL,
   countBySource,
   filterProposals,
   mergeProposals,
@@ -213,6 +214,25 @@ describe("mergeProposals", () => {
     expect(trainee.detail.traineeHandover?.by_name).toBe("Ola Kamińska");
     // Bez przekazania wiersz nie niesie notatki.
     expect(entries[2].row.handoverNote).toBeUndefined();
+  });
+
+  it("przekazanie osoby „tylko umowa o pracę” niesie ostrzeżenie (runda 2 audytu 25.09.2026)", () => {
+    const entries = mergeProposals({
+      inbox: [
+        inboxItem(1, {
+          sources: ["trainee"],
+          trainee_handover: { by_name: "Ola", note: null, at: null, employment_only: true },
+        }),
+        inboxItem(2, {
+          sources: ["trainee"],
+          trainee_handover: { by_name: "Ola", note: null, at: null },
+        }),
+      ],
+    });
+    const byId = new Map(entries.map((e) => [e.row.candidateId, e.row]));
+    expect(byId.get(1)?.warnings).toContain("employment_only");
+    expect(byId.get(2)?.warnings).not.toContain("employment_only");
+    expect(EMPLOYMENT_ONLY_WARNING_PL).toBe("Tylko umowa o pracę");
   });
 
   it("przekazanie bez nazwiska i daty nie zmyśla danych", () => {
