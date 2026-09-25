@@ -393,7 +393,11 @@ async def put_public_profile(
     if "about" in fields:
         profile.about = (data.about or "").strip() or None
     if "sections" in fields and data.sections is not None:
-        profile.sections = data.sections.model_dump()
+        # Migawka zatwierdzenia zostaje — zmiana przełączników i tak zmienia
+        # skrót treści (szkic), a ten sam zestaw nie może zgubić migawki.
+        profile.sections = jpp.sections_with_approved_content(
+            data.sections.model_dump(), jpp.stored_approved_content(profile.sections)
+        )
     elif profile.sections is None:
         profile.sections = jpp.normalize_sections(None)
     if "show_on_recruiter_page" in fields and data.show_on_recruiter_page is not None:
@@ -467,13 +471,15 @@ async def approve_public_profile(
             },
         )
     _default_title, effective_title = await jpp.public_titles(db, job, profile)
+    # Kontrola i migawka liczą się z pól NA ŻYWO (same przełączniki, bez
+    # starej migawki) — zatwierdzenie publikuje bieżący stan rekrutacji.
     preview = jpp.public_job_payload(
         job,
         title=effective_title,
         link_slug=None,
         subtitle=profile.subtitle,
         about=profile.about,
-        sections=profile.sections,
+        sections=jpp.normalize_sections(profile.sections),
     )
     findings = await jpp.lint_payload(db, job, preview)
     if findings:
@@ -492,6 +498,12 @@ async def approve_public_profile(
     profile.approved_by = current_user.id
     profile.approved_hash = jpp.content_hash(
         profile.subtitle, profile.about, profile.sections, effective_title
+    )
+    # Strona i portale pokazują must/nice, miasto, start i długość z chwili
+    # zatwierdzenia (audyt 25.09.2026, r3) — ich późniejsza zmiana w
+    # rekrutacji wymaga ponownego zatwierdzenia.
+    profile.sections = jpp.sections_with_approved_content(
+        profile.sections, jpp.approved_content(preview)
     )
     profile.updated_by = current_user.id
     # 0381: nowa zatwierdzona treść → aktualizacja żywych ogłoszeń na portalach.
