@@ -233,6 +233,7 @@ def _parse_token_response(raw: dict) -> TokenBundle:
         scopes=scopes,
         tenant_id=tenant_id,
         mailbox_upn=mailbox_upn,
+        oid=(str(id_claims.get("oid") or "").strip() or None),
     )
 
 

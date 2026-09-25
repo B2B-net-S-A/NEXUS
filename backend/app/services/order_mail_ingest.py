@@ -628,12 +628,19 @@ async def _message_logged(
 
 
 def dismissed_unprocessed_clause():
-    """Wpis odrzucony, z którego nic nie przeczytano (dawne „Nieudane”)."""
+    """Wpis odrzucony, z którego nic nie przeczytano (dawne „Nieudane”).
+
+    Klauzula jest używana z negacją (``~``), więc NIE może dać NULL: brak
+    stempla ``dismissed_from`` porównany wprost dawał ``NULL = 'failed'`` →
+    NULL, a ``NOT NULL`` wyrzucał wpis odrzucony PO odczycie sprzed rundy 3
+    — ponownie przysłany PDF był wtedy czytany od nowa (audyt 25.09.2026,
+    runda 4). Stąd ``coalesce`` przy stemplu.
+    """
     dismissed_from = OrderMailDocument.document_meta["dismissed_from"].astext
     return and_(
         OrderMailDocument.outcome == OUTCOME_DISMISSED,
         or_(
-            dismissed_from == OUTCOME_FAILED,
+            func.coalesce(dismissed_from, "") == OUTCOME_FAILED,
             and_(
                 dismissed_from.is_(None),
                 func.coalesce(func.jsonb_typeof(OrderMailDocument.extraction), "null")
