@@ -30,6 +30,7 @@ from app.services import keyword_corpus
 from app.services.keyword_terms import (
     MIN_WILDCARD_CORE,
     parse_keyword,
+    pg_regex,
     tsquery_path_variants,
     tsquery_text,
 )
@@ -144,9 +145,20 @@ def match_skills(query: str, limit: int) -> list[SkillMatch]:
     return [row[3] for row in found[:limit]]
 
 
-async def suggest_titles(db: AsyncSession, q: str, limit: int) -> list[tuple[str, int]]:
-    """Stanowiska z ``experience[].role`` (małe litery) z liczbą osób."""
+async def suggest_titles(
+    db: AsyncSession, q: str, limit: int, *, word_start: bool = False
+) -> list[tuple[str, int]]:
+    """Stanowiska z ``experience[].role`` (małe litery) z liczbą osób.
+
+    ``word_start`` (podpowiedzi słów kluczowych): stanowisko musi mieć słowo
+    zaczynające się od wpisanego tekstu — ta sama reguła co słowo kluczowe
+    ``tekst*``. Bez niej „git” podpowiadał „digital project manager”, a „ora”
+    — „doradca klienta” (produkcja, 25.09.2026). Filtr „Stanowisko”
+    (``/titles/suggest``) zostaje przy podciągu.
+    """
     pat = contains_pattern(q.strip().lower()) if q.strip() else ""
+    term = parse_keyword(q.strip() + "*") if word_start and q.strip() else None
+    word_re = pg_regex(term) if term is not None else ""
     sql = text(
         "SELECT lower(elem->>'role') AS role, COUNT(DISTINCT c.id) AS n "
         "FROM candidates c, "
@@ -158,11 +170,12 @@ async def suggest_titles(db: AsyncSession, q: str, limit: int) -> list[tuple[str
         "AND elem->>'role' IS NOT NULL "
         "AND elem->>'role' <> '' "
         "AND (:pat = '' OR lower(elem->>'role') LIKE :pat) "
+        "AND (:word_re = '' OR lower(elem->>'role') ~* :word_re) "
         "GROUP BY lower(elem->>'role') "
         "ORDER BY n DESC, role ASC "
         "LIMIT :lim"
     )
-    result = await db.execute(sql, {"pat": pat, "lim": limit})
+    result = await db.execute(sql, {"pat": pat, "word_re": word_re, "lim": limit})
     return [(row[0], int(row[1])) for row in result]
 
 
@@ -203,7 +216,7 @@ async def _titles_query_within_timeout(
                 text("SELECT set_config('statement_timeout', :ms, true)"),
                 {"ms": f"{TITLES_TIMEOUT_MS}ms"},
             )
-            rows = await suggest_titles(db, q, limit)
+            rows = await suggest_titles(db, q, limit, word_start=True)
             await db.execute(
                 text("SELECT set_config('statement_timeout', :prev, true)"),
                 {"prev": previous},

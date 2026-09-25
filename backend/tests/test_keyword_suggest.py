@@ -5,6 +5,8 @@ Pokrywa:
 - dobór ze słownika: początek nazwy, słowo nazwy, alias, bez polskich znaków,
   kolejność (początek nazwy przed aliasem i słowem, krótsza nazwa pierwsza);
 - wzorzec „jav*” tylko przy rdzeniu co najmniej 3 znaków;
+- stanowiska w podpowiedziach od początku słowa (jak „git*”), filtr
+  „Stanowisko” dalej po podciągu;
 - trasa nie wpada w ``/{candidate_id}``, liczy osoby z indeksu
   pełnotekstowego, a w trakcie wypełniania korpusu oddaje ``count: null``;
 - błąd liczenia (np. limit czasu) daje ``null`` i nie psuje sesji.
@@ -181,6 +183,49 @@ async def test_count_is_null_while_the_corpus_backfills(
     items = resp.json()["items"]
     assert [i["label"] for i in items[:3]] == ["Java", "Java EE", "JavaScript"]
     assert all(i["count"] is None for i in items)
+
+
+@pytest.mark.asyncio
+async def test_titles_start_a_word_like_the_keyword_prefix(
+    app_client, app_auth_headers, catalog, monkeypatch
+):
+    """„git” nie podpowiada „digital …” (produkcja, 25.09.2026): stanowisko musi
+    mieć słowo zaczynające się od wpisanego tekstu, jak słowo kluczowe ``git*``.
+    Filtr „Stanowisko” (``/titles/suggest``) zostaje przy podciągu."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate, CandidateStatus
+
+    stem = "tq" + "".join(chr(97 + int(c, 16)) for c in uuid.uuid4().hex[:8])
+    starts = f"senior {stem}er engineer"
+    inside = f"di{stem}al designer"
+    async with AsyncSessionLocal() as db:
+        db.add(
+            Candidate(
+                name="Podpowiedz",
+                lastname="Stanowisko",
+                email=f"kw-title-{uuid.uuid4().hex[:10]}@example.com",
+                status=CandidateStatus.active,
+                experience=[
+                    {"role": starts.title(), "company": "Firma A"},
+                    {"role": inside.title(), "company": "Firma B"},
+                ],
+            )
+        )
+        await db.commit()
+
+    monkeypatch.setattr(keyword_corpus, "_ready", False)
+    async with AsyncSessionLocal() as db:
+        result = await keyword_suggest.suggest(db, stem, 6)
+    titles = [s.label for s in result.items if s.kind == "title"]
+    assert titles == [starts]
+
+    resp = await app_client.get(
+        "/api/candidates/titles/suggest",
+        params={"q": stem},
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert sorted(row["name"] for row in resp.json()) == sorted([starts, inside])
 
 
 @pytest.mark.asyncio
