@@ -92,4 +92,4 @@ class TerminalFailureStatusTagTests(unittest.TestCase):
                 failure_kind="APIStatusError",
             )
         self.assertEqual(len(events), 1)
-        self.assertEqual(events[0]["tags"]["http_status"], "402")
+        self.assertEqual(events[0]["tags"]["http.status_code"], "402")
