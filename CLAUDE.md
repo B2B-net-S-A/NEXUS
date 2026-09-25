@@ -7381,12 +7381,15 @@ F25; nic nie zapisuje) → przegląd arkusza przez człowieka → `--apply plan.
 - **Ocena prepu nie czyta archiwum** — pytanie z archiwum liczy się dopiero
   po przypięciu przez człowieka. Kopia rekrutacji z szablonu nie kopiuje
   przypięć z archiwum. Baza pytań ukrywa je bez `include_archive=true`.
-- **`mentioned_technologies` ma granicę słowa unikodową i wielką literę dla
-  aliasów-polskich słów** (`_is_technology_mention`: jednoliterowe R/C, „jest”,
-  „go”). Plan importu z 25.09 miał 338 × Jest i 194 × R na 2822 pytaniach —
-  ta sama wada odsiewała polskie pytania z debriefów z prep-kitu.
-  `scoring_service._alias_pattern` (wymagania z prozy ofert) ma nadal granicę
-  ASCII — poprawka tam wymaga pomiaru `eval_matching.py`.
+- **Wzorzec taksonomii (`scoring_service._alias_pattern`) oddaje tylko
+  prawdziwe wzmianki technologii** (`is_technology_mention`, opakowanie
+  `_AliasPattern`): aliasy 1–2-znakowe mają granicę słowa unikodową,
+  jednoliterowe i polskie słowa („jest”, „go”) — wielką literę. Dłuższe nazwy
+  CELOWO zostają przy granicy ASCII: odmiana „websocketów”, „Elasticsearchów”
+  to prawdziwa technologia. Zmierzone 25.09 na produkcji: surowe CV dawało
+  fałszywe R 15 773 ×, C 9 398 ×, Jest 4 154 ×, Go 1 753 × (scoring czyta surowe
+  CV u 937 kandydatów, zmiana u 379); wymagania ofert — 0 zmian. Jedna reguła
+  dla wymagań z prozy, surowego CV i prep-kitu — nie dokładaj filtra obok.
 - Pytanie z archiwum zadane znowu w debriefie przechodzi na `client_debrief`
   (`_save_client_questions`). Panel Championa ma zwiniętą sekcję „Z archiwum
   rozmów (podobne role)” (`GET /api/interview-cycle/client-questions/archive`).
