@@ -2096,6 +2096,11 @@ Migracja Traffit→Nexus z maja 2026 była **one-shot CLI** (`python -m app.cli.
   `managed_in_nexus_changed`, `reason=job_reopened`) — inaczej sync zamknąłby ją
   znowu. Import nadaje nowym rekrutacjom kategorię (`classify_missing_job_ccs`);
   stare uzupełnia `python -m scripts.backfill_job_cc --commit`.
+  **Od 25.09.2026 w archiwum jest też wszystko założone wcześniej w NEXUSIE**
+  (0378, `services/job_archive_cutover.py`, jednorazowo ze znacznikiem —
+  rekrutacje demo z kwietnia, szkice SMOKE/TEST). Otwarte są wyłącznie
+  rekrutacje zakładane od 25.09; `closed_at` tych zamkniętych zostaje pusty
+  (Liga DL), historia ma wpis `archived`. Traffit tylko aktualizuje archiwum.
 - **„Rekrutacja prowadzona w NEXUSIE" — `jobs.managed_in_nexus`** (migracja `0325`
   + lustro w `_COLUMN_STATEMENTS`, decyzja Artura 17.09.2026). Powód: tablica czyta
   NAJNOWSZY wiersz `candidate_stages` per (kandydat, oferta), a nocny import dopisuje
