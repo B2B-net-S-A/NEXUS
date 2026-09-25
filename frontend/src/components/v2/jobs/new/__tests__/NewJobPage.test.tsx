@@ -36,6 +36,10 @@ vi.mock("@/lib/api", () => {
     // `similarJobsApi` (podobne rekrutacje) woła nazwany eksport `api`.
     api: client,
     jobsApi: { handoff: (...a: unknown[]) => mocks.handoff(...a) },
+    // Liczba osób w bazie przy wymaganiach do wyszukiwania (25.09.2026).
+    candidatesApi: {
+      list: () => Promise.resolve({ data: { total: 12, items: [] } }),
+    },
     championApi: {
       refreshClientHistory: (...a: unknown[]) => mocks.refreshClientHistory(...a),
     },
@@ -90,6 +94,8 @@ const INTAKE: RequestIntakeResponse = {
   ],
   evidence: ["Java 17+"],
   missing: [],
+  // v5: wymagania do wyszukiwania w bazie (bramka handoffu od 25.09.2026).
+  search_requirements: [["Java 17+"], ["Spring Boot"]],
 };
 
 function renderPage() {

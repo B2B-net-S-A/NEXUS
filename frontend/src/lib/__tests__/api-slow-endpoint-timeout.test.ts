@@ -63,17 +63,15 @@ describe("api — efektywny timeout wywołań champion-draft", () => {
     restore = null;
   });
 
-  it("cztery wejścia champion-draft jadą na suficie dla LLM, nie na CRUD-owym", async () => {
+  it("trzy wejścia champion-draft jadą na suficie dla LLM, nie na CRUD-owym", async () => {
     const captured = captureTimeouts();
     restore = captured.restore;
 
     await championApi.setBriefing(1, 2);
-    await championApi.generateRecommendedSearches(1);
     await championSuggestionsApi.generateFromJd(1, "opis");
     await championSuggestionsApi.generateFromHistory(1, { topK: 5 });
 
     expect(captured.timeouts).toEqual([
-      SLOW_ENDPOINT_TIMEOUT_MS,
       SLOW_ENDPOINT_TIMEOUT_MS,
       SLOW_ENDPOINT_TIMEOUT_MS,
       SLOW_ENDPOINT_TIMEOUT_MS,
@@ -101,7 +99,7 @@ const LLM_PATH_PATTERNS: ReadonlyArray<{ name: string; re: RegExp }> = [
     name: "champion-draft",
     // `briefing` zakotwiczone na końcu segmentu — bratni GET
     // `briefing/audio-url` zwraca podpisany URL i nie dotyka modelu.
-    re: /champion-profile\/(briefing(?![\w/-])|generate-from-[\w-]+|recommended-searches\/generate)/,
+    re: /champion-profile\/(briefing(?![\w/-])|generate-from-[\w-]+)/,
   },
   { name: "ai/generate-*", re: /\/api\/ai\/generate-/ },
   { name: "prep-kit", re: /\/api\/prep-kit\/generate/ },

@@ -18,7 +18,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class _NullTolerantSection(BaseModel):
@@ -103,13 +103,49 @@ class ChampionBasics(BaseModel):
     contract_length: Optional[str] = Field(default=None, max_length=255)
 
 
+# Wymagania do wyszukiwania w bazie (25.09.2026) — te same limity co edytor
+# wierszy (`lib/keyword-requirements.ts`) i lista kandydatów.
+SEARCH_REQUIREMENT_MAX_ROWS = 10
+SEARCH_REQUIREMENT_MAX_WORDS = 20
+SEARCH_WORD_MIN_CHARS = 2
+SEARCH_WORD_MAX_CHARS = 100
+
+
+def _search_words(values: Any) -> list[str]:
+    """Słowa jednego wiersza: bez `|` (rozdziela słowa w adresie), pustych,
+    za krótkich i powtórek (bez wielkości liter), najwyżej 20."""
+    if isinstance(values, str):
+        values = [values]
+    if not isinstance(values, list):
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for raw in values:
+        if not isinstance(raw, str):
+            continue
+        word = " ".join(raw.replace("|", " ").split())[:SEARCH_WORD_MAX_CHARS].strip()
+        if len(word) < SEARCH_WORD_MIN_CHARS or word.casefold() in seen:
+            continue
+        seen.add(word.casefold())
+        out.append(word)
+        if len(out) >= SEARCH_REQUIREMENT_MAX_WORDS:
+            break
+    return out
+
+
 class ChampionSearch(_NullTolerantSection):
     """2. Co wpisać (search) — literally what the recruiter pastes into search.
 
     Not "sourcing strategy" any more. The old block asked for a plan (channels,
-    a narrative, a to-do); this one asks for the query. That is the form the
-    downstream machinery already consumes: `recommended_searches` turns exactly
-    these strings into a `CandidateSearchRequest`.
+    a narrative, a to-do); this one asks for the query.
+
+    ``keywords`` are LinkedIn-style phrases for searching OUTSIDE NEXUS
+    („Frazy do LinkedIna”). ``requirements`` / ``exclude`` are the search in
+    NEXUS's own base (decyzje Artura 25.09.2026): a row is one requirement,
+    the words in a row are variants (OR), rows combine with AND — exactly the
+    list's `q_any_group` / `q_none`. „Szukaj ręcznie” starts from them; the
+    automatic matching does NOT read them (`champion_view.requirement_source`
+    strips them), and the hand-off needs at least one row.
 
     ``sources`` (the old channel checkboxes) survives for data safety — legacy
     profiles carry it — but has no editor UI. A recruiter knows which channels
@@ -125,6 +161,24 @@ class ChampionSearch(_NullTolerantSection):
     sources: List[Literal["internal_base", "linkedin", "ad", "referrals", "other"]] = (
         Field(default_factory=list)
     )
+    requirements: List[List[str]] = Field(default_factory=list)
+    exclude: List[str] = Field(default_factory=list)
+
+    # Normalizacja zamiast odmowy: `prepare_profile` waliduje model w środku
+    # handlera, więc wyjątek walidacji skończyłby się 500. Edytor i tak nie
+    # pozwala przekroczyć limitów — tu łapiemy wyłącznie nietypowe wejście.
+    @field_validator("requirements", mode="before")
+    @classmethod
+    def _clean_requirements(cls, value: Any) -> Any:
+        if not isinstance(value, list):
+            return value
+        rows = [_search_words(row) for row in value]
+        return [row for row in rows if row][:SEARCH_REQUIREMENT_MAX_ROWS]
+
+    @field_validator("exclude", mode="before")
+    @classmethod
+    def _clean_exclude(cls, value: Any) -> Any:
+        return _search_words(value) if isinstance(value, list) else value
 
 
 # Storage bound for ONE stack entry. It was 120 until 09.2026, and the intake
@@ -480,102 +534,12 @@ class ChampionBriefingRequest(BaseModel):
     enrich: bool = True
 
 
-# ── Recommended searches (AI-proposed, DL-approved) ──────────────────────────
+# ── Recommended searches — usunięte 25.09.2026 ──────────────────────────────
 #
-# The LLM turns the Champion Profile into 1-3 concrete candidate searches in
-# the exact shape of `CandidateSearchRequest` (the job's "Wyszukaj manualnie"
-# tab). The DL reviews each proposal (live result count, preview), approves or
-# rejects; approval materialises a `SavedSearch` pinned to the job and shared
-# with the team, so any recruiter entering the job activates it in one click.
-# Strict whitelisted params — the LLM cannot invent filters we don't have.
-
-
-class RecommendedSearchParams(BaseModel):
-    """Whitelisted subset of CandidateSearchRequest the LLM may emit.
-
-    Tolerant on purpose (Pydantic's default ``extra="ignore"``): this shape is
-    also what gets read back out of ``jobs.champion_profile`` JSONB, where
-    proposals written by older prompt versions still carry fields that have
-    since been dropped. Validation of *fresh* LLM output goes through
-    :class:`RecommendedSearchParamsIn`, which forbids extras so a hallucinated
-    filter fails loudly instead of being silently discarded.
-
-    List caps mirror ``CandidateSearchRequest`` exactly. Without them the model
-    could emit 25 keywords, the proposal would store fine, and the recruiter
-    would get a 422 the moment they clicked it — an error surfacing three steps
-    away from its cause.
-    """
-
-    # Free-text query. Together with `search_mode="hybrid"` this is what lets a
-    # recommended search reach the semantic index at all: `/api/search/candidates`
-    # only takes the BM25+dense+rerank path when BOTH are set, and the default
-    # is "boolean". Without these two fields the one feature that turns a
-    # Champion into a candidate search was, by construction, the only surface
-    # that never touched the 47 921 vectors we maintain for exactly this.
-    q: Optional[str] = Field(default=None, max_length=500)
-    search_mode: Literal["boolean", "hybrid"] = "hybrid"
-
-    q_all: List[str] = Field(default_factory=list, max_length=20)
-    # OR-groups that AND together: [["React","TS"],["Java"]] = (React OR TS) AND Java
-    q_any_groups: List[List[str]] = Field(default_factory=list, max_length=10)
-    q_none: List[str] = Field(default_factory=list, max_length=20)
-    skills_must: List[str] = Field(default_factory=list, max_length=20)
-    skills_any: List[str] = Field(default_factory=list, max_length=20)
-    skills_none: List[str] = Field(default_factory=list, max_length=20)
-    location_cities: List[str] = Field(default_factory=list, max_length=20)
-
-    def is_empty(self) -> bool:
-        return not any(
-            [
-                (self.q or "").strip(),
-                self.q_all,
-                self.q_any_groups,
-                self.q_none,
-                self.skills_must,
-                self.skills_any,
-                self.skills_none,
-                self.location_cities,
-            ]
-        )
-
-
-class RecommendedSearchParamsIn(RecommendedSearchParams):
-    """Same shape, but for validating what the LLM just produced.
-
-    ``extra="forbid"`` so an invented filter is a loud parse failure instead of
-    a field quietly dropped on the floor. The generator previously swallowed
-    every validation error and skipped the proposal, so a prompt that started
-    hallucinating parameters looked exactly like a prompt that returned fewer
-    strategies — indistinguishable from outside, and silent for as long as it
-    took someone to notice the count.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-
-class RecommendedSearch(BaseModel):
-    id: str = Field(min_length=1, max_length=40)
-    name: str = Field(min_length=1, max_length=100)
-    rationale: str = ""
-    params: RecommendedSearchParams = RecommendedSearchParams()
-    status: Literal["proposed", "approved", "rejected"] = "proposed"
-    saved_search_id: Optional[int] = None
-    # How many candidates this strategy actually matched at generation time.
-    # The module docstring above already promised the DL a "live result count";
-    # counting it BEFORE the proposal is stored is what makes a strategy that
-    # returns nobody visible as such, instead of as an empty list the recruiter
-    # discovers three clicks later and reads as "we have no such people".
-    # ``None`` = the count could not be taken (never "zero").
-    estimated_results: Optional[int] = None
-    generated_at: Optional[datetime] = None
-    decided_by_id: Optional[int] = None
-    decided_by_name: Optional[str] = None
-    decided_at: Optional[datetime] = None
-
-
-class RecommendedSearchDecision(BaseModel):
-    search_id: str
-    action: Literal["approve", "reject", "reset"]
+# Panel „Rekomendowane wyszukiwania (AI)” zastąpiły wymagania do wyszukiwania
+# w sekcji 2 (`ChampionSearch.requirements`, decyzja Artura). Stare profile
+# nadal niosą klucz `recommended_searches` — zostaje w modelu jako surowe dane
+# (bez schematu i bez konsumenta), żeby zapis profilu go nie kasował.
 
 
 # ── Full profile ─────────────────────────────────────────────────────────────
@@ -737,7 +701,8 @@ class ChampionProfile(BaseModel):
     # ── machinery, not fields ──
     verification: ChampionVerification = ChampionVerification()
     briefing: ChampionBriefing = ChampionBriefing()
-    recommended_searches: List[RecommendedSearch] = Field(default_factory=list)
+    # Dane historyczne panelu usuniętego 25.09.2026 — patrz komentarz wyżej.
+    recommended_searches: List[dict[str, Any]] = Field(default_factory=list)
     client_history: ClientHistorySummary = ClientHistorySummary()
 
     # Ingest provenance (`_source` / `_parsed_at` / `_parser`). Carried opaquely:

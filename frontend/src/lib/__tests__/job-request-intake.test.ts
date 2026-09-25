@@ -35,6 +35,8 @@ const INTAKE: RequestIntakeResponse = {
   ],
   evidence: ["Java 17+"],
   missing: [],
+  // v5 (25.09.2026): wymagania do wyszukiwania w bazie — bez nich handoff ma brak.
+  search_requirements: [["Java 17+"], ["Spring Boot"]],
 };
 
 const complete = (): IntakeForm => formFromIntake(INTAKE);
@@ -52,7 +54,15 @@ describe("missingFor — lustro bramki „Przekaż do searchu”", () => {
       "work_mode",
       "context",
       "questions",
+      "search",
     ]);
+  });
+
+  it("wymagania do wyszukiwania: pusty wiersz albo same wykluczenia to brak", () => {
+    expect(missingFor({ ...complete(), searchRequirements: [[], ["  "]] })).toEqual(["search"]);
+    expect(
+      missingFor({ ...complete(), searchRequirements: [], searchExclude: ["junior"] }),
+    ).toEqual(["search"]);
   });
 
   it("praca zdalna nie wymaga dni ani miasta", () => {
@@ -289,6 +299,8 @@ describe("v2 — cały profil Championa z propozycji Luny", () => {
       keywords: "tester, karty",
       target_companies: "Asseco",
       disqualifiers: ["brak polskiego"],
+      requirements: [["Java 17+"], ["Spring Boot"]],
+      exclude: [],
     });
     expect(champion.client).toEqual({ selling_points: "Greenfield" });
     expect(champion.basics.language).toBe("PL, EN B2");
@@ -318,13 +330,15 @@ describe("v2 — cały profil Championa z propozycji Luny", () => {
 
 describe("szablon z podobnej rekrutacji — przegląd kodu 23.09", () => {
   it("przenosi frazy, firmy, dyskwalifikatory, argumenty, język i długość — PUT nie może ich skasować", () => {
-    const next = applyTemplate(formFromIntake({ ...INTAKE }), {
+    const next = applyTemplate(formFromIntake({ ...INTAKE, search_requirements: [] }), {
       id: 7,
       champion_profile: {
         search: {
           keywords: "Java, Spring",
           target_companies: "Asseco",
           disqualifiers: ["brak polskiego"],
+          requirements: [["Java"], ["Spring", "Spring Boot"], []],
+          exclude: ["junior"],
         },
         client: { selling_points: "Greenfield" },
         basics: { language: "PL, EN B2", contract_length: "12 mies." },
@@ -339,6 +353,8 @@ describe("szablon z podobnej rekrutacji — przegląd kodu 23.09", () => {
       keywords: "Java, Spring",
       target_companies: "Asseco",
       disqualifiers: ["brak polskiego"],
+      requirements: [["Java"], ["Spring", "Spring Boot"]],
+      exclude: ["junior"],
     });
     expect(champion.client.selling_points).toBe("Greenfield");
     expect(champion.basics.language).toBe("PL, EN B2");
@@ -349,9 +365,13 @@ describe("szablon z podobnej rekrutacji — przegląd kodu 23.09", () => {
     const form = { ...formFromIntake(INTAKE), searchKeywords: "z maila" };
     const next = applyTemplate(form, {
       id: 7,
-      champion_profile: { search: { keywords: "z szablonu" } },
+      champion_profile: {
+        search: { keywords: "z szablonu", requirements: [["Python"]] },
+      },
     });
     expect(next.searchKeywords).toBe("z maila");
+    // Wiersze od Luny z maila zostają — szablon wypełnia tylko puste.
+    expect(next.searchRequirements).toEqual([["Java 17+"], ["Spring Boot"]]);
   });
 });
 

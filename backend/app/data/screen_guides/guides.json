@@ -222,6 +222,10 @@
         "q": "Jak oznaczyć, że mamy już championa?",
         "a": "Delivery Lead klika „Oznacz: mamy championa” w nagłówku rekrutacji. Status zmienia się z „Szukamy” na „Mamy championa”; da się to cofnąć tym samym przyciskiem.",
         "anchor": "job.champion.found"
+      },
+      {
+        "q": "Po co są wymagania do wyszukiwania w bazie?",
+        "a": "Od nich rekruter zaczyna „Szukaj ręcznie”: każdy wiersz musi się zgadzać, słowa w wierszu to warianty. Przy tworzeniu z maila proponuje je Luna — sprawdź je. Bez co najmniej jednego wiersza rekrutacja nie przejdzie do searchu. Automatyczne dopasowania ich nie czytają."
       }
     ],
     "pitfalls": [
@@ -260,7 +264,7 @@
     "tasks": [
       {
         "q": "Jak szukać po słowach kluczowych?",
-        "a": "Użyj trzech pól nad listą: „Zawiera wszystkie”, „Zawiera którekolwiek” i „Nie zawiera żadnego”. Pod polem pojawiają się podpowiedzi z bazy z liczbą osób — strzałki wybierają, Enter dodaje. Słowa pasują w całości: „java” nie znajdzie „JavaScript”; gwiazdka „java*” szuka początku słowa.",
+        "a": "Każdy wiersz nad listą to jedno wymaganie — wszystkie muszą się zgadzać, a słowa w jednym wierszu to warianty (wystarczy jedno, np. Kafka lub RabbitMQ). „Dodaj wymaganie” dokłada wiersz, „Wyklucz” odsiewa słowa. Podpowiedź „+ z wariantami” dopisuje inne zapisy technologii. Słowa pasują w całości; „java*” szuka początku słowa.",
         "anchor": "candidates.list.filters"
       },
       {

@@ -4499,10 +4499,18 @@ export interface ChampionBasics {
 
 /** Sekcja 2 — co wpisać w wyszukiwarkę. */
 export interface ChampionSearch {
+  /** Frazy do LinkedIna — szukanie poza NEXUSEM. */
   keywords: string;
   target_companies: string;
   disqualifiers: string[];
   notes: string;
+  /**
+   * Wymagania do wyszukiwania w bazie (25.09.2026): wiersz = wymaganie,
+   * słowa w wierszu = warianty. Start „Szukaj ręcznie”; handoff wymaga
+   * co najmniej jednego. Stare profile ich nie mają.
+   */
+  requirements?: string[][];
+  exclude?: string[];
   /** Kanały ze starego szablonu — bez UI, trzymane dla zgodności danych. */
   sources?: Array<"internal_base" | "linkedin" | "ad" | "referrals" | "other">;
 }
@@ -4695,8 +4703,9 @@ export const EMPTY_CHAMPION_BRIEFING: ChampionBriefing = { status: "pending" };
 /**
  * Profil Championa — sekcje szablonu (09.2026).
  *
- * `verification`, `briefing`, `recommended_searches` i `client_history` NIE są sekcjami: serwer
+ * `verification`, `briefing` i `client_history` NIE są sekcjami: serwer
  * stempluje je własnymi endpointami, a zwykły zapis profilu ich nie dotyka.
+ * (`recommended_searches` — dane usuniętego 25.09.2026 panelu — front ich nie czyta.)
  */
 export interface ChampionProfile {
   intake?: { policy_version: number; template_version?: string | null; unresolved: Record<string, string>; document_context?: Record<string, string>; applied_by?: number | null; applied_at?: string | null } | null;
@@ -4712,7 +4721,6 @@ export interface ChampionProfile {
   client_history?: ClientHistorySummary;
   verification?: ChampionVerification;
   briefing?: ChampionBriefing;
-  recommended_searches?: RecommendedSearch[];
   /**
    * Ingest provenance (`app/schemas/champion.py::ChampionProfile.provenance`,
    * flattened back onto the top level by its custom `model_dump`). Present
@@ -4741,7 +4749,14 @@ export const EMPTY_CHAMPION_PROFILE: ChampionProfile = {
     deadline: null,
     contract_length: null,
   },
-  search: { keywords: "", target_companies: "", disqualifiers: [], notes: "" },
+  search: {
+    keywords: "",
+    target_companies: "",
+    disqualifiers: [],
+    notes: "",
+    requirements: [],
+    exclude: [],
+  },
   stack: { must: [], nice: [], notes: "" },
   experience: EMPTY_CHAMPION_EXPERIENCE,
   project: { about: "", responsibilities: "" },
@@ -4861,49 +4876,7 @@ export const championApi = {
       undefined,
       { timeout: SLOW_ENDPOINT_TIMEOUT_MS }
     ),
-  generateRecommendedSearches: (jobId: number) =>
-    api.post<ChampionProfileResponse>(
-      `/api/jobs/${jobId}/champion-profile/recommended-searches/generate`,
-      undefined,
-      { timeout: SLOW_ENDPOINT_TIMEOUT_MS }
-    ),
-  decideRecommendedSearch: (
-    jobId: number,
-    searchId: string,
-    action: "approve" | "reject" | "reset"
-  ) =>
-    api.post<ChampionProfileResponse>(
-      `/api/jobs/${jobId}/champion-profile/recommended-searches/decision`,
-      { search_id: searchId, action }
-    ),
 };
-
-// ── Champion recommended searches (AI-proposed, DL-approved) ────────────────
-
-export interface RecommendedSearchParams {
-  q_all?: string[];
-  q_any_groups?: string[][];
-  q_none?: string[];
-  skills_must?: string[];
-  skills_any?: string[];
-  skills_none?: string[];
-  experience_years_min?: number | null;
-  experience_years_max?: number | null;
-  location_cities?: string[];
-}
-
-export interface RecommendedSearch {
-  id: string;
-  name: string;
-  rationale: string;
-  params: RecommendedSearchParams;
-  status: "proposed" | "approved" | "rejected";
-  saved_search_id?: number | null;
-  generated_at?: string | null;
-  decided_by_id?: number | null;
-  decided_by_name?: string | null;
-  decided_at?: string | null;
-}
 
 // ── Champion Profile AI Intake (Phase 14) ──────────────────────────────────
 

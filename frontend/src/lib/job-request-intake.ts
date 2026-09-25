@@ -12,6 +12,7 @@
 import type { ChampionExperience, ExperienceItem, ExperienceKind } from "@/lib/api";
 import type { HiringManagerChoice } from "@/lib/hiring-manager";
 import { composeWorkingTitle } from "@/lib/job-names";
+import { cleanRows, sanitizeKeyword } from "@/lib/keyword-requirements";
 
 export type RemotePolicyValue = "remote" | "hybrid" | "onsite";
 
@@ -40,6 +41,7 @@ export type ProvenanceKey =
   | "responsibilities"
   | "experience"
   | "search_keywords"
+  | "search_requirements"
   | "target_companies"
   | "disqualifiers"
   | "selling_points"
@@ -90,6 +92,13 @@ export interface IntakeForm {
   contractLength: string;
   experience: ChampionExperience;
   searchKeywords: string;
+  /**
+   * Wymagania do wyszukiwania w bazie (sekcja 2, 25.09.2026): wiersz =
+   * wymaganie, słowa = warianty. „Szukaj ręcznie” startuje od nich,
+   * a „Przekaż do searchu” wymaga co najmniej jednego.
+   */
+  searchRequirements: string[][];
+  searchExclude: string[];
   targetCompanies: string;
   disqualifiers: string[];
   sellingPoints: string;
@@ -136,6 +145,8 @@ export interface RequestIntakeResponse {
   search_keywords?: string | null;
   target_companies?: string | null;
   disqualifiers?: string[];
+  // ── od v5 (25.09.2026): wymagania do wyszukiwania w bazie ──
+  search_requirements?: string[][];
   selling_points?: string | null;
   ask_client?: string[];
   provenance?: Partial<Record<string, string>>;
@@ -182,6 +193,8 @@ export const EMPTY_INTAKE_FORM: IntakeForm = {
   contractLength: "",
   experience: EMPTY_EXPERIENCE_FORM,
   searchKeywords: "",
+  searchRequirements: [],
+  searchExclude: [],
   targetCompanies: "",
   disqualifiers: [],
   sellingPoints: "",
@@ -250,6 +263,8 @@ export function formFromIntake(intake: RequestIntakeResponse): IntakeForm {
       notes: "",
     },
     searchKeywords: intake.search_keywords ?? "",
+    searchRequirements: cleanRows(intake.search_requirements ?? []),
+    searchExclude: [],
     targetCompanies: intake.target_companies ?? "",
     disqualifiers: intake.disqualifiers ?? [],
     sellingPoints: intake.selling_points ?? "",
@@ -319,7 +334,8 @@ export type MissingCode =
   | "office_days"
   | "office_city"
   | "context"
-  | "questions";
+  | "questions"
+  | "search";
 
 export const MISSING_LABEL: Record<MissingCode, string> = {
   role: "rola",
@@ -330,6 +346,7 @@ export const MISSING_LABEL: Record<MissingCode, string> = {
   office_city: "miasto biura",
   context: "opis projektu",
   questions: "drugie pytanie screeningowe",
+  search: "wymagania do wyszukiwania",
 };
 
 /** Budżet jak w `JobCreate.rate_budget_hourly`: > 0 i ≤ 2000. */
@@ -364,6 +381,7 @@ export function missingFor(form: IntakeForm): MissingCode[] {
   if (!form.about.trim() && !form.responsibilities.trim())
     missing.push("context");
   if (filledQuestions(form).length < 2) missing.push("questions");
+  if (cleanRows(form.searchRequirements).length === 0) missing.push("search");
   return missing;
 }
 
@@ -449,6 +467,8 @@ export function buildChampionPayload(
       keywords: form.searchKeywords.trim(),
       target_companies: form.targetCompanies.trim(),
       disqualifiers: form.disqualifiers,
+      requirements: cleanRows(form.searchRequirements),
+      exclude: form.searchExclude.map(sanitizeKeyword).filter(Boolean),
     },
     project: {
       about: form.about.trim(),
@@ -613,6 +633,18 @@ export function applyTemplate(
   const basics = championSection(src.champion_profile, "basics");
   const text = (value: unknown) => (typeof value === "string" ? value : "");
   if (!next.searchKeywords) next.searchKeywords = text(search.keywords);
+  if (cleanRows(next.searchRequirements).length === 0 && Array.isArray(search.requirements)) {
+    next.searchRequirements = cleanRows(
+      search.requirements.map((row) =>
+        Array.isArray(row) ? row.filter((w): w is string => typeof w === "string") : [],
+      ),
+    );
+  }
+  if (next.searchExclude.length === 0 && Array.isArray(search.exclude)) {
+    next.searchExclude = search.exclude.filter(
+      (w): w is string => typeof w === "string" && w.trim().length > 0,
+    );
+  }
   if (!next.targetCompanies) next.targetCompanies = text(search.target_companies);
   if (next.disqualifiers.length === 0 && Array.isArray(search.disqualifiers)) {
     next.disqualifiers = search.disqualifiers.filter(

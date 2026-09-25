@@ -26,6 +26,7 @@ const BASICS_LABEL = CHAMPION_SECTIONS.find((s) => s.id === "basics")!.label;
 
 const getMock = vi.fn();
 const putMock = vi.fn();
+const listMock = vi.fn();
 
 vi.mock("@/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api")>();
@@ -35,6 +36,11 @@ vi.mock("@/lib/api", async (importOriginal) => {
       ...actual.championApi,
       get: (...args: unknown[]) => getMock(...args),
       put: (...args: unknown[]) => putMock(...args),
+    },
+    // Liczba osób w bazie przy wymaganiach do wyszukiwania (sekcja 2).
+    candidatesApi: {
+      ...actual.candidatesApi,
+      list: (...args: unknown[]) => listMock(...args),
     },
   };
 });
@@ -124,15 +130,15 @@ describe("ChampionProfileEditor — pełna szerokość", () => {
 });
 
 describe("ChampionProfileEditor — chip stanu sekcji", () => {
-  it("profil pusty — pięć kart z chipem „puste” plus chip grupy „3 z 3 sekcji puste”", async () => {
+  it("profil pusty — sześć kart z chipem „puste” plus chip grupy „3 z 3 sekcji puste”", async () => {
     getMock.mockResolvedValue({
       data: { job_id: 1, champion_profile: {} },
     });
     renderEditor(1);
     await screen.findByText(BASICS_LABEL);
     // Karty samodzielne: 1 · Podstawowe, 3 · Stack, 4 · Doświadczenie,
-    // 7 · O kliencie, 8 · Wiedza z rozmów.
-    expect(screen.getAllByText("puste")).toHaveLength(5);
+    // Wymagania do wyszukiwania (25.09.2026), 7 · O kliencie, 8 · Wiedza z rozmów.
+    expect(screen.getAllByText("puste")).toHaveLength(6);
     // Sekcje 2 · 5 · 6 mają JEDEN wspólny chip.
     expect(screen.getByText("3 z 3 sekcji puste")).toBeInTheDocument();
     expect(screen.queryByText("wypełnione")).not.toBeInTheDocument();
@@ -151,9 +157,10 @@ describe("ChampionProfileEditor — chip stanu sekcji", () => {
     });
     renderEditor(2);
     await screen.findByText(BASICS_LABEL);
-    // Sekcje 1 i 3 wypełnione; 4, 7 i 8 puste; grupa 2·5·6 pusta w całości.
+    // Sekcje 1 i 3 wypełnione; 4, wymagania do wyszukiwania, 7 i 8 puste;
+    // grupa 2·5·6 pusta w całości.
     expect(screen.getAllByText("wypełnione")).toHaveLength(2);
-    expect(screen.getAllByText("puste")).toHaveLength(3);
+    expect(screen.getAllByText("puste")).toHaveLength(4);
     expect(screen.getByText("3 z 3 sekcji puste")).toBeInTheDocument();
     expect(screen.queryByText("Z importu (AI)")).not.toBeInTheDocument();
   });
@@ -173,7 +180,7 @@ describe("ChampionProfileEditor — chip stanu sekcji", () => {
     // Znacznik pochodzenia jest całoprofilowy: JEDEN chip na nagłówku, sekcje
     // dostają tylko „wypełnione" (backend nie wie, które sekcje przepisano).
     expect(screen.getAllByText("Z importu (AI)")).toHaveLength(1);
-    expect(screen.getAllByText("puste")).toHaveLength(4);
+    expect(screen.getAllByText("puste")).toHaveLength(5);
     // Sekcja „Podstawowe informacje" jest wypełniona — chip mówi TYLKO tyle;
     // pochodzenie nie jest stanem sekcji.
     expect(screen.getAllByText("wypełnione")).toHaveLength(1);
@@ -201,7 +208,9 @@ describe("ChampionProfileEditor — układ makiety kroku 02", () => {
     const { container } = renderEditor(1);
     await screen.findByText(BASICS_LABEL);
 
-    expect(screen.getByLabelText(/Frazy do searchu/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Frazy do LinkedIna/i)).toBeInTheDocument();
+    // Wymagania do wyszukiwania (sekcja 2, 25.09.2026) — widoczne także w skrócie.
+    expect(screen.getByText(/Wymagania do wyszukiwania w bazie/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/O projekcie \(2 zdania\)/i)).toBeInTheDocument();
     // Pełne sekcje jeszcze się nie renderują…
     expect(screen.queryByText(/Obowiązki na stanowisku/i)).not.toBeInTheDocument();
@@ -252,6 +261,52 @@ describe("ChampionProfileEditor — układ makiety kroku 02", () => {
     expect(screen.getByText("Musi mieć · 2")).toBeInTheDocument();
     expect(screen.getByText("Mile widziane · 1")).toBeInTheDocument();
     expect(container.textContent).toContain("wystarczy jedna z tych umiejętności");
+  });
+});
+
+describe("ChampionProfileEditor — wymagania do wyszukiwania (sekcja 2)", () => {
+  it("wiersze wpisane przez DL idą w zapisie profilu; obok liczba osób w bazie", async () => {
+    useAuthStore.setState({ user: { ...recruiter, role: "admin", roles: ["admin"] } as User });
+    getMock.mockResolvedValue({ data: { job_id: 15, champion_profile: {} } });
+    putMock.mockResolvedValue({ data: { job_id: 15, champion_profile: {} } });
+    listMock.mockResolvedValue({ data: { total: 46, items: [] } });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <ChampionProfileEditor jobId={15} canEdit clientId={null} />
+      </QueryClientProvider>,
+    );
+    const first = await screen.findByLabelText("Wymaganie 1 — słowo albo wariant");
+    fireEvent.change(first, { target: { value: "Kafka" } });
+    fireEvent.keyDown(first, { key: "Enter" });
+    fireEvent.change(first, { target: { value: "RabbitMQ" } });
+    fireEvent.keyDown(first, { key: "Enter" });
+
+    // Liczba idzie za wierszami (debounce 500 ms) — ostatnie liczenie to oba warianty.
+    await waitFor(
+      () =>
+        expect(listMock).toHaveBeenLastCalledWith(
+          expect.objectContaining({ q_any_group: ["Kafka|RabbitMQ"], page_size: 1 }),
+        ),
+      { timeout: 3000 },
+    );
+    expect(await screen.findByText("~46 osób w bazie")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByTestId("save-champion-profile"));
+    await waitFor(() => expect(putMock).toHaveBeenCalledTimes(1));
+    const payload = putMock.mock.calls[0][1] as { search: { requirements: string[][] } };
+    expect(payload.search.requirements).toEqual([["Kafka", "RabbitMQ"]]);
+  });
+
+  it("bez prawa edycji — samo zdanie, bez pól", async () => {
+    getMock.mockResolvedValue({
+      data: { job_id: 16, champion_profile: { search: { requirements: [["Java"]] } } },
+    });
+    renderEditor(16);
+    expect(
+      await screen.findByText("Szukamy osób, które mają Java."),
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText("Wymaganie 1 — słowo albo wariant")).not.toBeInTheDocument();
   });
 });
 

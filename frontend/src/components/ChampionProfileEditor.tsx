@@ -74,6 +74,7 @@ import { invalidateChampionDependents } from "@/lib/champion-cache";
 import {
   CHAMPION_AI_PROVENANCE_LABEL,
   CHAMPION_PROSE_SECTION_IDS,
+  SEARCH_REQUIREMENTS_ANCHOR,
   CHAMPION_SECTION_STATE_LABEL,
   CHAMPION_SECTIONS,
   championSectionState,
@@ -84,6 +85,7 @@ import {
 } from "@/lib/champion-section-state";
 import { ChampionProfileSuggestionReview } from "./ChampionProfileSuggestionReview";
 import { ChampionExperienceFields } from "@/components/champion/ChampionExperienceFields";
+import { SearchRequirementsEditor } from "@/components/champion/SearchRequirementsEditor";
 import { ChampionInsightsSection } from "@/components/champion/ChampionInsightsSection";
 import { syncLegacyInsight, type InsightChange } from "@/lib/champion-insights";
 import { ChampionProfileSourcesPanel } from "./ChampionProfileSourcesPanel";
@@ -753,6 +755,37 @@ export function ChampionProfileEditor({
         />
       </Section>
 
+      {/* Wymagania do wyszukiwania w bazie (część sekcji 2, 25.09.2026) — od
+          nich rekruter zaczyna „Szukaj ręcznie”, a „Przekaż do searchu” wymaga
+          co najmniej jednego. OSOBNA karta, poza grupą „proza”: pierwszy
+          wiersz przełącza tę grupę ze skrótu na pełne sekcje, a pole w środku
+          przełącznika montowało się od nowa i gubiło fokus po pierwszym słowie. */}
+      <Section
+        title="Wymagania do wyszukiwania w bazie"
+        anchor={SEARCH_REQUIREMENTS_ANCHOR}
+        state={
+          (draft.search.requirements ?? []).some((row) => row.length > 0)
+            ? "filled"
+            : "empty"
+        }
+      >
+        <p className="mb-3 text-xs text-muted-foreground">
+          Rekruter zaczyna od nich „Szukaj ręcznie”. Każdy wiersz musi się zgadzać,
+          słowa w jednym wierszu to warianty — wystarczy jedno z nich. Wymagane do
+          „Przekaż do searchu”.
+        </p>
+        <div data-champion-field="search.requirements">
+          <SearchRequirementsEditor
+            rows={draft.search.requirements ?? []}
+            exclude={draft.search.exclude ?? []}
+            onChange={({ rows, exclude }) =>
+              patchSearch({ requirements: rows, exclude })
+            }
+            readOnly={disabled}
+          />
+        </div>
+      </Section>
+
       {/* 2 · 5 · 6 — jeden blok „proza". Trzy osobne karty pustych pól były
           trzema ekranami niczego; chip nagłówka mówi, ilu z nich brakuje. */}
       <SectionGroup
@@ -781,7 +814,7 @@ export function ChampionProfileEditor({
               aria-hidden="true"
             />
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <Labeled label="Frazy do searchu" field="search.keywords">
+              <Labeled label="Frazy do LinkedIna" field="search.keywords">
                 <textarea
                   disabled={disabled}
                   value={draft.search.keywords}
@@ -825,7 +858,10 @@ export function ChampionProfileEditor({
         nested
       >
         <div className="space-y-3">
-          <Labeled label="Frazy do wyszukiwarki — dokładnie tak, jak je wpisujesz" field="search.keywords">
+          <Labeled
+            label="Frazy do LinkedIna — do szukania poza NEXUSEM"
+            field="search.keywords"
+          >
             <textarea
               disabled={disabled}
               value={draft.search.keywords}

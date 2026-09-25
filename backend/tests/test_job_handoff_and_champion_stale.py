@@ -32,6 +32,8 @@ _READY_CHAMPION = {
     # słownik jako nowy profil zamiast polegać na kolumnach z seeda).
     "stack": {"must": [{"name": "Python"}]},
     "basics": {"rate_value": 150, "work_mode": "zdalnie"},
+    # Wymagania do wyszukiwania w bazie — bramka handoffu od 25.09.2026.
+    "search": {"requirements": [["Python"]]},
 }
 
 

@@ -563,6 +563,7 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
               missing={missing}
               highlightMissing={readByAi || templateJobId != null}
               clientId={client?.id ?? null}
+              countEnabled={!preview}
             />
             {!preview && (
               <SimilarJobsPicker

@@ -8,6 +8,7 @@ import { HiringManagerCombobox } from "@/components/jobs/HiringManagerCombobox";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { ChampionExperienceFields } from "@/components/champion/ChampionExperienceFields";
+import { SearchRequirementsEditor } from "@/components/champion/SearchRequirementsEditor";
 import { hasExperience } from "@/lib/champion-experience";
 import {
   FIELD_BASIS_LABEL,
@@ -272,6 +273,8 @@ interface NewJobReviewFormProps {
   highlightMissing: boolean;
   /** Klient z kroku 1 — lista kontaktów do wyboru hiring managera. */
   clientId: number | null;
+  /** Harness `/preview/new-job`: bez zapytania o liczbę osób w bazie. */
+  countEnabled?: boolean;
 }
 
 /** Krok 2 strony `/jobs/new`: pola, które wymaga „Przekaż do searchu”. */
@@ -281,6 +284,7 @@ export function NewJobReviewForm({
   missing,
   highlightMissing,
   clientId,
+  countEnabled = true,
 }: NewJobReviewFormProps) {
   const ids = {
     hiringManager: useId(),
@@ -431,6 +435,33 @@ export function NewJobReviewForm({
           tone="muted"
           placeholder="opcjonalnie"
         />
+
+        {/* 25.09.2026: od tych wierszy rekruter zaczyna „Szukaj ręcznie”;
+            bez co najmniej jednego rekrutacja nie idzie do searchu. */}
+        <div className="flex flex-col gap-2" data-testid="new-job-search-requirements">
+          <FieldLabel
+            basis={basis("search_requirements")}
+            hint="wymagane do przekazania do searchu"
+            missing={isMissing("search")}
+          >
+            Wymagania do wyszukiwania w bazie
+          </FieldLabel>
+          <SearchRequirementsEditor
+            rows={form.searchRequirements}
+            exclude={form.searchExclude}
+            onChange={({ rows, exclude }) =>
+              onChange((f) =>
+                markEdited(
+                  { ...f, searchRequirements: rows, searchExclude: exclude },
+                  "search_requirements",
+                ),
+              )
+            }
+            invalid={isMissing("search")}
+            countEnabled={countEnabled}
+          />
+          <MissingNote show={isMissing("search")} />
+        </div>
 
         <WorkingTitleField
           id={ids.workingTitle}
@@ -745,8 +776,12 @@ function ChampionProposalSection({
 
           <div className="grid gap-4 md:grid-cols-2">
             <div className="flex flex-col gap-2">
-              <FieldLabel htmlFor={ids.keywords} basis={basis("search_keywords")}>
-                Frazy do wyszukiwarki
+              <FieldLabel
+                htmlFor={ids.keywords}
+                basis={basis("search_keywords")}
+                hint="do szukania poza NEXUSEM"
+              >
+                Frazy do LinkedIna
               </FieldLabel>
               <Textarea
                 id={ids.keywords}

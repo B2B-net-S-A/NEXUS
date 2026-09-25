@@ -2,7 +2,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ getReqs: vi.fn(), list: vi.fn() }));
+const mocks = vi.hoisted(() => ({ getReqs: vi.fn(), list: vi.fn(), getChampion: vi.fn() }));
+
+vi.mock("@/lib/api", () => ({
+  championApi: { get: (...a: unknown[]) => mocks.getChampion(...a) },
+}));
 
 vi.mock("@/lib/matching-requirements", () => ({
   matchingRequirementsApi: { get: (...a: unknown[]) => mocks.getReqs(...a) },
@@ -42,7 +46,10 @@ function lastEmbed(): CandidatesListEmbed {
 }
 
 describe("ManualSearchPanel — lista Kandydatów osadzona w rekrutacji", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.getChampion.mockResolvedValue({ data: { champion_profile: {} } });
+  });
 
   it("montuje listę dopiero PO odczycie wymagań i zasila ją rekrutacją", async () => {
     mocks.getReqs.mockResolvedValue({ must: ["SQL", "UML"] });
@@ -76,6 +83,45 @@ describe("ManualSearchPanel — lista Kandydatów osadzona w rekrutacji", () => 
     await screen.findByTestId("candidates-list");
     expect(lastEmbed().initialFilters.skillsPreferred).toEqual(["Java"]);
     expect(lastEmbed().readOnly).toBe(false);
+  });
+
+  it("wymagania z Championa: wiersze i wykluczenia na start, bez tytułu po znaczeniu", async () => {
+    mocks.getReqs.mockResolvedValue({ must: ["SQL"] });
+    mocks.getChampion.mockResolvedValue({
+      data: {
+        champion_profile: {
+          search: { requirements: [["Java"], ["Kafka", "RabbitMQ"], []], exclude: ["junior"] },
+        },
+      },
+    });
+    renderPanel();
+    await screen.findByTestId("candidates-list");
+    const embed = lastEmbed();
+    expect(mocks.getChampion).toHaveBeenCalledWith(7);
+    expect(embed.initialFilters.qAny).toEqual([["Java"], ["Kafka", "RabbitMQ"]]);
+    expect(embed.initialFilters.qNone).toEqual(["junior"]);
+    expect(embed.initialFilters.q).toBe("");
+    // Must-have zostają w rankingu jak dotąd.
+    expect(embed.initialFilters.skillsPreferred).toEqual(["SQL"]);
+    expect(embed.keywordsNote).toMatch(/ustawione przy tworzeniu rekrutacji/);
+  });
+
+  it("bez wymagań w Championie — start jak dotąd, bez odniesienia do Championa", async () => {
+    mocks.getReqs.mockResolvedValue({ must: [] });
+    renderPanel();
+    await screen.findByTestId("candidates-list");
+    expect(lastEmbed().initialFilters.qAny).toEqual([]);
+    expect(lastEmbed().keywordsNote).toBeUndefined();
+  });
+
+  it("błąd odczytu Championa — wiersze z profilu w odczycie rekrutacji", async () => {
+    mocks.getReqs.mockResolvedValue({ must: [] });
+    mocks.getChampion.mockRejectedValue(new Error("boom"));
+    renderPanel({
+      job: { ...JOB, champion_profile: { search: { requirements: [["Python"]] } } },
+    });
+    await screen.findByTestId("candidates-list");
+    expect(lastEmbed().initialFilters.qAny).toEqual([["Python"]]);
   });
 
   it("rekrutacja zdalna nie zawęża po mieście", () => {

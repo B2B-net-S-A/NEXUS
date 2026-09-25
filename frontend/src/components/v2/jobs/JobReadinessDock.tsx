@@ -28,7 +28,6 @@ import api, {
   EMPTY_CHAMPION_VERIFICATION,
   type ChampionBriefing,
   type ChampionVerification,
-  type RecommendedSearch,
 } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { cn, formatRelativeTime } from "@/lib/utils";
@@ -57,7 +56,6 @@ import {
   ChampionVerificationChecklist,
   championVerificationDone,
 } from "@/components/ChampionVerificationChecklist";
-import { ChampionRecommendedSearches } from "@/components/ChampionRecommendedSearches";
 import { JobOwnershipPanel } from "@/components/v2/jobs/JobOwnershipPanel";
 import { JobSettingsPanel } from "@/components/v2/jobs/JobSettingsPanel";
 import { HiringManagerPicker } from "@/components/jobs/HiringManagerPicker";
@@ -102,8 +100,8 @@ interface JobReadinessDockProps {
   /**
    * "champion" (krok 02 „Zlecenie i Champion", program „flow w języku C2"):
    * weryfikacja dwustronna i briefing wchodzą do JEDNEJ listy gotowości (7
-   * warunków zamiast 5), dochodzą zakładki „Zespół i priorytet" /
-   * „Wyszukiwania (AI)", a `JobHandoffButton` jest główną akcją. "list"
+   * warunków zamiast 5), dochodzi zakładka „Zespół i priorytet”,
+   * a `JobHandoffButton` jest główną akcją. "list"
    * (krok 01) zostaje przy pięciu warunkach i identyfikacji zlecenia
    * w nagłówku — tam dok stoi obok listy, więc musi mówić, o której
    * rekrutacji jest mowa.
@@ -123,7 +121,7 @@ interface JobReadinessDockProps {
   onCollapsedChange?: (next: boolean) => void;
 }
 
-type DockTab = "readiness" | "pipeline" | "team" | "searches" | "history";
+type DockTab = "readiness" | "pipeline" | "team" | "history";
 
 const LIST_DOCK_TABS: { value: DockTab; label: string }[] = [
   { value: "readiness", label: "Gotowość" },
@@ -132,15 +130,13 @@ const LIST_DOCK_TABS: { value: DockTab; label: string }[] = [
   { value: "history", label: "Historia" },
 ];
 
-// Etykiety krótsze niż w makiecie („Zespół i priorytet" / „Wyszukiwania (AI)")
-// świadomie: dok ma 360 px, a cztery pełne etykiety nie mieszczą się w jednym
-// wierszu — chowały „Historię" za krawędź. Krótsze + `dense` (patrz `TabbedNav`)
-// pokazują wszystkie cztery naraz, jak zakłada makieta. Znaczenie zostaje jasne
-// z kontekstu (treść zakładki „Zespół" to właściciel + HM + Priority Work).
+// Etykieta „Zespół” zamiast „Zespół i priorytet” świadomie: dok ma 360 px.
+// Znaczenie zostaje jasne z kontekstu (właściciel + HM + Priority Work).
+// Zakładka „Wyszukiwania (AI)” usunięta 25.09.2026 — rekomendowane
+// wyszukiwania zastąpiły wymagania do wyszukiwania w sekcji 2 Championa.
 const CHAMPION_DOCK_TABS: { value: DockTab; label: string }[] = [
   { value: "readiness", label: "Gotowość" },
   { value: "team", label: "Zespół" },
-  { value: "searches", label: "Wyszukiwania" },
   { value: "history", label: "Historia" },
 ];
 
@@ -490,11 +486,11 @@ export function JobReadinessDock({
     retry: false,
   });
 
-  // Weryfikacja/briefing/rekomendowane wyszukiwania żyją pod
+  // Weryfikacja i briefing żyją pod
   // `["champion-profile", jobId]` — TEN SAM klucz, którego używa
   // `ChampionProfileEditor` (współbieżnie zamontowany obok tego doku na
   // kroku 02), więc React Query dedupe'uje fetch zamiast go podwajać, a
-  // mutacje w checkliście/wyszukiwaniach odświeżają OBA miejsca naraz.
+  // mutacje w checkliście odświeżają OBA miejsca naraz.
   const championQuery = useQuery({
     queryKey: ["champion-profile", jobId],
     queryFn: () => championApi.get(jobId as number).then((r) => r.data),
@@ -505,7 +501,6 @@ export function JobReadinessDock({
     | {
         verification?: ChampionVerification;
         briefing?: ChampionBriefing;
-        recommended_searches?: RecommendedSearch[];
         stack?: { must?: unknown; nice?: unknown };
       }
     | undefined;
@@ -1059,20 +1054,6 @@ export function JobReadinessDock({
               <PipelineSummary jobId={jobId} stageBreakdown={stageBreakdown} />
             ) : null}
 
-            {/* Ten sam komponent i ta sama mutacja co pełna zakładka
-                „Wyszukiwania (AI)" — tylko trzy pierwsze propozycje. Zapytania
-                o liczniki dzielą klucze z zakładką, więc podgląd nie kosztuje
-                ani jednego dodatkowego żądania. */}
-            {variant === "champion"
-              ? (championBlocked ?? (
-                  <ChampionRecommendedSearches
-                    jobId={jobId}
-                    searches={(championProfile?.recommended_searches ?? []).slice(0, 3)}
-                    canEdit={canEditChampion}
-                  />
-                ))
-              : null}
-
             {variant === "champion" ? (
               <JobPriorityContext jobId={jobId} variant="summary" />
             ) : null}
@@ -1141,18 +1122,6 @@ export function JobReadinessDock({
         )}
 
         {dockTab === "team" && teamTab}
-
-        {dockTab === "searches" && variant === "champion" && (
-          <>
-            {championBlocked ?? (
-              <ChampionRecommendedSearches
-                jobId={jobId}
-                searches={championProfile?.recommended_searches}
-                canEdit={canEditChampion}
-              />
-            )}
-          </>
-        )}
 
         {dockTab === "history" && (
           <RequestHistorySection

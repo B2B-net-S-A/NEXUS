@@ -48,6 +48,10 @@ MSG_OFFICE_DAYS = "Podaj liczbę dni w biurze w tygodniu (tryb hybrydowy/stacjon
 MSG_OFFICE_CITY = (
     "Podaj miasto biura w lokalizacji oferty (tryb hybrydowy/stacjonarny)."
 )
+MSG_SEARCH_REQUIREMENTS = (
+    "Dodaj co najmniej jedno wymaganie do wyszukiwania w bazie "
+    "(sekcja „Co wpisać” w Profilu Championa)."
+)
 
 # Kod walidacji Championa → zdanie bramki briefu/rubryki, które opisuje TEN SAM
 # brak. Issue Championa znika z listy handoffu WYŁĄCZNIE wtedy, gdy to zdanie
@@ -152,8 +156,21 @@ def job_rubric_blockers(job: Job) -> list[str]:
     return blockers
 
 
+def job_search_blockers(job: Job) -> list[str]:
+    """Wymagania do wyszukiwania w bazie (sekcja 2 Championa, 25.09.2026).
+
+    Decyzja Artura: rekrutacja trafia do searchu z co najmniej jednym wierszem
+    wymagań — to od nich rekruter zaczyna „Szukaj ręcznie”. Tylko przy
+    handoffie (jak rubryki): automatyczna alokacja tego nie czyta.
+    """
+    if champion_view.search_requirements(job.champion_profile):
+        return []
+    return [MSG_SEARCH_REQUIREMENTS]
+
+
 def job_handoff_blockers(job: Job) -> list[str]:
-    """Pełna bramka „Przekaż do searchu": brief + trzy rubryki, w tej kolejności.
+    """Pełna bramka „Przekaż do searchu": brief + trzy rubryki + wymagania do
+    wyszukiwania, w tej kolejności.
 
     Kolejność jest częścią kontraktu — ``JobHandoffButton`` renderuje listę
     dosłownie, a braki briefu są bardziej podstawowe niż braki rubryk.
@@ -166,7 +183,11 @@ def job_handoff_blockers(job: Job) -> list[str]:
     from app.services.champion_intake import validation
 
     issues = validation(job.champion_profile, job)["issues"]
-    gate = job_readiness_blockers(job) + job_rubric_blockers(job)
+    gate = (
+        job_readiness_blockers(job)
+        + job_rubric_blockers(job)
+        + job_search_blockers(job)
+    )
     listed = set(gate)
     return gate + [
         issue["message"]

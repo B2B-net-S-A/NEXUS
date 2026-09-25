@@ -33,6 +33,8 @@ FULL = {
         },
     ],
     "evidence": ["Java 17+", "Spring Boot", "zmyślony fragment"],
+    # v5: wymagania do wyszukiwania w bazie — bez nich handoff ma brak.
+    "search": {"requirements": [["Java 17+"], ["Spring Boot"], ["Kafka"]]},
 }
 
 
@@ -101,6 +103,36 @@ def test_hybrid_without_days_and_city_is_reported() -> None:
 def test_one_question_is_not_enough() -> None:
     raw = {**FULL, "screening_questions": FULL["screening_questions"][:1]}
     assert intake.MISSING_QUESTIONS in normalize_model_output(raw, REQUEST).missing
+
+
+def test_search_requirements_keep_only_whole_words_from_the_request() -> None:
+    """v5 (25.09.2026): słowo spoza maila odpada, kawałek słowa też („go”
+    w „google” to nie Go), puste wiersze znikają, najwyżej 4 wiersze."""
+    text = "Szukamy dewelopera: Java, Kafka albo RabbitMQ. Znajomość google cloud."
+    raw = {
+        "search": {
+            "requirements": [
+                ["Java", "Kotlin"],
+                ["Kafka", "RabbitMQ", "kafka"],
+                ["go"],
+                ["a|b"],
+                "Java",
+                ["Google"],
+                ["cloud"],
+            ]
+        }
+    }
+    result = normalize_model_output(raw, text)
+    assert result.search_requirements == [["Java"], ["Kafka", "RabbitMQ"], ["Google"], ["cloud"]]
+    assert result.provenance.get("search_requirements") == "request"
+    assert intake.MISSING_SEARCH not in result.missing
+
+
+def test_missing_search_requirements_are_reported() -> None:
+    raw = {**FULL, "search": {"keywords": "Java Developer"}}
+    result = normalize_model_output(raw, REQUEST)
+    assert result.missing == [intake.MISSING_SEARCH]
+    assert result.search_requirements == []
 
 
 def test_garbage_from_the_model_yields_an_empty_honest_form() -> None:
