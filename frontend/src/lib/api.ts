@@ -9,6 +9,7 @@ import { clearSessionArtifacts, getAccessToken } from "./session";
 import type { WorkMode } from "./work-mode";
 import type { CallFactsPatch } from "./candidate-call-facts";
 import type { RequestStatus } from "./request-status";
+import type { RequestStage } from "./request-stage";
 import { recordRefusal, refusalCode } from "./help/refusal-tracker";
 import type {
   RoleActionPermissionChange,
@@ -1548,6 +1549,25 @@ export interface JobQuickCounts {
    */
   request_status?: Partial<Record<RequestStatus, number>>;
   request_status_mine?: Partial<Record<RequestStatus, number>>;
+  /**
+   * Pigułki „Stan requestu” paska filtrów (25.09.2026) — to samo wyrażenie co
+   * filtr `request_stage`; `_mine` w zakresie „Moje”.
+   */
+  request_stage?: Partial<Record<RequestStage, number>>;
+  request_stage_mine?: Partial<Record<RequestStage, number>>;
+  /**
+   * Przełączniki „Po terminie” / „Nikt nie pracuje” / „Nikogo nie wysłano”:
+   * `attention` w zakresie „Otwarte”, `attention_mine` w „Moje”. Zakres
+   * „Wszystkie” nie ma liczb (objąłby archiwum).
+   */
+  attention?: JobAttentionCounts;
+  attention_mine?: JobAttentionCounts;
+}
+
+export interface JobAttentionCounts {
+  overdue: number;
+  nobody_working: number;
+  nobody_sent: number;
 }
 
 /** Pola `JobResponse`, które czyta przełącznik „prowadzona w NEXUSIE" (0325). */
@@ -1568,7 +1588,11 @@ export const jobsApi = {
    * użytkownika (strefa czasowa), a licznik ma zgadzać się z listą co do
    * wiersza.
    */
-  quickCounts: (params?: { deadline_from?: string; deadline_to?: string }) =>
+  quickCounts: (params?: {
+    deadline_from?: string;
+    deadline_to?: string;
+    overdue_to?: string;
+  }) =>
     api.get<JobQuickCounts>("/api/jobs/quick-counts", { params }),
   get: (id: number) => api.get(`/api/jobs/${id}`),
   create: (data: Record<string, unknown>) => api.post("/api/jobs", data),

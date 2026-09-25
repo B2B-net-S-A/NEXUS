@@ -25,36 +25,26 @@ import {
   scopeQueryFlags,
   sentQueryParams,
   sortOverrideFromUrl,
-  initialStatusFromUrl,
-  scopeForStatuses,
-  statusesForScope,
 } from "@/lib/jobs-url-filters";
+import { initialStagesFromUrl } from "@/lib/request-stage";
 
-describe("initialStatusFromUrl", () => {
-  it("czyta pojedynczy status z deep-linka pulpitu", () => {
+describe("stan requestu w adresie (pasek filtrów, 25.09.2026)", () => {
+  it("czyta pigułki `stage` (powtarzalne, bez duplikatów)", () => {
     expect(
-      initialStatusFromUrl(new URLSearchParams("mine=0&status=published")),
-    ).toEqual(["published"]);
+      initialStagesFromUrl(new URLSearchParams("stage=searching&stage=client_silent&stage=searching")),
+    ).toEqual(["searching", "client_silent"]);
   });
 
-  it("czyta wielokrotny status (API łączy je przez OR)", () => {
+  it("stare `rs` / `ws` mapują się na pigułki, a wartości bez pigułki odpadają", () => {
     expect(
-      initialStatusFromUrl(new URLSearchParams("status=published&status=draft")),
-    ).toEqual(["published", "draft"]);
-  });
-
-  it("odrzuca wartości spoza kontraktu zamiast wysyłać je do API", () => {
-    // Ręcznie podrasowany URL ma dać pusty filtr, nie 422 z backendu.
-    expect(
-      initialStatusFromUrl(
-        new URLSearchParams("status=archived&status=published&status="),
+      initialStagesFromUrl(
+        new URLSearchParams("rs=champion&rs=filled&ws=to_review&ws=finished&ws=searching"),
       ),
-    ).toEqual(["published"]);
+    ).toEqual(["champion", "to_review", "searching"]);
   });
 
-  it("brak parametru = brak filtra", () => {
-    expect(initialStatusFromUrl(new URLSearchParams(""))).toEqual([]);
-    expect(initialStatusFromUrl(new URLSearchParams("mine=1"))).toEqual([]);
+  it("nieznana wartość to brak zawężenia, nie 422", () => {
+    expect(initialStagesFromUrl(new URLSearchParams("stage=cokolwiek&stage=closed"))).toEqual([]);
   });
 });
 
@@ -177,14 +167,12 @@ describe("termin, sortowanie w URL-u", () => {
 
   it("zapis → odczyt daje ten sam stan (przeżywa F5)", () => {
     const qs = encodeJobsListUrl({
-      status: ["published", "draft"],
       scope: "mine",
       defaultScope: "open",
       deadline: "next7",
       sort: "deadline",
     });
     const params = new URLSearchParams(qs);
-    expect(initialStatusFromUrl(params)).toEqual(["published", "draft"]);
     expect(scopeOverrideFromUrl(params)).toBe("mine");
     expect(initialDeadlineFromUrl(params)).toBe("next7");
     expect(sortOverrideFromUrl(params)).toBe("deadline");
@@ -193,7 +181,6 @@ describe("termin, sortowanie w URL-u", () => {
   it("wartości domyślne nie zaśmiecają adresu", () => {
     expect(
       encodeJobsListUrl({
-        status: [],
         scope: "mine",
         defaultScope: "mine",
         deadline: "any",
@@ -204,15 +191,29 @@ describe("termin, sortowanie w URL-u", () => {
 
   it("zdejmuje nieaktualne wartości, zostawia cudze parametry", () => {
     const qs = encodeJobsListUrl(
-      { status: [], scope: "all", defaultScope: "mine", deadline: "any", sort: "newest" },
-      new URLSearchParams("mine=0&status=published&type=body_leasing&foo=bar"),
+      { scope: "all", defaultScope: "mine", deadline: "any", sort: "newest" },
+      new URLSearchParams(
+        "mine=0&status=published&type=body_leasing&responsible=4&sourcing=1" +
+          "&active_search=1&no_owner=1&priority=assigned&rs=filled&ws=finished&foo=bar",
+      ),
     );
     const params = new URLSearchParams(qs);
     expect(params.getAll("status")).toEqual([]);
     // Jawne „Wszystkie" ZOSTAJE w adresie (inaczej F5 wracałoby do „Moich").
     expect(params.get("mine")).toBe("0");
-    // Typów rekrutacji nie ma (25.09.2026): stary `?type=` znika z adresu.
-    expect(params.get("type")).toBeNull();
+    // Kolumna filtrów sprzed 25.09.2026: stare klucze znikają z adresu.
+    for (const key of [
+      "type",
+      "responsible",
+      "sourcing",
+      "active_search",
+      "no_owner",
+      "priority",
+      "rs",
+      "ws",
+    ]) {
+      expect(params.get(key), key).toBeNull();
+    }
     expect(params.get("foo")).toBe("bar");
   });
 });
@@ -221,71 +222,65 @@ describe("pozostałe filtry listy w URL-u (audyt 17.09.2026)", () => {
   it("zapisuje i odtwarza wszystkie filtry", async () => {
     const mod = await import("@/lib/jobs-url-filters");
     const qs = mod.encodeJobsListUrl({
-      status: ["published"],
       scope: "open",
       defaultScope: "mine",
       deadline: "range",
       deadlineRange: { from: "2026-10-01", to: "2026-10-31" },
       sort: "oldest",
       q: "  java  ",
-      responsibleIds: [4, 9],
+      stages: ["searching", "client_silent"],
       clientIds: [12],
       ccIds: [3],
       deliveryLeadIds: [21, 22],
+      workedBy: [4, 9],
+      nobodyWorking: true,
       sent: "3",
-      needsSourcing: true,
-      activeInSearch: true,
-      noOwnerOnly: true,
-      priorityWork: "carry_over",
     });
     const params = new URLSearchParams(qs);
-    expect(mod.initialStatusFromUrl(params)).toEqual(["published"]);
     expect(mod.scopeOverrideFromUrl(params)).toBe("open");
     expect(mod.initialDeadlineFromUrl(params)).toBe("range");
     expect(mod.initialDeadlineRangeFromUrl(params)).toEqual({
       from: "2026-10-01",
       to: "2026-10-31",
     });
+    expect(initialStagesFromUrl(params)).toEqual(["searching", "client_silent"]);
     expect(mod.initialIdsFromUrl(params, "lead")).toEqual([21, 22]);
     expect(mod.initialSentFromUrl(params)).toBe("3");
     expect(mod.sortOverrideFromUrl(params)).toBe("oldest");
     expect(mod.initialSearchFromUrl(params)).toBe("java");
-    expect(mod.initialIdsFromUrl(params, "responsible")).toEqual([4, 9]);
+    expect(mod.initialIdsFromUrl(params, "who")).toEqual([4, 9]);
     expect(mod.initialIdsFromUrl(params, "client")).toEqual([12]);
     expect(mod.initialIdsFromUrl(params, "cc")).toEqual([3]);
-    expect(mod.initialFlagFromUrl(params, "sourcing")).toBe(true);
-    expect(mod.initialFlagFromUrl(params, "active_search")).toBe(true);
-    expect(mod.initialFlagFromUrl(params, "no_owner")).toBe(true);
-    expect(mod.initialPriorityWorkFromUrl(params)).toBe("carry_over");
+    expect(mod.initialFlagFromUrl(params, "nobody")).toBe(true);
   });
 
   it("wartości domyślne nie trafiają do adresu, a obce parametry zostają", async () => {
     const mod = await import("@/lib/jobs-url-filters");
     const qs = mod.encodeJobsListUrl(
       {
-        status: [],
         scope: "mine",
         defaultScope: "mine",
         deadline: "any",
         sort: "attention",
         q: "",
-        responsibleIds: [],
+        stages: [],
         clientIds: [],
         ccIds: [],
-        priorityWork: "any",
+        workedBy: [],
+        nobodyWorking: false,
       },
-      new URLSearchParams("q=stare&client=5&lead=3&sent=1&dl_from=2026-01-01&utm=x"),
+      new URLSearchParams(
+        "q=stare&client=5&lead=3&sent=1&dl_from=2026-01-01&stage=searching&who=2&nobody=1&utm=x",
+      ),
     );
     expect(qs).toBe("utm=x");
   });
 
-  it("śmieci w identyfikatorach i priorytecie to brak zawężenia", async () => {
+  it("śmieci w identyfikatorach i przełączniku to brak zawężenia", async () => {
     const mod = await import("@/lib/jobs-url-filters");
-    const params = new URLSearchParams(
-      "client=abc&client=-2&client=7&client=7&priority=hack",
-    );
+    const params = new URLSearchParams("client=abc&client=-2&client=7&client=7&nobody=tak");
     expect(mod.initialIdsFromUrl(params, "client")).toEqual([7]);
-    expect(mod.initialPriorityWorkFromUrl(params)).toBe("any");
+    expect(mod.initialFlagFromUrl(params, "nobody")).toBe(false);
   });
 });
 
@@ -365,19 +360,5 @@ describe("„Wysłanych do klienta” → min_sent / max_sent", () => {
   it("nieznana wartość w adresie = dowolnie", () => {
     expect(initialSentFromUrl(new URLSearchParams("sent=100"))).toBe("any");
     expect(initialSentFromUrl(new URLSearchParams("sent=none"))).toBe("none");
-  });
-});
-
-describe("zakres a status „Zamknięta”", () => {
-  it("„Otwarte” + „Zamknięta” = „Wszystkie”; „Moje” i „Wszystkie” bez zmian", () => {
-    expect(scopeForStatuses("open", ["closed"])).toBe("all");
-    expect(scopeForStatuses("open", ["published"])).toBe("open");
-    expect(scopeForStatuses("mine", ["closed"])).toBe("mine");
-    expect(scopeForStatuses("all", ["closed"])).toBe("all");
-  });
-
-  it("jawne „Otwarte” zdejmuje „Zamknięta”, inne zakresy zostawiają status", () => {
-    expect(statusesForScope("open", ["closed", "draft"])).toEqual(["draft"]);
-    expect(statusesForScope("mine", ["closed"])).toEqual(["closed"]);
   });
 });

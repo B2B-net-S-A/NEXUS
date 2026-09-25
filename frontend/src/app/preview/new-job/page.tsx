@@ -3,9 +3,11 @@
 /**
  * Harness `/preview/new-job` — strona „Nowa rekrutacja” na danych fikcyjnych.
  *
- * `?state=request|review|gaps`. Zero zapytań: klucze klientów i rekruterów są
- * zasiane w cache (patrz `app/preview/__tests__`), a baner podobnych
- * rekrutacji nie renderuje się w trybie podglądu.
+ * `?state=request|review|gaps|portals`. Zero zapytań: klucze klientów,
+ * rekruterów, konfiguracji portali i słownika RocketJobs są zasiane w cache
+ * (patrz `app/preview/__tests__`), a baner podobnych rekrutacji nie renderuje
+ * się w trybie podglądu. `portals` = krok „Ogłoszenie na portalach” z gotowym
+ * szkicem (na produkcji portale są dziś wyłączone flagami).
  */
 
 import { Suspense, useState } from "react";
@@ -17,6 +19,12 @@ import {
   type NewJobPagePreview,
 } from "@/components/v2/jobs/new/NewJobPage";
 import { EMPTY_INTAKE_FORM, type IntakeForm } from "@/lib/job-request-intake";
+import {
+  EMPTY_LISTING_OPTIONS,
+  jobPortalKeys,
+  type BoardDictionaries,
+  type PortalConfigResponse,
+} from "@/lib/api/jobPortals";
 
 const CLIENT = { id: 1, name: "[Klient testowy]" };
 
@@ -137,9 +145,76 @@ const STATES: Record<string, NewJobPagePreview> = {
   },
 };
 
+const PORTALS_OFF: PortalConfigResponse = {
+  any_ready: false,
+  portals: [
+    { portal: "rocketjobs", label: "RocketJobs", state: "disabled", enabled: false },
+    { portal: "justjoinit", label: "JustJoin.IT", state: "disabled", enabled: false },
+  ],
+};
+
+const PORTALS_ON: PortalConfigResponse = {
+  any_ready: true,
+  portals: [
+    { portal: "rocketjobs", label: "RocketJobs", state: "ready", enabled: true },
+    { portal: "justjoinit", label: "JustJoin.IT", state: "ready", enabled: true },
+  ],
+};
+
+const DICTIONARY: BoardDictionaries = {
+  categories: [
+    { key: "java", name: "Java" },
+    { key: "devops", name: "DevOps" },
+    { key: "testing", name: "Testing" },
+  ],
+  experience_levels: [
+    { key: "junior", name: "Junior" },
+    { key: "mid", name: "Mid" },
+    { key: "senior", name: "Senior" },
+  ],
+  working_times: [
+    { key: "full_time", name: "Pełny etat" },
+    { key: "freelance", name: "Freelance" },
+  ],
+  workplace_types: [
+    { key: "remote", name: "Zdalnie" },
+    { key: "hybrid", name: "Hybrydowo" },
+    { key: "office", name: "Biuro" },
+  ],
+};
+
+STATES.portals = {
+  ...STATES.review,
+  portalPlan: {
+    portals: ["rocketjobs", "justjoinit"],
+    draft: {
+      publicTitle: "Senior Java Developer — płatności kartowe",
+      subtitle: "Migracja na mikroserwisy, 12 miesięcy, hybrydowo w Warszawie",
+      about:
+        "Dołączysz do zespołu, który przenosi system płatności kartowych z monolitu na mikroserwisy (Java 17, Spring Boot, Kafka). Projekt na ok. 12 miesięcy z opcją przedłużenia, 2 dni w tygodniu w biurze w Warszawie.",
+    },
+    options: {
+      ...EMPTY_LISTING_OPTIONS,
+      experience_level: "senior",
+      working_time: "freelance",
+      workplace_type: "hybrid",
+      office_days: 2,
+      city: "Warszawa",
+    },
+  },
+  portalFindings: [
+    {
+      code: "money",
+      message: "Opis zawiera kwotę — stawek nie publikujemy w treści ogłoszenia.",
+      excerpt: "do 170 zł/h",
+    },
+  ],
+};
+
 function Harness() {
   const params = useSearchParams();
-  const state = STATES[params?.get("state") ?? "review"] ?? STATES.review;
+  const stateKey = params?.get("state") ?? "review";
+  const state = STATES[stateKey] ?? STATES.review;
   const [client] = useState(() => {
     const qc = new QueryClient({
       defaultOptions: { queries: { staleTime: Infinity, retry: false } },
@@ -152,6 +227,11 @@ function Harness() {
         { id: 32, name: "[Rekruter B]" },
       ],
     );
+    qc.setQueryData(
+      jobPortalKeys.config,
+      stateKey === "portals" ? PORTALS_ON : PORTALS_OFF,
+    );
+    qc.setQueryData(jobPortalKeys.dictionaries("rocketjobs"), DICTIONARY);
     return qc;
   });
   return (

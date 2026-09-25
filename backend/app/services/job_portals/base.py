@@ -1,12 +1,13 @@
-"""Wspólny interfejs adapterów portali ogłoszeniowych (0360).
+"""Wspólny interfejs adapterów portali ogłoszeniowych (0360, 0381).
 
 Adapter zna WYŁĄCZNIE protokół portalu. Co publikujemy (treść z
-zatwierdzonego opisu publicznego, link aplikacyjny), kiedy (kolejka) i kto
-może (bramki) — rozstrzyga ``service`` i router. Dzięki temu dołożenie
-prawdziwej integracji po otrzymaniu dokumentacji API to zmiana jednego pliku.
+zatwierdzonego opisu publicznego, link aplikacyjny, ustawienia ogłoszenia),
+kiedy (kolejka) i kto może (bramki) — rozstrzyga ``service`` i router.
 
-Konfiguracja wzorem ``TraffitConfig.from_env``: jawna klasa z env-ów,
-bez sekretów w odpowiedziach API (``state`` mówi tylko, czy jest komplet).
+Konfiguracja wzorem ``TraffitConfig.from_env``: jawna klasa z env-ów, bez
+sekretów w odpowiedziach API (``state`` mówi tylko, czy jest komplet).
+JustJoin.IT i RocketJobs dodatkowo wymagają połączonego konta firmy —
+to sprawdza asynchronicznie ``job_portals.resolve_state``.
 """
 
 from __future__ import annotations
@@ -18,7 +19,10 @@ from typing import Any, ClassVar, Literal, Optional
 from app.core.config import settings
 from app.models.job_posting import Portal
 
-ConfigState = Literal["disabled", "misconfigured", "ready"]
+ConfigState = Literal["disabled", "misconfigured", "not_connected", "ready"]
+
+# Portale obsługiwane przez Employer Public API (1EP) jednego dostawcy.
+JJIT_FAMILY: tuple[Portal, ...] = (Portal.justjoinit, Portal.rocketjobs)
 
 
 class PortalError(Exception):
@@ -26,13 +30,23 @@ class PortalError(Exception):
 
     retryable: ClassVar[bool] = True
 
-    def __init__(self, message: str) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        retryable: Optional[bool] = None,
+        status: Optional[int] = None,
+    ) -> None:
         super().__init__(message)
         self.message = message
+        # Status HTTP odpowiedzi portalu (gdy błąd przyszedł z API).
+        self.status = status
+        if retryable is not None:
+            self.retryable = retryable  # type: ignore[misc]
 
 
 class PortalNotConfigured(PortalError):
-    """Portal wyłączony flagą albo bez adresu/klucza — ponawianie nic nie da."""
+    """Portal wyłączony flagą albo bez konfiguracji — ponawianie nic nie da."""
 
     retryable = False
 
@@ -43,42 +57,87 @@ class PortalNotImplemented(PortalError):
     retryable = False
 
 
+class PortalReconnectRequired(PortalError):
+    """Token konta portalu wygasł albo został cofnięty — trzeba połączyć ponownie.
+
+    Worker nie zużywa na nim prób: wiersz czeka, aż admin połączy konto.
+    """
+
+    retryable = False
+
+
+class PortalGone(PortalError):
+    """Ogłoszenia nie ma na portalu (404 — usunięte poza API)."""
+
+    retryable = False
+
+
 @dataclass(frozen=True)
 class PortalConfig:
     portal: Portal
     enabled: bool
-    api_url: str
-    api_key: str
+    # Nazwy brakujących ustawień (bez wartości) — `misconfigured`, gdy niepuste.
+    missing: tuple[str, ...] = ()
+    needs_connection: bool = False
 
     @property
     def state(self) -> ConfigState:
+        """Stan z samych env-ów; połączenie konta dokłada ``resolve_state``."""
         if not self.enabled:
             return "disabled"
-        if not (self.api_url.strip() and self.api_key.strip()):
+        if self.missing:
             return "misconfigured"
         return "ready"
 
     @classmethod
     def from_settings(cls, portal: Portal) -> "PortalConfig":
-        prefix = {
-            Portal.pracuj_pl: "PORTAL_PRACUJ",
-            Portal.justjoinit: "PORTAL_JJIT",
-        }[portal]
-        return cls(
-            portal=portal,
-            enabled=bool(getattr(settings, f"{prefix}_ENABLED", False)),
-            api_url=str(getattr(settings, f"{prefix}_API_URL", "") or ""),
-            api_key=str(getattr(settings, f"{prefix}_API_KEY", "") or ""),
-        )
+        if portal == Portal.pracuj_pl:
+            return cls(
+                portal=portal,
+                enabled=bool(settings.PORTAL_PRACUJ_ENABLED),
+                missing=_blank(
+                    PORTAL_PRACUJ_API_URL=settings.PORTAL_PRACUJ_API_URL,
+                    PORTAL_PRACUJ_API_KEY=settings.PORTAL_PRACUJ_API_KEY,
+                ),
+            )
+        if portal in JJIT_FAMILY:
+            flag = (
+                settings.PORTAL_JJIT_ENABLED
+                if portal == Portal.justjoinit
+                else settings.PORTAL_ROCKETJOBS_ENABLED
+            )
+            return cls(
+                portal=portal,
+                enabled=bool(flag),
+                missing=_blank(
+                    PORTAL_JJIT_API_URL=settings.PORTAL_JJIT_API_URL,
+                    JJIT_OAUTH_CLIENT_ID=settings.JJIT_OAUTH_CLIENT_ID,
+                    JJIT_OAUTH_CLIENT_SECRET=settings.JJIT_OAUTH_CLIENT_SECRET,
+                    JJIT_OAUTH_REDIRECT_URI=settings.JJIT_OAUTH_REDIRECT_URI,
+                ),
+                needs_connection=True,
+            )
+        return cls(portal=portal, enabled=False)
+
+
+def _blank(**values: Any) -> tuple[str, ...]:
+    return tuple(name for name, value in values.items() if not str(value or "").strip())
 
 
 @dataclass(frozen=True)
 class PostingContent:
-    """Treść ogłoszenia — biała lista z opisu publicznego + link aplikacyjny."""
+    """Treść ogłoszenia — biała lista z opisu publicznego + link aplikacyjny.
+
+    ``options`` (ustawienia ogłoszenia wpisane przez DL) i ``external_ref``
+    (nasz identyfikator publikacji wysyłany jako ``externalId``) dokłada
+    worker tuż przed wywołaniem adaptera.
+    """
 
     title: str
     job: dict[str, Any]
     apply_url: str
+    options: dict[str, Any] = field(default_factory=dict)
+    external_ref: Optional[str] = None
 
 
 @dataclass
@@ -101,8 +160,21 @@ class PortalAdapter(ABC):
             raise PortalNotConfigured(f"Portal {self.label} nie jest włączony.")
         if state == "misconfigured":
             raise PortalNotConfigured(
-                f"Portal {self.label} jest włączony, ale brakuje adresu API albo klucza."
+                f"Portal {self.label} jest włączony, ale brakuje konfiguracji "
+                f"({', '.join(self.config.missing)})."
             )
+
+    def ensure_configured(self) -> None:
+        """Konfiguracja bez flagi — do zamykania i odczytu stanu."""
+        if self.config.missing:
+            raise PortalNotConfigured(
+                f"Portal {self.label}: brakuje konfiguracji "
+                f"({', '.join(self.config.missing)})."
+            )
+
+    def validate_options(self, content: PostingContent) -> list[str]:
+        """Braki w ustawieniach ogłoszenia (po polsku) — sprawdzane przed kolejką."""
+        return []
 
     @abstractmethod
     async def publish(self, content: PostingContent) -> PortalResult: ...
@@ -113,7 +185,13 @@ class PortalAdapter(ABC):
     ) -> PortalResult: ...
 
     @abstractmethod
-    async def unpublish(self, external_id: str) -> None: ...
+    async def unpublish(
+        self, external_id: Optional[str], *, external_ref: Optional[str] = None
+    ) -> None:
+        """Zamknięcie ogłoszenia. Bez ``external_id`` adapter szuka po naszym
+        ``external_ref`` (publikacja mogła powstać mimo porażki po naszej stronie).
+        Działa także przy wyłączonej fladze portalu — flaga blokuje nowe
+        publikacje, nie sprzątanie opłaconych."""
 
     @abstractmethod
     async def status(self, external_id: str) -> dict[str, Any]: ...
@@ -139,7 +217,9 @@ class PendingDocumentationAdapter(PortalAdapter):
     async def update(self, external_id: str, content: PostingContent) -> PortalResult:
         raise self._pending()
 
-    async def unpublish(self, external_id: str) -> None:
+    async def unpublish(
+        self, external_id: Optional[str], *, external_ref: Optional[str] = None
+    ) -> None:
         raise self._pending()
 
     async def status(self, external_id: str) -> dict[str, Any]:

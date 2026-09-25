@@ -2501,23 +2501,44 @@ miejsce, nie zbiór funkcji.
   NADPISANIA (`null` = bez wyboru), bo rolę znamy dopiero po hydratacji;
   zapytanie listy ma `enabled: hydrated`. Szybkie filtry „Niezamknięte”
   i „Moje rekrutacje” usunięte — dublowały przełącznik. Zakres NIE liczy się
-  do „Filtry (N)”. Liczniki z `/api/jobs/quick-counts` (`all`, `open`,
-  `mine`), a pigułki statusu requestu mają liczby `request_status`
-  / `request_status_mine` liczone TYM SAMYM `request_status_expr` co filtr.
+  do liczby ustawionych filtrów. Liczniki z `/api/jobs/quick-counts` (`all`,
+  `open`, `mine`).
 - **Sortowanie domyślne zależy od zakresu** (`defaultSortForScope`):
   „Moje” → `sort=attention` („Wymaga uwagi”), „Otwarte”/„Wszystkie” →
   `newest`. `sort=deadline` = „Najbliższy termin” (bez terminu na końcu).
-- **Filtry listy (24.09.2026):** Termin (po terminie / w tym tygodniu / do 14
-  dni / bez terminu / zakres `dl_from`–`dl_to`), „Wysłanych do klienta”
-  (`sent` → backend `min_sent`/`max_sent`: OSOBY, które w rekrutacji doszły do
-  cv_sent, client_interview, acceptance albo hired wg
-  `analytics_first_milestones`; rozmowa wewnętrzna się nie liczy; min > max =
-  422) i Delivery Lead (`lead` → `delivery_lead_id` jako LISTA; pojedyncze id
-  z portalu DL działa dalej).
-- **Kolumna filtrów jest zwijana** (`store/ui.ts` v7, `jobsFiltersCollapsed`):
-  `null` = brak wyboru → rozwinięta od `2xl`, zwinięta poniżej — liczone
-  CSS-em (`hidden 2xl:block`), bez migotania przy hydracji. W trybie `null`
-  otwarty dok chowa filtry (trzy kolumny ucinały tabeli termin i akcje).
+- **Filtry = pasek nad tabelą, nie kolumna (25.09.2026, wariant A z makiet
+  https://claude.ai/artifact/4nGFAJ6N3NpjVWvLH9yjBH).** Z kolumny zniknęły
+  filtry bez danych albo dublujące: Typ, „Potrzebny search” (flaga nigdzie nie
+  ustawiona), „Aktywni w searchu” (liczył zamknięte), „Deadline ≤ 7 dni”
+  (= Termin), Status (= zakres), Priority Work (0 planów w historii), „Osoba
+  odpowiedzialna” (TAC nieużywany). Stare klucze adresu (`type`, `status`,
+  `responsible`, `sourcing`, `active_search`, `no_owner`, `priority`) NIE są
+  filtrem — zostają w `MANAGED_KEYS`, więc pierwszy zapis zdejmuje je z adresu;
+  `rs`/`ws` mapują się na pigułki stanu (`initialStagesFromUrl`). Parametry
+  API zostają (kompatybilność).
+  - **Jeden rząd „Stan requestu”**: Do uzupełnienia · Do przejrzenia · Szukamy
+    · Mamy championa · Umowa · Klient milczy (`lib/request-stage.ts`). Serwer
+    liczy JEDNĄ wartość na rekrutację — `job_similarity.request_stage_expr`
+    (closed → filled → contract → champion → szkic → work_state finished →
+    client_silent → searching → to_review) — parametr `request_stage`
+    (powtarzalny, LUB), pole wiersza `request_stage`, liczby `request_stage`
+    / `request_stage_mine`. Nie składaj tego z `request_status` + `work_state`
+    — te łączą się przez AND.
+  - **Pasek** (`components/v2/jobs/JobsFilterBar.tsx`, przycisk z okienkiem
+    `components/v2/filters/FilterBarPill.tsx` wspólny z listą kandydatów):
+    Klient, Delivery Lead (`lead`), **Kto pracuje** (`who` → `worked_by`,
+    „Ja” = własne id, „Nikt” = `nobody=1` → `nobody_working`), Kategoria,
+    Termin (preset + zakres `dl_from`–`dl_to`), „Więcej filtrów” z „Wysłanych
+    do klienta” (`sent` → `min_sent`/`max_sent`, OSOBY z
+    `analytics_first_milestones`). Przełączniki „Po terminie” (= Termin
+    `overdue`), „Nikt nie pracuje”, „Nikogo nie wysłano” (= `sent=none`)
+    z liczbami `attention` („Otwarte”) / `attention_mine` („Moje”);
+    „Wszystkie” bez liczb (objęłyby archiwum). Datę „Po terminie” liczy
+    przeglądarka i wysyła jako `overdue_to`.
+  - **„Kto pracuje” = `job_work_assignments.state <> 'released'`** — tak samo
+    jak pulpit „Requesty i obłożenie” i automat przydziału (propozycja z trybu
+    cienia się liczy). `jobs_worked_by_clause` / `jobs_nobody_working_clause`;
+    `worked_by` razem z `nobody_working=true` to LUB („ja albo nikt”).
 - **Kolumny:** „Etapy” = te same 8 kolumn co Tablica (Nowi … Zatrudniony),
   rozstrzygane `placeStage` z `lib/board-stages.ts` na `stage_columns` wiersza
   — tą samą regułą co Tablica (QC ma kod `interview`, a mimo to trafia do QC
@@ -2999,6 +3020,74 @@ Decyzja Artura: rekruter ma widzieć, czego szukamy, a klient dostaje swoje nazw
   wyłącznie jako dosłowny cytat (`_in_text`) i `working_title_suggestion`.
 - Kolumny są w `NEXUS_OWNED` (Traffit ich nie pisze). Istniejące rekrutacje
   uzupełnił jednorazowy krok `job-names-backfill` w `entrypoint.sh`.
+
+## Publikacja na RocketJobs i JustJoin.IT (0381, 25.09.2026)
+
+Jedno Employer Public API dostawcy (1EP, `integrations.rocketjobs.com/docs/1ep`,
+host `jobboardcore-external.justjoin.it/external-api`) obsługuje oba portale —
+pole `jobBoard`. W NEXUSIE to dwa portale (`Portal.rocketjobs`,
+`Portal.justjoinit`), jeden adapter (`services/job_portals/jjit.py`) i jedno
+połączone konto firmy (`job_board_connections`). Za flagami
+`PORTAL_ROCKETJOBS_ENABLED` / `PORTAL_JJIT_ENABLED` (domyślnie OFF); Etap 2
+(dane OAuth od dostawcy, połączenie konta, pierwsze ogłoszenie) czeka na
+odpowiedź integration@rocketjobs.com. Kontrakt API frontu:
+`docs/job-boards-rocketjobs-contract.md`.
+
+- **Konto łączy admin RAZ** (Ustawienia → System → Portale ogłoszeniowe,
+  `api/job_board_connection.py`). Dostawca ma tylko `authorization_code` +
+  refresh token. Odświeżenie tokenu idzie we WŁASNEJ sesji z natychmiastowym
+  commitem i pod `FOR UPDATE` wiersza (`jjit_connection.access_token`) —
+  dostawca rotuje refresh token, a rollback żądania zgubiłby jedyny ważny.
+  `invalid_grant` = `reconnect_required`; worker wtedy czeka i nie pali prób.
+- **`externalId` NIE chroni przed duplikatem** (dokumentacja). Nasz jest
+  STAŁY dla pary rekrutacja × portal (`nexus-job-{job_id}-{portal}`,
+  `external_ref_for`): `publish` najpierw szuka po nim żywego ogłoszenia,
+  dopiero potem `POST`, a zamknięcie bez znanego id też szuka po nim. Nowy
+  wiersz po nieudanej/wycofanej publikacji znajdzie ogłoszenie, które mogło
+  jednak powstać, zamiast kupić drugie. Wiersz, który worker brał choć raz,
+  przy wycofaniu dostaje `close`, nie `removed`; publikacja poddana po
+  timeoutach = `failed` + `close` (sprzątanie po externalId).
+- **Worker dzierżawi wiersz, nie blokuje go na czas HTTP** (`claim_batch`
+  ustawia `next_attempt_at` = teraz + 15 min, krótka transakcja), portal
+  woła bez transakcji, a wynik zapisuje osobna transakcja per wiersz
+  (`process_one`). Zlecenie zmienione w trakcie wysyłki (wycofanie, nowe
+  ustawienia) zostaje w kolejce. Nieoczekiwany wyjątek jednego wiersza =
+  ponowienie z backoffem, nie cofnięcie paczki.
+- **Flaga portalu blokuje NOWE publikacje, nie zamykanie** — `unpublish`
+  i `status` sprawdzają tylko konfigurację (`ensure_configured`), a worker
+  startuje także przy wyłączonych flagach, gdy konto jest skonfigurowane.
+- **Treść = biała lista `public_job_payload`** (zatwierdzony opis publiczny),
+  link aplikacji = `/r/<slug>` strony kariery, więc zgłoszenia wpadają do
+  NEXUSA istniejącą ścieżką. Nic o kliencie ani stawce.
+- **Widełki są opcjonalne i wpisuje je człowiek** (decyzja Artura 25.09.2026),
+  nigdy z budżetu rekrutacji ani stawki Championa. B2B netto, `do ≤ 3 × od`.
+- **Ustawienia ogłoszenia** (`job_postings.options`: kategoria ze słownika
+  portalu, poziom, wymiar, tryb, dni w biurze, miasto, widełki) walidują
+  JEDNĄ regułą w dwóch lustrach: `jjit_payload.validate` ↔
+  `validateListingOptions` (`lib/api/jobPortals.ts`). Braki = 422
+  `listing_invalid` z listą — kredyt jest płatny, więc nie wysyłamy czegoś,
+  co portal odrzuci.
+- **`pending_action`** (`publish|update|close`) mówi workerowi, co zrobić
+  z żywym wierszem. Nowe zatwierdzenie opisu publicznego i zmiana ustawień =
+  `update` (pełny `PUT` z klauzulą i kontaktem z `GET`; tytułu portal nie
+  zmienia). Wycofanie i zamknięcie rekrutacji = `close`; nieudane zamknięcie
+  zostaje w kolejce co godzinę. Worker co tick zamyka też ogłoszenia
+  rekrutacji, które przestały być `published` (każda ścieżka zmiany statusu,
+  także nocne archiwum Traffita), a co `JOB_PORTAL_STATUS_SYNC_HOURS`
+  sprawdza stan (`expired` po 90 dniach / końcu subskrypcji, 404 = `removed`).
+- **`DELETE /api/jobs/{id}` z żywym ogłoszeniem = 409** — kaskada skasowałaby
+  wiersz, a ogłoszenie zostałoby na portalu bez możliwości zamknięcia.
+- **`/jobs/new`**: sekcja „Ogłoszenie na portalach” (tylko przy `any_ready`),
+  szkic z `POST /api/job-intake/public-draft` (bez zapisu, z uwagami
+  kontroli), po publikacji rekrutacji: opis → zatwierdzenie → link →
+  publikacja (`lib/new-job-portal-publish.ts`). Awaria po utworzeniu =
+  toast + `?tab=portals`, rekrutacja zostaje.
+- **Do potwierdzenia na pierwszym prawdziwym ogłoszeniu** (dokumentacja
+  milczy): adresy publiczne ogłoszeń (`_OFFER_URL`), kształt odpowiedzi
+  `PUT /skills` i `GET` ogłoszenia, pole `categories` w `PUT`, czy
+  `/dictionaries` zależy od portalu, claim z `organizationUnitId`
+  (nadpisanie: `PORTAL_*_ORGANIZATION_UNIT_ID`). Harnessy:
+  `/preview/job-portals?dialog=1`, `/preview/new-job?state=portals`.
 
 ## Podobne rekrutacje, przepięcia i status requestu (0341, 22.09.2026)
 
@@ -3584,7 +3673,7 @@ i polskim powodem.
 Migracje `0364_application_confirmation`, `0365_order_group_cancel`,
 `0366_job_portals` (lustra w `entrypoint.sh`, test `test_pr2_migration_mirror.py`).
 
-- **Multiposting (Pracuj.pl, JustJoinIT) to szkielet za flagami OFF**
+- **Multiposting (Pracuj.pl, JustJoinIT) to szkielet za flagami OFF** (JustJoin.IT i RocketJobs mają od 0381 prawdziwy adapter — sekcja „Publikacja na RocketJobs i JustJoin.IT”; zaślepką zostaje Pracuj.pl)
   (`PORTAL_PRACUJ_ENABLED`, `PORTAL_JJIT_ENABLED` + `_API_URL`/`_API_KEY`) —
   brak dokumentacji API portali. `services/job_portals/` (adaptery
   `PendingDocumentationAdapter` mówią „czeka na dokumentację”, nigdy nie udają

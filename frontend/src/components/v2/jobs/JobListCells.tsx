@@ -19,6 +19,11 @@ import {
 } from "@/lib/request-status";
 import { cn } from "@/lib/utils";
 import {
+  REQUEST_STAGE_META,
+  requestStageOf,
+  type RequestStage,
+} from "@/lib/request-stage";
+import {
   buildStageFunnel,
   funnelGroupStages,
   funnelGroupTitle,
@@ -303,6 +308,39 @@ export function RequestStatusBadge({ status }: { status: unknown }) {
       className={cn(
         "inline-flex h-6 items-center gap-1.5 whitespace-nowrap rounded-md px-2 text-xs font-semibold",
         REQUEST_TONE_CLASS[meta.tone],
+      )}
+    >
+      <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" />
+      {meta.label}
+    </span>
+  );
+}
+
+const STAGE_TONE_CLASS: Record<(typeof REQUEST_STAGE_META)[RequestStage]["tone"], string> = {
+  ...REQUEST_TONE_CLASS,
+  quiet: "bg-muted text-foreground",
+};
+
+/**
+ * Stan requestu w wierszu listy (25.09.2026) — ta sama wartość co pigułka nad
+ * listą (`request_stage`). Brak pola (starszy backend) = status requestu.
+ */
+export function RequestStageBadge({
+  stage,
+  fallbackStatus,
+}: {
+  stage: unknown;
+  fallbackStatus?: unknown;
+}) {
+  const value = requestStageOf(stage);
+  if (!value) return <RequestStatusBadge status={fallbackStatus} />;
+  const meta = REQUEST_STAGE_META[value];
+  return (
+    <span
+      title={meta.hint}
+      className={cn(
+        "inline-flex h-6 items-center gap-1.5 whitespace-nowrap rounded-md px-2 text-xs font-semibold",
+        STAGE_TONE_CLASS[meta.tone],
       )}
     >
       <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" />

@@ -52,6 +52,8 @@ _RATE_LIMITED_MODULES = (
     "api/screening_reassign.py",
     # QC CV: każde wywołanie liczy QC (pobranie i odczyt CV), poprawki = model.
     "api/cv_qc.py",
+    # Konto JustJoin.IT/RocketJobs (0381): callback OAuth bez sesji NEXUSA.
+    "api/job_board_connection.py",
 )
 
 # Moduły, których docstringi tras trafiają do publicznego /openapi.json.

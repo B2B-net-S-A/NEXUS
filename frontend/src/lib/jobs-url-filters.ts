@@ -8,31 +8,7 @@
  */
 
 import { hasRole, type UserRole } from "@/store/auth";
-
-export const JOB_STATUS_VALUES = ["draft", "published", "closed"] as const;
-
-export type JobStatusFilterValue = (typeof JOB_STATUS_VALUES)[number];
-
-const VALID: ReadonlySet<JobStatusFilterValue> = new Set(JOB_STATUS_VALUES);
-
-function isJobStatus(value: string): value is JobStatusFilterValue {
-  // Zawężenie po zbiorze typowanym na union, nie na `string` — inaczej strażnik
-  // typu jest formalnie niepoprawny (TypeScript uwierzyłby mu na słowo dla
-  // dowolnego stringa).
-  return (VALID as ReadonlySet<string>).has(value);
-}
-
-/**
- * `?status=published&status=draft` → `["published", "draft"]`.
- *
- * Wartości spoza kontraktu są odrzucane, a nie przepuszczane do API — ręcznie
- * podrasowany URL ma dać pusty filtr, nie 422 z backendu.
- */
-export function initialStatusFromUrl(
-  params: URLSearchParams,
-): JobStatusFilterValue[] {
-  return params.getAll("status").filter(isJobStatus);
-}
+import type { RequestStage } from "@/lib/request-stage";
 
 /**
  * Role, które PROWADZĄ rekrutacje — dla nich lista startuje w „Moich".
@@ -88,27 +64,6 @@ export function resolveScope(
   user: ScopeUser,
 ): JobScope {
   return override ?? defaultScopeForUser(user);
-}
-
-/**
- * Zakres „Otwarte” (`open_only`) i status „Zamknięta” wykluczają się — lista
- * była zawsze pusta (audyt 24.09.2026). Wybrany status „Zamknięta” wygrywa:
- * zakres przechodzi na „Wszystkie” (w adresie `mine=0`). „Moje” zostaje —
- * moje zamknięte to poprawne pytanie.
- */
-export function scopeForStatuses(
-  scope: JobScope,
-  statuses: readonly string[],
-): JobScope {
-  return scope === "open" && statuses.includes("closed") ? "all" : scope;
-}
-
-/** Jawny wybór „Otwarte” zdejmuje status „Zamknięta” (lustro wyżej). */
-export function statusesForScope<S extends string>(
-  scope: JobScope,
-  statuses: readonly S[],
-): S[] {
-  return scope === "open" ? statuses.filter((s) => s !== "closed") : [...statuses];
 }
 
 /** Parametry zakresu dla `GET /api/jobs` (i klucza zapytania). */
@@ -293,14 +248,6 @@ export function sortOverrideFromUrl(
 // kategorie kompetencji, przełączniki i Priority Work ginęły po F5 i po
 // „Wstecz" z profilu rekrutacji — bez sygnału, że zawężenie przepadło.
 
-export const JOB_PRIORITY_WORK_VALUES = [
-  "any",
-  "assigned",
-  "carry_over",
-  "either",
-] as const;
-export type JobPriorityWorkFilterValue = (typeof JOB_PRIORITY_WORK_VALUES)[number];
-
 /** `?q=java` → `"java"`; brak → `""`. */
 export function initialSearchFromUrl(params: URLSearchParams): string {
   return params.get("q") ?? "";
@@ -312,7 +259,7 @@ export function initialSearchFromUrl(params: URLSearchParams): string {
  */
 export function initialIdsFromUrl(
   params: URLSearchParams,
-  key: "responsible" | "client" | "cc" | "lead",
+  key: "client" | "cc" | "lead" | "who",
 ): number[] {
   const out: number[] = [];
   for (const raw of params.getAll(key)) {
@@ -325,13 +272,10 @@ export function initialIdsFromUrl(
 
 /**
  * Przełącznik zapisany jako `?klucz=1`; wszystko inne → `false`.
- * `open=1` NIE jest już przełącznikiem — to zakres „Otwarte"
+ * `open=1` NIE jest przełącznikiem — to zakres „Otwarte"
  * (`scopeOverrideFromUrl`).
  */
-export function initialFlagFromUrl(
-  params: URLSearchParams,
-  key: "sourcing" | "active_search" | "no_owner",
-): boolean {
+export function initialFlagFromUrl(params: URLSearchParams, key: "nobody"): boolean {
   return params.get(key) === "1";
 }
 
@@ -340,15 +284,7 @@ export function initialSentFromUrl(params: URLSearchParams): JobSentFilterValue 
   return pickFromUrl(params, "sent", JOB_SENT_VALUES, "any");
 }
 
-/** `?priority=carry_over` → `"carry_over"`; brak/nieznana → `"any"`. */
-export function initialPriorityWorkFromUrl(
-  params: URLSearchParams,
-): JobPriorityWorkFilterValue {
-  return pickFromUrl(params, "priority", JOB_PRIORITY_WORK_VALUES, "any");
-}
-
 export interface JobsListUrlState {
-  status: readonly JobStatusFilterValue[];
   scope: JobScope;
   /** Domyślny zakres ROLI (`defaultScopeForUser`) — jego nie zapisujemy. */
   defaultScope: JobScope;
@@ -357,15 +293,16 @@ export interface JobsListUrlState {
   deadlineRange?: JobDeadlineRange;
   sort: JobSortFilterValue;
   q?: string;
-  responsibleIds?: readonly number[];
+  /** Pigułki „Stan requestu” (`stage`, LUB). */
+  stages?: readonly RequestStage[];
   clientIds?: readonly number[];
   ccIds?: readonly number[];
   deliveryLeadIds?: readonly number[];
+  /** „Kto pracuje” — id osób (`who`). */
+  workedBy?: readonly number[];
+  /** „Nikt nie pracuje” (`nobody=1`). */
+  nobodyWorking?: boolean;
   sent?: JobSentFilterValue;
-  needsSourcing?: boolean;
-  activeInSearch?: boolean;
-  noOwnerOnly?: boolean;
-  priorityWork?: JobPriorityWorkFilterValue;
 }
 
 const SCOPE_URL: Record<JobScope, [key: string, value: string]> = {
@@ -375,26 +312,33 @@ const SCOPE_URL: Record<JobScope, [key: string, value: string]> = {
 };
 
 const MANAGED_KEYS = [
-  "status",
   "mine",
-  // Typów rekrutacji nie ma (25.09.2026) — stary `?type=` z zapisanych linków
-  // jest zdejmowany z adresu przy pierwszym zapisie filtrów.
-  "type",
+  "open",
   "deadline",
   "dl_from",
   "dl_to",
   "sort",
-  "lead",
-  "sent",
   "q",
-  "responsible",
+  "stage",
   "client",
   "cc",
+  "lead",
+  "who",
+  "nobody",
+  "sent",
+  // Klucze kolumny filtrów sprzed 25.09.2026 (typ, status, osoba
+  // odpowiedzialna, „Szybkie”, Priority Work, dwa rzędy statusu). Lista ich
+  // już nie czyta — zapisane zakładki przeglądarki działają, a pierwszy zapis
+  // filtrów zdejmuje je z adresu.
+  "type",
+  "status",
+  "responsible",
   "sourcing",
   "active_search",
-  "open",
   "no_owner",
   "priority",
+  "rs",
+  "ws",
 ] as const;
 
 /**
@@ -412,7 +356,6 @@ export function encodeJobsListUrl(
 ): string {
   const next = new URLSearchParams(current);
   for (const key of MANAGED_KEYS) next.delete(key);
-  for (const status of state.status) next.append("status", status);
   if (state.scope !== state.defaultScope) {
     const [key, value] = SCOPE_URL[state.scope];
     next.set(key, value);
@@ -426,16 +369,12 @@ export function encodeJobsListUrl(
   if (state.sort !== defaultSortForScope(state.scope)) next.set("sort", state.sort);
   const q = state.q?.trim();
   if (q) next.set("q", q);
-  for (const id of state.responsibleIds ?? []) next.append("responsible", String(id));
+  for (const stage of state.stages ?? []) next.append("stage", stage);
   for (const id of state.clientIds ?? []) next.append("client", String(id));
   for (const id of state.ccIds ?? []) next.append("cc", String(id));
   for (const id of state.deliveryLeadIds ?? []) next.append("lead", String(id));
+  for (const id of state.workedBy ?? []) next.append("who", String(id));
+  if (state.nobodyWorking) next.set("nobody", "1");
   if (state.sent && state.sent !== "any") next.set("sent", state.sent);
-  if (state.needsSourcing) next.set("sourcing", "1");
-  if (state.activeInSearch) next.set("active_search", "1");
-  if (state.noOwnerOnly) next.set("no_owner", "1");
-  if (state.priorityWork && state.priorityWork !== "any") {
-    next.set("priority", state.priorityWork);
-  }
   return next.toString();
 }

@@ -30,7 +30,7 @@ export const SETTINGS_AREAS: readonly SettingsArea[] = [
   { id: "team", name: "Zespół i dostęp", hint: "Kto ma konto, co widzi i którego klienta prowadzi" },
   { id: "rec", name: "Rekrutacja", hint: "Etapy, CV dla klientów, ranking, maile" },
   { id: "deals", name: "Umowy i stawki", hint: "Wzory umów, stawki rynkowe" },
-  { id: "sys", name: "System", hint: "Powiadomienia, AI, Traffit, listy wyboru, historia zdarzeń, wykluczone placementy" },
+  { id: "sys", name: "System", hint: "Powiadomienia, AI, Traffit, portale ogłoszeniowe, listy wyboru, historia zdarzeń, wykluczone placementy" },
 ] as const;
 
 export type SettingsItemId =
@@ -51,6 +51,7 @@ export type SettingsItemId =
   | "register-import"
   | "ai"
   | "traffit"
+  | "job-boards"
   | "teams-prep"
   | "dict"
   | "fields"
@@ -221,6 +222,12 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     id: "traffit", area: "sys", title: "Import z Traffita",
     description: "Czy nocny import przeszedł bez błędów.",
     keywords: "traffit synchronizacja import",
+    gate: { roles: ["admin"] },
+  },
+  {
+    id: "job-boards", area: "sys", title: "Portale ogłoszeniowe",
+    description: "Konto firmy na RocketJobs i JustJoin.IT — połączenie i saldo ogłoszeń.",
+    keywords: "portale ogloszenia rocketjobs justjoinit jjit multiposting publikacja oauth",
     gate: { roles: ["admin"] },
   },
   {

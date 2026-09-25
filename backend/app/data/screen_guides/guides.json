@@ -8,17 +8,17 @@
     "tasks": [
       {
         "q": "Jak przełączyć między moimi, otwartymi i wszystkimi rekrutacjami?",
-        "a": "Użyj przełącznika „Moje / Otwarte / Wszystkie” obok „Filtry”. Rekruter i Delivery Lead domyślnie widzą swoje, admin, Head of Recruitment i Finanse — otwarte. Status „Zamknięta” przy „Otwartych” sam przełącza na „Wszystkie”. Wybór zapisuje się w adresie, więc link wysłany koledze pokaże to samo.",
+        "a": "Użyj przełącznika „Moje / Otwarte / Wszystkie” nad listą. Rekruter i Delivery Lead domyślnie widzą swoje, admin, Head of Recruitment i Finanse — otwarte. Zamknięte rekrutacje i archiwum są pod „Wszystkie”. Wybór zapisuje się w adresie, więc link wysłany koledze pokaże to samo.",
         "anchor": "jobs.list.scope"
       },
       {
         "q": "Jak znaleźć konkretną rekrutację albo zawęzić listę?",
-        "a": "Wpisz w pole wyszukiwania tytuł, klienta, technologię albo numer u klienta i wybierz status (z liczbą przy każdym). Pod „Filtry” są m.in. „Termin” (po terminie, w tym tygodniu, do 14 dni, bez terminu, zakres dat), „Wysłanych do klienta” (nikt, co najmniej 1, 3, 5) i „Delivery Lead”. Sortowanie „Najbliższy termin” ustawia listę według daty.",
+        "a": "Wpisz tytuł, klienta, technologię albo numer u klienta i wybierz stan requestu. Pasek pod nim ma „Klient”, „Delivery Lead”, „Kto pracuje” (Ty, wybrane osoby albo nikt), „Kategoria”, „Termin” i „Więcej filtrów”, a obok przełączniki „Po terminie”, „Nikt nie pracuje” i „Nikogo nie wysłano”. Krzyżyk przy filtrze go zdejmuje.",
         "anchor": "jobs.list.search"
       },
       {
         "q": "Co pokazuje status requestu?",
-        "a": "„Szukamy” trwa, dopóki Delivery Lead nie oznaczy „Mamy championa”. „Umowa” znaczy, że ktoś jest na etapie umowy, „Obsadzona” — komplet zatrudnionych, „Do uzupełnienia” — zlecenie jest szkicem i nie trafiło jeszcze do searchu.",
+        "a": "Każda rekrutacja ma jeden stan. „Do uzupełnienia” — szkic, jeszcze nie w searchu. „Do przejrzenia” — nikt nie zdecydował, czy nad nią pracujemy. „Szukamy” trwa do „Mamy championa”. „Umowa” — ktoś jest na etapie umowy. „Klient milczy” — klient nie odpowiada. Kilka stanów naraz pokazuje rekrutacje w którymkolwiek z nich.",
         "anchor": "jobs.list.status"
       },
       {
@@ -35,13 +35,13 @@
       "Pusta lista w zakresie „Moje” nie znaczy, że rekrutacji nie ma — przełącz na „Otwarte” albo „Wszystkie”.",
       "Kolumna „Etapy” ma te same 8 kolumn co tablica (skróty w nagłówku, pełna nazwa po najechaniu).",
       "Sortowanie „Wymaga uwagi” stawia na górze rekrutacje z największą liczbą kandydatów czekających na Twój ruch.",
-      "Przyciski „Praca” pokazują stan nadany przez Delivery Leada w „Porządku w requestach”, a w wierszu ten sam stan stoi pod statusem jako „Praca: …” (np. „Praca: do przeglądu”). „Zakończony” w NEXUSIE nie zamyka rekrutacji w Traffit — zdejmuje ją tylko z pracy i z przydziału ludzi."
+      "„Do przejrzenia”, „Szukamy” i „Klient milczy” to stan nadany przez Delivery Leada w „Porządku w requestach”; ten sam stan stoi w wierszu listy. Rekrutacje obsadzone i zakończone nie mają osobnego stanu nad listą — są pod „Wszystkie”."
     ],
     "anchors": [
       {"id": "jobs.list.scope", "label": "Moje / Otwarte / Wszystkie", "describe": "Przełącznik zakresu listy rekrutacji z licznikami."},
       {"id": "jobs.list.search", "label": "Wyszukiwanie", "describe": "Pole wyszukiwania po tytule, kliencie i technologii."},
-      {"id": "jobs.list.status", "label": "Status requestu", "describe": "Filtry statusu: Szukamy, Mamy championa, Umowa, Obsadzona, Do uzupełnienia."},
-      {"id": "jobs.list.filters", "label": "Filtry", "describe": "Kolumna z pozostałymi filtrami listy."},
+      {"id": "jobs.list.status", "label": "Stan requestu", "describe": "Jeden rząd stanów: Do uzupełnienia, Do przejrzenia, Szukamy, Mamy championa, Umowa, Klient milczy."},
+      {"id": "jobs.list.filters", "label": "Filtry", "describe": "Pasek filtrów nad listą: klient, Delivery Lead, kto pracuje, kategoria, termin i szybkie przełączniki."},
       {"id": "jobs.list.sort", "label": "Sortowanie", "describe": "Kolejność listy, m.in. „Wymaga uwagi”."},
       {
         "id": "jobs.list.new",
@@ -51,7 +51,7 @@
       }
     ],
     "help_slug": null,
-    "sources": ["frontend/src/components/v2/pages/JobsListV2.tsx", "frontend/src/lib/request-status.ts"]
+    "sources": ["frontend/src/components/v2/pages/JobsListV2.tsx", "frontend/src/components/v2/jobs/JobsFilterBar.tsx", "frontend/src/lib/request-stage.ts"]
   },
   {
     "key": "jobs.board",

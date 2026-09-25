@@ -87,10 +87,10 @@
   {
    "id": "list.quick-filters",
    "area": "lista",
-   "opis": "Szybkie filtry z licznikami",
+   "opis": "Pasek filtrów nad tabelą z licznikami (Po terminie, Nikt nie pracuje, Nikogo nie wysłano) — zastąpił „Szybkie” 25.09.2026",
    "file": "components/v2/pages/JobsListV2.tsx",
    "marker": "quick-counts",
-   "v3_home": "panel filtrów (zwijany)"
+   "v3_home": "pasek filtrów nad tabelą"
   },
   {
    "id": "list.tiles",
@@ -304,10 +304,9 @@
    "id": "src.portals",
    "area": "pozyskiwanie",
    "opis": "Portale ogłoszeniowe",
-   "file": "components/v2/recruitment/PostingsSection.tsx",
-   "marker": "PostingsSection",
-   "v3_home": "Zlecenie (okno) → portale",
-   "removed_reason": "Symulacja multipostingu (dane SIM-…) usunięta 23.09.2026 — wprowadzała w błąd; prawdziwe portale (Pracuj.pl, JustJoinIT) przyjdą w PR2 za flagą."
+   "file": "components/v2/recruitment/JobPortalsSection.tsx",
+   "marker": "JobPortalsSection",
+   "v3_home": "Zlecenie (okno) → Portale ogłoszeniowe (RocketJobs, JustJoin.IT, Pracuj.pl — za flagami; symulacja SIM-… usunięta 23.09.2026)"
   },
   {
    "id": "src.recommended",
@@ -681,9 +680,9 @@
   {
    "id": "list.request-status",
    "area": "lista",
-   "opis": "Status requestu (Szukamy / Mamy championa / Umowa / Obsadzona / Do uzupełnienia) — kolumna i filtr `rs=`",
+   "opis": "Stan requestu (Do uzupełnienia / Do przejrzenia / Szukamy / Mamy championa / Umowa / Klient milczy) — kolumna i jeden rząd pigułek `stage=` (25.09.2026; dawniej `rs=` i `ws=`)",
    "file": "components/v2/pages/JobsListV2.tsx",
-   "marker": "RequestStatusBadge",
+   "marker": "RequestStageBadge",
    "v3_home": "lista → kolumna Status"
   },
   {

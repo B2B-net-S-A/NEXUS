@@ -49,6 +49,22 @@ import { SimilarJobsPicker } from "./SimilarJobsPicker";
 import { ClientAskedBeforeHint } from "./ClientAskedBeforeHint";
 import { plural } from "@/components/v2/jobs/SimilarJobsDialog";
 import { similarJobsApi } from "@/lib/similar-jobs-api";
+import {
+  fetchPortalConfig,
+  fetchPublicDraft,
+  jobPortalKeys,
+  readyPortals,
+  EMPTY_LISTING_OPTIONS,
+  type PublicDraftRead,
+} from "@/lib/api/jobPortals";
+import {
+  listingDefaultsFromForm,
+  portalPlanBlocker,
+  publicDraftRequest,
+  publishNewJobToPortals,
+  type NewJobPortalPlan,
+} from "@/lib/new-job-portal-publish";
+import { NewJobPortalsStep } from "./NewJobPortalsStep";
 
 interface RecruiterOption {
   id: number;
@@ -92,7 +108,16 @@ export interface NewJobPagePreview {
   form: IntakeForm;
   evidence: string[];
   recruiterId?: number | null;
+  /** Krok „Ogłoszenie na portalach” (widoczny tylko przy gotowym portalu). */
+  portalPlan?: NewJobPortalPlan;
+  portalFindings?: PublicDraftRead["findings"];
 }
+
+const EMPTY_PORTAL_PLAN: NewJobPortalPlan = {
+  portals: [],
+  draft: null,
+  options: EMPTY_LISTING_OPTIONS,
+};
 
 export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
   const router = useRouter();
@@ -121,6 +146,15 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
   // 0341: podobne rekrutacje zaznaczone przy tworzeniu — łączone po zapisie.
   const [similarJobIds, setSimilarJobIds] = useState<number[]>([]);
   const [saveError, setSaveError] = useState<string | null>(null);
+  // Ogłoszenie na RocketJobs / JustJoin.IT — publikowane PO rekrutacji.
+  const [portalPlan, setPortalPlan] = useState<NewJobPortalPlan>(
+    preview?.portalPlan ?? EMPTY_PORTAL_PLAN,
+  );
+  const [portalFindings, setPortalFindings] = useState<PublicDraftRead["findings"]>(
+    preview?.portalFindings ?? [],
+  );
+  const [preparingAd, setPreparingAd] = useState(false);
+  const [prepareAdError, setPrepareAdError] = useState<string | null>(null);
 
   // „Skopiuj jako template” z historii requestów: `?from=<id>` otwiera od
   // razu krok 2 z danymi rekrutacji-źródła i tym samym klientem.
@@ -166,6 +200,52 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
         })
         .then((r) => r.data as RecruiterOption[]),
   });
+
+  // Portale wyłączone flagami (produkcja dziś) = `any_ready: false` → sekcji nie ma.
+  const portalConfigQuery = useQuery({
+    queryKey: jobPortalKeys.config,
+    queryFn: fetchPortalConfig,
+    enabled: step === "review",
+    staleTime: 5 * 60_000,
+  });
+  const portalsReady =
+    portalConfigQuery.isSuccess && portalConfigQuery.data.any_ready;
+  const availablePortals = portalsReady ? readyPortals(portalConfigQuery.data) : [];
+  // Zaznaczone portale, których konfiguracja już nie zgłasza, nie idą dalej.
+  const activePortalPlan: NewJobPortalPlan = {
+    ...portalPlan,
+    portals: portalPlan.portals.filter((p) =>
+      availablePortals.some((item) => item.portal === p),
+    ),
+  };
+  const portalBlocker = portalPlanBlocker(activePortalPlan);
+
+  const prepareAd = async () => {
+    setPreparingAd(true);
+    setPrepareAdError(null);
+    try {
+      const draft = await fetchPublicDraft(
+        publicDraftRequest(form, { clientId: client?.id ?? null, requestText }),
+      );
+      setPortalPlan((plan) => ({
+        ...plan,
+        draft: {
+          publicTitle: draft.public_title,
+          subtitle: draft.subtitle,
+          about: draft.about,
+        },
+        // Parametry z pól rekrutacji tylko za pierwszym razem — potem są DL-a.
+        options: plan.draft ? plan.options : listingDefaultsFromForm(form),
+      }));
+      setPortalFindings(draft.findings);
+    } catch (e) {
+      setPrepareAdError(
+        apiErrorMessage(e, "Nie udało się przygotować ogłoszenia — spróbuj ponownie."),
+      );
+    } finally {
+      setPreparingAd(false);
+    }
+  };
 
   const missing = useMemo(() => missingFor(form), [form]);
   const segments = useMemo(
@@ -339,12 +419,42 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
       );
     }
     invalidateJobs();
+    const portalsTab = `/jobs/${jobId}?tab=portals`;
+    if (activePortalPlan.portals.length > 0) {
+      if (!published) {
+        showError(
+          "Ogłoszeń na portalach nie wysłano — rekrutacja nie jest opublikowana. Opublikuj ją i wyślij ogłoszenia z okna zlecenia.",
+        );
+        router.push(portalsTab);
+        return;
+      }
+      const labels = Object.fromEntries(
+        availablePortals.map((item) => [item.portal, item.label]),
+      );
+      const outcome = await publishNewJobToPortals(jobId, activePortalPlan, labels);
+      if (!outcome.ok) {
+        // Rekrutacja zostaje — w oknie zlecenia da się dokończyć publikację.
+        showError(
+          `Rekrutacja utworzona, ale ogłoszenie nie wyszło: ${outcome.message}. Dokończ w oknie zlecenia („Portale ogłoszeniowe”).`,
+        );
+        router.push(portalsTab);
+        return;
+      }
+      showSuccess(
+        `Rekrutacja utworzona i przekazana do searchu. Ogłoszenie w kolejce: ${outcome.published
+          .map((p) => labels[p] ?? p)
+          .join(", ")}.`,
+      );
+      router.push(`/jobs/${jobId}`);
+      return;
+    }
     if (published) showSuccess("Rekrutacja utworzona i przekazana do searchu.");
     router.push(`/jobs/${jobId}`);
   };
 
   const ready = missing.length === 0;
-  const canHandoff = ready && recruiterId != null && saving == null;
+  const canHandoff =
+    ready && recruiterId != null && saving == null && portalBlocker == null;
   const recruiters = recruitersQuery.data ?? [];
 
   return (
@@ -442,6 +552,18 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
               />
             )}
             {!preview && <ClientAskedBeforeHint clientId={client?.id ?? null} />}
+            {portalsReady && availablePortals.length > 0 && (
+              <NewJobPortalsStep
+                portals={availablePortals}
+                plan={activePortalPlan}
+                onPlanChange={setPortalPlan}
+                findings={portalFindings}
+                preparing={preparingAd}
+                prepareError={prepareAdError}
+                onPrepare={prepareAd}
+                disabled={saving != null}
+              />
+            )}
           </div>
         </div>
       )}
@@ -472,7 +594,9 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
                     ? missing.map((code) => MISSING_LABEL[code]).join(" · ")
                     : recruiterId == null
                       ? "Wybierz, kto poprowadzi rekrutację — wtedy przekażesz ją do searchu."
-                      : "Szablon procesu, kategoria i zespół ustawią się same."}
+                      : portalBlocker
+                        ? `Ogłoszenie na portalach: ${portalBlocker}`
+                        : "Szablon procesu, kategoria i zespół ustawią się same."}
                 </span>
               </div>
             </div>
@@ -524,7 +648,9 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
                     ? "Uzupełnij braki, żeby przekazać do searchu"
                     : recruiterId == null
                       ? "Wybierz rekrutera, który poprowadzi rekrutację"
-                      : undefined
+                      : portalBlocker
+                        ? `Ogłoszenie na portalach: ${portalBlocker}`
+                        : undefined
                 }
               >
                 Utwórz i przekaż do searchu
