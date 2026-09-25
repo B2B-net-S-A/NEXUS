@@ -47,6 +47,10 @@ engine = create_async_engine(
     max_overflow=40,
     json_serializer=_json_serializer,
     connect_args=_connect_args(settings.DATABASE_URL),
+    # Treść błędu SQLAlchemy (IntegrityError, DataError…) domyślnie niesie
+    # `[parameters: …]` — e-maile, telefony, nazwiska i stawki kandydatów,
+    # które idą do logów i Sentry. SQL zostaje, wartości nie.
+    hide_parameters=True,
 )
 
 AsyncSessionLocal = async_sessionmaker(
