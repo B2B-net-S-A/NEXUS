@@ -17,7 +17,9 @@ Formuły:
 snapshot z `frozen_snapshot` JSONB, żeby historia była stabilna.
 """
 
+import json
 import logging
+import re
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
@@ -55,7 +57,7 @@ from app.services.insights_scoring_config import (
     get_scoring_config,
     league_points_formula,
 )
-from app.services.kpi_targets import resolve_org_target
+from app.services.kpi_targets import resolve_org_target, user_kpi_roles_clause
 
 logger = logging.getLogger(__name__)
 
@@ -105,7 +107,7 @@ class MonthlyRaceThresholds:
     min_placements: int
 
 
-async def monthly_race_thresholds(db: AsyncSession) -> MonthlyRaceThresholds:
+async def _current_race_thresholds(db: AsyncSession) -> MonthlyRaceThresholds:
     """Progi wyścigów z tych samych źródeł co KPI i konfiguracja punktacji."""
     config = await get_scoring_config(db)
     return MonthlyRaceThresholds(
@@ -113,6 +115,98 @@ async def monthly_race_thresholds(db: AsyncSession) -> MonthlyRaceThresholds:
         precision_pct=float(await resolve_org_target(db, "monthly_precision")),
         min_placements=int(config["monthly_race_min_placements"]),
     )
+
+
+# Migawka progów per miesiąc (audyt 25.09.2026, R3-15). Cele KPI edytuje HoR
+# w Ustawieniach bez deployu, a wyścig z nagrodą czytał je dopiero przy
+# zamrożeniu — zmiana celu 2 października przepisywała zwycięzcę WRZEŚNIA.
+# Progi okresu zapisują się raz (pierwszy zapis wygrywa): pętla autofreeze
+# w bieżącym miesiącu i zamrożenie okresu. GET-y rankingów tylko czytają —
+# `cache_single_flight` odmawia pracy po zapisie w transakcji. Okres bez
+# migawki (sprzed wdrożenia) liczy się progami bieżącymi, jak dotąd.
+MONTHLY_RACE_THRESHOLDS_SETTING = "monthly_race_thresholds"
+
+_THRESHOLDS_SNAPSHOT_UPSERT = text(
+    """
+    INSERT INTO app_settings (key, value, updated_at)
+    VALUES (
+        :key,
+        jsonb_build_object(CAST(:period AS text), CAST(:snapshot AS jsonb)),
+        NOW()
+    )
+    ON CONFLICT (key) DO UPDATE SET
+        value = EXCLUDED.value || app_settings.value,
+        updated_at = NOW()
+    """
+)
+
+
+async def stored_race_thresholds(
+    db: AsyncSession, period: str
+) -> Optional[MonthlyRaceThresholds]:
+    """Migawka progów miesiąca `period` albo `None`, gdy jej nie ma."""
+    rows = (
+        await db.execute(
+            text(
+                "SELECT value -> CAST(:period AS text) AS snapshot "
+                "FROM app_settings WHERE key = :key"
+            ),
+            {"period": period, "key": MONTHLY_RACE_THRESHOLDS_SETTING},
+        )
+    ).all()
+    raw = rows[0][0] if rows else None
+    if not isinstance(raw, dict):
+        return None
+    try:
+        return MonthlyRaceThresholds(
+            verifications_per_day=int(raw["verifications_per_day"]),
+            precision_pct=float(raw["precision_pct"]),
+            min_placements=int(raw["min_placements"]),
+        )
+    except (KeyError, TypeError, ValueError):
+        logger.error(
+            "monthly race thresholds snapshot for %s is malformed — using "
+            "current targets",
+            period,
+        )
+        return None
+
+
+async def snapshot_monthly_race_thresholds(
+    db: AsyncSession, period: str
+) -> MonthlyRaceThresholds:
+    """Zapisz progi miesiąca, jeśli ich jeszcze nie ma. Commit robi wołający.
+
+    Scalenie `EXCLUDED || istniejące`: klucz okresu już zapisany wygrywa, więc
+    ponowne wołanie (co godzinę, przy zamrożeniu) niczego nie przepisuje.
+    """
+    current = await _current_race_thresholds(db)
+    snapshot = {
+        "verifications_per_day": current.verifications_per_day,
+        "precision_pct": current.precision_pct,
+        "min_placements": current.min_placements,
+        "taken_at": datetime.now(tz=_WARSAW).isoformat(),
+    }
+    await db.execute(
+        _THRESHOLDS_SNAPSHOT_UPSERT,
+        {
+            "key": MONTHLY_RACE_THRESHOLDS_SETTING,
+            "period": period,
+            "snapshot": json.dumps(snapshot),
+        },
+    )
+    return await stored_race_thresholds(db, period) or current
+
+
+async def monthly_race_thresholds(
+    db: AsyncSession, period: Optional[str] = None
+) -> MonthlyRaceThresholds:
+    """Progi wyścigów miesiąca `period`: migawka okresu, a bez niej bieżące."""
+    if period is not None:
+        stored = await stored_race_thresholds(db, period)
+        if stored is not None:
+            return stored
+    return await _current_race_thresholds(db)
 
 
 @dataclass
@@ -194,6 +288,79 @@ def parse_month(period: str) -> tuple[int, int]:
     if len(parts) != 2:
         raise ValueError(f"Invalid month period: {period}")
     return int(parts[0]), int(parts[1])
+
+
+# ── Walidacja okresu (audyt 25.09.2026, R3-14) ──────────────────────────
+
+_MONTH_PERIOD_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
+_QUARTER_PERIOD_RE = re.compile(r"^Q[1-4] \d{4}$")
+
+
+class PeriodValidationError(ValueError):
+    """Okres odrzucony — `status_code` (422 / 409) idzie do odpowiedzi HTTP."""
+
+    def __init__(self, status_code: int, message: str) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.message = message
+
+
+def _is_quarterly(type_: CompetitionType) -> bool:
+    return type_ in (
+        CompetitionType.quarterly_champions_dl,
+        CompetitionType.quarterly_champions_recruiter,
+    )
+
+
+def validate_period_format(type_: CompetitionType, period: str) -> None:
+    """Format okresu zgodny z typem konkursu — inaczej 422 po polsku.
+
+    Do 25.09.2026 `POST /freeze` przyjmował dowolny napis: „2026-8" albo
+    „Q2 2026" dla wyścigu miesięcznego kończyły się 500 albo — gorzej —
+    trwałym, niezmiennym zamknięciem okresu pod nazwą, której nic nie czyta.
+    """
+    if _is_quarterly(type_):
+        if not _QUARTER_PERIOD_RE.match(period or ""):
+            raise PeriodValidationError(
+                422,
+                "Nieprawidłowy okres: dla ligi kwartalnej podaj kwartał "
+                "w formacie „Q1 2026”.",
+            )
+        return
+    if not _MONTH_PERIOD_RE.match(period or ""):
+        raise PeriodValidationError(
+            422,
+            "Nieprawidłowy okres: dla wyścigu miesięcznego podaj miesiąc "
+            "w formacie RRRR-MM (np. 2026-08).",
+        )
+
+
+def period_last_day(type_: CompetitionType, period: str) -> date:
+    """Ostatni dzień kalendarzowy okresu (po `validate_period_format`)."""
+    if _is_quarterly(type_):
+        year, quarter = parse_quarter(period)
+        next_first = (
+            date(year + 1, 1, 1) if quarter == 4 else date(year, quarter * 3 + 1, 1)
+        )
+    else:
+        year, month = parse_month(period)
+        next_first = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
+    return next_first - timedelta(days=1)
+
+
+def ensure_period_ended(
+    type_: CompetitionType, period: str, today: Optional[date] = None
+) -> None:
+    """Zamrozić wolno wyłącznie okres zakończony (kalendarz warszawski) — 409."""
+    today = today or business_today()
+    last_day = period_last_day(type_, period)
+    if last_day >= today:
+        raise PeriodValidationError(
+            409,
+            f"Okres {period} jeszcze trwa (ostatni dzień: "
+            f"{last_day.strftime('%d.%m.%Y')}). Zamrozić można tylko okres "
+            "zakończony — zamrożenie jest nieodwracalne.",
+        )
 
 
 # ── Ranking queries ──────────────────────────────────────────────────────
@@ -506,7 +673,11 @@ async def _rank_dls_by_placements(
             select(User.id, User.name).where(
                 User.id.in_(dl_ids),
                 User.is_active == True,  # noqa: E712
-                User.role == UserRole.delivery_lead,
+                # Rola DL główna ALBO dodatkowa — tak jak cele DL
+                # (`kpi_goals`, `User.has_role`). Do 25.09.2026 liga brała
+                # wyłącznie `User.role`, więc DL z rolą dodatkową miał cel
+                # hit ratio, a w lidze go nie było.
+                user_kpi_roles_clause((UserRole.delivery_lead,)),
             )
         )
     ).all()
@@ -612,7 +783,7 @@ async def monthly_most_recommendations(
 ) -> list[RankedUser]:
     year, month = parse_month(period)
     start, end = month_bounds(year, month)
-    thresholds = await monthly_race_thresholds(db)
+    thresholds = await monthly_race_thresholds(db, period)
     min_precision_pct = thresholds.precision_pct
     required_verifications = (
         thresholds.verifications_per_day * business_days_elapsed_in_month(year, month)
@@ -767,7 +938,7 @@ def qualified_for_award(ranked: list[RankedUser]) -> list[RankedUser]:
 async def monthly_most_placements(db: AsyncSession, period: str) -> list[RankedUser]:
     year, month = parse_month(period)
     start, end = month_bounds(year, month)
-    thresholds = await monthly_race_thresholds(db)
+    thresholds = await monthly_race_thresholds(db, period)
     return await _rank_recruiters_by_stage(
         db,
         stage=PipelineStage.hired,
@@ -1268,7 +1439,7 @@ async def compose_monthly_races(
 
     rec_ranked = await monthly_most_recommendations(db, month_period)
     pl_ranked = await monthly_most_placements(db, month_period)
-    thresholds = await monthly_race_thresholds(db)
+    thresholds = await monthly_race_thresholds(db, month_period)
 
     # Wykluczenie: lider kwartału, do którego należy TEN miesiąc (nie bieżący
     # kwartał!), nie może wygrać wyścigu miesięcznego — ale z rankingu nie
@@ -1562,6 +1733,10 @@ async def freeze_competition(
         await db.commit()
         return FrozenPodium([], already_frozen=True, closure_status=closure.status)
 
+    if type_ in _MONTHLY_TYPES:
+        # Progi, którymi ten okres jest rozliczany, zostają zapisane — okres
+        # bez migawki (sprzed wdrożenia) dostaje progi bieżące, jak dotąd.
+        await snapshot_monthly_race_thresholds(db, period)
     ranked = await compute_live(db, type_, period)
     # Filtr kwalifikacji jest BEZWARUNKOWY (w `award_order`), nie zawężony do
     # jednego typu: `qualified_for_award` domyślnie przepuszcza wiersze bez

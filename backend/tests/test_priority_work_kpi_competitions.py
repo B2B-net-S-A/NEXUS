@@ -572,6 +572,10 @@ def _no_closure_no_exclusion(monkeypatch) -> None:
     żywym Postgresie w `test_competition_freeze_rules.py`.
     """
     monkeypatch.setattr(competitions, "_period_closure", AsyncMock(return_value=None))
+    # Migawka progów (R3-15) pisze do `app_settings` — sesja-atrapa jej nie zna.
+    monkeypatch.setattr(
+        competitions, "snapshot_monthly_race_thresholds", AsyncMock(return_value=None)
+    )
     monkeypatch.setattr(
         competitions,
         "monthly_race_excluded_user_ids",

@@ -62,6 +62,11 @@ interface LeagueEntry {
   qualified?: boolean;
   required_placements?: number | null;
   disqualification_reasons?: string[] | null;
+  /**
+   * Miejsce podium objęte remisem, którego regulamin nie rozstrzyga —
+   * kolejność i nagrodę ustali admin przy zamknięciu okresu (`award_order`).
+   */
+  tied?: boolean;
 }
 
 interface PointsFormula {
@@ -261,7 +266,16 @@ function PodiumColumn({
             <p className="text-xs text-muted-foreground">
               {breakdownLabel(entry, variant)}
             </p>
-            {entry.prize_pln ? (
+            {entry.tied ? (
+              // Remis na płatnym miejscu: backend nie przypisuje kwoty, dopóki
+              // admin nie ustali kolejności — tak samo jak po zamrożeniu.
+              <p
+                className="mt-1 rounded border border-warning/25 bg-warning-muted px-1.5 py-0.5 text-[11px] font-medium text-warning-muted-foreground"
+                data-testid={`league-tie-${rank}`}
+              >
+                Remis do rozstrzygnięcia
+              </p>
+            ) : entry.prize_pln ? (
               // Nagroda przy niezakwalifikowanym jest WARUNKOWA: backend dokleja
               // `prize_pln` po samym indeksie, a `qualified_for_award` filtruje
               // dopiero wypłatę. Sucha kwota obok „brakuje placementu" obiecywałaby
