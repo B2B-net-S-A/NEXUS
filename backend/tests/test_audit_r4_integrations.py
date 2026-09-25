@@ -232,7 +232,9 @@ def _user(**extra):
     return User(**base)
 
 
-_TENANT = "11111111-2222-3333-4444-555555555555"
+# GUID-y budowane w locie: dosłowny UUID łapie reguła gitleaks (fireflies-api-key).
+_TENANT = str(uuid.UUID(int=0x11111111222233334444555555555555))
+_OTHER_TENANT = str(uuid.UUID(int=0x99999999222233334444555555555555))
 
 
 @pytest.mark.parametrize(
@@ -255,7 +257,7 @@ _TENANT = "11111111-2222-3333-4444-555555555555"
             {"email": "a.kowalska@b2bnetwork.pl", "azure_oid": "oid-a"},
             "anna.nowak@b2bnetwork.pl",
             "oid-a",
-            "99999999-2222-3333-4444-555555555555",
+            _OTHER_TENANT,
             False,
         ),
         # Bez `oid` na koncie — jak dotąd tylko adres.
