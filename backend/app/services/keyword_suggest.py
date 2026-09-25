@@ -38,7 +38,9 @@ logger = logging.getLogger(__name__)
 
 _WORD_SPLIT = re.compile(r"[\s./#+\-()_,]+")
 COUNT_TTL_SECONDS = 3600
-COUNT_TIMEOUT_MS = 1500
+COUNT_TIMEOUT_MS = 500
+# Stanowiska to pełny przegląd `experience` (~220 ms na produkcji, 25.09.2026).
+TITLES_TIMEOUT_MS = 1000
 _COUNT_CACHE_MAX = 5000
 
 
@@ -164,9 +166,31 @@ async def suggest_titles(db: AsyncSession, q: str, limit: int) -> list[tuple[str
     return [(row[0], int(row[1])) for row in result]
 
 
+TITLES_TTL_SECONDS = 600
+_titles_cache: dict[tuple[str, int], tuple[float, list[tuple[str, int]]]] = {}
+
+
 async def _titles_within_timeout(
     db: AsyncSession, q: str, limit: int
 ) -> list[tuple[str, int]]:
+    key = (fold(q), limit)
+    now = time.monotonic()
+    hit = _titles_cache.get(key)
+    if hit is not None and now - hit[0] < TITLES_TTL_SECONDS:
+        return hit[1]
+    rows = await _titles_query_within_timeout(db, q, limit)
+    if rows is None:
+        # Limit czasu nie trafia do pamięci — następny znak spróbuje znowu.
+        return []
+    if len(_titles_cache) > _COUNT_CACHE_MAX:
+        _titles_cache.clear()
+    _titles_cache[key] = (now, rows)
+    return rows
+
+
+async def _titles_query_within_timeout(
+    db: AsyncSession, q: str, limit: int
+) -> Optional[list[tuple[str, int]]]:
     """Stanowiska z limitem czasu w savepoincie — pełny przegląd
     ``experience`` przy każdym znaku nie może trzymać połączenia; po
     przekroczeniu lista zostaje bez stanowisk."""
@@ -177,7 +201,7 @@ async def _titles_within_timeout(
             ).scalar_one()
             await db.execute(
                 text("SELECT set_config('statement_timeout', :ms, true)"),
-                {"ms": f"{COUNT_TIMEOUT_MS}ms"},
+                {"ms": f"{TITLES_TIMEOUT_MS}ms"},
             )
             rows = await suggest_titles(db, q, limit)
             await db.execute(
@@ -187,7 +211,7 @@ async def _titles_within_timeout(
             return rows
     except Exception as exc:  # noqa: BLE001 — podpowiedź to dodatek
         logger.warning("keyword suggest titles skipped (%s)", type(exc).__name__)
-        return []
+        return None
 
 
 _count_cache: dict[str, tuple[float, int]] = {}
@@ -213,12 +237,13 @@ def _cached(key: str, now: float) -> Optional[int]:
 
 def clear_count_cache() -> None:
     _count_cache.clear()
+    _titles_cache.clear()
 
 
 async def count_candidates(
     db: AsyncSession, values: Sequence[str]
 ) -> dict[str, Optional[int]]:
-    """Przybliżona liczba osób ze słowem w korpusie, jednym zapytaniem.
+    """Przybliżona liczba osób ze słowem w korpusie.
 
     Liczy wyłącznie po ``keyword_fts`` (indeks GIN); limit czasu zapytania
     obowiązuje w savepoincie, więc przekroczenie nie psuje transakcji żądania.
@@ -233,50 +258,52 @@ async def count_candidates(
         if cached is not None:
             result[value] = cached
             continue
+        term = parse_keyword(value)
+        # Fraza (`java <-> developer`) wymaga sprawdzenia pozycji w każdym
+        # wierszu: 1,8–3,6 s na produkcji (25.09.2026). Liczymy tylko
+        # pojedyncze słowa i początek słowa (`jav:*`) — 15–120 ms z indeksu.
+        if term is None or not term.is_plain_word:
+            continue
         tsq = _tsquery_sql(value)
         if tsq is None:
             continue
-        term = parse_keyword(value)
         variants = tsquery_path_variants(term) if term is not None else None
         missing.append((value, tsq, variants))
     if not missing:
         return result
 
-    params: dict[str, object] = {}
-    selects: list[str] = []
-    wheres: list[str] = []
-    for idx, (_value, tsq, variants) in enumerate(missing):
-        params[f"q{idx}"] = tsq
-        expr = f"to_tsquery('simple', :q{idx})"
-        if variants is not None:
-            params[f"v{idx}"] = variants
-            expr = f"({expr} || CAST(:v{idx} AS tsquery))"
-        selects.append(f"count(*) FILTER (WHERE keyword_fts @@ {expr}) AS n{idx}")
-        wheres.append(f"keyword_fts @@ {expr}")
-    sql = text(
-        "SELECT " + ", ".join(selects) + " FROM candidates WHERE " + " OR ".join(wheres)
-    )
-    try:
-        async with db.begin_nested():
-            previous = (
-                await db.execute(text("SELECT current_setting('statement_timeout')"))
-            ).scalar_one()
-            await db.execute(
-                text("SELECT set_config('statement_timeout', :ms, true)"),
-                {"ms": f"{COUNT_TIMEOUT_MS}ms"},
-            )
-            row = (await db.execute(sql, params)).one()
-            await db.execute(
-                text("SELECT set_config('statement_timeout', :prev, true)"),
-                {"prev": previous},
-            )
-    except Exception as exc:  # noqa: BLE001 — liczba to dodatek, nie bramka
-        logger.warning("keyword suggest count skipped (%s)", type(exc).__name__)
-        return result
+    # Osobne zapytanie na słowo: sam indeks GIN liczy je w 10–25 ms.
+    # Jedno zbiorcze z `count(*) FILTER (WHERE keyword_fts @@ …)` sprawdzało
+    # tsvector każdego pasującego wiersza i trwało na produkcji 3 s
+    # (25.09.2026) — limit czasu zerował wtedy każdą liczbę.
     if len(_count_cache) > _COUNT_CACHE_MAX:
         _count_cache.clear()
-    for idx, (value, _tsq, _variants) in enumerate(missing):
-        n = int(row[idx] or 0)
+    for value, tsq, variants in missing:
+        params: dict[str, object] = {"q": tsq}
+        expr = "to_tsquery('simple', :q)"
+        if variants is not None:
+            params["v"] = variants
+            expr = f"({expr} || CAST(:v AS tsquery))"
+        sql = text(f"SELECT count(*) FROM candidates WHERE keyword_fts @@ {expr}")
+        try:
+            async with db.begin_nested():
+                previous = (
+                    await db.execute(
+                        text("SELECT current_setting('statement_timeout')")
+                    )
+                ).scalar_one()
+                await db.execute(
+                    text("SELECT set_config('statement_timeout', :ms, true)"),
+                    {"ms": f"{COUNT_TIMEOUT_MS}ms"},
+                )
+                n = int((await db.execute(sql, params)).scalar_one() or 0)
+                await db.execute(
+                    text("SELECT set_config('statement_timeout', :prev, true)"),
+                    {"prev": previous},
+                )
+        except Exception as exc:  # noqa: BLE001 — liczba to dodatek, nie bramka
+            logger.warning("keyword suggest count skipped (%s)", type(exc).__name__)
+            continue
         result[value] = n
         _count_cache[fold(value)] = (now, n)
     return result

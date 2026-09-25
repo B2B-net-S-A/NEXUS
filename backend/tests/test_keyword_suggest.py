@@ -144,7 +144,7 @@ async def test_real_timeout_inside_count_candidates_returns_nulls(catalog, monke
 
         async def execute(stmt, *args, **kwargs):
             calls["n"] += 1
-            if "count(*) FILTER" in str(stmt):
+            if "keyword_fts @@" in str(stmt):
                 raise _Boom("canceling statement due to statement timeout")
             return await real_execute(stmt, *args, **kwargs)
 
@@ -181,3 +181,53 @@ async def test_titles_failure_degrades_to_skills_only(catalog, monkeypatch):
         assert all(s.kind == "skill" for s in result.items)
         monkeypatch.setattr(db, "execute", real_execute)
         assert (await db.execute(text("SELECT 1"))).scalar_one() == 1
+
+
+@pytest.mark.asyncio
+async def test_count_timeout_on_one_word_keeps_the_others(catalog, monkeypatch):
+    """Liczba liczona osobno dla każdego słowa: limit czasu jednego nie zeruje reszty."""
+    from app.core.database import AsyncSessionLocal
+
+    monkeypatch.setattr(keyword_corpus, "_ready", True)
+
+    async with AsyncSessionLocal() as db:
+        real_execute = db.execute
+
+        seen: list[str] = []
+
+        async def execute(stmt, *args, **kwargs):
+            params = args[0] if args else kwargs.get("params") or {}
+            seen.append(str(stmt))
+            if "keyword_fts @@" in str(stmt) and params.get("q") == "Kubernetes":
+                raise RuntimeError("canceling statement due to statement timeout")
+            return await real_execute(stmt, *args, **kwargs)
+
+        monkeypatch.setattr(db, "execute", execute)
+        result = await keyword_suggest.count_candidates(db, ["Kubernetes", NONCE])
+        assert result["Kubernetes"] is None
+        assert isinstance(result[NONCE], int)
+        # Zbiorcze `count(*) FILTER (WHERE keyword_fts @@ …)` trwało na
+        # produkcji 3 s — każde słowo ma własne zapytanie po indeksie.
+        assert not any("FILTER" in sql for sql in seen)
+
+
+@pytest.mark.asyncio
+async def test_phrases_are_not_counted(catalog, monkeypatch):
+    """Fraza liczy się po pozycjach w każdym wierszu (sekundy) — bez liczby."""
+    from app.core.database import AsyncSessionLocal
+
+    monkeypatch.setattr(keyword_corpus, "_ready", True)
+    async with AsyncSessionLocal() as db:
+        real_execute = db.execute
+        seen: list[str] = []
+
+        async def execute(stmt, *args, **kwargs):
+            seen.append(str(stmt))
+            return await real_execute(stmt, *args, **kwargs)
+
+        monkeypatch.setattr(db, "execute", execute)
+        result = await keyword_suggest.count_candidates(
+            db, ["java developer", "Spring Boot"]
+        )
+    assert result == {"java developer": None, "Spring Boot": None}
+    assert not any("keyword_fts @@" in sql for sql in seen)
