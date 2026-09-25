@@ -87,19 +87,31 @@ def _decimal(value: Any) -> Optional[Decimal]:
         return None
 
 
+def order_digits(value: Optional[str]) -> str:
+    """Cyfry numeru bez zer wiodących („SAP 0087020188" → „87020188")."""
+    return "".join(_DIGITS.findall(value or "")).lstrip("0")
+
+
+def same_order_number(hint: Optional[str], order_number: str) -> bool:
+    """Czy numer z „Uwag" to DOKŁADNIE ten numer zamówienia (po cyfrach).
+
+    Równość, nie zawieranie się: „2026" z „09/2026" zawiera się w
+    „OIT/0189/2026/ITVM", a „445" w „4450012345" — to inne zamówienia.
+    Numer bez cyfr nie pasuje do niczego.
+    """
+    hint_digits = order_digits(hint)
+    return bool(hint_digits) and hint_digits == order_digits(order_number)
+
+
 def is_foreign_number(hint: Optional[str], order_number: str) -> bool:
     """Czy numer z „Uwag" wskazuje INNE zamówienie niż ``order_number``.
 
-    Porównanie po samych cyfrach („SAP 4500030197" = „4500030197"); brak
-    numeru w arkuszu nie jest obcym numerem.
+    Brak numeru w arkuszu (albo numer zamówienia bez cyfr) nie jest obcym
+    numerem — nie ma czego porównać.
     """
-    if not hint:
+    if not order_digits(hint) or not order_digits(order_number):
         return False
-    hint_digits = "".join(_DIGITS.findall(hint))
-    order_digits = "".join(_DIGITS.findall(order_number or ""))
-    if not hint_digits or not order_digits:
-        return False
-    return hint_digits not in order_digits and order_digits not in hint_digits
+    return not same_order_number(hint, order_number)
 
 
 def build_consumption_view(

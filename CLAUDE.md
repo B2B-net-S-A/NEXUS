@@ -4398,7 +4398,9 @@ osoby w 3 minuty, dwa razy „Zakończono zamówienie").
   wartości nie zostawia wpisu. Wpisy sprzed tej zmiany mają same nazwy pól.
 - **Pola techniczne są w Timeline kontraktu** (`/api/contracts/{id}/activities`
   dokleja wpisy `order_line_fields_changed` z dziennika zamówień, polskie
-  nazwy z `order_history.TECHNICAL_FIELD_LABELS`) — także historyczne.
+  polskie nazwy) — WYŁĄCZNIE wpisy z `payload.technical`. Starsze wpisy
+  wymieniały waluty w `changed` przy każdym zapisie formularza, więc nie
+  dowodzą zmiany i na Timeline nie trafiają.
 - **Okno „Zużycie MD"** (`GET …/consumptions`, `services/md_consumption_view`):
   saldo po miesiącu liczone WSTECZ od dzisiejszego `md_remaining` (ostatni
   wiersz = pasek karty), numer z importu z wierszy `md_consumption_import_rows`
@@ -4408,8 +4410,11 @@ osoby w 3 minuty, dwa razy „Zakończono zamówienie").
   gdy import za ten miesiąc już był).
 - **„Importy MD" na profilu klienta** (`api/client_md_imports.py`, bramka
   karty zamówień): wyłącznie wiersze tego klienta — zaksięgowane na jego
-  linie, z wyborem między jego liniami albo z numerem jego zamówienia; import
-  bez takich wierszy = 404. Rozstrzyganie wierszy zostaje w Finansach.
+  linie, z wyborem między jego liniami albo niezaksięgowane z DOKŁADNIE jego
+  numerem (`md_consumption_view.same_order_number`: równość cyfr, nie
+  zawieranie się — „2026" siedzi w „OIT/0189/2026/ITVM"). Wiersz zaksięgowany
+  u innego klienta nie wychodzi nigdy (kwoty faktur). Import bez takich
+  wierszy = 404. Rozstrzyganie wierszy zostaje w Finansach.
 
 ## Zamówienie MD i zamówienie okresowe to DWA niezależne byty
 

@@ -14,6 +14,7 @@ from app.services.md_consumption_view import (
     ImportRefIn,
     build_consumption_view,
     is_foreign_number,
+    same_order_number,
 )
 
 D = Decimal
@@ -132,3 +133,15 @@ def test_foreign_number_compares_digits_only():
     assert not is_foreign_number(None, "4500030197")
     assert is_foreign_number("4500030845", "4500030197")
     assert not is_foreign_number("0087020188", "87020188")
+    # Zawieranie się cyfr to NIE ten sam numer.
+    assert is_foreign_number("2026", "OIT/0189/2026/ITVM")
+    assert is_foreign_number("4450012345", "445")
+    assert not is_foreign_number("4500030197", "Zamówienie MD")
+
+
+def test_same_order_number_is_exact():
+    assert same_order_number("SAP 4500030197", "4500030197")
+    assert not same_order_number("2026", "OIT/0189/2026/ITVM")
+    assert not same_order_number("4450012345", "445")
+    assert not same_order_number("123", "Zamówienie MD")
+    assert not same_order_number(None, "445")

@@ -179,11 +179,6 @@ def is_technical_label(label: str) -> bool:
     return label in TECHNICAL_LABELS
 
 
-def technical_labels_pl(labels: list[str]) -> list[str]:
-    """Surowe nazwy pól → polskie; etykiety już polskie przechodzą bez zmian."""
-    return [TECHNICAL_FIELD_LABELS.get(label, label) for label in labels]
-
-
 def is_consumption_edit(ev: RawEvent) -> bool:
     return ev.event_type == EVENT_MANUAL_EDIT and _changed(ev.payload) == [
         CONSUMPTION_EDIT_LABEL
@@ -203,21 +198,20 @@ def is_technical_only_edit(ev: RawEvent) -> bool:
 
 
 def technical_changes(ev: RawEvent) -> list[HistoryChange]:
-    """Zmiany pól technicznych jednego wpisu — dla Timeline kontraktu."""
-    payload = ev.payload or {}
-    technical = payload.get("technical")
-    if isinstance(technical, dict):
-        out: list[HistoryChange] = []
-        for label, pair in technical.items():
-            before, after = _pair(pair)
-            out.append(HistoryChange(label=str(label), before=before, after=after))
-        return out
-    return [
-        HistoryChange(label=label)
-        for label in technical_labels_pl(
-            [c for c in (_changed(payload) or []) if is_technical_label(c)]
-        )
-    ]
+    """Zmiany pól technicznych jednego wpisu — dla Timeline kontraktu.
+
+    Wyłącznie wpisy z ``payload.technical`` (od 25.09.2026). Starsze wpisy
+    wymieniały waluty w ``changed`` przy KAŻDYM zapisie formularza (ten odsyła
+    komplet pól), więc nie dowodzą żadnej zmiany — na Timeline byłyby fikcją.
+    """
+    technical = (ev.payload or {}).get("technical")
+    if not isinstance(technical, dict):
+        return []
+    out: list[HistoryChange] = []
+    for label, pair in technical.items():
+        before, after = _pair(pair)
+        out.append(HistoryChange(label=str(label), before=before, after=after))
+    return out
 
 
 def _pair(value: Any) -> tuple[Optional[str], Optional[str]]:

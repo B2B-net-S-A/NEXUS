@@ -51,7 +51,7 @@ from app.models.md_consumption import (
 )
 from app.models.user import User
 from app.schemas.client_order_group import MdValue, MoneyPLN
-from app.services.md_consumption_view import is_foreign_number
+from app.services.md_consumption_view import is_foreign_number, same_order_number
 
 router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
 
@@ -135,6 +135,11 @@ class _ClientScope:
     def touches(self, row: MdConsumptionImportRow) -> bool:
         if self.target_group(row) is not None:
             return True
+        # Wiersz zaksięgowany u INNEGO klienta nigdy nie jest wierszem tego
+        # klienta — niezależnie od numeru w „Uwagach" (przegląd 25.09.2026:
+        # luźne porównanie numerów pokazywało cudze faktury).
+        if row.matched_order_id is not None or row.matched_group_id is not None:
+            return False
         for oid in row.candidate_order_ids or []:
             try:
                 if int(oid) in self.line_group:
@@ -145,7 +150,7 @@ class _ClientScope:
             row.order_number_hint
         ):
             return any(
-                not is_foreign_number(row.order_number_hint, number)
+                same_order_number(row.order_number_hint, number)
                 for number in self.groups.values()
             )
         return False
@@ -236,16 +241,21 @@ async def list_client_md_imports(
             )
         )
     ).all()
+    touched = [row for row in rows if scope.touches(row)]
+    # Stan wiersza liczy TA SAMA reguła co widok szczegółów (z opisem
+    # przyczyny) — inaczej lista i szczegóły podawałyby różne liczby błędów.
+    context = (
+        await _reason_context(db)
+        if any(r.status == IMPORT_ROW_UNMATCHED and r.notes_raw for r in touched)
+        else None
+    )
+    period = {batch.id: batch.period_month for batch, _ in batches}
     by_import: dict[int, list[tuple[MdConsumptionImportRow, RowState]]] = defaultdict(
         list
     )
-    for row in rows:
-        if scope.touches(row):
-            # Lista liczy bez opisu przyczyny (drogi kontekst) — wiersz
-            # niedopasowany z numerem zamówienia klienta to „Błąd" tak czy inaczej.
-            by_import[row.import_id].append(
-                (row, row_state(row, row.status == IMPORT_ROW_UNMATCHED))
-            )
+    for row in touched:
+        reason = _unmatched_reason(row, period.get(row.import_id), context)
+        by_import[row.import_id].append((row, row_state(row, reason is not None)))
     return ClientMdImportListResponse(
         imports=[
             _summary(batch, uploader, by_import[batch.id])

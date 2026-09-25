@@ -348,6 +348,28 @@ async def test_client_md_imports_show_only_this_clients_rows(
                     status="applied",
                     matched_order_id=line_b,
                 ),
+                # Faktura zaksięgowana u klienta B z numerem klienta A w „Uwagach"
+                # — nadal wiersz B (przegląd 25.09.2026: wyciek kwot).
+                MdConsumptionImportRow(
+                    import_id=batch.id,
+                    row_number=5,
+                    consultant_name=other_client_name,
+                    md_reported=Decimal("0"),
+                    status="cost_only",
+                    cost_status="applied",
+                    matched_group_id=group_b["id"],
+                    order_number_hint=group_a["order_number"],
+                    invoice_amount=Decimal("50000"),
+                ),
+                # Numer, w którym numer A tylko SIĘ ZAWIERA, to inny numer.
+                MdConsumptionImportRow(
+                    import_id=batch.id,
+                    row_number=6,
+                    consultant_name=other_client_name,
+                    md_reported=Decimal("3"),
+                    status="unmatched",
+                    order_number_hint=group_a["order_number"] + "1",
+                ),
             ]
         )
         other = MdConsumptionImport(period_month="2026-07", filename="inny.xlsx")

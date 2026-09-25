@@ -330,10 +330,9 @@ def test_a_technical_only_edit_is_not_in_the_history_but_feeds_the_timeline():
         },
     )
     assert history([legacy, new]) == []
-    assert [c.label for c in technical_changes(legacy)] == [
-        "waluta stawki kosztowej",
-        "waluta stawki przychodowej",
-    ]
+    # Stary wpis wymieniał waluty przy każdym zapisie formularza — nie dowodzi
+    # zmiany, więc nie trafia na Timeline.
+    assert technical_changes(legacy) == []
     (change,) = technical_changes(new)
     assert (change.label, change.before, change.after) == (
         "waluta stawki kosztowej",
