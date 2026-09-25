@@ -281,4 +281,14 @@ describe("CandidatesListV2 — „Szukaj ręcznie” z rekrutacji (embed)", () =
     await waitFor(() => expect(showSuccess).toHaveBeenCalled());
     expect(showSuccess.mock.calls[0][0]).toContain("Pominięto:");
   });
+
+  it("filtr „Brał udział w rekrutacji” jest tu zablokowany zdaniem, nie udaje działania", async () => {
+    renderEmbedded();
+    await screen.findByText("Ewa Marczak");
+    const bar = screen.getByRole("region", { name: "Filtry kandydatów" });
+    fireEvent.click(within(bar).getByRole("button", { name: /Historia z nami/ }));
+    expect(await screen.findByTestId("recruitment-filter-locked")).toHaveTextContent(
+      "osoby, które już w niej są, są ukryte",
+    );
+  });
 });

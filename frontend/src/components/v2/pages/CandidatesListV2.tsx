@@ -903,17 +903,20 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
 
  // Data --------------------------------------------------------
  const embedJobId = embed?.jobId ?? null;
- const candidatesApiParams = useMemo(
+ // Filtry, którymi lista NAPRAWDĘ pyta API — w oknie rekrutacji z ukryciem
+ // osób z tej rekrutacji. Te same idą do podglądu (poprzedni/następny)
+ // i linku profilu, inaczej sąsiednia strona pokazałaby osoby z rekrutacji.
+ const queryFilters = useMemo(
  () =>
- candidatesListApiParams(
  candidatesListFiltersForQuery(
  filtersSnapshot,
  embedJobId != null ? { jobId: embedJobId } : null,
  ),
- page,
- candidatesPageSize,
- ),
- [filtersSnapshot, page, candidatesPageSize, embedJobId],
+ [filtersSnapshot, embedJobId],
+ );
+ const candidatesApiParams = useMemo(
+ () => candidatesListApiParams(queryFilters, page, candidatesPageSize),
+ [queryFilters, page, candidatesPageSize],
  );
  const {
  data,
@@ -1560,6 +1563,7 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
       activeCount={totalActiveFilters}
       onClearAll={resetAllFilters}
       resultLabel={isLoading ? undefined : candidatesCountLabel(total)}
+      recruitmentFilterLocked={forJob}
     />
   );
 
@@ -1938,7 +1942,7 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
                             <div className="min-w-0">
                               <div className="flex min-w-0 items-center gap-1.5">
                                 <Link
-                                  href={`/candidates/${candidate.id}?${encodeNavContext(filtersSnapshot, position).toString()}`}
+                                  href={`/candidates/${candidate.id}?${encodeNavContext(queryFilters, position).toString()}`}
                                   onClick={(e) => e.stopPropagation()}
                                   className="min-w-0 truncate font-medium text-foreground hover:text-primary hover:underline"
                                   title={fullName}
@@ -2304,7 +2308,7 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
                 detailPosition <= 0
                   ? undefined
                   : {
-                      filters: filtersSnapshot,
+                      filters: queryFilters,
                       position: detailPosition,
                       pageItems: items.map((c) => ({
                         id: c.id,

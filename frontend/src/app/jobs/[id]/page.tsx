@@ -212,9 +212,7 @@ export default function JobDetailPage() {
   const similarJobs = useSimilarJobs(jobId, canWritePipeline);
   // Ile osób czeka na przepięcie w podpowiadanych (niepołączonych) podobnych
   // rekrutacjach — nagłówek, pasek w „Nowych” i „Najbliższy krok”.
-  const similarPeopleCount = Array.isArray(similarJobs.data?.suggestions)
-    ? similarPeopleWaiting(similarJobs.data.suggestions)
-    : null;
+  const similarPeopleCount = similarPeopleWaiting(similarJobs.data);
   // POST /api/invite-links → RecruiterPlus. Ta sama capability bramkuje akcję
   // na liście ofert — bez niej read-only `user` widział tu przycisk wiodący
   // prosto w 403 (audyt F-19).

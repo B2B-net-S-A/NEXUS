@@ -340,6 +340,50 @@ async def sent_counts(db: AsyncSession, job_ids: Iterable[int]) -> dict[int, int
     return {job_id: int(n) for job_id, n in rows}
 
 
+async def reassignable_counts(
+    db: AsyncSession, target_job_id: int, source_job_ids: Iterable[int]
+) -> tuple[dict[int, int], int]:
+    """Ile osób z każdej rekrutacji źródłowej DA SIĘ przepiąć do celu
+    i ile to różnych osób łącznie.
+
+    Ta sama reguła co ``selectable`` w :func:`sent_people`: wiersz
+    w ``REASSIGN_STAGES``, bez zatrudnienia w źródle i bez żadnego wiersza
+    w celu. Na tej liczbie stoją odznaka w nagłówku, pasek w „Nowych”
+    i „Najbliższy krok” — suma ``sent_count`` liczyła też zatrudnionych
+    i obecnych, więc krok potrafił wisieć bez nikogo do przepięcia.
+    """
+    sources = [sid for sid in set(source_job_ids) if sid != target_job_id]
+    if not sources:
+        return {}, 0
+    hired = aliased(CandidateStage)
+    in_target = aliased(CandidateStage)
+    rows = (
+        await db.execute(
+            select(CandidateStage.job_id, CandidateStage.candidate_id)
+            .distinct()
+            .where(
+                CandidateStage.job_id.in_(sources),
+                CandidateStage.stage.in_(REASSIGN_STAGES),
+                ~exists().where(
+                    hired.candidate_id == CandidateStage.candidate_id,
+                    hired.job_id == CandidateStage.job_id,
+                    hired.stage == PipelineStage.hired,
+                ),
+                ~exists().where(
+                    in_target.candidate_id == CandidateStage.candidate_id,
+                    in_target.job_id == target_job_id,
+                ),
+            )
+        )
+    ).all()
+    per_job: dict[int, int] = {}
+    people: set[int] = set()
+    for job_id, candidate_id in rows:
+        per_job[job_id] = per_job.get(job_id, 0) + 1
+        people.add(candidate_id)
+    return per_job, len(people)
+
+
 async def reassign_counts(db: AsyncSession, job_ids: Sequence[int]) -> dict[int, int]:
     from app.models.job_proposal import JobProposal  # noqa: PLC0415
 
@@ -635,14 +679,17 @@ async def propose_selected(
         return 0
     written = await upsert_proposals(db, target_job_id, payload, source="reassign")
     # Rekruter wybrał te osoby teraz — wcześniejsze „Pomiń" tej propozycji
-    # nie może zamienić przepięcia w zwykłe ręczne dodanie.
+    # nie może zamienić przepięcia w zwykłe ręczne dodanie. `added` też:
+    # po „Cofnij” osoby nie ma w celu (wołający sprawdził `selectable`), a
+    # propozycja została `added` — bez tego ponowne przepięcie szło jako
+    # ręczne dodanie, bez rekrutacji źródłowej na karcie.
     await db.execute(
         update(JobProposal)
         .where(
             JobProposal.job_id == target_job_id,
             JobProposal.source == "reassign",
             JobProposal.candidate_id.in_([p["candidate_id"] for p in people]),
-            JobProposal.status == "dismissed",
+            JobProposal.status.in_(("dismissed", "added")),
         )
         .values(
             status="proposed",

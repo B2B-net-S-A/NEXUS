@@ -191,4 +191,37 @@ describe("Panel „Podobne rekrutacje” — przepięcie jednym kliknięciem", (
     expect(screen.getByLabelText("Przepnij z: Analityk Systemowy")).toBeChecked();
     expect(search).toHaveBeenCalledWith(5, "analityk pko");
   });
+
+  it("błąd wczytania ludzi: „Ponów” zamiast wiecznego ładowania i brak przepięcia", async () => {
+    people.mockRejectedValueOnce(new Error("500"));
+    renderPanel();
+    fireEvent.click(screen.getByLabelText("Przepnij z: Analityk 1725"));
+    expect(await screen.findByText(/Nie wczytano osób\./)).toBeInTheDocument();
+    expect(screen.queryByText(/Wczytuję osoby/)).not.toBeInTheDocument();
+    expect(screen.getByTestId("similar-panel-submit")).toBeDisabled();
+    expect(screen.getByTestId("similar-panel-summary")).toHaveTextContent("Ponów");
+
+    fireEvent.click(screen.getByRole("button", { name: "Ponów" }));
+    expect(await screen.findByLabelText("Przepnij Ewa Marczak")).toBeChecked();
+    expect(screen.getByTestId("similar-panel-submit")).toBeEnabled();
+  });
+
+  it("więcej niż 100 osób naraz — przycisk wyłączony z wyjaśnieniem", async () => {
+    people.mockResolvedValue({
+      job_id: 5,
+      jobs: [
+        {
+          job_id: 1725,
+          people: Array.from({ length: 101 }, (_, i) => person({ candidate_id: 100 + i })),
+        },
+      ],
+    });
+    renderPanel();
+    fireEvent.click(screen.getByLabelText("Przepnij z: Analityk 1725"));
+    await screen.findByLabelText("Przepnij Osoba 100");
+    expect(screen.getByTestId("similar-panel-submit")).toBeDisabled();
+    expect(screen.getByTestId("similar-panel-summary")).toHaveTextContent(
+      "najwyżej 100 osób — zaznaczonych jest 101",
+    );
+  });
 });

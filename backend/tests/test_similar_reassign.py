@@ -279,3 +279,63 @@ async def test_reassign_without_people_only_links(
     assert await _links(world["b"]) == {world["a"]}
     # Połączenie działa jak dotąd: wysłani czekają w „Do przejrzenia".
     assert await _process(world["sent"], world["b"]) is None
+
+
+async def test_reassignable_counts_match_selectable_people(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Odznaka i „Najbliższy krok” liczą tylko tych, których da się przepiąć
+    — nie zatrudnionych i nie obecnych już w rekrutacji (przegląd 25.09)."""
+    world = await _world_with_outcomes()
+    async with AsyncSessionLocal() as db:
+        per_job, people = await sim.reassignable_counts(db, world["b"], [world["a"]])
+    assert per_job == {world["a"]: 2}  # w toku + odrzucona przez klienta
+    assert people == 2
+
+    sim.reset_pool_cache()
+    response = await app_client.get(
+        f"/api/jobs/{world['b']}/similar", headers=app_auth_headers
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    item = next(s for s in body["suggestions"] if s["id"] == world["a"])
+    assert item["sent_count"] == 4
+    assert item["reassignable_count"] == 2
+    assert body["reassignable_people"] >= 2
+
+
+async def test_reassign_again_after_undo_stays_a_reassign(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """„Cofnij” zdejmuje osobę z rekrutacji, a propozycja zostaje `added`;
+    ponowne przepięcie nadal zapisuje wejście jako przepięcie."""
+    world = await _world()
+    body = {"job_ids": [world["a"]], "candidate_ids": [world["sent"]]}
+    first = await app_client.post(
+        f"/api/jobs/{world['b']}/similar/reassign", json=body, headers=app_auth_headers
+    )
+    assert first.status_code == 200, first.text
+
+    undo = await app_client.delete(
+        f"/api/candidates/{world['sent']}/recruitments/{world['b']}",
+        headers=app_auth_headers,
+    )
+    assert undo.status_code in (200, 204), undo.text
+    async with AsyncSessionLocal() as db:
+        left = await db.scalar(
+            select(CandidateStage.id).where(
+                CandidateStage.candidate_id == world["sent"],
+                CandidateStage.job_id == world["b"],
+            )
+        )
+    assert left is None  # proces unieważniony, etapów nie ma
+
+    again = await app_client.post(
+        f"/api/jobs/{world['b']}/similar/reassign", json=body, headers=app_auth_headers
+    )
+    assert again.status_code == 200, again.text
+    assert again.json()["added"] == [world["sent"]]
+    process = await _process(world["sent"], world["b"])
+    assert process is not None
+    assert process.entry_source == "reassign"
+    assert process.reassign_from_job_id == world["a"]

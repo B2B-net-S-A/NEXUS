@@ -90,6 +90,10 @@ async def _payload(db: AsyncSession, job: Job) -> dict:
     sent = await sim.sent_counts(db, ids)
     scores = {p.id: score for p, score in suggestions}
     reassigned = (await sim.reassign_counts(db, [job.id])).get(job.id, 0)
+    suggested_ids = [p.id for p, _ in suggestions]
+    reassignable, reassignable_people = await sim.reassignable_counts(
+        db, job.id, suggested_ids
+    )
 
     def item(job_id: int, linked: bool) -> Optional[dict]:
         brief = briefs.get(job_id)
@@ -99,12 +103,16 @@ async def _payload(db: AsyncSession, job: Job) -> dict:
             **brief,
             "similarity": scores.get(job_id),
             "sent_count": sent.get(job_id, 0),
+            "reassignable_count": reassignable.get(job_id, 0),
             "linked": linked,
         }
 
     return {
         "job_id": job.id,
         "reassigned_count": reassigned,
+        # Różne osoby do przepięcia z niepołączonych podpowiedzi — nagłówek,
+        # pasek w „Nowych” i „Najbliższy krok”.
+        "reassignable_people": reassignable_people,
         "linked": [x for x in (item(i, True) for i in linked_ids) if x],
         "suggestions": [x for x in (item(p.id, False) for p, _ in suggestions) if x],
     }

@@ -116,8 +116,8 @@ interface JobDetailCompactHeaderProps {
   /** Sugerowane podobne (niepołączone) — odznaka „≈ N". */
   similarSuggestedCount?: number | null;
   /**
-   * Ile osób wysłano do klienta w podpowiadanych (niepołączonych) podobnych
-   * rekrutacjach — odznaka „N u klienta” (panel przepięć, 25.09.2026).
+   * Ile osób z podpowiadanych (niepołączonych) podobnych rekrutacji da się
+   * przepiąć — odznaka „N do przepięcia” (panel przepięć, 25.09.2026).
    */
   similarPeopleCount?: number | null;
   /**
@@ -501,7 +501,7 @@ export function JobDetailCompactHeader({
                 Podobne rekrutacje
                 {similarPeopleCount ? (
                   <Badge size="sm" variant="info" className="tabular-nums">
-                    {similarPeopleCount} u klienta
+                    {similarPeopleCount} do przepięcia
                   </Badge>
                 ) : similarLinkedCount ? (
                   <Badge size="sm" variant="info" className="tabular-nums">

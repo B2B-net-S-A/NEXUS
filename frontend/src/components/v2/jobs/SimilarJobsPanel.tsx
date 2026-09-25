@@ -39,6 +39,7 @@ import {
   useUnlinkSimilarJob,
 } from "@/lib/similar-jobs-api";
 import {
+  MAX_REASSIGN_PEOPLE,
   personStatusLine,
   planReassign,
   pluralJobs,
@@ -101,7 +102,12 @@ export function SimilarJobsPanel({
   chosen.forEach((otherId, index) => {
     peopleByJob[otherId] = peopleQueries[index]?.data;
   });
-  const loadingPeople = peopleQueries.some((query) => query.isLoading);
+  // Przepinamy dopiero, gdy znamy ludzi KAŻDEJ zaznaczonej rekrutacji —
+  // grupa w błędzie albo w toku wypadłaby z planu po cichu.
+  const peopleNotReady = peopleQueries.some((query) => query.data === undefined);
+  const peopleFailed = peopleQueries.some(
+    (query) => query.isError && query.data === undefined,
+  );
   const plan = planReassign(chosen, peopleByJob, excluded);
   const count = plan.candidateIds.length;
 
@@ -182,8 +188,12 @@ export function SimilarJobsPanel({
     }
   };
 
-  const summaryText =
-    chosen.length === 0
+  const tooMany = count > MAX_REASSIGN_PEOPLE;
+  const summaryText = peopleFailed
+    ? "Nie wczytano osób z jednej z zaznaczonych rekrutacji — kliknij „Ponów” przy niej albo ją odznacz."
+    : tooMany
+      ? `Naraz da się przepiąć najwyżej ${MAX_REASSIGN_PEOPLE} osób — zaznaczonych jest ${count}. Odznacz część albo przepnij rekrutacje po kolei.`
+      : chosen.length === 0
       ? "Kliknij rekrutację — zaznaczymy wszystkich wysłanych w niej do klienta."
       : count > 0
         ? `${count === 1 ? "1 osoba" : `${count} ${pluralPeople(count)}`} z ${chosen.length} rekrutacji. Połączone rekrutacje przepną kolejne wysłane osoby same.`
@@ -193,7 +203,8 @@ export function SimilarJobsPanel({
   const submitDisabled =
     readOnly ||
     chosen.length === 0 ||
-    loadingPeople ||
+    peopleNotReady ||
+    tooMany ||
     reassign.isPending ||
     (count === 0 && newLinks.length === 0);
 
@@ -204,9 +215,17 @@ export function SimilarJobsPanel({
       checked={chosen.includes(item.id)}
       onToggle={() => toggleJob(item.id)}
       rows={plan.rows[item.id]}
-      loading={chosen.includes(item.id) && peopleByJob[item.id] === undefined}
-      error={peopleQueries[chosen.indexOf(item.id)]?.isError ?? false}
-      onRetry={() => qc.invalidateQueries({ queryKey: similarPeopleKey(jobId, item.id) })}
+      loading={
+        chosen.includes(item.id) &&
+        peopleByJob[item.id] === undefined &&
+        !peopleQueries[chosen.indexOf(item.id)]?.isError
+      }
+      error={
+        chosen.includes(item.id) &&
+        peopleByJob[item.id] === undefined &&
+        Boolean(peopleQueries[chosen.indexOf(item.id)]?.isError)
+      }
+      onRetry={() => qc.refetchQueries({ queryKey: similarPeopleKey(jobId, item.id) })}
       onTogglePerson={togglePerson}
       onUnlink={item.linked && !readOnly ? () => unlink.mutate(item.id) : undefined}
       unlinking={unlink.isPending}

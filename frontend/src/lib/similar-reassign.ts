@@ -13,7 +13,10 @@
  * klikniętej.
  */
 
-import type { SentOutcome, SentPerson, SimilarJobItem } from "@/lib/similar-jobs-api";
+import type { SentOutcome, SentPerson, SimilarJobsPayload } from "@/lib/similar-jobs-api";
+
+/** Sufit jednego przepięcia — lustro `candidate_ids` (≤ 100) w API. */
+export const MAX_REASSIGN_PEOPLE = 100;
 
 export type PersonRowState = "selected" | "unselected" | "locked" | "duplicate";
 
@@ -53,14 +56,16 @@ export function planReassign(
 }
 
 /**
- * Ile osób wysłano do klienta w podpowiadanych, jeszcze niepołączonych
- * podobnych rekrutacjach. Górna granica: serwer liczy też zatrudnionych
- * i obecnych już w tej rekrutacji — dokładną listę pokazuje panel.
+ * Ile RÓŻNYCH osób z podpowiadanych, niepołączonych rekrutacji da się
+ * przepiąć tutaj — liczy serwer tą samą regułą co panel (bez zatrudnionych
+ * i obecnych w rekrutacji). `null` = nie wiadomo (stary serwer, brak danych):
+ * nagłówek, pasek i „Najbliższy krok” wtedy milczą.
  */
-export function similarPeopleWaiting(suggestions: readonly SimilarJobItem[]): number {
-  return suggestions
-    .filter((item) => !item.linked)
-    .reduce((sum, item) => sum + (item.sent_count > 0 ? item.sent_count : 0), 0);
+export function similarPeopleWaiting(
+  payload: Pick<SimilarJobsPayload, "reassignable_people"> | null | undefined,
+): number | null {
+  const n = payload?.reassignable_people;
+  return typeof n === "number" && n >= 0 ? n : null;
 }
 
 /** Ile osób z tej rekrutacji da się przepiąć (nagłówek grupy). */

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { SentPerson, SimilarJobItem } from "@/lib/similar-jobs-api";
+import type { SentPerson } from "@/lib/similar-jobs-api";
 import {
   personStatusLine,
   planReassign,
@@ -16,20 +16,6 @@ function person(overrides: Partial<SentPerson> & { candidate_id: number }): Sent
     outcome: "in_progress",
     already_in_job: false,
     selectable: true,
-    ...overrides,
-  };
-}
-
-function job(overrides: Partial<SimilarJobItem> & { id: number }): SimilarJobItem {
-  return {
-    title: `Rekrutacja ${overrides.id}`,
-    reference_number: null,
-    status: "closed",
-    closed_at: null,
-    client_name: "PKO BP",
-    similarity: 70,
-    sent_count: 0,
-    linked: false,
     ...overrides,
   };
 }
@@ -98,14 +84,12 @@ describe("planReassign — kliknięta rekrutacja zaznacza swoich wysłanych", ()
 });
 
 describe("similarPeopleWaiting", () => {
-  it("sumuje wysłanych tylko w niepołączonych podpowiedziach", () => {
-    expect(
-      similarPeopleWaiting([
-        job({ id: 1, sent_count: 3 }),
-        job({ id: 2, sent_count: 2, linked: true }),
-        job({ id: 3, sent_count: 0 }),
-      ]),
-    ).toBe(3);
+  it("bierze liczbę osób do przepięcia policzoną przez serwer, nie sumę wysłanych", () => {
+    expect(similarPeopleWaiting({ reassignable_people: 3 })).toBe(3);
+    expect(similarPeopleWaiting({ reassignable_people: 0 })).toBe(0);
+    // Brak liczby = nie wiadomo; nagłówek i „Najbliższy krok” milczą.
+    expect(similarPeopleWaiting({})).toBeNull();
+    expect(similarPeopleWaiting(undefined)).toBeNull();
   });
 });
 

@@ -23,12 +23,16 @@ export interface SimilarJobItem {
   similarity: number | null;
   /** Ile różnych osób dotarło tam do klienta (od „CV wysłane"). */
   sent_count: number;
+  /** Ilu z nich da się przepiąć tutaj (bez zatrudnionych i obecnych). */
+  reassignable_count?: number;
   linked: boolean;
 }
 
 export interface SimilarJobsPayload {
   job_id: number;
   reassigned_count: number;
+  /** Różne osoby do przepięcia z niepołączonych podpowiedzi (serwer). */
+  reassignable_people?: number;
   linked: SimilarJobItem[];
   suggestions: SimilarJobItem[];
 }

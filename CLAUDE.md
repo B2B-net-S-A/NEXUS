@@ -2736,7 +2736,9 @@ trzy tryby z 21.09 (Baza / Wyszukiwanie / Z treści requestu).
   „Mile widziane”, pierwsze miasto, kategoria, status bez czarnej listy),
   NIGDY z adresu strony rekrutacji. Osoby już w rekrutacji ukrywa zapytanie
   (`recruitment_match=not_assigned`, `candidatesListFiltersForQuery`) — poza
-  chipami i „Wyczyść”. Dochodzi kolumna „Dop.” (`jobOnly`, osobny klucz
+  chipami i „Wyczyść”; te same filtry idą do podglądu i linku profilu, a
+  filtr „Brał udział w rekrutacji” jest tu zablokowany zdaniem
+  (`recruitmentFilterLocked`), bo zapytanie i tak by go nadpisało. Dochodzi kolumna „Dop.” (`jobOnly`, osobny klucz
   kolumn `candidates-table-job-search`, telefon domyślnie schowany, żeby
   „Dodaj” mieściło się w oknie), a „Dodaj” / „Dodaj N do Nowych” woła
   `proposals/bulk` ze źródłem `manual_search`. Świadomie odpadły: przypięte
@@ -3033,12 +3035,17 @@ Serwis `services/job_similarity.py`, trasy `api/job_similar.py`.
   wybrać. `POST …/similar/reassign` w jednej transakcji: sprawdza, że każda
   osoba jest `selectable` (inaczej 422 i zero zapisu), łączy rekrutacje,
   zapisuje propozycję `reassign` w statusie `proposed` (`propose_selected`,
-  wskrzesza pominiętą — wejście dostaje `entry_source=reassign`)
+  wskrzesza pominiętą i `added` po „Cofnij” — wejście dostaje
+  `entry_source=reassign`)
   i dodaje do „Nowych” ścieżką „Biorę” (blokada 12 h, weto HM = pominięcie).
   „Cofnij” w komunikacie zdejmuje dodanych i rozłącza nowe połączenia
   (propozycje zostają `added` — świadomie). `?tab=similar` z powiadomień
   o propozycjach AI zostaje przy „Do przejrzenia”, nie przy panelu. Pasek
-  w „Nowych” i reguła „Najbliższego kroku” `similar` tylko otwierają panel.
+  w „Nowych”, odznaka „N do przepięcia” i reguła „Najbliższego kroku”
+  `similar` tylko otwierają panel i liczą `reassignable_people` z GET
+  `/similar` (`sim.reassignable_counts` — ta sama reguła co `selectable`;
+  suma `sent_count` liczyła zatrudnionych i obecnych, więc krok wisiał bez
+  nikogo do przepięcia). Jedno przepięcie: najwyżej 100 osób.
   Karta niesie `reassign_from_reference` („↻ z ZOB-1725”).
 - **Sugestie są deterministyczne**: must-have (Jaccard) 0,55 + tytuł 0,30 +
   ta sama kategoria 0,15, próg 55; **ten sam klient liczy się jak ta sama
