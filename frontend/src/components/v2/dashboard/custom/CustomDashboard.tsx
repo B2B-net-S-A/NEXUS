@@ -35,6 +35,7 @@ import {
 import {
   TILE_DEFINITIONS,
   TILE_TEMPLATES,
+  announcedTile,
   recommendedTemplates,
   type TileTemplate,
 } from "@/lib/dashboard-tiles/catalog"
@@ -42,6 +43,7 @@ import {
   MAX_TILES,
   appendTemplates,
   duplicateTile,
+  prependTemplate,
   removeTile,
 } from "@/lib/dashboard-tiles/layout"
 import { useAuthStore } from "@/store/auth"
@@ -53,6 +55,25 @@ import { TileCatalogSheet } from "./TileCatalogSheet"
 import { TileSettingsDialog } from "./TileSettingsDialog"
 
 const CONTACT_OVERSIGHT_HASH = "#nadzor-kontaktu"
+const ANNOUNCED_DISMISS_KEY = "nexus:dashboardAnnouncedDismissed:v1"
+
+function readDismissed(): Set<string> {
+  try {
+    const raw = window.localStorage.getItem(ANNOUNCED_DISMISS_KEY)
+    const parsed: unknown = raw ? JSON.parse(raw) : []
+    return new Set(Array.isArray(parsed) ? parsed.filter((v) => typeof v === "string") : [])
+  } catch {
+    return new Set()
+  }
+}
+
+function writeDismissed(values: Set<string>) {
+  try {
+    window.localStorage.setItem(ANNOUNCED_DISMISS_KEY, JSON.stringify([...values]))
+  } catch {
+    // Brak pamięci przeglądarki: baner wróci przy następnym wejściu — to wszystko.
+  }
+}
 /** `?panel=nadzor-kontaktu` — link alertów SLA (FE-N09); hash zostaje dla starych. */
 export const CONTACT_OVERSIGHT_PANEL = "nadzor-kontaktu"
 
@@ -114,6 +135,14 @@ export function CustomDashboard() {
   const [catalogOpen, setCatalogOpen] = useState(false)
   const [dialog, setDialog] = useState<Dialog>(null)
   const [oversightFromAlert, setOversightFromAlert] = useState(false)
+  // Odrzucone ogłoszenia nowych kafelków — pamięć przeglądarki, czytana po
+  // hydracji (inaczej serwer i klient renderowałyby różny baner).
+  const [dismissed, setDismissed] = useState<Set<string>>(() => new Set())
+  const [dismissedLoaded, setDismissedLoaded] = useState(false)
+  useEffect(() => {
+    setDismissed(readDismissed())
+    setDismissedLoaded(true)
+  }, [])
   // Każde kliknięcie alertu przewija do panelu na nowo.
   const [oversightRequest, setOversightRequest] = useState(0)
   const openOversight = useCallback(() => {
@@ -291,6 +320,16 @@ export function CustomDashboard() {
   }
 
   const recommended = recommendedTemplates(user)
+  const announced =
+    dismissedLoaded && query.isSuccess && saved.length > 0 && !editing
+      ? announcedTile(user, saved, dismissed)
+      : null
+  const dismissAnnounced = (type: string) => {
+    const next = new Set(dismissed)
+    next.add(type)
+    setDismissed(next)
+    writeDismissed(next)
+  }
   const dropped = query.data?.dropped_tiles ?? []
 
   return (
@@ -366,6 +405,35 @@ export function CustomDashboard() {
           <Button size="sm" onClick={saveEditing} disabled={save.isPending}>
             <Check className="h-4 w-4" />
             Zapisz układ
+          </Button>
+        </div>
+      ) : null}
+
+      {announced ? (
+        <div
+          role="status"
+          className="flex flex-wrap items-center gap-3 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm"
+        >
+          <p className="min-w-0 flex-1 text-foreground">
+            <strong className="font-semibold">Nowy kafelek: {announced.label}.</strong>{" "}
+            <span className="text-muted-foreground">{announced.description}</span>
+          </p>
+          <Button
+            size="sm"
+            disabled={busy}
+            onClick={() => {
+              if (tiles.length >= MAX_TILES) {
+                showError(`Pulpit mieści najwyżej ${MAX_TILES} kafelków.`)
+                return
+              }
+              commit(prependTemplate(tiles, announced), "Dodano na górę pulpitu.")
+            }}
+          >
+            <Plus className="h-4 w-4" />
+            Dodaj na górę pulpitu
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => dismissAnnounced(announced.type)}>
+            Nie teraz
           </Button>
         </div>
       ) : null}

@@ -561,7 +561,13 @@ const RECOMMENDED_BY_ROLE: Partial<Record<UserRole, string[]>> = {
     "calendar_today",
   ],
   finance: ["margin_monthly", "margin_by_client", "active_contracts", "orders_ending"],
-  admin: ["recruitment_competence", "orders_ending", "active_contracts", "margin_monthly"],
+  admin: [
+    "request_board",
+    "recruitment_competence",
+    "orders_ending",
+    "active_contracts",
+    "margin_monthly",
+  ],
 };
 
 // Kolejność ról: pierwsza pasująca decyduje (konto wielorolowe dostaje
@@ -628,6 +634,29 @@ export function recommendedTemplates(user: User | null | undefined): {
     .filter((t): t is TileTemplate => Boolean(t))
     .filter((t) => templateAvailability(t, user).ok);
   return { roleLabel: role ? (ROLE_LABELS_PL[role] ?? null) : null, templates };
+}
+
+/**
+ * Nowe kafelki, o których mówimy osobom z JUŻ ułożonym pulpitem — polecenia
+ * roli widzi tylko pusty pulpit, więc bez tego nowość nie dociera do nikogo
+ * (24.09.2026: „Requesty i obłożenie” wdrożone, na 5 pulpitach 0 kafelków).
+ */
+export const ANNOUNCED_TILES: TileType[] = ["request_board"];
+
+/** Pierwszy ogłaszany kafelek polecany tej roli, którego nie ma na pulpicie. */
+export function announcedTile(
+  user: User | null | undefined,
+  tiles: Pick<DashboardTile, "type">[],
+  dismissed: ReadonlySet<string>,
+): TileTemplate | null {
+  const recommended = recommendedTemplates(user).templates;
+  for (const type of ANNOUNCED_TILES) {
+    if (dismissed.has(type)) continue;
+    if (tiles.some((t) => t.type === type)) continue;
+    const template = recommended.find((t) => t.type === type);
+    if (template) return template;
+  }
+  return null;
 }
 
 export function tileTitle(tile: Pick<DashboardTile, "type" | "config">): string {

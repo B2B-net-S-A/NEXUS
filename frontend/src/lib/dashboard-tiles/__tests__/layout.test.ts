@@ -123,3 +123,21 @@ describe("etykiety ustawień", () => {
     );
   });
 });
+
+describe("prependTemplate", () => {
+  it("stawia kafelek na górze pełną szerokością i przesuwa resztę w dół", async () => {
+    const { prependTemplate } = await import("@/lib/dashboard-tiles/layout");
+    const { TILE_TEMPLATES } = await import("@/lib/dashboard-tiles/catalog");
+    const template = TILE_TEMPLATES.find((t) => t.key === "request_board")!;
+    const existing = [
+      { id: "a", type: "note", x: 0, y: 0, w: 6, h: 2, config: {} },
+      { id: "b", type: "calendar_today", x: 6, y: 1, w: 6, h: 3, config: {} },
+    ] as never;
+    const out = prependTemplate(existing, template);
+    expect(out[0]).toMatchObject({ type: "request_board", x: 0, y: 0, w: 12, h: 8 });
+    expect(out.slice(1).map((t) => [t.id, t.x, t.y])).toEqual([
+      ["a", 0, 8],
+      ["b", 6, 9],
+    ]);
+  });
+});

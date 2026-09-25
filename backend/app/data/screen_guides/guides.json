@@ -35,7 +35,7 @@
       "Pusta lista w zakresie „Moje” nie znaczy, że rekrutacji nie ma — przełącz na „Otwarte” albo „Wszystkie”.",
       "Kolumna „Etapy” ma te same 8 kolumn co tablica (skróty w nagłówku, pełna nazwa po najechaniu).",
       "Sortowanie „Wymaga uwagi” stawia na górze rekrutacje z największą liczbą kandydatów czekających na Twój ruch.",
-      "„Do przejrzenia”, „Szukamy” i „Klient milczy” to stan nadany przez Delivery Leada w „Porządku w requestach”; ten sam stan stoi w wierszu listy. Rekrutacje obsadzone i zakończone nie mają osobnego stanu nad listą — są pod „Wszystkie”."
+      "„Do przejrzenia”, „Szukamy” i „Klient milczy” to stan nadany przez Delivery Leada w „Porządku w requestach” (przycisk nad listą, widzą go DL, Head of Recruitment i admin); ten sam stan stoi w wierszu listy. Rekrutacje obsadzone i zakończone nie mają osobnego stanu nad listą — są pod „Wszystkie”."
     ],
     "anchors": [
       {"id": "jobs.list.scope", "label": "Moje / Otwarte / Wszystkie", "describe": "Przełącznik zakresu listy rekrutacji z licznikami."},
