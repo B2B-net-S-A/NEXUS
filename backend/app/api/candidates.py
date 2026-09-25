@@ -2435,10 +2435,13 @@ async def list_candidates(
         # Strip detail-only sync/snapshot state from list responses. Identity
         # ownership carries source values used by the editor and would only
         # bloat every candidate tile; detail/mutation responses keep it.
+        # `cv_extracted_data` (cały odczyt CV) czyta wyłącznie profil — na
+        # liście był ~⅔ odpowiedzi (25.09.2026: 267 z 409 KB na 25 osób).
         payload = payload.model_copy(
             update={
                 "linkedin_snapshots": None,
                 "identity_sync": None,
+                "cv_extracted_data": None,
                 "has_cv_document": cand.id in candidates_with_cv,
             }
         )
