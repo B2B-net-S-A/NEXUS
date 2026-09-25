@@ -3,7 +3,7 @@
 import { Loader2 } from "lucide-react";
 
 import { Checkbox } from "@/components/ui/checkbox";
-import type { OrderPdfRef } from "@/lib/api/finance";
+import type { InvoiceLine, OrderPdfRef } from "@/lib/api/finance";
 import {
   doneLabel,
   type BoardCardItem,
@@ -11,6 +11,8 @@ import {
 } from "@/lib/finance-order-board";
 import { formatMoment } from "@/lib/finance-order-changes";
 import { cn } from "@/lib/utils";
+
+import { InvoiceLinesField } from "./InvoiceLinesField";
 
 export function pdfKey(pdf: Pick<OrderPdfRef, "kind" | "id">): string {
   return `${pdf.kind}:${pdf.id}`;
@@ -27,6 +29,7 @@ export function ChangeRow({
   onToggle,
   compact = false,
   tabLabel,
+  onSaveInvoiceLine,
 }: {
   entry: BoardCardItem;
   canCheck: boolean;
@@ -34,6 +37,12 @@ export function ChangeRow({
   onToggle: (item: BoardItem, done: boolean) => void;
   compact?: boolean;
   tabLabel?: string;
+  /** Nordea: zapis ręcznej poprawki pozycji faktury; `true` = zapisano. */
+  onSaveInvoiceLine?: (
+    item: BoardItem,
+    line: InvoiceLine,
+    text: string,
+  ) => Promise<boolean>;
 }) {
   const { item, earlier } = entry;
   const done = item.done;
@@ -93,6 +102,19 @@ export function ChangeRow({
           <p className="mt-0.5 text-xs text-muted-foreground">
             {[item.enteredAt, item.enteredBy].filter(Boolean).join(" · ")}
           </p>
+        ) : null}
+        {/* Nordea: pozycja faktury pod „Nowe zamówienie” — należy do
+            zamówienia, więc zostaje także po „Zrobione” (ticket 8). */}
+        {!compact && item.invoiceLines?.length ? (
+          <InvoiceLinesField
+            lines={item.invoiceLines}
+            canSave={canCheck}
+            onSave={
+              onSaveInvoiceLine
+                ? (line, text) => onSaveInvoiceLine(item, line, text)
+                : undefined
+            }
+          />
         ) : null}
         {earlier.map((previous, index) => (
           <p key={index} className="mt-0.5 text-xs text-muted-foreground">

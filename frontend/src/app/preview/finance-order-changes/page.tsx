@@ -29,6 +29,7 @@ import {
   cardItemsAllTabs,
   statusCounts,
   withCheck,
+  withInvoiceLines,
   type StatusFilter,
 } from "@/lib/finance-order-board";
 import { monthOptions } from "@/lib/finance-order-changes";
@@ -50,7 +51,7 @@ const ref = (id: number, consultant: string, client: string, number: string) => 
 
 const DATA: OrderChangesResponse = {
   period: { year: 2026, month: 9, label: "Wrzesień 2026" },
-  counts: { changes: 6, entries: 2, exits: 2, ending: 2, gaps: 2 },
+  counts: { changes: 6, entries: 4, exits: 2, ending: 2, gaps: 2 },
   changes: [
     {
       ...ref(1, "Jan Nowak", "Bank Przykładowy S.A.", "NB-2291"),
@@ -227,6 +228,54 @@ const DATA: OrderChangesResponse = {
       currency: "PLN",
       order_type: "periodic",
       status: "draft",
+    },
+    // Nordea (ticket 8): gotowa pozycja faktury — pełna i z brakami.
+    {
+      ...ref(21, "Ewa Przykładowa", "Nordea Bank Abp", "299001"),
+      start_date: "2026-09-14",
+      end_date: "2027-03-12",
+      rate_cost: 110,
+      rate_revenue: 135,
+      rate_unit: "hourly",
+      currency: "PLN",
+      order_type: "periodic",
+      status: "active",
+      invoice_lines: [
+        {
+          index: 0,
+          consultant: "Ewa Przykładowa",
+          text: "NIDS: 2099-000123, IT Retail Banking, Nordea Contact: Jan Testowy, Contractor: Ewa Przykładowa ID:",
+          edited_by_name: null,
+          edited_at: null,
+        },
+      ],
+    },
+    {
+      ...ref(22, "Karol Demo", "Nordea Bank Abp", "299002"),
+      start_date: "2026-09-21",
+      end_date: "2026-12-31",
+      rate_cost: 120,
+      rate_revenue: 150,
+      rate_unit: "hourly",
+      currency: "PLN",
+      order_type: "periodic",
+      status: "active",
+      invoice_lines: [
+        {
+          index: 0,
+          consultant: "Karol Demo",
+          text: "NIDS: [brak], IT Retail Banking, Nordea Contact: Jan Testowy, Contractor: Karol Demo ID:",
+          edited_by_name: null,
+          edited_at: null,
+        },
+        {
+          index: 1,
+          consultant: "Maja Przykład",
+          text: "NIDS: [brak], IT Retail Banking, Nordea Contact: Jan Testowy, Contractor: Maja Przykład ID:",
+          edited_by_name: null,
+          edited_at: null,
+        },
+      ],
     },
   ],
   // Zejścia = zapisany koniec współpracy. Zamówienia bez kontynuacji = zamówienie
@@ -426,6 +475,7 @@ export default function FinanceOrderChangesPreview() {
       <option value="">Wszyscy klienci</option>
       <option value="Bank Przykładowy S.A.">Bank Przykładowy S.A.</option>
       <option value="Telekom Demo">Telekom Demo</option>
+      <option value="Nordea Bank Abp">Nordea Bank Abp</option>
     </select>
   );
 
@@ -456,6 +506,21 @@ export default function FinanceOrderChangesPreview() {
                       : null,
                   ),
                 ),
+              onSaveInvoiceLine: async (item, line, text) => {
+                const orderId = item.orderId;
+                if (orderId == null) return false;
+                setData((current) =>
+                  withInvoiceLines(current, orderId, [
+                    {
+                      ...line,
+                      text,
+                      edited_by_name: "Ty (podgląd)",
+                      edited_at: new Date().toISOString(),
+                    },
+                  ]),
+                );
+                return true;
+              },
               pendingKeys: new Set(),
               onDownloadPdf: () => undefined,
               downloadingPdf: null,

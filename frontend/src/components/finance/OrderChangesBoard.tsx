@@ -20,6 +20,7 @@ import {
 
 import { Badge } from "@/components/ui/badge";
 import type {
+  InvoiceLine,
   OrderChangesResponse,
   OrderChangesTab,
   OrderPdfRef,
@@ -53,6 +54,12 @@ export interface OrderChangesBoardProps {
   selectedClient: string | null;
   onSelectClient: (key: string) => void;
   onToggle: (item: BoardItem, done: boolean) => void;
+  /** Nordea, Wejścia: zapis ręcznej poprawki pozycji faktury (ticket 8). */
+  onSaveInvoiceLine?: (
+    item: BoardItem,
+    line: InvoiceLine,
+    text: string,
+  ) => Promise<boolean>;
   /** Pozycje, których zapis odhaczenia właśnie trwa. */
   pendingKeys: ReadonlySet<string>;
   onDownloadPdf: (pdf: OrderPdfRef) => void;
@@ -82,6 +89,7 @@ export function OrderChangesBoard({
   selectedClient,
   onSelectClient,
   onToggle,
+  onSaveInvoiceLine,
   pendingKeys,
   onDownloadPdf,
   downloadingPdf,
@@ -156,6 +164,7 @@ export function OrderChangesBoard({
           canCheck={canCheck}
           pendingKeys={pendingKeys}
           onToggle={onToggle}
+          onSaveInvoiceLine={onSaveInvoiceLine}
           onPreview={() => onPreviewCard(card.key)}
           onDownload={() => card.pdf && onDownloadPdf(card.pdf)}
           downloading={Boolean(card.pdf && downloadingPdf === pdfKey(card.pdf))}
@@ -325,6 +334,7 @@ function OrderCard({
   canCheck,
   pendingKeys,
   onToggle,
+  onSaveInvoiceLine,
   onPreview,
   onDownload,
   downloading,
@@ -334,6 +344,7 @@ function OrderCard({
   canCheck: boolean;
   pendingKeys: ReadonlySet<string>;
   onToggle: (item: BoardItem, done: boolean) => void;
+  onSaveInvoiceLine?: OrderChangesBoardProps["onSaveInvoiceLine"];
   onPreview: () => void;
   onDownload: () => void;
   downloading: boolean;
@@ -437,6 +448,7 @@ function OrderCard({
               canCheck={canCheck}
               pending={pendingKeys.has(entry.item.key)}
               onToggle={onToggle}
+              onSaveInvoiceLine={onSaveInvoiceLine}
             />
           ))}
         </ul>

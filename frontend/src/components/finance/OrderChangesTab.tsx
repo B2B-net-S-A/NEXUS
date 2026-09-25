@@ -13,6 +13,7 @@ import {
   financeApi,
   orderChangesExportPath,
   orderPdfFilePath,
+  type InvoiceLine,
   type OrderChangesResponse,
   type OrderPdfRef,
 } from "@/lib/api/finance";
@@ -27,6 +28,7 @@ import {
   cardItemsAllTabs,
   statusCounts,
   withCheck,
+  withInvoiceLines,
   type BoardItem,
   type StatusFilter,
 } from "@/lib/finance-order-board";
@@ -309,6 +311,38 @@ export function OrderChangesTab({
     }
   }
 
+  async function saveInvoiceLine(
+    item: BoardItem,
+    line: InvoiceLine,
+    text: string,
+  ): Promise<boolean> {
+    if (item.orderId == null) return false;
+    try {
+      const { data } = await financeApi.updateInvoiceLine(item.orderId, {
+        index: line.index,
+        text,
+      });
+      // Karta pokazuje od razu zapisany tekst — bez czekania na odczyt.
+      queryClient.setQueryData<OrderChangesResponse>(queryKey, (previous) =>
+        previous
+          ? withInvoiceLines(previous, data.order_id, data.lines)
+          : previous,
+      );
+      showToast("Zapisano pozycję faktury.", "success");
+      return true;
+    } catch (error) {
+      showToast(
+        apiErrorMessage(error, "Nie udało się zapisać pozycji faktury."),
+        "error",
+      );
+      return false;
+    } finally {
+      void queryClient.invalidateQueries({
+        queryKey: ["finance-order-changes"],
+      });
+    }
+  }
+
   async function downloadPdf(pdf: OrderPdfRef) {
     if (downloadingPdf) return;
     setDownloadingPdf(pdfKey(pdf));
@@ -336,6 +370,7 @@ export function OrderChangesTab({
       sync({ tile: next });
     },
     onToggle: toggle,
+    onSaveInvoiceLine: saveInvoiceLine,
     pendingKeys,
     onDownloadPdf: downloadPdf,
     downloadingPdf,

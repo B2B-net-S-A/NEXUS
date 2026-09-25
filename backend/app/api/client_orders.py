@@ -94,7 +94,7 @@ from app.schemas.new_contractor_order import (
     NewContractorOrderRequest,
     NewContractorOrderResponse,
 )
-from app.services import storage_service
+from app.services import nordea_invoice_lines, storage_service
 from app.services.order_gaps import close_gaps_of_deleted_orders
 from app.services.shared_md_orders import client_uses_shared_md_pool
 from app.services.order_continuation import ending_without_successor
@@ -339,6 +339,11 @@ def _attach_po_bytes(
     order.size_bytes = size
     order.file_uploaded_by = user.id
     order.file_uploaded_at = datetime.now(timezone.utc)
+    # Nordea: pozycja faktury cyklicznej z tego dokumentu (ticket 8). Błąd
+    # odczytu nie zatrzymuje uploadu — formułę dosypie pętla ``order_gaps``.
+    nordea_invoice_lines.refresh_on_upload(
+        order, storage_service.get_client_order_po_path(rel_path)
+    )
     return previous if previous and previous != rel_path else None
 
 
@@ -3695,6 +3700,7 @@ async def delete_order_po(
     previous_filename = order.filename
     order.filename = None
     order.file_path = None
+    nordea_invoice_lines.clear_on_file_delete(order)
     order.content_type = None
     order.size_bytes = None
     order.file_uploaded_by = None
