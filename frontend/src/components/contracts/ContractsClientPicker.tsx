@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { filterClients, type ClientRef } from "@/lib/contract-client-filter";
+import { PickerQueryState } from "@/components/v2/filters/PickerQueryState";
 
 export type { ClientRef };
 
@@ -78,11 +79,17 @@ export function ContractsClientPicker({ value, onChange }: Props) {
               onValueChange={setQuery}
             />
             <CommandList>
-              {clientsQuery.isLoading ? (
-                <div className="p-3 text-sm text-muted-foreground">Ładowanie…</div>
-              ) : (
-                <CommandEmpty>Brak wyników.</CommandEmpty>
-              )}
+              {/* react-query v5: po błędzie `isLoading` jest false, więc stara
+                  gałąź pokazywała awarię jako „Brak wyników.” — pusty stan
+                  tylko przy sukcesie, błąd z „Ponów”. */}
+              <PickerQueryState
+                isPending={clientsQuery.isPending}
+                isError={clientsQuery.isError}
+                onRetry={() => void clientsQuery.refetch()}
+                loadingLabel="Ładowanie klientów…"
+                errorLabel="Nie udało się pobrać listy klientów."
+              />
+              {clientsQuery.isSuccess && <CommandEmpty>Brak wyników.</CommandEmpty>}
               <CommandGroup>
                 <CommandItem
                   value="__all__"

@@ -2,6 +2,6 @@
   "entry": "cd6997fdf3f2704f87c21981fa366b833f1b34be12739a0a5e211bae43dbc9a8",
   "guide": "contracts.b2b_generator",
   "sources": {
-    "frontend/src/components/v2/pages/B2BContractGeneratorV2.tsx": "e49210e3af3a6f99c25c7a5356cea37298a89b3c21810ce607fa3a972a9b372b"
+    "frontend/src/components/v2/pages/B2BContractGeneratorV2.tsx": "94e7fd2f55c1e93ac058af3ab60606592714d95a590a68190c1b82dc304cf37c"
   }
 }
