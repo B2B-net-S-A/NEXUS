@@ -34,6 +34,7 @@ from tests.test_board_tasks import (
     _move,
     _seed_user,
     _seed_world,
+    clear_cpro_sender,
     restore_cpro_sender,
 )
 from tests.test_dz_review import (
@@ -714,9 +715,7 @@ async def test_leaving_the_cpro_queue_does_not_repeat_qc(
     rec = await _login(api_client, rec_creds)
     try:
         async with restore_cpro_sender():
-            await api_client.put(
-                "/api/board-tasks/cpro/sender", headers=hor, json={"user_id": None}
-            )
+            await clear_cpro_sender()
             # Wejście do kolejki sprzed bramki (jak osoby z przeglądu DZ).
             monkeypatch.setattr(settings, "CV_QC_GATE_ENABLED", False)
             await _move(api_client, hor, world, "verified")
@@ -757,9 +756,7 @@ async def test_fallback_sender_of_the_job_can_upload_without_firm_sender(
     other = await _login(api_client, other_creds)
     try:
         async with restore_cpro_sender():
-            await api_client.put(
-                "/api/board-tasks/cpro/sender", headers=hor, json={"user_id": None}
-            )
+            await clear_cpro_sender()
             monkeypatch.setattr(settings, "CV_QC_GATE_ENABLED", False)
             await _move(api_client, hor, world, "verified")
             await _move(api_client, hor, world, "cpro", task_assignee_id=rec_id)

@@ -126,6 +126,7 @@ const taskRow = (over: Partial<BoardTaskRow>): BoardTaskRow => ({
 const BOARD_TASKS: BoardTasksResponse = {
   window_days: 14,
   can_send_to_client: true,
+  can_set_cpro_sender: true,
   dl_review_window_days: 30,
   dl_review: [
     taskRow({ stage_id: 101, candidate_id: 201, candidate_name: "Joanna Wiśniewska", client_name: "PKO BP", since: daysAgo(4), qc_status: "passed" }),
@@ -162,6 +163,7 @@ function seededClient(tiles: DashboardTile[]): QueryClient {
     fallback_user_name: null,
     set_by_name: "Artur Twardowski",
     set_at: daysAgo(3),
+    can_set: true,
   });
   qc.setQueryData(["users-directory", "cpro-assignees"], [
     { id: 1, name: "Artur Twardowski" },

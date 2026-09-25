@@ -240,7 +240,7 @@ async def _blocked(db: AsyncSession) -> frozenset[tuple[int, int]]:
     return frozenset((job_id, user_id) for job_id, user_id in rows)
 
 
-AUTO_RELEASE_REASONS = ("unavailable", "excluded")
+AUTO_RELEASE_REASONS = ("unavailable", "excluded", "inactive")
 
 
 async def _auto_released(db: AsyncSession) -> frozenset[tuple[int, int]]:
@@ -336,7 +336,9 @@ async def _adopt_owners(
     return {"owner_released": stale.rowcount or 0, "owner_adopted": adopted}
 
 
-async def _live(db: AsyncSession) -> tuple[list[LiveAssignment], dict[int, str]]:
+async def _live(
+    db: AsyncSession,
+) -> tuple[list[LiveAssignment], dict[int, str], frozenset[int]]:
     rows = (
         await db.execute(
             select(
@@ -345,11 +347,15 @@ async def _live(db: AsyncSession) -> tuple[list[LiveAssignment], dict[int, str]]
                 JobWorkAssignment.role,
                 JobWorkAssignment.source,
                 JobWorkAssignment.state,
-            ).where(JobWorkAssignment.state != "released")
+                User.is_active,
+            )
+            .join(User, User.id == JobWorkAssignment.user_id)
+            .where(JobWorkAssignment.state != "released")
         )
     ).all()
     if not rows:
-        return [], {}
+        return [], {}, frozenset()
+    inactive = frozenset(row.user_id for row in rows if not row.is_active)
     job_ids = sorted({row.job_id for row in rows})
     in_process = set(
         (
@@ -387,7 +393,7 @@ async def _live(db: AsyncSession) -> tuple[list[LiveAssignment], dict[int, str]]
         for row in rows
     ]
     out = {job_id: state for job_id, state in states.items() if state != "searching"}
-    return live, out
+    return live, out, inactive
 
 
 async def _apply(
@@ -509,7 +515,7 @@ async def run_request_allocation(
         if mode != "off"
         else {"owner_released": 0, "owner_adopted": 0}
     )
-    live, out = await _live(db)
+    live, out, inactive_ids = await _live(db)
     changes = plan_assignments(
         PlanInput(
             requests=requests,
@@ -522,6 +528,7 @@ async def run_request_allocation(
             and settings.COMPASS_AVAILABILITY_ENABLED,
             eligible_ids=eligible_ids,
             blocked=blocked,
+            inactive_ids=inactive_ids,
         )
     )
     counts = await _apply(db, changes, mode=mode, now=now)
@@ -616,20 +623,46 @@ async def manual_add(
 
 
 async def manual_remove(db: AsyncSession, *, job_id: int, user_id: int) -> bool:
-    result = await db.execute(
-        update(JobWorkAssignment)
-        .where(
-            JobWorkAssignment.job_id == job_id,
-            JobWorkAssignment.user_id == user_id,
-            JobWorkAssignment.state != "released",
+    """Zdjęcie osoby z pulpitu.
+
+    Zdjęty aktywny rekruter AUTOMATU zdejmuje też prowadzącego, którego
+    automat wpisał (``_set_owner_if_empty``) — lustro zwolnienia za urlop.
+    Bez tego ``recruiter_id`` zostawał przy zdjętej osobie, a następny
+    rekruter automatu nie zostawał prowadzącym (audyt 25.09.2026, runda 4).
+    Prowadzący wpisany ręcznie albo z Traffita (wiersz ``owner``/``manual``)
+    zostaje nietknięty.
+    """
+    live_pair = and_(
+        JobWorkAssignment.job_id == job_id,
+        JobWorkAssignment.user_id == user_id,
+        JobWorkAssignment.state != "released",
+    )
+    previous = (
+        await db.execute(
+            select(
+                JobWorkAssignment.source,
+                JobWorkAssignment.role,
+                JobWorkAssignment.state,
+            ).where(live_pair)
         )
+    ).all()
+    if not previous:
+        return False
+    await db.execute(
+        update(JobWorkAssignment)
+        .where(live_pair)
         .values(
             state="released",
             released_at=datetime.now(timezone.utc),
             release_reason="manual",
         )
     )
-    return bool(result.rowcount)
+    if any(
+        row.source == "auto" and row.role == "recruiter" and row.state == "active"
+        for row in previous
+    ):
+        await _clear_auto_owner(db, job_id, user_id)
+    return True
 
 
 def changed_since(now: datetime) -> datetime:

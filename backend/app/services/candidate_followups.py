@@ -71,8 +71,14 @@ _OPEN_SLOT_STATUSES = ("awaiting_recruiter", "awaiting_dl")
 # follow-upu (typ „call”). Zwykła notatka (dodanie do innej rekrutacji
 # z komentarzem, uwaga rekrutera) nie ukrywa przypomnienia na 14 dni.
 CONTACT_NOTE_TYPES = (NoteType.call, NoteType.meeting, NoteType.email)
-# Nieudane połączenia nie są kontaktem.
-_FAILED_CALLS = (CallStatus.missed, CallStatus.failed, CallStatus.initiated)
+# Nieudane połączenia nie są kontaktem. Poczta głosowa też nie — nikt z
+# kandydatem nie rozmawiał (audyt 25.09.2026, runda 4).
+_FAILED_CALLS = (
+    CallStatus.missed,
+    CallStatus.failed,
+    CallStatus.initiated,
+    CallStatus.voicemail,
+)
 # Admin i Head of Recruitment widzą osoby, dla których nie ma kto zadzwonić.
 _OVERSIGHT_ROLES = (UserRole.admin, UserRole.head_of_recruitment)
 
@@ -709,19 +715,49 @@ class DigestCounts:
 
 
 def digest_counts(
-    followups: dict[int, Followup], *, today: date
+    followups: dict[int, Followup],
+    *,
+    today: date,
+    oversight_ids: Iterable[int] = (),
 ) -> dict[int, DigestCounts]:
-    """Poranny skrót: ile telefonów ma dziś każda osoba (i ile zaległych)."""
+    """Poranny skrót: ile telefonów ma dziś każda osoba (i ile zaległych).
 
+    Follow-up bez dzwoniącego liczy się adminom i Head of Recruitment
+    (``oversight_ids``) — ta sama reguła co panel (``_sees_unassigned``).
+    Do 25.09.2026 skrót go pomijał, a panel pokazywał (audyt, runda 4).
+    """
+
+    oversight = sorted(set(oversight_ids))
     out: dict[int, DigestCounts] = {}
     for f in followups.values():
-        if f.caller_id is None or f.due_on > today:
+        if f.due_on > today:
             continue
-        line = out.setdefault(f.caller_id, DigestCounts())
-        line.due += 1
-        if f.due_on < today:
-            line.overdue += 1
+        recipients = [f.caller_id] if f.caller_id is not None else oversight
+        for uid in recipients:
+            line = out.setdefault(uid, DigestCounts())
+            line.due += 1
+            if f.due_on < today:
+                line.overdue += 1
     return out
+
+
+async def oversight_user_ids(db: AsyncSession) -> list[int]:
+    """Aktywni admini i Head of Recruitment — odbiorcy follow-upów bez
+    dzwoniącego w porannym skrócie (lustro ``_sees_unassigned``)."""
+
+    return list(
+        (
+            await db.scalars(
+                select(User.id).where(
+                    User.is_active.is_(True),
+                    or_(
+                        User.role.in_(_OVERSIGHT_ROLES),
+                        *(User.roles.contains([r.value]) for r in _OVERSIGHT_ROLES),
+                    ),
+                )
+            )
+        ).all()
+    )
 
 
 __all__ = [
@@ -739,6 +775,7 @@ __all__ = [
     "load_followups",
     "local_date",
     "others_for_user",
+    "oversight_user_ids",
     "today_local",
     "user_names",
 ]

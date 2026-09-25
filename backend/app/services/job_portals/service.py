@@ -458,20 +458,31 @@ async def close_postings_of_closed_jobs(db: AsyncSession) -> int:
 
 
 async def queue_content_update(db: AsyncSession, job_id: int) -> int:
-    """Nowa zatwierdzona wersja opisu publicznego → aktualizacja na portalach."""
+    """Nowa zatwierdzona wersja opisu publicznego → aktualizacja na portalach.
+
+    Wiersz z aktualizacją już w kolejce (także w trakcie wysyłki) liczy się
+    jako objęty: worker po wysyłce porównuje zatwierdzoną wersję z tą, którą
+    wysłał (``process_one``), i zostawia ``update`` w kolejce, gdy opis
+    zmienił się w trakcie. Dzierżawy w toku nie ruszamy — reset
+    ``next_attempt_at`` pozwoliłby drugiemu tickowi wziąć ten sam wiersz.
+    """
     rows = (
         await db.scalars(
             select(JobPosting)
             .where(
                 JobPosting.job_id == job_id,
                 JobPosting.status == PostingStatus.published,
-                JobPosting.pending_action.is_(None),
+                or_(
+                    JobPosting.pending_action.is_(None),
+                    JobPosting.pending_action == ACTION_UPDATE,
+                ),
             )
             .with_for_update()
         )
     ).all()
     for posting in rows:
-        _queue(posting, ACTION_UPDATE)
+        if posting.pending_action is None:
+            _queue(posting, ACTION_UPDATE)
     return len(rows)
 
 
@@ -626,6 +637,8 @@ async def process_one(posting_id: int) -> None:
             return
         action = _action_of(posting)
         snapshot = _snapshot(posting)
+        sent_options = json.dumps(posting.options, sort_keys=True, default=str)
+        sent_profile_hash = await _approved_hash(db, posting.job_id)
         outcome = await _run(db, posting, action)
     async with AsyncSessionLocal() as db:
         posting = await db.scalar(
@@ -633,15 +646,52 @@ async def process_one(posting_id: int) -> None:
         )
         if posting is None:
             return
-        _apply(posting, action, outcome, changed=_snapshot(posting) != snapshot)
+        stale = False
+        if action in (ACTION_PUBLISH, ACTION_UPDATE):
+            # Treść albo ustawienia zmieniły się w trakcie wysyłki: portal
+            # dostał starą wersję, więc aktualizacja zostaje w kolejce. Do
+            # 25.09.2026 porównanie widziało tylko `pending_action`/`options`,
+            # a sukces publikacji zerował zlecenie — portal zostawał ze starą
+            # treścią albo miastem (audyt, runda 4).
+            now_options = json.dumps(posting.options, sort_keys=True, default=str)
+            now_hash = await _approved_hash(db, posting.job_id)
+            stale = now_options != sent_options or now_hash != sent_profile_hash
+        _apply(
+            posting,
+            action,
+            outcome,
+            changed=_snapshot(posting) != snapshot,
+            stale_content=stale,
+        )
         await db.commit()
 
 
+async def _approved_hash(db: AsyncSession, job_id: int) -> str:
+    """Zatwierdzona wersja opisu publicznego (``approved_hash``) — licznik
+    „zlecenia treści”: nowe zatwierdzenie zmienia ją, a nic innego nie."""
+
+    return (
+        await db.scalar(
+            select(JobPublicProfile.approved_hash).where(
+                JobPublicProfile.job_id == job_id
+            )
+        )
+    ) or ""
+
+
 def _apply(
-    posting: JobPosting, action: str, outcome: _Outcome, *, changed: bool
+    posting: JobPosting,
+    action: str,
+    outcome: _Outcome,
+    *,
+    changed: bool,
+    stale_content: bool = False,
 ) -> None:
     """Wynik akcji na wierszu. ``changed`` = w trakcie HTTP ktoś zmienił
-    zlecenie (wycofał, zmienił ustawienia) — wtedy nowe zlecenie zostaje."""
+    zlecenie (wycofał, zmienił ustawienia) — wtedy nowe zlecenie zostaje.
+    ``stale_content`` = portal dostał treść albo ustawienia sprzed zmiany
+    z czasu wysyłki — po sukcesie (i przy porażce aktualizacji) zostaje
+    ``update`` w kolejce."""
     now = _now()
     if outcome.kind == "reconnect":
         posting.last_error = outcome.message
@@ -662,6 +712,12 @@ def _apply(
         return
     if outcome.kind in ("retry", "give_up"):
         _give_up(posting, action, outcome.message or "", uncertain=outcome.uncertain)
+        if action == ACTION_UPDATE and stale_content and posting.pending_action is None:
+            # Aktualizacja starą treścią się nie udała, a w trakcie przyszła
+            # nowa — ta nowa idzie jeszcze raz (portal może ją przyjąć).
+            posting.pending_action = ACTION_UPDATE
+            posting.attempts = 0
+            posting.next_attempt_at = now + _backoff(1)
         return
 
     # Sukces.
@@ -692,6 +748,11 @@ def _apply(
     if outcome.built is not None:
         posting.payload_hash = outcome.built.payload_hash
         posting.public_profile_hash = outcome.built.profile_hash
+    if stale_content and posting.pending_action != ACTION_CLOSE:
+        posting.pending_action = ACTION_UPDATE
+        posting.attempts = 0
+        posting.next_attempt_at = None
+        return
     if changed and posting.pending_action in (ACTION_UPDATE, ACTION_CLOSE):
         # Nowe zlecenie z czasu wysyłki czeka na następny tick.
         posting.next_attempt_at = None
@@ -709,7 +770,12 @@ def _give_up(
     if action == ACTION_PUBLISH:
         posting.status = PostingStatus.failed
         posting.pending_action = None
-        if uncertain or _inherits_cleanup(posting):
+        # `attempts` jest już policzone z tą próbą: > 1 = była wcześniejsza
+        # próba, a ta kończyła się ponowieniem (timeout / 5xx) — ogłoszenie
+        # MOGŁO wtedy powstać, choć ostatnia odmowa jest pewna (np. opis wrócił
+        # do szkicu). Audyt 25.09.2026, runda 4.
+        earlier_attempt = (posting.attempts or 0) > 1
+        if uncertain or earlier_attempt or _inherits_cleanup(posting):
             # Timeouty do końca prób: ogłoszenie mogło powstać. Zamknięcie po
             # naszym externalId sprząta je, jeśli jest (bez niego — no-op).
             # To samo, gdy wiersz odziedziczył sprzątanie po wcześniejszej
