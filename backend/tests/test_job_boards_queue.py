@@ -413,3 +413,51 @@ async def test_unpublish_before_first_attempt_drops_row(api, rocket_ready):
     resp = await api.post(_url(job_id, "unpublish"), headers=headers)
     assert resp.json()["status"] == "removed"
     assert FakeRocket.calls == []
+
+
+async def test_new_publish_cancels_stale_cleanup_of_failed_attempt(
+    api, rocket_ready, monkeypatch
+):
+    """Audyt 25.09.2026: wiersz `failed` z zaległym zamknięciem (niepewna
+    publikacja) zamyka po naszym STAŁYM externalId — tym samym, który niesie
+    nowa publikacja tej pary. Zamknięcie zamknęłoby nowe, opłacone ogłoszenie,
+    więc nowa publikacja je anuluje (i przejmie ogłoszenie, jeśli powstało)."""
+    monkeypatch.setattr(settings, "JOB_PORTAL_MAX_ATTEMPTS", 1)
+    headers, job_id = await _ready_job(api)
+    await api.post(_url(job_id), json={"options": OPTIONS}, headers=headers)
+    FakeRocket.fail_with = [PortalError("timeout", retryable=True)]
+    await _process(job_id)
+    old = await _posting(job_id)
+    assert old.status == PostingStatus.failed
+    assert old.pending_action == "close"
+
+    resp = await api.post(_url(job_id), json={"options": OPTIONS}, headers=headers)
+    assert resp.status_code == 200, resp.text
+
+    async with AsyncSessionLocal() as db:
+        stale = await db.get(JobPosting, old.id)
+    assert stale.pending_action is None
+    assert stale.status == PostingStatus.failed
+    async with AsyncSessionLocal() as db:
+        claimed = {p.id for p in await claim_batch(db, 1000)}
+        await db.rollback()
+    assert old.id not in claimed
+
+
+async def test_unpublish_during_first_worker_attempt_queues_close(api, rocket_ready):
+    """Wiersz wydzierżawiony przez worker (pierwszy POST w locie, `attempts`
+    jeszcze 0) mógł już zostać wysłany — wycofanie kolejkuje zamknięcie,
+    zamiast usunąć wiersz jako „nigdy niewysłany”."""
+    headers, job_id = await _ready_job(api)
+    await api.post(_url(job_id), json={"options": OPTIONS}, headers=headers)
+    posting = await _posting(job_id)
+    async with AsyncSessionLocal() as db:
+        claimed = [p for p in await claim_batch(db, 1000) if p.id == posting.id]
+        await db.commit()
+    assert claimed
+
+    resp = await api.post(_url(job_id, "unpublish"), headers=headers)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["status"] == "publishing"
+    assert body["pending_action"] == "close"
