@@ -181,33 +181,48 @@ def _iso(d: Optional[date]) -> Optional[str]:
     return d.isoformat() if d else None
 
 
-def _number_variants(title: Optional[str]) -> set[str]:
-    """Numer pełny i jego krótkie formy (BIK: ``4500030751`` ↔ ``30751``)."""
-    if not title:
-        return set()
-    t = title.strip()
-    out = {t, t.lower()}
-    digits = "".join(ch for ch in t if ch.isdigit())
-    if len(digits) >= 5:
-        out.add(digits)
-        out.add(digits.lstrip("0"))
-        out.add(digits[-5:])
-    return {x for x in out if x}
+_PFRON_PREFIX = re.compile(r"^zlecenie\s+nr\.?\s+", re.I)
+
+
+def _digit_core(title: str) -> Optional[str]:
+    """Cyfry numeru, gdy numer składa się WYŁĄCZNIE z cyfr.
+
+    Dopuszczalny jest słowny przedrostek („SAP 4500030751”, „Zamówienie nr
+    4500030751”): same litery, spacje, kropki, „#” i „:”. Ukośnik albo cyfra
+    przed resztą znaczy, że numer ma strukturę („830/2026”) — wtedy ``None``.
+    Pętla zamiast wyrażenia z zagnieżdżonym powtórzeniem, które przy długim
+    tytule szkicu cofałoby się wykładniczo.
+    """
+    i = 0
+    while i < len(title) and (title[i].isalpha() or title[i] in " .#:\t"):
+        i += 1
+    rest = title[i:].replace(" ", "")
+    return rest if rest and rest.isascii() and rest.isdigit() else None
 
 
 def titles_collide(a: Optional[str], b: Optional[str]) -> bool:
+    """Czy dwa numery zamówienia to ten sam numer.
+
+    Końcówka liczy się wyłącznie między numerami z samych cyfr (BIK:
+    ``4500030751`` ↔ ``30751``). Do 25.09.2026 końcówkę brano z cyfr
+    WYCIĄGNIĘTYCH z całego numeru, więc ``830/2026`` był tym samym co
+    ``1830/2026``, a ``3/07/2026/BL`` tym samym co ``13/07/2026/BL`` — mail
+    z nowym zamówieniem trafiał w cudze zamówienie jako jego korekta.
+    Numer z separatorami albo literami porównujemy w całości, bez wielkości
+    liter i spacji.
+    """
     # PFRON's labelled title is the same identity as its historical bare number.
     # Strip only this explicit prefix; generic short digit extraction would
     # conflate unrelated order numbers such as ABC/22 and DEF/22.
-    a = re.sub(r"^zlecenie\s+nr\.?\s+", "", (a or "").strip(), flags=re.I)
-    b = re.sub(r"^zlecenie\s+nr\.?\s+", "", (b or "").strip(), flags=re.I)
-    va, vb = _number_variants(a), _number_variants(b)
-    if not va or not vb:
+    a = _PFRON_PREFIX.sub("", (a or "").strip())
+    b = _PFRON_PREFIX.sub("", (b or "").strip())
+    if not a or not b:
         return False
-    if a and b and a.strip().lower() == b.strip().lower():
+    if re.sub(r"\s+", "", a).lower() == re.sub(r"\s+", "", b).lower():
         return True
-    da = "".join(ch for ch in (a or "") if ch.isdigit())
-    db_ = "".join(ch for ch in (b or "") if ch.isdigit())
+    da, db_ = _digit_core(a), _digit_core(b)
+    if da is None or db_ is None:
+        return False
     if len(da) >= 5 and len(db_) >= 5 and (da.endswith(db_) or db_.endswith(da)):
         return True
     return False
@@ -234,17 +249,16 @@ def _is_draft_shell(
     „niesie zamówienie", gdy zapisano go z maila albo ma dołączony PDF
     zamówienia. Ten sam numer albo nachodzący okres to ten sam dokument (albo
     jego korekta), więc uzupełnienie wolno; rozłączny okres to osobne zamówienie.
-    Linia grupy zostaje przy dotychczasowej ścieżce (``ACTION_GROUP``): osobne
-    zamówienie obok linii MD rozdwoiłoby współpracę.
+    Szkic LINII zamówienia MD/kosztowego nigdy nie jest szkicem do
+    uzupełnienia: ma własny cykl życia (budżet MD, zamiana kontraktora,
+    decyzja po offboardingu), a writer wypełniał go jak zamówienie okresowe —
+    numer, okres i stawka z PDF-a, bez budżetu i bez grupy (audyt 25.09.2026).
+    Takim szkicem zajmuje się ``plan_document`` (``ACTION_GROUP``).
     """
-    if order.status != "draft":
+    if order.status != "draft" or order.order_group_id is not None:
         return False
     carries_order = order.from_order_mail or order.has_file
-    if (
-        order.order_group_id is not None
-        or not carries_order
-        or titles_collide(order.title, number)
-    ):
+    if not carries_order or titles_collide(order.title, number):
         return True
     return _overlaps(order, start, end)
 
@@ -490,26 +504,37 @@ def plan_document(
             continue
 
         open_live = [o for o in existing if o.status in ("active", "paused")]
+        group_drafts = [
+            o for o in existing if o.status == "draft" and o.order_group_id is not None
+        ]
         shells = [
             o for o in existing if _is_draft_shell(o, extraction.title, new_start, end)
         ]
         # Szkic z innego PDF-a na rozłączny okres to zaplanowane zamówienie:
         # liczy się jak otwarte, więc ten dokument dostaje osobne zamówienie.
-        mail_drafts = [o for o in existing if o.status == "draft" and o not in shells]
+        # Szkic linii grupy tu nie wchodzi — obsługuje go gałąź ``ACTION_GROUP``.
+        mail_drafts = [
+            o
+            for o in existing
+            if o.status == "draft" and o not in shells and o not in group_drafts
+        ]
+        if group_drafts and not open_live:
+            # Osoba czeka na linii zamówienia MD/kosztowego. Automat nie wypełni
+            # tej linii (budżet i grupę prowadzi okno zamówienia) ani nie założy
+            # obok niej zamówienia okresowego — rozdwoiłby współpracę.
+            rp.action = ACTION_GROUP
+            rp.reasons.append(
+                "Osoba ma szkic linii zamówienia MD/kosztowego "
+                f"(#{group_drafts[0].id}, {group_drafts[0].title}) — uzupełnij go "
+                "w oknie zamówienia u tego klienta"
+            )
+            proposal.rows.append(rp)
+            continue
         if len(shells) > 1 and not open_live:
             rp.reasons.append("Więcej niż jeden draft tej osoby — wybierz zamówienie")
             proposal.rows.append(rp)
             continue
         if shells and not open_live:
-            if shells[0].order_group_id is not None and not titles_collide(
-                shells[0].title, extraction.title
-            ):
-                rp.action = ACTION_GROUP
-                rp.reasons.append(
-                    "Szkic należy do istniejącej grupy o innym numerze — potwierdź przypisanie"
-                )
-                proposal.rows.append(rp)
-                continue
             rp.action = ACTION_FILL_DRAFT
             rp.target_order_id = shells[0].id
             proposal.rows.append(rp)
