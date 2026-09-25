@@ -7623,7 +7623,8 @@ Makiety: https://claude.ai/artifact/6JCbPSp86E7uzAxcyNmqW4. Dotyczy listy
   `request`, licznik `searchRequestChangeCount`.
 - **Podpowiedzi** `GET /api/candidates/keywords/suggest` (`services/keyword_suggest.py`):
   słownik `skills` + aliasy w pamięci procesu (przebudowa w
-  `refresh_alias_map`), stanowiska (to samo zapytanie co `/titles/suggest`),
+  `refresh_alias_map`), stanowiska (zapytanie `/titles/suggest` zawężone do
+  słowa od początku, jak `tekst*` — „git” nie podpowiada „digital …”),
   liczba osób z `keyword_fts` — osobne zapytanie na słowo (savepoint, limit
   czasu, pamięć 1 h), WYŁĄCZNIE dla pojedynczych słów i `jav*`: zbiorcze
   `count(*) FILTER (WHERE keyword_fts @@ …)` trwało na produkcji 3 s, a fraza
