@@ -7624,7 +7624,11 @@ Makiety: https://claude.ai/artifact/6JCbPSp86E7uzAxcyNmqW4. Dotyczy listy
   `count(*) FILTER (WHERE keyword_fts @@ …)` trwało na produkcji 3 s, a fraza
   (`java <-> developer`) 1,8–3,6 s, bo sprawdza pozycje w każdym wierszu —
   `null` = nie policzono, nigdy błąd. Stanowiska z pamięcią 10 min. Wstawiana jest nazwa kanoniczna; słowa
-  kluczowe NIE rozwijają aliasów, więc alias to tylko wyjaśnienie. Front:
+  kluczowe NIE rozwijają aliasów, więc alias to tylko wyjaśnienie. Wyjątek
+  (decyzja Artura 25.09.2026, `keyword_suggest._label_word`): gdy podpowiedź
+  trafia przez alias będący osobnym słowem nazwy („kafka” w „Apache Kafka”),
+  wstawiane jest to słowo, a nazwa zostaje wyjaśnieniem — na produkcji
+  „kafka” 4569 osób, fraza „Apache Kafka” 1704. Front:
   `ChipField`/`SkillBucketsField` z propem `suggest` (bez niego zachowanie jak
   dawniej), pobieranie bez react-query (`useKeywordSuggestions`, pole żyje też
   bez `QueryClientProvider`). W rekrutacji na górze must/nice Championa.

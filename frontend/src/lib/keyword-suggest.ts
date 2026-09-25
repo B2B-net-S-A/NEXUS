@@ -176,12 +176,17 @@ export function buildSuggestionOptions({
     for (const item of response.items) {
       if (skillsOnly && item.kind !== "skill") continue;
       const { hit, rest } = splitHit(item.label, trimmed);
+      // Pełna nazwa przy jej słowie („Kafka” — „Apache Kafka”) zostaje
+      // widoczna także przy podświetleniu: serwer wstawia samo słowo.
+      const aliasIsFullName =
+        !!item.alias &&
+        foldKeyword(item.alias).split(" ").includes(foldKeyword(item.label));
       push({
         key: `base:${item.kind}:${item.insert}`,
         insert: item.insert,
         hit,
         rest,
-        note: item.alias && !hit ? `(też: ${item.alias})` : "",
+        note: item.alias && (!hit || aliasIsFullName) ? `(też: ${item.alias})` : "",
         kindLabel: KIND_LABEL[item.kind],
         count: item.count ?? null,
         group: "base",
