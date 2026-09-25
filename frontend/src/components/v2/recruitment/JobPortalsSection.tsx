@@ -106,8 +106,14 @@ function PortalRow({
           )}
         </p>
       ) : null}
-      {posting?.status === "failed" && posting.last_error ? (
-        <p role="alert" className="text-xs text-destructive">
+      {posting?.last_error ? (
+        // Nieudana publikacja = błąd; przy żywym ogłoszeniu (nieudana
+        // aktualizacja, zamknięcie czekające na ponowne połączenie konta,
+        // niezmieniony tytuł) to uwaga — ogłoszenie dalej wisi na portalu.
+        <p
+          role={posting.status === "failed" ? "alert" : "status"}
+          className={posting.status === "failed" ? "text-xs text-destructive" : "text-xs text-warning"}
+        >
           {posting.last_error}
         </p>
       ) : null}

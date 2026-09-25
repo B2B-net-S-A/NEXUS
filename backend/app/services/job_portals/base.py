@@ -164,6 +164,14 @@ class PortalAdapter(ABC):
                 f"({', '.join(self.config.missing)})."
             )
 
+    def ensure_configured(self) -> None:
+        """Konfiguracja bez flagi — do zamykania i odczytu stanu."""
+        if self.config.missing:
+            raise PortalNotConfigured(
+                f"Portal {self.label}: brakuje konfiguracji "
+                f"({', '.join(self.config.missing)})."
+            )
+
     def validate_options(self, content: PostingContent) -> list[str]:
         """Braki w ustawieniach ogłoszenia (po polsku) — sprawdzane przed kolejką."""
         return []
@@ -177,7 +185,13 @@ class PortalAdapter(ABC):
     ) -> PortalResult: ...
 
     @abstractmethod
-    async def unpublish(self, external_id: str) -> None: ...
+    async def unpublish(
+        self, external_id: Optional[str], *, external_ref: Optional[str] = None
+    ) -> None:
+        """Zamknięcie ogłoszenia. Bez ``external_id`` adapter szuka po naszym
+        ``external_ref`` (publikacja mogła powstać mimo porażki po naszej stronie).
+        Działa także przy wyłączonej fladze portalu — flaga blokuje nowe
+        publikacje, nie sprzątanie opłaconych."""
 
     @abstractmethod
     async def status(self, external_id: str) -> dict[str, Any]: ...
@@ -203,7 +217,9 @@ class PendingDocumentationAdapter(PortalAdapter):
     async def update(self, external_id: str, content: PostingContent) -> PortalResult:
         raise self._pending()
 
-    async def unpublish(self, external_id: str) -> None:
+    async def unpublish(
+        self, external_id: Optional[str], *, external_ref: Optional[str] = None
+    ) -> None:
         raise self._pending()
 
     async def status(self, external_id: str) -> dict[str, Any]:

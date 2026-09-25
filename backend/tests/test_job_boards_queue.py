@@ -38,7 +38,8 @@ from app.services.job_portals.service import (
     claim_batch,
     close_postings_of_closed_jobs,
     has_live_postings,
-    process_posting,
+    external_ref_for,
+    process_one,
     queue_content_update,
     sync_remote_states,
 )
@@ -82,8 +83,8 @@ class FakeRocket(RocketJobsAdapter):
         FakeRocket.calls.append(("update", external_id))
         return PortalResult(external_id=external_id)
 
-    async def unpublish(self, external_id):
-        FakeRocket.calls.append(("close", external_id))
+    async def unpublish(self, external_id, *, external_ref=None):
+        FakeRocket.calls.append(("close", external_id or external_ref))
 
     async def status(self, external_id):
         return {"state": FakeRocket.remote_state}
@@ -143,15 +144,7 @@ async def _posting(job_id: int) -> JobPosting:
 
 async def _process(job_id: int) -> None:
     """Przetwarza WYŁĄCZNIE wiersz tego testu (baza jest wspólna)."""
-    async with AsyncSessionLocal() as db:
-        posting = await db.scalar(
-            select(JobPosting)
-            .where(JobPosting.job_id == job_id)
-            .order_by(JobPosting.id.desc())
-            .with_for_update()
-        )
-        await process_posting(db, posting)
-        await db.commit()
+    await process_one((await _posting(job_id)).id)
 
 
 def _url(job_id: int, action: str = "publish") -> str:
@@ -214,7 +207,9 @@ async def test_publish_update_and_close_cycle(api, rocket_ready):
     assert posting.pending_action is None
     assert posting.external_id == "ad-1"
     assert posting.url and posting.published_at
-    assert FakeRocket.calls == [("publish", f"nexus-posting-{posting.id}")]
+    assert FakeRocket.calls == [
+        ("publish", external_ref_for(job_id, Portal.rocketjobs))
+    ]
 
     changed = dict(OPTIONS, salary=None)
     resp = await api.patch(
@@ -322,9 +317,7 @@ async def test_status_sync_marks_expired(api, rocket_ready):
         )
         await db.commit()
     FakeRocket.remote_state = "expired"
-    async with AsyncSessionLocal() as db:
-        await sync_remote_states(db, limit=1000)
-        await db.commit()
+    await sync_remote_states(limit=1000)
     posting = await _posting(job_id)
     assert posting.status == PostingStatus.expired
     assert posting.remote_state == "expired"
@@ -349,3 +342,74 @@ def test_migration_and_entrypoint_mirror():
     assert ns["down_revision"] == "0380_job_client_reference_working_title"
     main = (BACKEND / "app/main.py").read_text()
     assert '("job_board_connections", JobBoardConnection)' in main
+
+
+async def test_unpublish_after_an_attempt_closes_instead_of_dropping(api, rocket_ready):
+    """Po próbie POST ogłoszenie mogło powstać — wycofanie musi je zamknąć."""
+    headers, job_id = await _ready_job(api)
+    await api.post(_url(job_id), json={"options": OPTIONS}, headers=headers)
+    FakeRocket.fail_with = [PortalError("timeout", retryable=True)]
+    await _process(job_id)
+    resp = await api.post(_url(job_id, "unpublish"), headers=headers)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["pending_action"] == "close"
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(JobPosting)
+            .where(JobPosting.job_id == job_id)
+            .values(next_attempt_at=None)
+        )
+        await db.commit()
+    await _process(job_id)
+    posting = await _posting(job_id)
+    assert posting.status == PostingStatus.removed
+    # Bez id ogłoszenia adapter dostaje nasz stały externalId do odszukania.
+    assert FakeRocket.calls[-1] == (
+        "close",
+        external_ref_for(job_id, Portal.rocketjobs),
+    )
+
+
+async def test_exhausted_timeouts_fail_and_queue_cleanup(
+    api, rocket_ready, monkeypatch
+):
+    monkeypatch.setattr(settings, "JOB_PORTAL_MAX_ATTEMPTS", 1)
+    headers, job_id = await _ready_job(api)
+    await api.post(_url(job_id), json={"options": OPTIONS}, headers=headers)
+    FakeRocket.fail_with = [PortalError("timeout", retryable=True)]
+    await _process(job_id)
+    posting = await _posting(job_id)
+    assert posting.status == PostingStatus.failed
+    assert posting.pending_action == "close"
+    async with AsyncSessionLocal() as db:
+        assert await has_live_postings(db, job_id)
+
+
+async def test_certain_refusal_fails_without_cleanup(api, rocket_ready):
+    headers, job_id = await _ready_job(api)
+    await api.post(_url(job_id), json={"options": OPTIONS}, headers=headers)
+    FakeRocket.fail_with = [PortalError("Brak kodów", retryable=False)]
+    await _process(job_id)
+    posting = await _posting(job_id)
+    assert posting.status == PostingStatus.failed
+    assert posting.pending_action is None
+    assert posting.last_error == "Brak kodów"
+
+
+async def test_unexpected_exception_is_contained_and_retried(api, rocket_ready):
+    headers, job_id = await _ready_job(api)
+    await api.post(_url(job_id), json={"options": OPTIONS}, headers=headers)
+    FakeRocket.fail_with = [ValueError("non-json body")]
+    await _process(job_id)
+    posting = await _posting(job_id)
+    assert posting.status == PostingStatus.publishing
+    assert posting.attempts == 1
+    assert "Nieoczekiwany" in (posting.last_error or "")
+
+
+async def test_unpublish_before_first_attempt_drops_row(api, rocket_ready):
+    headers, job_id = await _ready_job(api)
+    await api.post(_url(job_id), json={"options": OPTIONS}, headers=headers)
+    resp = await api.post(_url(job_id, "unpublish"), headers=headers)
+    assert resp.json()["status"] == "removed"
+    assert FakeRocket.calls == []

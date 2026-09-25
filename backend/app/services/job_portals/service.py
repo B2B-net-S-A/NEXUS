@@ -301,26 +301,47 @@ def _queue(posting: JobPosting, action: str) -> None:
     posting.last_error = None
 
 
+def external_ref_for(job_id: int, portal: Portal) -> str:
+    """Nasz ``externalId`` u dostawcy — STAŁY dla pary rekrutacja × portal.
+
+    Dostawca nie deduplikuje po ``externalId``, więc to my szukamy po nim
+    przed każdym ``POST`` i przy zamykaniu ogłoszenia bez znanego id. Stały
+    identyfikator sprawia, że nowy wiersz po nieudanej/wycofanej publikacji
+    znajdzie ogłoszenie, które mogło jednak powstać, zamiast kupić drugie.
+    """
+    return f"nexus-job-{job_id}-{getattr(portal, 'value', portal)}"
+
+
+def _maybe_sent(posting: JobPosting) -> bool:
+    """Czy ``POST`` mógł już pójść (worker brał wiersz co najmniej raz)."""
+    return (posting.attempts or 0) > 0 or posting.external_id is not None
+
+
 async def request_unpublish(
     db: AsyncSession, *, job: Job, portal: Portal
 ) -> Optional[JobPosting]:
-    """Wycofanie: wiersz ``publishing`` (worker go nie wziął) = od razu ``removed``.
+    """Wycofanie: wiersz, którego worker jeszcze nie brał = od razu ``removed``.
 
-    Opublikowany dostaje ``pending_action = close`` — portal zamyka worker
-    (ponowienia, konto do ponownego połączenia). Zamknięcie na portalu jest
-    ostateczne: kolejna publikacja to nowe ogłoszenie i nowy kredyt.
+    Każdy inny (opublikowany albo w trakcie publikacji po próbie) dostaje
+    ``pending_action = close`` — worker zamyka ogłoszenie na portalu, a gdy
+    nie zna jego id, szuka po naszym ``externalId``. Zamknięcie na portalu
+    jest ostateczne: kolejna publikacja to nowe ogłoszenie i nowy kredyt.
     """
 
     posting = await _live(db, job.id, portal, lock=True)
     if posting is None:
         return None
-    if posting.status == PostingStatus.publishing:
+    _close_or_drop(posting)
+    return posting
+
+
+def _close_or_drop(posting: JobPosting) -> None:
+    if posting.status == PostingStatus.publishing and not _maybe_sent(posting):
         posting.status = PostingStatus.removed
         posting.pending_action = None
         posting.last_error = None
-        return posting
-    _queue(posting, ACTION_CLOSE)
-    return posting
+    elif posting.pending_action != ACTION_CLOSE:
+        _queue(posting, ACTION_CLOSE)
 
 
 async def close_live_postings(db: AsyncSession, job_id: int) -> int:
@@ -340,11 +361,7 @@ async def close_live_postings(db: AsyncSession, job_id: int) -> int:
         )
     ).all()
     for posting in rows:
-        if posting.status == PostingStatus.publishing:
-            posting.status = PostingStatus.removed
-            posting.pending_action = None
-        elif posting.pending_action != ACTION_CLOSE:
-            _queue(posting, ACTION_CLOSE)
+        _close_or_drop(posting)
     return len(rows)
 
 
@@ -394,12 +411,16 @@ async def queue_content_update(db: AsyncSession, job_id: int) -> int:
 
 
 async def has_live_postings(db: AsyncSession, job_id: int) -> bool:
+    """Żywe ogłoszenie ALBO zamknięcie wciąż w kolejce (także po porażce)."""
     return (
         await db.scalar(
             select(JobPosting.id)
             .where(
                 JobPosting.job_id == job_id,
-                JobPosting.status.in_(LIVE_STATUSES),
+                or_(
+                    JobPosting.status.in_(LIVE_STATUSES),
+                    JobPosting.pending_action == ACTION_CLOSE,
+                ),
             )
             .limit(1)
         )
@@ -407,11 +428,21 @@ async def has_live_postings(db: AsyncSession, job_id: int) -> bool:
 
 
 # ── Worker ───────────────────────────────────────────────────────────────────
+#
+# Wiersz jest „dzierżawiony” (``next_attempt_at`` = teraz + dzierżawa) w krótkiej
+# transakcji, a wywołania portalu idą BEZ blokady wiersza — trasy API
+# (wycofanie, zmiana ustawień, zamknięcie rekrutacji) nie czekają na HTTP.
+# Wynik zapisuje osobna, krótka transakcja per wiersz: wyjątek jednego wiersza
+# nie cofa opłaconej publikacji drugiego. Proces zabity w trakcie = wiersz
+# wraca po dzierżawie, a ``publish`` najpierw szuka ogłoszenia po externalId.
+
+_LEASE = timedelta(minutes=15)
+_UNEXPECTED = "Nieoczekiwany błąd przy wysyłce do portalu — spróbujemy ponownie."
 
 
 async def claim_batch(db: AsyncSession, limit: int) -> list[JobPosting]:
     now = _now()
-    return list(
+    rows = list(
         (
             await db.scalars(
                 select(JobPosting)
@@ -419,7 +450,9 @@ async def claim_batch(db: AsyncSession, limit: int) -> list[JobPosting]:
                     or_(
                         JobPosting.status == PostingStatus.publishing,
                         and_(
-                            JobPosting.status == PostingStatus.published,
+                            JobPosting.status.in_(
+                                (PostingStatus.published, PostingStatus.failed)
+                            ),
                             JobPosting.pending_action.in_(
                                 (ACTION_UPDATE, ACTION_CLOSE)
                             ),
@@ -436,6 +469,9 @@ async def claim_batch(db: AsyncSession, limit: int) -> list[JobPosting]:
             )
         ).all()
     )
+    for posting in rows:
+        posting.next_attempt_at = now + _LEASE
+    return rows
 
 
 def _backoff(attempts: int) -> timedelta:
@@ -443,98 +479,177 @@ def _backoff(attempts: int) -> timedelta:
 
 
 def _action_of(posting: JobPosting) -> str:
+    if posting.pending_action == ACTION_CLOSE:
+        return ACTION_CLOSE
     if posting.status == PostingStatus.publishing:
         return ACTION_PUBLISH
     return posting.pending_action or ACTION_UPDATE
 
 
-async def process_posting(db: AsyncSession, posting: JobPosting) -> None:
-    """Jedna akcja: publikacja, aktualizacja albo zamknięcie ogłoszenia."""
+def _snapshot(posting: JobPosting) -> str:
+    return json.dumps(
+        [posting.pending_action, posting.options], sort_keys=True, default=str
+    )
 
-    now = _now()
-    action = _action_of(posting)
-    posting.attempts = (posting.attempts or 0) + 1
-    adapter = job_portals.adapter_for(posting.portal)
+
+@dataclass
+class _Outcome:
+    kind: str  # ok | gone | reconnect | give_up | retry
+    message: Optional[str] = None
+    result: Any = None
     built: Optional[BuiltContent] = None
+    uncertain: bool = False  # porażka, po której ogłoszenie mogło jednak powstać
+
+
+async def _run(db: AsyncSession, posting: JobPosting, action: str) -> _Outcome:
+    # Wartości PRZED jakimkolwiek rollbackiem — po nim obiekt ORM wygasa, a
+    # doczytanie atrybutu w sesji async to `MissingGreenlet`.
+    posting_id = posting.id
+    job_id = posting.job_id
+    portal = posting.portal
+    external_id = posting.external_id
+    options = posting.options
+    ref = external_ref_for(job_id, portal)
     try:
+        adapter = job_portals.adapter_for(portal)
         if action == ACTION_CLOSE:
-            if posting.external_id:
-                await adapter.unpublish(posting.external_id)
-        else:
-            job = await db.get(Job, posting.job_id)
-            if job is None:
-                raise PortalError("Rekrutacja już nie istnieje.", retryable=False)
-            if job.status != JobStatus.published:
-                raise PortalRequestError(
-                    409,
-                    "job_not_published",
-                    "Rekrutacja nie jest opublikowana — ogłoszenie nie zostało wysłane.",
-                )
-            built = await build_content(db, job, options=posting.options)
-            content = dataclasses.replace(
-                built.content, external_ref=f"nexus-posting-{posting.id}"
+            await db.rollback()
+            await adapter.unpublish(external_id, external_ref=ref)
+            return _Outcome("ok")
+        job = await db.get(Job, job_id)
+        if job is None:
+            return _Outcome("give_up", "Rekrutacja już nie istnieje.")
+        if job.status != JobStatus.published:
+            return _Outcome(
+                "give_up",
+                "Rekrutacja nie jest opublikowana — ogłoszenie nie zostało wysłane.",
             )
-            if action == ACTION_PUBLISH:
-                result = await adapter.publish(content)
-            else:
-                result = await adapter.update(posting.external_id or "", content)
+        built = await build_content(db, job, options=options)
+        content = dataclasses.replace(built.content, external_ref=ref)
+        await db.rollback()  # odczyty skończone — bez transakcji w trakcie HTTP
+        if action == ACTION_PUBLISH:
+            result = await adapter.publish(content)
+        else:
+            result = await adapter.update(external_id or "", content)
+        return _Outcome("ok", result=result, built=built)
     except PortalReconnectRequired as exc:
-        posting.attempts -= 1
-        posting.last_error = exc.message
+        return _Outcome("reconnect", exc.message)
+    except PortalGone as exc:
+        return _Outcome("gone", exc.message)
+    except PortalRequestError as exc:
+        return _Outcome("give_up", exc.message)
+    except PortalError as exc:
+        kind = "retry" if exc.retryable else "give_up"
+        return _Outcome(kind, exc.message, uncertain=exc.retryable)
+    except Exception as exc:  # noqa: BLE001 — jeden wiersz nie wywraca kolejki
+        logger.error(
+            "job portal posting=%s action=%s failed: %s",
+            posting_id,
+            action,
+            type(exc).__name__,
+        )
+        return _Outcome("retry", _UNEXPECTED, uncertain=True)
+
+
+async def process_one(posting_id: int) -> None:
+    """Jedna akcja na jednym wierszu: portal bez blokady, zapis w osobnej transakcji."""
+    from app.core.database import AsyncSessionLocal
+
+    async with AsyncSessionLocal() as db:
+        posting = await db.get(JobPosting, posting_id)
+        if posting is None:
+            return
+        action = _action_of(posting)
+        snapshot = _snapshot(posting)
+        outcome = await _run(db, posting, action)
+    async with AsyncSessionLocal() as db:
+        posting = await db.scalar(
+            select(JobPosting).where(JobPosting.id == posting_id).with_for_update()
+        )
+        if posting is None:
+            return
+        _apply(posting, action, outcome, changed=_snapshot(posting) != snapshot)
+        await db.commit()
+
+
+def _apply(
+    posting: JobPosting, action: str, outcome: _Outcome, *, changed: bool
+) -> None:
+    """Wynik akcji na wierszu. ``changed`` = w trakcie HTTP ktoś zmienił
+    zlecenie (wycofał, zmienił ustawienia) — wtedy nowe zlecenie zostaje."""
+    now = _now()
+    if outcome.kind == "reconnect":
+        posting.last_error = outcome.message
         posting.next_attempt_at = now + _RECONNECT_WAIT
         return
-    except PortalGone as exc:
+    posting.attempts = (posting.attempts or 0) + 1
+    if outcome.kind == "gone":
         posting.status = PostingStatus.removed
         posting.remote_state = "removed"
         posting.pending_action = None
         posting.next_attempt_at = None
-        posting.last_error = None if action == ACTION_CLOSE else exc.message
+        posting.last_error = None if action == ACTION_CLOSE else outcome.message
         posting.last_synced_at = now
         return
-    except PortalRequestError as exc:
-        _give_up(posting, action, exc.message)
+    if outcome.kind == "retry" and posting.attempts < settings.JOB_PORTAL_MAX_ATTEMPTS:
+        posting.last_error = outcome.message
+        posting.next_attempt_at = now + _backoff(posting.attempts)
         return
-    except PortalError as exc:
-        posting.last_error = exc.message
-        if not exc.retryable or posting.attempts >= settings.JOB_PORTAL_MAX_ATTEMPTS:
-            _give_up(posting, action, exc.message)
-        else:
-            posting.next_attempt_at = now + _backoff(posting.attempts)
+    if outcome.kind in ("retry", "give_up"):
+        _give_up(posting, action, outcome.message or "", uncertain=outcome.uncertain)
         return
 
-    posting.attempts = 0
-    posting.next_attempt_at = None
-    posting.pending_action = None
-    posting.last_error = None
+    # Sukces.
     posting.last_synced_at = now
+    posting.last_error = None
     if action == ACTION_CLOSE:
-        posting.status = PostingStatus.removed
+        posting.attempts = 0
+        posting.next_attempt_at = None
+        posting.pending_action = None
         posting.remote_state = "expired"
+        if posting.status != PostingStatus.failed:
+            posting.status = PostingStatus.removed
         return
+    result = outcome.result
     posting.status = PostingStatus.published
     posting.remote_state = "published"
     if result.external_id:
         posting.external_id = result.external_id
     if result.url:
-        posting.url = result.url
-    if action == ACTION_PUBLISH:
+        posting.url = result.url[:1024]
+    if action == ACTION_PUBLISH and posting.published_at is None:
         posting.published_at = now
     if result.extra.get("title_unchanged"):
         posting.last_error = (
             "Portal nie pozwala zmienić tytułu po publikacji — na portalu "
             "został poprzedni tytuł."
         )
-    assert built is not None
-    posting.payload_hash = built.payload_hash
-    posting.public_profile_hash = built.profile_hash
+    if outcome.built is not None:
+        posting.payload_hash = outcome.built.payload_hash
+        posting.public_profile_hash = outcome.built.profile_hash
+    if changed and posting.pending_action in (ACTION_UPDATE, ACTION_CLOSE):
+        # Nowe zlecenie z czasu wysyłki czeka na następny tick.
+        posting.next_attempt_at = None
+        return
+    posting.attempts = 0
+    posting.next_attempt_at = None
+    posting.pending_action = None
 
 
-def _give_up(posting: JobPosting, action: str, message: str) -> None:
+def _give_up(
+    posting: JobPosting, action: str, message: str, *, uncertain: bool = False
+) -> None:
     posting.last_error = message
     posting.next_attempt_at = None
     if action == ACTION_PUBLISH:
         posting.status = PostingStatus.failed
         posting.pending_action = None
+        if uncertain:
+            # Timeouty do końca prób: ogłoszenie mogło powstać. Zamknięcie po
+            # naszym externalId sprząta je, jeśli jest (bez niego — no-op).
+            posting.pending_action = ACTION_CLOSE
+            posting.attempts = 0
+            posting.next_attempt_at = _now() + _RECONNECT_WAIT
     elif action == ACTION_UPDATE:
         # Ogłoszenie dalej wisi w poprzedniej wersji — mówi o tym `last_error`.
         posting.pending_action = None
@@ -546,53 +661,73 @@ def _give_up(posting: JobPosting, action: str, message: str) -> None:
 
 
 async def process_batch(db: AsyncSession, limit: int = 10) -> int:
-    postings = await claim_batch(db, limit)
-    for posting in postings:
-        await process_posting(db, posting)
-    return len(postings)
+    """Dzierżawi paczkę (krótka transakcja na ``db``), potem wiersz po wierszu."""
+    ids = [posting.id for posting in await claim_batch(db, limit)]
+    await db.commit()
+    for posting_id in ids:
+        await process_one(posting_id)
+    return len(ids)
 
 
-async def sync_remote_states(db: AsyncSession, limit: int = 20) -> int:
-    """Stan żywych ogłoszeń: wygasłe (90 dni / koniec subskrypcji) i usunięte."""
+async def sync_remote_states(limit: int = 20) -> int:
+    """Stan żywych ogłoszeń: wygasłe (90 dni / koniec subskrypcji) i usunięte.
+
+    Bez blokady w trakcie HTTP; wynik każdego wiersza w osobnej transakcji.
+    """
+    from app.core.database import AsyncSessionLocal
+
     cutoff = _now() - timedelta(hours=max(1, settings.JOB_PORTAL_STATUS_SYNC_HOURS))
-    rows = (
-        await db.scalars(
-            select(JobPosting)
-            .where(
-                JobPosting.status == PostingStatus.published,
-                JobPosting.pending_action.is_(None),
-                JobPosting.external_id.is_not(None),
-                JobPosting.portal.in_(list(job_portals.ADAPTERS)),
-                or_(
-                    JobPosting.last_synced_at.is_(None),
-                    JobPosting.last_synced_at < cutoff,
-                ),
+    async with AsyncSessionLocal() as db:
+        rows = (
+            await db.execute(
+                select(JobPosting.id, JobPosting.portal, JobPosting.external_id)
+                .where(
+                    JobPosting.status == PostingStatus.published,
+                    JobPosting.pending_action.is_(None),
+                    JobPosting.external_id.is_not(None),
+                    JobPosting.portal.in_(list(job_portals.ADAPTERS)),
+                    or_(
+                        JobPosting.last_synced_at.is_(None),
+                        JobPosting.last_synced_at < cutoff,
+                    ),
+                )
+                .order_by(JobPosting.last_synced_at.asc().nulls_first())
+                .limit(limit)
             )
-            .order_by(JobPosting.last_synced_at.asc().nulls_first())
-            .limit(limit)
-            .with_for_update(skip_locked=True)
-        )
-    ).all()
-    for posting in rows:
-        now = _now()
-        adapter = job_portals.adapter_for(posting.portal)
+        ).all()
+    for posting_id, portal, external_id in rows:
+        state: Optional[str] = None
+        gone = False
         try:
-            state = (await adapter.status(posting.external_id or "")).get("state")
+            state = (await job_portals.adapter_for(portal).status(external_id)).get(
+                "state"
+            )
         except PortalGone:
-            posting.status = PostingStatus.removed
-            posting.remote_state = "removed"
-        except PortalError as exc:
+            gone = True
+        except Exception as exc:  # noqa: BLE001 — stan sprawdzimy następnym razem
             logger.info(
                 "job portal status sync skipped posting=%s: %s",
-                posting.id,
+                posting_id,
                 type(exc).__name__,
             )
-        else:
-            posting.remote_state = state
-            if state == "expired":
-                posting.status = PostingStatus.expired
-                posting.expires_at = posting.expires_at or now
-        posting.last_synced_at = now
+        async with AsyncSessionLocal() as db:
+            posting = await db.scalar(
+                select(JobPosting).where(JobPosting.id == posting_id).with_for_update()
+            )
+            if posting is None or posting.pending_action is not None:
+                continue
+            now = _now()
+            if posting.status == PostingStatus.published:
+                if gone:
+                    posting.status = PostingStatus.removed
+                    posting.remote_state = "removed"
+                elif state:
+                    posting.remote_state = str(state)[:20]
+                    if state == "expired":
+                        posting.status = PostingStatus.expired
+                        posting.expires_at = posting.expires_at or now
+            posting.last_synced_at = now
+            await db.commit()
     return len(rows)
 
 

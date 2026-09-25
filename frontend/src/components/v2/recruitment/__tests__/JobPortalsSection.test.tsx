@@ -160,6 +160,19 @@ describe("JobPortalsSection — RocketJobs / JustJoin.IT", () => {
     expect(screen.getByRole("button", { name: "Wycofaj" })).toBeInTheDocument();
   });
 
+  it("uwaga przy żywym ogłoszeniu jest widoczna (nie tylko przy porażce)", () => {
+    const live: JobPostingRead = {
+      ...failed,
+      portal: "rocketjobs",
+      status: "published",
+      pending_action: "close",
+      last_error: "Połączenie z portalem wygasło — połącz konto ponownie.",
+      options: { ...DEFAULTS, category: "java" },
+    };
+    renderWith(BOARDS, [live]);
+    expect(screen.getByRole("status")).toHaveTextContent("Połączenie z portalem wygasło");
+  });
+
   it("status wiersza", () => {
     const cfg = BOARDS.portals[0];
     expect(portalRowStatus({ ...cfg, state: "not_connected" }, null)).toBe("Konto portalu niepołączone");

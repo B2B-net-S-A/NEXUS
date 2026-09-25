@@ -194,7 +194,7 @@ async def callback(
 ):
     """Powrót z logowania u dostawcy — bez sesji NEXUSA; tożsamość w ``state``."""
     if error:
-        logger.warning("jjit oauth callback error=%s", error[:60])
+        logger.warning("jjit oauth callback error=%r", error[:60])
         return RedirectResponse(
             _settings_url("error", "Dostawca portalu odmówił połączenia."), 302
         )

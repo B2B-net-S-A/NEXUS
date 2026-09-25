@@ -14,7 +14,7 @@ Revises: 0380_job_client_reference_working_title
   ``FOR UPDATE`` tego wiersza.
 
 Lustro w ``entrypoint.sh`` (alembic na prodzie bywa osierocony) — pilnuje
-``test_job_boards_schema.py``.
+``test_job_boards_queue.py::test_migration_and_entrypoint_mirror``.
 """
 
 from alembic import op

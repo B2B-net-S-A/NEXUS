@@ -326,3 +326,80 @@ def test_both_boards_are_registered_as_separate_portals():
 
     assert job_portals.ADAPTERS[Portal.rocketjobs] is RocketJobsAdapter
     assert job_portals.ADAPTERS[Portal.justjoinit] is JjitAdapter
+
+
+async def test_close_without_id_finds_ad_by_external_ref():
+    routes = {
+        ("GET", ADS): lambda r: httpx.Response(
+            200,
+            json={"items": [{"id": "ad-7", "externalId": "nexus-job-5-rocketjobs"}]},
+        ),
+        ("DELETE", f"{ADS}/ad-7"): lambda r: httpx.Response(204),
+    }
+    api, rec = _api(routes)
+    await _adapter(RocketJobsAdapter, api).unpublish(
+        None, external_ref="nexus-job-5-rocketjobs"
+    )
+    assert [c[0] for c in rec.calls] == ["GET", "DELETE"]
+
+
+async def test_close_without_id_and_no_ad_is_a_no_op():
+    api, rec = _api({("GET", ADS): lambda r: httpx.Response(200, json={"items": []})})
+    await _adapter(RocketJobsAdapter, api).unpublish(
+        None, external_ref="nexus-job-5-rocketjobs"
+    )
+    assert [c[0] for c in rec.calls] == ["GET"]
+
+
+async def test_close_works_with_the_portal_flag_off():
+    api, rec = _api({("DELETE", f"{ADS}/ad-1"): lambda r: httpx.Response(204)})
+    adapter = RocketJobsAdapter(
+        PortalConfig(portal=Portal.rocketjobs, enabled=False), api=api
+    )
+
+    async def unit():
+        return UNIT
+
+    adapter._unit = unit  # type: ignore[method-assign]
+    await adapter.unpublish("ad-1")
+    assert rec.calls[0][0] == "DELETE"
+    with pytest.raises(PortalError):
+        await adapter.publish(_content())
+
+
+async def test_create_without_id_resolves_it_by_external_ref():
+    lists = iter(
+        [
+            httpx.Response(200, json={"items": []}),
+            httpx.Response(
+                200,
+                json={
+                    "items": [
+                        {"id": "ad-3", "slug": "s", "externalId": "nexus-posting-5"}
+                    ]
+                },
+            ),
+        ]
+    )
+    routes = {
+        ("GET", ADS): lambda r: next(lists),
+        ("GET", "/payments/balance"): lambda r: httpx.Response(200, json=BALANCE),
+        ("PUT", "/rocketjobs/skills"): _skills,
+        ("POST", ADS): lambda r: httpx.Response(201),
+    }
+    api, _ = _api(routes)
+    result = await _adapter(RocketJobsAdapter, api).publish(_content())
+    assert result.external_id == "ad-3"
+
+
+async def test_create_without_id_and_not_found_is_retryable():
+    routes = {
+        ("GET", ADS): lambda r: httpx.Response(200, json={"items": []}),
+        ("GET", "/payments/balance"): lambda r: httpx.Response(200, json=BALANCE),
+        ("PUT", "/rocketjobs/skills"): _skills,
+        ("POST", ADS): lambda r: httpx.Response(201),
+    }
+    api, _ = _api(routes)
+    with pytest.raises(PortalError) as exc:
+        await _adapter(RocketJobsAdapter, api).publish(_content())
+    assert exc.value.retryable

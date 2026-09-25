@@ -111,7 +111,20 @@ class JjitBoardAdapter(PortalAdapter):
             payment=payment,
             external_id=content.external_ref,
         )
-        return self._result(await self.api.create(unit, body))
+        result = self._result(await self.api.create(unit, body))
+        if result.external_id:
+            return result
+        # Odpowiedź bez `id` (kształt niepotwierdzony w dokumentacji) — bez
+        # identyfikatora ogłoszenia nie dałoby się zamknąć. Szukamy po naszym
+        # externalId; brak = ponowienie (a ono zacznie od tego samego szukania).
+        found = await self.api.find_published(unit, content.external_ref)
+        if found:
+            return self._result(found)
+        raise PortalError(
+            "Portal przyjął ogłoszenie, ale nie zwrócił jego identyfikatora — "
+            "sprawdzimy ponownie.",
+            retryable=True,
+        )
 
     async def update(self, external_id: str, content: PostingContent) -> PortalResult:
         self.ensure_ready()
@@ -132,9 +145,20 @@ class JjitBoardAdapter(PortalAdapter):
             result.extra["title_unchanged"] = True
         return result
 
-    async def unpublish(self, external_id: str) -> None:
-        self.ensure_ready()
+    async def unpublish(
+        self, external_id: Optional[str], *, external_ref: Optional[str] = None
+    ) -> None:
+        self.ensure_configured()
         unit = await self._unit()
+        if not external_id:
+            found = (
+                await self.api.find_published(unit, external_ref)
+                if external_ref
+                else None
+            )
+            if not found or not found.get("id"):
+                return  # na portalu nie ma żywego ogłoszenia z naszym externalId
+            external_id = str(found["id"])
         try:
             await self.api.close(unit, external_id)
         except PortalGone:
@@ -146,7 +170,7 @@ class JjitBoardAdapter(PortalAdapter):
             raise
 
     async def status(self, external_id: str) -> dict[str, Any]:
-        self.ensure_ready()
+        self.ensure_configured()
         unit = await self._unit()
         ad = await self.api.get(unit, external_id)
         return {"state": str(ad.get("state") or "").casefold() or None}

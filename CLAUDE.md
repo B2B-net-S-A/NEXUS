@@ -3003,9 +3003,23 @@ odpowiedź integration@rocketjobs.com. Kontrakt API frontu:
   commitem i pod `FOR UPDATE` wiersza (`jjit_connection.access_token`) —
   dostawca rotuje refresh token, a rollback żądania zgubiłby jedyny ważny.
   `invalid_grant` = `reconnect_required`; worker wtedy czeka i nie pali prób.
-- **`externalId` NIE chroni przed duplikatem** (dokumentacja). `publish`
-  najpierw szuka opublikowanego ogłoszenia z `nexus-posting-{id}`, dopiero
-  potem `POST` — timeout bez tego zużyłby drugi kredyt.
+- **`externalId` NIE chroni przed duplikatem** (dokumentacja). Nasz jest
+  STAŁY dla pary rekrutacja × portal (`nexus-job-{job_id}-{portal}`,
+  `external_ref_for`): `publish` najpierw szuka po nim żywego ogłoszenia,
+  dopiero potem `POST`, a zamknięcie bez znanego id też szuka po nim. Nowy
+  wiersz po nieudanej/wycofanej publikacji znajdzie ogłoszenie, które mogło
+  jednak powstać, zamiast kupić drugie. Wiersz, który worker brał choć raz,
+  przy wycofaniu dostaje `close`, nie `removed`; publikacja poddana po
+  timeoutach = `failed` + `close` (sprzątanie po externalId).
+- **Worker dzierżawi wiersz, nie blokuje go na czas HTTP** (`claim_batch`
+  ustawia `next_attempt_at` = teraz + 15 min, krótka transakcja), portal
+  woła bez transakcji, a wynik zapisuje osobna transakcja per wiersz
+  (`process_one`). Zlecenie zmienione w trakcie wysyłki (wycofanie, nowe
+  ustawienia) zostaje w kolejce. Nieoczekiwany wyjątek jednego wiersza =
+  ponowienie z backoffem, nie cofnięcie paczki.
+- **Flaga portalu blokuje NOWE publikacje, nie zamykanie** — `unpublish`
+  i `status` sprawdzają tylko konfigurację (`ensure_configured`), a worker
+  startuje także przy wyłączonych flagach, gdy konto jest skonfigurowane.
 - **Treść = biała lista `public_job_payload`** (zatwierdzony opis publiczny),
   link aplikacji = `/r/<slug>` strony kariery, więc zgłoszenia wpadają do
   NEXUSA istniejącą ścieżką. Nic o kliencie ani stawce.
