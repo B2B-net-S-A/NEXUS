@@ -21,6 +21,8 @@ Przebieg (w kontenerze backendu; Excel NIE trafia do repo — niesie nazwiska)::
 * Przebieg z ``--plan`` woła model (GPT-6 Luna) i NICZEGO nie zapisuje.
 * ``--apply`` zapisuje dokładnie przejrzany plan, bez ponownego modelu;
   powtórka nic nie dubluje (dedup po kliencie i znormalizowanym tekście).
+* ``--retag plan.json --plan nowy.json`` przelicza same tagi technologii
+  w gotowym planie (bez modelu) — po poprawce rozpoznawania technologii.
 * ``--rollback`` usuwa pytania ``legacy_import`` (przypięcia znikają kaskadą);
   pytania, które klient zadał znowu w debriefie, mają już źródło
   ``client_debrief`` i zostają.
@@ -501,6 +503,18 @@ async def build_plan(entries: list[Entry], *, concurrency: int = 4) -> dict[str,
     }
 
 
+async def retag_plan(plan: dict[str, Any]) -> dict[str, Any]:
+    """Przelicza `skill_tags` pytań planu bieżącą taksonomią. Bez modelu i zapisu."""
+    from app.services.skill_taxonomy_loader import refresh_alias_map
+
+    await refresh_alias_map()
+    questions = [
+        {**q, "skill_tags": _tags(q["question"], q.get("topic"))}
+        for q in plan.get("questions") or []
+    ]
+    return {**plan, "questions": questions}
+
+
 def plan_sha256(plan: dict[str, Any]) -> str:
     body = json.dumps(plan.get("questions") or [], sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(body.encode("utf-8")).hexdigest()
@@ -682,6 +696,17 @@ async def _main(args: argparse.Namespace) -> int:
             await db.commit()
         print(f"KONIEC rollback: usunięto {removed}")
         return 0
+    if args.retag:
+        plan = json.loads(Path(args.retag).read_text(encoding="utf-8"))
+        plan = await retag_plan(plan)
+        Path(args.plan).write_text(
+            json.dumps(plan, ensure_ascii=False, indent=1), encoding="utf-8"
+        )
+        if args.review:
+            write_review(plan, Path(args.review))
+        tagged = sum(1 for q in plan["questions"] if q["skill_tags"])
+        print(f"KONIEC retag: pytania={len(plan['questions'])} z_tagami={tagged}")
+        return 0
     if args.apply:
         plan = json.loads(Path(args.apply).read_text(encoding="utf-8"))
         async with AsyncSessionLocal() as db:
@@ -719,14 +744,15 @@ def main(argv: Optional[list[str]] = None) -> int:
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--xlsx", help="Excel „Pytania z interview” → plan (bez zapisu)")
     mode.add_argument("--apply", help="Zapisz przejrzany plan JSON")
+    mode.add_argument("--retag", help="Przelicz tagi technologii w planie JSON")
     mode.add_argument("--rollback", action="store_true", help="Usuń pytania z archiwum")
     parser.add_argument("--plan", help="Gdzie zapisać plan JSON (z --xlsx)")
     parser.add_argument("--review", help="Arkusz XLSX do przeglądu (z --xlsx)")
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--concurrency", type=int, default=4)
     args = parser.parse_args(argv)
-    if args.xlsx and not args.plan:
-        parser.error("--xlsx wymaga --plan")
+    if (args.xlsx or args.retag) and not args.plan:
+        parser.error("--xlsx i --retag wymagają --plan")
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     return asyncio.run(_main(args))
 

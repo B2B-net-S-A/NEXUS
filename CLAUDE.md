@@ -7373,6 +7373,12 @@ F25; nic nie zapisuje) → przegląd arkusza przez człowieka → `--apply plan.
 - **Ocena prepu nie czyta archiwum** — pytanie z archiwum liczy się dopiero
   po przypięciu przez człowieka. Kopia rekrutacji z szablonu nie kopiuje
   przypięć z archiwum. Baza pytań ukrywa je bez `include_archive=true`.
+- **`mentioned_technologies` ma granicę słowa unikodową i wielką literę dla
+  aliasów-polskich słów** (`_is_technology_mention`: jednoliterowe R/C, „jest”,
+  „go”). Plan importu z 25.09 miał 338 × Jest i 194 × R na 2822 pytaniach —
+  ta sama wada odsiewała polskie pytania z debriefów z prep-kitu.
+  `scoring_service._alias_pattern` (wymagania z prozy ofert) ma nadal granicę
+  ASCII — poprawka tam wymaga pomiaru `eval_matching.py`.
 - Pytanie z archiwum zadane znowu w debriefie przechodzi na `client_debrief`
   (`_save_client_questions`). Panel Championa ma zwiniętą sekcję „Z archiwum
   rozmów (podobne role)” (`GET /api/interview-cycle/client-questions/archive`).

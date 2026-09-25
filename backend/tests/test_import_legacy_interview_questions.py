@@ -335,3 +335,31 @@ def test_review_sheet_has_client_rejected_and_errors_tabs(tmp_path):
     wb = openpyxl.load_workbook(out)
     assert wb.sheetnames == ["BNP", "Odrzucone", "Błędy"]
     assert wb["BNP"].cell(2, 5).value == "Pytanie?"
+
+
+async def test_retag_recomputes_tags_without_the_model(monkeypatch):
+    from app.services import scoring_service
+
+    async def no_taxonomy():
+        return 0
+
+    saved = dict(scoring_service.ALIAS_MAP)
+    scoring_service.set_alias_map({"jest": "jest", "r": "r", "java": "java"})
+    monkeypatch.setattr(
+        "app.services.skill_taxonomy_loader.refresh_alias_map", no_taxonomy
+    )
+    try:
+        plan = _plan(1, 2, ["Czym się różni retest od regresji? Jaka jest różnica?"])
+        plan["questions"][0]["skill_tags"] = ["jest", "r"]
+        plan["questions"].append(
+            {
+                **plan["questions"][0],
+                "question": "Jak działa GC w Java?",
+                "skill_tags": [],
+            }
+        )
+        out = await imp.retag_plan(plan)
+    finally:
+        scoring_service.set_alias_map(saved)
+    assert [q["skill_tags"] for q in out["questions"]] == [[], ["java"]]
+    assert out["questions"][0]["question"] == plan["questions"][0]["question"]

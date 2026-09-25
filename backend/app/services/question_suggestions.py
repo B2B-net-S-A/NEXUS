@@ -26,6 +26,7 @@ Kluczowe zasady:
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from typing import Optional
 
@@ -553,8 +554,42 @@ def mentioned_technologies(text: str, tags: Optional[list[str]] = None) -> set[s
     raw: list[str] = [t for t in (tags or []) if isinstance(t, str)]
     pattern = _alias_pattern()
     if pattern is not None and text:
-        raw.extend(m.group(1) for m in pattern.finditer(_strip_role_words(text)))
+        stripped = _strip_role_words(text)
+        raw.extend(
+            m.group(1)
+            for m in pattern.finditer(stripped)
+            if _is_technology_mention(stripped, m)
+        )
     return {name for name in canonical_skill_names(raw) if name not in _ROLE_WORDS}
+
+
+# Aliasy taksonomii, które są też zwykłymi polskimi słowami („jest” = is,
+# „go” = him). W pytaniu liczą się tylko pisane jak technologia (Jest, Go).
+_POLISH_WORD_ALIASES = frozenset({"jest", "go"})
+
+
+def _is_technology_mention(text: str, match: re.Match) -> bool:
+    """Czy trafienie wzorca taksonomii to naprawdę technologia w polskim tekście.
+
+    Wzorzec (`scoring_service._alias_pattern`) uznaje za granicę słowa tylko
+    znaki ASCII, więc „r” w „różni” i „c” w „dostając” wychodziły jako R i C —
+    polskie pytanie z debriefu odpadało wtedy z prep-kitu roli bez R (import
+    archiwum 25.09.2026: 194 × R, 338 × Jest na 2822 pytaniach). Tu granica
+    jest unikodowa, a jednoliterowe aliasy i polskie słowa muszą mieć wielką
+    literę. Scoringu nie ruszamy: zmiana wzorca zmieniłaby wymagania
+    wywodzone z prozy ofert (wymaga pomiaru `eval_matching.py`).
+    """
+    start, end = match.span(1)
+    before = text[start - 1] if start > 0 else ""
+    after = text[end] if end < len(text) else ""
+    if (before and (before.isalnum() or before == "_")) or (
+        after and (after.isalnum() or after == "_")
+    ):
+        return False
+    found = match.group(1)
+    if len(found) == 1 or found.lower() in _POLISH_WORD_ALIASES:
+        return not found.islower()
+    return True
 
 
 def _fits_job(question: SuggestedQuestion, requirement_names: set[str]) -> bool:
