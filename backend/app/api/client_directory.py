@@ -31,7 +31,6 @@ from app.models.client_directory import (
     PortfolioCategory,
 )
 from app.models.client_framework_contract import ClientFrameworkContract
-from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.contract import Contract, ContractStatus
 from app.models.user import User, UserRole
 from app.schemas.client_directory import (
@@ -49,7 +48,10 @@ from app.services.client_identity import (
     client_display_name_expression,
     visible_client_predicates,
 )
-from app.services.contractor_identity import contractor_identity_sql_expression
+from app.services.contractor_identity import (
+    contractor_identity_sql_expression,
+    current_contract_clause,
+)
 from app.services.polish_ilike import polish_folded_ilike
 from app.core.scheduling import business_today
 
@@ -80,18 +82,6 @@ def _visible_client_filters() -> tuple:
     """Cienki alias na `client_identity.visible_client_predicates` (była kopia)."""
 
     return visible_client_predicates()
-
-
-def _live_orders_of_contract():
-    """Nieanulowane zamówienia kontraktu z zewnętrznego zapytania (korelacja)."""
-    return (
-        select(ClientOrder.id)
-        .where(
-            ClientOrder.contract_id == Contract.id,
-            ClientOrder.status != ClientOrderStatus.cancelled,
-        )
-        .correlate(Contract)
-    )
 
 
 def _active_consultants_subquery(as_of: date):
@@ -128,23 +118,7 @@ def _active_consultants_subquery(as_of: date):
             # z nich jeszcze się nie zaczęło (audyt 24.09.2026, S5). Bez
             # filtra po `end_date` — profil też go nie ma, o końcu decyduje
             # status umowy (N11).
-            or_(
-                Contract.start_date <= as_of,
-                and_(
-                    Contract.start_date.is_(None),
-                    or_(
-                        ~_live_orders_of_contract().exists(),
-                        _live_orders_of_contract()
-                        .where(
-                            or_(
-                                ClientOrder.start_date.is_(None),
-                                ClientOrder.start_date <= as_of,
-                            )
-                        )
-                        .exists(),
-                    ),
-                ),
-            ),
+            current_contract_clause(as_of),
         )
         .group_by(Contract.client_id)
         .subquery()
