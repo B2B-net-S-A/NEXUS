@@ -88,7 +88,7 @@
     "pitfalls": [
       "„CV wysłane” poza Nordeą ustawia tylko Delivery Lead albo admin, podając w tym samym kroku stawkę do klienta.",
       "Wyjście z „Rozmowy u klienta” wymaga debriefu: pytań klienta albo potwierdzenia, że ich nie było.",
-      "Bez zielonego QC CV kandydat nie przejdzie na „CV wysłane” ani do kolejki Cpro (u Nordei wrzuca osoba od Cpro wyznaczona dla całej firmy). Przepuścić mimo QC może Delivery Lead albo admin, podając powód.",
+      "Bez zielonego QC CV kandydat nie przejdzie na „CV wysłane” ani do kolejki Cpro (u Nordei wrzuca osoba od Cpro wyznaczona dla firmy, a gdy jej nie ma — osoba wskazana w rekrutacji). Przepuścić mimo QC może Delivery Lead albo admin, podając powód. Powrót z „Zamkniętych” tego nie omija.",
       "Osobę dodaną ręcznie przez 12 godzin (w Nowych i Screeningu) prowadzi tylko osoba, która ją wzięła — przejąć mogą Delivery Lead, Head of Recruitment i admin."
     ],
     "anchors": [
