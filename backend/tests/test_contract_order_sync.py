@@ -815,6 +815,70 @@ async def test_daily_cost_sync_waits_for_the_repair_marker():
             await db.commit()
 
 
+async def test_daily_cost_sync_skips_an_order_closed_before_the_lock(monkeypatch):
+    """Audyt 25.09.2026: przebieg czytał zamówienia PRZED blokadą.
+
+    Zamówienie zakończone między odczytem paczki a blokadą dostawało nową
+    stawkę z harmonogramu — zakończony wiersz jest historią i ma zostać
+    nietknięty. Symulujemy wyścig: zakończenie wchodzi tuż przed blokadą.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.app_setting import AppSetting
+    from app.services import contract_order_sync as sync_module
+    from app.services.contract_order_sync import (
+        REPAIR_MARKER,
+        run_daily_order_cost_sync,
+    )
+
+    async with AsyncSessionLocal() as db:
+        existing = await db.get(AppSetting, REPAIR_MARKER)
+        saved = existing.value if existing else None
+    ids = await _seed_signed_contractor(contract_status=ContractStatus.active)
+    async with AsyncSessionLocal() as db:
+        if saved is None:
+            db.add(AppSetting(key=REPAIR_MARKER, value={"test": True}))
+        db.add(
+            ContractCandidateRate(
+                contract_id=ids["contract_id"],
+                rate=Decimal("125"),
+                effective_from=business_today() - timedelta(days=1),
+            )
+        )
+        order = await db.get(ClientOrder, ids["order_id"])
+        order.status = ClientOrderStatus.active
+        await db.commit()
+
+    real_lock = sync_module.lock_contract_then_orders
+    closed: list[int] = []
+
+    async def closing_lock(db, *, contract_ids=(), order_ids=()):
+        if ids["order_id"] in list(order_ids) and not closed:
+            async with AsyncSessionLocal() as other:
+                row = await other.get(ClientOrder, ids["order_id"])
+                row.status = ClientOrderStatus.completed
+                await other.commit()
+            closed.append(ids["order_id"])
+        return await real_lock(db, contract_ids=contract_ids, order_ids=order_ids)
+
+    monkeypatch.setattr(sync_module, "lock_contract_then_orders", closing_lock)
+    try:
+        async with AsyncSessionLocal() as db:
+            await run_daily_order_cost_sync(db)
+            await db.commit()
+        assert closed == [ids["order_id"]]
+        async with AsyncSessionLocal() as db:
+            order = await db.get(ClientOrder, ids["order_id"])
+            assert order.status == ClientOrderStatus.completed
+            assert order.rate_candidate == Decimal("120.000")
+    finally:
+        if saved is None:
+            async with AsyncSessionLocal() as db:
+                await db.execute(
+                    delete(AppSetting).where(AppSetting.key == REPAIR_MARKER)
+                )
+                await db.commit()
+
+
 async def test_daily_pass_backfills_the_order_period_without_touching_money():
     """UAT B-B02: kontrakt aktywny, którego zamówienia nikt nie zapisał po
     wdrożeniu synchronizacji, dostaje okres najnowszego uzupełnionego

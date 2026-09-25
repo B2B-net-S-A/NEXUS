@@ -1219,6 +1219,39 @@ async def test_md_line_still_billing_after_its_end_date_is_not_a_gap(monkeypatch
     """Linia MD pracuje po dacie końca, dopóki ma budżet — to nie brak."""
     from app.core.database import AsyncSessionLocal
 
+    from app.models.client_order_group import ClientOrderGroup
+
+    end = _far_day(2085, 2088)
+    ids = await _seed(start=end - timedelta(days=60), end=end)
+    async with AsyncSessionLocal() as db:
+        group = ClientOrderGroup(
+            client_id=ids["client_id"],
+            order_number=f"G-{uuid.uuid4().hex[:6]}",
+            order_type="md",
+            status="active",
+            start_date=end - timedelta(days=60),
+            end_date=end,
+        )
+        db.add(group)
+        await db.flush()
+        order = await db.get(ClientOrder, ids["order_id"])
+        order.order_group_id = group.id
+        order.md_total = Decimal("100")
+        order.md_remaining = Decimal("20")
+        order.md_rate_revenue = Decimal("1340")
+        order.md_input_mode = "md"
+        order.md_input_value = Decimal("100")
+        await db.commit()
+    await _detect(monkeypatch, tracking_start=end, today=end + timedelta(days=1))
+    assert await _gap_for(ids["order_id"]) is None
+
+
+async def test_standalone_order_with_md_total_ends_by_date(monkeypatch):
+    """Audyt 25.09.2026 (M10): samodzielne zamówienie z ``md_total`` to nie
+    linia MD — nie rozlicza go import MD, więc kończy się datą i brak
+    następcy jest brakiem."""
+    from app.core.database import AsyncSessionLocal
+
     end = _far_day(2085, 2088)
     ids = await _seed(start=end - timedelta(days=60), end=end)
     async with AsyncSessionLocal() as db:
@@ -1230,7 +1263,9 @@ async def test_md_line_still_billing_after_its_end_date_is_not_a_gap(monkeypatch
         order.md_input_value = Decimal("100")
         await db.commit()
     await _detect(monkeypatch, tracking_start=end, today=end + timedelta(days=1))
-    assert await _gap_for(ids["order_id"]) is None
+    assert await _gap_for(ids["order_id"]) is not None
+    standalone = _fact(1, md_total=Decimal("100"), md_remaining=Decimal("10"))
+    assert not standalone.works_until_md_exhausted
 
 
 async def _as_md_line(order_id: int, **extra) -> None:
@@ -1538,7 +1573,7 @@ async def test_md_line_billing_at_another_client_is_an_additional_project():
     """FIN-CHG-6: linia MD z budżetem po dacie końca to równoległa praca."""
     from app.services.finance_order_changes import _runs_on
 
-    md = _fact(1, md_total=Decimal("100"), md_remaining=Decimal("10"))
+    md = _fact(1, order_group_id=7, md_total=Decimal("100"), md_remaining=Decimal("10"))
     assert _runs_on(md, date(2026, 12, 1))
     assert not _runs_on(_fact(2), date(2026, 12, 1))
 
