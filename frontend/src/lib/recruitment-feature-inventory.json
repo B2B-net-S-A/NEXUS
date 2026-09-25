@@ -87,10 +87,10 @@
   {
    "id": "list.quick-filters",
    "area": "lista",
-   "opis": "Szybkie filtry z licznikami",
+   "opis": "Pasek filtrów nad tabelą z licznikami (Po terminie, Nikt nie pracuje, Nikogo nie wysłano) — zastąpił „Szybkie” 25.09.2026",
    "file": "components/v2/pages/JobsListV2.tsx",
    "marker": "quick-counts",
-   "v3_home": "panel filtrów (zwijany)"
+   "v3_home": "pasek filtrów nad tabelą"
   },
   {
    "id": "list.tiles",
@@ -681,9 +681,9 @@
   {
    "id": "list.request-status",
    "area": "lista",
-   "opis": "Status requestu (Szukamy / Mamy championa / Umowa / Obsadzona / Do uzupełnienia) — kolumna i filtr `rs=`",
+   "opis": "Stan requestu (Do uzupełnienia / Do przejrzenia / Szukamy / Mamy championa / Umowa / Klient milczy) — kolumna i jeden rząd pigułek `stage=` (25.09.2026; dawniej `rs=` i `ws=`)",
    "file": "components/v2/pages/JobsListV2.tsx",
-   "marker": "RequestStatusBadge",
+   "marker": "RequestStageBadge",
    "v3_home": "lista → kolumna Status"
   },
   {

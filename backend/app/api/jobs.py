@@ -11,6 +11,7 @@ from sqlalchemy import (
     and_,
     case,
     func,
+    not_,
     nulls_last,
     or_,
     select,
@@ -610,6 +611,30 @@ def jobs_owner_missing_clause(value: bool = True):
     return Job.tac_id.is_(None) if value else Job.tac_id.is_not(None)
 
 
+def _live_work_assignment_job_ids(user_ids: Optional[list[int]] = None):
+    """Rekrutacje, przy których ktoś TERAZ pracuje (0371).
+
+    „Pracuje” = przypisanie niezwolnione (``state <> 'released'``), tak jak
+    liczą pulpit „Requesty i obłożenie” i automat przydziału — przypisanie
+    zaproponowane w trybie cienia też się liczy."""
+    from app.models.job_work_assignment import JobWorkAssignment  # noqa: PLC0415
+
+    subq = select(JobWorkAssignment.job_id).where(JobWorkAssignment.state != "released")
+    if user_ids is not None:
+        subq = subq.where(JobWorkAssignment.user_id.in_(user_ids))
+    return subq
+
+
+def jobs_worked_by_clause(user_ids: list[int]):
+    """„Kto pracuje” — rekrutacje z żywym przypisaniem którejś z osób."""
+    return Job.id.in_(_live_work_assignment_job_ids(user_ids))
+
+
+def jobs_nobody_working_clause():
+    """„Nikt nie pracuje” — rekrutacje bez żadnego żywego przypisania."""
+    return Job.id.not_in(_live_work_assignment_job_ids())
+
+
 def jobs_deadline_clauses(
     deadline_from: Optional[date], deadline_to: Optional[date]
 ) -> list:
@@ -819,6 +844,30 @@ async def list_jobs(
             "łączony przez LUB (`request_work_state.visible_state`)."
         ),
     ),
+    request_stage: Optional[list[str]] = Query(
+        None,
+        description=(
+            "Stan requestu z jednego rzędu pigułek listy (25.09.2026): "
+            "incomplete · to_review · searching · champion · contract · "
+            "client_silent (oraz filled · finished · closed). Jedna wartość na "
+            "rekrutację (`job_similarity.request_stage_expr`), powtarzalny, "
+            "łączony przez LUB."
+        ),
+    ),
+    worked_by: Optional[list[int]] = Query(
+        None,
+        description=(
+            "„Kto pracuje” — id osób z żywym przypisaniem do requestu "
+            "(`job_work_assignments.state <> 'released'`). Powtarzalny, LUB."
+        ),
+    ),
+    nobody_working: Optional[bool] = Query(
+        None,
+        description=(
+            "True → tylko requesty bez żadnego żywego przypisania osoby; "
+            "False → tylko te, przy których ktoś pracuje."
+        ),
+    ),
     include_stage_counts: bool = Query(
         False,
         description=(
@@ -940,6 +989,21 @@ async def list_jobs(
         if unknown:
             raise HTTPException(422, f"Nieznany stan requestu: {', '.join(unknown)}")
         query = query.where(visible_state_clause(work_state))
+    if request_stage:
+        from app.services import job_similarity as _sim  # noqa: PLC0415
+
+        unknown = sorted(set(request_stage) - set(_sim.REQUEST_STAGES))
+        if unknown:
+            raise HTTPException(422, f"Nieznany stan requestu: {', '.join(unknown)}")
+        stage_sq = _sim.request_status_subquery(query.with_only_columns(Job.id))
+        query = query.outerjoin(stage_sq, stage_sq.c.job_id == Job.id).where(
+            _sim.request_stage_expr(stage_sq).in_(request_stage)
+        )
+    if worked_by:
+        query = query.where(jobs_worked_by_clause(worked_by))
+    if nobody_working is not None:
+        nobody = jobs_nobody_working_clause()
+        query = query.where(nobody if nobody_working else not_(nobody))
     if min_sent is not None or max_sent is not None:
         if min_sent is not None and max_sent is not None and min_sent > max_sent:
             raise HTTPException(
@@ -1108,7 +1172,7 @@ async def list_jobs(
     # 0341: status requestu (ta sama reguła co filtr) + podobne rekrutacje.
     from app.services import job_similarity as sim_service  # noqa: PLC0415
 
-    request_status_map = await sim_service.request_statuses(db, job_ids)
+    request_state_map = await sim_service.request_statuses_and_stages(db, job_ids)
     similar_linked: dict[int, list[int]] = {}
     similar_briefs: dict[int, dict] = {}
     similar_suggested: dict[int, dict] = {}
@@ -1284,7 +1348,11 @@ async def list_jobs(
                 "reassigned_count": reassigned_map.get(j.id, 0),
                 "suggested": similar_suggested.get(j.id),
             }
-        d["request_status"] = request_status_map.get(j.id, "searching")
+        request_status_value, request_stage_value = request_state_map.get(
+            j.id, ("searching", "to_review")
+        )
+        d["request_status"] = request_status_value
+        d["request_stage"] = request_stage_value
         d["visible_work_state"] = _visible_work_state(j.work_state, j.champion_found_at)
         d["priority_assignment"] = priority_assignment_map.get(j.id)
         d["priority_carry_over_count"] = priority_carry_counts.get(j.id, 0)
@@ -1328,6 +1396,14 @@ async def jobs_quick_counts(
         None,
         description=(
             "Upper bound of the 'Deadline ≤ 7 dni' window. Defaults to today + 7 days."
+        ),
+    ),
+    overdue_to: Optional[date] = Query(
+        None,
+        description=(
+            "Ostatni dzień okna „Po terminie” (termin do wczoraj włącznie). "
+            "Lista wysyła tę samą datę, którą przekazuje filtrowi terminu. "
+            "Domyślnie wczoraj."
         ),
     ),
 ):
@@ -1397,13 +1473,27 @@ async def jobs_quick_counts(
     # Status liczony w podzapytaniu, grupowanie po jego kolumnie: `CASE`
     # z parametrami w SELECT i GROUP BY dostałby dwa różne zestawy `$n`
     # i Postgres nie uznałby ich za to samo wyrażenie.
+    # „Nikogo nie wysłano” — ta sama liczba osób co filtr ``max_sent=0``;
+    # zamknięte liczymy tylko, gdy są „moje” (zakres „Moje” obejmuje zamknięte).
+    sent_ids = select(Job.id).where(
+        jobs_register_base_clause(),
+        or_(jobs_open_only_clause(), jobs_mine_clause(current_user)),
+    )
+    sent_sq = jobs_sent_to_client_subquery(sent_ids)
+    overdue_until = overdue_to if overdue_to is not None else today - timedelta(days=1)
     per_job = (
         select(
             _sim.request_status_expr(status_sq).label("status"),
+            _sim.request_stage_expr(status_sq).label("stage"),
             jobs_mine_clause(current_user).label("is_mine"),
+            jobs_open_only_clause().label("is_open"),
+            and_(*jobs_deadline_clauses(None, overdue_until)).label("overdue"),
+            jobs_nobody_working_clause().label("nobody_working"),
+            (func.coalesce(sent_sq.c.sent_n, 0) == 0).label("nobody_sent"),
         )
         .select_from(Job)
         .outerjoin(status_sq, status_sq.c.job_id == Job.id)
+        .outerjoin(sent_sq, sent_sq.c.job_id == Job.id)
         .where(jobs_register_base_clause())
         .subquery()
     )
@@ -1422,6 +1512,50 @@ async def jobs_quick_counts(
         request_status_counts[status_row.status] = int(status_row.n)
         request_status_mine[status_row.status] = int(status_row.mine_n)
 
+    # Pigułki „Stan requestu” (25.09.2026) — ``request_stage_expr``, to samo
+    # wyrażenie co filtr ``request_stage``.
+    stage_rows = (
+        await db.execute(
+            select(
+                per_job.c.stage,
+                func.count().label("n"),
+                func.count().filter(per_job.c.is_mine).label("mine_n"),
+            ).group_by(per_job.c.stage)
+        )
+    ).all()
+    request_stage_counts = {value: 0 for value in _sim.REQUEST_STAGES}
+    request_stage_mine = {value: 0 for value in _sim.REQUEST_STAGES}
+    for stage_row in stage_rows:
+        request_stage_counts[stage_row.stage] = int(stage_row.n)
+        request_stage_mine[stage_row.stage] = int(stage_row.mine_n)
+
+    # Trzy przełączniki paska („Po terminie”, „Nikt nie pracuje”, „Nikogo nie
+    # wysłano”) — dla zakresu „Otwarte” i „Moje”. Zakres „Wszystkie” nie ma
+    # liczb: objąłby archiwum, które dla tych pytań nie ma sensu.
+    attention_row = (
+        await db.execute(
+            select(
+                *(
+                    func.count()
+                    .filter(and_(scope_col, getattr(per_job.c, flag)))
+                    .label(f"{scope_name}_{flag}")
+                    for scope_name, scope_col in (
+                        ("open", per_job.c.is_open),
+                        ("mine", per_job.c.is_mine),
+                    )
+                    for flag in ("overdue", "nobody_working", "nobody_sent")
+                )
+            )
+        )
+    ).one()
+    attention = {
+        scope_name: {
+            flag: int(getattr(attention_row, f"{scope_name}_{flag}"))
+            for flag in ("overdue", "nobody_working", "nobody_sent")
+        }
+        for scope_name in ("open", "mine")
+    }
+
     return {
         "all": row.all_jobs,
         "mine": row.mine,
@@ -1432,6 +1566,10 @@ async def jobs_quick_counts(
         "deadline_7d": row.deadline_7d,
         "request_status": request_status_counts,
         "request_status_mine": request_status_mine,
+        "request_stage": request_stage_counts,
+        "request_stage_mine": request_stage_mine,
+        "attention": attention["open"],
+        "attention_mine": attention["mine"],
     }
 
 

@@ -61,30 +61,18 @@ describe("useUiStore — migracja v6", () => {
   });
 });
 
-describe("useUiStore — migracja v7 (zwijana kolumna filtrów rekrutacji)", () => {
+describe("useUiStore — migracja v8 (bez zwijanej kolumny filtrów rekrutacji)", () => {
   beforeEach(() => {
     window.localStorage.clear();
   });
 
-  it("stan z v6 dostaje `null` = „brak wyboru, domyślne wg szerokości okna”", () => {
+  it("stan z v7 traci pole zwijanej kolumny filtrów, reszta zostaje", () => {
     const migrate = useUiStore.persist.getOptions().migrate;
     const migrated = migrate!(
-      { candidatesPageSize: 100, jobsView: "tiles" },
-      6,
+      { candidatesPageSize: 100, jobsView: "tiles", jobsFiltersCollapsed: true },
+      7,
     ) as Record<string, unknown>;
-    expect(migrated).toMatchObject({
-      candidatesPageSize: 100,
-      jobsView: "tiles",
-      jobsFiltersCollapsed: null,
-    });
-  });
-
-  it("świadomy wybór przeżywa odczyt z localStorage", async () => {
-    window.localStorage.setItem(
-      "nexus-ui",
-      JSON.stringify({ state: { jobsFiltersCollapsed: true }, version: 7 }),
-    );
-    await useUiStore.persist.rehydrate();
-    expect(useUiStore.getState().jobsFiltersCollapsed).toBe(true);
+    expect(migrated).toMatchObject({ candidatesPageSize: 100, jobsView: "tiles" });
+    expect(migrated).not.toHaveProperty("jobsFiltersCollapsed");
   });
 });
