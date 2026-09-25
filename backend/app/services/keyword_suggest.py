@@ -1,0 +1,360 @@
+"""Podpowiedzi do pól słów kluczowych wyszukiwania ręcznego.
+
+Źródła: słownik umiejętności (``skills`` + ``skill_aliases``, w pamięci
+procesu — przebudowuje go ``skill_taxonomy_loader.refresh_alias_map``) oraz
+stanowiska z doświadczenia kandydatów (to samo zapytanie co
+``/api/candidates/titles/suggest``).
+
+Wybór podpowiedzi wstawia do pola NAZWĘ KANONICZNĄ. Słowa kluczowe nie
+rozwijają aliasów (dopasowanie dosłowne, ``keyword_terms``), więc alias jest
+tylko wyjaśnieniem, dlaczego pozycja się pojawiła — nie obietnicą trafień po
+nim. Liczba osób to przybliżenie z indeksu pełnotekstowego ``keyword_fts``
+(bez gałęzi regex i notatek), dlatego front pisze ją z tyldą; brak odpowiedzi
+w limicie czasu albo trwające wypełnianie korpusu = ``None``, nigdy błąd.
+"""
+
+from __future__ import annotations
+
+import logging
+import re
+import time
+import unicodedata
+from dataclasses import dataclass
+from typing import Iterable, Optional, Sequence
+
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.services.polish_ilike import contains_pattern
+from app.services import keyword_corpus
+from app.services.keyword_terms import (
+    MIN_WILDCARD_CORE,
+    parse_keyword,
+    tsquery_path_variants,
+    tsquery_text,
+)
+
+logger = logging.getLogger(__name__)
+
+_WORD_SPLIT = re.compile(r"[\s./#+\-()_,]+")
+COUNT_TTL_SECONDS = 3600
+COUNT_TIMEOUT_MS = 1500
+_COUNT_CACHE_MAX = 5000
+
+
+def fold(value: str) -> str:
+    """Małe litery, bez polskich znaków, pojedyncze spacje."""
+    lowered = (value or "").lower().replace("ł", "l")
+    stripped = "".join(
+        ch
+        for ch in unicodedata.normalize("NFKD", lowered)
+        if not unicodedata.combining(ch)
+    )
+    return " ".join(stripped.split())
+
+
+@dataclass(frozen=True)
+class SkillEntry:
+    label: str
+    category: str
+    aliases: tuple[str, ...]
+    key: str
+    word_keys: tuple[str, ...]
+    alias_keys: tuple[str, ...]
+
+
+_catalog: tuple[SkillEntry, ...] = ()
+
+
+def load_catalog(
+    skills: Iterable[tuple[int, str, Optional[str]]],
+    alias_rows: Iterable[tuple[int, str]],
+) -> int:
+    """Buduje słownik podpowiedzi z wierszy ``skills`` i ``skill_aliases``."""
+    aliases: dict[int, list[str]] = {}
+    for skill_id, alias in alias_rows:
+        if alias:
+            aliases.setdefault(skill_id, []).append(alias)
+    entries: list[SkillEntry] = []
+    for skill_id, name, category in skills:
+        if not name or not name.strip():
+            continue
+        label = name.strip()
+        key = fold(label)
+        own = [a for a in aliases.get(skill_id, []) if fold(a) != key]
+        entries.append(
+            SkillEntry(
+                label=label,
+                category=category or "",
+                aliases=tuple(own),
+                key=key,
+                word_keys=tuple(w for w in _WORD_SPLIT.split(key) if w),
+                alias_keys=tuple(fold(a) for a in own),
+            )
+        )
+    global _catalog
+    _catalog = tuple(entries)
+    return len(entries)
+
+
+def catalog() -> tuple[SkillEntry, ...]:
+    return _catalog
+
+
+@dataclass(frozen=True)
+class SkillMatch:
+    entry: SkillEntry
+    alias: Optional[str]
+    starts: bool
+
+
+def match_skills(query: str, limit: int) -> list[SkillMatch]:
+    """Umiejętności pasujące początkiem nazwy, słowa nazwy albo aliasu.
+
+    Kolejność: początek całej nazwy, potem dokładny alias, potem reszta;
+    w obrębie grupy krótsza nazwa pierwsza (``Java`` przed ``Java EE``).
+    """
+    q = fold(query)
+    if not q:
+        return []
+    found: list[tuple[int, int, str, SkillMatch]] = []
+    for entry in _catalog:
+        starts = entry.key.startswith(q)
+        alias_hit: Optional[str] = None
+        if not starts:
+            for alias, alias_key in zip(entry.aliases, entry.alias_keys):
+                if alias_key.startswith(q):
+                    alias_hit = alias
+                    break
+        word_hit = not starts and any(w.startswith(q) for w in entry.word_keys)
+        if not (starts or alias_hit or word_hit):
+            continue
+        if starts:
+            rank = 0
+        elif alias_hit is not None and fold(alias_hit) == q:
+            rank = 1
+        else:
+            rank = 2
+        found.append(
+            (rank, len(entry.label), entry.key, SkillMatch(entry, alias_hit, starts))
+        )
+    found.sort(key=lambda row: (row[0], row[1], row[2]))
+    return [row[3] for row in found[:limit]]
+
+
+async def suggest_titles(db: AsyncSession, q: str, limit: int) -> list[tuple[str, int]]:
+    """Stanowiska z ``experience[].role`` (małe litery) z liczbą osób."""
+    pat = contains_pattern(q.strip().lower()) if q.strip() else ""
+    sql = text(
+        "SELECT lower(elem->>'role') AS role, COUNT(DISTINCT c.id) AS n "
+        "FROM candidates c, "
+        "jsonb_array_elements("
+        "CASE WHEN jsonb_typeof(c.experience) = 'array' "
+        "THEN c.experience ELSE '[]'::jsonb END"
+        ") AS elem "
+        "WHERE elem ? 'role' "
+        "AND elem->>'role' IS NOT NULL "
+        "AND elem->>'role' <> '' "
+        "AND (:pat = '' OR lower(elem->>'role') LIKE :pat) "
+        "GROUP BY lower(elem->>'role') "
+        "ORDER BY n DESC, role ASC "
+        "LIMIT :lim"
+    )
+    result = await db.execute(sql, {"pat": pat, "lim": limit})
+    return [(row[0], int(row[1])) for row in result]
+
+
+async def _titles_within_timeout(
+    db: AsyncSession, q: str, limit: int
+) -> list[tuple[str, int]]:
+    """Stanowiska z limitem czasu w savepoincie — pełny przegląd
+    ``experience`` przy każdym znaku nie może trzymać połączenia; po
+    przekroczeniu lista zostaje bez stanowisk."""
+    try:
+        async with db.begin_nested():
+            previous = (
+                await db.execute(text("SELECT current_setting('statement_timeout')"))
+            ).scalar_one()
+            await db.execute(
+                text("SELECT set_config('statement_timeout', :ms, true)"),
+                {"ms": f"{COUNT_TIMEOUT_MS}ms"},
+            )
+            rows = await suggest_titles(db, q, limit)
+            await db.execute(
+                text("SELECT set_config('statement_timeout', :prev, true)"),
+                {"prev": previous},
+            )
+            return rows
+    except Exception as exc:  # noqa: BLE001 — podpowiedź to dodatek
+        logger.warning("keyword suggest titles skipped (%s)", type(exc).__name__)
+        return []
+
+
+_count_cache: dict[str, tuple[float, int]] = {}
+
+
+def _tsquery_sql(value: str) -> Optional[str]:
+    """Wyrażenie tsquery dla słowa kluczowego albo ``None`` (bez indeksu)."""
+    term = parse_keyword(value)
+    if term is None:
+        return None
+    tsq = tsquery_text(term)
+    if tsq is None:
+        return None
+    return tsq
+
+
+def _cached(key: str, now: float) -> Optional[int]:
+    hit = _count_cache.get(key)
+    if hit is None or now - hit[0] > COUNT_TTL_SECONDS:
+        return None
+    return hit[1]
+
+
+def clear_count_cache() -> None:
+    _count_cache.clear()
+
+
+async def count_candidates(
+    db: AsyncSession, values: Sequence[str]
+) -> dict[str, Optional[int]]:
+    """Przybliżona liczba osób ze słowem w korpusie, jednym zapytaniem.
+
+    Liczy wyłącznie po ``keyword_fts`` (indeks GIN); limit czasu zapytania
+    obowiązuje w savepoincie, więc przekroczenie nie psuje transakcji żądania.
+    """
+    result: dict[str, Optional[int]] = {v: None for v in values}
+    if not values or not keyword_corpus.ready():
+        return result
+    now = time.monotonic()
+    missing: list[tuple[str, str, Optional[str]]] = []
+    for value in values:
+        cached = _cached(fold(value), now)
+        if cached is not None:
+            result[value] = cached
+            continue
+        tsq = _tsquery_sql(value)
+        if tsq is None:
+            continue
+        term = parse_keyword(value)
+        variants = tsquery_path_variants(term) if term is not None else None
+        missing.append((value, tsq, variants))
+    if not missing:
+        return result
+
+    params: dict[str, object] = {}
+    selects: list[str] = []
+    wheres: list[str] = []
+    for idx, (_value, tsq, variants) in enumerate(missing):
+        params[f"q{idx}"] = tsq
+        expr = f"to_tsquery('simple', :q{idx})"
+        if variants is not None:
+            params[f"v{idx}"] = variants
+            expr = f"({expr} || CAST(:v{idx} AS tsquery))"
+        selects.append(f"count(*) FILTER (WHERE keyword_fts @@ {expr}) AS n{idx}")
+        wheres.append(f"keyword_fts @@ {expr}")
+    sql = text(
+        "SELECT " + ", ".join(selects) + " FROM candidates WHERE " + " OR ".join(wheres)
+    )
+    try:
+        async with db.begin_nested():
+            previous = (
+                await db.execute(text("SELECT current_setting('statement_timeout')"))
+            ).scalar_one()
+            await db.execute(
+                text("SELECT set_config('statement_timeout', :ms, true)"),
+                {"ms": f"{COUNT_TIMEOUT_MS}ms"},
+            )
+            row = (await db.execute(sql, params)).one()
+            await db.execute(
+                text("SELECT set_config('statement_timeout', :prev, true)"),
+                {"prev": previous},
+            )
+    except Exception as exc:  # noqa: BLE001 — liczba to dodatek, nie bramka
+        logger.warning("keyword suggest count skipped (%s)", type(exc).__name__)
+        return result
+    if len(_count_cache) > _COUNT_CACHE_MAX:
+        _count_cache.clear()
+    for idx, (value, _tsq, _variants) in enumerate(missing):
+        n = int(row[idx] or 0)
+        result[value] = n
+        _count_cache[fold(value)] = (now, n)
+    return result
+
+
+@dataclass(frozen=True)
+class Suggestion:
+    label: str
+    kind: str
+    insert: str
+    alias: Optional[str]
+    category: Optional[str]
+    count: Optional[int]
+
+
+@dataclass(frozen=True)
+class SuggestResult:
+    items: list[Suggestion]
+    wildcard: Optional[Suggestion]
+
+
+def wildcard_for(query: str) -> Optional[str]:
+    """``jav`` → ``jav*`` (rdzeń co najmniej ``MIN_WILDCARD_CORE`` znaków)."""
+    core = " ".join((query or "").split()).strip("*").strip()
+    if len(core) < MIN_WILDCARD_CORE or " " in core:
+        return None
+    return core + "*"
+
+
+async def suggest(db: AsyncSession, query: str, limit: int) -> SuggestResult:
+    q = " ".join((query or "").split())
+    if not fold(q):
+        return SuggestResult(items=[], wildcard=None)
+    skill_matches = match_skills(q, limit)
+    items: list[Suggestion] = [
+        Suggestion(
+            label=m.entry.label,
+            kind="skill",
+            insert=m.entry.label,
+            alias=m.alias,
+            category=m.entry.category or None,
+            count=None,
+        )
+        for m in skill_matches
+    ]
+    if len(fold(q)) >= 3 and len(items) < limit:
+        seen = {fold(s.label) for s in items}
+        for role, _n in await _titles_within_timeout(db, q, 3):
+            if fold(role) in seen:
+                continue
+            items.append(
+                Suggestion(
+                    label=role,
+                    kind="title",
+                    insert=role,
+                    alias=None,
+                    category=None,
+                    count=None,
+                )
+            )
+            if len(items) >= limit:
+                break
+    wildcard_value = wildcard_for(q)
+    counts = await count_candidates(
+        db,
+        [s.insert for s in items] + ([wildcard_value] if wildcard_value else []),
+    )
+    items = [Suggestion(**{**s.__dict__, "count": counts.get(s.insert)}) for s in items]
+    wildcard = (
+        Suggestion(
+            label=wildcard_value,
+            kind="prefix",
+            insert=wildcard_value,
+            alias=None,
+            category=None,
+            count=counts.get(wildcard_value),
+        )
+        if wildcard_value
+        else None
+    )
+    return SuggestResult(items=items, wildcard=wildcard)

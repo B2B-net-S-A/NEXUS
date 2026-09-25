@@ -149,6 +149,7 @@ import {
   isHistoryNeutralChange,
 } from "@/components/v2/pages/CandidatesListV2";
 import { DEFAULT_FILTERS } from "@/lib/url-filters";
+import { clearSearchMemory, readRecentSearches, writeListSearch } from "@/lib/search-memory";
 
 function renderList(props: Parameters<typeof CandidatesListV2>[0] = {}) {
   const client = new QueryClient({
@@ -188,6 +189,20 @@ async function pickStatus(option: string) {
   fireEvent.click(within(more).getByRole("button", { name: option }));
 }
 
+/**
+ * „Szukaj” — zmiany filtrów czekają na ten przycisk (25.09.2026). Przy otwartej
+ * szufladzie „Więcej filtrów” klikamy przycisk w jej stopce (pasek pod nią
+ * jest wtedy ukryty przed czytnikiem).
+ */
+function search() {
+  const drawer = screen.queryByTestId("candidate-more-filters");
+  if (drawer) {
+    fireEvent.click(screen.getByRole("button", { name: /^Szukaj \(/ }));
+    return;
+  }
+  fireEvent.click(within(bar()).getByRole("button", { name: /^Szukaj(?! w)/ }));
+}
+
 async function candidateCalls() {
   const api = (await import("@/lib/api")).default as unknown as {
     get: ReturnType<typeof vi.fn>;
@@ -204,6 +219,9 @@ async function candidateCalls() {
 describe("CandidatesListV2", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Pamięć ostatniego wyszukiwania (sessionStorage) przeżywa test — bez tego
+    // goły adres następnego testu przywróciłby filtry poprzedniego.
+    clearSearchMemory();
     urlParams = new URLSearchParams();
     listItems = [];
     listTotal = 0;
@@ -364,6 +382,7 @@ describe("CandidatesListV2", () => {
       const exclude = within(bar()).getByLabelText("Nie zawiera żadnego ze słów");
       fireEvent.change(exclude, { target: { value: "junior" } });
       fireEvent.keyDown(exclude, { key: "Enter" });
+      search();
       await waitFor(async () => {
         const calls = await candidateCalls();
         expect(calls.at(-1)).toMatchObject({ q_all: ["Kafka"], q_none: ["junior"] });
@@ -378,6 +397,7 @@ describe("CandidatesListV2", () => {
       fireEvent.change(any, { target: { value: "Quarkus" } });
       fireEvent.keyDown(any, { key: "Enter" });
       fireEvent.change(within(bar()).getByLabelText("Szukaj w"), { target: { value: "cv" } });
+      search();
       await waitFor(async () => {
         const calls = await candidateCalls();
         expect(calls.at(-1)).toMatchObject({ q_any_group: ["Spring|Quarkus"], q_scope: "cv" });
@@ -388,11 +408,16 @@ describe("CandidatesListV2", () => {
       renderList();
       const popover = await openFilter(/^Lokalizacja/);
       fireEvent.change(within(popover).getByLabelText("Miasto"), { target: { value: "Kraków" } });
+      fireEvent.keyDown(popover, { key: "Escape" });
+      search();
       await waitFor(async () => {
         const calls = await candidateCalls();
         expect(calls.at(-1)).toMatchObject({ location: "Kraków" });
       });
-      fireEvent.change(within(popover).getByLabelText("Promień"), { target: { value: "25" } });
+      const again = await openFilter(/^Lokalizacja/);
+      fireEvent.change(within(again).getByLabelText("Promień"), { target: { value: "25" } });
+      fireEvent.keyDown(again, { key: "Escape" });
+      search();
       await waitFor(async () => {
         const calls = await candidateCalls();
         expect(calls.at(-1)).toMatchObject({ location: "Kraków", location_radius_km: 25 });
@@ -408,6 +433,7 @@ describe("CandidatesListV2", () => {
       const popover = await openFilter(/^Lokalizacja/);
       fireEvent.change(within(popover).getByLabelText("Miasto"), { target: { value: "Gdańsk" } });
       fireEvent.keyDown(popover, { key: "Escape" });
+      search();
       await waitFor(async () => {
         const calls = await candidateCalls();
         expect(calls.at(-1)).toMatchObject({ location: "Gdańsk" });
@@ -420,11 +446,12 @@ describe("CandidatesListV2", () => {
       fireEvent.change(within(popover).getByLabelText("Stawka B2B — do"), {
         target: { value: "160" },
       });
+      fireEvent.keyDown(popover, { key: "Escape" });
+      search();
       await waitFor(async () => {
         const calls = await candidateCalls();
         expect(calls.at(-1)).toMatchObject({ max_rate: 160 });
       });
-      fireEvent.keyDown(popover, { key: "Escape" });
       expect(
         within(bar()).getByRole("button", { name: /^Stawka: do 160 zł\/h/ }),
       ).toBeTruthy();
@@ -445,6 +472,8 @@ describe("CandidatesListV2", () => {
       fireEvent.change(within(history).getByLabelText("Kontakt — od"), {
         target: { value: "2026-08-01" },
       });
+      fireEvent.keyDown(history, { key: "Escape" });
+      search();
       await waitFor(async () => {
         const calls = await candidateCalls();
         expect(calls.at(-1)).toMatchObject({ contacted: "no", contacted_from: "2026-08-01" });
@@ -484,6 +513,8 @@ describe("CandidatesListV2", () => {
         name: "Czy można go teraz zaproponować?",
       });
       fireEvent.click(within(group).getByRole("radio", { name: /Tak — szuka pracy/ }));
+      fireEvent.keyDown(popover, { key: "Escape" });
+      search();
       await waitFor(async () => {
         const calls = await candidateCalls();
         expect(calls.at(-1)).toMatchObject({
@@ -503,6 +534,61 @@ describe("CandidatesListV2", () => {
     });
   });
 
+  describe("przycisk „Szukaj” i pamięć wyszukiwania (25.09.2026)", () => {
+    it("zmiana filtra czeka na „Szukaj”, a „Cofnij zmiany” wraca do zastosowanych", async () => {
+      renderList();
+      await waitFor(async () => expect((await candidateCalls()).length).toBeGreaterThan(0));
+      const before = (await candidateCalls()).length;
+      const must = within(bar()).getByLabelText("Zawiera wszystkie ze słów");
+      fireEvent.change(must, { target: { value: "Kafka" } });
+      fireEvent.keyDown(must, { key: "Enter" });
+      expect(await screen.findByText("1 zmiana czeka na „Szukaj”")).toBeTruthy();
+      expect((await candidateCalls()).length).toBe(before);
+
+      fireEvent.click(screen.getByRole("button", { name: "Cofnij zmiany" }));
+      await waitFor(() => expect(screen.queryByText(/czeka na „Szukaj”/)).toBeNull());
+
+      fireEvent.change(must, { target: { value: "Kafka" } });
+      fireEvent.keyDown(must, { key: "Enter" });
+      // Enter w pustym polu = „Szukaj”.
+      fireEvent.keyDown(must, { key: "Enter" });
+      await waitFor(async () => {
+        const calls = await candidateCalls();
+        expect(calls.at(-1)).toMatchObject({ q_all: ["Kafka"] });
+      });
+      expect(screen.queryByText(/czeka na „Szukaj”/)).toBeNull();
+      expect(readRecentSearches(7)[0]).toMatchObject({ kind: "list", label: "Kafka", keywords: ["Kafka"] });
+    });
+
+    it("goły adres przywraca ostatnie wyszukiwanie z tej karty", async () => {
+      writeListSearch({ query: "q_all=Kafka&rate_max=160" });
+      renderList();
+      expect(await screen.findByText("Wróciłeś do swojego wyszukiwania.")).toBeTruthy();
+      await waitFor(async () => {
+        const calls = await candidateCalls();
+        expect(calls.at(-1)).toMatchObject({ q_all: ["Kafka"], max_rate: 160 });
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: "Nowe wyszukiwanie" }));
+      await waitFor(async () => {
+        const calls = await candidateCalls();
+        expect(calls.at(-1)?.q_all).toBeUndefined();
+      });
+      expect(screen.queryByText("Wróciłeś do swojego wyszukiwania.")).toBeNull();
+    });
+
+    it("adres z filtrami wygrywa z pamięcią", async () => {
+      writeListSearch({ query: "q_all=Kafka" });
+      urlParams = new URLSearchParams("q_all=Python");
+      renderList();
+      await waitFor(async () => {
+        const calls = await candidateCalls();
+        expect(calls.at(-1)).toMatchObject({ q_all: ["Python"] });
+      });
+      expect(screen.queryByText("Wróciłeś do swojego wyszukiwania.")).toBeNull();
+    });
+  });
+
   describe("historia przeglądarki", () => {
     it("pierwszy zapis podmienia wpis, zmiana filtra dodaje nowy", async () => {
       const pushState = vi.spyOn(window.history, "pushState");
@@ -513,6 +599,9 @@ describe("CandidatesListV2", () => {
       expect(pushState).not.toHaveBeenCalled();
 
       await pickStatus("Aktywni");
+      // Zmiana czeka na „Szukaj” — adres jeszcze stoi.
+      expect(pushState).not.toHaveBeenCalled();
+      search();
 
       await waitFor(() => expect(pushState).toHaveBeenCalledTimes(1));
       expect(String(pushState.mock.calls[0][2])).toContain("status=active");
@@ -529,6 +618,7 @@ describe("CandidatesListV2", () => {
       fireEvent.change(screen.getByLabelText("Szukaj kandydatów"), {
         target: { value: "tester" },
       });
+      fireEvent.keyDown(screen.getByLabelText("Szukaj kandydatów"), { key: "Enter" });
 
       await waitFor(() =>
         expect(
@@ -543,8 +633,9 @@ describe("CandidatesListV2", () => {
       renderList();
 
       await pickStatus("Aktywni");
+      search();
       expect(await screen.findByText("Status: Aktywni")).toBeTruthy();
-      expect(pushState).toHaveBeenCalledTimes(1);
+      await waitFor(() => expect(pushState).toHaveBeenCalledTimes(1));
 
       await act(async () => {
         window.history.replaceState(null, "", "/candidates");
@@ -562,24 +653,15 @@ describe("CandidatesListV2", () => {
       renderList();
       const more = await openAdvanced(/Kto dodał/);
       fireEvent.click(within(more).getByRole("radio", { name: "Moi kandydaci" }));
-      await waitFor(async () => {
-        const calls = await candidateCalls();
-        expect(calls.at(-1)).toMatchObject({ added_by_user_id: [7] });
-      });
       expect(within(more).getByRole("radio", { name: "Moi kandydaci" })).toHaveAttribute(
         "aria-checked",
         "true",
       );
-      const drawer = screen.getByTestId("candidate-more-filters");
-      fireEvent.click(within(drawer).getByRole("radio", { name: "Wszyscy" }));
-      // Powrót do parametrów z pierwszego zapytania trafia w cache react-query,
-      // więc sprawdzamy stan przełącznika, nie kolejne wywołanie API.
-      await waitFor(() =>
-        expect(within(drawer).getByRole("radio", { name: "Wszyscy" })).toHaveAttribute(
-          "aria-checked",
-          "true",
-        ),
-      );
+      search();
+      await waitFor(async () => {
+        const calls = await candidateCalls();
+        expect(calls.at(-1)).toMatchObject({ added_by_user_id: [7] });
+      });
     });
 
     it("języki z adresu idą do API i podbijają licznik „Więcej filtrów”", async () => {

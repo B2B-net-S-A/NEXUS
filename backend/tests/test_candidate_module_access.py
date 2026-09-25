@@ -191,6 +191,7 @@ READ_ENDPOINTS = [
     ("GET", "/api/candidates/check-exists?email=nobody%40example.com", None),
     ("GET", "/api/candidates/companies/suggest", None),
     ("GET", "/api/candidates/titles/suggest", None),
+    ("GET", "/api/candidates/keywords/suggest?q=java", None),
     ("GET", "/api/notes", None),
     ("GET", "/api/candidates/999999/sources", None),
     ("GET", "/api/talent-pools", None),

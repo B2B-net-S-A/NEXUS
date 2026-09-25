@@ -251,13 +251,27 @@
     "key": "candidates.list",
     "title": "Kandydaci",
     "section": "sourcing",
-    "roles": ["recruiter", "sourcer", "delivery_lead"],
+    "roles": [
+      "recruiter",
+      "sourcer",
+      "delivery_lead"
+    ],
     "what": "Tu szukasz ludzi w bazie: słowa kluczowe jak w Traffit, stawka, lokalizacja z promieniem, tryb pracy i historia współpracy — albo wyszukiwanie z treści requestu.",
     "tasks": [
       {
         "q": "Jak szukać po słowach kluczowych?",
-        "a": "Użyj trzech pól nad listą: „Zawiera wszystkie”, „Zawiera którekolwiek” i „Nie zawiera żadnego”. Słowa pasują w całości: „java” nie znajdzie „JavaScript”; gwiazdka „java*” szuka początku słowa.",
+        "a": "Użyj trzech pól nad listą: „Zawiera wszystkie”, „Zawiera którekolwiek” i „Nie zawiera żadnego”. Pod polem pojawiają się podpowiedzi z bazy z liczbą osób — strzałki wybierają, Enter dodaje. Słowa pasują w całości: „java” nie znajdzie „JavaScript”; gwiazdka „java*” szuka początku słowa.",
         "anchor": "candidates.list.filters"
+      },
+      {
+        "q": "Dlaczego lista nie zmienia się po ustawieniu filtra?",
+        "a": "Zmiany słów i filtrów czekają na przycisk „Szukaj” (albo Enter w pustym polu). Liczba na przycisku mówi, ile zmian czeka; „Cofnij zmiany” wraca do tego, co widzisz w tabeli.",
+        "anchor": "candidates.list.search"
+      },
+      {
+        "q": "Jak wrócić do poprzedniego wyszukiwania?",
+        "a": "Po powrocie z profilu albo z innej strony lista sama wraca do ostatniego wyszukiwania, strony i miejsca na liście. Starsze wyszukiwania są pod „Ostatnie wyszukiwania”.",
+        "anchor": "candidates.list.saved"
       },
       {
         "q": "Jak znaleźć kandydatów pod request klienta?",
@@ -265,19 +279,9 @@
         "anchor": "candidates.list.request"
       },
       {
-        "q": "Gdzie są rzadsze filtry (doświadczenie, języki, firmy)?",
-        "a": "Pod „Więcej filtrów” — szuflada z prawej: doświadczenie i języki, firma i stanowisko, kto dodał i pule, pozostałe (tam też filtr po tagach).",
-        "anchor": "candidates.list.more"
-      },
-      {
         "q": "Jak zapisać wyszukiwanie i dostawać powiadomienia?",
-        "a": "Otwórz „Zapisane” i zapisz bieżące filtry. Dzwonek jest domyślnie włączony — dostaniesz powiadomienie, gdy pojawi się nowa pasująca osoba.",
+        "a": "Otwórz „Zapisane” i zapisz bieżące filtry. Dzwonek jest domyślnie włączony — dostaniesz powiadomienie, gdy pojawi się nowa pasująca osoba. Rzadsze filtry (doświadczenie, języki, firmy) są pod „Więcej filtrów”.",
         "anchor": "candidates.list.saved"
-      },
-      {
-        "q": "Jak zmienić kolumny tabeli?",
-        "a": "Kliknij „Kolumny” i zaznacz, co chcesz widzieć (np. e-mail, staż, ostatni kontakt). Wybór zapamiętuje przeglądarka.",
-        "anchor": "candidates.list.columns"
       }
     ],
     "pitfalls": [
@@ -285,15 +289,41 @@
       "Historia kontaktów z Traffita ma datę importu (maj 2026), więc wcześniejszy okres nic nie znajdzie."
     ],
     "anchors": [
-      {"id": "candidates.list.filters", "label": "Pasek filtrów", "describe": "Słowa kluczowe i przyciski filtrów nad tabelą."},
-      {"id": "candidates.list.request", "label": "Z requestu", "describe": "Wyszukiwanie z treści requestu, pliku Championa albo rekrutacji."},
-      {"id": "candidates.list.more", "label": "Więcej filtrów", "describe": "Szuflada z rzadszymi filtrami."},
-      {"id": "candidates.list.saved", "label": "Zapisane, sortowanie, kolumny", "describe": "Zapisane wyszukiwania, sortowanie i wybór kolumn."},
-      {"id": "candidates.list.columns", "label": "Kolumny", "describe": "Wybór kolumn tabeli kandydatów."}
+      {
+        "id": "candidates.list.filters",
+        "label": "Pasek filtrów",
+        "describe": "Słowa kluczowe i przyciski filtrów nad tabelą."
+      },
+      {
+        "id": "candidates.list.search",
+        "label": "Szukaj",
+        "describe": "Przycisk, który stosuje zmienione słowa i filtry."
+      },
+      {
+        "id": "candidates.list.request",
+        "label": "Z requestu",
+        "describe": "Wyszukiwanie z treści requestu, pliku Championa albo rekrutacji."
+      },
+      {
+        "id": "candidates.list.more",
+        "label": "Więcej filtrów",
+        "describe": "Szuflada z rzadszymi filtrami."
+      },
+      {
+        "id": "candidates.list.saved",
+        "label": "Ostatnie, zapisane, sortowanie",
+        "describe": "Ostatnie i zapisane wyszukiwania, sortowanie i wybór kolumn."
+      },
+      {
+        "id": "candidates.list.columns",
+        "label": "Kolumny",
+        "describe": "Wybór kolumn tabeli kandydatów."
+      }
     ],
     "help_slug": null,
     "sources": [
       "frontend/src/components/v2/candidates/CandidateFilterBar.tsx",
+      "frontend/src/components/v2/candidates/CandidateSearchFields.tsx",
       "frontend/src/components/v2/pages/CandidatesListV2.tsx"
     ]
   },

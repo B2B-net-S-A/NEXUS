@@ -184,3 +184,44 @@ export function decodeSearchRequest(
   out.page_size = clampInt(out.page_size, 1, 200, base.page_size ?? 50);
   return out;
 }
+
+/** Pola, które działają od razu — nie czekają na „Szukaj”. */
+const IMMEDIATE_REQUEST_KEYS = new Set(["page", "page_size", "sort"]);
+
+/**
+ * Ile zmian w szkicu czeka na „Szukaj” (25.09.2026): każdy element listy
+ * (słowo, umiejętność, miasto) i każde pole proste liczy się osobno.
+ */
+export function searchRequestChangeCount(
+  draft: CandidateSearchRequest,
+  applied: CandidateSearchRequest,
+): number {
+  const a = applied as unknown as Record<string, unknown>;
+  const d = draft as unknown as Record<string, unknown>;
+  const keys = new Set([...Object.keys(a), ...Object.keys(d)]);
+  let changes = 0;
+  for (const key of keys) {
+    if (IMMEDIATE_REQUEST_KEYS.has(key)) continue;
+    const left = a[key];
+    const right = d[key];
+    if (Array.isArray(left) || Array.isArray(right)) {
+      const pool = new Map<string, number>();
+      for (const item of Array.isArray(left) ? left : []) {
+        const k = JSON.stringify(item);
+        pool.set(k, (pool.get(k) ?? 0) + 1);
+      }
+      for (const item of Array.isArray(right) ? right : []) {
+        const k = JSON.stringify(item);
+        const n = pool.get(k) ?? 0;
+        if (n > 0) pool.set(k, n - 1);
+        else changes += 1;
+      }
+      for (const n of pool.values()) changes += n;
+      continue;
+    }
+    const empty = (v: unknown) => v === undefined || v === null || v === "";
+    if (empty(left) && empty(right)) continue;
+    if (!sameValue(left, right)) changes += 1;
+  }
+  return changes;
+}
