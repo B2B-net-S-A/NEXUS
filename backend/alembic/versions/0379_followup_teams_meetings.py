@@ -1,13 +1,13 @@
 """Teams follow-up meetings and candidate-owned transcripts.
 
-Revision ID: 0378_followup_teams_meetings
-Revises: 0377_traffit_jobs_archive
+Revision ID: 0379_followup_teams_meetings
+Revises: 0378_archive_jobs_before_nexus_start
 """
 
 from alembic import op
 
-revision = "0378_followup_teams_meetings"
-down_revision = "0377_traffit_jobs_archive"
+revision = "0379_followup_teams_meetings"
+down_revision = "0378_archive_jobs_before_nexus_start"
 branch_labels = None
 depends_on = None
 

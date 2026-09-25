@@ -6,7 +6,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_followup_schema_is_repaired_and_probed() -> None:
-    migration = (ROOT / "alembic/versions/0378_followup_teams_meetings.py").read_text()
+    migration = (ROOT / "alembic/versions/0379_followup_teams_meetings.py").read_text()
     entrypoint = (ROOT / "entrypoint.sh").read_text()
     main = (ROOT / "app/main.py").read_text()
     for column in (
