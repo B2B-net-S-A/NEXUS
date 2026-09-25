@@ -5,7 +5,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from types import SimpleNamespace
 from pydantic import BaseModel, Field
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from typing import List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -143,6 +143,35 @@ def _spawn(coro, label: str) -> None:
             logger.exception("pipeline background task failed: %s", label, exc_info=exc)
 
     task.add_done_callback(_done)
+
+
+async def _post_commit_effect(
+    db: AsyncSession, label: str, effect: Callable[[], Awaitable[None]]
+) -> None:
+    """Efekt uboczny po zatwierdzonym ruchu — nigdy nie rzuca i nie wygasza sesji.
+
+    Efekt biegnie w savepoincie: błąd cofa wyłącznie jego zapisy, a obiekty
+    załadowane w sesji żądania (``current_user``, ``stage``, ``job``) zostają
+    ważne — `db.rollback()` na całej sesji wygaszał je i kolejny odczyt
+    atrybutu kończył się MissingGreenlet (500 po zapisanym ruchu, audyt
+    25.09.2026). Commit dopiero po udanym efekcie; nieudany commit cofa sesję
+    (wtedy nie ma już czego chronić — odpowiedź jest policzona wcześniej).
+    """
+
+    try:
+        async with db.begin_nested():
+            await effect()
+    except Exception as exc:  # noqa: BLE001 — efekt uboczny nie psuje ruchu
+        logger.warning("%s failed: %s", label, exc)
+        return
+    try:
+        await db.commit()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("%s commit failed: %s", label, exc)
+        try:
+            await db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 # ── Helpers to bridge legacy enum ↔ new stage_def FK ────────────────────────
@@ -1467,18 +1496,36 @@ async def move_candidate(
     actor_id = current_user.id
     await db.commit()
     await db.refresh(stage)
+
+    # Odpowiedź i wszystko, czego potrzebują efekty uboczne, liczymy TERAZ —
+    # zanim któryś z nich zawiedzie. Do 25.09.2026 blok po commicie przy
+    # błędzie robił `db.rollback()` na sesji żądania, co wygaszało
+    # `current_user` i `stage`, a końcowe `_stage_response` czytało wygasłe
+    # atrybuty → MissingGreenlet → 500 po zapisanym ruchu (audyt 25.09.2026).
+    resp = _stage_response(
+        stage, show_client_rate=user_can_view_client_rate(current_user)
+    )
+    stage_id = stage.id
+    # F05: nowa wersja procesu po ruchu — karta podmienia ją od razu, żeby
+    # kolejny ruch z tej samej karty (przed odświeżeniem tablicy) nie wysłał
+    # wersji sprzed własnego ruchu i nie dostał 409 za samego siebie.
+    versions = await _process_state_versions(
+        db, job_id=data.job_id, candidate_ids=[data.candidate_id]
+    )
+    resp["process_state_version"] = versions.get(data.candidate_id, 0)
+
     # Live kanban: the rest of the team re-reads the board (best-effort).
     await broadcast_pipeline_changed(db, data.job_id, actor_id)
 
     # ── Post-commit best-effort side effects (M4 PR-02, audyt P0.6) ────────
     # Transition jest już trwały. Nic poniżej nie może zwrócić 500 ani
-    # cofnąć ruchu — każdy blok ma własny try/except + rollback, żeby błąd
-    # SQL nie zostawił sesji w failed transaction (PendingRollbackError
-    # → fałszywe 500 po zapisanym ruchu; scenariusz B audytu).
+    # cofnąć ruchu. Każdy efekt biegnie w SAVEPOINCIE (`_post_commit_effect`):
+    # błąd cofa tylko jego zapisy i nie wygasza obiektów sesji, więc kolejne
+    # efekty dalej widzą `current_user`, `job` i `stage`.
 
     # Configurable stage-transition notifications (migracja 0066) —
     # in-app + email (SMTP) per regułą; teraz wyłącznie PO commicie.
-    try:
+    async def _notify_stage_change() -> None:
         from app.services.stage_notification_emitter import notify_stage_change
 
         candidate_obj = await db.scalar(
@@ -1494,17 +1541,13 @@ async def move_candidate(
                 mover=current_user,
                 stage_display_name=stage_display_name,
             )
-        await db.commit()
-    except Exception as _exc:  # noqa: BLE001
-        logger.warning("stage_notif top-level failure for stage=%s: %s", stage.id, _exc)
-        try:
-            await db.rollback()
-        except Exception:  # noqa: BLE001
-            pass
+
+    await _post_commit_effect(db, f"stage_notif stage={stage_id}", _notify_stage_change)
 
     # 0348/0353: dzwonek dla osoby, która wysyła do Cpro. Best-effort.
     if cpro_assignee is not None:
-        try:
+
+        async def _notify_cpro_sender() -> None:
             await board_tasks_svc.notify_cpro_sender(
                 db,
                 job_id=job.id,
@@ -1513,25 +1556,21 @@ async def move_candidate(
                 sender_id=cpro_assignee.id,
                 actor=current_user,
             )
-            await db.commit()
-        except Exception as _exc:  # noqa: BLE001
-            logger.warning(
-                "cpro assignment notice failed stage=%s: %s (added_to_team=%s)",
-                stage.id,
-                _exc,
-                cpro_assignee_added_to_team,
-            )
-            try:
-                await db.rollback()
-            except Exception:  # noqa: BLE001
-                pass
+
+        await _post_commit_effect(
+            db,
+            f"cpro assignment notice stage={stage_id} "
+            f"(added_to_team={cpro_assignee_added_to_team})",
+            _notify_cpro_sender,
+        )
 
     # Phase 10 A1: auto-add candidate to a talent pool when CV is sent to
     # the client. Best-effort — po commicie ruchu.
     if legacy_enum == PipelineStage.cv_sent:
-        from app.services.talent_pool_auto_add import auto_add_on_cv_sent
 
-        try:
+        async def _auto_add_to_pool() -> None:
+            from app.services.talent_pool_auto_add import auto_add_on_cv_sent
+
             pool_candidate = await db.scalar(
                 select(Candidate).where(Candidate.id == data.candidate_id)
             )
@@ -1539,39 +1578,26 @@ async def move_candidate(
                 db=db,
                 candidate_id=data.candidate_id,
                 job=job,
-                user_id=current_user.id,
+                user_id=actor_id,
                 candidate=pool_candidate,
             )
-            await db.commit()
-        except Exception as e:  # noqa: BLE001
-            logger.warning(
-                "auto_add_on_cv_sent failed for candidate=%s job=%s: %s",
-                data.candidate_id,
-                job.id,
-                e,
-            )
-            try:
-                await db.rollback()
-            except Exception:  # noqa: BLE001
-                pass
+
+        await _post_commit_effect(
+            db,
+            f"auto_add_on_cv_sent candidate={data.candidate_id} job={data.job_id}",
+            _auto_add_to_pool,
+        )
 
     # Phase 17 (migracja 0068): event-driven recompute risk profile.
     # Best-effort — błąd NIE może wywołać 500 po zapisanym transition.
-    try:
+    async def _recompute_risk() -> None:
         from app.services.candidate_risk import on_candidate_stage_change
 
         await on_candidate_stage_change(db, data.candidate_id)
-        await db.commit()
-    except Exception as _exc:  # noqa: BLE001
-        logger.warning(
-            "risk recompute failed post-move candidate=%s: %s",
-            data.candidate_id,
-            _exc,
-        )
-        try:
-            await db.rollback()
-        except Exception:  # noqa: BLE001
-            pass
+
+    await _post_commit_effect(
+        db, f"risk recompute post-move candidate={data.candidate_id}", _recompute_risk
+    )
 
     # Auto-CV (21.09.2026): po trwałym ruchu na „Zweryfikowany" system w tle
     # zakolejkowuje CV w szablonie firmowym. Własna sesja, fire-and-forget —
@@ -1585,12 +1611,12 @@ async def move_candidate(
             if cv_auto_generate.enabled():
                 _spawn(
                     cv_auto_generate.generate_after_verified(
-                        stage_id=stage.id, user_id=actor_id
+                        stage_id=stage_id, user_id=actor_id
                     ),
-                    f"cv_auto_generate stage={stage.id}",
+                    f"cv_auto_generate stage={stage_id}",
                 )
         except Exception as _exc:  # noqa: BLE001 — automat nigdy nie psuje ruchu
-            logger.warning("cv_auto_generate spawn failed stage=%s: %s", stage.id, _exc)
+            logger.warning("cv_auto_generate spawn failed stage=%s: %s", stage_id, _exc)
 
     # QC CV (Rekrutacja v5): po wejściu do kolumny „QC CV” QC liczy się samo,
     # żeby karta, przegląd DL i kolejka Cpro nie mówiły „nie sprawdzone”.
@@ -1602,23 +1628,13 @@ async def move_candidate(
 
             if _settings.CV_QC_GATE_ENABLED:
                 _spawn(
-                    _cv_qc.run_after_move(stage.id, actor_id),
-                    f"cv_qc stage={stage.id}",
+                    _cv_qc.run_after_move(stage_id, actor_id),
+                    f"cv_qc stage={stage_id}",
                 )
         except Exception as _exc:  # noqa: BLE001 — automat nigdy nie psuje ruchu
-            logger.warning("cv_qc spawn failed stage=%s: %s", stage.id, _exc)
+            logger.warning("cv_qc spawn failed stage=%s: %s", stage_id, _exc)
 
-    resp = _stage_response(
-        stage, show_client_rate=user_can_view_client_rate(current_user)
-    )
     resp["scheduled_rejection_email_id"] = scheduled_rejection_email_id
-    # F05: nowa wersja procesu po ruchu — karta podmienia ją od razu, żeby
-    # kolejny ruch z tej samej karty (przed odświeżeniem tablicy) nie wysłał
-    # wersji sprzed własnego ruchu i nie dostał 409 za samego siebie.
-    versions = await _process_state_versions(
-        db, job_id=data.job_id, candidate_ids=[data.candidate_id]
-    )
-    resp["process_state_version"] = versions.get(data.candidate_id, 0)
     return CandidateStageResponse(**resp)
 
 
