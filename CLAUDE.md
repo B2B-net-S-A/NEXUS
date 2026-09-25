@@ -7855,11 +7855,14 @@ kluczowe 0,9–2 s, „c#” 5,9 s; 68% czasu „java” zjadał regex po `keywo
 - **`candidates.keyword_fold_fts` i `notes.content_fold_fts`** liczą triggery
   z `app/services/keyword_corpus.py` (jedno źródło dla migracji 0385 i
   `entrypoint.sh` — `schema_ddl()`/`schema_index_ddl()`). Tekst przechodzi przez
-  SQL-ową `candidate_keyword_fold`: bez polskich znaków, małe litery, `/` i `\`
-  → spacja, `c++`/`c#`/`f#`/`.net` → `cplusplus`/`csharp`/`fsharp`/`dotnet`
+  SQL-ową `candidate_keyword_fold`: bez polskich znaków, małe litery, `/`, `\`
+  i `-` → spacja (myślnik od 0386: „CI/CD-driven” nie łączyło się z „ci/cd”), `c++`/`c#`/`f#`/`.net` → `cplusplus`/`csharp`/`fsharp`/`dotnet`
   (`.net` tylko po granicy słowa albo `asp|ado|vb` — „B2B.net” zostaje).
   **Zapytanie składa ta SAMA funkcja** (`advanced_candidate_search.folded_tsquery`),
   więc dokument i zapytanie nie mogą się rozjechać — nie dopisuj składania w Pythonie.
+  **Zmieniasz tę funkcję = podbij `keyword_corpus.FOLD_VERSION`**: pętla
+  przelicza wtedy wszystkie wiersze obu kolumn (pozycja przeżywa ponowienie),
+  a nowa ścieżka czeka na koniec (`app_settings['keyword_fold_fts_version']`).
 - **Przełącznik `KEYWORD_SEARCH_FOLDED_FTS` (domyślnie OFF) i gotowość kolumn**
   (`fold_ready()`/`notes_ready()`, pętla `keyword_corpus_backfill` w trzech
   fazach). Przed włączeniem: `python -m scripts.compare_keyword_fold_fts`
