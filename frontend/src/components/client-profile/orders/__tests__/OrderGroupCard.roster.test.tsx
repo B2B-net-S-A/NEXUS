@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { OrderGroupCard } from "@/components/client-profile/orders/OrderGroupCard";
@@ -214,9 +214,17 @@ describe("OrderGroupCard — podział obsady", () => {
 
     renderCard(body);
 
-    expect(
-      screen.getByRole("heading", { name: /Zakończone\s*· 1 wymaga decyzji/ }),
-    ).toBeInTheDocument();
+    // Ticket 6: nagłówek niesie liczbę osób i licznik decyzji, a sekcja
+    // z decyzją do podjęcia jest domyślnie rozwinięta, karta z decyzją na górze.
+    const heading = screen.getByRole("heading", {
+      name: /Zakończone \(2\)\s*· 1 wymaga decyzji/,
+    });
+    expect(within(heading).getByRole("button")).toHaveAttribute("aria-expanded", "true");
+    const cards = within(section(/Zakończone/)).getAllByRole("listitem");
+    expect(cards[0]).toHaveTextContent("Anna Zejście");
+    expect(cards[0]).toHaveTextContent("Podejmij decyzję");
+    expect(cards[1]).toHaveTextContent("Zostawiony jako historia");
+    expect(cards[1]).not.toHaveTextContent("Podejmij decyzję");
   });
 
   it("bez spraw do rozstrzygnięcia nagłówek zostaje sam „Zakończone”", () => {
@@ -229,15 +237,17 @@ describe("OrderGroupCard — podział obsady", () => {
           status: "completed",
           is_active: false,
           cooperation_ended_on: "2026-07-31",
+          history_kept_at: "2026-08-01T09:00:00Z",
         }),
       ],
     });
 
     renderCard(body);
 
-    expect(
-      screen.getByRole("heading", { name: /^Zakończone$/ }),
-    ).toBeInTheDocument();
+    // Nic nie czeka na decyzję — sekcja zwinięta, sam nagłówek z liczbą osób.
+    const heading = screen.getByRole("heading", { name: /^Zakończone \(1\)$/ });
+    expect(within(heading).getByRole("button")).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("Piotr Historia")).not.toBeInTheDocument();
   });
 
   it("następca, który kogoś zastąpił, zostaje w aktywnej obsadzie", () => {
@@ -266,6 +276,7 @@ describe("OrderGroupCard — podział obsady", () => {
 
     const active = section(/Aktywna obsada/);
     expect(within(active).getByText("Nowy Zastępca")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Zakończone \(1\)/ }));
     const completed = section(/Zakończone/);
     expect(within(completed).getByText("Anna Zejście")).toBeInTheDocument();
   });
