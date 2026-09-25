@@ -11,13 +11,15 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException, status
-from sqlalchemy import and_, func, or_, select, text
+from sqlalchemy import and_, exists, func, or_, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.config import settings
@@ -44,6 +46,8 @@ QUALITY_SAMPLE_SIZE = 5
 B2B_VALUES = ("b2b", "would_switch", "employment_only")
 WORK_TIME_VALUES = ("full_time_only", "also_part_time", "part_time_only")
 AVAILABILITY_DAYS = {"now": 0, "within_1m": 30, "within_3m": 90}
+# „Później” (niż za 3 miesiące) — najwcześniejsza data dostępności (R4-12).
+AVAILABILITY_LATER_MIN_DAYS = 91
 OPEN_TO_STATUS = {
     "yes": AvailabilityStatus.actively_looking,
     "maybe": AvailabilityStatus.open_to_offers,
@@ -303,6 +307,8 @@ async def today_view(
         "day": view["day"],
         "total_days": view["total_days"],
         "status": program.status,
+        # Ostatni dzień programu — górna granica „telefonu innego dnia”.
+        "end_date": view["end_date"],
     }
     if program.status != "active":
         return {**base, "status": "program_finished"}
@@ -494,6 +500,17 @@ def call_note(facts: CallFacts, *, hourly: Any) -> str:
     return "\n".join(lines)
 
 
+def _minimum_changed(rate_audit: dict[str, Any]) -> bool:
+    """Czy telefon zapisał INNE minimum niż to w profilu (kwota albo waluta)."""
+    old = rate_audit.get("old_amount")
+    new = rate_audit.get("new_amount")
+    if old is None or new is None:
+        return old != new
+    if Decimal(old) != Decimal(new):
+        return True
+    return rate_audit.get("old_currency") != rate_audit.get("new_currency")
+
+
 def _apply_facts(candidate: Candidate, facts: CallFacts, user: User) -> dict[str, Any]:
     """Fakty z rozmowy → profil. Zwraca audyt stawki (albo pusty słownik)."""
     from app.services.candidate_notes_facts import (  # noqa: PLC0415
@@ -531,6 +548,17 @@ def _apply_facts(candidate: Candidate, facts: CallFacts, user: User) -> dict[str
         flag_modified(candidate, "cv_extracted_data")
     if facts.accepts_below_min_rate is not None:
         candidate.accepts_below_min_rate = facts.accepts_below_min_rate
+    elif (
+        rate_audit
+        and _minimum_changed(rate_audit)
+        and candidate.accepts_below_min_rate is not None
+    ):
+        # Nowe minimum bez odpowiedzi o zgodzie (R4-10): stara zgoda „można
+        # dzwonić poniżej minimum” dotyczyła POPRZEDNIEJ kwoty. `write_profile_rate`
+        # jej nie czyści dla źródła `trainee_call`, bo zwykle ta sama rozmowa
+        # odpowiada na oba pytania — tu odpowiedzi nie było.
+        rate_audit["accepts_below_min_rate_cleared"] = candidate.accepts_below_min_rate
+        candidate.accepts_below_min_rate = None
     if facts.remote_modes or facts.max_onsite_days is not None:
         modes = list(facts.remote_modes) or modes_for_office_days(
             facts.max_onsite_days or 0
@@ -549,6 +577,17 @@ def _apply_facts(candidate: Candidate, facts: CallFacts, user: User) -> dict[str
         candidate.availability_date = business_today() + timedelta(
             days=AVAILABILITY_DAYS[facts.availability]
         )
+    elif facts.availability == "later":
+        # „Później” = nie wcześniej niż za 3 miesiące (R4-12). Stara data
+        # zostawała — przeszła znaczyła dla scoringu „od zaraz”. Dolna granica,
+        # a nie pusta data: `_score_availability` bez daty zdejmuje warstwę
+        # z budżetu (neutralnie), więc „później” wypadałoby LEPIEJ niż
+        # „w ciągu 3 miesięcy” (+90 dni, kara za spóźnienie). Dalsza znana data
+        # zostaje.
+        floor = business_today() + timedelta(days=AVAILABILITY_LATER_MIN_DAYS)
+        current = candidate.availability_date
+        if current is None or current < floor:
+            candidate.availability_date = floor
     if facts.open_to_offers in OPEN_TO_STATUS:
         candidate.availability_status = OPEN_TO_STATUS[facts.open_to_offers]
     return rate_audit
@@ -668,6 +707,17 @@ async def record_outcome(
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
                 "Wybierz dzień roboczy.",
             )
+        # Oddzwonienie po końcu programu przepadało: lista powstaje tylko dla
+        # aktywnego programu, a kandydat był zablokowany dla praktykantów na
+        # 60 dni (audyt 25.09.2026, R4-9).
+        program = await program_for(db, user.id)
+        if program is not None:
+            end = rules_mod.program_end_date(program.start_date, program.total_workdays)
+            if later_date > end:
+                raise _http(
+                    status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    f"Wybierz dzień do końca programu ({end.strftime('%d.%m.%Y')}).",
+                )
         call = _add_call(
             db,
             candidate=candidate,
@@ -1163,6 +1213,31 @@ async def _pin_people(db: AsyncSession, trainee_id: int) -> int:
         )
     ).scalars()
     ids = set(rows.all())
+    # Oddzwonienia, do których nie doszło (R4-9): kandydat prosił o telefon
+    # innego dnia, a program skończył się przed nim — bez przypięcia ta
+    # relacja przepadała razem z listą praktykanta.
+    later_item = aliased(TraineeCallItem)
+    followup = aliased(TraineeCallItem)
+    open_later = (
+        await db.execute(
+            select(func.distinct(later_item.candidate_id))
+            .join(Candidate, Candidate.id == later_item.candidate_id)
+            .where(
+                later_item.user_id == trainee_id,
+                later_item.outcome == "later",
+                or_(
+                    Candidate.b2b_willingness.is_(None),
+                    Candidate.b2b_willingness != "employment_only",
+                ),
+                ~exists().where(
+                    followup.user_id == trainee_id,
+                    followup.candidate_id == later_item.candidate_id,
+                    followup.list_date > later_item.list_date,
+                ),
+            )
+        )
+    ).scalars()
+    ids |= set(open_later.all())
     if not ids:
         return 0
     owners = await owners_by_candidate(db)

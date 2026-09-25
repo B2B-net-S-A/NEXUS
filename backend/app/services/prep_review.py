@@ -126,7 +126,19 @@ async def build_items(db: AsyncSession, job: Job) -> list[Item]:
         .order_by(JobQuestion.order_index.asc())
     )
     for link in pinned.scalars().all():
-        if link.question is not None and link.question.id not in seen:
+        if link.question is None:
+            continue
+        # Pytanie z archiwum (Excel sprzed NEXUSA) przypięte przez import —
+        # bez człowieka — nie jest punktem oceny prepu: prep-kit je pokazuje,
+        # ale „słaby” za pominięcie starego pytania byłby fałszywym alarmem
+        # (decyzja Artura 25.09.2026, audyt runda 4). Przypięte ręcznie
+        # (``added_by_user_id``) liczy się jak każde inne.
+        if (
+            link.question.source == InterviewQuestionSource.legacy_import
+            and link.added_by_user_id is None
+        ):
+            continue
+        if link.question.id not in seen:
             seen.add(link.question.id)
             questions.append(link.question)
     if job.client_id is not None:

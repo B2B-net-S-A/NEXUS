@@ -129,7 +129,11 @@ export function BoardTasksPanel() {
     expanded[kind] ? rows : rows.slice(0, BOARD_TASKS_ROWS);
   const data = query.data;
   const hasCpro = (data?.cpro_to_send.length ?? 0) > 0;
-  const sender = useCproSender(hasCpro);
+  // Osobę od Cpro ustawia admin albo DL Nordei (25.09.2026) — przełącznik
+  // stoi u nich także przy pustej kolejce, inaczej martwe konto albo brak
+  // osoby nie dałby się naprawić z żadnego miejsca.
+  const canSetSender = data?.can_set_cpro_sender === true;
+  const sender = useCproSender(hasCpro || canSetSender);
   // Link z porannego dzwonka (`/dashboard#czeka-na-ciebie`): panel pojawia się
   // dopiero po odczycie kolejki, więc przeglądarka sama do niego nie przewinie.
   const scrolled = useRef(false);
@@ -150,7 +154,13 @@ export function BoardTasksPanel() {
     data.cpro_sent.length +
     preps.length +
     followups.length;
-  if (total === 0) return null;
+  if (total === 0) {
+    return canSetSender ? (
+      <div role="region" aria-label="Osoba od Cpro" className="rounded-xl border border-border bg-card px-4 py-2">
+        <CproSenderControl sender={sender.data} loading={sender.isLoading} compact />
+      </div>
+    ) : null;
+  }
 
   const cproGroups = groupCproByJob(data.cpro_to_send);
   const openQueue = (jobId: number | null) => {
@@ -171,6 +181,11 @@ export function BoardTasksPanel() {
           Ruchy na Tablicach z ostatnich {Math.max(data.window_days, data.dl_review_window_days ?? 0)} dni · najdłużej czekający na górze
         </p>
       </div>
+      {!hasCpro && canSetSender ? (
+        <div className="mb-3">
+          <CproSenderControl sender={sender.data} loading={sender.isLoading} compact />
+        </div>
+      ) : null}
       <div className="grid gap-4 lg:grid-cols-3">
         <FollowupSection rows={followups} others={data.followups_by_others ?? []} />
         {dlReview.length > 0 && (

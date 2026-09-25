@@ -59,9 +59,12 @@ def test_substitution_after_an_expired_one_starts_from_the_returned_person() -> 
     assert (state.user_id, state.fallback_user_id) == (9, 4)
 
 
-def test_substituting_yourself_has_no_fallback() -> None:
+def test_substituting_yourself_keeps_you_after_the_date() -> None:
+    # Audyt 25.09.2026 (runda 4): zastępstwo z datą dla osoby, która i tak
+    # wysyła na stałe, nie może zostawić kolejki bez nikogo po tej dacie.
     state = _set(CproSenderState(user_id=4), 4, until=TODAY)
-    assert state.fallback_user_id is None
+    assert state.fallback_user_id == 4
+    assert effective(state, TODAY + timedelta(days=1)).user_id == 4
 
 
 def test_past_until_is_refused() -> None:
@@ -130,7 +133,17 @@ async def test_sender_routes_set_substitute_and_notify(api_client, monkeypatch) 
     async with restore_cpro_sender():
         rec_id, rec_creds = await _seed_user(UserRole.recruiter)
         sub_id, _ = await _seed_user(UserRole.recruiter)
-        rec = await _login(api_client, rec_creds)
+        _admin_id, admin_creds = await _seed_user(UserRole.admin)
+        recruiter = await _login(api_client, rec_creds)
+        # Od 25.09.2026 osobę od Cpro ustawia admin albo DL Nordei.
+        refused_role = await api_client.put(
+            "/api/board-tasks/cpro/sender",
+            headers=recruiter,
+            json={"user_id": rec_id, "until": None},
+        )
+        assert refused_role.status_code == 403, refused_role.text
+        assert "admin" in refused_role.json()["detail"]
+        rec = await _login(api_client, admin_creds)
 
         set_ = await api_client.put(
             "/api/board-tasks/cpro/sender",
@@ -188,3 +201,89 @@ async def test_sender_routes_set_substitute_and_notify(api_client, monkeypatch) 
             json={"user_id": sub_id, "until": None},
         )
         assert refused.status_code == 422
+
+        # Audyt 25.09.2026 (runda 4): martwe konto nie jest osobą od Cpro —
+        # dezaktywowany zastępca = „nikt", a uprawniony widzi przełącznik.
+        dead = (
+            await api_client.get("/api/board-tasks/cpro/sender", headers=rec)
+        ).json()
+        assert dead["user_id"] is None
+        assert dead["can_set"] is True
+
+
+@pytest.mark.asyncio
+async def test_only_a_nordea_delivery_lead_or_admin_sets_the_sender(
+    api_client, monkeypatch
+) -> None:
+    """Decyzja Artura 25.09.2026: osobę od Cpro ustawia admin albo DL
+    przypisany do klienta Nordei. DL innego klienta, HoR i rekruter — 403."""
+
+    import uuid
+
+    from sqlalchemy import delete
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.client import Client
+    from app.models.team_structure import DeliveryLeadClientAssignment
+    from app.models.user import UserRole
+    from tests.test_board_tasks import _login, _seed_user, restore_cpro_sender
+
+    unique = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        nordea = Client(name=f"Nordea R4 {unique}")
+        other = Client(name=f"Inny R4 {unique}")
+        db.add_all([nordea, other])
+        await db.commit()
+        nordea_id, other_id = nordea.id, other.id
+    monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", str(nordea_id))
+
+    dl_id, dl_creds = await _seed_user(UserRole.delivery_lead)
+    other_dl_id, other_dl_creds = await _seed_user(UserRole.delivery_lead)
+    _hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
+    rec_id, rec_creds = await _seed_user(UserRole.recruiter)
+    try:
+        async with AsyncSessionLocal() as db:
+            db.add_all(
+                [
+                    DeliveryLeadClientAssignment(
+                        delivery_lead_user_id=dl_id, client_id=nordea_id
+                    ),
+                    DeliveryLeadClientAssignment(
+                        delivery_lead_user_id=other_dl_id, client_id=other_id
+                    ),
+                ]
+            )
+            await db.commit()
+        async with restore_cpro_sender():
+            body = {"user_id": rec_id, "until": None}
+            for creds in (other_dl_creds, hor_creds, rec_creds):
+                headers = await _login(api_client, creds)
+                refused = await api_client.put(
+                    "/api/board-tasks/cpro/sender", headers=headers, json=body
+                )
+                assert refused.status_code == 403, refused.text
+                read = await api_client.get(
+                    "/api/board-tasks/cpro/sender", headers=headers
+                )
+                assert read.json()["can_set"] is False
+                tasks = await api_client.get("/api/board-tasks", headers=headers)
+                assert tasks.json()["can_set_cpro_sender"] is False
+
+            dl = await _login(api_client, dl_creds)
+            ok = await api_client.put(
+                "/api/board-tasks/cpro/sender", headers=dl, json=body
+            )
+            assert ok.status_code == 200, ok.text
+            assert ok.json()["user_id"] == rec_id
+            assert ok.json()["can_set"] is True
+            tasks = await api_client.get("/api/board-tasks", headers=dl)
+            assert tasks.json()["can_set_cpro_sender"] is True
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(DeliveryLeadClientAssignment).where(
+                    DeliveryLeadClientAssignment.client_id.in_([nordea_id, other_id])
+                )
+            )
+            await db.execute(delete(Client).where(Client.id.in_([nordea_id, other_id])))
+            await db.commit()

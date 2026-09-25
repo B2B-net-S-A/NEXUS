@@ -52,6 +52,7 @@ from app.models.md_consumption import (
 )
 from app.models.user import User
 from app.schemas.client_order_group import MdValue, MoneyPLN
+from app.services import finance_order_matching
 from app.services.md_consumption_view import is_foreign_number, same_order_number
 
 router = APIRouter(
@@ -292,6 +293,9 @@ async def get_client_md_import(
         raise HTTPException(404, detail="Import nie istnieje")
     batch, uploader = found
     scope = await _client_scope(db, client_id)
+    order_numbers = finance_order_matching.build_order_number_index(
+        (client_id, number) for number in scope.groups.values()
+    )
     stored = [
         row
         for row in (
@@ -337,7 +341,12 @@ async def get_client_md_import(
                 status_reason=reason[1] if reason else None,
                 number_mismatch=bool(
                     target_number
-                    and is_foreign_number(row.order_number_hint, target_number)
+                    and is_foreign_number(
+                        row.order_number_hint,
+                        target_number,
+                        client_id=client_id,
+                        order_numbers=order_numbers,
+                    )
                 ),
             )
         )

@@ -338,6 +338,12 @@ def experience_years(
 
     `None`, gdy którakolwiek rola nie ma czytelnej daty startu — wynik z
     niepełnej historii zaniżałby lata i fałszywie blokował CV.
+
+    Tak samo przy pustej dacie końca roli dalej niż na pierwszej pozycji
+    (reguła repo, ``services/experience_end.py`` i ``academy_rules``): to
+    praca PRZESZŁA o nieznanym końcu, nie „do dziś”. Liczenie jej do dziś
+    zawyżało staż i blokowało poprawne CV (409 ``CV_QC_FAILED``, audyt
+    25.09.2026, runda 4). Nieczytelna niepusta data końca — też `None`.
     """
 
     today = today or business_today()
@@ -346,7 +352,7 @@ def experience_years(
     entries = [e for e in (experience or []) if isinstance(e, dict)]
     if not entries:
         return None
-    for e in entries:
+    for position, e in enumerate(entries):
         start_raw = e.get("start") or e.get("start_date") or e.get("from")
         end_raw = e.get("end") or e.get("end_date") or e.get("to")
         dates = e.get("dates")
@@ -356,13 +362,19 @@ def experience_years(
                 r"\s+[–—-]\s+|\s*[–—]\s*|\s+do\s+|\s+to\s+", dates, maxsplit=1
             )
             start_raw = parts[0]
-            end_raw = parts[1] if len(parts) > 1 else "obecnie"
+            end_raw = parts[1] if len(parts) > 1 else None
         start = _ym(start_raw, end=False, today=today)
         if start is None:
             return None
-        finish = _ym(end_raw, end=True, today=today) if end_raw else now_idx
-        if finish is None:
+        blank_end = end_raw is None or not str(end_raw).strip()
+        if blank_end:
+            if position > 0:
+                return None
             finish = now_idx
+        else:
+            finish = _ym(end_raw, end=True, today=today)
+            if finish is None:
+                return None
         finish = min(finish, now_idx)
         if finish >= start:
             intervals.append((start, finish))

@@ -287,6 +287,45 @@ def clear_pending_dissolution(row: B2BGeneratedContract) -> bool:
     return True
 
 
+async def contract_dissolved_by_agreement(db: AsyncSession, contract: Contract) -> bool:
+    """Czy zakończenie TEGO kontraktu rozwiązało umowę B2B z Partnerem.
+
+    Dwa źródła i oba się liczą: rozwiązanie z okna „Zakończ współpracę” żyje na
+    kontrakcie (``agreement_termination_*``), a rozwiązanie z podpisanego
+    dokumentu (porozumienie, wypowiedzenie przez B2B.net, wypowiedzenie
+    Partnera) — na wierszu rejestru: tryb na umowie, którą zakończenie tego
+    kontraktu zamknęło (migawka z ``contract_id``), albo znacznik czekającego
+    rozwiązania na umowie podpiętej pod ten kontrakt. Porozumienie nie mówi,
+    która strona je zainicjowała, więc na kontrakcie zapisać go nie da się
+    (CHECK kompletu 0367) — dlatego pytamy też rejestr (audyt 25.09.2026,
+    runda 4: PATCH daty na takim kontrakcie szedł reaktywacją i kasował
+    rozwiązanie).
+    """
+    if contract.agreement_termination_mode is not None:
+        return True
+    owner = [B2BGeneratedContract.contract_id == contract.id]
+    if contract.candidate_id is not None:
+        owner.append(B2BGeneratedContract.candidate_id == contract.candidate_id)
+    rows = (
+        await db.scalars(
+            select(B2BGeneratedContract).where(
+                B2BGeneratedContract.termination_mode.isnot(None),
+                or_(*owner),
+            )
+        )
+    ).all()
+    for row in rows:
+        restore = row.termination_restore or {}
+        if (
+            restore.get("contract_id") == contract.id
+            and row.contract_status == "closed"
+        ):
+            return True
+        if row.contract_id == contract.id and pending_dissolution(row) is not None:
+            return True
+    return False
+
+
 def _snapshot(
     row: B2BGeneratedContract, contract: Contract, *, without_marker: bool = False
 ) -> dict:
@@ -610,6 +649,17 @@ async def undo_contract_termination(
     # Rozwiązanie podpisane dokumentem z przyszłą datą czeka na wierszu
     # (znacznik) — cofnięte zakończenie nie może go zamknąć później.
     await _clear_pending_markers(db, contract)
+    # Osoba zostaje na zamówieniu — zaplanowane „Wejdź za konsultanta” za nią
+    # nie może w nocy przenieść jej puli (decyzja Artura 25.09.2026). Import
+    # leniwy: moduł przejęć stoi wyżej w grafie importów.
+    from app.services.order_line_takeover import (
+        TAKEOVER_CANCEL_TERMINATION_UNDONE,
+        cancel_scheduled_takeovers_for_contract,
+    )
+
+    await cancel_scheduled_takeovers_for_contract(
+        db, contract, code=TAKEOVER_CANCEL_TERMINATION_UNDONE, actor_id=actor_id
+    )
     restored = 0
     for row in await _rows_changed_by(db, contract):
         old_status = row.contract_status
@@ -781,6 +831,10 @@ async def on_contract_returned_after_break(
         # Wskrzeszony kontrakt nie jest już rozwiązany — dane rozwiązania
         # zostają w historii (Activity, umowa w „Zakończonych").
         set_contract_agreement_termination(previous, None)
+        # Tak samo czekające rozwiązanie z dokumentu: znacznik zostawiony na
+        # umowie wskrzeszonego kontraktu zamknąłby ją jako „rozwiązaną” przy
+        # jego następnym, zwykłym zakończeniu (audyt 25.09.2026, runda 4).
+        await _clear_pending_markers(db, previous)
     if termination is not None or rows:
         db.add(
             Activity(

@@ -64,6 +64,17 @@ describe("stan praktykanta", () => {
     ended.program = { ...ended.program!, status: "ended" };
     expect(traineeState(ended)).toBe("ended");
   });
+
+  it("awans (`completed`) kończy program i zdejmuje osobę z puli (R4-8)", () => {
+    // Backend zna `active | completed | ended`; awansowany nie dzwoni, więc
+    // nie może zaniżać „na ile dni starczy pula”.
+    const promoted = row({ user_id: 2 });
+    promoted.program = { ...promoted.program!, status: "completed", decision_due: true };
+    expect(traineeState(promoted)).toBe("ended");
+    const pool = { size: 700, open_fit: 0, by_category: [] };
+    // 70 pozycji dziennie liczy tylko aktywny program, nie awansowany.
+    expect(poolWorkdays(pool, [row(), promoted])).toBe(10);
+  });
 });
 
 describe("teksty panelu", () => {

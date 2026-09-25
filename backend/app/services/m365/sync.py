@@ -985,6 +985,17 @@ async def _sync_events(
     # Kursor sprzed `sensitivity` nie jest kasowany od razu: po nieudanym
     # przebiegu zostaje stary, a pełny odczyt powtórzy następny bieg.
     select_reset_pending = await _event_select_reset_pending(db, conn)
+    # Pełny odczyt wymuszony TYLKO zmianą $select (kursor istniał). Ten odczyt
+    # jest jednorazowy: wydarzenie, które psuje się trwale, nie może go
+    # powtarzać w każdym biegu (audyt 25.09.2026, runda 4).
+    forced_full_read = select_reset_pending and bool(conn.delta_token_events)
+    if not select_reset_pending:
+        # Dopiero po pełnym odczycie okna: ten przebieg obejmuje wyłącznie to,
+        # co jest starsze niż okno, więc razem nie zostawiają luki.
+        try:
+            await _scrub_old_private_events(db, gc, conn)
+        except Exception:  # noqa: BLE001 — nie blokuje synchronizacji kalendarza
+            logger.exception("m365 conn %s: old private events scrub failed", conn.id)
     if conn.delta_token_events and not select_reset_pending:
         url = conn.delta_token_events
         params = None
@@ -1002,6 +1013,9 @@ async def _sync_events(
     last_delta_link: Optional[str] = None
     # Jak w `_sync_messages_for_folder`: kursor tylko po przebiegu bez błędów.
     errors_before = result.errors
+    # Czy padło wydarzenie, które mogło zostać z prywatną treścią (prywatne
+    # albo bez znanego `sensitivity`) — wtedy pełny odczyt musi się powtórzyć.
+    private_failed = False
     try:
         async for page in gc.paginate(url, params=params):
             for ev in page.get("value", []):
@@ -1010,6 +1024,11 @@ async def _sync_events(
                         result.events_ingested += 1
                 except Exception as exc:  # noqa: BLE001
                     logger.exception("Failed to ingest event %s", ev.get("id"))
+                    if not ev.get("@removed") and (
+                        is_private_marker(ev.get("sensitivity"))
+                        or not ev.get("sensitivity")
+                    ):
+                        private_failed = True
                     result.errors += 1
                     if len(result.error_samples) < 20:
                         result.error_samples.append(f"event: {exc!r}")
@@ -1025,6 +1044,22 @@ async def _sync_events(
         raise
 
     if result.errors > errors_before:
+        if forced_full_read and last_delta_link and not private_failed:
+            # Jednorazowy odczyt po zmianie $select dobiegł końca, a wszystkie
+            # błędy dotyczą zwykłych (nieprywatnych) wydarzeń, które NEXUS
+            # zna z wcześniejszych biegów. Stary kursor nie niesie
+            # `sensitivity`, więc „zostać na nim” znaczyłoby pełny odczyt co
+            # bieg — przyjmujemy nowy kursor, a dalsze błędy obsługuje delta.
+            logger.warning(
+                "m365 conn %s: forced events re-read had %d import error(s) "
+                "(non-private) — new delta cursor stored",
+                conn.id,
+                result.errors - errors_before,
+            )
+            conn.delta_token_events = last_delta_link
+            await _mark_event_select_reset(db, conn)
+            await db.commit()
+            return
         logger.warning(
             "m365 conn %s: events had %d import error(s) — delta cursor NOT advanced",
             conn.id,
@@ -1069,6 +1104,104 @@ async def _mark_event_select_reset(db: AsyncSession, conn: M365Connection) -> No
     )
 
 
+def _created_in_nexus(event: CalendarEvent) -> bool:
+    """Czy wiersz powstał w NEXUSIE (a nie z importu Outlooka).
+
+    ``operational_owner_id`` ustawiają WYŁĄCZNIE ścieżki zakładające wydarzenie
+    w NEXUSIE (zaproszenie z formularza, prep w Teams, spotkanie po rozmowie,
+    potwierdzony termin u klienta); import z Outlooka go nie ustawia, a edycja
+    wydarzenia (``CalendarEventUpdate``) go nie przyjmuje — pilnuje tego test.
+    """
+    return getattr(event, "operational_owner_id", None) is not None
+
+
+# Prywatne spotkania starsze niż okno pełnego odczytu (± 1 rok) — jednorazowy
+# przebieg po id w Graphie, paczkami, z kursorem per połączenie.
+OLD_PRIVATE_SCRUB_KEY_PREFIX = "m365_old_private_scrub:"
+OLD_PRIVATE_SCRUB_BATCH = 100
+EVENT_WINDOW_DAYS = 365
+
+
+def _old_private_candidates_stmt(*, user_id: int, after_id: int):
+    """Wiersze zaimportowane z Outlooka tej skrzynki, starsze niż okno."""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=EVENT_WINDOW_DAYS)
+    return (
+        select(CalendarEvent)
+        .where(
+            CalendarEvent.external_source == M365_SOURCE,
+            CalendarEvent.external_id.is_not(None),
+            CalendarEvent.created_by == user_id,
+            CalendarEvent.operational_owner_id.is_(None),
+            CalendarEvent.start_time < cutoff,
+            CalendarEvent.id > after_id,
+        )
+        .order_by(CalendarEvent.id)
+        .limit(OLD_PRIVATE_SCRUB_BATCH)
+    )
+
+
+async def _scrub_old_private_events(
+    db: AsyncSession, gc: GraphClient, conn: M365Connection
+) -> None:
+    """Czyści prywatne spotkania starsze niż okno pełnego odczytu.
+
+    Pełny odczyt po dodaniu ``sensitivity`` obejmuje wyłącznie ± 1 rok, więc
+    prywatne spotkania zaimportowane wcześniej zostawały z tematem, opisem
+    i uczestnikami (audyt 25.09.2026, runda 4). Zamiast poszerzać okno delty
+    (odczyt całej historii kalendarza i nowy kursor na lata wstecz) pytamy
+    Graph o ``sensitivity`` wyłącznie tych wierszy — po id, paczkami, z
+    kursorem. Zwykłe spotkania zostają nietknięte; 404 (usunięte w Outlooku)
+    zostawia wiersz bez zmian. Inny błąd Graphu kończy przebieg na tym
+    wierszu, następny bieg zaczyna od niego.
+    """
+    key = f"{OLD_PRIVATE_SCRUB_KEY_PREFIX}{conn.id}"
+    state_row = await db.get(AppSetting, key)
+    state = dict(state_row.value or {}) if state_row is not None else {}
+    if state.get("done"):
+        return
+    after_id = int(state.get("after_id") or 0)
+    rows = list(
+        (
+            await db.scalars(
+                _old_private_candidates_stmt(user_id=conn.user_id, after_id=after_id)
+            )
+        ).all()
+    )
+    done = len(rows) < OLD_PRIVATE_SCRUB_BATCH
+    for row in rows:
+        if not is_scrubbed(row):
+            try:
+                ev = await gc.get(
+                    f"/me/events/{row.external_id}",
+                    params={"$select": "sensitivity"},
+                )
+            except GraphRequestError as exc:
+                if exc.status not in (404, 410):
+                    logger.warning(
+                        "m365 conn %s: old private scrub stopped — Graph %s",
+                        conn.id,
+                        exc.status,
+                    )
+                    done = False
+                    break
+                ev = None
+            if ev and is_private_marker(ev.get("sensitivity")):
+                for field_name, value in PRIVATE_EVENT_FIELDS.items():
+                    setattr(row, field_name, value)
+                row.attendees = []
+        after_id = row.id
+
+    value = {"after_id": after_id, "done": done}
+    stmt = pg_insert(AppSetting).values(key=key, value=value)
+    await db.execute(
+        stmt.on_conflict_do_update(
+            index_elements=[AppSetting.key],
+            set_={"value": stmt.excluded.value, "updated_at": func.now()},
+        )
+    )
+    await db.commit()
+
+
 async def _upsert_event(db: AsyncSession, conn: M365Connection, ev: dict) -> bool:
     graph_id = ev.get("id")
     if not graph_id:
@@ -1096,9 +1229,12 @@ async def _upsert_event(db: AsyncSession, conn: M365Connection, ev: dict) -> boo
 
     # Prywatne w Outlooku = w NEXUSIE sam termin. Dotyczy spotkań z Outlooka;
     # wydarzenie założone w NEXUSIE (prep, rozmowa u klienta) niesie treść
-    # NEXUSA, nie prywatną treść Outlooka.
+    # NEXUSA, nie prywatną treść Outlooka. Rozstrzyga POCHODZENIE wiersza, nie
+    # typ — typ da się zmienić w NEXUSIE, więc spotkanie z Outlooka
+    # przestawione na „rozmowę” odzyskiwało prywatną treść przy najbliższej
+    # zmianie w Outlooku (audyt 25.09.2026, runda 4).
     private = is_private_marker(ev.get("sensitivity")) and (
-        existing is None or existing.event_type == EventType.meeting
+        existing is None or not _created_in_nexus(existing)
     )
     change_key = ev.get("changeKey")
     if (

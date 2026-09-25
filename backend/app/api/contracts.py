@@ -172,10 +172,16 @@ from app.services.order_write_errors import commit_order_write
 from app.services.contract_termination_sync import (
     AgreementTermination,
     contract_agreement_termination,
+    contract_dissolved_by_agreement,
     set_contract_agreement_termination,
     sync_generator_after_contract_ended,
+    undo_contract_termination,
 )
 from app.services.cost_orders import is_cost_order_client
+from app.services.order_line_takeover import (
+    TAKEOVER_CANCEL_EXTENDED,
+    cancel_scheduled_takeovers_for_contract,
+)
 from app.services.order_rate_snapshots import (
     CONTRACT_RATE_SCALE,
     convert_order_rate,
@@ -3301,6 +3307,11 @@ async def bulk_extend_contracts(
             continue
         new_end = _add_months_keeping_month_end(c.end_date, months)
         c.end_date = new_end
+        # Przedłużona osoba zostaje na zamówieniu — zaplanowane „Wejdź za
+        # konsultanta” za nią odpada (decyzja Artura 25.09.2026).
+        await cancel_scheduled_takeovers_for_contract(
+            db, c, code=TAKEOVER_CANCEL_EXTENDED, actor_id=current_user.id
+        )
         # Client order is renewed together with the contract — keep its end date
         # in sync (only when the contract already tracks one). Mirrors the
         # extension-amendment path.
@@ -3976,11 +3987,20 @@ async def update_contract(
             "end_date" in data.model_fields_set
             and contract.end_date != previous_end_date
         )
+        # Rozwiązanie umowy żyje na kontrakcie (okno „Zakończ współpracę”)
+        # ALBO wyłącznie na wierszu rejestru B2B (porozumienie, wypowiedzenie
+        # Partnera / B2B.net z Generatora) — jedna reguła dla obu źródeł
+        # (audyt 25.09.2026, runda 4: dokument pochodny szedł reaktywacją).
+        dissolved = (
+            coerced_status != contract.status
+            and contract.status == ContractStatus.ended
+            and await contract_dissolved_by_agreement(db, contract)
+        )
         if (
             end_date_changed
             and coerced_status != contract.status
             and contract.status == ContractStatus.ended
-            and contract.agreement_termination_mode is not None
+            and dissolved
             and contract.end_date is not None
         ):
             # Umowa z ROZWIĄZANIEM (wypowiedzenie albo porozumienie) i nową,
@@ -4021,10 +4041,7 @@ async def update_contract(
             updates["status"] = contract.status.value
         elif coerced_status != contract.status and not (
             contract.status == ContractStatus.ended
-            and (
-                contract.terminated_at is not None
-                or contract.agreement_termination_mode is not None
-            )
+            and (contract.terminated_at is not None or dissolved)
         ):
             # Samoleczenie „Zakończony” bez zmiany daty obejmuje tylko umowę
             # BEZ śladów zakończenia (np. źle oznaczoną ręcznie). Umowa
@@ -4032,8 +4049,19 @@ async def update_contract(
             # rozwiązanie) wraca wyłącznie przez nową datę albo „Cofnij
             # zakończenie” — surowy zapis statusu zostawiał wypowiedzenie,
             # rozwiązanie i otwartą migawkę przy „Aktywnym” (przegląd PR #1836).
+            clears_ending = (
+                contract.status == ContractStatus.ending and contract.end_date is None
+            )
             contract.status = coerced_status
             updates["status"] = coerced_status.value  # reflect the outcome in audit
+            if clears_ending:
+                # „Kończący się” → „Aktywny” przez wyczyszczenie daty końca to
+                # odwołanie zakończenia: czekające rozwiązanie z dokumentu
+                # (znacznik na wierszu rejestru), dane rozwiązania na kontrakcie
+                # i zaplanowane „Wejdź za konsultanta” odpadają. Znacznik
+                # zostawiony tutaj zamknąłby wiersz jako „rozwiązany” przy
+                # późniejszym, zwykłym zakończeniu (audyt 25.09.2026, runda 4).
+                await undo_contract_termination(db, contract, actor_id=current_user.id)
     # Reguła zakładki „Zakończeni" (09.2026): data końca umowy wpisana w module
     # Kontrakty jest zarazem datą końca ZAMÓWIENIA tej osoby. Otwarte
     # zamówienia dostają tę samą datę (zaczynające się później — anulowane),
@@ -5256,6 +5284,13 @@ async def create_contract_amendment(
         ):
             _reject_b2b_end_date()
         contract.end_date = data.new_end_date
+        # Przedłużona osoba zostaje na zamówieniu — zaplanowane „Wejdź za
+        # konsultanta” za nią odpada, zanim `reopen_contract` (przez
+        # `undo_contract_termination`) opisze je jako cofnięte zakończenie
+        # (decyzja Artura 25.09.2026).
+        await cancel_scheduled_takeovers_for_contract(
+            db, contract, code=TAKEOVER_CANCEL_EXTENDED, actor_id=current_user.id
+        )
         # Keep "Koniec zamówienia u klienta" in step with the new contract end —
         # an extension renews the client's order alongside the contract. Only
         # touch it when the contract already tracks an order end (see helper).

@@ -576,6 +576,10 @@ def _no_closure_no_exclusion(monkeypatch) -> None:
     monkeypatch.setattr(
         competitions, "snapshot_monthly_race_thresholds", AsyncMock(return_value=None)
     )
+    # Migawka punktacji Ligi (R4-16) — też `app_settings`.
+    monkeypatch.setattr(
+        competitions, "snapshot_league_scoring_config", AsyncMock(return_value=None)
+    )
     monkeypatch.setattr(
         competitions,
         "monthly_race_excluded_user_ids",

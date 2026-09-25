@@ -71,6 +71,7 @@ from app.services.client_order_lines import (
     record_event,
 )
 from app.services.contract_lifecycle import assert_transition
+from app.services.contract_return_after_break import existing_return
 from app.services.dl_alerts import resolve_entity_alerts
 from app.services.multi_consultant_orders import EVENT_MD_OFFBOARDING_RESTORED
 from app.services.order_md_exhaustion import (
@@ -558,6 +559,25 @@ async def _add_blockers(db: AsyncSession, plan: ReversalPlan) -> None:
                     "Umowa skończyła się "
                     f"{plan.end_date_target.strftime('%d.%m.%Y')} — przedłuż ją "
                     "aneksem, zanim cofniesz zakończenie."
+                ),
+            }
+        )
+    # „Powrót po przerwie” założył już NOWY kontrakt tej osoby (z przypisaniami
+    # na zamówieniach). Cofnięcie zakończenia starego dałoby jednej osobie dwa
+    # żywe kontrakty i dwie linie w tym samym zamówieniu — dwa razy liczone
+    # MD i przychód (audyt 25.09.2026, runda 4).
+    returned = await existing_return(db, contract.id)
+    if returned is not None:
+        plan.blockers.append(
+            {
+                "code": "returned_after_break",
+                "contract_id": returned.id,
+                "message": (
+                    "Dla tej osoby utworzono już „Powrót po przerwie” — "
+                    f"kontrakt #{returned.id}. Cofnięcie zakończenia dałoby "
+                    "jej dwa kontrakty i dwa przypisania na zamówieniach. "
+                    "Jeśli powrót założono przez pomyłkę, najpierw unieważnij "
+                    f"kontrakt #{returned.id}."
                 ),
             }
         )

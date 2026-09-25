@@ -1151,6 +1151,10 @@ async def refresh_job_criteria(
     job.must_skills = criteria.get("must_skills") or []
     job.nice_skills = criteria.get("nice_skills") or []
     job.criteria_generated_at = datetime.now(timezone.utc)
+    # Tytuł dla rekrutera zawiera must-have (runda 4 audytu 25.09.2026).
+    from app.services.job_working_title import refresh_working_title
+
+    await refresh_working_title(db, job)
     await db.commit()
     await db.refresh(job)
 

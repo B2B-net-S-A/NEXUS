@@ -672,9 +672,21 @@ async def load_pair_facts(
         sender = await cpro_sender.effective_sender(db)
         # Bez osoby na firmę kolejka należy do osoby zapasowej rekrutacji —
         # ta sama reguła co bramka ruchu i `board_tasks._sees_cpro`.
-        fallback_ids = (
-            getattr(job, "cpro_sender_id", None),
-            latest.task_assignee_id if latest is not None else None,
+        # Martwe konto nie jest osobą zapasową (lustro `board_tasks._LATEST_SQL`).
+        active = await cpro_sender.active_user_ids(
+            db,
+            (
+                getattr(job, "cpro_sender_id", None),
+                latest.task_assignee_id if latest is not None else None,
+            ),
+        )
+        fallback_ids = tuple(
+            uid
+            for uid in (
+                getattr(job, "cpro_sender_id", None),
+                latest.task_assignee_id if latest is not None else None,
+            )
+            if uid in active
         )
         shown_sender = sender.user_id or next(
             (uid for uid in fallback_ids if uid is not None), None

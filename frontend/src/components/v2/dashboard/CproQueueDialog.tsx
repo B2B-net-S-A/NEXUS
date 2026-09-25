@@ -160,25 +160,26 @@ export function CproSenderControl({ sender, loading = false, compact = false }: 
           </span>
         ) : null}
       </p>
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <Button size="sm" variant={compact ? "ghost" : "outline"} className={cn(compact && "h-7 px-2")}>
-            Zmień
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent align="end" className="w-80 space-y-3" aria-label="Kto wrzuca do Cpro">
-          <p className="text-sm font-semibold">Kto wrzuca do Cpro</p>
-          <label className="block text-xs font-medium text-muted-foreground">
-            Osoba
-            <select
-              className="mt-1 h-9 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground"
-              value={userId}
-              disabled={options.isLoading}
-              onChange={(e) => setUserId(e.target.value)}
-            >
-              <option value="">{options.isLoading ? "Wczytywanie…" : "Wybierz osobę"}</option>
-              {sender?.user_id != null && !(options.data ?? []).some((o) => o.id === sender.user_id) ? (
-                <option value={sender.user_id}>{sender.user_name ?? "Obecna osoba"}</option>
+      {sender?.can_set ? (
+        <Popover open={open} onOpenChange={setOpen}>
+          <PopoverTrigger asChild>
+            <Button size="sm" variant={compact ? "ghost" : "outline"} className={cn(compact && "h-7 px-2")}>
+              Zmień
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-80 space-y-3" aria-label="Kto wrzuca do Cpro">
+            <p className="text-sm font-semibold">Kto wrzuca do Cpro</p>
+            <label className="block text-xs font-medium text-muted-foreground">
+              Osoba
+              <select
+                className="mt-1 h-9 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground"
+                value={userId}
+                disabled={options.isLoading}
+                onChange={(e) => setUserId(e.target.value)}
+              >
+                <option value="">{options.isLoading ? "Wczytywanie…" : "Wybierz osobę"}</option>
+                {sender?.user_id != null && !(options.data ?? []).some((o) => o.id === sender.user_id) ? (
+                  <option value={sender.user_id}>{sender.user_name ?? "Obecna osoba"}</option>
               ) : null}
               {(options.data ?? []).map((o) => (
                 <option key={o.id} value={o.id}>
@@ -206,7 +207,7 @@ export function CproSenderControl({ sender, loading = false, compact = false }: 
             />
           </label>
           <p className="text-xs text-muted-foreground">
-            Zmienić może każdy z zespołu. Nowa osoba dostaje powiadomienie.
+            Zmienia admin albo Delivery Lead Nordei. Nowa osoba dostaje powiadomienie.
           </p>
           <div className="flex justify-end gap-2">
             <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>
@@ -219,6 +220,7 @@ export function CproSenderControl({ sender, loading = false, compact = false }: 
           </div>
         </PopoverContent>
       </Popover>
+      ) : null}
     </div>
   );
 }

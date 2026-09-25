@@ -209,6 +209,82 @@ async def monthly_race_thresholds(
     return await _current_race_thresholds(db)
 
 
+# Migawka punktacji Ligi Mistrzów per kwartał (audyt 25.09.2026, R4-16) —
+# bliźniak progów wyścigu. Wagi i progi placementów Ligi admin zmienia bez
+# deployu, a Liga (10 000 zł) czytała je dopiero przy zamrożeniu: zmiana wag
+# 2 października przestawiała zwycięzcę III kwartału, a razem z nim lidera
+# wykluczanego z wyścigów miesięcznych tego kwartału. Pierwszy zapis w
+# kwartale wygrywa (pętla autofreeze w bieżącym kwartale i zamrożenie);
+# GET-y tylko czytają. Kwartał bez migawki liczy się punktacją bieżącą.
+LEAGUE_SCORING_SNAPSHOT_SETTING = "league_scoring_config"
+LEAGUE_SCORING_KEYS: tuple[str, ...] = (
+    "league_points_placement",
+    "league_points_interview",
+    "league_points_recommendation",
+    "league_min_placements_month1",
+    "league_min_placements_month2",
+    "league_min_placements_month3",
+)
+
+
+async def stored_league_scoring(
+    db: AsyncSession, quarter_period: str
+) -> Optional[dict[str, int]]:
+    """Migawka punktacji Ligi kwartału albo `None`, gdy jej nie ma."""
+    rows = (
+        await db.execute(
+            text(
+                "SELECT value -> CAST(:period AS text) AS snapshot "
+                "FROM app_settings WHERE key = :key"
+            ),
+            {"period": quarter_period, "key": LEAGUE_SCORING_SNAPSHOT_SETTING},
+        )
+    ).all()
+    raw = rows[0][0] if rows else None
+    if not isinstance(raw, dict):
+        return None
+    try:
+        return {key: int(raw[key]) for key in LEAGUE_SCORING_KEYS}
+    except (KeyError, TypeError, ValueError):
+        logger.error(
+            "league scoring snapshot for %s is malformed — using current config",
+            quarter_period,
+        )
+        return None
+
+
+async def snapshot_league_scoring_config(
+    db: AsyncSession, quarter_period: str
+) -> dict[str, int]:
+    """Zapisz punktację Ligi kwartału, jeśli jej jeszcze nie ma. Commit robi wołający."""
+    config = await get_scoring_config(db)
+    snapshot: dict[str, object] = {key: int(config[key]) for key in LEAGUE_SCORING_KEYS}
+    snapshot["taken_at"] = datetime.now(tz=_WARSAW).isoformat()
+    await db.execute(
+        _THRESHOLDS_SNAPSHOT_UPSERT,
+        {
+            "key": LEAGUE_SCORING_SNAPSHOT_SETTING,
+            "period": quarter_period,
+            "snapshot": json.dumps(snapshot),
+        },
+    )
+    stored = await stored_league_scoring(db, quarter_period)
+    return {**config, **stored} if stored is not None else config
+
+
+async def league_scoring_config(
+    db: AsyncSession, quarter_period: str
+) -> dict[str, int]:
+    """Konfiguracja punktacji dla Ligi kwartału: migawka kwartału nad bieżącą.
+
+    Zwraca pełny słownik konfiguracji (inne klucze — bieżące), więc woła się
+    go wszędzie tam, gdzie Liga czytała `get_scoring_config`.
+    """
+    config = await get_scoring_config(db)
+    stored = await stored_league_scoring(db, quarter_period)
+    return {**config, **stored} if stored is not None else config
+
+
 @dataclass
 class RankedUser:
     """Jedna pozycja w rankingu konkursu."""
@@ -767,7 +843,7 @@ async def quarterly_champions_recruiter(
     """
     year, q = parse_quarter(period)
     start, end = quarter_bounds(year, q)
-    config = await get_scoring_config(db)
+    config = await league_scoring_config(db, period)
     return await _rank_recruiters_by_points(
         db,
         start=start,
@@ -1238,7 +1314,9 @@ async def monthly_race_excluded_user_ids(
 
     quarter_start, _ = quarter_bounds(year, quarter)
     _, month_end = month_bounds(year, month)
-    config = await get_scoring_config(db)
+    # Punktacja kwartału, do którego należy miesiąc — ta sama migawka, którą
+    # zamrożenie Ligi rozlicza kwartał (R4-16).
+    config = await league_scoring_config(db, quarter_period)
     month_in_quarter = (month - 1) % 3 + 1
     ranked = qualified_for_award(
         await _rank_recruiters_by_points(
@@ -1394,6 +1472,48 @@ async def award_order(
         exclusion_quarter=quarter,
         tie_break_rule=rule,
     )
+
+
+def award_ranked_rows(
+    type_: CompetitionType, ranked: list[RankedUser], order: AwardOrder
+) -> list[dict]:
+    """Ranking do WYŚWIETLENIA z jedną numeracją — tą, którą wypłaca `award_order`.
+
+    Najpierw osoby w kolejności nagrodowej z miejscem 1..n (miejsca objęte
+    remisem do decyzji admina mają `tied` i kwotę 0), potem osoby bez miejsca
+    w klasyfikacji (`rank: None`): niezakwalifikowani i wykluczony lider
+    kwartału, w kolejności wyniku. Do 25.09.2026 lista pod podium numerowała
+    się po surowym rankingu, a podium po `award_order` — przy
+    niezakwalifikowanym liderze dwie osoby miały „#1”, a „Mój miesiąc” mówił
+    „1. miejsce” komuś, kto nagrody nie dostanie. Bez marży/h (pieniądze,
+    `_MARGIN_EXTRAS`) — wiersze czyta każdy zalogowany.
+    """
+    held = {pos for tie in order.ties for pos in tie.positions}
+    excluded = set(order.excluded_user_ids)
+    placed = {r.user_id for r in order.ordered}
+
+    def _row(entry: RankedUser, rank: Optional[int]) -> dict:
+        tied = rank is not None and rank in held
+        prize: Optional[int]
+        if rank is None:
+            prize = None
+        else:
+            prize = 0 if tied else _prize_for(type_, rank)
+        return {
+            **{
+                key: value
+                for key, value in entry.to_dict().items()
+                if key not in _MARGIN_EXTRAS
+            },
+            "rank": rank,
+            "tied": tied,
+            "excluded": entry.user_id in excluded,
+            "prize_pln": prize,
+        }
+
+    rows = [_row(r, idx) for idx, r in enumerate(order.ordered, start=1)]
+    rows.extend(_row(r, None) for r in ranked if r.user_id not in placed)
+    return rows
 
 
 def _placements_word(count: int) -> str:
@@ -1737,6 +1857,10 @@ async def freeze_competition(
         # Progi, którymi ten okres jest rozliczany, zostają zapisane — okres
         # bez migawki (sprzed wdrożenia) dostaje progi bieżące, jak dotąd.
         await snapshot_monthly_race_thresholds(db, period)
+        # Wykluczenie lidera kwartału liczy Ligę tego kwartału (R4-16).
+        await snapshot_league_scoring_config(db, quarter_of_month(period))
+    elif type_ == CompetitionType.quarterly_champions_recruiter:
+        await snapshot_league_scoring_config(db, period)
     ranked = await compute_live(db, type_, period)
     # Filtr kwalifikacji jest BEZWARUNKOWY (w `award_order`), nie zawężony do
     # jednego typu: `qualified_for_award` domyślnie przepuszcza wiersze bez

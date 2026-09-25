@@ -318,9 +318,11 @@ export function KpiTargetsSettings() {
         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
         <p>
           Cele roli dla wskaźników oznaczonych „próg wyścigu” są też progiem
-          Wyścigu Rekomendacji (nagroda 1 500 zł): zmiana działa od razu dla
-          całego zespołu i dla bieżącego miesiąca. Minimum placementów w Wyścigu
-          Placementów ustawia administrator w punktacji Insights.
+          Wyścigu Rekomendacji (nagroda 1 500 zł). W wyścigu zmiana obowiązuje
+          od następnego miesiąca — progi bieżącego miesiąca są zapisane na jego
+          początku, więc edycja celu nie przestawia trwającego wyścigu. Minimum
+          placementów w Wyścigu Placementów ustawia administrator w punktacji
+          Insights.
         </p>
       </div>
 

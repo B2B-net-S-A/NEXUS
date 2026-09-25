@@ -783,13 +783,9 @@ _PROFILE_RATE_ALTER_SQL = (
 try:
     from app.services import keyword_corpus as _kc
 
-    _KEYWORD_CORPUS_DDL = [
-        *_kc.COLUMN_DDL,
-        _kc.JSON_TEXT_FUNCTION_DDL,
-        _kc.TRIGGER_FUNCTION_DDL,
-        _kc.TRIGGER_DDL,
-    ]
-    _KEYWORD_CORPUS_INDEXES = _kc.index_ddl(concurrently=True)
+    # 0385: korpus złożony (kandydaci + notatki) — ta sama lista co migracja.
+    _KEYWORD_CORPUS_DDL = _kc.schema_ddl()
+    _KEYWORD_CORPUS_INDEXES = _kc.schema_index_ddl()
 except Exception as _kc_err:  # noqa: BLE001
     print(f"keyword corpus DDL unavailable: {_kc_err!r}")
     _KEYWORD_CORPUS_DDL = []
@@ -8599,6 +8595,9 @@ _INDEX_STATEMENTS = [
     "ON candidate_stages (moved_at) WHERE stage = 'cv_sent'",
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_jarvis_ui_events_created_at "
     "ON jarvis_ui_events (created_at)",
+    # 0385: domyślne sortowanie listy kandydatów (najnowsi) bez skanu tabeli.
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_candidates_created_at_id "
+    "ON candidates (created_at DESC, id DESC)",
 ]
 
 

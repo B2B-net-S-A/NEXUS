@@ -452,6 +452,17 @@ async def restore_cpro_sender():
             await db.commit()
 
 
+async def clear_cpro_sender() -> None:
+    """Nikt nie wysyła do Cpro — bez trasy PUT, którą od 25.09.2026 woła
+    wyłącznie admin albo DL Nordei (testy HoR czyszczą stan wprost)."""
+
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            delete(AppSetting).where(AppSetting.key == cpro_sender.SETTING_KEY)
+        )
+        await db.commit()
+
+
 async def _move(client: AsyncClient, headers: dict, world: dict, key: str, **extra):
     resp = await client.post(
         "/api/pipeline/move",
@@ -482,10 +493,7 @@ async def test_nordea_cpro_queue_with_one_sender_for_the_company(
     try:
         async with restore_cpro_sender():
             # Nikt nie wysyła — zadanie jest nieprzypisane, HoR je widzi.
-            cleared = await api_client.put(
-                "/api/board-tasks/cpro/sender", headers=hor, json={"user_id": None}
-            )
-            assert cleared.status_code == 200, cleared.text
+            await clear_cpro_sender()
 
             await _move(api_client, hor, world, "verified")
             await _move(api_client, hor, world, "qc")
@@ -504,10 +512,19 @@ async def test_nordea_cpro_queue_with_one_sender_for_the_company(
             rec_queue = (await api_client.get("/api/board-tasks", headers=rec)).json()
             assert _rows(rec_queue, "cpro_to_send", cid) == []
 
-            # Rekruter ustawia SIEBIE jako osobę od Cpro — dla całej firmy.
-            put = await api_client.put(
+            # Rekruter nie ustawia siebie (decyzja 25.09.2026 — osoba od Cpro
+            # widzi stawki do klienta); ustawia go admin, dla całej firmy.
+            self_set = await api_client.put(
                 "/api/board-tasks/cpro/sender",
                 headers=rec,
+                json={"user_id": rec_id, "until": None},
+            )
+            assert self_set.status_code == 403, self_set.text
+            _admin_id, admin_creds = await _seed_user(UserRole.admin)
+            admin = await _login(api_client, admin_creds)
+            put = await api_client.put(
+                "/api/board-tasks/cpro/sender",
+                headers=admin,
                 json={"user_id": rec_id, "until": None},
             )
             assert put.status_code == 200, put.text
@@ -736,15 +753,33 @@ async def test_assignee_on_ready_move_still_sets_the_job_fallback(
     world = await _seed_world()
     monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", str(world["client_id"]))
     hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
-    rec_id, _ = await _seed_user(UserRole.recruiter)
+    admin_id, admin_creds = await _seed_user(UserRole.admin)
+    rec_id, rec_creds = await _seed_user(UserRole.recruiter)
     hor = await _login(api_client, hor_creds)
+    admin = await _login(api_client, admin_creds)
+    rec = await _login(api_client, rec_creds)
     cid, jid = world["candidate_id"], world["job_id"]
     try:
         async with restore_cpro_sender():
-            await api_client.put(
-                "/api/board-tasks/cpro/sender", headers=hor, json={"user_id": None}
-            )
-            await _move(api_client, hor, world, "cpro", task_assignee_id=rec_id)
+            await clear_cpro_sender()
+            # Wskazanie osoby przy ruchu = ustawienie osoby od Cpro rekrutacji —
+            # tylko admin albo DL Nordei (przegląd PR #1844). Rekruter nie może
+            # wskazać sam siebie (widziałby stawki do klienta), HoR też nie.
+            for headers in (rec, hor):
+                refused = await api_client.post(
+                    "/api/pipeline/move",
+                    headers=headers,
+                    json={
+                        "candidate_id": cid,
+                        "job_id": jid,
+                        "stage_def_id": world["defs"]["cpro"],
+                        "task_assignee_id": rec_id,
+                    },
+                )
+                assert refused.status_code == 403, refused.text
+            async with AsyncSessionLocal() as db:
+                assert (await db.get(Job, jid)).cpro_sender_id is None
+            await _move(api_client, admin, world, "cpro", task_assignee_id=rec_id)
             async with AsyncSessionLocal() as db:
                 assert (await db.get(Job, jid)).cpro_sender_id == rec_id
             async with AsyncSessionLocal() as db:
@@ -756,7 +791,7 @@ async def test_assignee_on_ready_move_still_sets_the_job_fallback(
             ]
             assert todo[0].assignee_id == rec_id
     finally:
-        await _cleanup(world, [hor_id, rec_id])
+        await _cleanup(world, [hor_id, admin_id, rec_id])
 
 
 async def test_open_recruitment_without_dl_gets_the_clients_head_dl() -> None:

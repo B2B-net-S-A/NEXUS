@@ -58,7 +58,7 @@ let queue: CproQueueResponse;
 
 function freshQueue(): CproQueueResponse {
   return {
-    sender: { user_id: 5, user_name: "Kinga Sordyl", until: null, fallback_user_id: null, fallback_user_name: null, set_by_name: null, set_at: null },
+    sender: { user_id: 5, user_name: "Kinga Sordyl", until: null, fallback_user_id: null, fallback_user_name: null, set_by_name: null, set_at: null, can_set: true },
     sent_today: 2,
     jobs: [
       {
@@ -216,6 +216,14 @@ describe("CproQueueDialog — kolejka Cpro, jedna osoba na firmę", () => {
       expect(put).toHaveBeenCalledWith("/api/board-tasks/cpro/sender", { user_id: 7, until: "2026-10-03" }),
     );
     expect(showSuccess).toHaveBeenCalledWith("Do Cpro wrzuca: Ola Nowicka (do 03.10.2026).");
+  });
+
+  it("bez uprawnienia (nie admin, nie DL Nordei) nie ma przycisku „Zmień”", async () => {
+    queue = { ...queue, sender: { ...queue.sender, can_set: false } };
+    renderDialog();
+    const dialog = await screen.findByRole("dialog");
+    expect(await within(dialog).findByText("Kinga Sordyl")).toBeTruthy();
+    expect(within(dialog).queryByRole("button", { name: "Zmień" })).toBeNull();
   });
 
   it("awaria kolejki to komunikat z „Ponów”, nie pustka", async () => {

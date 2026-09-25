@@ -516,7 +516,9 @@ weryfikacji. Po otwarciu importu widać jego wiersze **tylko tego klienta**:
 numer wiersza w arkuszu, osobę, numer z importu, zamówienie docelowe, MD,
 kwotę (tylko z dostępem do finansów) i status — **Zaksięgowano**, **Do
 weryfikacji** z powodem albo **Błąd**. Wiersz, w którym numer z importu różni
-się od zamówienia docelowego, jest wyróżniony („inny numer"). Rozstrzyganie
+się od zamówienia docelowego, jest wyróżniony („inny numer") — tylko gdy liczba
+w „Uwagach” jest numerem zamówienia tego klienta (tą samą regułą co import;
+„delegacja 445” czy rok nie są numerem). Rozstrzyganie
 wierszy robi dalej Finanse w **Finanse → Import zużycia MD**.
 
 ### Kto stoi w „Aktywnej obsadzie", a kto w „Zakończonych"
@@ -731,7 +733,12 @@ nowe zamówienie. Karty z zamówieniem innym niż szkic nie da się tak usunąć
   **Zakończ** zamówienia z datą **przed** dniem wejścia (albo z dniem
   dzisiejszym) anuluje zaplanowane zastępstwo — w historii zostaje wpis, a
   „Przywróć" go nie wskrzesza. Z datą **po** dniu wejścia zastępstwo wejdzie
-  normalnie, mimo że zamówienie stoi już w „Zakończonych".
+  normalnie, mimo że zamówienie stoi już w „Zakończonych". Zaplanowane
+  zastępstwo anuluje też **przedłużenie odchodzącego** (aneks albo „Przedłuż”)
+  i **„Cofnij zakończenie”** jego kontraktu — w historii zamówienia zostaje wpis
+  z powodem. Gdy pula odchodzącego wyczerpie się przed dniem wejścia,
+  zastępstwo jest anulowane (wpis „pula wyczerpana przed wejściem”) — dodaj
+  wtedy nową osobę z własną pulą.
 * **Nowe zamówienie** — dotychczasowe „Uzupełnij zamówienie": osobne zamówienie
   z własną umową wykonawczą, zapisywane jako szkic.
 
@@ -1385,7 +1392,9 @@ akcje (Admin, Finanse, Talent Community Manager):
   dla tej osoby. Przed wykonaniem okno pokazuje, które zamówienia i importy
   wrócą. **Akcja jest zablokowana, jeśli na zamówieniu podjęto już decyzję
   o pozostałej puli MD** (usunięcie albo przeniesienie) — okno mówi, na którym
-  zamówieniu i jaka to decyzja.
+  zamówieniu i jaka to decyzja. Jest zablokowana także wtedy, gdy dla tej osoby
+  zrobiono już **„Powrót po przerwie”** (okno podaje numer nowego kontraktu) —
+  inaczej osoba stałaby na zamówieniu dwa razy.
 * **Powrót po przerwie** — osoba naprawdę zakończyła współpracę i wraca.
   Powstaje **nowy kontrakt (Draft)** z plakietką „POWRÓT PO PRZERWIE"
   i linkiem do poprzedniego; poprzedni zostaje zakończony bez zmian. Na

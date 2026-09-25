@@ -34,6 +34,7 @@ from tests.test_board_tasks import (
     _move,
     _seed_user,
     _seed_world,
+    clear_cpro_sender,
     restore_cpro_sender,
 )
 from tests.test_dz_review import (
@@ -714,9 +715,7 @@ async def test_leaving_the_cpro_queue_does_not_repeat_qc(
     rec = await _login(api_client, rec_creds)
     try:
         async with restore_cpro_sender():
-            await api_client.put(
-                "/api/board-tasks/cpro/sender", headers=hor, json={"user_id": None}
-            )
+            await clear_cpro_sender()
             # Wejście do kolejki sprzed bramki (jak osoby z przeglądu DZ).
             monkeypatch.setattr(settings, "CV_QC_GATE_ENABLED", False)
             await _move(api_client, hor, world, "verified")
@@ -752,17 +751,18 @@ async def test_fallback_sender_of_the_job_can_upload_without_firm_sender(
     hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
     rec_id, rec_creds = await _seed_user(UserRole.recruiter)
     other_id, other_creds = await _seed_user(UserRole.recruiter)
+    admin_id, admin_creds = await _seed_user(UserRole.admin)
     hor = await _login(api_client, hor_creds)
     rec = await _login(api_client, rec_creds)
     other = await _login(api_client, other_creds)
+    admin = await _login(api_client, admin_creds)
     try:
         async with restore_cpro_sender():
-            await api_client.put(
-                "/api/board-tasks/cpro/sender", headers=hor, json={"user_id": None}
-            )
+            await clear_cpro_sender()
             monkeypatch.setattr(settings, "CV_QC_GATE_ENABLED", False)
             await _move(api_client, hor, world, "verified")
-            await _move(api_client, hor, world, "cpro", task_assignee_id=rec_id)
+            # Osobę zapasową rekrutacji wskazuje admin albo DL Nordei (PR #1844).
+            await _move(api_client, admin, world, "cpro", task_assignee_id=rec_id)
             monkeypatch.setattr(settings, "CV_QC_GATE_ENABLED", True)
 
             # HoR widzi zadanie z osobą zapasową, bo nikt nie jest na firmę.
@@ -786,7 +786,7 @@ async def test_fallback_sender_of_the_job_can_upload_without_firm_sender(
             moved = await api_client.post("/api/pipeline/move", headers=rec, json=send)
             assert moved.status_code == 200, moved.text
     finally:
-        await _cleanup(world, [hor_id, rec_id, other_id])
+        await _cleanup(world, [hor_id, rec_id, other_id, admin_id])
 
 
 async def _rejected_stage_def_id(world: dict) -> int:

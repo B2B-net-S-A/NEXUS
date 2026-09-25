@@ -411,6 +411,19 @@ class Settings(BaseSettings):
     # (endpoint jest bezstanowy). Pokrętło istnieje, żeby dało się zmierzyć
     # 200 vs 100 evalem bez deployu — patrz `_hybrid_pool_size` w api/search.py.
     SEARCH_HYBRID_POOL_SIZE: int = 200
+    # Słowa kluczowe listy kandydatów przez indeks tekstu złożonego
+    # (`keyword_fold_fts`, `content_fold_fts`, migracja 0385) zamiast regexu po
+    # `keyword_doc`/CV/notatkach — audyt 25.09.2026: „java” 0,9 s, „c#” 5,9 s.
+    # Domyślnie OFF: włączamy po porównaniu wyników starej i nowej ścieżki
+    # (`scripts/compare_keyword_fold_fts.py`) i po uzupełnieniu kolumn przez
+    # pętlę `keyword_corpus_backfill` (do tego czasu zawsze stara ścieżka).
+    KEYWORD_SEARCH_FOLDED_FTS: bool = False
+    # Lista kandydatów: filtr, sortowanie i `count(*) OVER()` po samych
+    # identyfikatorach (filtr raz), pełne wiersze tylko dla strony
+    # (`_list_page_ids_first`).
+    # Wyniki i kolejność bez zmian; `false` wraca do `count(*) OVER()` na
+    # pełnych wierszach (385 ms bez filtra, audyt 25.09.2026).
+    CANDIDATE_LIST_IDS_FIRST: bool = True
     # Jednorazowa migracja zapisanych wyszukiwań kandydatów na wspólną semantykę
     # filtrów (`services/saved_search_migration.py`) przy starcie skanera alertów.
     # Domyślnie OFF: migracja wstrzymuje alerty zapisów, których wynik się

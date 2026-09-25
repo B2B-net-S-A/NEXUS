@@ -1110,6 +1110,9 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
  fetchCandidateListPage<CandidateListResponse>(candidatesApiParams, signal),
  placeholderData: keepPreviousData,
  staleTime: 30_000,
+ // Wynik zmienia tylko „Szukaj” albo strona; powrót na kartę nie ma
+ // powodu liczyć wyszukiwania od nowa (audyt szybkości 25.09.2026).
+ refetchOnWindowFocus: false,
  });
 
  const items: Candidate[] = data?.items ?? [];
@@ -1716,10 +1719,13 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
  </div>
  );
   // Liczba całej bazy do nagłówka — osobne, tanie zapytanie (1 wiersz).
+  // W oknie „Szukaj ręcznie” nagłówka nie ma, więc nie pytamy.
   const { data: baseTotalData } = useQuery({
     queryKey: CANDIDATES_BASE_TOTAL_QUERY_KEY,
     queryFn: ({ signal }) =>
       fetchCandidateListPage<CandidateListResponse>(CANDIDATES_BASE_TOTAL_PARAMS, signal),
+    enabled: !embed,
+    refetchOnWindowFocus: false,
     staleTime: 5 * 60_000,
   });
   const baseTotal = baseTotalData?.total ?? null;

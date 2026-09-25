@@ -1236,12 +1236,16 @@ INSERT INTO notes (
 )
 SELECT
     a.entity_id,
+    -- `note_unwrap_json` (0385): Traffit wysyła treść jako NAPIS z obiektem
+    -- JSON w środku; do 25.09.2026 zapisywaliśmy go w całości, więc
+    -- wyszukiwanie widziało kody znaków zamiast polskich liter. Rozpakowanie
+    -- PRZED `LEFT` — ucięty JSON nie dałby się już odczytać.
     LEFT(
-        COALESCE(
+        note_unwrap_json(COALESCE(
             a.details #>> '{content,content}',
             a.details ->> 'content',
             ''
-        ),
+        )),
         50000
     ),
     CASE
@@ -1282,11 +1286,11 @@ WHERE a.external_source = 'traffit'
   -- sync dopisze notatkę. Mechanizm jest samoleczący, w przeciwieństwie do
   -- przewracania całej fazy.
   AND EXISTS (SELECT 1 FROM candidates c WHERE c.id = a.entity_id)
-  AND COALESCE(
+  AND note_unwrap_json(COALESCE(
       a.details #>> '{content,content}',
       a.details ->> 'content',
       ''
-  ) <> ''
+  )) <> ''
   /*SINCE*/
   -- Dedup on the SOURCE ROW's identity, with the old timestamp match kept as
   -- a fallback. `source_ref` is what actually identifies the activity; the

@@ -333,6 +333,15 @@ MASS_UPDATE_EXEMPT: dict[tuple[str, str], str] = {
         "services/contract_client_reassign.py",
         "execute_reassign",
     ): "lock_contract + lock_orders (helper kontrakt → zamówienia) przed zapisem",
+    (
+        "services/order_line_takeover.py",
+        "cancel_scheduled_takeovers_for_contract",
+    ): (
+        "warunkowy UPDATE szkicu zastępstwa INNEGO kontraktu (status = draft) "
+        "po blokadzie kontraktu odchodzącego u wołającego — blokada kontraktu "
+        "zastępcy po nim łamałaby kolejność rosnącą (ABBA z nocną aktywacją "
+        "zastępstw), a sam wiersz zamówienia nie jest wtedy przez nią trzymany"
+    ),
 }
 
 # Writery, które zmieniają pola zamówienia BEZ ``FOR UPDATE`` (więc strażnik

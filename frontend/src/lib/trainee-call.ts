@@ -428,13 +428,25 @@ export function nextBusinessDay(today: string): string {
   return isoDate(date);
 }
 
-/** `null` = data poprawna; inaczej komunikat po polsku. */
-export function laterDateError(value: string, today: string): string | null {
+/**
+ * `null` = data poprawna; inaczej komunikat po polsku. `programEnd` (ostatni
+ * dzień programu) to górna granica — oddzwonienie po końcu programu
+ * przepadało, bo lista powstaje tylko w trakcie programu (audyt 25.09.2026).
+ */
+export function laterDateError(
+  value: string,
+  today: string,
+  programEnd?: string | null,
+): string | null {
   const date = parseIsoDate(value);
   if (!date) return "Wybierz datę.";
   const base = parseIsoDate(today);
   if (base && date.getTime() <= base.getTime()) return "Wybierz dzień po dzisiejszym.";
   if (isWeekend(date)) return "Wybierz dzień roboczy — sobota i niedziela odpadają.";
+  const end = programEnd ? parseIsoDate(programEnd) : null;
+  if (end && date.getTime() > end.getTime()) {
+    return `Wybierz dzień do końca programu (${programEnd!.split("-").reverse().join(".")}).`;
+  }
   return null;
 }
 

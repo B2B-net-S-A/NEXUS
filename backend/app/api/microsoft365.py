@@ -131,13 +131,38 @@ def _frontend_callback_url(status_param: str, message: Optional[str] = None) -> 
     return f"{base}/microsoft365/callback?{urlencode(query)}"
 
 
-def _mailbox_belongs_to_user(mailbox_upn: Optional[str], user: User) -> bool:
+def _mailbox_belongs_to_user(
+    mailbox_upn: Optional[str],
+    user: User,
+    *,
+    oid: Optional[str] = None,
+    tenant_id: Optional[str] = None,
+) -> bool:
     """Czy skrzynka z id_token to skrzynka tego konta NEXUS.
 
     Logowanie przez Microsoft zakłada konto po ``preferred_username``
     (``users.email``) i zapamiętuje go w ``users.microsoft_upn``, więc oba
     adresy są legalne; porównanie bez wielkości liter.
+
+    Konto przypięte do tożsamości Microsoft (``users.azure_oid``) rozstrzyga
+    ``oid`` z id_token, gdy token go niesie — ta sama reguła co logowanie SSO
+    (audyt 24.09.2026): ten sam adres przy INNEJ ``oid`` to UPN nadany
+    ponownie nowej osobie (odmowa), a ta sama ``oid`` przy innym adresie to
+    ta sama osoba po zmianie adresu (zgoda, tylko z tenanta firmy, gdy go
+    znamy). Konto bez ``azure_oid`` (hasło, nigdy SSO) — jak dotąd po adresie;
+    innego adresu niż login Microsoft nie da się tu bezpiecznie potwierdzić.
     """
+    known_oid = (getattr(user, "azure_oid", None) or "").strip().casefold()
+    token_oid = (oid or "").strip().casefold()
+    if known_oid and token_oid:
+        if token_oid != known_oid:
+            return False
+        from app.api.auth_microsoft import _expected_tenant_id
+
+        expected_tid = _expected_tenant_id()
+        token_tid = (tenant_id or "").strip().lower()
+        return not expected_tid or token_tid == expected_tid
+
     mailbox = (mailbox_upn or "").strip().casefold()
     if not mailbox:
         return False
@@ -248,7 +273,9 @@ async def callback(
     # konto inicjatora — NEXUS czytał ją i wysyłał z niej maile jako ona
     # (audyt 25.09.2026, R3-2). Skrzynka musi być skrzynką właściciela konta.
     # Brak adresu w id_token = nie da się tego potwierdzić, więc odmowa.
-    if not _mailbox_belongs_to_user(bundle.mailbox_upn, user):
+    if not _mailbox_belongs_to_user(
+        bundle.mailbox_upn, user, oid=bundle.oid, tenant_id=bundle.tenant_id
+    ):
         logger.warning(
             "m365 callback rejected — mailbox of another person: user_id=%s",
             user_id,
