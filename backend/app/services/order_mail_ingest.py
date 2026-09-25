@@ -221,6 +221,10 @@ class IngestStats:
     recheck_applied: int = 0
     recheck_held: int = 0
     recheck_alerts: int = 0
+    #: Wpisy „Nieudane” przetworzone ponownie z zachowanego PDF-a
+    #: (``order_mail_recheck.retry_failed_documents``) i ile z nich się udało.
+    failed_retried: int = 0
+    failed_recovered: int = 0
     #: Wpisy z odczytem awaryjnym (bez AI), dla których ponowiono odczyt AI
     #: (``retry_ai_fallback_documents``): ile prób, ile się udało, ile z nich
     #: zapisało się automatem.
@@ -622,9 +626,18 @@ async def _message_logged(
 
 
 async def _first_with_sha(db: AsyncSession, sha: str) -> Optional[OrderMailDocument]:
+    """Pierwszy PRZETWORZONY wpis z tym plikiem — oryginał dla duplikatu.
+
+    Wpis ``failed`` nie jest oryginałem: nic z niego nie powstało, a do
+    25.09.2026 ponownie przysłany PDF lądował jako „duplikat” nieudanego
+    przetworzenia i też nigdy nie był czytany (audyt 25.09.2026).
+    """
     return await db.scalar(
         select(OrderMailDocument)
-        .where(OrderMailDocument.attachment_sha256 == sha)
+        .where(
+            OrderMailDocument.attachment_sha256 == sha,
+            OrderMailDocument.outcome != OUTCOME_FAILED,
+        )
         .order_by(OrderMailDocument.id.asc())
         .limit(1)
     )
@@ -1890,6 +1903,8 @@ async def run_order_mail_ingest(
                 stats.recheck_applied = recheck.applied
                 stats.recheck_held = recheck.held
                 stats.recheck_alerts = recheck.alerts
+                stats.failed_retried = recheck.failed_retried
+                stats.failed_recovered = recheck.failed_recovered
             except Exception as exc:  # noqa: BLE001 — przeliczenie nie wywraca biegu
                 logger.exception("order_mail: recheck of held documents failed")
                 await db.rollback()

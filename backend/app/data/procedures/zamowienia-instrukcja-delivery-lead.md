@@ -925,7 +925,16 @@ październik–grudzień) — kolejny dokument zakłada osobne zamówienie. Ten 
 numer albo nachodzący okres (poprawiony dokument) nadal uzupełnia ten sam draft.
 Draft wypełniony ręcznie, **bez pliku zamówienia**, system traktuje jak pusty —
 dołącz do niego PDF, jeśli ma zostać nietknięty. Draft na linii zamówienia MD
-zostaje przy linii: osobnego zamówienia obok niej system sam nie założy.
+albo kosztowego zostaje przy linii: system **nie wypełnia go** jak zamówienia
+okresowego (bez budżetu MD i bez zamówienia zbiorczego) i nie zakłada obok niego
+osobnego zamówienia — plan pokazuje „Linia grupy (zapis ręczny)”, a linię
+uzupełniasz w oknie zamówienia klienta.
+
+**Ten sam numer zamówienia** to numer identyczny po pominięciu spacji i wielkości
+liter. Krótsza forma numeru (np. „30751” zamiast „4500030751”) liczy się jako ten
+sam numer **tylko wtedy, gdy oba numery składają się wyłącznie z cyfr**. Numery
+z ukośnikami albo literami („830/2026”, „3/07/2026/BL”) porównywane są w całości —
+„830/2026” i „1830/2026” to dwa różne zamówienia.
 
 **Mail nie cofa wypowiedzenia umowy.** Jeżeli umowa tej osoby została
 wypowiedziana („Zakończ współpracę”, także z datą w przyszłości), zamówienie
@@ -1009,7 +1018,10 @@ i pomija. Dokument, którego klienta nie udało się rozpoznać, administrator m
 zdjąć z zakładki „Nierozpoznane” przyciskiem **„Odrzuć”**.
 
 **Pocztę system sprawdza dalej całą dobę** — nowe zamówienie przysłane
-wieczorem pojawia się w kolejce tego samego dnia. Ograniczenie do godzin pracy
+wieczorem pojawia się w kolejce tego samego dnia. Gdy przy sprawdzeniu nie da się
+pobrać załącznika maila (chwilowa awaria skrzynki), mail nie przepada: kolejne
+sprawdzenie pyta o niego ponownie, a do tego czasu pasek pod „Pobierz zamówienia
+z maila” pokazuje sprawdzenie jako częściowe. Ograniczenie do godzin pracy
 dotyczy wyłącznie ponownego przeliczania tego, co już w kolejce wisi. Przycisk
 **„Pobierz zamówienia z maila"** działa o każdej porze i przelicza wstrzymane
 wpisy od razu, także po 18:00.
@@ -1059,6 +1071,15 @@ aktualnymi powodami. Powód awarii AI widać w banerze, np. „Odczyt awaryjny (
 przekroczony czas odpowiedzi AI) — sprawdź zgodność pól z PDF". Po trzech
 nieudanych próbach dochodzi komunikat „Ponowny odczyt AI nie powiódł się 3×" —
 wtedy sprawdź pola z PDF i zastosuj ręcznie albo odrzuć.
+
+**Wpis „Nieudane” (błąd przy przetwarzaniu maila) system przetwarza ponownie
+sam** z zapisanego PDF-a — przy sprawdzeniach w godzinach 8:00–18:00, najwyżej
+3 razy i tylko przez 7 dni od nadejścia maila. Takie wpisy widać w zakładce
+**„Nieudane”** razem z błędem i numerem próby. Udane ponowienie przechodzi
+zwykłą ścieżkę nowego maila. Po trzech nieudanych próbach wpis zostaje
+w „Nieudane” — wprowadź wtedy zamówienie ręcznie w oknie zamówienia klienta.
+Ten sam PDF przysłany ponownie po nieudanym przetworzeniu jest czytany od nowa
+(nie jest już pomijany jako duplikat).
 
 **Gdy odczyt AI jest wyłączony albo wyczerpał miesięczny limit** (Ustawienia →
 AI), poczta działa dalej: mail dostaje odczyt awaryjny z powodem „Odczyt

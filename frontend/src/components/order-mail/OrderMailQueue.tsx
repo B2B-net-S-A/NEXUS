@@ -53,7 +53,21 @@ const TABS: Array<{ outcome: OrderMailOutcome; label: string }> = [
   { outcome: "auto_applied", label: "Zapisane automatycznie" },
   { outcome: "applied", label: "Zapisane ręcznie" },
   { outcome: "unrecognized_client", label: "Nierozpoznane" },
+  // Błąd przetwarzania maila. Od 25.09.2026 system ponawia go sam (do 3 razy
+  // w ciągu 7 dni), ale wpis, który się nie udał, musi być widoczny — do tego
+  // dnia nie było go na żadnej zakładce.
+  { outcome: "failed", label: "Nieudane" },
 ];
+
+/** Zdanie o automatycznych ponowieniach wpisu „Nieudane” (licznik z serwera). */
+export function failedRetryNote(meta: Record<string, unknown> | null): string {
+  const retry = (meta?.failed_retry ?? null) as { attempts?: number } | null;
+  const attempts = Number(retry?.attempts ?? 0);
+  if (attempts >= 3) {
+    return "System próbował przetworzyć ten dokument ponownie 3 razy bez skutku — wprowadź zamówienie ręcznie w oknie zamówienia klienta.";
+  }
+  return `Przetwarzanie nie powiodło się. System ponawia je sam z zapisanego PDF-a (próba ${attempts} z 3, przez 7 dni od nadejścia maila).`;
+}
 
 function period(a: string | null, b: string | null): string {
   return `${formatIsoDatePl(a)} – ${b ? formatIsoDatePl(b) : "bezterminowo"}`;
@@ -754,6 +768,11 @@ function Detail({ doc, onApply, onDismiss, onRefreshPlan, busy, applyError }: { 
         return distinctError ? <div className="mt-3 text-sm text-destructive">Błąd: {distinctError}</div> : null;
       })()}
       {applyError && <div className="mt-3 text-sm text-destructive">{applyError}</div>}
+      {doc.outcome === "failed" && (
+        <p role="status" className="mt-3 text-sm text-muted-foreground" data-testid="failed-retry-note">
+          {failedRetryNote(doc.document_meta)}
+        </p>
+      )}
 
       {personDecision && doc.outcome === "needs_review" && (
         <div role="status" className="mt-4 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm" data-testid="person-decision">
