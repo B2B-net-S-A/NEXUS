@@ -2061,8 +2061,15 @@ async def update_job(
     for k, v in updates.items():
         setattr(job, k, v)
     _assert_delivery_lead_job_visible(job, delivery_lead_pairs)
-    if working_title_reset or {"title", "must_skills", "client_reference"} & (
-        updates.keys()
+    if (
+        working_title_reset
+        or {
+            "title",
+            "must_skills",
+            "client_reference",
+            "champion_profile",
+        }
+        & updates.keys()
     ):
         from app.services.job_working_title import refresh_working_title
 

@@ -23,7 +23,7 @@ from __future__ import annotations
 import re
 from typing import Any, Iterable, Optional
 
-from sqlalchemy import func, select, text
+from sqlalchemy import bindparam, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.app_setting import AppSetting
@@ -38,6 +38,7 @@ BACKFILL_MARKER = "job_names_backfill_0378"
 
 _WHITESPACE = re.compile(r"\s+")
 _ZOB = re.compile(r"\bZOB[\s_-]*(\d+)\b", re.IGNORECASE)
+_EMPTY_BRACKETS = re.compile(r"[\(\[]\s*[\)\]]")
 
 
 def _clean(value: Any) -> str:
@@ -100,7 +101,8 @@ def _strip_reference(title: str, reference: Optional[str]) -> str:
     out = _ZOB.sub("", title)
     if reference:
         out = re.sub(re.escape(reference), "", out, flags=re.IGNORECASE)
-    return out
+    # „Programista Java (ZOB 48213)” → bez numeru zostawałyby puste nawiasy.
+    return _EMPTY_BRACKETS.sub("", out)
 
 
 def working_title_for_job(job: Any, client_names: Iterable[str] = ()) -> Optional[str]:
@@ -148,48 +150,83 @@ def display_title(job: Any) -> str:
     return _clean(getattr(job, "working_title", None)) or _clean(job.title)
 
 
-async def fill_missing_job_names(db: AsyncSession) -> Optional[dict[str, int]]:
+async def fill_missing_job_names(
+    db: AsyncSession, *, only_job_ids: Optional[set[int]] = None
+) -> Optional[dict[str, int]]:
     """Jednorazowo: tytuł dla rekrutera i numer ZOB dla istniejących rekrutacji.
 
     Rusza wyłącznie puste pola (``working_title IS NULL`` przy włączonym
-    automacie, ``client_reference IS NULL``). Marker w ``app_settings`` +
-    advisory lock → drugi start kończy się od razu. Wołający commituje.
-    Paragon: same liczby.
+    automacie, ``client_reference IS NULL``) i NIE podbija ``updated_at`` —
+    inaczej ponowny skan Targu (`rescan_recent_jobs`) objąłby naraz każdą
+    rekrutację. Marker w ``app_settings`` + advisory lock → drugi start kończy
+    się od razu. Wołający commituje. Paragon: same liczby. ``only_job_ids``
+    zawęża przebieg — wyłącznie dla testów na wspólnej bazie (bez markera).
     """
+    from types import SimpleNamespace
+
     from app.services.job_public_profile import _client_names
 
     await db.execute(
         text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": BACKFILL_MARKER}
     )
-    if await db.get(AppSetting, BACKFILL_MARKER):
+    if only_job_ids is None and await db.get(AppSetting, BACKFILL_MARKER):
         return None
-    jobs = (
-        await db.scalars(
-            select(Job).where(
-                (Job.working_title.is_(None) & Job.working_title_auto)
-                | Job.client_reference.is_(None)
-            )
+    missing = (Job.working_title.is_(None) & Job.working_title_auto) | (
+        Job.client_reference.is_(None)
+    )
+    if only_job_ids is not None:
+        missing = missing & Job.id.in_(only_job_ids)
+    rows = (
+        await db.execute(
+            select(
+                Job.id,
+                Job.title,
+                Job.reference_number,
+                Job.client_reference,
+                Job.working_title,
+                Job.working_title_auto,
+                Job.client_id,
+                Job.must_skills,
+                Job.champion_profile,
+            ).where(missing)
         )
     ).all()
     names_cache: dict[Optional[int], list[str]] = {}
+    updates: list[dict[str, Any]] = []
     titles = references = 0
-    for job in jobs:
-        if job.client_reference is None:
-            reference = reference_from_title(job.title, job.reference_number)
-            if reference:
-                job.client_reference = reference
-                references += 1
-        if job.working_title is None and job.working_title_auto:
-            if job.client_id not in names_cache:
-                names_cache[job.client_id] = await _client_names(db, job.client_id)
-            value = working_title_for_job(job, names_cache[job.client_id])
-            if value:
-                job.working_title = value
-                titles += 1
+    for row in rows:
+        reference = row.client_reference
+        if reference is None:
+            reference = reference_from_title(row.title, row.reference_number)
+            references += reference is not None
+        working = row.working_title
+        if working is None and row.working_title_auto:
+            if row.client_id not in names_cache:
+                names_cache[row.client_id] = await _client_names(db, row.client_id)
+            view = SimpleNamespace(**{**row._mapping, "client_reference": reference})
+            working = working_title_for_job(view, names_cache[row.client_id])
+            titles += working is not None
+        if reference != row.client_reference or working != row.working_title:
+            updates.append({"jid": row.id, "cref": reference, "wtitle": working})
+    if updates:
+        table = Job.__table__
+        await db.execute(
+            table.update()
+            .where(table.c.id == bindparam("jid"))
+            .values(
+                client_reference=func.coalesce(
+                    table.c.client_reference, bindparam("cref")
+                ),
+                working_title=func.coalesce(table.c.working_title, bindparam("wtitle")),
+                updated_at=table.c.updated_at,
+            ),
+            updates,
+        )
     receipt = {
-        "jobs_seen": len(jobs),
+        "jobs_seen": len(rows),
         "working_titles": titles,
         "client_references": references,
     }
-    db.add(AppSetting(key=BACKFILL_MARKER, value=receipt))
+    if only_job_ids is None:
+        db.add(AppSetting(key=BACKFILL_MARKER, value=receipt))
     return receipt

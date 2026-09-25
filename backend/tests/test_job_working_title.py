@@ -117,6 +117,13 @@ def test_working_title_prefers_champion_and_falls_back_to_the_title() -> None:
         champion_profile=None,
     )
     assert working_title_for_job(bare, ["PKO BP"]) == "Programista Java · Java"
+    quoted = SimpleNamespace(
+        title="Programista Java (ZOB 48213)",
+        client_reference="ZOB 48213",
+        must_skills=["Java"],
+        champion_profile=None,
+    )
+    assert working_title_for_job(quoted) == "Programista Java · Java"
 
 
 def test_display_title_falls_back_to_the_client_title() -> None:
@@ -165,6 +172,12 @@ def test_project_ref_prefers_the_client_reference() -> None:
         client_reference="SAP 4500123456", title="x", reference_number=None
     )
     assert pko_job_reference(other) == "SAP 4500123456"
+    # Numer jest dosłownym cytatem z maila — zapis klienta nie może wyciec do CV.
+    for written in ("ZOB: 48213", "nr ZOB 48213", "ZOB/48213", "zob-48213"):
+        quoted = SimpleNamespace(
+            client_reference=written, title="x", reference_number=None
+        )
+        assert pko_job_reference(quoted) == "48213", written
 
 
 async def _client_id() -> int:
@@ -269,3 +282,43 @@ async def test_list_search_finds_the_client_reference(
     )
     assert found.status_code == 200, found.text
     assert [j["id"] for j in found.json()["items"]] == [created.json()["id"]]
+
+
+@needs_db
+@pytest.mark.asyncio
+async def test_backfill_fills_only_empty_names_without_touching_updated_at() -> None:
+    from app.core.database import AsyncSessionLocal
+    from app.models.job import Job
+    from app.services.job_working_title import fill_missing_job_names
+
+    client_id = await _client_id()
+    async with AsyncSessionLocal() as db:
+        archive = Job(
+            title="Programista Java (ZOB 4521)",
+            client_id=client_id,
+            must_skills=["Java", "Spring"],
+        )
+        manual = Job(
+            title="Tester ZOB 77",
+            client_id=client_id,
+            client_reference="SAP 1",
+            working_title="Ręczny",
+            working_title_auto=False,
+        )
+        db.add_all([archive, manual])
+        await db.commit()
+        ids = {archive.id, manual.id}
+        stamps = {archive.id: archive.updated_at, manual.id: manual.updated_at}
+
+    async with AsyncSessionLocal() as db:
+        receipt = await fill_missing_job_names(db, only_job_ids=ids)
+        await db.commit()
+    assert receipt == {"jobs_seen": 1, "working_titles": 1, "client_references": 1}
+
+    async with AsyncSessionLocal() as db:
+        filled = await db.get(Job, archive.id)
+        kept = await db.get(Job, manual.id)
+        assert filled.client_reference == "ZOB 4521"
+        assert filled.working_title == "Programista Java · Java, Spring"
+        assert filled.updated_at == stamps[archive.id]
+        assert (kept.client_reference, kept.working_title) == ("SAP 1", "Ręczny")

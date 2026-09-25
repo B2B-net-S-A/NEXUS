@@ -35,15 +35,24 @@ def project_number(value):
 def pko_job_reference(job):
     """Numer zapytania klienta z rekrutacji (numer projektu w CV).
 
-    Od 0378 źródłem jest ``jobs.client_reference`` („ZOB 48213” → „48213”).
-    Rekrutacje bez tego pola (archiwum Traffita) czytamy jak dotąd: jawny token
-    ZOB w tytule albo numerze, nigdy nasz numer wewnętrzny.
+    Od 0378 źródłem jest ``jobs.client_reference``. Numer jest dosłownym
+    cytatem z maila, więc token ZOB czytamy w dowolnym zapisie („ZOB: 48213”,
+    „nr ZOB/48213” → „48213”); numer bez tokenu ZOB (np. „SAP 4500123456”)
+    idzie tak, jak go zapisano. Rekrutacje bez tego pola (archiwum Traffita)
+    czytamy jak dotąd: jawny token ZOB w tytule albo numerze, nigdy nasz
+    numer wewnętrzny.
     """
     if job is None:
         return None
-    explicit = project_number(getattr(job, "client_reference", None) or "")
-    if explicit:
-        return explicit
+    reference = re.sub(
+        r"\s+", " ", getattr(job, "client_reference", None) or ""
+    ).strip()
+    if reference:
+        found = set(re.findall(r"\bZOB[\W_]{0,3}(\d+)", reference, flags=re.IGNORECASE))
+        if len(found) == 1:
+            return next(iter(found))
+        if not found:
+            return reference
     values = set()
     for value in (getattr(job, "reference_number", None), getattr(job, "title", None)):
         values.update(
