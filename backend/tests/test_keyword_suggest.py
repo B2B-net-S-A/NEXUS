@@ -330,3 +330,49 @@ async def test_phrases_are_not_counted(catalog, monkeypatch):
         )
     assert result == {"java developer": None, "Spring Boot": None}
     assert not any("keyword_fts @@" in sql for sql in seen)
+
+
+@pytest.mark.asyncio
+async def test_count_cache_keeps_polish_spelling_apart(monkeypatch):
+    """„bankowość” i „bankowosc” to w ``keyword_fts`` różne słowa i liczby."""
+    monkeypatch.setattr(keyword_corpus, "_ready", True)
+    monkeypatch.setattr(keyword_corpus, "folded_search_enabled", lambda: False)
+    keyword_suggest.clear_count_cache()
+    counts = {"bankowość": 7, "bankowosc": 2}
+
+    class _Result:
+        def __init__(self, value):
+            self._value = value
+
+        def scalar_one(self):
+            return self._value
+
+    class FakeSession:
+        def begin_nested(self):
+            return _Nested()
+
+        async def execute(self, stmt, params=None):
+            sql = str(stmt)
+            if "keyword_fts @@" in sql:
+                q = (params or {}).get("q", "")
+                word = "bankowość" if "ść" in q else "bankowosc"
+                return _Result(counts[word])
+            return _Result("0")
+
+    class _Nested:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+    try:
+        db = FakeSession()
+        first = await keyword_suggest.count_candidates(db, ["bankowosc"])
+        second = await keyword_suggest.count_candidates(db, ["bankowość"])
+        again = await keyword_suggest.count_candidates(db, ["BANKOWOŚĆ"])
+    finally:
+        keyword_suggest.clear_count_cache()
+    assert first == {"bankowosc": 2}
+    assert second == {"bankowość": 7}
+    assert again == {"BANKOWOŚĆ": 7}

@@ -241,6 +241,16 @@ def _tsquery_sql(value: str) -> Optional[str]:
     return tsq
 
 
+def _count_key(value: str) -> str:
+    """Klucz liczby dla korpusu BEZ składania znaków (``keyword_fts``).
+
+    Pisownia z polskimi znakami zostaje: „bankowość” i „bankowosc” to w tym
+    indeksie różne słowa i różne liczby. Wielkość liter i spacje się nie
+    liczą (``to_tsquery('simple', …)`` i tak zmniejsza litery).
+    """
+    return "raw:" + " ".join((value or "").split()).casefold()
+
+
 def _cached(key: str, now: float) -> Optional[int]:
     hit = _count_cache.get(key)
     if hit is None or now - hit[0] > COUNT_TTL_SECONDS:
@@ -271,7 +281,7 @@ async def count_candidates(
     now = time.monotonic()
     missing: list[tuple[str, str, Optional[str]]] = []
     for value in values:
-        cached = _cached(fold(value), now)
+        cached = _cached(_count_key(value), now)
         if cached is not None:
             result[value] = cached
             continue
@@ -322,7 +332,7 @@ async def count_candidates(
             logger.warning("keyword suggest count skipped (%s)", type(exc).__name__)
             continue
         result[value] = n
-        _count_cache[fold(value)] = (now, n)
+        _count_cache[_count_key(value)] = (now, n)
     return result
 
 

@@ -10,7 +10,7 @@
  * ogłoszenia (kategoria, miasto, widełki…) wstępnie wypełnionymi z rekrutacji.
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, ExternalLink, Loader2 } from "lucide-react";
@@ -47,6 +47,11 @@ interface Props {
   readOnly: boolean;
   /** Harness: sekcja rozwinięta od razu. */
   defaultOpen?: boolean;
+  /**
+   * Wejście z linku `?tab=portals` (np. `/jobs/new` po nieudanej publikacji):
+   * sekcja rozwinięta i przewinięta do widoku, gdy tylko się pojawi.
+   */
+  focusOnReady?: boolean;
   /** Odświeżanie, gdy coś czeka w kolejce; harness podaje `false` (zero zapytań). */
   pollWhilePublishingMs?: number | false;
   /** Harness: okno publikacji otwarte od razu dla tego portalu. */
@@ -281,10 +286,13 @@ export function JobPortalsSection({
   jobId,
   readOnly,
   defaultOpen = false,
+  focusOnReady = false,
   pollWhilePublishingMs = 10_000,
   defaultDialogPortal,
 }: Props) {
-  const [open, setOpen] = useState(defaultOpen);
+  const [open, setOpen] = useState(defaultOpen || focusOnReady);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const focused = useRef(false);
   const [dialog, setDialog] = useState<DialogState | null>(null);
   const [dialogSeeded, setDialogSeeded] = useState(false);
   const user = useAuthStore((s) => s.user);
@@ -312,6 +320,13 @@ export function JobPortalsSection({
     onError: (err) => showError(apiErrorMessage(err, "Nie udało się wycofać ogłoszenia.")),
   });
 
+  // Sekcji nie ma w DOM do wczytania konfiguracji — przewijamy raz, po niej.
+  useEffect(() => {
+    if (!focusOnReady || !ready || focused.current) return;
+    focused.current = true;
+    rootRef.current?.scrollIntoView?.({ block: "start" });
+  }, [focusOnReady, ready]);
+
   // Harness: otwarte okno od pierwszego renderu z danymi.
   if (defaultDialogPortal && !dialogSeeded && ready && postings.isSuccess) {
     const item = config.data.portals.find((p) => p.portal === defaultDialogPortal);
@@ -328,7 +343,7 @@ export function JobPortalsSection({
   const Icon = open ? ChevronDown : ChevronRight;
 
   return (
-    <div className="border-b border-border/70 last:border-b-0">
+    <div ref={rootRef} className="border-b border-border/70 last:border-b-0">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}

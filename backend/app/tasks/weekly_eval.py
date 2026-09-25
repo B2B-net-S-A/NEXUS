@@ -138,6 +138,7 @@ def _is_due(last_synced_at: Optional[datetime], now: datetime) -> bool:
         last = last.replace(tzinfo=timezone.utc)
     if (now - last).days < 6:
         return False
+    # Dzień UTC celowo: dzień i godzina (WEEKLY_EVAL_HOUR_UTC) w jednej strefie.
     if now.weekday() != int(settings.WEEKLY_EVAL_WEEKDAY):
         return False
     return now.hour >= int(settings.WEEKLY_EVAL_HOUR_UTC)
