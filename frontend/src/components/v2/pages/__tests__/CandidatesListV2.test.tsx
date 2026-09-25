@@ -603,6 +603,28 @@ describe("CandidatesListV2", () => {
       expect(screen.queryByText("Wróciłeś do swojego wyszukiwania.")).toBeNull();
     });
 
+    it("baner powrotu znika, gdy zastosowano inne kryteria — sama zmiana w szkicu go nie zdejmuje", async () => {
+      writeListSearch({ query: "q_any=Kafka" });
+      renderList();
+      expect(await screen.findByText("Wróciłeś do swojego wyszukiwania.")).toBeTruthy();
+
+      const must = within(bar()).getByLabelText("Wymaganie 1 — słowo albo wariant");
+      fireEvent.change(must, { target: { value: "RabbitMQ" } });
+      fireEvent.keyDown(must, { key: "Enter" });
+      expect(await screen.findByText("1 zmiana czeka na „Szukaj”")).toBeTruthy();
+      expect(screen.getByText("Wróciłeś do swojego wyszukiwania.")).toBeTruthy();
+
+      // Enter w pustym polu = „Szukaj”.
+      fireEvent.keyDown(must, { key: "Enter" });
+      await waitFor(async () => {
+        const calls = await candidateCalls();
+        expect(calls.at(-1)).toMatchObject({ q_any_group: ["Kafka|RabbitMQ"] });
+      });
+      await waitFor(() =>
+        expect(screen.queryByText("Wróciłeś do swojego wyszukiwania.")).toBeNull(),
+      );
+    });
+
     it("adres z filtrami wygrywa z pamięcią", async () => {
       writeListSearch({ query: "q_all=Kafka" });
       urlParams = new URLSearchParams("q_all=Python");
