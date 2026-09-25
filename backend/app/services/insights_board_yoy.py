@@ -394,6 +394,10 @@ async def compute_board_yoy(db: AsyncSession, years: list[int], today: date) -> 
             "closed_jobs_filled",
             "margin_with_known_hours_pln",
             "margin_known_hours",
+            # Przychód kontraktów ze ZNANĄ marżą (obie nogi wycenione) —
+            # mianownik marży %. Przychód kontraktu bez stawki kosztowej
+            # zaniżał procent bez żadnego sygnału (audyt 25.09.2026).
+            "margin_revenue_pln",
         )
     }
     by_client: dict = {str(y): [None] * 12 for y in years}
@@ -474,7 +478,8 @@ async def compute_board_yoy(db: AsyncSession, years: list[int], today: date) -> 
         series["revenue_monthly_pln"][y][idx] = money(fold.revenue)
         series["consultant_cost_monthly_pln"][y][idx] = money(fold.cost)
         series["margin_monthly_pln"][y][idx] = money(fold.margin)
-        series["margin_pct"][y][idx] = ratio(fold.margin, fold.revenue)
+        series["margin_pct"][y][idx] = ratio(fold.margin, fold.margin_revenue)
+        series["margin_revenue_pln"][y][idx] = money(fold.margin_revenue)
         series["consultants"][y][idx] = fold.consultants
         priced_by_month[y][idx] = fold.priced_contracts
         series["margin_per_hour_pln"][y][idx] = margin_per_hour(fold)
@@ -512,7 +517,7 @@ async def compute_board_yoy(db: AsyncSession, years: list[int], today: date) -> 
             series,
             components={
                 "numerator": "margin_monthly_pln",
-                "denominator": "revenue_monthly_pln",
+                "denominator": "margin_revenue_pln",
             },
         ),
         _metric("consultants", "hr", "Liczba konsultantów", "count", "avg", series),
@@ -670,6 +675,7 @@ async def compute_board_yoy(db: AsyncSession, years: list[int], today: date) -> 
                 "margin_known_hours",
                 "margin_monthly_pln",
                 "revenue_monthly_pln",
+                "margin_revenue_pln",
                 "placements",
             )
         },
@@ -735,6 +741,7 @@ _MONEY_COMPONENTS = frozenset(
         "margin_known_hours",
         "margin_monthly_pln",
         "revenue_monthly_pln",
+        "margin_revenue_pln",
     }
 )
 _MONEY_METRICS = frozenset({"margin_pct"})

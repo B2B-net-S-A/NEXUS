@@ -783,3 +783,61 @@ def test_without_money_strips_amounts_and_keeps_cached_result_intact() -> None:
     assert stripped["money_redacted"] is True
     assert len(cached["metrics"]) == 4
     assert "margin_monthly_pln" in cached["component_series"]
+
+
+@pytest.mark.asyncio
+async def test_margin_percent_divides_by_revenue_with_a_known_margin(
+    yoy_client: AsyncClient,
+):
+    """Audyt 25.09.2026: marża % (miesiące i podsumowanie roku z ``components``)
+    dzieliła przez przychód także kontraktów bez stawki kosztowej. Mianownik
+    to ``margin_revenue_pln`` — kwota, więc HoR jej nie dostaje."""
+    email, password = await _seed_user(UserRole.admin)
+    headers = await _login(yoy_client, email, password)
+    client_id, _job, cand_priced = await _seed_client_job_candidate()
+    _c, _j, cand_unpriced = await _seed_client_job_candidate()
+
+    year = BASE_YEAR - 2
+    await _seed_contract(
+        client_id=client_id,
+        candidate_id=cand_priced,
+        start=date(year, 1, 1),
+        end=date(year, 12, 31),
+        rate_client=Decimal("20000"),
+        rate_candidate=Decimal("15000"),
+    )
+    before = await _yoy(yoy_client, headers, end_year=year, years=2)
+    pct_before = _metric(before, "margin_pct")["series"][str(year)][5]
+    assert pct_before is not None
+
+    await _seed_contract(
+        client_id=client_id,
+        candidate_id=cand_unpriced,
+        start=date(year, 1, 1),
+        end=date(year, 12, 31),
+        rate_client=Decimal("9000000"),
+        rate_candidate=None,
+    )
+    after = await _yoy(yoy_client, headers, end_year=year, years=2)
+    metric = _metric(after, "margin_pct")
+    assert metric["components"] == {
+        "numerator": "margin_monthly_pln",
+        "denominator": "margin_revenue_pln",
+    }
+    assert metric["series"][str(year)][5] == pytest.approx(pct_before)
+    revenue = _metric(after, "revenue_monthly_pln")["series"][str(year)][5]
+    known = after["component_series"]["margin_revenue_pln"][str(year)][5]
+    assert revenue >= known + 8_999_999
+
+
+def test_without_money_strips_the_margin_revenue_component() -> None:
+    from app.services.insights_board_yoy import without_money
+
+    stripped = without_money(
+        {
+            "metrics": [],
+            "component_series": {"margin_revenue_pln": {}, "closed_jobs_total": {}},
+            "degraded": None,
+        }
+    )
+    assert set(stripped["component_series"]) == {"closed_jobs_total"}

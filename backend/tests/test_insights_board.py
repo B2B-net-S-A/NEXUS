@@ -544,3 +544,45 @@ async def test_invalid_period_returns_422_not_500(board_client: AsyncClient):
         BOARD_URL, headers=headers, params={"period": "custom"}
     )
     assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_margin_percent_ignores_revenue_without_a_cost_leg(
+    board_client: AsyncClient,
+):
+    """Audyt 25.09.2026: marża % Rady dzieliła marżę przez przychód WSZYSTKICH
+    kontraktów, także bez stawki kosztowej — duży przychód bez kosztu zaniżał
+    procent bez żadnego sygnału. Mianownik to przychód kontraktów ze znaną
+    marżą (jak ``contract_analytics._margin_pct``)."""
+    _, email, password = await _seed_user(UserRole.admin, "mpct")
+    headers = await _login(board_client, email, password)
+    params = _window("2017-06-01", "2017-06-30")
+
+    client_id, _job_id, cand_id = await _seed_client_job_candidate()
+    await _seed_contract(
+        client_id=client_id,
+        candidate_id=cand_id,
+        start=date(2017, 1, 1),
+        end=date(2017, 12, 31),
+        rate_client=Decimal("20000.00"),
+        rate_candidate=Decimal("15000.00"),
+        currency="PLN",
+    )
+    before = (await _board(board_client, headers, params))["kpis"]["finance"]
+    assert before["margin_pct"] is not None
+
+    _, _job2, cand2 = await _seed_client_job_candidate()
+    await _seed_contract(
+        client_id=client_id,
+        candidate_id=cand2,
+        start=date(2017, 1, 1),
+        end=date(2017, 12, 31),
+        rate_client=Decimal("9000000.00"),
+        rate_candidate=None,
+        currency="PLN",
+    )
+    after = (await _board(board_client, headers, params))["kpis"]["finance"]
+
+    assert after["revenue_monthly_pln"] >= before["revenue_monthly_pln"] + 8_999_999
+    assert after["contracts_without_cost_leg"] >= 1
+    assert after["margin_pct"] == pytest.approx(before["margin_pct"])
