@@ -22,7 +22,8 @@ z wektorem według podobieństwa, na końcu reszta od najnowszych.
 Podobieństwo liczy Qdrant (wyszukiwanie dokładne z filtrem po id, paczki po
 ``_CHUNK``). Zbiór większy niż ``MAX_EXACT_IDS`` (np. cała baza w „Szukaj
 ręcznie” bez wymagań) dostaje ``ANN_TOP`` najbliższych z indeksu, reszta idzie
-od najnowszych. Gotowa kolejność trzymana ``CACHE_TTL_SECONDS`` — bez tego
+od najnowszych. Gotowa kolejność trzymana ``CACHE_TTL_SECONDS`` (najwyżej
+``CACHE_MAX_ENTRIES`` wpisów) — bez tego
 kolejne strony mogłyby się przetasować. Awaria Voyage/Qdranta = ``None``
 (wołający wraca do „najnowsi” i mówi to w odpowiedzi); taki wynik nie trafia
 do pamięci.
@@ -33,6 +34,8 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import time
+from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Any, Optional, Sequence
 
@@ -45,6 +48,38 @@ MAX_EXACT_IDS = 30_000
 ANN_TOP = 3_000
 _CHUNK = 5_000
 CACHE_TTL_SECONDS = 300
+# Własna, OGRANICZONA pamięć: kolejność bywa listą ~60 tys. id (cała baza
+# w „Szukaj ręcznie”), a klucz zmienia się przy każdym ruchu w rekrutacji.
+# `app/core/cache.py` nie ma limitu ani sprzątania wygasłych wpisów, więc
+# porzucone klucze zostawałyby w procesie do restartu (przegląd PR 25.09.2026).
+CACHE_MAX_ENTRIES = 32
+_order_cache: OrderedDict[str, tuple[float, tuple[int, ...]]] = OrderedDict()
+
+
+def _cache_get(key: str) -> Optional[tuple[int, ...]]:
+    hit = _order_cache.get(key)
+    if hit is None:
+        return None
+    expires, ordered = hit
+    if expires <= time.monotonic():
+        del _order_cache[key]
+        return None
+    _order_cache.move_to_end(key)
+    return ordered
+
+
+def _cache_set(key: str, ordered: tuple[int, ...]) -> None:
+    now = time.monotonic()
+    for stale in [k for k, (expires, _) in _order_cache.items() if expires <= now]:
+        del _order_cache[stale]
+    _order_cache[key] = (now + CACHE_TTL_SECONDS, ordered)
+    _order_cache.move_to_end(key)
+    while len(_order_cache) > CACHE_MAX_ENTRIES:
+        _order_cache.popitem(last=False)
+
+
+def clear_cache() -> None:
+    _order_cache.clear()
 
 
 @dataclass(frozen=True)
@@ -217,7 +252,6 @@ async def ordered_ids(
     ``ids_query`` — przefiltrowany ``select(Candidate.id)``; ``prefix`` — dwa
     wyrażenia SQL („Mile widziane”, braki danych) albo ``None`` w ich miejscu.
     """
-    from app.core.cache import cache_get, cache_set
     from app.models.candidate import Candidate
     from app.services import embedding_service as embeddings
 
@@ -225,7 +259,7 @@ async def ordered_ids(
     if match_vector is None:
         return None
     key = await _cache_key(db, filters, match_vector.key, user)
-    cached = await cache_get(key)
+    cached = _cache_get(key)
     if cached is not None:
         return list(cached)
 
@@ -251,5 +285,5 @@ async def ordered_ids(
         logger.warning("match order: qdrant failed (%s)", type(exc).__name__)
         return None
     ordered = order_rows(rows, scores)
-    await cache_set(key, tuple(ordered), CACHE_TTL_SECONDS)
+    _cache_set(key, tuple(ordered))
     return ordered

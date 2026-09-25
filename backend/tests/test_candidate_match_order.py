@@ -35,6 +35,23 @@ def test_order_rows_puts_preferred_then_known_then_similarity_then_newest():
     assert cmo.order_rows(rows, scores) == [2, 5, 1, 4, 3]
 
 
+def test_order_cache_is_bounded_and_drops_expired(monkeypatch):
+    cmo.clear_cache()
+    for n in range(cmo.CACHE_MAX_ENTRIES + 10):
+        cmo._cache_set(f"k{n}", (n,))
+    assert len(cmo._order_cache) == cmo.CACHE_MAX_ENTRIES
+    assert cmo._cache_get("k0") is None
+    last = f"k{cmo.CACHE_MAX_ENTRIES + 9}"
+    assert cmo._cache_get(last) == (cmo.CACHE_MAX_ENTRIES + 9,)
+
+    now = cmo.time.monotonic()
+    monkeypatch.setattr(cmo.time, "monotonic", lambda: now + cmo.CACHE_TTL_SECONDS + 1)
+    assert cmo._cache_get(last) is None
+    cmo._cache_set("fresh", (1,))
+    assert list(cmo._order_cache) == ["fresh"]
+    cmo.clear_cache()
+
+
 def test_job_scope_needs_exactly_one_recruitment_and_not_assigned():
     class F:
         recruitment_id = [7]
@@ -127,8 +144,6 @@ async def _ids(client, headers, **params: Any) -> tuple[list[str], dict]:
 
 @pytest.fixture
 def fake_vectors(monkeypatch):
-    from app.core import cache
-
     ids = {}
 
     async def fake_resolve(db, user, filters, groups):
@@ -145,7 +160,7 @@ def fake_vectors(monkeypatch):
 
     monkeypatch.setattr(cmo, "resolve_vector", fake_resolve)
     monkeypatch.setattr(cmo, "_qdrant_scores", fake_scores)
-    monkeypatch.setattr(cache, "_cache", {})
+    cmo.clear_cache()
     return ids
 
 

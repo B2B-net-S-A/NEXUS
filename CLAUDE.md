@@ -7807,8 +7807,10 @@ w bazie (ts_rank, słowa w profilu, świeżość CV) NIE pomagały — nie wraca
   — wektor słów z wierszy wymagań. Kolejność: „Mile widziane” → osoby z danymi
   przed brakami → osoby z wektorem wg podobieństwa → najnowsi (decyzje Artura).
   Zbiór > 30 tys. = 3 000 najbliższych z indeksu, reszta od najnowszych.
-  Gotowa kolejność 5 min w `app/core/cache.py` (klucz: filtry, wektor, osoba,
-  ostatni ruch w rekrutacji). Brak wektora/awaria = „najnowsi” i
+  Gotowa kolejność 5 min we WŁASNEJ, ograniczonej pamięci modułu (32 wpisy,
+  LRU; klucz: filtry, wektor, osoba, ostatni ruch w rekrutacji) — NIE
+  w `app/core/cache.py`, który nie ma limitu ani sprzątania, a lista bywa
+  długa na ~60 tys. id. Brak wektora/awaria = „najnowsi” i
   `sort_applied="newest"` w odpowiedzi — front mówi to zdaniem.
 - **Front** (`lib/url-filters.ts` `effectiveSort`/`matchSortAvailable`): bez
   tekstu i bez jawnego wyboru, przy wierszach wymagań albo w „Szukaj ręcznie”
