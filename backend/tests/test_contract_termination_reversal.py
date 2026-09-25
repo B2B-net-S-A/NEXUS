@@ -40,7 +40,13 @@ def _enable_multi(monkeypatch, *client_ids: int) -> None:
     )
 
 
-async def _seed_active_md_consultant(*, used_md: Decimal = Decimal("93")) -> dict:
+async def _seed_active_md_consultant(
+    *,
+    used_md: Decimal = Decimal("93"),
+    contract_type: str = "b2b",
+    contract_status: str = "active",
+    contract_end_date=None,
+) -> dict:
     """Aktywny kontrakt B2B + linia MD (352 MD, stawki 480/600) + zużycie."""
     from app.core.database import AsyncSessionLocal
     from app.models.candidate import Candidate
@@ -69,10 +75,10 @@ async def _seed_active_md_consultant(*, used_md: Decimal = Decimal("93")) -> dic
         contract = Contract(
             candidate_id=candidate.id,
             client_id=client.id,
-            status=ContractStatus.active,
-            contract_type=ContractType.b2b,
+            status=ContractStatus(contract_status),
+            contract_type=ContractType(contract_type),
             start_date=start,
-            end_date=None,
+            end_date=contract_end_date,
             rate_candidate=Decimal("60"),
             rate_client=Decimal("75"),
             rate_unit=RateUnit.hourly,
@@ -393,6 +399,86 @@ async def test_reversal_without_snapshot_uses_order_change_history(
     )
     assert detail.json()["terminated_at"] is None
     assert detail.json()["termination_reversed_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_reversal_restores_ending_status_through_active(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Audyt 25.09.2026: umowa „Kończący się" (cron active → ending 30 dni przed
+    końcem) zakończona przez pomyłkę. Migawka mówi `ending`, a maszyna stanów
+    nie zna `ended → ending` — do poprawki cofnięcie kończyło się 409."""
+    end = business_today() + timedelta(days=20)
+    seed = await _seed_active_md_consultant(
+        contract_type="uzlecenie", contract_status="ending", contract_end_date=end
+    )
+    _enable_multi(monkeypatch, seed["client_id"])
+    await _terminate(app_client, app_auth_headers, seed["contract_id"])
+
+    preview = await app_client.get(
+        f"/api/contracts/{seed['contract_id']}/termination-reversal",
+        headers=app_auth_headers,
+    )
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["contract"]["status_target"] == "ending"
+    assert preview.json()["contract"]["end_date_target"] == end.isoformat()
+
+    resp = await app_client.post(
+        f"/api/contracts/{seed['contract_id']}/termination-reversal",
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    detail = (
+        await app_client.get(
+            f"/api/contracts/{seed['contract_id']}", headers=app_auth_headers
+        )
+    ).json()
+    assert detail["status"] == "ending"
+    assert detail["end_date"] == end.isoformat()
+    assert detail["terminated_at"] is None
+
+
+@pytest.mark.asyncio
+async def test_reversal_without_snapshot_keeps_end_date_of_non_b2b_contract(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Audyt 25.09.2026: zakończenie sprzed 0368 bez aneksu (data zakończenia =
+    data końca umowy). Umowa zlecenie ma datę końca w treści — cofnięcie nie
+    może jej zerować, bo zrobiłoby z niej umowę bezterminową."""
+    ended_on = _ended_on()
+    seed = await _seed_active_md_consultant(
+        contract_type="uzlecenie", contract_status="ended", contract_end_date=ended_on
+    )
+    from app.core.database import AsyncSessionLocal
+    from app.models.contract import Contract, ContractTerminationReason
+
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, seed["contract_id"])
+        contract.terminated_at = ended_on
+        contract.termination_reason = ContractTerminationReason.better_offer
+        await db.commit()
+
+    preview = await app_client.get(
+        f"/api/contracts/{seed['contract_id']}/termination-reversal",
+        headers=app_auth_headers,
+    )
+    assert preview.status_code == 200, preview.text
+    body = preview.json()
+    assert body["source"] == "history"
+    assert body["contract"]["end_date_target"] == ended_on.isoformat()
+
+    resp = await app_client.post(
+        f"/api/contracts/{seed['contract_id']}/termination-reversal",
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    detail = (
+        await app_client.get(
+            f"/api/contracts/{seed['contract_id']}", headers=app_auth_headers
+        )
+    ).json()
+    assert detail["end_date"] == ended_on.isoformat()
+    assert detail["terminated_at"] is None
 
 
 @pytest.mark.asyncio
