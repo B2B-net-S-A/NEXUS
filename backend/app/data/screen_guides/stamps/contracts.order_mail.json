@@ -3,6 +3,6 @@
   "guide": "contracts.order_mail",
   "sources": {
     "backend/app/services/order_mail_gate.py": "06ffc8bb3a0921e32e6cd16fef598313359b0d7191bb32e01a779ce553200c82",
-    "frontend/src/components/order-mail/OrderMailQueue.tsx": "475235e912ae07252a4f4244b248328c71a8efe80f9d56dc22eea7e1198ef13c"
+    "frontend/src/components/order-mail/OrderMailQueue.tsx": "33ff7e881d074c9e3de78e64f3042bacf2bd525f7de20acce2c0fb0848c09486"
   }
 }

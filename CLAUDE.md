@@ -1288,8 +1288,10 @@ do modelu.
   KAŻDĄ regułę w bazie plus szablony Championa bez wiersza. Tych drugich nie
   wolno ukryć: brak reguły wyglądałby identycznie jak jej nieistnienie.
 - **Zapis i zatwierdzenie to JEDNO kliknięcie** („Zapisz i zatwierdź",
-  `PUT … {confirm: true}`). Domyślny `PUT` zostawia propozycję, a edycja
-  obowiązującej reguły tą ścieżką ZDEJMUJE zatwierdzenie. Blokady i polityka
+  `PUT … {confirm: true}`). Domyślny `PUT` zostawia propozycję: nowa reguła
+  czeka na zatwierdzenie, a edycja obowiązującej trafia do szkicu
+  (`draft_payload`) — obowiązująca wersja działa dalej do „Zatwierdź”
+  (stan kodu 09.2026; wcześniej edycja zdejmowała zatwierdzenie). Blokady i polityka
   też czekają na zatwierdzenie — inaczej kopia z innego klienta zaczęłaby
   blokować rekruterów (`test_unconfirmed_recipe_is_invisible_to_the_generator`).
 - **Bramka zapisu to `DeliveryLeadPlus`, NIE `TacPlus`.** TAC edytuje kartę
@@ -7002,6 +7004,48 @@ przypadek drugiego wiersza.
   w `MultiSelectFilter`), `CommandEmpty` wyłącznie przy `isSuccess`; `isLoading ? … :
   <CommandEmpty>` to błąd (v5: po awarii `isLoading=false`). Wyszukiwarka włączana po
   otwarciu listy podaje `isLoading` jako `isPending`.
+
+### Runda 3 (25.09.2026, po PR #1836)
+
+Raport: https://claude.ai/artifact/CN4ffWLKsPQYm38pgGN2Dr. Decyzje Artura: przeskok
+„Zweryfikowany → Rozmowa u klienta” bez QC zostaje (blokuje tylko front); progi wyścigu
+to migawka na okres; prywatne spotkania importujemy bez treści.
+
+- **Umowy B2B.** Podpisane w Generatorze rozwiązanie/wypowiedzenie (także Partnera) nie
+  zamyka wiersza od razu — zapisuje tryb (`mark_pending_dissolution`), a wiersz zamyka ta
+  sama synchronizacja co po „Zakończ współpracę”, z migawką, gdy kontrakt jest „Zakończony”.
+  Ręczna zmiana statusu w rejestrze czyści `termination_restore`; wiersz dopasowany po
+  osobie dostaje `contract_id` (fill-only). „Cofnij zakończenie” bez migawki traktuje datę
+  końca jako ślad zakończenia tylko przy `terminated_at` — UZ/UoP zakończona cronem
+  zachowuje datę z treści umowy.
+- **Konkursy.** `GET /api/competitions/current` liczy podium przez `award_order` (jak
+  zamrożenie); miejsce z remisem ma `prize_pln=0` i `tied: true`. Progi wyścigu
+  miesięcznego żyją w `app_settings['monthly_race_thresholds'][RRRR-MM]` (pierwszy zapis
+  wygrywa; pisze pętla autofreeze i `freeze_competition`, GET tylko czyta) — zmiana celu
+  KPI działa od następnego miesiąca, cel precyzji > 100 = 422. `POST /freeze` przyjmuje
+  tylko okres zakończony („RRRR-MM” albo „Q1 2026”). Liga DL liczy rolę DL także
+  dodatkową. Metryki pulpitu porównują ten sam odcinek poprzedniego okresu
+  (`previous_matching_window`), a kwoty wyceniają na `min(koniec okresu, dziś)`.
+- **Rekrutacja i Champion.** Każde wejście dodające osobę do rekrutacji (bulk-add,
+  wtyczka LinkedIn) przyjmuje tylko kolumny „Nowi”/„Screening”
+  (`board_stage_badges.is_entry_column`). Zapis Championa bez zmiany `requirement_source`
+  (notatki, wiersze wyszukiwania) nie woła `refresh_job_matching` ani `enqueue_job_safe`.
+  Stawka ze szkicu AI trafia do budżetu tylko z dosłownego cytatu (`pln_hourly_bounds`),
+  pytania szkicu są deduplikowane po treści. Zatwierdzenie opisu publicznego zapisuje
+  migawkę must/nice, miasta, startu i długości w
+  `job_public_profiles.sections["_approved_content"]` — strona kariery i portale serwują
+  migawkę, zmiana tych pól wymaga ponownego zatwierdzenia. Import Championa z generatora
+  CV wysyła tylko pola niepuste i nigdy klucza `insights`.
+- **M365, Jarvis, poczta.** Callback M365 przyjmuje wyłącznie skrzynkę właściciela konta
+  (`users.email` albo `microsoft_upn`, bez wielkości liter); brak adresu = odmowa, bo
+  podpisany `state` nie dowodzi, czyja skrzynka wróciła. Spotkanie prywatne z Outlooka
+  (`sensitivity` private/confidential) i iCal (`CLASS`) to sam termin „Spotkanie
+  prywatne” (`services/calendar_privacy.py`); zmiana `EVENT_SELECT` wymaga jednorazowego
+  pełnego odczytu kalendarzy (stary kursor delty pamięta swój `$select`). Mail o etapie
+  przechodzi bramkę odbiorcy dzwonka. Karta akcji Jarvisa bierze nazwy wyłącznie
+  z odczytu API, debrief czyta kandydata z wydarzenia. Mail odrzucenia commituje
+  rezerwację przed Graphem. Poczta zamówień łapie `IntegrityError` tylko na
+  `uq_order_mail_documents_*`, a odrzucony wpis „Nieudane” nie jest oryginałem sha.
 
 ## Narzędzia rekrutera — reguły po audycie 17.09.2026
 

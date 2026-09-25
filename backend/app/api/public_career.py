@@ -215,7 +215,7 @@ async def get_career_recruiter(
         if status_value != jpp.STATUS_APPROVED:
             continue
         seen.add(job.id)
-        params = jpp.public_params(job)
+        params = jpp.approved_params(job, profile.sections if profile else None)
         jobs.append(
             {
                 "slug": job_link.slug,

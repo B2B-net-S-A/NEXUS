@@ -299,6 +299,84 @@ async def _summarize_transcript_for_champion(
     return "\n\n".join(summaries)
 
 
+# ── Stawka ze szkicu: budżet liczy kod z cytatu, nie model ──────────────────
+#
+# Lustro `job_request_intake.normalize_model_output` (REC-07): model podaje
+# DOSŁOWNY fragment źródła ze stawką (`basics.rate_raw`), a liczbę budżetu
+# wylicza `champion_intake.pln_hourly_bounds` (górna granica przedziału).
+# Do rundy 3 audytu (25.09.2026) `rate_value` modelu szedł wprost do budżetu
+# (`jobs.rate_budget_hourly`), a z nim zakres przeliczony na środek albo stawka
+# za MD podzielona „na oko” — dealbreaker czytał to jako sufit kandydata.
+
+_RATE_NO_QUOTE_NOTE = (
+    "Szkic podał stawkę, ale nie wskazał jej dosłownie w źródle — budżet "
+    "zostaje pusty. Wpisz go ręcznie."
+)
+
+
+def _folded_text(value: Any) -> str:
+    from app.services.champion_document import folded
+
+    return " ".join(folded(str(value or "")).split())
+
+
+def _grounded_rate(quote: Any) -> Optional[tuple[float, bool]]:
+    """``(budżet PLN/h, czy to przedział)`` z cytatu albo None."""
+    from app.services import champion_intake
+
+    if not isinstance(quote, str) or not quote.strip():
+        return None
+    bounds = champion_intake.pln_hourly_bounds(quote)
+    if not bounds:
+        return None
+    value = champion_intake.rate(bounds[1])
+    if value is None:
+        return None
+    return value, 0 < bounds[0] < bounds[1]
+
+
+def _ground_basics_rate(basics: dict[str, Any], source_text: str) -> Optional[str]:
+    """Ustaw stawkę sekcji 1 szkicu wyłącznie z cytatu obecnego w źródle.
+
+    Zwraca notatkę dla Delivery Leada albo None. Mutuje ``basics``: brak
+    dowodu = ``rate_value`` i ``rate_raw`` puste.
+    """
+    quote = basics.get("rate_raw")
+    quote = quote.strip() if isinstance(quote, str) else ""
+    if basics.get("rate_value") in (None, "") and not quote:
+        return None  # szkic nie mówi nic o stawce — sekcji nie dotykamy
+    basics["rate_value"] = None
+    basics["rate_raw"] = None
+    if not quote or _folded_text(quote) not in _folded_text(source_text):
+        return _RATE_NO_QUOTE_NOTE
+    grounded = _grounded_rate(quote)
+    if grounded is None:
+        return (
+            f"W źródle jest „{quote}” — to nie jest stawka w PLN/h netto "
+            "(brak waluty albo jednostki godzinowej). Wpisz budżet ręcznie."
+        )
+    value, is_range = grounded
+    basics["rate_value"] = value
+    basics["rate_raw"] = quote[:255]
+    if is_range:
+        return f"„{quote}” — przyjęto górną granicę jako budżet."
+    return None
+
+
+def _ground_payload_rate(payload: dict[str, Any], source_text: str) -> None:
+    """Stawka w sekcji `basics` propozycji — tylko z cytatu. Notatka trafia
+    do uzasadnienia sekcji, które Delivery Lead widzi przy przeglądzie."""
+    entry = payload.get("basics")
+    if not isinstance(entry, dict) or not isinstance(entry.get("value"), dict):
+        return
+    basics = dict(entry["value"])
+    note = _ground_basics_rate(basics, source_text)
+    entry["value"] = basics
+    if note:
+        rationale = str(entry.get("rationale") or "").strip()
+        entry["rationale"] = f"{rationale} {note}".strip() if rationale else note
+
+
 # ── Core: generate / apply / reject ─────────────────────────────────────────
 
 
@@ -383,6 +461,7 @@ async def generate_from_jd(
         confidence = raw.pop("_confidence", {}) or {}
         profile = ChampionProfile.model_validate(raw)
         payload = payload_from_profile(profile, confidence=confidence)
+        _ground_payload_rate(payload, raw_description)
     except ValidationError as exc:
         logger.warning(
             "champion_draft: ChampionProfile validation failed for job %s: %s",
@@ -422,6 +501,7 @@ async def _generate_enrichment_suggestion(
     source_type: SuggestionSource,
     source_ref: Optional[str],
     user_id: Optional[int],
+    source_text: str = "",
 ) -> ChampionProfileSuggestion:
     """Shared path for Fireflies / CloudTalk enrichment.
 
@@ -452,6 +532,7 @@ async def _generate_enrichment_suggestion(
                 "confidence": float(entry.get("confidence") or 0.0),
                 "rationale": str(entry.get("rationale") or ""),
             }
+        _ground_payload_rate(payload, source_text)
         if not payload:
             # No recognisable sections = nothing to review. Skip creation.
             logger.info(
@@ -529,6 +610,9 @@ async def enrich_from_meeting(
             source_type=SuggestionSource.fireflies_meeting,
             source_ref=source_ref,
             user_id=user_id,
+            source_text="\n".join(
+                (meeting_title or "", meeting_summary or "", transcript_text)
+            ),
         )
 
 
@@ -569,6 +653,7 @@ async def enrich_from_call(
             source_type=SuggestionSource.cloudtalk_call,
             source_ref=source_ref,
             user_id=user_id,
+            source_text="\n".join((call_summary or "", transcript_text)),
         )
 
 
@@ -759,6 +844,9 @@ async def generate_from_historical_jobs(
                     "confidence": float(entry.get("confidence") or 0.0),
                     "rationale": str(entry.get("rationale") or ""),
                 }
+            # Stawka wyłącznie z opisu TEJ rekrutacji — stawki z historycznych
+            # ról nie są dowodem budżetu nowej.
+            _ground_payload_rate(payload, effective_description)
             if not payload:
                 status_val = SuggestionStatus.rejected
                 error_message = (
@@ -849,8 +937,6 @@ def _merge_basics(current: dict[str, Any], proposed: dict[str, Any]) -> dict[str
     for field in (
         "role_name",
         "seniority_min_years",
-        "rate_value",
-        "rate_raw",
         "work_mode",
         "onsite_days_per_week",
         "candidate_location_pref",
@@ -861,24 +947,60 @@ def _merge_basics(current: dict[str, Any], proposed: dict[str, Any]) -> dict[str
         proposed_val = proposed.get(field)
         if proposed_val is not None and proposed_val != "":
             merged[field] = proposed_val
+    # Stawka tylko z cytatu, z którego ją wyliczył kod (`_ground_basics_rate`).
+    # Propozycje sprzed rundy 3 audytu niosą samą liczbę modelu — tej nie
+    # przenosimy do budżetu, obecna stawka zostaje.
+    quote = proposed.get("rate_raw")
+    grounded = _grounded_rate(quote)
+    value = proposed.get("rate_value")
+    if (
+        grounded is not None
+        and isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and abs(float(value) - grounded[0]) < 1e-6
+    ):
+        merged["rate_value"] = grounded[0]
+        merged["rate_raw"] = quote
     return merged
+
+
+def _question_key(question: Any) -> str:
+    """Treść pytania do porównań: bez wielkości liter, polskich znaków,
+    wielokrotnych spacji i końcowej interpunkcji."""
+    from app.services.champion_document import folded
+
+    text = " ".join(folded(str(question or "")).split())
+    return text.rstrip(" ?!.:;")
 
 
 def _merge_screening_questions(
     current: list[dict[str, Any]], proposed: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
-    """Append proposed questions, dedup by `id` (current wins on conflict)."""
-    existing_ids = {q.get("id") for q in (current or []) if isinstance(q, dict)}
-    out = list(current or [])
+    """Dopisz pytania ze szkicu, bez duplikatów po TREŚCI pytania.
+
+    Id pytań (``q1``, ``q2``…) nadaje osobno każde źródło — profil i szkic AI
+    mają swoje ``q1`` o zupełnie innej treści. Do rundy 3 audytu (25.09.2026)
+    dedup szedł po ``id``, więc profil z q1–q3 i szkic z ośmioma pytaniami
+    dawał pięć pytań, a trzy nowe znikały po cichu. Istniejące pytania
+    zachowują swoje id (odpowiedzi ze screeningu mogą się do nich odwoływać);
+    dopisane dostają kolejne wolne ``qN``.
+    """
+    out = [q for q in (current or []) if isinstance(q, dict)]
+    seen = {_question_key(q.get("question")) for q in out}
+    taken = {str(q.get("id")) for q in out if q.get("id")}
+    next_number = 1
     for q in proposed or []:
         if not isinstance(q, dict):
             continue
-        qid = q.get("id")
-        if qid and qid in existing_ids:
+        key = _question_key(q.get("question"))
+        if not key or key in seen:
             continue
-        out.append(q)
-        if qid:
-            existing_ids.add(qid)
+        seen.add(key)
+        while f"q{next_number}" in taken:
+            next_number += 1
+        new_id = f"q{next_number}"
+        taken.add(new_id)
+        out.append({**q, "id": new_id})
     return out
 
 

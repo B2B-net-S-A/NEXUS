@@ -140,6 +140,28 @@ async def _freeze_if_ready(
     )
 
 
+async def snapshot_current_month_thresholds(today: date | None = None) -> None:
+    """Zapisz progi wyścigu bieżącego miesiąca (R3-15). Własna sesja, nie rzuca.
+
+    Pierwszy zapis w miesiącu wygrywa, więc zmiana celu KPI w trakcie
+    miesiąca obowiązuje dopiero od następnego — zwycięzcy wyścigu z nagrodą
+    nie da się przestawić wstecz edycją celu.
+    """
+    period = comp_service.current_month_period(today or business_today())
+    try:
+        async with AsyncSessionLocal() as db:
+            await comp_service.snapshot_monthly_race_thresholds(db, period)
+            await db.commit()
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "monthly race thresholds snapshot for %s failed (%s)",
+            period,
+            type(exc).__name__,
+        )
+
+
 async def _run_once(today: date | None = None) -> dict:
     """Jedna iteracja — zwraca dict z opisem zamrożonych okresów."""
     today = today or business_today()
@@ -212,6 +234,7 @@ async def competition_autofreeze_loop() -> None:
         from app.services.placement_exclusions import run_detection_safely
 
         await run_detection_safely("competition_autofreeze")
+        await snapshot_current_month_thresholds()
         try:
             await _run_once()
         except asyncio.CancelledError:

@@ -250,10 +250,12 @@ def _is_entry_column(stage_def: PipelineStageDef) -> bool:
     ruchu — QC CV, stawkę DL, osobę od Cpro, debrief — które sprawdza wyłącznie
     ``POST /api/pipeline/move``. Bulk-add na taki etap omijał je wszystkie
     (przegląd PR #1836, bliźniak poprawki „para bez wierszy liczy od Nowi”).
+    Reguła żyje w ``board_stage_badges.is_entry_column`` — czyta ją też
+    wtyczka LinkedIn (``/api/candidates/from-linkedin``).
     """
-    from app.services.board_stage_badges import CLAIM_COLUMNS, board_column_for
+    from app.services.board_stage_badges import is_entry_column
 
-    column = board_column_for(
+    return is_entry_column(
         stage_def.name,
         stage_def.legacy_enum_value,
         category=getattr(stage_def.category, "value", stage_def.category),
@@ -261,7 +263,6 @@ def _is_entry_column(stage_def: PipelineStageDef) -> bool:
             stage_def.terminal_type, "value", stage_def.terminal_type
         ),
     )
-    return column in CLAIM_COLUMNS
 
 
 def _assert_entry_column(stage_def: PipelineStageDef) -> None:

@@ -31,11 +31,12 @@ Po utworzeniu szkicu wiersz dostaje prawdziwe identyfikatory; awaria po tym
 momencie zostawia wiersz w stanie ``uncertain`` (mail mógł wyjść), awaria
 przed nim zwalnia rezerwację (mail na pewno nie wyszedł).
 
-``commit_reservation=True`` (endpointy API) commituje rezerwację, więc
-równoległe żądanie widzi ją od razu. Automaty trzymające własną transakcję
-(harmonogram maili odrzucenia z blokadą wiersza) zostają przy domyślnym
-``False`` — wtedy wzajemne wykluczenie daje sam UNIQUE (drugi INSERT czeka na
-koniec pierwszej transakcji).
+``commit_reservation=True`` (endpointy API i harmonogram maili odrzucenia)
+commituje rezerwację, więc równoległe żądanie widzi ją od razu, a anulowanie
+albo padnięty commit PO wysyłce nie cofa jej razem z transakcją wołającego
+(inaczej ponowienie wysłałoby drugi mail — audyt 25.09.2026, R3-6). Domyślne
+``False`` = wzajemne wykluczenie daje sam UNIQUE (drugi INSERT czeka na koniec
+pierwszej transakcji).
 """
 
 from __future__ import annotations

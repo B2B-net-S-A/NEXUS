@@ -1905,7 +1905,7 @@ WRITE_TOOLS: tuple[JarvisTool, ...] = (
         label="Przygotowuję dodanie do puli",
         description="PROPONUJE dodanie kandydata do puli talentów (ID puli z list_talent_pools).",
         input_schema=_schema(
-            {"pool_id": INT, "candidate_id": INT, "pool_name": STR},
+            {"pool_id": INT, "candidate_id": INT},
             ("pool_id", "candidate_id"),
         ),
         tier="write",
@@ -1920,9 +1920,7 @@ WRITE_TOOLS: tuple[JarvisTool, ...] = (
             json={"candidate_id": _int(a, "candidate_id")},
         ),
         shape=as_is,
-        preview=lambda a: (
-            f"Dodam {_who(a)} do puli **{a.get('pool_name') or '#' + str(a.get('pool_id'))}**"
-        ),
+        preview=lambda a: f"Dodam {_who(a)} do puli {_who(a, 'pool_id', 'Pula')}",
     ),
     JarvisTool(
         name="mark_notifications_read",
@@ -1944,7 +1942,7 @@ WRITE_TOOLS: tuple[JarvisTool, ...] = (
         done="Sprawa oznaczona jako załatwiona.",
         label="Przygotowuję odhaczenie sprawy",
         description="PROPONUJE oznaczenie sprawy klienta (list_client_alerts) jako załatwionej.",
-        input_schema=_schema({"alert_id": INT, "title": STR}, ("alert_id",)),
+        input_schema=_schema({"alert_id": INT}, ("alert_id",)),
         tier="write",
         method="POST",
         path="/api/dl-alerts/{alert_id}/handled",
@@ -1955,8 +1953,7 @@ WRITE_TOOLS: tuple[JarvisTool, ...] = (
         ),
         shape=as_is,
         preview=lambda a: (
-            f"Oznaczę sprawę **{_short(a.get('title') or '#' + str(a.get('alert_id')), 80)}** "
-            "jako załatwioną"
+            f"Oznaczę sprawę {_who(a, 'alert_id', 'Sprawa')} jako załatwioną"
         ),
     ),
     JarvisTool(
@@ -2011,7 +2008,13 @@ WRITE_TOOLS: tuple[JarvisTool, ...] = (
         input_schema=_schema(
             {
                 "event_id": INT,
-                "candidate_id": {**INT, "description": "Tylko do opisu karty."},
+                "candidate_id": {
+                    **INT,
+                    "description": (
+                        "Kandydat, o którym mówi użytkownik — serwer sprawdzi, "
+                        "czy to ta sama osoba co w wydarzeniu."
+                    ),
+                },
                 "outcome": {"type": "string", "enum": ["good", "medium", "bad"]},
                 "offer_acceptance": {
                     "type": "string",
@@ -2064,6 +2067,7 @@ WRITE_TOOLS: tuple[JarvisTool, ...] = (
                 if a.get("candidate_id")
                 else f" (wydarzenie #{a.get('event_id')})"
             )
+            + (f" ({_who(a, 'job_id', 'Rekrutacja')})" if a.get("job_id") else "")
             + f": {_OUTCOME_PL.get(str(a.get('outcome')), a.get('outcome'))}, "
             f"oferta: {_ACCEPTANCE_PL.get(str(a.get('offer_acceptance')), a.get('offer_acceptance'))}"
         ),

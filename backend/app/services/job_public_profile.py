@@ -266,6 +266,74 @@ def public_params(job: Job) -> dict[str, Any]:
     }
 
 
+# Migawka pól czytanych z rekrutacji (must/nice, miasto, start, długość) z
+# chwili ZATWIERDZENIA opisu. Żyje w istniejącym JSON-ie `sections` pod
+# kluczem, którego `normalize_sections` (a więc i skrót treści) nie widzi —
+# bez migracji. Do rundy 3 audytu (25.09.2026) strona czytała te pola na
+# żywo: zmiana must-have albo miasta po zatwierdzeniu trafiała na publiczną
+# stronę i do ogłoszeń na portalach z pominięciem zatwierdzenia i kontroli
+# (nazwa klienta w mieście czy wymaganiu).
+APPROVED_CONTENT_KEY = "_approved_content"
+_SNAPSHOT_PARAMS = ("city", "start", "duration")
+
+
+def approved_content(payload: dict[str, Any]) -> dict[str, Any]:
+    """Migawka z TEJ projekcji, którą sprawdziła kontrola przy zatwierdzeniu —
+    zapisane jest dokładnie to, co przeszło kontrolę."""
+    params = payload.get("params") or {}
+    return {
+        "must": [item["name"] for item in payload.get("must") or []],
+        "nice": list(payload.get("nice") or []),
+        **{key: params.get(key) for key in _SNAPSHOT_PARAMS},
+    }
+
+
+def stored_approved_content(sections: Any) -> Optional[dict[str, Any]]:
+    snapshot = (
+        sections.get(APPROVED_CONTENT_KEY) if isinstance(sections, dict) else None
+    )
+    return snapshot if isinstance(snapshot, dict) else None
+
+
+def sections_with_approved_content(
+    sections: Any, snapshot: Optional[dict[str, Any]]
+) -> dict[str, Any]:
+    """Przełączniki sekcji + migawka (nowy słownik — JSONB widzi zmianę)."""
+    out: dict[str, Any] = dict(normalize_sections(sections))
+    if snapshot is not None:
+        out[APPROVED_CONTENT_KEY] = dict(snapshot)
+    return out
+
+
+def approved_params(job: Job, sections: Any) -> dict[str, Any]:
+    """Parametry rekrutacji tak, jak widzi je strona publiczna: z migawki
+    zatwierdzenia, gdy jest, a bez niej (opisy sprzed 25.09.2026) na żywo.
+    Jedna reguła dla strony rekrutacji i listy na stronie rekrutera."""
+    snapshot = stored_approved_content(sections)
+    params = public_params(job)
+    if snapshot is None:
+        return params
+    return {**params, **{key: snapshot.get(key) for key in _SNAPSHOT_PARAMS}}
+
+
+def approved_content_stale(job: Job, sections: Any) -> bool:
+    """Czy pola zamrożone przy zatwierdzeniu różnią się dziś od rekrutacji —
+    strona pokazuje wtedy stan z zatwierdzenia, a edytor musi to powiedzieć."""
+    snapshot = stored_approved_content(sections)
+    if snapshot is None:
+        return False
+    live = public_params(job)
+    return (
+        _names(snapshot.get("must")) != _names(_stack_names(job, "must"))
+        or _names(snapshot.get("nice")) != _names(_stack_names(job, "nice"))
+        or any(snapshot.get(key) != live.get(key) for key in _SNAPSHOT_PARAMS)
+    )
+
+
+def _names(value: Any) -> list[str]:
+    return [str(name)[:200] for name in (value or []) if isinstance(name, str)][:20]
+
+
 def public_job_payload(
     job: Job,
     *,
@@ -275,16 +343,30 @@ def public_job_payload(
     about: Optional[str],
     sections: Any,
 ) -> dict[str, Any]:
-    """Kształt ``job`` z ``GET /api/public/career/r/{slug}`` — biała lista."""
+    """Kształt ``job`` z ``GET /api/public/career/r/{slug}`` — biała lista.
+
+    ``sections`` z migawką zatwierdzenia (``APPROVED_CONTENT_KEY``) = must/nice,
+    miasto, start i długość z chwili zatwierdzenia. Bez migawki (opisy
+    zatwierdzone przed 25.09.2026, podgląd szkicu i kontrola przy
+    zatwierdzaniu — te podają same przełączniki) pola idą na żywo.
+    """
     show = normalize_sections(sections)
+    snapshot = stored_approved_content(sections)
+    if snapshot is None:
+        must = _stack_names(job, "must")
+        nice = _stack_names(job, "nice")
+    else:
+        must = _names(snapshot.get("must"))
+        nice = _names(snapshot.get("nice"))
+    params = approved_params(job, sections)
     return {
         "slug": link_slug,
         "title": title,
         "subtitle": (subtitle or "").strip() or None,
         "about": (about or "").strip() or None,
-        "must": [{"name": name, "note": None} for name in _stack_names(job, "must")],
-        "nice": _stack_names(job, "nice"),
-        "params": public_params(job),
+        "must": [{"name": name, "note": None} for name in must],
+        "nice": nice,
+        "params": params,
         "show": show,
     }
 

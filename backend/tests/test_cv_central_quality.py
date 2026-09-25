@@ -380,6 +380,9 @@ async def _upload(
     data = {"content_mode": content_mode}
     if stage:
         data.update(candidate_id="2", stage_id="3")
+    else:
+        # Generator v3: bez rekrutacji klient jest wymagany.
+        data.update(client_id=str(ALIOR))
     data.update(extra or {})
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test"

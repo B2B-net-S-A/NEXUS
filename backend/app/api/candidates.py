@@ -3362,6 +3362,22 @@ async def create_candidate_from_linkedin(
         )
 
     target_stage = data.stage or PipelineStage.new
+    # Wtyczka dodaje osobę WYŁĄCZNIE do kolumny „Nowi” albo „Screening” — ta
+    # sama reguła co bulk-add (`board_stage_badges.is_entry_column`). Dalsze
+    # etapy mają bramki (QC CV, stawka DL, debrief), które sprawdza tylko
+    # `/api/pipeline/move`; etap zamknięcia („rejected”) kończył się 500 na
+    # więzie bazy (audyt 25.09.2026, runda 3). Przed jakimkolwiek zapisem.
+    from app.services.board_stage_badges import is_entry_column
+
+    if not is_entry_column(None, target_stage.value):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Z LinkedIna dodaje się kandydata do kolumny „Nowi” albo "
+                "„Screening”. Dalsze etapy przesuwa się na Tablicy rekrutacji, "
+                "bo mają własne wymagania (QC CV, stawka, debrief)."
+            ),
+        )
 
     # ── Dedup fast-path ────────────────────────────────────────────────────
     duplicates = await find_candidate_duplicates(db, linkedin=normalized)

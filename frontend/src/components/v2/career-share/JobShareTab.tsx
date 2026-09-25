@@ -450,6 +450,17 @@ export function JobShareTab({ enabled, defaultJobId, onJobChange }: JobShareTabP
                   </Button>
                 </div>
 
+                {profile?.status === "approved" && profile.approved_content_stale ? (
+                  <p
+                    role="status"
+                    className="rounded-md border border-warning/25 bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground"
+                  >
+                    Wymagania, miasto, start albo długość zmieniły się w rekrutacji od zatwierdzenia.
+                    Strona kariery i portale pokazują stan z zatwierdzenia — zatwierdź opis ponownie,
+                    żeby opublikować zmiany z podglądu.
+                  </p>
+                ) : null}
+
                 {profileState === "loading" ? (
                   <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
                     <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> Wczytuję opis…

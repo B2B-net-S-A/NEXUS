@@ -31,7 +31,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 from uuid import uuid4
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, func, or_, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -42,6 +43,7 @@ _SYNC_TIMEOUT_SECONDS = 8 * 60
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.encryption import TokenCipherNotConfigured
+from app.models.app_setting import AppSetting
 from app.models.calendar_event import CalendarEvent, EventStatus, EventType
 from app.models.m365 import (
     Email,
@@ -53,6 +55,11 @@ from app.models.m365 import (
 from app.services.m365 import attachment_handler, matcher
 from app.services.m365.access import connection_owner_is_eligible
 from app.services.calendar_all_day import normalize_all_day
+from app.services.calendar_privacy import (
+    PRIVATE_EVENT_FIELDS,
+    is_private_marker,
+    is_scrubbed,
+)
 from app.services.m365.calendar import M365_SOURCE
 from app.services.m365.graph_client import GraphClient, GraphRequestError
 from app.services.m365.html_sanitize import html_to_text, sanitize_html
@@ -68,8 +75,15 @@ MESSAGE_SELECT = (
 )
 EVENT_SELECT = (
     "id,changeKey,subject,bodyPreview,body,start,end,"
-    "organizer,attendees,location,seriesMasterId,type,isCancelled,isAllDay"
+    "organizer,attendees,location,seriesMasterId,type,isCancelled,isAllDay,"
+    "sensitivity"
 )
+# Stary kursor delty pamięta $select, z którym powstał — bez `sensitivity`
+# prywatne spotkania dalej przychodziłyby jako zwykłe. Każde połączenie robi
+# raz pełny odczyt okna ± 1 rok zamiast delty (znacznik w `app_settings`),
+# a zapisane już prywatne spotkania dostają przy tym treść „Spotkanie
+# prywatne” (R3-7).
+EVENT_SELECT_RESET_KEY = "m365_event_select_sensitivity_reset"
 
 
 @dataclass
@@ -968,7 +982,10 @@ async def _sync_events(
     result: SyncResult,
 ) -> None:
     """Pull calendar events via delta view around today ± 1 year."""
-    if conn.delta_token_events:
+    # Kursor sprzed `sensitivity` nie jest kasowany od razu: po nieudanym
+    # przebiegu zostaje stary, a pełny odczyt powtórzy następny bieg.
+    select_reset_pending = await _event_select_reset_pending(db, conn)
+    if conn.delta_token_events and not select_reset_pending:
         url = conn.delta_token_events
         params = None
     else:
@@ -1017,7 +1034,39 @@ async def _sync_events(
 
     if last_delta_link:
         conn.delta_token_events = last_delta_link
+        if select_reset_pending:
+            await _mark_event_select_reset(db, conn)
         await db.commit()
+
+
+async def _event_select_reset_pending(db: AsyncSession, conn: M365Connection) -> bool:
+    """Czy kursor delty tego połączenia powstał jeszcze bez `sensitivity`."""
+    row = await db.get(AppSetting, EVENT_SELECT_RESET_KEY)
+    done = (row.value or {}).get("connection_ids") if row is not None else None
+    return conn.id not in set(done or [])
+
+
+async def _mark_event_select_reset(db: AsyncSession, conn: M365Connection) -> None:
+    # Upsert w bazie — dwie skrzynki kończące pełny odczyt naraz nie mogą
+    # wywrócić się na UNIQUE klucza ani nadpisać sobie listy.
+    stmt = pg_insert(AppSetting).values(
+        key=EVENT_SELECT_RESET_KEY, value={"connection_ids": [conn.id]}
+    )
+    await db.execute(
+        stmt.on_conflict_do_update(
+            index_elements=[AppSetting.key],
+            set_={
+                "value": func.jsonb_build_object(
+                    "connection_ids",
+                    func.coalesce(
+                        AppSetting.value["connection_ids"],
+                        func.jsonb_build_array(),
+                    ).op("||")(func.jsonb_build_array(conn.id)),
+                ),
+                "updated_at": func.now(),
+            },
+        )
+    )
 
 
 async def _upsert_event(db: AsyncSession, conn: M365Connection, ev: dict) -> bool:
@@ -1045,21 +1094,35 @@ async def _upsert_event(db: AsyncSession, conn: M365Connection, ev: dict) -> boo
             )
         return False
 
+    # Prywatne w Outlooku = w NEXUSIE sam termin. Dotyczy spotkań z Outlooka;
+    # wydarzenie założone w NEXUSIE (prep, rozmowa u klienta) niesie treść
+    # NEXUSA, nie prywatną treść Outlooka.
+    private = is_private_marker(ev.get("sensitivity")) and (
+        existing is None or existing.event_type == EventType.meeting
+    )
     change_key = ev.get("changeKey")
-    if existing and existing.m365_change_key == change_key:
+    if (
+        existing
+        and existing.m365_change_key == change_key
+        and (not private or is_scrubbed(existing))
+    ):
         return False  # nothing changed — skip
 
     fields = _graph_event_fields(ev)
     if fields is None:
         return False
 
-    attendees_raw = ev.get("attendees") or []
     attendee_rows = []
-    for a in attendees_raw:
-        ea = (a or {}).get("emailAddress") or {}
-        addr = (ea.get("address") or "").strip().lower()
-        if addr:
-            attendee_rows.append({"address": addr, "name": ea.get("name")})
+    if private:
+        # Prywatne spotkanie = sam zajęty termin (R3-7). Bez uczestników nie
+        # ma też powiązania z kandydatem po adresie.
+        fields.update(PRIVATE_EVENT_FIELDS)
+    else:
+        for a in ev.get("attendees") or []:
+            ea = (a or {}).get("emailAddress") or {}
+            addr = (ea.get("address") or "").strip().lower()
+            if addr:
+                attendee_rows.append({"address": addr, "name": ea.get("name")})
 
     # Link to candidate if any attendee matches.
     candidate_id: Optional[int] = None

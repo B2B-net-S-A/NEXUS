@@ -735,6 +735,30 @@ def _validated_recipe(
         ) from error
 
 
+def _restorable_recipe(recipe: dict[str, Any] | None) -> dict[str, Any]:
+    """Recepta opublikowanej wersji w kształcie formularza edycji.
+
+    Publikacja z centralnego katalogu (`central_policies.recipe_for`) zapisuje
+    `None` dla pól listowych (`omit_sections`, `glossary`, `highlight_terms`)
+    i dokłada metadane `managed_policy`. `ClientCvRulePayload` odrzucał to
+    jako „Input should be a valid list”, więc przywrócenie każdej wersji
+    opublikowanej centralnie kończyło się 422 (audyt 25.09.2026, r3). `None`
+    w polu z wartością domyślną inną niż `None` znaczy „brak” — bierzemy
+    wartość domyślną.
+    """
+    out: dict[str, Any] = {}
+    for key, value in (recipe or {}).items():
+        field = ClientCvRulePayload.model_fields.get(key)
+        if field is None:
+            continue  # metadane (`managed_policy`) — nie są polem reguły
+        if value is None and (
+            field.default_factory is not None or field.default is not None
+        ):
+            continue
+        out[key] = value
+    return out
+
+
 def _editable_rule(rule: ClientCvRule | None) -> ClientCvRule | None:
     if rule is None or not rule.draft_payload:
         return rule
@@ -1058,7 +1082,7 @@ async def restore_cv_rule_version(
         raise HTTPException(
             status_code=404, detail="Nie znaleziono opublikowanej wersji."
         )
-    payload = _validated_recipe(publication.recipe)
+    payload = _validated_recipe(_restorable_recipe(publication.recipe))
     rule = await _store_recipe(
         db,
         client,

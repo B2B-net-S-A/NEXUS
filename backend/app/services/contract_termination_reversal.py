@@ -495,11 +495,22 @@ async def _history_contract_end_date(
     aneksu) — wtedy umowa wraca bezterminowa jak dawniej. Zachowana zostawiała
     plan „Aktywny z minioną datą końca”, który nocny cron kończył ponownie
     razem z przywróconymi zamówieniami (audyt 25.09.2026, runda 2).
+
+    Śladem jest tylko data zapisana przez RĘCZNE zakończenie
+    (``terminated_at``). Umowę zakończoną przez nocny cron (data końca
+    minęła, ``terminated_at`` puste) plan liczy z ``terminated_on =
+    end_date``, więc sama równość była tautologią: umowa zlecenie z datą
+    w treści wracała bezterminowa, a bloker ``end_date_passed`` nie miał
+    czego złapać (audyt 25.09.2026, runda 3).
     """
     fallback = (
         None
         if is_b2b(contract.contract_type)
-        or (terminated_on is not None and contract.end_date == terminated_on)
+        or (
+            contract.terminated_at is not None
+            and terminated_on is not None
+            and contract.end_date == terminated_on
+        )
         else contract.end_date
     )
     if terminated_on is None:

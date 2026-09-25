@@ -10,6 +10,10 @@ Każdy skutek idzie ISTNIEJĄCĄ ścieżką domeny, nie własną kopią:
   zakładka „Aneksy”: krok harmonogramu, krok bazowy, bramka kwot Finansów);
 * rozwiązanie i wypowiedzenie — ``_apply_termination_to_contract`` (zamówienia,
   aneks ``early_termination``, audyt), jak przycisk „Zakończ współpracę”;
+  umowę w rejestrze zamyka ta sama synchronizacja co po tym oknie
+  (``contract_termination_sync``: migawka, tryb, „Zakończona” dopiero gdy
+  kontrakt przejdzie na „Zakończony”) — dokument zostawia na wierszu tylko
+  znacznik trybu;
 * cofnięcie wypowiedzenia — ``contract_lifecycle.reopen_contract`` (NIE
   ``revert_contract``, który cofa umowę do szkicu).
 
@@ -51,6 +55,11 @@ from app.models.contract_amendment import ContractAmendment, ContractAmendmentTy
 from app.models.contract_document import ContractDocument, ContractDocumentType
 from app.models.user import User
 from app.services.b2b_documents.registry import DocumentType
+from app.services.contract_termination_sync import (
+    clear_pending_dissolution,
+    close_dissolved_row,
+    mark_pending_dissolution,
+)
 from app.core.scheduling import business_today
 
 logger = logging.getLogger(__name__)
@@ -208,7 +217,13 @@ async def describe(
             f"Koniec współpracy z dniem {_pl(when)} — kontrakt, zamówienia klienta."
         )
         if parent is not None:
-            plan.changes.append("Umowa w rejestrze: „Zakończona”.")
+            if contract is not None and when is not None and when >= business_today():
+                plan.changes.append(
+                    "Umowa w rejestrze: „Zakończona” dzień po "
+                    f"{_pl(when)} — do tego dnia obowiązuje."
+                )
+            else:
+                plan.changes.append("Umowa w rejestrze: „Zakończona”.")
         if contract is None:
             plan.warnings.append(no_contract)
     elif key == "notice_withdrawal":
@@ -465,12 +480,13 @@ async def apply(
             termination_reason = ContractTerminationReason(
                 values.get("termination_reason") or "other"
             )
-            register_reason = "termination"
+            mode, party = "notice", "company"
             # Wypowiedzenie przez B2B.net ma komplet danych rozwiązania umowy
             # (0367): strona, data doręczenia, ostatni dzień umowy. Porozumienie
             # nie mówi, która strona je zainicjowała — tam kontrakt dostaje
             # samą datę, a dane rozwiązania uzupełnia okno „Zakończ współpracę”.
             delivered = _date(values.get("delivery_date"))
+            signed_on = delivered or doc.document_date
             if delivered is not None and delivered <= when:
                 from app.services.contract_termination_sync import (
                     AgreementTermination,
@@ -484,7 +500,16 @@ async def apply(
                 )
         else:
             termination_reason = ContractTerminationReason.mutual_agreement
-            register_reason = "mutual_agreement"
+            mode, party, signed_on = "mutual_agreement", None, doc.document_date
+        # Umowa w rejestrze obowiązuje do daty rozwiązania: dokument zostawia
+        # tryb na wierszu, a zamyka go synchronizacja zakończenia kontraktu —
+        # teraz przy dacie minionej, inaczej nocny cron (audyt 25.09.2026,
+        # runda 3). Znacznik PRZED zakończeniem kontraktu, bo to ono woła
+        # synchronizację.
+        if parent is not None:
+            mark_pending_dissolution(
+                parent, mode=mode, party=party, signed_on=signed_on
+            )
         if contract is not None:
             await contracts_api._apply_termination_to_contract(
                 db,
@@ -497,14 +522,18 @@ async def apply(
             )
             summary["terminated_at"] = when.isoformat()
         if parent is not None:
-            _set_register_status(
+            await close_dissolved_row(
                 db,
                 parent,
-                to_status="closed",
-                closure_reason=register_reason,
-                closure_date=when,
+                contract=contract,
+                termination_reason=termination_reason,
+                last_day=when,
+                mode=mode,
+                party=party,
+                signed_on=signed_on,
                 actor_id=user.id,
             )
+            summary["register_status"] = parent.contract_status
 
     elif key == "notice_withdrawal":
         # Kontrakt NIE jest ruszany: pełne cofnięcie zakończenia (zamówienia,
@@ -520,6 +549,14 @@ async def apply(
                 closure_date=None,
                 actor_id=user.id,
             )
+            # Tryb rozwiązania opisuje wypowiedzenie, które właśnie cofnięto.
+            parent.termination_mode = None
+            parent.termination_party = None
+            parent.termination_signed_on = None
+        elif parent is not None:
+            # Wypowiedzenie z przyszłą datą jeszcze nie zamknęło umowy — zdejmij
+            # znacznik, żeby nocny cron jej nie zamknął.
+            clear_pending_dissolution(parent)
 
     db.add(
         Activity(
@@ -595,6 +632,11 @@ async def register_partner_notice(
         "termination_date": termination_date.isoformat(),
     }
     contract = await _load_contract(db, parent.contract_id)
+    # Jak przy dokumencie: umowa obowiązuje do końca okresu wypowiedzenia,
+    # zamyka ją synchronizacja zakończenia kontraktu (audyt 25.09.2026, runda 3).
+    mark_pending_dissolution(
+        parent, mode="notice", party="consultant", signed_on=delivered_on
+    )
     if contract is not None:
         await contracts_api._ensure_delivery_lead_contract_visible(contract, user, db)
         await contracts_api._apply_termination_to_contract(
@@ -609,14 +651,18 @@ async def register_partner_notice(
             actor_id=user.id,
         )
         summary["contract_id"] = contract.id
-    _set_register_status(
+    await close_dissolved_row(
         db,
         parent,
-        to_status="closed",
-        closure_reason="termination",
-        closure_date=termination_date,
+        contract=contract,
+        termination_reason=ContractTerminationReason.consultant_resigned,
+        last_day=termination_date,
+        mode="notice",
+        party="consultant",
+        signed_on=delivered_on,
         actor_id=user.id,
     )
+    summary["register_status"] = parent.contract_status
     db.add(
         Activity(
             entity_type="b2b_generated_contract",

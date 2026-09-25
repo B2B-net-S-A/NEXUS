@@ -95,6 +95,8 @@ export interface JobPublicProfile {
   show_on_recruiter_page: boolean;
   approved_at: string | null;
   approved_by_name: string | null;
+  /** Zatwierdzony, ale pola zamrożone w migawce zmieniły się w rekrutacji. */
+  approved_content_stale: boolean;
   findings: PublicProfileFinding[];
   preview: PublicJobPreview | null;
 }
@@ -202,6 +204,7 @@ export function normalizePublicProfile(
     show_on_recruiter_page: r.show_on_recruiter_page ?? true,
     approved_at: r.approved_at ?? null,
     approved_by_name: r.approved_by_name ?? null,
+    approved_content_stale: r.approved_content_stale === true,
     findings: Array.isArray(r.findings) ? r.findings : [],
     preview: r.preview ?? null,
   };

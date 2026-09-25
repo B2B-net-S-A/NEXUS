@@ -867,6 +867,9 @@ async def dismiss_queue_item(
             status_code=409,
             detail=f"Dokument nie czeka na weryfikację (stan: {doc.outcome})",
         )
+    # Z jakiego stanu odrzucono — odrzucony wpis „Nieudane” nie jest
+    # oryginałem dla ponownie przysłanego PDF-a (``_first_with_sha``).
+    doc.document_meta = {**(doc.document_meta or {}), "dismissed_from": doc.outcome}
     doc.outcome = OUTCOME_DISMISSED
     doc.reviewed_by_user_id = user.id
     doc.reviewed_at = datetime.now(timezone.utc)

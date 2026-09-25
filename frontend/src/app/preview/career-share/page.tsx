@@ -55,6 +55,7 @@ const PROFILE_WITH_FINDING: JobPublicProfile = {
   show_on_recruiter_page: true,
   approved_at: null,
   approved_by_name: null,
+  approved_content_stale: false,
   findings: [
     {
       code: "money",

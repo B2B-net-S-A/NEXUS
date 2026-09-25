@@ -128,7 +128,7 @@ async def test_nda_conflict_does_not_block_the_linkedin_assignment(
         json={
             "linkedin_url": f"https://www.linkedin.com/in/{slug}/",
             "job_id": job_id,
-            "stage": "interview",
+            "stage": "screening",
         },
     )
     assert resp.status_code == 200, resp.text
@@ -157,7 +157,7 @@ async def test_global_blacklist_blocks_the_linkedin_assignment(
         json={
             "linkedin_url": f"https://www.linkedin.com/in/{slug}/",
             "job_id": job_id,
-            "stage": "interview",
+            "stage": "screening",
         },
     )
     assert resp.status_code == 200, resp.text

@@ -138,6 +138,10 @@ class PublicProfileResponse(BaseModel):
     show_on_recruiter_page: bool = True
     approved_at: Optional[datetime] = None
     approved_by_name: Optional[str] = None
+    # Zatwierdzony opis, ale must/nice, miasto, start albo długość zmieniły się
+    # w rekrutacji — strona pokazuje stan z zatwierdzenia (migawka), a podgląd
+    # obok to, co wejdzie po ponownym zatwierdzeniu.
+    approved_content_stale: bool = False
     findings: list[PublicProfileFinding] = Field(default_factory=list)
     preview: dict
 

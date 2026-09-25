@@ -213,6 +213,31 @@ describe("start od osoby", () => {
     await waitFor(() => expect(generatePosts("/api/cv-generator/generate")).toHaveLength(1), { timeout: 10000 });
     expect(generatePosts("/api/cv-generator/generate")[0][1]).toHaveProperty("champion_profile");
   });
+
+  it("zapis Championa w rekrutacji wysyła tylko pola z dokumentu, bez notatek zespołu", async () => {
+    recruitments = [NO_CHAMPION];
+    previewMock.mockImplementation(async () => {
+      const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
+      const profile = structuredClone(actual.EMPTY_CHAMPION_PROFILE) as unknown as Record<string, unknown>;
+      (profile.stack as Record<string, unknown>).must = [{ name: "Java" }];
+      profile.insights = [];
+      return { data: { champion_profile: profile } };
+    });
+    renderGenerator();
+    await pickJan();
+    await screen.findByText("rekrutacja nie ma Championa");
+    drop(fileInput(".docx,.pdf"), new File(["x"], "Champion.docx"));
+    fireEvent.click(await screen.findByRole("button", { name: "Zastosuj / zapisz szkic" }));
+    await waitFor(() => expect(generatePosts("/api/jobs/501/champion-profile/apply-import")).toHaveLength(1));
+    const body = generatePosts("/api/jobs/501/champion-profile/apply-import")[0][1] as { profile: Record<string, unknown> };
+    expect(body.profile).not.toHaveProperty("insights");
+    // Mock `/validate` odsyła profil bez normalizacji — liczy się, że pole z
+    // dokumentu jedzie, a puste nie.
+    expect(Object.keys(body.profile.stack as object)).toEqual(["must"]);
+    // Puste sekcje dokumentu nie nadpisują zapisanych pól.
+    expect(body.profile).not.toHaveProperty("project");
+    expect(body.profile).not.toHaveProperty("screening_questions");
+  });
 });
 
 describe("osoba spoza bazy", () => {

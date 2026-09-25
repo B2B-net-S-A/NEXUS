@@ -195,6 +195,45 @@ describe("ChampionsSection — podium", () => {
     expect((bartekColumn as HTMLElement).className).toContain("order-1");
   });
 
+  it("remis na płatnym miejscu = „Remis do rozstrzygnięcia”, bez kwoty (R3-13)", async () => {
+    // Podium na żywo liczy ta sama funkcja co zamrożenie (`award_order`):
+    // miejsca objęte remisem nie mają kwoty, dopóki admin nie zdecyduje.
+    const tied = {
+      ...RECRUITER_LEAGUE,
+      top3: [
+        entry({ prize_pln: 0, tied: true }),
+        entry({
+          user_id: 2,
+          name: "Bartek Nowak",
+          rank: 2,
+          metric_value: 480,
+          prize_pln: 0,
+          tied: true,
+        }),
+        entry({
+          user_id: 3,
+          name: "Celina Wójcik",
+          rank: 3,
+          metric_value: 205,
+          prize_pln: 2000,
+        }),
+      ],
+    };
+    respond({ [RECRUITER]: tied, [DL]: EMPTY_LEAGUE });
+    renderSection();
+
+    const annaColumn = (await screen.findByText("Anna Kowalska")).closest("li");
+    const celinaColumn = screen.getByText("Celina Wójcik").closest("li");
+    expect(
+      within(annaColumn as HTMLElement).getByTestId("league-tie-1"),
+    ).toHaveTextContent("Remis do rozstrzygnięcia");
+    expect(screen.getByTestId("league-tie-2")).toBeInTheDocument();
+    expect(screen.queryByTestId("league-tie-3")).not.toBeInTheDocument();
+    expect(
+      within(celinaColumn as HTMLElement).queryByText("Remis do rozstrzygnięcia"),
+    ).not.toBeInTheDocument();
+  });
+
   it("Liga DL mówi, jak liczy hit ratio (kwartał, zamknięte rekrutacje)", async () => {
     respond({ [RECRUITER]: RECRUITER_LEAGUE, [DL]: {
       ...EMPTY_LEAGUE,

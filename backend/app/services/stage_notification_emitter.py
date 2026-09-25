@@ -30,6 +30,7 @@ from app.models.notification import NotificationType
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.user import User
 from app.services.email import send_email
+from app.services.notification_access import notification_recipient_has_access
 from app.services.notification_delivery import guarded_send, load_policy
 from app.services.notification_triggers import emit
 from app.services.stage_notification_email_template import render_stage_email
@@ -207,6 +208,23 @@ async def notify_stage_change(
                 if not (await load_policy(db)).allows(
                     "pipeline_stage", new_stage.moved_at
                 ):
+                    continue
+                # Ta sama bramka odbiorcy co dzwonek (`emit`): nieaktywne
+                # konto, wyciszona kategoria albo odebrana sekcja = bez maila.
+                # Do 25.09.2026 mail sprawdzał tylko politykę dostarczania,
+                # więc wyciszony rekruter i konto bez sekcji Pipeline dalej
+                # dostawały nazwisko kandydata pocztą (audyt R3-3).
+                if not await notification_recipient_has_access(
+                    db,
+                    rec.user_id,
+                    NotificationType.stage_rule,
+                    related_entity_type="candidate_stage",
+                    link=f"/candidates/{candidate.id}",
+                ):
+                    logger.debug(
+                        "stage_notif: email skipped — user=%s not eligible",
+                        rec.user_id,
+                    )
                     continue
                 user = await _user_by_id(db, rec.user_id)
                 if user is None:

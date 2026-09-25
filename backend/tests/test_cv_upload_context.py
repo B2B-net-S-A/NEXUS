@@ -18,8 +18,11 @@ from app.models.user import User, UserRole
     "context,non_member,expected",
     [
         ({"candidate_id": 2, "stage_id": 3}, False, 202),
-        ({"candidate_id": 2}, False, 202),
-        ({}, False, 202),
+        ({"candidate_id": 2, "client_id": 5}, False, 202),
+        ({"client_id": 5}, False, 202),
+        # Generator v3: bez rekrutacji klient jest wymagany (jak `/generate`).
+        ({"candidate_id": 2}, False, 422),
+        ({}, False, 422),
         ({"stage_id": 3}, False, 422),
         ({"candidate_id": 99, "stage_id": 3}, False, 404),
         ({"candidate_id": 2, "stage_id": 3, "client_id": 9}, False, 422),
@@ -96,7 +99,7 @@ async def test_upload_context_precedes_quota(
         kwargs = pending.call_args.kwargs
         assert kwargs["candidate_id"] == context.get("candidate_id")
         assert kwargs["job_id"] == (4 if context.get("stage_id") else None)
-        assert kwargs["client_id"] == (5 if context.get("stage_id") else None)
+        assert kwargs["client_id"] == 5
         worker.assert_awaited_once()
 
 

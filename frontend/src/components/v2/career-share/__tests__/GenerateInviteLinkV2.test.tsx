@@ -36,6 +36,7 @@ function profile(overrides: Record<string, unknown> = {}) {
     show_on_recruiter_page: true,
     approved_at: null,
     approved_by_name: null,
+    approved_content_stale: false,
     findings: [],
     preview: null,
     ...overrides,

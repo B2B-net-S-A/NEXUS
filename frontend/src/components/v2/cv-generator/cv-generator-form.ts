@@ -279,6 +279,42 @@ export function buildUploadFormData(input: UploadPayloadInput): FormData {
   return fd;
 }
 
+// Sekcje i klucze, których import z dokumentu NIE przysyła: notatki zespołu
+// (sekcja 8 — brak klucza = sekcja nietknięta), blok maszynowy historii
+// klienta i weryfikacja, które stempluje serwer.
+const IMPORT_SKIPPED_KEYS = new Set(["insights", "client_history", "verification"]);
+
+function withoutEmpty(value: unknown): unknown {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value === "string") return value.trim() ? value : undefined;
+  if (Array.isArray(value)) return value.length ? value : undefined;
+  if (typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+      const kept = withoutEmpty(item);
+      if (kept !== undefined) out[key] = kept;
+    }
+    return Object.keys(out).length ? out : undefined;
+  }
+  return value;
+}
+
+/**
+ * Ładunek `apply-import` z generatora CV: tylko pola, które dokument
+ * NAPRAWDĘ niesie. Generator nie zna zapisanego profilu (brak `current`),
+ * więc pełny profil z dokumentu nadpisywał zapisane pola pustymi wartościami,
+ * a pusta lista `insights` kasowała notatki zespołu (audyt 25.09.2026, r3).
+ */
+export function championImportPayload(profile: ChampionProfile): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(profile as unknown as Record<string, unknown>)) {
+    if (IMPORT_SKIPPED_KEYS.has(key)) continue;
+    const kept = withoutEmpty(value);
+    if (kept !== undefined) out[key] = kept;
+  }
+  return out;
+}
+
 /** Nazwa pliku do pobrania HTML (ta sama nazwa co DOCX). */
 export function htmlFilename(docxFilename: string): string {
   return docxFilename.replace(/\.docx$/i, "") + ".html";

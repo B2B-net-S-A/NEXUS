@@ -120,6 +120,9 @@ ACTIVE_OTHER_STAGES_EXCLUDE: frozenset[PipelineStage] = frozenset(
 
 DELAY_MINUTES = 15
 MAX_ATTEMPTS = 3
+# Dzierżawa wiersza na czas wysyłki (rezerwacja commitowana przed Graphem
+# zdejmuje blokadę FOR UPDATE). Dłuższa niż najdłuższa wysyłka z ponowieniami.
+SEND_LEASE_MINUTES = 30
 
 
 # ── Public API ──────────────────────────────────────────────────────────────
@@ -387,6 +390,21 @@ async def dispatch(db: AsyncSession, row_id: int) -> None:
         )
         return
 
+    # Rezerwacja wysyłki (wiersz ``Email`` z kluczem ``scheduled-rejection:
+    # {id}``) jest commitowana PRZED Graphem, jak w pozostałych ścieżkach
+    # wysyłki. Bez tego rezerwacja żyła w transakcji harmonogramu: anulowanie
+    # zadania albo padnięty commit po udanej wysyłce cofały ją razem z tą
+    # transakcją, wiersz zostawał ``pending`` i następny bieg pętli wysyłał
+    # kandydatowi DRUGI mail odrzucenia (audyt 25.09.2026, R3-6).
+    # Commit zdejmuje blokadę FOR UPDATE, więc wiersz harmonogramu dostaje
+    # dzierżawę: pętla bierze tylko ``scheduled_at <= now()``. Gdy proces
+    # zginie w trakcie, po dzierżawie ponowienie trafia w zapisaną rezerwację
+    # (``EmailSendConflict``) i zamyka wiersz jako „nie wiadomo” — bez maila.
+    row.scheduled_at = datetime.now(timezone.utc) + timedelta(
+        minutes=SEND_LEASE_MINUTES
+    )
+    await db.flush()
+
     send_error: Optional[Exception] = None
     try:
         email = await m365_sender.send_new(
@@ -400,6 +418,7 @@ async def dispatch(db: AsyncSession, row_id: int) -> None:
             # harmonogramu. Klucz minutowy dawał po ponowieniu nowy odcisk,
             # więc drugi mail odrzucenia wychodził do kandydata.
             client_request_id=f"scheduled-rejection:{row.id}",
+            commit_reservation=True,
         )
     except m365_sender.EmailSendConflict as conflict:
         # Graph mógł już wysłać maila (utracona odpowiedź) albo wysyłka z tym

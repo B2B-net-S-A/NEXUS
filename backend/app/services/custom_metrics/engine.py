@@ -584,10 +584,14 @@ async def _run_finance(
         value = series[-1]["value"] if series else None
         return value, series, sorted(set(notes)), scope_applied
 
-    today = window.today
-    rates = (await rates_to_pln_by_date(db, {today: currencies})).get(today, {})
-    running = running_on(contracts, today)
-    total = _value(fold_money(running, today, rates))
+    # Stan na koniec okresu (albo dziś, gdy okres trwa) — do 25.09.2026 każdy
+    # okres liczył się na dziś, więc „marża w sierpniu" była dzisiejszym MRR.
+    asof = window.asof
+    if asof < window.today:
+        notes.append(f"Kwoty według stanu na {asof.strftime('%d.%m.%Y')}.")
+    rates = (await rates_to_pln_by_date(db, {asof: currencies})).get(asof, {})
+    running = running_on(contracts, asof)
+    total = _value(fold_money(running, asof, rates))
     if definition.group_by == "none":
         return total, [], sorted(set(notes)), scope_applied
     by_client: dict[int, list] = {}
@@ -598,7 +602,7 @@ async def _run_finance(
         {
             "key": str(cid),
             "label": labels.get(cid, f"#{cid}"),
-            "value": _value(fold_money(items, today, rates)),
+            "value": _value(fold_money(items, asof, rates)),
         }
         for cid, items in by_client.items()
     ]

@@ -483,7 +483,9 @@ describe("Audyt 25.09 — wpisy „Nieudane”", () => {
     const { rerender } = render(<OrderMailQueueView {...base} outcome="failed" state="ready" items={[failed]} />);
     expect(screen.getByTestId("failed-retry-note")).toHaveTextContent("próba 1 z 3");
     expect(screen.queryByRole("button", { name: /Zastosuj/ })).toBeNull();
-    const exhausted = { ...failed, document_meta: { failed_retry: { attempts: 3 } }, failed_retry_pending: false };
+    const exhausted = {
+      ...failed, document_meta: { failed_retry: { attempts: 3 } }, failed_retry_pending: false, can_dismiss: true,
+    };
     rerender(<OrderMailQueueView {...base} outcome="failed" state="ready" items={[exhausted]} />);
     expect(screen.getByTestId("failed-retry-note")).toHaveTextContent("3 razy bez skutku");
     expect(screen.getByTestId("failed-retry-note")).toHaveTextContent("odrzuć wpis");
@@ -495,6 +497,7 @@ describe("Audyt 25.09 — wpisy „Nieudane”", () => {
     const noFile = doc({
       outcome: "failed", error: "Graph nie zwrócił treści załącznika (brak contentBytes).", can_apply: false,
       proposal: null, extraction: null, document_meta: null, has_file: false, failed_retry_pending: false,
+      can_dismiss: true,
     });
     render(<OrderMailQueueView {...base} outcome="failed" state="ready" items={[noFile]} />);
     const note = screen.getByTestId("failed-retry-note");
@@ -502,6 +505,21 @@ describe("Audyt 25.09 — wpisy „Nieudane”", () => {
     expect(note).toHaveTextContent(
       "Nie będzie ponawiany — wprowadź zamówienie ręcznie w oknie zamówienia klienta i odrzuć wpis.",
     );
+  });
+
+  it("bez prawa odrzucenia zdanie nie każe odrzucać wpisu (runda 3 audytu 25.09)", () => {
+    const failed = doc({
+      outcome: "failed", error: null, can_apply: false, proposal: null, extraction: null,
+      document_meta: null, has_file: false, failed_retry_pending: false, can_dismiss: false,
+    });
+    render(<OrderMailQueueView {...base} outcome="failed" state="ready" items={[failed]} />);
+    const note = screen.getByTestId("failed-retry-note");
+    expect(note).toHaveTextContent(/^Nie będzie ponawiany/);
+    expect(note).not.toHaveTextContent("odrzuć wpis");
+    expect(note).toHaveTextContent("wpis odrzuci admin albo Delivery Lead klienta");
+    expect(
+      failedRetryNote({ document_meta: { failed_retry: { attempts: 3 } }, failed_retry_pending: false }),
+    ).not.toMatch(/odrzuć wpis/);
   });
 
   it("brak pola z serwera (stary backend) nie obiecuje ponowień", () => {
