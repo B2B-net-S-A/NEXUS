@@ -823,3 +823,41 @@ async def test_rejection_email_is_scheduled_only_on_explicit_opt_in(
     )
     assert r2.status_code == 200, r2.text
     schedule.assert_awaited_once()
+
+
+async def test_failed_post_commit_side_effect_does_not_turn_the_move_into_500(
+    app_client: AsyncClient, app_auth_headers, monkeypatch
+):
+    """Audyt 25.09.2026: efekt uboczny po commicie, który zawiódł (tu błąd SQL
+    przy przeliczeniu ryzyka), robił `db.rollback()` na sesji żądania —
+    `current_user` i `stage` wygasały, a odpowiedź czytała je → MissingGreenlet
+    → 500 po zapisanym ruchu. Teraz ruch zwraca 200 z danymi etapu."""
+    from sqlalchemy import select, text
+
+    import app.services.candidate_risk as candidate_risk
+    from app.models.recruitment_pipeline import CandidateStage
+
+    async def boom(db, candidate_id):  # noqa: ARG001
+        await db.execute(text("SELECT 1 / 0"))
+
+    monkeypatch.setattr(candidate_risk, "on_candidate_stage_change", boom)
+
+    cand, (job, _) = await _seed_candidate(), await _seed_job()
+    await _seed_stage(cand, job, "new")
+    r = await app_client.post(
+        MOVE,
+        json={"candidate_id": cand, "job_id": job, "stage": "screening"},
+        headers=app_auth_headers,
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["candidate_id"] == cand and body["stage"] == "screening"
+
+    async with AsyncSessionLocal() as db:
+        latest = await db.scalar(
+            select(CandidateStage)
+            .where(CandidateStage.candidate_id == cand, CandidateStage.job_id == job)
+            .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
+            .limit(1)
+        )
+    assert latest is not None and latest.stage.value == "screening"

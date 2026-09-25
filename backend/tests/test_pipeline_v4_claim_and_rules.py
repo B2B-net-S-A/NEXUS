@@ -653,6 +653,73 @@ async def test_debrief_gate_covers_bulk_move_and_detour_through_cv_sent(api_clie
         await _cleanup([cand_id], job_id)
 
 
+async def test_debrief_gate_is_not_skipped_through_the_closed_column(api_client):
+    """Audyt 25.09.2026: „Rozmowa u klienta → Odrzucony → Umowa" omijało
+    debrief, bo bramka patrzyła na bieżącą kolumnę („Zamknięci"). Liczy się
+    kolumna sprzed zamknięcia."""
+    from app.models.calendar_event import CalendarEvent, EventStatus, EventType
+
+    dl_id, dl_email, dl_pw = await _seed_user(UserRole.delivery_lead)
+    job_id, client_id = await _seed_job(dl_id)
+    cand_id = await _seed_candidate()
+    headers = await _login(api_client, dl_email, dl_pw)
+    try:
+        await _add(api_client, headers, job_id, cand_id, "manual_search")
+        ok = await api_client.post(
+            "/api/pipeline/move",
+            headers=headers,
+            json={
+                "candidate_id": cand_id,
+                "job_id": job_id,
+                "stage": "client_interview",
+            },
+        )
+        assert ok.status_code == 200, ok.text
+        start = datetime.now(timezone.utc) - timedelta(hours=2)
+        async with AsyncSessionLocal() as db:
+            db.add(
+                CalendarEvent(
+                    title="Rozmowa u klienta",
+                    event_type=EventType.client_interview,
+                    start_time=start,
+                    end_time=start + timedelta(hours=1),
+                    status=EventStatus.completed,
+                    created_by=dl_id,
+                    operational_owner_id=dl_id,
+                    candidate_id=cand_id,
+                    job_id=job_id,
+                    client_id=client_id,
+                    attendees=[],
+                )
+            )
+            await db.commit()
+        rejected = await api_client.post(
+            "/api/pipeline/move",
+            headers=headers,
+            json={
+                "candidate_id": cand_id,
+                "job_id": job_id,
+                "stage": "rejected",
+                "rejection_reason": "Klient się wycofał",
+            },
+        )
+        assert rejected.status_code == 200, rejected.text
+        blocked = await api_client.post(
+            "/api/pipeline/move",
+            headers=headers,
+            json={"candidate_id": cand_id, "job_id": job_id, "stage": "acceptance"},
+        )
+        assert blocked.status_code == 409, blocked.text
+        assert blocked.json()["detail"]["code"] == "DEBRIEF_REQUIRED"
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(CalendarEvent).where(CalendarEvent.candidate_id == cand_id)
+            )
+            await db.commit()
+        await _cleanup([cand_id], job_id)
+
+
 # ── Poprawki po teście na produkcji (23.09.2026) ───────────────────────────
 
 

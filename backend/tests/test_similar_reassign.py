@@ -339,3 +339,18 @@ async def test_reassign_again_after_undo_stays_a_reassign(
     assert process is not None
     assert process.entry_source == "reassign"
     assert process.reassign_from_job_id == world["a"]
+
+
+def test_sent_day_is_the_polish_calendar_day_not_utc() -> None:
+    """Audyt 25.09.2026: wysyłka o 01:30 czasu polskiego (23:30 UTC dnia
+    poprzedniego) była datowana dniem wcześniej, bo `.date()` brało dzień UTC."""
+    sent = datetime(2026, 9, 24, 23, 30, tzinfo=timezone.utc)  # 25.09, 01:30 PL
+    evidence = sim._reassign_evidence(11, PipelineStage.cv_sent, sent)
+    assert evidence["reassign"]["sent_at"] == "2026-09-25"
+    assert sim._local_day_iso(sent.replace(tzinfo=None)) == "2026-09-25"
+    assert sim._local_day_iso(datetime(2026, 9, 25, 12, 0, tzinfo=timezone.utc)) == (
+        "2026-09-25"
+    )
+    assert sim._reassign_evidence(11, PipelineStage.cv_sent, None)["reassign"][
+        "sent_at"
+    ] is None

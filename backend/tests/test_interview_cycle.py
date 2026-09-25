@@ -607,6 +607,89 @@ async def test_debrief_saves_feedback_and_client_questions(app_client: AsyncClie
     assert states["debrief"] == "done"
 
 
+async def test_delivery_lead_of_the_job_saves_debrief_for_someone_elses_interview(
+    app_client: AsyncClient,
+):
+    """Audyt 25.09.2026: DL rekrutacji, który nie jest właścicielem ani
+    uczestnikiem rozmowy, dostawał 404 — a bramka debriefu przed „Umową”
+    zatrzymywała go bez wyjścia. Rekrutacje widzą wszyscy (23.09.2026)."""
+    rec_id, _ = await _user(UserRole.recruiter)
+    dl_id, dl_h = await _user(UserRole.delivery_lead)
+    job_id, cand_id, client_id = await _job_with_candidate(
+        recruiter_id=rec_id, dl_id=dl_id
+    )
+    event_id = await _client_interview(
+        owner_id=rec_id,
+        cand_id=cand_id,
+        job_id=job_id,
+        client_id=client_id,
+        ended_min_ago=15,
+    )
+    event = await app_client.get(
+        f"/api/interview-cycle/events/{event_id}", headers=dl_h
+    )
+    assert event.status_code == 200, event.text
+    saved = await app_client.put(
+        f"/api/interview-cycle/events/{event_id}/debrief",
+        headers=dl_h,
+        json={
+            "outcome": "good",
+            "offer_acceptance": "likely",
+            "no_client_questions": True,
+        },
+    )
+    assert saved.status_code == 200, saved.text
+    fetched = await app_client.get(
+        f"/api/interview-cycle/events/{event_id}/debrief", headers=dl_h
+    )
+    assert fetched.status_code == 200, fetched.text
+    assert fetched.json()["offer_acceptance"] == "likely"
+
+
+async def test_slot_request_recruiter_must_be_an_active_team_member(
+    app_client: AsyncClient,
+):
+    """Audyt 25.09.2026: nieistniejący `recruiter_id` kończył się błędem klucza
+    obcego braną za „otwarte terminy" (409), a dowolne konto dostawało wybór
+    terminu i blokadę w Outlooku. Teraz 422 po polsku, zanim coś się zapisze."""
+    rec_id, _ = await _user(UserRole.recruiter)
+    dl_id, dl_h = await _user(UserRole.delivery_lead)
+    job_id, cand_id, _ = await _job_with_candidate(recruiter_id=rec_id, dl_id=dl_id)
+    inactive_id, _ = await _user(UserRole.recruiter)
+    trainee_id, _ = await _user(UserRole.trainee)
+    async with AsyncSessionLocal() as db:
+        inactive = await db.get(User, inactive_id)
+        inactive.is_active = False
+        await db.commit()
+
+    for bad in (2_000_000_000, inactive_id, trainee_id):
+        resp = await app_client.post(
+            "/api/interview-cycle/slots",
+            headers=dl_h,
+            json={
+                "candidate_id": cand_id,
+                "job_id": job_id,
+                "slots": [{"start": _future(2)}],
+                "recruiter_id": bad,
+            },
+        )
+        assert resp.status_code == 422, resp.text
+        assert "zespołu rekrutacji" in resp.json()["detail"]
+
+    ok = await app_client.post(
+        "/api/interview-cycle/slots",
+        headers=dl_h,
+        json={
+            "candidate_id": cand_id,
+            "job_id": job_id,
+            "slots": [{"start": _future(2)}],
+            "recruiter_id": rec_id,
+        },
+    )
+    assert ok.status_code == 201, ok.text
+    assert ok.json()["recruiter_id"] == rec_id
+
+
 async def test_prep_kit_includes_client_debrief_questions_from_other_jobs(
     app_client: AsyncClient,
 ):
