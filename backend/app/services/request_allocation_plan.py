@@ -19,6 +19,9 @@ zapisu to ``services/request_allocation``. Reguły:
   liczby. Zwalnia tylko wtedy, gdy request wyszedł z puli albo osoba (z
   przypisaniem automatu) przestała być dostępna — i nawet wtedy nie, jeśli ma
   przy tym requeście kandydatów w toku. Ręczne przypisania zostają zawsze.
+* **Nieaktywne konto** zwalnia każde swoje przypisanie (także ręczne i z
+  kandydatami w toku) — takie konto nie pracuje i nikt go już nie zobaczy
+  na pulpicie, a request stałby „pokryty” na zawsze (audyt 25.09.2026).
 * **Decyzja człowieka wygrywa:** osoba zdjęta z requestu ręcznie nie wraca
   do niego z automatu, dopóki request nie zmieni stanu (``blocked``).
 * **Bez świeżych urlopów** tryb ``auto`` niczego nie przydziela ani nie
@@ -41,6 +44,7 @@ RELEASE_REASONS = {
     "excluded": "Osoba poza przydziałem",
     "owner_changed": "Zmiana prowadzącego",
     "manual": "Zdjęte ręcznie",
+    "inactive": "Konto nieaktywne",
 }
 
 
@@ -100,6 +104,8 @@ class PlanInput:
     eligible_ids: Optional[frozenset[int]] = None
     # Pary (request, osoba) zdjęte ręcznie w bieżącym stanie requestu.
     blocked: frozenset[tuple[int, int]] = frozenset()
+    # Konta nieaktywne z żywym przypisaniem — zwalniane zawsze.
+    inactive_ids: frozenset[int] = frozenset()
 
 
 def _bucket(sent: int) -> int:
@@ -183,6 +189,13 @@ def plan_assignments(data: PlanInput) -> list[Change]:
         if row.job_id not in pool:
             reason = data.out_of_pool.get(row.job_id, "finished")
             changes.append(Change("release", row.job_id, row.user_id, row.role, reason))
+            continue
+        if row.user_id in data.inactive_ids:
+            # Martwe konto nie pracuje — bez względu na źródło przypisania i
+            # kandydatów w toku (tych i tak nikt z tego konta nie poprowadzi).
+            changes.append(
+                Change("release", row.job_id, row.user_id, row.role, "inactive")
+            )
             continue
         person_gone = row.user_id not in people
         if person_gone and row.source == "auto" and not row.in_process:

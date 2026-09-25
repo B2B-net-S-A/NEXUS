@@ -718,6 +718,16 @@ async def move_candidate(
                     "„Gotowy do Cpro”."
                 ),
             )
+        # Wskazanie osoby przy ruchu ustawia osobę od Cpro rekrutacji (zapas,
+        # który widzi stawki do klienta w kolejce) — ta sama bramka co
+        # `PUT /api/board-tasks/cpro/sender`: tylko admin albo DL Nordei
+        # (przegląd PR #1844; inaczej rekruter wskazywał sam siebie).
+        from app.services import cpro_sender as cpro_sender_svc
+
+        if not await cpro_sender_svc.can_set_sender(db, current_user):
+            raise HTTPException(
+                status_code=403, detail=cpro_sender_svc.SET_SENDER_FORBIDDEN
+            )
         cpro_assignee = await board_tasks_svc.load_assignee(db, data.task_assignee_id)
         # Przed ruchem: odmowa (osoba spoza zespołu, a typuje ktoś bez prawa
         # zmiany zespołu) ma zatrzymać ruch, zanim cokolwiek się zapisze.

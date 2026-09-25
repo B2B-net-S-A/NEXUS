@@ -81,6 +81,10 @@ async def test_ingest_fill_empty_never_overwrites(monkeypatch):
         rate_budget_hourly=None,
         onsite_days_per_week=None,
         remote_policy=None,
+        # Tytuł dla rekrutera (0380) — import przelicza go przy włączonym
+        # automacie; atrapa ma automat wyłączony, więc nic nie czyta z bazy.
+        working_title=None,
+        working_title_auto=False,
         location=None,
     )
 
@@ -127,6 +131,10 @@ async def test_existing_champion_with_empty_skills_reports_ok(monkeypatch):
         rate_budget_hourly=None,
         onsite_days_per_week=None,
         remote_policy=None,
+        # Tytuł dla rekrutera (0380) — import przelicza go przy włączonym
+        # automacie; atrapa ma automat wyłączony, więc nic nie czyta z bazy.
+        working_title=None,
+        working_title_auto=False,
         location=None,
     )
 
@@ -172,6 +180,10 @@ async def test_ingest_writes_empty_fields_and_marks_stale(monkeypatch):
         rate_budget_hourly=None,
         onsite_days_per_week=None,
         remote_policy=None,
+        # Tytuł dla rekrutera (0380) — import przelicza go przy włączonym
+        # automacie; atrapa ma automat wyłączony, więc nic nie czyta z bazy.
+        working_title=None,
+        working_title_auto=False,
         location=None,
     )
 
@@ -529,6 +541,10 @@ async def test_merge_skips_a_profile_edited_by_a_human(monkeypatch):
         rate_budget_hourly=None,
         onsite_days_per_week=None,
         remote_policy=None,
+        # Tytuł dla rekrutera (0380) — import przelicza go przy włączonym
+        # automacie; atrapa ma automat wyłączony, więc nic nie czyta z bazy.
+        working_title=None,
+        working_title_auto=False,
         location=None,
     )
 

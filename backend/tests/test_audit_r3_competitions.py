@@ -65,6 +65,9 @@ async def _freeze_rows(monkeypatch, ctype: CompetitionType, period: str, ranked)
     monkeypatch.setattr(
         competitions, "snapshot_monthly_race_thresholds", AsyncMock(return_value=None)
     )
+    monkeypatch.setattr(
+        competitions, "snapshot_league_scoring_config", AsyncMock(return_value=None)
+    )
     added: list = []
     db = SimpleNamespace(
         execute=AsyncMock(side_effect=[_Result([]), _Result([])]),
@@ -94,7 +97,7 @@ async def test_live_league_podium_equals_freeze_with_tie_and_unqualified_leader(
     period = "Q1 2026"
     ranked = _ranked([(1, 500, False), (2, 300, True), (3, 300, True), (4, 100, True)])
     monkeypatch.setattr(
-        competitions_api, "get_scoring_config", AsyncMock(return_value=SCORING_DEFAULTS)
+        competitions, "league_scoring_config", AsyncMock(return_value=SCORING_DEFAULTS)
     )
     monkeypatch.setattr(
         competitions, "compute_live", AsyncMock(return_value=deepcopy(ranked))
@@ -114,8 +117,14 @@ async def test_live_league_podium_equals_freeze_with_tie_and_unqualified_leader(
         t["positions"] for t in live["ties"]
     ]
     assert live["ties"] == [{"positions": [1, 2], "user_ids": [2, 3]}]
-    # Niezakwalifikowany zostaje w rankingu, ale nie na podium.
-    assert [e["user_id"] for e in live["full_ranking"]] == [1, 2, 3, 4]
+    # Niezakwalifikowany zostaje w rankingu, ale nie na podium — na końcu
+    # listy, bez miejsca (R4-14: jedna numeracja z `award_order`).
+    assert [(e["user_id"], e["rank"]) for e in live["full_ranking"]] == [
+        (2, 1),
+        (3, 2),
+        (4, 3),
+        (1, None),
+    ]
     assert 1 not in {e["user_id"] for e in live["top3"]}
 
 

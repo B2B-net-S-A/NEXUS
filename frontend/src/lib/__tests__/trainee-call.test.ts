@@ -277,6 +277,12 @@ describe("telefon innego dnia", () => {
     expect(laterDateError("2026-09-26", "2026-09-24")).toMatch(/sobota/);
     expect(laterDateError("", "2026-09-24")).toBe("Wybierz datę.");
     expect(laterDateError("2026-09-28", "2026-09-24")).toBeNull();
+    // Po końcu programu lista już nie powstanie — oddzwonienie by przepadło (R4-9).
+    expect(laterDateError("2026-09-29", "2026-09-24", "2026-09-28")).toBe(
+      "Wybierz dzień do końca programu (28.09.2026).",
+    );
+    expect(laterDateError("2026-09-28", "2026-09-24", "2026-09-28")).toBeNull();
+    expect(laterDateError("2026-10-05", "2026-09-24", null)).toBeNull();
   });
 });
 

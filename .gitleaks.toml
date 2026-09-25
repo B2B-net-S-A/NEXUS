@@ -140,6 +140,9 @@ paths = [
 regexTarget = "line"
 regexes = [
   '''claude\.ai/code/artifact/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}''',
+  # Fikcyjne GUID-y tenanta z testu callbacku M365 (runda 4 audytu, 25.09.2026) —
+  # zostały w historii gałęzi PR #1844, a skan PR-a obejmuje cały zakres commitów.
+  '''[19]{8}-2222-3333-4444-555555555555''',
 ]
 
 [[rules]]

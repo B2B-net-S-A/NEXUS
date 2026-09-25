@@ -1137,6 +1137,11 @@ async def apply_suggestion(
         user_edit(job.champion_profile, validated.model_dump(mode="json"), user_id),
     )
     _sync_job_columns_from_applied_sections(job, merged_sections)
+    # Tytuł dla rekrutera składa się z Championa (rola, must, lata, dziedzina)
+    # — lustro zapisu z edytora w `api/jobs.py` (audyt 25.09.2026, runda 4).
+    from app.services.job_working_title import refresh_working_title
+
+    await refresh_working_title(db, job)
 
     # Status: full accept iff all sections with value=non-null were accepted,
     # otherwise partially_accepted.

@@ -523,7 +523,9 @@ async def check_board_tasks_digest(db: AsyncSession, now: datetime) -> int:
                 db,
                 snapshot,
                 followups=candidate_followups.digest_counts(
-                    followups, today=local.date()
+                    followups,
+                    today=local.date(),
+                    oversight_ids=await candidate_followups.oversight_user_ids(db),
                 ),
             )
     except Exception:  # noqa: BLE001

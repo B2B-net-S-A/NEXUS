@@ -3386,8 +3386,12 @@ osobę od Cpro per rekrutacja (0353) i kolejkę „Czeka na DZ” (0348).
   przesuwa na „CV wysłane” bez CV firmowego). U Nordei ta sama bramka pilnuje, że
   na „Wysłane do Cpro” przesuwa osoba od Cpro, admin, DL albo HoR.
 - **Osoba od Cpro = jedna na firmę** (`services/cpro_sender.py`,
-  `app_settings['cpro_sender']`): zmienia KAŻDY z zespołu (decyzja Artura),
-  opcjonalnie z datą „do kiedy” — po niej wraca poprzednia osoba.
+  `app_settings['cpro_sender']`): ustawia WYŁĄCZNIE admin albo Delivery Lead
+  przypisany do klienta Nordei (`cpro_sender.can_set_sender`, decyzja Artura
+  25.09.2026 — do tego dnia zmieniał każdy, a osoba od Cpro widzi stawki do
+  klienta w kolejce, więc rekruter mógł sam się ustawić i je zobaczyć),
+  opcjonalnie z datą „do kiedy” — po niej wraca poprzednia osoba. Nieaktywne
+  konto (także po zastępstwie) liczy się jak „nikt nie ustawiony”.
   `GET/PUT /api/board-tasks/cpro/sender`, kolejka pogrupowana po rekrutacji
   `GET /api/board-tasks/cpro/queue` (`CproQueueDialog` na pulpicie: rekrutacja po
   rekrutacji, „✓ Wrzucone” = zwykły `/move`). `jobs.cpro_sender_id` zostaje w bazie
@@ -7046,6 +7050,52 @@ to migawka na okres; prywatne spotkania importujemy bez treści.
   z odczytu API, debrief czyta kandydata z wydarzenia. Mail odrzucenia commituje
   rezerwację przed Graphem. Poczta zamówień łapie `IntegrityError` tylko na
   `uq_order_mail_documents_*`, a odrzucony wpis „Nieudane” nie jest oryginałem sha.
+
+### Runda 4 (25.09.2026, po PR #1840)
+
+Raport: https://claude.ai/artifact/RzX9M85qz2QpzzTFRU6gDY. Decyzje Artura: osoba od Cpro
+widzi stawki do klienta (wyjątek), ale ustawia ją tylko admin albo DL Nordei; pytania
+z archiwum zostają przypięte także do otwartych rekrutacji; aneks przedłużenia i
+„Cofnij zakończenie” anulują zaplanowane zastępstwo.
+
+- **Nieaktywne konto = brak osoby — wszędzie.** Osoba od Cpro (także po zastępstwie
+  i jako osoba zapasowa rekrutacji), przypisania `job_work_assignments` (zwalniane
+  z powodem `inactive`, także ręczne i z kandydatami w toku), pulpit „Requesty
+  i obłożenie” i filtr „Kto pracuje / Nikt nie pracuje”. Ręczne zdjęcie aktywnego
+  rekrutera automatu zdejmuje też prowadzącego wpisanego przez automat.
+- **Konkursy.** Ranking do wyświetlenia składa `award_ranked_rows`: miejsca 1..n
+  w kolejności nagrodowej, potem osoby bez miejsca (`rank: null`). `/current`,
+  `/my-position` i Liga na pulpicie nie numerują po pozycji na liście. Punktacja Ligi
+  Mistrzów to migawka kwartału `app_settings['league_scoring_config']` (bliźniak
+  `monthly_race_thresholds`; czytaj przez `league_scoring_config`, nigdy
+  `get_scoring_config`).
+- **Umowy i MD.** Rozwiązanie umowy rozpoznaje wyłącznie
+  `contract_termination_sync.contract_dissolved_by_agreement` (kontrakt ALBO wiersz
+  rejestru: tryb + migawka albo znacznik czekającego rozwiązania). Wyczyszczenie daty
+  „Kończącego się” woła `undo_contract_termination`. „Cofnij zakończenie” blokuje
+  istniejący „Powrót po przerwie” (`returned_after_break`). Zaplanowane zastępstwo
+  anulują aneks przedłużenia, bulk-extend i `undo_contract_termination`
+  (`cancel_scheduled_takeovers_for_contract`, wpis z `cancel_reason`); szkic zastępstwa
+  nie jest następcą dla skanera, a zastępstwo za osobę z wyczerpaną pulą jest
+  anulowane. „Inny numer zamówienia” w Zużyciu MD / Importach MD tylko dla liczby,
+  którą wiąże reguła importu (`binds_as_order_number`).
+- **QC CV i akademia.** Rola bez daty końca dalej niż na 1. pozycji = staż nieznany
+  (QC: sprawdzenie ręczne, nie blokada; Luna w akademii: „bez dat”, chyba że cytat
+  mówi „obecnie”).
+- **Praktykant.** Status programu `completed` (awans) = zakończony. Oddzwonienie
+  najpóźniej w ostatnim dniu programu; przy awansie przypinane są też niezrealizowane
+  oddzwonienia. Nowe minimum stawki bez odpowiedzi o zgodzie czyści zgodę; „później” =
+  dostępność nie wcześniej niż +91 dni.
+- **Poczta i M365.** Klauzula używana z negacją (`~`) nie może dać NULL — porównanie
+  z polem JSON przez `->>` owijaj w `coalesce` (`dismissed_unprocessed_clause`).
+  Prywatność spotkania rozstrzyga pochodzenie wiersza (założone w NEXUSIE =
+  `operational_owner_id`), nie typ; starsze niż rok czyści jednorazowy przebieg po id
+  (`m365_old_private_scrub:<conn>`). Callback M365 przy koncie z `azure_oid` porównuje
+  też `oid`.
+- **Portale i prep.** Worker portali po wysyłce porównuje `options` i `approved_hash`
+  z chwili wysyłki — zmiana w trakcie zostawia `update`; pewna odmowa publikacji po
+  wcześniejszej próbie kolejkuje zamknięcie po externalId. Ocena prepu nie liczy pytań
+  `legacy_import` przypiętych bez człowieka (prep-kit je pokazuje).
 
 ## Narzędzia rekrutera — reguły po audycie 17.09.2026
 

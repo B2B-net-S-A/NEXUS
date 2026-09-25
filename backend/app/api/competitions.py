@@ -16,10 +16,7 @@ from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.core.cache import cache_get, cache_invalidate, cache_set, cache_single_flight
 from app.core.database import get_db
 from app.core.scheduling import business_today
-from app.services.insights_scoring_config import (
-    get_scoring_config,
-    league_points_formula,
-)
+from app.services.insights_scoring_config import league_points_formula
 from app.models.competition_winner import CompetitionType, CompetitionWinner
 from app.models.user import User
 from app.services import competitions as comp_service
@@ -140,15 +137,11 @@ async def _compute_current(
     # różniły się od tego, co potem wypłacało zamrożenie. Miejsce objęte
     # remisem, którego regulamin nie rozstrzyga, nie ma kwoty (`tied`).
     order = await comp_service.award_order(db, ctype, period, ranked)
-    held = {pos for tie in order.ties for pos in tie.positions}
+    # Lista pod podium i podium z JEDNEJ numeracji (`award_ranked_rows`):
+    # osoba bez miejsca w klasyfikacji ma `rank: null`, nie „#1".
+    rows = comp_service.award_ranked_rows(ctype, ranked, order)
     top3_with_prizes = [
-        {
-            **_public_entry(r.to_dict()),
-            "rank": idx,
-            "prize_pln": 0 if idx in held else comp_service._prize_for(ctype, idx),
-            "tied": idx in held,
-        }
-        for idx, r in enumerate(order.ordered[:3], start=1)
+        row for row in rows if row["rank"] is not None and row["rank"] <= 3
     ]
 
     # Meta fields (gamifikacja jak w InfraReporterze).
@@ -174,7 +167,9 @@ async def _compute_current(
         else:
             # Wagi i próg z konfiguracji (D3). Stała `QUARTERLY_MIN_PLACEMENTS`
             # została usunięta — sensem D3 jest JEDNO źródło reguły.
-            config = await get_scoring_config(db)
+            # Punktacja tego kwartału (migawka, R4-16) — ta sama, którą
+            # zamrożenie rozlicza Ligę.
+            config = await comp_service.league_scoring_config(db, period)
             # Próg jest PROGRESYWNY (1/2/3 wg miesiąca kwartału), a napis musi
             # mówić to samo, co kwalifikacja. Płaskie „3" oświadczało w styczniu
             # wymóg, którego silnik wtedy nie stosuje — ekran opisywał regułę,
@@ -200,7 +195,7 @@ async def _compute_current(
         "type": ctype.value,
         "period": period,
         "top3": top3_with_prizes,
-        "full_ranking": [_public_entry(r.to_dict()) for r in ranked],
+        "full_ranking": rows,
         # Remisy na płatnych miejscach, o których zdecyduje admin przy
         # zamknięciu okresu — same pozycje i osoby, bez marży.
         "ties": [
@@ -431,8 +426,15 @@ async def my_position(
     else:
         ranked = await comp_service.compute_live(db, ctype, period)
 
+    # Ta sama numeracja co podium i lista pod nim (`award_ranked_rows`):
+    # niezakwalifikowany i wykluczony lider kwartału są na liście, ale bez
+    # miejsca (`rank: null`). Do 25.09.2026 numer brano z pozycji w surowym
+    # rankingu, więc „Mój miesiąc” mówił „1. miejsce” osobie bez nagrody.
+    order = await comp_service.award_order(db, ctype, period, ranked)
+    rows = comp_service.award_ranked_rows(ctype, ranked, order)
+    total = hof_total if hof_total is not None else len(rows)
     my_idx = next(
-        (i for i, r in enumerate(ranked) if r.user_id == current_user.id), None
+        (i for i, row in enumerate(rows) if row["user_id"] == current_user.id), None
     )
     if my_idx is None:
         return {
@@ -441,22 +443,17 @@ async def my_position(
             "rank": None,
             "me": None,
             "context": [],
-            "total": hof_total if hof_total is not None else len(ranked),
+            "total": total,
         }
 
     # Kontekst: ja ± 2 pozycje.
     ctx_start = max(0, my_idx - 2)
-    ctx_end = min(len(ranked), my_idx + 3)
-    context = [
-        {**r.to_dict(), "rank": i + 1}
-        for i, r in enumerate(ranked)
-        if ctx_start <= i < ctx_end
-    ]
+    ctx_end = min(len(rows), my_idx + 3)
     return {
         "type": ctype.value,
         "period": period,
-        "rank": my_idx + 1,
-        "me": ranked[my_idx].to_dict(),
-        "context": context,
-        "total": hof_total if hof_total is not None else len(ranked),
+        "rank": rows[my_idx]["rank"],
+        "me": rows[my_idx],
+        "context": rows[ctx_start:ctx_end],
+        "total": total,
     }

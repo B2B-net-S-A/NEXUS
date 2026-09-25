@@ -308,6 +308,13 @@ async def test_apply_is_idempotent_and_rollback_keeps_debriefs():
     async with AsyncSessionLocal() as db:
         assert await db.get(InterviewQuestion, first["inserted_ids"][0]) is not None
         assert await db.get(InterviewQuestion, first["inserted_ids"][1]) is None
+        # Runda 4 audytu: przypięcie dodane importem znika także przy pytaniu,
+        # które zostaje (paragon niesie `pinned_ids`).
+        assert first["pinned_ids"]
+        leftover = await db.scalar(
+            select(JobQuestion.id).where(JobQuestion.job_id == job_id)
+        )
+        assert leftover is None
 
 
 async def test_apply_refuses_unknown_plan_version():

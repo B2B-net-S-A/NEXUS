@@ -16,7 +16,7 @@ from datetime import date, datetime, timezone
 from typing import Literal, Optional
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -110,6 +110,9 @@ class BoardTasksResponse(BaseModel):
     # ktoś inny.
     followups: list[FollowupRow] = []
     followups_by_others: list[FollowupRow] = []
+    # Czy ta osoba może ustawić osobę od Cpro (admin albo DL Nordei) — front
+    # pokazuje przełącznik także wtedy, gdy nie widzi żadnego zadania Cpro.
+    can_set_cpro_sender: bool = False
 
 
 class CproSenderRead(BaseModel):
@@ -120,6 +123,8 @@ class CproSenderRead(BaseModel):
     fallback_user_name: Optional[str] = None
     set_by_name: Optional[str] = None
     set_at: Optional[datetime] = None
+    # Czy PYTAJĄCY może zmienić osobę (`cpro_sender.can_set_sender`).
+    can_set: bool = False
 
 
 class CproSenderUpdate(BaseModel):
@@ -204,6 +209,7 @@ async def list_board_tasks(
         can_send_to_client=current_user.has_any_role(
             UserRole.admin, UserRole.delivery_lead
         ),
+        can_set_cpro_sender=await cpro_sender.can_set_sender(db, current_user),
         prep_attention=[
             PrepAttentionRow(
                 reason=a.reason,
@@ -230,9 +236,11 @@ async def get_cpro_sender(
 ) -> CproSenderRead:
     """Kto dziś wysyła kandydatów Nordei do Cpro (po wygaśnięciu zastępstwa)."""
 
-    del current_user
     state = await cpro_sender.effective_sender(db)
-    return CproSenderRead(**await cpro_sender.describe(db, state))
+    return CproSenderRead(
+        **await cpro_sender.describe(db, state),
+        can_set=await cpro_sender.can_set_sender(db, current_user),
+    )
 
 
 @router.put("/cpro/sender", response_model=CproSenderRead)
@@ -243,11 +251,14 @@ async def set_cpro_sender(
 ) -> CproSenderRead:
     """Ustawia JEDNĄ osobę na całą firmę (decyzja Artura 23.09.2026).
 
-    Zmienia KAŻDY z zespołu — to informacja „kto dziś wrzuca", nie
-    uprawnienie; wrzucenie i tak przechodzi przez zwykły ruch w pipeline.
+    Od 25.09.2026 zmienia WYŁĄCZNIE admin albo Delivery Lead przypisany do
+    Nordei (`cpro_sender.can_set_sender`): osoba od Cpro widzi w kolejce
+    stawki do klienta, więc rekruter ustawiający siebie omijał #1742.
     `until` = zastępstwo: po tej dacie wraca osoba, która wysyłała wcześniej.
     """
 
+    if not await cpro_sender.can_set_sender(db, current_user):
+        raise HTTPException(status_code=403, detail=cpro_sender.SET_SENDER_FORBIDDEN)
     if body.user_id is not None:
         await svc.load_assignee(db, body.user_id)
     before, after = await cpro_sender.set_sender(
@@ -278,7 +289,7 @@ async def set_cpro_sender(
             actor=current_user,
         )
     await db.commit()
-    return CproSenderRead(**await cpro_sender.describe(db, after))
+    return CproSenderRead(**await cpro_sender.describe(db, after), can_set=True)
 
 
 @router.get("/cpro/queue", response_model=CproQueueResponse)
@@ -365,7 +376,10 @@ async def get_cpro_queue(
     )
     sender = await cpro_sender.effective_sender(db, now)
     return CproQueueResponse(
-        sender=CproSenderRead(**await cpro_sender.describe(db, sender)),
+        sender=CproSenderRead(
+            **await cpro_sender.describe(db, sender),
+            can_set=await cpro_sender.can_set_sender(db, current_user),
+        ),
         jobs=sorted(jobs.values(), key=lambda g: g.oldest_since),
         sent_today=sent_today,
     )

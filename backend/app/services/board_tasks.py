@@ -280,7 +280,11 @@ _LATEST_SQL = text(
          ORDER BY cs.candidate_id, cs.job_id, cs.moved_at DESC, cs.id DESC
     )
     SELECT l.id, l.candidate_id, l.job_id, l.stage_def_id, l.moved_at,
-           l.moved_by, l.task_assignee_id, j.cpro_sender_id,
+           l.moved_by,
+           -- Osoby zapasowe kolejki Cpro tylko z aktywnym kontem — martwe
+           -- konto trzymało zadanie, którego nikt nie widział (runda 4).
+           CASE WHEN ta.is_active THEN l.task_assignee_id END AS task_assignee_id,
+           CASE WHEN js.is_active THEN j.cpro_sender_id END AS cpro_sender_id,
            COALESCE(j.pipeline_template_id, :default_template_id) AS template_id,
            j.title, j.working_title, j.client_reference, j.client_id,
            -- Nieaktywny DL rekrutacji = jak brak DL-a: przegląd idzie do
@@ -293,6 +297,8 @@ _LATEST_SQL = text(
       JOIN candidates c ON c.id = l.candidate_id
       LEFT JOIN clients cl ON cl.id = j.client_id
       LEFT JOIN users dl ON dl.id = j.delivery_lead_id
+      LEFT JOIN users ta ON ta.id = l.task_assignee_id
+      LEFT JOIN users js ON js.id = j.cpro_sender_id
      WHERE l.moved_at >= :since
        AND l.stage_def_id = ANY(:stage_def_ids)
     """

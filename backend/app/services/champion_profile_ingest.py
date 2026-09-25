@@ -532,6 +532,12 @@ async def ingest_parsed_profile(
         outcome["outcome"] = "champion_skipped_nonempty"
 
     if changed:
+        # Tytuł dla rekrutera idzie za Championem i must-have — lustro zapisu
+        # z edytora (`api/jobs.py`); bez tego import zostawiał tytuł złożony
+        # ze starych kolumn (audyt 25.09.2026, runda 4).
+        from app.services.job_working_title import refresh_working_title
+
+        await refresh_working_title(db, job)
         from app.services.index_outbox_service import JOB, record_bulk_reindex
         from app.services.match_score_cache import mark_stale_for_job
 

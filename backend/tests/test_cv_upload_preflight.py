@@ -75,6 +75,10 @@ async def test_invalid_files_do_not_charge_or_enqueue(monkeypatch, filename, dat
     app.include_router(api.router)
     app.state.limiter = api.limiter
     db = AsyncMock()
+    # Klient zawsze wymagany (generator v3): bez niego odmowa „Wybierz klienta”
+    # padałaby przed walidacją pliku, której dotyczy ten test.
+    db.get.return_value = SimpleNamespace(id=1, cv_content_mode_cap=None)
+    monkeypatch.setattr(api, "resolve_client_rule", AsyncMock(return_value=None))
     app.dependency_overrides[api.get_db] = lambda: db
     app.dependency_overrides[get_args(api.CandidateWriteAccess)[1].dependency] = (
         lambda: User(id=7, role=UserRole.admin)
@@ -87,7 +91,9 @@ async def test_invalid_files_do_not_charge_or_enqueue(monkeypatch, filename, dat
         transport=ASGITransport(app=app), base_url="http://test"
     ) as client:
         response = await client.post(
-            "/cv-generator/generate-upload", files={"cv_file": (filename, data)}
+            "/cv-generator/generate-upload",
+            files={"cv_file": (filename, data)},
+            data={"client_id": "1"},
         )
     assert response.status_code == 422, response.text
     assert "CV:" in response.json()["detail"]

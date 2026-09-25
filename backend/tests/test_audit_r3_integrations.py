@@ -394,9 +394,12 @@ class _UrlGraph:
 @pytest.mark.parametrize("already_reset", [False, True])
 @pytest.mark.asyncio
 async def test_old_events_cursor_is_replaced_once_to_read_sensitivity(
-    already_reset,
+    already_reset, monkeypatch
 ) -> None:
     from app.services.m365 import sync as sync_mod
+
+    # Przebieg po starszych prywatnych spotkaniach ma własne testy (runda 4).
+    monkeypatch.setattr(sync_mod, "_scrub_old_private_events", AsyncMock())
 
     conn = SimpleNamespace(id=5, delta_token_events="https://graph/old-delta")
     db = AsyncMock()

@@ -94,6 +94,8 @@ export interface TraineeProgramDay {
   day: number;
   total_days: number;
   status: string;
+  /** Ostatni dzień programu (RRRR-MM-DD) — granica „telefonu innego dnia”. */
+  end_date?: string | null;
 }
 
 export interface TraineeCounts {

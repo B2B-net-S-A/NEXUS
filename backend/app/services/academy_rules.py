@@ -286,6 +286,16 @@ def quote_has_year(quote: Any, year: Optional[int]) -> bool:
     return re.search(rf"(?<!\d){year}(?!\d)", quote) is not None
 
 
+_ONGOING_QUOTE = re.compile(r"\bnadal\b|\bstill\b|\bto date\b|do chwili obecnej")
+
+
+def quote_says_ongoing(quote: Any) -> bool:
+    """Czy cytat jawnie mówi, że praca trwa („obecnie”, „present”, „nadal”)."""
+    if not isinstance(quote, str):
+        return False
+    return bool(_ONGOING.search(quote) or _ONGOING_QUOTE.search(_fold(quote)))
+
+
 def quote_proves_polish(quote: Any, level: str) -> bool:
     """Cytat o polskim musi mówić o języku polskim; „podstawowy” — także o poziomie."""
     if not isinstance(quote, str):
@@ -362,7 +372,16 @@ def facts_from_model(
             ):
                 continue
             start = parse_year_month(item.get("start"), today)
-            raw_end = item.get("end") or "present"
+            raw_end = item.get("end")
+            if raw_end is None or not str(raw_end).strip():
+                # Pusty koniec NIE znaczy „do dziś” (R4-11, bliźniak reguły
+                # profilu): liczenie go do dziś zawyżało staż, a werdykt „skip”
+                # kończył się trwałym odrzuceniem. Trwająca praca tylko wtedy,
+                # gdy cytat mówi to wprost; inaczej pozycja jest „bez dat”.
+                if not quote_says_ongoing(item.get("quote")):
+                    undated += 1
+                    continue
+                raw_end = "present"
             end = parse_year_month(raw_end, today)
             if start is None or end is None or end < start:
                 undated += 1
