@@ -353,6 +353,42 @@ class PhaseProgress:
         # failing rows is a systemic fault, and counting the overflow as
         # unattributable keeps the watermark frozen, which is the safe answer.
 
+    # ── Błędy niesione przez kursor wznowienia (audyt 25.09.2026) ──────────
+    #
+    # Faza z kursorem stron, przerwana w połowie (deploy zabija proces), nie
+    # zwraca `PhaseProgress` — jej błędy wierszy sprzed przerwania ginęły razem
+    # z procesem. Wznowiony przebieg zaczynał od kursora, nie widział ich,
+    # kończył się „czysto” i przesuwał `__daily__` nad wierszami, które nigdy
+    # się nie zaimportowały. Kursor niesie więc stan błędów, a wznowienie
+    # przyjmuje go z powrotem — dalej blokują watermark, dopóki faza nie przejdzie
+    # całego feedu od nowa (kursor wyczyszczony → kolejny bieg ponawia wiersze).
+    #
+    # Wracają jako błędy NIEPRZYPISANE, świadomie: wiersze sprzed kursora nie są
+    # w tym biegu ponawiane, więc doliczanie ich do kwarantanny zaparkowałoby
+    # wiersz po kilku przerwanych biegach, choć ani razu go nie spróbowano.
+
+    def error_carry(self) -> dict[str, Any]:
+        """Stan błędów do zapisania w kursorze wznowienia (kumulatywny)."""
+        return {"errors": self.errors, "refs": sorted(self.error_refs)[:50]}
+
+    def absorb_carried_errors(self, carried: Any) -> None:
+        """Przyjmij błędy przerwanej próby zapisane w kursorze."""
+        if not isinstance(carried, dict):
+            return
+        try:
+            total = max(0, int(carried.get("errors") or 0))
+        except (TypeError, ValueError):
+            return
+        if not total:
+            return
+        self.errors += total
+        refs = [r for r in (carried.get("refs") or []) if isinstance(r, str)]
+        if len(self.error_samples) < 20:
+            self.error_samples.append(
+                f"{total} błąd(y) z przerwanej próby (wznowienie z kursora)"
+                + (f": {', '.join(refs[:10])}" if refs else "")
+            )
+
     def as_dict(self) -> dict[str, Any]:
         return {
             "phase": self.phase,
@@ -2105,6 +2141,9 @@ class TraffitImporter:
         ):
             start_page = max(1, int(_cursor.get("page") or 1))
             logger.info("Candidates: resuming from page %d", start_page)
+            # Błędy wierszy sprzed przerwania wracają z kursora — inaczej
+            # wznowiony, „czysty” przebieg przesunąłby watermark nad nimi.
+            progress.absorb_carried_errors(_cursor.get("carried_errors"))
 
         current_page = start_page
         saw_fallback = False
@@ -2292,6 +2331,7 @@ class TraffitImporter:
                                     "page": current_page,
                                     "since": since_iso,
                                     "page_size": self.batch_size,
+                                    "carried_errors": progress.error_carry(),
                                 },
                             )
                         await self.db.commit()
@@ -4081,6 +4121,9 @@ class TraffitImporter:
                 # never skips.
                 start_page = max(1, int(_cursor.get("page") or 1))
                 logger.info("Pipelines: resuming from page %d", start_page)
+                # Błędy wierszy sprzed przerwania wracają z kursora — inaczej
+                # wznowiony, „czysty” przebieg przesunąłby watermark nad nimi.
+                progress.absorb_carried_errors(_cursor.get("carried_errors"))
 
             current_page = start_page
             # If the tenant rejects the filter (HTTP 400) the client drops it
@@ -4097,6 +4140,7 @@ class TraffitImporter:
                     "page": current_page,
                     "since": since_iso,
                     "page_size": self.batch_size,
+                    "carried_errors": progress.error_carry(),
                 }
 
             async for page_no, items in self.traffit.get_pages(
@@ -4488,6 +4532,9 @@ class TraffitImporter:
             # ON CONFLICT) rather than page+1, so a mid-page commit never skips.
             start_page = max(1, int(_cursor.get("page") or 1))
             logger.info("Activities: resuming from page %d", start_page)
+            # Błędy wierszy sprzed przerwania wracają z kursora — inaczej
+            # wznowiony, „czysty” przebieg przesunąłby watermark nad nimi.
+            progress.absorb_carried_errors(_cursor.get("carried_errors"))
 
         # Wrap the paginated fetch so a terminal transport failure mid-stream
         # (httpx.ReadTimeout on a large catch-up page, or a non-200 page raised
@@ -4599,6 +4646,7 @@ class TraffitImporter:
                                 "page": current_page,
                                 "since": since_iso,
                                 "page_size": self.batch_size,
+                                "carried_errors": progress.error_carry(),
                             },
                         )
                     await self.db.commit()
@@ -4624,6 +4672,7 @@ class TraffitImporter:
                         "page": current_page,
                         "since": since_iso,
                         "page_size": self.batch_size,
+                        "carried_errors": progress.error_carry(),
                     },
                 )
             await self.db.commit()
