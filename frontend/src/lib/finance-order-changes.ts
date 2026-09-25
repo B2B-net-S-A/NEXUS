@@ -248,8 +248,9 @@ export function changeValue(item: OrderChangeItem): string {
     const after = item.new_date ? formatDay(item.new_date) : "bezterminowo";
     return `${before} → ${after}`;
   }
+  // Stara strona w SWOJEJ walucie — sama zmiana waluty też jest zmianą.
   return (
-    `${formatRate(item.old_amount, item.old_unit, item.currency)} → ` +
+    `${formatRate(item.old_amount, item.old_unit, item.old_currency ?? item.currency)} → ` +
     `${formatRate(item.new_amount, item.new_unit, item.currency)}`
   );
 }

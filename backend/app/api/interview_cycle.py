@@ -38,6 +38,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.calendar_access import user_can_view_event
 from app.api.candidate_access import user_has_candidate_read
 from app.api.recruitment_access import (
+    RECRUITMENT_READ_ROLES,
     CalendarWriteAccess,
     RecruitmentAssessmentWriteAccess,
     RecruitmentReadAccess,
@@ -317,6 +318,56 @@ def _is_owner(user: User, user_id: Optional[int]) -> bool:
     return user_id is not None and user_id in operational_owner_ids(user)
 
 
+async def _ensure_slot_recruiter(db: AsyncSession, user_id: int, job_id: int) -> None:
+    """Wskazany rekruter wniosku: aktywne konto roli wewnętrznej z dostępem
+    do rekrutacji — inaczej 422 po polsku.
+
+    Bez tego nieistniejące id kończyło się naruszeniem klucza obcego, które
+    handler brał za „otwarte terminy" (409), a dowolne konto (także spoza
+    zespołu) dostawało wybór terminu i blokadę w swoim Outlooku (audyt
+    25.09.2026).
+    """
+
+    detail = (
+        "Wybierz aktywną osobę z zespołu rekrutacji, która wybierze termin "
+        "z kandydatem."
+    )
+    user = await db.get(User, user_id)
+    if (
+        user is None
+        or not user.is_active
+        or not user.has_any_role(*RECRUITMENT_READ_ROLES)
+    ):
+        raise HTTPException(status_code=422, detail=detail)
+    try:
+        await ensure_job_membership(db, user, job_id)
+    except HTTPException as exc:
+        raise HTTPException(status_code=422, detail=detail) from exc
+
+
+async def _can_see_interview(
+    db: AsyncSession, event: CalendarEvent, user: User
+) -> bool:
+    """Właściciel, uczestnik albo rola z odczytem kalendarza — oraz każdy
+    z dostępem do rekrutacji wydarzenia.
+
+    Rekrutacje i kandydatów widzą wszyscy (decyzja Artura 23.09.2026), więc
+    Delivery Lead rekrutacji, który nie jest właścicielem rozmowy, musi móc
+    zapisać debrief — inaczej dostawał 404, a bramka debriefu przed „Umową”
+    (409 `DEBRIEF_REQUIRED`) zatrzymywała go bez wyjścia (audyt 25.09.2026).
+    """
+
+    if user_can_view_event(event, user):
+        return True
+    if event.job_id is None:
+        return False
+    try:
+        await ensure_job_read_access(db, user, event.job_id)
+    except HTTPException:
+        return False
+    return True
+
+
 async def _ensure_slot_owner(
     db: AsyncSession, user: User, req: ClientInterviewSlotRequest
 ) -> None:
@@ -513,6 +564,8 @@ async def create_slot_request(
         duration_minutes=body.duration_minutes,
         now=now,
     )
+    if body.recruiter_id is not None:
+        await _ensure_slot_recruiter(db, body.recruiter_id, body.job_id)
     recruiter_id = body.recruiter_id or await interview_slots.default_recruiter_id(
         db, candidate_id=body.candidate_id, job_id=body.job_id
     )
@@ -682,7 +735,7 @@ async def _load_interview_event(
     db: AsyncSession, event_id: int, user: User
 ) -> CalendarEvent:
     event = await db.get(CalendarEvent, event_id)
-    if event is None or not user_can_view_event(event, user):
+    if event is None or not await _can_see_interview(db, event, user):
         raise HTTPException(status_code=404, detail="Nie znaleziono rozmowy.")
     if event.event_type != EventType.client_interview or event.candidate_id is None:
         raise HTTPException(

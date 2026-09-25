@@ -179,7 +179,12 @@ function changeItem(item: OrderChangeItem, index: number): BoardItem {
         field: item.kind,
         title:
           item.kind === "rate_cost" ? "Stawka kosztowa" : "Stawka przychodowa",
-        before: formatRate(item.old_amount, item.old_unit, item.currency),
+        // Stara strona w SWOJEJ walucie — sama zmiana waluty też jest zmianą.
+        before: formatRate(
+          item.old_amount,
+          item.old_unit,
+          item.old_currency ?? item.currency,
+        ),
         after: formatRate(item.new_amount, item.new_unit, item.currency),
         note: item.is_whole_order ? "całe zamówienie" : null,
       };

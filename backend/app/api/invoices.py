@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.financial_access import FinanceManageUser, FinanceReadUser
 from app.core.database import get_db
+from app.core.export_safety import safe_row
 from app.models.client import Client
 from app.models.contract import Contract
 from app.models.invoice import Invoice, InvoiceDirection, InvoiceStatus
@@ -301,19 +302,22 @@ async def export_invoices_csv(
             if inv.period_month and inv.period_year
             else ""
         )
+        # Numer faktury wpisuje człowiek — tekst nie może zostać formułą.
         writer.writerow(
-            [
-                inv.invoice_number,
-                inv.issue_date.isoformat(),
-                inv.due_date.isoformat() if inv.due_date else "",
-                inv.paid_date.isoformat() if inv.paid_date else "",
-                inv.amount,
-                inv.currency,
-                inv.contract_id,
-                inv.direction.value,
-                inv.status.value,
-                period,
-            ]
+            safe_row(
+                [
+                    inv.invoice_number,
+                    inv.issue_date.isoformat(),
+                    inv.due_date.isoformat() if inv.due_date else "",
+                    inv.paid_date.isoformat() if inv.paid_date else "",
+                    inv.amount,
+                    inv.currency,
+                    inv.contract_id,
+                    inv.direction.value,
+                    inv.status.value,
+                    period,
+                ]
+            )
         )
     buf.seek(0)
     return StreamingResponse(

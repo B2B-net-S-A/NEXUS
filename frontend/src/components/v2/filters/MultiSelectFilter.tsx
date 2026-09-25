@@ -14,6 +14,7 @@ import {
  CommandList,
  CommandSeparator,
 } from"@/components/ui/command";
+import { PickerQueryState } from"@/components/v2/filters/PickerQueryState";
 
 export interface MultiSelectFilterOption<V extends string | number> {
  value: V;
@@ -39,6 +40,17 @@ export interface MultiSelectFilterProps<V extends string | number> {
  title?: string;
  /** Optional className appended to trigger. */
  className?: string;
+ /**
+ * Opcje z zapytania: stan ładowania/awarii zamiast „Brak opcji.” — awaria
+ * nie może udawać pustego słownika. Bez propa lista jest statyczna.
+ */
+ loadState?: {
+ isPending: boolean;
+ isError: boolean;
+ onRetry: () => void;
+ loadingLabel?: string;
+ errorLabel?: string;
+ };
 }
 
 const DEFAULT_TRIGGER_WIDTH ="w-[180px]";
@@ -54,6 +66,7 @@ export function MultiSelectFilter<V extends string | number>({
  showSelectAllClear = true,
  title,
  className,
+ loadState,
 }: MultiSelectFilterProps<V>) {
  const [open, setOpen] = useState(false);
  const selected = useMemo(() => new Set(value), [value]);
@@ -104,7 +117,18 @@ export function MultiSelectFilter<V extends string | number>({
  <Command>
  <CommandInput placeholder={searchPlaceholder ??"Szukaj…"} />
  <CommandList>
+ {loadState && (
+ <PickerQueryState
+ isPending={loadState.isPending}
+ isError={loadState.isError}
+ onRetry={loadState.onRetry}
+ loadingLabel={loadState.loadingLabel ??"Ładowanie…"}
+ errorLabel={loadState.errorLabel ??"Nie udało się pobrać opcji."}
+ />
+ )}
+ {(!loadState || (!loadState.isPending && !loadState.isError)) && (
  <CommandEmpty>Brak opcji.</CommandEmpty>
+ )}
  <CommandGroup>
  {options.map((opt) => {
  const isSelected = selected.has(opt.value);

@@ -564,15 +564,21 @@ def _sees_dl_review(task: BoardTask, user: User, portfolio: frozenset[int]) -> b
     return task.client_id is not None and task.client_id in portfolio
 
 
-def _sees_cpro(task: BoardTask, user: User) -> bool:
+def _sees_cpro(task: BoardTask, user: User, firm_sender_id: Optional[int]) -> bool:
     """Kolejka Cpro jest wyłącznie osoby od Cpro.
 
-    Gdy nikt nie jest ustawiony, zadania do wrzucenia widzi admin i Head of
-    Recruitment — żeby ktoś mógł ustawić osobę (jedyne miejsce to ten panel).
+    Gdy nikt nie jest ustawiony NA FIRMĘ, zadania do wrzucenia widzi też admin
+    i Head of Recruitment — żeby ktoś mógł ustawić osobę (jedyne miejsce to ten
+    panel). Dotyczy to także zadań z osobą zapasową (``jobs.cpro_sender_id``,
+    ``task_assignee_id``): bez tego kolejka z samymi zapasami nie miała nikogo,
+    kto zauważy brak osoby firmowej (audyt 25.09.2026). Zapasowa osoba widzi
+    swoje zadania zawsze.
     """
 
-    if task.assignee_id is not None:
-        return task.assignee_id == user.id
+    if task.assignee_id is not None and task.assignee_id == user.id:
+        return True
+    if firm_sender_id is not None:
+        return False
     return task.kind == KIND_CPRO_TO_SEND and _sees_all(user)
 
 
@@ -583,8 +589,9 @@ def tasks_for_user(
 
     * Przegląd DL: wyłącznie Delivery Lead — rekrutacje przypięte do niego
       (w rekrutacji albo przez portfel klienta).
-    * Do wrzucenia i wysłane do Cpro: tylko osoba od Cpro; do wrzucenia —
-      także admin i HoR, gdy nikt nie jest ustawiony.
+    * Do wrzucenia i wysłane do Cpro: tylko osoba od Cpro (albo zapasowa
+      osoba rekrutacji); do wrzucenia — także admin i HoR, gdy nikt nie jest
+      ustawiony na firmę.
     """
 
     out: dict[str, list[BoardTask]] = {
@@ -597,7 +604,7 @@ def tasks_for_user(
             if _sees_dl_review(t, user, portfolio):
                 out[t.kind].append(t)
         elif t.kind in (KIND_CPRO_TO_SEND, KIND_CPRO_SENT):
-            if _sees_cpro(t, user):
+            if _sees_cpro(t, user, snapshot.firm_sender_id):
                 out[t.kind].append(t)
     # Moje zadania Cpro na górze, potem nieprzypisane.
     out[KIND_CPRO_TO_SEND].sort(
@@ -630,7 +637,8 @@ async def digest_counts(
 
     Wysłane do Cpro nie są zadaniem — czekamy na Nordeę — więc skrót ich nie
     liczy. Osoba od Cpro dostaje liczbę osób w kolejce; kolejka bez nikogo
-    ustawionego trafia do Head of Recruitment. Przegląd DL — ta sama reguła co
+    ustawionego NA FIRMĘ trafia do Head of Recruitment (także ta z osobą
+    zapasową rekrutacji — lustro `_sees_cpro`). Przegląd DL — ta sama reguła co
     panel (`_sees_dl_review`). Follow-upy (``followups`` — liczby telefonów
     per dzwoniący z ``candidate_followups.digest_counts``) dostaje każda rola,
     nie tylko DL i HoR.
@@ -670,9 +678,13 @@ async def digest_counts(
         if t.kind == KIND_CPRO_TO_SEND:
             if t.assignee_id is not None:
                 bump(t.assignee_id, "cpro_mine")
+            if snapshot.firm_sender_id is not None:
                 continue
+            # Nikt nie jest ustawiony na firmę — HoR widzi to zadanie w panelu
+            # (`_sees_cpro`), więc skrót liczy je tak samo, także gdy ma osobę
+            # zapasową. Zapasowa osoba liczy je raz, jako swoje.
             for u in users:
-                if u.has_role(UserRole.head_of_recruitment):
+                if u.has_role(UserRole.head_of_recruitment) and u.id != t.assignee_id:
                     bump(u.id, "cpro_unassigned")
         elif t.kind == KIND_DL_REVIEW:
             for u in users:

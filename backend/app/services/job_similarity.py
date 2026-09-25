@@ -29,12 +29,14 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Iterable, Mapping, Optional, Sequence
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import and_, case, exists, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
+from app.core.scheduling import DEFAULT_TZ
 from app.models.job import Job, JobStatus
 from app.models.job_similar_link import JobSimilarLink
 from app.models.pipeline_template import PipelineStageDef
@@ -471,6 +473,21 @@ async def suggestion_summaries(
 # ── Przepięcia ────────────────────────────────────────────────────────────
 
 
+def _local_day_iso(moment: Optional[datetime]) -> Optional[str]:
+    """Dzień wysłania w kalendarzu firmy (Europe/Warsaw), nie UTC.
+
+    ``moved_at`` jest w UTC — ``.date()`` datowało wysyłkę z 00:00–02:00
+    czasu polskiego dniem wcześniej (audyt 25.09.2026). Czas bez strefy
+    traktujemy jak UTC (tak zapisuje baza).
+    """
+
+    if moment is None:
+        return None
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return moment.astimezone(ZoneInfo(DEFAULT_TZ)).date().isoformat()
+
+
 def _reassign_evidence(
     source_job_id: int, stage: PipelineStage, sent_at: Optional[datetime]
 ) -> dict:
@@ -478,7 +495,7 @@ def _reassign_evidence(
         "reassign": {
             "job_id": source_job_id,
             "stage": stage.value,
-            "sent_at": sent_at.date().isoformat() if sent_at else None,
+            "sent_at": _local_day_iso(sent_at),
         }
     }
 
@@ -648,9 +665,7 @@ async def sent_people(
                 "candidate_id": candidate_id,
                 "name": f"{latest.name or ''} {latest.lastname or ''}".strip(),
                 "furthest_stage": furthest.value,
-                "sent_at": sent_rows[0].moved_at.date().isoformat()
-                if sent_rows[0].moved_at
-                else None,
+                "sent_at": _local_day_iso(sent_rows[0].moved_at),
                 "outcome": outcome,
                 "already_in_job": already,
                 "selectable": not hired and not already,

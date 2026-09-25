@@ -55,3 +55,20 @@ describe("Porządek w requestach: długa zakładka idzie stronami", () => {
     expect(screen.queryByRole("button", { name: "Pokaż więcej" })).toBeNull()
   })
 })
+
+describe("Porządek w requestach: zamknięta rekrutacja", () => {
+  it("nie ma przycisków stanu ani zaznaczenia — serwer i tak odmówi (409)", () => {
+    renderView({
+      tab: "finished",
+      counts,
+      rows: [{ ...row, closed: true }, { ...row, job_id: 2, title: "Analityk" }],
+      total: 2,
+      has_more: false,
+    })
+    expect(screen.getByText("Rekrutacja zamknięta — najpierw ją otwórz.")).toBeInTheDocument()
+    expect(screen.queryByRole("checkbox", { name: "Zaznacz: Tester manualny" })).toBeNull()
+    expect(screen.getByRole("checkbox", { name: "Zaznacz: Analityk" })).toBeInTheDocument()
+    // Przyciski stanu zostają tylko przy otwartej rekrutacji.
+    expect(screen.getAllByRole("button", { name: "Szukamy" })).toHaveLength(1)
+  })
+})

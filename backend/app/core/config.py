@@ -524,7 +524,11 @@ class Settings(BaseSettings):
     JARVIS_MAX_STEPS: int = 8
     # Budżet czasu całej tury (sekundy) — pętla nie zacznie kroku po terminie.
     JARVIS_TURN_TIMEOUT_SECONDS: float = 90.0
-    JARVIS_MAX_TOKENS_PER_STEP: int = 1500
+    # 4000, nie 1500 (audyt 25.09.2026): krok z narzędziem i dłuższą odpowiedzią
+    # (lista, tabela) był ucinany `max_tokens` — ucięty `tool_use` jest
+    # wyrzucany, a użytkownik musiał pisać „dalej”. Krótkie odpowiedzi
+    # wymusza prompt, nie ten limit.
+    JARVIS_MAX_TOKENS_PER_STEP: int = 4000
     # Ile ostatnich wiadomości rozmowy idzie do modelu (koszt tokenów).
     JARVIS_HISTORY_WINDOW: int = 20
     # Miękki dzienny licznik tur na osobę: INFORMUJE, nie blokuje (NEXUS nie ma
@@ -613,6 +617,11 @@ class Settings(BaseSettings):
     ORDER_MAIL_POLL_INTERVAL_MINUTES: int = 60
     ORDER_MAIL_INITIAL_LOOKBACK_DAYS: int = 7
     ORDER_MAIL_OVERLAP_HOURS: int = 2
+    # Mail bez wpisu w dzienniku (błąd `/attachments`, brak `contentBytes`)
+    # trzyma znacznik skrzynki najwyżej tyle godzin; starszy dostaje wpis
+    # „Nieudane” i przestaje trzymać — inaczej jeden trwale zepsuty mail
+    # kazałby co godzinę pobierać załączniki wszystkich późniejszych.
+    ORDER_MAIL_UNPROCESSED_HOLD_HOURS: int = 24
     ORDER_MAIL_MAX_ATTACHMENT_MB: int = 25
     # CSV domen nadawców, z których przyjmujemy załączniki; pusta = wszystkie
     # (rozpoznanie klienta i tak wymaga numeru rejestrowego z rejestru, a

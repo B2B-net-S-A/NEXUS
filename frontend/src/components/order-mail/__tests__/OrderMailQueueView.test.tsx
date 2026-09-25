@@ -465,3 +465,25 @@ describe("Audyt 24.09 — kolejka poczty zamówień", () => {
     expect(onDismiss).toHaveBeenCalledWith(1);
   });
 });
+
+describe("Audyt 25.09 — wpisy „Nieudane”", () => {
+  it("zakładka „Nieudane” istnieje i przełącza kolejkę na stan failed", () => {
+    const onOutcomeChange = vi.fn();
+    render(<OrderMailQueueView {...base} onOutcomeChange={onOutcomeChange} state="ready" items={[]} total={0} />);
+    fireEvent.click(screen.getByRole("tab", { name: /Nieudane/ }));
+    expect(onOutcomeChange).toHaveBeenCalledWith("failed");
+  });
+
+  it("nieudany wpis mówi, ile automatycznych prób zostało", () => {
+    const failed = doc({
+      outcome: "failed", error: "OperationalError('connection reset')", can_apply: false,
+      proposal: null, extraction: null, document_meta: { failed_retry: { attempts: 1 } },
+    });
+    const { rerender } = render(<OrderMailQueueView {...base} outcome="failed" state="ready" items={[failed]} />);
+    expect(screen.getByTestId("failed-retry-note")).toHaveTextContent("próba 1 z 3");
+    expect(screen.queryByRole("button", { name: /Zastosuj/ })).toBeNull();
+    const exhausted = { ...failed, document_meta: { failed_retry: { attempts: 3 } } };
+    rerender(<OrderMailQueueView {...base} outcome="failed" state="ready" items={[exhausted]} />);
+    expect(screen.getByTestId("failed-retry-note")).toHaveTextContent("3 razy bez skutku");
+  });
+});

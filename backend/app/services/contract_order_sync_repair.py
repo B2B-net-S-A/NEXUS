@@ -34,6 +34,7 @@ from openpyxl.utils import get_column_letter
 from sqlalchemy import or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.export_safety import safe_cell
 from app.core.scheduling import business_today
 from app.core.work_time import HOURS_PER_MONTH
 from app.models.app_setting import AppSetting
@@ -588,11 +589,6 @@ _MONEY_KEYS = {
 _STATUS_KEYS = {"cost_status", "revenue_status", "period_status"}
 
 
-def _safe_text(value: str) -> str:
-    """Tekst zaczynający się od =,+,-,@ nie może stać się formułą Excela."""
-    return f"'{value}" if value.startswith(("=", "+", "-", "@")) else value
-
-
 def _period(start: Optional[str], end: Optional[str]) -> str:
     def fmt(value: Optional[str]) -> Optional[str]:
         return date.fromisoformat(value).strftime("%d.%m.%Y") if value else None
@@ -621,7 +617,7 @@ def _cell_value(row: dict[str, Any], key: str) -> object:
     if key == "is_latest_order":
         return "tak" if value else ""
     if isinstance(value, str):
-        return _safe_text(value)
+        return safe_cell(value)
     return value
 
 
@@ -720,7 +716,7 @@ def _repair_cell(row: dict[str, Any], key: str) -> object:
     if key in {"before_cost", "after_cost", "before_revenue", "after_revenue"}:
         return None if value is None else float(Decimal(value))
     if isinstance(value, str):
-        return _safe_text(value)
+        return safe_cell(value)
     return value
 
 

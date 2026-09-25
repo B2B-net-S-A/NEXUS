@@ -25,7 +25,7 @@ export function CompetenceCategoryMultiSelect({
   onChange,
   triggerWidthClass = "w-[190px]",
 }: CompetenceCategoryMultiSelectProps) {
-  const { data } = useQuery<CompetenceCategoryOut[]>({
+  const { data, isPending, isError, refetch } = useQuery<CompetenceCategoryOut[]>({
     queryKey: ["competence-categories-active"],
     queryFn: () => competenceCategoriesApi.list(true),
     staleTime: 300_000,
@@ -44,6 +44,13 @@ export function CompetenceCategoryMultiSelect({
       placeholder="Kategoria: dowolna"
       searchPlaceholder="Szukaj kategorii…"
       triggerWidthClass={triggerWidthClass}
+      loadState={{
+        isPending,
+        isError,
+        onRetry: () => void refetch(),
+        loadingLabel: "Ładowanie kategorii…",
+        errorLabel: "Nie udało się pobrać kategorii.",
+      }}
       triggerLabel={(n) =>
         n === 1
           ? (options.find((o) => o.value === value[0])?.label ?? "Kategoria")

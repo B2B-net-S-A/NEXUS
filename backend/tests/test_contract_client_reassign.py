@@ -256,3 +256,49 @@ async def test_non_admin_is_403(app_client: AsyncClient):
     assert resp.status_code == 403
     resp = await _apply(app_client, headers, contract_id, new_client, "0" * 64)
     assert resp.status_code == 403
+
+
+async def test_live_contract_of_the_same_person_at_target_blocks(
+    app_client: AsyncClient,
+):
+    """Audyt 25.09.2026: przepięcie nie sprawdzało, czy osoba ma już żywy
+    kontrakt u klienta docelowego — dawało dwa kontrakty jednej osoby u jednego
+    klienta (podwójne MRR), czego zwykłe zakładanie kontraktu nie pozwala."""
+    old_client = await _client("reassign-dup-old")
+    new_client = await _client("reassign-dup-new")
+    contract_id, _ = await _contract(old_client, status=ContractStatus.active)
+    async with AsyncSessionLocal() as db:
+        moved = await db.get(Contract, contract_id)
+        existing = Contract(
+            candidate_id=moved.candidate_id,
+            client_id=new_client,
+            status=ContractStatus.draft,
+            start_date=business_today(),
+            rate_unit=RateUnit.hourly,
+        )
+        db.add(existing)
+        await db.commit()
+        existing_id = existing.id
+    _, headers = await _user(app_client)
+
+    preview = await _preview(app_client, headers, contract_id, new_client)
+    assert preview.status_code == 200, preview.text
+    plan = preview.json()
+    assert plan["can_apply"] is False
+    [blocker] = plan["blockers"]
+    assert blocker["code"] == "duplicate_contract_at_target"
+    assert f"Kontrakt #{existing_id}" in blocker["message"]
+
+    applied = await _apply(
+        app_client, headers, contract_id, new_client, plan["fingerprint"]
+    )
+    assert applied.status_code == 409
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(Contract, contract_id)).client_id == old_client
+
+
+def test_live_statuses_mirror_the_duplicate_guard():
+    from app.api.contracts import _DUPLICATE_GUARD_STATUSES
+    from app.services.contract_client_reassign import LIVE_CONTRACT_STATUSES
+
+    assert set(LIVE_CONTRACT_STATUSES) == set(_DUPLICATE_GUARD_STATUSES)

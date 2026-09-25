@@ -31,6 +31,7 @@ from app.core.printable_html import (
     printable_document,
 )
 from app.core.database import get_db
+from app.core.export_safety import safe_row
 from app.core.scheduling import business_today
 from app.core.work_time import HOURS_PER_MONTH, MD_PER_MONTH
 from app.models.activity import Activity
@@ -456,6 +457,11 @@ async def _assert_b2b_end_date_update(
         return
     if not await has_early_termination_amendment(db, contract.id):
         _reject_b2b_end_date()
+
+
+# Okno „Kończący się” nocnego crona (`contract_alerts._promote_statuses`:
+# active → ending, gdy data końca wypada w ciągu 30 dni).
+_ENDING_WINDOW_DAYS = 30
 
 
 def _status_after_end_date_change(
@@ -2473,7 +2479,7 @@ async def export_contracts(
             cell.font = Font(bold=True)
         ws.freeze_panes = "A2"  # keep the header row visible while scrolling
         for row in rows:
-            ws.append(row)
+            ws.append(safe_row(row))
 
         buf = BytesIO()
         wb.save(buf)
@@ -2494,7 +2500,7 @@ async def export_contracts(
     writer = csv.writer(buf, quoting=csv.QUOTE_MINIMAL)
     writer.writerow(_CONTRACT_EXPORT_COLUMNS)
     for row in rows:
-        writer.writerow(row)
+        writer.writerow(safe_row(row))
     filename = f"kontrakty_{ts}.csv"
     return StreamingResponse(
         iter(["\ufeff" + buf.getvalue()]),
@@ -2658,7 +2664,7 @@ async def export_client_register(
         cell.font = Font(bold=True)
     ws.freeze_panes = "A2"  # nag\u0142\u00f3wek widoczny przy przewijaniu
     for row in rows:
-        ws.append(row)
+        ws.append(safe_row(row))
 
     buf = BytesIO()
     wb.save(buf)
@@ -3953,11 +3959,54 @@ async def update_contract(
     # jest heurystyką. Bez tego wyjątku wybranie „Zakończony" dla umowy
     # bezterminowej zostałoby natychmiast cofnięte na `active` w tym samym
     # żądaniu — zapis zwracałby 200 i nie robił nic.
+    reopened_by_end_date = False
     if not status_sent:
+        today = business_today()
         coerced_status = _status_after_end_date_change(
-            contract.status, contract.end_date, business_today()
+            contract.status, contract.end_date, today
         )
-        if coerced_status != contract.status:
+        if (
+            coerced_status != contract.status
+            and contract.status == ContractStatus.ended
+            and contract.agreement_termination_mode is not None
+            and contract.end_date is not None
+        ):
+            # Umowa z ROZWIĄZANIEM (wypowiedzenie albo porozumienie) i nową,
+            # późniejszą datą końca to korekta daty, nie reaktywacja: dane
+            # rozwiązania, wiersz Generatora B2B („Zakończone”) i migawka
+            # zostają (przegląd PR #1833 — `undo_contract_termination` kasował
+            # podpisane rozwiązanie, a status i tak wracał na „Kończący się”,
+            # więc po nowej dacie Generator trafiał do „Umów bez projektu”).
+            # Do tej daty umowa pracuje: `ended → active → ending`.
+            assert_transition(contract.status, ContractStatus.active)
+            contract.status = ContractStatus.active
+            assert_transition(contract.status, ContractStatus.ending)
+            contract.status = ContractStatus.ending
+            updates["status"] = contract.status.value
+        elif (
+            coerced_status != contract.status
+            and contract.status == ContractStatus.ended
+        ):
+            # Nowa data końca wskrzesza ZAKOŃCZONĄ umowę — to reaktywacja jak
+            # przy aneksie przedłużającym, więc idzie przez `reopen_contract`:
+            # wpis `contract_reopened`, Generator B2B i dane rozwiązania umowy
+            # wracają (`undo_contract_termination`), migawka zakończenia
+            # zamknięta. Do 25.09.2026 był tu surowy zapis statusu — umowa
+            # wracała do aktywnych, a Generator zostawał w „Zakończonych”.
+            await reopen_contract(db, contract, actor_id=current_user.id)
+            reopened_by_end_date = True
+            # Status z daty jak po zakończeniu z datą przyszłą
+            # (`_status_after_termination`): umowa wypowiedziana albo kończąca
+            # się w oknie nocnego crona (30 dni) jest „Kończący się”, nie
+            # „Aktywny”.
+            if contract.end_date is not None and (
+                contract.terminated_at is not None
+                or contract.end_date <= today + timedelta(days=_ENDING_WINDOW_DAYS)
+            ):
+                assert_transition(contract.status, ContractStatus.ending)
+                contract.status = ContractStatus.ending
+            updates["status"] = contract.status.value
+        elif coerced_status != contract.status:
             contract.status = coerced_status
             updates["status"] = coerced_status.value  # reflect the outcome in audit
     # Reguła zakładki „Zakończeni" (09.2026): data końca umowy wpisana w module
@@ -3981,7 +4030,10 @@ async def update_contract(
             contract.id,
             contract.end_date,
             actor_id=current_user.id,
-            contract_before=state_before,
+            # Po reaktywacji stan „przed” opisuje ZAKOŃCZONĄ umowę — nowa
+            # migawka z nim pozwoliłaby „Cofnij zakończenie” wrócić do
+            # zakończenia, które właśnie cofnięto.
+            contract_before=None if reopened_by_end_date else state_before,
         )
     # Ręczna stawka przychodowa w kontrakcie z harmonogramem — krok od dziś,
     # inaczej resolver (czytający harmonogram, nie kolumnę) by ją zignorował.

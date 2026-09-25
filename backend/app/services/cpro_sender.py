@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timezone
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -255,14 +255,29 @@ async def describe(db: AsyncSession, state: CproSenderState) -> dict[str, Any]:
 
 
 async def can_send_to_cpro(
-    db: AsyncSession, user: User, now: Optional[datetime] = None
+    db: AsyncSession,
+    user: User,
+    now: Optional[datetime] = None,
+    *,
+    fallback_sender_ids: Iterable[Optional[int]] = (),
 ) -> bool:
     """Czy ``user`` może przesunąć kartę z kolejki Cpro („✓ Wrzucone",
-    „Zwróć do rekrutera"): osoba od Cpro albo admin / DL / HoR."""
+    „Zwróć do rekrutera"): osoba od Cpro albo admin / DL / HoR.
+
+    Gdy nikt nie jest ustawiony na firmę, kolejka pokazuje zadanie osobie
+    zapasowej tej rekrutacji (``jobs.cpro_sender_id`` albo
+    ``task_assignee_id`` wiersza — ``fallback_sender_ids``), więc ta osoba
+    musi też móc je wrzucić. Bez tego rekruter widział zadanie „do wrzucenia"
+    i dostawał 403 na „✓ Wrzucone" (audyt 25.09.2026). Osoba ustawiona na
+    firmę wygrywa — zapas wtedy nie daje prawa.
+    """
 
     if user.has_any_role(*CPRO_MOVE_ROLES):
         return True
-    return (await effective_sender(db, now)).user_id == user.id
+    firm = (await effective_sender(db, now)).user_id
+    if firm is not None:
+        return firm == user.id
+    return user.id in {uid for uid in fallback_sender_ids if uid is not None}
 
 
 async def notify_new_sender(

@@ -179,6 +179,33 @@ def test_nordea_card_already_in_the_queue_moves_only_for_the_sender() -> None:
     }
 
 
+@pytest.mark.parametrize("qc_status", ["unchecked", "failed"])
+def test_cpro_queue_upload_is_not_blocked_by_qc(qc_status: str) -> None:
+    """Audyt 25.09.2026: serwer przy „✓ Wrzucone" QC nie liczy (osoba weszła
+    do kolejki po QC albo po przeglądzie DZ), więc okno nie może blokować."""
+    facts = replace(
+        VERIFIED_READY,
+        from_column="cv_qc",
+        qc_status=qc_status,
+        nordea=True,
+        on_cpro_stage=True,
+        can_send_to_cpro=True,
+        cpro_sender_name="Kinga Sordyl",
+    )
+    result = build_requirements(facts, "cv_sent")
+    qc_item = _item(result, "cv_qc")
+    assert qc_item["blocking"] is False and qc_item["status"] == "ok"
+    assert "cpro_upload" in _keys(result)
+    assert result["primary"] == {
+        "kind": "move",
+        "label": "Przesuń na „Wysłane do Cpro”",
+    }
+    # Przed kolejką Cpro QC nadal blokuje przekazanie.
+    before = build_requirements(replace(facts, on_cpro_stage=False), "cv_sent")
+    assert _item(before, "cv_qc")["blocking"] is True
+    assert before["primary"]["kind"] == "blocked"
+
+
 def test_client_interview_waits_for_slots_without_blocking() -> None:
     result = build_requirements(
         PairFacts(from_column="cv_sent", stage_id=9), "client_interview"

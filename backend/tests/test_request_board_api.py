@@ -536,3 +536,53 @@ async def test_review_tab_pages_with_limit_and_offset(
         headers=app_auth_headers,
     )
     assert too_big.status_code == 422
+
+
+async def test_closed_recruitment_state_change_is_refused_until_reopened(
+    app_client: AsyncClient, app_auth_headers: dict
+) -> None:
+    """Audyt 25.09.2026: „Szukamy” przy zamkniętej rekrutacji z zakładki
+    „Zakończone” zapisywało `searching` przy `status=closed` i wiersz znikał
+    z listy. Teraz 409 bez zapisu; „Zakończony” zostaje dozwolony."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.job import Job, JobStatus
+
+    job_id = await _seed_job(work_state="finished")
+    open_id = await _seed_job()
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        job.status = JobStatus.closed
+        title = job.title
+        await db.commit()
+
+    listed = await app_client.get(
+        "/api/request-work-states",
+        params={"tab": "finished", "q": title},
+        headers=app_auth_headers,
+    )
+    row = next(r for r in listed.json()["rows"] if r["job_id"] == job_id)
+    assert row["closed"] is True
+
+    refused = await app_client.patch(
+        "/api/request-work-states",
+        json={
+            "changes": [
+                {"job_id": open_id, "state": "searching"},
+                {"job_id": job_id, "state": "searching"},
+            ]
+        },
+        headers=app_auth_headers,
+    )
+    assert refused.status_code == 409, refused.text
+    assert "Najpierw otwórz rekrutację" in refused.json()["detail"]
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(Job, job_id)).work_state == "finished"
+        # Paczka jest atomowa — otwarta rekrutacja też się nie zmieniła.
+        assert (await db.get(Job, open_id)).work_state == "to_review"
+
+    finished = await app_client.patch(
+        "/api/request-work-states",
+        json={"changes": [{"job_id": job_id, "state": "finished"}]},
+        headers=app_auth_headers,
+    )
+    assert finished.status_code == 200, finished.text

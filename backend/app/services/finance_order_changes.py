@@ -86,7 +86,7 @@ from app.schemas.finance_order_changes import (
     OrderGapItem,
 )
 from app.services.client_identity import client_display_name_expression
-from app.services.order_excel_export import _safe_text
+from app.core.export_safety import safe_cell
 from app.services.order_facts import (
     INTENT_LABELS,
     OrderFact,
@@ -690,6 +690,7 @@ async def _changes(
                 old_unit=event.old_unit,
                 new_unit=event.new_unit,
                 currency=event.currency,
+                old_currency=event.old_currency,
                 old_date=event.old_date,
                 new_date=event.new_date,
                 is_whole_order=whole,
@@ -1135,7 +1136,7 @@ def _change_description(item: OrderChangeItem) -> tuple[str, str, str]:
     )
     return (
         label,
-        _rate(item.old_amount, item.old_unit, item.currency),
+        _rate(item.old_amount, item.old_unit, item.old_currency or item.currency),
         _rate(item.new_amount, item.new_unit, item.currency),
     )
 
@@ -1171,9 +1172,7 @@ def _sheet(
         cell.fill = fill
         cell.alignment = Alignment(vertical="center")
     for row in rows:
-        sheet.append(
-            [_safe_text(value) if isinstance(value, str) else value for value in row]
-        )
+        sheet.append([safe_cell(value) for value in row])
     for index, width in enumerate(widths, start=1):
         sheet.column_dimensions[get_column_letter(index)].width = width
     for row in sheet.iter_rows(min_row=2):

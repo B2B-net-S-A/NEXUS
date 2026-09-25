@@ -161,8 +161,11 @@ def detection_window_start(today: date) -> date:
 async def _ended_candidates(db: AsyncSession, today: date) -> list[OrderFact]:
     end = effective_end_expr()
     already = select(OrderGap.order_id)
+    # Lustro `OrderFact.works_until_md_exhausted`: tylko linia zamówienia
+    # MD/kosztowego pracuje po dacie końca (M10, audyt 25.09.2026).
     still_billing_md = and_(
         ClientOrder.status == ClientOrderStatus.active,
+        ClientOrder.order_group_id.is_not(None),
         ClientOrder.md_total.is_not(None),
         func.coalesce(ClientOrder.md_remaining, 0) > 0,
     )

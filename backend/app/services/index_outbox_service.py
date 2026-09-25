@@ -17,10 +17,10 @@ from __future__ import annotations
 import hashlib
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Awaitable, Callable, Optional
 
-from sqlalchemy import func, inspect, select
+from sqlalchemy import and_, func, inspect, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -379,13 +379,44 @@ async def _enqueue_isolated(
 # ── Worker side ───────────────────────────────────────────────────────────────
 
 
+# Odstęp przed kolejną próbą wpisu `failed`, według liczby prób (audyt
+# 25.09.2026). Do tej zmiany worker brał `failed` od razu w następnym ticku,
+# więc 5 prób (`AI_INDEX_MAX_ATTEMPTS`) mijało w sekundach, a chwilowa awaria
+# Qdranta/Voyage'a zamieniała backlog w wiersze `dead`. Kolumny
+# `next_attempt_at` w tabeli nie ma — odstęp liczy się od `updated_at`
+# (stemplowany `onupdate` przy zapisie porażki).
+RETRY_BACKOFF_MINUTES: tuple[int, ...] = (1, 5, 15, 60)
+
+
+def retry_due_clause(now: datetime):
+    """Warunek SQL: wpis `failed`, którego odstęp po ostatniej próbie minął."""
+    branches = []
+    last = len(RETRY_BACKOFF_MINUTES)
+    for index, minutes in enumerate(RETRY_BACKOFF_MINUTES, start=1):
+        cutoff = now - timedelta(minutes=minutes)
+        if index == 1:
+            attempts_match = IndexOutboxEvent.attempts <= 1
+        elif index == last:
+            attempts_match = IndexOutboxEvent.attempts >= index
+        else:
+            attempts_match = IndexOutboxEvent.attempts == index
+        branches.append(and_(attempts_match, IndexOutboxEvent.updated_at <= cutoff))
+    return and_(IndexOutboxEvent.status == "failed", or_(*branches))
+
+
 async def claim_batch(db: AsyncSession, limit: int) -> list[IndexOutboxEvent]:
-    """Atomically claim up to ``limit`` pending/failed events (SKIP LOCKED)."""
+    """Atomically claim up to ``limit`` pending/due-failed events (SKIP LOCKED)."""
+    now = datetime.now(timezone.utc)
     rows = (
         (
             await db.execute(
                 select(IndexOutboxEvent)
-                .where(IndexOutboxEvent.status.in_(("pending", "failed")))
+                .where(
+                    or_(
+                        IndexOutboxEvent.status == "pending",
+                        retry_due_clause(now),
+                    )
+                )
                 .order_by(IndexOutboxEvent.created_at.asc())
                 .limit(limit)
                 .with_for_update(skip_locked=True)
@@ -394,7 +425,6 @@ async def claim_batch(db: AsyncSession, limit: int) -> list[IndexOutboxEvent]:
         .scalars()
         .all()
     )
-    now = datetime.now(timezone.utc)
     for ev in rows:
         ev.status = "processing"
         ev.heartbeat_at = now
@@ -414,6 +444,20 @@ async def _default_reindex(entity_type: str, entity_id: int, operation: str) -> 
         if entity_type == CANDIDATE:
             return await emb.embed_candidate(entity_id, s)
         return await emb.embed_job(entity_id, s)
+
+
+def _embedding_provider_down() -> bool:
+    """Czy dostawca embeddingów jest w awarii (ta sama reguła co reconciler).
+
+    ``unknown`` nie jest awarią. Lokalny import: moduł zdrowia AI nie może
+    wisieć na imporcie outboxu.
+    """
+    try:
+        from app.services.ai_health import provider_health_label
+
+        return provider_health_label("voyage") == "unhealthy"
+    except Exception:  # noqa: BLE001 — sonda nie może wywrócić workera
+        return False
 
 
 async def _superseded(db: AsyncSession, ev: IndexOutboxEvent) -> bool:
@@ -492,9 +536,16 @@ async def process_event(
         else:
             raise RuntimeError("reindex returned False")
     except Exception as exc:  # noqa: BLE001
-        ev.attempts += 1
         ev.last_error = str(exc)[:500]
-        ev.status = "dead" if ev.attempts >= max_attempts else "failed"
+        if ev.operation == "upsert" and _embedding_provider_down():
+            # Awaria dostawcy embeddingów nie jest winą wpisu: próba nie
+            # zużywa limitu (inaczej jedna awaria Voyage'a zamieniała backlog
+            # w `dead`, jak opisuje `embedding_provider_down`). Wraca po
+            # odstępie jak zwykła porażka.
+            ev.status = "failed"
+        else:
+            ev.attempts += 1
+            ev.status = "dead" if ev.attempts >= max_attempts else "failed"
         logger.warning(
             "[index-outbox] event %s (%s:%s) → %s (attempt %s): %s",
             ev.id,

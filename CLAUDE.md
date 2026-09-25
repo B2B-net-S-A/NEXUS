@@ -1995,8 +1995,10 @@ dniami roboczymi z D5. **Kod wdrożony (#1368), aktywacja częściowo credential
 **Env (Coolify, przez workflow „Coolify set env"):** `COMPASS_LIFECYCLE_ENABLED`,
 `COMPASS_LIFECYCLE_URL` (`https://compass.dynaminds.pl/api/internal/roster`),
 `COMPASS_LIFECYCLE_SECRET` (**= Compass `ROSTER_EXPORT_SECRET`**). Klucz konta
-serwisowego wydaje admin przez Ustawienia → Konta serwisowe (mintuje żywe
-poświadczenie — nie da się z CI: `coolify-ops.yml` świadomie nie ma `command`).
+serwisowego wydaje admin przez API — `POST /api/settings/service-accounts/{id}/keys`
+z tokenem admina (aplikacja NIE ma ekranu kont serwisowych, audyt 25.09.2026);
+mintuje żywe poświadczenie, więc nie da się z CI (`coolify-ops.yml` świadomie
+nie ma `command`).
 
 ## Moje powiadomienia — kategorie i wyciszenia per osoba (0349, 22.09.2026)
 
@@ -3900,7 +3902,8 @@ i osłabia sesje wszystkim. Migracja `0220_service_accounts` (+ lustro w `entryp
   W snapshotcie klucz jest sprawdzany **przed** legacy `X-Snapshot-Token` (w trakcie migracji
   lecą oba nagłówki naraz); `auth_mode` w odpowiedzi ma teraz trzecią wartość
   `service_account`. CRUD: `/api/settings/service-accounts` (+ `/scopes`, `/config`,
-  `/{id}/keys`, `/{id}/keys/{key_id}/revoke`).
+  `/{id}/keys`, `/{id}/keys/{key_id}/revoke`) — tylko API, bez ekranu w aplikacji
+  (klucz wydaje admin żądaniem z tokenem admina).
 - **`SNAPSHOT_TOKEN` jest do wycofania**, nie do rozbudowy — jeden globalny sekret bez
   terminu, rotacji, rewokacji i atrybucji. Zostaje, dopóki cron i ops-skille (`.claude/commands/
   ops-snapshot.md`) nie przejdą na klucz ze scope'em `ops:snapshot`.
@@ -6868,6 +6871,80 @@ Raport: `docs/audit-2026-09-22-round2-completion-report.md`. Migracja `0351_audi
 - **Finanse → Zmiany:** dziennik zmian zna savepointy (`after_soft_rollback` odtwarza stan z początku savepointu, zapis tylko w transakcji głównej). Skaner domyka linię MD po dacie tylko przy świadomym końcu (następca albo grupa `completed` z `closure_date` ≤ końca linii). Usunięcie zamówienia zamyka jego braki i karty DL (`close_gaps_of_deleted_orders` przed `db.delete`).
 - **Kandydaci/rekrutacje:** zgłoszenie od osoby z bazy przechodzi `submission_block_reason` (czarna lista, weto HM) — przy blokadzie CV zostaje, proces się nie otwiera, powód w dzwonku; ręczne rozstrzygnięcie przy wecie = 409. Usunięcie kandydata kasuje jego zgłoszenia (po `matched_candidate_id` lub e-mailu), zgody i pliki CV (`application_submission_erasure.py`). Stawka miesięczna z notatek ÷168 tylko przy `b2b`. Flagi migracji zapisanych wyszukiwań trafiają do `qs` (`hu`, `ls`). Uśpienie przypiętej osoby pamięta przypięcie (`restore_kind`). Budżet z odczytu requestu tylko z `pln_hourly_bounds`. „Do przejrzenia” na Tablicy pusta dopiero przy `status.settled` bez błędów źródeł. Stały link kariery nieaktywnego pracownika = 404; SSR stron publicznych przekazuje `forwardedClientHeaders()`; boty podglądu nie podbijają `visit_count`.
 - **CI/deploy:** alarmy otwiera i zamyka `.github/scripts/alert_issue.sh` tym samym markerem (nowy alarm bez `resolve` wywala test). Joby z `COOLIFY_*`/`BACKUP_*` tylko z `refs/heads/main`. Automatyczne deploye czekają na okno ciszy `DEPLOY_FREEZE_WINDOW` (domyślnie `0-7` Warszawa); poranny `schedule` wdraża nocne merge'e; ręczny „Run workflow” ignoruje okno. „Coolify set env” domyślnie nie wdraża, `redeploy=true` uruchamia workflow Deploy. Wstrzymany/czerwony deploy otwiera issue. Etykieta `wstrzymaj` albo draft zdejmuje PR także z trwającej kolejki. E2E nie biegnie po Deploy; gitleaks skanuje też zakres commitów PR.
+
+## Audyt 25.09.2026 — reguły po naprawie
+
+Raport: https://claude.ai/artifact/BtnT7zb5kwPk5gNLvg56x6 (commit `eed680914`). Reguły,
+które łatwo cofnąć „przy okazji”:
+
+- **Poczta zamówień.** `titles_collide`: krótsza forma numeru („30751” ↔ „4500030751”)
+  to ten sam numer WYŁĄCZNIE, gdy oba są z samych cyfr (słowny przedrostek, np. „SAP”,
+  dozwolony); numery z `/`, `-` albo literami porównuje się w całości — do 25.09
+  „830/2026” był tym samym co „1830/2026” i automat nadpisywał szkic. Szkic LINII
+  zamówienia MD/kosztowego nigdy nie jest `FILL_DRAFT` (planer: `ACTION_GROUP`, writer
+  odmawia starego planu). Mail bez wpisu w dzienniku (błąd `/attachments`, brak
+  `contentBytes`) zatrzymuje `last_seen_received_at` na swoim `received_at − 1 s`,
+  także cofając znacznik; bieg ma `partial` i `stats.unprocessed_messages`, a
+  `checks.order_mail` = `degraded` (`order_mail_health_verdict`). Trzyma najwyżej
+  `ORDER_MAIL_UNPROCESSED_HOLD_HOURS` (24 h) — starszy dostaje wpis „Nieudane”
+  i przestaje trzymać (jeden zepsuty mail nie może zamrozić skrzynki). Wpis `failed` NIE jest
+  końcowy: ponowna weryfikacja przetwarza go z zapisanego PDF-a (młodszy niż 7 dni,
+  najwyżej 3 próby, `document_meta.failed_retry`, próba liczona przed odczytem);
+  `_first_with_sha` pomija `failed`. Kolejka ma zakładkę „Nieudane”.
+- **Zamówienia MD.** „Zamiany kontraktora” nie ma na osobie z zaplanowanym „Wejdź za
+  konsultanta” (409); gdy zamiana już jest, `activate_due_takeovers` anuluje zastępstwo
+  z wpisem w historii zamiast przenosić pulę drugi raz. `close_order_group` /
+  `reopen_order_group` decydują na nagłówku spod `_lock_group_row` (jak cancel/restore).
+  Korekta FIN-MD-02 celu przejęcia schodzi najpierw z opcji, potem z podstawy, nigdy
+  poniżej zera. Rekrutację zamówienia sprawdza jedna `_assert_job_of_client` (POST
+  `/orders`, PATCH, Flow B — 422 po polsku). PATCH zamówienia spoza grupy: szkic →
+  `active` przechodzi bramkę kompletności (422 `order_incomplete` + `missing`), szkic →
+  `completed` = 409 `order_is_draft`. `works_until_md_exhausted` i `still_billing_md`
+  dotyczą wyłącznie linii grupy (M10). `run_daily_order_cost_sync` czyta stan spod blokady.
+- **Kontrakty i Finanse.** „Cofnij zakończenie” z migawką `ending` idzie
+  `ended → active → ending`; bez daty albo z datą miniona — `active`. Cofnięcie bez
+  migawki zachowuje datę końca umowy zlecenie/UoP (B2B nadal bezterminowa). PATCH daty
+  końca na umowie „Zakończony” to reaktywacja przez `reopen_contract` (wpis historii,
+  Generator B2B wraca, migawka `superseded`) — CHYBA ŻE umowa ma rozwiązanie
+  (`agreement_termination_mode`): wtedy to korekta daty (`ended → active → ending`),
+  rozwiązanie, wiersz Generatora i migawka zostają. Przepięcie na innego klienta odmawia
+  (`duplicate_contract_at_target`), gdy osoba ma tam żywy kontrakt. Reguła „obecny
+  kontrakt” w SQL ma JEDNĄ definicję: `contractor_identity.current_contract_clause(as_of)`
+  (katalog, analityka kontraktów, `consultant_population`). Marża % Rady dzieli przez
+  `margin_revenue` (składowa `margin_revenue_pln`, redagowana w `without_money`).
+  Finanse → Zmiany niosą `old_currency`; stara strona = `old_currency ?? currency`.
+- **Rekrutacja.** Bez osoby od Cpro na firmę zadanie „do wrzucenia” z osobą zapasową
+  rekrutacji (`jobs.cpro_sender_id`, `task_assignee_id`) widzi ona oraz admin i HoR,
+  a wrzucić może ona (`can_send_to_cpro(..., fallback_sender_ids=…)`); osoba firmowa
+  zawsze wygrywa. Ruch z „Zamkniętych” liczy bramki (QC, Cpro, debrief) od ostatniej
+  kolumny sprzed zamknięcia (`pipeline_move_rules.gate_stage_row`). Okno „Przesuń dalej”
+  nie blokuje QC na etapie Cpro u Nordei. Efekty uboczne `/move` po commicie idą przez
+  `_post_commit_effect` (savepoint), odpowiedź liczy się przed nimi. Rozmowę u klienta
+  (i debrief) otwiera każdy z dostępem do jej rekrutacji; `recruiter_id` wniosku
+  o terminy = aktywna osoba z rolą wewnętrzną i dostępem (422). „Porządek w requestach”:
+  zamknięta rekrutacja przyjmuje tylko „Zakończony” (409), wiersz niesie `closed`.
+- **Wyszukiwanie.** Całe słowo dostaje też `'{słowo}.js':*` i (tylko `DOT_PREFIXES`)
+  `'{słowo}.net':*` — NIGDY ogólnego `'{słowo}.':*` (klauzula „B2B.net S.A.”, adresy
+  e-mail). Filtry dat listy liczą dobę w Europe/Warsaw (`business_date_range`); daty
+  spoza 1900–2100 = 422. Weto HM nie zwalnia z „tylko umowa o pracę”.
+- **Bezpieczeństwo i logi.** Każdy eksport CSV/XLSX przepuszcza tekst przez
+  `app.core.export_safety.safe_cell`/`safe_row` (`'` przed `= + - @ \t \r`; wyjątek:
+  same cyfry i separatory, np. telefon `+48 …`); lokalne kopie zakazane
+  (`test_export_formula_injection.py`, AST). Pętle Slacka logują tylko kod HTTP albo klasę
+  wyjątku (adres webhooka to sekret). Silnik bazy ma `hide_parameters=True`. Dokument
+  kandydata idzie inline wyłącznie dla PDF/PNG/JPEG/GIF/WebP (`_safe_document_disposition`).
+- **Integracje.** Fazy Traffita z paczkami (aktywności, pliki, CV, rekrutacje) zapisują
+  wiersz w savepoincie; błąd wiersza → `add_error` z `ext=`, nigdy `rollback()` sesji.
+  Kursory stron niosą `carried_errors` (wznowienie blokuje `__daily__`). `skip_on_5xx`
+  przy nieznanej liczbie stron kończy się wyjątkiem po `TRAFFIT_MAX_CONSECUTIVE_5XX` (5).
+  Faza `jobs` commituje co 200 wierszy. Zadania w tle z endpointów uruchamia wyłącznie
+  `app.core.tasks.spawn`. Handlery async wysyłają maile przez `asyncio.to_thread`.
+  `send_system_email` zwraca True/False/None (`DELIVERY_UNCERTAIN`) — przy None wołający
+  nie zwalnia rezerwacji (`email_delivery_uncertain`), log ma tylko `to_ref`. Outbox
+  indeksu ponawia `failed` po 1/5/15/60 min; awaria Voyage nie zużywa prób. Nowa
+  publikacja na portal anuluje zaległe zamknięcie starych `failed` tej pary. Jarvis
+  wiąże rozmowę z kandydatem po każdym narzędziu (od razu w bazie), blokada tury to
+  `TurnClaim` przedłużany co krok, `JARVIS_MAX_TOKENS_PER_STEP` = 4000.
 
 ## Narzędzia rekrutera — reguły po audycie 17.09.2026
 

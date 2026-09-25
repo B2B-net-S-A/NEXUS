@@ -30,6 +30,8 @@ import {
 } from "lucide-react";
 import api, { savedSearchesApi } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
+import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
 import { useToast } from "@/components/Toast";
 import {
   BulkCvDownloadError,
@@ -2613,7 +2615,7 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
 
 // ── Bulk add-to-pool modal (Phase „Otwartość" Faza 2.5) ─────────────────────
 
-function BulkAddToPoolModal({
+export function BulkAddToPoolModal({
  selectedCount,
  onCancel,
  onConfirm,
@@ -2627,7 +2629,7 @@ function BulkAddToPoolModal({
  const [filter, setFilter] = useState("");
  const currentUser = useAuthStore((s) => s.user);
  const isAdmin = hasRole(currentUser, "admin");
- const { data, isLoading } = useQuery({
+ const { data, isLoading, isError, error, isSuccess, refetch } = useQuery({
  queryKey: ["talent-pools","bulk-modal"],
  queryFn: () => api.get("/api/talent-pools").then((r) => r.data),
  });
@@ -2646,6 +2648,15 @@ function BulkAddToPoolModal({
  const filtered = pools.filter((p) =>
  p.name.toLowerCase().includes(filter.toLowerCase())
  );
+ // Awaria pobrania NIE może wyglądać jak „Brak pul” — pusta lista czyta się
+ // jak brak danych, a rekruter zakładałby duplikat puli.
+ const poolsView = resolveViewState({
+ isLoading,
+ isError,
+ error,
+ isEmpty: pools.length === 0,
+ isSuccess,
+ });
 
  return (
  <div
@@ -2666,15 +2677,28 @@ function BulkAddToPoolModal({
  autoFocus
  />
  <div className="max-h-[50dvh] overflow-y-auto space-y-1">
- {isLoading && (
+ {poolsView === "loading" && (
  <div className="text-xs text-muted-foreground py-4 text-center">Ładowanie pul…</div>
  )}
- {!isLoading && filtered.length === 0 && (
+ {isBlockingViewState(poolsView) && (
+ <QueryStateNotice
+ state={poolsView as "forbidden" | "not_found" | "error"}
+ description={
+ poolsView === "error"
+ ? "Nie udało się pobrać listy pul. Pule mogą istnieć — spróbuj ponownie."
+ : undefined
+ }
+ onRetry={() => void refetch()}
+ className="py-6"
+ />
+ )}
+ {(poolsView === "empty" || poolsView === "ready") && filtered.length === 0 && (
  <div className="text-xs text-muted-foreground py-4 text-center">
- Brak pul dla „{filter}". <Link href="/talents" className="underline">Stwórz nową</Link>.
+ {pools.length === 0 ? "Nie ma jeszcze żadnej puli." : `Brak pul dla „${filter}".`}{" "}
+ <Link href="/talents" className="underline">Stwórz nową</Link>.
  </div>
  )}
- {filtered.map((p) => {
+ {(poolsView === "empty" || poolsView === "ready") && filtered.map((p) => {
  const usable = canUsePool(p);
  return (
  <button

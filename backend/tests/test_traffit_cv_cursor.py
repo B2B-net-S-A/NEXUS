@@ -153,3 +153,40 @@ async def test_cv_delta_ignores_the_cursor(monkeypatch) -> None:
     assert "after_id" not in db.last_scan_params
     assert db.cursor_writes == []
     assert db.cursor == {"after_id": 99}
+
+
+@pytest.mark.asyncio
+async def test_cv_row_error_is_attributed_and_does_not_roll_back_session() -> None:
+    """Audyt 25.09.2026: „emp {id}: …” nie pasowało do `_ERROR_REF_RE`, więc
+    jeden trwale zepsuty kandydat zamrażał `__daily__` bez możliwości
+    kwarantanny, a `rollback()` sesji cofał całą paczkę wskaźników CV."""
+
+    class _BrokenListing:
+        status_code = 200
+
+        def json(self):
+            raise ValueError("bad json")
+
+    class _BrokenTraffit(_NoFilesTraffit):
+        async def _get_raw(self, path, page=1, page_size=50):
+            emp = path.split("/")[2]
+            self.listed.append(emp)
+            if emp == "200":
+                return _BrokenListing()
+            return _FakeResp(payload=[])
+
+    rollbacks: list[int] = []
+
+    class _DB(_CursorDB):
+        async def rollback(self):
+            rollbacks.append(1)
+
+    db = _DB(candidates=[(1, "100"), (2, "200"), (3, "300")])
+    traffit = _BrokenTraffit()
+
+    progress = await _cv_importer(db, traffit).import_candidates_cv(since=_SINCE)
+
+    assert traffit.listed == ["100", "200", "300"]
+    assert progress.error_refs == {"candidate:200"}
+    assert progress.attributed_errors == 1
+    assert rollbacks == []

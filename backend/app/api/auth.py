@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -335,7 +336,11 @@ async def register(
             plain_token = await create_verification_token(
                 db, existing.id, requested_ip=requester_ip
             )
-            send_email_verification_email(
+            # Wysyłka synchroniczna (MSAL + httpx albo smtplib) — w wątku, żeby
+            # nie blokować pętli zdarzeń na czas połączenia z Graphem/SMTP
+            # (audyt 25.09.2026). Obie ścieżki rejestracji czekają tak samo.
+            await asyncio.to_thread(
+                send_email_verification_email,
                 to_email=existing.email,
                 recipient_name=existing.name,
                 verify_url=f"{base}/register/verify?token={plain_token}",
@@ -374,7 +379,8 @@ async def register(
     plain_token = await create_verification_token(
         db, user.id, requested_ip=requester_ip
     )
-    send_email_verification_email(
+    await asyncio.to_thread(
+        send_email_verification_email,
         to_email=user.email,
         recipient_name=user.name,
         verify_url=f"{base}/register/verify?token={plain_token}",
@@ -459,7 +465,8 @@ async def resend_verification(
         )
         base = (settings.PUBLIC_BASE_URL or "").rstrip("/")
         verify_url = f"{base}/register/verify?token={plain_token}"
-        send_email_verification_email(
+        await asyncio.to_thread(
+            send_email_verification_email,
             to_email=user.email,
             recipient_name=user.name,
             verify_url=verify_url,
@@ -614,7 +621,8 @@ async def change_password(
     await db.flush()
 
     # Best-effort email notification (no-op gdy SMTP off).
-    send_password_changed_notification(
+    await asyncio.to_thread(
+        send_password_changed_notification,
         to_email=current_user.email,
         recipient_name=current_user.name,
         by_admin=False,
@@ -665,7 +673,8 @@ async def forgot_password(
         base = (settings.PUBLIC_BASE_URL or "").rstrip("/")
         reset_url = f"{base}/login/reset?token={plain_token}"
 
-        send_password_reset_email(
+        await asyncio.to_thread(
+            send_password_reset_email,
             to_email=user.email,
             recipient_name=user.name,
             reset_url=reset_url,
@@ -757,7 +766,8 @@ async def reset_password_with_token(
     )
     await db.flush()
 
-    send_password_changed_notification(
+    await asyncio.to_thread(
+        send_password_changed_notification,
         to_email=user.email,
         recipient_name=user.name,
         by_admin=False,

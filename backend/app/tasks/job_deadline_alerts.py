@@ -57,6 +57,8 @@ from app.services.email import email_channel_enabled, send_email
 from app.services.notification_delivery import guarded_send, load_policy
 from app.services.m365.system_mail import (
     get_system_sender_connection,
+    DELIVERY_UNCERTAIN,
+    app_mail_send_outcome,
     send_system_email,
 )
 
@@ -219,6 +221,7 @@ async def _claim_email(db: AsyncSession, notif_id: int) -> bool:
         .where(
             Notification.id == notif_id,
             Notification.email_sent_at.is_(None),
+            Notification.email_delivery_uncertain.is_(False),
             or_(
                 Notification.email_send_started_at.is_(None),
                 Notification.email_send_started_at <= stale_cutoff,
@@ -237,6 +240,22 @@ async def _mark_email_sent(db: AsyncSession, notif_id: int) -> None:
         update(Notification)
         .where(Notification.id == notif_id)
         .values(email_sent_at=func.now())
+    )
+    await db.commit()
+
+
+async def _mark_email_uncertain(db: AsyncSession, notif_id: int) -> None:
+    """Wynik wysyłki nieznany — rezerwacja ZOSTAJE, wiersz wypada z kolejki.
+
+    Zwolnienie rezerwacji (jak przy porażce) oznaczało drugą wysyłkę tego
+    samego alertu w kolejnym przebiegu, choć pierwsza mogła dojść. Ta sama
+    flaga co w chat fallbacku (`email_delivery_uncertain`); zdejmuje ją
+    człowiek po ustaleniu wyniku.
+    """
+    await db.execute(
+        update(Notification)
+        .where(Notification.id == notif_id)
+        .values(email_delivery_uncertain=True)
     )
     await db.commit()
 
@@ -274,6 +293,7 @@ async def _dispatch_emails(db: AsyncSession) -> int:
         .where(Notification.notification_type.in_(_DEADLINE_NTYPES))
         .where(User.is_active.is_(True))
         .where(Notification.email_sent_at.is_(None))
+        .where(Notification.email_delivery_uncertain.is_(False))
         .where(Notification.created_at >= policy.cutoff_for("job_deadline"))
         .where(
             or_(
@@ -332,7 +352,7 @@ async def _dispatch_emails(db: AsyncSession) -> int:
             f"Otwórz w Nexusie: {link}\n\n"
             "— Nexus ATS"
         )
-        ok = False
+        ok: bool | None = False
         try:
             if not (await load_policy(db)).allows("job_deadline", notif.created_at):
                 await _release_email_claim(db, notif.id)
@@ -349,24 +369,37 @@ async def _dispatch_emails(db: AsyncSession) -> int:
                     event_at=notif.created_at,
                 )
             else:
-                # Blocking smtplib/app-only — offload z event loopa.
-                ok = await asyncio.to_thread(
-                    guarded_send,
-                    "job_deadline",
-                    notif.created_at,
-                    send_email,
-                    user.email,
-                    subject,
-                    text_body,
-                    None,
-                )
+                # Blocking smtplib/app-only — offload z event loopa. Wynik
+                # „nie wiadomo” żyje we fladze wątku wysyłki, więc liczymy go
+                # w tym samym wątku.
+                to_addr = user.email
+
+                def _send_app_only(
+                    created_at=notif.created_at, to_addr=to_addr
+                ) -> bool | None:
+                    return app_mail_send_outcome(
+                        guarded_send(
+                            "job_deadline",
+                            created_at,
+                            send_email,
+                            to_addr,
+                            subject,
+                            text_body,
+                            None,
+                        )
+                    )
+
+                ok = await asyncio.to_thread(_send_app_only)
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "job_deadline_alerts email failed notif=%d: %s",
                 notif.id,
                 type(exc).__name__,
             )
-        if ok:
+        if ok is DELIVERY_UNCERTAIN:
+            # Mail mógł wyjść — bez zwalniania rezerwacji i bez ponowienia.
+            await _mark_email_uncertain(db, notif.id)
+        elif ok:
             await _mark_email_sent(db, notif.id)
             sent += 1
         else:

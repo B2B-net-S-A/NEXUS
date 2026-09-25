@@ -173,6 +173,11 @@ class OrderChangeItem(OrderRef):
     old_unit: Optional[str] = None
     new_unit: Optional[str] = None
     currency: Optional[str] = None
+    # Waluta STAREJ strony zmiany stawki (``order_change_events.old_currency``).
+    # Zmiana waluty bez zmiany kwoty jest zmianą — bez tego pola obie strony
+    # renderowały się w nowej walucie („100 EUR → 100 EUR”). ``None`` = ta
+    # sama co ``currency`` (wpisy sprzed zapisu waluty starej strony).
+    old_currency: Optional[str] = None
     old_date: Optional[date] = None
     new_date: Optional[date] = None
     is_whole_order: bool = False

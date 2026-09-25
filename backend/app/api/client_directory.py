@@ -22,6 +22,7 @@ from app.api.clients import polish_alphabetical_key
 from app.api.deps import AdminUser, OperationalUser
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.core.database import get_db
+from app.core.export_safety import safe_cell
 from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.models.client import Client
@@ -31,7 +32,6 @@ from app.models.client_directory import (
     PortfolioCategory,
 )
 from app.models.client_framework_contract import ClientFrameworkContract
-from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.contract import Contract, ContractStatus
 from app.models.user import User, UserRole
 from app.schemas.client_directory import (
@@ -49,7 +49,10 @@ from app.services.client_identity import (
     client_display_name_expression,
     visible_client_predicates,
 )
-from app.services.contractor_identity import contractor_identity_sql_expression
+from app.services.contractor_identity import (
+    contractor_identity_sql_expression,
+    current_contract_clause,
+)
 from app.services.polish_ilike import polish_folded_ilike
 from app.core.scheduling import business_today
 
@@ -80,18 +83,6 @@ def _visible_client_filters() -> tuple:
     """Cienki alias na `client_identity.visible_client_predicates` (była kopia)."""
 
     return visible_client_predicates()
-
-
-def _live_orders_of_contract():
-    """Nieanulowane zamówienia kontraktu z zewnętrznego zapytania (korelacja)."""
-    return (
-        select(ClientOrder.id)
-        .where(
-            ClientOrder.contract_id == Contract.id,
-            ClientOrder.status != ClientOrderStatus.cancelled,
-        )
-        .correlate(Contract)
-    )
 
 
 def _active_consultants_subquery(as_of: date):
@@ -128,23 +119,7 @@ def _active_consultants_subquery(as_of: date):
             # z nich jeszcze się nie zaczęło (audyt 24.09.2026, S5). Bez
             # filtra po `end_date` — profil też go nie ma, o końcu decyduje
             # status umowy (N11).
-            or_(
-                Contract.start_date <= as_of,
-                and_(
-                    Contract.start_date.is_(None),
-                    or_(
-                        ~_live_orders_of_contract().exists(),
-                        _live_orders_of_contract()
-                        .where(
-                            or_(
-                                ClientOrder.start_date.is_(None),
-                                ClientOrder.start_date <= as_of,
-                            )
-                        )
-                        .exists(),
-                    ),
-                ),
-            ),
+            current_contract_clause(as_of),
         )
         .group_by(Contract.client_id)
         .subquery()
@@ -474,22 +449,8 @@ def _directory_contract_end_cell(row) -> str:
     return row.expiry_date.isoformat()
 
 
-# Spreadsheet formula-injection guard. A free-text cell we write verbatim that
-# begins with =, +, -, @ (or a tab/CR that can smuggle one in) is executed as a
-# formula when the file is opened in Excel / Google Sheets. display_name /
-# scope_label / industry / legal_name are user-settable DB values, so we prefix
-# them with an apostrophe (the OWASP-standard mitigation) — the spreadsheet then
-# renders the literal text. openpyxl also treats a leading "=" string as a
-# formula, so this protects the xlsx path too. Ints and ISO dates pass through.
-_FORMULA_INJECTION_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
-
-
-def _formula_safe(value):
-    if isinstance(value, str) and value[:1] in _FORMULA_INJECTION_PREFIXES:
-        return "'" + value
-    return value
-
-
+# Osłona przed wstrzyknięciem formuły: display_name / scope_label / industry /
+# legal_name to wartości wpisywane przez ludzi — `safe_cell` (app.core.export_safety).
 def _directory_export_row(row, *, can_view_legal: bool) -> list:
     values = [
         row.client_id,
@@ -505,7 +466,7 @@ def _directory_export_row(row, *, can_view_legal: bool) -> list:
     ]
     if can_view_legal:
         values.extend([row.legal_name or "", row.nip or "", row.regon or ""])
-    return [_formula_safe(value) for value in values]
+    return [safe_cell(value) for value in values]
 
 
 @router.get("/directory/export")

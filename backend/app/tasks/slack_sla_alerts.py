@@ -246,7 +246,8 @@ async def _post_to_slack(webhook: str, breach: dict) -> bool:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.post(webhook, json={"text": text})
     except Exception as e:  # noqa: BLE001
-        logger.warning("slack_sla_alerts: post failed %s", e)
+        # Sama klasa wyjątku — treść bywa pełnym adresem webhooka (sekret).
+        logger.warning("slack_sla_alerts: post failed (%s)", type(e).__name__)
         return False
     if resp.status_code >= 400:
         logger.warning(

@@ -100,9 +100,15 @@ class OrderFact:
         (``_promote_statuses``), a następna grupa czeka, aż poprzednia zużyje
         MD. Traktowanie daty jako końca dawałoby fałszywe braki i „do usunięcia
         z rozliczeń" przy kimś, kto nadal rozlicza dni.
+
+        WYŁĄCZNIE linia zamówienia MD/kosztowego (``order_group_id``) — lustro
+        poprawki M10 w ``order_continuation``. Samodzielne zamówienie okresowe
+        z ``md_total`` kończy się datą (skaner je domyka), a jego „pozostałe
+        MD” nie maleją, bo nie rozlicza go import MD (audyt 25.09.2026).
         """
         return (
             self.status == ClientOrderStatus.active.value
+            and self.order_group_id is not None
             and self.md_total is not None
             and (self.md_remaining or Decimal("0")) > 0
         )

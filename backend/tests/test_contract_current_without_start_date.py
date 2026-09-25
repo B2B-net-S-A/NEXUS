@@ -75,9 +75,23 @@ def test_client_directory_sql_mirrors_the_python_rule():
     """
     source = open("app/api/client_directory.py", encoding="utf-8").read()
     assert "Contract.start_date.is_not(None)" not in source
+    # Od 25.09.2026 reguła SQL ma jedną definicję (`current_contract_clause`),
+    # wspólną z analityką kontraktów i populacją konsultantów.
+    assert "current_contract_clause(as_of)" in source
+    helper = open("app/services/contractor_identity.py", encoding="utf-8").read()
     # Od 24.09.2026 (S5) kontrakt bez daty startu pyta o nią swoje zamówienia
     # — lustro `fallback_start` z profilu; nadal nie odpada z samego braku daty.
     assert re.search(
         r"Contract\.start_date <= as_of,\s*and_\(\s*Contract\.start_date\.is_\(None\)",
-        source,
-    ), "katalog klientów przestał dopuszczać kontrakt bez daty startu"
+        helper,
+    ), "reguła SQL przestała dopuszczać kontrakt bez daty startu"
+
+
+def test_analytics_and_population_use_the_same_sql_rule():
+    for path in (
+        "app/api/contract_analytics.py",
+        "app/services/consultant_population.py",
+    ):
+        source = open(path, encoding="utf-8").read()
+        assert "current_contract_clause(" in source, path
+        assert "Contract.start_date.is_(None), Contract.start_date <=" not in source

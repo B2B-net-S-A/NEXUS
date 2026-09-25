@@ -1,5 +1,6 @@
 """Admin-only API endpoints for user management and system stats."""
 
+import asyncio
 import os
 import time
 from datetime import datetime, timezone
@@ -639,12 +640,17 @@ async def reset_password(
         )
     )
     await db.flush()
-
-    send_password_changed_notification(
-        to_email=user.email,
-        recipient_name=user.name,
+    to_email, recipient_name, admin_name = user.email, user.name, _admin.name
+    # Commit PRZED wysyłką (audyt 25.09.2026): wiersz użytkownika jest
+    # zablokowany `FOR UPDATE`, a wysyłka (MSAL + Graph albo SMTP) trwa
+    # sekundy — blokada i pętla zdarzeń nie mogą na nią czekać.
+    await db.commit()
+    await asyncio.to_thread(
+        send_password_changed_notification,
+        to_email=to_email,
+        recipient_name=recipient_name,
         by_admin=True,
-        admin_name=_admin.name,
+        admin_name=admin_name,
     )
     return {"detail": "Password reset successfully"}
 
@@ -675,12 +681,7 @@ async def send_reset_link(
     base = (settings.PUBLIC_BASE_URL or "").rstrip("/")
     reset_url = f"{base}/login/reset?token={plain_token}"
 
-    send_password_reset_email(
-        to_email=user.email,
-        recipient_name=user.name,
-        reset_url=reset_url,
-        expires_minutes=RESET_TOKEN_TTL_MINUTES,
-    )
+    to_email, recipient_name = user.email, user.name
 
     db.add(
         Activity(
@@ -709,6 +710,16 @@ async def send_reset_link(
         )
     )
     await db.flush()
+    # Commit PRZED wysyłką: token musi istnieć, zanim link wyjdzie mailem,
+    # a blokada wiersza użytkownika nie może trwać przez połączenie z Graphem.
+    await db.commit()
+    await asyncio.to_thread(
+        send_password_reset_email,
+        to_email=to_email,
+        recipient_name=recipient_name,
+        reset_url=reset_url,
+        expires_minutes=RESET_TOKEN_TTL_MINUTES,
+    )
     return {"detail": "Reset link sent to user's email"}
 
 

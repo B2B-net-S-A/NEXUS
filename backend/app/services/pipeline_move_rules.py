@@ -56,6 +56,40 @@ PRE_CONTRACT_COLUMNS = frozenset(
 )
 
 
+async def gate_stage_row(
+    db: AsyncSession, *, candidate_id: int, job_id: int
+) -> tuple[Optional[CandidateStage], Optional[str]]:
+    """Wiersz etapu pary i jego kolumna, względem których liczą się bramki ruchu.
+
+    Zwykle to najnowszy wiersz pary. Gdy para stoi w „Zamkniętych"
+    (odrzucony, wycofany, rezerwa), bramki (QC CV, Cpro, debrief) liczą się
+    względem OSTATNIEJ kolumny sprzed zamknięcia — inaczej droga „Nowi →
+    Odrzucony → CV wysłane" albo „Rozmowa u klienta → Odrzucony → Umowa"
+    omijała każdą z nich (audyt 25.09.2026). Para bez żadnego wiersza spoza
+    „Zamkniętych" zaczyna drogę od początku („new", jak ``_index`` w
+    ``move_requirements``). ``(None, None)`` = para nie ma jeszcze wierszy.
+    """
+    from app.services import candidate_claim
+
+    rows = (
+        await db.scalars(
+            select(CandidateStage)
+            .where(
+                CandidateStage.candidate_id == candidate_id,
+                CandidateStage.job_id == job_id,
+            )
+            .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
+        )
+    ).all()
+    if not rows:
+        return None, None
+    for row in rows:
+        column = await candidate_claim.stage_column(db, row)
+        if column != "closed":
+            return row, column
+    return rows[0], "new"
+
+
 async def assert_debrief_before_contract(
     db: AsyncSession, *, candidate_id: int, job_id: int, target_column: str
 ) -> None:
@@ -64,26 +98,16 @@ async def assert_debrief_before_contract(
     zaplanowana (debrief będzie możliwy po niej, ``debrief_gate``).
 
     Liczy się bieżąca kolumna pary, nie tylko „Rozmowa u klienta" — inaczej
-    okrężna droga Rozmowa → CV wysłane → Umowa omijała bramkę. Ruchy wewnątrz
-    „Umowy" i dalej nie są bramkowane (historia sprzed bramki).
+    okrężna droga Rozmowa → CV wysłane → Umowa omijała bramkę. Para
+    w „Zamkniętych" liczy się kolumną sprzed zamknięcia (``gate_stage_row``).
+    Ruchy wewnątrz „Umowy" i dalej nie są bramkowane (historia sprzed bramki).
     """
-    from app.services import candidate_claim
     from app.services.debrief_gate import missing_debrief
 
     if target_column not in ("contract", "hired"):
         return
-    latest = await db.scalar(
-        select(CandidateStage)
-        .where(
-            CandidateStage.candidate_id == candidate_id,
-            CandidateStage.job_id == job_id,
-        )
-        .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
-        .limit(1)
-    )
-    if latest is None:
-        return
-    if await candidate_claim.stage_column(db, latest) not in PRE_CONTRACT_COLUMNS:
+    _row, column = await gate_stage_row(db, candidate_id=candidate_id, job_id=job_id)
+    if column is None or column not in PRE_CONTRACT_COLUMNS:
         return
     missing = await missing_debrief(db, candidate_id=candidate_id, job_id=job_id)
     if missing is not None:

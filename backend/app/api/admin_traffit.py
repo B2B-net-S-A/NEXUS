@@ -22,7 +22,6 @@ klucz monitoringu czytający status nie ma prawa uruchomić pełnego importu.
 # i ląduje jako wymagany parametr QUERY. Ten sam trap co w
 # `candidate_activity_summary.py`.
 
-import asyncio
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -32,6 +31,7 @@ from app.api.deps import TraffitReadCaller, TraffitSyncCaller
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.rate_limit import limiter
+from app.core.tasks import spawn
 from app.tasks.traffit_sync import (
     run_traffit_sync,
     sync_is_running,
@@ -109,7 +109,7 @@ async def trigger_traffit_sync(
 
     # Fire-and-forget: a full reconcile can take minutes/hours; don't block the
     # request. Progress is observable via GET /sync/status.
-    asyncio.create_task(run_traffit_sync(mode, phases=selected))
+    spawn(run_traffit_sync(mode, phases=selected), f"traffit_sync(mode={mode})")
     out: Dict[str, Any] = {"status": "started", "mode": mode}
     if selected is not None:
         out["phases"] = selected

@@ -557,6 +557,15 @@ async def _write_document(
                 if order is None:
                     applied.error = "Szkic do uzupełnienia już nie istnieje"
                     continue
+                if order.order_group_id is not None:
+                    # Plan zapisany przed 25.09.2026 mógł wskazywać szkic LINII
+                    # zamówienia MD/kosztowego. Wypełniony jak zamówienie
+                    # okresowe dostawał numer, okres i stawkę bez budżetu MD.
+                    applied.error = (
+                        "Szkic należy do zamówienia MD/kosztowego — uzupełnij go "
+                        "w oknie zamówienia u tego klienta (przelicz plan)"
+                    )
+                    continue
                 before = {
                     "title": order.title,
                     "start_date": str(order.start_date),

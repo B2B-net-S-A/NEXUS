@@ -186,6 +186,70 @@ def test_compute_since_uses_lookback_then_overlap(monkeypatch):
     )
 
 
+def test_unprocessed_mail_holds_the_watermark_before_itself():
+    """Audyt 25.09.2026: mail bez wpisu w dzienniku nie może zostać za znacznikiem.
+
+    Do tej zmiany znacznik rósł do najnowszego maila biegu, także gdy starszy
+    padł na pobraniu załączników — a nakładka 2 h nie sięgała go w kolejnych
+    biegach i zamówienie przepadało na zawsze.
+    """
+    previous = datetime(2031, 3, 3, 6, 0, tzinfo=timezone.utc)
+    lost = datetime(2031, 3, 3, 8, 0, tzinfo=timezone.utc)
+    newest = datetime(2031, 3, 3, 12, 0, tzinfo=timezone.utc)
+
+    clean = svc.IngestStats(max_received_at=newest)
+    assert svc.next_watermark(clean, previous) == newest
+
+    held = svc.IngestStats(max_received_at=newest)
+    held.mark_unprocessed(newest)
+    held.mark_unprocessed(lost)
+    assert held.unprocessed_messages == 2
+    assert held.earliest_unprocessed_at == lost
+    assert svc.next_watermark(held, previous) == lost - timedelta(seconds=1)
+    # Mail z nakładki (starszy niż poprzedni znacznik) cofa znacznik —
+    # inaczej następny bieg też by go nie zobaczył.
+    older = svc.IngestStats(max_received_at=newest)
+    older.mark_unprocessed(previous - timedelta(hours=1))
+    assert svc.next_watermark(older, previous) == previous - timedelta(
+        hours=1, seconds=1
+    )
+    assert held.as_dict()["earliest_unprocessed_at"] == lost.isoformat()
+
+
+def test_order_mail_health_degrades_while_mail_is_unprocessed(monkeypatch):
+    monkeypatch.setattr(svc.settings, "ORDER_MAIL_POLL_INTERVAL_MINUTES", 60)
+    now = datetime(2031, 3, 3, 12, 0, tzinfo=timezone.utc)
+    fresh = now - timedelta(minutes=30)
+    verdict = svc.order_mail_health_verdict
+    assert (
+        verdict(finished_at=fresh, last_status="ok", unprocessed_messages=0, now=now)
+        == "healthy"
+    )
+    assert (
+        verdict(
+            finished_at=fresh, last_status="partial", unprocessed_messages=2, now=now
+        )
+        == "degraded"
+    )
+    assert (
+        verdict(finished_at=None, last_status=None, unprocessed_messages=0, now=now)
+        == "degraded"
+    )
+    assert (
+        verdict(
+            finished_at=now - timedelta(hours=4),
+            last_status="ok",
+            unprocessed_messages=0,
+            now=now,
+        )
+        == "degraded"
+    )
+    assert (
+        verdict(finished_at=fresh, last_status="error", unprocessed_messages=0, now=now)
+        == "degraded"
+    )
+
+
 # ── Rozpoznanie → client_id ─────────────────────────────────────────────────
 
 
@@ -662,6 +726,113 @@ async def test_database_error_while_processing_records_failed_row_and_continues(
     assert saved[0].attachment_name == "db.pdf" and saved[0].storage_path
     assert saved[0].client_key == "bank-a"
     assert "division by zero" in (saved[0].error or "")
+
+
+class _BrokenAttachmentsGraph(_FakeGraph):
+    async def get(self, url, params=None):
+        raise RuntimeError("graph 503")
+
+
+@pytest.mark.asyncio
+async def test_mail_without_a_journal_row_is_marked_unprocessed(
+    db_session, monkeypatch
+):
+    """Błąd `/attachments` i załącznik bez treści zatrzymują znacznik.
+
+    Wiadomość, która ma już wpis w dzienniku (wróciła z nakładki okna), nie
+    zatrzymuje go — przetworzył ją wcześniejszy bieg.
+    """
+    monkeypatch.setattr(svc.settings, "ORDER_MAIL_SENDER_ALLOWLIST", "")
+    registry = ClientRegistry(by_registry_id={})
+    tag = uuid.uuid4().hex[:8]
+
+    stats = svc.IngestStats()
+    mid = f"att{tag}"
+    added = await svc._process_message(
+        db_session,
+        _BrokenAttachmentsGraph([], {}),
+        None,
+        _msg(mid, received="2031-03-04T08:00:00Z"),
+        stats,
+        registry=registry,
+    )
+    assert added is False and stats.failed == 1
+    assert stats.unprocessed_messages == 1
+    assert stats.earliest_unprocessed_at == datetime(
+        2031, 3, 4, 8, 0, tzinfo=timezone.utc
+    )
+
+    no_bytes = {
+        "@odata.type": "#microsoft.graph.fileAttachment",
+        "name": "bez_tresci.pdf",
+        "contentType": "application/pdf",
+    }
+    mid2 = f"nb{tag}"
+    stats2 = svc.IngestStats()
+    await svc._process_message(
+        db_session,
+        _FakeGraph([], {f"graph-{mid2}": [no_bytes]}),
+        None,
+        _msg(mid2, received="2031-03-04T09:00:00Z"),
+        stats2,
+        registry=registry,
+    )
+    assert stats2.unprocessed_messages == 1
+
+    # Ta sama wiadomość z wpisem w dzienniku — już przetworzona, nie trzyma.
+    logged = svc._base_row(None, _msg(mid, received="2031-03-04T08:00:00Z"))
+    logged.outcome = OUTCOME_IGNORED_NO_PDF
+    db_session.add(logged)
+    await db_session.commit()
+    stats3 = svc.IngestStats()
+    await svc._process_message(
+        db_session,
+        _BrokenAttachmentsGraph([], {}),
+        None,
+        _msg(mid, received="2031-03-04T08:00:00Z"),
+        stats3,
+        registry=registry,
+    )
+    assert stats3.failed == 1 and stats3.unprocessed_messages == 0
+
+
+@pytest.mark.asyncio
+async def test_old_unprocessed_mail_becomes_failed_and_stops_holding(
+    db_session, monkeypatch
+):
+    """Przegląd PR #1833: trwale zepsuty mail nie może trzymać znacznika bez
+    końca — po `ORDER_MAIL_UNPROCESSED_HOLD_HOURS` dostaje wpis „Nieudane”."""
+    from app.models.order_mail import OUTCOME_FAILED
+
+    monkeypatch.setattr(svc.settings, "ORDER_MAIL_SENDER_ALLOWLIST", "")
+    monkeypatch.setattr(svc.settings, "ORDER_MAIL_UNPROCESSED_HOLD_HOURS", 24)
+    registry = ClientRegistry(by_registry_id={})
+    mid = f"old{uuid.uuid4().hex[:8]}"
+    received = (datetime.now(timezone.utc) - timedelta(hours=30)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
+
+    stats = svc.IngestStats()
+    added = await svc._process_message(
+        db_session,
+        _BrokenAttachmentsGraph([], {}),
+        None,
+        _msg(mid, received=received),
+        stats,
+        registry=registry,
+    )
+    assert added is True
+    assert stats.unprocessed_messages == 0
+    assert stats.earliest_unprocessed_at is None
+    rows = (
+        await db_session.scalars(
+            select(OrderMailDocument).where(
+                OrderMailDocument.internet_message_id == f"<{mid}-{RUN}@example>"
+            )
+        )
+    ).all()
+    assert [r.outcome for r in rows] == [OUTCOME_FAILED]
+    assert "RuntimeError" in (rows[0].error or "")
 
 
 @pytest.mark.asyncio

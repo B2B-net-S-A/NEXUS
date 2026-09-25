@@ -150,6 +150,23 @@ def _index(column: Optional[str]) -> int:
     return 0
 
 
+def _items_for_cpro_upload(column: str, f: PairFacts) -> list[_Item]:
+    return [
+        _Item(
+            column,
+            "cpro_upload",
+            "Wrzucenie do Cpro",
+            WAITING,
+            False,
+            (
+                f"wrzuca {f.cpro_sender_name}"
+                if f.cpro_sender_name
+                else "nikt nie jest ustawiony do wysyłki do Cpro"
+            ),
+        )
+    ]
+
+
 def _items_for(column: str, f: PairFacts) -> list[_Item]:
     sid = f.stage_id
     if column == "verified":
@@ -203,6 +220,21 @@ def _items_for(column: str, f: PairFacts) -> list[_Item]:
         ]
     if column == "cv_sent":
         qc_ok = f.qc_status in QC_OK_STATUSES
+        # Osoba już w kolejce Cpro przeszła QC przy wejściu do niej — serwer
+        # przy „✓ Wrzucone" QC nie liczy drugi raz (`_assert_cv_qc_gate`),
+        # więc okno nie może go blokować (audyt 25.09.2026).
+        if f.nordea and f.on_cpro_stage and not qc_ok:
+            return [
+                _Item(
+                    column,
+                    "cv_qc",
+                    "QC CV",
+                    OK,
+                    False,
+                    "sprawdzone przy przekazaniu do kolejki Cpro",
+                ),
+                *_items_for_cpro_upload(column, f),
+            ]
         if f.qc_status == "overridden":
             qc_detail: Optional[str] = "przepuszczone mimo QC (z powodem)"
         elif f.qc_status == "failed":
@@ -225,20 +257,7 @@ def _items_for(column: str, f: PairFacts) -> list[_Item]:
             )
         ]
         if f.nordea:
-            items.append(
-                _Item(
-                    column,
-                    "cpro_upload",
-                    "Wrzucenie do Cpro",
-                    WAITING,
-                    False,
-                    (
-                        f"wrzuca {f.cpro_sender_name}"
-                        if f.cpro_sender_name
-                        else "nikt nie jest ustawiony do wysyłki do Cpro"
-                    ),
-                )
-            )
+            items.extend(_items_for_cpro_upload(column, f))
         elif f.is_client_sender:
             items.append(
                 _Item(
@@ -651,11 +670,22 @@ async def load_pair_facts(
     can_cpro = False
     if nordea:
         sender = await cpro_sender.effective_sender(db)
-        if sender.user_id is not None:
-            sender_name = (await cpro_sender.user_names(db, {sender.user_id})).get(
-                sender.user_id
+        # Bez osoby na firmę kolejka należy do osoby zapasowej rekrutacji —
+        # ta sama reguła co bramka ruchu i `board_tasks._sees_cpro`.
+        fallback_ids = (
+            getattr(job, "cpro_sender_id", None),
+            latest.task_assignee_id if latest is not None else None,
+        )
+        shown_sender = sender.user_id or next(
+            (uid for uid in fallback_ids if uid is not None), None
+        )
+        if shown_sender is not None:
+            sender_name = (await cpro_sender.user_names(db, {shown_sender})).get(
+                shown_sender
             )
-        can_cpro = await cpro_sender.can_send_to_cpro(db, user)
+        can_cpro = await cpro_sender.can_send_to_cpro(
+            db, user, fallback_sender_ids=fallback_ids
+        )
 
     cv = (await company_cv_refs(db, [pair])).get(pair)
     qc = (await qc_statuses(db, [pair])).get(pair) or {}

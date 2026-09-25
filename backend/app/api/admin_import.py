@@ -14,7 +14,6 @@ RBAC: AdminUser only.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
 import uuid
@@ -28,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AdminUser
 from app.core.database import AsyncSessionLocal, get_db
+from app.core.tasks import spawn
 from app.models.activity import Activity
 from app.models.app_setting import AppSetting
 from app.models.client import Client
@@ -202,7 +202,7 @@ async def start_import_talent_radar(
     # Resolve DSN eagerly to fail fast on misconfig
     _get_source_dsn(req.source_dsn)
     tid = _new_task("import_talent_radar")
-    asyncio.create_task(_run_import(tid, req))
+    spawn(_run_import(tid, req), f"import_talent_radar(task={tid})")
     return TaskStatus(**_TASKS[tid])
 
 

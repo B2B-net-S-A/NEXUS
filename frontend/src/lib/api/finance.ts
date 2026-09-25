@@ -225,6 +225,8 @@ export interface OrderChangeItem extends OrderRef {
   old_unit: RateUnitCode | null;
   new_unit: RateUnitCode | null;
   currency: string | null;
+  /** Waluta STAREJ strony zmiany stawki; brak = ta sama co `currency`. */
+  old_currency?: string | null;
   old_date: string | null;
   new_date: string | null;
   is_whole_order: boolean;

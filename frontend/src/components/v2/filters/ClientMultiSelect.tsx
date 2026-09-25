@@ -15,6 +15,7 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
+import { PickerQueryState } from "@/components/v2/filters/PickerQueryState";
 
 interface Client {
   id: number;
@@ -31,7 +32,7 @@ export function ClientMultiSelect({ value, onChange }: ClientMultiSelectProps) {
   // `/api/clients-lookup` returns ALL clients (id, name) — the paginated
   // `/api/clients?page_size=100` silently dropped clients past the first 100
   // (159 total), so a recruiter couldn't pick many of them.
-  const { data } = useQuery<Client[]>({
+  const { data, isPending, isError, isSuccess, refetch } = useQuery<Client[]>({
     queryKey: ["clients-lookup"],
     queryFn: () => api.get("/api/clients-lookup").then((r) => r.data),
     staleTime: 60_000,
@@ -72,7 +73,14 @@ export function ClientMultiSelect({ value, onChange }: ClientMultiSelectProps) {
         <Command>
           <CommandInput placeholder="Szukaj klienta…" />
           <CommandList>
-            <CommandEmpty>Brak klientów.</CommandEmpty>
+            <PickerQueryState
+              isPending={isPending}
+              isError={isError}
+              onRetry={() => void refetch()}
+              loadingLabel="Ładowanie klientów…"
+              errorLabel="Nie udało się pobrać listy klientów."
+            />
+            {isSuccess && <CommandEmpty>Brak klientów.</CommandEmpty>}
             <CommandGroup>
               {clients.map((client) => {
                 const isSelected = selected.has(client.id);
