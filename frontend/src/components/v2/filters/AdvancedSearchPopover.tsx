@@ -142,6 +142,7 @@ export function ChipField({
   joiner,
   maxChips = MAX_PER_BUCKET,
   invalid = false,
+  autoFocus = false,
 }: {
   chips: string[];
   onChange: (next: string[]) => void;
@@ -162,6 +163,8 @@ export function ChipField({
   maxChips?: number;
   /** Czerwona ramka (brak wymaganego pola). */
   invalid?: boolean;
+  /** Kursor w polu po zamontowaniu (świeżo dodany wiersz wymagań). */
+  autoFocus?: boolean;
 }) {
   const [draft, setDraft] = useState("");
   const [open, setOpen] = useState(false);
@@ -286,6 +289,7 @@ export function ChipField({
     "aria-label": ariaLabel,
     "aria-invalid": invalid || undefined,
     autoComplete: "off",
+    autoFocus,
     ...(suggest
       ? {
           role: "combobox",

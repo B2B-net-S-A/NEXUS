@@ -28,16 +28,23 @@
  *      przypadek ma klienta (`clientId={1}`), więc zasiewa też kartę klienta
  *      i regułę CV z tych samych fixture'ów co `/preview/client-playbook`.
  *
+ * Sieć: interaktywne pola pytają API także po renderze (licznik „~N osób
+ * w bazie” przy wymaganiach do wyszukiwania, podpowiedzi słów). Na czas życia
+ * harnessu interceptor axiosa odpowiada na nie lokalnie, a każde inne żądanie
+ * odrzuca bez wyjścia do sieci — bez tego wpisanie wymagania kończyło się 401
+ * i przekierowaniem na `/login`.
+ *
  * Oba przypadki mają `clientId={null}`, więc karta klienta w sekcji 6 się nie
  * renderuje (notka „Wybierz klienta…") — nic z `client-playbook` nie trzeba
  * zasiewać. Dane `documents` w fixture zostają: pole żyje w JSONB nadal.
  */
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { AxiosError } from "axios";
 
 import { ChampionProfileEditor } from "@/components/ChampionProfileEditor";
-import { EMPTY_CHAMPION_PROFILE, type ChampionProfile } from "@/lib/api";
+import api, { EMPTY_CHAMPION_PROFILE, type ChampionProfile } from "@/lib/api";
 import { clientQuestionPoolQueryKey } from "@/lib/api/interviewCycle";
 import { makeClientPlaybook } from "@/test/fixtures/client-playbook";
 import { makeCvRule } from "@/test/fixtures/cv-rule";
@@ -92,6 +99,12 @@ const MIGRATED_LEGACY: ChampionProfile = {
 
 const FILLED_NEW: ChampionProfile = {
   ...MIGRATED_LEGACY,
+  search: {
+    ...MIGRATED_LEGACY.search,
+    // Wymagania do wyszukiwania w bazie ustawione przez DL-a (25.09.2026).
+    requirements: [["Java", "Kotlin"], ["Kafka", "RabbitMQ"]],
+    exclude: ["junior"],
+  },
   stack: {
     must: [{ name: "Java" }, { name: "Spring Boot" }, { name: "Kafka" }],
     nice: [{ name: "Kubernetes" }, { name: "AWS" }],
@@ -206,6 +219,23 @@ const WITH_INSIGHTS: ChampionProfile = {
 const EMPTY_LIST: unknown[] = [];
 
 export default function ChampionProfilePreviewPage() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    const blocker = api.interceptors.request.use((config) => {
+      const local = (data: unknown) => {
+        config.adapter = async () => ({ data, status: 200, statusText: "OK", headers: {}, config });
+        return config;
+      };
+      // Licznik „~N osób w bazie” (lista kandydatów, `page_size=1`).
+      if (config.url === "/api/candidates" && config.method === "get") {
+        return local({ items: [], total: 214, page: 1, page_size: 1 });
+      }
+      if (config.url === "/api/candidates/keywords/suggest") return local({ items: [], wildcard: null });
+      return Promise.reject(new AxiosError("preview: sieć wyłączona", "ECONNABORTED", config));
+    });
+    setReady(true);
+    return () => api.interceptors.request.eject(blocker);
+  }, []);
   const queryClient = useMemo(() => {
     const qc = new QueryClient({
       defaultOptions: { queries: { retry: false, staleTime: Infinity } },
@@ -242,6 +272,10 @@ export default function ChampionProfilePreviewPage() {
     qc.setQueryData(["client-cv-rule", 1], makeCvRule());
     return qc;
   }, []);
+
+  if (!ready) {
+    return <div className="p-8 text-sm text-muted-foreground">Ładowanie…</div>;
+  }
 
   return (
     <QueryClientProvider client={queryClient}>

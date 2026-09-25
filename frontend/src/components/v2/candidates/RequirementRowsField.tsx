@@ -130,6 +130,8 @@ export function RequirementRowsField({
   while (idsRef.current.length < shown.length) idsRef.current.push(nextIdRef.current++);
   if (idsRef.current.length > shown.length) idsRef.current.length = shown.length;
 
+  // Wiersz dodany przyciskiem dostaje kursor — od razu można pisać.
+  const [focusId, setFocusId] = useState<number | null>(null);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const allWords = useMemo(() => shown.flat(), [shown]);
   const cityWords = useCityWords(allWords, Boolean(onUseLocation));
@@ -155,7 +157,10 @@ export function RequirementRowsField({
     idsRef.current.splice(index, 1);
     onRowsChange(shown.filter((_, i) => i !== index).map((row) => [...row]));
   };
-  const addRow = () => onRowsChange([...shown.map((row) => [...row]), []]);
+  const addRow = () => {
+    setFocusId(nextIdRef.current);
+    onRowsChange([...shown.map((row) => [...row]), []]);
+  };
   const dismiss = (hint: KeywordHint) =>
     setDismissed((prev) => new Set(prev).add(hintKey(hint)));
   const dropWord = (hint: KeywordHint) => {
@@ -201,6 +206,7 @@ export function RequirementRowsField({
                     suggest={suggest}
                     onSubmitEmpty={onSubmitEmpty}
                     invalid={invalid && index === 0 && row.length === 0}
+                    autoFocus={idsRef.current[index] === focusId}
                   />
                 </div>
                 <button

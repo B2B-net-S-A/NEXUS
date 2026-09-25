@@ -51,6 +51,14 @@ describe("RequirementRowsField", () => {
     expect(screen.getByLabelText("Wymaganie 2 — słowo albo wariant")).toBeTruthy();
   });
 
+  it("nowy wiersz dostaje kursor — od razu można pisać", () => {
+    render(<Harness initial={[["Java"]]} />);
+    fireEvent.click(screen.getByRole("button", { name: "Dodaj wymaganie" }));
+    expect(document.activeElement).toBe(
+      screen.getByLabelText("Wymaganie 2 — słowo albo wariant"),
+    );
+  });
+
   it("usunięcie wiersza wyżej nie przenosi pisanego tekstu do sąsiada", () => {
     render(<Harness initial={[["Java"], ["Kafka"]]} />);
     const second = screen.getByLabelText("Wymaganie 2 — słowo albo wariant") as HTMLInputElement;

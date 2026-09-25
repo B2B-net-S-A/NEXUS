@@ -967,8 +967,10 @@ JOB_REQUEST_INTAKE = PromptTemplate(
         "zapis albo zamiennik, który klient sam dopuszcza, np. "
         '[["Java"], ["Kafka", "RabbitMQ"]] dla „Java oraz Kafka lub RabbitMQ”. '
         "Każde słowo musi stać w mailu dosłownie (kod odrzuca inne). Pojedyncze "
-        "technologie albo krótkie nazwy, nie zdania; nie wpisuj miasta, stażu "
-        "(junior/senior) ani nazwy roli — do tego są osobne pola.\n\n"
+        "technologie albo krótkie nazwy, nie zdania, bez numerów wersji "
+        "(„Java”, nie „Java 17+” — wersja zawęża do osób, które napisały ten sam "
+        "numer); nie wpisuj miasta, stażu (junior/senior) ani nazwy roli — do "
+        "tego są osobne pola.\n\n"
         "Pytania screeningowe: najpierw te, o które klient pyta albo które wynikają "
         "wprost z wymagań (from_request=true). Dla każdej dziedziny o level=must dodaj "
         "jedno pytanie o praktyczne doświadczenie w tej dziedzinie. Razem 3–6 pytań, "

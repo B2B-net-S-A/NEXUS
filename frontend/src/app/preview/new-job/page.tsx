@@ -82,7 +82,7 @@ const FULL_FORM: IntakeForm = {
   },
   searchKeywords: "Senior Java Developer, Spring Boot, Kafka, płatności kartowe",
   // 25.09.2026: wymagania do wyszukiwania w bazie — propozycja Luny z maila.
-  searchRequirements: [["Java 17+"], ["Spring Boot"], ["Kafka"]],
+  searchRequirements: [["Java"], ["Spring Boot"], ["Kafka"]],
   searchExclude: [],
   targetCompanies: "Asseco, Comarch, Nets",
   disqualifiers: [],
@@ -156,6 +156,9 @@ const STATES: Record<string, NewJobPagePreview> = {
       questions: FULL_FORM.questions.slice(0, 1),
       // Luna nie znalazła wymagań do wyszukiwania — brak blokuje przekazanie.
       searchRequirements: [],
+      provenance: Object.fromEntries(
+        Object.entries(FULL_FORM.provenance).filter(([key]) => key !== "search_requirements"),
+      ),
     },
     evidence: EVIDENCE.filter((e) => e !== "do 170 zł/h netto"),
   },
