@@ -284,6 +284,19 @@ def _is_transient_anthropic_exc(exc: BaseException) -> bool:
     return err_type in _TRANSIENT_ANTHROPIC_TYPES
 
 
+def _is_graceful_shutdown_cancel(hint: dict | None) -> bool:
+    """Uvicorn przy zamykaniu kontenera (każdy deploy) loguje na ERROR, że
+    ucina żądania dłuższe niż UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN. To świadomy
+    limit (patrz CLAUDE.md, „Backend zamyka się łagodnie”), nie błąd — do
+    25.09.2026 jedno zdarzenie Sentry na deploy (NEXUS-BE-3S)."""
+    record = hint.get("log_record") if hint else None
+    return (
+        record is not None
+        and getattr(record, "name", "") == "uvicorn.error"
+        and "timeout graceful shutdown exceeded" in str(getattr(record, "msg", ""))
+    )
+
+
 def _sentry_before_send(event: dict, hint: dict) -> dict | None:
     """Drop transient Anthropic 429/529 errors auto-captured by Sentry's
     AnthropicIntegration at the raw ``messages.create`` boundary.
@@ -299,6 +312,8 @@ def _sentry_before_send(event: dict, hint: dict) -> dict | None:
     events that (a) carry a transient Anthropic exception and (b) came through
     the anthropic mechanism; never swallow errors raised by our own code.
     """
+    if _is_graceful_shutdown_cancel(hint):
+        return None
     exc_info = hint.get("exc_info") if hint else None
     if (
         exc_info

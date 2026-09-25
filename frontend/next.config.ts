@@ -57,11 +57,23 @@ export function buildSecurityHeaders(
 
   const reportOnly = [
     "default-src 'self'",
-    join("script-src 'self' 'unsafe-inline'", !isProd && "'unsafe-eval'"),
+    // Cloudflare (proxy przed frontem) sam wstrzykuje beacon Web Analytics —
+    // bez tych źródeł każda wizyta dawała raport CSP w Sentry (NEXUS-FE-19).
+    join(
+      "script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com",
+      !isProd && "'unsafe-eval'",
+    ),
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     join("img-src 'self' data: blob: https:", api),
     "font-src 'self' data: https://fonts.gstatic.com",
-    join("connect-src 'self'", api, ws, sentryOrigin, !isProd && "ws: http://localhost:*"),
+    join(
+      "connect-src 'self'",
+      api,
+      ws,
+      sentryOrigin,
+      "https://cloudflareinsights.com",
+      !isProd && "ws: http://localhost:*",
+    ),
     "frame-src 'self' blob:",
     "worker-src 'self' blob:",
     "media-src 'self' blob: https:",

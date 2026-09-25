@@ -39,6 +39,12 @@ describe("Content-Security-Policy", () => {
     );
   });
 
+  it("dopuszcza beacon Cloudflare Web Analytics (wstrzykuje go proxy)", () => {
+    const ro = header(buildSecurityHeaders(PROD), "Content-Security-Policy-Report-Only");
+    expect(ro).toMatch(/script-src [^;]*https:\/\/static\.cloudflareinsights\.com/);
+    expect(ro).toMatch(/connect-src [^;]*https:\/\/cloudflareinsights\.com/);
+  });
+
   it("w produkcji żadna polityka nie dopuszcza unsafe-eval", () => {
     for (const h of buildSecurityHeaders(PROD)) {
       expect(h.value).not.toContain("unsafe-eval");

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { z } from "zod";
+import { z } from "@/lib/zod";
 
 import { messageFromApiResponse } from "@/lib/api-error";
 import { applyFieldErrors } from "@/lib/apply-form-errors";
