@@ -2112,29 +2112,28 @@ async def api_health_check():
     else:
         try:
             from datetime import datetime as _dt
-            from datetime import timedelta as _td
             from datetime import timezone as _tz
 
             async with AsyncSessionLocal() as session:
                 row = await asyncio.wait_for(
                     session.execute(
                         text(
-                            "SELECT last_run_finished_at, last_status "
+                            "SELECT last_run_finished_at, last_status, "
+                            "COALESCE((stats->>'unprocessed_messages')::int, 0) "
                             "FROM order_mail_sync_state WHERE id = 1"
                         )
                     ),
                     timeout=1.0,
                 )
             r = row.fetchone()
-            from app.services.order_mail_ingest import poll_interval_minutes
+            from app.services.order_mail_ingest import order_mail_health_verdict
 
-            stale_after = _td(minutes=max(3 * poll_interval_minutes(), 180))
-            if r is None or r[0] is None:
-                checks["order_mail"] = "degraded"
-            elif (_dt.now(_tz.utc) - r[0]) > stale_after or r[1] == "error":
-                checks["order_mail"] = "degraded"
-            else:
-                checks["order_mail"] = "healthy"
+            checks["order_mail"] = order_mail_health_verdict(
+                finished_at=r[0] if r is not None else None,
+                last_status=r[1] if r is not None else None,
+                unprocessed_messages=int(r[2] or 0) if r is not None else 0,
+                now=_dt.now(_tz.utc),
+            )
         except Exception:
             checks["order_mail"] = "degraded"
 

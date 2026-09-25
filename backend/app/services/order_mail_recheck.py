@@ -51,7 +51,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
-from sqlalchemy import delete, func, or_, select, text
+from sqlalchemy import Integer, delete, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
@@ -59,6 +59,8 @@ from app.core.config import settings
 from app.models.order_mail import (
     OUTCOME_APPLIED,
     OUTCOME_AUTO_APPLIED,
+    OUTCOME_DUPLICATE,
+    OUTCOME_FAILED,
     OUTCOME_NEEDS_REVIEW,
     OUTCOME_UNRECOGNIZED,
     OrderMailDocument,
@@ -120,12 +122,23 @@ _STATE_UPSERT = text(
 )
 
 
+#: Wpis „Nieudane” (błąd przetwarzania maila) ponawiamy z zachowanego PDF-a
+#: najwyżej tyle razy i tylko tak długo od nadejścia maila. Do 25.09.2026
+#: `failed` był stanem końcowym: przejściowa awaria (baza, magazyn, restart)
+#: zostawiała zamówienie nieprzeczytane na zawsze (audyt 25.09.2026). Każda
+#: próba to odczyt modelem, więc liczba prób jest skończona.
+FAILED_RETRY_MAX_ATTEMPTS = 3
+FAILED_RETRY_MAX_AGE_DAYS = 7
+
+
 @dataclass
 class RecheckRunResult:
     checked: int = 0
     applied: int = 0
     held: int = 0
     alerts: int = 0
+    failed_retried: int = 0
+    failed_recovered: int = 0
     details: list[dict[str, Any]] = field(default_factory=list)
 
 
@@ -169,6 +182,156 @@ async def _candidate_ids(db: AsyncSession, *, now: datetime) -> list[int]:
         .limit(max(1, settings.ORDER_MAIL_RECHECK_MAX_DOCS))
     )
     return list((await db.scalars(stmt)).all())
+
+
+def failed_retry_attempts(row: OrderMailDocument) -> int:
+    return int(
+        ((row.document_meta or {}).get("failed_retry") or {}).get("attempts") or 0
+    )
+
+
+async def _failed_candidate_ids(db: AsyncSession, *, now: datetime) -> list[int]:
+    """Wpisy „Nieudane” z plikiem, młodsze niż 7 dni, z niewyczerpanymi próbami."""
+    cutoff = now - timedelta(days=FAILED_RETRY_MAX_AGE_DAYS)
+    received = func.coalesce(
+        OrderMailDocument.received_at, OrderMailDocument.created_at
+    )
+    attempts = func.coalesce(
+        OrderMailDocument.document_meta["failed_retry"]["attempts"].astext.cast(
+            Integer
+        ),
+        0,
+    )
+    stmt = (
+        select(OrderMailDocument.id)
+        .where(
+            OrderMailDocument.outcome == OUTCOME_FAILED,
+            OrderMailDocument.storage_path.is_not(None),
+            received >= cutoff,
+            attempts < FAILED_RETRY_MAX_ATTEMPTS,
+        )
+        .order_by(OrderMailDocument.id)
+        .limit(max(1, settings.ORDER_MAIL_RECHECK_MAX_DOCS))
+    )
+    return list((await db.scalars(stmt)).all())
+
+
+async def _locked(db: AsyncSession, doc_id: int) -> Optional[OrderMailDocument]:
+    return await db.get(
+        OrderMailDocument, doc_id, with_for_update=True, populate_existing=True
+    )
+
+
+async def _retry_failed_one(
+    db: AsyncSession, doc_id: int, *, registry: Any, now: datetime
+) -> Optional[str]:
+    """Jedna próba ponownego przetworzenia. Zwraca wynik albo ``None`` (pominięty).
+
+    Próba jest liczona PRZED przetworzeniem, osobnym commitem: restart kontenera
+    w trakcie odczytu (deploy) nie może dawać nieskończonych prób. Przetwarzanie
+    trzyma blokadę wiersza — ta sama ścieżka co nowy mail
+    (``process_pdf_bytes``: rozpoznanie klienta, odczyt, plan, bramka, zapis).
+    """
+    from app.services.order_mail_ingest import _first_with_sha, process_pdf_bytes
+
+    row = await _locked(db, doc_id)
+    if (
+        row is None
+        or row.outcome != OUTCOME_FAILED
+        or failed_retry_attempts(row) >= FAILED_RETRY_MAX_ATTEMPTS
+    ):
+        await db.commit()
+        return None
+    attempts = failed_retry_attempts(row) + 1
+    meta = {"attempts": attempts, "last_at": now.isoformat(), "last_failure": None}
+
+    # Ten sam PDF przysłany ponownie i już przetworzony — ten wpis jest jego
+    # duplikatem; drugi odczyt dałby drugi zapis tego samego zamówienia.
+    original = (
+        await _first_with_sha(db, row.attachment_sha256)
+        if row.attachment_sha256
+        else None
+    )
+    if original is not None and original.id != row.id:
+        row.outcome = OUTCOME_DUPLICATE
+        row.duplicate_of_id = original.id
+        row.client_id = original.client_id
+        row.client_key = original.client_key
+        row.error = None
+        row.document_meta = {**(row.document_meta or {}), "failed_retry": meta}
+        await db.commit()
+        return OUTCOME_DUPLICATE
+
+    try:
+        path = storage_service.get_order_mail_attachment_path(row.storage_path)
+    except (FileNotFoundError, ValueError):
+        path = None
+    if path is None or not path.is_file():
+        # Pliku nie ma — kolejne próby nic nie zmienią, więc wyczerpujemy limit.
+        row.document_meta = {
+            **(row.document_meta or {}),
+            "failed_retry": {
+                **meta,
+                "attempts": FAILED_RETRY_MAX_ATTEMPTS,
+                "last_failure": "brak pliku PDF",
+            },
+        }
+        await db.commit()
+        return None
+    row.document_meta = {**(row.document_meta or {}), "failed_retry": meta}
+    await db.commit()
+
+    payload = await run_in_threadpool(path.read_bytes)
+    row = await _locked(db, doc_id)
+    if row is None or row.outcome != OUTCOME_FAILED:
+        await db.commit()  # ktoś zdążył wpis zmienić
+        return None
+    try:
+        row.error = None
+        await process_pdf_bytes(db, row, payload, registry=registry)
+        row.document_meta = {
+            **(row.document_meta or {}),
+            "failed_retry": {**meta, "recovered_at": now.isoformat()},
+        }
+        db.add(row)
+        await db.commit()
+        return row.outcome
+    except Exception as exc:  # noqa: BLE001 — jeden wpis nie wywraca biegu
+        logger.exception("order_mail: retry of failed doc %s failed", doc_id)
+        await db.rollback()
+        row = await _locked(db, doc_id)
+        if row is not None:
+            row.error = repr(exc)[:2000]
+            row.document_meta = {
+                **(row.document_meta or {}),
+                "failed_retry": {**meta, "last_failure": type(exc).__name__},
+            }
+            await db.commit()
+        return OUTCOME_FAILED
+
+
+async def retry_failed_documents(
+    db: AsyncSession, result: RecheckRunResult, *, now: datetime
+) -> None:
+    """Ponów przetworzenie wpisów „Nieudane” z zachowanego PDF-a."""
+    ids = await _failed_candidate_ids(db, now=now)
+    if not ids:
+        return
+    from app.services.order_mail_ingest import build_registry_from_db
+
+    registry = await build_registry_from_db(db)
+    for doc_id in ids:
+        try:
+            outcome = await _retry_failed_one(db, doc_id, registry=registry, now=now)
+        except Exception:  # noqa: BLE001 — jeden wpis nie wywraca biegu
+            logger.exception("order_mail: retry of failed doc %s crashed", doc_id)
+            await db.rollback()
+            continue
+        if outcome is None:
+            continue
+        result.failed_retried += 1
+        if outcome != OUTCOME_FAILED:
+            result.failed_recovered += 1
 
 
 async def _reidentify_client(db: AsyncSession, row: OrderMailDocument) -> bool:
@@ -535,6 +698,13 @@ async def run_recheck(
         # NIE jest tu przesuwany. Ręczne „Pobierz zamówienia z maila"
         # (`trigger="manual"`) tu nie trafia.
         return result
+    # Najpierw wpisy „Nieudane”: udane ponowienie zwykle kończy się „Do
+    # weryfikacji”, więc ten sam bieg od razu przelicza je dalej.
+    try:
+        await retry_failed_documents(db, result, now=started_at)
+    except Exception:  # noqa: BLE001 — ponowienie nie wywraca biegu
+        logger.exception("order_mail: retry of failed documents failed")
+        await db.rollback()
     for doc_id in await _candidate_ids(db, now=started_at):
         try:
             entry = await _recheck_one(db, doc_id)

@@ -1,8 +1,8 @@
 {
-  "entry": "77c3cf572d89a0c3624088cd33aa357dca66d60a441d0014647538bc09b3e03a",
+  "entry": "f072b5e969c661d447e9193921a69e6d7bd0c97dd466056207f8ab84930ff4f8",
   "guide": "contracts.order_mail",
   "sources": {
     "backend/app/services/order_mail_gate.py": "06ffc8bb3a0921e32e6cd16fef598313359b0d7191bb32e01a779ce553200c82",
-    "frontend/src/components/order-mail/OrderMailQueue.tsx": "dab1de6972cf30321a07b79435663f748c9b148bc38dc9f7ae444a82c03038b4"
+    "frontend/src/components/order-mail/OrderMailQueue.tsx": "ddb212048b79e116d979a1a488a67167c0d4f47e69be6bbd50e4a0f20c9bf45d"
   }
 }

@@ -523,7 +523,7 @@
         "describe": "Ręczne sprawdzenie skrzynki i wynik ostatniego biegu.",
         "requires": {"roles": ["admin", "finance", "delivery_lead"]}
       },
-      {"id": "contracts.order_mail.tabs", "label": "Zakładki kolejki", "describe": "Do weryfikacji, Zapisane automatycznie, Zapisane ręcznie, Nierozpoznane."},
+      {"id": "contracts.order_mail.tabs", "label": "Zakładki kolejki", "describe": "Do weryfikacji, Zapisane automatycznie, Zapisane ręcznie, Nierozpoznane, Nieudane."},
       {"id": "contracts.order_mail.detail", "label": "Szczegóły wpisu", "describe": "Odczyt, plan i przyciski decyzji dla wybranego zamówienia."},
       {"id": "contracts.order_mail.history", "label": "Historia sprawdzeń", "describe": "Kiedy system ostatnio sprawdzał wstrzymane wpisy."}
     ],

@@ -221,6 +221,10 @@ class IngestStats:
     recheck_applied: int = 0
     recheck_held: int = 0
     recheck_alerts: int = 0
+    #: Wpisy „Nieudane” przetworzone ponownie z zachowanego PDF-a
+    #: (``order_mail_recheck.retry_failed_documents``) i ile z nich się udało.
+    failed_retried: int = 0
+    failed_recovered: int = 0
     #: Wpisy z odczytem awaryjnym (bez AI), dla których ponowiono odczyt AI
     #: (``retry_ai_fallback_documents``): ile prób, ile się udało, ile z nich
     #: zapisało się automatem.
@@ -228,12 +232,32 @@ class IngestStats:
     ai_recovered: int = 0
     ai_recovered_auto_applied: int = 0
     max_received_at: Optional[datetime] = None
+    #: Wiadomości, których NIE przetworzono i które nie mają wpisu w dzienniku
+    #: (błąd pobrania załączników, załącznik bez treści). Najwcześniejsza z nich
+    #: zatrzymuje znacznik ostatniego maila — inaczej przesuwał się za nią,
+    #: a nakładka 2 h nie sięgała jej w kolejnych biegach i mail przepadał
+    #: na zawsze (audyt 25.09.2026).
+    unprocessed_messages: int = 0
+    earliest_unprocessed_at: Optional[datetime] = None
     errors: list[str] = field(default_factory=list)
+
+    def mark_unprocessed(self, received: Optional[datetime]) -> None:
+        self.unprocessed_messages += 1
+        if received is not None and (
+            self.earliest_unprocessed_at is None
+            or received < self.earliest_unprocessed_at
+        ):
+            self.earliest_unprocessed_at = received
 
     def as_dict(self) -> dict[str, Any]:
         out = dataclasses.asdict(self)
         out["max_received_at"] = (
             self.max_received_at.isoformat() if self.max_received_at else None
+        )
+        out["earliest_unprocessed_at"] = (
+            self.earliest_unprocessed_at.isoformat()
+            if self.earliest_unprocessed_at
+            else None
         )
         out["errors"] = self.errors[:20]
         return out
@@ -589,10 +613,31 @@ async def _existing(
     return await db.scalar(stmt.limit(1))
 
 
+async def _message_logged(
+    db: AsyncSession, message_id: str, *, attachment_name: Optional[str] = None
+) -> bool:
+    """Czy wiadomość (albo ten jej załącznik) ma już wpis w dzienniku."""
+    stmt = select(OrderMailDocument.id).where(
+        OrderMailDocument.internet_message_id == message_id
+    )
+    if attachment_name is not None:
+        stmt = stmt.where(OrderMailDocument.attachment_name == attachment_name)
+    return await db.scalar(stmt.limit(1)) is not None
+
+
 async def _first_with_sha(db: AsyncSession, sha: str) -> Optional[OrderMailDocument]:
+    """Pierwszy PRZETWORZONY wpis z tym plikiem — oryginał dla duplikatu.
+
+    Wpis ``failed`` nie jest oryginałem: nic z niego nie powstało, a do
+    25.09.2026 ponownie przysłany PDF lądował jako „duplikat” nieudanego
+    przetworzenia i też nigdy nie był czytany (audyt 25.09.2026).
+    """
     return await db.scalar(
         select(OrderMailDocument)
-        .where(OrderMailDocument.attachment_sha256 == sha)
+        .where(
+            OrderMailDocument.attachment_sha256 == sha,
+            OrderMailDocument.outcome != OUTCOME_FAILED,
+        )
         .order_by(OrderMailDocument.id.asc())
         .limit(1)
     )
@@ -1562,6 +1607,10 @@ async def _process_message(
     except Exception as exc:  # noqa: BLE001
         stats.failed += 1
         stats.errors.append(f"attachments {message_id[:40]}: {exc!r}"[:300])
+        # Wiadomość z wpisem w dzienniku przetworzył już wcześniejszy bieg
+        # (wróciła tylko z nakładki okna) — nie ma czego pilnować.
+        if not await _message_logged(db, message_id):
+            stats.mark_unprocessed(received)
         return False
     pdfs = [
         att
@@ -1589,6 +1638,12 @@ async def _process_message(
         if not raw_b64:
             stats.failed += 1
             stats.errors.append(f"no contentBytes {message_id[:40]}")
+            if not await _message_logged(
+                db,
+                message_id,
+                attachment_name=(att.get("name") or "zamowienie.pdf")[:255],
+            ):
+                stats.mark_unprocessed(received)
             continue
         payload = base64.b64decode(raw_b64)
         if len(payload) > max_bytes:
@@ -1784,6 +1839,7 @@ def sync_snapshot(state: Optional[dict[str, Any]], *, running: bool) -> dict[str
             "ignored_no_pdf": int(stats.get("ignored_no_pdf") or 0),
             "ignored_sender": int(stats.get("ignored_sender") or 0),
             "failed": int(stats.get("failed") or 0),
+            "unprocessed_messages": int(stats.get("unprocessed_messages") or 0),
             "rechecked": int(stats.get("rechecked") or 0),
             "recheck_applied": int(stats.get("recheck_applied") or 0),
             "recheck_held": int(stats.get("recheck_held") or 0),
@@ -1847,6 +1903,8 @@ async def run_order_mail_ingest(
                 stats.recheck_applied = recheck.applied
                 stats.recheck_held = recheck.held
                 stats.recheck_alerts = recheck.alerts
+                stats.failed_retried = recheck.failed_retried
+                stats.failed_recovered = recheck.failed_recovered
             except Exception as exc:  # noqa: BLE001 — przeliczenie nie wywraca biegu
                 logger.exception("order_mail: recheck of held documents failed")
                 await db.rollback()
@@ -1932,7 +1990,11 @@ async def run_order_mail_ingest(
                                 db, gc, conn, msg, stats, registry
                             ):
                                 stats.new_messages += 1
-                status = "ok" if not (stats.failed or stats.errors) else "partial"
+                status = (
+                    "ok"
+                    if not (stats.failed or stats.errors or stats.unprocessed_messages)
+                    else "partial"
+                )
                 error = None if status == "ok" else "; ".join(stats.errors[:5])[:2000]
                 finished = datetime.now(timezone.utc)
                 await _write_state(
@@ -1940,12 +2002,8 @@ async def run_order_mail_ingest(
                     last_run_finished_at=finished,
                     last_status=status,
                     last_error=error,
-                    # Watermark nie może się COFNĄĆ: bieg ręczny z jawnym
-                    # ``since`` (backfill) ogląda starsze wiadomości niż
-                    # ostatnio widziana i bez tego przesuwałby okno wstecz.
-                    last_seen_received_at=_latest(
-                        stats.max_received_at,
-                        (state or {}).get("last_seen_received_at"),
+                    last_seen_received_at=next_watermark(
+                        stats, (state or {}).get("last_seen_received_at")
                     ),
                     stats=completed_record(
                         stats,
@@ -1990,6 +2048,52 @@ async def run_order_mail_ingest(
     )
     logger.info("order_mail ingest done: errors=%d", len(stats.errors))
     return stats
+
+
+def order_mail_health_verdict(
+    *,
+    finished_at: Optional[datetime],
+    last_status: Optional[str],
+    unprocessed_messages: int,
+    now: datetime,
+) -> str:
+    """Werdykt ``checks.order_mail`` ze stanu pętli (czysta funkcja).
+
+    ``running`` to brak informacji, nie awaria — koniec poprzedniego biegu
+    i tak mówi, czy skrzynka żyje. Maile bez wpisu w dzienniku z ostatniego
+    zakończonego biegu to ``degraded``: znacznik na nich stoi, ale dopóki się
+    nie przetworzą, zamówienie z maila czeka (audyt 25.09.2026).
+    """
+    if finished_at is None:
+        return "degraded"
+    if finished_at.tzinfo is None:
+        finished_at = finished_at.replace(tzinfo=timezone.utc)
+    stale_after = timedelta(minutes=max(3 * poll_interval_minutes(), 180))
+    if (now - finished_at) > stale_after or last_status == "error":
+        return "degraded"
+    if unprocessed_messages > 0:
+        return "degraded"
+    return "healthy"
+
+
+def next_watermark(
+    stats: IngestStats, previous: Optional[datetime]
+) -> Optional[datetime]:
+    """Znacznik ostatniego maila po biegu.
+
+    Nie cofa się przez sam bieg ręczny z jawnym ``since`` (backfill ogląda
+    starsze wiadomości niż ostatnio widziana i bez tego przesuwałby okno
+    wstecz). Wyjątek: wiadomość, której nie przetworzono i która nie ma wpisu
+    w dzienniku — znacznik staje sekundę przed nią (nawet cofając się), żeby
+    następny bieg zapytał o nią jeszcze raz.
+    """
+    mark = _latest(stats.max_received_at, previous)
+    held = stats.earliest_unprocessed_at
+    if held is None or mark is None:
+        return mark
+    if held.tzinfo is None:
+        held = held.replace(tzinfo=timezone.utc)
+    return min(mark, held - timedelta(seconds=1))
 
 
 def _latest(*values: Optional[datetime]) -> Optional[datetime]:
