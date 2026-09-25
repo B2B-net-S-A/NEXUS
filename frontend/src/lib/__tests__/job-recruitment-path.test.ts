@@ -214,6 +214,35 @@ describe("nearestStep — pierwsza pasująca reguła", () => {
     });
   });
 
+  it("3a. osoby znane klientowi z podobnych rekrutacji — przed propozycjami z bazy", () => {
+    expect(
+      nearestStep({
+        ...base,
+        orderMissing: 0,
+        proposals: 17,
+        similarPeople: 5,
+        board: summary({ new: 3 }),
+      }),
+    ).toMatchObject({
+      rule: "similar",
+      sentence: "Przejrzyj 5 osób z podobnych rekrutacji, które klient już zna",
+      action: { kind: "similar" },
+    });
+    // Bez prawa dodawania i przy nieznanej liczbie reguła milczy.
+    expect(
+      nearestStep({
+        orderMissing: 0,
+        proposals: 0,
+        similarPeople: 5,
+        canAddCandidates: false,
+        board: summary({}),
+      }),
+    ).toBeNull();
+    expect(
+      nearestStep({ ...base, orderMissing: 0, similarPeople: null, board: summary({ new: 1 }) }),
+    ).toBeNull();
+  });
+
   it("4. propozycje z bazy do przejrzenia", () => {
     expect(
       nearestStep({ ...base, orderMissing: 0, proposals: 17, board: summary({ new: 3 }) }),

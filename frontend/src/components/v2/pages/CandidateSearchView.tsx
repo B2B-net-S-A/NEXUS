@@ -34,6 +34,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AiStatusBanner } from "@/components/jobs/AiStatusBanner";
 import { FiltersPanel } from "@/components/v2/filters/FiltersPanel";
+import { scoreBadgeClass } from "@/lib/match-score-badge";
 import { SEARCH_AVAILABILITY_OPTIONS } from "@/lib/search-availability";
 import {
   candidateSearchApi,
@@ -1556,13 +1557,7 @@ function useReportWhenVisible(
   }, [ref, id, onVisible, fallback]);
 }
 
-export function scoreBadgeClass(score: number): string {
-  if (score >= 70)
-    return "bg-success-muted text-success-muted-foreground";
-  if (score >= 40)
-    return "bg-warning-muted text-warning-muted-foreground";
-  return "bg-muted text-muted-foreground";
-}
+export { scoreBadgeClass };
 
 function CandidateSearchRow({
   item,

@@ -18,6 +18,7 @@ export type CandidateColumnId =
   | "last_contact"
   | "added"
   | "cv"
+  | "fit"
   | "assign";
 
 export interface CandidateColumn {
@@ -29,9 +30,16 @@ export interface CandidateColumn {
   required?: boolean;
   /** Ukryta, dopóki ktoś jej nie włączy. */
   hiddenByDefault?: boolean;
+  /**
+   * Tylko w „Szukaj ręcznie” z rekrutacji (lista w trybie osadzonym) —
+   * dopasowanie liczy się względem TEJ rekrutacji, na liście nie ma do czego.
+   */
+  jobOnly?: boolean;
 }
 
 export const CANDIDATE_TABLE_PREFS_KEY = "candidates-table-v2";
+/** Osobny wybór kolumn dla „Szukaj ręcznie” z rekrutacji — panel nie nadpisuje listy. */
+export const CANDIDATE_JOB_SEARCH_PREFS_KEY = "candidates-table-job-search";
 
 /** Kolejność = kolejność w tabeli. */
 export const CANDIDATE_COLUMNS: readonly CandidateColumn[] = [
@@ -47,6 +55,7 @@ export const CANDIDATE_COLUMNS: readonly CandidateColumn[] = [
   { id: "last_contact", label: "Ostatni kontakt", width: "minmax(96px, 0.7fr)", minWidth: 96, hiddenByDefault: true },
   { id: "added", label: "Dodano", width: "minmax(88px, 0.6fr)", minWidth: 88, hiddenByDefault: true },
   { id: "cv", label: "CV", width: "minmax(52px, 0.4fr)", minWidth: 52 },
+  { id: "fit", label: "Dop.", width: "72px", minWidth: 72, jobOnly: true },
   { id: "assign", label: "Przypisz", width: "104px", minWidth: 104, required: true },
 ];
 
@@ -59,17 +68,42 @@ export const DEFAULT_HIDDEN_COLUMNS: readonly CandidateColumnId[] = CANDIDATE_CO
 
 /** Widoczne kolumny z listy ukrytych (`null` = domyślne). Nieznane id i próby
  *  ukrycia kolumny wymaganej są ignorowane. */
-export function visibleCandidateColumns(hidden: readonly string[] | null | undefined): CandidateColumn[] {
-  const hide = new Set((hidden ?? DEFAULT_HIDDEN_COLUMNS).filter((id) => KNOWN.has(id)));
-  return CANDIDATE_COLUMNS.filter((c) => c.required || !hide.has(c.id));
+/**
+ * Domyślnie ukryte w „Szukaj ręcznie”: okno ma ~1100 px, a z kolumną „Dop.”
+ * pełny zestaw nie mieści się i „Dodaj” wypadało poza prawą krawędź.
+ * Telefon da się włączyć w „Kolumny”.
+ */
+export const DEFAULT_HIDDEN_JOB_COLUMNS: readonly CandidateColumnId[] = [
+  ...DEFAULT_HIDDEN_COLUMNS,
+  "phone",
+];
+
+function defaultHidden(options: { forJob?: boolean }): readonly string[] {
+  return options.forJob ? DEFAULT_HIDDEN_JOB_COLUMNS : DEFAULT_HIDDEN_COLUMNS;
+}
+
+export function visibleCandidateColumns(
+  hidden: readonly string[] | null | undefined,
+  options: { forJob?: boolean } = {},
+): CandidateColumn[] {
+  const hide = new Set((hidden ?? defaultHidden(options)).filter((id) => KNOWN.has(id)));
+  return selectableCandidateColumns(options).filter((c) => c.required || !hide.has(c.id));
+}
+
+/** Kolumny dostępne w danym widoku (lista vs „Szukaj ręcznie” z rekrutacji). */
+export function selectableCandidateColumns(
+  options: { forJob?: boolean } = {},
+): CandidateColumn[] {
+  return CANDIDATE_COLUMNS.filter((c) => !c.jobOnly || options.forJob);
 }
 
 /** Nowa lista ukrytych po przełączeniu kolumny. */
 export function toggleCandidateColumn(
   hidden: readonly string[] | null | undefined,
   id: CandidateColumnId,
+  options: { forJob?: boolean } = {},
 ): string[] {
-  const current = new Set(hidden ?? DEFAULT_HIDDEN_COLUMNS);
+  const current = new Set(hidden ?? defaultHidden(options));
   if (current.has(id)) current.delete(id);
   else current.add(id);
   return CANDIDATE_COLUMNS.filter((c) => current.has(c.id) && !c.required).map((c) => c.id);

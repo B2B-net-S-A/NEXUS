@@ -697,10 +697,10 @@
   {
    "id": "header.similar-jobs",
    "area": "naglowek",
-   "opis": "Okno „Podobne rekrutacje”: sugestie, dodanie własnej, połącz i przepnij osoby wysłane do klienta",
+   "opis": "Panel „Podobne rekrutacje”: sugestie, dodanie własnej, osoby wysłane do klienta i przepięcie ich do Nowych jednym kliknięciem",
    "file": "app/jobs/[id]/page.tsx",
-   "marker": "SimilarJobsDialog",
-   "v3_home": "nagłówek → Podobne rekrutacje"
+   "marker": "SimilarJobsPanel",
+   "v3_home": "nagłówek → Podobne rekrutacje (?win=similar)"
   },
   {
    "id": "header.champion-found",

@@ -73,7 +73,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from"@/components/ui/tooltip"
 import { ScorecardV2 } from"@/components/v2/modals/ScorecardV2";
 import { ScreeningSheet } from"@/components/v2/modals/ScreeningSheet";
 import { useToast } from"@/components/Toast";
-import { BoardReviewSection } from "@/components/v2/jobs/BoardReviewSection";
+import { BoardReviewSection, type SimilarReassignHint } from "@/components/v2/jobs/BoardReviewSection";
 import { SlotRequestDialog } from "@/components/calendar/cycle/SlotDialogs";
 import { InterviewCycleProgress } from "@/components/calendar/cycle/InterviewCycleProgress";
 import { DlReviewPanel } from "@/components/v2/recruitment/DlReviewPanel";
@@ -228,6 +228,9 @@ interface KanbanBoardV2Props {
  /** Panel „Dodaj kandydatów" (Rekrutacja v5) — otwiera go strona; bez tej
   *  funkcji kolumna „Nowi" pokazuje dawne karty propozycji. */
  onOpenAddCandidates?: (tab: "search" | "proposals") => void;
+ /** Pasek „↻ N osób wysłanych do klienta w podobnych rekrutacjach" w „Nowych"
+  *  (25.09.2026). Tylko otwiera panel przepięć — sam niczego nie przepina. */
+ similarReassign?: SimilarReassignHint | null;
  /** „Ścieżka rekrutacji" w nagłówku: przewiń do kolumny Tablicy i podświetl
   *  ją na chwilę. `seq` rozróżnia kolejne kliknięcia tej samej kolumny. */
  focusColumnRequest?: { column: BoardColumnKey; seq: number } | null;
@@ -1570,7 +1573,7 @@ const MIN_COLUMN_HEIGHT = 280;
 // `p-4` obszaru treści powłoki (góra + dół) — patrz pomiar planszy na telefonie.
 const MOBILE_MAIN_PADDING_Y = 32;
 
-export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoading, headerCollapsed, offTemplate, readOnly = false, clientId = null, initialDockCandidateId = null, onInitialDockHandled, onDockCandidateChange, workbenchContext, kanbanQueryState, initialWorkbench = null, onInitialWorkbenchHandled, cproEnabled = false, onOpenAddCandidates, focusColumnRequest = null }: KanbanBoardV2Props) {
+export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoading, headerCollapsed, offTemplate, readOnly = false, clientId = null, initialDockCandidateId = null, onInitialDockHandled, onDockCandidateChange, workbenchContext, kanbanQueryState, initialWorkbench = null, onInitialWorkbenchHandled, cproEnabled = false, onOpenAddCandidates, similarReassign = null, focusColumnRequest = null }: KanbanBoardV2Props) {
  const density = useUiStore((s) => s.density);
  const setDensity = useUiStore((s) => s.setDensity);
  // Krok 04 Pipeline (flow C2, PR 3/7): globalny przełącznik, jak `density` —
@@ -3079,6 +3082,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  budgetHourly={jobBudgetHourlyValue ?? null}
  compact={Boolean(onOpenAddCandidates)}
  onOpenPanel={onOpenAddCandidates}
+ similarReassign={similarReassign}
  />
  </div>
  )}
@@ -3151,6 +3155,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  budgetHourly={jobBudgetHourlyValue ?? null}
  compact={Boolean(onOpenAddCandidates)}
  onOpenPanel={onOpenAddCandidates}
+ similarReassign={similarReassign}
  />
  ),
  }

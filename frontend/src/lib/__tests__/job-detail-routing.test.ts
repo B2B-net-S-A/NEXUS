@@ -85,6 +85,10 @@ describe("readJobDetailUrlState", () => {
       orderSection: null,
     });
     expect(read("win=order&wintab=team").orderSection).toBe("team");
+    // Panel przepięć (25.09.2026) ma własny adres; `?tab=similar` z powiadomień
+    // o propozycjach AI zostaje przy „Do przejrzenia”.
+    expect(read("win=similar").slideOver).toBe("similar");
+    expect(read("tab=similar")).toMatchObject({ segment: "proposals", slideOver: null });
   });
 
   it("stary adres daje ten sam stan co nowy", () => {

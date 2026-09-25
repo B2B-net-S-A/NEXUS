@@ -228,6 +228,8 @@ class CandidateStageResponse(BaseModel):
     entry_source: Optional[str] = None
     reassign_from_job_id: Optional[int] = None
     reassign_from_title: Optional[str] = None
+    # Numer rekrutacji źródłowej („ZOB-1725") — odznaka „↻ z …" na karcie.
+    reassign_from_reference: Optional[str] = None
     # Blokada 12 h w „Nowych": kto i do kiedy; `can_take` = czy patrzący
     # może kliknąć „Biorę"/„Przejmij".
     claim_user_id: Optional[int] = None

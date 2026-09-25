@@ -2,7 +2,7 @@
   "entry": "0549c660356a9a40698847fbfe00d45406943fe0a50fdf61b6e95eefc185bacc",
   "guide": "candidates.list",
   "sources": {
-    "frontend/src/components/v2/candidates/CandidateFilterBar.tsx": "e43f6629a444621c5dc4ff0b2225fc3c52a560e6118140a0b203b8642ee1d60a",
-    "frontend/src/components/v2/pages/CandidatesListV2.tsx": "33e5a6a9b0997f0720f82082aefeb8057cc3a4e88154e51437938ea741769c46"
+    "frontend/src/components/v2/candidates/CandidateFilterBar.tsx": "92abc644f43fc189416ebaea7a273087355157aa9490407139ec5116dc216f34",
+    "frontend/src/components/v2/pages/CandidatesListV2.tsx": "175857ff46a7cb9c017e3a78c739cc33af5ea199651522b03acea21e9caa60ce"
   }
 }

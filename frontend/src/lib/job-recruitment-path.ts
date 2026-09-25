@@ -279,11 +279,12 @@ export function buildRecruitmentPath(input: RecruitmentPathInput): PathStep[] {
 export type NearestStepAction =
   | { kind: "order" }
   | { kind: "column"; column: BoardColumnKey }
-  | { kind: "add"; tab: "proposals" | "search" };
+  | { kind: "add"; tab: "proposals" | "search" }
+  | { kind: "similar" };
 
 export interface NearestStep {
   /** Stały klucz reguły (testy, telemetria). */
-  rule: "order" | "call" | "qc" | "verified" | "proposals" | "search";
+  rule: "order" | "call" | "qc" | "verified" | "similar" | "proposals" | "search";
   sentence: string;
   cta: string;
   action: NearestStepAction;
@@ -295,6 +296,11 @@ export interface NearestStepInput {
   proposals: number | null;
   /** Czy patrzący może dodawać kandydatów (zapis pipeline'u). */
   canAddCandidates: boolean;
+  /**
+   * Osoby wysłane do klienta w podpowiadanych podobnych rekrutacjach (panel
+   * przepięć, 25.09.2026). `null`/brak = nie wiadomo — reguła milczy.
+   */
+  similarPeople?: number | null;
 }
 
 /**
@@ -303,12 +309,13 @@ export interface NearestStepInput {
  *  1a. telefon do kandydata po rozmowie u klienta (debrief),
  *  2. osoby w QC CV (bez kolejki Cpro — tam ruch ma osoba od Cpro),
  *  3. osoby w „Zweryfikowany",
+ *  3a. osoby, które klient zna z podobnych rekrutacji (przepięcia),
  *  4. propozycje z bazy do przejrzenia,
  *  5. pusto w „Nowi" i „Screening" → szukaj w bazie (AI).
  * Inaczej `null` — pole się nie pokazuje (lepiej nic niż zdanie o niczym).
  */
 export function nearestStep(input: NearestStepInput): NearestStep | null {
-  const { orderMissing, board, proposals, canAddCandidates } = input;
+  const { orderMissing, board, proposals, canAddCandidates, similarPeople } = input;
   if (orderMissing != null && orderMissing > 0) {
     return {
       rule: "order",
@@ -346,6 +353,14 @@ export function nearestStep(input: NearestStepInput): NearestStep | null {
     };
   }
   if (!canAddCandidates) return null;
+  if (similarPeople != null && similarPeople > 0) {
+    return {
+      rule: "similar",
+      sentence: `Przejrzyj ${similarPeople} ${plural(similarPeople, "osobę", "osoby", "osób")} z podobnych rekrutacji, które klient już zna`,
+      cta: "Podobne rekrutacje",
+      action: { kind: "similar" },
+    };
+  }
   if (proposals != null && proposals > 0) {
     return {
       rule: "proposals",
