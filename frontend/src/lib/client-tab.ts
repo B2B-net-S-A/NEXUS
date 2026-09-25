@@ -16,6 +16,9 @@ export type ClientTab =
   | "kontakty"
   | "umowy-ramowe"
   | "zamowienia"
+  // Importy zużycia MD, które dotknęły zamówień klienta (ticket 7, 09.2026);
+  // cel odsyłacza „Otwórz import →" z historii zamówienia.
+  | "importy-md"
   | "analityka"
   | "zespol";
 
@@ -26,6 +29,7 @@ export const CLIENT_TAB_KEYS: readonly ClientTab[] = [
   "kontakty",
   "umowy-ramowe",
   "zamowienia",
+  "importy-md",
   "analityka",
   "zespol",
 ] as const;

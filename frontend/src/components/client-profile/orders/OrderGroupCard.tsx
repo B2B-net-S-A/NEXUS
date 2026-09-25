@@ -1,37 +1,26 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import {
   AlertTriangle,
-  ArrowLeftRight,
-  CalendarDays,
   CalendarPlus,
   ChevronDown,
   Clock3,
-  FilePlus2,
-  FileUp,
   History,
   Info,
   Pencil,
   Plus,
-  ReceiptText,
   Repeat,
   RotateCcw,
   Ban,
   SquareCheckBig,
   Trash2,
-  UserPlus,
-  type LucideIcon,
 } from "lucide-react";
 
-import { QueryStateNotice } from "@/components/ds";
 import { ContractPersonLink } from "@/components/contracts/ContractPersonLink";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import {
-  orderGroupsApi,
-  type OrderGroupEvent,
   type OrderGroupRead,
   type OrderLineRead,
 } from "@/lib/api/orderGroups";
@@ -44,7 +33,6 @@ import {
   usesSharedMdPool,
 } from "@/lib/client-order-list";
 import { countPl } from "@/lib/plural-pl";
-import { formatDateTimePl } from "@/lib/date-pl";
 import { formatDate, formatPLN } from "@/types/client-profile";
 import { isEzdrowieClient } from "@/lib/ezdrowie";
 import { MD_TRANSFER_METHOD_LABELS } from "@/lib/order-takeover";
@@ -55,6 +43,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { EndedLineCard } from "./EndedLineCard";
 import { EndedLineDecisionDialog } from "./EndedLineDecisionDialog";
 import { LineMonthlyHistoryDialog } from "./LineMonthlyHistoryDialog";
+import { OrderHistoryPanel } from "./OrderHistoryPanel";
+import { ConsumptionButton } from "./ConsumptionButton";
 import { formatMd, MdBudgetBar } from "./MdBudgetBar";
 import { MdScopeBars, MdScopePanels, MdScopeTotalBar } from "./MdScopeBars";
 import { OrderTypeBadge } from "./OrderTypeBadge";
@@ -170,71 +160,6 @@ export interface OrderGroupFocusRequest {
   nonce: number;
 }
 
-/** Ikona wpisu historii lustrzy przycisk, który ten wpis produkuje — kolumna
- *  ikon czyta się wtedy tak samo jak pasek akcji nad nią. `transfer_md` celowo
- *  dostaje ikonę spoza tamtego zestawu: przeniesienie MD nie jest edycją
- *  zamówienia, tylko ruchem MIĘDZY dwoma zamówieniami. */
-const EVENT_ICON: Record<string, LucideIcon> = {
-  utworzenie: FilePlus2,
-  dodanie_konsultanta: UserPlus,
-  zamiana_kontraktora: Repeat,
-  edycja_reczna: Pencil,
-  zakonczenie: SquareCheckBig,
-  przywrocenie: RotateCcw,
-  wyczerpanie: AlertTriangle,
-  przedluzenie: CalendarPlus,
-  import_md: FileUp,
-  import_faktur: ReceiptText,
-  transfer_md: ArrowLeftRight,
-};
-
-/** Treść wpisu historii z klikalnym numerem zamówienia powiązanego.
- *
- *  Bez tego przejścia czytelnik musiałby szukać drugiego zamówienia wzrokiem,
- *  a przy przeniesieniu MD bywa ono zagnieżdżone pod zupełnie inną kartą.
- *  Gdy `related_group_id` jest `null`, renderujemy SAM TEKST — przycisk bez
- *  celu obiecuje nawigację, której nie wykona. */
-function EventDescription({
-  event,
-  onFocusGroup,
-}: {
-  event: OrderGroupEvent;
-  onFocusGroup: (groupId: number) => void;
-}) {
-  const groupId = event.related_group_id;
-  const number = event.related_order_number;
-  if (groupId == null || !number) return <>{event.description}</>;
-
-  const link = (
-    <button
-      type="button"
-      onClick={() => onFocusGroup(groupId)}
-      aria-label={`Pokaż zamówienie nr ${number}`}
-      className="font-semibold text-primary underline underline-offset-2 hover:no-underline"
-    >
-      {number}
-    </button>
-  );
-
-  const at = event.description.indexOf(number);
-  if (at < 0) {
-    // Numeru nie ma w treści (inny szablon opisu po stronie backendu) —
-    // doklejamy go obok, zamiast gubić przejście do powiązanego zamówienia.
-    return (
-      <>
-        {event.description} {link}
-      </>
-    );
-  }
-  return (
-    <>
-      {event.description.slice(0, at)}
-      {link}
-      {event.description.slice(at + number.length)}
-    </>
-  );
-}
-
 /** Pasek wykorzystania budżetu kwotowego. Wypełnienie pokazuje POZOSTAŁOŚĆ —
  *  ta sama konwencja co przy MD, żeby dwa paski obok siebie nie znaczyły
  *  czegoś przeciwnego. */
@@ -348,7 +273,7 @@ interface OrderLineRowProps {
   onEditLine: (group: OrderGroupRead, line: OrderLineRead) => void;
   onSwapLine: (group: OrderGroupRead, line: OrderLineRead) => void;
   onDeleteLine: (group: OrderGroupRead, line: OrderLineRead) => void;
-  /** „Rozliczenia miesięczne" — wpisy MD per miesiąc tej osoby. */
+  /** „Zużycie MD" — wpisy MD per miesiąc tej osoby (podgląd i edycja). */
   onShowConsumptions?: (group: OrderGroupRead, line: OrderLineRead) => void;
   /** Karta konsultanta CeZ (pilotaż) zamiast jednego rzędu. */
   scopedCardLayout?: boolean;
@@ -565,15 +490,7 @@ function OrderLineRow({
   const consumptionsButton = (
     <>
       {perPersonMd && onShowConsumptions ? (
-        <button
-          type="button"
-          onClick={() => onShowConsumptions(group, line)}
-          aria-label={`Rozliczenia miesięczne — ${line.consultant_name}`}
-          title="Rozliczenia miesięczne"
-          className="rounded-md p-1.5 pointer-coarse:p-2.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-        >
-          <CalendarDays className="h-4 w-4" aria-hidden="true" />
-        </button>
+        <ConsumptionButton line={line} onClick={() => onShowConsumptions(group, line)} />
       ) : null}
     </>
   );
@@ -996,12 +913,6 @@ export function OrderGroupCard({
       ?.scrollIntoView({ behavior: "smooth", block: "center" });
     setPendingFocusId(null);
   }, [pendingFocusId, expanded]);
-
-  const history = useQuery({
-    queryKey: ["order-group-events", clientId, group.id],
-    queryFn: async () => (await orderGroupsApi.events(clientId, group.id)).data,
-    enabled: historyOpen,
-  });
 
   const sortedLines = sortOrderLinesByConsultant(group.lines);
   // „Aktywna obsada" znaczy dokładnie tyle, ile mówi: osoby, które DZIŚ pracują
@@ -1464,71 +1375,12 @@ export function OrderGroupCard({
 
             {historyOpen ? (
               <div className={compactCez ? "mt-2" : "mt-3"}>
-                {history.isError ? (
-                  // Awaria pobrania NIE może wyglądać jak „brak historii" —
-                  // pusta lista czytałaby się jak utrata zapisów.
-                  <QueryStateNotice
-                    state="error"
-                    description="Nie udało się wczytać historii tego zamówienia."
-                    onRetry={() => history.refetch()}
-                  />
-                ) : !history.isSuccess ? (
-                  // Warunek na `isSuccess`, a NIE `isLoading`: między ponowieniami
-                  // react-query ma `isLoading === false`, `isError === false`
-                  // i puste `data`, więc gałąź „brak wpisów" wygrywała i ekran
-                  // twierdził, że historia jest pusta, zanim cokolwiek wiadomo.
-                  <p className="text-xs text-muted-foreground">Wczytywanie historii…</p>
-                ) : history.data.events.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">Brak wpisów w historii.</p>
-                ) : (
-                  <ol className={cn("flex flex-col", compactCez ? "gap-1" : "gap-2")}>
-                    {history.data.events.map((ev) => {
-                      // Nieznany typ zdarzenia dostaje ikonę domyślną — nowy
-                      // slug z backendu ma wyrenderować wiersz, a nie pustkę.
-                      const EventIcon = EVENT_ICON[ev.event_type] ?? History;
-                      return (
-                        <li key={ev.id} className={cn("flex text-xs", compactCez ? "gap-2" : "gap-3")}>
-                          <span
-                            className={cn(
-                              "shrink-0 tabular-nums text-muted-foreground",
-                              compactCez ? "w-28" : "w-32",
-                            )}
-                          >
-                            {formatDateTimePl(ev.created_at)}
-                          </span>
-                          {/* KTO — bez tego nie dało się ustalić, kto zmienił
-                              budżet (UAT B50). Pusty autor to zdarzenie
-                              automatyczne, nie brak danych: każdy handler
-                              z użytkownikiem stempluje `created_by_user_id`. */}
-                          <span
-                            className={cn(
-                              "shrink-0 break-words text-muted-foreground",
-                              compactCez ? "w-28" : "w-32",
-                            )}
-                            title={eventAuthor(ev)}
-                          >
-                            {eventAuthor(ev)}
-                          </span>
-                          <span
-                            className={cn(
-                              "flex shrink-0 items-center gap-1.5 font-medium text-foreground",
-                              compactCez ? "w-32" : "w-36",
-                            )}
-                          >
-                            <EventIcon
-                              className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
-                              aria-hidden="true"
-                            />
-                            {ev.event_label}
-                          </span>
-                          <span className="text-muted-foreground">
-                            <EventDescription event={ev} onFocusGroup={onFocusGroup} />
-                          </span>
-                        </li>
-                      );
-                    })}
-                  </ol>
-                )}
+                <OrderHistoryPanel
+                  clientId={clientId}
+                  groupId={group.id}
+                  compact={compactCez}
+                  onFocusGroup={onFocusGroup}
+                />
               </div>
             ) : null}
           </div>
@@ -1559,11 +1411,4 @@ export function OrderGroupCard({
       ) : null}
     </section>
   );
-}
-
-/** Wykonawca wpisu historii: nazwa, sam identyfikator (konto usunięte) albo system. */
-function eventAuthor(ev: OrderGroupEvent): string {
-  if (ev.created_by_name) return ev.created_by_name;
-  if (ev.created_by_user_id != null) return `Użytkownik #${ev.created_by_user_id}`;
-  return "Automatycznie (system)";
 }

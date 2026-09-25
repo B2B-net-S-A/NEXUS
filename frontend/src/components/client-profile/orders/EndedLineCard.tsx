@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { CalendarDays, ChevronDown, Pencil, Repeat, Trash2 } from "lucide-react";
+import { ChevronDown, Pencil, Repeat, Trash2 } from "lucide-react";
 
 import { ContractPersonLink } from "@/components/contracts/ContractPersonLink";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -24,6 +24,7 @@ import { formatDate, formatPLN } from "@/types/client-profile";
 
 import { formatMd, MdBudgetBar } from "./MdBudgetBar";
 import { MdScopeBars, MdScopePanels, MdScopeTotalBar } from "./MdScopeBars";
+import { ConsumptionButton } from "./ConsumptionButton";
 import {
   displayLineRate,
   focusOrderLine,
@@ -326,15 +327,7 @@ export function EndedLineCard({
 
           <div className="flex flex-wrap items-center gap-2">
             {perPersonMd && onShowConsumptions ? (
-              <button
-                type="button"
-                onClick={() => onShowConsumptions(line)}
-                aria-label={`Zużycie MD — ${line.consultant_name}`}
-                className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1 font-medium text-foreground hover:bg-muted"
-              >
-                <CalendarDays className="h-3.5 w-3.5" aria-hidden="true" />
-                Zużycie MD
-              </button>
+              <ConsumptionButton line={line} onClick={() => onShowConsumptions(line)} />
             ) : null}
             {canManage || canEditAmounts ? (
               <button

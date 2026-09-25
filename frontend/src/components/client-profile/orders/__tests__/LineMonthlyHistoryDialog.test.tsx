@@ -178,7 +178,9 @@ describe("LineMonthlyHistoryDialog — rozliczenia miesięczne linii MD", () => 
     // Bez miesiąca i MD zapis jest zablokowany — nie ma czego wysłać.
     expect(save).toBeDisabled();
 
-    await user.type(screen.getByLabelText("Miesiąc *"), "2026-03");
+    // Miesiąc wybiera się z LISTY miesięcy okresu osoby (ticket 7), nie
+    // z pełnej daty.
+    await user.selectOptions(screen.getByLabelText("Miesiąc *"), "2026-03");
     await user.type(screen.getByLabelText("MD *"), "21,5");
     await user.selectOptions(screen.getByLabelText("Status"), "protocol");
     await user.type(screen.getByLabelText("Notatka"), "protokół 03/2026");
@@ -278,5 +280,122 @@ describe("LineMonthlyHistoryDialog — rozliczenia miesięczne linii MD", () => 
 
     await user.click(screen.getByRole("button", { name: /Spróbuj ponownie/ }));
     expect(await screen.findByText("gru 2025")).toBeInTheDocument();
+  });
+});
+
+
+describe("LineMonthlyHistoryDialog — okno „Zużycie MD” (ticket 7)", () => {
+  const RICH = {
+    order_number: "4500030197",
+    md_budget: 25,
+    md_used: 44,
+    md_remaining: -19,
+    removed_months: [],
+    foreign_import_warnings: [
+      { period_month: "2026-08", order_number: "4500030845", md: 19, import_id: 2, row_number: 36 },
+    ],
+    rows: [
+      {
+        ...ROWS[0],
+        period_month: "2026-07",
+        md_reported: 23,
+        status: null,
+        source_kind: "import" as const,
+        balance_after: 2,
+        import_rows: [
+          { import_id: 1, row_number: 30, order_number_hint: "4500030197", md_reported: 23, foreign: false },
+        ],
+        corrections: [],
+      },
+      {
+        ...ROWS[1],
+        period_month: "2026-08",
+        md_reported: 3.7,
+        status: null,
+        note: "Przeliczona stawka",
+        created_by_name: "Anna Korycka",
+        source_kind: "manual_correction" as const,
+        balance_after: -19,
+        import_rows: [
+          { import_id: 2, row_number: 35, order_number_hint: "4500030197", md_reported: 2, foreign: false },
+          { import_id: 2, row_number: 36, order_number_hint: "4500030845", md_reported: 19, foreign: true },
+        ],
+        corrections: [
+          {
+            created_at: "2026-09-24T12:23:00Z",
+            period_month: "2026-08",
+            author_name: "Anna Korycka",
+            from_md: 4,
+            from_source: "import" as const,
+            to_md: 3.7,
+            removed: false,
+          },
+        ],
+      },
+    ],
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(orderGroupsApi.listConsumptions).mockResolvedValue({ data: RICH } as never);
+  });
+
+  it("nagłówek: osoba i numer zamówienia; podsumowanie wykorzystane / budżet / pozostało", async () => {
+    renderDialog();
+    expect(await screen.findByText("Zużycie MD — Anna Przykładowa")).toBeInTheDocument();
+    expect(await screen.findByText("Zamówienie nr 4500030197")).toBeInTheDocument();
+    expect(screen.getByText("Wykorzystane").nextSibling).toHaveTextContent("44 MD");
+    expect(screen.getByText("Budżet").nextSibling).toHaveTextContent("25 MD");
+    const remaining = screen.getByText("Pozostało").nextSibling as HTMLElement;
+    expect(remaining).toHaveTextContent("-19 MD");
+    expect(remaining).toHaveClass("text-destructive");
+  });
+
+  it("kolumny „Nr z importu”, „Źródło”, „Saldo po miesiącu” (ujemne na czerwono)", async () => {
+    renderDialog();
+    const header = (await screen.findByText("Nr z importu")).closest("tr")!;
+    expect(header).toHaveTextContent("Saldo po miesiącu");
+    expect(header).toHaveTextContent("Źródło");
+
+    const july = screen.getByText("lip 2026").closest("tr")!;
+    expect(july).toHaveTextContent("4500030197");
+    expect(july).toHaveTextContent("import");
+    expect(within(july).getByText("2")).not.toHaveClass("text-destructive");
+
+    const august = screen.getByText("sie 2026").closest("tr")!;
+    expect(august).toHaveTextContent("ręczna korekta");
+    expect(august).toHaveTextContent("4500030845");
+    const balance = within(august).getByText("-19");
+    expect(balance).toHaveClass("text-destructive");
+  });
+
+  it("korekta stoi pod miesiącem, którego dotyczy", async () => {
+    renderDialog();
+    const august = (await screen.findByText("sie 2026")).closest("tr")!;
+    const correction = august.nextElementSibling as HTMLElement;
+    expect(correction).toHaveTextContent(
+      /↳ korekta: 24\.09\.2026 \d{2}:\d{2} · Anna Korycka · import 4 MD → ręcznie 3,7 MD/,
+    );
+  });
+
+  it("ostrzeżenie nad tabelą: zużycie z wiersza importu z innym numerem zamówienia", async () => {
+    renderDialog();
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("sierpień 2026");
+    expect(alert).toHaveTextContent("19 MD");
+    expect(alert).toHaveTextContent("4500030845");
+  });
+
+  it("miesiąc to lista miesięcy okresu osoby, z oznaczeniem miesięcy z wpisem", async () => {
+    renderDialog();
+    await screen.findByText("sie 2026");
+    const select = screen.getByLabelText("Miesiąc *") as HTMLSelectElement;
+    expect(select.tagName).toBe("SELECT");
+    const values = [...select.options].map((option) => option.value);
+    expect(values).toContain("2025-10");
+    expect(values).not.toContain("2025-09");
+    expect(
+      [...select.options].find((option) => option.value === "2026-08")?.textContent,
+    ).toMatch(/ma wpis/);
   });
 });

@@ -41,7 +41,7 @@ describe("Harness /preview/order-md-scopes", () => {
     expect(screen.getByText("Przyszłe zamówienia (1)")).toBeInTheDocument();
 
     await user.click(
-      screen.getAllByRole("button", { name: "Rozliczenia miesięczne — Anna Przykładowa" })[0],
+      screen.getAllByRole("button", { name: "Zużycie MD — Anna Przykładowa" })[0],
     );
     expect(await screen.findByText("gru 2025")).toBeInTheDocument();
     expect(screen.queryByText(/Nie udało się wczytać/)).toBeNull();

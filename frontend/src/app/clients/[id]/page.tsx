@@ -42,6 +42,7 @@ import {
   UserSquare2,
   Trash2,
   AlertOctagon,
+  FileSpreadsheet,
 } from "lucide-react";
 import { useToast } from "@/components/Toast";
 import { DeleteButton } from "@/components/ConfirmDialog";
@@ -56,6 +57,7 @@ import { ProjectsTab } from "./ProjectsTab";
 // topbarze (NotificationsDropdown) wystarcza.
 import { FrameworkContractsTab } from "@/components/FrameworkContractsTab";
 import { MultiConsultantOrdersTab } from "@/components/client-profile/orders/MultiConsultantOrdersTab";
+import { ClientMdImportsTab } from "@/components/client-profile/orders/ClientMdImportsTab";
 import { AnalyticsTab } from "@/components/AnalyticsTab";
 import { KeyRelationshipDialog } from "@/components/KeyRelationshipDialog";
 import { ClientPlaybookTab } from "@/components/client-playbook/ClientPlaybookTab";
@@ -898,6 +900,18 @@ export default function ClientDetailPage() {
   // Zakładka czyta WARTOŚĆ parametru (miękka nawigacja nie odmontowuje
   // strony), a po obsłużeniu parametr znika z adresu — F5 nie otwiera
   // okna uzupełniania drugi raz.
+  // „Otwórz import →" z historii zamówienia: `?tab=importy-md&import={id}`.
+  const selectedImportId = positiveIntParam(searchParams.get("import"));
+  const selectImport = useCallback(
+    (importId: number | null) => {
+      const next = new URLSearchParams(searchParams.toString());
+      next.set("tab", "importy-md");
+      if (importId == null) next.delete("import");
+      else next.set("import", String(importId));
+      router.replace(`/clients/${id}?${next.toString()}`, { scroll: false });
+    },
+    [router, id, searchParams],
+  );
   const focusOrderId = positiveIntParam(searchParams.get("order"));
   const focusGroupId = positiveIntParam(searchParams.get("group"));
   const focusFrameworkId = positiveIntParam(searchParams.get("framework"));
@@ -1012,6 +1026,7 @@ export default function ClientDetailPage() {
     { key: "zasady", label: "Zasady współpracy", icon: <BookOpen className="w-4 h-4" /> },
     { key: "projekty", label: "Projekty", icon: <Briefcase className="w-4 h-4" /> },
     { key: "zamowienia", label: "Zamówienia", icon: <DollarSign className="w-4 h-4" /> },
+    { key: "importy-md", label: "Importy MD", icon: <FileSpreadsheet className="w-4 h-4" /> },
     { key: "zespol", label: "Delivery Lead", icon: <Users className="w-4 h-4" /> },
     { key: "kontakty", label: "Kontakty klienta", icon: <UserSquare2 className="w-4 h-4" /> },
     { key: "umowy-ramowe", label: "Umowy", icon: <FileText className="w-4 h-4" /> },
@@ -1219,6 +1234,13 @@ export default function ClientDetailPage() {
               focusOrderId={focusOrderId}
               focusGroupId={focusGroupId}
               onFocusHandled={clearFocusParams}
+            />
+          )}
+          {activeTab === "importy-md" && (
+            <ClientMdImportsTab
+              clientId={Number(id)}
+              selectedImportId={selectedImportId}
+              onSelectImport={selectImport}
             />
           )}
           {activeTab === "analityka" && <AnalyticsTab clientId={Number(id)} />}

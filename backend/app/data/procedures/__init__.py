@@ -189,6 +189,15 @@ ORDERS_LOGIC_SOURCES: tuple[str, ...] = (
     # przyszłe zamówienia i komplet akcji cyklu życia na linii. Brakowało jej
     # tu, choć wszystkie jej rodzeństwa były już obserwowane (09.2026).
     "frontend/src/components/client-profile/orders/OrderGroupCard.tsx",
+    # Ticket 7 (25.09.2026): historia biznesowa zamówienia, okno i przycisk
+    # „Zużycie MD", zakładka „Importy MD" — instrukcja opisuje ich zawartość.
+    "backend/app/services/order_history.py",
+    "backend/app/services/md_consumption_view.py",
+    "backend/app/api/client_md_imports.py",
+    "frontend/src/components/client-profile/orders/OrderHistoryPanel.tsx",
+    "frontend/src/components/client-profile/orders/ConsumptionButton.tsx",
+    "frontend/src/components/client-profile/orders/LineMonthlyHistoryDialog.tsx",
+    "frontend/src/components/client-profile/orders/ClientMdImportsTab.tsx",
     "frontend/src/components/client-profile/orders/OrderGroupFormModal.tsx",
     "frontend/src/components/client-profile/orders/OrderPlanLineCard.tsx",
     "frontend/src/lib/order-plan.ts",
