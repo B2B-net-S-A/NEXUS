@@ -30,6 +30,7 @@ from app.services.dealbreaker_filters import (
     DealbreakerResult,
     apply_dealbreakers,
     dealbreaker_inputs_for_job,
+    employment_only_refuses_b2b,
     missing_must_skills,
     office_fit_status,
     rate_fit_status,
@@ -352,12 +353,16 @@ async def _gate_and_dealbreakers(
     # i rekruter szuka tej osoby od nowa. Miękkie ostrzeżenia (konflikt klienta,
     # obecne zatrudnienie, wykluczenie) są przypisywalne, więc budżet ścina je
     # jak każdego innego kandydata.
+    # Wyjątek od wyjątku: „tylko umowa o pracę” z rozmowy (0374) ukrywa ZAWSZE
+    # — pracujemy wyłącznie na B2B, więc osoba z wetem HM i tak nie jest
+    # kandydatem; weto nie może jej przywrócić na listę.
     blocked_visible_ids = {
         c.id
         for c in visible
         if (d := decisions.get(c.id)) is not None
         and d.severity is Severity.hard
         and d.visibility is Visibility.warn
+        and not employment_only_refuses_b2b(c)
     }
     dealbreakable = [c for c in visible if c.id not in blocked_visible_ids]
 
