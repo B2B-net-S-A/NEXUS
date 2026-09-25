@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 25.09.2026
+> **Zgodność z systemem sprawdzona:** 26.09.2026
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -734,9 +734,10 @@ nowe zamówienie. Karty z zamówieniem innym niż szkic nie da się tak usunąć
   dzisiejszym) anuluje zaplanowane zastępstwo — w historii zostaje wpis, a
   „Przywróć" go nie wskrzesza. Z datą **po** dniu wejścia zastępstwo wejdzie
   normalnie, mimo że zamówienie stoi już w „Zakończonych". Zaplanowane
-  zastępstwo anuluje też **przedłużenie odchodzącego** (aneks albo „Przedłuż”)
-  i **„Cofnij zakończenie”** jego kontraktu — w historii zamówienia zostaje wpis
-  z powodem. Gdy pula odchodzącego wyczerpie się przed dniem wejścia,
+  zastępstwo anuluje też **przedłużenie odchodzącego** (aneks, „Przedłuż” albo
+  późniejsza data końca wpisana w kontrakcie) i **„Cofnij zakończenie”** jego
+  kontraktu — w historii zamówienia zostaje wpis z powodem. Zastępstwo, którego
+  dzień wejścia nie wypada po ostatnim dniu odchodzącego, też jest anulowane. Gdy pula odchodzącego wyczerpie się przed dniem wejścia,
   zastępstwo jest anulowane (wpis „pula wyczerpana przed wejściem”) — dodaj
   wtedy nową osobę z własną pulą.
 * **Nowe zamówienie** — dotychczasowe „Uzupełnij zamówienie": osobne zamówienie
