@@ -652,81 +652,6 @@ CHAMPION_PROFILE_FROM_HISTORICAL_JOBS = PromptTemplate(
 )
 
 
-CHAMPION_RECOMMENDED_SEARCHES = PromptTemplate(
-    name="champion_recommended_searches",
-    # v2: added `q` + `search_mode` (the only way a recommended search reaches
-    # the semantic index), dropped `experience_years_*` from the emittable set,
-    # and started injecting measured column density instead of hard-coding
-    # which fields to avoid.
-    # v3 (09.2026): sekcja „experience” (dziedzina, certyfikaty, regulacje).
-    version=3,
-    expected_format="json",
-    system_prompt=(
-        "Jesteś senior sourcerem IT w polskiej agencji staffing. "
-        "Na podstawie Profilu Championa i opisu rekrutacji projektujesz "
-        "konkretne wyszukiwania w wewnętrznej bazie kandydatów (ATS). "
-        "REGUŁY: "
-        "(1) Używaj WYŁĄCZNIE pól z podanego schematu — żadnych innych filtrów. "
-        "(2) Skille pisz kanonicznie (np. 'Java', 'Spring Boot', 'AWS', "
-        "'PostgreSQL') — pojedyncze technologie, nie zdania. "
-        "(3) q_all/q_any_groups/q_none to frazy full-text po CV (mogą być "
-        "wielowyrazowe, np. 'system bankowy'). "
-        "(4) Strategie mają się RÓŻNIĆ zakresem: pierwsza precyzyjna "
-        "(must-have), druga szersza (synonimy/alternatywy technologii), "
-        "opcjonalna trzecia eksperymentalna (np. ludzie z firm docelowych). "
-        "(5) Nie wymyślaj wymagań, których nie ma w profilu/opisie. "
-        "(6) `q` to zapytanie SEMANTYCZNE (nie słowa kluczowe): 1-2 zdania "
-        "opisujące szukaną osobę jej własnym językiem — rola, technologie, "
-        "kontekst branżowy. To ono trafia do wyszukiwania wektorowego i jako "
-        "jedyne czyta CV ze zrozumieniem, więc wypełniaj je ZAWSZE. "
-        "(7) Sygnały, których nie da się wyrazić filtrem po dobrze wypełnionej "
-        "kolumnie (staż, seniority, branża, typ projektu), wpisuj do `q`, nie "
-        "wymyślaj do nich filtrów strukturalnych. "
-        "(8) Sekcja `experience` profilu: certyfikat o level=must → q_all "
-        "(dokładna nazwa, np. 'ISTQB'); certyfikaty i regulacje o level=nice "
-        "→ q_any_groups; dziedzina (np. płatności, ubezpieczenia) → do `q` "
-        "i opcjonalnie q_any_groups z synonimami ('płatności', 'payments', "
-        "'karty', 'acquiring'). Nigdy nie traktuj dziedziny jak skilla. "
-        "(9) Odpowiedź MUSI być czystym JSON bez prose, bez code fences."
-    ),
-    template=(
-        "Rekrutacja:\n"
-        "  Tytuł: {job_title}\n"
-        "  Klient: {client_name}\n"
-        "  Wymagania (z oferty): {requirements}\n"
-        "  Must-have skills (z oferty): {must_skills}\n"
-        "  Nice-to-have skills (z oferty): {nice_skills}\n\n"
-        "Profil Championa (zweryfikowany przez Delivery Leada):\n"
-        "---\n"
-        "{champion_profile_json}\n"
-        "---\n\n"
-        "{column_coverage}\n\n"
-        "Zaprojektuj 2-3 wyszukiwania. Zwróć JSON:\n"
-        "{{\n"
-        '  "searches": [\n'
-        "    {{\n"
-        '      "name": "krótka nazwa strategii (po polsku, max 80 znaków)",\n'
-        '      "rationale": "1-2 zdania: czemu ten zestaw filtrów (po polsku)",\n'
-        '      "params": {{\n'
-        '        "q": "zapytanie semantyczne, 1-2 zdania — WYPEŁNIJ ZAWSZE",\n'
-        '        "search_mode": "hybrid",\n'
-        '        "q_all": ["fraza wymagana w CV", ...],\n'
-        '        "q_any_groups": [["wariant A", "wariant B"], ...],\n'
-        '        "q_none": ["fraza wykluczająca", ...],\n'
-        '        "skills_must": ["Skill1", ...],\n'
-        '        "skills_any": ["SkillAlt1", ...],\n'
-        '        "skills_none": [],\n'
-        '        "location_cities": ["Miasto", ...]\n'
-        "      }}\n"
-        "    }}\n"
-        "  ]\n"
-        "}}\n\n"
-        "Każde pole params jest opcjonalne (pusta lista/null gdy nieużywane), "
-        "ale każdy search musi mieć przynajmniej jeden niepusty filtr."
-    ),
-)
-
-
 # ── Match scoring justification ("Dopasowanie" tab) ─────────────────────────
 
 MATCH_JUSTIFICATION = PromptTemplate(
@@ -947,10 +872,16 @@ CV_REQUIREMENT_MAP = PromptTemplate(
 # rekrutację (zwykle podpis maila). Jedyny wyjątek od zakazu nazwisk i też
 # wyłącznie dosłowny cytat; kod dopasowuje go do kontaktów klienta, a nazwy
 # kontaktów nadal nie trafiają do promptu.
+#
+# v5 (25.09.2026): `search.requirements` — wymagania do wyszukiwania w bazie
+# NEXUSA (wiersz = wymaganie, słowa w wierszu = warianty). Każde słowo to
+# FAKT z maila: kod (`job_request_intake._search_rows`) odrzuca słowo, którego
+# nie ma w mailu jako całego słowa. „Szukaj ręcznie” startuje od tych wierszy,
+# a handoff wymaga co najmniej jednego.
 
 JOB_REQUEST_INTAKE = PromptTemplate(
     name="job_request_intake",
-    version=4,
+    version=5,
     expected_format="json",
     system_prompt=(
         "Jesteś senior rekruterem IT w polskiej agencji body leasingu. "
@@ -1010,6 +941,7 @@ JOB_REQUEST_INTAKE = PromptTemplate(
         '  "project_about": str|null,         // cel projektu, MAKSYMALNIE 2 zdania po polsku\n'
         '  "responsibilities": str|null,      // obowiązki, krótko po polsku\n'
         '  "search": {{\n'
+        '    "requirements": [[str]],         // 2–4 wymagania do wyszukiwania w bazie; każde to lista wariantów tego samego wymagania, słowa DOSŁOWNIE z maila\n'
         '    "keywords": str,                 // frazy do wyszukiwarki kandydatów, oddzielone przecinkami\n'
         '    "target_companies": str,         // firmy, z których warto szukać (może być pusty)\n'
         '    "disqualifiers": [str],          // kogo odrzucamy od razu, tylko gdy wynika z maila\n'
@@ -1029,6 +961,16 @@ JOB_REQUEST_INTAKE = PromptTemplate(
         "RODO, KNF, ISO 27001. level=must tylko gdy klient pisze, że to wymóg.\n\n"
         "Frazy do wyszukiwarki: 3–8 fraz, tak jak rekruter wpisze je w wyszukiwarkę "
         "(nazwa roli, kluczowe technologie, dziedzina).\n\n"
+        "Wymagania do wyszukiwania (search.requirements): 2–4 najważniejsze wymagania "
+        "z maila, po których rekruter przeszuka NASZĄ bazę CV. Kandydat musi spełnić "
+        "KAŻDE wymaganie; w jednym wymaganiu wystarczy jeden wariant. Wariant to inny "
+        "zapis albo zamiennik, który klient sam dopuszcza, np. "
+        '[["Java"], ["Kafka", "RabbitMQ"]] dla „Java oraz Kafka lub RabbitMQ”. '
+        "Każde słowo musi stać w mailu dosłownie (kod odrzuca inne). Pojedyncze "
+        "technologie albo krótkie nazwy, nie zdania, bez numerów wersji "
+        "(„Java”, nie „Java 17+” — wersja zawęża do osób, które napisały ten sam "
+        "numer); nie wpisuj miasta, stażu (junior/senior) ani nazwy roli — do "
+        "tego są osobne pola.\n\n"
         "Pytania screeningowe: najpierw te, o które klient pyta albo które wynikają "
         "wprost z wymagań (from_request=true). Dla każdej dziedziny o level=must dodaj "
         "jedno pytanie o praktyczne doświadczenie w tej dziedzinie. Razem 3–6 pytań, "
@@ -1217,7 +1159,6 @@ ALL_TEMPLATES: dict[str, PromptTemplate] = {
         CHAMPION_PROFILE_ENRICH_FROM_MEETING,
         CHAMPION_PROFILE_ENRICH_FROM_CALL,
         CHAMPION_PROFILE_FROM_HISTORICAL_JOBS,
-        CHAMPION_RECOMMENDED_SEARCHES,
         MATCH_JUSTIFICATION,
         CANDIDATE_ACTIVITY_SUMMARY,
         CV_REQUIREMENT_MAP,

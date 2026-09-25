@@ -81,6 +81,9 @@ const FULL_FORM: IntakeForm = {
     notes: "",
   },
   searchKeywords: "Senior Java Developer, Spring Boot, Kafka, płatności kartowe",
+  // 25.09.2026: wymagania do wyszukiwania w bazie — propozycja Luny z maila.
+  searchRequirements: [["Java"], ["Spring Boot"], ["Kafka"]],
+  searchExclude: [],
   targetCompanies: "Asseco, Comarch, Nets",
   disqualifiers: [],
   sellingPoints: "Greenfield na mikroserwisach, projekt na 12 miesięcy z opcją przedłużenia.",
@@ -105,6 +108,7 @@ const FULL_FORM: IntakeForm = {
     rate: "request",
     about: "request",
     experience: "request",
+    search_requirements: "request",
     search_keywords: "ai",
     target_companies: "client_history",
     selling_points: "client_history",
@@ -150,6 +154,11 @@ const STATES: Record<string, NewJobPagePreview> = {
       ...FULL_FORM,
       rateBudget: "",
       questions: FULL_FORM.questions.slice(0, 1),
+      // Luna nie znalazła wymagań do wyszukiwania — brak blokuje przekazanie.
+      searchRequirements: [],
+      provenance: Object.fromEntries(
+        Object.entries(FULL_FORM.provenance).filter(([key]) => key !== "search_requirements"),
+      ),
     },
     evidence: EVIDENCE.filter((e) => e !== "do 170 zł/h netto"),
   },

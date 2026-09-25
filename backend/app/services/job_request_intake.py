@@ -19,6 +19,10 @@ Zasady, które łatwo cofnąć „przy okazji”:
   stackiem” (dziedzina, certyfikaty, regulacje) wchodzą wyłącznie z cytatem
   obecnym w mailu. Propozycje (frazy, firmy docelowe, argumenty, pytania do
   klienta) niosą ``provenance`` — formularz mówi DL, skąd pochodzą.
+* **Od v5 (25.09.2026) wymagania do wyszukiwania w bazie.** 2–4 wiersze
+  (słowa w wierszu = warianty), a każde słowo MUSI stać w mailu jako całe
+  słowo (`_word_in_text` — `_in_text` to podłańcuch, „go” przeszłoby
+  w „google”). Słowo spoza maila odpada; DL poprawia wiersze na formularzu.
 """
 
 from __future__ import annotations
@@ -47,6 +51,8 @@ MAX_EVIDENCE = 40
 MAX_EXPERIENCE = 8
 MAX_ASK_CLIENT = 5
 MAX_DISQUALIFIERS = 8
+MAX_SEARCH_ROWS = 4
+MAX_SEARCH_WORDS = 6
 _BASES = ("request", "client_history", "ai")
 
 _WORK_MODES = {
@@ -69,6 +75,7 @@ MISSING_OFFICE_DAYS = "office_days"
 MISSING_OFFICE_CITY = "office_city"
 MISSING_CONTEXT = "context"
 MISSING_QUESTIONS = "questions"
+MISSING_SEARCH = "search"
 
 
 @dataclass(frozen=True)
@@ -105,6 +112,9 @@ class RequestIntake:
     search_keywords: Optional[str] = None
     target_companies: Optional[str] = None
     disqualifiers: list[str] = field(default_factory=list)
+    # ── od v5 (25.09.2026): wymagania do wyszukiwania w bazie (sekcja 2) ──
+    # Wiersz = wymaganie, słowa = warianty; każde słowo dosłownie z maila.
+    search_requirements: list[list[str]] = field(default_factory=list)
     selling_points: Optional[str] = None
     ask_client: list[str] = field(default_factory=list)
     # Ścieżka pola formularza → "request" | "client_history" | "ai".
@@ -173,6 +183,42 @@ def _fold(value: str) -> str:
 
 def _in_text(fragment: str, folded_text: str) -> bool:
     return _fold(fragment) in folded_text
+
+
+def _word_in_text(word: str, folded_text: str) -> bool:
+    """Całe słowo (albo fraza) w tekście — nie kawałek innego słowa."""
+    needle = _fold(word)
+    if not needle:
+        return False
+    pattern = r"(?<![0-9a-z])" + re.escape(needle) + r"(?![0-9a-z])"
+    return re.search(pattern, folded_text) is not None
+
+
+def _search_rows(value: Any, folded_text: str) -> list[list[str]]:
+    """Wiersze wymagań do wyszukiwania — tylko słowa, które są w mailu."""
+    if not isinstance(value, list):
+        return []
+    rows: list[list[str]] = []
+    for raw_row in value:
+        words = raw_row if isinstance(raw_row, list) else [raw_row]
+        row: list[str] = []
+        for raw in words:
+            word = _text(raw, 100)
+            if not word:
+                continue
+            word = " ".join(word.replace("|", " ").split())
+            if len(word) < 2 or not _word_in_text(word, folded_text):
+                continue
+            if word.casefold() in {w.casefold() for w in row}:
+                continue
+            row.append(word)
+            if len(row) >= MAX_SEARCH_WORDS:
+                break
+        if row and row not in rows:
+            rows.append(row)
+        if len(rows) >= MAX_SEARCH_ROWS:
+            break
+    return rows
 
 
 def _questions(value: Any) -> list[IntakeQuestion]:
@@ -263,6 +309,7 @@ def missing_fields(
     project_about: Optional[str],
     responsibilities: Optional[str],
     questions: list[IntakeQuestion],
+    search_requirements: list[list[str]],
 ) -> list[str]:
     """Braki wobec „Przekaż do searchu” — lustro `job_readiness`."""
     missing: list[str] = []
@@ -283,6 +330,8 @@ def missing_fields(
         missing.append(MISSING_CONTEXT)
     if len([q for q in questions if q.question.strip()]) < 2:
         missing.append(MISSING_QUESTIONS)
+    if not any(row for row in search_requirements):
+        missing.append(MISSING_SEARCH)
     return missing
 
 
@@ -379,6 +428,7 @@ def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:
     search_keywords = _text(search.get("keywords"), 500)
     target_companies = _text(search.get("target_companies"), 500)
     disqualifiers = _strings(search.get("disqualifiers"), MAX_DISQUALIFIERS, 200)
+    search_requirements = _search_rows(search.get("requirements"), folded_text)
     selling_raw = data.get("selling_points")
     selling = selling_raw if isinstance(selling_raw, dict) else {}
     selling_points = _text(selling.get("text"), 800)
@@ -395,6 +445,7 @@ def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:
         ("about", project_about),
         ("responsibilities", responsibilities),
         ("experience", any(experience.values())),
+        ("search_requirements", search_requirements),
     ):
         if present:
             provenance[key] = "request"
@@ -465,6 +516,7 @@ def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:
             project_about=project_about,
             responsibilities=responsibilities,
             questions=questions,
+            search_requirements=search_requirements,
         ),
         language=_text(data.get("language"), 50),
         contract_length=_text(data.get("contract_length"), 255),
@@ -472,6 +524,7 @@ def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:
         search_keywords=search_keywords,
         target_companies=target_companies,
         disqualifiers=disqualifiers,
+        search_requirements=search_requirements,
         selling_points=selling_points,
         ask_client=ask_client,
         provenance=provenance,

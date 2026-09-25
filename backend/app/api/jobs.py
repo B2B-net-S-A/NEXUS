@@ -1,5 +1,6 @@
 import enum
 import logging
+from copy import deepcopy
 from datetime import date, datetime, timedelta, timezone
 from typing import Annotated, Optional
 
@@ -55,7 +56,6 @@ from app.models.user import User, UserRole
 from app.schemas.champion import (
     ChampionBriefingRequest,
     ChampionVerificationRequest,
-    RecommendedSearchDecision,
 )
 from app.schemas.job import (
     CcOverrideRequest,
@@ -2907,6 +2907,7 @@ async def _save_champion_profile(
     can refetch and show an inline "someone just updated this" banner.
     """
     from app.schemas.champion import ChampionProfile
+    from app.services import champion_view
     from app.services.champion_job_sync import fill_job_columns_from_champion
     from app.services.job_matching_refresh import refresh_job_matching
 
@@ -2957,6 +2958,11 @@ async def _save_champion_profile(
     # wszystkiego, co naprawdę go czyta.
     stack_must = [{"name": item.name, "level": None} for item in profile.stack.must]
     stack_nice = [{"name": item.name, "level": None} for item in profile.stack.nice]
+    # Migawka kolumn, które czyta matching — po synchronizacji stacku widać,
+    # czy zapis zmienił coś poza treścią profilu (patrz `search_rows_only`).
+    matching_columns_before = deepcopy(
+        (job.must_skills, job.nice_skills, job.matching_requirements)
+    )
     # Synchronizujemy, gdy edytor PRZYSŁAŁ sekcję `stack` — także wtedy, gdy
     # przysłał ją pustą. Warunek `if stack_must:` sprawiał, że wyczyszczenie
     # stacku w edytorze nigdy nie czyściło kolumn: Delivery Lead widział pustą
@@ -2997,6 +3003,22 @@ async def _save_champion_profile(
     # before a schema field existed (e.g. `advisory`) must not read as a change
     # — that would turn every no-op save into a write plus a notification.
     intake_changed = normalized_old.get("intake") != new_profile.get("intake")
+    # Same wymagania do wyszukiwania w bazie (sekcja 2, 25.09.2026) czyta
+    # wyłącznie „Szukaj ręcznie”: odcisk rankingu, wektor oferty i kolumny
+    # rekrutacji zostają, więc bez przeliczenia dopasowań i bez zdarzenia dla
+    # automatów (nocny przegląd, auto-match). Treść profilu i tak się zapisuje,
+    # a zespół dostaje powiadomienie.
+    search_rows_only = (
+        not imported
+        and fields_changed == ["search"]
+        and not intake_changed
+        and not columns_filled
+        and not sync_fields
+        and deepcopy((job.must_skills, job.nice_skills, job.matching_requirements))
+        == matching_columns_before
+        and champion_view.without_search_rows(normalized_old.get("search"))
+        == champion_view.without_search_rows(new_profile.get("search"))
+    )
     if not fields_changed and not imported and old_profile and not intake_changed:
         # Brak zmiany TREŚCI profilu nie znaczy brak zmiany dla silnika
         # matchingu: `columns_filled`/synchronizacja stacku żyją na `job`,
@@ -3068,12 +3090,13 @@ async def _save_champion_profile(
     # top-weighted scoring inputs — re-embed the job and invalidate cached match
     # scores so the Delivery Lead's work actually reaches the recruiter's ranking
     # (previously this write bypassed the refresh update_job does).
-    await refresh_job_matching(job.id, db)
+    if not search_rows_only:
+        await refresh_job_matching(job.id, db)
 
     # Zmiana Championa to istotna zmiana wymagań: opublikowana rekrutacja wraca
     # do auto-matchu nowych CV i do nocnego pełnego przeglądu bazy (21.09.2026).
     # Własna sesja, nigdy nie rzuca.
-    if job.status == JobStatus.published:
+    if job.status == JobStatus.published and not search_rows_only:
         from app.services.auto_match_outbox import enqueue_job_safe
 
         await enqueue_job_safe(job.id)
@@ -3840,170 +3863,6 @@ async def champion_briefing_audio_url(
         key, expires_in=600, filename="briefing.mp3", disposition="inline"
     )
     return {"url": url}
-
-
-# ── Champion Profile recommended searches (AI-proposed, DL-approved) ────────
-
-
-@router.post("/{job_id}/champion-profile/recommended-searches/generate")
-async def generate_recommended_searches_endpoint(
-    job_id: int,
-    current_user: DeliveryLeadPlus,
-    db: AsyncSession = Depends(get_db),
-) -> dict:
-    """LLM proposes 2-3 candidate searches from the Champion Profile.
-
-    Subject to the Settings → AI quota for `champion_draft`. Proposals are
-    stored in champion_profile.recommended_searches with status `proposed`
-    until the DL approves/rejects them.
-    """
-    from app.models.ai_feature import AIFeatureKey
-    from app.services.ai_quota import AIQuotaExceeded, ai_feature
-    from app.services.champion_draft_service import generate_recommended_searches
-
-    job = await db.scalar(select(Job).where(Job.id == job_id))
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-    await _ensure_delivery_lead_job_visible(job, current_user, db)
-
-    # `ai_feature`, nie gołe `check_and_increment`: obciążenie i DEKLARACJA
-    # w jednym kroku — bez deklaracji wywołanie dolatuje do granicy dostawcy
-    # jako niezadeklarowane i pod AI_QUOTA_STRICT rzuca, mimo naliczonej kwoty.
-    #
-    # Przy okazji 429 → 503 (C-8 z audytu): to była JEDYNA trasa mapująca
-    # wyczerpaną kwotę na 429 — dwie bliźniacze niżej zawsze zwracały 503 ze
-    # słownikiem `detail`, i to ten kształt zna front.
-    try:
-        async with ai_feature(db, AIFeatureKey.champion_draft, user_id=current_user.id):
-            profile = await generate_recommended_searches(
-                db, job_id=job_id, user_id=current_user.id
-            )
-    except AIQuotaExceeded as exc:
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "feature": exc.feature.value,
-                "reason": exc.reason,
-                "used": exc.used,
-                "limit": exc.limit,
-            },
-        ) from exc
-    except HTTPException:
-        raise
-    except Exception as exc:  # noqa: BLE001 — LLM failures surface as 502
-        logger.warning(
-            "[RecommendedSearches] generation failed job=%s: %s", job_id, exc
-        )
-        raise HTTPException(
-            status_code=502,
-            detail="Nie udało się wygenerować propozycji wyszukiwań — spróbuj ponownie.",
-        ) from exc
-    return {"job_id": job_id, "champion_profile": _champion_response(profile)}
-
-
-@router.post("/{job_id}/champion-profile/recommended-searches/decision")
-async def decide_recommended_search(
-    job_id: int,
-    payload: RecommendedSearchDecision,
-    current_user: DeliveryLeadPlus,
-    db: AsyncSession = Depends(get_db),
-) -> dict:
-    """Approve / reject / reset one AI-proposed search.
-
-    Approve materialises a `SavedSearch` (entity=candidates) pinned to this
-    job and shared with the team — the job's "Wyszukaj manualnie" tab then
-    surfaces it for every recruiter, who activates it in one click. Reset
-    deletes the materialised SavedSearch (best-effort) and re-opens the
-    proposal.
-    """
-    from app.models.saved_search import SavedSearch
-    from app.schemas.champion import ChampionProfile, RecommendedSearch
-
-    job_res = await db.execute(select(Job).where(Job.id == job_id).with_for_update())
-    job = job_res.scalar_one_or_none()
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-    await _ensure_delivery_lead_job_visible(job, current_user, db)
-
-    profile = dict(job.champion_profile or {})
-    entries: list[RecommendedSearch] = []
-    target: Optional[RecommendedSearch] = None
-    for raw in profile.get("recommended_searches") or []:
-        try:
-            entry = RecommendedSearch.model_validate(raw)
-        except Exception:  # noqa: BLE001
-            continue
-        entries.append(entry)
-        if entry.id == payload.search_id:
-            target = entry
-    if target is None:
-        raise HTTPException(status_code=404, detail="Nie znaleziono propozycji.")
-
-    actor_name = (current_user.name or "").strip() or current_user.email
-    now = datetime.now(timezone.utc)
-
-    if payload.action == "approve":
-        if not (target.status == "approved" and target.saved_search_id):
-            saved = SavedSearch(
-                user_id=current_user.id,
-                name=target.name[:100],
-                entity="candidates",
-                # Shape = CandidateSearchRequest subset — the job's manual
-                # search tab spreads it straight into its request state.
-                filters=target.params.model_dump(exclude_none=True),
-                shared=True,
-                description=(target.rationale or "Rekomendacja AI")[:255],
-                pinned_to_job_id=job_id,
-            )
-            db.add(saved)
-            await db.flush()
-            target.saved_search_id = saved.id
-        target.status = "approved"
-        target.decided_by_id = current_user.id
-        target.decided_by_name = actor_name
-        target.decided_at = now
-    elif payload.action == "reject":
-        target.status = "rejected"
-        target.decided_by_id = current_user.id
-        target.decided_by_name = actor_name
-        target.decided_at = now
-    else:  # reset
-        if target.saved_search_id:
-            stale = await db.scalar(
-                select(SavedSearch).where(SavedSearch.id == target.saved_search_id)
-            )
-            if stale:
-                await db.delete(stale)
-        target.status = "proposed"
-        target.saved_search_id = None
-        target.decided_by_id = None
-        target.decided_by_name = None
-        target.decided_at = None
-
-    defaults = ChampionProfile().model_dump(mode="json")
-    for k, v in defaults.items():
-        profile.setdefault(k, v)
-    profile["recommended_searches"] = [e.model_dump(mode="json") for e in entries]
-    validated = ChampionProfile.model_validate(profile)
-    apply_requirement_source_update(
-        job, "champion_profile", validated.model_dump(mode="json")
-    )
-
-    db.add(
-        Activity(
-            entity_type="job",
-            entity_id=job_id,
-            action="champion_recommended_search_decision",
-            user_id=current_user.id,
-            details={"search_id": payload.search_id, "action": payload.action},
-        )
-    )
-    await db.commit()
-    await db.refresh(job)
-    return {
-        "job_id": job.id,
-        "champion_profile": _champion_response(job.champion_profile),
-    }
 
 
 # ── Champion Profile AI Intake (Phase 14) ───────────────────────────────────

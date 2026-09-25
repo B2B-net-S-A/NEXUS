@@ -278,11 +278,11 @@ describe("CandidatesListV2", () => {
         "CV",
         "Przypisz",
       ]);
-      // Pasek nad tabelą (wariant A, 23.09.2026): słowa kluczowe jak w Traffit
-      // (wszystkie / którekolwiek / żadne + „Szukaj w”) widać od razu.
-      expect(within(bar()).getByLabelText("Zawiera wszystkie ze słów")).toBeTruthy();
-      expect(within(bar()).getByLabelText("Zawiera którekolwiek ze słów")).toBeTruthy();
-      expect(within(bar()).getByLabelText("Nie zawiera żadnego ze słów")).toBeTruthy();
+      // Pasek nad tabelą: słowa kluczowe jako lista wymagań (25.09.2026) —
+      // pierwszy wiersz, „Dodaj wymaganie”, „Wyklucz” i „Szukaj w” od razu.
+      expect(within(bar()).getByLabelText("Wymaganie 1 — słowo albo wariant")).toBeTruthy();
+      expect(within(bar()).getByRole("button", { name: "Dodaj wymaganie" })).toBeTruthy();
+      expect(within(bar()).getByLabelText("Wyklucz — żadne z tych słów")).toBeTruthy();
       expect(within(bar()).getByLabelText("Szukaj w")).toBeTruthy();
       // Pozostałe grupy to przyciski; pola są dopiero w ich okienkach.
       for (const name of [
@@ -374,33 +374,58 @@ describe("CandidatesListV2", () => {
       ).toBeTruthy();
     });
 
-    it("słowa kluczowe i wykluczenia z panelu idą do API", async () => {
+    it("wymagania (wiersze) i wykluczenia z panelu idą do API w kolejności wierszy", async () => {
       renderList();
-      const must = within(bar()).getByLabelText("Zawiera wszystkie ze słów");
-      fireEvent.change(must, { target: { value: "Kafka" } });
-      fireEvent.keyDown(must, { key: "Enter" });
-      const exclude = within(bar()).getByLabelText("Nie zawiera żadnego ze słów");
+      const first = within(bar()).getByLabelText("Wymaganie 1 — słowo albo wariant");
+      fireEvent.change(first, { target: { value: "Kafka" } });
+      fireEvent.keyDown(first, { key: "Enter" });
+      fireEvent.change(first, { target: { value: "RabbitMQ" } });
+      fireEvent.keyDown(first, { key: "Enter" });
+      fireEvent.click(within(bar()).getByRole("button", { name: "Dodaj wymaganie" }));
+      const second = within(bar()).getByLabelText("Wymaganie 2 — słowo albo wariant");
+      fireEvent.change(second, { target: { value: "Java" } });
+      fireEvent.keyDown(second, { key: "Enter" });
+      const exclude = within(bar()).getByLabelText("Wyklucz — żadne z tych słów");
       fireEvent.change(exclude, { target: { value: "junior" } });
       fireEvent.keyDown(exclude, { key: "Enter" });
+      // Zdanie mówi, jak serwer przeczyta wyszukiwanie.
+      expect(
+        within(bar()).getByText(
+          "Szukamy osób, które mają (Kafka lub RabbitMQ) i Java, bez słów: junior. Szukamy w: cały profil.",
+        ),
+      ).toBeTruthy();
       search();
       await waitFor(async () => {
         const calls = await candidateCalls();
-        expect(calls.at(-1)).toMatchObject({ q_all: ["Kafka"], q_none: ["junior"] });
+        expect(calls.at(-1)).toMatchObject({
+          q_any_group: ["Kafka|RabbitMQ", "Java"],
+          q_none: ["junior"],
+        });
+        expect(calls.at(-1)?.q_all).toBeUndefined();
       });
     });
 
-    it("„którekolwiek” i „Szukaj w” z panelu idą do API", async () => {
+    it("„Szukaj w” z panelu idzie do API", async () => {
       renderList();
-      const any = within(bar()).getByLabelText("Zawiera którekolwiek ze słów");
-      fireEvent.change(any, { target: { value: "Spring" } });
-      fireEvent.keyDown(any, { key: "Enter" });
-      fireEvent.change(any, { target: { value: "Quarkus" } });
-      fireEvent.keyDown(any, { key: "Enter" });
+      const first = within(bar()).getByLabelText("Wymaganie 1 — słowo albo wariant");
+      fireEvent.change(first, { target: { value: "Spring" } });
+      fireEvent.keyDown(first, { key: "Enter" });
       fireEvent.change(within(bar()).getByLabelText("Szukaj w"), { target: { value: "cv" } });
       search();
       await waitFor(async () => {
         const calls = await candidateCalls();
-        expect(calls.at(-1)).toMatchObject({ q_any_group: ["Spring|Quarkus"], q_scope: "cv" });
+        expect(calls.at(-1)).toMatchObject({ q_any_group: ["Spring"], q_scope: "cv" });
+      });
+    });
+
+    it("usunięcie wiersza zostawia pozostałe wymagania", async () => {
+      urlParams = new URLSearchParams("q_any=Kafka&q_any=Java");
+      renderList();
+      fireEvent.click(within(bar()).getByRole("button", { name: "Usuń wymaganie 1" }));
+      search();
+      await waitFor(async () => {
+        const calls = await candidateCalls();
+        expect(calls.at(-1)).toMatchObject({ q_any_group: ["Java"] });
       });
     });
 
@@ -539,7 +564,7 @@ describe("CandidatesListV2", () => {
       renderList();
       await waitFor(async () => expect((await candidateCalls()).length).toBeGreaterThan(0));
       const before = (await candidateCalls()).length;
-      const must = within(bar()).getByLabelText("Zawiera wszystkie ze słów");
+      const must = within(bar()).getByLabelText("Wymaganie 1 — słowo albo wariant");
       fireEvent.change(must, { target: { value: "Kafka" } });
       fireEvent.keyDown(must, { key: "Enter" });
       expect(await screen.findByText("1 zmiana czeka na „Szukaj”")).toBeTruthy();
@@ -554,25 +579,26 @@ describe("CandidatesListV2", () => {
       fireEvent.keyDown(must, { key: "Enter" });
       await waitFor(async () => {
         const calls = await candidateCalls();
-        expect(calls.at(-1)).toMatchObject({ q_all: ["Kafka"] });
+        expect(calls.at(-1)).toMatchObject({ q_any_group: ["Kafka"] });
       });
       expect(screen.queryByText(/czeka na „Szukaj”/)).toBeNull();
       expect(readRecentSearches(7)[0]).toMatchObject({ kind: "list", label: "Kafka", keywords: ["Kafka"] });
     });
 
     it("goły adres przywraca ostatnie wyszukiwanie z tej karty", async () => {
+      // Pamięć sprzed 25.09.2026 niesie `q_all` — wraca jako wiersz wymagań.
       writeListSearch({ query: "q_all=Kafka&rate_max=160" });
       renderList();
       expect(await screen.findByText("Wróciłeś do swojego wyszukiwania.")).toBeTruthy();
       await waitFor(async () => {
         const calls = await candidateCalls();
-        expect(calls.at(-1)).toMatchObject({ q_all: ["Kafka"], max_rate: 160 });
+        expect(calls.at(-1)).toMatchObject({ q_any_group: ["Kafka"], max_rate: 160 });
       });
 
       fireEvent.click(screen.getByRole("button", { name: "Nowe wyszukiwanie" }));
       await waitFor(async () => {
         const calls = await candidateCalls();
-        expect(calls.at(-1)?.q_all).toBeUndefined();
+        expect(calls.at(-1)?.q_any_group).toBeUndefined();
       });
       expect(screen.queryByText("Wróciłeś do swojego wyszukiwania.")).toBeNull();
     });
@@ -583,7 +609,7 @@ describe("CandidatesListV2", () => {
       renderList();
       await waitFor(async () => {
         const calls = await candidateCalls();
-        expect(calls.at(-1)).toMatchObject({ q_all: ["Python"] });
+        expect(calls.at(-1)).toMatchObject({ q_any_group: ["Python"] });
       });
       expect(screen.queryByText("Wróciłeś do swojego wyszukiwania.")).toBeNull();
     });

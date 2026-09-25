@@ -328,6 +328,21 @@ RANKING_IGNORED_KEYS = frozenset(
 )
 
 
+# Wymagania do wyszukiwania w bazie (sekcja 2, 25.09.2026) zasilają WYŁĄCZNIE
+# „Szukaj ręcznie” — decyzja Artura: automaty (przegląd bazy, propozycje)
+# liczą z must/nice. Ich edycja nie może więc ani skasować zatwierdzonego
+# kontraktu wymagań, ani zmienić odcisku rankingu (409 na pełnym przeglądzie).
+SEARCH_ONLY_KEYS = ("requirements", "exclude")
+
+
+def without_search_rows(search: Any) -> Any:
+    """Sekcja `search` bez wierszy wyszukiwania — jedna reguła dla odcisku
+    wymagań i dla zapisu edytora (`champion_intake.user_edit`)."""
+    if isinstance(search, Mapping) and any(k in search for k in SEARCH_ONLY_KEYS):
+        return {k: v for k, v in search.items() if k not in SEARCH_ONLY_KEYS}
+    return search
+
+
 def requirement_source(
     profile: Any, *, ignored: frozenset = _NON_REQUIREMENT_KEYS
 ) -> Any:
@@ -336,11 +351,15 @@ def requirement_source(
     Pusta sekcja `experience` jest usuwana: każdy zapis po 09.2026 dokłada ją
     z wartością domyślną, a jej pojawienie się nie jest zmianą wymagań. Tak
     samo pusta lista `insights` i pusty blok `client_history`, gdy wołający
-    ich nie pomija.
+    ich nie pomija. Z sekcji `search` zawsze wypadają wiersze wyszukiwania
+    (`SEARCH_ONLY_KEYS`) — dla obu porównań, więc profile sprzed tych pól
+    i po nich dają ten sam odcisk.
     """
     if not isinstance(profile, Mapping):
         return profile
     out = {k: v for k, v in profile.items() if k not in ignored}
+    if "search" in out:
+        out["search"] = without_search_rows(out["search"])
     exp = out.get("experience")
     if (
         isinstance(exp, Mapping)
@@ -350,6 +369,20 @@ def requirement_source(
         and _blank(exp.get("notes"))
     ):
         out.pop("experience")
+    return out
+
+
+def search_requirements(source: Any) -> list[list[str]]:
+    """Wiersze wymagań do wyszukiwania w bazie (sekcja 2) — puste pomijane."""
+    section = source.get("search") if isinstance(source, Mapping) else None
+    rows = section.get("requirements") if isinstance(section, Mapping) else None
+    out: list[list[str]] = []
+    for row in rows or []:
+        if not isinstance(row, list):
+            continue
+        words = [w.strip() for w in row if isinstance(w, str) and w.strip()]
+        if words:
+            out.append(words)
     return out
 
 

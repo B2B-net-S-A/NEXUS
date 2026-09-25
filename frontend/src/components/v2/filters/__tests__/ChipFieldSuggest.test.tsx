@@ -144,4 +144,48 @@ describe("ChipField z podpowiedziami", () => {
     });
     expect(get).not.toHaveBeenCalled();
   });
+
+  it("„z wariantami” dodaje nazwę i jej inne zapisy jednym wyborem", async () => {
+    get.mockResolvedValue({
+      data: {
+        items: [
+          {
+            label: "Spring Boot",
+            kind: "skill",
+            insert: "Spring Boot",
+            count: 4812,
+            variants: ["Springboot"],
+          },
+        ],
+        wildcard: null,
+      },
+    });
+    const { onChange, input } = renderField();
+    await typeAndWait(input, "spring");
+    fireEvent.mouseDown(option("Spring Boot + Springboot"));
+    expect(onChange).toHaveBeenLastCalledWith(["Spring Boot", "Springboot"]);
+  });
+
+  it("`|` we wpisanym słowie zamienia się na spację", () => {
+    const { onChange, input } = renderField({ suggest: undefined });
+    fireEvent.change(input, { target: { value: "React|Vue" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onChange).toHaveBeenLastCalledWith(["React Vue"]);
+  });
+
+  it("układ w linii: słowo „lub” między chipami", () => {
+    render(
+      <ChipField
+        chips={["Kafka", "RabbitMQ"]}
+        onChange={() => {}}
+        placeholder="lub…"
+        tone="emerald"
+        ariaLabel="Wiersz"
+        layout="inline"
+        joiner="lub"
+      />,
+    );
+    expect(screen.getAllByText("lub")).toHaveLength(1);
+  });
 });
+

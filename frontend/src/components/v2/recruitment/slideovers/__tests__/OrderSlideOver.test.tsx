@@ -122,9 +122,10 @@ describe("OrderSlideOver", () => {
     const missing = await within(dialog).findByRole("region", {
       name: "Braki w zleceniu",
     });
-    // 9 pozycji bramki (hybryda → także dni i miasto biura) + 2 zdania spoza
-    // lustra — te zostają brakami z własną treścią.
-    expect(within(missing).getByText("9 z 11 gotowe")).toBeInTheDocument();
+    // 10 pozycji bramki (hybryda → także dni i miasto biura; od 25.09.2026
+    // także wymagania do wyszukiwania) + 2 zdania spoza lustra — te zostają
+    // brakami z własną treścią.
+    expect(within(missing).getByText("10 z 12 gotowe")).toBeInTheDocument();
     expect(within(missing).getByText("Brak hiring managera")).toBeInTheDocument();
     expect(within(dialog).getByText("do 190,00 PLN/h")).toBeInTheDocument();
     expect(within(dialog).getByText("Warszawa / hybryda 2 dni")).toBeInTheDocument();
@@ -258,9 +259,10 @@ describe("OrderSlideOver — braki z działaniem", () => {
   it("pasek postępu i sekcja „Gotowe” z tej samej listy braków", async () => {
     setup({}, { job: OPEN_JOB, readiness: { ready: false, blockers: [MSG.context, MSG.budget, MSG.workMode] } });
     const missing = await screen.findByRole("region", { name: "Braki w zleceniu" });
-    // Zdalność nieznana → bez dni i miasta biura: 7 pozycji, 3 brakuje.
-    expect(within(missing).getByText("4 z 7 gotowe")).toBeInTheDocument();
-    expect(within(missing).getByRole("progressbar")).toHaveAttribute("aria-valuenow", "4");
+    // Zdalność nieznana → bez dni i miasta biura: 8 pozycji (z wymaganiami
+    // do wyszukiwania), 3 brakuje.
+    expect(within(missing).getByText("5 z 8 gotowe")).toBeInTheDocument();
+    expect(within(missing).getByRole("progressbar")).toHaveAttribute("aria-valuenow", "5");
     const done = within(missing).getByRole("list", { name: "Gotowe" });
     expect(within(done).getByText("Klient: Bank Alfa")).toBeInTheDocument();
     expect(within(done).getByText("Rola: Java Developer")).toBeInTheDocument();

@@ -31,6 +31,7 @@ EXPECTED = {
     "work_mode": job_readiness.MSG_WORK_MODE,
     "office_days": job_readiness.MSG_OFFICE_DAYS,
     "office_city": job_readiness.MSG_OFFICE_CITY,
+    "search": job_readiness.MSG_SEARCH_REQUIREMENTS,
 }
 
 

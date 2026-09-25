@@ -99,7 +99,10 @@ _MAX_PHRASES_PER_BUCKET = 20
 _MIN_PHRASE_LEN = 2
 # Cap on the number of OR-groups in the ANY bucket. A defensive bound so a
 # crafted URL can't fan out into an unbounded AND-of-ORs query plan.
-_MAX_ANY_GROUPS = 10
+# 20 = the same bound as ALL-phrases: since 25.09.2026 the list sends every
+# requirement row (also a one-word one) as a group, and an old link with
+# several `q_all` words becomes that many rows — 10 cut them silently.
+_MAX_ANY_GROUPS = 20
 
 # Phrases at/above this length that are a single plain alphanumeric token route
 # through the fast FTS word-prefix path (see `_fts_eligible` / `_phrase_match`).

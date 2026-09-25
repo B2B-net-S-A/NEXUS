@@ -108,18 +108,19 @@ describe("filterGroupCounts", () => {
       history: 6,
       skills: 2,
       availability: 1,
-      // język + status + dwa słowa z drugiej grupy „którekolwiek”
-      more: 4,
+      // język + status; wszystkie wiersze słów kluczowych stoją na pasku
+      // nad tabelą (25.09.2026), więc „Więcej filtrów” ich nie liczy
+      more: 2,
     });
   });
 });
 
 describe("isChipShownOnFilterBar", () => {
   it("ukrywa chipy z wartością na pasku, zostawia resztę", () => {
-    for (const key of ["rate", "loc", "q_scope", "woj:śląskie", "remote:hybrid", "q_all:java", "q_any:0:spring", "q_none:junior"]) {
+    for (const key of ["rate", "loc", "q_scope", "woj:śląskie", "remote:hybrid", "q_all:java", "q_any:0:spring", "q_any:3:react", "q_none:junior"]) {
       expect(isChipShownOnFilterBar(key)).toBe(true);
     }
-    for (const key of ["q", "status:active", "lang:en:B2", "q_any:1:react", "client_hist:3"]) {
+    for (const key of ["q", "status:active", "lang:en:B2", "client_hist:3"]) {
       expect(isChipShownOnFilterBar(key)).toBe(false);
     }
   });

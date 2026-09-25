@@ -15,7 +15,11 @@
  * Podpowiedzi słów kluczowych odpowiadają z lokalnego słownika (bez sieci);
  * zmiana filtra pokazuje pasek „czeka na Szukaj”.
  * `?embed=1` pokazuje listę tak, jak widzi ją okno „Szukaj ręcznie"
- * rekrutacji (tryb osadzony, 25.09.2026) — w ramce szerokości okna.
+ * rekrutacji (tryb osadzony, 25.09.2026) — w ramce szerokości okna;
+ * `?embed=champion` — ta sama rekrutacja z wymaganiami do wyszukiwania
+ * z sekcji 2 Championa (start od wierszy DL-a).
+ * Spis miast (`/api/candidates/places/suggest`) też odpowiada lokalnie —
+ * słowo-miasto w wierszu pokazuje podpowiedź „Ustaw lokalizację”.
  * Dane są fikcyjne — repo jest publiczne.
  */
 
@@ -238,19 +242,37 @@ const SNIPPETS: Record<number, Array<{ field: string; text: string; highlights: 
 };
 
 /** Fikcyjny słownik podpowiedzi (kształt `GET /api/candidates/keywords/suggest`). */
-const FAKE_SKILLS: Array<{ label: string; alias?: string; count: number }> = [
-  { label: "Java", count: 4120 },
+const FAKE_SKILLS: Array<{ label: string; alias?: string; count: number; variants?: string[] }> = [
+  { label: "Java", count: 4120, variants: ["j2ee"] },
   { label: "JavaScript", alias: "js", count: 5310 },
-  { label: "Java EE", alias: "jee", count: 880 },
+  { label: "Java EE", alias: "jee", count: 880, variants: ["j2ee", "jee"] },
   { label: "Kafka", count: 1640 },
   { label: "Kotlin", count: 930 },
-  { label: "Kubernetes", alias: "k8s", count: 2480 },
+  { label: "Kubernetes", alias: "k8s", count: 2480, variants: ["k8s"] },
   { label: "Spring", count: 3320 },
-  { label: "Spring Boot", alias: "springboot", count: 2870 },
+  { label: "Spring Boot", alias: "springboot", count: 2870, variants: ["spring-boot", "springboot"] },
   { label: "Python", alias: "py", count: 3950 },
-  { label: "PostgreSQL", alias: "postgres", count: 2210 },
+  { label: "PostgreSQL", alias: "postgres", count: 2210, variants: ["postgres", "psql"] },
   { label: "React", count: 2740 },
 ];
+
+/** Fikcyjny spis miejscowości (kształt `GET /api/candidates/places/suggest`). */
+const FAKE_PLACES = [
+  { name: "Warszawa", voivodeship: "mazowieckie", population: 1702139 },
+  { name: "Kraków", voivodeship: "małopolskie", population: 816614 },
+  { name: "Gdańsk", voivodeship: "pomorskie", population: 486022 },
+  // „Kotlin” to wieś — podpowiedź o mieście pojawia się dopiero od 20 tys.
+  { name: "Kotlin", voivodeship: "wielkopolskie", population: 1300 },
+];
+
+function fakePlaces(q: string) {
+  const t = foldKeyword(q);
+  return {
+    items: FAKE_PLACES.filter((p) => foldKeyword(p.name).startsWith(t)).slice(0, 5),
+    voivodeships: ["dolnośląskie", "małopolskie", "mazowieckie", "pomorskie", "śląskie"],
+    max_radius_km: 300,
+  };
+}
 
 function fakeKeywordSuggestions(q: string) {
   const t = foldKeyword(q);
@@ -268,6 +290,7 @@ function fakeKeywordSuggestions(q: string) {
       alias: s.alias && !foldKeyword(s.label).startsWith(t) ? s.alias : null,
       category: "language",
       count: s.count,
+      variants: s.variants ?? [],
     }));
   if (t.length >= 3 && "java developer".startsWith(t.slice(0, 4))) {
     items.push({ label: "java developer", kind: "title", insert: "java developer", alias: null, category: null, count: 2150 });
@@ -288,6 +311,19 @@ const EMBED_JOB = {
   competence_category_id: 2,
 };
 const EMBED_FILTERS = jobListFilters(EMBED_JOB, null);
+/** Ta sama rekrutacja z wymaganiami do wyszukiwania ustawionymi przez DL-a. */
+const EMBED_CHAMPION_FILTERS = jobListFilters(
+  {
+    ...EMBED_JOB,
+    champion_profile: {
+      search: {
+        requirements: [["Java", "Kotlin"], ["Kafka", "RabbitMQ"], ["bankowość", "finanse"]],
+        exclude: ["junior"],
+      },
+    },
+  },
+  null,
+);
 
 function searchParamsNow(): URLSearchParams {
   return new URLSearchParams(typeof window === "undefined" ? "" : window.location.search);
@@ -335,6 +371,22 @@ function seededClient(): QueryClient {
     ),
     { items: CANDIDATES, total: 143, page: 1, page_size: 50, text_mode_applied: "semantic" },
   );
+  qc.setQueryData(
+    candidatesListQueryKey(
+      candidatesListApiParams(
+        candidatesListFiltersForQuery(EMBED_CHAMPION_FILTERS, { jobId: EMBED_JOB.id }),
+        1,
+        50,
+      ),
+    ),
+    {
+      items: CANDIDATES.map((c) => ({ ...c, match_snippets: SNIPPETS[c.id] ?? [] })),
+      total: 37,
+      page: 1,
+      page_size: 50,
+      text_mode_applied: "literal",
+    },
+  );
   qc.setQueryData(CANDIDATES_BASE_TOTAL_QUERY_KEY, {
     items: [],
     total: 12481,
@@ -369,7 +421,7 @@ export default function CandidatesListPreview() {
   const [ready, setReady] = useState(false);
   const [qc] = useState(seededClient);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [embedMode, setEmbedMode] = useState(false);
+  const [embedMode, setEmbedMode] = useState<"off" | "job" | "champion">("off");
 
   useEffect(() => {
     const blocker = api.interceptors.request.use((config) => {
@@ -378,6 +430,18 @@ export default function CandidatesListPreview() {
         const q = String((config.params as { q?: string } | undefined)?.q ?? "");
         config.adapter = async () => ({
           data: fakeKeywordSuggestions(q),
+          status: 200,
+          statusText: "OK",
+          headers: {},
+          config,
+        });
+        return config;
+      }
+      // Spis miast — podpowiedź „Ustaw lokalizację” przy słowie-mieście.
+      if (config.url === "/api/candidates/places/suggest") {
+        const q = String((config.params as { q?: string } | undefined)?.q ?? "");
+        config.adapter = async () => ({
+          data: fakePlaces(q),
           status: 200,
           statusText: "OK",
           headers: {},
@@ -403,7 +467,8 @@ export default function CandidatesListPreview() {
       hydrated: true,
     });
     setDialogOpen(new URLSearchParams(window.location.search).get("dialog") === "1");
-    setEmbedMode(new URLSearchParams(window.location.search).get("embed") === "1");
+    const embed = new URLSearchParams(window.location.search).get("embed");
+    setEmbedMode(embed === "champion" ? "champion" : embed === "1" ? "job" : "off");
     setReady(true);
     return () => api.interceptors.request.eject(blocker);
   }, []);
@@ -416,7 +481,7 @@ export default function CandidatesListPreview() {
     <ToastProvider>
       <QueryClientProvider client={qc}>
         <div className="min-h-dvh bg-background p-4 sm:p-6">
-          {embedMode ? (
+          {embedMode !== "off" ? (
             <div className="ml-auto max-w-[min(1100px,92vw)] rounded-xl border border-border bg-card p-5 shadow-lg">
               <h2 className="text-lg font-semibold">Szukaj ręcznie</h2>
               <p className="mb-4 text-sm text-muted-foreground">
@@ -427,7 +492,12 @@ export default function CandidatesListPreview() {
                 embed={{
                   jobId: EMBED_JOB.id,
                   jobTitle: EMBED_JOB.title,
-                  initialFilters: EMBED_FILTERS,
+                  initialFilters:
+                    embedMode === "champion" ? EMBED_CHAMPION_FILTERS : EMBED_FILTERS,
+                  keywordsNote:
+                    embedMode === "champion"
+                      ? "Wymagania ustawione przy tworzeniu rekrutacji. Zmiany tutaj nie zmieniają rekrutacji."
+                      : undefined,
                 }}
               />
             </div>

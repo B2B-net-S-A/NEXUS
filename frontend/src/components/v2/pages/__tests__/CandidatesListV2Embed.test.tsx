@@ -166,11 +166,11 @@ import { useUiStore } from "@/store/ui";
 import { useAuthStore } from "@/store/auth";
 import { clearSearchMemory, readJobSearch, writeListSearch } from "@/lib/search-memory";
 import { CandidatesListV2 } from "@/components/v2/pages/CandidatesListV2";
-import { DEFAULT_FILTERS } from "@/lib/url-filters";
+import { DEFAULT_FILTERS, type CandidateFilters } from "@/lib/url-filters";
 
 const onAdded = vi.fn();
 
-function renderEmbedded() {
+function renderEmbedded(seed: Partial<CandidateFilters> = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
@@ -183,6 +183,7 @@ function renderEmbedded() {
             q: "Analityk Systemowy",
             textMode: "semantic",
             status: ["active", "passive"],
+            ...seed,
           },
           onAdded,
         }}
@@ -311,12 +312,12 @@ describe("„Szukaj ręcznie” — przycisk Szukaj i pamięć rekrutacji (25.09
   it("po „Szukaj” okno pamięta wyszukiwanie, a „Wróć do filtrów z rekrutacji” je zdejmuje", async () => {
     renderEmbedded();
     await screen.findByText("Ewa Marczak");
-    const must = screen.getByLabelText("Zawiera wszystkie ze słów");
+    const must = screen.getByLabelText("Wymaganie 1 — słowo albo wariant");
     fireEvent.change(must, { target: { value: "Kafka" } });
     fireEvent.keyDown(must, { key: "Enter" });
     fireEvent.keyDown(must, { key: "Enter" });
-    await waitFor(async () => expect((await listParams()).q_all).toEqual(["Kafka"]));
-    await waitFor(() => expect(readJobSearch(11, 7)?.request.query).toContain("q_all=Kafka"));
+    await waitFor(async () => expect((await listParams()).q_any_group).toEqual(["Kafka"]));
+    await waitFor(() => expect(readJobSearch(11, 7)?.request.query).toContain("q_any=Kafka"));
     cleanup();
 
     renderEmbedded();
@@ -325,13 +326,38 @@ describe("„Szukaj ręcznie” — przycisk Szukaj i pamięć rekrutacji (25.09
     ).toBeInTheDocument();
     await waitFor(async () => {
       const params = await listParams();
-      expect(params.q_all).toEqual(["Kafka"]);
+      expect(params.q_any_group).toEqual(["Kafka"]);
       expect(params.recruitment_match).toBe("not_assigned");
     });
+    // Wymagania rekrutacji się nie zmieniły — bez zdania o zmianie.
+    expect(screen.queryByText(/Wymagania rekrutacji zmieniły się/)).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Wróć do filtrów z rekrutacji" }));
-    await waitFor(async () => expect((await listParams()).q_all).toBeUndefined());
+    await waitFor(async () => expect((await listParams()).q_any_group).toBeUndefined());
     expect(readJobSearch(11, 7)).toBeNull();
+  });
+
+  it("gdy DL zmienił wymagania, zostaje wyszukiwanie osoby i baner o zmianie", async () => {
+    renderEmbedded();
+    await screen.findByText("Ewa Marczak");
+    const must = screen.getByLabelText("Wymaganie 1 — słowo albo wariant");
+    fireEvent.change(must, { target: { value: "Kafka" } });
+    fireEvent.keyDown(must, { key: "Enter" });
+    fireEvent.keyDown(must, { key: "Enter" });
+    await waitFor(() => expect(readJobSearch(11, 7)?.request.query).toContain("q_any=Kafka"));
+    cleanup();
+
+    // Nowe wymagania z Championa (inne filtry startowe tej rekrutacji).
+    renderEmbedded({ q: "", qAny: [["Java"], ["Spring Boot"]] });
+    expect(
+      await screen.findByText(/Wymagania rekrutacji zmieniły się od tego czasu/),
+    ).toBeInTheDocument();
+    await waitFor(async () => expect((await listParams()).q_any_group).toEqual(["Kafka"]));
+
+    fireEvent.click(screen.getByRole("button", { name: "Wróć do filtrów z rekrutacji" }));
+    await waitFor(async () =>
+      expect((await listParams()).q_any_group).toEqual(["Java", "Spring Boot"]),
+    );
   });
 
   it("pamięć listy Kandydatów nie trafia do okna rekrutacji", async () => {
@@ -340,6 +366,7 @@ describe("„Szukaj ręcznie” — przycisk Szukaj i pamięć rekrutacji (25.09
     await screen.findByText("Ewa Marczak");
     const params = await listParams();
     expect(params.q_all).toBeUndefined();
+    expect(params.q_any_group).toBeUndefined();
     expect(params.q).toBe("Analityk Systemowy");
     expect(
       screen.queryByText("Przywrócono Twoje ostatnie wyszukiwanie w tej rekrutacji"),

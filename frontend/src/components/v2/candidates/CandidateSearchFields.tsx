@@ -9,7 +9,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
-import { ChipField, type ChipFieldSuggest } from "@/components/v2/filters/AdvancedSearchPopover";
+import { type ChipFieldSuggest } from "@/components/v2/filters/AdvancedSearchPopover";
+import { RequirementRowsField } from "@/components/v2/candidates/RequirementRowsField";
+import { describeKeywordSearch, requirementRows } from "@/lib/keyword-requirements";
 import { AddedByMultiSelect } from "@/components/v2/filters/AddedByMultiSelect";
 import {
   KEYWORD_SCOPE_OPTIONS,
@@ -34,135 +36,133 @@ function SectionTitle({ children, id }: { children: ReactNode; id?: string }) {
   );
 }
 
-function SubLabel({ children, tone }: { children: ReactNode; tone: "success" | "info" | "destructive" }) {
-  const dot = { success: "bg-success", info: "bg-info", destructive: "bg-destructive" }[tone];
-  return (
-    <span className="flex items-center gap-1.5 text-[11px] font-medium text-foreground">
-      <span aria-hidden className={cn("h-1.5 w-1.5 rounded-full", dot)} />
-      {children}
-    </span>
-  );
-}
-
 const SELECT_CLASS =
   "h-8 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground";
 
+/** „Szukaj w” w zdaniu podsumowania („Szukamy w: cały profil”). */
+const SCOPE_SENTENCE: Record<KeywordScope, string> = {
+  all: "cały profil",
+  cv: "treść CV",
+  title: "stanowisko",
+  skills: "umiejętności",
+  notes: "notatki",
+};
+
 /**
- * Słowa kluczowe jak w Traffit: trzy pola (zielone „wszystkie”, niebieskie
- * „którekolwiek”, czerwone „żadne”) i „Szukaj w”. Dopasowanie całych słów
- * i gwiazdkę liczy serwer (`keyword_terms.py`); tu tylko je opisujemy.
- * Pas nad tabelą (decyzja 23.09.2026): trzy pola obok siebie, na telefonie
- * jedno pod drugim; zasady dopasowania pod ikonką ⓘ zamiast akapitu.
+ * Słowa kluczowe jako lista wymagań (makiety i decyzje Artura 25.09.2026,
+ * `RequirementRowsField`): wiersz = wymaganie, słowa w wierszu to warianty,
+ * wiersze łączy „i”, na dole „Wyklucz”. Obok „Szukaj w”, pod spodem zdanie,
+ * które mówi na żywo, czego szukamy, i „Szukaj”. Dopasowanie całych słów
+ * i gwiazdkę liczy serwer (`keyword_terms.py`); zasady pod ikonką ⓘ.
  */
 export function KeywordFields({
   filters,
+  rows,
   onPatch,
   id,
   className,
   onSearch,
   pendingCount = 0,
+  sourceNote,
 }: {
   filters: CandidateFilters;
+  /**
+   * Wiersze w stanie roboczym (z pustym, świeżo dodanym wierszem) — w
+   * `filters` puste wiersze są już odfiltrowane. Bez tego: z `filters`.
+   */
+  rows?: string[][];
   onPatch: Patch;
   id?: string;
   className?: string;
   /** „Szukaj” — zmiany słów i filtrów czekają na ten przycisk (25.09.2026). */
   onSearch?: () => void;
   pendingCount?: number;
+  /** Zdanie o pochodzeniu wierszy (okno rekrutacji: „ustawione przy tworzeniu”). */
+  sourceNote?: string;
 }) {
   const scopeId = useId();
-  const anyGroup0 = filters.qAny[0] ?? [];
+  const titleId = useId();
+  const workingRows = rows ?? requirementRows(filters.qAll, filters.qAny);
+  const summary = describeKeywordSearch({
+    rows: workingRows,
+    exclude: filters.qNone,
+    scopeLabel: SCOPE_SENTENCE[filters.qScope],
+  });
   return (
-    <div
+    <section
       id={id}
-      role="group"
-      aria-label="Słowa kluczowe"
+      aria-labelledby={titleId}
       className={cn(
-        "grid gap-x-4 gap-y-3 rounded-lg border border-border bg-card p-3 md:grid-cols-2",
-        onSearch
-          ? "lg:grid-cols-[1.2fr_1fr_1fr_auto_auto]"
-          : "lg:grid-cols-[1.2fr_1fr_1fr_auto]",
+        "flex flex-col gap-3 rounded-lg border border-border bg-card p-3 sm:p-4",
         className,
       )}
     >
-      <div className="min-w-0 space-y-1">
-        <SubLabel tone="success">Zawiera wszystkie</SubLabel>
-        <ChipField
-          chips={filters.qAll}
-          onChange={(next) => onPatch({ qAll: next })}
-          placeholder="np. Java, Kafka"
-          tone="emerald"
-          ariaLabel="Zawiera wszystkie ze słów"
-          suggest={KEYWORD_SUGGEST}
-          onSubmitEmpty={onSearch}
-        />
-      </div>
-      <div className="min-w-0 space-y-1">
-        <SubLabel tone="info">Zawiera którekolwiek</SubLabel>
-        <ChipField
-          chips={anyGroup0}
-          onChange={(next) => onPatch({ qAny: [next, ...filters.qAny.slice(1)] })}
-          placeholder="np. Spring, Quarkus"
-          tone="sky"
-          ariaLabel="Zawiera którekolwiek ze słów"
-          suggest={KEYWORD_SUGGEST}
-          onSubmitEmpty={onSearch}
-        />
-      </div>
-      <div className="min-w-0 space-y-1">
-        <SubLabel tone="destructive">Nie zawiera żadnego</SubLabel>
-        <ChipField
-          chips={filters.qNone}
-          onChange={(next) => onPatch({ qNone: next })}
-          placeholder="np. junior, stażysta"
-          tone="rose"
-          ariaLabel="Nie zawiera żadnego ze słów"
-          suggest={KEYWORD_SUGGEST}
-          onSubmitEmpty={onSearch}
-        />
-      </div>
-      <div className="space-y-1 lg:w-40">
-        <div className="flex items-center justify-between gap-2">
-          <label htmlFor={scopeId} className="block text-[11px] font-medium text-foreground">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <SectionTitle id={titleId}>Słowa kluczowe</SectionTitle>
+        <span className="text-xs text-muted-foreground">
+          {sourceNote ?? "Każdy wiersz to jedno wymaganie. Słowa w wierszu to warianty — wystarczy jedno z nich."}
+        </span>
+        <div className="ml-auto flex items-center gap-2">
+          <label htmlFor={scopeId} className="text-xs font-medium text-foreground">
             Szukaj w
           </label>
+          <select
+            id={scopeId}
+            value={filters.qScope}
+            onChange={(e) => onPatch({ qScope: e.target.value as KeywordScope })}
+            className={cn(SELECT_CLASS, "w-36")}
+          >
+            {KEYWORD_SCOPE_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
           <Popover>
             <PopoverTrigger asChild>
               <button
                 type="button"
                 aria-label="Jak działają słowa kluczowe"
-                className="rounded-full text-muted-foreground hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+                className="hit-area rounded-full text-muted-foreground hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <Info className="h-3.5 w-3.5" aria-hidden />
               </button>
             </PopoverTrigger>
-            <PopoverContent align="end" className="w-72 text-xs leading-snug text-muted-foreground">
-              Całe słowa: „java” nie znajdzie „JavaScript”. Gwiazdka szuka początku słowa:
-              „bankow*” znajdzie „bankowość” i „bankowym”. Pod polem są podpowiedzi — Enter dodaje zaznaczoną, przecinek dodaje słowo dokładnie jak wpisane. Wyniki zmieniają się po kliknięciu „Szukaj”.
+            <PopoverContent align="end" className="w-80 text-xs leading-snug text-muted-foreground">
+              Każdy wiersz musi się zgadzać; w wierszu wystarczy jedno słowo, więc wpisz tam
+              warianty tego samego wymagania (np. Kafka lub RabbitMQ). Całe słowa: „java” nie
+              znajdzie „JavaScript”. Gwiazdka szuka początku słowa: „bankow*” znajdzie
+              „bankowość” i „bankowym”. Pod polem są podpowiedzi — „+ z wariantami” dodaje też
+              inne zapisy tej technologii. Wyniki zmieniają się po kliknięciu „Szukaj”.
             </PopoverContent>
           </Popover>
         </div>
-        <select
-          id={scopeId}
-          value={filters.qScope}
-          onChange={(e) => onPatch({ qScope: e.target.value as KeywordScope })}
-          className={SELECT_CLASS}
-        >
-          {KEYWORD_SCOPE_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
       </div>
-      {onSearch && (
-        <div className="flex items-end md:col-span-2 lg:col-span-1">
+
+      <RequirementRowsField
+        rows={workingRows}
+        onRowsChange={(next) => onPatch({ qAll: [], qAny: next })}
+        exclude={filters.qNone}
+        onExcludeChange={(next) => onPatch({ qNone: next })}
+        suggest={KEYWORD_SUGGEST}
+        onSubmitEmpty={onSearch}
+        onUseLocation={(city) => onPatch({ location: city })}
+        onUseExperience={(range) =>
+          onPatch({ experienceMin: range.min, experienceMax: range.max })
+        }
+      />
+
+      <div className="flex flex-col gap-3 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2.5 sm:flex-row sm:items-center">
+        <p className="min-w-0 flex-1 text-sm text-foreground" aria-live="polite">
+          {summary}
+        </p>
+        {onSearch && (
           <Button
             type="button"
             variant="primary"
             onClick={onSearch}
             className={cn(
-              "h-9 w-full gap-2 lg:w-auto lg:min-w-[124px]",
+              "h-10 w-full shrink-0 gap-2 sm:w-auto sm:min-w-[124px]",
               pendingCount > 0 && "ring-4 ring-primary/20",
             )}
             data-help="candidates.list.search"
@@ -181,9 +181,9 @@ export function KeywordFields({
               </>
             )}
           </Button>
-        </div>
-      )}
-    </div>
+        )}
+      </div>
+    </section>
   );
 }
 

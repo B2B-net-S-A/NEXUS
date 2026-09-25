@@ -90,6 +90,8 @@ const INTAKE: RequestIntakeResponse = {
   ],
   evidence: ["Java 17+"],
   missing: [],
+  // v5: wymagania do wyszukiwania w bazie (bramka handoffu od 25.09.2026).
+  search_requirements: [["Java 17+"], ["Spring Boot"]],
 };
 
 function renderPage() {

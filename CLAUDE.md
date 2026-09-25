@@ -1494,10 +1494,11 @@ sekcja niżej), nie w profilu rekrutacji. Schemat `app/schemas/champion.py`
   notatki kandydata spoza pipeline'u tej rekrutacji. Bez tego rozmowa
   z kandydatem innego klienta trafiała do cudzego profilu Championa i do AI.
   Panel „Meetingi bez powiązania” pyta `GET /api/notes?unattached=true`.
-- **Weryfikacja dwustronna, briefing DL i rekomendowane wyszukiwania NIE są
-  sekcjami** — mają własne endpointy, są server-stamped i zwykły zapis profilu ich
-  nie dotyka. Trzymanie ich poza siódemką jest decyzją produktową (19.08→09.2026),
-  nie przeoczeniem.
+- **Weryfikacja dwustronna i briefing DL NIE są sekcjami** — mają własne
+  endpointy, są server-stamped i zwykły zapis profilu ich nie dotyka. Trzymanie
+  ich poza siódemką jest decyzją produktową (19.08→09.2026), nie przeoczeniem.
+  Rekomendowane wyszukiwania (AI) usunięte 25.09.2026 — klucz
+  `recommended_searches` zostaje w JSONB jako dane historyczne bez konsumenta.
 - **Etykiety pól mówią to, co robi kod (rewizja 09.2026).** „Lokalizacja biura",
   nie „kandydata" — `scoring_service._score_location` porównuje
   `basics.candidate_location_pref` z miastem KANDYDATA, więc pole od zawsze
@@ -2621,11 +2622,11 @@ trzy tryby z 21.09 (Baza / Wyszukiwanie / Z treści requestu).
   i szuflada „Zaawansowane” z prawej; tabela z 8 kolumnami dostaje teraz całą
   szerokość). Priorytet z 22.09 zostaje: „szukamy głównie ręcznie po słowach
   kluczowych i wykluczeniach, stawce, lokalizacji i trybie pracy”. Rząd 1:
-  pas słów kluczowych jak w Traffit (`KeywordFields` w
-  `CandidateSearchFields.tsx`: zielone „Zawiera wszystkie” `q_all`, niebieskie
-  „Zawiera którekolwiek” = PIERWSZA grupa `q_any`, czerwone „Nie zawiera
-  żadnego” `q_none`, „Szukaj w” `q_scope`; zasady dopasowania pod ⓘ; na
-  telefonie za przyciskiem „Słowa kluczowe (N)”). Rząd 2: przyciski z okienkami
+  słowa kluczowe jako LISTA WYMAGAŃ (`KeywordFields` w
+  `CandidateSearchFields.tsx` → `RequirementRowsField`; od 25.09.2026 zamiast
+  trzech woreczków — patrz „Wyszukiwanie ręczne: …”), „Wyklucz” `q_none`,
+  „Szukaj w” `q_scope`; zasady dopasowania pod ⓘ; na telefonie za przyciskiem
+  „Słowa kluczowe (N)”). Rząd 2: przyciski z okienkami
   (Radix Popover) — Stawka · Lokalizacja (miasto z podpowiedziami, promień w km,
   województwa; tekst wpisany tuż przed zamknięciem okienka zapisuje cleanup
   `LocationFields`) · Tryb pracy | Historia z nami (brał udział w rekrutacji,
@@ -2634,7 +2635,7 @@ trzy tryby z 21.09 (Baza / Wyszukiwanie / Z treści requestu).
   zaproponować?” — `lib/candidate-availability-choice.ts` ustawia
   `availability` + `employment` naraz) · „Więcej filtrów” (szuflada z prawej:
   Doświadczenie/języki/kategoria, Firma i stanowisko, Kto dodał/pule — w tym
-  „Moi kandydaci”, Inne — KOLEJNE grupy LUB, status w bazie, otwarty na, ukryj
+  „Moi kandydaci”, Inne — tagi, status w bazie, otwarty na, ukryj
   bez danych). Ustawiony przycisk niesie wartość („Stawka: do 160 zł/h”) albo
   licznik i ✕ czyszczące grupę — liczniki i podsumowania liczy
   `lib/candidate-filter-groups.ts`. Chipy nad tabelą (`ActiveFilterChips`
@@ -2982,8 +2983,9 @@ template” → `/jobs/new?from=<id>`) prowadzi na stronę.
   Stawka dzienna/brutto/obca = `None` + notatka, nigdy przeliczenie.
 - **Braki = lustro handoffu** (`job_readiness`): rola, must-have, budżet,
   tryb pracy (+ dni i miasto przy biurze/hybrydzie), opis projektu, 2 pytania
-  screeningowe. Dwie kopie: `services/job_request_intake.missing_fields`
-  i `lib/job-request-intake.ts::missingFor` — zmieniając bramkę handoffu,
+  screeningowe, wymagania do wyszukiwania w bazie (od 25.09.2026). Dwie kopie:
+  `services/job_request_intake.missing_fields` i
+  `lib/job-request-intake.ts::missingFor` — zmieniając bramkę handoffu,
   zmień obie.
 - **Zapis idzie ZWYKŁYMI trasami** w stałej kolejności: `POST /api/jobs` →
   `PUT …/champion-profile` → `POST …/handoff` (wymaga rekrutera — pole
@@ -7588,6 +7590,60 @@ Makiety: https://claude.ai/artifact/6JCbPSp86E7uzAxcyNmqW4. Dotyczy listy
   `kind=list`, okno rekrutacji: `kind=job` + `jobId`, oba w formacie filtrów
   listy). Testy listy MUSZĄ czyścić pamięć w `beforeEach` — inaczej goły adres
   testu przywraca filtry poprzedniego.
+
+### Słowa kluczowe = lista wymagań (decyzje Artura 25.09.2026)
+
+Makiety: https://claude.ai/artifact/R56h63e1JEbSptnsaxrjk3. Zamiast trzech
+woreczków („wszystkie / którekolwiek / żadne”, kolejne grupy były ukryte
+w „Więcej filtrów”) jeden edytor wierszy (`RequirementRowsField`, logika
+`lib/keyword-requirements.ts`): wiersz = wymaganie, słowa w wierszu = warianty
+(LUB), wiersze łączy I, osobno „Wyklucz”; pod polami zdanie
+`describeKeywordSearch`, które mówi, jak serwer przeczyta wyszukiwanie.
+
+- **Na drucie każdy wiersz to grupa** `q_any` (adres) / `q_any_group` (API) —
+  także jednowyrazowy (znaczy to samo co `q_all`), więc kolejność wierszy
+  przeżywa odświeżenie. Stare `q_all` z zakładek i zapisów `decodeFilters`
+  zamienia na wiersze na początku; `qAll` zostaje w typie wyłącznie dla źródeł
+  spoza adresu. `CandidatesListV2` czyta adres tym samym `decodeFilters` (druga
+  kopia parsowania usunięta). `|` w słowie = spacja (rozdziela słowa grupy).
+- **Limity:** edytor 10 wierszy (`MAX_REQUIREMENT_ROWS`), serwer
+  `_MAX_ANY_GROUPS` = 20 (zapas na stare linki — GET ucina nadmiar po cichu).
+- **Podpowiedzi przy pomyłkach** (nic nie zmienia się samo, każda ma „Zostaw”):
+  miasto (spis `pl_places` przez `/places/suggest`, ≥ 20 tys. mieszkańców —
+  „Kotlin” to wieś) → „Ustaw lokalizację”; „senior/junior/mid/stażysta” →
+  filtr stażu; „React / Vue”, „a lub b”, „a or b” → „Rozdziel” (ukośnik tylko
+  ze spacjami — „CI/CD” to jedno słowo). W edytorze Championa tylko „Rozdziel”.
+- **Warianty pisowni = przycisk, nigdy automat.** `keyword_suggest.skill_variants`
+  dokłada do umiejętności `variants` (aliasy bez 1–2-znakowych, bez
+  `scoring_service.POLISH_WORD_ALIASES`, bez aliasów zawierających pełną nazwę
+  jako słowo — „java 11” znajdzie samo „java”; max 5); lista podpowiedzi ma
+  osobną pozycję „Z wariantami” (wybieralną klawiaturą, bez przycisku w opcji).
+- **Wymagania do wyszukiwania w Championie** (`ChampionSearch.requirements`,
+  `exclude`; sekcja 2, osobna karta w edytorze POZA grupą „proza” — pierwszy
+  wiersz przełączał tę grupę i pole gubiło fokus). `keywords` to odtąd „Frazy
+  do LinkedIna” (szukanie poza NEXUSEM). Luna proponuje 2–4 wiersze na
+  `/jobs/new` (`JOB_REQUEST_INTAKE` v5); każde słowo musi stać w mailu jako
+  CAŁE słowo (`_word_in_text` — `_in_text` to podłańcuch). Obok liczba osób
+  w bazie (lista, aktywni i pasywni). Handoff wymaga co najmniej jednego
+  wiersza (`job_readiness.MSG_SEARCH_REQUIREMENTS`, tylko handoff — alokacja
+  czyta bramkę briefu). Automaty ich NIE czytają: `champion_view.requirement_source`
+  wycina `search.requirements`/`exclude`, więc edycja nie kasuje kontraktu
+  wymagań ani odcisku pełnego przeglądu. Zapis SAMYCH wierszy omija
+  `prepare_profile` jak notatki (`user_edit` — inaczej nowy stempel `intake`
+  zmieniał odcisk i odczyt przeglądu dawał 409), a handler nie woła wtedy
+  `refresh_job_matching` ani `enqueue_job_safe` (`search_rows_only`). Licznik
+  osób idzie `fetchCandidateListPage` — `candidatesApi.list` wysyła `status[]=`
+  i serwer liczył całą bazę.
+- **„Szukaj ręcznie”** startuje od tych wierszy (`jobListFilters`, profil
+  z zapytania `["champion-profile", jobId]` — świeży po zapisie DL-a); wtedy
+  tytuł NIE idzie jako tekst po znaczeniu (pula semantyczna zawężała), must-have
+  zostają rankingiem w „Umiejętnościach”. Bez wierszy — start jak dotąd, bez
+  odniesienia do Championa. Pamięć okna niesie odcisk filtrów startowych
+  (`request.seed`): inny odcisk = zostaje wyszukiwanie osoby, a baner mówi
+  „Wymagania rekrutacji zmieniły się od tego czasu”.
+- Rekomendowane wyszukiwania (AI) usunięte (panel, trasy, prompt,
+  `candidate_column_coverage`) — użyte raz w historii, a od #1815 zatwierdzona
+  strategia nie trafiała do „Szukaj ręcznie”.
 
 ## Dwa silniki wyszukiwania — jedna semantyka filtrów (09.2026)
 

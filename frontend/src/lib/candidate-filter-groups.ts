@@ -46,8 +46,7 @@ export function filterGroupCounts(
     filters.tags.length +
     filters.status.length +
     filters.openTo.length +
-    (filters.hideUnknown ? 1 : 0) +
-    filters.qAny.slice(1).flat().length;
+    (filters.hideUnknown ? 1 : 0);
   return {
     rate: filters.rateMin !== null || filters.rateMax !== null ? 1 : 0,
     location: (filters.location.trim() ? 1 : 0) + filters.voivodeships.length,
@@ -112,9 +111,8 @@ export function remoteSummary(filters: Pick<CandidateFilters, "remote">): string
 }
 
 /**
- * Chipy nad tabelą, których wartość widać już na pasku (słowa kluczowe
- * i pierwsza grupa „którekolwiek", stawka, lokalizacja, tryb pracy). Kolejne
- * grupy „którekolwiek" (`q_any:1:…`) zostają chipami — są w „Więcej filtrów".
+ * Chipy nad tabelą, których wartość widać już na pasku (wszystkie wiersze
+ * słów kluczowych i „Wyklucz”, stawka, lokalizacja, tryb pracy).
  */
 export function isChipShownOnFilterBar(key: string): boolean {
   return (
@@ -124,7 +122,7 @@ export function isChipShownOnFilterBar(key: string): boolean {
     key.startsWith("woj:") ||
     key.startsWith("remote:") ||
     key.startsWith("q_all:") ||
-    key.startsWith("q_any:0:") ||
+    key.startsWith("q_any:") ||
     key.startsWith("q_none:")
   );
 }

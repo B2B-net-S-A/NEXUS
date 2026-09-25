@@ -59,4 +59,30 @@ describe("keyword-suggest", () => {
     });
     expect(options.map((o) => o.insert)).toEqual(["Kafka", "Spring Boot"]);
   });
+
+  it("umiejętność z wariantami ma drugą pozycję „z wariantami” (decyzja: przycisk, nie automat)", () => {
+    const options = buildSuggestionOptions({
+      query: "spring",
+      existing: ["springboot"],
+      response: {
+        items: [
+          {
+            label: "Spring Boot",
+            kind: "skill",
+            insert: "Spring Boot",
+            count: 4812,
+            variants: ["Springboot", "spring-boot"],
+          },
+        ],
+        wildcard: null,
+      },
+    });
+    expect(options.map((o) => [o.kindLabel, o.insert, o.variants ?? null])).toEqual([
+      ["Technologia", "Spring Boot", null],
+      // Wariant, który już jest w polu, odpada.
+      ["Z wariantami", "Spring Boot", ["spring-boot"]],
+      ["Słowo", "spring", null],
+    ]);
+    expect(options[1].rest).toBe("Spring Boot + spring-boot");
+  });
 });

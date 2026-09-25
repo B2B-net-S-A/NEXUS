@@ -5,7 +5,7 @@
 co `dealbreaker_inputs_for_job`/`resolve_effective_remote_policy` faktycznie
 odczytują przez `getattr`. Kolejność blokerów jest STAŁA: tytuł → klient →
 kontekst projektu → pytania screeningowe → must-have → budżet → tryb pracy →
-dni w biurze → miasto biura.
+dni w biurze → miasto biura → wymagania do wyszukiwania (25.09.2026).
 
 Budżet jest ZAWSZE wymagany (decyzja produktowa 07.09), niezależnie od trybu
 pracy. Dni w biurze i miasto biura są wymagane TYLKO przy `onsite`/`hybrid`.
@@ -14,9 +14,11 @@ pracy. Dni w biurze i miasto biura są wymagane TYLKO przy `onsite`/`hybrid`.
 from types import SimpleNamespace
 
 from app.services.job_readiness import (
+    MSG_SEARCH_REQUIREMENTS,
     job_handoff_blockers,
     job_readiness_blockers,
     job_rubric_blockers,
+    job_search_blockers,
 )
 
 _MUST_HAVE_MSG = (
@@ -40,6 +42,8 @@ _READY_CHAMPION = {
         {"id": "q1", "question": "Doświadczenie z Pythonem?"},
         {"id": "q2", "question": "Doświadczenie z Postgres?"},
     ],
+    # Wymagania do wyszukiwania w bazie (sekcja 2, bramka od 25.09.2026).
+    "search": {"requirements": [["Python"]]},
 }
 
 
@@ -208,7 +212,7 @@ def test_allocation_gate_stays_free_of_the_rubrics():
     )
     assert job_rubric_blockers(job), "rubryki miały tu być puste"
     assert job_handoff_blockers(job) == (
-        job_readiness_blockers(job) + job_rubric_blockers(job)
+        job_readiness_blockers(job) + job_rubric_blockers(job) + job_search_blockers(job)
     )
 
 
@@ -282,3 +286,35 @@ def test_handoff_list_keeps_a_champion_gap_the_rubric_does_not_name(monkeypatch)
 
     assert _DAYS_MSG not in blockers
     assert "Dla obecności w biurze podaj dodatnią liczbę dni." in blockers
+
+
+def test_handoff_needs_a_search_requirement_row():
+    """Decyzja Artura 25.09.2026: bez wiersza wymagań do wyszukiwania w bazie
+    rekrutacja nie idzie do searchu. Brak jest OSTATNI (po rubrykach), a pusty
+    wiersz albo same wykluczenia się nie liczą."""
+    for search in (
+        None,
+        {},
+        {"requirements": []},
+        {"requirements": [[], ["  "]]},
+        {"exclude": ["junior"]},
+    ):
+        champion = {**_READY_CHAMPION}
+        if search is None:
+            champion.pop("search")
+        else:
+            champion["search"] = search
+        blockers = job_handoff_blockers(_job(champion_profile=champion))
+        assert blockers == [MSG_SEARCH_REQUIREMENTS], search
+    blockers = job_handoff_blockers(
+        _job(remote_policy=None, champion_profile={**_READY_CHAMPION, "search": {}})
+    )
+    assert blockers == [_WORK_MODE_MSG, MSG_SEARCH_REQUIREMENTS]
+
+
+def test_search_requirements_do_not_touch_allocation_brief():
+    """Brak wierszy wyszukiwania blokuje WYŁĄCZNIE handoff — bramka briefu
+    (automatyczna alokacja) go nie widzi."""
+    job = _job(champion_profile={**_READY_CHAMPION, "search": {}})
+    assert job_readiness_blockers(job) == []
+    assert job_rubric_blockers(job) == []

@@ -36,7 +36,6 @@ from sqlalchemy.dialects import postgresql
 import scripts.reembed_collections as reembed
 from app.models.index_outbox import IndexOutboxEvent
 from app.services import candidate_identity_quarantine as quarantine
-from app.services.candidate_column_coverage import ColumnCoverage
 
 BACKEND_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -342,12 +341,11 @@ def _candidate_embedding_id_reads() -> list[str]:
     łapie wyłącznie bazy nazwane ``Candidate``/``candidate``, więc odczyt przez
     alias (``c.embedding_id`` w pętli skryptu) przez niego przejdzie —
     poszerzenie listy o krótkie nazwy dałoby fałszywe trafienia na ofertach
-    i kategoriach kompetencji. Nie widzi też surowego SQL-a: jedyny dziś
-    istniejący odczyt tej kolumny — ``candidate_column_coverage._COLUMNS`` —
-    jest stringiem i pilnuje go osobno
-    ``test_coverage_block_labels_the_number_as_an_estimate``. Dlatego lista
-    dozwolonych jest PUSTA: w warstwie ORM ta kolumna nie ma dziś ani jednego
-    czytelnika i nie powinna go zyskać po cichu.
+    i kategoriach kompetencji. Nie widzi też surowego SQL-a (jedyny taki
+    odczyt, ``candidate_column_coverage``, zniknął 25.09.2026 razem
+    z rekomendowanymi wyszukiwaniami Championa). Dlatego lista dozwolonych
+    jest PUSTA: w warstwie ORM ta kolumna nie ma dziś ani jednego czytelnika
+    i nie powinna go zyskać po cichu.
     """
     hits: list[str] = []
     for root in ("app", "scripts"):
@@ -390,28 +388,3 @@ def test_the_guard_actually_sees_reads_of_this_column() -> None:
     write = "def f(candidate):\n    candidate.embedding_id = None\n"
     assert _reads_in_tree(ast.parse(write), "fixture.py") == []
 
-
-def test_coverage_block_labels_the_number_as_an_estimate() -> None:
-    """80,1% w prompcie czytane jak zmierzony fakt prowadzi do zbędnego backfillu.
-
-    Marker celowo NIE używa "←": ten znak niesie w bloku inne znaczenie
-    ("kolumna zbyt rzadka, żeby po niej filtrować"), a tu liczba jest niepewna,
-    nie niska. Blok jest też parsowany po pierwszym "%", więc marker nie może
-    go zawierać.
-    """
-    block = ColumnCoverage(
-        total=56769,
-        pct={"embedding_id": 80.1, "raw_cv_text": 69.0, "skills": 0.5},
-    ).as_prompt_block()
-
-    line = next(
-        ln for ln in block.splitlines() if ln.strip().startswith("embedding_id")
-    )
-    assert "dolna granica" in line
-    assert "←" not in line
-    assert line.split("%")[0].split()[-1] == "80.1"
-
-    dense = next(
-        ln for ln in block.splitlines() if ln.strip().startswith("raw_cv_text")
-    )
-    assert "dolna granica" not in dense, "to jest pomiar kolumny, nie oszacowanie"

@@ -8,9 +8,9 @@
  * `DeliveryLeadPlus` tylko, więc dla większości ról KOŃCZY SIĘ 403 i to NIE
  * jest błąd do ukrycia).
  *
- * `variant="champion"` (krok 02) dokłada zakładki „Zespół i priorytet" /
- * „Wyszukiwania (AI)" — dzieci tych zakładek (`ChampionVerificationChecklist`,
- * `ChampionRecommendedSearches`, `JobOwnershipPanel`, `HiringManagerPicker`,
+ * `variant="champion"` (krok 02) dokłada zakładkę „Zespół i priorytet”
+ * (zakładka „Wyszukiwania (AI)” usunięta 25.09.2026) — dzieci doku
+ * (`ChampionVerificationChecklist`, `JobOwnershipPanel`, `HiringManagerPicker`,
  * `JobPriorityContext`, `JobHandoffButton`) są tu ZAMOCKOWANE: ten plik testuje
  * WIRING doku (który wariant/zakładka renderuje co i z jakimi propsami), nie
  * powtarza ich własnych testów/logiki.
@@ -87,18 +87,6 @@ vi.mock("@/components/RequestHistorySection", () => ({
       data-testid="mock-request-history"
       data-job-id={String(props.jobId)}
       data-max-items={String(props.maxItems ?? "")}
-    />
-  ),
-}));
-vi.mock("@/components/ChampionRecommendedSearches", () => ({
-  ChampionRecommendedSearches: (props: {
-    canEdit: boolean;
-    searches?: unknown[];
-  }) => (
-    <div
-      data-testid="mock-recommended-searches"
-      data-can-edit={String(props.canEdit)}
-      data-count={String((props.searches ?? []).length)}
     />
   ),
 }));
@@ -601,7 +589,7 @@ describe("JobReadinessDock — variant \"list\" (krok 01), zakładki fali 3", ()
     for (const label of ["Gotowość", "Pipeline", "Zespół", "Historia"]) {
       expect(screen.getByRole("tab", { name: label })).toBeInTheDocument();
     }
-    // „Wyszukiwania" to zakładka kroku 02 — na liście jej nie ma.
+    // „Wyszukiwania (AI)” usunięte 25.09.2026 — nie ma jej nigdzie.
     expect(
       screen.queryByRole("tab", { name: "Wyszukiwania" }),
     ).not.toBeInTheDocument();
@@ -816,32 +804,12 @@ describe("JobReadinessDock — variant=\"champion\" (krok 02)", () => {
     expect(screen.queryByText("Właściciel projektu")).not.toBeInTheDocument();
   });
 
-  it("„Gotowość” pokazuje TRZY pierwsze propozycje inline, a pełna zakładka „Wyszukiwania” — komplet", async () => {
+  it("krok 02 nie ma już rekomendowanych wyszukiwań (AI) — ani zakładki, ani podglądu", async () => {
     useAuthStore.setState({ user: deliveryLead });
-    championGetMock.mockResolvedValue({
-      data: {
-        job_id: 501,
-        champion_profile: {
-          ...championProfileFixture.champion_profile,
-          recommended_searches: [
-            { id: "s1", name: "a", status: "proposed" },
-            { id: "s2", name: "b", status: "proposed" },
-            { id: "s3", name: "c", status: "proposed" },
-            { id: "s4", name: "d", status: "proposed" },
-          ],
-        },
-      },
-    });
-    const user = userEvent.setup();
     renderDock(501, undefined, true, "champion");
     await screen.findByText(CHAMPION_DOCK_LABEL);
-
-    const inline = await screen.findByTestId("mock-recommended-searches");
-    await waitFor(() => expect(inline).toHaveAttribute("data-count", "3"));
-
-    await user.click(screen.getByRole("tab", { name: "Wyszukiwania" }));
-    const full = await screen.findByTestId("mock-recommended-searches");
-    await waitFor(() => expect(full).toHaveAttribute("data-count", "4"));
+    expect(screen.queryByRole("tab", { name: "Wyszukiwania" })).not.toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Zespół" })).toBeInTheDocument();
   });
 
   it("JobHandoffButton (główna akcja) widoczny dla Delivery Lead", async () => {

@@ -481,7 +481,7 @@ function collectChips(
  filters.qAll.forEach((phrase) => {
  chips.push({
  key: `q_all:${phrase}`,
- label: `Wszystkie: „${phrase}"`,
+ label: `Wymaganie: „${phrase}"`,
  clear: () =>
  onUpdate({
  qAll: filters.qAll.filter((x) => x !== phrase),
@@ -494,9 +494,9 @@ function collectChips(
  chips.push({
  key: `q_any:${gi}:${phrase}`,
  label:
- filters.qAny.length > 1
- ? `Grupa ${gi + 1}: „${phrase}"`
- : `Którakolwiek: „${phrase}"`,
+ group.length > 1
+ ? `Wymaganie ${gi + 1}: „${phrase}" (lub ${group.filter((x) => x !== phrase).join(", ")})`
+ : `Wymaganie ${gi + 1}: „${phrase}"`,
  clear: () =>
  onUpdate({
  qAny: filters.qAny
@@ -510,7 +510,7 @@ function collectChips(
  filters.qNone.forEach((phrase) => {
  chips.push({
  key: `q_none:${phrase}`,
- label: `Żadna: „${phrase}"`,
+ label: `Wyklucz: „${phrase}"`,
  clear: () =>
  onUpdate({
  qNone: filters.qNone.filter((x) => x !== phrase),

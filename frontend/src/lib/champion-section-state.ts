@@ -77,6 +77,13 @@ export const CHAMPION_SECTIONS: readonly ChampionSectionMeta[] = [
  * komponencie, żeby chip „N z 3 sekcji puste" i kolejność renderowania liczyły
  * się z tej samej listy.
  */
+/**
+ * Kotwica karty „Wymagania do wyszukiwania w bazie” (część sekcji 2, osobna
+ * karta od 25.09.2026) — cel linku z braku „wymagania do wyszukiwania”
+ * w oknie Zlecenie (`order-readiness`).
+ */
+export const SEARCH_REQUIREMENTS_ANCHOR = "champion-search-requirements";
+
 export const CHAMPION_PROSE_SECTION_IDS: readonly ChampionSectionId[] = [
   "search",
   "project",
@@ -121,6 +128,7 @@ function isSectionFilled(id: ChampionSectionId, profile: ChampionProfile): boole
     case "search": {
       const s = profile.search;
       return (
+        (s.requirements ?? []).some((row) => row.some((word) => word.trim())) ||
         hasText(s.keywords) ||
         hasText(s.target_companies) ||
         hasItems(s.disqualifiers) ||

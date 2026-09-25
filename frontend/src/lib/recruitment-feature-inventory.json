@@ -490,7 +490,8 @@
    "opis": "Rekomendowane wyszukiwania (AI)",
    "file": "components/v2/jobs/JobReadinessDock.tsx",
    "marker": "ChampionRecommendedSearches",
-   "v3_home": "strona Champion"
+   "v3_home": "strona Champion",
+   "removed_reason": "Decyzja Artura 25.09.2026: panel użyty raz w historii, a zatwierdzone wyszukiwanie od 25.09 nie trafiało do „Szukaj ręcznie”. Zastąpiły go wymagania do wyszukiwania w sekcji 2 Championa (wypełnia DL przy tworzeniu, Luna proponuje z maila) — od nich startuje „Szukaj ręcznie”."
   },
   {
    "id": "champ.settings",
