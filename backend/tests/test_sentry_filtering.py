@@ -109,3 +109,21 @@ def test_later_logging_does_not_duplicate_an_already_reported_operation():
     error = ValueError("synthetic")
     error._nexus_terminal_reported = True
     assert _sentry_before_send(_app_event(), {"exc_info": (ValueError, error, None)}) is None
+
+
+class TestCancelledRequestsAreDropped:
+    """Przerwane żądanie (klient zamknął kartę w trakcie uploadu CV) i restart
+    kontenera anulują zadania — to nie błąd kodu, a SQLAlchemy i uvicorn logują
+    je na ERROR, więc trafiały do Sentry kilka razy dziennie."""
+
+    def test_cancelled_error_event_is_dropped(self):
+        import asyncio
+
+        exc = asyncio.CancelledError()
+        hint = {"exc_info": (type(exc), exc, None)}
+        assert _sentry_before_send(_app_event(), hint) is None
+
+    def test_ordinary_error_is_kept(self):
+        exc = ValueError("real bug")
+        hint = {"exc_info": (type(exc), exc, None)}
+        assert _sentry_before_send(_app_event(), hint) is not None

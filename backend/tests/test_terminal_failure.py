@@ -62,3 +62,34 @@ class TerminalFailureTests(unittest.TestCase):
             self.assertIn("lineno", str(event["exception"]))
             self.assertNotIn("private@example.com", json.dumps(event))
             self.assertNotIn("secret-share-token", json.dumps(event))
+
+
+class TerminalFailureStatusTagTests(unittest.TestCase):
+    def test_provider_http_status_is_tagged(self):
+        events = []
+
+        class MemoryTransport(Transport):
+            def capture_envelope(self, envelope):
+                for item in envelope.items:
+                    if item.type == "event":
+                        events.append(json.loads(item.get_bytes()))
+
+        client = sentry_sdk.Client(
+            dsn="https://test@example.invalid/1",
+            default_integrations=False,
+            transport=MemoryTransport(),
+            before_send=scrub_event,
+        )
+
+        class ProviderError(Exception):
+            status_code = 402
+
+        with sentry_sdk.isolation_scope() as scope:
+            scope.set_client(client)
+            capture_terminal_failure(
+                ProviderError("Insufficient Balance"),
+                operation="notes-extraction",
+                failure_kind="APIStatusError",
+            )
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["tags"]["http.status_code"], "402")

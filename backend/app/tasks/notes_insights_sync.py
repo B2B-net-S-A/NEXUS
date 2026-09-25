@@ -205,6 +205,18 @@ async def _select_outdated_candidates(limit: int, exclude: set[int]) -> list[int
     return out[:limit]
 
 
+# 401 zły klucz, 402 brak środków (DeepSeek), 403 konto zablokowane — każdy
+# kolejny kandydat dostałby tę samą odmowę.
+_ACCOUNT_ERROR_STATUSES = frozenset({401, 402, 403})
+
+
+def _account_error_status(exc: BaseException) -> Optional[int]:
+    status = getattr(exc, "status_code", None)
+    if status is None:
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+    return status if status in _ACCOUNT_ERROR_STATUSES else None
+
+
 async def run_notes_insights_sync() -> dict[str, Any]:
     """Jeden bieg: selekcja przeterminowanych → ekstrakcja → zapis. Zwraca statystyki."""
     from app.services.index_outbox_service import CANDIDATE, record_bulk_reindex
@@ -272,6 +284,22 @@ async def run_notes_insights_sync() -> dict[str, Any]:
                 except AIQuotaExceeded:
                     stats["quota_blocked"] += 1
                     stats["status"] = "quota_blocked"
+                    break
+                except Exception as exc:
+                    status = _account_error_status(exc)
+                    if status is None:
+                        raise
+                    # Brak środków / zły klucz odrzuci KAŻDEGO kandydata tak samo.
+                    # 25.09.2026: saldo DeepSeek −0,01 USD dawało 402 ~1000 razy
+                    # na noc, każde jako osobne zdarzenie Sentry. Jedno wystarczy.
+                    logger.warning(
+                        "notes-insights: dostawca AI odrzuca konto (HTTP %s) — "
+                        "bieg zatrzymany, ponowię przy następnym",
+                        status,
+                    )
+                    stats["errors"] += 1
+                    stats["status"] = "provider_unavailable"
+                    stats["provider_error"] = f"HTTP {status}"
                     break
                 # Refresh after the remote call, then lock only the local write.
                 # A recruiter may have changed skills/rate while Claude worked.

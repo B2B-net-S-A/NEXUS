@@ -28,6 +28,11 @@ def capture_terminal_failure(
         scope.set_tag("failure_kind", failure_kind)
         scope.set_tag("terminal", "true")
         scope.set_tag("sampling_policy", "all-terminal-operations")
+        # Treść wyjątku jest czyszczona (prywatność), więc bez tego tagu nie
+        # widać, że np. DeepSeek odmawia 402 „brak środków" (25.09.2026).
+        status = getattr(exc, "status_code", None)
+        if isinstance(status, int):
+            scope.set_tag("http.status_code", str(status))
         # The SDK may already have seen this object on a retried provider attempt.
         # Serialize its original stack, then omit exc_info so SDK object-identity
         # deduplication cannot discard the terminal event after a filtered attempt.
