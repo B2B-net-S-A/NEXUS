@@ -83,6 +83,7 @@ from app.models.email_template import EmailTemplate
 from app.models.user_email_template import UserEmailTemplate
 from app.models.teams_channel import TeamsNotificationChannel
 from app.models.job_posting import JobPosting
+from app.models.job_board_connection import JobBoardConnection
 from app.models.call import Call
 from app.models.candidate_contact import (
     CandidateContactCase,
@@ -402,6 +403,7 @@ __all__ = [
     "UserEmailTemplate",
     "TeamsNotificationChannel",
     "JobPosting",
+    "JobBoardConnection",
     "Call",
     "CandidateContactCase",
     "CandidateContactEvent",

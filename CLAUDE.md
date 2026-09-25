@@ -3000,6 +3000,74 @@ Decyzja Artura: rekruter ma widzieć, czego szukamy, a klient dostaje swoje nazw
 - Kolumny są w `NEXUS_OWNED` (Traffit ich nie pisze). Istniejące rekrutacje
   uzupełnił jednorazowy krok `job-names-backfill` w `entrypoint.sh`.
 
+## Publikacja na RocketJobs i JustJoin.IT (0381, 25.09.2026)
+
+Jedno Employer Public API dostawcy (1EP, `integrations.rocketjobs.com/docs/1ep`,
+host `jobboardcore-external.justjoin.it/external-api`) obsługuje oba portale —
+pole `jobBoard`. W NEXUSIE to dwa portale (`Portal.rocketjobs`,
+`Portal.justjoinit`), jeden adapter (`services/job_portals/jjit.py`) i jedno
+połączone konto firmy (`job_board_connections`). Za flagami
+`PORTAL_ROCKETJOBS_ENABLED` / `PORTAL_JJIT_ENABLED` (domyślnie OFF); Etap 2
+(dane OAuth od dostawcy, połączenie konta, pierwsze ogłoszenie) czeka na
+odpowiedź integration@rocketjobs.com. Kontrakt API frontu:
+`docs/job-boards-rocketjobs-contract.md`.
+
+- **Konto łączy admin RAZ** (Ustawienia → System → Portale ogłoszeniowe,
+  `api/job_board_connection.py`). Dostawca ma tylko `authorization_code` +
+  refresh token. Odświeżenie tokenu idzie we WŁASNEJ sesji z natychmiastowym
+  commitem i pod `FOR UPDATE` wiersza (`jjit_connection.access_token`) —
+  dostawca rotuje refresh token, a rollback żądania zgubiłby jedyny ważny.
+  `invalid_grant` = `reconnect_required`; worker wtedy czeka i nie pali prób.
+- **`externalId` NIE chroni przed duplikatem** (dokumentacja). Nasz jest
+  STAŁY dla pary rekrutacja × portal (`nexus-job-{job_id}-{portal}`,
+  `external_ref_for`): `publish` najpierw szuka po nim żywego ogłoszenia,
+  dopiero potem `POST`, a zamknięcie bez znanego id też szuka po nim. Nowy
+  wiersz po nieudanej/wycofanej publikacji znajdzie ogłoszenie, które mogło
+  jednak powstać, zamiast kupić drugie. Wiersz, który worker brał choć raz,
+  przy wycofaniu dostaje `close`, nie `removed`; publikacja poddana po
+  timeoutach = `failed` + `close` (sprzątanie po externalId).
+- **Worker dzierżawi wiersz, nie blokuje go na czas HTTP** (`claim_batch`
+  ustawia `next_attempt_at` = teraz + 15 min, krótka transakcja), portal
+  woła bez transakcji, a wynik zapisuje osobna transakcja per wiersz
+  (`process_one`). Zlecenie zmienione w trakcie wysyłki (wycofanie, nowe
+  ustawienia) zostaje w kolejce. Nieoczekiwany wyjątek jednego wiersza =
+  ponowienie z backoffem, nie cofnięcie paczki.
+- **Flaga portalu blokuje NOWE publikacje, nie zamykanie** — `unpublish`
+  i `status` sprawdzają tylko konfigurację (`ensure_configured`), a worker
+  startuje także przy wyłączonych flagach, gdy konto jest skonfigurowane.
+- **Treść = biała lista `public_job_payload`** (zatwierdzony opis publiczny),
+  link aplikacji = `/r/<slug>` strony kariery, więc zgłoszenia wpadają do
+  NEXUSA istniejącą ścieżką. Nic o kliencie ani stawce.
+- **Widełki są opcjonalne i wpisuje je człowiek** (decyzja Artura 25.09.2026),
+  nigdy z budżetu rekrutacji ani stawki Championa. B2B netto, `do ≤ 3 × od`.
+- **Ustawienia ogłoszenia** (`job_postings.options`: kategoria ze słownika
+  portalu, poziom, wymiar, tryb, dni w biurze, miasto, widełki) walidują
+  JEDNĄ regułą w dwóch lustrach: `jjit_payload.validate` ↔
+  `validateListingOptions` (`lib/api/jobPortals.ts`). Braki = 422
+  `listing_invalid` z listą — kredyt jest płatny, więc nie wysyłamy czegoś,
+  co portal odrzuci.
+- **`pending_action`** (`publish|update|close`) mówi workerowi, co zrobić
+  z żywym wierszem. Nowe zatwierdzenie opisu publicznego i zmiana ustawień =
+  `update` (pełny `PUT` z klauzulą i kontaktem z `GET`; tytułu portal nie
+  zmienia). Wycofanie i zamknięcie rekrutacji = `close`; nieudane zamknięcie
+  zostaje w kolejce co godzinę. Worker co tick zamyka też ogłoszenia
+  rekrutacji, które przestały być `published` (każda ścieżka zmiany statusu,
+  także nocne archiwum Traffita), a co `JOB_PORTAL_STATUS_SYNC_HOURS`
+  sprawdza stan (`expired` po 90 dniach / końcu subskrypcji, 404 = `removed`).
+- **`DELETE /api/jobs/{id}` z żywym ogłoszeniem = 409** — kaskada skasowałaby
+  wiersz, a ogłoszenie zostałoby na portalu bez możliwości zamknięcia.
+- **`/jobs/new`**: sekcja „Ogłoszenie na portalach” (tylko przy `any_ready`),
+  szkic z `POST /api/job-intake/public-draft` (bez zapisu, z uwagami
+  kontroli), po publikacji rekrutacji: opis → zatwierdzenie → link →
+  publikacja (`lib/new-job-portal-publish.ts`). Awaria po utworzeniu =
+  toast + `?tab=portals`, rekrutacja zostaje.
+- **Do potwierdzenia na pierwszym prawdziwym ogłoszeniu** (dokumentacja
+  milczy): adresy publiczne ogłoszeń (`_OFFER_URL`), kształt odpowiedzi
+  `PUT /skills` i `GET` ogłoszenia, pole `categories` w `PUT`, czy
+  `/dictionaries` zależy od portalu, claim z `organizationUnitId`
+  (nadpisanie: `PORTAL_*_ORGANIZATION_UNIT_ID`). Harnessy:
+  `/preview/job-portals?dialog=1`, `/preview/new-job?state=portals`.
+
 ## Podobne rekrutacje, przepięcia i status requestu (0341, 22.09.2026)
 
 Decyzje Artura z 22.09.2026 (makiety: https://claude.ai/artifact/PGkKkGFSug8KUpB7n5T9Wn).
@@ -3584,7 +3652,7 @@ i polskim powodem.
 Migracje `0364_application_confirmation`, `0365_order_group_cancel`,
 `0366_job_portals` (lustra w `entrypoint.sh`, test `test_pr2_migration_mirror.py`).
 
-- **Multiposting (Pracuj.pl, JustJoinIT) to szkielet za flagami OFF**
+- **Multiposting (Pracuj.pl, JustJoinIT) to szkielet za flagami OFF** (JustJoin.IT i RocketJobs mają od 0381 prawdziwy adapter — sekcja „Publikacja na RocketJobs i JustJoin.IT”; zaślepką zostaje Pracuj.pl)
   (`PORTAL_PRACUJ_ENABLED`, `PORTAL_JJIT_ENABLED` + `_API_URL`/`_API_KEY`) —
   brak dokumentacji API portali. `services/job_portals/` (adaptery
   `PendingDocumentationAdapter` mówią „czeka na dokumentację”, nigdy nie udają

@@ -221,6 +221,7 @@ from app.api import oauth_token as oauth_token_api
 from app.api import service_accounts as service_accounts_api
 from app.api import candidate_sources as candidate_sources_api
 from app.api import contract_client_reassign as contract_client_reassign_api
+from app.api import job_board_connection as job_board_connection_api
 from app.api import job_portals as job_portals_api
 from app.api import candidates_bulk as candidates_bulk_api
 from app.api import dictionaries as dictionaries_api
@@ -1238,6 +1239,7 @@ app.include_router(notes.router, prefix="/api/notes", tags=["notes"])
 app.include_router(contracts.router, prefix="/api/contracts", tags=["contracts"])
 # Multiposting (0360): szkielet Pracuj.pl + JustJoinIT za flagami OFF.
 app.include_router(job_portals_api.router, prefix="/api", tags=["job-portals"])
+app.include_router(job_board_connection_api.router, prefix="/api", tags=["job-portals"])
 # Przepięcie kontraktu na innego klienta (admin) — jedyna droga zmiany klienta.
 app.include_router(
     contract_client_reassign_api.router, prefix="/api/contracts", tags=["contracts"]
@@ -2161,19 +2163,24 @@ async def api_health_check():
     # instalacji, a osoba `exited` zachowywała dostęp. Stempel ostatniego
     # biegu żyje w `app_settings['compass_lifecycle_state']`
     # (`record_sync_outcome`). Sonda informacyjna — nigdy `unhealthy`.
-    # 0360: multiposting — informacyjne, nie zmienia `status`. Dziś wszystkie
-    # portale są wyłączone (brak dokumentacji API), więc `unconfigured`.
+    # 0360/0381: multiposting — informacyjne, nie zmienia `status`. Przy
+    # wyłączonych flagach `unconfigured`; konto JustJoin.IT/RocketJobs do
+    # ponownego połączenia albo nieudane publikacje = `degraded`.
     try:
         from app.services import job_portals as _job_portals
 
         if not _job_portals.any_enabled():
             checks["job_portals"] = "unconfigured"
         else:
-            from app.services.job_portals.service import failed_recently
+            from app.services.job_portals.service import portal_health_inputs
 
             async with AsyncSessionLocal() as session:
-                _failed = await asyncio.wait_for(failed_recently(session), timeout=1.0)
-            checks["job_portals"] = _job_portals.health_state(_failed)
+                _failed, _reconnect = await asyncio.wait_for(
+                    portal_health_inputs(session), timeout=1.0
+                )
+            checks["job_portals"] = _job_portals.health_state(
+                _failed, reconnect_required=_reconnect
+            )
     except Exception:  # noqa: BLE001 — sonda informacyjna
         checks["job_portals"] = "unknown"
     if not settings.COMPASS_LIFECYCLE_ENABLED:
@@ -2708,6 +2715,7 @@ async def api_health_deep_check():
     from app.models.candidate_consent import CandidateConsent
     from app.models.placement_exclusion import PlacementExclusion
     from app.models.prep_meeting import PrepMeeting, PrepReview, PrepTranscript
+    from app.models.job_board_connection import JobBoardConnection
     from app.models.trainee import TraineeCallItem, TraineeCallList, TraineeProgram
     from app.models.candidate_followup import CandidateFollowup
     from app.models.followup_meeting import FollowupMeeting
@@ -2906,6 +2914,9 @@ async def api_health_deep_check():
         ("placement_exclusions", PlacementExclusion),
         # 0370: prepy w Teams — agenda „Rozmowy u klienta” czyta je przy
         # każdym wejściu, więc brak tabeli = pusty ekran kalendarza.
+        # 0381: konto RocketJobs/JustJoin.IT — konfiguracja portali czyta je
+        # przy każdym otwarciu okna Zlecenie, gdy portal jest włączony.
+        ("job_board_connections", JobBoardConnection),
         ("prep_meetings", PrepMeeting),
         ("trainee_programs", TraineeProgram),
         ("trainee_call_lists", TraineeCallList),

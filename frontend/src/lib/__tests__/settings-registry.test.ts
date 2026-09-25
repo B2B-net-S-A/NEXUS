@@ -135,3 +135,19 @@ describe("settings-registry — lista telefonów praktykantów (0374)", () => {
     expect(findSettingsItemByRoute("/settings/trainee-rules")?.id).toBe("trainee-rules");
   });
 });
+
+describe("settings-registry — portale ogłoszeniowe (RocketJobs / JustJoin.IT)", () => {
+  it("widzi je wyłącznie admin, w obszarze System", () => {
+    expect(can(user("admin", {}), "job-boards")).toBe(true);
+    for (const role of ["head_of_recruitment", "delivery_lead", "recruiter", "finance"]) {
+      expect(can(user(role, {}), "job-boards")).toBe(false);
+    }
+    expect(item("job-boards").area).toBe("sys");
+    expect(item("job-boards").route).toBeUndefined();
+  });
+
+  it("znajduje się po nazwie portalu", () => {
+    const admin = user("admin", { system_admin: "write" });
+    expect(searchSettingsItems(admin as never, "rocketjobs").map((i) => i.id)).toEqual(["job-boards"]);
+  });
+});
