@@ -74,6 +74,45 @@ const failed: JobPostingRead = {
   updated_at: null,
 };
 
+describe("JobPortalsSection — wejście z ?tab=portals (R5-8)", () => {
+  it("rozwija i przewija sekcję, gdy tylko pojawi się konfiguracja", () => {
+    const scroll = vi.fn();
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = scroll;
+    try {
+      const qc = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } });
+      qc.setQueryData(jobPortalKeys.config, ON);
+      qc.setQueryData(jobPortalKeys.postings(5), [failed]);
+      render(
+        <QueryClientProvider client={qc}>
+          <JobPortalsSection jobId={5} readOnly={false} focusOnReady pollWhilePublishingMs={false} />
+        </QueryClientProvider>,
+      );
+      expect(screen.getByRole("button", { name: /Portale ogłoszeniowe/ })).toHaveAttribute(
+        "aria-expanded",
+        "true",
+      );
+      expect(scroll).toHaveBeenCalledTimes(1);
+    } finally {
+      Element.prototype.scrollIntoView = original;
+    }
+  });
+
+  it("bez wejścia z linku sekcja zostaje zwinięta", () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } });
+    qc.setQueryData(jobPortalKeys.config, ON);
+    render(
+      <QueryClientProvider client={qc}>
+        <JobPortalsSection jobId={5} readOnly={false} pollWhilePublishingMs={false} />
+      </QueryClientProvider>,
+    );
+    expect(screen.getByRole("button", { name: /Portale ogłoszeniowe/ })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+  });
+});
+
 describe("JobPortalsSection", () => {
   it("renders nothing while every portal is disabled (production today)", () => {
     const { container } = renderWith(OFF);

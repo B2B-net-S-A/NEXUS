@@ -111,6 +111,7 @@ def should_run_full(
     or a manual flag, so this is self-limiting — the extra runs stop the night
     the sweep completes and clears its cursor. Nothing to remember to turn off.
     """
+    # Dzień UTC celowo: slot pełnego biegu (dzień + hour_utc) jest w UTC.
     if now_utc.hour < hour_utc:
         return False
     if last_finished is None:

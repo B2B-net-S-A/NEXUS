@@ -11,12 +11,13 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { EmptyState } from "@/components/ds/EmptyState";
 import { useToast } from "@/components/Toast";
-import { bulkFailureMessage } from "@/lib/academy-flow";
+import { bulkFailureMessage, withReplacedApplication } from "@/lib/academy-flow";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
   academyApi,
   academyKeys,
   type AcademyApplication,
+  type AcademyCounts,
   type ActionBody,
 } from "@/lib/api/academy";
 import { downloadBlob } from "@/lib/authenticated-files";
@@ -74,12 +75,15 @@ export function AcademyScreen({ programId }: { programId: number }) {
   const refreshAll = () =>
     queryClient.invalidateQueries({ queryKey: academyKeys.all });
 
+  // Wiersz i liczniki statusów od razu, potem odświeżenie listy — liczniki
+  // pochodne (Luna odłożyła, powroty wykluczonych) liczy tylko serwer.
   const replaceRow = (row: AcademyApplication) => {
     queryClient.setQueryData(
       academyKeys.applications(programId),
-      (old: { items: AcademyApplication[]; counts: Record<string, number> } | undefined) =>
-        old ? { ...old, items: old.items.map((a) => (a.id === row.id ? row : a)) } : old,
+      (old: { items: AcademyApplication[]; counts: AcademyCounts } | undefined) =>
+        withReplacedApplication(old, row),
     );
+    void queryClient.invalidateQueries({ queryKey: academyKeys.applications(programId) });
   };
 
   const handlers: AcademyHandlers = {
