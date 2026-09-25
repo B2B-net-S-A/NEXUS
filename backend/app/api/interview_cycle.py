@@ -38,7 +38,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.calendar_access import user_can_view_event
 from app.api.candidate_access import user_has_candidate_read
 from app.api.recruitment_access import (
-    RECRUITMENT_READ_ROLES,
     CalendarWriteAccess,
     RecruitmentAssessmentWriteAccess,
     RecruitmentReadAccess,
@@ -332,17 +331,8 @@ async def _ensure_slot_recruiter(db: AsyncSession, user_id: int, job_id: int) ->
         "Wybierz aktywną osobę z zespołu rekrutacji, która wybierze termin "
         "z kandydatem."
     )
-    user = await db.get(User, user_id)
-    if (
-        user is None
-        or not user.is_active
-        or not user.has_any_role(*RECRUITMENT_READ_ROLES)
-    ):
+    if not await interview_slots.slot_recruiter_eligible(db, user_id, job_id):
         raise HTTPException(status_code=422, detail=detail)
-    try:
-        await ensure_job_membership(db, user, job_id)
-    except HTTPException as exc:
-        raise HTTPException(status_code=422, detail=detail) from exc
 
 
 async def _can_see_interview(

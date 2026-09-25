@@ -230,11 +230,19 @@ async def _promote_statuses(
     # (`md_lines_settling_in_month` pyta o linie aktywne), czyli MD przestawały
     # się odejmować i budżet zamierał na ostatniej wartości. Statusem linii MD
     # steruje wyłącznie `client_order_lines.sync_md_line_status`.
+    #
+    # Wyjątek „budżet, nie kalendarz” dotyczy WYŁĄCZNIE linii zamówienia
+    # MD/kosztowego. Samodzielne zamówienie okresowe z ``md_total`` (np.
+    # Credit Agricole) nie jest rozliczane importem MD, więc jego pozostałe MD
+    # nie maleją — `OrderFact.works_until_md_exhausted` i
+    # `order_gaps.still_billing_md` traktują je jako kończące się datą.
+    # Pomijane tutaj zostawało „Aktywne” na zawsze, a dobowa synchronizacja
+    # kosztu nadpisywała mu stawkę (audyt 25.09.2026, runda 2).
     periodic_due = (
         ClientOrder.status == ClientOrderStatus.active,
         ClientOrder.end_date.is_not(None),
         ClientOrder.end_date < today,
-        ClientOrder.md_total.is_(None),
+        or_(ClientOrder.md_total.is_(None), ClientOrder.order_group_id.is_(None)),
     )
     # Linia MD zamknięta W PRZÓD (zamiana kontraktora z datą w przyszłości,
     # zamknięcie grupy z przyszłą datą) dostaje datę końca od razu, a status
@@ -248,6 +256,8 @@ async def _promote_statuses(
     successor = aliased(ClientOrder)
     md_due = (
         ClientOrder.status == ClientOrderStatus.active,
+        # Samodzielne zamówienie z ``md_total`` domyka `periodic_due` wyżej.
+        ClientOrder.order_group_id.is_not(None),
         ClientOrder.md_total.is_not(None),
         ClientOrder.end_date.is_not(None),
         ClientOrder.end_date < today,

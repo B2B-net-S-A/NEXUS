@@ -1032,8 +1032,10 @@ wieczorem pojawia się w kolejce tego samego dnia. Gdy przy sprawdzeniu nie da s
 pobrać załącznika maila (chwilowa awaria skrzynki), mail nie przepada: kolejne
 sprawdzenie pyta o niego ponownie, a do tego czasu pasek pod „Pobierz zamówienia
 z maila” pokazuje sprawdzenie jako częściowe. Jeśli załącznika nie da się pobrać
-przez dobę, mail trafia do zakładki **„Nieudane”** — otwórz go w Outlooku
-i wprowadź zamówienie ręcznie w oknie zamówienia klienta. Ograniczenie do godzin pracy
+przez dobę, mail trafia do zakładki **„Nieudane”** (jeden wpis na mail, nawet
+gdy miał kilka PDF-ów — pozostałe nazwy plików są w opisie błędu) — otwórz go
+w Outlooku i wprowadź zamówienie ręcznie w oknie zamówienia klienta. Tak samo
+trafia tam PDF większy niż dopuszczalny limit. Ograniczenie do godzin pracy
 dotyczy wyłącznie ponownego przeliczania tego, co już w kolejce wisi. Przycisk
 **„Pobierz zamówienia z maila"** działa o każdej porze i przelicza wstrzymane
 wpisy od razu, także po 18:00.
@@ -1087,11 +1089,16 @@ wtedy sprawdź pola z PDF i zastosuj ręcznie albo odrzuć.
 **Wpis „Nieudane” (błąd przy przetwarzaniu maila) system przetwarza ponownie
 sam** z zapisanego PDF-a — przy sprawdzeniach w godzinach 8:00–18:00, najwyżej
 3 razy i tylko przez 7 dni od nadejścia maila. Takie wpisy widać w zakładce
-**„Nieudane”** razem z błędem i numerem próby. Udane ponowienie przechodzi
-zwykłą ścieżkę nowego maila. Po trzech nieudanych próbach wpis zostaje
-w „Nieudane” — wprowadź wtedy zamówienie ręcznie w oknie zamówienia klienta.
-Ten sam PDF przysłany ponownie po nieudanym przetworzeniu jest czytany od nowa
-(nie jest już pomijany jako duplikat).
+**„Nieudane”** razem z rodzajem błędu i numerem próby. Udane ponowienie
+przechodzi zwykłą ścieżkę nowego maila. System **nie ponawia** wpisu bez
+zapisanego PDF-a (Graph nie oddał treści załącznika, plik za duży albo nie
+udało się pobrać załączników), wpisu starszego niż 7 dni ani wpisu po trzech
+nieudanych próbach — przy takim wpisie widać zdanie „Nie będzie ponawiany”.
+Wprowadź wtedy zamówienie ręcznie w oknie zamówienia klienta, a wpis zdejmij
+z zakładki przyciskiem **„Odrzuć”** (administrator; Delivery Lead — przy wpisie
+jego klienta). Odrzucenie kończy też automatyczne ponowienia. Ten sam PDF
+przysłany ponownie po nieudanym przetworzeniu jest czytany od nowa (nie jest
+już pomijany jako duplikat).
 
 **Gdy odczyt AI jest wyłączony albo wyczerpał miesięczny limit** (Ustawienia →
 AI), poczta działa dalej: mail dostaje odczyt awaryjny z powodem „Odczyt
@@ -1148,9 +1155,10 @@ widać tam było wyłącznie odczyty uruchamiane ręcznie w formularzach.
   pulą. Domknięte zamówienie NIE przenosi osoby do „Zakończonych" — o tym
   decyduje umowa (patrz opis filtrów wyżej); osoba bez kolejnego zamówienia
   dostaje dopisek „Brak aktywnego zamówienia".
-  **Jedynym wyjątkiem są konsultanci z własnym budżetem MD** — tam o końcu
-  decyduje budżet, nie kalendarz, więc osoba z niewykorzystanymi dniami pracuje
-  dalej.
+  **Jedynym wyjątkiem są konsultanci z własnym budżetem MD na zamówieniu MD** —
+  tam o końcu decyduje budżet, nie kalendarz, więc osoba z niewykorzystanymi
+  dniami pracuje dalej. Zamówienie okresowe z wpisaną liczbą MD (np. Credit
+  Agricole) kończy data, jak każde okresowe.
 * **Samego zamówienia zbiorczego data nie zamyka.** Numer zostaje „Aktywny",
   dopóki nie klikniesz **Zakończ** albo dopóki nie wyczerpie się budżet — więc
   można do niego dopisywać kolejne osoby także po dacie z dokumentu, mimo że

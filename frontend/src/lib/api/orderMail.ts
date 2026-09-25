@@ -123,6 +123,12 @@ export interface OrderMailDocument {
   /** Admin może odrzucić także „Nierozpoznane” (od 24.09.2026). */
   can_dismiss?: boolean;
   has_file: boolean;
+  /**
+   * Wpis „Nieudane”, który system jeszcze ponowi sam (plik jest, młodszy niż
+   * 7 dni, mniej niż 3 próby) — liczone na serwerze tą samą regułą co wybór
+   * wpisów do ponowienia. Brak pola (stary backend) = `false`.
+   */
+  failed_retry_pending?: boolean;
 }
 
 export interface OrderMailQueueResponse {

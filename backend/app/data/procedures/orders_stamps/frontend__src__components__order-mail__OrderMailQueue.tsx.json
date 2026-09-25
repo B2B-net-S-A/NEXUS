@@ -1,4 +1,4 @@
 {
-  "sha256": "ddb212048b79e116d979a1a488a67167c0d4f47e69be6bbd50e4a0f20c9bf45d",
+  "sha256": "475235e912ae07252a4f4244b248328c71a8efe80f9d56dc22eea7e1198ef13c",
   "source": "frontend/src/components/order-mail/OrderMailQueue.tsx"
 }

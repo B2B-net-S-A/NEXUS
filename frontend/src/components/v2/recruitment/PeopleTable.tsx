@@ -20,6 +20,7 @@ import { MoreHorizontal } from "lucide-react";
 
 import { candidatesApi } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
+import { EMPLOYMENT_ONLY_WARNING_PL } from "@/lib/proposals-merge";
 import { encodeJobBackRef } from "@/lib/url-filters";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/components/Toast";
@@ -411,15 +412,22 @@ export function PeopleTable({
           width: "minmax(0,1.5fr)",
           render: (row) =>
             row.kind === "proposal" ? (
-              row.handoverNote ? (
+              row.handoverNote || row.warnings.includes("employment_only") ? (
                 <span className="flex min-w-0 flex-col">
                   <span title={row.reason ?? undefined}>{dash(row.reason)}</span>
-                  <span
-                    className="line-clamp-2 text-xs text-muted-foreground"
-                    title={row.handoverNote}
-                  >
-                    {row.handoverNote}
-                  </span>
+                  {row.warnings.includes("employment_only") ? (
+                    <span className={cn(pillBase, "w-fit", BADGE_CLASS.warning)}>
+                      {EMPLOYMENT_ONLY_WARNING_PL}
+                    </span>
+                  ) : null}
+                  {row.handoverNote ? (
+                    <span
+                      className="line-clamp-2 text-xs text-muted-foreground"
+                      title={row.handoverNote}
+                    >
+                      {row.handoverNote}
+                    </span>
+                  ) : null}
                 </span>
               ) : (
                 <span title={row.reason ?? undefined}>{dash(row.reason)}</span>

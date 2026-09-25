@@ -13,7 +13,7 @@ import { describe, expect, it, vi } from "vitest";
 const openAuthenticatedFile = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/authenticated-files", () => ({ openAuthenticatedFile }));
 
-import { OrderMailQueueView, selectOrderMailDocument } from "@/components/order-mail/OrderMailQueue";
+import { failedRetryNote, OrderMailQueueView, selectOrderMailDocument } from "@/components/order-mail/OrderMailQueue";
 import type { OrderMailDocument, OrderMailRecheckRun, OrderMailSyncStatus } from "@/lib/api/orderMail";
 
 function doc(over: Partial<OrderMailDocument> = {}): OrderMailDocument {
@@ -476,14 +476,52 @@ describe("Audyt 25.09 — wpisy „Nieudane”", () => {
 
   it("nieudany wpis mówi, ile automatycznych prób zostało", () => {
     const failed = doc({
-      outcome: "failed", error: "OperationalError('connection reset')", can_apply: false,
+      outcome: "failed", error: "Błąd przetwarzania: OperationalError", can_apply: false,
       proposal: null, extraction: null, document_meta: { failed_retry: { attempts: 1 } },
+      failed_retry_pending: true,
     });
     const { rerender } = render(<OrderMailQueueView {...base} outcome="failed" state="ready" items={[failed]} />);
     expect(screen.getByTestId("failed-retry-note")).toHaveTextContent("próba 1 z 3");
     expect(screen.queryByRole("button", { name: /Zastosuj/ })).toBeNull();
-    const exhausted = { ...failed, document_meta: { failed_retry: { attempts: 3 } } };
+    const exhausted = { ...failed, document_meta: { failed_retry: { attempts: 3 } }, failed_retry_pending: false };
     rerender(<OrderMailQueueView {...base} outcome="failed" state="ready" items={[exhausted]} />);
     expect(screen.getByTestId("failed-retry-note")).toHaveTextContent("3 razy bez skutku");
+    expect(screen.getByTestId("failed-retry-note")).toHaveTextContent("odrzuć wpis");
+  });
+
+  it("wpis bez pliku albo starszy niż 7 dni nie obiecuje ponowień (runda 2 audytu 25.09)", () => {
+    // Serwer liczy `failed_retry_pending` tą samą regułą co wybór wpisów do
+    // ponowienia; wpis bez pliku ma 0 prób, a system i tak go nie weźmie.
+    const noFile = doc({
+      outcome: "failed", error: "Graph nie zwrócił treści załącznika (brak contentBytes).", can_apply: false,
+      proposal: null, extraction: null, document_meta: null, has_file: false, failed_retry_pending: false,
+    });
+    render(<OrderMailQueueView {...base} outcome="failed" state="ready" items={[noFile]} />);
+    const note = screen.getByTestId("failed-retry-note");
+    expect(note).not.toHaveTextContent("ponawia je sam");
+    expect(note).toHaveTextContent(
+      "Nie będzie ponawiany — wprowadź zamówienie ręcznie w oknie zamówienia klienta i odrzuć wpis.",
+    );
+  });
+
+  it("brak pola z serwera (stary backend) nie obiecuje ponowień", () => {
+    expect(failedRetryNote({ document_meta: { failed_retry: { attempts: 1 } } })).toMatch(/^Nie będzie ponawiany/);
+  });
+
+  it("wpis „Nieudane” da się odrzucić, gdy serwer na to pozwala", () => {
+    const onDismiss = vi.fn();
+    const failed = doc({
+      outcome: "failed", error: null, can_apply: false, proposal: null, extraction: null,
+      document_meta: null, failed_retry_pending: false,
+    });
+    const { rerender } = render(
+      <OrderMailQueueView {...base} outcome="failed" onDismiss={onDismiss} state="ready" items={[{ ...failed, can_dismiss: false }]} />,
+    );
+    expect(screen.queryByRole("button", { name: /Odrzuć/ })).toBeNull();
+    rerender(
+      <OrderMailQueueView {...base} outcome="failed" onDismiss={onDismiss} state="ready" items={[{ ...failed, can_dismiss: true }]} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Odrzuć/ }));
+    expect(onDismiss).toHaveBeenCalledWith(1);
   });
 });

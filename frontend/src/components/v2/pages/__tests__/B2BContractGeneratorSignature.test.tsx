@@ -755,3 +755,41 @@ describe("GeneratedContractsTab — umowa anulowana", () => {
     );
   });
 });
+
+describe("GeneratedContractsTab — wyszukiwarka kandydata w potwierdzeniu podpisu", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("awaria wyszukiwania to błąd z „Ponów”, nie „Brak wyników.”", async () => {
+    mocks.apiGet.mockImplementation((url: string) =>
+      url === "/api/cv-generator/candidates"
+        ? Promise.reject(new Error("503"))
+        : Promise.reject(new Error(`Unexpected GET ${url}`)),
+    );
+    renderTab([
+      generatedRow({
+        candidate_id: null,
+        job_id: null,
+        client_id: null,
+        candidate_name: null,
+        job_title: null,
+        canonical_client_name: null,
+        partner_name: "Historyczny Partner",
+      }),
+    ]);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Oznacz jako podpisaną" }),
+    );
+    const dialog = screen.getByRole("dialog");
+    const [candidateCombobox] = within(dialog).getAllByRole("combobox");
+    await userEvent.click(candidateCombobox);
+
+    expect(
+      await screen.findByText("Nie udało się wyszukać kandydatów."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Brak wyników.")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Ponów/ })).toBeInTheDocument();
+  });
+});

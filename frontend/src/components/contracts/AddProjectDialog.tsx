@@ -63,6 +63,7 @@ import { cn, parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
 import { B2B_END_DATE_HOW, b2bEndDateLocked } from "@/lib/contract-end-date";
 import { HOURS_PER_MONTH } from "@/lib/work-time";
 import { warsawToday } from "@/lib/warsaw-date";
+import { PickerQueryState } from "@/components/v2/filters/PickerQueryState";
 
 type ClientOption = { id: number; name: string };
 type JobOption = { id: number; title: string };
@@ -401,13 +402,15 @@ export function AddProjectDialog({
                   onValueChange={setClientQuery}
                 />
                 <CommandList>
-                  {clientsQuery.isLoading ? (
-                    <div className="p-3 text-sm text-muted-foreground">
-                      Ładowanie…
-                    </div>
-                  ) : (
-                    <CommandEmpty>Brak wyników.</CommandEmpty>
-                  )}
+                  {/* Awaria listy klientów ≠ „brak klientów”: pusty stan tylko przy sukcesie. */}
+                  <PickerQueryState
+                    isPending={clientsQuery.isLoading}
+                    isError={clientsQuery.isError}
+                    onRetry={() => void clientsQuery.refetch()}
+                    loadingLabel="Ładowanie klientów…"
+                    errorLabel="Nie udało się pobrać listy klientów."
+                  />
+                  {clientsQuery.isSuccess && <CommandEmpty>Brak wyników.</CommandEmpty>}
                   <CommandGroup>
                     {filteredClients.map((c) => (
                       <CommandItem

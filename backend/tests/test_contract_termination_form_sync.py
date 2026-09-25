@@ -511,6 +511,62 @@ async def test_later_end_date_on_dissolved_contract_keeps_the_dissolution(
     assert (await _generated(gid)).contract_status == "closed"
 
 
+async def test_unrelated_patch_on_dissolved_contract_does_not_undo_the_termination(
+    app_client, app_auth_headers
+):
+    """Audyt 25.09.2026, runda 2: PATCH innego pola (notatka przekazania) na
+    zakończonej umowie bez daty końca szedł gałęzią reaktywacji — a ta przez
+    `undo_contract_termination` kasowała podpisane rozwiązanie i przestawiała
+    wiersz Generatora. Bez zmiany daty zostaje wyłącznie leczenie statusu."""
+    cid, gid, _ = await _seed()
+    project_end = business_today() - timedelta(days=3)
+    ended = await app_client.post(
+        f"{PATH}/{cid}/terminate",
+        json={
+            "termination_reason": "client_budget_cut",
+            "terminated_at": project_end.isoformat(),
+            "agreement_termination": _dissolution(
+                project_end, project_end, mode="mutual_agreement"
+            ),
+        },
+        headers=app_auth_headers,
+    )
+    assert ended.status_code == 200, ended.text
+    assert (await _generated(gid)).contract_status == "closed"
+    # Stan zastany: zakończona umowa z rozwiązaniem, ale bez daty końca.
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, cid)
+        contract.end_date = None
+        await db.commit()
+
+    resp = await app_client.patch(
+        f"{PATH}/{cid}",
+        json={"handover_notes": "przekazanie po projekcie"},
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    # Przegląd PR #1836: bez zmiany daty zakończona umowa nie wraca sama do
+    # „Aktywnych” z wypowiedzeniem i rozwiązaniem w tle.
+    assert body["status"] == "ended"
+    assert body["agreement_termination_mode"] == "mutual_agreement"
+    assert body["terminated_at"] == project_end.isoformat()
+    row = await _generated(gid)
+    assert row.contract_status == "closed"
+    assert row.termination_mode == "mutual_agreement"
+    async with AsyncSessionLocal() as db:
+        actions = set(
+            (
+                await db.scalars(
+                    select(Activity.action).where(
+                        Activity.entity_type == "contract", Activity.entity_id == cid
+                    )
+                )
+            ).all()
+        )
+    assert "contract_reopened" not in actions
+
+
 async def test_return_after_break_creates_follow_up_agreement():
     from app.services.contract_lifecycle import sync_contract_to_live_order
 

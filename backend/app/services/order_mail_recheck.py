@@ -190,6 +190,28 @@ def failed_retry_attempts(row: OrderMailDocument) -> int:
     )
 
 
+def failed_retry_pending(
+    row: OrderMailDocument, *, now: datetime, has_file: bool
+) -> bool:
+    """Czy wpis „Nieudane” czeka jeszcze na automatyczne ponowienie.
+
+    Lustro ``_failed_candidate_ids`` dla jednego wpisu — kolejka mówi
+    operatorowi „system ponawia sam” wyłącznie wtedy, gdy to prawda. Bez pliku
+    na dysku ponowienie i tak wyczerpuje limit prób (``_retry_failed_one``),
+    więc brak pliku = brak ponowień.
+    """
+    if row.outcome != OUTCOME_FAILED or not row.storage_path or not has_file:
+        return False
+    if failed_retry_attempts(row) >= FAILED_RETRY_MAX_ATTEMPTS:
+        return False
+    received = row.received_at or row.created_at
+    if received is None:
+        return False
+    if received.tzinfo is None:
+        received = received.replace(tzinfo=timezone.utc)
+    return received >= now - timedelta(days=FAILED_RETRY_MAX_AGE_DAYS)
+
+
 async def _failed_candidate_ids(db: AsyncSession, *, now: datetime) -> list[int]:
     """Wpisy „Nieudane” z plikiem, młodsze niż 7 dni, z niewyczerpanymi próbami."""
     cutoff = now - timedelta(days=FAILED_RETRY_MAX_AGE_DAYS)
@@ -232,12 +254,20 @@ async def _retry_failed_one(
     trzyma blokadę wiersza — ta sama ścieżka co nowy mail
     (``process_pdf_bytes``: rozpoznanie klienta, odczyt, plan, bramka, zapis).
     Świadomie inaczej niż ``retry_ai_fallback_documents`` (odczyt poza blokadą):
-    wpisu ``failed`` nie rusza żadna akcja kolejki (nie ma „Zastosuj” ani
-    „Odrzuć”), a bieg jest jeden naraz (blokada biegu skrzynki), więc blokada
-    wiersza na czas odczytu nikogo nie wstrzymuje — a rozdzielenie
-    ``process_pdf_bytes`` na odczyt i zapis zdublowałoby ścieżkę nowego maila.
+    jedyna akcja kolejki na wpisie ``failed`` to „Odrzuć” (od rundy 2 audytu
+    25.09.2026) — czeka na blokadę wiersza i po odczycie działa na NOWYM
+    stanie wpisu: zapisane zamówienie (`auto_applied`) odmówi 409, a wpis
+    wstrzymany (`needs_review`, `unrecognized_client`) da się odrzucić jak
+    każdy inny w kolejce; odrzucenie w przerwie między próbą a odczytem
+    wyłapuje ponowne sprawdzenie ``outcome`` po blokadzie. Bieg jest jeden
+    naraz (blokada biegu skrzynki), a rozdzielenie ``process_pdf_bytes`` na
+    odczyt i zapis zdublowałoby ścieżkę nowego maila.
     """
-    from app.services.order_mail_ingest import _first_with_sha, process_pdf_bytes
+    from app.services.order_mail_ingest import (
+        _first_with_sha,
+        process_pdf_bytes,
+        processing_error,
+    )
 
     row = await _locked(db, doc_id)
     if (
@@ -306,7 +336,8 @@ async def _retry_failed_one(
         await db.rollback()
         row = await _locked(db, doc_id)
         if row is not None:
-            row.error = repr(exc)[:2000]
+            # Klasa wyjątku, nie ``repr`` (ścieżki, SQL) — pełny opis jest w logu.
+            row.error = processing_error(exc)
             row.document_meta = {
                 **(row.document_meta or {}),
                 "failed_retry": {**meta, "last_failure": type(exc).__name__},

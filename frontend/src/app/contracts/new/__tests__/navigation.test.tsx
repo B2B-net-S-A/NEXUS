@@ -365,3 +365,26 @@ describe("Nowy kontrakt — historia nawigacji po zapisie", () => {
     expect(mocks.create.mock.calls[0]?.[0]).not.toHaveProperty("currency");
   });
 });
+
+describe("Nowy kontrakt — awaria wyszukiwarek to nie pusta lista", () => {
+  it("błąd wyszukiwania kandydata i listy klientów daje „Ponów”, nie „Brak wyników.”", async () => {
+    mocks.apiGet.mockRejectedValue(new Error("503"));
+    renderPage();
+
+    expect(
+      await screen.findByText("Nie udało się wyszukać kandydatów."),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByText("Nie udało się pobrać listy klientów."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Brak wyników.")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /Ponów/ })).toHaveLength(2);
+  });
+
+  it("puste wyniki nadal mówią „Brak wyników.”", async () => {
+    mocks.apiGet.mockResolvedValue({ data: [] });
+    renderPage();
+
+    await waitFor(() => expect(screen.getAllByText("Brak wyników.")).toHaveLength(2));
+  });
+});

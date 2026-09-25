@@ -36,6 +36,7 @@ from typing import Any, Awaitable, Callable, Optional
 
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import func, inspect as sa_inspect, select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -631,12 +632,17 @@ async def _first_with_sha(db: AsyncSession, sha: str) -> Optional[OrderMailDocum
     Wpis ``failed`` nie jest oryginałem: nic z niego nie powstało, a do
     25.09.2026 ponownie przysłany PDF lądował jako „duplikat” nieudanego
     przetworzenia i też nigdy nie był czytany (audyt 25.09.2026).
+    Duplikat też nim nie jest: sam niczego nie przeczytał. Wpisy sprzed tej
+    reguły wskazują jako oryginał wpis ``failed`` — bez tego wykluczenia
+    ponowienie takiego wpisu (``order_mail_recheck``) brało jego duplikat za
+    oryginał i zamieniało jedyny egzemplarz zamówienia w „duplikat” duplikatu,
+    więc PDF nie był czytany nigdy (audyt 25.09.2026, runda 2).
     """
     return await db.scalar(
         select(OrderMailDocument)
         .where(
             OrderMailDocument.attachment_sha256 == sha,
-            OrderMailDocument.outcome != OUTCOME_FAILED,
+            OrderMailDocument.outcome.not_in((OUTCOME_FAILED, OUTCOME_DUPLICATE)),
         )
         .order_by(OrderMailDocument.id.asc())
         .limit(1)
@@ -1173,7 +1179,7 @@ async def retry_ai_fallback_documents(db: AsyncSession, stats: IngestStats) -> N
                 "ai_retry_last_failure": f"błąd zapisu ({type(exc).__name__})",
             }
             await db.commit()
-            stats.errors.append(f"ai retry doc {doc_id}: {exc!r}"[:300])
+            stats.errors.append(f"ai retry doc {doc_id}: {type(exc).__name__}")
 
 
 async def _record_failed_ai_retry(
@@ -1559,6 +1565,16 @@ def _row_fields(row: OrderMailDocument) -> dict[str, Any]:
     return {name: loaded[name] for name in _FAILED_ROW_FIELDS if name in loaded}
 
 
+def processing_error(exc: BaseException) -> str:
+    """Opis błędu dla wpisu „Nieudane” — sama klasa wyjątku, po polsku.
+
+    ``repr`` wyjątku niesie ścieżki z dysku i treść zapytań SQL, a pole
+    ``error`` czyta kolejka (admin, Delivery Lead). Pełny opis idzie wyłącznie
+    do logu (``logger.exception`` przy każdym wołającym).
+    """
+    return f"Błąd przetwarzania: {type(exc).__name__}"
+
+
 def _failed_row(
     identity: dict[str, Any], row: OrderMailDocument, exc: Exception
 ) -> OrderMailDocument:
@@ -1569,8 +1585,31 @@ def _failed_row(
     return OrderMailDocument(
         **{**identity, **_row_fields(row)},
         outcome=OUTCOME_FAILED,
-        error=repr(exc)[:2000],
+        error=processing_error(exc),
     )
+
+
+async def _add_journal_row(db: AsyncSession, row: OrderMailDocument) -> bool:
+    """Dopisz wpis dziennika i zatwierdź; ``False``, gdy już go ktoś zapisał.
+
+    Sprawdzenie „czy wpis jest” przed zapisem nie wyklucza wyścigu (bieg
+    ręczny i z pętli, dwa kontenery przy deployu), a indeksy unikalne
+    wiadomości (``uq_order_mail_documents_message_*``) odrzucają drugi wpis.
+    Zapis w savepoincie: konflikt wycofuje tylko ten wpis, a nie przerywa
+    biegu skrzynki — wiadomość i tak ma już wpis w dzienniku.
+    """
+    try:
+        async with db.begin_nested():
+            db.add(row)
+    except IntegrityError as exc:
+        logger.warning(
+            "order_mail: journal row for message not written (already exists?): %r",
+            exc,
+        )
+        await db.commit()
+        return False
+    await db.commit()
+    return True
 
 
 async def _hold_or_record_failed(
@@ -1600,13 +1639,32 @@ async def _hold_or_record_failed(
     if received is not None:
         at = received if received.tzinfo else received.replace(tzinfo=timezone.utc)
         if datetime.now(timezone.utc) - at > hold:
+            # Wpis bez pliku (``attachment_sha256`` NULL): indeks
+            # ``uq_order_mail_documents_message_no_attachment`` pozwala na JEDEN
+            # taki wpis na wiadomość. Do rundy 2 audytu 25.09.2026 drugi
+            # załącznik bez treści tej samej wiadomości kończył się
+            # IntegrityError, bieg dostawał „error”, a wiadomość trzymała
+            # znacznik skrzynki na zawsze. Wiadomość ma już wpis → kolejnego
+            # nie zapisujemy i znacznika NIE trzymamy (jest w dzienniku);
+            # nazwa pliku trafia do opisu istniejącego wpisu „Nieudane”.
+            logged = await _existing(db, message_id, None)
+            if logged is not None:
+                if (
+                    logged.outcome == OUTCOME_FAILED
+                    and attachment_name
+                    and attachment_name != logged.attachment_name
+                    and attachment_name not in (logged.error or "")
+                ):
+                    logged.error = (
+                        f"{logged.error or reason} Także załącznik: {attachment_name}."
+                    )[:2000]
+                    await db.commit()
+                return False
             row = _base_row(conn, msg)
             row.attachment_name = attachment_name
             row.outcome = OUTCOME_FAILED
             row.error = reason[:2000]
-            db.add(row)
-            await db.commit()
-            return True
+            return await _add_journal_row(db, row)
     stats.mark_unprocessed(received)
     return False
 
@@ -1634,17 +1692,18 @@ async def _process_message(
         if await _existing(db, message_id, None) is None:
             row = _base_row(conn, msg)
             row.outcome = OUTCOME_IGNORED_SENDER
-            db.add(row)
-            await db.commit()
-            added = True
+            added = await _add_journal_row(db, row)
         stats.ignored_sender += 1
         return added
 
     try:
         page = await gc.get(f"{mailbox_prefix()}/messages/{msg['id']}/attachments")
     except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "order_mail: attachments fetch failed for %s: %r", message_id[:40], exc
+        )
         stats.failed += 1
-        stats.errors.append(f"attachments {message_id[:40]}: {exc!r}"[:300])
+        stats.errors.append(f"attachments {message_id[:40]}: {type(exc).__name__}")
         return await _hold_or_record_failed(
             db,
             conn,
@@ -1667,9 +1726,7 @@ async def _process_message(
         if await _existing(db, message_id, None) is None:
             row = _base_row(conn, msg)
             row.outcome = OUTCOME_IGNORED_NO_PDF
-            db.add(row)
-            await db.commit()
-            added = True
+            added = await _add_journal_row(db, row)
         stats.ignored_no_pdf += 1
         return added
 
@@ -1693,13 +1750,28 @@ async def _process_message(
                 added = True
             continue
         payload = base64.b64decode(raw_b64)
-        if len(payload) > max_bytes:
-            stats.failed += 1
-            stats.errors.append(f"too large {att.get('name')!r} ({len(payload)} B)")
-            continue
         sha = hashlib.sha256(payload).hexdigest()
         if await _existing(db, message_id, sha) is not None:
             stats.skipped_existing += 1
+            continue
+        if len(payload) > max_bytes:
+            stats.failed += 1
+            stats.errors.append(f"too large {att.get('name')!r} ({len(payload)} B)")
+            # Do rundy 2 audytu 25.09.2026 za duży załącznik znikał bez śladu:
+            # ani wpisu w kolejce, ani trzymanego znacznika. Wpis „Nieudane”
+            # (z SHA, bez pliku — ponowienie nic tu nie zmieni) mówi operatorowi,
+            # że zamówienie trzeba wprowadzić ręcznie.
+            too_large = _base_row(conn, msg)
+            too_large.attachment_name = (att.get("name") or "zamowienie.pdf")[:255]
+            too_large.attachment_sha256 = sha
+            too_large.attachment_size = len(payload)
+            too_large.outcome = OUTCOME_FAILED
+            too_large.error = (
+                "Załącznik przekracza limit "
+                f"{settings.ORDER_MAIL_MAX_ATTACHMENT_MB} MB — nie został zapisany."
+            )
+            if await _add_journal_row(db, too_large):
+                added = True
             continue
 
         row = _base_row(conn, msg)
@@ -1714,10 +1786,11 @@ async def _process_message(
             row.storage_path = original.storage_path
             row.client_id = original.client_id
             row.client_key = original.client_key
-            db.add(row)
-            await db.commit()
-            added = True
-            stats.duplicates += 1
+            if await _add_journal_row(db, row):
+                added = True
+                stats.duplicates += 1
+            else:
+                stats.skipped_existing += 1
             continue
 
         identity = _row_fields(row)
@@ -1750,7 +1823,20 @@ async def _process_message(
             row = failed
             stats.failed += 1
         db.add(row)
-        await db.commit()
+        try:
+            await db.commit()
+        except IntegrityError:
+            # Ten sam załącznik zapisał równoległy bieg (bieg ręczny i z pętli,
+            # dwa kontenery przy deployu) — `uq_order_mail_documents_message_*`.
+            # Wycofujemy CAŁĄ transakcję, nie savepoint: `process_pdf_bytes`
+            # mógł już zapisać zamówienie, a bez wpisu w dzienniku zostałby
+            # drugi zapis tego samego zamówienia (przegląd PR #1836).
+            logger.warning("order_mail: attachment already journaled by a parallel run")
+            await db.rollback()
+            if conn is not None:
+                await db.refresh(conn)
+            stats.skipped_existing += 1
+            continue
         added = True
         if row.outcome == OUTCOME_NEEDS_REVIEW:
             stats.needs_review += 1
@@ -1955,7 +2041,7 @@ async def run_order_mail_ingest(
             except Exception as exc:  # noqa: BLE001 — przeliczenie nie wywraca biegu
                 logger.exception("order_mail: recheck of held documents failed")
                 await db.rollback()
-                stats.errors.append(f"recheck: {exc!r}"[:300])
+                stats.errors.append(f"recheck: {type(exc).__name__}")
             # Potem wpisy z odczytem awaryjnym (AI niedostępne przy odczycie
             # maila) — też lokalnie, z zachowanego PDF-a.
             try:
@@ -1963,7 +2049,7 @@ async def run_order_mail_ingest(
             except Exception as exc:  # noqa: BLE001 — ponowienie nie wywraca biegu
                 logger.exception("order_mail: AI re-read of fallback documents failed")
                 await db.rollback()
-                stats.errors.append(f"ai retry: {exc!r}"[:300])
+                stats.errors.append(f"ai retry: {type(exc).__name__}")
             # Rejestr i okno PRZED wyborem klienta Graph: konstruktor klienta
             # otwiera pulę httpx, więc między nim a `async with` nie może stać
             # nic, co potrafi rzucić (inaczej pula nigdy nie jest zamykana).
@@ -2064,7 +2150,10 @@ async def run_order_mail_ingest(
                 raise
             except Exception as exc:  # noqa: BLE001
                 logger.exception("order_mail ingest failed")
-                stats.errors.append(repr(exc)[:300])
+                # Klasa wyjątku, nie ``repr``: stan biegu czyta kolejka (admin,
+                # Delivery Lead), a ``repr`` niesie ścieżki i treść SQL.
+                run_error = f"Błąd sprawdzania skrzynki: {type(exc).__name__}"
+                stats.errors.append(run_error)
                 # Sesja po padniętym zapytaniu wymaga rollbacku — inaczej sam
                 # zapis stanu „error" padnie i wiersz zostanie na „running".
                 try:
@@ -2077,13 +2166,13 @@ async def run_order_mail_ingest(
                         db,
                         last_run_finished_at=finished,
                         last_status="error",
-                        last_error=repr(exc)[:2000],
+                        last_error=run_error,
                         stats=completed_record(
                             stats,
                             started_at=now,
                             finished_at=finished,
                             status="error",
-                            error=repr(exc)[:2000],
+                            error=run_error,
                         ),
                     )
                 except Exception:  # noqa: BLE001

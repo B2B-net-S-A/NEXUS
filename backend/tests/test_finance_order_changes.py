@@ -1298,8 +1298,27 @@ async def test_md_line_closed_forward_is_completed_once_its_day_passed():
 
     today = business_today()
     end = today - timedelta(days=3)
+
+    async def _active_group(client_id: int) -> int:
+        async with AsyncSessionLocal() as db:
+            group = ClientOrderGroup(
+                client_id=client_id,
+                order_number=f"G-{uuid.uuid4().hex[:6]}",
+                order_type="md",
+                status="active",
+                start_date=end - timedelta(days=60),
+                end_date=end,
+            )
+            db.add(group)
+            await db.commit()
+            return group.id
+
+    # Linie ZAMÓWIENIA MD (grupa) — wyjątek „budżet, nie kalendarz” dotyczy
+    # tylko ich; samodzielne zamówienie z `md_total` kończy data (test niżej).
     swapped = await _seed(start=end - timedelta(days=60), end=end)
-    await _as_md_line(swapped["order_id"])
+    await _as_md_line(
+        swapped["order_id"], order_group_id=await _active_group(swapped["client_id"])
+    )
     await _add_order(
         swapped,
         start=end + timedelta(days=1),
@@ -1307,7 +1326,10 @@ async def test_md_line_closed_forward_is_completed_once_its_day_passed():
         predecessor_order_id=swapped["order_id"],
     )
     still_billing = await _seed(start=end - timedelta(days=60), end=end)
-    await _as_md_line(still_billing["order_id"])
+    await _as_md_line(
+        still_billing["order_id"],
+        order_group_id=await _active_group(still_billing["client_id"]),
+    )
     closed = await _seed(start=end - timedelta(days=60), end=end)
     async with AsyncSessionLocal() as db:
         group = ClientOrderGroup(
@@ -1340,6 +1362,28 @@ async def test_md_line_closed_forward_is_completed_once_its_day_passed():
         "still_billing": ClientOrderStatus.active,
         "closed": ClientOrderStatus.completed,
     }
+
+
+async def test_standalone_order_with_md_total_is_completed_once_its_day_passed():
+    """Audyt 25.09.2026, runda 2: samodzielne zamówienie okresowe z
+    ``md_total`` (np. Credit Agricole) kończy się datą — Finanse i Braki tak je
+    liczą (`works_until_md_exhausted`, `still_billing_md`), ale skaner pomijał
+    każde zamówienie z ``md_total``, więc zostawało „Aktywne” na zawsze,
+    a dobowa synchronizacja kosztu nadpisywała mu stawkę."""
+    from app.core.database import AsyncSessionLocal
+    from app.core.scheduling import business_today
+    from app.tasks.dl_portal_expiry_scanner import _promote_statuses
+
+    end = business_today() - timedelta(days=1)
+    ids = await _seed(start=end - timedelta(days=60), end=end)
+    await _as_md_line(ids["order_id"])
+
+    async with AsyncSessionLocal() as db:
+        await _promote_statuses(db)
+        await db.commit()
+        order = await db.get(ClientOrder, ids["order_id"])
+        assert order.order_group_id is None
+        assert order.status == ClientOrderStatus.completed
 
 
 async def test_successor_on_a_contract_without_a_person_is_seen(monkeypatch):

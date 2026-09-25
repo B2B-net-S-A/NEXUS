@@ -32,7 +32,7 @@ from typing import Any, Optional
 import httpx
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select, text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, PendingRollbackError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -1151,9 +1151,17 @@ def needs_session_rollback(error: BaseException, *, past_savepoint: bool) -> boo
     `is_active` i `in_transaction()` do rozróżnienia się NIE nadają: przy martwym
     połączeniu raportują to samo co przy zdrowym (zmierzone). Robi to
     `connection_invalidated`, ustawiane przez SQLAlchemy na `DBAPIError`.
+
+    `PendingRollbackError` też wymaga rollbacku: sesja już jest w stanie
+    „do cofnięcia” — zerwanie połączenia złapał krok bez tej decyzji (np. log
+    i dalej), a pierwsze kolejne `begin_nested()` dostaje właśnie ten wyjątek,
+    bez `connection_invalidated`. Bez tej gałęzi łańcuch się urywał i faza
+    padała na commicie (audyt 25.09.2026, runda 2).
     """
 
     if past_savepoint:
+        return True
+    if isinstance(error, PendingRollbackError):
         return True
     return bool(getattr(error, "connection_invalidated", False))
 
@@ -1493,6 +1501,42 @@ class TraffitImporter:
         )
         return {ext: nid for nid, ext in result.all() if ext is not None}
 
+    async def _recover_session(
+        self,
+        progress: PhaseProgress,
+        error: BaseException,
+        *,
+        batch: str,
+        staged: int,
+        past_savepoint: bool = False,
+    ) -> bool:
+        """Podnieś sesję po błędzie zapisu wiersza, jeśli trzeba; True = podniesiona.
+
+        Decyzję podejmuje `needs_session_rollback`: zwykły błąd instrukcji cofnął
+        już savepoint i sesji ruszać nie wolno. Po utracie połączenia
+        (`connection_invalidated`) `ROLLBACK TO SAVEPOINT` nie ma dokąd pójść —
+        bez `rollback()` każde kolejne `begin_nested()` rzuca
+        `PendingRollbackError`, reszta fazy to błędy przypisane wierszom,
+        a commit na końcu wywraca fazę (audyt 25.09.2026, runda 2).
+
+        Rollback zabiera wiersze zapisane od ostatniego commita. Jeśli jakieś
+        były (`staged`), faza dostaje błąd NIEPRZYPISANY — ten sam, co przy
+        padniętym commicie paczki — więc watermark stoi i kolejny bieg je
+        powtórzy. Bez niego wiersz, na którym zerwało połączenie, trafiłby po
+        kilku biegach do kwarantanny, a watermark przesunąłby się nad paczką,
+        której nikt nie zapisał. Wołający zeruje swój licznik paczki.
+        """
+
+        if not needs_session_rollback(error, past_savepoint=past_savepoint):
+            return False
+        await self.db.rollback()
+        if staged > 0:
+            progress.add_error(
+                f"{batch} batch rolled back after lost connection "
+                f"({staged} rows): {safe_db_error(error)}"
+            )
+        return True
+
     async def _probe_total(self, path: str, phase: str) -> int:
         """Best-effort ``total_source`` probe. Never gates the phase.
 
@@ -1564,8 +1608,15 @@ class TraffitImporter:
                 # żyje i rollback SESJI byłby tym, co wyrzuca paczkę. Podnosimy
                 # ją tylko przy utracie połączenia — wtedy `ROLLBACK TO SAVEPOINT`
                 # nie ma dokąd pójść i każdy kolejny wiersz fazy padnie.
-                if needs_session_rollback(e, past_savepoint=False):
-                    await self.db.rollback()
+                # Faza commituje raz, na końcu — rollback zabiera wszystko,
+                # co zapisała do tej pory, więc liczniki wracają do zera.
+                if await self._recover_session(
+                    progress,
+                    e,
+                    batch="clients",
+                    staged=progress.inserted + progress.updated,
+                ):
+                    progress.inserted = progress.updated = 0
                 continue
             # Liczone dopiero, gdy savepoint się utrzymał — inkrementacja w
             # środku jest tym, co na prodzie kazało statystykom opisywać PRÓBY
@@ -1641,8 +1692,15 @@ class TraffitImporter:
                 # żyje i rollback SESJI byłby tym, co wyrzuca paczkę. Podnosimy
                 # ją tylko przy utracie połączenia — wtedy `ROLLBACK TO SAVEPOINT`
                 # nie ma dokąd pójść i każdy kolejny wiersz fazy padnie.
-                if needs_session_rollback(e, past_savepoint=False):
-                    await self.db.rollback()
+                # Faza commituje raz, na końcu — rollback zabiera wszystko,
+                # co zapisała do tej pory, więc liczniki wracają do zera.
+                if await self._recover_session(
+                    progress,
+                    e,
+                    batch="contacts",
+                    staged=progress.inserted + progress.updated,
+                ):
+                    progress.inserted = progress.updated = 0
                 continue
             if was_insert is None:
                 continue
@@ -1815,8 +1873,15 @@ class TraffitImporter:
                 # żyje i rollback SESJI byłby tym, co wyrzuca paczkę. Podnosimy
                 # ją tylko przy utracie połączenia — wtedy `ROLLBACK TO SAVEPOINT`
                 # nie ma dokąd pójść i każdy kolejny wiersz fazy padnie.
-                if needs_session_rollback(e, past_savepoint=False):
-                    await self.db.rollback()
+                # Faza commituje raz, na końcu — rollback zabiera wszystko,
+                # co zapisała do tej pory, więc liczniki wracają do zera.
+                if await self._recover_session(
+                    progress,
+                    e,
+                    batch="users",
+                    staged=progress.inserted + progress.updated,
+                ):
+                    progress.inserted = progress.updated = 0
                 continue
             if outcome == "inserted":
                 progress.inserted += 1
@@ -1905,6 +1970,16 @@ class TraffitImporter:
                 progress.add_error(
                     f"upsert workflow ext={template_payload.get('external_id')}: {e!r}"
                 )
+                # Faza commituje raz, na końcu — po rollbacku po utracie
+                # połączenia wcześniejsze szablony tego biegu przepadają.
+                if await self._recover_session(
+                    progress,
+                    e,
+                    batch="workflows",
+                    staged=progress.inserted + progress.updated,
+                ):
+                    # Liczniki opisują ZAPISY, a tych już nie ma.
+                    progress.inserted = progress.updated = 0
                 continue
 
             # Counted only once the savepoint actually held. Incrementing
@@ -2396,10 +2471,13 @@ class TraffitImporter:
                     # nadają — przy martwym połączeniu raportują dokładnie to samo
                     # co przy zdrowym (zmierzone). Robi to `connection_invalidated`:
                     # False dla błędu instrukcji, True dla utraty połączenia.
-                    if needs_session_rollback(
-                        e, past_savepoint=row_committed_to_savepoint
+                    if await self._recover_session(
+                        progress,
+                        e,
+                        batch="candidates",
+                        staged=since_commit,
+                        past_savepoint=row_committed_to_savepoint,
                     ):
-                        await self.db.rollback()
                         since_commit = 0
 
         if not self.dry_run:
@@ -2608,6 +2686,13 @@ class TraffitImporter:
                     progress.archived += await archive_traffit_jobs(self.db)
             except Exception as exc:  # noqa: BLE001
                 progress.add_error(f"archive traffit jobs: {exc!r}")
+                # Utrata połączenia — bez rollbacku commit paczki niżej rzuca
+                # `PendingRollbackError` i wywraca fazę.
+                if await self._recover_session(
+                    progress, exc, batch="jobs", staged=since_commit
+                ):
+                    inserted_job_ids.clear()
+                    since_commit = 0
 
             # Kategoria kompetencji dla nowych rekrutacji z Traffita — import jej
             # nie nadawał, więc 734 rekrutacje (24.09.2026) nie miały kategorii,
@@ -2622,6 +2707,9 @@ class TraffitImporter:
                         )
                 except Exception as exc:  # noqa: BLE001
                     progress.add_error(f"classify job categories: {exc!r}")
+                    await self._recover_session(
+                        progress, exc, batch="jobs", staged=since_commit
+                    )
                 inserted_job_ids.clear()
 
             await self.db.commit()
@@ -2807,8 +2895,16 @@ class TraffitImporter:
                 # żyje i rollback SESJI byłby tym, co wyrzuca paczkę. Podnosimy
                 # ją tylko przy utracie połączenia — wtedy `ROLLBACK TO SAVEPOINT`
                 # nie ma dokąd pójść i każdy kolejny wiersz fazy padnie.
-                if needs_session_rollback(e, past_savepoint=False):
-                    await self.db.rollback()
+                if await self._recover_session(
+                    progress, e, batch="jobs", staged=since_commit
+                ):
+                    # Id z cofniętej paczki nie istnieją (wstawione) albo nie
+                    # mają już zmiany — zdarzenie dla automatów na nieistniejącą
+                    # rekrutację wywróciłoby transakcję następnej paczki.
+                    event_job_ids.clear()
+                    touched_job_ids.clear()
+                    inserted_job_ids.clear()
+                    since_commit = 0
                 continue
             if was_insert is None:
                 # WHERE w `_UPSERT_JOB` odrzucił zapis — nic się nie zmieniło.
@@ -2837,6 +2933,9 @@ class TraffitImporter:
                     await fill_missing_job_delivery_leads(self.db)
             except Exception as exc:  # noqa: BLE001
                 progress.add_error(f"fill job delivery leads: {exc!r}")
+                # Paczki są już zacommitowane — rollback podnosi tylko sesję,
+                # żeby commit niżej nie wywrócił fazy.
+                await self._recover_session(progress, exc, batch="jobs", staged=0)
 
         if not self.dry_run:
             await self.db.commit()
@@ -2890,8 +2989,15 @@ class TraffitImporter:
                 # żyje i rollback SESJI byłby tym, co wyrzuca paczkę. Podnosimy
                 # ją tylko przy utracie połączenia — wtedy `ROLLBACK TO SAVEPOINT`
                 # nie ma dokąd pójść i każdy kolejny wiersz fazy padnie.
-                if needs_session_rollback(e, past_savepoint=False):
-                    await self.db.rollback()
+                # Faza commituje raz, na końcu — rollback zabiera wszystko,
+                # co zapisała do tej pory, więc liczniki wracają do zera.
+                if await self._recover_session(
+                    progress,
+                    e,
+                    batch="talents",
+                    staged=progress.inserted + progress.updated,
+                ):
+                    progress.inserted = progress.updated = 0
                 continue
             if was_insert is None:
                 continue
@@ -3288,6 +3394,12 @@ class TraffitImporter:
                 # „emp {id}: …” było nieprzypisane i zamrażało `__daily__`
                 # na stałe przy jednym trwale zepsutym kandydacie.
                 progress.add_error(f"cv candidate ext={traffit_id}: {e!r}")
+                # Utrata połączenia w savepoincie (zapis wskaźnika albo
+                # nagrobek) — bez rollbacku sesji padłby każdy kolejny kandydat.
+                if await self._recover_session(
+                    progress, e, batch="cv", staged=since_commit
+                ):
+                    since_commit = 0
                 continue
 
             since_commit += 1
@@ -3884,6 +3996,13 @@ class TraffitImporter:
                         progress.add_error(
                             f"store file {file_id} candidate ext={traffit_id}: {e!r}"
                         )
+                        # Utrata połączenia: savepoint nie cofnął się, więc
+                        # sesję podnosi dopiero rollback — inaczej padnie
+                        # każdy kolejny plik i kandydat fazy.
+                        if await self._recover_session(
+                            progress, e, batch="files", staged=since_commit
+                        ):
+                            since_commit = 0
                         continue
                     progress.inserted += 1
 
@@ -3892,8 +4011,13 @@ class TraffitImporter:
                 # nie pasowało do `_ERROR_REF_RE`, więc błąd był nieprzypisany
                 # i zamrażał `__daily__` na stałe, a `rollback()` sesji cofał
                 # dokumenty całej paczki, których pliki już były w magazynie.
-                # Zapisy mają własne savepointy, więc sesja jest zdrowa.
+                # Zapisy mają własne savepointy, więc po błędzie instrukcji
+                # sesja jest zdrowa — ale nie po utracie połączenia (nagrobek).
                 progress.add_error(f"files candidate ext={traffit_id}: {e!r}")
+                if await self._recover_session(
+                    progress, e, batch="files", staged=since_commit
+                ):
+                    since_commit = 0
                 continue
 
             since_commit += 1
@@ -4065,6 +4189,14 @@ class TraffitImporter:
                 progress.add_error(msg)
                 if progress.errors <= 5 or progress.errors % 500 == 0:
                     logger.warning("Pipelines upsert error: %s", msg[:300])
+                # Utrata połączenia: savepoint nie cofnął się, a bez rollbacku
+                # każdy kolejny wiersz rzuca `PendingRollbackError` aż do flushu.
+                # Wsad sprzed zerwania trzyma `pending_rows`, więc zamiast go
+                # tracić odtwarzamy go wiersz po wierszu (ta sama ścieżka co
+                # przy padniętym commicie wsadu — ona robi rollback sesji).
+                if needs_session_rollback(e, past_savepoint=False):
+                    await self._replay_stage_rows(progress, pending_rows)
+                    pending_rows.clear()
                 return
 
             if was_insert is None:
@@ -4674,6 +4806,10 @@ class TraffitImporter:
                 progress.add_error(
                     f"upsert activity ext={payload.get('external_id')}: {e!r}"
                 )
+                if await self._recover_session(
+                    progress, e, batch="activities", staged=since_commit
+                ):
+                    since_commit = 0
                 continue
             if row is None:
                 continue
@@ -4938,8 +5074,15 @@ class TraffitImporter:
                 progress.add_error(f"merge tags candidate={candidate_id}: {e!r}")
                 # Savepoint już cofnął zapis; sesję podnosimy tylko przy utracie
                 # połączenia (`ROLLBACK TO SAVEPOINT` nie ma wtedy dokąd pójść).
-                if needs_session_rollback(e, past_savepoint=False):
-                    await self.db.rollback()
+                # Faza commituje raz, na końcu — rollback zabiera wszystko,
+                # co zapisała do tej pory, więc liczniki wracają do zera.
+                if await self._recover_session(
+                    progress,
+                    e,
+                    batch="sources",
+                    staged=progress.inserted + progress.updated,
+                ):
+                    progress.inserted = progress.updated = 0
                 continue
             # Liczone po utrzymaniu się savepointu, nie w jego środku.
             # `inserted` = tagi (jak dotąd), `updated` = zdarzenia źródeł.

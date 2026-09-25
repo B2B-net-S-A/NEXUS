@@ -213,7 +213,8 @@ async def list_assignable_stages(
             id=s.id, name=s.name, order=s.order, legacy_enum_value=s.legacy_enum_value
         )
         for s in rows
-        if s.legacy_enum_value != PipelineStage.verified.value
+        # Lista wyboru w wyszukiwarce = te same etapy, które bulk-add przyjmie.
+        if _is_entry_column(s)
     ]
 
 
@@ -242,6 +243,39 @@ def _legacy_enum_for(
     return PipelineStage.new
 
 
+def _is_entry_column(stage_def: PipelineStageDef) -> bool:
+    """Czy etap leży na wejściu drogi: kolumna „Nowi” albo „Screening”.
+
+    Etap dalszy (np. „CV wysłane”, kolejka Cpro, rozmowa u klienta) ma bramki
+    ruchu — QC CV, stawkę DL, osobę od Cpro, debrief — które sprawdza wyłącznie
+    ``POST /api/pipeline/move``. Bulk-add na taki etap omijał je wszystkie
+    (przegląd PR #1836, bliźniak poprawki „para bez wierszy liczy od Nowi”).
+    """
+    from app.services.board_stage_badges import CLAIM_COLUMNS, board_column_for
+
+    column = board_column_for(
+        stage_def.name,
+        stage_def.legacy_enum_value,
+        category=getattr(stage_def.category, "value", stage_def.category),
+        terminal_type=getattr(
+            stage_def.terminal_type, "value", stage_def.terminal_type
+        ),
+    )
+    return column in CLAIM_COLUMNS
+
+
+def _assert_entry_column(stage_def: PipelineStageDef) -> None:
+    if not _is_entry_column(stage_def):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Kandydatów dodaje się do kolumny „Nowi” albo „Screening” — dalsze "
+                "etapy przesuwa się pojedynczo (POST /api/pipeline/move), bo mają "
+                "własne wymagania (QC CV, stawka, debrief)."
+            ),
+        )
+
+
 async def _resolve_initial_stage(
     db: AsyncSession,
     job: Job,
@@ -263,6 +297,7 @@ async def _resolve_initial_stage(
             )
         )
         if by_legacy is not None and legacy_value != PipelineStage.verified.value:
+            _assert_entry_column(by_legacy)
             return by_legacy
     if override_id is not None:
         stage_def = await db.scalar(
@@ -292,6 +327,7 @@ async def _resolve_initial_stage(
                     " POST /api/pipeline/move dla pojedynczego kandydata."
                 ),
             )
+        _assert_entry_column(stage_def)
         return stage_def
 
     if not job.pipeline_template_id:

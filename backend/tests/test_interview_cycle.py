@@ -690,6 +690,45 @@ async def test_slot_request_recruiter_must_be_an_active_team_member(
     assert ok.json()["recruiter_id"] == rec_id
 
 
+async def test_default_slot_recruiter_skips_an_inactive_first_verifier(
+    app_client: AsyncClient,
+):
+    """Runda 2 audytu 25.09.2026: podpowiadany rekruter wniosku (właściciel
+    procesu → pierwszy weryfikator → rekruter rekrutacji) nie przechodził
+    reguły jawnego wyboru — wniosek dostawał np. ktoś, kto odszedł z firmy."""
+    from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+
+    rec_id, _ = await _user(UserRole.recruiter)
+    dl_id, dl_h = await _user(UserRole.delivery_lead)
+    gone_id, _ = await _user(UserRole.recruiter)
+    job_id, cand_id, _ = await _job_with_candidate(recruiter_id=rec_id, dl_id=dl_id)
+    async with AsyncSessionLocal() as db:
+        gone = await db.get(User, gone_id)
+        gone.is_active = False
+        db.add(
+            CandidateStage(
+                candidate_id=cand_id,
+                job_id=job_id,
+                stage=PipelineStage.verified,
+                moved_by=gone_id,
+                moved_at=datetime.now(timezone.utc) - timedelta(days=10),
+            )
+        )
+        await db.commit()
+
+    resp = await app_client.post(
+        "/api/interview-cycle/slots",
+        headers=dl_h,
+        json={
+            "candidate_id": cand_id,
+            "job_id": job_id,
+            "slots": [{"start": _future(2)}],
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["recruiter_id"] == rec_id
+
+
 async def test_prep_kit_includes_client_debrief_questions_from_other_jobs(
     app_client: AsyncClient,
 ):

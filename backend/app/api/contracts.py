@@ -3965,8 +3965,20 @@ async def update_contract(
         coerced_status = _status_after_end_date_change(
             contract.status, contract.end_date, today
         )
+        # Obie gałęzie niżej (korekta daty rozwiązanej umowy i reaktywacja przez
+        # `reopen_contract`) są odpowiedzią na ZMIANĘ daty końca w tym żądaniu.
+        # PATCH innego pola (notatka, stawka) na zakończonej umowie z pustą albo
+        # przyszłą datą szedł nimi również i `undo_contract_termination`
+        # kasował podpisane rozwiązanie i przestawiał wiersz Generatora (audyt
+        # 25.09.2026, runda 2). Bez zmiany daty zostaje dawne leczenie samego
+        # statusu (ostatnia gałąź), jak przed PR #1833.
+        end_date_changed = (
+            "end_date" in data.model_fields_set
+            and contract.end_date != previous_end_date
+        )
         if (
-            coerced_status != contract.status
+            end_date_changed
+            and coerced_status != contract.status
             and contract.status == ContractStatus.ended
             and contract.agreement_termination_mode is not None
             and contract.end_date is not None
@@ -3984,7 +3996,8 @@ async def update_contract(
             contract.status = ContractStatus.ending
             updates["status"] = contract.status.value
         elif (
-            coerced_status != contract.status
+            end_date_changed
+            and coerced_status != contract.status
             and contract.status == ContractStatus.ended
         ):
             # Nowa data końca wskrzesza ZAKOŃCZONĄ umowę — to reaktywacja jak
@@ -4006,7 +4019,19 @@ async def update_contract(
                 assert_transition(contract.status, ContractStatus.ending)
                 contract.status = ContractStatus.ending
             updates["status"] = contract.status.value
-        elif coerced_status != contract.status:
+        elif coerced_status != contract.status and not (
+            contract.status == ContractStatus.ended
+            and (
+                contract.terminated_at is not None
+                or contract.agreement_termination_mode is not None
+            )
+        ):
+            # Samoleczenie „Zakończony” bez zmiany daty obejmuje tylko umowę
+            # BEZ śladów zakończenia (np. źle oznaczoną ręcznie). Umowa
+            # zakończona przez „Zakończ współpracę” (`terminated_at`,
+            # rozwiązanie) wraca wyłącznie przez nową datę albo „Cofnij
+            # zakończenie” — surowy zapis statusu zostawiał wypowiedzenie,
+            # rozwiązanie i otwartą migawkę przy „Aktywnym” (przegląd PR #1836).
             contract.status = coerced_status
             updates["status"] = coerced_status.value  # reflect the outcome in audit
     # Reguła zakładki „Zakończeni" (09.2026): data końca umowy wpisana w module

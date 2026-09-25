@@ -89,6 +89,16 @@ def local_quarter_bounds(day: date, tz: str = DEFAULT_TZ) -> PeriodBounds:
     )
 
 
+def local_day_start_utc(day: date, tz: str = DEFAULT_TZ) -> datetime:
+    """Północ dnia ``day`` w kalendarzu firmy, jako chwila UTC.
+
+    ``datetime(d.year, d.month, d.day, tzinfo=timezone.utc)`` to północ UTC —
+    w Warszawie 01:00/02:00, więc zdarzenia z pierwszych godzin dnia wypadały
+    z filtra „od dnia X” (runda 2 audytu 25.09.2026, Akademia).
+    """
+    return datetime.combine(day, time.min, tzinfo=ZoneInfo(tz)).astimezone(timezone.utc)
+
+
 @dataclass(frozen=True)
 class DayBounds:
     """UTC-aware start/end of a single local-calendar day in the given zone.

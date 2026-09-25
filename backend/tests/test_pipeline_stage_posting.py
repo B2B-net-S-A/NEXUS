@@ -151,3 +151,59 @@ async def test_default_initial_stage_skips_posting():
         if tpl is not None:
             await db.delete(tpl)
         await db.commit()
+
+
+def test_bulk_add_accepts_only_entry_columns():
+    """Przegląd PR #1836: bulk-add na „CV wysłane”, kolejkę Cpro albo rozmowę
+    u klienta omijał bramki ruchu (QC CV, stawka DL, osoba od Cpro, debrief)."""
+    from types import SimpleNamespace
+
+    from app.api.proposals_bulk import _is_entry_column
+
+    def stage(name, legacy, category="internal", terminal_type=None):
+        return SimpleNamespace(
+            name=name,
+            legacy_enum_value=legacy,
+            category=category,
+            terminal_type=terminal_type,
+        )
+
+    assert _is_entry_column(stage("Ogłoszenia", "posting"))
+    assert _is_entry_column(stage("Nowi / Analiza CV", "new"))
+    assert _is_entry_column(stage("Screening", "screening"))
+    assert not _is_entry_column(stage("CV wysłane", "cv_sent"))
+    assert not _is_entry_column(stage("NORDEA: Wysłać do Cpro", "screening"))
+    assert not _is_entry_column(stage("QC CV", "interview"))
+    assert not _is_entry_column(stage("Rozmowa z klientem", "client_interview"))
+    assert not _is_entry_column(stage("Zweryfikowany", "verified"))
+
+
+@pytest.mark.asyncio
+async def test_bulk_add_refuses_a_stage_past_the_entry_columns():
+    from types import SimpleNamespace
+
+    from fastapi import HTTPException
+
+    from app.api.proposals_bulk import _resolve_initial_stage
+
+    import uuid
+
+    tpl_id, _, _ = await _template_with_posting(f"entry-{uuid.uuid4().hex[:8]}")
+    async with AsyncSessionLocal() as db:
+        cv_sent = PipelineStageDef(
+            template_id=tpl_id,
+            name="CV wysłane",
+            order=5,
+            category="external",
+            is_terminal=False,
+            legacy_enum_value="cv_sent",
+        )
+        db.add(cv_sent)
+        await db.commit()
+        job = SimpleNamespace(pipeline_template_id=tpl_id)
+        with pytest.raises(HTTPException) as explicit:
+            await _resolve_initial_stage(db, job, cv_sent.id)
+        assert explicit.value.status_code == 422
+        with pytest.raises(HTTPException) as by_legacy:
+            await _resolve_initial_stage(db, job, None, "cv_sent")
+        assert by_legacy.value.status_code == 422

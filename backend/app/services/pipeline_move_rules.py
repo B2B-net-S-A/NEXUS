@@ -25,9 +25,10 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.pipeline_template import PipelineStageDef
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import User, UserRole
-from app.services.board_stage_badges import cpro_enabled_for_client
+from app.services.board_stage_badges import board_column_for, cpro_enabled_for_client
 
 # Kto może przenieść osobę na „CV wysłane" poza Nordeą.
 CLIENT_SEND_ROLES: tuple[UserRole, ...] = (UserRole.admin, UserRole.delivery_lead)
@@ -58,7 +59,7 @@ PRE_CONTRACT_COLUMNS = frozenset(
 
 async def gate_stage_row(
     db: AsyncSession, *, candidate_id: int, job_id: int
-) -> tuple[Optional[CandidateStage], Optional[str]]:
+) -> tuple[Optional[CandidateStage], str]:
     """Wiersz etapu pary i jego kolumna, względem których liczą się bramki ruchu.
 
     Zwykle to najnowszy wiersz pary. Gdy para stoi w „Zamkniętych"
@@ -67,10 +68,15 @@ async def gate_stage_row(
     Odrzucony → CV wysłane" albo „Rozmowa u klienta → Odrzucony → Umowa"
     omijała każdą z nich (audyt 25.09.2026). Para bez żadnego wiersza spoza
     „Zamkniętych" zaczyna drogę od początku („new", jak ``_index`` w
-    ``move_requirements``). ``(None, None)`` = para nie ma jeszcze wierszy.
-    """
-    from app.services import candidate_claim
+    ``move_requirements``). Para BEZ wierszy też stoi na początku drogi:
+    ``(None, "new")`` — do rundy 2 audytu (25.09.2026) wracało ``(None, None)``
+    i świeży kandydat wysłany przez API wprost na „CV wysłane"/Cpro omijał
+    QC i osobę od Cpro.
 
+    Kolumny liczy jedno zapytanie o definicje etapów pary, nie zapytanie na
+    wiersz — para z długą historią importu z Traffita ma dziesiątki wierszy.
+    Reguła ta sama co ``candidate_claim.stage_column``.
+    """
     rows = (
         await db.scalars(
             select(CandidateStage)
@@ -82,9 +88,33 @@ async def gate_stage_row(
         )
     ).all()
     if not rows:
-        return None, None
+        return None, "new"
+    def_ids = {r.stage_def_id for r in rows if r.stage_def_id is not None}
+    defs: dict[int, tuple] = {}
+    if def_ids:
+        for d in (
+            await db.execute(
+                select(
+                    PipelineStageDef.id,
+                    PipelineStageDef.name,
+                    PipelineStageDef.category,
+                    PipelineStageDef.terminal_type,
+                ).where(PipelineStageDef.id.in_(def_ids))
+            )
+        ).all():
+            defs[d.id] = (
+                d.name,
+                getattr(d.category, "value", d.category),
+                getattr(d.terminal_type, "value", d.terminal_type),
+            )
     for row in rows:
-        column = await candidate_claim.stage_column(db, row)
+        name, category, terminal_type = defs.get(row.stage_def_id, (None, None, None))
+        column = board_column_for(
+            name,
+            getattr(row.stage, "value", row.stage),
+            category=category,
+            terminal_type=terminal_type,
+        )
         if column != "closed":
             return row, column
     return rows[0], "new"
@@ -107,7 +137,7 @@ async def assert_debrief_before_contract(
     if target_column not in ("contract", "hired"):
         return
     _row, column = await gate_stage_row(db, candidate_id=candidate_id, job_id=job_id)
-    if column is None or column not in PRE_CONTRACT_COLUMNS:
+    if column not in PRE_CONTRACT_COLUMNS:
         return
     missing = await missing_debrief(db, candidate_id=candidate_id, job_id=job_id)
     if missing is not None:

@@ -438,25 +438,38 @@ async def test_reversal_restores_ending_status_through_active(
     assert detail["terminated_at"] is None
 
 
-@pytest.mark.asyncio
-async def test_reversal_without_snapshot_keeps_end_date_of_non_b2b_contract(
-    app_client: AsyncClient, app_auth_headers: dict
-):
-    """Audyt 25.09.2026: zakończenie sprzed 0368 bez aneksu (data zakończenia =
-    data końca umowy). Umowa zlecenie ma datę końca w treści — cofnięcie nie
-    może jej zerować, bo zrobiłoby z niej umowę bezterminową."""
-    ended_on = _ended_on()
+async def _seed_history_termination(
+    *, contract_type: str, end_date, terminated_on
+) -> dict:
+    """Zakończenie sprzed 0368: status ``ended``, pola zakończenia, bez migawki
+    i bez aneksu ``early_termination``."""
     seed = await _seed_active_md_consultant(
-        contract_type="uzlecenie", contract_status="ended", contract_end_date=ended_on
+        contract_type=contract_type, contract_status="ended", contract_end_date=end_date
     )
     from app.core.database import AsyncSessionLocal
     from app.models.contract import Contract, ContractTerminationReason
 
     async with AsyncSessionLocal() as db:
         contract = await db.get(Contract, seed["contract_id"])
-        contract.terminated_at = ended_on
+        contract.terminated_at = terminated_on
         contract.termination_reason = ContractTerminationReason.better_offer
         await db.commit()
+    return seed
+
+
+@pytest.mark.asyncio
+async def test_reversal_without_snapshot_makes_non_b2b_indefinite_when_end_is_termination_trace(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Audyt 25.09.2026, runda 2: zakończenie sprzed 0368 bez aneksu, data końca
+    umowy RÓWNA dacie zakończenia — `/terminate` wpisuje ją umowie
+    bezterminowej, więc jest śladem zakończenia, nie treścią umowy. Zachowana
+    dawała „Aktywny” z minioną datą końca, który nocny cron kończył ponownie
+    razem z przywróconymi zamówieniami."""
+    ended_on = _ended_on()
+    seed = await _seed_history_termination(
+        contract_type="uzlecenie", end_date=ended_on, terminated_on=ended_on
+    )
 
     preview = await app_client.get(
         f"/api/contracts/{seed['contract_id']}/termination-reversal",
@@ -465,7 +478,9 @@ async def test_reversal_without_snapshot_keeps_end_date_of_non_b2b_contract(
     assert preview.status_code == 200, preview.text
     body = preview.json()
     assert body["source"] == "history"
-    assert body["contract"]["end_date_target"] == ended_on.isoformat()
+    assert body["contract"]["status_target"] == "active"
+    assert body["contract"]["end_date_target"] is None
+    assert body["blockers"] == []
 
     resp = await app_client.post(
         f"/api/contracts/{seed['contract_id']}/termination-reversal",
@@ -477,8 +492,90 @@ async def test_reversal_without_snapshot_keeps_end_date_of_non_b2b_contract(
             f"/api/contracts/{seed['contract_id']}", headers=app_auth_headers
         )
     ).json()
-    assert detail["end_date"] == ended_on.isoformat()
+    assert detail["status"] == "active"
+    assert detail["end_date"] is None
     assert detail["terminated_at"] is None
+
+
+@pytest.mark.asyncio
+async def test_reversal_without_snapshot_keeps_future_end_date_of_non_b2b_contract(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Audyt 25.09.2026: umowa zlecenie ma datę końca w treści — zakończona
+    wcześniej niż ta data, po cofnięciu zachowuje ją (bez zerowania do
+    umowy bezterminowej, której nikt nie podpisał)."""
+    ended_on = _ended_on()
+    end = business_today() + timedelta(days=60)
+    seed = await _seed_history_termination(
+        contract_type="uzlecenie", end_date=end, terminated_on=ended_on
+    )
+
+    preview = await app_client.get(
+        f"/api/contracts/{seed['contract_id']}/termination-reversal",
+        headers=app_auth_headers,
+    )
+    assert preview.status_code == 200, preview.text
+    body = preview.json()
+    assert body["contract"]["end_date_target"] == end.isoformat()
+    assert body["blockers"] == []
+
+    resp = await app_client.post(
+        f"/api/contracts/{seed['contract_id']}/termination-reversal",
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    detail = (
+        await app_client.get(
+            f"/api/contracts/{seed['contract_id']}", headers=app_auth_headers
+        )
+    ).json()
+    assert detail["end_date"] == end.isoformat()
+    assert detail["terminated_at"] is None
+
+
+@pytest.mark.asyncio
+async def test_reversal_is_blocked_when_the_contract_end_date_has_passed(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Audyt 25.09.2026, runda 2: migawka mówi „Kończący się” z datą końca
+    wczoraj (nocny cron jeszcze umowy nie domknął, gdy ktoś ją zakończył).
+    Cel „Aktywny” z minioną datą cron zakończyłby najbliższej nocy — razem
+    z przywróconymi zamówieniami i nowymi sprawami puli MD. Cofnięcie ma
+    odmówić z powodem, dopóki ktoś nie przedłuży umowy aneksem."""
+    yesterday = business_today() - timedelta(days=1)
+    seed = await _seed_active_md_consultant(
+        contract_type="uzlecenie", contract_status="ending", contract_end_date=yesterday
+    )
+    _enable_multi(monkeypatch, seed["client_id"])
+    await _terminate(app_client, app_auth_headers, seed["contract_id"])
+
+    preview = await app_client.get(
+        f"/api/contracts/{seed['contract_id']}/termination-reversal",
+        headers=app_auth_headers,
+    )
+    assert preview.status_code == 200, preview.text
+    body = preview.json()
+    assert body["contract"]["end_date_target"] == yesterday.isoformat()
+    [blocker] = [b for b in body["blockers"] if b["code"] == "end_date_passed"]
+    assert yesterday.strftime("%d.%m.%Y") in blocker["message"]
+    assert "aneksem" in blocker["message"]
+
+    resp = await app_client.post(
+        f"/api/contracts/{seed['contract_id']}/termination-reversal",
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 409, resp.text
+    detail = resp.json()["detail"]
+    assert detail["code"] == "termination_reversal_blocked"
+    assert "end_date_passed" in {b["code"] for b in detail["blockers"]}
+    contract = (
+        await app_client.get(
+            f"/api/contracts/{seed['contract_id']}", headers=app_auth_headers
+        )
+    ).json()
+    assert contract["status"] == "ended"
+    assert contract["terminated_at"] is not None
+    assert (await _line(seed["line_id"]))["status"] == "completed"
 
 
 @pytest.mark.asyncio

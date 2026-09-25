@@ -61,6 +61,7 @@ import {
   useAuthStore,
 } from "@/store/auth";
 import { warsawToday } from "@/lib/warsaw-date";
+import { PickerQueryState } from "@/components/v2/filters/PickerQueryState";
 
 type CandidateOption = {
   id: number;
@@ -462,13 +463,15 @@ function NewContractForm() {
                           onValueChange={setCandidateQuery}
                         />
                         <CommandList>
-                          {candidatesQuery.isLoading ? (
-                            <div className="p-3 text-sm text-muted-foreground">
-                              Szukam…
-                            </div>
-                          ) : (
-                            <CommandEmpty>Brak wyników.</CommandEmpty>
-                          )}
+                          {/* Awaria wyszukiwania ≠ „nikogo nie ma”: pusty stan tylko przy sukcesie. */}
+                          <PickerQueryState
+                            isPending={candidatesQuery.isLoading}
+                            isError={candidatesQuery.isError}
+                            onRetry={() => void candidatesQuery.refetch()}
+                            loadingLabel="Szukam…"
+                            errorLabel="Nie udało się wyszukać kandydatów."
+                          />
+                          {candidatesQuery.isSuccess && <CommandEmpty>Brak wyników.</CommandEmpty>}
                           <CommandGroup>
                             {(candidatesQuery.data ?? []).map((c) => (
                               <CommandItem
@@ -557,13 +560,15 @@ function NewContractForm() {
                           onValueChange={setClientQuery}
                         />
                         <CommandList>
-                          {clientsQuery.isLoading ? (
-                            <div className="p-3 text-sm text-muted-foreground">
-                              Ładowanie…
-                            </div>
-                          ) : (
-                            <CommandEmpty>Brak wyników.</CommandEmpty>
-                          )}
+                          {/* Awaria listy klientów ≠ „brak klientów”: pusty stan tylko przy sukcesie. */}
+                          <PickerQueryState
+                            isPending={clientsQuery.isPending}
+                            isError={clientsQuery.isError}
+                            onRetry={() => void clientsQuery.refetch()}
+                            loadingLabel="Ładowanie klientów…"
+                            errorLabel="Nie udało się pobrać listy klientów."
+                          />
+                          {clientsQuery.isSuccess && <CommandEmpty>Brak wyników.</CommandEmpty>}
                           <CommandGroup>
                             {filteredClients.map((c) => (
                               <CommandItem

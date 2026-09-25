@@ -150,10 +150,17 @@ async def call_stats(
     Statystyki rozmów na użytkownika.
     Zwraca: total calls, avg duration, calls this week, calls this month.
     """
-    now = datetime.now(timezone.utc)
-    start_of_week = now - timedelta(days=now.weekday())
-    start_of_week = start_of_week.replace(hour=0, minute=0, second=0, microsecond=0)
-    start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    # Tydzień i miesiąc w kalendarzu firmy, nie od północy UTC (runda 2 audytu
+    # 25.09.2026 — rozmowy z poniedziałku 00:00–02:00 wypadały z tygodnia).
+    from app.core.scheduling import (  # noqa: PLC0415
+        business_today,
+        local_day_start_utc,
+        local_month_bounds,
+    )
+
+    today = business_today()
+    start_of_week = local_day_start_utc(today - timedelta(days=today.weekday()))
+    start_of_month = local_month_bounds(today).start_utc
 
     # Total calls by this user
     total = (

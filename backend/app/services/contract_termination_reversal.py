@@ -490,9 +490,18 @@ async def _history_contract_end_date(
     Umowa zlecenie i o pracę bez aneksu zachowuje BIEŻĄCĄ datę końca (audyt
     25.09.2026): tam data końca jest częścią umowy, a nie śladem zakończenia,
     więc jej wyzerowanie zamieniałoby umowę terminową w bezterminową, której
-    nikt nie podpisał.
+    nikt nie podpisał. Wyjątek: data końca RÓWNA dacie zakończenia jest śladem
+    samego zakończenia (``/terminate`` wpisuje ją umowie bezterminowej bez
+    aneksu) — wtedy umowa wraca bezterminowa jak dawniej. Zachowana zostawiała
+    plan „Aktywny z minioną datą końca”, który nocny cron kończył ponownie
+    razem z przywróconymi zamówieniami (audyt 25.09.2026, runda 2).
     """
-    fallback = None if is_b2b(contract.contract_type) else contract.end_date
+    fallback = (
+        None
+        if is_b2b(contract.contract_type)
+        or (terminated_on is not None and contract.end_date == terminated_on)
+        else contract.end_date
+    )
     if terminated_on is None:
         return fallback
     amendment = await db.scalar(
@@ -517,6 +526,28 @@ async def _add_blockers(db: AsyncSession, plan: ReversalPlan) -> None:
             {
                 "code": "contract_void",
                 "message": "Kontrakt jest unieważniony — nie ma czego przywracać.",
+            }
+        )
+    # Umowa, która wróciłaby „Aktywna” albo „Kończąca się” z MINIONĄ datą
+    # końca, zostałaby zakończona ponownie najbliższej nocy (cron
+    # `_promote_statuses`): zamówienia, które cofnięcie przywraca, zamknęłyby
+    # się znowu, a z nimi wróciłyby sprawy puli MD i alerty DL. Taka umowa
+    # naprawdę się skończyła — najpierw przedłużenie aneksem (audyt 25.09.2026,
+    # runda 2).
+    if (
+        plan.status_target in (ContractStatus.active, ContractStatus.ending)
+        and plan.end_date_target is not None
+        and plan.end_date_target < business_today()
+    ):
+        plan.blockers.append(
+            {
+                "code": "end_date_passed",
+                "end_date": plan.end_date_target.isoformat(),
+                "message": (
+                    "Umowa skończyła się "
+                    f"{plan.end_date_target.strftime('%d.%m.%Y')} — przedłuż ją "
+                    "aneksem, zanim cofniesz zakończenie."
+                ),
             }
         )
     case_query = select(ClientOrderOffboardingCase).where(
@@ -654,7 +685,8 @@ async def build_reversal_plan(
     # 30 dni przed datą końca, zanim ktoś zakończy umowę) wraca jako
     # „Kończący się" tylko z datą końca od dziś w przód — bez daty albo
     # z datą minioną taki status nie istnieje (`_status_after_end_date_change`),
-    # więc celem jest „Aktywny" (resztę zrobi nocny cron). Maszyna stanów nie
+    # więc celem jest „Aktywny" (minioną datę i tak blokuje `end_date_passed`
+    # w `_add_blockers`). Maszyna stanów nie
     # zna `ended → ending`; wykonanie idzie `ended → active → ending`
     # (`_status_path`). Do 25.09.2026 cel `ending` kończył się 409.
     if plan.status_target == ContractStatus.ending and (

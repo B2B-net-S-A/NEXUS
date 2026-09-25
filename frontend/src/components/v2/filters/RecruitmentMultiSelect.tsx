@@ -15,6 +15,7 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
+import { PickerQueryState } from "@/components/v2/filters/PickerQueryState";
 
 interface Recruitment {
   id: number;
@@ -34,7 +35,7 @@ export function RecruitmentMultiSelect({
   // `/api/jobs-lookup` zwraca lekką listę (id, title) rekrutacji — bez ciężkiego
   // payloadu `/api/jobs` (klient, etapy, właściciele itd.). Spójne z tym jak
   // `ClientMultiSelect` używa `/api/clients-lookup`.
-  const { data } = useQuery<Recruitment[]>({
+  const { data, isPending, isError, isSuccess, refetch } = useQuery<Recruitment[]>({
     queryKey: ["jobs-lookup"],
     queryFn: () => api.get("/api/jobs-lookup").then((r) => r.data),
     staleTime: 60_000,
@@ -75,7 +76,14 @@ export function RecruitmentMultiSelect({
         <Command>
           <CommandInput placeholder="Szukaj rekrutacji…" />
           <CommandList>
-            <CommandEmpty>Brak rekrutacji.</CommandEmpty>
+            <PickerQueryState
+              isPending={isPending}
+              isError={isError}
+              onRetry={() => void refetch()}
+              loadingLabel="Ładowanie rekrutacji…"
+              errorLabel="Nie udało się pobrać listy rekrutacji."
+            />
+            {isSuccess && <CommandEmpty>Brak rekrutacji.</CommandEmpty>}
             <CommandGroup>
               {recruitments.map((recruitment) => {
                 const isSelected = selected.has(recruitment.id);

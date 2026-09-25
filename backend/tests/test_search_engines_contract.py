@@ -937,3 +937,43 @@ async def test_czlon_nazwiska_dwuczlonowego_liczy_sie_jako_osoba(app_client):
         assert await predicates.person_token_exists(db, folded[:-2]) is False
         found = await predicates.interpret_text(db, folded)
         assert found.rule == "single_word_person_exists" and found.mode == "literal"
+
+
+# ── Tekst dosłowny krótszy niż 2 znaki (runda 2 audytu 25.09.2026) ──────────
+
+
+@pytest.mark.asyncio
+async def test_prepare_literal_text_refuses_a_single_letter() -> None:
+    """Jedna litera nie daje warunku — do 25.09.2026 znaczyło to „bez
+    warunku”, czyli całą bazę. Pusty tekst dalej nie filtruje."""
+    from app.services import candidate_search_predicates as predicates
+
+    class _NoDb:
+        async def execute(self, *_a, **_k):  # pragma: no cover — nie wołane
+            raise AssertionError("jedna litera nie ustawia progu trigramów")
+
+    with pytest.raises(predicates.LiteralTextTooShort):
+        await predicates.prepare_literal_text(_NoDb(), " a ")
+    assert await predicates.prepare_literal_text(_NoDb(), "  ") is None
+
+
+@pytest.mark.asyncio
+async def test_literal_single_letter_is_422_in_search_and_diagnostics(
+    app_client, app_auth_headers
+):
+    from app.services.candidate_search_predicates import LITERAL_TEXT_TOO_SHORT_MSG
+
+    for path in ("/api/search/candidates", "/api/search/candidates/diagnostics"):
+        resp = await app_client.post(
+            path,
+            json={"q": "a", "text_mode": "literal", "semantics_version": 2},
+            headers=app_auth_headers,
+        )
+        assert resp.status_code == 422, (path, resp.text)
+        assert resp.json()["detail"] == LITERAL_TEXT_TOO_SHORT_MSG
+    # Lista: `q` z odstępami wokół jednej litery przechodzi `min_length=2`.
+    listed = await app_client.get(
+        "/api/candidates", params={"q": " a"}, headers=app_auth_headers
+    )
+    assert listed.status_code == 422, listed.text
+    assert listed.json()["detail"] == LITERAL_TEXT_TOO_SHORT_MSG

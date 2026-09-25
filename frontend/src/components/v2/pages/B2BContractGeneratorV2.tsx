@@ -126,6 +126,7 @@ import {
   registerSearchHref,
   type GeneratorTab,
 } from "@/lib/b2b-generator-register";
+import { PickerQueryState } from "@/components/v2/filters/PickerQueryState";
 
 // Router generatora ma szeroką bramkę Sourcing, ale operacje na dokumentach
 // ze stawką mają osobne, konfigurowalne uprawnienie. Poziom `view` dostaje
@@ -918,13 +919,15 @@ function ConfirmFullySignedDialog({
                       onValueChange={setCandidateQuery}
                     />
                     <CommandList>
-                      {candidatesQuery.isLoading ? (
-                        <div className="p-3 text-sm text-muted-foreground">
-                          Szukam…
-                        </div>
-                      ) : (
-                        <CommandEmpty>Brak wyników.</CommandEmpty>
-                      )}
+                      {/* Awaria wyszukiwania ≠ „nikogo nie ma”: pusty stan tylko przy sukcesie. */}
+                      <PickerQueryState
+                        isPending={candidatesQuery.isLoading}
+                        isError={candidatesQuery.isError}
+                        onRetry={() => void candidatesQuery.refetch()}
+                        loadingLabel="Szukam…"
+                        errorLabel="Nie udało się wyszukać kandydatów."
+                      />
+                      {candidatesQuery.isSuccess && <CommandEmpty>Brak wyników.</CommandEmpty>}
                       <CommandGroup>
                         {(candidatesQuery.data ?? []).map((item) => (
                           <CommandItem
@@ -4432,13 +4435,15 @@ export function GeneratorForm({
                         onValueChange={setCandidateQuery}
                       />
                       <CommandList>
-                        {candidatesQuery.isLoading ? (
-                          <div className="p-3 text-sm text-muted-foreground">
-                            Szukam…
-                          </div>
-                        ) : (
-                          <CommandEmpty>Brak wyników.</CommandEmpty>
-                        )}
+                        {/* Awaria wyszukiwania ≠ „nikogo nie ma”: pusty stan tylko przy sukcesie. */}
+                        <PickerQueryState
+                          isPending={candidatesQuery.isLoading}
+                          isError={candidatesQuery.isError}
+                          onRetry={() => void candidatesQuery.refetch()}
+                          loadingLabel="Szukam…"
+                          errorLabel="Nie udało się wyszukać kandydatów."
+                        />
+                        {candidatesQuery.isSuccess && <CommandEmpty>Brak wyników.</CommandEmpty>}
                         <CommandGroup>
                           {(candidatesQuery.data ?? []).map((c) => (
                             <CommandItem
@@ -4709,7 +4714,15 @@ export function GeneratorForm({
                     onValueChange={setClientQuery}
                   />
                   <CommandList>
-                    <CommandEmpty>Brak klientów na liście.</CommandEmpty>
+                    {/* Awaria listy klientów ≠ „brak klientów”: pusty stan tylko przy sukcesie. */}
+                    <PickerQueryState
+                      isPending={clientsQuery.isPending}
+                      isError={clientsQuery.isError}
+                      onRetry={() => void clientsQuery.refetch()}
+                      loadingLabel="Ładowanie klientów…"
+                      errorLabel="Nie udało się pobrać listy klientów."
+                    />
+                    {clientsQuery.isSuccess && <CommandEmpty>Brak klientów na liście.</CommandEmpty>}
                     {clientQuery.trim() ? (
                       <CommandGroup heading="Własna nazwa">
                         <CommandItem
