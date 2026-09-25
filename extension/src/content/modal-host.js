@@ -141,7 +141,6 @@ function renderForm(body, footer) {
         <option value="new">Nowy / Analiza CV</option>
         <option value="prep_call">Preparation Call</option>
         <option value="screening">Screening</option>
-        <option value="interview">Interview</option>
       </select>
     </div>
 
