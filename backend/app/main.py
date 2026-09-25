@@ -917,8 +917,8 @@ app.add_middleware(LegacyStatsDeprecationMiddleware)
 
 # Kompresja odpowiedzi (25.09.2026). Przed nią nic po drodze nie kompresowało
 # (API nie stoi za Cloudflare, Traefik bez middleware `compress`): jedno
-# wyszukiwanie na liście kandydatów ściągało 0,4–1 MB JSON-a. Najbardziej
-# zewnętrzna warstwa, więc kompresuje odpowiedź już z nagłówkami CORS.
+# wyszukiwanie na liście kandydatów ściągało 0,4–1 MB JSON-a. Tuż pod CORS,
+# nad resztą stosu — kompresuje gotową odpowiedź każdej trasy.
 # SSE Jarvisa (`text/event-stream`) jest w domyślnych wyjątkach Starlette —
 # kompresja buforowałaby strumień. Pliki biurowe i PDF są już skompresowane.
 app.add_middleware(

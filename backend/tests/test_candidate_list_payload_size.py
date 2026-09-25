@@ -78,14 +78,17 @@ async def test_api_responses_are_gzipped_when_the_browser_accepts_it(
     assert "content-encoding" not in plain.headers
 
 
-def test_gzip_is_outermost_and_skips_streams_and_binary_files() -> None:
+def test_gzip_wraps_the_whole_stack_and_skips_streams_and_binary_files() -> None:
+    from fastapi.middleware.cors import CORSMiddleware
     from starlette.middleware.gzip import GZipMiddleware
 
     from app.main import app
 
     order = [middleware.cls for middleware in app.user_middleware]  # outermost first
-    assert order[0] is GZipMiddleware
-    kwargs = app.user_middleware[0].kwargs
+    # Tuż pod CORS: każda odpowiedź trasy (także 500 z `UnhandledErrorMiddleware`)
+    # przechodzi przez kompresję.
+    assert order[:2] == [CORSMiddleware, GZipMiddleware]
+    kwargs = app.user_middleware[1].kwargs
     excluded = set(kwargs["exclude_content_types"])
     # SSE Jarvisa: kompresja buforowałaby strumień i zdarzenia nie dochodziłyby na żywo.
     assert "text/event-stream" in excluded
