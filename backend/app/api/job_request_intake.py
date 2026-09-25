@@ -156,7 +156,7 @@ async def public_draft(
     """
     from types import SimpleNamespace
 
-    from app.models.job import RecruitmentType, RemotePolicy
+    from app.models.job import RemotePolicy
     from app.services.job_public_profile import (
         PublicDraftUnavailable,
         draft_for_request,
@@ -176,7 +176,6 @@ async def public_draft(
         remote_policy=RemotePolicy(body.remote_policy) if body.remote_policy else None,
         onsite_days_per_week=body.onsite_days_per_week,
         seniority=None,
-        recruitment_type=RecruitmentType.body_leasing,
         champion_profile=body.champion_profile or {},
     )
     try:
