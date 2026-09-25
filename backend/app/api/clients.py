@@ -629,7 +629,7 @@ async def get_client_profile(
     Contract model's own `monthly_rate_client` / `monthly_margin` properties
     so the math stays consistent with the Contracts module.
     """
-    # Operacyjna granica DL obejmuje wszystkich klientów. Finansowy wyjątek
+    # Operacyjna granica DL = klienci z przypisania (25.09.2026). Finansowy wyjątek
     # jest rozwiązywany osobno i nadal obejmuje wyłącznie własny portfel.
     delivery_lead_client_ids = await resolve_delivery_lead_client_ids(current_user, db)
     assert_delivery_lead_client_visible(client_id, delivery_lead_client_ids)

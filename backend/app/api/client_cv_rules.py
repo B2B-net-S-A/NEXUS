@@ -609,7 +609,7 @@ async def _require_client_rule_access(
 
     if write and central_policies.enabled():
         raise HTTPException(403, "Reguły CV są zarządzane centralnie w backendzie.")
-    access = await resolve_client_access(db, user, client_id)
+    access = await resolve_client_access(db, user, client_id, purpose="org")
     allowed = access.can_edit_knowledge if write else access.can_view_knowledge
     if not allowed:
         action = "edycja" if write else "odczyt"
@@ -1362,7 +1362,9 @@ async def cv_rules_overview(
     """
     seed_labels = dict(CHAMPION_SEED_KEYS)
     seed_keys = list(seed_labels)
-    visible_client_ids = await resolve_client_visible_client_ids(db, current_user)
+    visible_client_ids = await resolve_client_visible_client_ids(
+        db, current_user, purpose="org"
+    )
 
     confirmed_by_user = aliased(User)
     rules_stmt = (

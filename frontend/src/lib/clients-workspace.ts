@@ -23,6 +23,19 @@ import type { UserRole } from "@/store/auth";
 export const CLIENTS_MINE_ROLES: readonly UserRole[] = ["delivery_lead"];
 
 /**
+ * Czy pokazać przełącznik „Moi / Wszyscy”. Od 25.09.2026 serwer pokazuje
+ * Delivery Leadowi w modułach Delivery wyłącznie klientów z przypisania
+ * (`delivery_client_scope: "assigned"`) — „Wszyscy” dałoby tę samą listę,
+ * więc przełącznika nie ma. Przy wyłączniku (`"all"`) wraca.
+ */
+export function clientsMineToggleAvailable(
+  hasMineRole: boolean,
+  deliveryClientScope: "assigned" | "all" | null | undefined,
+): boolean {
+  return hasMineRole && deliveryClientScope !== "assigned";
+}
+
+/**
  * „Moi klienci" czy „Wszyscy". Jawne `mine=0/1` w adresie wygrywa; bez niego
  * osoba z przypisaniami widzi swoich, reszta — wszystkich. Bez przypisań
  * „Moich" nie ma wcale (`mine=1` od takiej osoby nic nie zawęża).

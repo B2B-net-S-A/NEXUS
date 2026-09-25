@@ -443,7 +443,9 @@ async def _assert_signature_client_access(
     # Preserve existing legal scope for DL/TAC. The separately granted command
     # lets operational users confirm signatures without granting document edits.
     if user.has_any_role(UserRole.delivery_lead, UserRole.tac):
-        await assert_contract_legal_client_access(db, user, client_id, write=True)
+        await assert_contract_legal_client_access(
+            db, user, client_id, write=True, purpose="org"
+        )
 
 
 def _generator_unscoped(user: User) -> bool:
@@ -674,7 +676,9 @@ async def _assert_generator_client_access(
 
     if _generator_unscoped(user):
         return
-    await assert_contract_legal_client_access(db, user, client_id, write=write)
+    await assert_contract_legal_client_access(
+        db, user, client_id, write=write, purpose="org"
+    )
 
 
 async def _scope_generator_query(
@@ -693,7 +697,9 @@ async def _scope_generator_query(
 
     if _generator_unscoped(user):
         return statement
-    return await apply_contract_legal_client_scope(statement, client_column, db, user)
+    return await apply_contract_legal_client_scope(
+        statement, client_column, db, user, purpose="org"
+    )
 
 
 async def _require_signature_job_scope(db: AsyncSession, user: User, job: Job) -> None:
@@ -727,6 +733,7 @@ async def _load_legal_scoped_job(
             user,
             job.client_id,
             write=write,
+            purpose="org",
         )
     else:
         await _assert_generator_client_access(

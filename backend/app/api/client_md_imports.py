@@ -35,6 +35,7 @@ from app.api.md_consumption import (
     _row_status_label,
     _unmatched_reason,
 )
+from app.api.delivery_client_scope import DELIVERY_CLIENT_SCOPE_DEPENDENCIES
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.models.client_order import ClientOrder
@@ -54,7 +55,9 @@ from app.schemas.client_order_group import MdValue, MoneyPLN
 from app.services import finance_order_matching
 from app.services.md_consumption_view import is_foreign_number, same_order_number
 
-router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
+router = APIRouter(
+    dependencies=[*DELIVERY_SECTION_DEPENDENCIES, *DELIVERY_CLIENT_SCOPE_DEPENDENCIES]
+)
 
 RowState = Literal["booked", "to_verify", "error", "neutral"]
 

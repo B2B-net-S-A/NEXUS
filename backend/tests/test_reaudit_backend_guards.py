@@ -274,10 +274,25 @@ async def test_client_orders_list_shows_finance_to_assigned_delivery_lead(
     assert body["can_manage_finance"] is True
 
 
-async def test_client_orders_visible_but_redacted_for_unassigned_delivery_lead(
+async def test_client_orders_denied_for_unassigned_delivery_lead(
     app_client: AsyncClient,
 ) -> None:
-    """Każdy DL widzi zamówienia klienta, ale kwoty tylko po przypisaniu."""
+    """Od 25.09.2026 DL widzi zamówienia wyłącznie przypisanych klientów."""
+    client_id, _order_id, _contract_id = await _seed_client_order()
+    dl = await _headers_for(app_client, "delivery_lead", assigned_client_id=None)
+
+    resp = await app_client.get(f"/api/clients/{client_id}/orders", headers=dl)
+    assert resp.status_code == 403, resp.text
+
+
+async def test_client_orders_visible_but_redacted_for_unassigned_delivery_lead(
+    app_client: AsyncClient,
+    monkeypatch,
+) -> None:
+    """``DL_CLIENT_SCOPE=all`` (stan z #1365): widać, ale bez kwot."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "DL_CLIENT_SCOPE", "all")
     client_id, _order_id, contract_id = await _seed_client_order()
     dl = await _headers_for(app_client, "delivery_lead", assigned_client_id=None)
 
@@ -428,23 +443,19 @@ async def test_only_assigned_delivery_lead_can_rewrite_order_rate_unit(
     )
 
 
-async def test_client_order_structured_reads_are_global_but_file_stays_assigned(
+async def test_client_order_reads_and_file_require_dl_assignment(
     app_client: AsyncClient,
 ) -> None:
+    """Od 25.09.2026 lista, detal i plik zamówienia — tylko przypisany DL."""
     client_id, order_id, _contract_id = await _seed_client_order()
 
     list_path = f"/api/clients/{client_id}/orders"
     detail_path = f"/api/clients/{client_id}/orders/{order_id}"
     file_path = f"/api/clients/{client_id}/orders/{order_id}/file"
     unassigned = await _headers_for(app_client, "delivery_lead")
-    allowed_list = await app_client.get(list_path, headers=unassigned)
-    assert allowed_list.status_code == 200, allowed_list.text
-    assert allowed_list.json()["can_manage_finance"] is False
-    allowed_detail = await app_client.get(detail_path, headers=unassigned)
-    assert allowed_detail.status_code == 200, allowed_detail.text
-    assert allowed_detail.json()["rate_client"] is None
-    denied_file = await app_client.get(file_path, headers=unassigned)
-    assert denied_file.status_code == 403, denied_file.text
+    for path in (list_path, detail_path, file_path):
+        denied = await app_client.get(path, headers=unassigned)
+        assert denied.status_code == 403, denied.text
 
     assigned = await _headers_for(
         app_client,

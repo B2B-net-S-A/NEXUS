@@ -48,6 +48,7 @@ from app.api.financial_access import (
     can_manage_finance_amounts,
     require_roles_or_finance_manager,
 )
+from app.api.delivery_client_scope import DELIVERY_CLIENT_SCOPE_DEPENDENCIES
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.services.contract_lifecycle import (
     lock_contract_then_orders,
@@ -162,7 +163,9 @@ from app.services.order_excel_export import (
     rate_unit_export_label,
 )
 
-router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
+router = APIRouter(
+    dependencies=[*DELIVERY_SECTION_DEPENDENCIES, *DELIVERY_CLIENT_SCOPE_DEPENDENCIES]
+)
 
 
 # The combined export can contain group cards. The section gate narrows this

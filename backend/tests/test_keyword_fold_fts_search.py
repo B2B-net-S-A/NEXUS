@@ -58,6 +58,7 @@ async def _seed() -> dict[str, int]:
             "krakow": person("krakow", "Analityk.", city="Kraków"),
             "cvcity": person("cvcity", "Lokalizacja: Łódź, praca zdalna."),
             "agile": person("agile", "Praca w Agile/Scrum, CI/CD w GitLab."),
+            "hyphen": person("hyphen", "Operated within CI/CD-driven environments."),
             "noted": person("noted", "Programista."),
         }
         db.add_all(rows.values())
@@ -211,6 +212,18 @@ async def test_folded_splits_slash(app_client, app_auth_headers, folded):
 
 
 @pytest.mark.asyncio
+async def test_folded_joins_phrases_across_hyphens(
+    app_client, app_auth_headers, folded
+):
+    """Wersja 2 składania (0386): myślnik to spacja — „CI/CD-driven” pasuje
+    do „ci/cd”, a „spring-boot” do „Spring Boot”."""
+    assert "hyphen" in await _keys(app_client, app_auth_headers, q_any_group="ci/cd")
+    assert "java" in await _keys(
+        app_client, app_auth_headers, q_any_group="spring-boot"
+    )
+
+
+@pytest.mark.asyncio
 async def test_folded_reads_wrapped_traffit_note(app_client, app_auth_headers, folded):
     assert "noted" in await _keys(app_client, app_auth_headers, q_any_group="toruń")
     assert "noted" in await _keys(app_client, app_auth_headers, q_any_group="torun")
@@ -255,7 +268,7 @@ async def test_fold_function_matches_the_python_mirror_on_plain_text():
     from app.core.database import AsyncSessionLocal
     from app.services import keyword_corpus as kc
 
-    sample = "Zażółć GĘŚLĄ jaźń / Kraków\\Łódź"
+    sample = "Zażółć GĘŚLĄ jaźń / Kraków\\Łódź CI/CD-driven"
     async with AsyncSessionLocal() as db:
         folded = (
             await db.execute(text(f"SELECT {kc.FOLD_FUNCTION}(:t)"), {"t": sample})
@@ -333,6 +346,7 @@ def test_fold_text_keeps_length_and_splits_slash():
     from app.services import keyword_corpus as kc
 
     assert kc.fold_text("Agile/Scrum, Łódź") == "agile scrum, lodz"
+    assert kc.fold_text("CI/CD-driven") == "ci cd driven"
     sample = "Zażółć gęślą jaźń"
     assert len(kc.fold_text(sample)) == len(sample)
 
@@ -349,3 +363,56 @@ async def test_suggest_counts_special_tokens_in_folded_mode(folded):
         counts = await keyword_suggest.count_candidates(db, ["c#", "ci/cd"])
     assert counts["c#"] is not None and counts["c#"] >= 1
     assert counts["ci/cd"] is None, "słowo z ukośnikiem to fraza — bez liczby"
+
+
+@pytest.mark.asyncio
+async def test_version_phase_recomputes_only_on_a_new_version(monkeypatch):
+    from app.services import keyword_corpus as kc
+    from app.tasks import keyword_corpus_backfill as loop
+
+    calls: list[str] = []
+
+    async def fake_recompute(name, sql, limit, trigger):
+        calls.append(name)
+        return 0
+
+    async def fake_store():
+        calls.append("stored")
+
+    monkeypatch.setattr(loop, "_recompute", fake_recompute)
+    monkeypatch.setattr(loop, "_store_fold_version", fake_store)
+    monkeypatch.setattr(kc, "_fold_ready", False)
+    monkeypatch.setattr(kc, "_notes_ready", False)
+
+    async def current():
+        return kc.FOLD_VERSION
+
+    monkeypatch.setattr(loop, "_stored_fold_version", current)
+    await loop._version_phase()
+    assert calls == []
+    assert kc.fold_ready() and kc.notes_ready()
+
+    async def older():
+        return kc.FOLD_VERSION - 1
+
+    monkeypatch.setattr(loop, "_stored_fold_version", older)
+    await loop._version_phase()
+    assert calls == ["candidates", "notes", "stored"]
+    assert kc.fold_ready() and kc.notes_ready()
+
+
+@pytest.mark.asyncio
+async def test_stored_fold_version_reads_jsonb():
+    from app.core.database import AsyncSessionLocal
+    from app.services import keyword_corpus as kc
+    from app.tasks import keyword_corpus_backfill as loop
+
+    await loop._store_fold_version()
+    assert await loop._stored_fold_version() == kc.FOLD_VERSION
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            text("DELETE FROM app_settings WHERE key = :key"),
+            {"key": kc.FOLD_VERSION_KEY},
+        )
+        await db.commit()
+    assert await loop._stored_fold_version() is None

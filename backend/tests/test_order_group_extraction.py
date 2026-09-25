@@ -261,6 +261,9 @@ async def test_duplicate_name_at_the_client_is_never_picked_automatically(
 async def test_rates_are_redacted_for_a_delivery_lead_outside_the_portfolio(
     app_client: AsyncClient, monkeypatch
 ):
+    """Od 25.09.2026 DL spoza portfela dostaje 403; wyłącznik
+    ``DL_CLIENT_SCOPE=all`` (#1365) wpuszcza go ze zredagowanymi stawkami."""
+    from app.core.config import settings
     from app.core.database import AsyncSessionLocal
     from app.core.security import hash_password
     from app.models.user import User, UserRole
@@ -287,6 +290,10 @@ async def test_rates_are_redacted_for_a_delivery_lead_outside_the_portfolio(
     assert login.status_code == 200, login.text
     headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
 
+    denied = await _post_pdf(app_client, ids["client_id"], headers)
+    assert denied.status_code == 403, denied.text
+
+    monkeypatch.setattr(settings, "DL_CLIENT_SCOPE", "all")
     resp = await _post_pdf(app_client, ids["client_id"], headers)
     assert resp.status_code == 200, resp.text
     data = resp.json()

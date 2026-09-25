@@ -424,6 +424,12 @@ class Settings(BaseSettings):
     # Wyniki i kolejność bez zmian; `false` wraca do `count(*) OVER()` na
     # pełnych wierszach (385 ms bez filtra, audyt 25.09.2026).
     CANDIDATE_LIST_IDS_FIRST: bool = True
+    # Kolejność „Dopasowanie” (`sort=match`, `services/candidate_match_order.py`):
+    # podobieństwo wektora rekrutacji / wierszy wymagań do kandydatów. Test na
+    # 120 rekrutacjach (25.09.2026): pierwsza strona z właściwą osobą w 83%
+    # rekrutacji zamiast 33% przy „najnowsi”. `false` = „najnowsi” z informacją
+    # w `sort_applied`.
+    CANDIDATE_MATCH_SORT: bool = True
     # Jednorazowa migracja zapisanych wyszukiwań kandydatów na wspólną semantykę
     # filtrów (`services/saved_search_migration.py`) przy starcie skanera alertów.
     # Domyślnie OFF: migracja wstrzymuje alerty zapisów, których wynik się
@@ -1768,6 +1774,13 @@ class Settings(BaseSettings):
     # `emit` nie zapisuje niczego. Trasy odczytu zostają (log historyczny musi
     # dać się przeczytać nawet po wyłączeniu generowania nowych wpisów).
     DL_ALERTS_ENABLED: bool = True
+    # Zakres klientów Delivery Leada w modułach Delivery (Klienci, Kontrakty,
+    # Zamówienia, skrzynka zamówień). `assigned` = tylko klienci z wierszem
+    # w `delivery_lead_client_assignments` (decyzja Artura 25.09.2026);
+    # `all` = stan z #1365 (wszyscy klienci), wyłącznik bez deployu.
+    # Rekrutacje, generator B2B i pulpity zostają org-wide niezależnie od
+    # tej wartości. Każda inna wartość niż `all` znaczy `assigned`.
+    DL_CLIENT_SCOPE: str = "assigned"
     # Co ile godzin przemiata warunki. 24 h jak sąsiednie skanery — te alerty
     # dotyczą spraw mierzonych w dniach, nie w minutach.
     DL_ALERTS_INTERVAL_HOURS: float = 24.0

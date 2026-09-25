@@ -46,7 +46,7 @@ from app.services.pipeline_eligibility import (
 from app.services.access_scope import (
     apply_delivery_lead_client_scope,
     assert_delivery_lead_client_visible,
-    resolve_delivery_lead_client_ids,
+    resolve_delivery_lead_org_client_ids,
 )
 from app.services.recruitment_process_commands import open_process
 from app.services.embedding_service import (
@@ -310,7 +310,7 @@ async def _recommend_candidates_core(
         raise HTTPException(status_code=404, detail="Job not found")
     assert_delivery_lead_client_visible(
         job.client_id,
-        await resolve_delivery_lead_client_ids(current_user, db),
+        await resolve_delivery_lead_org_client_ids(current_user, db),
     )
 
     # ── Location filter (post-scoring; mirrors legacy /ai-matches PR #424) ────
@@ -875,7 +875,9 @@ async def recommend_jobs_for_candidate(
     candidate = await db.scalar(select(Candidate).where(Candidate.id == candidate_id))
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
-    delivery_lead_client_ids = await resolve_delivery_lead_client_ids(current_user, db)
+    delivery_lead_client_ids = await resolve_delivery_lead_org_client_ids(
+        current_user, db
+    )
     include_finance = user_has_capability(
         current_user, AnalyticsCapability.VIEW_FINANCE
     )
@@ -1558,7 +1560,9 @@ async def seeking_contractors(
     include_finance = user_has_capability(
         current_user, AnalyticsCapability.VIEW_FINANCE
     )
-    delivery_lead_client_ids = await resolve_delivery_lead_client_ids(current_user, db)
+    delivery_lead_client_ids = await resolve_delivery_lead_org_client_ids(
+        current_user, db
+    )
 
     # 1. Build the candidate pool (union of two sources).
     horizon = business_today() + timedelta(days=horizon_days)

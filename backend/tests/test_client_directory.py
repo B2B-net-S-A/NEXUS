@@ -1008,8 +1008,17 @@ async def test_directory_export_flags_truncation_at_limit(
 
 async def test_directory_mine_filters_to_dl_and_tac_assignments(
     app_client: AsyncClient,
+    monkeypatch,
 ) -> None:
-    """„Moi" (dawny Panel klientów) = klienci z przypisaniem DL albo TAC."""
+    """„Moi" (dawny Panel klientów) = klienci z przypisaniem DL albo TAC.
+
+    Od 25.09.2026 katalog DL-a pokazuje wyłącznie klientów z przypisaniem DL
+    (``DL_CLIENT_SCOPE``) — „Wszyscy" i „Moi" dają wtedy to samo, a samo
+    przypisanie TAC nie poszerza zakresu Delivery. Stan z #1365 (katalog
+    całej organizacji, „Moi" = DL ∪ TAC) odtwarza wyłącznik ``all``.
+    """
+    from app.core.config import settings
+
     from app.models.team_structure import (
         ClientTacAssignment,
         DeliveryLeadClientAssignment,
@@ -1038,12 +1047,17 @@ async def test_directory_mine_filters_to_dl_and_tac_assignments(
                 item["display_name"].split()[0] for item in response.json()["items"]
             }
 
-        assert await names(False) == {"Alpha", "Zulu"}
+        assert await names(False) == {"Alpha"}
         assert await names(True) == {"Alpha"}
 
         async with AsyncSessionLocal() as db:
             db.add(ClientTacAssignment(tac_user_id=user_id, client_id=zulu_id))
             await db.commit()
+        # TAC-owe przypisanie nie otwiera klienta w Delivery.
+        assert await names(True) == {"Alpha"}
+
+        monkeypatch.setattr(settings, "DL_CLIENT_SCOPE", "all")
+        assert await names(False) == {"Alpha", "Zulu"}
         assert await names(True) == {"Alpha", "Zulu"}
 
         export = await app_client.get(

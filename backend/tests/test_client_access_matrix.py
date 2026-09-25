@@ -658,10 +658,15 @@ async def test_contact_delete_matrix(cam_client: AsyncClient) -> None:
     resp = await cam_client.delete(f"/api/contacts/{contact_id}", headers=t_headers)
     assert resp.status_code == 403
 
-    # Każdy Delivery Lead może usunąć kontakt klienta.
+    # Delivery Lead bez przypisania do klienta — 403 (od 25.09.2026 DL
+    # prowadzi Delivery wyłącznie u przypisanych klientów).
     dl_id, dl_email, dl_pass = await _seed_user(UserRole.delivery_lead)
-    await _assign_client(dl_id, client_id, UserRole.delivery_lead)
     dl_headers = await _login(cam_client, dl_email, dl_pass)
+    resp = await cam_client.delete(f"/api/contacts/{contact_id}", headers=dl_headers)
+    assert resp.status_code == 403
+
+    # Przypisany Delivery Lead (dowolne przypisanie, nie tylko główny) — 204.
+    await _assign_client(dl_id, client_id, UserRole.delivery_lead)
     resp = await cam_client.delete(f"/api/contacts/{contact_id}", headers=dl_headers)
     assert resp.status_code == 204
 
@@ -678,14 +683,19 @@ async def test_global_contacts_list_requires_managing_role(
 
     dl_id, dl_email, dl_pass = await _seed_user(UserRole.delivery_lead)
     unassigned_dl = await _login(cam_client, dl_email, dl_pass)
-    allowed_global = await cam_client.get("/api/contacts", headers=unassigned_dl)
-    assert allowed_global.status_code == 200
-    assert client_id in {row["client_id"] for row in allowed_global.json()}
+    # Od 25.09.2026 DL bez żadnego przypisania nie ma klientów w Delivery —
+    # pusty graf to deny-all, jak u TAC bez przypisań.
+    denied_global = await cam_client.get("/api/contacts", headers=unassigned_dl)
+    assert denied_global.status_code == 403
 
+    other_client_id = await _seed_client()
+    await _seed_contact(other_client_id)
     await _assign_client(dl_id, client_id, UserRole.delivery_lead)
     allowed_dl = await cam_client.get("/api/contacts", headers=unassigned_dl)
     assert allowed_dl.status_code == 200
-    assert client_id in {row["client_id"] for row in allowed_dl.json()}
+    dl_client_ids = {row["client_id"] for row in allowed_dl.json()}
+    assert client_id in dl_client_ids
+    assert other_client_id not in dl_client_ids
 
     recruiter_id, r_email, r_pass = await _seed_user(UserRole.recruiter)
     r_headers = await _login(cam_client, r_email, r_pass)

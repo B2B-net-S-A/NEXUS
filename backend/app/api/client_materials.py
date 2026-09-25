@@ -26,6 +26,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
+from app.api.delivery_client_scope import DELIVERY_CLIENT_SCOPE_DEPENDENCIES
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.models.activity import Activity
@@ -46,7 +47,9 @@ from app.services.client_access import (
 )
 
 
-router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
+router = APIRouter(
+    dependencies=[*DELIVERY_SECTION_DEPENDENCIES, *DELIVERY_CLIENT_SCOPE_DEPENDENCIES]
+)
 
 
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20 MB

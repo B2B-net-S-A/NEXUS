@@ -1321,6 +1321,20 @@ WHERE a.external_source = 'traffit'
 # ── Importer ─────────────────────────────────────────────────────────────────
 
 
+def _canonical_client_id(client_id: int, merged_into: dict[int, int]) -> int:
+    """Follow ``merged_into_client_id`` to the end of the chain (cycle-safe)."""
+
+    seen = {client_id}
+    current = client_id
+    while current in merged_into:
+        nxt = merged_into[current]
+        if nxt in seen:
+            break
+        seen.add(nxt)
+        current = nxt
+    return current
+
+
 class TraffitImporter:
     """Run one-time migration phases. Idempotent — safe to re-run."""
 
@@ -1496,14 +1510,31 @@ class TraffitImporter:
         return orphan_id
 
     async def _build_client_external_id_map(self) -> dict[str, int]:
-        """Pull current Nexus state: external_id (Traffit) → Nexus client.id."""
+        """Pull current Nexus state: external_id (Traffit) → Nexus client.id.
+
+        A client merged into another (``merged_into_client_id``) keeps its
+        Traffit ``external_id`` as a hidden tombstone; its contacts and jobs
+        land on the CANONICAL client. Until 25.09.2026 the map ignored the
+        merge, so every night moved 24 jobs of Traffit client 150 back onto
+        the hidden duplicate 37721 (E-Zdrowie → eZdrowie 115).
+        """
         result = await self.db.execute(
             select(Client.id, Client.external_id).where(
                 Client.external_source == "traffit",
                 Client.external_id.is_not(None),
             )
         )
-        return {ext: nid for nid, ext in result.all() if ext is not None}
+        rows = {ext: nid for nid, ext in result.all() if ext is not None}
+        merged = dict(
+            (
+                await self.db.execute(
+                    select(Client.id, Client.merged_into_client_id).where(
+                        Client.merged_into_client_id.is_not(None)
+                    )
+                )
+            ).all()
+        )
+        return {ext: _canonical_client_id(nid, merged) for ext, nid in rows.items()}
 
     async def _recover_session(
         self,

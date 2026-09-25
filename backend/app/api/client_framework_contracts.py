@@ -32,6 +32,7 @@ from app.api.deps import (
     DlAssignedOrAdmin,
     get_current_user,
 )
+from app.api.delivery_client_scope import DELIVERY_CLIENT_SCOPE_DEPENDENCIES
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.services.client_access import (
     assert_client_writable,
@@ -60,7 +61,9 @@ from app.schemas.client_framework_contract import (
 from app.services import storage_service
 from app.core.scheduling import business_today
 
-router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
+router = APIRouter(
+    dependencies=[*DELIVERY_SECTION_DEPENDENCIES, *DELIVERY_CLIENT_SCOPE_DEPENDENCIES]
+)
 
 
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024  # 25 MB — MSA bywa duży

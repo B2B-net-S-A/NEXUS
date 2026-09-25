@@ -6,13 +6,16 @@ ponad 6 minut (0143, 23.06.2026). Ta pętla robi to po starcie, paczkami po
 ``_BATCH`` wierszy z krótką przerwą, i kończy się, gdy nie zostaje żaden wiersz
 bez korpusu. Nowe i zmieniane wiersze liczą już triggery.
 
-Trzy fazy, każda z własną flagą gotowości:
+Cztery fazy:
 
 1. ``keyword_doc``/``keyword_fts`` (0350) → ``keyword_corpus.ready()``;
-2. ``candidates.keyword_fold_fts`` (0385) → ``fold_ready()``;
-3. ``notes.content_fold_fts`` (0385) → ``notes_ready()``. Ta sama aktualizacja
-   rozpakowuje notatki zapisane przez import z Traffita jako JSON; wynik
-   (ile było i ile zostało) trafia do paragonu w ``app_settings``.
+2. ``candidates.keyword_fold_fts`` (0385);
+3. ``notes.content_fold_fts`` (0385). Ta sama aktualizacja rozpakowuje
+   notatki zapisane przez import z Traffita jako JSON; wynik (ile było i ile
+   zostało) trafia do paragonu w ``app_settings``;
+4. wersja składania tekstu (``FOLD_VERSION``): inna niż zapisana = przeliczenie
+   wszystkich wierszy obu kolumn. Dopiero po niej ``fold_ready()`` i
+   ``notes_ready()``.
 
 Do końca fazy zapytania korzystają ze starej ścieżki — wyniki są pełne przez
 cały czas.
@@ -134,7 +137,7 @@ async def _fold_phase() -> None:
             await asyncio.sleep(_PAUSE_SECONDS)
         # Nowe wiersze liczy trigger; kolejne okrążenie (po ponownym sprawdzeniu)
         # łapie tylko to, co ktoś wyzerował w trakcie przejścia.
-    keyword_corpus.mark_fold_ready(True)
+    # Gotowość ogłasza dopiero `_version_phase` (wersja składania tekstu).
     if total:
         logger.info("keyword fold corpus backfill done: ~%d rows", total)
 
@@ -161,11 +164,101 @@ async def _notes_phase() -> None:
             await asyncio.sleep(_PAUSE_SECONDS)
     wrapped_after = await _count(keyword_corpus.NOTES_WRAPPED_COUNT_SQL)
     await _write_notes_receipt(wrapped_before, wrapped_after, total)
+
+
+# Pozycja przeliczania wersji — przeżywa ponowienie fazy (zakleszczenie z innym
+# zapisem kandydatów, restart bazy), żeby nie zaczynać 63 tys. wierszy od nowa.
+_recompute_after: dict[str, int] = {}
+
+
+async def _stored_fold_version() -> int | None:
+    async with AsyncSessionLocal() as db:
+        value = (
+            await db.execute(
+                text("SELECT value FROM app_settings WHERE key = :key"),
+                {"key": keyword_corpus.FOLD_VERSION_KEY},
+            )
+        ).scalar()
+    # asyncpg oddaje jsonb z `text()` jako napis, ORM — jako słownik.
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError:
+            return None
+    if isinstance(value, dict):
+        value = value.get("version")
+    try:
+        return int(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+async def _store_fold_version() -> None:
+    payload = {
+        "version": keyword_corpus.FOLD_VERSION,
+        "completed_at": datetime.now(timezone.utc).isoformat(),
+    }
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            text(
+                "INSERT INTO app_settings (key, value) "
+                "VALUES (:key, CAST(:value AS jsonb)) "
+                "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value"
+            ),
+            {"key": keyword_corpus.FOLD_VERSION_KEY, "value": json.dumps(payload)},
+        )
+        await db.commit()
+
+
+async def _recompute(name: str, sql: str, limit: int, trigger: str) -> int:
+    rows = 0
+    while True:
+        last = await _fill_keyset_batch(
+            sql, _recompute_after.get(name, 0), limit, trigger
+        )
+        if not last:
+            return rows
+        _recompute_after[name] = last
+        rows += limit
+        await asyncio.sleep(_PAUSE_SECONDS)
+
+
+async def _version_phase() -> None:
+    """Zmieniona funkcja składania (``FOLD_VERSION``) = przelicz wszystko.
+
+    Do końca przeliczania nowa ścieżka zapytań jest wyłączona
+    (``fold_ready()``/``notes_ready()`` = False) — stare i nowe tokeny
+    w jednej kolumnie dawałyby wyniki zależne od tego, kiedy wiersz przeliczono.
+    """
+    if await _stored_fold_version() != keyword_corpus.FOLD_VERSION:
+        keyword_corpus.mark_fold_ready(False)
+        keyword_corpus.mark_notes_ready(False)
+        candidates = await _recompute(
+            "candidates",
+            keyword_corpus.FOLD_RECOMPUTE_BATCH_SQL,
+            _BATCH,
+            keyword_corpus.TRIGGER_NAME,
+        )
+        notes = await _recompute(
+            "notes",
+            keyword_corpus.NOTES_RECOMPUTE_BATCH_SQL,
+            _NOTES_BATCH,
+            keyword_corpus.NOTE_TRIGGER_NAME,
+        )
+        await _store_fold_version()
+        _recompute_after.clear()
+        logger.info(
+            "keyword fold corpus v%d recomputed: ~%d candidates, ~%d notes",
+            keyword_corpus.FOLD_VERSION,
+            candidates,
+            notes,
+        )
+    keyword_corpus.mark_fold_ready(True)
     keyword_corpus.mark_notes_ready(True)
 
 
 async def keyword_corpus_backfill_loop() -> None:
-    phases = (_legacy_phase, _fold_phase, _notes_phase)
+    phases = (_legacy_phase, _fold_phase, _notes_phase, _version_phase)
     index = 0
     while index < len(phases):
         try:

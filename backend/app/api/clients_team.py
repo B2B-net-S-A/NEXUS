@@ -144,9 +144,15 @@ async def get_client_team(
     current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),
 ) -> ClientTeamResponse:
-    """Combined TAC + DL view for a single client."""
+    """Combined TAC + DL view for a single client.
+
+    ``purpose="org"``: formularz rekrutacji i ustawienia rekrutacji czytają
+    stąd podpowiedź Delivery Leada dla KAŻDEGO klienta, a rekrutacje są
+    otwarte dla wszystkich — zespół (same nazwiska ludzi) nie zawęża się
+    razem z modułami Delivery (25.09.2026).
+    """
     await _ensure_client_exists(db, client_id)
-    access = await resolve_client_access(db, current_user, client_id)
+    access = await resolve_client_access(db, current_user, client_id, purpose="org")
     if not access.can_view_contacts:
         raise deny("brak dostępu do zespołu tego klienta")
 
