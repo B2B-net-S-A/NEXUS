@@ -15,6 +15,8 @@ from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any, Optional
 
+from app.services import finance_order_matching
+
 ZERO = Decimal("0")
 _DIGITS = re.compile(r"\d+")
 
@@ -103,15 +105,52 @@ def same_order_number(hint: Optional[str], order_number: str) -> bool:
     return bool(hint_digits) and hint_digits == order_digits(order_number)
 
 
-def is_foreign_number(hint: Optional[str], order_number: str) -> bool:
+def binds_as_order_number(
+    hint: Optional[str],
+    *,
+    client_id: Optional[int],
+    order_numbers: Optional[finance_order_matching.OrderNumberIndex],
+) -> bool:
+    """Czy numer z „Uwag" reguła wiązania uznaje za numer zamówienia klienta.
+
+    Ta sama reguła co import MD (``_authoritative_md_hints``): u Polkomtela
+    każdy ciąg cyfr jest numerem SAP, u pozostałych klientów wiąże wyłącznie
+    numer ZNANY jako numer zamówienia tego klienta, a u klienta z numerami
+    z samych cyfr także dostatecznie długi ciąg
+    (``finance_order_matching.explicit_order_hints``). „Uwagi” niosą też inne
+    liczby („delegacja 445”, „08/2026”) — import je ignoruje, więc okno
+    zużycia nie może ich nazywać „innym numerem zamówienia” (audyt 25.09.2026,
+    runda 4).
+    """
+    if not order_digits(hint) or client_id is None:
+        return False
+    if client_id == finance_order_matching.POLKOMTEL_CLIENT_ID:
+        return True
+    return bool(
+        finance_order_matching.explicit_order_hints(
+            [str(hint)], order_numbers, {client_id}
+        )
+    )
+
+
+def is_foreign_number(
+    hint: Optional[str],
+    order_number: str,
+    *,
+    client_id: Optional[int],
+    order_numbers: Optional[finance_order_matching.OrderNumberIndex],
+) -> bool:
     """Czy numer z „Uwag" wskazuje INNE zamówienie niż ``order_number``.
 
     Brak numeru w arkuszu (albo numer zamówienia bez cyfr) nie jest obcym
-    numerem — nie ma czego porównać.
+    numerem — nie ma czego porównać. Liczba, której reguła wiązania nie uznaje
+    za numer zamówienia tego klienta (``binds_as_order_number``), też nie.
     """
     if not order_digits(hint) or not order_digits(order_number):
         return False
-    return not same_order_number(hint, order_number)
+    if same_order_number(hint, order_number):
+        return False
+    return binds_as_order_number(hint, client_id=client_id, order_numbers=order_numbers)
 
 
 def build_consumption_view(
@@ -121,6 +160,8 @@ def build_consumption_view(
     import_refs: dict[str, list[ImportRefIn]],
     corrections: list[CorrectionEventIn],
     order_number: str,
+    client_id: Optional[int],
+    order_numbers: Optional[finance_order_matching.OrderNumberIndex],
 ) -> ConsumptionView:
     ordered = sorted(consumptions, key=lambda c: c.period_month)
     used = sum((Decimal(str(c.md_reported)) for c in ordered), ZERO)
@@ -185,7 +226,12 @@ def build_consumption_view(
                 row_number=ref.row_number,
                 order_number_hint=ref.order_number_hint,
                 md_reported=ref.md_reported,
-                foreign=is_foreign_number(ref.order_number_hint, order_number),
+                foreign=is_foreign_number(
+                    ref.order_number_hint,
+                    order_number,
+                    client_id=client_id,
+                    order_numbers=order_numbers,
+                ),
             )
             for ref in import_refs.get(item.period_month, [])
         ]

@@ -147,6 +147,7 @@ from app.schemas.client_order_group import (
     OrderPlanLineRead,
 )
 from app.services.ai_quota import AIQuotaExceeded, ai_feature
+from app.services import finance_order_matching
 from app.services.md_consumption_view import (
     ConsumptionIn,
     CorrectionEventIn,
@@ -6660,6 +6661,8 @@ async def list_line_consumptions(
         import_refs=await _line_import_refs(db, line_id),
         corrections=await _line_consumption_corrections(db, group.id, line_id),
         order_number=group.order_number,
+        client_id=client_id,
+        order_numbers=await _client_order_number_index(db, client_id),
     )
     reads: list[LineConsumptionRow] = []
     for r in rows:
@@ -6715,6 +6718,19 @@ def _correction_read(correction: CorrectionOut) -> LineConsumptionCorrection:
         to_md=correction.to_md,
         removed=correction.removed,
     )
+
+
+async def _client_order_number_index(
+    db: AsyncSession, client_id: int
+) -> finance_order_matching.OrderNumberIndex:
+    """Numery zamówień klienta — do rozpoznania, czy liczba z „Uwag" jest
+    numerem zamówienia (ta sama reguła co wiązanie w imporcie MD)."""
+    rows = await db.execute(
+        select(ClientOrderGroup.client_id, ClientOrderGroup.order_number).where(
+            ClientOrderGroup.client_id == client_id
+        )
+    )
+    return finance_order_matching.build_order_number_index(rows.all())
 
 
 async def _line_import_refs(
