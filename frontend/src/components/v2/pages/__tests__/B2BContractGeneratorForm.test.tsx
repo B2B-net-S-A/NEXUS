@@ -599,3 +599,42 @@ describe("GeneratorForm — „Popraw umowę” (`?edit=`)", () => {
     ).toHaveAttribute("href", "/contracts/b2b-generator?tab=generator&edit=90");
   });
 });
+
+describe("GeneratorForm — awaria wyszukiwarek to nie pusta lista", () => {
+  it("błąd listy klientów daje „Ponów”, nie „Brak klientów na liście.”", async () => {
+    const user = setupUser();
+    mocks.clientsLookup.mockRejectedValue(new Error("503"));
+    renderForm({});
+
+    await user.click(screen.getByRole("combobox", { name: /Pełna nazwa Klienta/ }));
+    expect(
+      await screen.findByText("Nie udało się pobrać listy klientów."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Brak klientów na liście.")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Ponów/ })).toBeInTheDocument();
+  });
+
+  it("udana pusta lista klientów nadal mówi „Brak klientów na liście.”", async () => {
+    const user = setupUser();
+    renderForm({});
+
+    await user.click(screen.getByRole("combobox", { name: /Pełna nazwa Klienta/ }));
+    expect(await screen.findByText("Brak klientów na liście.")).toBeInTheDocument();
+  });
+
+  it("błąd wyszukiwania kandydata daje „Ponów”, nie „Brak wyników.”", async () => {
+    const user = setupUser();
+    mocks.apiGet.mockImplementation((url: string) =>
+      url === "/api/cv-generator/candidates"
+        ? Promise.reject(new Error("503"))
+        : Promise.resolve({ data: [] }),
+    );
+    renderForm({});
+
+    await user.click(screen.getByRole("combobox", { name: /Kandydat/ }));
+    expect(
+      await screen.findByText("Nie udało się wyszukać kandydatów."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Brak wyników.")).not.toBeInTheDocument();
+  });
+});

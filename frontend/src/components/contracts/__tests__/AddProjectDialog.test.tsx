@@ -255,4 +255,32 @@ describe("AddProjectDialog", () => {
       "Dodano kolejny projekt — zamówienie dodaj w zakładce klienta i wybierz typ rozliczenia",
     );
   });
+
+  it("awaria listy klientów to błąd z „Ponów”, nie „Brak wyników.”", async () => {
+    // react-query v5: po błędzie `isLoading` jest false — stara gałąź
+    // pokazywała wtedy pusty stan, czyli „w bazie nie ma klientów”.
+    mocks.apiGet.mockImplementation((url: string) =>
+      url === "/api/clients-lookup"
+        ? Promise.reject(new Error("503"))
+        : Promise.resolve({ data: { items: [] } }),
+    );
+    renderDialog();
+
+    expect(
+      await screen.findByText("Nie udało się pobrać listy klientów."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Brak wyników.")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Ponów/ })).toBeInTheDocument();
+  });
+
+  it("pusta lista klientów nadal mówi „Brak wyników.”", async () => {
+    mocks.apiGet.mockImplementation((url: string) =>
+      url === "/api/clients-lookup"
+        ? Promise.resolve({ data: [] })
+        : Promise.resolve({ data: { items: [] } }),
+    );
+    renderDialog();
+
+    expect(await screen.findByText("Brak wyników.")).toBeInTheDocument();
+  });
 });

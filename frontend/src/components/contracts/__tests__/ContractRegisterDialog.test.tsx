@@ -230,3 +230,23 @@ describe("ContractRegisterDialog — waluta stawki kosztowej", () => {
     expect(mocks.create.mock.calls[0]?.[0]).not.toHaveProperty("currency");
   });
 });
+
+describe("ContractRegisterDialog — wyszukiwarka konsultanta", () => {
+  it("awaria wyszukiwania to błąd z „Ponów”, nie „Brak wyników.”", async () => {
+    mocks.apiGet.mockRejectedValue(new Error("503"));
+    renderDialog();
+
+    expect(
+      await screen.findByText("Nie udało się wyszukać konsultantów."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Brak wyników.")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Ponów/ })).toBeInTheDocument();
+  });
+
+  it("brak trafień nadal mówi „Brak wyników.”", async () => {
+    mocks.apiGet.mockResolvedValue({ data: [] });
+    renderDialog();
+
+    expect(await screen.findByText("Brak wyników.")).toBeInTheDocument();
+  });
+});

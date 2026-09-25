@@ -50,6 +50,7 @@ import {
 } from "@/lib/contract-register";
 import { B2B_END_DATE_HOW, b2bEndDateLocked } from "@/lib/contract-end-date";
 import { warsawToday } from "@/lib/warsaw-date";
+import { PickerQueryState } from "@/components/v2/filters/PickerQueryState";
 
 type CandidateOption = {
   id: number;
@@ -397,13 +398,15 @@ export function ContractRegisterDialog({
                         onValueChange={setCandidateQuery}
                       />
                       <CommandList>
-                        {candidatesQuery.isLoading ? (
-                          <div className="p-3 text-sm text-muted-foreground">
-                            Szukam…
-                          </div>
-                        ) : (
-                          <CommandEmpty>Brak wyników.</CommandEmpty>
-                        )}
+                        {/* Awaria wyszukiwania ≠ „nikogo nie ma”: pusty stan tylko przy sukcesie. */}
+                        <PickerQueryState
+                          isPending={candidatesQuery.isLoading}
+                          isError={candidatesQuery.isError}
+                          onRetry={() => void candidatesQuery.refetch()}
+                          loadingLabel="Szukam…"
+                          errorLabel="Nie udało się wyszukać konsultantów."
+                        />
+                        {candidatesQuery.isSuccess && <CommandEmpty>Brak wyników.</CommandEmpty>}
                         <CommandGroup>
                           {(candidatesQuery.data ?? []).map((c) => (
                             <CommandItem
