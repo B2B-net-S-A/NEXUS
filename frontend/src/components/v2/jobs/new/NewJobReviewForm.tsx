@@ -4,6 +4,7 @@ import { useId, useState, type KeyboardEvent } from "react";
 import { ChevronDown, ChevronRight, Plus, Trash2, X } from "lucide-react";
 
 import { Input } from "@/components/ui/input";
+import { HiringManagerCombobox } from "@/components/jobs/HiringManagerCombobox";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { ChampionExperienceFields } from "@/components/champion/ChampionExperienceFields";
@@ -72,12 +73,15 @@ export function ProvenanceChip({ basis }: { basis?: FieldBasis }) {
 
 function FieldLabel({
   htmlFor,
+  id,
   children,
   hint,
   missing,
   basis,
 }: {
   htmlFor?: string;
+  /** Dla pól bez `<label for>` (combobox) — cel `aria-labelledby`. */
+  id?: string;
   children: React.ReactNode;
   hint?: string | null;
   missing?: boolean;
@@ -94,7 +98,9 @@ function FieldLabel({
             {children}
           </label>
         ) : (
-          <span className="text-sm font-medium text-foreground">{children}</span>
+          <span id={id} className="text-sm font-medium text-foreground">
+            {children}
+          </span>
         )}
         <ProvenanceChip basis={basis} />
       </span>
@@ -264,6 +270,8 @@ interface NewJobReviewFormProps {
   missing: MissingCode[];
   /** Po odczycie przez AI braki są podświetlane; w trybie ręcznym nie. */
   highlightMissing: boolean;
+  /** Klient z kroku 1 — lista kontaktów do wyboru hiring managera. */
+  clientId: number | null;
 }
 
 /** Krok 2 strony `/jobs/new`: pola, które wymaga „Przekaż do searchu”. */
@@ -272,8 +280,10 @@ export function NewJobReviewForm({
   onChange,
   missing,
   highlightMissing,
+  clientId,
 }: NewJobReviewFormProps) {
   const ids = {
+    hiringManager: useId(),
     title: useId(),
     clientTitle: useId(),
     clientReference: useId(),
@@ -366,6 +376,24 @@ export function NewJobReviewForm({
               placeholder="np. ZOB 48213"
             />
           </div>
+        </div>
+
+        {/* 25.09.2026: kto zamawia po stronie klienta — z listy kontaktów
+            albo wpisany; nowa osoba trafi do kontaktów klienta przy zapisie. */}
+        <div className="flex flex-col gap-2 md:max-w-md">
+          <FieldLabel
+            id={ids.hiringManager}
+            basis={basis("hiring_manager")}
+            hint="kto zamawia po stronie klienta"
+          >
+            Hiring manager
+          </FieldLabel>
+          <HiringManagerCombobox
+            clientId={clientId}
+            value={form.hiringManager}
+            onChange={(value) => set("hiringManager", value, "hiring_manager")}
+            labelledBy={ids.hiringManager}
+          />
         </div>
 
         <div className="flex flex-col gap-2">

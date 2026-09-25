@@ -354,3 +354,31 @@ describe("szablon z podobnej rekrutacji — przegląd kodu 23.09", () => {
     expect(next.searchKeywords).toBe("z maila");
   });
 });
+
+describe("hiringManagerFromIntake (25.09.2026)", () => {
+  it("dopasowany kontakt → kontakt, inaczej nowa osoba, bez nazwiska → nic", async () => {
+    const { hiringManagerFromIntake } = await import("@/lib/job-request-intake");
+    const base = { hiring_manager_name: "Anna Nowak" } as Parameters<
+      typeof hiringManagerFromIntake
+    >[0];
+    expect(hiringManagerFromIntake({ ...base, hiring_manager_contact_id: 5 })).toEqual({
+      kind: "contact",
+      id: 5,
+      name: "Anna Nowak",
+    });
+    // Pisownia z bazy wygrywa z pisownią z maila.
+    expect(
+      hiringManagerFromIntake({
+        ...base,
+        hiring_manager_contact_id: 5,
+        hiring_manager_contact_name: "Anna Nowak-Kowalska",
+      }),
+    ).toMatchObject({ kind: "contact", id: 5, name: "Anna Nowak-Kowalska" });
+    expect(
+      hiringManagerFromIntake({ ...base, hiring_manager_position: "Kierownik" }),
+    ).toEqual({ kind: "new", name: "Anna Nowak", position: "Kierownik", email: null });
+    expect(
+      hiringManagerFromIntake({ ...base, hiring_manager_name: "  " }),
+    ).toBeNull();
+  });
+});

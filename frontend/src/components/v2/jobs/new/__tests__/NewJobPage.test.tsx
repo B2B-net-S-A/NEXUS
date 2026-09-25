@@ -499,3 +499,60 @@ describe("NewJobPage — ogłoszenie na portalach", () => {
     expect(mocks.showSuccess).not.toHaveBeenCalled();
   });
 });
+
+describe("NewJobPage — hiring manager z maila", () => {
+  const WITH_HM: RequestIntakeResponse = {
+    ...INTAKE,
+    hiring_manager_name: "Anna Nowak",
+    hiring_manager_position: "Kierownik Zespołu",
+    hiring_manager_email: null,
+    hiring_manager_contact_id: null,
+    provenance: { hiring_manager: "request" },
+  };
+
+  async function handoff() {
+    await screen.findByRole("option", { name: "Rekruterka Ola" });
+    fireEvent.change(screen.getByLabelText("Rekruter prowadzący"), {
+      target: { value: "31" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Utwórz i przekaż do searchu" }));
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/jobs/900"));
+  }
+
+  it("podpowiada osobę z podpisu i zapisuje ją po utworzeniu, przed Championem", async () => {
+    await readRequest(WITH_HM);
+    expect(screen.getByRole("combobox", { name: "Hiring manager" })).toHaveTextContent(
+      "Anna Nowak",
+    );
+    await handoff();
+    const putUrls = mocks.put.mock.calls.map(([url]) => url);
+    expect(putUrls.indexOf("/api/jobs/900/hiring-manager")).toBeLessThan(
+      putUrls.indexOf("/api/jobs/900/champion-profile"),
+    );
+    expect(mocks.put).toHaveBeenCalledWith("/api/jobs/900/hiring-manager", {
+      new_person: { name: "Anna Nowak", position: "Kierownik Zespołu", email: null },
+    });
+  });
+
+  it("awaria zapisu hiring managera nie zatrzymuje utworzenia rekrutacji", async () => {
+    mocks.put.mockImplementation((url: string) =>
+      url === "/api/jobs/900/hiring-manager"
+        ? Promise.reject({ response: { status: 422, data: { detail: "zły" } } })
+        : Promise.resolve({ data: {} }),
+    );
+    await readRequest(WITH_HM);
+    await handoff();
+    expect(mocks.showError).toHaveBeenCalledWith(
+      expect.stringContaining("Rekrutacja zapisana, ale hiring manager nie"),
+    );
+    expect(mocks.handoff).toHaveBeenCalled();
+  });
+
+  it("bez hiring managera nie woła trasy", async () => {
+    await readRequest();
+    await handoff();
+    expect(
+      mocks.put.mock.calls.some(([url]) => url === "/api/jobs/900/hiring-manager"),
+    ).toBe(false);
+  });
+});

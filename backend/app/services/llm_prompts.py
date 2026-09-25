@@ -942,10 +942,15 @@ CV_REQUIREMENT_MAP = PromptTemplate(
 #   kandydata, pytania screeningowe, pytania do klienta) — model może je
 #   zaproponować, ale każda niesie `basis` (request / client_history / ai),
 #   a formularz pokazuje DL, skąd pochodzi.
+#
+# v4 (25.09.2026): hiring manager — osoba po stronie klienta, która zamawia
+# rekrutację (zwykle podpis maila). Jedyny wyjątek od zakazu nazwisk i też
+# wyłącznie dosłowny cytat; kod dopasowuje go do kontaktów klienta, a nazwy
+# kontaktów nadal nie trafiają do promptu.
 
 JOB_REQUEST_INTAKE = PromptTemplate(
     name="job_request_intake",
-    version=3,
+    version=4,
     expected_format="json",
     system_prompt=(
         "Jesteś senior rekruterem IT w polskiej agencji body leasingu. "
@@ -960,10 +965,14 @@ JOB_REQUEST_INTAKE = PromptTemplate(
         "kandydata, pytania screeningowe, pytania do klienta) możesz przygotować "
         'sam — oznacz basis: "request" (wprost z maila), "client_history" '
         '(z kontekstu klienta) albo "ai" (twoja propozycja). '
-        "(3) Pola quote, evidence, rate_quote, client_title i client_reference "
-        "to DOSŁOWNE fragmenty tekstu "
+        "(3) Pola quote, evidence, rate_quote, client_title, client_reference "
+        "i hiring_manager_* to DOSŁOWNE fragmenty tekstu "
         "requestu (kopiuj znak w znak, bez zmian). "
-        "(4) Nie wymieniaj żadnych osób z imienia ani nazwiska. "
+        "(4) Nie wymieniaj żadnych osób z imienia ani nazwiska — z JEDNYM "
+        "wyjątkiem: pola hiring_manager_* opisują osobę po stronie klienta, "
+        "która zamawia tę rekrutację (zwykle podpis maila). Wypełnij je tylko, "
+        "gdy z treści jasno wynika, kto zamawia; w razie wątpliwości null. "
+        "Nigdy nie wpisuj tam kandydata ani nikogo z naszej firmy. "
         "(5) Odpowiedź to czysty JSON bez komentarzy i bez code fences."
     ),
     template=(
@@ -980,6 +989,9 @@ JOB_REQUEST_INTAKE = PromptTemplate(
         '  "role_name": str|null,            // nazwa stanowiska, np. "Senior Java Developer"\n'
         '  "client_title": str|null,         // nazwa stanowiska DOKŁADNIE tak, jak napisał ją klient (z numerem, jeśli jest w nazwie), np. "Programista Java (ZOB 48213)"\n'
         '  "client_reference": str|null,     // numer zapytania klienta DOKŁADNIE z tekstu, np. "ZOB 48213", "SAP 4500123456", "REQ-2291"; nie nasz numer i nie numer umowy\n'
+        '  "hiring_manager_name": str|null,     // imię i nazwisko osoby zamawiającej po stronie klienta, DOKŁADNIE z tekstu, np. "Anna Nowak"\n'
+        '  "hiring_manager_position": str|null, // jej stanowisko DOKŁADNIE z tekstu (np. z podpisu), np. "Kierownik Zespołu Rozwoju"\n'
+        '  "hiring_manager_email": str|null,    // jej adres e-mail DOKŁADNIE z tekstu\n'
         '  "must": [str],                     // POJEDYNCZE technologie wymagane, max 10\n'
         '  "nice": [str],                     // POJEDYNCZE technologie mile widziane, max 8\n'
         '  "seniority_min_years": int|null,   // minimalne lata doświadczenia, tylko gdy podane\n'

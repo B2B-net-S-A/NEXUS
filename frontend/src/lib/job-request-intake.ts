@@ -10,6 +10,7 @@
  */
 
 import type { ChampionExperience, ExperienceItem, ExperienceKind } from "@/lib/api";
+import type { HiringManagerChoice } from "@/lib/hiring-manager";
 import { composeWorkingTitle } from "@/lib/job-names";
 
 export type RemotePolicyValue = "remote" | "hybrid" | "onsite";
@@ -45,7 +46,8 @@ export type ProvenanceKey =
   | "questions"
   | "ask_client"
   | "client_title"
-  | "client_reference";
+  | "client_reference"
+  | "hiring_manager";
 
 export interface AskClientItem {
   key: string;
@@ -92,6 +94,8 @@ export interface IntakeForm {
   disqualifiers: string[];
   sellingPoints: string;
   askClient: AskClientItem[];
+  /** 25.09.2026: kto zamawia po stronie klienta; zapis `PUT …/hiring-manager`. */
+  hiringManager: HiringManagerChoice | null;
   provenance: Partial<Record<ProvenanceKey, FieldBasis>>;
 }
 
@@ -139,6 +143,14 @@ export interface RequestIntakeResponse {
   client_title?: string | null;
   client_reference?: string | null;
   working_title_suggestion?: string | null;
+  // ── od v4 (25.09.2026): hiring manager z treści maila ──
+  hiring_manager_name?: string | null;
+  hiring_manager_position?: string | null;
+  hiring_manager_email?: string | null;
+  /** Istniejący kontakt klienta — ta sama osoba co w mailu. */
+  hiring_manager_contact_id?: number | null;
+  /** Imię i nazwisko w pisowni kontaktu (gdy dopasowano). */
+  hiring_manager_contact_name?: string | null;
 }
 
 export const EMPTY_EXPERIENCE_FORM: ChampionExperience = {
@@ -174,6 +186,7 @@ export const EMPTY_INTAKE_FORM: IntakeForm = {
   disqualifiers: [],
   sellingPoints: "",
   askClient: [],
+  hiringManager: null,
   provenance: {},
 };
 
@@ -200,6 +213,27 @@ export function markEdited(form: IntakeForm, key: ProvenanceKey): IntakeForm {
   return { ...form, provenance: { ...form.provenance, [key]: "manual" } };
 }
 
+/** Podpowiedź HM z maila: istniejący kontakt klienta albo nowa osoba. */
+export function hiringManagerFromIntake(
+  intake: RequestIntakeResponse,
+): HiringManagerChoice | null {
+  const name = intake.hiring_manager_name?.trim();
+  if (!name) return null;
+  if (intake.hiring_manager_contact_id != null) {
+    return {
+      kind: "contact",
+      id: intake.hiring_manager_contact_id,
+      name: intake.hiring_manager_contact_name?.trim() || name,
+    };
+  }
+  return {
+    kind: "new",
+    name,
+    position: intake.hiring_manager_position ?? null,
+    email: intake.hiring_manager_email ?? null,
+  };
+}
+
 export function formFromIntake(intake: RequestIntakeResponse): IntakeForm {
   const provenance: IntakeForm["provenance"] = {};
   for (const [key, basis] of Object.entries(intake.provenance ?? {})) {
@@ -223,6 +257,7 @@ export function formFromIntake(intake: RequestIntakeResponse): IntakeForm {
       key: newQuestionKey(),
       text,
     })),
+    hiringManager: hiringManagerFromIntake(intake),
     provenance,
     title: intake.role_name ?? "",
     clientTitle: intake.client_title ?? "",
