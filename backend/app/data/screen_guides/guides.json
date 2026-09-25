@@ -71,7 +71,7 @@
       },
       {
         "q": "Jak dodać kandydatów z bazy?",
-        "a": "Kliknij „Dodaj kandydatów” w nagłówku albo „Znajdź w bazie (AI)” na górze kolumny Nowi. Panel ma cztery zakładki: wyszukiwanie AI według profilu Championa, propozycje z nocnego przeglądu, Moi ludzie i dodanie po nazwisku lub z pliku CV. Zaznaczeni trafiają do Nowych i są przez 12 godzin zarezerwowani dla Ciebie.",
+        "a": "Kliknij „Dodaj kandydatów” w nagłówku albo „Znajdź w bazie (AI)” w kolumnie Nowi: wyszukiwanie AI, propozycje, Moi ludzie lub dodanie po nazwisku. Osoby, które klient zna z podobnych rekrutacji, przepniesz w „Podobne rekrutacje”: kliknij rekrutację i „Przepnij do Nowych”. Dodani są przez 12 godzin zarezerwowani dla Ciebie.",
         "anchor": "jobs.board.review"
       },
       {

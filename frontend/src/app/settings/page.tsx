@@ -37,6 +37,7 @@ import { TeamsPrepStatusCard } from "@/components/settings/TeamsPrepStatusCard";
 import { NotificationPreferencesPanel } from "@/components/settings/NotificationPreferencesPanel";
 import TeamsNotificationsCard from "@/components/settings/TeamsNotificationsCard";
 import { TraffitSyncCard } from "@/components/settings/TraffitSyncCard";
+import JobBoardsCard from "@/components/settings/JobBoardsCard";
 import EmailTemplatesCard from "@/components/settings/EmailTemplatesCard";
 import NotificationDeliverySettings from "@/components/settings/NotificationDeliverySettings";
 import { useAuthStore, hasRole, type UserRole } from "@/store/auth";
@@ -379,6 +380,8 @@ function SettingsItemBody({ item, user }: { item: SettingsItem; user: Parameters
       return <SkillDictionaryTab />;
     case "traffit":
       return <TraffitSyncCard />;
+    case "job-boards":
+      return <JobBoardsCard />;
     case "teams-prep":
       return <TeamsPrepStatusCard />;
     case "history":

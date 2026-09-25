@@ -155,11 +155,17 @@ export function cardBadges(item: KanbanItem, ctx: CardBadgeContext): CardBadge[]
   if (item.entry_source === "reassign") {
     out.push({
       key: "reassign",
-      label: item.reassign_from_title
-        ? `Przepięcie · ${item.reassign_from_title}`
-        : "Przepięcie",
+      // Numer rekrutacji („ZOB-1725”) jest krótszy i jednoznaczny; tytuł
+      // zostaje, gdy rekrutacja numeru nie ma (np. założona w NEXUSIE).
+      label: item.reassign_from_reference
+        ? `↻ z ${item.reassign_from_reference}`
+        : item.reassign_from_title
+          ? `Przepięcie · ${item.reassign_from_title}`
+          : "Przepięcie",
       tone: "reassign",
-      title: "Osoba była już wysłana do klienta przy podobnej rekrutacji.",
+      title: item.reassign_from_title
+        ? `Osoba była już wysłana do klienta przy podobnej rekrutacji: ${item.reassign_from_title}.`
+        : "Osoba była już wysłana do klienta przy podobnej rekrutacji.",
     });
   }
   if (column === "new" || column === "screening") {

@@ -61,12 +61,17 @@ import {
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { CANDIDATES_PAGE_SIZES, useUiStore, type CandidatesPageSize } from "@/store/ui";
 import {
-  CANDIDATE_COLUMNS,
+  CANDIDATE_JOB_SEARCH_PREFS_KEY,
   CANDIDATE_TABLE_PREFS_KEY,
   candidateGridLayout,
+  selectableCandidateColumns,
   toggleCandidateColumn,
   visibleCandidateColumns,
 } from "@/lib/candidate-table-columns";
+import { useVisibleMatchScores } from "@/hooks/useVisibleMatchScores";
+import { scoreBadgeClass } from "@/lib/match-score-badge";
+import { proposalsBulkApi } from "@/lib/candidate-search-api";
+import { formatReasonCounts, summarizeBulkResult } from "@/lib/bulk-result-summary";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { CandidateCvCell } from "@/components/v2/candidates/CandidateCvCell";
@@ -321,6 +326,69 @@ function Missing() {
   return <span className="text-xs text-muted-foreground/80">brak</span>;
 }
 
+/**
+ * Dopasowanie do rekrutacji w „Szukaj ręcznie”. Wiersz wirtualizowanej
+ * listy montuje się dopiero na ekranie, więc montaż = „wiersz widoczny”
+ * i dopiero wtedy prosimy o wynik. Brak wyniku nigdy nie wygląda jak zero.
+ */
+function FitScoreCell({
+  candidateId,
+  score,
+  failure,
+  answered,
+  onVisible,
+  onRetry,
+}: {
+  candidateId: number;
+  score: number | null | undefined;
+  failure: "forbidden" | "retry" | undefined;
+  answered: boolean;
+  onVisible: (id: number) => void;
+  onRetry: () => void;
+}) {
+  useEffect(() => {
+    onVisible(candidateId);
+  }, [candidateId, onVisible]);
+  if (typeof score === "number") {
+    return (
+      <span
+        className={cn(
+          "inline-flex h-6 w-9 items-center justify-center rounded-md text-xs font-semibold tabular-nums",
+          scoreBadgeClass(score),
+        )}
+        title="Dopasowanie do tej rekrutacji"
+      >
+        {Math.round(score)}
+      </span>
+    );
+  }
+  if (failure === "forbidden") {
+    return <span className="text-xs text-muted-foreground">brak dostępu</span>;
+  }
+  if (failure === "retry") {
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onRetry();
+        }}
+        className="text-xs font-medium text-primary hover:underline"
+      >
+        ponów
+      </button>
+    );
+  }
+  if (answered) {
+    return (
+      <span className="text-xs text-muted-foreground" title="Ocena niepełna — brak zmierzonego dopasowania">
+        niepełna
+      </span>
+    );
+  }
+  return <span className="text-xs text-muted-foreground">…</span>;
+}
+
 /** Ścieżka, pod którą lista pisze swój stan do adresu. */
 const CANDIDATES_LIST_PATH = "/candidates";
 
@@ -338,27 +406,64 @@ export function isHistoryNeutralChange(
  return filtersEqual({ ...previous, ...neutral }, { ...next, ...neutral });
 }
 
+/**
+ * „Szukaj ręcznie” z rekrutacji (25.09.2026) — ta sama lista, osadzona
+ * w oknie rekrutacji. Filtry startują z rekrutacji zamiast z adresu, osoby
+ * już w rekrutacji są ukryte na stałe (poza chipami i „Wyczyść”), w tabeli
+ * dochodzi dopasowanie do tej rekrutacji, a „Przypisz” dodaje wprost do
+ * „Nowych”. Adres strony rekrutacji nie jest ani czytany, ani pisany.
+ */
+export interface CandidatesListEmbed {
+  jobId: number;
+  jobTitle: string;
+  initialFilters: CandidateFilters;
+  readOnly?: boolean;
+  /** Po udanym dodaniu (np. odświeżenie tablicy rekrutacji). */
+  onAdded?: () => void;
+}
+
 export interface CandidatesListV2Props {
   /**
    * „Z requestu": dane z okna idą do rodzica (ekran „Kandydaci"), który
    * pokazuje wyniki. Bez tego przycisk się nie renderuje.
    */
   onRequestSearch?: (request: TalentRadarInitialRequest) => void;
+  embed?: CandidatesListEmbed;
 }
 
-export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}) {
+/** Filtry zapytania listy; w trybie osadzonym z ukryciem osób z rekrutacji. */
+export function candidatesListFiltersForQuery(
+  filters: CandidateFilters,
+  embed: Pick<CandidatesListEmbed, "jobId"> | null | undefined,
+): CandidateFilters {
+  if (!embed) return filters;
+  return { ...filters, recruitmentIds: [embed.jobId], recruitmentMatch: "not_assigned" };
+}
+
+export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Props = {}) {
   const router = useRouter();
-  const { showSuccess } = useToast();
-  const searchParams = useSearchParams();
+  const { showSuccess, showError } = useToast();
+  const routeSearchParams = useSearchParams();
+  // W trybie osadzonym stan startuje z filtrów rekrutacji — nie z adresu
+  // strony rekrutacji (tam `q`, `page`, `sel` znaczą co innego). Jednorazowo,
+  // jak odczyt adresu przy montowaniu.
+  const [embedSeed] = useState(() => (embed ? encodeFilters(embed.initialFilters) : null));
+  const searchParams: Pick<URLSearchParams, "get" | "getAll" | "toString"> =
+    embedSeed ?? routeSearchParams;
+  const forJob = Boolean(embed);
+  const columnPrefsKey = forJob ? CANDIDATE_JOB_SEARCH_PREFS_KEY : CANDIDATE_TABLE_PREFS_KEY;
   const candidatesPageSize = useUiStore((s) => s.candidatesPageSize);
   const setCandidatesPageSize = useUiStore((s) => s.setCandidatesPageSize);
   // Kolumny tabeli — wybór każdej osoby (lista ukrytych, w przeglądarce).
   const hiddenColumns = useUiStore(
-    (s) => s.columnPreferences[CANDIDATE_TABLE_PREFS_KEY] ?? null,
+    (s) => s.columnPreferences[columnPrefsKey] ?? null,
   );
   const setColumnPreference = useUiStore((s) => s.setColumnPreference);
   const clearColumnPreference = useUiStore((s) => s.clearColumnPreference);
-  const visibleColumns = useMemo(() => visibleCandidateColumns(hiddenColumns), [hiddenColumns]);
+  const visibleColumns = useMemo(
+    () => visibleCandidateColumns(hiddenColumns, { forJob }),
+    [hiddenColumns, forJob],
+  );
   const gridLayout = useMemo(() => candidateGridLayout(visibleColumns), [visibleColumns]);
   const parentRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
@@ -797,9 +902,21 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  }, [filtersSnapshot]);
 
  // Data --------------------------------------------------------
+ const embedJobId = embed?.jobId ?? null;
+ // Filtry, którymi lista NAPRAWDĘ pyta API — w oknie rekrutacji z ukryciem
+ // osób z tej rekrutacji. Te same idą do podglądu (poprzedni/następny)
+ // i linku profilu, inaczej sąsiednia strona pokazałaby osoby z rekrutacji.
+ const queryFilters = useMemo(
+ () =>
+ candidatesListFiltersForQuery(
+ filtersSnapshot,
+ embedJobId != null ? { jobId: embedJobId } : null,
+ ),
+ [filtersSnapshot, embedJobId],
+ );
  const candidatesApiParams = useMemo(
- () => candidatesListApiParams(filtersSnapshot, page, candidatesPageSize),
- [filtersSnapshot, page, candidatesPageSize],
+ () => candidatesListApiParams(queryFilters, page, candidatesPageSize),
+ [queryFilters, page, candidatesPageSize],
  );
  const {
  data,
@@ -908,6 +1025,59 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  });
  }, []);
  const clearSelection = () => setSelectedIds(new Set());
+
+ // „Szukaj ręcznie” z rekrutacji: dopasowanie do TEJ rekrutacji (tylko
+ // wiersze na ekranie, paczki po 20) i dodanie wprost do „Nowych” — ta sama
+ // trasa co wyszukiwarka dotąd (`proposals/bulk`, źródło `manual_search`).
+ const matchScores = useVisibleMatchScores(embedJobId, embed ? items : null);
+ const [addingIds, setAddingIds] = useState<ReadonlySet<number>>(() => new Set());
+ const embedOnAdded = embed?.onAdded;
+ const addToEmbedJob = useCallback(
+ async (candidateIds: number[]) => {
+ if (embedJobId == null || candidateIds.length === 0) return;
+ setAddingIds((prev) => new Set([...prev, ...candidateIds]));
+ try {
+ const result = await proposalsBulkApi.add(embedJobId, {
+ candidate_ids: candidateIds,
+ initial_stage_legacy: "new",
+ source: "manual_search",
+ });
+ const summary = summarizeBulkResult(result);
+ const parts = [
+ result.total_added > 0
+ ? `Dodano do Nowych: ${result.total_added}.`
+ : "Nikogo nie dodano.",
+ ];
+ if (summary.skipped.length > 0) {
+ parts.push(`Pominięto: ${formatReasonCounts(summary.skipped)}.`);
+ }
+ if (summary.warnings.length > 0) {
+ parts.push(`Uwaga: ${formatReasonCounts(summary.warnings)}.`);
+ }
+ if (result.total_added > 0) showSuccess(parts.join(" "));
+ else showError(parts.join(" "));
+ setSelectedIds((prev) => {
+ const next = new Set(prev);
+ for (const id of result.added) next.delete(id);
+ return next;
+ });
+ void queryClient.invalidateQueries({ queryKey: ["candidates-v2"] });
+ void queryClient.invalidateQueries({ queryKey: ["kanban", String(embedJobId)] });
+ void queryClient.invalidateQueries({ queryKey: ["kanban", embedJobId] });
+ void queryClient.invalidateQueries({ queryKey: ["pipeline-scores"] });
+ if (result.total_added > 0) embedOnAdded?.();
+ } catch (err) {
+ showError(apiErrorMessage(err, "Nie udało się dodać kandydatów do rekrutacji."));
+ } finally {
+ setAddingIds((prev) => {
+ const next = new Set(prev);
+ for (const id of candidateIds) next.delete(id);
+ return next;
+ });
+ }
+ },
+ [embedJobId, embedOnAdded, queryClient, showError, showSuccess],
+ );
  const selectionCriteriaKey = useMemo(
  () =>
  encodeFilterCriteria({
@@ -1393,11 +1563,13 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
       activeCount={totalActiveFilters}
       onClearAll={resetAllFilters}
       resultLabel={isLoading ? undefined : candidatesCountLabel(total)}
+      recruitmentFilterLocked={forJob}
     />
   );
 
   return (
     <div className="mx-auto max-w-[2400px] space-y-4">
+      {!embed && (
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="flex items-baseline gap-3">
           <h1 className="text-xl font-semibold tracking-tight text-foreground">Kandydaci</h1>
@@ -1450,6 +1622,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
           </Button>
         </div>
       </div>
+      )}
 
       <div>
         <div className="min-w-0 space-y-3">
@@ -1525,6 +1698,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
               omitKey={isChipShownOnFilterBar}
             />
             <div className="ml-auto flex flex-wrap items-center gap-2" data-help="candidates.list.saved">
+              {!embed && (
               <SavedSearchesMenu
                 currentQs={encodeFilterCriteria(filtersSnapshot).toString()}
                 onApply={(qs, ssId, previousViewedAt, newCandidateIds) => {
@@ -1539,6 +1713,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                   clearSelection();
                 }}
               />
+              )}
               <Select
                 value={shownSort}
                 onValueChange={(value) => {
@@ -1567,7 +1742,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-56">
                   <DropdownMenuLabel>Kolumny w tabeli</DropdownMenuLabel>
-                  {CANDIDATE_COLUMNS.filter((col) => !col.required).map((col) => (
+                  {selectableCandidateColumns({ forJob }).filter((col) => !col.required).map((col) => (
                     <DropdownMenuCheckboxItem
                       key={col.id}
                       checked={visibleColumns.some((v) => v.id === col.id)}
@@ -1575,8 +1750,8 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                       onSelect={(e) => e.preventDefault()}
                       onCheckedChange={() =>
                         setColumnPreference(
-                          CANDIDATE_TABLE_PREFS_KEY,
-                          toggleCandidateColumn(hiddenColumns, col.id),
+                          columnPrefsKey,
+                          toggleCandidateColumn(hiddenColumns, col.id, { forJob }),
                         )
                       }
                     >
@@ -1584,7 +1759,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                     </DropdownMenuCheckboxItem>
                   ))}
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onSelect={() => clearColumnPreference(CANDIDATE_TABLE_PREFS_KEY)}>
+                  <DropdownMenuItem onSelect={() => clearColumnPreference(columnPrefsKey)}>
                     Przywróć domyślne
                   </DropdownMenuItem>
                 </DropdownMenuContent>
@@ -1592,6 +1767,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
             </div>
           </div>
 
+          {!embed && (
           <PinnedCandidatesBar
             onOpenCandidate={(id) => {
               setDetailId(id);
@@ -1601,6 +1777,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
               setDetailPosition(idx >= 0 ? (page - 1) * pageSize + idx + 1 : 0);
             }}
           />
+          )}
 
           {listViewState === "refresh-error" && (
             <div
@@ -1765,7 +1942,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                             <div className="min-w-0">
                               <div className="flex min-w-0 items-center gap-1.5">
                                 <Link
-                                  href={`/candidates/${candidate.id}?${encodeNavContext(filtersSnapshot, position).toString()}`}
+                                  href={`/candidates/${candidate.id}?${encodeNavContext(queryFilters, position).toString()}`}
                                   onClick={(e) => e.stopPropagation()}
                                   className="min-w-0 truncate font-medium text-foreground hover:text-primary hover:underline"
                                   title={fullName}
@@ -1846,8 +2023,39 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                             />
                           </div>
                                   );
-                                case "assign":
+                                case "fit":
                                   return (
+<div className="flex">
+                            <FitScoreCell
+                              candidateId={candidate.id}
+                              score={matchScores.scores[String(candidate.id)]}
+                              failure={matchScores.failures[String(candidate.id)]}
+                              answered={Boolean(matchScores.breakdowns[String(candidate.id)])}
+                              onVisible={matchScores.onRowVisible}
+                              onRetry={matchScores.retry}
+                            />
+                          </div>
+                                  );
+                                case "assign":
+                                  return embed ? (
+<div className="flex">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-8 gap-1 border-primary/40 bg-primary/5 px-2 text-primary hover:bg-primary hover:text-primary-foreground"
+                              disabled={embed.readOnly || addingIds.has(candidate.id)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                void addToEmbedJob([candidate.id]);
+                              }}
+                              aria-label={`Dodaj ${fullName} do Nowych`}
+                              title={`Dodaj do „Nowych” w „${embed.jobTitle}”`}
+                            >
+                              <UserPlus className="h-3.5 w-3.5" aria-hidden />
+                              {addingIds.has(candidate.id) ? "Dodaję…" : "Dodaj"}
+                            </Button>
+                          </div>
+                                  ) : (
 <div className="flex">
                             <Button
                               size="sm"
@@ -1980,6 +2188,31 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
         </div>
       </div>
 
+      {embed ? (
+        selectedIds.size > 0 ? (
+          <div
+            role="region"
+            aria-label="Akcje zaznaczonych kandydatów"
+            className="sticky bottom-0 z-30 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 shadow-md"
+          >
+            <span className="text-sm">
+              <span className="font-semibold">{selectedIds.size}</span> zaznaczonych
+            </span>
+            <Button
+              size="sm"
+              variant="primary"
+              className="ml-auto"
+              disabled={embed.readOnly || addingIds.size > 0}
+              onClick={() => void addToEmbedJob(Array.from(selectedIds))}
+            >
+              <UserPlus className="h-3.5 w-3.5" aria-hidden /> Dodaj {selectedIds.size} do Nowych
+            </Button>
+            <Button size="sm" variant="ghost" onClick={clearSelection}>
+              Wyczyść
+            </Button>
+          </div>
+        ) : null
+      ) : (
       <CandidateBulkBar
         count={selectedIds.size}
         onAddToRecruitment={() => setShowBulkRecruitment(true)}
@@ -1995,6 +2228,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
         onExportSelected={canExport ? () => void doExport("csv", "selected") : undefined}
         onClear={clearSelection}
       />
+      )}
 
       <AddToRecruitmentDialog
         open={showBulkRecruitment}
@@ -2074,7 +2308,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                 detailPosition <= 0
                   ? undefined
                   : {
-                      filters: filtersSnapshot,
+                      filters: queryFilters,
                       position: detailPosition,
                       pageItems: items.map((c) => ({
                         id: c.id,

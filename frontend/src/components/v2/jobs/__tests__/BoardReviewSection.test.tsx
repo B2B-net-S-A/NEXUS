@@ -145,4 +145,33 @@ describe("Tablica — kolumna „Do przejrzenia”", () => {
     expect(screen.getByTestId("board-review-count")).toHaveTextContent("14+");
     expect(screen.getByRole("link", { name: "Przejrzyj wszystkich 14+ →" })).toBeInTheDocument();
   });
+
+  it("pasek przepięć w „Nowych” tylko otwiera panel i milczy przy zerze", () => {
+    const onOpen = vi.fn();
+    const { rerender } = render(
+      <BoardReviewSection
+        jobId={5}
+        readOnly={false}
+        compact
+        onOpenPanel={vi.fn()}
+        similarReassign={{ count: 5, clientName: "PKO BP", onOpen }}
+      />,
+    );
+    const bar = screen.getByTestId("board-similar-reassign");
+    expect(bar).toHaveTextContent("5 osób wysłanych do PKO BP w podobnych rekrutacjach");
+    fireEvent.click(bar);
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    expect(addToJob).not.toHaveBeenCalled();
+
+    rerender(
+      <BoardReviewSection
+        jobId={5}
+        readOnly={false}
+        compact
+        onOpenPanel={vi.fn()}
+        similarReassign={{ count: 0, clientName: "PKO BP", onOpen }}
+      />,
+    );
+    expect(screen.queryByTestId("board-similar-reassign")).not.toBeInTheDocument();
+  });
 });

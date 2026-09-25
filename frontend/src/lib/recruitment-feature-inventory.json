@@ -304,10 +304,9 @@
    "id": "src.portals",
    "area": "pozyskiwanie",
    "opis": "Portale ogłoszeniowe",
-   "file": "components/v2/recruitment/PostingsSection.tsx",
-   "marker": "PostingsSection",
-   "v3_home": "Zlecenie (okno) → portale",
-   "removed_reason": "Symulacja multipostingu (dane SIM-…) usunięta 23.09.2026 — wprowadzała w błąd; prawdziwe portale (Pracuj.pl, JustJoinIT) przyjdą w PR2 za flagą."
+   "file": "components/v2/recruitment/JobPortalsSection.tsx",
+   "marker": "JobPortalsSection",
+   "v3_home": "Zlecenie (okno) → Portale ogłoszeniowe (RocketJobs, JustJoin.IT, Pracuj.pl — za flagami; symulacja SIM-… usunięta 23.09.2026)"
   },
   {
    "id": "src.recommended",
@@ -697,10 +696,10 @@
   {
    "id": "header.similar-jobs",
    "area": "naglowek",
-   "opis": "Okno „Podobne rekrutacje”: sugestie, dodanie własnej, połącz i przepnij osoby wysłane do klienta",
+   "opis": "Panel „Podobne rekrutacje”: sugestie, dodanie własnej, osoby wysłane do klienta i przepięcie ich do Nowych jednym kliknięciem",
    "file": "app/jobs/[id]/page.tsx",
-   "marker": "SimilarJobsDialog",
-   "v3_home": "nagłówek → Podobne rekrutacje"
+   "marker": "SimilarJobsPanel",
+   "v3_home": "nagłówek → Podobne rekrutacje (?win=similar)"
   },
   {
    "id": "header.champion-found",

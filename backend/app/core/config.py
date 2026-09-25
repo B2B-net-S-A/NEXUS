@@ -1384,18 +1384,35 @@ class Settings(BaseSettings):
     # Nie loguje sekretu; przy złym formacie nie wywraca startu (log + no-op).
     COMPASS_INTEGRATION_BOOTSTRAP_KEY: str = ""
 
-    # ── Multiposting (0360): Pracuj.pl i JustJoinIT ─────────────────────────
-    # Szkielet bez dokumentacji API portali: flagi OFF = portal niewidoczny
-    # w UI, publikacja 409, worker kończy się przed pętlą. Włączona flaga bez
-    # adresu i klucza = `checks.job_portals: misconfigured`.
+    # ── Multiposting (0360/0381): Pracuj.pl, JustJoin.IT, RocketJobs ────────
+    # Flagi OFF = portal niewidoczny w UI, publikacja 409, worker kończy się
+    # przed pętlą. Pracuj.pl czeka na dokumentację API (adres + klucz).
     PORTAL_PRACUJ_ENABLED: bool = False
     PORTAL_PRACUJ_API_URL: str = ""
     PORTAL_PRACUJ_API_KEY: str = ""
+    # 0381: JustJoin.IT i RocketJobs to jedno Employer Public API (1EP,
+    # `integrations.rocketjobs.com/docs/1ep`) — dwie flagi (dwa portale dla
+    # rekrutera), jeden adres, jedna aplikacja OAuth i jedno połączone konto
+    # firmy (`job_board_connections`). Portal jest „ready” dopiero przy
+    # fladze + client_id/secret/redirect_uri + aktywnym połączeniu.
     PORTAL_JJIT_ENABLED: bool = False
-    PORTAL_JJIT_API_URL: str = ""
-    PORTAL_JJIT_API_KEY: str = ""
+    PORTAL_ROCKETJOBS_ENABLED: bool = False
+    PORTAL_JJIT_API_URL: str = "https://jobboardcore-external.justjoin.it/external-api"
+    JJIT_OAUTH_CLIENT_ID: str = ""
+    JJIT_OAUTH_CLIENT_SECRET: str = ""
+    # Adres zarejestrowany u dostawcy — na hoście API, jak M365:
+    # https://api.nexus.dynaminds.pl/api/job-boards/jjit/callback
+    JJIT_OAUTH_REDIRECT_URI: str = ""
+    JJIT_OAUTH_SCOPE: str = "profile offline_access"
+    # Nadpisanie jednostki organizacyjnej odczytanej z `/oauth/me` (gdy konto
+    # ma kilka jednostek albo claim nie przychodzi).
+    PORTAL_JJIT_ORGANIZATION_UNIT_ID: str = ""
+    PORTAL_ROCKETJOBS_ORGANIZATION_UNIT_ID: str = ""
+    PORTAL_JJIT_HTTP_TIMEOUT_SECONDS: float = 30.0
     JOB_PORTAL_WORKER_INTERVAL_SECONDS: int = 60
     JOB_PORTAL_MAX_ATTEMPTS: int = 5
+    # Co ile godzin worker sprawdza stan żywych ogłoszeń (wygasłe/usunięte).
+    JOB_PORTAL_STATUS_SYNC_HOURS: int = 6
 
     TRAFFIT_SYNC_ENABLED: bool = False
     # Skutki uboczne dla etapów przychodzących z importu.

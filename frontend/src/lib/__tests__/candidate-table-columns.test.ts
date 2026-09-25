@@ -42,3 +42,13 @@ describe("kolumny tabeli kandydatów", () => {
     expect(layout.minWidth).toBe(32 + 168 + 150 + 132 + 72 + 88 + 112 + 52 + 104 + 8 * 12 + 32);
   });
 });
+
+describe("„Szukaj ręcznie” z rekrutacji", () => {
+  it("ma kolumnę dopasowania, a telefon domyślnie schowany — tabela mieści się w oknie", () => {
+    const forJob = visibleCandidateColumns(null, { forJob: true }).map((c) => c.id);
+    expect(forJob).toContain("fit");
+    expect(forJob).not.toContain("phone");
+    expect(ids(null)).not.toContain("fit");
+    expect(candidateGridLayout(visibleCandidateColumns(null, { forJob: true })).minWidth).toBeLessThanOrEqual(1040);
+  });
+});

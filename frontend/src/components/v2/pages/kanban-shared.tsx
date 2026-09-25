@@ -118,6 +118,8 @@ export interface KanbanItem {
   | null;
  reassign_from_job_id?: number | null;
  reassign_from_title?: string | null;
+ /** Numer rekrutacji źródłowej („ZOB-1725”) — odznaka „↻ z …”. */
+ reassign_from_reference?: string | null;
  // Blokada 12 h w „Nowych" (tylko aktywna) i czy patrzący może „Biorę/Przejmij".
  claim_user_id?: number | null;
  claim_user_name?: string | null;

@@ -28,9 +28,9 @@ import re
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Iterable, Optional, Sequence
+from typing import Any, Iterable, Mapping, Optional, Sequence
 
-from sqlalchemy import and_, case, exists, func, or_, select
+from sqlalchemy import and_, case, exists, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
@@ -181,14 +181,28 @@ def similarity_score(
     b_skills: frozenset[str],
     b_title: frozenset[str],
     b_cc: Optional[int],
+    *,
+    a_client: Optional[int] = None,
+    b_client: Optional[int] = None,
 ) -> int:
-    """0–100. Bez must-have po którejś stronie liczy tytuł i kategorię."""
+    """0–100. Bez must-have po którejś stronie liczy tytuł i kategorię.
+
+    Ten sam klient waży tyle, co ta sama kategoria kompetencji (bierzemy
+    lepsze z dwóch, nie sumę — klient i kategoria bez wspólnego tytułu nie
+    przechodzą progu). Do 25.09.2026 klient nie wchodził do miary wcale:
+    „Analityk Systemowy AI/LLM (ZOB-3006)" (kategoria Infra) i „PKO BP:
+    Analityk Systemowy / ZOB-1725" (kategoria PM & BA) tego samego klienta
+    dostawały 30 pkt przy progu 55, a to z tamtej rekrutacji są osoby,
+    które klient już zna.
+    """
     title = _jaccard(a_title, b_title)
-    same_cc = 1.0 if a_cc is not None and a_cc == b_cc else 0.0
+    same_cc = a_cc is not None and a_cc == b_cc
+    same_client = a_client is not None and a_client == b_client
+    context = 1.0 if same_cc or same_client else 0.0
     if a_skills and b_skills:
-        score = 0.55 * _jaccard(a_skills, b_skills) + 0.30 * title + 0.15 * same_cc
+        score = 0.55 * _jaccard(a_skills, b_skills) + 0.30 * title + 0.15 * context
     else:
-        score = 0.70 * title + 0.30 * same_cc
+        score = 0.70 * title + 0.30 * context
     return round(score * 100)
 
 
@@ -278,6 +292,8 @@ def _rank(pool: _Pool, ref: PoolJob, exclude: set[int]) -> list[tuple[int, int]]
             other.skills,
             other.tokens,
             other.competence_category_id,
+            a_client=ref.client_id,
+            b_client=other.client_id,
         )
         if score >= MIN_SCORE:
             scored.append((job_id, score))
@@ -338,6 +354,50 @@ async def sent_counts(db: AsyncSession, job_ids: Iterable[int]) -> dict[int, int
         )
     ).all()
     return {job_id: int(n) for job_id, n in rows}
+
+
+async def reassignable_counts(
+    db: AsyncSession, target_job_id: int, source_job_ids: Iterable[int]
+) -> tuple[dict[int, int], int]:
+    """Ile osób z każdej rekrutacji źródłowej DA SIĘ przepiąć do celu
+    i ile to różnych osób łącznie.
+
+    Ta sama reguła co ``selectable`` w :func:`sent_people`: wiersz
+    w ``REASSIGN_STAGES``, bez zatrudnienia w źródle i bez żadnego wiersza
+    w celu. Na tej liczbie stoją odznaka w nagłówku, pasek w „Nowych”
+    i „Najbliższy krok” — suma ``sent_count`` liczyła też zatrudnionych
+    i obecnych, więc krok potrafił wisieć bez nikogo do przepięcia.
+    """
+    sources = [sid for sid in set(source_job_ids) if sid != target_job_id]
+    if not sources:
+        return {}, 0
+    hired = aliased(CandidateStage)
+    in_target = aliased(CandidateStage)
+    rows = (
+        await db.execute(
+            select(CandidateStage.job_id, CandidateStage.candidate_id)
+            .distinct()
+            .where(
+                CandidateStage.job_id.in_(sources),
+                CandidateStage.stage.in_(REASSIGN_STAGES),
+                ~exists().where(
+                    hired.candidate_id == CandidateStage.candidate_id,
+                    hired.job_id == CandidateStage.job_id,
+                    hired.stage == PipelineStage.hired,
+                ),
+                ~exists().where(
+                    in_target.candidate_id == CandidateStage.candidate_id,
+                    in_target.job_id == target_job_id,
+                ),
+            )
+        )
+    ).all()
+    per_job: dict[int, int] = {}
+    people: set[int] = set()
+    for job_id, candidate_id in rows:
+        per_job[job_id] = per_job.get(job_id, 0) + 1
+        people.add(candidate_id)
+    return per_job, len(people)
 
 
 async def reassign_counts(db: AsyncSession, job_ids: Sequence[int]) -> dict[int, int]:
@@ -485,6 +545,176 @@ async def reassign_into(
     if not payload:
         return 0
     return await upsert_proposals(db, target_job_id, payload, source="reassign")
+
+
+_OUTCOME_ORDER = {
+    "in_progress": 0,
+    "rejected_by_client": 1,
+    "rejected": 2,
+    "withdrawn": 3,
+    "hired": 4,
+}
+
+
+async def sent_people(
+    db: AsyncSession, target_job_id: int, source_job_ids: Sequence[int]
+) -> dict[int, list[dict]]:
+    """Osoby wysłane do klienta w ``source_job_ids`` — do panelu przepięć.
+
+    Ta sama reguła „był u klienta" co :func:`reassign_into`: jakikolwiek
+    wiersz w ``REASSIGN_STAGES``. Zatrudnieni w źródle i osoby, które już są
+    w rekrutacji docelowej, wracają z ``selectable=False`` — panel ich
+    pokazuje, ale nie da się ich przepiąć (decyzja Artura 25.09.2026).
+
+    Wynik pamięta, jak skończył się tamten proces (``outcome``), bo odrzucony
+    przez klienta też jest zaznaczany i rekruter ma to widzieć przed kliknięciem.
+    """
+    from app.models.candidate import Candidate  # noqa: PLC0415
+
+    sources = [sid for sid in dict.fromkeys(source_job_ids) if sid != target_job_id]
+    if not sources:
+        return {}
+    reached = aliased(CandidateStage)
+    rows = (
+        await db.execute(
+            select(
+                CandidateStage.candidate_id,
+                CandidateStage.job_id,
+                CandidateStage.stage,
+                CandidateStage.moved_at,
+                CandidateStage.ended_by,
+                Candidate.name,
+                Candidate.lastname,
+            )
+            .join(Candidate, Candidate.id == CandidateStage.candidate_id)
+            .where(
+                CandidateStage.job_id.in_(sources),
+                exists().where(
+                    reached.candidate_id == CandidateStage.candidate_id,
+                    reached.job_id == CandidateStage.job_id,
+                    reached.stage.in_(REASSIGN_STAGES),
+                ),
+            )
+            .order_by(
+                CandidateStage.job_id,
+                CandidateStage.candidate_id,
+                CandidateStage.moved_at,
+                CandidateStage.id,
+            )
+        )
+    ).all()
+    candidate_ids = {row.candidate_id for row in rows}
+    in_target: set[int] = set()
+    if candidate_ids:
+        in_target = set(
+            (
+                await db.execute(
+                    select(CandidateStage.candidate_id).where(
+                        CandidateStage.job_id == target_job_id,
+                        CandidateStage.candidate_id.in_(list(candidate_ids)),
+                    )
+                )
+            ).scalars()
+        )
+
+    pairs: dict[tuple[int, int], list[Any]] = {}
+    for row in rows:
+        pairs.setdefault((row.job_id, row.candidate_id), []).append(row)
+
+    client_order = {stage: i for i, stage in enumerate(CLIENT_STAGES)}
+    out: dict[int, list[dict]] = {sid: [] for sid in sources}
+    for (job_id, candidate_id), history in pairs.items():
+        sent_rows = [r for r in history if r.stage in REASSIGN_STAGES]
+        hired = any(r.stage == PipelineStage.hired for r in history)
+        furthest = max(
+            (r.stage for r in history if r.stage in client_order),
+            key=lambda stage: client_order[stage],
+        )
+        latest = history[-1]
+        if hired:
+            outcome = "hired"
+        elif latest.stage == PipelineStage.rejected:
+            outcome = (
+                "rejected_by_client" if latest.ended_by == "client" else "rejected"
+            )
+        elif latest.stage == PipelineStage.withdrawn:
+            outcome = "withdrawn"
+        else:
+            outcome = "in_progress"
+        last_sent = sent_rows[-1]
+        already = candidate_id in in_target
+        out[job_id].append(
+            {
+                "candidate_id": candidate_id,
+                "name": f"{latest.name or ''} {latest.lastname or ''}".strip(),
+                "furthest_stage": furthest.value,
+                "sent_at": sent_rows[0].moved_at.date().isoformat()
+                if sent_rows[0].moved_at
+                else None,
+                "outcome": outcome,
+                "already_in_job": already,
+                "selectable": not hired and not already,
+                "reassign_stage": last_sent.stage.value,
+                "reassign_at": last_sent.moved_at,
+            }
+        )
+    for people in out.values():
+        people.sort(
+            key=lambda p: (
+                not p["selectable"],
+                _OUTCOME_ORDER.get(p["outcome"], 9),
+                p["sent_at"] or "",
+            )
+        )
+    return out
+
+
+async def propose_selected(
+    db: AsyncSession, target_job_id: int, people: Sequence[Mapping[str, Any]]
+) -> int:
+    """Przepięcie wskazane ręcznie: propozycja ``reassign`` z dowodem źródła,
+    w statusie ``proposed`` — także gdy wcześniej ją pominięto albo cel jest
+    zamknięty. Dzięki temu dodanie do pipeline'u zapisze wejście jako
+    „przepięcie" z rekrutacją źródłową (``proposals_bulk._reassign_sources``).
+    """
+    from app.models.job_proposal import JobProposal  # noqa: PLC0415
+    from app.services.job_proposals import upsert_proposals  # noqa: PLC0415
+
+    payload = [
+        {
+            "candidate_id": p["candidate_id"],
+            "evidence": _reassign_evidence(
+                p["source_job_id"],
+                PipelineStage(p["reassign_stage"]),
+                p.get("reassign_at"),
+            ),
+        }
+        for p in people
+    ]
+    if not payload:
+        return 0
+    written = await upsert_proposals(db, target_job_id, payload, source="reassign")
+    # Rekruter wybrał te osoby teraz — wcześniejsze „Pomiń" tej propozycji
+    # nie może zamienić przepięcia w zwykłe ręczne dodanie. `added` też:
+    # po „Cofnij” osoby nie ma w celu (wołający sprawdził `selectable`), a
+    # propozycja została `added` — bez tego ponowne przepięcie szło jako
+    # ręczne dodanie, bez rekrutacji źródłowej na karcie.
+    await db.execute(
+        update(JobProposal)
+        .where(
+            JobProposal.job_id == target_job_id,
+            JobProposal.source == "reassign",
+            JobProposal.candidate_id.in_([p["candidate_id"] for p in people]),
+            JobProposal.status.in_(("dismissed", "added")),
+        )
+        .values(
+            status="proposed",
+            dismissed_by=None,
+            dismissed_at=None,
+            dismissed_cv_revision=None,
+        )
+    )
+    return written
 
 
 async def link_jobs(
