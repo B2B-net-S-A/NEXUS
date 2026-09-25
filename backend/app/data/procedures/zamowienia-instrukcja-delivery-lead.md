@@ -824,9 +824,9 @@ numer wyszukiwany jest po etykiecie i działa też w trybie awaryjnym). Poznasz 
 po powodzie „Odczyt awaryjny (bez AI) — zweryfikuj wszystkie pola" w banerze.
 
 **W interfejsie przycisk „Zczytaj dane z dokumentu" jest dostępny administratorowi
-i Delivery Leadowi przypisanemu do tego klienta.** Nieprzypisany Delivery Lead
-widzi klienta i jego dane operacyjne, ale bez formularzy zawierających stawki
-i bez pliku źródłowego PO. Pozostałe role — w tym Finanse, Talent Community
+i Delivery Leadowi przypisanemu do tego klienta.** Od 25.09.2026 Delivery Lead
+widzi w Klientach, Kontraktach i Zamówieniach wyłącznie klientów, do których jest
+przypisany — zamówień innego klienta nie zobaczy wcale. Pozostałe role — w tym Finanse, Talent Community
 Manager i Head of Recruitment — nie wykonują tego odczytu.
 
 **Kwoty z odczytu widzi tylko administrator i przypisany Delivery Lead.** Liczba
