@@ -417,6 +417,7 @@ export function mergeProposals(input: MergeProposalsInput): ProposalEntry[] {
     if (detail.workTimeFit === "part_time_only" || detail.workTimeFit === "full_time_only") {
       warnings.push(detail.workTimeFit);
     }
+    if (detail.traineeHandover?.employment_only) warnings.push("employment_only");
     const handoverNote = detail.traineeHandover?.note?.trim() || null;
     entries.push({
       row: {
@@ -452,6 +453,10 @@ export const WORK_TIME_FIT_WARNING_PL: Partial<Record<WorkTimeFit, string>> = {
   part_time_only: "Szuka części etatu",
   full_time_only: "Tylko pełny etat",
 };
+
+/** Plakietka przekazania od praktykanta: osoba chce wyłącznie umowy o pracę
+ *  (decyzja 25.09.2026 — przekazanie przechodzi, rekruter ma to widzieć). */
+export const EMPLOYMENT_ONLY_WARNING_PL = "Tylko umowa o pracę";
 
 export function compareProposals(a: ProposalEntry, b: ProposalEntry): number {
   // Przepięcia (osoby już wysłane do klienta) zawsze na górze kolejki.

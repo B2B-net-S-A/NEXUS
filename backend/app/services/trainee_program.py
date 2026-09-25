@@ -807,6 +807,7 @@ async def handover(
             "Tej rekrutacji nie ma na liście pasujących otwartych rekrutacji.",
         )
     item = await _own_item(db, user, item_id)
+    candidate = await db.get(Candidate, item.candidate_id)
     statuses = set(
         (
             await db.scalars(
@@ -822,13 +823,20 @@ async def handover(
             status.HTTP_409_CONFLICT,
             "Ta osoba jest już dodana do tej rekrutacji.",
         )
+    trainee_evidence: dict[str, Any] = {"user_id": user.id, "note": note or ""}
+    # Decyzja Artura (runda 2 audytu 25.09.2026): osobę „tylko umowa o pracę”
+    # praktykant przekazuje dalej, ale rekruter widzi to na karcie propozycji
+    # — bramka `employment_only` chowa ją przed dopasowaniami, a przekazanie
+    # przechodziło bez słowa.
+    if candidate is not None and candidate.b2b_willingness == "employment_only":
+        trainee_evidence["employment_only"] = True
     await upsert_proposals(
         db,
         job_id,
         [
             {
                 "candidate_id": item.candidate_id,
-                "evidence": {"trainee": {"user_id": user.id, "note": note or ""}},
+                "evidence": {"trainee": trainee_evidence},
             }
         ],
         source="trainee",

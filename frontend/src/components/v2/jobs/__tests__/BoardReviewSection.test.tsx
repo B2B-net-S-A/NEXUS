@@ -91,6 +91,14 @@ describe("Tablica — kolumna „Do przejrzenia”", () => {
     expect(addToJob).toHaveBeenCalledWith([1], { initialStageLegacy: "new" });
   });
 
+  it("osoba „tylko umowa o pracę” od praktykanta ma plakietkę ostrzeżenia", () => {
+    const flagged = entry(3, ["trainee"], "Od praktykanta: Ola");
+    flagged.row.warnings = ["employment_only"] as never[];
+    entries = [flagged, entry(4, ["trainee"], "Od praktykanta: Ola")];
+    render(<BoardReviewSection jobId={5} readOnly={false} />);
+    expect(screen.getAllByText("Tylko umowa o pracę")).toHaveLength(1);
+  });
+
   it("✕ pomija, a nadmiar prowadzi do pełnej listy", () => {
     render(<BoardReviewSection jobId={5} readOnly={false} />);
     fireEvent.click(screen.getByRole("button", { name: "Pomiń Osoba 2" }));

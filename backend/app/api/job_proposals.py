@@ -139,6 +139,8 @@ async def _trainee_handovers(db, job_id: int, candidate_ids: list[int]) -> dict:
             "by_name": names.get(value.get("user_id")),
             "note": value.get("note"),
             "at": seen.isoformat() if seen else None,
+            # Kandydat deklaruje wyłącznie umowę o pracę — ostrzeżenie, nie blokada.
+            "employment_only": bool(value.get("employment_only")),
         }
         for cid, (value, seen) in info.items()
     }
