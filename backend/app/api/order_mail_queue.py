@@ -41,6 +41,7 @@ from app.models.client_order_group import (
 from app.models.order_mail import (
     OUTCOME_APPLIED,
     OUTCOME_DISMISSED,
+    OUTCOME_FAILED,
     OUTCOME_NEEDS_REVIEW,
     OUTCOME_UNRECOGNIZED,
     OUTCOMES,
@@ -59,7 +60,7 @@ from app.services.order_mail_ingest import (
     sync_snapshot,
 )
 from app.services.order_mail_planner import DECIDE_PERSON_ORDER_TYPES, titles_collide
-from app.services.order_mail_recheck import read_recheck_state
+from app.services.order_mail_recheck import failed_retry_pending, read_recheck_state
 from app.services.order_mail_recheck_reasons import recheck_window
 from app.services.order_pdf_parser import polish_gate_reason
 
@@ -287,6 +288,7 @@ async def _serialize(db: AsyncSession, doc: OrderMailDocument, user) -> Dict[str
         if doc.client_id
         else None
     )
+    file_exists = _attachment_exists(doc)
     return {
         "id": doc.id,
         "received_at": doc.received_at.isoformat() if doc.received_at else None,
@@ -334,14 +336,24 @@ async def _serialize(db: AsyncSession, doc: OrderMailDocument, user) -> Dict[str
         "can_dismiss": can_finance and doc.outcome in _DISMISSABLE_OUTCOMES,
         # Plik, którego nie ma na dysku (retencja, przeniesiony wolumen), nie
         # może pokazywać przycisku PDF ani „Przelicz plan" (audyt 24.09, N1).
-        "has_file": not read_only_tcm and _attachment_exists(doc),
+        "has_file": not read_only_tcm and file_exists,
+        # Czy wpis „Nieudane” system jeszcze ponowi sam — ta sama reguła co
+        # wybór wpisów do ponowienia (``order_mail_recheck``). Bez tego kolejka
+        # obiecywała ponowienia wpisom bez pliku i starszym niż 7 dni.
+        "failed_retry_pending": failed_retry_pending(
+            doc, now=datetime.now(timezone.utc), has_file=file_exists
+        ),
     }
 
 
 #: Stany, z których dokument można odrzucić. „Nierozpoznane" też: bez tego
 #: dokument bez rozpoznanego klienta wisiał w kolejce na zawsze (audyt 24.09,
 #: N2). Bez klienta nie ma przypisanego Delivery Leada, więc odrzuca admin.
-_DISMISSABLE_OUTCOMES = (OUTCOME_NEEDS_REVIEW, OUTCOME_UNRECOGNIZED)
+#: „Nieudane” też (runda 2 audytu 25.09.2026): wpis bez ponowień (bez pliku,
+#: starszy niż 7 dni, po 3 próbach) operator wprowadza ręcznie w oknie
+#: zamówienia i zdejmuje z listy — inaczej zakładka rosłaby bez końca.
+#: Odrzucenie kończy też ponowienia (te biorą wyłącznie ``failed``).
+_DISMISSABLE_OUTCOMES = (OUTCOME_NEEDS_REVIEW, OUTCOME_UNRECOGNIZED, OUTCOME_FAILED)
 
 _FILE_MISSING = "Plik zamówienia nie istnieje na dysku — pobierz go ponownie z maila"
 

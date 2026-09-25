@@ -59,14 +59,29 @@ const TABS: Array<{ outcome: OrderMailOutcome; label: string }> = [
   { outcome: "failed", label: "Nieudane" },
 ];
 
-/** Zdanie o automatycznych ponowieniach wpisu „Nieudane” (licznik z serwera). */
-export function failedRetryNote(meta: Record<string, unknown> | null): string {
-  const retry = (meta?.failed_retry ?? null) as { attempts?: number } | null;
+const FAILED_MANUAL_NOTE =
+  "Nie będzie ponawiany — wprowadź zamówienie ręcznie w oknie zamówienia klienta i odrzuć wpis.";
+
+/**
+ * Zdanie o automatycznych ponowieniach wpisu „Nieudane”.
+ *
+ * „System ponawia sam” tylko wtedy, gdy serwer tak liczy (`failed_retry_pending`:
+ * plik jest, wpis młodszy niż 7 dni, mniej niż 3 próby). Do rundy 2 audytu
+ * 25.09.2026 zdanie obiecywało ponowienia także wpisom bez pliku i starszym
+ * niż 7 dni, których system nigdy już nie weźmie.
+ */
+export function failedRetryNote(
+  doc: Pick<OrderMailDocument, "document_meta" | "failed_retry_pending">,
+): string {
+  const retry = (doc.document_meta?.failed_retry ?? null) as { attempts?: number } | null;
   const attempts = Number(retry?.attempts ?? 0);
-  if (attempts >= 3) {
-    return "System próbował przetworzyć ten dokument ponownie 3 razy bez skutku — wprowadź zamówienie ręcznie w oknie zamówienia klienta.";
+  if (doc.failed_retry_pending === true) {
+    return `Przetwarzanie nie powiodło się. System ponawia je sam z zapisanego PDF-a (próba ${attempts} z 3, przez 7 dni od nadejścia maila).`;
   }
-  return `Przetwarzanie nie powiodło się. System ponawia je sam z zapisanego PDF-a (próba ${attempts} z 3, przez 7 dni od nadejścia maila).`;
+  if (attempts >= 3) {
+    return `System próbował przetworzyć ten dokument ponownie 3 razy bez skutku. ${FAILED_MANUAL_NOTE}`;
+  }
+  return FAILED_MANUAL_NOTE;
 }
 
 function period(a: string | null, b: string | null): string {
@@ -770,8 +785,17 @@ function Detail({ doc, onApply, onDismiss, onRefreshPlan, busy, applyError }: { 
       {applyError && <div className="mt-3 text-sm text-destructive">{applyError}</div>}
       {doc.outcome === "failed" && (
         <p role="status" className="mt-3 text-sm text-muted-foreground" data-testid="failed-retry-note">
-          {failedRetryNote(doc.document_meta)}
+          {failedRetryNote(doc)}
         </p>
+      )}
+      {doc.outcome === "failed" && canDismiss(doc) && (
+        // Wpis „Nieudane” wprowadzony ręcznie w oknie zamówienia trzeba dać się
+        // zdjąć z listy — do rundy 2 audytu 25.09.2026 zakładka tylko rosła.
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Button variant="outline" onClick={onDismiss} disabled={busy}>
+            <X className="mr-1 h-4 w-4" /> Odrzuć
+          </Button>
+        </div>
       )}
 
       {personDecision && doc.outcome === "needs_review" && (
