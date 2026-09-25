@@ -377,3 +377,125 @@ describe("NewJobPage", () => {
     });
   });
 });
+
+describe("NewJobPage — ogłoszenie na portalach", () => {
+  const CONFIG = {
+    any_ready: true,
+    portals: [
+      { portal: "rocketjobs", label: "RocketJobs", state: "ready", enabled: true },
+      { portal: "justjoinit", label: "JustJoin.IT", state: "not_connected", enabled: true },
+    ],
+  };
+  const DICTIONARY = {
+    categories: [{ key: "java", name: "Java" }],
+    experience_levels: [],
+    working_times: [],
+    workplace_types: [],
+  };
+
+  function withPortals() {
+    mocks.get.mockImplementation((url: string) => {
+      if (url === "/api/users") return Promise.resolve({ data: [{ id: 31, name: "Rekruterka Ola" }] });
+      if (url === "/api/job-portals/config") return Promise.resolve({ data: CONFIG });
+      if (url === "/api/job-boards/rocketjobs/dictionaries") return Promise.resolve({ data: DICTIONARY });
+      return Promise.resolve({ data: {} });
+    });
+  }
+
+  async function readWithPortals(extra: (url: string) => Promise<unknown> | null = () => null) {
+    withPortals();
+    await readRequest();
+    const base = mocks.post.getMockImplementation()!;
+    mocks.post.mockImplementation((url: string, ...rest: unknown[]) => {
+      if (url === "/api/job-intake/public-draft") {
+        return Promise.resolve({
+          data: {
+            public_title: "Senior Java Developer",
+            subtitle: "Płatności",
+            about: "Migracja na mikroserwisy.",
+            findings: [{ code: "money", message: "Kwota w opisie.", excerpt: "170 zł/h" }],
+          },
+        });
+      }
+      return extra(url) ?? base(url, ...rest);
+    });
+    await screen.findByRole("option", { name: "Rekruterka Ola" });
+    fireEvent.change(screen.getByLabelText("Rekruter prowadzący"), { target: { value: "31" } });
+  }
+
+  it("bez gotowego portalu sekcji nie ma", async () => {
+    await readRequest();
+    expect(screen.queryByText("Ogłoszenie na portalach")).toBeNull();
+  });
+
+  it("zaznaczony portal blokuje „Utwórz” do przygotowania i uzupełnienia ogłoszenia", async () => {
+    await readWithPortals();
+    expect(await screen.findByText("Ogłoszenie na portalach")).toBeInTheDocument();
+    // Tylko gotowe portale.
+    expect(screen.queryByRole("checkbox", { name: "JustJoin.IT" })).toBeNull();
+    const create = screen.getByRole("button", { name: "Utwórz i przekaż do searchu" });
+    expect(create).toBeEnabled();
+    fireEvent.click(screen.getByRole("checkbox", { name: "RocketJobs" }));
+    expect(create).toBeDisabled();
+    expect(create).toHaveAttribute("title", expect.stringContaining("Przygotuj ogłoszenie"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Przygotuj ogłoszenie" }));
+    expect(await screen.findByDisplayValue("Migracja na mikroserwisy.")).toBeInTheDocument();
+    expect(screen.getByText("Kwota w opisie.")).toBeInTheDocument();
+    const draftCall = mocks.post.mock.calls.find(([url]) => url === "/api/job-intake/public-draft");
+    expect(draftCall?.[1]).toMatchObject({ client_id: 7, location: "Warszawa", remote_policy: "hybrid" });
+    // Miasto i tryb z pól rekrutacji, kategoria jeszcze pusta.
+    expect(screen.getByLabelText("Miasto")).toHaveValue("Warszawa");
+    expect(create).toBeDisabled();
+    fireEvent.change(await screen.findByLabelText("Kategoria"), { target: { value: "java" } });
+    fireEvent.change(screen.getByLabelText("Poziom doświadczenia"), { target: { value: "senior" } });
+    expect(create).toBeEnabled();
+  });
+
+  it("po publikacji rekrutacji: opis → zatwierdzenie → link → portal", async () => {
+    await readWithPortals();
+    fireEvent.click(await screen.findByRole("checkbox", { name: "RocketJobs" }));
+    fireEvent.click(screen.getByRole("button", { name: "Przygotuj ogłoszenie" }));
+    fireEvent.change(await screen.findByLabelText("Kategoria"), { target: { value: "java" } });
+    fireEvent.change(screen.getByLabelText("Poziom doświadczenia"), { target: { value: "senior" } });
+    fireEvent.click(screen.getByRole("button", { name: "Utwórz i przekaż do searchu" }));
+
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/jobs/900"));
+    const urls = mocks.post.mock.calls.map(([url]) => url);
+    const order = [
+      "/api/jobs/900/publish",
+      "/api/jobs/900/public-profile/approve",
+      "/api/invite-links",
+      "/api/jobs/900/portals/rocketjobs/publish",
+    ].map((u) => urls.indexOf(u));
+    expect(order.every((i) => i >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    expect(mocks.put).toHaveBeenCalledWith("/api/jobs/900/public-profile", {
+      public_title: "Senior Java Developer",
+      subtitle: "Płatności",
+      about: "Migracja na mikroserwisy.",
+    });
+    const publish = mocks.post.mock.calls.find(([url]) => url === "/api/jobs/900/portals/rocketjobs/publish");
+    expect(publish?.[1]).toEqual({
+      options: expect.objectContaining({ category: "java", city: "Warszawa", workplace_type: "hybrid", office_days: 2, salary: null }),
+    });
+    expect(mocks.showSuccess).toHaveBeenCalledWith(expect.stringContaining("Ogłoszenie w kolejce: RocketJobs"));
+  });
+
+  it("awaria portalu po utworzeniu: toast i okno zlecenia, rekrutacja zostaje", async () => {
+    await readWithPortals((url) =>
+      url === "/api/jobs/900/portals/rocketjobs/publish"
+        ? Promise.reject({ response: { status: 409, data: { detail: "Konto portalu niepołączone." } } })
+        : null,
+    );
+    fireEvent.click(await screen.findByRole("checkbox", { name: "RocketJobs" }));
+    fireEvent.click(screen.getByRole("button", { name: "Przygotuj ogłoszenie" }));
+    fireEvent.change(await screen.findByLabelText("Kategoria"), { target: { value: "java" } });
+    fireEvent.change(screen.getByLabelText("Poziom doświadczenia"), { target: { value: "senior" } });
+    fireEvent.click(screen.getByRole("button", { name: "Utwórz i przekaż do searchu" }));
+
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/jobs/900?tab=portals"));
+    expect(mocks.showError).toHaveBeenCalledWith(expect.stringContaining("Konto portalu niepołączone."));
+    expect(mocks.showSuccess).not.toHaveBeenCalled();
+  });
+});

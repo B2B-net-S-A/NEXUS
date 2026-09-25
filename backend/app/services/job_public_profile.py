@@ -516,6 +516,16 @@ def _parse_draft(text: str) -> dict[str, str]:
 
 async def generate_draft(db: AsyncSession, job: Job, *, user_id: int) -> dict[str, str]:
     """Szkic AI (NIE zapisywany). Rzuca ``PublicDraftUnavailable``."""
+    profile = await db.get(JobPublicProfile, job.id)
+    _default, title = await public_titles(db, job, profile)
+    return await _draft_from_material(
+        db, draft_material(job, title), user_id=user_id, log_ref=f"job={job.id}"
+    )
+
+
+async def _draft_from_material(
+    db: AsyncSession, material: dict[str, str], *, user_id: int, log_ref: str
+) -> dict[str, str]:
     from fastapi.concurrency import run_in_threadpool
 
     from app.models.ai_feature import AIFeatureKey
@@ -527,9 +537,7 @@ async def generate_draft(db: AsyncSession, job: Job, *, user_id: int) -> dict[st
     chain = model_chain_for(AIFeatureKey.job_public_description)
     if not api_key_configured(chain[0]):
         raise PublicDraftUnavailable("Brak klucza dostawcy AI.")
-    profile = await db.get(JobPublicProfile, job.id)
-    _default, title = await public_titles(db, job, profile)
-    prompt = _DRAFT_PROMPT.format(**draft_material(job, title))
+    prompt = _DRAFT_PROMPT.format(**material)
     async with ai_feature(db, AIFeatureKey.job_public_description, user_id=user_id):
         await db.commit()
         try:
@@ -544,6 +552,40 @@ async def generate_draft(db: AsyncSession, job: Job, *, user_id: int) -> dict[st
             return _parse_draft(text_of(message))
         except Exception as exc:  # noqa: BLE001 — każda awaria = 503
             logger.warning(
-                "[career] public draft failed job=%s: %s", job.id, type(exc).__name__
+                "[career] public draft failed %s: %s", log_ref, type(exc).__name__
             )
             raise PublicDraftUnavailable("Nie udało się wygenerować szkicu.") from exc
+
+
+async def draft_for_request(
+    db: AsyncSession, request_job: Any, *, user_id: int
+) -> dict[str, Any]:
+    """Szkic ogłoszenia PRZED zapisem rekrutacji (ekran ``/jobs/new``).
+
+    ``request_job`` to obiekt z atrybutami rekrutacji (wzór Talent Radar:
+    ``SimpleNamespace``) — nic nie trafia do bazy. Zwraca tytuł publiczny,
+    szkic i uwagi kontroli; zatwierdza dopiero ``/public-profile/approve``
+    po utworzeniu rekrutacji (serwer sprawdza treść jeszcze raz).
+    """
+    names = await _client_names(db, request_job.client_id)
+    title = default_public_title(request_job.title, names)
+    draft = await _draft_from_material(
+        db, draft_material(request_job, title), user_id=user_id, log_ref="job=new"
+    )
+    payload = public_job_payload(
+        request_job,
+        title=title,
+        link_slug=None,
+        subtitle=draft["subtitle"],
+        about=draft["about"],
+        sections=None,
+    )
+    findings = lint_public_texts(
+        _payload_texts(payload), client_names=names, person_names=[]
+    )
+    return {
+        "public_title": title,
+        "subtitle": draft["subtitle"],
+        "about": draft["about"],
+        "findings": [f.as_dict() for f in findings],
+    }

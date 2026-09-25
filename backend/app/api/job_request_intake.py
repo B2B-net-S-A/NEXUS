@@ -11,7 +11,7 @@ powierzchnia nie ma własnych reguł uprawnień do rekrutacji.
 import logging
 import os
 import tempfile
-from typing import Annotated
+from typing import Annotated, Any, Literal, Optional
 
 import anthropic
 from fastapi.concurrency import run_in_threadpool
@@ -123,3 +123,63 @@ async def read_request_file(
         )
     text = text[: intake.MAX_REQUEST_CHARS]
     return {"text": text, "intake": await _read(db, current_user.id, client_id, text)}
+
+
+class PublicDraftRequest(BaseModel):
+    """Pola rekrutacji z ekranu ``/jobs/new`` — przed zapisem rekrutacji."""
+
+    title: str = Field(..., min_length=1, max_length=255)
+    client_id: Optional[int] = Field(default=None, gt=0)
+    description: Optional[str] = Field(
+        default=None, max_length=intake.MAX_REQUEST_CHARS
+    )
+    must_skills: list[str] = Field(default_factory=list, max_length=40)
+    nice_skills: list[str] = Field(default_factory=list, max_length=40)
+    location: Optional[str] = Field(default=None, max_length=255)
+    remote_policy: Optional[Literal["onsite", "hybrid", "remote"]] = None
+    onsite_days_per_week: Optional[int] = Field(default=None, ge=0, le=5)
+    champion_profile: Optional[dict[str, Any]] = None
+
+
+@router.post("/public-draft")
+@limiter.limit("20/minute", key_func=user_or_ip_key)
+async def public_draft(
+    request: Request,
+    body: PublicDraftRequest,
+    current_user: DeliveryLeadPlus,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Szkic ogłoszenia na portale (0381) — tytuł bez klienta, opis, uwagi kontroli.
+
+    Nic nie zapisuje. Publikacja idzie po utworzeniu rekrutacji zwykłą
+    ścieżką strony kariery (zapis opisu → zatwierdzenie → link → portal).
+    """
+    from types import SimpleNamespace
+
+    from app.models.job import RecruitmentType, RemotePolicy
+    from app.services.job_public_profile import (
+        PublicDraftUnavailable,
+        draft_for_request,
+    )
+
+    if body.client_id is not None:
+        await _assert_client(db, body.client_id)
+    request_job = SimpleNamespace(
+        id=None,
+        title=body.title,
+        client_id=body.client_id,
+        description=body.description,
+        requirements=None,
+        must_skills=[s for s in body.must_skills if s.strip()],
+        nice_skills=[s for s in body.nice_skills if s.strip()],
+        location=body.location,
+        remote_policy=RemotePolicy(body.remote_policy) if body.remote_policy else None,
+        onsite_days_per_week=body.onsite_days_per_week,
+        seniority=None,
+        recruitment_type=RecruitmentType.body_leasing,
+        champion_profile=body.champion_profile or {},
+    )
+    try:
+        return await draft_for_request(db, request_job, user_id=current_user.id)
+    except PublicDraftUnavailable as exc:
+        raise HTTPException(503, str(exc)) from exc

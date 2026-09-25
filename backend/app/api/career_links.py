@@ -494,6 +494,10 @@ async def approve_public_profile(
         profile.subtitle, profile.about, profile.sections, effective_title
     )
     profile.updated_by = current_user.id
+    # 0381: nowa zatwierdzona treść → aktualizacja żywych ogłoszeń na portalach.
+    from app.services.job_portals.service import queue_content_update
+
+    await queue_content_update(db, job_id)
     await db.commit()
     await db.refresh(profile)
     return await _profile_response(db, current_user, job, profile)

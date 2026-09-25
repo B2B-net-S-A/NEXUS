@@ -21,6 +21,10 @@ from sqlalchemy import (
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
+from app.services.job_portals.service import (
+    close_live_postings,
+    has_live_postings,
+)
 from app.core.cache import cache_invalidate
 from app.core.database import get_db
 from app.core.scheduling import business_today
@@ -2109,6 +2113,8 @@ async def update_job(
                 reason="job_closed",
                 occurred_at=job.closed_at,
             )
+            # 0381: zamknięta rekrutacja zamyka ogłoszenia na portalach.
+            await close_live_postings(db, job_id)
         elif prev_status == JobStatus.closed:
             job.closed_at = None
             _take_over_reopened_traffit_job(db, job, current_user)
@@ -2198,6 +2204,17 @@ async def delete_job(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     await _ensure_delivery_lead_job_visible(job, current_user, db)
+    # 0381: kaskada skasowałaby wiersz publikacji, a ogłoszenie zostałoby na
+    # portalu bez możliwości zamknięcia z NEXUSA.
+    if await has_live_postings(db, job_id):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "job_has_live_postings",
+                "message": "Najpierw wycofaj ogłoszenia z portali — rekrutacja "
+                "jest opublikowana na zewnątrz.",
+            },
+        )
     process_rows = int(
         await db.scalar(
             select(func.count(RecruitmentProcess.id)).where(
@@ -2312,6 +2329,8 @@ async def close_job(
     await set_work_state(
         db, job, "finished", actor_id=current_user.id, reason="job_closed"
     )
+    # 0381: zamknięta rekrutacja zamyka ogłoszenia na portalach.
+    await close_live_postings(db, job_id)
     await maybe_close_job_contact_opportunities(
         db,
         job_id=job_id,

@@ -1,10 +1,12 @@
-"""Worker kolejki publikacji na portalach (0360).
+"""Worker kolejki publikacji na portalach (0360, 0381).
 
 Kończy się PRZED pętlą, gdy żaden portal nie jest włączony
-(``PORTAL_PRACUJ_ENABLED``, ``PORTAL_JJIT_ENABLED``) — wtedy się nie
-rejestruje w ``loop_heartbeat`` i nie może być „stalled”. Włączony: tick na
-początku każdej iteracji, jedna transakcja na paczkę, błąd paczki
-logowany i ponawiany w następnym biegu.
+(``PORTAL_PRACUJ_ENABLED``, ``PORTAL_JJIT_ENABLED``,
+``PORTAL_ROCKETJOBS_ENABLED``) — wtedy się nie rejestruje
+w ``loop_heartbeat`` i nie może być „stalled”. Włączony: tick na początku
+każdej iteracji, jedna transakcja na paczkę (publikacje, aktualizacje,
+zamknięcia), potem osobna na synchronizację stanu żywych ogłoszeń; błąd
+paczki logowany i ponawiany w następnym biegu.
 """
 
 from __future__ import annotations
@@ -26,7 +28,11 @@ async def job_portal_worker_loop() -> None:
         logger.info("job_portal_worker disabled — żaden portal nie jest włączony")
         return
 
-    from app.services.job_portals.service import process_batch
+    from app.services.job_portals.service import (
+        close_postings_of_closed_jobs,
+        process_batch,
+        sync_remote_states,
+    )
 
     interval = max(
         _MIN_INTERVAL_SECONDS, int(settings.JOB_PORTAL_WORKER_INTERVAL_SECONDS)
@@ -38,6 +44,7 @@ async def job_portal_worker_loop() -> None:
         beat.tick()
         try:
             async with AsyncSessionLocal() as db:
+                await close_postings_of_closed_jobs(db)
                 processed = await process_batch(db)
                 await db.commit()
             if processed:
@@ -46,4 +53,14 @@ async def job_portal_worker_loop() -> None:
             raise
         except Exception as exc:  # noqa: BLE001 — kolejka ponowi w następnym biegu
             logger.error("job_portal_worker batch failed: %s", type(exc).__name__)
+        try:
+            async with AsyncSessionLocal() as db:
+                await sync_remote_states(db)
+                await db.commit()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 — stan sprawdzimy w następnym biegu
+            logger.warning(
+                "job_portal_worker status sync failed: %s", type(exc).__name__
+            )
         await asyncio.sleep(interval)

@@ -148,6 +148,8 @@ _ENUM_STATEMENTS = [
     # 0366: multiposting — kolejka publikacji (czeka na worker / nieudana).
     "ALTER TYPE postingstatus ADD VALUE IF NOT EXISTS 'publishing'",
     "ALTER TYPE postingstatus ADD VALUE IF NOT EXISTS 'failed'",
+    # 0381: RocketJobs — drugi portal tego samego API co JustJoin.IT.
+    "ALTER TYPE portal ADD VALUE IF NOT EXISTS 'rocketjobs'",
     # userrole: head_of_recruitment (migration 0029_notifications_triggers)
     "ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'head_of_recruitment'",
     # Role dashboards/RBAC cutover (0210): exclusive Finance persona.
@@ -4657,6 +4659,30 @@ _COLUMN_STATEMENTS = [
     "ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS created_by INTEGER "
     "REFERENCES users (id) ON DELETE SET NULL",
     "ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS last_synced_at TIMESTAMPTZ",
+    # 0381: publikacja na RocketJobs/JustJoin.IT — ustawienia ogłoszenia,
+    # akcja czekająca na worker, stan z portalu, backoff; konto firmy.
+    "ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS options JSONB",
+    "ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS pending_action VARCHAR(10)",
+    "ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS remote_state VARCHAR(20)",
+    "ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS next_attempt_at TIMESTAMPTZ",
+    """CREATE TABLE IF NOT EXISTS job_board_connections (
+    id SERIAL PRIMARY KEY,
+    provider VARCHAR(20) NOT NULL UNIQUE,
+    status VARCHAR(20) NOT NULL DEFAULT 'active',
+    access_token_ct TEXT NULL,
+    refresh_token_ct TEXT NOT NULL,
+    expires_at TIMESTAMPTZ NULL,
+    organization_units JSONB NOT NULL DEFAULT '{}',
+    account_label VARCHAR(255) NULL,
+    connected_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    connected_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_refresh_at TIMESTAMPTZ NULL,
+    last_error VARCHAR(300) NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT ck_job_board_connections_status
+        CHECK (status IN ('active', 'reconnect_required'))
+)""",
     # 0364: dedup maila potwierdzenia aplikacji (HMAC adresu + klucz linku,
     # jeden mail na parę w 24 h). Bez tabeli zgłoszenie przechodzi, ale mail
     # się nie wysyła (błąd połykany w `schedule_confirmation`).
@@ -7638,6 +7664,12 @@ SELECT 'job', id, 'archived',
 # Bez tego jedna zabłąkana wartość zablokowałaby start kontenera. VALIDATE
 # CONSTRAINT można uruchomić później, świadomie, po policzeniu sierot.
 _CONSTRAINT_STATEMENTS = [
+    # 0381: akcja czekająca na worker portali — zamknięty słownik.
+    """DO $$ BEGIN
+        ALTER TABLE job_postings ADD CONSTRAINT ck_job_postings_pending_action
+            CHECK (pending_action IS NULL
+                   OR pending_action IN ('publish', 'update', 'close'));
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     # 0367: rozwiązanie umowy B2B na kontrakcie — komplet albo nic; tryb
     # i strona z zamkniętych słowników (także na umowie w Generatorze).
     """DO $$ BEGIN
