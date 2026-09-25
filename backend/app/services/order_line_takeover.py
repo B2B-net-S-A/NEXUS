@@ -58,6 +58,7 @@ from app.services.contract_lifecycle import lock_contract_then_orders
 from app.services.client_order_lines import (
     _swap_split_remaining,
     consultant_display_name,
+    live_successor_line_id,
     recompute_remaining,
     record_event,
 )
@@ -711,6 +712,25 @@ async def activate_due_takeovers(
                 await lock_contract_then_orders(
                     db, order_ids=[target.predecessor_order_id, target.id]
                 )
+                # Audyt 25.09.2026: lista `due` była czytana PRZED blokadą —
+                # równoległe usunięcie albo aktywacja zastępstwa mogła ją
+                # zdezaktualizować. Świeży odczyt pod blokadą decyduje.
+                target = await db.scalar(
+                    select(ClientOrder)
+                    .options(
+                        selectinload(ClientOrder.contract).selectinload(
+                            Contract.candidate
+                        )
+                    )
+                    .where(ClientOrder.id == target_id)
+                    .execution_options(populate_existing=True)
+                )
+                if (
+                    target is None
+                    or target.status != ClientOrderStatus.draft
+                    or target.predecessor_order_id is None
+                ):
+                    continue
                 group = await db.scalar(
                     select(ClientOrderGroup)
                     .where(ClientOrderGroup.id == target.order_group_id)
@@ -733,6 +753,30 @@ async def activate_due_takeovers(
                 if source.status == ClientOrderStatus.active:
                     # Odchodzący jeszcze pracuje (terminacja nie weszła) —
                     # zastępstwo czeka na jego koniec.
+                    continue
+                if await live_successor_line_id(db, source.id) is not None:
+                    # Audyt 25.09.2026: pula odchodzącego przeszła już na
+                    # następcę z zamiany kontraktora (dane sprzed blokady
+                    # zamiany przy zaplanowanym zastępstwie). Drugie
+                    # przeniesienie rozdałoby te same MD dwa razy.
+                    target.status = ClientOrderStatus.cancelled
+                    record_event(
+                        db,
+                        group_id=group.id,
+                        order_id=target.id,
+                        event_type=EVENT_MANUAL_EDIT,
+                        description=(
+                            f"Zaplanowane zastępstwo {consultant_display_name(target)} "
+                            f"za {consultant_display_name(source)} nie weszło — "
+                            "pozostałe MD przeszły wcześniej na następcę przy "
+                            "zamianie kontraktora."
+                        ),
+                        payload={
+                            "assignment": ASSIGNMENT_TAKEOVER,
+                            "scheduled_cancelled": True,
+                            "takeover_from_order_id": source.id,
+                        },
+                    )
                     continue
                 cases = await _cases_for_line(db, source.id)
                 pending = next(

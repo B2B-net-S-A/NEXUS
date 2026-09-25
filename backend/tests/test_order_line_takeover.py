@@ -320,6 +320,62 @@ async def test_takeover_moves_the_md_pool_one_to_one_and_counts_it_once(
     assert "187 MD (1:1)" in descriptions
 
 
+async def test_late_import_after_takeover_cuts_the_optional_scope_first(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Audyt 25.09.2026 (FIN-MD-02): korekta po spóźnionym raporcie.
+
+    Kamila przejęła 17 MD podstawy + 170 MD opcji. Spóźniony raport +50 MD
+    Konrada zmniejsza przeniesioną pulę o 50 — cała różnica szła dotąd
+    w `md_total` (17 − 50 = −33 MD podstawy). Teraz schodzi najpierw z opcji,
+    podstawa nigdy nie spada poniżej zera, a pula razem to 137 MD.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order import ClientOrder
+    from app.models.md_consumption import (
+        CONSUMPTION_SOURCE_MANUAL,
+        ClientOrderMdConsumption,
+    )
+    from app.services.client_order_lines import recompute_remaining
+
+    seed = await _seed()
+    _enable_multi(monkeypatch, seed["client_id"])
+    resp = await app_client.post(
+        _takeover_url(seed),
+        json={
+            "contract_id": seed["kamila_contract_id"],
+            "departing_order_id": seed["line_id"],
+            "entry_date": (seed["departure"] + timedelta(days=1)).isoformat(),
+            "rate_cost": 680,
+            "rate_revenue": 800,
+            "expected_case_version": 1,
+        },
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 201, resp.text
+    kamila_id = resp.json()["id"]
+
+    async with AsyncSessionLocal() as db:
+        db.add(
+            ClientOrderMdConsumption(
+                order_id=seed["line_id"],
+                period_month=seed["departure"].strftime("%Y-%m"),
+                md_reported=Decimal("50"),
+                source=CONSUMPTION_SOURCE_MANUAL,
+            )
+        )
+        await db.flush()
+        await recompute_remaining(db, await db.get(ClientOrder, seed["line_id"]))
+        await db.commit()
+
+    async with AsyncSessionLocal() as db:
+        kamila = await db.get(ClientOrder, kamila_id)
+        assert Decimal(str(kamila.md_total)) == Decimal("17")
+        assert Decimal(str(kamila.md_optional_total)) == Decimal("120")
+        assert Decimal(str(kamila.md_remaining)) == Decimal("137")
+        assert Decimal(str(kamila.md_input_value)) == Decimal("17")
+
+
 async def test_takeover_without_a_case_records_a_resolved_one(
     app_client: AsyncClient, app_auth_headers: dict, monkeypatch
 ):
@@ -630,6 +686,171 @@ async def test_swap_with_md_pool_transfers_one_to_one(
     body = resp.json()
     assert Decimal(str(body["md_total"])) == Decimal("17")
     assert Decimal(str(body["md_optional_total"])) == Decimal("170")
+
+
+# ── Zamiana a zaplanowane zastępstwo (audyt 25.09.2026) ────────────────────
+
+
+async def _third_person_contract(seed: dict) -> int:
+    """Trzecia osoba z aktywnym kontraktem u tego samego klienta."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from app.models.contract import Contract, ContractStatus, RateUnit
+
+    suffix = uuid.uuid4().hex[:6]
+    async with AsyncSessionLocal() as db:
+        person = Candidate(
+            name="Olga", lastname=f"Trzecia-{suffix}", email=f"o-{suffix}@example.com"
+        )
+        db.add(person)
+        await db.flush()
+        contract = Contract(
+            candidate_id=person.id,
+            client_id=seed["client_id"],
+            status=ContractStatus.active,
+            start_date=business_today() - timedelta(days=30),
+            rate_candidate=Decimal("80"),
+            rate_unit=RateUnit.hourly,
+        )
+        db.add(contract)
+        await db.commit()
+        return contract.id
+
+
+async def _schedule_takeover(app_client, headers, seed) -> dict:
+    resp = await app_client.post(
+        _takeover_url(seed),
+        json={
+            "contract_id": seed["kamila_contract_id"],
+            "departing_order_id": seed["line_id"],
+            "entry_date": (seed["departure"] + timedelta(days=1)).isoformat(),
+            "rate_cost": 680,
+            "rate_revenue": 800,
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["status"] == "draft"
+    return resp.json()
+
+
+async def test_swap_refused_while_a_takeover_is_scheduled(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Zamiana na osobę z zaplanowanym zastępstwem rozdałaby pulę dwa razy."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+    from sqlalchemy import select
+
+    seed = await _seed(source_state="leaving")
+    _enable_multi(monkeypatch, seed["client_id"])
+    await _schedule_takeover(app_client, app_auth_headers, seed)
+    olga = await _third_person_contract(seed)
+
+    refused = await app_client.post(
+        f"/api/clients/{seed['client_id']}/order-groups/{seed['group_id']}"
+        f"/lines/{seed['line_id']}/swap",
+        json={
+            "contract_id": olga,
+            "rate_cost": 680,
+            "rate_revenue": 800,
+            "swap_date": business_today().isoformat(),
+            "md_transfer_method": "one_to_one",
+        },
+        headers=app_auth_headers,
+    )
+    assert refused.status_code == 409, refused.text
+    assert "zaplanowane zastępstwo" in refused.text
+
+    async with AsyncSessionLocal() as db:
+        konrad = await db.get(ClientOrder, seed["line_id"])
+        assert konrad.status == ClientOrderStatus.active
+        assert Decimal(str(konrad.md_remaining)) == Decimal("187")
+        successors = (
+            await db.scalars(
+                select(ClientOrder.id).where(
+                    ClientOrder.predecessor_order_id == seed["line_id"],
+                    ClientOrder.status != ClientOrderStatus.draft,
+                )
+            )
+        ).all()
+        assert successors == []
+
+
+async def test_scheduled_takeover_does_not_move_a_pool_already_swapped(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Dane sprzed blokady: zamiana zrobiona mimo zaplanowanego zastępstwa.
+
+    Nocne wejście nie może przenieść puli drugi raz — zastępstwo jest
+    anulowane, a pula zostaje tam, gdzie przeniosła ją zamiana.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+    from app.models.client_order_group import ClientOrderGroupEvent
+    from app.models.contract import RateUnit
+    from app.models.order_type import OrderType
+    from app.services.order_line_takeover import activate_due_takeovers
+
+    seed = await _seed(source_state="leaving")
+    _enable_multi(monkeypatch, seed["client_id"])
+    planned = await _schedule_takeover(app_client, app_auth_headers, seed)
+    olga = await _third_person_contract(seed)
+    entry = seed["departure"] + timedelta(days=1)
+
+    # Stan z produkcji: zamiana kontraktora z datą ≤ dziś — Olga dostała pulę,
+    # Konrad zakończony z pozostałością na liczniku.
+    async with AsyncSessionLocal() as db:
+        konrad = await db.get(ClientOrder, seed["line_id"])
+        konrad.status = ClientOrderStatus.completed
+        konrad.end_date = business_today()
+        swapped = ClientOrder(
+            client_id=seed["client_id"],
+            contract_id=olga,
+            order_group_id=seed["group_id"],
+            predecessor_order_id=seed["line_id"],
+            order_type=OrderType.md,
+            title="Zamówienie — Olga",
+            status=ClientOrderStatus.active,
+            start_date=business_today(),
+            md_rate_cost=Decimal("680.00"),
+            md_rate_revenue=Decimal("800.00"),
+            rate_unit=RateUnit.daily,
+            billing_hours_per_month=168,
+            currency="PLN",
+            rate_client_currency="PLN",
+            rate_candidate_currency="PLN",
+            md_input_mode="md",
+            md_input_value=Decimal("17"),
+            md_total=Decimal("17"),
+            md_optional_total=Decimal("170"),
+            md_remaining=Decimal("187"),
+            md_manual_adjustment=Decimal("0"),
+        )
+        db.add(swapped)
+        await db.flush()
+        db.add(
+            ClientOrderGroupEvent(
+                group_id=seed["group_id"],
+                order_id=swapped.id,
+                event_type="zamiana_kontraktora",
+                description="Zamiana kontraktora (test)",
+                payload={},
+            )
+        )
+        await db.commit()
+        swapped_id = swapped.id
+
+    async with AsyncSessionLocal() as db:
+        activated = await activate_due_takeovers(db, today=entry)
+        await db.commit()
+    assert activated == 0
+
+    async with AsyncSessionLocal() as db:
+        kamila = await db.get(ClientOrder, planned["id"])
+        olga_line = await db.get(ClientOrder, swapped_id)
+        assert kamila.status == ClientOrderStatus.cancelled
+        assert Decimal(str(olga_line.md_remaining)) == Decimal("187")
 
 
 # ── Dołącz + „Usuń szkic" ───────────────────────────────────────────────────
