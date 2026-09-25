@@ -2648,6 +2648,8 @@ class KeywordSuggestion(BaseModel):
     category: Optional[str] = None
     # Przybliżenie z indeksu pełnotekstowego; ``None`` = nie policzono.
     count: Optional[int] = None
+    # Inne zapisy umiejętności do „+ z wariantami” (``keyword_suggest.skill_variants``).
+    variants: list[str] = []
 
 
 class KeywordSuggestResponse(BaseModel):

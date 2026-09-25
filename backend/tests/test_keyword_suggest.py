@@ -68,6 +68,33 @@ def test_empty_query_gives_nothing(catalog):
     assert keyword_suggest.match_skills("   ", 6) == []
 
 
+def _entry(name: str, aliases: list[str]) -> keyword_suggest.SkillEntry:
+    keyword_suggest.load_catalog([(1, name, "x")], [(1, a) for a in aliases])
+    return keyword_suggest.catalog()[0]
+
+
+def test_variants_skip_short_polish_and_redundant_aliases(catalog):
+    """„+ z wariantami” (25.09.2026): tylko zapisy, których samo słowo nie
+    znajdzie. Dane jak na produkcji: Java ma „java 11”/„core java” (znajdzie
+    je już „java”), Go ma „go” (polskie słowo), PostgreSQL ma „pg”."""
+    assert keyword_suggest.skill_variants(
+        _entry("Spring Boot", ["spring-boot", "springboot", "Spring Boot"])
+    ) == ("spring-boot", "springboot")
+    assert keyword_suggest.skill_variants(
+        _entry("Java", ["core java", "java 11", "j2ee", "jee"])
+    ) == ("j2ee", "jee")
+    assert keyword_suggest.skill_variants(_entry("Go", ["go lang", "golang"])) == (
+        "golang",
+    )
+    assert keyword_suggest.skill_variants(
+        _entry("PostgreSQL", ["pg", "postgres", "psql"])
+    ) == ("postgres", "psql")
+    many = [f"wariant{i}" for i in range(8)]
+    assert len(keyword_suggest.skill_variants(_entry("Nazwa", many))) == (
+        keyword_suggest.MAX_VARIANTS
+    )
+
+
 def test_wildcard_needs_three_letters():
     assert keyword_suggest.wildcard_for("ja") is None
     assert keyword_suggest.wildcard_for("jav") == "jav*"

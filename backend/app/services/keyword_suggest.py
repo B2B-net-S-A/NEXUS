@@ -317,6 +317,44 @@ class Suggestion:
     alias: Optional[str]
     category: Optional[str]
     count: Optional[int]
+    # Inne zapisy tej umiejętności do przycisku „+ z wariantami” (tylko skill).
+    variants: tuple[str, ...] = ()
+
+
+MAX_VARIANTS = 5
+
+
+def skill_variants(entry: SkillEntry) -> tuple[str, ...]:
+    """Aliasy umiejętności, które warto dopisać do wiersza wymagań.
+
+    Słowa kluczowe dopasowują całe słowa i NIE rozwijają aliasów, więc
+    „Springboot” nie znajdzie „Spring Boot” — stąd przycisk „+ z wariantami”
+    (decyzja 25.09.2026: dodaje człowiek, nigdy automat). Odpadają: aliasy
+    1–2-znakowe i polskie słowa-aliasy (ta sama lista co w scoringu, #1832:
+    „go”, „jest”), aliasy zawierające pełną nazwę jako osobne słowo
+    („java 11”, „core java” — znajdzie je już samo „java”) i takie, których
+    nie da się szukać jako słowa.
+    """
+    from app.services.scoring_service import POLISH_WORD_ALIASES
+
+    name_tokens = entry.key.split()
+    out: list[str] = []
+    seen = {entry.key}
+    for alias in entry.aliases:
+        key = fold(alias)
+        if len(key) <= 2 or key in POLISH_WORD_ALIASES or key in seen:
+            continue
+        tokens = key.split()
+        n = len(name_tokens)
+        if any(tokens[i : i + n] == name_tokens for i in range(len(tokens) - n + 1)):
+            continue
+        if parse_keyword(alias) is None:
+            continue
+        seen.add(key)
+        out.append(alias)
+        if len(out) >= MAX_VARIANTS:
+            break
+    return tuple(out)
 
 
 @dataclass(frozen=True)
@@ -346,6 +384,7 @@ async def suggest(db: AsyncSession, query: str, limit: int) -> SuggestResult:
             alias=m.alias,
             category=m.entry.category or None,
             count=None,
+            variants=skill_variants(m.entry),
         )
         for m in skill_matches
     ]

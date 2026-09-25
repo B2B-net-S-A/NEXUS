@@ -635,7 +635,7 @@ def skill_name_variants(raw) -> List[str]:
 
 # Aliasy taksonomii, które są też zwykłymi polskimi słowami („jest” = is,
 # „go” = him). Liczą się tylko pisane jak technologia (Jest, Go).
-_POLISH_WORD_ALIASES = frozenset({"jest", "go"})
+POLISH_WORD_ALIASES = frozenset({"jest", "go"})
 
 
 def is_technology_mention(text: str, match: re.Match) -> bool:
@@ -653,7 +653,7 @@ def is_technology_mention(text: str, match: re.Match) -> bool:
     """
     found = match.group(1)
     lowered = found.lower()
-    if len(found) > 2 and lowered not in _POLISH_WORD_ALIASES:
+    if len(found) > 2 and lowered not in POLISH_WORD_ALIASES:
         return True
     start, end = match.span(1)
     before = text[start - 1] if start > 0 else ""
@@ -662,7 +662,7 @@ def is_technology_mention(text: str, match: re.Match) -> bool:
         after and (after.isalnum() or after == "_")
     ):
         return False
-    if len(found) == 1 or lowered in _POLISH_WORD_ALIASES:
+    if len(found) == 1 or lowered in POLISH_WORD_ALIASES:
         return not found.islower()
     return True
 
