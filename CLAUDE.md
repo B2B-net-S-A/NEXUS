@@ -3007,14 +3007,17 @@ Artura: osobę wpisuje każdy, kto redaguje rekrutację (także rekruter).
   `new_person` | `clear`, dokładnie jedno). Nowa osoba idzie przez
   `services/job_hiring_manager.find_or_create_contact`: najpierw dopasowanie
   do kontaktów klienta (imię i nazwisko w dowolnej kolejności, bez wielkości
-  liter i polskich znaków, potem e-mail; kilka trafień → najniższe id),
+  liter i polskich znaków; e-mail wyłącznie bez pełnego imienia i nazwiska —
+  wspólna skrzynka klienta nie może podpiąć innej osoby; kilka trafień →
+  najniższe id),
   trafienie uzupełnia tylko puste stanowisko/e-mail. Weto HM działa po id
   kontaktu — duplikat osoby rozbiłby je na dwie. Bramka = `ensure_job_editor`,
   bez `can_edit_contacts`; audyt `contact_created` z `source=job_hiring_manager`.
 - **HM musi być kontaktem klienta rekrutacji** — POST/PATCH `/api/jobs` z
   cudzym kontaktem = 422, zmiana klienta w PATCH zeruje HM.
 - **Lista wyboru = `GET /api/jobs/hiring-manager-options?client_id=`** (id, imię
-  i nazwisko, stanowisko — bez e-maila i telefonu), bo rekruter nie dostaje
+  i nazwisko, stanowisko — bez e-maila i telefonu, alfabetycznie, żeby kolejność
+  nie zdradzała kluczowych relacji), bo rekruter nie dostaje
   `GET /api/clients/{id}/contacts`.
 - **Front: jeden `components/jobs/HiringManagerCombobox`** (dok gotowości i okno
   Zlecenie przez `HiringManagerPicker`, `EditJobModal`, `/jobs/new`). Popover

@@ -149,6 +149,8 @@ export interface RequestIntakeResponse {
   hiring_manager_email?: string | null;
   /** Istniejący kontakt klienta — ta sama osoba co w mailu. */
   hiring_manager_contact_id?: number | null;
+  /** Imię i nazwisko w pisowni kontaktu (gdy dopasowano). */
+  hiring_manager_contact_name?: string | null;
 }
 
 export const EMPTY_EXPERIENCE_FORM: ChampionExperience = {
@@ -218,7 +220,11 @@ export function hiringManagerFromIntake(
   const name = intake.hiring_manager_name?.trim();
   if (!name) return null;
   if (intake.hiring_manager_contact_id != null) {
-    return { kind: "contact", id: intake.hiring_manager_contact_id, name };
+    return {
+      kind: "contact",
+      id: intake.hiring_manager_contact_id,
+      name: intake.hiring_manager_contact_name?.trim() || name,
+    };
   }
   return {
     kind: "new",

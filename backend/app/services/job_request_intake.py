@@ -123,6 +123,8 @@ class RequestIntake:
     hiring_manager_position: Optional[str] = None
     hiring_manager_email: Optional[str] = None
     hiring_manager_contact_id: Optional[int] = None
+    # Imię i nazwisko z KONTAKTU (pisownia z bazy), gdy dopasowano.
+    hiring_manager_contact_name: Optional[str] = None
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -547,4 +549,8 @@ async def match_hiring_manager(
         return intake
     if contact is None:
         return intake
-    return replace(intake, hiring_manager_contact_id=contact.id)
+    return replace(
+        intake,
+        hiring_manager_contact_id=contact.id,
+        hiring_manager_contact_name=contact.name,
+    )

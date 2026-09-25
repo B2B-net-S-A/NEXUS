@@ -37,8 +37,14 @@ def test_pick_matching_contact_prefers_name_then_email_and_lowest_id() -> None:
         SimpleNamespace(id=7, name="Ewa Mazur", email="ewa@firma.pl"),
     ]
     assert pick_matching_contact(contacts, name="jan kowalski", email=None).id == 4
-    assert pick_matching_contact(contacts, name="E. M.", email="EWA@firma.pl").id == 7
+    # E-mail tylko bez pełnego imienia i nazwiska.
+    assert pick_matching_contact(contacts, name=None, email="EWA@firma.pl").id == 7
     assert pick_matching_contact(contacts, name="Adam Nowy", email=None) is None
+    # Wspólna skrzynka klienta: inna osoba z adresem zapisanym przy Ewie
+    # nie dostaje jej kontaktu (ani jej weta).
+    assert (
+        pick_matching_contact(contacts, name="Anna Nowak", email="ewa@firma.pl") is None
+    )
     # Samo imię nie wystarcza — „Jan” to nie „Jan Kowalski”.
     assert pick_matching_contact(contacts, name="Jan", email=None) is None
 
@@ -354,4 +360,5 @@ async def test_intake_points_at_the_existing_contact():
             db, client_id=world["other_client_id"], intake=intake
         )
     assert matched.hiring_manager_contact_id == world["known_id"]
+    assert matched.hiring_manager_contact_name == f"Jan Kowalski{world['tag']}"
     assert other.hiring_manager_contact_id is None

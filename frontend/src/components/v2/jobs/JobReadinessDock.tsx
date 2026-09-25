@@ -862,7 +862,9 @@ export function JobReadinessDock({
         clientId={job.client_id ?? null}
         value={job.hiring_manager_contact_id ?? null}
         valueName={job.hiring_manager_name ?? null}
-        canEdit={canManageJob}
+        // HM ustawia każdy, kto redaguje rekrutację (decyzja 25.09.2026) —
+        // lustro `ensure_job_editor` w `PUT …/hiring-manager`.
+        canEdit={editScope !== "none"}
         onSaved={() =>
           queryClient.invalidateQueries({ queryKey: ["job", String(jobId)] })
         }

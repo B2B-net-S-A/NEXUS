@@ -77,8 +77,11 @@ def validate_new_person_name(name: Optional[str]) -> str:
 def pick_matching_contact(
     contacts: list[Contact], *, name: Optional[str], email: Optional[str]
 ) -> Optional[Contact]:
-    """Kontakt tej samej osoby: najpierw po imieniu i nazwisku, potem po e-mailu.
+    """Kontakt tej samej osoby: po imieniu i nazwisku, a e-mail tylko bez nich.
 
+    Pełne imię i nazwisko rozstrzyga samo — e-mail NIE podpina osoby o innym
+    nazwisku: klienci piszą ze wspólnych skrzynek („rekrutacja@bank.pl”), więc
+    „Anna Nowak” z adresem zapisanym przy „Janie Kowalskim” dostałaby jego weto.
     Kilka trafień (duplikaty sprzed tej reguły) → najniższe ``id``, żeby weto
     zawsze trafiało w ten sam wiersz.
     """
@@ -86,8 +89,7 @@ def pick_matching_contact(
     key = name_key(name)
     if len(key) >= 2:
         by_name = [c for c in contacts if name_key(c.name) == key]
-        if by_name:
-            return min(by_name, key=lambda c: c.id)
+        return min(by_name, key=lambda c: c.id) if by_name else None
     mail = (email or "").strip().casefold()
     if mail:
         by_mail = [c for c in contacts if (c.email or "").strip().casefold() == mail]
@@ -209,11 +211,7 @@ async def hiring_manager_options(
     """
 
     rows = await _client_contacts(db, client_id)
-    rows.sort(
-        key=lambda c: (
-            not c.is_key_relationship,
-            not c.is_decision_maker,
-            (c.name or "").casefold(),
-        )
-    )
+    # Alfabetycznie, nie „kluczowe relacje najpierw”: kolejność nie może
+    # zdradzać relacji DL, których ta wąska lista celowo nie pokazuje.
+    rows.sort(key=lambda c: ((c.name or "").casefold(), c.id))
     return [{"id": c.id, "name": c.name, "position": c.position} for c in rows]
