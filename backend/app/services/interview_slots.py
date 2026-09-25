@@ -91,11 +91,46 @@ def normalize_slots(
     return [out[k] for k in sorted(out)]
 
 
+async def slot_recruiter_eligible(db: AsyncSession, user_id: int, job_id: int) -> bool:
+    """Czy osoba może wybierać termin z kandydatem: aktywne konto roli
+    wewnętrznej z dostępem do rekrutacji.
+
+    Jedna reguła dla rekrutera wskazanego jawnie (422 w API) i podpowiadanego
+    (``default_recruiter_id``) — do rundy 2 audytu (25.09.2026) podpowiedź nie
+    sprawdzała niczego, więc wniosek dostawała np. osoba, która odeszła
+    z firmy, i nikt nie wybierał terminu.
+    """
+
+    from app.api.recruitment_access import (  # noqa: PLC0415 — cykl importu
+        RECRUITMENT_READ_ROLES,
+        ensure_job_membership,
+    )
+    from app.models.user import User  # noqa: PLC0415
+
+    user = await db.get(User, user_id)
+    if (
+        user is None
+        or not user.is_active
+        or not user.has_any_role(*RECRUITMENT_READ_ROLES)
+    ):
+        return False
+    try:
+        await ensure_job_membership(db, user, job_id)
+    except HTTPException:
+        return False
+    return True
+
+
 async def default_recruiter_id(
     db: AsyncSession, *, candidate_id: int, job_id: int
 ) -> Optional[int]:
     """Rekruter kandydata: właściciel procesu → pierwszy weryfikator → rekruter
-    rekrutacji. Ta sama kolejność co przy „Moich ludziach” (weryfikator)."""
+    rekrutacji. Ta sama kolejność co przy „Moich ludziach” (weryfikator).
+
+    Każdy kandydat na rekrutera przechodzi ``slot_recruiter_eligible`` —
+    wygrywa pierwszy, który ją spełnia; nikt = ``None`` (wniosek bez
+    rekrutera wybiera zespół rekrutacji).
+    """
     owner = await db.scalar(
         select(RecruitmentProcess.owner_user_id)
         .where(
@@ -106,8 +141,6 @@ async def default_recruiter_id(
         .order_by(RecruitmentProcess.id.desc())
         .limit(1)
     )
-    if owner:
-        return owner
     verifier = await db.scalar(
         select(CandidateStage.moved_by)
         .where(
@@ -119,9 +152,15 @@ async def default_recruiter_id(
         .order_by(CandidateStage.moved_at.asc(), CandidateStage.id.asc())
         .limit(1)
     )
-    if verifier:
-        return verifier
-    return await db.scalar(select(Job.recruiter_id).where(Job.id == job_id))
+    job_recruiter = await db.scalar(select(Job.recruiter_id).where(Job.id == job_id))
+    seen: set[int] = set()
+    for user_id in (owner, verifier, job_recruiter):
+        if not user_id or user_id in seen:
+            continue
+        seen.add(user_id)
+        if await slot_recruiter_eligible(db, user_id, job_id):
+            return user_id
+    return None
 
 
 async def pair_in_pipeline(db: AsyncSession, *, candidate_id: int, job_id: int) -> bool:
