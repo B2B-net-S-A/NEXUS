@@ -32,6 +32,7 @@ from sqlalchemy import (
     String,
     Text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -228,6 +229,12 @@ class ClientOrder(Base, TimestampMixin):
     file_uploaded_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+
+    # Nordea: gotowa pozycja faktury cyklicznej odczytana z PDF-a (0382,
+    # ``nordea_invoice_lines``) — NIIDS, osoba kontaktowa z „Invoice
+    # reference" i linia na każdą osobę z tabeli „Consultant(s)", razem
+    # z ręczną poprawką. NULL = jeszcze nie odczytano albo inny klient.
+    invoice_lines: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
 
     created_by_user_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True

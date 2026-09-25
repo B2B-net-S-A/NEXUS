@@ -1,6 +1,13 @@
 "use client";
 
 import { useId, useState, type KeyboardEvent } from "react";
+import type { ChipFieldSuggest } from "@/components/v2/filters/AdvancedSearchPopover";
+import { KeywordSuggestionList } from "@/components/v2/filters/KeywordSuggestionList";
+import {
+  buildSuggestionOptions,
+  useKeywordSuggestions,
+  type SuggestionOption,
+} from "@/lib/keyword-suggest";
 import { X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -38,6 +45,10 @@ interface SkillBucketsFieldProps {
    * puste kubełki bez opisów — opis mówi jedno zdanie pod spodem.
    */
   compact?: boolean;
+  /** Podpowiedzi umiejętności ze słownika (i z kontekstu, np. rekrutacji). */
+  suggest?: ChipFieldSuggest;
+  /** Enter w pustym polu = „Szukaj”. */
+  onSubmitEmpty?: () => void;
 }
 
 /**
@@ -55,14 +66,32 @@ export function SkillBucketsField({
   className,
   inputLabel = "Dodaj umiejętność",
   compact = false,
+  suggest,
+  onSubmitEmpty,
 }: SkillBucketsFieldProps) {
   const [draft, setDraft] = useState("");
+  const [open, setOpen] = useState(false);
+  // -1 = nic nie zaznaczone: Enter dodaje wpisany tekst (np. „java|kotlin”).
+  const [highlight, setHighlight] = useState(-1);
+  const listId = useId();
+  const suggestions = useKeywordSuggestions(draft, Boolean(suggest) && open);
+  const options = suggest
+    ? buildSuggestionOptions({
+        query: draft,
+        existing: [...value.required, ...value.preferred, ...value.excluded],
+        context: suggest.context,
+        response: suggestions.data ?? null,
+        skillsOnly: true,
+      })
+    : [];
+  const showList = Boolean(suggest) && open && draft.trim().length > 0 && options.length > 0;
+  const active = showList ? Math.min(highlight, options.length - 1) : -1;
   const [bucket, setBucket] = useState<SkillBucket>("required");
   const [notice, setNotice] = useState<string | null>(null);
   const groupId = useId();
 
-  const commit = (): void => {
-    const additions = parseSkillBucketInput(draft, bucket);
+  const commit = (text: string = draft): void => {
+    const additions = parseSkillBucketInput(text, bucket);
     if (additions.length === 0) {
       setDraft("");
       return;
@@ -106,8 +135,29 @@ export function SkillBucketsField({
     if (added > 0) onChange(next);
   };
 
+  const pick = (option: SuggestionOption) => {
+    commit(option.insert);
+    setHighlight(-1);
+  };
+
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter" || e.key === ",") {
+    if (showList && e.key === "ArrowDown") {
+      e.preventDefault();
+      setHighlight((h) => Math.min(h + 1, options.length - 1));
+    } else if (showList && e.key === "ArrowUp") {
+      e.preventDefault();
+      setHighlight((h) => Math.max(h - 1, -1));
+    } else if (showList && e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      setOpen(false);
+    } else if (e.key === "Enter" && !draft.trim() && onSubmitEmpty) {
+      e.preventDefault();
+      onSubmitEmpty();
+    } else if (e.key === "Enter" && showList && active >= 0) {
+      e.preventDefault();
+      pick(options[active]);
+    } else if (e.key === "Enter" || e.key === ",") {
       e.preventDefault();
       commit();
     }
@@ -124,15 +174,45 @@ export function SkillBucketsField({
   return (
     <div className={cn("space-y-2", className)}>
       <div className="flex flex-wrap items-center gap-2">
-        <Input
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={onKeyDown}
-          onBlur={commit}
-          aria-label={inputLabel}
-          placeholder="np. Java, Spring lub Java|Kotlin"
-          className={cn("h-8 flex-1 text-xs", compact ? "min-w-0 w-full" : "min-w-[12rem]")}
-        />
+        <div className={cn("relative flex-1", compact ? "min-w-0 w-full" : "min-w-[12rem]")}>
+          <Input
+            value={draft}
+            onChange={(e) => {
+              setDraft(e.target.value);
+              setHighlight(-1);
+              setOpen(true);
+            }}
+            onKeyDown={onKeyDown}
+            onFocus={() => setOpen(true)}
+            onBlur={() => {
+              setOpen(false);
+              commit();
+            }}
+            aria-label={inputLabel}
+            autoComplete="off"
+            placeholder="np. Java, Spring lub Java|Kotlin"
+            className="h-8 w-full text-xs"
+            {...(suggest
+              ? {
+                  role: "combobox",
+                  "aria-expanded": showList,
+                  "aria-controls": listId,
+                  "aria-autocomplete": "list" as const,
+                  "aria-activedescendant": active >= 0 ? `${listId}-${active}` : undefined,
+                }
+              : {})}
+          />
+          {showList && (
+            <KeywordSuggestionList
+              id={listId}
+              options={options}
+              activeIndex={active}
+              onPick={pick}
+              onHover={setHighlight}
+              canSubmit={Boolean(onSubmitEmpty)}
+            />
+          )}
+        </div>
         <div
           role="radiogroup"
           aria-label="Gdzie dodać umiejętność"

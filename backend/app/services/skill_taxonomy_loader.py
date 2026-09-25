@@ -35,6 +35,10 @@ async def refresh_alias_map() -> int:
             await db.execute(select(SkillAlias.skill_id, SkillAlias.alias))
         ).all()
 
+    from app.services import keyword_suggest
+
+    keyword_suggest.load_catalog(skills, alias_rows)
+
     id_to_canon: dict[int, str] = {sid: cn for sid, cn, _cat in skills if cn}
     id_to_cat: dict[int, str] = {sid: (cat or "") for sid, _cn, cat in skills}
 

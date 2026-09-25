@@ -163,6 +163,8 @@ vi.mock("@/components/v2/recruitment/AddToRecruitmentDialog", () => ({
 }));
 
 import { useUiStore } from "@/store/ui";
+import { useAuthStore } from "@/store/auth";
+import { clearSearchMemory, readJobSearch, writeListSearch } from "@/lib/search-memory";
 import { CandidatesListV2 } from "@/components/v2/pages/CandidatesListV2";
 import { DEFAULT_FILTERS } from "@/lib/url-filters";
 
@@ -290,5 +292,57 @@ describe("CandidatesListV2 — „Szukaj ręcznie” z rekrutacji (embed)", () =
     expect(await screen.findByTestId("recruitment-filter-locked")).toHaveTextContent(
       "osoby, które już w niej są, są ukryte",
     );
+  });
+});
+
+describe("„Szukaj ręcznie” — przycisk Szukaj i pamięć rekrutacji (25.09.2026)", () => {
+  beforeEach(() => {
+    clearSearchMemory();
+    useAuthStore.setState({ user: { id: 11 } } as never);
+  });
+  afterEach(() => clearSearchMemory());
+
+  it("samo otwarcie okna niczego nie zapisuje", async () => {
+    renderEmbedded();
+    await screen.findByText("Ewa Marczak");
+    expect(readJobSearch(11, 7)).toBeNull();
+  });
+
+  it("po „Szukaj” okno pamięta wyszukiwanie, a „Wróć do filtrów z rekrutacji” je zdejmuje", async () => {
+    renderEmbedded();
+    await screen.findByText("Ewa Marczak");
+    const must = screen.getByLabelText("Zawiera wszystkie ze słów");
+    fireEvent.change(must, { target: { value: "Kafka" } });
+    fireEvent.keyDown(must, { key: "Enter" });
+    fireEvent.keyDown(must, { key: "Enter" });
+    await waitFor(async () => expect((await listParams()).q_all).toEqual(["Kafka"]));
+    await waitFor(() => expect(readJobSearch(11, 7)?.request.query).toContain("q_all=Kafka"));
+    cleanup();
+
+    renderEmbedded();
+    expect(
+      await screen.findByText("Przywrócono Twoje ostatnie wyszukiwanie w tej rekrutacji"),
+    ).toBeInTheDocument();
+    await waitFor(async () => {
+      const params = await listParams();
+      expect(params.q_all).toEqual(["Kafka"]);
+      expect(params.recruitment_match).toBe("not_assigned");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Wróć do filtrów z rekrutacji" }));
+    await waitFor(async () => expect((await listParams()).q_all).toBeUndefined());
+    expect(readJobSearch(11, 7)).toBeNull();
+  });
+
+  it("pamięć listy Kandydatów nie trafia do okna rekrutacji", async () => {
+    writeListSearch({ query: "q_all=Python" });
+    renderEmbedded();
+    await screen.findByText("Ewa Marczak");
+    const params = await listParams();
+    expect(params.q_all).toBeUndefined();
+    expect(params.q).toBe("Analityk Systemowy");
+    expect(
+      screen.queryByText("Przywrócono Twoje ostatnie wyszukiwanie w tej rekrutacji"),
+    ).not.toBeInTheDocument();
   });
 });

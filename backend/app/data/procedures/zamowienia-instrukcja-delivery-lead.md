@@ -1750,6 +1750,13 @@ duplikuje.
   i takie właśnie tworzy import CSV.
 * **Powiadomienia:** koniec zamówienia 30/14/7 dni przed datą, plus sprawy
   „bez zamówienia" i „brak stawki przychodowej" co 7 dni.
+* **Pozycja faktury dla Finansów powstaje z PDF-a.** Po wgraniu Call Off
+  Agreement (ręcznie albo z maila) system odczytuje z sekcji „Invoice
+  reference” numer NIIDS i osobę kontaktową, a z tabeli „Consultant(s)”
+  konsultanta, i składa z nich gotową pozycję faktury cyklicznej, którą
+  Finanse kopiują w „Zmianach w zamówieniach” → Wejścia. Dlatego do
+  zamówienia Nordei **dołączaj oryginalny PDF** — bez niego Finanse dostają
+  formułę z „[brak]” i muszą uzupełnić ją ręcznie.
 
 ### Bank Pocztowy
 

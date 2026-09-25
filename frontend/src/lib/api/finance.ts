@@ -155,6 +155,19 @@ interface OrderRef {
 }
 
 /**
+ * Pozycja faktury cyklicznej Nordei zapisana przy zamówieniu (ticket 8).
+ * `index` = miejsce linii w zapisie zamówienia (pod nim idzie poprawka),
+ * `[brak]` w `text` = pole nieodczytane z PDF-a.
+ */
+export interface InvoiceLine {
+  index: number;
+  consultant: string | null;
+  text: string;
+  edited_by_name: string | null;
+  edited_at: string | null;
+}
+
+/**
  * Wejście = osoba zaczynająca z nami współpracę po raz pierwszy. Kontynuacja,
  * zmiana klienta i dodatkowy projekt idą do Zmian — dlatego nie ma tu pól
  * `is_continuation` / `additional_project`.
@@ -168,6 +181,8 @@ export interface OrderEntryItem extends OrderRef {
   currency: string | null;
   order_type: OrderTypeCode;
   status: string;
+  /** Tylko Nordea: gotowa pozycja faktury; `null`/brak = inny klient. */
+  invoice_lines?: InvoiceLine[] | null;
 }
 
 /**
@@ -460,6 +475,12 @@ export const financeApi = {
   }) =>
     api.post<{ item_key: string; done: OrderItemCheck | null }>(
       "/api/finance/order-changes/checks",
+      payload,
+    ),
+
+  updateInvoiceLine: (orderId: number, payload: { index: number; text: string }) =>
+    api.put<{ order_id: number; lines: InvoiceLine[] }>(
+      `/api/finance/order-changes/invoice-lines/${orderId}`,
       payload,
     ),
 

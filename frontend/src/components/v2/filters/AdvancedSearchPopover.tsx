@@ -1,11 +1,20 @@
 "use client";
 
-import { useState, type KeyboardEvent, type ReactNode } from "react";
+import { useId, useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Plus, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { KeywordSuggestionList } from "@/components/v2/filters/KeywordSuggestionList";
+import {
+  buildSuggestionOptions,
+  useKeywordSuggestions,
+  type KeywordContextItem,
+  type SuggestionOption,
+} from "@/lib/keyword-suggest";
+import { recentKeywords } from "@/lib/search-memory";
+import { useAuthStore } from "@/store/auth";
 
 /**
  * Advanced (Traffit-style) boolean search value.
@@ -32,6 +41,10 @@ interface AdvancedSearchPopoverProps {
   hideHeader?: boolean;
   /** Które kubełki pokazać (domyślnie wszystkie) — reszta żyje gdzie indziej. */
   sections?: ReadonlyArray<"all" | "any" | "none">;
+  /** Podpowiedzi w polach (słownik z bazy, ostatnio używane, kontekst). */
+  suggest?: ChipFieldSuggest;
+  /** Enter w pustym polu = „Szukaj”. */
+  onSubmitEmpty?: () => void;
 }
 
 const MAX_PER_BUCKET = 20;
@@ -93,10 +106,21 @@ function dedupeCaseInsensitive(xs: string[]): string[] {
   return out;
 }
 
+/** Podpowiedzi w polu: kontekst (np. rekrutacja) i tryb „tylko umiejętności”. */
+export interface ChipFieldSuggest {
+  context?: readonly KeywordContextItem[];
+  skillsOnly?: boolean;
+}
+
 /**
  * A single chip input: owns its draft text, commits on Enter/comma/blur,
  * removes the last chip on Backspace-when-empty. Emits the full new chip list
  * to `onChange` (already deduped + capped).
+ *
+ * Z `suggest` pole jest komboboksem: pod nim lista podpowiedzi (kontekst,
+ * ostatnio używane, słownik z bazy, wzorzec, „dokładnie jak wpisane”),
+ * strzałki wybierają, Enter dodaje zaznaczoną, Esc zamyka. `onSubmitEmpty` —
+ * Enter w pustym polu uruchamia wyszukiwanie (przycisk „Szukaj”).
  */
 export function ChipField({
   chips,
@@ -104,6 +128,9 @@ export function ChipField({
   placeholder,
   tone,
   ariaLabel,
+  suggest,
+  onSubmitEmpty,
+  inputId,
 }: {
   chips: string[];
   onChange: (next: string[]) => void;
@@ -111,9 +138,36 @@ export function ChipField({
   tone: Tone;
   /** Nazwa pola dla czytnika ekranu (bez etykiety `<label>` obok). */
   ariaLabel?: string;
+  suggest?: ChipFieldSuggest;
+  onSubmitEmpty?: () => void;
+  inputId?: string;
 }) {
   const [draft, setDraft] = useState("");
+  const [open, setOpen] = useState(false);
+  // -1 = nic nie zaznaczone: Enter dodaje wpisany tekst, dopóki ktoś nie
+  // wybierze podpowiedzi strzałką (inaczej „junior” + Enter dodawał
+  // pierwszą pozycję z listy, np. stanowisko „junior java developer”).
+  const [highlight, setHighlight] = useState(-1);
+  const listId = useId();
+  const userId = useAuthStore((s) => s.user?.id ?? null);
   const limitReached = chips.length >= MAX_PER_BUCKET;
+  const suggestions = useKeywordSuggestions(draft, Boolean(suggest) && open);
+  const recent = useMemo(
+    () => (suggest && open ? recentKeywords(userId) : []),
+    [suggest, open, userId],
+  );
+  const options = suggest
+    ? buildSuggestionOptions({
+        query: draft,
+        existing: chips,
+        context: suggest.context,
+        recent,
+        response: suggestions.data ?? null,
+        skillsOnly: suggest.skillsOnly,
+      })
+    : [];
+  const showList = Boolean(suggest) && open && options.length > 0 && !limitReached;
+  const active = showList ? Math.min(highlight, options.length - 1) : -1;
 
   const commit = () => {
     if (!draft.trim()) return;
@@ -125,12 +179,40 @@ export function ChipField({
     setDraft("");
   };
 
+  const pick = (option: SuggestionOption) => {
+    onChange(dedupeCaseInsensitive([...chips, option.insert]));
+    setDraft("");
+    setHighlight(-1);
+  };
+
   const removeAt = (index: number) => {
     onChange(chips.filter((_, i) => i !== index));
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter" || e.key === ",") {
+    if (showList && e.key === "ArrowDown") {
+      e.preventDefault();
+      setHighlight((h) => Math.min(h + 1, options.length - 1));
+    } else if (showList && e.key === "ArrowUp") {
+      e.preventDefault();
+      setHighlight((h) => Math.max(h - 1, -1));
+    } else if (e.key === "Escape" && showList) {
+      e.preventDefault();
+      e.stopPropagation();
+      setOpen(false);
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (!draft.trim()) {
+        if (onSubmitEmpty) {
+          setOpen(false);
+          onSubmitEmpty();
+        }
+      } else if (showList && active >= 0 && draft.trim() !== "") {
+        pick(options[active]);
+      } else {
+        commit();
+      }
+    } else if (e.key === ",") {
       e.preventDefault();
       commit();
     } else if (e.key === "Backspace" && draft.length === 0 && chips.length > 0) {
@@ -163,17 +245,48 @@ export function ChipField({
           ))}
         </div>
       )}
-      <Input
-        type="text"
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onKeyDown={handleKeyDown}
-        onBlur={commit}
-        placeholder={limitReached ? `Limit ${MAX_PER_BUCKET} fraz osiągnięty` : placeholder}
-        disabled={limitReached}
-        aria-label={ariaLabel}
-        className="h-8 text-sm"
-      />
+      <div className="relative">
+        <Input
+          id={inputId}
+          type="text"
+          value={draft}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            setHighlight(-1);
+            setOpen(true);
+          }}
+          onKeyDown={handleKeyDown}
+          onFocus={() => setOpen(true)}
+          onBlur={() => {
+            setOpen(false);
+            commit();
+          }}
+          placeholder={limitReached ? `Limit ${MAX_PER_BUCKET} fraz osiągnięty` : placeholder}
+          disabled={limitReached}
+          aria-label={ariaLabel}
+          autoComplete="off"
+          className="h-8 text-sm"
+          {...(suggest
+            ? {
+                role: "combobox",
+                "aria-expanded": showList,
+                "aria-controls": listId,
+                "aria-autocomplete": "list" as const,
+                "aria-activedescendant": active >= 0 ? `${listId}-${active}` : undefined,
+              }
+            : {})}
+        />
+        {showList && (
+          <KeywordSuggestionList
+            id={listId}
+            options={options}
+            activeIndex={active}
+            onPick={pick}
+            onHover={setHighlight}
+            canSubmit={Boolean(onSubmitEmpty)}
+          />
+        )}
+      </div>
     </div>
   );
 }
@@ -184,6 +297,8 @@ export function AdvancedSearchPopover({
   className,
   hideHeader = false,
   sections,
+  suggest,
+  onSubmitEmpty,
 }: AdvancedSearchPopoverProps) {
   const show = (key: "all" | "any" | "none") => !sections || sections.includes(key);
   // Always render at least one ANY group row so there's somewhere to type.
@@ -270,6 +385,8 @@ export function AdvancedSearchPopover({
           onChange={setAll}
           placeholder="np. React, TypeScript…"
           tone="emerald"
+          suggest={suggest}
+          onSubmitEmpty={onSubmitEmpty}
         />
       </section>
       )}
@@ -321,6 +438,8 @@ export function AdvancedSearchPopover({
                   onChange={(next) => setGroup(gi, next)}
                   placeholder={gi === 0 ? "np. React, TypeScript…" : "np. Java, Node.js…"}
                   tone="sky"
+                  suggest={suggest}
+                  onSubmitEmpty={onSubmitEmpty}
                 />
               </div>
               {anyGroups.length > 1 && (
@@ -381,6 +500,8 @@ export function AdvancedSearchPopover({
           onChange={setNone}
           placeholder="np. junior, stażysta…"
           tone="rose"
+          suggest={suggest}
+          onSubmitEmpty={onSubmitEmpty}
         />
       </section>
       )}
