@@ -49,15 +49,15 @@ async def _post_to_slack(webhook: str, text: str) -> bool:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.post(webhook, json={"text": text})
         if resp.status_code >= 400:
-            logger.warning(
-                "integration stale alert: slack %s %s",
-                resp.status_code,
-                resp.text[:120],
-            )
+            logger.warning("integration stale alert: slack HTTP %s", resp.status_code)
             return False
         return True
-    except Exception:  # noqa: BLE001 - alert nie może wywrócić pętli
-        logger.exception("integration stale alert: slack post failed")
+    except Exception as exc:  # noqa: BLE001 - alert nie może wywrócić pętli
+        # Bez traceback i treści wyjątku: adres webhooka to sekret, a Sentry
+        # zbiera zmienne lokalne ramek (`webhook`) z `logger.exception`.
+        logger.warning(
+            "integration stale alert: slack post failed (%s)", type(exc).__name__
+        )
         return False
 
 

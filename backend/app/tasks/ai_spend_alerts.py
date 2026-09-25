@@ -103,7 +103,10 @@ async def _post_to_slack(webhook: str, text: str) -> bool:
             return False
         return True
     except Exception as exc:  # noqa: BLE001
-        logger.warning("ai_spend_alerts: nie udało się wysłać na Slacka: %s", exc)
+        # Sama klasa wyjątku — treść bywa pełnym adresem webhooka (sekret).
+        logger.warning(
+            "ai_spend_alerts: nie udało się wysłać na Slacka (%s)", type(exc).__name__
+        )
         return False
 
 
