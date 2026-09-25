@@ -6956,7 +6956,9 @@ przypadek drugiego wiersza.
 - **Poczta.** Wpis bez sha (`uq_order_mail_documents_message_no_attachment`) jest jeden
   na wiadomość — kolejne załączniki bez treści dopisują się do opisu istniejącego wpisu
   „Nieudane” i nie trzymają znacznika; wpisy dziennika zapisuje `_add_journal_row`
-  (savepoint + `IntegrityError`). Za duży PDF = wpis „Nieudane” z sha, bez pliku.
+  (savepoint + `IntegrityError`); wpis główny po `process_pdf_bytes` przy konflikcie
+  wycofuje CAŁĄ transakcję (mógł już zapisać zamówienie) i liczy się jako pominięty.
+  Za duży PDF = wpis „Nieudane” z sha, bez pliku.
   `_first_with_sha` pomija `failed` i `duplicate_attachment`. „Nieudane” da się odrzucić
   (admin albo przypisany DL); zdanie „system ponawia sam” liczy serwer
   (`failed_retry_pending` — lustro `_failed_candidate_ids`). `error` wpisów i stanu biegu
@@ -6970,6 +6972,10 @@ przypadek drugiego wiersza.
 - **Rekrutacja.** Para bez żadnego wiersza etapu liczy bramki od „Nowi” — bez CV
   firmowego QC odmawia 409 `CV_QC_FAILED` (`stage_id: null`), przechodzi tylko obejście
   DL/admina. `gate_stage_row` liczy kolumny jednym odczytem definicji etapów.
+  Bulk-add (`proposals/bulk`, także `assignable-stages`) przyjmuje wyłącznie etapy
+  kolumn „Nowi”/„Screening” (`_is_entry_column`) — dalsze mają bramki `/move`.
+  Samoleczenie „Zakończony” w PATCH bez zmiany daty nie dotyczy umowy z
+  `terminated_at` albo rozwiązaniem.
   `/bulk-move` robi efekty po commicie per osoba przez `_post_commit_effect`. Rekruter
   wniosku o terminy (jawny i podpowiadany) przechodzi `slot_recruiter_eligible`.
   Przekazanie od praktykanta osoby `employment_only` PRZECHODZI (decyzja Artura

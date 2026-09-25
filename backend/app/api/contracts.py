@@ -4019,7 +4019,19 @@ async def update_contract(
                 assert_transition(contract.status, ContractStatus.ending)
                 contract.status = ContractStatus.ending
             updates["status"] = contract.status.value
-        elif coerced_status != contract.status:
+        elif coerced_status != contract.status and not (
+            contract.status == ContractStatus.ended
+            and (
+                contract.terminated_at is not None
+                or contract.agreement_termination_mode is not None
+            )
+        ):
+            # Samoleczenie „Zakończony” bez zmiany daty obejmuje tylko umowę
+            # BEZ śladów zakończenia (np. źle oznaczoną ręcznie). Umowa
+            # zakończona przez „Zakończ współpracę” (`terminated_at`,
+            # rozwiązanie) wraca wyłącznie przez nową datę albo „Cofnij
+            # zakończenie” — surowy zapis statusu zostawiał wypowiedzenie,
+            # rozwiązanie i otwartą migawkę przy „Aktywnym” (przegląd PR #1836).
             contract.status = coerced_status
             updates["status"] = coerced_status.value  # reflect the outcome in audit
     # Reguła zakładki „Zakończeni" (09.2026): data końca umowy wpisana w module

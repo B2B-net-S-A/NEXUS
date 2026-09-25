@@ -255,8 +255,10 @@ async def _retry_failed_one(
     (``process_pdf_bytes``: rozpoznanie klienta, odczyt, plan, bramka, zapis).
     Świadomie inaczej niż ``retry_ai_fallback_documents`` (odczyt poza blokadą):
     jedyna akcja kolejki na wpisie ``failed`` to „Odrzuć” (od rundy 2 audytu
-    25.09.2026) — czeka na blokadę wiersza, a po odczycie zobaczy wpis już
-    przetworzony i odmówi 409; odrzucenie w przerwie między próbą a odczytem
+    25.09.2026) — czeka na blokadę wiersza i po odczycie działa na NOWYM
+    stanie wpisu: zapisane zamówienie (`auto_applied`) odmówi 409, a wpis
+    wstrzymany (`needs_review`, `unrecognized_client`) da się odrzucić jak
+    każdy inny w kolejce; odrzucenie w przerwie między próbą a odczytem
     wyłapuje ponowne sprawdzenie ``outcome`` po blokadzie. Bieg jest jeden
     naraz (blokada biegu skrzynki), a rozdzielenie ``process_pdf_bytes`` na
     odczyt i zapis zdublowałoby ścieżkę nowego maila.

@@ -546,6 +546,9 @@ async def test_unrelated_patch_on_dissolved_contract_does_not_undo_the_terminati
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
+    # Przegląd PR #1836: bez zmiany daty zakończona umowa nie wraca sama do
+    # „Aktywnych” z wypowiedzeniem i rozwiązaniem w tle.
+    assert body["status"] == "ended"
     assert body["agreement_termination_mode"] == "mutual_agreement"
     assert body["terminated_at"] == project_end.isoformat()
     row = await _generated(gid)

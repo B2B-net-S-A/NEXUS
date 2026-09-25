@@ -1786,10 +1786,11 @@ async def _process_message(
             row.storage_path = original.storage_path
             row.client_id = original.client_id
             row.client_key = original.client_key
-            db.add(row)
-            await db.commit()
-            added = True
-            stats.duplicates += 1
+            if await _add_journal_row(db, row):
+                added = True
+                stats.duplicates += 1
+            else:
+                stats.skipped_existing += 1
             continue
 
         identity = _row_fields(row)
@@ -1822,7 +1823,20 @@ async def _process_message(
             row = failed
             stats.failed += 1
         db.add(row)
-        await db.commit()
+        try:
+            await db.commit()
+        except IntegrityError:
+            # Ten sam załącznik zapisał równoległy bieg (bieg ręczny i z pętli,
+            # dwa kontenery przy deployu) — `uq_order_mail_documents_message_*`.
+            # Wycofujemy CAŁĄ transakcję, nie savepoint: `process_pdf_bytes`
+            # mógł już zapisać zamówienie, a bez wpisu w dzienniku zostałby
+            # drugi zapis tego samego zamówienia (przegląd PR #1836).
+            logger.warning("order_mail: attachment already journaled by a parallel run")
+            await db.rollback()
+            if conn is not None:
+                await db.refresh(conn)
+            stats.skipped_existing += 1
+            continue
         added = True
         if row.outcome == OUTCOME_NEEDS_REVIEW:
             stats.needs_review += 1
