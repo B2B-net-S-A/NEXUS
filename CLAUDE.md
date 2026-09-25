@@ -1995,8 +1995,10 @@ dniami roboczymi z D5. **Kod wdrożony (#1368), aktywacja częściowo credential
 **Env (Coolify, przez workflow „Coolify set env"):** `COMPASS_LIFECYCLE_ENABLED`,
 `COMPASS_LIFECYCLE_URL` (`https://compass.dynaminds.pl/api/internal/roster`),
 `COMPASS_LIFECYCLE_SECRET` (**= Compass `ROSTER_EXPORT_SECRET`**). Klucz konta
-serwisowego wydaje admin przez Ustawienia → Konta serwisowe (mintuje żywe
-poświadczenie — nie da się z CI: `coolify-ops.yml` świadomie nie ma `command`).
+serwisowego wydaje admin przez API — `POST /api/settings/service-accounts/{id}/keys`
+z tokenem admina (aplikacja NIE ma ekranu kont serwisowych, audyt 25.09.2026);
+mintuje żywe poświadczenie, więc nie da się z CI (`coolify-ops.yml` świadomie
+nie ma `command`).
 
 ## Moje powiadomienia — kategorie i wyciszenia per osoba (0349, 22.09.2026)
 
@@ -3900,7 +3902,8 @@ i osłabia sesje wszystkim. Migracja `0220_service_accounts` (+ lustro w `entryp
   W snapshotcie klucz jest sprawdzany **przed** legacy `X-Snapshot-Token` (w trakcie migracji
   lecą oba nagłówki naraz); `auth_mode` w odpowiedzi ma teraz trzecią wartość
   `service_account`. CRUD: `/api/settings/service-accounts` (+ `/scopes`, `/config`,
-  `/{id}/keys`, `/{id}/keys/{key_id}/revoke`).
+  `/{id}/keys`, `/{id}/keys/{key_id}/revoke`) — tylko API, bez ekranu w aplikacji
+  (klucz wydaje admin żądaniem z tokenem admina).
 - **`SNAPSHOT_TOKEN` jest do wycofania**, nie do rozbudowy — jeden globalny sekret bez
   terminu, rotacji, rewokacji i atrybucji. Zostaje, dopóki cron i ops-skille (`.claude/commands/
   ops-snapshot.md`) nie przejdą na klucz ze scope'em `ops:snapshot`.
