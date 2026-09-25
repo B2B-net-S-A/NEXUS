@@ -725,7 +725,9 @@ async def test_database_error_while_processing_records_failed_row_and_continues(
     assert saved[0].outcome == OUTCOME_FAILED
     assert saved[0].attachment_name == "db.pdf" and saved[0].storage_path
     assert saved[0].client_key == "bank-a"
-    assert "division by zero" in (saved[0].error or "")
+    # Klasa wyjątku po polsku, bez treści SQL i ścieżek (runda 2 audytu 25.09).
+    assert (saved[0].error or "").startswith("Błąd przetwarzania: ")
+    assert "SELECT" not in saved[0].error and "division" not in saved[0].error
 
 
 class _BrokenAttachmentsGraph(_FakeGraph):
@@ -833,6 +835,172 @@ async def test_old_unprocessed_mail_becomes_failed_and_stops_holding(
     ).all()
     assert [r.outcome for r in rows] == [OUTCOME_FAILED]
     assert "RuntimeError" in (rows[0].error or "")
+
+
+def _no_bytes(name: str) -> dict:
+    return {
+        "@odata.type": "#microsoft.graph.fileAttachment",
+        "name": name,
+        "contentType": "application/pdf",
+    }
+
+
+def _hours_ago(hours: int) -> str:
+    return (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
+
+
+async def _rows_of(db_session, mid: str) -> list[OrderMailDocument]:
+    return list(
+        (
+            await db_session.scalars(
+                select(OrderMailDocument)
+                .where(
+                    OrderMailDocument.internet_message_id == f"<{mid}-{RUN}@example>"
+                )
+                .order_by(OrderMailDocument.id)
+            )
+        ).all()
+    )
+
+
+@pytest.mark.asyncio
+async def test_old_mail_with_two_attachments_without_content_gets_one_failed_row(
+    db_session, monkeypatch
+):
+    """Runda 2 audytu 25.09: dwa załączniki bez contentBytes w mailu starszym niż
+    24 h dawały drugi wpis bez SHA → IntegrityError (jeden taki wpis na
+    wiadomość), bieg „error” i znacznik trzymany na zawsze."""
+    from app.models.order_mail import OUTCOME_FAILED
+
+    monkeypatch.setattr(svc.settings, "ORDER_MAIL_SENDER_ALLOWLIST", "")
+    monkeypatch.setattr(svc.settings, "ORDER_MAIL_UNPROCESSED_HOLD_HOURS", 24)
+    registry = ClientRegistry(by_registry_id={})
+    mid = f"two{uuid.uuid4().hex[:8]}"
+    msg = _msg(mid, received=_hours_ago(30))
+    graph = _FakeGraph([], {f"graph-{mid}": [_no_bytes("a.pdf"), _no_bytes("b.pdf")]})
+
+    for _ in range(2):  # drugi bieg = wiadomość wraca z nakładki okna
+        stats = svc.IngestStats()
+        await svc._process_message(db_session, graph, None, msg, stats, registry)
+        assert stats.unprocessed_messages == 0
+        assert stats.earliest_unprocessed_at is None
+
+    rows = await _rows_of(db_session, mid)
+    assert [r.outcome for r in rows] == [OUTCOME_FAILED]
+    assert rows[0].attachment_sha256 is None
+    assert rows[0].attachment_name == "a.pdf"
+    # Drugi plik nie ginie — operator widzi go w opisie wpisu, raz.
+    assert (rows[0].error or "").count("b.pdf") == 1
+
+
+@pytest.mark.asyncio
+async def test_old_mail_failed_on_attachments_then_without_content_does_not_crash(
+    db_session, monkeypatch
+):
+    """Wpis „Nieudane” po błędzie `/attachments`, a w kolejnym biegu załącznik
+    bez treści — ten sam indeks unikalny, bez wyjątku i bez trzymania."""
+    from app.models.order_mail import OUTCOME_FAILED
+
+    monkeypatch.setattr(svc.settings, "ORDER_MAIL_SENDER_ALLOWLIST", "")
+    monkeypatch.setattr(svc.settings, "ORDER_MAIL_UNPROCESSED_HOLD_HOURS", 24)
+    registry = ClientRegistry(by_registry_id={})
+    mid = f"att2{uuid.uuid4().hex[:8]}"
+    msg = _msg(mid, received=_hours_ago(30))
+    await svc._process_message(
+        db_session,
+        _BrokenAttachmentsGraph([], {}),
+        None,
+        msg,
+        svc.IngestStats(),
+        registry,
+    )
+    stats = svc.IngestStats()
+    await svc._process_message(
+        db_session,
+        _FakeGraph([], {f"graph-{mid}": [_no_bytes("c.pdf")]}),
+        None,
+        msg,
+        stats,
+        registry,
+    )
+    assert stats.unprocessed_messages == 0
+    rows = await _rows_of(db_session, mid)
+    assert [r.outcome for r in rows] == [OUTCOME_FAILED]
+
+
+@pytest.mark.asyncio
+async def test_journal_row_race_is_absorbed_not_raised(db_session):
+    """Wpis wiadomości zapisany w międzyczasie (drugi bieg) nie przerywa biegu."""
+    from app.models.order_mail import OUTCOME_FAILED
+
+    mid = f"race{uuid.uuid4().hex[:8]}"
+    first = svc._base_row(None, _msg(mid))
+    first.outcome = OUTCOME_IGNORED_NO_PDF
+    db_session.add(first)
+    await db_session.commit()
+
+    second = svc._base_row(None, _msg(mid))
+    second.outcome = OUTCOME_FAILED
+    assert await svc._add_journal_row(db_session, second) is False
+    # Sesja zdatna do dalszej pracy, w bazie nadal jeden wpis.
+    assert [r.outcome for r in await _rows_of(db_session, mid)] == [
+        OUTCOME_IGNORED_NO_PDF
+    ]
+
+
+@pytest.mark.asyncio
+async def test_too_large_attachment_leaves_a_failed_row_without_a_file(
+    db_session, monkeypatch
+):
+    """Za duży załącznik znikał bez śladu; teraz jest wpis „Nieudane” (raz)."""
+    from app.models.order_mail import OUTCOME_FAILED
+
+    monkeypatch.setattr(svc.settings, "ORDER_MAIL_SENDER_ALLOWLIST", "")
+    monkeypatch.setattr(svc.settings, "ORDER_MAIL_MAX_ATTACHMENT_MB", 0)
+    registry = ClientRegistry(by_registry_id={})
+    mid = f"big{uuid.uuid4().hex[:8]}"
+    graph = _FakeGraph(
+        [], {f"graph-{mid}": [_pdf("duzy.pdf", f"%PDF big {mid}".encode())]}
+    )
+    for _ in range(2):
+        await svc._process_message(
+            db_session, graph, None, _msg(mid), svc.IngestStats(), registry
+        )
+    rows = await _rows_of(db_session, mid)
+    assert [r.outcome for r in rows] == [OUTCOME_FAILED]
+    assert rows[0].attachment_sha256 and rows[0].storage_path is None
+    assert "przekracza limit" in (rows[0].error or "")
+
+
+@pytest.mark.asyncio
+async def test_duplicate_is_never_the_original_of_a_duplicate(db_session):
+    """Runda 2 audytu 25.09: `_first_with_sha` pomija też duplikaty — wpis
+    „Nieudane” z duplikatem sprzed poprawki wskazywał go jako oryginał."""
+    from app.models.order_mail import OUTCOME_FAILED
+
+    sha = uuid.uuid4().hex + uuid.uuid4().hex
+    failed = svc._base_row(None, _msg(f"f{uuid.uuid4().hex[:8]}"))
+    failed.attachment_sha256 = sha
+    failed.outcome = OUTCOME_FAILED
+    db_session.add(failed)
+    await db_session.commit()
+    dup = svc._base_row(None, _msg(f"d{uuid.uuid4().hex[:8]}"))
+    dup.attachment_sha256 = sha
+    dup.outcome = OUTCOME_DUPLICATE
+    dup.duplicate_of_id = failed.id
+    db_session.add(dup)
+    await db_session.commit()
+    assert await svc._first_with_sha(db_session, sha) is None
+
+
+def test_processing_error_names_the_class_not_the_repr():
+    err = svc.processing_error(
+        FileNotFoundError(2, "No such file", "/app/storage/order_mail/x.pdf")
+    )
+    assert err == "Błąd przetwarzania: FileNotFoundError"
+    assert "/app" not in err
 
 
 @pytest.mark.asyncio

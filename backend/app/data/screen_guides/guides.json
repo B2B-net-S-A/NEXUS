@@ -510,6 +510,11 @@
         "q": "Kiedy system ostatnio sprawdzał wstrzymane wpisy?",
         "a": "Na dole ekranu jest historia sprawdzeń i zdanie „Sprawdzone ostatnio”. Wstrzymane wpisy są sprawdzane co godzinę między 8 a 18; historia pokazuje tylko sprawdzenia, które coś zmieniły.",
         "anchor": "contracts.order_mail.history"
+      },
+      {
+        "q": "Co zrobić z wpisem „Nieudane”?",
+        "a": "Przeczytaj zdanie pod wpisem. Gdy system ponawia go sam — poczekaj. Gdy „Nie będzie ponawiany” — wprowadź zamówienie ręcznie w oknie zamówienia klienta i zdejmij wpis przyciskiem „Odrzuć”.",
+        "anchor": "contracts.order_mail.detail"
       }
     ],
     "pitfalls": [

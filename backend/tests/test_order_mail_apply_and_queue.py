@@ -722,6 +722,54 @@ async def test_admin_can_dismiss_an_unrecognized_document(
     assert dismissed.json()["can_dismiss"] is False
 
 
+@pytest.mark.asyncio
+async def test_failed_entry_can_be_dismissed_and_says_whether_it_is_retried(
+    seeded, app_client: AsyncClient
+):
+    """Runda 2 audytu 25.09: wpis „Nieudane” nie dawał się zdjąć z listy, a
+    kolejka obiecywała ponowienia także wpisom, których system nie weźmie."""
+    from app.models.order_mail import OUTCOME_DISMISSED, OUTCOME_FAILED
+
+    admin = await _headers_for_role(app_client, UserRole.admin)
+    async with AsyncSessionLocal() as db:
+        doc = await db.get(OrderMailDocument, seeded["doc_id"])
+        doc.outcome = OUTCOME_FAILED
+        doc.received_at = datetime.now(timezone.utc)
+        doc.document_meta = None
+        await db.commit()
+
+    fresh = await app_client.get(
+        f"/api/order-mail/queue/{seeded['doc_id']}", headers=admin
+    )
+    assert fresh.status_code == 200, fresh.text
+    assert fresh.json()["failed_retry_pending"] is True
+    assert fresh.json()["can_dismiss"] is True
+
+    # Brak pliku (np. Graph nie zwrócił treści) — ponowień nie będzie.
+    async with AsyncSessionLocal() as db:
+        doc = await db.get(OrderMailDocument, seeded["doc_id"])
+        doc.storage_path = None
+        doc.client_id = None
+        await db.commit()
+    no_file = await app_client.get(
+        f"/api/order-mail/queue/{seeded['doc_id']}", headers=admin
+    )
+    assert no_file.json()["failed_retry_pending"] is False
+
+    finance = await _headers_for_role(app_client, UserRole.finance)
+    refused = await app_client.post(
+        f"/api/order-mail/queue/{seeded['doc_id']}/dismiss", headers=finance
+    )
+    assert refused.status_code == 403
+
+    dismissed = await app_client.post(
+        f"/api/order-mail/queue/{seeded['doc_id']}/dismiss", headers=admin
+    )
+    assert dismissed.status_code == 200, dismissed.text
+    assert dismissed.json()["outcome"] == OUTCOME_DISMISSED
+    assert dismissed.json()["failed_retry_pending"] is False
+
+
 # ── Audyt 24.09.2026: stawka bez jednostki ───────────────────────────────────
 
 
