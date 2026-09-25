@@ -90,7 +90,9 @@ def requirements_for_job(job) -> MatchingRequirements:
 # pracy ukrywają, zgoda na ofertę poniżej minimum / więcej dni w biurze nie.
 # v5 (audyt 24.09.2026): sprzeczny wymiar pracy tylko ostrzega (plakietka
 # `work_time_fit`), nie ukrywa.
-MUST_GATE_POLICY_VERSION = "known-technology-gap-v5"
+# v6 (25.09.2026): polskie słowa i litery z surowego CV („różni”, „jest”)
+# przestały być znanymi umiejętnościami R/C/Jest/Go (`is_technology_mention`).
+MUST_GATE_POLICY_VERSION = "known-technology-gap-v6"
 
 
 def search_dealbreaker_inputs(job, *, exclude_missing_must: bool | None = None):

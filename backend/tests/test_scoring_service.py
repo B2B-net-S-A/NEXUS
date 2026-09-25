@@ -281,6 +281,59 @@ def test_score_skills_raw_cv_fallback(alias_map_loaded):
     assert must_gap == []
 
 
+@pytest.fixture
+def polish_alias_map():
+    saved = dict(ss.ALIAS_MAP)
+    ss.set_alias_map(
+        {
+            s: s
+            for s in (
+                "r",
+                "c",
+                "c#",
+                "go",
+                "jest",
+                "java",
+                "websocket",
+                "elasticsearch",
+            )
+        }
+    )
+    try:
+        yield
+    finally:
+        ss.set_alias_map(saved)
+
+
+def test_raw_cv_polish_words_are_not_skills(polish_alias_map):
+    # 25.09.2026, surowe CV z produkcji: „różni” dawało R, „dostając” C,
+    # „jest”/„go” Jest i Go — 21 tys. kandydatów z fałszywą umiejętnością.
+    cand = make_candidate(
+        raw_cv_text=(
+            "Czym się różni ta praca? Dostając zadanie, jest mi łatwo i lubię "
+            "go robić. Obsługa websocketów i Elasticsearchów."
+        )
+    )
+    assert ss._skills_from_raw_cv(cand) == ["elasticsearch", "websocket"]
+
+
+def test_raw_cv_real_short_technologies_still_count(polish_alias_map):
+    cand = make_candidate(raw_cv_text="Języki: R, C, C#, Go. Testy w Jest. Java.")
+    assert set(ss._skills_from_raw_cv(cand)) == {"r", "c", "c#", "go", "jest", "java"}
+
+
+def test_requirements_prose_ignores_polish_words(polish_alias_map):
+    from app.services.requirement_modality import classify_requirements
+
+    result = classify_requirements(
+        "Wymagane: Java. Praca jest zdalna, a to, co nas różni, to kultura.",
+        ss._alias_pattern(),
+        ss.ALIAS_MAP,
+    )
+    assert result["must"] == ["java"]
+    assert "r" not in result["uncertain"] and "jest" not in result["uncertain"]
+
+
 # ── _score_salary ────────────────────────────────────────────────────────────
 
 

@@ -280,6 +280,7 @@ def scoring_algorithm_version() -> str:
     payload["budget_contract"] = "2026-09-09-explicit-budget-currency"
     payload["skill_canon_contract"] = "2026-09-22-significant-signs"
     payload["location_contract"] = "2026-09-22-city-token-only"
+    payload["alias_mention_contract"] = "2026-09-25-polish-short-aliases"
     payload["default_weights"] = [
         SEMANTIC_MAX,
         SKILLS_MAX,
@@ -632,12 +633,75 @@ def skill_name_variants(raw) -> List[str]:
     return out
 
 
+# Aliasy taksonomii, które są też zwykłymi polskimi słowami („jest” = is,
+# „go” = him). Liczą się tylko pisane jak technologia (Jest, Go).
+_POLISH_WORD_ALIASES = frozenset({"jest", "go"})
+
+
+def is_technology_mention(text: str, match: re.Match) -> bool:
+    """Czy trafienie wzorca taksonomii to naprawdę technologia w polskim tekście.
+
+    Wzorzec ma granicę słowa tylko ASCII, więc „r” w „różni” i „c” w
+    „dostając” wychodziły jako R i C, a „jest”/„go” to zwykłe polskie słowa.
+    Zmierzone 25.09.2026 na surowych CV z produkcji (60 110): R 15 773,
+    C 9 398, Jest 4 154, Go 1 753 fałszywych umiejętności. Dla aliasów
+    krótkich (1–2 znaki) i polskich słów granica jest unikodowa, a
+    jednoliterowe i polskie słowa wymagają wielkiej litery. Dłuższe nazwy
+    zostają przy granicy ASCII CELOWO: odmiana „websocketów”,
+    „Elasticsearchów” to prawdziwa technologia (ścisła granica zabrała 359 ×
+    „software developer”, 34 × Elasticsearch).
+    """
+    found = match.group(1)
+    lowered = found.lower()
+    if len(found) > 2 and lowered not in _POLISH_WORD_ALIASES:
+        return True
+    start, end = match.span(1)
+    before = text[start - 1] if start > 0 else ""
+    after = text[end] if end < len(text) else ""
+    if (before and (before.isalnum() or before == "_")) or (
+        after and (after.isalnum() or after == "_")
+    ):
+        return False
+    if len(found) == 1 or lowered in _POLISH_WORD_ALIASES:
+        return not found.islower()
+    return True
+
+
+class _AliasPattern:
+    """Wzorzec taksonomii, który oddaje tylko prawdziwe wzmianki technologii.
+
+    Ten sam interfejs co ``re.Pattern`` w zakresie, którego używają wołający
+    (``finditer``, ``search``, ``fullmatch``): wymagania z prozy ofert
+    (``classify_requirements``), surowe CV kandydata i prep-kit dostają jedną
+    regułę (``is_technology_mention``) zamiast kopii w każdym miejscu.
+    """
+
+    __slots__ = ("regex",)
+
+    def __init__(self, regex: re.Pattern) -> None:
+        self.regex = regex
+
+    def finditer(self, text: str, *args):
+        return (
+            m
+            for m in self.regex.finditer(text, *args)
+            if is_technology_mention(text, m)
+        )
+
+    def search(self, text: str, *args) -> Optional[re.Match]:
+        return next(self.finditer(text, *args), None)
+
+    def fullmatch(self, text: str, *args) -> Optional[re.Match]:
+        match = self.regex.fullmatch(text, *args)
+        return match if match and is_technology_mention(text, match) else None
+
+
 # Compiled union regex: \b(alias1|alias2|...)\b. Built lazily, invalidated when
 # `set_alias_map` rebuilds ALIAS_MAP. Used by `_extract_skills_from_champion`.
-_CHAMPION_ALIAS_PATTERN: Optional[re.Pattern] = None
+_CHAMPION_ALIAS_PATTERN: Optional[_AliasPattern] = None
 
 
-def _alias_pattern() -> Optional[re.Pattern]:
+def _alias_pattern() -> Optional[_AliasPattern]:
     global _CHAMPION_ALIAS_PATTERN
     if not ALIAS_MAP:
         return None
@@ -652,7 +716,7 @@ def _alias_pattern() -> Optional[re.Pattern]:
             + "|".join(re.escape(a) for a in sorted_aliases)
             + r")(?![A-Za-z0-9_])"
         )
-        _CHAMPION_ALIAS_PATTERN = re.compile(pattern, re.IGNORECASE)
+        _CHAMPION_ALIAS_PATTERN = _AliasPattern(re.compile(pattern, re.IGNORECASE))
     return _CHAMPION_ALIAS_PATTERN
 
 
