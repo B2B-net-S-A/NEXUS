@@ -438,8 +438,27 @@ def _folded_whole_word_match(
             "title": _experience_roles_text(),
             "skills": _skill_names_text(),
         }[scope]
+        # Pole także bez polskich znaków: indeks złożony znajduje „Łódź” dla
+        # „lodz”, a sam regex pola by go odrzucił (badanie 26.09.2026).
+        folded_pattern = pg_regex(
+            KeywordTerm(
+                raw=term.raw,
+                text=fold_polish(term.text),
+                open_end=term.open_end,
+                open_start=term.open_start,
+            )
+        )
+        folded_field = func.lower(
+            func.translate(func.coalesce(field, ""), _POLISH_FOLD_SRC, _POLISH_FOLD_DST)
+        )
         return Candidate.id.in_(
-            select(Candidate.id).where(match, field.op("~*")(pattern))
+            select(Candidate.id).where(
+                match,
+                or_(
+                    field.op("~*")(pattern),
+                    folded_field.op("~*")(folded_pattern),
+                ),
+            )
         )
     return Candidate.id.in_(union(select(Candidate.id).where(match), notes_branch))
 
