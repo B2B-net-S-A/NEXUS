@@ -150,6 +150,29 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def client_not_deleted_clause():
+    """Wpis bez klienta albo klienta, który nie jest usunięty.
+
+    Runda 8 (R8-V1-3): writer odmawia zapisu u usuniętego klienta
+    (``DELETED_CLIENT_REFUSAL``), więc wstrzymany wpis takiego klienta wracał
+    co godzinę do ponownej weryfikacji (odczyt PDF, czasem OCR), zawsze z tą
+    samą odmową, a po trzech próbach dostawał kartę DL. Tę samą klauzulę czyta
+    dobowa reguła kart (``rule_order_mail_review``) — inaczej bezpiecznik
+    czasowy wystawiałby kartę wpisowi, którego recheck już nie dotyka.
+    """
+    from app.models.client import Client
+
+    return ~(
+        select(Client.id)
+        .where(
+            Client.id == OrderMailDocument.client_id,
+            Client.deleted_at.is_not(None),
+        )
+        .correlate(OrderMailDocument)
+        .exists()
+    )
+
+
 async def _candidate_ids(db: AsyncSession, *, now: datetime) -> list[int]:
     """Wstrzymane wpisy do przejrzenia w tym biegu, najdawniej sprawdzone pierwsze.
 
@@ -176,7 +199,8 @@ async def _candidate_ids(db: AsyncSession, *, now: datetime) -> list[int]:
                 & OrderMailDocument.applied_order_id.is_(None),
                 (OrderMailDocument.outcome == OUTCOME_UNRECOGNIZED)
                 & (received >= cutoff),
-            )
+            ),
+            client_not_deleted_clause(),
         )
         .order_by(last_at.nulls_first(), OrderMailDocument.id)
         .limit(max(1, settings.ORDER_MAIL_RECHECK_MAX_DOCS))
