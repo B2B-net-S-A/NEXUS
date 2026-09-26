@@ -1417,7 +1417,9 @@ async def report_clients_hit_ratio(
 
     Cached for 5 minutes.
     """
-    cache_key = f"reports:clients:v2:{period}:{min_closed}:{sort}:{exclude_reasons or ''}"
+    cache_key = (
+        f"reports:clients:v2:{period}:{min_closed}:{sort}:{exclude_reasons or ''}"
+    )
     cached = await cache_get(cache_key)
     if cached is not None:
         return cached
