@@ -125,39 +125,56 @@ async def _promote_statuses(db: AsyncSession) -> tuple[int, int]:
         .scalars()
         .all()
     )
+    promoted = 0
     for contract in ended_contracts:
-        state_before = ContractStateBefore.of(contract)
-        previous_status = contract.status
-        contract.status = ContractStatus.ended
-        # Automatyczne przejście jest w historii kontraktu (ticket 09.2026,
-        # pkt 8.2) — bez autora, z datą zakończenia projektu, która je dała.
-        db.add(
-            Activity(
-                entity_type="contract",
-                entity_id=contract.id,
-                action="status_auto_changed",
-                user_id=None,
-                details={
-                    "from_status": previous_status.value,
-                    "to_status": ContractStatus.ended.value,
-                    "end_date": contract.end_date.isoformat(),
-                },
+        contract_id = contract.id
+        try:
+            # Savepoint per kontrakt (runda 6 audytu): offboarding zamówień
+            # i synchronizacja Generatora jednego wiersza, której nie da się
+            # wykonać, wycofywała dotąd CAŁĄ transakcję — co noc, więc żaden
+            # kontrakt nie przechodził na „Zakończony” i nie szły alerty.
+            # Wzór: `run_daily_order_cost_sync`.
+            async with db.begin_nested():
+                state_before = ContractStateBefore.of(contract)
+                previous_status = contract.status
+                contract.status = ContractStatus.ended
+                # Automatyczne przejście jest w historii kontraktu (ticket 09.2026,
+                # pkt 8.2) — bez autora, z datą zakończenia projektu, która je dała.
+                db.add(
+                    Activity(
+                        entity_type="contract",
+                        entity_id=contract.id,
+                        action="status_auto_changed",
+                        user_id=None,
+                        details={
+                            "from_status": previous_status.value,
+                            "to_status": ContractStatus.ended.value,
+                            "end_date": contract.end_date.isoformat(),
+                        },
+                    )
+                )
+                await apply_contract_order_offboarding(
+                    db,
+                    contract_id=contract.id,
+                    effective_date=contract.end_date,
+                    actor_id=None,
+                    today=today,
+                    contract_before=state_before,
+                )
+                # Generator umów B2B przestawia umowę w chwili, w której kontrakt
+                # przechodzi na „Zakończony" — dzień po dacie zakończenia projektu.
+                await sync_generator_after_contract_ended(
+                    db, contract, actor_id=None, today=today
+                )
+        except Exception:  # noqa: BLE001
+            # Tylko identyfikator — bez nazwisk (log trafia do Loki/Sentry).
+            logger.exception(
+                "contract_alerts: promotion to ended skipped contract_id=%s",
+                contract_id,
             )
-        )
-        await apply_contract_order_offboarding(
-            db,
-            contract_id=contract.id,
-            effective_date=contract.end_date,
-            actor_id=None,
-            today=today,
-            contract_before=state_before,
-        )
-        # Generator umów B2B przestawia umowę w chwili, w której kontrakt
-        # przechodzi na „Zakończony" — dzień po dacie zakończenia projektu.
-        await sync_generator_after_contract_ended(
-            db, contract, actor_id=None, today=today
-        )
-    return (ending_count.rowcount or 0, len(ended_contracts))
+            continue
+        promoted += 1
+    return (ending_count.rowcount or 0, promoted)
 
 
 async def _client_ids_by_contract_id(
@@ -296,20 +313,29 @@ async def _contract_labels(
 
 
 async def _contracts_at_threshold(db: AsyncSession, threshold: int) -> list[Contract]:
-    """Contracts whose end_date falls within (threshold-1, threshold] days from today.
+    """Kontrakty, dla których ``threshold`` jest NAJCIAŚNIEJSZYM progiem.
 
-    A tighter match (exact T-30 day only) would be fragile if the cron misses
-    a day; instead we use a one-day window per threshold, combined with the
-    already-notified dedup, so each contract alerts exactly once per window.
+    Pasmo progu to ``(poprzedni_mniejszy_próg, threshold]`` dni do końca,
+    a dla najmniejszego progu ``[0, threshold]``. Do rundy 6 audytu okno
+    miało jeden dzień (``(threshold-1, threshold]``), więc dzień bez biegu
+    pętli (restart przy deployu, awaria) albo umowa wpisana/przedłużona na
+    krócej niż próg gubiła alert bezpowrotnie. Lustro
+    ``dl_portal_expiry_scanner._threshold_bucket``; powtórce w kolejnych
+    biegach tego samego pasma zapobiega dedup epizodu (próg, id, data końca).
     """
     today = business_today()
     target = today + timedelta(days=threshold)
-    window_start = target - timedelta(days=1)
+    lower = [t for t in THRESHOLDS_DAYS if t < threshold]
+    if lower:
+        # Koniec dalej niż następny, mniejszy próg — bliższy należy do niego.
+        end_date_floor = Contract.end_date > today + timedelta(days=max(lower))
+    else:
+        end_date_floor = Contract.end_date >= today
     res = await db.execute(
         select(Contract).where(
             Contract.status.in_([ContractStatus.active, ContractStatus.ending]),
             Contract.end_date.isnot(None),
-            Contract.end_date > window_start,
+            end_date_floor,
             Contract.end_date <= target,
         )
     )
@@ -327,10 +353,12 @@ async def _post_slack_summary(webhook: str, events: list[tuple[int, Contract]]) 
     if not webhook or not events:
         return False
     lines = []
-    for threshold, c in events:
+    today = business_today()
+    for _threshold, c in events:
+        # Faktyczna liczba dni — próg bywa wysłany w środku pasma (runda 6).
         lines.append(
             f"• <https://nexus.dynaminds.pl/contracts/{c.id}|Kontrakt #{c.id}> "
-            f"kończy się za *{threshold} dni* ({c.end_date})"
+            f"kończy się za *{(c.end_date - today).days} dni* ({c.end_date})"
         )
     text = (
         ":hourglass_flowing_sand: *Wygasające kontrakty* — "
@@ -567,9 +595,12 @@ async def run_contract_alerts_cycle() -> dict:
                 title = (
                     f"[{threshold}d|{c.end_date.isoformat()}] Kontrakt wygasa: {label}"
                 )
+                # Faktyczna liczba dni, nie numer progu: przy paśmie próg 30
+                # bywa wysłany przy 22 dniach (runda 6 audytu).
+                days_left = (c.end_date - business_today()).days
                 message = (
                     f"Kontrakt #{c.id} ({label}) kończy się {c.end_date} — "
-                    f"zostało {threshold} dni. Rozważ przedłużenie lub kontakt z klientem."
+                    f"zostało {days_left} dni. Rozważ przedłużenie lub kontakt z klientem."
                 )
                 link = f"/contracts/{c.id}"
                 for uid in recipient_ids:

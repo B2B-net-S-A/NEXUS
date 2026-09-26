@@ -69,7 +69,13 @@ export function ExtendContractMenu({ contractId, clientId, contractStatus }: Pro
       }
       // Backend pomija umowy bezterminowe (w tym każdą umowę B2B bez ręcznego
       // zakończenia) — „przedłużono" byłoby wtedy nieprawdą.
-      if ((response?.data?.extended ?? 0) === 0) {
+      if ((response?.data?.skipped_end_date_passed?.length ?? 0) > 0) {
+        // Umowa zakończona dawno — przedłużenie o N mc nadal kończy się
+        // w przeszłości, więc backend jej nie rusza (runda 6 audytu).
+        showError(
+          "Nowa data zakończenia nadal byłaby w przeszłości — przedłuż umowę aneksem do przyszłej daty.",
+        );
+      } else if ((response?.data?.extended ?? 0) === 0) {
         showError(
           "Umowa jest bezterminowa — nie ma czego przedłużać. Przedłuż zamówienie klienta.",
         );

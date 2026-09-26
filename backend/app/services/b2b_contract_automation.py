@@ -955,6 +955,17 @@ async def ensure_b2b_employment_draft(
         if _complete_absent_terms(contract, payload):
             _seed_candidate_rate_schedule(contract, payload, actor_id=actor_id)
     elif require_b2b:
+        if not created_contract:
+            # `_fill_contract_terms` ustawia zł/h — istniejący kontrakt
+            # w innej jednostce przechodzi z przeliczeniem kwot, inaczej
+            # stawka klienta w ryczałcie czytałaby się jako godzinowa
+            # (runda 6 audytu). Import leniwy: lustro innych importów
+            # serwisów cyklu życia w tym module.
+            from app.services.contract_order_sync import (
+                switch_loaded_contract_to_hourly,
+            )
+
+            await switch_loaded_contract_to_hourly(db, contract)
         _fill_contract_terms(
             contract,
             payload,

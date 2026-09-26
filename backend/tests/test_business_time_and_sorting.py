@@ -199,7 +199,9 @@ async def test_contract_threshold_window_uses_business_today(monkeypatch):
     await contract_alerts._contracts_at_threshold(db, 30)
     sql = _sql(db.statements[0])
     assert "2026-10-01" in sql  # target = business_today + 30
-    assert "2026-09-30" in sql  # window_start = target - 1
+    # Pasmo progu 30 zaczyna się za następnym mniejszym progiem (14 dni) —
+    # runda 6 audytu zastąpiła jednodniowe okno pasmem.
+    assert "2026-09-15" in sql
 
 
 async def test_status_promotion_uses_business_today(monkeypatch):
