@@ -208,6 +208,60 @@ async def test_manual_add_claims_for_12h_and_blocks_other_recruiter(api_client):
         await _cleanup([cand_id], job_id)
 
 
+async def test_own_active_claim_cannot_be_extended(api_client):
+    """Runda 8 (R8-N8-7): ponowne „Biorę" własnej aktywnej blokady nie
+    przesuwa jej o kolejne 12 h — po 12 h osobę może przejąć każdy."""
+    owner_id, owner_email, owner_pw = await _seed_user(UserRole.recruiter)
+    job_id, _ = await _seed_job(owner_id)
+    cand_id = await _seed_candidate()
+    owner_h = await _login(api_client, owner_email, owner_pw)
+    try:
+        await _add(api_client, owner_h, job_id, cand_id, "manual_search")
+        before = (await _process(cand_id, job_id)).claimed_until
+        again = await api_client.post(
+            "/api/pipeline/claim",
+            headers=owner_h,
+            json={"candidate_id": cand_id, "job_id": job_id},
+        )
+        assert again.status_code == 409, again.text
+        assert (await _process(cand_id, job_id)).claimed_until == before
+    finally:
+        await _cleanup([cand_id], job_id)
+
+
+async def test_claim_of_a_deactivated_account_binds_nobody(api_client):
+    """Runda 8 (R8-N8-7): blokada konta nieaktywnego nie daje 423."""
+    owner_id, owner_email, owner_pw = await _seed_user(UserRole.recruiter)
+    other_id, other_email, other_pw = await _seed_user(UserRole.recruiter)
+    job_id, _ = await _seed_job(owner_id, collaborator_ids=(other_id,))
+    cand_id = await _seed_candidate()
+    owner_h = await _login(api_client, owner_email, owner_pw)
+    other_h = await _login(api_client, other_email, other_pw)
+    try:
+        await _add(api_client, owner_h, job_id, cand_id, "manual_search")
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                update(User).where(User.id == owner_id).values(is_active=False)
+            )
+            await db.commit()
+        board = await api_client.get(f"/api/pipeline/kanban/{job_id}", headers=other_h)
+        card = next(
+            item
+            for col in board.json()["columns"]
+            for item in col["items"]
+            if item["candidate_id"] == cand_id
+        )
+        assert card.get("claim_user_id") is None and card["can_take"] is True
+        moved = await api_client.post(
+            "/api/pipeline/move",
+            headers=other_h,
+            json={"candidate_id": cand_id, "job_id": job_id, "stage": "verified"},
+        )
+        assert moved.status_code == 200, moved.text
+    finally:
+        await _cleanup([cand_id], job_id)
+
+
 async def test_expired_claim_can_be_taken_by_anyone_in_team(api_client):
     owner_id, owner_email, owner_pw = await _seed_user(UserRole.recruiter)
     other_id, other_email, other_pw = await _seed_user(UserRole.recruiter)
@@ -347,19 +401,34 @@ async def test_cv_sent_requires_delivery_lead_and_client_rate(api_client):
 
 
 async def test_cv_sent_at_nordea_keeps_the_cpro_path(api_client, monkeypatch):
+    """U Nordei „CV wysłane” = Cpro: bez stawki DL, ale wrzuca osoba od Cpro.
+    Runda 8 (R8-N8-3): także przy wyłączonej bramce QC (autouse w conftest)."""
+    from app.services import cpro_sender
+    from tests.test_board_tasks import restore_cpro_sender
+
     rec_id, rec_email, rec_pw = await _seed_user(UserRole.recruiter)
+    other_id, other_email, other_pw = await _seed_user(UserRole.recruiter)
     job_id, client_id = await _seed_job(rec_id)
     monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", str(client_id))
     cand_id = await _seed_candidate()
     rec_h = await _login(api_client, rec_email, rec_pw)
+    other_h = await _login(api_client, other_email, other_pw)
     try:
-        await _add(api_client, rec_h, job_id, cand_id, "manual_search")
-        sent = await api_client.post(
-            "/api/pipeline/move",
-            headers=rec_h,
-            json={"candidate_id": cand_id, "job_id": job_id, "stage": "cv_sent"},
-        )
-        assert sent.status_code == 200, sent.text
+        async with restore_cpro_sender():
+            async with AsyncSessionLocal() as db:
+                actor = await db.get(User, rec_id)
+                await cpro_sender.set_sender(
+                    db, user_id=rec_id, until=None, actor=actor
+                )
+                await db.commit()
+            await _add(api_client, rec_h, job_id, cand_id, "manual_search")
+            move = {"candidate_id": cand_id, "job_id": job_id, "stage": "cv_sent"}
+            refused = await api_client.post(
+                "/api/pipeline/move", headers=other_h, json=move
+            )
+            assert refused.status_code == 403, refused.text
+            sent = await api_client.post("/api/pipeline/move", headers=rec_h, json=move)
+            assert sent.status_code == 200, sent.text
     finally:
         await _cleanup([cand_id], job_id)
 

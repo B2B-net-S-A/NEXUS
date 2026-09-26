@@ -444,6 +444,56 @@ async def test_upload_without_client_or_process_is_refused_before_quota(monkeypa
 
 
 @pytest.mark.asyncio
+async def test_upload_for_merged_client_without_process_is_422(monkeypatch):
+    """Runda 8 (R8-V1-4): `/generate-upload` bez etapu odmawia klienta
+    scalonego — bliźniak R7-X5-4 z `/generate` (reguły CV na rekordzie
+    głównym)."""
+    from httpx import ASGITransport, AsyncClient
+
+    app, db, charge, pending = _upload_app(monkeypatch)
+    duplicate = SimpleNamespace(
+        id=5,
+        name="Duplikat",
+        display_name=None,
+        deleted_at=None,
+        merged_into_client_id=9,
+    )
+    canonical = SimpleNamespace(
+        id=9,
+        name="Kanoniczny",
+        display_name=None,
+        deleted_at=None,
+        merged_into_client_id=None,
+    )
+    from unittest.mock import MagicMock
+
+    clients = [duplicate, canonical]
+
+    async def scalar(stmt):
+        # Tylko odczyty klienta czytają kolejkę; inne zapytania ścieżki — atrapa.
+        return clients.pop(0) if "FROM clients" in str(stmt) else MagicMock()
+
+    db.scalar.side_effect = scalar
+
+    async def get(model, ident):
+        return duplicate if model.__name__ == "Client" else SimpleNamespace(id=ident)
+
+    db.get.side_effect = get
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.post(
+            "/cv-generator/generate-upload",
+            data={"client_id": "5"},
+            files={"cv_file": ("CV.docx", _docx_bytes())},
+        )
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"]["code"] == "client_merged"
+    charge.assert_not_awaited()
+    pending.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_unreadable_cv_is_refused_before_the_paid_champion_preview(monkeypatch):
     from httpx import ASGITransport, AsyncClient
 
