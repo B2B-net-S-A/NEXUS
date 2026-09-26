@@ -79,6 +79,20 @@ class IncomingMessage:
     owner_address: Optional[str] = None
 
 
+def manually_unlinked(email: Email) -> bool:
+    """Mail ręcznie odpięty od kandydata (runda 6 audytu).
+
+    Stan zapisuje akcja „Odepnij” (``api/email_threads.py``): ``unmatched`` +
+    ``matched_by_user_id``. Automaty (sync, rematch, kandydat z CV) go nie
+    przypinają z powrotem; zmienia go wyłącznie ręczne podpięcie.
+    """
+    return (
+        email.candidate_id is None
+        and email.match_method == EmailMatchMethod.unmatched
+        and email.matched_by_user_id is not None
+    )
+
+
 def _normalize_email(addr: str) -> str:
     return (addr or "").strip().lower()
 

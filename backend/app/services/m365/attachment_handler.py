@@ -516,6 +516,9 @@ async def try_create_candidate_from_cv(
         return None
     if email_row.candidate_id is not None or email_row.is_private_filtered:
         return None
+    if getattr(email_row, "matched_by_user_id", None) is not None:
+        # Runda 6 audytu: mail ręcznie odpięty — decyzja rekrutera wygrywa.
+        return None
     if not attachment.is_cv_candidate or not attachment.storage_path:
         return None
 

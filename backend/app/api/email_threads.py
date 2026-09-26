@@ -602,11 +602,16 @@ def _apply_bulk_action(
         email.matched_at = now
         email.matched_by_user_id = user_id
     elif action == "unlink":
+        # Runda 6 audytu: ręczne odpięcie jest DECYZJĄ — ``unmatched`` z
+        # ``matched_by_user_id`` (kto i kiedy odpiął). Czytają to sync
+        # (``_upsert_message``), rematch i zakładanie kandydata z CV, które do
+        # 26.09 przypinały mail z powrotem przy najbliższym przebiegu. Czyści
+        # to ręczne podpięcie (``link_to_candidate``).
         email.candidate_id = None
         email.match_method = EmailMatchMethod.unmatched
         email.match_confidence = None
-        email.matched_at = None
-        email.matched_by_user_id = None
+        email.matched_at = now
+        email.matched_by_user_id = user_id
     # `updated_at` mixin column refreshes via TimestampMixin.
 
 

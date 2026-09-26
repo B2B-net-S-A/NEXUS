@@ -142,6 +142,8 @@ def _make_db(emails: list[SimpleNamespace]) -> SimpleNamespace:
         execute=AsyncMock(return_value=result_obj),
         scalars=AsyncMock(side_effect=_scalars),
         get=AsyncMock(side_effect=_get),
+        # Adres skrzynki właściciela (runda 6 audytu) — lustro syncu.
+        scalar=AsyncMock(return_value="owner@b2bnetwork.pl"),
         commit=AsyncMock(),
     )
 
@@ -269,6 +271,10 @@ async def test_rematch_pass_query_filters_by_lookback_and_unmatched(
     assert "emails.candidate_id IS NULL" in sql
     assert "emails.match_method" in sql
     assert "emails.received_at >" in sql
+    # Runda 6 audytu: ręcznie odpięty mail (M365-5) i prywatny (M365-8)
+    # nie wracają do kandydata.
+    assert "emails.matched_by_user_id IS NULL" in sql
+    assert "emails.is_private_filtered IS false" in sql
 
 
 async def test_rematch_pass_skips_row_on_unknown_method(
@@ -340,6 +346,7 @@ async def test_rematch_pass_uses_email_address_jsonb_shape(
         seen["from_address"] = msg.from_address
         seen["to_addresses"] = list(msg.to_addresses)
         seen["cc_addresses"] = list(msg.cc_addresses)
+        seen["owner_address"] = msg.owner_address
         return MatchResult(candidate_id=None, method="unmatched", confidence=None)
 
     monkeypatch.setattr(
@@ -351,3 +358,4 @@ async def test_rematch_pass_uses_email_address_jsonb_shape(
     assert seen["from_address"] == "from@x.com"
     assert seen["to_addresses"] == ["to@x.com"]
     assert seen["cc_addresses"] == ["cc@x.com"]
+    assert seen["owner_address"] == "owner@b2bnetwork.pl"

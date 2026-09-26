@@ -704,10 +704,12 @@ async def _upsert_message(
         match_confidence = existing.match_confidence
         matched_at = existing.matched_at
         candidate_id = existing.candidate_id
-    elif is_private:
+    elif is_private or (existing is not None and matcher.manually_unlinked(existing)):
+        # Runda 6 audytu: ręczne odpięcie jest decyzją — sync nie przypina
+        # maila z powrotem przy każdej zmianie wiadomości w Outlooku.
         match_method = EmailMatchMethod.unmatched
         match_confidence = None
-        matched_at = None
+        matched_at = existing.matched_at if existing is not None else None
         candidate_id = None
     else:
         dto = IncomingMessage(

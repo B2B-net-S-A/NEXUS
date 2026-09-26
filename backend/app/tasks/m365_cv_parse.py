@@ -171,6 +171,8 @@ async def _create_from_unknown_sender_once(db) -> bool:
             EmailAttachment.cv_parse_attempted_at.is_(None),
             EmailAttachment.parse_error.is_(None),
             Email.candidate_id.is_(None),
+            # Runda 6 audytu: ręcznie odpięty mail nie wraca do kandydata z CV.
+            Email.matched_by_user_id.is_(None),
             Email.direction == EmailDirection.received,
             Email.is_private_filtered.is_(False),
             Email.received_at >= since,
