@@ -2948,7 +2948,13 @@ async def _load_generated_document(
     autor albo admin).
     """
     row = await db.get(CvGeneratedDocument, generated_id)
-    if row is None:
+    from app.services.candidate_erasure_leftovers import (
+        is_detached_generated_document,
+    )
+
+    # Runda 6 audytu (RODO-02): CV osoby usuniętej przed poprawką kasowania
+    # przeżyło z pustym `candidate_id` — nie wydajemy go żadną trasą.
+    if row is None or is_detached_generated_document(row):
         raise HTTPException(status_code=404, detail="Wpis nie został znaleziony")
     if row.job_id is None or row.created_by == user.id:
         return row
@@ -2994,11 +3000,17 @@ async def list_generated_cvs(
     # CV wygenerowane pod rekrutację spoza zespołu inaczej znikałoby z listy
     # zaraz po kliknięciu „Generuj" — a modal i panel czekają na wynik właśnie
     # przez tę listę. Cudze CV nadal tylko w zakresie odczytu rekrutacji.
+    from app.services.candidate_erasure_leftovers import (
+        detached_generated_document_clause,
+    )
+
     filters = [
         or_(
             job_read_scope_clause(current_user, CvGeneratedDocument.job_id),
             CvGeneratedDocument.created_by == current_user.id,
-        )
+        ),
+        # Runda 6 audytu (RODO-02): CV usuniętej osoby nie wraca na listę.
+        ~detached_generated_document_clause(),
     ]
     if candidate_id is not None:
         filters.append(CvGeneratedDocument.candidate_id == candidate_id)

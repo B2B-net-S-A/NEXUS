@@ -5640,6 +5640,9 @@ async def delete_candidate(
     # managerowi u klienta przez cały TTL linku (do 90 dni), a jego czat AI
     # dalej odpowiadałby na nowe pytania o nią. Dwie pozostałe rodziny tokenów
     # (`champion_share`, `cv_share_token`) kaskadują z kandydata i znikają same.
+    # Od rundy 6 audytu same dokumenty też znikają (`erase_candidate_leftovers`
+    # niżej) — odwołanie zostaje, bo tylko ono zostawia ślad w dowodzie
+    # wykonania (`share_tokens_revoked`).
     now = datetime.now(timezone.utc)
     tokens_revoked = (
         await db.execute(
@@ -5677,6 +5680,15 @@ async def delete_candidate(
     from app.services.jarvis.erasure import erase_candidate as erase_jarvis_candidate
 
     jarvis_erasure = await erase_jarvis_candidate(db, candidate_id)
+    # Runda 6 audytu (RODO-01/02/03/06/07): nagrobek dla syncu Traffita,
+    # wygenerowane CV razem ze zrzutem zgody, powiadomienia z nazwiskiem,
+    # nazwisko w dzienniku integracji i stempel próby na załącznikach CV
+    # z maili — tego kaskada FK nie zabiera. Po odwołaniu linków wyżej, bo
+    # licznik `share_tokens_revoked` liczy tokeny jeszcze istniejących CV.
+    from app.services.candidate_erasure_leftovers import erase_candidate_leftovers
+
+    leftovers, leftover_keys = await erase_candidate_leftovers(db, candidate)
+    storage_keys = sorted(set(storage_keys) | set(leftover_keys))
     # Skrzynka „Propozycje" (0333): FK ma ON DELETE CASCADE, więc wiersze i tak
     # znikną razem z kandydatem — kasujemy je JAWNIE, żeby liczba trafiła do
     # dowodu wykonania żądania z art. 17 (kaskada nie zostawia śladu).
@@ -5726,6 +5738,7 @@ async def delete_candidate(
             **search_erasure,
             **jarvis_erasure,
             **submission_erasure,
+            **leftovers,
         },
     )
     # Historia zdarzeń (Ustawienia). Wpis przeżywa usunięcie, więc NIE niesie
