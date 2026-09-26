@@ -600,7 +600,10 @@ class TestCardif:
             "Manualnego (1040 PLN/MD net.) oraz Analityka (1 350 PLN/MD net.).",
         )
         rows = cardif.extract_rows(text)
-        assert [r.consultant_name for r in rows] == ["Jakub Testowy", "Anna Przykładowa"]
+        assert [r.consultant_name for r in rows] == [
+            "Jakub Testowy",
+            "Anna Przykładowa",
+        ]
         assert all(r.uncertain and r.rate_client is None for r in rows)
         assert all("1040" in r.uncertain_reason for r in rows)
         r = _run("cardif", text)
@@ -626,7 +629,9 @@ def _assert_model_concerns_survive(key: str, text: str) -> None:
             "Brak informacji o liczbie MD",
         ],
     )
-    r, _ = apply_policies(model, PolicyContext(document_text=text), [policy_by_key(key)])
+    r, _ = apply_policies(
+        model, PolicyContext(document_text=text), [policy_by_key(key)]
+    )
     assert r.uncertain
     assert "Nieczytelne nazwisko drugiego specjalisty" in r.uncertain_reasons
     assert "Brak informacji o liczbie MD" not in r.uncertain_reasons

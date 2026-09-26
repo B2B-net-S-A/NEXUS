@@ -481,11 +481,19 @@ def _cross_check_rows(
 
 
 def _pozycje(n: int) -> str:
-    return "pozycja" if n == 1 else ("pozycje" if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14 else "pozycji")
+    return (
+        "pozycja"
+        if n == 1
+        else ("pozycje" if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14 else "pozycji")
+    )
 
 
 def _wiersze(n: int) -> str:
-    return "wiersz" if n == 1 else ("wiersze" if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14 else "wierszy")
+    return (
+        "wiersz"
+        if n == 1
+        else ("wiersze" if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14 else "wierszy")
+    )
 
 
 def apply_nordea_layout(

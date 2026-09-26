@@ -462,9 +462,7 @@ def _buffers(
     else:
         leftover.extend(moneys)
     stated = order_amount(text)
-    return [
-        _unglue(buffer, columns, stated) for buffer in raw_buffers
-    ], leftover
+    return [_unglue(buffer, columns, stated) for buffer in raw_buffers], leftover
 
 
 def _unglue(

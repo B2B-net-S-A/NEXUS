@@ -548,7 +548,9 @@ def test_number_does_not_run_across_words():
 
 # ── Runda 6 audytu: kolumna MD na lewo od stawki sklejona z kwotą ───────────
 
-MD_LEFT_HEADER = "Liczba MD Cena netto 1MD po upuście [PLN] Cena total [PLN] Konsultant\n"
+MD_LEFT_HEADER = (
+    "Liczba MD Cena netto 1MD po upuście [PLN] Cena total [PLN] Konsultant\n"
+)
 MD_LEFT = (
     HEAD.replace("na kwotę 40 000 PLN\n", "")
     + MD_LEFT_HEADER
