@@ -70,19 +70,57 @@ def debrief_is_complete(
     return any(line.strip() for line in (client_questions or "").splitlines())
 
 
+def debrief_closes_round(
+    client_questions: Optional[str],
+    no_client_questions: Optional[bool],
+    saved_at: Optional[datetime],
+    start: Optional[datetime],
+) -> bool:
+    """Czy debrief ZAMYKA rundę rozmowy u klienta — jedna reguła dla bramki,
+    ekranu „Rozmowy u klienta”, plakietki Tablicy i kolejki prepów.
+
+    Zamyka wyłącznie debrief kompletny (pytania klienta albo jawne „nie
+    pytał”) i zapisany po rozpoczęciu rozmowy. Runda 8 (CAL2): ekran liczył
+    dotąd każdy feedback strony kandydata — ogólny ``POST
+    /api/interview-feedback`` zapisuje go bez pytań — więc pokazywał „Debrief
+    ✓”, a bramka dalej odmawiała ruchu i wskazywała inną rundę.
+    """
+    return debrief_is_complete(
+        client_questions, no_client_questions
+    ) and debrief_saved_after_start(saved_at, start)
+
+
+def pick_prep_round(rounds: Sequence[datetime], now: datetime) -> Optional[int]:
+    """Indeks rundy, do której robi się PREPY: najbliższa rozmowa w przyszłości,
+    a gdy żadnej nie ma — ostatnia (ta sama co ``pick_current_round``).
+
+    ``rounds`` = starty rozmów posortowane rosnąco, bez odwołanych. Runda 8
+    (CAL2, decyzja Artura 27.09.2026): zaległy debrief rundy odbytej i braki
+    prepów do następnej rundy przypominają się RÓWNOLEGLE — runda do debriefu
+    (``pick_current_round``) może być wcześniejsza niż runda do prepów.
+    """
+    if not rounds:
+        return None
+    for i, start in enumerate(rounds):
+        if start > now:
+            return i
+    return len(rounds) - 1
+
+
 def pick_current_round(
     rounds: Sequence[tuple[datetime, bool]], now: datetime
 ) -> Optional[int]:
     """Indeks BIEŻĄCEJ rundy rozmów u klienta pary albo ``None`` (brak rozmów).
 
     ``rounds`` = ``(start, debrief_zamknięty)`` posortowane rosnąco po starcie,
-    bez odwołanych. Jedna reguła dla ekranu „Rozmowy u klienta”, plakietki
-    Tablicy, kolejki prepów, bramki debriefu i planowania prepu:
+    bez odwołanych. Jedna reguła „rundy do debriefu” dla ekranu „Rozmowy
+    u klienta” (kroki, telefon, debrief), plakietki Tablicy i bramki debriefu;
+    prepy liczą się do rundy z ``pick_prep_round`` (runda 8, CAL2):
 
     1. ostatnia rozmowa, która już się zaczęła, bez debriefu — telefon
-       i debrief po niej są pilniejsze niż kolejna runda;
-    2. inaczej najwcześniejsza rozmowa w przyszłości — to do niej robi się
-       prepy;
+       i debrief po niej są pilniejsze niż kolejna runda (prepy do kolejnej
+       przypominają się obok, nie zamiast);
+    2. inaczej najwcześniejsza rozmowa w przyszłości;
     3. inaczej ostatnia odbyta (wszystko zamknięte).
 
     Runda 8 (R8-N9-3): od decyzji IC-1 (26.09.2026) para może mieć kilka
@@ -153,9 +191,7 @@ async def missing_debrief(
         return value.replace(tzinfo=timezone.utc)
 
     def _closed(row) -> bool:
-        return debrief_is_complete(row[2], row[3]) and debrief_saved_after_start(
-            _aware(row[4]), _aware(row[1])
-        )
+        return debrief_closes_round(row[2], row[3], _aware(row[4]), _aware(row[1]))
 
     # Runda 8 (R8-N9-3): ta sama „bieżąca runda” co ekran i planowanie prepu.
     index = pick_current_round([(_aware(r[1]) or now, _closed(r)) for r in rows], now)
