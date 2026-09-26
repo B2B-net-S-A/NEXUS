@@ -174,7 +174,13 @@ export function attendeesOf(
   sessionId: number,
 ): AcademyApplication[] {
   return apps
-    .filter((a) => a.session_id === sessionId)
+    .filter(
+      (a) =>
+        a.session_id === sessionId &&
+        // Wykluczeni i zrezygnowani przed spotkaniem nie są jego uczestnikami
+        // (lustro `people` w `sessions_with_counts`, runda 8).
+        !((a.status === "rejected" || a.status === "withdrew") && a.attended !== true),
+    )
     .sort((a, b) => a.full_name.localeCompare(b.full_name, "pl"));
 }
 
