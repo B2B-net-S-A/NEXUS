@@ -1965,8 +1965,12 @@ class TraffitImporter:
                     f"/workflows/{wf_id}", page=1, page_size=1
                 )
                 if detail_resp.status_code != 200:
+                    # Format `<czynność> <encja> id=<ID>` (runda 6 audytu):
+                    # bez klucza wiersza błąd był nieprzypisany i wstrzymywał
+                    # `__daily__` bez końca. `workflow id=` — ten sam wiersz
+                    # co `map workflow id=` niżej.
                     progress.add_error(
-                        f"workflow {wf_id} detail HTTP {detail_resp.status_code}"
+                        f"detail workflow id={wf_id}: HTTP {detail_resp.status_code}"
                     )
                     continue
                 detail = detail_resp.json()
@@ -5111,7 +5115,13 @@ class TraffitImporter:
                         imported_at=progress.started_at or datetime.now(timezone.utc),
                     )
             except Exception as e:  # noqa: BLE001
-                progress.add_error(f"merge tags candidate={candidate_id}: {e!r}")
+                # Runda 6 audytu: `candidate=` nie pasowało do `_ERROR_REF_RE`
+                # (błąd nieprzypisany = wstrzymany `__daily__`). Encja celowo
+                # nie jest gołym „candidate” — tu jest id NEXUSA, faza
+                # `candidates` kluczuje po id Traffita.
+                progress.add_error(
+                    f"merge tags candidate_source id={candidate_id}: {e!r}"
+                )
                 # Savepoint już cofnął zapis; sesję podnosimy tylko przy utracie
                 # połączenia (`ROLLBACK TO SAVEPOINT` nie ma wtedy dokąd pójść).
                 # Faza commituje raz, na końcu — rollback zabiera wszystko,
