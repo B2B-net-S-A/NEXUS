@@ -63,6 +63,12 @@ export interface IntakeQuestionForm {
   question: string;
   idealAnswer: string;
   origin: QuestionOrigin;
+  /**
+   * Dealbreaker pytania z szablonu (runda 6 audytu). Formularz go nie
+   * pokazuje, ale odsyła bez zmian — `screening_questions` jest podmieniana
+   * w całości, więc pusty napis kasował dealbreaker skopiowany przez POST.
+   */
+  dealBreaker?: string;
 }
 
 export interface IntakeForm {
@@ -447,7 +453,12 @@ export function buildChampionPayload(
   return {
     basics: {
       role_name: form.title.trim() || null,
-      seniority_min_years: form.seniorityYears,
+      // Formularz nie ma pola lat (runda 6 audytu): wartość idzie tylko, gdy
+      // przyszła z maila albo z szablonu — `null` kasował lata skopiowane
+      // z rekrutacji-szablonu, bo serwer scala sekcję `basics` płytko.
+      ...(form.seniorityYears != null
+        ? { seniority_min_years: form.seniorityYears }
+        : {}),
       rate_value: budget,
       work_mode: remote ? CHAMPION_WORK_MODE[remote] : null,
       onsite_days_per_week:
@@ -479,7 +490,7 @@ export function buildChampionPayload(
       id: `q${i + 1}`,
       question: q.question.trim(),
       ideal_answer: q.idealAnswer.trim(),
-      deal_breaker: "",
+      deal_breaker: q.dealBreaker ?? "",
     })),
     // „Do dopytania u klienta” — notatki sekcji 8, odhaczane w profilu.
     // Wpisy nowe (`new-…`): serwer nada id i autora.
@@ -654,6 +665,9 @@ export function applyTemplate(
   if (!next.sellingPoints) next.sellingPoints = text(client.selling_points);
   if (!next.language) next.language = text(basics.language);
   if (!next.contractLength) next.contractLength = text(basics.contract_length);
+  if (next.seniorityYears == null && typeof basics.seniority_min_years === "number") {
+    next.seniorityYears = basics.seniority_min_years;
+  }
   const experience = championSection(src.champion_profile, "experience");
   const kinds: ExperienceKind[] = ["domains", "certifications", "regulations"];
   if (kinds.every((kind) => next.experience[kind].length === 0)) {
@@ -701,6 +715,9 @@ export function applyTemplate(
           question,
           idealAnswer: String(
             (item as Record<string, unknown>).ideal_answer ?? "",
+          ),
+          dealBreaker: String(
+            (item as Record<string, unknown>).deal_breaker ?? "",
           ),
           origin: "template",
         });

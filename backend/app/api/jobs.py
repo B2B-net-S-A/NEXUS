@@ -344,6 +344,9 @@ _SCORING_INPUT_FIELDS = _EMBED_TRIGGER_FIELDS | {
 }
 
 
+_OWNER_FIELD_LABELS = {"tac_id": "TAC", "delivery_lead_id": "Delivery Lead"}
+
+
 async def _validate_owner_override(
     db: AsyncSession,
     *,
@@ -361,20 +364,23 @@ async def _validate_owner_override(
     user = (
         await db.execute(select(User).where(User.id == user_id))
     ).scalar_one_or_none()
+    # Komunikaty po polsku (runda 6 audytu), bo trafiają wprost do okna
+    # edycji rekrutacji — „delivery_lead_id: user is inactive” nic nie mówił.
+    label = _OWNER_FIELD_LABELS.get(field, field)
     if user is None:
         raise HTTPException(
-            status.HTTP_404_NOT_FOUND, detail=f"{field}: user not found"
+            status.HTTP_404_NOT_FOUND,
+            detail=f"{label}: nie znaleziono takiej osoby.",
         )
     if not user.is_active:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
-            detail=f"{field}: user is inactive",
+            detail=f"{label}: to konto jest nieaktywne — wybierz inną osobę.",
         )
     if not user.has_any_role(*allowed_roles):
-        allowed = "/".join(sorted(r.value for r in allowed_roles))
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
-            detail=f"{field} must reference a user with role {allowed}",
+            detail=f"{label}: ta osoba nie ma odpowiedniej roli.",
         )
 
 
@@ -397,7 +403,7 @@ async def _validate_tac_client_assignment(
     if assignment_id is None:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
-            detail=("tac_id must reference a TAC assigned to the selected client_id"),
+            detail="TAC: ta osoba nie jest przypisana do wybranego klienta.",
         )
 
 
@@ -2163,9 +2169,18 @@ async def update_job(
     _assert_delivery_lead_finance_write(data.model_fields_set, current_user)
 
     # Validate explicit owner overrides before applying any mutations.
-    # `model_fields_set` only contains fields the caller actually sent, so
-    # we never validate on an accidental `None`.
-    if "tac_id" in data.model_fields_set and data.tac_id is not None:
+    # Walidujemy wyłącznie REALNĄ zmianę wartości (runda 6 audytu), bo okno
+    # edycji rekrutacji odsyła `client_id` i `delivery_lead_id` przy każdym
+    # zapisie — rekrutacja z nieaktywnym już DL-em albo TAC-iem bez przypisania
+    # do klienta nie dawała się wtedy zapisać w ogóle, choć nikt tych pól nie
+    # ruszał.
+    sent = data.model_fields_set
+    tac_changed = "tac_id" in sent and data.tac_id != job.tac_id
+    client_changed = "client_id" in sent and data.client_id != job.client_id
+    delivery_lead_changed = (
+        "delivery_lead_id" in sent and data.delivery_lead_id != job.delivery_lead_id
+    )
+    if tac_changed and data.tac_id is not None:
         await _validate_owner_override(
             db,
             user_id=data.tac_id,
@@ -2176,23 +2191,16 @@ async def update_job(
     # Changing either half of the relationship must leave a valid pair.  We
     # intentionally do not re-validate untouched historical Jobs during the
     # expand phase; only explicit owner/client mutations cross this gate.
-    if {"tac_id", "client_id"} & data.model_fields_set:
-        effective_tac_id = (
-            data.tac_id if "tac_id" in data.model_fields_set else job.tac_id
-        )
-        effective_client_id = (
-            data.client_id if "client_id" in data.model_fields_set else job.client_id
-        )
+    if tac_changed or client_changed:
+        effective_tac_id = data.tac_id if "tac_id" in sent else job.tac_id
+        effective_client_id = data.client_id if "client_id" in sent else job.client_id
         if effective_tac_id is not None and effective_client_id is not None:
             await _validate_tac_client_assignment(
                 db,
                 user_id=effective_tac_id,
                 client_id=effective_client_id,
             )
-    if (
-        "delivery_lead_id" in data.model_fields_set
-        and data.delivery_lead_id is not None
-    ):
+    if delivery_lead_changed and data.delivery_lead_id is not None:
         await _validate_owner_override(
             db,
             user_id=data.delivery_lead_id,
@@ -2205,6 +2213,10 @@ async def update_job(
         )
 
     updates = data.model_dump(exclude_unset=True)
+    # Wejścia rankingu sprzed zapisu (runda 6 audytu): wektor i ranking
+    # unieważnia REALNA zmiana wartości, nie sam klucz w żądaniu — okno edycji
+    # odsyła tytuł, lokalizację i tryb pracy przy każdym zapisie.
+    _scoring_before = {f: getattr(job, f) for f in _SCORING_INPUT_FIELDS}
     if (
         "delivery_lead_id" in updates
         and updates["delivery_lead_id"] != job.delivery_lead_id
@@ -2355,6 +2367,7 @@ async def update_job(
                     reason="job_reopened",
                 )
 
+    changed = {f for f, old in _scoring_before.items() if getattr(job, f) != old}
     db.add(
         Activity(
             entity_type="job",
@@ -2372,7 +2385,6 @@ async def update_job(
         await cache_invalidate("reports:clients")
 
     # Phase 2: re-embed if any embed-relevant field changed
-    changed = set(updates.keys())
     if _EMBED_TRIGGER_FIELDS & changed:
         await _maybe_embed_job(job_id, db)
 
@@ -3821,6 +3833,21 @@ async def set_champion_briefing(
     }
 
 
+async def _briefing_audio_referenced_elsewhere(
+    db: AsyncSession, storage_key: str, job_id: int
+) -> bool:
+    """Czy nagranie briefingu wskazuje jeszcze inna rekrutacja (runda 6 audytu)."""
+    other = await db.scalar(
+        select(Job.id)
+        .where(
+            Job.id != job_id,
+            Job.champion_profile["briefing"]["audio_storage_key"].astext == storage_key,
+        )
+        .limit(1)
+    )
+    return other is not None
+
+
 @router.delete("/{job_id}/champion-profile/briefing")
 async def clear_champion_briefing(
     job_id: int,
@@ -3840,6 +3867,11 @@ async def clear_champion_briefing(
     old_key = ((job.champion_profile or {}).get("briefing") or {}).get(
         "audio_storage_key"
     )
+    # Kopie rekrutacji sprzed rundy 6 audytu niosą briefing źródła z TYM SAMYM
+    # kluczem nagrania — kasujemy obiekt tylko wtedy, gdy żadna inna rekrutacja
+    # go nie wskazuje, bo inaczej odpięcie na kopii zabiera nagranie źródłu.
+    if old_key and await _briefing_audio_referenced_elsewhere(db, old_key, job_id):
+        old_key = None
     if old_key and object_storage.is_available():
         try:
             # Sync boto3 delete_object — offload off the event loop.
