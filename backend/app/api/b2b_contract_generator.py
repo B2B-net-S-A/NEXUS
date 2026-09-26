@@ -17,7 +17,7 @@ from typing import get_args
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.concurrency import run_in_threadpool
 from jinja2 import TemplateError
-from sqlalchemy import Select, func, or_, select, update
+from sqlalchemy import Select, and_, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute, selectinload
@@ -30,7 +30,11 @@ from app.api.contract_access import (
     assert_contract_legal_client_access,
 )
 from app.api.contract_templates import _jinja_env
-from app.api.contracts import _load_contract_with_relations, _render_draft_body
+from app.api.contracts import (
+    _assert_no_duplicate_contract,
+    _load_contract_with_relations,
+    _render_draft_body,
+)
 from app.analytics.capabilities import AnalyticsCapability, user_has_capability
 from app.api.deps import AdminUser
 from app.api.recruitment_access import ensure_job_membership
@@ -321,6 +325,14 @@ _IN_PROGRESS_IS_AUTOMATIC = (
 _CANCELLED_BLOCKS_SIGNATURE = (
     "Umowa jest anulowana. Przywróć status „W trakcie”, aby potwierdzić podpis."
 )
+# Runda 8 (R8-X2-6): niepodpisana umowa „Zakończona” / „Bez projektu” też nie
+# przyjmuje podpisu — potwierdzenie zakładało aktywny kontrakt i zatrudnienie,
+# a wiersz rejestru dalej mówił „Zakończona, powód …”.
+_ENDED_BLOCKS_SIGNATURE = (
+    "Umowa ma status „Zakończona” albo „Bez projektu”, a nie jest podpisana. "
+    "Przywróć status „W trakcie”, aby potwierdzić podpis."
+)
+_SIGNATURE_BLOCKING_STATUSES = frozenset({"closed", "suspended"})
 
 _CLOSURE_REASON_LABEL_PL = {
     "no_client_budget": "Brak budżetu u klienta",
@@ -916,6 +928,9 @@ async def _serialize_generated_contracts(
             and (is_admin or row.created_by == current_user.id)
         )
         is_cancelled = row.contract_status == "cancelled"
+        is_ended_unsigned = (
+            not is_signed and row.contract_status in _SIGNATURE_BLOCKING_STATUSES
+        )
         from_excel = row.source == "excel"
         if from_excel:
             # Wiersz z rejestru Excela: treść i usunięcie należą do pliku
@@ -930,6 +945,7 @@ async def _serialize_generated_contracts(
             and _has_signature_permission(current_user)
             and not is_signed
             and not is_cancelled
+            and not is_ended_unsigned
         )
         blocked_reason: str | None = None
         if from_excel and not is_signed:
@@ -943,6 +959,8 @@ async def _serialize_generated_contracts(
         # coś, co i tak nie odblokuje tego wiersza.
         elif is_cancelled:
             blocked_reason = _CANCELLED_BLOCKS_SIGNATURE
+        elif is_ended_unsigned:
+            blocked_reason = _ENDED_BLOCKS_SIGNATURE
         elif generator_access < ActionAccess.view:
             blocked_reason = (
                 "Oznaczenie podpisu wymaga dostępu do rejestru Generatora Umów B2B."
@@ -1372,8 +1390,20 @@ async def generate(
             contract = ensured.contract
             pre_existing_contract = not ensured.created_contract
         else:
-            # Legacy ad-hoc path without a recruitment cannot be safely
-            # deduplicated. New UI flows always send job_id.
+            # Legacy ad-hoc path without a recruitment. New UI flows always
+            # send job_id. Runda 8 (R8-X2-1): ta sama blokada duplikatu co
+            # ręczne „Nowy kontraktor” (osoba albo e-mail + klient) — do tej
+            # pory zakładała drugi kontrakt tej osoby u klienta bez pytania.
+            dup_candidate = await db.get(Candidate, payload.candidate_id)
+            dup_client = await db.get(Client, client_id)
+            if dup_candidate is None or dup_client is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Kandydat albo klient nie istnieje.",
+                )
+            await _assert_no_duplicate_contract(
+                db, candidate=dup_candidate, client=dup_client
+            )
             contract = Contract(
                 candidate_id=payload.candidate_id,
                 client_id=client_id,
@@ -1546,6 +1576,19 @@ async def download_docx(
 # Numer umowy w formacie „<liczba>/<rok>" (np. „1434/2026"). Prefiks liczbowy
 # jest faktycznym numerem porządkowym — kolumna `seq` to tylko licznik wierszy.
 _NUMBER_RE = re.compile(r"^\s*(\d+)\s*/\s*(\d{4})\s*$")
+# Zakres kolumny `seq` (INTEGER). Wyższy numer kończył zapis DataError → 500.
+_MAX_CONTRACT_SEQ = 2_147_483_647
+# Kod 409 „numer zajęty” — front podmienia numer na podpowiedź WYŁĄCZNIE przy
+# nim (R8-X2-5); inne 409 z `/render` (kandydat spoza rekrutacji, zmiana
+# powiązań w trakcie zapisu) nie mają nic wspólnego z numerem.
+_NUMBER_TAKEN_CODE = "contract_number_taken"
+
+
+def _number_taken(message: str) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail={"code": _NUMBER_TAKEN_CODE, "message": message},
+    )
 
 
 def _nip_digits(raw: str | None) -> str | None:
@@ -1586,6 +1629,13 @@ def _validate_contract_number(number: str, suggested: str) -> tuple[int, int, st
             detail=f"Numer umowy musi być w formacie „liczba/rok”, np. {suggested}.",
         )
     seq, year = int(m.group(1)), int(m.group(2))
+    # Runda 8 (R8-X2-7): numer spoza zakresu kolumny `seq` kończył zapis
+    # błędem DataError (500) zamiast czytelnej odmowy.
+    if seq > _MAX_CONTRACT_SEQ:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Numer porządkowy umowy jest za duży — wpisz np. {suggested}.",
+        )
     return seq, year, f"{seq}/{year}"
 
 
@@ -1782,44 +1832,52 @@ async def render_standalone(
         )
     )
     if clash:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                f"Numer umowy „{number}” jest już użyty — wybierz inny. "
-                f"Następny wolny: {suggested}."
-            ),
+        raise _number_taken(
+            f"Numer umowy „{number}” jest już użyty — wybierz inny. "
+            f"Następny wolny: {suggested}."
         )
-    # Numeracja działu jest ciągła między latami, a wiersz z Excela bywa bez
-    # roku („1517” bez daty podpisania) — ten sam numer porządkowy z Excela
-    # w DOWOLNYM roku jest już wydany.
-    excel_clash = await db.scalar(
-        select(B2BGeneratedContract.id)
+    # Numeracja działu jest ciągła między latami — zmienia się tylko rok — więc
+    # numer porządkowy jest wydany w DOWOLNYM roku. Wiersz z Excela bywa bez
+    # roku („1517” bez daty podpisania). Runda 8 (R8-X2-4): do tej pory
+    # dotyczyło to tylko Excela, a „1600/2026” i „1600/2027” z generatora
+    # wchodziły obie (UNIQUE jest na parze rok + numer).
+    seq_clash_source = await db.scalar(
+        select(B2BGeneratedContract.source)
         .where(
-            B2BGeneratedContract.source == "excel",
             or_(
-                B2BGeneratedContract.seq == row_seq,
-                func.trim(B2BGeneratedContract.raw_contract_number) == str(row_seq),
                 B2BGeneratedContract.contract_number.like(f"{row_seq}/%"),
+                and_(
+                    B2BGeneratedContract.source == "excel",
+                    or_(
+                        B2BGeneratedContract.seq == row_seq,
+                        func.trim(B2BGeneratedContract.raw_contract_number)
+                        == str(row_seq),
+                    ),
+                ),
             ),
         )
         .limit(1)
     )
-    if excel_clash:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                f"Numer porządkowy {row_seq} jest już w rejestrze z Excela działu "
-                f"— wybierz inny. Następny wolny: {suggested}."
-            ),
+    if seq_clash_source == "excel":
+        raise _number_taken(
+            f"Numer porządkowy {row_seq} jest już w rejestrze z Excela działu "
+            f"— wybierz inny. Następny wolny: {suggested}."
         )
-    if number in set(await _deleted_contract_numbers(db)):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                f"Numer umowy „{number}” był już wydany (wpis usunięto z "
-                f"rejestru, ale dokument mógł trafić do Partnera) — wybierz "
-                f"inny. Następny wolny: {suggested}."
-            ),
+    if seq_clash_source is not None:
+        raise _number_taken(
+            f"Numer porządkowy {row_seq} jest już użyty w innym roku — "
+            f"numeracja jest ciągła między latami. Następny wolny: {suggested}."
+        )
+    deleted_seqs = {
+        parsed
+        for deleted in await _deleted_contract_numbers(db)
+        if (parsed := _parse_seq(deleted)) is not None
+    }
+    if row_seq in deleted_seqs:
+        raise _number_taken(
+            f"Numer umowy „{number}” był już wydany (wpis usunięto z "
+            f"rejestru, ale dokument mógł trafić do Partnera) — wybierz "
+            f"inny. Następny wolny: {suggested}."
         )
 
     # Render PRZED zapisem wiersza (audyt 23.09.2026): dotąd numer był
@@ -1892,12 +1950,9 @@ async def render_standalone(
                 ),
             ) from exc
         fresh = await _next_seq(db)
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                f"Numer umowy „{number}” został właśnie użyty przez kogoś innego "
-                f"— wybierz inny. Następny wolny: {fresh}/{row_year}."
-            ),
+        raise _number_taken(
+            f"Numer umowy „{number}” został właśnie użyty przez kogoś innego "
+            f"— wybierz inny. Następny wolny: {fresh}/{row_year}."
         )
     await _stamp_candidate_contact_on_contract(db, payload)
     return _docx_response(data, number, generated_id=created.id)
@@ -3046,6 +3101,11 @@ async def confirm_generated_contract_fully_signed(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=_CANCELLED_BLOCKS_SIGNATURE,
             )
+        if row.contract_status in _SIGNATURE_BLOCKING_STATUSES:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=_ENDED_BLOCKS_SIGNATURE,
+            )
 
         if (
             row.candidate_id is not None
@@ -3313,6 +3373,49 @@ async def confirm_generated_contract_fully_signed(
         raise
 
 
+async def _lock_person_contracts_before_row(
+    db: AsyncSession, generated_id: int
+) -> None:
+    """Zablokuj kontrakty osoby wiersza rejestru (kontrakt → wiersz).
+
+    Osoba z wiersza i z kontraktu, do którego jest podpięty (wiersz z Excela
+    bywa bez ``candidate_id``). Odczyt samymi kolumnami, bez encji.
+    """
+
+    link = (
+        await db.execute(
+            select(
+                B2BGeneratedContract.candidate_id,
+                B2BGeneratedContract.contract_id,
+            ).where(B2BGeneratedContract.id == generated_id)
+        )
+    ).first()
+    if link is None:
+        return
+    person_ids = {link.candidate_id}
+    if link.contract_id is not None:
+        person_ids.add(
+            await db.scalar(
+                select(Contract.candidate_id).where(Contract.id == link.contract_id)
+            )
+        )
+    person_ids.discard(None)
+    contract_ids = (
+        list(
+            (
+                await db.scalars(
+                    select(Contract.id).where(Contract.candidate_id.in_(person_ids))
+                )
+            ).all()
+        )
+        if person_ids
+        else []
+    )
+    await lock_contract_then_orders(
+        db, contract_ids=[*contract_ids, link.contract_id]
+    )
+
+
 @router.patch("/generated/{generated_id}", response_model=B2BGeneratedContractItem)
 async def update_generated_contract(
     generated_id: int,
@@ -3341,6 +3444,16 @@ async def update_generated_contract(
       bramce przycisk byłby niewidoczny dla większości zespołu i cała zakładka
       „Umowy bez projektu" nie miałaby jak działać."""
     _require_generated_contract_management(current_user)
+    if (
+        "contract_status" in payload.model_fields_set
+        and payload.contract_status == "active"
+    ):
+        # Runda 8 (R8-V1-8): powrót z „Umów bez projektu” dopisuje notatkę do
+        # kontraktu i przepina `contract_id` (FK → blokada kontraktu) PO
+        # blokadzie wiersza rejestru. `/terminate` i nocny cron biorą kontrakt,
+        # a potem wiersze — ta sama kolejność co w `confirm-fully-signed`:
+        # kontrakty osoby PRZED wierszem.
+        await _lock_person_contracts_before_row(db, generated_id)
     row = await db.scalar(
         select(B2BGeneratedContract)
         .where(B2BGeneratedContract.id == generated_id)
@@ -3523,6 +3636,19 @@ async def update_generated_contract(
 
         job: Job | None = None
         if reactivating:
+            # Runda 8 (R8-X2-2): przywrócenie przepina rekrutację i klienta
+            # wiersza, a od nich zależy, kto widzi stawki umowy. Bez tej bramki
+            # osoba bez wglądu w stawki zawieszała cudzą umowę, przywracała ją
+            # na SWOJĄ rekrutację i od tej chwili pobierała DOCX ze stawką.
+            # Przywrócić na projekt może więc tylko ktoś, kto stawki tej umowy
+            # już widzi (admin, Finanse, DL portfela, autor, prowadzący).
+            await _require_generator_rate_content(
+                db,
+                current_user,
+                row.client_id,
+                created_by=row.created_by,
+                job_id=row.job_id,
+            )
             if payload.job_id is None:
                 raise HTTPException(
                     status_code=422,
@@ -3752,6 +3878,26 @@ async def delete_generated_contract(
             raise HTTPException(
                 status_code=403,
                 detail="Możesz usunąć tylko umowy, które samodzielnie wygenerowałeś.",
+            )
+        # Runda 8 (R8-X2-8): FK dokumentów pochodnych ma CASCADE, a aneks można
+        # wystawić i podpisać także do umowy, której podpisu nie potwierdzono
+        # w NEXUSIE — usunięcie umowy kasowało rekord podpisanego aneksu.
+        signed_document_id = await db.scalar(
+            select(B2BContractDocument.id)
+            .where(
+                B2BContractDocument.parent_generated_contract_id == row.id,
+                B2BContractDocument.signature_status == "signed_both",
+            )
+            .limit(1)
+        )
+        if signed_document_id is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Do tej umowy jest podpisany dokument pochodny (aneks, "
+                    "rozwiązanie albo wypowiedzenie) — usunięcie umowy "
+                    "skasowałoby go razem z nią."
+                ),
             )
         number, partner, rid = row.contract_number, row.partner_name, row.id
         await db.delete(row)

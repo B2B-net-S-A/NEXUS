@@ -118,7 +118,8 @@ async def test_deleted_number_is_neither_suggested_nor_accepted_again(
         },
     )
     assert reuse.status_code == 409, reuse.text
-    assert "był już wydany" in reuse.json()["detail"]
+    assert reuse.json()["detail"]["code"] == "contract_number_taken"
+    assert "był już wydany" in reuse.json()["detail"]["message"]
 
     from app.api.b2b_contract_generator import _next_seq
 
