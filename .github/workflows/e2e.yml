@@ -269,6 +269,40 @@ jobs:
         # „zielone" dało się przeczytać razem z „ile z czego". Przepływy
         # zapisujące dane są sprawdzane w jobie `stack`, nie na produkcji.
         run: |
+          # Runda 7 (R7-X2-8): bieg idzie przeciw PRODUKCJI, a log Actions
+          # publicznego repo widzi każdy. Reporter `list`/`dot`/`line` przy
+          # porażce asercji drukuje „Received …”, czyli tekst ze strony
+          # produkcyjnej. Tu reporter JSON trafia do pliku, a do logu idą
+          # liczby i TYTUŁY nieudanych testów (tytuły pochodzą z naszych spec-ów),
+          # bez treści błędu.
+          run_pw() {
+            local rc=0
+            PLAYWRIGHT_JSON_OUTPUT_NAME="${RUNNER_TEMP}/pw-results.json" \
+              npx playwright test "$@" --reporter=json > /dev/null 2>&1 || rc=$?
+            node -e '
+              const fs = require("fs");
+              const path = process.argv[1];
+              if (!fs.existsSync(path)) { console.log("brak wyników Playwrighta"); process.exit(0); }
+              const r = JSON.parse(fs.readFileSync(path, "utf8"));
+              const failed = [];
+              const walk = (suite, trail) => {
+                for (const spec of suite.specs || []) {
+                  for (const t of spec.tests || []) {
+                    if (t.status === "unexpected" || t.status === "flaky") {
+                      failed.push(`${t.status}: [${t.projectName}] ${[...trail, spec.title].join(" › ")}`);
+                    }
+                  }
+                }
+                for (const child of suite.suites || []) walk(child, [...trail, child.title]);
+              };
+              for (const suite of r.suites || []) walk(suite, [suite.title]);
+              const s = r.stats || {};
+              console.log(`Playwright: ok=${s.expected ?? 0} fail=${s.unexpected ?? 0} flaky=${s.flaky ?? 0} skipped=${s.skipped ?? 0}`);
+              for (const line of failed) console.log(line);
+            ' "${RUNNER_TEMP}/pw-results.json"
+            return "$rc"
+          }
+
           # Liczby bierzemy z narzędzia, które te testy URUCHAMIA, a nie z grepa
           # po źródle (pętle w spec-ach rozwijają się na wiele przypadków).
           count_tests() {
@@ -301,7 +335,7 @@ jobs:
               echo "::error::Brak sekretów E2E_USER_EMAIL/E2E_USER_PASSWORD — smoke po deployu nie może sprawdzić przepływów po zalogowaniu."
               exit 1
             fi
-            npx playwright test --project=prod-smoke
+            run_pw --project=prod-smoke
             exit 0
           fi
 
@@ -321,7 +355,7 @@ jobs:
               echo "**Zielony wynik tego biegu nie znaczy, że E2E przechodzi.**"
             } >> "$GITHUB_STEP_SUMMARY"
             echo "::warning::E2E produkcja CZĘŚCIOWE — $ran_cases z $total_cases przypadków ($ran_specs z $total_specs plików). Brak E2E_USER_EMAIL/E2E_USER_PASSWORD. Zielony wynik NIE znaczy, że E2E przechodzi."
-            npx playwright test --project=preview-chromium
+            run_pw --project=preview-chromium
           else
             {
               echo "### E2E produkcja — prod-smoke + preview"
@@ -331,13 +365,13 @@ jobs:
               echo "| przypadki wylistowane | $total_cases |"
               echo "| pliki spec | $total_specs |"
             } >> "$GITHUB_STEP_SUMMARY"
-            npx playwright test --project=prod-smoke --project=preview-chromium
+            run_pw --project=prod-smoke --project=preview-chromium
           fi
 
       # Raportu Playwrighta z tego joba NIE wgrywamy (runda 6 audytu): bieg idzie
       # przeciw produkcji, a trace/wideo niosą token konta E2E i odpowiedzi API
       # z danymi z bazy — artefakt publicznego repo pobierze każdy. Przyczynę
-      # porażki pokazuje log kroku „Run tests” (reporter `list`); pełny raport
+      # porażki pokazuje log kroku „Run tests” (liczby i tytuły testów, runda 7); pełny raport
       # daje job `stack` na pustej bazie CI.
 
       # OPS-N08: marker musi być DOKŁADNIE ten sam co w kroku otwierającym niżej.

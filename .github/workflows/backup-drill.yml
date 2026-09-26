@@ -183,9 +183,14 @@ jobs:
               -h localhost -U drill -d nexus_drill /tmp/latest.dump 2>/tmp/restore.err
           rc=$?
           set -e
-          echo "----- pg_restore stderr -----"
-          cat /tmp/restore.err || true
-          echo "-----------------------------"
+          # Runda 7 (R7-X2-4): stderr pg_restore NIE idzie do logu. Log Actions
+          # jest publiczny, a błąd COPY/więzu na produkcyjnym zrzucie niesie
+          # linie `CONTEXT: COPY <tabela>, line N: "<cały wiersz>"` i
+          # `DETAIL: Key (...)=(...)` — dane kandydatów. Do logu idą liczby
+          # i (niżej) rodzaj polecenia, bez treści wartości.
+          echo "pg_restore rc=${rc}; linie stderr: $(wc -l < /tmp/restore.err)," \
+            "error: $(grep -c '^pg_restore: error: ' /tmp/restore.err || true)," \
+            "warning: $(grep -c '^pg_restore: warning: ' /tmp/restore.err || true)"
           if [ "$rc" -eq 0 ]; then
             echo "pg_restore exited 0 — clean restore."
             exit 0
@@ -219,7 +224,19 @@ jobs:
                 if (cmd ~ /^Command was: *DROP /) continue
                 if (cmd ~ /^Command was: *ALTER TABLE .* DROP /) continue
                 if (cmd ~ /^Command was: *(CREATE|COMMENT ON) EXTENSION /) continue
-                print line[i] (cmd == "" ? "" : "   <<< " cmd)
+                # Bez treści: z komunikatu zostaje tekst przed pierwszym
+                # cudzysłowem (np. „duplicate key value violates unique
+                # constraint”), z polecenia — pierwsze trzy słowa
+                # (np. „COPY public.candidates (id,”). Wartości wierszy
+                # stoją w cudzysłowach i w dalszej części polecenia.
+                msg = line[i]
+                sub(/^pg_restore: (error|warning): /, "", msg)
+                p = index(msg, "\"")
+                if (p > 0) msg = substr(msg, 1, p - 1)
+                msg = substr(msg, 1, 120)
+                split(cmd, w, " ")
+                verb = (cmd == "" ? "" : w[3] " " w[4] " " w[5])
+                print "error: " msg (verb == "" ? "" : "   <<< " verb)
               }
             }
           ' /tmp/restore.err > /tmp/unexpected.txt
@@ -237,7 +254,19 @@ jobs:
           DATABASE_URL: postgresql+asyncpg://drill:drill-password@localhost:5432/nexus_drill
           SECRET_KEY: drill-only-not-for-production-at-least-48-chars-long
           CANDIDATE_IDENTITY_FINGERPRINT_KEY: drill-only-distinct-candidate-identity-key-at-least-48-chars
-        run: alembic -c alembic/alembic.ini upgrade head
+        # Runda 7 (R7-X2-4): traceback alembica na odtworzonej produkcyjnej
+        # bazie potrafi zacytować wiersz (`[parameters: ...]`, DETAIL) —
+        # do publicznego logu idą tylko kroki migracji i klasa wyjątku.
+        run: |
+          set -uo pipefail
+          alembic -c alembic/alembic.ini upgrade head > /tmp/alembic.log 2>&1
+          rc=$?
+          grep -oE 'Running upgrade [0-9A-Za-z_, ()-]* -> [0-9A-Za-z_, ()-]*' /tmp/alembic.log || true
+          if [ "$rc" -ne 0 ]; then
+            cls="$(grep -oE '^[A-Za-z_][A-Za-z0-9_.]*(Error|Exception)\b' /tmp/alembic.log | tail -1 || true)"
+            echo "::error::alembic upgrade head failed (rc=${rc}, ${cls:-nieznana klasa wyjątku}) — szczegóły tylko lokalnie, log Actions jest publiczny"
+            exit "$rc"
+          fi
 
       - name: Validate restored data
         run: |

@@ -14,10 +14,13 @@ Dwie rzeczy, w tej kolejności — i kolejność jest cała istotą tego modułu
    reszta dojdzie przy uzupełnieniu zamówienia.
 
 Blok jest jednorazowy (marker w ``app_settings`` + advisory lock) i odpalany
-z ``entrypoint.sh``. Paragon (``app_settings[REPAIR_MARKER]``) niesie migawkę
-raportu i stan KAŻDEGO poprawionego kontraktu sprzed korekty — z niego da się
-odtworzyć, co zmieniono, i z niego powstaje plik Excel
-(``GET /api/contracts/order-sync-report``).
+z ``entrypoint.sh``. Paragon (``app_settings[REPAIR_MARKER]``) niesie
+wyłącznie liczniki i ID. Migawka raportu i stan KAŻDEGO poprawionego kontraktu
+sprzed korekty (nazwiska, klienci, stawki) leżą pod ``DETAILS_KEY`` — z nich
+da się odtworzyć, co zmieniono, i z nich powstaje plik Excel
+(``GET /api/contracts/order-sync-report``). Runda 7 (R7-X2-1): do 26.09.2026
+całość szła pod kluczem paragonu, a workflow „migration-receipts” drukuje
+paragony w publicznym logu Actions.
 """
 
 from __future__ import annotations
@@ -49,6 +52,7 @@ from app.services.contract_lifecycle import (
     end_expired_draft,
 )
 from app.services.contract_order_sync import (
+    REPAIR_DETAILS_KEY,
     REPAIR_MARKER,
     convert_rate_between,
     cost_reference_day,
@@ -538,12 +542,42 @@ async def run_contract_order_sync_repair(
     db.add(
         AppSetting(
             key=REPAIR_MARKER,
-            value={**summary, "snapshot": snapshot, "repaired": repaired},
+            value={
+                **summary,
+                "repaired_contract_ids": [item["contract_id"] for item in repaired],
+            },
         )
     )
+    details = {"snapshot": snapshot, "repaired": repaired}
+    existing = await db.get(AppSetting, REPAIR_DETAILS_KEY)
+    if existing is None:
+        db.add(AppSetting(key=REPAIR_DETAILS_KEY, value=details))
+    else:
+        existing.value = details
     await db.flush()
     logger.info("contract-order sync repair: %s", summary)
     return summary
+
+
+async def load_repair_details(
+    db: AsyncSession,
+) -> Optional[tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]]:
+    """Paragon, migawka i poprawione kontrakty; ``None`` = korekta się nie wykonała.
+
+    Paragon zapisany przed 26.09.2026 niesie migawkę w sobie (zostaje w bazie,
+    nikt go nie przepisuje) — wtedy czytamy ją stamtąd.
+    """
+    receipt = await db.get(AppSetting, REPAIR_MARKER)
+    if receipt is None:
+        return None
+    summary = dict(receipt.value or {})
+    details_row = await db.get(AppSetting, REPAIR_DETAILS_KEY)
+    details = dict(details_row.value or {}) if details_row is not None else summary
+    return (
+        summary,
+        list(details.get("snapshot") or []),
+        list(details.get("repaired") or []),
+    )
 
 
 # ── Excel ────────────────────────────────────────────────────────────────────

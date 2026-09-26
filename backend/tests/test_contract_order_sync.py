@@ -687,10 +687,11 @@ async def test_sync_failure_never_blocks_the_order_write(
 async def test_repair_snapshots_the_report_first_then_activates_every_draft():
     from app.core.database import AsyncSessionLocal
     from app.models.app_setting import AppSetting
-    from app.services.contract_order_sync import REPAIR_MARKER
+    from app.services.contract_order_sync import REPAIR_DETAILS_KEY, REPAIR_MARKER
     from app.services.contract_order_sync_repair import (
         build_reconciliation_rows,
         build_reconciliation_workbook,
+        load_repair_details,
         repair_contract_names,
         run_contract_order_sync_repair,
     )
@@ -725,10 +726,15 @@ async def test_repair_snapshots_the_report_first_then_activates_every_draft():
             )
             is None
         )
-        receipt = (await db.get(AppSetting, REPAIR_MARKER)).value
+        raw_receipt = (await db.get(AppSetting, REPAIR_MARKER)).value
+        receipt, snapshot, repaired = await load_repair_details(db)
 
+    # Runda 7 (R7-X2-1): paragon drukuje publiczny workflow — bez migawki,
+    # nazwisk i stawek; one leżą pod kluczem szczegółów.
+    assert "snapshot" not in raw_receipt and "repaired" not in raw_receipt
+    assert set(raw_receipt["repaired_contract_ids"]) >= scope
     snapshot_row = next(
-        row for row in receipt["snapshot"] if row["order_id"] == filled["order_id"]
+        row for row in snapshot if row["order_id"] == filled["order_id"]
     )
     # Migawka jest SPRZED korekty: kontrakt był jeszcze szkicem bez przychodu.
     assert snapshot_row["contract_status"] == "draft"
@@ -749,11 +755,11 @@ async def test_repair_snapshots_the_report_first_then_activates_every_draft():
     async with AsyncSessionLocal() as db:
         live = await build_reconciliation_rows(db, today=today)
         names = await repair_contract_names(
-            db, [item["contract_id"] for item in receipt["repaired"]]
+            db, [item["contract_id"] for item in repaired]
         )
     content = build_reconciliation_workbook(
-        snapshot=receipt["snapshot"],
-        repaired=receipt["repaired"],
+        snapshot=snapshot,
+        repaired=repaired,
         repair_names=names,
         live=live,
         summary=receipt,
@@ -769,7 +775,11 @@ async def test_repair_snapshots_the_report_first_then_activates_every_draft():
     assert live_row["revenue_status"] == "zgodne"
     assert live_row["period_status"] == "zgodne"
     async with AsyncSessionLocal() as db:
-        await db.execute(delete(AppSetting).where(AppSetting.key == REPAIR_MARKER))
+        await db.execute(
+            delete(AppSetting).where(
+                AppSetting.key.in_((REPAIR_MARKER, REPAIR_DETAILS_KEY))
+            )
+        )
         await db.commit()
 
 
@@ -1278,11 +1288,12 @@ async def test_repair_never_blindly_activates_expired_or_duplicate_drafts():
     """Aktywny szkic z minioną datą końca zakończyłby cron razem z zamówieniami."""
     from app.core.database import AsyncSessionLocal
     from app.models.app_setting import AppSetting
-    from app.services.contract_order_sync import REPAIR_MARKER
+    from app.services.contract_order_sync import REPAIR_DETAILS_KEY, REPAIR_MARKER
     from app.services.contract_order_sync_repair import (
         ACTION_DUPLICATE,
         ACTION_ENDED,
         ACTION_REVIVED,
+        load_repair_details,
         run_contract_order_sync_repair,
     )
 
@@ -1332,13 +1343,17 @@ async def test_repair_never_blindly_activates_expired_or_duplicate_drafts():
             )
             await db.commit()
         async with AsyncSessionLocal() as db:
-            receipt = (await db.get(AppSetting, REPAIR_MARKER)).value
+            _, _, repaired = await load_repair_details(db)
     finally:
         async with AsyncSessionLocal() as db:
-            await db.execute(delete(AppSetting).where(AppSetting.key == REPAIR_MARKER))
+            await db.execute(
+                delete(AppSetting).where(
+                    AppSetting.key.in_((REPAIR_MARKER, REPAIR_DETAILS_KEY))
+                )
+            )
             await db.commit()
 
-    actions = {item["contract_id"]: item["action"] for item in receipt["repaired"]}
+    actions = {item["contract_id"]: item["action"] for item in repaired}
     assert actions[expired_with_order["contract_id"]] == ACTION_REVIVED
     assert actions[expired_without_order["contract_id"]] == ACTION_ENDED
     assert actions[duplicate["contract_id"]] == ACTION_DUPLICATE

@@ -57,7 +57,11 @@ jobs:
           COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
           COOLIFY_APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
           KEY: ${{ inputs.key }}
-          VALUE_PLAIN: ${{ inputs.value }}
+          # Runda 7 (R7-X2-2): jawnej wartości NIE ma w `env:`. GitHub wypisuje
+          # blok `env:` w nagłówku kroku ZANIM skrypt zdąży zarejestrować
+          # maskę, więc `VALUE_PLAIN` z wartością `inputs.value` trafiało do
+          # publicznego logu otwartym tekstem. Skrypt czyta ją z pliku zdarzenia
+          # i maskuje w pierwszej linii.
           # Indeksowanie kontekstu `secrets` nazwą z inputu jest jedynym sposobem,
           # żeby wartość NIGDY nie przeszła przez `inputs` — te są widoczne na
           # stałe w podsumowaniu runa, także po latach i dla każdego, kto ma
@@ -68,6 +72,27 @@ jobs:
           IS_BUILDTIME: ${{ inputs.is_buildtime }}
         run: |
           set -euo pipefail
+
+          # Pierwsza rzecz w kroku: wartość jawna z pliku zdarzenia + maska.
+          # Linia po linii, bo `::add-mask::` obejmuje JEDNĄ linię — przy
+          # wartości wielolinijkowej zamaskowałby się sam pierwszy wiersz.
+          VALUE_PLAIN="$(jq -r '.inputs.value // ""' "${GITHUB_EVENT_PATH}")"
+          while IFS= read -r _line; do
+            [ -n "$_line" ] && echo "::add-mask::${_line}"
+          done <<< "${VALUE_PLAIN}"
+
+          # Klucz wyglądający na sekret nie przyjmuje wartości jawnej: input
+          # workflow_dispatch zostaje na stałe w metadanych runa i w pliku
+          # zdarzenia, maska chroni wyłącznie log. Sekret idzie przez
+          # `value_from_secret`. Pusta wartość (wyczyszczenie) jest dozwolona.
+          if [ -n "${VALUE_PLAIN}" ]; then
+            case "${KEY}" in
+              *SECRET*|*_KEY|*_KEY_*|*_TOKEN|*PASSWORD|*_DSN|*_PAT|*API_KEY*)
+                echo "Klucz '${KEY}' wygląda na sekret — podaj wartość przez value_from_secret, nie jawnie." >&2
+                exit 1
+                ;;
+            esac
+          fi
 
           case "${IS_BUILDTIME}" in
             true|false) ;;
@@ -95,17 +120,12 @@ jobs:
             echo "źródło wartości: input (jawny)"
           fi
 
-          # Zarejestruj wartość do maskowania ZANIM zrobi się cokolwiek innego.
-          # `inputs.value` NIE jest sekretem GitHuba, więc nic go tu nie chroni
-          # z automatu — a przez ten workflow przechodzą wartości sekretne
-          # (to jedyna droga zmiany env na prodzie). Krok dziś jej nie drukuje,
-          # ale jest o jedno `echo`/`set -x` od tego; maskowanie łapie ten błąd
-          # zawczasu. Linia po linii, bo `::add-mask::` obejmuje JEDNĄ linię —
-          # przy wartości wielolinijkowej zamaskowałby się sam pierwszy wiersz,
-          # a reszta poszłaby do logu otwartym tekstem.
+          # Maska także dla wartości z sekretu repo (GitHub maskuje sekrety sam,
+          # ale nie ich pojedyncze linie po rozbiciu wartości wielolinijkowej).
           while IFS= read -r _line; do
             [ -n "$_line" ] && echo "::add-mask::${_line}"
           done <<< "${VALUE}"
+          echo "długość wartości: ${#VALUE} zn."
 
           base="${COOLIFY_URL%/}"
           auth=(-H "Authorization: Bearer ${COOLIFY_TOKEN}" -H "Accept: application/json")

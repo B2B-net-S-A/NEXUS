@@ -92,6 +92,7 @@ __all__ = [
     "backfill_missing_order_periods",
     "backfill_missing_order_revenue",
     "OrderRevenueTerms",
+    "REPAIR_DETAILS_KEY",
     "REPAIR_MARKER",
     "SOURCE_ORDER_STATUSES",
     "convert_rate_between",
@@ -111,6 +112,10 @@ __all__ = [
 # wdrożenia, a codzienne nadpisanie kosztów przed migawką skasowałoby dokładnie
 # te niezgodności, które raport ma pokazać.
 REPAIR_MARKER = "0304_contract_order_sync_repair"
+# Migawka raportu i stan poprawionych kontraktów (nazwiska, stawki) — klucz
+# CELOWO bez kształtu paragonu ``NNNN_…``, którego publiczny workflow
+# „migration-receipts” nie drukuje (Runda 7, R7-X2-1).
+REPAIR_DETAILS_KEY = "repair_details_0304_contract_order_sync_repair"
 
 # Zamówienia, z których kontrakt bierze okres i stawkę przychodową. Zakończone
 # ZOSTAJĄ: opisują historię stawek (krok sprzed obecnego zamówienia).
