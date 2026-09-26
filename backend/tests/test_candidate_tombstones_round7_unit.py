@@ -399,9 +399,7 @@ class _TombstoneDb:
             result.fetchone.return_value = (True,)
         else:
             sources = set((params or {}).get("sources") or [])
-            result.fetchall.return_value = [
-                r for r in self._rows if r[0] in sources
-            ]
+            result.fetchall.return_value = [r for r in self._rows if r[0] in sources]
         return result
 
 

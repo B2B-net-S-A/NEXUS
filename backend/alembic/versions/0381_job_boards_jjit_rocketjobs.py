@@ -71,7 +71,20 @@ def upgrade() -> None:
         op.execute(statement)
 
 
+# Runda 8 (R8-N15-2): wartość enuma `rocketjobs` zostaje po downgrade (Postgres
+# nie ma DROP VALUE), a kod sprzed tej rewizji jej nie zna — `select(JobPosting)`
+# na takim wierszu rzuca `LookupError` (500). Downgrade odmawia, zamiast kasować
+# publikacje (ogłoszenie mogło zostać na portalu bez możliwości zamknięcia).
+REFUSE_WITH_ROCKETJOBS_POSTINGS = """DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM job_postings WHERE portal::text = 'rocketjobs') THEN
+        RAISE EXCEPTION 'Downgrade 0381 odmawia: job_postings ma publikacje na RocketJobs, których kod sprzed tej rewizji nie odczyta. Zamknij je i usuń wiersze ręcznie albo zostaw tę rewizję.';
+    END IF;
+END $$"""
+
+
 def downgrade() -> None:
+    op.execute(REFUSE_WITH_ROCKETJOBS_POSTINGS)
     op.execute("DROP TABLE IF EXISTS job_board_connections")
     op.execute(
         "ALTER TABLE job_postings DROP CONSTRAINT IF EXISTS ck_job_postings_pending_action"

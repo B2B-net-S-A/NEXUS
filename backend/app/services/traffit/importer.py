@@ -53,10 +53,6 @@ from app.services.candidate_audit import (
     candidate_source_tombstone,
 )
 from app.services.candidate_erasure_leftovers import purged_candidate_hashes
-
-# Źródło Talent Radar (`talent_radar_importer.SOURCE_VALUE`) — ten sam numer
-# kandydata z Traffita. Literał, bo import modułu Talent Radar ciągnie asyncpg.
-TALENT_RADAR_TOMBSTONE_SOURCE = "tr_legacy"
 from app.services.traffit.client import TraffitClient
 from app.services.traffit.mappers import (
     _parse_traffit_datetime,
@@ -87,6 +83,10 @@ from app.services.recruitment_process_commands import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Źródło Talent Radar (`talent_radar_importer.SOURCE_VALUE`) — ten sam numer
+# kandydata z Traffita. Literał, bo import modułu Talent Radar ciągnie asyncpg.
+TALENT_RADAR_TOMBSTONE_SOURCE = "tr_legacy"
 
 
 ORPHAN_CLIENT_NAME = "__traffit_orphans"
