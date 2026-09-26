@@ -116,6 +116,69 @@ _STATUS_COLUMNS = (
 )
 
 
+#: Kolumny wiersza, które zmienia skutek podpisanego dokumentu pochodnego
+#: (``services/b2b_documents/effects.py``): aneks daty startu przestawia datę
+#: rozpoczęcia, aneks danych firmy stempluje zdjęcie z kolejki „Aneks
+#: uzupełnienia danych”. Plik działu tego nie wie — import i „Cofnij”
+#: nadpisywały podpisaną zmianę (runda 6 audytu, XLS-1).
+_DOCUMENT_OWNED_COLUMNS: dict[str, tuple[str, ...]] = {
+    "annex_start_date": ("start_date", "start_date_mode"),
+    "annex_party_data": ("business_data_annex_done_at",),
+}
+
+
+async def _document_owned_columns(
+    db: AsyncSession, row_ids: list[int], *, since: Optional[datetime] = None
+) -> dict[int, set[str]]:
+    """Kolumny wierszy rejestru, które zmienił podpisany dokument pochodny.
+
+    ``since`` — tylko dokumenty podpisane po tej chwili (cofnięcie przebiegu:
+    zmiana sprzed importu była w migawce „przed”, więc wolno ją przywrócić)."""
+    if not row_ids:
+        return {}
+    stmt = select(
+        B2BContractDocument.parent_generated_contract_id,
+        B2BContractDocument.document_type,
+    ).where(
+        B2BContractDocument.parent_generated_contract_id.in_(row_ids),
+        B2BContractDocument.document_type.in_(tuple(_DOCUMENT_OWNED_COLUMNS)),
+        B2BContractDocument.effect_applied_at.isnot(None),
+    )
+    if since is not None:
+        stmt = stmt.where(B2BContractDocument.effect_applied_at >= since)
+    owned: dict[int, set[str]] = {}
+    for parent_id, document_type in (await db.execute(stmt)).all():
+        owned.setdefault(parent_id, set()).update(
+            _DOCUMENT_OWNED_COLUMNS.get(document_type, ())
+        )
+    return owned
+
+
+async def _missing_foreign_keys(db: AsyncSession, snapshot: dict[str, Any]) -> set[str]:
+    """Kolumny migawki wskazujące rekord, którego już nie ma.
+
+    Kandydat bywa scalony, a klient usunięty po imporcie — przywrócenie jego id
+    przy „Cofnij” kończyło się 500 na kluczu obcym, więc taka kolumna zostaje
+    przy bieżącej wartości (runda 6 audytu, XLS-1)."""
+    from app.models.candidate import Candidate
+    from app.models.client import Client
+    from app.models.user import User
+
+    missing: set[str] = set()
+    for column, model in (
+        ("candidate_id", Candidate),
+        ("client_id", Client),
+        ("recruiter_user_id", User),
+    ):
+        value = snapshot.get(column)
+        if value is None:
+            continue
+        found = await db.scalar(select(model.id).where(model.id == value))
+        if found is None:
+            missing.add(column)
+    return missing
+
+
 class RegisterImportConflict(Exception):
     """Operacja niemożliwa w bieżącym stanie (409) — komunikat po polsku."""
 
@@ -462,6 +525,10 @@ async def _apply(
         elif (number := _generator_number(row.contract_number)) is not None:
             generator_by_number.setdefault(number, row)
 
+    document_owned = await _document_owned_columns(
+        db, [row.id for row in excel_by_key.values()]
+    )
+
     # ── Pierwsze przejście: klucze, kolizje, dopasowania ────────────────────
     plans: list[dict[str, Any]] = []
     seen_numbers: dict[str, int] = {}
@@ -752,6 +819,9 @@ async def _apply(
                 import_status = previous_status
             else:
                 import_status = {k: _json_value(k, derived[k]) for k in _STATUS_COLUMNS}
+            # Zmiana z podpisanego dokumentu wygrywa z plikiem, jak ręczny status.
+            for column in document_owned.get(existing_row.id, ()):
+                target[column] = getattr(existing_row, column)
             target["needs_business_data_annex"] = existing_row.needs_business_data_annex
             target["business_data_annex_done_at"] = (
                 existing_row.business_data_annex_done_at
@@ -1038,6 +1108,10 @@ async def rollback_run(
             )
         )
     restored = 0
+    # Zmiany z podpisanych po imporcie dokumentów zostają (runda 6 audytu, XLS-1).
+    document_owned = await _document_owned_columns(
+        db, list(touched_ids), since=run.created_at
+    )
     for import_row in rows:
         if import_row.decision != "updated" or not import_row.snapshot_before:
             continue
@@ -1045,8 +1119,13 @@ async def rollback_run(
         if target is None or target.source != "excel":
             continue
         manual_status = target.id in changed_by_hand
+        keep = document_owned.get(target.id, set()) | await _missing_foreign_keys(
+            db, import_row.snapshot_before
+        )
         for column, value in import_row.snapshot_before.items():
             if manual_status and column in _STATUS_COLUMNS:
+                continue
+            if column in keep:
                 continue
             setattr(target, column, _from_json(column, value))
         restored += 1

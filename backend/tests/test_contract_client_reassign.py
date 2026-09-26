@@ -302,3 +302,70 @@ def test_live_statuses_mirror_the_duplicate_guard():
     from app.services.contract_client_reassign import LIVE_CONTRACT_STATUSES
 
     assert set(LIVE_CONTRACT_STATUSES) == set(_DUPLICATE_GUARD_STATUSES)
+
+
+async def test_reassign_moves_derived_documents_with_their_agreement(
+    app_client: AsyncClient,
+):
+    """Aneks umowy B2B idzie za umową do nowego klienta — bramka dostępu
+    dokumentu czyta jego własne ``client_id``, więc DL nowego klienta dostawał
+    403 na aneksie umowy, która już była u niego (runda 6 audytu, REA-1)."""
+    from datetime import date
+
+    from app.models.b2b_contract_document import B2BContractDocument
+
+    old_client = await _client("reassign-derived-old")
+    new_client = await _client("reassign-derived-new")
+    other_client = await _client("reassign-derived-other")
+    contract_id, _order_id = await _contract(
+        old_client, status=ContractStatus.active, order_status=ClientOrderStatus.active
+    )
+    _admin_id, headers = await _user(app_client)
+    async with AsyncSessionLocal() as db:
+        agreement = B2BGeneratedContract(
+            year=2026,
+            seq=900000 + int(uuid.uuid4().int % 90000),
+            contract_number=f"T-{uuid.uuid4().hex[:6]}",
+            partner_name="Partner Testowy",
+            client_id=old_client,
+            client_name="Stara Nazwa Klienta",
+            contract_id=contract_id,
+            render_payload={},
+        )
+        db.add(agreement)
+        await db.flush()
+        annex = B2BContractDocument(
+            document_type="annex_start_date",
+            parent_generated_contract_id=agreement.id,
+            contract_id=contract_id,
+            client_id=old_client,
+            document_date=date(2026, 9, 1),
+            render_payload={"values": {}},
+            template_key="annex_start_date_pl",
+        )
+        # Dokument zapisany u jeszcze innego klienta nie jest ruszany.
+        stray = B2BContractDocument(
+            document_type="annex_start_date",
+            parent_generated_contract_id=agreement.id,
+            contract_id=contract_id,
+            client_id=other_client,
+            document_date=date(2026, 9, 1),
+            render_payload={"values": {}},
+            template_key="annex_start_date_pl",
+        )
+        db.add_all([annex, stray])
+        await db.commit()
+        annex_id, stray_id = annex.id, stray.id
+
+    preview = await _preview(app_client, headers, contract_id, new_client)
+    assert preview.status_code == 200, preview.text
+    plan = preview.json()
+    assert [d["id"] for d in plan["b2b_derived_documents"]] == [annex_id]
+
+    applied = await _apply(
+        app_client, headers, contract_id, new_client, plan["fingerprint"]
+    )
+    assert applied.status_code == 200, applied.text
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(B2BContractDocument, annex_id)).client_id == new_client
+        assert (await db.get(B2BContractDocument, stray_id)).client_id == other_client

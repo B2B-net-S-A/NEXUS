@@ -28,6 +28,7 @@ export interface RegisterNewDocumentMenuProps {
     id: number;
     contract_number: string;
     partner_name: string | null;
+    template_version?: string | null;
   };
 }
 
@@ -102,6 +103,7 @@ export function RegisterNewDocumentMenu({ row }: RegisterNewDocumentMenuProps) {
           parentId={row.id}
           contractNumber={row.contract_number}
           partnerName={row.partner_name}
+          noticePeriodKnown={Boolean(row.template_version)}
           onClose={() => setNoticeOpen(false)}
         />
       ) : null}

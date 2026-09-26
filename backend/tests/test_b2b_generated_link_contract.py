@@ -318,3 +318,38 @@ async def test_link_refuses_contract_of_another_person(
         row = await db.get(B2BGeneratedContract, ids["row"])
         assert row.contract_id is None
         assert row.candidate_id == stranger_id
+
+
+async def test_link_moves_derived_documents_to_the_right_client(
+    app_client, app_auth_headers, monkeypatch
+):
+    """Aneks umowy wygenerowanej dla złego klienta idzie za umową — inaczej DL
+    właściwego klienta dostaje 403 na dokumencie (runda 6 audytu, REA-1)."""
+    from app.models.b2b_contract_document import B2BContractDocument
+
+    monkeypatch.setattr(
+        b2b_contract_generator, "_render_generated_row_docx", _render_fails
+    )
+    ids = await _seed()
+    async with AsyncSessionLocal() as db:
+        annex = B2BContractDocument(
+            document_type="annex_start_date",
+            parent_generated_contract_id=ids["row"],
+            client_id=ids["wrong_client"],
+            document_date=date(2026, 9, 1),
+            render_payload={"values": {}},
+            template_key="annex_start_date_pl",
+        )
+        db.add(annex)
+        await db.commit()
+        annex_id = annex.id
+
+    resp = await app_client.post(
+        f"{PATH}/{ids['row']}/link-contract",
+        json={"contract_id": ids["contract"]},
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    async with AsyncSessionLocal() as db:
+        annex = await db.get(B2BContractDocument, annex_id)
+        assert annex.client_id == ids["right_client"]

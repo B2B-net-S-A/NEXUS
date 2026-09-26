@@ -17,7 +17,7 @@ from typing import get_args
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.concurrency import run_in_threadpool
 from jinja2 import TemplateError
-from sqlalchemy import Select, func, or_, select
+from sqlalchemy import Select, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute, selectinload
@@ -39,6 +39,7 @@ from app.core.database import get_db
 from app.core.export_safety import safe_row
 from app.models.activity import Activity
 from app.models.b2b_contract_detail import B2BContractDetail
+from app.models.b2b_contract_document import B2BContractDocument
 from app.models.b2b_contract_role import B2BContractRole
 from app.models.b2b_generated_contract import B2BGeneratedContract
 from app.models.b2b_generated_contract_status_event import (
@@ -66,6 +67,7 @@ from app.services.action_permissions import (
     action_access_for_user,
 )
 from app.services.access_scope import resolve_delivery_lead_assigned_client_ids
+from app.services.b2b_documents.contract_versions import CURRENT_VERSION
 from app.services.critical_events import audited_deletion
 from app.schemas.b2b_contract_generator import (
     B2B_CLOSING_STATUSES,
@@ -1034,6 +1036,7 @@ async def _serialize_generated_contracts(
                 can_confirm_signed=can_confirm,
                 blocked_reason=blocked_reason,
                 source=row.source or "generator",
+                template_version=row.template_version,
                 raw_contract_number=row.raw_contract_number,
                 position=row.position,
                 contract_kind=row.contract_kind,
@@ -1835,6 +1838,11 @@ async def render_standalone(
         # ją WYŁĄCZNIE confirm-fully-signed; default kolumny („active")
         # kłamałby o każdej nowej umowie.
         contract_status="in_progress",
+        # Wersja wzoru od razu przy wydaniu: backfill w entrypoincie stempluje
+        # ją dopiero przy następnym starcie, a do tego czasu wypowiedzenie
+        # Partnera odmawiało policzenia okresu wypowiedzenia (runda 6 audytu,
+        # DOC-3).
+        template_version=CURRENT_VERSION,
         # Snapshot danych rejestrowych na potrzeby listy — odnormalizowane
         # z payloadu, bo lista pokazuje je jako kolumny i filtruje po
         # `start_date` po stronie SQL-a.
@@ -2589,6 +2597,12 @@ async def link_generated_contract_to_contract(
             status_code=403,
             detail="Powiązać umowę z kontraktem może administrator albo Delivery Lead.",
         )
+    # Kontrakt blokowany PRZED wierszem rejestru — ta sama kolejność co
+    # ``/terminate`` i nocny cron (kontrakt → wiersze), inaczej równoległe
+    # zakończenie tej osoby dawało zakleszczenie (runda 6 audytu, LOCK-1).
+    contract = await db.scalar(
+        select(Contract).where(Contract.id == payload.contract_id).with_for_update()
+    )
     row = await db.scalar(
         select(B2BGeneratedContract)
         .where(B2BGeneratedContract.id == generated_id)
@@ -2616,9 +2630,6 @@ async def link_generated_contract_to_contract(
                 status_code=409,
                 detail=f"Umowa jest już powiązana z kontraktem #{current.id}.",
             )
-    contract = await db.scalar(
-        select(Contract).where(Contract.id == payload.contract_id).with_for_update()
-    )
     if contract is None:
         raise HTTPException(status_code=404, detail="Kontrakt nie istnieje")
     if contract.status == ContractStatus.void:
@@ -2650,6 +2661,21 @@ async def link_generated_contract_to_contract(
     row.contract_id = contract.id
     row.candidate_id = contract.candidate_id
     row.client_id = contract.client_id
+    if previous["previous_client_id"] != contract.client_id:
+        # Aneksy i rozwiązania tej umowy idą za nią do właściwego klienta —
+        # bramka dostępu dokumentu czyta jego własne ``client_id`` (runda 6
+        # audytu, REA-1, bliźniak przepięcia kontraktu na innego klienta).
+        await db.execute(
+            update(B2BContractDocument)
+            .where(
+                B2BContractDocument.parent_generated_contract_id == row.id,
+                B2BContractDocument.client_id.is_not_distinct_from(
+                    previous["previous_client_id"]
+                ),
+            )
+            .values(client_id=contract.client_id)
+            .execution_options(synchronize_session=False)
+        )
     db.add(
         B2BGeneratedContractStatusEvent(
             generated_contract_id=row.id,
