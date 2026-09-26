@@ -1867,7 +1867,7 @@ def apply_orlen_order_policy(
 _DATE_TOKEN_PATTERN = r"(?:\d{4}-\d{1,2}-\d{1,2}|\d{1,2}[./-]\d{1,2}[./-]\d{4})"
 _PFRON_TERM_RE = re.compile(
     rf"\btermin\s+wykonania\s+prac\s*[:\-–—]?\s*"
-    rf"(?:(?:od|do)(?:\s+dnia)?\s+)?(?P<first>{_DATE_TOKEN_PATTERN})"
+    rf"(?:(?P<prefix>od|do)(?:\s+dnia)?\s+)?(?P<first>{_DATE_TOKEN_PATTERN})"
     rf"(?:\s*r\.?)?(?:\s*(?:do(?:\s+dnia)?|[-–—])\s*"
     rf"(?P<end>{_DATE_TOKEN_PATTERN}))?",
     re.IGNORECASE,
@@ -1886,6 +1886,13 @@ def _pfron_end_date_candidates(document_text: str) -> list[str]:
         if re.match(
             r"\s*(?:r\.?)?\s*(?:lub|albo|/)\s*\d", document_text[match.end() :], re.I
         ):
+            return []
+        # „od DATA" bez drugiej daty to POCZĄTEK prac, nie koniec — do rundy 6
+        # audytu „od" i „do" znaczyły to samo i „od 01.07.2026 przez okres
+        # 6 miesięcy" dawało koniec 01.07 z pewnością reguły. Okresu „przez
+        # N miesięcy" nie przeliczamy (koniec miesiąca vs dzień przed, dni
+        # robocze) — brak daty końca idzie do człowieka z powodem.
+        if match.group("end") is None and (match.group("prefix") or "").lower() == "od":
             return []
         normalized = _normalize_date(
             match.group("end") or match.group("first"), end=True

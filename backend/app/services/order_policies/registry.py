@@ -348,7 +348,8 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         rate_unit_default="hour",
         document_period_authoritative=True,
         # 22.09.2026: okres z dokumentu wiążący (FIN-MAIL-03).
-        rule_version="2026-09-22",
+        # 26.09.2026: „od DATA" bez „do" nie jest datą końca (runda 6 audytu).
+        rule_version="2026-09-26",
     ),
     OrderClientPolicy(
         key="erste",
