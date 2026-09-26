@@ -68,11 +68,11 @@ na kolekcję (szacunek `--estimate`, ~5,6 USD każda). Scorer `canonical`, pula 
 
 | pomiar | v1 | v3 | v3 bez notatek |
 |---|---:|---:|---:|
-| zbiór A: Precision@5 | 0,200 | 0,192 | — |
-| zbiór A: R@20 norm | 0,175 | 0,169 | — |
-| zbiór A: MRR | 0,440 | 0,390 | — |
-| zbiór A: nDCG@10 | 0,137 | 0,134 | — |
-| zbiór A: ofert z GT w kolekcji | 50/50 | 46/50 | — |
+| zbiór A: Precision@5 | 0,200 | 0,192 | 0,180 |
+| zbiór A: R@20 norm | 0,175 | 0,169 | 0,160 |
+| zbiór A: MRR | 0,440 | 0,390 | 0,375 |
+| zbiór A: nDCG@10 | 0,137 | 0,134 | 0,129 |
+| zbiór A: ofert z GT w kolekcji | 50/50 | 46/50 | 46/50 |
 | zbiór B: Precision@5 | 0,116 | 0,120 | — |
 | zbiór B: R@20 norm | 0,104 | 0,098 | — |
 | zbiór B: MRR | 0,273 | 0,270 | — |
