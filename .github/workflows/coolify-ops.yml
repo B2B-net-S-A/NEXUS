@@ -51,7 +51,7 @@ on:
       action:
         description: "What to do"
         type: choice
-        options: [teams-prep-config-audit, teams-prep-meeting-probe, app-mail-send-probe, app-mail-config-audit, release-config-audit, staging-status, candidate-index-audit, candidate-index-repair, list, cancel, cron-list, backup-status, client-lookup, migration-receipts, contract-merge-audit, contract-merge-apply, nexus-data-correction-audit, nexus-data-correction-apply, eval-ab, eval-ab-scorer, eval-ab-text, eval-ab-text-notes, eval-read, eval-stop, eval-cv-quality, recover-cv-quality, inspect-cv-quality, cleanup-cv-quality, cv-generation-logs, startup-timing]
+        options: [teams-prep-session-audit, teams-prep-config-audit, teams-prep-meeting-probe, app-mail-send-probe, app-mail-config-audit, release-config-audit, staging-status, candidate-index-audit, candidate-index-repair, list, cancel, cron-list, backup-status, client-lookup, migration-receipts, contract-merge-audit, contract-merge-apply, nexus-data-correction-audit, nexus-data-correction-apply, eval-ab, eval-ab-scorer, eval-ab-text, eval-ab-text-notes, eval-read, eval-stop, eval-cv-quality, recover-cv-quality, inspect-cv-quality, cleanup-cv-quality, cv-generation-logs, startup-timing]
         default: list
       index_audit_identity:
         description: "Reviewed audit RUN_ID-ATTEMPT (candidate-index-repair only)"
@@ -185,7 +185,7 @@ permissions:
 jobs:
   teams-prep-probe:
     name: Scoped Teams access and optional synthetic meeting probe
-    if: ${{ github.ref == 'refs/heads/main' && (inputs.action == 'teams-prep-config-audit' || inputs.action == 'teams-prep-meeting-probe') }}
+    if: ${{ github.ref == 'refs/heads/main' && (inputs.action == 'teams-prep-config-audit' || inputs.action == 'teams-prep-meeting-probe' || inputs.action == 'teams-prep-session-audit') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -200,6 +200,7 @@ jobs:
           CO_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
           APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
           TEAMS_MEETING_PROBE: ${{ inputs.action == 'teams-prep-meeting-probe' && '1' || '0' }}
+          TEAMS_SESSION_AUDIT: ${{ inputs.action == 'teams-prep-session-audit' && '1' || '0' }}
         run: python3 .github/scripts/teams_prep_probe.py
 
   app-mail-config-audit:
