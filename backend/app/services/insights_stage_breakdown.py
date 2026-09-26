@@ -35,6 +35,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.board_stage_badges import normalize_stage_name, stage_badge_kind
+from app.services.placement_exclusions import excluded_hired_sql
 from app.services.rejection_reason_labels import rejection_reason_label
 
 
@@ -284,6 +285,9 @@ async def _reached(
                   WHERE j.status::text IN ('published', 'closed')
                     AND (cs.stage::text <> 'verified'
                          OR cs.verification_status::text = 'active')
+                    -- 0343: „Zatrudniony” wykluczonej pary (seria bez CV) nie
+                    -- jest ani placementem, ani wejściem pary (runda 6 audytu).
+                    AND {excluded_hired_sql("cs")}
                 ),
                 key_firsts AS (
                   SELECT key, min(moved_at) AS first_at
@@ -321,9 +325,13 @@ async def _hired_reached(db: AsyncSession, params: dict[str, Any]) -> int:
                 f"""
                 SELECT count(*)
                 FROM analytics_first_milestones fm
+                -- Ta sama populacja rekrutacji co reszta „Doszło”
+                -- (opublikowane i zamknięte) — runda 6 audytu.
+                JOIN jobs j ON j.id = fm.job_id
                 WHERE fm.stage::text = 'hired'
                   AND fm.first_reached_at >= :start
                   AND fm.first_reached_at < :end
+                  AND j.status::text IN ('published', 'closed')
                   AND {job_filter}
                 """
             ),
@@ -367,7 +375,8 @@ async def _now(db: AsyncSession, params: dict[str, Any]) -> tuple[dict[str, int]
                 WITH {_DEF_MAP_CTE},
                 latest AS (
                   SELECT DISTINCT ON (cs.candidate_id, cs.job_id)
-                         cs.candidate_id, cs.job_id, {_KEY_CASE_SQL} AS key
+                         cs.candidate_id, cs.job_id, cs.stage,
+                         {_KEY_CASE_SQL} AS key
                   FROM candidate_stages cs
                   JOIN jobs j ON j.id = cs.job_id
                   LEFT JOIN def_map m ON m.def_id = cs.stage_def_id
@@ -386,6 +395,9 @@ async def _now(db: AsyncSession, params: dict[str, Any]) -> tuple[dict[str, int]
                          )
                        ) AS reassign
                 FROM latest l
+                -- Para stojąca na wykluczonym „Zatrudniony” nie jest
+                -- zatrudnionym „teraz” (0343, runda 6 audytu).
+                WHERE {excluded_hired_sql("l")}
                 GROUP BY l.key
                 """
             ),
