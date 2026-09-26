@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   addToRow,
+  ambiguousWord,
   cleanRows,
   describeKeywordSearch,
   experienceRangeLabel,
@@ -97,6 +98,22 @@ describe("podpowiedzi przy pomyłkach", () => {
     expect(keywordHints([["Java"], ["senior"], ["React / Vue"]])).toEqual([
       { kind: "seniority", row: 1, word: "senior", range: { min: 5, max: null } },
       { kind: "split", row: 2, word: "React / Vue", parts: ["React", "Vue"] },
+    ]);
+  });
+
+  it("krótkie słowo wieloznaczne → ostrzeżenie, zamiennik tylko tam, gdzie istnieje", () => {
+    // Produkcja 26.09.2026: „r” łapie „2016 r.” z klauzuli RODO w 20 845 CV.
+    expect(ambiguousWord("GO")).toEqual({ catches: "„go-live”", instead: "golang" });
+    expect(ambiguousWord("r")?.instead).toBe("język R");
+    expect(ambiguousWord("ML")?.instead).toBe("machine learning");
+    expect(ambiguousWord("it")).toEqual({ catches: "każde „IT” w opisie firmy" });
+    // Cały chip, nie fragment: „golang”, „R&D” i „Go lang” nie są wieloznaczne.
+    expect(ambiguousWord("golang")).toBeNull();
+    expect(ambiguousWord("R&D")).toBeNull();
+    expect(ambiguousWord("go lang")).toBeNull();
+    expect(keywordHints([["Java", "go"], ["net"]])).toEqual([
+      { kind: "ambiguous", row: 0, word: "go", catches: "„go-live”", instead: "golang" },
+      { kind: "ambiguous", row: 1, word: "net", catches: "nazwy firm, np. „EURO NET”" },
     ]);
   });
 });

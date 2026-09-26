@@ -2838,13 +2838,13 @@ class KeywordSuggestion(BaseModel):
     """Podpowiedź do pola słów kluczowych (``services/keyword_suggest``)."""
 
     label: str
-    kind: Literal["skill", "title", "prefix"]
+    kind: Literal["skill", "term", "title", "prefix"]
     insert: str
     alias: Optional[str] = None
     category: Optional[str] = None
     # Przybliżenie z indeksu pełnotekstowego; ``None`` = nie policzono.
     count: Optional[int] = None
-    # Inne zapisy umiejętności do „+ z wariantami” (``keyword_suggest.skill_variants``).
+    # Warianty do „+ z wariantami” (``skill_variants``, odpowiedniki ``term_suggestions``).
     variants: list[str] = []
 
 

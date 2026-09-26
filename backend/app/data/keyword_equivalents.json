@@ -1,0 +1,25 @@
+{
+  "_comment": [
+    "Odpowiedniki słów kluczowych do podpowiedzi „Z wariantami” w wyszukiwaniu ręcznym (services/keyword_suggest.py).",
+    "Każda grupa to słowa, które rekruter uważa za to samo wymaganie — dopisujemy je jako warianty („lub”) w jednym wierszu, nigdy automatycznie.",
+    "Słowa kluczowe dopasowują CAŁE słowa i nie rozwijają aliasów, więc bez tej listy „analityk” nie znajduje osób piszących „analyst” (produkcja 26.09.2026: 10 512 osób), „bankowość” — „banking” (7 657), „tester” — „QA” (5 241).",
+    "Gwiazdka na końcu to początek słowa („bankow*” = bankowość, bankowy, bankowego) i wymaga co najmniej 3 liter rdzenia. Polskie rzeczowniki w jednej formie są wąskie („bankowość” 832 osoby, „bankow*” 5 516), dlatego grupa niesie też rdzeń.",
+    "Listę prowadzi człowiek. Każde słowo musi przejść app.services.keyword_terms.parse_keyword (pilnuje test w tests/test_keyword_suggest.py). Nie dodawaj słów krótkich i wieloznacznych bez pomiaru („r”, „go”, „it”, „net”) — łapią szum."
+  ],
+  "groups": [
+    ["analityk", "analityk*", "analyst"],
+    ["bankowość", "bankow*", "banking"],
+    ["ubezpieczenia", "ubezpiecz*", "insurance"],
+    ["tester", "QA"],
+    ["QA", "quality assurance"],
+    ["UX", "user experience"],
+    ["ML", "machine learning"],
+    ["JS", "JavaScript"],
+    ["testowanie", "testow*", "testing"],
+    ["zarządzanie", "zarządz*", "management"],
+    ["programista", "programist*", "developer"],
+    ["kierownik projektu", "project manager"],
+    ["telekomunikacja", "telekomunik*", "telecommunications"],
+    ["energetyka", "energetyk*", "energy"]
+  ]
+}

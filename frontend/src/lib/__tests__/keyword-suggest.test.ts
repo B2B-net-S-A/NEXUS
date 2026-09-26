@@ -117,4 +117,47 @@ describe("keyword-suggest", () => {
     ]);
     expect(options[1].rest).toBe("Spring Boot + spring-boot");
   });
+
+  it("słowo spoza słownika technologii (term) też ma pozycję „z wariantami”", () => {
+    // „bankowość” to nie technologia — serwer podaje odpowiedniki ze słownika
+    // (26.09.2026: „banking” znajduje 7 657 osób, których „bankowość” nie widzi).
+    const options = buildSuggestionOptions({
+      query: "bankowo",
+      existing: [],
+      response: {
+        items: [
+          {
+            label: "bankowość",
+            kind: "term",
+            insert: "bankowość",
+            count: 832,
+            variants: ["bankow*", "banking"],
+          },
+        ],
+        wildcard: { label: "bankowo*", kind: "prefix", insert: "bankowo*", count: 900 },
+      },
+    });
+    expect(options.map((o) => [o.kindLabel, o.insert, o.variants ?? null])).toEqual([
+      ["Pojęcie", "bankowość", null],
+      ["Z wariantami", "bankowość", ["bankow*", "banking"]],
+      ["Początek słowa", "bankowo*", null],
+      ["Słowo", "bankowo", null],
+    ]);
+    expect(options[1].rest).toBe("bankowość + bankow*, banking");
+  });
+
+  it("pole tylko umiejętności nie pokazuje pojęć ani ich wariantów", () => {
+    const options = buildSuggestionOptions({
+      query: "bankowo",
+      existing: [],
+      skillsOnly: true,
+      response: {
+        items: [
+          { label: "bankowość", kind: "term", insert: "bankowość", variants: ["banking"] },
+        ],
+        wildcard: null,
+      },
+    });
+    expect(options.some((o) => o.insert === "bankowość")).toBe(false);
+  });
 });
