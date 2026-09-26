@@ -167,6 +167,9 @@ describe("ChampionsSection — podium", () => {
     expect(screen.getByText("3P / 8I / 20R")).toBeInTheDocument();
     // Formuła i warunek udziału są na ekranie — inaczej ranking jest wyrocznią.
     expect(screen.getByText(/150 pkt/)).toBeInTheDocument();
+    // Runda 8 (LEAGUE): punkty „za rozmowę" liczy rozmowa u klienta, nie QC CV.
+    expect(screen.getByText(/Rozmowa u klienta/)).toBeInTheDocument();
+    expect(screen.queryByText(/Interview/)).not.toBeInTheDocument();
     expect(
       screen.getByText(/Wymagane minimum 2 placementy w kwartale/),
     ).toBeInTheDocument();

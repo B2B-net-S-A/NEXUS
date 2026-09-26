@@ -53,21 +53,21 @@ def _row(
     )
 
 
-async def test_champions_points_score_interview_not_client_interview() -> None:
-    """Skladnik „interview" punktuje `interview`, NIE `client_interview` (D3).
+async def test_champions_points_score_client_interview_not_qc_stage() -> None:
+    """Skladnik „rozmowa" punktuje `client_interview`, NIE etap QC CV (`interview`).
 
-    Odwrocenie wzgledem poprzedniego kontraktu jest swiadome. `client_interview`
-    NIE MA zadnego mapowania z Traffita (`traffit/mappers.py:404-449`), wiec ten
-    skladnik byl w praktyce ZAWSZE ZEROWY — a rozdzielal nagrody 5000/3000/2000 PLN.
-    Wiersz `client_interview` zostaje w tescie jako dowod, ze przestal punktowac.
+    Runda 8 (LEAGUE, decyzja wlasciciela 27.09.2026): od Rekrutacji v5 kod
+    `interview` to kolumna QC CV, wiec punkty „za rozmowe" nalezaly sie za
+    przegladanie CV. Liczy rozmowa u klienta — jak KPI i Insights od rundy 7.
+    Wiersz `interview` zostaje w tescie jako dowod, ze przestal punktowac.
     """
     rows = [
         _row(user_id=1, stage="hired", count=5),
-        _row(user_id=1, stage="interview", count=8),
+        _row(user_id=1, stage="client_interview", count=8),
         _row(user_id=1, stage="cv_sent", count=22),
         _row(user_id=1, stage="verified", count=40),
-        # Martwy skladnik: obecny w danych, nieobecny w punktacji.
-        _row(user_id=1, stage="client_interview", count=999),
+        # Etap QC CV: obecny w danych, nieobecny w punktacji.
+        _row(user_id=1, stage="interview", count=999),
         _row(user_id=2, stage="hired", count=2, name="Below threshold"),
     ]
     db = SimpleNamespace(execute=AsyncMock(return_value=_Result(rows)))
@@ -85,7 +85,7 @@ async def test_champions_points_score_interview_not_client_interview() -> None:
 
     top = ranked[0]
     # 5*150 + 8*15 + 22*5 = 750 + 120 + 110 = 980.
-    # Gdyby punktowal `client_interview` (999), liczba bylaby zupelnie inna.
+    # Gdyby punktowal etap QC `interview` (999), liczba bylaby zupelnie inna.
     assert top.metric_value == 980
     assert top.extras["placements"] == 5
     assert top.extras["interviews"] == 8
@@ -95,6 +95,28 @@ async def test_champions_points_score_interview_not_client_interview() -> None:
     below = ranked[1]
     assert below.extras["qualified"] is False
     assert "MIN_PLACEMENTS_NOT_MET" in below.extras["disqualification_reasons"]
+
+    # Atrybucja ta sama co KPI: CTE niesie `client_interview`, wiec licznik
+    # ma skad sie wziac (bez tego test na atrapie przechodzilby na pustej bazie).
+    statement, _params = db.execute.await_args.args
+    assert "'client_interview'" in str(statement)
+
+
+async def test_qc_stage_alone_gives_no_league_points() -> None:
+    """Sam etap QC CV (`interview`) nie daje ani punktow, ani licznika rozmow."""
+    rows = [
+        _row(user_id=1, stage="hired", count=1),
+        _row(user_id=1, stage="interview", count=50),
+    ]
+    db = SimpleNamespace(execute=AsyncMock(return_value=_Result(rows)))
+    ranked = await competitions._rank_recruiters_by_points(
+        db,
+        start=datetime(2026, 7, 1, tzinfo=timezone.utc),
+        end=datetime(2026, 10, 1, tzinfo=timezone.utc),
+        weights={"placement": 150, "interview": 15, "recommendation": 5},
+    )
+    assert ranked[0].metric_value == 150
+    assert ranked[0].extras["interviews"] == 0
 
 
 async def test_champions_weights_change_the_ranking() -> None:
