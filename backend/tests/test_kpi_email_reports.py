@@ -274,3 +274,34 @@ async def test_deferred_recipients_are_retried_on_next_tick(
 
     third = await reports.run_once(_at(day, 8, 25))
     assert third[reports.MONTHLY_KIND] == "already_claimed"
+
+
+@pytest.mark.asyncio
+async def test_new_period_drops_stale_pending_of_the_same_kind(
+    outbox, monkeypatch, routine_notification_email_enabled
+) -> None:
+    """R8-V3-10: odroczeni z poprzedniego okresu nie wiszą w `app_settings`
+    na zawsze — nowy okres tego samego raportu sprząta stare wpisy."""
+    from app.models.app_setting import AppSetting
+
+    async def fake_mails(db, now_local, period_key):
+        return [reports._Mail("rada@example.com", f"Rada {period_key}", "t")]
+
+    monkeypatch.setattr(reports, "_monthly_mails", fake_mails)
+    year = 2700 + random.randint(0, 250)
+    stale = reports._pending_key(reports.MONTHLY_KIND, f"{year}-01")
+    other_kind = f"{reports._PENDING_PREFIX}other_report:{year}-01"
+    async with AsyncSessionLocal() as db:
+        for key in (stale, other_kind):
+            await db.merge(AppSetting(key=key, value={"to": ["x@example.com"]}))
+        await db.commit()
+
+    day = reports.first_business_day(year, 3)
+    result = await reports.run_once(_at(day, 8))
+    assert result[reports.MONTHLY_KIND] == "sent"
+    async with AsyncSessionLocal() as db:
+        assert await db.get(AppSetting, stale) is None
+        # Inny rodzaj raportu nie jest ruszany.
+        assert await db.get(AppSetting, other_kind) is not None
+        await db.delete(await db.get(AppSetting, other_kind))
+        await db.commit()
