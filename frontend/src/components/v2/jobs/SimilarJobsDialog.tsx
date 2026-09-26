@@ -212,9 +212,12 @@ export function SimilarJobsDialog({
             {similar.isLoading ? (
               <p className="text-sm text-muted-foreground">Szukam podobnych rekrutacji…</p>
             ) : options.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                System nie znalazł podobnych rekrutacji. Dodaj je samodzielnie poniżej.
-              </p>
+              // Runda 8 (R8-N14-4, bliźniak): „nie znalazł” tylko po udanym odczycie.
+              similar.isSuccess ? (
+                <p className="text-sm text-muted-foreground">
+                  System nie znalazł podobnych rekrutacji. Dodaj je samodzielnie poniżej.
+                </p>
+              ) : null
             ) : (
               <ul className="space-y-1">
                 {options.map((item) => {
