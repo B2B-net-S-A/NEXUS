@@ -86,6 +86,17 @@ def test_missing_parts_get_placeholders_instead_of_disappearing():
     )
 
 
+def test_zip_member_keeps_the_original_extension_like_the_single_download():
+    """R8-N6-3: zamówienie w Wordzie nie dostaje w ZIP-ie końcówki ``.pdf``."""
+    docx = _entry(original_name="zamówienie Nordea.DOCX")
+    assert zip_member_name(docx).endswith("_01.10.2026-31.12.2026.docx")
+    assert docx.download_name.endswith(".DOCX")
+    assert zip_member_name(_entry(original_name="stare.doc")).endswith(".doc")
+    # Bez rozszerzenia albo z dziwnym — jak pobranie pojedyncze: ``.pdf``.
+    assert zip_member_name(_entry(original_name="bez_rozszerzenia")).endswith(".pdf")
+    assert zip_member_name(_entry(original_name="x.p$f")).endswith(".pdf")
+
+
 def test_zip_build_failure_leaves_no_temp_file(tmp_path, monkeypatch):
     """Runda 6 audytu: nieudana budowa archiwum nie zostawia pliku na dysku."""
     monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
