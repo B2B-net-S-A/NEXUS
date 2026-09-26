@@ -2952,6 +2952,9 @@ class KeywordClassifyResponse(BaseModel):
     # Wszystkie słowa to nazwy technologii i żadne nie jest nazwiskiem ani
     # miejscowością — front zamienia je wtedy na wiersze wymagań.
     as_requirements: bool
+    # Gotowe wiersze (warianty LUB): alias zostaje obok nazwy kanonicznej,
+    # żeby wiersz nie zawężał wyniku do frazy (runda 6 audytu).
+    rows: list[list[str]] = []
 
 
 @router.get("/keywords/classify", response_model=KeywordClassifyResponse)
@@ -2984,7 +2987,11 @@ async def classify_keywords(
             return KeywordClassifyResponse(
                 skills=list(result.skills), as_requirements=False
             )
-    return KeywordClassifyResponse(skills=list(result.skills), as_requirements=True)
+    return KeywordClassifyResponse(
+        skills=list(result.skills),
+        as_requirements=True,
+        rows=[list(row) for row in result.rows],
+    )
 
 
 # ── Bulk export (Phase 7b.4) ────────────────────────────────────────────────
@@ -3243,12 +3250,39 @@ async def export_candidates_v2(
                     f"{payload.limit}. Narrow the filters or raise the limit."
                 ),
             )
-        query = _apply_candidate_sort(
-            query,
-            export_filters,
-            q_any_groups,
-            pool_order=export_pool.ids if export_pool is not None else None,
-        )
+        # „Dopasowanie” (runda 6 audytu): plik ma kolejność ekranu — ta sama
+        # funkcja co lista (`_list_page_match`). `_apply_requested_sort` nie
+        # zna „match”, więc eksport wychodził od najnowszych. Brak wektora
+        # albo przełącznik OFF = „najnowsi”, jak na liście.
+        match_ids = None
+        if export_filters.sort == "match":
+            if settings.CANDIDATE_MATCH_SORT:
+                from app.services import candidate_match_order
+
+                match_ids = await candidate_match_order.ordered_ids(
+                    db,
+                    current_user,
+                    export_filters,
+                    query.with_only_columns(Candidate.id),
+                    q_any_groups,
+                    _sort_prefix_exprs(export_filters),
+                )
+            if match_ids is None:
+                export_filters = export_filters.model_copy(update={"sort": "newest"})
+        if match_ids is not None:
+            query = query.order_by(
+                func.array_position(
+                    literal(list(match_ids), type_=ARRAY(Integer)), Candidate.id
+                ).asc(),
+                Candidate.id.asc(),
+            )
+        else:
+            query = _apply_candidate_sort(
+                query,
+                export_filters,
+                q_any_groups,
+                pool_order=export_pool.ids if export_pool is not None else None,
+            )
 
     # Immutable audit — scope + format only, no PII / filter values.
     candidate_audit.record_candidate_audit(
@@ -5629,25 +5663,14 @@ async def delete_candidate(
     )
     storage_keys.extend(k for k in document_keys.scalars().all() if k)
 
-    from app.services.cv_source_cleanup import schedule_source_cleanup
     from app.services.cv_source_erasure import detach_candidate_job_sources
 
     storage_keys.extend(await detach_candidate_job_sources(db, candidate_id))
 
-    # Audyt 22.09 r2 (CAND-02, art. 17 RODO): zgłoszenia z formularza
-    # aplikacyjnego niosą CV (bajty albo klucz w storage), kontakt i zgodę.
-    # FK `matched_candidate_id` to SET NULL, więc bez tego przeżywały
-    # usunięcie profilu. Bierzemy te dopasowane do kandydata i te z jego
-    # adresem e-mail (zgłoszenie sprzed dopasowania nie ma FK); zgody
-    # zgłoszeń kaskadują z wiersza, ale liczymy je do dowodu wykonania.
-    from app.services.application_submission_erasure import (
-        erase_candidate_submissions,
-    )
-
-    submission_erasure = await erase_candidate_submissions(
-        db, candidate_id=candidate_id, email=candidate.email
-    )
-    storage_keys.extend(submission_erasure.pop("storage_keys"))
+    # Zgłoszenia z formularza aplikacyjnego (z CV w bazie albo w storage)
+    # ZOSTAJĄ: FK `matched_candidate_id` to SET NULL (decyzja Artura
+    # 26.09.2026 — „nie usuwać nigdy żadnych CV”, RODO pomijamy; do tego dnia
+    # kasowała je `erase_candidate_submissions`, audyt 22.09 r2 CAND-02).
 
     # audyt 22.09 r2 (PROD-02): kopie snapshotów CV etapów w object storage
     # (`stage-cv/<candidate_id>/…`) znikają razem z osobą — wiersze
@@ -5702,6 +5725,9 @@ async def delete_candidate(
     # managerowi u klienta przez cały TTL linku (do 90 dni), a jego czat AI
     # dalej odpowiadałby na nowe pytania o nią. Dwie pozostałe rodziny tokenów
     # (`champion_share`, `cv_share_token`) kaskadują z kandydata i znikają same.
+    # Od rundy 6 audytu same dokumenty też znikają (`erase_candidate_leftovers`
+    # niżej) — odwołanie zostaje, bo tylko ono zostawia ślad w dowodzie
+    # wykonania (`share_tokens_revoked`).
     now = datetime.now(timezone.utc)
     tokens_revoked = (
         await db.execute(
@@ -5739,6 +5765,15 @@ async def delete_candidate(
     from app.services.jarvis.erasure import erase_candidate as erase_jarvis_candidate
 
     jarvis_erasure = await erase_jarvis_candidate(db, candidate_id)
+    # Runda 6 audytu (RODO-01/02/03/06/07): nagrobek dla syncu Traffita,
+    # wygenerowane CV razem ze zrzutem zgody, powiadomienia z nazwiskiem,
+    # nazwisko w dzienniku integracji i stempel próby na załącznikach CV
+    # z maili — tego kaskada FK nie zabiera. Po odwołaniu linków wyżej, bo
+    # licznik `share_tokens_revoked` liczy tokeny jeszcze istniejących CV.
+    from app.services.candidate_erasure_leftovers import erase_candidate_leftovers
+
+    leftovers, leftover_keys = await erase_candidate_leftovers(db, candidate)
+    storage_keys = sorted(set(storage_keys) | set(leftover_keys))
     # Skrzynka „Propozycje" (0333): FK ma ON DELETE CASCADE, więc wiersze i tak
     # znikną razem z kandydatem — kasujemy je JAWNIE, żeby liczba trafiła do
     # dowodu wykonania żądania z art. 17 (kaskada nie zostawia śladu).
@@ -5751,6 +5786,17 @@ async def delete_candidate(
             sa_delete(JobProposal).where(JobProposal.candidate_id == candidate_id)
         )
     ).rowcount or 0
+    # Przyszłe prepy i follow-upy w Teams trzeba odwołać (kandydat ma
+    # zaproszenie), a wydarzenia kalendarza — zanonimizować: FK `SET NULL`
+    # zostawiał tytuł z imieniem i nazwiskiem oraz e-mail w uczestnikach
+    # (runda 6 audytu). Graph wołamy dopiero po commicie usunięcia.
+    from app.services.followup_meetings import (
+        cancel_erased_meetings,
+        erase_candidate_meetings,
+    )
+
+    teams_to_cancel, calendar_erasure = await erase_candidate_meetings(db, candidate)
+    search_erasure.update(calendar_erasure)
     # Prepy w Teams (0370): transkrypty i oceny idą kaskadą z kandydatem —
     # kasujemy je jawnie, żeby liczba trafiła do dowodu wykonania art. 17.
     # Kopia nagrania/transkryptu w M365 organizatora podlega retencji tenanta.
@@ -5781,13 +5827,13 @@ async def delete_candidate(
         details={
             "operation": "hard_delete",
             "contracts_detached": contracts_detached,
-            "storage_objects": len(storage_keys),
+            "storage_objects_kept": len(storage_keys),
             "storage_cleanup": "scheduled",
             "share_tokens_revoked": tokens_revoked,
             "subject_ref": subject_ref,
             **search_erasure,
             **jarvis_erasure,
-            **submission_erasure,
+            **leftovers,
         },
     )
     # Historia zdarzeń (Ustawienia). Wpis przeżywa usunięcie, więc NIE niesie
@@ -5808,7 +5854,7 @@ async def delete_candidate(
         details={
             "subject_ref": subject_ref,
             "contracts_detached": contracts_detached,
-            "storage_objects": len(storage_keys),
+            "storage_objects_kept": len(storage_keys),
         },
     )
 
@@ -5830,20 +5876,10 @@ async def delete_candidate(
         )
     )
 
-    # Pliki NIE są kasowane w żądaniu. Do 09.2026 pętla `delete_cv` szła po
-    # `flush()`, a błąd w jej środku kończył się 503 „usunięcie wycofane
-    # w całości" — ale rollback SQL nie przywraca obiektów skasowanych już
-    # wcześniej w tej pętli, więc „w całości" było nieprawdą: kandydat wracał
-    # do bazy bez części swoich plików. Zamiast tego każdy klucz trafia do
-    # trwałego rejestru kasowań (`cv_source_cleanup`, ten sam wzorzec co
-    # `IndexOutboxEvent` wyżej dla Qdranta): wiersz commituje się RAZEM
-    # z usunięciem, więc albo znika i kandydat, i intencja kasowania jego
-    # plików, albo nic. Pętla `cv_source_cleanup` (main.py) kasuje obiekty
-    # w tle z ponowieniami i backoffem — niedostępny storage odkłada
-    # sprzątanie, nie blokuje usunięcia.
-    for key in storage_keys:
-        await schedule_source_cleanup(db, key)
-
+    # Pliki CV ZOSTAJĄ w magazynie (decyzja Artura 26.09.2026: „nie usuwać
+    # nigdy żadnych CV”). Do tego dnia każdy klucz szedł do rejestru kasowań
+    # `cv_source_cleanup`; klucze nadal zbieramy wyżej, ale tylko do liczby
+    # w dowodzie wykonania.
     await db.delete(candidate)
     # Flush PRZED commitem: kaskady w bazie wykonują się tutaj, więc ewentualny
     # FK bez `ON DELETE` wywali się czytelnie, a rejestr kasowań wycofa się
@@ -5851,6 +5887,9 @@ async def delete_candidate(
     await db.flush()
 
     await db.commit()
+
+    if teams_to_cancel:
+        await cancel_erased_meetings(teams_to_cancel)
 
     # Natychmiastowa próba kasowania wektora. Nieudana NIE jest błędem żądania —
     # usunięcie w bazie już się stało, a wiersz outboxu wyżej gwarantuje retry.
@@ -7069,8 +7108,12 @@ async def bulk_cv_download(
                     async with aiofiles.open(file_path, "rb") as f:
                         data = await f.read()
                 except OSError as err:
+                    # Ścieżka niesie nazwę pliku CV (imię i nazwisko) — do logu
+                    # tylko id kandydata i klasa błędu (runda 6 audytu).
                     logger.warning(
-                        "bulk_cv_download: failed to read %s: %s", file_path, err
+                        "bulk_cv_download: failed to read CV of candidate=%s: %s",
+                        candidate.id,
+                        type(err).__name__,
                     )
             elif candidate.cv_storage_key:
                 # Round 2 migracja (audit-2026-05-07): CV w Hetzner Object Storage.

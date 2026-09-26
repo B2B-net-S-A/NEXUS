@@ -352,3 +352,74 @@ def test_job_event_is_recorded_even_when_auto_match_is_off(monkeypatch):
     monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_ENABLED", False)
     # Oba wyłączniki OFF = stan sprzed automatów: nic nie jest zapisywane.
     assert outbox.job_events_enabled() is False
+
+
+@needs_db
+async def test_job_change_without_new_people_does_not_ring_the_bell(monkeypatch):
+    """Runda 6 audytu (A6-2): każda zmiana rekrutacji ocenia wszystkich od
+    nowa, a dzwonek liczył PRZETWORZONE pary — „1 nowa propozycja” przy
+    każdej edycji, choć w skrzynce nikt nowy się nie pojawił."""
+    from datetime import datetime, timedelta, timezone
+
+    from sqlalchemy import func, select, update
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.activity import Activity
+    from app.models.candidate_auto_match import CandidateMatchOutbox
+    from app.models.job import Job
+    from app.models.notification import Notification
+
+    ids = await _world(monkeypatch)
+    try:
+        _stub_ranking(
+            monkeypatch,
+            job_hits={ids["job"]: 0.91},
+            candidate_hits={ids["candidate"]: 0.91},
+        )
+        first = await _candidate_event(ids)
+        assert first["decisions"] == {"proposed": 1}
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                Notification.__table__.delete().where(
+                    Notification.user_id == ids["owner"]
+                )
+            )
+            # Zmiana rekrutacji PO decyzji — dziennik jej nie blokuje.
+            await db.execute(
+                update(Job)
+                .where(Job.id == ids["job"])
+                .values(updated_at=datetime.now(timezone.utc) + timedelta(seconds=1))
+            )
+            await db.commit()
+            event = CandidateMatchOutbox(
+                job_id=ids["job"], trigger="job_publish", status="processing"
+            )
+            db.add(event)
+            await db.commit()
+            again = await ams.run_job_event(db, event)
+        assert again["decisions"] == {"proposed": 1}
+        assert again["notified"] == 0
+        async with AsyncSessionLocal() as db:
+            assert (
+                await db.scalar(
+                    select(func.count())
+                    .select_from(Notification)
+                    .where(Notification.user_id == ids["owner"])
+                )
+                == 0
+            )
+            assert (
+                await db.scalar(
+                    select(func.count())
+                    .select_from(Activity)
+                    .where(
+                        Activity.entity_type == "job_automation",
+                        Activity.entity_id == ids["job"],
+                        Activity.action == "auto_match_proposed",
+                    )
+                )
+                == 1
+            )
+    finally:
+        await _purge_proposals(ids)
+        await _cleanup(ids)

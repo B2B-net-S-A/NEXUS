@@ -42,9 +42,14 @@ export function ContractsBulkActionsBarV2({
  `/api/contracts/bulk-extend?${params.toString()}`
  );
  const skipped = res.skipped_no_end_date?.length ?? 0;
+ // Zakończona umowa, której nowa data nadal byłaby w przeszłości, jest
+ // pomijana — cron zakończyłby ją ponownie (runda 6 audytu).
+ const passed = res.skipped_end_date_passed?.length ?? 0;
  onDone(
  `Przedłużono ${res.extended} kontraktów o ${months} mies.${
  skipped > 0 ? ` (pominięto ${skipped} bezterminowych — w tym umowy B2B bez zakończenia)` :""
+ }${
+ passed > 0 ? ` (pominięto ${passed} — nowa data zakończenia nadal byłaby w przeszłości; przedłuż aneksem)` : ""
  }.`
  );
  } finally {

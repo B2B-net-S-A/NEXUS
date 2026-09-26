@@ -75,9 +75,15 @@ async def suggest_organizer_id(
     recruiter = await interview_slots.default_recruiter_id(
         db, candidate_id=candidate_id, job_id=job.id
     )
+    # DL przechodzi tę samą bramkę co rekruter (runda 6 audytu): podpowiedź
+    # nieaktywnego DL-a kończyła zapis prepu 422 „Organizator jest nieaktywny”,
+    # a okno nie podpowiadało wtedy nikogo, choć rekruter był pod ręką.
+    lead = job.delivery_lead_id
+    if lead and not await interview_slots.slot_recruiter_eligible(db, lead, job.id):
+        lead = None
     if prep_no == 1:
-        return job.delivery_lead_id or recruiter
-    return recruiter or job.delivery_lead_id
+        return lead or recruiter
+    return recruiter or lead
 
 
 def app_only_ready() -> bool:
@@ -183,8 +189,13 @@ async def create_prep(
             start=start,
             end=end,
             attendee_emails=attendees,
+            # Odcisk organizatora i terminu w intencji (runda 6 audytu): okno
+            # trzyma ten sam `client_request_id`, gdy ktoś po błędzie zmieni
+            # termin albo osobę — Graph oddawał wtedy STARE spotkanie, a NEXUS
+            # zapisywał nowy termin, którego w Outlooku nie było.
             intent_id=(
                 f"prep|{candidate.id}|{job.id}|{prep_no}|{client_request_id}"
+                f"|{organizer.id}|{start.isoformat()}|{end.isoformat()}"
                 if client_request_id
                 else None
             ),
@@ -215,6 +226,9 @@ async def create_prep(
             "W NEXUSIE nic nie zostało zapisane.",
         ) from exc
 
+    # Termin z odpowiedzi Outlooka, nie z żądania — to on dostał zaproszenie.
+    start = created.start or start
+    end = created.end or end
     event = CalendarEvent(
         title=title,
         description=description,

@@ -119,7 +119,9 @@ def test_backend_coverage_measures_branches_and_blocks_regressions() -> None:
     assert "needs.backend-coverage-combine.result" in gate["steps"][0]["run"]
 
     frontend_steps = ci["jobs"]["frontend-vitest"]["steps"]
-    assert "npm run test:coverage" in _step(frontend_steps, "Vitest with coverage")["run"]
+    assert (
+        "npm run test:coverage" in _step(frontend_steps, "Vitest with coverage")["run"]
+    )
     artifact = _step(frontend_steps, "Upload frontend coverage (artifact)")
     assert artifact["with"]["path"] == "frontend/coverage/lcov.info"
     vitest_config = (_WORKFLOWS.parents[1] / "frontend" / "vitest.config.ts").read_text(
@@ -757,3 +759,35 @@ def test_queue_failure_feedback_reports_ejected_merge_group_runs() -> None:
         "queue_failure_feedback.py"
         in _step(job["steps"], "Status i komentarz na PR-ach z grupy")["run"]
     )
+
+
+# ── Runda 6 audytu (26.09.2026) — artefakty biegów przeciw produkcji ──────
+
+
+def test_e2e_against_production_uploads_no_playwright_report() -> None:
+    """W5: raport Playwrighta z biegu przeciw produkcji (trace, wideo, zrzuty)
+    niesie token konta E2E z localStorage i odpowiedzi API z danymi z bazy,
+    a artefakt publicznego repo pobierze każdy. Job ``playwright`` zawsze
+    celuje w produkcję; raport zostaje tylko w ``stack`` (pusta baza CI)."""
+    jobs = _load("e2e.yml")["jobs"]
+    prod_uploads = [
+        s for s in jobs["playwright"]["steps"] if "upload-artifact" in s.get("uses", "")
+    ]
+    assert not prod_uploads, "Job `playwright` (produkcja) wgrywa artefakt."
+    stack_upload = _step(jobs["stack"]["steps"], "Upload report on failure")
+    assert "frontend/playwright-report/" in stack_upload["with"]["path"]
+
+
+def test_playwright_records_traces_only_against_a_local_stack() -> None:
+    """W5, druga warstwa: trace/wideo/zrzuty nagrywane są wyłącznie przy celu
+    lokalnym — gdyby ktoś przywrócił upload, raport z produkcji będzie pusty."""
+    config = (
+        Path(__file__).parents[2] / "frontend" / "playwright.config.ts"
+    ).read_text(encoding="utf-8")
+    assert "isLocalTarget" in config
+    for literal in (
+        'trace: "retain-on-failure"',
+        'video: "retain-on-failure"',
+        'screenshot: "only-on-failure"',
+    ):
+        assert literal not in config, f"{literal} bez warunku celu lokalnego"

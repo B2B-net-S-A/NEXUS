@@ -391,11 +391,11 @@ def run_legacy_generation(
     warnings.extend(rule_warnings)
 
     logger.info(
-        "[cv_b2b][%s] OK (%s) candidate=%s lang=%s blind=%s warnings=%d "
+        # runda 6 audytu: bez imienia i nazwiska — request_id wiąże log z zadaniem
+        "[cv_b2b][%s] OK (%s) lang=%s blind=%s warnings=%d "
         "(guard=%d) review=%s review_findings=%d duration_ms=%d",
         request_id,
         PIPELINE_ID,
-        candidate_name,
         language,
         blind_cv,
         len(warnings),

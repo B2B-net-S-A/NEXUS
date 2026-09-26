@@ -47,6 +47,7 @@ from app.services.candidate_contact_hooks import (
     maybe_ensure_contact_opportunity,
 )
 from app.services.inactive_client_cleanup_run import purged_external_ids
+from app.services.candidate_audit import candidate_source_tombstone
 from app.services.traffit.client import TraffitClient
 from app.services.traffit.mappers import (
     _parse_traffit_datetime,
@@ -1965,8 +1966,12 @@ class TraffitImporter:
                     f"/workflows/{wf_id}", page=1, page_size=1
                 )
                 if detail_resp.status_code != 200:
+                    # Format `<czynność> <encja> id=<ID>` (runda 6 audytu):
+                    # bez klucza wiersza błąd był nieprzypisany i wstrzymywał
+                    # `__daily__` bez końca. `workflow id=` — ten sam wiersz
+                    # co `map workflow id=` niżej.
                     progress.add_error(
-                        f"workflow {wf_id} detail HTTP {detail_resp.status_code}"
+                        f"detail workflow id={wf_id}: HTTP {detail_resp.status_code}"
                     )
                     continue
                 detail = detail_resp.json()
@@ -2226,6 +2231,12 @@ class TraffitImporter:
         # (dedup_service), nie importera.
         ext_to_id = await self._build_candidate_external_id_map()
         logger.info("Candidates: existing ext_to_id size=%d", len(ext_to_id))
+        # Nagrobki twardo usuniętych kandydatów (0388, art. 17 RODO). Faza robi
+        # pełny skan `/employees/`, więc bez tego usunięta osoba wracała przy
+        # najbliższym syncu razem z etapami, notatkami i plikami (dalsze fazy
+        # wiążą rekordy przez `ext_to_id`, więc wystarczy nie założyć wiersza)
+        # (runda 6 audytu).
+        purged_hashes = await self._purged_candidate_hashes()
 
         commit_every = 100
         since_commit = 0
@@ -2297,6 +2308,16 @@ class TraffitImporter:
                     payload = traffit_employee_to_candidate(raw, user_map)
                 except Exception as e:  # noqa: BLE001
                     progress.add_error(f"map employee id={raw.get('id')}: {e!r}")
+                    continue
+                # Przed ścieżką adopcji po mailu: usunięta osoba nie może też
+                # „wrócić” jako stempel `external_id` na cudzym wierszu.
+                if purged_hashes and (
+                    candidate_source_tombstone(
+                        payload["external_source"], payload["external_id"]
+                    )
+                    in purged_hashes
+                ):
+                    progress.skipped += 1
                     continue
                 if self.dry_run:
                     progress.inserted += 1
@@ -3171,6 +3192,28 @@ class TraffitImporter:
         )
         return result.scalar_one_or_none()
 
+    async def _purged_candidate_hashes(self) -> set[str]:
+        """HMAC-e nagrobków kandydatów Traffita (0388) — patrz `import_candidates`.
+
+        Brak tabeli (baza sprzed 0388) = brak nagrobków, nie awaria fazy —
+        katalog zamiast łapania wyjątku, bo nieudane zapytanie przerywa
+        transakcję (ten sam wzorzec co `purged_external_ids` klientów).
+        """
+        present = (
+            await self.db.execute(
+                text("SELECT to_regclass('purged_candidates') IS NOT NULL")
+            )
+        ).fetchone()
+        if not present or not present[0]:
+            return set()
+        rows = await self.db.execute(
+            text(
+                "SELECT external_id_hash FROM purged_candidates "
+                "WHERE external_source = 'traffit'"
+            )
+        )
+        return {str(row[0]) for row in rows.fetchall()}
+
     async def _build_candidate_external_id_map(self) -> dict[str, int]:
         result = await self.db.execute(
             text(
@@ -3226,7 +3269,8 @@ class TraffitImporter:
         """Pobiera primary CV dla Traffit candidates bez ustawionego CV pointera.
 
         Idempotent: bierze tylko kandydatów z `cv_storage_key IS NULL`. W trybie
-        delta (`since`) zawęża do kandydatów zmienionych od ostatniego syncu —
+        delta (`since`) zawęża do kandydatów zmienionych od ostatniego syncu
+        i „zaległych CV” z przerwanych biegów (`_delta_cv_targets`) —
         nowy kandydat dostaje CV; faktyczne (multi-)pliki ogarnia
         import_candidate_files (które w delta podmienia/dodaje nowe pliki).
         Per-kandydat: GET /employees/{id}/files → primary → /content (binary).
@@ -3235,8 +3279,9 @@ class TraffitImporter:
             phase="candidates_cv", started_at=datetime.now(timezone.utc)
         )
 
-        since_clause = "AND updated_at >= :since" if since is not None else ""
-        cv_params: dict[str, Any] = {"since": since} if since is not None else {}
+        # Delta: `_delta_cv_targets` (zmienieni w biegu + zaległe CV).
+        since_clause = ""
+        cv_params: dict[str, Any] = {}
 
         # Full reconcile only: re-point `candidates.cv_*` at the CURRENT primary
         # CV before downloading anything.
@@ -3284,21 +3329,24 @@ class TraffitImporter:
             cv_params["limit"] = scan_limit
             since_clause += " AND id > :after_id"
 
-        result = await self.db.execute(
-            text(
-                f"""
-                SELECT id, external_id FROM candidates
-                WHERE external_source='traffit'
-                  AND external_id IS NOT NULL
-                  AND cv_file_content IS NULL
-                  AND cv_storage_key IS NULL
-                  {since_clause}
-                ORDER BY id
-                {"LIMIT :limit" if scan_limit is not None else ""}
-                """
-            ),
-            cv_params,
-        )
+        if since is not None:
+            result = await self._delta_cv_targets(since)
+        else:
+            result = await self.db.execute(
+                text(
+                    f"""
+                    SELECT id, external_id FROM candidates
+                    WHERE external_source='traffit'
+                      AND external_id IS NOT NULL
+                      AND cv_file_content IS NULL
+                      AND cv_storage_key IS NULL
+                      {since_clause}
+                    ORDER BY id
+                    {"LIMIT :limit" if scan_limit is not None else ""}
+                    """
+                ),
+                cv_params,
+            )
         targets = list(result)
         progress.total_source = len(targets)
         exhausted = scan_limit is None or len(targets) < scan_limit
@@ -3697,6 +3745,11 @@ class TraffitImporter:
                               AND is_primary IS TRUE
                               AND source_deleted_at IS NULL
                               AND external_id IS DISTINCT FROM :external_id
+                              -- Tylko kopie z Traffita: CV wgrane w NEXUSIE nie
+                              -- ustępuje plikowi z importu (runda 6 audytu,
+                              -- lustro reguły wskaźnika CV). Kolizja z nim
+                              -- kończy się niżej zapisem pliku jako pobocznego.
+                              AND external_source = 'traffit'
                             """
                         ),
                         {
@@ -3729,6 +3782,54 @@ class TraffitImporter:
                     _UPSERT_CANDIDATE_DOCUMENT,
                     {**doc_params, "is_primary": False},
                 )
+
+    async def _delta_cv_targets(self, since: datetime):
+        """Cele fazy ``candidates_cv`` w delcie: (id, external_id).
+
+        Kandydaci zmienieni w tym biegu PLUS „zaległe CV” (runda 6 audytu):
+        kandydat Traffita z nazwą CV, bez wskaźnika ``cv_storage_key``,
+        założony w oknie ``TRAFFIT_SYNC_PENDING_FILES_DAYS``. Lustro
+        „zaległych plików” z ``_delta_file_targets``: kandydat upsertowany
+        w biegu, który deploy zabił przed tą fazą, nie spełnia
+        ``updated_at >= since`` w żadnym kolejnym — faza plików pobierała mu
+        dokumenty, ale wskaźnika nie ustawiał nikt poza tą fazą, więc nocne
+        fazy tekstu CV i imion (czytają ``cv_storage_key``) go nie widziały.
+        Bez warunku „brak dokumentów”, bo faza plików mogła je już pobrać.
+        """
+        return await self.db.execute(
+            text(
+                """
+                SELECT c.id, c.external_id
+                FROM candidates c
+                WHERE c.external_source = 'traffit'
+                  AND c.external_id IS NOT NULL
+                  AND c.cv_file_content IS NULL
+                  AND c.cv_storage_key IS NULL
+                  AND c.updated_at >= :since
+                UNION
+                SELECT p.id, p.external_id
+                FROM (
+                    SELECT c.id, c.external_id
+                    FROM candidates c
+                    WHERE c.external_source = 'traffit'
+                      AND c.external_id IS NOT NULL
+                      AND c.cv_file_content IS NULL
+                      AND c.cv_storage_key IS NULL
+                      AND NULLIF(btrim(c.cv_filename), '') IS NOT NULL
+                      AND c.created_at >= :pending_since
+                    ORDER BY c.id DESC
+                    LIMIT :pending_limit
+                ) p
+                ORDER BY id
+                """
+            ),
+            {
+                "since": since,
+                "pending_since": datetime.now(timezone.utc)
+                - timedelta(days=max(0, int(settings.TRAFFIT_SYNC_PENDING_FILES_DAYS))),
+                "pending_limit": max(0, int(settings.TRAFFIT_SYNC_PENDING_FILES_LIMIT)),
+            },
+        )
 
     async def _delta_file_targets(self, since: datetime):
         """Cele fazy plików w delcie: (id, external_id) kandydatów Traffita."""
@@ -5106,7 +5207,13 @@ class TraffitImporter:
                         imported_at=progress.started_at or datetime.now(timezone.utc),
                     )
             except Exception as e:  # noqa: BLE001
-                progress.add_error(f"merge tags candidate={candidate_id}: {e!r}")
+                # Runda 6 audytu: `candidate=` nie pasowało do `_ERROR_REF_RE`
+                # (błąd nieprzypisany = wstrzymany `__daily__`). Encja celowo
+                # nie jest gołym „candidate” — tu jest id NEXUSA, faza
+                # `candidates` kluczuje po id Traffita.
+                progress.add_error(
+                    f"merge tags candidate_source id={candidate_id}: {e!r}"
+                )
                 # Savepoint już cofnął zapis; sesję podnosimy tylko przy utracie
                 # połączenia (`ROLLBACK TO SAVEPOINT` nie ma wtedy dokąd pójść).
                 # Faza commituje raz, na końcu — rollback zabiera wszystko,

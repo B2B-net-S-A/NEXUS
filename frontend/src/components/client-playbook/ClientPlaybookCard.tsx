@@ -23,7 +23,7 @@
  * nie blokuje karty — dostaje podpowiedź przy fakcie.
  *
  * Akcja edycji ma dwa tryby i nigdy oba naraz: `editHref` (link, np. do
- * profilu klienta `/clients/<id>?tab=zasady`) albo `onEdit` (przycisk —
+ * ustawień `/settings/cv-rules?client=<id>&tab=playbook`) albo `onEdit` (przycisk —
  * edycja w miejscu w profilu klienta). Pokazywana tylko z capability
  * `client_playbook.manage`; sam odczyt karty jest org-wide.
  */
@@ -55,7 +55,7 @@ import { resolveViewState } from "@/lib/view-state";
 export interface ClientPlaybookCardProps {
   clientId: number;
   variant: "full" | "compact";
-  /** Link „Edytuj kartę" / „Załóż kartę" (np. do profilu klienta `/clients/<id>?tab=zasady`); pokazywany TYLKO z capability. */
+  /** Link „Edytuj kartę" / „Załóż kartę" (np. `clientPlaybookEditHref(id)` — edytor w Ustawieniach); pokazywany TYLKO z capability. */
   editHref?: string | null;
   /** Alternatywa dla `editHref`: przycisk zamiast linku (edycja w miejscu w profilu klienta). Nie podawaj obu. */
   onEdit?: () => void;

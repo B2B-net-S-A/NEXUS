@@ -20,6 +20,7 @@ Atomicity:
 
 from __future__ import annotations
 
+import asyncio
 import contextvars
 import logging
 from contextlib import asynccontextmanager, contextmanager
@@ -465,11 +466,40 @@ def declared_call(
     finally:
         _AI_CALL_CONTEXT.reset(token)
         if context.pending_responses:
-            from app.services.ai_metering import persist_response
+            _retry_pending_responses(list(context.pending_responses))
 
-            for event in context.pending_responses:
-                if not persist_response(event):
-                    logger.critical(
-                        "ai-metering: background usage unpersisted event=%s",
-                        event["event_key"],
-                    )
+
+#: Ponowne zapisy zużycia wysłane z pętli do wątku — silne referencje do
+#: końca, inaczej niedokończona przyszłość mogłaby zniknąć z pamięci.
+_background_persists: set[asyncio.Future] = set()
+
+
+def _persist_pending_sync(events: list[dict]) -> None:
+    from app.services.ai_metering import persist_response
+
+    for event in events:
+        if not persist_response(event):
+            logger.critical(
+                "ai-metering: background usage unpersisted event=%s",
+                event["event_key"],
+            )
+
+
+def _retry_pending_responses(events: list[dict]) -> None:
+    """Ponów zapis odpowiedzi dostawcy, których granica nie zdołała zapisać.
+
+    ``persist_response`` to synchroniczny psycopg2 z limitami 5 s na
+    połączenie i zapytanie. ``declared_call`` zamyka się zwykle w kodzie
+    async (generacja CV, lint reguł), więc ponowienie na pętli zdarzeń przy
+    kłopotach z bazą zatrzymywało całe API na 5 s × liczba odpowiedzi (runda 6
+    audytu). Na pętli idzie więc do wątku; w wątku roboczym (recenzja CV
+    w ``run_in_threadpool``) — jak dotąd, synchronicznie.
+    """
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        _persist_pending_sync(events)
+        return
+    future = loop.run_in_executor(None, _persist_pending_sync, events)
+    _background_persists.add(future)
+    future.add_done_callback(_background_persists.discard)

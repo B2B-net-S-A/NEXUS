@@ -489,3 +489,15 @@ async def test_loop_drops_the_result_when_the_pdf_was_replaced_during_ocr(
     async with AsyncSessionLocal() as db:
         stored = (await db.get(ClientOrder, ids["order_id"])).invoice_lines
     assert stored is None
+
+
+def test_none_is_stored_as_sql_null_so_the_loop_finds_it():
+    """Runda 6 audytu: ``order.invoice_lines = None`` zapisywało JSON ``null``,
+    którego ``fill_missing`` (``IS NULL``) nigdy nie wybierał."""
+    from app.models.client_order import ClientOrder
+    from app.services.nordea_invoice_lines import _formula_missing
+
+    column_type = ClientOrder.__table__.c.invoice_lines.type
+    assert column_type.none_as_null is True
+    sql = str(_formula_missing().compile(compile_kwargs={"literal_binds": True}))
+    assert "IS NULL" in sql and "jsonb_typeof" in sql

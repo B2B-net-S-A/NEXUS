@@ -288,7 +288,9 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         rate_rules=_nordea_rate_rules,
         # 24.09.2026: tabela porównywana z zachowanym odczytem modelu
         # (``model_rows``), a nie sama ze sobą (audyt S2).
-        rule_version="2026-09-24",
+        # 26.09.2026: model dostaje surowy fragment tabeli, kontrola
+        # kompletności wierszy i trzeci człon nazwy (runda 6 audytu).
+        rule_version="2026-09-26",
     ),
     OrderClientPolicy(
         key="bank_pocztowy",
@@ -346,7 +348,10 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         rate_unit_default="hour",
         document_period_authoritative=True,
         # 22.09.2026: okres z dokumentu wiążący (FIN-MAIL-03).
-        rule_version="2026-09-22",
+        # 26.09.2026: „od DATA" bez „do" nie jest datą końca (runda 6 audytu).
+        # 26.09.2026: jawne „netto" przy stawce bez ÷ 1,23, sprzeczne
+        # oznaczenie do sprawdzenia (runda 6 audytu, decyzja Artura).
+        rule_version="2026-09-26",
     ),
     OrderClientPolicy(
         key="erste",
@@ -383,6 +388,8 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         order=120,
         rate_unit_default="hour",
         extract_rows=kir.extract_rows,
+        # 26.09.2026: zastrzeżenia modelu zachowane (runda 6 audytu).
+        rule_version="2026-09-26",
     ),
     OrderClientPolicy(
         key="mleasing",
@@ -391,6 +398,8 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         apply=_mleasing,
         order=130,
         extract_rows=mleasing.extract_rows,
+        # 26.09.2026: zastrzeżenia modelu zachowane (runda 6 audytu).
+        rule_version="2026-09-26",
     ),
     OrderClientPolicy(
         key="velobank",
@@ -400,6 +409,8 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         order=140,
         rate_unit_default="day",
         extract_rows=velobank.extract_rows,
+        # 26.09.2026: zastrzeżenia modelu zachowane (runda 6 audytu).
+        rule_version="2026-09-26",
     ),
     OrderClientPolicy(
         key="alior",
@@ -422,6 +433,9 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         order=160,
         rate_unit_default="day",
         extract_rows=cardif.extract_rows,
+        # 26.09.2026: kilka różnych stawek w prozie = wiersze do sprawdzenia,
+        # zastrzeżenia modelu zachowane (runda 6 audytu).
+        rule_version="2026-09-26",
     ),
     # Kanoniczne ID 18 = BIK z ticketu korekty 29.08.2026 (to samo, które
     # przypina ``order_types._PINNED_ALLOWED_ORDER_TYPES``). Env dopisuje
@@ -464,7 +478,9 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         # 22.09.2026: okres z dokumentu wiążący (FIN-MAIL-03).
         # 24.09.2026: stawka po ÷ 1,23 wraca do kwoty z PDF-a (audyt N3) —
         # wyłącznie w „Zleceniu wykonawczym nr …" (.2, audyt 24.09 wieczór).
-        rule_version="2026-09-24.2",
+        # 26.09.2026: liczba MD sklejona z kwotą rozdzielana, bez dowodu
+        # arytmetycznego — wiersz do sprawdzenia (runda 6 audytu).
+        rule_version="2026-09-26",
     ),
     # Ten sam szablon „Zlecenie wykonawcze nr CP … / rok" — wyłącznie reguła
     # numeru. Cyfrowy Polsat ma też zamówienia okresowe, więc okres i stawki

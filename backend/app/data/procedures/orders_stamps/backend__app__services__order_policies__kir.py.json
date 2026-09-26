@@ -1,4 +1,4 @@
 {
-  "sha256": "ad30ac651877d7386798fdc0ca88b79329ab20f1a9e3fc6a3a174729f779cf80",
+  "sha256": "0ac5e495aa5a28f3211db3221644eedb0a6f53350b332a41a1f070b20d1c3c24",
   "source": "backend/app/services/order_policies/kir.py"
 }

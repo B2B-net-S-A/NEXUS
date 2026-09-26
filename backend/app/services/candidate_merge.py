@@ -66,6 +66,11 @@ _POLYMORPHIC: tuple[tuple[str, str, str, str], ...] = (
     ("activities", "entity_type", "candidate", "entity_id"),
     ("notifications", "related_entity_type", "candidate", "related_entity_id"),
     ("traffit_entity_links", "entity_type", "candidate", "nexus_entity_id"),
+    # Powiązania rozmów Jarvisa: po nich ``jarvis.erasure`` kasuje rozmowy przy
+    # usunięciu osoby (art. 17). Bez przepięcia rozmowa o duplikacie przeżywała
+    # usunięcie ocalałego (runda 6 audytu). Klucz główny bez ``id`` — kolizje
+    # usuwa ``_move_polymorphic`` przed UPDATE.
+    ("jarvis_conversation_entities", "entity_type", "candidate", "entity_id"),
 )
 
 # Konflikt unikalności, w którym o zwycięzcy decyduje STAN wiersza, nie data:
@@ -845,6 +850,19 @@ async def _move_polymorphic(
             params["d_link"] = f"/candidates/{duplicate_id}(?![0-9])"
             params["s_link"] = f"/candidates/{survivor_id}"
             extra = ", link = regexp_replace(link, :d_link, :s_link)"
+        if table == "jarvis_conversation_entities":
+            # Rozmowa powiązana z obiema osobami: wiersz duplikatu jest
+            # powtórzeniem wiersza ocalałego (PK bez kolumny ``id``).
+            await db.execute(
+                text(
+                    "DELETE FROM jarvis_conversation_entities AS d "
+                    "WHERE d.entity_type = :t AND d.entity_id = :d "
+                    "AND EXISTS (SELECT 1 FROM jarvis_conversation_entities AS s "
+                    "WHERE s.conversation_id = d.conversation_id "
+                    "AND s.entity_type = :t AND s.entity_id = :s)"
+                ),
+                params,
+            )
         sql = text(
             f"UPDATE {table} SET {id_col} = :s{extra} "
             f"WHERE {type_col} = :t AND {id_col} = :d"
@@ -886,7 +904,38 @@ async def _move_polymorphic(
                         text(f"DELETE FROM {table} WHERE id = :id"), {"id": row_id}
                     )
         moved[table] = count
+    if "notifications" in existing:
+        moved["notification_links"] = await _repoint_notification_links(
+            db, survivor_id=survivor_id, duplicate_id=duplicate_id
+        )
     return moved
+
+
+async def _repoint_notification_links(
+    db: AsyncSession, *, survivor_id: int, duplicate_id: int
+) -> int:
+    """Linki powiadomień INNYCH typów niż ``candidate`` też wskazują osobę.
+
+    Runda 6 audytu (RODO-03, bliźniak usunięcia): pętla wyżej przepisuje link
+    wyłącznie przy ``related_entity_type = 'candidate'``, a etap
+    (``candidate_stage``), follow-up czy dzwonek zgłoszenia niosą
+    ``/candidates/{id}`` albo ``?candidate={id}`` — po scaleniu prowadziły do
+    404 i nie znikały przy późniejszym usunięciu ocalałego. Wzorce wspólne
+    z usuwaniem (``candidate_erasure_leftovers``).
+    """
+    from app.services.candidate_erasure_leftovers import candidate_link_rewrites
+
+    touched = 0
+    for pattern, replacement in candidate_link_rewrites(duplicate_id, survivor_id):
+        result = await db.execute(
+            text(
+                "UPDATE notifications SET link = regexp_replace(link, :p, :r, 'g') "
+                "WHERE link ~ :p"
+            ),
+            {"p": pattern, "r": replacement},
+        )
+        touched += result.rowcount or 0
+    return touched
 
 
 def _validated_choices(

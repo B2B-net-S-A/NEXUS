@@ -72,6 +72,16 @@ export interface TeamTableResponse {
   columns: TeamTableColumn[];
   rows: TeamTableRow[];
   totals: TeamTableTotals;
+  /**
+   * Tylko przy `anchored_average=true`: średnia „CV wysłane" osoby z co
+   * najmniej jednym CV, atrybucją verifier-anchored (jak „Mój miesiąc").
+   * `recommendations: null` = w oknie nikt nic nie wysłał.
+   */
+  anchored_average?: {
+    attribution: "verifier_anchored";
+    people: number;
+    recommendations: number | null;
+  };
 }
 
 /** Lokalna kopia — `periodQuery` z `insights-api.ts` nie jest eksportowane. */
@@ -91,11 +101,20 @@ export const insightsTeamApi = {
         params: periodQuery(p),
       })
       .then((r) => r.data),
+  /** Tabela + średnia zespołu atrybucją „Mojego miesiąca" (runda 6 audytu). */
+  teamTableWithAnchoredAverage: (p: InsightsPeriodParams) =>
+    api
+      .get<TeamTableResponse>("/api/insights/team-table", {
+        params: { ...periodQuery(p), anchored_average: true },
+      })
+      .then((r) => r.data),
 };
 
 export const insightsTeamQueryKeys = {
   teamTable: (p: InsightsPeriodParams) =>
     ["insights", "team", "table", p] as const,
+  teamTableAnchored: (p: InsightsPeriodParams) =>
+    ["insights", "team", "table", p, "anchored-average"] as const,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

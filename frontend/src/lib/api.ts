@@ -3722,6 +3722,8 @@ export interface B2BGeneratedContractRow {
    * wysyła; brak = umowa z generatora.
    */
   source?: B2BRegisterSource;
+  /** Wersja wzoru umowy (0362); `null` = nieznana — okresu wypowiedzenia nie liczymy. */
+  template_version?: string | null;
   /** Numer dokładnie jak w Excelu („264A”, „bez numeru”). */
   raw_contract_number?: string | null;
   position?: string | null;

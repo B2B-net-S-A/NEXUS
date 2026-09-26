@@ -14,8 +14,9 @@ from app.models.candidate_stage_cv import CandidateStageCV
 async def detach_candidate_job_sources(db, candidate_id: int) -> list[str]:
     """Caller holds the candidate row lock and deletes returned storage keys.
 
-    Retained generated documents follow their existing retention policy. Only
-    temporary source jobs are removed here; no storage mutation happens before
+    Generated documents themselves are deleted afterwards by
+    ``candidate_erasure_leftovers`` (runda 6 audytu). Only temporary source
+    jobs are removed here; no storage mutation happens before
     the surrounding erasure flow flushes and verifies its database changes.
     """
     documents = select(CvGeneratedDocument.id).where(

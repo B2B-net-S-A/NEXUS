@@ -22,9 +22,11 @@ So every rejected ``candidate_stages`` row landed with ``rejection_note = NULL``
 and the candidates list could only show a bare "Odrzucony · job (client)".
 
 This helper joins the two sources back together. The importer sets
-``candidate_stages.moved_at`` to the Traffit ``activity_date`` verbatim, so a
-rejected stage and its reason-bearing activity share an **exact** timestamp for
-the same candidate — that (candidate_id, moved_at) pair is the join key.
+``candidate_stages.moved_at`` to the Traffit ``activity_date`` (local
+Europe/Warsaw time, since #1730; UTC before it), so a rejected stage and its
+reason-bearing activity share an **exact** timestamp for the same candidate —
+that (candidate_id, moved_at) pair is the join key, matched under both
+readings.
 
 Properties
 ----------
@@ -54,7 +56,12 @@ _BACKFILL_SQL = text(
     FROM (
         SELECT DISTINCT ON (a.entity_id, (a.details ->> 'activity_date')::timestamp)
             a.entity_id AS candidate_id,
-            ((a.details ->> 'activity_date')::timestamp AT TIME ZONE 'UTC') AS ts,
+            -- activity_date to czas lokalny Traffita (Europe/Warsaw) — tak
+            -- samo czyta go mapper etapów (_parse_traffit_datetime, #1730).
+            -- Wiersze etapów zapisane przed #1730 mają ten czas jako UTC,
+            -- dlatego złączenie przyjmuje oba odczyty (runda 6 audytu).
+            ((a.details ->> 'activity_date')::timestamp AT TIME ZONE 'Europe/Warsaw') AS ts,
+            ((a.details ->> 'activity_date')::timestamp AT TIME ZONE 'UTC') AS ts_legacy_utc,
             (((a.details ->> 'content')::jsonb) -> 'rejection' ->> 'name') AS reason
         FROM activities AS a
         WHERE a.entity_type = 'candidate'
@@ -72,7 +79,7 @@ _BACKFILL_SQL = text(
             a.id DESC
     ) AS rej
     WHERE cs.candidate_id = rej.candidate_id
-      AND cs.moved_at = rej.ts
+      AND cs.moved_at IN (rej.ts, rej.ts_legacy_utc)
       AND cs.stage = 'rejected'
       AND (cs.rejection_note IS NULL OR btrim(cs.rejection_note) = '')
     """
@@ -105,7 +112,12 @@ _DESCRIPTION_BACKFILL_SQL = text(
     FROM (
         SELECT DISTINCT ON (a.entity_id, (a.details ->> 'activity_date')::timestamp)
             a.entity_id AS candidate_id,
-            ((a.details ->> 'activity_date')::timestamp AT TIME ZONE 'UTC') AS ts,
+            -- activity_date to czas lokalny Traffita (Europe/Warsaw) — tak
+            -- samo czyta go mapper etapów (_parse_traffit_datetime, #1730).
+            -- Wiersze etapów zapisane przed #1730 mają ten czas jako UTC,
+            -- dlatego złączenie przyjmuje oba odczyty (runda 6 audytu).
+            ((a.details ->> 'activity_date')::timestamp AT TIME ZONE 'Europe/Warsaw') AS ts,
+            ((a.details ->> 'activity_date')::timestamp AT TIME ZONE 'UTC') AS ts_legacy_utc,
             btrim((((a.details ->> 'content')::jsonb) ->> 'description')) AS descr
         FROM activities AS a
         WHERE a.entity_type = 'candidate'
@@ -124,7 +136,7 @@ _DESCRIPTION_BACKFILL_SQL = text(
             a.id DESC
     ) AS rej
     WHERE cs.candidate_id = rej.candidate_id
-      AND cs.moved_at = rej.ts
+      AND cs.moved_at IN (rej.ts, rej.ts_legacy_utc)
       AND cs.stage = 'rejected'
       AND (cs.notes IS NULL OR btrim(cs.notes) = '')
     """

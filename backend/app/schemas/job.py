@@ -102,6 +102,17 @@ class JobCreate(BaseModel):
         return _normalize_skill_list(v)
 
 
+_JOB_UPDATE_NOT_NULL_FIELDS = {
+    "title": "Nazwa rekrutacji",
+    "status": "Status",
+    "priority": "Priorytet",
+    "needs_sourcing": "Potrzebny search",
+    "work_mode": "Wymiar pracy",
+    "headcount": "Liczba osób",
+    "client_id": "Klient",
+}
+
+
 class JobUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
@@ -150,6 +161,20 @@ class JobUpdate(BaseModel):
     @classmethod
     def _normalize_skills(cls, v: Any) -> Any:
         return _normalize_skill_list(v)
+
+    # Kolumny NOT NULL w `jobs` (runda 6 audytu): pole pominięte zostaje bez
+    # zmian, ale jawny `null` był wpisywany w wiersz i kończył się 500
+    # z bazy. Walidator nie biegnie dla pola pominiętego (brak
+    # `validate_default`), więc łapie wyłącznie jawne `null`.
+    @field_validator(*_JOB_UPDATE_NOT_NULL_FIELDS, mode="before")
+    @classmethod
+    def _reject_null_for_required_columns(cls, v: Any, info: Any) -> Any:
+        if v is None:
+            raise ValueError(
+                f"Pole „{_JOB_UPDATE_NOT_NULL_FIELDS[info.field_name]}” "
+                "nie może być puste."
+            )
+        return v
 
 
 class CcSuggestion(BaseModel):

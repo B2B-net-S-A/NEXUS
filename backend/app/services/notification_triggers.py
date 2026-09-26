@@ -301,6 +301,33 @@ async def _delivery_lead_targets(db: AsyncSession, job: Job) -> list[int]:
     return list(rows.scalars().all())
 
 
+async def _user_is_active(db: AsyncSession, user_id: int) -> bool:
+    return bool(await db.scalar(select(User.is_active).where(User.id == user_id)))
+
+
+async def _operational_recipient(
+    db: AsyncSession, owner_ids: Iterable[Optional[int]]
+) -> Optional[int]:
+    """Pierwszy właściciel z listy, za którego ktoś faktycznie pracuje.
+
+    Zastępstwo z COMPASS-a (``effective_owner_id``) wygrywa z właścicielem
+    nominalnym — jak przypomnienie o wydarzeniu w ``api/calendar.py``. Konto
+    nieaktywne to brak osoby (runda 6 audytu): przechodzimy do następnego
+    kandydata na adresata, a wołający do zapasu (DL rekrutacji / HoR).
+    """
+    from app.services.workforce_availability import effective_owner_id
+
+    seen: set[int] = set()
+    for owner in owner_ids:
+        if not owner or owner in seen:
+            continue
+        seen.add(owner)
+        performer = await effective_owner_id(db, owner)
+        if performer and await _user_is_active(db, performer):
+            return performer
+    return None
+
+
 def _moved_at_utc(stage: LatestStage) -> datetime:
     """`CandidateStage.moved_at` jako aware UTC."""
     moved = stage.moved_at
@@ -699,28 +726,39 @@ async def check_stage_stuck_7d(
 
     names = await _candidate_names(db, (s.candidate_id for s in stale))
     emitted = 0
+    recipients_by_job: dict[int, list[int]] = {}
     for stage in stale:
         job = jobs[stage.job_id]
-        if (job.recruiter_id, stage.id) in reminded_this_week:
-            continue
+        # Rekruter (albo jego zastępca z COMPASS-a); konto nieaktywne = brak
+        # osoby → zapas jak przy alertach DL-owych (runda 6 audytu). Do tej
+        # pory 65% tych przypomnień szło na konta nieaktywne i przepadało.
+        if job.id not in recipients_by_job:
+            recruiter = await _operational_recipient(db, [job.recruiter_id])
+            recipients_by_job[job.id] = (
+                [recruiter] if recruiter else await _delivery_lead_targets(db, job)
+            )
         days = int((now_utc - _moved_at_utc(stage)).total_seconds() // 86400)
         who = names.get(stage.candidate_id) or "Kandydat"
         label = STAGE_LABELS.get(stage.stage, stage.stage.value)
-        result = await emit(
-            db,
-            user_id=job.recruiter_id,
-            title="Kandydat utknął na etapie",
-            message=(
-                f"{who} od {days} dni na etapie „{label}” w rekrutacji "
-                f"„{display_title(job)}” — zadzwoń i sprawdź, czy dalej jest zainteresowany."
-            ),
-            link=f"/jobs/{job.id}?candidate={stage.candidate_id}",
-            ntype=NotificationType.stage_stuck_7d,
-            related_entity_type="candidate_stage",
-            related_entity_id=stage.id,
-        )
-        if result is not None:
-            emitted += 1
+        for user_id in recipients_by_job[job.id]:
+            if (user_id, stage.id) in reminded_this_week:
+                continue
+            result = await emit(
+                db,
+                user_id=user_id,
+                title="Kandydat utknął na etapie",
+                message=(
+                    f"{who} od {days} dni na etapie „{label}” w rekrutacji "
+                    f"„{display_title(job)}” — zadzwoń i sprawdź, czy dalej jest "
+                    "zainteresowany."
+                ),
+                link=f"/jobs/{job.id}?candidate={stage.candidate_id}",
+                ntype=NotificationType.stage_stuck_7d,
+                related_entity_type="candidate_stage",
+                related_entity_id=stage.id,
+            )
+            if result is not None:
+                emitted += 1
     return emitted
 
 
@@ -777,26 +815,49 @@ def _post_interview_side(event: CalendarEvent, stage: "LatestStage | None") -> b
     return _is_client_side(stage)
 
 
-def _post_interview_recipients(
-    event: CalendarEvent, job: "Job | None", *, client_side: bool
+async def _post_interview_recipients(
+    db: AsyncSession,
+    event: CalendarEvent,
+    job: "Job | None",
+    *,
+    client_side: bool,
 ) -> list[int]:
     """Kto dzwoni: przy rozmowie u klienta — rekruter kandydata (właściciel
-    wydarzenia z cyklu), w pozostałych — rekruter rekrutacji jak dotąd."""
+    wydarzenia z cyklu), w pozostałych — rekruter rekrutacji jak dotąd.
+
+    Każdy adresat przechodzi zastępstwo z COMPASS-a i sprawdzenie ``is_active``
+    (runda 6 audytu): telefon T+15/T+45 do osoby, która odeszła, nie dzwonił
+    nikomu. Bez aktywnej osoby — DL rekrutacji, a bez niego HoR
+    (``_delivery_lead_targets``).
+    """
     recipients: list[int] = []
     if event.event_type == EventType.client_interview:
-        owner = event.operational_owner_id or event.created_by
+        owner = await _operational_recipient(
+            db,
+            [
+                event.operational_owner_id or event.created_by,
+                job.recruiter_id if job else None,
+            ],
+        )
         if owner:
-            recipients.append(owner)
-        elif job and job.recruiter_id:
-            recipients.append(job.recruiter_id)
-        return recipients
-    if job and job.recruiter_id:
-        recipients.append(job.recruiter_id)
+            return [owner]
+        return await _delivery_lead_targets(db, job) if job is not None else []
+    recruiter = await _operational_recipient(db, [job.recruiter_id if job else None])
+    if recruiter:
+        recipients.append(recruiter)
     if client_side and job and job.delivery_lead_id:
-        recipients.append(job.delivery_lead_id)
-    if not recipients and event.created_by:
-        # Fallback: twórca eventu, jeśli nie ma job.recruiter_id
-        recipients.append(event.created_by)
+        recipients.extend(
+            uid
+            for uid in await _delivery_lead_targets(db, job)
+            if uid not in recipients
+        )
+    if not recipients:
+        # Fallback: twórca eventu, jeśli nie ma aktywnego rekrutera.
+        creator = await _operational_recipient(db, [event.created_by])
+        if creator:
+            recipients.append(creator)
+        elif job is not None:
+            recipients.extend(await _delivery_lead_targets(db, job))
     return recipients
 
 
@@ -900,7 +961,9 @@ async def check_post_interview_t15(
             continue
 
         job = jobs.get(event.job_id) if event.job_id else None
-        recipients = _post_interview_recipients(event, job, client_side=client_side)
+        recipients = await _post_interview_recipients(
+            db, event, job, client_side=client_side
+        )
 
         if event.event_type == EventType.client_interview:
             title = "Zadzwoń do kandydata po rozmowie u klienta"
@@ -950,7 +1013,9 @@ async def check_post_interview_t45(
             continue
 
         job = jobs.get(event.job_id) if event.job_id else None
-        recipients = _post_interview_recipients(event, job, client_side=client_side)
+        recipients = await _post_interview_recipients(
+            db, event, job, client_side=client_side
+        )
 
         side_label = "klienta" if client_side else "kandydata"
         emitted += await _post_interview_emit(

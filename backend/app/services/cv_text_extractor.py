@@ -29,6 +29,8 @@ import os
 import re
 from typing import Optional
 
+from app.core.log_safety import safe_filename
+
 logger = logging.getLogger(__name__)
 
 
@@ -255,6 +257,32 @@ def sniff_extension(file_path: str) -> Optional[str]:
     return None
 
 
+def sniff_extension_bytes(data: bytes) -> Optional[str]:
+    """``sniff_extension`` dla bajtów w pamięci (generator CV — runda 6 audytu).
+
+    Generator CV dostaje plik jako bajty i do 26.09.2026 wybierał parser po
+    nazwie: PDF zapisany jako ``.docx`` (3 320 takich z Traffita) kończył się
+    „Nie można odczytać dokumentu DOCX.” Ta sama reguła co ``sniff_extension``.
+    """
+    head = bytes(data[:_SNIFF_BYTES]) if data else b""
+    if head.startswith(_OLE_MAGIC):
+        return ".doc"
+    if head.startswith(_ZIP_MAGIC):
+        try:
+            import io
+            import zipfile
+
+            with zipfile.ZipFile(io.BytesIO(data)) as zf:
+                if "word/document.xml" in zf.namelist():
+                    return ".docx"
+        except Exception:  # noqa: BLE001 — broken zip = unknown format
+            return None
+        return None
+    if _PDF_MAGIC in head:
+        return ".pdf"
+    return None
+
+
 def _resolve_extension(file_path: str, filename: str) -> str:
     """Format to parse as: the sniffed one when the bytes say so, otherwise the
     declared extension."""
@@ -263,7 +291,8 @@ def _resolve_extension(file_path: str, filename: str) -> str:
     if sniffed and sniffed != declared:
         logger.info(
             "[cv_text_extractor] %s declared %r but content is %r — using content",
-            filename or file_path,
+            # runda 6 audytu: nazwa pliku CV to zwykle imię i nazwisko
+            safe_filename(filename or file_path),
             declared,
             sniffed,
         )

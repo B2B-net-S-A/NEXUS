@@ -812,8 +812,9 @@ jobs:
   # `--with-links` dokłada kontrakty i umowy B2B przypięte do znalezionych
   # klientów — to materiał do rozstrzygnięcia pomyłki „dwa podobnie nazwane
   # rekordy klienta", której nie widać z interfejsu. Wyjście niesie
-  # IDENTYFIKATORY, statusy i samo nazwisko konsultanta: log Actions ma pozwolić
-  # wskazać wiersz do poprawki, a nie odtworzyć kartotekę. Zero kwot.
+  # WYŁĄCZNIE IDENTYFIKATORY i statusy (osoba = candidate=<id>, bez nazwisk,
+  # Partnerów i tytułów zamówień — repo jest publiczne, runda 6 audytu):
+  # log Actions ma pozwolić wskazać wiersz do poprawki. Zero kwot.
   lookup:
     name: Client lookup (prod, read-only)
     # OPS-N05 (audyt 22.09.2026): sekrety produkcji tylko dla wersji tego pliku z maina.
@@ -933,9 +934,12 @@ jobs:
           fi
           [ -n "$uuid" ] || { echo "brak zadania $TASK_NAME — nie ma czego kasowac"; exit 0; }
           if [ "${LOOKUP_OUTCOME:-}" != "success" ]; then
-            echo "=== surowe wykonania przed skasowaniem (bieg '${LOOKUP_OUTCOME:-?}') ==="
+            # Tylko status i DŁUGOŚĆ wyjścia, nie treść: repo jest publiczne, a
+            # nieudane wykonanie niesie traceback z danymi z bazy (runda 6 audytu).
+            # Treść zobaczysz w panelu Coolify, zanim zadanie zostanie skasowane.
+            echo "=== wykonania przed skasowaniem (bieg '${LOOKUP_OUTCOME:-?}'; bez treści) ==="
             curl -sS "${auth[@]}" "$base/api/v1/applications/$APP_UUID/scheduled-tasks/$uuid/executions" \
-              | jq -r 'if type=="array" then (.[] | "[" + (.status // "?") + "] " + ((.message // "") | .[0:1500])) else "brak wykonan" end' 2>/dev/null || true
+              | jq -r 'if type=="array" then (.[] | "[" + (.status // "?") + "] wyjście: " + ((.message // "") | length | tostring) + " znaków") else "brak wykonan" end' 2>/dev/null || true
           fi
           curl -sS -o /dev/null -X DELETE "${auth[@]}" \
             "$base/api/v1/applications/$APP_UUID/scheduled-tasks/$uuid" || true
@@ -1076,9 +1080,12 @@ jobs:
           fi
           [ -n "$uuid" ] || { echo "brak zadania $TASK_NAME — nie ma czego kasowac"; exit 0; }
           if [ "${RECEIPTS_OUTCOME:-}" != "success" ]; then
-            echo "=== surowe wykonania przed skasowaniem (bieg '${RECEIPTS_OUTCOME:-?}') ==="
+            # Tylko status i DŁUGOŚĆ wyjścia, nie treść: repo jest publiczne, a
+            # nieudane wykonanie niesie traceback z danymi z bazy (runda 6 audytu).
+            # Treść zobaczysz w panelu Coolify, zanim zadanie zostanie skasowane.
+            echo "=== wykonania przed skasowaniem (bieg '${RECEIPTS_OUTCOME:-?}'; bez treści) ==="
             curl -sS "${auth[@]}" "$base/api/v1/applications/$APP_UUID/scheduled-tasks/$uuid/executions" \
-              | jq -r 'if type=="array" then (.[] | "[" + (.status // "?") + "] " + ((.message // "") | .[0:1500])) else "brak wykonan" end' 2>/dev/null || true
+              | jq -r 'if type=="array" then (.[] | "[" + (.status // "?") + "] wyjście: " + ((.message // "") | length | tostring) + " znaków") else "brak wykonan" end' 2>/dev/null || true
           fi
           curl -sS -o /dev/null -X DELETE "${auth[@]}" \
             "$base/api/v1/applications/$APP_UUID/scheduled-tasks/$uuid" || true

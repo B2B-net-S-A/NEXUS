@@ -122,6 +122,11 @@ _CLASSIFY_SPLIT = re.compile(r"[\s,;]+")
 class Classification:
     skills: tuple[str, ...]
     all_skills: bool
+    # Wiersz wymagań na każdą umiejętność: nazwa kanoniczna, a przy trafieniu
+    # przez alias — słowo nazwy (``_label_word``) albo alias jako wariant LUB.
+    # Sama fraza kanoniczna zawężała wynik („kafka” 4569 osób → „Apache Kafka”
+    # 1704; runda 6 audytu).
+    rows: tuple[tuple[str, ...], ...] = ()
 
 
 def classify_skills(query: str) -> Classification:
@@ -136,23 +141,37 @@ def classify_skills(query: str) -> Classification:
     words = [w for w in _CLASSIFY_SPLIT.split(fold(query)) if w]
     if not words or not _catalog:
         return Classification(skills=(), all_skills=False)
-    index: dict[str, str] = {}
+    index: dict[str, tuple[SkillEntry, Optional[str]]] = {}
     for entry in _catalog:
-        index.setdefault(entry.key, entry.label)
-        for alias_key in entry.alias_keys:
-            index.setdefault(alias_key, entry.label)
+        index.setdefault(entry.key, (entry, None))
+        for alias, alias_key in zip(entry.aliases, entry.alias_keys):
+            index.setdefault(alias_key, (entry, alias))
     found: list[str] = []
+    rows: dict[str, tuple[str, ...]] = {}
     i = 0
     while i < len(words):
         for j in range(min(len(words), i + _MAX_PHRASE_WORDS), i, -1):
-            label = index.get(" ".join(words[i:j]))
-            if label is not None:
-                found.append(label)
+            hit = index.get(" ".join(words[i:j]))
+            if hit is not None:
+                entry, alias = hit
+                found.append(entry.label)
+                if entry.label not in rows:
+                    word = _label_word(entry, alias)
+                    if word is not None:
+                        rows[entry.label] = (word,)
+                    elif alias is not None and fold(alias) != entry.key:
+                        rows[entry.label] = (alias, entry.label)
+                    else:
+                        rows[entry.label] = (entry.label,)
                 i = j
                 break
         else:
             return Classification(skills=tuple(dict.fromkeys(found)), all_skills=False)
-    return Classification(skills=tuple(dict.fromkeys(found)), all_skills=True)
+    return Classification(
+        skills=tuple(dict.fromkeys(found)),
+        all_skills=True,
+        rows=tuple(rows.values()),
+    )
 
 
 def match_skills(query: str, limit: int) -> list[SkillMatch]:

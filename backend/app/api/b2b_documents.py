@@ -44,6 +44,7 @@ from app.models.b2b_contract_document import B2BContractDocument
 from app.models.b2b_generated_contract import B2BGeneratedContract
 from app.models.candidate import Candidate
 from app.models.client import Client
+from app.models.contract import Contract
 from app.models.user import User, UserRole
 from app.services import ezdrowie
 from app.services.b2b_documents import effects
@@ -486,6 +487,56 @@ async def _load_document(
     return doc, doc_type, parent
 
 
+async def _lock_contract_first(
+    db: AsyncSession, *, doc_id: int | None = None, parent_id: int | None = None
+) -> int | None:
+    """Zablokuj kontrakt ZANIM zablokujesz dokument i wiersz rejestru.
+
+    ``/terminate`` i nocny cron blokują kontrakt, a potem wiersze rejestru
+    (``contract_termination_sync._rows_for_contract``); „Oznacz jako podpisany”
+    i wypowiedzenie Partnera blokowały odwrotnie — wiersz, potem kontrakt —
+    więc równoległe zakończenie tej samej osoby kończyło się zakleszczeniem
+    (runda 6 audytu, LOCK-1). Odczyt powiązania idzie samymi kolumnami (bez
+    encji w mapie tożsamości), więc blokada wiersza niżej wczyta świeży stan;
+    wołający porównuje potem powiązanie z zablokowanym kontraktem."""
+    contract_id: int | None = None
+    if doc_id is not None:
+        found = (
+            await db.execute(
+                select(
+                    B2BContractDocument.contract_id,
+                    B2BContractDocument.parent_generated_contract_id,
+                ).where(B2BContractDocument.id == doc_id)
+            )
+        ).first()
+        if found is None:
+            return None
+        contract_id = found.contract_id
+        parent_id = found.parent_generated_contract_id
+    if parent_id is not None:
+        contract_id = await db.scalar(
+            select(B2BGeneratedContract.contract_id).where(
+                B2BGeneratedContract.id == parent_id
+            )
+        )
+    if contract_id is not None:
+        await db.execute(
+            select(Contract.id).where(Contract.id == contract_id).with_for_update()
+        )
+    return contract_id
+
+
+def _assert_same_locked_contract(locked: int | None, current: int | None) -> None:
+    if locked != current:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Umowa została w międzyczasie powiązana z innym kontraktem — "
+                "odśwież stronę i spróbuj ponownie."
+            ),
+        )
+
+
 def _assert_editable(doc: B2BContractDocument, user: User) -> None:
     _require_generated_contract_management(user)
     if doc.status != "issued" or doc.signature_status == "signed_both":
@@ -582,16 +633,15 @@ async def document_prefill(
     if "currency" in field_keys:
         values["currency"] = base.currency or "PLN"
     if "termination_date" in field_keys:
-        refs = refs_for(base.template_version) or default_refs()
-        values["termination_date"] = (
-            notice_end_date(today, refs).isoformat()
-            if doc_type.key == "termination_notice"
-            else today.isoformat()
-        )
-    if "last_service_date" in field_keys:
-        values["last_service_date"] = (
-            values.get("termination_date") or today.isoformat()
-        )
+        refs = refs_for(base.template_version)
+        if doc_type.key != "termination_notice":
+            values["termination_date"] = today.isoformat()
+        elif refs is not None:
+            values["termination_date"] = notice_end_date(today, refs).isoformat()
+        # Umowa bez znanej wersji wzoru: okresu wypowiedzenia nie zgadujemy
+        # z umowy 2026 — pole zostaje puste do wpisania (runda 6 audytu, DOC-3).
+    if "last_service_date" in field_keys and values.get("termination_date"):
+        values["last_service_date"] = values["termination_date"]
     if "delivery_date" in field_keys:
         values["delivery_date"] = today.isoformat()
     if "non_compete_client_name" in field_keys and base.client_legal_name:
@@ -891,7 +941,11 @@ async def confirm_document_signed(
 ):
     """Oznacz jako podpisany obustronnie i zastosuj skutki (idempotentnie)."""
     _require_signature_confirmation(current_user)
+    locked_contract_id = await _lock_contract_first(db, doc_id=doc_id)
     doc, doc_type, parent = await _load_document(db, current_user, doc_id, lock=True)
+    _assert_same_locked_contract(
+        locked_contract_id, effects.current_contract_id(doc, parent)
+    )
     await _assert_signature_client_access(db, current_user, doc.client_id)
     if doc.status == "cancelled":
         raise HTTPException(
@@ -982,7 +1036,11 @@ async def register_partner_notice(
 ) -> dict:
     """Zarejestruj wypowiedzenie złożone przez Partnera (bez dokumentu)."""
     _require_signature_confirmation(current_user)
+    locked_contract_id = await _lock_contract_first(
+        db, parent_id=body.parent_generated_contract_id
+    )
     parent = await _load_parent(db, body.parent_generated_contract_id, lock=True)
+    _assert_same_locked_contract(locked_contract_id, parent.contract_id)
     await _assert_signature_client_access(db, current_user, parent.client_id)
     await _assert_generator_client_access(
         db, current_user, parent.client_id, write=True
@@ -997,7 +1055,20 @@ async def register_partner_notice(
                 "z prawem zapisu w sekcji Delivery."
             ),
         )
-    refs = refs_for(getattr(parent, "template_version", None)) or default_refs()
+    refs = refs_for(getattr(parent, "template_version", None))
+    if body.termination_date is None and refs is None:
+        # Umowa bez znanej wersji wzoru (wiersz z Excela działu) — okresu
+        # wypowiedzenia nie znamy, a zgadywanie z umowy 2026 zapisywało
+        # kontraktowi i rejestrowi datę, której nikt nie potwierdził (runda 6
+        # audytu, DOC-3).
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Ta umowa nie ma w NEXUSIE wersji wzoru, więc okresu "
+                "wypowiedzenia nie da się policzyć — podaj datę rozwiązania "
+                "umowy."
+            ),
+        )
     termination_date = body.termination_date or notice_end_date(body.delivered_on, refs)
     if termination_date < body.delivered_on:
         raise HTTPException(

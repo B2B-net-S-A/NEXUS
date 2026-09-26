@@ -14,17 +14,18 @@ wierszowi ``GET /api/insights/delivery-leads`` dla tego samego okna. Dlatego:
   liczą się w rankingu, więc wycięcie wiersza rozjechałoby sumy. Dostaje
   jedynie zastępczą nazwę (ranking też bierze nazwę tylko z klienta widocznego).
 
-Hit ratio = placementy w oknie / zapytania UTWORZONE w oknie — ta sama
+Hit ratio = placementy w oknie / zapytania OTWARTE w oknie — ta sama
 (celowo międzykohortowa) definicja co ranking. Zerowy mianownik → ``None``.
 """
 
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.analytics.periods import Period, PeriodKind, resolve_period
+from app.analytics.periods import Period, resolve_period
+from app.core.scheduling import local_now
 from app.services.insights_dl_scope import (
     CLIENT_DISPLAY_NAME_SQL,
     CLIENT_VISIBLE_SQL,
@@ -45,18 +46,6 @@ ALERT_MIN_REQUESTS = 3
 
 NO_CLIENT_NAME = "(bez klienta)"
 HIDDEN_CLIENT_NAME = "(klient ukryty lub scalony)"
-
-
-def previous_period(period: Period) -> Period:
-    """Okno bezpośrednio poprzedzające — ta sama granulacja.
-
-    Lustro ``insights_board._previous_period``: okresy kalendarzowe cofamy
-    arytmetyką z ``periods.py`` (luty ≠ 30 dni), ``custom`` o dokładną długość.
-    """
-    if period.kind is PeriodKind.custom:
-        span = period.end - period.start
-        return Period(kind=period.kind, start=period.start - span, end=period.start)
-    return resolve_period(period.kind, anchor=period.start.date(), offset=-1)
 
 
 def monthly_windows(period: Period) -> list[Period]:
@@ -98,7 +87,7 @@ async def _demand_and_placements(
                        count(*) AS requests,
                        COALESCE(SUM(js.headcount), 0) AS vacancies
                 FROM jobs_scoped js
-                WHERE js.created_at >= :start AND js.created_at < :end
+                WHERE js.opened_at >= :start AND js.opened_at < :end
                 GROUP BY js.dl_id, js.client_id
                 """
                 ),
@@ -214,7 +203,7 @@ async def _monthly_placements(db: AsyncSession, windows: list[Period]) -> list:
 async def _top_hiring_managers(db: AsyncSession, start, end) -> list:
     """Hiring manager z największą liczbą zapytań okna per (DL, klient).
 
-    Liczymy te same oferty co kolumna „Zapytania" (utworzone w oknie), żeby
+    Liczymy te same oferty co kolumna „Zapytania" (otwarte w oknie), żeby
     „HM: 4 rekrutacje" dało się zestawić z liczbą obok. Remis rozstrzyga
     nazwa, potem id — kolejność ma być stabilna między odświeżeniami.
     """
@@ -231,7 +220,7 @@ async def _top_hiring_managers(db: AsyncSession, start, end) -> list:
                            count(*) AS jobs
                     FROM jobs_scoped js
                     JOIN jobs j ON j.id = js.id
-                    WHERE js.created_at >= :start AND js.created_at < :end
+                    WHERE js.opened_at >= :start AND js.opened_at < :end
                       AND j.hiring_manager_contact_id IS NOT NULL
                     GROUP BY js.dl_id, js.client_id, j.hiring_manager_contact_id
                 ),
@@ -320,9 +309,18 @@ def _alert(
     return delta_pp, None
 
 
-async def compute_dl_portfolio(db: AsyncSession, period: Period) -> dict:
+async def compute_dl_portfolio(
+    db: AsyncSession, period: Period, *, now: datetime | None = None
+) -> dict:
     """Portfel DL w oknie ``period`` — kształt opisany w docstringu trasy."""
-    previous = previous_period(period)
+    # Okno W TOKU porównujemy z TYM SAMYM odcinkiem poprzedniego okresu
+    # (`previous_matching_window`, jak widok Zespół i kafle Firmy): hit ratio
+    # trwającego kwartału przeciw całemu poprzedniemu zapalało alarm „spada”,
+    # bo placementy dochodzą później niż zapytania (runda 6 audytu).
+    from app.services.insights_team_signals import previous_matching_window
+
+    prev_start, prev_end = previous_matching_window(period, now or local_now())
+    previous = Period(kind=period.kind, start=prev_start, end=prev_end)
     windows = monthly_windows(period)
 
     cells: dict[tuple[int | None, int | None], _Cell] = {}

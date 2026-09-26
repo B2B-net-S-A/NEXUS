@@ -111,3 +111,26 @@ def candidate_subject_reference(candidate_id: int) -> str:
         )
     message = f"candidate-subject-v1\x00{candidate_id}".encode("utf-8")
     return hmac.new(key.encode("utf-8"), message, hashlib.sha256).hexdigest()[:64]
+
+
+def candidate_source_tombstone(external_source: str, external_id: Any) -> str:
+    """HMAC identyfikatora kandydata w systemie źródłowym — nagrobek (0388).
+
+    Runda 6 audytu (RODO-01): usunięty kandydat z Traffita wracał nocnym
+    syncem, bo importer nie wiedział, że rekord `/employees/{id}` kiedyś
+    usunięto. Nagrobek nie może trzymać surowego `external_id` (to wciąż
+    identyfikator osoby, której dane usuwamy), więc zapisujemy kluczowany
+    HMAC — importer liczy ten sam dla każdego rekordu i porównuje zbiory.
+    Ten sam klucz co `candidate_subject_reference`; rotacja klucza gubi
+    nagrobki tak samo jak pseudonimy umów.
+    """
+    key = settings.CANDIDATE_IDENTITY_FINGERPRINT_KEY.strip()
+    if not key:
+        raise RuntimeError(
+            "CANDIDATE_IDENTITY_FINGERPRINT_KEY is required to tombstone "
+            "a deleted candidate's source record"
+        )
+    source = str(external_source or "").strip()
+    ext = str(external_id or "").strip()
+    message = f"candidate-source-tombstone-v1\x00{source}\x00{ext}".encode("utf-8")
+    return hmac.new(key.encode("utf-8"), message, hashlib.sha256).hexdigest()

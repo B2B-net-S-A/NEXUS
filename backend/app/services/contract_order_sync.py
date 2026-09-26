@@ -435,6 +435,32 @@ def _switch_contract_unit(
     contract.rate_unit = target
 
 
+async def switch_loaded_contract_to_hourly(
+    db: AsyncSession, contract: Contract
+) -> bool:
+    """Istniejący kontrakt nie w zł/h → zł/h z przeliczeniem kwot. True, gdy przeliczono.
+
+    Dla ścieżek generatora umów B2B, które zapisują stawkę Partnera godzinowo
+    na JUŻ istniejącym kontrakcie (runda 6 audytu): przestawienie samej
+    etykiety ``rate_unit`` zamieniało ryczałt 20 000 zł/mc w 20 000 zł/h.
+    Harmonogramy klienta i ramowy dociągane są jawnie — ścieżki generatora
+    wczytują tylko harmonogram kandydata, a lazy-load w async to
+    ``MissingGreenlet``. Kontrakt musi być już w bazie (``refresh``).
+    """
+    if contract.rate_unit is None or RateUnit(contract.rate_unit) == RateUnit.hourly:
+        return False
+    await db.refresh(
+        contract,
+        [
+            "candidate_rate_schedule",
+            "client_rate_schedule",
+            "framework_rate_schedule",
+        ],
+    )
+    _switch_contract_unit(contract, RateUnit.hourly)
+    return True
+
+
 def apply_contract_hourly_policy(contract: Contract) -> bool:
     """Kontrakt w MD przestaw na zł/h (÷ 8, 168 h/mc). True, gdy przeliczono.
 

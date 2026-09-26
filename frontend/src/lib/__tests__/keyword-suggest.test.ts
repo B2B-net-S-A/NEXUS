@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildSuggestionOptions, foldKeyword } from "@/lib/keyword-suggest";
+import { buildSuggestionOptions, classificationRows, foldKeyword } from "@/lib/keyword-suggest";
 
 const response = {
   items: [
@@ -159,5 +159,21 @@ describe("keyword-suggest", () => {
       },
     });
     expect(options.some((o) => o.insert === "bankowość")).toBe(false);
+  });
+});
+
+describe("classificationRows (runda 6 audytu)", () => {
+  it("bierze gotowe wiersze z serwera — alias zostaje wariantem", () => {
+    expect(
+      classificationRows({
+        skills: ["Apache Kafka", "PostgreSQL"],
+        as_requirements: true,
+        rows: [["Kafka"], ["postgres", "PostgreSQL"]],
+      }),
+    ).toEqual([["Kafka"], ["postgres", "PostgreSQL"]]);
+  });
+
+  it("przy starszym backendzie robi jeden wiersz na nazwę", () => {
+    expect(classificationRows({ skills: ["Java"], as_requirements: true })).toEqual([["Java"]]);
   });
 });

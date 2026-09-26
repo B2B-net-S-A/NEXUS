@@ -25,7 +25,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Iterable, Literal, Optional
 
 from sqlalchemy import func, select
@@ -33,11 +33,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.candidate import Candidate
 from app.models.client import Client
-from app.models.contract import Contract
+from app.core.scheduling import business_today
+from app.models.contract import Contract, ContractStatus
 from app.services import job_data_trust
 from app.models.job import Job, JobCloseReason, JobStatus
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import User
+from app.services.contract_rates import RATE_SCHEDULE_LOADS, effective_rate_fields
 from app.services.embedding_service import VECTOR_SIZE, generate_embedding
 from app.services.historical_jobs_retrieval import (
     QDRANT_OVERSAMPLE_FACTOR,
@@ -477,7 +479,13 @@ async def _aggregate_request_metadata(
         (
             await db.execute(
                 select(Contract)
-                .where(Contract.job_id.in_(job_ids))
+                .where(
+                    Contract.job_id.in_(job_ids),
+                    # Anulowana umowa nie była placementem — jej marża
+                    # nie jest „fee” rekrutacji (runda 6 audytu).
+                    Contract.status != ContractStatus.void,
+                )
+                .options(*RATE_SCHEDULE_LOADS)
                 .order_by(Contract.job_id, Contract.created_at.desc())
                 .distinct(Contract.job_id)
             )
@@ -489,6 +497,7 @@ async def _aggregate_request_metadata(
         c.job_id: c for c in contract_rows if c.job_id
     }
 
+    today = business_today()
     out: dict[int, _Meta] = {}
     for jid in job_ids:
         champion_name: Optional[str] = None
@@ -503,19 +512,7 @@ async def _aggregate_request_metadata(
                 break
 
         contract = contract_by_id.get(jid)
-        fee_rate: Optional[int] = None
-        fee_currency: Optional[str] = None
-        rate_unit: Optional[str] = None
-        if contract is not None:
-            fee_rate = contract.monthly_margin
-            fee_currency = contract.currency
-            rate_unit = (
-                contract.rate_unit.value
-                if hasattr(contract.rate_unit, "value")
-                else str(contract.rate_unit)
-                if contract.rate_unit
-                else None
-            )
+        fee_rate, fee_currency, rate_unit = _contract_fee(contract, today)
 
         out[jid] = _Meta(
             champion_candidate_id=champion_candidate_id,
@@ -527,6 +524,32 @@ async def _aggregate_request_metadata(
             rate_unit=rate_unit,
         )
     return out
+
+
+def _contract_fee(
+    contract: Optional[Contract], today: date
+) -> tuple[Optional[Any], Optional[str], Optional[str]]:
+    """Marża miesięczna kontraktu jako „fee” wpisu historii: (kwota, waluta, jednostka).
+
+    Do rundy 6 audytu fee czytało ``contract.monthly_margin`` — z kolumn
+    cache'u, które stoją na wartości z ostatniego ZAPISU umowy (aneks
+    z minioną datą ich nie odświeża) — a etykietę jednostki brało
+    z ``rate_unit`` kontraktu, więc marża MIESIĘCZNA stała z dopiskiem „/h”.
+    Teraz stawki idą z harmonogramów na dzień (``effective_rate_fields``,
+    ta sama reguła co marża zamówienia), a jednostką jest zawsze miesiąc.
+    Zakończona umowa jest wyceniana na dzień zakończenia (jak Archiwum
+    profilu klienta). Wymaga wczytanych ``RATE_SCHEDULE_LOADS``.
+    """
+    if contract is None:
+        return None, None, None
+    on = today
+    if contract.end_date is not None and contract.end_date < today:
+        on = contract.end_date
+    eff = effective_rate_fields(contract, on)
+    margin = eff["monthly_margin"]
+    if margin is None:
+        return None, None, None
+    return margin, eff["rate_client_currency"], "monthly"
 
 
 async def _load_owner_names(

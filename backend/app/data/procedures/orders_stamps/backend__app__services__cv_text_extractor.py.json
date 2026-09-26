@@ -1,4 +1,4 @@
 {
-  "sha256": "28f6f5899bd03dccfa658fdc86d0df107b914db07df573ac7b0688be26c2fa45",
+  "sha256": "a932d23903f1f9a1c44b790456ac08acfb96487b1fb4246d746d01345e8f002f",
   "source": "backend/app/services/cv_text_extractor.py"
 }

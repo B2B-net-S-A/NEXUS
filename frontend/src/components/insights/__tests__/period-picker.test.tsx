@@ -309,4 +309,14 @@ describe("PeriodPicker — eksport CSV", () => {
     );
     expect(csv).toBe('Etap;Uwaga;Liczba\r\nRekomendacje;"a;b ""c""";');
   });
+
+  it("chroni komórki tekstowe przed formułą (runda 6 audytu)", () => {
+    const csv = buildInsightsCsv(
+      ["Osoba", "Telefon", "Liczba"],
+      [["=HYPERLINK(\"http://x\";\"a\")", "+48 600 100 200", -3]],
+    );
+    expect(csv).toBe(
+      'Osoba;Telefon;Liczba\r\n"\'=HYPERLINK(""http://x"";""a"")";+48 600 100 200;-3',
+    );
+  });
 });

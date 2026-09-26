@@ -37,6 +37,17 @@ beforeEach(() => {
 });
 
 describe("ContractsClientPicker — stan zapytania", () => {
+  it("pyta o klientów w zakresie Delivery (portfel DL), nie o całą organizację", async () => {
+    // Runda 6 audytu: zapis kontraktu u klienta spoza portfela DL daje 403,
+    // więc picker Kontraktów nie może go podpowiadać.
+    getMock.mockResolvedValueOnce({ data: [] });
+    renderPicker();
+    await openPicker();
+    expect(getMock).toHaveBeenCalledWith("/api/clients-lookup", {
+      params: { delivery_scope: true },
+    });
+  });
+
   it("awaria listy klientów to błąd z „Ponów”, nie „Brak wyników.”", async () => {
     getMock.mockRejectedValueOnce(new Error("503"));
     renderPicker();

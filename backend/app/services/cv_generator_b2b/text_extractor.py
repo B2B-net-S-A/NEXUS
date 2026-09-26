@@ -18,6 +18,7 @@ import tempfile
 import time
 from pathlib import Path
 
+from app.core.log_safety import safe_filename
 from app.core.zip_guard import assert_safe_ooxml
 
 logger = logging.getLogger(__name__)
@@ -199,6 +200,20 @@ def extract_text_from_file(data: bytes, file_name: str) -> str:
         CVTextExtractionError: on unsupported extension or empty extraction.
     """
     ext = Path(file_name).suffix.lower()
+    # Runda 6 audytu: format z bajtów, nie z nazwy — PDF zapisany jako
+    # `.docx` (3 320 CV z Traffita) szedł do python-docx i generator kończył
+    # się „Nie można odczytać dokumentu DOCX.” Brak znanej sygnatury =
+    # zostaje rozszerzenie z nazwy.
+    from app.services.cv_text_extractor import sniff_extension_bytes
+
+    sniffed = sniff_extension_bytes(data)
+    if sniffed == ".doc":
+        raise CVTextExtractionError(
+            "Plik jest w starym formacie Word (.doc). Zapisz go jako DOCX "
+            "albo PDF i wgraj ponownie."
+        )
+    if sniffed is not None:
+        ext = sniffed
 
     if ext == ".pdf":
         mixed = _extract_mixed_pdf(data)
@@ -211,8 +226,10 @@ def extract_text_from_file(data: bytes, file_name: str) -> str:
             except Exception as err:  # corrupt-ish PDF — OCR may still read it
                 logger.warning(
                     "[cv_b2b] pdfplumber failed on %s: %s — trying OCR",
-                    file_name,
-                    err,
+                    safe_filename(
+                        file_name
+                    ),  # runda 6 audytu: nazwa pliku CV = nazwisko
+                    type(err).__name__,
                 )
                 text = ""
         # Scanned / image-only PDFs yield (near-)empty text from both native
@@ -222,7 +239,7 @@ def extract_text_from_file(data: bytes, file_name: str) -> str:
             if ocr and len(ocr.strip()) > len((text or "").strip()):
                 logger.info(
                     "[cv_b2b] %s: native PDF extraction near-empty, using OCR",
-                    file_name,
+                    safe_filename(file_name),
                 )
                 text = ocr
     elif ext in (".docx", ".doc"):

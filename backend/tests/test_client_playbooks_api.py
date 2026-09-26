@@ -10,7 +10,7 @@ Każdy test dowodzi jednego kontraktu, który łatwo cofnąć „przy okazji":
    zastępuje wzory Word czytane w Pomocy przez każdego); zapis i historia
    wymagają sekcji Delivery, a każdy DL może zarządzać każdym klientem.
 4. ``off_limits`` z umowy ramowej jedzie tylko do ról z odczytem sekcji
-   Delivery.
+   Delivery, a Delivery Leadowi — tylko u klientów z portfela (runda 6).
 5. Seed w repo (14 kart) i lustro DDL/seeda w ``entrypoint.sh`` są spójne
    z migracją — prod alembic jest osierocony, więc lustro jest wdrożeniem.
 """
@@ -434,6 +434,52 @@ async def test_off_limits_only_for_delivery_readers(app_client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_off_limits_only_for_clients_in_the_dl_portfolio(
+    app_client: AsyncClient,
+):
+    """Runda 6 audytu (decyzja Artura 26.09.2026).
+
+    Karta jest org-wide dla DL, ale off-limit pochodzi z umowy ramowej, a
+    warunki umów DL czyta tylko u swoich klientów (jak
+    ``GET /clients/{id}/contract-terms``). Do tej rundy DL spoza portfela
+    widział off-limit każdego klienta na karcie, w odpowiedzi zapisu
+    i w przeglądzie.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_contract_terms import ClientContractTerms
+
+    cid = await _make_client(_unique("Playbook offlimit portfolio"))
+    try:
+        async with AsyncSessionLocal() as db:
+            db.add(ClientContractTerms(client_id=cid, off_limits_months=6))
+            await db.commit()
+
+        stranger = await _headers_for(app_client, "delivery_lead")
+        g = await app_client.get(URL.format(cid=cid), headers=stranger)
+        assert g.status_code == 200, g.text
+        assert g.json()["off_limits"] is None
+        r = await app_client.put(
+            URL.format(cid=cid), json=_full_payload(), headers=stranger
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["off_limits"] is None
+        o = await app_client.get(OVERVIEW_URL, headers=stranger)
+        row = [i for i in o.json()["items"] if i["client_id"] == cid]
+        assert row and row[0]["off_limits"] is None
+
+        owner = await _headers_for(app_client, "delivery_lead", assigned_client_id=cid)
+        o = await app_client.get(OVERVIEW_URL, headers=owner)
+        row = [i for i in o.json()["items"] if i["client_id"] == cid]
+        assert row and row[0]["off_limits"]["months"] == 6
+
+        admin = await _headers_for(app_client, "admin")
+        g = await app_client.get(URL.format(cid=cid), headers=admin)
+        assert g.json()["off_limits"]["months"] == 6
+    finally:
+        await _cleanup([cid])
+
+
+@pytest.mark.asyncio
 async def test_version_continues_after_row_is_recreated(app_client: AsyncClient):
     from app.core.database import AsyncSessionLocal
     from app.models.client_playbook import ClientPlaybook
@@ -767,3 +813,32 @@ def test_seed_never_names_another_client_in_card_text():
             continue
         text = " ".join(str(entry.get(field) or "") for field in text_fields)
         assert "Nordea" not in text, entry["seed_key"]
+
+
+@pytest.mark.asyncio
+async def test_off_limits_boundary_is_the_delivery_client_resolver(monkeypatch):
+    """Bez bazy: off-limit DL-a tylko u klientów z ``resolve_delivery_lead_client_ids``."""
+    from types import SimpleNamespace
+
+    from app.api import client_playbooks as api
+
+    async def boundary(user, db):
+        return frozenset({1})
+
+    async def terms_for(db, client_id):
+        return SimpleNamespace(
+            off_limits_months=3, off_limits_scope=None, off_limits_notes=None
+        )
+
+    monkeypatch.setattr(api, "_can_read_off_limits", lambda user: True)
+    monkeypatch.setattr(api, "resolve_delivery_lead_client_ids", boundary)
+    monkeypatch.setattr(api, "_terms_for", terms_for)
+    user = SimpleNamespace(id=5)
+    assert (await api._off_limits_for(None, user, 1)).months == 3
+    assert await api._off_limits_for(None, user, 2) is None
+
+    async def unrestricted(user, db):
+        return None
+
+    monkeypatch.setattr(api, "resolve_delivery_lead_client_ids", unrestricted)
+    assert (await api._off_limits_for(None, user, 2)).months == 3

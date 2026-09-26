@@ -90,14 +90,12 @@ async def load_prep_attention(
         window_start=now - timedelta(days=14),
         window_end=now + timedelta(days=days_ahead),
     )
-    owners = {
-        jid: (dl, rec)
-        for jid, dl, rec in (
-            await db.execute(
-                select(Job.id, Job.delivery_lead_id, Job.recruiter_id).where(
-                    Job.id.in_({j for _c, j in pairs})
-                )
-            )
+    from app.services.prep_meetings import suggest_organizer_id  # noqa: PLC0415
+
+    jobs = {
+        job.id: job
+        for job in (
+            await db.scalars(select(Job).where(Job.id.in_({j for _c, j in pairs})))
         ).all()
     }
     out: list[PrepAttention] = []
@@ -106,12 +104,20 @@ async def load_prep_attention(
         if iv is None or iv.start <= now:
             continue
         urgent = iv.start - now <= timedelta(hours=PREP_URGENT_HOURS)
-        dl, rec = owners.get(jid, (None, None))
+        job = jobs.get(jid)
         for n in (1, 2):
             ev = snap.prep_slot(n)
             if ev is None:
                 reason: Optional[Reason] = "missing"
-                owner = (dl or rec) if n == 1 else (rec or dl)
+                # Ta sama podpowiedź co w oknie „Zaplanuj prep” — tylko osoby
+                # aktywne z dostępem do rekrutacji (runda 6 audytu). Dotąd
+                # sprawa szła na surowe `delivery_lead_id`/`recruiter_id`,
+                # także na konto osoby, która odeszła.
+                owner = (
+                    await suggest_organizer_id(db, job=job, candidate_id=cid, prep_no=n)
+                    if job is not None
+                    else None
+                )
             elif ev.start <= now:
                 quality = prep_quality(ev)[1]
                 reason = (

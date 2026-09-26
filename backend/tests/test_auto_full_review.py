@@ -191,6 +191,55 @@ async def test_event_makes_the_job_due_once_per_night():
         await _finish_all(world["job_id"])
 
 
+async def test_review_memory_survives_retention_of_the_run():
+    """Runda 6 audytu: retencja kasuje przegląd automatyczny po 2 dniach, a
+    zdarzenie żyje 14. Wpis „Praca w tle” pamięta start i odcisk — bez niego
+    rekrutacja wracała do kolejki co 2 noce."""
+    owner_id, _ = await _user()
+    world = await _job(owner_id=owner_id)
+    async with AsyncSessionLocal() as db:
+        db.add(
+            Activity(
+                entity_type=afr.ACTIVITY_ENTITY,
+                entity_id=world["job_id"],
+                action="auto_full_review_finished",
+                details={
+                    "run_id": "purged-run",
+                    "state": "complete",
+                    "run_created_at": (
+                        datetime.now(timezone.utc) + timedelta(minutes=5)
+                    ).isoformat(),
+                    "fingerprint": "odcisk-sprzed-retencji",
+                },
+            )
+        )
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        assert world["job_id"] not in await afr.pending_job_ids(
+            db, now=_at(2) + timedelta(days=3), limit=10_000
+        )
+        assert (
+            await afr._last_successful_fingerprint(db, world["job_id"])
+            == "odcisk-sprzed-retencji"
+        )
+
+
+async def test_failed_auto_run_does_not_close_the_event():
+    """Przegląd, który się wywrócił, nie zamyka zdarzenia: następna noc
+    próbuje ponownie (tej nocy chroni ``ran_tonight``)."""
+    owner_id, _ = await _user()
+    world = await _job(owner_id=owner_id)
+    async with AsyncSessionLocal() as db:
+        run_id, reason = await afr.start_for_job(db, world["job_id"])
+        assert reason == "started"
+        await db.commit()
+    await _finish_all(world["job_id"], state="failed")
+    async with AsyncSessionLocal() as db:
+        assert world["job_id"] in await afr.pending_job_ids(
+            db, now=_at(2) + timedelta(days=1), limit=10_000
+        )
+
+
 async def test_job_without_owner_is_skipped():
     world = await _job(owner_id=None)
     async with AsyncSessionLocal() as db:
@@ -669,3 +718,99 @@ def test_budget_fields_are_part_of_job_change_detection(field):
     from app.api import jobs
 
     assert field in jobs._AUTO_REVIEW_EXTRA_FIELDS
+
+
+# ── Runda 6 audytu: przegląd bez wektora, rekrutacja poza pracą ──────────────
+
+
+async def test_run_without_query_vector_is_a_failure_not_unchanged(monkeypatch):
+    """A6-4: `vector=None` kończy przegląd jako `partial` bez żadnego pomiaru.
+    Liczony był jak sukces, a jego odcisk dawał następnej nocy `unchanged`."""
+    from app.services import automation_failures as failures
+
+    calls: list[str] = []
+
+    async def failure(kind, code, *, job_id=None):
+        calls.append(f"fail:{code}")
+
+    async def success(kind):
+        calls.append("ok")
+
+    monkeypatch.setattr(failures, "record_failure", failure)
+    monkeypatch.setattr(failures, "record_success", success)
+    owner_id, _ = await _user()
+    world = await _job(owner_id=owner_id, event=True, people=2)
+    run_id = str(uuid.uuid4())
+    async with AsyncSessionLocal() as db:
+        db.add(
+            CandidateSearchRun(
+                id=run_id,
+                created_by=owner_id,
+                client_id=world["client_id"],
+                job_id=world["job_id"],
+                state="partial",
+                request_fingerprint="b" * 64,
+                request_context={},
+                version_trace={"origin": "auto"},
+                population_size=2,
+                metrics={},
+                completed_at=datetime.now(timezone.utc),
+            )
+        )
+        await db.flush()
+        db.add_all(
+            [
+                _result(run_id, cid, 0, measurement="unavailable")
+                for cid in world["candidate_ids"]
+            ]
+        )
+        await db.commit()
+        await afr.publish_on_finish(db, run_id, eligible=2)
+        await db.commit()
+
+    assert calls == [f"fail:{failures.NO_QUERY_VECTOR}"]
+    assert await _proposals(world["job_id"]) == []
+    async with AsyncSessionLocal() as db:
+        run = await db.get(CandidateSearchRun, run_id)
+        assert run.metrics[afr.SEMANTIC_BLIND_METRIC] is True
+        assert await afr._last_successful_fingerprint(db, world["job_id"]) is None
+        actions = (
+            await db.scalars(
+                select(Activity.action).where(
+                    Activity.entity_type == afr.ACTIVITY_ENTITY,
+                    Activity.entity_id == world["job_id"],
+                )
+            )
+        ).all()
+        assert actions == ["auto_full_review_failed"]
+        # Następna noc bierze rekrutację ponownie.
+        assert world["job_id"] in await afr.pending_job_ids(
+            db, now=_at(2) + timedelta(days=1), limit=10_000
+        )
+
+
+@pytest.mark.parametrize(
+    "status,work_state",
+    [(JobStatus.published, "client_silent"), (JobStatus.closed, "to_review")],
+)
+async def test_no_proposals_for_a_job_that_is_not_in_work(
+    monkeypatch, status, work_state
+):
+    """A6-5: zaległa publikacja nie dosypuje propozycji rekrutacji zamkniętej
+    ani takiej, nad którą nikt nie pracuje."""
+    monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_MIN_SCORE", 70.0)
+    owner_id, _ = await _user()
+    world = await _job(owner_id=owner_id, event=False, people=5)
+    run_id = await _finished_auto_run(world, owner_id)
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, world["job_id"])
+        job.status = status
+        job.work_state = work_state
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        await afr.reconcile_unpublished(db, now=datetime.now(timezone.utc))
+        await db.commit()
+        run = await db.get(CandidateSearchRun, run_id)
+        await afr.publish_run_proposals(db, run)
+        await db.commit()
+    assert await _proposals(world["job_id"]) == []

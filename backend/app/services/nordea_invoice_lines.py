@@ -32,6 +32,7 @@ i pozwala poprawić tekst przed skopiowaniem.
 from __future__ import annotations
 
 import asyncio
+import copy
 import logging
 import re
 from dataclasses import dataclass, field
@@ -39,7 +40,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, Optional
 
-from sqlalchemy import select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -204,6 +205,64 @@ async def refresh_on_upload_async(order: ClientOrder, abs_path: Path | str) -> N
     order.invoice_lines = await asyncio.to_thread(
         read_pdf_payload, abs_path, order.filename
     )
+
+
+def read_pdf_bytes_payload(data: bytes, filename: Optional[str]) -> Optional[dict]:
+    """Odczyt PDF-a z bajtów (plik tymczasowy) — jak ``read_pdf_payload``.
+
+    Runda 6 audytu (C2): odczyt idzie PRZED blokadami zapisu zamówienia, gdy
+    pliku nie ma jeszcze w magazynie, więc parser dostaje kopię tymczasową.
+    """
+    import os
+    import tempfile
+
+    suffix = Path(filename or "").suffix or ".pdf"
+    try:
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as handle:
+            handle.write(data)
+            tmp_path = handle.name
+    except OSError as exc:
+        logger.warning(
+            "[nordea_invoice_lines] temp PDF write failed (%s)", type(exc).__name__
+        )
+        return None
+    try:
+        return read_pdf_payload(tmp_path, filename)
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+
+async def read_upload_payload(
+    client_id: Optional[int], data: Optional[bytes], filename: Optional[str]
+) -> Optional[dict]:
+    """Odczyt formuły z wgrywanego PDF-a — wołać PRZED blokadami zapisu.
+
+    Runda 6 audytu (C2): odczyt (przy skanie OCR do 10 stron) szedł pod
+    blokadą kontraktu i zamówienia (upload) albo klienta (poczta, raz na
+    KAŻDE zamówienie dokumentu) — inne zapisy tych wierszy czekały na OCR.
+    Teraz raz na dokument, w wątku, bez blokad; wynik przypisuje
+    ``apply_upload_payload`` po przypięciu TYCH SAMYCH bajtów.
+    """
+    if data is None or not is_nordea(client_id):
+        return None
+    return await asyncio.to_thread(read_pdf_bytes_payload, data, filename)
+
+
+def apply_upload_payload(order: ClientOrder, payload: Optional[dict]) -> None:
+    """Przypisz odczyt zrobiony przed blokadami — tuż po ``_attach_po_bytes``.
+
+    Wołać wyłącznie wtedy, gdy zamówienie dostało właśnie plik z tych samych
+    bajtów, z których powstał ``payload`` (warunek „ten sam plik”). Kopia,
+    bo jeden dokument zasila kilka zamówień, a JSONB każdego jest osobny.
+    """
+    if not is_nordea(order.client_id):
+        return
+    # Nieczytelny nowy plik = brak formuły (dosypie ją pętla), a nie formuła
+    # POPRZEDNIEGO dokumentu przy nowym PDF-ie.
+    order.invoice_lines = copy.deepcopy(payload) if payload else None
 
 
 def clear_on_new_upload(order: ClientOrder) -> None:
@@ -396,6 +455,15 @@ async def _consultant_name(db: AsyncSession, order: ClientOrder) -> Optional[str
     return _clean(f"{row[0] or ''} {row[1] or ''}")
 
 
+def _formula_missing():
+    """Brak formuły: SQL NULL albo JSON ``null`` (wiersze zapisane przed
+    ``none_as_null`` — nieudany odczyt przy wgraniu nie trafiał do pętli)."""
+    return or_(
+        ClientOrder.invoice_lines.is_(None),
+        func.jsonb_typeof(ClientOrder.invoice_lines) == "null",
+    )
+
+
 async def fill_missing(db: AsyncSession, *, limit: int = 200) -> int:
     """Zapisz formułę zamówieniom Nordei z PDF-em, które jej jeszcze nie mają.
 
@@ -424,7 +492,7 @@ async def fill_missing(db: AsyncSession, *, limit: int = 200) -> int:
                 .where(
                     ClientOrder.client_id.in_(client_ids),
                     ClientOrder.file_path.is_not(None),
-                    ClientOrder.invoice_lines.is_(None),
+                    _formula_missing(),
                     ClientOrder.status != ClientOrderStatus.cancelled,
                 )
                 .order_by(ClientOrder.id.desc())
@@ -468,7 +536,7 @@ async def fill_missing(db: AsyncSession, *, limit: int = 200) -> int:
             update(ClientOrder)
             .where(
                 ClientOrder.id == order_id,
-                ClientOrder.invoice_lines.is_(None),
+                _formula_missing(),
                 ClientOrder.file_path == file_path,
                 # Podmiana pliku pod tą samą ścieżką zmienia stempel wgrania.
                 ClientOrder.file_uploaded_at.is_not_distinct_from(uploaded_at),

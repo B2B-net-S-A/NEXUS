@@ -124,6 +124,18 @@ class SyncResult:
 _sync_locks: dict[int, asyncio.Lock] = {}
 
 
+# Runda 6 audytu: webhook, który trafił na trwający przebieg tej skrzynki,
+# był odrzucany, a jego klucz replay i tak trafiał do cache jako obsłużony —
+# nowa wiadomość czekała do następnego tiku pętli (albo przepadała, gdy kursor
+# delty strony był już za nią). Teraz taki webhook zostawia tu prośbę o
+# jeszcze jeden przebieg: ustawia ``sync_connection(resync_if_busy=True)``,
+# czyta i czyści trwający przebieg zaraz po swoim końcu (pod tym samym lockiem).
+_resync_requested: set[int] = set()
+# Sufit dodatkowych przebiegów pod jednym lockiem — seria webhooków w trakcie
+# każdego kolejnego przebiegu nie może trzymać skrzynki w nieskończoność.
+_MAX_TRAILING_RESYNCS = 3
+
+
 def _connection_lock(connection_id: int) -> asyncio.Lock:
     """Lock per połączenie. Słownik jest malutki (jeden wpis na skrzynkę)."""
     lock = _sync_locks.get(connection_id)
@@ -136,7 +148,9 @@ def _connection_lock(connection_id: int) -> asyncio.Lock:
 # ── Entry point ─────────────────────────────────────────────────────────────
 
 
-async def sync_connection(db: AsyncSession, conn: M365Connection) -> SyncResult:
+async def sync_connection(
+    db: AsyncSession, conn: M365Connection, *, resync_if_busy: bool = False
+) -> SyncResult:
     """Run one full sync pass (messages + events) for the given connection.
 
     - Hard timeout (`_SYNC_TIMEOUT_SECONDS`) so a hung Graph call can't hold the
@@ -164,10 +178,26 @@ async def sync_connection(db: AsyncSession, conn: M365Connection) -> SyncResult:
         # więc dwa wywołania nie prześlizgną się tędy równocześnie.
         logger.info("m365 sync skipped: connection_id=%s is already syncing", conn.id)
         result.skipped_already_running = True
+        if resync_if_busy:
+            _resync_requested.add(conn.id)
         return result
 
     async with lock:
-        return await _sync_connection_locked(db, conn, result)
+        _resync_requested.discard(conn.id)
+        result = await _sync_connection_locked(db, conn, result)
+        for _ in range(_MAX_TRAILING_RESYNCS):
+            if conn.id not in _resync_requested:
+                break
+            _resync_requested.discard(conn.id)
+            logger.info(
+                "m365 sync: connection_id=%s — dodatkowy przebieg po webhooku "
+                "z czasu trwającej synchronizacji",
+                conn.id,
+            )
+            result = await _sync_connection_locked(
+                db, conn, SyncResult(connection_id=conn.id)
+            )
+        return result
 
 
 async def _sync_connection_locked(
@@ -674,10 +704,12 @@ async def _upsert_message(
         match_confidence = existing.match_confidence
         matched_at = existing.matched_at
         candidate_id = existing.candidate_id
-    elif is_private:
+    elif is_private or (existing is not None and matcher.manually_unlinked(existing)):
+        # Runda 6 audytu: ręczne odpięcie jest decyzją — sync nie przypina
+        # maila z powrotem przy każdej zmianie wiadomości w Outlooku.
         match_method = EmailMatchMethod.unmatched
         match_confidence = None
-        matched_at = None
+        matched_at = existing.matched_at if existing is not None else None
         candidate_id = None
     else:
         dto = IncomingMessage(
@@ -686,6 +718,7 @@ async def _upsert_message(
             cc_addresses=[r["address"] for r in cc_addresses if r.get("address")],
             subject=subject,
             conversation_id=conversation_id,
+            owner_address=conn.mailbox_upn,
         )
         m = await matcher.match(db, dto)
         candidate_id = m.candidate_id

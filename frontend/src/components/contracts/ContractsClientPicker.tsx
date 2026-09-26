@@ -31,7 +31,15 @@ export function ContractsClientPicker({ value, onChange }: Props) {
 
   const clientsQuery = useQuery({
     queryKey: ["clients-lookup-contracts-picker"],
-    queryFn: async () => (await api.get<ClientRef[]>("/api/clients-lookup")).data,
+    // `delivery_scope`: Delivery Lead widzi w module Kontrakty tylko swój
+    // portfel (#1843); lista org-wide podsuwała klientów, których rejestr
+    // i tak nie pokaże (runda 6 audytu).
+    queryFn: async () =>
+      (
+        await api.get<ClientRef[]>("/api/clients-lookup", {
+          params: { delivery_scope: true },
+        })
+      ).data,
     staleTime: 5 * 60 * 1000,
   });
 

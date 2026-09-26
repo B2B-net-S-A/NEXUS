@@ -25,9 +25,10 @@ Z ``--with-links`` dokłada, co do każdego znalezionego klienta jest
 przypięte: kontrakty i umowy z generatora B2B. To jest materiał do
 rozstrzygnięcia pomyłki „dwa podobnie nazwane rekordy klienta" (BNP Paribas
 Cardif ↔ CARDIF - ASSURANCES…), której nie da się zobaczyć z interfejsu ani
-policzyć bez dostępu do bazy. Wypisujemy IDENTYFIKATORY i statusy, a z osób —
-samo nazwisko: log Actions ma pozwolić wskazać wiersz do poprawki, a nie
-odtworzyć kartotekę.
+policzyć bez dostępu do bazy. Wypisujemy WYŁĄCZNIE IDENTYFIKATORY, statusy
+i liczby — bez nazwisk, nazw Partnerów i tytułów zamówień (tytuł niesie zwykle
+imię i nazwisko), bo wyjście ląduje w logu Actions PUBLICZNEGO repo (runda 6
+audytu). Osobę wskazuje ``candidate=<id>``.
 
 Użycie::
 
@@ -50,7 +51,6 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from app.core.database import AsyncSessionLocal  # noqa: E402
 from app.models.b2b_generated_contract import B2BGeneratedContract  # noqa: E402
-from app.models.candidate import Candidate  # noqa: E402
 from app.models.client import Client  # noqa: E402
 from app.models.client_order import ClientOrder  # noqa: E402
 from app.models.contract import Contract  # noqa: E402
@@ -107,20 +107,18 @@ async def print_links(client_ids: list[int]) -> None:
                 Contract.client_id,
                 Contract.status,
                 Contract.job_id,
-                Candidate.lastname,
-                Candidate.name,
+                Contract.candidate_id,
             )
-            .join(Candidate, Candidate.id == Contract.candidate_id, isouter=True)
             .where(Contract.client_id.in_(client_ids))
             .order_by(Contract.id)
         )
         contracts = rows.all()
         print(f"=== contracts on those clients: {len(contracts)} ===")
-        for cid, client_id, status, job_id, lastname, first in contracts:
-            who = f"{(first or '')[:1]}. {lastname or ''}".strip()
+        for cid, client_id, status, job_id, candidate_id in contracts:
             st = getattr(status, "value", status)
             print(
-                f"contract={cid}\tclient={client_id}\tstatus={st}\tjob={job_id}\t{who}"
+                f"contract={cid}\tclient={client_id}\tstatus={st}\tjob={job_id}"
+                f"\tcandidate={candidate_id}"
             )
 
         rows = await db.execute(
@@ -132,17 +130,18 @@ async def print_links(client_ids: list[int]) -> None:
                 B2BGeneratedContract.job_id,
                 B2BGeneratedContract.contract_id,
                 B2BGeneratedContract.contract_status,
-                B2BGeneratedContract.partner_name,
+                B2BGeneratedContract.candidate_id,
             )
             .where(B2BGeneratedContract.client_id.in_(client_ids))
             .order_by(B2BGeneratedContract.id)
         )
         gen = rows.all()
         print(f"=== b2b generated contracts on those clients: {len(gen)} ===")
-        for gid, number, client_id, cname, job_id, contract_id, st, partner in gen:
+        for gid, number, client_id, cname, job_id, contract_id, st, candidate_id in gen:
             print(
                 f"b2b={gid}\tnr={number}\tclient={client_id}\tprinted={cname}"
-                f"\tjob={job_id}\tcontract={contract_id}\tstatus={st}\tpartner={partner}"
+                f"\tjob={job_id}\tcontract={contract_id}\tstatus={st}"
+                f"\tcandidate={candidate_id}"
             )
 
         # Zamówienia klienta. Bez nich nie da się ODPOWIEDZIALNIE przepiąć
@@ -159,7 +158,6 @@ async def print_links(client_ids: list[int]) -> None:
                 ClientOrder.id,
                 ClientOrder.client_id,
                 ClientOrder.contract_id,
-                ClientOrder.title,
                 ClientOrder.status,
                 ClientOrder.order_group_id,
             )
@@ -168,11 +166,11 @@ async def print_links(client_ids: list[int]) -> None:
         )
         orders = rows.all()
         print(f"=== client orders on those clients: {len(orders)} ===")
-        for oid, client_id, contract_id, title, order_status, group_id in orders:
+        for oid, client_id, contract_id, order_status, group_id in orders:
             order_status = getattr(order_status, "value", order_status)
             print(
                 f"order={oid}\tclient={client_id}\tcontract={contract_id}"
-                f"\tstatus={order_status}\tgroup={group_id}\ttitle={title}"
+                f"\tstatus={order_status}\tgroup={group_id}"
             )
 
 

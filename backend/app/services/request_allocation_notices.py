@@ -137,13 +137,70 @@ def silent_reminder_due(
     return (now - last).days >= SILENT_EVERY_DAYS
 
 
+def route_to_recipients(
+    lead_id: Optional[int], active_leads: set[int], hor_ids: list[int]
+) -> list[int]:
+    """Adresaci sprawy rekrutacji: aktywny DL, a bez niego Head of Recruitment.
+
+    Ta sama reguła co ``notification_triggers._delivery_lead_targets``
+    (runda 6 audytu): „Requesty do decyzji” szły na ``Job.delivery_lead_id``
+    bez sprawdzenia ``is_active``, więc `emit` odrzucał odbiorcę, dzwonek
+    przepadał, a przypomnienie „Klient milczy” nie zapisywało się w mapie
+    i próbowało od nowa każdego ranka — donikąd.
+    """
+    if lead_id is not None and lead_id in active_leads:
+        return [lead_id]
+    return list(hor_ids)
+
+
+async def _recipient_router(db: AsyncSession, lead_ids: set[int]):
+    from app.models.user import User, UserRole  # noqa: PLC0415
+
+    ids = {i for i in lead_ids if i is not None}
+    active = (
+        set(
+            (
+                await db.scalars(
+                    select(User.id).where(User.id.in_(ids), User.is_active.is_(True))
+                )
+            ).all()
+        )
+        if ids
+        else set()
+    )
+    hor: Optional[list[int]] = None
+
+    async def route(lead_id: Optional[int]) -> list[int]:
+        nonlocal hor
+        if lead_id is not None and lead_id in active:
+            return [lead_id]
+        if hor is None:
+            hor = sorted(
+                (
+                    await db.scalars(
+                        select(User.id).where(
+                            User.roles.contains([UserRole.head_of_recruitment.value]),
+                            User.is_active.is_(True),
+                        )
+                    )
+                ).all()
+            )
+        return route_to_recipients(lead_id, active, hor)
+
+    return route
+
+
 async def _review_notices(
     db: AsyncSession,
     *,
     now: datetime,
     reminded: Optional[dict[str, str]] = None,
 ) -> tuple[int, dict[str, str]]:
-    """Zwraca (liczba wysłanych, nowa mapa ``job_id → ostatnie przypomnienie``)."""
+    """Zwraca (liczba wysłanych, nowa mapa ``job_id → ostatnie przypomnienie``).
+
+    Adresat wpisu to aktywny Delivery Lead rekrutacji, a bez niego (brak DL-a
+    albo konto nieaktywne) Head of Recruitment — ``route_to_recipients``.
+    """
     from app.models.recruitment_pipeline import CandidateStage  # noqa: PLC0415
     from app.services.notification_triggers import emit  # noqa: PLC0415
 
@@ -158,7 +215,6 @@ async def _review_notices(
                 Job.work_state_changed_at,
             ).where(
                 Job.status == JobStatus.published,
-                Job.delivery_lead_id.is_not(None),
                 or_(
                     and_(Job.work_state == "to_review", Job.created_at >= day),
                     Job.work_state == "client_silent",
@@ -176,15 +232,18 @@ async def _review_notices(
     }
     per_lead: dict[int, dict[str, int]] = {}
     silent_by_lead: dict[int, list[int]] = {}
+    route = await _recipient_router(db, {lead for _j, lead, *_ in rows})
     for job_id, lead_id, state, created, changed in rows:
         if state == "client_silent":
             if not silent_reminder_due(
                 now, changed or created, reminded.get(str(job_id))
             ):
                 continue
-            silent_by_lead.setdefault(lead_id, []).append(job_id)
-        bucket = per_lead.setdefault(lead_id, {"new": 0, "silent": 0, "stale": 0})
-        bucket["new" if state == "to_review" else "silent"] += 1
+        for recipient in await route(lead_id):
+            if state == "client_silent":
+                silent_by_lead.setdefault(recipient, []).append(job_id)
+            bucket = per_lead.setdefault(recipient, {"new": 0, "silent": 0, "stale": 0})
+            bucket["new" if state == "to_review" else "silent"] += 1
 
     # W poniedziałek: „Szukamy” bez żadnego ruchu rekrutera od 30 dni.
     if is_stale_check_day(now):
@@ -200,7 +259,6 @@ async def _review_notices(
             await db.execute(
                 select(Job.delivery_lead_id).where(
                     Job.status == JobStatus.published,
-                    Job.delivery_lead_id.is_not(None),
                     Job.work_state == "searching",
                     Job.champion_found_at.is_(None),
                     or_(
@@ -211,9 +269,13 @@ async def _review_notices(
                 )
             )
         ).all()
+        stale_route = await _recipient_router(db, {lead for (lead,) in stale})
         for (lead_id,) in stale:
-            bucket = per_lead.setdefault(lead_id, {"new": 0, "silent": 0, "stale": 0})
-            bucket["stale"] += 1
+            for recipient in await stale_route(lead_id):
+                bucket = per_lead.setdefault(
+                    recipient, {"new": 0, "silent": 0, "stale": 0}
+                )
+                bucket["stale"] += 1
 
     sent = 0
     for lead_id, bucket in sorted(per_lead.items()):

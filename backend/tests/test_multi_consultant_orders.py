@@ -2625,6 +2625,33 @@ async def test_late_report_for_the_swap_month_shrinks_the_successor(
     assert any("Korekta budżetu następcy" in e["description"] for e in events)
 
 
+async def test_late_report_corrects_the_whole_swap_chain(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Runda 6 audytu (MD-6): A→B→C. Raport za miesiąc zamiany schodzi z A,
+    korekta zmniejsza budżet B — a pozostałość B przeszła już na C, więc
+    korekta musi dojść do C (dawniej głębokość 1: C zostawało z 50 MD)."""
+    client_id, contracts, _ = await _seed_client_with_contracts(3)
+    _enable_for(monkeypatch, client_id)
+    group = await _create_group(
+        app_client, app_auth_headers, client_id, [_line_payload(contracts[0])]
+    )
+    b_id = await _swap(app_client, app_auth_headers, client_id, group, contracts[1])
+    c_id = await _swap(
+        app_client,
+        app_auth_headers,
+        client_id,
+        {"id": group["id"], "lines": [{"id": b_id}]},
+        contracts[2],
+    )
+    assert await _line_total(c_id) == Decimal("50")
+
+    await _report_md(group["lines"][0]["id"], "10")
+
+    assert await _line_total(b_id) == Decimal("40")
+    assert await _line_total(c_id) == Decimal("40")
+
+
 async def test_manually_edited_successor_budget_is_not_corrected(
     app_client: AsyncClient, app_auth_headers: dict, monkeypatch
 ):

@@ -7,6 +7,8 @@ własnym kliencie i dalekim miesiącu, a asercje filtrują po swoim kliencie.
 from __future__ import annotations
 
 import io
+import os
+import tempfile
 import zipfile
 from datetime import date, timedelta
 
@@ -17,9 +19,10 @@ from sqlalchemy import func, select
 from app.services.finance_order_pdfs import (
     OrderPdfEntry,
     ascii_slug,
-    build_zip,
+    build_zip_file,
     client_zip_name,
     month_zip_name,
+    remove_file_quietly,
     zip_member_name,
 )
 from tests.test_finance_order_changes import _far_day, _login, _month, _seed
@@ -83,16 +86,28 @@ def test_missing_parts_get_placeholders_instead_of_disappearing():
     )
 
 
+def test_zip_build_failure_leaves_no_temp_file(tmp_path, monkeypatch):
+    """Runda 6 audytu: nieudana budowa archiwum nie zostawia pliku na dysku."""
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    with pytest.raises(FileNotFoundError):
+        build_zip_file(
+            [(_entry(id=1), str(tmp_path / "nie-ma.pdf"))], client_folders=False
+        )
+    assert list(tmp_path.iterdir()) == []
+
+
 def test_zip_names():
     assert client_zip_name("Nordea Bank Abp", 2026, 9) == "Nordea_Bank_Abp_2026-09.zip"
     assert month_zip_name(2026, 9) == "Zamowienia_2026-09.zip"
     assert ascii_slug("Bank Pocztowy S.A.") == "Bank_Pocztowy_S.A"
 
 
-def test_zip_lists_missing_files_and_keeps_duplicate_names(tmp_path):
+def test_zip_lists_missing_files_and_keeps_duplicate_names(tmp_path, monkeypatch):
+    # Runda 6 audytu: archiwum powstaje w pliku tymczasowym, nie w pamięci.
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
     pdf = tmp_path / "a.pdf"
     pdf.write_bytes(b"%PDF-1.4\n")
-    content = build_zip(
+    path = build_zip_file(
         [
             (_entry(id=1), str(pdf)),
             (_entry(id=2), str(pdf)),
@@ -100,9 +115,13 @@ def test_zip_lists_missing_files_and_keeps_duplicate_names(tmp_path):
         ],
         client_folders=True,
     )
-    with zipfile.ZipFile(io.BytesIO(content)) as archive:
+    assert os.path.dirname(path) == str(tmp_path)
+    with zipfile.ZipFile(path) as archive:
         names = sorted(archive.namelist())
         missing = archive.read("BRAKUJACE_PLIKI.txt").decode()
+    remove_file_quietly(path)
+    remove_file_quietly(path)  # drugi raz bez błędu
+    assert not os.path.exists(path)
     folder = "Nordea_Bank_Abp/"
     assert names == [
         "BRAKUJACE_PLIKI.txt",
@@ -326,7 +345,7 @@ async def test_download_status_is_per_person_and_preview_does_not_count(
 
 
 async def test_client_and_month_zip_hold_every_file_under_the_schema_names(
-    app_client: AsyncClient, app_auth_headers: dict
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch, tmp_path
 ):
     month = _far_month()
     ids = await _seed_pdfs(month)
@@ -353,9 +372,13 @@ async def test_client_and_month_zip_hold_every_file_under_the_schema_names(
     files = await _files(app_client, app_auth_headers, month, ids["client_id"])
     assert all(f["downloaded_at"] for f in files.values())
 
+    # Runda 6 audytu: archiwum idzie z pliku tymczasowego, który znika po
+    # wysłaniu odpowiedzi.
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
     month_zip = await app_client.get(
         "/api/finance/order-pdfs/zip", params=params, headers=app_auth_headers
     )
+    assert [p.name for p in tmp_path.iterdir() if p.suffix == ".zip"] == []
     assert month_zip.status_code == 200, month_zip.text
     assert "Zamowienia_" in month_zip.headers["content-disposition"]
     with zipfile.ZipFile(io.BytesIO(month_zip.content)) as archive:

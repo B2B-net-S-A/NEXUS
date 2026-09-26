@@ -1241,7 +1241,10 @@ def copy_profile(profile, actor_id):
     # historii i weryfikacja nie przechodzą do kopii. Stare pola, z których
     # składane są wpisy `legacy:*`, zostają — są częścią opisu klienta.
     stored["insights"] = []
-    for key in ("client_history", "verification"):
+    # Briefing DL-a też należy do zlecenia źródłowego (runda 6 audytu), bo
+    # kopia pokazywała cudzy briefing jako zaliczony, a „Odepnij briefing” na
+    # kopii kasował w magazynie nagranie, którego wciąż słucha źródło.
+    for key in ("client_history", "verification", "briefing"):
         stored.pop(key, None)
     return user_edit(stored, deepcopy(stored), actor_id, imported=True)
 

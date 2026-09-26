@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from urllib.parse import quote
 
 from app.services.m365.app_graph_client import AppGraphClient
@@ -36,6 +38,29 @@ class CreatedPrepEvent:
     graph_event_id: str
     change_key: Optional[str]
     join_url: Optional[str]
+    # Termin, który Outlook NAPRAWDĘ zapisał (UTC). Przy powtórzonym
+    # ``transactionId`` Graph oddaje istniejące wydarzenie — z jego terminem,
+    # nie z tym z żądania (runda 6 audytu). ``None`` = nie dało się odczytać.
+    start: Optional[datetime] = None
+    end: Optional[datetime] = None
+
+
+def graph_time_utc(value) -> Optional[datetime]:
+    """``{dateTime, timeZone}`` z Grapha → czas UTC; nieczytelny = ``None``."""
+    if not isinstance(value, dict) or not value.get("dateTime"):
+        return None
+    try:
+        raw = str(value["dateTime"])
+        if raw.endswith("Z"):
+            raw = raw[:-1] + "+00:00"
+        parsed = datetime.fromisoformat(raw)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=ZoneInfo(value.get("timeZone") or "UTC"))
+        return parsed.astimezone(timezone.utc)
+    except (ValueError, ZoneInfoNotFoundError):
+        # Windowsowa nazwa strefy („Central European Standard Time”) — nie
+        # zgadujemy przesunięcia, wołający zostaje przy terminie z żądania.
+        return None
 
 
 async def create_event(upn: str, payload: dict) -> CreatedPrepEvent:
@@ -51,6 +76,8 @@ async def create_event(upn: str, payload: dict) -> CreatedPrepEvent:
         graph_event_id=event["id"],
         change_key=event.get("changeKey"),
         join_url=online.get("joinUrl") if isinstance(online, dict) else None,
+        start=graph_time_utc(event.get("start")),
+        end=graph_time_utc(event.get("end")),
     )
 
 

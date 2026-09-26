@@ -197,6 +197,19 @@ def test_summarize_caps_sample_count_at_ten():
     assert len(out["error_samples"]) == 10
 
 
+def test_summarize_of_a_clean_cv_text_run_has_no_crash_key():
+    """Runda 7 audytu (R7-V2-1): licznik `BackfillStats.error` (zawsze 0 przy
+    czystym biegu) trafiał do podsumowania pod kluczem `error`, a bramka
+    `__daily__` czyta ten klucz jako wywrotkę fazy — dzienny znacznik stał
+    przy KAŻDYM biegu."""
+    from app.services.cv_text_backfill import BackfillStats
+    from app.tasks.traffit_sync import _summarize
+
+    out = _summarize(BackfillStats().as_dict())
+    assert "error" not in out
+    assert out["extract_errors"] == 0
+
+
 # ── Pipelines: withdrawn wymaga rejection_reason (constraint 0068) ───────────
 
 

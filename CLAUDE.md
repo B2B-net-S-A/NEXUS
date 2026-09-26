@@ -479,11 +479,12 @@ cofnąć „przy okazji”:
   inaczej odebrana sekcja daje serię kart błędu 403 (`RoleDashboard`,
   `useMyKpis`). `POST /api/fireflies/sync` (dawniej GET —
   zapisuje notatki, więc musi przejść bramkę zapisu).
-- **Usunięcie kandydata NIE kasuje plików w żądaniu.** Klucze magazynu idą do
-  rejestru `cv_source_cleanup` (`schedule_source_cleanup`) w TEJ SAMEJ transakcji,
-  a kasuje je worker `clean_pending_sources` z ponowieniami. Rollback po
-  wyjątku w handlerze zostawia pliki na miejscu; do 14.09 pliki znikały przed
-  commitem, a wiersz kandydata zostawał. Gałąź 503 „magazyn niedostępny” usunięta.
+- **Usunięcie kandydata NIE kasuje żadnych CV** (decyzja Artura 26.09.2026:
+  „nie usuwać nigdy żadnych CV”, RODO pomijamy). Pliki w magazynie (CV, dokumenty,
+  snapshoty etapów, wejścia generatora), wygenerowane CV i zgłoszenia z formularza
+  z CV zostają; do rejestru `cv_source_cleanup` nic z usunięcia nie trafia (do
+  26.09 szły tam wszystkie klucze osoby). Nie dokładaj kasowania CV do usuwania
+  kandydata ani do żadnego automatu bez wyraźnego polecenia Artura.
 - **M365: kursor folderu przesuwa się tylko po czystym biegu folderu.** Graph
   daje `deltaLink` dopiero na ostatniej stronie, więc „ostatnia czysta strona”
   nie istnieje — przy jakimkolwiek błędzie importu folder zostaje na starym
@@ -1232,7 +1233,8 @@ technologii w każdym trybie i końcowa kontrola AI. Zespół zgłosił, że CV
   23.09.2026: trzymamy wszystko, także bez zgody RODO).**
   `CV_JOB_INPUT_RETENTION_ENABLED` domyślnie `false` i obejmuje oba automaty
   poniżej: sprzątanie wejść generatora i CV próbnych reguł klienta. CV znika
-  wyłącznie ręcznie (usunięcie dokumentu albo kandydata). Nie włączaj z
+  wyłącznie ręcznie (usunięcie dokumentu) — usunięcie kandydata CV nie kasuje
+  (decyzja 26.09.2026). Nie włączaj z
   powrotem bez decyzji właściciela. Opis mechanizmu (stan przy `true`):
   `retire_unneeded_job_inputs` w pętli `cv_source_cleanup` (co 15 min, paczki
   `FOR UPDATE SKIP LOCKED`) bierze zadania zakończone porażką/przerwane bez
@@ -1666,7 +1668,8 @@ link). API: `app/api/client_playbooks.py`.
   org-wide, bez grafu klienta** — świadome odstępstwo: karta zastępuje 14 wzorów
   Word w Pomocy, które czytał każdy zalogowany, a rekruter czyta ją PRZED
   przypisaniem do rekrutacji. `off_limits` (z `client_contract_terms`) jedzie
-  w odpowiedzi tylko do ról z odczytem sekcji Delivery. `client_playbooks.router`
+  w odpowiedzi tylko do ról z odczytem sekcji Delivery, a Delivery Leadowi
+  tylko u klientów z portfela (26.09.2026, niżej). `client_playbooks.router`
   NIE trafia na listę routerów Delivery w `test_section_access.py` (bramki per
   handler, jak `client_cv_rules.router`).
 - **Trzy powierzchnie odczytu, jeden formularz:** profil klienta → „Zasady
@@ -1715,6 +1718,12 @@ DL widzi klienta, gdy ma DOWOLNY wiersz w `delivery_lead_client_assignments`
   w rekrutacji), **Generator umów B2B** (`purpose="org"`; stawki i zapis nadal
   tylko u przypisanych — bez zmian), pulpity, KPI i Insights
   (`resolve_dashboard_scope` nietknięty).
+- **Wyjątek od pulpitu: kontrakty i zamówienia w kreatorze metryk liczą tylko
+  portfel DL** (decyzja Artura 26.09.2026, runda 6 audytu). Źródła `contracts`
+  i `orders` (`custom_metrics/engine._delivery_client_boundary`, lustro warunków
+  `resolve_delivery_lead_client_ids`) — także gotowe kafle „Aktywne kontrakty”
+  i „Kończące się zamówienia”; klient spoza portfela w filtrze = 403
+  `metric_scope_denied`, DL bez klientów = odmowa, nie zero.
 - **Wyjątki persony:** DL + admin/finance/talent_community_manager widzi
   wszystko (TCM czyta Delivery całej organizacji).
 - **Wyłącznik bez deployu:** `DL_CLIENT_SCOPE=all` przywraca stan z #1365.
@@ -1778,6 +1787,14 @@ w jednej zakładce i puste w sąsiedniej.
   (`_finance_rates_in_pln`), nigdy z kolumny `contracts.margin` — ta niesie
   kwotę z ostatniego ZAPISU kontraktu. `None` zostaje tylko wtedy, gdy brakuje
   danych źródłowych: stawki albo kursu FX dla waluty obcej.
+- **Ekrany rekrutacji też nie pokazują DL-owi kwot ani off-limitów cudzych
+  klientów** (decyzja Artura 26.09.2026, runda 6 audytu). Historia requestów
+  i baner podglądu (`jobs._history_fee_visible`) redagują `fee_rate` (marżę)
+  per klient regułą `can_read_client_finance` — lista zostaje org-wide, także
+  z `cross_client=true`, kwoty tylko portfela (hybryda HoR+DL też). Karta
+  klienta i jej przegląd (`client_playbooks._off_limits_client_boundary`)
+  oddają `off_limits` tylko u klientów z `resolve_delivery_lead_client_ids` —
+  tym samym zakresem, którym DL czyta warunki umów.
 - **Tabela konsultantów nie ma bramki front-endowej i mieć nie powinna** —
   `ConsultantsTable` rysuje wszystkie kolumny zawsze, a `null` renderuje jako
   „—". Decyduje wyłącznie backend.
@@ -5587,6 +5604,13 @@ fail-closed:
   rozpoznany dopiero przy ponownej weryfikacji nie dostaje trwałego powodu
   „odczyt sprzed zmiany reguły”. Ręczne „Zastosuj” odmawia wiersza ze stawką
   bez jednostki (audyt 24.09.2026).
+- **PFRON: jawne „netto” przy stawce wygrywa z regułą brutto** (decyzja Artura
+  26.09.2026, runda 6 audytu). `pfron_extract_rows` czyta oznaczenie przy
+  stawce (etykieta, nawias, słowo za kwotą — `_pfron_rate_marking`): samo
+  „netto” = kwota bez ÷ 1,23; brak oznaczenia albo „brutto” = ÷ 1,23 jak
+  dotąd; oba słowa naraz = ÷ 1,23, ale wiersz niepewny („Sprzeczne
+  oznaczenie stawki…”), więc dokument idzie do człowieka. `rule_version`
+  PFRON = „2026-09-26”.
 - **„Brak liczby MD" nie jest zastrzeżeniem ODCZYTU — o wymaganych polach decyduje
   typ zamówienia** (ticket Polkomtel 09.2026). Model czyta PDF bez wiedzy o typie
   i przy zamówieniu kosztowym zgłaszał „brak informacji o liczbie MD". Trzy warstwy:
@@ -6923,7 +6947,7 @@ Raport: `docs/audit-2026-09-22-round2-completion-report.md`. Migracja `0351_audi
 - **MD:** powtórny import miesiąca już podzielonego zaczyna od poprzednika (`predecessor_line_for`). Budżet następcy po zamianie i cel transferu offboardingu są korygowane w `recompute_remaining` — **tylko zamiany ze znacznikiem `auto_rebalance`** (zapisane od wdrożenia) i tylko gdy nikt ich nie edytował. Wiersz arkusza z samą fakturą = `cost_only`; kwota ≤ 0 = `non_positive_amount`. Grupa `exhausted` z wpisem za miesiąc przyjmuje korektę. Opisy historii redagowane z kwot (`_redact_amounts`). Zakończenie grupy zapisuje stan linii, „Przywróć” go odtwarza; linia `completed` nie trzyma przedłużenia `scheduled`.
 - **Poczta zamówień:** confidence 1,0 znaczy wyłącznie „potwierdzone regułą” — model ścięty do 0,99 (`_MODEL_CONFIDENCE_CAP`). `document_period_authoritative` (BIK, Polkomtel, BNP, PFRON, Credit Agricole): tylko okres dokumentu, bramka `CODE_ROW_EVIDENCE_PERIOD`. Waluta ≠ PLN → kolejka (`CODE_CURRENCY_FOREIGN`), writer zapisuje walutę z dokumentu. `total_value` dokumentu tylko przy jednej osobie. Dokument rozpoznany przy recheku dostaje reguły deterministycznie (`policies_pending`); bramka dostaje tylko reguły z `row.client_policy`. Powrót po przerwie z imiennikiem (`namesake_ids`) → kolejka. Role bez VIEW_FINANCE widzą zdanie ogólne zamiast nazwy innego klienta.
 - **Finanse → Zmiany:** dziennik zmian zna savepointy (`after_soft_rollback` odtwarza stan z początku savepointu, zapis tylko w transakcji głównej). Skaner domyka linię MD po dacie tylko przy świadomym końcu (następca albo grupa `completed` z `closure_date` ≤ końca linii). Usunięcie zamówienia zamyka jego braki i karty DL (`close_gaps_of_deleted_orders` przed `db.delete`).
-- **Kandydaci/rekrutacje:** zgłoszenie od osoby z bazy przechodzi `submission_block_reason` (czarna lista, weto HM) — przy blokadzie CV zostaje, proces się nie otwiera, powód w dzwonku; ręczne rozstrzygnięcie przy wecie = 409. Usunięcie kandydata kasuje jego zgłoszenia (po `matched_candidate_id` lub e-mailu), zgody i pliki CV (`application_submission_erasure.py`). Stawka miesięczna z notatek ÷168 tylko przy `b2b`. Flagi migracji zapisanych wyszukiwań trafiają do `qs` (`hu`, `ls`). Uśpienie przypiętej osoby pamięta przypięcie (`restore_kind`). Budżet z odczytu requestu tylko z `pln_hourly_bounds`. „Do przejrzenia” na Tablicy pusta dopiero przy `status.settled` bez błędów źródeł. Stały link kariery nieaktywnego pracownika = 404; SSR stron publicznych przekazuje `forwardedClientHeaders()`; boty podglądu nie podbijają `visit_count`.
+- **Kandydaci/rekrutacje:** zgłoszenie od osoby z bazy przechodzi `submission_block_reason` (czarna lista, weto HM) — przy blokadzie CV zostaje, proces się nie otwiera, powód w dzwonku; ręczne rozstrzygnięcie przy wecie = 409. Usunięcie kandydata NIE kasuje jego zgłoszeń ani ich CV (decyzja 26.09.2026; `application_submission_erasure.py` nie jest już wołane). Stawka miesięczna z notatek ÷168 tylko przy `b2b`. Flagi migracji zapisanych wyszukiwań trafiają do `qs` (`hu`, `ls`). Uśpienie przypiętej osoby pamięta przypięcie (`restore_kind`). Budżet z odczytu requestu tylko z `pln_hourly_bounds`. „Do przejrzenia” na Tablicy pusta dopiero przy `status.settled` bez błędów źródeł. Stały link kariery nieaktywnego pracownika = 404; SSR stron publicznych przekazuje `forwardedClientHeaders()`; boty podglądu nie podbijają `visit_count`.
 - **CI/deploy:** alarmy otwiera i zamyka `.github/scripts/alert_issue.sh` tym samym markerem (nowy alarm bez `resolve` wywala test). Joby z `COOLIFY_*`/`BACKUP_*` tylko z `refs/heads/main`. Okno ciszy `DEPLOY_FREEZE_WINDOW` domyślnie wyłączone (od 26.09.2026 deploy od razu, także w nocy); poranny `schedule` zostaje jako siatka pod włączone okno; ręczny „Run workflow” ignoruje okno. „Coolify set env” domyślnie nie wdraża, `redeploy=true` uruchamia workflow Deploy. Wstrzymany/czerwony deploy otwiera issue. Etykieta `wstrzymaj` albo draft zdejmuje PR także z trwającej kolejki. E2E nie biegnie po Deploy; gitleaks skanuje też zakres commitów PR.
 
 ## Audyt 25.09.2026 — reguły po naprawie
@@ -7162,6 +7186,52 @@ zacznij od `docs/audits/2026-09-25/README.md`, zanim zrobisz kolejny audyt).
   `.weekday()` na UTC tylko z komentarzem „Dzień UTC celowo”, gdy godzina też jest UTC.
 - `?tab=portals` otwiera okno zlecenia z rozwiniętą sekcją „Portale ogłoszeniowe”
   (`wintab=portals`).
+
+### Runda 6 (26.09.2026, po PR #1849)
+
+Raport: `docs/audits/2026-09-25/runda-6.md` (19 agentów audytu, 15 naprawczych).
+
+- **Kolumna JSONB czytana przez `is_(None)` ma `none_as_null=True`** (albo predykat
+  `jsonb_typeof(...) = 'null'`) — domyślnie `None` zapisuje JSON `null`, którego
+  `IS NULL` nie widzi (formuła Nordei nie wracała do pętli).
+- **Podpis Outlooka** (`m365/signature_cache.py`): pierwszy znacznik podpisu,
+  ucięcie na pierwszym znaczniku cytatu, podpis z cudzym adresem e-mail = brak
+  podpisu. Brak podpisu jest bezpieczniejszy niż cytat innej rozmowy w mailu do
+  kandydata.
+- **Usunięcie kandydata** zostawia nagrobek `purged_candidates` (źródło + HMAC
+  `external_id`, bez danych osobowych; klucz `CANDIDATE_IDENTITY_FINGERPRINT_KEY`),
+  który import Traffita czyta przed upsertem i adopcją po mailu — usunięta osoba
+  nie wraca z nocnym syncem. Kasuje powiadomienia o osobie (także linki
+  `/candidates/{id}` innych typów), odwołuje jej przyszłe prepy/follow-upy w Teams
+  po commicie i anonimizuje jej wydarzenia kalendarza
+  (`services/candidate_erasure_leftovers.py`, `followup_meetings.erase_candidate_meetings`).
+  Scalanie nagrobka NIE stawia. **CV (pliki, wygenerowane, zgłoszenia) zostają
+  zawsze** — decyzja Artura 26.09.2026, patrz „Integralność i uprawnienia”.
+- **Pamięć nocnego przeglądu bazy** żyje we wpisie „Praca w tle”
+  `auto_full_review_finished` (`run_created_at`, `fingerprint`), bo retencja
+  kasuje przegląd po 2 dniach. Przegląd `failed` albo bez wektora zapytania nie
+  zamyka zdarzenia. Automaty (nocny przegląd, propozycje z nowych CV, „Moi
+  ludzie”) biorą tylko `request_work_state.IN_WORK_STATES`.
+- **Backfill odrzuceń z Traffita** łączy `activity_date` jako czas warszawski
+  (i stary odczyt UTC dla wierszy sprzed #1730). Po zmianie parsera czasu grep
+  każdego SQL-a łączącego po tym znaczniku.
+- **Plik z Traffita zdejmuje „główne CV” wyłącznie z innych kopii z Traffita.**
+- **Walidacja w PATCH po zmianie WARTOŚCI, nie po kluczu żądania** (`update_job`:
+  DL, TAC, klient; unieważnienie rankingu) — okna edycji odsyłają komplet pól.
+- **Logi:** `httpx`/`httpcore` na WARNING; redakcja adresów Slacka, iCal, `%40`
+  i wartości `email`/`phone`/`q…`/nazwisk w query; nazwy plików i klucze
+  magazynu przez `core/log_safety` (strażnik AST `test_log_pii_filenames_keys.py`).
+  Workflowy nie drukują wyników z produkcji z nazwiskami ani kluczy CV; joby
+  przeciw produkcji nie wgrywają raportu Playwright.
+- **CPU po tysiącach wierszy w `async def` idzie do `asyncio.to_thread` z
+  single-flight** (ranking praktykantów, „Podobne rekrutacje”).
+- **Przełożenie rozmowy u klienta wskazuje DL** (decyzja Artura 26.09.2026): okno
+  potwierdzenia terminu pyta „To przełożenie rozmowy z DD.MM?” (lista z
+  `GET /api/interview-cycle/slots/{id}/replaceable`), a odwołana zostaje tylko
+  wskazana rozmowa (`supersedes_event_id`). Bez wskazania nic nie jest
+  odwoływane — klient bywa, że umawia kilka rund naraz.
+- **Zapytania DL w Insights liczą się od `COALESCE(opened_at, created_at)`** —
+  `created_at` rekrutacji z Traffita to data importu.
 
 ## Narzędzia rekrutera — reguły po audycie 17.09.2026
 

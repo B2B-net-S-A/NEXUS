@@ -600,17 +600,20 @@ async def create_client(
 async def get_client(
     client_id: int, current_user: OperationalUser, db: AsyncSession = Depends(get_db)
 ):
+    result = await db.execute(select(Client).where(Client.id == client_id))
+    client = result.scalar_one_or_none()
+    # Najpierw przekierowanie scalonego duplikatu, potem bramka portfela na
+    # kliencie kanonicznym (runda 6 audytu): bramka na starym id odmawiała
+    # 403 Delivery Leadowi przypisanemu do klienta kanonicznego.
+    merged_redirect = _merged_client_redirect(client) if client else None
+    if merged_redirect is not None:
+        return merged_redirect
     assert_delivery_lead_client_visible(
         client_id,
         await resolve_delivery_lead_client_ids(current_user, db),
     )
-    result = await db.execute(select(Client).where(Client.id == client_id))
-    client = result.scalar_one_or_none()
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
-    merged_redirect = _merged_client_redirect(client)
-    if merged_redirect is not None:
-        return merged_redirect
     if client.hidden or client.archived_at is not None or client.deleted_at:
         raise HTTPException(status_code=404, detail="Client not found")
     return _serialize_client(client, current_user=current_user)
@@ -629,6 +632,14 @@ async def get_client_profile(
     Contract model's own `monthly_rate_client` / `monthly_margin` properties
     so the math stays consistent with the Contracts module.
     """
+    # Scalony duplikat przekierowuje PRZED bramką portfela (runda 6 audytu) —
+    # bramka i tak zadziała na kliencie kanonicznym po przekierowaniu.
+    client = await db.scalar(select(Client).where(Client.id == client_id))
+    merged_redirect = (
+        _merged_client_redirect(client, suffix="/profile") if client else None
+    )
+    if merged_redirect is not None:
+        return merged_redirect
     # Operacyjna granica DL = klienci z przypisania (25.09.2026). Finansowy wyjątek
     # jest rozwiązywany osobno i nadal obejmuje wyłącznie własny portfel.
     delivery_lead_client_ids = await resolve_delivery_lead_client_ids(current_user, db)
@@ -642,12 +653,8 @@ async def get_client_profile(
         delivery_lead_finance_client_ids=delivery_lead_finance_client_ids,
     )
     # 404 early so we don't hand back empty sections for a phantom client.
-    client = await db.scalar(select(Client).where(Client.id == client_id))
     if client is None:
         raise HTTPException(status_code=404, detail="Client not found")
-    merged_redirect = _merged_client_redirect(client, suffix="/profile")
-    if merged_redirect is not None:
-        return merged_redirect
     if client.hidden or client.archived_at is not None or client.deleted_at:
         raise HTTPException(status_code=404, detail="Client not found")
 

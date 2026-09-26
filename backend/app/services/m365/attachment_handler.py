@@ -63,6 +63,10 @@ def is_cv_candidate_attachment(filename: str, content_type: str) -> bool:
     return bool(_CV_FILENAME_RE.search(filename or ""))
 
 
+# Pola typu bazowego `microsoft.graph.attachment` — jedyne dozwolone w $select.
+_ATTACHMENT_LIST_FIELDS = "id,name,contentType,size,isInline"
+
+
 async def download_for_email(
     db: AsyncSession,
     gc: GraphClient,
@@ -76,22 +80,41 @@ async def download_for_email(
     if not email_row.has_attachments:
         return []
 
-    # No $select here — Graph's `/messages/{id}/attachments` returns a
-    # polymorphic collection (fileAttachment / itemAttachment / referenceAttachment)
-    # and $select rejects any field that doesn't exist on the BASE
-    # `microsoft.graph.attachment` type. Two production fires came from this:
-    #   • NEXUS-BE-2 (2026-05): `@odata.type` is not selectable on the base type.
-    #   • NEXUS-BE-C (2026-05): `contentBytes` exists only on fileAttachment.
-    # Without $select Graph returns every standard field per subtype, including
-    # `contentBytes` for fileAttachment — exactly what we need below. The extra
-    # payload is small (attachments are typically <10 per email and metadata is
-    # tiny next to the bytes themselves).
+    # Runda 6 audytu: sync woła tę funkcję przy KAŻDEJ zmianie wiadomości
+    # (przeczytanie, kategoria, przeniesienie). Załączniki odebranego maila się
+    # nie zmieniają, więc gdy każdy ma już plik na dysku albo końcowy powód
+    # (za duży, link, nieudane pobranie — to ponawia pętla ``m365_cv_parse``),
+    # nie listujemy ich w Graph ponownie.
+    known = list(
+        (
+            await db.scalars(
+                select(EmailAttachment).where(EmailAttachment.email_id == email_row.id)
+            )
+        ).all()
+    )
+    if known and all(
+        row.parse_error
+        or (row.storage_path and (STORAGE_ROOT / row.storage_path).is_file())
+        for row in known
+    ):
+        return known
+
+    # $select WYŁĄCZNIE z polami typu bazowego `microsoft.graph.attachment`
+    # (runda 6 audytu). Kolekcja jest polimorficzna, a $select z polem
+    # podtypu kończy się 400 (NEXUS-BE-2: `@odata.type`, NEXUS-BE-C:
+    # `contentBytes`). Bez $select Graph oddawał `contentBytes` WSZYSTKICH
+    # załączników w jednej odpowiedzi — także za dużych i już zapisanych.
+    # Treść pobieramy osobno przez `$value`, tylko gdy jest potrzebna i mieści
+    # się w limicie; typ (`@odata.type`) Graph dokleja sam jako adnotację.
     #
     # INT-08: błąd LISTOWANIA propaguje się do syncu. Do 09.2026 zwracał pustą
     # listę, więc mail był zapisany, delta potwierdzona, a CV nie powstawało
     # nigdy (żaden wiersz załącznika = nic do ponowienia). Teraz przebieg
     # liczy błąd strony i kursor delty stoi — następny przebieg wraca po mail.
-    page = await gc.get(f"/me/messages/{email_row.m365_message_id}/attachments")
+    page = await gc.get(
+        f"/me/messages/{email_row.m365_message_id}/attachments",
+        params={"$select": _ATTACHMENT_LIST_FIELDS},
+    )
 
     results: list[EmailAttachment] = []
     max_bytes = settings.M365_MAX_ATTACHMENT_MB * 1024 * 1024
@@ -255,9 +278,13 @@ async def try_parse_cv(
     email_row: Email,
     *,
     preparsed: Optional[tuple[str, dict]] = None,
+    candidate_id: Optional[int] = None,
 ) -> None:
     """If this attachment looks like a CV and the email is linked to a candidate,
     run it through cv_parser and merge results into the candidate profile.
+
+    ``candidate_id`` (runda 6 audytu) — kandydat wskazany przez TREŚĆ tego CV,
+    gdy mail z kilkoma CV niesie różne osoby; domyślnie kandydat maila.
 
     Swallows all exceptions into `attachment.parse_error` — never raises.
     """
@@ -265,13 +292,14 @@ async def try_parse_cv(
         return
     if not attachment.is_cv_candidate or not attachment.storage_path:
         return
-    if email_row.candidate_id is None:
+    target_id = candidate_id if candidate_id is not None else email_row.candidate_id
+    if target_id is None:
         return
     # A delta page contains existing messages as well as new ones.  Re-running
     # the paid parser for an attachment already applied to the same candidate
     # made every M365 pass spend minutes on unchanged CVs.  A rematch remains
     # eligible because its candidate id differs.
-    if attachment.parsed_candidate_id == email_row.candidate_id:
+    if attachment.parsed_candidate_id == target_id:
         return
 
     from datetime import datetime, timezone
@@ -284,13 +312,13 @@ async def try_parse_cv(
             select(EmailAttachment)
             .where(
                 EmailAttachment.sha256 == attachment.sha256,
-                EmailAttachment.parsed_candidate_id == email_row.candidate_id,
+                EmailAttachment.parsed_candidate_id == target_id,
                 EmailAttachment.id != attachment.id,
             )
             .limit(1)
         )
         if existing is not None:
-            attachment.parsed_candidate_id = email_row.candidate_id
+            attachment.parsed_candidate_id = target_id
             return
 
     abs_path = STORAGE_ROOT / attachment.storage_path
@@ -309,7 +337,7 @@ async def try_parse_cv(
         text, parsed = parsed_pair
 
     # Merge into candidate — but NEVER overwrite a more recent manual/upload parse.
-    candidate: Optional[Candidate] = await db.get(Candidate, email_row.candidate_id)
+    candidate: Optional[Candidate] = await db.get(Candidate, target_id)
     if candidate is None:
         attachment.parse_error = "candidate_missing"
         return
@@ -490,7 +518,11 @@ _STRONG_IDENTITY_REASONS = frozenset(
 
 
 async def try_create_candidate_from_cv(
-    db: AsyncSession, attachment: EmailAttachment, email_row: Email
+    db: AsyncSession,
+    attachment: EmailAttachment,
+    email_row: Email,
+    *,
+    link_email: bool = True,
 ) -> Optional[int]:
     """CV z maila od nadawcy spoza bazy: podepnij do istniejącego albo załóż kandydata.
 
@@ -506,6 +538,10 @@ async def try_create_candidate_from_cv(
       (`source="email"`) i ta sama wspólna ścieżka co upload;
     - CV bez imienia, nazwiska albo kontaktu → `identity_insufficient`.
 
+    ``link_email=False`` (runda 6 audytu): kolejne CV z maila, który już
+    wskazuje osobę z pierwszego CV — tożsamość z treści TEGO pliku, bez
+    przepinania maila (patrz :func:`try_parse_cv_by_identity`).
+
     Zwraca id kandydata albo None. Nie rzuca.
     """
     from datetime import datetime, timezone
@@ -514,7 +550,12 @@ async def try_create_candidate_from_cv(
         settings.M365_AUTO_PARSE_CV and settings.M365_AUTO_CREATE_CANDIDATE_FROM_CV
     ):
         return None
-    if email_row.candidate_id is not None or email_row.is_private_filtered:
+    if email_row.is_private_filtered:
+        return None
+    if link_email and email_row.candidate_id is not None:
+        return None
+    if link_email and getattr(email_row, "matched_by_user_id", None) is not None:
+        # Runda 6 audytu: mail ręcznie odpięty — decyzja rekrutera wygrywa.
         return None
     if not attachment.is_cv_candidate or not attachment.storage_path:
         return None
@@ -569,8 +610,15 @@ async def try_create_candidate_from_cv(
         return None
     if strong:
         candidate_id = int(strong[0]["candidate_id"])
-        _link_email(email_row, candidate_id, float(strong[0]["match_score"]), now)
-        await try_parse_cv(db, attachment, email_row, preparsed=(text, parsed))
+        if link_email:
+            _link_email(email_row, candidate_id, float(strong[0]["match_score"]), now)
+        await try_parse_cv(
+            db,
+            attachment,
+            email_row,
+            preparsed=(text, parsed),
+            candidate_id=candidate_id,
+        )
         return candidate_id
     if duplicates:
         attachment.parse_error = "possible_duplicate_name"
@@ -602,8 +650,11 @@ async def try_create_candidate_from_cv(
             },
         )
     )
-    _link_email(email_row, candidate.id, 1.0, now)
-    await try_parse_cv(db, attachment, email_row, preparsed=(text, parsed))
+    if link_email:
+        _link_email(email_row, candidate.id, 1.0, now)
+    await try_parse_cv(
+        db, attachment, email_row, preparsed=(text, parsed), candidate_id=candidate.id
+    )
     if attachment.parsed_candidate_id != candidate.id or attachment.parse_error:
         # Profil nie przeszedł wspólnej ścieżki (np. kolizja dokumentu), więc
         # nikt go nie zaindeksował — a kandydat bez wektora nie istnieje
@@ -612,6 +663,26 @@ async def try_create_candidate_from_cv(
 
         await schedule_or_embed_candidate(candidate.id, db)
     return candidate.id
+
+
+async def try_parse_cv_by_identity(
+    db: AsyncSession, attachment: EmailAttachment, email_row: Email
+) -> Optional[int]:
+    """Kolejne CV w mailu podpiętym po tożsamości z CV (runda 6 audytu).
+
+    Mail z dwoma CV różnych osób: pierwsze CV zakładało/wskazywało kandydata
+    A i podpinało do niego mail, a drugie szło zwykłą kolejką do A — i lądowało
+    w kwarantannie tożsamości A zamiast założyć kandydata B. Teraz każdy
+    załącznik CV takiego maila rozstrzyga osobę z WŁASNEJ treści; mail zostaje
+    przy pierwszej osobie. Próba jest końcowa także bez rozstrzygnięcia
+    (``cv_parse_attempted_at``), żeby nie wracała co sekundę na płatny odczyt.
+    """
+    from datetime import datetime, timezone
+
+    attachment.cv_parse_attempted_at = datetime.now(timezone.utc)
+    return await try_create_candidate_from_cv(
+        db, attachment, email_row, link_email=False
+    )
 
 
 def _is_internal_email(email: str) -> bool:

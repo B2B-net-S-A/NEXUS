@@ -26,6 +26,7 @@ from app.services.order_policies._shared import (
     OrderExtraction,
     clean_person_name,
     clear_field,
+    model_concerns,
     normalize_amount,
     normalize_date,
     set_field,
@@ -49,13 +50,39 @@ def order_number(text: str) -> Optional[str]:
     return m.group(1) if m else None
 
 
+def md_rates(text: str) -> list:
+    """Różne stawki „(… PLN/MD net.)" w kolejności wystąpienia."""
+    rates = (normalize_amount(m.group(1)) for m in _RATE_RE.finditer(text or ""))
+    return list(dict.fromkeys(rate for rate in rates if rate is not None))
+
+
 def md_rate(text: str):
-    m = _RATE_RE.search(text or "")
-    return normalize_amount(m.group(1)) if m else None
+    """Stawka dokumentu — wyłącznie gdy jest JEDNA.
+
+    Kilka różnych stawek (np. osobno dla Testera i Analityka) nie mówi, która
+    należy do której osoby; pierwsza z brzegu trafiała do każdego wiersza
+    (runda 6 audytu) — teraz ``None`` i wiersze do sprawdzenia.
+    """
+    rates = md_rates(text)
+    return rates[0] if len(rates) == 1 else None
+
+
+def _rate_concern(text: str) -> Optional[str]:
+    rates = md_rates(text)
+    if len(rates) > 1:
+        return (
+            "W dokumencie są różne stawki ("
+            + ", ".join(f"{rate} PLN/MD" for rate in rates)
+            + ") — przypisz stawkę tej osobie ręcznie"
+        )
+    if not rates:
+        return "Nie znaleziono stawki „(… PLN/MD net.)” w opisie — sprawdź stawkę"
+    return None
 
 
 def extract_rows(text: str) -> list[ConsultantOrderRow]:
     rate = md_rate(text)
+    concern = _rate_concern(text)
     rows: list[ConsultantOrderRow] = []
     for m in _ROW_RE.finditer(text or ""):
         rows.append(
@@ -67,6 +94,7 @@ def extract_rows(text: str) -> list[ConsultantOrderRow]:
                 rate_unit="day" if rate is not None else None,
                 md_total=None,  # okresowe — MD informacyjne, nie budżet
                 uncertain=rate is None,
+                uncertain_reason=concern if rate is None else None,
             )
         )
     return rows
@@ -98,7 +126,10 @@ def apply_cardif_order_policy(
     if rows and not result.consultant_rows:
         result.consultant_rows = rows
 
-    reasons: list[str] = []
+    # Zastrzeżenia modelu zostają (runda 6 audytu) — do tej poprawki reguła
+    # zastępowała je w całości, więc np. nieczytelne nazwisko znikało. Odpada
+    # tylko „brak liczby MD": MD u Cardif jest informacją, nie budżetem.
+    reasons: list[str] = model_concerns(result)
     if result.title is None:
         reasons.append(
             "Nie znaleziono „Zamówienie z dnia …” — sprawdź identyfikator zamówienia"
@@ -107,10 +138,9 @@ def apply_cardif_order_policy(
         reasons.append(
             "Nie rozpoznano tabeli specjalistów (Od/Do) — wpisz osoby i daty ręcznie"
         )
-    if rate is None:
-        reasons.append(
-            "Nie znaleziono stawki „(… PLN/MD net.)” w opisie — sprawdź stawkę"
-        )
-    result.uncertain_reasons = reasons
+    concern = _rate_concern(document_text)
+    if concern is not None:
+        reasons.append(concern)
+    result.uncertain_reasons = list(dict.fromkeys(reasons))
     result.uncertain = bool(reasons)
     return result

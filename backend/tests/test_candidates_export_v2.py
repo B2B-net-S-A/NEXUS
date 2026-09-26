@@ -503,3 +503,42 @@ async def test_legacy_get_csv_export_streams_the_same_rows_as_post(
         assert _csv_ids(legacy) == {first, second}
     finally:
         await _cleanup([first, second])
+
+
+@pytest.mark.asyncio
+async def test_filtered_export_follows_match_order_like_the_list(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch: pytest.MonkeyPatch
+):
+    """Runda 6 audytu (M4): eksport „z filtra” przy ``sort=match`` ma tę samą
+    kolejność co lista (``candidate_match_order``), a nie „najnowsi”."""
+    from app.core.config import settings
+    from app.services import candidate_match_order
+
+    cohort = f"ExportMatch{uuid.uuid4().hex[:12]}"
+    first = await _seed_candidate(cohort, suffix="A")
+    second = await _seed_candidate(cohort, suffix="B")
+    third = await _seed_candidate(cohort, suffix="C")
+    # Kolejność „dopasowania” celowo inna niż created_at (najnowsi = C, B, A).
+    match_order = (second, first, third)
+
+    async def fake_ordered_ids(db, user, filters, ids_query, q_any_groups, prefix):
+        return match_order
+
+    monkeypatch.setattr(settings, "CANDIDATE_MATCH_SORT", True)
+    monkeypatch.setattr(candidate_match_order, "ordered_ids", fake_ordered_ids)
+    try:
+        response = await app_client.post(
+            "/api/candidates/export",
+            json={
+                "format": "csv",
+                "scope": "filtered",
+                "filters": {"q": cohort, "sort": "match"},
+                "candidate_ids": [],
+                "limit": 100_000,
+            },
+            headers=app_auth_headers,
+        )
+        assert response.status_code == 200, response.text
+        assert _csv_ids_in_order(response) == list(match_order)
+    finally:
+        await _cleanup([first, second, third])

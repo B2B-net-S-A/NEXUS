@@ -518,3 +518,122 @@ async def test_non_xlsx_upload_is_refused(app_client, app_auth_headers):
         files={"file": ("rejestr.csv", b"a;b", "text/csv")},
     )
     assert resp.status_code == 422
+
+
+# ── Runda 6 audytu (XLS-1): zmiany z dokumentów i usunięte rekordy ──────────
+
+
+async def _signed_start_date_annex(row_id: int, new_start: date) -> None:
+    """Podpisany aneks daty startu — tak, jak zostawia go ``effects.apply``."""
+    from datetime import datetime, timezone
+
+    from app.models.b2b_contract_document import B2BContractDocument
+
+    async with AsyncSessionLocal() as db:
+        db.add(
+            B2BContractDocument(
+                document_type="annex_start_date",
+                parent_generated_contract_id=row_id,
+                document_date=new_start,
+                render_payload={"values": {"new_start_date": new_start.isoformat()}},
+                template_key="annex_start_date_pl",
+                status="signed",
+                signature_status="signed_both",
+                effect_applied_at=datetime.now(timezone.utc),
+            )
+        )
+        row = await db.get(B2BGeneratedContract, row_id)
+        row.start_date = new_start
+        await db.commit()
+
+
+def _anna_with_position(base: int, tag: str, position: str) -> bytes:
+    return build_register(
+        [
+            contract_row(
+                f"{tag}a Anna",
+                base,
+                signing=date(2025, 3, 1),
+                start=date(2025, 3, 10),
+                position=position,
+            )
+        ]
+    )
+
+
+async def test_reimport_keeps_a_start_date_changed_by_a_signed_annex(
+    app_client, app_auth_headers
+):
+    base, tag = _base(), _tag()
+    payload = _file(base, tag)
+    await _preview_and_apply(app_client, app_auth_headers, payload)
+    anna = (await _rows([str(base)]))[str(base)]
+    await _signed_start_date_annex(anna.id, date(2025, 4, 1))
+
+    await _preview_and_apply(app_client, app_auth_headers, payload)
+    anna = (await _rows([str(base)]))[str(base)]
+    assert anna.start_date == date(2025, 4, 1)
+
+
+async def test_rollback_keeps_a_start_date_changed_by_a_signed_annex(
+    app_client, app_auth_headers
+):
+    base, tag = _base(), _tag()
+    await _preview_and_apply(app_client, app_auth_headers, _file(base, tag))
+    body = await _preview_and_apply(
+        app_client, app_auth_headers, _anna_with_position(base, tag, "PM")
+    )
+    anna = (await _rows([str(base)]))[str(base)]
+    await _signed_start_date_annex(anna.id, date(2025, 5, 1))
+
+    resp = await app_client.post(
+        f"{IMPORT}/runs/{body['run_id']}/rollback", headers=app_auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+    anna = (await _rows([str(base)]))[str(base)]
+    assert anna.position == "tester manualny"
+    assert anna.start_date == date(2025, 5, 1)
+
+
+async def test_rollback_does_not_restore_a_deleted_candidate(
+    app_client, app_auth_headers
+):
+    """Kandydat z migawki „przed” scalony po imporcie — przywrócenie jego id
+    kończyło się 500 na kluczu obcym."""
+    from sqlalchemy import delete
+
+    base, tag = _base(), _tag()
+    await _preview_and_apply(app_client, app_auth_headers, _file(base, tag))
+    anna = (await _rows([str(base)]))[str(base)]
+    async with AsyncSessionLocal() as db:
+        merged = Candidate(
+            name="Scalony", lastname=_tag(), email=f"{_tag().lower()}@example.com"
+        )
+        survivor = Candidate(
+            name="Ocalały", lastname=_tag(), email=f"{_tag().lower()}@example.com"
+        )
+        db.add_all([merged, survivor])
+        await db.flush()
+        row = await db.get(B2BGeneratedContract, anna.id)
+        row.candidate_id = merged.id
+        await db.commit()
+        merged_id, survivor_id = merged.id, survivor.id
+
+    body = await _preview_and_apply(
+        app_client, app_auth_headers, _anna_with_position(base, tag, "PM")
+    )
+    async with AsyncSessionLocal() as db:
+        row = await db.get(B2BGeneratedContract, anna.id)
+        assert row.candidate_id == merged_id
+        row.candidate_id = survivor_id
+        await db.flush()
+        await db.execute(delete(Candidate).where(Candidate.id == merged_id))
+        await db.commit()
+
+    resp = await app_client.post(
+        f"{IMPORT}/runs/{body['run_id']}/rollback", headers=app_auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+    anna = (await _rows([str(base)]))[str(base)]
+    assert anna.position == "tester manualny"
+    assert anna.candidate_id == survivor_id

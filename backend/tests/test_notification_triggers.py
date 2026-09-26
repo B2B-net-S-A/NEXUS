@@ -366,3 +366,100 @@ async def test_client_feedback_link_opens_the_candidate_on_the_board(monkeypatch
 
     assert await nt.check_client_feedback_eobd(_Db(), now, latest) == 1
     assert captured.links == ["/jobs/12?candidate=77"]
+
+
+# ── Nieaktywne konto = brak osoby (runda 6 audytu) ───────────────────────────
+
+
+def _active_only(*active_ids):
+    async def is_active(db, user_id):
+        return user_id in active_ids
+
+    return is_active
+
+
+@pytest.mark.asyncio
+async def test_post_interview_call_skips_inactive_owner_for_the_job_recruiter(
+    monkeypatch,
+):
+    from types import SimpleNamespace
+
+    from app.models.calendar_event import CalendarEvent, EventType
+
+    ev = CalendarEvent(
+        event_type=EventType.client_interview, operational_owner_id=11, created_by=11
+    )
+    job = SimpleNamespace(id=1, recruiter_id=33, delivery_lead_id=44)
+    monkeypatch.setattr(nt, "_user_is_active", _active_only(33))
+    assert await nt._post_interview_recipients(None, ev, job, client_side=False) == [33]
+
+    # Nikt aktywny z rekrutacji → zapas DL-owy (DL albo HoR).
+    async def targets(db, job):
+        return [90]
+
+    monkeypatch.setattr(nt, "_user_is_active", _active_only())
+    monkeypatch.setattr(nt, "_delivery_lead_targets", targets)
+    assert await nt._post_interview_recipients(None, ev, job, client_side=False) == [90]
+
+
+@pytest.mark.asyncio
+async def test_post_interview_call_goes_to_the_compass_substitute(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.models.calendar_event import CalendarEvent, EventType
+    from app.services import workforce_availability
+
+    async def substitute(db, owner_id):
+        return 77 if owner_id == 33 else owner_id
+
+    monkeypatch.setattr(workforce_availability, "effective_owner_id", substitute)
+    monkeypatch.setattr(nt, "_user_is_active", _active_only(77))
+    ev = CalendarEvent(event_type=EventType.interview, created_by=33)
+    job = SimpleNamespace(id=1, recruiter_id=33, delivery_lead_id=None)
+    assert await nt._post_interview_recipients(None, ev, job, client_side=False) == [77]
+
+
+@pytest.mark.asyncio
+async def test_stage_stuck_reminder_for_inactive_recruiter_goes_to_the_dl(
+    monkeypatch,
+):
+    from types import SimpleNamespace
+
+    from app.models.recruitment_pipeline import PipelineStage
+
+    now = datetime(2026, 9, 17, 12, 0, tzinfo=timezone.utc)
+    stage = nt.LatestStage(
+        id=5,
+        candidate_id=77,
+        job_id=12,
+        stage=PipelineStage.cv_sent,
+        moved_at=now - timedelta(days=10),
+    )
+    sent: list[int] = []
+
+    async def emit(db, **kwargs):
+        sent.append(kwargs["user_id"])
+        return object()
+
+    async def jobs_by_id(db, ids):
+        return {
+            12: SimpleNamespace(id=12, title="Java", working_title=None, recruiter_id=3)
+        }
+
+    async def targets(db, job):
+        return [44]
+
+    async def names(db, ids):
+        return {77: "Anna Nowak"}
+
+    class _Db:
+        async def execute(self, statement):
+            return []
+
+    monkeypatch.setattr(nt, "_open_jobs_by_id", jobs_by_id)
+    monkeypatch.setattr(nt, "_delivery_lead_targets", targets)
+    monkeypatch.setattr(nt, "_candidate_names", names)
+    monkeypatch.setattr(nt, "_user_is_active", _active_only())
+    monkeypatch.setattr(nt, "emit", emit)
+    assert await nt.check_stage_stuck_7d(_Db(), now, {(77, 12): stage}) == 1
+    assert sent == [44]

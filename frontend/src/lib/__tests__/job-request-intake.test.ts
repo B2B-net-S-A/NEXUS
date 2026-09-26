@@ -402,3 +402,41 @@ describe("hiringManagerFromIntake (25.09.2026)", () => {
     ).toBeNull();
   });
 });
+
+describe("„Skopiuj jako szablon” nie kasuje pól spoza formularza (runda 6 audytu)", () => {
+  const template = {
+    id: 7,
+    champion_profile: {
+      basics: { seniority_min_years: 6 },
+      screening_questions: [
+        { question: "Kafka w produkcji?", ideal_answer: "tak", deal_breaker: "brak Kafki" },
+        { question: "Umowa B2B?", ideal_answer: "tak", deal_breaker: "tylko UoP" },
+      ],
+    },
+  };
+
+  it("lata z szablonu i dealbreakery pytań wracają w PUT Championa bez zmian", () => {
+    const empty = { ...formFromIntake({ ...INTAKE, seniority_min_years: null, screening_questions: [] }) };
+    const next = applyTemplate(empty, template);
+    const champion = buildChampionPayload(next) as {
+      basics: Record<string, unknown>;
+      screening_questions: { question: string; deal_breaker: string }[];
+    };
+    expect(champion.basics.seniority_min_years).toBe(6);
+    expect(champion.screening_questions.map((q) => q.deal_breaker)).toEqual([
+      "brak Kafki",
+      "tylko UoP",
+    ]);
+  });
+
+  it("brak lat w formularzu nie wysyła `null` (serwer scala `basics` płytko)", () => {
+    const form = formFromIntake({ ...INTAKE, seniority_min_years: null });
+    const champion = buildChampionPayload(form) as { basics: Record<string, unknown> };
+    expect(champion.basics).not.toHaveProperty("seniority_min_years");
+  });
+
+  it("lata odczytane z maila wygrywają z szablonem", () => {
+    const next = applyTemplate(formFromIntake(INTAKE), template);
+    expect(next.seniorityYears).toBe(5);
+  });
+});

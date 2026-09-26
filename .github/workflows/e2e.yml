@@ -334,13 +334,11 @@ jobs:
             npx playwright test --project=prod-smoke --project=preview-chromium
           fi
 
-      - name: Upload report on failure
-        if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: playwright-report
-          path: frontend/playwright-report/
-          retention-days: 7
+      # Raportu Playwrighta z tego joba NIE wgrywamy (runda 6 audytu): bieg idzie
+      # przeciw produkcji, a trace/wideo niosą token konta E2E i odpowiedzi API
+      # z danymi z bazy — artefakt publicznego repo pobierze każdy. Przyczynę
+      # porażki pokazuje log kroku „Run tests” (reporter `list`); pełny raport
+      # daje job `stack` na pustej bazie CI.
 
       # OPS-N08: marker musi być DOKŁADNIE ten sam co w kroku otwierającym niżej.
       - name: Close alert issue after a green run

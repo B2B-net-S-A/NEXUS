@@ -115,6 +115,13 @@ async def insights_team_table(
     anchor: date | None = Query(None, description="dowolny dzień wewnątrz okresu"),
     date_from: date | None = Query(None),
     date_to: date | None = Query(None),
+    anchored_average: bool = Query(
+        False,
+        description=(
+            "Dołóż średnią zespołu liczoną atrybucją verifier-anchored "
+            "(jak „Mój miesiąc” i wyścigi)."
+        ),
+    ),
 ):
     """Cztery liczby przy nazwisku w oknie — plus to, czego nie dało się przypisać.
 
@@ -128,7 +135,12 @@ async def insights_team_table(
     # okresu wyszłyby pod etykietą drugiego — obie wyglądają wiarygodnie,
     # więc nikt by się nie dowiedział.
     # v2 (24.09.2026): konta administracyjne jednym wierszem poza tabelą.
-    cache_key = f"insights:team:table:v2:{resolved.cache_suffix}"
+    # v3 + flaga (runda 6 audytu): średnia zespołu tą samą atrybucją co „Mój
+    # miesiąc” jest osobnym, droższym policzeniem — tylko na żądanie.
+    cache_key = (
+        f"insights:team:table:v3:{resolved.cache_suffix}"
+        f":{'anchored' if anchored_average else 'plain'}"
+    )
     async with cache_single_flight(cache_key, db=db):
         cached = await cache_get(cache_key)
         if cached is not None:
@@ -263,5 +275,40 @@ async def insights_team_table(
                 "former_employees": sum(1 for e in entries if e["is_active"] is False),
             },
         }
+        if anchored_average:
+            result["anchored_average"] = await _anchored_team_average(db, resolved)
         await cache_set(cache_key, result, ttl_seconds=CACHE_TTL_SECONDS)
         return result
+
+
+async def _anchored_team_average(db: AsyncSession, resolved) -> dict:
+    """Średnia „CV wysłane” osoby aktywnej w oknie — atrybucja verifier-anchored.
+
+    „Mój miesiąc” pokazuje własne CV wysłane z `/api/kpis/me/panel`
+    (kredyt pierwszego weryfikatora, jak wyścigi), a średnią zespołu brał
+    z wierszy tej tabeli (`first_moved_by` — kto kliknął). To dwie różne
+    atrybucje: porównanie „poniżej średniej zespołu” mieszało je (runda 6
+    audytu). Liczymy ją tą samą funkcją co widok Zespół (`compute_team_panel`),
+    bez kont administracyjnych, tylko po osobach z co najmniej jednym CV —
+    jak dotychczasowa średnia na froncie.
+    """
+    from app.core.scheduling import local_now
+    from app.services.kpi_team import compute_team_panel
+
+    panel = await compute_team_panel(
+        db,
+        bounds=(resolved.start, resolved.end),
+        period_label=resolved.kind.value,
+        now=local_now(),
+    )
+    outside = await outside_scope_user_ids(db, [r.user_id for r in panel.rows])
+    sent = [
+        r.rekomendacje
+        for r in panel.rows
+        if r.user_id not in outside and r.rekomendacje > 0
+    ]
+    return {
+        "attribution": "verifier_anchored",
+        "people": len(sent),
+        "recommendations": round(sum(sent) / len(sent), 1) if sent else None,
+    }

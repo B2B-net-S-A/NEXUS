@@ -11,6 +11,7 @@ import { reportHref } from "@/lib/insights-reports";
 import {
   insightsTeamApi,
   insightsTeamQueryKeys,
+  type TeamTableResponse,
 } from "@/lib/insights-team-api";
 import {
   buildSteps,
@@ -34,6 +35,14 @@ import {
 } from "./ViewKit";
 
 const CURRENT_MONTH: InsightsPeriodParams = { period: "month", offset: 0 };
+
+/** Zaokrąglona średnia CV zespołu albo `null` (brak średniej = brak porównania). */
+export function teamAverageCv(
+  average: TeamTableResponse["anchored_average"],
+): number | null {
+  if (!average || average.recommendations === null) return null;
+  return Math.round(average.recommendations);
+}
 const STEP_LABELS = ["Zweryfikowani", "CV wysłane", "Rozmowy", "Zatrudnieni"];
 
 /**
@@ -67,8 +76,8 @@ export function MojMiesiacView() {
     queryFn: () => insightsApi.recruitmentFunnel(CURRENT_MONTH),
   });
   const teamQuery = useQuery({
-    queryKey: insightsTeamQueryKeys.teamTable(CURRENT_MONTH),
-    queryFn: () => insightsTeamApi.teamTable(CURRENT_MONTH),
+    queryKey: insightsTeamQueryKeys.teamTableAnchored(CURRENT_MONTH),
+    queryFn: () => insightsTeamApi.teamTableWithAnchoredAverage(CURRENT_MONTH),
   });
   const seniorityQuery = useQuery({
     queryKey: ["insights", "recruitment", "seniority"],
@@ -97,14 +106,11 @@ export function MojMiesiacView() {
       raceRanking.find((e) => !e.excluded) ??
       null);
 
-  const teamRows = teamQuery.data?.rows ?? [];
-  const activeTeam = teamRows.filter((r) => r.recommendations > 0);
-  const teamAvgCv = activeTeam.length
-    ? Math.round(
-        activeTeam.reduce((sum, r) => sum + r.recommendations, 0) /
-          activeTeam.length,
-      )
-    : null;
+  // Średnia zespołu TĄ SAMĄ atrybucją co moja liczba (kredyt pierwszego
+  // weryfikatora, jak `/api/kpis/me/panel`). Wiersze tabeli liczą „kto
+  // kliknął" (`first_moved_by`) — porównanie z nimi mieszało atrybucje
+  // (runda 6 audytu).
+  const teamAvgCv = teamAverageCv(teamQuery.data?.anchored_average);
 
   const mySteps = panel
     ? buildSteps(STEP_LABELS, [

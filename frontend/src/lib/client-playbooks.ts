@@ -23,6 +23,18 @@ import { useQuery } from "@tanstack/react-query";
 
 import api from "@/lib/api";
 
+/**
+ * Link „Edytuj kartę" / „Załóż kartę" spoza profilu klienta (strona
+ * rekrutacji, Pomoc → Klienci). Prowadzi do edytora w Ustawieniach, nie do
+ * `/clients/{id}?tab=zasady` (runda 6 audytu), bo od 25.09.2026 Delivery Lead
+ * widzi profil wyłącznie klientów ze swojego portfela (#1843) — link do
+ * profilu cudzego klienta kończył się 403 — a zapis karty jest org-wide
+ * i ten sam formularz (`ClientPlaybookForm`) żyje w edytorze reguł CV.
+ */
+export function clientPlaybookEditHref(clientId: number): string {
+  return `/settings/cv-rules?client=${clientId}&tab=playbook`;
+}
+
 export interface PlaybookDocument {
   name: string;
   url: string;

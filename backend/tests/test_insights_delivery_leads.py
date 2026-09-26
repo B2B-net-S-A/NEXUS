@@ -84,6 +84,7 @@ async def _seed_job(
     headcount: int = 1,
     recruitment_type: RecruitmentType = RecruitmentType.body_leasing,
     job_status: JobStatus = JobStatus.published,
+    opened_at: datetime | None = None,
 ) -> int:
     async with AsyncSessionLocal() as db:
         job = Job(
@@ -96,6 +97,7 @@ async def _seed_job(
             delivery_lead_id=dl_id,
             headcount=headcount,
             created_at=created_at,
+            opened_at=opened_at,
         )
         db.add(job)
         await db.commit()
@@ -628,3 +630,64 @@ async def test_anchor_selects_a_past_period_without_custom_dates(
     ).json()
     assert body["period"]["start"].startswith("2013-07-01")
     assert body["period"]["end"].startswith("2013-08-01")
+
+
+# ── Runda 6 audytu: okno zapytań liczy się po dacie OTWARCIA ─────────────────
+
+
+def test_jobs_scoped_cte_windows_on_opening_date_not_import_date():
+    """`created_at` rekrutacji z Traffita to data importu (`_UPSERT_JOB` →
+    NOW()); prawdziwą datą otwarcia jest `opened_at`. Każde zapytanie
+    zakresu DL filtruje okno po wyprowadzonym `opened_at`."""
+    import inspect
+
+    from app.api import insights_delivery_leads
+    from app.services import insights_dl_portfolio
+    from app.services.insights_dl_scope import JOBS_SCOPED_CTE
+
+    assert "COALESCE(j.opened_at, j.created_at) AS opened_at" in JOBS_SCOPED_CTE
+    for module in (insights_delivery_leads, insights_dl_portfolio):
+        assert "js.created_at" not in inspect.getsource(module), module.__name__
+
+
+@pytest.mark.asyncio
+async def test_ranking_counts_requests_by_opening_date(fx_client: AsyncClient):
+    """Rekrutacja otwarta w lutym, zaimportowana w maju, jest lutowym
+    zapytaniem — nie majowym (runda 6 audytu)."""
+    await _flush_cache()
+    dl_id, _, _ = await _seed_user(UserRole.delivery_lead, "opened")
+    client_id = await _seed_client("opened")
+    await _seed_job(
+        client_id=client_id,
+        dl_id=dl_id,
+        created_at=_utc(2013, 5, 6),
+        opened_at=_utc(2013, 2, 12),
+        headcount=3,
+    )
+
+    _, email, password = await _seed_user(UserRole.admin, "openedview")
+    headers = await _login(fx_client, email, password)
+
+    async def _requests(date_from: str, date_to: str) -> int:
+        body = (
+            await fx_client.get(
+                RANKING_URL,
+                headers=headers,
+                params={"period": "custom", "date_from": date_from, "date_to": date_to},
+            )
+        ).json()
+        rows = [r for r in body["per_dl"] if r["user_id"] == dl_id]
+        return rows[0]["total_requests"] if rows else 0
+
+    assert await _requests("2013-02-01", "2013-02-28") == 1
+    assert await _requests("2013-05-01", "2013-05-31") == 0
+
+    trend = (
+        await fx_client.get(
+            f"{RANKING_URL}/{dl_id}/trend",
+            headers=headers,
+            params={"months": 4, "anchor": "2013-05-15"},
+        )
+    ).json()
+    series = {p["month"]: p["requests"] for p in trend["trend"]}
+    assert series["2013-02"] == 1 and series["2013-05"] == 0, trend["trend"]

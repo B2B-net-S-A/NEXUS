@@ -26,7 +26,7 @@ vi.mock("@/components/Toast", () => ({
 }));
 
 
-import { RequestHistorySection } from "@/components/RequestHistorySection";
+import { RequestHistorySection, formatFee } from "@/components/RequestHistorySection";
 import { useAuthStore } from "@/store/auth";
 
 function signInAs(role: string) {
@@ -330,5 +330,14 @@ describe("RequestHistorySection — wynik zamkniętego requestu po polsku", () =
     renderSection(true);
     expect(await screen.findByText("Anulowana")).toBeInTheDocument();
     expect(screen.queryByText("Cancelled")).not.toBeInTheDocument();
+  });
+});
+
+// Runda 6 audytu: `fee_rate` to marża MIESIĘCZNA — etykieta nie może iść
+// z jednostki stawek kontraktu („/h” przy marży miesięcznej).
+describe("formatFee", () => {
+  it("zawsze podpisuje marżę jako miesięczną", () => {
+    expect(formatFee(4200, "PLN")).toBe(`+${(4200).toLocaleString("pl-PL")} PLN/mc`);
+    expect(formatFee(null, "PLN")).toBeNull();
   });
 });
