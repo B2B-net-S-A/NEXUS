@@ -17,6 +17,8 @@ from __future__ import annotations
 from decimal import Decimal
 from types import SimpleNamespace
 
+import pytest
+
 from app.api.client_md_imports import _ClientScope
 from app.api.md_consumption import (
     _REPROCESS_MD_LINE,
@@ -35,9 +37,15 @@ from app.models.md_consumption import (
 from app.services import finance_order_matching
 from app.services.client_order_lines import LineMatch, name_tokens
 
-POLKOMTEL = finance_order_matching.POLKOMTEL_CLIENT_ID
+POLKOMTEL = 15
 CP = 38339
 BNP = 12
+
+
+@pytest.fixture(autouse=True)
+def _polkomtel_is_client_15(monkeypatch):
+    """conftest odpina bramkę Polkomtela (id −3) — te testy pytają wprost o nią."""
+    monkeypatch.setattr(finance_order_matching, "POLKOMTEL_CLIENT_ID", POLKOMTEL)
 
 
 # ── R7-N4-2 ────────────────────────────────────────────────────────────────
