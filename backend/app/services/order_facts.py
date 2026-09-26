@@ -22,8 +22,20 @@ from decimal import Decimal
 from typing import Iterable, Optional, Sequence
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import Select, and_, func, or_, select, tuple_
+from sqlalchemy import (
+    Date,
+    Select,
+    and_,
+    case,
+    cast,
+    func,
+    literal_column,
+    or_,
+    select,
+    tuple_,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.core.scheduling import DEFAULT_TZ, business_today
 from app.models.candidate import Candidate
@@ -37,6 +49,7 @@ from app.models.client_order_offboarding import (
 )
 from app.models.contract import Contract, ContractStatus
 from app.models.contract_amendment import ContractAmendment, ContractAmendmentType
+from app.models.md_consumption import ClientOrderMdConsumption
 from app.services.client_identity import client_display_name_expression
 from app.services.multi_consultant_orders import (
     EVENT_CONSULTANT_ENDED,
@@ -126,6 +139,59 @@ def effective_end_expr():
     return func.coalesce(ClientOrder.end_date, ClientOrderGroup.end_date)
 
 
+def exhaustion_end_expr():
+    """Ostatni dzień miesiąca ostatniego zejścia MD linii (``NULL`` bez zejść).
+
+    Linię MD kończy budżet, nie kalendarz: ``sync_md_line_status`` stawia
+    ``completed`` przy wyczerpaniu i NIE zapisuje daty końca — zapis daty
+    zablokowałby wskrzeszenie linii po korekcie budżetu. Dzień wyczerpania
+    wynika więc z dziennika zużycia: udział kończy się w miesiącu, którego
+    raport zjadł ostatnie MD.
+    """
+
+    last_month = (
+        select(func.max(ClientOrderMdConsumption.period_month))
+        .where(
+            ClientOrderMdConsumption.order_id == ClientOrder.id,
+            ClientOrderMdConsumption.md_reported > 0,
+        )
+        .correlate(ClientOrder)
+        .scalar_subquery()
+    )
+    return cast(
+        func.to_date(last_month, "YYYY-MM")
+        + literal_column("INTERVAL '1 month'")
+        - literal_column("INTERVAL '1 day'"),
+        Date,
+    )
+
+
+def participation_end_expr():
+    """Koniec UDZIAŁU osoby w zamówieniu — okres dla Zejść, Kończących i Braków.
+
+    Zwykle to ``effective_end_expr`` (``COALESCE(linia, grupa)``). Wyjątek:
+    linia MD zakończona WYCZERPANIEM budżetu (``completed``, bez własnej daty,
+    ``md_remaining`` ≤ 0) kończy się w miesiącu ostatniego zejścia MD, a nie
+    z datą grupy. Bez tego taka linia nie trafiała do Braków (grupa bez daty
+    końca) albo lądowała w Zejściach w złym miesiącu (data grupy) — runda 6
+    audytu. Aktywna linia z niewyczerpanym budżetem nie jest tu ruszana: ona
+    nadal pracuje po dacie (``works_until_md_exhausted``). Okres DOKUMENTU
+    (Zamówienia PDF, nagłówek karty) zostaje przy ``effective_end_expr``.
+    """
+
+    exhausted = and_(
+        ClientOrder.end_date.is_(None),
+        ClientOrder.order_group_id.is_not(None),
+        ClientOrder.md_total.is_not(None),
+        ClientOrder.status == ClientOrderStatus.completed,
+        func.coalesce(ClientOrder.md_remaining, 0) <= 0,
+    )
+    return case(
+        (exhausted, func.coalesce(exhaustion_end_expr(), effective_end_expr())),
+        else_=effective_end_expr(),
+    )
+
+
 def order_facts_select() -> Select:
     """Kolumny jednego zamówienia z okresem, osobą, klientem i stawkami."""
 
@@ -141,7 +207,7 @@ def order_facts_select() -> Select:
             Candidate.lastname.label("candidate_last"),
             ClientOrder.status,
             effective_start_expr().label("eff_start"),
-            effective_end_expr().label("eff_end"),
+            participation_end_expr().label("eff_end"),
             ClientOrder.title,
             ClientOrderGroup.order_number,
             ClientOrder.order_type,
@@ -400,9 +466,21 @@ async def load_ending_intents(
     contract_ids = sorted({fact.contract_id for fact in facts})
     intents: dict[int, str] = {}
 
+    # Lustro warunku następcy w skanerze wygasania (``_promote_statuses``):
+    # anulowana linia i szkic zaplanowanego „Wejdź za konsultanta” wskazują
+    # poprzednika, ale nikogo nie zastąpiły — odchodzący pracuje do swojej
+    # daty, a zastępstwo mogło zostać odwołane. Bez tych filtrów anulowane
+    # zastępstwo robiło z osoby „zastąpioną” w Zejściach i gasiło jej Brak
+    # (runda 6 audytu). Import leniwy, bo moduł zastępstw ciągnie za sobą
+    # ścieżkę zapisu zamówień, która importuje Braki (a te — ten moduł).
+    from app.services.order_line_takeover import scheduled_takeover_draft_clause
+
+    successor = aliased(ClientOrder)
     replaced = await db.scalars(
-        select(ClientOrder.predecessor_order_id).where(
-            ClientOrder.predecessor_order_id.in_(order_ids)
+        select(successor.predecessor_order_id).where(
+            successor.predecessor_order_id.in_(order_ids),
+            successor.status != ClientOrderStatus.cancelled,
+            ~scheduled_takeover_draft_clause(successor),
         )
     )
     for order_id in replaced:

@@ -492,6 +492,94 @@ async def test_replaced_consultant_is_not_a_gap(monkeypatch):
     assert await _gap_for(ids["order_id"]) is None
 
 
+async def test_cancelled_replacement_does_not_make_the_consultant_replaced(
+    monkeypatch,
+):
+    """Runda 6 audytu (FIN6-1): anulowana linia zastępcy nikogo nie zastąpiła.
+
+    Intencja „zastąpiony” brała KAŻDĄ linię z ``predecessor_order_id``, także
+    anulowaną — osoba stała w Zejściach jako zastąpiona, a jej Brak gasł.
+    Skaner wygasania od dawna pomija anulowane linie przy tym samym pytaniu.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.services.order_facts import load_ending_intents, load_facts
+
+    end = _far_day(2085, 2088)
+    ids = await _seed(start=end - timedelta(days=60), end=end)
+    other = await _seed(start=end + timedelta(days=1), end=end + timedelta(days=90))
+    async with AsyncSessionLocal() as db:
+        replacement = await db.get(ClientOrder, other["order_id"])
+        replacement.predecessor_order_id = ids["order_id"]
+        replacement.status = ClientOrderStatus.cancelled
+        await db.commit()
+        facts = await load_facts(db, ClientOrder.id == ids["order_id"])
+        assert await load_ending_intents(db, facts) == {}
+    await _detect(monkeypatch, tracking_start=end, today=end + timedelta(days=1))
+    gap = await _gap_for(ids["order_id"])
+    assert gap is not None and gap.status == "open"
+
+
+async def test_scheduled_takeover_draft_is_not_a_replacement():
+    """Runda 6 audytu (FIN6-1): szkic zaplanowanego „Wejdź za konsultanta”
+    nie jest zastąpieniem — lustro ``scheduled_takeover_draft_clause`` ze
+    skanera wygasania. Zastępstwo może zostać odwołane (przedłużenie umowy
+    odchodzącego), a do dnia wejścia odchodzący pracuje."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order_group import ClientOrderGroup, ClientOrderGroupEvent
+    from app.services.multi_consultant_orders import EVENT_CONSULTANT_ADDED
+    from app.services.order_facts import (
+        INTENT_REPLACED,
+        load_ending_intents,
+        load_facts,
+    )
+    from app.services.order_line_takeover import ASSIGNMENT_TAKEOVER
+
+    end = _far_day(2085, 2088)
+    ids = await _seed(start=end - timedelta(days=60), end=end)
+    async with AsyncSessionLocal() as db:
+        group = ClientOrderGroup(
+            client_id=ids["client_id"],
+            order_number=f"G-{uuid.uuid4().hex[:6]}",
+            order_type="md",
+            status="active",
+            start_date=end - timedelta(days=60),
+            end_date=end + timedelta(days=90),
+        )
+        db.add(group)
+        await db.flush()
+        draft = _order(
+            ids["client_id"],
+            ids["contract_id"],
+            start=end + timedelta(days=1),
+            end=None,
+            status=ClientOrderStatus.draft,
+            order_group_id=group.id,
+            predecessor_order_id=ids["order_id"],
+        )
+        db.add(draft)
+        await db.flush()
+        db.add(
+            ClientOrderGroupEvent(
+                group_id=group.id,
+                order_id=draft.id,
+                event_type=EVENT_CONSULTANT_ADDED,
+                description="Zaplanowane zastępstwo",
+                payload={"assignment": ASSIGNMENT_TAKEOVER, "scheduled": True},
+            )
+        )
+        await db.commit()
+        facts = await load_facts(db, ClientOrder.id == ids["order_id"])
+        assert await load_ending_intents(db, facts) == {}
+
+        # Zastępstwo, które weszło (linia aktywna), zastępuje jak dotąd.
+        entered = await db.get(ClientOrder, draft.id)
+        entered.status = ClientOrderStatus.active
+        await db.commit()
+        assert await load_ending_intents(db, facts) == {
+            ids["order_id"]: INTENT_REPLACED
+        }
+
+
 async def test_successor_added_after_the_day_of_detection_is_recorded_as_late(
     monkeypatch,
 ):
@@ -506,6 +594,90 @@ async def test_successor_added_after_the_day_of_detection_is_recorded_as_late(
     gap = await _gap_for(ids["order_id"])
     assert gap is not None and gap.status == "filled_late"
     assert gap.resolved_order_id == late_id
+
+
+async def test_deleted_late_successor_reopens_the_gap_with_a_dl_card(
+    monkeypatch, app_client: AsyncClient, app_auth_headers: dict
+):
+    """Runda 6 audytu (FIN6-2): usunięty następca nie zostawia braku „uzupełnionego”.
+
+    Detektor pomija zamówienia z wierszem braku, a odświeżanie widziało tylko
+    braki otwarte — po usunięciu zamówienia, które uzupełniło brak, osoba
+    zostawała bez zamówienia i bez alertu DL.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.dl_alert import (
+        ALERT_ORDER_MISSING_SUCCESSOR,
+        DL_ALERT_STATUS_NEW,
+        DlAlert,
+    )
+
+    end = _far_day(2001, 2020)
+    ids = await _seed(start=end - timedelta(days=60), end=end)
+    dl_id = await _seed_dl(ids["client_id"])
+    late_id = await _add_order(
+        ids, start=end + timedelta(days=10), end=end + timedelta(days=100)
+    )
+    await _detect(monkeypatch, tracking_start=end, today=end + timedelta(days=30))
+    assert (await _gap_for(ids["order_id"])).status == "filled_late"
+
+    resp = await app_client.delete(
+        f"/api/clients/{ids['client_id']}/orders/{late_id}",
+        headers=app_auth_headers,
+    )
+    assert resp.status_code in (200, 204), resp.text
+
+    gap = await _gap_for(ids["order_id"])
+    assert gap.status == "open"
+    assert gap.resolved_order_id is None and gap.resolved_at is None
+    async with AsyncSessionLocal() as db:
+        cards = await db.scalar(
+            select(func.count())
+            .select_from(DlAlert)
+            .where(
+                DlAlert.alert_type == ALERT_ORDER_MISSING_SUCCESSOR,
+                DlAlert.user_id == dl_id,
+                DlAlert.order_id == ids["order_id"],
+                DlAlert.status == DL_ALERT_STATUS_NEW,
+            )
+        )
+    assert cards == 1
+
+
+async def test_cancelled_late_successor_reopens_the_gap_unless_another_one_exists(
+    monkeypatch,
+):
+    """Runda 6 audytu (FIN6-2): anulowany następca = brak wraca; inny następca
+    tej osoby = brak zostaje uzupełniony, ale wskazuje tego innego."""
+    from app.core.database import AsyncSessionLocal
+    from app.services.order_gaps import refresh_order_gaps_safely
+
+    end = _far_day(2001, 2020)
+    ids = await _seed(start=end - timedelta(days=60), end=end)
+    late_id = await _add_order(
+        ids, start=end + timedelta(days=10), end=end + timedelta(days=100)
+    )
+    await _detect(monkeypatch, tracking_start=end, today=end + timedelta(days=30))
+    assert (await _gap_for(ids["order_id"])).resolved_order_id == late_id
+
+    other_id = await _add_order(
+        ids, start=end + timedelta(days=20), end=end + timedelta(days=200)
+    )
+    async with AsyncSessionLocal() as db:
+        (await db.get(ClientOrder, late_id)).status = ClientOrderStatus.cancelled
+        await db.flush()
+        await refresh_order_gaps_safely(db, contract_ids=[ids["contract_id"]])
+        await db.commit()
+    gap = await _gap_for(ids["order_id"])
+    assert gap.status == "filled_late" and gap.resolved_order_id == other_id
+
+    async with AsyncSessionLocal() as db:
+        (await db.get(ClientOrder, other_id)).status = ClientOrderStatus.cancelled
+        await db.flush()
+        await refresh_order_gaps_safely(db, contract_ids=[ids["contract_id"]])
+        await db.commit()
+    gap = await _gap_for(ids["order_id"])
+    assert gap.status == "open" and gap.resolved_order_id is None
 
 
 async def test_successor_added_on_the_day_of_detection_is_on_time(monkeypatch):
@@ -971,6 +1143,97 @@ async def test_contract_starting_in_the_same_month_still_counts_as_an_entry(
     assert ids["order_id"] in {e["order_id"] for e in body["entries"]}
 
 
+def test_own_contract_signed_just_before_the_first_order_is_not_earlier_work():
+    """Runda 6 audytu (FIN6-4): umowa TEGO zamówienia podpisana kilka dni przed
+    nim to początek współpracy. Stara umowa (grudzień → wrzesień) i umowa
+    u innego klienta nadal są dowodem wcześniejszej pracy."""
+    from app.services.finance_order_changes import Engagement, _classify_by_engagement
+
+    order = _fact(1, contract_id=11, client_id=10, start=date(2026, 10, 1), end=None)
+
+    def eng(contract_id, client_id, start, end=None):
+        return Engagement(
+            client_id=client_id,
+            client_name=f"Klient {client_id}",
+            start=start,
+            end=end,
+            closed=False,
+            contract_id=contract_id,
+        )
+
+    signed = eng(11, 10, date(2026, 9, 25))
+    assert _classify_by_engagement(order, [signed]).kind == "new"
+    old = eng(11, 10, date(2025, 12, 1))
+    assert _classify_by_engagement(order, [old]).kind == "order_continuation"
+    elsewhere = eng(12, 20, date(2026, 9, 25))
+    assert _classify_by_engagement(order, [elsewhere]).kind == "additional_project"
+    # Ten sam kontrakt, ale ponad miesiąc przed zamówieniem — współpraca już była.
+    month_before = eng(11, 10, date(2026, 8, 20))
+    assert _classify_by_engagement(order, [month_before]).kind == "order_continuation"
+
+
+async def test_b2b_signed_late_in_the_previous_month_is_an_entry_of_the_order_month(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Runda 6 audytu (FIN6-4): podpis B2B 25.09 (szkic z podpisu) + zamówienie
+    od 01.10 — osoba pokazuje się w Wejściach października, a nie nigdzie."""
+    from app.core.database import AsyncSessionLocal
+
+    first = _far_day(2034, 2037).replace(day=1)
+    signed = first - timedelta(days=6)
+    ids = await _seed(
+        contract_rate_client=None, start=first, end=first + timedelta(days=200)
+    )
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, ids["contract_id"])
+        contract.start_date = signed
+        shell = _order(
+            ids["client_id"],
+            ids["contract_id"],
+            start=signed,
+            end=None,
+            status=ClientOrderStatus.draft,
+        )
+        shell.rate_client = None  # szkic z podpisu: bez stawki przychodowej
+        db.add(shell)
+        await db.commit()
+
+    body = await _month(app_client, app_auth_headers, first, client_id=ids["client_id"])
+    assert ids["order_id"] in {e["order_id"] for e in body["entries"]}
+    assert ids["order_id"] not in {c["order_id"] for c in body["changes"]}
+
+
+async def test_draft_of_a_covered_cooperation_is_one_change_row(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Runda 6 audytu (FIN6-5): reguła „szkic pokrytej współpracy = jeden wpis”
+    (FIN-CHG-7) działa też w syntetycznych wierszach Zmian — bez niej
+    kontynuacja pokazywała się dwa razy (zamówienie i jego szkic)."""
+
+    first = _far_day(2050, 2053).replace(day=1)
+    ids = await _seed(
+        contract_rate_client=None,
+        start=first - timedelta(days=90),
+        end=first + timedelta(days=2),
+    )
+    nxt = await _add_order(
+        ids, start=first + timedelta(days=3), end=first + timedelta(days=200)
+    )
+    draft = await _add_order(
+        ids,
+        start=first + timedelta(days=3),
+        end=first + timedelta(days=200),
+        status=ClientOrderStatus.draft,
+    )
+
+    body = await _month(app_client, app_auth_headers, first, client_id=ids["client_id"])
+    continuation = [
+        c["order_id"] for c in body["changes"] if c["kind"] == "order_continuation"
+    ]
+    assert continuation == [nxt], continuation
+    assert draft not in {e["order_id"] for e in body["entries"]}
+
+
 async def test_draft_contract_is_not_proof_of_earlier_work(
     app_client: AsyncClient, app_auth_headers: dict
 ):
@@ -1384,6 +1647,95 @@ async def test_standalone_order_with_md_total_is_completed_once_its_day_passed()
         order = await db.get(ClientOrder, ids["order_id"])
         assert order.order_group_id is None
         assert order.status == ClientOrderStatus.completed
+
+
+async def test_md_line_ended_by_exhaustion_ends_in_the_month_of_its_last_md(
+    monkeypatch, app_client: AsyncClient, app_auth_headers: dict
+):
+    """Runda 6 audytu (FIN6-3): linia MD zakończona wyczerpaniem budżetu.
+
+    ``sync_md_line_status`` zamyka ją bez daty końca, więc okres
+    ``COALESCE(linia, grupa)`` brał datę grupy (albo nic przy grupie
+    bezterminowej): osoba nie trafiała do Braków, a w Zejściach/Kończących
+    stała w złym miesiącu. Koniec udziału = ostatni dzień miesiąca ostatniego
+    zejścia MD.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order_group import ClientOrderGroup
+    from app.models.md_consumption import ClientOrderMdConsumption
+    from app.services.order_facts import load_facts
+
+    last_day = _far_day(2085, 2088).replace(day=1) + timedelta(days=40)
+    last_day = last_day.replace(day=1) - timedelta(days=1)  # koniec miesiąca
+    first_month = (last_day.replace(day=1) - timedelta(days=1)).replace(day=1)
+    ids = await _seed(start=first_month, end=last_day + timedelta(days=200))
+    still = await _add_order(ids, start=first_month, end=None)
+    async with AsyncSessionLocal() as db:
+        group = ClientOrderGroup(
+            client_id=ids["client_id"],
+            order_number=f"G-{uuid.uuid4().hex[:6]}",
+            order_type="md",
+            status="active",
+            start_date=first_month,
+            end_date=None,
+        )
+        db.add(group)
+        await db.flush()
+        for order_id, remaining, status in (
+            (ids["order_id"], Decimal("0"), ClientOrderStatus.completed),
+            (still, Decimal("40"), ClientOrderStatus.active),
+        ):
+            order = await db.get(ClientOrder, order_id)
+            order.order_group_id = group.id
+            order.end_date = None
+            order.status = status
+            order.md_total = Decimal("100")
+            order.md_remaining = remaining
+            order.md_rate_revenue = Decimal("1340")
+            order.md_input_mode = "md"
+            order.md_input_value = Decimal("100")
+        for month, md in ((first_month, "60"), (last_day, "40")):
+            db.add(
+                ClientOrderMdConsumption(
+                    order_id=ids["order_id"],
+                    period_month=month.strftime("%Y-%m"),
+                    md_reported=Decimal(md),
+                    source="import",
+                )
+            )
+        await db.commit()
+        facts = {
+            fact.order_id: fact
+            for fact in await load_facts(
+                db, ClientOrder.id.in_([ids["order_id"], still])
+            )
+        }
+    assert facts[ids["order_id"]].end == last_day
+    # Aktywna linia z budżetem nie kończy się datą — bez zmian.
+    assert facts[still].end is None and facts[still].works_until_md_exhausted
+
+    body = await _month(
+        app_client, app_auth_headers, last_day, client_id=ids["client_id"]
+    )
+    listed = {e["order_id"] for e in body["exits"]} | {
+        e["order_id"] for e in body["ending_orders"]
+    }
+    assert ids["order_id"] not in listed, "druga linia tej osoby trwa — to nie koniec"
+
+    async with AsyncSessionLocal() as db:
+        (await db.get(ClientOrder, still)).status = ClientOrderStatus.cancelled
+        await db.commit()
+    body = await _month(
+        app_client, app_auth_headers, last_day, client_id=ids["client_id"]
+    )
+    ending = {e["order_id"]: e for e in body["ending_orders"]}
+    assert ending[ids["order_id"]]["end_date"] == last_day.isoformat()
+
+    await _detect(
+        monkeypatch, tracking_start=last_day, today=last_day + timedelta(days=5)
+    )
+    gap = await _gap_for(ids["order_id"])
+    assert gap is not None and gap.ended_on == last_day
 
 
 async def test_successor_on_a_contract_without_a_person_is_seen(monkeypatch):

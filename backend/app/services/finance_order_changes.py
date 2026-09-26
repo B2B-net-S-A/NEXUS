@@ -90,7 +90,7 @@ from app.core.export_safety import safe_cell
 from app.services.order_facts import (
     INTENT_LABELS,
     OrderFact,
-    effective_end_expr,
+    participation_end_expr,
     effective_start_expr,
     load_ending_intents,
     load_facts,
@@ -203,6 +203,7 @@ class Engagement:
     start: date
     end: Optional[date]
     closed: bool
+    contract_id: Optional[int] = None
 
     def runs_on(self, day: date) -> bool:
         if self.end is not None:
@@ -234,6 +235,7 @@ async def _prior_engagements(
     rows = (
         await db.execute(
             select(
+                Contract.id,
                 Contract.candidate_id,
                 Contract.client_id,
                 client_display_name_expression().label("client_name"),
@@ -260,6 +262,7 @@ async def _prior_engagements(
                 end=row.end_date,
                 closed=row.status
                 in (ContractStatus.ended.value, ContractStatus.void.value),
+                contract_id=row.id,
             )
         )
     return result
@@ -393,6 +396,11 @@ async def _classify_entries(
     return result
 
 
+#: Odstęp start umowy → start jej pierwszego zamówienia, do którego umowa
+#: jest początkiem współpracy, a nie dowodem wcześniejszej (runda 6 audytu).
+ENGAGEMENT_NEW_WINDOW_DAYS = 31
+
+
 def _classify_by_engagement(
     fact: OrderFact, engagements: Sequence[Engagement]
 ) -> EntryClass:
@@ -403,6 +411,25 @@ def _classify_by_engagement(
     na końcu współpraca już zamknięta (zmiana klienta).
     """
 
+    # Umowa TEGO zamówienia podpisana tuż przed nim to początek współpracy,
+    # nie dowód wcześniejszej pracy (runda 6 audytu): podpis B2B 25.09
+    # i pierwsze zamówienie od 01.10 dawały we wrześniu szkic ukryty jako
+    # „pokryty”, a w październiku „Kontynuację” — osoba nie trafiała do Wejść
+    # nigdy. Rozstrzyga odstęp start umowy → start zamówienia: do 31 dni (to
+    # samo okno co ``previous_of``) = nowa współpraca. Konsultantka z umową
+    # od grudnia i pierwszym zamówieniem we wrześniu (zgłoszenie 09.2026)
+    # zostaje Zmianą. Umowa, która miała wcześniej zamówienie, nie dochodzi
+    # tu wcale — rozstrzyga ją szczebel zamówień.
+    engagements = [
+        eng
+        for eng in engagements
+        if not (
+            eng.contract_id is not None
+            and eng.contract_id == fact.contract_id
+            and fact.start is not None
+            and (fact.start - eng.start).days <= ENGAGEMENT_NEW_WINDOW_DAYS
+        )
+    ]
     if not engagements:
         return EntryClass("new")
 
@@ -449,6 +476,12 @@ async def _entries(
         for key, group in siblings.items()
         if any(not o.is_draft and not o.is_cancelled for o in group)
     }
+    # Ta sama reguła dla wierszy syntetycznych w Zmianach (runda 6 audytu):
+    # zwracane ``facts`` zasilają tam „Kontynuację”/„Zmianę klienta”, więc
+    # szkic pokrytej współpracy dawał drugi, zdublowany wiersz.
+    facts = [
+        fact for fact in facts if not (fact.is_draft and sibling_key(fact) in covered)
+    ]
     items = [
         OrderEntryItem(
             **_ref(fact),
@@ -463,7 +496,6 @@ async def _entries(
         )
         for fact in facts
         if classes[fact.order_id].kind == "new"
-        and not (fact.is_draft and sibling_key(fact) in covered)
     ]
     # Nordea: gotowa pozycja faktury cyklicznej z PDF-a (ticket 8).
     invoice = await nordea_invoice_lines.entry_lines(
@@ -498,7 +530,9 @@ async def _exits(
     Trzeci element to klucze współprac (osoba × klient) z Zejść — Braki tego
     miesiąca ich nie pokazują.
     """
-    end = effective_end_expr()
+    # Koniec UDZIAŁU, nie okres dokumentu: linia MD zakończona wyczerpaniem
+    # budżetu schodzi w miesiącu ostatniego zejścia MD (runda 6 audytu).
+    end = participation_end_expr()
     facts = await load_facts(
         db,
         ClientOrder.status.notin_(

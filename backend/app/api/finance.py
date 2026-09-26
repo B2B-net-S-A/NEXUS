@@ -11,6 +11,7 @@ Dane tego modułu są NIEZALEŻNE od reszty systemu: „Imię i nazwisko" oraz
 modyfikuje niczego poza dwiema tabelami ``finance_*``.
 """
 
+import asyncio
 import hashlib
 import io
 import logging
@@ -33,6 +34,7 @@ from fastapi.responses import FileResponse, Response
 from sqlalchemy import String, cast, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 
 from app.api.deps import FinanceModuleUser
@@ -1278,25 +1280,32 @@ async def download_order_pdfs_zip(
             detail=f"Za dużo plików w jednym archiwum (limit {MAX_ZIP_FILES}).",
         )
     members = [(entry, _entry_path(entry)) for entry in entries]
-    content = await run_in_threadpool(
-        finance_order_pdfs.build_zip, members, client_folders=client_id is None
+    # Archiwum w pliku tymczasowym oddawanym strumieniem i usuwanym po
+    # wysłaniu — w pamięci szczyt był ~2× archiwum (runda 6 audytu).
+    zip_path = await asyncio.to_thread(
+        finance_order_pdfs.build_zip_file, members, client_folders=client_id is None
     )
-    await _record_downloads(
-        request, db, user, [entry for entry, path in members if path is not None]
-    )
+    try:
+        await _record_downloads(
+            request, db, user, [entry for entry, path in members if path is not None]
+        )
+    except BaseException:
+        finance_order_pdfs.remove_file_quietly(zip_path)
+        raise
     filename = (
         finance_order_pdfs.client_zip_name(entries[0].client_name, year, month)
         if client_id is not None
         else finance_order_pdfs.month_zip_name(year, month)
     )
-    return Response(
-        content=content,
+    return FileResponse(
+        zip_path,
         media_type="application/zip",
         headers={
             "Content-Disposition": content_disposition_attachment(
                 filename, fallback="zamowienia.zip"
             )
         },
+        background=BackgroundTask(finance_order_pdfs.remove_file_quietly, zip_path),
     )
 
 
