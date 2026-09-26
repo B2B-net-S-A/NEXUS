@@ -717,6 +717,69 @@ async def manual_remove(db: AsyncSession, *, job_id: int, user_id: int) -> bool:
     return True
 
 
+async def restore_after_champion_removed(
+    db: AsyncSession, *, job_id: int, champion_since: Optional[datetime], now: datetime
+) -> int:
+    """Zdjęcie „Mamy championa” oddaje requestowi ludzi dodanych ręcznie.
+
+    Runda 8 (R8-N7-5): champion zwalniał wszystkich — także osoby dodane
+    ręcznie z pulpitu — a jego zdjęcie (np. pomyłkowe oznaczenie) nikogo nie
+    przywracało; automat dobierał od nowa według obciążenia. Wracają wiersze
+    ``manual`` zwolnione z powodem ``champion`` od chwili oznaczenia, jeśli
+    konto jest aktywne i para nie żyje już inaczej. Wołający trzyma
+    ``allocation_lock`` (przed blokadą rekrutacji).
+    """
+    conditions = [
+        JobWorkAssignment.job_id == job_id,
+        JobWorkAssignment.state == "released",
+        JobWorkAssignment.source == "manual",
+        JobWorkAssignment.release_reason == "champion",
+    ]
+    if champion_since is not None:
+        conditions.append(JobWorkAssignment.released_at >= champion_since)
+    rows = (
+        await db.execute(
+            select(
+                JobWorkAssignment.user_id,
+                JobWorkAssignment.role,
+                JobWorkAssignment.assigned_by,
+            )
+            .join(User, User.id == JobWorkAssignment.user_id)
+            .where(*conditions, User.is_active.is_(True))
+            .order_by(JobWorkAssignment.released_at.desc(), JobWorkAssignment.id.desc())
+        )
+    ).all()
+    restored = 0
+    seen: set[int] = set()
+    for user_id, role, assigned_by in rows:
+        if user_id in seen:
+            continue
+        seen.add(user_id)
+        inserted = await db.scalar(
+            pg_insert(JobWorkAssignment)
+            .values(
+                job_id=job_id,
+                user_id=user_id,
+                role=role,
+                source="manual",
+                state="active",
+                assigned_at=now,
+                assigned_by=assigned_by,
+            )
+            .on_conflict_do_nothing(
+                index_elements=["job_id", "user_id"],
+                index_where=text("state <> 'released'"),
+            )
+            .returning(JobWorkAssignment.id)
+        )
+        if inserted is not None:
+            restored += 1
+            if role == "recruiter":
+                await _set_owner_if_empty(db, job_id, user_id)
+    await db.flush()
+    return restored
+
+
 def changed_since(now: datetime) -> datetime:
     """Początek okna „Zmiany od wczoraj” — 24 h wstecz."""
     return now - timedelta(hours=24)
