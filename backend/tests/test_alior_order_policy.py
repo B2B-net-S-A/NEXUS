@@ -746,6 +746,18 @@ def test_targeted_form_for_someone_not_on_the_order_leaves_the_rate_empty():
     assert any("Anna Obca" in reason for reason in ex.uncertain_reasons)
 
 
+def test_cleared_rate_stays_cleared_on_a_legacy_reading_with_a_gross_amount():
+    # Runda 7 (N4): zapis sprzed reguły Aliora niósł ``rate_client_gross``
+    # dokumentu. ``_clear_rate`` zostawiał go, a ``apply_rate_rules`` zamieniał
+    # go z powrotem w stawkę — obok powodu „wpisz ręcznie”.
+    reading = model_reading(person("Łucja Próbna"))
+    reading.rate_client = Decimal("1029.67")
+    reading.rate_client_gross = Decimal("1266.49")
+    ex = read(TICKET, reading, target="Anna Obca")
+    assert ex.rate_client is None and ex.rate_client_gross is None
+    assert any("Anna Obca" in reason for reason in ex.uncertain_reasons)
+
+
 @pytest.mark.parametrize(
     "in_table,target",
     [("Anna Nowak-Kowalska", "Anna Nowak"), ("Jan Piotr Nowak", "Piotr Nowak")],

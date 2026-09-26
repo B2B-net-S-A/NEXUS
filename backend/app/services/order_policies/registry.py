@@ -351,7 +351,9 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         # 26.09.2026: „od DATA" bez „do" nie jest datą końca (runda 6 audytu).
         # 26.09.2026: jawne „netto" przy stawce bez ÷ 1,23, sprzeczne
         # oznaczenie do sprawdzenia (runda 6 audytu, decyzja Artura).
-        rule_version="2026-09-26",
+        # 26.09.2026: „zł (netto)”, „zł/h netto”, „+ 23% VAT” = netto; „netto”
+        # w innym zapisie za kwotą = do sprawdzenia (runda 7, R7-V4-3).
+        rule_version="2026-09-26b",
     ),
     OrderClientPolicy(
         key="erste",
@@ -398,8 +400,10 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         apply=_mleasing,
         order=130,
         extract_rows=mleasing.extract_rows,
-        # 26.09.2026: zastrzeżenia modelu zachowane (runda 6 audytu).
-        rule_version="2026-09-26",
+        # 26.09.2026: zastrzeżenia modelu zachowane (runda 6 audytu);
+        # kilka osób — cena i okres tylko wspólne dla wszystkich pozycji
+        # (runda 7, R7-N4-1).
+        rule_version="2026-09-26b",
     ),
     OrderClientPolicy(
         key="velobank",
@@ -423,7 +427,9 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         table_authoritative=True,
         rate_rules=alior.apply_rate_rules,
         # 09.2026: cztery pola z PDF, netto z definicji, zapisany odczyt modelu.
-        rule_version="2026-09-10",
+        # 26.09.2026: wyczyszczona stawka nie wraca z kwoty brutto starego
+        # odczytu (runda 7).
+        rule_version="2026-09-26",
     ),
     OrderClientPolicy(
         key="cardif",

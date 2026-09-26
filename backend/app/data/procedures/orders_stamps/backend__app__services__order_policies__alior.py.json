@@ -1,4 +1,4 @@
 {
-  "sha256": "a1e5548277a66ab7a46f80cf6acc76a09bb6d232dfd66c87a8e097518d288c89",
+  "sha256": "1cceb90f0d7684b12b4f0357048bddbb7941fabcfd42f24fd25700b91abb9ef5",
   "source": "backend/app/services/order_policies/alior.py"
 }

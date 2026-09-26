@@ -456,6 +456,57 @@ class TestMleasing:
         assert r.uncertain is False
 
 
+MLEASING_TWO = """Numer zamówienia DO/CEO/CEO/31/013227
+Lp. Dane pozycji Dostawa IlośćJm Cena jedn. Wartość netto Wartość bruttoMPK / R
+1 Nazwa: Adres dostawy: 225,00dzień 869,92 PLN 195 732,00 PLN 240 750,00 PLN
+BL(mL) - Anna Testowa, Tester mLeasing Sp. z o.o.:
+Opis:
+Okres zatrudnienia od 01.01.2031 r.
+do 31.12.2031 r.
+2 Nazwa: Adres dostawy: 100,00dzień 1 250,00 PLN 125 000,00 PLN 153 750,00 PLN
+BL(mL) - Jan Przykładowy, Analityk mLeasing Sp. z o.o.:
+Opis:
+Okres zatrudnienia od 01.03.2031 r.
+do 30.06.2031 r.
+"""
+
+
+class TestMleasingSeveralPositions:
+    """Runda 7 (R7-N4-1): druga osoba nie dostaje ceny i okresu pierwszej."""
+
+    def test_rows_with_different_prices_are_not_confirmed(self):
+        rows = mleasing.extract_rows(MLEASING_TWO)
+        assert [r.consultant_name for r in rows] == ["Anna Testowa", "Jan Przykładowy"]
+        for row in rows:
+            assert row.rate_client is None
+            assert (row.start_date, row.end_date) == (None, None)
+            assert row.uncertain is True
+            assert mleasing.MULTIPLE_RATES_REASON in row.uncertain_reason
+
+    def test_policy_does_not_present_the_first_price_as_the_document_rate(self):
+        result = OrderExtraction(source="claude")
+        result.rate_client = Decimal("869.92")
+        result, _ = apply_policies(
+            result, PolicyContext(document_text=MLEASING_TWO), [policy_by_key("mleasing")]
+        )
+        assert result.rate_client is None
+        assert result.uncertain is True
+        assert mleasing.MULTIPLE_RATES_REASON in result.uncertain_reasons
+
+    def test_identical_positions_keep_the_shared_price(self):
+        text = MLEASING_TWO.replace("1 250,00 PLN", "869,92 PLN").replace(
+            "od 01.03.2031 r.\ndo 30.06.2031", "od 01.01.2031 r.\ndo 31.12.2031"
+        )
+        rows = mleasing.extract_rows(text)
+        assert [(r.rate_client, r.uncertain) for r in rows] == [
+            (Decimal("869.92"), False),
+            (Decimal("869.92"), False),
+        ]
+        assert {(r.start_date, r.end_date) for r in rows} == {
+            ("2031-01-01", "2031-12-31")
+        }
+
+
 # ── VeloBank ─────────────────────────────────────────────────────────────────
 
 VELO = """Zamówienie nr 3/07/2031/BL
