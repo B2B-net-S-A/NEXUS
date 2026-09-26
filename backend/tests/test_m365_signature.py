@@ -73,9 +73,10 @@ def test_extract_signature_div_dash() -> None:
     assert "Sig" in sig
 
 
-def test_extract_signature_picks_last_sigsep() -> None:
-    """An earlier '--' inside a quoted reply must not steal the match — the
-    real signature is at the tail."""
+def test_extract_signature_two_sigseps_without_quote_header_is_rejected() -> None:
+    """Runda 6 audytu: dwa znaczniki podpisu w treści autora znaczą, że za
+    pierwszym stoi zagnieżdżona cudza treść. Do 26.09 wygrywał ostatni
+    znacznik; teraz wątpliwość = brak podpisu (bezpieczniej niż wyciek)."""
     body = (
         "<p>My reply.</p>"
         "<br>--<br>"
@@ -83,10 +84,95 @@ def test_extract_signature_picks_last_sigsep() -> None:
         "<br>--<br>"
         "<p>My real signature</p>"
     )
-    sig = extract_signature(body)
+    assert extract_signature(body) is None
+
+
+# Realistyczna odpowiedź z OWA: podpis autora, potem cytat maila kandydata
+# z jego własnym ``x_Signature`` i danymi (runda 6 audytu).
+_OWA_REPLY = (
+    '<html><body><div class="elementToProof">Dzień dobry, dziękuję za CV.</div>'
+    '<div id="Signature"><p>Marta Nowak</p><p>Rekruterka · B2B.NET S.A.</p>'
+    '<p>marta.nowak@b2bnetwork.pl</p></div>'
+    '<div id="appendonsend"></div>'
+    '<hr style="display:inline-block;width:98%" tabindex="-1">'
+    '<div id="divRplyFwdMsg" dir="ltr"><font face="Calibri"><b>From:</b> '
+    "Jan Kandydat &lt;jan.kandydat@gmail.com&gt;<br><b>Sent:</b> Monday, "
+    "September 21, 2026 10:00<br><b>To:</b> Marta Nowak<br><b>Subject:</b> "
+    "CV</font></div>"
+    '<div><div dir="ltr">Moja stawka to 180 zł/h, telefon 600 100 200.</div>'
+    '<div id="x_Signature"><p>Jan Kandydat</p><p>ul. Prywatna 5, Kraków</p>'
+    "</div></div></body></html>"
+)
+
+
+def test_extract_signature_owa_reply_stops_before_quote() -> None:
+    sig = extract_signature(_OWA_REPLY, "marta.nowak@b2bnetwork.pl")
     assert sig is not None
-    assert "My real signature" in sig
-    assert "Quoted body" not in sig
+    assert "Marta Nowak" in sig
+    assert "180 zł/h" not in sig
+    assert "Jan Kandydat" not in sig
+    assert "Prywatna" not in sig
+    assert "gmail.com" not in sig
+
+
+def test_extract_signature_owa_reply_without_author_signature_is_none() -> None:
+    """Jedyny znacznik stoi w CYTACIE (``x_Signature`` kandydata) — to nie
+    jest podpis autora i nie może zostać doklejony do maili z NEXUSA."""
+    body = _OWA_REPLY.replace(
+        '<div id="Signature"><p>Marta Nowak</p><p>Rekruterka · B2B.NET S.A.</p>'
+        "<p>marta.nowak@b2bnetwork.pl</p></div>",
+        "",
+    )
+    assert extract_signature(body, "marta.nowak@b2bnetwork.pl") is None
+
+
+def test_extract_signature_new_outlook_plain_header_quote() -> None:
+    """Nowy Outlook / desktop: nagłówek „Od: … Wysłano:” bez id — ucinamy
+    na nim, a nie na końcu treści."""
+    body = (
+        "<div>Odpowiadam krótko.</div>"
+        '<div id="Signature"><p>Marta</p></div>'
+        '<div style="border-top:solid #E1E1E1 1pt"><p><b>Od:</b> Jan '
+        "&lt;jan@firma-klienta.pl&gt;<br><b>Wysłano:</b> poniedziałek<br>"
+        "<b>Temat:</b> Re: oferta</p></div><div>Stawka 150 zł/h</div>"
+    )
+    sig = extract_signature(body, "marta@b2bnetwork.pl")
+    assert sig is not None
+    assert "Marta" in sig
+    assert "150" not in sig and "firma-klienta" not in sig
+
+
+def test_extract_signature_blockquote_reply() -> None:
+    body = (
+        "<p>Reply</p><br>--<br><p>Anna</p>"
+        "<blockquote><p>Cudza treść</p></blockquote>"
+    )
+    sig = extract_signature(body, "anna@b2bnetwork.pl")
+    assert sig is not None and "Anna" in sig
+    assert "Cudza" not in sig
+
+
+def test_extract_signature_foreign_email_rejected() -> None:
+    """Adres spoza domeny nadawcy w „podpisie” = cudza treść → brak podpisu."""
+    body = (
+        '<div>Body</div><div id="Signature"><p>Anna</p>'
+        "<p>kontakt: kandydat@gmail.com</p></div>"
+    )
+    assert extract_signature(body, "anna@b2bnetwork.pl") is None
+    # Własny adres nadawcy w podpisie jest w porządku.
+    own = body.replace("kandydat@gmail.com", "anna@b2bnetwork.pl")
+    assert extract_signature(own, "anna@b2bnetwork.pl") is not None
+
+
+async def test_owa_reply_in_sent_items_never_leaks_quote() -> None:
+    gc = _make_gc(
+        response={"value": [{"body": {"contentType": "html", "content": _OWA_REPLY}}]}
+    )
+    sig = await get_outlook_signature(
+        gc, user_id=5, mailbox_upn="marta.nowak@b2bnetwork.pl"
+    )
+    assert sig is not None
+    assert "180 zł/h" not in sig and "Jan Kandydat" not in sig
 
 
 def test_extract_signature_no_marker_returns_none() -> None:
