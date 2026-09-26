@@ -206,7 +206,14 @@ async def resolve_status(
 ) -> tuple[str, str, str]:
     """``(status, tytuł domyślny, tytuł efektywny)``."""
     default, effective = await public_titles(db, job, profile, names_cache=names_cache)
-    return profile_status(profile, effective, raw_title=job.title), default, effective
+    status = profile_status(profile, effective, raw_title=job.title)
+    if (
+        status == STATUS_APPROVED
+        and profile is not None
+        and approved_for_other_client(job, profile.sections)
+    ):
+        status = STATUS_DRAFT
+    return status, default, effective
 
 
 def _stack_names(job: Job, key: str) -> list[str]:
@@ -277,7 +284,15 @@ APPROVED_CONTENT_KEY = "_approved_content"
 _SNAPSHOT_PARAMS = ("city", "start", "duration")
 
 
-def approved_content(payload: dict[str, Any]) -> dict[str, Any]:
+# Klient, wobec którego kontrola sprawdziła opis (runda 8, R8-N4-4). Zmiana
+# klienta rekrutacji po zatwierdzeniu = szkic: tekst sprawdzono pod kątem
+# nazwy STAREGO klienta, a nowego mógł wymieniać wprost.
+APPROVED_CLIENT_KEY = "client_id"
+
+
+def approved_content(
+    payload: dict[str, Any], *, client_id: Optional[int] = None
+) -> dict[str, Any]:
     """Migawka z TEJ projekcji, którą sprawdziła kontrola przy zatwierdzeniu —
     zapisane jest dokładnie to, co przeszło kontrolę."""
     params = payload.get("params") or {}
@@ -285,7 +300,20 @@ def approved_content(payload: dict[str, Any]) -> dict[str, Any]:
         "must": [item["name"] for item in payload.get("must") or []],
         "nice": list(payload.get("nice") or []),
         **{key: params.get(key) for key in _SNAPSHOT_PARAMS},
+        APPROVED_CLIENT_KEY: client_id,
     }
+
+
+def approved_for_other_client(job: Job, sections: Any) -> bool:
+    """Czy opis zatwierdzono przy innym kliencie niż dzisiejszy.
+
+    Migawki sprzed rundy 8 nie mają klucza — dla nich nie wiemy, więc nic się
+    nie zmienia (brak danych nie może zdjąć strony z publikacji).
+    """
+    snapshot = stored_approved_content(sections)
+    if snapshot is None or APPROVED_CLIENT_KEY not in snapshot:
+        return False
+    return snapshot.get(APPROVED_CLIENT_KEY) != job.client_id
 
 
 def stored_approved_content(sections: Any) -> Optional[dict[str, Any]]:
@@ -395,19 +423,20 @@ def closed_job_payload(
 
 
 def _payload_texts(payload: dict[str, Any]) -> list[str]:
+    """Wszystkie teksty projekcji — także sekcji ukrytych przełącznikiem.
+
+    Runda 8 (R8-N4-1): przełącznik ``show`` chowa sekcję wyłącznie na stronie.
+    Publiczny JSON ``/r/{slug}``, grafika OG, opis meta, lista na stronie
+    rekrutera i umiejętności ogłoszenia na portalu niosą must/nice i
+    parametry zawsze, więc wyłączenie sekcji omijało kontrolę nazwy klienta.
+    """
     texts: list[str] = [payload.get("title") or ""]
     texts.append(payload.get("subtitle") or "")
     texts.append(payload.get("about") or "")
-    show = payload.get("show") or {}
-    if show.get("must", True):
-        texts.extend(item["name"] for item in payload.get("must") or [])
-    if show.get("nice", True):
-        texts.extend(payload.get("nice") or [])
-    if show.get("params", True):
-        params = payload.get("params") or {}
-        texts.extend(
-            str(params.get(key) or "") for key in ("city", "start", "duration")
-        )
+    texts.extend(item["name"] for item in payload.get("must") or [])
+    texts.extend(payload.get("nice") or [])
+    params = payload.get("params") or {}
+    texts.extend(str(params.get(key) or "") for key in ("city", "start", "duration"))
     return texts
 
 
@@ -460,6 +489,70 @@ async def lint_payload(
         client_names=await _client_names(db, job.client_id),
         person_names=await _person_names(db, job),
     )
+
+
+# ── Slug linku rekrutacji ───────────────────────────────────────────────────
+
+
+async def slug_findings(
+    db: AsyncSession, job: Job, slug: Optional[str]
+) -> list[Finding]:
+    """Kontrola adresu ``/r/<slug>`` — slug powstaje z tytułu i jest publiczny
+    (post na LinkedIn, grafika OG, ``apply.url`` ogłoszenia na portalu)."""
+    if not slug:
+        return []
+    return lint_public_texts(
+        [slug],
+        client_names=await _client_names(db, job.client_id),
+        person_names=await _person_names(db, job),
+    )
+
+
+async def safe_job_slug(db: AsyncSession, job: Job, title: Optional[str]) -> str:
+    """Slug z tytułu, a gdy ten niesie klienta albo nazwisko — sam ``rekrutacja-…``.
+
+    Runda 8 (R8-N4-2): tytuł w chwili tworzenia linku nie przeszedł żadnej
+    kontroli („Java Developer (Nordea)" → ``java-developer-nordea-ab12``).
+    """
+    from app.services.career_slugs import generate_job_slug, job_slug_base
+
+    if await slug_findings(db, job, job_slug_base(title)):
+        return await generate_job_slug(db, None)
+    return await generate_job_slug(db, title)
+
+
+async def rotate_unsafe_job_slugs(
+    db: AsyncSession, job: Job, title: Optional[str]
+) -> list[tuple[str, str]]:
+    """Nowy slug dla aktywnych linków rekrutacji, których adres nie przechodzi
+    kontroli. Wołane przy zatwierdzeniu opisu: stary adres z nazwą klienta
+    przestaje działać (404), a lista linków pokazuje nowy."""
+    from app.models.invite_link import CandidateInviteLink
+
+    rows = (
+        await db.execute(
+            select(CandidateInviteLink).where(
+                CandidateInviteLink.job_id == job.id,
+                CandidateInviteLink.kind == "job",
+                CandidateInviteLink.revoked.is_(False),
+                CandidateInviteLink.slug.is_not(None),
+            )
+        )
+    ).scalars()
+    changed: list[tuple[str, str]] = []
+    for link in rows:
+        if not await slug_findings(db, job, link.slug):
+            continue
+        old_slug = link.slug
+        link.slug = await safe_job_slug(db, job, title)
+        changed.append((old_slug, link.slug))
+    if changed:
+        logger.info(
+            "career: job=%s rotated %s job-link slug(s) failing the public check",
+            job.id,
+            len(changed),
+        )
+    return changed
 
 
 # ── Szkic AI ────────────────────────────────────────────────────────────────

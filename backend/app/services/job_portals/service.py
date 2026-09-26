@@ -30,6 +30,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from sqlalchemy import and_, func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -40,6 +41,7 @@ from app.models.job_public_profile import JobPublicProfile
 from app.services import job_portals
 from app.services.job_portals import jjit_payload
 from app.services.job_portals.base import (
+    ADOPTED_EXISTING,
     PortalError,
     PortalGone,
     PortalReconnectRequired,
@@ -276,8 +278,20 @@ async def request_publish(
         created_by=user_id,
         remote_state=_INHERITED_CLEANUP if inherited_cleanup else None,
     )
-    db.add(posting)
-    await db.flush()
+    try:
+        async with db.begin_nested():
+            db.add(posting)
+            await db.flush()
+    except IntegrityError as exc:
+        # Runda 8 (R8-N4-7): dwa równoległe „Publikuj" przechodzą `_live` bez
+        # blokady — drugi trafia w indeks jednej żywej publikacji i dostawał 500.
+        if "uq_job_postings_live_per_portal" not in str(exc.orig):
+            raise
+        raise PortalRequestError(
+            409,
+            "posting_already_live",
+            "Ogłoszenie tej rekrutacji na tym portalu już jest publikowane.",
+        ) from exc
     return posting
 
 
@@ -306,7 +320,14 @@ async def update_options(
 def _queue(posting: JobPosting, action: str) -> None:
     posting.pending_action = action
     posting.attempts = 0
-    posting.next_attempt_at = None
+    # Runda 8 (R8-N4-6): przyszłe ``next_attempt_at`` to dzierżawa workera
+    # (HTTP w locie) albo odstęp po próbie. Zerowanie pozwalało drugiemu
+    # procesowi (nakładka kontenerów przy deployu) wziąć wiersz w trakcie
+    # wysyłki: zamknięcie nic nie znajdowało, a spóźniony sukces publikacji
+    # zostawiał ogłoszenie żywe mimo wycofania. Nowe zlecenie czeka na koniec
+    # dzierżawy — `process_one` widzi je jako zmianę i zostawia w kolejce.
+    if posting.next_attempt_at is None or posting.next_attempt_at <= _now():
+        posting.next_attempt_at = None
     posting.last_error = None
 
 
@@ -751,7 +772,10 @@ def _apply(
     if outcome.built is not None:
         posting.payload_hash = outcome.built.payload_hash
         posting.public_profile_hash = outcome.built.profile_hash
-    if stale_content and posting.pending_action != ACTION_CLOSE:
+    adopted = action == ACTION_PUBLISH and bool(result.extra.get(ADOPTED_EXISTING))
+    if (stale_content or adopted) and posting.pending_action != ACTION_CLOSE:
+        # Runda 8 (R8-N4-5): przejęte ogłoszenie z wcześniejszej próby ma
+        # treść i ustawienia z tamtej chwili — bieżące idą aktualizacją.
         posting.pending_action = ACTION_UPDATE
         posting.attempts = 0
         posting.next_attempt_at = None

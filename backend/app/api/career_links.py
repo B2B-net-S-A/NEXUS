@@ -507,8 +507,11 @@ async def approve_public_profile(
     # zatwierdzenia (audyt 25.09.2026, r3) — ich późniejsza zmiana w
     # rekrutacji wymaga ponownego zatwierdzenia.
     profile.sections = jpp.sections_with_approved_content(
-        profile.sections, jpp.approved_content(preview)
+        profile.sections, jpp.approved_content(preview, client_id=job.client_id)
     )
+    # Runda 8 (R8-N4-2): adres linku powstał z tytułu, którego kontrola nie
+    # widziała — slug z nazwą klienta albo nazwiskiem dostaje nowy adres.
+    await jpp.rotate_unsafe_job_slugs(db, job, effective_title)
     profile.updated_by = current_user.id
     # 0381: nowa zatwierdzona treść → aktualizacja żywych ogłoszeń na portalach.
     from app.services.job_portals.service import queue_content_update

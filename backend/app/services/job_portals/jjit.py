@@ -20,6 +20,7 @@ from app.core.database import AsyncSessionLocal
 from app.models.job_posting import Portal
 from app.services.job_portals import jjit_connection, jjit_payload
 from app.services.job_portals.base import (
+    ADOPTED_EXISTING,
     PortalAdapter,
     PortalError,
     PortalGone,
@@ -90,7 +91,12 @@ class JjitBoardAdapter(PortalAdapter):
         unit = await self._unit()
         existing = await self.api.find_published(unit, content.external_ref)
         if existing:
-            return self._result(existing)
+            # Runda 8 (R8-N4-5): ogłoszenie z wcześniejszej (niepewnej) próby
+            # niesie treść i ustawienia z TAMTEJ chwili — worker kolejkuje
+            # aktualizację zamiast uznać je za bieżące.
+            result = self._result(existing)
+            result.extra[ADOPTED_EXISTING] = True
+            return result
         balance = await self.api.balance(unit)
         payment = jjit_payload.pick_payment(
             self.board, balance, now_iso=datetime.now(timezone.utc).isoformat()

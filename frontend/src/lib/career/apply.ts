@@ -10,10 +10,12 @@
  * Treść zgody — dosłownie ta sama, co stała po stronie backendu
  * (`text_version`/`text_sha256` w `candidate_consents` liczone są z niej).
  * Zmiana słowa tutaj bez zmiany w backendzie = kandydat widzi inną treść niż ta,
- * którą zapisujemy jako udzieloną.
+ * którą zapisujemy jako udzieloną. Pilnuje tego test lustra
+ * `backend/tests/test_career_consent_mirror.py`; zmiana treści = nowa
+ * `CONSENT_TEXT_VERSION` w `career_consent.py`, nigdy edycja starej wersji.
  */
 export const CONSENT_TEXT =
-  "Wyrażam zgodę na przetwarzanie moich danych osobowych przez B2B.NET S.A. z siedzibą w Warszawie w celu prowadzenia obecnych i przyszłych procesów rekrutacyjnych.";
+  "Wyrażam zgodę na przetwarzanie moich danych osobowych przez B2B.NET S.A. z siedzibą w Warszawie (Al. Jerozolimskie 180, 02-486 Warszawa) w celu prowadzenia obecnych i przyszłych procesów rekrutacyjnych.";
 
 /** Parametry UTM przekazywane do endpointu (atrybucja źródeł kandydatów). */
 export const UTM_KEYS = [

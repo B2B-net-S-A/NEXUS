@@ -29,13 +29,16 @@ from app.models.job_posting import JobPosting, Portal, PostingStatus
 from app.services import job_portals
 from app.services.job_portals import jjit_connection
 from app.services.job_portals.base import (
+    ADOPTED_EXISTING,
     PortalError,
     PortalReconnectRequired,
     PortalResult,
 )
 from app.services.job_portals.jjit import RocketJobsAdapter
 from app.services.job_portals.service import (
+    PortalRequestError,
     claim_batch,
+    request_publish,
     close_postings_of_closed_jobs,
     has_live_postings,
     external_ref_for,
@@ -70,13 +73,16 @@ class FakeRocket(RocketJobsAdapter):
     calls: list[tuple[str, object]] = []
     fail_with: list[Exception] = []
     remote_state = "published"
+    adopt = False
 
     async def publish(self, content):
         FakeRocket.calls.append(("publish", content.external_ref))
         if FakeRocket.fail_with:
             raise FakeRocket.fail_with.pop(0)
         return PortalResult(
-            external_id="ad-1", url="https://rocketjobs.pl/oferta-pracy/x"
+            external_id="ad-1",
+            url="https://rocketjobs.pl/oferta-pracy/x",
+            extra={ADOPTED_EXISTING: True} if FakeRocket.adopt else {},
         )
 
     async def update(self, external_id, content):
@@ -109,6 +115,7 @@ def rocket_ready(monkeypatch):
     FakeRocket.calls = []
     FakeRocket.fail_with = []
     FakeRocket.remote_state = "published"
+    FakeRocket.adopt = False
 
 
 @pytest_asyncio.fixture
@@ -513,3 +520,92 @@ async def test_certain_refusal_of_new_posting_keeps_inherited_cleanup(
     new = await _posting(job_id)
     assert new.status == PostingStatus.failed
     assert new.pending_action == "close"
+
+
+# ── Runda 8 ────────────────────────────────────────────────────────────────
+
+
+async def _retire(job_id: int) -> None:
+    """Baza CI jest wspólna — żywy wiersz testu nie może czekać na workera."""
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(JobPosting)
+            .where(JobPosting.job_id == job_id)
+            .values(
+                status=PostingStatus.removed, pending_action=None, next_attempt_at=None
+            )
+        )
+        await db.commit()
+
+
+async def test_adopted_existing_ad_is_queued_for_update(api, rocket_ready):
+    """R8-N4-5: publikacja, która przejęła ogłoszenie z wcześniejszej próby
+    (stara treść i ustawienia), kolejkuje aktualizację bieżącą treścią."""
+    headers, job_id = await _ready_job(api)
+    await api.post(_url(job_id), json={"options": OPTIONS}, headers=headers)
+    FakeRocket.adopt = True
+    await _process(job_id)
+    posting = await _posting(job_id)
+    assert posting.status == PostingStatus.published
+    assert posting.pending_action == "update"
+    await _process(job_id)
+    assert FakeRocket.calls[-1] == ("update", "ad-1")
+    assert (await _posting(job_id)).pending_action is None
+
+
+async def test_unpublish_during_lease_does_not_free_the_row(api, rocket_ready):
+    """R8-N4-6: wycofanie w trakcie dzierżawy nie zeruje `next_attempt_at` —
+    drugi proces (nakładka przy deployu) nie weźmie wiersza w trakcie POST."""
+    headers, job_id = await _ready_job(api)
+    await api.post(_url(job_id), json={"options": OPTIONS}, headers=headers)
+    posting = await _posting(job_id)
+    async with AsyncSessionLocal() as db:
+        claimed = [p for p in await claim_batch(db, 1000) if p.id == posting.id]
+        await db.commit()
+    assert claimed
+
+    resp = await api.post(_url(job_id, "unpublish"), headers=headers)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["pending_action"] == "close"
+    async with AsyncSessionLocal() as db:
+        again = {p.id for p in await claim_batch(db, 1000)}
+        await db.rollback()
+    assert posting.id not in again
+
+    # Spóźniony sukces pierwszej wysyłki zostawia zamknięcie w kolejce.
+    await _process(job_id)
+    after = await _posting(job_id)
+    assert after.status == PostingStatus.published
+    assert after.pending_action == "close"
+    assert after.next_attempt_at is None
+    await _retire(job_id)
+
+
+async def test_concurrent_publish_is_409_not_500(api, rocket_ready):
+    """R8-N4-7: dwa równoległe „Publikuj" — drugi dostaje 409, nie 500."""
+    import asyncio
+
+    _headers, job_id = await _ready_job(api)
+    async with AsyncSessionLocal() as first, AsyncSessionLocal() as second:
+        job_a = await first.get(Job, job_id)
+        await request_publish(
+            first, job=job_a, portal=Portal.rocketjobs, user_id=None, options=OPTIONS
+        )
+        job_b = await second.get(Job, job_id)
+        racing = asyncio.create_task(
+            request_publish(
+                second,
+                job=job_b,
+                portal=Portal.rocketjobs,
+                user_id=None,
+                options=OPTIONS,
+            )
+        )
+        await asyncio.sleep(0.3)  # drugi czeka na indeksie na commit pierwszego
+        await first.commit()
+        with pytest.raises(PortalRequestError) as caught:
+            await racing
+        await second.rollback()
+    assert caught.value.status_code == 409
+    assert caught.value.code == "posting_already_live"
+    await _retire(job_id)
