@@ -47,7 +47,12 @@ from app.services.candidate_contact_hooks import (
     maybe_ensure_contact_opportunity,
 )
 from app.services.inactive_client_cleanup_run import purged_external_ids
-from app.services.candidate_audit import candidate_source_tombstone
+from app.services.candidate_audit import (
+    EMAIL_TOMBSTONE_SOURCE,
+    candidate_email_tombstone,
+    candidate_source_tombstone,
+)
+from app.services.candidate_erasure_leftovers import purged_candidate_hashes
 from app.services.traffit.client import TraffitClient
 from app.services.traffit.mappers import (
     _parse_traffit_datetime,
@@ -558,8 +563,30 @@ _UPSERT_PIPELINE_TEMPLATE = text(
 )
 
 
-_UPSERT_CANDIDATE = text(
-    """
+# Runda 7 audytu (R7-V2-3): nagrobki są wczytywane raz, na starcie fazy, a
+# pełny przegląd `/employees/` trwa godziny — kandydat usunięty W TRAKCIE fazy
+# (bez maila albo z innym niż w Traffit) był zakładany od nowa w tym samym
+# biegu. Dlatego sam INSERT sprawdza nagrobek (identyfikatora i maila) w chwili
+# zapisu: `INSERT ... SELECT ... WHERE NOT EXISTS`, nie `VALUES`. Każdy parametr
+# ma jawny CAST, bo w `SELECT` Postgres nie wyprowadza typu parametru z kolumny
+# docelowej. `{tombstone_guard}` = warunek nagrobka albo `true` dla bazy sprzed
+# 0388 (tabela nie istnieje, więc nie da się jej nawet wymienić w zapytaniu).
+# `WHERE` jest obowiązkowe także w wariancie bez nagrobka: rozstrzyga
+# niejednoznaczność `SELECT ... ON CONFLICT` w gramatyce Postgresa.
+_CANDIDATE_TOMBSTONE_GUARD = """
+    WHERE NOT EXISTS (
+        SELECT 1 FROM purged_candidates AS pc
+        WHERE (
+            pc.external_source = CAST(:external_source AS text)
+            AND pc.external_id_hash = CAST(:tombstone_source_hash AS text)
+        ) OR (
+            pc.external_source = 'email'
+            AND pc.external_id_hash = CAST(:tombstone_email_hash AS text)
+        )
+    )
+"""
+
+_UPSERT_CANDIDATE_SQL = """
     INSERT INTO candidates (
         external_id, external_source, name, lastname, email, phone, linkedin,
         status, profile_about, cv_filename,
@@ -567,13 +594,15 @@ _UPSERT_CANDIDATE = text(
         notes_count, champion, availability_status,
         linkedin_sync_status,
         created_at, updated_at
-    ) VALUES (
-        :external_id, :external_source,
-        CAST(:name AS text), CAST(:lastname AS text), :email, :phone,
-        :linkedin,
+    )
+    SELECT
+        CAST(:external_id AS text), CAST(:external_source AS text),
+        CAST(:name AS text), CAST(:lastname AS text), CAST(:email AS text),
+        CAST(:phone AS text),
+        CAST(:linkedin AS text),
         CAST(:status AS candidatestatus),
-        :profile_about,
-        :cv_filename,
+        CAST(:profile_about AS text),
+        CAST(:cv_filename AS text),
         CAST(:cv_extracted_data AS JSONB),
         jsonb_build_object(
             '_nexus_identity',
@@ -584,12 +613,12 @@ _UPSERT_CANDIDATE = text(
                     CAST(:traffit_source_updated_at AS text)
             ))
         ),
-        :source, :created_by,
+        CAST(:source AS text), CAST(:created_by AS integer),
         0, false,
         CAST('unknown' AS availabilitystatus),
         CAST('disabled' AS linkedinsyncstatus),
         NOW(), NOW()
-    )
+    {tombstone_guard}
     ON CONFLICT (external_source, external_id) WHERE external_id IS NOT NULL
     DO UPDATE SET
         -- Ręczna korekta w NEXUS-ie przejmuje własność tylko nad wskazanym
@@ -751,6 +780,14 @@ _UPSERT_CANDIDATE = text(
         external_deleted_at = NULL
     RETURNING id, (xmax = 0) AS was_insert
     """
+
+_UPSERT_CANDIDATE = text(
+    _UPSERT_CANDIDATE_SQL.replace("{tombstone_guard}", _CANDIDATE_TOMBSTONE_GUARD)
+)
+# Baza bez tabeli `purged_candidates` (sprzed 0388) — wybierane w fazie po
+# `to_regclass`, patrz `_candidate_tombstones`.
+_UPSERT_CANDIDATE_NO_TOMBSTONES = text(
+    _UPSERT_CANDIDATE_SQL.replace("{tombstone_guard}", "WHERE true")
 )
 
 
@@ -2235,8 +2272,14 @@ class TraffitImporter:
         # pełny skan `/employees/`, więc bez tego usunięta osoba wracała przy
         # najbliższym syncu razem z etapami, notatkami i plikami (dalsze fazy
         # wiążą rekordy przez `ext_to_id`, więc wystarczy nie założyć wiersza)
-        # (runda 6 audytu).
-        purged_hashes = await self._purged_candidate_hashes()
+        # (runda 6 audytu). Od rundy 7 także nagrobki maila (druga kartoteka
+        # tej samej osoby) — `None` = baza sprzed 0388 albo brak klucza HMAC.
+        tombstones = await self._candidate_tombstones()
+        upsert_sql = (
+            _UPSERT_CANDIDATE
+            if tombstones is not None
+            else _UPSERT_CANDIDATE_NO_TOMBSTONES
+        )
 
         commit_every = 100
         since_commit = 0
@@ -2311,21 +2354,32 @@ class TraffitImporter:
                     continue
                 # Przed ścieżką adopcji po mailu: usunięta osoba nie może też
                 # „wrócić” jako stempel `external_id` na cudzym wierszu.
-                if purged_hashes and (
-                    candidate_source_tombstone(
+                source_hash: Optional[str] = None
+                email_hash: Optional[str] = None
+                if tombstones is not None:
+                    source_hash = candidate_source_tombstone(
                         payload["external_source"], payload["external_id"]
                     )
-                    in purged_hashes
-                ):
-                    progress.skipped += 1
-                    continue
+                    if source_hash in tombstones[0]:
+                        progress.skipped += 1
+                        continue
+
+                email_lc = (payload.get("email") or "").strip().lower()
+                owner_id = ext_to_id.get(str(payload["external_id"]))
+                # Runda 7 audytu (R7-V2-2): druga kartoteka tej samej osoby
+                # (ten sam mail, inny id) — nagrobek maila. Tylko gdy
+                # `external_id` nie ma żywego właściciela: wtedy ten wiersz
+                # NIE jest usuniętą osobą i dalej synchronizuje się normalnie.
+                if tombstones is not None and owner_id is None:
+                    email_hash = candidate_email_tombstone(email_lc)
+                    if email_hash is not None and email_hash in tombstones[1]:
+                        progress.skipped += 1
+                        continue
                 if self.dry_run:
                     progress.inserted += 1
                     continue
 
-                email_lc = (payload.get("email") or "").strip().lower()
                 existing_id = email_to_id.get(email_lc) if email_lc else None
-                owner_id = ext_to_id.get(str(payload["external_id"]))
                 if (
                     existing_id is not None
                     and owner_id is not None
@@ -2366,11 +2420,11 @@ class TraffitImporter:
                             params["cv_extracted_data"] = json.dumps(
                                 payload["cv_extracted_data"]
                             )
+                            params["tombstone_source_hash"] = source_hash
+                            params["tombstone_email_hash"] = email_hash
                             try:
                                 async with self.db.begin_nested():
-                                    result = await self.db.execute(
-                                        _UPSERT_CANDIDATE, params
-                                    )
+                                    result = await self.db.execute(upsert_sql, params)
                                     row = result.fetchone()
                             except IntegrityError as ie:
                                 late_email_id = await self._late_email_owner(
@@ -2422,6 +2476,8 @@ class TraffitImporter:
                                 updated_candidate_ids.append(candidate_id)
                         else:
                             if row is None:
+                                # Nagrobek postawiony w trakcie fazy (R7-V2-3).
+                                progress.skipped += 1
                                 continue
                             candidate_id = row[0]
                             if row[1]:
@@ -3198,27 +3254,24 @@ class TraffitImporter:
         )
         return result.scalar_one_or_none()
 
-    async def _purged_candidate_hashes(self) -> set[str]:
-        """HMAC-e nagrobków kandydatów Traffita (0388) — patrz `import_candidates`.
+    async def _candidate_tombstones(
+        self,
+    ) -> Optional[tuple[set[str], set[str]]]:
+        """Nagrobki kandydatów (0388): (HMAC-e id Traffita, HMAC-e maili).
 
-        Brak tabeli (baza sprzed 0388) = brak nagrobków, nie awaria fazy —
-        katalog zamiast łapania wyjątku, bo nieudane zapytanie przerywa
-        transakcję (ten sam wzorzec co `purged_external_ids` klientów).
+        `None` = baza sprzed 0388 (brak tabeli) albo brak klucza HMAC — faza
+        idzie wtedy bez nagrobków i wariantem upsertu, który tabeli nie
+        wymienia (patrz `_UPSERT_CANDIDATE`). Bez klucza usunięcie kandydata
+        i tak nie postawi nagrobka (fail-closed w `candidate_audit`).
         """
-        present = (
-            await self.db.execute(
-                text("SELECT to_regclass('purged_candidates') IS NOT NULL")
-            )
-        ).fetchone()
-        if not present or not present[0]:
-            return set()
-        rows = await self.db.execute(
-            text(
-                "SELECT external_id_hash FROM purged_candidates "
-                "WHERE external_source = 'traffit'"
-            )
+        if not settings.CANDIDATE_IDENTITY_FINGERPRINT_KEY.strip():
+            return None
+        hashes = await purged_candidate_hashes(
+            self.db, ("traffit", EMAIL_TOMBSTONE_SOURCE)
         )
-        return {str(row[0]) for row in rows.fetchall()}
+        if hashes is None:
+            return None
+        return hashes["traffit"], hashes[EMAIL_TOMBSTONE_SOURCE]
 
     async def _build_candidate_external_id_map(self) -> dict[str, int]:
         result = await self.db.execute(

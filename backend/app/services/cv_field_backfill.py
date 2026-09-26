@@ -321,11 +321,11 @@ async def backfill_cv_fields(
                     if email_taken:
                         parsed = {k: v for k, v in parsed.items() if k != "email"}
                         stats["email_collisions"] += 1
+                        # Bez adresu w logu (runda 7 audytu) — to dane osoby.
                         logger.info(
-                            "[cv-backfill] id=%s: e-mail %r należy już do innego "
-                            "kandydata — pole pominięte, reszta wiersza idzie",
+                            "[cv-backfill] id=%s: e-mail z CV należy już do "
+                            "innego kandydata — pole pominięte, reszta wiersza idzie",
                             candidate.id,
-                            email_value,
                         )
 
                 try:

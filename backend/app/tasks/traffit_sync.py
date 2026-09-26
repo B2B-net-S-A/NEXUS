@@ -457,9 +457,10 @@ class _CvFieldsPhaseResult:
 # okna czekają teraz w `cursor_payload['delta']['windows']` wiersza fazy jako
 # lista `{since, until, after_id}` (ta sama idea co kursor `after_id` faz
 # budżetowanych, tylko okien bywa kilka): kolejny bieg — delta ALBO pełny —
-# najpierw domyka najstarsze, potem dokłada własne. Górna granica okna
-# (`until` = start fazy) wyklucza wiersze, które sama faza zapisała, więc
-# częściowo uzupełniony kandydat nie jest opłacany drugi raz.
+# najpierw domyka najstarsze, potem dokłada własne. Górna granica czasu to
+# start BIEŻĄCEJ fazy (od rundy 7, patrz `_cv_fields_id_caps`) — wyklucza
+# wiersze, które sama faza zapisała, więc częściowo uzupełniony kandydat nie
+# jest opłacany drugi raz; zapisany `until` okna zostaje informacyjnie.
 _CV_FIELDS_CURSOR_PHASE = "candidates_cv_fields"
 _CV_FIELDS_CURSOR_SLOT = "delta"
 # Sufit liczby czekających okien: ~2 miesiące nocy z zaległością. Powyżej
@@ -492,14 +493,45 @@ def _cv_fields_windows_from_payload(payload: Any) -> list[dict[str, Any]]:
             after_id = max(0, int(window.get("after_id") or 0))
         except (TypeError, ValueError):
             after_id = 0
-        out.append(
-            {
-                "since": since.isoformat(),
-                "until": until.isoformat(),
-                "after_id": after_id,
-            }
-        )
+        parsed: dict[str, Any] = {
+            "since": since.isoformat(),
+            "until": until.isoformat(),
+            "after_id": after_id,
+        }
+        try:
+            until_id = window.get("until_id")
+            if until_id is not None:
+                parsed["until_id"] = max(0, int(until_id))
+        except (TypeError, ValueError):
+            pass
+        out.append(parsed)
     return out
+
+
+def _cv_fields_id_caps(windows: list[dict[str, Any]]) -> list[Optional[int]]:
+    """Górna granica id każdego okna (włącznie) albo `None` = bez granicy.
+
+    Runda 7 audytu (R7-V2-5): okno czekało z górną granicą CZASU (`until` =
+    start fazy, która je założyła). Kandydat z okna, któremu coś spoza syncu
+    (edycja, nocne `notes_insights`) przesunęło `updated_at` za tę granicę,
+    wypadał z okna i nie trafiał do żadnego nowego — nowe okna zaczynają się
+    od startu kolejnego biegu. Każde okno sięga więc teraz w czasie do startu
+    BIEŻĄCEJ fazy. Żeby nie płacić drugi raz za wiersz obsłużony przez
+    wcześniejsze okno (zakresy czasu się teraz zagnieżdżają: `since` rośnie
+    z oknem), okno bierze tylko id do najmniejszego kursora okien przed nim:
+    wcześniejsze okno obejmuje (albo obejmie) wszystko powyżej swojego
+    kursora w szerszym zakresie czasu. Zapisana granica tylko się zaostrza.
+    """
+    caps: list[Optional[int]] = []
+    floor: Optional[int] = None
+    for window in windows:
+        cap = window.get("until_id")
+        if floor is not None:
+            cap = floor if cap is None else min(int(cap), floor)
+        caps.append(cap)
+        after = int(window.get("after_id") or 0)
+        floor = after if floor is None else min(floor, after)
+    return caps
 
 
 async def _load_cv_fields_windows(db) -> list[dict[str, Any]]:
@@ -586,15 +618,24 @@ async def _cv_fields_phase(files_since: Optional[datetime]) -> _CvFieldsPhaseRes
         stats = {}
         remaining: list[dict[str, Any]] = []
         stop_reason: Optional[str] = None
-        for window in windows:
+        caps = _cv_fields_id_caps(windows)
+        for window, cap in zip(windows, caps):
+            if cap is not None:
+                if cap <= window["after_id"]:
+                    # Całe okno obejmują wcześniejsze okna (R7-V2-5).
+                    continue
+                window = {**window, "until_id": cap}
             if stop_reason is not None:
                 remaining.append(window)
                 continue
             await backfill_cv_fields(
                 db,
                 after_id=window["after_id"],
+                until_id=cap,
                 updated_since=_parse_iso(window["since"]),
-                updated_before=_parse_iso(window["until"]),
+                # Start BIEŻĄCEJ fazy, nie zapisany `until` okna (R7-V2-5):
+                # wyklucza wiersze zapisane przez samą fazę w tym biegu.
+                updated_before=started,
                 limit=limit,
                 progress=stats,
             )
