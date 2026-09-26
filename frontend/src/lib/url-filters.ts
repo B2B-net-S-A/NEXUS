@@ -112,6 +112,16 @@ export interface CandidateFilters {
   // „Mile widziane" — trzeci kubełek: tylko kolejność, nikogo nie usuwa.
   // Pozycja może być grupą `a|b`. W URL powtarzany parametr `skills_pref`.
   skillsPreferred: string[];
+  /**
+   * „Mile widziane” poza umiejętnościami (audyt 26.09.2026) — tylko kolejność,
+   * nikogo nie usuwają. „Szukaj ręcznie” wstawia tu miasta i kategorię
+   * rekrutacji oraz wiersze wymagań, które nie są technologiami (jako filtry
+   * wycinały 55,6% osób wybranych potem przez zespół). W adresie `loc_pref`
+   * (`a|b`), `cc_pref` (CSV) i powtarzany `q_pref` (wiersz, słowa przez `|`).
+   */
+  locationPreferred: string[];
+  competenceCategoryPreferred: number[];
+  qPreferred: string[][];
   // „Ukryj osoby bez danych" (`hide_unknown`) — bez tego osoby bez lokalizacji,
   // stażu albo stawki zostają z plakietką `unknown_fields`. W URL `hu=1`.
   hideUnknown: boolean;
@@ -243,6 +253,9 @@ export const DEFAULT_FILTERS: CandidateFilters = {
   remote: [],
   skillsExpr: "",
   skillsPreferred: [],
+  locationPreferred: [],
+  competenceCategoryPreferred: [],
+  qPreferred: [],
   hideUnknown: false,
   locationScope: "",
   location: "",
@@ -356,6 +369,11 @@ export function encodeFilters(f: CandidateFilters): URLSearchParams {
   for (const entry of f.skillsPreferred) {
     if (entry.trim()) p.append("skills_pref", entry.trim());
   }
+  if (f.locationPreferred.length) p.set("loc_pref", PIPE(f.locationPreferred));
+  if (f.competenceCategoryPreferred.length) {
+    p.set("cc_pref", CSV(f.competenceCategoryPreferred));
+  }
+  for (const row of cleanRows(f.qPreferred)) p.append("q_pref", PIPE(row));
   if (f.hideUnknown) p.set("hu", "1");
   if (f.locationScope) p.set("ls", f.locationScope);
   if (f.location) p.set("loc", f.location);
@@ -472,6 +490,9 @@ export function decodeFilters(sp: URLSearchParams): CandidateFilters {
       .getAll("skills_pref")
       .map((x) => x.trim())
       .filter(Boolean),
+    locationPreferred: parsePipe(sp.get("loc_pref")),
+    competenceCategoryPreferred: parseCsvInt(sp.get("cc_pref")),
+    qPreferred: cleanRows(sp.getAll("q_pref").map(parsePipe)),
     hideUnknown: sp.get("hu") === "1",
     locationScope: sp.get("ls") === "location_only" ? "location_only" : "",
     location: sp.get("loc") ?? "",
@@ -666,6 +687,15 @@ export function filtersToApiParams(
     skills_excluded: v2 && skillBuckets.none.length ? skillBuckets.none : undefined,
     skills_preferred: filters.skillsPreferred.length
       ? filters.skillsPreferred
+      : undefined,
+    location_preferred: filters.locationPreferred.length
+      ? filters.locationPreferred
+      : undefined,
+    competence_category_preferred: filters.competenceCategoryPreferred.length
+      ? filters.competenceCategoryPreferred
+      : undefined,
+    q_preferred_group: cleanRows(filters.qPreferred).length
+      ? cleanRows(filters.qPreferred).map((row) => row.join("|"))
       : undefined,
     hide_unknown: filters.hideUnknown ? true : undefined,
     location_scope: filters.locationScope || undefined,

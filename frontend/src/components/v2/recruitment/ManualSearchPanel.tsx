@@ -17,8 +17,9 @@ import { useQuery } from "@tanstack/react-query";
 
 import { CandidatesListV2 } from "@/components/v2/pages/CandidatesListV2";
 import { searchRequestToListFilters } from "@/lib/candidates-search-redirect";
-import { buildJobSearchPrefill } from "@/lib/job-search-prefill";
+import { buildJobSearchPrefill, parseJobLocationCities } from "@/lib/job-search-prefill";
 import { cleanRows } from "@/lib/keyword-requirements";
+import { classifyRequirementRows, splitRequirementRows } from "@/lib/requirement-row-kinds";
 import type { CandidateFilters } from "@/lib/url-filters";
 import {
   matchingRequirementsApi,
@@ -72,10 +73,26 @@ export function ManualSearchPanel({
     queryKey: ["champion-profile", jobId],
     queryFn: () => championApi.get(jobId).then((r) => r.data),
   });
+  // Błąd odczytu profilu nie blokuje wyszukiwania — zostaje profil z rekrutacji.
+  const source = champion.isSuccess
+    ? { ...job, champion_profile: champion.data?.champion_profile }
+    : job;
+  const search = championSearchRequirements(source);
+  const championSettled = champion.isSuccess || champion.isError;
+  // Który wiersz wymagań to technologia (audyt 26.09.2026): obowiązkowe
+  // zostają tylko wiersze technologii, reszta tylko podnosi w kolejności.
+  // `null` przy błędzie = wiersz obowiązkowy, jak dotąd (bezpieczny kierunek).
+  const rowKinds = useQuery({
+    queryKey: ["manual-search-row-kinds", search.rows],
+    queryFn: () => classifyRequirementRows(search.rows),
+    enabled: championSettled && search.rows.length > 0,
+    staleTime: 10 * 60 * 1000,
+  });
 
   if (
     (!savedReqs.isSuccess && !savedReqs.isError) ||
-    (!champion.isSuccess && !champion.isError)
+    !championSettled ||
+    (search.rows.length > 0 && !rowKinds.isSuccess && !rowKinds.isError)
   ) {
     return <p className="p-6 text-sm text-muted-foreground">Ładowanie…</p>;
   }
@@ -85,27 +102,23 @@ export function ManualSearchPanel({
   const mustLabels = savedReqs.isSuccess
     ? requirementLabels(savedReqs.data, "must")
     : null;
-  // Błąd odczytu profilu nie blokuje wyszukiwania — zostaje profil z rekrutacji.
-  const source = champion.isSuccess
-    ? { ...job, champion_profile: champion.data?.champion_profile }
-    : job;
-  const search = championSearchRequirements(source);
   const hasRows = search.rows.length > 0;
+  const techRows = rowKinds.isSuccess ? rowKinds.data : null;
 
   return (
     <CandidatesListV2
       // Klucz z TREŚCI wymagań, nie z `dataUpdatedAt`: odświeżenie przy powrocie
       // do karty z identycznymi danymi nie może kasować wpisanych filtrów.
       // …i z wymagań do wyszukiwania: DL zmienił wiersze = nowe filtry startowe.
-      key={`${mustLabels ? `must:${mustLabels.join("|")}` : "must:fallback"}#${JSON.stringify(search)}`}
+      key={`${mustLabels ? `must:${mustLabels.join("|")}` : "must:fallback"}#${JSON.stringify(search)}#${JSON.stringify(techRows)}`}
       embed={{
         jobId,
         jobTitle: job.title,
-        initialFilters: jobListFilters(source, mustLabels),
+        initialFilters: jobListFilters(source, mustLabels, techRows),
         readOnly,
         onAdded: onBulkAdded,
         keywordsNote: hasRows
-          ? "Wymagania ustawione przy tworzeniu rekrutacji. Zmiany tutaj nie zmieniają rekrutacji."
+          ? "Wymagania ustawione przy tworzeniu rekrutacji: technologie są obowiązkowe, pozostałe wiersze tylko podnoszą w kolejności. Zmiany tutaj nie zmieniają rekrutacji."
           : undefined,
       }}
     />
@@ -133,6 +146,13 @@ export function championSearchRequirements(job: Pick<ManualSearchJob, "champion_
  * Filtry startowe listy z rekrutacji. Status bez czarnej listy (serwer i tak
  * by ją odrzucił przy dodaniu).
  *
+ * Miasto i kategoria rekrutacji tylko podnoszą w kolejności, nigdy nie tną
+ * (audyt 26.09.2026: jako filtry wycinały 55,6% osób, które zespół potem
+ * zweryfikował albo wysłał klientowi — samo miasto 58%). Wiersze wymagań:
+ * obowiązkowe zostają wiersze technologii (`techRows[i] !== false`), reszta
+ * („bankowość”, „narzędzia case”) tylko podnosi — wszystkie wiersze naraz
+ * spełniało 39% wybranych.
+ *
  * Bez wymagań w Championie (decyzja Artura 25.09.2026): cała baza spoza
  * rekrutacji ułożona według dopasowania do rekrutacji (`sort=match`, ten sam
  * wektor co kolumna „Dop.”). Dawniej tytuł szedł jako tekst po znaczeniu,
@@ -147,16 +167,28 @@ export function championSearchRequirements(job: Pick<ManualSearchJob, "champion_
 export function jobListFilters(
   job: ManualSearchJob,
   mustLabels: readonly string[] | null,
+  techRows: ReadonlyArray<boolean | null> | null = null,
 ): CandidateFilters {
-  const filters = searchRequestToListFilters(buildJobSearchPrefill(job, mustLabels));
+  const prefill = searchRequestToListFilters(buildJobSearchPrefill(job, mustLabels));
+  const filters: CandidateFilters = {
+    ...prefill,
+    location: "",
+    locationRadiusKm: null,
+    competenceCategoryIds: [],
+    locationPreferred:
+      job.remote_policy === "remote" ? [] : parseJobLocationCities(job.location),
+    competenceCategoryPreferred: job.competence_category_id ? [job.competence_category_id] : [],
+  };
   const { rows, exclude } = championSearchRequirements(job);
   if (rows.length > 0) {
+    const { required, preferred } = splitRequirementRows(rows, techRows);
     return {
       ...filters,
       q: "",
       textMode: "auto",
       qAll: [],
-      qAny: rows,
+      qAny: required,
+      qPreferred: preferred,
       qNone: exclude,
       status: ["active", "passive"],
     };

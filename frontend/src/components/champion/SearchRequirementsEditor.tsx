@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { RequirementRowsField } from "@/components/v2/candidates/RequirementRowsField";
 import { fetchCandidateListPage } from "@/components/v2/pages/candidate-list-query";
 import { cleanRows, describeKeywordSearch } from "@/lib/keyword-requirements";
+import { classifyRequirementRows, splitRequirementRows } from "@/lib/requirement-row-kinds";
 import { DEFAULT_FILTERS, filtersToApiParams } from "@/lib/url-filters";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { cn } from "@/lib/utils";
@@ -19,12 +20,35 @@ export function peopleCountLabel(n: number): string {
   return `${shown} osób`;
 }
 
+/** Zdanie pod wierszami: ile osób spełnia wiersze obowiązkowe i co z resztą. */
+export function requirementsCountLabel(data: {
+  total: number | null;
+  preferredRows: number;
+  requiredRows: number;
+}): string | null {
+  if (data.total == null) return null;
+  if (data.preferredRows === 0) return `~${peopleCountLabel(data.total)} w bazie`;
+  const n = data.preferredRows;
+  const few = n % 10 >= 2 && n % 10 <= 4 && !(n % 100 >= 12 && n % 100 <= 14);
+  const rest =
+    n === 1
+      ? "1 wiersz nie jest technologią — tylko podnosi w kolejności"
+      : few
+        ? `${n} wiersze nie są technologiami — tylko podnoszą w kolejności`
+        : `${n} wierszy nie jest technologiami — tylko podnoszą w kolejności`;
+  if (data.requiredRows === 0) return `Cała baza (~${peopleCountLabel(data.total)}); ${rest}`;
+  return `~${peopleCountLabel(data.total)} spełnia wymagania techniczne; ${rest}`;
+}
+
 /**
  * Ile osób w bazie spełnia wymagania — ten sam silnik i te same statusy co
  * „Szukaj ręcznie” (lista kandydatów, aktywni i pasywni), więc liczba
  * zgadza się z tym, co rekruter zobaczy po otwarciu wyszukiwania. Zapytanie
  * idzie funkcją listy: tablice lecą jako powtórzony parametr, a forma
  * `status[]=` byłaby dla serwera innym polem i liczba objęłaby całą bazę.
+ *
+ * Liczy tylko wiersze obowiązkowe (technologie) — tak jak „Szukaj ręcznie”
+ * (audyt 26.09.2026); pozostałe wiersze tylko podnoszą w kolejności.
  */
 function useRequirementsCount(rows: string[][], exclude: string[], enabled: boolean) {
   const key = useDebouncedValue(JSON.stringify({ rows, exclude }), 500);
@@ -34,18 +58,24 @@ function useRequirementsCount(rows: string[][], exclude: string[], enabled: bool
     enabled: enabled && settled.rows.length > 0,
     staleTime: 60_000,
     queryFn: async ({ signal }) => {
+      const kinds = await classifyRequirementRows(settled.rows);
+      const { required, preferred } = splitRequirementRows(settled.rows, kinds);
       const params = filtersToApiParams(
         {
           ...DEFAULT_FILTERS,
           status: ["active", "passive"],
-          qAny: settled.rows,
+          qAny: required,
           qNone: settled.exclude,
         },
         1,
         { page_size: 1 },
       );
       const data = await fetchCandidateListPage<{ total?: unknown }>(params, signal);
-      return typeof data?.total === "number" ? data.total : null;
+      return {
+        total: typeof data?.total === "number" ? data.total : null,
+        preferredRows: preferred.length,
+        requiredRows: required.length,
+      };
     },
   });
 }
@@ -82,8 +112,8 @@ export function SearchRequirementsEditor({
   const sentence = describeKeywordSearch({ rows, exclude, scopeLabel: null });
   // Odpowiedź bez liczby to „nie wiemy”, nie wieczne „Liczę…”.
   const countLabel = count.isSuccess
-    ? count.data != null
-      ? `~${peopleCountLabel(count.data)} w bazie`
+    ? count.data.total != null
+      ? requirementsCountLabel(count.data)
       : null
     : count.isError
       ? "Nie udało się policzyć osób w bazie."

@@ -2,7 +2,16 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ getReqs: vi.fn(), list: vi.fn(), getChampion: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  getReqs: vi.fn(),
+  list: vi.fn(),
+  getChampion: vi.fn(),
+  classify: vi.fn(),
+}));
+
+vi.mock("@/lib/keyword-suggest", () => ({
+  classifyKeywords: (...a: unknown[]) => mocks.classify(...a),
+}));
 
 vi.mock("@/lib/api", () => ({
   championApi: { get: (...a: unknown[]) => mocks.getChampion(...a) },
@@ -50,6 +59,11 @@ describe("ManualSearchPanel — lista Kandydatów osadzona w rekrutacji", () => 
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.getChampion.mockResolvedValue({ data: { champion_profile: {} } });
+    // Technologie ze słownika: „Java”, „Kafka RabbitMQ”, „Python”.
+    mocks.classify.mockImplementation(async (text: string) => ({
+      skills: [],
+      as_requirements: ["Java", "Kafka RabbitMQ", "Python"].includes(text),
+    }));
   });
 
   it("montuje listę dopiero PO odczycie wymagań i zasila ją rekrutacją", async () => {
@@ -78,8 +92,12 @@ describe("ManualSearchPanel — lista Kandydatów osadzona w rekrutacji", () => 
     expect(
       effectiveSort({ ...embed.initialFilters, recruitmentIds: [7], recruitmentMatch: "not_assigned" }),
     ).toBe("match");
-    expect(embed.initialFilters.location).toBe("Warszawa");
-    expect(embed.initialFilters.competenceCategoryIds).toEqual([5]);
+    // Miasto i kategoria rekrutacji tylko podnoszą — jako filtry wycinały
+    // 55,6% osób wybranych potem przez zespół (audyt 26.09.2026).
+    expect(embed.initialFilters.location).toBe("");
+    expect(embed.initialFilters.competenceCategoryIds).toEqual([]);
+    expect(embed.initialFilters.locationPreferred).toEqual(["Warszawa"]);
+    expect(embed.initialFilters.competenceCategoryPreferred).toEqual([5]);
     expect(embed.initialFilters.status).toEqual(["active", "passive"]);
   });
 
@@ -96,7 +114,10 @@ describe("ManualSearchPanel — lista Kandydatów osadzona w rekrutacji", () => 
     mocks.getChampion.mockResolvedValue({
       data: {
         champion_profile: {
-          search: { requirements: [["Java"], ["Kafka", "RabbitMQ"], []], exclude: ["junior"] },
+          search: {
+            requirements: [["Java"], ["Kafka", "RabbitMQ"], [], ["bankowość"], ["bankow*"]],
+            exclude: ["junior"],
+          },
         },
       },
     });
@@ -104,12 +125,28 @@ describe("ManualSearchPanel — lista Kandydatów osadzona w rekrutacji", () => 
     await screen.findByTestId("candidates-list");
     const embed = lastEmbed();
     expect(mocks.getChampion).toHaveBeenCalledWith(7);
+    // Obowiązkowe tylko technologie; „bankowość” i wzorzec z gwiazdką podnoszą.
     expect(embed.initialFilters.qAny).toEqual([["Java"], ["Kafka", "RabbitMQ"]]);
+    expect(embed.initialFilters.qPreferred).toEqual([["bankowość"], ["bankow*"]]);
     expect(embed.initialFilters.qNone).toEqual(["junior"]);
+    // Wzorca z gwiazdką nie trzeba pytać serwera.
+    expect(mocks.classify).not.toHaveBeenCalledWith("bankow*");
     expect(embed.initialFilters.q).toBe("");
     // Must-have zostają w rankingu jak dotąd.
     expect(embed.initialFilters.skillsPreferred).toEqual(["SQL"]);
     expect(embed.keywordsNote).toMatch(/ustawione przy tworzeniu rekrutacji/);
+  });
+
+  it("błąd klasyfikacji — wiersz zostaje obowiązkowy, jak przed zmianą", async () => {
+    mocks.getReqs.mockResolvedValue({ must: [] });
+    mocks.getChampion.mockResolvedValue({
+      data: { champion_profile: { search: { requirements: [["bankowość"]] } } },
+    });
+    mocks.classify.mockResolvedValue(null);
+    renderPanel();
+    await screen.findByTestId("candidates-list");
+    expect(lastEmbed().initialFilters.qAny).toEqual([["bankowość"]]);
+    expect(lastEmbed().initialFilters.qPreferred).toEqual([]);
   });
 
   it("bez wymagań w Championie — start jak dotąd, bez odniesienia do Championa", async () => {
@@ -133,5 +170,6 @@ describe("ManualSearchPanel — lista Kandydatów osadzona w rekrutacji", () => 
   it("rekrutacja zdalna nie zawęża po mieście", () => {
     const filters = jobListFilters({ ...JOB, remote_policy: "remote" }, null);
     expect(filters.location).toBe("");
+    expect(filters.locationPreferred).toEqual([]);
   });
 });
