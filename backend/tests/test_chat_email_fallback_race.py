@@ -274,3 +274,33 @@ async def test_queue_skips_older_rows_of_the_same_thread_and_plain_admin_rows() 
     )
     assert "split_part" in sql and "NOT (EXISTS" in sql
     assert "users.role !=" in sql
+
+
+def test_plain_message_does_not_hold_back_the_admins_mention_mail() -> None:
+    """Admin dostaje mail tylko o wzmiance, więc nowsza zwykła wiadomość
+    w wątku nie może wstrzymać jego maila o wzmiance (przegląd rundy 7)."""
+    from sqlalchemy.dialects import postgresql
+
+    from app.services.notification_delivery import DeliveryPolicy
+    from app.tasks.chat_email_fallback import pending_candidate_query
+
+    policy = DeliveryPolicy.from_value(
+        {
+            "enabled": True,
+            "send_not_before": "2026-09-22T12:00:00+00:00",
+            "types": {
+                "chat_unread": {
+                    "email_enabled": True,
+                    "send_not_before": "2026-09-22T12:30:00+00:00",
+                }
+            },
+        }
+    )
+    sql = str(
+        pending_candidate_query(datetime.now(timezone.utc), policy).compile(
+            dialect=postgresql.dialect()
+        )
+    )
+    subquery = sql.split("NOT (EXISTS", 1)[1]
+    assert "notifications_1.notification_type =" in subquery
+    assert "users.role !=" in subquery

@@ -278,6 +278,13 @@ def _newer_in_same_thread():
         newer.notification_type.in_(_CHAT_NOTIF_TYPES),
         newer.id > Notification.id,
         func.split_part(newer.link, "&msg=", 1) == thread,
+        # Nowsze powiadomienie wstrzymuje mail tylko wtedy, gdy samo może
+        # dostać maila — admin dostaje wyłącznie wzmianki, więc zwykła
+        # wiadomość w wątku nie może zjeść jego maila o wzmiance.
+        or_(
+            User.role != UserRole.admin,
+            newer.notification_type == NotificationType.job_chat_mention,
+        ),
     )
 
 
