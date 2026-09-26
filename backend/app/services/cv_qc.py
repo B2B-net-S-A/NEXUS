@@ -1057,8 +1057,11 @@ async def _consent_state(db: AsyncSession, src: dz.ReviewSources) -> Optional[st
                 CandidateStageCV.candidate_stage_id == gen["stage_id"]
             )
         )
-        if attached:
-            return "ok"
+        # Runda 8 (R8-N8-4): DOCX kopii etapu renderuje się z JEJ obrazu
+        # zgody, a blokada pobrania (`cv_consent_gate.ensure_copy_downloadable`)
+        # patrzy wyłącznie na kopię — obraz na wierszu generatora nie
+        # zalicza CV firmowego etapu.
+        return "ok" if attached else "missing"
     if gen.get("generated_document_id"):
         payload = await db.scalar(
             select(CvGeneratedDocument.render_payload).where(
@@ -1939,9 +1942,13 @@ def apply_ai_fix(
         )
     current = fix.get("current_text")
     if current:
-        candidates = list(range(len(doc.blocks)))
-        if role_idx is not None:
-            candidates = roles[role_idx].blocks + candidates
+        # Runda 8 (R8-N8-5): przy znanej roli tylko jej punkty — ten sam
+        # tekst w innej roli („Code review.”) nie jest punktem do zastąpienia.
+        candidates = (
+            list(roles[role_idx].blocks)
+            if role_idx is not None
+            else list(range(len(doc.blocks)))
+        )
         for i in candidates:
             start, end = doc.spans[i]
             if start is None or end is None:

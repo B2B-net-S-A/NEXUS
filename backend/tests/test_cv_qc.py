@@ -303,6 +303,55 @@ def test_missing_rodo_consent_asks_for_upload() -> None:
 # ── Uwagi ───────────────────────────────────────────────────────────────────
 
 
+class _ScalarDb:
+    def __init__(self, *values):
+        self.values = list(values)
+
+    async def scalar(self, _stmt):
+        return self.values.pop(0)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("generated", "values", "expected"),
+    [
+        # Kopia etapu bez obrazu, wiersz generatora z obrazem — DOCX kopii
+        # i tak nie da się pobrać, więc QC nie może zaliczyć zgody.
+        (
+            {"source": "branded_draft", "stage_id": 5, "generated_document_id": 9},
+            [False, {"consent_screenshot": {"key": "k"}}],
+            "missing",
+        ),
+        (
+            {"source": "branded_finalized", "stage_id": 5, "generated_document_id": 9},
+            [True],
+            "ok",
+        ),
+        # CV z generatora bez kopii etapu: obraz na wierszu generatora.
+        (
+            {"source": "generated", "stage_id": None, "generated_document_id": 9},
+            [{"consent_screenshot": {"key": "k"}}],
+            "ok",
+        ),
+    ],
+)
+async def test_consent_of_the_stage_copy_is_what_counts(
+    monkeypatch: pytest.MonkeyPatch, generated: dict, values: list, expected: str
+) -> None:
+    """Runda 8 (R8-N8-4): zgoda RODO w QC = ta sama reguła co blokada pobrania."""
+
+    async def rule(_db, _client_id):
+        return SimpleNamespace(requires_rodo_consent_block=True)
+
+    monkeypatch.setattr(
+        "app.services.cv_generator_b2b.client_rules.resolve_client_rule", rule
+    )
+    src = SimpleNamespace(
+        generated=generated, job=SimpleNamespace(id=2, client_id=1)
+    )
+    assert await qc._consent_state(_ScalarDb(*values), src) == expected
+
+
 def test_spelling_variants_are_warnings_outside_urls() -> None:
     issues = dict(
         qc.spelling_issues(
@@ -541,6 +590,27 @@ def test_ai_fix_replaces_a_point_or_appends_one_to_the_role() -> None:
             BRANDED_HTML,
             {**fix, "current_text": "Punkt, którego już nie ma."},
             "x **Java**",
+            original_text=ORIGINAL,
+            experience=EXPERIENCE,
+        )
+
+
+def test_ai_fix_never_replaces_the_same_text_in_another_role() -> None:
+    """Runda 8 (R8-N8-5): punkt roli A zmienił się po wygenerowaniu propozycji;
+    ten sam tekst w roli B nie może zostać zastąpiony zdaniem o roli A."""
+    html = BRANDED_HTML.replace(
+        "<li>Aplikacje webowe, <b>React</b>.</li>", "<li>Code review.</li>"
+    ).replace("<li>Rozwój usług w <b>Java</b> i Spring.</li>", "<li>Nowy punkt.</li>")
+    fix = {
+        "role_index": 0,
+        "cv_role_label": "Senior Developer 2021–obecnie · Acme Bank",
+        "current_text": "Code review.",
+    }
+    with pytest.raises(qc.ApplyError):
+        qc.apply_ai_fix(
+            html,
+            fix,
+            "Code review usług **Kubernetes** w zespole platformy.",
             original_text=ORIGINAL,
             experience=EXPERIENCE,
         )
