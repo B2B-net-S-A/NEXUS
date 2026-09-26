@@ -382,6 +382,31 @@ def _basis(value: Any, default: str = "ai") -> str:
     return value if isinstance(value, str) and value in _BASES else default
 
 
+_EXPERIENCE_QUOTE_MIN = 4
+_NAME_STEM_MIN = 4
+
+
+def _quote_backs_name(quote: str, name: str) -> bool:
+    """Cytat sekcji 4 musi dotyczyć nazwy pozycji (R8-N12-6).
+
+    Do rundy 8 wystarczał DOWOLNY fragment maila — także „a” — więc pozycja
+    zgadnięta przez model wyglądała na formularzu jak wyczytana. Cytat ma
+    ``_EXPERIENCE_QUOTE_MIN`` znaków i zawiera któreś słowo nazwy albo jego
+    rdzeń (pierwsze ``_NAME_STEM_MIN`` liter — „bankowość” ↔ „bankowym”).
+    Słowa krótsze niż rdzeń muszą stać w cytacie w całości („AML”, „ISO”).
+    """
+    folded_quote = _fold(quote)
+    if len(folded_quote) < _EXPERIENCE_QUOTE_MIN:
+        return False
+    for word in re.findall(r"[0-9a-z]+", _fold(name)):
+        if len(word) < _NAME_STEM_MIN:
+            if _word_in_text(word, folded_quote):
+                return True
+        elif word[:_NAME_STEM_MIN] in folded_quote:
+            return True
+    return False
+
+
 def _experience(value: Any, folded_text: str) -> dict[str, list[dict[str, Any]]]:
     """Pozycje sekcji 4 — WYŁĄCZNIE te, których cytat jest w mailu.
 
@@ -400,6 +425,8 @@ def _experience(value: Any, folded_text: str) -> dict[str, list[dict[str, Any]]]
             name = _text(raw.get("name"), 120)
             quote = _text(raw.get("quote"), 300)
             if not name or not quote or not _in_text(quote, folded_text):
+                continue
+            if not _quote_backs_name(quote, name):
                 continue
             if name.casefold() in seen:
                 continue
@@ -580,11 +607,10 @@ def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:
     ask_client = _strings(data.get("ask_client"), MAX_ASK_CLIENT, 300)
 
     provenance: dict[str, str] = {}
+    seniority_min_years = _int_in(data.get("seniority_min_years"), 0, 40)
     for key, present in (
         ("role", role_name),
-        ("must", must),
-        ("nice", nice),
-        ("seniority", data.get("seniority_min_years") is not None),
+        ("seniority", seniority_min_years is not None),
         ("rate", rate_budget is not None),
         ("work_mode", remote_policy),
         ("about", project_about),
@@ -596,6 +622,16 @@ def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:
             provenance[key] = "request"
     if search_translated:
         provenance["search_requirements"] = "ai"
+    # Runda 8 (R8-N12-6): „z maila” tylko wtedy, gdy każda technologia stoi
+    # w mailu jako całe słowo — technologia dopisana przez model to „propozycja
+    # AI”, nie cytat klienta.
+    for key, names in (("must", must), ("nice", nice)):
+        if names:
+            provenance[key] = (
+                "request"
+                if all(_word_in_text(name, folded_text) for name in names)
+                else "ai"
+            )
     search_basis = _basis(search.get("basis"))
     for key, present in (
         ("search_keywords", search_keywords),
@@ -622,7 +658,6 @@ def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:
 
     from app.services.job_working_title import compose_working_title
 
-    seniority_min_years = _int_in(data.get("seniority_min_years"), 0, 40)
     working_title_suggestion = compose_working_title(
         role_name,
         must,

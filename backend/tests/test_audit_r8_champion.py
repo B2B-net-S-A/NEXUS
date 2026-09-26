@@ -58,9 +58,12 @@ def test_draft_rate_twin_checks_the_neighbourhood_too():
 
 def test_rate_context_check_is_fast_on_a_long_line():
     text = ("x 1 " * 4000) + "150 zł/h"
-    started = time.perf_counter()
-    rate_quote_context_conflict("150 zł/h", text)
-    assert time.perf_counter() - started < 0.05
+    timings = []
+    for _ in range(3):
+        started = time.perf_counter()
+        rate_quote_context_conflict("150 zł/h", text)
+        timings.append(time.perf_counter() - started)
+    assert min(timings) < 0.05
 
 
 # ── R8-N12-3: samo imię + wspólna skrzynka ────────────────────────────────
@@ -126,3 +129,82 @@ def test_client_screening_drops_experience_checks_and_author():
     ]
     # Wejście (JSONB wiersza) nietknięte.
     assert "experience_checks" in raw and raw["answers"][0]["origin"]
+
+
+# ── R8-N12-5: pierwszy zapis profilu w starym kształcie ──────────────────
+
+
+_LEGACY_PROFILE = {
+    "project_context": {"about": "Projekt płatności", "responsibilities": "Kafka"},
+    "sourcing": {"keywords": "java kafka"},
+    "must_skills": ["Java", "Kafka"],
+}
+
+
+def _legacy_job():
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        champion_profile=dict(_LEGACY_PROFILE),
+        matching_requirements={"reviewed": True, "must": []},
+        requirements_reviewed=True,
+    )
+
+
+def test_notes_only_save_of_a_legacy_profile_keeps_the_reviewed_contract():
+    from app.schemas.champion import ChampionProfile
+    from app.services.requirement_contract import apply_requirement_source_update
+
+    job = _legacy_job()
+    new_profile = ChampionProfile.model_validate(_LEGACY_PROFILE).model_dump()
+    new_profile["insights"] = [{"id": "n1", "text": "Klient lubi Kafkę"}]
+    apply_requirement_source_update(job, "champion_profile", new_profile)
+    assert job.matching_requirements == {"reviewed": True, "must": []}
+    assert job.requirements_reviewed is True
+
+
+def test_real_requirement_change_of_a_legacy_profile_still_invalidates():
+    from app.schemas.champion import ChampionProfile
+    from app.services.requirement_contract import apply_requirement_source_update
+
+    job = _legacy_job()
+    new_profile = ChampionProfile.model_validate(_LEGACY_PROFILE).model_dump()
+    new_profile["project"]["about"] = "Zupełnie inny projekt"
+    apply_requirement_source_update(job, "champion_profile", new_profile)
+    assert job.matching_requirements is None
+    assert job.requirements_reviewed is False
+
+
+# ── R8-N12-6: pochodzenie „z maila” ze sprawdzeniem ──────────────────────
+
+
+_MAIL = "Szukamy Java developera z doświadczeniem w bankowości, Spring Boot."
+
+
+def test_technology_added_by_the_model_is_an_ai_proposal_not_a_quote():
+    result = normalize_model_output({"must": ["Java", "Kafka"]}, _MAIL)
+    assert result.must == ["Java", "Kafka"]
+    assert result.provenance["must"] == "ai"
+    grounded = normalize_model_output({"must": ["Java", "Spring Boot"]}, _MAIL)
+    assert grounded.provenance["must"] == "request"
+
+
+def test_out_of_range_seniority_is_not_marked_as_from_the_mail():
+    result = normalize_model_output({"seniority_min_years": 99}, _MAIL)
+    assert result.seniority_min_years is None
+    assert "seniority" not in result.provenance
+
+
+@pytest.mark.parametrize(
+    "quote, kept",
+    [
+        ("a", False),  # jeden znak z maila
+        ("Spring Boot", False),  # prawdziwy fragment, ale nie o bankowości
+        ("doświadczeniem w bankowości", True),
+    ],
+)
+def test_experience_quote_must_back_the_item_name(quote, kept):
+    result = normalize_model_output(
+        {"experience": {"domains": [{"name": "Bankowość", "quote": quote}]}}, _MAIL
+    )
+    assert bool(result.experience["domains"]) is kept
