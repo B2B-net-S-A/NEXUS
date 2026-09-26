@@ -6298,7 +6298,8 @@ Decyzje D1–D7 i pełna specyfikacja: `docs/insights-dynareporter-migration-pla
   - **Rezygnacje to PODZBIÓR zejść** (`consultant_resigned`, `better_offer`,
     `personal_reasons`); `poached_by_client` świadomie poza — to klient zabiera
     człowieka, inne zjawisko i inny wniosek. Data zejścia to
-    `COALESCE(terminated_at, end_date)`, jak w `contract_analytics`.
+    `COALESCE(end_date, terminated_at)` (od rundy 8 — pierwsze wypowiedzenie
+    przeżywa aneks przedłużenia, więc nie może wygrywać z datą końca umowy).
   - **Marża na godzinę wyklucza ryczałt z LICZNIKA i MIANOWNIKA naraz.**
     Kwota miesięczna nie niesie godzin, a podstawienie 160 zamieniłoby
     wskaźnik w marżę podzieloną przez wymyśloną stałą.
@@ -7311,8 +7312,71 @@ Raport: `docs/audits/2026-09-25/runda-7.md`.
   prywatne spotkanie z Outlooka traci `candidate_id`; publiczny POST
   potwierdzenia rozmowy usunięty.
 - **Import rejestru z Excela:** arkusz „Bez działalności” stawia
-  `needs_business_data_annex` także na umowie z NEXUSA (tylko to pole; import go
-  nie zdejmuje).
+  `needs_business_data_annex` także na umowie z NEXUSA (tylko to pole). Od rundy 8
+  import zdejmuje flagę, którą SAM postawił, gdy arkusz mówi „zrobione” albo osoby
+  już w nim nie ma (migawka w przebiegu — cofnięcie przebiegu przywraca flagę).
+
+### Runda 8 (27.09.2026, po PR #1864)
+
+Raport: `docs/audits/2026-09-25/runda-8.md`.
+
+- **Dzień zakończenia umowy = `end_date` → `terminated_at` → dziś** (archiwum,
+  LTV, analiza odejść, rok do roku Rady, kreator metryk, kampanie). Wypowiedzenie
+  trwa tylko przy `end_date <= terminated_at`; samo przeżyte `terminated_at` po
+  aneksie przedłużenia już nic nie znaczy.
+- **Kontraktu usuniętego ALBO scalonego klienta nie da się wznowić** żadną drogą
+  (`contract_lifecycle.assert_contract_client_not_deleted` w `reopen_contract`,
+  PATCH, aneks, `/bulk-extend` → `skipped_client_deleted`, „Cofnij zakończenie”,
+  „Powrót po przerwie”, `confirm-fully-signed`): 422 `client_deleted` /
+  `client_merged`.
+- **Zamówienia MD:** druga zaplanowana zamiana tej samej osoby = 409; nieudane
+  nocne przeniesienie anuluje zastępstwo (`transfer_failed`); usunięcie osoby
+  z zaplanowanym zastępstwem = 409; „Przywróć anulowane” nie wskrzesza linii
+  z umową zakończoną/unieważnioną; linia natychmiastowego przejęcia ma puste pola
+  MD do przeniesienia (bez chwilowego zamknięcia zamówienia).
+- **Import MD, klient kosztowy:** numer z samych cyfr (≥ 7) w KSZTAŁCIE zamówień
+  tego klienta (długość + 2 pierwsze cyfry) wiąże wiersz także, gdy takiego
+  zamówienia nie ma — „Brak pasującego zamówienia”, nie zejście po nazwisku.
+- **„Interview” = `client_interview` także w KPI Rady** (`insights_board`
+  `kpis.interview`, CSV „Rozmowy u klienta”), wykresie rocznym, lejku i tabeli
+  zespołu; etap `interview` to QC CV.
+- **Przydział requestów:** prowadzący wpisany przez automat wraca po powrocie
+  requestu do puli jako wiersz `auto` (planer zwolni go za urlop) — chyba że
+  automat go już zdjął (powód z `AUTO_RELEASE_REASONS`), wtedy prowadzącego wpisał
+  człowiek i wraca jako `owner`. Tryb `off` zwalnia przypisania spoza puli, martwe
+  konta i propozycje (powód `mode_off`). Prowadzący z nieaktywnym kontem = brak.
+- **QC CV i Cpro:** plik „…B2B…” wybiera JEDNA reguła (`dz_review.pick_document_cv`:
+  nazwa klienta → najnowszy) dla QC i kolejki Cpro; wymóg „do Cpro wysyła osoba od
+  Cpro” działa także przy wyłączonym QC; zgoda RODO w QC = obraz na kopii etapu;
+  ponowne „Biorę” nie przedłuża własnej blokady (409), blokada nieaktywnego konta
+  nikogo nie wiąże.
+- **Kalendarz:** usunięcie/przesunięcie blokady rozmowy u klienta w Outlooku nie
+  kasuje ani nie przesuwa rozmowy z NEXUSA (kopia zostaje odpięta); przełożenie na
+  przyszły termin zeruje `reminder_sent_at`; ocena prepu sprawdza tylko pytania,
+  które pokazuje prep-kit, a popsuta odpowiedź modelu i transkrypt > 200 tys.
+  znaków = `unavailable`, nigdy „słaby”.
+- **Indeks:** ścieżki inline zawsze zostawiają intencję naprawy po nieudanym
+  embedzie; status oferty w payloadzie Qdranta aktualizuje tani `set_payload` przy
+  zmianie statusu (bez `embedding_id` jako bramki — punkt, którego nie ma, jest
+  pomijany); reconciler wznawia kandydata z intencją `dead` bez `done` RAZ
+  (dokładnie jedna `dead`), nie w każdym przebiegu.
+- **Alerty zapisanych wyszukiwań:** każdy zapis we własnej sesji; sufit 1000 stron;
+  dziennik pisany i czytany paczkami po 5000 (limit argumentów asyncpg to 32 767).
+- **Jarvis:** czat i potwierdzenie oddają połączenie do puli przed turą; karta
+  akcji pokazuje wszystko, co zapisze „Zrób to” (czas w Europe/Warsaw, czas bez
+  strefy odrzucany); akcja nie wisi w `confirmed` (po 5 min „nie wiadomo”);
+  blokady tur zdejmowane przy starcie procesu.
+- **Logi i M365:** nazwy plików i ścieżki w logach tylko przez `safe_filename`;
+  wyszukiwanie e-maila (CV, podpis Outlooka) w czasie liniowym; stary prywatny
+  wpis z Outlooka traci `candidate_id` (faza `repair-m365-private-event-candidate`);
+  „odwołane” follow-upu zapisuje się dopiero po udanym odwołaniu w Teams.
+- **Strona kariery i portale:** kontrola publikacji sprawdza także sekcje
+  wyłączone przełącznikiem; slug linku rekrutacji bez nazwy klienta i nazwisk
+  (nieczysty dostaje nowy adres przy zatwierdzeniu); zmiana klienta po
+  zatwierdzeniu = szkic; wycofanie w trakcie dzierżawy nie zeruje
+  `next_attempt_at`; dwa równoległe „Publikuj” = 409.
+- **Migracje 0381/0383/0388:** downgrade przy istniejących danych kończy się
+  wyjątkiem zamiast je kasować.
 
 ## Narzędzia rekrutera — reguły po audycie 17.09.2026
 
