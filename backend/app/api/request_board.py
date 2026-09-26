@@ -326,9 +326,7 @@ async def get_request_board(
         )
     champions = (
         await db.execute(
-            select(
-                Activity.created_at, Job.id, job_display_title_expr(), Job.client_id
-            )
+            select(Activity.created_at, Job.id, job_display_title_expr(), Job.client_id)
             .join(Job, Job.id == Activity.entity_id)
             .where(
                 Activity.entity_type == "job",

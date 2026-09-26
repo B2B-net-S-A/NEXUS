@@ -2291,9 +2291,7 @@ async def update_job(
     delivery_lead_changed = (
         "delivery_lead_id" in sent and data.delivery_lead_id != job.delivery_lead_id
     )
-    recruiter_changed = (
-        "recruiter_id" in sent and data.recruiter_id != job.recruiter_id
-    )
+    recruiter_changed = "recruiter_id" in sent and data.recruiter_id != job.recruiter_id
     if client_changed:
         await assert_client_assignable(db, data.client_id)
     if tac_changed and data.tac_id is not None:
