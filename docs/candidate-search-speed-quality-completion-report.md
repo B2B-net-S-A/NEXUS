@@ -43,7 +43,11 @@ i „Kolejność „Dopasowanie” i górne pole listy”.
   Przycisk „Szukaj … po znaczeniu” cofa zamianę.
 - Notatki: poprawiony import i naprawa istniejących wierszy.
 - 26.09: przed włączeniem przełącznika poprawić fazy przy myślniku („CI/CD-driven”).
-  Robi to PR z tym plikiem.
+  Zrobione w #1848.
+- 26.09 (po sprawdzeniu każdej utraconej osoby): poprawić litery z osobnym znakiem
+  akcentu i `<script>` w CV (wersja 3 składania, 0387). Wyrazów sklejonych kropką
+  („scrum.org”, „8.krakow”) NIE rozcinamy — rozcięcie przywróciłoby szum z adresów
+  e-mail i linków. Przełącznik włączamy po ponownym porównaniu i zgodzie Artura.
 
 ## Co jest zrobione
 
@@ -76,6 +80,25 @@ i „Kolejność „Dopasowanie” i górne pole listy”.
 | najnowsi | 33,3% | 0,047 |
 | wektor kolumny „Dop.” | 83,3% | 0,279 |
 | cała baza wg „Dop.” (bez wymagań) | 80,0% | 0,216 |
+
+### Sprawdzenie utraconych osób (26.09, produkcja, tylko odczyt)
+
+Wszystkie 43 osoby, które nowa ścieżka traciła w porównaniu wersji 1, sprawdzone
+na treści CV, profilu i notatek:
+
+| grupa | osób | przyczyna | co dalej |
+|---|---:|---|---|
+| „CI/CD-driven”, „biznesowy-systemowy” | 9 | myślnik sklejał frazę | naprawione w #1848 |
+| szum | 28 | linki `j.php`/`index.php` w notatkach, miasto w adresie e-mail (`marczak.krakow@gmail.com` to osoba z Łodzi), firma `Devops.ly`, `spark.fi`, `Java.script`, plik `IT Tester.pdf` | dobrze, że znika |
+| wyraz sklejony kropką | 5 | „scrum.org” ×3 (certyfikaty PSM/PSPO), „Agile.a”, „8.krakow” — parser traktuje je jak adres strony | świadomie zostaje (decyzja 26.09) |
+| `<script>` w CV | 1 | kandydat 34020: składanie zamieniało `</script>` w `< script>`, parser nie znajdował końca „skryptu” i połykał 6 336 znaków CV razem z „Łódź” (tak samo 3 inne CV, razem 11 906 znaków) | naprawia 0387 (`<` i `>` jako spacja) |
+
+Próbka 14 osób dodanych przez nową ścieżkę: wszystkie to prawdziwe trafienia
+(„Kraków, woj. małopolskie” w CV, „Agile/Scrum”, „SysOps/Admin/SQL/DevOps”,
+„Infosys | Łódź”). Przy okazji: 133 CV i 41 notatek mają polskie litery zapisane
+jako litera + osobny akcent — ani stara, ani nowa ścieżka ich nie znajdowała;
+0387 to poprawia (sprawdzone na produkcji wyrażeniem: „lodz” 4 → 10 CV,
+„zarzadzanie” 57 → 62 wśród CV z takimi znakami). Logi produkcji z 10 godzin po #1845: bez błędów, lista 200.
 
 ## Co zostało (w tej kolejności)
 

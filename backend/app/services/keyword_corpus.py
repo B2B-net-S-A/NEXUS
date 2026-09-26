@@ -54,6 +54,8 @@ i po uzupełnieniu (``fold_ready()`` / ``notes_ready()``).
 from __future__ import annotations
 
 import logging
+import re
+import unicodedata
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any, Iterator, Optional
@@ -128,6 +130,25 @@ PROFILE_CAP = 200_000
 
 FOLD_SRC = "ąćęłńóśźżĄĆĘŁŃÓŚŹŻ"
 FOLD_DST = "acelnoszzACELNOSZZ"
+
+# Znaki łączące (akcent jako osobny znak po literze). 133 CV i 41 notatek
+# (26.09.2026) zapisują polskie litery jako „o” + U+0301 — ``translate``ich nie
+# widzi, więc „łódź” ani „zarządzanie” ich nie znajdowały. Przed składaniem:
+# NFC (litera + akcent → jedna litera), a to, co zostało, usuwamy.
+# Od tej samej wersji „<” i „>” to spacja: ukośnik jako spacja zamieniał
+# `</script>` w CV w `< script>`, parser tsvector nie znajdował końca „skryptu”
+# i połykał resztę CV (4 CV, 11 906 znaków; stara ścieżka ich nie traciła).
+COMBINING_RANGES = (
+    (0x0300, 0x036F),
+    (0x0483, 0x0489),
+    (0x1AB0, 0x1AFF),
+    (0x1DC0, 0x1DFF),
+    (0x20D0, 0x20FF),
+    (0xFE20, 0xFE2F),
+)
+COMBINING_CLASS_PG = (
+    "[" + "".join(f"\\u{lo:04x}-\\u{hi:04x}" for lo, hi in COMBINING_RANGES) + "]"
+)
 
 JSON_TEXT_FUNCTION = "candidate_keyword_json_text"
 TRIGGER_FUNCTION = "candidates_keyword_corpus_refresh"
@@ -211,10 +232,12 @@ FOLD_FUNCTION_DDL = rf"""
 CREATE OR REPLACE FUNCTION {FOLD_FUNCTION}(t text)
 RETURNS text LANGUAGE plpgsql IMMUTABLE PARALLEL SAFE AS $$
 DECLARE
-    s text := translate(
-        lower(translate(coalesce(t, ''), '{FOLD_SRC}', '{FOLD_DST}')), '/\-', '   '
-    );
+    s text := coalesce(t, '');
 BEGIN
+    IF s ~ '{COMBINING_CLASS_PG}' THEN
+        s := regexp_replace(normalize(s, NFC), '{COMBINING_CLASS_PG}+', '', 'g');
+    END IF;
+    s := translate(lower(translate(s, '{FOLD_SRC}', '{FOLD_DST}')), '/\-<>', '     ');
     IF s ~ '[#+]|\.net' THEN
         s := regexp_replace(s, '(^|[^{WORD_CLASS_PG}])c\+\+', '\1 cplusplus ', 'g');
         s := regexp_replace(s, '(^|[^{WORD_CLASS_PG}])c#', '\1 csharp ', 'g');
@@ -493,7 +516,9 @@ NOTES_UNWRAP_RECEIPT_KEY = "0385_traffit_note_content_unwrap"
 # 2 — 0386 myślnik jako spacja: parser tsvector rozbijał „cd-driven” na
 #     `cd-driven`, `cd`, `driven`, więc fraza „ci/cd” nie łączyła się
 #     z „CI/CD-driven” (porównanie na produkcji 26.09.2026).
-FOLD_VERSION = 2
+# 3 — 0387 znaki łączące: NFC, a pozostałe usunięte (``COMBINING_CLASS_PG``);
+#     „<” i „>” jako spacja.
+FOLD_VERSION = 3
 FOLD_VERSION_KEY = "keyword_fold_fts_version"
 FOLD_RECOMPUTE_BATCH_SQL = (
     "UPDATE candidates SET keyword_doc = NULL WHERE id IN ("
@@ -587,17 +612,23 @@ def force_folded_search(value: bool) -> Iterator[None]:
 
 # ── Lustro w Pythonie: składanie tekstu (wycinki pod wynikiem) ──────────────
 
-_FOLD_MAP = str.maketrans(FOLD_SRC + "/\\-", FOLD_DST + "   ")
+_FOLD_MAP = str.maketrans(FOLD_SRC + "/\\-<>", FOLD_DST + "     ")
+_COMBINING_RE = re.compile(
+    "[" + "".join(f"{chr(lo)}-{chr(hi)}" for lo, hi in COMBINING_RANGES) + "]+"
+)
 
 
 def fold_text(value: str) -> str:
-    """Polskie znaki → ASCII, małe litery, ukośnik i myślnik → spacja.
+    """Polskie znaki → ASCII, małe litery, ukośnik, myślnik i „<>” → spacja.
 
     Lustro pierwszego kroku ``candidate_keyword_fold`` BEZ słów specjalnych —
     zachowuje długość tekstu (poza rzadkimi znakami, których ``lower`` zmienia
-    długość), więc pozycje trafienia w tekście złożonym wskazują to samo
-    miejsce w oryginale. Wołający sprawdza długość, zanim użyje pozycji.
+    długość, i tekstem ze znakami łączącymi), więc pozycje trafienia w tekście
+    złożonym wskazują to samo miejsce w oryginale. Wołający sprawdza długość,
+    zanim użyje pozycji.
     """
+    if _COMBINING_RE.search(value):
+        value = _COMBINING_RE.sub("", unicodedata.normalize("NFC", value))
     return value.translate(_FOLD_MAP).lower()
 
 

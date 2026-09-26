@@ -60,6 +60,20 @@ async def _seed() -> dict[str, int]:
             "agile": person("agile", "Praca w Agile/Scrum, CI/CD w GitLab."),
             "hyphen": person("hyphen", "Operated within CI/CD-driven environments."),
             "noted": person("noted", "Programista."),
+            # Litera + osobny znak akcentu (U+0301, U+0328) — tak zapisują CV
+            # niektóre PDF-y; do 0387 składanie ich nie widziało.
+            "decomposed": person(
+                "decomposed",
+                "Mieszkam w Lo\u0301dz\u0301, zarza\u0328dzanie projektami.",
+            ),
+            # Kandydat 34020 na produkcji: `<script>…</script>` w CV. Ukośnik jako
+            # spacja zamieniał `</script>` w `< script>`, więc parser tsvector nie
+            # znajdował końca „skryptu” i połykał resztę CV razem z „Łódź”.
+            "script": person(
+                "script",
+                "Niebezpiecznik.pl <script>alert('Performance Test Engineer')</script>"
+                " / trainer\nsierpien 2017 - czerwiec 2020\nArea, Poland / Łódź Area",
+            ),
         }
         db.add_all(rows.values())
         await db.flush()
@@ -70,6 +84,12 @@ async def _seed() -> dict[str, int]:
             }
         )
         db.add(Note(candidate_id=rows["noted"].id, content=wrapped))
+        db.add(
+            Note(
+                candidate_id=rows["decomposed"].id,
+                content="Kandydat z Gdan\u0301ska, zna Terraform.",
+            )
+        )
         await db.commit()
         for key, row in rows.items():
             _IDS[key] = row.id
@@ -221,6 +241,37 @@ async def test_folded_joins_phrases_across_hyphens(
     assert "java" in await _keys(
         app_client, app_auth_headers, q_any_group="spring-boot"
     )
+
+
+@pytest.mark.asyncio
+async def test_folded_reads_decomposed_polish_letters(
+    app_client, app_auth_headers, folded
+):
+    """Wersja 3 składania (0387): NFC przed składaniem — „Łódź” zapisane jako
+    litera i osobny akcent znajduje się po „łódź” i „lodz”."""
+    assert "decomposed" in await _keys(app_client, app_auth_headers, q_any_group="łódź")
+    assert "decomposed" in await _keys(app_client, app_auth_headers, q_any_group="lodz")
+    assert "decomposed" in await _keys(
+        app_client, app_auth_headers, q_any_group="zarządzanie"
+    )
+    assert "decomposed" in await _keys(
+        app_client, app_auth_headers, q_any_group="gdańska", q_scope="notes"
+    )
+
+
+@pytest.mark.asyncio
+async def test_folded_survives_script_tag_in_cv(app_client, app_auth_headers, folded):
+    assert "script" in await _keys(app_client, app_auth_headers, q_any_group="lodz")
+
+
+def test_python_mirror_strips_combining_marks():
+    from app.services import keyword_corpus as kc
+
+    assert kc.fold_text("Lo\u0301dz\u0301 zarza\u0328dzanie") == "lodz zarzadzanie"
+    assert kc.fold_text("t\u0489\u0320e\u0315st") == "test"
+    # Bez znaków łączących długość się nie zmienia (pozycje wycinków).
+    assert kc.fold_text("< script> a<b") == "  script  a b"
+    assert len(kc.fold_text("Łódź, CI/CD-driven")) == len("Łódź, CI/CD-driven")
 
 
 @pytest.mark.asyncio

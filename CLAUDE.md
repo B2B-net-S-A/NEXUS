@@ -7881,7 +7881,10 @@ kluczowe 0,9–2 s, „c#” 5,9 s; 68% czasu „java” zjadał regex po `keywo
   z `app/services/keyword_corpus.py` (jedno źródło dla migracji 0385 i
   `entrypoint.sh` — `schema_ddl()`/`schema_index_ddl()`). Tekst przechodzi przez
   SQL-ową `candidate_keyword_fold`: bez polskich znaków, małe litery, `/`, `\`
-  i `-` → spacja (myślnik od 0386: „CI/CD-driven” nie łączyło się z „ci/cd”), `c++`/`c#`/`f#`/`.net` → `cplusplus`/`csharp`/`fsharp`/`dotnet`
+  i `-` → spacja (myślnik od 0386: „CI/CD-driven” nie łączyło się z „ci/cd”;
+  od 0387 NFC i usunięcie znaków łączących — 133 CV miało „o” + osobny akcent —
+  oraz `<`/`>` jako spacja: `</script>` po składaniu nie zamykał „skryptu”
+  i parser połykał resztę CV), `c++`/`c#`/`f#`/`.net` → `cplusplus`/`csharp`/`fsharp`/`dotnet`
   (`.net` tylko po granicy słowa albo `asp|ado|vb` — „B2B.net” zostaje).
   **Zapytanie składa ta SAMA funkcja** (`advanced_candidate_search.folded_tsquery`),
   więc dokument i zapytanie nie mogą się rozjechać — nie dopisuj składania w Pythonie.
