@@ -3769,6 +3769,12 @@ export interface B2BRegisterImportCounters {
   annex_matched: number;
   annex_unmatched: number;
   annex_done: number;
+  /** Osoby zdjęte z arkusza „Bez działalności” — flaga aneksu zdjęta. */
+  annex_cleared?: number;
+  /** Flaga aneksu postawiona na umowie wydanej w NEXUSIE. */
+  generator_annex_flagged?: number;
+  /** Data podpisania, której nie udało się odczytać (umowa „W trakcie”). */
+  signing_dates_unparsed?: number;
 }
 
 export interface B2BRegisterImportReport {

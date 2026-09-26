@@ -874,7 +874,9 @@ Wszystko w `components/v2/pages/B2BContractGeneratorV2.tsx`.
   żyje w `raw_contract_number`. Wiersze z Excela są tylko do odczytu poza
   statusem i dokumentami pochodnymi. Arkusz „Bez działalności” zasila kolejkę
   „Aneks uzupełnienia danych do zrobienia” (`needs_business_data_annex`,
-  zdejmuje ją podpisany aneks „dane firmy”). `GET /generated/export.xlsx`
+  zdejmuje ją podpisany aneks „dane firmy”) — także na umowie wydanej
+  w NEXUSIE, bo ta flaga to jedyne pole, które import może na niej zmienić
+  (decyzja Artura 26.09.2026). `GET /generated/export.xlsx`
   oddaje rejestr w układzie kolumn Excela działu.
 - **Kontener listy:** `max-w-6xl` → `max-w-7xl` (9 kolumn + akcje).
 

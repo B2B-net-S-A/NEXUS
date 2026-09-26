@@ -102,8 +102,11 @@ async def candidates_linked_to_client(
 # ── Klienci ──────────────────────────────────────────────────────────────────
 
 #: Wartości kolumny „Klient”, które znaczą „bez klienta” (umowy wewnętrzne).
+#: Pusta komórka NIE jest na tej liście: openpyxl w trybie ``read_only``
+#: oddaje ``None`` pod scaloną komórką, więc pustka znaczy „nie wiemy”, a nie
+#: „umowa wewnętrzna” — trafia do nieznanych klientów w raporcie (runda 7, N3-6).
 INTERNAL_CLIENT_KEYS = frozenset(
-    {"b2b net", "b2b net s a", "b2b", "b2b net sa", "brak", "hr", "b2bnet", "-", ""}
+    {"b2b net", "b2b net s a", "b2b", "b2b net sa", "brak", "hr", "b2bnet", "-"}
 )
 
 #: Warianty pisowni z rejestru działu → nazwy szukane w katalogu klientów
@@ -267,10 +270,9 @@ class RecruiterResolver:
             for uid, tokens, active, label in self._users
             if all(any(self._token_matches(w, t) for t in tokens) for w in wanted)
         ]
-        if len(hits) > 1:
-            active_hits = [hit for hit in hits if hit[1]]
-            if len(active_hits) == 1:
-                hits = active_hits
+        # Kilka pasujących kont = brak powiązania, także gdy aktywne jest jedno:
+        # „Kasia” przy umowie z 2022 to często osoba, która już odeszła, a nie
+        # jedyna dzisiejsza Katarzyna (runda 7, N3-8).
         if len(hits) == 1:
             return Match("matched", hits[0][0], 1, hits[0][2])
         if hits:
