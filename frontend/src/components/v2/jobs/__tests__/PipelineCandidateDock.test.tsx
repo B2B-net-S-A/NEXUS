@@ -65,8 +65,12 @@ vi.mock("@/components/v2/modals/CVOriginalPreviewModal", () => ({
 vi.mock("@/components/v2/modals/CVShareLinkModal", () => ({
   CVShareLinkModal: () => null,
 }));
-vi.mock("@/components/v2/modals/SendEmailV2", () => ({
-  SendEmailV2: () => null,
+const composeDialog = vi.fn();
+vi.mock("@/components/emails/EmailCompose", () => ({
+  default: (props: Record<string, unknown>) => {
+    composeDialog(props);
+    return <div data-testid="m365-compose-dialog" />;
+  },
 }));
 // Okno generatora CV (v3) — dok tylko je otwiera z osobą i rekrutacją.
 const generatorDialog = vi.fn();
@@ -368,6 +372,23 @@ describe("PipelineCandidateDock", () => {
     );
 
     expect(onOpenScreening).toHaveBeenCalledWith(501, "Anna Kowalska");
+  });
+
+  it("akcja maila otwiera kompozytor M365 z pobranym adresem i kontekstem rekrutacji", async () => {
+    const user = userEvent.setup();
+    renderDock();
+    await user.click(screen.getByRole("button", { name: "Więcej akcji osoby" }));
+    await user.click(screen.getByRole("menuitem", { name: "Wyślij wiadomość" }));
+    await screen.findByTestId("m365-compose-dialog");
+    expect(composeDialog).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        mode: "new",
+        candidateId: 42,
+        candidateName: "Anna Kowalska",
+        defaultTo: "anna@example.com",
+        requestId: 10,
+      }),
+    );
   });
   it("warsztaty z dawnej Tabeli (CV do klienta, rozmowy, umowa) otwierają się z doku", async () => {
     const user = userEvent.setup();
