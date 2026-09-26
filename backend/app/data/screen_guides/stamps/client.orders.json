@@ -4,6 +4,6 @@
   "sources": {
     "frontend/src/components/client-profile/orders/AssignToOrderModal.tsx": "4276f76150fef4dd46b0844348ecdf774b3e8428352693930ca8c4ffa424bcbd",
     "frontend/src/components/client-profile/orders/MultiConsultantOrdersTab.tsx": "68a0670907c527a19f6c65a612deb03a6a159c95e39cb38368c2a4ae0b2463a9",
-    "frontend/src/components/client-profile/orders/OrderGroupCard.tsx": "86e206cd1eba09159585743fffcd9994855f904c3c645835dbac8a42eed29938"
+    "frontend/src/components/client-profile/orders/OrderGroupCard.tsx": "6077b7f8a5f2f937f309e4a3b9cfaca1217ec4c5af6a63deb7a06bcf35abe7d5"
   }
 }

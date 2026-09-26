@@ -1369,10 +1369,17 @@ async def delete_consumption(
 
 
 async def _has_successor_line(db: AsyncSession, order: ClientOrder) -> bool:
-    """Czy jakaś linia przejęła tę przy zamianie kontraktora."""
+    """Czy jakaś linia przejęła tę przy zamianie kontraktora.
+
+    Runda 8 (N5-2): anulowane zaplanowane zastępstwo nie jest następcą —
+    liczone jako następca blokowało powrót osoby na obsadę po „Przywróć".
+    """
     successor = await db.scalar(
         select(ClientOrder.id)
-        .where(ClientOrder.predecessor_order_id == order.id)
+        .where(
+            ClientOrder.predecessor_order_id == order.id,
+            ClientOrder.status != ClientOrderStatus.cancelled,
+        )
         .limit(1)
     )
     return successor is not None
