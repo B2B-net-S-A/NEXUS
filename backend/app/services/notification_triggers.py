@@ -7,8 +7,9 @@ co 5 min. Idempotentność zapewnia unique partial index `ix_notif_dedup_daily`
 
 Triggery:
   1. check_dl_stage_stale_6h     — kandydat w `cv_sent` > 6h bez ruchu → alert do DL.
-  2. check_client_feedback_eobd  — o 16:30 dla `client_interview` zakończonego dziś
-                                   bez feedbacku (brak ScreeningNote po end_time).
+  2. check_client_feedback_eobd  — o 16:30 dla rozmowy u klienta zakończonej dziś
+                                   bez feedbacku (ScreeningNote, werdykt HM ani
+                                   debrief po end_time).
   3. (usunięty 23.09.2026) raport PowerCalling 11:45 — bez telefonii mierzył
      rozmowy, których system nie rejestruje. Typ `powercalling_kpi` zostaje
      dla historycznych powiadomień.
@@ -27,7 +28,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Iterable, Optional
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -406,10 +407,12 @@ async def check_client_feedback_eobd(
         return 0
 
     day = local_day_bounds(now)
-    # Wszystkie dzisiejsze zakończone interview (event_type=interview, status=completed).
+    # Wszystkie dzisiejsze zakończone rozmowy u klienta. Runda 8 (R8-X1-2):
+    # cykl 0338 zakłada je jako `client_interview` — samo `interview` (stare
+    # wydarzenia) pomijało każdą rozmowę z potwierdzonego terminu od klienta.
     ev_rows = await db.execute(
         select(CalendarEvent).where(
-            CalendarEvent.event_type == EventType.interview,
+            CalendarEvent.event_type.in_(_POST_INTERVIEW_EVENT_TYPES),
             CalendarEvent.status == EventStatus.completed,
             CalendarEvent.end_time.isnot(None),
             CalendarEvent.end_time >= day.start_utc,
@@ -443,6 +446,26 @@ async def check_client_feedback_eobd(
             )
         )
         if (fb.scalar() or 0) > 0:
+            continue
+        # Feedback = też werdykt hiring managera (`client_side`) i debrief
+        # (`candidate_side`) zapisane po rozmowie — cykl 0338 zapisuje tam,
+        # nie w ScreeningNote (runda 8, R8-X1-2).
+        verdict = await db.scalar(
+            select(func.count())
+            .select_from(InterviewFeedback)
+            .where(
+                InterviewFeedback.candidate_id == event.candidate_id,
+                InterviewFeedback.job_id == event.job_id,
+                or_(
+                    InterviewFeedback.updated_at > event.end_time,
+                    and_(
+                        InterviewFeedback.calendar_event_id == event.id,
+                        InterviewFeedback.updated_at >= event.start_time,
+                    ),
+                ),
+            )
+        )
+        if (verdict or 0) > 0:
             continue
         targets = await _delivery_lead_targets(db, job)
         for dl_id in targets:

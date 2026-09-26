@@ -90,18 +90,30 @@ async def _staff_for(
     return [(uid, name) for uid, name in rows.all() if name]
 
 
-async def _refresh_event(prep: PrepMeeting, event: CalendarEvent) -> Optional[str]:
-    """Termin z Outlooka organizatora. ``"cancelled"`` gdy odwołany/usunięty."""
+async def _refresh_event(
+    prep: PrepMeeting, event: CalendarEvent, now: Optional[datetime] = None
+) -> Optional[str]:
+    """Termin z Outlooka organizatora. ``"cancelled"`` gdy odwołany/usunięty.
+
+    Runda 8 (R8-N9-8): usunięcie (404) albo odwołanie spotkania, które już się
+    ODBYŁO, to porządki w kalendarzu organizatora, nie odwołanie prepu —
+    transkrypt spotkania Teams dalej istnieje. Dotąd taki prep dostawał
+    „cancelled”, transkryptu nikt nie pobierał, a ekran i dzwonek zgłaszały
+    „Brak prepu” dla prepu, który się odbył.
+    """
+    now = now or datetime.now(timezone.utc)
+    end = _aware(event.end_time) or _aware(event.start_time)
+    already_held = end is not None and end <= now
     try:
         data = await teams_prep_graph.get_event(prep.organizer_upn, event.external_id)
     except GraphRequestError as exc:
         if exc.status == 404:
-            return "cancelled"
+            return None if already_held else "cancelled"
         raise
     if data is None:
         return None
     if data.get("isCancelled"):
-        return "cancelled"
+        return None if already_held else "cancelled"
     start, end = data.get("start"), data.get("end")
     if start and end:
         event.start_time = start
@@ -177,7 +189,7 @@ async def process_prep(
         return
     stats.checked += 1
     try:
-        if await _refresh_event(prep, event) == "cancelled":
+        if await _refresh_event(prep, event, now) == "cancelled":
             event.status = EventStatus.cancelled
             prep.transcript_status = "cancelled"
             stats.cancelled += 1

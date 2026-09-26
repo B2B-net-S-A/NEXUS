@@ -89,6 +89,7 @@ async def load_prep_attention(
         [(c, j) for c, j in pairs],
         window_start=now - timedelta(days=14),
         window_end=now + timedelta(days=days_ahead),
+        now=now,
     )
     from app.services.interview_slots import eligible_slot_recruiters  # noqa: PLC0415
     from app.services.prep_meetings import suggest_organizer_ids  # noqa: PLC0415
