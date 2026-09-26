@@ -226,22 +226,27 @@ def test_dl_view_flags_client_interview_stage_without_slots():
 # ── Wyzwalacze po rozmowie ───────────────────────────────────────────────────
 
 
-def test_client_interview_reminder_goes_to_event_owner_on_candidate_side():
-    from app.services.notification_triggers import (
-        _post_interview_recipients,
-        _post_interview_side,
-    )
+async def test_client_interview_reminder_goes_to_event_owner_on_candidate_side(
+    monkeypatch,
+):
+    from app.services import notification_triggers as nt
 
     ev = CalendarEvent(
         event_type=EventType.client_interview, operational_owner_id=11, created_by=22
     )
-    assert _post_interview_side(ev, None) is False
+    assert nt._post_interview_side(ev, None) is False
 
     class _Job:
         recruiter_id = 33
         delivery_lead_id = 44
 
-    assert _post_interview_recipients(ev, _Job(), client_side=False) == [11]
+    async def active(db, user_id):
+        return True
+
+    monkeypatch.setattr(nt, "_user_is_active", active)
+    assert await nt._post_interview_recipients(None, ev, _Job(), client_side=False) == [
+        11
+    ]
 
 
 def test_client_interview_reminder_links_to_debrief_not_generic_feedback():
