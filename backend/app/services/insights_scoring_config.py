@@ -87,7 +87,7 @@ SCORING_FIELDS: tuple[ScoringField, ...] = (
         minimum=0,
         maximum=1000,
         group="league_points",
-        label="Punkty za rozmowę (stage `interview`)",
+        label="Punkty za rozmowę u klienta (stage `client_interview`)",
         unit="pkt",
     ),
     ScoringField(
