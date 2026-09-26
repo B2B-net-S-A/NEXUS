@@ -388,7 +388,11 @@ _SCORING_INPUT_FIELDS = _EMBED_TRIGGER_FIELDS | {
 }
 
 
-_OWNER_FIELD_LABELS = {"tac_id": "TAC", "delivery_lead_id": "Delivery Lead"}
+_OWNER_FIELD_LABELS = {
+    "tac_id": "TAC",
+    "delivery_lead_id": "Delivery Lead",
+    "recruiter_id": "Prowadzący",
+}
 
 
 async def _validate_owner_override(
@@ -1805,6 +1809,16 @@ async def create_job(
             },
             field="delivery_lead_id",
         )
+    # Runda 8 (R8-X1-3): prowadzący jak w „Przekaż do searchu” — nieistniejące
+    # id dawało IntegrityError (500 bez CORS), a nieaktywne konto zostawało
+    # „Prowadzi” przy osobie, której nie ma.
+    if data.recruiter_id is not None:
+        await _validate_owner_override(
+            db,
+            user_id=data.recruiter_id,
+            allowed_roles=set(_HANDOFF_RECRUITER_ROLES),
+            field="recruiter_id",
+        )
 
     # Auto-assign from Client ↔ TAC/DL assignments when the caller left the
     # field empty. Override semantics: if caller supplied the value, we
@@ -2277,6 +2291,9 @@ async def update_job(
     delivery_lead_changed = (
         "delivery_lead_id" in sent and data.delivery_lead_id != job.delivery_lead_id
     )
+    recruiter_changed = (
+        "recruiter_id" in sent and data.recruiter_id != job.recruiter_id
+    )
     if client_changed:
         await assert_client_assignable(db, data.client_id)
     if tac_changed and data.tac_id is not None:
@@ -2309,6 +2326,15 @@ async def update_job(
                 UserRole.head_of_recruitment,
             },
             field="delivery_lead_id",
+        )
+    # Runda 8 (R8-X1-3): tylko przy realnej zmianie — formularz odsyła
+    # niezmienionego (także nieaktywnego już) prowadzącego przy każdym zapisie.
+    if recruiter_changed and data.recruiter_id is not None:
+        await _validate_owner_override(
+            db,
+            user_id=data.recruiter_id,
+            allowed_roles=set(_HANDOFF_RECRUITER_ROLES),
+            field="recruiter_id",
         )
 
     updates = data.model_dump(exclude_unset=True)
