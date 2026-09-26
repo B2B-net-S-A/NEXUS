@@ -22,7 +22,7 @@ da się go tym zablokować — to świadome (brak wydarzenia = brak bramki).
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Optional, Sequence
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import and_, select
@@ -70,6 +70,39 @@ def debrief_is_complete(
     return any(line.strip() for line in (client_questions or "").splitlines())
 
 
+def pick_current_round(
+    rounds: Sequence[tuple[datetime, bool]], now: datetime
+) -> Optional[int]:
+    """Indeks BIEŻĄCEJ rundy rozmów u klienta pary albo ``None`` (brak rozmów).
+
+    ``rounds`` = ``(start, debrief_zamknięty)`` posortowane rosnąco po starcie,
+    bez odwołanych. Jedna reguła dla ekranu „Rozmowy u klienta”, plakietki
+    Tablicy, kolejki prepów, bramki debriefu i planowania prepu:
+
+    1. ostatnia rozmowa, która już się zaczęła, bez debriefu — telefon
+       i debrief po niej są pilniejsze niż kolejna runda;
+    2. inaczej najwcześniejsza rozmowa w przyszłości — to do niej robi się
+       prepy;
+    3. inaczej ostatnia odbyta (wszystko zamknięte).
+
+    Runda 8 (R8-N9-3): od decyzji IC-1 (26.09.2026) para może mieć kilka
+    zaplanowanych rund naraz. Dotąd „bieżąca” była najpóźniejsza rozmowa,
+    także przyszła — telefon po rundzie, która właśnie się skończyła, znikał,
+    a planowanie prepu i ekran liczyły rundę inaczej (409 przy zadaniu
+    „Brak prepu”).
+    """
+    if not rounds:
+        return None
+    started = [i for i, (start, _closed) in enumerate(rounds) if start <= now]
+    last_started = started[-1] if started else None
+    if last_started is not None and not rounds[last_started][1]:
+        return last_started
+    upcoming = [i for i, (start, _closed) in enumerate(rounds) if start > now]
+    if upcoming:
+        return upcoming[0]
+    return last_started
+
+
 async def missing_debrief(
     db: AsyncSession,
     *,
@@ -80,12 +113,13 @@ async def missing_debrief(
     """Zwraca szczegół odmowy 409, gdy brakuje debriefu po rozmowie u klienta.
 
     ``None`` = bramka nie dotyczy pary (brak rozmowy u klienta w kalendarzu
-    poza odwołanymi) albo debrief NAJNOWSZEJ rozmowy jest kompletny i zapisany
-    po jej rozpoczęciu. Najnowsza rozmowa w przyszłości = odmowa z flagą
-    ``interview_pending`` (debrief będzie możliwy po rozmowie). Jedno zapytanie.
+    poza odwołanymi) albo debrief BIEŻĄCEJ rundy (``pick_current_round``) jest
+    kompletny i zapisany po jej rozpoczęciu. Bieżąca runda w przyszłości =
+    odmowa z flagą ``interview_pending`` (debrief będzie możliwy po rozmowie).
+    Jedno zapytanie.
     """
     now = now or datetime.now(timezone.utc)
-    row = (
+    rows = (
         await db.execute(
             select(
                 CalendarEvent.id,
@@ -107,19 +141,28 @@ async def missing_debrief(
                 CalendarEvent.event_type == EventType.client_interview,
                 CalendarEvent.status != EventStatus.cancelled,
             )
-            .order_by(CalendarEvent.start_time.desc(), CalendarEvent.id.desc())
-            .limit(1)
+            .order_by(CalendarEvent.start_time.asc(), CalendarEvent.id.asc())
         )
-    ).first()
-    if row is None:
+    ).all()
+    if not rows:
         return None
-    event_id, event_start, questions, no_questions, saved_at = row
+
+    def _aware(value: Optional[datetime]) -> Optional[datetime]:
+        if value is None or value.tzinfo is not None:
+            return value
+        return value.replace(tzinfo=timezone.utc)
+
+    def _closed(row) -> bool:
+        return debrief_is_complete(row[2], row[3]) and debrief_saved_after_start(
+            _aware(row[4]), _aware(row[1])
+        )
+
+    # Runda 8 (R8-N9-3): ta sama „bieżąca runda” co ekran i planowanie prepu.
+    index = pick_current_round([(_aware(r[1]) or now, _closed(r)) for r in rows], now)
+    row = rows[index]
+    event_id, event_start = row[0], _aware(row[1])
     pending = event_start is not None and event_start > now
-    if (
-        not pending
-        and debrief_is_complete(questions, no_questions)
-        and debrief_saved_after_start(saved_at, event_start)
-    ):
+    if not pending and _closed(row):
         return None
     return {
         "code": DEBRIEF_REQUIRED_CODE,

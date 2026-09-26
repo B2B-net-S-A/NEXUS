@@ -20,7 +20,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Iterable, Optional
 
 from fastapi import HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -123,16 +123,30 @@ async def active_prep(
 
     Nie liczą się: odwołany, bez nagrania (trzeba go powtórzyć) i prep sprzed
     rozmowy u klienta, która już się odbyła (kolejna runda ma własne prepy).
+
+    Runda 8 (R8-N9-3): prepy robi się do NAJBLIŻSZEJ przyszłej rozmowy, więc
+    runda to przedział (ostatnia rozpoczęta rozmowa, najbliższa przyszła] —
+    te same granice co ``interview_cycle.load_snapshots``. Dotąd górnej granicy
+    nie było: przy dwóch zaplanowanych rundach Prep 1 do rundy A blokował 409
+    założenie Prepu 1 do rundy B, choć ekran już go żądał.
     """
-    round_start = await db.scalar(
-        select(func.max(CalendarEvent.start_time)).where(
-            CalendarEvent.candidate_id == candidate_id,
-            CalendarEvent.job_id == job_id,
-            CalendarEvent.event_type == EventType.client_interview,
-            CalendarEvent.status != EventStatus.cancelled,
-            CalendarEvent.start_time <= func.now(),
-        )
-    )
+    now = datetime.now(timezone.utc)
+    starts = [
+        s if s.tzinfo is not None else s.replace(tzinfo=timezone.utc)
+        for s in (
+            await db.scalars(
+                select(CalendarEvent.start_time).where(
+                    CalendarEvent.candidate_id == candidate_id,
+                    CalendarEvent.job_id == job_id,
+                    CalendarEvent.event_type == EventType.client_interview,
+                    CalendarEvent.status != EventStatus.cancelled,
+                )
+            )
+        ).all()
+        if s is not None
+    ]
+    round_start = max((s for s in starts if s <= now), default=None)
+    round_end = min((s for s in starts if s > now), default=None)
     q = (
         select(PrepMeeting)
         .join(CalendarEvent, CalendarEvent.id == PrepMeeting.calendar_event_id)
@@ -146,6 +160,8 @@ async def active_prep(
     )
     if round_start is not None:
         q = q.where(CalendarEvent.start_time > round_start)
+    if round_end is not None:
+        q = q.where(CalendarEvent.start_time <= round_end)
     return await db.scalar(q.order_by(PrepMeeting.id.desc()).limit(1))
 
 

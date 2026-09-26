@@ -90,18 +90,30 @@ async def _staff_for(
     return [(uid, name) for uid, name in rows.all() if name]
 
 
-async def _refresh_event(prep: PrepMeeting, event: CalendarEvent) -> Optional[str]:
-    """Termin z Outlooka organizatora. ``"cancelled"`` gdy odwołany/usunięty."""
+async def _refresh_event(
+    prep: PrepMeeting, event: CalendarEvent, now: Optional[datetime] = None
+) -> Optional[str]:
+    """Termin z Outlooka organizatora. ``"cancelled"`` gdy odwołany/usunięty.
+
+    Runda 8 (R8-N9-8): usunięcie (404) albo odwołanie spotkania po jego
+    terminie daje ``"gone"`` — to mogą być porządki w kalendarzu po prepie,
+    który się ODBYŁ. Wołający szuka wtedy transkryptu i odwołuje prep dopiero,
+    gdy go nie ma. Dotąd taki prep od razu dostawał „cancelled”, transkryptu
+    nikt nie pobierał, a ekran i dzwonek zgłaszały „Brak prepu”.
+    """
+    now = now or datetime.now(timezone.utc)
+    end = _aware(event.end_time) or _aware(event.start_time)
+    already_held = end is not None and end <= now
     try:
         data = await teams_prep_graph.get_event(prep.organizer_upn, event.external_id)
     except GraphRequestError as exc:
         if exc.status == 404:
-            return "cancelled"
+            return "gone" if already_held else "cancelled"
         raise
     if data is None:
         return None
     if data.get("isCancelled"):
-        return "cancelled"
+        return "gone" if already_held else "cancelled"
     start, end = data.get("start"), data.get("end")
     if start and end:
         event.start_time = start
@@ -177,11 +189,13 @@ async def process_prep(
         return
     stats.checked += 1
     try:
-        if await _refresh_event(prep, event) == "cancelled":
+        refreshed = await _refresh_event(prep, event, now)
+        if refreshed == "cancelled":
             event.status = EventStatus.cancelled
             prep.transcript_status = "cancelled"
             stats.cancelled += 1
             return
+        gone_after_end = refreshed == "gone"
         end = _aware(event.end_time) or _aware(event.start_time) or now
         ready_at = end + timedelta(minutes=settings.TEAMS_PREP_FETCH_DELAY_MINUTES)
         if ready_at > now:
@@ -206,6 +220,12 @@ async def process_prep(
             refs = await teams_prep_graph.list_transcripts(
                 prep.organizer_aad_id, prep.online_meeting_id
             )
+        if not refs and gone_after_end:
+            # Usunięte po terminie i bez transkryptu — prep się nie odbył.
+            event.status = EventStatus.cancelled
+            prep.transcript_status = "cancelled"
+            stats.cancelled += 1
+            return
         if not refs:
             prep.fetch_attempts += 1
             give_up = end + timedelta(hours=settings.TEAMS_PREP_FETCH_GIVE_UP_HOURS)

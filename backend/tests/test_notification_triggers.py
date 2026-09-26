@@ -321,7 +321,11 @@ async def test_client_feedback_link_opens_the_candidate_on_the_board(monkeypatch
 
     now = datetime(2026, 9, 17, 14, 30, tzinfo=timezone.utc)
     event = SimpleNamespace(
-        id=9, candidate_id=77, job_id=12, end_time=now - timedelta(hours=2)
+        id=9,
+        candidate_id=77,
+        job_id=12,
+        start_time=now - timedelta(hours=3),
+        end_time=now - timedelta(hours=2),
     )
 
     class _Rows:
