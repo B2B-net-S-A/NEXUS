@@ -13,7 +13,16 @@ Porównywane kolejności:
 * ``wektor kolumny Dop.`` — ``request_vector(build_request_context(...))``,
   ten sam co ``/api/search/candidates/scores`` (kolejność zgodna z kolumną);
 * ``cała baza, wektor Dop.`` — bez filtra słów (rekrutacja bez wymagań
-  w Championie): 3 000 najbliższych z indeksu, reszta od najnowszych.
+  w Championie): 3 000 najbliższych z indeksu, reszta od najnowszych;
+* ``wektor Dop. → top N wg Dop.`` (``--rerank-top``, 26.09.2026) — kolejność
+  wektorem, a ``N`` pierwszych przeliczone pełnym wynikiem kolumny „Dop.”
+  (``canonical_fit.score_candidates``: umiejętności, staż, stawka, lokalizacja
+  + wektor). Sam wektor nie zgadza się z liczbami w kolumnie (na produkcji
+  10 z 19 sąsiednich par malejąco), więc sprawdzamy, czy pełny wynik trafia
+  lepiej. Pełny wynik liczy dzisiejsze dane profilu, a wymagania zweryfikowane
+  przez rekruterów są domyślnie MASKOWANE (jak w ``eval_matching``): powstają
+  w trakcie procesu, więc to etykieta, nie dane, które rekruter miał na starcie.
+  ``--include-reviewed-evidence`` je przywraca (pomiar przecieku).
 
 Nic nie zapisuje: wektor zapytania idzie prosto do Voyage (bez tabeli
 ``embedding_cache``), baza w ``SET TRANSACTION READ ONLY``::
@@ -101,17 +110,56 @@ def _job_point_vector(client, job_id: int):
 
 def _report(name: str, rows: list[tuple[int, list[int]]]) -> None:
     ranks = [r for _, rs in rows for r in rs]
+    anywhere = len(ranks) / max(sum(n for n, _ in rows), 1)
     top = sum(1 for r in ranks if r <= PAGE) / max(len(ranks), 1)
     jobs = sum(1 for _, rs in rows if any(r <= PAGE for r in rs)) / max(len(rows), 1)
     mrr = statistics.mean([max((1 / r for r in rs), default=0) for _, rs in rows])
     median = statistics.median(ranks) if ranks else "-"
     print(
-        f"| {name} | {jobs:.1%} | {top:.1%} | {mrr:.3f} | {median} |",
+        f"| {name} | {anywhere:.1%} | {jobs:.1%} | {top:.1%} | {mrr:.3f} | {median} |",
         flush=True,
     )
 
 
-async def main(max_jobs: int) -> None:
+async def _rerank_by_fit(
+    db, context, ordered: list[int], top: int, *, reviewed: bool = False
+) -> list[int]:
+    from app.models.candidate import Candidate
+    from app.services import requirement_verification as rv
+    from app.services.canonical_fit import score_candidates
+
+    head = ordered[:top]
+    if not head:
+        return ordered
+    candidates = list(
+        (await db.execute(select(Candidate).where(Candidate.id.in_(head))))
+        .scalars()
+        .all()
+    )
+    original = rv.load_verified_requirements
+
+    async def masked(_db, job, cands):
+        await original(None, job, cands)
+
+    if not reviewed:
+        rv.load_verified_requirements = masked
+    try:
+        fits = await score_candidates(db, context, candidates)
+    finally:
+        rv.load_verified_requirements = original
+    score = {
+        int(f.breakdown.candidate_id): f.fit_score
+        for f in fits
+        if f.fit_score is not None
+    }
+    position = {cid: i for i, cid in enumerate(head)}
+    reranked = sorted(head, key=lambda cid: (-score.get(cid, -1.0), position[cid]))
+    return reranked + ordered[top:]
+
+
+async def main(
+    max_jobs: int, rerank_top: int = 0, reviewed: bool = False, ai_top: int = 0
+) -> None:
     from app.core.database import AsyncSessionLocal
     from app.models.job import Job
     from app.services import embedding_service as emb
@@ -127,6 +175,15 @@ async def main(max_jobs: int) -> None:
         "cała baza, wektor Dop.",
         "cała baza, najnowsi",
     ]
+    if rerank_top:
+        orders.append(f"wektor Dop. → top {rerank_top} wg Dop.")
+    manual_or = "ręczne: wiersze LUB, wektor Dop."
+    orders.append(manual_or)
+    ai_name = f"AI: cała baza, {ai_top} najbliższych → wg Dop." if ai_top else ""
+    if ai_top:
+        orders.append(ai_name)
+    manual_best = orders[5] if rerank_top else orders[2]
+    overlap = {"tylko ręczne": 0, "tylko AI": 0, "oba": 0, "żadne": 0}
     results: dict[str, list[tuple[int, list[int]]]] = {k: [] for k in orders}
     started = time.time()
     async with AsyncSessionLocal() as db:
@@ -232,6 +289,45 @@ async def main(max_jobs: int) -> None:
                 ),
                 orders[4]: base_newest,
             }
+            if rerank_top:
+                ranked[orders[5]] = await _rerank_by_fit(
+                    db, context, ranked[orders[2]], rerank_top, reviewed=reviewed
+                )
+            or_ids = list(
+                (
+                    await db.execute(
+                        text(
+                            "select id from candidates c where c.created_at < :t0 "
+                            f"and c.keyword_fts @@ ({' || '.join(parts)}) "
+                            "order by c.created_at desc, c.id desc"
+                        ),
+                        params,
+                    )
+                ).scalars()
+            )
+            ranked[manual_or] = (
+                await asyncio.to_thread(_exact_order, client, dop_vector, or_ids)
+                if len(or_ids) <= 30_000
+                else await asyncio.to_thread(_ann_order, client, dop_vector, or_ids)
+            )
+            if ai_top:
+                ranked[ai_name] = await _rerank_by_fit(
+                    db, context, ranked[orders[3]], ai_top, reviewed=reviewed
+                )
+                manual_top = set(ranked[manual_best][:PAGE])
+                ai_top_set = set(ranked[ai_name][:PAGE])
+                for cid in positives:
+                    in_m, in_a = cid in manual_top, cid in ai_top_set
+                    key = (
+                        "oba"
+                        if in_m and in_a
+                        else "tylko ręczne"
+                        if in_m
+                        else "tylko AI"
+                        if in_a
+                        else "żadne"
+                    )
+                    overlap[key] += 1
             for name, order in ranked.items():
                 position = {
                     cid: i + 1 for i, cid in enumerate(order) if cid in positives
@@ -242,14 +338,29 @@ async def main(max_jobs: int) -> None:
                 break
     print(f"\nRekrutacje: {used}, czas {time.time() - started:.0f} s\n", flush=True)
     print(
-        "| kolejność | rekrutacje z ≥1 właściwą osobą na 1. stronie | właściwe osoby w top 50 | MRR | mediana pozycji |"
+        "| kolejność | właściwe osoby w wynikach w ogóle | rekrutacje z ≥1 właściwą osobą na 1. stronie | właściwe osoby w top 50 | MRR | mediana pozycji |"
     )
-    print("|---|---:|---:|---:|---:|")
+    print("|---|---:|---:|---:|---:|---:|")
     for name in orders:
         _report(name, results[name])
+    if ai_top:
+        print(
+            f"\nWłaściwe osoby na 1. stronie (top {PAGE}): ręczne = „{manual_best}”, "
+            f"AI = „{ai_name}”.\n"
+        )
+        print("| gdzie | osób |")
+        print("|---|---:|")
+        for key, value in overlap.items():
+            print(f"| {key} | {value} |")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--jobs", type=int, default=120)
-    asyncio.run(main(parser.parse_args().jobs))
+    parser.add_argument("--rerank-top", type=int, default=0)
+    parser.add_argument("--include-reviewed-evidence", action="store_true")
+    parser.add_argument("--ai-top", type=int, default=0)
+    args = parser.parse_args()
+    asyncio.run(
+        main(args.jobs, args.rerank_top, args.include_reviewed_evidence, args.ai_top)
+    )
