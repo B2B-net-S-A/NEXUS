@@ -389,11 +389,34 @@ async def _publish_proposals(
     """Decyzje `proposed` → skrzynka „Propozycje" (źródło `new_cv`).
 
     W transakcji wołającego, razem z dziennikiem decyzji: propozycja istnieje
-    dokładnie wtedy, gdy dziennik mówi `proposed`. Zwraca {job_id: liczba}.
-    Dowody to WYŁĄCZNIE nazwy wymagań (allowlista `sanitize_evidence`).
+    dokładnie wtedy, gdy dziennik mówi `proposed`. Zwraca {job_id: liczba
+    NOWYCH propozycji}. Dowody to WYŁĄCZNIE nazwy wymagań (allowlista
+    `sanitize_evidence`).
+
+    „Nowa” = osoby nie było wcześniej w skrzynce tej rekrutacji jako
+    ``proposed`` (z żadnego źródła), a po zapisie jest — czyli nowy wiersz
+    albo pominięcie wskrzeszone nową wersją CV. Każda zmiana rekrutacji ocenia
+    wszystkich od nowa (``_logged_pairs(since=…)``), a `upsert_proposals`
+    zwraca liczbę PRZETWORZONYCH par — dzwonek „N nowych propozycji z nowych
+    CV” dzwonił więc przy każdej edycji, także bez nikogo nowego (runda 6
+    audytu). Pominięta osoba bez nowego CV zostaje pominięta i nie jest nowa.
     """
     from app.models.activity import Activity
+    from app.models.job_proposal import JobProposal
     from app.services.job_proposals import upsert_proposals
+
+    async def visible(job_id: int, candidate_ids: list[int]) -> set[int]:
+        return set(
+            (
+                await db.scalars(
+                    select(JobProposal.candidate_id).where(
+                        JobProposal.job_id == job_id,
+                        JobProposal.candidate_id.in_(candidate_ids),
+                        JobProposal.status == "proposed",
+                    )
+                )
+            ).all()
+        )
 
     by_job: dict[int, list[dict]] = {}
     for d in decisions:
@@ -413,9 +436,13 @@ async def _publish_proposals(
         )
     counts: dict[int, int] = {}
     for job_id, rows in by_job.items():
-        counts[job_id] = await upsert_proposals(
-            db, job_id, rows, source="new_cv", run_id=run_id
-        )
+        ids = [r["candidate_id"] for r in rows]
+        before = await visible(job_id, ids)
+        await upsert_proposals(db, job_id, rows, source="new_cv", run_id=run_id)
+        fresh = sorted((await visible(job_id, ids)) - before)
+        counts[job_id] = len(fresh)
+        if not fresh:
+            continue
         db.add(
             Activity(
                 entity_type=PROPOSALS_ACTIVITY_ENTITY,
@@ -423,8 +450,8 @@ async def _publish_proposals(
                 action="auto_match_proposed",
                 user_id=None,
                 details={
-                    "count": counts[job_id],
-                    "candidate_ids": [r["candidate_id"] for r in rows][:20],
+                    "count": len(fresh),
+                    "candidate_ids": fresh[:20],
                     "trigger": trigger,
                     "run_id": run_id,
                 },
@@ -448,8 +475,11 @@ async def _notify_proposals(
 
     Pierwsza propozycja dnia tworzy wpis (`emit` — bramka odbiorcy + dobowy
     dedup `ix_notif_dedup_daily`); kolejne tego samego dnia PODBIJAJĄ licznik
-    w istniejącym wpisie zamiast dokładać następne. Licznik = osoby, którym
-    dziennik decyzji dał dziś `proposed` w tej rekrutacji.
+    w istniejącym wpisie zamiast dokładać następne. Licznik = osoby, które
+    DZIŚ po raz pierwszy trafiły do skrzynki tej rekrutacji z nowego CV
+    (``job_proposals``, najwcześniejsze ``first_seen_at`` osoby). Dziennik
+    decyzji się do tego nie nadaje: każda zmiana rekrutacji przepisuje w nim
+    `proposed` z dzisiejszą datą (runda 6 audytu).
     """
     from app.core.scheduling import business_today
     from app.models.notification import Notification, NotificationType
@@ -465,10 +495,13 @@ async def _notify_proposals(
             today_count = int(
                 await db.scalar(
                     text(
-                        "SELECT count(DISTINCT candidate_id) "
-                        "FROM candidate_auto_match_log "
-                        "WHERE job_id = :job_id AND decision = 'proposed' "
-                        "AND (created_at AT TIME ZONE :tz)::date = :today"
+                        "SELECT count(*) FROM ("
+                        " SELECT candidate_id FROM job_proposals"
+                        " WHERE job_id = :job_id AND status = 'proposed'"
+                        " GROUP BY candidate_id"
+                        " HAVING bool_or(source = 'new_cv')"
+                        " AND (min(first_seen_at) AT TIME ZONE :tz)::date = :today"
+                        ") AS fresh"
                     ),
                     {
                         "job_id": job_id,
