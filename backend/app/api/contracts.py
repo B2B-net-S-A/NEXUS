@@ -137,6 +137,7 @@ from app.services.contract_order_sync import (
     apply_manual_client_rate,
     resync_contract_safely,
 )
+from app.services.client_access import assert_client_assignable
 from app.services.client_identity import (
     client_display_name,
     client_display_name_expression,
@@ -3090,6 +3091,9 @@ async def create_contract(
                 "message": "Wybrany klient nie istnieje.",
             },
         )
+    # Runda 7 (R7-X5-4): kontrakt u usuniętego albo scalonego klienta liczyłby
+    # się do MRR, a nie byłoby go w żadnym rejestrze.
+    await assert_client_assignable(db, client.id)
     if data.job_id is not None:
         job = await db.get(Job, data.job_id)
         if job is None:

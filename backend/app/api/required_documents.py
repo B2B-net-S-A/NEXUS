@@ -48,7 +48,11 @@ from app.schemas.required_documents import (
     RequiredDocumentTemplateResponse,
 )
 from app.services import storage_service
-from app.services.client_access import deny, resolve_client_access
+from app.services.client_access import (
+    assert_client_writable,
+    deny,
+    resolve_client_access,
+)
 
 
 _admin_only = require_roles(UserRole.admin)
@@ -102,7 +106,9 @@ async def require_required_docs_write_access(
     current_user: DeliverySectionUser,
     db: AsyncSession = Depends(get_db),
 ) -> User:
-    await _assert_client(db, client_id)
+    # Runda 7 (R7-X5-4): usunięty klient nie ma profilu ani zapisów (0307) —
+    # ten sam strażnik co reszta zapisów na profilu klienta.
+    await assert_client_writable(db, client_id)
     await _require_required_docs_access(
         db,
         current_user,

@@ -41,7 +41,7 @@ Polityka (fail-closed; decyzje produktowe "wg polityki" domyślnie NA NIE):
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, Optional
 
 from fastapi import Depends, HTTPException, status
 from sqlalchemy import or_, select
@@ -62,6 +62,7 @@ from app.models.job import Job
 from app.models.job_collaborator import JobCollaborator
 from app.models.team_structure import ClientTacAssignment
 from app.models.user import User, UserRole
+from app.services.client_identity import client_display_name
 from app.services.access_scope import (
     delivery_lead_scope_is_assigned,
     delivery_lead_sees_whole_delivery,
@@ -410,6 +411,60 @@ async def assert_client_writable(
     client = await db.scalar(stmt)
     if client is None or client.deleted_at is not None:
         raise HTTPException(status_code=404, detail=CLIENT_NOT_WRITABLE_DETAIL)
+    return client
+
+
+async def assert_client_assignable(
+    db: AsyncSession, client_id: Optional[int]
+) -> Optional[Client]:
+    """422, gdy nowy zapis wskazuje klienta usuniętego albo scalonego.
+
+    Runda 7 (R7-X5-4): rekrutacje, kontrakty, kontakty i odczyt maila klienta
+    przyjmowały ``client_id`` z ciała żądania i sprawdzały najwyżej samo
+    istnienie wiersza. Karta otwarta przed usunięciem klienta zakładała wtedy
+    rekrutację albo kontrakt, którego nie widać w żadnym rejestrze, a kontrakt
+    i tak liczył się do MRR. Scalonego klienta NIE przekierowujemy po cichu na
+    rekord główny (tak robi tylko nocny import Traffita) — zapis ręczny ma
+    wskazać rekord główny świadomie, więc komunikat go nazywa.
+
+    Brak klienta (``None`` albo nieistniejące id) zostawia wołającemu —
+    endpointy mają własne odpowiedzi na ten przypadek.
+    """
+
+    if client_id is None:
+        return None
+    client = await db.scalar(select(Client).where(Client.id == client_id))
+    if client is None:
+        return None
+    name = client_display_name(client)
+    if client.deleted_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": "client_deleted",
+                "message": f"Klient „{name}” został usunięty — wybierz innego klienta.",
+            },
+        )
+    if client.merged_into_client_id is not None:
+        target = await db.scalar(
+            select(Client).where(Client.id == client.merged_into_client_id)
+        )
+        target_name = client_display_name(target) if target is not None else None
+        message = (
+            f"Klient „{name}” został scalony z „{target_name}” — "
+            f"wybierz „{target_name}”."
+            if target_name
+            else f"Klient „{name}” został scalony z innym rekordem — "
+            "wybierz rekord główny."
+        )
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": "client_merged",
+                "message": message,
+                "merged_into_client_id": client.merged_into_client_id,
+            },
+        )
     return client
 
 

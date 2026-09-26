@@ -316,6 +316,9 @@ async def clients_lookup(
         Client.hidden.is_(False),
         Client.archived_at.is_(None),
         Client.merged_into_client_id.is_(None),
+        # Runda 7: usunięty klient (0307) nie może być do wyboru, nawet gdyby
+        # kiedyś stracił ``archived_at``.
+        Client.deleted_at.is_(None),
     )
     if featured:
         stmt = stmt.where(Client.display_name.isnot(None))
