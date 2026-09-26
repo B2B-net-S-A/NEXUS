@@ -34,6 +34,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from datetime import datetime
 from typing import Any, Optional, Sequence
 
 from sqlalchemy import func, or_, select, text
@@ -129,6 +130,8 @@ async def backfill_cv_fields(
     after_id: int = 0,
     until_id: Optional[int] = None,
     candidate_ids: Optional[Sequence[int]] = None,
+    updated_since: Optional[datetime] = None,
+    updated_before: Optional[datetime] = None,
     progress: Optional[dict[str, Any]] = None,
     calibration_log_path: Optional[str] = None,
 ) -> dict[str, Any]:
@@ -144,6 +147,13 @@ async def backfill_cv_fields(
     scope), a wąskim gardłem jest latencja LLM, nie CPU. Bez górnej granicy
     każdy proces po wyczerpaniu swojego zakresu wszedłby w zakres sąsiada
     i płacił drugi raz za wiersze, których sąsiad jeszcze nie doszedł.
+
+    `updated_since`/`updated_before` (przedział `[od, do)` po `updated_at`)
+    wyznaczają OKNO nocnego syncu (runda 6 audytu): faza
+    `candidates_cv_fields` przechodzi okno po `id` i zapamiętuje pozycję
+    (`last_id`), bo lista id całego okna przekazana jako `candidate_ids`
+    przepadała po limicie, a przy dużym oknie przekraczała limit parametrów
+    zapytania.
     """
 
     if candidate_ids is not None and len(candidate_ids) == 0:
@@ -214,6 +224,10 @@ async def backfill_cv_fields(
             conditions = [Candidate.id > cursor, *_scope_filter()]
             if until_id is not None:
                 conditions.append(Candidate.id <= until_id)
+            if updated_since is not None:
+                conditions.append(Candidate.updated_at >= updated_since)
+            if updated_before is not None:
+                conditions.append(Candidate.updated_at < updated_before)
             if candidate_ids is not None:
                 # Tryb delta nocnego syncu: wyłącznie kandydaci dotknięci w tym
                 # biegu. Scope filter nadal obowiązuje (płacą tylko wiersze
