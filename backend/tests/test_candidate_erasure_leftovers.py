@@ -279,6 +279,26 @@ async def test_email_tombstone_does_not_freeze_a_live_owner_of_the_external_id(
     assert live.email == deleted_email, "wiersz żywego właściciela nie dostał syncu"
 
 
+async def test_email_tombstone_lets_the_card_adopt_a_person_who_came_back(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Osoba usunięta, która wróciła (np. zgłoszeniem ze strony kariery), ma
+    żywy wiersz z tym mailem — kartoteka Traffita adoptuje się do niego
+    zamiast być pomijana przez nagrobek maila."""
+    email = f"tomb-back-{uuid.uuid4().hex[:8]}@example.com"
+    deleted_id = await _candidate(email=email)
+    await _delete(app_client, app_auth_headers, deleted_id)
+    back_id = await _candidate(email=email)
+
+    ext = str(970_000_000 + uuid.uuid4().int % 20_000_000)
+    progress = await _sync_employee(ext, email)
+    assert progress.skipped == 0 and progress.updated == 1
+    async with AsyncSessionLocal() as db:
+        back = await db.get(Candidate, back_id)
+    assert back.external_source == "traffit" and back.external_id == ext
+    assert await _count_email(email) == 1
+
+
 async def test_candidate_deleted_during_the_phase_is_not_inserted_again(
     app_client: AsyncClient, app_auth_headers: dict, monkeypatch
 ):

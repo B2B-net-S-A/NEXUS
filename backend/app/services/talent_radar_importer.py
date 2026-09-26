@@ -492,7 +492,8 @@ class TalentRadarImporter:
 
         Identyfikator liczy się pod oboma źródłami, pod którymi mógł żyć
         (`traffit` i `tr_legacy` — ten sam numer z Traffita). Mail tylko wtedy,
-        gdy identyfikator nie ma żywego właściciela — lustro importu Traffita.
+        gdy ani identyfikator, ani mail nie ma żywego właściciela — żywy wiersz
+        z tym mailem to osoba, która wróciła; lustro importu Traffita.
         """
         if not any(self._tombstones.values()):
             return False
@@ -511,7 +512,10 @@ class TalentRadarImporter:
                     return True
             if ext in self._ext_id_to_id:
                 return False
-        email_hash = candidate_email_tombstone(p.get("email"))
+        email_lc = (p.get("email") or "").strip().lower()
+        if email_lc and email_lc in self._email_to_id:
+            return False
+        email_hash = candidate_email_tombstone(email_lc)
         return email_hash is not None and email_hash in self._tombstones.get(
             EMAIL_TOMBSTONE_SOURCE, ()
         )
