@@ -167,8 +167,8 @@
         "anchor": "jobs.person.actions"
       },
       {
-        "q": "Jak dodać szybką notatkę?",
-        "a": "Wpisz ją w pole „Dodaj notatkę…” na dole karty i naciśnij Enter. Notatka trafia do historii kandydata w kontekście tej rekrutacji. W menu „Więcej akcji osoby” wybierz „Wyślij wiadomość”. NEXUS otworzy okno z adresem kandydata i szablonami dla tej rekrutacji. Sprawdź treść i kliknij „Wyślij” — wiadomość wychodzi z Twojej skrzynki Microsoft 365. Wątek jest dostępny w profilu kandydata, w „Historia → Maile”.",
+        "q": "Jak dodać notatkę lub wysłać wiadomość?",
+        "a": "Notatkę wpisz na dole karty i naciśnij Enter. Mail: w „Więcej akcji osoby” wybierz „Wyślij wiadomość”, sprawdź adres i treść, kliknij „Wyślij”. NEXUS wyśle go z Twojej skrzynki Microsoft 365; wątek znajdziesz w profilu w „Historia → Maile”.",
         "anchor": "jobs.person.note"
       },
       {
@@ -357,7 +357,7 @@
       },
       {
         "q": "Gdzie są maile, notatki, rozmowy i CV?",
-        "a": "W zakładce „Historia” — z filtrem rodzaju. Rekrutacje i dopasowania są w „Rekrutacje”, CV i umowy w „Pliki i umowy”. Nowe CV do klienta robisz przyciskiem „Generuj CV” w nagłówku: okno generatora otwiera się z tą osobą, a gotowe CV samo trafia do etapu wybranej rekrutacji. W menu „Więcej akcji” wybierz „Napisz maila”. Sprawdź odbiorcę, temat i treść, potem kliknij „Wyślij”. Wiadomość wychodzi z Twojej skrzynki Microsoft 365, a wątek zobaczysz w „Historia → Maile”. Konto Microsoft 365 połączysz w swoim profilu.",
+        "a": "Maile i notatki są w „Historia”, rekrutacje w „Rekrutacje”, CV i umowy w „Pliki i umowy”. CV do klienta utworzysz przez „Generuj CV”. Mail wyślesz z „Więcej akcji → Napisz maila”: sprawdź treść i kliknij „Wyślij”. Używana jest Twoja skrzynka Microsoft 365, połączona w Twoim profilu.",
         "anchor": "candidate.profile.tabs"
       },
       {
