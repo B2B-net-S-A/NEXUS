@@ -11,6 +11,7 @@ porażką, a co stanem („transkryptu jeszcze nie ma”).
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -154,12 +155,21 @@ def _odata_quote(value: str) -> str:
 
 
 async def find_online_meeting(user_id: str, join_url: str) -> Optional[str]:
-    """Identyfikator spotkania Teams po linku dołączenia albo ``None``."""
+    """Identyfikator Teams; krótko czekamy na publikację po utworzeniu eventu.
+
+    Ponawiamy wyłącznie pustą listę. Błędy uprawnień i pozostałe błędy
+    Graph pozostają widoczne dla wołającego.
+    """
     params = {"$filter": f"JoinWebUrl eq '{_odata_quote(join_url)}'"}
     async with _client() as gc:
-        data = await gc.get(f"{_user(user_id)}/onlineMeetings", params=params)
-    items = (data or {}).get("value") or []
-    return items[0].get("id") if items else None
+        for attempt in range(6):
+            data = await gc.get(f"{_user(user_id)}/onlineMeetings", params=params)
+            items = (data or {}).get("value") or []
+            if items:
+                return items[0].get("id")
+            if attempt < 5:
+                await asyncio.sleep(1)
+    return None
 
 
 async def enable_auto_transcription(user_id: str, meeting_id: str) -> None:

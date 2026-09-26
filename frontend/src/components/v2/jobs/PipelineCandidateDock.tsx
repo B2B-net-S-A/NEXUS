@@ -1568,6 +1568,7 @@ export function PipelineCandidateDock({
           candidateId={item.candidate_id}
           candidateName={fullName}
           candidateEmail={candidateDetailQuery.data.email ?? ""}
+          requestId={jobId}
         />
       )}
     </div>
