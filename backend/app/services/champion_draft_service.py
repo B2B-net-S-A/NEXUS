@@ -349,6 +349,16 @@ def _ground_basics_rate(basics: dict[str, Any], source_text: str) -> Optional[st
     basics["rate_raw"] = None
     if not quote or _folded_text(quote) not in _folded_text(source_text):
         return _RATE_NO_QUOTE_NOTE
+    # Runda 8 (R8-N12-2): sąsiedztwo cytatu (brutto, MD, inna waluta) — ta sama
+    # reguła co odczyt maila na /jobs/new.
+    from app.services.job_request_intake import rate_quote_context_conflict
+
+    conflict = rate_quote_context_conflict(quote, source_text)
+    if conflict:
+        return (
+            f"W źródle obok „{quote}” jest „{conflict}” — to nie jest stawka "
+            "w PLN/h netto. Wpisz budżet ręcznie."
+        )
     grounded = _grounded_rate(quote)
     if grounded is None:
         return (

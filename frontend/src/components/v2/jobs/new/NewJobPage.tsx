@@ -32,6 +32,7 @@ import {
   EMPTY_INTAKE_FORM,
   MISSING_LABEL,
   applyTemplate,
+  loadTemplateSource,
   buildChampionPayload,
   buildJobPayload,
   formFromIntake,
@@ -164,11 +165,10 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
     const fromId = fromParam ? Number(fromParam) : NaN;
     if (!Number.isInteger(fromId) || fromId <= 0) return;
     let cancelled = false;
-    api
-      .get<
-        TemplateSourceJob & { client?: { id: number; name: string } | null }
-      >(`/api/jobs/${fromId}`)
-      .then(({ data }) => {
+    loadTemplateSource<
+      TemplateSourceJob & { client?: { id: number; name: string } | null }
+    >(api.get, fromId)
+      .then((data) => {
         if (cancelled) return;
         if (data.client_id != null) {
           setClient({
@@ -309,7 +309,7 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
 
   const applyTemplateFromJob = async (jobId: number) => {
     try {
-      const { data } = await api.get<TemplateSourceJob>(`/api/jobs/${jobId}`);
+      const data = await loadTemplateSource(api.get, jobId);
       setForm((f) => applyTemplate(f, data));
       setTemplateJobId(jobId);
     } catch (e) {

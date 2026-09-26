@@ -93,6 +93,11 @@ def pick_matching_contact(
     mail = (email or "").strip().casefold()
     if mail:
         by_mail = [c for c in contacts if (c.email or "").strip().casefold() == mail]
+        if key:
+            # Runda 8 (R8-N12-3): samo imię z podpisu maila („Anna”) przy
+            # wspólnej skrzynce nie może wskazać kontaktu innej osoby — słowa
+            # z maila muszą być częścią imienia i nazwiska kontaktu.
+            by_mail = [c for c in by_mail if key <= name_key(c.name)]
         if by_mail:
             return min(by_mail, key=lambda c: c.id)
     return None
