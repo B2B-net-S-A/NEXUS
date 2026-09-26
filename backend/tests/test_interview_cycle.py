@@ -226,22 +226,27 @@ def test_dl_view_flags_client_interview_stage_without_slots():
 # ── Wyzwalacze po rozmowie ───────────────────────────────────────────────────
 
 
-def test_client_interview_reminder_goes_to_event_owner_on_candidate_side():
-    from app.services.notification_triggers import (
-        _post_interview_recipients,
-        _post_interview_side,
-    )
+async def test_client_interview_reminder_goes_to_event_owner_on_candidate_side(
+    monkeypatch,
+):
+    from app.services import notification_triggers as nt
 
     ev = CalendarEvent(
         event_type=EventType.client_interview, operational_owner_id=11, created_by=22
     )
-    assert _post_interview_side(ev, None) is False
+    assert nt._post_interview_side(ev, None) is False
 
     class _Job:
         recruiter_id = 33
         delivery_lead_id = 44
 
-    assert _post_interview_recipients(ev, _Job(), client_side=False) == [11]
+    async def active(db, user_id):
+        return True
+
+    monkeypatch.setattr(nt, "_user_is_active", active)
+    assert await nt._post_interview_recipients(None, ev, _Job(), client_side=False) == [
+        11
+    ]
 
 
 def test_client_interview_reminder_links_to_debrief_not_generic_feedback():
@@ -841,3 +846,89 @@ def test_outcome_mapping_round_trips(value, expected):
     from app.api.interview_cycle import _outcome_from_impression
 
     assert _outcome_from_impression(value) == expected
+
+
+# ── Potwierdzenie terminu (runda 6 audytu, IC-1 / IC-3) ──────────────────────
+
+
+async def _slot_request(app_client, dl_h, cand_id, job_id, days=3) -> dict:
+    created = await app_client.post(
+        "/api/interview-cycle/slots",
+        headers=dl_h,
+        json={
+            "candidate_id": cand_id,
+            "job_id": job_id,
+            "slots": [{"start": _future(days)}],
+        },
+    )
+    assert created.status_code == 201, created.text
+    return created.json()
+
+
+async def test_confirming_a_new_date_cancels_the_unheld_previous_interview(
+    app_client: AsyncClient,
+):
+    """Klient przełożył rozmowę: stara, nieodbyta rozmowa nie może dawać
+    telefonów T+15/T+45 ani zabierać prepów nowej rundzie."""
+    rec_id, _ = await _user(UserRole.recruiter)
+    dl_id, dl_h = await _user(UserRole.delivery_lead)
+    job_id, cand_id, client_id = await _job_with_candidate(
+        recruiter_id=rec_id, dl_id=dl_id
+    )
+    first = await _slot_request(app_client, dl_h, cand_id, job_id, days=2)
+    one = await app_client.post(
+        f"/api/interview-cycle/slots/{first['id']}/confirm",
+        headers=dl_h,
+        json={"index": 0, "add_to_outlook": False},
+    )
+    assert one.status_code == 200, one.text
+    held = await _client_interview(
+        owner_id=rec_id,
+        cand_id=cand_id,
+        job_id=job_id,
+        client_id=client_id,
+        ended_min_ago=60 * 24,
+    )
+
+    second = await _slot_request(app_client, dl_h, cand_id, job_id, days=5)
+    two = await app_client.post(
+        f"/api/interview-cycle/slots/{second['id']}/confirm",
+        headers=dl_h,
+        json={"index": 0, "add_to_outlook": False},
+    )
+    assert two.status_code == 200, two.text
+
+    async with AsyncSessionLocal() as db:
+        old = await db.get(CalendarEvent, one.json()["event_id"])
+        new = await db.get(CalendarEvent, two.json()["event_id"])
+        past = await db.get(CalendarEvent, held)
+        assert old.status == EventStatus.cancelled
+        assert new.status == EventStatus.scheduled
+        # Rozmowa, która się odbyła, zostaje w historii.
+        assert past.status == EventStatus.completed
+
+
+async def test_confirm_skips_a_recruiter_who_left_before_confirmation(
+    app_client: AsyncClient,
+):
+    rec_id, _ = await _user(UserRole.recruiter)
+    dl_id, dl_h = await _user(UserRole.delivery_lead)
+    job_id, cand_id, _ = await _job_with_candidate(recruiter_id=rec_id, dl_id=dl_id)
+    req = await _slot_request(app_client, dl_h, cand_id, job_id)
+    assert req["recruiter_id"] == rec_id
+    async with AsyncSessionLocal() as db:
+        gone = await db.get(User, rec_id)
+        gone.is_active = False
+        await db.commit()
+
+    confirmed = await app_client.post(
+        f"/api/interview-cycle/slots/{req['id']}/confirm",
+        headers=dl_h,
+        json={"index": 0, "add_to_outlook": False},
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    async with AsyncSessionLocal() as db:
+        event = await db.get(CalendarEvent, confirmed.json()["event_id"])
+        # Nikogo innego z dostępem nie ma — rozmowa zostaje u potwierdzającego.
+        assert event.operational_owner_id == dl_id
+        assert event.created_by == dl_id

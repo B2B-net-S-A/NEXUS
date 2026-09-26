@@ -5728,6 +5728,17 @@ async def delete_candidate(
             sa_delete(JobProposal).where(JobProposal.candidate_id == candidate_id)
         )
     ).rowcount or 0
+    # Przyszłe prepy i follow-upy w Teams trzeba odwołać (kandydat ma
+    # zaproszenie), a wydarzenia kalendarza — zanonimizować: FK `SET NULL`
+    # zostawiał tytuł z imieniem i nazwiskiem oraz e-mail w uczestnikach
+    # (runda 6 audytu). Graph wołamy dopiero po commicie usunięcia.
+    from app.services.followup_meetings import (
+        cancel_erased_meetings,
+        erase_candidate_meetings,
+    )
+
+    teams_to_cancel, calendar_erasure = await erase_candidate_meetings(db, candidate)
+    search_erasure.update(calendar_erasure)
     # Prepy w Teams (0370): transkrypty i oceny idą kaskadą z kandydatem —
     # kasujemy je jawnie, żeby liczba trafiła do dowodu wykonania art. 17.
     # Kopia nagrania/transkryptu w M365 organizatora podlega retencji tenanta.
@@ -5829,6 +5840,9 @@ async def delete_candidate(
     await db.flush()
 
     await db.commit()
+
+    if teams_to_cancel:
+        await cancel_erased_meetings(teams_to_cancel)
 
     # Natychmiastowa próba kasowania wektora. Nieudana NIE jest błędem żądania —
     # usunięcie w bazie już się stało, a wiersz outboxu wyżej gwarantuje retry.

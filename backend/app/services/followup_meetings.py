@@ -35,6 +35,29 @@ NOTICE = (
 )
 
 
+async def followup_for_event(
+    db: AsyncSession, event_id: int
+) -> Optional[FollowupMeeting]:
+    return await db.scalar(
+        select(FollowupMeeting).where(FollowupMeeting.calendar_event_id == event_id)
+    )
+
+
+async def app_only_meeting_for_event(db: AsyncSession, event_id: int):
+    """Prep albo follow-up założony przez aplikację „NEXUS Teams Prep”.
+
+    Oba żyją w kalendarzu organizatora, który zwykle nie ma połączonego konta
+    M365 — edycja i odwołanie idą tą samą aplikacją (``teams_prep_graph``).
+    Do rundy 6 audytu kalendarz znał tylko prep: zmiana terminu follow-upu
+    kończyła się 409, a „Odwołaj” odwoływało go wyłącznie w NEXUSIE, choć
+    kandydat miał zaproszenie z Teams.
+    """
+    prep = await prep_meetings.prep_for_event(db, event_id)
+    if prep is not None:
+        return prep
+    return await followup_for_event(db, event_id)
+
+
 async def create_followup_meeting(
     db: AsyncSession,
     *,
@@ -83,7 +106,11 @@ async def create_followup_meeting(
             start=start,
             end=end,
             attendee_emails=[candidate.email],
-            intent_id=f"followup|{candidate.id}|{client_request_id}",
+            # Odcisk terminu w intencji — lustro prepu (runda 6 audytu).
+            intent_id=(
+                f"followup|{candidate.id}|{client_request_id}"
+                f"|{organizer.id}|{start.isoformat()}|{end.isoformat()}"
+            ),
         ),
     )
     try:
@@ -99,6 +126,8 @@ async def create_followup_meeting(
             detail="Outlook nie utworzył spotkania. Sprawdź dostęp prowadzącego do NEXUS-Meetings.",
         ) from exc
 
+    start = created.start or start
+    end = created.end or end
     event = CalendarEvent(
         title=title,
         description=NOTICE,
@@ -293,3 +322,88 @@ async def fetch_due(db: AsyncSession, now: Optional[datetime] = None) -> int:
                 retry.last_error = type(exc).__name__[:120]
                 await db.commit()
     return fetched
+
+
+# ── Usunięcie kandydata (art. 17 RODO, runda 6 audytu) ──────────────────────
+
+ERASED_EVENT_TITLE = "Spotkanie z kandydatem (dane usunięte)"
+
+
+def _without_address(attendees, email: Optional[str]):
+    """Uczestnicy bez adresu usuwanej osoby (oba kształty: tekst i obiekt)."""
+    if not isinstance(attendees, list):
+        return []
+    wanted = (email or "").strip().lower()
+    kept = []
+    for item in attendees:
+        address = item.get("address") if isinstance(item, dict) else item
+        if wanted and str(address or "").strip().lower() == wanted:
+            continue
+        kept.append(item)
+    return kept
+
+
+async def erase_candidate_meetings(
+    db: AsyncSession, candidate: Candidate
+) -> tuple[list[tuple[str, str]], dict]:
+    """Przed usunięciem kandydata: odwołanie jego przyszłych spotkań w Teams
+    i anonimizacja wydarzeń kalendarza. Bez commitu.
+
+    ``calendar_events.candidate_id`` to ``SET NULL`` — wydarzenie przeżywa
+    usunięcie osoby, a z nim tytuł „Prep 1: Imię Nazwisko…”, adres e-mail
+    w uczestnikach i opis. Prep i follow-up w Teams zostawały też
+    w kalendarzu organizatora z zaproszeniem kandydata. Zwraca listę
+    ``(upn organizatora, id wydarzenia w Graphie)`` do odwołania PO commicie
+    (``cancel_erased_meetings``) i liczniki do dowodu wykonania żądania.
+    """
+    from app.models.prep_meeting import PrepMeeting
+
+    now = datetime.now(timezone.utc)
+    pending: list[tuple[str, str]] = []
+    for model in (PrepMeeting, FollowupMeeting):
+        rows = (
+            await db.execute(
+                select(model.organizer_upn, CalendarEvent)
+                .join(CalendarEvent, CalendarEvent.id == model.calendar_event_id)
+                .where(
+                    model.candidate_id == candidate.id,
+                    CalendarEvent.status == EventStatus.scheduled,
+                    CalendarEvent.start_time > now,
+                    CalendarEvent.external_id.isnot(None),
+                )
+            )
+        ).all()
+        for upn, event in rows:
+            pending.append((upn, event.external_id))
+            event.status = EventStatus.cancelled
+    events = (
+        await db.scalars(
+            select(CalendarEvent).where(CalendarEvent.candidate_id == candidate.id)
+        )
+    ).all()
+    for event in events:
+        event.title = ERASED_EVENT_TITLE
+        event.description = None
+        event.attendees = _without_address(event.attendees, candidate.email)
+    await db.flush()
+    return pending, {
+        "teams_meetings_cancelled": len(pending),
+        "calendar_events_anonymised": len(events),
+    }
+
+
+async def cancel_erased_meetings(pending: list[tuple[str, str]]) -> int:
+    """Odwołanie w Teams po commicie usunięcia. Nigdy nie rzuca; log bez danych."""
+    cancelled = 0
+    for upn, graph_event_id in pending:
+        try:
+            await teams_prep_graph.cancel_event(
+                upn, graph_event_id, "Spotkanie zostało odwołane."
+            )
+            cancelled += 1
+        except Exception as exc:  # noqa: BLE001 — Graph, token, sieć
+            logger.warning(
+                "candidate erasure: Teams meeting not cancelled (%s)",
+                type(exc).__name__,
+            )
+    return cancelled

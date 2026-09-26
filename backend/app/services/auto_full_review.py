@@ -54,6 +54,10 @@ logger = logging.getLogger(__name__)
 
 ACTIVITY_ENTITY = "job_automation"
 PROPOSALS_METRIC = "auto_proposals"
+# Przegląd bez wektora zapytania (Voyage milczał): nic nie zostało zmierzone,
+# więc to awaria automatu, nie wynik (runda 6 audytu). Ustawia `_publish`,
+# czytają `_last_auto_run_at` i `_last_successful_fingerprint`.
+SEMANTIC_BLIND_METRIC = "auto_semantic_blind"
 _PICK_LIMIT = 50
 _RECONCILE_WINDOW = timedelta(days=2)
 
@@ -138,6 +142,8 @@ def _last_auto_run_at():
             CandidateSearchRun.job_id == Job.id,
             store.auto_origin_clause(),
             CandidateSearchRun.state != "failed",
+            # Przegląd bez wektora nie zamyka tematu — jak `failed`.
+            ~CandidateSearchRun.metrics.has_key(SEMANTIC_BLIND_METRIC),
         )
         .correlate(Job)
         .scalar_subquery()
@@ -211,6 +217,9 @@ async def _last_successful_fingerprint(db, job_id: int) -> Optional[str]:
             CandidateSearchRun.job_id == job_id,
             store.auto_origin_clause(),
             CandidateSearchRun.state.in_((*store.ACTIVE_STATES, *store.RESULT_STATES)),
+            # Odcisk przeglądu bez wektora nie jest „bez zmian” — trzeba go
+            # powtórzyć (runda 6 audytu).
+            ~CandidateSearchRun.metrics.has_key(SEMANTIC_BLIND_METRIC),
         )
         .order_by(CandidateSearchRun.created_at.desc())
         .limit(1)
@@ -387,6 +396,16 @@ async def publish_run_proposals(db, run: CandidateSearchRun) -> int:
 
     if run.job_id is None:
         return 0
+    # Rekrutacja zamknięta albo już nie w pracy (np. „Klient milczy”,
+    # „Zakończony”) nie dostaje nowych propozycji — także z zaległej
+    # publikacji `reconcile_unpublished` (runda 6 audytu).
+    job = await db.get(Job, run.job_id)
+    if (
+        job is None
+        or job.status != JobStatus.published
+        or job.work_state not in IN_WORK_STATES
+    ):
+        return 0
     top_k = max(1, int(settings.AUTO_FULL_REVIEW_TOP_K))
     min_score = float(settings.AUTO_FULL_REVIEW_MIN_SCORE)
     rows = (
@@ -462,7 +481,46 @@ async def publish_run_proposals(db, run: CandidateSearchRun) -> int:
     )
 
 
+async def _semantic_blind(db, run: CandidateSearchRun) -> bool:
+    """Ktoś dopuszczony, ale NIKT nie zmierzony = przegląd bez wektora zapytania.
+
+    Worker kończy go jako ``partial`` (``vector=None`` → każdy wiersz
+    „niezmierzony”), a automat liczył to jak udany przegląd: seria awarii
+    Voyage'a nie docierała do admina, a odcisk takiego przeglądu dawał
+    następnej nocy ``unchanged`` — rekrutacja zostawała bez propozycji.
+    """
+    eligible, measured = (
+        await db.execute(
+            select(
+                func.count().filter(CandidateSearchResult.eligible.is_(True)),
+                func.count().filter(
+                    CandidateSearchResult.eligible.is_(True),
+                    CandidateSearchResult.measurement == "measured",
+                ),
+            ).where(CandidateSearchResult.run_id == run.id)
+        )
+    ).one()
+    return bool(eligible) and not measured
+
+
 async def _publish(db, run: CandidateSearchRun, *, eligible: Optional[int]) -> int:
+    if await _semantic_blind(db, run):
+        from app.services import automation_failures as failures
+
+        run.metrics = {
+            **(run.metrics or {}),
+            PROPOSALS_METRIC: 0,
+            SEMANTIC_BLIND_METRIC: True,
+        }
+        await failures.record_job_failure_event(
+            db,
+            job_id=run.job_id,
+            action="auto_full_review_failed",
+            error_code=failures.NO_QUERY_VECTOR,
+            run_id=run.id,
+        )
+        await db.flush()
+        return 0
     count = await publish_run_proposals(db, run)
     # Po `finish_run` telemetria już nie nadpisuje `metrics`.
     run.metrics = {**(run.metrics or {}), PROPOSALS_METRIC: count}
@@ -512,6 +570,11 @@ async def publish_on_finish(db, run_id: str, *, eligible: Optional[int]) -> None
         return
     from app.services import automation_failures as failures
 
+    if (run.metrics or {}).get(SEMANTIC_BLIND_METRIC):
+        await failures.record_failure(
+            failures.KIND_FULL_REVIEW, failures.NO_QUERY_VECTOR, job_id=run.job_id
+        )
+        return
     await failures.record_success(failures.KIND_FULL_REVIEW)
 
 
@@ -521,12 +584,17 @@ async def reconcile_unpublished(db, *, now: datetime) -> int:
         (
             await db.scalars(
                 select(CandidateSearchRun)
+                .join(Job, Job.id == CandidateSearchRun.job_id)
                 .where(
                     store.auto_origin_clause(),
                     CandidateSearchRun.job_id.is_not(None),
                     CandidateSearchRun.state.in_(store.RESULT_STATES),
                     CandidateSearchRun.completed_at >= now - _RECONCILE_WINDOW,
                     ~CandidateSearchRun.metrics.has_key(PROPOSALS_METRIC),
+                    # Zamknięta / niepracowana rekrutacja nie zajmuje limitu 5
+                    # zaległych publikacji (runda 6 audytu).
+                    Job.status == JobStatus.published,
+                    Job.work_state.in_(IN_WORK_STATES),
                 )
                 .order_by(CandidateSearchRun.completed_at)
                 .limit(5)

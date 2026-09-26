@@ -58,3 +58,64 @@ def test_monday_stale_check_uses_the_business_calendar_not_utc() -> None:
     assert tuesday_0030_warsaw.weekday() == 0  # poniedziałek w UTC
     assert is_stale_check_day(tuesday_0030_warsaw) is False
     assert is_stale_check_day(datetime(2026, 9, 28, 8, 0, tzinfo=timezone.utc)) is True
+
+
+# ── Adresat „Requestów do decyzji” (runda 6 audytu) ─────────────────────────
+
+
+@pytest.mark.unit
+def test_inactive_or_missing_delivery_lead_escalates_to_head_of_recruitment() -> None:
+    from app.services.request_allocation_notices import route_to_recipients
+
+    assert route_to_recipients(7, {7}, [90, 91]) == [7]
+    # Nieaktywny DL = jak brak DL-a — lustro `_delivery_lead_targets`.
+    assert route_to_recipients(7, set(), [90, 91]) == [90, 91]
+    assert route_to_recipients(None, {7}, [90]) == [90]
+
+
+class _Rows:
+    def __init__(self, items):
+        self._items = items
+
+    def all(self):
+        return list(self._items)
+
+
+class _FakeDb:
+    """Pierwsze ``execute`` = wiersze rekrutacji, ``scalars`` = aktywni DL-e,
+    potem Head of Recruitment."""
+
+    def __init__(self, rows, active_leads, hor):
+        self._rows = rows
+        self._scalars = [active_leads, hor]
+
+    async def execute(self, _statement):
+        return _Rows(self._rows)
+
+    async def scalars(self, _statement):
+        return _Rows(self._scalars.pop(0))
+
+
+@pytest.mark.asyncio
+async def test_silent_reminder_for_inactive_lead_goes_to_hor_and_is_remembered(
+    monkeypatch,
+) -> None:
+    from app.services import notification_triggers
+    from app.services.request_allocation_notices import _review_notices
+
+    sent: list[int] = []
+
+    async def emit(db, **kwargs):
+        sent.append(kwargs["user_id"])
+        return object()
+
+    monkeypatch.setattr(notification_triggers, "emit", emit)
+    tuesday = datetime(2026, 9, 29, 7, 0, tzinfo=timezone.utc)
+    rows = [(42, 7, "client_silent", tuesday - timedelta(days=40), None)]
+    count, reminded = await _review_notices(
+        _FakeDb(rows, active_leads=[], hor=[90]), now=tuesday, reminded={}
+    )
+    assert sent == [90]
+    assert count == 1
+    # Zapamiętane — jutro nie wraca (dotąd przepadało codziennie).
+    assert reminded == {"42": tuesday.isoformat()}

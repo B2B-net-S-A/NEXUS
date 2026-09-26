@@ -712,6 +712,7 @@ async def update_event(
             job_id=new_job_id,
         )
 
+    await _reject_teams_meeting_relink(db, event, changes)
     outlook_fields = _outlook_changed_fields(event, changes)
     if outlook_fields:
         await _push_outlook_changes(db, event, changes, outlook_fields)
@@ -762,6 +763,39 @@ async def update_event(
     return await _event_response(db, event, current_user)
 
 
+async def _reject_teams_meeting_relink(
+    db: AsyncSession, event: CalendarEvent, changes: dict
+) -> None:
+    """Prep i follow-up w Teams są przypięte do osoby (i rekrutacji) na stałe.
+
+    PATCH ``candidate_id``/``job_id`` zmieniał wydarzenie, a wiersz prepu
+    (``prep_meetings``) zostawał przy starej parze: transkrypt, notatka
+    i ocena prepu lądowały u innego kandydata niż spotkanie, a zaproszenie
+    w Teams i tak miała stara osoba (runda 6 audytu). Zmiana osoby = nowy prep.
+    """
+    moved = {
+        field
+        for field in ("candidate_id", "job_id")
+        if field in changes and changes[field] != getattr(event, field)
+    }
+    if not moved:
+        return
+    from app.services.followup_meetings import followup_for_event
+    from app.services.prep_meetings import prep_for_event
+
+    prep = await prep_for_event(db, event.id)
+    followup = None if prep else await followup_for_event(db, event.id)
+    if prep is not None or (followup is not None and "candidate_id" in moved):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "To spotkanie w Teams jest założone dla konkretnego kandydata — "
+                "nie da się go przepiąć. Odwołaj je i zaplanuj nowe dla właściwej "
+                "osoby."
+            ),
+        )
+
+
 async def _push_outlook_changes(
     db: AsyncSession, event: CalendarEvent, changes: dict, fields: list[str]
 ) -> None:
@@ -785,9 +819,10 @@ async def _push_outlook_changes(
 
     # 0370: prep z NEXUSA żyje w kalendarzu organizatora, który zwykle nie ma
     # połączonego konta M365 — zmieniamy go tą samą aplikacją, która go założyła.
-    from app.services import prep_meetings as prep_meetings_svc
+    # Follow-up z kandydatem w Teams tak samo (runda 6 audytu).
+    from app.services.followup_meetings import app_only_meeting_for_event
 
-    prep = await prep_meetings_svc.prep_for_event(db, event.id)
+    prep = await app_only_meeting_for_event(db, event.id)
     if prep is not None:
         await _push_prep_changes(
             event, prep, changes, fields, new_start=new_start, new_end=new_end
@@ -891,7 +926,7 @@ async def _push_prep_changes(
         logger.warning("prep update: Graph %s for event %s", exc.status, event.id)
         raise HTTPException(
             status_code=502 if exc.status >= 500 else 409,
-            detail="Outlook nie przyjął zmiany prepu. W NEXUSIE nic nie zostało "
+            detail="Outlook nie przyjął zmiany spotkania w Teams. W NEXUSIE nic nie zostało "
             "zmienione.",
         ) from exc
     except Exception as exc:  # noqa: BLE001 — token, sieć
@@ -969,9 +1004,10 @@ async def cancel_event(
         )
 
     outlook = "not_applicable"
-    from app.services import prep_meetings as prep_meetings_svc
+    from app.services.followup_meetings import app_only_meeting_for_event
 
-    prep = await prep_meetings_svc.prep_for_event(db, event.id)
+    # Prep i follow-up w Teams (aplikacja „NEXUS Teams Prep”, runda 6 audytu).
+    prep = await app_only_meeting_for_event(db, event.id)
     if prep is not None and _is_outlook_event(event):
         from app.services.m365 import teams_prep_graph
 
@@ -983,7 +1019,7 @@ async def cancel_event(
             logger.warning("prep cancel: %s for event %s", type(exc).__name__, event.id)
             raise HTTPException(
                 status_code=502,
-                detail="Outlook nie przyjął odwołania prepu — spróbuj ponownie za "
+                detail="Outlook nie przyjął odwołania spotkania w Teams — spróbuj ponownie za "
                 "chwilę. W NEXUSIE nic nie zostało zmienione.",
             ) from exc
         if prep.transcript_status == "waiting":
