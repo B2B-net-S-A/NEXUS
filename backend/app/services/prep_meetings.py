@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Iterable, Optional
 
 from fastapi import HTTPException
 from sqlalchemy import func, select
@@ -63,6 +63,38 @@ def prep_description(extra: Optional[str]) -> str:
     return "\n\n".join(parts)
 
 
+async def suggest_organizer_ids(
+    db: AsyncSession, jobs: dict[int, Job], pairs: Iterable[tuple[int, int]]
+) -> dict[tuple[int, int], tuple[Optional[int], Optional[int]]]:
+    """Podpowiedź organizatora (Prep 1, Prep 2) dla wielu par naraz.
+
+    Stała liczba zapytań niezależnie od liczby par (runda 7, R7-V3-2):
+    kolejka „Czeka na Ciebie” liczyła podpowiedź osobno dla każdego
+    brakującego prepu, a pulpit woła ją u każdego zalogowanego.
+    """
+    wanted = [pair for pair in dict.fromkeys(pairs) if pair[1] in jobs]
+    if not wanted:
+        return {}
+    recruiters = await interview_slots.default_recruiter_ids(db, wanted)
+    # DL przechodzi tę samą bramkę co rekruter (runda 6 audytu): podpowiedź
+    # nieaktywnego DL-a kończyła zapis prepu 422 „Organizator jest nieaktywny”,
+    # a okno nie podpowiadało wtedy nikogo, choć rekruter był pod ręką.
+    leads = {
+        (jobs[jid].delivery_lead_id, jid)
+        for _cid, jid in wanted
+        if jobs[jid].delivery_lead_id
+    }
+    eligible_leads = await interview_slots.eligible_slot_recruiters(db, leads)
+    out: dict[tuple[int, int], tuple[Optional[int], Optional[int]]] = {}
+    for cid, jid in wanted:
+        lead = jobs[jid].delivery_lead_id
+        if lead and (lead, jid) not in eligible_leads:
+            lead = None
+        recruiter = recruiters.get((cid, jid))
+        out[(cid, jid)] = (lead or recruiter, recruiter or lead)
+    return out
+
+
 async def suggest_organizer_id(
     db: AsyncSession, *, job: Job, candidate_id: int, prep_no: int
 ) -> Optional[int]:
@@ -72,18 +104,10 @@ async def suggest_organizer_id(
     kandydata liczy ``interview_slots.default_recruiter_id`` (ta sama reguła
     co przy terminach od klienta).
     """
-    recruiter = await interview_slots.default_recruiter_id(
-        db, candidate_id=candidate_id, job_id=job.id
-    )
-    # DL przechodzi tę samą bramkę co rekruter (runda 6 audytu): podpowiedź
-    # nieaktywnego DL-a kończyła zapis prepu 422 „Organizator jest nieaktywny”,
-    # a okno nie podpowiadało wtedy nikogo, choć rekruter był pod ręką.
-    lead = job.delivery_lead_id
-    if lead and not await interview_slots.slot_recruiter_eligible(db, lead, job.id):
-        lead = None
-    if prep_no == 1:
-        return lead or recruiter
-    return recruiter or lead
+    prep1, prep2 = (
+        await suggest_organizer_ids(db, {job.id: job}, [(candidate_id, job.id)])
+    ).get((candidate_id, job.id), (None, None))
+    return prep1 if prep_no == 1 else prep2
 
 
 def app_only_ready() -> bool:
@@ -320,7 +344,7 @@ async def suggestion_summary(
     db: AsyncSession, *, job: Job, candidate_id: int
 ) -> dict[int, Optional[int]]:
     """Podpowiedzi organizatora dla obu prepów (okno „Zaplanuj prep”)."""
-    return {
-        n: await suggest_organizer_id(db, job=job, candidate_id=candidate_id, prep_no=n)
-        for n in (1, 2)
-    }
+    prep1, prep2 = (
+        await suggest_organizer_ids(db, {job.id: job}, [(candidate_id, job.id)])
+    ).get((candidate_id, job.id), (None, None))
+    return {1: prep1, 2: prep2}

@@ -208,6 +208,9 @@ class SlotConfirmOut(BaseModel):
     event_id: int
     outlook: str
     cancelled_event_id: Optional[int] = None
+    # Blokada przełożonej rozmowy w Outlooku rekrutera: none | cancelled |
+    # not_connected | failed (runda 7, R7-V3-3) — front mówi prawdę, gdy została.
+    superseded_outlook: Optional[str] = None
 
 
 class ReplaceableInterviewOut(BaseModel):
@@ -687,7 +690,7 @@ async def confirm_slot(
 ) -> SlotConfirmOut:
     req = await interview_slots.lock_request(db, request_id)
     await _ensure_slot_owner(db, current_user, req)
-    event, outlook = await interview_slots.confirm(
+    event, outlook, superseded_outlook = await interview_slots.confirm(
         db,
         req,
         user_id=current_user.id,
@@ -716,6 +719,7 @@ async def confirm_slot(
         event_id=event.id,
         outlook=outlook,
         cancelled_event_id=body.supersedes_event_id,
+        superseded_outlook=superseded_outlook,
     )
 
 

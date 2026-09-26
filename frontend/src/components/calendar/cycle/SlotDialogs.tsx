@@ -15,6 +15,7 @@ import {
   formatSlot,
   pairContext,
   type PairInfo,
+  slotConfirmedMessage,
   type SlotRequest,
 } from "@/lib/interview-cycle";
 import { cn } from "@/lib/utils";
@@ -301,15 +302,11 @@ export function SlotDecisionDialog({
       if (mode === "pick") {
         toast.showSuccess("Termin wysłany do DL — potwierdzi go u klienta.");
       } else {
-        const { outlook, cancelled_event_id: cancelled } = res as {
-          outlook?: string;
-          cancelled_event_id?: number | null;
-        };
-        const base =
-          outlook === "added"
-            ? "Termin potwierdzony — rozmowa jest w kalendarzu rekrutera i w jego Outlooku."
-            : "Termin potwierdzony — rozmowa jest w kalendarzu rekrutera w NEXUSIE.";
-        toast.showSuccess(cancelled ? `${base} Poprzedni termin odwołany.` : base);
+        const { tone, message } = slotConfirmedMessage(
+          res as Parameters<typeof slotConfirmedMessage>[0],
+        );
+        if (tone === "error") toast.showError(message);
+        else toast.showSuccess(message);
       }
       onOpenChange(false);
     },
@@ -407,7 +404,7 @@ export function SlotDecisionDialog({
                     <span>
                       To przełożenie rozmowy z {formatSlot({ start: ev.start_time, end: ev.end_time ?? null })}
                       <span className="block text-xs text-muted-foreground">
-                        Tamta rozmowa zostanie odwołana (także blokada w Outlooku).
+                        Tamta rozmowa zostanie odwołana. Blokadę w Outlooku rekrutera zdejmiemy, gdy jego skrzynka jest połączona.
                       </span>
                     </span>
                   </label>
