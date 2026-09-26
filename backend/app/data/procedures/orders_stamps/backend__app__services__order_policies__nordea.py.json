@@ -1,4 +1,4 @@
 {
-  "sha256": "faeeed4cb43f77c43b889b83c5a41e2918dbd72c507359279e7ea976bacc2463",
+  "sha256": "3b0d20200cde358e01a9848e73fd61bbcf8d2d4e46c154d03e01ea82e3a2f787",
   "source": "backend/app/services/order_policies/nordea.py"
 }

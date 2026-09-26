@@ -1693,7 +1693,11 @@ Skrót **„Powiadomienia: standardowe"** znaczy: alerty o końcu zamówienia
     (np. aneks) czyta odczyt ogólny i dostaje uwagę „sprawdź wszystkie pola";
   * gdy wiersza tabeli nie da się jednoznacznie odczytać (np. nazwisko złamane
     na dwie linie), karta tej osoby **nie dostaje stawki** i czeka na Ciebie —
-    system nigdy nie przesuwa stawki na sąsiednią osobę.
+    system nigdy nie przesuwa stawki na sąsiednią osobę;
+  * gdy tabela ma **kolumnę liczby MD tuż przed stawką**, a w PDF-ie liczba
+    zlała się z kwotą („10 840,00 zł" = 10 MD i 840,00 zł), system rozdziela je
+    tylko wtedy, gdy **MD × stawka = kwota osoby**; w przeciwnym razie karta
+    czeka na Ciebie z uwagą „liczba MD mogła skleić się z kwotą".
 * **System NIE zakłada tu automatycznie zamówienia po zatrudnieniu konsultanta.**
   U pozostałych klientów po przejściu kandydata na „zatrudniony" pojawia się
   szkic zamówienia do uzupełnienia — u Polkomtela musisz założyć zamówienie sam.
@@ -1778,7 +1782,12 @@ powtórzyć odczyt AI** — gdy odczyt nie potwierdza osoby albo podaje inną st
 wpis czeka w weryfikacji z tym zdaniem. „Przelicz plan” ponownie odczytuje osoby
 z właściwej tabeli zapisanego PDF-a Nordea i porównuje je z odczytem AI
 zachowanym przy pierwszym odczycie; wpis odczytany przed 24.09.2026 takiego
-odczytu nie ma i po przeliczeniu zawsze czeka na Twoje sprawdzenie.
+odczytu nie ma i po przeliczeniu zawsze czeka na Twoje sprawdzenie. AI dostaje
+też **surowy tekst tabeli** z PDF-a, a system liczy w niej pozycje ze stawką:
+gdy jest ich więcej niż odczytanych osób (np. wiersz przełamany w PDF-ie na dwie
+linie), wpis czeka na Ciebie. Osoba, przed której kategorią stoi jeszcze jedno
+słowo pisane jak nazwisko („Jan Kowalski Nowak IT…"), też idzie do sprawdzenia —
+system nie zgaduje, czy nazwisko ma trzy człony.
 
 **2. Import zamówień z CSV — nie dla Ciebie.** W zakładce „Zamówienia" jest
 zwijany panel **„Import zamówień Nordea z CSV"**, ale **widzi go wyłącznie
@@ -1907,8 +1916,9 @@ Reguła odczytu zmienia liczby, więc warto znać ją w całości:
   miesięcznie) jest pomijane.
 * **Data zakończenia** pochodzi wyłącznie z pola **„Termin wykonania Prac”**.
   Opcja przedłużenia i pozostałe daty w treści nie zmieniają daty końca — ani
-  dokumentu, ani wiersza osoby. Brak lub niejednoznaczność tego pola wymaga
-  sprawdzenia przez operatora. W formularzu sprawdź też wcześniejszą wartość.
+  dokumentu, ani wiersza osoby. Sam początek („od 01.07.2026 r. przez okres
+  6 miesięcy") **nie jest datą końca** — pole zostaje puste. Brak lub
+  niejednoznaczność tego pola wymaga sprawdzenia przez operatora. W formularzu sprawdź też wcześniejszą wartość.
 * Oczekujący wpis z błędnym klientem, numerem lub datą popraw przyciskiem
   **„Przelicz plan”**. Kompletny i pewny wynik jest od razu zapisywany.
 * **Stawka z pola „Stawka za jedną Roboczogodzinę (zgodna z Ofertą Wykonawcy)”
@@ -2005,12 +2015,15 @@ Reguła odczytu zmienia liczby, więc warto znać ją w całości:
   * **Dokument nie ma numeru** — identyfikatorem jest **data z „Zamówienie
     z dnia …"** i to ona trafia w pole numeru.
   * **Stawka** to liczba w nawiasie **„(… PLN/MD net.)"**, traktowana jako kwota
-    za osobodzień.
+    za osobodzień. Gdy dokument podaje **kilka różnych stawek** (np. dla różnych
+    grup kompetencyjnych), system **nie przypisuje żadnej** — każda osoba czeka
+    na Twoją stawkę.
   * **Zamówienie jest OKRESOWE** — liczba MD z tabeli jest tylko informacją,
     **nie budżetem** (system nie pilnuje jej jako puli).
   * **Okres** z wiersza specjalisty (gdy w tabeli jest jedna osoba).
 * Gdy nie znajdzie identyfikatora, tabeli albo stawki, powie o tym i zostawi
-  pola do ręcznego wpisania.
+  pola do ręcznego wpisania. Zastrzeżenia odczytu AI (np. nieczytelne
+  nazwisko) zostają widoczne — tak samo u KIR, mLeasingu i VeloBanku.
 * **Powiadomienia:** standardowe.
 
 ### Centrum e-Zdrowia

@@ -140,7 +140,73 @@ def parser_text(text: str) -> str:
         lines.append(
             f"Person(s) at the Supplier who it is intended to perform the service: {row.consultant_name}; Rate: {rate} PLN/hour netto"
         )
+    # Surowy fragment tabeli obok wyciągu (runda 6 audytu), bo odczyt modelu
+    # jest jedynym niezależnym sprawdzeniem tabeli: z samym wyciągiem regexu
+    # model widział dokładnie to, co regex, i wiersz złamany przez pdfplumber
+    # (ilość na końcu linii, stawka w następnej) znikał z obu odczytów naraz.
+    raw = raw_table_lines(text)
+    if raw:
+        lines.append("Consultant(s) table — raw text from the PDF:")
+        lines.extend(raw)
     return "\n".join(lines)
+
+
+def _consultant_table(text: str) -> Optional[str]:
+    """Tabela „Person(s) at the Supplier" do „Contact persons"/„Copies"."""
+    header = re.search(r"Person\(s\)\s+at\s+the\s+Supplier", text or "", re.I)
+    if not header:
+        return None
+    return re.split(
+        r"Contact\s+persons|Copies", text[header.start() :], maxsplit=1, flags=re.I
+    )[0]
+
+
+_TOTAL_LINE_RE = re.compile(r"^\s*(?:sub)?total\b", re.I)
+_TABLE_HEADER_LINE_RE = re.compile(
+    r"Person\(s\)\s+at|intended\s+to\s+perform|service\s+definitions|Quantity"
+    r"|Unit\s+Rate|Subtotal|according\s+to\s+Nordea",
+    re.I,
+)
+_FIRST_RATE_RE = re.compile(rf"{_AMT}[ \t]*PLN")
+_NUMBER_RE = re.compile(r"\d[\d  ,.]*\d|\d")
+
+
+def raw_table_lines(text: str) -> list[str]:
+    """Linie tabeli Consultant(s) bez sum i bez Quantity — dla modelu.
+
+    Odpadają nagłówek tabeli i linia podsumowania („Total, excl. VAT"); każda
+    linia jest ucinana po PIERWSZEJ kwocie z „PLN" (stawce), bo dalej stoi
+    wartość pozycji, a pozostałe liczby (Quantity) są maskowane „…" — ta sama
+    zasada co w wyciągu: model nie widzi sum ani ilości, tylko osoby i stawki.
+    """
+    table = _consultant_table(order_text_only(text))
+    if table is None:
+        return []
+    out: list[str] = []
+    for line in table.splitlines():
+        if (
+            not line.strip()
+            or _TOTAL_LINE_RE.match(line)
+            or _TABLE_HEADER_LINE_RE.search(line)
+        ):
+            continue
+        rate = _FIRST_RATE_RE.search(line)
+        head, tail = (line[: rate.start()], rate.group(0)) if rate else (line, "")
+        out.append((_NUMBER_RE.sub("…", head) + tail).rstrip())
+    return out
+
+
+# Para „jednostka + stawka PLN" występuje raz na pozycję tabeli, także gdy
+# pdfplumber przełamał wiersz — liczona niezależnie od ``_ROW_RE``.
+_UNIT_RATE_RE = re.compile(
+    rf"(?<![\w])(?:Hours?|Days?|Months?|MD|h|d)\s+{_AMT}[ \t]*PLN", re.I
+)
+
+
+def table_rate_count(text: str) -> int:
+    """Ile pozycji ze stawką ma tabela Consultant(s) — bez parsowania wierszy."""
+    table = _consultant_table(order_text_only(text))
+    return len(_UNIT_RATE_RE.findall(table)) if table else 0
 
 
 _IGNORED_SUM_RE = re.compile(
@@ -276,24 +342,41 @@ def extract_rows(text: str) -> list[ConsultantOrderRow]:
     header = re.search(r"Person\(s\)\s+at\s+the\s+Supplier", text, re.I)
     if not header:
         return []
-    table = re.split(
-        r"Contact\s+persons|Copies", text[header.start() :], maxsplit=1, flags=re.I
-    )[0]
+    table = _consultant_table(text)
     rows: list[ConsultantOrderRow] = []
     for m in _ROW_RE.finditer(table):
         rate = normalize_amount(m.group("rate"))
+        name = clean_person_name(m.group("name"))
+        concerns = ["Nie znaleziono stawki"] if rate is None else []
+        # Nazwa to dwa pierwsze słowa wiersza. Kolejne słowo pisane jak
+        # nazwisko przed kolumną kategorii („Jan Kowalski Nowak IT…") znaczy,
+        # że osoba może mieć trzy człony — zgadywanie dałoby zamówienie
+        # komuś innemu, więc wiersz idzie do sprawdzenia (runda 6 audytu).
+        extra = _EXTRA_NAME_WORD_RE.match(m.group("rest"))
+        if extra:
+            concerns.append(
+                f"„{name}”: przed kolumną kategorii stoi jeszcze „{extra.group(1)}” "
+                "— imię i nazwisko może mieć więcej członów, sprawdź osobę"
+            )
         rows.append(
             ConsultantOrderRow(
-                consultant_name=clean_person_name(m.group("name")),
+                consultant_name=name,
                 start_date=start,
                 end_date=end,
                 rate_client=rate,
                 rate_unit="hour",
-                uncertain=rate is None,
-                uncertain_reason="Nie znaleziono stawki" if rate is None else None,
+                uncertain=bool(concerns),
+                uncertain_reason="; ".join(concerns) or None,
             )
         )
     return rows
+
+
+# Słowo pisane jak nazwisko (wielka litera + małe), a nie jak kategoria
+# kompetencji Nordei („IT Operations", „IT Developer").
+_EXTRA_NAME_WORD_RE = re.compile(
+    r"^([A-ZĄĆĘŁŃÓŚŹŻ][a-ząćęłńóśźż]+(?:-[A-ZĄĆĘŁŃÓŚŹŻ][a-ząćęłńóśźż]+)?)(?=\s)"
+)
 
 
 _READING_MODEL = "model"
@@ -397,6 +480,22 @@ def _cross_check_rows(
     return reasons
 
 
+def _pozycje(n: int) -> str:
+    return (
+        "pozycja"
+        if n == 1
+        else ("pozycje" if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14 else "pozycji")
+    )
+
+
+def _wiersze(n: int) -> str:
+    return (
+        "wiersz"
+        if n == 1
+        else ("wiersze" if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14 else "wierszy")
+    )
+
+
 def apply_nordea_layout(
     result: OrderExtraction,
     document_text: str,
@@ -459,9 +558,28 @@ def apply_nordea_layout(
             if old.uncertain
             and _names_exactly_equivalent(old.consultant_name, row.consultant_name)
         ]
+        # Własne zastrzeżenie wiersza tabeli (np. trzeci człon nazwy) zostaje
+        # obok zastrzeżeń modelu i trafia do powodów dokumentu (runda 6 audytu).
+        own = [row.uncertain_reason] if row.uncertain and row.uncertain_reason else []
         if concerns:
             row.uncertain = True
-            row.uncertain_reason = "; ".join(dict.fromkeys(concerns))
+            row.uncertain_reason = "; ".join(dict.fromkeys(own + concerns))
+        for reason in own:
+            if reason not in result.uncertain_reasons:
+                result.uncertain_reasons.append(reason)
+    # Kontrola kompletności niezależna od ``_ROW_RE`` (runda 6 audytu): tabela
+    # ma tyle pozycji, ile par „jednostka + stawka PLN". Mniej wierszy z
+    # regexu = osoba wypadła (np. wiersz przełamany przez pdfplumber) — nie
+    # zgadujemy jej danych, dokument idzie do sprawdzenia.
+    expected = table_rate_count(document_text)
+    if expected > len(rows):
+        reason = (
+            f"Tabela Consultant(s) ma {expected} {_pozycje(expected)} ze stawką, "
+            f"a odczytano {len(rows)} {_wiersze(len(rows))} osób — sprawdź, "
+            "czy żadna osoba nie wypadła"
+        )
+        if reason not in result.uncertain_reasons:
+            result.uncertain_reasons.append(reason)
     if not target_consultant and reading_state != _READING_NONE:
         for reason in _cross_check_rows(rows, reading, reading_state):
             if reason not in result.uncertain_reasons:
