@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -12,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.models.calendar_event import CalendarEvent, EventStatus, EventType
+from app.services.calendar_privacy import PRIVATE_EVENT_TITLE
 from app.models.candidate import Candidate
 from app.models.followup_meeting import FollowupMeeting
 from app.models.user import User
@@ -359,7 +361,7 @@ async def erase_candidate_meetings(
     from app.models.prep_meeting import PrepMeeting
 
     now = datetime.now(timezone.utc)
-    pending: list[tuple[str, str]] = []
+    pending: list[tuple[str, str, int]] = []
     for model in (PrepMeeting, FollowupMeeting):
         rows = (
             await db.execute(
@@ -374,7 +376,7 @@ async def erase_candidate_meetings(
             )
         ).all()
         for upn, event in rows:
-            pending.append((upn, event.external_id))
+            pending.append((upn, event.external_id, event.id))
             event.status = EventStatus.cancelled
     events = (
         await db.scalars(
@@ -382,7 +384,11 @@ async def erase_candidate_meetings(
         )
     ).all()
     for event in events:
-        event.title = ERASED_EVENT_TITLE
+        # Runda 7 (R7-V1-7): prywatne spotkanie z Outlooka zostaje „Spotkaniem
+        # prywatnym” — tytuł „Spotkanie z kandydatem (dane usunięte)” zdradzał
+        # adminowi, HoR i Finansom, z kim było prywatne spotkanie.
+        if event.title != PRIVATE_EVENT_TITLE:
+            event.title = ERASED_EVENT_TITLE
         event.description = None
         event.attendees = _without_address(event.attendees, candidate.email)
     await db.flush()
@@ -392,18 +398,77 @@ async def erase_candidate_meetings(
     }
 
 
-async def cancel_erased_meetings(pending: list[tuple[str, str]]) -> int:
-    """Odwołanie w Teams po commicie usunięcia. Nigdy nie rzuca; log bez danych."""
-    cancelled = 0
-    for upn, graph_event_id in pending:
+# Ponowienia odwołania w Teams po usunięciu kandydata (runda 7, R7-V1-6).
+_CANCEL_RETRY_DELAYS: tuple[float, ...] = (1.0, 3.0)
+CANCEL_FAILED_NOTE = (
+    "Nie udało się odwołać tego spotkania w Teams po usunięciu danych "
+    "kandydata — odwołaj je ręcznie w kalendarzu organizatora."
+)
+
+
+async def _cancel_with_retry(upn: str, graph_event_id: str) -> bool:
+    for attempt in range(len(_CANCEL_RETRY_DELAYS) + 1):
         try:
             await teams_prep_graph.cancel_event(
                 upn, graph_event_id, "Spotkanie zostało odwołane."
             )
-            cancelled += 1
+            return True
         except Exception as exc:  # noqa: BLE001 — Graph, token, sieć
             logger.warning(
-                "candidate erasure: Teams meeting not cancelled (%s)",
+                "candidate erasure: Teams meeting not cancelled (%s, attempt %s)",
                 type(exc).__name__,
+                attempt + 1,
             )
+            if attempt < len(_CANCEL_RETRY_DELAYS):
+                await asyncio.sleep(_CANCEL_RETRY_DELAYS[attempt])
+    return False
+
+
+async def _restore_uncancelled(event_ids: list[int]) -> None:
+    """Spotkanie, którego Teams nie odwołał, nie może udawać odwołanego.
+
+    ``erase_candidate_meetings`` oznaczyło je jako odwołane przed Graphem;
+    zaproszenie kandydata dalej wisi w kalendarzu organizatora, więc NEXUS
+    wraca do „zaplanowane” z prośbą o ręczne odwołanie.
+    """
+    from app.core.database import AsyncSessionLocal
+
+    try:
+        async with AsyncSessionLocal() as db:
+            events = (
+                await db.scalars(
+                    select(CalendarEvent).where(CalendarEvent.id.in_(event_ids))
+                )
+            ).all()
+            for event in events:
+                event.status = EventStatus.scheduled
+                event.description = CANCEL_FAILED_NOTE
+            await db.commit()
+    except Exception as exc:  # noqa: BLE001 — usunięcie już się stało
+        logger.error(
+            "candidate erasure: event state not restored (%s)", type(exc).__name__
+        )
+        return
+    logger.error(
+        "candidate erasure: %s Teams meeting(s) left uncancelled — cancel manually",
+        len(event_ids),
+    )
+
+
+async def cancel_erased_meetings(pending: list[tuple[str, str, int]]) -> int:
+    """Odwołanie w Teams po commicie usunięcia. Nigdy nie rzuca; log bez danych.
+
+    Runda 7 (R7-V1-6): każde odwołanie ma ponowienia, a to, którego Teams nie
+    przyjął, wraca w NEXUSIE na „zaplanowane” z prośbą o ręczne odwołanie —
+    dotąd NEXUS pokazywał „odwołane”, a kandydat miał ważne zaproszenie.
+    """
+    cancelled = 0
+    failed: list[int] = []
+    for upn, graph_event_id, event_id in pending:
+        if await _cancel_with_retry(upn, graph_event_id):
+            cancelled += 1
+        else:
+            failed.append(event_id)
+    if failed:
+        await _restore_uncancelled(failed)
     return cancelled

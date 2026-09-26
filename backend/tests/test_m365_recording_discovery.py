@@ -160,19 +160,24 @@ def test_pick_best_match_prefers_meeting_id_in_name() -> None:
     assert best.name == "Recording-meeting_ZjE5OWQwNWUt.mp4"
 
 
-def test_pick_best_match_falls_back_to_closest_by_time() -> None:
+def test_pick_best_match_never_falls_back_to_closest_by_time() -> None:
+    """Runda 7 (R7-N5-1): bez id spotkania w nazwie pliku nie ma nagrania —
+    „najbliższy w czasie” przypinał nagranie innego (np. prywatnego) spotkania."""
     end_at = datetime(2026, 5, 14, 10, 0, tzinfo=timezone.utc)
     candidates = [
         _cand("Recording-late.mp4", 180),
         _cand("Recording-early.mp4", 45),
     ]
-    best = _pick_best_match(
-        candidates,
-        event_end_at=end_at,
-        meeting_id_fragment=None,
+    assert (
+        _pick_best_match(candidates, event_end_at=end_at, meeting_id_fragment=None)
+        is None
     )
-    assert best is not None
-    assert best.name == "Recording-early.mp4"
+    assert (
+        _pick_best_match(
+            candidates, event_end_at=end_at, meeting_id_fragment="ZjE5OWQwNWUt"
+        )
+        is None
+    )
 
 
 def test_pick_best_match_returns_none_for_empty_list() -> None:
@@ -264,8 +269,8 @@ async def test_find_meeting_recording_rejects_naive_event_end() -> None:
     gc.get.assert_not_called()
 
 
-async def test_find_meeting_recording_falls_back_to_time_when_no_id() -> None:
-    """No meeting URL → no fragment → fall back to closest by time."""
+async def test_find_meeting_recording_without_id_finds_nothing() -> None:
+    """No meeting URL → no fragment → no recording (runda 7, R7-N5-1)."""
     end_at = datetime(2026, 5, 14, 10, 0, tzinfo=timezone.utc)
     gc = _gc_with(
         {
@@ -284,7 +289,7 @@ async def test_find_meeting_recording_falls_back_to_time_when_no_id() -> None:
         }
     )
     url = await find_meeting_recording(gc, online_meeting_url=None, event_end_at=end_at)
-    assert url == "https://onedrive/close.mp4"
+    assert url is None
 
 
 # ── _recording_discovery_pass loop body ─────────────────────────────────────
@@ -512,3 +517,5 @@ async def test_recording_discovery_pass_select_filters_match_spec(
     assert "calendar_events.online_meeting_url IS NOT NULL" in sql
     assert "calendar_events.recording_url IS NULL" in sql
     assert "calendar_events.end_time IS NOT NULL" in sql
+    # Runda 7 (R7-N5-1): rotacja — nigdy nie sprawdzane idą pierwsze.
+    assert "calendar_events.recording_discovered_at ASC NULLS FIRST" in sql

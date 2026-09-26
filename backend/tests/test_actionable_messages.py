@@ -1,31 +1,24 @@
 """Phase 7.5 — Outlook Actionable Messages tests.
 
-Two layers:
-1. Pure-function tests for `app.services.m365.actionable_messages` — JWT
-   round-trip, payload shape, fallback link.
-2. Integration tests for `POST /api/public/interview-confirmation` — happy
-   path, expired/tampered token, mismatched candidate, idempotent re-click.
+Pure-function tests for `app.services.m365.actionable_messages` — JWT
+round-trip, payload shape, fallback link.
 
-The integration tests need real DB rows (CalendarEvent + Candidate) so they
-go through `app_client` from conftest.py. Pure tests don't touch the DB.
+Runda 7 (R7-N5-5): publiczny `POST /api/public/interview-confirmation` został
+usunięty — nic nie wysyłało karty (`send_interview_invitation` bez wywołań),
+a karta i link zapasowy robiły GET, więc trasa POST dawała 405. Ostatni test
+pilnuje, że nieuwierzytelniony zapis do wydarzenia nie wróci po cichu.
 """
 
 from __future__ import annotations
 
 import json
 import re
-import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
-import pytest_asyncio
-from httpx import AsyncClient
 from jose import jwt
 
 from app.core.config import settings
-from app.core.database import AsyncSessionLocal
-from app.models.calendar_event import CalendarEvent, EventStatus, EventType
-from app.models.candidate import Candidate
 from app.services.m365.actionable_messages import (
     ActionableMessageError,
     build_interview_confirmation_card,
@@ -161,161 +154,11 @@ def test_card_jsonld_is_valid_json() -> None:
     assert parsed["@context"] == "https://schema.org/extensions"
 
 
-# ── Integration: public endpoint ───────────────────────────────────────────
-# Each test below carries its own `@pytest.mark.asyncio`; the pure-function
-# block above doesn't need an event loop.
+# ── Runda 7 (R7-N5-5): trasa publiczna usunięta ────────────────────────────
 
 
-@pytest_asyncio.fixture
-async def candidate_and_event() -> tuple[int, int]:
-    """Create a candidate + a calendar event linked to that candidate. Returns
-    `(candidate_id, event_id)`. Cleanup is left to the test DB lifecycle —
-    each test row uses a uuid suffix to avoid collisions."""
-    suffix = uuid.uuid4().hex[:8]
-    async with AsyncSessionLocal() as db:
-        candidate = Candidate(
-            name=f"Test{suffix}",
-            lastname=f"Cand{suffix}",
-            email=f"cand-{suffix}@example.com",
-        )
-        db.add(candidate)
-        await db.flush()
+def test_public_interview_confirmation_route_is_gone() -> None:
+    from app.main import app
 
-        event = CalendarEvent(
-            title=f"Interview {suffix}",
-            event_type=EventType.interview,
-            start_time=datetime.now(timezone.utc) + timedelta(days=2),
-            end_time=datetime.now(timezone.utc) + timedelta(days=2, hours=1),
-            candidate_id=candidate.id,
-            status=EventStatus.scheduled,
-        )
-        db.add(event)
-        await db.commit()
-        await db.refresh(candidate)
-        await db.refresh(event)
-        return candidate.id, event.id
-
-
-@pytest.mark.asyncio
-async def test_confirm_interview_happy_path(
-    app_client: AsyncClient, candidate_and_event: tuple[int, int]
-) -> None:
-    candidate_id, event_id = candidate_and_event
-    token = sign_confirmation_token(event_id=event_id, candidate_id=candidate_id)
-
-    resp = await app_client.post(
-        "/api/public/interview-confirmation", params={"token": token}
-    )
-    assert resp.status_code == 200, resp.text
-    body = resp.json()
-    assert body["success"] is True
-    assert body["confirmed_at"]
-
-    async with AsyncSessionLocal() as db:
-        event = await db.get(CalendarEvent, event_id)
-        assert event is not None
-        assert event.candidate_confirmed_at is not None
-        assert event.candidate_confirmation_source == "outlook_actionable"
-
-
-@pytest.mark.asyncio
-async def test_confirm_interview_is_idempotent(
-    app_client: AsyncClient, candidate_and_event: tuple[int, int]
-) -> None:
-    """Second click returns the original timestamp — Outlook re-renders the
-    POST response inline, so flipping the time on the second click would
-    confuse the user."""
-    candidate_id, event_id = candidate_and_event
-    token = sign_confirmation_token(event_id=event_id, candidate_id=candidate_id)
-
-    first = await app_client.post(
-        "/api/public/interview-confirmation", params={"token": token}
-    )
-    assert first.status_code == 200, first.text
-    second = await app_client.post(
-        "/api/public/interview-confirmation", params={"token": token}
-    )
-    assert second.status_code == 200, second.text
-    assert first.json()["confirmed_at"] == second.json()["confirmed_at"]
-
-
-@pytest.mark.asyncio
-async def test_confirm_interview_rejects_expired_token(
-    app_client: AsyncClient, candidate_and_event: tuple[int, int]
-) -> None:
-    candidate_id, event_id = candidate_and_event
-    expired_payload = {
-        "event_id": event_id,
-        "candidate_id": candidate_id,
-        "action": "confirm_interview",
-        "purpose": "interview_confirmation",
-        "iat": datetime.now(timezone.utc) - timedelta(days=10),
-        "exp": datetime.now(timezone.utc) - timedelta(days=1),
-    }
-    token = jwt.encode(expired_payload, _signing_key(), algorithm="HS256")
-
-    resp = await app_client.post(
-        "/api/public/interview-confirmation", params={"token": token}
-    )
-    assert resp.status_code == 403
-
-
-@pytest.mark.asyncio
-async def test_confirm_interview_rejects_wrong_action(
-    app_client: AsyncClient, candidate_and_event: tuple[int, int]
-) -> None:
-    """A token for a different action (future `cancel_interview`?) must not
-    fall through to confirmation."""
-    candidate_id, event_id = candidate_and_event
-    payload = {
-        "event_id": event_id,
-        "candidate_id": candidate_id,
-        "action": "cancel_interview",
-        "purpose": "interview_confirmation",
-        "iat": datetime.now(timezone.utc),
-        "exp": datetime.now(timezone.utc) + timedelta(days=1),
-    }
-    token = jwt.encode(payload, _signing_key(), algorithm="HS256")
-
-    resp = await app_client.post(
-        "/api/public/interview-confirmation", params={"token": token}
-    )
-    assert resp.status_code == 403
-
-
-@pytest.mark.asyncio
-async def test_confirm_interview_rejects_candidate_mismatch(
-    app_client: AsyncClient, candidate_and_event: tuple[int, int]
-) -> None:
-    """JWT pinned to candidate X but event belongs to candidate Y."""
-    _real_candidate_id, event_id = candidate_and_event
-    bogus_candidate_id = 999_999_999  # not in DB; must not match
-    token = sign_confirmation_token(event_id=event_id, candidate_id=bogus_candidate_id)
-
-    resp = await app_client.post(
-        "/api/public/interview-confirmation", params={"token": token}
-    )
-    assert resp.status_code == 403
-
-    async with AsyncSessionLocal() as db:
-        event = await db.get(CalendarEvent, event_id)
-        assert event is not None
-        assert event.candidate_confirmed_at is None  # unchanged
-
-
-@pytest.mark.asyncio
-async def test_confirm_interview_unknown_event(app_client: AsyncClient) -> None:
-    token = sign_confirmation_token(event_id=999_999_999, candidate_id=1)
-    resp = await app_client.post(
-        "/api/public/interview-confirmation", params={"token": token}
-    )
-    assert resp.status_code == 403
-
-
-@pytest.mark.asyncio
-async def test_confirm_interview_garbage_token(app_client: AsyncClient) -> None:
-    resp = await app_client.post(
-        "/api/public/interview-confirmation",
-        params={"token": "this.is.not.a.real.jwt.token.value"},
-    )
-    assert resp.status_code == 403
+    paths = {getattr(route, "path", "") for route in app.routes}
+    assert "/api/public/interview-confirmation" not in paths

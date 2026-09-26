@@ -145,7 +145,6 @@ from app.api import prep_kit
 from app.api import ai_writer
 from app.api import talent_pools
 from app.api import public_engagement
-from app.api import public_interview_confirmation
 from app.api import cv_generator_b2b
 from app.api import b2b_contract_generator
 from app.api import b2b_documents
@@ -1044,11 +1043,6 @@ app.include_router(
     tags=["candidate-activity-summary"],
 )
 app.include_router(public_engagement.router, prefix="/api", tags=["public-engagement"])
-app.include_router(
-    public_interview_confirmation.router,
-    prefix="/api",
-    tags=["public-interview-confirmation"],
-)
 app.include_router(jobs.router, prefix="/api/jobs", tags=["jobs"])
 # Static `/directory` must be registered before `clients`' catch-all
 # `/{client_id}` route.

@@ -705,3 +705,104 @@ async def test_send_new_kill_switch_skips_graph_lookup(
     # No GET (we never asked for the signature) — only the draft+send POSTs.
     assert gc.gets == []
     assert all(p[0].startswith("/me/messages") for p in gc.posts)
+
+
+# ── Runda 7 audytu (R7-V1-1, V1-4, V1-5) ─────────────────────────────────────
+
+
+def test_dash_divider_in_body_does_not_become_signature() -> None:
+    """R7-V1-1: „--” użyte w treści jako przerywnik — wszystko pod nim to
+    treść maila (kandydaci, stawki), a nie podpis doklejany przez 24 h."""
+    body = (
+        "<div>Dzień dobry, przesyłam kandydatów:</div>"
+        "<div>Kandydat 1: Jan Kowalski, stawka 150 zł/h netto B2B.</div>"
+        "<div>--</div>"
+        "<div>Kandydat 2: Anna Nowak, stawka 140 zł/h netto B2B, "
+        "tel. 600 100 200, dostępna od 1.10, doświadczenie 7 lat w bankowości, "
+        "Java, Spring, Kafka, Kubernetes; preferuje pracę zdalną, dwa dni w "
+        "biurze w Warszawie są do przyjęcia, okres wypowiedzenia miesiąc, "
+        "rozmawiałam z nią wczoraj i jest zainteresowana projektem u klienta, "
+        "prosi o informację zwrotną do końca tygodnia, bo ma drugą ofertę "
+        "na stole i musi się szybko zdecydować.</div>"
+        "<div>Pozdrawiam</div><div>Marta</div>"
+    )
+    assert extract_signature(body, "marta@b2bnetwork.pl") is None
+
+
+def test_postscript_under_dash_signature_is_rejected() -> None:
+    body = (
+        "<div>Treść</div><br>--<br><div>Marta Nowak</div><div>Rekruterka</div>"
+        "<div>PS. Anna zgodziła się na 140 zł/h</div>"
+    )
+    assert extract_signature(body, "marta@b2bnetwork.pl") is None
+
+
+def test_postscript_below_signature_element_is_not_included() -> None:
+    """Przy podpisie z id bierzemy sam element — dopisek pod nim zostaje."""
+    body = (
+        '<div>Treść</div><div id="Signature"><div><p>Marta Nowak</p>'
+        "<p>Rekruterka</p></div></div>"
+        "<div>PS. Anna zgodziła się na 140 zł/h</div>"
+    )
+    sig = extract_signature(body, "marta@b2bnetwork.pl")
+    assert sig is not None
+    assert "Marta Nowak" in sig
+    assert "140" not in sig and "PS." not in sig
+    assert sig.endswith("</div>")
+
+
+def test_short_dash_signature_still_extracted() -> None:
+    body = (
+        "<p>Treść</p><br>--<br><p>Marta Nowak</p><p>Rekruterka · B2B.NET S.A.</p>"
+        "<p>tel. 600 000 000</p>"
+    )
+    sig = extract_signature(body, "marta@b2bnetwork.pl")
+    assert sig is not None and "Marta Nowak" in sig
+
+
+def test_outlook_mobile_default_footer_is_not_a_signature() -> None:
+    """R7-V1-4: „Get Outlook for iOS” to stopka aplikacji, nie podpis osoby."""
+    for text in (
+        'Get <a href="https://aka.ms/o0ukef">Outlook for iOS</a>',
+        "Get Outlook for Android",
+        "Pobierz aplikację Outlook dla systemu Android",
+    ):
+        body = (
+            "<div>Krótko z telefonu.</div>"
+            f'<div id="ms-outlook-mobile-signature"><div>{text}</div></div>'
+        )
+        assert extract_signature(body, "marta@b2bnetwork.pl") is None, text
+
+
+async def test_mobile_default_footer_does_not_shadow_real_signature() -> None:
+    mobile = (
+        "<div>Z telefonu.</div>"
+        '<div id="ms-outlook-mobile-signature"><div>Get Outlook for iOS</div></div>'
+    )
+    desktop = '<div>Treść</div><div id="Signature"><p>Marta Nowak</p></div>'
+    gc = _make_gc(
+        response={
+            "value": [
+                {"body": {"contentType": "html", "content": mobile}},
+                {"body": {"contentType": "html", "content": desktop}},
+            ]
+        }
+    )
+    sig = await get_outlook_signature(gc, user_id=7, mailbox_upn="m@b2bnetwork.pl")
+    assert sig is not None and "Marta Nowak" in sig
+
+
+def test_inline_logo_cid_is_not_a_foreign_address() -> None:
+    """R7-V1-5: ``src="cid:image001.png@01DA1F2C.AB3E8A90"`` to obrazek."""
+    for cid in (
+        "image001.png@01DA1F2C.AB3E8A90",
+        "image002.jpg@01DB0A1C.ZZ9F0B11",
+        "logo@x",
+    ):
+        body = (
+            '<div>Treść</div><div id="Signature"><p>Marta Nowak</p>'
+            f'<img src="cid:{cid}" alt="logo"></div>'
+        )
+        sig = extract_signature(body, "marta@b2bnetwork.pl")
+        assert sig is not None, cid
+        assert "Marta Nowak" in sig

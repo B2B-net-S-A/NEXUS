@@ -1078,3 +1078,61 @@ def test_aad_group_role_map_rejects_malformed_json(monkeypatch):
 def test_aad_group_role_map_empty_returns_empty_dict(monkeypatch):
     monkeypatch.setattr(settings, "AAD_GROUP_ROLE_MAP_JSON", "")
     assert settings.aad_group_role_map == {}
+
+
+class _PagedAsyncClient:
+    """Dwie strony wyników `transitiveMemberOf` (runda 7, R7-N5-7)."""
+
+    def __init__(self, pages: dict[str, dict], **_kwargs):
+        self._pages = pages
+        self.urls: list[str] = []
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return None
+
+    async def get(self, url: str, headers: dict):  # noqa: ARG002
+        self.urls.append(url)
+        return httpx.Response(
+            status_code=200, json=self._pages[url], request=httpx.Request("GET", url)
+        )
+
+
+@pytest.mark.asyncio
+async def test_fetch_user_groups_follows_next_link_and_is_transitive(monkeypatch):
+    first = aad_groups_module._GRAPH_MEMBEROF_URL
+    second = "https://graph.microsoft.com/v1.0/me/transitiveMemberOf?$skiptoken=X"
+    client = _PagedAsyncClient(
+        {
+            first: {
+                "value": [
+                    {"@odata.type": "#microsoft.graph.group", "id": "g-1"},
+                ],
+                "@odata.nextLink": second,
+            },
+            second: {
+                "value": [
+                    {"@odata.type": "#microsoft.graph.group", "id": "g-nexus"},
+                ]
+            },
+        }
+    )
+    monkeypatch.setattr(aad_groups_module.httpx, "AsyncClient", lambda **kw: client)
+    groups = await fetch_user_groups("tok")
+    assert [g["id"] for g in groups] == ["g-1", "g-nexus"]
+    assert "transitiveMemberOf" in client.urls[0]
+    assert client.urls == [first, second]
+
+
+@pytest.mark.asyncio
+async def test_fetch_user_groups_refuses_foreign_next_link(monkeypatch):
+    first = aad_groups_module._GRAPH_MEMBEROF_URL
+    client = _PagedAsyncClient(
+        {first: {"value": [], "@odata.nextLink": "https://evil.example/steal"}}
+    )
+    monkeypatch.setattr(aad_groups_module.httpx, "AsyncClient", lambda **kw: client)
+    with pytest.raises(ValueError):
+        await fetch_user_groups("tok")
+    assert client.urls == [first]

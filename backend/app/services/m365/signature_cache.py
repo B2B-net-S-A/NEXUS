@@ -52,6 +52,7 @@ but the worst case is one wasted call — values eventually converge.
 
 from __future__ import annotations
 
+import html
 import logging
 import re
 from dataclasses import dataclass
@@ -158,7 +159,33 @@ _QUOTE_START_PATTERNS: tuple[re.Pattern[str], ...] = (
     ),
 )
 
-_EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@([A-Za-z0-9.\-]+\.[A-Za-z]{2,})")
+# Runda 7 (R7-V1-5): TLD musi kończyć domenę (bez tego „image001.png@01DA1F2C.
+# AB3E8A90” z ``src="cid:…"`` logo pasowało jako adres z domeną „…AB” i podpis
+# z obrazkiem losowo znikał), a odnośniki ``cid:`` do obrazków w treści maila
+# nie są adresami — usuwamy je przed sprawdzeniem.
+_EMAIL_RE = re.compile(
+    r"[A-Za-z0-9._%+\-]+@([A-Za-z0-9.\-]+\.[A-Za-z]{2,})(?![A-Za-z0-9\-])"
+)
+_CID_RE = re.compile(r"cid:[^\s\"'<>]+", re.IGNORECASE)
+
+# Runda 7 (R7-V1-1): podpis po tekstowym „--” to krótka stopka na KOŃCU
+# treści autora. Dłuższy fragment to zwykle treść maila, w której „--” było
+# przerywnikiem („--” i pod nim „Kandydat 2: Anna …, 140 zł/h”).
+_MAX_DASH_SIGNATURE_TEXT = 400
+_MAX_DASH_SIGNATURE_LINES = 10
+_TAG_RE = re.compile(r"<[^>]+>")
+_LINE_BREAK_RE = re.compile(r"<br\s*/?>|</(?:p|div|tr|li|h[1-6])\s*>", re.IGNORECASE)
+# „PS.”/„P.S.” pod podpisem to treść maila, nie stopka.
+_POSTSCRIPT_RE = re.compile(r"^\s*p\.?\s*s\.?(?:\s|:|$)", re.IGNORECASE)
+# Domyślna stopka aplikacji mobilnej Outlooka („Get Outlook for iOS”,
+# „Pobierz program Outlook dla systemu Android”) — to nie jest podpis osoby,
+# a jeden mail z telefonu podmieniał nią prawdziwy podpis na 24 h (R7-V1-4).
+_MOBILE_DEFAULT_RE = re.compile(
+    r"^\s*(?:get|pobierz)\b[^\n]{0,40}\boutlook\b[^\n]{0,40}"
+    r"\b(?:ios|android)\b\s*\.?\s*$",
+    re.IGNORECASE,
+)
+_DIV_TAG_RE = re.compile(r"<(/?)div\b[^>]*>", re.IGNORECASE)
 
 
 def _quote_start(body_html: str) -> Optional[int]:
@@ -185,10 +212,31 @@ def _looks_like_quote(signature: str, owner_email: Optional[str]) -> bool:
     if _quote_start(signature) is not None:
         return True
     allowed = _allowed_email_domains(owner_email)
-    for match in _EMAIL_RE.finditer(signature):
+    for match in _EMAIL_RE.finditer(_CID_RE.sub(" ", signature)):
         if match.group(1).lower() not in allowed:
             return True
     return False
+
+
+def _visible_lines(fragment: str) -> list[str]:
+    text = _TAG_RE.sub(" ", _LINE_BREAK_RE.sub("\n", fragment))
+    text = html.unescape(text).replace("\xa0", " ")
+    return [line.strip() for line in text.split("\n") if line.strip()]
+
+
+def _element_end(head: str, start: int) -> Optional[int]:
+    """Koniec elementu ``<div>`` otwartego w ``start`` (zagnieżdżenia liczone)."""
+    depth = 0
+    for tag in _DIV_TAG_RE.finditer(head, start):
+        depth += -1 if tag.group(1) else 1
+        if depth == 0:
+            return tag.end()
+    return None
+
+
+def _is_mobile_default(fragment: str) -> bool:
+    lines = _visible_lines(fragment)
+    return len(lines) == 1 and bool(_MOBILE_DEFAULT_RE.match(lines[0]))
 
 
 def extract_signature(
@@ -202,6 +250,11 @@ def extract_signature(
     fragment, który zawiera drugi znacznik podpisu, nagłówek cytatu albo
     adres e-mail spoza domeny nadawcy, jest odrzucany (``None``).
 
+    Runda 7 (R7-V1-1): przy znaczniku z id bierzemy SAM element podpisu (bez
+    tego, co autor dopisał pod nim, np. „PS. …”), a po tekstowym „--” tylko
+    krótką stopkę bez „PS”. Domyślna stopka „Get Outlook for iOS/Android” nie
+    jest podpisem (R7-V1-4).
+
     Public for unit tests; production callers go through
     :func:`get_outlook_signature` to benefit from caching.
     """
@@ -213,15 +266,29 @@ def extract_signature(
         first = marker.pattern.search(head)
         if first is None:
             continue
-        pos = first.start() if marker.include_match else first.end()
-        tail = head[pos:].strip()
+        if marker.include_match:
+            end = _element_end(head, first.start())
+            if end is None:
+                return None
+            tail = head[first.start() : end].strip()
+            # Drugi znacznik podpisu WEWNĄTRZ elementu = zagnieżdżona treść.
+            rest = head[first.end() : end]
+        else:
+            tail = head[first.end() :].strip()
+            rest = head[first.end() :]
+            lines = _visible_lines(tail)
+            if (
+                len(lines) > _MAX_DASH_SIGNATURE_LINES
+                or sum(len(line) for line in lines) > _MAX_DASH_SIGNATURE_TEXT
+                or any(_POSTSCRIPT_RE.match(line) for line in lines)
+            ):
+                return None
         if not tail or len(tail) > _MAX_SIGNATURE_LENGTH:
             return None
         # Drugi znacznik podpisu za pierwszym = zagnieżdżona cudza treść.
-        rest = head[first.end() :]
         if any(m.pattern.search(rest) for m in _SIGSEP_MARKERS):
             return None
-        if _looks_like_quote(tail, owner_email):
+        if _looks_like_quote(tail, owner_email) or _is_mobile_default(tail):
             return None
         return tail
     return None

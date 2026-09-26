@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import and_, false, func, select, text
 
@@ -17,6 +17,11 @@ from app.tasks.chat_email_fallback import pending_candidate_query
 
 logger = logging.getLogger(__name__)
 INTERVAL_SECONDS = 60
+# Runda 7 (R7-N5-4): alarm liczy tylko NIEDAWNE niepewne wysyłki. Flagi nikt
+# nie czyści (i nie wolno — chroni przed duplikatem), więc liczona bez okna
+# trzymała alarm na zawsze po pierwszym incydencie, a nowego nie dało się
+# odróżnić od starego. Łączna liczba zostaje w logu jako `uncertain`.
+UNCERTAIN_ALARM_WINDOW = timedelta(hours=24)
 
 
 async def snapshot_queue(db, policy: DeliveryPolicy, now: datetime) -> dict:
@@ -42,6 +47,16 @@ async def snapshot_queue(db, policy: DeliveryPolicy, now: datetime) -> dict:
                     func.count()
                     .filter(Notification.email_delivery_uncertain.is_(True))
                     .label("uncertain"),
+                    func.count()
+                    .filter(
+                        Notification.email_delivery_uncertain.is_(True),
+                        func.coalesce(
+                            Notification.email_send_started_at,
+                            Notification.created_at,
+                        )
+                        >= now - UNCERTAIN_ALARM_WINDOW,
+                    )
+                    .label("uncertain_recent"),
                     func.count().filter(pending).label("pending_retry"),
                     func.coalesce(
                         func.max(
@@ -83,7 +98,7 @@ def verdict(*, enabled: bool, configured: bool, state: dict, queue: dict) -> int
     return int(
         not configured
         or bool(state.get("consecutive_failures"))
-        or queue["uncertain"] > 0
+        or queue["uncertain_recent"] > 0
         or queue["oldest_retry_seconds"] > 3600
     )
 
