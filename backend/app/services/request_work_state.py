@@ -38,6 +38,10 @@ from app.services.job_similarity import CLIENT_STAGES
 
 FINISHED = "finished"
 WORK_STATES = ("to_review", "searching", "client_silent", FINISHED)
+# Stany, w których ktoś nad requestem pracuje. Automaty (nocny przegląd bazy,
+# propozycje z nowych CV, dopasowania „Moich ludzi”) pomijają „Klient milczy”
+# i „Zakończony” — ten drugi bywa przy ``status=published`` (runda 6 audytu).
+IN_WORK_STATES = ("to_review", "searching")
 VISIBLE_STATES = ("to_review", "searching", "champion", "client_silent", "finished")
 
 # Zamknięcie rekrutacji = „Zakończony”; ponowne otwarcie wraca do przejrzenia

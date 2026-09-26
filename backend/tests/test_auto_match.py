@@ -685,3 +685,30 @@ async def test_unknown_sender_cv_with_only_company_contact_creates_nothing(monke
     assert await handler.try_create_candidate_from_cv(AsyncMock(), attachment, email) is None
     assert attachment.parse_error == "identity_insufficient"
 
+
+
+@needs_db
+async def test_finished_request_gets_no_auto_match_proposals(monkeypatch):
+    """Runda 6 audytu: request „Zakończony” bywa przy ``status=published`` —
+    automat nowych CV go pomija, jak nocny przegląd bazy."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate_auto_match import CandidateMatchOutbox
+    from app.models.job import Job
+
+    async with AsyncSessionLocal() as db:
+        owner, job, candidate = await _seed(db)
+        job.work_state = "finished"
+        await db.commit()
+        ids = {"owner": owner.id, "job": job.id, "candidate": candidate.id, "client": job.client_id}
+    try:
+        _stub_ranking(monkeypatch, job_hits={}, candidate_hits={ids["candidate"]: 0.9})
+        async with AsyncSessionLocal() as db:
+            event = CandidateMatchOutbox(job_id=ids["job"], trigger="job_publish", status="processing")
+            db.add(event)
+            await db.commit()
+            result = await ams.run_job_event(db, event)
+        assert result == {"skipped": "job_not_in_work"}
+        async with AsyncSessionLocal() as db:
+            assert (await db.get(Job, ids["job"])).work_state == "finished"
+    finally:
+        await _cleanup(ids)

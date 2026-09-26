@@ -42,6 +42,7 @@ from app.models.job import Job, JobStatus
 from app.models.recruitment_pipeline import CandidateStage
 from app.services.auto_match_outbox import auto_match_mode, candidate_revision
 from app.services.auto_match_rules import is_good_match
+from app.services.request_work_state import IN_WORK_STATES
 
 logger = logging.getLogger(__name__)
 
@@ -603,6 +604,7 @@ async def run_candidate_event(db: AsyncSession, event: CandidateMatchOutbox) -> 
             await db.scalars(
                 select(Job.id).where(
                     Job.status == JobStatus.published,
+                    Job.work_state.in_(IN_WORK_STATES),
                     ~select(CandidateStage.id)
                     .where(
                         CandidateStage.job_id == Job.id,
@@ -717,6 +719,8 @@ async def run_job_event(db: AsyncSession, event: CandidateMatchOutbox) -> dict:
     job = await db.get(Job, event.job_id)
     if job is None or job.status != JobStatus.published:
         return {"skipped": "job_not_published"}
+    if job.work_state not in IN_WORK_STATES:
+        return {"skipped": "job_not_in_work"}
     since = datetime.now(timezone.utc) - timedelta(
         days=max(1, settings.AUTO_MATCH_JOB_LOOKBACK_DAYS)
     )

@@ -184,6 +184,10 @@ async def run_for_job(db: AsyncSession, job: Job) -> dict:
         return {"skipped": "disabled"}
     if job.status != JobStatus.published:
         return {"skipped": "job_not_published"}
+    from app.services.request_work_state import IN_WORK_STATES
+
+    if job.work_state not in IN_WORK_STATES:
+        return {"skipped": "job_not_in_work"}
 
     owners = await owners_by_candidate(db)
     if not owners:

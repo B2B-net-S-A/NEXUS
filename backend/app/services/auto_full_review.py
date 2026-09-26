@@ -48,6 +48,7 @@ from app.models.job import Job, JobStatus
 from app.models.user import User
 from app.services import candidate_search_store as store
 from app.services.auto_match_rules import is_good_match
+from app.services.request_work_state import IN_WORK_STATES
 
 logger = logging.getLogger(__name__)
 
@@ -173,7 +174,7 @@ async def pending_job_ids(db, *, now: datetime, limit: int = _PICK_LIMIT) -> lis
             Job.status == JobStatus.published,
             # 0371: „Klient milczy” i „Zakończony” to requesty, nad którymi
             # nikt nie pracuje — nocny limit przeglądów idzie na te w pracy.
-            Job.work_state.in_(("searching", "to_review")),
+            Job.work_state.in_(IN_WORK_STATES),
             or_(Job.recruiter_id.is_not(None), Job.tac_id.is_not(None)),
             event_at.is_not(None),
             or_(last_auto.is_(None), event_at > last_auto),
