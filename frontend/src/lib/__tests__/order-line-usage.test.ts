@@ -47,6 +47,30 @@ describe("lineScopeUsage — podstawa + opcja (CeZ)", () => {
     expect(usage.totalBudget).toBe(190);
   });
 
+  it("bez opcji przekroczenie podstawy nie znika (runda 8, N6-1)", () => {
+    const line = {
+      md_total: 100,
+      md_optional_total: null,
+      md_used: 130.5,
+      md_base_used: 100,
+      md_optional_used: 30.5,
+      md_remaining: -30.5,
+    };
+    const usage = lineScopeUsage(line);
+    expect(usage.optionalUsed).toBeNull();
+    expect(usage.baseUsed).toBe(130.5);
+    expect(usage.totalUsed).toBe(130.5);
+    expect(usage.totalBudget).toBe(100);
+    expect(usage.pct).toBeCloseTo(130.5);
+    const rest = lineScopeRemaining(line);
+    expect(rest.baseRemaining).toBe(-30.5);
+    expect(rest.totalRemaining).toBe(-30.5);
+    // Bez serwerowego podziału — ta sama reguła z samego `md_used`.
+    expect(
+      lineScopeUsage({ ...line, md_base_used: null, md_optional_used: null }).totalUsed,
+    ).toBe(130.5);
+  });
+
   it("bez serwerowego podziału zużycie schodzi najpierw z podstawy, potem z opcji", () => {
     const usage = lineScopeUsage({
       md_total: 100,

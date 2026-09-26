@@ -70,11 +70,13 @@ export function lineScopeUsage(line: ScopeLine): LineScopeUsage {
   const optionalTotal =
     line.md_optional_total == null ? null : Math.max(0, line.md_optional_total);
   const used = Math.max(0, line.md_used ?? 0);
-  const baseUsed = line.md_base_used ?? Math.min(used, baseTotal);
-  const optionalUsed =
-    optionalTotal === null
-      ? null
-      : (line.md_optional_used ?? Math.max(0, used - baseUsed));
+  const splitBase = line.md_base_used ?? Math.min(used, baseTotal);
+  const overBase = line.md_optional_used ?? Math.max(0, used - splitBase);
+  // Runda 8 (N6-1): bez opcji w umowie serwer i tak oddaje nadwyżkę ponad
+  // podstawę w `md_optional_used` (przekroczenie nie znika). Doliczamy ją do
+  // podstawy, żeby pasek był czerwony, a suma zgadzała się z „przekroczono o".
+  const baseUsed = optionalTotal === null ? splitBase + overBase : splitBase;
+  const optionalUsed = optionalTotal === null ? null : overBase;
   const totalUsed = baseUsed + (optionalUsed ?? 0);
   const totalBudget = baseTotal + (optionalTotal ?? 0);
   return {

@@ -207,3 +207,24 @@ export function joinableGroups(
 export function mdOverFreePool(requested: number, free: number): number {
   return Math.max(0, roundToTenth(requested - free));
 }
+
+/**
+ * Czemu nie da się zamienić kontraktora na tej linii — lustro `swap_consultant`.
+ *
+ * Runda 8 (N5-1): zamiana z datą w przyszłości zostawia osobę aktywną, a jej
+ * pozostałe MD są już budżetem następcy; druga zamiana dawała tę samą pulę
+ * drugiej osobie. Zaplanowane „Wejdź za konsultanta" serwer też odrzuca.
+ * `null` = zamiana dozwolona.
+ */
+export function swapBlockedReason(
+  line: Pick<OrderLineRead, "status" | "replaced_by_kind">,
+): string | null {
+  if (line.status !== "active") return "Zamienić można tylko aktywną linię";
+  if (line.replaced_by_kind === "swap") {
+    return "Zamiana tej osoby jest już zaplanowana — popraw albo usuń linię następcy";
+  }
+  if (line.replaced_by_kind === "takeover") {
+    return "Na miejsce tej osoby jest już zaplanowane zastępstwo";
+  }
+  return null;
+}

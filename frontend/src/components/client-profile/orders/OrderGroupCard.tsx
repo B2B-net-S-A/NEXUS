@@ -35,7 +35,7 @@ import {
 import { countPl } from "@/lib/plural-pl";
 import { formatDate, formatPLN } from "@/types/client-profile";
 import { isEzdrowieClient } from "@/lib/ezdrowie";
-import { MD_TRANSFER_METHOD_LABELS } from "@/lib/order-takeover";
+import { MD_TRANSFER_METHOD_LABELS, swapBlockedReason } from "@/lib/order-takeover";
 
 import { requiresDecision, sortEndedLines } from "@/lib/order-ended-line";
 import { hasScopedMd, lineHasSettlements } from "@/lib/order-line-usage";
@@ -527,14 +527,11 @@ function OrderLineRow({
                 // Bramka idzie po STATUSIE linii, bo to lustro serwera
                 // (`swap_consultant` wymaga `status == active`). `is_active`
                 // opisuje obsadę, a osoba z zapisaną datą zejścia ma dalej
-                // aktywną linię — zamianę wolno jej zrobić.
-                disabled={line.status !== "active"}
+                // aktywną linię — zamianę wolno jej zrobić. Runda 8 (N5-1):
+                // osoba z zaplanowanym następcą już nie.
+                disabled={swapBlockedReason(line) !== null}
                 aria-label={`Zamień kontraktora — ${line.consultant_name}`}
-                title={
-                  line.status === "active"
-                    ? "Zamień kontraktora"
-                    : "Zamienić można tylko aktywną linię"
-                }
+                title={swapBlockedReason(line) ?? "Zamień kontraktora"}
                 className="rounded-md p-1.5 pointer-coarse:p-2.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <Repeat className="h-4 w-4" aria-hidden="true" />
