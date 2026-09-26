@@ -46,6 +46,7 @@ from app.models.client_contract_terms import ClientContractTerms
 from app.models.client_playbook import ClientPlaybook
 from app.models.client_playbook_event import ClientPlaybookEvent
 from app.models.user import User
+from app.services.access_scope import resolve_delivery_lead_client_ids
 from app.services.client_access import (
     assert_client_writable,
     deny,
@@ -237,10 +238,29 @@ def _can_read_off_limits(user: User) -> bool:
     return section_access_for_user(user, ProductSection.delivery) >= SectionAccess.read
 
 
+async def _off_limits_client_boundary(
+    db: AsyncSession, user: User
+) -> Optional[frozenset[int]]:
+    """``None`` = off-limit u każdego klienta; zbiór = portfel Delivery Leada.
+
+    Runda 6 audytu (decyzja Artura 26.09.2026): karta klienta jest otwarta dla
+    każdej roli operacyjnej, ale off-limit pochodzi z umowy ramowej, a warunki
+    umów Delivery Lead czyta tylko u swoich klientów
+    (``GET /clients/{id}/contract-terms`` — zakres Delivery z
+    ``resolve_delivery_lead_client_ids``). Do tej rundy karta i przegląd
+    oddawały DL-owi off-limit KAŻDEGO klienta. Ten sam resolver: TCM+DL,
+    Finanse i ``DL_CLIENT_SCOPE=all`` widzą wszystkich.
+    """
+    return await resolve_delivery_lead_client_ids(user, db)
+
+
 async def _off_limits_for(
     db: AsyncSession, user: User, client_id: int
 ) -> Optional[OffLimitsRead]:
     if not _can_read_off_limits(user):
+        return None
+    boundary = await _off_limits_client_boundary(db, user)
+    if boundary is not None and client_id not in boundary:
         return None
     return _off_limits(await _terms_for(db, client_id))
 
@@ -613,10 +633,17 @@ async def client_playbooks_overview(
 
     terms_by_client: dict[int, ClientContractTerms] = {}
     if rows and _can_read_off_limits(current_user):
+        # Ta sama granica co karta pojedynczego klienta (runda 6 audytu).
+        boundary = await _off_limits_client_boundary(db, current_user)
+        client_ids = [
+            r[0].client_id
+            for r in rows
+            if boundary is None or r[0].client_id in boundary
+        ]
         terms = (
             await db.scalars(
                 select(ClientContractTerms).where(
-                    ClientContractTerms.client_id.in_([r[0].client_id for r in rows])
+                    ClientContractTerms.client_id.in_(client_ids)
                 )
             )
         ).all()

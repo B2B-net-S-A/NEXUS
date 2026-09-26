@@ -161,7 +161,9 @@ RecruitmentHistoryReadUser = Annotated[
     ),
 ]
 
-# Organisation-wide readers of the request history (every client, fee amounts).
+# Organisation-wide readers of the request history (every client; fee amounts
+# only where ``can_read_client_finance`` allows — a DL sees the portfolio's,
+# runda 6 audytu, decyzja Artura 26.09.2026).
 # Everyone else reaches the Historia tab only as a member of the recruitment's
 # team — same client only, without fee amounts (decision 17.09.2026).
 _HISTORY_ORG_READER_ROLES = (UserRole.admin, UserRole.delivery_lead, UserRole.finance)
@@ -216,6 +218,43 @@ def _assert_delivery_lead_cross_client_disabled(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Cross-client job data is outside the Delivery Lead scope",
         )
+
+
+async def _history_fee_visible(current_user: User, db: AsyncSession):
+    """Czy wiersz historii requestów może nieść kwoty (marża) — per klient.
+
+    Runda 6 audytu (decyzja Artura 26.09.2026): Historia i baner podglądu
+    oddawały Delivery Leadowi ``fee_rate`` (marżę) KAŻDEGO klienta, także
+    z ``?cross_client=true``. Kwoty jednego klienta rozstrzyga wspólna reguła
+    ``can_read_client_finance`` — DL (także hybryda HoR+DL) widzi je tylko
+    u klientów swojego portfela, admin i Finanse wszędzie.
+    """
+    from app.api.financial_access import (
+        can_read_client_finance,
+        has_financial_access,
+    )
+    from app.services.access_scope import resolve_delivery_lead_finance_client_ids
+
+    boundary = await resolve_delivery_lead_finance_client_ids(current_user, db)
+
+    def visible(client_id: int | None) -> bool:
+        if client_id is None:
+            return has_financial_access(current_user)
+        return can_read_client_finance(
+            current_user,
+            client_id=client_id,
+            delivery_lead_finance_client_ids=boundary,
+        )
+
+    return visible
+
+
+def _history_entry_payload(entry, *, show_fee: bool) -> dict:
+    data = dict(entry.__dict__)
+    if not show_fee:
+        # Wpisy serwisu to zamrożone dataclassy — redakcja na kopii.
+        data.update(fee_rate=None, fee_currency=None, rate_unit=None)
+    return data
 
 
 def _assert_delivery_lead_finance_write(
@@ -4212,7 +4251,9 @@ async def get_request_history(
     computed only on closed entries (open jobs have no hire yet). Cheap by
     default — same-client SQL hit avoids Voyage entirely.
 
-    Admin / Delivery Lead / Finance read it organisation-wide, as before.
+    Admin / Delivery Lead / Finance read it organisation-wide, as before —
+    fee amounts only for clients whose finances the reader sees (a Delivery
+    Lead: own portfolio; runda 6 audytu).
     Any other operational role reads it only as a member of this recruitment's
     team: history of THIS client only (``cross_client`` is ignored) and without
     fee amounts (17.09.2026).
@@ -4299,13 +4340,16 @@ async def get_request_history(
 
     counts = aggregate_meta_counts(entries)
 
+    fee_visible = await _history_fee_visible(current_user, db)
+
     def _entry(e) -> RequestHistoryEntrySchema:
-        data = dict(e.__dict__)
-        if not is_org_reader:
-            # Service entries are frozen dataclasses — redact on the copy.
-            # Not VIEW_FINANCE: a Delivery Lead keeps the amounts they see today.
-            data.update(fee_rate=None, fee_currency=None, rate_unit=None)
-        return RequestHistoryEntrySchema.model_validate(data)
+        # Członek zespołu spoza ról organizacyjnych nie widzi kwot wcale;
+        # czytelnik organizacyjny — tylko u klientów, których kwoty widzi
+        # (runda 6 audytu).
+        show_fee = is_org_reader and fee_visible(e.client_id)
+        return RequestHistoryEntrySchema.model_validate(
+            _history_entry_payload(e, show_fee=show_fee)
+        )
 
     return RequestHistoryResponse(
         closed=[_entry(e) for e in closed],
@@ -4362,11 +4406,17 @@ async def preview_request_history(
     )
     closed, in_progress = _split_entries(entries)
     counts = aggregate_meta_counts(entries)
+    # Bliźniacza ścieżka Historii: te same kwoty, ta sama reguła (runda 6).
+    fee_visible = await _history_fee_visible(current_user, db)
+
+    def _entry(e) -> RequestHistoryEntrySchema:
+        return RequestHistoryEntrySchema.model_validate(
+            _history_entry_payload(e, show_fee=fee_visible(e.client_id))
+        )
+
     return RequestHistoryResponse(
-        closed=[RequestHistoryEntrySchema.model_validate(e.__dict__) for e in closed],
-        in_progress=[
-            RequestHistoryEntrySchema.model_validate(e.__dict__) for e in in_progress
-        ],
+        closed=[_entry(e) for e in closed],
+        in_progress=[_entry(e) for e in in_progress],
         skill_frequency={},  # banner doesn't need skill freq
         meta=RequestHistoryMeta(
             sql_count=counts["sql_count"],
