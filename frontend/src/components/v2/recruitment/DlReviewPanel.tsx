@@ -44,6 +44,7 @@ import api from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { BOARD_TASKS_QUERY_KEY, waitingFor, type BoardTaskRow } from "@/lib/api/boardTasks";
 import { downloadBlob } from "@/lib/authenticated-files";
+import { fetchStageCvFile } from "@/lib/stage-cv-file";
 import { alignB2bLetterheadPreview } from "@/lib/cv-docx-preview";
 import { renderDocxSafely } from "@/lib/docx-preview-safe";
 import { qcFailedStageId } from "@/lib/cv-qc";
@@ -165,7 +166,16 @@ function pickCv(rows: GeneratedCvRow[] | undefined): GeneratedCvRow | null {
   return rows.find((r) => r.status === "ready") ?? rows[0];
 }
 
-function CvPreview({ candidateId, jobId }: { candidateId: number; jobId: number }) {
+function CvPreview({
+  candidateId,
+  jobId,
+  cvStageId,
+}: {
+  candidateId: number;
+  jobId: number;
+  /** Etap z CV firmowym pary — gdy jest, podgląd i DOCX idą z CV etapu (po QC). */
+  cvStageId?: number | null;
+}) {
   const { showError } = useToast();
   const query = useQuery({
     queryKey: ["cv-generated", "dl-review", candidateId, jobId],
@@ -182,24 +192,34 @@ function CvPreview({ candidateId, jobId }: { candidateId: number; jobId: number 
   const cv = pickCv(query.data);
   const hostRef = useRef<HTMLDivElement | null>(null);
   const [render, setRender] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [renderError, setRenderError] = useState<string | null>(null);
+  // Runda 7 (R7-X4-2): CV firmowe etapu (po poprawkach QC) ma pierwszeństwo
+  // przed surowym plikiem z generatora — DL wysyła klientowi to, co ogląda.
+  const fromStage = cvStageId != null && cvStageId > 0;
   // Bez zgody RODO serwer odmawia pobrania pliku (409) — nie próbujemy go
   // renderować, tylko prosimy o zrzut.
-  const consentMissing = cv?.status === "ready" && cv.consent_missing === true;
+  const consentMissing = !fromStage && cv?.status === "ready" && cv.consent_missing === true;
   const readyId = cv?.status === "ready" && !consentMissing ? cv.id : null;
+  const sourceKey = fromStage ? `stage:${cvStageId}` : readyId != null ? `generated:${readyId}` : null;
 
   useEffect(() => {
-    if (readyId == null) return;
+    if (sourceKey == null) return;
     let cancelled = false;
     setRender("loading");
+    setRenderError(null);
     (async () => {
       try {
-        const res = await api.get(`/api/cv-generator/generated/${readyId}/docx`, {
-          responseType: "blob",
-        });
+        const blob = fromStage
+          ? (await fetchStageCvFile(cvStageId as number)).blob
+          : ((
+              await api.get(`/api/cv-generator/generated/${readyId}/docx`, {
+                responseType: "blob",
+              })
+            ).data as Blob);
         const host = hostRef.current;
         if (cancelled || !host) return;
         host.innerHTML = "";
-        await renderDocxSafely(res.data as Blob, host, {
+        await renderDocxSafely(blob, host, {
           className: "docx",
           inWrapper: true,
           breakPages: true,
@@ -208,24 +228,53 @@ function CvPreview({ candidateId, jobId }: { candidateId: number; jobId: number 
         if (cancelled) return;
         alignB2bLetterheadPreview(host);
         setRender("ready");
-      } catch {
-        if (!cancelled) setRender("error");
+      } catch (error) {
+        if (cancelled) return;
+        setRender("error");
+        // 409 `consent_required` niesie polski komunikat serwera.
+        setRenderError(fromStage ? apiErrorMessage(error, "") || null : null);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [readyId]);
+    // `fromStage`/`cvStageId`/`readyId` są zawarte w `sourceKey`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sourceKey]);
 
   const download = async () => {
-    if (!cv) return;
     try {
+      if (fromStage) {
+        const file = await fetchStageCvFile(cvStageId as number);
+        downloadBlob(file.blob, file.filename || "CV.docx");
+        return;
+      }
+      if (!cv) return;
       const res = await api.get(`/api/cv-generator/generated/${cv.id}/docx`, { responseType: "blob" });
       downloadBlob(res.data as Blob, cv.filename);
     } catch (error) {
       showError(apiErrorMessage(error, "Nie udało się pobrać CV."));
     }
   };
+
+  const previewBox = (
+    <div className="relative max-h-[28rem] min-h-40 overflow-auto rounded-lg border border-border bg-muted/30 p-2">
+      {render !== "ready" ? (
+        <p className="absolute inset-0 flex items-center justify-center px-3 text-center text-xs">
+          {render === "error" ? (
+            <span role="alert" className="text-destructive">
+              {renderError ?? "Nie udało się wyświetlić podglądu — pobierz plik DOCX."}
+            </span>
+          ) : (
+            <span className="flex items-center text-muted-foreground">
+              <Loader2 className="mr-1.5 size-3 animate-spin" aria-hidden /> Renderowanie podglądu…
+            </span>
+          )}
+        </p>
+      ) : null}
+      <div ref={hostRef} data-testid="dl-review-cv-host" className="docx-preview-host mx-auto" />
+    </div>
+  );
 
   return (
     <section aria-label="CV kandydata" className="space-y-2">
@@ -241,14 +290,16 @@ function CvPreview({ candidateId, jobId }: { candidateId: number; jobId: number 
             Do przeglądu
           </Badge>
         ) : null}
-        {cv?.status === "ready" && !consentMissing ? (
+        {fromStage || (cv?.status === "ready" && !consentMissing) ? (
           <Button size="sm" variant="outline" className="ml-auto" onClick={() => void download()}>
             <Download className="h-3.5 w-3.5" />
             Pobierz DOCX
           </Button>
         ) : null}
       </header>
-      {query.isLoading ? (
+      {fromStage ? (
+        previewBox
+      ) : query.isLoading ? (
         <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <Loader2 className="size-3 animate-spin" aria-hidden /> Wczytywanie CV…
         </p>
@@ -291,20 +342,7 @@ function CvPreview({ candidateId, jobId }: { candidateId: number; jobId: number 
           />
         </div>
       ) : (
-        <div className="relative max-h-[28rem] min-h-40 overflow-auto rounded-lg border border-border bg-muted/30 p-2">
-          {render !== "ready" ? (
-            <p className="absolute inset-0 flex items-center justify-center text-xs">
-              {render === "error" ? (
-                <span className="text-destructive">Nie udało się wyświetlić podglądu — pobierz plik DOCX.</span>
-              ) : (
-                <span className="flex items-center text-muted-foreground">
-                  <Loader2 className="mr-1.5 size-3 animate-spin" aria-hidden /> Renderowanie podglądu…
-                </span>
-              )}
-            </p>
-          ) : null}
-          <div ref={hostRef} data-testid="dl-review-cv-host" className="docx-preview-host mx-auto" />
-        </div>
+        previewBox
       )}
     </section>
   );
@@ -515,7 +553,7 @@ export function DlReviewPanel({ task, open, onOpenChange, canSendToClient }: DlR
             </p>
           ) : null}
 
-          <CvPreview candidateId={task.candidate_id} jobId={task.job_id} />
+          <CvPreview candidateId={task.candidate_id} jobId={task.job_id} cvStageId={task.cv_stage_id} />
 
           <section aria-label="Odpowiedzi ze screeningu" className="space-y-2">
             <h3 className="text-sm font-semibold">Screening Championa</h3>

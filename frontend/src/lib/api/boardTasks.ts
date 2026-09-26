@@ -53,6 +53,8 @@ export interface BoardTaskRow {
   /** v5: wynik QC CV (przegląd DL = osoby w kolumnie „QC CV"). */
   qc_status?: QcStatus | null;
   qc_blocking_failed?: number | null;
+  /** Przegląd DL: etap z CV firmowym pary (po QC) — z niego podgląd i DOCX. */
+  cv_stage_id?: number | null;
 }
 
 /** 0370: prep przed rozmową u klienta, który wymaga uwagi. Widzi go
@@ -155,7 +157,12 @@ export interface CproQueueItem {
   client_rate_currency: string | null;
   availability: string | null;
   qc_status: QcStatus | null;
-  cv: { generated_document_id: number | null; document_id: number | null } | null;
+  /** `stage_id` = CV firmowe etapu (po QC) — ma pierwszeństwo przed generatorem. */
+  cv: {
+    stage_id?: number | null;
+    generated_document_id: number | null;
+    document_id: number | null;
+  } | null;
 }
 
 export interface CproQueueJob {

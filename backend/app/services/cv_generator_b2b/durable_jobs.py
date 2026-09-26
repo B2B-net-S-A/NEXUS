@@ -18,6 +18,7 @@ from app.services.cv_source_cleanup import reserve_source_key
 from app.models.cv_source_cleanup import CvSourceCleanup
 from app.services.ai_quota import QuotaState
 from app.services.cv_generator_b2b.job_leases import (
+    LEASE_SECONDS,
     claim_job,
     finish_job,
     heartbeat_job,
@@ -29,6 +30,7 @@ from app.services.cv_generator_b2b.job_snapshot import (
     serialize_job_inputs,
 )
 from app.services import loop_heartbeat
+from app.services.lease_renewal import renew_lease
 
 logger = logging.getLogger(__name__)
 
@@ -117,11 +119,11 @@ async def persist_job(
 
 
 async def _renew(job_id: int, token: str):
-    while True:
-        await asyncio.sleep(30)
+    async def beat() -> bool:
         async with AsyncSessionLocal() as db:
-            if not await heartbeat_job(db, job_id, token):
-                raise RuntimeError("CV job lease lost")
+            return await heartbeat_job(db, job_id, token)
+
+    await renew_lease(beat, lease_seconds=LEASE_SECONDS, label="CV job")
 
 
 async def execute_job(job_id: int):
@@ -215,6 +217,13 @@ async def execute_job(job_id: int):
                     await task
     async with AsyncSessionLocal() as db:
         await finish_job(db, job_id, token, failed=failed)
+    if generated_id is not None:
+        # Runda 7 (R7-N6-1): auto-CV (szkic etapu, „Praca w tle”, licznik
+        # awarii) księguje proces, który wykonał zadanie — także
+        # `recovery_loop` i drugi kontener przy deployu.
+        from app.services.cv_auto_generate import after_job_finished
+
+        await after_job_finished(generated_id)
 
 
 async def _retire_preview_job(job_id: int, token: str, preview_id: int | None) -> None:

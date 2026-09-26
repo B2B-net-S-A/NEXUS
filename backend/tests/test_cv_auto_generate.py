@@ -492,7 +492,9 @@ async def test_successful_enqueue_runs_the_durable_job(monkeypatch):
         stage_id=world["stage_id"], user_id=world["user_id"]
     )
     assert executed == [4242]
-    assert followed and followed[0]["stage_id"] == world["stage_id"]
+    # Runda 7 (R7-N6-1): księguje proces, który wykonał zadanie (hak w
+    # `execute_job`), a nie wołający — ten bywa odprawiony bez wyniku.
+    assert followed == []
 
 
 # ── odnajdywalność tam, gdzie rekruter wysyła CV ────────────────────────────
@@ -701,6 +703,66 @@ async def test_ready_auto_cv_becomes_the_stage_draft_never_an_approval(monkeypat
         # SZKIC — zatwierdza wyłącznie człowiek (`finalize`).
         assert csv.branded_status == "draft"
         assert csv.branded_finalized_at is None
+
+
+async def test_job_finish_hook_attaches_auto_cv_for_whoever_ran_the_job(monkeypatch):
+    """R7-N6-1: zadanie przejęte przez `recovery_loop` też podpina szkic."""
+    from app.models.candidate_stage_cv import CandidateStageCV
+    from app.services import automation_failures as failures
+
+    successes: list[str] = []
+
+    async def _success(kind):
+        successes.append(kind)
+
+    monkeypatch.setattr(failures, "record_success", _success)
+    world = await _world()
+    csv_id = await _stage_cv(world)
+    doc_id = await _auto_doc(world)
+    calls = _fake_attach(monkeypatch)
+    await auto.after_job_finished(doc_id)
+    assert calls == [
+        {"action": "branded_cv_attached_by_automation", "user_id": world["user_id"]}
+    ]
+    assert successes == [failures.KIND_AUTO_CV]
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(CandidateStageCV, csv_id)).branded_status == "draft"
+
+
+async def test_job_finish_hook_ignores_manual_documents(monkeypatch):
+    world = await _world()
+    await _stage_cv(world)
+    doc_id = await _auto_doc(world)
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(CvGeneratedDocument)
+            .where(CvGeneratedDocument.id == doc_id)
+            .values(origin="manual")
+        )
+        await db.commit()
+    calls = _fake_attach(monkeypatch)
+    await auto.after_job_finished(doc_id)
+    assert calls == []
+
+
+def test_execute_job_runs_the_auto_cv_hook_after_finishing():
+    import ast
+
+    source = (
+        _BACKEND / "app" / "services" / "cv_generator_b2b" / "durable_jobs.py"
+    ).read_text("utf-8")
+    [fn] = [
+        n
+        for n in ast.walk(ast.parse(source))
+        if isinstance(n, ast.AsyncFunctionDef) and n.name == "execute_job"
+    ]
+    lines = {
+        c.func.id: c.lineno
+        for c in ast.walk(fn)
+        if isinstance(c, ast.Call) and isinstance(c.func, ast.Name)
+    }
+    assert "after_job_finished" in lines
+    assert lines["finish_job"] < lines["after_job_finished"]
 
 
 async def test_existing_draft_is_never_overwritten_by_the_automation(monkeypatch):

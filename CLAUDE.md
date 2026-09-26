@@ -1093,6 +1093,10 @@ wziąć obrazu. Teraz rekruter wgrywa go przy generacji, a renderer wkleja sam.
   linku). Wyłącznik awaryjny `CV_CONSENT_DOWNLOAD_GATE_ENABLED` (domyślnie ON).
   Do 23.09 CV dla PKO bez zgody dawało się pobrać i wysłać mailem, bo blokowała
   tylko „gotowość pakietu”, której nikt nie używał.
+  Druk / PDF przy wymogu zgody jest zablokowany ZAWSZE (409 `consent_required`,
+  ten sam wyłącznik; wydruk nie niesie zrzutu — decyzja właściciela 26.09.2026),
+  a kopia etapu jest sprawdzana po WŁASNYM obrazie i zamrożonym w metadanych
+  wymogu (`consent_required`), więc usunięcie wygenerowanego CV blokady nie zdejmuje.
 - **Zrzut dołącza się i WYMIENIA po generacji** (`/consent-screenshot` z
   `generated_id` → `POST /generated/{id}/consent`): serwer renderuje DOCX
   ponownie i przepina kopię zgody w szkicach; wersja już zatwierdzona dostaje

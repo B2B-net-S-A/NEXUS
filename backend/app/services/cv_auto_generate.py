@@ -325,18 +325,52 @@ async def generate_after_verified(*, stage_id: int, user_id: int) -> None:
                 await _record_failure(stage_id, user_id, type(exc).__name__)
         if queued is None:
             return
-        durable_id, generated_id = queued
+        durable_id, _generated_id = queued
         from app.services.cv_generator_b2b.durable_jobs import execute_job
 
         # Wynik (ready/failed) ląduje na wierszu dokumentu — jak po kliknięciu.
-        # Padnięty proces podejmie `recovery_loop` generatora.
+        # Podpięcie szkicu i księgowanie sukcesu/porażki robi proces, który
+        # FAKTYCZNIE wykonał zadanie (`after_job_finished`, wołane z
+        # `execute_job`) — runda 7 (R7-N6-1): gdy sloty są zajęte albo zadanie
+        # przejmie `recovery_loop`, ten proces wraca od razu i nie wie, jak
+        # zadanie się skończyło.
         await execute_job(durable_id)
-        await _after_generation(
-            stage_id=stage_id, user_id=user_id, generated_id=generated_id
-        )
     except Exception as exc:  # noqa: BLE001 — automat nigdy nie psuje ruchu
         logger.warning("[cv_auto] stage=%s failed: %s", stage_id, type(exc).__name__)
         await failures.record_failure(failures.KIND_AUTO_CV, type(exc).__name__)
+
+
+async def after_job_finished(generated_id: int) -> None:
+    """Hak `durable_jobs.execute_job` po zakończeniu zadania generacji.
+
+    Dotyczy WYŁĄCZNIE dokumentów automatu (``origin="auto"``) — ręczna generacja
+    podpina szkic w workerze (``attach_stage_draft``). Nigdy nie rzuca.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.cv_generated_document import CvGeneratedDocument
+
+    try:
+        async with AsyncSessionLocal() as db:
+            row = (
+                await db.execute(
+                    select(
+                        CvGeneratedDocument.origin,
+                        CvGeneratedDocument.stage_id,
+                        CvGeneratedDocument.created_by,
+                    ).where(CvGeneratedDocument.id == generated_id)
+                )
+            ).first()
+        if row is None or row.origin != "auto" or row.stage_id is None:
+            return
+        if row.created_by is None:
+            return
+        await _after_generation(
+            stage_id=row.stage_id, user_id=row.created_by, generated_id=generated_id
+        )
+    except Exception as exc:  # noqa: BLE001 — hak nie psuje zadania
+        logger.warning(
+            "[cv_auto] generated=%s not accounted: %s", generated_id, type(exc).__name__
+        )
 
 
 async def _after_generation(*, stage_id: int, user_id: int, generated_id: int) -> None:
@@ -360,8 +394,8 @@ async def _after_generation(*, stage_id: int, user_id: int, generated_id: int) -
         await _record_failure(
             stage_id, user_id, "generation_failed", generated_id=generated_id
         )
-    # `processing` = zadanie przejął inny worker / proces padł; dokończy je
-    # `recovery_loop`, a dokument i tak jest widoczny na liście z flagą auto.
+    # `processing` = zadanie jeszcze trwa u innego wykonawcy — on zawoła ten
+    # hak po zakończeniu (`after_job_finished`).
 
 
 async def attach_as_stage_draft(

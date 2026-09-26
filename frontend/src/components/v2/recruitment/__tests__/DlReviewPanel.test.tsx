@@ -9,6 +9,7 @@ const showSuccess = vi.fn();
 const showError = vi.fn();
 const renderDocxSafely = vi.fn();
 const loadJobRejectionReasons = vi.fn();
+const fetchStageCvFile = vi.fn();
 
 vi.mock("@/lib/api", () => ({
   __esModule: true,
@@ -24,6 +25,9 @@ vi.mock("@/lib/docx-preview-safe", () => ({
   renderDocxSafely: (...a: unknown[]) => renderDocxSafely(...a),
 }));
 vi.mock("@/lib/cv-docx-preview", () => ({ alignB2bLetterheadPreview: () => undefined }));
+vi.mock("@/lib/stage-cv-file", () => ({
+  fetchStageCvFile: (...a: unknown[]) => fetchStageCvFile(...a),
+}));
 vi.mock("@/lib/rejection-reasons", () => ({
   loadJobRejectionReasons: (...a: unknown[]) => loadJobRejectionReasons(...a),
 }));
@@ -269,5 +273,31 @@ describe("DlReviewPanel — przegląd DL przed wysłaniem CV do klienta", () => 
     await waitFor(() => expect(showError).toHaveBeenCalledWith("CV nie przeszło QC: 3 sprawdzenia do poprawy."));
     expect(await screen.findByRole("dialog", { name: "QC CV" })).toHaveTextContent("QC etapu 12");
     expect(onOpenChange).not.toHaveBeenCalledWith(false);
+  });
+
+  it("runda 7 (R7-X4-2): CV firmowe etapu (po QC) zamiast surowego pliku z generatora", async () => {
+    mockApi();
+    const stageBlob = new Blob(["po-qc"]);
+    fetchStageCvFile.mockResolvedValue({ blob: stageBlob, filename: "CV.docx" });
+    renderPanel(task({ cv_stage_id: 55 }));
+    await waitFor(() => expect(renderDocxSafely).toHaveBeenCalledTimes(1));
+    expect(fetchStageCvFile).toHaveBeenCalledWith(55);
+    expect(renderDocxSafely.mock.calls[0][0]).toBe(stageBlob);
+    expect(get).not.toHaveBeenCalledWith("/api/cv-generator/generated/77/docx", expect.anything());
+  });
+
+  it("runda 7: odmowa pliku etapu (409 zgoda RODO) pokazuje komunikat serwera", async () => {
+    mockApi();
+    fetchStageCvFile.mockRejectedValue(
+      Object.assign(new Error("x"), {
+        response: {
+          status: 409,
+          data: { detail: { code: "consent_required", message: "Dołącz zgodę do tego CV." } },
+        },
+      }),
+    );
+    renderPanel(task({ cv_stage_id: 55 }));
+    expect(await screen.findByText("Dołącz zgodę do tego CV.")).toBeTruthy();
+    expect(renderDocxSafely).not.toHaveBeenCalled();
   });
 });
