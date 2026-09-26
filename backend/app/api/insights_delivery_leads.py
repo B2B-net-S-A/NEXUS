@@ -46,7 +46,7 @@ Sześć decyzji, które trzymają ten moduł uczciwym:
 
 Ograniczenie do świadomego przeczytania, nie do ukrycia: **hit ratio miesza
 kohorty**. Licznik to placementy OSIĄGNIĘTE w oknie, mianownik to zapytania
-UTWORZONE w oknie — placement zwykle domyka zapytanie starsze niż okno. Tak
+OTWARTE w oknie (`opened_at`) — placement zwykle domyka zapytanie starsze niż okno. Tak
 liczył oryginał (InfraReporter) i tak zostaje, żeby liczby dały się porównać
 z historią; koperta niesie `hit_ratio_is_cross_cohort`, żeby konsument mógł
 to napisać przy kaflu.
@@ -110,14 +110,14 @@ async def insights_delivery_leads(
 
     # Klucz NIESIE OKNO. Bez tego liczby jednego okresu wyszłyby pod etykietą
     # drugiego — i nikt by się nie dowiedział, bo obie są wiarygodne.
-    cache_key = f"insights:delivery-leads:v1:{resolved.cache_suffix}"
+    cache_key = f"insights:delivery-leads:v2:{resolved.cache_suffix}"
     cached = await cache_get(cache_key)
     if cached is not None:
         return cached
 
     params = {"start": resolved.start, "end": resolved.end}
 
-    # 1. Zapytania i wakaty — rekrutacje UTWORZONE w oknie.
+    # 1. Zapytania i wakaty — rekrutacje OTWARTE w oknie (`opened_at`, runda 6).
     demand_rows = (
         (
             await db.execute(
@@ -133,7 +133,7 @@ async def insights_delivery_leads(
                 FROM jobs_scoped js
                 LEFT JOIN clients c
                   ON c.id = js.client_id AND {_CLIENT_VISIBLE_SQL}
-                WHERE js.created_at >= :start AND js.created_at < :end
+                WHERE js.opened_at >= :start AND js.opened_at < :end
                 GROUP BY js.dl_id
                 """
                 ),
@@ -461,7 +461,7 @@ async def insights_delivery_lead_trend(
     # nie wystarcza — dwie serie o tej samej długości i różnej kotwicy dzieliłyby
     # klucz i jedna wyszłaby pod etykietą drugiej.
     cache_key = (
-        f"insights:delivery-lead-trend:v1:{dl_id}:"
+        f"insights:delivery-lead-trend:v2:{dl_id}:"
         f"{windows[0].cache_suffix}:{windows[-1].cache_suffix}"
     )
     cached = await cache_get(cache_key)
@@ -494,8 +494,8 @@ async def insights_delivery_lead_trend(
                            COALESCE(SUM(js.headcount), 0) AS vacancies
                     FROM jobs_scoped js
                     WHERE js.dl_id = :dl_id
-                      AND js.created_at >= m.m_start
-                      AND js.created_at < m.m_end
+                      AND js.opened_at >= m.m_start
+                      AND js.opened_at < m.m_end
                 ) d ON TRUE
                 LEFT JOIN LATERAL (
                     SELECT count(*) AS placements

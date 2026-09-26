@@ -8,7 +8,7 @@ wyłącznie liczenie.
 Dwie rzeczy, które ten moduł rozdziela, bo ich pomylenie zmienia znaczenie
 kolumny:
 
-1. **Okno filtruje REKRUTACJE (``Job.created_at``), nie kontrakty.** Kontrakty
+1. **Okno filtruje REKRUTACJE (data otwarcia), nie kontrakty.** Kontrakty
    liczone są dla rekrutacji z okna, niezależnie od tego, kiedy same powstały —
    umowę z rekrutacji otwartej w lipcu zwykle podpisuje się później. Legacy woła
    ten serwis BEZ okna (``since=None, until=None``), więc jego liczby się nie
@@ -70,10 +70,13 @@ async def compute_hiring_manager_kpis(
     """Agregaty per ``Job.hiring_manager_contact_id``, malejąco po ``jobs_total``.
 
     Args:
-        since/until: okno po ``Job.created_at``. Oba ``None`` = całość historii
+        since/until: okno po dacie otwarcia (``COALESCE(opened_at, created_at)``). Oba ``None`` = całość historii
             (zachowanie legacy).
     """
-    job_window = _window(Job.created_at, since, until)
+    # Data OTWARCIA, nie `created_at` — to drugie jest datą importu z Traffita
+    # (3859 z 4229 rekrutacji „z maja 2026”), więc ranking HM w każdym innym
+    # oknie był prawie pusty (runda 6 audytu; reguła jak ranking DL).
+    job_window = _window(func.coalesce(Job.opened_at, Job.created_at), since, until)
 
     jobs_total_by_contact: dict[int, int] = {}
     jobs_open_by_contact: dict[int, int] = {}

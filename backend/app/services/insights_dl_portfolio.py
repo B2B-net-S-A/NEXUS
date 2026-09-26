@@ -14,7 +14,7 @@ wierszowi ``GET /api/insights/delivery-leads`` dla tego samego okna. Dlatego:
   liczą się w rankingu, więc wycięcie wiersza rozjechałoby sumy. Dostaje
   jedynie zastępczą nazwę (ranking też bierze nazwę tylko z klienta widocznego).
 
-Hit ratio = placementy w oknie / zapytania UTWORZONE w oknie — ta sama
+Hit ratio = placementy w oknie / zapytania OTWARTE w oknie — ta sama
 (celowo międzykohortowa) definicja co ranking. Zerowy mianownik → ``None``.
 """
 
@@ -98,7 +98,7 @@ async def _demand_and_placements(
                        count(*) AS requests,
                        COALESCE(SUM(js.headcount), 0) AS vacancies
                 FROM jobs_scoped js
-                WHERE js.created_at >= :start AND js.created_at < :end
+                WHERE js.opened_at >= :start AND js.opened_at < :end
                 GROUP BY js.dl_id, js.client_id
                 """
                 ),
@@ -214,7 +214,7 @@ async def _monthly_placements(db: AsyncSession, windows: list[Period]) -> list:
 async def _top_hiring_managers(db: AsyncSession, start, end) -> list:
     """Hiring manager z największą liczbą zapytań okna per (DL, klient).
 
-    Liczymy te same oferty co kolumna „Zapytania" (utworzone w oknie), żeby
+    Liczymy te same oferty co kolumna „Zapytania" (otwarte w oknie), żeby
     „HM: 4 rekrutacje" dało się zestawić z liczbą obok. Remis rozstrzyga
     nazwa, potem id — kolejność ma być stabilna między odświeżeniami.
     """
@@ -231,7 +231,7 @@ async def _top_hiring_managers(db: AsyncSession, start, end) -> list:
                            count(*) AS jobs
                     FROM jobs_scoped js
                     JOIN jobs j ON j.id = js.id
-                    WHERE js.created_at >= :start AND js.created_at < :end
+                    WHERE js.opened_at >= :start AND js.opened_at < :end
                       AND j.hiring_manager_contact_id IS NOT NULL
                     GROUP BY js.dl_id, js.client_id, j.hiring_manager_contact_id
                 ),

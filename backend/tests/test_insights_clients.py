@@ -717,7 +717,9 @@ async def test_unknown_exclude_reason_is_rejected_not_ignored(
 HIRING_MANAGERS = "/api/insights/clients/hiring-managers"
 
 
-async def _seed_hiring_manager(*, job_created_at: datetime) -> tuple[int, str]:
+async def _seed_hiring_manager(
+    *, job_created_at: datetime, job_opened_at: datetime | None = None
+) -> tuple[int, str]:
     """Klient + kontakt + JEDNA opublikowana rekrutacja prowadzona przez ten kontakt.
 
     ``Job.created_at`` ustawiamy wprost, bo to właśnie ta kolumna jest filtrowana
@@ -743,6 +745,7 @@ async def _seed_hiring_manager(*, job_created_at: datetime) -> tuple[int, str]:
             client_id=client.id,
             hiring_manager_contact_id=contact.id,
             created_at=job_created_at,
+            opened_at=job_opened_at,
         )
         db.add(job)
         await db.commit()
@@ -846,6 +849,40 @@ async def test_hiring_managers_window_filters_jobs_by_creation_date(
     # `contracts_active` to migawka na dziś, nie stan z końca okna — koperta
     # musi to powiedzieć, inaczej liczba czyta się jak stan historyczny.
     assert body["scope"]["contracts_active_is_snapshot_now"] is True
+
+
+@pytest.mark.asyncio
+async def test_hiring_managers_window_uses_opening_date_not_import_date(
+    fx_client: AsyncClient,
+):
+    """Rekrutacja z Traffita ma `created_at` = dzień importu; okno liczy datę
+    OTWARCIA (`opened_at`) — runda 6 audytu, ta sama reguła co ranking DL."""
+    await cache_invalidate("insights:clients:hiring-managers:")
+    year = 1600 + int(uuid.uuid4().hex[:6], 16) % 90
+    contact_id, _ = await _seed_hiring_manager(
+        job_created_at=datetime(year, 5, 6, tzinfo=timezone.utc),
+        job_opened_at=datetime(year, 2, 12, tzinfo=timezone.utc),
+    )
+    _, email, password = await _seed_user(UserRole.sourcer, "hm-opened")
+    headers = await _login(fx_client, email, password)
+
+    async def _ids(date_from: str, date_to: str) -> set[int]:
+        body = (
+            await fx_client.get(
+                HIRING_MANAGERS,
+                headers=headers,
+                params={
+                    "period": "custom",
+                    "date_from": date_from,
+                    "date_to": date_to,
+                    "limit": 200,
+                },
+            )
+        ).json()
+        return {m["contact_id"] for m in body["managers"]}
+
+    assert contact_id in await _ids(f"{year}-02-01", f"{year}-02-28")
+    assert contact_id not in await _ids(f"{year}-05-01", f"{year}-05-31")
 
 
 @pytest.mark.asyncio

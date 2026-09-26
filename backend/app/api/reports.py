@@ -774,7 +774,10 @@ async def _compute_dl_metrics(
         Client.name.label("client_name"),
     ).outerjoin(Client, Job.client_id == Client.id)
     if period_start is not None:
-        jobs_q = jobs_q.where(Job.created_at >= period_start)
+        # Data otwarcia, nie importu z Traffita (runda 6 audytu — jak Insights).
+        jobs_q = jobs_q.where(
+            func.coalesce(Job.opened_at, Job.created_at) >= period_start
+        )
     jobs_rows = (await db.execute(jobs_q)).all()
 
     # Map job_id → resolved_dl_id
@@ -978,7 +981,7 @@ async def report_delivery_leads(
 
     Cached for 5 minutes.
     """
-    cache_key = f"reports:delivery_leads:v2:{period}"
+    cache_key = f"reports:delivery_leads:v3:{period}"
     cached = await cache_get(cache_key)
     if cached is not None:
         return cached
