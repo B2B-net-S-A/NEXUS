@@ -9,12 +9,12 @@ import time
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
-from sqlalchemy import or_, select
+from sqlalchemy import and_, or_, select
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.operation_telemetry import record_job_outcome
-from app.models.m365 import Email, EmailAttachment, M365Connection
+from app.models.m365 import Email, EmailAttachment, EmailMatchMethod, M365Connection
 from app.services.m365 import attachment_handler
 from app.services.m365.graph_client import GraphClient
 
@@ -57,7 +57,14 @@ async def run_m365_cv_parse_once() -> bool:
                     # parser already performs provider retry/fallback internally.
                     EmailAttachment.cv_parse_attempted_at.is_(None),
                     # Candidate rematch: apply the same source to its new owner.
-                    EmailAttachment.parsed_candidate_id.is_not(None),
+                    # Runda 6 audytu: nie dla maili podpiętych po tożsamości
+                    # z CV — tam każdy załącznik wskazuje osobę z WŁASNEJ
+                    # treści (drugie CV = inny kandydat niż mail), więc
+                    # „inny niż kandydat maila” nie znaczy „do ponowienia”.
+                    and_(
+                        EmailAttachment.parsed_candidate_id.is_not(None),
+                        Email.match_method != EmailMatchMethod.cv_identity,
+                    ),
                 ),
             )
             .order_by(EmailAttachment.id.asc())
@@ -87,16 +94,49 @@ async def run_m365_cv_parse_once() -> bool:
                 "environment": os.getenv("SENTRY_ENVIRONMENT", "production"),
             },
         )
-        await attachment_handler.try_parse_cv(db, attachment, email_row)
-        success = attachment.parsed_candidate_id == email_row.candidate_id
-        await db.commit()
+        attachment_id = attachment.id
+        candidate_id = email_row.candidate_id
+        try:
+            if email_row.match_method == EmailMatchMethod.cv_identity:
+                # Runda 6 audytu (M365-7): kolejne CV w mailu podpiętym po
+                # tożsamości z CV — osoba z treści TEGO pliku.
+                target = await attachment_handler.try_parse_cv_by_identity(
+                    db, attachment, email_row
+                )
+                candidate_id = target
+                success = (
+                    target is not None and attachment.parsed_candidate_id == target
+                )
+            else:
+                await attachment_handler.try_parse_cv(db, attachment, email_row)
+                success = attachment.parsed_candidate_id == candidate_id
+            if not success:
+                # Runda 6 audytu: nieudana próba jest końcowa. Bez tego wiersz
+                # po rematchu (``parsed_candidate_id`` = poprzedni kandydat) był
+                # brany ponownie co sekundę razem z płatnym ``parse_cv``.
+                attachment.parsed_candidate_id = None
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001
+            # Runda 6 audytu: wyjątek (np. naruszenie więzu przy zapisie
+            # profilu) cofał transakcję RAZEM ze znacznikiem próby, więc ten sam
+            # załącznik wracał co kilka sekund na płatny odczyt, a reszta
+            # kolejki stała. Próbę znaczymy we własnej transakcji — lustro
+            # ścieżki nieznanego nadawcy niżej. Log bez danych osobowych.
+            await db.rollback()
+            logger.error(
+                "m365 CV parse failed attachment=%s (%s)",
+                attachment_id,
+                type(exc).__name__,
+            )
+            await _mark_parse_failed(attachment_id, exc)
+            success = False
         logger.info(
             "m365_cv_parse_completed",
             extra={
                 "event_kind": "m365_cv_parse_progress",
                 "operation": "m365_cv_parse",
                 "operation_id": operation_id,
-                "subject_id": attachment.id,
+                "subject_id": attachment_id,
                 "phase": "completed",
                 "outcome": "success" if success else "failure",
                 "elapsed_ms": round((time.monotonic() - started) * 1000),
@@ -108,9 +148,21 @@ async def run_m365_cv_parse_once() -> bool:
             "m365_cv_parse",
             success,
             interval_seconds=max(60, settings.M365_CV_PARSE_INTERVAL_SECONDS),
-            subject_id=attachment.id,
+            subject_id=attachment_id,
         )
         return True
+
+
+async def _mark_parse_failed(attachment_id: int, exc: BaseException) -> None:
+    """Oznacz próbę jako końcową w osobnej transakcji (runda 6 audytu)."""
+    async with AsyncSessionLocal() as mark_db:
+        row = await mark_db.get(EmailAttachment, attachment_id)
+        if row is None:
+            return
+        row.cv_parse_attempted_at = datetime.now(timezone.utc)
+        row.parsed_candidate_id = None
+        row.parse_error = f"parse_failed: {type(exc).__name__}"[:500]
+        await mark_db.commit()
 
 
 async def _create_from_unknown_sender_once(db) -> bool:
@@ -137,6 +189,8 @@ async def _create_from_unknown_sender_once(db) -> bool:
             EmailAttachment.cv_parse_attempted_at.is_(None),
             EmailAttachment.parse_error.is_(None),
             Email.candidate_id.is_(None),
+            # Runda 6 audytu: ręcznie odpięty mail nie wraca do kandydata z CV.
+            Email.matched_by_user_id.is_(None),
             Email.direction == EmailDirection.received,
             Email.is_private_filtered.is_(False),
             Email.received_at >= since,

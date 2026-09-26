@@ -23,7 +23,7 @@ from typing import Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
-from sqlalchemy import select, text
+from sqlalchemy import or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.candidate_access import CandidatePIIAccess, CandidateWriteAccess
@@ -33,11 +33,13 @@ from app.models.candidate import Candidate
 from app.models.m365 import (
     Email,
     EmailAttachment,
+    EmailDirection,
     EmailMatchMethod,
     M365Connection,
 )
 from app.services.m365 import sender as m365_sender
 from app.services.m365.attachment_handler import STORAGE_ROOT
+from app.services.m365.graph_client import GraphRequestError
 
 logger = logging.getLogger(__name__)
 
@@ -179,6 +181,30 @@ def _send_conflict_http(exc: m365_sender.EmailSendConflict) -> HTTPException:
     ponowiony przez interceptor frontu, a wynik i tak byłby ten sam.
     """
     return HTTPException(status.HTTP_409_CONFLICT, detail=str(exc))
+
+
+def _graph_refusal_http(exc: GraphRequestError) -> HTTPException:
+    """Odmowa Graph 4xx przed wysyłką → 4xx z polskim komunikatem (runda 6 audytu).
+
+    Do 26.09 każda odmowa (np. oryginał usunięty ze skrzynki, zły adres)
+    kończyła się nieobsłużonym 500. Treści odpowiedzi Graph nie oddajemy —
+    bywa w niej adres i identyfikator wiadomości.
+    """
+    if exc.status in (401, 403):
+        return HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Microsoft 365 odmówił dostępu do skrzynki — połącz konto ponownie.",
+        )
+    if exc.status == 429:
+        return HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "Microsoft 365 ogranicza liczbę wysyłek — spróbuj za chwilę.",
+        )
+    return HTTPException(
+        status.HTTP_400_BAD_REQUEST,
+        "Microsoft 365 odrzucił wiadomość (np. oryginał usunięto ze skrzynki "
+        "albo adres jest nieprawidłowy). Nic nie zostało wysłane.",
+    )
 
 
 def _can_access_email(email: Email, user, privileged_role: bool) -> bool:
@@ -396,6 +422,10 @@ async def compose_email(
         )
     except m365_sender.EmailSendConflict as exc:
         raise _send_conflict_http(exc) from exc
+    except GraphRequestError as exc:
+        if 400 <= exc.status < 500:
+            raise _graph_refusal_http(exc) from exc
+        raise
     await db.commit()
     return _to_email_out(row)
 
@@ -514,6 +544,27 @@ async def reply_email(
             status.HTTP_400_BAD_REQUEST,
             "original email belongs to a different candidate",
         )
+    if original.direction == EmailDirection.sent:
+        # Runda 6 audytu: odpowiedź na własny wysłany mail trafiała do nas
+        # samych (Graph bierze nadawcę oryginału). Odpowiadamy na ostatnią
+        # wiadomość PRZYCHODZĄCĄ w wątku; bez niej — prośba o nowy mail.
+        inbound = await db.scalar(
+            select(Email)
+            .where(
+                Email.user_id == current_user.id,
+                Email.m365_conversation_id == original.m365_conversation_id,
+                Email.direction == EmailDirection.received,
+                or_(Email.candidate_id == candidate_id, Email.candidate_id.is_(None)),
+            )
+            .order_by(Email.received_at.desc(), Email.id.desc())
+            .limit(1)
+        )
+        if inbound is None:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "Kandydat jeszcze nie odpowiedział w tym wątku — napisz nowy mail.",
+            )
+        original = inbound
     if (original.m365_message_id or "").startswith(m365_sender.PENDING_ID_PREFIX):
         # Wiersz zarezerwowany, którego szkic jeszcze nie powstał — Graph nie
         # zna tego identyfikatora, odpowiedź skończyłaby się 404.
@@ -532,6 +583,10 @@ async def reply_email(
         )
     except m365_sender.EmailSendConflict as exc:
         raise _send_conflict_http(exc) from exc
+    except GraphRequestError as exc:
+        if 400 <= exc.status < 500:
+            raise _graph_refusal_http(exc) from exc
+        raise
     if row.candidate_id is None:
         row.candidate_id = candidate_id
         row.match_method = EmailMatchMethod.manual
@@ -602,11 +657,16 @@ def _apply_bulk_action(
         email.matched_at = now
         email.matched_by_user_id = user_id
     elif action == "unlink":
+        # Runda 6 audytu: ręczne odpięcie jest DECYZJĄ — ``unmatched`` z
+        # ``matched_by_user_id`` (kto i kiedy odpiął). Czytają to sync
+        # (``_upsert_message``), rematch i zakładanie kandydata z CV, które do
+        # 26.09 przypinały mail z powrotem przy najbliższym przebiegu. Czyści
+        # to ręczne podpięcie (``link_to_candidate``).
         email.candidate_id = None
         email.match_method = EmailMatchMethod.unmatched
         email.match_confidence = None
-        email.matched_at = None
-        email.matched_by_user_id = None
+        email.matched_at = now
+        email.matched_by_user_id = user_id
     # `updated_at` mixin column refreshes via TimestampMixin.
 
 

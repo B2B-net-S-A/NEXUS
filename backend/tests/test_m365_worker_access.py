@@ -86,7 +86,7 @@ async def test_cv_worker_commits_result_outside_graph_sync(monkeypatch) -> None:
         email_id=72,
         parsed_candidate_id=None,
     )
-    email = SimpleNamespace(id=72, candidate_id=37)
+    email = SimpleNamespace(id=72, candidate_id=37, match_method=None)
     db = AsyncMock()
     db.scalar.return_value = attachment
     db.get.return_value = email

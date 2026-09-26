@@ -69,6 +69,7 @@ def _conn(connection_id: int = 1):
 def _isolate_locks(monkeypatch):
     """Świeży rejestr locków na test — inaczej kolejność testów ma znaczenie."""
     monkeypatch.setattr(sync_mod, "_sync_locks", {})
+    monkeypatch.setattr(sync_mod, "_resync_requested", set())
 
     async def _eligible(_db, _conn):
         return True
@@ -168,3 +169,42 @@ async def test_lock_is_released_when_the_pass_blows_up(monkeypatch):
     # Kolejne wywołanie musi wejść do środka, a nie odbić się od bramki.
     again = await sync_mod.sync_connection(_FakeDB(), _conn())
     assert again.skipped_already_running is False
+
+
+@pytest.mark.parametrize("from_webhook", [True, False])
+async def test_webhook_during_running_sync_triggers_one_trailing_pass(
+    monkeypatch, from_webhook: bool
+):
+    """Runda 6 audytu: webhook odbity od trwającego przebiegu nie może przepaść.
+
+    Klucz replay webhooka jest zapisywany jako obsłużony, więc Graph nie
+    ponowi powiadomienia — trwający przebieg robi jeszcze jeden na końcu.
+    Zwykły tik pętli (bez flagi) dalej jest po prostu odrzucany.
+    """
+    started = asyncio.Event()
+    release = asyncio.Event()
+    runs = 0
+
+    async def _slow_messages(db, gc, conn, result):
+        nonlocal runs
+        runs += 1
+        started.set()
+        await release.wait()
+
+    async def _noop_events(db, gc, conn, result):
+        return None
+
+    monkeypatch.setattr(sync_mod, "_sync_messages", _slow_messages)
+    monkeypatch.setattr(sync_mod, "_sync_events", _noop_events)
+
+    first = asyncio.create_task(sync_mod.sync_connection(_FakeDB(), _conn()))
+    await asyncio.wait_for(started.wait(), timeout=5)
+    second = await sync_mod.sync_connection(
+        _FakeDB(), _conn(), resync_if_busy=from_webhook
+    )
+    assert second.skipped_already_running is True
+
+    release.set()
+    await asyncio.wait_for(first, timeout=5)
+    assert runs == (2 if from_webhook else 1)
+    assert sync_mod._resync_requested == set()

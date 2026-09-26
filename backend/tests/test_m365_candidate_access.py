@@ -182,4 +182,6 @@ async def test_webhook_sync_still_allows_operational_owner(
 
     await microsoft365._webhook_dispatch_sync(connection.id)
 
-    sync_connection.assert_awaited_once_with(db, connection)
+    # Runda 6 audytu: webhook prosi o dodatkowy przebieg, gdy skrzynka już
+    # się synchronizuje — zamiast odrzucić powiadomienie.
+    sync_connection.assert_awaited_once_with(db, connection, resync_if_busy=True)

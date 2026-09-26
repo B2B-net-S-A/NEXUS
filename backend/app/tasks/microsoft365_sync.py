@@ -205,6 +205,8 @@ async def _tick(interval: int) -> None:
 #   - `match_method=manual` rows are already linked (skipped by NULL filter).
 #   - We never touch a row that someone manually re-linked — only rows still
 #     in the `unmatched` state.
+#   - Ręcznie ODPIĘTY mail (`unmatched` + `matched_by_user_id`) też jest
+#     decyzją i nie wraca do kandydata (runda 6 audytu).
 
 
 @dataclass(frozen=True)
@@ -269,6 +271,10 @@ async def _rematch_pass(db: AsyncSession) -> RematchStats:
             Email.candidate_id.is_(None),
             Email.match_method == EmailMatchMethod.unmatched,
             Email.received_at > cutoff,
+            # Runda 6 audytu: ręcznie odpięty mail (decyzja rekrutera) i mail
+            # prywatny (kategoria wyłączona z NEXUSA) nie są przypinane.
+            Email.matched_by_user_id.is_(None),
+            Email.is_private_filtered.is_(False),
         )
         .order_by(Email.received_at.desc())
         .limit(batch_size)
@@ -279,6 +285,7 @@ async def _rematch_pass(db: AsyncSession) -> RematchStats:
     processed = 0
     matched = 0
     owner_eligibility: dict[int, bool] = {}
+    owner_mailbox: dict[int, str | None] = {}
     for email in candidates_to_try:
         if email.user_id not in owner_eligibility:
             owner_eligibility[email.user_id] = (
@@ -287,12 +294,20 @@ async def _rematch_pass(db: AsyncSession) -> RematchStats:
         if not owner_eligibility[email.user_id]:
             continue
         processed += 1
+        if email.user_id not in owner_mailbox:
+            owner_mailbox[email.user_id] = await db.scalar(
+                select(M365Connection.mailbox_upn).where(
+                    M365Connection.user_id == email.user_id
+                )
+            )
         dto = IncomingMessage(
             from_address=email.from_address or "",
             to_addresses=_addresses(email.to_addresses),
             cc_addresses=_addresses(email.cc_addresses),
             subject=email.subject,
             conversation_id=email.m365_conversation_id,
+            # Runda 6 audytu: adres skrzynki nie wskazuje kandydata (lustro syncu).
+            owner_address=owner_mailbox[email.user_id],
         )
         try:
             m = await matcher_mod.match(db, dto)

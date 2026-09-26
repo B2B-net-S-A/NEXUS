@@ -34,6 +34,7 @@ import {
   MAX_DEPTH,
 } from "@/lib/email-threading";
 
+import { planThreadReply, type ReplyPlan } from "@/lib/email-reply-target";
 import EmailCompose from "./EmailCompose";
 
 interface EmailThreadViewProps {
@@ -318,7 +319,7 @@ export default function EmailThreadView({
   conversationId,
   onClose,
 }: EmailThreadViewProps) {
-  const [replyTarget, setReplyTarget] = useState<EmailMessage | null>(null);
+  const [replyPlan, setReplyPlan] = useState<ReplyPlan>(null);
 
   const {
     data: messages,
@@ -399,7 +400,7 @@ export default function EmailThreadView({
                 email={node.email}
                 depth={Math.min(node.depth, MAX_DEPTH)}
                 initiallyExpanded={node.email.id === latestId}
-                onReply={(e) => setReplyTarget(e)}
+                onReply={(e) => setReplyPlan(planThreadReply(messages ?? [], e))}
               />
             ))
           )}
@@ -415,7 +416,7 @@ export default function EmailThreadView({
           </button>
           {latestId !== null && messages && messages.length > 0 && (
             <button
-              onClick={() => setReplyTarget(messages[messages.length - 1])}
+              onClick={() => setReplyPlan(planThreadReply(messages))}
               className="flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 bg-primary hover:bg-primary/90 text-white rounded-lg"
             >
               <Reply className="h-4 w-4" />
@@ -425,13 +426,22 @@ export default function EmailThreadView({
         </div>
       </DialogContent>
 
-      {replyTarget && (
+      {replyPlan?.mode === "reply" && (
         <EmailCompose
           mode="reply"
           candidateId={candidateId}
-          candidateName={replyTarget.from_name ?? replyTarget.from_address}
-          replyTo={replyTarget}
-          onClose={() => setReplyTarget(null)}
+          candidateName={replyPlan.replyTo.from_name ?? replyPlan.replyTo.from_address}
+          replyTo={replyPlan.replyTo}
+          onClose={() => setReplyPlan(null)}
+        />
+      )}
+      {replyPlan?.mode === "new" && (
+        <EmailCompose
+          mode="new"
+          candidateId={candidateId}
+          candidateName={replyPlan.defaultTo}
+          defaultTo={replyPlan.defaultTo}
+          onClose={() => setReplyPlan(null)}
         />
       )}
     </Dialog>

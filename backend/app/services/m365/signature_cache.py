@@ -29,9 +29,16 @@ three signature formats — we try each in turn:
    in a wrapped plaintext mail). The matched text IS the separator, so the
    extracted tail starts AFTER it.
 
-When multiple matches exist, the **last** one wins — signatures live at the
-tail of the body, and an earlier "--" inside a quoted reply is not the
-signature.
+Runda 6 audytu (26.09.2026): treść jest najpierw ucinana na pierwszym
+znaczniku cytatu (``appendonsend``, ``divRplyFwdMsg``, ``<hr>``,
+``<blockquote>``, nagłówek „From:/Od: … Sent:/Wysłano:”), a w części autora
+wygrywa PIERWSZY znacznik. Fragment z drugim znacznikiem podpisu albo z
+adresem e-mail spoza domeny nadawcy jest odrzucany — bo podpis trafia do
+każdego maila z NEXUSA, a „ostatni znacznik do końca treści” w odpowiedzi
+OWA niósł cytat cudzego maila.
+
+Cache żyje w pamięci procesu, więc wdrożenie (restart backendu) czyści
+podpisy policzone starą regułą.
 
 Cache: in-memory, keyed by ``(user_id, mailbox_upn)``. TTL is
 ``settings.M365_SIGNATURE_CACHE_TTL_SECONDS`` (default 24h). A negative
@@ -123,25 +130,100 @@ _SIGSEP_MARKERS: tuple[_SigsepMarker, ...] = (
 _MAX_SIGNATURE_LENGTH = 12000
 
 
-def extract_signature(body_html: str) -> Optional[str]:
+# Początek cytatu w odpowiedzi / przekazaniu (runda 6 audytu). Wszystko od
+# pierwszego takiego znacznika to treść CUDZEGO maila — OWA / nowy Outlook /
+# mobile / Gmail. Do 26.09.2026 podpis brał wszystko od ostatniego znacznika
+# do końca treści, więc cytat maila kandydata A (adres, stawka) trafiał do
+# podpisu i był doklejany do każdego maila z NEXUSA przez 24 h.
+_QUOTE_START_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"""<div\b[^>]*\bid\s*=\s*["']?(?:x_)?appendonsend\b""", re.I),
+    re.compile(r"""<div\b[^>]*\bid\s*=\s*["']?(?:x_)?divRplyFwdMsg\b""", re.I),
+    re.compile(
+        r"""<div\b[^>]*\bid\s*=\s*["']?(?:x_)?mail-editor-reference-message-container\b""",
+        re.I,
+    ),
+    re.compile(
+        r"""<div\b[^>]*\bclass\s*=\s*["'][^"']*\bgmail_(?:quote|attr)\b""", re.I
+    ),
+    re.compile(r"<hr\b", re.I),
+    re.compile(r"<blockquote\b", re.I),
+    # Nagłówek cytowanego maila: „From: … Sent: / Od: … Wysłano:” (Outlook
+    # desktop i nowy Outlook piszą go zwykłym tekstem, bez id).
+    re.compile(
+        r"\b(?:From|Od|Von|De)\s*:[\s\S]{0,600}?"
+        r"\b(?:Sent|Wysłano|Wysłane|Date|Data|Gesendet|Subject|Temat)\s*:",
+    ),
+    re.compile(
+        r"-{3,}\s*(?:Original Message|Oryginalna wiadomość|Wiadomość oryginalna)", re.I
+    ),
+)
+
+_EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@([A-Za-z0-9.\-]+\.[A-Za-z]{2,})")
+
+
+def _quote_start(body_html: str) -> Optional[int]:
+    positions = [
+        m.start() for p in _QUOTE_START_PATTERNS for m in [p.search(body_html)] if m
+    ]
+    return min(positions) if positions else None
+
+
+def _allowed_email_domains(owner_email: Optional[str]) -> set[str]:
+    domains = {d.lower() for d in settings.sso_allowed_domains_list}
+    if owner_email and "@" in owner_email:
+        domains.add(owner_email.rsplit("@", 1)[1].strip().lower())
+    return domains
+
+
+def _looks_like_quote(signature: str, owner_email: Optional[str]) -> bool:
+    """Czy fragment niesie cudzą treść (runda 6 audytu).
+
+    Bezpieczniej wysłać mail bez podpisu niż z cytatem cudzego maila, bo
+    podpis jest doklejany do KAŻDEJ wiadomości z NEXUSA (także do maili
+    odrzucenia) — dlatego wątpliwość = brak podpisu.
+    """
+    if _quote_start(signature) is not None:
+        return True
+    allowed = _allowed_email_domains(owner_email)
+    for match in _EMAIL_RE.finditer(signature):
+        if match.group(1).lower() not in allowed:
+            return True
+    return False
+
+
+def extract_signature(
+    body_html: str, owner_email: Optional[str] = None
+) -> Optional[str]:
     """Pull the signature block off an HTML body.
 
-    Returns the HTML fragment from the last matching marker (using the
-    marker's slicing rule), or ``None`` if no marker is found. Public for
-    unit tests; production callers go through :func:`get_outlook_signature`
-    to benefit from caching.
+    Runda 6 audytu: najpierw ucinamy treść na PIERWSZYM znaczniku cytatu
+    (odpowiedź / przekazanie), bo za nim jest cudzy mail — łącznie z jego
+    ``x_Signature``. W części autora bierzemy PIERWSZY znacznik podpisu;
+    fragment, który zawiera drugi znacznik podpisu, nagłówek cytatu albo
+    adres e-mail spoza domeny nadawcy, jest odrzucany (``None``).
+
+    Public for unit tests; production callers go through
+    :func:`get_outlook_signature` to benefit from caching.
     """
     if not body_html:
         return None
+    cut = _quote_start(body_html)
+    head = body_html if cut is None else body_html[:cut]
     for marker in _SIGSEP_MARKERS:
-        matches = list(marker.pattern.finditer(body_html))
-        if not matches:
+        first = marker.pattern.search(head)
+        if first is None:
             continue
-        last = matches[-1]
-        pos = last.start() if marker.include_match else last.end()
-        tail = body_html[pos:].strip()
-        if tail and len(tail) <= _MAX_SIGNATURE_LENGTH:
-            return tail
+        pos = first.start() if marker.include_match else first.end()
+        tail = head[pos:].strip()
+        if not tail or len(tail) > _MAX_SIGNATURE_LENGTH:
+            return None
+        # Drugi znacznik podpisu za pierwszym = zagnieżdżona cudza treść.
+        rest = head[first.end() :]
+        if any(m.pattern.search(rest) for m in _SIGSEP_MARKERS):
+            return None
+        if _looks_like_quote(tail, owner_email):
+            return None
+        return tail
     return None
 
 
@@ -166,7 +248,7 @@ async def get_outlook_signature(
         if now < expires_at:
             return signature
 
-    signature = await _fetch_signature_from_sent_items(gc)
+    signature = await _fetch_signature_from_sent_items(gc, owner_email=mailbox_upn)
     ttl = max(60, int(settings.M365_SIGNATURE_CACHE_TTL_SECONDS))
     _cache[key] = (signature, now + timedelta(seconds=ttl))
     if signature is None:
@@ -187,7 +269,9 @@ async def get_outlook_signature(
 _SENT_ITEMS_PROBE_DEPTH = 10
 
 
-async def _fetch_signature_from_sent_items(gc: GraphClient) -> Optional[str]:
+async def _fetch_signature_from_sent_items(
+    gc: GraphClient, *, owner_email: Optional[str] = None
+) -> Optional[str]:
     """Find the user's signature by scanning recent sent messages.
 
     Strategy: fetch the last ``_SENT_ITEMS_PROBE_DEPTH`` sent messages in
@@ -226,7 +310,7 @@ async def _fetch_signature_from_sent_items(gc: GraphClient) -> Optional[str]:
         content = body.get("content") or ""
         if content_type != "html" or not content:
             continue
-        signature = extract_signature(content)
+        signature = extract_signature(content, owner_email)
         if signature is not None:
             return signature
     return None
