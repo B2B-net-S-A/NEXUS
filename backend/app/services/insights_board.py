@@ -8,7 +8,7 @@ oryginału, których ten kod nie portuje, jest w docstringu routera.
 """
 
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import Optional
 from zoneinfo import ZoneInfo
 
@@ -128,6 +128,15 @@ async def compute_board(
     """
     today = today or _today_warsaw()
     previous = _previous_period(resolved)
+    # Przepływ (placementy) okresu W TOKU porównujemy z TYM SAMYM odcinkiem
+    # poprzedniego okresu (1–24 września ↔ 1–24 sierpnia) — ta sama funkcja
+    # co widok Zespół i kreator metryk. Stany na dzień (MRR, konsultanci)
+    # zostają przy `previous` i dniu wyceny (runda 6 audytu).
+    from app.services.insights_team_signals import previous_matching_window
+
+    placements_prev_start, placements_prev_end = previous_matching_window(
+        resolved, datetime.combine(today, time(12), tzinfo=_TZ)
+    )
     asof = _finance_asof(resolved, today)
     prev_asof = _finance_asof(previous, today)
 
@@ -169,7 +178,7 @@ async def compute_board(
                       AND fm.first_reached_at < :end
                     """
                 ),
-                {"start": previous.start, "end": previous.end},
+                {"start": placements_prev_start, "end": placements_prev_end},
             )
         ).scalar()
         or 0
@@ -428,6 +437,15 @@ async def compute_board(
             "previous_period": previous.as_payload(),
             "previous_asof": prev_asof.isoformat(),
             "placements": _delta(placements, prev_placements),
+            # Okno, z którym porównano placementy — przy okresie w toku krótsze
+            # niż `previous_period` (ten sam odcinek), więc front podpisuje
+            # deltę „wobec tego samego odcinka…".
+            "placements_previous_window": {
+                "start": placements_prev_start.isoformat(),
+                "end": placements_prev_end.isoformat(),
+                "same_stretch": (placements_prev_start, placements_prev_end)
+                != (previous.start, previous.end),
+            },
             "revenue_monthly_pln": _delta(
                 money(current_fold.revenue), money(previous_fold.revenue)
             ),

@@ -516,6 +516,12 @@ export interface InsightsBoardResponse {
     previous_period: InsightsPeriod;
     previous_asof: string;
     placements: InsightsDelta;
+    /** Okno porównania placementów; przy okresie w toku ten sam odcinek. */
+    placements_previous_window?: {
+      start: string;
+      end: string;
+      same_stretch: boolean;
+    };
     revenue_monthly_pln: InsightsDelta;
     margin_monthly_pln: InsightsDelta;
     active_consultants: InsightsDelta;

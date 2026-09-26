@@ -38,6 +38,27 @@ const PREVIOUS_LABEL: Record<string, string> = {
   custom: "wobec poprzedniego okresu",
 };
 
+const SAME_STRETCH_LABEL: Record<string, string> = {
+  week: "wobec tego samego odcinka poprzedniego tygodnia",
+  month: "wobec tego samego odcinka poprzedniego miesiąca",
+  quarter: "wobec tego samego odcinka poprzedniego kwartału",
+  year: "wobec tego samego odcinka poprzedniego roku",
+  custom: "wobec tego samego odcinka poprzedniego okresu",
+};
+
+/**
+ * Podpis delty placementów. Okres W TOKU backend porównuje z tym samym
+ * odcinkiem poprzedniego (`placements_previous_window.same_stretch`, runda 6
+ * audytu) — „wobec poprzedniego miesiąca" obiecywałby pełny miesiąc.
+ */
+export function placementsDeltaLabel(
+  period: string,
+  sameStretch: boolean | undefined,
+): string {
+  const labels = sameStretch ? SAME_STRETCH_LABEL : PREVIOUS_LABEL;
+  return labels[period] ?? labels.custom;
+}
+
 /**
  * Firma — „Jak zarabia firma?". Tylko admin i Finanse (decyzja Artura
  * 24.09.2026; lustro `BoardReader`).
@@ -132,7 +153,13 @@ export function FirmaView() {
             <Tile
               label="Placementy w okresie"
               value={board.kpis.placements.toLocaleString("pl-PL")}
-              delta={pctDelta(board.comparison.placements.change_pct, prevLabel)}
+              delta={pctDelta(
+                board.comparison.placements.change_pct,
+                placementsDeltaLabel(
+                  period.period,
+                  board.comparison.placements_previous_window?.same_stretch,
+                ),
+              )}
             />
           </TileRow>
           {board.degraded ? (
