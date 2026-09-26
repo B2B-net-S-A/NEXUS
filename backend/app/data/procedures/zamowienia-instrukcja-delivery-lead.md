@@ -515,7 +515,9 @@ i autor importu, nazwa pliku, liczba wierszy, zaksięgowanych i do
 weryfikacji. Po otwarciu importu widać jego wiersze **tylko tego klienta**:
 numer wiersza w arkuszu, osobę, numer z importu, zamówienie docelowe, MD,
 kwotę (tylko z dostępem do finansów) i status — **Zaksięgowano**, **Do
-weryfikacji** z powodem albo **Błąd**. Wiersz, w którym numer z importu różni
+weryfikacji** z powodem albo **Błąd**. Wiersz, który nie trafił na żadne
+zamówienie, widać tu tylko wtedy, gdy osoba z arkusza ma linię w zamówieniu
+tego klienta, a liczba w „Uwagach” jest numerem jego zamówienia. Wiersz, w którym numer z importu różni
 się od zamówienia docelowego, jest wyróżniony („inny numer") — tylko gdy liczba
 w „Uwagach” jest numerem zamówienia tego klienta (tą samą regułą co import;
 „delegacja 445” czy rok nie są numerem). Rozstrzyganie
@@ -1497,9 +1499,12 @@ Korekta pozostałości to osobna operacja opisana na końcu tej sekcji.
   więc MD za sierpień z numerem zamówienia wystawionego 3 września trafiają na
   to zamówienie. Za
   numer uznawany jest ciąg cyfr znany jako numer zamówienia **klienta tej
-  osoby**, a u klientów z numerami z samych cyfr (BIK, Polkomtel) także każdy
-  ciąg dłuższy niż 6 cyfr. Dopisek „w tym delegacja 318", rok, NIP czy numer
-  zamówienia innego klienta nie blokuje dopasowania po nazwisku. Ponowny
+  osoby**, a u klientów z numerami z samych cyfr (BIK, Polkomtel), u których
+  osoba ma zamówienie MD, także każdy ciąg dłuższy niż 6 cyfr. Klient, u
+  którego osoba ma tylko zamówienie kosztowe, wiąże wyłącznie znanym numerem
+  swojego zamówienia. Dopisek „w tym delegacja 318", rok, NIP czy numer
+  zamówienia klienta, u którego ta osoba nie ma zamówienia, nie blokuje
+  dopasowania po nazwisku. Ponowny
   import miesiąca z numerem cofa nadwyżkę przeniesioną wcześniej na
   przedłużenie — te same MD nie liczą się dwa razy. Numer z samych cyfr jest
   porównywany **bez zer wiodących** — Excel zapisuje „0087020188" jako
