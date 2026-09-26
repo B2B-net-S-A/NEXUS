@@ -39,12 +39,13 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Optional
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduling import business_today
 from app.models.activity import Activity
+from app.models.b2b_contract_document import B2BContractDocument
 from app.models.b2b_generated_contract import B2BGeneratedContract
 from app.models.b2b_generated_contract_status_event import (
     B2BGeneratedContractStatusEvent,
@@ -356,6 +357,89 @@ def _snapshot(
     }
 
 
+DOCUMENT_DISSOLUTION_KEY = "document_dissolution"
+_DISSOLUTION_DOCUMENT_TYPES = (
+    "termination_agreement",
+    "termination_agreement_mandate",
+    "termination_notice",
+)
+
+
+def _kept_snapshot(row: B2BGeneratedContract, contract: Contract) -> dict:
+    """Migawka wiersza rozwiązanego podpisanym dokumentem NIEZALEŻNIE od końca
+    projektu (projekt skończył się wcześniej). Stan „sprzed” to stan po
+    rozwiązaniu: „Cofnij zakończenie” projektu nie wskrzesza umowy, którą
+    strony rozwiązały dokumentem (runda 7, R7-V4-6). ``contract_id`` zostaje,
+    bo „Powrót po przerwie” zakłada po nim nową umowę."""
+    return {**_snapshot(row, contract), DOCUMENT_DISSOLUTION_KEY: True}
+
+
+async def _independent_dissolution_last_day(
+    db: AsyncSession, row: B2BGeneratedContract
+) -> Optional[date]:
+    """Ostatni dzień umowy z rozwiązania podpisanego NIEZALEŻNIE od końca projektu.
+
+    Znacznik czekającego rozwiązania niesie tryb, stronę i datę podpisu, ale
+    nie ostatni dzień umowy — ten zna dokument (``values.termination_date``)
+    albo wpis wypowiedzenia Partnera. Liczy się wyłącznie NAJNOWSZE rozwiązanie
+    tego wiersza i tylko wtedy, gdy nie zmieniło kontraktu
+    (``contract_already_ended`` w podsumowaniu skutków) — projekt kończył się
+    wcześniej niż umowa (runda 7, R7-V4-1). Rozwiązanie, które samo zakończyło
+    kontrakt, zostaje przy dotychczasowej regule (data końca kontraktu,
+    „Cofnij zakończenie” przywraca umowę)."""
+    found: list[tuple[object, Optional[date], bool]] = []
+    doc = (
+        await db.execute(
+            select(
+                B2BContractDocument.effect_applied_at,
+                B2BContractDocument.render_payload,
+                B2BContractDocument.effect_summary,
+            )
+            .where(
+                B2BContractDocument.parent_generated_contract_id == row.id,
+                B2BContractDocument.effect_applied_at.isnot(None),
+                B2BContractDocument.document_type.in_(_DISSOLUTION_DOCUMENT_TYPES),
+            )
+            .order_by(B2BContractDocument.effect_applied_at.desc())
+            .limit(1)
+        )
+    ).first()
+    if doc is not None:
+        values = (doc.render_payload or {}).get("values") or {}
+        found.append(
+            (
+                doc.effect_applied_at,
+                _parse_day(values.get("termination_date")),
+                bool((doc.effect_summary or {}).get("contract_already_ended")),
+            )
+        )
+    notice = (
+        await db.execute(
+            select(Activity.created_at, Activity.details)
+            .where(
+                Activity.entity_type == "b2b_generated_contract",
+                Activity.entity_id == row.id,
+                Activity.action == "partner_notice_registered",
+            )
+            .order_by(Activity.created_at.desc())
+            .limit(1)
+        )
+    ).first()
+    if notice is not None:
+        details = notice.details or {}
+        found.append(
+            (
+                notice.created_at,
+                _parse_day(details.get("termination_date")),
+                bool(details.get("contract_already_ended")),
+            )
+        )
+    if not found:
+        return None
+    _at, last_day, independent = max(found, key=lambda item: item[0])
+    return last_day if independent else None
+
+
 def _record(
     db: AsyncSession,
     row: B2BGeneratedContract,
@@ -422,6 +506,7 @@ async def sync_generator_after_contract_ended(
         restore = row.termination_restore or {}
         if restore.get("contract_id") == contract.id:
             continue
+        kept = False
         old_status = row.contract_status
         pending = pending_dissolution(row) if termination is None else None
         row_details = details
@@ -440,7 +525,17 @@ async def sync_generator_after_contract_ended(
             # kto je zainicjował. Tryb, strona i data podpisu są już na wierszu.
             snapshot = _snapshot(row, contract, without_marker=True)
             row.contract_status = "closed"
-            row.closure_date = contract.terminated_at or project_end
+            ended_on = contract.terminated_at or project_end
+            # Runda 7 (R7-V4-1): dokument podpisany przy zaplanowanym końcu
+            # projektu rozwiązuje umowę PÓŹNIEJ niż kończy się projekt —
+            # umowa kończy się ostatnim dniem z dokumentu, a „Cofnij
+            # zakończenie” projektu jej nie wskrzesza.
+            signed_last = await _independent_dissolution_last_day(db, row)
+            if signed_last is not None and signed_last > ended_on:
+                row.closure_date = signed_last
+                kept = True
+            else:
+                row.closure_date = ended_on
             row_details = {
                 **details,
                 "agreement_terminated": True,
@@ -471,7 +566,7 @@ async def sync_generator_after_contract_ended(
         row.closure_reason = reason
         row.closure_reason_other = reason_other
         row.project_end_date = project_end
-        row.termination_restore = snapshot
+        row.termination_restore = _kept_snapshot(row, contract) if kept else snapshot
         # Wiersz dopasowany po osobie (umowa z Excela, sprzed automatyzacji
         # podpisu) dostaje link do kontraktu w tym samym zapisie — tylko gdy
         # go nie ma (`_rows_for_contract` bierze wyłącznie umowy TEJ osoby).
@@ -502,6 +597,7 @@ async def close_dissolved_row(
     party: Optional[str],
     signed_on: Optional[date],
     actor_id: Optional[int],
+    independent_of_contract_end: bool = False,
 ) -> bool:
     """Domknij wiersz rozwiązany podpisanym dokumentem, jeśli nikt inny tego nie zrobi.
 
@@ -542,7 +638,12 @@ async def close_dissolved_row(
     row.termination_signed_on = signed_on
     if contract is not None:
         row.project_end_date = contract.end_date or last_day
-        row.termination_restore = snapshot
+        # Runda 7 (R7-V4-6): projekt skończył się wcześniej, a dokument tylko
+        # rozwiązał umowę — „Cofnij zakończenie” projektu nie wraca do stanu
+        # sprzed zawieszenia (i nie kasuje podpisanego rozwiązania).
+        row.termination_restore = (
+            _kept_snapshot(row, contract) if independent_of_contract_end else snapshot
+        )
     details: dict = {
         "contract_id": contract.id if contract is not None else None,
         "agreement_terminated": True,
@@ -623,7 +724,14 @@ async def _clear_pending_markers(db: AsyncSession, contract: Contract) -> int:
                 .where(
                     B2BGeneratedContract.contract_id == contract.id,
                     B2BGeneratedContract.termination_mode.isnot(None),
-                    B2BGeneratedContract.termination_restore.is_(None),
+                    # Runda 7 (R7-X1-1): wiersze zapisane przed
+                    # `none_as_null=True` niosą JSON `null`, którego `IS NULL`
+                    # nie widzi — znacznik zostawał po „Cofnij zakończenie”.
+                    or_(
+                        B2BGeneratedContract.termination_restore.is_(None),
+                        func.jsonb_typeof(B2BGeneratedContract.termination_restore)
+                        == "null",
+                    ),
                     B2BGeneratedContract.contract_status.in_(_DISSOLVABLE),
                 )
                 .order_by(B2BGeneratedContract.id.asc())
@@ -662,6 +770,11 @@ async def undo_contract_termination(
     )
     restored = 0
     for row in await _rows_changed_by(db, contract):
+        if (row.termination_restore or {}).get(DOCUMENT_DISSOLUTION_KEY):
+            # Umowa rozwiązana podpisanym dokumentem — zostaje „Zakończona”
+            # (runda 7, R7-V4-6); zdejmujemy tylko powiązanie z tym końcem.
+            row.termination_restore = None
+            continue
         old_status = row.contract_status
         _restore_row(row)
         _record(
