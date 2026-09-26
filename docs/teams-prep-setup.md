@@ -179,6 +179,16 @@ a następnie sprawdź `transcript_status=fetched` i tekst transkryptu w NEXUS.
 Sam fakt utworzenia zaproszenia nie potwierdza nagrywania ani pobrania
 transkryptu.
 
+## Odczyt kontrolnego prepu z 26.09.2026
+
+Akcja `teams-prep-session-audit` w Coolify Ops działa tylko z `main` i tylko
+odczytuje nazwany test właściciela w kalendarzu Klaudii Uliasz. Weryfikuje
+unikalność wydarzenia, kontrolnych uczestników, opcje nagrywania i rzeczywistą
+treść VTT. Wynik zawiera kody HTTP i liczbę wypowiedzi; nie zawiera treści,
+identyfikatorów spotkań, linków ani sekretów. Pusta lista lub pusty VTT nie
+przechodzą testu. Akcja nie tworzy ani nie odwołuje spotkań i nie zmienia
+uprawnień. Nagranie wideo i import do NEXUS mają osobne dowody odbioru.
+
 ## Czego NEXUS nie kasuje
 
 Nagranie i transkrypt zostają też w OneDrive i Teams organizatora. Usunięcie

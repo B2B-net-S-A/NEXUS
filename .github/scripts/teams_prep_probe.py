@@ -18,6 +18,119 @@ TENANT = "e277180c-b58a-418c-b362-bb89ab0b1301"
 CLIENT = "b6051b61-559e-4482-841e-0cc8869a4e2e"
 ORGANIZER = "ewa.kalata@b2bnetwork.pl"
 EXCLUDED = "artur.twardowski@b2bnetwork.pl"
+SESSION_ORGANIZER = "klaudia.uliasz@b2bnetwork.pl"
+SESSION_SUBJECT = (
+    "Prep 1: NEXUS TEST-M365-20260926 — "
+    "[NEXUS TEST M365 2026-09-26] Kontrola prepu Teams"
+)
+
+
+def audit_session(graph, opener, token, result):
+    """Read only the named owner test; never emit URLs, IDs or spoken content."""
+    result.update(session_stage="find_test_event", passed=False)
+    query = urllib.parse.urlencode(
+        {
+            "startDateTime": "2026-09-26T14:00:00Z",
+            "endDateTime": "2026-09-26T14:31:00Z",
+            "$filter": "subject eq '" + SESSION_SUBJECT.replace("'", "''") + "'",
+            "$select": "id,subject,onlineMeeting,attendees",
+        }
+    )
+    path = "/users/" + SESSION_ORGANIZER
+    status, data = graph(path + "/calendarView?" + query)
+    result["session_calendar_http"] = status
+    events = [e for e in data.get("value", []) if e.get("subject") == SESSION_SUBJECT]
+    if len(events) != 1 or data.get("@odata.nextLink"):
+        result["failed_stage"] = "test_event_not_unique"
+        return result
+    event = events[0]
+    addresses = {
+        str(a.get("emailAddress", {}).get("address", "")).lower()
+        for a in event.get("attendees", [])
+    }
+    if not addresses or not addresses.issubset({EXCLUDED, SESSION_ORGANIZER}):
+        result["failed_stage"] = "test_attendees_mismatch"
+        return result
+    join = (event.get("onlineMeeting") or {}).get("joinUrl")
+    if not join:
+        result["failed_stage"] = "test_join_missing"
+        return result
+    result["session_stage"] = "find_online_meeting"
+    _, organizer = graph(path + "?$select=id")
+    aad_path = "/users/" + urllib.parse.quote(organizer["id"], safe="")
+    query = urllib.parse.urlencode(
+        {"$filter": "JoinWebUrl eq '" + join.replace("'", "''") + "'"}
+    )
+    _, data = graph(aad_path + "/onlineMeetings?" + query)
+    meetings = data.get("value", [])
+    if len(meetings) != 1:
+        result["failed_stage"] = "test_meeting_not_unique"
+        return result
+    meeting = meetings[0]
+    result["record_automatically"] = meeting.get("recordAutomatically") is True
+    result["allow_transcription"] = meeting.get("allowTranscription") is True
+    meeting_path = (
+        aad_path + "/onlineMeetings/" + urllib.parse.quote(meeting["id"], safe="")
+    )
+    result["session_stage"] = "list_session_transcripts"
+    status, data = graph(meeting_path + "/transcripts")
+    result["transcripts_http"] = status
+    refs = data.get("value", [])
+    if data.get("@odata.nextLink"):
+        result["failed_stage"] = "transcript_list_incomplete"
+        return result
+    result["transcript_count"] = len(refs)
+    if not refs:
+        result["failed_stage"] = "transcript_not_ready"
+        return result
+    result["session_stage"] = "read_session_transcripts"
+    content_bytes = 0
+    cue_count = 0
+    for ref in refs:
+        url = (
+            "https://graph.microsoft.com/v1.0"
+            + meeting_path
+            + "/transcripts/"
+            + urllib.parse.quote(ref["id"], safe="")
+            + "/content?$format=text/vtt"
+        )
+        request = urllib.request.Request(
+            url, headers={"Authorization": "Bearer " + token}
+        )
+        try:
+            with opener(request, timeout=25) as response:
+                raw = response.read()
+        except urllib.error.HTTPError as error:
+            raise ProbeError(error.code) from None
+        except Exception:
+            raise ProbeError() from None
+        text = raw.decode("utf-8", errors="replace")
+        if not text.lstrip().startswith("WEBVTT"):
+            result["failed_stage"] = "transcript_format_invalid"
+            return result
+        content_bytes += len(raw)
+        # A cue must contain speech, rather than only its timestamps/tags.
+        in_cue = False
+        speech = []
+        for line in text.splitlines() + [""]:
+            if " --> " in line:
+                in_cue = True
+                speech = []
+            elif not line.strip():
+                if in_cue and " ".join(speech).strip():
+                    cue_count += 1
+                in_cue = False
+            elif in_cue:
+                speech.append(re.sub(r"<[^>]+>", "", line).strip())
+    result.update(
+        transcript_content_bytes=content_bytes,
+        spoken_cue_count=cue_count,
+        transcript_generated_verified=cue_count > 0,
+        passed=cue_count > 0,
+    )
+    if not result["passed"]:
+        result["failed_stage"] = "transcript_empty"
+    return result
 
 
 class ProbeError(Exception):
@@ -40,6 +153,7 @@ def probe(
     rows,
     *,
     write=False,
+    session=False,
     opener=urllib.request.urlopen,
     sleep=time.sleep,
     identity="local",
@@ -79,6 +193,8 @@ def probe(
         return fetch(request, opener)
 
     try:
+        if write and session:
+            raise ProbeError()
         if (
             values.get("TEAMS_PREP_CLIENT_ID") != CLIENT
             or (values.get("M365_MAIL_TENANT_ID") or values.get("M365_TENANT_ID"))
@@ -112,6 +228,10 @@ def probe(
         result["excluded_calendar_http"] = denied
         if status != 200 or denied != 403:
             raise ProbeError()
+        if session:
+            stage = "session_audit"
+            audit_session(graph, opener, token, result)
+            return result
         if not write:
             result["passed"] = True
             return result
@@ -225,6 +345,7 @@ def main():
         result = probe(
             rows,
             write=os.environ.get("TEAMS_MEETING_PROBE") == "1",
+            session=os.environ.get("TEAMS_SESSION_AUDIT") == "1",
             identity=os.environ.get("GITHUB_RUN_ID", "local")
             + ":"
             + os.environ.get("GITHUB_RUN_ATTEMPT", "1"),
