@@ -196,6 +196,61 @@ def _word_in_text(word: str, folded_text: str) -> bool:
     return re.search(pattern, folded_text) is not None
 
 
+# Runda 8 (R8-N12-2): cytat stawki wybiera model i może go uciąć tuż przed
+# słowem, które zmienia znaczenie kwoty („150 zł/h” z „150 zł/h brutto”,
+# „do 150 zł/h lub 1200 zł/MD”). Gramatyka `pln_hourly_bounds` widzi tylko
+# cytat, więc sąsiedztwo cytatu w tej samej linii maila sprawdzamy osobno.
+# Jednostki czasu tylko po liczbie/walucie — „start za miesiąc” nie jest
+# stawką miesięczną.
+_RATE_CONTEXT_CHARS = 60
+_RATE_CONTEXT_CONFLICT = re.compile(
+    r"(?<![0-9a-z])(?:brutto|gross|md|man ?-?days?|dniowk[a-z]*)(?![0-9a-z])"
+    r"|(?:[0-9]|pln|zl) ?(?:/|za|per|na) ?(?:1 ?)?"
+    r"(?:dzien|d|day|mies[a-z]*|m-c|mc|month)(?![0-9a-z])"
+    r"|(?:[0-9]|pln|zl) ?(?:dziennie|miesiecznie|daily|monthly)(?![0-9a-z])"
+    r"|(?<![0-9a-z])(?:eur|euro|usd|chf|gbp)(?![0-9a-z])|[€$£]"
+)
+
+
+def rate_quote_context_conflict(quote: str, source_text: str) -> Optional[str]:
+    """Słowo z sąsiedztwa cytatu stawki, które przeczy „PLN/h netto”, albo None.
+
+    Okno to linia źródła, w której stoi cytat, przycięta do
+    ``_RATE_CONTEXT_CHARS`` znaków z każdej strony. Każde wystąpienie cytatu
+    jest sprawdzane — wystarczy jedno podejrzane, żeby budżet wpisał człowiek.
+    """
+    needle = _fold(quote)
+    if not needle:
+        return None
+    windows: list[str] = []
+    for line in str(source_text or "").splitlines():
+        folded_line = _fold(line)
+        start = folded_line.find(needle)
+        while start >= 0:
+            end = start + len(needle)
+            windows.append(
+                folded_line[max(0, start - _RATE_CONTEXT_CHARS) : start]
+                + " "
+                + folded_line[end : end + _RATE_CONTEXT_CHARS]
+            )
+            start = folded_line.find(needle, end)
+    if not windows:  # cytat łamie linię — okno z całego tekstu
+        folded_text = _fold(str(source_text or ""))
+        start = folded_text.find(needle)
+        if start >= 0:
+            end = start + len(needle)
+            windows.append(
+                folded_text[max(0, start - _RATE_CONTEXT_CHARS) : start]
+                + " "
+                + folded_text[end : end + _RATE_CONTEXT_CHARS]
+            )
+    for window in windows:
+        hit = _RATE_CONTEXT_CONFLICT.search(window)
+        if hit:
+            return hit.group(0).strip()
+    return None
+
+
 def _technology_keys() -> set[str]:
     return {
         key
@@ -425,7 +480,15 @@ def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:
     rate_note: Optional[str] = None
     if rate_quote and not _in_text(rate_quote, folded_text):
         rate_quote = None
-    if rate_quote:
+    context_conflict = (
+        rate_quote_context_conflict(rate_quote, request_text) if rate_quote else None
+    )
+    if rate_quote and context_conflict:
+        rate_note = (
+            f"W requeście obok „{rate_quote}” jest „{context_conflict}” — to nie "
+            "jest stawka w PLN/h netto. Wpisz budżet ręcznie."
+        )
+    elif rate_quote:
         # Audyt 22.09 r2 (REC-07): tylko cytat z JAWNĄ walutą i jednostką
         # godzinową (`pln_hourly_bounds`). `document_rate` przyjmuje też gołą
         # liczbę („1100”), którą rekruter pisze równie często jako stawkę za MD
