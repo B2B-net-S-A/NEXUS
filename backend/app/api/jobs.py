@@ -11,6 +11,7 @@ from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import (
     and_,
     case,
+    exists,
     func,
     not_,
     nulls_last,
@@ -20,6 +21,7 @@ from sqlalchemy import (
     tuple_,
     update as sql_update,
 )
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -28,6 +30,7 @@ from app.services.job_portals.service import (
     has_live_postings,
 )
 from app.core.cache import cache_invalidate
+from app.services.critical_events import audited_deletion
 from app.core.database import get_db
 from app.core.scheduling import business_today
 from app.models.candidate import Candidate
@@ -637,6 +640,16 @@ def jobs_open_only_clause():
     return Job.status != JobStatus.closed
 
 
+def jobs_mine_scope_clause(current_user: User):
+    """Zakres „Moje” listy ``/jobs`` — MOJE i NIEZAMKNIĘTE.
+
+    Runda 7 (R7-N8-1, decyzja Artura 26.09.2026): zamknięte rekrutacje
+    (archiwum z Traffita, 0377/0378) widać wyłącznie w „Wszystkie”. Lista
+    dostaje ``mine`` + ``open_only``; liczniki zakresu „Moje” liczą tym.
+    """
+    return and_(jobs_mine_clause(current_user), jobs_open_only_clause())
+
+
 def jobs_needs_sourcing_clause(value: bool = True):
     """„Potrzebny search" — flaga postawiona przez Delivery Leada."""
     return Job.needs_sourcing.is_(value)
@@ -683,14 +696,51 @@ def _live_work_assignment_job_ids(user_ids: Optional[list[int]] = None):
     return subq
 
 
+def _owner_is_working_clause():
+    """Prowadzący rekrutacji (``jobs.recruiter_id``) też „pracuje” nad nią.
+
+    Runda 7 (R7-N8-2): przypisania ``job_work_assignments`` powstają tylko
+    w puli przydziału („Szukamy”) i przy włączonej pętli — bez tego prowadzący
+    rekrutacji „Do przejrzenia” albo „Klient milczy” (a przy wyłączonym
+    przydziale: każdej) wypadał do „Nikt nie pracuje”. Liczy się aktywne
+    konto; prowadzący zdjęty RĘCZNIE z pulpitu w bieżącym stanie requestu nie
+    wraca (lustro ``request_allocation._blocked``). Klauzula skorelowana
+    z zewnętrznym ``Job`` — nie podzapytanie po ``jobs``.
+    """
+    from app.models.job_work_assignment import JobWorkAssignment  # noqa: PLC0415
+
+    active_owner = exists(
+        select(User.id).where(User.id == Job.recruiter_id, User.is_active.is_(True))
+    )
+    released_manually = exists(
+        select(JobWorkAssignment.id).where(
+            JobWorkAssignment.job_id == Job.id,
+            JobWorkAssignment.user_id == Job.recruiter_id,
+            JobWorkAssignment.state == "released",
+            JobWorkAssignment.release_reason == "manual",
+            or_(
+                Job.work_state_changed_at.is_(None),
+                JobWorkAssignment.released_at >= Job.work_state_changed_at,
+            ),
+        )
+    )
+    return and_(Job.recruiter_id.is_not(None), active_owner, not_(released_manually))
+
+
 def jobs_worked_by_clause(user_ids: list[int]):
-    """„Kto pracuje” — rekrutacje z żywym przypisaniem którejś z osób."""
-    return Job.id.in_(_live_work_assignment_job_ids(user_ids))
+    """„Kto pracuje” — żywe przypisanie którejś z osób albo jej prowadzenie."""
+    return or_(
+        Job.id.in_(_live_work_assignment_job_ids(user_ids)),
+        and_(Job.recruiter_id.in_(user_ids), _owner_is_working_clause()),
+    )
 
 
 def jobs_nobody_working_clause():
-    """„Nikt nie pracuje” — rekrutacje bez żadnego żywego przypisania."""
-    return Job.id.not_in(_live_work_assignment_job_ids())
+    """„Nikt nie pracuje” — bez żywego przypisania i bez pracującego prowadzącego."""
+    return and_(
+        Job.id.not_in(_live_work_assignment_job_ids()),
+        not_(_owner_is_working_clause()),
+    )
 
 
 def jobs_deadline_clauses(
@@ -1502,7 +1552,7 @@ async def jobs_quick_counts(
             select(
                 # Cały rejestr — licznik segmentu „Wszystkie" obok „Moje".
                 func.count().label("all_jobs"),
-                func.count().filter(jobs_mine_clause(current_user)).label("mine"),
+                func.count().filter(jobs_mine_scope_clause(current_user)).label("mine"),
                 func.count().filter(jobs_open_only_clause()).label("open"),
                 func.count()
                 .filter(jobs_needs_sourcing_clause())
@@ -1540,10 +1590,9 @@ async def jobs_quick_counts(
     # z parametrami w SELECT i GROUP BY dostałby dwa różne zestawy `$n`
     # i Postgres nie uznałby ich za to samo wyrażenie.
     # „Nikogo nie wysłano” — ta sama liczba osób co filtr ``max_sent=0``;
-    # zamknięte liczymy tylko, gdy są „moje” (zakres „Moje” obejmuje zamknięte).
+    # oba zakresy z liczbami („Otwarte”, „Moje”) są niezamknięte (R7-N8-1).
     sent_ids = select(Job.id).where(
-        jobs_register_base_clause(),
-        or_(jobs_open_only_clause(), jobs_mine_clause(current_user)),
+        jobs_register_base_clause(), jobs_open_only_clause()
     )
     sent_sq = jobs_sent_to_client_subquery(sent_ids)
     overdue_until = overdue_to if overdue_to is not None else today - timedelta(days=1)
@@ -1551,7 +1600,7 @@ async def jobs_quick_counts(
         select(
             _sim.request_status_expr(status_sq).label("status"),
             _sim.request_stage_expr(status_sq).label("stage"),
-            jobs_mine_clause(current_user).label("is_mine"),
+            jobs_mine_scope_clause(current_user).label("is_mine"),
             jobs_open_only_clause().label("is_open"),
             and_(*jobs_deadline_clauses(None, overdue_until)).label("overdue"),
             jobs_nobody_working_clause().label("nobody_working"),
@@ -2221,6 +2270,10 @@ async def update_job(
     sent = data.model_fields_set
     tac_changed = "tac_id" in sent and data.tac_id != job.tac_id
     client_changed = "client_id" in sent and data.client_id != job.client_id
+    hiring_manager_changed = (
+        "hiring_manager_contact_id" in sent
+        and data.hiring_manager_contact_id != job.hiring_manager_contact_id
+    )
     delivery_lead_changed = (
         "delivery_lead_id" in sent and data.delivery_lead_id != job.delivery_lead_id
     )
@@ -2324,12 +2377,16 @@ async def update_job(
     # Hiring manager musi być kontaktem klienta rekrutacji. Jawnie wskazany
     # z innej firmy = 422; zmiana klienta zdejmuje HM poprzedniego klienta,
     # zamiast zostawić na rekrutacji osobę z cudzej firmy (25.09.2026).
+    # Runda 7 (R7-X1-5): po zmianie WARTOŚCI, nie po kluczu żądania — okno
+    # edycji odsyła `client_id` i HM przy każdym zapisie, więc HM z innej firmy
+    # (np. po przeniesieniu rekrutacji między klientami) znikał razem z wetem
+    # przy zapisie samego tytułu.
     if job.hiring_manager_contact_id is not None and (
-        {"hiring_manager_contact_id", "client_id"} & set(updates)
+        hiring_manager_changed or client_changed
     ):
         from app.services.job_hiring_manager import assert_contact_of_client
 
-        if "hiring_manager_contact_id" in updates:
+        if hiring_manager_changed:
             await assert_contact_of_client(
                 db,
                 contact_id=job.hiring_manager_contact_id,
@@ -2482,102 +2539,176 @@ async def update_job(
 async def delete_job(
     job_id: int, current_user: DeliveryLeadPlus, db: AsyncSession = Depends(get_db)
 ):
-    result = await db.execute(select(Job).where(Job.id == job_id).with_for_update())
-    job = result.scalar_one_or_none()
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-    await _ensure_delivery_lead_job_visible(job, current_user, db)
-    # 0381: kaskada skasowałaby wiersz publikacji, a ogłoszenie zostałoby na
-    # portalu bez możliwości zamknięcia z NEXUSA.
-    if await has_live_postings(db, job_id):
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "code": "job_has_live_postings",
-                "message": "Najpierw wycofaj ogłoszenia z portali — rekrutacja "
-                "jest opublikowana na zewnątrz.",
-            },
-        )
-    process_rows = int(
-        await db.scalar(
-            select(func.count(RecruitmentProcess.id)).where(
-                RecruitmentProcess.job_id == job_id,
-            )
-        )
-        or 0
-    )
-    stage_rows = int(
-        await db.scalar(
-            select(func.count(CandidateStage.id)).where(CandidateStage.job_id == job_id)
-        )
-        or 0
-    )
-    # Trzy tabele priority trzymają FK do jobs z ON DELETE RESTRICT (migracja 0200),
-    # a Job nie ma do nich relacji, więc db.delete(job) nie kasuje dzieci — bez tego
-    # zliczenia Postgres wywalał ForeignKeyViolation → nieobsłużone 500 zamiast 409.
-    priority_demand_rows = int(
-        await db.scalar(
-            select(func.count(RecruitmentPriorityDemand.id)).where(
-                RecruitmentPriorityDemand.job_id == job_id
-            )
-        )
-        or 0
-    )
-    priority_assignment_rows = int(
-        await db.scalar(
-            select(func.count(RecruitmentPriorityAssignment.id)).where(
-                RecruitmentPriorityAssignment.job_id == job_id
-            )
-        )
-        or 0
-    )
-    priority_exception_rows = int(
-        await db.scalar(
-            select(func.count(RecruitmentPriorityException.id)).where(
-                RecruitmentPriorityException.job_id == job_id
-            )
-        )
-        or 0
-    )
-    if (
-        process_rows
-        or stage_rows
-        or priority_demand_rows
-        or priority_assignment_rows
-        or priority_exception_rows
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "code": "PRIORITY_CARRY_OVER_EXISTS",
-                "job_id": job_id,
-                "process_rows": process_rows,
-                "candidate_stage_rows": stage_rows,
-                "priority_demand_rows": priority_demand_rows,
-                "priority_assignment_rows": priority_assignment_rows,
-                "priority_exception_rows": priority_exception_rows,
-                "message": (
-                    "Request ma historię kandydatów lub otwarte carry-over. "
-                    "Zamknij request zamiast usuwać jego audytowalny pipeline."
-                ),
-            },
-        )
-    db.add(
-        Activity(
-            entity_type="job",
-            entity_id=job_id,
-            action="deleted",
-            user_id=current_user.id,
-        )
-    )
-    await maybe_close_job_contact_opportunities(
+    # Runda 7 (R7-N8-3): usunięcie rekrutacji trafia do Historii zdarzeń —
+    # także odmowa. Do 26.09 ślad zostawał tylko w ``activities``.
+    async with audited_deletion(
         db,
-        job_id=job_id,
-        actor_user_id=current_user.id,
-        reason="job_deleted",
-        occurred_at=datetime.now(timezone.utc),
-    )
-    await db.delete(job)
+        actor=current_user,
+        event_type="job.delete",
+        entity_type="job",
+        entity_id=job_id,
+    ) as audit:
+        result = await db.execute(select(Job).where(Job.id == job_id).with_for_update())
+        job = result.scalar_one_or_none()
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        audit.describe(
+            label=f"Rekrutacja #{job.id} — {job.title}", client_id=job.client_id
+        )
+        await _ensure_delivery_lead_job_visible(job, current_user, db)
+        # Runda 7 (R7-N8-3): zamknięta rekrutacja jest mianownikiem hit ratio Ligi
+        # DL (``closed_at`` w kwartale) — jej usunięcie podnosiłoby wskaźnik, który
+        # wypłaca nagrodę. Zamknięta zostaje w archiwum.
+        if job.status == JobStatus.closed:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "job_is_closed",
+                    "message": "Zamkniętej rekrutacji nie usuwa się — zostaje "
+                    "w archiwum i w statystykach.",
+                },
+            )
+        # Runda 7 (R7-N8-4): rekrutację z Traffita nocny import założyłby od nowa
+        # (upsert po ``external_id``) pod nowym id — usunięcie byłoby pozorne.
+        if job.external_source == "traffit":
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "job_from_traffit",
+                    "message": "Rekrutacji z Traffita nie usuwa się — wróciłaby "
+                    "z nocnym importem. Zamknij ją zamiast usuwać.",
+                },
+            )
+        # 0381: kaskada skasowałaby wiersz publikacji, a ogłoszenie zostałoby na
+        # portalu bez możliwości zamknięcia z NEXUSA.
+        if await has_live_postings(db, job_id):
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "job_has_live_postings",
+                    "message": "Najpierw wycofaj ogłoszenia z portali — rekrutacja "
+                    "jest opublikowana na zewnątrz.",
+                },
+            )
+        process_rows = int(
+            await db.scalar(
+                select(func.count(RecruitmentProcess.id)).where(
+                    RecruitmentProcess.job_id == job_id,
+                )
+            )
+            or 0
+        )
+        stage_rows = int(
+            await db.scalar(
+                select(func.count(CandidateStage.id)).where(
+                    CandidateStage.job_id == job_id
+                )
+            )
+            or 0
+        )
+        # Trzy tabele priority trzymają FK do jobs z ON DELETE RESTRICT (migracja 0200),
+        # a Job nie ma do nich relacji, więc db.delete(job) nie kasuje dzieci — bez tego
+        # zliczenia Postgres wywalał ForeignKeyViolation → nieobsłużone 500 zamiast 409.
+        priority_demand_rows = int(
+            await db.scalar(
+                select(func.count(RecruitmentPriorityDemand.id)).where(
+                    RecruitmentPriorityDemand.job_id == job_id
+                )
+            )
+            or 0
+        )
+        priority_assignment_rows = int(
+            await db.scalar(
+                select(func.count(RecruitmentPriorityAssignment.id)).where(
+                    RecruitmentPriorityAssignment.job_id == job_id
+                )
+            )
+            or 0
+        )
+        priority_exception_rows = int(
+            await db.scalar(
+                select(func.count(RecruitmentPriorityException.id)).where(
+                    RecruitmentPriorityException.job_id == job_id
+                )
+            )
+            or 0
+        )
+        if (
+            process_rows
+            or stage_rows
+            or priority_demand_rows
+            or priority_assignment_rows
+            or priority_exception_rows
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "PRIORITY_CARRY_OVER_EXISTS",
+                    "job_id": job_id,
+                    "process_rows": process_rows,
+                    "candidate_stage_rows": stage_rows,
+                    "priority_demand_rows": priority_demand_rows,
+                    "priority_assignment_rows": priority_assignment_rows,
+                    "priority_exception_rows": priority_exception_rows,
+                    "message": (
+                        "Request ma historię kandydatów lub otwarte carry-over. "
+                        "Zamknij request zamiast usuwać jego audytowalny pipeline."
+                    ),
+                },
+            )
+        # Runda 7 (R7-N8-5): ``calendar_events.job_id`` nie ma ON DELETE, a ``Job``
+        # nie ma do nich relacji — bez tego zliczenia DELETE kończył się
+        # ForeignKeyViolation → 500 zamiast czytelnej odmowy.
+        from app.models.calendar_event import CalendarEvent  # noqa: PLC0415
+
+        calendar_rows = int(
+            await db.scalar(
+                select(func.count(CalendarEvent.id)).where(
+                    CalendarEvent.job_id == job_id
+                )
+            )
+            or 0
+        )
+        if calendar_rows:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "job_has_calendar_events",
+                    "calendar_event_rows": calendar_rows,
+                    "message": "Rekrutacja ma spotkania w kalendarzu. Zamknij ją "
+                    "zamiast usuwać albo najpierw usuń spotkania.",
+                },
+            )
+        db.add(
+            Activity(
+                entity_type="job",
+                entity_id=job_id,
+                action="deleted",
+                user_id=current_user.id,
+            )
+        )
+        await maybe_close_job_contact_opportunities(
+            db,
+            job_id=job_id,
+            actor_user_id=current_user.id,
+            reason="job_deleted",
+            occurred_at=datetime.now(timezone.utc),
+        )
+        await db.delete(job)
+        try:
+            await db.flush()
+        except IntegrityError:
+            # Inne tabele bez ON DELETE (np. historia dopasowań, historia stawek)
+            # — odmowa zamiast nieobsłużonego 500.
+            await db.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "job_referenced",
+                    "message": "Rekrutację wskazują inne zapisy w systemie. "
+                    "Zamknij ją zamiast usuwać.",
+                },
+            ) from None
     await db.commit()
 
 

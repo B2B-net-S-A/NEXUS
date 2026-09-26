@@ -247,7 +247,7 @@ function seededClient(): QueryClient {
     },
   });
   qc.setQueryData(
-    jobsListQueryKey({ ...BASE, mine: true, openOnly: false, sort: "attention" }),
+    jobsListQueryKey({ ...BASE, mine: true, openOnly: true, sort: "attention" }),
     page(MINE),
   );
   qc.setQueryData(

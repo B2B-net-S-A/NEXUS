@@ -538,7 +538,8 @@ describe("JobsListV2 — zakres „Moje | Wszystkie” i sortowanie", () => {
   it("bez parametru w adresie startuje w „Moich”, posortowana wg „Wymaga uwagi”", async () => {
     renderJobs();
     await waitFor(() => expect(jobsCalls()).toHaveLength(1));
-    expect(latestParams()).toMatchObject({ mine: true, sort: "attention" });
+    // „Moje” = moje NIEZAMKNIĘTE (decyzja 26.09.2026) — archiwum tylko we „Wszystkich”.
+    expect(latestParams()).toMatchObject({ mine: true, open_only: true, sort: "attention" });
     expect(window.location.search).toBe("");
   });
 

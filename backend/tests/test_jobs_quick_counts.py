@@ -146,7 +146,10 @@ async def test_quick_counts_agree_with_the_list_the_same_filter_returns(
         expected = {
             # Segment „Wszystkie" obok „Moje" — cały rejestr, bez filtra.
             "all": await _list_total(app_client, app_auth_headers, ""),
-            "mine": await _list_total(app_client, app_auth_headers, "mine=true"),
+            # „Moje” = moje NIEZAMKNIĘTE (R7-N8-1) — lista dostaje też open_only.
+            "mine": await _list_total(
+                app_client, app_auth_headers, "mine=true&open_only=true"
+            ),
             "open": await _list_total(app_client, app_auth_headers, "open_only=true"),
             "needs_sourcing": await _list_total(
                 app_client, app_auth_headers, "needs_sourcing=true"
@@ -286,7 +289,7 @@ async def test_request_status_counts_agree_with_the_status_filter(
     """Liczba przy pigułce statusu == ``total`` listy z ``request_status``.
 
     Oba liczą się tym samym wyrażeniem (``request_status_expr``); licznik
-    „moich" == lista z ``mine=true`` i tym samym statusem.
+    „moich" == lista z ``mine=true&open_only=true`` i tym samym statusem.
     """
     from app.services.job_similarity import REQUEST_STATUSES
 
@@ -305,7 +308,9 @@ async def test_request_status_counts_agree_with_the_status_filter(
                 app_client, app_auth_headers, f"request_status={value}"
             ), value
             assert counts["request_status_mine"][value] == await _list_total(
-                app_client, app_auth_headers, f"request_status={value}&mine=true"
+                app_client,
+                app_auth_headers,
+                f"request_status={value}&mine=true&open_only=true",
             ), value
         # Suma po statusach = cały rejestr (każda rekrutacja ma dokładnie jeden).
         assert sum(counts["request_status"].values()) == counts["all"]
