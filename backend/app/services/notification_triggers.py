@@ -450,7 +450,7 @@ async def check_client_feedback_eobd(
         # Feedback = też werdykt hiring managera (`client_side`) i debrief
         # (`candidate_side`) zapisane po rozmowie — cykl 0338 zapisuje tam,
         # nie w ScreeningNote (runda 8, R8-X1-2).
-        verdict = await db.scalar(
+        verdict = await db.execute(
             select(func.count())
             .select_from(InterviewFeedback)
             .where(
@@ -465,7 +465,7 @@ async def check_client_feedback_eobd(
                 ),
             )
         )
-        if (verdict or 0) > 0:
+        if (verdict.scalar() or 0) > 0:
             continue
         targets = await _delivery_lead_targets(db, job)
         for dl_id in targets:
