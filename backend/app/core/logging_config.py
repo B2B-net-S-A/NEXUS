@@ -33,7 +33,10 @@ except ImportError:  # pragma: no cover — python-json-logger < 3.1
 # logging call. Deliberately conservative — only unambiguous, high-value patterns
 # so ordinary log lines stay useful.
 
-_EMAIL_RE = re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.-]+\b")
+# `(?:@|%40)`: access log uvicorna zapisuje query string ZAKODOWANY, więc
+# `check-exists?email=jan%40firma.pl` nie miał dosłownego `@` i przechodził
+# (runda 6 audytu).
+_EMAIL_RE = re.compile(r"(?i)\b[\w.+-]+(?:@|%40)[\w-]+\.[\w.-]+\b")
 # sk-... provider keys (Anthropic/OpenAI/Voyage); min length avoids matching prose.
 _KEY_PREFIX_RE = re.compile(r"\bsk-[A-Za-z0-9_-]{12,}\b")
 _BEARER_RE = re.compile(r"(?i)\b(bearer)\s+[A-Za-z0-9._\-]{8,}")
@@ -60,6 +63,26 @@ _PATH_TOKEN_RE = re.compile(
 )
 
 
+# Adres webhooka Slacka JEST sekretem (kto go zna, pisze na nasz kanał), a httpx
+# i komunikaty wyjątków wypisują go w całości. Zostaje sam host (runda 6 audytu).
+_SLACK_WEBHOOK_RE = re.compile(
+    r"(?i)(hooks\.slack\.com/(?:services|workflows|triggers)/)[^\s'\"]+"
+)
+# Prywatny kalendarz iCal (Outlook `/owa/calendar/…/calendar.ics`, Google
+# `/calendar/ical/…/basic.ics`, dowolne `.ics`) — ścieżka i query dają odczyt
+# całego kalendarza, więc maskujemy wszystko po hoście (runda 6 audytu).
+_ICAL_URL_RE = re.compile(
+    r"(?i)\b((?:https?|webcal)://[^\s/'\"?#]+)"
+    r"((?=[^\s'\"]*(?:\.ics\b|/ical/|/calendar/))[^\s'\"]*)"
+)
+# Wartości parametrów z danymi osobowymi w query stringu (access log uvicorna):
+# `q=` niesie nazwisko wpisane w wyszukiwarkę, `phone=` telefon (runda 6 audytu).
+_QUERY_PII_RE = re.compile(
+    r"(?i)([?&](?:email|phone|q|q_all|q_any|q_any_group|q_none|name|first_name"
+    r"|last_name|lastname|full_name)=)[^&\s\"'#]+"
+)
+
+
 def redact_sensitive(text: str) -> str:
     """Mask emails, provider keys, bearer tokens and labelled secrets in ``text``.
 
@@ -67,6 +90,9 @@ def redact_sensitive(text: str) -> str:
     """
     if not text:
         return text
+    text = _SLACK_WEBHOOK_RE.sub(r"\1[redacted]", text)
+    text = _ICAL_URL_RE.sub(r"\1/[redacted-path]", text)
+    text = _QUERY_PII_RE.sub(r"\1[redacted]", text)
     text = _EMAIL_RE.sub("[email]", text)
     text = _KEY_PREFIX_RE.sub("[redacted-key]", text)
     text = _BEARER_RE.sub(r"\1 [redacted]", text)
@@ -144,6 +170,12 @@ def configure_json_logging(debug: bool = False) -> None:
     """Install JSON formatter on the root logger when not in debug mode."""
     root = logging.getLogger()
     root.setLevel(logging.INFO)
+    # httpx/httpcore na INFO piszą „HTTP Request: POST <pełny adres>” przy KAŻDYM
+    # żądaniu — w tym adres webhooka Slacka i prywatnego kalendarza iCal, czyli
+    # sekrety. Ustawiane PRZED gałęzią debug, bo lokalny log też bywa wklejany
+    # do zgłoszeń (runda 6 audytu).
+    for name in ("httpx", "httpcore"):
+        logging.getLogger(name).setLevel(logging.WARNING)
 
     if debug or JsonFormatter is None:
         # Keep default formatter — easier to read during local dev
