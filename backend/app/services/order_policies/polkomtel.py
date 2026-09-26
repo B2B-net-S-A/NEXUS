@@ -225,11 +225,14 @@ def _header(text: str) -> Optional[tuple[int, list[str]]]:
             total = min(totals, key=distance)
             columns.append((lo + total.start(), lo + total.end(), "total"))
         # Kolumna MD tylko wewnątrz nagłówka — „liczba MD" w treści zlecenia
-        # nad tabelą nie może dopisać tabeli kolumny, której nie ma.
+        # nad tabelą nie może dopisać tabeli kolumny, której nie ma. Nagłówek
+        # MD bywa też PIERWSZĄ kolumną („Liczba MD | Cena netto 1MD | …") —
+        # do rundy 6 audytu był wtedy pomijany, więc liczba MD sklejała się ze
+        # stawką w jedną kwotę. Stąd ten sam margines 40 znaków po lewej.
         span_lo = min(start for start, _, _ in columns)
         span_hi = max(end for _, end, _ in columns)
         for md in _HEADER_MD_RE.finditer(window):
-            if span_lo <= lo + md.start() <= span_hi + 40:
+            if span_lo - 40 <= lo + md.start() <= span_hi + 40:
                 columns.append((lo + md.start(), lo + md.end(), "md"))
                 break
         columns.sort()
@@ -247,15 +250,35 @@ def _is_person(name: str) -> bool:
     )
 
 
+# Kwota, której pierwsza grupa cyfr stoi po SPACJI („10 840,00") — może być
+# liczbą MD z kolumny po lewej sklejoną ze stawką (runda 6 audytu).
+_GLUE_RE = re.compile(r"(\d{1,3})[ \u00a0](\d{3}(?:[ \u00a0]\d{3})*(?:,\d{2})?)")
+
+
 def _cells(region: str, *, with_md: bool) -> list[tuple[str, object]]:
-    """Strumień komórek tabeli w kolejności czytania: kwoty, MD, osoby."""
+    """Strumień komórek tabeli w kolejności czytania: kwoty, MD, osoby.
+
+    Za kwotą ze spacją w pierwszej grupie cyfr stoi znacznik ``glue``
+    (``(md, reszta, surowy tekst)``) — o tym, czy to sklejenie z kolumną MD,
+    rozstrzyga dopiero wiersz (``_unglue``), bo tylko on zna kolejność kolumn.
+    """
     cells: list[tuple[int, str, object]] = []
     taken: list[tuple[int, int]] = []
     for match in _MONEY_RE.finditer(region):
-        value = _amount(match.group(1) or match.group(2))
+        raw = match.group(1) or match.group(2)
+        value = _amount(raw)
         if value is not None:
             cells.append((match.start(), "money", value))
             taken.append((match.start(), match.end()))
+            glue = _GLUE_RE.fullmatch(raw) if with_md else None
+            if glue:
+                cells.append(
+                    (
+                        match.start(),
+                        "glue",
+                        (Decimal(glue.group(1)), _amount(glue.group(2)), raw),
+                    )
+                )
     for match in _NAME_RE.finditer(region):
         name = clean_person_name(match.group(1))
         if _is_person(name):
@@ -268,6 +291,7 @@ def _cells(region: str, *, with_md: bool) -> list[tuple[str, object]]:
             value = normalize_amount(match.group(1))
             if value is not None and value > 0:
                 cells.append((match.start(), "md", value))
+    # Stabilne sortowanie: znacznik ``glue`` zostaje tuż za swoją kwotą.
     cells.sort(key=lambda cell: cell[0])
     return [(kind, value) for _, kind, value in cells]
 
@@ -319,6 +343,7 @@ def _row(
     columns: list[str],
     totals: frozenset[Decimal],
     paired_totals: bool,
+    glued: Optional[str] = None,
 ) -> ConsultantOrderRow:
     reasons: list[str] = []
     rates = [value for value in moneys if value not in totals]
@@ -339,6 +364,17 @@ def _row(
     md = mds[0] if len(mds) == 1 else None
     if len(mds) > 1:
         reasons.append("w wierszu jest kilka liczb MD — sprawdź limit MD tej osoby")
+    if glued is not None and not (
+        md is not None
+        and rate is not None
+        and any(value == md * rate for value in moneys if value != rate)
+    ):
+        # Liczba MD i kwota stały w jednej linii ze spacją — bez dowodu
+        # (MD × stawka = kwota osoby) podział jest zgadywaniem (runda 6 audytu).
+        reasons.append(
+            f"liczba MD mogła skleić się z kwotą w sąsiedniej kolumnie („{glued}”) "
+            "— sprawdź stawkę i liczbę MD z dokumentem"
+        )
     return ConsultantOrderRow(
         consultant_name=name,
         rate_client=rate,
@@ -354,7 +390,7 @@ def _row(
 def _rows_carry_own_totals(
     text: str,
     columns: list[str],
-    buffers: list[tuple[str, list[Decimal], list[Decimal]]],
+    buffers: list[_Buffer],
 ) -> bool:
     """Czy KAŻDY wiersz ma parę „stawka + kwota tej osoby" (a nie cudzą kwotę).
 
@@ -371,7 +407,7 @@ def _rows_carry_own_totals(
     stated = order_amount(text)
     rate_first = columns.index("rate") < columns.index("total")
     row_totals: list[Decimal] = []
-    for _, row_moneys, _ in buffers:
+    for _, row_moneys, _, _ in buffers:
         values = [value for value in row_moneys if value != stated]
         if len(values) != 2:
             return False
@@ -384,6 +420,83 @@ def _rows_carry_own_totals(
     return stated is None or sum(row_totals, Decimal("0")) == stated
 
 
+_Buffer = tuple[str, list[Decimal], list[Decimal], Optional[str]]
+
+
+def _buffers(
+    text: str, columns: list[str], cells: list[tuple[str, object]]
+) -> tuple[list[_Buffer], list[Decimal]]:
+    """Komórki pogrupowane w wiersze osób + kwoty bez osoby.
+
+    Czwarty element wiersza to surowy tekst kwoty rozdzielonej na liczbę MD
+    i kwotę (``_unglue``) albo ``None``.
+    """
+    name_first = columns.index("name") < columns.index("rate")
+    raw_buffers: list[tuple[str, list[Decimal], list[Decimal], dict[int, tuple]]] = []
+    moneys: list[Decimal] = []
+    mds: list[Decimal] = []
+    glues: dict[int, tuple] = {}
+    pending: Optional[str] = None
+    leftover: list[Decimal] = []
+    for kind, value in cells:
+        if kind == "name":
+            if name_first:
+                # Kolumna osoby otwiera wiersz: komórki za nią należą do niej.
+                if pending is not None:
+                    raw_buffers.append((pending, moneys, mds, glues))
+                elif moneys:
+                    leftover.extend(moneys)
+                pending = str(value)
+            else:
+                # Kolumna osoby zamyka wiersz: kwoty przed nią należą do niej.
+                raw_buffers.append((str(value), moneys, mds, glues))
+            moneys, mds, glues = [], [], {}
+        elif kind == "money":
+            moneys.append(value)  # type: ignore[arg-type]
+        elif kind == "glue":
+            glues[len(moneys) - 1] = value  # type: ignore[assignment]
+        else:
+            mds.append(value)  # type: ignore[arg-type]
+    if name_first and pending is not None:
+        raw_buffers.append((pending, moneys, mds, glues))
+    else:
+        leftover.extend(moneys)
+    stated = order_amount(text)
+    return [
+        _unglue(buffer, columns, stated) for buffer in raw_buffers
+    ], leftover
+
+
+def _unglue(
+    buffer: tuple[str, list[Decimal], list[Decimal], dict[int, tuple]],
+    columns: list[str],
+    stated: Optional[Decimal],
+) -> _Buffer:
+    """Rozdziel liczbę MD sklejoną z kwotą kolumny stojącej tuż za nią.
+
+    pdfplumber składa wiersz „10 | 840,00 zł" w „10 840,00 zł", a spacja jest
+    też separatorem tysięcy — ``_MONEY_RE`` czytało to jako 10 840,00 i MD
+    znikało (runda 6 audytu). Gdy w nagłówku kolumna MD stoi tuż przed kolumną
+    kwoty, wiersz nie ma osobnej komórki MD, a właściwa (k-ta) kwota wiersza
+    ma spację w pierwszej grupie, dzielimy ją na MD i kwotę — i oznaczamy,
+    żeby ``_row`` zażądał dowodu arytmetycznego albo sprawdzenia.
+    """
+    name, moneys, mds, glues = buffer
+    if "md" not in columns or mds:
+        return name, moneys, mds, None
+    md_at = columns.index("md")
+    if md_at + 1 >= len(columns) or columns[md_at + 1] not in ("rate", "total"):
+        return name, moneys, mds, None
+    index = sum(1 for column in columns[:md_at] if column in ("rate", "total"))
+    glue = glues.get(index)
+    if glue is None or index >= len(moneys) or moneys[index] == stated:
+        return name, moneys, mds, None
+    md, rest, raw = glue
+    if md <= 0 or rest is None or rest <= 0:
+        return name, moneys, mds, None
+    return name, [*moneys[:index], rest, *moneys[index + 1 :]], [md], raw
+
+
 def _parse_table(text: str) -> tuple[list[ConsultantOrderRow], list[str]]:
     """Wiersze konsultantów i zastrzeżenia do całej tabeli."""
     text = text or ""
@@ -392,34 +505,7 @@ def _parse_table(text: str) -> tuple[list[ConsultantOrderRow], list[str]]:
         return [], []
     columns, cells = table
     totals = _row_totals(text, columns, cells)
-    name_first = columns.index("name") < columns.index("rate")
-
-    buffers: list[tuple[str, list[Decimal], list[Decimal]]] = []
-    moneys: list[Decimal] = []
-    mds: list[Decimal] = []
-    pending: Optional[str] = None
-    leftover: list[Decimal] = []
-    for kind, value in cells:
-        if kind == "name":
-            if name_first:
-                # Kolumna osoby otwiera wiersz: komórki za nią należą do niej.
-                if pending is not None:
-                    buffers.append((pending, moneys, mds))
-                elif moneys:
-                    leftover.extend(moneys)
-                pending = str(value)
-            else:
-                # Kolumna osoby zamyka wiersz: kwoty przed nią należą do niej.
-                buffers.append((str(value), moneys, mds))
-            moneys, mds = [], []
-        elif kind == "money":
-            moneys.append(value)  # type: ignore[arg-type]
-        else:
-            mds.append(value)  # type: ignore[arg-type]
-    if name_first and pending is not None:
-        buffers.append((pending, moneys, mds))
-    else:
-        leftover.extend(moneys)
+    buffers, leftover = _buffers(text, columns, cells)
 
     paired_totals = _rows_carry_own_totals(text, columns, buffers)
     if paired_totals:
@@ -436,8 +522,9 @@ def _parse_table(text: str) -> tuple[list[ConsultantOrderRow], list[str]]:
             columns=columns,
             totals=totals,
             paired_totals=paired_totals,
+            glued=glued,
         )
-        for index, (name, row_moneys, row_mds) in enumerate(buffers, start=1)
+        for index, (name, row_moneys, row_mds, glued) in enumerate(buffers, start=1)
     ]
     reasons: list[str] = []
     stray = [value for value in leftover if value not in totals]
@@ -469,7 +556,11 @@ def table_total(text: str) -> Optional[Decimal]:
     if "total" not in columns:
         return None
     rates = {row.rate_client for row in extract_rows(text) if row.rate_client}
-    others = [value for value in _moneys(cells) if value not in rates]
+    # Kwoty po rozdzieleniu sklejonej liczby MD — surowe ``cells`` niosłyby
+    # „10 840,00" zamiast stawki 840,00 (runda 6 audytu).
+    buffers, leftover = _buffers(text, columns, cells)
+    amounts = [*leftover, *(value for _, moneys, _, _ in buffers for value in moneys)]
+    others = [value for value in amounts if value not in rates]
     distinct = list(dict.fromkeys(others))
     if not distinct:
         return None

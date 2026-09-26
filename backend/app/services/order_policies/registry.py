@@ -466,7 +466,9 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         # 22.09.2026: okres z dokumentu wiążący (FIN-MAIL-03).
         # 24.09.2026: stawka po ÷ 1,23 wraca do kwoty z PDF-a (audyt N3) —
         # wyłącznie w „Zleceniu wykonawczym nr …" (.2, audyt 24.09 wieczór).
-        rule_version="2026-09-24.2",
+        # 26.09.2026: liczba MD sklejona z kwotą rozdzielana, bez dowodu
+        # arytmetycznego — wiersz do sprawdzenia (runda 6 audytu).
+        rule_version="2026-09-26",
     ),
     # Ten sam szablon „Zlecenie wykonawcze nr CP … / rok" — wyłącznie reguła
     # numeru. Cyfrowy Polsat ma też zamówienia okresowe, więc okres i stawki

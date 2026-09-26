@@ -543,3 +543,57 @@ def test_other_polkomtel_documents_keep_the_general_reading():
 def test_number_does_not_run_across_words():
     text = "ZLECENIE WYKONAWCZE nr SAP 4500 do Umowy nr 12/2020\n"
     assert polkomtel.order_number(text) is None
+
+
+# ── Runda 6 audytu: kolumna MD na lewo od stawki sklejona z kwotą ───────────
+
+MD_LEFT_HEADER = "Liczba MD Cena netto 1MD po upuście [PLN] Cena total [PLN] Konsultant\n"
+MD_LEFT = (
+    HEAD.replace("na kwotę 40 000 PLN\n", "")
+    + MD_LEFT_HEADER
+    + "10 840,00 zł 8 400,00 zł Nowak Ewa\n"
+    + TAIL
+)
+
+
+def test_md_column_left_of_rate_is_not_glued_into_the_rate():
+    # pdfplumber: „10" (MD) i „840,00 zł" (stawka) w jednej linii ze spacją —
+    # _MONEY_RE czytało to jako 10 840,00, największa kwota szła do sum,
+    # a stawką zostawała kwota osoby 8 400,00 bez żadnej uwagi.
+    rows = polkomtel.extract_rows(MD_LEFT)
+    assert [(r.consultant_name, r.rate_client, r.md_total) for r in rows] == [
+        ("Nowak Ewa", Decimal("840.00"), Decimal("10")),
+    ]
+    # MD × stawka = kwota osoby — sklejenie rozstrzygnięte arytmetyką.
+    assert not rows[0].uncertain
+    assert polkomtel.table_total(MD_LEFT) == Decimal("8400.00")
+
+
+def test_glued_md_without_arithmetic_proof_is_uncertain():
+    text = MD_LEFT.replace("8 400,00 zł", "9 999,00 zł")
+    rows = polkomtel.extract_rows(text)
+    assert len(rows) == 1
+    assert rows[0].uncertain
+    assert "skleić" in rows[0].uncertain_reason
+    result = _run(text)
+    assert result.uncertain
+    assert result.rate_client is None
+
+
+def test_glued_md_without_total_column_is_uncertain():
+    text = (
+        HEAD.replace("na kwotę 40 000 PLN\n", "")
+        + "Liczba MD Cena netto 1MD po upuście [PLN] Konsultant\n"
+        + "10 840,00 zł Nowak Ewa\n"
+        + TAIL
+    )
+    rows = polkomtel.extract_rows(text)
+    assert len(rows) == 1 and rows[0].uncertain
+
+
+def test_separate_md_cell_left_of_rate_is_read_without_concern():
+    text = MD_LEFT.replace("10 840,00 zł 8 400,00 zł", "10 1 200,00 zł 12 000,00 zł")
+    rows = polkomtel.extract_rows(text)
+    assert [(r.rate_client, r.md_total, r.uncertain) for r in rows] == [
+        (Decimal("1200.00"), Decimal("10"), False)
+    ]
