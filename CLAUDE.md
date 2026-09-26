@@ -7375,6 +7375,13 @@ Raport: `docs/audits/2026-09-25/runda-8.md`.
   wyszukiwanie e-maila (CV, podpis Outlooka) w czasie liniowym; stary prywatny
   wpis z Outlooka traci `candidate_id` (faza `repair-m365-private-event-candidate`);
   „odwołane” follow-upu zapisuje się dopiero po udanym odwołaniu w Teams.
+- **Sekcja wyłączona przełącznikiem `show` znika z danych publicznych**
+  (decyzja Artura 27.09.2026): `public_job_payload` (domyślnie `respect_show=True`)
+  zwraca puste must/nice i zerowe parametry (poza stałym `contract`) — tak dostają
+  je `/r/<slug>`, grafika OG, meta, lista `/p/<slug>` (`visible_params`), podgląd
+  w edytorze i portale. Pełną projekcję (`respect_show=False`) czytają wyłącznie
+  kontrola treści i migawka zatwierdzenia. Portal przy ukrytych wymaganiach = 422
+  `listing_invalid`.
 - **Strona kariery i portale:** kontrola publikacji sprawdza także sekcje
   wyłączone przełącznikiem; slug linku rekrutacji bez nazwy klienta i nazwisk
   (nieczysty dostaje nowy adres przy zatwierdzeniu); zmiana klienta po
