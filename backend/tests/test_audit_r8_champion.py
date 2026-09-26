@@ -93,3 +93,36 @@ def test_first_name_of_the_same_person_still_matches_by_mail():
     assert picked is not None and picked.id == 2
     # Bez imienia — jak dotąd, po samym adresie.
     assert pick_matching_contact(contacts, name=None, email="rekrutacja@bank.pl").id == 1
+
+
+# ── R8-N12-4: arkusz screeningu dla klienta = biała lista ────────────────
+
+
+def test_client_screening_drops_experience_checks_and_author():
+    from app.schemas.champion import client_safe_screening
+
+    raw = {
+        "answers": [
+            {
+                "question_id": "q1",
+                "response": "5 lat",
+                "deal_breaker_hit": False,
+                "origin": "reassign_suggested",
+            }
+        ],
+        "experience_checks": [
+            {"name": "ISTQB", "status": "not_confirmed", "note": "raczej nie ma"}
+        ],
+        "overall_fit": "fit",
+        "notes": "Widoczne dla klienta",
+        "answered_by": 17,
+        "answered_at": "2026-09-26T10:00:00+00:00",
+        "future_internal_field": "x",
+    }
+    safe = client_safe_screening(raw)
+    assert set(safe) == {"answers", "overall_fit", "notes"}
+    assert safe["answers"] == [
+        {"question_id": "q1", "response": "5 lat", "deal_breaker_hit": False}
+    ]
+    # Wejście (JSONB wiersza) nietknięte.
+    assert "experience_checks" in raw and raw["answers"][0]["origin"]
