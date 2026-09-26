@@ -139,7 +139,9 @@ export function RequirementRowsField({
   const hints = useMemo(() => {
     const out: KeywordHint[] = keywordHints(shown).filter(
       (hint) =>
-        hint.kind === "split" || (hint.kind === "seniority" && Boolean(onUseExperience)),
+        hint.kind === "split" ||
+        hint.kind === "ambiguous" ||
+        (hint.kind === "seniority" && Boolean(onUseExperience)),
     );
     shown.forEach((row, index) => {
       for (const word of row) {
@@ -228,6 +230,10 @@ export function RequirementRowsField({
                   onApply={() => {
                     if (hint.kind === "split") {
                       onRowsChange(splitWordInRow(shown, hint.row, hint.word, hint.parts));
+                    } else if (hint.kind === "ambiguous") {
+                      if (hint.instead) {
+                        onRowsChange(splitWordInRow(shown, hint.row, hint.word, [hint.instead]));
+                      }
                     } else if (hint.kind === "city") {
                       dropWord(hint);
                       onUseLocation?.(hint.city);
@@ -298,13 +304,20 @@ function HintRow({
       ? `„${hint.word}” to kilka wariantów — rozdzielić? Wystarczy jedno z nich: ${hint.parts.join(" lub ")}.`
       : hint.kind === "city"
         ? `„${hint.word}” to miasto. Tu szukamy słowa w tekście profilu.`
-        : `„${hint.word}” znajdzie tylko osoby, które same tak się opisały.`;
-  const action =
+        : hint.kind === "ambiguous"
+          ? `„${hint.word}” to słowo wieloznaczne — łapie też ${hint.catches}.`
+          : `„${hint.word}” znajdzie tylko osoby, które same tak się opisały.`;
+  // Słowo wieloznaczne bez sensownego zamiennika („it”, „net”) tylko ostrzega.
+  const action: string | null =
     hint.kind === "split"
       ? "Rozdziel"
       : hint.kind === "city"
         ? `Ustaw lokalizację: ${hint.city}`
-        : `Użyj filtra stażu: ${experienceRangeLabel(hint.range)}`;
+        : hint.kind === "ambiguous"
+          ? hint.instead
+            ? `Zamień na „${hint.instead}”`
+            : null
+          : `Użyj filtra stażu: ${experienceRangeLabel(hint.range)}`;
   return (
     <div
       role="note"
@@ -312,9 +325,11 @@ function HintRow({
     >
       <Lightbulb className="h-3.5 w-3.5 shrink-0" aria-hidden />
       <span className="min-w-0 flex-1">{text}</span>
-      <Button type="button" size="sm" variant="outline" onClick={onApply}>
-        {action}
-      </Button>
+      {action && (
+        <Button type="button" size="sm" variant="outline" onClick={onApply}>
+          {action}
+        </Button>
+      )}
       <Button type="button" size="sm" variant="ghost" onClick={onDismiss}>
         Zostaw
       </Button>

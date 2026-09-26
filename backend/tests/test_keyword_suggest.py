@@ -97,6 +97,86 @@ def test_variants_skip_short_polish_and_redundant_aliases(catalog):
     )
 
 
+def test_every_equivalent_parses_as_a_keyword():
+    """Kontrakt słownika odpowiedników: każde słowo da się wyszukać, gwiazdka
+    ma co najmniej 3 litery rdzenia, a grupa ma co najmniej dwa słowa."""
+    from app.services.keyword_terms import MIN_WILDCARD_CORE, parse_keyword
+
+    keyword_suggest.equivalent_groups.cache_clear()
+    keyword_suggest._equivalents_index.cache_clear()
+    groups = keyword_suggest.equivalent_groups()
+    assert groups
+    for group in groups:
+        assert len(group) >= 2, group
+        for word in group:
+            term = parse_keyword(word)
+            assert term is not None, word
+            if word.endswith("*"):
+                assert term.open_end, word
+                assert len(word.rstrip("*")) >= MIN_WILDCARD_CORE, word
+
+
+def test_equivalents_join_all_groups_of_a_word():
+    """„QA” jest w dwóch grupach (tester, quality assurance) — dostaje obie."""
+    assert keyword_suggest.equivalents_for("qa") == ("tester", "quality assurance")
+    assert keyword_suggest.equivalents_for("Bankowosc") == ("bankow*", "banking")
+    assert keyword_suggest.equivalents_for("nieznane") == ()
+
+
+def test_skill_variants_start_with_curated_equivalents(catalog):
+    """Odpowiednik ze słownika omija filtr krótkich słów („JS”) i stoi przed
+    aliasami, żeby długa lista aliasów nie wypchnęła go za limit."""
+    assert keyword_suggest.skill_variants(
+        _entry("JavaScript", ["js", "ecmascript"])
+    ) == ("JS", "ecmascript")
+    assert keyword_suggest.skill_variants(_entry("Machine Learning", ["ml"])) == ("ML",)
+    many = [f"wariant{i}" for i in range(8)]
+    variants = keyword_suggest.skill_variants(_entry("QA", many))
+    assert variants[:2] == ("tester", "quality assurance")
+    assert len(variants) == keyword_suggest.MAX_VARIANTS
+
+
+def test_term_suggestion_for_a_word_outside_the_skill_catalog(catalog):
+    """„bankowość” to nie technologia — pozycja ``term`` z odpowiednikami."""
+    terms = keyword_suggest.term_suggestions("bankowość", 2)
+    assert [(t.kind, t.insert, t.variants) for t in terms] == [
+        ("term", "bankowość", ("bankow*", "banking"))
+    ]
+    # Bez polskich znaków i od początku słowa: jedna pozycja na grupę.
+    assert [t.insert for t in keyword_suggest.term_suggestions("bankowo", 2)] == [
+        "bankowość"
+    ]
+    assert [t.insert for t in keyword_suggest.term_suggestions("analyst", 2)] == [
+        "analyst"
+    ]
+    assert keyword_suggest.term_suggestions("ba", 2) == []
+
+
+def test_term_is_skipped_when_the_word_is_a_skill(catalog):
+    """„JavaScript” jest w słowniku umiejętności — odpowiedniki niesie pozycja
+    ``skill`` (``skill_variants``), więc ``term`` by ją dublował."""
+    assert keyword_suggest.term_suggestions("javascript", 2) == []
+    assert keyword_suggest.term_suggestions("js", 2) == []
+
+
+@pytest.mark.asyncio
+async def test_suggest_puts_terms_after_skills(catalog, monkeypatch):
+    async def no_titles(db, q, limit):
+        return []
+
+    async def no_counts(db, values):
+        return {v: None for v in values}
+
+    monkeypatch.setattr(keyword_suggest, "_titles_within_timeout", no_titles)
+    monkeypatch.setattr(keyword_suggest, "count_candidates", no_counts)
+    result = await keyword_suggest.suggest(None, "zarządzanie", 6)
+    assert [(i.kind, i.insert) for i in result.items] == [
+        ("skill", "Zarządzanie projektem"),
+        ("term", "zarządzanie"),
+    ]
+    assert result.items[1].variants == ("zarządz*", "management")
+
+
 def test_alias_that_is_a_word_of_the_name_suggests_that_word(catalog):
     """Decyzja Artura 25.09.2026: na produkcji „kafka” znajduje 4569 osób,
     a fraza „Apache Kafka” 1704. Gdy podpowiedź trafia przez alias, który jest

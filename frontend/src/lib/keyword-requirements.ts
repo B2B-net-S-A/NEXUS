@@ -125,12 +125,38 @@ export function splitAlternatives(word: string): string[] | null {
   return parts.length >= 2 ? parts : null;
 }
 
+/**
+ * Krótkie słowa, które w CV znaczą najczęściej coś innego niż technologia
+ * (produkcja 26.09.2026): „r” łapie „2016 r.” z klauzuli RODO w 20 845 CV,
+ * „go” — „go-live”, „net” — „EURO NET”, „ada” — adresy LinkedIna. `instead`
+ * to lepsze słowo tylko tam, gdzie ono istnieje; bez niego podpowiedź tylko
+ * ostrzega.
+ */
+const AMBIGUOUS: Readonly<Record<string, { catches: string; instead?: string }>> = {
+  r: { catches: "„2016 r.” z klauzuli RODO", instead: "język R" },
+  go: { catches: "„go-live”", instead: "golang" },
+  it: { catches: "każde „IT” w opisie firmy" },
+  net: { catches: "nazwy firm, np. „EURO NET”" },
+  ada: { catches: "adresy profili LinkedIn" },
+  c: { catches: "pojedyncze „C” w tekście, np. „C1”, „kat. C”" },
+  ai: { catches: "skrót w nazwach firm i produktów" },
+  pm: { catches: "godziny, np. „5 PM”" },
+  ba: { catches: "skróty w nazwach i adresach" },
+  ml: { catches: "mililitry i skróty", instead: "machine learning" },
+};
+
+/** Wieloznaczne krótkie słowo (cały chip, bez wielkości liter) albo `null`. */
+export function ambiguousWord(word: string): { catches: string; instead?: string } | null {
+  return AMBIGUOUS[foldWord(word)] ?? null;
+}
+
 export type KeywordHint =
   | { kind: "split"; row: number; word: string; parts: string[] }
   | { kind: "seniority"; row: number; word: string; range: ExperienceRange }
-  | { kind: "city"; row: number; word: string; city: string };
+  | { kind: "city"; row: number; word: string; city: string }
+  | { kind: "ambiguous"; row: number; word: string; catches: string; instead?: string };
 
-/** Podpowiedzi liczone bez serwera (warianty w jednym słowie, staż). */
+/** Podpowiedzi liczone bez serwera (warianty w jednym słowie, staż, słowa wieloznaczne). */
 export function keywordHints(rows: readonly (readonly string[])[]): KeywordHint[] {
   const hints: KeywordHint[] = [];
   rows.forEach((row, index) => {
@@ -141,7 +167,12 @@ export function keywordHints(rows: readonly (readonly string[])[]): KeywordHint[
         continue;
       }
       const range = seniorityRange(word);
-      if (range) hints.push({ kind: "seniority", row: index, word, range });
+      if (range) {
+        hints.push({ kind: "seniority", row: index, word, range });
+        continue;
+      }
+      const ambiguous = ambiguousWord(word);
+      if (ambiguous) hints.push({ kind: "ambiguous", row: index, word, ...ambiguous });
     }
   });
   return hints;
