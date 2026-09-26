@@ -15,11 +15,14 @@ w limicie czasu albo trwające wypełnianie korpusu = ``None``, nigdy błąd.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import time
 import unicodedata
 from dataclasses import dataclass
+from functools import lru_cache
+from pathlib import Path
 from typing import Iterable, Optional, Sequence
 
 from sqlalchemy import text
@@ -470,11 +473,61 @@ class Suggestion:
     alias: Optional[str]
     category: Optional[str]
     count: Optional[int]
-    # Inne zapisy tej umiejętności do przycisku „+ z wariantami” (tylko skill).
+    # Warianty do przycisku „+ z wariantami” (skill: aliasy i odpowiedniki; term: odpowiedniki).
     variants: tuple[str, ...] = ()
 
 
 MAX_VARIANTS = 5
+
+_EQUIVALENTS_FILE = (
+    Path(__file__).resolve().parent.parent / "data" / "keyword_equivalents.json"
+)
+
+
+@lru_cache(maxsize=1)
+def equivalent_groups() -> tuple[tuple[str, ...], ...]:
+    """Grupy odpowiedników z ``data/keyword_equivalents.json`` (prowadzi człowiek).
+
+    „analityk” ↔ „analyst”, „bankowość” ↔ „banking”, „tester” ↔ „QA”: słowa
+    kluczowe nie rozwijają aliasów, więc bez tej listy polskie słowo gubi
+    osoby piszące po angielsku (produkcja 26.09.2026: „analityk” bez 10 512
+    osób ze słowem „analyst”).
+    """
+    data = json.loads(_EQUIVALENTS_FILE.read_text(encoding="utf-8"))
+    groups: list[tuple[str, ...]] = []
+    for group in data.get("groups") or []:
+        words = tuple(
+            " ".join(w.split()) for w in group if isinstance(w, str) and w.strip()
+        )
+        if len(words) >= 2:
+            groups.append(words)
+    return tuple(groups)
+
+
+@lru_cache(maxsize=1)
+def _equivalents_index() -> dict[str, tuple[int, ...]]:
+    """Słowo (bez wielkości liter i polskich znaków) → numery jego grup."""
+    index: dict[str, list[int]] = {}
+    for number, group in enumerate(equivalent_groups()):
+        for word in group:
+            index.setdefault(fold(word), []).append(number)
+    return {key: tuple(numbers) for key, numbers in index.items()}
+
+
+def equivalents_for(word: str) -> tuple[str, ...]:
+    """Pozostałe słowa ze wszystkich grup, w których jest ``word`` (bez niego)."""
+    key = fold(word)
+    groups = equivalent_groups()
+    out: list[str] = []
+    seen = {key}
+    for number in _equivalents_index().get(key, ()):
+        for other in groups[number]:
+            other_key = fold(other)
+            if other_key in seen:
+                continue
+            seen.add(other_key)
+            out.append(other)
+    return tuple(out)
 
 
 def skill_variants(entry: SkillEntry) -> tuple[str, ...]:
@@ -493,6 +546,18 @@ def skill_variants(entry: SkillEntry) -> tuple[str, ...]:
     name_tokens = entry.key.split()
     out: list[str] = []
     seen = {entry.key}
+    # Najpierw odpowiedniki ze słownika — prowadzi je człowiek i są zmierzone
+    # („JavaScript” ↔ „JS”), więc omijają filtr krótkich słów i nie mogą
+    # wypaść za limitem przez długą listę aliasów.
+    for word in (entry.label, *entry.aliases):
+        for other in equivalents_for(word):
+            key = fold(other)
+            if key in seen or parse_keyword(other) is None:
+                continue
+            seen.add(key)
+            out.append(other)
+            if len(out) >= MAX_VARIANTS:
+                return tuple(out)
     for alias in entry.aliases:
         key = fold(alias)
         if len(key) <= 2 or key in POLISH_WORD_ALIASES or key in seen:
@@ -553,6 +618,67 @@ def skill_suggestions(query: str, limit: int) -> list[Suggestion]:
     return out
 
 
+def _skill_keys() -> set[str]:
+    keys: set[str] = set()
+    for entry in _catalog:
+        keys.add(entry.key)
+        keys.update(entry.alias_keys)
+    return keys
+
+
+def term_suggestions(query: str, limit: int) -> list[Suggestion]:
+    """Słowa ze słownika odpowiedników, których nie ma w słowniku umiejętności.
+
+    „bankowość” to nie technologia, ale ma odpowiedniki („bankow*”,
+    „banking”) — pozycja ``term`` daje przycisk „Z wariantami”. Najpierw słowo
+    równe wpisanemu, potem słowa zaczynające się od niego (od 3 znaków); jedna
+    pozycja na grupę, bez wzorców z gwiazdką. Słowo, które jest umiejętnością
+    albo jej aliasem, pomijamy — tę pozycję i jej warianty daje ``skill``.
+    """
+    q = fold(query)
+    if not q or limit <= 0:
+        return []
+    skill_keys = _skill_keys()
+    groups = equivalent_groups()
+    candidates: list[tuple[int, int, str]] = []
+    for number, group in enumerate(groups):
+        for word in group:
+            key = fold(word)
+            if word.endswith("*") or key in skill_keys:
+                continue
+            if key == q:
+                candidates.append((0, number, word))
+            elif len(q) >= MIN_WILDCARD_CORE and key.startswith(q):
+                candidates.append((1, number, word))
+    candidates.sort(key=lambda row: (row[0], len(row[2]), row[1]))
+    out: list[Suggestion] = []
+    used_groups: set[int] = set()
+    used_words: set[str] = set()
+    for _rank, number, word in candidates:
+        key = fold(word)
+        if number in used_groups or key in used_words:
+            continue
+        variants = equivalents_for(word)[:MAX_VARIANTS]
+        used_words.add(key)
+        used_groups.update(_equivalents_index().get(key, ()))
+        if not variants:
+            continue
+        out.append(
+            Suggestion(
+                label=word,
+                kind="term",
+                insert=word,
+                alias=None,
+                category=None,
+                count=None,
+                variants=variants,
+            )
+        )
+        if len(out) >= limit:
+            break
+    return out
+
+
 def wildcard_for(query: str) -> Optional[str]:
     """``jav`` → ``jav*`` (rdzeń co najmniej ``MIN_WILDCARD_CORE`` znaków)."""
     core = " ".join((query or "").split()).strip("*").strip()
@@ -566,6 +692,13 @@ async def suggest(db: AsyncSession, query: str, limit: int) -> SuggestResult:
     if not fold(q):
         return SuggestResult(items=[], wildcard=None)
     items: list[Suggestion] = skill_suggestions(q, limit)
+    skill_labels = {fold(s.insert) for s in items}
+    terms = [t for t in term_suggestions(q, 2) if fold(t.insert) not in skill_labels]
+    if terms:
+        # Umiejętności zostają pierwsze; odpowiedniki mieszczą się w limicie
+        # kosztem ostatnich umiejętności (słowo wpisane wprost ma pierwszeństwo).
+        items = items[: max(limit - len(terms), 0)] + terms
+        items = items[:limit]
     if len(fold(q)) >= 3 and len(items) < limit:
         seen = {fold(s.label) for s in items}
         for role, _n in await _titles_within_timeout(db, q, 3):

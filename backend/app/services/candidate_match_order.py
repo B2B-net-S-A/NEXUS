@@ -27,6 +27,21 @@ od najnowszych. Gotowa kolejność trzymana ``CACHE_TTL_SECONDS`` (najwyżej
 kolejne strony mogłyby się przetasować. Awaria Voyage/Qdranta = ``None``
 (wołający wraca do „najnowsi” i mówi to w odpowiedzi); taki wynik nie trafia
 do pamięci.
+
+Ułożenie „Dop.” w „Szukaj ręcznie” (26.09.2026): samo podobieństwo wektorów
+nie zgadzało się z kolumną „Dop.” (tylko 10 z 19 sąsiednich par na stronie
+malało według „Dop.”). Test na 120 rekrutacjach: ułożenie pierwszych 100 osób
+pełną oceną (``canonical_fit.score_candidates``, ta sama co
+``/api/search/candidates/scores``) podniosło MRR z 0,283 do 0,472, kosztem
+~160 ms dla 100 i ~350 ms dla 200 osób. Reguła: pierwsze
+``CANDIDATE_MATCH_RERANK_TOP`` osób (0 = wyłączone) układa się według
+``fit_score`` malejąco WYŁĄCZNIE w obrębie grup („Mile widziane”, braki
+danych) — grupy zostają w swojej kolejności; osoby bez pomiaru idą na koniec
+grupy, remisy zostają w kolejności wektorowej, reszta listy bez zmian.
+Awaria oceny = kolejność wektorowa (ostrzeżenie w logu). Lista z wierszami
+wymagań nie ma rekrutacji, więc nie ma czym liczyć „Dop.” — zostaje wektor.
+Odcisk kontekstu (``RequestMatchingContext.fingerprint``, w tym wagi profilu)
+wchodzi do klucza pamięci.
 """
 
 from __future__ import annotations
@@ -92,6 +107,9 @@ class MatchVector:
     vector: list[float]
     key: str
     kind: str  # "job" | "rows"
+    # `RequestMatchingContext` rekrutacji (tylko `kind == "job"`) — to z nim
+    # liczy się „Dop.” przy układaniu początku listy.
+    context: Optional[Any] = None
 
 
 def job_scope(filters: Any) -> Optional[int]:
@@ -134,9 +152,11 @@ async def resolve_vector(
         profile = await resolve_active_profile(
             db, user_id=getattr(user, "id", None), client_id=job.client_id
         )
-        text = build_request_context(job, profile).query_text
+        context = build_request_context(job, profile)
+        text = context.query_text
         kind = "job"
     else:
+        context = None
         text = requirement_words(filters, q_any_groups)
         kind = "rows"
     if not text:
@@ -151,7 +171,12 @@ async def resolve_vector(
     if not vector:
         return None
     digest = hashlib.sha256(text.encode()).hexdigest()[:16]
-    return MatchVector(vector=vector, key=f"{kind}:{job_id or ''}:{digest}", kind=kind)
+    return MatchVector(
+        vector=vector,
+        key=f"{kind}:{job_id or ''}:{digest}",
+        kind=kind,
+        context=context,
+    )
 
 
 def _qdrant_scores(vector: list[float], ids: list[int]) -> dict[int, float]:
@@ -226,7 +251,76 @@ def order_rows(
     return [row[0] for row in sorted(rows, key=key)]
 
 
-async def _cache_key(db: AsyncSession, filters: Any, vector_key: str, user: Any) -> str:
+def rerank_within_groups(
+    order: Sequence[int],
+    group_of: dict[int, Any],
+    score_of: dict[int, Optional[float]],
+    top: int,
+) -> list[int]:
+    """Pierwsze ``top`` id ułożone według oceny w obrębie grup, reszta bez zmian.
+
+    Grupa to ciągły odcinek ``order`` o tym samym ``group_of`` (``order_rows``
+    sortuje najpierw po grupie), więc grupy nie zamieniają się miejscami. W
+    grupie: ocena malejąco, osoby bez oceny (``None`` / brak klucza) na końcu,
+    remisy w dotychczasowej kolejności.
+    """
+    head = list(order[: max(top, 0)])
+    position = {cid: i for i, cid in enumerate(head)}
+
+    def key(cid: int):
+        score = score_of.get(cid)
+        return (score is None, -(score or 0.0), position[cid])
+
+    result: list[int] = []
+    start = 0
+    while start < len(head):
+        group = group_of.get(head[start])
+        end = start + 1
+        while end < len(head) and group_of.get(head[end]) == group:
+            end += 1
+        result.extend(sorted(head[start:end], key=key))
+        start = end
+    return result + list(order[len(head) :])
+
+
+async def _fit_scores(
+    db: AsyncSession, context: Any, ids: Sequence[int]
+) -> dict[int, Optional[float]]:
+    """``fit_score`` („Dop.”) dla ``ids`` — jak ``POST /candidates/scores``."""
+    from app.models.candidate import Candidate
+    from app.services import canonical_fit
+
+    # Klucze tożsamości, nie atrybuty: obiekt wygasły po commicie przy
+    # odczycie `.id` ładowałby się leniwie (async = błąd).
+    already_loaded = {
+        key[1][0] for key in db.sync_session.identity_map.keys() if key[0] is Candidate
+    }
+    candidates = list(
+        (await db.execute(select(Candidate).where(Candidate.id.in_(list(ids)))))
+        .scalars()
+        .all()
+    )
+    try:
+        fits = await canonical_fit.score_candidates(db, context, candidates)
+    finally:
+        # Wiersze bez relacji listy nie mogą zostać w sesji: strona ładuje te
+        # same osoby z `_candidate_list_options()`, a obiekt już obecny
+        # w sesji mógłby wrócić bez nich (leniwe ładowanie w async = błąd).
+        # Obiektów, które ktoś załadował wcześniej, nie ruszamy.
+        for candidate in candidates:
+            if candidate.id not in already_loaded and candidate in db:
+                db.expunge(candidate)
+    return {int(fit.breakdown.candidate_id): fit.fit_score for fit in fits}
+
+
+async def _cache_key(
+    db: AsyncSession,
+    filters: Any,
+    vector_key: str,
+    user: Any,
+    fingerprint: Optional[str] = None,
+    rerank_top: int = 0,
+) -> str:
     from app.models.recruitment_pipeline import CandidateStage
 
     payload = filters.model_dump(mode="json", exclude={"page", "sort"})
@@ -239,7 +333,14 @@ async def _cache_key(db: AsyncSession, filters: Any, vector_key: str, user: Any)
         )
         salt = str(last_stage or 0)
     raw = json.dumps(
-        [payload, vector_key, getattr(user, "id", None), salt],
+        [
+            payload,
+            vector_key,
+            getattr(user, "id", None),
+            salt,
+            fingerprint,
+            rerank_top,
+        ],
         sort_keys=True,
         default=str,
     )
@@ -259,13 +360,23 @@ async def ordered_ids(
     ``ids_query`` — przefiltrowany ``select(Candidate.id)``; ``prefix`` — dwa
     wyrażenia SQL („Mile widziane”, braki danych) albo ``None`` w ich miejscu.
     """
+    from app.core.config import settings
     from app.models.candidate import Candidate
     from app.services import embedding_service as embeddings
 
     match_vector = await resolve_vector(db, user, filters, q_any_groups)
     if match_vector is None:
         return None
-    key = await _cache_key(db, filters, match_vector.key, user)
+    context = match_vector.context if match_vector.kind == "job" else None
+    rerank_top = int(settings.CANDIDATE_MATCH_RERANK_TOP or 0) if context else 0
+    key = await _cache_key(
+        db,
+        filters,
+        match_vector.key,
+        user,
+        getattr(context, "fingerprint", None),
+        rerank_top,
+    )
     cached = _cache_get(key)
     if cached is not None:
         return list(cached)
@@ -292,5 +403,16 @@ async def ordered_ids(
         logger.warning("match order: qdrant failed (%s)", type(exc).__name__)
         return None
     ordered = order_rows(rows, scores)
+    if rerank_top > 0:
+        head = ordered[:rerank_top]
+        try:
+            # Savepoint: błąd SQL w ocenie nie może zepsuć transakcji, na
+            # której wołający ładuje zaraz stronę.
+            async with db.begin_nested():
+                fits = await _fit_scores(db, context, head)
+            groups = {row[0]: (row[1], row[2]) for row in rows}
+            ordered = rerank_within_groups(ordered, groups, fits, rerank_top)
+        except Exception as exc:  # noqa: BLE001 — ocena to dodatek, nie bramka
+            logger.warning("match order: fit rerank failed (%s)", type(exc).__name__)
     _cache_set(key, tuple(ordered))
     return ordered

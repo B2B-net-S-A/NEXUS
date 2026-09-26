@@ -14,7 +14,7 @@ import { useDebouncedValue } from "@/lib/use-debounced-value";
 
 export const KEYWORD_SUGGEST_ENDPOINT = "/api/candidates/keywords/suggest";
 
-export type KeywordSuggestKind = "skill" | "title" | "prefix";
+export type KeywordSuggestKind = "skill" | "term" | "title" | "prefix";
 
 export interface KeywordSuggestion {
   label: string;
@@ -23,7 +23,7 @@ export interface KeywordSuggestion {
   alias?: string | null;
   category?: string | null;
   count?: number | null;
-  /** Inne zapisy tej umiejętności ze słownika (przycisk „+ z wariantami”). */
+  /** Inne zapisy tej umiejętności albo odpowiedniki słowa (przycisk „+ z wariantami”). */
   variants?: string[] | null;
 }
 
@@ -92,6 +92,7 @@ function matchesQuery(label: string, query: string): boolean {
 
 const KIND_LABEL: Record<KeywordSuggestKind, string> = {
   skill: "Technologia",
+  term: "Pojęcie",
   title: "Stanowisko",
   prefix: "Początek słowa",
 };
@@ -125,8 +126,9 @@ export function buildSuggestionOptions({
     used.add(key);
     out.push(option);
   };
-  // Druga pozycja tej samej umiejętności: nazwa + warianty pisowni jednym
-  // wyborem (decyzja 25.09.2026 — warianty dodaje przycisk, nigdy automat).
+  // Druga pozycja tej samej umiejętności (albo słowa ze słownika odpowiedników,
+  // „bankowość” + „bankow*”, „banking”): nazwa + warianty jednym wyborem
+  // (decyzja 25.09.2026 — warianty dodaje przycisk, nigdy automat).
   // Warianty, które już są w polu, odpadają; bez nich pozycji nie ma.
   const pushVariants = (item: KeywordSuggestion) => {
     const variants = (item.variants ?? []).filter((v) => !used.has(foldKeyword(v)));
@@ -191,7 +193,7 @@ export function buildSuggestionOptions({
         count: item.count ?? null,
         group: "base",
       });
-      if (item.kind === "skill") pushVariants(item);
+      if (item.kind === "skill" || item.kind === "term") pushVariants(item);
     }
     if (!skillsOnly && response.wildcard) {
       push({

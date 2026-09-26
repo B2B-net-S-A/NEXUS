@@ -291,7 +291,8 @@
     "pitfalls": [
       "Osoby bez stawki, lokalizacji albo stażu zostają na liście przy aktywnym filtrze i są oznaczone — możesz je ukryć w „Więcej filtrów”.",
       "Historia kontaktów z Traffita ma datę importu (maj 2026), więc wcześniejszy okres nic nie znajdzie.",
-      "Z wymaganiami lista układa osoby od najlepiej dopasowanych („Dopasowanie do wymagań”; „Najnowsi” wybierzesz w sortowaniu). Same nazwy technologii wpisane w górne pole stają się wymaganiami — „Szukaj … po znaczeniu” to cofa."
+      "Z wymaganiami lista układa osoby od najlepiej dopasowanych („Dopasowanie do wymagań”; „Najnowsi” wybierzesz w sortowaniu). Same nazwy technologii wpisane w górne pole stają się wymaganiami — „Szukaj … po znaczeniu” to cofa.",
+      "Chipy „Mile widziane” (miasto, kategoria, wiersz słów) tylko podnoszą pasujące osoby wyżej, nikogo nie ukrywają; „Wymagaj” zamienia chip w filtr. Tak „Szukaj ręcznie” w rekrutacji ustawia jej miasto, kategorię i wiersze, które nie są technologiami."
     ],
     "anchors": [
       {

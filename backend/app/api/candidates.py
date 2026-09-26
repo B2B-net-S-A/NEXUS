@@ -263,6 +263,14 @@ class CandidateFilterSpec(BaseModel):
     skills_required_any_groups: Optional[list[str]] = None
     skills_preferred: Optional[list[str]] = None
     skills_excluded: Optional[list[str]] = None
+    # „Mile widziane” poza umiejętnościami — wyłącznie kolejność, nigdy nie
+    # tną (audyt 26.09.2026: miasto i kategoria rekrutacji jako filtry wycinały
+    # 55,6% osób, które zespół potem wybrał; wiersze nietechniczne łączone przez
+    # I — 61%). Każde spełnione miasto/kategoria/wiersz to +1 obok
+    # `skills_preferred`.
+    location_preferred: Optional[list[str]] = None
+    competence_category_preferred: Optional[list[int]] = None
+    q_preferred_group: Optional[list[str]] = None
     tags: Optional[list[str]] = None
     # Języki: "kod" albo "kod:POZIOM" (`candidate_search_predicates.language_clauses`).
     languages: Optional[list[str]] = None
@@ -1390,6 +1398,45 @@ def _apply_candidate_sort(
     return _apply_requested_sort(query, filters, q_any_groups, pool_order=pool_order)
 
 
+def _preferred_rank(filters: CandidateFilterSpec):
+    """Suma punktów „Mile widziane”: umiejętności, miasta, kategorii i wierszy
+    słów. ``None`` bez żadnego z nich — kolejność dokładnie jak dotąd."""
+    from app.services import candidate_search_predicates as predicates  # noqa: PLC0415
+    from app.services.advanced_candidate_search import (  # noqa: PLC0415
+        build_advanced_filter,
+    )
+
+    points = []
+    skills_rank = predicates.skills_preferred_rank(
+        predicates.skill_buckets_from_list(skills_preferred=filters.skills_preferred)
+    )
+    if skills_rank is not None:
+        points.append(skills_rank)
+    cities = [c for c in (filters.location_preferred or []) if c and c.strip()]
+    if cities:
+        # Jedno miasto wystarczy: kandydat mieszka w jednym, więc suma miast
+        # dawałaby punkt za to samo dwa razy (miasto + lokalizacja).
+        points.append(case((or_(*predicates.city_match_clauses(cities)), 1), else_=0))
+    if filters.competence_category_preferred:
+        sem = predicates.semantics_for("list", 2, False)
+        cc = predicates.competence_category_clause(
+            filters.competence_category_preferred, sem
+        )
+        if cc is not None:
+            points.append(case((cc, 1), else_=0))
+    for group in filters.q_preferred_group or []:
+        words = predicates.split_pipe_group(group)
+        clause = build_advanced_filter(None, None, None, [words], whole_words=True)
+        if clause is not None:
+            points.append(case((clause, 1), else_=0))
+    if not points:
+        return None
+    total = points[0]
+    for point in points[1:]:
+        total = total + point
+    return total
+
+
 def _sort_prefix_exprs(filters: CandidateFilterSpec):
     """(„Mile widziane” malejąco, liczba braków rosnąco) — wyrażenia albo ``None``.
 
@@ -1397,9 +1444,7 @@ def _sort_prefix_exprs(filters: CandidateFilterSpec):
     (``candidate_match_order``), żeby oba liczyły je tak samo."""
     from app.services import candidate_search_predicates as predicates
 
-    preferred_rank = predicates.skills_preferred_rank(
-        predicates.skill_buckets_from_list(skills_preferred=filters.skills_preferred)
-    )
+    preferred_rank = _preferred_rank(filters)
     # v2: osoby przepuszczone „na brak danych" (plakietka „brak …") idą za
     # osobami z potwierdzonym dopasowaniem — w obrębie tej samej liczby braków
     # obowiązuje żądany `sort`. Przy `hide_unknown` braków nie ma w wyniku.
@@ -1699,6 +1744,27 @@ async def list_candidates(
         description=(
             "Mile widziane: — ranking only, never filters. Matching candidates "
             "are ordered first, ahead of the requested `sort`."
+        ),
+    ),
+    location_preferred: Optional[list[str]] = Query(
+        None,
+        description=(
+            "Mile widziane: miasto — ranking only, never filters. Repeat the "
+            "param; a candidate living in ANY of them gets +1."
+        ),
+    ),
+    competence_category_preferred: Optional[list[int]] = Query(
+        None,
+        description=(
+            "Mile widziane: kategoria kompetencji (główna lub poboczna) — "
+            "ranking only, never filters."
+        ),
+    ),
+    q_preferred_group: Optional[list[str]] = Query(
+        None,
+        description=(
+            "Mile widziane: wiersz słów kluczowych (`a|b`, całe słowa jak "
+            "`q_any_group`) — ranking only, never filters; +1 per matched row."
         ),
     ),
     skills_excluded: Optional[list[str]] = Query(
@@ -2240,6 +2306,9 @@ async def list_candidates(
         skills_required_any_groups=skills_required_any_groups,
         skills_preferred=skills_preferred,
         skills_excluded=skills_excluded,
+        location_preferred=location_preferred,
+        competence_category_preferred=competence_category_preferred,
+        q_preferred_group=q_preferred_group,
         tags=tags,
         languages=languages,
         country=country,
@@ -2838,13 +2907,13 @@ class KeywordSuggestion(BaseModel):
     """Podpowiedź do pola słów kluczowych (``services/keyword_suggest``)."""
 
     label: str
-    kind: Literal["skill", "title", "prefix"]
+    kind: Literal["skill", "term", "title", "prefix"]
     insert: str
     alias: Optional[str] = None
     category: Optional[str] = None
     # Przybliżenie z indeksu pełnotekstowego; ``None`` = nie policzono.
     count: Optional[int] = None
-    # Inne zapisy umiejętności do „+ z wariantami” (``keyword_suggest.skill_variants``).
+    # Warianty do „+ z wariantami” (``skill_variants``, odpowiedniki ``term_suggestions``).
     variants: list[str] = []
 
 

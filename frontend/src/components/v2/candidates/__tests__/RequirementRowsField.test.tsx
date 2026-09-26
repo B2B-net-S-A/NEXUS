@@ -98,6 +98,24 @@ describe("RequirementRowsField", () => {
     expect(rows()).toEqual([["senior"]]);
   });
 
+  it("„go” — słowo wieloznaczne, „Zamień na golang” podmienia je w tym samym wierszu", () => {
+    render(<Harness initial={[["Java", "go"]]} />);
+    expect(screen.getByText(/„go” to słowo wieloznaczne — łapie też „go-live”/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Zamień na „golang”" }));
+    expect(rows()).toEqual([["Java", "golang"]]);
+    expect(screen.queryByText(/słowo wieloznaczne/)).toBeNull();
+  });
+
+  it("„it” — tylko ostrzeżenie bez zamiennika, „Zostaw” je chowa", () => {
+    render(<Harness initial={[["it"]]} />);
+    const note = screen.getByRole("note");
+    expect(note.textContent).toContain("„it” to słowo wieloznaczne");
+    expect(screen.queryByRole("button", { name: /Zamień na/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Zostaw" }));
+    expect(screen.queryByRole("note")).toBeNull();
+    expect(rows()).toEqual([["it"]]);
+  });
+
   it("bez akcji stażu podpowiedzi o stażu nie ma (np. edytor Championa)", () => {
     render(<Harness initial={[["senior"]]} />);
     expect(screen.queryByRole("button", { name: /Użyj filtra stażu/ })).toBeNull();

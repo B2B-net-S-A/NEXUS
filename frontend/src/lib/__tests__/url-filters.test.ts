@@ -24,6 +24,22 @@ describe("url-filters", () => {
     expect(decodeFilters(sp(""))).toEqual(DEFAULT_FILTERS);
   });
 
+  it("sends „Mile widziane” city, category and rows as ranking-only params", () => {
+    const params = filtersToApiParams({
+      ...DEFAULT_FILTERS,
+      locationPreferred: ["Warszawa", "Gdańsk"],
+      competenceCategoryPreferred: [7],
+      qPreferred: [["bankow*", "banking"], ["scrum"]],
+    }, 1);
+    expect(params.location_preferred).toEqual(["Warszawa", "Gdańsk"]);
+    expect(params.competence_category_preferred).toEqual([7]);
+    expect(params.q_preferred_group).toEqual(["bankow*|banking", "scrum"]);
+    // Twarde filtry zostają puste — to tylko kolejność.
+    expect(params.location).toBeUndefined();
+    expect(params.competence_category_id).toBeUndefined();
+    expect(params.q_any_group).toBeUndefined();
+  });
+
   it("round-trips every field", () => {
     const full: CandidateFilters = {
       q: "python dev",
@@ -40,6 +56,9 @@ describe("url-filters", () => {
       remote: ["remote", "hybrid"],
       skillsExpr: "python OR aws",
       skillsPreferred: ["Docker", "Spring|Quarkus"],
+      locationPreferred: ["Warszawa", "Gdańsk"],
+      competenceCategoryPreferred: [7],
+      qPreferred: [["bankow*", "banking"], ["scrum"]],
       hideUnknown: true,
       locationScope: "location_only",
       location: "Warszawa",

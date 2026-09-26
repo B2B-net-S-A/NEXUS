@@ -430,6 +430,12 @@ class Settings(BaseSettings):
     # rekrutacji zamiast 33% przy „najnowsi”. `false` = „najnowsi” z informacją
     # w `sort_applied`.
     CANDIDATE_MATCH_SORT: bool = True
+    # „Szukaj ręcznie” w `sort=match`: pierwsze N osób kolejności wektorowej
+    # układa się ponownie pełną oceną „Dop.” (`canonical_fit.score_candidates`),
+    # w obrębie tych samych grup („Mile widziane”, braki danych). Test na 120
+    # rekrutacjach (26.09.2026): MRR 0,283 → 0,472 przy N=100; koszt ~350 ms
+    # dla 200 osób (potem pamięć kolejności). 0 = wyłączone.
+    CANDIDATE_MATCH_RERANK_TOP: int = 200
     # Jednorazowa migracja zapisanych wyszukiwań kandydatów na wspólną semantykę
     # filtrów (`services/saved_search_migration.py`) przy starcie skanera alertów.
     # Domyślnie OFF: migracja wstrzymuje alerty zapisów, których wynik się

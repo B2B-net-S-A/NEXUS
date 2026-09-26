@@ -72,6 +72,8 @@ interface Chip {
  key: string;
  label: string;
  clear: () => void;
+ /** „Mile widziane” → twardy filtr (przycisk „Wymagaj” obok chipu). */
+ require?: () => void;
 }
 
 function collectChips(
@@ -311,6 +313,66 @@ function collectChips(
  rebuildSkills({
  ...skillBuckets,
  none: skillBuckets.none.filter((_, idx) => idx !== i),
+ }),
+ });
+ });
+ // „Mile widziane” poza umiejętnościami (audyt 26.09.2026): „Szukaj ręcznie”
+ // podnosi osoby z miasta i kategorii rekrutacji oraz z wierszy
+ // nietechnicznych, ale nikogo nie wycina. „Wymagaj” zamienia sygnał w filtr.
+ (filters.locationPreferred ?? []).forEach((city, i) => {
+ chips.push({
+ key: `loc-pref:${city}:${i}`,
+ label: `Mile widziane: 📍 ${city}`,
+ clear: () =>
+ onUpdate({
+ locationPreferred: filters.locationPreferred.filter((_, idx) => idx !== i),
+ page: 1,
+ }),
+ require: () =>
+ onUpdate({
+ location: city,
+ locationRadiusKm: null,
+ locationPreferred: filters.locationPreferred.filter((_, idx) => idx !== i),
+ page: 1,
+ }),
+ });
+ });
+ (filters.competenceCategoryPreferred ?? []).forEach((id, i) => {
+ const name = ccById?.get(id) ?? `#${id}`;
+ chips.push({
+ key: `cc-pref:${id}`,
+ label: `Mile widziane: kategoria ${name}`,
+ clear: () =>
+ onUpdate({
+ competenceCategoryPreferred: filters.competenceCategoryPreferred.filter(
+ (_, idx) => idx !== i,
+ ),
+ page: 1,
+ }),
+ require: () =>
+ onUpdate({
+ competenceCategoryIds: Array.from(new Set([...filters.competenceCategoryIds, id])),
+ competenceCategoryPreferred: filters.competenceCategoryPreferred.filter(
+ (_, idx) => idx !== i,
+ ),
+ page: 1,
+ }),
+ });
+ });
+ (filters.qPreferred ?? []).forEach((row, i) => {
+ chips.push({
+ key: `q-pref:${row.join("|")}:${i}`,
+ label: `Mile widziane: ${row.join(" lub ")}`,
+ clear: () =>
+ onUpdate({
+ qPreferred: filters.qPreferred.filter((_, idx) => idx !== i),
+ page: 1,
+ }),
+ require: () =>
+ onUpdate({
+ qAny: [...filters.qAny, row],
+ qPreferred: filters.qPreferred.filter((_, idx) => idx !== i),
+ page: 1,
  }),
  });
  });
@@ -641,6 +703,9 @@ export function ActiveFilterChips({
  remote: [],
  skillsExpr: "",
  skillsPreferred: [],
+ locationPreferred: [],
+ competenceCategoryPreferred: [],
+ qPreferred: [],
  hideUnknown: false,
  poolIds: [],
  addedByIds: [],
@@ -678,9 +743,10 @@ export function ActiveFilterChips({
 
  return (
  <div className="flex flex-wrap items-center gap-1.5">
- {chips.map((chip) => (
+ {chips.map((chip) => {
+ const removeButton = (
  <button
- key={chip.key}
+ key={chip.require ? undefined : chip.key}
  onClick={chip.clear}
  className="group inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-primary/10 text-primary hover:bg-primary hover:text-primary-foreground transition-colors"
  aria-label={`Usuń filtr: ${chip.label}`}
@@ -688,7 +754,22 @@ export function ActiveFilterChips({
  <span className="truncate max-w-[180px]">{chip.label}</span>
  <X className="h-3 w-3 opacity-70 group-hover:opacity-100" />
  </button>
- ))}
+ );
+ if (!chip.require) return removeButton;
+ return (
+ <span key={chip.key} className="inline-flex items-center gap-0.5">
+ {removeButton}
+ <button
+ onClick={chip.require}
+ className="px-1.5 py-0.5 text-xs rounded-full text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+ aria-label={`Wymagaj: ${chip.label.replace(/^Mile widziane: /, "")}`}
+ title="Zamień na filtr — pokaż tylko pasujących"
+ >
+ Wymagaj
+ </button>
+ </span>
+ );
+ })}
  <button
  onClick={clearAll}
  className="text-xs text-muted-foreground hover:text-primary ml-1"
