@@ -1224,6 +1224,10 @@ async def _scrub_old_private_events(
                 row.attendees = []
                 # R7-V1-7: powiązanie z kandydatem pochodziło z uczestników.
                 row.candidate_id = None
+        elif row.candidate_id is not None:
+            # Runda 8 (R8-V3-3): wiersz oczyszczony przed rundą 7 zachował
+            # kandydata — profil pokazywał „Spotkanie prywatne”, czyli z kim.
+            row.candidate_id = None
         after_id = row.id
 
     value = {"after_id": after_id, "done": done}
