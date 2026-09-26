@@ -70,8 +70,11 @@ _LINKEDIN_URL_RE = re.compile(
 
 # Simplified RFC 5322 — sufficient for CV headers; avoids pathological
 # edge cases (quoted locals, IP literals) which never appear in CVs.
+# Runda 8: lookbehind + kwantyfikator zaborczy — dopasowanie startuje tylko
+# na początku ciągu znaków lokalnych, więc 16 KB tekstu bez „@” to czas
+# liniowy (wcześniej ~4 s, kwadratowo po pozycjach startu). Wynik bez zmian.
 _EMAIL_RE = re.compile(
-    r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
+    r"(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]++@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
 )
 
 # PL phone numbers: optional +48/48 prefix, then 9 digits with optional

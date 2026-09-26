@@ -407,7 +407,9 @@ async def compute_board(
             "placements": placements,
             "verified": counts.get("verified", 0),
             "cv_sent": counts.get("cv_sent", 0),
-            "interview": counts.get("interview", 0),
+            # Runda 8: „rozmowa” = rozmowa u klienta, nie etap QC CV (kod
+            # `interview`) — decyzja Artura z rundy 7, jak lejek i tabela zespołu.
+            "interview": counts.get("client_interview", 0),
             "funnel_efficiency_pct": ratio(placements, counts.get("verified", 0)),
             "jobs_closed": jobs_closed,
             "jobs_closed_with_placement": jobs_closed_filled,
