@@ -73,6 +73,10 @@ from app.services.shared_md_orders import uses_shared_md_pool
 
 logger = logging.getLogger(__name__)
 
+#: Linie, których korekta następcy/celu trwa w tej sesji (runda 6 audytu,
+#: MD-6) — ochrona łańcucha korekt przed cyklem.
+_REBALANCE_CHAIN_KEY = "md_rebalance_chain_order_ids"
+
 ZERO = Decimal("0")
 HOURS_PER_MD = HOURS_PER_MD_DEC
 STANDARD_WORKING_DAYS_PER_MONTH = MD_PER_MONTH_DEC
@@ -1722,7 +1726,8 @@ async def recompute_remaining(
     koryguje budżet NASTĘPCY po zamianie kontraktora i celu transferu puli
     przy offboardingu — patrz :func:`_rebalance_swap_successor` i
     :func:`_rebalance_offboarding_transfer`. Korekta woła tę funkcję dla
-    następcy z ``rebalance=False`` (głębokość 1).
+    następcy/celu z korektą (runda 6 audytu: łańcuch A→B→C), a dla samej
+    linii źródłowej z ``rebalance=False``.
 
     Jedyny writer tego pola. Wartość może zejść do zera i poniżej —
     przekroczony budżet jest faktem handlowym, więc nie jest tu ścinany;
@@ -1754,8 +1759,17 @@ async def recompute_remaining(
             db, order.order_group_id, client_id=order.client_id
         )
     if rebalance and order.id is not None:
-        await _rebalance_swap_successor(db, order)
-        await _rebalance_offboarding_transfer(db, order)
+        # Runda 6 audytu (MD-6): korekta następcy przelicza go Z korektą,
+        # więc łańcuch zamian A→B→C dochodzi do C. Zbiór linii w toku
+        # (``session.info``) chroni przed cyklem w danych.
+        chain: set[int] = db.info.setdefault(_REBALANCE_CHAIN_KEY, set())
+        if order.id not in chain:
+            chain.add(order.id)
+            try:
+                await _rebalance_swap_successor(db, order)
+                await _rebalance_offboarding_transfer(db, order)
+            finally:
+                chain.discard(order.id)
     return order.md_remaining if order.md_remaining is not None else remaining
 
 
@@ -1941,7 +1955,7 @@ async def _rebalance_swap_successor(db: AsyncSession, order: ClientOrder) -> Non
             "new_md_total": str(new_total),
         },
     )
-    await recompute_remaining(db, succ, rebalance=False)
+    await recompute_remaining(db, succ)
 
 
 async def _rebalance_offboarding_transfer(db: AsyncSession, order: ClientOrder) -> None:
@@ -2118,7 +2132,7 @@ async def _rebalance_offboarding_transfer(db: AsyncSession, order: ClientOrder) 
         },
     )
     await recompute_remaining(db, order, rebalance=False)
-    await recompute_remaining(db, target, rebalance=False)
+    await recompute_remaining(db, target)
 
 
 async def _rebalance_offboarding_removal(
