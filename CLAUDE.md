@@ -7337,6 +7337,11 @@ Raport: `docs/audits/2026-09-25/runda-8.md`.
 - **Import MD, klient kosztowy:** numer z samych cyfr (≥ 7) w KSZTAŁCIE zamówień
   tego klienta (długość + 2 pierwsze cyfry) wiąże wiersz także, gdy takiego
   zamówienia nie ma — „Brak pasującego zamówienia”, nie zejście po nazwisku.
+- **Liga Mistrzów: punkty za rozmowę liczy `client_interview`** (decyzja Artura
+  27.09.2026, od razu także w bieżącym kwartale); etap QC CV (kod `interview`)
+  punktów nie daje. `_rank_recruiters_by_points` jest jedyną funkcją liczącą Ligę
+  (ekran, zamrożenie, wykluczenie lidera z wyścigów miesięcznych); klucz
+  `league_points_interview` i migawka kwartału bez zmian.
 - **„Interview” = `client_interview` także w KPI Rady** (`insights_board`
   `kpis.interview`, CSV „Rozmowy u klienta”), wykresie rocznym, lejku i tabeli
   zespołu; etap `interview` to QC CV.
