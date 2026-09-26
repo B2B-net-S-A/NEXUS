@@ -63,6 +63,10 @@ def is_cv_candidate_attachment(filename: str, content_type: str) -> bool:
     return bool(_CV_FILENAME_RE.search(filename or ""))
 
 
+# Pola typu bazowego `microsoft.graph.attachment` — jedyne dozwolone w $select.
+_ATTACHMENT_LIST_FIELDS = "id,name,contentType,size,isInline"
+
+
 async def download_for_email(
     db: AsyncSession,
     gc: GraphClient,
@@ -76,22 +80,41 @@ async def download_for_email(
     if not email_row.has_attachments:
         return []
 
-    # No $select here — Graph's `/messages/{id}/attachments` returns a
-    # polymorphic collection (fileAttachment / itemAttachment / referenceAttachment)
-    # and $select rejects any field that doesn't exist on the BASE
-    # `microsoft.graph.attachment` type. Two production fires came from this:
-    #   • NEXUS-BE-2 (2026-05): `@odata.type` is not selectable on the base type.
-    #   • NEXUS-BE-C (2026-05): `contentBytes` exists only on fileAttachment.
-    # Without $select Graph returns every standard field per subtype, including
-    # `contentBytes` for fileAttachment — exactly what we need below. The extra
-    # payload is small (attachments are typically <10 per email and metadata is
-    # tiny next to the bytes themselves).
+    # Runda 6 audytu: sync woła tę funkcję przy KAŻDEJ zmianie wiadomości
+    # (przeczytanie, kategoria, przeniesienie). Załączniki odebranego maila się
+    # nie zmieniają, więc gdy każdy ma już plik na dysku albo końcowy powód
+    # (za duży, link, nieudane pobranie — to ponawia pętla ``m365_cv_parse``),
+    # nie listujemy ich w Graph ponownie.
+    known = list(
+        (
+            await db.scalars(
+                select(EmailAttachment).where(EmailAttachment.email_id == email_row.id)
+            )
+        ).all()
+    )
+    if known and all(
+        row.parse_error
+        or (row.storage_path and (STORAGE_ROOT / row.storage_path).is_file())
+        for row in known
+    ):
+        return known
+
+    # $select WYŁĄCZNIE z polami typu bazowego `microsoft.graph.attachment`
+    # (runda 6 audytu). Kolekcja jest polimorficzna, a $select z polem
+    # podtypu kończy się 400 (NEXUS-BE-2: `@odata.type`, NEXUS-BE-C:
+    # `contentBytes`). Bez $select Graph oddawał `contentBytes` WSZYSTKICH
+    # załączników w jednej odpowiedzi — także za dużych i już zapisanych.
+    # Treść pobieramy osobno przez `$value`, tylko gdy jest potrzebna i mieści
+    # się w limicie; typ (`@odata.type`) Graph dokleja sam jako adnotację.
     #
     # INT-08: błąd LISTOWANIA propaguje się do syncu. Do 09.2026 zwracał pustą
     # listę, więc mail był zapisany, delta potwierdzona, a CV nie powstawało
     # nigdy (żaden wiersz załącznika = nic do ponowienia). Teraz przebieg
     # liczy błąd strony i kursor delty stoi — następny przebieg wraca po mail.
-    page = await gc.get(f"/me/messages/{email_row.m365_message_id}/attachments")
+    page = await gc.get(
+        f"/me/messages/{email_row.m365_message_id}/attachments",
+        params={"$select": _ATTACHMENT_LIST_FIELDS},
+    )
 
     results: list[EmailAttachment] = []
     max_bytes = settings.M365_MAX_ATTACHMENT_MB * 1024 * 1024
