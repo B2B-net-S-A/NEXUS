@@ -14,6 +14,9 @@ składane równocześnie wzięłyby tych samych ludzi.
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
+import json
 import logging
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
@@ -38,6 +41,17 @@ _POOL_LIMIT = 60_000
 #: sekundy) — kolejne listy dnia biorą go z pamięci procesu i pomijają osoby
 #: już rozdane dziś (``_assigned_on``).
 _ranked_cache: dict[tuple[date, str], tuple[datetime, list["RankedCandidate"]]] = {}
+
+#: Jedno liczenie rankingu naraz w procesie (runda 6 audytu), bo liczenie to
+#: ~20 s CPU, a backend to jeden proces uvicorna: dwa GET /today o 8:00, pętla
+#: poranna i podgląd reguł liczyłyby to samo równolegle i dusiły wątki. Kto
+#: czeka, dostaje po odblokowaniu gotowy ranking z pamięci.
+_rank_lock = asyncio.Lock()
+
+#: Podgląd reguł (``/rules/preview``) pamiętany po odcisku reguł i dniu —
+#: formularz pyta po każdej zmianie pola, a te same wartości wracają (cofnięcie
+#: zmiany, drugi admin). Krótko, bo pula zmienia się w ciągu dnia.
+_PREVIEW_TTL_SECONDS = 120
 
 #: Pusty ranking nie jest ostateczny (audyt 24.09.2026): liczymy go ponownie,
 #: ale nie częściej niż co tyle — pusta lista praktykanta pyta przy każdym GET.
@@ -224,15 +238,11 @@ class RankedCandidate:
     stack_display: tuple[str, ...]
 
 
-async def _demand_index(
-    db: AsyncSession, rules: dict[str, Any]
+def _demand_index(
+    pool_jobs: list[Any], rules: dict[str, Any], now: datetime
 ) -> dict[str, list[rules_mod.DemandJob]]:
-    from app.services.job_similarity import _load_pool  # noqa: PLC0415
-
-    pool = await _load_pool(db)
-    since = datetime.now(timezone.utc) - timedelta(
-        days=round(int(rules["window_months"]) * 30.44)
-    )
+    """Indeks popytu z puli rekrutacji — czysta funkcja (liczona w wątku)."""
+    since = now - timedelta(days=round(int(rules["window_months"]) * 30.44))
     jobs = [
         rules_mod.DemandJob(
             id=job.id,
@@ -240,7 +250,7 @@ async def _demand_index(
             competence_category_id=job.competence_category_id,
             is_open=job.status == JobStatus.published.value,
         )
-        for job in pool.jobs.values()
+        for job in pool_jobs
         if job.created_at is None or job.created_at >= since
     ]
     return rules_mod.build_index(jobs)
@@ -256,13 +266,19 @@ def _candidate_skills(raw: Any) -> tuple[frozenset[str], dict[str, str]]:
     return skill_set(raw), display
 
 
-async def rank_pool(
-    db: AsyncSession, rules: dict[str, Any], *, today: date
+def _rank_rows(
+    rows: list[Any],
+    pool_jobs: list[Any],
+    rules: dict[str, Any],
+    now: datetime,
 ) -> list[RankedCandidate]:
-    """Cała pula w kolejności dzwonienia (odsiana progiem ``min_fits``)."""
-    index = await _demand_index(db, rules)
-    now = datetime.now(timezone.utc)
-    rows = (await db.execute(text(pool_sql(rules)), _pool_params(rules, today))).all()
+    """Ranking puli z pobranych już wierszy — bez bazy, bez pętli zdarzeń.
+
+    Do 60 tys. profili (umiejętności z JSONB, popyt dla każdego) to ~20 s
+    CPU; liczone na pętli zatrzymywało całe API i ``/api/health/live``
+    (runda 6 audytu). Dlatego ``rank_pool`` woła to przez ``asyncio.to_thread``.
+    """
+    index = _demand_index(pool_jobs, rules, now)
     ranked: list[tuple[tuple, RankedCandidate]] = []
     min_fits = int(rules["min_fits"])
     for row in rows:
@@ -285,11 +301,52 @@ async def rank_pool(
     return [item for _, item in ranked]
 
 
-async def pool_stats(
+async def _rank_pool_unlocked(
     db: AsyncSession, rules: dict[str, Any], *, today: date
+) -> list[RankedCandidate]:
+    from app.services.job_similarity import _load_pool  # noqa: PLC0415
+
+    pool = await _load_pool(db)
+    rows = (await db.execute(text(pool_sql(rules)), _pool_params(rules, today))).all()
+    # Dane pobrane na pętli, liczenie w wątku (runda 6 audytu): pula
+    # rekrutacji jest niezmienna po zbudowaniu (przeładowanie tworzy nowy
+    # obiekt), więc lista jej rekrutacji jest bezpieczna poza pętlą.
+    return await asyncio.to_thread(
+        _rank_rows,
+        rows,
+        list(pool.jobs.values()),
+        rules,
+        datetime.now(timezone.utc),
+    )
+
+
+async def rank_pool(
+    db: AsyncSession, rules: dict[str, Any], *, today: date
+) -> list[RankedCandidate]:
+    """Cała pula w kolejności dzwonienia (odsiana progiem ``min_fits``)."""
+    async with _rank_lock:
+        return await _rank_pool_unlocked(db, rules, today=today)
+
+
+async def pool_stats(
+    db: AsyncSession,
+    rules: dict[str, Any],
+    *,
+    today: date,
+    ranked: Optional[list[RankedCandidate]] = None,
 ) -> dict[str, Any]:
-    """Wielkość puli, pasujący do otwartych i rozkład po kategoriach."""
-    ranked = await rank_pool(db, rules, today=today)
+    """Wielkość puli, pasujący do otwartych i rozkład po kategoriach.
+
+    Z rankingu dnia (``cached_ranking``) albo podanego, nie z drugiego
+    liczenia (runda 6 audytu — pętla poranna liczyła pulę dwa razy, po ~20 s
+    CPU każde). Osoby rozdane już dziś na listy odpadają, bo świeże liczenie
+    też by ich nie wzięło (``trainee_call_items`` z dziś w ``pool_sql``).
+    """
+    if ranked is None:
+        ranked = await cached_ranking(db, rules, today=today)
+    assigned = await _assigned_on(db, today)
+    if assigned:
+        ranked = [item for item in ranked if item.candidate_id not in assigned]
     names = {
         cc.id: cc.name_pl for cc in (await db.scalars(select(CompetenceCategory))).all()
     }
@@ -306,6 +363,38 @@ async def pool_stats(
         ],
         "computed_at": datetime.now(timezone.utc).isoformat(),
     }
+
+
+def _rules_fingerprint(rules: dict[str, Any]) -> str:
+    raw = json.dumps(rules, sort_keys=True, default=str)
+    return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+
+async def preview_pool_stats(
+    db: AsyncSession, rules: dict[str, Any], *, today: date
+) -> dict[str, Any]:
+    """Statystyki puli dla reguł z formularza — świeży ranking, bez rankingu dnia.
+
+    Pamiętane ``_PREVIEW_TTL_SECONDS`` po odcisku reguł, a równoległe pytania
+    o te same reguły liczy jedno żądanie (runda 6 audytu: formularz pytał po
+    każdej zmianie pola, każde pytanie to ~20 s CPU w jednym procesie API).
+    Ranking dnia zostaje nietknięty — podgląd niezapisanych reguł nie może
+    wyrzucić z pamięci rankingu, z którego praktykanci dostają listy.
+    """
+    from app.core.cache import cache_get, cache_set, cache_single_flight  # noqa: PLC0415
+
+    key = f"trainee_pool_preview:{today.isoformat()}:{_rules_fingerprint(rules)}"
+    cached = await cache_get(key)
+    if cached is not None:
+        return dict(cached)
+    async with cache_single_flight(key, db=db):
+        cached = await cache_get(key)
+        if cached is not None:
+            return dict(cached)
+        ranked = await rank_pool(db, rules, today=today)
+        stats = await pool_stats(db, rules, today=today, ranked=ranked)
+        await cache_set(key, stats, _PREVIEW_TTL_SECONDS)
+        return dict(stats)
 
 
 async def store_pool_stats(db: AsyncSession, stats: dict[str, Any]) -> None:
@@ -560,18 +649,32 @@ async def _assigned_on(db: AsyncSession, day: date) -> set[int]:
     return set(rows.all())
 
 
+def _cached_ranking_hit(
+    key: tuple[date, str], now: datetime
+) -> Optional[list[RankedCandidate]]:
+    cached = _ranked_cache.get(key)
+    if cached is not None and (cached[1] or now - cached[0] < _EMPTY_RANKING_RETRY):
+        return cached[1]
+    return None
+
+
 async def cached_ranking(
     db: AsyncSession, rules: dict[str, Any], *, today: date
 ) -> list[RankedCandidate]:
     key = (today, repr(sorted(rules.items())))
-    cached = _ranked_cache.get(key)
-    now = datetime.now(timezone.utc)
-    if cached is not None and (cached[1] or now - cached[0] < _EMPTY_RANKING_RETRY):
-        return cached[1]
-    _ranked_cache.clear()
-    ranking = await rank_pool(db, rules, today=today)
-    _ranked_cache[key] = (now, ranking)
-    return ranking
+    hit = _cached_ranking_hit(key, datetime.now(timezone.utc))
+    if hit is not None:
+        return hit
+    # Single-flight (runda 6 audytu): kto czekał na blokadę, sprawdza pamięć
+    # jeszcze raz — ranking policzył już ktoś przed nim.
+    async with _rank_lock:
+        hit = _cached_ranking_hit(key, datetime.now(timezone.utc))
+        if hit is not None:
+            return hit
+        ranking = await _rank_pool_unlocked(db, rules, today=today)
+        _ranked_cache.clear()
+        _ranked_cache[key] = (datetime.now(timezone.utc), ranking)
+        return ranking
 
 
 def reset_ranking_cache() -> None:
