@@ -31,6 +31,7 @@ def _candidate(**kw) -> Candidate:
         lastname="Kowalski",
         cv_extracted_data=kw.get("cv_extracted_data", {}),
         raw_cv_text=kw.get("raw_cv_text"),
+        cv_storage_key=kw.get("cv_storage_key", "cv/1.pdf"),
     )
 
 
@@ -198,7 +199,8 @@ def test_random_sample_changes_ordering_not_scope():
     by_id = str(svc._pending_candidates_stmt(30))
     random_ = str(svc._pending_candidates_stmt(30, random_sample=True))
 
-    assert "ORDER BY candidates.id" in by_id
+    # Runda 6 audytu: najpierw wiersze bez znacznika, potem po id.
+    assert "candidates.id ASC" in by_id
     assert "random()" in random_
     # Same population either way — only the draw order differs.
     for clause in ("cv_storage_key IS NOT NULL", "LIMIT"):
@@ -335,3 +337,89 @@ def test_retry_outcomes_open_the_loop_guard_not_just_sql():
         "pętla run_backfill musi przekazywać retry_outcomes do strażnika — "
         "inaczej SQL wpuszcza wiersze, a pętla je po cichu wyrzuca"
     )
+
+
+# ── Runda 6 audytu (T6-4): przejściowe wyniki nie blokują kolejki ───────────
+
+
+def _sql(stmt) -> str:
+    from sqlalchemy.dialects import postgresql
+
+    return str(
+        stmt.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True})
+    )
+
+
+@pytest.mark.parametrize("outcome", ["download_failed", "no_file", "error"])
+def test_transient_outcome_is_deferred_with_growing_backoff(outcome):
+    """Do 26.09.2026 `download_failed`/`no_file`/`error` wracały co noc na
+    czoło `ORDER BY id LIMIT 1000`, a nowe CV nie mieściły się w budżecie."""
+    from datetime import datetime, timezone
+
+    c = _candidate(cv_extracted_data={})
+    _record_marker(c, outcome, 0)
+    first = c.cv_extracted_data["_cv_text_extraction"]
+    assert first["attempts"] == 1
+    assert first["storage_key"] == "cv/1.pdf"
+    after_1 = datetime.fromisoformat(first["retry_after"])
+    assert after_1 > datetime.now(timezone.utc)
+
+    _record_marker(c, outcome, 0)
+    second = c.cv_extracted_data["_cv_text_extraction"]
+    assert second["attempts"] == 2
+    assert datetime.fromisoformat(second["retry_after"]) > after_1
+    # Nadal nieterminalny — po odroczeniu dostaje kolejną próbę.
+    assert _terminal_marker(c) is None
+
+
+def test_attempts_restart_for_a_new_cv_file():
+    c = _candidate(cv_extracted_data={})
+    _record_marker(c, "download_failed", 0)
+    _record_marker(c, "download_failed", 0)
+    c.cv_storage_key = "cv/2.pdf"
+    _record_marker(c, "download_failed", 0)
+    assert c.cv_extracted_data["_cv_text_extraction"]["attempts"] == 1
+
+
+def test_pending_scope_respects_deferral_and_puts_new_cvs_first():
+    sql = _sql(svc._pending_candidates_stmt(1000))
+    assert "retry_after" in sql, "odroczenie ponowień nie jest częścią zakresu"
+    order_by = sql.split("ORDER BY", 1)[1]
+    # Wiersze bez znacznika (nowe CV) przed ponowieniami.
+    assert "IS NOT NULL" in order_by
+    assert order_by.index("IS NOT NULL") < order_by.index("candidates.id")
+
+
+def test_glued_scope_respects_deferral():
+    assert "retry_after" in _sql(svc._glued_candidates_stmt(1000))
+
+
+def test_terminal_verdict_does_not_stick_to_a_replaced_file():
+    c = _candidate(cv_extracted_data={})
+    _record_marker(c, "empty", 0)
+    assert _terminal_marker(c) == "empty"
+    c.cv_storage_key = "cv/nowy.pdf"
+    assert _terminal_marker(c) is None, "nowy plik nie dziedziczy wyroku starego"
+    assert "storage_key" in _sql(svc._pending_candidates_stmt(10))
+
+
+def test_cv_text_phase_stats_survive_the_watermark_summary():
+    """`_CvTextPhaseResult.as_dict` miało klucze, których `_summarize` nie
+    przepuszczał — faza wyglądała w `/sync/status` jak pusta."""
+    from datetime import datetime, timezone
+
+    from app.tasks.traffit_sync import _CvTextPhaseResult, _summarize
+
+    stats = BackfillStats()
+    stats.scanned = 10
+    stats.extracted = 4
+    stats.download_failed = 2
+    summary = stats.as_dict()
+    summary["glued"] = BackfillStats().as_dict()
+    now = datetime.now(timezone.utc)
+    out = _summarize(_CvTextPhaseResult(summary, now, now).as_dict())
+    assert out["scanned"] == 10
+    assert out["extracted"] == 4
+    assert out["download_failed"] == 2
+    assert out["written"] == 0
+    assert "glued" in out

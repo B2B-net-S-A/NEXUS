@@ -30,11 +30,10 @@ from datetime import datetime, timedelta, timezone
 from collections.abc import Sequence
 from typing import Any, Optional
 
-from sqlalchemy import select, text
+from sqlalchemy import text
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
-from app.models.candidate import Candidate
 from app.services.traffit.client import TraffitClient, TraffitConfig
 from app.services.traffit.importer import PhaseProgress, TraffitImporter
 from app.services import loop_heartbeat
@@ -494,7 +493,11 @@ def _cv_fields_windows_from_payload(payload: Any) -> list[dict[str, Any]]:
         except (TypeError, ValueError):
             after_id = 0
         out.append(
-            {"since": since.isoformat(), "until": until.isoformat(), "after_id": after_id}
+            {
+                "since": since.isoformat(),
+                "until": until.isoformat(),
+                "after_id": after_id,
+            }
         )
     return out
 
@@ -628,8 +631,8 @@ class _CvTextPhaseResult:
     """Adapter ``cv_text_backfill.run_backfill`` na kontrakt fazy.
 
     CELOWO ``errors = 0``: nieudany plik dostaje znacznik w
-    ``cv_extracted_data._cv_text_extraction`` i wraca w następnym biegu
-    (``download_failed``/``error``) albo zostaje opisany jako beznadziejny
+    ``cv_extracted_data._cv_text_extraction`` i wraca po odroczeniu
+    (``download_failed``/``no_file``/``error`` — runda 6 audytu) albo zostaje opisany jako beznadziejny
     (``junk``/``legacy_doc``) — nic tu nie wymaga wstrzymywania watermarku, a
     wstrzymany watermark i tak niczego by w tej fazie nie ponowił.
     """
@@ -1022,6 +1025,33 @@ def _summarize(progress_dict: dict[str, Any]) -> dict[str, Any]:
         "drifted_entities",
         "drift",
         "total_source",
+        # Runda 6 audytu: faza `candidates_cv_text` (taksonomia wyników
+        # odczytu) i `candidates_cv_fields` (kursor okien) — bez tych kluczy
+        # obie fazy wyglądały w `/sync/status` jak puste.
+        "scanned",
+        "extracted",
+        "improved",
+        "empty",
+        "no_improvement",
+        "junk",
+        "legacy_doc",
+        "unsupported_format",
+        "no_file",
+        "download_failed",
+        "error",
+        "skipped_terminal",
+        "still_glued",
+        "reindex_enqueued",
+        "storage_available",
+        "written",
+        "glued",
+        "stopped_reason",
+        "llm_calls",
+        "fields_filled",
+        "carried_windows",
+        "pending_windows",
+        "dropped_windows",
+        "note",
     )
     out = {k: progress_dict.get(k) for k in keys if k in progress_dict}
     samples = progress_dict.get("error_samples") or []
