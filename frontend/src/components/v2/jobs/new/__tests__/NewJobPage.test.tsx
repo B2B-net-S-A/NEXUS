@@ -5,7 +5,7 @@
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -215,6 +215,24 @@ describe("NewJobPage", () => {
     expect(mocks.showSuccess).toHaveBeenCalled();
     // Podsumowanie historii klienta rusza w tle — bez czekania na wynik.
     expect(mocks.refreshClientHistory).toHaveBeenCalledWith(900);
+  });
+
+  it("awaria listy rekruterów → komunikat z „Ponów” przy polu „Prowadzi” (R8-N14-6)", async () => {
+    let calls = 0;
+    mocks.get.mockImplementation((url: string) => {
+      if (url === "/api/users") {
+        calls += 1;
+        return calls === 1
+          ? Promise.reject(new Error("boom"))
+          : Promise.resolve({ data: [{ id: 31, name: "Rekruterka Ola" }] });
+      }
+      return Promise.resolve({ data: {} });
+    });
+    await readRequest();
+    const alert = await screen.findByText(/Nie udało się wczytać listy rekruterów/);
+    fireEvent.click(within(alert.closest("[role=alert]") as HTMLElement).getByRole("button", { name: "Ponów" }));
+    expect(await screen.findByRole("option", { name: "Rekruterka Ola" })).toBeInTheDocument();
+    expect(screen.queryByText(/Nie udało się wczytać listy rekruterów/)).toBeNull();
   });
 
   it("awaria podsumowania historii klienta nie blokuje utworzenia rekrutacji", async () => {

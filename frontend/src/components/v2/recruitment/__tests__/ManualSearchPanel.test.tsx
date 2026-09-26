@@ -1,10 +1,12 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { focusManager, QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, render, screen } from "@testing-library/react";
+import { useEffect } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getReqs: vi.fn(),
   list: vi.fn(),
+  mounts: 0,
   getChampion: vi.fn(),
   classify: vi.fn(),
 }));
@@ -23,8 +25,11 @@ vi.mock("@/lib/matching-requirements", () => ({
   requirementLabels: (data: { must: string[] }) => data.must,
 }));
 vi.mock("@/components/v2/pages/CandidatesListV2", () => ({
-  CandidatesListV2: (props: unknown) => {
+  CandidatesListV2: function MockList(props: unknown) {
     mocks.list(props);
+    useEffect(() => {
+      mocks.mounts += 1;
+    }, []);
     return <div data-testid="candidates-list" />;
   },
 }));
@@ -147,6 +152,33 @@ describe("ManualSearchPanel — lista Kandydatów osadzona w rekrutacji", () => 
     await screen.findByTestId("candidates-list");
     expect(lastEmbed().initialFilters.qAny).toEqual([["bankowość"]]);
     expect(lastEmbed().initialFilters.qPreferred).toEqual([]);
+  });
+
+  it("powrót do karty po >10 min nie klasyfikuje wierszy od nowa i nie przemontowuje listy (R8-N14-7)", async () => {
+    mocks.mounts = 0;
+    mocks.getReqs.mockResolvedValue({ must: [] });
+    mocks.getChampion.mockResolvedValue({
+      data: { champion_profile: { search: { requirements: [["bankowość"]] } } },
+    });
+    // Pierwsza klasyfikacja przekroczyła limit (null), kolejna by się udała.
+    mocks.classify.mockResolvedValueOnce(null).mockResolvedValue({ skills: [], as_requirements: false });
+    renderPanel();
+    await screen.findByTestId("candidates-list");
+    expect(mocks.mounts).toBe(1);
+    const realNow = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(realNow + 11 * 60 * 1000);
+    try {
+      await act(async () => {
+        focusManager.setFocused(false);
+        focusManager.setFocused(true);
+        await new Promise((r) => setTimeout(r, 50));
+      });
+    } finally {
+      clock.mockRestore();
+      focusManager.setFocused(undefined);
+    }
+    expect(mocks.classify).toHaveBeenCalledTimes(1);
+    expect(mocks.mounts).toBe(1);
   });
 
   it("bez wymagań w Championie — start jak dotąd, bez odniesienia do Championa", async () => {
