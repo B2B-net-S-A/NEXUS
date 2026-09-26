@@ -430,8 +430,12 @@ async def test_version_phase_recomputes_only_on_a_new_version(monkeypatch):
     async def fake_store():
         calls.append("stored")
 
+    async def db_version():
+        return kc.FOLD_VERSION
+
     monkeypatch.setattr(loop, "_recompute", fake_recompute)
     monkeypatch.setattr(loop, "_store_fold_version", fake_store)
+    monkeypatch.setattr(loop, "_db_fold_version", db_version)
     monkeypatch.setattr(kc, "_fold_ready", False)
     monkeypatch.setattr(kc, "_notes_ready", False)
 

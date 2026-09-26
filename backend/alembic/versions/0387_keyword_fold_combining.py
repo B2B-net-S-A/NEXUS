@@ -45,4 +45,9 @@ def downgrade() -> None:
     # Wersja 2 różni się wyłącznie znakami łączącymi i „<>”; po cofnięciu
     # pętla przeliczy kolumny (inna wersja w app_settings niż w kodzie).
     assert _V3_HEAD in kc.FOLD_FUNCTION_DDL, "zmieniła się funkcja — popraw downgrade"
-    op.execute(kc.FOLD_FUNCTION_DDL.replace(_V3_HEAD, _V2_HEAD))
+    # Znacznik wersji w ciele funkcji (runda 6 audytu) też wraca do v2.
+    op.execute(
+        kc.FOLD_FUNCTION_DDL.replace(_V3_HEAD, _V2_HEAD).replace(
+            kc.fold_version_marker(3), kc.fold_version_marker(2)
+        )
+    )
