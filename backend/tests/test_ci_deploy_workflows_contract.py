@@ -642,8 +642,9 @@ def test_gitleaks_also_scans_every_commit_of_the_pr_and_merge_group() -> None:
 
 
 def test_deploy_freezes_at_night_and_catches_up_in_the_morning() -> None:
-    """PROD-04: automatyczny deploy w oknie ciszy (domyślnie 0-7 Warszawa)
-    jest odraczany; poranny `schedule` wdraża zaległe merge'e."""
+    """PROD-04: okno ciszy działa tylko po jawnym ustawieniu zmiennej repo —
+    od 26.09.2026 domyślnie jest wyłączone (każdy merge wdraża się od razu);
+    poranny `schedule` zostaje jako siatka pod włączone okno."""
     deploy = _load("deploy.yml")
     crons = [entry["cron"] for entry in _triggers(deploy)["schedule"]]
     assert crons == ["15 5,6 * * *"], "05:15Z = 07:15 latem, 06:15Z = 07:15 zimą."
@@ -652,7 +653,9 @@ def test_deploy_freezes_at_night_and_catches_up_in_the_morning() -> None:
     assert "github.ref == 'refs/heads/main'" in select["if"]
     step = _step(select["steps"], "Wybierz wydanie")
     freeze = step["env"]["FREEZE_WINDOW"]
-    assert "vars.DEPLOY_FREEZE_WINDOW" in freeze and "'0-7'" in freeze
+    assert "vars.DEPLOY_FREEZE_WINDOW" in freeze and "'off'" in freeze, (
+        "Bez zmiennej repo nie ma okna ciszy — deploy idzie od razu."
+    )
     assert "github.event_name != 'workflow_dispatch'" in freeze, (
         "Ręczny deploy nie pyta o okno ciszy."
     )
