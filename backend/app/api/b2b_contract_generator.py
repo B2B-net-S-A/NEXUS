@@ -401,9 +401,8 @@ async def _reactivation_contract_id(
     projekt tylko przesunęłoby ten sam defekt.
 
     ``None`` znaczy „nie ma na co przepiąć" i zostawia link bez zmian.
-    **Nie tworzymy** tu kontraktu: ``ensure_b2b_employment_draft`` zakłada go
-    z pominięciem ``_assert_no_duplicate_contract``, więc reaktywacja mogłaby
-    po cichu zrobić drugi wiersz u tego samego klienta.
+    **Nie tworzymy** tu kontraktu: projekt u klienta bez kontraktu tej osoby
+    to decyzja Delivery, nie skutek uboczny zmiany statusu umowy.
     """
     candidate_id = await db.scalar(
         select(Contract.candidate_id).where(Contract.id == current_contract_id)
@@ -3202,11 +3201,9 @@ async def confirm_generated_contract_fully_signed(
         row.signature_status = "signed_both"
         row.signature_source = "manual_confirmation"
         # Podpis obustronny to JEDYNE przejście `in_progress` → `active`.
-        # WARUNKOWO, nie bezwarunkowo: umowę wolno zamknąć powodem
-        # `resignation_before_signing` PRZED podpisem, a bezwarunkowe „active"
-        # na takim wierszu zostawiłoby wypełnione pola `closure_*` przy statusie
-        # `active` → IntegrityError z ck_..._closure_coherence, w środku
-        # atomowej automatyzacji zatrudnienia.
+        # WARUNKOWO: „Zakończona”/„Bez projektu”/„Anulowana” odmawiają wyżej
+        # (409), a bezwarunkowe „active" na wierszu z `closure_*` dałoby
+        # IntegrityError z ck_..._closure_coherence.
         if row.contract_status == "in_progress":
             row.contract_status = "active"
         row.candidate_id = candidate_id
@@ -3411,9 +3408,7 @@ async def _lock_person_contracts_before_row(
         if person_ids
         else []
     )
-    await lock_contract_then_orders(
-        db, contract_ids=[*contract_ids, link.contract_id]
-    )
+    await lock_contract_then_orders(db, contract_ids=[*contract_ids, link.contract_id])
 
 
 @router.patch("/generated/{generated_id}", response_model=B2BGeneratedContractItem)

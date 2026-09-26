@@ -1673,3 +1673,46 @@ async def test_cancelled_row_stays_in_the_current_tab(app_client, app_auth_heade
         params=[("limit", "200"), ("contract_status", "cancelled")],
     )
     assert rid in {x["id"] for x in only_cancelled.json()}
+
+
+async def test_reactivation_onto_own_job_needs_rate_visibility(
+    app_client, app_auth_headers
+):
+    """Runda 8 (R8-X2-2): przywrócenie z zawieszenia przepina rekrutację,
+    a od niej zależy, kto widzi stawki. Osoba bez wglądu w stawki cudzej umowy
+    nie może przywrócić jej na SWOJĄ rekrutację — do tej pory tak właśnie
+    zdobywała DOCX ze stawką."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.job import Job
+
+    admin_id = await _admin_user_id(app_client)
+    rid, _ = await _seed(admin_id)
+    contract_id, client_id = await _seed_linked_contract("Klient TAC-a")
+    await _link(rid, contract_id=contract_id)
+    tac_id, tac_headers = await _other_legal_user_headers(app_client)
+    async with AsyncSessionLocal() as db:
+        own_job = Job(title="Rekrutacja TAC-a", client_id=client_id, tac_id=tac_id)
+        db.add(own_job)
+        await db.commit()
+        await db.refresh(own_job)
+        own_job_id = own_job.id
+
+    assert (await _suspend(app_client, app_auth_headers, rid)).status_code == 200
+
+    resp = await app_client.patch(
+        f"{PATH}/{rid}",
+        headers=tac_headers,
+        json={"contract_status": "active", "job_id": own_job_id},
+    )
+    assert resp.status_code == 403, resp.text
+
+    docx = await app_client.get(f"{PATH}/{rid}/docx", headers=tac_headers)
+    assert docx.status_code == 403, docx.text
+
+    # Osoba, która stawki widzi (admin), przywraca bez przeszkód.
+    ok = await app_client.patch(
+        f"{PATH}/{rid}",
+        headers=app_auth_headers,
+        json={"contract_status": "active", "job_id": own_job_id},
+    )
+    assert ok.status_code == 200, ok.text

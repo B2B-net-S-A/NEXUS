@@ -780,8 +780,7 @@ async def _live_contracts_of_person_at_client(
                 Contract.candidate_id != candidate.id,
                 Contract.candidate_id.in_(
                     select(Candidate.id).where(
-                        func.lower(func.btrim(Candidate.email, " \t\r\n"))
-                        == email_norm
+                        func.lower(func.btrim(Candidate.email, " \t\r\n")) == email_norm
                     )
                 ),
             )
