@@ -1,5 +1,6 @@
 """Nordea PDF: netto/h, bez Quantity i summary. Wyłącznie dane syntetyczne."""
 
+import re
 from copy import deepcopy
 from datetime import date
 from decimal import Decimal
@@ -363,7 +364,8 @@ def test_nordea_five_field_projection_never_sends_totals_to_model(total):
     original = JAKUB + "\nContact persons\nNot Consultant\nStart date: 2099-01-01\n"
     projected = prepare_parser_text(original.replace("300 000,00", total), POLICIES)
     assert projected == prepare_parser_text(original, POLICIES)
-    assert "total" not in projected.lower()
+    assert not re.search(r"^\s*total", projected, re.I | re.M)
+    assert "300 000,00" not in projected
     assert "2099" not in projected
     assert "Not Consultant" not in projected
     assert "286471" in projected and "160,00 PLN/hour netto" in projected
@@ -570,3 +572,67 @@ async def test_reading_saved_by_the_old_nordea_rule_still_needs_a_human(
         meta={},
     )
     assert any(_LEGACY_REASON in r for r in refreshed["uncertain_reasons"])
+
+
+# ── Runda 6 audytu: tabela Consultant(s) nie może potwierdzać samej siebie ──
+
+BROKEN_ROW = ORDER.replace(
+    "Total, excl.",
+    "Anna Druga IT Developer Poland - 100 Hours 234,00 PLN 23 400,00 PLN\n"
+    "Piotr Trzeci IT Operations - Senior Poland - 1 728\n"
+    "Hours 200,00 PLN 345 600,00 PLN\n"
+    "Total, excl.",
+)
+
+
+def test_row_broken_by_pdfplumber_is_seen_by_the_model_and_blocks_auto():
+    # pdfplumber łamie wiersz: ilość na końcu linii, jednostka i stawka w
+    # następnej. Regex tabeli czyta 2 z 3 osób — model musi dostać surowy
+    # fragment tabeli, a kontrola kompletności zatrzymać automat.
+    assert [r.consultant_name for r in nordea.extract_rows(BROKEN_ROW)] == [
+        "Jan Testowy",
+        "Anna Druga",
+    ]
+    projected = prepare_parser_text(BROKEN_ROW, POLICIES)
+    assert "Piotr Trzeci" in projected
+    assert "Hours 200,00 PLN" in projected
+    # Nawet gdy model przepisał tylko wyciąg (2 osoby), kontrola liczy stawki.
+    ex = model_extraction("")
+    ex.consultant_rows.append(
+        ConsultantOrderRow(consultant_name="Anna Druga", rate_client=Decimal("234"))
+    )
+    ex, _ = apply_policies(ex, PolicyContext(document_text=BROKEN_ROW), POLICIES)
+    assert ex.uncertain
+    assert any("3 pozycje" in r and "2 wiersze" in r for r in ex.uncertain_reasons)
+
+
+def test_model_reading_the_third_person_from_raw_table_is_reported():
+    ex = model_extraction("")
+    ex.consultant_rows += [
+        ConsultantOrderRow(consultant_name="Anna Druga", rate_client=Decimal("234")),
+        ConsultantOrderRow(consultant_name="Piotr Trzeci", rate_client=Decimal("200")),
+    ]
+    ex, _ = apply_policies(ex, PolicyContext(document_text=BROKEN_ROW), POLICIES)
+    assert ex.uncertain
+    assert any("Piotr Trzeci" in r for r in ex.uncertain_reasons)
+
+
+def test_three_word_name_before_competence_column_is_uncertain():
+    text = ORDER.replace("Jan Testowy IT", "Jan Kowalski Nowak IT")
+    rows = nordea.extract_rows(text)
+    assert len(rows) == 1
+    assert rows[0].uncertain
+    assert "Nowak" in rows[0].uncertain_reason
+    ex = model_extraction("")
+    ex.consultant_rows[0].consultant_name = "Jan Kowalski"
+    ex, _ = apply_policies(ex, PolicyContext(document_text=text), POLICIES)
+    assert ex.uncertain
+    assert ex.consultant_rows[0].uncertain
+    assert any("Nowak" in r for r in ex.uncertain_reasons)
+
+
+def test_raw_table_fragment_hides_totals_and_row_subtotals():
+    projected = nordea.parser_text(BROKEN_ROW)
+    assert "345 600,00" not in projected
+    assert "300 000,00" not in projected
+    assert "Total, excl" not in projected

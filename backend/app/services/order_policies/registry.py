@@ -288,7 +288,9 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         rate_rules=_nordea_rate_rules,
         # 24.09.2026: tabela porównywana z zachowanym odczytem modelu
         # (``model_rows``), a nie sama ze sobą (audyt S2).
-        rule_version="2026-09-24",
+        # 26.09.2026: model dostaje surowy fragment tabeli, kontrola
+        # kompletności wierszy i trzeci człon nazwy (runda 6 audytu).
+        rule_version="2026-09-26",
     ),
     OrderClientPolicy(
         key="bank_pocztowy",
