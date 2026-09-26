@@ -9,8 +9,9 @@ import { useCallback, useEffect, useState } from "react";
 
 export type ClientTab =
   | "profil"
-  // Karta klienta („Zasady współpracy") — cel linku „Edytuj kartę" ze strony
-  // rekrutacji i z Pomocy → Klienci (`/clients/{id}?tab=zasady`).
+  // Karta klienta („Zasady współpracy"). Link „Edytuj kartę" ze strony
+  // rekrutacji i z Pomocy prowadzi od rundy 6 audytu do Ustawień
+  // (`clientPlaybookEditHref`), bo DL nie widzi profilu cudzego klienta.
   | "zasady"
   | "projekty"
   | "kontakty"
