@@ -3,7 +3,13 @@
     "key": "jobs.list",
     "title": "Lista rekrutacji",
     "section": "pipeline",
-    "roles": ["recruiter", "sourcer", "delivery_lead", "head_of_recruitment", "admin"],
+    "roles": [
+      "recruiter",
+      "sourcer",
+      "delivery_lead",
+      "head_of_recruitment",
+      "admin"
+    ],
     "what": "Tu widzisz wszystkie rekrutacje: swoje albo całej firmy, ze statusem requestu, etapami kandydatów i liczbą nowych propozycji. Pierwsza linia to tytuł dla rekrutera, pod nią klient oraz nazwa i numer od klienta.",
     "tasks": [
       {
@@ -38,26 +44,61 @@
       "„Do przejrzenia”, „Szukamy” i „Klient milczy” to stan nadany przez Delivery Leada w „Porządku w requestach” (przycisk nad listą, widzą go DL, Head of Recruitment i admin); ten sam stan stoi w wierszu listy. Rekrutacje obsadzone i zakończone nie mają osobnego stanu nad listą — są pod „Wszystkie”."
     ],
     "anchors": [
-      {"id": "jobs.list.scope", "label": "Moje / Otwarte / Wszystkie", "describe": "Przełącznik zakresu listy rekrutacji z licznikami."},
-      {"id": "jobs.list.search", "label": "Wyszukiwanie", "describe": "Pole wyszukiwania po tytule, kliencie i technologii."},
-      {"id": "jobs.list.status", "label": "Stan requestu", "describe": "Jeden rząd stanów: Do uzupełnienia, Do przejrzenia, Szukamy, Mamy championa, Umowa, Klient milczy."},
-      {"id": "jobs.list.filters", "label": "Filtry", "describe": "Pasek filtrów nad listą: klient, Delivery Lead, kto pracuje, kategoria, termin i szybkie przełączniki."},
-      {"id": "jobs.list.sort", "label": "Sortowanie", "describe": "Kolejność listy, m.in. „Wymaga uwagi”."},
+      {
+        "id": "jobs.list.scope",
+        "label": "Moje / Otwarte / Wszystkie",
+        "describe": "Przełącznik zakresu listy rekrutacji z licznikami."
+      },
+      {
+        "id": "jobs.list.search",
+        "label": "Wyszukiwanie",
+        "describe": "Pole wyszukiwania po tytule, kliencie i technologii."
+      },
+      {
+        "id": "jobs.list.status",
+        "label": "Stan requestu",
+        "describe": "Jeden rząd stanów: Do uzupełnienia, Do przejrzenia, Szukamy, Mamy championa, Umowa, Klient milczy."
+      },
+      {
+        "id": "jobs.list.filters",
+        "label": "Filtry",
+        "describe": "Pasek filtrów nad listą: klient, Delivery Lead, kto pracuje, kategoria, termin i szybkie przełączniki."
+      },
+      {
+        "id": "jobs.list.sort",
+        "label": "Sortowanie",
+        "describe": "Kolejność listy, m.in. „Wymaga uwagi”."
+      },
       {
         "id": "jobs.list.new",
         "label": "Nowa rekrutacja",
         "describe": "Założenie rekrutacji z maila albo pliku od klienta.",
-        "requires": {"roles": ["admin", "delivery_lead"]}
+        "requires": {
+          "roles": [
+            "admin",
+            "delivery_lead"
+          ]
+        }
       }
     ],
     "help_slug": null,
-    "sources": ["frontend/src/components/v2/pages/JobsListV2.tsx", "frontend/src/components/v2/jobs/JobsFilterBar.tsx", "frontend/src/lib/request-stage.ts"]
+    "sources": [
+      "frontend/src/components/v2/pages/JobsListV2.tsx",
+      "frontend/src/components/v2/jobs/JobsFilterBar.tsx",
+      "frontend/src/lib/request-stage.ts"
+    ]
   },
   {
     "key": "jobs.board",
     "title": "Tablica rekrutacji",
     "section": "pipeline",
-    "roles": ["recruiter", "sourcer", "delivery_lead", "head_of_recruitment", "admin"],
+    "roles": [
+      "recruiter",
+      "sourcer",
+      "delivery_lead",
+      "head_of_recruitment",
+      "admin"
+    ],
     "what": "Tu prowadzisz kandydatów tej rekrutacji przez 8 kolumn: Nowi, Screening, Zweryfikowany, QC CV, CV wysłane, Rozmowa u klienta, Umowa i Zatrudniony.",
     "tasks": [
       {
@@ -92,10 +133,26 @@
       "Osobę dodaną ręcznie przez 12 godzin (w Nowych i Screeningu) prowadzi tylko osoba, która ją wzięła — przejąć mogą Delivery Lead, Head of Recruitment i admin."
     ],
     "anchors": [
-      {"id": "jobs.board.columns", "label": "Kolumny tablicy", "describe": "Osiem kolumn etapów — strzałka „→” na karcie albo przeciąganie."},
-      {"id": "jobs.board.review", "label": "Propozycje z bazy", "describe": "Propozycje z bazy i „Znajdź w bazie (AI)” na górze kolumny Nowi."},
-      {"id": "jobs.board.filters", "label": "Pasek filtrów tablicy", "describe": "Szukanie po nazwisku, „Mój ruch” i pozostałe filtry."},
-      {"id": "jobs.board.closed", "label": "Zamknięci", "describe": "Chipy: zrezygnowali i odrzuceni — przez nas, przez DL, przez klienta."}
+      {
+        "id": "jobs.board.columns",
+        "label": "Kolumny tablicy",
+        "describe": "Osiem kolumn etapów — strzałka „→” na karcie albo przeciąganie."
+      },
+      {
+        "id": "jobs.board.review",
+        "label": "Propozycje z bazy",
+        "describe": "Propozycje z bazy i „Znajdź w bazie (AI)” na górze kolumny Nowi."
+      },
+      {
+        "id": "jobs.board.filters",
+        "label": "Pasek filtrów tablicy",
+        "describe": "Szukanie po nazwisku, „Mój ruch” i pozostałe filtry."
+      },
+      {
+        "id": "jobs.board.closed",
+        "label": "Zamknięci",
+        "describe": "Chipy: zrezygnowali i odrzuceni — przez nas, przez DL, przez klienta."
+      }
     ],
     "help_slug": null,
     "sources": [
@@ -108,7 +165,11 @@
     "key": "jobs.proposals",
     "title": "Do przejrzenia",
     "section": "pipeline",
-    "roles": ["recruiter", "sourcer", "delivery_lead"],
+    "roles": [
+      "recruiter",
+      "sourcer",
+      "delivery_lead"
+    ],
     "what": "Tu przeglądasz kandydatów zaproponowanych do tej rekrutacji — z przeglądu całej bazy, nowych CV, podobnych rekrutacji, od praktykantów po rozmowie telefonicznej — oraz shortlistę.",
     "tasks": [
       {
@@ -134,14 +195,30 @@
     "pitfalls": [
       "Wynik „nie policzono” to brak danych, nie słabe dopasowanie.",
       "Osoby z ostrzeżeniem (np. konflikt z klientem) są widoczne i da się je dodać — sprawdź powód przed wysłaniem do klienta; weto hiring managera blokuje dodanie.",
-    "Plakietka „poniżej minimum — zgoda na telefon” znaczy, że budżet jest niższy niż minimalna stawka kandydata, ale kandydat zgodził się, żeby do niego dzwonić z taką ofertą.",
-    "Plakietka „Szuka części etatu” albo „Tylko pełny etat” znaczy, że wymiar pracy z rozmowy nie pasuje do rekrutacji. Osoba zostaje na liście — sprawdź to z nią przed dodaniem."
+      "Plakietka „poniżej minimum — zgoda na telefon” znaczy, że budżet jest niższy niż minimalna stawka kandydata, ale kandydat zgodził się, żeby do niego dzwonić z taką ofertą.",
+      "Plakietka „Szuka części etatu” albo „Tylko pełny etat” znaczy, że wymiar pracy z rozmowy nie pasuje do rekrutacji. Osoba zostaje na liście — sprawdź to z nią przed dodaniem."
     ],
     "anchors": [
-      {"id": "jobs.proposals.tabs", "label": "Propozycje / Shortlista", "describe": "Przełącznik między propozycjami z bazy a shortlistą."},
-      {"id": "jobs.proposals.review", "label": "Przegląd bazy", "describe": "Stan ostatniego przeglądu i przycisk uruchomienia nowego."},
-      {"id": "jobs.proposals.sources", "label": "Źródło propozycji", "describe": "Pigułki źródła: przegląd bazy, nowe CV, podobne rekrutacje, przepięcia, od praktykanta."},
-      {"id": "jobs.proposals.add", "label": "Dodaj do rekrutacji", "describe": "Dodanie wybranej osoby do Nowych."}
+      {
+        "id": "jobs.proposals.tabs",
+        "label": "Propozycje / Shortlista",
+        "describe": "Przełącznik między propozycjami z bazy a shortlistą."
+      },
+      {
+        "id": "jobs.proposals.review",
+        "label": "Przegląd bazy",
+        "describe": "Stan ostatniego przeglądu i przycisk uruchomienia nowego."
+      },
+      {
+        "id": "jobs.proposals.sources",
+        "label": "Źródło propozycji",
+        "describe": "Pigułki źródła: przegląd bazy, nowe CV, podobne rekrutacje, przepięcia, od praktykanta."
+      },
+      {
+        "id": "jobs.proposals.add",
+        "label": "Dodaj do rekrutacji",
+        "describe": "Dodanie wybranej osoby do Nowych."
+      }
     ],
     "help_slug": null,
     "sources": [
@@ -153,7 +230,11 @@
     "key": "jobs.person",
     "title": "Karta kandydata w rekrutacji",
     "section": "pipeline",
-    "roles": ["recruiter", "sourcer", "delivery_lead"],
+    "roles": [
+      "recruiter",
+      "sourcer",
+      "delivery_lead"
+    ],
     "what": "Tu prowadzisz jedną osobę w tej rekrutacji: sekcja „Teraz” pokazuje, co jest do zrobienia na jej etapie, a główna akcja przesuwa ją dalej.",
     "tasks": [
       {
@@ -179,6 +260,11 @@
         "q": "Co to są odznaki etapu (np. Prep, Umowa podpisana)?",
         "a": "To etapy pomocnicze, które nie mają własnej kolumny — pokazują się na karcie. „Umowa podpisana” włączasz przełącznikiem w karcie. Kontrolę CV robi teraz kolumna „QC CV”.",
         "anchor": "jobs.person.badges"
+      },
+      {
+        "q": "Jak wysłać wiadomość do tej osoby?",
+        "a": "W menu „Więcej akcji osoby” wybierz „Wyślij wiadomość”. NEXUS otworzy okno z adresem kandydata i szablonami dla tej rekrutacji. Sprawdź treść i kliknij „Wyślij” — wiadomość wychodzi z Twojej skrzynki Microsoft 365. Wątek jest dostępny w profilu kandydata, w „Historia → Maile”.",
+        "anchor": "jobs.person.actions"
       }
     ],
     "pitfalls": [
@@ -187,20 +273,47 @@
       "Odznaka „Follow-up: Anna K. · zaległy 2 dni” znaczy, że klient milczy od 14 dni i ta osoba zadzwoni do kandydata — jedna osoba, nawet gdy kandydat jest w kilku procesach. Nie dzwoń drugi raz: zapisz wynik albo kliknij „Zrobię to ja” w bloku „Kontakt z kandydatem”."
     ],
     "anchors": [
-      {"id": "jobs.person.dock", "label": "Karta kandydata", "describe": "Panel osoby wysuwany z prawej po kliknięciu karty."},
-      {"id": "jobs.person.actions", "label": "Akcje etapu", "describe": "Przenieś na etap, Inny etap, Odrzuć z powodem, Zrezygnował."},
-      {"id": "jobs.person.badges", "label": "Odznaki etapu", "describe": "Etapy pomocnicze, np. Prep, Umowa podpisana."},
-      {"id": "jobs.person.note", "label": "Szybka notatka", "describe": "Pole notatki na dole karty."},
-      {"id": "jobs.person.followup", "label": "Kontakt z kandydatem", "describe": "Kto dzwoni do kandydata, gdy klient milczy, i kiedy — z przyciskami „Zapisz wynik telefonu” i „Zrobię to ja”."}
+      {
+        "id": "jobs.person.dock",
+        "label": "Karta kandydata",
+        "describe": "Panel osoby wysuwany z prawej po kliknięciu karty."
+      },
+      {
+        "id": "jobs.person.actions",
+        "label": "Akcje etapu",
+        "describe": "Przenieś na etap, Inny etap, Odrzuć z powodem, Zrezygnował."
+      },
+      {
+        "id": "jobs.person.badges",
+        "label": "Odznaki etapu",
+        "describe": "Etapy pomocnicze, np. Prep, Umowa podpisana."
+      },
+      {
+        "id": "jobs.person.note",
+        "label": "Szybka notatka",
+        "describe": "Pole notatki na dole karty."
+      },
+      {
+        "id": "jobs.person.followup",
+        "label": "Kontakt z kandydatem",
+        "describe": "Kto dzwoni do kandydata, gdy klient milczy, i kiedy — z przyciskami „Zapisz wynik telefonu” i „Zrobię to ja”."
+      }
     ],
     "help_slug": null,
-    "sources": ["frontend/src/components/v2/jobs/PipelineCandidateDock.tsx", "frontend/src/components/v2/followups/DockFollowupBlock.tsx"]
+    "sources": [
+      "frontend/src/components/v2/jobs/PipelineCandidateDock.tsx",
+      "frontend/src/components/v2/followups/DockFollowupBlock.tsx"
+    ]
   },
   {
     "key": "job.champion",
     "title": "Zlecenie i Champion",
     "section": "pipeline",
-    "roles": ["delivery_lead", "recruiter", "admin"],
+    "roles": [
+      "delivery_lead",
+      "recruiter",
+      "admin"
+    ],
     "what": "Tu opisujesz, czego szuka klient: profil Championa w sześciu sekcjach, stack MUST/NICE, pytania screeningowe i gotowość do przekazania do searchu.",
     "tasks": [
       {
@@ -234,16 +347,38 @@
       "Tytuł w nagłówku to tytuł dla rekrutera: składa się sam z profilu (rola, must-have, lata, dziedzina), dopóki nikt go nie zmieni w „Edytuj rekrutację”. Do klienta idą nazwa i numer od klienta."
     ],
     "anchors": [
-      {"id": "job.champion.intake", "label": "Wygeneruj z opisu klienta", "describe": "Wypełnienie profilu z opisu klienta przez AI."},
-      {"id": "job.champion.readiness", "label": "Gotowość rekrutacji", "describe": "Dok z brakami i przyciskiem przekazania do searchu."},
-      {"id": "job.champion.reconcile", "label": "Uzgodnij profil i pola", "describe": "Porównanie profilu z polami rekrutacji."},
+      {
+        "id": "job.champion.intake",
+        "label": "Wygeneruj z opisu klienta",
+        "describe": "Wypełnienie profilu z opisu klienta przez AI."
+      },
+      {
+        "id": "job.champion.readiness",
+        "label": "Gotowość rekrutacji",
+        "describe": "Dok z brakami i przyciskiem przekazania do searchu."
+      },
+      {
+        "id": "job.champion.reconcile",
+        "label": "Uzgodnij profil i pola",
+        "describe": "Porównanie profilu z polami rekrutacji."
+      },
       {
         "id": "job.champion.found",
         "label": "Mamy championa",
         "describe": "Przełącznik statusu requestu w nagłówku rekrutacji.",
-        "requires": {"roles": ["admin", "delivery_lead", "head_of_recruitment"]}
+        "requires": {
+          "roles": [
+            "admin",
+            "delivery_lead",
+            "head_of_recruitment"
+          ]
+        }
       },
-      {"id": "job.champion.sections", "label": "Spis sekcji", "describe": "Spis sekcji profilu (widoczny na szerokim ekranie)."}
+      {
+        "id": "job.champion.sections",
+        "label": "Spis sekcji",
+        "describe": "Spis sekcji profilu (widoczny na szerokim ekranie)."
+      }
     ],
     "help_slug": null,
     "sources": [
@@ -337,7 +472,11 @@
     "key": "candidate.profile",
     "title": "Profil kandydata",
     "section": "sourcing",
-    "roles": ["recruiter", "sourcer", "delivery_lead"],
+    "roles": [
+      "recruiter",
+      "sourcer",
+      "delivery_lead"
+    ],
     "what": "Tu masz wszystko o jednej osobie: fakty (dostępność, stawka, lokalizacja), rekrutacje, historię kontaktów oraz pliki i umowy.",
     "tasks": [
       {
@@ -363,17 +502,42 @@
       {
         "q": "Jak scalić dwa profile tej samej osoby?",
         "a": "Admin i Head of Recruitment mają w menu „⋯” pozycję „Scal z…”. Wybierz duplikat, porównaj pola w konflikcie i zatwierdź — rekrutacje, notatki, dokumenty i kontrakty przejdą na ten profil, a duplikat zniknie."
+      },
+      {
+        "q": "Jak wysłać maila z NEXUS?",
+        "a": "W menu „Więcej akcji” wybierz „Napisz maila”. Sprawdź odbiorcę, temat i treść, potem kliknij „Wyślij”. Wiadomość wychodzi z Twojej skrzynki Microsoft 365, a wątek zobaczysz w „Historia → Maile”. Konto Microsoft 365 połączysz w swoim profilu.",
+        "anchor": "candidate.profile.tabs"
       }
     ],
     "pitfalls": [
       "Stawka z notatek w innej jednostce niż zł/h jest pokazana z przeliczeniem (MD ÷ 8) — sprawdź ją przed zapisem."
     ],
     "anchors": [
-      {"id": "candidate.profile.assign", "label": "Przypisz do rekrutacji", "describe": "Dodanie kandydata do rekrutacji."},
-      {"id": "candidate.profile.note", "label": "Dodaj notatkę", "describe": "Nowa notatka o kandydacie."},
-      {"id": "candidate.profile.facts", "label": "Najważniejsze fakty", "describe": "Pasek faktów: dostępność, stawka, lokalizacja, tryb pracy."},
-      {"id": "candidate.profile.notes_facts", "label": "Z notatek rekruterów", "describe": "Fakty wyciągnięte z notatek do zatwierdzenia."},
-      {"id": "candidate.profile.tabs", "label": "Zakładki profilu", "describe": "Profil, Rekrutacje, Historia, Pliki i umowy."}
+      {
+        "id": "candidate.profile.assign",
+        "label": "Przypisz do rekrutacji",
+        "describe": "Dodanie kandydata do rekrutacji."
+      },
+      {
+        "id": "candidate.profile.note",
+        "label": "Dodaj notatkę",
+        "describe": "Nowa notatka o kandydacie."
+      },
+      {
+        "id": "candidate.profile.facts",
+        "label": "Najważniejsze fakty",
+        "describe": "Pasek faktów: dostępność, stawka, lokalizacja, tryb pracy."
+      },
+      {
+        "id": "candidate.profile.notes_facts",
+        "label": "Z notatek rekruterów",
+        "describe": "Fakty wyciągnięte z notatek do zatwierdzenia."
+      },
+      {
+        "id": "candidate.profile.tabs",
+        "label": "Zakładki profilu",
+        "describe": "Profil, Rekrutacje, Historia, Pliki i umowy."
+      }
     ],
     "help_slug": null,
     "sources": [
@@ -386,7 +550,11 @@
     "key": "calendar",
     "title": "Rozmowy u klienta",
     "section": "pipeline",
-    "roles": ["recruiter", "delivery_lead", "head_of_recruitment"],
+    "roles": [
+      "recruiter",
+      "delivery_lead",
+      "head_of_recruitment"
+    ],
     "what": "Tu prowadzisz cykl rozmowy u klienta: terminy od klienta, wybór terminu, dwa prepy w Teams, rozmowę, telefon do kandydata do 30 minut po niej i debrief. Widoki: Tablica (kto na którym kroku) i Tydzień (siatka).",
     "tasks": [
       {
@@ -420,14 +588,33 @@
       "Zmiana terminu wydarzenia z Outlooka idzie najpierw do Outlooka — bez połączonej skrzynki zapis zostanie odrzucony."
     ],
     "anchors": [
-      {"id": "calendar.board", "label": "Tablica kroków", "describe": "Siedem kroków cyklu, kandydaci w kolumnach, zadania na kartach."},
-      {"id": "calendar.person", "label": "Panel kandydata", "describe": "Kroki, prepy, Teams i pytania klienta wybranej osoby (otwiera się po kliknięciu nazwiska)."},
-      {"id": "calendar.views", "label": "Widok i zakres", "describe": "Przełącznik Tydzień / Tablica i lista „Pokaż”."},
+      {
+        "id": "calendar.board",
+        "label": "Tablica kroków",
+        "describe": "Siedem kroków cyklu, kandydaci w kolumnach, zadania na kartach."
+      },
+      {
+        "id": "calendar.person",
+        "label": "Panel kandydata",
+        "describe": "Kroki, prepy, Teams i pytania klienta wybranej osoby (otwiera się po kliknięciu nazwiska)."
+      },
+      {
+        "id": "calendar.views",
+        "label": "Widok i zakres",
+        "describe": "Przełącznik Tydzień / Tablica i lista „Pokaż”."
+      },
       {
         "id": "calendar.slots",
         "label": "Terminy od klienta",
         "describe": "Dodanie terminów zaproponowanych przez klienta.",
-        "requires": {"roles": ["admin", "head_of_recruitment", "delivery_lead", "tac"]}
+        "requires": {
+          "roles": [
+            "admin",
+            "head_of_recruitment",
+            "delivery_lead",
+            "tac"
+          ]
+        }
       }
     ],
     "help_slug": null,
@@ -441,7 +628,11 @@
     "key": "client.orders",
     "title": "Zamówienia klienta",
     "section": "delivery",
-    "roles": ["delivery_lead", "finance", "admin"],
+    "roles": [
+      "delivery_lead",
+      "finance",
+      "admin"
+    ],
     "what": "Tu masz wszystkie zamówienia klienta — okresowe, kosztowe i rozliczane w MD — z obsadą, budżetem i datami.",
     "tasks": [
       {
@@ -478,10 +669,23 @@
         "id": "client.orders.new",
         "label": "Nowe zamówienie",
         "describe": "Dodanie zamówienia, także z odczytem PDF.",
-        "requires": {"roles": ["admin", "delivery_lead"]}
+        "requires": {
+          "roles": [
+            "admin",
+            "delivery_lead"
+          ]
+        }
       },
-      {"id": "client.orders.pills", "label": "Aktywne / Bez kontynuacji / Zakończeni", "describe": "Pigułki stanu zamówień z licznikami."},
-      {"id": "client.orders.search", "label": "Wyszukiwanie i eksport", "describe": "Szukanie po numerze i nazwisku, filtry i eksport."}
+      {
+        "id": "client.orders.pills",
+        "label": "Aktywne / Bez kontynuacji / Zakończeni",
+        "describe": "Pigułki stanu zamówień z licznikami."
+      },
+      {
+        "id": "client.orders.search",
+        "label": "Wyszukiwanie i eksport",
+        "describe": "Szukanie po numerze i nazwisku, filtry i eksport."
+      }
     ],
     "help_slug": "zamowienia-instrukcja-delivery-lead",
     "sources": [
@@ -494,7 +698,11 @@
     "key": "contracts.order_mail",
     "title": "Skrzynka zamówień",
     "section": "delivery",
-    "roles": ["delivery_lead", "finance", "admin"],
+    "roles": [
+      "delivery_lead",
+      "finance",
+      "admin"
+    ],
     "what": "Tu trafiają zamówienia z maila zamowienia@: pewne zapisują się same, a te wymagające decyzji czekają w „Do weryfikacji” z powodem wstrzymania.",
     "tasks": [
       {
@@ -532,11 +740,29 @@
         "id": "contracts.order_mail.check",
         "label": "Pobierz zamówienia z maila",
         "describe": "Ręczne sprawdzenie skrzynki i wynik ostatniego biegu.",
-        "requires": {"roles": ["admin", "finance", "delivery_lead"]}
+        "requires": {
+          "roles": [
+            "admin",
+            "finance",
+            "delivery_lead"
+          ]
+        }
       },
-      {"id": "contracts.order_mail.tabs", "label": "Zakładki kolejki", "describe": "Do weryfikacji, Zapisane automatycznie, Zapisane ręcznie, Nierozpoznane, Nieudane."},
-      {"id": "contracts.order_mail.detail", "label": "Szczegóły wpisu", "describe": "Odczyt, plan i przyciski decyzji dla wybranego zamówienia."},
-      {"id": "contracts.order_mail.history", "label": "Historia sprawdzeń", "describe": "Kiedy system ostatnio sprawdzał wstrzymane wpisy."}
+      {
+        "id": "contracts.order_mail.tabs",
+        "label": "Zakładki kolejki",
+        "describe": "Do weryfikacji, Zapisane automatycznie, Zapisane ręcznie, Nierozpoznane, Nieudane."
+      },
+      {
+        "id": "contracts.order_mail.detail",
+        "label": "Szczegóły wpisu",
+        "describe": "Odczyt, plan i przyciski decyzji dla wybranego zamówienia."
+      },
+      {
+        "id": "contracts.order_mail.history",
+        "label": "Historia sprawdzeń",
+        "describe": "Kiedy system ostatnio sprawdzał wstrzymane wpisy."
+      }
     ],
     "help_slug": "zamowienia-instrukcja-delivery-lead",
     "sources": [
@@ -548,7 +774,12 @@
     "key": "contracts.b2b_generator",
     "title": "Generator umów B2B",
     "section": null,
-    "roles": ["recruiter", "delivery_lead", "tac", "admin"],
+    "roles": [
+      "recruiter",
+      "delivery_lead",
+      "tac",
+      "admin"
+    ],
     "what": "Tu generujesz umowę B2B z Partnerem w DOCX, prowadzisz rejestr umów (bieżące, bez projektu, zakończone) i przygotowujesz dokumenty do umów: aneksy, porozumienia, wypowiedzenia i umowę przedwstępną.",
     "tasks": [
       {
@@ -582,23 +813,38 @@
       "Zakończenie kontraktu w module Kontrakty przestawia umowę samo: z rozwiązaniem umowy trafia do „Zakończonych umów”, bez rozwiązania — do „Umów bez projektu”."
     ],
     "anchors": [
-      {"id": "contracts.b2b_generator.tabs", "label": "Zakładki generatora", "describe": "Generator, Umowy bieżące, Umowy bez projektu, Zakończone umowy, Dokumenty."},
-      {"id": "contracts.b2b_generator.search", "label": "Szukaj umowy", "describe": "Wyszukiwanie po numerze i nazwisku."},
+      {
+        "id": "contracts.b2b_generator.tabs",
+        "label": "Zakładki generatora",
+        "describe": "Generator, Umowy bieżące, Umowy bez projektu, Zakończone umowy, Dokumenty."
+      },
+      {
+        "id": "contracts.b2b_generator.search",
+        "label": "Szukaj umowy",
+        "describe": "Wyszukiwanie po numerze i nazwisku."
+      },
       {
         "id": "contracts.b2b_generator.docx",
         "label": "Pobierz DOCX",
         "describe": "Wygenerowanie dokumentu umowy.",
-        "requires": {"section": "sourcing"}
+        "requires": {
+          "section": "sourcing"
+        }
       }
     ],
     "help_slug": null,
-    "sources": ["frontend/src/components/v2/pages/B2BContractGeneratorV2.tsx"]
+    "sources": [
+      "frontend/src/components/v2/pages/B2BContractGeneratorV2.tsx"
+    ]
   },
   {
     "key": "finance",
     "title": "Finanse",
     "section": "finance",
-    "roles": ["finance", "admin"],
+    "roles": [
+      "finance",
+      "admin"
+    ],
     "what": "Tu rozliczasz miesiąc: wyniki, import zużycia MD, comiesięczny audyt zmian w zamówieniach (wejścia, zejścia, braki) i PDF-y zamówień.",
     "tasks": [
       {
@@ -632,10 +878,26 @@
       "Powtórny import tego samego miesiąca nadpisuje wcześniejsze zużycie."
     ],
     "anchors": [
-      {"id": "finance.modes", "label": "Tryby modułu Finanse", "describe": "Wyniki, Archiwum, Import MD, Zmiany w zamówieniach, Zamówienia PDF."},
-      {"id": "finance.order_changes", "label": "Zmiany w zamówieniach", "describe": "Podzakładki audytu i wybór miesiąca."},
-      {"id": "finance.export", "label": "Eksport do Excela", "describe": "Eksport bieżącej podzakładki z filtrami."},
-      {"id": "finance.md_import", "label": "Import zużycia MD", "describe": "Wgranie miesięcznego raportu MD."}
+      {
+        "id": "finance.modes",
+        "label": "Tryby modułu Finanse",
+        "describe": "Wyniki, Archiwum, Import MD, Zmiany w zamówieniach, Zamówienia PDF."
+      },
+      {
+        "id": "finance.order_changes",
+        "label": "Zmiany w zamówieniach",
+        "describe": "Podzakładki audytu i wybór miesiąca."
+      },
+      {
+        "id": "finance.export",
+        "label": "Eksport do Excela",
+        "describe": "Eksport bieżącej podzakładki z filtrami."
+      },
+      {
+        "id": "finance.md_import",
+        "label": "Import zużycia MD",
+        "describe": "Wgranie miesięcznego raportu MD."
+      }
     ],
     "help_slug": null,
     "sources": [

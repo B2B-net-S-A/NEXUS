@@ -1,8 +1,8 @@
 {
-  "entry": "c063ba4880cd6205df4e5158161f99c6d2463b121241685abd275615a4e7690e",
+  "entry": "dd1e35f5fafbd52bbfb1feca63937f2a66242fb85e4862447e74d86f7c90522d",
   "guide": "jobs.person",
   "sources": {
     "frontend/src/components/v2/followups/DockFollowupBlock.tsx": "5a3d77b8646e8d4a8615ca6c2f38de18b33f64d359e9a43e8e0d967b11e39b63",
-    "frontend/src/components/v2/jobs/PipelineCandidateDock.tsx": "2bf8ad179def1cfca5f7b2a254be78b4941775952874350da155213e5f8bcc99"
+    "frontend/src/components/v2/jobs/PipelineCandidateDock.tsx": "1590dd9ac56a5ffe344a90276c11cabe81268f6ce651809ded73726465d095d8"
   }
 }
