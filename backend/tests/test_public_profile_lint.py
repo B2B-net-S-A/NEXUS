@@ -177,7 +177,7 @@ def test_career_url_falls_back_to_kariera_path_on_app_host(monkeypatch):
 
 def test_consent_text_names_the_controller():
     assert "B2B.NET S.A." in CONSENT_TEXT
-    assert CONSENT_TEXT_VERSION == "2026-09-21"
+    assert CONSENT_TEXT_VERSION == "2026-09-26"
 
 
 def test_optional_fields_accept_blank_strings():
@@ -341,3 +341,22 @@ def test_draft_material_uses_given_title_and_falls_back_to_description():
     assert out["description"] == "brak" and out["requirements"] == "brak"
     # Bez podanego tytułu: domyślny bez znajomości klienta (kody zdjęte).
     assert out["title"] == "Nordea: Data Engineer"
+
+
+# ── Runda 8 (R8-N4-1): sekcje ukryte przełącznikiem też są publiczne ───────
+
+
+def test_hidden_sections_are_still_linted():
+    from app.services.job_public_profile import _payload_texts
+
+    payload = {
+        "title": "Java Developer",
+        "subtitle": None,
+        "about": None,
+        "must": [{"name": "Znajomość systemów PKO BP", "note": None}],
+        "nice": ["Praca w pko bp"],
+        "params": {"city": "Centrala PKO BP", "start": None, "duration": None},
+        "show": {"must": False, "nice": False, "params": False, "process": True},
+    }
+    findings = lint_public_texts(_payload_texts(payload), client_names=["PKO BP"])
+    assert _codes(findings) == ["client_name"] * 3

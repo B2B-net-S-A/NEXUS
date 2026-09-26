@@ -801,6 +801,91 @@ async def test_public_title_strips_client_and_codes_and_drives_the_slug(api):
     assert clear.json()["effective_title"] == "Data Engineer Platformy"
 
 
+async def test_hidden_must_section_with_client_name_is_refused(api):
+    """R8-N4-1: wyłączona sekcja „Wymagania" chowa ją tylko na stronie —
+    publiczny JSON, grafika OG i portal niosą ją dalej, więc kontrola też."""
+    from app.models.client import Client
+
+    _, headers, job_id = await _owner_with_job(api)
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        client_name = (await db.get(Client, job.client_id)).name
+        job.champion_profile = {
+            **(job.champion_profile or {}),
+            "stack": {"must": [{"name": f"Znajomość systemów {client_name}"}]},
+        }
+        await db.commit()
+    resp = await _approve(
+        api,
+        headers,
+        job_id,
+        sections={"must": False, "nice": True, "params": True, "process": True},
+    )
+    assert resp.status_code == 422, resp.text
+    assert {f["code"] for f in resp.json()["detail"]["findings"]} == {"client_name"}
+
+
+async def test_job_link_slug_never_carries_the_client_name(api):
+    """R8-N4-2: slug powstaje z tytułu, którego nikt nie sprawdził — z nazwą
+    klienta dostaje sam ``rekrutacja-…``, a slug starszego linku z klientem
+    zmienia się przy zatwierdzeniu opisu."""
+    unique = "".join(c for c in uuid.uuid4().hex if c.isalpha())[:6] or "abcdef"
+    client_name = f"Kwarcowy Bank {unique}"
+    uid, email, password = await _seed_user("slug")
+    headers = await _login(api, email, password)
+    job_id = await _seed_job(
+        uid, client_name=client_name, title=f"Java Developer ({client_name})"
+    )
+    link = await _create_job_link(api, headers, job_id)
+    assert link["slug"].startswith("rekrutacja-"), link["slug"]
+
+    old_slug = f"java-developer-kwarcowy-bank-{unique}-zz11"
+    async with AsyncSessionLocal() as db:
+        row = await db.scalar(
+            select(CandidateInviteLink).where(CandidateInviteLink.slug == link["slug"])
+        )
+        row.slug = old_slug
+        await db.commit()
+
+    approved = await _approve(api, headers, job_id, public_title="Java Developer")
+    assert approved.status_code == 200, approved.text
+    assert (await api.get(f"/api/public/career/r/{old_slug}")).status_code == 404
+    async with AsyncSessionLocal() as db:
+        new_slug = (
+            await db.execute(
+                select(CandidateInviteLink.slug).where(
+                    CandidateInviteLink.job_id == job_id
+                )
+            )
+        ).scalar_one()
+    assert new_slug.startswith("java-developer-") and "kwarcowy" not in new_slug
+    page = await api.get(f"/api/public/career/r/{new_slug}")
+    assert page.status_code == 200 and page.json()["job"]["slug"] == new_slug
+
+
+async def test_client_change_after_approval_returns_to_draft(api):
+    """R8-N4-4: opis sprawdzono wobec klienta z chwili zatwierdzenia."""
+    from app.models.client import Client
+
+    _, headers, job_id = await _owner_with_job(api)
+    link = await _create_job_link(api, headers, job_id)
+    assert (await _approve(api, headers, job_id)).status_code == 200
+    assert (await api.get(f"/api/public/career/r/{link['slug']}")).status_code == 200
+    async with AsyncSessionLocal() as db:
+        other = Client(name=f"Inny Klient {uuid.uuid4().hex[:6]}")
+        db.add(other)
+        await db.flush()
+        job = await db.get(Job, job_id)
+        job.client_id = other.id
+        await db.commit()
+    assert (await api.get(f"/api/public/career/r/{link['slug']}")).status_code == 404
+    profile = await api.get(f"/api/jobs/{job_id}/public-profile", headers=headers)
+    assert profile.json()["status"] == "draft"
+    # Ponowne zatwierdzenie przy nowym kliencie przywraca stronę.
+    assert (await _approve(api, headers, job_id)).status_code == 200
+    assert (await api.get(f"/api/public/career/r/{link['slug']}")).status_code == 200
+
+
 async def test_legacy_approval_without_title_in_hash_stays_approved(api):
     """Opis zatwierdzony przed 0340 (skrót bez tytułu) nie wraca do szkicu."""
     from app.models.job_public_profile import JobPublicProfile

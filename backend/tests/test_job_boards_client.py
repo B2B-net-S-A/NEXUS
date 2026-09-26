@@ -16,6 +16,7 @@ import pytest
 
 from app.models.job_posting import Portal
 from app.services.job_portals.base import (
+    ADOPTED_EXISTING,
     PortalConfig,
     PortalError,
     PortalGone,
@@ -134,6 +135,8 @@ async def test_publish_adopts_existing_ad_instead_of_second_post():
     assert result.external_id == "ad-9"
     assert result.url == "https://rocketjobs.pl/oferta-pracy/java-dev"
     assert [c[0] for c in rec.calls] == ["GET"]
+    # R8-N4-5: przejęte ogłoszenie ma treść z poprzedniej próby.
+    assert result.extra.get(ADOPTED_EXISTING) is True
 
 
 async def test_publish_ignores_list_item_with_foreign_external_id():

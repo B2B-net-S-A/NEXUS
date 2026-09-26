@@ -762,6 +762,23 @@ def _validate_cv_file(upload: UploadFile, content: bytes) -> None:
         )
 
 
+# Runda 8 (R8-N4-8): nazwa pliku na dysku ma limit 255 BAJTÓW. Nazwa CV
+# z ~120 polskimi znakami dawała `ENAMETOOLONG` = 500 i nowy kandydat nie mógł
+# aplikować. Zapas na prefiks ``candidate_<id>_``.
+_STORED_NAME_MAX_BYTES = 180
+
+
+def _fit_filename(filename: str, max_bytes: int = _STORED_NAME_MAX_BYTES) -> str:
+    """Nazwa przycięta do ``max_bytes`` w UTF-8, z zachowanym rozszerzeniem."""
+    if len(filename.encode("utf-8")) <= max_bytes:
+        return filename
+    stem, ext = os.path.splitext(filename)
+    ext = ext if len(ext.encode("utf-8")) <= 16 else ""
+    budget = max_bytes - len(ext.encode("utf-8"))
+    cut = stem.encode("utf-8")[:budget].decode("utf-8", "ignore").rstrip()
+    return f"{cut or 'cv'}{ext}"
+
+
 async def _persist_cv(
     candidate_id: int, upload: UploadFile, content: bytes
 ) -> tuple[str, Optional[str]]:
@@ -775,7 +792,9 @@ async def _persist_cv(
     # `candidates._sanitize_upload_filename`. Wynik trafia do `cv_filename`,
     # które ścieżki pobrania doklejają do `UPLOAD_DIR`; nazwa z `/` kończyła
     # się tu `FileNotFoundError` (500 po utworzeniu kandydata).
-    filename = pathlib.Path((upload.filename or "").strip()).name or "cv.pdf"
+    filename = _fit_filename(
+        pathlib.Path((upload.filename or "").strip()).name or "cv.pdf"
+    )
     file_path = os.path.join(
         settings.UPLOAD_DIR, f"candidate_{candidate_id}_{filename}"
     )
