@@ -630,8 +630,12 @@ karcie osoby z czekającą decyzją.
 wykorzystana w całości (0 MD), system nie pyta o decyzję: osoba trafia do
 zakończonych z opisem „Pula MD wykorzystana”. Tak samo
 czekająca decyzja zamyka się sama, gdy późniejszy import z Finansów wyzeruje
-pulę tej osoby — wpis zostaje w historii zamówienia. Przy wspólnej puli MD
-decyzja o obsadzie jest potrzebna jak dotąd.
+pulę tej osoby — wpis zostaje w historii zamówienia. Gdy korekta zużycia
+(np. plik poprawkowy z Finansów) przywróci tej osobie MD, sprawa **otwiera się
+ponownie** i znów czeka na Twoją decyzję (decyzji podjętej przez człowieka
+system nie rusza). Po decyzji „oddaj pulę” późny raport za miesiąc zejścia
+zdejmuje z zamówienia tylko to, co naprawdę zostało — nie więcej. Przy wspólnej
+puli MD decyzja o obsadzie jest potrzebna jak dotąd.
 
 ### Przedłużenie tworzy nowe zamówienie, nie edytuje starego
 
