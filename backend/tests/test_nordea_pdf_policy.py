@@ -270,6 +270,8 @@ async def test_mail_pipeline_excludes_summary_and_builds_auto_proposal(
         assert proposal.order_number == "277157"
 
     monkeypatch.setattr(ingest, "_plan_and_gate", planner)
+    # Atrapa bazy nie odpowiada na zapytanie o usuniętych klientów (runda 7).
+    monkeypatch.setattr(ingest, "_deleted_client_ids", AsyncMock(return_value=set()))
     row = SimpleNamespace(attachment_name="order.pdf", sender_email="a@nordea.com")
     await ingest.process_pdf_bytes(
         AsyncMock(), row, b"%PDF-dummy", registry=ClientRegistry({})
