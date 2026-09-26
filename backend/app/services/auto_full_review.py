@@ -36,7 +36,7 @@ from datetime import datetime, time, timedelta, timezone
 from typing import Optional
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import case, exists, func, or_, select
+from sqlalchemy import DateTime, case, exists, func, or_, select
 
 from app.core.config import settings
 from app.models.activity import Activity
@@ -97,13 +97,51 @@ def night_start(now: datetime) -> datetime:
 # ── Wybór rekrutacji ────────────────────────────────────────────────────────
 
 
-def _last_auto_run_at():
+def _finished_review_started_at():
+    """Start ostatniego przeglądu z wpisu „Praca w tle” (``_publish``).
+
+    Retencja kasuje przeglądy automatyczne po 2 dniach, a zdarzenie żyje
+    14 dni — bez tego śladu rekrutacja wracała do kolejki co 2 noce i zjadała
+    nocny limit nowym (runda 6 audytu). Wpis sprzed tej zmiany nie ma
+    ``run_created_at`` — wtedy chwila wpisu.
+    """
     return (
-        select(func.max(CandidateSearchRun.created_at))
-        .where(CandidateSearchRun.job_id == Job.id, store.auto_origin_clause())
+        select(
+            func.max(
+                func.coalesce(
+                    Activity.details["run_created_at"].astext.cast(
+                        DateTime(timezone=True)
+                    ),
+                    Activity.created_at,
+                )
+            )
+        )
+        .where(
+            Activity.entity_type == ACTIVITY_ENTITY,
+            Activity.entity_id == Job.id,
+            Activity.action == "auto_full_review_finished",
+        )
         .correlate(Job)
         .scalar_subquery()
     )
+
+
+def _last_auto_run_at():
+    """Ostatni przegląd automatyczny, który się NIE wywrócił.
+
+    Przegląd ``failed`` nie zamyka tematu: tej nocy chroni go ``ran_tonight``,
+    następnej nocy rekrutacja wraca (runda 6 audytu)."""
+    live_run = (
+        select(func.max(CandidateSearchRun.created_at))
+        .where(
+            CandidateSearchRun.job_id == Job.id,
+            store.auto_origin_clause(),
+            CandidateSearchRun.state != "failed",
+        )
+        .correlate(Job)
+        .scalar_subquery()
+    )
+    return func.greatest(live_run, _finished_review_started_at())
 
 
 async def pending_job_ids(db, *, now: datetime, limit: int = _PICK_LIMIT) -> list[int]:
@@ -166,7 +204,7 @@ async def _author_id(db, job: Job) -> Optional[int]:
 
 
 async def _last_successful_fingerprint(db, job_id: int) -> Optional[str]:
-    return await db.scalar(
+    fingerprint = await db.scalar(
         select(CandidateSearchRun.request_fingerprint)
         .where(
             CandidateSearchRun.job_id == job_id,
@@ -174,6 +212,20 @@ async def _last_successful_fingerprint(db, job_id: int) -> Optional[str]:
             CandidateSearchRun.state.in_((*store.ACTIVE_STATES, *store.RESULT_STATES)),
         )
         .order_by(CandidateSearchRun.created_at.desc())
+        .limit(1)
+    )
+    if fingerprint is not None:
+        return fingerprint
+    # Przegląd skasowany przez retencję: odcisk zostaje we wpisie „Praca w tle”.
+    return await db.scalar(
+        select(Activity.details["fingerprint"].astext)
+        .where(
+            Activity.entity_type == ACTIVITY_ENTITY,
+            Activity.entity_id == job_id,
+            Activity.action == "auto_full_review_finished",
+            Activity.details["fingerprint"].astext.is_not(None),
+        )
+        .order_by(Activity.created_at.desc())
         .limit(1)
     )
 
@@ -424,6 +476,11 @@ async def _publish(db, run: CandidateSearchRun, *, eligible: Optional[int]) -> i
                 "proposals": count,
                 "eligible": eligible,
                 "state": run.state,
+                # Pamięć automatu po retencji przeglądu (runda 6 audytu).
+                "run_created_at": run.created_at.isoformat()
+                if run.created_at
+                else None,
+                "fingerprint": run.request_fingerprint,
             },
         )
     )

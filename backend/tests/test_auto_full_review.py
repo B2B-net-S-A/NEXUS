@@ -191,6 +191,55 @@ async def test_event_makes_the_job_due_once_per_night():
         await _finish_all(world["job_id"])
 
 
+async def test_review_memory_survives_retention_of_the_run():
+    """Runda 6 audytu: retencja kasuje przegląd automatyczny po 2 dniach, a
+    zdarzenie żyje 14. Wpis „Praca w tle” pamięta start i odcisk — bez niego
+    rekrutacja wracała do kolejki co 2 noce."""
+    owner_id, _ = await _user()
+    world = await _job(owner_id=owner_id)
+    async with AsyncSessionLocal() as db:
+        db.add(
+            Activity(
+                entity_type=afr.ACTIVITY_ENTITY,
+                entity_id=world["job_id"],
+                action="auto_full_review_finished",
+                details={
+                    "run_id": "purged-run",
+                    "state": "complete",
+                    "run_created_at": (
+                        datetime.now(timezone.utc) + timedelta(minutes=5)
+                    ).isoformat(),
+                    "fingerprint": "odcisk-sprzed-retencji",
+                },
+            )
+        )
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        assert world["job_id"] not in await afr.pending_job_ids(
+            db, now=_at(2) + timedelta(days=3), limit=10_000
+        )
+        assert (
+            await afr._last_successful_fingerprint(db, world["job_id"])
+            == "odcisk-sprzed-retencji"
+        )
+
+
+async def test_failed_auto_run_does_not_close_the_event():
+    """Przegląd, który się wywrócił, nie zamyka zdarzenia: następna noc
+    próbuje ponownie (tej nocy chroni ``ran_tonight``)."""
+    owner_id, _ = await _user()
+    world = await _job(owner_id=owner_id)
+    async with AsyncSessionLocal() as db:
+        run_id, reason = await afr.start_for_job(db, world["job_id"])
+        assert reason == "started"
+        await db.commit()
+    await _finish_all(world["job_id"], state="failed")
+    async with AsyncSessionLocal() as db:
+        assert world["job_id"] in await afr.pending_job_ids(
+            db, now=_at(2) + timedelta(days=1), limit=10_000
+        )
+
+
 async def test_job_without_owner_is_skipped():
     world = await _job(owner_id=None)
     async with AsyncSessionLocal() as db:

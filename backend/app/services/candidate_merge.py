@@ -66,6 +66,11 @@ _POLYMORPHIC: tuple[tuple[str, str, str, str], ...] = (
     ("activities", "entity_type", "candidate", "entity_id"),
     ("notifications", "related_entity_type", "candidate", "related_entity_id"),
     ("traffit_entity_links", "entity_type", "candidate", "nexus_entity_id"),
+    # Powiązania rozmów Jarvisa: po nich ``jarvis.erasure`` kasuje rozmowy przy
+    # usunięciu osoby (art. 17). Bez przepięcia rozmowa o duplikacie przeżywała
+    # usunięcie ocalałego (runda 6 audytu). Klucz główny bez ``id`` — kolizje
+    # usuwa ``_move_polymorphic`` przed UPDATE.
+    ("jarvis_conversation_entities", "entity_type", "candidate", "entity_id"),
 )
 
 # Konflikt unikalności, w którym o zwycięzcy decyduje STAN wiersza, nie data:
@@ -845,6 +850,19 @@ async def _move_polymorphic(
             params["d_link"] = f"/candidates/{duplicate_id}(?![0-9])"
             params["s_link"] = f"/candidates/{survivor_id}"
             extra = ", link = regexp_replace(link, :d_link, :s_link)"
+        if table == "jarvis_conversation_entities":
+            # Rozmowa powiązana z obiema osobami: wiersz duplikatu jest
+            # powtórzeniem wiersza ocalałego (PK bez kolumny ``id``).
+            await db.execute(
+                text(
+                    "DELETE FROM jarvis_conversation_entities AS d "
+                    "WHERE d.entity_type = :t AND d.entity_id = :d "
+                    "AND EXISTS (SELECT 1 FROM jarvis_conversation_entities AS s "
+                    "WHERE s.conversation_id = d.conversation_id "
+                    "AND s.entity_type = :t AND s.entity_id = :s)"
+                ),
+                params,
+            )
         sql = text(
             f"UPDATE {table} SET {id_col} = :s{extra} "
             f"WHERE {type_col} = :t AND {id_col} = :d"

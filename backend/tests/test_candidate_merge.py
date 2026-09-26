@@ -333,3 +333,55 @@ async def test_academy_rejection_survives_merge_with_a_newer_application(
         assert kept.status == "rejected"
         assert kept.reapplied_at is not None
         assert await db.get(AcademyApplication, fresh_id) is None
+
+
+async def test_jarvis_conversation_links_follow_the_survivor(app_client: AsyncClient):
+    """Runda 6 audytu: powiązanie rozmowy Jarvisa z duplikatem musi przejść na
+    ocalałego — po nim usunięcie osoby (art. 17) kasuje rozmowy."""
+    from app.models.jarvis import JarvisConversation, JarvisConversationEntity
+
+    user_id, headers = await _user(app_client, UserRole.admin)
+    survivor = await _candidate()
+    duplicate = await _candidate()
+    async with AsyncSessionLocal() as db:
+        only_dup = JarvisConversation(user_id=user_id)
+        both = JarvisConversation(user_id=user_id)
+        db.add_all([only_dup, both])
+        await db.flush()
+        db.add_all(
+            [
+                JarvisConversationEntity(
+                    conversation_id=only_dup.id, entity_type="candidate", entity_id=duplicate
+                ),
+                JarvisConversationEntity(
+                    conversation_id=both.id, entity_type="candidate", entity_id=duplicate
+                ),
+                JarvisConversationEntity(
+                    conversation_id=both.id, entity_type="candidate", entity_id=survivor
+                ),
+            ]
+        )
+        await db.commit()
+        only_dup_id, both_id = only_dup.id, both.id
+
+    preview = await _preview(app_client, headers, survivor, duplicate)
+    assert preview.status_code == 200, preview.text
+    merged = await _merge(
+        app_client, headers, survivor, duplicate, preview.json()["fingerprint"]
+    )
+    assert merged.status_code == 200, merged.text
+
+    async with AsyncSessionLocal() as db:
+        links = (
+            await db.execute(
+                select(
+                    JarvisConversationEntity.conversation_id,
+                    JarvisConversationEntity.entity_id,
+                ).where(
+                    JarvisConversationEntity.conversation_id.in_([only_dup_id, both_id])
+                )
+            )
+        ).all()
+    assert sorted((str(c), e) for c, e in links) == sorted(
+        [(str(only_dup_id), survivor), (str(both_id), survivor)]
+    )
