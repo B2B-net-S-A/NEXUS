@@ -1231,3 +1231,27 @@ def test_failed_retry_pending_mirrors_the_retry_query(over, has_file, expected):
     now = datetime(2031, 3, 12, 8, 0, tzinfo=timezone.utc)
     row = _failed_row(**over)
     assert recheck.failed_retry_pending(row, now=now, has_file=has_file) is expected
+
+
+@pytest.mark.asyncio
+async def test_a_deleted_clients_document_is_not_rechecked(monkeypatch):
+    """R8-V1-3: writer odmawia zapisu u usuniętego klienta — wpis nie może
+    wracać co godzinę na odczyt PDF-a i kolejną odmowę."""
+    # Sufit na bieg nie może maskować wyniku na wspólnej bazie testowej.
+    monkeypatch.setattr(recheck.settings, "ORDER_MAIL_RECHECK_MAX_DOCS", 1_000_000)
+    async with AsyncSessionLocal() as db:
+        live = Client(name=f"Recheck live {uuid.uuid4().hex[:8]}")
+        gone = Client(name=f"Recheck gone {uuid.uuid4().hex[:8]}")
+        db.add_all([live, gone])
+        await db.flush()
+        live_doc = await _held_document(
+            db, client=live, name="Żywy Testowy" + uuid.uuid4().hex[:6]
+        )
+        gone_doc = await _held_document(
+            db, client=gone, name="Usunięty Testowy" + uuid.uuid4().hex[:6]
+        )
+        gone.deleted_at = datetime.now(timezone.utc)
+        await db.commit()
+        picked = set(await recheck._candidate_ids(db, now=datetime.now(timezone.utc)))
+    assert live_doc.id in picked
+    assert gone_doc.id not in picked

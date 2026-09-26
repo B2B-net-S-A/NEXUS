@@ -544,6 +544,43 @@ async def _deleted_numbers(db: AsyncSession) -> set[int]:
     return numbers
 
 
+async def _import_owned_annex_flags(db: AsyncSession, ids: list[int]) -> set[int]:
+    """Umowy z NEXUSA, którym flagę aneksu postawił (i nie zdjął) import.
+
+    Ostatni wpis zastosowanego przebiegu z migawką flagi rozstrzyga: migawka
+    ``False`` = import ją postawił, ``True`` = import ją zdjął. Filtr migawki
+    w Pythonie — brak migawki to JSON ``null`` (jak w ``rollback_run``).
+    """
+
+    if not ids:
+        return set()
+    rows = (
+        await db.execute(
+            select(
+                B2BRegisterImportRow.generated_contract_id,
+                B2BRegisterImportRow.snapshot_before,
+            )
+            .join(
+                B2BRegisterImportRun,
+                B2BRegisterImportRun.id == B2BRegisterImportRow.run_id,
+            )
+            .where(
+                B2BRegisterImportRow.generated_contract_id.in_(ids),
+                B2BRegisterImportRow.decision.in_(
+                    ("generator_match", "generator_conflict")
+                ),
+                B2BRegisterImportRun.mode == "applied",
+            )
+            .order_by(B2BRegisterImportRow.id)
+        )
+    ).all()
+    set_by_import: dict[int, bool] = {}
+    for generated_id, snapshot in rows:
+        if isinstance(snapshot, dict) and "needs_business_data_annex" in snapshot:
+            set_by_import[generated_id] = not snapshot["needs_business_data_annex"]
+    return {generated_id for generated_id, owned in set_by_import.items() if owned}
+
+
 def _generator_number(contract_number: Optional[str]) -> Optional[int]:
     match = re.match(r"^\s*(\d+)\s*/\s*\d{4}\s*$", contract_number or "")
     return int(match.group(1)) if match else None
@@ -666,6 +703,14 @@ async def _apply(
     document_owned = await _document_owned_columns(
         db, [row.id for row in excel_by_key.values()]
     )
+    annex_flag_owned = await _import_owned_annex_flags(
+        db,
+        [
+            row.id
+            for row in generator_by_number.values()
+            if row.needs_business_data_annex
+        ],
+    )
 
     # ── Pierwsze przejście: klucze, kolizje, dopasowania ────────────────────
     plans: list[dict[str, Any]] = []
@@ -696,8 +741,13 @@ async def _apply(
             else:
                 seen_numbers[key] = row.row_number
                 legacy_key = _legacy_number_key(row)
+                # Runda 8 (R8-V1-7): numer umowy z NEXUSA idzie gałęzią
+                # generatora, więc klucza legacy nie przejmuje — zapisany
+                # przed rundą 7 duplikat z Excela („1517/2026” obok umowy
+                # 1517) dostaje wtedy „brak w pliku” zamiast wisieć na zawsze.
                 if (
-                    key not in excel_by_key
+                    row.number_int not in generator_by_number
+                    and key not in excel_by_key
                     and legacy_key is not None
                     and legacy_key in excel_by_key
                     and legacy_key not in claimed_legacy
@@ -768,6 +818,9 @@ async def _apply(
 
     # ── Arkusz „Bez działalności” → flagi aneksu ────────────────────────────
     annex_by_plan: dict[int, NoBusinessRow] = {}
+    # Osoba z arkusza, której wiersza nie da się jednoznacznie sparować, nadal
+    # jest w arkuszu — jej flagi nie zdejmujemy jako „zniknęła z pliku”.
+    annex_tokens = {nb.tokens for nb in parsed.no_business if nb.tokens}
     for nb in parsed.no_business:
         matches = [
             i for i, p in enumerate(plans) if p["row"].tokens == nb.tokens and nb.tokens
@@ -876,6 +929,27 @@ async def _apply(
                 annex_snapshot = {"needs_business_data_annex": False}
                 generator.needs_business_data_annex = True
                 report.counters["generator_annex_flagged"] += 1
+            elif (
+                generator.needs_business_data_annex
+                and generator.id in annex_flag_owned
+                and generator.business_data_annex_done_at is None
+                and (
+                    (annex is not None and annex.done)
+                    or (
+                        annex is None
+                        and parsed.no_business_sheet_found
+                        and row.tokens not in annex_tokens
+                    )
+                )
+            ):
+                # Runda 8 (R8-V1-2): flagę postawioną przez import zdejmuje
+                # też import — gdy dział oznaczył aneks jako zrobiony (umowy
+                # podpisujemy offline) albo osoby nie ma już w arkuszu. Bez
+                # tego umowa z NEXUSA wisiała w kolejce aneksów na zawsze;
+                # wiersze z Excela mają tę regułę od rundy 7 (N3-7).
+                annex_snapshot = {"needs_business_data_annex": True}
+                generator.needs_business_data_annex = False
+                report.counters["annex_cleared"] += 1
             if persist_rows:
                 db.add(
                     B2BRegisterImportRow(

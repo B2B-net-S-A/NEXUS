@@ -298,7 +298,8 @@ def _unmatched_reason(
     if not clients:
         return None
     # Runda 7 (R7-V4-5): lustro importu — klient, u którego osoba ma tylko
-    # linie kosztowe, wiąże wyłącznie znanym numerem, a szeroka reguła
+    # linie kosztowe, wiąże znanym numerem albo numerem w kształcie swoich
+    # zamówień (R8-V1-5), a szeroka reguła
     # Polkomtela (każdy ciąg cyfr) dotyczy jego linii MD.
     md_clients = {
         line.client_id
@@ -1465,8 +1466,9 @@ def _authoritative_md_hints(
     if has_polkomtel_candidate:
         return list(hints)
     named_clients = {match.group.client_id for match in named}
-    # Runda 7 (R7-V4-5): klient kosztowy wiąże wyłącznie ZNANYM numerem —
-    # reguła „≥ 7 cyfr" zostaje przy klientach, u których osoba ma linię MD.
+    # Runda 7 (R7-V4-5): klient kosztowy wiąże ZNANYM numerem albo numerem
+    # w kształcie swoich zamówień (R8-V1-5, SAP „45…” 10 cyfr) — ogólna reguła
+    # „≥ 7 cyfr" zostaje przy klientach, u których osoba ma linię MD.
     return finance_order_matching.explicit_order_hints(
         hints,
         order_numbers,

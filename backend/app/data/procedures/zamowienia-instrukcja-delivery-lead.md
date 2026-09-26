@@ -1005,7 +1005,8 @@ klient, dopóki duplikat nie zostanie scalony. **Klient usunięty** przyciskiem
 „Usuń klienta” nie jest rozpoznawany wcale — jego NIP nie blokuje żywego
 rekordu z tym samym numerem, a dokument, który przypisano mu przed usunięciem,
 nie zostanie zapisany („Klient tego dokumentu został usunięty”); wskaż
-właściwego klienta albo odrzuć dokument.
+właściwego klienta albo odrzuć dokument. Taki dokument nie wraca też do
+godzinowej ponownej weryfikacji i nie wystawia karty Delivery Leadowi.
 
 Gdy mail przychodzi przed umową, draft czeka na koszt i podpis. Po obustronnym
 podpisaniu umowy system pobiera koszt z umowy i aktywuje kompletny draft.
@@ -1507,8 +1508,11 @@ Korekta pozostałości to osobna operacja opisana na końcu tej sekcji.
   numer uznawany jest ciąg cyfr znany jako numer zamówienia **klienta tej
   osoby**, a u klientów z numerami z samych cyfr (BIK, Polkomtel), u których
   osoba ma zamówienie MD, także każdy ciąg dłuższy niż 6 cyfr. Klient, u
-  którego osoba ma tylko zamówienie kosztowe, wiąże wyłącznie znanym numerem
-  swojego zamówienia. Dopisek „w tym delegacja 318", rok czy numer
+  którego osoba ma tylko zamówienie kosztowe, wiąże znanym numerem swojego
+  zamówienia albo numerem w **kształcie** swoich zamówień (ta sama liczba
+  cyfr i te same dwie pierwsze cyfry — np. nowy SAP Polkomtela „45…", 10
+  cyfr). Taki wiersz dostaje „Brak pasującego zamówienia" i nie zdejmuje MD
+  po nazwisku z zamówienia MD u innego klienta. Dopisek „w tym delegacja 318", rok czy numer
   zamówienia klienta, u którego ta osoba nie ma zamówienia, nie blokuje
   dopasowania po nazwisku. **Uwaga:** gdy osoba ma zamówienie MD u BIK lub
   Polkomtela, każdy ciąg dłuższy niż 6 cyfr w „Uwagach" — także NIP czy numer

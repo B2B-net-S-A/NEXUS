@@ -1191,6 +1191,7 @@ async def rule_order_mail_review(
     ``alert_after_hours()``, a nie samą konfigurację.
     """
     from app.services.order_mail_ingest import notify_review
+    from app.services.order_mail_recheck import client_not_deleted_clause
     from app.services.order_mail_recheck_reasons import alert_after_hours, should_alert
 
     rows = (
@@ -1198,6 +1199,8 @@ async def rule_order_mail_review(
             select(OrderMailDocument).where(
                 OrderMailDocument.outcome == OUTCOME_NEEDS_REVIEW,
                 OrderMailDocument.client_id.isnot(None),
+                # Usunięty klient: recheck go nie dotyka, karta się zamyka (R8-V1-3).
+                client_not_deleted_clause(),
             )
         )
     ).scalars()
