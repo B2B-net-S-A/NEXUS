@@ -29,7 +29,6 @@ _PHASE_LEVEL_PREFIXES = (
     "record job reindex intent: ",
     "archive traffit jobs: ",
     "classify job categories: ",
-    "fill job delivery leads: ",
     "cv batch commit: ",
     "files batch commit: ",
     "activities batch commit: ",

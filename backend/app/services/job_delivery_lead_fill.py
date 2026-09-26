@@ -27,10 +27,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
+# Runda 7 (N7-1): główny DL to aktywne konto Z ROLĄ Delivery Leada. Sam wpis
+# w `delivery_lead_client_assignments` nie jest grantem (lustro
+# `dl_alerts.dl_user_ids_for_client`): osoba, której zmieniono rolę na
+# rekrutera albo praktykanta, zostawała DL-em wszystkich rekrutacji klienta,
+# a przeglądu DL nie widział wtedy nikt.
 _HEADS = """
     SELECT DISTINCT ON (a.client_id) a.client_id, a.delivery_lead_user_id AS dl_id
       FROM delivery_lead_client_assignments a
       JOIN users u ON u.id = a.delivery_lead_user_id AND u.is_active
+           AND (CAST(u.role AS text) = 'delivery_lead'
+                OR u.roles @> CAST('["delivery_lead"]' AS jsonb))
      WHERE a.is_head
      ORDER BY a.client_id, a.id
 """
@@ -64,6 +71,26 @@ _FILL_CLIENTS = text(
 )
 
 
+# Runda 7 (N7-2): DL wpisany automatem, który nie jest już głównym DL-em
+# klienta tej rekrutacji (zdjęty head, usunięte przypisanie, zmieniony klient
+# rekrutacji, odebrana rola), zostawał w rekrutacji bez końca — przegląd DL
+# szedł do osoby spoza portfela. Czyścimy go PRZED uzupełnieniem; jeśli klient
+# ma głównego DL-a, `_FILL_*` wpisze go od razu, a bez niego przegląd DL idzie
+# do portfela klienta. DL wpisany przez człowieka zostaje nietknięty.
+_CLEAR_STALE = f"""
+    UPDATE jobs j SET delivery_lead_id = NULL, delivery_lead_auto_filled = false
+     WHERE j.delivery_lead_auto_filled
+       AND j.delivery_lead_id IS NOT NULL
+       AND j.status IN ('draft', 'published')
+       AND NOT EXISTS (
+            SELECT 1 FROM ({_HEADS}) h
+             WHERE h.client_id = j.client_id AND h.dl_id = j.delivery_lead_id
+       )
+"""
+_CLEAR_ALL = text(_CLEAR_STALE)
+_CLEAR_CLIENTS = text(_CLEAR_STALE + "   AND j.client_id = ANY(:client_ids)\n")
+
+
 async def fill_missing_job_delivery_leads(
     db: AsyncSession, client_ids: Optional[Iterable[int]] = None
 ) -> int:
@@ -75,11 +102,13 @@ async def fill_missing_job_delivery_leads(
     """
 
     if client_ids is None:
+        await db.execute(_CLEAR_ALL)
         result = await db.execute(_FILL_ALL)
     else:
         ids = sorted({int(c) for c in client_ids if c is not None})
         if not ids:
             return 0
+        await db.execute(_CLEAR_CLIENTS, {"client_ids": ids})
         result = await db.execute(_FILL_CLIENTS, {"client_ids": ids})
     filled = len(result.all())
     if filled:

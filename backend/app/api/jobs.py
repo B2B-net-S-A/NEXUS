@@ -2339,6 +2339,22 @@ async def update_job(
             )
             if hm_client_id != job.client_id:
                 job.hiring_manager_contact_id = None
+    if client_changed:
+        # Runda 7 (N7-2): DL wpisany automatem należał do poprzedniego klienta.
+        # Uzupełnienie wpisuje głównego DL-a nowego klienta albo zdejmuje
+        # automatycznego DL-a; ręcznie wpisanego nie rusza.
+        from app.services.job_delivery_lead_fill import (  # noqa: PLC0415
+            fill_missing_job_delivery_leads,
+        )
+
+        if job.client_id is None:
+            if job.delivery_lead_auto_filled:
+                job.delivery_lead_id = None
+                job.delivery_lead_auto_filled = False
+        else:
+            await db.flush()
+            await fill_missing_job_delivery_leads(db, [job.client_id])
+            await db.refresh(job, ["delivery_lead_id", "delivery_lead_auto_filled"])
     if (
         working_title_reset
         or {

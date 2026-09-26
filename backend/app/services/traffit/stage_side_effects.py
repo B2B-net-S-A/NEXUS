@@ -13,9 +13,10 @@ dotyczyła 0,4% ruchu — 131 ruchów własnych na 32 872 w 90 dniach
 (``/api/admin/process-adoption``, 2026-09-02). Ten moduł domyka wybrane
 skutki dla drugiej ścieżki, bez przepinania jej na komendy.
 
-**Co WCHODZI** (idempotentne, bez efektów zewnętrznych):
+**Co WCHODZI** (idempotentne, bez efektów zewnętrznych; tylko dla wierszy
+NOWO wstawionych — aktualizacja istniejącego etapu nie jest nowym ruchem):
 
-* ``on_candidate_stage_change`` — przeliczenie profilu ryzyka; czysty recompute;
+* ``compute_risk`` — przeliczenie profilu ryzyka; czysty recompute;
 * ``auto_add_on_cv_sent`` — talent pool; idempotentny przez
   ``uq_pool_candidate``.
 
@@ -50,6 +51,22 @@ from app.models.recruitment_pipeline import PipelineStage
 logger = logging.getLogger(__name__)
 
 
+def _recent(rows: Sequence[dict]) -> list[dict]:
+    """Wiersze z ostatnich ``TRAFFIT_IMPORT_REASSIGN_WINDOW_DAYS`` dni.
+
+    Import historii nie może przepinać ani wpisywać do pul ludzi wysłanych do
+    klienta rok temu — liczy się ``moved_at`` etapu, nie chwila importu.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(
+        days=max(0, int(settings.TRAFFIT_IMPORT_REASSIGN_WINDOW_DAYS))
+    )
+    return [
+        r
+        for r in rows
+        if isinstance(r.get("moved_at"), datetime) and r["moved_at"] >= cutoff
+    ]
+
+
 async def _reassign_imported(db: AsyncSession, rows: Sequence[dict]) -> int:
     """Przepięcia podobnych rekrutacji dla etapów WSTAWIONYCH przez import.
 
@@ -67,16 +84,7 @@ async def _reassign_imported(db: AsyncSession, rows: Sequence[dict]) -> int:
     from app.services.job_similarity import REASSIGN_STAGES, on_candidate_sent
 
     stage_values = {stage.value: stage for stage in REASSIGN_STAGES}
-    cutoff = datetime.now(timezone.utc) - timedelta(
-        days=max(0, int(settings.TRAFFIT_IMPORT_REASSIGN_WINDOW_DAYS))
-    )
-    eligible = [
-        r
-        for r in rows
-        if r.get("stage_legacy_enum") in stage_values
-        and isinstance(r.get("moved_at"), datetime)
-        and r["moved_at"] >= cutoff
-    ]
+    eligible = [r for r in _recent(rows) if r.get("stage_legacy_enum") in stage_values]
     if not eligible:
         return 0
     # Jedno zapytanie zamiast jednego na wiersz: przepinamy tylko z rekrutacji,
@@ -142,13 +150,25 @@ async def apply_imported_stage_side_effects(
                 applied["reassigned"] = 0
         return applied
 
-    candidate_ids = sorted({int(r["candidate_id"]) for r in rows})
+    # Runda 7 (N2-5): skutki tylko dla wierszy NOWO wstawionych. Delta czyta
+    # 48 h wstecz, a pełny przegląd całą historię — wiersz tylko zaktualizowany
+    # to nie nowy ruch, a `auto_add_on_cv_sent` przy każdym ponownym odczycie
+    # dopisywał `Activity candidate_already_in_pool`.
+    new_rows = list(inserted_rows or [])
+    if not new_rows:
+        return applied
+    candidate_ids = sorted({int(r["candidate_id"]) for r in new_rows})
     cv_sent_rows = [
-        r for r in rows if r.get("stage_legacy_enum") == PipelineStage.cv_sent.value
+        r
+        for r in _recent(new_rows)
+        if r.get("stage_legacy_enum") == PipelineStage.cv_sent.value
     ]
 
     # 1. Profil ryzyka — czysty recompute, idempotentny.
-    from app.services.candidate_risk import on_candidate_stage_change
+    # `compute_risk`, nie `on_candidate_stage_change`: tamten połyka wyjątek
+    # bazy WEWNĄTRZ savepointu, więc savepoint zwalniał się w przerwanej
+    # transakcji, a wyjątek wychodził dopiero na zwolnieniu (runda 7, N2-5).
+    from app.services.candidate_risk import compute_risk
 
     for candidate_id in candidate_ids:
         # SAVEPOINT na wiersz, nie `db.rollback()`.
@@ -159,7 +179,7 @@ async def apply_imported_stage_side_effects(
         # stosuje importer przy fazach (`begin_nested`).
         try:
             async with db.begin_nested():
-                await on_candidate_stage_change(db, candidate_id)
+                await compute_risk(db, candidate_id)
             applied["risk"] += 1
         except Exception as exc:  # noqa: BLE001
             logger.warning(

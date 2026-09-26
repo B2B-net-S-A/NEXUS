@@ -561,15 +561,25 @@ def _reassign_evidence(
     }
 
 
-async def _open_job_ids(db: AsyncSession, job_ids: Iterable[int]) -> set[int]:
+async def _open_job_ids(
+    db: AsyncSession, job_ids: Iterable[int], *, in_work_only: bool = False
+) -> set[int]:
+    """Rekrutacje, które przyjmują przepięcia.
+
+    ``in_work_only`` — hak ruchu (automat): tylko requesty w pracy
+    (`request_work_state.IN_WORK_STATES`, runda 7 N2-4). Request „Zakończony”
+    albo „Klient milczy” jest nadal ``published``, ale automaty go omijają.
+    Przepięcie klikane przez człowieka (``reassign_into``) stanu nie pyta.
+    """
     ids = list(set(job_ids))
     if not ids:
         return set()
-    rows = (
-        await db.execute(
-            select(Job.id).where(Job.id.in_(ids), Job.status != JobStatus.closed)
-        )
-    ).scalars()
+    query = select(Job.id).where(Job.id.in_(ids), Job.status != JobStatus.closed)
+    if in_work_only:
+        from app.services.request_work_state import IN_WORK_STATES  # noqa: PLC0415
+
+        query = query.where(Job.work_state.in_(IN_WORK_STATES))
+    rows = (await db.execute(query)).scalars()
     return set(rows)
 
 
@@ -858,6 +868,21 @@ async def on_candidate_sent(
         return 0
     try:
         async with db.begin_nested():
+            # Runda 7 (N2-2): zatrudnionych w źródle nie przepinamy — tę samą
+            # regułę mają `sent_people` i `reassign_into`. Ruch w NEXUSIE
+            # nie może trafić na zatrudnionego, ale import dopisuje „Akceptację”
+            # i „Zatrudniony” jednym wsadem, a hak woła się dopiero po nim.
+            hired_in_source = await db.scalar(
+                select(
+                    exists().where(
+                        CandidateStage.candidate_id == candidate_id,
+                        CandidateStage.job_id == job_id,
+                        CandidateStage.stage == PipelineStage.hired,
+                    )
+                )
+            )
+            if hired_in_source:
+                return 0
             targets = (
                 (
                     await db.execute(
@@ -869,7 +894,7 @@ async def on_candidate_sent(
                 .scalars()
                 .all()
             )
-            open_targets = await _open_job_ids(db, targets)
+            open_targets = await _open_job_ids(db, targets, in_work_only=True)
             if not open_targets:
                 return 0
             already = set(

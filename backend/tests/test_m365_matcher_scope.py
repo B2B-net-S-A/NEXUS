@@ -35,7 +35,9 @@ def _rows_db(rows):
         captured.append(stmt)
         return SimpleNamespace(
             all=lambda: rows,
-            scalars=lambda: SimpleNamespace(first=lambda: rows[0] if rows else None),
+            scalars=lambda: SimpleNamespace(
+                first=lambda: rows[0] if rows else None, all=lambda: rows
+            ),
         )
 
     return SimpleNamespace(execute=AsyncMock(side_effect=_execute)), captured
@@ -103,6 +105,40 @@ async def test_strict_still_matches_external_address() -> None:
     assert found.id == 5
     sql = _sql(captured[0])
     assert "'kandydat@firma.pl'" in sql and "marta@" not in sql
+
+
+async def test_strict_with_two_candidates_prefers_the_sender() -> None:
+    """Runda 7 (X1-3): nie najniższy `id`, tylko nadawca."""
+    rows = [
+        SimpleNamespace(id=1, email="b@firma.pl"),
+        SimpleNamespace(id=2, email="a@firma.pl"),
+    ]
+    db, _ = _rows_db(rows)
+    found = await matcher._find_candidate_by_email(
+        db,
+        ["A@firma.pl", "b@firma.pl"],
+        owner_address="marta@b2bnetwork.pl",
+        sender_address="A@firma.pl",
+    )
+    assert found.id == 2
+
+
+async def test_strict_with_two_recipient_candidates_is_ambiguous() -> None:
+    """Runda 7 (X1-3): zbiorczy mail do dwóch kandydatów — żadnego „strict”."""
+    rows = [
+        SimpleNamespace(id=1, email="b@firma.pl"),
+        SimpleNamespace(id=2, email="a@firma.pl"),
+    ]
+    db, captured = _rows_db(rows)
+    found = await matcher._find_candidate_by_email(
+        db,
+        ["marta@b2bnetwork.pl", "b@firma.pl", "a@firma.pl"],
+        owner_address="marta@b2bnetwork.pl",
+        sender_address="marta@b2bnetwork.pl",
+    )
+    assert found is None
+    # Pytamy o więcej niż jeden wiersz — inaczej niejednoznaczności nie widać.
+    assert f"LIMIT {matcher._STRICT_ROW_LIMIT}" in _sql(captured[0])
 
 
 def _msg(from_address: str, **kw) -> matcher.IncomingMessage:

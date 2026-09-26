@@ -549,12 +549,23 @@ async def test_interview_badges_for_job_only_for_pairs_in_cycle():
     assert badges[event_id]["kind"] == "slot"
     # Karta i dok dostają kroki cyklu (kreski postępu) i id rozmowy.
     assert [s["key"] for s in badges[event_id]["steps"]] == [
-        "slots", "choice", "prep", "prep2", "interview", "call", "debrief"
+        "slots",
+        "choice",
+        "prep",
+        "prep2",
+        "interview",
+        "call",
+        "debrief",
     ]
     assert badges[event_id]["steps"][0]["state"] == "done"
     assert isinstance(badges[event_id]["interview_event_id"], int)
     assert badges[with_slots]["interview_event_id"] is None
-    assert badges[with_slots]["steps"][1]["state"] in {"current", "todo", "waiting", "overdue"}
+    assert badges[with_slots]["steps"][1]["state"] in {
+        "current",
+        "todo",
+        "waiting",
+        "overdue",
+    }
     async with AsyncSessionLocal() as db:
         assert await interview_badges_for_job(db, job_id=job_id, candidate_ids=[]) == {}
 
@@ -686,3 +697,121 @@ async def test_order_status_for_pairs():
         (cand_e, job_e): "missing",
         (cand_f, job_f): "complete",
     }
+
+
+# ── Runda 7 audytu (N7-3, N7-4, X1-4) ───────────────────────────────────────
+
+
+async def test_auto_advance_leaves_blacklisted_candidate_in_place():
+    """N7-3: na tablicy taki ruch wymaga „Przenieś mimo to”; automat nie pyta."""
+    rec_id, _ = await _user(UserRole.recruiter)
+    job_id, cand_id, _ = await _pair(stage=PipelineStage.cv_sent, recruiter_id=rec_id)
+    async with AsyncSessionLocal() as db:
+        cand = await db.get(Candidate, cand_id)
+        cand.status = CandidateStatus.blacklisted
+        await db.commit()
+    before = await _latest(cand_id, job_id)
+
+    assert await _advance(cand_id, job_id, rec_id) is None
+
+    assert (await _latest(cand_id, job_id)).id == before.id
+    async with AsyncSessionLocal() as db:
+        skipped = await db.scalar(
+            select(Activity).where(
+                Activity.entity_type == "pipeline",
+                Activity.entity_id == before.id,
+                Activity.action == "auto_advance_skipped",
+            )
+        )
+        assert skipped is not None
+        assert skipped.details["reason_code"]
+
+
+async def test_auto_advance_reassigns_to_linked_jobs_like_the_board_move():
+    """N7-4: `/move` na „Rozmowę u klienta” przepina — automat też."""
+    from app.models.job_proposal import JobProposal
+    from app.services import job_similarity as sim
+
+    rec_id, _ = await _user(UserRole.recruiter)
+    job_id, cand_id, client_id = await _pair(
+        stage=PipelineStage.verified, recruiter_id=rec_id
+    )
+    async with AsyncSessionLocal() as db:
+        other = Job(
+            title=f"V4Linked-{uuid.uuid4().hex[:6]}",
+            status=JobStatus.published,
+            client_id=client_id,
+        )
+        db.add(other)
+        await db.commit()
+        other_id = other.id
+        await sim.link_jobs(db, other_id, [job_id], user_id=None)
+        await db.commit()
+
+    assert await _advance(cand_id, job_id, rec_id) is not None
+
+    async with AsyncSessionLocal() as db:
+        proposals = set(
+            (
+                await db.execute(
+                    select(JobProposal.candidate_id).where(
+                        JobProposal.job_id == other_id,
+                        JobProposal.source == "reassign",
+                    )
+                )
+            ).scalars()
+        )
+    assert cand_id in proposals
+
+
+async def test_chosen_slot_rings_the_job_dl_when_the_author_left(
+    app_client: AsyncClient,
+):
+    """X1-4: autor wniosku odszedł — dzwonek idzie do DL-a rekrutacji."""
+    from sqlalchemy import update
+
+    from app.models.notification import Notification, NotificationType
+
+    rec_id, rec_h = await _user(UserRole.recruiter)
+    author_id, author_h = await _user(UserRole.delivery_lead)
+    job_dl_id, _ = await _user(UserRole.delivery_lead)
+    job_id, cand_id, _ = await _pair(
+        stage=PipelineStage.acceptance, recruiter_id=rec_id, dl_id=job_dl_id
+    )
+    created = await app_client.post(
+        "/api/interview-cycle/slots",
+        headers=author_h,
+        json={
+            "candidate_id": cand_id,
+            "job_id": job_id,
+            "slots": [{"start": _future(3)}],
+        },
+    )
+    assert created.status_code == 201, created.text
+    request_id = created.json()["id"]
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(User).where(User.id == author_id).values(is_active=False)
+        )
+        await db.commit()
+
+    chosen = await app_client.post(
+        f"/api/interview-cycle/slots/{request_id}/choose",
+        headers=rec_h,
+        json={"index": 0},
+    )
+    assert chosen.status_code == 200, chosen.text
+
+    async with AsyncSessionLocal() as db:
+        recipients = set(
+            (
+                await db.execute(
+                    select(Notification.user_id).where(
+                        Notification.notification_type
+                        == NotificationType.interview_slot_chosen,
+                        Notification.related_entity_id == request_id,
+                    )
+                )
+            ).scalars()
+        )
+    assert recipients == {job_dl_id}

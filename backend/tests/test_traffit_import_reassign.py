@@ -113,3 +113,47 @@ async def test_reassign_flag_off_keeps_the_import_silent(_flags, monkeypatch):
         )
     assert applied["reassigned"] == 0
     assert await _reassigned(world["b"]) == set()
+
+
+# ── Runda 7 audytu (N2-2, N2-4) ──────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_person_hired_in_the_source_is_not_reassigned(_flags):
+    """N2-2: „Akceptacja” i „Zatrudniony” w jednym wsadzie — osoba pracuje."""
+    from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+
+    world = await _world()
+    acceptance = _row(world, days_ago=1, stage="acceptance")
+    async with AsyncSessionLocal() as db:
+        db.add(
+            CandidateStage(
+                candidate_id=world["person"],
+                job_id=world["a"],
+                stage=PipelineStage.hired,
+                moved_at=datetime.now(timezone.utc) - timedelta(hours=12),
+            )
+        )
+        await db.commit()
+        applied = await apply_imported_stage_side_effects(
+            db, rows=[acceptance], inserted_rows=[acceptance]
+        )
+    assert applied["reassigned"] == 0
+    assert await _reassigned(world["b"]) == set()
+
+
+@pytest.mark.asyncio
+async def test_finished_request_does_not_receive_import_reassigns(_flags):
+    """N2-4: „Zakończony” request jest nadal `published`, ale nie jest w pracy."""
+    world = await _world()
+    async with AsyncSessionLocal() as db:
+        target = await db.get(Job, world["b"])
+        target.work_state = "finished"
+        await db.commit()
+    row = _row(world, days_ago=1)
+    async with AsyncSessionLocal() as db:
+        applied = await apply_imported_stage_side_effects(
+            db, rows=[row], inserted_rows=[row]
+        )
+    assert applied["reassigned"] == 0
+    assert await _reassigned(world["b"]) == set()

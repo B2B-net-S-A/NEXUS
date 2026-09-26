@@ -158,3 +158,41 @@ def test_import_pipelines_flushes_through_the_replaying_path() -> None:
 def test_pending_rows_retain_the_payload_needed_for_a_replay() -> None:
     src = inspect.getsource(TraffitImporter.import_pipelines)
     assert "pending_rows.append((payload, rejection_reason_id, was_insert))" in src
+
+
+async def test_replayed_rows_still_run_the_side_effects(
+    patched_sync, monkeypatch
+) -> None:
+    """Runda 7 (N2-3): odtworzenie wsadu gubiło przepięcia na zawsze.
+
+    Kolejny bieg widzi ten sam wiersz jako UPDATE (`was_insert=False`), więc
+    przepięcie z importu nie powstałoby już nigdy.
+    """
+    db = _FakeDB()
+    imp = _importer(db)
+    progress = PhaseProgress(phase="pipelines")
+    patched_sync["fail_when"] = lambda pairs: len(pairs) > 1
+    seen: list[dict[str, Any]] = []
+
+    async def fake_upsert(payload, rejection_reason_id):
+        if payload["external_id"] == "e2":
+            raise RuntimeError("withdrawn_requires_reason")
+        return payload["external_id"] != "e3"
+
+    async def fake_effects(_db, *, rows, inserted_rows):
+        seen.append(
+            {
+                "rows": [r["external_id"] for r in rows],
+                "inserted": [r["external_id"] for r in inserted_rows],
+            }
+        )
+        return {"reassigned": 1}
+
+    imp._upsert_stage_row = fake_upsert  # type: ignore[method-assign]
+    monkeypatch.setattr(importer_mod, "apply_imported_stage_side_effects", fake_effects)
+
+    await imp._flush_stage_batch(progress, _rows("e1", "e2", "e3"))
+
+    # Tylko wiersze, które się zapisały; nowe wstawienie tylko e1.
+    assert seen == [{"rows": ["e1", "e3"], "inserted": ["e1"]}]
+    assert progress.reassigned == 1

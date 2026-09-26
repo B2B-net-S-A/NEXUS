@@ -221,3 +221,31 @@ async def test_partial_unique_index_blocks_two_primary_tacs():
         await db.delete(a)
         await db.delete(b)
         await db.commit()
+
+
+@pytest.mark.unit
+async def test_resolve_skips_head_dl_without_delivery_lead_role():
+    """Runda 7 (N7-1): główny DL, któremu zmieniono rolę, nie jest już DL-em."""
+    async with AsyncSessionLocal() as db:
+        client = await _new_client(db)
+        former = await _new_user(db, role=UserRole.recruiter)
+        db.add(
+            DeliveryLeadClientAssignment(
+                delivery_lead_user_id=former.id,
+                client_id=client.id,
+                is_head=True,
+            )
+        )
+        await db.commit()
+
+        resolved = await resolve_default_owners(db, client.id)
+        assert resolved.delivery_lead_id is None
+
+        await db.execute(
+            DeliveryLeadClientAssignment.__table__.delete().where(
+                DeliveryLeadClientAssignment.client_id == client.id
+            )
+        )
+        await db.delete(client)
+        await db.delete(former)
+        await db.commit()
