@@ -18,7 +18,18 @@ beforeEach(() => {
   urls = [];
   previousAdapter = api.defaults.adapter;
   api.defaults.adapter = async (config) => {
-    urls.push(api.getUri(config));
+    const url = api.getUri(config);
+    if (url.includes("/keywords/classify")) {
+      const q = new URL(url, "http://x").searchParams.get("q") ?? "";
+      return {
+        data: { skills: [], as_requirements: ["Java", "Kafka RabbitMQ"].includes(q) },
+        status: 200,
+        statusText: "OK",
+        headers: {},
+        config,
+      };
+    }
+    urls.push(url);
     return {
       data: { items: [], total: 42 },
       status: 200,
@@ -53,5 +64,26 @@ describe("SearchRequirementsEditor — liczba osób w bazie", () => {
     expect(url).toContain("q_any_group=Java&q_any_group=Kafka|RabbitMQ");
     expect(url).toContain("q_none=junior");
     expect(url).toContain("page_size=1");
+  });
+
+  it("wiersz, który nie jest technologią, nie wchodzi do liczby — tylko podnosi", async () => {
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <SearchRequirementsEditor
+          rows={[["Java"], ["bankowość"]]}
+          exclude={[]}
+          onChange={() => undefined}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(
+      await screen.findByText(
+        "~42 osoby spełnia wymagania techniczne; 1 wiersz nie jest technologią — tylko podnosi w kolejności",
+      ),
+    ).toBeInTheDocument();
+    const url = decodeURIComponent(urls.at(-1) ?? "");
+    expect(url).toContain("q_any_group=Java");
+    expect(url).not.toContain("bankowość");
   });
 });

@@ -88,4 +88,39 @@ describe("ActiveFilterChips — etykiety etapów", () => {
     renderChips({ rateMax: 160 }, vi.fn(), () => true);
     expect(screen.queryByText("Wyczyść wszystko")).toBeNull();
   });
+
+  it("„Mile widziane” miasto i wiersz: usuń albo zamień w filtr (audyt 26.09.2026)", async () => {
+    const onUpdate = renderChips({
+      locationPreferred: ["Warszawa", "Gdańsk"],
+      qPreferred: [["bankow*", "banking"]],
+      qAny: [["Java"]],
+    });
+    expect(screen.getByText("Mile widziane: 📍 Warszawa")).toBeInTheDocument();
+    expect(screen.getByText("Mile widziane: bankow* lub banking")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Wymagaj: 📍 Gdańsk" }));
+    expect(onUpdate).toHaveBeenLastCalledWith(
+      expect.objectContaining({ location: "Gdańsk", locationPreferred: ["Warszawa"] }),
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Wymagaj: bankow* lub banking" }));
+    expect(onUpdate).toHaveBeenLastCalledWith(
+      expect.objectContaining({ qAny: [["Java"], ["bankow*", "banking"]], qPreferred: [] }),
+    );
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Usuń filtr: Mile widziane: 📍 Warszawa" }),
+    );
+    expect(onUpdate).toHaveBeenLastCalledWith(
+      expect.objectContaining({ locationPreferred: ["Gdańsk"] }),
+    );
+  });
+
+  it("„Mile widziane” kategoria: „Wymagaj” dokłada filtr kategorii", async () => {
+    const onUpdate = renderChips({ competenceCategoryPreferred: [5] });
+    await userEvent.click(screen.getByRole("button", { name: /^Wymagaj: kategoria/ }));
+    expect(onUpdate).toHaveBeenLastCalledWith(
+      expect.objectContaining({ competenceCategoryIds: [5], competenceCategoryPreferred: [] }),
+    );
+  });
 });

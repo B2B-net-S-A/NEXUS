@@ -726,6 +726,18 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
  .map((x) => x.trim())
  .filter(Boolean),
  );
+ // „Mile widziane” poza umiejętnościami (miasta, kategorie, wiersze słów) —
+ // tylko kolejność. Źródło: „Szukaj ręcznie” albo zapisany adres.
+ const [preferredInit] = useState(() =>
+ decodeFilters(new URLSearchParams(searchParams.toString())),
+ );
+ const [locationPreferred, setLocationPreferred] = useState<string[]>(
+ preferredInit.locationPreferred,
+ );
+ const [competenceCategoryPreferred, setCompetenceCategoryPreferred] = useState<number[]>(
+ preferredInit.competenceCategoryPreferred,
+ );
+ const [qPreferred, setQPreferred] = useState<string[][]>(preferredInit.qPreferred);
  const [hideUnknown, setHideUnknown] = useState<boolean>(
  searchParams.get("hu") === "1",
  );
@@ -840,6 +852,9 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
  remote: remoteFilter as CandidateFilters["remote"],
  skillsExpr: skillExpr,
  skillsPreferred,
+ locationPreferred,
+ competenceCategoryPreferred,
+ qPreferred,
  hideUnknown,
  locationScope,
  location: locationFilter,
@@ -889,6 +904,9 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
  remoteFilter,
  skillExpr,
  skillsPreferred,
+ locationPreferred,
+ competenceCategoryPreferred,
+ qPreferred,
  hideUnknown,
  locationScope,
  locationFilter,
@@ -1497,6 +1515,9 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
  remoteFilter.length +
  countSkillConstraints(skillBuckets) +
  skillsPreferred.length +
+ locationPreferred.length +
+ competenceCategoryPreferred.length +
+ qPreferred.length +
  (hideUnknown ? 1 : 0) +
  (locationFilter ? 1 : 0) +
  poolIds.length +
@@ -1544,6 +1565,10 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
  setSkillExpr(patch.skillsExpr);
  }
  if (patch.skillsPreferred !== undefined) setSkillsPreferred(patch.skillsPreferred);
+ if (patch.locationPreferred !== undefined) setLocationPreferred(patch.locationPreferred);
+ if (patch.competenceCategoryPreferred !== undefined)
+ setCompetenceCategoryPreferred(patch.competenceCategoryPreferred);
+ if (patch.qPreferred !== undefined) setQPreferred(patch.qPreferred);
  if (patch.hideUnknown !== undefined) setHideUnknown(patch.hideUnknown);
  if (patch.locationScope !== undefined) setLocationScope(patch.locationScope);
  if (patch.location !== undefined) setLocationFilter(patch.location);
@@ -1647,6 +1672,9 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
  setRemoteFilter([]);
  setSkillExpr("");
  setSkillsPreferred([]);
+ setLocationPreferred([]);
+ setCompetenceCategoryPreferred([]);
+ setQPreferred([]);
  setHideUnknown(false);
  setLocationScope("");
  setLocationFilter("");

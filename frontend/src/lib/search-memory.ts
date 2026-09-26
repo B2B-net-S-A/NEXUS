@@ -182,8 +182,12 @@ export interface JobSearchMemory {
   at: number;
 }
 
+// `job2` od 26.09.2026: „Szukaj ręcznie” przestało wstawiać miasto
+// i kategorię rekrutacji jako filtry (wycinały 55,6% osób wybranych potem przez
+// zespół). Zapamiętane wyszukiwania ze starego klucza niosły te filtry, więc
+// każdy wróciłby do nich — nowy klucz zaczyna od nowych ustawień.
 function jobKey(userId: number | string | null | undefined): string | null {
-  return userId == null ? null : `${SEARCH_MEMORY_PREFIX}job:${userId}`;
+  return userId == null ? null : `${SEARCH_MEMORY_PREFIX}job2:${userId}`;
 }
 
 function readJobMap(
