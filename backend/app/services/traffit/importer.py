@@ -47,6 +47,7 @@ from app.services.candidate_contact_hooks import (
     maybe_ensure_contact_opportunity,
 )
 from app.services.inactive_client_cleanup_run import purged_external_ids
+from app.services.candidate_audit import candidate_source_tombstone
 from app.services.traffit.client import TraffitClient
 from app.services.traffit.mappers import (
     _parse_traffit_datetime,
@@ -2226,6 +2227,12 @@ class TraffitImporter:
         # (dedup_service), nie importera.
         ext_to_id = await self._build_candidate_external_id_map()
         logger.info("Candidates: existing ext_to_id size=%d", len(ext_to_id))
+        # Nagrobki twardo usuniętych kandydatów (0388, art. 17 RODO). Faza robi
+        # pełny skan `/employees/`, więc bez tego usunięta osoba wracała przy
+        # najbliższym syncu razem z etapami, notatkami i plikami (dalsze fazy
+        # wiążą rekordy przez `ext_to_id`, więc wystarczy nie założyć wiersza)
+        # (runda 6 audytu).
+        purged_hashes = await self._purged_candidate_hashes()
 
         commit_every = 100
         since_commit = 0
@@ -2297,6 +2304,16 @@ class TraffitImporter:
                     payload = traffit_employee_to_candidate(raw, user_map)
                 except Exception as e:  # noqa: BLE001
                     progress.add_error(f"map employee id={raw.get('id')}: {e!r}")
+                    continue
+                # Przed ścieżką adopcji po mailu: usunięta osoba nie może też
+                # „wrócić” jako stempel `external_id` na cudzym wierszu.
+                if purged_hashes and (
+                    candidate_source_tombstone(
+                        payload["external_source"], payload["external_id"]
+                    )
+                    in purged_hashes
+                ):
+                    progress.skipped += 1
                     continue
                 if self.dry_run:
                     progress.inserted += 1
@@ -3170,6 +3187,28 @@ class TraffitImporter:
             {"email": payload["email"]},
         )
         return result.scalar_one_or_none()
+
+    async def _purged_candidate_hashes(self) -> set[str]:
+        """HMAC-e nagrobków kandydatów Traffita (0388) — patrz `import_candidates`.
+
+        Brak tabeli (baza sprzed 0388) = brak nagrobków, nie awaria fazy —
+        katalog zamiast łapania wyjątku, bo nieudane zapytanie przerywa
+        transakcję (ten sam wzorzec co `purged_external_ids` klientów).
+        """
+        present = (
+            await self.db.execute(
+                text("SELECT to_regclass('purged_candidates') IS NOT NULL")
+            )
+        ).fetchone()
+        if not present or not present[0]:
+            return set()
+        rows = await self.db.execute(
+            text(
+                "SELECT external_id_hash FROM purged_candidates "
+                "WHERE external_source = 'traffit'"
+            )
+        )
+        return {str(row[0]) for row in rows.fetchall()}
 
     async def _build_candidate_external_id_map(self) -> dict[str, int]:
         result = await self.db.execute(

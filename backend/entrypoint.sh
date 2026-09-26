@@ -5623,6 +5623,15 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     "CREATE INDEX IF NOT EXISTS ix_trainee_call_items_candidate_date ON trainee_call_items (candidate_id, list_date)",
     "CREATE INDEX IF NOT EXISTS ix_trainee_call_items_user_date ON trainee_call_items (user_id, list_date)",
     "CREATE INDEX IF NOT EXISTS ix_trainee_call_items_later ON trainee_call_items (user_id, later_date) WHERE outcome = 'later'",
+    # 0388: nagrobki usuniętych kandydatów — sync Traffita ich nie odtwarza
+    # (runda 6 audytu, RODO). Tylko źródło i HMAC identyfikatora, bez PII.
+    """CREATE TABLE IF NOT EXISTS purged_candidates (
+    id BIGSERIAL PRIMARY KEY,
+    external_source VARCHAR(50) NOT NULL,
+    external_id_hash VARCHAR(64) NOT NULL,
+    purged_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT uq_purged_candidates_source_hash UNIQUE (external_source, external_id_hash)
+)""",
     # 0372: follow-up z kandydatem — wyniki telefonów (kandydat CASCADE, RODO).
     """CREATE TABLE IF NOT EXISTS candidate_followups (
     id BIGSERIAL PRIMARY KEY,

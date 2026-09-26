@@ -128,10 +128,10 @@ async def test_hard_delete_revokes_the_public_generated_cv_link(
                 CvGeneratedShareToken.token == revoke_key
             )
         )
-    assert token is not None, "token kaskaduje z dokumentu, nie z kandydata"
-    assert token.revoked is True
-    assert token.revoke_reason == "candidate_erasure"
-    assert token.revoked_at is not None
+    # Runda 6 audytu (RODO-02): samo wygenerowane CV znika razem z osobą, więc
+    # token kaskaduje z dokumentu. Odwołanie zostaje w dowodzie wykonania
+    # (`share_tokens_revoked`, test niżej).
+    assert token is None, "wygenerowane CV usuniętej osoby przeżyło usunięcie"
 
 
 async def test_public_generated_cv_404s_for_a_detached_new_mode_document(
