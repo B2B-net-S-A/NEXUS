@@ -2062,6 +2062,9 @@ async def build_kanban_view(
         for p in v4_processes.values()
         if p.claimed_by_user_id is not None
     }
+    inactive_claimers = await candidate_claim.inactive_holders(
+        db, v4_processes.values()
+    )
     reassign_job_ids = {
         p.reassign_from_job_id
         for p in v4_processes.values()
@@ -2215,13 +2218,15 @@ async def build_kanban_view(
                 payload["reassign_from_reference"] = reassign_refs.get(
                     v4.reassign_from_job_id
                 )
-            claim = candidate_claim.claim_state(v4)
+            claim = candidate_claim.claim_state(v4, inactive_claimers)
             if claim.active(board_now):
                 payload["claim_user_id"] = claim.user_id
                 payload["claim_user_name"] = user_name_by_id.get(claim.user_id)
                 payload["claim_until"] = claim.until
             if viewer is not None:
-                payload["can_take"] = candidate_claim.can_take(v4, viewer, board_now)
+                payload["can_take"] = candidate_claim.can_take(
+                    v4, viewer, board_now, inactive_claimers
+                )
         elif viewer is not None:
             payload["can_take"] = True
         availability = availability_by_id.get(e.candidate_id, (None, None))
@@ -3085,7 +3090,16 @@ async def claim_candidate(
     await candidate_claim.assert_can_act(
         db, process=process, user=current_user, now=now
     )
-    previous = candidate_claim.claim_state(process)
+    previous = candidate_claim.claim_state(
+        process, await candidate_claim.inactive_holders(db, [process])
+    )
+    # Runda 8 (R8-N8-7): własnej aktywnej blokady nie da się przedłużyć —
+    # po 12 h każdy z zespołu może osobę przejąć (tablica: `can_take` = False).
+    if previous.active(now) and previous.user_id == current_user.id:
+        raise HTTPException(
+            status_code=409,
+            detail="Już prowadzisz tę osobę — blokady nie da się przedłużyć.",
+        )
     previous_holder = (
         previous.user_id
         if previous.active(now) and previous.user_id != current_user.id
