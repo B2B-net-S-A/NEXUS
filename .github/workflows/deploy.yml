@@ -107,7 +107,10 @@ on:
         type: boolean
         default: false
   # PROD-04 (audyt 22.09.2026): poranny przebieg wdraża zmiany odroczone przez
-  # okno ciszy nocnej (DEPLOY_FREEZE_WINDOW, domyślnie 0-7 czasu warszawskiego).
+  # okno ciszy nocnej (DEPLOY_FREEZE_WINDOW). Od 26.09.2026 okno jest domyślnie
+  # WYŁĄCZONE (decyzja Artura: każdy merge wdraża się od razu, bo cron GitHuba
+  # przychodził z kilkugodzinnym opóźnieniem albo wcale) — ten przebieg zostaje
+  # tylko jako siatka bezpieczeństwa, gdy ktoś włączy okno zmienną repo.
   # Dwie godziny UTC, bo okno liczy się w czasie warszawskim: 05:15Z to 07:15
   # latem, ale 06:15 zimą (jeszcze w oknie) — wtedy wdraża przebieg 06:15Z.
   # Przebieg, który trafi na wdrożoną już wersję, kończy się na koalescencji.
@@ -162,7 +165,8 @@ jobs:
       # Grupowanie deployów (22.09.2026). Przy wielu sesjach Claude pracujących
       # naraz kolejka merge'ów wypuszcza merge'e seriami, a każdy deploy to
       # ~7 min budowy i ~1,5 min przerwy dla użytkowników. Czekamy, aż na mainie
-      # będzie cisza przez DEPLOY_QUIET_SECONDS (zmienna repo, domyślnie 300 s),
+      # będzie cisza przez DEPLOY_QUIET_SECONDS (zmienna repo, domyślnie 0 = bez
+      # czekania od 26.09.2026; wartość > 0 włącza grupowanie),
       # licząc od OSTATNIEGO PUSHA na maina = startu przebiegu „CI Gate”
       # (event=push). NIE od daty commita: kolejka merge'ów stempluje commit
       # chwilą dodania PR-a do kolejki, ~10–15 min przed wejściem na maina,
@@ -180,8 +184,8 @@ jobs:
         if: ${{ github.event_name != 'workflow_dispatch' }}
         env:
           GH_TOKEN: ${{ github.token }}
-          QUIET: ${{ vars.DEPLOY_QUIET_SECONDS || '300' }}
-          FREEZE_WINDOW: ${{ vars.DEPLOY_FREEZE_WINDOW || '0-7' }}
+          QUIET: ${{ vars.DEPLOY_QUIET_SECONDS || '0' }}
+          FREEZE_WINDOW: ${{ vars.DEPLOY_FREEZE_WINDOW || 'off' }}
         run: |
           set -u
           # PROD-04: w oknie ciszy wybór wydania i tak odroczy deploy — nie
@@ -217,8 +221,8 @@ jobs:
           TARGET_UNVERIFIED: ${{ github.event_name == 'workflow_dispatch' && '--target-unverified' || '' }}
           SCHEDULED: ${{ github.event_name == 'schedule' && '--scheduled' || '' }}
           # PROD-04: okno ciszy tylko dla deployów automatycznych. `off` w
-          # zmiennej repo wyłącza okno (pusta zmienna = domyślne 0-7).
-          FREEZE_WINDOW: ${{ github.event_name != 'workflow_dispatch' && (vars.DEPLOY_FREEZE_WINDOW || '0-7') || '' }}
+          # zmiennej repo albo jej brak = brak okna; np. `0-7` je włącza.
+          FREEZE_WINDOW: ${{ github.event_name != 'workflow_dispatch' && (vars.DEPLOY_FREEZE_WINDOW || 'off') || '' }}
         run: |
           # Pusta flaga ma zniknąć, nie być "" — stąd brak cudzysłowu.
           # shellcheck disable=SC2086

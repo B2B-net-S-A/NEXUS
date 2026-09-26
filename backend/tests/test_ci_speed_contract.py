@@ -192,7 +192,9 @@ def test_deploys_are_batched_but_manual_deploy_does_not_wait() -> None:
     select = _load("deploy.yml")["jobs"]["select"]
     wait = _step(select["steps"], "Poczekaj na ciszę na mainie (grupowanie deployów)")
     assert wait["if"] == "${{ github.event_name != 'workflow_dispatch' }}"
-    assert "DEPLOY_QUIET_SECONDS" in wait["env"]["QUIET"]
+    assert wait["env"]["QUIET"] == "${{ vars.DEPLOY_QUIET_SECONDS || '0' }}", (
+        "Domyślnie bez czekania na ciszę (decyzja 26.09.2026)."
+    )
     assert "900" in wait["run"], (
         "Ciągły strumień merge'ów nie może blokować deployu bez końca."
     )
