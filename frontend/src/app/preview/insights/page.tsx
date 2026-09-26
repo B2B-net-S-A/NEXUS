@@ -49,7 +49,7 @@ const PEOPLE = [
 ];
 
 function funnel(counts: Record<string, number>) {
-  const stages = ["verified", "cv_sent", "interview", "hired"].map((stage) => ({
+  const stages = ["verified", "cv_sent", "client_interview", "hired"].map((stage) => ({
     stage,
     label: stage,
     count: counts[stage] ?? 0,
@@ -178,7 +178,7 @@ function seeded(): QueryClient {
     me: recruiterLeague[4], total: 9,
     context: recruiterLeague.slice(2, 7).map((e, i) => ({ ...e, rank: i + 3 })),
   });
-  const monthFunnel = funnel({ verified: 412, cv_sent: 142, interview: 61, hired: 21 });
+  const monthFunnel = funnel({ verified: 412, cv_sent: 142, client_interview: 61, hired: 21 });
   qc.setQueryData(["insights", "recruitment", "funnel", CURRENT_MONTH], monthFunnel);
   const monthTeamTable = {
     period: monthFunnel.period, columns: [],
@@ -197,7 +197,7 @@ function seeded(): QueryClient {
   const previous = previousComparablePeriod(ZESPOL_DEFAULT_PERIOD, today);
   qc.setQueryData(
     ["insights", "recruitment", "funnel", previous?.params ?? null],
-    funnel({ verified: 400, cv_sent: 156, interview: 60, hired: 17 }),
+    funnel({ verified: 400, cv_sent: 156, client_interview: 60, hired: 17 }),
   );
   qc.setQueryData(insightsTeamSignalsQueryKeys.attention(), {
     items: [

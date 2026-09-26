@@ -293,7 +293,8 @@ async def compute_team_panel(
 
         weryf = _p("verified")
         rekom = _p("cv_sent")
-        inter = _p("interview")
+        # R7-N9-2: „Interview" = rozmowy u klienta, nie etap QC CV.
+        inter = _p("client_interview")
         akcept = _p("acceptance")
         plac = _p("hired")
         cv = cv_by_uid.get(uid, 0)
