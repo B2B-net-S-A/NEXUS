@@ -85,13 +85,22 @@ jobs:
           # workflow_dispatch zostaje na stałe w metadanych runa i w pliku
           # zdarzenia, maska chroni wyłącznie log. Sekret idzie przez
           # `value_from_secret`. Pusta wartość (wyczyszczenie) jest dozwolona.
+          # Runda 8 (R8-V3-7): liczby i identyfikatory z „KEY” w nazwie
+          # (`SERVICE_ACCOUNT_KEY_MAX_TTL_DAYS`, `CLOUDTALK_API_KEY_ID`) nie są
+          # sekretami, a adres z hasłem (`DATABASE_URL=postgresql://u:hasło@…`)
+          # jest — niezależnie od nazwy klucza.
           if [ -n "${VALUE_PLAIN}" ]; then
             case "${KEY}" in
+              *_TTL_DAYS|*_TTL_SECONDS|*_KEY_ID) ;;
               *SECRET*|*_KEY|*_KEY_*|*_TOKEN|*PASSWORD|*_DSN|*_PAT|*API_KEY*)
                 echo "Klucz '${KEY}' wygląda na sekret — podaj wartość przez value_from_secret, nie jawnie." >&2
                 exit 1
                 ;;
             esac
+            if printf '%s' "${VALUE_PLAIN}" | grep -Eq '://[^/@[:space:]]*:[^/@[:space:]]+@'; then
+              echo "Wartość '${KEY}' zawiera adres z hasłem — podaj ją przez value_from_secret, nie jawnie." >&2
+              exit 1
+            fi
           fi
 
           case "${IS_BUILDTIME}" in

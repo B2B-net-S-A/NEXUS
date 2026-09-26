@@ -103,6 +103,23 @@ def test_set_env_refuses_a_plain_value_for_a_secret_looking_key():
         assert "value_from_secret" in result.stderr
 
 
+@pytest.mark.skipif(shutil.which("jq") is None, reason="brak jq")
+def test_set_env_refuses_a_url_with_password_and_allows_non_secret_key_names():
+    """R8-V3-7: hasło w adresie to sekret niezależnie od nazwy klucza, a TTL
+    i identyfikator klucza z „KEY” w nazwie — nie."""
+    refused = _run_set_env("DATABASE_URL", "postgresql://nexus:tajne@db:5432/x")
+    assert refused.returncode == 1
+    assert "value_from_secret" in refused.stderr
+    for key, value in (
+        ("SERVICE_ACCOUNT_KEY_MAX_TTL_DAYS", "365"),
+        ("SERVICE_ACCOUNT_KEY_DEFAULT_TTL_DAYS", "90"),
+        ("CLOUDTALK_API_KEY_ID", "12345"),
+        ("PUBLIC_BASE_URL", "https://nexus.example"),
+    ):
+        result = _run_set_env(key, value)
+        assert result.returncode == 0, (key, result.stderr)
+
+
 def test_set_env_does_not_put_the_plain_value_in_step_env():
     """GitHub wypisuje blok `env:` w nagłówku kroku, zanim zadziała maska."""
     raw = (_WORKFLOWS / "coolify-set-env.yml").read_text(encoding="utf-8")
