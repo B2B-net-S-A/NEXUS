@@ -100,6 +100,19 @@ def _duration_months(start: date, end: Optional[date]) -> Optional[int]:
     return max(0, days // 30)
 
 
+def _archive_boundary(contract: Contract, today: date) -> date:
+    """Dzień zakończenia kontraktu w archiwum: `end_date` → `terminated_at` → dziś.
+
+    Runda 8 (R8-N13-1): `terminated_at` przeżywa aneks przedłużenia i
+    przywrócenie (`reopen_contract` go nie czyści), więc umowa zakończona
+    ponownie niosła datę PIERWSZEGO zakończenia — stawka, czas trwania i
+    przychód liczyły się na nią, choć kolumna „End date" obok pokazuje
+    `end_date`. „Zakończ współpracę" zawsze ustawia `end_date <= terminated_at`,
+    więc `end_date` jest faktycznym dniem końca także przy wypowiedzeniu.
+    """
+    return contract.end_date or contract.terminated_at or today
+
+
 def _contract_total_revenue(
     contract: Contract,
     boundary: Optional[date] = None,
@@ -109,7 +122,8 @@ def _contract_total_revenue(
 
     For active contracts the caller passes `boundary=business_today()` so LTV keeps
     ticking. For ended contracts the caller passes the actual end date
-    (terminated_at preferred, falls back to end_date, then today).
+    (end_date preferred, falls back to terminated_at, then today — see
+    ``_archive_boundary``).
 
     ``monthly_rate_client`` lets the caller inject the rate resolved from the
     effective-dated schedule. Without it this would fall back to the legacy
@@ -842,7 +856,7 @@ async def get_client_profile(
             selectinload(Contract.framework_rate_schedule),
         )
         .order_by(
-            func.coalesce(Contract.terminated_at, Contract.end_date).desc().nullslast(),
+            func.coalesce(Contract.end_date, Contract.terminated_at).desc().nullslast(),
             Contract.id.desc(),
         )
         .limit(ARCHIVE_ROWS_LIMIT)
@@ -864,9 +878,7 @@ async def get_client_profile(
     # zakończenia, nie na dziś. Krok harmonogramu zaplanowany PO zakończeniu
     # projektu nigdy nie obowiązywał w jego trakcie i nie ma prawa pojawić się
     # w wierszu archiwalnym.
-    ended_boundaries = {
-        c.id: (c.terminated_at or c.end_date or today) for c in ended_contracts
-    }
+    ended_boundaries = {c.id: _archive_boundary(c, today) for c in ended_contracts}
     ended_rates = {
         c.id: _effective_rate_fields(c, ended_boundaries[c.id]) for c in ended_contracts
     }
@@ -1009,7 +1021,7 @@ async def get_client_profile(
             .scalars()
             .all()
         )
-        rest_boundaries = {c.id: (c.terminated_at or c.end_date or today) for c in rest}
+        rest_boundaries = {c.id: _archive_boundary(c, today) for c in rest}
         rest_fx = await rates_to_pln_by_date(
             db,
             {

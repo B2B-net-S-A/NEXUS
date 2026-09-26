@@ -473,7 +473,8 @@ def _contracts_query(
             ts < window.end_date,
         ]
     else:
-        ts = func.coalesce(Contract.terminated_at, Contract.end_date)
+        # Runda 8 (R8-N13-1): `terminated_at` przeżywa aneks przedłużenia.
+        ts = func.coalesce(Contract.end_date, Contract.terminated_at)
         conds += [
             Contract.status == ContractStatus.ended,
             ts >= window.start_date,

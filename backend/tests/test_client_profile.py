@@ -126,7 +126,9 @@ async def test_profile_active_consultants_have_candidate_brief(
 # pokazując starą kwotę, złą marżę i zaniżone „Aktywne MRR".
 
 
-async def _seed_scheduled_contract(*, ended: bool) -> tuple[int, int]:
+async def _seed_scheduled_contract(
+    *, ended: bool, stale_terminated_days_ago: int | None = None
+) -> tuple[int, int]:
     """Kontrakt ze stawką, która zmieniła się w PRZESZŁOŚCI, i drugą w PRZYSZŁOŚCI.
 
     Zwraca ``(client_id, contract_id)``. Kolumny legacy celowo trzymają kwotę
@@ -177,6 +179,13 @@ async def _seed_scheduled_contract(*, ended: bool) -> tuple[int, int]:
             rate_client=Decimal("15000.000"),
             margin=Decimal("5000.000"),
             rate_unit="monthly",
+            # Runda 8 (R8-N13-1): `terminated_at` z pierwszego zakończenia
+            # przeżywa aneks przedłużenia (`reopen_contract` go nie czyści).
+            terminated_at=(
+                today - timedelta(days=stale_terminated_days_ago)
+                if stale_terminated_days_ago is not None
+                else None
+            ),
         )
         db.add(contract)
         await db.commit()
@@ -271,6 +280,33 @@ async def test_archive_rates_are_resolved_at_the_end_date(
     # Rekrutacja linkowalna także w archiwum (dotąd był sam tytuł).
     assert row["job_id"] is not None
     assert row["job_title"] == "Projekt z harmonogramem"
+
+
+async def test_archive_uses_the_end_date_not_a_stale_termination(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+) -> None:
+    """Runda 8 (R8-N13-1): umowa zakończona, przedłużona aneksem i zakończona
+    ponownie niesie `terminated_at` z PIERWSZEGO zakończenia. Archiwum liczy
+    stawkę, czas trwania i przychód na `end_date` — tę samą datę, którą pokazuje
+    kolumna „End date" — a nie na przedawnione `terminated_at`."""
+    client_id, contract_id = await _seed_scheduled_contract(
+        ended=True, stale_terminated_days_ago=300
+    )
+
+    resp = await app_client.get(
+        f"/api/clients/{client_id}/profile", headers=app_auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+    row = next(
+        r
+        for r in resp.json()["historical"]["placements"]
+        if r["contract_id"] == contract_id
+    )
+    # Na `terminated_at` (−300 dni) obowiązywał pierwszy okres (15000).
+    assert row["monthly_rate_client"] == 18000
+    assert row["monthly_margin"] == 6000
+    # 400 − 30 dni ≈ 12 miesięcy; na przedawnionym `terminated_at` byłoby ≈ 3.
+    assert row["duration_months"] >= 12
 
 
 async def test_archive_money_is_redacted_without_view_finance(

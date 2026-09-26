@@ -818,7 +818,9 @@ async def termination_analysis(
         .join(Client, Client.id == Contract.client_id)
         .where(
             Contract.status == ContractStatus.ended,
-            func.coalesce(Contract.terminated_at, Contract.end_date) >= window_start,
+            # Runda 8 (R8-N13-1): `end_date` przed `terminated_at` — to drugie
+            # przeżywa aneks przedłużenia i niesie datę pierwszego zakończenia.
+            func.coalesce(Contract.end_date, Contract.terminated_at) >= window_start,
         )
     )
     rows = (await db.execute(ended_q)).all()
@@ -833,7 +835,7 @@ async def termination_analysis(
             else "unspecified"
         )
         reason_counts[reason] = reason_counts.get(reason, 0) + 1
-        duration_end = contract.terminated_at or contract.end_date
+        duration_end = contract.end_date or contract.terminated_at
         if duration_end and contract.start_date:
             reason_durations.setdefault(reason, []).append(
                 (duration_end - contract.start_date).days
