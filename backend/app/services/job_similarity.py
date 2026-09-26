@@ -274,7 +274,8 @@ def _build_pool(rows: Sequence[Any]) -> _Pool:
             skills=skill_set(row.must_skills, row.champion_profile),
             tokens=title_tokens(row.title),
             created_at=row.created_at,
-            opened_at=row.opened_at,
+            # `getattr`: wiersz bez kolumny (starsze wywołania, atrapy) = brak daty.
+            opened_at=getattr(row, "opened_at", None),
         )
         pool.jobs[item.id] = item
         for key in item.skills | {f"t:{t}" for t in item.tokens}:

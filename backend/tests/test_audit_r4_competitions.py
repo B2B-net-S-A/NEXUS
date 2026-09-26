@@ -350,6 +350,8 @@ async def test_my_position_reads_the_current_ranking_cache(monkeypatch) -> None:
     from app.core import cache as cache_module
 
     cache_module._cache.clear()
+    # conftest wyłącza cache rankingów (TTL -1) — tu sprawdzamy właśnie cache.
+    monkeypatch.setattr(competitions_api, "_CACHE_TTL_SECONDS", 60)
     ranked = _ranked([(1, 900, True), (2, 300, True)])
     live = AsyncMock(return_value=deepcopy(ranked))
     monkeypatch.setattr(competitions, "compute_live", live)
