@@ -75,6 +75,10 @@ class BoardTaskRow(BaseModel):
     # klienta osobno (Cpro dostaje nazwę i numer klienta).
     job_working_title: Optional[str] = None
     client_reference: Optional[str] = None
+    # Przegląd DL: etap z CV firmowym pary (po poprawkach QC). Runda 7
+    # (R7-X4-2): podgląd i „Pobierz DOCX" biorą CV etapu, nie surowy plik
+    # z generatora — do klienta ma iść to, co przeszło QC.
+    cv_stage_id: Optional[int] = None
 
 
 class PrepAttentionRow(BaseModel):
@@ -135,6 +139,9 @@ class CproSenderUpdate(BaseModel):
 
 
 class CproQueueCv(BaseModel):
+    # Etap z CV firmowym pary — wtedy plik bierzemy z etapu (po QC), nie
+    # z generatora (runda 7, R7-X4-2).
+    stage_id: Optional[int] = None
     generated_document_id: Optional[int] = None
     document_id: Optional[int] = None
 
@@ -197,13 +204,29 @@ async def list_board_tasks(
         candidate_followups.others_for_user(all_followups, current_user),
         today=today,
     )
+    dl_review = mine[svc.KIND_DL_REVIEW]
+    dl_cvs = (
+        await move_requirements.company_cv_refs(
+            db, [(t.candidate_id, t.job_id) for t in dl_review]
+        )
+        if dl_review
+        else {}
+    )
     return BoardTasksResponse(
         followups=followups,
         followups_by_others=followups_by_others,
         cpro_to_send=[BoardTaskRow(**t.as_dict()) for t in mine[svc.KIND_CPRO_TO_SEND]],
         # Najdłużej czekające na Nordeę na górze — wysłane rośnie w czasie.
         cpro_sent=[BoardTaskRow(**t.as_dict()) for t in mine[svc.KIND_CPRO_SENT]],
-        dl_review=[BoardTaskRow(**t.as_dict()) for t in mine[svc.KIND_DL_REVIEW]],
+        dl_review=[
+            BoardTaskRow(
+                **t.as_dict(),
+                cv_stage_id=(dl_cvs.get((t.candidate_id, t.job_id)) or {}).get(
+                    "stage_id"
+                ),
+            )
+            for t in dl_review
+        ],
         window_days=svc.WINDOW_DAYS,
         dl_review_window_days=svc.DL_REVIEW_WINDOW_DAYS,
         can_send_to_client=current_user.has_any_role(
@@ -344,6 +367,7 @@ async def get_cpro_queue(
             qc_status=t.qc_status or "unchecked",
             cv=(
                 CproQueueCv(
+                    stage_id=cv["stage_id"],
                     generated_document_id=cv["generated_document_id"],
                     document_id=cv["document_id"],
                 )

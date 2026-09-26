@@ -50,7 +50,7 @@ const METRICS: Array<{
 }> = [
   { key: "verification", label: "Weryfikacje", icon: CheckCheck },
   { key: "recommendation", label: "Rekomendacje", icon: Send },
-  { key: "interview", label: "Interview", icon: CalendarCheck2 },
+  { key: "interview", label: "Rozmowy u klienta", icon: CalendarCheck2 },
   { key: "acceptance", label: "Akceptacje", icon: ThumbsUp },
   { key: "placement", label: "Placementy", icon: BriefcaseBusiness },
 ]

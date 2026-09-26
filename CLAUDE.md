@@ -874,7 +874,9 @@ Wszystko w `components/v2/pages/B2BContractGeneratorV2.tsx`.
   żyje w `raw_contract_number`. Wiersze z Excela są tylko do odczytu poza
   statusem i dokumentami pochodnymi. Arkusz „Bez działalności” zasila kolejkę
   „Aneks uzupełnienia danych do zrobienia” (`needs_business_data_annex`,
-  zdejmuje ją podpisany aneks „dane firmy”). `GET /generated/export.xlsx`
+  zdejmuje ją podpisany aneks „dane firmy”) — także na umowie wydanej
+  w NEXUSIE, bo ta flaga to jedyne pole, które import może na niej zmienić
+  (decyzja Artura 26.09.2026). `GET /generated/export.xlsx`
   oddaje rejestr w układzie kolumn Excela działu.
 - **Kontener listy:** `max-w-6xl` → `max-w-7xl` (9 kolumn + akcje).
 
@@ -1093,6 +1095,10 @@ wziąć obrazu. Teraz rekruter wgrywa go przy generacji, a renderer wkleja sam.
   linku). Wyłącznik awaryjny `CV_CONSENT_DOWNLOAD_GATE_ENABLED` (domyślnie ON).
   Do 23.09 CV dla PKO bez zgody dawało się pobrać i wysłać mailem, bo blokowała
   tylko „gotowość pakietu”, której nikt nie używał.
+  Druk / PDF przy wymogu zgody jest zablokowany ZAWSZE (409 `consent_required`,
+  ten sam wyłącznik; wydruk nie niesie zrzutu — decyzja właściciela 26.09.2026),
+  a kopia etapu jest sprawdzana po WŁASNYM obrazie i zamrożonym w metadanych
+  wymogu (`consent_required`), więc usunięcie wygenerowanego CV blokady nie zdejmuje.
 - **Zrzut dołącza się i WYMIENIA po generacji** (`/consent-screenshot` z
   `generated_id` → `POST /generated/{id}/consent`): serwer renderuje DOCX
   ponownie i przepina kopię zgody w szkicach; wersja już zatwierdzona dostaje
@@ -2565,7 +2571,9 @@ miejsce, nie zbiór funkcji.
   zapytanie listy ma `enabled: hydrated`. Szybkie filtry „Niezamknięte”
   i „Moje rekrutacje” usunięte — dublowały przełącznik. Zakres NIE liczy się
   do liczby ustawionych filtrów. Liczniki z `/api/jobs/quick-counts` (`all`,
-  `open`, `mine`).
+  `open`, `mine`). „Moje” = moje NIEZAMKNIĘTE (decyzja Artura 26.09.2026):
+  lista wysyła `mine` + `open_only`, a `mine`, `*_mine` i `attention_mine`
+  w `quick-counts` liczą `jobs_mine_scope_clause` — archiwum tylko we „Wszystkie”.
 - **Sortowanie domyślne zależy od zakresu** (`defaultSortForScope`):
   „Moje” → `sort=attention` („Wymaga uwagi”), „Otwarte”/„Wszystkie” →
   `newest`. `sort=deadline` = „Najbliższy termin” (bez terminu na końcu).
@@ -2602,6 +2610,9 @@ miejsce, nie zbiór funkcji.
     jak pulpit „Requesty i obłożenie” i automat przydziału (propozycja z trybu
     cienia się liczy). `jobs_worked_by_clause` / `jobs_nobody_working_clause`;
     `worked_by` razem z `nobody_working=true` to LUB („ja albo nikt”).
+    Prowadzący (`jobs.recruiter_id`, aktywne konto, niezdjęty ręcznie
+    w bieżącym stanie requestu) też pracuje — przypisania powstają tylko
+    w puli „Szukamy” przy włączonym przydziale (runda 7 audytu, 26.09.2026).
 - **Kolumny:** „Etapy” = te same 8 kolumn co Tablica (Nowi … Zatrudniony),
   rozstrzygane `placeStage` z `lib/board-stages.ts` na `stage_columns` wiersza
   — tą samą regułą co Tablica (QC ma kod `interview`, a mimo to trafia do QC
@@ -7232,6 +7243,68 @@ Raport: `docs/audits/2026-09-25/runda-6.md` (19 agentów audytu, 15 naprawczych)
   odwoływane — klient bywa, że umawia kilka rund naraz.
 - **Zapytania DL w Insights liczą się od `COALESCE(opened_at, created_at)`** —
   `created_at` rekrutacji z Traffita to data importu.
+
+### Runda 7 (26.09.2026, po PR #1860)
+
+Raport: `docs/audits/2026-09-25/runda-7.md`.
+
+- **Redakcja logów (`core/logging_config.py`) ma czas liniowy:** wzorce bez
+  lookaheadu po zachłannym kwantyfikatorze, kwantyfikatory zaborcze, tekst
+  ucinany do 32 KB przed redakcją (początek + koniec + znacznik), redakcja
+  idempotentna. Nowy wzorzec = test w `test_log_redaction_linear_time.py`
+  (złośliwe napisy 16–64 KB < 50 ms). Access log idzie synchronicznie na pętli
+  jedynego procesu — kwadratowy regex to DoS jednym anonimowym żądaniem.
+- **Paragony migracji w publicznym logu:** `scripts/show_migration_receipts.py`
+  drukuje przez białą listę typów (liczby, daty ISO, ID; napis = długość, kwota
+  = znacznik). Paragon 0304 zapisuje szczegóły pod
+  `repair_details_0304_contract_order_sync_repair` (`load_repair_details` czyta
+  też stary paragon). „Coolify set env” czyta wartość z pliku zdarzenia i maskuje
+  ją przed użyciem; klucze wyglądające na sekret tylko przez `value_from_secret`.
+- **Usunięty albo scalony klient nie przyjmuje zapisów:**
+  `client_access.assert_client_assignable` (422 `client_deleted`/`client_merged`
+  z nazwą rekordu głównego) w rekrutacjach (POST, PATCH przy zmianie klienta),
+  kontraktach, kontaktach, odczycie maila klienta, stawkach, konfliktach
+  i generatorze CV „bez procesu”. Rejestr NIP poczty zamówień i writer
+  pomijają `deleted_at`. `merge-into` z żywymi kontraktami/rekrutacjami/ID w env
+  = 409 z listą; usunięcie klienta z historią zamyka jego puste opublikowane
+  rekrutacje (bez `closed_at`).
+- **DELETE rekrutacji:** zamknięta, z Traffita albo ze spotkaniem w kalendarzu =
+  409 (`job_is_closed`, `job_from_traffit`, `job_has_calendar_events`) — dla
+  każdej roli; całość w `audited_deletion`.
+- **Auto-DL wymaga roli `delivery_lead`** (w `role` albo `roles`) i schodzi,
+  gdy przestaje być głównym DL-em klienta (zdjęcie heada, usunięcie
+  przypisania, zmiana klienta rekrutacji); DL wpisany ręcznie zostaje.
+- **Automatyczny ruch karty (`pipeline_auto_move.auto_advance`)** nie przesuwa
+  osoby z ostrzeżeniem (czarna lista, weto HM) — `Activity auto_advance_skipped`;
+  po ruchu te same skutki co `/move` (przepięcia w transakcji, powiadomienia
+  i ryzyko po commicie przez `run_after_commit`).
+- **„Interview” w KPI i Insights = `client_interview`** (decyzja Artura) —
+  `kpi_panel`, `kpi_team`, kafel Aktywność; liczniki etapów pulpitu idą regułą
+  kolumn Tablicy (`board_column_for` po nazwie etapu).
+- **Nagrobek usuniętego kandydata ma też wiersz `external_source='email'`**
+  (HMAC znormalizowanego maila, bez migracji); import Traffita i Talent Radar
+  pomijają go tylko, gdy nie ma żywego kandydata z tym mailem. Strażnik
+  `NOT EXISTS` siedzi w samym `_UPSERT_CANDIDATE` (INSERT … SELECT).
+- **Zgoda RODO:** wymóg zgody jest zamrażany na kopii etapu
+  (`branded_render_metadata["consent_required"]`) — usunięcie wygenerowanego CV
+  go nie zdejmuje. Druk i PDF przy wymogu zgody = zawsze 409 (wydruk nie niesie
+  zrzutu). Przegląd DL i kolejka Cpro pobierają CV ETAPU (`lib/stage-cv-file.ts`),
+  nie surowy DOCX generatora.
+- **Dzierżawy zadań (`services/lease_renewal.renew_lease`)** ponawiają odnowienie
+  po wyjątku do upływu dzierżawy; auto-CV podpina szkic w procesie, który
+  wykonał zadanie (`cv_auto_generate.after_job_finished`).
+- **Korpus składany (flaga OFF):** zakres cv/title/skills potwierdza pole
+  `to_tsvector('simple', candidate_keyword_fold(...))`; w trakcie przeliczania
+  wpis wersji ma `in_progress_version` bez `version`, a
+  `app_settings['keyword_fold_fts_process']` kasuje pozycję po procesie z inną
+  `FOLD_VERSION`.
+- **M365:** 502/504 z wysyłki app-only = wynik niepewny (bez ponowienia);
+  odroczeni odbiorcy raportu KPI czekają w `kpi_email_report_pending:*`;
+  prywatne spotkanie z Outlooka traci `candidate_id`; publiczny POST
+  potwierdzenia rozmowy usunięty.
+- **Import rejestru z Excela:** arkusz „Bez działalności” stawia
+  `needs_business_data_annex` także na umowie z NEXUSA (tylko to pole; import go
+  nie zdejmuje).
 
 ## Narzędzia rekrutera — reguły po audycie 17.09.2026
 

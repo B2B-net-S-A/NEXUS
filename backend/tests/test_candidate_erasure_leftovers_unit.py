@@ -98,7 +98,7 @@ def test_importer_checks_tombstones_before_the_adopt_path():
     body = body[: body.index("\n    async def ", 10)]
     tomb = body.index("candidate_source_tombstone(")
     assert tomb < body.index("email_to_id.get(email_lc)")
-    assert tomb < body.index("_UPSERT_CANDIDATE, params")
+    assert tomb < body.index("upsert_sql, params")
 
 
 def test_migration_is_mirrored_in_entrypoint_and_probed():

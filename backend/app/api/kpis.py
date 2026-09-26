@@ -214,9 +214,19 @@ async def get_my_panel(
     tydzień/miesiąc) + interview/akceptacje/placementy (miesiąc) + precision
     (30 dni) + CV do bazy (recruiter/TAC). Atrybucja verifier-anchored —
     zasługa idzie na osobę, która przeniosła kandydata na „Zweryfikowany".
+
+    Cache 60 s per osoba (runda 7, R7-N10-1): widok „Mój miesiąc” odpytuje
+    panel przy każdym powrocie na kartę, a każde wyliczenie to pełne CTE.
     """
-    result = await compute_my_panel(db, user=current_user)
-    return _panel_to_schema(result)
+    cache_key = f"kpis:me:panel:{current_user.id}"
+    async with cache_single_flight(cache_key, db=db):
+        cached = await cache_get(cache_key)
+        if cached is not None:
+            return MyPanelSchema(**cached)
+        result = await compute_my_panel(db, user=current_user)
+        schema = _panel_to_schema(result)
+        await cache_set(cache_key, schema.model_dump(), ttl_seconds=60)
+        return schema
 
 
 # ── „KPI zespołu" panel (verifier-anchored funnel per osoba) ───────────────

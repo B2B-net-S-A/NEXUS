@@ -311,8 +311,10 @@ function CVBrandedEditContent({
     try {
       await flush();
       await openAuthenticatedFile(`${basePath}/render-pdf`, "text/html");
-    } catch {
-      showError("Nie udało się otworzyć CV do druku.");
+    } catch (error) {
+      // 409 `consent_required` (wymóg zgody RODO — wydruk nie niesie zrzutu)
+      // przychodzi z polskim komunikatem serwera, jak przy pobraniu DOCX.
+      showError(getErrorMessage(error) || "Nie udało się otworzyć CV do druku.");
     }
   };
 

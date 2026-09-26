@@ -132,6 +132,27 @@ async def test_order_parser_unparsed_json_log_has_no_raw_model_output(
     assert "1340" not in logged
 
 
+def test_storage_service_logs_have_no_file_name(monkeypatch, tmp_path, caplog):
+    """R7-V5-2: magazyn dokumentów loguje ścieżkę `<8hex>-<oryginalna nazwa>`."""
+    import io
+
+    from app.services import storage_service
+
+    monkeypatch.setattr(storage_service, "STORAGE_ROOT", tmp_path)
+    monkeypatch.setattr(storage_service, "BRANDED_CVS_DIR", tmp_path / "branded_cvs")
+    with caplog.at_level(logging.INFO, logger=storage_service.logger.name):
+        rel, _size = storage_service.save_branded_cv(
+            1, "CV_Jan_Kowalski_v1.html", io.BytesIO(b"x")
+        )
+        storage_service.delete_branded_cv(rel)
+        storage_service.delete_branded_cv(rel)  # już usunięty — ostrzeżenie
+
+    assert "Kowalski" in rel  # sama ścieżka się nie zmienia — zmienia się log
+    logged = " ".join(r.getMessage() for r in caplog.records)
+    assert "Saved branded CV" in logged and "Deleted branded CV" in logged
+    assert "Kowalski" not in logged
+
+
 # ── strażnik źródeł ─────────────────────────────────────────────────────────
 
 # Nazwy argumentów niosących dane osoby albo nazwę pliku CV.
@@ -147,6 +168,14 @@ _SENSITIVE_NAMES = {
     "full_name",
     "partner_name",
     "consultant_name",
+    # Runda 7 (R7-V5-2): ścieżki magazynu dokumentów (`<8hex>-<oryginalna nazwa>`)
+    # i nazwy załączników z maila zamówień.
+    "rel",
+    "relative_path",
+    "storage_path",
+    "final_path",
+    "attachment_name",
+    "key",
 }
 _SAFE_WRAPPERS = {"safe_storage_key", "safe_filename"}
 # Świadome wyjątki: pliki Championa to opis roli („Profil_Championa_Java.docx”),
@@ -154,6 +183,12 @@ _SAFE_WRAPPERS = {"safe_storage_key", "safe_filename"}
 _EXEMPT = {
     "services/champion_profile_ingest.py",
     "services/cv_generator_b2b/champion_builder.py",
+}
+# Świadome wyjątki dla pary (plik, nazwa): `key` w tych plikach to klucz
+# rejestru klauzul klienta (firma, np. „cardif”), nie klucz magazynu ani osoba.
+_EXEMPT_NAMES = {
+    ("api/b2b_contract_generator.py", "key"),
+    ("services/b2b_contract_generator/docx_renderer.py", "key"),
 }
 _LOG_METHODS = {"debug", "info", "warning", "error", "exception", "critical"}
 
@@ -180,6 +215,22 @@ def _leaf_name(node: ast.AST) -> str | None:
     return None
 
 
+def _logged_values(call: ast.Call) -> list[ast.AST]:
+    """Argumenty formatowania ORAZ wartości wstawione f-stringiem w komunikat.
+
+    Runda 7 (R7-V5-2): do rundy 6 strażnik patrzył tylko na `args[1:]`, więc
+    `logger.info(f"... {rel}")` przechodził bez sprawdzenia.
+    """
+    values: list[ast.AST] = list(call.args[1:])
+    if call.args and isinstance(call.args[0], ast.JoinedStr):
+        values.extend(
+            part.value
+            for part in call.args[0].values
+            if isinstance(part, ast.FormattedValue)
+        )
+    return values
+
+
 def test_no_logger_call_passes_file_names_keys_or_person_names_raw():
     offenders: list[str] = []
     for path in sorted(_APP.rglob("*.py")):
@@ -196,8 +247,10 @@ def test_no_logger_call_passes_file_names_keys_or_person_names_raw():
                 and node.func.value.id in {"logger", "log", "_logger"}
             ):
                 continue
-            for arg in node.args[1:]:
+            for arg in _logged_values(node):
                 name = _leaf_name(arg)
+                if (rel, name) in _EXEMPT_NAMES:
+                    continue
                 if name in _SENSITIVE_NAMES or name == "person_name":
                     offenders.append(f"{rel}:{node.lineno} ({name})")
     assert not offenders, (

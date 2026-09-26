@@ -505,7 +505,11 @@ async def apply_generated_to_stage_cv(
     csv.branded_template_content = template
     csv.branded_consent_content = consent
     csv.branded_docx_filename = generated.filename
-    csv.branded_render_metadata = metadata
+    # Runda 7 (R7-X4-1): wymóg zgody zamrożony na kopii — usunięcie
+    # wygenerowanego CV (FK SET NULL) nie może zdjąć blokady pobrania.
+    csv.branded_render_metadata = consent_gate.with_frozen_requirement(
+        metadata, generated
+    )
     csv.branded_draft_html = html
     csv.branded_template = "blind" if public["blind"] else "standard"
     csv.branded_language = public["language"]
@@ -653,7 +657,8 @@ async def render_branded_cv_for_print(
         # Stary szablon wycofany (generator v3): etap bez CV nie ma czego
         # drukować — CV powstaje w generatorze.
         raise HTTPException(status_code=404, detail=NO_GENERATED_CV_MESSAGE)
-    consent_gate.ensure_downloadable(await _generated_for_stage_cv(db, csv))
+    # Wydruk nie niesie obrazu zgody — przy wymogu zgody zablokowany (R7-X4-3).
+    consent_gate.ensure_printable(await _generated_for_stage_cv(db, csv), csv)
     candidate = await db.scalar(
         select(Candidate).where(Candidate.id == csv.candidate_id)
     )
@@ -684,7 +689,8 @@ async def preview_branded_docx(
         raise HTTPException(
             409, "Podgląd dotyczy szkicu. Pobierz zatwierdzoną wersję CV."
         )
-    consent_gate.ensure_downloadable(await _generated_for_stage_cv(db, csv))
+    # DOCX renderuje się z obrazu zgody KOPII etapu (R7-X4-4).
+    consent_gate.ensure_copy_downloadable(await _generated_for_stage_cv(db, csv), csv)
     docx, _ = await _render_editor_docx(csv, payload.content_html)
     return Response(
         content=docx,
@@ -769,10 +775,11 @@ async def download_approved_docx(
     )
     if version is None:
         raise HTTPException(404, "Nie znaleziono zatwierdzonej wersji CV.")
-    consent_gate.ensure_downloadable(
+    consent_gate.ensure_copy_downloadable(
         await db.get(CvGeneratedDocument, version.generated_document_id)
         if version.generated_document_id
         else None,
+        csv,
         version,
     )
     if not version.docx_content:
@@ -887,6 +894,8 @@ async def create_cv_share_token(
         if csv.generated_document_id
         else None
     )
+    # Bez wiersza generatora (usunięty) wymóg zgody czytamy z kopii (R7-X4-1).
+    consent_gate.ensure_copy_downloadable(generated, csv, version)
     package_versions = (
         await require_ready(db, generated, version.id) if generated else None
     )

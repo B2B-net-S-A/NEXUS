@@ -27,6 +27,7 @@ from app.models.ai_feature import AIFeatureKey
 from app.models.client import Client
 from app.services import job_request_intake as intake
 from app.services.ai_quota import AIQuotaExceeded, ai_feature
+from app.services.client_access import assert_client_assignable
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,9 @@ async def _assert_client(db: AsyncSession, client_id: int) -> None:
     exists = await db.scalar(select(Client.id).where(Client.id == client_id))
     if exists is None:
         raise HTTPException(404, "Nie znaleziono klienta.")
+    # Runda 7 (R7-X5-4): rekrutacji u usuniętego albo scalonego klienta i tak
+    # nie da się założyć — mówimy to przed płatnym odczytem, nie po nim.
+    await assert_client_assignable(db, client_id)
 
 
 async def _read(db: AsyncSession, user_id: int, client_id: int, text: str) -> dict:

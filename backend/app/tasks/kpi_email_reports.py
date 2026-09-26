@@ -33,13 +33,14 @@ from datetime import date, datetime, time, timedelta, timezone
 from typing import Awaitable, Callable, Optional
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import or_, select, update
+from sqlalchemy import delete, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.scheduling import DEFAULT_TZ, is_business_day, local_now
+from app.models.app_setting import AppSetting
 from app.models.kpi_email_report_run import KpiEmailReportRun
 from app.models.user import User, UserRole
 from app.services import loop_heartbeat
@@ -322,14 +323,138 @@ async def _monthly_mails(
     return [_Mail(u.email, subject, text) for u in recipients]
 
 
+# Runda 7 (R7-N5-2): mail, którego nadawca na pewno NIE wysłał z przejściowego
+# powodu (bezpiecznik zamknięty po 429/503, 403 w trakcie incydentu), czeka
+# w `app_settings` na kolejny tick tego samego dnia. Znacznik raportu zostaje
+# (bez duplikatu po restarcie); ponawiamy wyłącznie tych odbiorców.
+_SENT, _DEFERRED, _FAILED = "sent", "deferred", "failed"
+_PENDING_PREFIX = "kpi_email_report_pending:"
+
+
+def _pending_key(kind: str, period_key: str) -> str:
+    return f"{_PENDING_PREFIX}{kind}:{period_key}"
+
+
+def _deliver(kind: str, now_utc: datetime, mail: _Mail) -> str:
+    """Jedna wysyłka w wątku roboczym (flagi nadawcy są per wątek)."""
+    from app.services.email import send_email
+    from app.services.notification_delivery import (
+        guarded_send,
+        last_send_policy_blocked,
+    )
+
+    if guarded_send(kind, now_utc, send_email, mail.to, mail.subject, mail.text, None):
+        return _SENT
+    if settings.M365_APP_MAIL_ENABLED and not last_send_policy_blocked():
+        from app.services.m365.app_mail import last_delivery_deferred
+
+        if last_delivery_deferred():
+            return _DEFERRED
+    return _FAILED
+
+
+async def _send_mails(
+    kind: str, now_utc: datetime, mails: list[_Mail]
+) -> tuple[int, list[str]]:
+    sent = 0
+    deferred: list[str] = []
+    for mail in mails:
+        try:
+            outcome = await asyncio.to_thread(_deliver, kind, now_utc, mail)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "kpi_email_reports: wysyłka %s: %s", kind, type(exc).__name__
+            )
+            outcome = _FAILED
+        if outcome == _SENT:
+            sent += 1
+        elif outcome == _DEFERRED:
+            deferred.append(mail.to)
+    return sent, deferred
+
+
+async def _store_deferred(
+    db: AsyncSession, kind: str, period_key: str, addresses: list[str]
+) -> None:
+    stmt = pg_insert(AppSetting).values(
+        key=_pending_key(kind, period_key), value={"to": addresses}
+    )
+    await db.execute(
+        stmt.on_conflict_do_update(
+            index_elements=[AppSetting.key], set_={"value": stmt.excluded.value}
+        )
+    )
+    await db.commit()
+    logger.warning(
+        "kpi_email_reports %s %s: %s mail(e) do ponowienia",
+        kind,
+        period_key,
+        len(addresses),
+    )
+
+
+async def _retry_deferred(
+    db: AsyncSession,
+    kind: str,
+    period_key: str,
+    build: Callable[[AsyncSession], Awaitable[list[_Mail]]],
+    now_utc: datetime,
+) -> str:
+    """Ponowienie odroczonych odbiorców; brak odroczonych = `already_claimed`."""
+    # DELETE … RETURNING = jedno przejęcie listy nawet przy dwóch kontenerach.
+    value = await db.scalar(
+        delete(AppSetting)
+        .where(AppSetting.key == _pending_key(kind, period_key))
+        .returning(AppSetting.value)
+    )
+    await db.commit()
+    addresses = set((value or {}).get("to") or [])
+    if not addresses:
+        return "already_claimed"
+    try:
+        mails = [m for m in await build(db) if m.to in addresses]
+    except Exception:
+        logger.exception(
+            "kpi_email_reports: %s %s — liczenie padło (ponowienie)", kind, period_key
+        )
+        await db.rollback()
+        await _store_deferred(db, kind, period_key, sorted(addresses))
+        return _FAILED
+    sent, deferred = await _send_mails(kind, now_utc, mails)
+    if sent:
+        await db.execute(
+            update(KpiEmailReportRun)
+            .where(
+                KpiEmailReportRun.kind == kind,
+                KpiEmailReportRun.period_key == period_key,
+            )
+            .values(
+                status="sent",
+                sent=KpiEmailReportRun.sent + sent,
+                finished_at=datetime.now(timezone.utc),
+            )
+        )
+        await db.commit()
+    if deferred:
+        await _store_deferred(db, kind, period_key, deferred)
+    logger.info(
+        "kpi_email_reports %s %s (ponowienie): %s/%s",
+        kind,
+        period_key,
+        sent,
+        len(mails),
+    )
+    return _SENT if sent else (_DEFERRED if deferred else _FAILED)
+
+
 async def _send_report(
     kind: str,
     period_key: str,
     build: Callable[[AsyncSession], Awaitable[list[_Mail]]],
     now_utc: datetime,
 ) -> str:
-    from app.services.email import email_channel_enabled, send_email
-    from app.services.notification_delivery import guarded_send, load_policy
+    from app.services.email import email_channel_enabled
+    from app.services.notification_delivery import load_policy
 
     async with AsyncSessionLocal() as db:
         policy = await load_policy(db)
@@ -339,7 +464,7 @@ async def _send_report(
             return "no_channel"
         run_id = await claim_report(db, kind, period_key)
         if run_id is None:
-            return "already_claimed"
+            return await _retry_deferred(db, kind, period_key, build, now_utc)
         try:
             mails = await build(db)
         except Exception:
@@ -349,27 +474,11 @@ async def _send_report(
             await db.rollback()
             await _finish(db, run_id, status="failed", recipients=0, sent=0)
             return "failed"
-        sent = 0
-        for mail in mails:
-            try:
-                ok = await asyncio.to_thread(
-                    guarded_send,
-                    kind,
-                    now_utc,
-                    send_email,
-                    mail.to,
-                    mail.subject,
-                    mail.text,
-                    None,
-                )
-            except Exception as exc:  # noqa: BLE001
-                logger.warning(
-                    "kpi_email_reports: wysyłka %s: %s", kind, type(exc).__name__
-                )
-                ok = False
-            sent += 1 if ok else 0
+        sent, deferred = await _send_mails(kind, now_utc, mails)
         status = "skipped" if not mails else ("sent" if sent else "failed")
         await _finish(db, run_id, status=status, recipients=len(mails), sent=sent)
+        if deferred:
+            await _store_deferred(db, kind, period_key, deferred)
         logger.info(
             "kpi_email_reports %s %s: %s/%s", kind, period_key, sent, len(mails)
         )

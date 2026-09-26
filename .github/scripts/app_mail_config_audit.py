@@ -11,6 +11,12 @@ import urllib.parse
 
 PROBE_SENDER = "nexus-powiadomienia@b2bnetwork.pl"
 PROBE_RECIPIENT = "artur.twardowski@b2bnetwork.pl"
+# Runda 7 (R7-X2-5): log Actions jest publiczny. UPN nadawcy wypisujemy wprost
+# wyłącznie dla skrzynek usługowych; każda inna (np. imię.nazwisko@) wychodzi
+# jako znacznik — do 25.09 w logu stał imienny adres.
+SERVICE_MAILBOXES = frozenset(
+    {PROBE_SENDER, "nexus-zamowienia@b2bnetwork.pl"}
+)
 
 
 def summarize(envs):
@@ -26,7 +32,15 @@ def summarize(envs):
         if key not in patterns or row.get("is_preview") is True:
             continue
         value = str(row.get("value") or "").strip()
-        result[key] = value if re.fullmatch(patterns[key], value) else "unavailable"
+        if not re.fullmatch(patterns[key], value):
+            result[key] = "unavailable"
+        elif key == "M365_MAIL_SENDER_UPN":
+            result["sender_matches_probe"] = value == PROBE_SENDER
+            result[key] = (
+                value if value in SERVICE_MAILBOXES else "other-mailbox@b2bnetwork.pl"
+            )
+        else:
+            result[key] = value
     return result
 
 

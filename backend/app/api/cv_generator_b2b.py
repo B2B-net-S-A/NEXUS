@@ -2417,6 +2417,10 @@ async def generate(
             )
         if await db.get(Client, payload.client_id) is None:
             raise HTTPException(status_code=404, detail="Klient nie został znaleziony.")
+        # Runda 7 (R7-X5-4, bliźniak): reguły CV żyją na rekordzie głównym.
+        from app.services.client_access import assert_client_assignable
+
+        await assert_client_assignable(db, payload.client_id)
         client_id = payload.client_id
 
     from app.services.cv_generator_b2b.request_receipts import reserve_request
@@ -3310,6 +3314,22 @@ async def delete_generated_cv(
             from app.services.cv_source_cleanup import schedule_source_cleanup
 
             await schedule_source_cleanup(db, source_job.input_storage_key)
+    if consent_gate.consent_required(row):
+        # Runda 7 (R7-X4-1): FK kopii etapu to SET NULL — bez zamrożenia
+        # wymogu na kopii jej szkic, druk, wersje i link wychodziłyby bez zgody.
+        from app.models.candidate_stage_cv import CandidateStageCV
+
+        copies = (
+            await db.scalars(
+                select(CandidateStageCV)
+                .where(CandidateStageCV.generated_document_id == row.id)
+                .with_for_update()
+            )
+        ).all()
+        for copy in copies:
+            copy.branded_render_metadata = consent_gate.with_frozen_requirement(
+                copy.branded_render_metadata, row
+            )
     await db.delete(row)
     await db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -3753,7 +3773,10 @@ async def preview_generated_editor(
     db: AsyncSession = Depends(get_db),
 ):
     draft = await _load_generated_editor(db, generated_id, current_user, persist=False)
-    consent_gate.ensure_downloadable(await db.get(CvGeneratedDocument, generated_id))
+    # DOCX szkicu renderuje się z obrazu zgody SZKICU (R7-X4-4).
+    consent_gate.ensure_copy_downloadable(
+        await db.get(CvGeneratedDocument, generated_id), draft
+    )
     from app.services.cv_document_versions import check_revision
 
     check_revision(draft, payload.expected_revision)
@@ -3786,7 +3809,10 @@ async def print_generated_editor(
     db: AsyncSession = Depends(get_db),
 ):
     draft = await _load_generated_editor(db, generated_id, current_user, persist=False)
-    consent_gate.ensure_downloadable(await db.get(CvGeneratedDocument, generated_id))
+    # Wydruk nie niesie obrazu zgody — przy wymogu zgody zablokowany (R7-X4-3).
+    consent_gate.ensure_printable(
+        await db.get(CvGeneratedDocument, generated_id), draft
+    )
     content = _wrap_printable_generated_cv(draft.branded_draft_html)
     await db.commit()
     return Response(

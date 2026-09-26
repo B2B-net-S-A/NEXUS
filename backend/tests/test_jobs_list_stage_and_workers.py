@@ -222,7 +222,9 @@ async def test_quick_counts_for_stages_and_toggles_agree_with_the_list(
                 app_client, app_auth_headers, f"request_stage={stage}"
             ), stage
             assert counts["request_stage_mine"][stage] == await _total(
-                app_client, app_auth_headers, f"mine=true&request_stage={stage}"
+                app_client,
+                app_auth_headers,
+                f"mine=true&open_only=true&request_stage={stage}",
             ), stage
 
         toggles = {
@@ -235,7 +237,7 @@ async def test_quick_counts_for_stages_and_toggles_agree_with_the_list(
                 app_client, app_auth_headers, f"open_only=true&{query}"
             ), flag
             assert counts["attention_mine"][flag] == await _total(
-                app_client, app_auth_headers, f"mine=true&{query}"
+                app_client, app_auth_headers, f"mine=true&open_only=true&{query}"
             ), flag
     finally:
         await _cleanup(seeded)

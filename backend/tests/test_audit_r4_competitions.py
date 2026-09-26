@@ -76,9 +76,16 @@ async def test_current_list_has_no_second_number_one_for_unqualified_leader(
 
 
 async def test_my_position_of_unqualified_leader_has_no_place(monkeypatch) -> None:
+    from app.core import cache as cache_module
+
+    # `/my-position` czyta ranking z cache `/current` (runda 7, R7-N10-2).
+    cache_module._cache.clear()
     ranked = _ranked([(1, 900, False), (2, 300, True), (3, 200, True)])
     monkeypatch.setattr(
         competitions, "compute_live", AsyncMock(return_value=deepcopy(ranked))
+    )
+    monkeypatch.setattr(
+        competitions, "league_scoring_config", AsyncMock(return_value=SCORING_DEFAULTS)
     )
 
     mine = await competitions_api.my_position(
@@ -102,6 +109,9 @@ async def test_my_position_in_monthly_race_skips_excluded_and_hides_margin(
     monkeypatch,
 ) -> None:
     """Wykluczony lider kwartału nie jest „1.”, a marża/h nie wycieka."""
+    from app.core import cache as cache_module
+
+    cache_module._cache.clear()
     ranked = _ranked([(1, 5, True), (2, 3, True), (3, 3, True)])
     monkeypatch.setattr(
         competitions,
@@ -332,3 +342,35 @@ async def test_league_snapshot_is_first_write_wins(monkeypatch) -> None:
         assert (await competitions.league_scoring_config(db, other))[
             "league_points_placement"
         ] == 500
+
+
+async def test_my_position_reads_the_current_ranking_cache(monkeypatch) -> None:
+    """Runda 7 (R7-N10-2): `/my-position` nie liczy Ligi od zera — dwie osoby
+    i `/current` dzielą jedno przeliczenie rankingu."""
+    from app.core import cache as cache_module
+
+    cache_module._cache.clear()
+    # conftest wyłącza cache rankingów (TTL -1) — tu sprawdzamy właśnie cache.
+    monkeypatch.setattr(competitions_api, "_CACHE_TTL_SECONDS", 60)
+    ranked = _ranked([(1, 900, True), (2, 300, True)])
+    live = AsyncMock(return_value=deepcopy(ranked))
+    monkeypatch.setattr(competitions, "compute_live", live)
+    monkeypatch.setattr(
+        competitions, "league_scoring_config", AsyncMock(return_value=SCORING_DEFAULTS)
+    )
+
+    first = await competitions_api.my_position(
+        SimpleNamespace(id=1), None, LEAGUE.value, "Q1 2026"
+    )
+    second = await competitions_api.my_position(
+        SimpleNamespace(id=2), None, LEAGUE.value, "Q1 2026"
+    )
+    board = await competitions_api.get_current(
+        SimpleNamespace(id=3), None, LEAGUE.value, "Q1 2026"
+    )
+
+    assert live.await_count == 1
+    assert first["rank"] == 1 and second["rank"] == 2
+    assert first["total"] == len(board["full_ranking"]) == 2
+    assert first["period"] == "Q1 2026"
+    cache_module._cache.clear()

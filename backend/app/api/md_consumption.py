@@ -284,8 +284,8 @@ def _unmatched_reason(
     # linie import naprawdę brał pod uwagę — z okresu raportu albo wskazane
     # tym numerem. Dawna linia Polkomtela nie czyni „delegacja 445” u BNP
     # numerem zamówienia.
-    clients = {
-        line.client_id
+    considered = [
+        line
         for line in person_lines
         if line_settles_in_month(line, period_month, contract=line.contract)
         or finance_order_matching.finance_order_number_matches(
@@ -293,14 +293,26 @@ def _unmatched_reason(
             order_number=context.groups[line.order_group_id].order_number,
             numeric_hints=hints,
         )
-    }
+    ]
+    clients = {line.client_id for line in considered}
     if not clients:
         return None
-    if finance_order_matching.POLKOMTEL_CLIENT_ID in clients:
+    # Runda 7 (R7-V4-5): lustro importu — klient, u którego osoba ma tylko
+    # linie kosztowe, wiąże wyłącznie znanym numerem, a szeroka reguła
+    # Polkomtela (każdy ciąg cyfr) dotyczy jego linii MD.
+    md_clients = {
+        line.client_id
+        for line in considered
+        if not context.groups[line.order_group_id].is_cost_based
+    }
+    if finance_order_matching.POLKOMTEL_CLIENT_ID in md_clients:
         authoritative = list(hints)
     else:
         authoritative = finance_order_matching.explicit_order_hints(
-            hints, context.index, clients
+            hints,
+            context.index,
+            md_clients,
+            known_only_client_ids=clients - md_clients,
         )
     if not authoritative:
         return None
@@ -1452,10 +1464,14 @@ def _authoritative_md_hints(
     )
     if has_polkomtel_candidate:
         return list(hints)
+    named_clients = {match.group.client_id for match in named}
+    # Runda 7 (R7-V4-5): klient kosztowy wiąże wyłącznie ZNANYM numerem —
+    # reguła „≥ 7 cyfr" zostaje przy klientach, u których osoba ma linię MD.
     return finance_order_matching.explicit_order_hints(
         hints,
         order_numbers,
-        {match.group.client_id for match in named} | set(other_client_ids),
+        named_clients,
+        known_only_client_ids=set(other_client_ids) - named_clients,
     )
 
 
@@ -1733,6 +1749,23 @@ def _single_polkomtel_numbered_match(
     return None, True
 
 
+def _already_booked_on(
+    plan: _PolkomtelReprocessPlan, row: MdConsumptionImportRow
+) -> bool:
+    """Czy wiersz paczki jest już zaksięgowany na cel planu."""
+    if plan.kind == _REPROCESS_COST:
+        return (
+            row.cost_status == COST_ROW_APPLIED
+            and row.matched_group_id == plan.match.group.id
+            and bool(match_by_name([plan.match], row.consultant_name))
+        )
+    if row.status != IMPORT_ROW_APPLIED:
+        return False
+    if plan.kind == _REPROCESS_SHARED_MD:
+        return row.matched_group_id == plan.match.group.id
+    return row.matched_order_id == plan.match.order.id
+
+
 def _build_polkomtel_reprocess_plan(
     rows: list[MdConsumptionImportRow],
     *,
@@ -1852,6 +1885,21 @@ def _build_polkomtel_reprocess_plan(
                 )
             if cost_match is not None:
                 add_cost(cost_match, row)
+
+    # Runda 7 (R7-N2-1): miesięczne zużycie celu ma jeden klucz, więc plan
+    # musi objąć także wiersze tej paczki JUŻ zaksięgowane na ten cel po
+    # samym nazwisku (bez numeru w „Uwagach"). Bez nich zapis nadpisywał
+    # zużycie linii sumą samych wierszy z numerem i MD z pozostałych znikały.
+    for plan in buckets.values():
+        planned = {row.id for row in plan.rows}
+        for row in rows:
+            if row.id in planned or not _already_booked_on(plan, row):
+                continue
+            plan.rows.append(row)
+            if plan.kind == _REPROCESS_COST:
+                plan.expected_value += Decimal(str(row.invoice_amount or 0))
+            else:
+                plan.expected_value += Decimal(str(row.md_reported))
 
     plans: list[_PolkomtelReprocessPlan] = []
     for plan in buckets.values():

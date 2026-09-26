@@ -2252,6 +2252,7 @@ async def collect_screening_notes_text(
         .where(
             Note.candidate_id == candidate_id,
             or_(Note.job_id == job.id, Note.job_id.is_(None)),
+            _not_followup_note(),
         )
         .order_by(Note.created_at.desc())
         .limit(20)
@@ -2302,6 +2303,16 @@ async def collect_screening_notes_text(
     return "\n\n".join(screening_parts)
 
 
+def _not_followup_note():
+    """Bez notatek z telefonu po ciszy klienta (``source_ref='followup:…'``).
+
+    Runda 7 (R7-X4-5): taka notatka ma ``job_id=NULL``, a treść wymienia
+    klientów i rekrutacje WSZYSTKICH czekających procesów — do CV pod innego
+    klienta trafiały nazwy i statusy cudzych procesów.
+    """
+    return or_(Note.source_ref.is_(None), ~Note.source_ref.like("followup:%"))
+
+
 async def collect_candidate_notes_text(db: AsyncSession, *, candidate_id: int) -> str:
     """Notatki kandydata dla generacji BEZ procesu (generator v3).
 
@@ -2313,7 +2324,11 @@ async def collect_candidate_notes_text(db: AsyncSession, *, candidate_id: int) -
     notes = (
         await db.scalars(
             select(Note)
-            .where(Note.candidate_id == candidate_id, Note.job_id.is_(None))
+            .where(
+                Note.candidate_id == candidate_id,
+                Note.job_id.is_(None),
+                _not_followup_note(),
+            )
             .order_by(Note.created_at.desc())
             .limit(20)
         )

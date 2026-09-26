@@ -238,6 +238,16 @@ class RankedCandidate:
     stack_display: tuple[str, ...]
 
 
+def _job_started(job: Any) -> Optional[datetime]:
+    """Kiedy rekrutacja się zaczęła: data otwarcia, a bez niej — założenia.
+
+    `created_at` rekrutacji z Traffita to data importu (maj 2026), więc okno
+    „ostatnich N miesięcy” liczone od niej wpuszczało archiwum z lat
+    2019–2024 (runda 7, R7-V3-1).
+    """
+    return getattr(job, "opened_at", None) or job.created_at
+
+
 def _demand_index(
     pool_jobs: list[Any], rules: dict[str, Any], now: datetime
 ) -> dict[str, list[rules_mod.DemandJob]]:
@@ -251,7 +261,7 @@ def _demand_index(
             is_open=job.status == JobStatus.published.value,
         )
         for job in pool_jobs
-        if job.created_at is None or job.created_at >= since
+        if _job_started(job) is None or _job_started(job) >= since
     ]
     return rules_mod.build_index(jobs)
 

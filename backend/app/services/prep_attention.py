@@ -90,7 +90,9 @@ async def load_prep_attention(
         window_start=now - timedelta(days=14),
         window_end=now + timedelta(days=days_ahead),
     )
-    from app.services.prep_meetings import suggest_organizer_id  # noqa: PLC0415
+    from app.services.interview_slots import eligible_slot_recruiters  # noqa: PLC0415
+    from app.services.prep_meetings import suggest_organizer_ids  # noqa: PLC0415
+    from app.services.workforce_availability import workforce_context  # noqa: PLC0415
 
     jobs = {
         job.id: job
@@ -98,26 +100,36 @@ async def load_prep_attention(
             await db.scalars(select(Job).where(Job.id.in_({j for _c, j in pairs})))
         ).all()
     }
+    # Runda 7 (R7-V3-2): podpowiedź organizatora hurtowo — stała liczba
+    # zapytań. Ta trasa (``GET /api/board-tasks``) idzie z pulpitu każdego.
+    suggested = await suggest_organizer_ids(db, jobs, snaps.keys())
+    # Runda 7 (X3): sprawa „słaby”/„bez nagrania” idzie do organizatora, za
+    # którego ktoś faktycznie pracuje — zastępca z COMPASS-a wygrywa, a konto
+    # nieaktywne albo bez dostępu to brak osoby i sprawa wraca do podpowiedzi
+    # (Prep 1 → DL, Prep 2 → rekruter). Dotąd dzwonek organizatora, który
+    # odszedł, przepadał; widział ją tylko HoR.
+    workforce = await workforce_context(db)
+    held_owners = {
+        (workforce.performer(ev.owner_id), jid)
+        for (_cid, jid), snap in snaps.items()
+        for n in (1, 2)
+        if (ev := snap.prep_slot(n)) is not None and ev.owner_id
+    }
+    active_owners = await eligible_slot_recruiters(db, held_owners)
     out: list[PrepAttention] = []
     for (cid, jid), snap in snaps.items():
         iv = snap.interview
         if iv is None or iv.start <= now:
             continue
         urgent = iv.start - now <= timedelta(hours=PREP_URGENT_HOURS)
-        job = jobs.get(jid)
         for n in (1, 2):
+            fallback = suggested.get((cid, jid), (None, None))[n - 1]
             ev = snap.prep_slot(n)
             if ev is None:
                 reason: Optional[Reason] = "missing"
                 # Ta sama podpowiedź co w oknie „Zaplanuj prep” — tylko osoby
-                # aktywne z dostępem do rekrutacji (runda 6 audytu). Dotąd
-                # sprawa szła na surowe `delivery_lead_id`/`recruiter_id`,
-                # także na konto osoby, która odeszła.
-                owner = (
-                    await suggest_organizer_id(db, job=job, candidate_id=cid, prep_no=n)
-                    if job is not None
-                    else None
-                )
+                # aktywne z dostępem do rekrutacji (runda 6 audytu).
+                owner = fallback
             elif ev.start <= now:
                 quality = prep_quality(ev)[1]
                 reason = (
@@ -127,7 +139,8 @@ async def load_prep_attention(
                     if quality == "unrecorded"
                     else None
                 )
-                owner = ev.owner_id
+                performer = workforce.performer(ev.owner_id)
+                owner = performer if (performer, jid) in active_owners else fallback
             else:
                 reason = None
                 owner = None

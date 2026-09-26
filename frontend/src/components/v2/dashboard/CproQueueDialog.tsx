@@ -39,6 +39,7 @@ import {
 } from "@/lib/api/boardTasks";
 import { downloadBlob, fetchAuthenticatedDownload } from "@/lib/authenticated-files";
 import { copyTextToClipboard } from "@/lib/clipboard";
+import { fetchStageCvFile } from "@/lib/stage-cv-file";
 import { countPl } from "@/lib/plural-pl";
 import { QC_STATUS_LABEL } from "@/lib/cv-qc";
 import { eligibilityWarningReason, isEligibilityWarning } from "@/lib/pipeline-eligibility-warning";
@@ -361,6 +362,16 @@ export function CproQueueDialog({ open, onClose, initialJobId = null }: CproQueu
 
   const downloadCv = async (item: CproQueueItem) => {
     const cv = item.cv;
+    if (cv?.stage_id) {
+      // CV firmowe etapu — to, co przeszło QC (runda 7, R7-X4-2).
+      try {
+        const { blob, filename } = await fetchStageCvFile(cv.stage_id);
+        downloadBlob(blob, filename ?? `CV ${item.candidate_name}`);
+      } catch (error) {
+        showError(apiErrorMessage(error, "Nie udało się pobrać CV."));
+      }
+      return;
+    }
     const path = cv?.generated_document_id
       ? `/api/cv-generator/generated/${cv.generated_document_id}/docx`
       : cv?.document_id
@@ -499,7 +510,7 @@ export function CproQueueDialog({ open, onClose, initialJobId = null }: CproQueu
                   ))}
                   {remaining.map((item, i) => {
                     const isCurrent = item === current;
-                    const hasCv = !!(item.cv?.generated_document_id || item.cv?.document_id);
+                    const hasCv = !!(item.cv?.stage_id || item.cv?.generated_document_id || item.cv?.document_id);
                     return (
                       <li
                         key={item.stage_id}

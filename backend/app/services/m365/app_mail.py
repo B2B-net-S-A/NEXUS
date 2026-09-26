@@ -86,6 +86,24 @@ def last_delivery_uncertain() -> bool:
     return bool(getattr(_delivery_local, "uncertain", False))
 
 
+def last_delivery_deferred() -> bool:
+    """Mail na pewno NIE wyszedł z przejściowego powodu — można go ponowić.
+
+    Runda 7 (R7-N5-2): bezpiecznik zamknięty dla kolejnych prób, stan w bazie
+    niedostępny, token, brak połączenia albo jawna odmowa 401/403/408/429/5xx
+    (poza 502/504, które są niepewne). Czytaj zaraz po wysyłce, w tym samym
+    wątku — jak :func:`last_delivery_uncertain`.
+    """
+    return bool(getattr(_delivery_local, "deferred", False))
+
+
+# Brama Graph odpowiedziała błędem, ale mogła już przekazać żądanie dalej —
+# ponowienie mogłoby wysłać drugi mail (runda 7, R7-N5-8).
+_UNCERTAIN_STATUSES = frozenset({502, 504})
+# Jawna odmowa, po której ponowienie później może się udać.
+_TRANSIENT_REFUSALS = frozenset({401, 403, 408, 429})
+
+
 def send_state() -> AppMailSendState:
     state = mail_circuit.snapshot()
     return AppMailSendState(
@@ -314,6 +332,7 @@ def send_via_graph_app(
     Failure of the durable gate fails closed before any network call.
     """
     _delivery_local.uncertain = False
+    _delivery_local.deferred = False
     if not is_configured():
         return False
     try:
@@ -323,8 +342,10 @@ def send_via_graph_app(
             "app_mail state unavailable",
             extra={"event_kind": "app_mail_state", "failure_kind": "state_unavailable"},
         )
+        _delivery_local.deferred = True
         return False
     if ticket is None:
+        _delivery_local.deferred = True
         return False
     payload = {
         "message": {
@@ -342,6 +363,7 @@ def send_via_graph_app(
     try:
         token = _acquire_token()
         if not token:
+            _delivery_local.deferred = True
             _finish(ticket, "token")
             return False
         posted = True
@@ -356,6 +378,7 @@ def send_via_graph_app(
             posted = False
             token = acquire_mail_token(force_refresh=True)
             if not token:
+                _delivery_local.deferred = True
                 _finish(ticket, "token")
                 return False
             posted = True
@@ -379,13 +402,24 @@ def send_via_graph_app(
                     },
                 )
             return True
+        if resp.status_code in _UNCERTAIN_STATUSES:
+            # 502/504 z bramy: Graph mógł mail przyjąć — to nie jest pewna
+            # odmowa, więc bez automatycznego ponowienia (R7-N5-8).
+            _delivery_local.uncertain = True
+            _finish(ticket, "delivery_uncertain", _retry_after(resp))
+            return False
         posted = False  # an explicit response, not a lost response
+        _delivery_local.deferred = (
+            resp.status_code in _TRANSIENT_REFUSALS or resp.status_code >= 500
+        )
         _finish(ticket, f"http_{resp.status_code}", _retry_after(resp))
         return False
     except (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout):
+        _delivery_local.deferred = True
         code = "transport_connect"
     except Exception:
         _delivery_local.uncertain = posted
+        _delivery_local.deferred = not posted
         code = "delivery_uncertain" if posted else "token_or_state"
     try:
         _finish(ticket, code)

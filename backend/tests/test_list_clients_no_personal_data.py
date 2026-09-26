@@ -67,12 +67,30 @@ async def test_with_links_prints_ids_not_people(monkeypatch, capsys):
         "SECRET_name",
         "SECRET_partner_name",
         "SECRET_title",
+        # Runda 7 (R7-X2-7): nazwa Klienta z umowy bywa imieniem i nazwiskiem JDG.
+        "SECRET_client_name",
     ):
         assert leaked not in out, f"{leaked} w wyjściu:\n{out}"
     # identyfikatory i liczby zostają — po nich wskazuje się wiersz do poprawki
     assert "contract=7" in out
     assert "b2b=7" in out
     assert "order=7" in out
+
+
+async def test_client_rows_print_only_the_nip_tail(monkeypatch, capsys):
+    """R7-X2-7: klient bywa JDG — pełny NIP to dana osobowa w publicznym logu."""
+
+    async def _rows(_like, _limit):
+        return [(7, "Firma", None, "526-104-08-28")]
+
+    monkeypatch.setattr(list_clients, "find_clients", _rows)
+    monkeypatch.setattr("sys.argv", ["list_clients", "--like", "Firma"])
+
+    await list_clients.main()
+
+    out = capsys.readouterr().out
+    assert "5261040828" not in out and "526-104-08-28" not in out
+    assert "nip=…0828" in out
 
 
 def _cleanup_run(job: str) -> str:
@@ -89,3 +107,11 @@ def test_failed_lookup_cleanup_does_not_dump_raw_executions():
             f"{job}: surowe wykonanie (do 1500 znaków) w publicznym logu Actions"
         )
         assert '(.message // "") | .[0:' not in run, job
+
+
+def test_nip_is_printed_only_as_its_last_digits():
+    """Runda 7 (R7-X2-7): przy kliencie-JDG NIP jest daną osobową."""
+    assert list_clients._nip_tail("123-456-78-90") == "…7890"
+    assert list_clients._nip_tail("") == ""
+    ref = list_clients._name_ref("Jan  Nowak")
+    assert "Nowak" not in ref and ref == list_clients._name_ref("jan nowak")

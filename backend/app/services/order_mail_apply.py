@@ -62,6 +62,7 @@ from app.services.order_rate_snapshots import (
     order_unit_for_contract,
 )
 from app.core.scheduling import business_today
+from app.core.log_safety import safe_storage_key
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +93,11 @@ COST_SHARED_BUDGET_REFUSAL = (
     "Zamówienie kosztowe dla kilku osób — kwota zlecenia jest wspólna dla całej "
     "obsady; załóż je ręcznie w oknie zamówienia klienta, zapis z kolejki dałby "
     "same szkice bez kwoty"
+)
+
+DELETED_CLIENT_REFUSAL = (
+    "Klient tego dokumentu został usunięty — zamówienie nie zostanie zapisane; "
+    "wskaż właściwego klienta albo odrzuć dokument"
 )
 
 
@@ -343,9 +349,14 @@ async def apply_document(
     )
     # Lock the client before refreshing the roster. Different incoming PDFs
     # for the same first contractor cannot both create an initial draft.
-    await db.scalar(
-        select(Client.id).where(Client.id == doc.client_id).with_for_update()
+    client_deleted_at = await db.scalar(
+        select(Client.deleted_at).where(Client.id == doc.client_id).with_for_update()
     )
+    if client_deleted_at is not None:
+        # Runda 7 (R7-X5-1): usunięty klient nie ma profilu ani zapisów (0307).
+        # Dokument rozpoznany przed usunięciem nie może założyć zamówienia ani
+        # wskrzesić kontraktu u klienta, którego profil zwraca 404.
+        return ApplyResult(error=DELETED_CLIENT_REFUSAL)
     if not (doc.proposal or {}).get("apply_result"):
         from app.services.order_mail_ingest import current_proposal, restore_extraction
 
@@ -435,8 +446,12 @@ def _read_document_pdf(doc) -> Optional[bytes]:
             doc.storage_path
         ).read_bytes()
     except OSError as exc:
+        # Klucz i komunikat OSError niosą oryginalną nazwę PDF-a (zwykle
+        # z nazwiskiem konsultanta) — runda 7, R7-V5-2.
         logger.warning(
-            "order_mail apply: cannot read PDF %s: %s", doc.storage_path, exc
+            "order_mail apply: cannot read PDF %s (%s)",
+            safe_storage_key(doc.storage_path),
+            type(exc).__name__,
         )
         return None
 

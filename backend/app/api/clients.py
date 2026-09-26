@@ -34,6 +34,7 @@ from app.schemas.client import (
     ClientUpdate,
 )
 from app.services.client_access import assert_client_writable
+from app.services.client_deletion import assess_client_merge_blockers
 from app.services.access_scope import (
     apply_delivery_lead_client_scope,
     assert_delivery_lead_client_visible,
@@ -1223,6 +1224,26 @@ async def merge_client_into(
         raise HTTPException(
             status_code=409,
             detail=f"Klient jest już scalony z id={source.merged_into_client_id}",
+        )
+
+    # Runda 7 (R7-X5-2): scalenie niczego nie przenosi, więc duplikat z żywymi
+    # danymi (zamówienia, kontraktorzy, rekrutacje, bramki w konfiguracji)
+    # zostawiłby je na niewidocznym wierszu. Blokada wiersza duplikatu przed
+    # oceną: dopisanie zamówienia albo kontraktu czeka na nią (FOR KEY SHARE).
+    await db.execute(select(Client.id).where(Client.id == client_id).with_for_update())
+    blockers = await assess_client_merge_blockers(db, source)
+    if blockers:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "client_merge_blocked",
+                "message": (
+                    "Scalenie zablokowane: "
+                    + ", ".join(f"{b.label} ({b.count})" for b in blockers)
+                    + ". Najpierw przenieś te dane do klienta docelowego."
+                ),
+                "blockers": [b.as_dict() for b in blockers],
+            },
         )
 
     source.merged_into_client_id = target_id

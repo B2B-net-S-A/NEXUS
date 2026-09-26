@@ -36,18 +36,24 @@ except ImportError:  # pragma: no cover — python-json-logger < 3.1
 # `(?:@|%40)`: access log uvicorna zapisuje query string ZAKODOWANY, więc
 # `check-exists?email=jan%40firma.pl` nie miał dosłownego `@` i przechodził
 # (runda 6 audytu).
-_EMAIL_RE = re.compile(r"(?i)\b[\w.+-]+(?:@|%40)[\w-]+\.[\w.-]+\b")
+# Runda 7 (R7-V5-1): część lokalna zaczyna się WYŁĄCZNIE na początku ciągu
+# znaków adresu (lookbehind) i jest zaborcza. Z samym `\b` każda granica słowa
+# w `a-a-a-…` była osobnym startem, który skanował resztę napisu — kwadratowo,
+# a access log uvicorna redaguje URL od anonimowego żądania na pętli zdarzeń.
+_EMAIL_RE = re.compile(r"(?i)(?<![\w.+-])[\w.+-]++(?:@|%40)[\w-]+\.[\w.-]+\b")
 # sk-... provider keys (Anthropic/OpenAI/Voyage); min length avoids matching prose.
 _KEY_PREFIX_RE = re.compile(r"\bsk-[A-Za-z0-9_-]{12,}\b")
 _BEARER_RE = re.compile(r"(?i)\b(bearer)\s+[A-Za-z0-9._\-]{8,}")
 # label=value / label: value — only '=' or ':' separators, so ordinary prose after
 # the word "password" etc. is not touched.
-# Prefiks `(?:[a-z0-9]+[_-])*` przed etykietą jest load-bearing: samo `\b` NIE
-# dopasowuje się po podkreślniku (`_` jest znakiem słowa), więc `refresh_token=…`
-# przechodziło przez ten filtr dosłownie — a to poświadczenie o 30-dniowym życiu,
-# które access log uvicorna zapisuje razem z query stringiem.
+# Etykieta może stać po `_`/`-` (`refresh_token=…` — poświadczenie o 30-dniowym
+# życiu, które access log uvicorna zapisuje razem z query stringiem), ale nie po
+# literze ani cyfrze (`(?<![^\W_])`). Prefiks (`refresh_`) zostaje w tekście
+# przed dopasowaniem. Runda 7 (R7-V5-1): do tej pory prefiks był powtórzeniem
+# `(?:[a-z0-9]+[_-])*` od każdej granicy słowa, które na `a-a-a-…` cofało się
+# po całym napisie — kwadratowo.
 _LABELED_SECRET_RE = re.compile(
-    r"(?i)\b((?:[a-z0-9]+[_-])*(?:token|api[_-]?key|secret|password|passwd"
+    r"(?i)(?<![^\W_])((?:token|api[_-]?key|secret|password|passwd"
     r"|access[_-]?key|client[_-]?secret|authorization))(\s*[=:]\s*)(['\"]?)([^\s'\"]{4,})"
 )
 # Capability tokens that travel in the URL PATH — signature links, CV / champion
@@ -58,7 +64,7 @@ _LABELED_SECRET_RE = re.compile(
 # segment immediately after each known public prefix, keeping the prefix so the
 # log line still says which flow it was.
 _PATH_TOKEN_RE = re.compile(
-    r"(?i)(/(?:sign|cv|champion-card|apply|champion-share|calls/webhook|share-token|public/[\w-]+)/)"
+    r"(?i)(/(?:sign|cv|champion-card|apply|champion-share|calls/webhook|share-token|public/[\w-]++)/)"
     r"([A-Za-z0-9._\-]{8,})"
 )
 
@@ -71,27 +77,61 @@ _SLACK_WEBHOOK_RE = re.compile(
 # Prywatny kalendarz iCal (Outlook `/owa/calendar/…/calendar.ics`, Google
 # `/calendar/ical/…/basic.ics`, dowolne `.ics`) — ścieżka i query dają odczyt
 # całego kalendarza, więc maskujemy wszystko po hoście (runda 6 audytu).
-_ICAL_URL_RE = re.compile(
-    r"(?i)\b((?:https?|webcal)://[^\s/'\"?#]+)"
-    r"((?=[^\s'\"]*(?:\.ics\b|/ical/|/calendar/))[^\s'\"]*)"
-)
+#
+# Runda 7 (R7-V5-1): bez lookaheadu. Host z lookaheadem cofał się znak po znaku
+# i każde cofnięcie ponawiało przeszukanie reszty napisu (16 KB URL = sekundy
+# zablokowanej pętli zdarzeń). Wzorzec łapie cały adres, a o maskowaniu decyduje
+# `_mask_ical_url`.
+_ICAL_URL_RE = re.compile(r"(?i)\b((?:https?|webcal)://[^\s/'\"?#]++)([^\s'\"]*+)")
+_ICAL_MARKER_RE = re.compile(r"(?i)\.ics\b|/ical/|/calendar/")
 # Wartości parametrów z danymi osobowymi w query stringu (access log uvicorna):
 # `q=` niesie nazwisko wpisane w wyszukiwarkę, `phone=` telefon (runda 6 audytu).
+# `search=` (kontakty klienta, czaty) i `nip=` (Partner B2B bywa JDG, więc NIP
+# jest daną osobową) — runda 7 (R7-V5-3).
 _QUERY_PII_RE = re.compile(
     r"(?i)([?&](?:email|phone|q|q_all|q_any|q_any_group|q_none|name|first_name"
-    r"|last_name|lastname|full_name)=)[^&\s\"'#]+"
+    r"|last_name|lastname|full_name|search|nip)=)[^&\s\"'#]+"
 )
+
+
+# Runda 7 (R7-V5-1): górny limit długości redagowanego tekstu. Wzorce są
+# liniowe, limit jest drugą linią obrony — koszt redakcji rekordu nie może
+# zależeć od tego, ile bajtów przyśle anonimowe żądanie. Zostaje początek
+# i koniec (w tracebacku na końcu stoi sam wyjątek).
+_MAX_REDACT_CHARS = 32_768
+_TRUNCATION_MARKER = "…[ucięto {} znaków]…"
+
+
+def _truncate_for_redaction(text: str) -> str:
+    if len(text) <= _MAX_REDACT_CHARS:
+        return text
+    cut = len(text) - _MAX_REDACT_CHARS
+    marker = _TRUNCATION_MARKER.format(cut)
+    # Wynik (razem ze znacznikiem) mieści się w limicie, więc ponowna redakcja
+    # tego samego tekstu przez formatter niczego już nie ucina.
+    keep = _MAX_REDACT_CHARS - len(marker)
+    head = keep // 2
+    return text[:head] + marker + text[len(text) - (keep - head) :]
+
+
+def _mask_ical_url(match: re.Match[str]) -> str:
+    if _ICAL_MARKER_RE.search(match.group(2)):
+        return f"{match.group(1)}/[redacted-path]"
+    return match.group(0)
 
 
 def redact_sensitive(text: str) -> str:
     """Mask emails, provider keys, bearer tokens and labelled secrets in ``text``.
 
     Best-effort and conservative — returns ``text`` unchanged when nothing matches.
+    Idempotent: redacting an already redacted text returns it unchanged, so the
+    formatter's second pass over the message costs one linear scan.
     """
     if not text:
         return text
+    text = _truncate_for_redaction(text)
     text = _SLACK_WEBHOOK_RE.sub(r"\1[redacted]", text)
-    text = _ICAL_URL_RE.sub(r"\1/[redacted-path]", text)
+    text = _ICAL_URL_RE.sub(_mask_ical_url, text)
     text = _QUERY_PII_RE.sub(r"\1[redacted]", text)
     text = _EMAIL_RE.sub("[email]", text)
     text = _KEY_PREFIX_RE.sub("[redacted-key]", text)

@@ -23,11 +23,21 @@ pytestmark = pytest.mark.asyncio
 
 
 async def _new_client(**kwargs) -> int:
+    from app.services.inactive_client_cleanup_signals import code_configured_client_ids
+
+    # ID zaszyte w kodzie blokują scalenie (runda 7, R7-X5-2), a baza testowa
+    # nadaje ID po kolei — omijamy je jak ``tests/test_client_deletion``.
+    reserved = set(code_configured_client_ids())
     suffix = uuid.uuid4().hex[:8]
     async with AsyncSessionLocal() as db:
-        c = Client(name=f"Merge Test {suffix}", **kwargs)
-        db.add(c)
-        await db.flush()
+        while True:
+            c = Client(name=f"Merge Test {suffix}", **kwargs)
+            db.add(c)
+            await db.flush()
+            if c.id not in reserved:
+                break
+            await db.delete(c)
+            await db.flush()
         await db.commit()
         return c.id
 

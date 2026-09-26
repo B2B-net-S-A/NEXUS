@@ -443,6 +443,8 @@ _NOTE_PREVIEW_MAX_CHARS = 220
 # wartości to krótkie kategorie ("Po CV", "Rezygnacja przez Kandydata", max ~37 zn.),
 # ten cap jest tylko bezpiecznikiem na patologiczny free-text z natywnego flow.
 _REJECTION_REASON_MAX_CHARS = 400
+# Wycinki pod wynikiem: najwyżej tyle najnowszych (pasujących) notatek na osobę.
+_SNIPPET_NOTES_PER_CANDIDATE = 20
 _RATE_UNIT_SHORT = {"hourly": "/h", "daily": "/d", "monthly": "/mc"}
 
 
@@ -2665,8 +2667,34 @@ async def list_candidates(
     ]
     notes_by_candidate: dict[int, list[str]] = {}
     if search_terms and items:
-        notes_stmt = select(Note.candidate_id, Note.content).where(
-            Note.candidate_id.in_([c.id for c in items])
+        # Runda 7 (R7-N10-5): przy słowach kluczowych tylko notatki z trafieniem,
+        # zawsze najwyżej `_SNIPPET_NOTES_PER_CANDIDATE` najnowszych na osobę
+        # i ucięte jak indeks — osoba z setkami maili z Traffita nie może
+        # zamieniać strony listy w megabajty tekstu czyszczone w pętli zdarzeń.
+        from app.services.advanced_candidate_search import note_snippet_match
+        from app.services.keyword_corpus import NOTE_CAP
+
+        note_conditions = [Note.candidate_id.in_([c.id for c in items])]
+        if list_semantics.unified and keyword_terms_for_snippets:
+            note_match = note_snippet_match(keyword_terms_for_snippets)
+            if note_match is not None:
+                note_conditions.append(note_match)
+        ranked_notes = (
+            select(
+                Note.candidate_id.label("candidate_id"),
+                func.left(Note.content, NOTE_CAP).label("content"),
+                func.row_number()
+                .over(
+                    partition_by=Note.candidate_id,
+                    order_by=(Note.created_at.desc(), Note.id.desc()),
+                )
+                .label("rn"),
+            )
+            .where(*note_conditions)
+            .subquery()
+        )
+        notes_stmt = select(ranked_notes.c.candidate_id, ranked_notes.c.content).where(
+            ranked_notes.c.rn <= _SNIPPET_NOTES_PER_CANDIDATE
         )
         for cid, content in (await db.execute(notes_stmt)).all():
             if cid is None or not content:
@@ -2690,6 +2718,23 @@ async def list_candidates(
             .distinct()
         )
         candidates_with_cv = {row[0] for row in cv_rows.all()}
+    field_snippets_by_candidate: dict[int, list[dict]] = {}
+    if list_semantics.unified and keyword_terms_for_snippets and items:
+        # Czyszczenie i dopasowanie tekstu CV i notatek poza pętlą zdarzeń
+        # (R7-N10-5); obiekty są już załadowane, sesja w tym czasie stoi.
+        def _page_field_snippets() -> dict[int, list[dict]]:
+            return {
+                cand.id: extract_field_snippets(
+                    cand,
+                    keyword_terms_for_snippets,
+                    notes_contents=notes_by_candidate.get(cand.id),
+                    whole_words=True,
+                    scope=q_scope,
+                )
+                for cand in items
+            }
+
+        field_snippets_by_candidate = await asyncio.to_thread(_page_field_snippets)
     response_items: list[CandidateResponse] = []
     for cand in items:
         payload = _candidate_to_response(cand)
@@ -2729,13 +2774,7 @@ async def list_candidates(
                 }
             )
         if list_semantics.unified and keyword_terms_for_snippets:
-            field_snippets = extract_field_snippets(
-                cand,
-                keyword_terms_for_snippets,
-                notes_contents=notes_by_candidate.get(cand.id),
-                whole_words=True,
-                scope=q_scope,
-            )
+            field_snippets = field_snippets_by_candidate.get(cand.id, [])
             payload = payload.model_copy(
                 update={
                     "match_snippets": [MatchSnippet(**x) for x in field_snippets],
@@ -6533,7 +6572,12 @@ async def create_candidate_from_cv(
         async with aiofiles.open(final_path, "wb") as f:
             await f.write(content)
     except OSError as e:
-        logger.warning("[from-cv] writing %s failed: %s", final_path, e)
+        # Ścieżka i komunikat OSError niosą nazwę pliku CV (runda 7, R7-V5-2).
+        logger.warning(
+            "[from-cv] writing CV copy for candidate %s failed (%s)",
+            candidate.id,
+            type(e).__name__,
+        )
 
     document = await _store_candidate_cv_document(
         db,

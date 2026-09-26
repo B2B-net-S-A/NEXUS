@@ -191,3 +191,68 @@ def test_snippet_coalesces_nearby_hits_into_one_window():
     assert snip is not None
     assert snip.count("CV:") == 1
     assert snip.count("·") == 0  # single window, no separator
+
+
+# ── Wycinki w korpusie złożonym (runda 7, R7-X3-4) ──────────────────────────
+
+
+def test_fold_text_with_offsets_maps_back_to_the_original():
+    from app.services.keyword_corpus import fold_text, fold_text_with_offsets
+
+    text = "Lódź, Łodzi i CI/CD"
+    folded, starts, ends = fold_text_with_offsets(text)
+    assert folded == fold_text(text)
+    i = folded.index("lodzi")
+    assert text[starts[i] : ends[i + len("lodzi") - 1]] == "Łodzi"
+    j = folded.index("lodz")
+    assert text[starts[j] : ends[j + 3]] == "Lódź"
+
+
+def test_folded_highlight_survives_a_decomposed_accent_elsewhere():
+    """Jeden rozłożony akcent w polu skracał tekst złożony, a wycinki
+    porównywały długości i wyłączały WSZYSTKIE złożone podświetlenia."""
+    from app.services import keyword_corpus
+    from app.services.candidate_snippets import extract_field_snippets
+
+    cand = _cand(raw_cv_text="Mieszkam w Lódzi. Wcześniej praca w Łodzi.")
+    with keyword_corpus.force_folded_search(True):
+        snippets = extract_field_snippets(cand, ["lodzi"], scope="cv")
+    assert snippets, "trafienie złożone powinno dać wycinek"
+    first = snippets[0]
+    bold = [first["text"][s:e] for s, e in first["highlights"]]
+    assert "Łodzi" in bold
+    assert "Lódzi" in bold
+
+
+def test_field_snippets_clean_only_fields_in_scope(monkeypatch):
+    """Runda 7 (R7-N10-5): korpus był czyszczony w całości (CV i każda notatka)
+    zanim zakres i limit pól cokolwiek odrzuciły."""
+    from app.services import candidate_snippets as cs
+
+    cleaned: list[str] = []
+    real_clean = cs.clean_rich_text
+
+    def counting_clean(value):
+        cleaned.append(str(value))
+        return real_clean(value)
+
+    monkeypatch.setattr(cs, "clean_rich_text", counting_clean)
+    cand = _cand(
+        raw_cv_text="Java developer",
+        experience=[{"role": "Java Developer", "company": "ACME"}],
+    )
+    notes = ["<div>Długi mail z Traffita o Javie</div>" * 50]
+    snippets = cs.extract_field_snippets(cand, ["java"], notes, scope="title")
+    assert [s["field"] for s in snippets] == ["Stanowisko"]
+    assert not any("Długi mail" in value for value in cleaned)
+    assert "Java developer" not in cleaned
+
+
+def test_note_snippet_match_mirrors_the_notes_filter():
+    from app.services.advanced_candidate_search import note_snippet_match
+
+    assert note_snippet_match([]) is None
+    clause = note_snippet_match(["java", "spring boot"])
+    sql = str(clause.compile(compile_kwargs={"literal_binds": True}))
+    assert "notes.content ~*" in sql
+    assert sql.count("~*") == 2

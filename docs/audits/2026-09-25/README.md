@@ -13,9 +13,10 @@ Te pliki są po to, żeby następny audyt **nie zaczynał od zera**: wiadomo, co
 | 3 | `9d85252d8` | 10 wysokich, 12 średnich, 9 niskich (1 regresja r2, reszta z nowych obszarów) | PR #1840 (`c72f411a4`) | [runda-3.md](runda-3.md) |
 | 4 | `c72f411a4` | 10 wysokich, 16 średnich, 5 niskich (10 to luki poprawek r3) | PR #1844 (`8da65ef74`) | [runda-4.md](runda-4.md) |
 | 5 | `8da65ef74` | 1 wysokie, 1 średnio-wysokie, 2 średnie, 4 niskie (1 luka poprawek r4) | PR #1849 | [runda-5.md](runda-5.md)  |
-| 6 | `e2585b51c` | 1 krytyczne, 13 wysokich, 2 średnio-wysokie, ~50 średnich, ~35 niskich (19 agentów; 2 luki poprawek r5, reszta z obszarów dotąd nieaudytowanych i kodu po r5) | PR rundy 6 | [runda-6.md](runda-6.md) |
+| 6 | `e2585b51c` | 1 krytyczne, 13 wysokich, 2 średnio-wysokie, ~50 średnich, ~35 niskich (19 agentów; 2 luki poprawek r5, reszta z obszarów dotąd nieaudytowanych i kodu po r5) | PR #1860 (`75ffa6ddb`) | [runda-6.md](runda-6.md) |
+| 7 | `4e92bbc82` | 3 krytyczne + 1 opublikowane, 14 wysokich, ~45 średnich, ~30 niskich (20 agentów; 4 luki poprawek r6, w tym 2 regresje naprawione przed scaleniem #1860) | PR rundy 7 | [runda-7.md](runda-7.md) |
 
-Reguły, które wynikły z napraw (i których nie wolno cofnąć „przy okazji”), są w `CLAUDE.md`, sekcja „Audyt 25.09.2026 — reguły po naprawie” z podsekcjami „Runda 2” … „Runda 6”.
+Reguły, które wynikły z napraw (i których nie wolno cofnąć „przy okazji”), są w `CLAUDE.md`, sekcja „Audyt 25.09.2026 — reguły po naprawie” z podsekcjami „Runda 2” … „Runda 7”.
 
 ## Co się powtarza (przeczytaj przed kolejnym audytem albo poprawką)
 
@@ -34,6 +35,9 @@ Reguły, które wynikły z napraw (i których nie wolno cofnąć „przy okazji�
 13. **Publiczne repo = publiczne logi Actions i artefakty**; logi aplikacji w Loki też bez nazwisk, nazw plików CV, sekretnych URL-i.
 14. **CPU w `async def`** (tysiące wierszy w Pythonie) blokuje jedyny proces — `asyncio.to_thread` + single-flight.
 15. **Skala audytu:** runda 6 szła 19 agentami audytu i 15 naprawczymi (każdy we własnym worktree, obszary rozłączne), potem scalenie i 4 przeglądy. Rozdzielanie obszarów tak, żeby agenci naprawczy nie dotykali tych samych plików, ograniczyło konflikty do stempli i jednego komentarza.
+16. **Testy bez bazy puszczaj Z conftest, nie z `--noconftest`.** Conftest odpina ID klientów w bramkach (Polkomtel = −3), wyłącza cache rankingów i otwiera okna czasowe — test „zielony lokalnie” z `--noconftest` padł w CI 8 razy w rundzie 7.
+17. **Regex w redakcji logów to powierzchnia ataku.** Lookahead po zachłannym kwantyfikatorze albo prefiks `(?:[a-z0-9]+[_-])*` = czas kwadratowy na tekście z żądania anonimowego; każdy nowy wzorzec z testem liniowości.
+18. **Squash poprzedniej rundy vs historia w gałęzi następnej:** zanim scalisz main, potwierdź, że różnica między końcówką poprzedniej gałęzi a mainem to tylko PR-y spoza serii — wtedy konflikty rozstrzyga wersja gałęzi.
 
 ## Świadomie zostawione (nie zgłaszaj ponownie bez nowego faktu)
 
@@ -49,6 +53,7 @@ Reguły, które wynikły z napraw (i których nie wolno cofnąć „przy okazji�
 
 ## Obszary sprawdzone i czyste (skrót — szczegóły w raportach rund)
 
+- Runda 7: poprawki rundy 6 (A6, L1–L7, J1–J5, DL-01..05, IC-1/3, X1–X4, W1–W6, PERF, G1/G2), płacące konkursy nietknięte — szczegóły w [runda-7.md](runda-7.md).
 - Runda 6: #1843 trasa po trasie, #1846/#1848, fazy Traffita (pliki, CV, tekst, enrich, cv_fields, workflows, sources, talents), dokumenty pochodne B2B i rejestr z Excela, scalanie kandydatów, RODO od końca do końca, rdzeń kontraktów, parsery PDF zamówień, MD i offboarding, M365, cykl rozmów i prepy, automaty rekrutacji, liczby Insights, wydajność pętli zdarzeń, logi/Sentry/workflowy, zakładanie rekrutacji, Finanse — szczegóły w [runda-6.md](runda-6.md).
 
 - Uprawnienia trasa po trasie: ~40 plików API w rundzie 3 + 30 routerów w rundzie 4 (m.in. stawki, konta serwisowe, OAuth, struktura zespołu, MD, Insights DL, priority work, przydziały, portale, akademia, praktykant, follow-upy, QC, pulpit, Jarvis, Finanse, historia zdarzeń, usuwanie klientów). Kontrakt bramek sekcji `test_section_ceiling_contract.py`.

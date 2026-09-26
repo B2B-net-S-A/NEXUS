@@ -909,6 +909,8 @@ async def test_confirming_a_new_date_cancels_the_unheld_previous_interview(
     )
     assert two.status_code == 200, two.text
     assert two.json()["cancelled_event_id"] == one.json()["event_id"]
+    # Rozmowa była tylko w NEXUSIE — w Outlooku nie było czego zdejmować.
+    assert two.json()["superseded_outlook"] == "none"
 
     async with AsyncSessionLocal() as db:
         old = await db.get(CalendarEvent, one.json()["event_id"])
@@ -943,6 +945,7 @@ async def test_next_round_without_rescheduling_keeps_both_interviews(
     )
     assert two.status_code == 200, two.text
     assert two.json()["cancelled_event_id"] is None
+    assert two.json()["superseded_outlook"] is None
     async with AsyncSessionLocal() as db:
         for key in (one, two):
             event = await db.get(CalendarEvent, key.json()["event_id"])

@@ -144,14 +144,27 @@ def _internal_domains(owner_address: Optional[str]) -> set[str]:
     return domains
 
 
+# Sufit trafień „strict” — liczy się tylko „dokładnie jeden”, zapas na nadawcę.
+_STRICT_ROW_LIMIT = 20
+
+
 async def _find_candidate_by_email(
-    db: AsyncSession, addresses: list[str], *, owner_address: Optional[str] = None
+    db: AsyncSession,
+    addresses: list[str],
+    *,
+    owner_address: Optional[str] = None,
+    sender_address: Optional[str] = None,
 ) -> Optional[Candidate]:
-    """Return the first candidate whose email matches any of the given addresses.
+    """Kandydat, którego adres jest wśród nadawcy i odbiorców — jednoznacznie.
 
     Runda 6 audytu: adres właściciela skrzynki i adresy w domenach firmy są
     pomijane — kandydat z takim adresem (import, pracownik w bazie) przypinał
     do siebie KAŻDY mail skrzynki albo każdy wątek z kolegą w kopii.
+
+    Runda 7 (X1-3): przy kilku kandydatach w nadawcy i odbiorcach wygrywał
+    najniższy ``id`` z pewnością 1.0, a `smart_thread` przyklejał do niego
+    kolejne odpowiedzi. Teraz wygrywa kandydat-NADAWCA; bez niego tylko jeden
+    kandydat wśród odbiorców daje dopasowanie, kilku = niejednoznaczność.
     """
     internal = _internal_domains(owner_address)
     owner = _normalize_email(owner_address or "")
@@ -168,10 +181,21 @@ async def _find_candidate_by_email(
         select(Candidate)
         .where(Candidate.email.in_(normalized))
         .order_by(Candidate.id)
-        .limit(1)
+        .limit(_STRICT_ROW_LIMIT)
     )
-    result = await db.execute(stmt)
-    return result.scalars().first()
+    found = list((await db.execute(stmt)).scalars().all())
+    if len(found) == 1:
+        return found[0]
+    sender = _normalize_email(sender_address or "")
+    if sender:
+        by_sender = [
+            c
+            for c in found
+            if _normalize_email(getattr(c, "email", "") or "") == sender
+        ]
+        if len(by_sender) == 1:
+            return by_sender[0]
+    return None
 
 
 async def _is_client_domain(db: AsyncSession, domain: str) -> bool:
@@ -302,7 +326,10 @@ async def match(db: AsyncSession, msg: IncomingMessage) -> MatchResult:
     # ── 1. strict (from/to/cc exact) ───────────────────────────────────────
     all_addrs = [msg.from_address, *msg.to_addresses, *msg.cc_addresses]
     candidate = await _find_candidate_by_email(
-        db, all_addrs, owner_address=msg.owner_address
+        db,
+        all_addrs,
+        owner_address=msg.owner_address,
+        sender_address=msg.from_address,
     )
     if candidate:
         return MatchResult(

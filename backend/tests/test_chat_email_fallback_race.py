@@ -199,3 +199,108 @@ async def test_monitor_includes_unattempted_rows_before_recovery(caplog, monkeyp
             assert after.pending_retry == before.pending_retry
         finally:
             await _cleanup(user_id, notif_id)
+
+
+async def test_mention_sends_one_mail_per_message(monkeypatch) -> None:
+    """Runda 7 (R7-N5-3): wzmianka to dwa powiadomienia o jednej wiadomości
+    (`job_chat_message` + `job_chat_mention`) — mail idzie jeden, o wzmiance."""
+    calls: list[dict] = []
+
+    def fake_send(**kwargs):
+        calls.append(kwargs)
+        return True
+
+    monkeypatch.setattr(
+        "app.tasks.chat_email_fallback.send_chat_fallback_email", fake_send
+    )
+    user_id, message_id = await _seed_offline_chat_notification()
+    link = f"/jobs/{uuid.uuid4().int % 10**9}?tab=chat&msg=7"
+    old = datetime.now(timezone.utc) - timedelta(hours=1)
+    async with AsyncSessionLocal() as db:
+        message = await db.get(Notification, message_id)
+        message.link = link
+        mention = Notification(
+            user_id=user_id,
+            title="Oznaczono Cię w czacie",
+            message="@ty",
+            link=link,
+            notification_type=NotificationType.job_chat_mention,
+            is_read=False,
+            created_at=old,
+        )
+        db.add(mention)
+        await db.commit()
+        mention_id = mention.id
+    try:
+        async with AsyncSessionLocal() as db:
+            await _process_one_pass(db)
+        mine = [c for c in calls if c["notification_message"] in {"@ty"}]
+        assert len(mine) == 1
+        assert not [
+            c
+            for c in calls
+            if c["notification_message"] == "Ktoś napisał na czacie rekrutacji"
+            and c["deep_link_path"] == link
+        ]
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(Notification).where(Notification.id == mention_id))
+            await db.commit()
+        await _cleanup(user_id, message_id)
+
+
+async def test_queue_skips_older_rows_of_the_same_thread_and_plain_admin_rows() -> None:
+    from sqlalchemy.dialects import postgresql
+
+    from app.services.notification_delivery import DeliveryPolicy
+    from app.tasks.chat_email_fallback import pending_candidate_query
+
+    policy = DeliveryPolicy.from_value(
+        {
+            "enabled": True,
+            "send_not_before": "2026-09-22T12:00:00+00:00",
+            "types": {
+                "chat_unread": {
+                    "email_enabled": True,
+                    "send_not_before": "2026-09-22T12:30:00+00:00",
+                }
+            },
+        }
+    )
+    sql = str(
+        pending_candidate_query(datetime.now(timezone.utc), policy).compile(
+            dialect=postgresql.dialect()
+        )
+    )
+    assert "split_part" in sql and "NOT (EXISTS" in sql
+    assert "users.role !=" in sql
+
+
+def test_plain_message_does_not_hold_back_the_admins_mention_mail() -> None:
+    """Admin dostaje mail tylko o wzmiance, więc nowsza zwykła wiadomość
+    w wątku nie może wstrzymać jego maila o wzmiance (przegląd rundy 7)."""
+    from sqlalchemy.dialects import postgresql
+
+    from app.services.notification_delivery import DeliveryPolicy
+    from app.tasks.chat_email_fallback import pending_candidate_query
+
+    policy = DeliveryPolicy.from_value(
+        {
+            "enabled": True,
+            "send_not_before": "2026-09-22T12:00:00+00:00",
+            "types": {
+                "chat_unread": {
+                    "email_enabled": True,
+                    "send_not_before": "2026-09-22T12:30:00+00:00",
+                }
+            },
+        }
+    )
+    sql = str(
+        pending_candidate_query(datetime.now(timezone.utc), policy).compile(
+            dialect=postgresql.dialect()
+        )
+    )
+    subquery = sql.split("NOT (EXISTS", 1)[1]
+    assert "notifications_1.notification_type =" in subquery
+    assert "users.role !=" in subquery

@@ -97,6 +97,14 @@ async def get_current(
     system punktowy, pula nagród, warunek udziału)."""
     ctype = _parse_type(type)
     _check_period_format(ctype, period)
+    return await _cached_current(db, ctype, period)
+
+
+async def _cached_current(
+    db: AsyncSession, ctype: CompetitionType, period: Optional[str]
+) -> dict:
+    """Wynik `/current` z cache (60 s, jeden wykonawca) — czyta go też
+    `/my-position` (runda 7, R7-N10-2)."""
     key = f"{_CACHE_PREFIX}current:{ctype.value}:{period or ''}"
     async with cache_single_flight(key, db=db):
         cached = await cache_get(key)
@@ -403,28 +411,26 @@ async def my_position(
     """Pozycja zalogowanego usera w bieżącym konkursie + kontekst (±2)."""
     ctype = _parse_type(type)
     _check_period_format(ctype, period)
-    if period is None:
-        if ctype in (
-            CompetitionType.quarterly_champions_dl,
-            CompetitionType.quarterly_champions_recruiter,
-        ):
-            period = comp_service.current_quarter_period()
-        elif ctype == CompetitionType.hall_of_fame:
-            period = "all_time"
-        else:
-            period = comp_service.current_month_period()
-
-    hof_total: int | None = None
-    if ctype == CompetitionType.hall_of_fame:
-        # PEŁNY ranking, nie `limit=50`. Hall of Fame liczy dziś 59 osób, więc
-        # sztywne 50 odpowiadało 51. osobie „nie ma cię w rankingu", mimo że ma
-        # placementy — a `total` opisywał długość PRZYCIĘTEJ listy, nie liczbę
-        # osób w rankingu. Odpowiedź o własnej pozycji nie może zależeć od tego,
-        # gdzie ktoś postawił limit prezentacyjny.
-        ranked, scope = await comp_service.hall_of_fame_with_scope(db, limit=None)
-        hof_total = scope.ranked_people
-    else:
-        ranked = await comp_service.compute_live(db, ctype, period)
+    if ctype != CompetitionType.hall_of_fame:
+        # Runda 7 (R7-N10-2): pełny ranking z tego samego cache co `/current`
+        # (ta sama funkcja: `compute_live` → `award_order` →
+        # `award_ranked_rows`). Do 26.09 „Mój miesiąc” liczył Ligę od zera
+        # (pełne CTE, ~3 s) przy każdym otwarciu u każdej osoby.
+        current = await _cached_current(db, ctype, period)
+        return _position_payload(
+            ctype,
+            current["period"],
+            current["full_ranking"],
+            current_user.id,
+            total=len(current["full_ranking"]),
+        )
+    period = period or "all_time"
+    # PEŁNY ranking, nie `limit=50`. Hall of Fame liczy dziś 59 osób, więc
+    # sztywne 50 odpowiadało 51. osobie „nie ma cię w rankingu", mimo że ma
+    # placementy — a `total` opisywał długość PRZYCIĘTEJ listy, nie liczbę
+    # osób w rankingu. Odpowiedź o własnej pozycji nie może zależeć od tego,
+    # gdzie ktoś postawił limit prezentacyjny.
+    ranked, scope = await comp_service.hall_of_fame_with_scope(db, limit=None)
 
     # Ta sama numeracja co podium i lista pod nim (`award_ranked_rows`):
     # niezakwalifikowany i wykluczony lider kwartału są na liście, ale bez
@@ -432,10 +438,20 @@ async def my_position(
     # rankingu, więc „Mój miesiąc” mówił „1. miejsce” osobie bez nagrody.
     order = await comp_service.award_order(db, ctype, period, ranked)
     rows = comp_service.award_ranked_rows(ctype, ranked, order)
-    total = hof_total if hof_total is not None else len(rows)
-    my_idx = next(
-        (i for i, row in enumerate(rows) if row["user_id"] == current_user.id), None
+    return _position_payload(
+        ctype, period, rows, current_user.id, total=scope.ranked_people
     )
+
+
+def _position_payload(
+    ctype: CompetitionType,
+    period: Optional[str],
+    rows: list[dict],
+    user_id: int,
+    *,
+    total: int,
+) -> dict:
+    my_idx = next((i for i, row in enumerate(rows) if row["user_id"] == user_id), None)
     if my_idx is None:
         return {
             "type": ctype.value,

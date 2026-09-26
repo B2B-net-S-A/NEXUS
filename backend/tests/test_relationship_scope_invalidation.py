@@ -218,6 +218,8 @@ async def test_dl_client_toggle_and_delete_revoke_changed_dl(monkeypatch) -> Non
         "app.api.team_structure.invalidate_delivery_lead_scope_for_users",
         invalidator,
     )
+    fill = AsyncMock(return_value=0)
+    monkeypatch.setattr("app.api.team_structure.fill_missing_job_delivery_leads", fill)
 
     assignment = DeliveryLeadClientAssignment(
         id=90,
@@ -243,6 +245,9 @@ async def test_dl_client_toggle_and_delete_revoke_changed_dl(monkeypatch) -> Non
     )
     assert delete_db.deleted == [assignment]
     invalidator.assert_awaited_once_with(delete_db, {12})
+    # Runda 7 (N7-2): zdjęcie heada i usunięcie przypisania też przeliczają DL-a
+    # rekrutacji — DL wpisany automatem nie zostaje bez podstawy.
+    assert fill.await_args_list == [((toggle_db, [44]),), ((delete_db, [44]),)]
 
 
 @pytest.mark.asyncio

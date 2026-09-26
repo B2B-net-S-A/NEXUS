@@ -43,7 +43,7 @@ export function teamAverageCv(
   if (!average || average.recommendations === null) return null;
   return Math.round(average.recommendations);
 }
-const STEP_LABELS = ["Zweryfikowani", "CV wysłane", "Rozmowy", "Zatrudnieni"];
+const STEP_LABELS = ["Zweryfikowani", "CV wysłane", "Rozmowy u klienta", "Zatrudnieni"];
 
 /**
  * Mój miesiąc — liczby zalogowanej osoby w BIEŻĄCYM miesiącu.
@@ -126,7 +126,9 @@ export function MojMiesiacView() {
     ? buildSteps(STEP_LABELS, [
         stageCount("verified"),
         stageCount("cv_sent"),
-        stageCount("interview"),
+        // Rozmowy u klienta — ta sama definicja co `/api/kpis/me/panel`
+        // (`interview_month` = `client_interview`, runda 7).
+        stageCount("client_interview"),
         stageCount("hired"),
       ])
     : [];

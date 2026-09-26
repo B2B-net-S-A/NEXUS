@@ -17,6 +17,8 @@ import uuid
 from pathlib import Path
 from typing import BinaryIO
 
+from app.core.log_safety import safe_storage_key
+
 logger = logging.getLogger(__name__)
 
 STORAGE_ROOT = Path(os.environ.get("UPLOADS_DIR", "/tmp/nexus/uploads"))
@@ -78,7 +80,7 @@ def save_contract_document(
             size += len(chunk)
 
     rel = str(target_path.relative_to(STORAGE_ROOT))
-    logger.info("Saved contract document: %s (%d bytes)", rel, size)
+    logger.info("Saved contract document: %s (%d bytes)", safe_storage_key(rel), size)
     return rel, size
 
 
@@ -103,13 +105,21 @@ def delete_contract_document(relative_path: str) -> None:
     try:
         abs_path = get_contract_document_path(relative_path)
     except FileNotFoundError:
-        logger.warning("Delete requested for missing file: %s", relative_path)
+        logger.warning(
+            "Delete requested for missing file: %s", safe_storage_key(relative_path)
+        )
         return
     try:
         abs_path.unlink()
-        logger.info("Deleted contract document: %s", relative_path)
-    except OSError:
-        logger.exception("Failed to delete %s", relative_path)
+        logger.info("Deleted contract document: %s", safe_storage_key(relative_path))
+    except OSError as exc:
+        # Bez tracebacku: komunikat OSError powtarza pełną ścieżkę z nazwą
+        # pliku (runda 7, R7-V5-2).
+        logger.error(
+            "Failed to delete %s (%s)",
+            safe_storage_key(relative_path),
+            type(exc).__name__,
+        )
 
 
 # ── Client one-pagers (sales materials) ──────────────────────────────────────
@@ -139,7 +149,7 @@ def save_client_one_pager(
             size += len(chunk)
 
     rel = str(target_path.relative_to(STORAGE_ROOT))
-    logger.info("Saved client one-pager: %s (%d bytes)", rel, size)
+    logger.info("Saved client one-pager: %s (%d bytes)", safe_storage_key(rel), size)
     return rel, size
 
 
@@ -164,13 +174,21 @@ def delete_client_one_pager(relative_path: str) -> None:
     try:
         abs_path = get_client_one_pager_path(relative_path)
     except FileNotFoundError:
-        logger.warning("Delete requested for missing file: %s", relative_path)
+        logger.warning(
+            "Delete requested for missing file: %s", safe_storage_key(relative_path)
+        )
         return
     try:
         abs_path.unlink()
-        logger.info("Deleted client one-pager: %s", relative_path)
-    except OSError:
-        logger.exception("Failed to delete %s", relative_path)
+        logger.info("Deleted client one-pager: %s", safe_storage_key(relative_path))
+    except OSError as exc:
+        # Bez tracebacku: komunikat OSError powtarza pełną ścieżkę z nazwą
+        # pliku (runda 7, R7-V5-2).
+        logger.error(
+            "Failed to delete %s (%s)",
+            safe_storage_key(relative_path),
+            type(exc).__name__,
+        )
 
 
 # ── Client required documents (NDA, RODO, ...) ───────────────────────────────
@@ -200,7 +218,7 @@ def save_client_required_doc(
             size += len(chunk)
 
     rel = str(target_path.relative_to(STORAGE_ROOT))
-    logger.info("Saved client required doc: %s (%d bytes)", rel, size)
+    logger.info("Saved client required doc: %s (%d bytes)", safe_storage_key(rel), size)
     return rel, size
 
 
@@ -221,13 +239,21 @@ def delete_client_required_doc(relative_path: str) -> None:
     try:
         abs_path = get_client_required_doc_path(relative_path)
     except FileNotFoundError:
-        logger.warning("Delete requested for missing file: %s", relative_path)
+        logger.warning(
+            "Delete requested for missing file: %s", safe_storage_key(relative_path)
+        )
         return
     try:
         abs_path.unlink()
-        logger.info("Deleted client required doc: %s", relative_path)
-    except OSError:
-        logger.exception("Failed to delete %s", relative_path)
+        logger.info("Deleted client required doc: %s", safe_storage_key(relative_path))
+    except OSError as exc:
+        # Bez tracebacku: komunikat OSError powtarza pełną ścieżkę z nazwą
+        # pliku (runda 7, R7-V5-2).
+        logger.error(
+            "Failed to delete %s (%s)",
+            safe_storage_key(relative_path),
+            type(exc).__name__,
+        )
 
 
 # ── Branded CVs (per CandidateStage finalize) ────────────────────────────────
@@ -258,7 +284,7 @@ def save_branded_cv(
             size += len(chunk)
 
     rel = str(target_path.relative_to(STORAGE_ROOT))
-    logger.info("Saved branded CV: %s (%d bytes)", rel, size)
+    logger.info("Saved branded CV: %s (%d bytes)", safe_storage_key(rel), size)
     return rel, size
 
 
@@ -279,13 +305,21 @@ def delete_branded_cv(relative_path: str) -> None:
     try:
         abs_path = get_branded_cv_path(relative_path)
     except FileNotFoundError:
-        logger.warning("Delete requested for missing file: %s", relative_path)
+        logger.warning(
+            "Delete requested for missing file: %s", safe_storage_key(relative_path)
+        )
         return
     try:
         abs_path.unlink()
-        logger.info("Deleted branded CV: %s", relative_path)
-    except OSError:
-        logger.exception("Failed to delete %s", relative_path)
+        logger.info("Deleted branded CV: %s", safe_storage_key(relative_path))
+    except OSError as exc:
+        # Bez tracebacku: komunikat OSError powtarza pełną ścieżkę z nazwą
+        # pliku (runda 7, R7-V5-2).
+        logger.error(
+            "Failed to delete %s (%s)",
+            safe_storage_key(relative_path),
+            type(exc).__name__,
+        )
 
 
 # ── Generic storage helpers (factor for new doc types) ───────────────────────
@@ -327,13 +361,23 @@ def _delete_relative(relative_path: str, label: str) -> None:
     try:
         abs_path = _resolve_under_root(relative_path)
     except FileNotFoundError:
-        logger.warning("Delete requested for missing %s: %s", label, relative_path)
+        logger.warning(
+            "Delete requested for missing %s: %s",
+            label,
+            safe_storage_key(relative_path),
+        )
         return
     try:
         abs_path.unlink()
-        logger.info("Deleted %s: %s", label, relative_path)
-    except OSError:
-        logger.exception("Failed to delete %s", relative_path)
+        logger.info("Deleted %s: %s", label, safe_storage_key(relative_path))
+    except OSError as exc:
+        # Bez tracebacku: komunikat OSError powtarza pełną ścieżkę z nazwą
+        # pliku (runda 7, R7-V5-2).
+        logger.error(
+            "Failed to delete %s (%s)",
+            safe_storage_key(relative_path),
+            type(exc).__name__,
+        )
 
 
 # ── Client framework contracts (MSA PDFs) ────────────────────────────────────
@@ -346,7 +390,9 @@ def save_client_framework_contract(
     rel, size = _save_to(
         CLIENT_FRAMEWORK_CONTRACTS_DIR / str(client_id), upload_filename, source
     )
-    logger.info("Saved client framework contract: %s (%d bytes)", rel, size)
+    logger.info(
+        "Saved client framework contract: %s (%d bytes)", safe_storage_key(rel), size
+    )
     return rel, size
 
 
@@ -370,7 +416,9 @@ def save_client_contract_amendment(
         upload_filename,
         source,
     )
-    logger.info("Saved client contract amendment: %s (%d bytes)", rel, size)
+    logger.info(
+        "Saved client contract amendment: %s (%d bytes)", safe_storage_key(rel), size
+    )
     return rel, size
 
 
@@ -390,7 +438,7 @@ def save_client_order_po(
 ) -> tuple[str, int]:
     """Save PO PDF under /client_orders/{order_id}/{uuid}-{name}."""
     rel, size = _save_to(CLIENT_ORDER_POS_DIR / str(order_id), upload_filename, source)
-    logger.info("Saved client order PO: %s (%d bytes)", rel, size)
+    logger.info("Saved client order PO: %s (%d bytes)", safe_storage_key(rel), size)
     return rel, size
 
 
@@ -416,7 +464,9 @@ def save_order_mail_attachment(
             dst.write(chunk)
             size += len(chunk)
     rel = str(target_path.relative_to(STORAGE_ROOT))
-    logger.info("Saved order-mail attachment: %s (%d bytes)", rel, size)
+    logger.info(
+        "Saved order-mail attachment: %s (%d bytes)", safe_storage_key(rel), size
+    )
     return rel, size
 
 
@@ -440,7 +490,9 @@ def save_client_order_group_po(
     rel, size = _save_to(
         CLIENT_ORDER_GROUP_POS_DIR / str(group_id), upload_filename, source
     )
-    logger.info("Saved client order group PO: %s (%d bytes)", rel, size)
+    logger.info(
+        "Saved client order group PO: %s (%d bytes)", safe_storage_key(rel), size
+    )
     return rel, size
 
 
@@ -468,7 +520,7 @@ def save_finance_import(
         upload_filename,
         source,
     )
-    logger.info("Saved finance import: %s (%d bytes)", rel, size)
+    logger.info("Saved finance import: %s (%d bytes)", safe_storage_key(rel), size)
     return rel, size
 
 

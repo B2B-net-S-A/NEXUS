@@ -47,6 +47,11 @@ from app.services.inactive_client_cleanup import (
     load_client_candidates,
 )
 from app.services.inactive_client_cleanup_run import purge_client
+from app.services.inactive_client_cleanup_signals import (
+    code_configured_client_ids,
+    configured_client_ids,
+)
+from app.services.request_work_state import FINISHED
 
 DeletionMode = Literal["blocked", "purge", "archive"]
 
@@ -75,7 +80,7 @@ _ITEMS_LIMIT = 10
 
 # Nazwy śladów historii w zdaniu „U tego klienta występują: …".
 _HISTORY_LABELS: dict[str, str] = {
-    "active_projects": "rekrutacje bez kandydatów w procesie",
+    "active_projects": "rekrutacje bez kandydatów w procesie (zostaną zamknięte)",
     "closed_projects": "zamknięte rekrutacje",
     "archived_consultants": "archiwum konsultantów",
     "orders": "poprzednie zamówienia",
@@ -307,6 +312,109 @@ async def _candidates_in_open_recruitments(
     )
 
 
+async def _merged_duplicates(
+    db: AsyncSession, client_id: int
+) -> Optional[DeletionBlocker]:
+    """Duplikaty scalone W tego klienta (runda 7, R7-X5).
+
+    Scalony duplikat przekierowuje profil na klienta kanonicznego, a nocny
+    import Traffita przypina jego kontakty i rekrutacje do kanonicznego. Po
+    usunięciu kanonicznego przekierowanie prowadziłoby w 404, a import pisałby
+    dane do usuniętego klienta — bez śladu na żadnej liście.
+    """
+
+    rows = (
+        (
+            await db.execute(
+                select(Client)
+                .where(Client.merged_into_client_id == client_id)
+                .order_by(Client.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not rows:
+        return None
+    return DeletionBlocker(
+        code="merged_duplicates",
+        label="Scalone duplikaty wskazują na tego klienta",
+        count=len(rows),
+        items=_clip_items([client_display_name(row) for row in rows]),
+    )
+
+
+async def _open_recruitments(
+    db: AsyncSession, client_id: int
+) -> Optional[DeletionBlocker]:
+    """Niezamknięte rekrutacje klienta — także bez kandydatów."""
+
+    rows = (
+        await db.execute(
+            select(Job.id, Job.title)
+            .where(Job.client_id == client_id, Job.status != JobStatus.closed)
+            .order_by(Job.id)
+        )
+    ).all()
+    if not rows:
+        return None
+    return DeletionBlocker(
+        code="open_recruitments",
+        label="Otwarte rekrutacje",
+        count=len(rows),
+        items=_clip_items([row.title or f"rekrutacja #{row.id}" for row in rows]),
+    )
+
+
+def _configured(
+    client_id: int, environ: Optional[dict[str, str]]
+) -> Optional[DeletionBlocker]:
+    """Klient wskazany w ``*_CLIENT_IDS`` albo w stałych kodu."""
+
+    labels = [
+        *configured_client_ids(environ).get(client_id, []),
+        *code_configured_client_ids().get(client_id, []),
+    ]
+    if not labels:
+        return None
+    return DeletionBlocker(
+        code="configuration",
+        label="Klient wskazany w konfiguracji",
+        count=len(labels),
+        items=_clip_items(labels),
+    )
+
+
+async def assess_client_merge_blockers(
+    db: AsyncSession,
+    client: Client,
+    *,
+    environ: Optional[dict[str, str]] = None,
+) -> tuple[DeletionBlocker, ...]:
+    """Co zatrzymuje scalenie ``client`` (duplikatu) w klienta kanonicznego.
+
+    Runda 7 (R7-X5-2): scalenie niczego nie przenosi — chowa duplikat i
+    przekierowuje jego profil. Żywe dane zostałyby na niewidocznym wierszu:
+    kontraktorzy znikają z profilu i licznika katalogu, poczta zamówień widzi
+    każdą osobę jako nową, rekrutacje dostają standardową politykę CV zamiast
+    polityki klienta, a bramki ``*_CLIENT_IDS`` przestają działać. Dlatego
+    scalenie wymaga duplikatu bez otwartych zamówień, pracujących kontraktorów,
+    otwartych rekrutacji i wpisów w konfiguracji — najpierw przeniesienie
+    (przepięcie kontraktu, zmiana klienta rekrutacji), potem scalenie.
+    """
+
+    return tuple(
+        blocker
+        for blocker in (
+            await _open_orders(db, client.id),
+            await _live_contractors(db, client.id),
+            await _open_recruitments(db, client.id),
+            _configured(client.id, environ),
+        )
+        if blocker is not None
+    )
+
+
 def _history_items(evaluation: ClientEvaluation) -> tuple[HistoryItem, ...]:
     items: list[HistoryItem] = []
     for code, count in evaluation.sources.items():
@@ -346,6 +454,7 @@ async def assess_client_deletion(
             await _open_orders(db, client.id),
             await _live_contractors(db, client.id),
             await _candidates_in_open_recruitments(db, client.id),
+            await _merged_duplicates(db, client.id),
         )
         if blocker is not None
     )
@@ -382,6 +491,53 @@ async def lock_client(db: AsyncSession, client_id: int) -> Optional[Client]:
     )
 
 
+async def _close_open_recruitments(
+    db: AsyncSession, client_id: int, *, actor: User, now: datetime
+) -> list[int]:
+    """Zamknij niezamknięte rekrutacje klienta usuwanego z zachowaniem historii.
+
+    Runda 7 (R7-X5-3): rekrutacja z kandydatami blokuje usunięcie, ale
+    opublikowana rekrutacja BEZ kandydatów przechodziła i żyła dalej
+    w automatach (przydział requestów, nocny przegląd bazy, „Moi ludzie”,
+    ogłoszenia na portalach, strona kariery) — choć nie było jej już na liście
+    ``/jobs``. Zamykamy ją jak archiwum rekrutacji: ``closed_at`` zostaje
+    nietknięty, bo hit ratio Ligi DL liczy zamknięte w oknie po tej dacie,
+    a zamknięcie z powodu usunięcia klienta nie jest wynikiem rekrutacji.
+    Ogłoszenia na portalach zamyka worker portali (rekrutacja nie jest już
+    ``published``).
+    """
+
+    jobs = (
+        (
+            await db.execute(
+                select(Job)
+                .where(Job.client_id == client_id, Job.status != JobStatus.closed)
+                .order_by(Job.id)
+                .with_for_update()
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for job in jobs:
+        job.status = JobStatus.closed
+        job.is_open = False
+        if job.work_state != FINISHED:
+            job.work_state = FINISHED
+            job.work_state_changed_at = now
+            job.work_state_changed_by = actor.id
+        db.add(
+            Activity(
+                entity_type="job",
+                entity_id=job.id,
+                action="archived",
+                user_id=actor.id,
+                details={"reason": "client_deleted", "client_id": client_id},
+            )
+        )
+    return [job.id for job in jobs]
+
+
 async def execute_client_deletion(
     db: AsyncSession,
     client: Client,
@@ -412,6 +568,7 @@ async def execute_client_deletion(
         )
         return assessment
 
+    closed_job_ids = await _close_open_recruitments(db, client.id, actor=actor, now=now)
     client.deleted_at = now
     client.deleted_by = actor.id
     # ``archived_at`` też, bo część list filtruje wyłącznie po nim; oryginalny
@@ -427,6 +584,7 @@ async def execute_client_deletion(
             details={
                 "mode": "archive",
                 "name": assessment.client_name,
+                "closed_job_ids": closed_job_ids,
                 "history": [item.as_dict() for item in assessment.history],
             },
         )

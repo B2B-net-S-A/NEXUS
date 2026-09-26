@@ -82,60 +82,74 @@ async def run_membership_backfill(
             if limit is not None:
                 stmt = stmt.limit(limit)
 
-            rows = (await db.execute(stmt)).scalars().all()
+            # Same wartości, nie obiekty ORM: po wycofanym savepoincie
+            # obiekt sesji bywa wygaszony, a leniwe doczytanie atrybutu
+            # w sesji async to `MissingGreenlet` (runda 7, N7-5).
+            stmt = stmt.with_only_columns(
+                CandidateStage.id,
+                CandidateStage.candidate_id,
+                CandidateStage.job_id,
+                CandidateStage.moved_by,
+            )
+            rows = (await db.execute(stmt)).all()
             total = len(rows)
             logger.info("talent-pool backfill: %s cv_sent rows to replay", total)
 
             processed = 0
-            for row in rows:
+            for row_id, candidate_id, job_id, moved_by in rows:
                 processed += 1
-                if row.job_id not in job_cache:
-                    job_cache[row.job_id] = await db.get(Job, row.job_id)
-                job = job_cache[row.job_id]
+                if job_id not in job_cache:
+                    job_cache[job_id] = await db.get(Job, job_id)
+                job = job_cache[job_id]
                 if job is None:
                     skipped += 1
                     continue
 
-                candidate = await db.get(Candidate, row.candidate_id)
-
-                try:
-                    result = await auto_add_on_cv_sent(
-                        db=db,
-                        candidate_id=row.candidate_id,
-                        job=job,
-                        user_id=row.moved_by,
-                        candidate=candidate,
-                        extra_activity_details={"backfill": True},
-                    )
-                except IntegrityError as e:
-                    # Race with a live cv_sent move on the same pool — roll back
-                    # this row and retry once; the second try reuses the row.
-                    await db.rollback()
-                    job_cache.pop(row.job_id, None)
-                    logger.warning(
-                        "backfill row=%s IntegrityError, retry: %s", row.id, e
-                    )
+                # Savepoint na wiersz, nie `db.rollback()` sesji: rollback
+                # cofał do 499 niezacommitowanych członkostw z paczki, które
+                # licznik `added` już policzył (runda 7, N7-5).
+                result = None
+                for attempt in (0, 1):
                     try:
-                        job = await db.get(Job, row.job_id)
-                        if job is None:
-                            errors += 1
-                            continue
-                        candidate = await db.get(Candidate, row.candidate_id)
-                        result = await auto_add_on_cv_sent(
-                            db=db,
-                            candidate_id=row.candidate_id,
-                            job=job,
-                            user_id=row.moved_by,
-                            candidate=candidate,
-                            extra_activity_details={"backfill": True, "retry": 1},
+                        async with db.begin_nested():
+                            candidate = await db.get(Candidate, candidate_id)
+                            extra: dict[str, Any] = {"backfill": True}
+                            if attempt:
+                                extra["retry"] = 1
+                            outcome = await auto_add_on_cv_sent(
+                                db=db,
+                                candidate_id=candidate_id,
+                                job=job,
+                                user_id=moved_by,
+                                candidate=candidate,
+                                extra_activity_details=extra,
+                                # Ponowny bieg przemiata całą historię —
+                                # „nic się nie zmieniło” nie jest zdarzeniem.
+                                log_noops=False,
+                            )
+                        # Dopiero po zwolnieniu savepointu — błąd przy
+                        # zapisie `Activity` na wyjściu cofa też wynik.
+                        result = outcome
+                        break
+                    except IntegrityError as e:
+                        # Wyścig z ruchem na żywo na tej samej puli (drugie
+                        # podejście czyta już jej wiersz) albo kandydat
+                        # usunięty w trakcie biegu (FK) — wtedy drugie też
+                        # padnie i wiersz liczy się jako błąd.
+                        logger.warning(
+                            "backfill row=%s %s (attempt %s)",
+                            row_id,
+                            type(e).__name__,
+                            attempt + 1,
                         )
-                    except Exception as retry_err:  # noqa: BLE001
-                        await db.rollback()
+                    except Exception as e:  # noqa: BLE001
                         logger.error(
-                            "backfill row=%s retry failed: %s", row.id, retry_err
+                            "backfill row=%s failed: %s", row_id, type(e).__name__
                         )
-                        errors += 1
-                        continue
+                        break
+                if result is None:
+                    errors += 1
+                    continue
 
                 if result.status == "added":
                     added += 1

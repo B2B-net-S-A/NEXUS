@@ -137,6 +137,7 @@ from app.services.contract_order_sync import (
     apply_manual_client_rate,
     resync_contract_safely,
 )
+from app.services.client_access import assert_client_assignable
 from app.services.client_identity import (
     client_display_name,
     client_display_name_expression,
@@ -382,6 +383,30 @@ def _amendment_baseline_from(
     if start_date > effective_date:
         return None
     return start_date
+
+
+def _amendment_step_from(
+    schedule: object, start_date: Optional[date], effective_date: date
+) -> date:
+    """Data kroku harmonogramu dla aneksu stawki.
+
+    Aneks sprzed startu umowy ma działać od startu. Gdy harmonogram ma już
+    krok między datą aneksu a startem (stawka progresywna z generatora, krok
+    klienta od startu zamówienia), resolver brał krok o najpóźniejszym
+    ``effective_from`` ≤ dzień — stary krok wygrywał od startu i aneks nie
+    działał ani dnia (runda 7, R7-V4-2; runda 6 poprawiła tylko pusty
+    harmonogram). Krok aneksu staje wtedy na dacie ostatniego takiego kroku:
+    remis rozstrzyga kolejność dopisania, więc wygrywa aneks. Kroki PO
+    starcie to późniejsze zmiany i zostają nadrzędne.
+    """
+    if start_date is None or effective_date >= start_date:
+        return effective_date
+    blocking = [
+        step.effective_from
+        for step in (schedule or [])
+        if effective_date < step.effective_from <= start_date
+    ]
+    return max(blocking, default=effective_date)
 
 
 def _extension_end_date_passed(contract: Contract, new_end: date) -> bool:
@@ -2736,16 +2761,15 @@ async def contract_order_sync_report(
     Nie ma przycisku w interfejsie: raport jest jednorazowy, a pełne stawki
     wszystkich klientów widzi tylko administrator.
     """
-    from app.models.app_setting import AppSetting
-    from app.services.contract_order_sync import REPAIR_MARKER
     from app.services.contract_order_sync_repair import (
         build_reconciliation_rows,
         build_reconciliation_workbook,
+        load_repair_details,
         repair_contract_names,
     )
 
-    receipt = await db.get(AppSetting, REPAIR_MARKER)
-    if receipt is None:
+    loaded = await load_repair_details(db)
+    if loaded is None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
@@ -2753,10 +2777,9 @@ async def contract_order_sync_report(
                 "migawka stanu sprzed wdrożenia nie istnieje."
             ),
         )
-    value = receipt.value or {}
-    repaired = value.get("repaired") or []
+    value, snapshot, repaired = loaded
     content = build_reconciliation_workbook(
-        snapshot=value.get("snapshot") or [],
+        snapshot=snapshot,
         repaired=repaired,
         repair_names=await repair_contract_names(
             db, [item["contract_id"] for item in repaired]
@@ -3090,6 +3113,9 @@ async def create_contract(
                 "message": "Wybrany klient nie istnieje.",
             },
         )
+    # Runda 7 (R7-X5-4): kontrakt u usuniętego albo scalonego klienta liczyłby
+    # się do MRR, a nie byłoby go w żadnym rejestrze.
+    await assert_client_assignable(db, client.id)
     if data.job_id is not None:
         job = await db.get(Job, data.job_id)
         if job is None:
@@ -5454,7 +5480,11 @@ async def create_contract_amendment(
             contract.candidate_rate_schedule.append(
                 ContractCandidateRate(
                     rate=data.new_rate_candidate,
-                    effective_from=data.effective_date,
+                    effective_from=_amendment_step_from(
+                        contract.candidate_rate_schedule,
+                        contract.start_date,
+                        data.effective_date,
+                    ),
                     note=data.reason,
                     created_by=current_user.id,
                 )
@@ -5484,7 +5514,11 @@ async def create_contract_amendment(
             contract.client_rate_schedule.append(
                 ContractClientRate(
                     rate=data.new_rate_client,
-                    effective_from=data.effective_date,
+                    effective_from=_amendment_step_from(
+                        contract.client_rate_schedule,
+                        contract.start_date,
+                        data.effective_date,
+                    ),
                     note=data.reason,
                     created_by=current_user.id,
                 )

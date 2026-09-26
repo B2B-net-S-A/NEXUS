@@ -21,7 +21,7 @@ import re
 import unicodedata
 import zipfile
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any, Optional
 
 from openpyxl import load_workbook
@@ -269,25 +269,53 @@ def closure_date_from(*texts: Optional[str]) -> Optional[date]:
 
 # ── Wiersze ──────────────────────────────────────────────────────────────────
 
-_LEGEND_MARKERS = (
-    "umow",
-    "numer",
-    "legenda",
-    "projektu",
-    "zlecenie",
-    "cos nie tak",
-    "numeracja",
-    "skutku",
+#: Słowa legendy pod tabelą („UMOWY ZLECENIE NIE MAJĄ NUMERÓW!”,
+#: „Numeracja umów jest ciągła…”, „Umowa nie doszła do skutku”). Porównanie
+#: CAŁYCH słów — podłańcuch „umow”/„numer” brał za legendę nazwiska
+#: („Szumowska”, „Numerowski”) i wiersz umowy znikał z importu (runda 7, N3-3).
+_LEGEND_WORDS = frozenset(
+    {
+        "umowa",
+        "umowy",
+        "umow",
+        "umowie",
+        "umowe",
+        "numer",
+        "numeru",
+        "numery",
+        "numerow",
+        "numeracja",
+        "numeracji",
+        "legenda",
+        "projektu",
+        "zlecenie",
+        "zlecenia",
+        "skutku",
+    }
 )
 
 
-def _looks_like_legend(text: Any) -> bool:
-    if not isinstance(text, str):
+def _looks_like_legend(text: Any, *, has_data: bool = False) -> bool:
+    """Tekst legendy w kolumnie nazwiska. Wiersz z danymi umowy (klient,
+    rodzaj, daty…) nigdy nie jest legendą — nawet gdy w komórce nazwiska stoi
+    dopisek „(umowa zlecenie)”."""
+    if not isinstance(text, str) or has_data:
         return False
-    folded = norm(text)
+    words = norm(text).split()
     return (
-        any(marker in folded for marker in _LEGEND_MARKERS) or len(folded.split()) > 5
+        "cos nie tak" in " ".join(words)
+        or any(word in _LEGEND_WORDS for word in words)
+        or len(words) > 5
     )
+
+
+#: Kolumny, których legenda pod tabelą nie wypełnia.
+_CONTRACT_DATA_FIELDS = ("client", "position", "kind", "signing", "start")
+_NO_BUSINESS_DATA_FIELDS = ("start", "client", "recruiter", "annex")
+
+
+def _has_data(values: dict[str, Any], fields: tuple[str, ...]) -> bool:
+    return any(values.get(fieldname) is not None for fieldname in fields)
 
 
 @dataclass
@@ -372,6 +400,32 @@ def _kind(raw: Optional[str]) -> Optional[str]:
     return None
 
 
+# „1517/2026”, „nr 1517”, „1 517” (spacja tysięcy, także twarda) — to nadal
+# numer 1517. Tylko liczba dawała `number_int`, więc umowa wydana w NEXUSIE
+# pod tym numerem nie była rozpoznana i powstawał drugi wiersz (runda 7, N3-4).
+_NUMBER_RE = re.compile(
+    r"(?:nr\.?|numer)?\s*(\d{1,3}(?:[ \u00a0]\d{3})+|\d+)\s*(?:/\s*\d{4})?\s*"
+)
+
+
+def _number_value(raw: Optional[str]) -> Optional[int]:
+    if not raw:
+        return None
+    match = _NUMBER_RE.fullmatch(fold(raw).strip())
+    if match is None:
+        return None
+    return int(re.sub(r"[ \u00a0]", "", match.group(1)))
+
+
+def _serial_date(value: Any) -> Any:
+    """Liczba seryjna Excela w kolumnie daty (komórka bez formatu daty) —
+    46054 to 01.02.2026. Zakres 1954–2119 odsiewa inne liczby."""
+    if isinstance(value, int) and not isinstance(value, bool):
+        if 20_000 <= value <= 80_000:
+            return (datetime(1899, 12, 30) + timedelta(days=value)).date()
+    return value
+
+
 def _partner_name(name_raw: str) -> str:
     """„Nazwisko Imię” (kolejność w Excelu) → „Imię Nazwisko”."""
     parts = name_raw.split()
@@ -393,8 +447,7 @@ def _parse_contract_row(
         number_int, number_raw = number, str(number)
     elif number is not None:
         number_raw = _text(number)
-        if number_raw and re.fullmatch(r"\d+", number_raw):
-            number_int = int(number_raw)
+        number_int = _number_value(number_raw)
 
     position = _text(values.get("position"))
     cancelled = False
@@ -405,7 +458,7 @@ def _parse_contract_row(
         if _NOT_CONCLUDED_RE.search(folded_position):
             cancelled = True
 
-    signing = values.get("signing")
+    signing = _serial_date(values.get("signing"))
     signing_date: Optional[date] = None
     signing_raw: Optional[str] = None
     if isinstance(signing, date):
@@ -419,7 +472,7 @@ def _parse_contract_row(
             if signing_date is None and norm(signing_raw):
                 flags.append("signing_date_unparsed")
 
-    start = values.get("start")
+    start = _serial_date(values.get("start"))
     start_date: Optional[date] = None
     start_mode: Optional[str] = None
     start_raw: Optional[str] = None
@@ -441,7 +494,7 @@ def _parse_contract_row(
         elif norm(start_raw):
             flags.append("start_date_unknown")
 
-    end = values.get("end")
+    end = _serial_date(values.get("end"))
     end_date: Optional[date] = None
     end_raw: Optional[str] = None
     if isinstance(end, date):
@@ -531,7 +584,7 @@ def _parse_no_business_row(
     )
     if is_green(row_fill):
         done = True
-    start = values.get("start")
+    start = _serial_date(values.get("start"))
     start_date = start if isinstance(start, date) else first_date(_text(start) or "")
     return NoBusinessRow(
         row_number=row_number,
@@ -603,6 +656,33 @@ def _assert_reasonable_archive(payload: bytes) -> None:
         )
 
 
+#: Nagłówki arkusza, którego NAZWA nie mówi „umowy” — tylko pełne „Numer
+#: umowy”. Sam prefiks „numer” łapał arkusz zamówień („Numer zamówienia”).
+_STRICT_MAIN_HEADERS = {**_MAIN_HEADERS, "number": ("numer umowy", "nr umowy")}
+
+
+def _main_sheet_candidates(worksheets) -> list[tuple[Any, dict[str, tuple[str, ...]]]]:
+    """Arkusz umów: dokładnie „Umowy B2B”; bez niego arkusze z „umow” w nazwie
+    („Umowy B2B 2026”); na końcu pozostałe, ale ze ścisłym nagłówkiem numeru
+    i nigdy arkusz zamówień ani „Bez działalności”. Do rundy 7 (N3-5) brany był
+    pierwszy arkusz z kolumnami „Nazwisko” i „Numer…” — np. „Zamówienia”
+    z numerami SAP, a prawdziwe umowy dostawały „brak w pliku”."""
+    exact = [ws for ws in worksheets if norm(ws.title) == MAIN_SHEET]
+    if exact:
+        return [(exact[0], _MAIN_HEADERS)]
+    titled: list[tuple[Any, dict[str, tuple[str, ...]]]] = []
+    others: list[tuple[Any, dict[str, tuple[str, ...]]]] = []
+    for ws in worksheets:
+        title = norm(ws.title)
+        if title.startswith(NO_BUSINESS_SHEET_PREFIX) or "zamow" in title:
+            continue
+        if "umow" in title:
+            titled.append((ws, _MAIN_HEADERS))
+        else:
+            others.append((ws, _STRICT_MAIN_HEADERS))
+    return titled + others
+
+
 def parse_register(payload: bytes) -> ParsedRegister:
     _assert_reasonable_archive(payload)
     try:
@@ -612,13 +692,9 @@ def parse_register(payload: bytes) -> ParsedRegister:
             "Nie udało się otworzyć pliku — wymagany jest skoroszyt Excel (.xlsx)."
         ) from exc
     try:
-        main = next(
-            (ws for ws in workbook.worksheets if norm(ws.title) == MAIN_SHEET), None
-        )
-        candidates = [main] if main is not None else list(workbook.worksheets)
         table = None
-        for ws in candidates:
-            table = _iter_table(ws, _MAIN_HEADERS, _MAIN_REQUIRED)
+        for ws, synonyms in _main_sheet_candidates(workbook.worksheets):
+            table = _iter_table(ws, synonyms, _MAIN_REQUIRED)
             if table is not None:
                 break
         if table is None:
@@ -632,9 +708,9 @@ def parse_register(payload: bytes) -> ParsedRegister:
         for row_number, values, fills in _read_rows(header_row, mapping, rows):
             name = values.get("name")
             number = values.get("number")
-            if _looks_like_legend(name) or (
-                name is None and _looks_like_legend(number)
-            ):
+            if _looks_like_legend(
+                name, has_data=_has_data(values, _CONTRACT_DATA_FIELDS)
+            ) or (name is None and _looks_like_legend(number)):
                 skipped.append({"row": row_number, "reason": "legend"})
                 continue
             if name is None and number is None:
@@ -663,9 +739,20 @@ def parse_register(payload: bytes) -> ParsedRegister:
                 for row_number, values, fills in _read_rows(
                     nb_header, nb_mapping, nb_rows
                 ):
-                    if values.get("name") is None or _looks_like_legend(
-                        values.get("name")
+                    if values.get("name") is None:
+                        continue
+                    if _looks_like_legend(
+                        values.get("name"),
+                        has_data=_has_data(values, _NO_BUSINESS_DATA_FIELDS),
                     ):
+                        # Ślad w raporcie — wiersz nie znika po cichu (N3-3).
+                        skipped.append(
+                            {
+                                "row": row_number,
+                                "reason": "legend",
+                                "sheet": "bez_dzialalnosci",
+                            }
+                        )
                         continue
                     no_business.append(
                         _parse_no_business_row(row_number, values, fills)

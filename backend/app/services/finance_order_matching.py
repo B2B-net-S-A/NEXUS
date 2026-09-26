@@ -165,13 +165,21 @@ def explicit_order_hints(
     hints: Iterable[str],
     index: OrderNumberIndex | None,
     client_ids: Iterable[int],
+    known_only_client_ids: Iterable[int] = (),
 ) -> list[str]:
-    """Ciągi cyfr z „Uwag", które wskazują zamówienie tych klientów wprost."""
+    """Ciągi cyfr z „Uwag", które wskazują zamówienie tych klientów wprost.
+
+    ``known_only_client_ids`` — klienci, u których wiąże WYŁĄCZNIE znany numer
+    zamówienia, bez reguły „≥ 7 cyfr". Runda 7 audytu (R7-V4-5): klient
+    kosztowy osoby (np. Polkomtel) dopisany do zbioru klientów włączał regułę
+    długości dla wszystkich jej klientów, więc NIP albo numer faktury
+    w „Uwagach" wiersza BNP blokował dopasowanie po nazwisku.
+    """
 
     if index is None:
         return []
     clients = frozenset(client_ids)
-    known = index.known(clients)
+    known = index.known(clients | frozenset(known_only_client_ids))
     long_binds = bool(clients & index.numeric_clients)
     explicit: list[str] = []
     for hint in hints:

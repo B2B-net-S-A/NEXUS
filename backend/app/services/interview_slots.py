@@ -19,10 +19,10 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Iterable, Optional
 
 from fastapi import HTTPException
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.calendar_event import CalendarEvent, EventStatus, EventType
@@ -121,6 +121,129 @@ async def slot_recruiter_eligible(db: AsyncSession, user_id: int, job_id: int) -
     return True
 
 
+async def eligible_slot_recruiters(
+    db: AsyncSession, user_job_pairs: Iterable[tuple[int, int]]
+) -> set[tuple[int, int]]:
+    """Hurtowa ``slot_recruiter_eligible``: pary (osoba, rekrutacja), które ją
+    spełniają — stała liczba zapytań zamiast kilku na parę.
+
+    Runda 7 (R7-V3-2): kolejka „Czeka na Ciebie” (``GET /api/board-tasks``,
+    pulpit każdego) pytała o każdą parę osobno — 4–8 zapytań na brakujący
+    prep. Role czytające rekrutacje omijają dziś członkostwo w zespole
+    (``_JOB_MEMBERSHIP_BYPASS_ROLES``), więc wystarczy konto, rola i istniejąca
+    rekrutacja; rola czytająca BEZ obejścia (dziś nie ma takiej) idzie
+    pojedynczą ścieżką, żeby reguła pozostała jedna.
+    """
+    from app.api.recruitment_access import (  # noqa: PLC0415 — cykl importu
+        _JOB_MEMBERSHIP_BYPASS_ROLES,
+        _LEGACY_OVERSIGHT_ROLES,
+        RECRUITMENT_READ_ROLES,
+    )
+    from app.models.user import User  # noqa: PLC0415
+
+    wanted = {(u, j) for u, j in user_job_pairs if u}
+    if not wanted:
+        return set()
+    users = {
+        user.id: user
+        for user in (
+            await db.scalars(select(User).where(User.id.in_({u for u, _ in wanted})))
+        ).all()
+    }
+    existing_jobs = set(
+        (
+            await db.scalars(select(Job.id).where(Job.id.in_({j for _, j in wanted})))
+        ).all()
+    )
+    out: set[tuple[int, int]] = set()
+    for user_id, job_id in sorted(wanted):
+        user = users.get(user_id)
+        if (
+            user is None
+            or not user.is_active
+            or not user.has_any_role(*RECRUITMENT_READ_ROLES)
+        ):
+            continue
+        if user.has_any_role(*_JOB_MEMBERSHIP_BYPASS_ROLES):
+            if job_id in existing_jobs or user.has_any_role(*_LEGACY_OVERSIGHT_ROLES):
+                out.add((user_id, job_id))
+            continue
+        if await slot_recruiter_eligible(db, user_id, job_id):
+            out.add((user_id, job_id))
+    return out
+
+
+async def default_recruiter_ids(
+    db: AsyncSession, pairs: Iterable[tuple[int, int]]
+) -> dict[tuple[int, int], Optional[int]]:
+    """``default_recruiter_id`` dla wielu par (kandydat, rekrutacja) naraz —
+    stała liczba zapytań niezależnie od liczby par (runda 7, R7-V3-2)."""
+    wanted = list(dict.fromkeys(pairs))
+    if not wanted:
+        return {}
+    owners: dict[tuple[int, int], int] = {}
+    for cid, jid, user_id in (
+        await db.execute(
+            select(
+                RecruitmentProcess.candidate_id,
+                RecruitmentProcess.job_id,
+                RecruitmentProcess.owner_user_id,
+            )
+            .where(
+                tuple_(RecruitmentProcess.candidate_id, RecruitmentProcess.job_id).in_(
+                    wanted
+                ),
+                RecruitmentProcess.owner_user_id.isnot(None),
+            )
+            .order_by(RecruitmentProcess.id.desc())
+        )
+    ).all():
+        owners.setdefault((cid, jid), user_id)
+    verifiers: dict[tuple[int, int], int] = {}
+    for cid, jid, user_id in (
+        await db.execute(
+            select(
+                CandidateStage.candidate_id,
+                CandidateStage.job_id,
+                CandidateStage.moved_by,
+            )
+            .where(
+                tuple_(CandidateStage.candidate_id, CandidateStage.job_id).in_(wanted),
+                CandidateStage.stage == PipelineStage.verified,
+                CandidateStage.moved_by.isnot(None),
+            )
+            .order_by(CandidateStage.moved_at.asc(), CandidateStage.id.asc())
+        )
+    ).all():
+        verifiers.setdefault((cid, jid), user_id)
+    job_recruiters = dict(
+        (
+            await db.execute(
+                select(Job.id, Job.recruiter_id).where(
+                    Job.id.in_({jid for _cid, jid in wanted})
+                )
+            )
+        ).all()
+    )
+    chains = {
+        pair: [
+            user_id
+            for user_id in dict.fromkeys(
+                (owners.get(pair), verifiers.get(pair), job_recruiters.get(pair[1]))
+            )
+            if user_id
+        ]
+        for pair in wanted
+    }
+    eligible = await eligible_slot_recruiters(
+        db, {(u, pair[1]) for pair, chain in chains.items() for u in chain}
+    )
+    return {
+        pair: next((u for u in chain if (u, pair[1]) in eligible), None)
+        for pair, chain in chains.items()
+    }
+
+
 async def default_recruiter_id(
     db: AsyncSession, *, candidate_id: int, job_id: int
 ) -> Optional[int]:
@@ -131,36 +254,9 @@ async def default_recruiter_id(
     wygrywa pierwszy, który ją spełnia; nikt = ``None`` (wniosek bez
     rekrutera wybiera zespół rekrutacji).
     """
-    owner = await db.scalar(
-        select(RecruitmentProcess.owner_user_id)
-        .where(
-            RecruitmentProcess.candidate_id == candidate_id,
-            RecruitmentProcess.job_id == job_id,
-            RecruitmentProcess.owner_user_id.isnot(None),
-        )
-        .order_by(RecruitmentProcess.id.desc())
-        .limit(1)
-    )
-    verifier = await db.scalar(
-        select(CandidateStage.moved_by)
-        .where(
-            CandidateStage.candidate_id == candidate_id,
-            CandidateStage.job_id == job_id,
-            CandidateStage.stage == PipelineStage.verified,
-            CandidateStage.moved_by.isnot(None),
-        )
-        .order_by(CandidateStage.moved_at.asc(), CandidateStage.id.asc())
-        .limit(1)
-    )
-    job_recruiter = await db.scalar(select(Job.recruiter_id).where(Job.id == job_id))
-    seen: set[int] = set()
-    for user_id in (owner, verifier, job_recruiter):
-        if not user_id or user_id in seen:
-            continue
-        seen.add(user_id)
-        if await slot_recruiter_eligible(db, user_id, job_id):
-            return user_id
-    return None
+    return (await default_recruiter_ids(db, [(candidate_id, job_id)]))[
+        (candidate_id, job_id)
+    ]
 
 
 async def pair_in_pipeline(db: AsyncSession, *, candidate_id: int, job_id: int) -> bool:
@@ -227,9 +323,11 @@ async def confirm(
     index: Optional[int],
     add_to_outlook: bool,
     supersedes_event_id: Optional[int] = None,
-) -> tuple[CalendarEvent, str]:
+) -> tuple[CalendarEvent, str, Optional[str]]:
     """Potwierdź termin → wydarzenie `client_interview`. Zwraca (wydarzenie,
-    stan Outlooka: `added` | `skipped` | `failed` | `not_requested`).
+    stan Outlooka: `added` | `skipped` | `failed` | `not_requested`,
+    stan odwołania przełożonej rozmowy w Outlooku — patrz
+    ``_cancel_outlook_copy``; ``None`` bez przełożenia).
 
     ``supersedes_event_id``: rozmowa, którą ten termin PRZEKŁADA (jawny wybór
     DL w oknie potwierdzenia, decyzja Artura 26.09.2026). Bez niego nic nie
@@ -310,8 +408,9 @@ async def confirm(
     event.reminder_minutes = 15
     event.description = _interview_description(req)
     await db.flush()
+    superseded_outlook: Optional[str] = None
     if superseded is not None:
-        await _cancel_outlook_copy(db, superseded)
+        superseded_outlook = await _cancel_outlook_copy(db, superseded)
         superseded.status = EventStatus.cancelled
         await db.flush()
 
@@ -319,7 +418,7 @@ async def confirm(
     req.confirmed_at = datetime.now(timezone.utc)
     req.confirmed_by = user_id
     req.event_id = event.id
-    return event, outlook
+    return event, outlook, superseded_outlook
 
 
 async def replaceable_interviews(
@@ -372,19 +471,27 @@ async def replaceable_interviews(
     return list((await db.scalars(stmt)).all())
 
 
-async def _cancel_outlook_copy(db: AsyncSession, event: CalendarEvent) -> None:
+async def _cancel_outlook_copy(db: AsyncSession, event: CalendarEvent) -> str:
+    """Zdejmij blokadę przełożonej rozmowy z Outlooka rekrutera.
+
+    Zwraca stan: ``none`` (rozmowa była tylko w NEXUSIE), ``cancelled``,
+    ``not_connected`` (skrzynka rekrutera niepołączona) albo ``failed``
+    (Graph/token/sieć). Runda 7 (R7-V3-3): porażka była połykana, a okno
+    i toast mówiły „odwołany” — blokada zostawała w Outlooku bez słowa.
+    Rozmowę w NEXUSIE i tak odwołujemy: nowy termin jest już potwierdzony.
+    """
     from app.models.m365 import M365Connection
     from app.services.m365.calendar import M365_SOURCE, cancel_graph_event
 
     if event.external_source != M365_SOURCE or not event.external_id:
-        return
+        return "none"
     if event.created_by is None:
-        return
+        return "not_connected"
     conn = await db.scalar(
         select(M365Connection).where(M365Connection.user_id == event.created_by)
     )
     if conn is None or not conn.is_active:
-        return
+        return "not_connected"
     try:
         async with db.begin_nested():
             await cancel_graph_event(db, conn, event.external_id)
@@ -394,6 +501,8 @@ async def _cancel_outlook_copy(db: AsyncSession, event: CalendarEvent) -> None:
             event.id,
             type(exc).__name__,
         )
+        return "failed"
+    return "cancelled"
 
 
 def _interview_title(candidate: Optional[Candidate], job: Optional[Job]) -> str:
@@ -458,6 +567,33 @@ def cancel(req: ClientInterviewSlotRequest) -> None:
     if req.status not in (SLOT_STATUS_AWAITING_RECRUITER, SLOT_STATUS_AWAITING_DL):
         raise HTTPException(status_code=409, detail=_status_conflict(req.status))
     req.status = SLOT_STATUS_CANCELLED
+
+
+async def slot_owner_recipients(
+    db: AsyncSession, req: ClientInterviewSlotRequest
+) -> list[int]:
+    """Kto potwierdza termin u klienta: autor wniosku, a gdy jego konto jest
+    nieaktywne — DL rekrutacji albo HoR (``_delivery_lead_targets``).
+
+    Runda 7 (X1-4): `emit` po cichu odrzuca nieaktywnego odbiorcę, więc po
+    odejściu autora wniosku dzwonek „Kandydat wybrał termin” nie docierał do
+    nikogo. Bliźniak poprawki z rundy 6 w potwierdzeniu terminu.
+    """
+    from app.models.user import User  # noqa: PLC0415
+    from app.services.notification_triggers import (  # noqa: PLC0415
+        _delivery_lead_targets,
+    )
+
+    if req.created_by is not None:
+        active = await db.scalar(
+            select(User.is_active).where(User.id == req.created_by)
+        )
+        if active:
+            return [req.created_by]
+    job = await db.get(Job, req.job_id)
+    if job is None:
+        return []
+    return await _delivery_lead_targets(db, job)
 
 
 async def notify(

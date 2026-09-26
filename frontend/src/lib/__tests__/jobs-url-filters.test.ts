@@ -95,8 +95,8 @@ describe("domyślny zakres zależy od ROLI (lista v5: Moje | Otwarte | Wszystkie
     expect(resolveScope(null, userOf("admin"))).toBe("open");
   });
 
-  it("zakres → parametry API: „Otwarte” = open_only, „Wszystkie” = bez zawężenia", () => {
-    expect(scopeQueryFlags("mine")).toEqual({ mine: true, openOnly: false });
+  it("zakres → parametry API: „Moje” i „Otwarte” = open_only, „Wszystkie” = bez zawężenia", () => {
+    expect(scopeQueryFlags("mine")).toEqual({ mine: true, openOnly: true });
     expect(scopeQueryFlags("open")).toEqual({ mine: false, openOnly: true });
     expect(scopeQueryFlags("all")).toEqual({ mine: false, openOnly: false });
   });

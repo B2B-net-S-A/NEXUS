@@ -13,16 +13,18 @@ from app.models.user import User
 from app.services.cv_approval_snapshot import deserialize_review
 from app.services.cv_approval_review import execute_approval_review
 from app.services import cv_approval_leases as leases
+from app.services.lease_renewal import renew_lease
 
 logger = logging.getLogger(__name__)
 
 
 async def renew(job_id, token):
-    while True:
-        await asyncio.sleep(30)
+    # Runda 7 (R7-N6-2): przejściowy błąd bazy nie kończy opłaconej kontroli.
+    async def beat() -> bool:
         async with AsyncSessionLocal() as db:
-            if not await leases.heartbeat_review(db, job_id, token):
-                raise RuntimeError("Review ownership lost")
+            return await leases.heartbeat_review(db, job_id, token)
+
+    await renew_lease(beat, lease_seconds=leases.LEASE_SECONDS, label="CV review")
 
 
 async def execute_review_job(job_id: int):

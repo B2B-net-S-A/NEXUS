@@ -242,7 +242,20 @@ async def describe(
         "termination_notice",
     ):
         when = _date(values.get("termination_date"))
-        if project_already_ended(contract):
+        ended_before = project_already_ended(contract, when)
+        if ended_before and contract.status != ContractStatus.ended:
+            # Projekt kończy się wcześniej niż umowa (zakończenie zaplanowane
+            # oknem) — kontraktu dokument nie rusza (runda 7, R7-V4-1).
+            plan.changes.append(
+                "Kontrakt ma już zaplanowany koniec projektu "
+                f"{_pl(contract.end_date)} — nie zmieni się, zamówienia też nie."
+            )
+            if parent is not None:
+                plan.changes.append(
+                    "Umowa w rejestrze: „Zakończona” po końcu projektu, z datą "
+                    f"{_pl(when)}."
+                )
+        elif ended_before:
             # Projekt skończył się wcześniej (umowa czeka w „Umowach bez
             # projektu”) — dokument rozwiązuje umowę B2B, kontraktu nie rusza
             # (runda 6 audytu, DOC-1).
@@ -259,7 +272,7 @@ async def describe(
             plan.changes.append(
                 f"Koniec współpracy z dniem {_pl(when)} — kontrakt, zamówienia klienta."
             )
-        if parent is not None and not project_already_ended(contract):
+        if parent is not None and not ended_before:
             if contract is not None and when is not None and when >= business_today():
                 plan.changes.append(
                     "Umowa w rejestrze: „Zakończona” dzień po "
@@ -298,16 +311,32 @@ async def describe(
 # ── zapis ────────────────────────────────────────────────────────────────────
 
 
-def project_already_ended(contract: Contract | None) -> bool:
-    """Projekt (kontrakt) zakończył się, zanim podpisano rozwiązanie umowy B2B.
+def project_already_ended(contract: Contract | None, when: date | None = None) -> bool:
+    """Projekt (kontrakt) kończy się niezależnie od rozwiązania umowy B2B.
 
     Umowa w rejestrze bywa wtedy w „Umowach bez projektu” — porozumienie albo
     wypowiedzenie rozwiązuje UMOWĘ z Partnerem, nie projekt. Ponowne
     „Zakończ współpracę” na zakończonym kontrakcie nadpisywało datę, powód,
     wnioski i dane rozwiązania i dokładało drugi wpis 'terminated', bo
     powtórka jest idempotentna tylko przy tej samej dacie (runda 6 audytu,
-    DOC-1)."""
-    return contract is not None and contract.status == ContractStatus.ended
+    DOC-1).
+
+    Runda 7 (R7-V4-1): to samo przy zakończeniu zaplanowanym — kontrakt
+    „Kończący się” (``terminated_at`` ustawione oknem, koniec projektu PRZED
+    ostatnim dniem umowy ``when``). Typowo: projekt kończy się 30.09,
+    wypowiedzenie umowy (miesiąc na koniec miesiąca) — 31.10. Nadpisanie
+    przesuwało zejście w Insights o miesiąc i zamieniało powód."""
+    if contract is None:
+        return False
+    if contract.status == ContractStatus.ended:
+        return True
+    return (
+        when is not None
+        and contract.status in (ContractStatus.active, ContractStatus.ending)
+        and contract.terminated_at is not None
+        and contract.end_date is not None
+        and contract.end_date < when
+    )
 
 
 async def _store_docx_on_contract(
@@ -572,7 +601,8 @@ async def apply(
             mark_pending_dissolution(
                 parent, mode=mode, party=party, signed_on=signed_on
             )
-        if project_already_ended(contract):
+        ended_before = project_already_ended(contract, when)
+        if ended_before:
             summary["contract_already_ended"] = True
         elif contract is not None:
             await contracts_api._apply_termination_to_contract(
@@ -596,6 +626,7 @@ async def apply(
                 party=party,
                 signed_on=signed_on,
                 actor_id=user.id,
+                independent_of_contract_end=ended_before,
             )
             summary["register_status"] = parent.contract_status
 
@@ -708,7 +739,8 @@ async def register_partner_notice(
     if contract is not None:
         await contracts_api._ensure_delivery_lead_contract_visible(contract, user, db)
         summary["contract_id"] = contract.id
-    if project_already_ended(contract):
+    ended_before = project_already_ended(contract, termination_date)
+    if ended_before:
         # Projekt skończył się wcześniej — wypowiedzenie rozwiązuje umowę B2B,
         # kontrakt zostaje z datą i powodem końca projektu (runda 6 audytu,
         # DOC-1).
@@ -735,6 +767,7 @@ async def register_partner_notice(
         party="consultant",
         signed_on=delivered_on,
         actor_id=user.id,
+        independent_of_contract_end=ended_before,
     )
     summary["register_status"] = parent.contract_status
     db.add(

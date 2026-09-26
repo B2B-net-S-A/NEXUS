@@ -325,8 +325,11 @@ class B2BGeneratedContract(Base, TimestampMixin):
     termination_party: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     termination_signed_on: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     project_end_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    # `none_as_null`: przypisanie None ma dać SQL NULL, nie JSON `null` —
+    # `_clear_pending_markers` czyta `IS NULL` (runda 7, R7-X1-1).
     termination_restore: Mapped[Optional[dict]] = mapped_column(
-        JSON().with_variant(JSONB(), "postgresql"), nullable=True
+        JSON(none_as_null=True).with_variant(JSONB(none_as_null=True), "postgresql"),
+        nullable=True,
     )
     # Powrót po przerwie przy rozwiązanej umowie zakłada NOWĄ umowę — ta
     # kolumna wskazuje poprzednią (zostaje w „Zakończonych" bez zmian).

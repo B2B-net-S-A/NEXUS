@@ -14,6 +14,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import bindparam, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.cache import cache_get, cache_set, cache_single_flight
 from app.models.user import User, UserRole
 from app.schemas.recruitment_activity import (
     RecruitmentActivityCandidate,
@@ -43,17 +44,27 @@ _TEAM_DETAIL_ROLES = frozenset(
         UserRole.talent_community_manager,
     }
 )
+# Runda 7 (R7-N9-2, decyzja właściciela 26.09.2026): „Interview" = WYŁĄCZNIE
+# rozmowy u klienta (`client_interview`) — ta sama kolumna co „Rozmowa
+# u klienta" na Tablicy. Kod `interview` to w szablonie domyślnym etap QC CV
+# („Przepuszczony przez DZ"), czyli praca PRZED wysłaniem CV.
 _METRIC_STAGE: dict[RecruitmentActivityMetric, str] = {
     "verification": "verified",
     "recommendation": "cv_sent",
-    "interview": "interview",
+    "interview": "client_interview",
     "acceptance": "acceptance",
     "placement": "hired",
 }
 _STAGE_METRIC = {stage: metric for metric, stage in _METRIC_STAGE.items()}
 _BENCHMARK_MONTHS = 3
+_OVERVIEW_CACHE_TTL_SECONDS = 120
 
 
+# Runda 7 (R7-N9-1, R7-N9-3): przegląd liczy KAŻDEGO z kredytem w oknie, nie
+# tylko aktywne konta ról KPI — lustro `kpi_team.compute_team_panel` (zmiana
+# 2026-08-13: dezaktywacja nie może wstecznie kasować wyniku zespołu). Bez
+# filtra osób wynik jest wspólny dla wszystkich oglądających, więc trzymamy go
+# w cache (jeden wykonawca) i zawężamy do osoby w Pythonie.
 _OVERVIEW_SQL = text(
     VERIFIER_ANCHORED_CTE
     + """
@@ -69,8 +80,10 @@ _OVERVIEW_SQL = text(
                  AND reached_at < :benchmark_end
            ) AS benchmark_count
     FROM credited
-    WHERE credit_user IN :user_ids
-      AND stage IN ('verified', 'cv_sent', 'interview', 'acceptance', 'hired')
+    WHERE credit_user IS NOT NULL
+      AND stage IN (
+          'verified', 'cv_sent', 'client_interview', 'acceptance', 'hired'
+      )
       AND (
           (reached_at >= :day_start AND reached_at < :day_end)
           OR (reached_at >= :month_start AND reached_at < :month_end)
@@ -81,25 +94,36 @@ _OVERVIEW_SQL = text(
       )
     GROUP BY credit_user, stage
     """
-).bindparams(bindparam("user_ids", expanding=True))
+)
 
 
-_DETAIL_COUNT_SQL = text(
-    VERIFIER_ANCHORED_CTE
-    + """
+# Filtr osób szczegółów: wybrana osoba (`IN :user_ids`) albo cały zespół
+# (każdy z kredytem — ta sama pula co suma w przeglądzie).
+_PERSON_FILTER = "credited.credit_user IN :user_ids"
+_TEAM_FILTER = "credited.credit_user IS NOT NULL"
+
+
+def _detail_count_sql(person_filter: str):
+    statement = text(
+        VERIFIER_ANCHORED_CTE
+        + f"""
     SELECT count(*)
     FROM credited
-    WHERE credit_user IN :user_ids
-      AND stage = :stage
-      AND reached_at >= :period_start
-      AND reached_at < :period_end
+    WHERE {person_filter}
+      AND credited.stage = :stage
+      AND credited.reached_at >= :period_start
+      AND credited.reached_at < :period_end
     """
-).bindparams(bindparam("user_ids", expanding=True))
+    )
+    if person_filter == _PERSON_FILTER:
+        statement = statement.bindparams(bindparam("user_ids", expanding=True))
+    return statement
 
 
-_DETAIL_SQL = text(
-    VERIFIER_ANCHORED_CTE
-    + """
+def _detail_sql(person_filter: str):
+    statement = text(
+        VERIFIER_ANCHORED_CTE
+        + f"""
     SELECT credited.candidate_id,
            trim(concat_ws(' ', candidate.name, candidate.lastname)) AS candidate_name,
            credited.job_id,
@@ -118,7 +142,7 @@ _DETAIL_SQL = text(
     JOIN jobs job ON job.id = credited.job_id
     JOIN clients client ON client.id = job.client_id
     LEFT JOIN users credit ON credit.id = credited.credit_user
-    WHERE credited.credit_user IN :user_ids
+    WHERE {person_filter}
       AND credited.stage = :stage
       AND credited.reached_at >= :period_start
       AND credited.reached_at < :period_end
@@ -128,7 +152,16 @@ _DETAIL_SQL = text(
     OFFSET :offset
     LIMIT :limit
     """
-).bindparams(bindparam("user_ids", expanding=True))
+    )
+    if person_filter == _PERSON_FILTER:
+        statement = statement.bindparams(bindparam("user_ids", expanding=True))
+    return statement
+
+
+_DETAIL_COUNT_PERSON_SQL = _detail_count_sql(_PERSON_FILTER)
+_DETAIL_COUNT_TEAM_SQL = _detail_count_sql(_TEAM_FILTER)
+_DETAIL_PERSON_SQL = _detail_sql(_PERSON_FILTER)
+_DETAIL_TEAM_SQL = _detail_sql(_TEAM_FILTER)
 
 
 @dataclass(frozen=True)
@@ -136,12 +169,6 @@ class _ActivityAudience:
     users: tuple[User, ...]
     selected: User | None
     can_view_team_details: bool
-
-    @property
-    def user_ids(self) -> list[int]:
-        if self.selected is not None:
-            return [self.selected.id]
-        return [user.id for user in self.users]
 
 
 def _role_value(user: User) -> str:
@@ -258,6 +285,41 @@ def _empty_metrics() -> dict[RecruitmentActivityMetric, dict[str, int]]:
     return {metric: {"day": 0, "month": 0} for metric in _METRIC_STAGE}
 
 
+async def _overview_rows(
+    db: AsyncSession, *, cache_key: str, params: dict
+) -> list[dict]:
+    """Liczniki (osoba × etap) dla okna dnia, miesiąca i porównania.
+
+    Wynik nie zależy od oglądającego, więc jest wspólny: jedno przeliczenie
+    `VERIFIER_ANCHORED_CTE` na 120 s zamiast jednego na każde wejście
+    i każde odpytanie kafla co 5 min (R7-N9-3).
+    """
+
+    key = f"dashboard:recruitment_activity:overview:v2:{cache_key}"
+    cached = await cache_get(key)
+    if cached is not None:
+        return cached
+    async with cache_single_flight(key, db=db):
+        cached = await cache_get(key)
+        if cached is not None:
+            return cached
+        result = (await db.execute(_OVERVIEW_SQL, params)).mappings().all()
+        rows = [
+            {
+                "credit_user": int(row["credit_user"]),
+                "stage": str(row["stage"]),
+                "day_count": int(row["day_count"] or 0),
+                "month_count": int(row["month_count"] or 0),
+                "benchmark_count": int(row["benchmark_count"] or 0),
+            }
+            for row in result
+        ]
+        await cache_set(
+            key, rows, ttl_seconds=_OVERVIEW_CACHE_TTL_SECONDS, jitter_seconds=15
+        )
+        return rows
+
+
 async def build_recruitment_activity_summary(
     db: AsyncSession,
     current_user: User,
@@ -290,40 +352,40 @@ async def build_recruitment_activity_summary(
         benchmark_start, benchmark_end
     )
     counts = _empty_metrics()
+    # Porównanie „średnia zespołu": aktywne osoby z rolą KPI (też z zerem) plus
+    # KAŻDY, kto ma kredyt w oknie porównania — jak tabela `kpi_team`.
     benchmark_by_user: dict[int, dict[str, int]] = {
         user.id: {"verified": 0, "hired": 0} for user in audience.users
     }
-    selected_user_ids = set(audience.user_ids)
-    if audience.users:
-        rows = (
-            (
-                await db.execute(
-                    _OVERVIEW_SQL,
-                    {
-                        "user_ids": [user.id for user in audience.users],
-                        "day_start": day_start_dt,
-                        "day_end": day_end_dt,
-                        "month_start": month_start_dt,
-                        "month_end": month_end_dt,
-                        "benchmark_start": benchmark_start_dt,
-                        "benchmark_end": benchmark_end_dt,
-                    },
-                )
-            )
-            .mappings()
-            .all()
-        )
-        for row in rows:
-            uid = int(row["credit_user"])
-            stage = str(row["stage"])
-            metric = _STAGE_METRIC.get(stage)
-            if metric is None:
-                continue
-            if uid in selected_user_ids:
-                counts[metric]["day"] += int(row["day_count"] or 0)
-                counts[metric]["month"] += int(row["month_count"] or 0)
-            if uid in benchmark_by_user and stage in {"verified", "hired"}:
-                benchmark_by_user[uid][stage] = int(row["benchmark_count"] or 0)
+    rows = await _overview_rows(
+        db,
+        cache_key=(
+            f"{selected_day.isoformat()}:{month_start.isoformat()}:"
+            f"{benchmark_start.isoformat()}:{benchmark_end.isoformat()}"
+        ),
+        params={
+            "day_start": day_start_dt,
+            "day_end": day_end_dt,
+            "month_start": month_start_dt,
+            "month_end": month_end_dt,
+            "benchmark_start": benchmark_start_dt,
+            "benchmark_end": benchmark_end_dt,
+        },
+    )
+    selected_id = audience.selected.id if audience.selected is not None else None
+    for row in rows:
+        uid = int(row["credit_user"])
+        stage = str(row["stage"])
+        metric = _STAGE_METRIC.get(stage)
+        if metric is None:
+            continue
+        if selected_id is None or uid == selected_id:
+            counts[metric]["day"] += int(row["day_count"] or 0)
+            counts[metric]["month"] += int(row["month_count"] or 0)
+        benchmark = int(row["benchmark_count"] or 0)
+        if stage in {"verified", "hired"} and benchmark > 0:
+            person = benchmark_by_user.setdefault(uid, {"verified": 0, "hired": 0})
+            person[stage] = benchmark
 
     progress: RecruitmentActivityProgress | None = None
     if audience.selected is not None and selected_day == today_value:
@@ -341,7 +403,7 @@ async def build_recruitment_activity_summary(
                 remaining=max(target - current, 0),
             )
 
-    people_count = len(audience.users)
+    people_count = len(benchmark_by_user)
     comparisons: list[RecruitmentActivityComparison] = []
     for metric, stage in (("verification", "verified"), ("placement", "hired")):
         team_total = sum(values[stage] for values in benchmark_by_user.values())
@@ -428,21 +490,24 @@ async def list_recruitment_activity_details(
         end_date = _shift_month(start_date, 1)
     period_start, period_end = _warsaw_bounds(start_date, end_date)
 
-    user_ids = audience.user_ids
-    total = 0
+    params: dict = {
+        "stage": _METRIC_STAGE[metric],
+        "period_start": period_start,
+        "period_end": period_end,
+    }
+    if audience.selected is not None:
+        params["user_ids"] = [audience.selected.id]
+        count_sql, detail_sql = _DETAIL_COUNT_PERSON_SQL, _DETAIL_PERSON_SQL
+    else:
+        # Cały zespół = ta sama pula co suma kafla (R7-N9-1).
+        count_sql, detail_sql = _DETAIL_COUNT_TEAM_SQL, _DETAIL_TEAM_SQL
+    total = int(await db.scalar(count_sql, params) or 0)
     rows = []
-    if user_ids:
-        params = {
-            "user_ids": user_ids,
-            "stage": _METRIC_STAGE[metric],
-            "period_start": period_start,
-            "period_end": period_end,
-        }
-        total = int(await db.scalar(_DETAIL_COUNT_SQL, params) or 0)
+    if total:
         rows = (
             (
                 await db.execute(
-                    _DETAIL_SQL,
+                    detail_sql,
                     {
                         **params,
                         "offset": (page - 1) * page_size,

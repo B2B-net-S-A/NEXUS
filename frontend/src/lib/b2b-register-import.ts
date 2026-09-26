@@ -26,6 +26,9 @@ export const REGISTER_IMPORT_COUNTER_LABELS: readonly {
   { key: "clients_unknown_rows", label: "Wiersze z nieznanym klientem" },
   { key: "annex_matched", label: "„Bez działalności” dopasowane" },
   { key: "annex_unmatched", label: "„Bez działalności” bez dopasowania" },
+  { key: "generator_annex_flagged", label: "Aneks do zrobienia (umowy z NEXUSA)" },
+  { key: "annex_cleared", label: "Zdjęte z „Bez działalności”" },
+  { key: "signing_dates_unparsed", label: "Nieczytelne daty podpisania" },
 ];
 
 const MODE_LABELS: Record<B2BRegisterImportMode, string> = {

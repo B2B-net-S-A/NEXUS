@@ -90,7 +90,7 @@ from app.analytics.periods import (
 )
 from app.api.deps import BoardReader, BoardTrendReader
 from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
-from app.core.cache import cache_get, cache_set
+from app.core.cache import cache_get, cache_set, cache_single_flight
 from app.core.database import get_db
 from app.core.rate_limit import limiter
 from app.models.user import UserRole
@@ -214,8 +214,13 @@ async def insights_board_yoy(
     )
     result = await cache_get(cache_key)
     if result is None:
-        result = await compute_board_yoy(db, resolved_years, today)
-        await cache_set(cache_key, result, ttl_seconds=YOY_CACHE_TTL_SECONDS)
+        # Jeden wykonawca (runda 7, R7-N10-6): dwa równoległe wejścia admina
+        # i Finansów liczyły wcześniej 60 wycen wszystkich kontraktów dwa razy.
+        async with cache_single_flight(cache_key, db=db):
+            result = await cache_get(cache_key)
+            if result is None:
+                result = await compute_board_yoy(db, resolved_years, today)
+                await cache_set(cache_key, result, ttl_seconds=YOY_CACHE_TTL_SECONDS)
     if current_user.has_any_role(UserRole.admin, UserRole.finance):
         return result
     return without_money(result)

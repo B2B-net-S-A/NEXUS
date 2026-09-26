@@ -609,7 +609,13 @@ async def _recording_discovery_pass(db: AsyncSession) -> RecordingDiscoveryStats
             CalendarEvent.end_time < settle_cutoff,
             CalendarEvent.end_time > lookback_cutoff,
         )
-        .order_by(CalendarEvent.end_time.desc())
+        # Runda 7 (R7-N5-1): najpierw nigdy nie sprawdzane, potem najdawniej
+        # sprawdzane — bez tego co 6 h skanowane były te same najnowsze
+        # wydarzenia, a starsze w oknie nigdy.
+        .order_by(
+            CalendarEvent.recording_discovered_at.asc().nulls_first(),
+            CalendarEvent.end_time.desc(),
+        )
         .limit(batch_size)
     )
     result = await db.execute(stmt)

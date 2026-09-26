@@ -1,4 +1,4 @@
 {
-  "sha256": "1da3f9d8a37583039e7d78342a65e1aa7ad0d2bd1b85e298323ce12705c47de7",
+  "sha256": "b9cb4a16726516810e17200b07cfb108c46002558626e72795009294ebdff84a",
   "source": "backend/app/services/order_policies/mleasing.py"
 }

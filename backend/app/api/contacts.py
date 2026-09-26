@@ -38,6 +38,7 @@ from app.api.section_access import (
 from app.services.client_access import (
     ADMIN_LIKE_ROLES,
     ClientAccess,
+    assert_client_assignable,
     assert_client_exists,
     deny,
     record_client_audit,
@@ -328,6 +329,9 @@ async def create_contact(
     access = await resolve_client_access(db, current_user, data.client_id)
     if not access.can_edit_contacts:
         raise deny("tworzenie kontaktów wymaga roli admin lub Delivery Lead")
+    # Runda 7 (R7-X5-4): kontakt usuniętego albo scalonego klienta nie trafi na
+    # żaden profil.
+    await assert_client_assignable(db, data.client_id)
     if (
         data.key_relationship_owner_id is not None
         and data.key_relationship_owner_id != current_user.id

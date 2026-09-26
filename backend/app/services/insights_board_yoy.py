@@ -43,6 +43,7 @@ całą stronę.
 
 from __future__ import annotations
 
+import asyncio
 import calendar
 from collections import defaultdict
 from dataclasses import dataclass
@@ -325,6 +326,18 @@ def _contract_coverage(priced_by_month: dict, years: list, metrics: list) -> dic
     }
 
 
+def _fold_valued_slots(contracts, valued, rates_by_date) -> dict:
+    """Zdjęcie pieniędzy na każdy dzień wyceny — ta sama `fold_money` co kafle."""
+    return {
+        slot.asof: fold_money(
+            running_on(contracts, slot.asof),
+            slot.asof,
+            rates_by_date.get(slot.asof, {}),
+        )
+        for slot in valued
+    }
+
+
 async def compute_board_yoy(db: AsyncSession, years: list[int], today: date) -> dict:
     """Serie miesiąc × rok dla wszystkich metryk kokpitu Rady."""
     span_start = date(min(years), 1, 1)
@@ -366,6 +379,14 @@ async def compute_board_yoy(db: AsyncSession, years: list[int], today: date) -> 
     )
     jobs_map = await _jobs_closed_by_month(db, span_start, span_end_exclusive)
     departures, resignations, unspecified_reason = _departures_by_month(contracts)
+    # Runda 7 (R7-N10-6): do 60 wycen WSZYSTKICH kontraktów przez harmonogramy
+    # (~20–25 tys. rozwiązań na `Decimal`) to CPU, nie baza — liczymy je
+    # w wątku, żeby nie zatrzymywać pętli zdarzeń jedynego procesu. Kontrakty
+    # i harmonogramy są już w pamięci (`RATE_SCHEDULE_LOADS`), więc wątek nie
+    # sięga do bazy.
+    folds = await asyncio.to_thread(
+        _fold_valued_slots, contracts, valued, rates_by_date
+    )
 
     # ── Serie ────────────────────────────────────────────────────────────────
     series = {
@@ -465,11 +486,7 @@ async def compute_board_yoy(db: AsyncSession, years: list[int], today: date) -> 
 
         # — stan (pieniądze i ludzie) —
         assert slot.asof is not None
-        fold = fold_money(
-            running_on(contracts, slot.asof),
-            slot.asof,
-            rates_by_date.get(slot.asof, {}),
-        )
+        fold = folds[slot.asof]
         missing_currencies |= set(fold.missing_currencies)
         if not fold.complete:
             months_degraded.append(f"{slot.year}-{slot.month:02d}")

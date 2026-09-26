@@ -17,9 +17,13 @@ albo SSH — a SSH na tym serwerze nie działa.
 z zewnątrz: filtr jedzie parametrem wiązanym, a wildcardy ``%``/``_`` są
 escapowane, więc ``%`` szuka znaku procenta, a nie zwraca całej bazy.
 
-Wyjście jest CELOWO ubogie — ``id``, nazwa, nazwa wyświetlana, NIP. Żadnych
-kwot, żadnych osób: to narzędzie odpowiada na pytanie „który numer wpisać
-w zmienną", a jego wyjście ląduje w logu GitHub Actions.
+Wyjście jest CELOWO ubogie — ``id``, nazwa, nazwa wyświetlana, końcówka NIP.
+Żadnych kwot, żadnych osób: to narzędzie odpowiada na pytanie „który numer
+wpisać w zmienną", a jego wyjście ląduje w logu GitHub Actions. Pełnego NIP-u
+nie ma (runda 7, R7-X2-7): przy kliencie-JDG NIP jest daną osobową, a do
+odróżnienia dwóch rekordów wystarczą ostatnie cztery cyfry. Nazwa Klienta
+wydrukowana na umowie B2B wychodzi jako krótki skrót — równe skróty znaczą tę
+samą nazwę, a sama nazwa bywa imieniem i nazwiskiem przedsiębiorcy.
 
 Z ``--with-links`` dokłada, co do każdego znalezionego klienta jest
 przypięte: kontrakty i umowy z generatora B2B. To jest materiał do
@@ -40,6 +44,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import sys
 from pathlib import Path
 
@@ -91,6 +96,18 @@ async def find_clients(needle: str, limit: int) -> list[tuple[int, str, str, str
         return [(r[0], r[1] or "", r[2] or "", r[3] or "") for r in rows.all()]
 
 
+def _nip_tail(nip: str) -> str:
+    digits = "".join(ch for ch in (nip or "") if ch.isdigit())
+    return f"…{digits[-4:]}" if digits else ""
+
+
+def _name_ref(name: str | None) -> str:
+    if not name:
+        return ""
+    folded = " ".join(name.split()).casefold()
+    return "sha:" + hashlib.sha256(folded.encode("utf-8")).hexdigest()[:8]
+
+
 async def print_links(client_ids: list[int]) -> None:
     """Kontrakty i umowy B2B przypięte do wskazanych klientów.
 
@@ -139,7 +156,8 @@ async def print_links(client_ids: list[int]) -> None:
         print(f"=== b2b generated contracts on those clients: {len(gen)} ===")
         for gid, number, client_id, cname, job_id, contract_id, st, candidate_id in gen:
             print(
-                f"b2b={gid}\tnr={number}\tclient={client_id}\tprinted={cname}"
+                f"b2b={gid}\tnr={number}\tclient={client_id}"
+                f"\tprinted={_name_ref(cname)}"
                 f"\tjob={job_id}\tcontract={contract_id}\tstatus={st}"
                 f"\tcandidate={candidate_id}"
             )
@@ -190,7 +208,7 @@ async def main() -> None:
     # w logu Actions nie odróżnia „nic nie pasuje" od „skrypt się nie wykonał".
     print(f"=== clients matching {args.like!r}: {len(rows)} ===")
     for cid, name, display, nip in rows:
-        print(f"{cid}\t{name}\tdisplay={display}\tnip={nip}")
+        print(f"{cid}\t{name}\tdisplay={display}\tnip={_nip_tail(nip)}")
     if args.with_links:
         await print_links([r[0] for r in rows])
 

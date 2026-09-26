@@ -48,6 +48,7 @@ ENTITY_TYPE_LABELS: dict[str, str] = {
     "agreement": "Umowa",
     "order": "Zamówienie",
     "user": "Uprawnienia użytkownika",
+    "job": "Rekrutacja",
 }
 
 EVENT_TYPE_LABELS: dict[str, str] = {
@@ -63,6 +64,7 @@ EVENT_TYPE_LABELS: dict[str, str] = {
     "order.delete": "Usunięcie zamówienia",
     "order_group.delete": "Usunięcie zamówienia MD / kosztowego",
     "user.client_delete_permission": "Zmiana uprawnienia do usuwania klientów",
+    "job.delete": "Usunięcie rekrutacji",
 }
 
 OUTCOME_LABELS: dict[str, str] = {

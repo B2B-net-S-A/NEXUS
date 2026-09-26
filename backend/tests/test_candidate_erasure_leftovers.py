@@ -198,6 +198,157 @@ async def test_tombstone_blocks_the_adopt_path_onto_another_row(
     assert fresh.lastname != "Wraca"
 
 
+async def _count_email(email: str) -> int:
+    async with AsyncSessionLocal() as db:
+        return int(
+            await db.scalar(
+                text("SELECT count(*) FROM candidates WHERE lower(email) = :e"),
+                {"e": email.lower()},
+            )
+            or 0
+        )
+
+
+async def test_second_traffit_record_with_the_same_email_does_not_bring_back_the_person(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Runda 7 (R7-V2-2): Traffit miewa dwie kartoteki jednej osoby (ten sam
+    mail, inny id). Nagrobek samego `external_id` obejmował jedną z nich —
+    druga zakładała usuniętą osobę od nowa przy najbliższym pełnym syncu."""
+    ext_a = str(920_000_000 + uuid.uuid4().int % 70_000_000)
+    ext_b = str(int(ext_a) + 1)
+    email = f"tomb-twin-{uuid.uuid4().hex[:8]}@example.com"
+    candidate_id = await _candidate(
+        external_source="traffit", external_id=ext_a, email=email
+    )
+    await _delete(app_client, app_auth_headers, candidate_id)
+
+    from app.services.candidate_audit import candidate_email_tombstone
+
+    async with AsyncSessionLocal() as db:
+        email_hashes = (
+            (
+                await db.execute(
+                    text(
+                        "SELECT external_id_hash FROM purged_candidates "
+                        "WHERE external_source = 'email'"
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert candidate_email_tombstone(email) in email_hashes
+    assert not any(email.split("@")[0] in h for h in email_hashes)
+
+    progress = await _sync_employee(ext_b, email.upper())
+    assert progress.skipped == 1 and progress.inserted == 0
+    assert await _count_email(email) == 0, "druga kartoteka odtworzyła osobę"
+
+
+async def test_manual_candidate_gets_an_email_tombstone_too(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Wiersz ręczny nie ma nagrobka id, ale kartoteka Traffita z jego mailem
+    zakładała go od nowa (mail zniknął z bazy razem z wierszem)."""
+    email = f"tomb-manual-{uuid.uuid4().hex[:8]}@example.com"
+    candidate_id = await _candidate(email=email)
+    await _delete(app_client, app_auth_headers, candidate_id)
+
+    ext = str(930_000_000 + uuid.uuid4().int % 60_000_000)
+    progress = await _sync_employee(ext, email)
+    assert progress.skipped == 1
+    assert await _count_email(email) == 0
+
+
+async def test_email_tombstone_does_not_freeze_a_live_owner_of_the_external_id(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Żywy właściciel `external_id` NIE jest usuniętą osobą — synchronizuje
+    się dalej, nawet gdy Traffit przysłał mail kogoś usuniętego."""
+    deleted_email = f"tomb-owner-{uuid.uuid4().hex[:8]}@example.com"
+    deleted_id = await _candidate(email=deleted_email)
+    await _delete(app_client, app_auth_headers, deleted_id)
+
+    ext = str(940_000_000 + uuid.uuid4().int % 50_000_000)
+    live_id = await _candidate(external_source="traffit", external_id=ext)
+    progress = await _sync_employee(ext, deleted_email)
+    assert progress.skipped == 0 and progress.updated == 1
+    async with AsyncSessionLocal() as db:
+        live = await db.get(Candidate, live_id)
+    assert live.email == deleted_email, "wiersz żywego właściciela nie dostał syncu"
+
+
+async def test_email_tombstone_lets_the_card_adopt_a_person_who_came_back(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Osoba usunięta, która wróciła (np. zgłoszeniem ze strony kariery), ma
+    żywy wiersz z tym mailem — kartoteka Traffita adoptuje się do niego
+    zamiast być pomijana przez nagrobek maila."""
+    email = f"tomb-back-{uuid.uuid4().hex[:8]}@example.com"
+    deleted_id = await _candidate(email=email)
+    await _delete(app_client, app_auth_headers, deleted_id)
+    back_id = await _candidate(email=email)
+
+    ext = str(970_000_000 + uuid.uuid4().int % 20_000_000)
+    progress = await _sync_employee(ext, email)
+    assert progress.skipped == 0 and progress.updated == 1
+    async with AsyncSessionLocal() as db:
+        back = await db.get(Candidate, back_id)
+    assert back.external_source == "traffit" and back.external_id == ext
+    assert await _count_email(email) == 1
+
+
+async def test_candidate_deleted_during_the_phase_is_not_inserted_again(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Runda 7 (R7-V2-3): nagrobki wczytuje się raz, na starcie fazy, a pełny
+    przegląd trwa godziny. Usunięcie w trakcie fazy (tu: migawka pusta, nagrobek
+    już w bazie) musi zatrzymać sam INSERT."""
+    ext = str(950_000_000 + uuid.uuid4().int % 40_000_000)
+    candidate_id = await _candidate(
+        external_source="traffit", external_id=ext, email=None
+    )
+    await _delete(app_client, app_auth_headers, candidate_id)
+
+    async def stale_snapshot(self):
+        return set(), set()
+
+    monkeypatch.setattr(
+        importer_mod.TraffitImporter, "_candidate_tombstones", stale_snapshot
+    )
+    progress = await _sync_employee(ext, None)
+    assert progress.skipped == 1 and progress.inserted == 0
+    async with AsyncSessionLocal() as db:
+        recreated = await db.scalar(
+            select(Candidate.id).where(
+                Candidate.external_source == "traffit",
+                Candidate.external_id == ext,
+            )
+        )
+    assert recreated is None, "INSERT nie sprawdził nagrobka w chwili zapisu"
+
+
+async def test_upsert_without_tombstone_still_inserts_and_updates():
+    """Przy zapytaniu `INSERT ... SELECT` każdy parametr ma jawny typ — wiersz
+    bez nagrobka zapisuje się jak dawniej: nowy, a za drugim razem przez
+    `ON CONFLICT ... DO UPDATE` (bez maila, więc nie ścieżką adopcji)."""
+    ext = str(960_000_000 + uuid.uuid4().int % 30_000_000)
+    first = await _sync_employee(ext, None)
+    assert first.inserted == 1 and first.skipped == 0
+    second = await _sync_employee(ext, None)
+    assert second.updated == 1 and second.inserted == 0
+    async with AsyncSessionLocal() as db:
+        count = await db.scalar(
+            text(
+                "SELECT count(*) FROM candidates "
+                "WHERE external_source = 'traffit' AND external_id = :e"
+            ),
+            {"e": ext},
+        )
+    assert count == 1
+
+
 # ── CV zostają (decyzja Artura 26.09.2026: „nie usuwać nigdy żadnych CV”) ──
 
 
