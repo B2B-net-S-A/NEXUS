@@ -292,7 +292,8 @@ def test_rate_already_divided_by_vat_returns_to_the_pdf_amount():
     ruled = polkomtel.apply_rate_rules(ruled, HEAD)  # idempotentne
     for item in [ruled, *ruled.consultant_rows]:
         assert (item.rate_client, item.rate_client_gross) == (Decimal("840.00"), None)
-    assert policy_by_key("polkomtel").rule_version == "2026-09-24.2"
+    # Wersja reguły nie może wrócić sprzed tej poprawki (późniejsze ją podbijają).
+    assert policy_by_key("polkomtel").rule_version >= "2026-09-24.2"
 
 
 def test_rate_rule_keeps_gross_net_decision_for_other_templates():
