@@ -21,6 +21,7 @@ import app.models  # noqa: F401
 from app.core.database import AsyncSessionLocal
 from app.models.activity import Activity
 from app.models.candidate import Candidate
+from app.models.client import Client
 from app.models.job import Job, JobStatus
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.services import talent_pool_backfill as backfill
@@ -35,7 +36,14 @@ _SINCE = datetime(2187, 1, 1, tzinfo=timezone.utc)
 async def _stages(count: int) -> tuple[str, list[int]]:
     tag = uuid.uuid4().hex[:8]
     async with AsyncSessionLocal() as db:
-        job = Job(title=f"Backfill r7 {tag}", status=JobStatus.published)
+        client = Client(name=f"Backfill r7 {tag}")
+        db.add(client)
+        await db.flush()
+        job = Job(
+            title=f"Backfill r7 {tag}",
+            status=JobStatus.published,
+            client_id=client.id,
+        )
         db.add(job)
         await db.flush()
         ids = []
