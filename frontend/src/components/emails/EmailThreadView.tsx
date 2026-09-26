@@ -39,6 +39,8 @@ import EmailCompose from "./EmailCompose";
 
 interface EmailThreadViewProps {
   candidateId: number;
+  /** Adres kandydata — „Odpowiedz” celuje wyłącznie w jego maile. */
+  candidateEmail?: string | null;
   conversationId: string;
   onClose: () => void;
 }
@@ -316,6 +318,7 @@ function ThreadMessageCard({
 
 export default function EmailThreadView({
   candidateId,
+  candidateEmail = null,
   conversationId,
   onClose,
 }: EmailThreadViewProps) {
@@ -400,7 +403,7 @@ export default function EmailThreadView({
                 email={node.email}
                 depth={Math.min(node.depth, MAX_DEPTH)}
                 initiallyExpanded={node.email.id === latestId}
-                onReply={(e) => setReplyPlan(planThreadReply(messages ?? [], e))}
+                onReply={(e) => setReplyPlan(planThreadReply(messages ?? [], e, candidateEmail))}
               />
             ))
           )}
@@ -416,7 +419,7 @@ export default function EmailThreadView({
           </button>
           {latestId !== null && messages && messages.length > 0 && (
             <button
-              onClick={() => setReplyPlan(planThreadReply(messages))}
+              onClick={() => setReplyPlan(planThreadReply(messages, undefined, candidateEmail))}
               className="flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 bg-primary hover:bg-primary/90 text-white rounded-lg"
             >
               <Reply className="h-4 w-4" />

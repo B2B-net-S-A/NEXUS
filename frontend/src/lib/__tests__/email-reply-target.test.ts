@@ -15,12 +15,42 @@ function msg(id: number, direction: EmailMessage["direction"], to = "kandydat@fi
 describe("planThreadReply (runda 6 audytu)", () => {
   it("odpowiada na ostatnią PRZYCHODZĄCĄ, nie na własną wysłaną", () => {
     const thread = [msg(1, "received"), msg(2, "sent")];
-    expect(planThreadReply(thread)).toEqual({ mode: "reply", replyTo: thread[0] });
+    expect(planThreadReply(thread, undefined, "kandydat@firma.pl")).toEqual({
+      mode: "reply",
+      replyTo: thread[0],
+    });
+  });
+
+  it("runda 7: nie odpowiada na mail HM-a ani kolegi w tym samym wątku", () => {
+    const hm = {
+      id: 3,
+      direction: "received",
+      from_address: "hm@klient.pl",
+      to_addresses: [{ address: "me@b2bnetwork.pl" }],
+    } as unknown as EmailMessage;
+    const thread = [msg(1, "received"), msg(2, "sent", "hm@klient.pl"), hm, msg(4, "sent")];
+    expect(planThreadReply(thread, thread[3], "Kandydat@Firma.pl ")).toEqual({
+      mode: "reply",
+      replyTo: thread[0],
+    });
+  });
+
+  it("runda 7: bez maila od kandydata otwiera nowy mail DO KANDYDATA", () => {
+    const hm = {
+      id: 3,
+      direction: "received",
+      from_address: "hm@klient.pl",
+      to_addresses: [],
+    } as unknown as EmailMessage;
+    expect(planThreadReply([msg(2, "sent", "hm@klient.pl"), hm], undefined, "kandydat@firma.pl")).toEqual({
+      mode: "new",
+      defaultTo: "kandydat@firma.pl",
+    });
   });
 
   it("klik „Odpowiedz” na własnej wysłanej też idzie do ostatniej przychodzącej", () => {
     const thread = [msg(1, "received"), msg(2, "sent")];
-    expect(planThreadReply(thread, thread[1])).toEqual({
+    expect(planThreadReply(thread, thread[1], "kandydat@firma.pl")).toEqual({
       mode: "reply",
       replyTo: thread[0],
     });

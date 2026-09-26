@@ -121,6 +121,8 @@ Legenda statusu: ✅ naprawione w PR rundy 6 · ⛔ odrzucone po przeczytaniu ko
 
 Cztery przeglądy (RODO/M365/kalendarz, pieniądze i dokumenty, Traffit/automaty/Insights, front/logi/rekrutacje). Jeden blokujący — pierwsza wersja IC-1 odwoływała KAŻDĄ przyszłą rozmowę pary przy potwierdzeniu nowego terminu, także drugą rundę; po decyzji Artura przełożenie wskazuje DL (`supersedes_event_id`, `GET /api/interview-cycle/slots/{id}/replaceable`). Pełne CI złapało 7 grup: parametr SQL bez typu w kursorze okien `cv_fields`, nazwa stałej w komentarzu SQL, strażnik odpiętych CV na lekkich projekcjach, stare angielskie komunikaty w testach, odpięcie maila jako decyzja w teście, zakres finansów DL ze scalonym klientem, zamówienie zamknięte przez wyczerpanie MD nie wracało przy ponownie otwartej sprawie offboardingu (MD-2).
 
+Audyt rundy 7 (przed scaleniem tego PR-a) złapał dwie regresje samych poprawek, poprawione w tym PR: (1) T6-4 dopisał licznik `error` z `BackfillStats` do podsumowania fazy, a bramka `__daily__` czyta klucz `error` jako wywrotkę fazy — dzienny znacznik Traffita nie przesunąłby się nigdy (licznik idzie teraz jako `extract_errors`, bramka wymaga tekstu wyjątku); (2) M365-6 odpowiadał na ostatnią przychodzącą wiadomość wątku niezależnie od nadawcy — także na mail HM-a klienta albo kolegi z kopii (teraz wyłącznie na mail od kandydata, backend i front).
+
 Drobne, zostawione: `coolify-ops` eval-ab/eval-read drukują treść wykonań (metryki evalu); redakcja iCal maskuje też ścieżki Graph `/calendar/`; PATCH samego `champion_profile` bez przejrzanego kontraktu nie przelicza wektora (front go nie wysyła); podpis Outlooka z `<hr>` jest odrzucany.
 
 ## Sprawdzone i czyste (skrót — co NIE wymaga powtórki w rundzie 7)

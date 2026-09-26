@@ -23,7 +23,7 @@ from typing import Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
-from sqlalchemy import or_, select, text
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.candidate_access import CandidatePIIAccess, CandidateWriteAccess
@@ -547,7 +547,15 @@ async def reply_email(
     if original.direction == EmailDirection.sent:
         # Runda 6 audytu: odpowiedź na własny wysłany mail trafiała do nas
         # samych (Graph bierze nadawcę oryginału). Odpowiadamy na ostatnią
-        # wiadomość PRZYCHODZĄCĄ w wątku; bez niej — prośba o nowy mail.
+        # wiadomość PRZYCHODZĄCĄ OD KANDYDATA; bez niej — prośba o nowy mail.
+        # Runda 7 (R7-V1-2): sama „ostatnia przychodząca” trafiała też w maila
+        # HM-a klienta albo kolegi z kopii w tym samym wątku, a Graph wysyłał
+        # wtedy treść dla kandydata do nich.
+        candidate_email = (
+            select(func.lower(func.trim(Candidate.email)))
+            .where(Candidate.id == candidate_id)
+            .scalar_subquery()
+        )
         inbound = await db.scalar(
             select(Email)
             .where(
@@ -555,6 +563,7 @@ async def reply_email(
                 Email.m365_conversation_id == original.m365_conversation_id,
                 Email.direction == EmailDirection.received,
                 or_(Email.candidate_id == candidate_id, Email.candidate_id.is_(None)),
+                func.lower(func.trim(Email.from_address)) == candidate_email,
             )
             .order_by(Email.received_at.desc(), Email.id.desc())
             .limit(1)

@@ -1038,7 +1038,9 @@ def _summarize(progress_dict: dict[str, Any]) -> dict[str, Any]:
         "unsupported_format",
         "no_file",
         "download_failed",
-        "error",
+        # `error` (licznik BackfillStats) celowo NIE jest tu kluczem: klucz
+        # `error` w wyniku fazy znaczy „faza się wywróciła” i zatrzymuje
+        # `__daily__` (bramka niżej). Licznik idzie jako `extract_errors`.
         "skipped_terminal",
         "still_glued",
         "reindex_enqueued",
@@ -1054,6 +1056,8 @@ def _summarize(progress_dict: dict[str, Any]) -> dict[str, Any]:
         "note",
     )
     out = {k: progress_dict.get(k) for k in keys if k in progress_dict}
+    if isinstance(progress_dict.get("error"), int):
+        out["extract_errors"] = progress_dict["error"]
     samples = progress_dict.get("error_samples") or []
     if samples:
         out["error_samples"] = [str(s)[:200] for s in samples[:10]]
@@ -1426,7 +1430,8 @@ async def run_traffit_sync(
                 # `advisory_errors`, so they never gate it; a crash (`error`)
                 # does, in every phase — `ADVISORY_PHASES`.
                 any_error = bool(held_before) or any(
-                    isinstance(v, dict) and ("error" in v or v.get("blocking_errors"))
+                    isinstance(v, dict)
+                    and (isinstance(v.get("error"), str) or v.get("blocking_errors"))
                     for v in results.values()
                 )
                 advisory_failures = sorted(

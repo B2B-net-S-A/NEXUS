@@ -248,6 +248,7 @@ export default function EmailThreadList({
       {openConversation && (
         <EmailThreadView
           candidateId={candidateId}
+          candidateEmail={candidateEmail}
           conversationId={openConversation}
           onClose={() => setOpenConversation(null)}
         />

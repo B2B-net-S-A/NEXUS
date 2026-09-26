@@ -66,6 +66,26 @@ async def test_reply_to_own_sent_goes_to_last_inbound(monkeypatch) -> None:
     assert reply.await_args.kwargs["email_row"] is inbound
 
 
+async def test_reply_to_own_sent_only_targets_mail_from_the_candidate(
+    monkeypatch,
+) -> None:
+    """Runda 7 (R7-V1-2): mail HM-a klienta albo kolegi z kopii w tym samym
+    wątku nie może zostać adresatem odpowiedzi przeznaczonej dla kandydata."""
+    sent, inbound = _email(2, EmailDirection.sent), _email(1, EmailDirection.received)
+    db = _db(sent, inbound)
+    monkeypatch.setattr(
+        email_threads.m365_sender,
+        "reply",
+        AsyncMock(return_value=SimpleNamespace(id=50, candidate_id=9)),
+    )
+
+    await email_threads.reply_email(9, _payload(), USER, db)
+
+    sql = str(db.scalar.await_args.args[0])
+    assert "lower(trim(emails.from_address))" in sql
+    assert "candidates.email" in sql
+
+
 async def test_reply_to_own_sent_without_inbound_asks_for_new_mail(monkeypatch) -> None:
     reply = AsyncMock()
     monkeypatch.setattr(email_threads.m365_sender, "reply", reply)
