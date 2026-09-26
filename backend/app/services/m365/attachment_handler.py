@@ -255,9 +255,13 @@ async def try_parse_cv(
     email_row: Email,
     *,
     preparsed: Optional[tuple[str, dict]] = None,
+    candidate_id: Optional[int] = None,
 ) -> None:
     """If this attachment looks like a CV and the email is linked to a candidate,
     run it through cv_parser and merge results into the candidate profile.
+
+    ``candidate_id`` (runda 6 audytu) — kandydat wskazany przez TREŚĆ tego CV,
+    gdy mail z kilkoma CV niesie różne osoby; domyślnie kandydat maila.
 
     Swallows all exceptions into `attachment.parse_error` — never raises.
     """
@@ -265,13 +269,14 @@ async def try_parse_cv(
         return
     if not attachment.is_cv_candidate or not attachment.storage_path:
         return
-    if email_row.candidate_id is None:
+    target_id = candidate_id if candidate_id is not None else email_row.candidate_id
+    if target_id is None:
         return
     # A delta page contains existing messages as well as new ones.  Re-running
     # the paid parser for an attachment already applied to the same candidate
     # made every M365 pass spend minutes on unchanged CVs.  A rematch remains
     # eligible because its candidate id differs.
-    if attachment.parsed_candidate_id == email_row.candidate_id:
+    if attachment.parsed_candidate_id == target_id:
         return
 
     from datetime import datetime, timezone
@@ -284,13 +289,13 @@ async def try_parse_cv(
             select(EmailAttachment)
             .where(
                 EmailAttachment.sha256 == attachment.sha256,
-                EmailAttachment.parsed_candidate_id == email_row.candidate_id,
+                EmailAttachment.parsed_candidate_id == target_id,
                 EmailAttachment.id != attachment.id,
             )
             .limit(1)
         )
         if existing is not None:
-            attachment.parsed_candidate_id = email_row.candidate_id
+            attachment.parsed_candidate_id = target_id
             return
 
     abs_path = STORAGE_ROOT / attachment.storage_path
@@ -309,7 +314,7 @@ async def try_parse_cv(
         text, parsed = parsed_pair
 
     # Merge into candidate — but NEVER overwrite a more recent manual/upload parse.
-    candidate: Optional[Candidate] = await db.get(Candidate, email_row.candidate_id)
+    candidate: Optional[Candidate] = await db.get(Candidate, target_id)
     if candidate is None:
         attachment.parse_error = "candidate_missing"
         return
@@ -490,7 +495,11 @@ _STRONG_IDENTITY_REASONS = frozenset(
 
 
 async def try_create_candidate_from_cv(
-    db: AsyncSession, attachment: EmailAttachment, email_row: Email
+    db: AsyncSession,
+    attachment: EmailAttachment,
+    email_row: Email,
+    *,
+    link_email: bool = True,
 ) -> Optional[int]:
     """CV z maila od nadawcy spoza bazy: podepnij do istniejącego albo załóż kandydata.
 
@@ -506,6 +515,10 @@ async def try_create_candidate_from_cv(
       (`source="email"`) i ta sama wspólna ścieżka co upload;
     - CV bez imienia, nazwiska albo kontaktu → `identity_insufficient`.
 
+    ``link_email=False`` (runda 6 audytu): kolejne CV z maila, który już
+    wskazuje osobę z pierwszego CV — tożsamość z treści TEGO pliku, bez
+    przepinania maila (patrz :func:`try_parse_cv_by_identity`).
+
     Zwraca id kandydata albo None. Nie rzuca.
     """
     from datetime import datetime, timezone
@@ -514,9 +527,11 @@ async def try_create_candidate_from_cv(
         settings.M365_AUTO_PARSE_CV and settings.M365_AUTO_CREATE_CANDIDATE_FROM_CV
     ):
         return None
-    if email_row.candidate_id is not None or email_row.is_private_filtered:
+    if email_row.is_private_filtered:
         return None
-    if getattr(email_row, "matched_by_user_id", None) is not None:
+    if link_email and email_row.candidate_id is not None:
+        return None
+    if link_email and getattr(email_row, "matched_by_user_id", None) is not None:
         # Runda 6 audytu: mail ręcznie odpięty — decyzja rekrutera wygrywa.
         return None
     if not attachment.is_cv_candidate or not attachment.storage_path:
@@ -572,8 +587,11 @@ async def try_create_candidate_from_cv(
         return None
     if strong:
         candidate_id = int(strong[0]["candidate_id"])
-        _link_email(email_row, candidate_id, float(strong[0]["match_score"]), now)
-        await try_parse_cv(db, attachment, email_row, preparsed=(text, parsed))
+        if link_email:
+            _link_email(email_row, candidate_id, float(strong[0]["match_score"]), now)
+        await try_parse_cv(
+            db, attachment, email_row, preparsed=(text, parsed), candidate_id=candidate_id
+        )
         return candidate_id
     if duplicates:
         attachment.parse_error = "possible_duplicate_name"
@@ -605,8 +623,11 @@ async def try_create_candidate_from_cv(
             },
         )
     )
-    _link_email(email_row, candidate.id, 1.0, now)
-    await try_parse_cv(db, attachment, email_row, preparsed=(text, parsed))
+    if link_email:
+        _link_email(email_row, candidate.id, 1.0, now)
+    await try_parse_cv(
+        db, attachment, email_row, preparsed=(text, parsed), candidate_id=candidate.id
+    )
     if attachment.parsed_candidate_id != candidate.id or attachment.parse_error:
         # Profil nie przeszedł wspólnej ścieżki (np. kolizja dokumentu), więc
         # nikt go nie zaindeksował — a kandydat bez wektora nie istnieje
@@ -615,6 +636,26 @@ async def try_create_candidate_from_cv(
 
         await schedule_or_embed_candidate(candidate.id, db)
     return candidate.id
+
+
+async def try_parse_cv_by_identity(
+    db: AsyncSession, attachment: EmailAttachment, email_row: Email
+) -> Optional[int]:
+    """Kolejne CV w mailu podpiętym po tożsamości z CV (runda 6 audytu).
+
+    Mail z dwoma CV różnych osób: pierwsze CV zakładało/wskazywało kandydata
+    A i podpinało do niego mail, a drugie szło zwykłą kolejką do A — i lądowało
+    w kwarantannie tożsamości A zamiast założyć kandydata B. Teraz każdy
+    załącznik CV takiego maila rozstrzyga osobę z WŁASNEJ treści; mail zostaje
+    przy pierwszej osobie. Próba jest końcowa także bez rozstrzygnięcia
+    (``cv_parse_attempted_at``), żeby nie wracała co sekundę na płatny odczyt.
+    """
+    from datetime import datetime, timezone
+
+    attachment.cv_parse_attempted_at = datetime.now(timezone.utc)
+    return await try_create_candidate_from_cv(
+        db, attachment, email_row, link_email=False
+    )
 
 
 def _is_internal_email(email: str) -> bool:

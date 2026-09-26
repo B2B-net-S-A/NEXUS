@@ -17,6 +17,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from sqlalchemy.exc import IntegrityError
 
+from app.models.m365 import EmailMatchMethod
 from app.services import cv_ingest_service
 from app.services.cv_enrichment import CvWritePolicy
 from app.tasks import m365_cv_parse
@@ -24,7 +25,7 @@ from app.tasks import m365_cv_parse
 
 def _wire(monkeypatch, parse, *, mark_row=None):
     attachment = SimpleNamespace(id=91, email_id=72, parsed_candidate_id=None)
-    email = SimpleNamespace(id=72, candidate_id=37)
+    email = SimpleNamespace(id=72, candidate_id=37, match_method=EmailMatchMethod.strict)
     work_db = AsyncMock()
     work_db.scalar.return_value = attachment
     work_db.get.return_value = email

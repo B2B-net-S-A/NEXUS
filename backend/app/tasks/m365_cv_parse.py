@@ -9,12 +9,12 @@ import time
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
-from sqlalchemy import or_, select
+from sqlalchemy import and_, or_, select
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.operation_telemetry import record_job_outcome
-from app.models.m365 import Email, EmailAttachment, M365Connection
+from app.models.m365 import Email, EmailAttachment, EmailMatchMethod, M365Connection
 from app.services.m365 import attachment_handler
 from app.services.m365.graph_client import GraphClient
 
@@ -57,7 +57,14 @@ async def run_m365_cv_parse_once() -> bool:
                     # parser already performs provider retry/fallback internally.
                     EmailAttachment.cv_parse_attempted_at.is_(None),
                     # Candidate rematch: apply the same source to its new owner.
-                    EmailAttachment.parsed_candidate_id.is_not(None),
+                    # Runda 6 audytu: nie dla maili podpiętych po tożsamości
+                    # z CV — tam każdy załącznik wskazuje osobę z WŁASNEJ
+                    # treści (drugie CV = inny kandydat niż mail), więc
+                    # „inny niż kandydat maila” nie znaczy „do ponowienia”.
+                    and_(
+                        EmailAttachment.parsed_candidate_id.is_not(None),
+                        Email.match_method != EmailMatchMethod.cv_identity,
+                    ),
                 ),
             )
             .order_by(EmailAttachment.id.asc())
@@ -90,8 +97,17 @@ async def run_m365_cv_parse_once() -> bool:
         attachment_id = attachment.id
         candidate_id = email_row.candidate_id
         try:
-            await attachment_handler.try_parse_cv(db, attachment, email_row)
-            success = attachment.parsed_candidate_id == candidate_id
+            if email_row.match_method == EmailMatchMethod.cv_identity:
+                # Runda 6 audytu (M365-7): kolejne CV w mailu podpiętym po
+                # tożsamości z CV — osoba z treści TEGO pliku.
+                target = await attachment_handler.try_parse_cv_by_identity(
+                    db, attachment, email_row
+                )
+                candidate_id = target
+                success = target is not None and attachment.parsed_candidate_id == target
+            else:
+                await attachment_handler.try_parse_cv(db, attachment, email_row)
+                success = attachment.parsed_candidate_id == candidate_id
             if not success:
                 # Runda 6 audytu: nieudana próba jest końcowa. Bez tego wiersz
                 # po rematchu (``parsed_candidate_id`` = poprzedni kandydat) był
