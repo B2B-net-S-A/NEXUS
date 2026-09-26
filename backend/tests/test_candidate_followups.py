@@ -736,6 +736,72 @@ async def test_second_change_signal_the_same_day_is_not_lost(
         await _cleanup(world, user_ids)
 
 
+@pytest.mark.asyncio
+async def test_inactive_verifier_passes_the_process_to_the_active_sender(
+    api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Runda 8 (R8-N7-1): właściciel procesu = pierwsza AKTYWNA osoba z
+    łańcucha weryfikator → wysyłający CV → prowadzący. Wyłączona weryfikatorka
+    dawała „nikt nie dzwoni”, a sygnał „rezygnuje” szedł w próżnię."""
+
+    async with AsyncSessionLocal() as db:
+        now = (await db.execute(select(func_now()))).scalar_one()
+    monkeypatch.setattr(
+        settings, "CANDIDATE_FOLLOWUP_SINCE", svc.local_date(now - timedelta(days=60))
+    )
+    verifier_id, _ = await _seed_user(UserRole.recruiter)
+    sender_id, _ = await _seed_user(UserRole.recruiter)
+    author_id, author_creds = await _seed_user(UserRole.recruiter)
+    user_ids = [verifier_id, sender_id, author_id]
+    world = await _seed_world([verifier_id], now)
+    cid = world["candidate_id"]
+    try:
+        async with AsyncSessionLocal() as db:
+            stage = (
+                await db.scalars(
+                    select(CandidateStage).where(
+                        CandidateStage.candidate_id == cid,
+                        CandidateStage.stage == PipelineStage.cv_sent,
+                    )
+                )
+            ).one()
+            stage.moved_by = sender_id
+            (await db.get(User, verifier_id)).is_active = False
+            await db.commit()
+
+        async with AsyncSessionLocal() as db:
+            found = await svc.load_followups(db, now=now, candidate_ids=[cid])
+        assert found[cid].processes[0].owner_id == sender_id
+        assert found[cid].caller_id == sender_id
+
+        head = await _login(api_client, author_creds)
+        resp = await api_client.post(
+            f"/api/candidate-followups/candidates/{cid}/outcome",
+            headers=head,
+            json={
+                "outcome": "changed",
+                "note": "Rezygnuje.",
+                "processes": {str(world["job_ids"][0]): "withdrawing"},
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        async with AsyncSessionLocal() as db:
+            recipients = set(
+                (
+                    await db.scalars(
+                        select(Notification.user_id).where(
+                            Notification.notification_type
+                            == NotificationType.candidate_followup_signal,
+                            Notification.related_entity_id == cid,
+                        )
+                    )
+                ).all()
+            )
+        assert recipients == {sender_id}
+    finally:
+        await _cleanup(world, user_ids)
+
+
 def func_now():
     """Punkt odniesienia z bazy — etapy i notatki mają czas nadany przez nią."""
 
