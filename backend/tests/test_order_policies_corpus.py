@@ -586,6 +586,51 @@ class TestCardif:
         assert (r.start_date, r.end_date) == ("2031-04-27", "2031-12-31")
         assert r.uncertain is False
 
+    # ── Runda 6 audytu ──
+
+    def test_several_rates_are_not_assigned_to_everybody(self):
+        # Pierwsza stawka z prozy trafiała do KAŻDEGO wiersza — Analityk
+        # dostawał stawkę Testera z pewnością reguły.
+        text = CARDIF.replace(
+            "1. Jakub Testowy 27.04.2031 31.12.2031 172\n",
+            "1. Jakub Testowy 27.04.2031 31.12.2031 172\n"
+            "2. Anna Przykładowa 01.05.2031 31.12.2031 100\n",
+        ).replace(
+            "Manualnego (1040 PLN/MD net.).",
+            "Manualnego (1040 PLN/MD net.) oraz Analityka (1 350 PLN/MD net.).",
+        )
+        rows = cardif.extract_rows(text)
+        assert [r.consultant_name for r in rows] == ["Jakub Testowy", "Anna Przykładowa"]
+        assert all(r.uncertain and r.rate_client is None for r in rows)
+        assert all("1040" in r.uncertain_reason for r in rows)
+        r = _run("cardif", text)
+        assert r.uncertain
+        assert r.rate_client is None
+        assert any("różne stawki" in reason for reason in r.uncertain_reasons)
+
+    def test_same_rate_repeated_is_still_one_rate(self):
+        text = CARDIF + "Stawka (1040 PLN/MD net.) obowiązuje do końca okresu.\n"
+        assert cardif.extract_rows(text)[0].rate_client == Decimal("1040")
+        assert _run("cardif", text).uncertain is False
+
+    def test_model_concerns_survive_the_policy(self):
+        _assert_model_concerns_survive("cardif", CARDIF)
+
+
+def _assert_model_concerns_survive(key: str, text: str) -> None:
+    model = OrderExtraction(
+        source="claude",
+        uncertain=True,
+        uncertain_reasons=[
+            "Nieczytelne nazwisko drugiego specjalisty",
+            "Brak informacji o liczbie MD",
+        ],
+    )
+    r, _ = apply_policies(model, PolicyContext(document_text=text), [policy_by_key(key)])
+    assert r.uncertain
+    assert "Nieczytelne nazwisko drugiego specjalisty" in r.uncertain_reasons
+    assert "Brak informacji o liczbie MD" not in r.uncertain_reasons
+
 
 # ── Nordea (warstwa dla układu przeplecionego) ──────────────────────────────
 
@@ -786,6 +831,14 @@ class TestCreditAgricoleLayout:
         assert (r.start_date, r.end_date) == ("2031-08-18", "2031-10-31")
         assert (r.rate_client, r.rate_unit) == (Decimal("700.00"), "day")
         assert r.consultant_rows[0].consultant_name == "Testowy Wiktor"
+
+
+@pytest.mark.parametrize("key", ["kir", "mleasing", "velobank"])
+def test_twin_policies_keep_model_concerns(key):
+    """Runda 6 audytu: bliźniacze reguły też nie kasują zastrzeżeń modelu."""
+    _assert_model_concerns_survive(
+        key, {"kir": KIR, "mleasing": MLEASING, "velobank": VELO}[key]
+    )
 
 
 # ── Rejestr ──────────────────────────────────────────────────────────────────

@@ -385,6 +385,8 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         order=120,
         rate_unit_default="hour",
         extract_rows=kir.extract_rows,
+        # 26.09.2026: zastrzeżenia modelu zachowane (runda 6 audytu).
+        rule_version="2026-09-26",
     ),
     OrderClientPolicy(
         key="mleasing",
@@ -393,6 +395,8 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         apply=_mleasing,
         order=130,
         extract_rows=mleasing.extract_rows,
+        # 26.09.2026: zastrzeżenia modelu zachowane (runda 6 audytu).
+        rule_version="2026-09-26",
     ),
     OrderClientPolicy(
         key="velobank",
@@ -402,6 +406,8 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         order=140,
         rate_unit_default="day",
         extract_rows=velobank.extract_rows,
+        # 26.09.2026: zastrzeżenia modelu zachowane (runda 6 audytu).
+        rule_version="2026-09-26",
     ),
     OrderClientPolicy(
         key="alior",
@@ -424,6 +430,9 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         order=160,
         rate_unit_default="day",
         extract_rows=cardif.extract_rows,
+        # 26.09.2026: kilka różnych stawek w prozie = wiersze do sprawdzenia,
+        # zastrzeżenia modelu zachowane (runda 6 audytu).
+        rule_version="2026-09-26",
     ),
     # Kanoniczne ID 18 = BIK z ticketu korekty 29.08.2026 (to samo, które
     # przypina ``order_types._PINNED_ALLOWED_ORDER_TYPES``). Env dopisuje

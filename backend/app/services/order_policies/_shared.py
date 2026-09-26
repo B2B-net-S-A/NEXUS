@@ -19,6 +19,7 @@ from app.services.order_pdf_parser import (
     _labelled_amount,
     _normalize_amount,
     _normalize_date,
+    is_md_absence_reason,
 )
 
 __all__ = [
@@ -31,6 +32,7 @@ __all__ = [
     "labelled_amount",
     "labelled_date",
     "labelled_text",
+    "model_concerns",
     "normalize_amount",
     "normalize_date",
     "set_field",
@@ -103,6 +105,17 @@ def clean_person_name(raw: str) -> str:
     value = _INVISIBLE_RE.sub("", raw or "")
     value = re.sub(r"\s+", " ", value).strip(" ,;:-–—")
     return _HONORIFIC_RE.sub("", value).strip()
+
+
+def model_concerns(result: OrderExtraction) -> list[str]:
+    """Zastrzeżenia modelu, które reguła klienta musi zachować (runda 6 audytu).
+
+    Reguły Cardif, KIR, mLeasing i VeloBank zastępowały ``uncertain_reasons``
+    w całości, więc np. „nieczytelne nazwisko drugiej osoby" od modelu znikało
+    i dokument szedł automatem. Odpada wyłącznie „brak liczby MD" — te reguły
+    same decydują, czy MD jest budżetem.
+    """
+    return [r for r in result.uncertain_reasons if not is_md_absence_reason(r)]
 
 
 def set_field(
