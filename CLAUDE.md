@@ -1715,6 +1715,12 @@ DL widzi klienta, gdy ma DOWOLNY wiersz w `delivery_lead_client_assignments`
   w rekrutacji), **Generator umów B2B** (`purpose="org"`; stawki i zapis nadal
   tylko u przypisanych — bez zmian), pulpity, KPI i Insights
   (`resolve_dashboard_scope` nietknięty).
+- **Wyjątek od pulpitu: kontrakty i zamówienia w kreatorze metryk liczą tylko
+  portfel DL** (decyzja Artura 26.09.2026, runda 6 audytu). Źródła `contracts`
+  i `orders` (`custom_metrics/engine._delivery_client_boundary`, lustro warunków
+  `resolve_delivery_lead_client_ids`) — także gotowe kafle „Aktywne kontrakty”
+  i „Kończące się zamówienia”; klient spoza portfela w filtrze = 403
+  `metric_scope_denied`, DL bez klientów = odmowa, nie zero.
 - **Wyjątki persony:** DL + admin/finance/talent_community_manager widzi
   wszystko (TCM czyta Delivery całej organizacji).
 - **Wyłącznik bez deployu:** `DL_CLIENT_SCOPE=all` przywraca stan z #1365.

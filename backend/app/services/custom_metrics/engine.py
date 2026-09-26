@@ -47,7 +47,10 @@ from app.models.user import User, UserRole
 from app.services.access_scope import (
     DashboardScope,
     ScopeKind,
+    delivery_lead_scope_is_assigned,
+    delivery_lead_sees_whole_delivery,
     resolve_dashboard_scope,
+    resolve_delivery_lead_assigned_client_ids,
     resolve_delivery_lead_finance_client_ids,
 )
 from app.services.contract_rates import RATE_SCHEDULE_LOADS, REVENUE_BEARING_STATUSES
@@ -208,6 +211,37 @@ async def _finance_client_boundary(
     if not portfolio:
         raise MetricAccessDenied(
             "Nie masz przypisanych klientów, dla których widzisz kwoty."
+        )
+    return portfolio
+
+
+# Źródła Delivery: Delivery Lead liczy tylko klientów swojego portfela.
+_DELIVERY_CLIENT_SOURCES = frozenset({"contracts", "orders"})
+
+
+async def _delivery_client_boundary(
+    user: User, db: AsyncSession
+) -> Optional[frozenset[int]]:
+    """``None`` = wszyscy klienci; zbiór = portfel Delivery Leada.
+
+    Kontrakty i zamówienia to dane modułów Delivery, a tam Delivery Lead widzi
+    wyłącznie przypisanych klientów (decyzja Artura 26.09.2026). Do rundy 6
+    audytu kafelki „Aktywne kontrakty" i „Kończące się zamówienia" liczyły całą
+    firmę, więc DL widział na pulpicie liczby klientów spoza portfela. Warunki
+    są lustrem ``resolve_delivery_lead_client_ids`` (``DL_CLIENT_SCOPE=all``
+    i TCM+DL = cała organizacja, admin/Finanse i role bez DL = bez granicy) —
+    liczone tutaj wprost, bo tamta funkcja przy „wszyscy" oddaje listę
+    WSZYSTKICH id klientów, a ta w filtrze SQL to tysiące parametrów.
+    """
+    if not delivery_lead_scope_is_assigned() or delivery_lead_sees_whole_delivery(user):
+        return None
+    portfolio = await resolve_delivery_lead_assigned_client_ids(user, db)
+    if portfolio is None:
+        return None
+    if not portfolio:
+        raise MetricAccessDenied(
+            "Nie masz przypisanych klientów — kontrakty i zamówienia liczysz "
+            "tylko dla swojego portfela."
         )
     return portfolio
 
@@ -418,7 +452,11 @@ def _jobs_query(
     return Job.__table__, conds, cols, ts
 
 
-def _contracts_query(definition: MetricDefinition, window: Window):
+def _contracts_query(
+    definition: MetricDefinition,
+    window: Window,
+    client_boundary: Optional[frozenset[int]] = None,
+):
     cols = {"client": Contract.client_id, "_ts_is_date": True}
     conds: list[Any] = []
     ts: Any = None
@@ -443,10 +481,16 @@ def _contracts_query(definition: MetricDefinition, window: Window):
         ]
     if definition.filters.client_ids:
         conds.append(Contract.client_id.in_(definition.filters.client_ids))
+    if client_boundary is not None:
+        conds.append(Contract.client_id.in_(sorted(client_boundary)))
     return Contract.__table__, conds, cols, ts
 
 
-def _orders_query(definition: MetricDefinition, window: Window):
+def _orders_query(
+    definition: MetricDefinition,
+    window: Window,
+    client_boundary: Optional[frozenset[int]] = None,
+):
     # Start linii zamówienia zbiorczego = COALESCE(linia, grupa) — ta sama
     # reguła co `services/order_facts.py`.
     eff_start = func.coalesce(ClientOrder.start_date, ClientOrderGroup.start_date)
@@ -480,6 +524,8 @@ def _orders_query(definition: MetricDefinition, window: Window):
         ]
     if definition.filters.client_ids:
         conds.append(ClientOrder.client_id.in_(definition.filters.client_ids))
+    if client_boundary is not None:
+        conds.append(ClientOrder.client_id.in_(sorted(client_boundary)))
     base = ClientOrder.__table__.outerjoin(
         ClientOrderGroup.__table__,
         ClientOrderGroup.id == ClientOrder.order_group_id,
@@ -492,6 +538,7 @@ async def _run_count(
     definition: MetricDefinition,
     window: Window,
     author_ids: Optional[frozenset[int]],
+    client_boundary: Optional[frozenset[int]] = None,
 ) -> tuple[float, list[dict[str, Any]], list[str]]:
     src = definition.source
     if src == "pipeline_moves":
@@ -504,10 +551,10 @@ async def _run_count(
         base, conds, cols, ts = _jobs_query(definition, window, author_ids)
         measure = func.count()
     elif src == "contracts":
-        base, conds, cols, ts = _contracts_query(definition, window)
+        base, conds, cols, ts = _contracts_query(definition, window, client_boundary)
         measure = func.count()
     else:
-        base, conds, cols, ts = _orders_query(definition, window)
+        base, conds, cols, ts = _orders_query(definition, window, client_boundary)
         measure = func.count()
 
     if definition.group_by == "none":
@@ -662,7 +709,22 @@ async def evaluate_metric(
         author_ids = _author_ids(definition, user, scope)
         applied = definition.filters.author
 
-    value, series, notes = await _run_count(db, definition, window, author_ids)
+    client_boundary: Optional[frozenset[int]] = None
+    if definition.source in _DELIVERY_CLIENT_SOURCES:
+        client_boundary = await _delivery_client_boundary(user, db)
+        requested = set(definition.filters.client_ids)
+        if client_boundary is not None and requested - client_boundary:
+            # Lustro `_run_finance`: klient spoza portfela = odmowa całości,
+            # nie cicha suma z samych „swoich" (runda 6 audytu).
+            raise MetricAccessDenied(
+                "Wybrani klienci są spoza Twojego portfela — tych danych nie pokażemy."
+            )
+        if client_boundary is not None and not requested:
+            applied = "portfolio"
+
+    value, series, notes = await _run_count(
+        db, definition, window, author_ids, client_boundary
+    )
     previous: Optional[float] = None
     if definition.compare_previous:
         if snapshot:
@@ -670,7 +732,7 @@ async def evaluate_metric(
         else:
             prev_def = definition.model_copy(update={"group_by": "none"})
             previous, _, _ = await _run_count(
-                db, prev_def, window.previous(), author_ids
+                db, prev_def, window.previous(), author_ids, client_boundary
             )
     return MetricResult(
         value=value,
