@@ -433,9 +433,17 @@ async def test_version_phase_recomputes_only_on_a_new_version(monkeypatch):
     async def db_version():
         return kc.FOLD_VERSION
 
+    async def no_position():
+        return {}
+
+    async def fake_clear():
+        calls.append("cleared")
+
     monkeypatch.setattr(loop, "_recompute", fake_recompute)
     monkeypatch.setattr(loop, "_store_fold_version", fake_store)
     monkeypatch.setattr(loop, "_db_fold_version", db_version)
+    monkeypatch.setattr(loop, "_load_recompute_position", no_position)
+    monkeypatch.setattr(loop, "_clear_recompute_position", fake_clear)
     monkeypatch.setattr(kc, "_fold_ready", False)
     monkeypatch.setattr(kc, "_notes_ready", False)
 
@@ -452,7 +460,7 @@ async def test_version_phase_recomputes_only_on_a_new_version(monkeypatch):
 
     monkeypatch.setattr(loop, "_stored_fold_version", older)
     await loop._version_phase()
-    assert calls == ["candidates", "notes", "stored"]
+    assert calls == ["candidates", "notes", "stored", "cleared"]
     assert kc.fold_ready() and kc.notes_ready()
 
 
@@ -471,3 +479,77 @@ async def test_stored_fold_version_reads_jsonb():
         )
         await db.commit()
     assert await loop._stored_fold_version() is None
+
+
+@pytest.mark.asyncio
+async def test_recompute_resumes_after_a_container_restart(monkeypatch):
+    """Pozycja przeliczania przeżywa restart procesu (deploy po każdym merge'u).
+
+    Do 26.09.2026 żyła tylko w pamięci: każde wdrożenie zaczynało ~45-minutowe
+    przeliczenie od zera i wersja 2 składania nie skończyła się ani razu.
+    """
+    from app.services import keyword_corpus as kc
+    from app.tasks import keyword_corpus_backfill as loop
+
+    await loop._clear_recompute_position()
+    try:
+        await loop._save_recompute_position("candidates", 1234)
+        await loop._save_recompute_position("notes", 77)
+        await loop._save_recompute_position("candidates", 2345)
+        assert await loop._load_recompute_position() == {
+            "candidates": 2345,
+            "notes": 77,
+        }
+
+        starts: dict[str, int] = {}
+
+        async def fake_batch(sql, after, limit, trigger):
+            name = "notes" if limit == loop._NOTES_BATCH else "candidates"
+            starts.setdefault(name, after)
+            return 0
+
+        async def older():
+            return kc.FOLD_VERSION - 1
+
+        async def fake_store():
+            return None
+
+        monkeypatch.setattr(loop, "_fill_keyset_batch", fake_batch)
+        monkeypatch.setattr(loop, "_stored_fold_version", older)
+        monkeypatch.setattr(loop, "_store_fold_version", fake_store)
+        monkeypatch.setattr(kc, "_fold_ready", False)
+        monkeypatch.setattr(kc, "_notes_ready", False)
+        loop._recompute_after.clear()  # „nowy proces”
+
+        await loop._version_phase()
+        assert starts == {"candidates": 2345, "notes": 77}
+        assert await loop._load_recompute_position() == {}, "koniec kasuje pozycję"
+    finally:
+        loop._recompute_after.clear()
+        await loop._clear_recompute_position()
+
+
+@pytest.mark.asyncio
+async def test_recompute_position_of_another_version_is_ignored():
+    from app.core.database import AsyncSessionLocal
+    from app.services import keyword_corpus as kc
+    from app.tasks import keyword_corpus_backfill as loop
+
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            text(
+                "INSERT INTO app_settings (key, value) VALUES (:key, CAST(:value AS jsonb)) "
+                "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value"
+            ),
+            {
+                "key": loop._RECOMPUTE_POSITION_KEY,
+                "value": json.dumps({"version": kc.FOLD_VERSION - 1, "candidates": 99}),
+            },
+        )
+        await db.commit()
+    try:
+        assert await loop._load_recompute_position() == {}
+        await loop._save_recompute_position("notes", 5)
+        assert await loop._load_recompute_position() == {"notes": 5}
+    finally:
+        await loop._clear_recompute_position()
