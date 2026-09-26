@@ -502,6 +502,9 @@ class ClientHitRatioRow:
     # klienta (`close_reason` NULL na 3924 z 3924), więc kubełek `unknown`
     # w `close_reasons` jest luką w danych, a nie kategorią obok pozostałych.
     outcome_coverage_pct: Optional[float] = None
+    # Licznik `fill_rate`: placementy tylko z rekrutacji, których etaty weszły
+    # do mianownika (`vacancies_declared`) — runda 6 audytu.
+    fill_rate_placements: int = 0
 
 
 def _enum_value(raw: object, *, default: str) -> str:
@@ -562,6 +565,7 @@ async def compute_client_hit_ratio(
 
     per_client: dict[int, dict] = {}
     job_to_client: dict[int, int] = {}
+    declared_job_ids: set[int] = set()
     for r in jobs_rows:
         job_to_client[r.id] = r.client_id
         bucket = per_client.setdefault(
@@ -576,6 +580,7 @@ async def compute_client_hit_ratio(
                 "total_vacancies": 0,
                 "filled_job_ids": set(),
                 "placements": 0,
+                "declared_placements": 0,
                 "active_jobs": 0,
                 "outcome_known_jobs": 0,
                 "close_reasons": {},
@@ -587,6 +592,7 @@ async def compute_client_hit_ratio(
         # `fill_rate` powyżej 100% — na produkcji u siedmiu klientów.
         if job_data_trust.vacancies_declared(r):
             bucket["total_vacancies"] += int(r.headcount or 1)
+            declared_job_ids.add(r.id)
         if job_data_trust.outcome_available(r):
             bucket["outcome_known_jobs"] += 1
         key = _enum_value(r.close_reason, default="unknown")
@@ -612,6 +618,8 @@ async def compute_client_hit_ratio(
                 continue
             per_client[client_id]["filled_job_ids"].add(r.job_id)
             per_client[client_id]["placements"] += int(r.cnt)
+            if r.job_id in declared_job_ids:
+                per_client[client_id]["declared_placements"] += int(r.cnt)
 
     active_rows = (
         await db.execute(
@@ -640,7 +648,13 @@ async def compute_client_hit_ratio(
                 total_vacancies=bucket["total_vacancies"],
                 placements=bucket["placements"],
                 hit_ratio=hit_ratio,
-                fill_rate=ratio_pct(bucket["placements"], bucket["total_vacancies"]),
+                # Placementy z rekrutacji bez zadeklarowanych etatów (import
+                # Traffita) nie mają swoich etatów w mianowniku — liczone
+                # razem dawały fill rate 500% (runda 6 audytu).
+                fill_rate=ratio_pct(
+                    bucket["declared_placements"], bucket["total_vacancies"]
+                ),
+                fill_rate_placements=bucket["declared_placements"],
                 active_jobs=bucket["active_jobs"],
                 # Nieznany wskaźnik nie „nie osiągnął progu" — to dwie różne
                 # rzeczy i zlanie ich w `False` maluje klienta bez ani jednej
@@ -674,7 +688,9 @@ def fold_hit_ratio_totals(rows: Iterable[ClientHitRatioRow]) -> dict:
         "total_vacancies": total_vacancies,
         "total_placements": total_placements,
         "global_hit_ratio": ratio_pct(total_filled, total_closed),
-        "global_fill_rate": ratio_pct(total_placements, total_vacancies),
+        "global_fill_rate": ratio_pct(
+            sum(r.fill_rate_placements for r in rows), total_vacancies
+        ),
         # Średnia po klientach z policzalnym wskaźnikiem. Bez takich klientów
         # to `None`, nie 0.0 — zero czytałoby się jako „wszyscy mają zero".
         "avg_hit_ratio": round(

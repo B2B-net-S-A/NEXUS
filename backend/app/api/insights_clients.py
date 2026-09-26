@@ -350,7 +350,7 @@ async def insights_clients_hit_ratio(
     excluded_key = ",".join(sorted(r.value for r in excluded))
 
     cache_key = (
-        f"insights:clients:hit-ratio:v1:{resolved.cache_suffix}"
+        f"insights:clients:hit-ratio:v2:{resolved.cache_suffix}"
         f":{min_closed}:{sort}:{excluded_key}:{drop_pp}:{at_risk_min_closed}"
     )
     cached = await cache_get(cache_key)

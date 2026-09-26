@@ -1159,3 +1159,75 @@ async def test_contract_without_revenue_leg_marks_client_revenue_incomplete(
     assert row_b["margin_complete"] is False
     assert row_b["monthly_margin_total"] is None
     assert totals["monthly_revenue_complete"] is False
+
+
+@pytest.mark.asyncio
+async def test_fill_rate_counts_placements_only_from_declared_jobs(
+    fx_client: AsyncClient,
+    admin_headers: dict[str, str],
+):
+    """Runda 6 audytu: placementy z rekrutacji z Traffita (etaty nie
+    wchodzą do mianownika) nie mogą wejść do licznika — dawało to 500%."""
+    await cache_invalidate("insights:clients:")
+    sfx = uuid.uuid4().hex[:8]
+    closed_at = datetime(1906, 3, 15, 12, tzinfo=timezone.utc)
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"InsCliDecl-{sfx}")
+        db.add(client)
+        await db.flush()
+        declared = Job(
+            title=f"Decl {sfx}",
+            location="Warszawa",
+            status=JobStatus.closed,
+            remote_policy=RemotePolicy.hybrid,
+            client_id=client.id,
+            headcount=1,
+            closed_at=closed_at,
+        )
+        imported = Job(
+            title=f"Trf {sfx}",
+            location="Warszawa",
+            status=JobStatus.closed,
+            remote_policy=RemotePolicy.hybrid,
+            client_id=client.id,
+            headcount=1,
+            closed_at=closed_at,
+            external_source="traffit",
+        )
+        db.add_all([declared, imported])
+        await db.flush()
+        for i in range(5):
+            cand = Candidate(
+                name=f"Decl-{i}-{sfx}",
+                lastname=f"Fill-{sfx}",
+                email=f"ins-decl-{i}-{sfx}@example.com",
+            )
+            db.add(cand)
+            await db.flush()
+            db.add(
+                CandidateStage(
+                    candidate_id=cand.id,
+                    job_id=imported.id,
+                    stage=PipelineStage.hired,
+                    moved_at=closed_at - timedelta(days=5),
+                    external_source="manual",
+                )
+            )
+        await db.commit()
+        client_id = client.id
+
+    body = (
+        await fx_client.get(
+            HIT_RATIO,
+            headers=admin_headers,
+            params={
+                "period": "custom",
+                "date_from": "1906-03-01",
+                "date_to": "1906-03-31",
+            },
+        )
+    ).json()
+    row = next(r for r in body["clients"] if r["client_id"] == client_id)
+    assert row["total_vacancies"] == 1
+    assert row["placements"] == 5
+    assert row["fill_rate"] == 0.0
