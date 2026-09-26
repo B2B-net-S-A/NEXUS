@@ -167,8 +167,73 @@ async def _notes_phase() -> None:
 
 
 # Pozycja przeliczania wersji — przeżywa ponowienie fazy (zakleszczenie z innym
-# zapisem kandydatów, restart bazy), żeby nie zaczynać 63 tys. wierszy od nowa.
+# zapisem kandydatów, restart bazy) i RESTART KONTENERA: jest też zapisywana
+# w ``app_settings``. Od 26.09.2026 każdy merge wdraża się od razu, a pełne
+# przeliczenie trwa ~45 min — pozycja trzymana tylko w pamięci procesu zaczynała
+# od zera po każdym wdrożeniu i przeliczenie v2 nie skończyło się ani razu.
 _recompute_after: dict[str, int] = {}
+_RECOMPUTE_POSITION_KEY = "keyword_fold_fts_recompute"
+
+
+async def _load_recompute_position() -> dict[str, int]:
+    """Zapisana pozycja przeliczania BIEŻĄCEJ wersji; inna wersja = od zera."""
+    async with AsyncSessionLocal() as db:
+        value = (
+            await db.execute(
+                text("SELECT value FROM app_settings WHERE key = :key"),
+                {"key": _RECOMPUTE_POSITION_KEY},
+            )
+        ).scalar()
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError:
+            return {}
+    if (
+        not isinstance(value, dict)
+        or value.get("version") != keyword_corpus.FOLD_VERSION
+    ):
+        return {}
+    position: dict[str, int] = {}
+    for name in ("candidates", "notes"):
+        try:
+            after = int(value.get(name) or 0)
+        except (TypeError, ValueError):
+            continue
+        if after > 0:
+            position[name] = after
+    return position
+
+
+async def _save_recompute_position(name: str, after: int) -> None:
+    payload = {
+        "version": keyword_corpus.FOLD_VERSION,
+        name: after,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    async with AsyncSessionLocal() as db:
+        # Scalenie: druga kolumna zachowuje swoją pozycję. Wpis starszej wersji
+        # jest nadpisywany w całości.
+        await db.execute(
+            text(
+                "INSERT INTO app_settings (key, value) "
+                "VALUES (:key, CAST(:value AS jsonb)) "
+                "ON CONFLICT (key) DO UPDATE SET value = CASE "
+                "WHEN app_settings.value->>'version' = EXCLUDED.value->>'version' "
+                "THEN app_settings.value || EXCLUDED.value ELSE EXCLUDED.value END"
+            ),
+            {"key": _RECOMPUTE_POSITION_KEY, "value": json.dumps(payload)},
+        )
+        await db.commit()
+
+
+async def _clear_recompute_position() -> None:
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            text("DELETE FROM app_settings WHERE key = :key"),
+            {"key": _RECOMPUTE_POSITION_KEY},
+        )
+        await db.commit()
 
 
 async def _stored_fold_version() -> int | None:
@@ -219,6 +284,7 @@ async def _recompute(name: str, sql: str, limit: int, trigger: str) -> int:
         if not last:
             return rows
         _recompute_after[name] = last
+        await _save_recompute_position(name, last)
         rows += limit
         await asyncio.sleep(_PAUSE_SECONDS)
 
@@ -233,6 +299,14 @@ async def _version_phase() -> None:
     if await _stored_fold_version() != keyword_corpus.FOLD_VERSION:
         keyword_corpus.mark_fold_ready(False)
         keyword_corpus.mark_notes_ready(False)
+        for name, after in (await _load_recompute_position()).items():
+            _recompute_after.setdefault(name, after)
+        if _recompute_after:
+            logger.info(
+                "keyword fold corpus v%d recompute resumed at %s",
+                keyword_corpus.FOLD_VERSION,
+                _recompute_after,
+            )
         candidates = await _recompute(
             "candidates",
             keyword_corpus.FOLD_RECOMPUTE_BATCH_SQL,
@@ -246,6 +320,7 @@ async def _version_phase() -> None:
             keyword_corpus.NOTE_TRIGGER_NAME,
         )
         await _store_fold_version()
+        await _clear_recompute_position()
         _recompute_after.clear()
         logger.info(
             "keyword fold corpus v%d recomputed: ~%d candidates, ~%d notes",
