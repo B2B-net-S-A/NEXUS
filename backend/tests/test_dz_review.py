@@ -287,6 +287,25 @@ def test_word_boundaries_do_not_count_javascript_as_java() -> None:
     assert result["checks"][0]["in_cv"] is False
 
 
+def test_client_cv_file_is_picked_by_client_name_then_newest() -> None:
+    """Runda 8 (R8-N8-1): jedna reguła wyboru pliku „…B2B…" dla QC i kolejki
+    Cpro — plik z nazwą klienta wygrywa z nowszym plikiem innego klienta."""
+    from datetime import datetime, timezone
+
+    old = datetime(2026, 9, 1, tzinfo=timezone.utc)
+    new = datetime(2026, 9, 20, tzinfo=timezone.utc)
+    rows = [
+        (100, "Ewa_B2B_Nordea.docx", old, old),
+        (120, "Ewa_B2B_PKO.docx", new, new),
+    ]
+    assert svc.pick_document_cv(rows, "Nordea Bank Abp") == 100
+    assert svc.pick_document_cv(rows, "Bank Pocztowy") == 120
+    assert svc.pick_document_cv(rows, None) == 120
+    # Bez daty wgrania liczy się data założenia, remis rozstrzyga id.
+    assert svc.pick_document_cv([(7, "B2B.docx", None, old), (8, "B2B.docx", None, old)], None) == 8
+    assert svc.pick_document_cv([], "Nordea") is None
+
+
 def test_parse_hints_drops_quotes_not_found_in_either_cv() -> None:
     material = {"generated": "Programista **Java**", "original": "Java Kubernetes"}
     raw = json.dumps(
@@ -503,9 +522,11 @@ async def test_client_cv_made_outside_the_generator_comes_from_the_b2b_file(
                 )
             )
             data = _client_docx()
+            # Runda 8 (R8-N8-1): plik klienta jest STARSZY niż plik „Inny" —
+            # kolejka Cpro brała najnowszy, QC plik z nazwą klienta.
             for name in (
-                "Ewa_B2B_Inny.docx",
                 "Ewa_B2B_Nordea.docx",
+                "Ewa_B2B_Inny.docx",
                 "Ewa_oryginal.pdf",
             ):
                 db.add(
@@ -523,6 +544,12 @@ async def test_client_cv_made_outside_the_generator_comes_from_the_b2b_file(
         assert cv["bold_known"] is True
         checks = {c["label"]: c for c in body["checks"]}
         assert checks["Java"]["bolded"] is True
+        from app.services.move_requirements import company_cv_refs
+
+        pair = (world["candidate_id"], world["job_id"])
+        async with AsyncSessionLocal() as db:
+            refs = await company_cv_refs(db, [pair])
+        assert refs[pair]["document_id"] == cv["document_id"]
     finally:
         async with AsyncSessionLocal() as db:
             await db.execute(

@@ -749,40 +749,73 @@ def _client_token(client_name: Optional[str]) -> Optional[str]:
     return words[0].casefold() if words else None
 
 
+# Runda 8 (R8-N8-1): JEDNA reguła wyboru pliku „…B2B…" — QC CV czyta nią
+# plik do oceny, a kolejka Cpro i wymagania przejścia (`move_requirements.
+# company_cv_refs`) wskazują nią plik do pobrania. Do rundy 8 kolejka brała
+# najnowszy plik po id, bez nazwy klienta: osoba od Cpro pobierała CV
+# przygotowane pod innego klienta niż to, które przeszło QC.
+_NOT_CV_DOCUMENT_KINDS = ("cover_letter", "certificate")
+
+
+def document_cv_conditions() -> list[Any]:
+    """Warunki pliku kandydata, który może być CV dla klienta spoza generatora."""
+
+    from app.models.candidate_document import CandidateDocument
+
+    return [
+        CandidateDocument.filename.ilike("%b2b%"),
+        CandidateDocument.source_deleted_at.is_(None),
+        CandidateDocument.document_kind.notin_(_NOT_CV_DOCUMENT_KINDS),
+    ]
+
+
+def pick_document_cv(rows: Any, client_name: Optional[str]) -> Optional[int]:
+    """Id pliku „…B2B…" dla klienta z wierszy ``(id, filename, uploaded_at,
+    created_at)`` jednego kandydata: najpierw plik z nazwą klienta w nazwie,
+    potem najnowszy (``uploaded_at``, a bez niej ``created_at``), potem id."""
+
+    token = _client_token(client_name)
+
+    def key(row: Any) -> tuple:
+        doc_id, filename, uploaded_at, created_at = row
+        stamp = uploaded_at or created_at
+        miss = 0 if token and token in (filename or "").casefold() else 1
+        return (
+            miss,
+            -stamp.timestamp() if stamp is not None else float("inf"),
+            -doc_id,
+        )
+
+    ordered = sorted(rows, key=key)
+    return ordered[0][0] if ordered else None
+
+
 async def _document_cv(
     db: AsyncSession, candidate_id: int, client_name: Optional[str]
 ) -> Optional[dict]:
     """CV dla klienta przygotowane POZA generatorem: plik „…B2B…" kandydata.
 
-    Najpierw plik z nazwą klienta w nazwie, potem najnowszy. PDF daje sam
-    tekst — pogrubień z niego nie odczytamy (``bold_known = False``).
+    Wybór pliku: ``pick_document_cv``. PDF daje sam tekst — pogrubień z niego
+    nie odczytamy (``bold_known = False``).
     """
-
-    from sqlalchemy import case, func
 
     from app.models.candidate_document import CandidateDocument
 
-    token = _client_token(client_name)
-    order = [
-        func.coalesce(
-            CandidateDocument.uploaded_at, CandidateDocument.created_at
-        ).desc(),
-        CandidateDocument.id.desc(),
-    ]
-    if token:
-        order.insert(
-            0, case((CandidateDocument.filename.ilike(f"%{token}%"), 0), else_=1)
+    rows = (
+        await db.execute(
+            select(
+                CandidateDocument.id,
+                CandidateDocument.filename,
+                CandidateDocument.uploaded_at,
+                CandidateDocument.created_at,
+            ).where(
+                CandidateDocument.candidate_id == candidate_id,
+                *document_cv_conditions(),
+            )
         )
-    doc = await db.scalar(
-        select(CandidateDocument)
-        .where(
-            CandidateDocument.candidate_id == candidate_id,
-            CandidateDocument.filename.ilike("%b2b%"),
-            CandidateDocument.source_deleted_at.is_(None),
-        )
-        .order_by(*order)
-        .limit(1)
-    )
+    ).all()
+    doc_id = pick_document_cv(rows, client_name)
+    doc = await db.get(CandidateDocument, doc_id) if doc_id is not None else None
     if doc is None:
         return None
     content: Optional[bytes] = None

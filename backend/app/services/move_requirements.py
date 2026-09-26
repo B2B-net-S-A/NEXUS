@@ -523,28 +523,56 @@ async def company_cv_refs(
 
     missing = [p for p in wanted if p not in out]
     if missing:
+        # Runda 8 (R8-N8-1): plik wybiera ta sama reguła co QC CV
+        # (`dz_review.pick_document_cv` — nazwa klienta rekrutacji w nazwie
+        # pliku, potem najnowszy), inaczej kolejka Cpro dawała do pobrania
+        # inny plik niż ten, który przeszedł QC.
+        from app.models.client import Client  # noqa: PLC0415
+        from app.models.job import Job  # noqa: PLC0415
+        from app.services.dz_review import (  # noqa: PLC0415
+            document_cv_conditions,
+            pick_document_cv,
+        )
+
         candidate_ids = sorted({c for c, _ in missing})
         documents = (
             await db.execute(
-                select(CandidateDocument.candidate_id, CandidateDocument.id)
-                .where(
+                select(
+                    CandidateDocument.candidate_id,
+                    CandidateDocument.id,
+                    CandidateDocument.filename,
+                    CandidateDocument.uploaded_at,
+                    CandidateDocument.created_at,
+                ).where(
                     CandidateDocument.candidate_id.in_(candidate_ids),
-                    CandidateDocument.filename.ilike("%b2b%"),
-                    CandidateDocument.source_deleted_at.is_(None),
+                    *document_cv_conditions(),
                 )
-                .order_by(CandidateDocument.id.desc())
             )
         ).all()
-        latest: dict[int, int] = {}
-        for cand, doc_id in documents:
-            latest.setdefault(cand, doc_id)
+        by_candidate: dict[int, list[tuple]] = {}
+        for cand, doc_id, filename, uploaded_at, created_at in documents:
+            by_candidate.setdefault(cand, []).append(
+                (doc_id, filename, uploaded_at, created_at)
+            )
+        client_names: dict[int, Optional[str]] = {}
+        job_ids = sorted({j for c, j in missing if c in by_candidate})
+        if job_ids:
+            for job_id, display_name, name in (
+                await db.execute(
+                    select(Job.id, Client.display_name, Client.name)
+                    .join(Client, Client.id == Job.client_id)
+                    .where(Job.id.in_(job_ids))
+                )
+            ).all():
+                client_names[job_id] = display_name or name
         for cand, job in missing:
-            if cand in latest:
+            doc_id = pick_document_cv(by_candidate.get(cand, []), client_names.get(job))
+            if doc_id is not None:
                 out[(cand, job)] = {
                     "source": "document",
                     "stage_id": None,
                     "generated_document_id": None,
-                    "document_id": latest[cand],
+                    "document_id": doc_id,
                 }
     return out
 
