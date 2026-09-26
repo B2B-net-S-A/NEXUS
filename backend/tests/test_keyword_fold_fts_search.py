@@ -226,6 +226,22 @@ async def test_folded_finds_polish_city_in_cv(app_client, app_auth_headers, fold
 
 
 @pytest.mark.asyncio
+async def test_folded_scope_cv_reads_polish_letters(
+    app_client, app_auth_headers, folded
+):
+    """Zakres „CV” też bez polskich znaków (badanie 26.09.2026: „lodz” w CV
+    1 429 osób, „łódź” 2 130; „zarzadzanie” 171 wobec 12 035) — indeks
+    znajdował wiersz, a regex pola odrzucał go przez „ł” i „ó”."""
+    for word in ("lodz", "łódź"):
+        assert "cvcity" in await _keys(
+            app_client, app_auth_headers, q_any_group=word, q_scope="cv"
+        )
+    assert "cvcity" not in await _keys(
+        app_client, app_auth_headers, q_any_group="lodz", q_scope="title"
+    )
+
+
+@pytest.mark.asyncio
 async def test_folded_splits_slash(app_client, app_auth_headers, folded):
     assert "agile" in await _keys(app_client, app_auth_headers, q_any_group="scrum")
     assert "agile" in await _keys(app_client, app_auth_headers, q_any_group="ci/cd")
