@@ -7185,6 +7185,47 @@ zacznij od `docs/audits/2026-09-25/README.md`, zanim zrobisz kolejny audyt).
 - `?tab=portals` otwiera okno zlecenia z rozwiniętą sekcją „Portale ogłoszeniowe”
   (`wintab=portals`).
 
+### Runda 6 (26.09.2026, po PR #1849)
+
+Raport: `docs/audits/2026-09-25/runda-6.md` (19 agentów audytu, 15 naprawczych).
+
+- **Kolumna JSONB czytana przez `is_(None)` ma `none_as_null=True`** (albo predykat
+  `jsonb_typeof(...) = 'null'`) — domyślnie `None` zapisuje JSON `null`, którego
+  `IS NULL` nie widzi (formuła Nordei nie wracała do pętli).
+- **Podpis Outlooka** (`m365/signature_cache.py`): pierwszy znacznik podpisu,
+  ucięcie na pierwszym znaczniku cytatu, podpis z cudzym adresem e-mail = brak
+  podpisu. Brak podpisu jest bezpieczniejszy niż cytat innej rozmowy w mailu do
+  kandydata.
+- **Usunięcie kandydata** zostawia nagrobek `purged_candidates` (źródło + HMAC
+  `external_id`, bez danych osobowych; klucz `CANDIDATE_IDENTITY_FINGERPRINT_KEY`),
+  który import Traffita czyta przed upsertem i adopcją po mailu. Kasuje też
+  wygenerowane CV (z plikiem zgody), powiadomienia o osobie (także linki
+  `/candidates/{id}` innych typów), odwołuje przyszłe prepy/follow-upy w Teams
+  po commicie i anonimizuje jej wydarzenia kalendarza
+  (`services/candidate_erasure_leftovers.py`, `followup_meetings.erase_candidate_meetings`).
+  Scalanie nagrobka NIE stawia. CV odpięte od osoby (`mode='new'` albo ze
+  `stage_id`) nie są wydawane żadną trasą.
+- **Pamięć nocnego przeglądu bazy** żyje we wpisie „Praca w tle”
+  `auto_full_review_finished` (`run_created_at`, `fingerprint`), bo retencja
+  kasuje przegląd po 2 dniach. Przegląd `failed` albo bez wektora zapytania nie
+  zamyka zdarzenia. Automaty (nocny przegląd, propozycje z nowych CV, „Moi
+  ludzie”) biorą tylko `request_work_state.IN_WORK_STATES`.
+- **Backfill odrzuceń z Traffita** łączy `activity_date` jako czas warszawski
+  (i stary odczyt UTC dla wierszy sprzed #1730). Po zmianie parsera czasu grep
+  każdego SQL-a łączącego po tym znaczniku.
+- **Plik z Traffita zdejmuje „główne CV” wyłącznie z innych kopii z Traffita.**
+- **Walidacja w PATCH po zmianie WARTOŚCI, nie po kluczu żądania** (`update_job`:
+  DL, TAC, klient; unieważnienie rankingu) — okna edycji odsyłają komplet pól.
+- **Logi:** `httpx`/`httpcore` na WARNING; redakcja adresów Slacka, iCal, `%40`
+  i wartości `email`/`phone`/`q…`/nazwisk w query; nazwy plików i klucze
+  magazynu przez `core/log_safety` (strażnik AST `test_log_pii_filenames_keys.py`).
+  Workflowy nie drukują wyników z produkcji z nazwiskami ani kluczy CV; joby
+  przeciw produkcji nie wgrywają raportu Playwright.
+- **CPU po tysiącach wierszy w `async def` idzie do `asyncio.to_thread` z
+  single-flight** (ranking praktykantów, „Podobne rekrutacje”).
+- **Zapytania DL w Insights liczą się od `COALESCE(opened_at, created_at)`** —
+  `created_at` rekrutacji z Traffita to data importu.
+
 ## Narzędzia rekrutera — reguły po audycie 17.09.2026
 
 Audyt `docs/recruiter-tools-audit-2026-09-17.md`, raport z poprawek
