@@ -207,6 +207,27 @@ async def import_ical_url(
         result.errors += 1
         result.error_samples.append(f"fetch: {e}")
         return result
+    except httpx.HTTPStatusError as e:
+        # Treść i traceback HTTPStatusError niosą PEŁNY adres kalendarza
+        # („… for url 'https://…/private-…/basic.ics'”), a adres to sekret —
+        # do logu (i Sentry) idzie tylko kod HTTP i klasa (runda 6 audytu).
+        logger.warning(
+            "iCal fetch failed for host=%s: HTTP %s (%s)",
+            _mask_host(url),
+            e.response.status_code,
+            type(e).__name__,
+        )
+        result.errors += 1
+        result.error_samples.append(f"fetch: HTTP {e.response.status_code}")
+        return result
+    except httpx.HTTPError as e:
+        # Pozostałe błędy httpx (np. InvalidURL) też bywają z adresem w treści.
+        logger.warning(
+            "iCal fetch failed for host=%s (%s)", _mask_host(url), type(e).__name__
+        )
+        result.errors += 1
+        result.error_samples.append("fetch: unexpected error")
+        return result
     except Exception:  # noqa: BLE001
         logger.exception("iCal fetch failed for host=%s", _mask_host(url))
         result.errors += 1

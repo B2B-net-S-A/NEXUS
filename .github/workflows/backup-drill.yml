@@ -301,7 +301,11 @@ jobs:
             [ -n "$key" ] || continue
             total=$((total + 1))
             if ! rclone size "${DEST}/${key}" --json >/dev/null 2>&1; then
-              echo "MISSING: ${key}"
+              # Klucz to cv/RRRR/MM/<uuid>-<oryginalna nazwa pliku>, czyli zwykle
+              # imię i nazwisko kandydata — a log Actions jest publiczny. Tylko
+              # skrót klucza (12 znaków sha256), po nim da się go znaleźć w bazie
+              # drilla (runda 6 audytu).
+              echo "MISSING: sha256=$(printf '%s' "$key" | sha256sum | cut -c1-12)"
               missing=$((missing + 1))
             fi
           done < /tmp/keys.txt

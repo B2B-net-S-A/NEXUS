@@ -22,6 +22,7 @@ import os
 from dataclasses import dataclass
 from typing import Optional
 
+from app.core.log_safety import safe_filename
 from app.services.cv_text_extractor import (
     _OCR_FALLBACK_THRESHOLD_CHARS,
     _extract_pdf_native,
@@ -93,7 +94,7 @@ def extract_order_text(path: str, filename: str) -> OrderDocumentText:
             logger.info(
                 "[order_document_text] letter-spaced text (ratio %.2f) on %s — using pdfminer",
                 ratio,
-                filename,
+                safe_filename(filename),  # runda 6 audytu: bywa z nazwiskiem konsultanta
             )
             text = alt
             reextracted = "pdfminer"

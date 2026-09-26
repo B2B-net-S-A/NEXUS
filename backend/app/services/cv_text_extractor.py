@@ -29,6 +29,8 @@ import os
 import re
 from typing import Optional
 
+from app.core.log_safety import safe_filename
+
 logger = logging.getLogger(__name__)
 
 
@@ -263,7 +265,8 @@ def _resolve_extension(file_path: str, filename: str) -> str:
     if sniffed and sniffed != declared:
         logger.info(
             "[cv_text_extractor] %s declared %r but content is %r — using content",
-            filename or file_path,
+            # runda 6 audytu: nazwa pliku CV to zwykle imię i nazwisko
+            safe_filename(filename or file_path),
             declared,
             sniffed,
         )

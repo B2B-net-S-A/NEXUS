@@ -38,6 +38,7 @@ from app.services.cv_text_extractor import (
     sniff_extension,
 )
 from app.services.object_storage import download_cv, is_available
+from app.core.log_safety import safe_storage_key
 
 logger = logging.getLogger("cv_text_backfill")
 
@@ -160,7 +161,10 @@ def extract_one(storage_key: str, filename: str | None) -> ExtractionResult:
     try:
         blob = download_cv(storage_key)
     except Exception as exc:  # noqa: BLE001 — network/storage errors are retryable
-        logger.warning("[download] %s: %s", storage_key, exc)
+        # Klucz bez nazwy pliku CV, błąd tylko klasą (runda 6 audytu).
+        logger.warning(
+            "[download] %s: %s", safe_storage_key(storage_key), type(exc).__name__
+        )
         return ExtractionResult("download_failed")
     if not blob:
         return ExtractionResult("no_file")
@@ -177,7 +181,9 @@ def extract_one(storage_key: str, filename: str | None) -> ExtractionResult:
     except UnsupportedCvFormat:
         return ExtractionResult("unsupported_format")
     except Exception as exc:  # noqa: BLE001
-        logger.warning("[extract] %s: %s", storage_key, exc)
+        logger.warning(
+            "[extract] %s: %s", safe_storage_key(storage_key), type(exc).__name__
+        )
         return ExtractionResult("error")
     finally:
         try:
