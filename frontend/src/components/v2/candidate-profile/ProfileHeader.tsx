@@ -53,7 +53,7 @@ import { CandidateProfileFactsBar } from "@/components/v2/pages/CandidateProfile
 import { IdentityEditor } from "@/components/v2/pages/CandidateIdentityEditor";
 import { getCandidateInitials } from "@/components/v2/pages/candidate-list-helpers";
 import { CandidateTagsEditor } from "./CandidateTagsEditor";
-import { candidateHeadline, pickHeaderWarning } from "./profile-helpers";
+import { candidateHeadline, linkedinHref, pickHeaderWarning } from "./profile-helpers";
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- payload kandydata jest luźno typowany */
 
@@ -239,9 +239,9 @@ export function ProfileHeader({
                   ) : candidate.phone ? (
                     <span className="inline-flex items-center gap-1.5">{candidate.phone}</span>
                   ) : null}
-                  {candidate.linkedin_url ? (
+                  {linkedinHref(candidate.linkedin) ? (
                     <a
-                      href={candidate.linkedin_url}
+                      href={linkedinHref(candidate.linkedin) ?? undefined}
                       target="_blank"
                       rel="noreferrer"
                       className="inline-flex min-h-11 min-w-11 items-center gap-1.5 hover:text-primary"
