@@ -36,6 +36,8 @@ from app.models.job import Job
 from app.models.user import UserRole
 from app.services import candidate_claim
 from app.services import job_similarity as sim
+from app.services.recruitment_allocation import allocation_lock
+from app.services.request_allocation import restore_after_champion_removed
 
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 
@@ -461,13 +463,25 @@ async def set_champion_found(
         )
     await _job(db, user, job_id)
     await ensure_job_membership(db, user, job_id)
+    # Kolejność blokad jak na pulpicie: przydział → rekrutacja.
+    await allocation_lock(db)
     job = await db.get(Job, job_id, with_for_update=True)
     if job is None:
         raise HTTPException(404, "Rekrutacja nie istnieje")
     changed = (job.champion_found_at is not None) != body.found
     if changed:
-        job.champion_found_at = datetime.now(timezone.utc) if body.found else None
+        now = datetime.now(timezone.utc)
+        champion_since = job.champion_found_at
+        job.champion_found_at = now if body.found else None
         job.champion_found_by = user.id if body.found else None
+        # Runda 8 (R8-N7-5): „Mamy championa” to widoczna zmiana stanu
+        # requestu — ręczne zdjęcia sprzed niej przestają blokować powrót
+        # osoby, a jego zdjęcie przywraca ludzi dodanych ręcznie.
+        job.work_state_changed_at = now
+        if not body.found:
+            await restore_after_champion_removed(
+                db, job_id=job_id, champion_since=champion_since, now=now
+            )
         db.add(
             Activity(
                 entity_type="job",

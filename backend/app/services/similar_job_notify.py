@@ -3,8 +3,8 @@
 Gdy powstaje nowy request, sprawdzamy (w background tasku, po wygenerowaniu
 embeddingu) czy istnieją semantycznie podobne historyczne requesty (Tier A,
 cosine >= 0.70), na których kandydaci doszli do etapów klienckich
-(``CLIENT_FACING_STAGES``). Jeśli tak — recruiter/TAC/twórca joba dostają
-in-app notyfikację z deep-linkiem do sekcji „Kandydaci z podobnych projektów"
+(``CLIENT_FACING_STAGES``). Jeśli tak — prowadzący i twórca joba (bez nich
+DL rekrutacji) dostają in-app notyfikację z deep-linkiem do sekcji „Kandydaci z podobnych projektów"
 (`/jobs/{id}?tab=similar`), skąd przepinają ludzi jednym bulk-klikiem.
 
 Zasady anty-szumowe:
@@ -33,7 +33,11 @@ from app.core.database import AsyncSessionLocal
 from app.models.candidate import AvailabilityStatus, Candidate
 from app.models.job import Job
 from app.models.notification import NotificationType
-from app.services.notification_triggers import emit
+from app.services.notification_triggers import (
+    _delivery_lead_targets,
+    _operational_recipient,
+    emit,
+)
 from app.services.pipeline_eligibility import filter_eligible_candidates
 from app.services.similar_job_candidates import (
     CLIENT_FACING_STAGES,
@@ -184,7 +188,7 @@ async def notify_similar_job_candidates(db: AsyncSession, job_id: int) -> int:
         1 for (status,) in avail_rows.all() if status in _AVAILABLE_STATUSES
     )
 
-    recipients = {job.recruiter_id, job.tac_id, job.created_by} - {None}
+    recipients = await _recipients(db, job)
     if not recipients:
         return 0
 
@@ -204,6 +208,24 @@ async def notify_similar_job_candidates(db: AsyncSession, job_id: int) -> int:
         if result is not None:
             emitted += 1
     return emitted
+
+
+async def _recipients(db: AsyncSession, job: Job) -> list[int]:
+    """Prowadzący i twórca rekrutacji — każdy przez zastępstwo z COMPASS.
+
+    Runda 8 (R8-X1-6): konto nieaktywne to brak osoby. Gdy nie zostaje nikt,
+    dzwonek idzie do DL-a rekrutacji (a bez niego do Head of Recruitment),
+    zamiast przepaść w ``emit``. TAC wypadł z adresatów — funkcji TAC nie
+    używamy (decyzja Artura 22.09.2026).
+    """
+    out: list[int] = []
+    for owner in (job.recruiter_id, job.created_by):
+        performer = await _operational_recipient(db, [owner])
+        if performer is not None and performer not in out:
+            out.append(performer)
+    if out:
+        return out
+    return await _delivery_lead_targets(db, job)
 
 
 async def run_similar_job_notify_safe(job_id: int) -> None:

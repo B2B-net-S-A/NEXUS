@@ -45,6 +45,7 @@ RELEASE_REASONS = {
     "owner_changed": "Zmiana prowadzącego",
     "manual": "Zdjęte ręcznie",
     "inactive": "Konto nieaktywne",
+    "mode_off": "Automat wyłączony",
 }
 
 
@@ -170,10 +171,34 @@ def choose_person(
     return min(capable, key=key)
 
 
+def _off_mode_releases(data: PlanInput) -> list[Change]:
+    """Tryb ``off`` nie przydziela, ale domyka (runda 8, R8-N7-4).
+
+    Bez tego propozycja trybu podglądu przy zamkniętym requeście żyła bez
+    końca: filtr „Kto pracuje” ją liczył, pulpit pokazywał „propozycję
+    automatu” przy wyłączonym automacie, a po powrocie do ``auto`` była
+    aktywowana bez ponownej oceny. Zwalniamy: wyjście z puli, martwe konto
+    i każdą propozycję automatu.
+    """
+    pool = {r.job_id for r in data.requests}
+    changes: list[Change] = []
+    for row in sorted(data.live, key=lambda r: (r.job_id, r.user_id)):
+        if row.job_id not in pool:
+            reason = data.out_of_pool.get(row.job_id, "finished")
+        elif row.user_id in data.inactive_ids:
+            reason = "inactive"
+        elif row.state == "proposed":
+            reason = "mode_off"
+        else:
+            continue
+        changes.append(Change("release", row.job_id, row.user_id, row.role, reason))
+    return changes
+
+
 def plan_assignments(data: PlanInput) -> list[Change]:
     """Zmiany do zapisania. Czysta funkcja — kolejność wyniku jest stabilna."""
     if data.mode == "off":
-        return []
+        return _off_mode_releases(data)
     changes: list[Change] = []
     people = {p.user_id: p for p in data.people}
     pool = {r.job_id: r for r in data.requests}

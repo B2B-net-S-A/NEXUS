@@ -289,6 +289,32 @@ def test_off_mode_changes_nothing() -> None:
 
 
 @pytest.mark.unit
+def test_off_mode_still_closes_what_is_over() -> None:
+    """Runda 8 (R8-N7-4): ``off`` nie przydziela, ale zwalnia propozycje,
+    przypisania przy requestach spoza puli i martwe konta."""
+    live = [
+        LiveAssignment(1, 11, "recruiter", "auto", "proposed"),
+        LiveAssignment(1, 12, "recruiter", "manual", "active"),
+        LiveAssignment(1, 13, "recruiter", "manual", "active"),
+        LiveAssignment(2, 12, "recruiter", "owner", "active"),
+    ]
+    changes = plan_assignments(
+        PlanInput(
+            requests=[req(1)],
+            people=[recruiter(11), recruiter(12)],
+            live=live,
+            out_of_pool={2: "finished"},
+            inactive_ids=frozenset({13}),
+            mode="off",
+        )
+    )
+    assert {(c.kind, c.job_id, c.user_id, c.reason) for c in changes} == {
+        ("release", 1, 11, "mode_off"),
+        ("release", 1, 13, "inactive"),
+        ("release", 2, 12, "finished"),
+    }
+
+@pytest.mark.unit
 def test_request_without_category_goes_to_the_least_loaded_person() -> None:
     uncategorised = RequestInfo(
         job_id=5,

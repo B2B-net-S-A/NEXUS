@@ -316,6 +316,7 @@ async def _adopt_owners(
             )
         ).all()
     )
+    auto_owned = await _last_assignment_was_auto(db, owners)
     adopted = 0
     for job_id, user_id in owners:
         pair = (job_id, user_id)
@@ -326,7 +327,12 @@ async def _adopt_owners(
                 job_id=job_id,
                 user_id=user_id,
                 role="recruiter",
-                source="owner",
+                # Runda 8 (R8-N7-3): prowadzący, którego wpisał automat, wraca
+                # po powrocie requestu do puli jako wiersz automatu — planer
+                # zwolni go za urlop jak każdego innego. Wiersz ``owner`` nie
+                # jest zwalniany nigdy, więc request stał „pokryty” przez osobę
+                # na urlopie tylko dlatego, że wcześniej na chwilę wyszedł z puli.
+                source="auto" if pair in auto_owned else "owner",
                 state="active",
                 assigned_at=now,
             )
@@ -334,6 +340,44 @@ async def _adopt_owners(
         adopted += 1
     await db.flush()
     return {"owner_released": stale.rowcount or 0, "owner_adopted": adopted}
+
+
+async def _last_assignment_was_auto(
+    db: AsyncSession, pairs: list[tuple[int, int]]
+) -> frozenset[tuple[int, int]]:
+    """Pary (request, osoba), których NAJNOWSZY wiersz to aktywny rekruter
+    automatu — czyli prowadzący wpisany przez ``_set_owner_if_empty``."""
+    if not pairs:
+        return frozenset()
+    rows = (
+        await db.execute(
+            select(
+                JobWorkAssignment.job_id,
+                JobWorkAssignment.user_id,
+                JobWorkAssignment.source,
+                JobWorkAssignment.role,
+            )
+            .where(
+                JobWorkAssignment.job_id.in_(sorted({job for job, _ in pairs})),
+                JobWorkAssignment.released_at.is_not(None),
+            )
+            .distinct(JobWorkAssignment.job_id, JobWorkAssignment.user_id)
+            .order_by(
+                JobWorkAssignment.job_id,
+                JobWorkAssignment.user_id,
+                JobWorkAssignment.assigned_at.desc(),
+                JobWorkAssignment.id.desc(),
+            )
+        )
+    ).all()
+    wanted = set(pairs)
+    return frozenset(
+        (row.job_id, row.user_id)
+        for row in rows
+        if (row.job_id, row.user_id) in wanted
+        and row.source == "auto"
+        and row.role == "recruiter"
+    )
 
 
 async def _live(
@@ -470,10 +514,18 @@ async def _clear_auto_owner(db: AsyncSession, job_id: int, user_id: int) -> None
 
 
 async def _set_owner_if_empty(db: AsyncSession, job_id: int, user_id: int) -> None:
+    # Runda 8 (R8-N7-2): prowadzący z nieaktywnym kontem to brak prowadzącego.
+    # Samo ``IS NULL`` zostawiało „Prowadzi” przy osobie, której już nie ma,
+    # a rekruter dobrany przez automat nie widział requestu w „Moje”.
+    inactive = select(User.id).where(User.is_active.is_(False))
     await db.execute(
         update(Job)
-        .where(Job.id == job_id, Job.recruiter_id.is_(None))
+        .where(
+            Job.id == job_id,
+            or_(Job.recruiter_id.is_(None), Job.recruiter_id.in_(inactive)),
+        )
         .values(recruiter_id=user_id)
+        .execution_options(synchronize_session=False)
     )
 
 
@@ -663,6 +715,69 @@ async def manual_remove(db: AsyncSession, *, job_id: int, user_id: int) -> bool:
     ):
         await _clear_auto_owner(db, job_id, user_id)
     return True
+
+
+async def restore_after_champion_removed(
+    db: AsyncSession, *, job_id: int, champion_since: Optional[datetime], now: datetime
+) -> int:
+    """Zdjęcie „Mamy championa” oddaje requestowi ludzi dodanych ręcznie.
+
+    Runda 8 (R8-N7-5): champion zwalniał wszystkich — także osoby dodane
+    ręcznie z pulpitu — a jego zdjęcie (np. pomyłkowe oznaczenie) nikogo nie
+    przywracało; automat dobierał od nowa według obciążenia. Wracają wiersze
+    ``manual`` zwolnione z powodem ``champion`` od chwili oznaczenia, jeśli
+    konto jest aktywne i para nie żyje już inaczej. Wołający trzyma
+    ``allocation_lock`` (przed blokadą rekrutacji).
+    """
+    conditions = [
+        JobWorkAssignment.job_id == job_id,
+        JobWorkAssignment.state == "released",
+        JobWorkAssignment.source == "manual",
+        JobWorkAssignment.release_reason == "champion",
+    ]
+    if champion_since is not None:
+        conditions.append(JobWorkAssignment.released_at >= champion_since)
+    rows = (
+        await db.execute(
+            select(
+                JobWorkAssignment.user_id,
+                JobWorkAssignment.role,
+                JobWorkAssignment.assigned_by,
+            )
+            .join(User, User.id == JobWorkAssignment.user_id)
+            .where(*conditions, User.is_active.is_(True))
+            .order_by(JobWorkAssignment.released_at.desc(), JobWorkAssignment.id.desc())
+        )
+    ).all()
+    restored = 0
+    seen: set[int] = set()
+    for user_id, role, assigned_by in rows:
+        if user_id in seen:
+            continue
+        seen.add(user_id)
+        inserted = await db.scalar(
+            pg_insert(JobWorkAssignment)
+            .values(
+                job_id=job_id,
+                user_id=user_id,
+                role=role,
+                source="manual",
+                state="active",
+                assigned_at=now,
+                assigned_by=assigned_by,
+            )
+            .on_conflict_do_nothing(
+                index_elements=["job_id", "user_id"],
+                index_where=text("state <> 'released'"),
+            )
+            .returning(JobWorkAssignment.id)
+        )
+        if inserted is not None:
+            restored += 1
+            if role == "recruiter":
+                await _set_owner_if_empty(db, job_id, user_id)
+    await db.flush()
+    return restored
 
 
 def changed_since(now: datetime) -> datetime:

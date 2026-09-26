@@ -395,6 +395,35 @@ async def _waiting_processes(
         return {}
 
     cand_ids = sorted({r.candidate_id for r, _, _ in pairs})
+    # Runda 8 (R8-N7-1): właściciel procesu = pierwsza AKTYWNA osoba z łańcucha
+    # weryfikator → wysyłający CV → prowadzący. Wyłączone konto weryfikatora
+    # dawało „nikt nie dzwoni” i sygnał „rezygnuje” wysyłany w próżnię, choć
+    # wysyłający albo prowadzący pracują dalej.
+    chain_ids = {
+        uid
+        for r, _, _ in pairs
+        for uid in (r.verifier_id, r.sender_id, r.recruiter_id)
+        if uid is not None
+    }
+    active_ids = (
+        {
+            uid
+            for (uid,) in (
+                await db.execute(
+                    select(User.id).where(
+                        User.id.in_(sorted(chain_ids)), User.is_active.is_(True)
+                    )
+                )
+            ).all()
+        }
+        if chain_ids
+        else set()
+    )
+
+    def _owner(r) -> Optional[int]:
+        chain = [u for u in (r.verifier_id, r.sender_id, r.recruiter_id) if u]
+        return next((u for u in chain if u in active_ids), chain[0] if chain else None)
+
     events = (
         await db.execute(
             select(
@@ -459,7 +488,7 @@ async def _waiting_processes(
                 stage_name=name,
                 sent_at=r.sent_at,
                 silent_since=max(s for s in signals if s is not None),
-                owner_id=r.verifier_id or r.sender_id or r.recruiter_id,
+                owner_id=_owner(r),
             )
         )
     return out

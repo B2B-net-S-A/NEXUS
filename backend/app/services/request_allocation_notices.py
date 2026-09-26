@@ -24,6 +24,7 @@ from app.core.config import settings
 from app.models.job import Job, JobStatus
 from app.models.job_work_assignment import JobWorkAssignment
 from app.models.notification import NotificationType
+from app.services.job_working_title import job_display_title_expr
 from app.services.request_allocation_plan import RELEASE_REASONS
 
 REVIEW_LINK = "/jobs/review-states"
@@ -49,7 +50,7 @@ async def _assignment_notices(db: AsyncSession, *, now: datetime) -> int:
                 JobWorkAssignment.assigned_at,
                 JobWorkAssignment.released_at,
                 JobWorkAssignment.release_reason,
-                Job.title,
+                job_display_title_expr(),
             )
             .join(Job, Job.id == JobWorkAssignment.job_id)
             .where(
