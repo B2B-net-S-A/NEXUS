@@ -33,15 +33,15 @@ class VersionTrace:
 
 def current_version_trace() -> VersionTrace:
     """Resolve the live version trace from the running configuration."""
-    from app.core.config import settings
-    from app.services.canonical_text import TEXT_SCHEMA_V1, TEXT_SCHEMA_V2
+    from app.services.canonical_text import active_text_schema
     from app.services.scoring_service import scoring_algorithm_version
 
-    text_schema = (
-        TEXT_SCHEMA_V2
-        if getattr(settings, "AI_TEXT_SCHEMA_V2", False)
-        else TEXT_SCHEMA_V1
-    )
+    # Ta sama kolejność co dyspozytor tekstu kandydata
+    # (`embedding_service._build_candidate_text`): v3 wygrywa z v2. Do 26.09.2026
+    # ślad znał tylko v1/v2, więc przełączenie na v3 było w telemetrii i
+    # odciskach niewidoczne — wyniki z dwóch przestrzeni wektorów nosiły ten
+    # sam stempel.
+    text_schema = active_text_schema()
     return VersionTrace(
         ranker_version=scoring_algorithm_version(),
         index_version="index-legacy-v1",

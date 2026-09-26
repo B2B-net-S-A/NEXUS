@@ -154,7 +154,8 @@ def test_workflow_command_fits_coolifys_varchar_255():
     assert len(cmd_lines) == 1, cmd_lines
     template = cmd_lines[0].split('CMD="', 1)[1].rsplit('"', 1)[0]
     worst = (
-        template.replace("${ARMS}", "scorer")
+        # Najdłuższa nazwa ramion wysyłana przez workflow.
+        template.replace("${ARMS}", max(eval_ab_run.ARMS, key=len))
         .replace("${EVAL_SET}", "A")
         .replace("${EVAL_JOBS}", "50")
         .replace("${EVAL_POOL}", "5000")

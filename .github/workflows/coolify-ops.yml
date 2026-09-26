@@ -21,6 +21,11 @@ name: Coolify Ops
 #                                    (patrz job `eval` niżej — tam kryterium odczytu).
 #      action=eval-ab-scorer       → ten sam kanał, ale ramiona różnią się SCOREREM
 #                                    (legacy vs canonical) na tej samej puli.
+#      action=eval-ab-text         → ramiona różnią się WEKTOREM KANDYDATA: aktywna
+#                                    kolekcja (tekst v1) vs cień v3
+#                                    (docs/embedding-v3-ab-runbook.md).
+#      action=eval-ab-text-notes   → cień v3 vs cień v3 bez [NOTES] (kontrola
+#                                    przecieku etykiety z notatek).
 #   6. action=eval-read            → odczyt wyników zadania evalu bez kasowania go.
 #   7. action=eval-stop            → skasowanie zadania evalu, gdyby sprzątanie
 #                                    nie doszło do skutku (zawór bezpieczeństwa).
@@ -46,7 +51,7 @@ on:
       action:
         description: "What to do"
         type: choice
-        options: [app-mail-send-probe, app-mail-config-audit, release-config-audit, staging-status, candidate-index-audit, candidate-index-repair, list, cancel, cron-list, backup-status, client-lookup, migration-receipts, contract-merge-audit, contract-merge-apply, nexus-data-correction-audit, nexus-data-correction-apply, eval-ab, eval-ab-scorer, eval-read, eval-stop, eval-cv-quality, recover-cv-quality, inspect-cv-quality, cleanup-cv-quality, cv-generation-logs, startup-timing]
+        options: [app-mail-send-probe, app-mail-config-audit, release-config-audit, staging-status, candidate-index-audit, candidate-index-repair, list, cancel, cron-list, backup-status, client-lookup, migration-receipts, contract-merge-audit, contract-merge-apply, nexus-data-correction-audit, nexus-data-correction-apply, eval-ab, eval-ab-scorer, eval-ab-text, eval-ab-text-notes, eval-read, eval-stop, eval-cv-quality, recover-cv-quality, inspect-cv-quality, cleanup-cv-quality, cv-generation-logs, startup-timing]
         default: list
       index_audit_identity:
         description: "Reviewed audit RUN_ID-ATTEMPT (candidate-index-repair only)"
@@ -1204,7 +1209,7 @@ jobs:
   eval:
     name: Matching eval A/B (prod)
     # OPS-N05 (audyt 22.09.2026): sekrety produkcji tylko dla wersji tego pliku z maina.
-    if: ${{ github.ref == 'refs/heads/main' && (inputs.action == 'eval-ab' || inputs.action == 'eval-ab-scorer' || inputs.action == 'eval-read' || inputs.action == 'eval-stop') }}
+    if: ${{ github.ref == 'refs/heads/main' && (inputs.action == 'eval-ab' || inputs.action == 'eval-ab-scorer' || inputs.action == 'eval-ab-text' || inputs.action == 'eval-ab-text-notes' || inputs.action == 'eval-read' || inputs.action == 'eval-stop') }}
     runs-on: ubuntu-latest
     # Budżet wyprowadzony z jedynego znanego punktu odniesienia: cotygodniowy
     # strażnik (app/tasks/weekly_eval.py) daje 3600 s JEDNEMU biegowi na tych
@@ -1233,11 +1238,11 @@ jobs:
       # z pierwszą przy najbliższej zmianie, a porównywalność między pomiarami
       # opiera się właśnie na tym, że ten zbiór NIE dryfuje.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: inputs.action == 'eval-ab' || inputs.action == 'eval-ab-scorer'
+        if: inputs.action == 'eval-ab' || inputs.action == 'eval-ab-scorer' || inputs.action == 'eval-ab-text' || inputs.action == 'eval-ab-text-notes'
 
       - name: Odpal jednorazowy A/B
         id: ab
-        if: inputs.action == 'eval-ab' || inputs.action == 'eval-ab-scorer'
+        if: inputs.action == 'eval-ab' || inputs.action == 'eval-ab-scorer' || inputs.action == 'eval-ab-text' || inputs.action == 'eval-ab-text-notes'
         env:
           EVAL_SET: ${{ inputs.eval_set }}
           EVAL_JOBS: ${{ inputs.eval_jobs }}
@@ -1281,7 +1286,12 @@ jobs:
           # eval-ab-scorer = ta sama pula, scorer legacy vs canonical —
           # kryterium odczytu w komentarzu nad jobem `eval`.
           LOCK="/tmp/nexus-eval-${GITHUB_RUN_ID}"
-          if [ "$EVAL_MODE" = "eval-ab-scorer" ]; then ARMS=scorer; else ARMS=hybrid; fi
+          case "$EVAL_MODE" in
+            eval-ab-scorer) ARMS=scorer;;
+            eval-ab-text) ARMS=text;;
+            eval-ab-text-notes) ARMS=text-notes;;
+            *) ARMS=hybrid;;
+          esac
           case "$EVAL_SET" in A|B) ;; *) echo "::error::eval_set musi być A albo B"; exit 1;; esac
           CMD="cd /app && python -m scripts.eval_ab_run --arms ${ARMS} --set ${EVAL_SET} --jobs ${EVAL_JOBS} --pool ${EVAL_POOL} --lock ${LOCK}"
           if [ "${#CMD}" -gt 255 ]; then
@@ -1354,7 +1364,9 @@ jobs:
           echo ""
           echo "$msg"
           echo ""
-          if [ "$EVAL_MODE" = "eval-ab-scorer" ]; then
+          if [ "$EVAL_MODE" = "eval-ab-text" ] || [ "$EVAL_MODE" = "eval-ab-text-notes" ]; then
+            echo "::notice::A/B tekstu embeddingu: oba ramiona na scorerze canonical i tej samej puli; różni się wyłącznie kolekcja wektorów kandydatów. Decyzja wg docs/embedding-v3-ab-runbook.md (żadna metryka nie może spaść). Kolumna GT indexed musi być podobna w obu ramionach — inaczej delta mierzy pokrycie cienia, nie tekst."
+          elif [ "$EVAL_MODE" = "eval-ab-scorer" ]; then
             echo "::notice::A/B scorera: OFF=legacy (kontrola — musi odtworzyć baseline P@5 0.248 / R@20n 0.199 na zbiorze A, pula 2000), ON=canonical na tej samej puli. Nagłówki raportów muszą mówić 'Scorer: legacy' i 'Scorer: canonical', a 'Voyage API key configured: yes'."
           else
             echo "::notice::Zanim przeczytasz deltę: OFF musi odtworzyć baseline (P@5 0.248 / R@20n 0.199), sekcja BM25-ON musi mieć bm25=<n> z n>0, a raport 'Voyage API key configured: yes'."
@@ -1364,7 +1376,7 @@ jobs:
       # z anulowaniem workflow: zostawiony cron odpalałby się co minutę na
       # produkcji (blokada `mkdir` powstrzyma drugi eval, ale nie sam cron).
       - name: Skasuj zadanie jednorazowe
-        if: ${{ always() && (inputs.action == 'eval-ab' || inputs.action == 'eval-ab-scorer') }}
+        if: ${{ always() && (inputs.action == 'eval-ab' || inputs.action == 'eval-ab-scorer' || inputs.action == 'eval-ab-text' || inputs.action == 'eval-ab-text-notes') }}
         env:
           AB_OUTCOME: ${{ steps.ab.outcome }}
         run: |
