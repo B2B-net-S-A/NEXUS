@@ -93,6 +93,7 @@ import api, {
   type B2BUopCheckResult,
   type AgreementTerminationMode,
 } from "@/lib/api";
+import { readDocumentError } from "@/lib/b2b-documents";
 import { downloadBlob, parseDispositionFilename } from "@/lib/cv-generator";
 import { hasActionAccess } from "@/lib/action-access";
 import { hasSectionAccess } from "@/lib/section-access";
@@ -240,6 +241,8 @@ type LookupStatus = "idle" | "loading" | "ok" | "none";
 type RateStageForm = { rate: string; from: string; to: string };
 
 const MAX_RATE_STAGES = 6;
+/** Kod 409 z `/render`: numer umowy zajęty (lustro `_NUMBER_TAKEN_CODE`). */
+const CONTRACT_NUMBER_TAKEN = "contract_number_taken";
 
 const emptyRateStage = (): RateStageForm => ({ rate: "", from: "", to: "" });
 
@@ -4129,27 +4132,31 @@ export function GeneratorForm({
       // podmieniamy — formularz nadal opisuje właśnie zapisaną umowę.
       void nextNumberQuery.refetch();
     },
-    onError: (e) => {
-      const status = (e as { response?: { status?: number } })?.response?.status;
-      // 409 przy PIERWSZYM pobraniu = numer zajęty. Nie podmieniamy go po
-      // cichu: komunikat mówi, jaki numer podstawiono, i prosi o ponowne
-      // kliknięcie — użytkownik musi wiedzieć, pod jakim numerem wyjdzie umowa.
-      if (status === 409 && !activeSaved) {
+    onError: async (e) => {
+      // DOCX idzie z `responseType: "blob"`, więc ciało błędu też jest Blobem —
+      // bez odczytu toast mówił „Request failed with status code 409”.
+      const err = await readDocumentError(e, extractErrorMsg(e));
+      // Numer podmieniamy WYŁĄCZNIE przy 409 „numer zajęty” (kod z backendu,
+      // runda 8 R8-X2-5). Inne 409 z `/render` — kandydat spoza rekrutacji,
+      // powiązania zmienione w trakcie zapisu — nie dotyczą numeru, a cicha
+      // podmiana zmieniała numer wpisany przez użytkownika. Komunikat mówi,
+      // jaki numer podstawiono, i prosi o ponowne kliknięcie — użytkownik musi
+      // wiedzieć, pod jakim numerem wyjdzie umowa.
+      if (err.code === CONTRACT_NUMBER_TAKEN && !activeSaved) {
         const taken = contractNumber.trim();
-        void nextNumberQuery.refetch().then((r) => {
-          const next = r.data?.contract_number;
-          if (next && next !== taken) {
-            setContractNumber(next);
-            toast.showError(
-              `${extractErrorMsg(e)} Podstawiono numer ${next} — sprawdź go i kliknij „Pobierz DOCX” ponownie.`,
-            );
-          } else {
-            toast.showError(extractErrorMsg(e));
-          }
-        });
+        const r = await nextNumberQuery.refetch();
+        const next = r.data?.contract_number;
+        if (next && next !== taken) {
+          setContractNumber(next);
+          toast.showError(
+            `${err.message} Podstawiono numer ${next} — sprawdź go i kliknij „Pobierz DOCX” ponownie.`,
+          );
+        } else {
+          toast.showError(err.message);
+        }
         return;
       }
-      toast.showError(extractErrorMsg(e));
+      toast.showError(err.message);
     },
   });
 
