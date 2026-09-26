@@ -19,7 +19,7 @@ import app.models  # noqa: F401
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.security import create_access_token, hash_password
-from app.models.calendar_event import CalendarEvent, EventType
+from app.models.calendar_event import CalendarEvent, EventStatus, EventType
 from app.models.note import Note
 from app.models.prep_meeting import PrepMeeting, PrepReview, PrepTranscript
 from app.models.user import User, UserRole
@@ -456,6 +456,27 @@ async def test_outlook_cancellation_stops_waiting(
         assert prep.transcript_status == "cancelled"
 
 
+async def test_held_prep_deleted_in_outlook_still_gets_its_transcript(
+    app_client: AsyncClient, graph: FakeGraph, monkeypatch
+):
+    """Runda 8 (R8-N9-8): usunięcie odbytego prepu w Outlooku to porządki
+    w kalendarzu — transkrypt jest, więc prep nie zostaje „odwołany”."""
+    prep_id, event_id, *_ = await _past_prep(app_client, graph)
+    graph.event_state = {"isCancelled": True, "start": None, "end": None}
+    graph.transcripts = [teams_prep_graph.TranscriptRef(id="t1", created=None)]
+    graph.vtt = VTT
+    monkeypatch.setattr(
+        "app.services.llm_providers.api_key_configured", lambda model: False
+    )
+    async with AsyncSessionLocal() as db:
+        await prep_transcripts.run_once(db)
+    async with AsyncSessionLocal() as db:
+        prep = await db.get(PrepMeeting, prep_id)
+        assert prep.transcript_status == "fetched"
+        event = await db.get(CalendarEvent, event_id)
+        assert event.status != EventStatus.cancelled
+
+
 async def test_deleting_the_candidate_erases_transcript_and_review(
     app_client: AsyncClient, graph: FakeGraph, monkeypatch
 ):
@@ -561,8 +582,23 @@ async def test_a_new_interview_round_allows_new_preps(
     async with AsyncSessionLocal() as db:
         prep = await db.get(PrepMeeting, prep_id)
         job_id, dl_id = prep.job_id, prep.organizer_user_id
-    await _interview(cand_id, job_id, dl_id, hours=-24)  # runda 1 za nami
+    first = await _interview(cand_id, job_id, dl_id, hours=-24)  # runda 1 za nami
     await _interview(cand_id, job_id, dl_id, hours=72)  # runda 2 przed nami
+    # Runda 8 (R8-N9-3): runda 1 bez debriefu zostaje bieżąca (telefon po
+    # niej jest pilniejszy) — prepy rundy 2 ekran żąda po debriefie rundy 1.
+    from app.models.interview_feedback import FeedbackSource, InterviewFeedback
+
+    async with AsyncSessionLocal() as db:
+        db.add(
+            InterviewFeedback(
+                calendar_event_id=first,
+                candidate_id=cand_id,
+                job_id=job_id,
+                feedback_source=FeedbackSource.candidate_side,
+                no_client_questions=True,
+            )
+        )
+        await db.commit()
 
     overview = await app_client.get("/api/interview-cycle?scope=jobs", headers=rec_h)
     item = next(i for i in overview.json()["items"] if i["candidate_id"] == cand_id)
