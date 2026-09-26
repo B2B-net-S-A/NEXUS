@@ -49,6 +49,7 @@ from app.models.client_order_group import (
 from app.models.client_order_offboarding import (
     OFFBOARDING_RATE_BASIS_DEPARTING,
     OFFBOARDING_RATE_BASIS_RECIPIENT,
+    OFFBOARDING_RESOLUTION_RESTORE,
     OFFBOARDING_RESOLUTION_TRANSFER,
     OFFBOARDING_STATUS_PENDING,
     OFFBOARDING_STATUS_RESOLVED,
@@ -310,7 +311,14 @@ def takeover_source_state(
         if pending.uses_shared_md_pool:
             return None
         return TakeoverSource(SOURCE_ENDED, pending.effective_date, pending)
-    if any(c.status == OFFBOARDING_STATUS_RESOLVED for c in cases):
+    resolved = [c for c in cases if c.status == OFFBOARDING_STATUS_RESOLVED]
+    # Runda 8 (N5-5): „przywróć" nie rozdysponowuje puli — współpraca trwała
+    # dalej. Wyklucza tylko decyzja o puli (usuń / przenieś) z ostatniego
+    # epizodu; późniejsze wypowiedzenie tej samej osoby znowu robi z niej
+    # źródło zastępstwa.
+    if resolved and (
+        max(resolved, key=lambda c: c.id).resolution != OFFBOARDING_RESOLUTION_RESTORE
+    ):
         return None
     contract_status = (
         getattr(contract.status, "value", contract.status) if contract else None
@@ -666,6 +674,7 @@ TAKEOVER_CANCEL_POOL_USED_UP = "source_pool_used_up"
 TAKEOVER_CANCEL_SWAPPED = "source_swapped"
 TAKEOVER_CANCEL_DECIDED = "source_pool_decided"
 TAKEOVER_CANCEL_ENTRY_NOT_AFTER_DEPARTURE = "entry_not_after_departure"
+TAKEOVER_CANCEL_TRANSFER_FAILED = "transfer_failed"
 
 
 def _cancel_scheduled_takeover(
@@ -824,6 +833,81 @@ def _group_accepts_entry_clause():
     )
 
 
+async def _cancel_after_failed_transfer(
+    db: AsyncSession, target_id: int, message: str
+) -> None:
+    """Anuluj szkic zastępstwa, którego pula nie dała się przenieść (N5-4).
+
+    Savepoint przeniesienia jest już wycofany, więc stan czytamy od nowa pod
+    blokadą (kontrakt → zamówienia). Szkic, który w międzyczasie przestał
+    być szkicem, zostaje nietknięty. Bez commitu.
+    """
+    try:
+        async with db.begin_nested():
+            ids = await db.execute(
+                select(ClientOrder.id, ClientOrder.predecessor_order_id).where(
+                    ClientOrder.id == target_id
+                )
+            )
+            row = ids.first()
+            if row is None:
+                return
+            await lock_contract_then_orders(
+                db,
+                order_ids=[i for i in (row.predecessor_order_id, target_id) if i],
+            )
+            target = await db.scalar(
+                select(ClientOrder)
+                .options(
+                    selectinload(ClientOrder.contract).selectinload(Contract.candidate)
+                )
+                .where(ClientOrder.id == target_id)
+                .execution_options(populate_existing=True)
+            )
+            if (
+                target is None
+                or target.status != ClientOrderStatus.draft
+                or target.order_group_id is None
+            ):
+                return
+            source = (
+                await db.scalar(
+                    select(ClientOrder)
+                    .options(
+                        selectinload(ClientOrder.contract).selectinload(
+                            Contract.candidate
+                        )
+                    )
+                    .where(ClientOrder.id == target.predecessor_order_id)
+                )
+                if target.predecessor_order_id is not None
+                else None
+            )
+            target.status = ClientOrderStatus.cancelled
+            _cancel_scheduled_takeover(
+                db,
+                group_id=target.order_group_id,
+                target=target,
+                source_name=(
+                    consultant_display_name(source)
+                    if source is not None
+                    else "osobę odchodzącą"
+                ),
+                why=(
+                    f"nie udało się przenieść pozostałych MD ({message.rstrip('.')}). "
+                    "Rozstrzygnij pulę osoby odchodzącej albo zaplanuj "
+                    "zastępstwo ponownie."
+                ),
+                code=TAKEOVER_CANCEL_TRANSFER_FAILED,
+                actor_id=None,
+            )
+    except Exception:  # noqa: BLE001 — nocny cykl nie może się zatrzymać
+        logger.exception(
+            "order_line_takeover: nie udało się anulować zastępstwa linii %s",
+            target_id,
+        )
+
+
 async def activate_due_takeovers(
     db: AsyncSession, *, today: Optional[date] = None
 ) -> int:
@@ -966,6 +1050,33 @@ async def activate_due_takeovers(
                         actor_id=None,
                     )
                     continue
+                # Pula odchodzącego wyczerpała się przed dniem wejścia: nie ma
+                # (Runda 8, N5-6: sprawdzane PRZED datą odejścia — linia
+                # domknięta budżetem niesie datę końca zamówienia, więc powód
+                # „ostatni dzień pracy…" był fałszywy, a ponowne zaplanowanie
+                # i tak dawało 409 przy puli 0.)
+                # czego przejąć. `apply_takeover_transfer` odmawiał co noc, a
+                # szkic wisiał bez śladu. Zastępstwo odpada z wpisem w historii
+                # — nowa osoba potrzebuje własnej puli (dodanie do zamówienia),
+                # aktywacja bez przeniesienia dałaby aktywną linię bez budżetu.
+                await recompute_remaining(db, source, rebalance=False)
+                left = (
+                    pending.remaining_md_snapshot
+                    if pending is not None
+                    else source.md_remaining
+                )
+                if quantize_md(left or 0) <= 0:
+                    target.status = ClientOrderStatus.cancelled
+                    _cancel_scheduled_takeover(
+                        db,
+                        group_id=group.id,
+                        target=target,
+                        source_name=consultant_display_name(source),
+                        why=_POOL_USED_UP_TEXT,
+                        code=TAKEOVER_CANCEL_POOL_USED_UP,
+                        actor_id=None,
+                    )
+                    continue
                 # Ostatni dzień odchodzącego przesunięty na dzień wejścia albo
                 # za niego (data końca umowy zmieniona po zaplanowaniu — przed
                 # audytem 25.09.2026, runda 5, PATCH daty nie odwoływał
@@ -993,29 +1104,6 @@ async def activate_due_takeovers(
                             "je ponownie z nową datą."
                         ),
                         code=TAKEOVER_CANCEL_ENTRY_NOT_AFTER_DEPARTURE,
-                        actor_id=None,
-                    )
-                    continue
-                # Pula odchodzącego wyczerpała się przed dniem wejścia: nie ma
-                # czego przejąć. `apply_takeover_transfer` odmawiał co noc, a
-                # szkic wisiał bez śladu. Zastępstwo odpada z wpisem w historii
-                # — nowa osoba potrzebuje własnej puli (dodanie do zamówienia),
-                # aktywacja bez przeniesienia dałaby aktywną linię bez budżetu.
-                await recompute_remaining(db, source, rebalance=False)
-                left = (
-                    pending.remaining_md_snapshot
-                    if pending is not None
-                    else source.md_remaining
-                )
-                if quantize_md(left or 0) <= 0:
-                    target.status = ClientOrderStatus.cancelled
-                    _cancel_scheduled_takeover(
-                        db,
-                        group_id=group.id,
-                        target=target,
-                        source_name=consultant_display_name(source),
-                        why=_POOL_USED_UP_TEXT,
-                        code=TAKEOVER_CANCEL_POOL_USED_UP,
                         actor_id=None,
                     )
                     continue
@@ -1061,6 +1149,10 @@ async def activate_due_takeovers(
                 target_id,
                 exc,
             )
+            # Runda 8 (N5-4): odmowa przeniesienia wracała co noc bez śladu,
+            # a wiszący szkic blokował decyzję DL o puli komunikatem
+            # „przejdą automatycznie". Szkic odpada z wpisem w historii.
+            await _cancel_after_failed_transfer(db, target_id, str(exc))
         except Exception:  # noqa: BLE001 — jedno zepsute nie zatrzymuje reszty
             # N4: savepoint już wycofany; każdy inny błąd (baza, dane) też
             # nie może zatrzymać pozostałych zastępstw ani całego cyklu.

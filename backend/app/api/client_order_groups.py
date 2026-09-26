@@ -4062,6 +4062,17 @@ async def delete_line(
             db, group_id=group.id, order_id=line.id
         )
         await _assert_not_transfer_target(db, line.id)
+        # Runda 8 (N5-8): usunięcie osoby odchodzącej osierocało szkic jej
+        # zaplanowanego zastępstwa (FK `SET NULL`) — nigdy nie wchodził ani nie
+        # był anulowany, a pierwsza edycja aktywowała go z prognozą puli.
+        if await scheduled_successor_of(db, line.id) is not None:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                detail=(
+                    "Na miejsce tej osoby jest zaplanowane zastępstwo — najpierw "
+                    "usuń zastępującą osobę z zamówienia."
+                ),
+            )
         await assert_order_has_no_settlements(
             db,
             line.id,
@@ -4718,6 +4729,12 @@ async def restore_order_group(
     }
     today = business_today()
     restored_lines = 0
+    # Runda 8 (N5-3): zakończenie współpracy w czasie anulowania nie widziało
+    # tej linii (`_open_orders` pomija anulowane), więc jej nie przycięło i nie
+    # założyło sprawy o puli. Linia unieważnionej umowy zostaje anulowana,
+    # a linia zakończonej umowy przechodzi przez tę samą ścieżkę zakończenia
+    # co przy „Zakończ współpracę" (przycięcie daty + sprawa MD).
+    offboard_contracts: dict[int, date] = {}
     for line in await lines_for_group(db, group.id):
         raw = previous_line_status.get(line.id)
         if raw is None or raw == ClientOrderStatus.cancelled.value:
@@ -4725,6 +4742,13 @@ async def restore_order_group(
         try:
             target = ClientOrderStatus(raw)
         except ValueError:
+            continue
+        contract = (
+            await db.get(Contract, line.contract_id)
+            if target == ClientOrderStatus.active
+            else None
+        )
+        if contract is not None and contract.status == ContractStatus.void:
             continue
         if (
             target == ClientOrderStatus.active
@@ -4734,6 +4758,14 @@ async def restore_order_group(
             target = ClientOrderStatus.completed
         line.status = target
         restored_lines += 1
+        if (
+            target == ClientOrderStatus.active
+            and contract is not None
+            and contract.status == ContractStatus.ended
+        ):
+            offboard_contracts[contract.id] = (
+                contract.end_date or contract.terminated_at or today
+            )
 
     restored_status = group.status_before_cancel or GROUP_STATUS_ACTIVE
     group.status = restored_status
@@ -4741,6 +4773,20 @@ async def restore_order_group(
     group.cancelled_at = None
     group.cancelled_by_user_id = None
     group.cancellation_reason = None
+
+    if offboard_contracts:
+        from app.services.contract_order_offboarding import (
+            apply_contract_order_offboarding,
+        )
+
+        await db.flush()
+        for contract_id in sorted(offboard_contracts):
+            await apply_contract_order_offboarding(
+                db,
+                contract_id=contract_id,
+                effective_date=offboard_contracts[contract_id],
+                actor_id=user.id,
+            )
 
     record_event(
         db,
@@ -6058,11 +6104,15 @@ async def take_over_consultant(
         target.md_remaining = quantize_md(base_new + (opt_new or Decimal("0")))
     else:
         # Budżet ustawi przeniesienie; do tego czasu linia musi spełniać CHECK
-        # spójności pól MD (komplet albo nic).
-        target.md_input_mode = INPUT_MODE_MD
-        target.md_input_value = Decimal("0")
-        target.md_total = Decimal("0")
-        target.md_remaining = Decimal("0")
+        # spójności pól MD (komplet albo nic) — tu „nic". Runda 8 (N5-7):
+        # linia z budżetem 0 liczyła się przy pierwszym przeliczeniu źródła
+        # jako „wyczerpana" osoba na obsadzie, więc zamówienie bez sprawy
+        # offboardingu zamykało się samo, a zaraz potem wracało — dwa
+        # fałszywe wpisy w historii.
+        target.md_input_mode = None
+        target.md_input_value = None
+        target.md_total = None
+        target.md_remaining = None
     db.add(target)
     await db.flush()
 
@@ -6204,6 +6254,17 @@ async def swap_consultant(
             detail=(
                 "Na miejsce tej osoby jest już zaplanowane zastępstwo — anuluj "
                 "je albo poczekaj na datę wejścia."
+            ),
+        )
+    # Runda 8 (N5-1): zamiana z datą w przyszłości zostawia poprzednika
+    # aktywnego, a jego pozostała pula jest już budżetem następcy. Druga
+    # zamiana tej samej linii dawała drugiemu następcy tę samą pulę.
+    if await live_successor_line_id(db, old.id) is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=(
+                "Ta osoba ma już zaplanowaną zamianę na kogoś innego — pozostałe "
+                "MD przeszły na następcę. Popraw albo usuń linię następcy."
             ),
         )
     # Zamówienie KOSZTOWE nie ma budżetu per linia — pula mieszka na grupie,
