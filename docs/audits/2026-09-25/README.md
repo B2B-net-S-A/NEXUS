@@ -38,10 +38,10 @@ Reguły, które wynikły z napraw (i których nie wolno cofnąć „przy okazji�
 15. **Skala audytu:** runda 6 szła 19 agentami audytu i 15 naprawczymi (każdy we własnym worktree, obszary rozłączne), potem scalenie i 4 przeglądy. Rozdzielanie obszarów tak, żeby agenci naprawczy nie dotykali tych samych plików, ograniczyło konflikty do stempli i jednego komentarza.
 16. **Testy bez bazy puszczaj Z conftest, nie z `--noconftest`.** Conftest odpina ID klientów w bramkach (Polkomtel = −3), wyłącza cache rankingów i otwiera okna czasowe — test „zielony lokalnie” z `--noconftest` padł w CI 8 razy w rundzie 7.
 17. **Regex w redakcji logów to powierzchnia ataku.** Lookahead po zachłannym kwantyfikatorze albo prefiks `(?:[a-z0-9]+[_-])*` = czas kwadratowy na tekście z żądania anonimowego; każdy nowy wzorzec z testem liniowości.
+18. **Squash poprzedniej rundy vs historia w gałęzi następnej:** zanim scalisz main, potwierdź, że różnica między końcówką poprzedniej gałęzi a mainem to tylko PR-y spoza serii — wtedy konflikty rozstrzyga wersja gałęzi.
 19. **Kilka gałęzi zmienia tę samą instrukcję zamówień** — konflikt jest tylko w stemplach; weź stempel dowolnej strony, scal resztę i przestempluj raz na końcu (`stamp_orders_procedure.py`, `stamp_screen_guides.py`, `check_stamps.py`).
 20. **Po zamierzonej zmianie zachowania pełne CI wyłapuje stare kontrakty testów** (w rundzie 8 cztery z pięciu czerwonych) — zanim „naprawisz” kod, sprawdź, czy test nie opisuje zachowania, które runda świadomie zmieniła.
 21. **Nowy sufit (liczba stron, wierszy) = sprawdź limit argumentów asyncpg (32 767)** w zapytaniach z parametrem na wiersz (`IN`, `VALUES`) — dziel na paczki.
-18. **Squash poprzedniej rundy vs historia w gałęzi następnej:** zanim scalisz main, potwierdź, że różnica między końcówką poprzedniej gałęzi a mainem to tylko PR-y spoza serii — wtedy konflikty rozstrzyga wersja gałęzi.
 
 ## Świadomie zostawione (nie zgłaszaj ponownie bez nowego faktu)
 
