@@ -2988,7 +2988,13 @@ class TraffitImporter:
                 async with self.db.begin_nested():
                     await fill_missing_job_delivery_leads(self.db)
             except Exception as exc:  # noqa: BLE001
-                progress.add_error(f"fill job delivery leads: {exc!r}")
+                # Runda 7 (N7): uzupełnienie DL-a nie jest importem — jego
+                # awaria nie może zatrzymać `__daily__` (błąd nieprzypisany)
+                # ani wrzucić `repr` wyjątku do próbek `/sync/status`.
+                logger.warning(
+                    "Nie udało się uzupełnić DL-a rekrutacji po imporcie (%s)",
+                    type(exc).__name__,
+                )
                 # Paczki są już zacommitowane — rollback podnosi tylko sesję,
                 # żeby commit niżej nie wywrócił fazy.
                 await self._recover_session(progress, exc, batch="jobs", staged=0)
@@ -4629,26 +4635,44 @@ class TraffitImporter:
             else:
                 progress.updated += 1
 
-        # ZA commitem etapów i świadomie best-effort: awaria skutku nie może
-        # cofnąć zaimportowanego wiersza ani zatrzymać fazy. Domyślnie
-        # wyłączone (`TRAFFIT_IMPORT_SIDE_EFFECTS_ENABLED`).
-        #
-        # Ten `except` NIE jest martwy, choć hook łapie własne wyjątki per
-        # wiersz: parsowanie payloadu (`int(r["job_id"])`) i zbiorczy odczyt
-        # ofert stoją POZA tamtymi blokami, więc zniekształcony wsad albo
-        # awaria bazy przechodzą tędy. Pilnuje tego
-        # `test_the_hook_can_raise_so_the_callers_guard_is_not_dead`.
+        await self._run_stage_side_effects(
+            progress, [(payload, was_insert) for payload, _, was_insert in pending_rows]
+        )
+
+    async def _run_stage_side_effects(
+        self,
+        progress: PhaseProgress,
+        committed: list[tuple[dict[str, Any], bool]],
+    ) -> None:
+        """Skutki etapów ZA commitem — wspólne dla wsadu i jego odtworzenia.
+
+        Świadomie best-effort: awaria skutku nie może cofnąć zaimportowanego
+        wiersza ani zatrzymać fazy. Do rundy 7 (N2-3) wołał je tylko wsad,
+        który przeszedł za pierwszym razem — wiersz odtworzony przez
+        `_replay_stage_rows` nie przepinał nigdy, bo kolejny bieg widzi go już
+        jako UPDATE.
+
+        Ten `except` NIE jest martwy, choć hook łapie własne wyjątki per
+        wiersz: parsowanie payloadu (`int(r["job_id"])`) i zbiorczy odczyt
+        ofert stoją POZA tamtymi blokami, więc zniekształcony wsad albo
+        awaria bazy przechodzą tędy. Pilnuje tego
+        `test_the_hook_can_raise_so_the_callers_guard_is_not_dead`.
+        """
+        if not committed:
+            return
         try:
             applied = await apply_imported_stage_side_effects(
                 self.db,
-                rows=[payload for payload, _, _ in pending_rows],
+                rows=[payload for payload, _ in committed],
                 inserted_rows=[
-                    payload for payload, _, was_insert in pending_rows if was_insert
+                    payload for payload, was_insert in committed if was_insert
                 ],
             )
             progress.reassigned += int((applied or {}).get("reassigned") or 0)
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Imported-stage side effects failed: %r", exc)
+            logger.warning(
+                "Imported-stage side effects failed (%s)", type(exc).__name__
+            )
             try:
                 await self.db.rollback()
             except Exception:  # noqa: BLE001
@@ -4662,6 +4686,7 @@ class TraffitImporter:
         """Odtwórz wsad wiersz po wierszu, każdy w osobnej transakcji."""
 
         await self.db.rollback()
+        committed: list[tuple[dict[str, Any], bool]] = []
         for payload, rejection_reason_id, _ in pending_rows:
             try:
                 was_insert = await self._upsert_stage_row(payload, rejection_reason_id)
@@ -4681,10 +4706,12 @@ class TraffitImporter:
                 if progress.errors <= 5 or progress.errors % 500 == 0:
                     logger.warning("Pipelines replay error: %s", msg[:300])
                 continue
+            committed.append((payload, bool(was_insert)))
             if was_insert:
                 progress.inserted += 1
             else:
                 progress.updated += 1
+        await self._run_stage_side_effects(progress, committed)
 
     # ── Faza 5b: candidate activities ───────────────────────────────────────
 

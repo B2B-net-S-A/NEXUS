@@ -569,6 +569,33 @@ def cancel(req: ClientInterviewSlotRequest) -> None:
     req.status = SLOT_STATUS_CANCELLED
 
 
+async def slot_owner_recipients(
+    db: AsyncSession, req: ClientInterviewSlotRequest
+) -> list[int]:
+    """Kto potwierdza termin u klienta: autor wniosku, a gdy jego konto jest
+    nieaktywne — DL rekrutacji albo HoR (``_delivery_lead_targets``).
+
+    Runda 7 (X1-4): `emit` po cichu odrzuca nieaktywnego odbiorcę, więc po
+    odejściu autora wniosku dzwonek „Kandydat wybrał termin” nie docierał do
+    nikogo. Bliźniak poprawki z rundy 6 w potwierdzeniu terminu.
+    """
+    from app.models.user import User  # noqa: PLC0415
+    from app.services.notification_triggers import (  # noqa: PLC0415
+        _delivery_lead_targets,
+    )
+
+    if req.created_by is not None:
+        active = await db.scalar(
+            select(User.is_active).where(User.id == req.created_by)
+        )
+        if active:
+            return [req.created_by]
+    job = await db.get(Job, req.job_id)
+    if job is None:
+        return []
+    return await _delivery_lead_targets(db, job)
+
+
 async def notify(
     db: AsyncSession,
     *,

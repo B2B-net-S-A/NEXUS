@@ -63,7 +63,7 @@ from app.models.user import User, UserRole
 from app.services import interview_slots
 from app.services.interview_cycle import load_overview
 from app.services.debrief_gate import interview_not_started_message
-from app.services.pipeline_auto_move import auto_advance
+from app.services.pipeline_auto_move import auto_advance, run_after_commit
 from app.services.pipeline_realtime import broadcast_pipeline_changed
 from app.services.workforce_availability import operational_owner_ids
 
@@ -644,10 +644,13 @@ async def create_slot_request(
     )
     await db.commit()
     await db.refresh(req)
+    out = _slot_out(req)
     if moved is not None:
         # Live kanban: reszta zespołu odświeża tablicę (best-effort).
         await broadcast_pipeline_changed(db, body.job_id, actor_id)
-    out = _slot_out(req)
+        # Runda 7 (N7-4): powiadomienia o etapie i profil ryzyka — jak po
+        # `/move`. Po commicie, nigdy nie rzuca.
+        await run_after_commit(db, stage_id=moved.id, mover=current_user)
     out.moved_to_client_interview = moved is not None
     return out
 
@@ -665,15 +668,16 @@ async def choose_slot(
     await _ensure_recruiter(db, current_user, req)
     interview_slots.choose(req, body.index, user_id=current_user.id)
     await db.flush()
-    await interview_slots.notify(
-        db,
-        user_id=req.created_by,
-        ntype=NotificationType.interview_slot_chosen,
-        req=req,
-        title="Kandydat wybrał termin",
-        message="Rekruter ustalił termin z kandydatem — potwierdź go u klienta.",
-        actor_id=current_user.id,
-    )
+    for recipient in await interview_slots.slot_owner_recipients(db, req):
+        await interview_slots.notify(
+            db,
+            user_id=recipient,
+            ntype=NotificationType.interview_slot_chosen,
+            req=req,
+            title="Kandydat wybrał termin",
+            message="Rekruter ustalił termin z kandydatem — potwierdź go u klienta.",
+            actor_id=current_user.id,
+        )
     await db.commit()
     await db.refresh(req)
     return _slot_out(req)

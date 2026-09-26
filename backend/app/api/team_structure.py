@@ -806,9 +806,10 @@ async def toggle_dl_client_head(
         changed_delivery_lead_ids = {row.delivery_lead_user_id}
     row.is_head = not row.is_head
     await invalidate_delivery_lead_scope_for_users(db, changed_delivery_lead_ids)
-    if row.is_head:
-        await db.flush()
-        await fill_missing_job_delivery_leads(db, [row.client_id])
+    # Także przy zdjęciu heada: DL wpisany automatem schodzi z rekrutacji
+    # klienta (runda 7, N7-2).
+    await db.flush()
+    await fill_missing_job_delivery_leads(db, [row.client_id])
     await db.commit()
     return {"ok": True, "is_head": row.is_head}
 
@@ -828,11 +829,16 @@ async def remove_dl_client(
     ).scalar_one_or_none()
     if row is None:
         raise HTTPException(404, "Assignment not found")
+    client_id = row.client_id
     await db.delete(row)
     await invalidate_delivery_lead_scope_for_users(
         db,
         {row.delivery_lead_user_id},
     )
+    # Runda 7 (N7-2): DL wpisany automatem nie zostaje w rekrutacjach klienta
+    # po usunięciu przypisania.
+    await db.flush()
+    await fill_missing_job_delivery_leads(db, [client_id])
     await db.commit()
     return {"ok": True}
 

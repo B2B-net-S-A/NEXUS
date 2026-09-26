@@ -10,7 +10,15 @@ Reguła jest jedna i wąska:
 * proces zamknięty (odrzucony, wycofany, zatrudniony, „Rezerwa") nie jest
   ruszany — automat nie otwiera zamkniętej historii;
 * para bez żadnego etapu nie powstaje — automat nie zakłada rekrutacji
-  (``transition_process(require_existing=True)``, jak podpis umowy).
+  (``transition_process(require_existing=True)``, jak podpis umowy);
+* kandydat z globalnej czarnej listy albo z wetem hiring managera zostaje na
+  miejscu — na tablicy taki ruch wymaga świadomego „Przenieś mimo to”
+  (``ELIGIBILITY_WARNING``), a automat nie ma kogo zapytać (runda 7, N7-3).
+
+Efekty, które ``/pipeline/move`` robi przy tym samym ruchu, robi też automat:
+przepięcie do podobnych rekrutacji (``on_candidate_sent``) w transakcji, a
+powiadomienia o etapie i profil ryzyka — ``run_after_commit`` PO commicie
+wołającego (runda 7, N7-4).
 
 „Wcześniej” liczy się po pozycji w SZABLONIE rekrutacji (``PipelineStageDef
 .order``): etapy własne szablonu mają kod ``new`` i sam kod niczego nie mówi.
@@ -35,6 +43,7 @@ from app.models.candidate import Candidate
 from app.models.job import Job
 from app.models.pipeline_template import PipelineStageDef, PipelineTemplate
 from app.models.recruitment_pipeline import STAGE_ORDER, CandidateStage, PipelineStage
+from app.models.user import User
 from app.services.board_stage_badges import BOARD_COLUMN_ORDER, board_column_for
 from app.services.candidate_contact_hooks import maybe_close_contact_opportunity
 from app.services.priority_work_policy import PriorityWorkLocked
@@ -192,6 +201,42 @@ async def auto_advance(
     ):
         return None
 
+    if target not in (PipelineStage.rejected, PipelineStage.withdrawn):
+        from app.services.hiring_manager_verdicts import (  # noqa: PLC0415
+            puts_candidate_before_client,
+        )
+        from app.services.pipeline_eligibility import (  # noqa: PLC0415
+            check_candidate_move_eligibility,
+        )
+
+        block = await check_candidate_move_eligibility(
+            db,
+            candidate_id=candidate_id,
+            job=job,
+            now=datetime.now(timezone.utc),
+            enforce_manager_verdict=puts_candidate_before_client(target),
+            acknowledged=True,
+        )
+        if block is not None:
+            # Ślad, dlaczego karta nie pojechała — bez treści powodu (ta bywa
+            # nazwiskiem hiring managera); kod wystarcza do wyjaśnienia.
+            db.add(
+                Activity(
+                    entity_type="pipeline",
+                    entity_id=latest.id,
+                    action="auto_advance_skipped",
+                    user_id=actor_user_id,
+                    details={
+                        "candidate_id": candidate_id,
+                        "job_id": job_id,
+                        "stage": target.value,
+                        "source": source,
+                        "reason_code": block.reason_code,
+                    },
+                )
+            )
+            return None
+
     try:
         stage = await transition_process(
             db,
@@ -241,4 +286,102 @@ async def auto_advance(
             },
         )
     )
+    # Przepięcie do połączonych rekrutacji — jak `/move`. Własny savepoint,
+    # nigdy nie rzuca.
+    from app.services.job_similarity import on_candidate_sent  # noqa: PLC0415
+
+    await on_candidate_sent(db, job_id=job_id, candidate_id=candidate_id, stage=target)
     return stage
+
+
+async def run_after_commit(
+    db: AsyncSession, *, stage_id: int, mover: Optional[User]
+) -> None:
+    """Efekty po ZATWIERDZONYM ruchu automatu — lustro bloku po commicie `/move`.
+
+    Reguły powiadomień o etapie (0066) i profil ryzyka. Każdy efekt w swoim
+    savepoincie i ze swoim commitem; nigdy nie rzuca — ruch jest już trwały.
+    """
+    from app.schemas.pipeline import STAGE_LABELS  # noqa: PLC0415
+    from app.services.candidate_risk import compute_risk  # noqa: PLC0415
+    from app.services.stage_notification_emitter import (  # noqa: PLC0415
+        notify_stage_change,
+    )
+
+    try:
+        stage = await db.get(CandidateStage, stage_id)
+        if stage is None:
+            return
+        candidate_id, job_id = stage.candidate_id, stage.job_id
+        previous = await db.scalar(
+            select(CandidateStage)
+            .where(
+                CandidateStage.candidate_id == candidate_id,
+                CandidateStage.job_id == job_id,
+                CandidateStage.id != stage_id,
+                CandidateStage.moved_at <= stage.moved_at,
+            )
+            .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
+            .limit(1)
+        )
+        stage_def = (
+            await db.get(PipelineStageDef, stage.stage_def_id)
+            if stage.stage_def_id is not None
+            else None
+        )
+        display = (
+            stage_def.name
+            if stage_def is not None
+            else STAGE_LABELS.get(stage.stage, _enum_value(stage.stage))
+        )
+        job = await db.get(Job, job_id)
+        candidate = await db.get(Candidate, candidate_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("auto_advance after-commit load failed: %s", type(exc).__name__)
+        return
+
+    async def _notify() -> None:
+        if job is not None and candidate is not None:
+            await notify_stage_change(
+                db,
+                new_stage=stage,
+                previous_stage=previous,
+                job=job,
+                candidate=candidate,
+                mover=mover,
+                stage_display_name=display,
+            )
+
+    async def _risk() -> None:
+        # `compute_risk`, nie `on_candidate_stage_change` — tamten połyka
+        # wyjątek bazy wewnątrz savepointu.
+        await compute_risk(db, candidate_id)
+
+    for label, effect in (("stage_notif", _notify), ("risk", _risk)):
+        # Savepoint, nie `db.rollback()` sesji: rollback wygaszałby `stage`,
+        # `job` i `candidate` dla kolejnego efektu (MissingGreenlet).
+        try:
+            async with db.begin_nested():
+                await effect()
+        except Exception as exc:  # noqa: BLE001 — efekt nie cofa ruchu
+            logger.warning(
+                "auto_advance %s failed for stage %s: %s",
+                label,
+                stage_id,
+                type(exc).__name__,
+            )
+            continue
+        try:
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "auto_advance %s commit failed for stage %s: %s",
+                label,
+                stage_id,
+                type(exc).__name__,
+            )
+            try:
+                await db.rollback()
+            except Exception:  # noqa: BLE001
+                pass
+            return
