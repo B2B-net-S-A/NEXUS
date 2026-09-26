@@ -717,13 +717,16 @@ export function CandidateDetailV2({
 
       {canWriteSourcing ? (
         <>
-          <SendEmailV2
-            open={emailOpen}
-            onOpenChange={setEmailOpen}
-            candidateId={candidateNumericId}
-            candidateName={fullName}
-            candidateEmail={candidate.email ?? ""}
-          />
+          {emailOpen && (
+            <SendEmailV2
+              open
+              onOpenChange={setEmailOpen}
+              candidateId={candidateNumericId}
+              candidateName={fullName}
+              candidateEmail={candidate.email ?? ""}
+              requestId={backJobId ?? undefined}
+            />
+          )}
           <CvGeneratorDialog
             open={cvOpen}
             onOpenChange={setCvOpen}
