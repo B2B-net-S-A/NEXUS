@@ -544,3 +544,68 @@ async def test_manually_edited_transfer_target_is_left_alone(
     await _report_md_on_source(seed["line_id"], "10")
 
     assert (await _line_state(target_id))["md_total"] == Decimal("200")
+
+
+# ── Runda 6 audytu (MD-1): korekta ODDANEJ puli ────────────────────────────
+
+
+async def test_late_report_shrinks_the_removed_pool(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """„Oddaj pulę” zdjęła 90 MD z wartości zamówienia; zaległy raport za
+    miesiąc zejścia (10 MD) pokazuje, że naprawdę zostało 80. Bez korekty
+    saldo schodziło do −10 (fałszywe przekroczenie puli), a zamówienie
+    traciło 10 MD wartości, które konsultant wypracował."""
+    seed = await _seed_pending_case()
+    _enable_multi(monkeypatch, seed["client_id"])
+
+    resp = await app_client.post(
+        _resolve_url(seed),
+        json={"action": "remove", "expected_version": 1},
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert (await _line_state(seed["line_id"]))["md_total"] == Decimal("0")
+
+    await _report_md_on_source(seed["line_id"], "10")
+
+    source = await _line_state(seed["line_id"])
+    assert source["md_total"] == Decimal("10")
+    assert source["md_remaining"] == Decimal("0")
+
+
+async def test_manual_consumption_put_after_removal_keeps_pool_non_negative(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Ten sam przypadek ręcznym PUT-em zejścia; nadwyżka ponad pulę
+    zostaje prawdziwym przekroczeniem, a zdjęta pula nie schodzi poniżej 0."""
+    seed = await _seed_pending_case()
+    _enable_multi(monkeypatch, seed["client_id"])
+    resp = await app_client.post(
+        _resolve_url(seed),
+        json={"action": "remove", "expected_version": 1},
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+
+    month = (business_today() - timedelta(days=1)).strftime("%Y-%m")
+    url = (
+        f"/api/clients/{seed['client_id']}/order-groups/{seed['group_id']}"
+        f"/lines/{seed['line_id']}/consumptions/{month}"
+    )
+    put = await app_client.put(
+        url, json={"md_reported": "25"}, headers=app_auth_headers
+    )
+    assert put.status_code == 200, put.text
+    source = await _line_state(seed["line_id"])
+    assert source["md_total"] == Decimal("25")
+    assert source["md_remaining"] == Decimal("0")
+
+    over = await app_client.put(
+        url, json={"md_reported": "100"}, headers=app_auth_headers
+    )
+    assert over.status_code == 200, over.text
+    source = await _line_state(seed["line_id"])
+    # Pula oddana = max(0, 90 − 100) = 0 → budżet wraca do 90, saldo −10.
+    assert source["md_total"] == Decimal("90")
+    assert source["md_remaining"] == Decimal("-10")

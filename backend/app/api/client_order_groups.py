@@ -5694,12 +5694,20 @@ async def resolve_md_offboarding_case(
             _reduce_legacy_md_budget(source, remaining)
             await recompute_remaining(db, source)
     if (
-        payload.action == OFFBOARDING_RESOLUTION_TRANSFER
-        and target is not None
-        and "basis_rate" in rebalance_evidence
-        and source.md_total is not None
-        and source_before["md_total"] is not None
-    ):
+        (
+            payload.action == OFFBOARDING_RESOLUTION_TRANSFER
+            and target is not None
+            and "basis_rate" in rebalance_evidence
+        )
+        # Runda 6 audytu (MD-1): „oddaj pulę” też zdejmuje z wartości
+        # zamówienia migawkę z chwili decyzji, bo raport za miesiąc zejścia
+        # przychodzi później — bez dowodów `recompute_remaining` nie umiałby
+        # zdjąć mniej i linia pokazywała fałszywe przekroczenie puli.
+        or (
+            payload.action == OFFBOARDING_RESOLUTION_REMOVE
+            and not case.uses_shared_md_pool
+        )
+    ) and (source.md_total is not None and source_before["md_total"] is not None):
         rebalance_evidence.update(
             {
                 "source_before": source_before,
@@ -5709,7 +5717,9 @@ async def resolve_md_offboarding_case(
                     if source.md_optional_total is None
                     else str(source.md_optional_total)
                 ),
-                "target_md_total_after": str(target.md_total),
+                "target_md_total_after": (
+                    None if target is None else str(target.md_total)
+                ),
             }
         )
 

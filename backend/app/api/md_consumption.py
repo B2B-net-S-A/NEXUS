@@ -35,7 +35,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date as date_type, datetime, timezone
 from decimal import Decimal
-from typing import Optional
+from typing import Iterable, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy import func, select
@@ -1075,13 +1075,61 @@ async def create_import(
             and row.matched_order_id is not None
         ):
             shared_md_rows[row.matched_order_id].append(row)
+        elif consultant_in_shared_md and row.status == IMPORT_ROW_UNMATCHED:
+            # Runda 6 audytu (MD-4): osoba ma też linię MD per osoba u innego
+            # klienta. Wiersz, którego numer nie wskazuje wspólnej puli,
+            # zostawał `unmatched` bez kandydatów, a ręczne przypisanie dawało
+            # 409. Numer zamówienia per osoba → ścieżka per osoba (wiąże numer);
+            # bez takiego numeru → „Wymaga przypisania” z liniami per osoba —
+            # nigdy dopasowanie po samym nazwisku, bo wiersz mógł dotyczyć puli.
+            shared_hints = extract_order_number_candidates(parsed_row.notes_raw)
+            names_a_shared_pool = any(
+                finance_order_matching.finance_order_number_matches(
+                    client_id=match.group.client_id,
+                    order_number=match.group.order_number,
+                    numeric_hints=shared_hints,
+                )
+                for match in match_by_name(
+                    shared_md_candidates, parsed_row.consultant_name
+                )
+            )
+            per_person = (
+                []
+                if names_a_shared_pool
+                else _md_row_pool(
+                    consultant_name=parsed_row.consultant_name,
+                    hints=shared_hints,
+                    named=match_by_name(candidates, parsed_row.consultant_name),
+                    numbered_candidates=numbered_candidates,
+                )
+            )
+            if per_person:
+                if _authoritative_md_hints(
+                    shared_hints,
+                    named=per_person,
+                    order_numbers=order_numbers,
+                    other_client_ids=_cost_client_ids(
+                        cost_candidates, parsed_row.consultant_name
+                    ),
+                ):
+                    consultant_in_shared_md = False
+                else:
+                    row.status = IMPORT_ROW_NEEDS_ASSIGNMENT
+                    row.candidate_order_ids = [m.order.id for m in per_person]
         md_explicit_applied = False
         if not consultant_in_shared_md:
+            # Runda 6 audytu (MD-3): numer zamówienia kosztowego tej osoby
+            # (np. SAP Polkomtela) wiąże wiersz tak samo jak numer jej
+            # zamówienia MD — nie zdejmujemy MD po nazwisku u innego klienta.
+            row_cost_clients = _cost_client_ids(
+                cost_candidates, parsed_row.consultant_name
+            )
             matches = _match_per_consultant_md_row(
                 parsed_row=parsed_row,
                 candidates=candidates,
                 order_numbers=order_numbers,
                 numbered_candidates=numbered_candidates,
+                other_client_ids=row_cost_clients,
             )
             row_hints = extract_order_number_candidates(parsed_row.notes_raw)
             authoritative = _authoritative_md_hints(
@@ -1093,6 +1141,7 @@ async def create_import(
                     numbered_candidates=numbered_candidates,
                 ),
                 order_numbers=order_numbers,
+                other_client_ids=row_cost_clients,
             )
             if len(matches) == 1:
                 match = matches[0]
@@ -1378,6 +1427,7 @@ def _authoritative_md_hints(
     *,
     named: list[LineMatch],
     order_numbers: Optional[finance_order_matching.OrderNumberIndex],
+    other_client_ids: Iterable[int] = (),
 ) -> list[str]:
     """Numery z „Uwag", które wiążą wiersz MD z konkretnym zamówieniem.
 
@@ -1386,6 +1436,13 @@ def _authoritative_md_hints(
     numer ZNANY jako numer zamówienia klienta tej osoby, a u klienta z numerami
     z samych cyfr także dostatecznie długi
     (``finance_order_matching.explicit_order_hints``).
+
+    ``other_client_ids`` (runda 6 audytu, MD-3): klienci, u których osoba ma
+    linie zamówień KOSZTOWYCH. Numer takiego zamówienia (np. SAP Polkomtela)
+    też wiąże — inaczej wiersz rozliczający fakturę u Polkomtela odejmował MD
+    po samym nazwisku u innego klienta. Bez szerokiej reguły Polkomtela
+    (każdy ciąg cyfr): „delegacja 445” u BNP nie może stać się numerem
+    zamówienia tylko dlatego, że osoba ma też linię kosztową (audyt H6).
     """
     if not hints:
         return []
@@ -1396,8 +1453,20 @@ def _authoritative_md_hints(
     if has_polkomtel_candidate:
         return list(hints)
     return finance_order_matching.explicit_order_hints(
-        hints, order_numbers, {match.group.client_id for match in named}
+        hints,
+        order_numbers,
+        {match.group.client_id for match in named} | set(other_client_ids),
     )
+
+
+def _cost_client_ids(
+    cost_candidates: Iterable[LineMatch], consultant_name: str
+) -> set[int]:
+    """Klienci, u których osoba z wiersza ma linię zamówienia kosztowego."""
+    return {
+        match.group.client_id
+        for match in match_by_name(cost_candidates, consultant_name)
+    }
 
 
 def _md_row_pool(
@@ -1440,6 +1509,7 @@ def _match_per_consultant_md_row(
     candidates: list[LineMatch],
     order_numbers: Optional[finance_order_matching.OrderNumberIndex] = None,
     numbered_candidates: Optional[list[LineMatch]] = None,
+    other_client_ids: Iterable[int] = (),
 ):
     """Dopasuj wiersz MD per konsultant: nazwisko, a numer zamówienia wiąże.
 
@@ -1471,7 +1541,10 @@ def _match_per_consultant_md_row(
     if not pool:
         return []
     authoritative = _authoritative_md_hints(
-        hints, named=pool, order_numbers=order_numbers
+        hints,
+        named=pool,
+        order_numbers=order_numbers,
+        other_client_ids=other_client_ids,
     )
     # Preferencja linii aktywnej dopiero PO zawężeniu numerem — wpięta
     # wcześniej wycinałaby linię, którą numer właśnie miał wskazać.
@@ -2977,6 +3050,9 @@ async def reapply_rows_for_restored_line(
 
     results: list[RestoredLineImportRow] = []
     order_numbers: Optional[finance_order_matching.OrderNumberIndex] = None
+    # Wiersze należą do jednej osoby (`wanted`), więc klienci jej linii
+    # kosztowych zależą wyłącznie od miesiąca paczki.
+    cost_clients_by_month: dict[str, set[int]] = {}
     for row, batch in candidates:
         if name_tokens(row.consultant_name) != wanted:
             continue
@@ -2984,13 +3060,22 @@ async def reapply_rows_for_restored_line(
         # reguła co ręczne przypisanie): wiersz wskazujący INNE zamówienie nie
         # trafia na przywróconą linię.
         hints = extract_order_number_candidates(row.notes_raw)
+        authoritative: list[str] = []
         if hints:
             if order_numbers is None:
                 order_numbers = await _order_number_index(db)
+            if batch.period_month not in cost_clients_by_month:
+                # Runda 6 audytu (MD-3): numer zamówienia kosztowego tej osoby
+                # wiąże tak samo jak przy wgraniu pliku.
+                cost_clients_by_month[batch.period_month] = _cost_client_ids(
+                    await cost_lines_settling_in_month(db, batch.period_month),
+                    row.consultant_name,
+                )
             authoritative = _authoritative_md_hints(
                 hints,
                 named=[LineMatch(line, group, row.consultant_name)],
                 order_numbers=order_numbers,
+                other_client_ids=cost_clients_by_month[batch.period_month],
             )
             if (
                 authoritative
@@ -3083,6 +3168,10 @@ async def reapply_rows_for_restored_line(
             md_reported=total,
             import_id=locked_batch.id,
             user_id=user_id,
+            # Runda 6 audytu (MD-5): wiersz wskazał TO zamówienie numerem —
+            # jak w imporcie i ręcznym przypisaniu zużycie zostaje na nim,
+            # bez przekierowania na poprzednika (FIN-MD-01).
+            explicit_order=bool(authoritative),
         )
         overflow = _booking_overflow(
             outcome, before_remaining, await _remaining_by_line(db, before_remaining)
