@@ -917,6 +917,47 @@ async def _feedback_exists(
     return (res.scalar() or 0) > 0
 
 
+async def _post_interview_feedback_done(
+    db: AsyncSession, event: CalendarEvent, source: FeedbackSource
+) -> bool:
+    """Czy przypomnienie po rozmowie ma zgasnąć.
+
+    Runda 8 (CAL2): dla rozmowy u klienta po stronie kandydata gasi je
+    WYŁĄCZNIE kompletny debrief (`debrief_gate.debrief_closes_round`) — ta sama
+    reguła co bramka i ekran. Feedback bez pytań klienta zostawiał bramkę
+    zamkniętą, a dzwonek milczał.
+    """
+    if not (
+        event.event_type == EventType.client_interview
+        and source == FeedbackSource.candidate_side
+    ):
+        return await _feedback_exists(db, event.id, source)
+    from app.services.debrief_gate import debrief_closes_round
+
+    rows = (
+        await db.execute(
+            select(
+                InterviewFeedback.client_questions,
+                InterviewFeedback.no_client_questions,
+                InterviewFeedback.updated_at,
+            ).where(
+                InterviewFeedback.calendar_event_id == event.id,
+                InterviewFeedback.feedback_source == source,
+            )
+        )
+    ).all()
+
+    def _aware(value):
+        if value is not None and value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value
+
+    return any(
+        debrief_closes_round(r[0], r[1], _aware(r[2]), _aware(event.start_time))
+        for r in rows
+    )
+
+
 def _is_client_side(stage: LatestStage | None) -> bool:
     return stage is not None and stage.stage == PipelineStage.client_interview
 
@@ -1032,7 +1073,7 @@ async def check_post_interview_t45(
         source = (
             FeedbackSource.client_side if client_side else FeedbackSource.candidate_side
         )
-        if await _feedback_exists(db, event.id, source):
+        if await _post_interview_feedback_done(db, event, source):
             continue
 
         job = jobs.get(event.job_id) if event.job_id else None
@@ -1074,7 +1115,7 @@ async def check_post_interview_t2h_escalation(
         source = (
             FeedbackSource.client_side if client_side else FeedbackSource.candidate_side
         )
-        if await _feedback_exists(db, event.id, source):
+        if await _post_interview_feedback_done(db, event, source):
             continue
 
         job = jobs.get(event.job_id) if event.job_id else None

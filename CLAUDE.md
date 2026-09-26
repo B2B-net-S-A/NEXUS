@@ -7389,6 +7389,12 @@ Raport: `docs/audits/2026-09-25/runda-8.md`.
   `next_attempt_at`; dwa równoległe „Publikuj” = 409.
 - **Migracje 0381/0383/0388:** downgrade przy istniejących danych kończy się
   wyjątkiem zamiast je kasować.
+- **Rozmowa u klienta ma dwie rundy naraz** (decyzja Artura 27.09.2026):
+  zaległy debrief rundy odbytej (`pick_current_round`) i prepy do następnej
+  (`pick_prep_round`, `PairSnapshot.for_preps()`) przypominają się równolegle.
+  „Runda zamknięta” liczy JEDNA funkcja `debrief_gate.debrief_closes_round`
+  (bramka, ekran, plakietka, kolejka prepów i przypomnienia 45 min / 2 h po
+  rozmowie) — sam feedback bez pytań klienta rundy nie zamyka.
 
 ## Narzędzia rekrutera — reguły po audycie 17.09.2026
 

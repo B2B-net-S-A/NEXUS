@@ -467,3 +467,54 @@ async def test_stage_stuck_reminder_for_inactive_recruiter_goes_to_the_dl(
     monkeypatch.setattr(nt, "emit", emit)
     assert await nt.check_stage_stuck_7d(_Db(), now, {(77, 12): stage}) == 1
     assert sent == [44]
+
+
+# ── Runda 8 (CAL2): przypomnienie po rozmowie u klienta gasi tylko debrief ───
+
+
+class _FeedbackRows:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def all(self):
+        return list(self._rows)
+
+
+class _FeedbackDb:
+    def __init__(self, rows):
+        self._rows = rows
+
+    async def execute(self, statement):
+        return _FeedbackRows(self._rows)
+
+
+@pytest.mark.asyncio
+async def test_client_interview_reminder_needs_a_complete_debrief():
+    from app.models.calendar_event import CalendarEvent, EventType
+    from app.models.interview_feedback import FeedbackSource
+
+    start = datetime(2026, 9, 20, 10, 0, tzinfo=timezone.utc)
+    ev = CalendarEvent(id=5, event_type=EventType.client_interview, start_time=start)
+    after = start + timedelta(hours=2)
+
+    # Ogólny feedback bez pytań klienta NIE gasi przypomnienia.
+    assert not await nt._post_interview_feedback_done(
+        _FeedbackDb([(None, None, after)]), ev, FeedbackSource.candidate_side
+    )
+    # Debrief zapisany PRZED rozmową też nie.
+    assert not await nt._post_interview_feedback_done(
+        _FeedbackDb([("Jak testujesz?", None, start - timedelta(days=1))]),
+        ev,
+        FeedbackSource.candidate_side,
+    )
+    # Pytania klienta albo jawne „nie pytał” po rozmowie — gasi.
+    assert await nt._post_interview_feedback_done(
+        _FeedbackDb([("Jak testujesz?", None, after)]),
+        ev,
+        FeedbackSource.candidate_side,
+    )
+    assert await nt._post_interview_feedback_done(
+        _FeedbackDb([(None, True, after.replace(tzinfo=None))]),
+        ev,
+        FeedbackSource.candidate_side,
+    )
