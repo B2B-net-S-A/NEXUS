@@ -1,7 +1,7 @@
 # Audyt NEXUS 26.09.2026 — runda 6
 
 > **Baza:** `e2585b51c` (main po #1853) · **Status:** naprawione w PR „fix: naprawa pozycji z rundy 6 audytu (26.09.2026)” — statusy w tabeli niżej.
-> Decyzje Artura (26.09.2026): pulpit i kreator metryk DL zawężone do portfela; kwoty i off-limits klientów spoza portfela DL ukryte na ekranach rekrutacji; PFRON — jawne „netto” przy stawce wygrywa (bez ÷1,23).
+> Decyzje Artura (26.09.2026): przełożenie rozmowy u klienta tylko po jawnym wyborze w oknie potwierdzenia; pulpit i kreator metryk DL zawężone do portfela; kwoty i off-limits klientów spoza portfela DL ukryte na ekranach rekrutacji; PFRON — jawne „netto” przy stawce wygrywa (bez ÷1,23).
 > Poprzednie rundy: [README](README.md). Reguły po naprawach: `CLAUDE.md`, sekcja „Audyt 25.09.2026 — reguły po naprawie”.
 
 ## Zakres i metoda
@@ -89,7 +89,7 @@ Legenda statusu: ✅ naprawione w PR rundy 6 · ⛔ odrzucone po przeczytaniu ko
 | X2 | średnie | F | „Utknął na etapie” i telefon po rozmowie do nieaktywnego / bez zastępcy | ✅ `effective_owner_id` + zapas |
 | X3/IC-2 | średnie | F/M | Sprawa „brak prepu” i podpowiedź organizatora — nieaktywna osoba | ✅ ta sama reguła co podpowiedź organizatora |
 | X4 | średnie | F | Follow-up w Teams: edycja 409, odwołanie tylko lokalne | ✅ ścieżka app-only jak prep |
-| IC-1 | średnie | M | Przełożona rozmowa zostawia starą → fałszywe telefony i alarmy prepów | ✅ nieodbyte rozmowy założone przez NEXUS odwoływane |
+| IC-1 | średnie | M | Przełożona rozmowa zostawia starą → fałszywe telefony i alarmy prepów | ✅ decyzja: jawny wybór „To przełożenie rozmowy z DD.MM” w oknie potwierdzenia (domyślnie nic nie jest odwoływane) |
 | IC-3 | średnio-niskie | M | Potwierdzenie terminu bez ponownego sprawdzenia rekrutera | ✅ |
 | IC-4/RODO-04 | średnie | M/H | Usunięcie kandydata nie odwołuje prepów w Teams, kalendarz z nazwiskiem | ✅ odwołanie po commicie, anonimizacja wydarzeń |
 | IC-5, IC-6 | niskie | M | Ponowienie prepu z innym terminem; zmiana kandydata na wydarzeniu prepu | ✅ |
@@ -116,6 +116,12 @@ Legenda statusu: ✅ naprawione w PR rundy 6 · ⛔ odrzucone po przeczytaniu ko
 | W3, W4, W6 | średnie | Q | Klucze CV w publicznym logu; `%40` w access logu; nazwiska w logach generatora | ✅ + strażnik AST logów |
 | RODO-03, 06, 07 | średnie/niskie | H | Powiadomienia z nazwiskiem; dziennik integracji; CV z maila zakłada usuniętego | ✅ |
 | PERF-2..4 | średnie/niskie | P | Podobne rekrutacje na pętli; zapis zużycia AI; parsowanie XLSX rejestru | ✅ |
+
+## Przegląd kodu po scaleniu
+
+Cztery przeglądy (RODO/M365/kalendarz, pieniądze i dokumenty, Traffit/automaty/Insights, front/logi/rekrutacje). Jeden blokujący — pierwsza wersja IC-1 odwoływała KAŻDĄ przyszłą rozmowę pary przy potwierdzeniu nowego terminu, także drugą rundę; po decyzji Artura przełożenie wskazuje DL (`supersedes_event_id`, `GET /api/interview-cycle/slots/{id}/replaceable`). Pełne CI złapało 7 grup: parametr SQL bez typu w kursorze okien `cv_fields`, nazwa stałej w komentarzu SQL, strażnik odpiętych CV na lekkich projekcjach, stare angielskie komunikaty w testach, odpięcie maila jako decyzja w teście, zakres finansów DL ze scalonym klientem, zamówienie zamknięte przez wyczerpanie MD nie wracało przy ponownie otwartej sprawie offboardingu (MD-2).
+
+Drobne, zostawione: `coolify-ops` eval-ab/eval-read drukują treść wykonań (metryki evalu); redakcja iCal maskuje też ścieżki Graph `/calendar/`; PATCH samego `champion_profile` bez przejrzanego kontraktu nie przelicza wektora (front go nie wysyła); podpis Outlooka z `<hr>` jest odrzucany.
 
 ## Sprawdzone i czyste (skrót — co NIE wymaga powtórki w rundzie 7)
 

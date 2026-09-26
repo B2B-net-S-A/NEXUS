@@ -7223,6 +7223,11 @@ Raport: `docs/audits/2026-09-25/runda-6.md` (19 agentów audytu, 15 naprawczych)
   przeciw produkcji nie wgrywają raportu Playwright.
 - **CPU po tysiącach wierszy w `async def` idzie do `asyncio.to_thread` z
   single-flight** (ranking praktykantów, „Podobne rekrutacje”).
+- **Przełożenie rozmowy u klienta wskazuje DL** (decyzja Artura 26.09.2026): okno
+  potwierdzenia terminu pyta „To przełożenie rozmowy z DD.MM?” (lista z
+  `GET /api/interview-cycle/slots/{id}/replaceable`), a odwołana zostaje tylko
+  wskazana rozmowa (`supersedes_event_id`). Bez wskazania nic nie jest
+  odwoływane — klient bywa, że umawia kilka rund naraz.
 - **Zapytania DL w Insights liczą się od `COALESCE(opened_at, created_at)`** —
   `created_at` rekrutacji z Traffita to data importu.
 
