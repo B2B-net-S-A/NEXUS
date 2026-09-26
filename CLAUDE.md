@@ -7641,6 +7641,13 @@ dokumenty i umowa → edycja (program do 10 dni roboczych). Decyzje Artura
   Scalanie kandydatów: odrzucenie wygrywa z nowszym zgłoszeniem. Lista
   zgłoszeń: najpierw osoby w toku, najnowsi pierwsi; limit ucina najstarszych
   zamkniętych, a ekran mówi „Pokazano N z M”.
+- **Runda 8 (26.09.2026):** „skip” pamięta wersję reguł i kryteria programu
+  (`screening.criteria`, `SCREENING_VERSION` 3); zmiana limitu lat albo wymogu
+  polskiego i zmiana reguł oddają odłożonych do ponownego sortowania
+  (`reset_stale_skips`), a „Zatwierdź” odmawia starego werdyktu. Studia bez
+  roku końca + staż ponad limit = „do decyzji”; „present” od Luny wymaga
+  „obecnie” w cytacie albo tuż za nim. Z „W akademii” da się „Zrezygnował sam”
+  (decyzja Artura 26.09.2026); odejście przed spotkaniem zwalnia termin.
 - **Dokumenty** (`POST /api/academy/applications/{id}/documents`, ZIP: umowa,
   zał. 1 harmonogram, oświadczenie, regulamin, protokół Manuala) od etapu
   „zaliczył zadanie”. **PESEL i adres idą wyłącznie do pliku** — nie do bazy
