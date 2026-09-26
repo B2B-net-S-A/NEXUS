@@ -116,7 +116,7 @@ async def purged_candidate_hashes(
     transakcję. Wołający rozróżnia to od pustego zbioru, bo upsert Traffita
     wymienia tabelę w samym zapytaniu.
     """
-    from sqlalchemy import bindparam, text
+    from sqlalchemy import text
 
     present = (
         await db.execute(text("SELECT to_regclass('purged_candidates') IS NOT NULL"))
@@ -129,8 +129,8 @@ async def purged_candidate_hashes(
     rows = await db.execute(
         text(
             "SELECT external_source, external_id_hash FROM purged_candidates "
-            "WHERE external_source IN :sources"
-        ).bindparams(bindparam("sources", expanding=True)),
+            "WHERE external_source = ANY(CAST(:sources AS text[]))"
+        ),
         {"sources": list(sources)},
     )
     for source, digest in rows.fetchall():
