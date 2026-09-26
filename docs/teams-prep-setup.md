@@ -1,10 +1,11 @@
 # Prepy i follow-upy w Teams — konfiguracja Microsoft 365 (jednorazowo, administrator)
 
-Kod jest wdrożony z wyłączonymi przełącznikami. Do czasu tych kroków okno
-„Zaplanuj prep” działa jak dotąd (zwykłe zaproszenie przez połączone konto
-M365), a sonda `checks.teams_prep` mówi `unconfigured`.
+Kod i konfiguracja aplikacji są wdrożone. Od 26.09.2026 przełączniki
+`TEAMS_PREP_APP_ONLY_ENABLED` i `TEAMS_PREP_TRANSCRIPTS_ENABLED` są włączone,
+a `/api/health` zwraca `checks.teams_prep = healthy`. Ten wynik potwierdza
+konfigurację; dowód nagrania i importu wymaga zakończonego spotkania z mową.
 
-## Stan tenanta 25.09.2026
+## Stan tenanta 26.09.2026
 
 - Osobna aplikacja **NEXUS Teams Prep** została zarejestrowana.
   Administrator zatwierdził aplikacyjne `OnlineMeetings.ReadWrite.All`,
@@ -25,9 +26,34 @@ M365), a sonda `checks.teams_prep` mówi `unconfigured`.
 - Adres Wiktorii Deneki to `wiktoria.deneka@b2bnetwork.pl`. Wstępne
   sprawdzenie błędnego adresu `wiktoria.denka@...` dało fałszywy brak skrzynki;
   poprawny adres rozwiązuje się do `UserMailbox`.
-- Do uruchomienia pozostają sekret aplikacji w GitHub Actions/Coolify,
-  włączenie flag po zapisaniu sekretu, wdrożenie i kontrolowany test pełnego
-  przepływu. Sam odczyt polityk nie potwierdza nagrania ani importu transkryptu.
+- Sekrety obu osobnych aplikacji zapisano w GitHub Actions i Coolify.
+  Wartości nie są zapisywane w repozytorium ani raportach. Wdrożenie
+  [36243866470](https://github.com/B2B-net-S-A/NEXUS/actions/runs/36243866470)
+  zakończyło się sukcesem; produkcja potwierdziła rewizję
+  `300a535963878af59dd62d3c9713fe6134827c7f`.
+- Test wysyłki systemowej
+  [36243955101](https://github.com/B2B-net-S-A/NEXUS/actions/runs/36243955101)
+  zwrócił Graph HTTP 202. Wiadomość od `nexus-powiadomienia@b2bnetwork.pl`
+  dotarła do Outlooka właściciela o 15:04 CEST. Rutynowe powiadomienia nadal
+  mają osobny przełącznik polityki; przywrócenie transportu nie włącza ich.
+- Kontrolowany test pełnego przepływu nadal musi potwierdzić powstanie
+  nagrania i import transkryptu. Sam odczyt polityk nie daje tego dowodu.
+
+### Test dostępu Graph bez danych kandydata
+
+Workflow `Coolify Ops` ma dwa działania dostępne wyłącznie z `main`:
+
+- `teams-prep-config-audit`: uzyskuje token aplikacji i potwierdza dostęp do
+  kalendarza Ewy oraz HTTP 403 dla Artura poza zakresem.
+- `teams-prep-meeting-probe`: po tej samej kontroli tworzy jedno oznaczone
+  spotkanie bez uczestników, sprawdza zapis i odczyt `recordAutomatically`
+  oraz `allowTranscription`, a także odczyt listy transkryptów. Następnie
+  odwołuje wyłącznie utworzone spotkanie. Nie dołącza do Teams.
+
+Skrypt wypisuje statusy i identyfikator korelacji, bez sekretu, tokena,
+linku spotkania ani treści odpowiedzi Graph. `cleanup_required=true` wymaga
+sprawdzenia oznaczonego spotkania w kalendarzu Ewy; wynik nie jest wtedy
+zaliczany. Pusta lista transkryptów w tym teście potwierdza tylko dostęp API.
 
 ## 1. Nowa rejestracja aplikacji w Entra ID
 
