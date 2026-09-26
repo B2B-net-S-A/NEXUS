@@ -352,6 +352,23 @@ async def test_consent_of_the_stage_copy_is_what_counts(
     assert await qc._consent_state(_ScalarDb(*values), src) == expected
 
 
+@pytest.mark.asyncio
+async def test_notes_source_skips_followup_call_notes() -> None:
+    """Runda 8 (R8-V3-2): notatka follow-upu (`source_ref='followup:…'`)
+    nie jest źródłem faktów QC — wymienia tytuły cudzych rekrutacji."""
+
+    seen: list = []
+
+    class _Db:
+        async def execute(self, stmt):
+            seen.append(stmt)
+            return SimpleNamespace(scalars=lambda: iter(["Notatka"]))
+
+    assert await qc._notes_text(_Db(), 1) == "Notatka"
+    sql = str(seen[0].compile(compile_kwargs={"literal_binds": True}))
+    assert "followup:%" in sql
+
+
 def test_spelling_variants_are_warnings_outside_urls() -> None:
     issues = dict(
         qc.spelling_issues(

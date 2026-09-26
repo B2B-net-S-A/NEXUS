@@ -1018,6 +1018,7 @@ async def _notes_text(db: AsyncSession, candidate_id: int) -> str:
     """Notatki kandydata (wszystkie rekrutacje) — źródło faktów obok oryginału."""
 
     from app.models.note import Note
+    from app.services.cv_generator_b2b.standalone_service import _not_followup_note
 
     rows = (
         await db.execute(
@@ -1025,6 +1026,10 @@ async def _notes_text(db: AsyncSession, candidate_id: int) -> str:
             .where(
                 Note.candidate_id == candidate_id,
                 Note.source_deleted_at.is_(None),
+                # Runda 8 (R8-V3-2): notatka z telefonu follow-up wymienia
+                # tytuły CUDZYCH rekrutacji („Procesy: X — Senior Java…”) —
+                # „potwierdzałaby” must-have, którego kandydat nie podał.
+                _not_followup_note(),
             )
             .order_by(Note.created_at.desc(), Note.id.desc())
             .limit(NOTES_MAX_ROWS)
