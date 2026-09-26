@@ -240,6 +240,55 @@ async def test_failed_auto_run_does_not_close_the_event():
         )
 
 
+async def test_unchanged_request_closes_the_event(monkeypatch):
+    """Runda 7 (A6): zdarzenie, które nie zmieniło requestu (np. „Klient
+    milczy → Szukamy”), nie zapisywało pamięci przeglądu — rekrutacja wisiała
+    w kolejce przez całe 14 dni i co noc zajmowała w niej miejsce."""
+    owner_id, _ = await _user()
+    world = await _job(owner_id=owner_id)
+    async with AsyncSessionLocal() as db:
+        run_id, reason = await afr.start_for_job(db, world["job_id"])
+        assert reason == "started"
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        run = await db.get(CandidateSearchRun, run_id)
+        run.state = "complete"
+        run.completed_at = datetime.now(timezone.utc)
+        run.created_at = datetime.now(timezone.utc) - timedelta(days=2)
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        # Zdarzenie jest nowsze niż przegląd sprzed dwóch dni → należna.
+        assert world["job_id"] in await afr.pending_job_ids(
+            db, now=_at(2), limit=10_000
+        )
+
+    async def _only_mine(db, *, now, limit=50):
+        return [world["job_id"]]
+
+    monkeypatch.setattr(afr, "pending_job_ids", _only_mine)
+    monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_ENABLED", True)
+    monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_WINDOW_START_HOUR", 1)
+    monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_WINDOW_END_HOUR", 5)
+    _open_gates(monkeypatch)
+    assert (await afr.tick(now=_at(2)))["skipped"] == "nothing_due"
+    monkeypatch.undo()
+    async with AsyncSessionLocal() as db:
+        assert world["job_id"] not in await afr.pending_job_ids(
+            db, now=_at(2) + timedelta(days=1), limit=10_000
+        )
+        # Wpis pamięci nie trafia do „Pracy w tle” i nie udaje odcisku.
+        memo = (
+            await db.scalars(
+                select(Activity).where(
+                    Activity.entity_type == afr.ACTIVITY_ENTITY,
+                    Activity.entity_id == world["job_id"],
+                    Activity.action == afr.UNCHANGED_ACTION,
+                )
+            )
+        ).all()
+        assert len(memo) == 1
+
+
 async def test_job_without_owner_is_skipped():
     world = await _job(owner_id=None)
     async with AsyncSessionLocal() as db:

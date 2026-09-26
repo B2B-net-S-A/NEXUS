@@ -80,6 +80,44 @@ describe("SlotDecisionDialog — przełożenie rozmowy (runda 6 audytu)", () => 
     expect(mocks.confirmSlot.mock.calls[0][1].supersedes_event_id).toBe(99);
   });
 
+  it("mówi prawdę, gdy blokada przełożonej rozmowy została w Outlooku (runda 7)", async () => {
+    mocks.replaceableInterviews.mockResolvedValue([
+      { id: 99, start_time: "2031-06-10T08:00:00Z", end_time: "2031-06-10T09:00:00Z" },
+    ]);
+    mocks.confirmSlot.mockResolvedValue({
+      outlook: "skipped",
+      cancelled_event_id: 99,
+      superseded_outlook: "failed",
+    });
+    mocks.toast.showSuccess.mockReset();
+    mocks.toast.showError.mockReset();
+    renderDialog();
+    fireEvent.click(await screen.findByLabelText(/To przełożenie rozmowy z/));
+    fireEvent.click(screen.getByRole("button", { name: "Potwierdź termin" }));
+    await waitFor(() => expect(mocks.toast.showError).toHaveBeenCalled());
+    expect(mocks.toast.showError.mock.calls[0][0]).toMatch(/usuń ją ręcznie/);
+    expect(mocks.toast.showSuccess).not.toHaveBeenCalled();
+  });
+
+  it("odwołana w Outlooku przełożona rozmowa = zwykły sukces", async () => {
+    mocks.replaceableInterviews.mockResolvedValue([
+      { id: 99, start_time: "2031-06-10T08:00:00Z", end_time: "2031-06-10T09:00:00Z" },
+    ]);
+    mocks.confirmSlot.mockResolvedValue({
+      outlook: "added",
+      cancelled_event_id: 99,
+      superseded_outlook: "cancelled",
+    });
+    mocks.toast.showSuccess.mockReset();
+    mocks.toast.showError.mockReset();
+    renderDialog();
+    fireEvent.click(await screen.findByLabelText(/To przełożenie rozmowy z/));
+    fireEvent.click(screen.getByRole("button", { name: "Potwierdź termin" }));
+    await waitFor(() => expect(mocks.toast.showSuccess).toHaveBeenCalled());
+    expect(mocks.toast.showSuccess.mock.calls[0][0]).toMatch(/Poprzedni termin odwołany\.$/);
+    expect(mocks.toast.showError).not.toHaveBeenCalled();
+  });
+
   it("bez zaplanowanej rozmowy nie pokazuje pytania", async () => {
     mocks.replaceableInterviews.mockResolvedValue([]);
     renderDialog();

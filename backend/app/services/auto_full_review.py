@@ -102,6 +102,15 @@ def night_start(now: datetime) -> datetime:
 # ── Wybór rekrutacji ────────────────────────────────────────────────────────
 
 
+# Wpis „odcisk bez zmian” (runda 7, A6): zdarzenie rekrutacji, które nie
+# zmieniło requestu (np. „Klient milczy → Szukamy”), nie zapisywało pamięci
+# przeglądu, więc rekrutacja wisiała w ``pending_job_ids`` przez całe 14 dni
+# i co noc zjadała miejsce w kolejce. Nie trafia do „Pracy w tle” (tam idą
+# tylko akcje z ``job_proposals._BACKGROUND_KINDS``).
+UNCHANGED_ACTION = "auto_full_review_unchanged"
+_REVIEW_MEMORY_ACTIONS = ("auto_full_review_finished", UNCHANGED_ACTION)
+
+
 def _finished_review_started_at():
     """Start ostatniego przeglądu z wpisu „Praca w tle” (``_publish``).
 
@@ -124,7 +133,7 @@ def _finished_review_started_at():
         .where(
             Activity.entity_type == ACTIVITY_ENTITY,
             Activity.entity_id == Job.id,
-            Activity.action == "auto_full_review_finished",
+            Activity.action.in_(_REVIEW_MEMORY_ACTIONS),
         )
         .correlate(Job)
         .scalar_subquery()
@@ -321,6 +330,27 @@ async def _record_start_failure(db, job_id: int, code: str) -> None:
     await failures.record_failure(failures.KIND_FULL_REVIEW, code, job_id=job_id)
 
 
+async def _remember_unchanged(db, job_id: int, checked_at: datetime) -> None:
+    """Zamknij zdarzenia sprzed ``checked_at`` — request się nie zmienił.
+
+    Nigdy nie rzuca: brak wpisu najwyżej powtórzy tanie sprawdzenie odcisku.
+    """
+    try:
+        db.add(
+            Activity(
+                entity_type=ACTIVITY_ENTITY,
+                entity_id=job_id,
+                action=UNCHANGED_ACTION,
+                user_id=None,
+                details={"run_created_at": checked_at.isoformat()},
+            )
+        )
+        await db.commit()
+    except Exception:  # noqa: BLE001
+        await db.rollback()
+        logger.warning("[auto_full_review] job=%s unchanged memory not saved", job_id)
+
+
 # Rekrutacje pominięte tej nocy (np. `unchanged`) — żeby każdy tick nie liczył
 # ich odcisku od nowa. Pamięć procesu wystarcza: restart najwyżej powtórzy tanie
 # sprawdzenie.
@@ -354,6 +384,7 @@ async def tick(*, now: Optional[datetime] = None) -> dict:
         for job_id in await pending_job_ids(db, now=now):
             if job_id in _skipped_tonight:
                 continue
+            checked_at = datetime.now(timezone.utc)
             try:
                 run_id, reason = await start_for_job(db, job_id)
             except Exception as exc:  # noqa: BLE001 — jedna rekrutacja nie blokuje nocy
@@ -364,6 +395,8 @@ async def tick(*, now: Optional[datetime] = None) -> dict:
             if run_id is None:
                 await db.rollback()
                 _skipped_tonight[job_id] = now
+                if reason == "unchanged":
+                    await _remember_unchanged(db, job_id, checked_at)
                 logger.info("[auto_full_review] job=%s skipped: %s", job_id, reason)
                 continue
             await db.commit()

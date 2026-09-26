@@ -13,6 +13,7 @@ import type {
   Debrief,
   DebriefInput,
   SlotRequest,
+  SupersededOutlook,
 } from "@/lib/interview-cycle";
 
 /** Agenda odświeża się co minutę — odliczanie „zadzwoń teraz” musi żyć. */
@@ -73,6 +74,8 @@ export const interviewCycleApi = {
         event_id: number;
         outlook: string;
         cancelled_event_id?: number | null;
+        /** Blokada przełożonej rozmowy w Outlooku rekrutera (runda 7). */
+        superseded_outlook?: SupersededOutlook | null;
       }>(`/api/interview-cycle/slots/${id}/confirm`, body)
       .then((r) => r.data),
   /** Nieodbyte rozmowy pary, które potwierdzany termin może przełożyć. */

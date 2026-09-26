@@ -77,6 +77,36 @@ export interface SlotRequest {
   event_id: number | null;
 }
 
+/** Stan blokady przełożonej rozmowy w Outlooku rekrutera (lustro
+ *  `interview_slots._cancel_outlook_copy`, runda 7 audytu). */
+export type SupersededOutlook = "none" | "cancelled" | "not_connected" | "failed";
+
+/** Toast po potwierdzeniu terminu. Blokada, której nie udało się zdjąć z
+ *  Outlooka, jest ostrzeżeniem — do rundy 7 okno mówiło „odwołany”, choć
+ *  blokada zostawała w kalendarzu rekrutera. */
+export function slotConfirmedMessage(res: {
+  outlook?: string | null;
+  cancelled_event_id?: number | null;
+  superseded_outlook?: SupersededOutlook | string | null;
+}): { tone: "success" | "error"; message: string } {
+  const base =
+    res.outlook === "added"
+      ? "Termin potwierdzony — rozmowa jest w kalendarzu rekrutera i w jego Outlooku."
+      : "Termin potwierdzony — rozmowa jest w kalendarzu rekrutera w NEXUSIE.";
+  if (!res.cancelled_event_id) return { tone: "success", message: base };
+  if (res.superseded_outlook === "failed" || res.superseded_outlook === "not_connected") {
+    const why =
+      res.superseded_outlook === "failed"
+        ? "nie udało się jej usunąć z Outlooka rekrutera"
+        : "skrzynka rekrutera nie jest połączona z NEXUSEM";
+    return {
+      tone: "error",
+      message: `${base} Poprzedni termin odwołany w NEXUSIE, ale jego blokada została w Outlooku (${why}) — usuń ją ręcznie.`,
+    };
+  }
+  return { tone: "success", message: `${base} Poprzedni termin odwołany.` };
+}
+
 export interface PairInfo {
   candidate_id: number;
   /** `null`, gdy rola nie czyta kandydatów — wtedy pokazujemy „Kandydat #id”. */
