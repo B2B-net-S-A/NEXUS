@@ -35,6 +35,7 @@ from app.services.jarvis.transport import (
 
 logger = logging.getLogger(__name__)
 
+
 class _NotExecutable(Exception):
     """Akcji nie da się wykonać, zanim cokolwiek poszło do trasy."""
 

@@ -216,12 +216,16 @@ async def test_orphaned_confirmed_action_gets_uncertain_and_a_note() -> None:
         assert action.status == "failed"
         assert action.result["uncertain"] is True
         notes = (
-            await db.execute(
-                select(JarvisMessage.content).where(
-                    JarvisMessage.conversation_id == action.conversation_id
+            (
+                await db.execute(
+                    select(JarvisMessage.content).where(
+                        JarvisMessage.conversation_id == action.conversation_id
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
     assert any(
         block.get("text", "").startswith("[Wynik akcji] Wykonanie przerwane")
         for content in notes

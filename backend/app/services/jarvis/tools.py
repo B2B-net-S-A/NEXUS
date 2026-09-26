@@ -1907,9 +1907,7 @@ WRITE_TOOLS: tuple[JarvisTool, ...] = (
             f"{_names(a, 'candidate_ids', 'Kandydat')}"
         ),
         detail=lambda a: (
-            _labelled(
-                "Notatka (trafi do profilu każdej z tych osób)", a.get("note")
-            )
+            _labelled("Notatka (trafi do profilu każdej z tych osób)", a.get("note"))
             or ""
         ),
     ),

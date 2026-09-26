@@ -232,7 +232,9 @@ def repair_history(
     for message in fixed:
         content = message["content"]
         if message["role"] == "user":
-            prev = cleaned[-1] if cleaned and cleaned[-1]["role"] == "assistant" else None
+            prev = (
+                cleaned[-1] if cleaned and cleaned[-1]["role"] == "assistant" else None
+            )
             allowed = (
                 {b.get("id") for b in prev["content"] if b.get("type") == "tool_use"}
                 if prev is not None

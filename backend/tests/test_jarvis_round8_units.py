@@ -237,12 +237,16 @@ def test_late_results_of_a_lost_turn_do_not_break_the_history() -> None:
         if message["role"] != "user":
             continue
         ids = [
-            b["tool_use_id"] for b in message["content"] if b.get("type") == "tool_result"
+            b["tool_use_id"]
+            for b in message["content"]
+            if b.get("type") == "tool_result"
         ]
         assert len(ids) == len(set(ids)), "zdublowany tool_result"
         prev = fixed[index - 1] if index else None
         allowed = {
-            b["id"] for b in (prev or {}).get("content", []) if b.get("type") == "tool_use"
+            b["id"]
+            for b in (prev or {}).get("content", [])
+            if b.get("type") == "tool_use"
         }
         assert set(ids) <= allowed, "tool_result bez pary w poprzedniej wiadomości"
     # X dostaje „przerwane”, Y — prawdziwy wynik.
@@ -337,11 +341,16 @@ def test_rejected_show_on_screen_is_not_replayed_as_a_highlight() -> None:
         return block
 
     messages = [
-        ("assistant", [use("bad", "nie.ma"), use("refused", valid), use("good", valid)]),
+        (
+            "assistant",
+            [use("bad", "nie.ma"), use("refused", valid), use("good", valid)],
+        ),
         ("user", [result("bad", True), result("refused", True), result("good", False)]),
     ]
     highlights = [
-        item for item in _conversation_items(messages, []) if item["kind"] == "highlight"
+        item
+        for item in _conversation_items(messages, [])
+        if item["kind"] == "highlight"
     ]
     assert [h["anchor"] for h in highlights] == [valid]
     assert highlights[0]["label"] != "Element ekranu"
