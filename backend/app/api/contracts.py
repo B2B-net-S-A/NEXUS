@@ -2736,16 +2736,15 @@ async def contract_order_sync_report(
     Nie ma przycisku w interfejsie: raport jest jednorazowy, a pełne stawki
     wszystkich klientów widzi tylko administrator.
     """
-    from app.models.app_setting import AppSetting
-    from app.services.contract_order_sync import REPAIR_MARKER
     from app.services.contract_order_sync_repair import (
         build_reconciliation_rows,
         build_reconciliation_workbook,
+        load_repair_details,
         repair_contract_names,
     )
 
-    receipt = await db.get(AppSetting, REPAIR_MARKER)
-    if receipt is None:
+    loaded = await load_repair_details(db)
+    if loaded is None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
@@ -2753,10 +2752,9 @@ async def contract_order_sync_report(
                 "migawka stanu sprzed wdrożenia nie istnieje."
             ),
         )
-    value = receipt.value or {}
-    repaired = value.get("repaired") or []
+    value, snapshot, repaired = loaded
     content = build_reconciliation_workbook(
-        snapshot=value.get("snapshot") or [],
+        snapshot=snapshot,
         repaired=repaired,
         repair_names=await repair_contract_names(
             db, [item["contract_id"] for item in repaired]
