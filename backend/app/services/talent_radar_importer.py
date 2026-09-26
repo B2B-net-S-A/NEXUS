@@ -50,6 +50,7 @@ import asyncpg
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.services.candidate_location_writer import normalize_candidate_location
 from app.services.dedup_service import find_candidate_duplicates
 from app.core.scheduling import business_today
@@ -309,6 +310,10 @@ class TalentRadarImporter:
         self._email_to_id: dict[str, int] = {}
         self.adopted = 0
         self.quarantined = 0
+        # Nagrobki usuniętych kandydatów (0388): {źródło: {HMAC}} — patrz
+        # `_is_tombstoned`. Wczytywane razem z mapami dedupu.
+        self._tombstones: dict[str, set[str]] = {}
+        self.tombstoned = 0
 
     async def _existing_source_is_quarantined(
         self,
@@ -460,10 +465,55 @@ class TalentRadarImporter:
             )
         ).all()
         self._email_to_id = {r[0]: r[1] for r in email_rows if r[0]}
+
+        # Runda 7 audytu (R7-V2-4): import był idempotentny, więc ponowne
+        # uruchomienie przez admina zakładało od nowa osobę usuniętą w NEXUSIE
+        # (art. 17) — także tę z Traffita, bo `external_id` Talent Radar to id
+        # z Traffita, a `_find_existing_id` już jej nie znajduje.
+        from app.services.candidate_audit import EMAIL_TOMBSTONE_SOURCE
+        from app.services.candidate_erasure_leftovers import purged_candidate_hashes
+
+        if settings.CANDIDATE_IDENTITY_FINGERPRINT_KEY.strip():
+            self._tombstones = (
+                await purged_candidate_hashes(
+                    self.target_db,
+                    ("traffit", SOURCE_VALUE, EMAIL_TOMBSTONE_SOURCE),
+                )
+                or {}
+            )
         logger.info(
             "TalentRadar dedup maps: external_id=%d, email=%d",
             len(self._ext_id_to_id),
             len(self._email_to_id),
+        )
+
+    def _is_tombstoned(self, p: dict[str, Any]) -> bool:
+        """Czy ten wiersz źródła to osoba usunięta w NEXUSIE (nagrobek 0388).
+
+        Identyfikator liczy się pod oboma źródłami, pod którymi mógł żyć
+        (`traffit` i `tr_legacy` — ten sam numer z Traffita). Mail tylko wtedy,
+        gdy identyfikator nie ma żywego właściciela — lustro importu Traffita.
+        """
+        if not any(self._tombstones.values()):
+            return False
+        from app.services.candidate_audit import (
+            EMAIL_TOMBSTONE_SOURCE,
+            candidate_email_tombstone,
+            candidate_source_tombstone,
+        )
+
+        ext = (p.get("external_id") or "").strip()
+        if ext:
+            for source in ("traffit", SOURCE_VALUE):
+                if candidate_source_tombstone(source, ext) in self._tombstones.get(
+                    source, ()
+                ):
+                    return True
+            if ext in self._ext_id_to_id:
+                return False
+        email_hash = candidate_email_tombstone(p.get("email"))
+        return email_hash is not None and email_hash in self._tombstones.get(
+            EMAIL_TOMBSTONE_SOURCE, ()
         )
 
     async def _find_existing_id(self, p: dict[str, Any]) -> Optional[int]:
@@ -594,6 +644,9 @@ class TalentRadarImporter:
         updated = 0
 
         for p in payloads:
+            if self._is_tombstoned(p):
+                self.tombstoned += 1
+                continue
             existing_id = await self._find_existing_id(p)
 
             if existing_id is not None:
@@ -756,10 +809,12 @@ class TalentRadarImporter:
 
                 try:
                     quarantined_before = self.quarantined
+                    tombstoned_before = self.tombstoned
                     inserted, updated = await self._upsert(payloads)
                     progress.inserted += inserted
                     progress.updated += updated
                     progress.skipped += self.quarantined - quarantined_before
+                    progress.skipped += self.tombstoned - tombstoned_before
                 except Exception as e:  # noqa: BLE001
                     progress.errors += len(payloads)
                     if len(progress.error_samples) < 20:

@@ -134,3 +134,31 @@ def candidate_source_tombstone(external_source: str, external_id: Any) -> str:
     ext = str(external_id or "").strip()
     message = f"candidate-source-tombstone-v1\x00{source}\x00{ext}".encode("utf-8")
     return hmac.new(key.encode("utf-8"), message, hashlib.sha256).hexdigest()
+
+
+# `purged_candidates.external_source` dla nagrobka po adresie e-mail — nie
+# jest nazwą żadnego systemu źródłowego, więc nie zderzy się z nagrobkiem
+# identyfikatora (UNIQUE jest na parze źródło + hash).
+EMAIL_TOMBSTONE_SOURCE = "email"
+
+
+def candidate_email_tombstone(email: Any) -> Optional[str]:
+    """HMAC znormalizowanego adresu e-mail usuniętej osoby — nagrobek.
+
+    Runda 7 audytu (R7-V2-2): nagrobek samego `external_id` nie obejmował
+    drugiej kartoteki Traffita tej samej osoby (ten sam mail, inny id) —
+    import zakładał ją od nowa, bo mail zniknął z bazy razem z wierszem.
+    Adres normalizowany tak jak mapa `email_to_id` importera (bez białych
+    znaków, małe litery). Pusty adres = brak nagrobka (`None`).
+    """
+    normalized = str(email or "").strip().lower()
+    if not normalized:
+        return None
+    key = settings.CANDIDATE_IDENTITY_FINGERPRINT_KEY.strip()
+    if not key:
+        raise RuntimeError(
+            "CANDIDATE_IDENTITY_FINGERPRINT_KEY is required to tombstone "
+            "a deleted candidate's email"
+        )
+    message = f"candidate-email-tombstone-v1\x00{normalized}".encode("utf-8")
+    return hmac.new(key.encode("utf-8"), message, hashlib.sha256).hexdigest()

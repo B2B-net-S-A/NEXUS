@@ -3,7 +3,8 @@
 Runda 6 audytu — każda pozycja to miejsce, do którego kaskada FK nie sięga:
 
 * RODO-01: nagrobek ``(external_source, HMAC(external_id))`` — bez niego
-  nocny sync Traffita zakładał usuniętą osobę od nowa;
+  nocny sync Traffita zakładał usuniętą osobę od nowa; od rundy 7 także
+  ``('email', HMAC(e-mail))`` (druga kartoteka tej samej osoby);
 * wygenerowane CV i pliki CV ZOSTAJĄ — nigdy ich nie kasujemy (decyzja
   Artura 26.09.2026: „nie usuwać nigdy żadnych CV”);
 * RODO-03: powiadomienia z imieniem i nazwiskiem (``notifications`` nie ma FK
@@ -20,7 +21,7 @@ zawsze pusta — CV zostają). Niczego nie commituje.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Optional
 
 from sqlalchemy import delete, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -67,23 +68,74 @@ async def _write_tombstone(db: AsyncSession, candidate: Any) -> int:
     from sqlalchemy.dialects.postgresql import insert as pg_insert
 
     from app.models.purged_candidate import PurgedCandidate
-    from app.services.candidate_audit import candidate_source_tombstone
+    from app.services.candidate_audit import (
+        EMAIL_TOMBSTONE_SOURCE,
+        candidate_email_tombstone,
+        candidate_source_tombstone,
+    )
 
+    rows: list[dict[str, str]] = []
     source = (candidate.external_source or "").strip()
     external_id = (candidate.external_id or "").strip()
-    # Wiersz bez identyfikatora źródłowego (ręczny, z CV) — żaden sync go nie
-    # odtworzy, więc nagrobek nie ma czego chronić.
-    if not source or not external_id or source == "manual":
+    # Wiersz bez identyfikatora źródłowego (ręczny, z CV) nie ma nagrobka id —
+    # ale ma nagrobek maila niżej: druga kartoteka Traffita z tym samym mailem
+    # adoptowałaby go przy najbliższym syncu.
+    if source and external_id and source != "manual":
+        rows.append(
+            {
+                "external_source": source,
+                "external_id_hash": candidate_source_tombstone(source, external_id),
+            }
+        )
+    # Runda 7 audytu (R7-V2-2): nagrobek samego `external_id` nie obejmował
+    # drugiej kartoteki tej samej osoby w Traffit (ten sam mail, inny id,
+    # `external_id` wiersza „przeskakiwał” przy adopcji po mailu).
+    email_hash = candidate_email_tombstone(candidate.email)
+    if email_hash:
+        rows.append(
+            {"external_source": EMAIL_TOMBSTONE_SOURCE, "external_id_hash": email_hash}
+        )
+    if not rows:
         return 0
     result = await db.execute(
         pg_insert(PurgedCandidate)
-        .values(
-            external_source=source,
-            external_id_hash=candidate_source_tombstone(source, external_id),
-        )
+        .values(rows)
         .on_conflict_do_nothing(constraint="uq_purged_candidates_source_hash")
     )
     return result.rowcount or 0
+
+
+async def purged_candidate_hashes(
+    db: AsyncSession, sources: tuple[str, ...]
+) -> Optional[dict[str, set[str]]]:
+    """Nagrobki kandydatów (0388) dla podanych źródeł: ``{źródło: {HMAC}}``.
+
+    Wspólne dla importu Traffita i Talent Radar (runda 7 audytu, R7-V2-4).
+    ``None`` = brak tabeli (baza sprzed 0388) — to brak nagrobków, nie awaria;
+    katalog zamiast łapania wyjątku, bo nieudane zapytanie przerywa
+    transakcję. Wołający rozróżnia to od pustego zbioru, bo upsert Traffita
+    wymienia tabelę w samym zapytaniu.
+    """
+    from sqlalchemy import bindparam, text
+
+    present = (
+        await db.execute(text("SELECT to_regclass('purged_candidates') IS NOT NULL"))
+    ).fetchone()
+    if not present or not present[0]:
+        return None
+    out: dict[str, set[str]] = {source: set() for source in sources}
+    if not sources:
+        return out
+    rows = await db.execute(
+        text(
+            "SELECT external_source, external_id_hash FROM purged_candidates "
+            "WHERE external_source IN :sources"
+        ).bindparams(bindparam("sources", expanding=True)),
+        {"sources": list(sources)},
+    )
+    for source, digest in rows.fetchall():
+        out.setdefault(str(source), set()).add(str(digest))
+    return out
 
 
 async def _erase_notifications(db: AsyncSession, candidate_id: int) -> int:

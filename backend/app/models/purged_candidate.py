@@ -12,6 +12,12 @@ Wiersz nie niesie ŻADNYCH danych osobowych: ani id kandydata, ani surowego
 której dane właśnie usuwamy. Importer liczy ten sam HMAC dla każdego rekordu
 źródła i pomija trafienia.
 
+Od rundy 7 (R7-V2-2) usunięcie stawia też wiersz ``external_source='email'``
+z HMAC-em znormalizowanego adresu (``candidate_email_tombstone``): Traffit
+miewa dwie kartoteki jednej osoby, a nagrobek samego id obejmował jedną.
+Import Traffita i Talent Radar czytają oba rodzaje; zgłoszenie ze strony
+kariery (nowa, dobrowolna zgoda) nagrobków nie czyta.
+
 Scalenie duplikatów (``candidate_merge``) nagrobka NIE stawia: ocalały
 przejmuje ``external_id`` duplikatu, więc rekord źródła dalej ma właściciela.
 """

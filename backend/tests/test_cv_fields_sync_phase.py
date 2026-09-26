@@ -220,8 +220,11 @@ async def test_quota_stop_keeps_later_windows_untouched(monkeypatch):
     await ts._cv_fields_phase(since)
 
     assert len(calls) == 1  # własne okno nie ruszone
-    assert [w["after_id"] for w in store["windows"]] == [41, 0]
-    assert store["windows"][1]["since"] == since.isoformat()
+    # Runda 7 (R7-V2-5): okno czekające sięga w czasie do startu bieżącej fazy
+    # i obejmuje wszystkie id powyżej swojego kursora (0), więc nowe okno nie
+    # ma już czego dodać i nie jest zapisywane obok.
+    assert [w["after_id"] for w in store["windows"]] == [41]
+    assert store["windows"][0]["since"] == carried["since"]
 
 
 def test_windows_payload_is_parsed_defensively():
