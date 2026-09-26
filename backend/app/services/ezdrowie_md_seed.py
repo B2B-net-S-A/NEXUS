@@ -524,7 +524,8 @@ async def _create_line(
         # Linia zakończona opisuje współpracę, która się skończyła — nie
         # przepisuje kontraktowi stawki ani okresu (sync kontrakt↔zamówienie
         # czyta także `completed`), tak jak zapis historyczny w `_build_line`.
-        skip_sync_for_contract(db, contract.id)
+        # Pominięcie synchronizacji decyduje `run_ezdrowie_md_seed` na końcu
+        # przebiegu (R8-N6-7): tylko dla kontraktu bez żadnej linii aktywnej.
         record_event(
             db,
             group_id=group.id,
@@ -654,6 +655,8 @@ async def run_ezdrowie_md_seed(
     totals = SeedTotals()
     group_reports: list[SeedGroupReport] = []
     person_cache: dict[str, _ResolvedPerson] = {}
+    historical_contract_ids: set[int] = set()
+    live_contract_ids: set[int] = set()
 
     for spec in manifest.groups:
         executive = await _executive_contract(
@@ -766,6 +769,10 @@ async def run_ezdrowie_md_seed(
                 user_id=user_id,
             )
             created_by_key[line.key] = order
+            if line.line_status == "completed":
+                historical_contract_ids.add(order.contract_id)
+            else:
+                live_contract_ids.add(order.contract_id)
             if predecessor is not None:
                 successors.add(predecessor.id)
             line_report.order_id = order.id
@@ -803,6 +810,14 @@ async def run_ezdrowie_md_seed(
                 report.md_positions_total += budget
                 report.contract_value_pln += budget * revenue
         group_reports.append(report)
+
+    # Runda 8 (R8-N6-7): pominięcie synchronizacji dotyczy CAŁEGO kontraktu
+    # w tej transakcji (jeden `commit_order_write` na końcu importu). Gdy ta
+    # sama osoba ma w manifeście linię zakończoną i aktywną (kontynuacja na
+    # nowej karcie), kontrakt musi dostać okres i stawkę z linii aktywnej —
+    # pomijamy go tylko wtedy, gdy wszystkie jego linie są zakończone.
+    for contract_id in sorted(historical_contract_ids - live_contract_ids):
+        skip_sync_for_contract(db, contract_id)
 
     replacement_numbers = [
         r.order_number for r in group_reports if r.status == "created"
