@@ -309,3 +309,136 @@ def test_the_loop_passes_the_published_predicate_only_for_jobs():
 
     src = inspect.getsource(task.index_drift_reconciler_loop)
     assert "_job_is_published if entity_type == outbox.JOB else None" in src
+
+
+# ── Runda 8 (R8-N11-4): kandydat, którego intencja umarła ──────────────────
+
+
+async def _add_event(db, candidate_id: int, *, status: str, hash_value: str = "h"):
+    db.add(
+        IndexOutboxEvent(
+            entity_type=outbox.CANDIDATE,
+            entity_id=candidate_id,
+            entity_revision=1,
+            desired_hash=hash_value,
+            indexed_hash=hash_value if status == "done" else None,
+            indexed_revision=1 if status == "done" else None,
+            operation="upsert" if hash_value else "delete",
+            status=status,
+            attempts=5 if status == "dead" else 0,
+        )
+    )
+    await db.flush()
+
+
+@pytest.mark.asyncio
+async def test_candidate_whose_only_intent_died_is_revived():
+    """Qdrant leżał dłużej niż budżet prób: intencja `dead`, żadnego `done`.
+
+    Do rundy 8 reconciler traktował takiego kandydata jak „nigdy nie
+    widzianego" i pomijał go — nie dostawał wektora nigdy.
+    """
+    async with AsyncSessionLocal() as db:
+        cand = await _fresh_candidate(db)
+        await _add_event(db, cand.id, status="dead")
+        result = await rec.reconcile_once(
+            db,
+            entity_type=outbox.CANDIDATE,
+            cursor=cand.id - 1,
+            batch=1,
+            revive_dead_unseen=True,
+        )
+        assert result.revived == 1
+        assert len(await _pending_ids(db, cand.id)) == 1
+        # Drugi przebieg nie dubluje intencji w toku.
+        await rec.reconcile_once(
+            db,
+            entity_type=outbox.CANDIDATE,
+            cursor=cand.id - 1,
+            batch=1,
+            revive_dead_unseen=True,
+        )
+        assert len(await _pending_ids(db, cand.id)) == 1
+        await db.rollback()
+
+
+@pytest.mark.asyncio
+async def test_quarantined_candidate_with_an_old_dead_intent_is_not_revived():
+    """Kwarantanna zostawia `done` z pustym haszem — nie wolno jej odwrócić."""
+    async with AsyncSessionLocal() as db:
+        cand = await _fresh_candidate(db)
+        await _add_event(db, cand.id, status="dead")
+        await _add_event(db, cand.id, status="done", hash_value="")
+        result = await rec.reconcile_once(
+            db,
+            entity_type=outbox.CANDIDATE,
+            cursor=cand.id - 1,
+            batch=1,
+            revive_dead_unseen=True,
+        )
+        assert result.revived == 0
+        assert await _pending_ids(db, cand.id) == []
+        await db.rollback()
+
+
+def test_the_loop_revives_candidates_and_syncs_job_statuses():
+    import inspect
+
+    from app.tasks import index_drift_reconciler_task as task
+
+    src = inspect.getsource(task.index_drift_reconciler_loop)
+    assert "revive_dead_unseen=entity_type == outbox.CANDIDATE" in src
+    assert "sync_job_status=entity_type == outbox.JOB" in src
+
+
+# ── Runda 8 (R8-N11-2): status oferty w payloadzie Qdranta ─────────────────
+
+
+@pytest.mark.asyncio
+async def test_job_status_drift_in_payload_is_repaired(monkeypatch):
+    """Archiwum Traffita/0378 zamyka rekrutacje SQL-em — payload mówił dalej
+    „published" i zajmował pulę ofert. Reconciler porównuje i poprawia."""
+    from types import SimpleNamespace
+
+    from app.models.job import JobStatus
+    from app.services import embedding_service
+
+    rows = [
+        SimpleNamespace(id=1, status=JobStatus.closed),
+        SimpleNamespace(id=2, status=JobStatus.published),
+        SimpleNamespace(id=3, status=JobStatus.published),
+    ]
+    written: dict = {}
+
+    async def _payload(_ids):
+        # Punktu 3 nie ma w Qdrancie.
+        return {1: "published", 2: "published"}
+
+    async def _sync(statuses):
+        written.update(statuses)
+        return len(statuses)
+
+    monkeypatch.setattr(embedding_service, "job_payload_statuses", _payload)
+    monkeypatch.setattr(embedding_service, "sync_job_status_payloads", _sync)
+
+    assert await rec._sync_job_statuses(rows) == 1
+    assert written == {1: "closed"}
+
+
+@pytest.mark.asyncio
+async def test_job_status_sync_is_silent_when_qdrant_is_unknown(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.models.job import JobStatus
+    from app.services import embedding_service
+
+    async def _unknown(_ids):
+        return None
+
+    async def _never(_statuses):  # pragma: no cover — nie może być wołane
+        raise AssertionError("zapis bez odczytu")
+
+    monkeypatch.setattr(embedding_service, "job_payload_statuses", _unknown)
+    monkeypatch.setattr(embedding_service, "sync_job_status_payloads", _never)
+    rows = [SimpleNamespace(id=1, status=JobStatus.closed)]
+    assert await rec._sync_job_statuses(rows) == 0

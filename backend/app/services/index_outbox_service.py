@@ -442,7 +442,11 @@ async def _default_reindex(entity_type: str, entity_id: int, operation: str) -> 
         return True  # job tombstone: best-effort, jobs rarely hard-deleted
     async with AsyncSessionLocal() as s:
         if entity_type == CANDIDATE:
-            return await emb.embed_candidate(entity_id, s)
+            # Worker sam liczy próby — bez intencji (R8-N11-1); `embed_candidate`
+            # tylko flushuje stempel, commit należy do właściciela sesji (N11-5).
+            ok = await emb.embed_candidate(entity_id, s, record_intent=False)
+            await s.commit()
+            return ok
         return await emb.embed_job(entity_id, s)
 
 

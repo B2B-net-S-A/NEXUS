@@ -863,3 +863,103 @@ async def test_no_proposals_for_a_job_that_is_not_in_work(
         await afr.publish_run_proposals(db, run)
         await db.commit()
     assert await _proposals(world["job_id"]) == []
+
+
+# ── Runda 8 (R8-N11-3): przegląd z niepełnym pokryciem ──────────────────────
+
+
+async def _auto_run_with_rows(world: dict, owner_id: int, rows) -> str:
+    run_id = str(uuid.uuid4())
+    async with AsyncSessionLocal() as db:
+        db.add(
+            CandidateSearchRun(
+                id=run_id,
+                created_by=owner_id,
+                client_id=world["client_id"],
+                job_id=world["job_id"],
+                state="partial",
+                request_fingerprint="n" * 64,
+                request_context={},
+                version_trace={"origin": "auto"},
+                population_size=len(rows),
+                metrics={},
+                completed_at=datetime.now(timezone.utc),
+            )
+        )
+        await db.flush()
+        db.add_all([build(run_id) for build in rows])
+        await db.commit()
+    return run_id
+
+
+def _failed_row(cid):
+    def build(run_id):
+        return CandidateSearchResult(
+            run_id=run_id,
+            candidate_id=cid,
+            candidate_version="v",
+            state="failed",
+            eligible=None,
+            fit_score=None,
+            measurement=None,
+            evidence=None,
+            exclusion_reasons=None,
+        )
+
+    return build
+
+
+async def test_partial_coverage_publishes_but_does_not_close_the_event(monkeypatch):
+    """Partia `failed` (timeout oceny) — propozycje z reszty wychodzą, ale
+    odcisk takiego przeglądu nie może dać następnej nocy `unchanged`."""
+    monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_MIN_SCORE", 70.0)
+    monkeypatch.setattr(settings, "AUTO_MATCH_REQUIRE_MUST", True)
+    owner_id, _ = await _user()
+    world = await _job(owner_id=owner_id, event=True, people=2)
+    good, skipped = world["candidate_ids"]
+    run_id = await _auto_run_with_rows(
+        world,
+        owner_id,
+        [lambda rid: _result(rid, good, 91), _failed_row(skipped)],
+    )
+    async with AsyncSessionLocal() as db:
+        await afr.publish_on_finish(db, run_id, eligible=1)
+        await db.commit()
+
+    [proposal] = await _proposals(world["job_id"])
+    assert proposal.candidate_id == good
+    async with AsyncSessionLocal() as db:
+        run = await db.get(CandidateSearchRun, run_id)
+        assert run.metrics[afr.INCOMPLETE_METRIC] is True
+        assert await afr._last_successful_fingerprint(db, world["job_id"]) is None
+        [event] = (
+            await db.scalars(
+                select(Activity).where(
+                    Activity.entity_type == afr.ACTIVITY_ENTITY,
+                    Activity.entity_id == world["job_id"],
+                )
+            )
+        ).all()
+        assert "fingerprint" not in event.details
+        assert world["job_id"] in await afr.pending_job_ids(
+            db, now=_at(2) + timedelta(days=1), limit=10_000
+        )
+
+
+async def test_missing_index_alone_is_not_incomplete_coverage():
+    """Kandydat bez wektora to trwały stan indeksu — przegląd powtarzany co noc
+    z tego powodu nie zamknąłby się nigdy."""
+    owner_id, _ = await _user()
+    world = await _job(owner_id=owner_id, event=True, people=2)
+    first, second = world["candidate_ids"]
+    run_id = await _auto_run_with_rows(
+        world,
+        owner_id,
+        [
+            lambda rid: _result(rid, first, 91),
+            lambda rid: _result(rid, second, 80, measurement="missing_index"),
+        ],
+    )
+    async with AsyncSessionLocal() as db:
+        run = await db.get(CandidateSearchRun, run_id)
+        assert await afr._incomplete_coverage(db, run) is False
