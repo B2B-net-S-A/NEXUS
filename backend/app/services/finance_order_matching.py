@@ -113,6 +113,8 @@ def finance_order_number_matches(
 #   Klienci z numerami w innym kształcie (BNP ``87_2026``, CeZ ``CeZ/45/2026``)
 #   tej reguły nie dostają — tam długi ciąg cyfr w „Uwagach" nie jest numerem.
 EXPLICIT_ORDER_NUMBER_MIN_DIGITS = 7
+#: Ile pierwszych cyfr wyznacza „kształt” numeru zamówienia klienta (R8-V1-5).
+_SHAPE_PREFIX_DIGITS = 2
 
 
 @dataclass(frozen=True)
@@ -122,12 +124,28 @@ class OrderNumberIndex:
     by_client: dict[int, frozenset[str]] = field(default_factory=dict)
     #: Klienci z numerami zamówień z samych cyfr (co najmniej jeden ≥ 7 cyfr).
     numeric_clients: frozenset[int] = frozenset()
+    #: Kształty długich numerów z samych cyfr per klient: (długość, 2 pierwsze
+    #: cyfry), np. SAP Polkomtela (10, "45").
+    shapes_by_client: dict[int, frozenset[tuple[int, str]]] = field(
+        default_factory=dict
+    )
 
     def known(self, client_ids: Iterable[int]) -> frozenset[str]:
         keys: set[str] = set()
         for client_id in client_ids:
             keys |= self.by_client.get(client_id, frozenset())
         return frozenset(keys)
+
+    def fits_shape(self, value: str, client_ids: Iterable[int]) -> bool:
+        if not _DIGITS_ONLY_RE.match(value):
+            return False
+        if len(value) < EXPLICIT_ORDER_NUMBER_MIN_DIGITS:
+            return False
+        shape = (len(value), value[:_SHAPE_PREFIX_DIGITS])
+        return any(
+            shape in self.shapes_by_client.get(client_id, frozenset())
+            for client_id in client_ids
+        )
 
 
 def build_order_number_index(
@@ -137,6 +155,7 @@ def build_order_number_index(
 
     by_client: dict[int, set[str]] = {}
     numeric: set[int] = set()
+    shapes: dict[int, set[tuple[int, str]]] = {}
     for client_id, order_number in groups:
         if client_id is None or order_number is None:
             continue
@@ -155,9 +174,13 @@ def build_order_number_index(
             keys.add(canonical_digits(digits))
         if digits is not None and len(digits) >= EXPLICIT_ORDER_NUMBER_MIN_DIGITS:
             numeric.add(client_id)
+            shapes.setdefault(client_id, set()).add(
+                (len(digits), digits[:_SHAPE_PREFIX_DIGITS])
+            )
     return OrderNumberIndex(
         by_client={k: frozenset(v) for k, v in by_client.items()},
         numeric_clients=frozenset(numeric),
+        shapes_by_client={k: frozenset(v) for k, v in shapes.items()},
     )
 
 
@@ -169,17 +192,22 @@ def explicit_order_hints(
 ) -> list[str]:
     """Ciągi cyfr z „Uwag", które wskazują zamówienie tych klientów wprost.
 
-    ``known_only_client_ids`` — klienci, u których wiąże WYŁĄCZNIE znany numer
-    zamówienia, bez reguły „≥ 7 cyfr". Runda 7 audytu (R7-V4-5): klient
-    kosztowy osoby (np. Polkomtel) dopisany do zbioru klientów włączał regułę
-    długości dla wszystkich jej klientów, więc NIP albo numer faktury
-    w „Uwagach" wiersza BNP blokował dopasowanie po nazwisku.
+    ``known_only_client_ids`` — klienci, u których wiąże znany numer
+    zamówienia albo numer w KSZTAŁCIE ich zamówień, bez ogólnej reguły
+    „≥ 7 cyfr". Runda 7 audytu (R7-V4-5): klient kosztowy osoby (np. Polkomtel)
+    dopisany do zbioru klientów włączał regułę długości dla wszystkich jej
+    klientów, więc NIP albo numer faktury w „Uwagach" wiersza BNP blokował
+    dopasowanie po nazwisku. Runda 8 (R8-V1-5, decyzja właściciela): nowy,
+    jeszcze nieznany numer SAP Polkomtela („45…", 10 cyfr) wiąże — wiersz idzie
+    do „Brak pasującego zamówienia", zamiast schodzić po nazwisku z puli MD
+    innego klienta.
     """
 
     if index is None:
         return []
     clients = frozenset(client_ids)
-    known = index.known(clients | frozenset(known_only_client_ids))
+    known_only = frozenset(known_only_client_ids)
+    known = index.known(clients | known_only)
     long_binds = bool(clients & index.numeric_clients)
     explicit: list[str] = []
     for hint in hints:
@@ -190,6 +218,7 @@ def explicit_order_hints(
             value in known
             or canonical_digits(value) in known
             or (long_binds and len(value) >= EXPLICIT_ORDER_NUMBER_MIN_DIGITS)
+            or index.fits_shape(value, known_only)
         ):
             explicit.append(value)
     return explicit
