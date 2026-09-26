@@ -34,6 +34,7 @@ from app.models.candidate import Candidate
 from app.models.candidate_conflict import CandidateConflict, ConflictType
 from app.models.contract import Contract, ContractStatus
 from app.services.pipeline_latest import latest_stage_ids
+from app.services.access_scope import DL_CLIENT_OUT_OF_SCOPE_DETAIL
 from app.models.job import Job, JobStatus
 from app.models.job_collaborator import JobCollaborator
 from app.models.activity import Activity
@@ -203,7 +204,7 @@ def _assert_delivery_lead_client_visible(
     ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Client is outside the resolved Delivery Lead scope",
+            detail=DL_CLIENT_OUT_OF_SCOPE_DETAIL,
         )
 
 

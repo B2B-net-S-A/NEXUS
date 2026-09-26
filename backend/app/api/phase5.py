@@ -279,6 +279,13 @@ async def clients_lookup(
             "Aktywni albo Relacyjni w katalogu klientow."
         ),
     ),
+    delivery_scope: bool = Query(
+        False,
+        description=(
+            "Gdy true -> Delivery Lead dostaje tylko klientow swojego portfela "
+            "(pickery modulu Kontrakty). Bez parametru lista zostaje org-wide."
+        ),
+    ),
 ):
     """Minimal client list for dropdown (id, name) — avoids heavy /clients payload.
 
@@ -331,6 +338,20 @@ async def clients_lookup(
                     ),
                 )
             ),
+        )
+    if delivery_scope:
+        # Pickery Kontraktów (runda 6 audytu): zapis kontraktu u klienta spoza
+        # portfela odmawia 403, więc DL nie może go w ogóle wybrać. Pickery
+        # rekrutacji pytają bez parametru — rekrutacje są org-wide.
+        from app.services.access_scope import (
+            apply_delivery_lead_client_scope,
+            resolve_delivery_lead_client_ids,
+        )
+
+        stmt = apply_delivery_lead_client_scope(
+            stmt,
+            Client.id,
+            await resolve_delivery_lead_client_ids(current_user, db),
         )
     rows = await db.execute(stmt.order_by(name_col))
     return [{"id": r[0], "name": r[1]} for r in rows.all()]

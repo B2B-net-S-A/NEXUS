@@ -17,6 +17,7 @@ from enum import Enum
 from fastapi import HTTPException, status
 from sqlalchemy import and_, or_, select, union
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.core.config import settings
 from app.models.activity import Activity
@@ -297,12 +298,31 @@ async def resolve_delivery_lead_assigned_client_ids(
         return None
     if not user.has_role(UserRole.delivery_lead):
         return None
+    assigned = select(DeliveryLeadClientAssignment.client_id).where(
+        DeliveryLeadClientAssignment.delivery_lead_user_id == user.id
+    )
+    # Scalony duplikat i klient kanoniczny to ta sama firma (runda 6 audytu),
+    # bo scalenie (``POST /clients/{id}/merge``, manifest portfela) NIE
+    # przepina ``delivery_lead_client_assignments``: DL przypisany tylko do
+    # duplikatu tracił po scaleniu dostęp do klienta kanonicznego, a DL
+    # klienta kanonicznego nie widział historii zostawionej na duplikacie.
+    # Łańcuch ma jeden poziom — celem scalenia nie może być klient scalony.
+    merged = aliased(Client)
+    canonical_of_assigned = select(merged.merged_into_client_id).where(
+        merged.id.in_(assigned),
+        merged.merged_into_client_id.is_not(None),
+    )
     return frozenset(
         int(client_id)
         for client_id in (
             await db.scalars(
-                select(DeliveryLeadClientAssignment.client_id).where(
-                    DeliveryLeadClientAssignment.delivery_lead_user_id == user.id
+                select(Client.id).where(
+                    or_(
+                        Client.id.in_(assigned),
+                        Client.id.in_(canonical_of_assigned),
+                        Client.merged_into_client_id.in_(assigned),
+                        Client.merged_into_client_id.in_(canonical_of_assigned),
+                    )
                 )
             )
         ).all()
@@ -328,6 +348,12 @@ def apply_delivery_lead_client_scope(
     return statement.where(client_column.in_(sorted(allowed_client_ids) or [-1]))
 
 
+# Odmowa zakresu DL trafia wprost do toastów formularzy (Kontrakty,
+# zamówienia), więc mówi po polsku (runda 6 audytu); front na 403 profilu
+# pisze to samo zdanie.
+DL_CLIENT_OUT_OF_SCOPE_DETAIL = "Ten klient jest poza Twoim portfelem."
+
+
 def assert_delivery_lead_client_visible(
     client_id: int | None,
     allowed_client_ids: frozenset[int] | None,
@@ -337,7 +363,7 @@ def assert_delivery_lead_client_visible(
     if client_id is None or client_id not in allowed_client_ids:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Client is outside the resolved Delivery Lead scope",
+            detail=DL_CLIENT_OUT_OF_SCOPE_DETAIL,
         )
 
 
