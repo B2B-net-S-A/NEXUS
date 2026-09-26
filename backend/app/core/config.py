@@ -152,6 +152,15 @@ class Settings(BaseSettings):
     # wskazującym nową) i przełącza się RAZEM z QDRANT_COLLECTION — oba wpisy
     # są w _SCORING_CACHE_INPUTS, więc flip unieważnia cache score'ów.
     AI_TEXT_SCHEMA_V3: bool = False
+    # Wariant kontrolny v3 bez sekcji [NOTES] (26.09.2026) — do pomiaru
+    # przecieku etykiety z notatek (docs/embedding-v3-ab-runbook.md); na
+    # produkcji wyłącznie razem z kolekcją zbudowaną tym wariantem.
+    # True = zachowanie sprzed przełącznika. Świadomie POZA
+    # _SCORING_CACHE_INPUTS: nowy klucz w digeście unieważniłby cały cache
+    # score'ów przy wdrożeniu, a wariant bez notatek żyje zawsze we własnej
+    # kolekcji (QDRANT_COLLECTION jest w digeście), więc klucz cache i tak się
+    # różni. Nie przełączaj tej flagi w miejscu na aktywnej kolekcji.
+    AI_TEXT_SCHEMA_V3_NOTES: bool = True
 
     # Runda 2: unia pul z kilku sformułowań zapytania (pełny tekst oferty +
     # tytuł/seniority + lista skilli). Warianty decydują o CZŁONKOSTWIE puli;

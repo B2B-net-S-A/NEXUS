@@ -29,6 +29,32 @@ Note on scope: without ``--only-missing`` this re-embeds EVERY row, which costs
 the same Voyage spend as the original import. That is the right thing after a
 ``VOYAGE_MODEL`` change (old vectors live in a different semantic space) and the
 wrong thing when you merely want to fill a gap.
+
+Kolekcja-cień do A/B tekstu embeddingu (26.09.2026, docs/embedding-v3-ab-runbook.md)::
+
+    # budowa v3 obok produkcji — produkcja nietknięta (bez outboxu, bez
+    # znacznika embedding_id), wznawialna po restarcie kontenera
+    python -m scripts.reembed_collections --target candidates --commit \
+        --collection nexus_candidates_v3 --text-schema v3 --ensure-collection \
+        --resume --max-batch-chars 120000
+
+    # po przełączeniu env (AI_TEXT_SCHEMA_V3 + QDRANT_COLLECTION): dogonienie
+    # zmian z okresu budowy + wpis stanu indeksu do outboxu
+    python -m scripts.reembed_collections --target candidates --commit \
+        --resume --record-outbox
+
+Zasady, których pilnuje ``_resolve_candidate_plan``:
+
+* ``--collection`` / ``--text-schema`` inne niż aktywne = **budowa cienia**:
+  skrypt NIE dotyka ``candidates.embedding_id`` (kolumna mówi „ma wektor
+  w AKTYWNEJ kolekcji”) ani outboxu indeksu;
+* ``--record-outbox`` wolno WYŁĄCZNIE na aktywnej kolekcji i aktywnym schemacie
+  tekstu — zapis ``indexed_hash`` dla cienia powiedziałby reconcilerowi
+  produkcji, że v3 jest zaindeksowane, a ten zakolejkowałby ~60 tys.
+  przeliczeń v1 (albo, po przełączeniu, uznałby stan za zgodny, choć nie jest).
+  Nie ustawiaj ``QDRANT_COLLECTION``/``AI_TEXT_SCHEMA_V3`` w env samego
+  polecenia przy budowie cienia — wtedy skrypt nie odróżni cienia od aktywnej
+  kolekcji. Do cienia służą ``--collection`` i ``--text-schema``.
 """
 
 from __future__ import annotations
@@ -38,6 +64,7 @@ import asyncio
 import hashlib
 import logging
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
@@ -52,6 +79,7 @@ from app.core.database import AsyncSessionLocal  # noqa: E402
 from app.models.candidate import Candidate  # noqa: E402
 from app.models.job import Job  # noqa: E402
 from app.services.embedding_service import (  # noqa: E402
+    VECTOR_SIZE,
     _build_candidate_text,
     _build_job_text,
     _collection,
@@ -61,6 +89,17 @@ from app.services.embedding_service import (  # noqa: E402
 )
 
 logger = logging.getLogger("reembed_collections")
+
+# Sufit znaków na JEDNO wywołanie Voyage. Voyage limituje łączną liczbę tokenów
+# w żądaniu (voyage-3: 120 tys.), a nie tylko liczbę tekstów (128). Tekst v3
+# niesie do 12 tys. znaków samego CV, więc 128 takich tekstów to ~1,5 mln
+# znaków — kilkakrotnie ponad limit, czyli HTTP 400 na całą paczkę. 120 tys.
+# znaków to ~40–60 tys. tokenów nawet przy gęstym polskim tekście (2–3 znaki
+# na token) — z zapasem pod limitem. Tekst dłuższy niż sufit idzie sam.
+DEFAULT_MAX_BATCH_CHARS = 120_000
+
+# --text-schema → stempel schematu (ten sam słownik co `VersionTrace`).
+TEXT_SCHEMAS = ("active", "v1", "v2", "v3", "v3-nonotes")
 
 
 async def _bulk_upsert_qdrant(collection: str, points: list[dict]) -> int:
@@ -233,6 +272,246 @@ async def _qdrant_point_ids(collection: str) -> set[int]:
         ) from exc
 
 
+def _schema_stamp(text_schema: str) -> str:
+    """``--text-schema`` → stempel ``TEXT_SCHEMA_*`` (``active`` = bieżący env)."""
+    from app.services import canonical_text as ct
+
+    return {
+        "active": ct.active_text_schema(),
+        "v1": ct.TEXT_SCHEMA_V1,
+        "v2": ct.TEXT_SCHEMA_V2,
+        "v3": ct.TEXT_SCHEMA_V3,
+        "v3-nonotes": ct.TEXT_SCHEMA_V3_NO_NOTES,
+    }[text_schema]
+
+
+def _candidate_text_builder(text_schema: str):
+    """Funkcja budująca tekst kandydata dla ``--text-schema``.
+
+    ``active`` to dyspozytor aplikacji (czytany przy WYWOŁANIU, więc testy mogą
+    go podmienić). Pozostałe są jawne i NIE zależą od flag w env — cień v3
+    buduje się w kontenerze produkcji, który ma ``AI_TEXT_SCHEMA_V3=false``.
+    """
+    from app.services import canonical_text as ct
+    from app.services import embedding_service as emb
+
+    if text_schema == "active":
+        return lambda c: _build_candidate_text(c)
+    if text_schema == "v1":
+        return emb._build_candidate_text_v1
+    if text_schema == "v2":
+        return ct.build_candidate_text_v2
+    if text_schema == "v3":
+        return lambda c: ct.build_candidate_text_v3(c, include_notes=True)
+    if text_schema == "v3-nonotes":
+        return lambda c: ct.build_candidate_text_v3(c, include_notes=False)
+    raise ValueError(f"unknown text schema {text_schema!r}")
+
+
+@dataclass(frozen=True)
+class CandidatePlan:
+    """Dokąd i czym budujemy wektory kandydatów w tym biegu."""
+
+    collection: str
+    text_schema: str  # wartość --text-schema
+    schema_stamp: str
+    shadow: bool  # kolekcja albo schemat inne niż aktywne w aplikacji
+    record_outbox: bool
+
+
+def _resolve_candidate_plan(
+    *,
+    collection: Optional[str],
+    text_schema: str,
+    record_outbox: bool,
+) -> CandidatePlan:
+    """Rozstrzyga cień vs aktywna kolekcja i pilnuje ``--record-outbox``.
+
+    „Aktywne” = to, czego używa aplikacja w tym procesie (``_collection()``
+    i ``active_text_schema()``). Zapis stanu indeksu do outboxu dla czegokolwiek
+    innego niż aktywna para (kolekcja, schemat) jest odmową — patrz docstring
+    modułu.
+    """
+    from app.services import canonical_text as ct
+
+    active_collection = _collection()
+    target = collection or active_collection
+    stamp = _schema_stamp(text_schema)
+    shadow = target != active_collection or stamp != ct.active_text_schema()
+    if record_outbox and shadow:
+        raise ValueError(
+            "--record-outbox wolno wyłącznie na AKTYWNEJ kolekcji i aktywnym "
+            f"schemacie tekstu (aplikacja: {active_collection!r} / "
+            f"{ct.active_text_schema()!r}; ten bieg: {target!r} / {stamp!r}). "
+            "Zapis indexed_hash dla cienia okłamałby reconciler produkcji."
+        )
+    return CandidatePlan(
+        collection=target,
+        text_schema=text_schema,
+        schema_stamp=stamp,
+        shadow=shadow,
+        record_outbox=record_outbox,
+    )
+
+
+def _text_hash(text: str) -> str:
+    """Ten sam hasz treści, który ląduje w payloadzie punktu (`content_hash`)."""
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+def _char_batches(
+    texts: list[str], *, max_chars: int, max_items: int
+) -> list[list[int]]:
+    """Indeksy tekstów pocięte na paczki ≤ ``max_chars`` znaków i ≤ ``max_items``.
+
+    Kolejność zachowana. Tekst dłuższy niż sufit dostaje własną paczkę — Voyage
+    przytnie go sam (``truncation: true``), a dokładanie do niego sąsiadów
+    przekroczyłoby limit tokenów żądania i zabrało je razem z nim.
+    """
+    batches: list[list[int]] = []
+    current: list[int] = []
+    size = 0
+    for idx, text in enumerate(texts):
+        length = len(text)
+        if current and (size + length > max_chars or len(current) >= max_items):
+            batches.append(current)
+            current, size = [], 0
+        current.append(idx)
+        size += length
+    if current:
+        batches.append(current)
+    return batches
+
+
+async def _embed_texts(
+    texts: list[str], *, max_chars: int, max_items: int
+) -> list[Optional[list[float]]]:
+    """Embedding wielu tekstów paczkami po znakach; ``None`` = slot bez wektora."""
+    out: list[Optional[list[float]]] = [None] * len(texts)
+    for chunk in _char_batches(texts, max_chars=max_chars, max_items=max_items):
+        embeddings = await _voyage_embed_batch(
+            [texts[i] for i in chunk], input_type="document"
+        )
+        if embeddings is None:
+            logger.warning(
+                "[reembed candidates] voyage batch of %s texts (%s chars) failed",
+                len(chunk),
+                sum(len(texts[i]) for i in chunk),
+            )
+            continue
+        for k, i in enumerate(chunk):
+            out[i] = embeddings[k] if k < len(embeddings) else None
+    return out
+
+
+async def _qdrant_point_hashes(collection: str) -> dict[int, tuple[str, str]]:
+    """``id → (content_hash, embedding_model)`` z payloadu punktów kolekcji.
+
+    Podstawa ``--resume``: punkt jest „gotowy”, gdy niesie hasz DOKŁADNIE tego
+    tekstu, który zbudowałby ten bieg, i ten sam model. Sama obecność id (to
+    robi ``--only-missing``) nie wystarcza przy wznawianiu budowy cienia —
+    kandydat zmieniony w trakcie wielogodzinnej budowy miałby wektor ze starej
+    treści.
+    """
+    from qdrant_client import QdrantClient  # noqa: PLC0415
+
+    def _scroll() -> dict[int, tuple[str, str]]:
+        client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
+        found: dict[int, tuple[str, str]] = {}
+        offset = None
+        while True:
+            points, offset = client.scroll(
+                collection_name=collection,
+                limit=10_000,
+                offset=offset,
+                with_payload=["content_hash", "embedding_model"],
+                with_vectors=False,
+            )
+            for p in points:
+                payload = p.payload or {}
+                found[int(p.id)] = (
+                    str(payload.get("content_hash") or ""),
+                    str(payload.get("embedding_model") or ""),
+                )
+            if offset is None:
+                break
+        return found
+
+    try:
+        return await asyncio.to_thread(_scroll)
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(
+            f"Cannot read Qdrant collection {collection!r} payloads for --resume "
+            f"at {settings.QDRANT_HOST}:{settings.QDRANT_PORT}. "
+            f"Original error: {exc}"
+        ) from exc
+
+
+def _ensure_candidate_collection(collection: str) -> None:
+    """Załóż kolekcję kandydatów (cosine, ``VECTOR_SIZE``), jeśli jej nie ma."""
+    from qdrant_client import QdrantClient  # noqa: PLC0415
+    from qdrant_client.models import Distance, VectorParams  # noqa: PLC0415
+
+    client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
+    existing = {c.name for c in client.get_collections().collections}
+    if collection in existing:
+        logger.info("[reembed] collection %r already exists", collection)
+        return
+    client.create_collection(
+        collection_name=collection,
+        vectors_config=VectorParams(size=VECTOR_SIZE, distance=Distance.COSINE),
+    )
+    logger.info("[reembed] collection %r created (dim=%s)", collection, VECTOR_SIZE)
+
+
+async def _record_outbox_done(candidates: list) -> int:
+    """Zapisz w outboxie „ten kandydat jest zaindeksowany aktualną treścią”.
+
+    Wiersz ``done`` z ``indexed_hash = desired_hash`` — dokładnie to, co zapisuje
+    worker po udanym upsercie (``process_event``). Reconciler dryfu czyta
+    najnowszy taki wiersz; bez niego po przełączeniu schematu tekstu każdy
+    kandydat z haszem v1 wyglądałby na dryf i poszedłby do ponownego embeddingu
+    (~60 tys. wywołań Voyage za coś, co już jest w kolekcji).
+
+    Hasz liczy ``index_outbox_service.desired_state`` — JEDNO źródło, więc
+    porównanie reconcilera (``hashes_match``) trafi dokładnie. Wolno wołać
+    WYŁĄCZNIE dla aktywnej pary (kolekcja, schemat) — pilnuje tego
+    ``_resolve_candidate_plan``.
+
+    Best-effort jak ``_mark_embedded``: wektor już jest w Qdrancie.
+    """
+    if not candidates:
+        return 0
+    from app.models.index_outbox import IndexOutboxEvent  # noqa: PLC0415
+    from app.services import index_outbox_service as outbox  # noqa: PLC0415
+
+    try:
+        async with AsyncSessionLocal() as db:
+            for c in candidates:
+                st = outbox.desired_state(outbox.CANDIDATE, c)
+                db.add(
+                    IndexOutboxEvent(
+                        entity_type=outbox.CANDIDATE,
+                        entity_id=int(c.id),
+                        entity_revision=st.revision,
+                        desired_hash=st.desired_hash,
+                        operation="upsert",
+                        status="done",
+                        indexed_hash=st.desired_hash,
+                        indexed_revision=st.revision,
+                    )
+                )
+            await db.commit()
+        return len(candidates)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "[reembed] vectors in Qdrant but outbox not recorded for %s ids: %s",
+            len(candidates),
+            exc,
+        )
+        return 0
+
+
 async def _reembed_candidates(
     *,
     commit: bool,
@@ -240,9 +519,27 @@ async def _reembed_candidates(
     limit: Optional[int],
     log_every: int,
     only_missing: bool = False,
+    collection: Optional[str] = None,
+    text_schema: str = "active",
+    max_batch_chars: int = DEFAULT_MAX_BATCH_CHARS,
+    resume: bool = False,
+    record_outbox: bool = False,
+    estimate: bool = False,
 ) -> tuple[int, int, int]:
-    """Returns (processed, succeeded, failed). Batches Voyage calls (up to 128/req)."""
-    processed = succeeded = failed = 0
+    """Returns (processed, succeeded, failed). Batches Voyage calls (up to 128/req).
+
+    ``succeeded`` liczy też kandydatów pominiętych przez ``--resume`` (wektor
+    z tą samą treścią już jest) — osobno są raportowani w logu jako ``skipped``.
+
+    ``estimate`` (tylko z ``--dry-run``): buduje teksty i liczy znaki tego, co
+    poszłoby do Voyage (po ``--resume``), bez żadnego wywołania API — podstawa
+    szacunku kosztu przed budową cienia.
+    """
+    plan = _resolve_candidate_plan(
+        collection=collection, text_schema=text_schema, record_outbox=record_outbox
+    )
+    build_text = _candidate_text_builder(plan.text_schema)
+    processed = succeeded = failed = skipped = recorded = 0
 
     # Ids first, rows later, one batch at a time. Loading whole ORM objects up
     # front pulled every `raw_cv_text` on the box into memory at once (~56k rows
@@ -259,7 +556,7 @@ async def _reembed_candidates(
         all_ids = [cid for (cid,) in (await db.execute(stmt)).all()]
 
     if only_missing:
-        indexed = await _qdrant_point_ids(_collection())
+        indexed = await _qdrant_point_ids(plan.collection)
         before = len(all_ids)
         all_ids = [cid for cid in all_ids if cid not in indexed]
         if limit is not None:
@@ -272,17 +569,34 @@ async def _reembed_candidates(
             len(indexed),
         )
 
+    point_hashes: dict[int, tuple[str, str]] = {}
+    if resume:
+        point_hashes = await _qdrant_point_hashes(plan.collection)
+        logger.info(
+            "[reembed candidates] --resume: %s points in %r carry a content hash",
+            len(point_hashes),
+            plan.collection,
+        )
+
     total = len(all_ids)
     logger.info(
-        "Found %s candidates to re-embed (model=%s, batch=%s, commit=%s)",
+        "Found %s candidates to re-embed (model=%s, collection=%s, text=%s, "
+        "shadow=%s, record_outbox=%s, batch=%s, max_batch_chars=%s, commit=%s)",
         total,
         settings.VOYAGE_MODEL,
+        plan.collection,
+        plan.schema_stamp,
+        plan.shadow,
+        plan.record_outbox,
         batch,
+        max_batch_chars,
         commit,
     )
-    if not commit:
+    if not commit and not estimate:
         return total, 0, 0
 
+    model_name = _voyage_model()
+    est_texts = est_chars = est_max = est_requests = 0
     for i in range(0, total, batch):
         id_chunk = all_ids[i : i + batch]
         async with AsyncSessionLocal() as db:
@@ -297,75 +611,131 @@ async def _reembed_candidates(
                 .scalars()
                 .all()
             )
-        texts = [_build_candidate_text(c) for c in chunk]
+        texts = [build_text(c) for c in chunk]
         # Filter out blanks to align with embedding response.
         keep_idx = [j for j, t in enumerate(texts) if t and t.strip()]
-        if not keep_idx:
-            processed += len(chunk)
-            failed += len(chunk)
-            continue
+        failed += len(chunk) - len(keep_idx)
 
-        keep_texts = [texts[j] for j in keep_idx]
-        embeddings = await _voyage_embed_batch(keep_texts, input_type="document")
-        if embeddings is None:
-            processed += len(chunk)
-            failed += len(chunk)
-            logger.warning(
-                "[reembed candidates] batch %s-%s failed entirely", i, i + len(chunk)
+        # --resume: punkt z haszem DOKŁADNIE tej treści i tym modelem jest gotowy.
+        ready: list = []
+        if resume:
+            todo = []
+            for j in keep_idx:
+                c = chunk[j]
+                if point_hashes.get(int(c.id)) == (_text_hash(texts[j]), model_name):
+                    ready.append(c)
+                else:
+                    todo.append(j)
+            keep_idx = todo
+            skipped += len(ready)
+            succeeded += len(ready)
+
+        if not commit:
+            lengths = [len(texts[j]) for j in keep_idx]
+            est_texts += len(lengths)
+            est_chars += sum(lengths)
+            est_max = max([est_max, *lengths])
+            est_requests += len(
+                _char_batches(
+                    [texts[j] for j in keep_idx],
+                    max_chars=max_batch_chars,
+                    max_items=batch,
+                )
             )
+            processed += len(chunk)
             continue
 
         points: list[dict] = []
-        for k, j in enumerate(keep_idx):
-            emb = embeddings[k] if k < len(embeddings) else None
-            c = chunk[j]
-            if emb is None:
-                failed += 1
-                continue
-            points.append(
-                dict(
-                    id=int(c.id),
-                    vector=emb,
-                    # Bez "name" — parytet z embed_candidate (runda 2): nikt
-                    # nie czyta go z payloadu, a PII w indeksie to koszt RODO.
-                    payload={
-                        "candidate_id": int(c.id),
-                        "content_hash": hashlib.sha256(texts[j].encode()).hexdigest(),
-                        "embedding_model": _voyage_model(),
-                        "competence_category": c.competence_category or "",
-                    },
-                )
+        if keep_idx:
+            keep_texts = [texts[j] for j in keep_idx]
+            embeddings = await _embed_texts(
+                keep_texts, max_chars=max_batch_chars, max_items=batch
             )
+            for k, j in enumerate(keep_idx):
+                emb = embeddings[k]
+                c = chunk[j]
+                if emb is None:
+                    failed += 1
+                    continue
+                points.append(
+                    dict(
+                        id=int(c.id),
+                        vector=emb,
+                        # Bez "name" — parytet z embed_candidate (runda 2): nikt
+                        # nie czyta go z payloadu, a PII w indeksie to koszt RODO.
+                        payload={
+                            "candidate_id": int(c.id),
+                            "content_hash": _text_hash(texts[j]),
+                            "embedding_model": model_name,
+                            "competence_category": c.competence_category or "",
+                            # Którym schematem tekstu policzono wektor — cień
+                            # i aktywna kolekcja są rozróżnialne po samym punkcie.
+                            "text_schema": plan.schema_stamp,
+                        },
+                    )
+                )
 
         # Identyfikatory wyliczone PRZED `try`. W środku ta lista byłaby objęta
         # `except`, który raportuje wyłącznie „qdrant upsert failed” — więc błąd
         # budowania punktów (np. brak klucza "id" po refaktorze) zostałby
         # zaksięgowany jako awaria Qdranta i wysłał diagnozę w las.
         point_ids = [int(p["id"]) for p in points]
-        try:
-            await _bulk_upsert_qdrant(_collection(), points)
-            await _mark_embedded(Candidate, point_ids)
-            succeeded += len(points)
-        except Exception as e:  # noqa: BLE001
-            logger.warning("[reembed candidates] qdrant upsert failed: %s", e)
-            failed += len(points)
+        upserted: list = []
+        if points:
+            try:
+                await _bulk_upsert_qdrant(plan.collection, points)
+                if not plan.shadow:
+                    # Znacznik mówi „ma wektor w AKTYWNEJ kolekcji” — cień go
+                    # nie dotyka, bo aktywna kolekcja nic nie zyskała.
+                    await _mark_embedded(Candidate, point_ids)
+                succeeded += len(points)
+                by_id = {int(c.id): c for c in chunk}
+                upserted = [by_id[pid] for pid in point_ids]
+            except Exception as e:  # noqa: BLE001
+                logger.warning("[reembed candidates] qdrant upsert failed: %s", e)
+                failed += len(points)
+
+        if plan.record_outbox:
+            recorded += await _record_outbox_done(ready + upserted)
 
         processed += len(chunk)
         if processed // log_every > (processed - len(chunk)) // log_every:
             logger.info(
-                "[reembed candidates] %s/%s (ok=%s, fail=%s)",
+                "[reembed candidates] %s/%s (ok=%s, skipped=%s, fail=%s, outbox=%s)",
                 processed,
                 total,
                 succeeded,
+                skipped,
                 failed,
+                recorded,
             )
 
+    if not commit:
+        # ~3 znaki na token to typowy stosunek dla polsko-angielskich CV;
+        # prawdziwe zużycie pokaże `usage.total_tokens` w odpowiedziach Voyage.
+        logger.info(
+            "[reembed candidates] ESTIMATE: %s texts to embed (%s skipped by "
+            "--resume, %s blank), %s chars total, max %s chars/text, ~%s tokens "
+            "(chars/3), %s Voyage requests at max_batch_chars=%s",
+            est_texts,
+            skipped,
+            failed,
+            est_chars,
+            est_max,
+            est_chars // 3,
+            est_requests,
+            max_batch_chars,
+        )
+        return processed, 0, 0
+
     logger.info(
-        "[reembed candidates] DONE %s/%s (ok=%s, fail=%s)",
+        "[reembed candidates] DONE %s/%s (ok=%s, skipped=%s, fail=%s, outbox=%s)",
         processed,
         total,
         succeeded,
+        skipped,
         failed,
+        recorded,
     )
     return processed, succeeded, failed
 
@@ -543,11 +913,85 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
             "--dry-run. Check the reported count before committing."
         ),
     )
+    p.add_argument(
+        "--collection",
+        default=None,
+        help=(
+            "kolekcja docelowa KANDYDATÓW (domyślnie aktywna: QDRANT_COLLECTION). "
+            "Inna niż aktywna = budowa cienia: bez znacznika embedding_id i bez "
+            "outboxu. Tylko z --target candidates."
+        ),
+    )
+    p.add_argument(
+        "--text-schema",
+        choices=TEXT_SCHEMAS,
+        default="active",
+        help=(
+            "schemat tekstu kandydata; `active` = dyspozytor aplikacji (flagi "
+            "AI_TEXT_SCHEMA_*). Jawny v3/v3-nonotes nie zależy od env — tak "
+            "buduje się cień w kontenerze produkcji. Tylko z --target candidates."
+        ),
+    )
+    p.add_argument(
+        "--max-batch-chars",
+        type=int,
+        default=DEFAULT_MAX_BATCH_CHARS,
+        help=(
+            "sufit łącznej liczby znaków w jednym wywołaniu Voyage (limit "
+            "tokenów żądania; długie teksty v3 w paczce 128 go przekraczają)"
+        ),
+    )
+    p.add_argument(
+        "--resume",
+        action="store_true",
+        help=(
+            "pomiń kandydatów, których punkt w kolekcji docelowej ma już "
+            "content_hash tej samej treści i ten sam embedding_model — "
+            "wznowienie po restarcie kontenera i dogonienie zmian z okresu budowy"
+        ),
+    )
+    p.add_argument(
+        "--record-outbox",
+        action="store_true",
+        help=(
+            "zapisz w outboxie indeksu wiersz `done` z indexed_hash = desired_hash "
+            "dla każdego kandydata z aktualnym wektorem (także pominiętego przez "
+            "--resume). WYŁĄCZNIE aktywna kolekcja + aktywny schemat — dla cienia "
+            "odmowa. Używane raz, po przełączeniu env na nowy schemat."
+        ),
+    )
+    p.add_argument(
+        "--estimate",
+        action="store_true",
+        help=(
+            "tylko z --dry-run --target candidates: zbuduj teksty i policz znaki "
+            "oraz liczbę żądań Voyage (bez wywołań API) — szacunek kosztu"
+        ),
+    )
     args = p.parse_args(argv)
+    if args.estimate and not (args.dry_run and args.target == "candidates"):
+        p.error("--estimate działa tylko z --dry-run --target candidates")
     if not args.commit and not args.dry_run:
         p.error("must pass --commit or --dry-run")
     if args.commit and args.dry_run:
         p.error("--commit and --dry-run are mutually exclusive")
+    candidate_only = (
+        args.collection is not None
+        or args.text_schema != "active"
+        or args.resume
+        or args.record_outbox
+    )
+    if candidate_only and args.target != "candidates":
+        p.error(
+            "--collection/--text-schema/--resume/--record-outbox dotyczą "
+            "wyłącznie kandydatów — użyj --target candidates"
+        )
+    if args.record_outbox and args.prune_orphans:
+        p.error("--record-outbox nie łączy się z --prune-orphans")
+    if args.max_batch_chars < 1000:
+        p.error("--max-batch-chars musi być co najmniej 1000")
+    if not 1 <= args.batch <= 128:
+        p.error("--batch musi być w zakresie 1-128 (limit Voyage)")
     return args
 
 
@@ -560,7 +1004,10 @@ async def _main(args: argparse.Namespace) -> int:
     if args.ensure_collection:
         from app.services.embedding_service import init_qdrant_collection
 
-        init_qdrant_collection()
+        if args.collection:
+            _ensure_candidate_collection(args.collection)
+        else:
+            init_qdrant_collection()
 
     if args.prune_orphans:
         # Runs INSTEAD of embedding: deleting and writing are different risks,
@@ -568,7 +1015,7 @@ async def _main(args: argparse.Namespace) -> int:
         if args.target in ("candidates", "all"):
             await _prune_orphans(
                 entity="candidates",
-                collection=_collection(),
+                collection=args.collection or _collection(),
                 id_column=Candidate.id,
                 commit=args.commit,
             )
@@ -588,6 +1035,12 @@ async def _main(args: argparse.Namespace) -> int:
             limit=args.limit,
             log_every=args.log_every,
             only_missing=args.only_missing,
+            collection=args.collection,
+            text_schema=args.text_schema,
+            max_batch_chars=args.max_batch_chars,
+            resume=args.resume,
+            record_outbox=args.record_outbox,
+            estimate=args.estimate,
         )
     if args.target in ("jobs", "all"):
         await _reembed_jobs(
