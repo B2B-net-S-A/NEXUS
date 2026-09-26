@@ -3365,7 +3365,11 @@ async def bulk_extend_contracts(
             await db.scalars(
                 select(Client.id).where(
                     Client.id.in_({c.client_id for c in contracts}),
-                    Client.deleted_at.is_not(None),
+                    or_(
+                        Client.deleted_at.is_not(None),
+                        # Scalony duplikat jest ukryty jak usunięty klient.
+                        Client.merged_into_client_id.is_not(None),
+                    ),
                 )
             )
         ).all()

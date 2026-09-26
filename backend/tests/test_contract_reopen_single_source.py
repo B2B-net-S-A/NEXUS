@@ -102,6 +102,29 @@ async def test_reopen_refuses_a_contract_of_a_deleted_client():
 
 
 @pytest.mark.asyncio
+async def test_reopen_refuses_a_contract_of_a_merged_client():
+    """Przegląd rundy 8: scalony duplikat klienta też nie wskrzesza kontraktu."""
+    from fastapi import HTTPException
+
+    class _MergedClientDB(_CollectingDB):
+        async def scalar(self, *_args: object, **_kwargs: object):
+            return SimpleNamespace(
+                deleted_at=None,
+                merged_into_client_id=7,
+                display_name=None,
+                name="Klient",
+            )
+
+    db = _MergedClientDB()
+    contract = _contract(ContractStatus.ended)
+    with pytest.raises(HTTPException) as exc:
+        await lifecycle.reopen_contract(db, contract, actor_id=42)
+    assert exc.value.status_code == 422
+    assert exc.value.detail["code"] == "client_merged"
+    assert contract.status == ContractStatus.ended
+
+
+@pytest.mark.asyncio
 async def test_reopen_is_a_noop_for_an_already_active_contract():
     """Przedłużenie żywego kontraktu nie może produkować szumu w feedzie."""
     db = _CollectingDB()

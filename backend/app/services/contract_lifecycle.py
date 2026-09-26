@@ -551,6 +551,7 @@ async def revert_contract(
 
 
 CLIENT_DELETED_REACTIVATION_CODE = "client_deleted"
+CLIENT_MERGED_REACTIVATION_CODE = "client_merged"
 
 
 async def assert_contract_client_not_deleted(
@@ -569,7 +570,24 @@ async def assert_contract_client_not_deleted(
     from app.services.client_identity import client_display_name
 
     client = await db.scalar(select(Client).where(Client.id == contract.client_id))
-    if client is None or client.deleted_at is None:
+    if client is None:
+        return
+    if client.deleted_at is None and getattr(client, "merged_into_client_id", None):
+        # Przegląd rundy 8: scalony duplikat jest ukryty jak usunięty klient —
+        # „Cofnij zakończenie” i „Powrót po przerwie” już go odrzucały
+        # (`assert_client_assignable`), a PATCH, aneks i `/bulk-extend` nie.
+        raise HTTPException(
+            status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": CLIENT_MERGED_REACTIVATION_CODE,
+                "reason": CLIENT_MERGED_REACTIVATION_CODE,
+                "message": (
+                    f"Klient „{client_display_name(client)}” został scalony z innym "
+                    "rekordem — kontraktu tego duplikatu nie da się wznowić."
+                ),
+            },
+        )
+    if client.deleted_at is None:
         return
     raise HTTPException(
         status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY,
