@@ -79,6 +79,9 @@ def test_candidate_upsert_checks_tombstones_in_the_statement_itself():
     assert "NOT EXISTS" in guarded and "purged_candidates" in guarded
     assert ":tombstone_source_hash" in guarded
     assert ":tombstone_email_hash" in guarded
+    # R8-V2-4: numer z Traffita usunięty jako kandydat Talent Radar.
+    assert "pc.external_source = 'tr_legacy'" in guarded
+    assert ":tombstone_legacy_hash" in guarded
     # Nagrobek maila nie blokuje, gdy żyje kandydat z tym mailem (adopcja).
     assert "live.email = CAST(:email AS text)" in guarded
     # Baza sprzed 0388: tabeli nie wolno nawet wymienić w zapytaniu.
@@ -172,13 +175,14 @@ def test_id_caps_chain_to_the_smallest_earlier_cursor():
     ]
     # Okno z kursorem 0 obejmuje wszystko — ostatnie nie ma już czego dodać.
     assert ts._cv_fields_id_caps(windows) == [None, 500, 100, 0]
-    # Zapisana granica tylko się zaostrza.
+    # R8-V2-1: zapisana granica nie istnieje — liczy ją każdy bieg z kursorów.
     assert ts._cv_fields_id_caps(
         [{"after_id": 900}, {"after_id": 0, "until_id": 50}]
     ) == [
         None,
-        50,
+        900,
     ]
+    assert ts._cv_fields_id_caps([{"after_id": 0, "until_id": 100}]) == [None]
 
 
 class _NoopSession:
@@ -290,7 +294,7 @@ async def test_window_fully_covered_by_an_earlier_one_is_dropped(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_stopped_later_window_keeps_its_id_cap(monkeypatch):
+async def test_stopped_later_window_does_not_persist_its_id_cap(monkeypatch):
     import app.services.cv_field_backfill as backfill_mod
 
     carried = {
@@ -311,6 +315,104 @@ async def test_stopped_later_window_keeps_its_id_cap(monkeypatch):
 
     (window,) = store["windows"]
     assert window["since"] == since.isoformat()
-    assert window["after_id"] == 299 and window["until_id"] == 800
-    reparsed = ts._cv_fields_windows_from_payload({"delta": {"windows": [window]}})
-    assert reparsed[0]["until_id"] == 800
+    assert window["after_id"] == 299
+    # R8-V2-1: okno, które zostanie pierwsze, nie może nieść granicy id.
+    assert "until_id" not in window
+
+
+@pytest.mark.asyncio
+async def test_first_window_with_a_saved_id_cap_still_reaches_new_ids(monkeypatch):
+    """R8-V2-1: okno zapisane przed rundą 8 z `until_id` zostało pierwsze po
+    domknięciu starszego. Z zapisaną granicą obejmowało tylko id <= 100,
+    a nowe okno (kursor 0 poprzedniego) odpadało jako „pokryte” — nowo
+    zaimportowani kandydaci nie dostawali pól z CV nigdy."""
+    import app.services.cv_field_backfill as backfill_mod
+
+    carried = {
+        "since": "2026-09-23T02:00:00+00:00",
+        "until": "2026-09-23T03:00:00+00:00",
+        "after_id": 0,
+        "until_id": 100,
+    }
+    store = _patch_cursor(monkeypatch, [carried])
+    calls: list = []
+    monkeypatch.setattr(backfill_mod, "backfill_cv_fields", _fake_backfill(calls))
+
+    await ts._cv_fields_phase(datetime(2026, 9, 26, 2, 0, tzinfo=timezone.utc))
+
+    assert calls[0]["after_id"] == 0 and calls[0]["until_id"] is None
+    assert store["windows"] == []
+
+
+@pytest.mark.asyncio
+async def test_middle_window_covers_ids_passed_by_an_earlier_window(monkeypatch):
+    """R8-V2-1: wcześniejsze okno przesunęło kursor z 50 na 99. Wiersze 51..99
+    zaktualizowane później nie należą już do niego, więc okno za nim musi
+    sięgać do jego BIEŻĄCEGO kursora, nie do zapisanego 50."""
+    import app.services.cv_field_backfill as backfill_mod
+
+    windows = [
+        {
+            "since": "2026-09-23T02:00:00+00:00",
+            "until": "2026-09-23T03:00:00+00:00",
+            "after_id": 99,
+        },
+        {
+            "since": "2026-09-24T02:00:00+00:00",
+            "until": "2026-09-24T03:00:00+00:00",
+            "after_id": 0,
+            "until_id": 50,
+        },
+    ]
+    _patch_cursor(monkeypatch, windows)
+    calls: list = []
+    monkeypatch.setattr(backfill_mod, "backfill_cv_fields", _fake_backfill(calls))
+
+    await ts._cv_fields_phase(None)
+
+    assert calls[0]["until_id"] is None
+    assert calls[1]["after_id"] == 0 and calls[1]["until_id"] == 99
+
+
+# ── R8-V2-4: import Traffita czyta nagrobek `tr_legacy` ──────────────────────
+
+
+def test_traffit_import_tombstone_source_matches_talent_radar():
+    from app.services.talent_radar_importer import SOURCE_VALUE
+    from app.services.traffit.importer import TALENT_RADAR_TOMBSTONE_SOURCE
+
+    assert TALENT_RADAR_TOMBSTONE_SOURCE == SOURCE_VALUE
+
+
+class _TombstoneDb:
+    """Atrapa bazy: zwraca nagrobki `purged_candidates` dla podanych źródeł."""
+
+    def __init__(self, rows):
+        self._rows = rows
+
+    async def execute(self, statement, params=None):
+        from unittest.mock import MagicMock
+
+        result = MagicMock()
+        sql = str(statement)
+        if "to_regclass" in sql:
+            result.fetchone.return_value = (True,)
+        else:
+            sources = set((params or {}).get("sources") or [])
+            result.fetchall.return_value = [r for r in self._rows if r[0] in sources]
+        return result
+
+
+@pytest.mark.asyncio
+async def test_traffit_import_loads_talent_radar_id_tombstones(hmac_key):
+    """R8-V2-4: kandydat usunięty jako `tr_legacy` (numer z Traffita) nie może
+    wrócić nocnym importem Traffita, gdy rekord nie ma maila."""
+    import app.services.traffit.importer as importer_mod
+    from app.services.candidate_audit import candidate_source_tombstone
+
+    legacy = candidate_source_tombstone("tr_legacy", "123")
+    imp = importer_mod.TraffitImporter.__new__(importer_mod.TraffitImporter)
+    imp.db = _TombstoneDb([("tr_legacy", legacy)])
+    ids, emails = await imp._candidate_tombstones()
+    assert legacy in ids
+    assert emails == set()

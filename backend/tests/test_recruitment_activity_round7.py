@@ -60,6 +60,10 @@ async def test_team_total_keeps_inactive_and_non_kpi_credit() -> None:
     head = _user(UserRole.head_of_recruitment, 1)
     recruiter = _user(UserRole.recruiter, 11)
     db = AsyncMock()
+    # Konta spoza list KPI z kredytem: 21 (nieaktywny rekruter) i 31 (admin).
+    # R8-V2-3: zapytanie o zakres ról zwraca tylko admina.
+    outside = MagicMock()
+    outside.all.return_value = [(31,)]
     db.execute.side_effect = [
         # Aktywne konta — osoba 21 (nieaktywna) i 31 (admin) nie są na liście.
         _result([head, recruiter]),
@@ -70,6 +74,7 @@ async def test_team_total_keeps_inactive_and_non_kpi_credit() -> None:
                 _row(31, "verified", month=4, bench=9),
             ]
         ),
+        outside,
     ]
 
     result = await activity_service.build_recruitment_activity_summary(
@@ -85,9 +90,11 @@ async def test_team_total_keeps_inactive_and_non_kpi_credit() -> None:
     assert by_metric["placement"].month == 5
     assert by_metric["verification"].month == 4
     comparisons = {item.metric: item for item in result.comparisons}
-    # Średnia: 11, 21 i 31 (każdy z kredytem w oknie porównania).
-    assert comparisons["placement"].people == 3
-    assert comparisons["placement"].team_average == round(9 / (3 * 3), 1)
+    # Średnia: 11 i 21 (każdy z kredytem w oknie porównania), bez konta
+    # administracyjnego 31 (R8-V2-3). Suma miesiąca nadal liczy admina.
+    assert comparisons["placement"].people == 2
+    assert comparisons["placement"].team_average == round(9 / (2 * 3), 1)
+    assert comparisons["verification"].team_average == 0.0
 
 
 @pytest.mark.asyncio
@@ -258,3 +265,41 @@ async def test_team_panel_interview_is_client_interview(monkeypatch) -> None:
 
     assert result.totals.interview == 3
     assert result.rows[0].interview == 3
+
+
+@pytest.mark.asyncio
+async def test_admin_bulk_placements_do_not_inflate_the_team_average() -> None:
+    """R8-V2-3: konto administracyjne z 10 domkniętymi placementami i dwóch
+    rekruterów po 1 — średnia zespołu to 1 placement na 3 miesiące."""
+    head = _user(UserRole.head_of_recruitment, 1)
+    first = _user(UserRole.recruiter, 11)
+    second = _user(UserRole.recruiter, 12)
+    outside = MagicMock()
+    outside.all.return_value = [(31,)]
+    db = AsyncMock()
+    db.execute.side_effect = [
+        _result([head, first, second]),
+        _result(
+            [
+                _row(11, "hired", bench=1),
+                _row(12, "hired", bench=1),
+                _row(31, "hired", month=10, bench=10),
+            ]
+        ),
+        outside,
+    ]
+
+    result = await activity_service.build_recruitment_activity_summary(
+        db,
+        head,
+        selected_day=date(2026, 8, 20),
+        selected_month=date(2026, 8, 1),
+        team_scope=True,
+        today=date(2026, 9, 26),
+    )
+
+    comparisons = {item.metric: item for item in result.comparisons}
+    assert comparisons["placement"].people == 2
+    assert comparisons["placement"].team_average == round(2 / (2 * 3), 1)
+    by_metric = {metric.metric: metric for metric in result.metrics}
+    assert by_metric["placement"].month == 10
