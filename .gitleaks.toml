@@ -140,6 +140,10 @@ paths = [
 regexTarget = "line"
 regexes = [
   '''claude\.ai/code/artifact/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}''',
+  # Public tenant/client IDs of NEXUS Teams Prep; exact values only.
+  # They select the approved application and are not bearer credentials.
+  '''e277180c-b58a-418c-b362-bb89ab0b1301''',
+  '''b6051b61-559e-4482-841e-0cc8869a4e2e''',
   # Fikcyjne GUID-y tenanta z testu callbacku M365 (runda 4 audytu, 25.09.2026) —
   # zostały w historii gałęzi PR #1844, a skan PR-a obejmuje cały zakres commitów.
   '''[19]{8}-2222-3333-4444-555555555555''',
