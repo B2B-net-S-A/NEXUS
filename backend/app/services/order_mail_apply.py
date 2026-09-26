@@ -94,6 +94,11 @@ COST_SHARED_BUDGET_REFUSAL = (
     "same szkice bez kwoty"
 )
 
+DELETED_CLIENT_REFUSAL = (
+    "Klient tego dokumentu został usunięty — zamówienie nie zostanie zapisane; "
+    "wskaż właściwego klienta albo odrzuć dokument"
+)
+
 
 @dataclass
 class AppliedRow:
@@ -343,9 +348,14 @@ async def apply_document(
     )
     # Lock the client before refreshing the roster. Different incoming PDFs
     # for the same first contractor cannot both create an initial draft.
-    await db.scalar(
-        select(Client.id).where(Client.id == doc.client_id).with_for_update()
+    client_deleted_at = await db.scalar(
+        select(Client.deleted_at).where(Client.id == doc.client_id).with_for_update()
     )
+    if client_deleted_at is not None:
+        # Runda 7 (R7-X5-1): usunięty klient nie ma profilu ani zapisów (0307).
+        # Dokument rozpoznany przed usunięciem nie może założyć zamówienia ani
+        # wskrzesić kontraktu u klienta, którego profil zwraca 404.
+        return ApplyResult(error=DELETED_CLIENT_REFUSAL)
     if not (doc.proposal or {}).get("apply_result"):
         from app.services.order_mail_ingest import current_proposal, restore_extraction
 

@@ -1013,11 +1013,15 @@ def _fallback_row(model: ConsultantOrderRow) -> ConsultantOrderRow:
 def _clear_rate(result: OrderExtraction) -> None:
     """Bez stawki dokumentu; jednostka zostaje — MD to reguła klienta, nie odczyt."""
     clear_field(result, "rate_client")
+    # Runda 7 (N4): kwota brutto ze starego odczytu wróciłaby w
+    # ``apply_rate_rules`` jako stawka mimo powodu „wpisz ręcznie”.
+    clear_field(result, "rate_client_gross")
     set_field(result, "rate_unit", RATE_UNIT)
     result.consultant_rate_matched = False
 
 
 def _set_rate(result: OrderExtraction, rate: Decimal) -> None:
+    clear_field(result, "rate_client_gross")
     set_field(result, "rate_client", rate)
     set_field(result, "rate_unit", RATE_UNIT)
     result.consultant_rate_matched = True

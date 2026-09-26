@@ -999,7 +999,11 @@ klienta („Scal z…”) działa też na pocztę zamówień: kolejne dokumenty 
 numerem trafiają do rekordu, który po scaleniu został, razem z jego listą
 konsultantów. Jeżeli ten sam numer widnieje przy **dwóch osobnych** klientach,
 system nie zgaduje — dokument trafia do „Do weryfikacji” jako nierozpoznany
-klient, dopóki duplikat nie zostanie scalony.
+klient, dopóki duplikat nie zostanie scalony. **Klient usunięty** przyciskiem
+„Usuń klienta” nie jest rozpoznawany wcale — jego NIP nie blokuje żywego
+rekordu z tym samym numerem, a dokument, który przypisano mu przed usunięciem,
+nie zostanie zapisany („Klient tego dokumentu został usunięty”); wskaż
+właściwego klienta albo odrzuć dokument.
 
 Gdy mail przychodzi przed umową, draft czeka na koszt i podpis. Po obustronnym
 podpisaniu umowy system pobiera koszt z umowy i aktywuje kompletny draft.
@@ -1015,7 +1019,9 @@ bez dzielenia przez 1,23. U Aliora stawka jest domyślnie netto: brak oznaczenia
 nie jest wątpliwością, a jawne „brutto” w tabeli Konsultantów kieruje zamówienie
 do weryfikacji bez przeliczenia. W PFRON stawka z pola „Stawka za jedną Roboczogodzinę”
 bez oznaczenia albo z „brutto” jest dzielona przez 1,23, a z jawnym „netto” przy
-stawce zostaje bez przeliczenia; oba słowa naraz kierują zamówienie do weryfikacji. Kolumna „Quantity (max Xh/month)” nie określa
+stawce (także „zł (netto)”, „zł/h netto” czy „zł + 23% VAT”) zostaje bez
+przeliczenia; oba słowa naraz albo „netto” w innym zapisie tuż za kwotą kierują
+zamówienie do weryfikacji. Kolumna „Quantity (max Xh/month)” nie określa
 liczby godzin ani MD w planie. Summary jest pomijane przed odczytem danych.**
 
 **„Przelicz plan"** odświeża oczekujący wpis z zachowanego PDF-a i aktualnej
@@ -1497,9 +1503,16 @@ Korekta pozostałości to osobna operacja opisana na końcu tej sekcji.
   więc MD za sierpień z numerem zamówienia wystawionego 3 września trafiają na
   to zamówienie. Za
   numer uznawany jest ciąg cyfr znany jako numer zamówienia **klienta tej
-  osoby**, a u klientów z numerami z samych cyfr (BIK, Polkomtel) także każdy
-  ciąg dłuższy niż 6 cyfr. Dopisek „w tym delegacja 318", rok, NIP czy numer
-  zamówienia innego klienta nie blokuje dopasowania po nazwisku. Ponowny
+  osoby** — zamówienia MD albo **kosztowego** (np. numer SAP zamówienia
+  kosztowego u Polkomtela wiąże wiersz tak samo), a u klientów z numerami
+  z samych cyfr (BIK, Polkomtel) także każdy ciąg dłuższy niż 6 cyfr. Dopisek
+  „w tym delegacja 318" czy rok nie blokuje dopasowania po nazwisku. **Uwaga:**
+  gdy osoba ma zamówienie (MD albo kosztowe) u BIK lub Polkomtela, **każdy**
+  ciąg dłuższy niż 6 cyfr w „Uwagach" — także NIP, numer faktury czy numer
+  zamówienia innego klienta — jest traktowany jak numer zamówienia; gdy nie
+  pasuje do żadnego zamówienia tej osoby, wiersz nie zejdzie po nazwisku
+  i trafi do sprawdzenia jak wiersz ze złym numerem. Usuń takie ciągi
+  z „Uwag" albo wpisz tam właściwy numer. Ponowny
   import miesiąca z numerem cofa nadwyżkę przeniesioną wcześniej na
   przedłużenie — te same MD nie liczą się dwa razy. Numer z samych cyfr jest
   porównywany **bez zer wiodących** — Excel zapisuje „0087020188" jako
@@ -1522,7 +1535,11 @@ Korekta pozostałości to osobna operacja opisana na końcu tej sekcji.
   wystarcza** — wiersz musi mieć dodatkowo **numer tego zamówienia w kolumnie
   „Uwagi"**. Bez numeru (albo gdy numer pasuje do kilku zamówień) **z puli nie
   schodzi ani jeden dzień**, a wiersz zostaje niedopasowany. To najczęstsza
-  przyczyna „import przeszedł, a budżet stoi w miejscu".
+  przyczyna „import przeszedł, a budżet stoi w miejscu". Wyjątek: gdy ta sama
+  osoba ma też **własną linię MD** na innym zamówieniu, wiersz z numerem tego
+  zamówienia schodzi z jej linii, a wiersz bez numeru trafia do **„Wymaga
+  przypisania"** z jej liniami do wyboru — nigdy nie schodzi po samym
+  nazwisku.
 * **U Polkomtela każdy ciąg cyfr z „Uwag" jest rozstrzygający** (także krótki).
   Jeżeli pasuje do zamówienia Polkomtela — decyduje numer, nie nazwisko; jeżeli
   nie pasuje, system **nie wraca do dopasowania po nazwisku**, tylko zostawia
@@ -1928,9 +1945,16 @@ Reguła odczytu zmienia liczby, więc warto znać ją w całości:
 * Oczekujący wpis z błędnym klientem, numerem lub datą popraw przyciskiem
   **„Przelicz plan”**. Kompletny i pewny wynik jest od razu zapisywany.
 * **Stawka z pola „Stawka za jedną Roboczogodzinę (zgodna z Ofertą Wykonawcy)”
-  jest brutto i zawsze jest dzielona przez 1,23**, z jednostką godzinową.
-  Przykład: 172,20 zł brutto/h daje **140,00 zł netto/h**. To przeliczenie nie
-  powoduje niepewności odczytu; oryginalna kwota brutto pozostaje widoczna.
+  bez oznaczenia albo z „brutto” jest traktowana jako brutto i dzielona przez
+  1,23**, z jednostką godzinową. Przykład: 172,20 zł brutto/h daje **140,00 zł
+  netto/h**. To przeliczenie nie powoduje niepewności odczytu; oryginalna kwota
+  brutto pozostaje widoczna.
+* **Jawne „netto” przy stawce wygrywa** — w etykiecie („Stawka netto za…”),
+  w nawiasie przy etykiecie albo za kwotą („147,60 zł netto”, „147,60 zł
+  (netto)”, „147,60 zł/h netto”, „147,60 zł + 23% VAT”). Kwota zostaje wtedy bez
+  przeliczenia. **Oba słowa naraz** („brutto/netto”) i **„netto” albo VAT w innym
+  zapisie tuż za kwotą** kierują zamówienie do weryfikacji — kwota jest wtedy
+  wstępnie przeliczona ÷ 1,23, a decyzja należy do Ciebie.
 * Przy wdrożeniu jednorazowo poprawiane są oczekujące wpisy z tymi błędami.
   Dokumenty z innymi, nierozstrzygniętymi wątpliwościami pozostają bez zmian.
 * **Wartość całkowita zamówienia nie jest przeliczana** — sprawdź ją sam.
@@ -1997,6 +2021,10 @@ Reguła odczytu zmienia liczby, więc warto znać ją w całości:
   * **Liczba MD jest pomijana.**
 * Gdy nie znajdzie numeru, okresu albo ceny jednostkowej pozycji, powie o tym
   i zostawi pole do ręcznego wpisania.
+* **Kilka osób w jednym dokumencie:** cena i okres trafiają do osób tylko
+  wtedy, gdy każda pozycja ma je i są takie same. Różne ceny albo okresy (albo
+  pozycja bez ceny) = pola osób zostają puste z uwagą „przypisz stawkę /
+  wpisz daty każdej osobie ręcznie”, a dokument idzie do sprawdzenia.
 * **Powiadomienia:** standardowe.
 
 ### VeloBank

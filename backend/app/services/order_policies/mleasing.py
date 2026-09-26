@@ -21,12 +21,14 @@ from typing import Optional
 from app.services.order_policies._shared import (
     ConsultantOrderRow,
     OrderExtraction,
+    _DATE,
     clean_person_name,
     clear_field,
     labelled_date,
     labelled_text,
     model_concerns,
     normalize_amount,
+    normalize_date,
     set_field,
 )
 
@@ -64,17 +66,74 @@ def order_number(text: str) -> Optional[str]:
     return labelled_text(ORDER_NUMBER_LABEL, text)
 
 
+_PERIOD_RE = re.compile(
+    r"Okres\s+zatrudnienia\s+od[^\d\n]{0,40}?" + _DATE + r"[^\n]*\n?[^\n]*?\bdo\b"
+    r"[^\d\n]{0,40}?" + _DATE,
+    re.IGNORECASE,
+)
+
+MULTIPLE_RATES_REASON = (
+    "Pozycje dokumentu mają różne ceny jednostkowe (albo nie każda ma cenę) — "
+    "przypisz stawkę każdej osobie ręcznie"
+)
+MULTIPLE_PERIODS_REASON = (
+    "Pozycje dokumentu mają różne okresy zatrudnienia (albo nie każda ma okres) — "
+    "wpisz daty każdej osobie ręcznie"
+)
+
+
+def _unit_prices(text: str) -> list[tuple[Optional[Decimal], Optional[str]]]:
+    return [unit_price(m.group(0)) for m in _UNIT_PRICE_RE.finditer(text or "")]
+
+
+def _periods(text: str) -> list[tuple[Optional[str], Optional[str]]]:
+    return [
+        (normalize_date(m.group(1), end=False), normalize_date(m.group(2), end=True))
+        for m in _PERIOD_RE.finditer(text or "")
+    ]
+
+
+def _shared(values: list, positions: int):
+    """Wartość wspólna wszystkich pozycji albo ``None``.
+
+    Runda 7 (R7-N4-1): dawniej pierwsza cena i pierwszy okres dokumentu szły do
+    KAŻDEJ osoby, a wiersze były pewne — druga osoba dostawała stawkę pierwszej,
+    a „tabela” potwierdzała ten błąd modelowi. Przy kilku osobach wartość
+    obowiązuje tylko wtedy, gdy każda pozycja ma ją i jest taka sama.
+    """
+    if not values:
+        return None
+    if positions > 1 and (len(values) != positions or len(set(values)) != 1):
+        return None
+    return values[0]
+
+
+def _names(text: str) -> list[str]:
+    names = [clean_person_name(m.group(1)) for m in _NAME_RE.finditer(text or "")]
+    return [name for name in names if len(name.split()) >= 2]
+
+
 def extract_rows(text: str) -> list[ConsultantOrderRow]:
-    start = labelled_date(r"Okres\s+zatrudnienia\s+od", text)
-    end = labelled_date(
-        r"Okres\s+zatrudnienia\s+od[^\n]*\n?[^\n]*?\bdo\b", text, end=True
-    )
-    rate, unit = unit_price(text)
+    names = _names(text)
+    period = _shared(_periods(text), len(names))
+    if period is None and len(names) <= 1:
+        # Jedna pozycja: okres bywa rozbity inaczej niż „od … do …” w jednym
+        # dopasowaniu — zostaje dotychczasowy odczyt po etykietach.
+        period = (
+            labelled_date(r"Okres\s+zatrudnienia\s+od", text),
+            labelled_date(
+                r"Okres\s+zatrudnienia\s+od[^\n]*\n?[^\n]*?\bdo\b", text, end=True
+            ),
+        )
+    start, end = period or (None, None)
+    rate, unit = _shared(_unit_prices(text), len(names)) or (None, None)
     rows: list[ConsultantOrderRow] = []
-    for m in _NAME_RE.finditer(text or ""):
-        name = clean_person_name(m.group(1))
-        if len(name.split()) < 2:
-            continue
+    for name in names:
+        reasons = []
+        if rate is None and len(names) > 1:
+            reasons.append(MULTIPLE_RATES_REASON)
+        if period is None and len(names) > 1:
+            reasons.append(MULTIPLE_PERIODS_REASON)
         rows.append(
             ConsultantOrderRow(
                 consultant_name=name,
@@ -82,7 +141,8 @@ def extract_rows(text: str) -> list[ConsultantOrderRow]:
                 end_date=end,
                 rate_client=rate,
                 rate_unit=unit,
-                uncertain=rate is None,
+                uncertain=rate is None or bool(reasons),
+                uncertain_reason="; ".join(reasons) or None,
             )
         )
     return rows
@@ -99,22 +159,35 @@ def apply_mleasing_order_policy(
         clear_field(result, "title")
         result.title_needs_review = True
 
-    start = labelled_date(r"Okres\s+zatrudnienia\s+od", document_text)
-    end = labelled_date(
-        r"Okres\s+zatrudnienia\s+od[^\n]*\n?[^\n]*?\bdo\b", document_text, end=True
-    )
+    rows = extract_rows(document_text)
+    if len(rows) > 1:
+        # Kilka osób: wartość dokumentu tylko wspólna dla wszystkich pozycji
+        # (``extract_rows``); inaczej pole nie może udawać stawki każdej osoby.
+        start, end = rows[0].start_date, rows[0].end_date
+        rate, unit = rows[0].rate_client, rows[0].rate_unit
+        if not (start and end):
+            clear_field(result, "start_date")
+            clear_field(result, "end_date")
+        if rate is None:
+            clear_field(result, "rate_client")
+    else:
+        start = labelled_date(r"Okres\s+zatrudnienia\s+od", document_text)
+        end = labelled_date(
+            r"Okres\s+zatrudnienia\s+od[^\n]*\n?[^\n]*?\bdo\b",
+            document_text,
+            end=True,
+        )
+        rate, unit = unit_price(document_text)
     if start:
         set_field(result, "start_date", start)
     if end:
         set_field(result, "end_date", end)
-    rate, unit = unit_price(document_text)
     if rate is not None:
         set_field(result, "rate_client", rate)
         if unit:
             set_field(result, "rate_unit", unit)
     clear_field(result, "md_total")
 
-    rows = extract_rows(document_text)
     if rows and not result.consultant_rows:
         result.consultant_rows = rows
 
@@ -122,14 +195,21 @@ def apply_mleasing_order_policy(
     reasons: list[str] = model_concerns(result)
     if result.title is None:
         reasons.append("Nie znaleziono pola „Numer zamówienia” — sprawdź numer")
-    if not (start and end):
+    row_reasons = [
+        part
+        for r in rows
+        if r.uncertain_reason
+        for part in r.uncertain_reason.split("; ")
+    ]
+    if not (start and end) and MULTIPLE_PERIODS_REASON not in row_reasons:
         reasons.append(
             "Nie znaleziono „Okres zatrudnienia od … do …” — wpisz daty ręcznie"
         )
-    if rate is None:
+    if rate is None and MULTIPLE_RATES_REASON not in row_reasons:
         reasons.append(
             "Nie znaleziono ceny jednostkowej pozycji („… dzień 869,92 PLN”) — sprawdź stawkę"
         )
+    reasons.extend(row_reasons)
     result.uncertain_reasons = list(dict.fromkeys(reasons))
     result.uncertain = bool(reasons)
     return result

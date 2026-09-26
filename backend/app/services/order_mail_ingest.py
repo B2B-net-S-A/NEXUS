@@ -370,6 +370,16 @@ async def _canonical_client_ids(
     return {client_id: follow(client_id) for client_id in ids}
 
 
+async def _deleted_client_ids(db: AsyncSession, ids: set[int]) -> set[int]:
+    """Klienci usunięci z profilu (``deleted_at``) — poczta ich nie rozpoznaje."""
+    if not ids:
+        return set()
+    rows = await db.execute(
+        select(Client.id).where(Client.id.in_(ids), Client.deleted_at.isnot(None))
+    )
+    return set(rows.scalars().all())
+
+
 async def build_registry_from_db(db: AsyncSession) -> ClientRegistry:
     """NIP-y z ``clients.nip`` → klucz = ``client_id`` jako tekst; markery/domeny z kodu.
 
@@ -394,10 +404,17 @@ async def build_registry_from_db(db: AsyncSession) -> ClientRegistry:
         if (norm := normalize_registry_id(nip or ""))
     ]
     canonical = await _canonical_client_ids(db, {cid for cid, _ in with_nip})
+    # Runda 7 (R7-X5-1): usunięty klient (``deleted_at``, tryb z historią)
+    # zostaje wierszem z NIP-em. W rejestrze robił z numeru niejednoznaczność
+    # obok żywego duplikatu (każdy mail firmy = „Nie rozpoznano klienta”),
+    # a sam kierował dokumenty do klienta bez profilu.
+    deleted = await _deleted_client_ids(
+        db, {t for t in canonical.values() if t is not None}
+    )
     by_registry: dict[str, set[int]] = {}
     for client_id, norm in with_nip:
         target = canonical.get(client_id)
-        if target is not None:
+        if target is not None and target not in deleted:
             by_registry.setdefault(norm, set()).add(target)
     return ClientRegistry(
         by_registry_id={
@@ -443,6 +460,10 @@ async def resolve_order_client_id(
     """
     client_id, key = resolve_client_id(ident)
     if key != "pfron" and not is_client_in_policy("pfron", client_id):
+        # Runda 7 (R7-X5-1): marker/domena rozwiązywane przez env polityki też
+        # mogą wskazać usuniętego klienta — wtedy „nie rozpoznano”.
+        if client_id is not None and await _deleted_client_ids(db, {client_id}):
+            return None, key
         return client_id, key
     policy = policy_by_key("pfron")
     ids = policy.canonical_client_ids | client_ids_from_env(policy.env_var)
@@ -465,6 +486,7 @@ async def resolve_order_client_id(
                     Client.id.in_(ids),
                     Client.hidden.is_(False),
                     Client.archived_at.is_(None),
+                    Client.deleted_at.is_(None),
                     Client.merged_into_client_id.is_(None),
                     active_scope,
                 )

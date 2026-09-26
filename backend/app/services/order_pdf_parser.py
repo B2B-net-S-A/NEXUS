@@ -2250,10 +2250,21 @@ _PFRON_PERSON_RATE_RE = re.compile(
     r"Stawka(?P<label>(?:\s+(?:brutto|netto))*)\s+za\s+jedn[ąa]\s+Roboczogodzin[ęe]"
     r"(?:\s*(?P<note>\([^)]{0,160}\)))?\s*:\s*"
     r"(?P<amount>\d[\d \u00a0\u202f]*(?:[,.]\d{1,2})?)\s*(?:zł|PLN)"
-    r"(?P<kind>(?:\s*[/,]?\s*(?:brutto|netto)\b)*)",
+    # Runda 7 (R7-V4-3): także „zł (netto)”, „zł/h netto”, „zł/godz. netto”.
+    r"(?P<kind>(?:\s*(?:[/,]\s*)?(?:(?:h|godz\.?|godzin[ęe]|rbh)\b\.?\s*)?"
+    r"\(?\s*(?:brutto|netto)\b\s*\)?)*)"
+    # „+ 23% VAT” / „+ VAT” za kwotą = kwota bez podatku, czyli netto.
+    r"(?P<vat>\s*\+\s*(?:\d{1,2}\s*%\s*)?(?:podatek\s+)?VAT\b)?",
     re.I,
 )
 _PFRON_RATE_MARK_WORD_RE = re.compile(r"brutto|netto", re.I)
+# Słowo „netto” albo VAT tuż za stawką, ale w zapisie spoza wzorca wyżej.
+_PFRON_RATE_TAIL_HINT_RE = re.compile(r"netto|\bvat\b", re.I)
+_PFRON_RATE_TAIL_WINDOW = 32
+PFRON_UNCLEAR_RATE_MARK_REASON = (
+    "Nieczytelne oznaczenie stawki: przy kwocie stoi „netto” albo VAT w nieznanym "
+    "zapisie — sprawdź, czy przeliczać ÷ 1,23"
+)
 # „Sprzeczne” w treści jest nośne: `_is_rate_conversion_reason`
 # i `_pfron_conversion_reason` nie zdejmują powodu ze słowem „sprzeczn…”,
 # więc późniejsze rozpoznanie rodzaju stawki go nie wyciszy.
@@ -2277,6 +2288,8 @@ def _pfron_rate_marking(rate: re.Match) -> tuple[str, bool]:
         for part in ("label", "note", "kind")
         for word in _PFRON_RATE_MARK_WORD_RE.findall(rate.group(part) or "")
     }
+    if rate.group("vat"):
+        words.add("netto")
     if words == {"netto"}:
         return RATE_MARK_NET, False
     return RATE_MARK_GROSS, words == {"brutto", "netto"}
@@ -2305,6 +2318,18 @@ def pfron_extract_rows(text: str) -> list[ConsultantOrderRow]:
             return []
         amount = _normalize_amount(rate.group("amount"))
         marking, conflicting = _pfron_rate_marking(rate)
+        reason = PFRON_CONFLICTING_RATE_MARK_REASON if conflicting else None
+        tail = block[rate.end() : rate.end() + _PFRON_RATE_TAIL_WINDOW].split("\n")[0]
+        if (
+            reason is None
+            and marking == RATE_MARK_GROSS
+            and not rate.group("kind")
+            and _PFRON_RATE_TAIL_HINT_RE.search(tail)
+        ):
+            # Runda 7 (R7-V4-3): „netto”/VAT tuż za kwotą w zapisie spoza wzorca
+            # nie może po cichu przejść jako brutto ÷ 1,23 — ogólny detektor
+            # widział w nim netto, a wygrywał węższy czytnik PFRON.
+            reason = PFRON_UNCLEAR_RATE_MARK_REASON
         gross = amount is not None and marking == RATE_MARK_GROSS
         rows.append(
             ConsultantOrderRow(
@@ -2314,10 +2339,8 @@ def pfron_extract_rows(text: str) -> list[ConsultantOrderRow]:
                 rate_unit="hour",
                 start_date=pfron_start_date(block),
                 end_date=pfron_end_date(block),
-                uncertain=amount is None or conflicting,
-                uncertain_reason=PFRON_CONFLICTING_RATE_MARK_REASON
-                if conflicting
-                else None,
+                uncertain=amount is None or reason is not None,
+                uncertain_reason=reason,
             )
         )
     return rows
