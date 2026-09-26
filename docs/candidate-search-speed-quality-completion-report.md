@@ -129,6 +129,12 @@ jako litera + osobny akcent — ani stara, ani nowa ścieżka ich nie znajdował
      kolumny (~45 min kandydaci + kilka minut notatki). Koniec = log
      `keyword fold corpus v3 recomputed` i `app_settings['keyword_fold_fts_version'] = 3`.
      Do końca nowa ścieżka jest wyłączona niezależnie od przełącznika.
+   - **26.09, 08:10 UTC:** przeliczenie v2 nie skończyło się ani razu (brak
+     `keyword_fold_fts_version` w `app_settings`) — pozycja żyła tylko w pamięci
+     procesu, a od #1850 każdy merge restartuje kontener (07:27, 07:52, 08:06).
+     Poprawka: pozycja w `app_settings['keyword_fold_fts_recompute']` (wersja +
+     ostatnie id kandydatów i notatek), kasowana po końcu. Wznowienie widać
+     w logu `keyword fold corpus v3 recompute resumed at …`.
    - Jeśli #1852 wypadnie z kolejki: przyczyna w logach biegu `merge_group`
      (komentarz robota pod PR-em), potem `gh pr merge 1852 --squash --auto`.
 2. **Powtórzyć porównanie** w kontenerze backendu (tylko odczyt, ~3 min):
