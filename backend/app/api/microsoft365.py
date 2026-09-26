@@ -732,7 +732,9 @@ async def _webhook_dispatch_sync(connection_id: int) -> None:
             )
             return
         try:
-            await sync_connection(db, conn)
+            # Runda 6 audytu: trwający przebieg zrobi jeszcze jeden zamiast
+            # odrzucić to powiadomienie (jego klucz replay jest już zapisany).
+            await sync_connection(db, conn, resync_if_busy=True)
         except Exception:  # noqa: BLE001
             logger.exception(
                 "webhook-dispatched sync failed for connection_id=%s",
