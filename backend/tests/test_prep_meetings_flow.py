@@ -584,21 +584,8 @@ async def test_a_new_interview_round_allows_new_preps(
         job_id, dl_id = prep.job_id, prep.organizer_user_id
     first = await _interview(cand_id, job_id, dl_id, hours=-24)  # runda 1 za nami
     await _interview(cand_id, job_id, dl_id, hours=72)  # runda 2 przed nami
-    # Runda 8 (R8-N9-3): runda 1 bez debriefu zostaje bieżąca (telefon po
-    # niej jest pilniejszy) — prepy rundy 2 ekran żąda po debriefie rundy 1.
-    from app.models.interview_feedback import FeedbackSource, InterviewFeedback
-
-    async with AsyncSessionLocal() as db:
-        db.add(
-            InterviewFeedback(
-                calendar_event_id=first,
-                candidate_id=cand_id,
-                job_id=job_id,
-                feedback_source=FeedbackSource.candidate_side,
-                no_client_questions=True,
-            )
-        )
-        await db.commit()
+    # Runda 8 (CAL2, decyzja Artura 27.09.2026): runda 1 bez debriefu nie
+    # chowa braku prepu do rundy 2 — oba przypomnienia idą równolegle.
 
     overview = await app_client.get("/api/interview-cycle?scope=jobs", headers=rec_h)
     item = next(i for i in overview.json()["items"] if i["candidate_id"] == cand_id)
@@ -606,6 +593,8 @@ async def test_a_new_interview_round_allows_new_preps(
         t["kind"] for t in overview.json()["todos"] if t["candidate_id"] == cand_id
     }
     assert "prep_missing" in kinds, item["steps"]
+    assert "debrief_overdue" in kinds  # zaległy debrief rundy 1 zostaje
+    assert item["interview_event_id"] == first
 
     again = await _create(
         app_client,

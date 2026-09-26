@@ -110,6 +110,10 @@ async def load_prep_attention(
     # (Prep 1 → DL, Prep 2 → rekruter). Dotąd dzwonek organizatora, który
     # odszedł, przepadał; widział ją tylko HoR.
     workforce = await workforce_context(db)
+    # Runda 8 (CAL2): prepy liczą się do rundy prepów (najbliższa przyszła
+    # rozmowa), także gdy poprzednia runda czeka jeszcze na debrief — oba
+    # przypomnienia idą równolegle (decyzja Artura 27.09.2026).
+    snaps = {key: snap.for_preps() for key, snap in snaps.items()}
     held_owners = {
         (workforce.performer(ev.owner_id), jid)
         for (_cid, jid), snap in snaps.items()

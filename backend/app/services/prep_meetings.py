@@ -126,7 +126,9 @@ async def active_prep(
 
     Runda 8 (R8-N9-3): prepy robi się do NAJBLIŻSZEJ przyszłej rozmowy, więc
     runda to przedział (ostatnia rozpoczęta rozmowa, najbliższa przyszła] —
-    te same granice co ``interview_cycle.load_snapshots``. Dotąd górnej granicy
+    te same granice co runda prepów w ``interview_cycle.load_snapshots``
+    (``debrief_gate.pick_prep_round``; niezależnie od zaległego debriefu
+    poprzedniej rundy — runda 8, CAL2). Dotąd górnej granicy
     nie było: przy dwóch zaplanowanych rundach Prep 1 do rundy A blokował 409
     założenie Prepu 1 do rundy B, choć ekran już go żądał.
     """

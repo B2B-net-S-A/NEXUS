@@ -7,16 +7,23 @@ sprawdzają te same scenariusze na prawdziwych zapytaniach (CI).
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
 
 from app.models.calendar_event import CalendarEvent, EventStatus, EventType
-from app.services.debrief_gate import pick_current_round
+from app.services.debrief_gate import (
+    debrief_closes_round,
+    pick_current_round,
+    pick_prep_round,
+)
 from app.services.interview_cycle import (
+    EventRef,
     PairSnapshot,
     SlotRef,
+    compute_badge,
     compute_todos,
 )
 from app.services.prep_review import Item, parse_review
@@ -59,6 +66,117 @@ def test_old_round_without_debrief_after_a_later_held_round_is_abandoned() -> No
         (NOW + timedelta(days=3), False),
     ]
     assert pick_current_round(rounds, NOW) == 2
+
+
+# ── CAL2 (runda 8, druga fala): debrief i prepy równolegle ──────────────────
+# Decyzja Artura 27.09.2026: runda odbyta bez debriefu NIE chowa braków prepów
+# do następnej, zaplanowanej rundy. Debrief liczy się dla rundy odbytej,
+# prepy — zawsze dla najbliższej przyszłej rozmowy.
+
+
+def _ev(event_id: int, start: datetime, *, hours: float = 1.0) -> EventRef:
+    return EventRef(
+        id=event_id,
+        start=start,
+        end=start + timedelta(hours=hours),
+        title="Rozmowa",
+        status="scheduled",
+    )
+
+
+def test_prep_round_is_the_nearest_future_one_even_with_a_pending_debrief() -> None:
+    starts = [NOW - timedelta(days=1), NOW + timedelta(days=3), NOW + timedelta(days=6)]
+    assert pick_prep_round(starts, NOW) == 1
+    # Bez przyszłej rozmowy — ostatnia, jak ``pick_current_round``.
+    assert pick_prep_round([NOW - timedelta(days=2), NOW - timedelta(days=1)], NOW) == 1
+    assert pick_prep_round([], NOW) is None
+
+
+def test_feedback_without_client_questions_does_not_close_the_round() -> None:
+    start = NOW - timedelta(days=1)
+    assert not debrief_closes_round(None, False, NOW, start)
+    assert not debrief_closes_round("  \n ", False, NOW, start)
+    assert debrief_closes_round("Pytał o Kafkę", False, NOW, start)
+    assert debrief_closes_round(None, True, NOW, start)
+    # Zapisany przed rozmową — nie zamyka.
+    assert not debrief_closes_round(None, True, start - timedelta(hours=1), start)
+
+
+def test_pending_debrief_and_missing_prep_are_reminded_together() -> None:
+    held = _ev(1, NOW - timedelta(days=1))
+    upcoming = _ev(2, NOW + timedelta(days=3))
+    snap = PairSnapshot(
+        candidate_id=7, job_id=8, interview=held, prep_interview=upcoming
+    )
+    todos = compute_todos(snap, NOW, call_window_minutes=30, user_id=1, is_dl_view=True)
+    got = {(t["kind"], t["event_id"]) for t in todos}
+    assert ("debrief_overdue", 1) in got
+    assert ("prep_missing", 2) in got
+
+
+def test_prep_2_of_the_next_round_is_asked_for_after_its_prep_1() -> None:
+    held = _ev(1, NOW - timedelta(days=1))
+    upcoming = _ev(2, NOW + timedelta(days=3))
+    prep1 = _ev(3, NOW + timedelta(days=1), hours=0.5)
+    old_prep = _ev(4, NOW - timedelta(days=2), hours=0.5)
+    snap = PairSnapshot(
+        candidate_id=7,
+        job_id=8,
+        interview=held,
+        preps=[replace(old_prep, ordinal=1)],
+        prep_interview=upcoming,
+        prep_round_preps=[replace(prep1, ordinal=1)],
+    )
+    kinds = {
+        t["kind"]
+        for t in compute_todos(
+            snap, NOW, call_window_minutes=30, user_id=1, is_dl_view=True
+        )
+    }
+    assert "prep2_missing" in kinds and "prep_missing" not in kinds
+
+
+def test_badge_while_a_round_is_in_progress_speaks_about_the_next_round() -> None:
+    in_progress = _ev(1, NOW - timedelta(minutes=30))
+    tomorrow_morning = _ev(2, NOW + timedelta(hours=12))
+    snap = PairSnapshot(
+        candidate_id=7, job_id=8, interview=in_progress, prep_interview=tomorrow_morning
+    )
+    badge = compute_badge(snap, NOW, call_window_minutes=30)
+    assert badge is not None and badge["kind"] == "prep_missing"
+
+
+def test_badge_call_after_held_round_still_wins_over_the_next_rounds_preps() -> None:
+    held = _ev(1, NOW - timedelta(days=1))
+    tomorrow_morning = _ev(2, NOW + timedelta(hours=12))
+    snap = PairSnapshot(
+        candidate_id=7, job_id=8, interview=held, prep_interview=tomorrow_morning
+    )
+    badge = compute_badge(snap, NOW, call_window_minutes=30)
+    assert badge is not None and badge["kind"] == "call_due"
+
+
+@pytest.mark.asyncio
+async def test_prep_queue_counts_the_next_round_despite_pending_debrief(monkeypatch):
+    from app.services import prep_attention
+    from tests.test_prep_organizer_active_only import _Db, _job, _user
+
+    held = _ev(1, NOW - timedelta(days=1))
+    upcoming = _ev(2, NOW + timedelta(days=2))
+    snap = PairSnapshot(
+        candidate_id=1, job_id=5, interview=held, prep_interview=upcoming
+    )
+
+    async def snapshots(db, pairs, **kw):
+        return {pair: snap for pair in pairs}
+
+    monkeypatch.setattr(prep_attention, "load_snapshots", snapshots)
+    db = _Db(pairs=[(1, 5)], jobs=[_job(5, recruiter=33)], users=[_user(33)])
+    items = await prep_attention.load_prep_attention(db, NOW)
+    assert {(a.reason, a.prep_no, a.interview_event_id) for a in items} == {
+        ("missing", 1, 2),
+        ("missing", 2, 2),
+    }
 
 
 # ── R8-N9-2: awaria protokołu modelu = „niedostępna”, nie „słaby” ───────────
@@ -640,3 +758,114 @@ async def test_closed_job_does_not_ask_dl_for_client_slots():
     assert (open_cand_id, "slots_missing") in todos  # kontrola: otwarta jest
     assert all(i["candidate_id"] != cand_id for i in overview["items"])
     assert all(c != cand_id for c, _kind in todos)
+
+
+async def _seed_feedback(cand_id, job_id, event_id, **fields):
+    from app.core.database import AsyncSessionLocal
+    from app.models.interview_feedback import FeedbackSource, InterviewFeedback
+
+    async with AsyncSessionLocal() as db:
+        db.add(
+            InterviewFeedback(
+                calendar_event_id=event_id,
+                candidate_id=cand_id,
+                job_id=job_id,
+                feedback_source=FeedbackSource.candidate_side,
+                **fields,
+            )
+        )
+        await db.commit()
+
+
+async def _screen_and_gate(cand_id, job_id, now):
+    from app.core.database import AsyncSessionLocal
+    from app.services.debrief_gate import missing_debrief
+    from app.services.interview_cycle import load_snapshots
+
+    async with AsyncSessionLocal() as db:
+        snap = (
+            await load_snapshots(
+                db,
+                [(cand_id, job_id)],
+                window_start=now - timedelta(days=14),
+                window_end=now + timedelta(days=30),
+                now=now,
+            )
+        )[(cand_id, job_id)]
+        gate = await missing_debrief(db, candidate_id=cand_id, job_id=job_id, now=now)
+    return snap, gate
+
+
+async def test_held_round_without_debrief_keeps_prep_reminders_for_next_round():
+    """CAL2: runda A odbyta bez debriefu, runda B jutro — ekran chce i debriefu
+    A, i prepów do B; bramka wskazuje A."""
+    now = datetime.now(timezone.utc)
+    job_id, cand_id, client_id = await _seed_pair()
+    a = await _seed_event(
+        cand_id,
+        job_id,
+        client_id,
+        now - timedelta(days=1),
+        EventType.client_interview,
+        EventStatus.completed,
+    )
+    b = await _seed_event(
+        cand_id,
+        job_id,
+        client_id,
+        now + timedelta(hours=20),
+        EventType.client_interview,
+    )
+    snap, gate = await _screen_and_gate(cand_id, job_id, now)
+    assert snap.interview.id == a
+    assert snap.prep_interview is not None and snap.prep_interview.id == b
+    todos = compute_todos(snap, now, call_window_minutes=30, user_id=1, is_dl_view=True)
+    got = {(t["kind"], t["event_id"]) for t in todos}
+    assert ("debrief_overdue", a) in got
+    assert ("prep_missing", b) in got
+    assert gate is not None and gate["event_id"] == a
+
+
+async def test_feedback_without_questions_leaves_screen_and_gate_on_the_same_round():
+    """Przegląd kodu CAL2: ogólny ``POST /api/interview-feedback`` zapisuje
+    feedback strony kandydata bez pytań klienta. Ekran liczył go jako debrief
+    i przeskakiwał na rundę B, a bramka dalej odmawiała ruchu z powodu A."""
+    now = datetime.now(timezone.utc)
+    job_id, cand_id, client_id = await _seed_pair()
+    a = await _seed_event(
+        cand_id,
+        job_id,
+        client_id,
+        now - timedelta(days=1),
+        EventType.client_interview,
+        EventStatus.completed,
+    )
+    await _seed_event(
+        cand_id, job_id, client_id, now + timedelta(days=3), EventType.client_interview
+    )
+    await _seed_feedback(cand_id, job_id, a, overall_impression=5)
+    snap, gate = await _screen_and_gate(cand_id, job_id, now)
+    assert gate is not None and gate["event_id"] == a
+    assert snap.interview.id == a
+    assert snap.debrief is None
+
+
+async def test_screen_sees_the_old_undebriefed_round_that_blocks_the_gate():
+    """Okno ekranu (44 dni wstecz) i bramka (bez okna) patrzą na te same
+    rozmowy — rozmowa sprzed 60 dni bez debriefu nie znika z ekranu."""
+    now = datetime.now(timezone.utc)
+    job_id, cand_id, client_id = await _seed_pair()
+    old = await _seed_event(
+        cand_id,
+        job_id,
+        client_id,
+        now - timedelta(days=60),
+        EventType.client_interview,
+        EventStatus.completed,
+    )
+    await _seed_event(
+        cand_id, job_id, client_id, now + timedelta(days=3), EventType.client_interview
+    )
+    snap, gate = await _screen_and_gate(cand_id, job_id, now)
+    assert gate is not None and gate["event_id"] == old
+    assert snap.interview.id == old
