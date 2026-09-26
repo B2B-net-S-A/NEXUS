@@ -84,6 +84,7 @@ from app.api.deps import (
     require_roles,
 )
 from app.services.auto_assign_owners import resolve_default_owners
+from app.services.client_access import assert_client_assignable
 from app.api.notifications import create_notification
 from app.api.recruitment_access import (
     JobEditLevel,
@@ -1646,6 +1647,9 @@ async def create_job(
     db: AsyncSession = Depends(get_db),
 ):
     _assert_delivery_lead_finance_write(data.model_fields_set, current_user)
+    # Runda 7 (R7-X5-4): rekrutacja u usuniętego albo scalonego klienta nie
+    # trafiłaby do żadnego rejestru.
+    await assert_client_assignable(db, data.client_id)
     delivery_lead_pairs = await _delivery_lead_job_pairs(current_user, db)
 
     # AI CC matching (migracja 0041). If the caller didn't specify a CC and
@@ -2220,6 +2224,8 @@ async def update_job(
     delivery_lead_changed = (
         "delivery_lead_id" in sent and data.delivery_lead_id != job.delivery_lead_id
     )
+    if client_changed:
+        await assert_client_assignable(db, data.client_id)
     if tac_changed and data.tac_id is not None:
         await _validate_owner_override(
             db,
