@@ -80,9 +80,14 @@ PLACEMENTS_DEFINITION_NOTE = (
 #     dokładnie te, o które ktoś patrzący na baner pyta.
 #
 # (c) PRZYJĘTE: dzień faktycznego zakończenia w oknie, dla kontraktu, który
-#     kiedykolwiek żył. Dzień to `COALESCE(terminated_at, end_date)`, bo
-#     `terminated_at` bywa WCZEŚNIEJSZY niż `end_date` (zerwanie przed czasem)
-#     i wtedy to on jest dniem, w którym kontraktor zniknął ze stanu.
+#     kiedykolwiek żył. Dzień to `COALESCE(end_date, terminated_at)`:
+#     „Zakończ współpracę" skraca `end_date` do dnia zerwania, więc przy
+#     zakończeniu przed czasem to `end_date` jest dniem, w którym kontraktor
+#     zniknął ze stanu. Runda 8 (R8-N13-1): do 26.09.2026 kolejność była
+#     odwrotna, a `terminated_at` przeżywa aneks przedłużenia — umowa
+#     przedłużona i zakończona później liczyła się w miesiącu PIERWSZEGO
+#     zakończenia, a żywa (przedłużona bezterminowo) liczyła się jako
+#     rezygnacja. Aktywne/kończące się czytają wyłącznie `end_date`.
 #
 # Wykluczone statusy i powód każdego z osobna:
 #   `draft` / `ready_for_signature` — nigdy nie ruszyły, więc nie ma czego
@@ -96,10 +101,10 @@ PLACEMENTS_DEFINITION_NOTE = (
 # która zmieniła znaczenie pod tym samym kluczem, jest niewykrywalna dla
 # konsumenta — a baner drukuje notatkę DOSŁOWNIE, więc rozjazd między nią
 # a zapytaniem to definicja, której system nie stosuje.
-RESIGNATIONS_DEFINITION = "ended_engagement_by_effective_end_date_v2"
+RESIGNATIONS_DEFINITION = "ended_engagement_by_effective_end_date_v3"
 RESIGNATIONS_DEFINITION_NOTE = (
     "Rezygnacja = kontrakt, którego dzień faktycznego zakończenia "
-    "(data rozwiązania, a gdy jej brak — data końca) wypada w oknie kampanii. "
+    "(data końca, a gdy jej brak — data rozwiązania) wypada w oknie kampanii. "
     "Kontrakty zakończone liczą się zawsze; aktywne i kończące się — dopiero "
     "od dnia, w którym ich data końca nadeszła, więc odejście zaplanowane na "
     "przyszły miesiąc nie zaniża dzisiejszego wyniku. NIE liczą się szkice, "
@@ -212,13 +217,13 @@ async def _count_window(db: AsyncSession, window: Period) -> tuple[int, int]:
                     """
                     SELECT count(*) AS cnt
                     FROM contracts c
-                    WHERE COALESCE(c.terminated_at, c.end_date) >= :start_d
-                      AND COALESCE(c.terminated_at, c.end_date) < :end_d
+                    WHERE COALESCE(c.end_date, c.terminated_at) >= :start_d
+                      AND COALESCE(c.end_date, c.terminated_at) < :end_d
                       AND (
                             c.status::text = ANY(:fact_statuses)
                          OR (
                                 c.status::text = ANY(:pending_statuses)
-                            AND COALESCE(c.terminated_at, c.end_date) <= :as_of
+                            AND c.end_date <= :as_of
                             )
                           )
                     """

@@ -948,8 +948,9 @@ zamówienie tej osoby jest już zakończone) **tworzy nowe zamówienie na nowy
 okres. Zakończone zamówienie zostaje bez żadnej zmiany** — na nim rozliczono już
 faktury. Nowe zamówienie ma w historii odnośnik do poprzedniego i faktyczny
 odstęp w dniach, a z poprzedniego zamówienia przejmuje to, czego PDF nie niesie:
-umowę wykonawczą i część umowy (e-Zdrowie), umowę ramową, rekrutację, liczbę
-godzin rozliczeniowych i opis. Linia zamówienia zbiorczego (MD) nie jest traktowana jako
+umowę wykonawczą (tylko jeśli nadal trwa — zakończonej nie przejmuje, a
+zamówienie trafia do przeglądu „Nieprzypisani") i część umowy (e-Zdrowie),
+umowę ramową, rekrutację, liczbę godzin rozliczeniowych i opis. Linia zamówienia zbiorczego (MD) nie jest traktowana jako
 „poprzednie zamówienie”. Rzeczywisty konflikt okresów albo kilka możliwych osób
 lub kontraktów nadal wymaga decyzji. Draft uzupełniony już
 PDF-em z maila **albo z dołączonym plikiem zamówienia** nie jest nadpisywany
@@ -1418,7 +1419,8 @@ akcje (Admin, Finanse, Talent Community Manager):
   o pozostałej puli MD** (usunięcie albo przeniesienie) — okno mówi, na którym
   zamówieniu i jaka to decyzja. Jest zablokowana także wtedy, gdy dla tej osoby
   zrobiono już **„Powrót po przerwie”** (okno podaje numer nowego kontraktu) —
-  inaczej osoba stałaby na zamówieniu dwa razy.
+  inaczej osoba stałaby na zamówieniu dwa razy — oraz gdy klient został
+  usunięty albo scalony.
 * **Powrót po przerwie** — osoba naprawdę zakończyła współpracę i wraca.
   Powstaje **nowy kontrakt (Draft)** z plakietką „POWRÓT PO PRZERWIE"
   i linkiem do poprzedniego; poprzedni zostaje zakończony bez zmian. Na
@@ -1426,7 +1428,9 @@ akcje (Admin, Finanse, Talent Community Manager):
   „Draft — uzupełnij"** w „Aktywnej obsadzie"; gdy przez **Edytuj linię**
   uzupełnisz stawki i budżet, przypisanie staje się aktywne. Poprzednie
   przypisanie zostaje w „Zakończonych" razem ze swoim zużyciem. Przy
-  zamówieniu okresowym powstaje szkic zamówienia do uzupełnienia.
+  zamówieniu okresowym powstaje szkic zamówienia do uzupełnienia (umowa
+  wykonawcza przechodzi tylko wtedy, gdy nadal trwa). Kontraktu klienta
+  usuniętego albo scalonego nie da się wznowić tą drogą.
 
 Obie akcje zostawiają wpis w historii kontraktu i zamówienia (kto, kiedy,
 która akcja); wpisy o zakończeniu zostają.

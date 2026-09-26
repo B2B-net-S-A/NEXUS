@@ -123,6 +123,7 @@ from app.services.b2b_contract_end_date import (
 from app.services.critical_events import DeletionAudit, audited_deletion
 from app.services.contract_lifecycle import (
     activate_contract as lifecycle_activate_contract,
+    assert_contract_client_not_deleted,
     assert_transition,
     auto_activate_complete_draft,
     hard_delete_contract,
@@ -3356,12 +3357,29 @@ async def bulk_extend_contracts(
     skipped: list[int] = []
     skipped_void: list[int] = []
     skipped_end_date_passed: list[int] = []
+    skipped_client_deleted: list[int] = []
+    # Runda 8 (R8-V1-1): kontraktu usuniętego klienta nie przedłużamy —
+    # `reopen_contract` odmówiłby 422 i wywrócił całą paczkę.
+    deleted_client_ids = set(
+        (
+            await db.scalars(
+                select(Client.id).where(
+                    Client.id.in_({c.client_id for c in contracts}),
+                    Client.deleted_at.is_not(None),
+                )
+            )
+        ).all()
+    )
     for c in contracts:
         # Anulowanej umowy nie przedłużamy: `reopen_contract` odmówiłby 409
         # i wywrócił całą paczkę (audyt 24.09, S7).
         if c.status == ContractStatus.void:
             skipped.append(c.id)
             skipped_void.append(c.id)
+            continue
+        if c.client_id in deleted_client_ids:
+            skipped.append(c.id)
+            skipped_client_deleted.append(c.id)
             continue
         # Umowa B2B bez zakończenia nie ma czego przedłużać — jest bezterminowa
         # (`b2b_contract_end_date`). Przedłużyć można wyłącznie datę umowy
@@ -3426,6 +3444,7 @@ async def bulk_extend_contracts(
         "skipped_no_end_date": skipped,
         "skipped_void": skipped_void,
         "skipped_end_date_passed": skipped_end_date_passed,
+        "skipped_client_deleted": skipped_client_deleted,
     }
 
 
@@ -4073,6 +4092,13 @@ async def update_contract(
         coerced_status = _status_after_end_date_change(
             contract.status, contract.end_date, today
         )
+        # Runda 8 (R8-V1-1): każda gałąź niżej wyprowadza „Zakończony” —
+        # u usuniętego klienta kontrakt nie wraca (422 zamiast wskrzeszenia).
+        if (
+            contract.status == ContractStatus.ended
+            and coerced_status != contract.status
+        ):
+            await assert_contract_client_not_deleted(db, contract)
         # Obie gałęzie niżej (korekta daty rozwiązanej umowy i reaktywacja przez
         # `reopen_contract`) są odpowiedzią na ZMIANĘ daty końca w tym żądaniu.
         # PATCH innego pola (notatka, stawka) na zakończonej umowie z pustą albo
@@ -5343,6 +5369,28 @@ async def create_contract_amendment(
     if not contract:
         raise HTTPException(status_code=404, detail="Contract not found")
     await _ensure_delivery_lead_contract_visible(contract, current_user, db)
+    # Runda 8 (R8-N6-4): dokument aneksu musi należeć do TEGO kontraktu.
+    # Dotąd przyjmowany był dowolny `document_id` — plik innego klienta
+    # lądował w „Zamówieniach PDF” pod tym klientem i osobą, a nieistniejące
+    # id kończyło się 500 (naruszenie FK przy flushu).
+    if data.document_id is not None:
+        owned = await db.scalar(
+            select(ContractDocument.id).where(
+                ContractDocument.id == data.document_id,
+                ContractDocument.contract_id == contract.id,
+            )
+        )
+        if owned is None:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "reason": "amendment_document_not_on_contract",
+                    "message": (
+                        "Wskazany dokument nie należy do tego kontraktu — "
+                        "wgraj go w dokumentach kontraktu i wybierz ponownie."
+                    ),
+                },
+            )
 
     # Snapshot only the fields that might change, for audit.
     old_values: dict = {

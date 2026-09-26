@@ -224,6 +224,50 @@ def test_field_merge_between_ended_contracts_still_merges_their_end():
     assert updates["termination_reason"] == "consultant_resigned"
 
 
+def test_field_merge_carries_a_live_losers_planned_termination():
+    """Runda 8 (R8-V1-6): „Zakończ współpracę” z datą przyszłą wpisane na
+    przegranym (żywy „Kończący się”) przechodzi na zachowany — zamówienia
+    przegranego już ucięto do tej daty, więc bezterminowy zachowany
+    zostawiałby konsultanta w pracy bez śladu decyzji."""
+    contracts = [
+        {"id": 1, "status": "active", "contract_type": "b2b", "end_date": None},
+        {
+            "id": 2,
+            "status": "ending",
+            "contract_type": "b2b",
+            "end_date": date(2026, 10, 15),
+            "terminated_at": date(2026, 10, 15),
+            "termination_reason": "consultant_resigned",
+            "termination_lessons": "Kto — powód",
+        },
+    ]
+    updates, conflicts = merge_field_plan(contracts, 1)
+    assert updates["end_date"] == date(2026, 10, 15)
+    assert updates["terminated_at"] == date(2026, 10, 15)
+    assert updates["termination_reason"] == "consultant_resigned"
+    assert conflicts == []
+
+
+def test_field_merge_drops_a_live_losers_stale_termination():
+    """Przegrany przedłużony aneksem niesie `terminated_at` z pierwszego,
+    cofniętego zakończenia — ten ślad nie przechodzi na zachowany."""
+    contracts = [
+        {"id": 1, "status": "active", "contract_type": "uzlecenie", "end_date": None},
+        {
+            "id": 2,
+            "status": "active",
+            "contract_type": "uzlecenie",
+            "end_date": date(2026, 12, 31),
+            "terminated_at": date(2026, 3, 31),
+            "termination_reason": "consultant_resigned",
+        },
+    ]
+    updates, _ = merge_field_plan(contracts, 1)
+    assert "terminated_at" not in updates
+    assert "termination_reason" not in updates
+    assert updates["end_date"] == date(2026, 12, 31)
+
+
 def test_returned_after_break_pair_is_not_a_duplicate():
     """Runda 7 (N1-5): „Powrót po przerwie" to druga współpraca, nie duplikat."""
     rows = [

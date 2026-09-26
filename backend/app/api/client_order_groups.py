@@ -1734,9 +1734,7 @@ async def _apply_line_history(
             item.agreement_termination_mode = contract.agreement_termination_mode
             item.agreement_last_day = contract.agreement_last_day
         if item.cooperation_ended_on is None and contract is not None:
-            status_value = getattr(contract.status, "value", contract.status)
-            if status_value == ContractStatus.ended.value or contract.terminated_at:
-                item.cooperation_ended_on = contract.terminated_at or contract.end_date
+            item.cooperation_ended_on = _contract_cooperation_end(contract)
         source_state = takeover_source_state(
             line,
             contract=line.contract,
@@ -2090,6 +2088,29 @@ async def _assert_not_on_order_yet(
                 "linię („Edytuj linię”) zamiast dopisywać ją drugi raz"
             ),
         )
+
+
+def _contract_cooperation_end(contract: Contract) -> Optional[date]:
+    """Dzień końca współpracy z kontraktu: zakończonego albo wypowiedzianego.
+
+    Runda 8 (R8-N13-1): `terminated_at` przeżywa aneks przedłużenia i
+    przywrócenie (`reopen_contract` go nie czyści), więc samo jego istnienie
+    nie dowodzi wypowiedzenia, a jego wartość bywa datą PIERWSZEGO zakończenia.
+    „Zakończ współpracę" zawsze skraca `end_date` do dnia zakończenia, więc
+    trwające wypowiedzenie to `end_date <= terminated_at`; umowa przedłużona
+    ma `end_date` późniejszą albo pustą. Dzień końca = `end_date` →
+    `terminated_at`.
+    """
+    status_value = getattr(contract.status, "value", contract.status)
+    if status_value == ContractStatus.ended.value:
+        return contract.end_date or contract.terminated_at
+    if (
+        contract.terminated_at is not None
+        and contract.end_date is not None
+        and contract.end_date <= contract.terminated_at
+    ):
+        return contract.end_date
+    return None
 
 
 def _assert_historical_line_allowed(

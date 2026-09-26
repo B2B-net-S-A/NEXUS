@@ -42,6 +42,10 @@ class DlKpiRow(BaseModel):
     total_revenue: Decimal | int | None = None
     active_revenue: Decimal | int | None = None
     monthly_margin_total: Optional[WholePLN] = None
+    # Klienci z obecnym kontraktem bez wyceny którejś nogi — pominięci
+    # w `monthly_margin_total` (suma częściowa, jak `active_mrr_unpriced_contracts`
+    # na profilu klienta). 0 = suma pełna.
+    monthly_margin_unpriced_clients: int = 0
     active_orders_count: int = 0
     active_consultants: int = 0
     active_contracts: int = 0

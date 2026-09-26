@@ -578,3 +578,64 @@ async def test_forecast_month_label_is_polish_whatever_the_locale(
     assert resp.json()["months"][0]["month_label"] == (
         f"{MONTH_LABELS_PL[today.month - 1]} {today.year}"
     )
+
+
+async def test_forecast_starts_a_dateless_contract_with_its_future_order(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Runda 8 (R8-N13-2): kontrakt bez daty startu, którego jedyne zamówienie
+    startuje za 60 dni, jest planowany (reguła S5). Prognoza liczyła go od
+    bieżącego miesiąca i zawyżała dwa pierwsze miesiące wykresu."""
+    pytest.importorskip("asyncpg")
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+
+    async def _forecast() -> list[dict]:
+        resp = await app_client.get(
+            "/api/contract-analytics/revenue-forecast?horizon_months=6",
+            headers=app_auth_headers,
+        )
+        assert resp.status_code == 200, resp.text
+        return resp.json()["months"]
+
+    before = await _forecast()
+    marker = uuid.uuid4().hex[:8]
+    today = business_today()
+    order_start = today + timedelta(days=60)
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"Prognoza planowana {marker}")
+        person = Candidate(name="Prognoza", lastname=f"Planowana{marker}")
+        db.add_all([client, person])
+        await db.flush()
+        contract = Contract(
+            candidate_id=person.id,
+            client_id=client.id,
+            contract_type=ContractType.b2b,
+            status=ContractStatus.active,
+            start_date=None,
+            rate_unit=RateUnit.monthly,
+            rate_client=Decimal("20000"),
+            rate_candidate=Decimal("15000"),
+        )
+        db.add(contract)
+        await db.flush()
+        db.add(
+            ClientOrder(
+                client_id=client.id,
+                contract_id=contract.id,
+                title=f"ZAM-{marker}",
+                status=ClientOrderStatus.active,
+                order_type="periodic",
+                rate_unit=RateUnit.monthly,
+                start_date=order_start,
+            )
+        )
+        await db.commit()
+    after = await _forecast()
+
+    start_key = order_start.strftime("%Y-%m")
+    for month_before, month_after in zip(before, after):
+        delta = float(month_after["revenue"]) - float(month_before["revenue"])
+        if month_after["month"] < start_key:
+            assert delta == 0, month_after["month"]
+        else:
+            assert delta == 20000, month_after["month"]

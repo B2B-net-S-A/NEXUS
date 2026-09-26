@@ -50,6 +50,7 @@ def _contract(status: ContractStatus) -> SimpleNamespace:
     return SimpleNamespace(
         id=7,
         status=status,
+        client_id=3,
         candidate_id=None,
         agreement_termination_mode=None,
         agreement_termination_party=None,
@@ -73,6 +74,31 @@ async def test_reopen_flips_to_active_and_writes_audit(start: ContractStatus):
     assert activity.action == "contract_reopened"
     assert activity.details["from_status"] == start.value
     assert activity.details["to_status"] == ContractStatus.active.value
+
+
+@pytest.mark.asyncio
+async def test_reopen_refuses_a_contract_of_a_deleted_client():
+    """Runda 8 (R8-V1-1): zakończony kontrakt usuniętego klienta nie wraca."""
+    from datetime import datetime, timezone
+
+    from fastapi import HTTPException
+
+    class _DeletedClientDB(_CollectingDB):
+        async def scalar(self, *_args: object, **_kwargs: object):
+            return SimpleNamespace(
+                deleted_at=datetime.now(timezone.utc),
+                display_name=None,
+                name="Klient",
+            )
+
+    db = _DeletedClientDB()
+    contract = _contract(ContractStatus.ended)
+    with pytest.raises(HTTPException) as exc:
+        await lifecycle.reopen_contract(db, contract, actor_id=42)
+    assert exc.value.status_code == 422
+    assert exc.value.detail["code"] == "client_deleted"
+    assert contract.status == ContractStatus.ended
+    assert db.added == []
 
 
 @pytest.mark.asyncio
