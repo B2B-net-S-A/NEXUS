@@ -160,7 +160,9 @@ export function AddProjectDialog({
     queryFn: async () =>
       (
         await api.get<ClientOption[]>("/api/clients-lookup", {
-          params: { contract_eligible: true },
+          // `delivery_scope`: Delivery Lead widzi tylko swój portfel — zapis
+          // kontraktu u klienta spoza niego i tak odmawia 403 (runda 6 audytu).
+          params: { contract_eligible: true, delivery_scope: true },
         })
       ).data,
     enabled: open,

@@ -197,7 +197,8 @@ describe("AddProjectDialog", () => {
       "Dodano kolejny projekt i utworzono szkic zamówienia",
     );
     expect(mocks.apiGet).toHaveBeenCalledWith("/api/clients-lookup", {
-      params: { contract_eligible: true },
+      // Runda 6 audytu: DL widzi w pickerze Kontraktów tylko swój portfel.
+      params: { contract_eligible: true, delivery_scope: true },
     });
     expect(mocks.create.mock.calls[0]?.[0]).not.toHaveProperty("currency");
   });

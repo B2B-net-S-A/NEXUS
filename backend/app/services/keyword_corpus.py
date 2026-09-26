@@ -228,9 +228,39 @@ def profile_text_sql(prefix: str = "NEW.") -> str:
 # (``phraseto_tsquery('simple', candidate_keyword_fold(:term))``), więc dokument
 # i zapytanie nie mogą się rozjechać. Regexy tylko przy znakach, które je
 # potrzebują — trigger liczy się przy każdym zapisie kandydata z importu.
+# Wersja składania tekstu (``candidate_keyword_fold``). Zmiana funkcji = podbij
+# numer: pętla uzupełniania przeliczy WSZYSTKIE wiersze obu kolumn, a nowa
+# ścieżka zapytań czeka na koniec (``fold_ready()``). Historia:
+# 1 — 0385 (polskie znaki, ukośnik, c#/c++/f#/.net);
+# 2 — 0386 myślnik jako spacja: parser tsvector rozbijał „cd-driven” na
+#     `cd-driven`, `cd`, `driven`, więc fraza „ci/cd” nie łączyła się
+#     z „CI/CD-driven” (porównanie na produkcji 26.09.2026).
+# 3 — 0387 znaki łączące: NFC, a pozostałe usunięte (``COMBINING_CLASS_PG``);
+#     „<” i „>” jako spacja.
+FOLD_VERSION = 3
+
+
+# Znacznik wersji w CIELE funkcji (runda 6 audytu). ``pg_proc.prosrc``
+# przechowuje ciało razem z komentarzami, więc pętla uzupełniania sprawdza, czy
+# baza ma już funkcję w wersji z kodu, ZANIM przeliczy kolumny i zapisze
+# wersję — DDL w siatce ``entrypoint.sh`` potrafi przegrać blokadę i wtedy
+# przeliczenie starą funkcją oznaczyłoby nową wersję jako gotową.
+def fold_version_marker(version: int) -> str:
+    return f"-- nexus-fold-v{version}"
+
+
+_FOLD_VERSION_MARKER_RE = re.compile(r"-- nexus-fold-v(\d+)\b")
+
+
+def parse_fold_version(function_source: str | None) -> int | None:
+    match = _FOLD_VERSION_MARKER_RE.search(function_source or "")
+    return int(match.group(1)) if match else None
+
+
 FOLD_FUNCTION_DDL = rf"""
 CREATE OR REPLACE FUNCTION {FOLD_FUNCTION}(t text)
 RETURNS text LANGUAGE plpgsql IMMUTABLE PARALLEL SAFE AS $$
+{fold_version_marker(FOLD_VERSION)}
 DECLARE
     s text := coalesce(t, '');
 BEGIN
@@ -509,16 +539,8 @@ NOTES_WRAPPED_COUNT_SQL = (
 )
 NOTES_UNWRAP_RECEIPT_KEY = "0385_traffit_note_content_unwrap"
 
-# Wersja składania tekstu (``candidate_keyword_fold``). Zmiana funkcji = podbij
-# numer: pętla uzupełniania przeliczy WSZYSTKIE wiersze obu kolumn, a nowa
-# ścieżka zapytań czeka na koniec (``fold_ready()``). Historia:
-# 1 — 0385 (polskie znaki, ukośnik, c#/c++/f#/.net);
-# 2 — 0386 myślnik jako spacja: parser tsvector rozbijał „cd-driven” na
-#     `cd-driven`, `cd`, `driven`, więc fraza „ci/cd” nie łączyła się
-#     z „CI/CD-driven” (porównanie na produkcji 26.09.2026).
-# 3 — 0387 znaki łączące: NFC, a pozostałe usunięte (``COMBINING_CLASS_PG``);
-#     „<” i „>” jako spacja.
-FOLD_VERSION = 3
+# ``FOLD_VERSION`` (z historią zmian) stoi przy ``FOLD_FUNCTION_DDL`` — znacznik
+# wersji jest w ciele funkcji.
 FOLD_VERSION_KEY = "keyword_fold_fts_version"
 FOLD_RECOMPUTE_BATCH_SQL = (
     "UPDATE candidates SET keyword_doc = NULL WHERE id IN ("

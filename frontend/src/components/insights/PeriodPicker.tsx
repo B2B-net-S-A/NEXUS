@@ -12,6 +12,7 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { safeSpreadsheetCell } from "@/lib/export-safety";
 import {
   DEFAULT_INSIGHTS_OFFSET,
   type InsightsPeriodKind,
@@ -460,7 +461,9 @@ export function buildInsightsCsv(
 ): string {
   const cell = (value: string | number | null | undefined) => {
     if (value === null || value === undefined) return "";
-    const text = String(value);
+    // Formuła w tekście (nazwisko, nazwa klienta) byłaby w Excelu wykonana
+    // (runda 6 audytu) — ta sama reguła co eksporty z serwera.
+    const text = String(safeSpreadsheetCell(value));
     return /[";\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
   };
   return [headers, ...rows].map((row) => row.map(cell).join(";")).join("\r\n");

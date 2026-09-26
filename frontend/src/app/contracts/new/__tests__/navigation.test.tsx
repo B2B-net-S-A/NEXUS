@@ -210,7 +210,8 @@ describe("Nowy kontrakt — historia nawigacji po zapisie", () => {
       expect.objectContaining({ work_mode: null }),
     );
     expect(mocks.apiGet).toHaveBeenCalledWith("/api/clients-lookup", {
-      params: { contract_eligible: true },
+      // Runda 6 audytu: DL widzi w pickerze Kontraktów tylko swój portfel.
+      params: { contract_eligible: true, delivery_scope: true },
     });
     await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/contracts/77"));
     expect(mocks.replace).toHaveBeenCalledTimes(1);

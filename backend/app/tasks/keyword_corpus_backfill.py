@@ -52,6 +52,10 @@ class TriggerMissing(RuntimeError):
     """Paczka przeszła, a korpus dalej pusty — triggera nie ma."""
 
 
+class FoldFunctionOutdated(RuntimeError):
+    """Funkcja ``candidate_keyword_fold`` w bazie ma inną wersję niż kod."""
+
+
 async def _fill_batch() -> int:
     async with AsyncSessionLocal() as db:
         result = await db.execute(
@@ -193,6 +197,21 @@ async def _stored_fold_version() -> int | None:
         return None
 
 
+async def _db_fold_version() -> int | None:
+    """Wersja funkcji składania, którą NAPRAWDĘ ma baza (znacznik w ciele)."""
+    async with AsyncSessionLocal() as db:
+        source = (
+            await db.execute(
+                text(
+                    "SELECT prosrc FROM pg_proc "
+                    "WHERE oid = to_regprocedure(:signature)"
+                ),
+                {"signature": f"{keyword_corpus.FOLD_FUNCTION}(text)"},
+            )
+        ).scalar()
+    return keyword_corpus.parse_fold_version(source)
+
+
 async def _store_fold_version() -> None:
     payload = {
         "version": keyword_corpus.FOLD_VERSION,
@@ -230,6 +249,19 @@ async def _version_phase() -> None:
     (``fold_ready()``/``notes_ready()`` = False) — stare i nowe tokeny
     w jednej kolumnie dawałyby wyniki zależne od tego, kiedy wiersz przeliczono.
     """
+    # Najpierw funkcja w bazie (runda 6 audytu): gdy DDL przegrał blokadę,
+    # przeliczenie starą funkcją i zapis nowej wersji włączyłyby nową ścieżkę
+    # na starych tokenach, a następny start (już z dobrą funkcją) niczego by
+    # nie przeliczył. Pętla staje; zapytania zostają na starej ścieżce do
+    # kolejnego startu, na którym siatka DDL ponawia funkcję.
+    db_version = await _db_fold_version()
+    if db_version != keyword_corpus.FOLD_VERSION:
+        keyword_corpus.mark_fold_ready(False)
+        keyword_corpus.mark_notes_ready(False)
+        raise FoldFunctionOutdated(
+            f"{keyword_corpus.FOLD_FUNCTION} w bazie ma wersję {db_version}, "
+            f"kod oczekuje {keyword_corpus.FOLD_VERSION}"
+        )
     if await _stored_fold_version() != keyword_corpus.FOLD_VERSION:
         keyword_corpus.mark_fold_ready(False)
         keyword_corpus.mark_notes_ready(False)
@@ -266,7 +298,7 @@ async def keyword_corpus_backfill_loop() -> None:
             index += 1
         except asyncio.CancelledError:
             raise
-        except TriggerMissing as exc:
+        except (TriggerMissing, FoldFunctionOutdated) as exc:
             # Zapytania dalej działają (stara ścieżka); trigger dołoży następny
             # start przez siatkę DDL w entrypoincie.
             logger.error("keyword corpus backfill stopped: %s", exc)

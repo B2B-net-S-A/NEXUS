@@ -67,6 +67,7 @@ import {
 } from "@/lib/champion-job-seed";
 import { useClientCvRule } from "@/components/v2/cv-generator/ClientCvRuleBanner";
 import { ClientPlaybookCard } from "@/components/client-playbook/ClientPlaybookCard";
+import { clientPlaybookEditHref } from "@/lib/client-playbooks";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { countPl } from "@/lib/plural-pl";
@@ -1109,7 +1110,7 @@ export function ChampionProfileEditor({
               <ClientPlaybookCard
                 clientId={clientId}
                 variant="compact"
-                editHref={`/clients/${clientId}?tab=zasady`}
+                editHref={clientPlaybookEditHref(clientId)}
               />
             ) : (
               <p
