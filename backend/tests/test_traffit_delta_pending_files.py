@@ -101,3 +101,71 @@ async def test_pending_catch_up_is_capped(monkeypatch) -> None:
         }
 
     assert ids["pending"] not in targets
+
+
+@pytest.mark.asyncio
+async def test_delta_cv_targets_include_pending_candidates_without_pointer() -> None:
+    """Runda 6 audytu (T6-8): faza `candidates_cv` w delcie brała tylko
+    `updated_at >= since`, więc kandydat z przerwanego biegu dostawał pliki
+    (zaległe pliki), ale nigdy wskaźnika `cv_storage_key` — a z niego czytają
+    fazy tekstu CV i imion."""
+    from app.core.database import AsyncSessionLocal
+    from app.services.traffit.importer import TraffitImporter
+
+    ids = await _seed()
+    run_start = datetime.now(timezone.utc)
+
+    async with AsyncSessionLocal() as db:
+        importer = TraffitImporter(None, db, dry_run=True)  # type: ignore[arg-type]
+        targets = {row.id for row in await importer._delta_cv_targets(run_start)}
+
+    assert ids["pending"] in targets
+    # Plik już pobrany, ale wskaźnika nadal brak — też cel (inaczej niż pliki).
+    assert ids["has_doc"] in targets
+    assert ids["no_cv_name"] not in targets
+    assert ids["too_old"] not in targets
+
+
+@pytest.mark.asyncio
+async def test_delta_cv_targets_skip_candidates_with_a_pointer() -> None:
+    from app.core.database import AsyncSessionLocal
+    from app.services.traffit.importer import TraffitImporter
+
+    ids = await _seed()
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            text("UPDATE candidates SET cv_storage_key = 'cv/x.pdf' WHERE id = :id"),
+            {"id": ids["pending"]},
+        )
+        await db.commit()
+        importer = TraffitImporter(None, db, dry_run=True)  # type: ignore[arg-type]
+        targets = {
+            row.id
+            for row in await importer._delta_cv_targets(datetime.now(timezone.utc))
+        }
+
+    assert ids["pending"] not in targets
+
+
+def test_candidates_cv_delta_uses_the_pending_scope() -> None:
+    """Bez bazy: delta fazy `candidates_cv` idzie przez `_delta_cv_targets`."""
+    import asyncio
+
+    from app.services.traffit.importer import TraffitImporter
+
+    seen: dict = {}
+
+    class _Importer(TraffitImporter):
+        async def _delta_cv_targets(self, since):
+            seen["since"] = since
+            return []
+
+    class _Db:
+        async def execute(self, *a, **k):  # pragma: no cover — nie powinno paść
+            raise AssertionError("delta nie może pytać własnym zapytaniem")
+
+    since = datetime.now(timezone.utc)
+    importer = _Importer(None, _Db(), dry_run=True)  # type: ignore[arg-type]
+    progress = asyncio.run(importer.import_candidates_cv(since=since))
+    assert seen["since"] == since
+    assert progress.total_source == 0

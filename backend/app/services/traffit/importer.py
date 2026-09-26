@@ -3230,7 +3230,8 @@ class TraffitImporter:
         """Pobiera primary CV dla Traffit candidates bez ustawionego CV pointera.
 
         Idempotent: bierze tylko kandydatów z `cv_storage_key IS NULL`. W trybie
-        delta (`since`) zawęża do kandydatów zmienionych od ostatniego syncu —
+        delta (`since`) zawęża do kandydatów zmienionych od ostatniego syncu
+        i „zaległych CV” z przerwanych biegów (`_delta_cv_targets`) —
         nowy kandydat dostaje CV; faktyczne (multi-)pliki ogarnia
         import_candidate_files (które w delta podmienia/dodaje nowe pliki).
         Per-kandydat: GET /employees/{id}/files → primary → /content (binary).
@@ -3239,8 +3240,9 @@ class TraffitImporter:
             phase="candidates_cv", started_at=datetime.now(timezone.utc)
         )
 
-        since_clause = "AND updated_at >= :since" if since is not None else ""
-        cv_params: dict[str, Any] = {"since": since} if since is not None else {}
+        # Delta: `_delta_cv_targets` (zmienieni w biegu + zaległe CV).
+        since_clause = ""
+        cv_params: dict[str, Any] = {}
 
         # Full reconcile only: re-point `candidates.cv_*` at the CURRENT primary
         # CV before downloading anything.
@@ -3288,21 +3290,24 @@ class TraffitImporter:
             cv_params["limit"] = scan_limit
             since_clause += " AND id > :after_id"
 
-        result = await self.db.execute(
-            text(
-                f"""
-                SELECT id, external_id FROM candidates
-                WHERE external_source='traffit'
-                  AND external_id IS NOT NULL
-                  AND cv_file_content IS NULL
-                  AND cv_storage_key IS NULL
-                  {since_clause}
-                ORDER BY id
-                {"LIMIT :limit" if scan_limit is not None else ""}
-                """
-            ),
-            cv_params,
-        )
+        if since is not None:
+            result = await self._delta_cv_targets(since)
+        else:
+            result = await self.db.execute(
+                text(
+                    f"""
+                    SELECT id, external_id FROM candidates
+                    WHERE external_source='traffit'
+                      AND external_id IS NOT NULL
+                      AND cv_file_content IS NULL
+                      AND cv_storage_key IS NULL
+                      {since_clause}
+                    ORDER BY id
+                    {"LIMIT :limit" if scan_limit is not None else ""}
+                    """
+                ),
+                cv_params,
+            )
         targets = list(result)
         progress.total_source = len(targets)
         exhausted = scan_limit is None or len(targets) < scan_limit
@@ -3738,6 +3743,54 @@ class TraffitImporter:
                     _UPSERT_CANDIDATE_DOCUMENT,
                     {**doc_params, "is_primary": False},
                 )
+
+    async def _delta_cv_targets(self, since: datetime):
+        """Cele fazy ``candidates_cv`` w delcie: (id, external_id).
+
+        Kandydaci zmienieni w tym biegu PLUS „zaległe CV” (runda 6 audytu):
+        kandydat Traffita z nazwą CV, bez wskaźnika ``cv_storage_key``,
+        założony w oknie ``TRAFFIT_SYNC_PENDING_FILES_DAYS``. Lustro
+        „zaległych plików” z ``_delta_file_targets``: kandydat upsertowany
+        w biegu, który deploy zabił przed tą fazą, nie spełnia
+        ``updated_at >= since`` w żadnym kolejnym — faza plików pobierała mu
+        dokumenty, ale wskaźnika nie ustawiał nikt poza tą fazą, więc nocne
+        fazy tekstu CV i imion (czytają ``cv_storage_key``) go nie widziały.
+        Bez warunku „brak dokumentów”, bo faza plików mogła je już pobrać.
+        """
+        return await self.db.execute(
+            text(
+                """
+                SELECT c.id, c.external_id
+                FROM candidates c
+                WHERE c.external_source = 'traffit'
+                  AND c.external_id IS NOT NULL
+                  AND c.cv_file_content IS NULL
+                  AND c.cv_storage_key IS NULL
+                  AND c.updated_at >= :since
+                UNION
+                SELECT p.id, p.external_id
+                FROM (
+                    SELECT c.id, c.external_id
+                    FROM candidates c
+                    WHERE c.external_source = 'traffit'
+                      AND c.external_id IS NOT NULL
+                      AND c.cv_file_content IS NULL
+                      AND c.cv_storage_key IS NULL
+                      AND NULLIF(btrim(c.cv_filename), '') IS NOT NULL
+                      AND c.created_at >= :pending_since
+                    ORDER BY c.id DESC
+                    LIMIT :pending_limit
+                ) p
+                ORDER BY id
+                """
+            ),
+            {
+                "since": since,
+                "pending_since": datetime.now(timezone.utc)
+                - timedelta(days=max(0, int(settings.TRAFFIT_SYNC_PENDING_FILES_DAYS))),
+                "pending_limit": max(0, int(settings.TRAFFIT_SYNC_PENDING_FILES_LIMIT)),
+            },
+        )
 
     async def _delta_file_targets(self, since: datetime):
         """Cele fazy plików w delcie: (id, external_id) kandydatów Traffita."""
