@@ -32,6 +32,7 @@ i pozwala poprawić tekst przed skopiowaniem.
 from __future__ import annotations
 
 import asyncio
+import copy
 import logging
 import re
 from dataclasses import dataclass, field
@@ -204,6 +205,64 @@ async def refresh_on_upload_async(order: ClientOrder, abs_path: Path | str) -> N
     order.invoice_lines = await asyncio.to_thread(
         read_pdf_payload, abs_path, order.filename
     )
+
+
+def read_pdf_bytes_payload(data: bytes, filename: Optional[str]) -> Optional[dict]:
+    """Odczyt PDF-a z bajtów (plik tymczasowy) — jak ``read_pdf_payload``.
+
+    Runda 6 audytu (C2): odczyt idzie PRZED blokadami zapisu zamówienia, gdy
+    pliku nie ma jeszcze w magazynie, więc parser dostaje kopię tymczasową.
+    """
+    import os
+    import tempfile
+
+    suffix = Path(filename or "").suffix or ".pdf"
+    try:
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as handle:
+            handle.write(data)
+            tmp_path = handle.name
+    except OSError as exc:
+        logger.warning(
+            "[nordea_invoice_lines] temp PDF write failed (%s)", type(exc).__name__
+        )
+        return None
+    try:
+        return read_pdf_payload(tmp_path, filename)
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+
+async def read_upload_payload(
+    client_id: Optional[int], data: Optional[bytes], filename: Optional[str]
+) -> Optional[dict]:
+    """Odczyt formuły z wgrywanego PDF-a — wołać PRZED blokadami zapisu.
+
+    Runda 6 audytu (C2): odczyt (przy skanie OCR do 10 stron) szedł pod
+    blokadą kontraktu i zamówienia (upload) albo klienta (poczta, raz na
+    KAŻDE zamówienie dokumentu) — inne zapisy tych wierszy czekały na OCR.
+    Teraz raz na dokument, w wątku, bez blokad; wynik przypisuje
+    ``apply_upload_payload`` po przypięciu TYCH SAMYCH bajtów.
+    """
+    if data is None or not is_nordea(client_id):
+        return None
+    return await asyncio.to_thread(read_pdf_bytes_payload, data, filename)
+
+
+def apply_upload_payload(order: ClientOrder, payload: Optional[dict]) -> None:
+    """Przypisz odczyt zrobiony przed blokadami — tuż po ``_attach_po_bytes``.
+
+    Wołać wyłącznie wtedy, gdy zamówienie dostało właśnie plik z tych samych
+    bajtów, z których powstał ``payload`` (warunek „ten sam plik”). Kopia,
+    bo jeden dokument zasila kilka zamówień, a JSONB każdego jest osobny.
+    """
+    if not is_nordea(order.client_id):
+        return
+    # Nieczytelny nowy plik = brak formuły (dosypie ją pętla), a nie formuła
+    # POPRZEDNIEGO dokumentu przy nowym PDF-ie.
+    order.invoice_lines = copy.deepcopy(payload) if payload else None
 
 
 def clear_on_new_upload(order: ClientOrder) -> None:

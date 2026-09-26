@@ -2028,6 +2028,26 @@ async def create_order_extension(
     except ValueError as e:
         raise HTTPException(422, detail=str(e)) from None
 
+    # Plik zapisujemy DOPIERO po nadaniu Orderowi id (flush niżej) — wcześniej
+    # leciało tu `order_id=0`, więc każdy PO z tej ścieżki lądował w jednym
+    # wspólnym katalogu `client_orders/0/` zamiast w katalogu swojego
+    # zamówienia. Rozmiar sprawdzamy PRZED zapisem na dysk, żeby odrzucony
+    # upload nie zostawiał sieroty do posprzątania.
+    payload_bytes: Optional[bytes] = None
+    content_type: Optional[str] = None
+    filename: Optional[str] = None
+    if file is not None:
+        filename = file.filename or "po.pdf"
+        if not filename.lower().endswith(_ALLOWED_EXT):
+            raise HTTPException(415, detail="Tylko pliki PDF/DOCX/DOC")
+        content_type = file.content_type
+        payload_bytes = await _read_upload_within_limit(file)
+    # Runda 6 audytu (C2): odczyt formuły Nordei (OCR) PRZED blokadą
+    # kontraktu — pod nią inne zapisy tego kontraktu czekały na OCR.
+    invoice_payload = await nordea_invoice_lines.read_upload_payload(
+        client_id, payload_bytes, filename
+    )
+
     # Kontrakt blokowany PRZED wstawieniem zamówienia: INSERT bierze na nim
     # FOR KEY SHARE, a synchronizacja przed commitem — FOR UPDATE.
     await lock_contract_then_orders(db, contract_ids=[contract_id])
@@ -2117,21 +2137,6 @@ async def create_order_extension(
             raise HTTPException(400, detail="Invalid total_value") from exc
         total_dec = _validated_total_value(total_dec)
 
-    # Plik zapisujemy DOPIERO po nadaniu Orderowi id (flush niżej) — wcześniej
-    # leciało tu `order_id=0`, więc każdy PO z tej ścieżki lądował w jednym
-    # wspólnym katalogu `client_orders/0/` zamiast w katalogu swojego
-    # zamówienia. Rozmiar sprawdzamy PRZED zapisem na dysk, żeby odrzucony
-    # upload nie zostawiał sieroty do posprzątania.
-    payload_bytes: Optional[bytes] = None
-    content_type: Optional[str] = None
-    filename: Optional[str] = None
-    if file is not None:
-        filename = file.filename or "po.pdf"
-        if not filename.lower().endswith(_ALLOWED_EXT):
-            raise HTTPException(415, detail="Tylko pliki PDF/DOCX/DOC")
-        content_type = file.content_type
-        payload_bytes = await _read_upload_within_limit(file)
-
     order = ClientOrder(
         client_id=client_id,
         contract_id=contract_id,
@@ -2184,9 +2189,7 @@ async def create_order_extension(
             content_type=content_type,
             user=user,
         )
-        await nordea_invoice_lines.refresh_on_upload_async(
-            order, storage_service.get_client_order_po_path(order.file_path)
-        )
+        nordea_invoice_lines.apply_upload_payload(order, invoice_payload)
     # Formularz może świadomie zacząć od draftu i uzupełniać cztery wymagane
     # obszary kolejnymi zapisami. Gdy komplet jest już obecny przy tworzeniu,
     # rekord od razu trafia do „Aktywnych”.
@@ -3692,6 +3695,22 @@ async def replace_order_po(
     """
     await _assert_client(db, client_id)
     await _require_order_file_read(db, user, client_id)
+
+    filename = file.filename or "po.pdf"
+    if not filename.lower().endswith(".pdf"):
+        raise HTTPException(415, detail="Tylko pliki PDF")
+    payload_bytes = await _read_upload_within_limit(file)
+    # Rozszerzenie deklaruje nadawca, nagłówek pliku nie. Bez tej kontroli
+    # dowolne bajty przemianowane na „.pdf" trafiały na wolumen i były potem
+    # serwowane z `media_type=application/pdf` każdemu, kto otworzy dokument.
+    if not payload_bytes.startswith(b"%PDF-"):
+        raise HTTPException(415, detail="Plik nie jest dokumentem PDF.")
+    # Runda 6 audytu (C2): odczyt formuły Nordei (OCR) PRZED blokadami —
+    # pod nimi inne zapisy tego kontraktu i zamówienia czekały na OCR.
+    invoice_payload = await nordea_invoice_lines.read_upload_payload(
+        client_id, payload_bytes, filename
+    )
+
     # Kontrakt → zamówienie (S5, 24.09.2026): zapis pliku to UPDATE zamówienia,
     # a ``commit_order_write`` bierze potem kontrakt FOR UPDATE — bez blokady
     # w tej kolejności to ABBA z handlerami kontraktu.
@@ -3705,17 +3724,7 @@ async def replace_order_po(
     if order is None:
         raise HTTPException(404, detail="Order not found")
 
-    filename = file.filename or "po.pdf"
-    if not filename.lower().endswith(".pdf"):
-        raise HTTPException(415, detail="Tylko pliki PDF")
-
     replaced = order.file_path is not None
-    payload_bytes = await _read_upload_within_limit(file)
-    # Rozszerzenie deklaruje nadawca, nagłówek pliku nie. Bez tej kontroli
-    # dowolne bajty przemianowane na „.pdf" trafiały na wolumen i były potem
-    # serwowane z `media_type=application/pdf` każdemu, kto otworzy dokument.
-    if not payload_bytes.startswith(b"%PDF-"):
-        raise HTTPException(415, detail="Plik nie jest dokumentem PDF.")
     superseded_path = _attach_po_bytes(
         order,
         payload=payload_bytes,
@@ -3723,9 +3732,7 @@ async def replace_order_po(
         content_type=file.content_type,
         user=user,
     )
-    await nordea_invoice_lines.refresh_on_upload_async(
-        order, storage_service.get_client_order_po_path(order.file_path)
-    )
+    nordea_invoice_lines.apply_upload_payload(order, invoice_payload)
 
     db.add(
         Activity(

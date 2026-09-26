@@ -332,6 +332,15 @@ async def apply_document(
     """
     if confirmed_by_human is None:
         confirmed_by_human = actor_user_id is not None
+    # Runda 6 audytu (C2): PDF dokumentu czytamy RAZ i PRZED blokadą klienta —
+    # formułę Nordei (OCR) też. Dawniej odczyt szedł pod blokadą klienta, dla
+    # KAŻDEGO zamówienia dokumentu osobno (N razy ten sam PDF).
+    pdf_bytes = _read_document_pdf(doc)
+    from app.services import nordea_invoice_lines
+
+    invoice_payload = await nordea_invoice_lines.read_upload_payload(
+        doc.client_id, pdf_bytes, doc.attachment_name or "zamowienie.pdf"
+    )
     # Lock the client before refreshing the roster. Different incoming PDFs
     # for the same first contractor cannot both create an initial draft.
     await db.scalar(
@@ -394,6 +403,8 @@ async def apply_document(
             actor_user_id=actor_user_id,
             only_actions=only_actions,
             confirmed_by_human=confirmed_by_human,
+            pdf_bytes=pdf_bytes,
+            invoice_payload=invoice_payload,
         )
         if not result.ok:
             await transaction.rollback()
@@ -415,8 +426,30 @@ async def apply_document(
     return result
 
 
+def _read_document_pdf(doc) -> Optional[bytes]:
+    """Bajty PDF-a dokumentu z magazynu poczty; brak/nieczytelny = ``None``."""
+    if not doc.storage_path:
+        return None
+    try:
+        return storage_service.get_order_mail_attachment_path(
+            doc.storage_path
+        ).read_bytes()
+    except OSError as exc:
+        logger.warning(
+            "order_mail apply: cannot read PDF %s: %s", doc.storage_path, exc
+        )
+        return None
+
+
 async def _write_document(
-    db, doc, *, actor_user_id, only_actions, confirmed_by_human=None
+    db,
+    doc,
+    *,
+    actor_user_id,
+    only_actions,
+    confirmed_by_human=None,
+    pdf_bytes: Optional[bytes] = None,
+    invoice_payload: Optional[dict] = None,
 ):
     from app.api.client_orders import (
         _activate_complete_draft,
@@ -436,16 +469,10 @@ async def _write_document(
         result.error = "Brak planu zapisu"
         return result
     actor = SimpleNamespace(id=actor_user_id)
-    pdf_bytes: Optional[bytes] = None
-    if doc.storage_path:
-        try:
-            pdf_bytes = storage_service.get_order_mail_attachment_path(
-                doc.storage_path
-            ).read_bytes()
-        except OSError as exc:
-            logger.warning(
-                "order_mail apply: cannot read PDF %s: %s", doc.storage_path, exc
-            )
+    if pdf_bytes is None:
+        # Wołający bez wcześniejszego odczytu (testy writera) — sam plik,
+        # bez formuły Nordei (dosypie ją pętla `order_gaps`).
+        pdf_bytes = _read_document_pdf(doc)
 
     # Idempotencja ponowienia po częściowym niepowodzeniu: wiersz, który w
     # poprzednim biegu dostał `order_id`, jest już zapisany — drugi klik
@@ -691,9 +718,9 @@ async def _write_document(
                 )
                 from app.services import nordea_invoice_lines
 
-                await nordea_invoice_lines.refresh_on_upload_async(
-                    order, storage_service.get_client_order_po_path(order.file_path)
-                )
+                # Ten sam plik: `pdf_bytes` i `invoice_payload` pochodzą z tego
+                # samego odczytu dokumentu (runda 6 audytu, C2).
+                nordea_invoice_lines.apply_upload_payload(order, invoice_payload)
             # Copy a cost only from the contract's own schedule, preserving
             # unit/currency. A first unsigned engagement has no such cost.
             if order.rate_candidate is None:
