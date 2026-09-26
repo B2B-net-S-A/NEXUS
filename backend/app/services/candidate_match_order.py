@@ -31,6 +31,7 @@ do pamięci.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -47,6 +48,10 @@ logger = logging.getLogger(__name__)
 MAX_EXACT_IDS = 30_000
 ANN_TOP = 3_000
 _CHUNK = 5_000
+# Wektor zapytania to dodatek do kolejności, nigdy bramka: wiszący Voyage
+# (klient HTTP ma 60 s) wywracał listę po 30 s przeglądarki zamiast dać
+# „najnowsi” (runda 6 audytu).
+QUERY_VECTOR_TIMEOUT_SECONDS = 3.0
 CACHE_TTL_SECONDS = 300
 # Własna, OGRANICZONA pamięć: kolejność bywa listą ~60 tys. id (cała baza
 # w „Szukaj ręcznie”), a klucz zmienia się przy każdym ruchu w rekrutacji.
@@ -137,7 +142,9 @@ async def resolve_vector(
     if not text:
         return None
     try:
-        vector = await request_vector(text)
+        vector = await asyncio.wait_for(
+            request_vector(text), timeout=QUERY_VECTOR_TIMEOUT_SECONDS
+        )
     except Exception as exc:  # noqa: BLE001 — kolejność to dodatek, nie bramka
         logger.warning("match order: query vector failed (%s)", type(exc).__name__)
         return None

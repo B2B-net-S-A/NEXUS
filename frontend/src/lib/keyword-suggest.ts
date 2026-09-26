@@ -288,6 +288,18 @@ export function useKeywordSuggestions(query: string, enabled: boolean) {
 export interface KeywordClassification {
   skills: string[];
   as_requirements: boolean;
+  /** Gotowe wiersze wymagań (warianty LUB) — alias zostaje obok nazwy
+   *  kanonicznej, żeby wiersz nie zawężał wyniku do frazy. */
+  rows?: string[][];
+}
+
+/** Wiersze z odpowiedzi klasyfikacji: `rows` z serwera, a przy starszym
+ *  backendzie jedna nazwa na wiersz. */
+export function classificationRows(result: KeywordClassification): string[][] {
+  if (Array.isArray(result.rows) && result.rows.length > 0) {
+    return result.rows.filter((row) => Array.isArray(row) && row.length > 0);
+  }
+  return result.skills.map((skill) => [skill]);
 }
 
 /** Czy tekst z górnego pola w ogóle może być listą technologii (bez e-maila,

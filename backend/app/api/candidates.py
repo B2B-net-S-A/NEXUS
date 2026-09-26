@@ -2883,6 +2883,9 @@ class KeywordClassifyResponse(BaseModel):
     # Wszystkie słowa to nazwy technologii i żadne nie jest nazwiskiem ani
     # miejscowością — front zamienia je wtedy na wiersze wymagań.
     as_requirements: bool
+    # Gotowe wiersze (warianty LUB): alias zostaje obok nazwy kanonicznej,
+    # żeby wiersz nie zawężał wyniku do frazy (runda 6 audytu).
+    rows: list[list[str]] = []
 
 
 @router.get("/keywords/classify", response_model=KeywordClassifyResponse)
@@ -2915,7 +2918,11 @@ async def classify_keywords(
             return KeywordClassifyResponse(
                 skills=list(result.skills), as_requirements=False
             )
-    return KeywordClassifyResponse(skills=list(result.skills), as_requirements=True)
+    return KeywordClassifyResponse(
+        skills=list(result.skills),
+        as_requirements=True,
+        rows=[list(row) for row in result.rows],
+    )
 
 
 # ── Bulk export (Phase 7b.4) ────────────────────────────────────────────────

@@ -156,7 +156,7 @@ import {
   type RecentlyChangedJobs,
   type TextModeFilter,
 } from "@/lib/url-filters";
-import { classifyKeywords, mayBeSkillList } from "@/lib/keyword-suggest";
+import { classificationRows, classifyKeywords, mayBeSkillList } from "@/lib/keyword-suggest";
 import {
   countSkillConstraints,
   parseSkillExpression,
@@ -974,9 +974,9 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
  const result = await classifyKeywords(text.trim());
  if (result?.as_requirements && result.skills.length > 0) {
  const existing = new Set(qAny.flat().map((word) => word.toLowerCase()));
- const added = result.skills
- .filter((skill) => !existing.has(skill.toLowerCase()))
- .map((skill) => [skill]);
+ const added = classificationRows(result).filter(
+ (row) => !row.some((word) => existing.has(word.toLowerCase())),
+ );
  setConvertedText({ text, skills: result.skills, previousRows: qAny });
  rows = [...qAny, ...added];
  setQAny(rows);

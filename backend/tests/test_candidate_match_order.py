@@ -75,6 +75,30 @@ def test_requirement_words_join_rows_and_drop_stars():
     )
 
 
+@pytest.mark.asyncio
+async def test_hanging_embedding_provider_falls_back_instead_of_blocking(monkeypatch):
+    """Runda 6 audytu: wiszący Voyage (klient HTTP 60 s) nie może zatrzymać
+    listy — po limicie kolejność wraca do „najnowsi” (None)."""
+    import asyncio
+
+    from app.services import full_search_measurement
+
+    async def hanging(_text):
+        await asyncio.sleep(10)
+        return [0.1]
+
+    monkeypatch.setattr(full_search_measurement, "request_vector", hanging)
+    monkeypatch.setattr(cmo, "QUERY_VECTOR_TIMEOUT_SECONDS", 0.05)
+
+    class F:
+        q_all = None
+        q_any = None
+        recruitment_id = None
+        recruitment_match = None
+
+    assert await cmo.resolve_vector(None, None, F, [["java"]]) is None
+
+
 def test_classify_skills_needs_every_word_to_be_a_skill():
     from app.services import keyword_suggest
 
@@ -89,6 +113,24 @@ def test_classify_skills_needs_every_word_to_be_a_skill():
         assert keyword_suggest.classify_skills("golang").skills == ("Go",)
         sentence = keyword_suggest.classify_skills("senior java z bankowością")
         assert not sentence.all_skills
+    finally:
+        keyword_suggest._catalog = previous
+
+
+def test_classify_rows_keep_the_typed_alias_as_a_variant():
+    """Runda 6 audytu: „kafka” nie może stać się frazą „Apache Kafka”
+    (4569 → 1704 osób), a „postgres” nie może zgubić ludzi, którzy tak piszą."""
+    from app.services import keyword_suggest
+
+    previous = keyword_suggest.catalog()
+    try:
+        keyword_suggest.load_catalog(
+            [(1, "Apache Kafka", "tool"), (2, "PostgreSQL", "db"), (3, "Java", "lang")],
+            [(1, "kafka"), (2, "postgres")],
+        )
+        result = keyword_suggest.classify_skills("kafka postgres java")
+        assert result.all_skills
+        assert result.rows == (("Kafka",), ("postgres", "PostgreSQL"), ("Java",))
     finally:
         keyword_suggest._catalog = previous
 

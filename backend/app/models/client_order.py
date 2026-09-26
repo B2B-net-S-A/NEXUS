@@ -234,7 +234,11 @@ class ClientOrder(Base, TimestampMixin):
     # ``nordea_invoice_lines``) — NIIDS, osoba kontaktowa z „Invoice
     # reference" i linia na każdą osobę z tabeli „Consultant(s)", razem
     # z ręczną poprawką. NULL = jeszcze nie odczytano albo inny klient.
-    invoice_lines: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    # ``none_as_null``: przypisanie None ma dać SQL NULL, nie JSON ``null``
+    # — pętla ``fill_missing`` szuka ``IS NULL`` (runda 6 audytu).
+    invoice_lines: Mapped[Optional[dict]] = mapped_column(
+        JSONB(none_as_null=True), nullable=True
+    )
 
     created_by_user_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True

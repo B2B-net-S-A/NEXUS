@@ -39,7 +39,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, Optional
 
-from sqlalchemy import select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -396,6 +396,15 @@ async def _consultant_name(db: AsyncSession, order: ClientOrder) -> Optional[str
     return _clean(f"{row[0] or ''} {row[1] or ''}")
 
 
+def _formula_missing():
+    """Brak formuły: SQL NULL albo JSON ``null`` (wiersze zapisane przed
+    ``none_as_null`` — nieudany odczyt przy wgraniu nie trafiał do pętli)."""
+    return or_(
+        ClientOrder.invoice_lines.is_(None),
+        func.jsonb_typeof(ClientOrder.invoice_lines) == "null",
+    )
+
+
 async def fill_missing(db: AsyncSession, *, limit: int = 200) -> int:
     """Zapisz formułę zamówieniom Nordei z PDF-em, które jej jeszcze nie mają.
 
@@ -424,7 +433,7 @@ async def fill_missing(db: AsyncSession, *, limit: int = 200) -> int:
                 .where(
                     ClientOrder.client_id.in_(client_ids),
                     ClientOrder.file_path.is_not(None),
-                    ClientOrder.invoice_lines.is_(None),
+                    _formula_missing(),
                     ClientOrder.status != ClientOrderStatus.cancelled,
                 )
                 .order_by(ClientOrder.id.desc())
@@ -468,7 +477,7 @@ async def fill_missing(db: AsyncSession, *, limit: int = 200) -> int:
             update(ClientOrder)
             .where(
                 ClientOrder.id == order_id,
-                ClientOrder.invoice_lines.is_(None),
+                _formula_missing(),
                 ClientOrder.file_path == file_path,
                 # Podmiana pliku pod tą samą ścieżką zmienia stempel wgrania.
                 ClientOrder.file_uploaded_at.is_not_distinct_from(uploaded_at),
