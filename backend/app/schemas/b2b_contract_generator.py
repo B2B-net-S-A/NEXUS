@@ -472,6 +472,9 @@ class B2BGeneratedContractItem(BaseModel):
     # Rejestr z Excela działu (0363). `excel` = wiersz z pliku, tylko do odczytu
     # poza statusem handlowym; `generator` = umowa wydana w NEXUSIE.
     source: Literal["generator", "excel"] = "generator"
+    # Wersja wzoru umowy (0362). NULL = nieznana (wiersz z Excela) — okno
+    # wypowiedzenia Partnera wymaga wtedy daty (runda 6 audytu, DOC-3).
+    template_version: Optional[str] = None
     # Numer dokładnie jak w Excelu („264A”, „bez numeru”) — `contract_number`
     # jest wtedy tym samym tekstem.
     raw_contract_number: Optional[str] = None

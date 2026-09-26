@@ -367,11 +367,18 @@ export function PartnerNoticeDialog({
   parentId,
   contractNumber,
   partnerName,
+  noticePeriodKnown = true,
   onClose,
 }: {
   parentId: number;
   contractNumber: string;
   partnerName?: string | null;
+  /**
+   * Umowa ma znaną wersję wzoru — serwer policzy datę rozwiązania z okresu
+   * wypowiedzenia. Bez wersji (wiersz z Excela działu) data jest wymagana:
+   * serwer nie zgaduje jej z umowy 2026 (runda 6 audytu, DOC-3).
+   */
+  noticePeriodKnown?: boolean;
   onClose: () => void;
 }) {
   const toast = useToast();
@@ -420,7 +427,9 @@ export function PartnerNoticeDialog({
             />
           </div>
           <div className="space-y-1">
-            <Label htmlFor="b2b-partner-notice-end">Data rozwiązania umowy</Label>
+            <Label htmlFor="b2b-partner-notice-end">
+              Data rozwiązania umowy{noticePeriodKnown ? "" : " *"}
+            </Label>
             <Input
               id="b2b-partner-notice-end"
               type="date"
@@ -429,7 +438,9 @@ export function PartnerNoticeDialog({
               onChange={(e) => setTerminationDate(e.target.value)}
             />
             <p id="b2b-partner-notice-end-help" className="text-xs text-muted-foreground">
-              Zostaw puste — policzymy ją z okresu wypowiedzenia w umowie.
+              {noticePeriodKnown
+                ? "Zostaw puste — policzymy ją z okresu wypowiedzenia w umowie."
+                : "Ta umowa nie ma w NEXUSIE wersji wzoru — wpisz datę rozwiązania wynikającą z okresu wypowiedzenia w umowie."}
             </p>
             {tooEarly ? (
               <p className="text-xs text-destructive">
@@ -450,7 +461,12 @@ export function PartnerNoticeDialog({
           </Button>
           <Button
             onClick={() => mutation.mutate()}
-            disabled={!deliveredOn || tooEarly || mutation.isPending}
+            disabled={
+              !deliveredOn ||
+              tooEarly ||
+              (!noticePeriodKnown && !terminationDate) ||
+              mutation.isPending
+            }
             loading={mutation.isPending}
           >
             Zarejestruj

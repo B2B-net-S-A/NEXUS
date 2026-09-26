@@ -107,6 +107,27 @@ async def _load_contract(db: AsyncSession, contract_id: int | None) -> Contract 
     )
 
 
+def current_contract_id(
+    doc: B2BContractDocument, parent: B2BGeneratedContract | None
+) -> int | None:
+    """Kontrakt, którego dotyczą skutki podpisu — BIEŻĄCY kontrakt umowy bazowej.
+
+    ``doc.contract_id`` to migawka z chwili generowania dokumentu. Po
+    unieważnieniu kontraktu i „Powiąż z kontraktem” umowa bazowa wskazuje nowy
+    kontrakt, a skutki trafiały do unieważnionego (runda 6 audytu, DOC-2).
+    Dokument bez umowy bazowej (np. zlecenie) zna tylko swoją kolumnę."""
+    if parent is not None:
+        return parent.contract_id
+    return doc.contract_id
+
+
+VOID_CONTRACT_BLOCKER = (
+    "Umowa jest powiązana z unieważnionym kontraktem — powiąż ją z właściwym "
+    "kontraktem („Powiąż z kontraktem” w rejestrze umów) i oznacz dokument "
+    "ponownie."
+)
+
+
 def _payload(doc: B2BContractDocument) -> dict[str, Any]:
     """Pola formularza dokumentu — `render_payload` trzyma je pod `values`
     (obok `refs` i migawki `base`)."""
@@ -144,9 +165,17 @@ async def describe(
 ) -> EffectPlan:
     plan = EffectPlan()
     values = _payload(doc)
-    contract = (
-        await db.get(Contract, doc.contract_id) if doc.contract_id is not None else None
-    )
+    contract_id = current_contract_id(doc, parent)
+    contract = await db.get(Contract, contract_id) if contract_id is not None else None
+    if (
+        contract is not None
+        and contract.status == ContractStatus.void
+        and doc_type.key != "preliminary_cez"
+    ):
+        # Unieważniony kontrakt nie przyjmuje zakończenia ani aneksu — odmowa
+        # czytelna zamiast 409 z maszyny stanów w połowie zapisu (runda 6
+        # audytu, DOC-2).
+        plan.blockers.append(VOID_CONTRACT_BLOCKER)
     if (
         user is not None
         and contract is not None
@@ -213,10 +242,24 @@ async def describe(
         "termination_notice",
     ):
         when = _date(values.get("termination_date"))
-        plan.changes.append(
-            f"Koniec współpracy z dniem {_pl(when)} — kontrakt, zamówienia klienta."
-        )
-        if parent is not None:
+        if project_already_ended(contract):
+            # Projekt skończył się wcześniej (umowa czeka w „Umowach bez
+            # projektu”) — dokument rozwiązuje umowę B2B, kontraktu nie rusza
+            # (runda 6 audytu, DOC-1).
+            plan.changes.append(
+                "Kontrakt jest już „Zakończony” (koniec projektu "
+                f"{_pl(contract.end_date or contract.terminated_at)}) — nie zmieni "
+                "się, zamówienia też nie."
+            )
+            if parent is not None:
+                plan.changes.append(
+                    f"Umowa w rejestrze: „Zakończona” z dniem {_pl(when)}."
+                )
+        else:
+            plan.changes.append(
+                f"Koniec współpracy z dniem {_pl(when)} — kontrakt, zamówienia klienta."
+            )
+        if parent is not None and not project_already_ended(contract):
             if contract is not None and when is not None and when >= business_today():
                 plan.changes.append(
                     "Umowa w rejestrze: „Zakończona” dzień po "
@@ -253,6 +296,18 @@ async def describe(
 
 
 # ── zapis ────────────────────────────────────────────────────────────────────
+
+
+def project_already_ended(contract: Contract | None) -> bool:
+    """Projekt (kontrakt) zakończył się, zanim podpisano rozwiązanie umowy B2B.
+
+    Umowa w rejestrze bywa wtedy w „Umowach bez projektu” — porozumienie albo
+    wypowiedzenie rozwiązuje UMOWĘ z Partnerem, nie projekt. Ponowne
+    „Zakończ współpracę” na zakończonym kontrakcie nadpisywało datę, powód,
+    wnioski i dane rozwiązania i dokładało drugi wpis 'terminated', bo
+    powtórka jest idempotentna tylko przy tej samej dacie (runda 6 audytu,
+    DOC-1)."""
+    return contract is not None and contract.status == ContractStatus.ended
 
 
 async def _store_docx_on_contract(
@@ -341,8 +396,15 @@ async def apply(
 
     values = _payload(doc)
     summary: dict[str, Any] = {"type": doc_type.key}
-    contract = await _load_contract(db, doc.contract_id)
+    contract = await _load_contract(db, current_contract_id(doc, parent))
+    if contract is not None and contract.status == ContractStatus.void:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=VOID_CONTRACT_BLOCKER
+        )
     if contract is not None:
+        # Dokument wskazuje kontrakt, na który faktycznie zadziałał (runda 6
+        # audytu, DOC-2) — migawka z generowania mogła wskazywać unieważniony.
+        doc.contract_id = contract.id
         await contracts_api._ensure_delivery_lead_contract_visible(contract, user, db)
         if docx is not None:
             stored = await _store_docx_on_contract(
@@ -510,7 +572,9 @@ async def apply(
             mark_pending_dissolution(
                 parent, mode=mode, party=party, signed_on=signed_on
             )
-        if contract is not None:
+        if project_already_ended(contract):
+            summary["contract_already_ended"] = True
+        elif contract is not None:
             await contracts_api._apply_termination_to_contract(
                 db,
                 contract,
@@ -637,8 +701,19 @@ async def register_partner_notice(
     mark_pending_dissolution(
         parent, mode="notice", party="consultant", signed_on=delivered_on
     )
+    if contract is not None and contract.status == ContractStatus.void:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=VOID_CONTRACT_BLOCKER
+        )
     if contract is not None:
         await contracts_api._ensure_delivery_lead_contract_visible(contract, user, db)
+        summary["contract_id"] = contract.id
+    if project_already_ended(contract):
+        # Projekt skończył się wcześniej — wypowiedzenie rozwiązuje umowę B2B,
+        # kontrakt zostaje z datą i powodem końca projektu (runda 6 audytu,
+        # DOC-1).
+        summary["contract_already_ended"] = True
+    elif contract is not None:
         await contracts_api._apply_termination_to_contract(
             db,
             contract,
@@ -650,7 +725,6 @@ async def register_partner_notice(
             ),
             actor_id=user.id,
         )
-        summary["contract_id"] = contract.id
     await close_dissolved_row(
         db,
         parent,

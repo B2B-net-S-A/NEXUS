@@ -61,6 +61,8 @@ export function ReassignPlanView({ plan }: { plan: ReassignPlan }) {
             ? plan.b2b_documents.map((d) => d.contract_number).join(", ")
             : "brak"}
         </dd>
+        <dt className="text-muted-foreground">Dokumenty do umów B2B</dt>
+        <dd>{plan.b2b_derived_documents?.length || "brak"}</dd>
         <dt className="text-muted-foreground">Otwarte braki zamówień</dt>
         <dd>{plan.open_gaps.length || "brak"}</dd>
         <dt className="text-muted-foreground">Alerty do zamknięcia</dt>

@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   redownload: vi.fn(),
   prefill: vi.fn(),
   create: vi.fn(),
+  partnerNotice: vi.fn(),
   downloadBlob: vi.fn(),
 }));
 
@@ -30,6 +31,7 @@ vi.mock("@/lib/api/b2bDocuments", async (importOriginal) => {
       redownload: (...a: unknown[]) => mocks.redownload(...a),
       prefill: (...a: unknown[]) => mocks.prefill(...a),
       create: (...a: unknown[]) => mocks.create(...a),
+      partnerNotice: (...a: unknown[]) => mocks.partnerNotice(...a),
     },
   };
 });
@@ -42,6 +44,7 @@ vi.mock("@/lib/cv-generator", () => ({
 import { ToastProvider } from "@/components/Toast";
 import {
   ConfirmSignedDialog,
+  PartnerNoticeDialog,
   RedownloadDialog,
 } from "@/components/v2/b2b-generator/documents/DocumentDialogs";
 import { DocumentWizard } from "@/components/v2/b2b-generator/documents/DocumentWizard";
@@ -266,5 +269,38 @@ describe("Kreator — błąd 422 z serwera", () => {
     await userEvent.click(screen.getByRole("button", { name: /Pobierz DOCX/ }));
     expect(await screen.findByText("Uzupełnij: Imię i nazwisko.")).toBeInTheDocument();
     expect(mocks.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("Wypowiedzenie Partnera (runda 6 audytu, DOC-3)", () => {
+  it("umowa bez wersji wzoru wymaga daty rozwiązania", async () => {
+    mocks.partnerNotice.mockResolvedValue({ termination_date: "2026-10-31" });
+    renderWith(
+      <PartnerNoticeDialog
+        parentId={7}
+        contractNumber="264A"
+        noticePeriodKnown={false}
+        onClose={() => {}}
+      />,
+    );
+    expect(screen.getByText(/nie ma w NEXUSIE wersji wzoru/)).toBeInTheDocument();
+    const submit = screen.getByRole("button", { name: "Zarejestruj" });
+    expect(submit).toBeDisabled();
+    await userEvent.type(screen.getByLabelText(/Data rozwiązania umowy/), "2026-10-31");
+    expect(submit).toBeEnabled();
+    await userEvent.click(submit);
+    await waitFor(() =>
+      expect(mocks.partnerNotice).toHaveBeenCalledWith(
+        expect.objectContaining({ parent_generated_contract_id: 7, termination_date: "2026-10-31" }),
+      ),
+    );
+  });
+
+  it("umowa ze znaną wersją pozwala zostawić datę pustą", () => {
+    renderWith(
+      <PartnerNoticeDialog parentId={7} contractNumber="1500/2026" onClose={() => {}} />,
+    );
+    expect(screen.getByText(/Zostaw puste — policzymy/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Zarejestruj" })).toBeEnabled();
   });
 });

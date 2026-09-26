@@ -34,6 +34,8 @@ export interface ReassignPlan {
   to_client: ReassignClientRef;
   orders: ReassignOrderRow[];
   b2b_documents: { id: number; contract_number: string; contract_status: string; printed_client_name: string | null }[];
+  // Aneksy i rozwiązania przenoszonych umów B2B (runda 6 audytu, REA-1).
+  b2b_derived_documents?: { id: number; document_type: string; parent_generated_contract_id: number | null }[];
   open_gaps: { id: number; order_number: string | null; ended_on: string }[];
   alerts: { id: number; alert_type: string; title: string }[];
   blockers: ReassignBlocker[];

@@ -13,7 +13,7 @@ klienta kontraktu.
 Kształt: podgląd → zgoda → wykonanie
 ------------------------------------
 * :func:`build_plan` liczy, co zostanie przeniesione (zamówienia kontraktu,
-  wygenerowane umowy B2B, otwarte braki zamówień), które alerty Delivery Leada
+  wygenerowane umowy B2B i ich dokumenty pochodne, otwarte braki zamówień), które alerty Delivery Leada
   zostaną zamknięte i co blokuje operację. Plan ma odcisk SHA-256.
 * :func:`execute_reassign` blokuje wiersz kontraktu (``FOR UPDATE``), potem jego
   zamówienia — kolejność kontrakt → zamówienia, jak cykl życia kontraktu —
@@ -50,6 +50,7 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.activity import Activity
+from app.models.b2b_contract_document import B2BContractDocument
 from app.models.b2b_generated_contract import B2BGeneratedContract
 from app.models.candidate import Candidate
 from app.models.client import Client
@@ -114,6 +115,10 @@ class ReassignPlan:
     contract_status: str
     orders: list[dict[str, Any]] = field(default_factory=list)
     b2b_documents: list[dict[str, Any]] = field(default_factory=list)
+    # Dokumenty pochodne (aneksy, rozwiązania) przenoszonych umów B2B i tego
+    # kontraktu — bramka dostępu dokumentu czyta jego własne ``client_id``
+    # (runda 6 audytu, REA-1).
+    b2b_derived_documents: list[dict[str, Any]] = field(default_factory=list)
     open_gaps: list[dict[str, Any]] = field(default_factory=list)
     alerts: list[dict[str, Any]] = field(default_factory=list)
     blockers: list[dict[str, Any]] = field(default_factory=list)
@@ -136,6 +141,7 @@ class ReassignPlan:
             "to_client": self.to_client,
             "orders": self.orders,
             "b2b_documents": self.b2b_documents,
+            "b2b_derived_documents": self.b2b_derived_documents,
             "open_gaps": self.open_gaps,
             "alerts": self.alerts,
             "blockers": self.blockers,
@@ -166,6 +172,7 @@ def _fingerprint(plan: ReassignPlan) -> str:
         "to_client_id": plan.to_client["id"],
         "orders": sorted((o["id"], o["client_id"], o["status"]) for o in plan.orders),
         "b2b": sorted((d["id"], d["client_id"]) for d in plan.b2b_documents),
+        "b2b_derived": sorted(d["id"] for d in plan.b2b_derived_documents),
         "gaps": sorted(g["id"] for g in plan.open_gaps),
         "alerts": sorted(a["id"] for a in plan.alerts),
         "handled_alerts": sorted(plan.handled_alert_ids),
@@ -486,6 +493,35 @@ async def build_plan(
             printed_mismatch = True
         elif doc.client_id not in (None, target.id):
             other_docs.append(doc.id)
+    # Dokumenty pochodne idą za swoją umową B2B (albo za kontraktem, gdy
+    # dokument nie ma umowy bazowej): DL nowego klienta dostawał 403 na aneksie
+    # umowy, która już jest u niego (runda 6 audytu, REA-1).
+    moved_parent_ids = [d["id"] for d in plan.b2b_documents]
+    derived_owner = [B2BContractDocument.contract_id == contract.id]
+    if moved_parent_ids:
+        derived_owner.append(
+            B2BContractDocument.parent_generated_contract_id.in_(moved_parent_ids)
+        )
+    derived = list(
+        (
+            await db.scalars(
+                select(B2BContractDocument)
+                .where(B2BContractDocument.client_id == old_id, or_(*derived_owner))
+                .order_by(B2BContractDocument.id)
+            )
+        ).all()
+    )
+    for derived_doc in derived:
+        plan.b2b_derived_documents.append(
+            {
+                "id": derived_doc.id,
+                "document_type": derived_doc.document_type,
+                "parent_generated_contract_id": (
+                    derived_doc.parent_generated_contract_id
+                ),
+                "client_id": derived_doc.client_id,
+            }
+        )
     if printed_mismatch:
         plan.warnings.append(
             {
@@ -680,6 +716,17 @@ async def execute_reassign(
             .values(client_id=new_id)
             .execution_options(synchronize_session=False)
         )
+    derived_ids = [d["id"] for d in plan.b2b_derived_documents]
+    if derived_ids:
+        await db.execute(
+            update(B2BContractDocument)
+            .where(
+                B2BContractDocument.id.in_(derived_ids),
+                B2BContractDocument.client_id == old_id,
+            )
+            .values(client_id=new_id)
+            .execution_options(synchronize_session=False)
+        )
     gap_ids = [g["id"] for g in plan.open_gaps]
     if gap_ids:
         await db.execute(
@@ -724,6 +771,7 @@ async def execute_reassign(
                 "to_client_name": plan.to_client["name"],
                 "moved_order_ids": moved_order_ids,
                 "moved_b2b_ids": moved_doc_ids,
+                "moved_b2b_document_ids": derived_ids,
                 "moved_gap_ids": gap_ids,
                 "closed_alerts": len(alert_ids),
             },
