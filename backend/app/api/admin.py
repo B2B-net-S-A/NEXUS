@@ -1009,6 +1009,16 @@ async def resync_aad_groups(
                 )
             )
         user.roles = role_strs
+    # R8-N3-1: bliźniak zapisu ról z panelu i logowania SSO — bez tego awans
+    # przez grupę AAD zostawiał program praktykanta „active”, a ponowne
+    # nadanie roli nie wznawiało zakończonego programu.
+    await trainee_program.sync_program_for_roles(
+        db,
+        user.id,
+        before=previous_effective_roles,
+        after=list(role_strs),
+        actor_id=_admin.id,
+    )
     if onboarding_reset:
         user.profile_completed = False
         user.profile_completed_at = None

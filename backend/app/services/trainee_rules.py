@@ -47,6 +47,10 @@ _INT_BOUNDS: dict[str, tuple[int, int]] = {
 MIN_COVERAGE = 0.6
 #: Ponowna próba po „Nie odbiera”.
 RETRY_AFTER = timedelta(hours=3)
+#: Suma przedłużeń programu — lustro CHECK `ck_trainee_programs_numbers` (0374).
+MAX_EXTENDED_DAYS = 250
+#: Pełny etat w biurze — lustro `candidate_notes_facts.FULL_OFFICE_DAYS`.
+FULL_OFFICE_DAYS = 5
 #: Maks. rozsądna stawka godzinowa (lustro notatek) — reszta to pomyłka jednostki.
 MAX_HOURLY_PLN = Decimal("2000")
 
@@ -292,3 +296,25 @@ def answered_pct(connected: int, no_answer: int) -> Optional[float]:
     if total <= 0:
         return None
     return round(connected * 100 / total, 1)
+
+
+def onsite_days_for_call_modes(
+    modes: Iterable[str], previous: Optional[int]
+) -> Optional[int]:
+    """Dni w biurze, gdy telefon podał tryby pracy bez liczby dni (R8-N3-2).
+
+    Odwrotność ``modes_for_office_days``: bramki biura czytają wyłącznie
+    liczbę dni, więc stara liczba nie może przeczyć nowym trybom. Tylko
+    zdalnie → 0; biuro → pełny etat; hybryda → dotychczasowa liczba tylko
+    z przedziału 1–4, inaczej nieznana.
+    """
+    wanted = set(modes)
+    if "onsite" in wanted:
+        return FULL_OFFICE_DAYS
+    if "hybrid" in wanted:
+        if previous is not None and 1 <= previous < FULL_OFFICE_DAYS:
+            return previous
+        return None
+    if "remote" in wanted:
+        return 0
+    return previous

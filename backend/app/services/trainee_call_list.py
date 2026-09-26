@@ -22,9 +22,10 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
 
-from sqlalchemy import select, text
+from sqlalchemy import exists, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.models.app_setting import AppSetting
 from app.models.competence_category import CompetenceCategory
@@ -466,14 +467,29 @@ async def list_for(
 async def _scheduled_later(
     db: AsyncSession, user_id: int, today: date
 ) -> list[TraineeCallItem]:
+    """Oddzwonienia „później” należne dziś albo zaległe.
+
+    R8-N3-4: do rundy 8 brane były wyłącznie z ``later_date == today`` —
+    oddzwonienie niewykonane w swoim dniu (urlop, niedomknięta pozycja)
+    przepadało, a pula blokowała kandydata innym praktykantom przez 60 dni.
+    Oddzwonienie jest wykonane dopiero, gdy późniejsza pozycja tego kandydata
+    u tego praktykanta ma wynik (ta sama reguła co ``_pin_people``).
+    """
+    followup = aliased(TraineeCallItem)
     rows = await db.scalars(
         select(TraineeCallItem)
         .where(
             TraineeCallItem.user_id == user_id,
             TraineeCallItem.outcome == "later",
-            TraineeCallItem.later_date == today,
+            TraineeCallItem.later_date <= today,
+            ~exists().where(
+                followup.user_id == user_id,
+                followup.candidate_id == TraineeCallItem.candidate_id,
+                followup.list_date > TraineeCallItem.list_date,
+                followup.outcome.is_not(None),
+            ),
         )
-        .order_by(TraineeCallItem.id)
+        .order_by(TraineeCallItem.later_date, TraineeCallItem.id)
     )
     return list(rows.all())
 
