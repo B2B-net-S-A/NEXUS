@@ -16,6 +16,7 @@ from app.models.user import User
 from app.services.ai_quota import ai_feature
 from app.services.cv_generator_b2b.requirement_map import generate_map_result
 from app.services.cv_version_map_input import encode_map_input, decode_map_input
+from app.services.lease_renewal import renew_lease
 
 logger = logging.getLogger(__name__)
 LEASE_SECONDS = 180
@@ -100,8 +101,8 @@ async def finish_map(db, version_id, token, *, result=None, error=None):
 
 
 async def renew(version_id, token):
-    while True:
-        await asyncio.sleep(30)
+    # Runda 7 (R7-N6-2): przejściowy błąd bazy nie kończy opłaconej mapy.
+    async def beat() -> bool:
         async with AsyncSessionLocal() as db:
             claimed = await db.scalar(
                 update(CvVersionMap)
@@ -113,8 +114,9 @@ async def renew(version_id, token):
                 .returning(CvVersionMap.document_version_id)
             )
             await db.commit()
-            if claimed is None:
-                raise RuntimeError("Map lease lost")
+            return claimed is not None
+
+    await renew_lease(beat, lease_seconds=LEASE_SECONDS, label="CV map")
 
 
 async def measure(prepared, user_id):

@@ -35,11 +35,18 @@ def _sha(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
 
-async def _pko_world(*, with_consent: bool = False) -> dict:
+async def _pko_world(
+    *, with_consent: bool = False, stage_consent: bool | None = None
+) -> dict:
+    """``stage_consent=False`` = wiersz generatora ma zgodę, kopia etapu nie
+    (starsza zatwierdzona wersja wczytana do etapu — R7-X4-4)."""
     world = await _world()
     template = default_template()
     docx = _docx()
     consent = b"\x89PNG\r\n\x1a\nfake" if with_consent else None
+    stage_image = (
+        consent if stage_consent is None else (consent if stage_consent else None)
+    )
     payload = {"name": "PKO Kandydat", "language": "pl"}
     if with_consent:
         payload["consent_screenshot"] = {"storage_key": "cv/test/zgoda.png"}
@@ -91,7 +98,7 @@ async def _pko_world(*, with_consent: bool = False) -> dict:
             branded_status="draft",
             branded_draft_html=HTML,
             branded_template_content=template,
-            branded_consent_content=consent,
+            branded_consent_content=stage_image,
             branded_language="pl",
             branded_template="standard",
             branded_from_generator=True,
@@ -196,15 +203,77 @@ async def test_kill_switch_lifts_the_gate(pv_client: AsyncClient, monkeypatch, i
     assert not _is_consent_refusal(response), response.text
 
 
+PRINT_ROUTES = {"editor-print", "stage-print"}
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("index", range(len(ROUTE_NAMES)), ids=ROUTE_NAMES)
 async def test_attached_consent_opens_every_route(
     pv_client: AsyncClient, monkeypatch, index
 ):
+    if ROUTE_NAMES[index] in PRINT_ROUTES:
+        pytest.skip("druk przy wymogu zgody zablokowany zawsze (R7-X4-3)")
     monkeypatch.setattr(settings, "CV_CONSENT_DOWNLOAD_GATE_ENABLED", True)
     world = await _pko_world(with_consent=True)
     response = await _call(pv_client, world, index)
     assert not _is_consent_refusal(response), response.text
+
+
+# ── runda 7 ─────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("name", sorted(PRINT_ROUTES))
+async def test_print_is_refused_even_with_consent(
+    pv_client: AsyncClient, monkeypatch, name
+):
+    """R7-X4-3 (decyzja właściciela 26.09.2026): wydruk nie niesie obrazu
+    zgody, więc przy wymogu zgody jest zablokowany — tym samym kodem 409."""
+    monkeypatch.setattr(settings, "CV_CONSENT_DOWNLOAD_GATE_ENABLED", True)
+    world = await _pko_world(with_consent=True)
+    response = await _call(pv_client, world, ROUTE_NAMES.index(name))
+    assert _is_consent_refusal(response), (response.status_code, response.text)
+    assert "DOCX" in response.json()["detail"]["message"]
+
+
+@pytest.mark.asyncio
+async def test_deleting_the_generated_cv_keeps_the_stage_copy_gated(
+    pv_client: AsyncClient, monkeypatch
+):
+    """R7-X4-1: FK kopii etapu to SET NULL — po usunięciu wiersza generatora
+    szkic, druk, wersja i link etapu nadal wymagają zgody."""
+    monkeypatch.setattr(settings, "CV_CONSENT_DOWNLOAD_GATE_ENABLED", True)
+    world = await _pko_world()
+    response = await pv_client.delete(
+        f"/api/cv-generator/generated/{world['generated_id']}",
+        headers=_headers(world["user_id"]),
+    )
+    assert response.status_code == 204, response.text
+    async with AsyncSessionLocal() as db:
+        from sqlalchemy import select
+
+        csv = await db.scalar(
+            select(CandidateStageCV).where(
+                CandidateStageCV.candidate_stage_id == world["stage_id"]
+            )
+        )
+        assert csv.generated_document_id is None
+        assert csv.branded_render_metadata.get("consent_required") is True
+    for name in ("stage-version-docx", "stage-preview-docx", "stage-print"):
+        response = await _call(pv_client, world, ROUTE_NAMES.index(name))
+        assert _is_consent_refusal(response), (name, response.status_code, response.text)
+
+
+@pytest.mark.asyncio
+async def test_stage_copy_is_judged_by_its_own_image(
+    pv_client: AsyncClient, monkeypatch
+):
+    """R7-X4-4: wiersz generatora ma zgodę, kopia etapu (starsza wersja) nie —
+    DOCX szkicu renderuje się z kopii, więc podgląd jest zablokowany."""
+    monkeypatch.setattr(settings, "CV_CONSENT_DOWNLOAD_GATE_ENABLED", True)
+    world = await _pko_world(with_consent=True, stage_consent=False)
+    response = await _call(pv_client, world, ROUTE_NAMES.index("stage-preview-docx"))
+    assert _is_consent_refusal(response), (response.status_code, response.text)
 
 
 # ── reguła w izolacji ───────────────────────────────────────────────────────
@@ -241,3 +310,40 @@ def test_version_is_judged_by_its_own_image(monkeypatch):
         gate.ensure_downloadable(row, _Version(None))
     assert caught.value.status_code == 409
     assert caught.value.detail["code"] == "consent_required"
+
+
+class _Copy:
+    def __init__(self, consent=None, metadata=None):
+        self.branded_consent_content = consent
+        self.branded_render_metadata = metadata
+
+
+def test_frozen_requirement_survives_a_missing_generated_row(monkeypatch):
+    from fastapi import HTTPException
+
+    monkeypatch.setattr(settings, "CV_CONSENT_DOWNLOAD_GATE_ENABLED", True)
+    frozen = gate.with_frozen_requirement({"a": 1}, _Row(PKO_POLICY))
+    assert frozen == {"a": 1, "consent_required": True}
+    assert gate.with_frozen_requirement(None, _Row()) == {}
+    with pytest.raises(HTTPException):
+        gate.ensure_copy_downloadable(None, _Copy(None, frozen))
+    gate.ensure_copy_downloadable(None, _Copy(b"img", frozen))
+    gate.ensure_copy_downloadable(None, _Copy(None, {}))
+    with pytest.raises(HTTPException):
+        gate.ensure_copy_downloadable(None, _Copy(b"img", frozen), _Version(None))
+
+
+def test_print_gate_messages(monkeypatch):
+    from fastapi import HTTPException
+
+    monkeypatch.setattr(settings, "CV_CONSENT_DOWNLOAD_GATE_ENABLED", True)
+    row = _Row(PKO_POLICY)
+    with pytest.raises(HTTPException) as missing:
+        gate.ensure_printable(row, _Copy(None))
+    assert missing.value.detail["message"] == gate.CONSENT_REQUIRED_MESSAGE
+    with pytest.raises(HTTPException) as attached:
+        gate.ensure_printable(row, _Copy(b"img"))
+    assert attached.value.detail["message"] == gate.PRINT_BLOCKED_MESSAGE
+    gate.ensure_printable(_Row(), _Copy(None))
+    monkeypatch.setattr(settings, "CV_CONSENT_DOWNLOAD_GATE_ENABLED", False)
+    gate.ensure_printable(row, _Copy(None))

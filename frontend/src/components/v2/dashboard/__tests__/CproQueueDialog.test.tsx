@@ -11,6 +11,7 @@ const showError = vi.fn();
 const copyTextToClipboard = vi.fn();
 const fetchAuthenticatedDownload = vi.fn();
 const downloadBlob = vi.fn();
+const fetchStageCvFile = vi.fn();
 
 vi.mock("@/lib/api", () => ({
   __esModule: true,
@@ -25,6 +26,9 @@ vi.mock("@/components/Toast", () => ({
 }));
 vi.mock("@/lib/clipboard", () => ({
   copyTextToClipboard: (...a: unknown[]) => copyTextToClipboard(...a),
+}));
+vi.mock("@/lib/stage-cv-file", () => ({
+  fetchStageCvFile: (...a: unknown[]) => fetchStageCvFile(...a),
 }));
 vi.mock("@/lib/authenticated-files", () => ({
   fetchAuthenticatedDownload: (...a: unknown[]) => fetchAuthenticatedDownload(...a),
@@ -188,6 +192,19 @@ describe("CproQueueDialog — kolejka Cpro, jedna osoba na firmę", () => {
     await userEvent.click(within(dialog).getByRole("button", { name: "Pobierz CV: Robert Zieliński" }));
     await waitFor(() => expect(fetchAuthenticatedDownload).toHaveBeenCalledWith("/api/cv-generator/generated/5/docx"));
     expect(downloadBlob).toHaveBeenCalledWith(expect.any(Blob), "CV Robert.docx");
+  });
+
+  it("runda 7 (R7-X4-2): CV firmowe etapu (po QC) ma pierwszeństwo przed generatorem", async () => {
+    queue.jobs[0].items[0].cv = { stage_id: 81, generated_document_id: 5, document_id: null };
+    fetchStageCvFile.mockResolvedValue({ blob: new Blob(["po-qc"]), filename: "CV_po_QC.docx" });
+    renderDialog();
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(
+      await within(dialog).findByRole("button", { name: "Pobierz CV: Robert Zieliński" }),
+    );
+    await waitFor(() => expect(fetchStageCvFile).toHaveBeenCalledWith(81));
+    expect(fetchAuthenticatedDownload).not.toHaveBeenCalled();
+    expect(downloadBlob).toHaveBeenCalledWith(expect.any(Blob), "CV_po_QC.docx");
   });
 
   it("odmowa schowka — komunikat zamiast fałszywego „skopiowano”", async () => {
