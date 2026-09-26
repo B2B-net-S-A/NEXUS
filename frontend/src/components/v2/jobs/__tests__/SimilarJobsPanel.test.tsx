@@ -13,6 +13,11 @@ const showActionToast = vi.fn();
 const showSuccess = vi.fn();
 const showError = vi.fn();
 
+let similarState: { isLoading: boolean; isError: boolean; isSuccess: boolean } = {
+  isLoading: false,
+  isError: false,
+  isSuccess: true,
+};
 let payload: {
   job_id: number;
   reassigned_count: number;
@@ -31,9 +36,8 @@ vi.mock("@/lib/similar-jobs-api", async (importActual) => {
       unlink: (...a: unknown[]) => unlinkApi(...a),
     },
     useSimilarJobs: () => ({
-      data: payload,
-      isLoading: false,
-      isError: false,
+      data: similarState.isError ? undefined : payload,
+      ...similarState,
       refetch: vi.fn(),
     }),
     useUnlinkSimilarJob: () => ({ mutate: vi.fn(), isPending: false }),
@@ -91,6 +95,7 @@ function renderPanel() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  similarState = { isLoading: false, isError: false, isSuccess: true };
   payload = {
     job_id: 5,
     reassigned_count: 0,
@@ -113,6 +118,13 @@ beforeEach(() => {
 });
 
 describe("Panel „Podobne rekrutacje” — przepięcie jednym kliknięciem", () => {
+  it("awaria podpowiedzi → komunikat błędu, bez „System nie znalazł” (R8-N14-4)", () => {
+    similarState = { isLoading: false, isError: true, isSuccess: false };
+    renderPanel();
+    expect(screen.getByText(/Nie udało się wczytać podobnych rekrutacji/)).toBeTruthy();
+    expect(screen.queryByText(/System nie znalazł podobnych rekrutacji/)).toBeNull();
+  });
+
   it("nic nie jest zaznaczone samo (incydent 23.09)", () => {
     renderPanel();
     expect(screen.getByLabelText("Przepnij z: Analityk 1725")).not.toBeChecked();

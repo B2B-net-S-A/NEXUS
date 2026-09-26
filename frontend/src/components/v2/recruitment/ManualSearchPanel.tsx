@@ -86,7 +86,13 @@ export function ManualSearchPanel({
     queryKey: ["manual-search-row-kinds", search.rows],
     queryFn: () => classifyRequirementRows(search.rows),
     enabled: championSettled && search.rows.length > 0,
-    staleTime: 10 * 60 * 1000,
+    // Runda 8 (R8-N14-7): wynik klasyfikacji jest w `key` listy. Odświeżenie
+    // przy powrocie do karty (np. `null` po limicie czasu → `false`)
+    // przemontowałoby listę i skasowało wpisany szkic filtrów. Nowe wiersze
+    // DL-a to nowy klucz zapytania, więc staleness nic tu nie wnosi.
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 
   if (

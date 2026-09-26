@@ -650,6 +650,20 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
                   ))}
                 </select>
               </label>
+              {/* Runda 8 (R8-N14-6): pusta lista „Prowadzi” przy awarii
+                  blokowała przekazanie bez słowa wyjaśnienia. */}
+              {recruitersQuery.isError && !recruitersQuery.data ? (
+                <span role="alert" className="text-xs text-destructive">
+                  Nie udało się wczytać listy rekruterów.{" "}
+                  <button
+                    type="button"
+                    className="font-medium underline"
+                    onClick={() => void recruitersQuery.refetch()}
+                  >
+                    Ponów
+                  </button>
+                </span>
+              ) : null}
               <Button
                 type="button"
                 variant="outline"

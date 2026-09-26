@@ -2,6 +2,7 @@
  * Czyste reguły profilu kandydata — wydzielone, żeby dało się je testować
  * bez montowania ciężkiego profilu (kilkanaście zapytań).
  */
+import { safeExternalHref } from "@/lib/safe-href";
 import {
   getCurrentTitle,
   type CandidateLite,
@@ -126,4 +127,16 @@ export function screeningConfirmedSkills(
     if (entry?.level === "confirmed") push(entry.skill);
   }
   return [...out.values()];
+}
+
+/**
+ * Link do profilu LinkedIn z pola `linkedin` kandydata (runda 8, R8-N14-3).
+ * Import bywa bez schematu („linkedin.com/in/…”) — dostaje `https://`;
+ * schemat inny niż http(s) (np. `javascript:`) = brak linku.
+ */
+export function linkedinHref(raw: string | null | undefined): string | null {
+  const trimmed = raw?.trim();
+  if (!trimmed) return null;
+  const withScheme = /^[a-z][a-z0-9+.-]*:/i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  return safeExternalHref(withScheme);
 }
