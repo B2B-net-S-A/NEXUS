@@ -834,6 +834,14 @@ Wszystko w `components/v2/pages/B2BContractGeneratorV2.tsx`.
     w „Zakończonych”. Reguły: `lib/b2b-generator-register.ts`.
   - Stawka zaokrąglana do groszy w schemacie (jedna reguła dla kwoty i kwoty
     słownie); nazwy Partnera/Klienta ≤ 255 znaków (422, nie 500).
+- **Runda 8 audytu (26.09.2026):** podpis i ruch na „Zatrudniony” wiążą
+  ŻYWY kontrakt tej osoby u klienta także bez rekrutacji (tożsamość jak
+  `_assert_no_duplicate_contract`; ten sam e-mail na innym rekordzie = 409
+  „scal duplikaty”), niepodpisana „Zakończona”/„Bez projektu” nie przyjmuje
+  podpisu (409), przywrócić z zawieszenia na projekt może tylko ktoś, kto
+  widzi stawki umowy, numer porządkowy jest zajęty w KAŻDYM roku (409
+  z kodem `contract_number_taken` — tylko przy nim front podmienia numer),
+  a umowy z podpisanym dokumentem pochodnym nie da się usunąć.
 - **Dokumenty pochodne (0362, zakładka „Dokumenty”, `?tab=documents`)** —
   aneksy (stawka, data startu, dane firmy JDG/spółka, oddelegowanie, zlecenie),
   porozumienie o rozwiązaniu (B2B i zlecenie, opcja zwolnienia z zakazu

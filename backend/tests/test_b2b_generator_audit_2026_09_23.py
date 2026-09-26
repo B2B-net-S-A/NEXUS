@@ -118,7 +118,8 @@ async def test_deleted_number_is_neither_suggested_nor_accepted_again(
         },
     )
     assert reuse.status_code == 409, reuse.text
-    assert "był już wydany" in reuse.json()["detail"]
+    assert reuse.json()["detail"]["code"] == "contract_number_taken"
+    assert "był już wydany" in reuse.json()["detail"]["message"]
 
     from app.api.b2b_contract_generator import _next_seq
 
@@ -466,3 +467,101 @@ async def test_saved_form_can_be_reopened_for_correction(app_client, app_auth_he
     other_h, _ = await _seed_user(app_client, "tac")
     foreign = await app_client.get(f"{PATH}/{item['id']}/form", headers=other_h)
     assert foreign.status_code == 403, foreign.text
+
+
+# ── Runda 8 (26.09.2026) ─────────────────────────────────────────────────────
+
+
+async def test_same_sequence_number_in_another_year_is_taken(
+    app_client, app_auth_headers
+):
+    """R8-X2-4: numeracja jest ciągła między latami, więc „N/2027” po „N/2026”
+    to ten sam numer porządkowy. UNIQUE(year, seq) tego nie pilnuje."""
+    number = await _render_docx(app_client, app_auth_headers)
+    seq = number.split("/")[0]
+
+    other_year = await app_client.post(
+        "/api/b2b-generator/render?format=docx",
+        headers=app_auth_headers,
+        json={
+            "language": "pl",
+            "contract_number": f"{seq}/2027",
+            "partner_name": "Inna Osoba",
+            "client_name": "Nordea Bank",
+            "signing_date": "2027-01-15",
+        },
+    )
+    assert other_year.status_code == 409, other_year.text
+    detail = other_year.json()["detail"]
+    assert detail["code"] == "contract_number_taken"
+    assert "innym roku" in detail["message"]
+
+
+async def test_deleted_sequence_number_blocks_every_year(app_client, app_auth_headers):
+    """R8-X2-4: numer usuniętej umowy nie wraca także z innym rokiem."""
+    number = await _render_docx(app_client, app_auth_headers)
+    item = await _item_by_number(app_client, app_auth_headers, number)
+    deleted = await app_client.delete(f"{PATH}/{item['id']}", headers=app_auth_headers)
+    assert deleted.status_code == 204, deleted.text
+
+    seq = number.split("/")[0]
+    reuse = await app_client.post(
+        "/api/b2b-generator/render?format=docx",
+        headers=app_auth_headers,
+        json={
+            "language": "pl",
+            "contract_number": f"{seq}/2027",
+            "partner_name": "Inna Osoba",
+            "client_name": "Nordea Bank",
+            "signing_date": "2027-01-15",
+        },
+    )
+    assert reuse.status_code == 409, reuse.text
+    assert "był już wydany" in reuse.json()["detail"]["message"]
+
+
+async def test_oversized_sequence_number_is_422_not_500(app_client, app_auth_headers):
+    """R8-X2-7: numer spoza zakresu kolumny `seq` kończył się DataError (500)."""
+    resp = await app_client.post(
+        "/api/b2b-generator/render?format=docx",
+        headers=app_auth_headers,
+        json={
+            "language": "pl",
+            "contract_number": "99999999999/2026",
+            "partner_name": "Inna Osoba",
+            "client_name": "Nordea Bank",
+            "signing_date": "2026-08-01",
+        },
+    )
+    assert resp.status_code == 422, resp.text
+    assert "za duży" in resp.json()["detail"]
+
+
+async def test_deleting_an_agreement_with_a_signed_derived_document_is_409(
+    app_client, app_auth_headers
+):
+    """R8-X2-8: aneks można podpisać także do umowy, której podpisu nie
+    potwierdzono w NEXUSIE, a FK ma CASCADE — usunięcie umowy kasowało rekord
+    podpisanego aneksu bez śladu."""
+    from app.models.b2b_contract_document import B2BContractDocument
+
+    number = await _render_docx(app_client, app_auth_headers)
+    item = await _item_by_number(app_client, app_auth_headers, number)
+    async with AsyncSessionLocal() as db:
+        annex = B2BContractDocument(
+            document_type="annex_start_date",
+            parent_generated_contract_id=item["id"],
+            document_date=date(2026, 9, 1),
+            render_payload={"values": {}},
+            template_key="annex_start_date_pl",
+            signature_status="signed_both",
+        )
+        db.add(annex)
+        await db.commit()
+        annex_id = annex.id
+
+    resp = await app_client.delete(f"{PATH}/{item['id']}", headers=app_auth_headers)
+    assert resp.status_code == 409, resp.text
+
+    async with AsyncSessionLocal() as db:
+        assert await db.get(B2BContractDocument, annex_id) is not None

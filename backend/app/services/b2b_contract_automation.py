@@ -16,7 +16,7 @@ from decimal import Decimal
 from typing import Any
 
 from fastapi import HTTPException, status
-from sqlalchemy import select, or_
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -755,6 +755,72 @@ async def _ensure_hired_stage(
     return True
 
 
+async def _live_contracts_of_person_at_client(
+    db: AsyncSession, *, candidate: Candidate, client_id: int
+) -> list[Contract]:
+    """Żywe kontrakty tej OSOBY u klienta — dowolna rekrutacja.
+
+    Runda 8 (R8-X2-1): tożsamość jak w ręcznej blokadzie duplikatu
+    (``api.contracts._assert_no_duplicate_contract``: ten sam kandydat albo ten
+    sam e-mail, dowolne ``job_id``). Bez tego kontrakt założony ręcznie bez
+    rekrutacji nie był znajdowany, a podpis albo ruch na „Zatrudniony"
+    zakładał DRUGI kontrakt tej osoby u klienta (podwójny MRR).
+
+    Kontrakt INNEGO rekordu kandydata z tym samym e-mailem nie jest
+    podpinany — to zdublowana osoba do scalenia, nie ten sam wiersz.
+    """
+
+    email_norm = (candidate.email or "").strip().lower()
+    if email_norm:
+        other_record_id = await db.scalar(
+            select(Contract.id)
+            .where(
+                Contract.client_id == client_id,
+                Contract.status.in_(_COMPATIBLE_CONTRACT_STATUSES),
+                Contract.candidate_id != candidate.id,
+                Contract.candidate_id.in_(
+                    select(Candidate.id).where(
+                        func.lower(func.btrim(Candidate.email, " \t\r\n")) == email_norm
+                    )
+                ),
+            )
+            .limit(1)
+        )
+        if other_record_id is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=_conflict_detail(
+                    (
+                        "Ta osoba (ten sam e-mail) ma już żywy kontrakt u tego "
+                        "klienta na innym rekordzie kandydata. Nie utworzono "
+                        "drugiego — najpierw scal duplikaty kandydata."
+                    ),
+                    contract_ids=[other_record_id],
+                ),
+            )
+    contracts = list(
+        (
+            await db.execute(
+                select(Contract)
+                .where(
+                    Contract.candidate_id == candidate.id,
+                    Contract.client_id == client_id,
+                    Contract.status.in_(_COMPATIBLE_CONTRACT_STATUSES),
+                )
+                .options(
+                    selectinload(Contract.b2b_detail),
+                    selectinload(Contract.candidate_rate_schedule),
+                )
+                .order_by(Contract.created_at.desc(), Contract.id.desc())
+                .with_for_update()
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return contracts
+
+
 async def ensure_b2b_employment_draft(
     db: AsyncSession,
     *,
@@ -840,12 +906,16 @@ async def ensure_b2b_employment_draft(
         .scalars()
         .all()
     )
+    if not contracts:
+        contracts = await _live_contracts_of_person_at_client(
+            db, candidate=candidate, client_id=job.client_id
+        )
     if len(contracts) > 1:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=_conflict_detail(
                 (
-                    "Dla kandydata i rekrutacji istnieje więcej niż jeden aktywny "
+                    "Dla kandydata u tego klienta istnieje więcej niż jeden aktywny "
                     "kontrakt. Nie utworzono kolejnego — uporządkuj rekordy ręcznie."
                 ),
                 contract_ids=[contract.id for contract in contracts],

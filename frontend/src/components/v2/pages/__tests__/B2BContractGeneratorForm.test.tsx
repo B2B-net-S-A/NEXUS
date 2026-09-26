@@ -194,6 +194,16 @@ beforeEach(() => {
   mocks.companyLookup.mockRejectedValue(new Error("brak"));
 });
 
+/** Błąd `/render`: ciało DOCX-owego żądania (`responseType: "blob"`) to Blob. */
+function blobError(status: number, detail: unknown) {
+  return Object.assign(new Error(`Request failed with status code ${status}`), {
+    response: {
+      status,
+      data: new Blob([JSON.stringify({ detail })], { type: "application/json" }),
+    },
+  });
+}
+
 function renderForm(props: React.ComponentProps<typeof GeneratorForm> = {}) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -319,8 +329,9 @@ describe("GeneratorForm — pobranie i poprawka pod tym samym numerem", () => {
   it("409 przy pierwszym pobraniu mówi, jaki numer podstawiono, i nie pobiera", async () => {
     const user = setupUser();
     mocks.renderDocx.mockRejectedValue(
-      Object.assign(new Error("Numer 1500/2026 jest już zajęty."), {
-        response: { status: 409 },
+      blobError(409, {
+        code: "contract_number_taken",
+        message: "Numer umowy „1500/2026” jest już użyty — wybierz inny.",
       }),
     );
     renderForm();
@@ -335,9 +346,32 @@ describe("GeneratorForm — pobranie i poprawka pod tym samym numerem", () => {
     expect(
       (screen.getByLabelText("Numer umowy (auto) *") as HTMLInputElement).value,
     ).toBe("1501/2026");
+    expect(mocks.showError).toHaveBeenCalledWith(
+      expect.stringContaining("jest już użyty"),
+    );
     expect(mocks.downloadBlob).not.toHaveBeenCalled();
     // Bez ponownego kliknięcia nie wychodzi nic pod podstawionym numerem.
     expect(mocks.renderDocx).toHaveBeenCalledTimes(1);
+  });
+
+  it("409 niezwiązany z numerem nie podmienia numeru (runda 8, R8-X2-5)", async () => {
+    const user = setupUser();
+    mocks.renderDocx.mockRejectedValue(
+      blobError(409, "Kandydat nie uczestniczy w wybranej rekrutacji."),
+    );
+    renderForm();
+    await fillForm(user);
+    await user.click(screen.getByRole("button", { name: "Pobierz DOCX (PL)" }));
+
+    await waitFor(() =>
+      expect(mocks.showError).toHaveBeenCalledWith(
+        "Kandydat nie uczestniczy w wybranej rekrutacji.",
+      ),
+    );
+    expect(
+      (screen.getByLabelText("Numer umowy (auto) *") as HTMLInputElement).value,
+    ).toBe("1500/2026");
+    expect(mocks.downloadBlob).not.toHaveBeenCalled();
   });
 });
 

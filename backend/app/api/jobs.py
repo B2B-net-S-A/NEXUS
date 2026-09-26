@@ -4942,6 +4942,14 @@ async def claim_job(
             status_code=status.HTTP_409_CONFLICT,
             detail="Ta rekrutacja ma już właściciela",
         )
+    # Runda 8 (R8-X2-3): zamkniętej rekrutacji (także archiwum z Traffita bez
+    # prowadzącego) nikt już nie przejmuje — „prowadzący” odsłaniał stawki
+    # wszystkich umów B2B wydanych w tej rekrutacji.
+    if job.status == JobStatus.closed:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Zamkniętej rekrutacji nie można przejąć.",
+        )
 
     if job.is_open and current_user.has_any_role(
         UserRole.recruiter, UserRole.sourcer, UserRole.tac
