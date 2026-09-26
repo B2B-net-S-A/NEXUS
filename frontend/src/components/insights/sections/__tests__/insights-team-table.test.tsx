@@ -93,7 +93,7 @@ const BODY: TeamTableResponse = {
   columns: [
     { key: "verifications", label: "Weryfikacje", stage: "verified" },
     { key: "recommendations", label: "Rekomendacje", stage: "cv_sent" },
-    { key: "interviews", label: "Interviews", stage: "interview" },
+    { key: "interviews", label: "Rozmowy u klienta", stage: "client_interview" },
     { key: "placements", label: "Placements", stage: "hired" },
   ],
   rows: [

@@ -65,7 +65,14 @@ _TZ = ZoneInfo(ANALYTICS_TIMEZONE)
 YEARLY_SERIES: list[dict] = [
     {"key": "verified", "label": "Weryfikacje", "stage": "verified", "axis": "left"},
     {"key": "cv_sent", "label": "Rekomendacje", "stage": "cv_sent", "axis": "left"},
-    {"key": "interview", "label": "Interviews", "stage": "interview", "axis": "left"},
+    # Runda 8 (R8-V2-2): rozmowy = `client_interview`; kod `interview` to od v5
+    # QC CV. Klucz `interview` zostaje (kontrakt API).
+    {
+        "key": "interview",
+        "label": "Rozmowy u klienta",
+        "stage": "client_interview",
+        "axis": "left",
+    },
     {"key": "hired", "label": "Placements", "stage": "hired", "axis": "right"},
 ]
 
@@ -82,15 +89,15 @@ YEARLY_CONVERSIONS: list[dict] = [
     },
     {
         "key": "cv_sent_to_interview",
-        "label": "Rekomendacje → Interviews",
-        "numerator": "interview",
+        "label": "Rekomendacje → Rozmowy u klienta",
+        "numerator": "client_interview",
         "denominator": "cv_sent",
     },
     {
         "key": "interview_to_hired",
-        "label": "Interviews → Placements",
+        "label": "Rozmowy u klienta → Placements",
         "numerator": "hired",
-        "denominator": "interview",
+        "denominator": "client_interview",
     },
     {
         "key": "verified_to_hired",
@@ -204,7 +211,7 @@ async def insights_yearly_stats(
     # się z upływem czasu, więc odpowiedź sprzed pierwszego stycznia nie
     # opisuje tego samego zbioru co odpowiedź z drugiego.
     cache_key = (
-        f"insights:charts:yearly:v1:{resolved.cache_suffix}"
+        f"insights:charts:yearly:v2:{resolved.cache_suffix}"
         f":{reference.year}-{reference.month:02d}"
     )
     async with cache_single_flight(cache_key, db=db):

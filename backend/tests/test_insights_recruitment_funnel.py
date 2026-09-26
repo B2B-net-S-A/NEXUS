@@ -288,6 +288,41 @@ async def test_coverage_counts_manual_moves_by_external_source(
 
 
 @pytest.mark.asyncio
+async def test_interview_conversions_count_client_interviews_not_qc(
+    fx_client: AsyncClient,
+):
+    """R8-V2-2: kod `interview` to od v5 etap QC CV (przed wysłaniem CV).
+    Konwersja „Rekomendacje → Rozmowy u klienta” liczy `client_interview`
+    — przejście przez QC nie może jej podbić."""
+    _, email, password = await _seed_user(UserRole.admin, "qcconv")
+    headers = await _login(fx_client, email, password)
+    params = {"period": "custom", "date_from": "1987-03-01", "date_to": "1987-03-31"}
+
+    async def funnel() -> tuple[dict[str, int], dict[str, dict]]:
+        await cache_invalidate("insights:recruitment:funnel:")
+        resp = await fx_client.get(
+            "/api/insights/recruitment/funnel", headers=headers, params=params
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        stages = {s["stage"]: s["count"] for s in body["stages"]}
+        return stages, {c["key"]: c for c in body["conversions"]}
+
+    stages_before, conv_before = await funnel()
+    when = datetime(1987, 3, 10, 10, tzinfo=timezone.utc)
+    await _seed_stage(PipelineStage.interview, when, "manual")
+    await _seed_stage(PipelineStage.client_interview, when, "manual")
+    stages_after, conv_after = await funnel()
+
+    assert stages_after["interview"] == stages_before["interview"] + 1
+    sent = conv_after["cv_sent_to_interview"]
+    assert sent["numerator"] == conv_before["cv_sent_to_interview"]["numerator"] + 1
+    assert sent["numerator"] == stages_after["client_interview"]
+    hired = conv_after["interview_to_hired"]
+    assert hired["denominator"] == stages_after["client_interview"]
+
+
+@pytest.mark.asyncio
 async def test_cache_key_carries_the_window(fx_client: AsyncClient):
     """Dwa różne okna nie mogą dzielić klucza cache'u.
 
