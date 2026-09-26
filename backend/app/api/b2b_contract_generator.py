@@ -97,7 +97,10 @@ from app.services.contract_lifecycle import (
     SIGNED_AGREEMENT_ACTIVATION,
     activate_without_revenue_gate,
 )
-from app.services.contract_order_sync import resync_contract_safely
+from app.services.contract_order_sync import (
+    resync_contract_safely,
+    switch_loaded_contract_to_hourly,
+)
 from app.services.hired_order_status import notify_finance_hired_without_order
 from app.services.pipeline_realtime import broadcast_pipeline_changed
 from app.services.b2b_contract_automation import (
@@ -1392,6 +1395,10 @@ async def generate(
         )
 
     # 2. Pola finansowe/daty na Contract.
+    # Generator zapisuje stawkę Partnera w zł/h — istniejący szkic w innej
+    # jednostce przechodzi na zł/h RAZEM z kwotami, nie samą etykietą
+    # (runda 6 audytu: ryczałt 20 000 zł/mc stawał się 20 000 zł/h).
+    await switch_loaded_contract_to_hourly(db, contract)
     contract.start_date = payload.start_date
     contract.rate_candidate = payload.rate_candidate
     contract.rate_candidate_currency = payload.currency

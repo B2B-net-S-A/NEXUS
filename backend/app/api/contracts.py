@@ -360,6 +360,44 @@ def _framework_schedule_entries(
     ]
 
 
+def _amendment_baseline_from(
+    start_date: Optional[date], effective_date: date, today: date
+) -> Optional[date]:
+    """Data kroku bazowego („Stawka początkowa”) przy pierwszym aneksie stawki.
+
+    ``None`` = kroku bazowego nie trzeba. Umowa, która zaczyna się PÓŹNIEJ niż
+    aneks, nigdy nie miała starej stawki w mocy — krok bazowy od jej startu
+    wygrywał z aneksem (resolver bierze krok o najpóźniejszym
+    ``effective_from`` ≤ dzień), więc od pierwszego dnia umowy obowiązywała
+    stara kwota i aneks nie działał wcale (runda 6 audytu). Przy starcie
+    równym dacie aneksu krok bazowy zostaje: remis rozstrzyga kolejność
+    dopisania, więc aneks wygrywa, a historia pokazuje stawkę początkową.
+
+    Kontrakt bez daty rozpoczęcia dawał IntegrityError (500) po stronie
+    kandydata (audyt 24.09, N1), a krok „od dziś” przykrywał aneks wsteczny —
+    stąd najwcześniejsza znana data.
+    """
+    if start_date is None:
+        return min(effective_date, today)
+    if start_date > effective_date:
+        return None
+    return start_date
+
+
+def _extension_end_date_passed(contract: Contract, new_end: date) -> bool:
+    """Czy przedłużenie zakończonej/kończącej się umowy celuje w miniony dzień.
+
+    Takie przedłużenie niczego nie przedłuża: ``reopen_contract`` przywraca
+    „Aktywny”, a cron ``_promote_statuses`` kończy umowę następnej nocy
+    ponownie (runda 6 audytu). Umów w innych statusach nie dotyczy — ich
+    przedłużenie nie przechodzi przez ``reopen_contract``.
+    """
+    return (
+        contract.status in (ContractStatus.ended, ContractStatus.ending)
+        and new_end < business_today()
+    )
+
+
 def _synced_client_order_end(
     current: Optional[date], new_end_date: date
 ) -> Optional[date]:
@@ -3291,6 +3329,7 @@ async def bulk_extend_contracts(
     extended_ids: list[int] = []
     skipped: list[int] = []
     skipped_void: list[int] = []
+    skipped_end_date_passed: list[int] = []
     for c in contracts:
         # Anulowanej umowy nie przedłużamy: `reopen_contract` odmówiłby 409
         # i wywrócił całą paczkę (audyt 24.09, S7).
@@ -3307,6 +3346,12 @@ async def bulk_extend_contracts(
             skipped.append(c.id)
             continue
         new_end = _add_months_keeping_month_end(c.end_date, months)
+        # Zakończona umowa przedłużona do daty wciąż minionej wróciłaby na
+        # „Aktywny” i nocny cron zakończyłby ją drugi raz — pomijamy ją
+        # z powodem (lustro aneksu, runda 6 audytu).
+        if _extension_end_date_passed(c, new_end):
+            skipped_end_date_passed.append(c.id)
+            continue
         c.end_date = new_end
         # Przedłużona osoba zostaje na zamówieniu — zaplanowane „Wejdź za
         # konsultanta” za nią odpada (decyzja Artura 25.09.2026).
@@ -3354,6 +3399,7 @@ async def bulk_extend_contracts(
         "extended": len(extended_ids),
         "skipped_no_end_date": skipped,
         "skipped_void": skipped_void,
+        "skipped_end_date_passed": skipped_end_date_passed,
     }
 
 
@@ -5308,6 +5354,23 @@ async def create_contract_amendment(
             db, contract
         ):
             _reject_b2b_end_date()
+        # Umowę zakończoną/kończącą się przedłużoną do daty, która JUŻ minęła,
+        # `reopen_contract` stawiał na „Aktywny” (a `undo_contract_termination`
+        # czyścił rozwiązanie), po czym nocny cron kończył ją drugi raz —
+        # z drugim offboardingiem zamówień. Lustro blokera `end_date_passed`
+        # z „Cofnij zakończenie” (runda 6 audytu).
+        if _extension_end_date_passed(contract, data.new_end_date):
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "reason": "extension_end_date_passed",
+                    "message": (
+                        "Nowa data zakończenia "
+                        f"{data.new_end_date.strftime('%d.%m.%Y')} już minęła — "
+                        "przedłużenie musi sięgać co najmniej do dziś."
+                    ),
+                },
+            )
         contract.end_date = data.new_end_date
         # Przedłużona osoba zostaje na zamówieniu — zaplanowane „Wejdź za
         # konsultanta” za nią odpada, zanim `reopen_contract` (przez
@@ -5367,12 +5430,8 @@ async def create_contract_amendment(
                     ),
                 )
             new_values["rate_unit"] = data.new_rate_unit
-        # Krok bazowy harmonogramu potrzebuje daty. Kontrakt bez daty
-        # rozpoczęcia dawał dotąd IntegrityError (500) po stronie kandydata
-        # (audyt 24.09, N1), a po stronie klienta krok bazowy „od dziś"
-        # przykrywał aneks wsteczny. Najwcześniejsza znana data wygrywa.
-        baseline_from = contract.start_date or min(
-            data.effective_date, business_today()
+        baseline_from = _amendment_baseline_from(
+            contract.start_date, data.effective_date, business_today()
         )
         if data.new_rate_candidate is not None:
             # The candidate rate lives in the schedule. Seed a baseline step
@@ -5382,6 +5441,7 @@ async def create_contract_amendment(
             if (
                 not contract.candidate_rate_schedule
                 and contract.rate_candidate is not None
+                and baseline_from is not None
             ):
                 contract.candidate_rate_schedule.append(
                     ContractCandidateRate(
@@ -5408,7 +5468,11 @@ async def create_contract_amendment(
             # new order. Seed a baseline step (current rate from the contract's
             # start) the first time we touch the schedule so history stays
             # complete; then append the new step.
-            if not contract.client_rate_schedule and contract.rate_client is not None:
+            if (
+                not contract.client_rate_schedule
+                and contract.rate_client is not None
+                and baseline_from is not None
+            ):
                 contract.client_rate_schedule.append(
                     ContractClientRate(
                         rate=contract.rate_client,
