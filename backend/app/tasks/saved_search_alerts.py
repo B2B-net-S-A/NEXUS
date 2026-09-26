@@ -280,6 +280,7 @@ async def _baseline_one(client, db, ss, owner) -> None:
         # idempotentny, alertów nie ma).
         await db.flush()
         return
+    ss.last_scanned_at = scan_start
     await db.flush()
     logger.info(
         "saved_search_alerts: baselined search %s (%d current matchers seeded)",

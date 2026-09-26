@@ -20,6 +20,7 @@ import {
 import type { DashboardTile } from "@/lib/api/userDashboard"
 import { TILE_DEFINITIONS, tileTitle } from "@/lib/dashboard-tiles/catalog"
 import { metricChip } from "@/lib/dashboard-tiles/layout"
+import { safeInternalPath } from "@/lib/safe-href"
 import { cn } from "@/lib/utils"
 
 import { TileContent } from "./TileContent"
@@ -48,6 +49,8 @@ export function TileFrame({
 }) {
   const def = TILE_DEFINITIONS[tile.type]
   const title = tileTitle(tile)
+  // Runda 8 (R8-N10-5): kafelek z zapisanym `/\host` nie wyprowadza poza NEXUS.
+  const linkTo = safeInternalPath(tile.config.link_to)
   const chip = tile.config.metric ? metricChip(tile.config.metric) : null
   const showHeader = editing || !def.ownChrome
   const body = children ?? <TileContent tile={tile} />
@@ -79,8 +82,8 @@ export function TileFrame({
           ) : null}
           <div className="min-w-0 flex-1">
             <h3 className="truncate text-sm font-semibold text-foreground">
-              {tile.config.link_to && !editing ? (
-                <Link href={tile.config.link_to} className="hover:underline">
+              {linkTo && !editing ? (
+                <Link href={linkTo} className="hover:underline">
                   {title}
                 </Link>
               ) : (

@@ -9,6 +9,7 @@ import {
   unifiedToSearchBody,
   withRequestFlags,
   withSemanticsMarker,
+  type UnifiedCandidateSearchRequest,
 } from "@/lib/saved-search-unified";
 
 /**
@@ -74,5 +75,22 @@ describe("saved-search-unified — wspólne przypadki z backendem", () => {
   it("znacznik semantyki dopisuje się raz", () => {
     expect(withSemanticsMarker("q=python")).toBe("q=python&sv=2");
     expect(withSemanticsMarker("q=python&sv=2")).toBe("q=python&sv=2");
+  });
+
+  it("przełączniki zawężające wyszukiwarki są luką listy (runda 8, R8-N10-6)", () => {
+    const base: UnifiedCandidateSearchRequest = {
+      semantics_version: 2,
+      skills_preferred: ["Python"],
+    };
+    expect(listEngineGaps({ ...base, search_only: { exclude_blacklisted: true } })).toEqual([
+      "exclude_blacklisted",
+    ]);
+    expect(listEngineGaps({ ...base, search_only: { exclude_in_job_id: 7 } })).toEqual([
+      "exclude_in_job_id",
+    ]);
+    expect(listEngineGaps({ ...base, search_only: { exclude_blacklisted: false } })).toEqual([]);
+    expect(
+      listEngineGaps({ ...base, status: ["active"], search_only: { exclude_blacklisted: true } }),
+    ).toEqual([]);
   });
 });
