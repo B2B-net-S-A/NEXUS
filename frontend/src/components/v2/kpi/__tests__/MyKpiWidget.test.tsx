@@ -45,7 +45,7 @@ function dlGoals(hitRatio: number | null): MyKpiGoals {
         current: hitRatio,
         progress_pct: hitRatio === null ? null : (hitRatio / 30) * 100,
         state: hitRatio === null ? null : hitRatio >= 30 ? "hit" : "behind",
-        note: hitRatio === null ? "Niepoliczony — w tym kwartale nie ma nowych requestów w Twoim portfelu." : null,
+        note: hitRatio === null ? "Niepoliczony — w tym kwartale nie zamknięto żadnej rekrutacji w Twoim portfelu." : null,
       },
       {
         goal_id: "dl_placements_quarter",
@@ -56,7 +56,7 @@ function dlGoals(hitRatio: number | null): MyKpiGoals {
         current: 1,
         progress_pct: 33.3,
         state: "behind",
-        note: "Nowe requesty w kwartale: 4",
+        note: "Rekrutacje zamknięte w kwartale: 4",
       },
     ],
   };

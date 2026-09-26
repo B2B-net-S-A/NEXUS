@@ -392,3 +392,26 @@ async def test_open_jobs_monthly_series_and_top_hiring_manager(
 async def test_portfolio_requires_authentication(fx_client: AsyncClient):
     resp = await fx_client.get(PORTFOLIO_URL, params=PARAMS)
     assert resp.status_code in (401, 403)
+
+
+@pytest.mark.asyncio
+async def test_ongoing_window_compares_with_the_same_stretch(seeded: dict):
+    """Runda 6 audytu: czerwiec W TOKU (do 10.06) porównujemy z 1–10 maja,
+    nie z całym majem. Klient X: 1–10.06 = 4 zapytania, 0 placementów; 1–10.05
+    = 4 zapytania, 0 placementów (majowe zatrudnienia są 20.05) → brak spadku.
+    Porównanie z całym majem (3/4 = 75%) zapalało fałszywy alarm."""
+    from zoneinfo import ZoneInfo
+
+    from app.analytics.periods import resolve_period
+    from app.services.insights_dl_portfolio import compute_dl_portfolio
+
+    period = resolve_period("month", anchor=datetime(1994, 6, 15).date())
+    now = datetime(1994, 6, 10, 12, tzinfo=ZoneInfo("Europe/Warsaw"))
+    async with AsyncSessionLocal() as db:
+        body = await compute_dl_portfolio(db, period, now=now)
+
+    assert body["previous_period"]["start"].startswith("1994-05-01")
+    assert body["previous_period"]["end"].startswith("1994-05-11")
+    row_x = _client(_lead(body, seeded["dl_a"]), seeded["client_x"])
+    assert row_x["prev_hit_ratio"] == 0.0
+    assert row_x["alert"] is None

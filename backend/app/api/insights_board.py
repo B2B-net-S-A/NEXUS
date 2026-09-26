@@ -160,12 +160,15 @@ async def insights_board(
     # dołożenie okresu bez zmiany klucza podałoby liczby jednego okna pod
     # etykietą drugiego. `v1` bumpujemy przy każdej zmianie formuły — inaczej
     # stara liczba wisi przez TTL pod nową etykietą.
-    cache_key = f"insights:board:v1:{resolved.cache_suffix}"
+    # v2 + dzień (runda 6 audytu): placementy okresu w toku porównujemy z tym
+    # samym odcinkiem poprzedniego okresu, a ten odcinek rośnie z każdym dniem.
+    today = _today_warsaw()
+    cache_key = f"insights:board:v2:{resolved.cache_suffix}:{today.isoformat()}"
     cached = await cache_get(cache_key)
     if cached is not None:
         return cached
 
-    result = await compute_board(db, resolved, today=_today_warsaw())
+    result = await compute_board(db, resolved, today=today)
     await cache_set(cache_key, result, ttl_seconds=CACHE_TTL_SECONDS)
     return result
 

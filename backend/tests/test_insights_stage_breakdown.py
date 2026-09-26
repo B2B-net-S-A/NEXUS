@@ -252,11 +252,19 @@ async def _seed_world() -> dict[str, Any]:
             name="legacy_unknown",
             category=TerminalType.withdrawn,
         )
-        db.add_all([dz, sent, reason, gone, legacy, job_a, job_b])
+        # Szkic — poza populacją „Doszło” (opublikowane i zamknięte).
+        job_c = Job(
+            title=f"Etapy C {tag}",
+            location="Warszawa",
+            status=JobStatus.draft,
+            remote_policy=RemotePolicy.hybrid,
+            client_id=cli.id,
+        )
+        db.add_all([dz, sent, reason, gone, legacy, job_a, job_b, job_c])
         await db.flush()
 
         cands = []
-        for i in range(14):
+        for i in range(15):
             c = Candidate(
                 name=f"Etap{i}",
                 lastname=f"Test-{tag}",
@@ -350,8 +358,17 @@ async def _seed_world() -> dict[str, Any]:
             ended_by="client",
             rejection_note="Za daleko do biura",
         )
+        # c14: zatrudniony w SZKICU rekrutacji — „Zatrudnieni” liczą tę samą
+        # populację rekrutacji co reszta „Doszło” (runda 6 audytu).
+        row(c[14], job_c.id, PipelineStage.hired, _at(3, 23))
         await db.commit()
-        return {"job_a": a, "job_b": b, "reason": reason.name, "gone": gone.name}
+        return {
+            "job_a": a,
+            "job_b": b,
+            "job_c": job_c.id,
+            "reason": reason.name,
+            "gone": gone.name,
+        }
 
 
 @pytest.mark.asyncio
@@ -362,15 +379,16 @@ async def test_breakdown_counts_every_stage_and_badge() -> None:
             db,
             start=WINDOW_START,
             end=WINDOW_END,
-            job_ids=[world["job_a"], world["job_b"]],
+            job_ids=[world["job_a"], world["job_b"], world["job_c"]],
         )
 
     rows = {r["key"]: r for r in result["rows"]}
     assert [r["key"] for r in result["rows"]] == [row.key for row in ROWS]
     reached = {k: r["reached"] for k, r in rows.items()}
     assert reached == {
-        # c0, c2–c9, c11–c13 — c1 i c10 zaczęli przed oknem.
-        "added": 12,
+        # c0, c2–c8, c11–c13 — c1 i c10 zaczęli przed oknem, a jedyny wiersz
+        # c9 to wykluczone zatrudnienie (runda 6 audytu); c14 jest w szkicu.
+        "added": 11,
         "reassign": 1,
         "screening": 1,
         "verified": 2,
@@ -383,19 +401,20 @@ async def test_breakdown_counts_every_stage_and_badge() -> None:
         "acceptance": 0,
         "contract_sent": 1,
         "contract_signed": 0,
-        # D2: c6; wykluczone zatrudnienie c9 się nie liczy.
+        # D2: c6; wykluczone zatrudnienie c9 i szkic c14 się nie liczą.
         "hired": 1,
         "onboarding": 1,
     }
 
     now = {k: r["now"] for k, r in rows.items()}
-    # c9 stoi na „hired” (kolumna Zatrudniony), c10 na „CV wysłane”.
+    # c9 stoi na wykluczonym „hired” — nie jest zatrudnionym „teraz” (runda 6
+    # audytu); c10 na „CV wysłane”.
     assert now["added"] == 1  # c7
     assert now["reassign"] == 1
     assert now["verified"] == 1  # c1
     assert now["contract_sent"] == 1  # c0
     assert now["onboarding"] == 1  # c6
-    assert now["hired"] == 1  # c9
+    assert now["hired"] == 0  # c9 wykluczony
     assert now["cv_sent"] == 1  # c10; c8 jest w rekrutacji zamkniętej
     assert now["qc"] == 0
     assert now["screening"] == 0
@@ -500,3 +519,48 @@ async def test_endpoint_rejects_a_bad_period(fx_client: AsyncClient) -> None:
         params={"period": "custom", "date_from": f"{_YEAR}-03-01"},
     )
     assert resp.status_code == 422
+
+
+# ── Runda 6 audytu: jedna populacja i wykluczone placementy ──────────────────
+
+
+class _CaptureDb:
+    """Zapisuje SQL i zwraca pusty wynik — test kształtu zapytań bez bazy."""
+
+    def __init__(self) -> None:
+        self.sql: list[str] = []
+
+    async def execute(self, statement, params=None):  # noqa: ARG002
+        self.sql.append(str(statement))
+
+        class _Result:
+            def all(self):
+                return []
+
+            def scalar_one(self):
+                return 0
+
+        return _Result()
+
+
+@pytest.mark.asyncio
+async def test_every_raw_stage_query_skips_excluded_placements() -> None:
+    """„Doszło” (surowe wiersze) i „Teraz” pomijają „Zatrudniony” wykluczonej
+    pary, a „Zatrudnieni” liczą tylko rekrutacje opublikowane i zamknięte."""
+    from app.services import insights_stage_breakdown as sb
+
+    params = {
+        "start": WINDOW_START,
+        "end": WINDOW_END,
+        "def_ids": [],
+        "def_keys": [],
+        "job_ids": None,
+    }
+    db = _CaptureDb()
+    await sb._reached(db, params)
+    await sb._now(db, params)
+    await sb._hired_reached(db, params)
+    reached_sql, now_sql, hired_sql = db.sql
+    assert "placement_exclusions" in reached_sql
+    assert "placement_exclusions" in now_sql
+    assert "j.status::text IN ('published', 'closed')" in hired_sql

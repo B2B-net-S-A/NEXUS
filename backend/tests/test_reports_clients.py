@@ -81,6 +81,7 @@ async def _seed_closed_job(
     closed_at: datetime,
     headcount: int = 1,
     close_reason: JobCloseReason | None = None,
+    external_source: str | None = None,
 ) -> int:
     async with AsyncSessionLocal() as db:
         job = Job(
@@ -90,6 +91,7 @@ async def _seed_closed_job(
             client_id=client_id,
             closed_at=closed_at,
             close_reason=close_reason,
+            external_source=external_source,
         )
         db.add(job)
         await db.commit()
@@ -411,3 +413,30 @@ async def test_client_trend_active_only_preserves_missing_denominator(
     for month in response.json()["trend"]:
         assert month["closed_jobs"] == 0
         assert month["fill_rate"] is None
+
+
+@pytest.mark.asyncio
+async def test_fill_rate_counts_placements_only_from_declared_jobs(
+    rep_client: AsyncClient,
+):
+    """Runda 6 audytu: mianownik `fill_rate` bierze tylko rekrutacje
+    z zadeklarowanymi etatami (bez importu Traffita), więc licznik też.
+    Rekrutacja z NEXUSA bez zatrudnienia + rekrutacja z Traffita z pięcioma
+    zatrudnieniami dawały 500%; poprawnie: 0%."""
+    client_id = await _seed_client("DeclaredCo")
+    recent = datetime.now(timezone.utc) - timedelta(days=3)
+    await _seed_closed_job(client_id=client_id, closed_at=recent, headcount=1)
+    traffit_job = await _seed_closed_job(
+        client_id=client_id, closed_at=recent, external_source="traffit"
+    )
+    for _ in range(5):
+        await _seed_hired_stage(await _seed_candidate(), traffit_job)
+
+    _, email, password = await _seed_user(UserRole.admin, "declared")
+    headers = await _login(rep_client, email, password)
+    resp = await rep_client.get("/api/reports/clients?period=month", headers=headers)
+    assert resp.status_code == 200, resp.text
+    row = next(c for c in resp.json()["clients"] if c["client_id"] == client_id)
+    assert row["total_vacancies"] == 1
+    assert row["placements"] == 5
+    assert row["fill_rate"] == 0.0

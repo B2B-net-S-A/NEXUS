@@ -40,10 +40,16 @@ DL_HEAD_CTE = """
 """
 
 # Bez typów rekrutacji (decyzja 25.09.2026): ranking DL liczy każdą rekrutację.
+#
+# `opened_at` = data otwarcia rekrutacji u klienta, a gdy jej brak — założenia
+# w NEXUSIE (ta sama reguła co kreator metryk, `custom_metrics/engine.py`).
+# Samo `created_at` to data IMPORTU z Traffita (`_UPSERT_JOB` stempluje NOW()),
+# więc 3859 z 4229 rekrutacji „powstało" w maju 2026 i zapytania DL wypadały
+# z każdego innego okna (runda 6 audytu).
 JOBS_SCOPED_CTE = """
     jobs_scoped AS (
         SELECT j.id,
-               j.created_at,
+               COALESCE(j.opened_at, j.created_at) AS opened_at,
                j.status,
                j.client_id,
                COALESCE(j.headcount, 1) AS headcount,

@@ -774,7 +774,10 @@ async def _compute_dl_metrics(
         Client.name.label("client_name"),
     ).outerjoin(Client, Job.client_id == Client.id)
     if period_start is not None:
-        jobs_q = jobs_q.where(Job.created_at >= period_start)
+        # Data otwarcia, nie importu z Traffita (runda 6 audytu — jak Insights).
+        jobs_q = jobs_q.where(
+            func.coalesce(Job.opened_at, Job.created_at) >= period_start
+        )
     jobs_rows = (await db.execute(jobs_q)).all()
 
     # Map job_id → resolved_dl_id
@@ -978,7 +981,7 @@ async def report_delivery_leads(
 
     Cached for 5 minutes.
     """
-    cache_key = f"reports:delivery_leads:v2:{period}"
+    cache_key = f"reports:delivery_leads:v3:{period}"
     cached = await cache_get(cache_key)
     if cached is not None:
         return cached
@@ -1112,6 +1115,9 @@ def _client_hit_ratio_bucket(client_id: int, name: str, status) -> dict:
         "outcome_known_jobs": 0,
         "filled_job_ids": set(),
         "placements": 0,
+        # Licznik `fill_rate`: placementy WYŁĄCZNIE z rekrutacji, których
+        # etaty weszły do mianownika (runda 6 audytu).
+        "declared_placements": 0,
         "active_jobs": 0,
         "close_reasons": {},
     }
@@ -1169,6 +1175,7 @@ async def _compute_client_hit_ratio(
     # Index: client_id → bucket
     per_client: dict[int, dict] = {}
     closed_job_ids: list[int] = []
+    declared_job_ids: set[int] = set()
     for r in jobs_rows:
         closed_job_ids.append(r.id)
         bucket = per_client.setdefault(
@@ -1183,6 +1190,7 @@ async def _compute_client_hit_ratio(
         if job_data_trust.vacancies_declared(r):
             bucket["total_vacancies"] += int(r.headcount or 1)
             bucket["vacancies_declared_jobs"] += 1
+            declared_job_ids.add(r.id)
         if job_data_trust.outcome_available(r):
             bucket["outcome_known_jobs"] += 1
         reason_key = (
@@ -1221,6 +1229,8 @@ async def _compute_client_hit_ratio(
                 continue
             per_client[r.client_id]["filled_job_ids"].add(r.job_id)
             per_client[r.client_id]["placements"] += int(r.cnt)
+            if r.job_id in declared_job_ids:
+                per_client[r.client_id]["declared_placements"] += int(r.cnt)
 
     # 3. Active (published) jobs per client — snapshot, bez filtra okresu.
     active_q = (
@@ -1261,7 +1271,10 @@ async def _compute_client_hit_ratio(
         # zadeklarowanego headcountu — czyli gdy mianownika po prostu nie ma.
         # Zero byłoby zdaniem „obsadziliśmy 0% zamówionych etatów", a to nie
         # jest to, co wiemy.
-        fill_rate = _pct_or_none(placements, vacancies)
+        # Licznik i mianownik z TYCH SAMYCH rekrutacji: placementy z importu
+        # Traffita (bez zadeklarowanych etatów) przy mianowniku tylko z NEXUSA
+        # dawały 500% (runda 6 audytu).
+        fill_rate = _pct_or_none(bucket["declared_placements"], vacancies)
         per_client_out.append(
             {
                 "client_id": bucket["client_id"],
@@ -1272,6 +1285,7 @@ async def _compute_client_hit_ratio(
                 "lost_jobs": max(closed - filled, 0),
                 "total_vacancies": vacancies,
                 "placements": placements,
+                "fill_rate_placements": bucket["declared_placements"],
                 "hit_ratio": hit_ratio,
                 "fill_rate": fill_rate,
                 "fill_rate_source": (
@@ -1298,7 +1312,9 @@ async def _compute_client_hit_ratio(
     total_placements = sum(d["placements"] for d in per_client_out)
     total_vacancies = sum(d["total_vacancies"] for d in per_client_out)
     global_hit_ratio = _safe_pct(total_filled, total_closed)
-    global_fill_rate = _pct_or_none(total_placements, total_vacancies)
+    global_fill_rate = _pct_or_none(
+        sum(d["fill_rate_placements"] for d in per_client_out), total_vacancies
+    )
     # Avg ratios: średnia z klientów z ≥1 closed job.
     clients_with_jobs = [d for d in per_client_out if d["closed_jobs"] > 0]
     avg_hit = (
@@ -1401,7 +1417,9 @@ async def report_clients_hit_ratio(
 
     Cached for 5 minutes.
     """
-    cache_key = f"reports:clients:{period}:{min_closed}:{sort}:{exclude_reasons or ''}"
+    cache_key = (
+        f"reports:clients:v2:{period}:{min_closed}:{sort}:{exclude_reasons or ''}"
+    )
     cached = await cache_get(cache_key)
     if cached is not None:
         return cached

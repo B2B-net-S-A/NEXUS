@@ -586,3 +586,42 @@ async def test_margin_percent_ignores_revenue_without_a_cost_leg(
     assert after["revenue_monthly_pln"] >= before["revenue_monthly_pln"] + 8_999_999
     assert after["contracts_without_cost_leg"] >= 1
     assert after["margin_pct"] == pytest.approx(before["margin_pct"])
+
+
+@pytest.mark.asyncio
+async def test_placements_of_ongoing_month_compare_with_the_same_stretch():
+    """Runda 6 audytu: miesiąc W TOKU (1–10 września) porównujemy z 1–10
+    sierpnia, nie z całym sierpniem — ta sama reguła co widok Zespół
+    (`previous_matching_window`). Placement z 20 sierpnia jest poza odcinkiem."""
+    from app.analytics.periods import resolve_period
+    from app.services.insights_board import compute_board
+
+    today = date(1905, 9, 10)
+    resolved = resolve_period("month", anchor=today)
+
+    async def _previous() -> tuple[int, dict]:
+        async with AsyncSessionLocal() as db:
+            board = await compute_board(db, resolved, today=today)
+        comparison = board["comparison"]
+        return comparison["placements"]["previous"], comparison
+
+    baseline, comparison = await _previous()
+    window = comparison["placements_previous_window"]
+    assert window["same_stretch"] is True
+    assert window["start"].startswith("1905-08-01")
+    assert window["end"].startswith("1905-08-11")
+
+    for day in (5, 20):
+        _, job_id, cand_id = await _seed_client_job_candidate()
+        await _seed_stage(
+            cand_id,
+            job_id,
+            PipelineStage.hired,
+            datetime(1905, 8, day, 12, tzinfo=timezone.utc),
+        )
+
+    after, _ = await _previous()
+    assert after == baseline + 1, (
+        "placement z 20 sierpnia wszedł do porównania z 1–10 września — "
+        "trwający okres porównany z pełnym poprzednim"
+    )
