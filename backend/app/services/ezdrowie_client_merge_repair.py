@@ -32,11 +32,15 @@ from app.models.app_setting import AppSetting
 from app.models.client import Client
 from app.models.contract import Contract
 from app.models.job import Job
+from app.models.recruitment_process import RecruitmentProcess
 from app.services import contract_client_reassign as reassign
 
 logger = logging.getLogger(__name__)
 
 REPAIR_MARKER = "ezdrowie_client_merge_2026_09"
+# Drugi, osobny bieg: pierwsza wersja korekty przeniosła rekrutacje, ale nie
+# ich procesy (`recruitment_processes.client_id` to kopia `jobs.client_id`).
+PROCESS_SYNC_MARKER = "ezdrowie_client_merge_2026_09_processes"
 
 
 @dataclass(frozen=True)
@@ -81,6 +85,57 @@ async def _remaining_references(db: AsyncSession, client_id: int) -> dict[str, i
     return counts
 
 
+async def _sync_process_clients(db: AsyncSession, target: ClientMergeTarget) -> int:
+    """Procesy rekrutacji przeniesionych na klienta kanonicznego idą za nimi.
+
+    ``recruitment_processes.client_id`` to denormalizacja ``jobs.client_id``
+    (spójność pilnowana przy zapisie) — przeniesienie rekrutacji bez procesów
+    zostawiało kopię wskazującą na ukryty duplikat.
+    """
+
+    result = await db.execute(
+        update(RecruitmentProcess)
+        .where(
+            RecruitmentProcess.client_id == target.duplicate_id,
+            RecruitmentProcess.job_id.in_(
+                select(Job.id).where(Job.client_id == target.canonical_id)
+            ),
+        )
+        .values(client_id=target.canonical_id)
+        .execution_options(synchronize_session=False)
+    )
+    return int(result.rowcount or 0)
+
+
+async def run_ezdrowie_process_client_sync(
+    db: AsyncSession,
+    *,
+    target: ClientMergeTarget = TARGET,
+    marker: str = PROCESS_SYNC_MARKER,
+) -> Optional[dict[str, Any]]:
+    """Dokończ korektę dla procesów; ``None`` = już wykonana. Wołający commituje."""
+
+    await db.execute(text("SET LOCAL lock_timeout = '15s'"))
+    await db.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": marker}
+    )
+    if await db.get(AppSetting, marker) is not None:
+        return None
+    duplicate = await db.get(Client, target.duplicate_id)
+    summary: dict[str, Any] = {
+        "executed_at": datetime.now(timezone.utc).isoformat(),
+        "skipped": None,
+        "processes_moved": 0,
+    }
+    if duplicate is None or duplicate.merged_into_client_id != target.canonical_id:
+        summary["skipped"] = "not_merged_into_canonical"
+    else:
+        summary["processes_moved"] = await _sync_process_clients(db, target)
+    db.add(AppSetting(key=marker, value=summary))
+    await db.flush()
+    return summary
+
+
 async def merge_client(db: AsyncSession, target: ClientMergeTarget) -> dict[str, Any]:
     result: dict[str, Any] = {
         "duplicate_id": target.duplicate_id,
@@ -116,6 +171,8 @@ async def merge_client(db: AsyncSession, target: ClientMergeTarget) -> dict[str,
             .values(client_id=target.canonical_id)
             .execution_options(synchronize_session=False)
         )
+
+    processes_moved = await _sync_process_clients(db, target)
 
     moved: list[int] = []
     blocked: list[dict[str, Any]] = []
@@ -157,6 +214,7 @@ async def merge_client(db: AsyncSession, target: ClientMergeTarget) -> dict[str,
     result.update(
         {
             "jobs_moved": job_ids,
+            "processes_moved": processes_moved,
             "contracts_moved": moved,
             "contracts_blocked": blocked,
             "remaining_references": await _remaining_references(
