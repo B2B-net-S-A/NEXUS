@@ -8089,6 +8089,53 @@ w bazie (ts_rank, słowa w profilu, świeżość CV) NIE pomagały — nie wraca
   „Szukaj „…” po znaczeniu” cofa zamianę (tryb `semantic`). Wywołanie bez
   ponowień i z limitem 1,5 s — podpowiedź, nie bramka.
 
+## „Szukaj ręcznie” nie wycina — sygnały „Mile widziane” (26.09.2026)
+
+Audyt `docs/audits/2026-09-26/wyszukiwanie-reczne.md` (pary osoba × rekrutacja
+z 12 miesięcy, zweryfikowani albo wysłani klientowi): miasto i kategoria
+wstawiane przez „Szukaj ręcznie” jako FILTRY wycinały 55,6% wybranych, a wiersze
+must-have łączone przez I znajdowały 39%. Reguły, które łatwo cofnąć:
+
+- **Lista ma trzy sygnały tylko do kolejności** (`GET /api/candidates`,
+  `api/candidates.py` `_preferred_rank`): `location_preferred` (którekolwiek
+  miasto = +1), `competence_category_preferred` (główna lub poboczna = +1),
+  `q_preferred_group` (wiersz `a|b`, całe słowa = +1 za wiersz), obok
+  `skills_preferred`. Nigdy nie tną i nie wchodzą do braków danych
+  (`unknown_count_rank`). To samo `preferred_rank` prowadzi każde sortowanie
+  i `sort=match`.
+- **„Szukaj ręcznie”** (`ManualSearchPanel.jobListFilters`): WSZYSTKIE miasta
+  rekrutacji i jej kategoria idą do „Mile widziane”, twarde `location`/
+  `competenceCategoryIds` puste. Z wierszy Championa obowiązkowe są tylko
+  technologie (`lib/requirement-row-kinds.ts` → `/keywords/classify`, jedno
+  wywołanie na wiersz); reszta idzie do `qPreferred`. Błąd klasyfikacji = wiersz
+  obowiązkowy (dawne zachowanie). Licznik w edytorze Championa liczy tę samą
+  regułą. Chip „Mile widziane” ma „Wymagaj” (zamiana w filtr).
+  Pamięć okna rekrutacji ma klucz `job2`, bo stary niósł twarde filtry.
+- **Kraj i adres to nie miasto** (`parseJobLocationCities`): „Polska
+  (lokalizacja obowiązkowa)” jako filtr miasta wycinała 91% wybranych.
+- **Początek „Szukaj ręcznie” układa pełny „Dop.”** (`candidate_match_order`,
+  `CANDIDATE_MATCH_RERANK_TOP` = 200, 0 = wyłączone): `score_candidates` jak
+  `/scores`, przestawienie WYŁĄCZNIE w obrębie grup („Mile widziane”, braki),
+  niezmierzeni na końcu grupy, awaria = kolejność wektorowa. Zmierzone: zgodność
+  z kolumną 10/19 → 19/19 par, MRR 0,283 → 0,472 (eval 120 rekrutacji); pierwsze
+  zimne zapytanie ~2–4 s, kolejne strony z pamięci.
+- **Odpowiedniki PL↔EN** (`app/data/keyword_equivalents.json`, prowadzi
+  człowiek): trafiają do „Z wariantami” (`skill_variants`, przed aliasami)
+  i jako pozycja `kind="term"` dla słów spoza słownika technologii
+  („bankowość” → „bankow*”, „banking”). Słowa wieloznaczne (r, go, it, net…)
+  dostają ostrzeżenie w `keywordHints`, nigdy automatyczną zmianę.
+- **Zakres CV/Stanowisko/Umiejętności na nowej ścieżce** porównuje też pole
+  złożone bez polskich znaków (`_folded_whole_word_match`) — „lodz” = „łódź”.
+- Badanie do powtórki: `scripts/search_quality_study.py` (10 części) i
+  `scripts/eval_manual_search_order.py --rerank-top 100 --ai-top 500`.
+- **Tekst embeddingu v3 (pełne CV + notatki) PRZEGRAŁ z v1 — zostajemy na v1**
+  (A/B 26.09.2026, `docs/embedding-v3-ab-runbook.md`, kolekcje-cienie
+  `nexus_candidates_v3`, `…_v3_nonotes`): zbiór A MRR 0,440 → 0,390, P@5 0,200
+  → 0,192; zbiór B R@20n 0,104 → 0,098; „Szukaj ręcznie” (wektor „Dop.”) 84,2%
+  → 78,3% rekrutacji z trafieniem na 1. stronie. Bez [NOTES] jeszcze gorzej
+  (73,3%) — notatki pomagają, słabszy jest sam układ tekstu v3. Nie włączaj
+  `AI_TEXT_SCHEMA_V3` bez nowego pomiaru tym samym runbookiem.
+
 ## Dwa silniki wyszukiwania — jedna semantyka filtrów (09.2026)
 
 NEXUS ma DWA silniki wyszukiwania kandydatów, które UI połączy w jeden ekran

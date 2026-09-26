@@ -43,6 +43,54 @@ Części badania (`scripts/search_quality_study.py`, `--only 1,3`):
 | 2 | „Szukaj ręcznie” czytało kraj („Polska (lokalizacja obowiązkowa)”) i adres („ul. Chmielna 89”) jako miasto | przy takich rekrutacjach filtr wycinał 1 316 z 1 443 (91%) wybranych przez zespół | [#1855](https://github.com/B2B-net-S-A/NEXUS/pull/1855) |
 | 3 | Zakres „CV/Stanowisko/Umiejętności” na nowej ścieżce nie rozumiał braku polskich znaków | „lodz” w CV 1 429 vs „łódź” 2 130; „zarzadzanie” 171 vs „zarządzanie” 12 035 | [#1856](https://github.com/B2B-net-S-A/NEXUS/pull/1856) |
 
+## Wdrożone po audycie (26.09.2026, decyzja Artura „rób 1–6”)
+
+| # | co | PR | zmierzone na produkcji |
+|---|---|---|---|
+| 1 | Miasto i kategoria w „Szukaj ręcznie” tylko podnoszą („Mile widziane”), chip „Wymagaj” | [#1861](https://github.com/B2B-net-S-A/NEXUS/pull/1861) | „java” w rekrutacji #689443: 15 893 osoby z sygnałami „Mile widziane” (jako filtr miasto dawało 6 338, kategoria 12 482) |
+| 2 | Włączony `KEYWORD_SEARCH_FOLDED_FTS` | operacja (Coolify set env + Deploy) | „java” 996 → 223 ms, „c#” 5 699 → 199 ms, „java+spring+sql” 2 160 → 346 ms; zakres CV: „łódź” = „lodz” = 3 177 |
+| 3 | Początek „Szukaj ręcznie” układa pełny „Dop.” (200 osób) | [#1858](https://github.com/B2B-net-S-A/NEXUS/pull/1858) | zgodność z kolumną „Dop.” 10/19 → 19/19 par; pierwsze zimne zapytanie ~2–4 s, kolejne strony 150–260 ms |
+| 4 | Obowiązkowe tylko wiersze technologii, reszta podnosi | [#1861](https://github.com/B2B-net-S-A/NEXUS/pull/1861) | licznik w edytorze Championa liczy tą samą regułą |
+| 5 | Odpowiedniki PL↔EN w „Z wariantami”, ostrzeżenie przy słowach wieloznacznych | [#1859](https://github.com/B2B-net-S-A/NEXUS/pull/1859) | „bankowość” → pozycja z wariantami „bankow*”, „banking” |
+| 6 | Tekst embeddingu v3 — narzędzia A/B, kolekcje-cienie, pomiar | [#1862](https://github.com/B2B-net-S-A/NEXUS/pull/1862) | **nie przełączamy** — v3 przegrywa z v1 (tabela niżej) |
+
+Plus [#1854](https://github.com/B2B-net-S-A/NEXUS/pull/1854) (wznawianie
+przeliczania korpusu; podczas budowy kolekcji v3 przetrwało 5 restartów),
+[#1855](https://github.com/B2B-net-S-A/NEXUS/pull/1855) („Polska” nie jest
+miastem), [#1856](https://github.com/B2B-net-S-A/NEXUS/pull/1856) (zakres CV
+bez polskich znaków).
+
+### A/B tekstu embeddingu (v1 = produkcja)
+
+Kolekcje-cienie `nexus_candidates_v3` i `nexus_candidates_v3_nonotes`
+(po 60 652 wektory; 2 870 osób ma pusty tekst v3). Koszt: ok. 94 mln tokenów
+na kolekcję (szacunek `--estimate`, ~5,6 USD każda). Scorer `canonical`, pula 2000.
+
+| pomiar | v1 | v3 | v3 bez notatek |
+|---|---:|---:|---:|
+| zbiór A: Precision@5 | 0,200 | 0,192 | — |
+| zbiór A: R@20 norm | 0,175 | 0,169 | — |
+| zbiór A: MRR | 0,440 | 0,390 | — |
+| zbiór A: nDCG@10 | 0,137 | 0,134 | — |
+| zbiór A: ofert z GT w kolekcji | 50/50 | 46/50 | — |
+| zbiór B: Precision@5 | 0,116 | 0,120 | — |
+| zbiór B: R@20 norm | 0,104 | 0,098 | — |
+| zbiór B: MRR | 0,273 | 0,270 | — |
+| zbiór B: nDCG@10 | 0,094 | 0,102 | — |
+| „Szukaj ręcznie”, wektor „Dop.”: rekrutacje z trafieniem na 1. stronie | 84,2% | 78,3% | 73,3% |
+| „Szukaj ręcznie”, wektor „Dop.”: MRR | 0,284 | 0,263 | 0,246 |
+| „Szukaj ręcznie”, wektor „Dop.”: mediana pozycji | 154 | 177 | 207 |
+
+- **Decyzja (reguła runbooka „żadna metryka nie spada”):** zostajemy na v1.
+- **Notatki pomagają:** bez nich v3 jest jeszcze gorsze.
+- **Słabszy jest sam układ tekstu v3:** sekcje bez danych osobowych i CV do
+  12 tys. znaków.
+- **Część różnicy to pokrycie:** osoby z pustym tekstem v3 nie mają wektora;
+  46/50 ofert na zbiorze A.
+- **Kontrola przyrządu:** wiersz „najnowsi” jest identyczny w obu ramionach.
+- **Kolekcje-cienie zostały w Qdrancie** (ok. 0,5 GB każda). Do usunięcia na
+  decyzję (`DELETE /collections/<nazwa>`).
+
 ## Najważniejsze wyniki
 
 ### Stara vs nowa ścieżka słów (wersja 3 składania, 50 słów)
