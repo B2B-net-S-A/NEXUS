@@ -45,6 +45,7 @@ from app.services.contractor_identity import (
     contractor_identity_sql_expression,
     current_contract_clause,
     load_current_contracts,
+    load_fallback_starts,
 )
 
 logger = logging.getLogger(__name__)
@@ -469,6 +470,19 @@ async def revenue_forecast(
         .all()
     )
 
+    # Runda 8 (R8-N13-2): kontrakt bez daty startu, którego WSZYSTKIE
+    # zamówienia startują później, jest PLANOWANY (reguła S5 — kafle, profil,
+    # katalog). Prognoza liczyła go od bieżącego miesiąca. Jego start to start
+    # najbliższego zamówienia; start dopowiedziany z zamówienia już trwającego
+    # zostaje „nieznany", czyli obowiązujący.
+    fallback_starts = await load_fallback_starts(db, active_contracts, today)
+
+    def _forecast_start(contract: Contract) -> Optional[date]:
+        if contract.start_date is not None:
+            return contract.start_date
+        fallback = fallback_starts.get(contract.id)
+        return fallback if fallback is not None and fallback > today else None
+
     # Resolve each leg's currency once (all forecast months use today's rate).
     rate_cache = await _resolve_rate_cache(db, _contract_currencies(active_contracts))
     fx_missing = False
@@ -520,7 +534,7 @@ async def revenue_forecast(
             # którymkolwiek dniu miesiąca (także startujący za tydzień albo
             # zakończony w jego trakcie), po stawce z 1. dnia miesiąca albo
             # z dnia startu — kafle to zdjęcie na dziś.
-            if (c.start_date is None or c.start_date < next_month)
+            if ((start := _forecast_start(c)) is None or start < next_month)
             and (c.end_date is None or c.end_date >= month_start)
         ]
         revenue_raw = Decimal("0")
@@ -529,8 +543,9 @@ async def revenue_forecast(
             # Stawka OBOWIĄZUJĄCA w tym miesiącu (harmonogram), nie dzisiejsza
             # kolumna: podwyżka zaplanowana na marzec pokazuje się od marca.
             on = month_start
-            if c.start_date is not None and c.start_date > on:
-                on = c.start_date
+            start = _forecast_start(c)
+            if start is not None and start > on:
+                on = start
             eff = effective_rate_fields(c, on)
             rev = _to_display(eff["monthly_rate_client"], eff["rate_client_currency"])
             cost = _to_display(

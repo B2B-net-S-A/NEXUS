@@ -309,6 +309,36 @@ async def test_archive_uses_the_end_date_not_a_stale_termination(
     assert row["duration_months"] >= 12
 
 
+async def test_client_without_contracts_has_zero_margin_on_both_tabs(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+) -> None:
+    """Runda 8 (R8-N13-3): profil pokazywał „Aktywne MRR 0 zł", a zakładka
+    Analityka tego samego klienta „Marża/mc —". Brak obecnych kontraktów to
+    policzone zero w obu miejscach."""
+    import uuid
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.client import Client
+
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"BezKontraktow-{uuid.uuid4().hex[:6]}")
+        db.add(client)
+        await db.commit()
+        client_id = client.id
+
+    profile = await app_client.get(
+        f"/api/clients/{client_id}/profile", headers=app_auth_headers
+    )
+    assert profile.status_code == 200, profile.text
+    assert profile.json()["summary"]["active_mrr"] == 0
+
+    dashboard = await app_client.get(
+        f"/api/my-clients/{client_id}/dashboard", headers=app_auth_headers
+    )
+    assert dashboard.status_code == 200, dashboard.text
+    assert dashboard.json().get("monthly_margin_total") == 0
+
+
 async def test_archive_money_is_redacted_without_view_finance(
     app_client: AsyncClient,
 ) -> None:
