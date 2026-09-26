@@ -205,3 +205,72 @@ def test_board_report_never_goes_to_head_of_recruitment() -> None:
     """Mail zarządu niesie przychód i marżę — HoR ich nie widzi (24.09.2026)."""
     assert UserRole.head_of_recruitment not in reports._BOARD_ROLES
     assert set(reports._BOARD_ROLES) == {UserRole.admin, UserRole.finance}
+
+
+# ── Runda 7 (R7-N5-2): otwarty bezpiecznik nie gubi raportu ─────────────────
+
+
+def test_deliver_reports_deferred_when_sender_refused_temporarily(monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "M365_APP_MAIL_ENABLED", True)
+    monkeypatch.setattr(
+        "app.services.notification_delivery.guarded_send", lambda *a, **k: False
+    )
+    monkeypatch.setattr(
+        "app.services.notification_delivery.last_send_policy_blocked", lambda: False
+    )
+    monkeypatch.setattr(
+        "app.services.m365.app_mail.last_delivery_deferred", lambda: True
+    )
+    mail = reports._Mail("rada@example.com", "s", "t")
+    assert reports._deliver(reports.MONTHLY_KIND, datetime.now(WAW), mail) == (
+        "deferred"
+    )
+    # Blokada polityki to nie odroczenie — raport nie ma wyjść.
+    monkeypatch.setattr(
+        "app.services.notification_delivery.last_send_policy_blocked", lambda: True
+    )
+    assert reports._deliver(reports.MONTHLY_KIND, datetime.now(WAW), mail) == (
+        "failed"
+    )
+
+
+@pytest.mark.asyncio
+async def test_deferred_recipients_are_retried_on_next_tick(
+    outbox, monkeypatch, routine_notification_email_enabled
+) -> None:
+    async def fake_mails(db, now_local, period_key):
+        return [
+            reports._Mail("a@example.com", f"Rada {period_key}", "treść"),
+            reports._Mail("b@example.com", f"Rada {period_key}", "treść"),
+        ]
+
+    outcomes = {"a@example.com": ["sent"], "b@example.com": ["deferred", "sent"]}
+    delivered: list[str] = []
+
+    def fake_deliver(kind, now_utc, mail):
+        outcome = outcomes[mail.to].pop(0)
+        if outcome == "sent":
+            delivered.append(mail.to)
+        return outcome
+
+    monkeypatch.setattr(reports, "_monthly_mails", fake_mails)
+    monkeypatch.setattr(reports, "_deliver", fake_deliver)
+    year = 2700 + random.randint(0, 250)
+    day = reports.first_business_day(year, 7)
+    key = f"{year}-06"
+
+    first = await reports.run_once(_at(day, 8))
+    assert first[reports.MONTHLY_KIND] == "sent"
+    assert delivered == ["a@example.com"]
+
+    second = await reports.run_once(_at(day, 8, 15))
+    assert second[reports.MONTHLY_KIND] == "sent"
+    # Drugi raz wyszedł wyłącznie mail odroczony — bez duplikatu do „a”.
+    assert delivered == ["a@example.com", "b@example.com"]
+    runs = await _runs(reports.MONTHLY_KIND, key)
+    assert [(r.status, r.recipients, r.sent) for r in runs] == [("sent", 2, 2)]
+
+    third = await reports.run_once(_at(day, 8, 25))
+    assert third[reports.MONTHLY_KIND] == "already_claimed"

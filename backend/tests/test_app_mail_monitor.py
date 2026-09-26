@@ -27,6 +27,7 @@ def _policy(enabled=True):
 def _queue(**overrides):
     return {
         "uncertain": 0,
+        "uncertain_recent": 0,
         "pending_retry": 0,
         "oldest_retry_seconds": 0,
         "legacy_suppressed": 4,
@@ -41,19 +42,47 @@ def test_alarm_covers_outage_recovery_uncertainty_and_disabled():
         enabled=True,
         configured=True,
         state={},
-        queue={"uncertain": 0, "oldest_retry_seconds": 0},
+        queue={"uncertain": 0, "uncertain_recent": 0, "oldest_retry_seconds": 0},
     )
     assert monitor.verdict(**args) == 0
     assert monitor.verdict(**{**args, "state": {"consecutive_failures": 1}}) == 1
     assert (
         monitor.verdict(
-            **{**args, "queue": {"uncertain": 1, "oldest_retry_seconds": 0}}
+            **{
+                **args,
+                "queue": {
+                    "uncertain": 1,
+                    "uncertain_recent": 1,
+                    "oldest_retry_seconds": 0,
+                },
+            }
         )
         == 1
     )
+    # Runda 7 (R7-N5-4): stary niepewny wynik nie trzyma alarmu na zawsze.
     assert (
         monitor.verdict(
-            **{**args, "queue": {"uncertain": 0, "oldest_retry_seconds": 3601}}
+            **{
+                **args,
+                "queue": {
+                    "uncertain": 1,
+                    "uncertain_recent": 0,
+                    "oldest_retry_seconds": 0,
+                },
+            }
+        )
+        == 0
+    )
+    assert (
+        monitor.verdict(
+            **{
+                **args,
+                "queue": {
+                    "uncertain": 0,
+                    "uncertain_recent": 0,
+                    "oldest_retry_seconds": 3601,
+                },
+            }
         )
         == 1
     )
@@ -70,6 +99,7 @@ async def test_monitor_read_failure_is_not_healthy_and_recovers(monkeypatch, cap
     result = Mock()
     result.mappings.return_value.one.return_value = {
         "uncertain": 0,
+        "uncertain_recent": 0,
         "pending_retry": 0,
         "oldest_retry_seconds": 0,
         "legacy_suppressed": 4,
@@ -158,6 +188,7 @@ async def test_backlog_query_and_worker_share_activation_cutoff(enabled):
     row = Mock()
     row.mappings.return_value.one.return_value = {
         "uncertain": 0,
+        "uncertain_recent": 0,
         "pending_retry": 0,
         "oldest_retry_seconds": 0,
         "legacy_suppressed": 4,
@@ -178,3 +209,18 @@ async def test_backlog_query_and_worker_share_activation_cutoff(enabled):
             assert "notifications.created_at >=" in str(statement)
         else:
             assert "false" in str(statement).lower()
+
+
+async def test_uncertain_alarm_counts_only_recent_rows():
+    """Runda 7 (R7-N5-4): licznik alarmu ma okno czasu."""
+    db = AsyncMock()
+    row = Mock()
+    row.mappings.return_value.one.return_value = {
+        k: v for k, v in _queue().items() if k != "scope"
+    }
+    db.execute.side_effect = [row, Mock(scalar_one=Mock(return_value=0))]
+    now = datetime(2026, 9, 22, 13, tzinfo=timezone.utc)
+    await monitor.snapshot_queue(db, _policy(), now)
+    sql = str(db.execute.call_args_list[0].args[0].compile(dialect=postgresql.dialect()))
+    assert "coalesce(notifications.email_send_started_at, notifications.created_at)" in sql
+    assert "AS uncertain_recent" in sql

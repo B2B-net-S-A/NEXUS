@@ -44,6 +44,8 @@ class _Graph:
         self.draft_gate: asyncio.Event | None = None
         self.fail_send: BaseException | None = None
         self.fail_draft: BaseException | None = None
+        self.draft_body: dict | None = None
+        self.patches: list[Any] = []
         self._n = 0
 
     def factory(self):
@@ -63,6 +65,7 @@ class _Graph:
                 return {"value": []}
 
             async def patch(self, url: str, json: Any = None) -> Any:
+                graph.patches.append(json)
                 return {}
 
             async def post(self, url: str, json: Any = None, **_kw: Any) -> Any:
@@ -79,11 +82,14 @@ class _Graph:
                     await graph.draft_gate.wait()
                 graph._n += 1
                 token = uuid.uuid4().hex[:10]
-                return {
+                draft = {
                     "id": f"draft-{token}",
                     "conversationId": f"conv-{token}",
                     "internetMessageId": f"<{token}@nexus.test>",
                 }
+                if graph.draft_body is not None and url.endswith("/createReply"):
+                    draft["body"] = graph.draft_body
+                return draft
 
         return _Client
 
@@ -335,6 +341,47 @@ async def test_reply_is_reserved_and_stores_internet_message_id(mailbox):
         assert row.send_state == "sent"
         assert row.idempotency_key
         assert row.m365_conversation_id.startswith("conv-")
+
+
+@pytest.mark.asyncio
+async def test_reply_keeps_quoted_thread_history(mailbox):
+    """Runda 7 (R7-V1-3): PATCH `body` zastępuje całą treść szkicu, więc
+    cytat z createReply musi trafić do PATCH-a razem z odpowiedzią."""
+    ids, graph = mailbox
+    graph.draft_body = {
+        "contentType": "html",
+        "content": (
+            "<html><head></head><body><div id=\"divRplyFwdMsg\">Od: kandydat"
+            "</div><div>Poprzednia wiadomość kandydata</div></body></html>"
+        ),
+    }
+    async with AsyncSessionLocal() as db:
+        original = Email(
+            user_id=ids.user_id,
+            candidate_id=ids.candidate_id,
+            m365_message_id=f"orig-{uuid.uuid4().hex}",
+            m365_conversation_id="conv-orig",
+            subject="Pytanie",
+            from_address="kandydat@example.com",
+            received_at=datetime.now(timezone.utc),
+            direction=EmailDirection.received,
+        )
+        db.add(original)
+        await db.commit()
+        conn = await db.get(M365Connection, ids.connection_id)
+        await sender_mod.reply(
+            db,
+            conn,
+            email_row=original,
+            body_html="<p>Odpowiedź</p>",
+            client_request_id=str(uuid.uuid4()),
+            commit_reservation=True,
+        )
+        await db.commit()
+    content = graph.patches[-1]["body"]["content"]
+    assert "Odpowiedź" in content
+    assert "Poprzednia wiadomość kandydata" in content
+    assert content.index("Odpowiedź") < content.index("divRplyFwdMsg")
 
 
 @pytest.mark.asyncio

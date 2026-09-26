@@ -1222,6 +1222,8 @@ async def _scrub_old_private_events(
                 for field_name, value in PRIVATE_EVENT_FIELDS.items():
                     setattr(row, field_name, value)
                 row.attendees = []
+                # R7-V1-7: powiązanie z kandydatem pochodziło z uczestników.
+                row.candidate_id = None
         after_id = row.id
 
     value = {"after_id": after_id, "done": done}
@@ -1273,7 +1275,7 @@ async def _upsert_event(db: AsyncSession, conn: M365Connection, ev: dict) -> boo
     if (
         existing
         and existing.m365_change_key == change_key
-        and (not private or is_scrubbed(existing))
+        and (not private or (is_scrubbed(existing) and existing.candidate_id is None))
     ):
         return False  # nothing changed — skip
 
@@ -1323,7 +1325,13 @@ async def _upsert_event(db: AsyncSession, conn: M365Connection, ev: dict) -> boo
         existing.attendees = attendee_rows
         existing.m365_change_key = change_key
         existing.m365_series_master_id = ev.get("seriesMasterId")
-        if candidate_id and existing.candidate_id is None:
+        if private:
+            # Runda 7 (R7-V1-7): spotkanie, które stało się prywatne, nie może
+            # zostać przypięte do kandydata — powiązanie pochodziło z
+            # uczestników, których już nie trzymamy, a profil kandydata i
+            # usunięcie osoby zdradzały, z kim było prywatne spotkanie.
+            existing.candidate_id = None
+        elif candidate_id and existing.candidate_id is None:
             existing.candidate_id = candidate_id
 
     return True

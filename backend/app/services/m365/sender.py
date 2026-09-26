@@ -43,7 +43,9 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 import uuid
+from html import escape as html_escape
 from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable, Optional
 
@@ -578,6 +580,28 @@ async def send_interview_invitation(
     )
 
 
+_BODY_OPEN_RE = re.compile(r"<body\b[^>]*>", re.IGNORECASE)
+
+
+def _with_quoted_history(reply_html: str, draft: Any) -> str:
+    """Nasza odpowiedź + cytat wątku z szkicu ``createReply``.
+
+    Szkic bez treści (albo w tekście) = sama odpowiedź, jak dotąd.
+    """
+    body = draft.get("body") if isinstance(draft, dict) else None
+    if not isinstance(body, dict):
+        return reply_html
+    quoted = body.get("content") or ""
+    if not quoted.strip():
+        return reply_html
+    if (body.get("contentType") or "").lower() != "html":
+        quoted = "<pre>" + html_escape(quoted) + "</pre>"
+    opening = _BODY_OPEN_RE.search(quoted)
+    if opening is None:
+        return reply_html + quoted
+    return quoted[: opening.end()] + reply_html + quoted[opening.end() :]
+
+
 async def reply(
     db: AsyncSession,
     connection: M365Connection,
@@ -642,10 +666,18 @@ async def reply(
             _set_body(row, full_body)
         # 1) Create reply draft (Graph fills in recipients, subject, history).
         draft = await gc.post(f"/me/messages/{original_graph_id}/createReply", json={})
-        # 2) Patch the body.
+        # 2) Patch the body. PATCH `body` ZASTĘPUJE całą treść szkicu, łącznie
+        # z cytatem, który wstawił createReply — dlatego naszą treść wstawiamy
+        # przed cytatem z odpowiedzi createReply (runda 7, R7-V1-3; do tego
+        # dnia odpowiedź z NEXUSA wychodziła bez historii wątku).
         await gc.patch(
             f"/me/messages/{draft['id']}",
-            json={"body": {"contentType": "HTML", "content": full_body}},
+            json={
+                "body": {
+                    "contentType": "HTML",
+                    "content": _with_quoted_history(full_body, draft),
+                }
+            },
         )
         return draft
 

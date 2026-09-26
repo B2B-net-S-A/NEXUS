@@ -12,7 +12,8 @@ import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import false, func, or_, select, update
+from sqlalchemy import exists, false, func, or_, select, update
+from sqlalchemy.orm import aliased
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal
@@ -247,7 +248,36 @@ def pending_candidate_query(now: datetime, policy: DeliveryPolicy | None = None)
             )
         )
         .where((User.last_seen_at.is_(None)) | (User.last_seen_at <= threshold))
+        .where(~_newer_in_same_thread())
+        # Admin jest dopisywany do KAŻDEGO czatu rekrutacji („komplet obsady”),
+        # więc mail o zwykłej wiadomości szedłby do niego z całej firmy; mail
+        # dostaje tylko wtedy, gdy ktoś go oznaczył (runda 7, R7-N5-3).
+        .where(
+            or_(
+                Notification.notification_type == NotificationType.job_chat_mention,
+                User.role != UserRole.admin,
+            )
+        )
         .order_by(Notification.created_at.asc())
+    )
+
+
+def _newer_in_same_thread():
+    """Czy ta osoba ma nowsze powiadomienie z tego samego czatu (runda 7, R7-N5-3).
+
+    Wzmianka to DWA powiadomienia o jednej wiadomości (`job_chat_message`
+    i `job_chat_mention`), a każda kolejna wiadomość w wątku — następne; bez
+    tego osoba offline dostawała osobny mail za każde z nich. Mail idzie tylko
+    o najnowszym powiadomieniu wątku (link bez `&msg=`); przeczytane albo już
+    wysłane nowsze też wystarcza — wątek był otwarty albo zgłoszony.
+    """
+    newer = aliased(Notification)
+    thread = func.split_part(Notification.link, "&msg=", 1)
+    return exists().where(
+        newer.user_id == Notification.user_id,
+        newer.notification_type.in_(_CHAT_NOTIF_TYPES),
+        newer.id > Notification.id,
+        func.split_part(newer.link, "&msg=", 1) == thread,
     )
 
 
