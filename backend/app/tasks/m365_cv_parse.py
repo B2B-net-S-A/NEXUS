@@ -104,7 +104,9 @@ async def run_m365_cv_parse_once() -> bool:
                     db, attachment, email_row
                 )
                 candidate_id = target
-                success = target is not None and attachment.parsed_candidate_id == target
+                success = (
+                    target is not None and attachment.parsed_candidate_id == target
+                )
             else:
                 await attachment_handler.try_parse_cv(db, attachment, email_row)
                 success = attachment.parsed_candidate_id == candidate_id

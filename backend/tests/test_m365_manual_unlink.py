@@ -44,7 +44,9 @@ def test_unlink_records_the_decision() -> None:
 
 def test_link_clears_the_decision() -> None:
     email = _email(
-        candidate_id=None, match_method=EmailMatchMethod.unmatched, matched_by_user_id=12
+        candidate_id=None,
+        match_method=EmailMatchMethod.unmatched,
+        matched_by_user_id=12,
     )
     _apply_bulk_action(email, "link_to_candidate", 9, user_id=13, now=NOW)
     assert matcher.manually_unlinked(email) is False

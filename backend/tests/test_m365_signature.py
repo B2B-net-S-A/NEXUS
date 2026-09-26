@@ -92,7 +92,7 @@ def test_extract_signature_two_sigseps_without_quote_header_is_rejected() -> Non
 _OWA_REPLY = (
     '<html><body><div class="elementToProof">Dzień dobry, dziękuję za CV.</div>'
     '<div id="Signature"><p>Marta Nowak</p><p>Rekruterka · B2B.NET S.A.</p>'
-    '<p>marta.nowak@b2bnetwork.pl</p></div>'
+    "<p>marta.nowak@b2bnetwork.pl</p></div>"
     '<div id="appendonsend"></div>'
     '<hr style="display:inline-block;width:98%" tabindex="-1">'
     '<div id="divRplyFwdMsg" dir="ltr"><font face="Calibri"><b>From:</b> '
@@ -144,8 +144,7 @@ def test_extract_signature_new_outlook_plain_header_quote() -> None:
 
 def test_extract_signature_blockquote_reply() -> None:
     body = (
-        "<p>Reply</p><br>--<br><p>Anna</p>"
-        "<blockquote><p>Cudza treść</p></blockquote>"
+        "<p>Reply</p><br>--<br><p>Anna</p><blockquote><p>Cudza treść</p></blockquote>"
     )
     sig = extract_signature(body, "anna@b2bnetwork.pl")
     assert sig is not None and "Anna" in sig

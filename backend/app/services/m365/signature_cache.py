@@ -142,7 +142,9 @@ _QUOTE_START_PATTERNS: tuple[re.Pattern[str], ...] = (
         r"""<div\b[^>]*\bid\s*=\s*["']?(?:x_)?mail-editor-reference-message-container\b""",
         re.I,
     ),
-    re.compile(r"""<div\b[^>]*\bclass\s*=\s*["'][^"']*\bgmail_(?:quote|attr)\b""", re.I),
+    re.compile(
+        r"""<div\b[^>]*\bclass\s*=\s*["'][^"']*\bgmail_(?:quote|attr)\b""", re.I
+    ),
     re.compile(r"<hr\b", re.I),
     re.compile(r"<blockquote\b", re.I),
     # Nagłówek cytowanego maila: „From: … Sent: / Od: … Wysłano:” (Outlook
@@ -151,7 +153,9 @@ _QUOTE_START_PATTERNS: tuple[re.Pattern[str], ...] = (
         r"\b(?:From|Od|Von|De)\s*:[\s\S]{0,600}?"
         r"\b(?:Sent|Wysłano|Wysłane|Date|Data|Gesendet|Subject|Temat)\s*:",
     ),
-    re.compile(r"-{3,}\s*(?:Original Message|Oryginalna wiadomość|Wiadomość oryginalna)", re.I),
+    re.compile(
+        r"-{3,}\s*(?:Original Message|Oryginalna wiadomość|Wiadomość oryginalna)", re.I
+    ),
 )
 
 _EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@([A-Za-z0-9.\-]+\.[A-Za-z]{2,})")
@@ -214,7 +218,7 @@ def extract_signature(
         if not tail or len(tail) > _MAX_SIGNATURE_LENGTH:
             return None
         # Drugi znacznik podpisu za pierwszym = zagnieżdżona cudza treść.
-        rest = head[first.end():]
+        rest = head[first.end() :]
         if any(m.pattern.search(rest) for m in _SIGSEP_MARKERS):
             return None
         if _looks_like_quote(tail, owner_email):

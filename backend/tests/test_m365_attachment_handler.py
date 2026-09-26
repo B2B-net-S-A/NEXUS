@@ -7,7 +7,6 @@ No DB, no network.
 
 from __future__ import annotations
 
-
 import pytest
 
 from app.services.m365 import attachment_handler
@@ -63,5 +62,12 @@ def test_attachment_listing_selects_only_base_type_fields() -> None:
     lista jest zawężona do pól bazowych, a treść idzie przez `$value`.
     """
     fields = set(attachment_handler._ATTACHMENT_LIST_FIELDS.split(","))
-    assert fields <= {"id", "name", "contentType", "size", "isInline", "lastModifiedDateTime"}
+    assert fields <= {
+        "id",
+        "name",
+        "contentType",
+        "size",
+        "isInline",
+        "lastModifiedDateTime",
+    }
     assert {"id", "name", "contentType", "size", "isInline"} <= fields

@@ -80,7 +80,9 @@ async def test_reply_to_own_sent_without_inbound_asks_for_new_mail(monkeypatch) 
     reply.assert_not_awaited()
 
 
-@pytest.mark.parametrize(("graph_status", "http_status"), [(404, 400), (403, 403), (429, 429)])
+@pytest.mark.parametrize(
+    ("graph_status", "http_status"), [(404, 400), (403, 403), (429, 429)]
+)
 async def test_graph_refusal_is_4xx_with_polish_message(
     monkeypatch, graph_status, http_status
 ) -> None:
@@ -104,7 +106,9 @@ async def test_compose_graph_refusal_is_4xx(monkeypatch) -> None:
         "send_new",
         AsyncMock(side_effect=GraphRequestError(400, {})),
     )
-    db = SimpleNamespace(get=AsyncMock(return_value=SimpleNamespace(id=9)), commit=AsyncMock())
+    db = SimpleNamespace(
+        get=AsyncMock(return_value=SimpleNamespace(id=9)), commit=AsyncMock()
+    )
     payload = email_threads.ComposeRequest(
         to=["kandydat@firma.pl"], subject="Oferta", body_html="<p>x</p>"
     )

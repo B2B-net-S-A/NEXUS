@@ -56,7 +56,12 @@ async def test_listing_has_no_content_and_downloads_only_what_fits(
     monkeypatch.setattr(attachment_handler.settings, "M365_MAX_ATTACHMENT_MB", 1)
     gc = _Gc(
         [
-            {"id": "a1", "name": "cv.pdf", "contentType": "application/pdf", "size": 10},
+            {
+                "id": "a1",
+                "name": "cv.pdf",
+                "contentType": "application/pdf",
+                "size": 10,
+            },
             {
                 "id": "a2",
                 "name": "wielki.pdf",

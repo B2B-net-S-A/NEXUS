@@ -22,7 +22,9 @@ from app.services.m365 import matcher
 
 def _sql(stmt) -> str:
     return str(
-        stmt.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True})
+        stmt.compile(
+            dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}
+        )
     )
 
 
@@ -50,9 +52,7 @@ def _company_domain(monkeypatch):
 async def test_smart_name_narrows_in_sql_with_limit_and_contact_window() -> None:
     db, captured = _rows_db([SimpleNamespace(id=7, name="Łukasz", lastname="Żółw")])
 
-    found = await matcher._find_candidate_by_subject_name(
-        db, "CV — Łukasz Żółw, Java"
-    )
+    found = await matcher._find_candidate_by_subject_name(db, "CV — Łukasz Żółw, Java")
 
     assert found == 7
     sql = _sql(captured[0])
@@ -128,11 +128,15 @@ def _msg(from_address: str, **kw) -> matcher.IncomingMessage:
 async def test_smart_domain_exclusions(
     monkeypatch, sender, client_domain, expected
 ) -> None:
-    monkeypatch.setattr(matcher, "_find_candidate_by_email", AsyncMock(return_value=None))
+    monkeypatch.setattr(
+        matcher, "_find_candidate_by_email", AsyncMock(return_value=None)
+    )
     monkeypatch.setattr(
         matcher, "_find_candidate_by_conversation", AsyncMock(return_value=None)
     )
-    monkeypatch.setattr(matcher, "_is_client_domain", AsyncMock(return_value=client_domain))
+    monkeypatch.setattr(
+        matcher, "_is_client_domain", AsyncMock(return_value=client_domain)
+    )
     by_domain = AsyncMock(return_value=[SimpleNamespace(id=3)])
     monkeypatch.setattr(matcher, "_find_candidates_by_domain", by_domain)
 

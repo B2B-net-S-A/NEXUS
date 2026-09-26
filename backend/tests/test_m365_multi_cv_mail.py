@@ -117,7 +117,9 @@ async def test_unresolved_second_cv_is_terminal(monkeypatch, tmp_path) -> None:
     )
     attachment, email = _inputs(tmp_path)
     assert (
-        await attachment_handler.try_parse_cv_by_identity(AsyncMock(), attachment, email)
+        await attachment_handler.try_parse_cv_by_identity(
+            AsyncMock(), attachment, email
+        )
         is None
     )
     assert attachment.parse_error == "possible_duplicate_name"
@@ -126,7 +128,9 @@ async def test_unresolved_second_cv_is_terminal(monkeypatch, tmp_path) -> None:
 
 async def test_worker_routes_cv_identity_mail_by_content(monkeypatch) -> None:
     attachment = SimpleNamespace(id=8, email_id=9, parsed_candidate_id=None)
-    email = SimpleNamespace(id=9, candidate_id=41, match_method=EmailMatchMethod.cv_identity)
+    email = SimpleNamespace(
+        id=9, candidate_id=41, match_method=EmailMatchMethod.cv_identity
+    )
     db = AsyncMock()
     db.scalar.return_value = attachment
     db.get.return_value = email

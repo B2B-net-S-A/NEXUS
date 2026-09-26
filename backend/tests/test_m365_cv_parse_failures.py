@@ -25,7 +25,9 @@ from app.tasks import m365_cv_parse
 
 def _wire(monkeypatch, parse, *, mark_row=None):
     attachment = SimpleNamespace(id=91, email_id=72, parsed_candidate_id=None)
-    email = SimpleNamespace(id=72, candidate_id=37, match_method=EmailMatchMethod.strict)
+    email = SimpleNamespace(
+        id=72, candidate_id=37, match_method=EmailMatchMethod.strict
+    )
     work_db = AsyncMock()
     work_db.scalar.return_value = attachment
     work_db.get.return_value = email
@@ -125,8 +127,12 @@ async def test_ingest_skips_email_owned_by_another_candidate(
         "app.services.cv_enrichment.apply_candidate_location_from_source",
         lambda *a, **k: None,
     )
-    monkeypatch.setattr(profile_projection, "replace_skill_usage", AsyncMock(return_value=0))
-    monkeypatch.setattr(index_outbox_service, "schedule_or_embed_candidate", AsyncMock())
+    monkeypatch.setattr(
+        profile_projection, "replace_skill_usage", AsyncMock(return_value=0)
+    )
+    monkeypatch.setattr(
+        index_outbox_service, "schedule_or_embed_candidate", AsyncMock()
+    )
     monkeypatch.setattr(match_score_cache, "mark_stale_for_candidate", AsyncMock())
     monkeypatch.setattr(auto_match_outbox, "enqueue_candidate", AsyncMock())
     monkeypatch.setattr(cv_ingest_service, "assign_primary_cc_if_empty", AsyncMock())

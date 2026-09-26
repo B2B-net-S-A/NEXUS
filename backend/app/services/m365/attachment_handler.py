@@ -613,7 +613,11 @@ async def try_create_candidate_from_cv(
         if link_email:
             _link_email(email_row, candidate_id, float(strong[0]["match_score"]), now)
         await try_parse_cv(
-            db, attachment, email_row, preparsed=(text, parsed), candidate_id=candidate_id
+            db,
+            attachment,
+            email_row,
+            preparsed=(text, parsed),
+            candidate_id=candidate_id,
         )
         return candidate_id
     if duplicates:
