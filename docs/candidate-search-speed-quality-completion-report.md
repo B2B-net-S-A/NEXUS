@@ -1,5 +1,15 @@
 # Wyszukiwarka kandydatów — szybkość i jakość (25–26.09.2026)
 
+## Stan 26.09.2026, 10:00 UTC
+
+- #1852, #1854 (wznawianie przeliczania), #1855 („Polska” nie jest miastem)
+  są na produkcji.
+- Wersja 3 składania jest przeliczona (`keyword_fold_fts_version` = 3, 09:16 UTC).
+- Porównanie po wersji 3 jest zrobione i czyste.
+- Pełny audyt wyszukiwania ręcznego vs AI, z decyzjami do podjęcia:
+  `docs/audits/2026-09-26/wyszukiwanie-reczne.md`.
+- Przełącznik nadal OFF. Czeka na #1856 (zakres z polskimi znakami) i zgodę Artura.
+
 ## Przekazanie (26.09.2026, ok. 08:00 UTC) — przeczytaj najpierw
 
 Praca przechodzi na inną maszynę. Stan w jednym miejscu:
