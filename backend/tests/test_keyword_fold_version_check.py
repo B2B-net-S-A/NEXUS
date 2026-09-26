@@ -16,6 +16,10 @@ from app.services import keyword_corpus as kc
 from app.tasks import keyword_corpus_backfill as loop
 
 
+async def _noop() -> None:
+    return None
+
+
 def test_fold_function_body_carries_the_version_marker():
     assert kc.fold_version_marker(kc.FOLD_VERSION) in kc.FOLD_FUNCTION_DDL
     assert kc.parse_fold_version(kc.FOLD_FUNCTION_DDL) == kc.FOLD_VERSION
@@ -41,6 +45,7 @@ async def test_outdated_db_function_blocks_recompute_and_readiness(monkeypatch):
 
     monkeypatch.setattr(loop, "_recompute", fake_recompute)
     monkeypatch.setattr(loop, "_store_fold_version", fake_store)
+    monkeypatch.setattr(loop, "_mark_recompute_in_progress", _noop)
     monkeypatch.setattr(loop, "_stored_fold_version", stored)
     monkeypatch.setattr(loop, "_db_fold_version", db_version)
     monkeypatch.setattr(kc, "_fold_ready", True)
@@ -71,6 +76,7 @@ async def test_matching_db_function_recomputes_and_stores(monkeypatch):
 
     monkeypatch.setattr(loop, "_recompute", fake_recompute)
     monkeypatch.setattr(loop, "_store_fold_version", fake_store)
+    monkeypatch.setattr(loop, "_mark_recompute_in_progress", _noop)
     monkeypatch.setattr(loop, "_stored_fold_version", stored)
     monkeypatch.setattr(loop, "_db_fold_version", db_version)
     monkeypatch.setattr(kc, "_fold_ready", False)

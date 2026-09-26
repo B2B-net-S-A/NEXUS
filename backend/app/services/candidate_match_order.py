@@ -58,6 +58,8 @@ from typing import Any, Optional, Sequence
 from sqlalchemy import func, literal, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.cache import cache_single_flight
+
 logger = logging.getLogger(__name__)
 
 MAX_EXACT_IDS = 30_000
@@ -361,8 +363,6 @@ async def ordered_ids(
     wyrażenia SQL („Mile widziane”, braki danych) albo ``None`` w ich miejscu.
     """
     from app.core.config import settings
-    from app.models.candidate import Candidate
-    from app.services import embedding_service as embeddings
 
     match_vector = await resolve_vector(db, user, filters, q_any_groups)
     if match_vector is None:
@@ -380,6 +380,34 @@ async def ordered_ids(
     cached = _cache_get(key)
     if cached is not None:
         return list(cached)
+    # Runda 7 (R7-N10-4): jeden wykonawca na klucz — dwa równoległe żądania tej
+    # samej listy (odświeżenie, druga karta) liczyły ~60 tys. wierszy dwa razy.
+    async with cache_single_flight(key, db=db):
+        cached = _cache_get(key)
+        if cached is not None:
+            return list(cached)
+        return await _compute_order(
+            db, key, ids_query, prefix, match_vector, context, rerank_top
+        )
+
+
+def _normalize_rows(raw: Sequence[Any]) -> list[tuple[int, float, float, float]]:
+    return [
+        (int(r[0]), float(r[1] or 0), float(r[2] or 0), float(r[3] or 0)) for r in raw
+    ]
+
+
+async def _compute_order(
+    db: AsyncSession,
+    key: str,
+    ids_query,
+    prefix: Sequence[Any],
+    match_vector: MatchVector,
+    context: Any,
+    rerank_top: int,
+) -> Optional[list[int]]:
+    from app.models.candidate import Candidate
+    from app.services import embedding_service as embeddings
 
     preferred_expr, unknown_expr = prefix
     columns = [
@@ -388,12 +416,12 @@ async def ordered_ids(
         unknown_expr if unknown_expr is not None else literal(0),
         func.extract("epoch", Candidate.created_at),
     ]
-    rows = [
-        (int(r[0]), float(r[1] or 0), float(r[2] or 0), float(r[3] or 0))
-        for r in (await db.execute(ids_query.with_only_columns(*columns))).all()
-    ]
-    if not rows:
+    raw = (await db.execute(ids_query.with_only_columns(*columns))).all()
+    if not raw:
         return []
+    # Konwersja i sortowanie ~60 tys. wierszy poza pętlą zdarzeń (R7-N10-4):
+    # w niej stał każdy inny request, także `/api/health/live`.
+    rows = await asyncio.to_thread(_normalize_rows, raw)
     ids = [r[0] for r in rows]
     try:
         scores = await embeddings._run_qdrant(
@@ -402,7 +430,7 @@ async def ordered_ids(
     except Exception as exc:  # noqa: BLE001 — awaria = „najnowsi” z komunikatem
         logger.warning("match order: qdrant failed (%s)", type(exc).__name__)
         return None
-    ordered = order_rows(rows, scores)
+    ordered = await asyncio.to_thread(order_rows, rows, scores)
     if rerank_top > 0:
         head = ordered[:rerank_top]
         try:
@@ -410,7 +438,8 @@ async def ordered_ids(
             # której wołający ładuje zaraz stronę.
             async with db.begin_nested():
                 fits = await _fit_scores(db, context, head)
-            groups = {row[0]: (row[1], row[2]) for row in rows}
+            in_head = set(head)
+            groups = {row[0]: (row[1], row[2]) for row in rows if row[0] in in_head}
             ordered = rerank_within_groups(ordered, groups, fits, rerank_top)
         except Exception as exc:  # noqa: BLE001 — ocena to dodatek, nie bramka
             logger.warning("match order: fit rerank failed (%s)", type(exc).__name__)

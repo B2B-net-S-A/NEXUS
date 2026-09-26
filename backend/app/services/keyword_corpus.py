@@ -654,6 +654,34 @@ def fold_text(value: str) -> str:
     return value.translate(_FOLD_MAP).lower()
 
 
+def fold_text_with_offsets(value: str) -> tuple[str, list[int], list[int]]:
+    """``fold_text`` z mapą pozycji: znak ``j`` wyniku pochodzi z oryginału
+    ``[starts[j], ends[j])``.
+
+    Runda 7 (R7-X3-4): od wersji 3 składanie usuwa znaki łączące, więc tekst
+    z jednym rozłożonym akcentem jest krótszy od oryginału, a wycinki (które
+    sprawdzały równą długość) gubiły WSZYSTKIE złożone podświetlenia w polu.
+    Składamy po kawałku: litera z następującymi po niej znakami łączącymi.
+    """
+    folded: list[str] = []
+    starts: list[int] = []
+    ends: list[int] = []
+    i, n = 0, len(value)
+    while i < n:
+        j = i + 1
+        while j < n and _COMBINING_RE.match(value[j]):
+            j += 1
+        piece = value[i:j]
+        if j - i > 1 or _COMBINING_RE.match(piece):
+            piece = _COMBINING_RE.sub("", unicodedata.normalize("NFC", piece))
+        piece = piece.translate(_FOLD_MAP).lower()
+        folded.append(piece)
+        starts.extend([i] * len(piece))
+        ends.extend([j] * len(piece))
+        i = j
+    return "".join(folded), starts, ends
+
+
 # ── Lustro w Pythonie (wycinki pod wynikiem) ─────────────────────────────────
 
 

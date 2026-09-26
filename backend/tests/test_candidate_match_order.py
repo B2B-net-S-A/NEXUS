@@ -119,6 +119,73 @@ def test_requirement_words_join_rows_and_drop_stars():
 
 
 @pytest.mark.asyncio
+async def test_concurrent_requests_compute_the_order_once_off_the_loop(monkeypatch):
+    """Runda 7 (R7-N10-4): „Dopasowanie” na ~60 tys. wierszy — konwersja
+    i sortowanie w wątku, a dwa równoległe żądania tego samego klucza liczą
+    kolejność raz (drugie bierze wynik z pamięci)."""
+    import asyncio
+    import threading
+
+    from app.services import embedding_service
+
+    cmo.clear_cache()
+    executes = 0
+    sort_threads: list[bool] = []
+
+    class Rows:
+        def all(self):
+            return [(3, 0, 0, 30.0), (1, 0, 0, 10.0), (2, 0, 0, 20.0)]
+
+    class FakeDb:
+        async def execute(self, _query):
+            nonlocal executes
+            executes += 1
+            await asyncio.sleep(0.05)
+            return Rows()
+
+    class FakeQuery:
+        def with_only_columns(self, *_cols):
+            return self
+
+    async def fake_resolve(db, user, filters, groups):
+        return cmo.MatchVector(vector=[0.1], key="rows:x", kind="rows")
+
+    async def fake_key(db, filters, vector_key, user, fingerprint=None, top=0):
+        return "candidate-match-order:test-single-flight"
+
+    async def fake_run(fn):
+        return fn()
+
+    real_order_rows = cmo.order_rows
+
+    def recording_order_rows(rows, scores):
+        sort_threads.append(threading.current_thread() is not threading.main_thread())
+        return real_order_rows(rows, scores)
+
+    monkeypatch.setattr(cmo, "resolve_vector", fake_resolve)
+    monkeypatch.setattr(cmo, "_cache_key", fake_key)
+    monkeypatch.setattr(cmo, "_qdrant_scores", lambda v, ids: {2: 0.9, 1: 0.5})
+    monkeypatch.setattr(embedding_service, "_run_qdrant", fake_run)
+    monkeypatch.setattr(cmo, "order_rows", recording_order_rows)
+
+    class F:
+        recruitment_id = None
+        recruitment_match = None
+
+    db = FakeDb()
+    try:
+        first, second = await asyncio.gather(
+            cmo.ordered_ids(db, None, F, FakeQuery(), [], (None, None)),
+            cmo.ordered_ids(db, None, F, FakeQuery(), [], (None, None)),
+        )
+    finally:
+        cmo.clear_cache()
+    assert first == second == [2, 1, 3]
+    assert executes == 1, "drugie żądanie czeka na pierwsze zamiast liczyć"
+    assert sort_threads == [True], "sortowanie poza pętlą zdarzeń"
+
+
+@pytest.mark.asyncio
 async def test_hanging_embedding_provider_falls_back_instead_of_blocking(monkeypatch):
     """Runda 6 audytu: wiszący Voyage (klient HTTP 60 s) nie może zatrzymać
     listy — po limicie kolejność wraca do „najnowsi” (None)."""
