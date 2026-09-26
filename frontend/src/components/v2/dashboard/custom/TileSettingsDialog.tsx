@@ -19,14 +19,16 @@ import { useMetricCatalog } from "@/lib/api/dashboardMetrics"
 import type { DashboardTile, NoteLink, TileConfig } from "@/lib/api/userDashboard"
 import { TILE_DEFINITIONS, tileTitle } from "@/lib/dashboard-tiles/catalog"
 import { describeMetric } from "@/lib/dashboard-tiles/describe"
+import { safeInternalPath } from "@/lib/safe-href"
 
 import { MetricBuilderForm } from "./MetricBuilderForm"
 import { MetricTileBody } from "./MetricTileBody"
 
 const METRIC_TYPES = new Set(["metric_number", "metric_chart", "metric_funnel"])
 
+// Lustro walidacji `NoteLink` na serwerze (runda 8, R8-N10-5: bez `/\host`).
 function isSafeLink(url: string): boolean {
-  return url.startsWith("https://") || (url.startsWith("/") && !url.startsWith("//"))
+  return url.startsWith("https://") || safeInternalPath(url) !== null
 }
 
 export function TileSettingsDialog({

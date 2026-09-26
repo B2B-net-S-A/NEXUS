@@ -197,6 +197,14 @@ def source_denial(user: User, source: str) -> Optional[str]:
     if user_has_capability(user, AnalyticsCapability.VIEW_FINANCE):
         return None
     if user.has_role(UserRole.delivery_lead):
+        # Runda 8 (R8-N10-2): kwoty portfela DL wszędzie indziej (profil
+        # klienta, Analityka, „Moi klienci") stoją za sekcją Delivery — DL
+        # z odebraną sekcją nie liczy ich też w kreatorze.
+        if section_access_for_user(user, ProductSection.delivery) < SectionAccess.read:
+            return (
+                f"Brak dostępu do sekcji {_SECTION_LABELS_PL[ProductSection.delivery]}"
+                " — poproś administratora o zmianę uprawnień."
+            )
         return None
     return "Kwoty widzą Finanse, administrator i Delivery Lead dla swoich klientów."
 
@@ -726,6 +734,19 @@ async def evaluate_metric(
     value, series, notes = await _run_count(
         db, definition, window, author_ids, client_boundary
     )
+    if (
+        definition.source == "pipeline_moves"
+        and author_ids is None
+        and definition.group_by == "recruiter"
+    ):
+        # Runda 8 (R8-N10-7): podział po ludziach liczy zasługę jak „Moje
+        # KPI" (kredyt weryfikatora, bez procesów spoza KPI), a liczba całej
+        # firmy bez podziału — pierwsze wejście pary. Sumy mogą się różnić
+        # i kafelek ma to powiedzieć, zamiast pokazać dwie liczby bez słowa.
+        notes.append(
+            "Podział po rekruterach liczy zasługę jak w „Moje KPI” — suma może "
+            "różnić się od liczby całej firmy bez podziału."
+        )
     previous: Optional[float] = None
     if definition.compare_previous:
         if snapshot:
@@ -744,6 +765,31 @@ async def evaluate_metric(
         notes=notes,
         period=period_payload,
     )
+
+
+async def access_fingerprint(
+    db: AsyncSession, user: User, definition: MetricDefinition
+) -> str:
+    """Odcisk uprawnień, od których zależy wynik — część klucza cache.
+
+    Runda 8 (R8-N10-4): wynik z cache (2 min) wychodził przed
+    ``evaluate_metric``, a klucz nie niósł sekcji ani portfela, więc przez
+    dwie minuty po odebraniu sekcji albo klienta kafelek dalej pokazywał dane.
+    Ta funkcja sprawdza źródło PRZED cache (rzuca ``MetricAccessDenied``)
+    i oddaje granicę klientów, która zmienia klucz przy każdej zmianie
+    portfela albo capability.
+    """
+    denial = source_denial(user, definition.source)
+    if denial:
+        raise MetricAccessDenied(denial)
+    boundary: Optional[frozenset[int]] = None
+    if definition.source == "finance":
+        boundary = await _finance_client_boundary(user, db)
+    elif definition.source in _DELIVERY_CLIENT_SOURCES:
+        boundary = await _delivery_client_boundary(user, db)
+    if boundary is None:
+        return "all"
+    return ",".join(str(cid) for cid in sorted(boundary))
 
 
 async def metric_catalog(db: AsyncSession, user: User) -> dict[str, Any]:
@@ -781,6 +827,7 @@ async def metric_catalog(db: AsyncSession, user: User) -> dict[str, Any]:
 
 __all__ = [
     "MetricAccessDenied",
+    "access_fingerprint",
     "MetricResult",
     "allowed_authors",
     "evaluate_metric",

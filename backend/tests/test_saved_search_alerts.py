@@ -86,3 +86,50 @@ class TestBuildLink:
         assert build_link({}, search_id=7) == "/candidates?ss=7"
         assert build_link(None, search_id=7) == "/candidates?ss=7"
         assert build_link({"qs": ""}, search_id=7) == "/candidates?ss=7"
+
+
+class _FakeResponse:
+    def __init__(self, n: int):
+        self._n = n
+
+    def raise_for_status(self) -> None:
+        return None
+
+    def json(self) -> dict:
+        return {"items": [{"id": i} for i in range(self._n)]}
+
+
+class _FakeClient:
+    def __init__(self, sizes: list[int]):
+        self.sizes = list(sizes)
+        self.pages: list[int] = []
+
+    async def get(self, _url, *, params, headers):
+        self.pages.append(params["page"])
+        return _FakeResponse(self.sizes.pop(0))
+
+
+class TestReplayMatchItems:
+    """Runda 8 (R8-N10-3): pager mówi, czy obejrzał ogon."""
+
+    @pytest.mark.asyncio
+    async def test_complete_when_last_page_is_short(self):
+        from app.tasks.saved_search_alerts import _replay_match_items
+
+        client = _FakeClient([100, 100, 3])
+        items, truncated = await _replay_match_items(client, "t", {}, max_pages=5)
+        assert (len(items), truncated, client.pages) == (203, False, [1, 2, 3])
+
+    @pytest.mark.asyncio
+    async def test_truncated_when_cap_reached(self):
+        from app.tasks.saved_search_alerts import _replay_match_items
+
+        client = _FakeClient([100, 100, 100])
+        items, truncated = await _replay_match_items(client, "t", {}, max_pages=2)
+        assert (len(items), truncated) == (200, True)
+
+    def test_default_cap_covers_whole_database(self):
+        from app.tasks import saved_search_alerts as mod
+
+        # 20 stron = 2000 trafień dawało niepełną linię bazową (fałszywe alerty).
+        assert mod._MAX_PAGES * mod._PAGE_SIZE >= 100_000

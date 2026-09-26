@@ -135,6 +135,16 @@ async def test_each_person_sees_only_their_own_dashboard(app_client):
             config={"links": [{"label": "x", "url": "javascript:alert(1)"}]},
         ),
         _tile(config={"link_to": "https://evil.example.com"}),
+        # Runda 8 (R8-N10-5): `/\host` przeglądarka czyta jak `//host`.
+        _tile(config={"link_to": "/\\evil.example.com"}),
+        _tile(
+            type="note",
+            config={"links": [{"label": "x", "url": "/\\evil.example.com"}]},
+        ),
+        _tile(
+            type="note",
+            config={"links": [{"label": "x", "url": "/\tevil"}]},
+        ),
         _tile(config={"nieznane": 1}),
         _tile(type="metric_number", config={}),  # metryka bez definicji
         _metric_tile(group_by="week", measure="first_reach", stage="cv_sent")

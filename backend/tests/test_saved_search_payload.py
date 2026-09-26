@@ -189,3 +189,32 @@ def test_flagi_zadania_trafiaja_do_querystringu_listy() -> None:
         == "loc=gdansk&hu=1&ls=location_only"
     )
     assert p.with_request_flags("q=python", {}) == "q=python"
+
+
+def test_zawezajace_przelaczniki_wyszukiwarki_sa_luka_listy() -> None:
+    """Runda 8 (R8-N10-6): `exclude_blacklisted`/`exclude_in_job_id` zawężają
+    wynik — zapis z nimi nie może być alertem odtwarzanym przez listę, bo
+    alarmowałby o osobach z czarnej listy i osobach już w rekrutacji."""
+    from app.tasks.saved_search_alerts import alert_list_params
+
+    base = {"semantics_version": 2, "skills_preferred": ["Python"]}
+    blacklist = {**base, "search_only": {"exclude_blacklisted": True}}
+    in_job = {**base, "search_only": {"exclude_in_job_id": 7}}
+    assert p.list_engine_gaps(blacklist) == ["exclude_blacklisted"]
+    assert p.list_engine_gaps(in_job) == ["exclude_in_job_id"]
+    for request in (blacklist, in_job):
+        payload = p.build_unified_payload({}, origin="search_request", request=request)
+        assert alert_list_params(payload) is None
+
+    # Nic nie zawężają: wyłączone albo status i tak bez czarnej listy.
+    off = {**base, "search_only": {"exclude_blacklisted": False}}
+    assert p.list_engine_gaps(off) == []
+    by_status = {
+        **base,
+        "status": ["active"],
+        "search_only": {"exclude_blacklisted": True},
+    }
+    assert p.list_engine_gaps(by_status) == []
+    assert (
+        p.list_engine_gaps({**base, "search_only": {"exclude_in_job_id": None}}) == []
+    )

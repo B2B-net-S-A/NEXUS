@@ -43,7 +43,13 @@ _DEFAULT_INTERVAL_SECONDS = max(
     300, int(os.getenv("SAVED_SEARCH_ALERTS_INTERVAL_SECONDS", "1800"))
 )
 _PAGE_SIZE = 100  # GET /api/candidates hard cap (le=100)
-_MAX_PAGES = int(os.getenv("SAVED_SEARCH_ALERTS_MAX_PAGES", "20"))  # bound per run
+# Runda 8 (R8-N10-3): sufit ma objąć CAŁY zbiór trafień, nie jego wycinek.
+# Przy 20 stronach baseline zasiewał 2000 najnowszych trafień — starsze
+# trafienie dotknięte potem przez przebieg w tle (backfill CV, notatka) szło
+# jako „nowy kandydat", a przyrost ucinał ogon i przesuwał znak wodny, więc
+# ucięte osoby nie były już nigdy sprawdzane. 1000 stron = 100 tys. osób,
+# więcej niż cała baza; trafienie w sufit to stan awaryjny (niżej).
+_MAX_PAGES = int(os.getenv("SAVED_SEARCH_ALERTS_MAX_PAGES", "1000"))  # bound per run
 _NAMES_IN_MESSAGE = 3
 
 # Params we never replay from the stored snapshot: paging/sort is forced by
@@ -172,11 +178,13 @@ def _full_name(item: dict) -> str:
 
 
 async def _replay_match_items(
-    client, token: str, params: dict, *, max_pages: int = _MAX_PAGES
-) -> list[dict]:
+    client, token: str, params: dict, *, max_pages: Optional[int] = None
+) -> tuple[list[dict], bool]:
     """Page through GET /api/candidates with the given params, returning the
-    candidate items (id/name/lastname). Bounded by ``max_pages`` so a very
-    broad search can't make one scan unbounded."""
+    candidate items (id/name/lastname) and whether the pager stopped at
+    ``max_pages`` before the last page (``True`` = the tail was NOT scanned)."""
+    if max_pages is None:
+        max_pages = _MAX_PAGES
     items: list[dict] = []
     headers = {"Authorization": f"Bearer {token}"}
     for page in range(1, max_pages + 1):
@@ -190,13 +198,12 @@ async def _replay_match_items(
         batch = data.get("items") or []
         items.extend(batch)
         if len(batch) < _PAGE_SIZE:
-            break
-    else:
-        logger.warning(
-            "saved_search_alerts: hit max_pages=%d — broad search, tail not scanned",
-            max_pages,
-        )
-    return items
+            return items, False
+    logger.warning(
+        "saved_search_alerts: hit max_pages=%d — broad search, tail not scanned",
+        max_pages,
+    )
+    return items, True
 
 
 async def _logged_candidate_ids(db, search_id: int, ids: list[int]) -> set[int]:
@@ -261,11 +268,18 @@ async def _baseline_one(client, db, ss, owner) -> None:
     scan_start = datetime.now(timezone.utc)
     base_params = build_base_params(api_params)
     if _skip_reversed_range(ss.id, base_params):
-        items = []
+        items, truncated = [], False
     else:
-        items = await _replay_match_items(client, token, base_params)
+        items, truncated = await _replay_match_items(client, token, base_params)
     ids = [int(it["id"]) for it in items]
     await _log_candidates(db, ss.id, ids, notified_at=None)
+    if truncated:
+        # Runda 8 (R8-N10-3): niepełna linia bazowa dałaby później fałszywe
+        # „nowe" trafienia z nieobejrzanego ogona — zapis zostaje bez znaku
+        # wodnego, a następny przebieg dosieje resztę (dziennik jest
+        # idempotentny, alertów nie ma).
+        await db.flush()
+        return
     ss.last_scanned_at = scan_start
     await db.flush()
     logger.info(
@@ -303,14 +317,19 @@ async def _incremental_one(client, db, ss, owner) -> bool:
     # nie rusza `candidates.updated_at`, a słowa kluczowe przeszukują notatki.
     params["changed_after"] = ss.last_scanned_at.isoformat()
     if _skip_reversed_range(ss.id, params):
-        items = []
+        items, truncated = [], False
     else:
-        items = await _replay_match_items(client, token, params)
+        items, truncated = await _replay_match_items(client, token, params)
 
     # Advance the watermark even when nothing new — a quiet pass still moves
     # time forward so the next run's window starts here (at-least-once: we use
     # scan_start captured before the query, so rows touched mid-scan re-appear).
-    ss.last_scanned_at = scan_start
+    # Runda 8 (R8-N10-3): NIE przesuwamy go, gdy przyrost nie obejrzał ogona —
+    # ucięte osoby wróciłyby dopiero przy kolejnej swojej zmianie (czyli
+    # nigdy). Obejrzane teraz trafienia i tak trafiają do dziennika, więc
+    # powtórka okna nie alarmuje o nich drugi raz.
+    if not truncated:
+        ss.last_scanned_at = scan_start
 
     if not items:
         await db.flush()
@@ -372,11 +391,80 @@ async def _incremental_one(client, db, ss, owner) -> bool:
     return True
 
 
-async def scan_once() -> int:
+def _alert_rows_query(search_ids: Optional[list[int]] = None):
+    from app.models.saved_search import SavedSearch
+    from app.models.user import User
+
+    query = (
+        select(SavedSearch, User)
+        .join(User, User.id == SavedSearch.user_id)
+        .where(
+            SavedSearch.notify_new_matches.is_(True),
+            SavedSearch.requires_reapproval.is_(False),
+            SavedSearch.entity.in_(("candidate", "candidates")),
+            User.is_active.is_(True),
+        )
+        .order_by(SavedSearch.id)
+    )
+    if search_ids is not None:
+        query = query.where(SavedSearch.id.in_(search_ids))
+    return query
+
+
+async def _scan_search(client, search_id: int) -> bool:
+    """Jeden zapis we WŁASNEJ sesji. Zwraca True, gdy poszło powiadomienie.
+
+    Runda 8 (R8-N10-1): do tej rundy wszystkie zapisy szły jedną sesją,
+    a ``rollback()`` po awarii jednego wygaszał obiekty WSZYSTKICH. Kolejna
+    iteracja czytała wygasły ``ss.filters`` (MissingGreenlet), a log błędu
+    czytał ``ss.id`` — i ten wyjątek wychodził już poza ``except``, kończąc
+    przebieg. Jeden trwale zepsuty zapis (odebrana sekcja właściciela, stary
+    ``q`` z jednym znakiem) zatrzymywał alerty wszystkich zapisów o wyższym id.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.services.candidate_monthly_rate_retirement import (
+        sanitize_candidate_saved_search,
+    )
+
+    async with AsyncSessionLocal() as db:
+        row = (await db.execute(_alert_rows_query([search_id]))).first()
+        if row is None:
+            # Alert wyłączony albo właściciel dezaktywowany po liście przebiegu.
+            return False
+        ss, owner = row
+        # Defense in depth for deployments where a historic migration was
+        # skipped: never replay a retired monthly criterion as a broader
+        # search. Quarantine the alert and require the owner to approve the
+        # sanitized remainder.
+        sanitized_filters, retired_criteria_removed = sanitize_candidate_saved_search(
+            ss.filters or {}
+        )
+        if retired_criteria_removed:
+            ss.filters = sanitized_filters
+            ss.notify_new_matches = False
+            ss.requires_reapproval = True
+            await db.commit()
+            logger.warning(
+                "saved_search_alerts: disabled search %s with "
+                "retired candidate monthly-rate criteria",
+                search_id,
+            )
+            return False
+        notified = False
+        if ss.last_scanned_at is None:
+            await _baseline_one(client, db, ss, owner)
+        else:
+            notified = await _incremental_one(client, db, ss, owner)
+        await db.commit()
+        return notified
+
+
+async def scan_once(search_ids: Optional[list[int]] = None) -> int:
     """One scanner pass over all alert-enabled candidate searches.
 
     Returns the number of searches that produced a notification (baseline runs
-    do not count — they only seed).
+    do not count — they only seed). ``search_ids`` zawęża przebieg (testy na
+    wspólnej bazie).
     """
     from httpx import ASGITransport, AsyncClient
 
@@ -385,64 +473,34 @@ async def scan_once() -> int:
     # Deferred import — main.py imports this module inside lifespan, so a
     # top-level `from app.main import app` would be circular.
     from app.main import app
-    from app.models.saved_search import SavedSearch
-    from app.models.user import User
-    from app.services.candidate_monthly_rate_retirement import (
-        sanitize_candidate_saved_search,
-    )
+
+    async with AsyncSessionLocal() as db:
+        # Same id jako zwykłe liczby — obiekty z tej sesji nie przeżywają
+        # rollbacku ani zamknięcia sesji.
+        ids = [
+            int(ss.id)
+            for ss, _owner in (await db.execute(_alert_rows_query(search_ids))).all()
+        ]
+    if not ids:
+        return 0
 
     notified = 0
-    async with AsyncSessionLocal() as db:
-        rows = (
-            await db.execute(
-                select(SavedSearch, User)
-                .join(User, User.id == SavedSearch.user_id)
-                .where(
-                    SavedSearch.notify_new_matches.is_(True),
-                    SavedSearch.requires_reapproval.is_(False),
-                    SavedSearch.entity.in_(("candidate", "candidates")),
-                    User.is_active.is_(True),
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://saved-search-scanner"
+    ) as client:
+        for search_id in ids:
+            try:
+                if await _scan_search(client, search_id):
+                    notified += 1
+            except Exception as e:  # noqa: BLE001 — isolate per-search failures
+                # Klasa + kod HTTP, nie `str(e)`: komunikat httpx niesie adres
+                # z parametrami zapisu (słowa kluczowe, nazwiska).
+                logger.warning(
+                    "saved_search_alerts: search %s failed: %s (http %s)",
+                    search_id,
+                    type(e).__name__,
+                    getattr(getattr(e, "response", None), "status_code", None),
                 )
-                .order_by(SavedSearch.id)
-            )
-        ).all()
-        if not rows:
-            return 0
-
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://saved-search-scanner"
-        ) as client:
-            for ss, owner in rows:
-                try:
-                    # Defense in depth for deployments where a historic
-                    # migration was skipped: never replay a retired monthly
-                    # criterion as a broader search. Quarantine the alert and
-                    # require the owner to approve the sanitized remainder.
-                    sanitized_filters, retired_criteria_removed = (
-                        sanitize_candidate_saved_search(ss.filters or {})
-                    )
-                    if retired_criteria_removed:
-                        ss.filters = sanitized_filters
-                        ss.notify_new_matches = False
-                        ss.requires_reapproval = True
-                        await db.commit()
-                        logger.warning(
-                            "saved_search_alerts: disabled search %s with "
-                            "retired candidate monthly-rate criteria",
-                            ss.id,
-                        )
-                        continue
-                    if ss.last_scanned_at is None:
-                        await _baseline_one(client, db, ss, owner)
-                    elif await _incremental_one(client, db, ss, owner):
-                        notified += 1
-                    # Commit per search so one failure can't roll back the rest.
-                    await db.commit()
-                except Exception as e:  # noqa: BLE001 — isolate per-search failures
-                    logger.warning(
-                        "saved_search_alerts: search %s failed: %s", ss.id, e
-                    )
-                    await db.rollback()
     return notified
 
 
