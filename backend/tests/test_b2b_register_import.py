@@ -800,3 +800,94 @@ def test_import_and_rollback_lock_register_rows():
 
     assert "with_for_update()" in inspect.getsource(service._apply)
     assert "with_for_update()" in inspect.getsource(service.rollback_run)
+
+
+# ── Runda 8 audytu (V1) ──────────────────────────────────────────────────────
+
+
+async def _annex_flag(generator_id: int) -> bool:
+    async with AsyncSessionLocal() as db:
+        fresh = await db.get(B2BGeneratedContract, generator_id)
+    return fresh.needs_business_data_annex
+
+
+async def test_done_or_removed_annex_clears_the_flag_on_a_nexus_contract(
+    app_client, app_auth_headers
+):
+    """R8-V1-2: flaga postawiona przez import na umowie z NEXUSA schodzi, gdy
+    dział oznaczy aneks jako zrobiony albo osoby nie ma już w arkuszu."""
+    base, tag = _base(), _tag()
+    done_id = await _generator_row(base, f"Gosia {tag}a")
+    gone_id = await _generator_row(base + 1, f"Hania {tag}b")
+    rows = [
+        contract_row(f"{tag}a Gosia", base, signing=date(2026, 5, 1)),
+        contract_row(f"{tag}b Hania", base + 1, signing=date(2026, 5, 2)),
+    ]
+    first = build_register(
+        rows,
+        no_business=[
+            no_business_row(f"Gosia {tag}a", date(2026, 5, 4)),
+            no_business_row(f"Hania {tag}b", date(2026, 5, 5)),
+        ],
+    )
+    body = await _preview_and_apply(app_client, app_auth_headers, first)
+    assert body["counters"]["generator_annex_flagged"] == 2
+    assert await _annex_flag(done_id) and await _annex_flag(gone_id)
+
+    second = build_register(
+        rows,
+        no_business=[
+            no_business_row(f"Gosia {tag}a", date(2026, 5, 4), annex=None, green=True)
+        ],
+    )
+    body = await _preview_and_apply(app_client, app_auth_headers, second)
+    assert body["counters"]["annex_cleared"] == 2
+    assert not await _annex_flag(done_id)
+    assert not await _annex_flag(gone_id)
+    queue = await app_client.get(
+        f"{BASE}/generated",
+        headers=app_auth_headers,
+        params={"business_data_annex_pending": "true", "q": tag},
+    )
+    assert queue.status_code == 200, queue.text
+    assert queue.json() == []
+
+    # Cofnięcie przebiegu, który zdjął flagi, przywraca je.
+    resp = await app_client.post(
+        f"{IMPORT}/runs/{body['run_id']}/rollback", headers=app_auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+    assert await _annex_flag(done_id) and await _annex_flag(gone_id)
+
+
+async def test_legacy_excel_duplicate_of_a_nexus_number_is_marked_missing(
+    app_client, app_auth_headers
+):
+    """R8-V1-7: wiersz z Excela zapisany kluczem legacy („1517/2026”) obok
+    umowy z NEXUSA o tym numerze nie jest „obecny w pliku” na zawsze."""
+    base, tag = _base(), _tag()
+    await _generator_row(base, f"Iga {tag}")
+    async with AsyncSessionLocal() as db:
+        duplicate = B2BGeneratedContract(
+            source="excel",
+            source_key=f"n:{base}/2026",
+            contract_number=f"{base}/2026",
+            raw_contract_number=f"{base}/2026",
+            partner_name=f"Iga {tag}",
+            client_name="Klient Testowy",
+            language="pl",
+            signature_status="signed_both",
+            contract_status="active",
+        )
+        db.add(duplicate)
+        await db.commit()
+        await db.refresh(duplicate)
+        duplicate_id = duplicate.id
+    payload = build_register(
+        [contract_row(f"{tag} Iga", f"{base}/2026", signing=date(2026, 5, 1))]
+    )
+    body = await _preview_and_apply(app_client, app_auth_headers, payload)
+    assert body["counters"]["generator_matches"] == 1
+    async with AsyncSessionLocal() as db:
+        fresh = await db.get(B2BGeneratedContract, duplicate_id)
+    assert fresh.excel_missing_since is not None
