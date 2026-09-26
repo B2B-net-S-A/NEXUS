@@ -51,6 +51,7 @@ from app.services.access_scope import (
 )
 from app.services.client_identity import client_display_name_expression
 from app.services.polish_ilike import polish_folded_ilike
+from app.services.client_access import assert_client_assignable
 
 router = APIRouter()
 
@@ -210,6 +211,9 @@ async def create_conflict(
     client = await db.scalar(select(Client.id).where(Client.id == data.client_id))
     if not client:
         raise HTTPException(status_code=404, detail="Klient nie istnieje.")
+    # Runda 7 (R7-X5-4, bliźniak): konflikt z usuniętym albo scalonym klientem
+    # nie działałby na żadnej rekrutacji — wskaż rekord główny.
+    await assert_client_assignable(db, data.client_id)
 
     now = datetime.now(timezone.utc)
     if data.type == ConflictType.nda and data.expires_at is None:

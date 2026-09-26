@@ -2417,6 +2417,10 @@ async def generate(
             )
         if await db.get(Client, payload.client_id) is None:
             raise HTTPException(status_code=404, detail="Klient nie został znaleziony.")
+        # Runda 7 (R7-X5-4, bliźniak): reguły CV żyją na rekordzie głównym.
+        from app.services.client_access import assert_client_assignable
+
+        await assert_client_assignable(db, payload.client_id)
         client_id = payload.client_id
 
     from app.services.cv_generator_b2b.request_receipts import reserve_request
