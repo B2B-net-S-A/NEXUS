@@ -5602,6 +5602,13 @@ fail-closed:
   rozpoznany dopiero przy ponownej weryfikacji nie dostaje trwałego powodu
   „odczyt sprzed zmiany reguły”. Ręczne „Zastosuj” odmawia wiersza ze stawką
   bez jednostki (audyt 24.09.2026).
+- **PFRON: jawne „netto” przy stawce wygrywa z regułą brutto** (decyzja Artura
+  26.09.2026, runda 6 audytu). `pfron_extract_rows` czyta oznaczenie przy
+  stawce (etykieta, nawias, słowo za kwotą — `_pfron_rate_marking`): samo
+  „netto” = kwota bez ÷ 1,23; brak oznaczenia albo „brutto” = ÷ 1,23 jak
+  dotąd; oba słowa naraz = ÷ 1,23, ale wiersz niepewny („Sprzeczne
+  oznaczenie stawki…”), więc dokument idzie do człowieka. `rule_version`
+  PFRON = „2026-09-26”.
 - **„Brak liczby MD" nie jest zastrzeżeniem ODCZYTU — o wymaganych polach decyduje
   typ zamówienia** (ticket Polkomtel 09.2026). Model czyta PDF bez wiedzy o typie
   i przy zamówieniu kosztowym zgłaszał „brak informacji o liczbie MD". Trzy warstwy:

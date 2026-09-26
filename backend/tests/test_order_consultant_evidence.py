@@ -202,8 +202,67 @@ async def test_pfron_plan_and_gate_pass_real_registered_extractor(monkeypatch):
     assert row.proposal["rows"][0]["candidate_id"] == 1
 
 
-@pytest.mark.parametrize("marking", ["", "netto brutto", "brutto netto"])
-def test_pfron_labelled_rate_always_uses_requested_gross_rule(marking):
-    rows = pfron_extract_rows(TEXT.replace("brutto", marking))
+def test_pfron_labelled_rate_without_marking_uses_the_gross_rule():
+    rows = pfron_extract_rows(TEXT.replace("brutto", ""))
     assert not rows[0].uncertain
     assert rows[0].rate_client == Decimal("120.00")
+    assert rows[0].rate_client_gross == Decimal("147.60")
+
+
+@pytest.mark.parametrize("marking", ["netto brutto", "brutto netto", "brutto/netto"])
+def test_pfron_contradictory_marking_keeps_gross_rule_but_goes_to_review(marking):
+    # Do rundy 6 audytu sprzeczne „netto brutto” przechodziło jako pewne ÷ 1,23.
+    # Decyzja Artura 26.09.2026: sprzeczność oznaczeń idzie do sprawdzenia —
+    # kwota zostaje przeliczona jak dotąd (reguła brutto PFRON), ale wiersz
+    # jest niepewny, więc bramka poczty odsyła dokument do człowieka.
+    text = TEXT.replace("brutto", marking)
+    rows = pfron_extract_rows(text)
+    assert rows[0].uncertain
+    assert "brutto i netto" in (rows[0].uncertain_reason or "")
+    assert rows[0].rate_client == Decimal("120.00")
+
+    # Cała polityka (także rozpoznanie rodzaju stawki na końcu) nie wycisza
+    # sprzeczności.
+    result = apply_pfron_order_policy(
+        OrderExtraction(rate_client=Decimal("147.60"), rate_unit="hour"),
+        text,
+        filename="Zlecenie nr 31 Krzysztof Pala.pdf",
+    )
+    assert result.consultant_rows[0].uncertain
+    assert result.rate_client == Decimal("120.00")
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        TEXT.replace("brutto", "netto"),
+        TEXT.replace("zł brutto", "zł").replace("Stawka za", "Stawka netto za"),
+        TEXT.replace("zł brutto", "zł").replace(
+            "(zgodna z Ofertą Wykonawcy)", "(netto, zgodna z Ofertą Wykonawcy)"
+        ),
+    ],
+)
+def test_pfron_explicit_net_rate_is_not_divided(text):
+    # Runda 6 audytu, decyzja Artura 26.09.2026: jawne „netto” przy stawce
+    # wygrywa z regułą brutto PFRON — do tej pory 147,60 zł netto trafiało
+    # do bazy jako 120,00.
+    (row,) = pfron_extract_rows(text)
+    assert not row.uncertain
+    assert row.rate_client == Decimal("147.60")
+    assert row.rate_client_gross is None
+
+    result = apply_pfron_order_policy(
+        OrderExtraction(rate_client=Decimal("147.60"), rate_unit="hour"),
+        text,
+        filename="Zlecenie nr 31 Krzysztof Pala.pdf",
+    )
+    assert result.rate_client == Decimal("147.60")
+    assert result.rate_client_gross is None
+    assert result.consultant_rows[0].rate_client == Decimal("147.60")
+    assert not result.consultant_rows[0].uncertain
+
+
+def test_pfron_rule_version_was_bumped_for_the_net_decision():
+    # Nowa reguła → nowa wersja: zapisany odczyt przeczytany starą regułą
+    # (÷ 1,23 mimo „netto”) ma stempel innej wersji.
+    assert policy_by_key("pfron").rule_version >= "2026-09-26"

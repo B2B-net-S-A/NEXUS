@@ -346,7 +346,9 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         rate_unit_default="hour",
         document_period_authoritative=True,
         # 22.09.2026: okres z dokumentu wiążący (FIN-MAIL-03).
-        rule_version="2026-09-22",
+        # 26.09.2026: jawne „netto" przy stawce bez ÷ 1,23, sprzeczne
+        # oznaczenie do sprawdzenia (runda 6 audytu, decyzja Artura).
+        rule_version="2026-09-26",
     ),
     OrderClientPolicy(
         key="erste",
