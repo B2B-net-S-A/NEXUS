@@ -3181,12 +3181,39 @@ async def export_candidates_v2(
                     f"{payload.limit}. Narrow the filters or raise the limit."
                 ),
             )
-        query = _apply_candidate_sort(
-            query,
-            export_filters,
-            q_any_groups,
-            pool_order=export_pool.ids if export_pool is not None else None,
-        )
+        # „Dopasowanie” (runda 6 audytu): plik ma kolejność ekranu — ta sama
+        # funkcja co lista (`_list_page_match`). `_apply_requested_sort` nie
+        # zna „match”, więc eksport wychodził od najnowszych. Brak wektora
+        # albo przełącznik OFF = „najnowsi”, jak na liście.
+        match_ids = None
+        if export_filters.sort == "match":
+            if settings.CANDIDATE_MATCH_SORT:
+                from app.services import candidate_match_order
+
+                match_ids = await candidate_match_order.ordered_ids(
+                    db,
+                    current_user,
+                    export_filters,
+                    query.with_only_columns(Candidate.id),
+                    q_any_groups,
+                    _sort_prefix_exprs(export_filters),
+                )
+            if match_ids is None:
+                export_filters = export_filters.model_copy(update={"sort": "newest"})
+        if match_ids is not None:
+            query = query.order_by(
+                func.array_position(
+                    literal(list(match_ids), type_=ARRAY(Integer)), Candidate.id
+                ).asc(),
+                Candidate.id.asc(),
+            )
+        else:
+            query = _apply_candidate_sort(
+                query,
+                export_filters,
+                q_any_groups,
+                pool_order=export_pool.ids if export_pool is not None else None,
+            )
 
     # Immutable audit — scope + format only, no PII / filter values.
     candidate_audit.record_candidate_audit(
