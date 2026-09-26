@@ -64,6 +64,37 @@ async def assign_primary_cc_if_empty(candidate: Candidate, db: AsyncSession) -> 
         logger.warning("[cv_cc] classify failed candidate=%s: %s", candidate.id, exc)
 
 
+async def _without_taken_email(
+    db: AsyncSession, candidate: Candidate, parsed: dict[str, Any]
+) -> dict[str, Any]:
+    """Pomiń e-mail z CV, który należy już do innej osoby (runda 6 audytu).
+
+    ``candidates.email`` jest UNIQUE. FILL_EMPTY wpisywał adres z CV do pustego
+    pola, a gdy ten sam adres miał już inny kandydat, flush padał i cofał
+    cały zapis profilu (w pętli CV z maila — co kilka sekund, płatnie). Ta sama
+    ochrona stoi w biegach masowych (``cv_backfill``, ``cv_field_backfill``).
+    """
+    from sqlalchemy import func, select
+
+    from app.services.cv_enrichment import _is_blank_name
+
+    email = str(parsed.get("email") or "").strip().lower()
+    if not email or not _is_blank_name(getattr(candidate, "email", None)):
+        return parsed
+    clash = await db.scalar(
+        select(Candidate.id)
+        .where(func.lower(Candidate.email) == email, Candidate.id != candidate.id)
+        .limit(1)
+    )
+    if clash is None:
+        return parsed
+    logger.info(
+        "[cv_ingest] candidate=%s: e-mail z CV należy do innego kandydata — pominięty",
+        candidate.id,
+    )
+    return {k: v for k, v in parsed.items() if k != "email"}
+
+
 async def finish_cv_ingest(
     db: AsyncSession,
     *,
@@ -88,6 +119,7 @@ async def finish_cv_ingest(
     from app.services.match_score_cache import mark_stale_for_candidate
     from app.services.profile_projection import replace_skill_usage
 
+    parsed = await _without_taken_email(db, candidate, parsed)
     written = _apply_cv_enrichment(
         candidate,
         parsed,
