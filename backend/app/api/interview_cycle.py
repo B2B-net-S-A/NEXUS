@@ -686,7 +686,9 @@ async def confirm_slot(
     )
     await interview_slots.notify(
         db,
-        user_id=req.recruiter_id,
+        # Właściciel rozmowy, nie surowy rekruter wniosku — ten mógł odejść
+        # przed potwierdzeniem (runda 6 audytu).
+        user_id=event.operational_owner_id,
         ntype=NotificationType.interview_slot_confirmed,
         req=req,
         title="Rozmowa u klienta potwierdzona",

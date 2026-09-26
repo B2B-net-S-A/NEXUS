@@ -22,7 +22,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.calendar_event import CalendarEvent, EventStatus, EventType
@@ -248,13 +248,23 @@ async def confirm(
     candidate = await db.get(Candidate, req.candidate_id)
     job = await db.get(Job, req.job_id)
     title = _interview_title(candidate, job)
-    owner = req.recruiter_id or user_id
+    # Rekruter wniosku sprawdzany JESZCZE RAZ przy potwierdzeniu (runda 6
+    # audytu): między wyborem a potwierdzeniem mógł odejść z firmy albo stracić
+    # dostęp do rekrutacji — rozmowa, telefon T+15 i debrief lądowały wtedy
+    # u osoby, której nie ma. Zamiast niego ta sama podpowiedź co przy
+    # zakładaniu wniosku, a bez nikogo — potwierdzający.
+    recruiter = req.recruiter_id
+    if recruiter and not await slot_recruiter_eligible(db, recruiter, req.job_id):
+        recruiter = await default_recruiter_id(
+            db, candidate_id=req.candidate_id, job_id=req.job_id
+        )
+    owner = recruiter or user_id
 
     outlook = "not_requested"
     event: Optional[CalendarEvent] = None
-    if add_to_outlook and req.recruiter_id:
+    if add_to_outlook and recruiter:
         event, outlook = await _create_in_outlook(
-            db, owner_id=req.recruiter_id, title=title, start=start, end=end
+            db, owner_id=recruiter, title=title, start=start, end=end
         )
     if event is None:
         event = CalendarEvent(
@@ -277,12 +287,92 @@ async def confirm(
     event.reminder_minutes = 15
     event.description = _interview_description(req)
     await db.flush()
+    await _cancel_superseded_interviews(db, req, keep_event_id=event.id)
 
     req.status = SLOT_STATUS_CONFIRMED
     req.confirmed_at = datetime.now(timezone.utc)
     req.confirmed_by = user_id
     req.event_id = event.id
     return event, outlook
+
+
+async def _cancel_superseded_interviews(
+    db: AsyncSession, req: ClientInterviewSlotRequest, *, keep_event_id: int
+) -> int:
+    """Nowy potwierdzony termin zastępuje NIEODBYTĄ rozmowę tej pary.
+
+    Klient przełożył rozmowę → DL potwierdza nowy termin. Stara rozmowa
+    zostawała ``scheduled``: po jej godzinie przychodziły telefony T+15/T+45
+    i eskalacja T+2h o rozmowie, której nie było, a prepy liczyły się do
+    starej rundy i nowa rozmowa pokazywała „brak prepu” (runda 6 audytu).
+    Prep nie ma powiązania z rozmową — należy do tej, przed którą wypada
+    (``interview_cycle.load_snapshots``), więc odwołanie starej wystarcza,
+    żeby prepy przeszły do nowej.
+
+    Odwołujemy tylko przyszłe ``scheduled`` — rozmowa, która już się
+    zaczęła, mogła się odbyć (auto-zakończenie przestawi ją na ``completed``)
+    — i tylko rozmowy założone przez NEXUS: wpis wyłącznie w NEXUSIE albo
+    wydarzenie potwierdzonego wcześniej wniosku (blokada bez uczestników
+    w Outlooku rekrutera, zdejmowana jak w „Odwołaj”). Cudzego spotkania
+    z Outlooka z uczestnikami (np. klientem) nie odwołujemy — to wysłałoby
+    odwołanie ludziom spoza firmy. Awaria Outlooka nie blokuje potwierdzenia.
+    """
+    from app.services.m365.calendar import M365_SOURCE
+
+    now = datetime.now(timezone.utc)
+    confirmed_events = select(ClientInterviewSlotRequest.event_id).where(
+        ClientInterviewSlotRequest.candidate_id == req.candidate_id,
+        ClientInterviewSlotRequest.job_id == req.job_id,
+        ClientInterviewSlotRequest.event_id.isnot(None),
+    )
+    stale = (
+        await db.scalars(
+            select(CalendarEvent)
+            .where(
+                CalendarEvent.candidate_id == req.candidate_id,
+                CalendarEvent.job_id == req.job_id,
+                CalendarEvent.event_type == EventType.client_interview,
+                CalendarEvent.status == EventStatus.scheduled,
+                CalendarEvent.start_time > now,
+                CalendarEvent.id != keep_event_id,
+                or_(
+                    CalendarEvent.external_source.is_distinct_from(M365_SOURCE),
+                    CalendarEvent.id.in_(confirmed_events),
+                ),
+            )
+            .with_for_update()
+        )
+    ).all()
+    for old in stale:
+        await _cancel_outlook_copy(db, old)
+        old.status = EventStatus.cancelled
+    if stale:
+        await db.flush()
+    return len(stale)
+
+
+async def _cancel_outlook_copy(db: AsyncSession, event: CalendarEvent) -> None:
+    from app.models.m365 import M365Connection
+    from app.services.m365.calendar import M365_SOURCE, cancel_graph_event
+
+    if event.external_source != M365_SOURCE or not event.external_id:
+        return
+    if event.created_by is None:
+        return
+    conn = await db.scalar(
+        select(M365Connection).where(M365Connection.user_id == event.created_by)
+    )
+    if conn is None or not conn.is_active:
+        return
+    try:
+        async with db.begin_nested():
+            await cancel_graph_event(db, conn, event.external_id)
+    except Exception as exc:  # noqa: BLE001 — Graph, token, sieć
+        logger.warning(
+            "interview slots: superseded interview %s not cancelled in Outlook (%s)",
+            event.id,
+            type(exc).__name__,
+        )
 
 
 def _interview_title(candidate: Optional[Candidate], job: Optional[Job]) -> str:

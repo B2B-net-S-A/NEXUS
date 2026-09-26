@@ -114,9 +114,7 @@ async def load_prep_attention(
                 # sprawa szła na surowe `delivery_lead_id`/`recruiter_id`,
                 # także na konto osoby, która odeszła.
                 owner = (
-                    await suggest_organizer_id(
-                        db, job=job, candidate_id=cid, prep_no=n
-                    )
+                    await suggest_organizer_id(db, job=job, candidate_id=cid, prep_no=n)
                     if job is not None
                     else None
                 )

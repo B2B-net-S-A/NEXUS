@@ -242,9 +242,7 @@ async def _review_notices(
         for recipient in await route(lead_id):
             if state == "client_silent":
                 silent_by_lead.setdefault(recipient, []).append(job_id)
-            bucket = per_lead.setdefault(
-                recipient, {"new": 0, "silent": 0, "stale": 0}
-            )
+            bucket = per_lead.setdefault(recipient, {"new": 0, "silent": 0, "stale": 0})
             bucket["new" if state == "to_review" else "silent"] += 1
 
     # W poniedziałek: „Szukamy” bez żadnego ruchu rekrutera od 30 dni.

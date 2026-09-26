@@ -847,7 +847,9 @@ async def _post_interview_recipients(
         recipients.append(recruiter)
     if client_side and job and job.delivery_lead_id:
         recipients.extend(
-            uid for uid in await _delivery_lead_targets(db, job) if uid not in recipients
+            uid
+            for uid in await _delivery_lead_targets(db, job)
+            if uid not in recipients
         )
     if not recipients:
         # Fallback: twórca eventu, jeśli nie ma aktywnego rekrutera.
