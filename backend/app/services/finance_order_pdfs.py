@@ -26,8 +26,9 @@ klienta, a nazwisko dopisuje Finanse ręcznie.
 
 from __future__ import annotations
 
-import io
+import os
 import re
+import tempfile
 import unicodedata
 import zipfile
 from dataclasses import dataclass
@@ -553,22 +554,52 @@ def month_zip_name(year: int, month: int) -> str:
     return f"Zamowienia_{year}-{month:02d}.zip"
 
 
-def build_zip(
+def build_zip_file(
     files: list[tuple[OrderPdfEntry, Optional[str]]],
     *,
     client_folders: bool,
-) -> bytes:
-    """Archiwum z plikami ``(wpis, ścieżka bezwzględna | None)``.
+) -> str:
+    """Archiwum z plikami ``(wpis, ścieżka bezwzględna | None)`` — ścieżka pliku.
+
+    ZIP powstaje w pliku tymczasowym, nie w pamięci (runda 6 audytu): wersja
+    z ``BytesIO`` + ``getvalue()`` trzymała archiwum dwa razy naraz w jedynym
+    procesie uvicorna, a miesiąc PDF-ów bywa duży. Wołający oddaje plik
+    strumieniem i USUWA go po wysłaniu (``BackgroundTask``); przy błędzie
+    budowy plik jest usuwany tutaj.
 
     Plik, którego nie ma na dysku, nie wywraca archiwum: jego nazwa trafia do
     ``BRAKUJACE_PLIKI.txt`` — pusty ZIP bez wyjaśnienia wyglądałby jak
     kompletny.
     """
 
-    buffer = io.BytesIO()
+    handle = tempfile.NamedTemporaryFile(
+        prefix="zamowienia-", suffix=".zip", delete=False
+    )
+    try:
+        with handle:
+            _write_zip(handle, files, client_folders=client_folders)
+    except BaseException:
+        remove_file_quietly(handle.name)
+        raise
+    return handle.name
+
+
+def remove_file_quietly(path: str) -> None:
+    try:
+        os.unlink(path)
+    except FileNotFoundError:
+        pass
+
+
+def _write_zip(
+    target,
+    files: list[tuple[OrderPdfEntry, Optional[str]]],
+    *,
+    client_folders: bool,
+) -> None:
     used: set[str] = set()
     missing: list[str] = []
-    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+    with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for entry, path in files:
             name = zip_member_name(entry)
             if client_folders:
@@ -591,7 +622,6 @@ def build_zip(
                 + "\n".join(missing)
                 + "\n",
             )
-    return buffer.getvalue()
 
 
 # ── Pobrania per osoba ──────────────────────────────────────────────────────
