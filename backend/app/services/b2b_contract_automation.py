@@ -852,6 +852,12 @@ async def ensure_b2b_employment_draft(
             ),
         )
 
+    # Runda 8 (R8-V1-1): podpis nie zakłada ani nie aktywuje kontraktu
+    # u klienta usuniętego albo scalonego — lustro zakładania kontraktu
+    # (`assert_client_assignable`, R7-X5-4).
+    from app.services.client_access import assert_client_assignable
+
+    await assert_client_assignable(db, job.client_id)
     created_contract = not contracts
     skeletal_pipeline_draft = False
     acknowledged_conflicts: tuple[str, ...] = ()

@@ -36,6 +36,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.scheduling import business_today
 from app.models.activity import Activity
+from app.models.client import Client
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.client_order_group import (
     GROUP_STATUS_ACTIVE,
@@ -65,6 +66,7 @@ from app.models.dl_alert import (
 )
 from app.models.order_change_event import FIELD_END_DATE, OrderChangeEvent
 from app.services.b2b_contract_end_date import is_b2b
+from app.services.client_identity import client_display_name
 from app.services.client_order_lines import (
     consultant_display_name,
     recompute_remaining,
@@ -538,6 +540,27 @@ async def _add_blockers(db: AsyncSession, plan: ReversalPlan) -> None:
             {
                 "code": "contract_void",
                 "message": "Kontrakt jest unieważniony — nie ma czego przywracać.",
+            }
+        )
+    # Runda 8 (R8-V1-1): klient usunięty albo scalony nie ma profilu ani
+    # rejestru — przywrócony kontrakt i zamówienia liczyłyby się do MRR
+    # u klienta, którego nikt nie widzi.
+    client = await db.scalar(select(Client).where(Client.id == contract.client_id))
+    if client is not None and (
+        client.deleted_at is not None or client.merged_into_client_id is not None
+    ):
+        plan.blockers.append(
+            {
+                "code": (
+                    "client_deleted"
+                    if client.deleted_at is not None
+                    else "client_merged"
+                ),
+                "message": (
+                    f"Klient „{client_display_name(client)}” został "
+                    + ("usunięty" if client.deleted_at is not None else "scalony")
+                    + " — zakończenia kontraktu tego klienta nie da się cofnąć."
+                ),
             }
         )
     # Umowa, która wróciłaby „Aktywna” albo „Kończąca się” z MINIONĄ datą

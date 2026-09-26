@@ -71,6 +71,32 @@ class ExecutiveContractConflict(ValueError):
     """Odmowa, którą router zgłasza jako 409 (stan danych, nie błąd payloadu)."""
 
 
+async def inheritable_executive_contract_id(
+    db: AsyncSession, executive_contract_id: Optional[int]
+) -> Optional[int]:
+    """Umowa wykonawcza do odziedziczenia przez NOWE zamówienie — tylko aktywna.
+
+    Runda 8 (R8-N6-5): powrót po przerwie (przycisk i mail) kopiował umowę
+    wykonawczą poprzedniego zamówienia bez sprawdzenia, czy trwa. Umowę
+    zakończoną po zamknięciu poprzedniego zamówienia (guard zakończenia liczy
+    tylko żywe zamówienia) dostawało wtedy żywe zamówienie, czego każda inna
+    ścieżka (``resolve_ezdrowie_assignment``) odmawia. Zakończona = puste pole,
+    a zamówienie trafia do przeglądu „Nieprzypisani”.
+    """
+    if executive_contract_id is None:
+        return None
+    status = await db.scalar(
+        select(ClientExecutiveContract.status).where(
+            ClientExecutiveContract.id == executive_contract_id
+        )
+    )
+    return (
+        executive_contract_id
+        if status == EXECUTIVE_CONTRACT_STATUS_ACTIVE
+        else None
+    )
+
+
 def executive_brief(executive: ClientExecutiveContract) -> ExecutiveContractBrief:
     """Wymaga załadowanej relacji ``framework_contract`` (część jest z niej)."""
     framework = executive.framework_contract

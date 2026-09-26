@@ -38,6 +38,7 @@ from app.models.client_order_group import (
     ClientOrderGroup,
 )
 from app.models.contract import Contract, ContractStatus, RateUnit
+from app.services.client_access import assert_client_assignable
 from app.services.client_order_lines import consultant_display_name, record_event
 from app.services.multi_consultant_orders import (
     EVENT_CONSULTANT_ADDED,
@@ -122,6 +123,9 @@ async def create_return_after_break(
             "„Cofnij zakończenie”.",
             "contract_not_ended",
         )
+    # Runda 8 (R8-V1-1): nowy kontrakt u klienta usuniętego albo scalonego
+    # byłby niewidoczny w każdym rejestrze, a liczyłby się do MRR.
+    await assert_client_assignable(db, previous.client_id)
     already = await existing_return(db, previous.id)
     if already is not None:
         raise _conflict(
@@ -248,7 +252,10 @@ async def create_return_after_break(
             currency=old.currency or "PLN",
             rate_client_currency=old.rate_client_currency or "PLN",
             rate_candidate_currency=old.rate_candidate_currency or "PLN",
-            executive_contract_id=old.executive_contract_id,
+            # Runda 8 (R8-N6-5): zakończona umowa wykonawcza nie przechodzi.
+            executive_contract_id=await inheritable_executive_contract_id(
+                db, old.executive_contract_id
+            ),
             project_part=old.project_part,
             created_by_user_id=actor_id,
             notes=(

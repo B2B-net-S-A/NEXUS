@@ -267,6 +267,10 @@ async def _renewal_of_completed_order(
     utrwalonego), więc warunki planera sprawdzamy jeszcze raz — odmowa kończy
     zapis całego dokumentu i odsyła go do weryfikacji.
     """
+    from app.services.executive_contracts import (
+        inheritable_executive_contract_id,
+    )
+
     previous = await db.scalar(
         select(ClientOrder)
         .where(
@@ -308,7 +312,10 @@ async def _renewal_of_completed_order(
         "project_part": previous.project_part,
         # Część jest pochodną umowy wykonawczej (CeZ) — bez niej nowe
         # zamówienie miałoby część bez umowy, czyli wróciłoby do przeglądu.
-        "executive_contract_id": previous.executive_contract_id,
+        # Runda 8 (R8-N6-5): tylko umowa wykonawcza, która nadal trwa.
+        "executive_contract_id": await inheritable_executive_contract_id(
+            db, previous.executive_contract_id
+        ),
         "framework_contract_id": previous.framework_contract_id,
         "job_id": previous.job_id,
         "billing_hours_per_month": previous.billing_hours_per_month,

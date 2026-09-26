@@ -550,6 +550,40 @@ async def revert_contract(
     )
 
 
+CLIENT_DELETED_REACTIVATION_CODE = "client_deleted"
+
+
+async def assert_contract_client_not_deleted(
+    db: AsyncSession, contract: Contract
+) -> None:
+    """422, gdy zakończony kontrakt należy do USUNIĘTEGO klienta.
+
+    Runda 8 (R8-V1-1): usunięcie klienta z zachowaniem historii zostawia jego
+    zakończone kontrakty w rejestrze `/contracts`. „Cofnij zakończenie”,
+    „Powrót po przerwie”, aneks przedłużenia, `/bulk-extend`, PATCH daty
+    i zmiana statusu wskrzeszały taki kontrakt u klienta, którego profil
+    zwraca 404 — a kontrakt wracał do MRR. Lustro `DELETED_CLIENT_REFUSAL`
+    z poczty zamówień i `assert_client_assignable` przy nowych zapisach.
+    """
+    from app.models.client import Client
+    from app.services.client_identity import client_display_name
+
+    client = await db.scalar(select(Client).where(Client.id == contract.client_id))
+    if client is None or client.deleted_at is None:
+        return
+    raise HTTPException(
+        status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail={
+            "code": CLIENT_DELETED_REACTIVATION_CODE,
+            "reason": CLIENT_DELETED_REACTIVATION_CODE,
+            "message": (
+                f"Klient „{client_display_name(client)}” został usunięty — "
+                "kontraktu tego klienta nie da się wznowić."
+            ),
+        },
+    )
+
+
 async def reopen_contract(
     db: AsyncSession,
     contract: Contract,
@@ -586,6 +620,8 @@ async def reopen_contract(
     if previous not in (ContractStatus.ended, ContractStatus.ending):
         return False
     assert_transition(previous, ContractStatus.active)
+    if previous == ContractStatus.ended:
+        await assert_contract_client_not_deleted(db, contract)
     contract.status = ContractStatus.active
     if supersede_termination_snapshot:
         # Przedłużenie/aneks wskrzesza współpracę NOWYMI zamówieniami — stan
