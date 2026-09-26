@@ -31,6 +31,7 @@ import { useEffect, useRef, useState } from "react";
 import { AlertTriangle, Clock, Eye, ListOrdered } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { WidgetErrorBlock } from "@/components/v2/dashboard/WidgetState";
 import { FollowupSection } from "@/components/v2/followups/FollowupSection";
 import { DlReviewPanel } from "@/components/v2/recruitment/DlReviewPanel";
 import { QcStatusBadge } from "@/components/v2/recruitment/QcStatusBadge";
@@ -144,7 +145,25 @@ export function BoardTasksPanel() {
     document.getElementById(BOARD_TASKS_ANCHOR)?.scrollIntoView({ block: "start" });
   }, [data]);
 
-  if (!data) return null;
+  if (!data) {
+    // Runda 8 (R8-N14-1): awaria odczytu nie może udawać „nic nie czeka” —
+    // osoba z porannego dzwonka uznałaby, że kolejka jest pusta.
+    if (!query.isError) return null;
+    return (
+      <div
+        id={BOARD_TASKS_ANCHOR}
+        role="region"
+        aria-label="Czeka na Ciebie"
+        className="scroll-mt-20 rounded-xl border border-border bg-card px-4"
+      >
+        <WidgetErrorBlock
+          title="Nie udało się wczytać listy „Czeka na Ciebie”."
+          error={query.error}
+          onRetry={() => void query.refetch()}
+        />
+      </div>
+    );
+  }
   const dlReview = data.dl_review ?? [];
   const preps = data.prep_attention ?? [];
   const followups = data.followups ?? [];
