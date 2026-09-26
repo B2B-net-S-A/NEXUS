@@ -2,8 +2,9 @@
 
 Domyka lukę świeżości po Fali 3: nowe/zmienione CV dostają pola strukturalne
 w tę samą noc, w którą przyszły. Kontrakty, które muszą przeżyć:
-- delta-only: full-scan (files_since=None) jest świadomym no-op z notatką;
-- selekcja = kandydaci dotknięci w biegu ∩ scope filter (tekst + puste pola);
+- pełny bieg nie dokłada własnego okna (no-op z notatką, gdy nic nie czeka),
+  ale domyka okna, których delta nie skończyła w budżecie (runda 6 audytu);
+- selekcja = okno `updated_at` biegu ∩ scope filter (tekst + puste pola);
 - ``backfill_cv_fields(candidate_ids=[])`` nie dotyka bazy i nie płaci.
 """
 
@@ -44,8 +45,33 @@ def test_phase_registered_in_plan_and_names():
     )
 
 
+class _NoopSession:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+
+def _patch_cursor(monkeypatch, initial):
+    """Kursor okien w pamięci zamiast w `traffit_sync_state`."""
+    store = {"windows": [dict(w) for w in initial]}
+
+    async def load(db):
+        return [dict(w) for w in store["windows"]]
+
+    async def save(db, windows):
+        store["windows"] = [dict(w) for w in windows]
+
+    monkeypatch.setattr(ts, "_load_cv_fields_windows", load)
+    monkeypatch.setattr(ts, "_save_cv_fields_windows", save)
+    monkeypatch.setattr(ts, "AsyncSessionLocal", lambda: _NoopSession())
+    return store
+
+
 @pytest.mark.asyncio
-async def test_full_mode_is_deliberate_noop():
+async def test_full_mode_without_pending_windows_is_deliberate_noop(monkeypatch):
+    _patch_cursor(monkeypatch, [])
     result = await ts._cv_fields_phase(None)
     out = result.as_dict()
     assert out["processed"] == 0
@@ -63,39 +89,142 @@ async def test_backfill_with_empty_ids_touches_nothing():
     assert stats["processed"] == 0 and stats["stopped_reason"] is None
 
 
+def _fake_backfill(calls, *, stop_at=None, reason="limit"):
+    """Backfill, który „przetwarza" okno do `stop_at` (last_id) i staje."""
+
+    async def fake(db, *, after_id=0, updated_since=None, updated_before=None,
+                   limit=None, progress=None, **kw):
+        calls.append(
+            {"after_id": after_id, "since": updated_since, "until": updated_before,
+             "limit": limit}
+        )
+        stats = progress if progress is not None else {}
+        stats.setdefault("processed", 0)
+        stats["stopped_reason"] = None
+        if stop_at is not None and len(calls) == 1:
+            stats["processed"] += limit
+            stats["last_id"] = stop_at
+            stats["stopped_reason"] = reason
+            return stats
+        stats["processed"] += 1
+        stats["stopped_reason"] = "done"
+        return stats
+
+    return fake
+
+
 @pytest.mark.asyncio
-async def test_delta_phase_scopes_by_touched_ids(monkeypatch):
-    captured: dict = {}
-
-    async def fake_backfill(db, *, candidate_ids=None, limit=None, **kw):
-        captured["ids"] = candidate_ids
-        captured["limit"] = limit
-        return {"processed": len(candidate_ids or []), "updated": 0, "errors": 0}
-
-    class FakeResult:
-        def scalars(self):
-            return self
-
-        def all(self):
-            return [11, 22]
-
-    class FakeSession:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *a):
-            return False
-
-        async def execute(self, *a, **k):
-            return FakeResult()
-
+async def test_delta_window_cut_by_limit_is_carried_not_lost(monkeypatch):
+    """Runda 6 audytu (T6-3): limit 200 po `id` rosnąco w oknie
+    `updated_at >= files_since` po cichu gubił resztę okna — kolejna noc ma
+    nowe `files_since`. Niedokończone okno musi czekać w kursorze i wznowić się
+    OD wiersza, na którym bieg stanął."""
     import app.services.cv_field_backfill as backfill_mod
 
-    monkeypatch.setattr(backfill_mod, "backfill_cv_fields", fake_backfill)
-    monkeypatch.setattr(ts, "AsyncSessionLocal", lambda: FakeSession())
+    store = _patch_cursor(monkeypatch, [])
+    calls: list = []
+    monkeypatch.setattr(
+        backfill_mod, "backfill_cv_fields", _fake_backfill(calls, stop_at=500)
+    )
     monkeypatch.setattr(ts.settings, "TRAFFIT_SYNC_CV_FIELDS_LIMIT", 7, raising=False)
 
-    result = await ts._cv_fields_phase(datetime.now(timezone.utc))
-    assert captured["ids"] == [11, 22]
-    assert captured["limit"] == 7
-    assert result.as_dict()["processed"] == 2
+    since = datetime(2026, 9, 25, 2, 0, tzinfo=timezone.utc)
+    result = await ts._cv_fields_phase(since)
+
+    assert calls[0]["since"] == since and calls[0]["after_id"] == 0
+    assert calls[0]["limit"] == 7
+    assert calls[0]["until"] is not None and calls[0]["until"] > since
+    out = result.as_dict()
+    assert out["stopped_reason"] == "limit"
+    assert out["pending_windows"] == 1
+    (window,) = store["windows"]
+    assert window["since"] == since.isoformat()
+    # last_id=500 nie został przetworzony (limit) — wznowienie od niego.
+    assert window["after_id"] == 499
+
+
+@pytest.mark.asyncio
+async def test_next_delta_finishes_carried_window_before_its_own(monkeypatch):
+    import app.services.cv_field_backfill as backfill_mod
+
+    carried = {
+        "since": "2026-09-24T02:00:00+00:00",
+        "until": "2026-09-24T03:00:00+00:00",
+        "after_id": 499,
+    }
+    store = _patch_cursor(monkeypatch, [carried])
+    calls: list = []
+    monkeypatch.setattr(backfill_mod, "backfill_cv_fields", _fake_backfill(calls))
+
+    since = datetime(2026, 9, 25, 2, 0, tzinfo=timezone.utc)
+    result = await ts._cv_fields_phase(since)
+
+    assert [c["after_id"] for c in calls] == [499, 0]
+    assert calls[0]["since"].isoformat() == carried["since"]
+    assert calls[1]["since"] == since
+    assert store["windows"] == []
+    out = result.as_dict()
+    assert out["carried_windows"] == 1 and out["pending_windows"] == 0
+
+
+@pytest.mark.asyncio
+async def test_full_run_drains_carried_windows(monkeypatch):
+    """Pełny bieg nie dokłada własnego okna, ale nie może przerywać zaległości."""
+    import app.services.cv_field_backfill as backfill_mod
+
+    carried = {
+        "since": "2026-09-24T02:00:00+00:00",
+        "until": "2026-09-24T03:00:00+00:00",
+        "after_id": 10,
+    }
+    store = _patch_cursor(monkeypatch, [carried])
+    calls: list = []
+    monkeypatch.setattr(backfill_mod, "backfill_cv_fields", _fake_backfill(calls))
+
+    await ts._cv_fields_phase(None)
+
+    assert len(calls) == 1 and calls[0]["after_id"] == 10
+    assert store["windows"] == []
+
+
+@pytest.mark.asyncio
+async def test_quota_stop_keeps_later_windows_untouched(monkeypatch):
+    import app.services.cv_field_backfill as backfill_mod
+
+    carried = {
+        "since": "2026-09-24T02:00:00+00:00",
+        "until": "2026-09-24T03:00:00+00:00",
+        "after_id": 0,
+    }
+    store = _patch_cursor(monkeypatch, [carried])
+    calls: list = []
+    monkeypatch.setattr(
+        backfill_mod,
+        "backfill_cv_fields",
+        _fake_backfill(calls, stop_at=42, reason="quota: x"),
+    )
+
+    since = datetime(2026, 9, 25, 2, 0, tzinfo=timezone.utc)
+    await ts._cv_fields_phase(since)
+
+    assert len(calls) == 1  # własne okno nie ruszone
+    assert [w["after_id"] for w in store["windows"]] == [41, 0]
+    assert store["windows"][1]["since"] == since.isoformat()
+
+
+def test_windows_payload_is_parsed_defensively():
+    payload = {
+        "delta": {
+            "windows": [
+                {"since": "2026-09-24T02:00:00+00:00", "until": "2026-09-24T03:00:00+00:00", "after_id": "5"},
+                {"since": "x", "until": None},
+                "garbage",
+            ]
+        },
+        "full": {"after_id": 3},
+    }
+    windows = ts._cv_fields_windows_from_payload(payload)
+    assert windows == [
+        {"since": "2026-09-24T02:00:00+00:00", "until": "2026-09-24T03:00:00+00:00", "after_id": 5}
+    ]
+    assert ts._cv_fields_windows_from_payload(None) == []

@@ -129,12 +129,28 @@ async def test_worse_read_keeps_old_text_and_leaves_the_scope(monkeypatch, resul
 
 
 @pytest.mark.asyncio
-async def test_failed_download_stays_in_scope_for_the_next_night(monkeypatch):
+async def test_failed_download_is_deferred_not_dropped(monkeypatch):
+    """Runda 6 audytu (T6-4): chwilowy błąd nie zamyka wiersza na zawsze, ale
+    też nie wraca co noc na czoło kolejki — czeka na odroczenie."""
     cid, key = await _make(_GLUED)
     _stub_extraction(monkeypatch, {key: ExtractionResult("download_failed")})
     await svc.run_backfill(commit=True, glued=True, enqueue_reindex=False)
 
     row = await _row(cid)
     assert row.raw_cv_text == _GLUED
-    assert row.marker is None, "chwilowy błąd nie może zamknąć wiersza na zawsze"
-    assert await _in_scope(cid)
+    assert row.marker == "download_failed"
+    assert not await _in_scope(cid), "odroczony — nie wraca następnej nocy"
+
+    from app.core.database import AsyncSessionLocal
+
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            text(
+                "UPDATE candidates SET cv_extracted_data = jsonb_set("
+                "cv_extracted_data, '{_cv_text_extraction,retry_after}', "
+                "to_jsonb('2000-01-01T00:00:00+00:00'::text)) WHERE id = :id"
+            ),
+            {"id": cid},
+        )
+        await db.commit()
+    assert await _in_scope(cid), "po odroczeniu wiersz dostaje kolejną próbę"

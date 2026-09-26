@@ -23,10 +23,10 @@ import logging
 import os
 import tempfile
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Optional
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import DateTime, and_, cast, func, or_, select
 
 from app.core.database import AsyncSessionLocal
 from app.models.candidate import Candidate
@@ -74,6 +74,15 @@ _SNIFFED_FLAG = "sniffed"
 # zakres „glued” go pomija, więc kolejne noce nie czytają go w kółko. Nie jest
 # terminalny dla zwykłego backfillu: tamten bierze tylko wiersze BEZ tekstu.
 _STILL_GLUED = "still_glued"
+# Wyniki PRZEJŚCIOWE (runda 6 audytu). Nie są terminalne — plik może wrócić
+# do magazynu, sieć może wstać — ale do 26.09.2026 nie miały też żadnego
+# odroczenia: `ORDER BY id LIMIT 1000` stawiał co noc te same padające wiersze
+# na czele, a nowe CV (wyższe id) nie mieściły się w budżecie. Znacznik niesie
+# teraz licznik prób i `retry_after`; kolejna próba dopiero po odroczeniu
+# (dni wg liczby prób, dalej co 30 dni). Zmiana pliku CV (`storage_key`)
+# kasuje odroczenie — nowy plik czytamy od razu.
+_RETRYABLE_OUTCOMES = frozenset({"download_failed", "no_file", "error"})
+_RETRY_BACKOFF_DAYS = (1, 3, 7, 14, 30)
 
 
 @dataclass
@@ -233,6 +242,7 @@ def _pending_candidates_stmt(
     marker = Candidate.cv_extracted_data[_EXTRACTION_MARKER_KEY]
     marker_outcome = marker["outcome"].astext
     marker_sniffed = marker[_SNIFFED_FLAG].astext
+    marker_key = marker["storage_key"].astext
     stmt = select(Candidate.id, Candidate.cv_storage_key, Candidate.cv_filename).where(
         Candidate.cv_storage_key.is_not(None),
         Candidate.cv_storage_key != "",
@@ -248,10 +258,38 @@ def _pending_candidates_stmt(
                 marker_outcome.in_(sorted(_SNIFF_RETRY_OUTCOMES - retry_outcomes)),
                 marker_sniffed.is_(None),
             ),
+            # Runda 6 audytu: znacznik dotyczył INNEGO pliku niż obecny —
+            # nowe CV nie dziedziczy wyroku wydanego staremu.
+            _marker_for_other_file(marker_key),
         ),
+        _not_deferred(marker),
     )
-    stmt = stmt.order_by(func.random() if random_sample else Candidate.id.asc())
+    # Runda 6 audytu: wiersze bez żadnego znacznika (nigdy nieczytane — czyli
+    # nowe CV) idą przed ponowieniami, więc budżet nocy trafia najpierw do nich.
+    stmt = stmt.order_by(
+        func.random() if random_sample else marker_outcome.is_not(None).asc(),
+        Candidate.id.asc(),
+    )
     return stmt.limit(limit) if limit is not None else stmt
+
+
+def _marker_for_other_file(marker_key):
+    """Znacznik zapisany dla innego `cv_storage_key` niż obecny.
+
+    Znaczniki sprzed rundy 6 nie niosą klucza — dla nich nie wiadomo, więc
+    zostają przy dotychczasowej regule (NULL ≠ „inny plik”).
+    """
+    return and_(marker_key.is_not(None), marker_key != Candidate.cv_storage_key)
+
+
+def _not_deferred(marker):
+    """Wiersz nie czeka na odroczenie ponowienia (runda 6 audytu)."""
+    retry_after = marker["retry_after"].astext
+    return or_(
+        retry_after.is_(None),
+        cast(retry_after, DateTime(timezone=True)) <= func.now(),
+        _marker_for_other_file(marker["storage_key"].astext),
+    )
 
 
 def _glued_candidates_stmt(limit: Optional[int]):
@@ -278,6 +316,7 @@ def _glued_candidates_stmt(limit: Optional[int]):
             > GLUED_AVG_WORD_LEN
             * (func.regexp_count(Candidate.raw_cv_text, r"\s+") + 1),
             or_(marker_outcome.is_(None), marker_outcome != _STILL_GLUED),
+            _not_deferred(Candidate.cv_extracted_data[_EXTRACTION_MARKER_KEY]),
         )
         .order_by(Candidate.id.asc())
     )
@@ -308,6 +347,9 @@ def _terminal_marker(
     outcome = marker.get("outcome")
     if outcome in retry_outcomes:
         return None
+    key = marker.get("storage_key")
+    if key is not None and key != candidate.cv_storage_key:
+        return None  # wyrok dotyczył poprzedniego pliku (runda 6 audytu)
     if outcome in _SNIFF_RETRY_OUTCOMES and not marker.get(_SNIFFED_FLAG):
         return None  # recorded before the format was read from the bytes
     return outcome if outcome in _TERMINAL_OUTCOMES else None
@@ -321,12 +363,32 @@ def _record_marker(candidate: Candidate, outcome: str, chars: int) -> None:
     # replaced rather than merged.
     existing = candidate.cv_extracted_data
     extracted = dict(existing) if isinstance(existing, dict) else {}
-    extracted[_EXTRACTION_MARKER_KEY] = {
-        "at": datetime.now(timezone.utc).isoformat(),
+    now = datetime.now(timezone.utc)
+    entry: dict[str, Any] = {
+        "at": now.isoformat(),
         "outcome": outcome,
         "chars": chars,
         _SNIFFED_FLAG: True,
+        "storage_key": candidate.cv_storage_key,
     }
+    if outcome in _RETRYABLE_OUTCOMES:
+        # Runda 6 audytu: licznik prób liczy się dla TEGO SAMEGO pliku; inny
+        # plik albo wcześniejszy wynik nieprzejściowy zaczyna od 1.
+        previous = extracted.get(_EXTRACTION_MARKER_KEY)
+        attempts = 1
+        if (
+            isinstance(previous, dict)
+            and previous.get("outcome") in _RETRYABLE_OUTCOMES
+            and previous.get("storage_key") == candidate.cv_storage_key
+        ):
+            try:
+                attempts = int(previous.get("attempts") or 0) + 1
+            except (TypeError, ValueError):
+                attempts = 1
+        days = _RETRY_BACKOFF_DAYS[min(attempts, len(_RETRY_BACKOFF_DAYS)) - 1]
+        entry["attempts"] = attempts
+        entry["retry_after"] = (now + timedelta(days=days)).isoformat()
+    extracted[_EXTRACTION_MARKER_KEY] = entry
     candidate.cv_extracted_data = extracted
 
 
@@ -407,9 +469,12 @@ async def run_backfill(
 
                 if glued:
                     previous = candidate.raw_cv_text or ""
-                    if result.outcome in ("download_failed", "error"):
-                        # Przejściowe — bez znacznika, następna noc spróbuje znowu.
+                    if result.outcome in _RETRYABLE_OUTCOMES:
+                        # Przejściowe — znacznik z odroczeniem (runda 6
+                        # audytu), stary tekst zostaje nietknięty.
                         stats.error += 1
+                        if commit:
+                            _record_marker(candidate, result.outcome, len(previous))
                         continue
                     if (
                         result.outcome != "extracted"
