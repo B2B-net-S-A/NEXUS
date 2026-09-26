@@ -146,12 +146,14 @@ async def _post_commit_effect(
         async with db.begin_nested():
             await effect()
     except Exception as exc:  # noqa: BLE001 — efekt uboczny nie psuje ruchu
-        logger.warning("%s failed: %s", label, exc)
+        # Klasa wyjątku, nie treść: IntegrityError niesie `DETAIL: Key (...)=(...)`
+        # z danymi wiersza, których `hide_parameters` nie ukrywa (runda 7, R7-X2-9).
+        logger.warning("%s failed (%s)", label, type(exc).__name__)
         return
     try:
         await db.commit()
     except Exception as exc:  # noqa: BLE001
-        logger.warning("%s commit failed: %s", label, exc)
+        logger.warning("%s commit failed (%s)", label, type(exc).__name__)
         try:
             await db.rollback()
         except Exception:  # noqa: BLE001
@@ -1456,7 +1458,9 @@ async def move_candidate(
                     )
         except Exception as _exc:  # noqa: BLE001
             # Podpowiedź nie może wywrócić zatrudnienia.
-            logger.warning("fully-staffed hint failed for job=%s: %s", job.id, _exc)
+            logger.warning(
+                "fully-staffed hint failed for job=%s (%s)", job.id, type(_exc).__name__
+            )
 
     # Mail odrzucenia (0045_rejection_emails) jest OPT-IN od 17.09.2026:
     # planujemy WYŁĄCZNIE gdy klient przysłał `send_rejection_email=True`
@@ -1617,7 +1621,11 @@ async def move_candidate(
                     f"cv_auto_generate stage={stage_id}",
                 )
         except Exception as _exc:  # noqa: BLE001 — automat nigdy nie psuje ruchu
-            logger.warning("cv_auto_generate spawn failed stage=%s: %s", stage_id, _exc)
+            logger.warning(
+                "cv_auto_generate spawn failed stage=%s (%s)",
+                stage_id,
+                type(_exc).__name__,
+            )
 
     # QC CV (Rekrutacja v5): po wejściu do kolumny „QC CV” QC liczy się samo,
     # żeby karta, przegląd DL i kolejka Cpro nie mówiły „nie sprawdzone”.
@@ -1633,7 +1641,9 @@ async def move_candidate(
                     f"cv_qc stage={stage_id}",
                 )
         except Exception as _exc:  # noqa: BLE001 — automat nigdy nie psuje ruchu
-            logger.warning("cv_qc spawn failed stage=%s: %s", stage_id, _exc)
+            logger.warning(
+                "cv_qc spawn failed stage=%s (%s)", stage_id, type(_exc).__name__
+            )
 
     resp["scheduled_rejection_email_id"] = scheduled_rejection_email_id
     return CandidateStageResponse(**resp)

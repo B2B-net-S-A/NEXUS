@@ -75,6 +75,22 @@ async def test_with_links_prints_ids_not_people(monkeypatch, capsys):
     assert "order=7" in out
 
 
+async def test_client_rows_print_only_the_nip_tail(monkeypatch, capsys):
+    """R7-X2-7: klient bywa JDG — pełny NIP to dana osobowa w publicznym logu."""
+
+    async def _rows(_like, _limit):
+        return [(7, "Firma", None, "526-104-08-28")]
+
+    monkeypatch.setattr(list_clients, "find_clients", _rows)
+    monkeypatch.setattr("sys.argv", ["list_clients", "--like", "Firma"])
+
+    await list_clients.main()
+
+    out = capsys.readouterr().out
+    assert "5261040828" not in out and "526-104-08-28" not in out
+    assert "nip=…828" in out
+
+
 def _cleanup_run(job: str) -> str:
     workflow = yaml.safe_load(_WORKFLOW.read_text(encoding="utf-8"))
     steps = workflow["jobs"][job]["steps"]

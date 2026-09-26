@@ -17,9 +17,9 @@ albo SSH — a SSH na tym serwerze nie działa.
 z zewnątrz: filtr jedzie parametrem wiązanym, a wildcardy ``%``/``_`` są
 escapowane, więc ``%`` szuka znaku procenta, a nie zwraca całej bazy.
 
-Wyjście jest CELOWO ubogie — ``id``, nazwa, nazwa wyświetlana, NIP. Żadnych
-kwot, żadnych osób: to narzędzie odpowiada na pytanie „który numer wpisać
-w zmienną", a jego wyjście ląduje w logu GitHub Actions.
+Wyjście jest CELOWO ubogie — ``id``, nazwa, nazwa wyświetlana, końcówka
+NIP-u. Żadnych kwot, żadnych osób: to narzędzie odpowiada na pytanie „który
+numer wpisać w zmienną", a jego wyjście ląduje w logu GitHub Actions.
 
 Z ``--with-links`` dokłada, co do każdego znalezionego klienta jest
 przypięte: kontrakty i umowy z generatora B2B. To jest materiał do
@@ -89,6 +89,16 @@ async def find_clients(needle: str, limit: int) -> list[tuple[int, str, str, str
             .limit(limit)
         )
         return [(r[0], r[1] or "", r[2] or "", r[3] or "") for r in rows.all()]
+
+
+def _masked_nip(nip: str | None) -> str:
+    """Trzy ostatnie cyfry NIP-u — klient bywa JDG, a wtedy NIP jest daną
+    osobową w logu PUBLICZNEGO repo (runda 7, R7-X2-7). Do odróżnienia dwóch
+    podobnie nazwanych rekordów wystarczy końcówka."""
+    digits = "".join(ch for ch in (nip or "") if ch.isdigit())
+    if not digits:
+        return "-"
+    return f"…{digits[-3:]}"
 
 
 async def print_links(client_ids: list[int]) -> None:
@@ -190,7 +200,7 @@ async def main() -> None:
     # w logu Actions nie odróżnia „nic nie pasuje" od „skrypt się nie wykonał".
     print(f"=== clients matching {args.like!r}: {len(rows)} ===")
     for cid, name, display, nip in rows:
-        print(f"{cid}\t{name}\tdisplay={display}\tnip={nip}")
+        print(f"{cid}\t{name}\tdisplay={display}\tnip={_masked_nip(nip)}")
     if args.with_links:
         await print_links([r[0] for r in rows])
 

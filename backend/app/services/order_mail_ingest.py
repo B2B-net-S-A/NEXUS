@@ -41,6 +41,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
+from app.core.log_safety import safe_filename
 from app.core.scheduling import business_today
 from app.models.ai_feature import AIFeatureKey
 from app.models.client import Client
@@ -1854,8 +1855,11 @@ async def _process_message(
             identity["storage_path"] = rel
             await process_pdf_bytes(db, row, payload, registry=registry)
         except Exception as exc:  # noqa: BLE001
+            # Nazwa załącznika to zwykle imię i nazwisko konsultanta — do logu
+            # idzie jej kształt (runda 7, R7-V5-2 / R7-X2-3).
             logger.exception(
-                "order_mail: processing failed for %s", row.attachment_name
+                "order_mail: processing failed for %s",
+                safe_filename(row.attachment_name),
             )
             # Błąd bazy w środku przetwarzania zostawia sesję w nieudanej
             # transakcji — bez wycofania zapis wiersza FAILED rzucał
@@ -1898,7 +1902,7 @@ async def _process_message(
                 continue
             logger.error(
                 "order_mail: integrity error on commit for %s (%s)",
-                failed.attachment_name,
+                safe_filename(failed.attachment_name),
                 type(exc).__name__,
             )
             stats.failed += 1

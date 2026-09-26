@@ -101,8 +101,12 @@ async def cache_single_flight(key: str, *, db: Any = None) -> AsyncIterator[None
             try:
                 await release_idle_connection(db)
             except Exception:  # pragma: no cover — zwolnienie jest optymalizacją
+                # Sam prefiks: klucz niesie argumenty (np. tekst wyszukiwania)
+                # — runda 7, R7-V5-2.
                 logger.debug(
-                    "release_idle_connection failed for %s", key, exc_info=True
+                    "release_idle_connection failed for %s",
+                    key.split(":", 1)[0],
+                    exc_info=True,
                 )
         async with lock:
             yield
@@ -148,10 +152,10 @@ def cached(ttl_seconds: int, key_prefix: str):
 
             cached_value = await cache_get(key)
             if cached_value is not None:
-                logger.debug(f"Cache HIT: {key}")
+                logger.debug("Cache HIT: %s", key_prefix)
                 return cached_value
 
-            logger.debug(f"Cache MISS: {key}")
+            logger.debug("Cache MISS: %s", key_prefix)
             result = await func(*args, **kwargs)
             await cache_set(key, result, ttl_seconds)
             return result
