@@ -79,6 +79,9 @@ def test_candidate_upsert_checks_tombstones_in_the_statement_itself():
     assert "NOT EXISTS" in guarded and "purged_candidates" in guarded
     assert ":tombstone_source_hash" in guarded
     assert ":tombstone_email_hash" in guarded
+    # R8-V2-4: numer z Traffita usunięty jako kandydat Talent Radar.
+    assert "pc.external_source = 'tr_legacy'" in guarded
+    assert ":tombstone_legacy_hash" in guarded
     # Nagrobek maila nie blokuje, gdy żyje kandydat z tym mailem (adopcja).
     assert "live.email = CAST(:email AS text)" in guarded
     # Baza sprzed 0388: tabeli nie wolno nawet wymienić w zapytaniu.
@@ -369,3 +372,49 @@ async def test_middle_window_covers_ids_passed_by_an_earlier_window(monkeypatch)
 
     assert calls[0]["until_id"] is None
     assert calls[1]["after_id"] == 0 and calls[1]["until_id"] == 99
+
+
+# ── R8-V2-4: import Traffita czyta nagrobek `tr_legacy` ──────────────────────
+
+
+def test_traffit_import_tombstone_source_matches_talent_radar():
+    from app.services.talent_radar_importer import SOURCE_VALUE
+    from app.services.traffit.importer import TALENT_RADAR_TOMBSTONE_SOURCE
+
+    assert TALENT_RADAR_TOMBSTONE_SOURCE == SOURCE_VALUE
+
+
+class _TombstoneDb:
+    """Atrapa bazy: zwraca nagrobki `purged_candidates` dla podanych źródeł."""
+
+    def __init__(self, rows):
+        self._rows = rows
+
+    async def execute(self, statement, params=None):
+        from unittest.mock import MagicMock
+
+        result = MagicMock()
+        sql = str(statement)
+        if "to_regclass" in sql:
+            result.fetchone.return_value = (True,)
+        else:
+            sources = set((params or {}).get("sources") or [])
+            result.fetchall.return_value = [
+                r for r in self._rows if r[0] in sources
+            ]
+        return result
+
+
+@pytest.mark.asyncio
+async def test_traffit_import_loads_talent_radar_id_tombstones(hmac_key):
+    """R8-V2-4: kandydat usunięty jako `tr_legacy` (numer z Traffita) nie może
+    wrócić nocnym importem Traffita, gdy rekord nie ma maila."""
+    import app.services.traffit.importer as importer_mod
+    from app.services.candidate_audit import candidate_source_tombstone
+
+    legacy = candidate_source_tombstone("tr_legacy", "123")
+    imp = importer_mod.TraffitImporter.__new__(importer_mod.TraffitImporter)
+    imp.db = _TombstoneDb([("tr_legacy", legacy)])
+    ids, emails = await imp._candidate_tombstones()
+    assert legacy in ids
+    assert emails == set()

@@ -329,6 +329,48 @@ async def test_candidate_deleted_during_the_phase_is_not_inserted_again(
     assert recreated is None, "INSERT nie sprawdził nagrobka w chwili zapisu"
 
 
+async def test_talent_radar_deletion_blocks_the_same_traffit_id(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Runda 8 (R8-V2-4): kandydat Talent Radar (`tr_legacy`, numer z Traffita)
+    usunięty w NEXUSIE nie wraca nocnym importem Traffita, gdy rekord Traffita
+    nie ma maila — nagrobek stoi pod `tr_legacy`, nie pod `traffit`."""
+    ext = str(930_000_000 + uuid.uuid4().int % 20_000_000)
+    candidate_id = await _candidate(
+        external_source="tr_legacy", external_id=ext, email=None
+    )
+    await _delete(app_client, app_auth_headers, candidate_id)
+
+    progress = await _sync_employee(ext, None)
+    assert progress.skipped == 1 and progress.inserted == 0
+    async with AsyncSessionLocal() as db:
+        recreated = await db.scalar(
+            select(Candidate.id).where(Candidate.external_id == ext)
+        )
+    assert recreated is None
+
+
+async def test_talent_radar_tombstone_also_guards_the_insert_itself(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Ten sam scenariusz z migawką nagrobków sprzed usunięcia — zatrzymać musi
+    strażnik w samym INSERT."""
+    ext = str(910_000_000 + uuid.uuid4().int % 20_000_000)
+    candidate_id = await _candidate(
+        external_source="tr_legacy", external_id=ext, email=None
+    )
+    await _delete(app_client, app_auth_headers, candidate_id)
+
+    async def stale_snapshot(self):
+        return set(), set()
+
+    monkeypatch.setattr(
+        importer_mod.TraffitImporter, "_candidate_tombstones", stale_snapshot
+    )
+    progress = await _sync_employee(ext, None)
+    assert progress.skipped == 1 and progress.inserted == 0
+
+
 async def test_upsert_without_tombstone_still_inserts_and_updates():
     """Przy zapytaniu `INSERT ... SELECT` każdy parametr ma jawny typ — wiersz
     bez nagrobka zapisuje się jak dawniej: nowy, a za drugim razem przez
