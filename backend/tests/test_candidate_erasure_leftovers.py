@@ -375,7 +375,11 @@ async def test_integration_log_and_email_cv_attachments_are_closed(
             is_active=True,
         )
         db.add(user)
-        run = IntegrationRun(source="jjit")
+        # Bieg zakończony: domyślne `running` na wspólnej bazie testowej blokuje
+        # każdy późniejszy import JJIT (`RunInProgress`, kolejka 26.09.2026).
+        run = IntegrationRun(
+            source="jjit", status="ok", finished_at=datetime.now(timezone.utc)
+        )
         db.add(run)
         await db.flush()
         event = IntegrationRunEvent(
