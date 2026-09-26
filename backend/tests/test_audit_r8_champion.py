@@ -61,3 +61,35 @@ def test_rate_context_check_is_fast_on_a_long_line():
     started = time.perf_counter()
     rate_quote_context_conflict("150 zł/h", text)
     assert time.perf_counter() - started < 0.05
+
+
+# ── R8-N12-3: samo imię + wspólna skrzynka ────────────────────────────────
+
+
+def _contact(id_: int, name: str, email: str):
+    from app.models.contact import Contact
+
+    return Contact(id=id_, client_id=1, name=name, email=email)
+
+
+def test_first_name_alone_does_not_pick_another_person_by_shared_mailbox():
+    from app.services.job_hiring_manager import pick_matching_contact
+
+    contacts = [_contact(1, "Jan Kowalski", "rekrutacja@bank.pl")]
+    assert (
+        pick_matching_contact(contacts, name="Anna", email="rekrutacja@bank.pl")
+        is None
+    )
+
+
+def test_first_name_of_the_same_person_still_matches_by_mail():
+    from app.services.job_hiring_manager import pick_matching_contact
+
+    contacts = [
+        _contact(1, "Jan Kowalski", "rekrutacja@bank.pl"),
+        _contact(2, "Anna Nowak", "rekrutacja@bank.pl"),
+    ]
+    picked = pick_matching_contact(contacts, name="Anna", email="rekrutacja@bank.pl")
+    assert picked is not None and picked.id == 2
+    # Bez imienia — jak dotąd, po samym adresie.
+    assert pick_matching_contact(contacts, name=None, email="rekrutacja@bank.pl").id == 1
