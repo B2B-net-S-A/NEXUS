@@ -640,3 +640,203 @@ async def test_empty_transcript_is_unrecorded_not_weak(
             )
         ) is None
     assert called == []
+
+
+# ── Runda 6 audytu: RODO, przepięcie, termin z Outlooka, follow-up ──────────
+
+
+async def _future_prep(app_client, graph, **extra):
+    rec_id, rec_h = await _user(UserRole.recruiter, "Ola Rekruter")
+    dl_id, _ = await _user(UserRole.delivery_lead, "Kasia Lead")
+    job_id, cand_id = await _pair(recruiter_id=rec_id, dl_id=dl_id)
+    resp = await _create(
+        app_client,
+        rec_h,
+        candidate_id=cand_id,
+        job_id=job_id,
+        prep_no=1,
+        organizer_user_id=dl_id,
+        start=_at(24),
+        end=_at(24.75),
+        **extra,
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()["event_id"], cand_id, job_id
+
+
+async def test_deleting_the_candidate_cancels_future_teams_prep_and_scrubs_the_event(
+    app_client: AsyncClient, graph: FakeGraph, monkeypatch
+):
+    """IC-4: `calendar_events.candidate_id` to SET NULL — tytuł „Prep 1: Imię
+    Nazwisko…” i e-mail w uczestnikach przeżywały usunięcie, a kandydat miał
+    dalej zaproszenie w Teams."""
+    from app.services.followup_meetings import ERASED_EVENT_TITLE
+
+    event_id, cand_id, _job_id = await _future_prep(app_client, graph)
+    cancelled: list[tuple[str, str]] = []
+
+    async def cancel_event(upn, graph_event_id, comment):
+        cancelled.append((upn, graph_event_id))
+        return "cancelled"
+
+    monkeypatch.setattr(teams_prep_graph, "cancel_event", cancel_event)
+    async with AsyncSessionLocal() as db:
+        ev = await db.get(CalendarEvent, event_id)
+        graph_id = ev.external_id
+
+    _admin_id, admin_h = await _user(UserRole.admin, "Admin Prep")
+    resp = await app_client.delete(f"/api/candidates/{cand_id}", headers=admin_h)
+    assert resp.status_code in (200, 204), resp.text
+
+    assert [g for _u, g in cancelled] == [graph_id]
+    async with AsyncSessionLocal() as db:
+        ev = await db.get(CalendarEvent, event_id)
+        assert ev.status.value == "cancelled"
+        assert ev.title == ERASED_EVENT_TITLE
+        assert ev.description is None
+        addresses = [
+            (a.get("address") if isinstance(a, dict) else a) for a in ev.attendees
+        ]
+        assert not any(str(a).startswith("prep-cand-") for a in addresses)
+
+
+async def test_prep_event_cannot_be_relinked_to_another_candidate(
+    app_client: AsyncClient, graph: FakeGraph
+):
+    """IC-6: przepięcie wydarzenia rozjeżdżało `prep_meetings.candidate_id`."""
+    from app.models.candidate import Candidate, CandidateStatus
+
+    event_id, _cand_id, _job_id = await _future_prep(app_client, graph)
+    async with AsyncSessionLocal() as db:
+        other = Candidate(
+            name="Inny", lastname="Kandydat", status=CandidateStatus.active
+        )
+        db.add(other)
+        await db.commit()
+        other_id = other.id
+    _admin_id, admin_h = await _user(UserRole.admin, "Admin Prep")
+    resp = await app_client.patch(
+        f"/api/calendar/events/{event_id}",
+        headers=admin_h,
+        json={"candidate_id": other_id},
+    )
+    assert resp.status_code == 409, resp.text
+
+
+async def test_prep_keeps_the_term_outlook_saved_and_fingerprints_the_intent(
+    app_client: AsyncClient, graph: FakeGraph, monkeypatch
+):
+    """IC-5: powtórzony `transactionId` oddaje ISTNIEJĄCE spotkanie — zapisujemy
+    jego termin, a zmiana terminu/organizatora daje nową intencję."""
+    from app.services import prep_meetings
+
+    intents: list[str] = []
+    real = prep_meetings.event_transaction_id
+
+    def spy(**kwargs):
+        intents.append(kwargs.get("intent_id") or "")
+        return real(**kwargs)
+
+    monkeypatch.setattr(prep_meetings, "event_transaction_id", spy)
+    outlook_start = (datetime.now(timezone.utc) + timedelta(hours=48)).replace(
+        microsecond=0
+    )
+
+    async def create_event(upn, payload):
+        graph.created.append((upn, payload))
+        return teams_prep_graph.CreatedPrepEvent(
+            graph_event_id=f"g-{uuid.uuid4().hex[:8]}",
+            change_key="ck1",
+            join_url="https://teams.microsoft.com/l/meetup-join/abc",
+            start=outlook_start,
+            end=outlook_start + timedelta(minutes=45),
+        )
+
+    monkeypatch.setattr(teams_prep_graph, "create_event", create_event)
+    event_id, _cand_id, _job_id = await _future_prep(
+        app_client, graph, client_request_id="same-window"
+    )
+    # prep|kandydat|rekrutacja|numer|żądanie|organizator|start|koniec
+    parts = intents[-1].split("|")
+    assert parts[4] == "same-window" and len(parts) == 8
+    async with AsyncSessionLocal() as db:
+        ev = await db.get(CalendarEvent, event_id)
+        assert ev.start_time == outlook_start
+
+
+def test_graph_time_is_read_in_its_time_zone():
+    t = teams_prep_graph.graph_time_utc(
+        {"dateTime": "2026-10-05T10:00:00.0000000", "timeZone": "Europe/Warsaw"}
+    )
+    assert t == datetime(2026, 10, 5, 8, 0, tzinfo=timezone.utc)
+    assert (
+        teams_prep_graph.graph_time_utc(
+            {"dateTime": "2026-10-05T10:00:00", "timeZone": "W. Europe Standard Time"}
+        )
+        is None
+    )
+
+
+async def test_teams_followup_is_moved_and_cancelled_in_the_organizer_calendar(
+    app_client: AsyncClient, graph: FakeGraph, monkeypatch
+):
+    """X4: follow-up z aplikacji „NEXUS Teams Prep” — zmiana terminu dawała
+    409, a „Odwołaj” działało tylko w NEXUSIE (kandydat miał zaproszenie)."""
+    from app.models.candidate import Candidate, CandidateStatus
+    from app.services import followup_meetings
+
+    updates: list[str] = []
+    cancels: list[str] = []
+
+    async def update_event(upn, graph_event_id, payload):
+        updates.append(graph_event_id)
+        return "ck2"
+
+    async def cancel_event(upn, graph_event_id, comment):
+        cancels.append(graph_event_id)
+        return "cancelled"
+
+    monkeypatch.setattr(teams_prep_graph, "update_event", update_event)
+    monkeypatch.setattr(teams_prep_graph, "cancel_event", cancel_event)
+    rec_id, rec_h = await _user(UserRole.recruiter, "Ola Follow")
+    tag = uuid.uuid4().hex[:8]
+    start = datetime.now(timezone.utc) + timedelta(days=2)
+    async with AsyncSessionLocal() as db:
+        organizer = await db.get(User, rec_id)
+        cand = Candidate(
+            name="Jan",
+            lastname=f"Follow{tag}",
+            email=f"follow-{tag}@example.com",
+            status=CandidateStatus.active,
+        )
+        db.add(cand)
+        await db.flush()
+        meeting = await followup_meetings.create_followup_meeting(
+            db,
+            candidate=cand,
+            organizer=organizer,
+            start=start,
+            end=start + timedelta(minutes=30),
+            client_request_id=f"fu-{tag}",
+        )
+        await db.commit()
+        event_id = meeting.calendar_event_id
+        graph_id = (await db.get(CalendarEvent, event_id)).external_id
+
+    moved = await app_client.patch(
+        f"/api/calendar/events/{event_id}",
+        headers=rec_h,
+        json={
+            "start_time": (start + timedelta(hours=1)).isoformat(),
+            "end_time": (start + timedelta(hours=1, minutes=30)).isoformat(),
+        },
+    )
+    assert moved.status_code == 200, moved.text
+    assert updates == [graph_id]
+
+    cancelled = await app_client.post(
+        f"/api/calendar/events/{event_id}/cancel", headers=rec_h
+    )
+    assert cancelled.status_code == 200, cancelled.text
+    assert cancelled.json()["outlook"] == "cancelled"
+    assert cancels == [graph_id]

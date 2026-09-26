@@ -189,8 +189,13 @@ async def create_prep(
             start=start,
             end=end,
             attendee_emails=attendees,
+            # Odcisk organizatora i terminu w intencji (runda 6 audytu): okno
+            # trzyma ten sam `client_request_id`, gdy ktoś po błędzie zmieni
+            # termin albo osobę — Graph oddawał wtedy STARE spotkanie, a NEXUS
+            # zapisywał nowy termin, którego w Outlooku nie było.
             intent_id=(
                 f"prep|{candidate.id}|{job.id}|{prep_no}|{client_request_id}"
+                f"|{organizer.id}|{start.isoformat()}|{end.isoformat()}"
                 if client_request_id
                 else None
             ),
@@ -221,6 +226,9 @@ async def create_prep(
             "W NEXUSIE nic nie zostało zapisane.",
         ) from exc
 
+    # Termin z odpowiedzi Outlooka, nie z żądania — to on dostał zaproszenie.
+    start = created.start or start
+    end = created.end or end
     event = CalendarEvent(
         title=title,
         description=description,
