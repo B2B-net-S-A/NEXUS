@@ -35,6 +35,49 @@ def test_order_rows_puts_preferred_then_known_then_similarity_then_newest():
     assert cmo.order_rows(rows, scores) == [2, 5, 1, 4, 3]
 
 
+def test_rerank_within_groups_keeps_groups_and_sorts_by_fit_inside():
+    # Kolejność wektorowa: grupa A (1, 2, 3), grupa B (4, 5), poza „top” (6).
+    order = [1, 2, 3, 4, 5, 6]
+    groups = {1: "A", 2: "A", 3: "A", 4: "B", 5: "B", 6: "B"}
+    fits = {1: 10.0, 2: None, 3: 80.0, 4: 30.0, 5: 30.0, 6: 99.0}
+    assert cmo.rerank_within_groups(order, groups, fits, top=5) == [3, 1, 2, 4, 5, 6]
+
+
+def test_rerank_within_groups_top_cuts_a_group_and_zero_is_a_noop():
+    order = [1, 2, 3, 4]
+    groups = {cid: "A" for cid in order}
+    fits = {1: 1.0, 2: 2.0, 3: 3.0, 4: 99.0}
+    # Osoba za „top” nie wchodzi do przestawiania, nawet z najwyższą oceną.
+    assert cmo.rerank_within_groups(order, groups, fits, top=3) == [3, 2, 1, 4]
+    assert cmo.rerank_within_groups(order, groups, fits, top=0) == order
+    # Brak oceny w słowniku = bez pomiaru → koniec grupy.
+    assert cmo.rerank_within_groups(order, groups, {2: 5.0}, top=4) == [2, 1, 3, 4]
+
+
+def test_cache_key_depends_on_the_context_fingerprint():
+    class F:
+        recruitment_id = None
+        recruitment_match = None
+
+        @staticmethod
+        def model_dump(**_kwargs):
+            return {"q": "java"}
+
+    class U:
+        id = 7
+
+    async def keys():
+        a = await cmo._cache_key(None, F, "job:1:x", U, "fp-a", 200)
+        b = await cmo._cache_key(None, F, "job:1:x", U, "fp-b", 200)
+        c = await cmo._cache_key(None, F, "job:1:x", U, "fp-a", 0)
+        return a, b, c
+
+    import asyncio
+
+    a, b, c = asyncio.run(keys())
+    assert a != b and a != c
+
+
 def test_order_cache_is_bounded_and_drops_expired(monkeypatch):
     cmo.clear_cache()
     for n in range(cmo.CACHE_MAX_ENTRIES + 10):
@@ -232,3 +275,135 @@ async def test_classify_endpoint(app_client, app_auth_headers):
     )
     assert resp.status_code == 200, resp.text
     assert resp.json()["as_requirements"] is False
+
+
+# ── „Szukaj ręcznie”: ułożenie początku listy oceną „Dop.” ─────────────────
+
+
+class _Fit:
+    def __init__(self, cid: int, score):
+        self.breakdown = type("B", (), {"candidate_id": cid})()
+        self.fit_score = score
+
+
+@pytest.fixture
+def job_vectors(monkeypatch):
+    """Ścieżka rekrutacji: wektor jak w ``fake_vectors``, ocena z atrapy.
+
+    ``state["fits"]`` — ocena per klucz osoby (albo wyjątek), ``state["fp"]`` —
+    odcisk kontekstu, ``state["calls"]`` — liczba wywołań oceny.
+    """
+    from types import SimpleNamespace
+
+    from app.services import canonical_fit
+
+    state: dict[str, Any] = {"fits": {}, "fp": "fp-1", "calls": 0, "ids": {}}
+
+    async def fake_resolve(db, user, filters, groups):
+        return cmo.MatchVector(
+            vector=[1.0],
+            key="test-job:fixed",
+            kind="job",
+            context=SimpleNamespace(fingerprint=state["fp"]),
+        )
+
+    def fake_scores(vector, candidate_ids):
+        ids = state["ids"]
+        return {ids["oldest_best"]: 0.9, ids["middle"]: 0.5, ids["newest_weak"]: 0.1}
+
+    async def fake_score_candidates(db, context, candidates):
+        state["calls"] += 1
+        fits = state["fits"]
+        if isinstance(fits, Exception):
+            raise fits
+        by_id = {v: k for k, v in state["ids"].items()}
+        return [
+            _Fit(c.id, fits.get(by_id[c.id]))
+            for c in candidates
+            if c.id in by_id and by_id[c.id] in fits
+        ]
+
+    monkeypatch.setattr(cmo, "resolve_vector", fake_resolve)
+    monkeypatch.setattr(cmo, "_qdrant_scores", fake_scores)
+    monkeypatch.setattr(canonical_fit, "score_candidates", fake_score_candidates)
+    cmo.clear_cache()
+    yield state
+    cmo.clear_cache()
+
+
+@pytest.mark.asyncio
+async def test_job_order_follows_fit_score(app_client, app_auth_headers, job_vectors):
+    job_vectors["ids"].update(await _seed())
+    job_vectors["fits"] = {"oldest_best": 10.0, "middle": 50.0, "newest_weak": 90.0}
+    order, body = await _ids(app_client, app_auth_headers, sort="match")
+    assert order == ["newest_weak", "middle", "oldest_best"]
+    assert body["sort_applied"] == "match"
+
+
+@pytest.mark.asyncio
+async def test_job_preferred_with_low_fit_stays_first(
+    app_client, app_auth_headers, job_vectors
+):
+    job_vectors["ids"].update(await _seed())
+    job_vectors["fits"] = {"oldest_best": 60.0, "middle": 5.0, "newest_weak": 90.0}
+    order, _ = await _ids(
+        app_client, app_auth_headers, sort="match", skills_preferred="kotlin"
+    )
+    assert order == ["middle", "newest_weak", "oldest_best"]
+
+
+@pytest.mark.asyncio
+async def test_job_unmeasured_go_last_in_their_group(
+    app_client, app_auth_headers, job_vectors
+):
+    job_vectors["ids"].update(await _seed())
+    job_vectors["fits"] = {"oldest_best": None, "middle": 30.0, "newest_weak": 20.0}
+    order, _ = await _ids(app_client, app_auth_headers, sort="match")
+    assert order == ["middle", "newest_weak", "oldest_best"]
+
+
+@pytest.mark.asyncio
+async def test_job_scoring_failure_keeps_vector_order(
+    app_client, app_auth_headers, job_vectors
+):
+    job_vectors["ids"].update(await _seed())
+    job_vectors["fits"] = RuntimeError("scoring down")
+    order, body = await _ids(app_client, app_auth_headers, sort="match")
+    assert order == ["oldest_best", "middle", "newest_weak"]
+    assert body["sort_applied"] == "match"
+
+
+@pytest.mark.asyncio
+async def test_job_rerank_switch_off_keeps_vector_order(
+    app_client, app_auth_headers, job_vectors, monkeypatch
+):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "CANDIDATE_MATCH_RERANK_TOP", 0)
+    job_vectors["ids"].update(await _seed())
+    job_vectors["fits"] = {"oldest_best": 10.0, "middle": 50.0, "newest_weak": 90.0}
+    order, _ = await _ids(app_client, app_auth_headers, sort="match")
+    assert order == ["oldest_best", "middle", "newest_weak"]
+    assert job_vectors["calls"] == 0
+
+
+@pytest.mark.asyncio
+async def test_job_order_cache_follows_the_fingerprint(
+    app_client, app_auth_headers, job_vectors
+):
+    job_vectors["ids"].update(await _seed())
+    job_vectors["fits"] = {"oldest_best": 10.0, "middle": 50.0, "newest_weak": 90.0}
+    first, _ = await _ids(app_client, app_auth_headers, sort="match")
+    assert first == ["newest_weak", "middle", "oldest_best"]
+
+    # Ten sam odcisk — kolejność z pamięci, bez ponownej oceny.
+    job_vectors["fits"] = {"oldest_best": 90.0, "middle": 50.0, "newest_weak": 10.0}
+    cached, _ = await _ids(app_client, app_auth_headers, sort="match")
+    assert cached == first
+    assert job_vectors["calls"] == 1
+
+    # Inny profil wag (odcisk) — nowa kolejność.
+    job_vectors["fp"] = "fp-2"
+    fresh, _ = await _ids(app_client, app_auth_headers, sort="match")
+    assert fresh == ["oldest_best", "middle", "newest_weak"]
+    assert job_vectors["calls"] == 2
