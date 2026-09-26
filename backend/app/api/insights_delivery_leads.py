@@ -63,6 +63,7 @@ from app.analytics.periods import Period, PeriodError, resolve_period
 from app.api.deps import CurrentUser
 from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.core.cache import cache_get, cache_set
+from app.core.scheduling import business_today
 from app.core.database import get_db
 from app.services.insights_dl_scope import (
     CLIENT_DISPLAY_NAME_SQL as _CLIENT_DISPLAY_NAME_SQL,
@@ -350,7 +351,12 @@ async def insights_dl_portfolio(
     """
     resolved = _resolve(period, offset, anchor, date_from, date_to)
 
-    cache_key = f"insights:delivery-leads-portfolio:v1:{resolved.cache_suffix}"
+    # v2 + dzień (runda 6 audytu): okno w toku porównujemy z tym samym
+    # odcinkiem poprzedniego, a odcinek rośnie z każdym dniem.
+    cache_key = (
+        f"insights:delivery-leads-portfolio:v2:{resolved.cache_suffix}"
+        f":{business_today().isoformat()}"
+    )
     cached = await cache_get(cache_key)
     if cached is not None:
         return cached
