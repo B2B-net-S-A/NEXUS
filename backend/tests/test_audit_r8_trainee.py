@@ -210,9 +210,9 @@ def test_callback_owed_until_a_followup_has_an_outcome():
 
 # ── Na bazie ──────────────────────────────────────────────────────────────
 
+_DB_URL = os.environ.get("DATABASE_URL", "")
 needs_db = pytest.mark.skipif(
-    not os.environ.get("DATABASE_URL")
-    or "@localhost/z" in os.environ.get("DATABASE_URL", ""),
+    not _DB_URL or "@localhost/z" in _DB_URL or "@localhost:5432/x" in _DB_URL,
     reason="wymaga PostgreSQL",
 )
 
@@ -381,6 +381,25 @@ async def test_missed_callback_returns_on_the_next_list() -> None:
     assert done.id not in rows
 
 
+async def _drop_users(*user_ids: int) -> None:
+    """Konta z testów resync — bez aktywnych programów na wspólnej bazie."""
+    from sqlalchemy import delete
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.activity import Activity
+    from app.models.user import User
+
+    async with AsyncSessionLocal() as db:
+        await db.execute(delete(Activity).where(Activity.user_id.in_(user_ids)))
+        await db.execute(
+            delete(Activity).where(
+                Activity.entity_type == "user", Activity.entity_id.in_(user_ids)
+            )
+        )
+        await db.execute(delete(User).where(User.id.in_(user_ids)))
+        await db.commit()
+
+
 def _admin_headers(admin_id: int) -> dict:
     from app.core.security import create_access_token
 
@@ -417,6 +436,7 @@ async def test_aad_resync_promotion_closes_the_trainee_program(
 
     async with AsyncSessionLocal() as db:
         program = await trainee_program.program_for(db, target_id)
+    await _drop_users(admin_id, target_id)
     assert program.status == "completed"
     assert program.decision == "promoted"
     assert program.decided_by_user_id == admin_id
@@ -459,5 +479,6 @@ async def test_aad_resync_back_to_trainee_restarts_the_program(
 
     async with AsyncSessionLocal() as db:
         program = await trainee_program.program_for(db, target_id)
+    await _drop_users(admin_id, target_id)
     assert program.status == "active"
     assert program.decision is None
