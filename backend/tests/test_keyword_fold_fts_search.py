@@ -26,6 +26,10 @@ NONCE = "zf" + "".join(chr(97 + int(c, 16)) for c in uuid.uuid4().hex[:10])
 _IDS: dict[str, int] = {}
 
 
+async def _noop() -> None:
+    return None
+
+
 async def _seed() -> dict[str, int]:
     if _IDS:
         return _IDS
@@ -59,6 +63,7 @@ async def _seed() -> dict[str, int]:
             "cvcity": person("cvcity", "Lokalizacja: Łódź, praca zdalna."),
             "agile": person("agile", "Praca w Agile/Scrum, CI/CD w GitLab."),
             "hyphen": person("hyphen", "Operated within CI/CD-driven environments."),
+            "cicd": person("cicd", "Pipelines CI-CD w Jenkins."),
             "noted": person("noted", "Programista."),
             # Litera + osobny znak akcentu (U+0301, U+0328) — tak zapisują CV
             # niektóre PDF-y; do 0387 składanie ich nie widziało.
@@ -238,6 +243,29 @@ async def test_folded_scope_cv_reads_polish_letters(
         )
     assert "cvcity" not in await _keys(
         app_client, app_auth_headers, q_any_group="lodz", q_scope="title"
+    )
+
+
+@pytest.mark.asyncio
+async def test_folded_scope_uses_the_same_fold_as_the_index(
+    app_client, app_auth_headers, folded
+):
+    """Runda 7 (R7-X3-1): zakres pola potwierdzany TĄ SAMĄ funkcją co indeks.
+
+    Pythonowe ``translate`` nie robiło NFC ani „-” jako spacji, więc „lodz”
+    z zakresem CV gubiło CV z rozłożonymi akcentami, a „ci/cd” — „CI-CD”
+    (w zakresie „wszędzie” oba się znajdowały)."""
+    for word in ("lodz", "łódź", "zarządzanie"):
+        assert "decomposed" in await _keys(
+            app_client, app_auth_headers, q_any_group=word, q_scope="cv"
+        )
+    for key in ("hyphen", "cicd"):
+        assert key in await _keys(
+            app_client, app_auth_headers, q_any_group="ci/cd", q_scope="cv"
+        )
+    # Zakres nadal zawęża: słowo tylko w CV nie pasuje do „Stanowiska”.
+    assert "decomposed" not in await _keys(
+        app_client, app_auth_headers, q_any_group="lodz", q_scope="skills"
     )
 
 
@@ -457,6 +485,7 @@ async def test_version_phase_recomputes_only_on_a_new_version(monkeypatch):
 
     monkeypatch.setattr(loop, "_recompute", fake_recompute)
     monkeypatch.setattr(loop, "_store_fold_version", fake_store)
+    monkeypatch.setattr(loop, "_mark_recompute_in_progress", _noop)
     monkeypatch.setattr(loop, "_db_fold_version", db_version)
     monkeypatch.setattr(loop, "_load_recompute_position", no_position)
     monkeypatch.setattr(loop, "_clear_recompute_position", fake_clear)
@@ -533,6 +562,7 @@ async def test_recompute_resumes_after_a_container_restart(monkeypatch):
         monkeypatch.setattr(loop, "_fill_keyset_batch", fake_batch)
         monkeypatch.setattr(loop, "_stored_fold_version", older)
         monkeypatch.setattr(loop, "_store_fold_version", fake_store)
+        monkeypatch.setattr(loop, "_mark_recompute_in_progress", _noop)
         monkeypatch.setattr(kc, "_fold_ready", False)
         monkeypatch.setattr(kc, "_notes_ready", False)
         loop._recompute_after.clear()  # „nowy proces”

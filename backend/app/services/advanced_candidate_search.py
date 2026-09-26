@@ -438,29 +438,51 @@ def _folded_whole_word_match(
             "title": _experience_roles_text(),
             "skills": _skill_names_text(),
         }[scope]
-        # Pole także bez polskich znaków: indeks złożony znajduje „Łódź” dla
-        # „lodz”, a sam regex pola by go odrzucił (badanie 26.09.2026).
-        folded_pattern = pg_regex(
-            KeywordTerm(
-                raw=term.raw,
-                text=fold_polish(term.text),
-                open_end=term.open_end,
-                open_start=term.open_start,
-            )
-        )
-        folded_field = func.lower(
-            func.translate(func.coalesce(field, ""), _POLISH_FOLD_SRC, _POLISH_FOLD_DST)
+        # Runda 7 (R7-X3-1): pole składa TA SAMA funkcja SQL co indeks
+        # (NFC, znaki łączące, „/” i „-” jako spacja, c#/.net). Pythonowe
+        # ``translate`` odrzucało wiersze, które indeks wybrał: „lodz” przy CV
+        # z „Lo\u0301dz\u0301”, „ci/cd” przy „CI-CD”. Tani regex pola idzie
+        # pierwszy — łapie większość wierszy bez liczenia tsvector.
+        fold_fn = getattr(func, keyword_corpus.FOLD_FUNCTION)
+        folded_field = func.to_tsvector(
+            _FTS_CONFIG,
+            fold_fn(
+                func.left(func.coalesce(field, ""), keyword_corpus.CV_CAP),
+                type_=Text,
+            ),
         )
         return Candidate.id.in_(
             select(Candidate.id).where(
                 match,
                 or_(
                     field.op("~*")(pattern),
-                    folded_field.op("~*")(folded_pattern),
+                    folded_field.op("@@")(query),
                 ),
             )
         )
     return Candidate.id.in_(union(select(Candidate.id).where(match), notes_branch))
+
+
+def note_snippet_match(raw_terms: list[str]) -> Optional[ColumnElement]:
+    """Notatka pasuje do któregoś słowa kluczowego — ta sama reguła co gałąź
+    notatek filtra (``_whole_word_match``); ``None`` = brak słów.
+
+    Runda 7 (R7-N10-5): wycinki pod wynikiem ładowały WSZYSTKIE notatki osób ze
+    strony (także setki maili z Traffita) i czyściły je w pętli zdarzeń. Teraz
+    lista dociąga tylko notatki, w których słowo naprawdę jest.
+    """
+    clauses: list[ColumnElement] = []
+    folded = keyword_corpus.notes_folded_search_enabled()
+    for raw in raw_terms:
+        term = parse_keyword(raw)
+        if term is None:
+            continue
+        query = folded_tsquery(term) if folded else None
+        if query is not None:
+            clauses.append(_NOTE_FOLD_FTS.op("@@")(query))
+        else:
+            clauses.append(Note.content.op("~*")(pg_regex(term)))
+    return or_(*clauses) if clauses else None
 
 
 def _whole_word_match(term: KeywordTerm, scope: str = "all") -> ColumnElement:

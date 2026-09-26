@@ -240,14 +240,14 @@ async def _clear_recompute_position() -> None:
         await db.commit()
 
 
-async def _stored_fold_version() -> int | None:
-    async with AsyncSessionLocal() as db:
-        value = (
-            await db.execute(
-                text("SELECT value FROM app_settings WHERE key = :key"),
-                {"key": keyword_corpus.FOLD_VERSION_KEY},
-            )
-        ).scalar()
+def _parse_stored_fold_version(value: object) -> int | None:
+    """Wersja z wpisu ``FOLD_VERSION_KEY``; przeliczanie w toku = ``None``.
+
+    Runda 7 (R7-X3-2): wpis przeliczania w toku NIE ma klucza ``version``
+    (tylko ``in_progress_version``), więc każdy kod — także starszy, który
+    o tym znaczniku nie wie — widzi „nie przeliczono” i przelicza, zamiast
+    ogłosić gotowość na kolumnie z tokenami dwóch funkcji.
+    """
     # asyncpg oddaje jsonb z `text()` jako napis, ORM — jako słownik.
     if isinstance(value, str):
         try:
@@ -260,6 +260,83 @@ async def _stored_fold_version() -> int | None:
         return int(value) if value is not None else None
     except (TypeError, ValueError):
         return None
+
+
+async def _stored_fold_version() -> int | None:
+    async with AsyncSessionLocal() as db:
+        value = (
+            await db.execute(
+                text("SELECT value FROM app_settings WHERE key = :key"),
+                {"key": keyword_corpus.FOLD_VERSION_KEY},
+            )
+        ).scalar()
+    return _parse_stored_fold_version(value)
+
+
+async def _upsert_setting(key: str, payload: dict) -> None:
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            text(
+                "INSERT INTO app_settings (key, value) "
+                "VALUES (:key, CAST(:value AS jsonb)) "
+                "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value"
+            ),
+            {"key": key, "value": json.dumps(payload)},
+        )
+        await db.commit()
+
+
+async def _mark_recompute_in_progress() -> None:
+    """Przed pierwszą paczką: wersja „w toku” zamiast wersji zakończonej."""
+    await _upsert_setting(
+        keyword_corpus.FOLD_VERSION_KEY,
+        {
+            "in_progress_version": keyword_corpus.FOLD_VERSION,
+            "started_at": datetime.now(timezone.utc).isoformat(),
+        },
+    )
+
+
+# Runda 7 (R7-X3-2): wersja składania procesu, który ostatnio uruchomił tę
+# pętlę. Proces z INNĄ wersją (rollback w Coolify, revert) miał w bazie swoją
+# funkcję, a trigger przeliczał nią zmieniane wiersze — także te poniżej
+# zapisanej pozycji. Wtedy pozycja nie mówi już, co jest przeliczone.
+_PROCESS_VERSION_KEY = "keyword_fold_fts_process"
+_previous_process_version: int | None = None
+_process_version_swapped = False
+
+
+async def _swap_process_version() -> None:
+    global _previous_process_version, _process_version_swapped
+    if _process_version_swapped:
+        return
+    async with AsyncSessionLocal() as db:
+        value = (
+            await db.execute(
+                text("SELECT value FROM app_settings WHERE key = :key"),
+                {"key": _PROCESS_VERSION_KEY},
+            )
+        ).scalar()
+    _previous_process_version = _parse_stored_fold_version(value)
+    await _upsert_setting(
+        _PROCESS_VERSION_KEY,
+        {
+            "version": keyword_corpus.FOLD_VERSION,
+            "started_at": datetime.now(timezone.utc).isoformat(),
+        },
+    )
+    _process_version_swapped = True
+
+
+def _forget_foreign_process() -> None:
+    """Pozycje zapisane od teraz liczy ten proces — ponowienie może je wznowić."""
+    global _previous_process_version
+    _previous_process_version = keyword_corpus.FOLD_VERSION
+
+
+def _position_trusted() -> bool:
+    """Pozycję można wznowić, jeśli poprzedni proces miał tę samą wersję."""
+    return _previous_process_version in (None, keyword_corpus.FOLD_VERSION)
 
 
 async def _db_fold_version() -> int | None:
@@ -330,8 +407,20 @@ async def _version_phase() -> None:
     if await _stored_fold_version() != keyword_corpus.FOLD_VERSION:
         keyword_corpus.mark_fold_ready(False)
         keyword_corpus.mark_notes_ready(False)
-        for name, after in (await _load_recompute_position()).items():
-            _recompute_after.setdefault(name, after)
+        await _mark_recompute_in_progress()
+        if _position_trusted():
+            for name, after in (await _load_recompute_position()).items():
+                _recompute_after.setdefault(name, after)
+        else:
+            logger.info(
+                "keyword fold corpus v%d recompute restarts from zero: "
+                "previous process ran fold v%s",
+                keyword_corpus.FOLD_VERSION,
+                _previous_process_version,
+            )
+            # Stary wpis tej samej wersji scalałby się z nowymi pozycjami.
+            await _clear_recompute_position()
+            _forget_foreign_process()
         if _recompute_after:
             logger.info(
                 "keyword fold corpus v%d recompute resumed at %s",
@@ -364,7 +453,13 @@ async def _version_phase() -> None:
 
 
 async def keyword_corpus_backfill_loop() -> None:
-    phases = (_legacy_phase, _fold_phase, _notes_phase, _version_phase)
+    phases = (
+        _swap_process_version,
+        _legacy_phase,
+        _fold_phase,
+        _notes_phase,
+        _version_phase,
+    )
     index = 0
     while index < len(phases):
         try:
