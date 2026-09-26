@@ -19,6 +19,12 @@ import path from "path";
  * API idą przez `e2e/helpers/api.ts` z nagłówkiem Bearer.
  */
 const AUTH_STATE = path.join(__dirname, "e2e", ".auth", "state.json");
+const BASE_URL = process.env.E2E_BASE_URL || "https://nexus.dynaminds.pl";
+// Trace, wideo i zrzuty nagrywamy WYŁĄCZNIE przy lokalnym stacku (pusta baza CI).
+// Przeciw produkcji niosłyby token konta E2E z localStorage i odpowiedzi API
+// z danymi z bazy, a raport bywał wgrywany jako artefakt publicznego repo
+// (runda 6 audytu).
+const isLocalTarget = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/.test(BASE_URL);
 
 export default defineConfig({
   testDir: "./e2e",
@@ -31,10 +37,10 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   reporter: [["list"], ["html", { outputFolder: "playwright-report", open: "never" }]],
   use: {
-    baseURL: process.env.E2E_BASE_URL || "https://nexus.dynaminds.pl",
-    trace: "retain-on-failure",
-    screenshot: "only-on-failure",
-    video: "retain-on-failure",
+    baseURL: BASE_URL,
+    trace: isLocalTarget ? "retain-on-failure" : "off",
+    screenshot: isLocalTarget ? "only-on-failure" : "off",
+    video: isLocalTarget ? "retain-on-failure" : "off",
   },
   projects: [
     {
