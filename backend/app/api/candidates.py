@@ -6533,7 +6533,12 @@ async def create_candidate_from_cv(
         async with aiofiles.open(final_path, "wb") as f:
             await f.write(content)
     except OSError as e:
-        logger.warning("[from-cv] writing %s failed: %s", final_path, e)
+        # Ścieżka i komunikat OSError niosą nazwę pliku CV (runda 7, R7-V5-2).
+        logger.warning(
+            "[from-cv] writing CV copy for candidate %s failed (%s)",
+            candidate.id,
+            type(e).__name__,
+        )
 
     document = await _store_candidate_cv_document(
         db,

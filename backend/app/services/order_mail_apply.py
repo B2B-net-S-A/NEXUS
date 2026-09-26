@@ -62,6 +62,7 @@ from app.services.order_rate_snapshots import (
     order_unit_for_contract,
 )
 from app.core.scheduling import business_today
+from app.core.log_safety import safe_storage_key
 
 logger = logging.getLogger(__name__)
 
@@ -435,8 +436,12 @@ def _read_document_pdf(doc) -> Optional[bytes]:
             doc.storage_path
         ).read_bytes()
     except OSError as exc:
+        # Klucz i komunikat OSError niosą oryginalną nazwę PDF-a (zwykle
+        # z nazwiskiem konsultanta) — runda 7, R7-V5-2.
         logger.warning(
-            "order_mail apply: cannot read PDF %s: %s", doc.storage_path, exc
+            "order_mail apply: cannot read PDF %s (%s)",
+            safe_storage_key(doc.storage_path),
+            type(exc).__name__,
         )
         return None
 
