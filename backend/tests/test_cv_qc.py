@@ -346,9 +346,7 @@ async def test_consent_of_the_stage_copy_is_what_counts(
     monkeypatch.setattr(
         "app.services.cv_generator_b2b.client_rules.resolve_client_rule", rule
     )
-    src = SimpleNamespace(
-        generated=generated, job=SimpleNamespace(id=2, client_id=1)
-    )
+    src = SimpleNamespace(generated=generated, job=SimpleNamespace(id=2, client_id=1))
     assert await qc._consent_state(_ScalarDb(*values), src) == expected
 
 

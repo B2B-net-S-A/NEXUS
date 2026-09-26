@@ -2629,6 +2629,17 @@ async def generate_from_upload(
         client = await db.get(Client, client_id)
         if client is None:
             raise HTTPException(status_code=404, detail="Klient nie został znaleziony.")
+        if stage_id is None and (
+            getattr(client, "deleted_at", None) is not None
+            or getattr(client, "merged_into_client_id", None) is not None
+        ):
+            # Runda 8 (R8-V1-4): bliźniak R7-X5-4 z `/generate` — reguły CV
+            # żyją na rekordzie głównym, klient usunięty/scalony = 422 (ten sam
+            # komunikat; wiersz klienta jest już wczytany, więc zapytanie
+            # pada tylko przy odmowie).
+            from app.services.client_access import assert_client_assignable
+
+            await assert_client_assignable(db, client_id)
         effective_mode, _capped = apply_content_mode_cap(
             content_mode, client.cv_content_mode_cap
         )

@@ -417,7 +417,9 @@ async def test_cv_sent_at_nordea_keeps_the_cpro_path(api_client, monkeypatch):
         async with restore_cpro_sender():
             async with AsyncSessionLocal() as db:
                 actor = await db.get(User, rec_id)
-                await cpro_sender.set_sender(db, user_id=rec_id, until=None, actor=actor)
+                await cpro_sender.set_sender(
+                    db, user_id=rec_id, until=None, actor=actor
+                )
                 await db.commit()
             await _add(api_client, rec_h, job_id, cand_id, "manual_search")
             move = {"candidate_id": cand_id, "job_id": job_id, "stage": "cv_sent"}

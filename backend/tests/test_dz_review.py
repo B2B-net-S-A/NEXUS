@@ -302,7 +302,12 @@ def test_client_cv_file_is_picked_by_client_name_then_newest() -> None:
     assert svc.pick_document_cv(rows, "Bank Pocztowy") == 120
     assert svc.pick_document_cv(rows, None) == 120
     # Bez daty wgrania liczy się data założenia, remis rozstrzyga id.
-    assert svc.pick_document_cv([(7, "B2B.docx", None, old), (8, "B2B.docx", None, old)], None) == 8
+    assert (
+        svc.pick_document_cv(
+            [(7, "B2B.docx", None, old), (8, "B2B.docx", None, old)], None
+        )
+        == 8
+    )
     assert svc.pick_document_cv([], "Nordea") is None
 
 
