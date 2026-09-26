@@ -115,3 +115,30 @@ def test_nip_is_printed_only_as_its_last_digits():
     assert list_clients._nip_tail("") == ""
     ref = list_clients._name_ref("Jan  Nowak")
     assert "Nowak" not in ref and ref == list_clients._name_ref("jan nowak")
+
+
+async def test_client_rows_shorten_names_without_legal_form(monkeypatch, capsys):
+    """R8-V3-8: klient-JDG to imię i nazwisko — do publicznego logu idzie
+    pierwszy wyraz, inicjały i skrót; nazwa spółki z formą prawną zostaje."""
+
+    async def _rows(_like, _limit):
+        return [
+            (7, "Jan Kowalski Consulting", "Jan Kowalski", "1"),
+            (8, "BNP Paribas Bank Polska S.A.", "BNP Paribas", "2"),
+            (9, "CARDIF - ASSURANCES VIE SA Oddział w Polsce", None, "3"),
+        ]
+
+    monkeypatch.setattr(list_clients, "find_clients", _rows)
+    monkeypatch.setattr("sys.argv", ["list_clients", "--like", "x"])
+
+    await list_clients.main()
+
+    out = capsys.readouterr().out
+    assert "Kowalski" not in out
+    assert "Jan K. C." in out
+    assert "BNP Paribas Bank Polska S.A." in out
+    assert "CARDIF - ASSURANCES VIE SA Oddział w Polsce" in out
+    # ten sam skrót dla tej samej nazwy — dwa rekordy JDG da się porównać
+    assert list_clients._client_label("Anna Nowak").endswith(
+        f"[{list_clients._name_ref('anna  nowak')}]"
+    )
