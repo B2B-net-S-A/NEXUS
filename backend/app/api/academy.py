@@ -317,11 +317,20 @@ async def update_program(
     db: AsyncSession = Depends(get_db),
 ):
     program = await _program_or_404(db, program_id)
+    criteria_before = svc.screening_criteria(program)
     for key, value in body.model_dump(exclude_unset=True).items():
         if value is not None:
             setattr(program, key, value)
+    rescreen = svc.screening_criteria(program) != criteria_before
+    if rescreen:
+        # Runda 8 (R8-N2-2): odłożeni według starego limitu/wymogu wracają do
+        # sortowania — „Zatwierdź” nie wykluczy ich według kryterium, którego
+        # już nie ma.
+        await svc.reset_stale_skips(db, program)
     await db.commit()
     await db.refresh(program)
+    if rescreen:
+        svc.start_screening(program_id)
     return _program_dict(program)
 
 
@@ -557,6 +566,7 @@ async def bulk_action(
     program = await _program_or_404(db, program_id)
     done: list[int] = []
     failed: list[dict] = []
+    rescreen = False
     # Stała kolejność blokad — dwa nakładające się wywołania nie zakleszczą się.
     for application_id in sorted(set(body.ids)):
         row = await db.get(AcademyApplication, application_id, with_for_update=True)
@@ -583,6 +593,21 @@ async def bulk_action(
                     }
                 )
                 continue
+            if not svc.skip_is_current(row.screening, program):
+                # R8-N2-2: werdykt policzony starymi regułami albo kryteriami
+                # programu — sortujemy od nowa zamiast wykluczać na zawsze.
+                svc.clear_screening(row)
+                rescreen = True
+                failed.append(
+                    {
+                        "id": application_id,
+                        "message": (
+                            "Kryteria sortowania zmieniły się od decyzji Luny — "
+                            "posortuje tę osobę ponownie. Nie wykluczono jej."
+                        ),
+                    }
+                )
+                continue
             reasons = [
                 r.get("text")
                 for r in ((row.screening or {}).get("reasons") or [])
@@ -601,6 +626,8 @@ async def bulk_action(
         except AcademyActionError as exc:
             failed.append({"id": application_id, "message": exc.message})
     await db.commit()
+    if rescreen:
+        svc.start_screening(program_id)
     return {"done": done, "failed": failed}
 
 

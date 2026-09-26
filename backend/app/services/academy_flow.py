@@ -47,7 +47,9 @@ _ALLOWED_FROM: dict[str, Optional[tuple[str, ...]]] = {
     "contract_sent": ("task_passed",),
     "signed": ("task_passed", "contract_sent"),
     "reject": ACADEMY_ACTIVE_STATUSES,
-    "withdraw": ACADEMY_ACTIVE_STATUSES,
+    # Decyzja Artura 26.09.2026 (R8-N2-7): osoba po podpisie może zrezygnować
+    # przed 1. dniem edycji — inaczej wisiałaby w „W akademii” na zawsze.
+    "withdraw": (*ACADEMY_ACTIVE_STATUSES, "signed"),
     "restore": ("rejected", "withdrew"),
     "note": None,
     "move_cohort": ("signed",),
@@ -199,6 +201,7 @@ def apply_action(
             closed_at=now,
             closed_by=user_id,
         )
+        _release_session(changes, status)
     elif name == "withdraw":
         changes.update(
             status="withdrew",
@@ -207,6 +210,7 @@ def apply_action(
             closed_at=now,
             closed_by=user_id,
         )
+        _release_session(changes, status)
     elif name == "restore":
         changes.update(
             status="to_call",
@@ -218,6 +222,13 @@ def apply_action(
             attended=None,
             task_due=None,
             task_result=None,
+            # Runda 8: przywrócony wraca na początek — stare „aplikował
+            # ponownie” (R8-N2-8), umowa i edycja (R8-N2-7) nie dotyczą już
+            # nowego podejścia.
+            reapplied_at=None,
+            contract_sent_at=None,
+            signed_at=None,
+            cohort_month=None,
         )
     elif name == "note":
         changes["note"] = _clean(action.note, NOTE_MAX)
@@ -229,6 +240,17 @@ def apply_action(
             )
         changes["cohort_month"] = cohort
     return changes
+
+
+def _release_session(changes: dict[str, Any], status: str) -> None:
+    """Osoba umówiona, która odpada przed spotkaniem, zwalnia termin (R8-N2-9).
+
+    Bez tego wykluczony albo zrezygnowany wisiał na liście uczestników,
+    a przycisk „Odwołaj” przyszłego terminu znikał. Kto był na spotkaniu
+    (``task_given`` i dalej), zostaje przy terminie — to historia.
+    """
+    if status == "scheduled":
+        changes["session_id"] = None
 
 
 def _first_of_month(value: Optional[date]) -> Optional[date]:
