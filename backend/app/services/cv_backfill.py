@@ -37,6 +37,7 @@ from app.services.ai_quota import AIQuotaExceeded, ai_feature
 from app.models.candidate_document import CandidateDocument
 from app.services.cv_enrichment import _CV_PLACEHOLDER_NAMES, _apply_cv_enrichment
 from app.services.ai_models import model_for
+from app.core.log_safety import safe_filename, safe_storage_key
 
 logger = logging.getLogger(__name__)
 
@@ -185,8 +186,8 @@ async def enrich_candidate_from_cv_bytes(
             logger.info(
                 "[cv_backfill] text extraction failed cand=%s file=%s: %s",
                 candidate.id,
-                filename,
-                e,
+                safe_filename(filename),  # runda 6 audytu: nazwa pliku = nazwisko
+                type(e).__name__,
             )
 
     parsed: dict[str, Any] = {}
@@ -369,8 +370,8 @@ async def backfill_candidate_from_stored_cv(
             logger.warning(
                 "[cv_backfill] download failed cand=%s key=%s: %s",
                 candidate.id,
-                candidate.cv_storage_key,
-                e,
+                safe_storage_key(candidate.cv_storage_key),
+                type(e).__name__,
             )
     elif candidate.cv_file_content:
         cv_bytes = candidate.cv_file_content

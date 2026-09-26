@@ -1411,8 +1411,9 @@ def render_cv_to_bytes(
                 job["company"] = f"Firma z branży {industry}" if industry else "Firma"
 
     logger.info(
-        "[cv_generator_b2b] Rendering CV name=%s lang=%s blind=%s",
-        candidate_data.get("name"),
+        # runda 6 audytu: długość zamiast imienia i nazwiska kandydata
+        "[cv_generator_b2b] Rendering CV name_len=%d lang=%s blind=%s",
+        len(str(candidate_data.get("name") or "")),
         language,
         blind_cv,
     )

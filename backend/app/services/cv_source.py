@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.candidate import Candidate
 from app.models.candidate_document import CandidateDocument
 from app.services import object_storage
+from app.core.log_safety import safe_storage_key
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +80,7 @@ async def get_current_cv(db: AsyncSession, candidate: Candidate) -> CurrentCV | 
                     "get_current_cv: object storage download failed "
                     "(candidate=%s, key=%s)",
                     candidate.id,
-                    doc.storage_key,
+                    safe_storage_key(doc.storage_key),
                 )
         if doc.file_content:
             return CurrentCV(
@@ -105,7 +106,7 @@ async def get_current_cv(db: AsyncSession, candidate: Candidate) -> CurrentCV | 
                 "get_current_cv: candidate storage download failed "
                 "(candidate=%s, key=%s)",
                 candidate.id,
-                candidate.cv_storage_key,
+                safe_storage_key(candidate.cv_storage_key),
             )
 
     if candidate.cv_file_content is not None:

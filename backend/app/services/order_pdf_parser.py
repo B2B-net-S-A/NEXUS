@@ -971,7 +971,11 @@ async def _call_extraction(
     data = parse_model_json(raw)
     if data is None:
         shape = describe_unparsed_response(raw, getattr(message, "stop_reason", None))
-        logger.warning("[order_parser] JSON parse failed (%s); raw=%.200s", shape, raw)
+        # Surowa odpowiedź modelu niesie nazwisko konsultanta i stawkę — do logu
+        # tylko kształt i długość (runda 6 audytu).
+        logger.warning(
+            "[order_parser] JSON parse failed (%s); raw_len=%d", shape, len(raw)
+        )
         _AI_FAILURE.set(f"nieczytelna odpowiedź AI (nie JSON; {shape})")
         return None
     result = _normalize(data, source="claude")

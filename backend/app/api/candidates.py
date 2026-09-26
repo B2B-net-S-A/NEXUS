@@ -7007,8 +7007,12 @@ async def bulk_cv_download(
                     async with aiofiles.open(file_path, "rb") as f:
                         data = await f.read()
                 except OSError as err:
+                    # Ścieżka niesie nazwę pliku CV (imię i nazwisko) — do logu
+                    # tylko id kandydata i klasa błędu (runda 6 audytu).
                     logger.warning(
-                        "bulk_cv_download: failed to read %s: %s", file_path, err
+                        "bulk_cv_download: failed to read CV of candidate=%s: %s",
+                        candidate.id,
+                        type(err).__name__,
                     )
             elif candidate.cv_storage_key:
                 # Round 2 migracja (audit-2026-05-07): CV w Hetzner Object Storage.

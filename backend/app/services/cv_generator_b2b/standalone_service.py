@@ -32,6 +32,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.log_safety import safe_storage_key
 from app.schemas.champion import client_safe_screening
 from app.models.call import Call
 from app.models.candidate import Candidate
@@ -265,7 +266,9 @@ def hydrate_consent_screenshot(payload: dict[str, Any]) -> dict[str, Any]:
         consent["_bytes"] = object_storage.download_cv(key)
     except Exception:  # noqa: BLE001 — patrz docstring
         logger.warning(
-            "consent screenshot: nie udało się pobrać %s z magazynu", key, exc_info=True
+            "consent screenshot: nie udało się pobrać %s z magazynu",
+            safe_storage_key(key),  # runda 6 audytu: klucz niesie nazwę pliku
+            exc_info=True,
         )
     return payload
 
@@ -1954,10 +1957,10 @@ def _run_generation_pipeline(
         )
 
     logger.info(
-        "[cv_b2b][%s] OK candidate=%s lang=%s blind=%s warnings=%d "
+        # runda 6 audytu: bez imienia i nazwiska — request_id wiąże log z zadaniem
+        "[cv_b2b][%s] OK lang=%s blind=%s warnings=%d "
         "(guard=%d) duration_ms=%d",
         request_id,
-        candidate_name,
         language,
         blind_cv,
         len(warnings),

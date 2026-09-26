@@ -30,6 +30,7 @@ from app.models.candidate import Candidate
 from app.models.candidate_stage_cv import CandidateStageCV
 from app.models.recruitment_pipeline import CandidateStage
 from app.services.cv_source import get_current_cv
+from app.core.log_safety import safe_filename
 
 logger = logging.getLogger(__name__)
 
@@ -304,8 +305,8 @@ async def refresh_original_cv_snapshot(
     logger.info(
         "Snapshot CV odświeżony stage=%s old=%s new=%s (source=%s)",
         stage_id,
-        old_filename,
-        current.filename,
+        safe_filename(old_filename),  # runda 6 audytu: nazwa pliku CV = nazwisko
+        safe_filename(current.filename),
         current.source,
     )
     return csv_row
