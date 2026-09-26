@@ -393,6 +393,19 @@ async def _store_deferred(
     )
 
 
+async def _drop_stale_pending(db: AsyncSession, kind: str, period_key: str) -> None:
+    """Runda 8 (R8-V3-10): odroczeni odbiorcy STAREGO okresu nie mają już
+    ponowienia (klucz okresu się zmienił), a wpis zostawał w `app_settings`
+    na zawsze. Nowy okres danego raportu sprząta poprzednie."""
+    await db.execute(
+        delete(AppSetting).where(
+            AppSetting.key.startswith(f"{_PENDING_PREFIX}{kind}:", autoescape=True),
+            AppSetting.key != _pending_key(kind, period_key),
+        )
+    )
+    await db.commit()
+
+
 async def _retry_deferred(
     db: AsyncSession,
     kind: str,
@@ -465,6 +478,7 @@ async def _send_report(
         run_id = await claim_report(db, kind, period_key)
         if run_id is None:
             return await _retry_deferred(db, kind, period_key, build, now_utc)
+        await _drop_stale_pending(db, kind, period_key)
         try:
             mails = await build(db)
         except Exception:

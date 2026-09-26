@@ -52,6 +52,12 @@ PATTERNS = (
     ),
     (re.compile(r"\butcnow\(\)\s*\.date\(\)"), "datetime.utcnow().date()"),
     (re.compile(r"\bCURRENT_DATE\b|\bfunc\.current_date\b"), "SQL CURRENT_DATE"),
+    # Runda 8 (R8-X1-5): rzut znacznika czasu (`timestamptz`, kolumny `*_at`,
+    # `now()`) na datę w sesji UTC — bez `AT TIME ZONE` to dzień UTC.
+    (
+        re.compile(r"\b(?:\w+_at|now\(\))\s*::\s*date\b"),
+        "SQL <kolumna>_at::date bez AT TIME ZONE",
+    ),
 )
 
 
@@ -172,3 +178,14 @@ def test_timestamp_and_business_today_are_fine():
         "noon = datetime(2026, 9, 25, 12, tzinfo=timezone.utc)\n"
     )
     assert find_violations(source) == []
+
+
+def test_flags_timestamp_cast_to_date_without_time_zone():
+    """R8-X1-5: `created_at::date` w sesji UTC to dzień UTC."""
+    source = (
+        'a = "SELECT created_at::date AS d FROM notes"\n'
+        'b = "WHERE now()::date = x"\n'
+        "c = \"SELECT (created_at AT TIME ZONE 'Europe/Warsaw')::date\"\n"
+        'd = "SELECT start_date::date, :v::date"\n'
+    )
+    assert [lineno for lineno, _ in find_violations(source)] == [1, 2]

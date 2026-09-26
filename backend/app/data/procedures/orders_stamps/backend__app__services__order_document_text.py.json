@@ -1,4 +1,4 @@
 {
-  "sha256": "962b674216c49f1d5134c77918ebb844d76e3f9eb8e5b5861b2d430413628c21",
+  "sha256": "4522245db0f95f55768df283e12e9f14af25182c42f72e14a4f314e896a376cb",
   "source": "backend/app/services/order_document_text.py"
 }

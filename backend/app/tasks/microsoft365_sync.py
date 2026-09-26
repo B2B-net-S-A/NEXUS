@@ -14,7 +14,7 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -623,42 +623,61 @@ async def _recording_discovery_pass(db: AsyncSession) -> RecordingDiscoveryStats
 
     processed = 0
     matched = 0
+    # Runda 8 (R8-V3-6): stempel `recording_discovered_at` dostaje KAŻDE
+    # wydarzenie z paczki — także pominięte (bez organizatora, organizator bez
+    # połączenia M365, błąd Graphu). Bez tego przy `nulls_first` takie wiersze
+    # zajmowały całą paczkę co przebieg i zagładzały resztę. Stempel tylko
+    # przesuwa wiersz na koniec kolejki; `recording_url IS NULL` wraca do niego
+    # w kolejnych przebiegach (np. po ponownym połączeniu konta).
+    skipped_ids: list[int] = []
+    # Pola czytane PRZED Graphem: rollback paczki jednego organizatora wygasza
+    # wszystkie obiekty sesji, a odczyt wygaszonego atrybutu w sesji async to
+    # MissingGreenlet dla kolejnych paczek.
+    snapshot = {
+        id(event): (event.id, event.online_meeting_url, event.end_time)
+        for event in events
+    }
     # Group by organiser so we open one GraphClient per connection — token
     # decrypt + httpx session setup is non-trivial work to do per event.
     by_organiser: dict[int, list[CalendarEvent]] = {}
     for event in events:
         if event.created_by is None:
-            # No organiser → no OneDrive to scan. Skip silently.
+            # No organiser → no OneDrive to scan.
+            skipped_ids.append(event.id)
             continue
         by_organiser.setdefault(event.created_by, []).append(event)
 
     for user_id, batch in by_organiser.items():
+        batch_ids = [snapshot[id(event)][0] for event in batch]
         conn = await _active_connection_for_user(db, user_id)
         if conn is None:
-            # No live M365 connection for the organiser — leave events alone,
-            # next pass will retry once the user reconnects.
+            # No live M365 connection for the organiser — rotate the events to
+            # the back; a later pass retries once the user reconnects.
+            skipped_ids.extend(batch_ids)
             continue
+        conn_id = conn.id
 
         try:
             async with GraphClient(conn, db) as gc:
                 for event in batch:
+                    event_id, meeting_url, end_time = snapshot[id(event)]
                     processed += 1
+                    # Mark the scan as having happened either way (also on a
+                    # Graph error) so the next pass deprioritises this row.
+                    event.recording_discovered_at = now
                     try:
                         url = await find_meeting_recording(
                             gc,
-                            online_meeting_url=event.online_meeting_url,
-                            event_end_at=event.end_time,  # type: ignore[arg-type]
+                            online_meeting_url=meeting_url,
+                            event_end_at=end_time,  # type: ignore[arg-type]
                         )
                     except asyncio.CancelledError:
                         raise
                     except Exception:  # noqa: BLE001
                         logger.exception(
-                            "recording discovery failed for event id=%s", event.id
+                            "recording discovery failed for event id=%s", event_id
                         )
                         continue
-                    # Mark the scan as having happened either way so the
-                    # next pass can deprioritise "looked but not found" rows.
-                    event.recording_discovered_at = now
                     if url:
                         event.recording_url = url[:998]
                         matched += 1
@@ -667,15 +686,29 @@ async def _recording_discovery_pass(db: AsyncSession) -> RecordingDiscoveryStats
             # Sync loop already handles this for the connection; skip silently
             # to avoid Sentry flood (we run every 6h vs sync's 5 min).
             logger.warning(
-                "recording discovery skip: conn=%s token undecryptable", conn.id
+                "recording discovery skip: conn=%s token undecryptable", conn_id
             )
+            await db.rollback()
+            skipped_ids.extend(batch_ids)
         except Exception:  # noqa: BLE001
             logger.exception(
                 "recording discovery: connection %s failed (batch=%d)",
-                conn.id,
+                conn_id,
                 len(batch),
             )
             await db.rollback()
+            skipped_ids.extend(batch_ids)
+
+    if skipped_ids:
+        # UPDATE po id zebranych przed Graphem — po rollbacku obiekty są
+        # wygaszone, a rollback innej paczki cofnąłby stempel ustawiony wcześniej.
+        await db.execute(
+            update(CalendarEvent)
+            .where(CalendarEvent.id.in_(skipped_ids))
+            .values(recording_discovered_at=now)
+            .execution_options(synchronize_session=False)
+        )
+        await db.commit()
 
     return RecordingDiscoveryStats(processed=processed, matched=matched)
 

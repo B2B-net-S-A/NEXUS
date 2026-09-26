@@ -119,8 +119,13 @@ def _extract_pdf_native(path: str) -> Optional[str]:
         if text:
             return text
     except Exception as e:  # pragma: no cover — defensive
+        # Runda 8 (R8-V3-1): ścieżka na dysku to `…/{uuid8}-{oryginalna_nazwa}`
+        # (zwykle imię i nazwisko), a komunikat wyjątku bywa tą ścieżką — do logu
+        # idzie kształt pliku i klasa wyjątku.
         logger.info(
-            "[cv_text_extractor] pdfplumber failed on %s: %s — trying pdfminer", path, e
+            "[cv_text_extractor] pdfplumber failed on %s: %s — trying pdfminer",
+            safe_filename(path),
+            type(e).__name__,
         )
 
     # Legacy fallback for rare PDFs that pdfplumber chokes on.
@@ -129,7 +134,11 @@ def _extract_pdf_native(path: str) -> Optional[str]:
 
         return _pdfminer_extract(path) or ""
     except Exception as e:  # pragma: no cover — defensive
-        logger.warning("[cv_text_extractor] pdfminer also failed on %s: %s", path, e)
+        logger.warning(
+            "[cv_text_extractor] pdfminer also failed on %s: %s",
+            safe_filename(path),
+            type(e).__name__,
+        )
         return None
 
 
@@ -154,7 +163,11 @@ def _extract_pdf_ocr(path: str) -> Optional[str]:
     except (
         Exception
     ) as e:  # pragma: no cover — defensive (system tesseract may be missing)
-        logger.warning("[cv_text_extractor] OCR fallback failed on %s: %s", path, e)
+        logger.warning(
+            "[cv_text_extractor] OCR fallback failed on %s: %s",
+            safe_filename(path),
+            type(e).__name__,
+        )
         return None
 
 
@@ -171,7 +184,8 @@ def _extract_pdf(path: str) -> Optional[str]:
     ocr = _extract_pdf_ocr(path)
     if ocr and len(ocr.strip()) >= _OCR_FALLBACK_THRESHOLD_CHARS:
         logger.info(
-            "[cv_text_extractor] PDF %s extracted via OCR (native too short)", path
+            "[cv_text_extractor] PDF %s extracted via OCR (native too short)",
+            safe_filename(path),
         )
         return ocr
     # Return whichever has more content (could still be empty).
@@ -196,7 +210,11 @@ def _extract_docx(path: str) -> Optional[str]:
                         lines.append(cell.text)
         return "\n".join(lines)
     except Exception as e:  # pragma: no cover — defensive
-        logger.warning("[cv_text_extractor] python-docx failed on %s: %s", path, e)
+        logger.warning(
+            "[cv_text_extractor] python-docx failed on %s: %s",
+            safe_filename(path),
+            type(e).__name__,
+        )
         return None
 
 
@@ -205,7 +223,11 @@ def _extract_txt(path: str) -> Optional[str]:
         with open(path, "r", encoding="utf-8", errors="replace") as f:
             return f.read()
     except Exception as e:  # pragma: no cover — defensive
-        logger.warning("[cv_text_extractor] txt read failed on %s: %s", path, e)
+        logger.warning(
+            "[cv_text_extractor] txt read failed on %s: %s",
+            safe_filename(path),
+            type(e).__name__,
+        )
         return None
 
 

@@ -806,3 +806,51 @@ def test_inline_logo_cid_is_not_a_foreign_address() -> None:
         sig = extract_signature(body, "marta@b2bnetwork.pl")
         assert sig is not None, cid
         assert "Marta Nowak" in sig
+
+
+def test_email_check_is_linear_on_pathological_signature() -> None:
+    """R8-V3-4: dawny ``_EMAIL_RE`` z lookaheadem liczył 12 KB ok. 2 s."""
+    import time
+
+    from app.services.m365.signature_cache import _looks_like_quote
+
+    for text in (
+        "a" * 5900 + "@" + "aa1." * 2500,  # ~16 KB, ciąg bez końca domeny
+        "a" * 16000,
+        "a@" + "a." * 8000,
+    ):
+        started = time.perf_counter()
+        _looks_like_quote(text, "marta@b2bnetwork.pl")
+        assert time.perf_counter() - started < 0.05
+
+
+def test_email_domains_keep_the_tld_rule() -> None:
+    """R8-V3-4: ta sama reguła końca domeny co przed zmianą wzorca."""
+    from app.services.m365.signature_cache import _email_domains
+
+    assert _email_domains("pisz: jan@gmail.com.") == ["gmail.com"]
+    assert _email_domains("image001.png@01DA1F2C.AB3E8A90") == []
+    assert _email_domains("x@b.com-") == []
+    assert _email_domains("@gmail.com") == []  # brak części lokalnej
+    assert _email_domains("a@b.pl, c@evil.org") == ["b.pl", "evil.org"]
+
+
+def test_hr_inside_signature_element_keeps_the_signature() -> None:
+    """R8-V3-5: ``<hr>`` jako linia w podpisie nie ucina elementu."""
+    body = (
+        "<div>Treść maila</div>"
+        '<div id="Signature"><p>Marta Nowak</p><hr><p>B2B.NET S.A.</p></div>'
+    )
+    sig = extract_signature(body, "marta@b2bnetwork.pl")
+    assert sig is not None
+    assert "Marta Nowak" in sig and "B2B.NET" in sig
+
+
+def test_quote_inside_signature_element_is_still_rejected() -> None:
+    """R8-V3-5: inny znacznik cytatu wewnątrz elementu nadal odrzuca podpis."""
+    body = (
+        '<div id="Signature"><p>Marta</p><hr>'
+        '<div id="divRplyFwdMsg"><b>From:</b> Jan &lt;jan@gmail.com&gt;'
+        "<b>Sent:</b> x</div></div>"
+    )
+    assert extract_signature(body, "marta@b2bnetwork.pl") is None
