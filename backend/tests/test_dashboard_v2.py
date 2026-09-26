@@ -25,7 +25,6 @@ from app.schemas.dashboard_v2 import (
 from app.services.dashboard_v2_sources import (
     ResolvedDashboardScope,
     _delivery_job_conditions,
-    _delivery_milestone_job_actor_pairs,
     load_delivery_demands,
     narrow_to_self,
 )
@@ -424,32 +423,68 @@ def test_delivery_scope_without_relationship_pairs_still_uses_clients() -> None:
     assert "jobs.client_id IN (8)" in rendered
 
 
-def test_delivery_milestone_actor_scope_preserves_client_relationship() -> None:
+@pytest.mark.asyncio
+async def test_delivery_milestones_are_not_limited_to_tac_actors() -> None:
+    # Runda 7 (R7-N9-6): portfel DL zawęża rekrutacje, a kamienie milowe liczą
+    # się niezależnie od tego, kto przesunął kartę (funkcji TAC nie używamy).
+    from app.services import dashboard_v2_sources as sources
+
     delivery_lead = _user(UserRole.delivery_lead, user_id=71)
     scope = ResolvedDashboardScope(
         raw=object(),
         payload=DashboardScopePayload(
             kind="delivery_clients",
             user_id=delivery_lead.id,
-            client_ids=[8, 9],
-            tac_user_ids=[21, 22],
-            operator_user_ids=[21, 22],
-            client_tac_pairs=[
-                {"client_id": 8, "tac_user_id": 21},
-                {"client_id": 9, "tac_user_id": 22},
-            ],
+            client_ids=[8],
+            tac_user_ids=[],
+            operator_user_ids=[],
         ),
     )
-    job_rows = [
-        SimpleNamespace(id=101, client_id=8),
-        SimpleNamespace(id=202, client_id=9),
-    ]
+    job_row = SimpleNamespace(
+        id=101,
+        title="Java",
+        priority=None,
+        headcount=2,
+        tac_id=None,
+        client_id=8,
+        created_at=None,
+        opened_at=None,
+        client_name="Klient",
+    )
+    statements: list[str] = []
 
-    allowed = _delivery_milestone_job_actor_pairs(job_rows, scope)
+    class _Rows:
+        def __init__(self, rows: list[object], scalar: int | None = None) -> None:
+            self._rows = rows
+            self._scalar = scalar
 
-    assert allowed == [(101, 21), (202, 22)]
-    assert (101, 22) not in allowed
-    assert (202, 21) not in allowed
+        def all(self) -> list[object]:
+            return self._rows
+
+        def scalar(self) -> int | None:
+            return self._scalar
+
+    class _Database:
+        async def execute(self, statement: Any, params: Any = None) -> _Rows:
+            sql = str(statement)
+            statements.append(sql)
+            if "MIN(first_reached_at)" in sql:
+                return _Rows([SimpleNamespace(job_id=101, reached_at=None)])
+            if "GROUP BY job_id" in sql:
+                return _Rows([SimpleNamespace(job_id=101, placements=1)])
+            if "COUNT(*)" in sql:
+                return _Rows([], scalar=1)
+            return _Rows([job_row])
+
+    period = SimpleNamespace(start=None, end=None)
+    snapshot = await sources.load_delivery_metrics(
+        delivery_lead, _Database(), period, scope
+    )
+
+    milestone_sql = [sql for sql in statements if "analytics_first_milestones" in sql]
+    assert len(milestone_sql) == 3
+    assert all("first_moved_by" not in sql for sql in milestone_sql)
+    assert snapshot.placements == 1
 
 
 @pytest.mark.asyncio

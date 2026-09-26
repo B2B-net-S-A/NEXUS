@@ -27,7 +27,7 @@ import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.client_playbook import ClientPlaybook
@@ -115,6 +115,10 @@ async def load_client_context(
         select(ClientPlaybook).where(ClientPlaybook.client_id == client_id)
     )
     since = datetime.now(timezone.utc) - timedelta(days=HISTORY_WINDOW_DAYS)
+    # Data otwarcia, nie importu: `created_at` rekrutacji z Traffita to maj
+    # 2026 dla całego archiwum, więc okno i „najnowsze” wybierały losowo
+    # (runda 7, R7-V3-1 — bliźniak listy praktykanta).
+    started = func.coalesce(Job.opened_at, Job.created_at)
     jobs = (
         (
             await db.execute(
@@ -122,9 +126,9 @@ async def load_client_context(
                 .where(
                     Job.client_id == client_id,
                     Job.champion_profile.is_not(None),
-                    Job.created_at >= since,
+                    started >= since,
                 )
-                .order_by(Job.created_at.desc())
+                .order_by(started.desc(), Job.id.desc())
                 .limit(_CANDIDATE_POOL)
             )
         )

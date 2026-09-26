@@ -195,9 +195,8 @@ def _delivery_job_conditions(
     if scope.payload.kind == "organization":
         return conditions
 
-    # Every Delivery Lead operates across the complete client portfolio.  TAC
-    # relationships still drive actor attribution below, but they must not
-    # remove a client's job merely because that job has no TAC yet.
+    # Every Delivery Lead operates across the complete client portfolio; the
+    # portfolio (not TAC relationships) scopes jobs and their milestones.
     conditions.append(Job.client_id.in_(scope.payload.client_ids or [-1]))
     if scope.payload.user_id != user.id:
         raise HTTPException(
@@ -207,37 +206,13 @@ def _delivery_job_conditions(
     return conditions
 
 
-def _delivery_milestone_job_actor_pairs(
-    job_rows: list[Any],
-    scope: ResolvedDashboardScope,
-) -> list[tuple[int, int]]:
-    """Map each selected job to TACs assigned to that job's client.
-
-    Keeping the job id and actor id paired prevents an actor assigned only to
-    client B from contributing milestones to client A merely because both
-    actors occur in the Delivery Lead's overall TAC union.
-    """
-
-    actors_by_client: dict[int, set[int]] = {}
-    for pair in scope.payload.client_tac_pairs:
-        actors_by_client.setdefault(pair.client_id, set()).add(pair.tac_user_id)
-
-    return sorted(
-        {
-            (int(row.id), actor_id)
-            for row in job_rows
-            for actor_id in actors_by_client.get(int(row.client_id), set())
-        }
-    )
-
-
 async def load_delivery_metrics(
     user: User,
     db: AsyncSession,
     period: Period,
     scope: ResolvedDashboardScope,
 ) -> DeliveryMetricsSnapshot:
-    """Read delivery facts with client AND TAC/actor scope enforced server-side."""
+    """Read delivery facts with the client scope enforced server-side."""
 
     conditions = _delivery_job_conditions(user, scope)
     rows = (
@@ -264,77 +239,58 @@ async def load_delivery_metrics(
     filled_vacancies: dict[int, int] = {}
     placements = 0
     if job_ids:
-        job_actor_pairs = _delivery_milestone_job_actor_pairs(rows, scope)
-        if scope.payload.kind == "organization" or job_actor_pairs:
-            actor_clause = (
-                ""
-                if scope.payload.kind == "organization"
-                else (
-                    "AND (job_id, first_moved_by) IN ("
-                    "SELECT allowed.job_id, allowed.actor_id "
-                    "FROM UNNEST("
-                    "CAST(:actor_job_ids AS integer[]), "
-                    "CAST(:actor_ids AS integer[])"
-                    ") AS allowed(job_id, actor_id)"
-                    ")"
-                )
+        # Runda 7 (R7-N9-6): kamienie milowe liczymy po rekrutacji
+        # (portfel DL już zawęża `job_ids`), nie po tym, kto przesunął kartę.
+        # Do 26.09 DL widział tylko ruchy TAC-ów swoich klientów, a funkcji TAC
+        # nie używamy (decyzja 22.09) — pulpit pokazywał 0 placementów jako
+        # komplet i każdą rekrutację jako „bez pierwszej rekomendacji”.
+        params = {
+            "job_ids": job_ids,
+            "start": period.start,
+            "end": period.end,
+        }
+        rec_rows = (
+            await db.execute(
+                text(
+                    "SELECT job_id, MIN(first_reached_at) AS reached_at "
+                    "FROM analytics_first_milestones "
+                    "WHERE job_id = ANY(CAST(:job_ids AS integer[])) "
+                    "AND stage = 'cv_sent' "
+                    "GROUP BY job_id"
+                ),
+                params,
             )
-            params = {
-                "job_ids": job_ids,
-                "actor_job_ids": [job_id for job_id, _ in job_actor_pairs],
-                "actor_ids": [actor_id for _, actor_id in job_actor_pairs],
-                "start": period.start,
-                "end": period.end,
-            }
-            rec_rows = (
+        ).all()
+        first_recommendations = {int(row.job_id): row.reached_at for row in rec_rows}
+        filled_rows = (
+            await db.execute(
+                text(
+                    "SELECT job_id, COUNT(*) AS placements "
+                    "FROM analytics_first_milestones "
+                    "WHERE job_id = ANY(CAST(:job_ids AS integer[])) "
+                    "AND stage = 'hired' "
+                    "GROUP BY job_id"
+                ),
+                params,
+            )
+        ).all()
+        filled_vacancies = {int(row.job_id): int(row.placements) for row in filled_rows}
+        placements = int(
+            (
                 await db.execute(
                     text(
-                        "SELECT job_id, MIN(first_reached_at) AS reached_at "
-                        "FROM analytics_first_milestones "
-                        "WHERE job_id = ANY(CAST(:job_ids AS integer[])) "
-                        "AND stage = 'cv_sent' "
-                        f"{actor_clause} "
-                        "GROUP BY job_id"
-                    ),
-                    params,
-                )
-            ).all()
-            first_recommendations = {
-                int(row.job_id): row.reached_at for row in rec_rows
-            }
-            filled_rows = (
-                await db.execute(
-                    text(
-                        "SELECT job_id, COUNT(*) AS placements "
+                        "SELECT COUNT(*) "
                         "FROM analytics_first_milestones "
                         "WHERE job_id = ANY(CAST(:job_ids AS integer[])) "
                         "AND stage = 'hired' "
-                        f"{actor_clause} "
-                        "GROUP BY job_id"
+                        "AND first_reached_at >= :start "
+                        "AND first_reached_at < :end"
                     ),
                     params,
                 )
-            ).all()
-            filled_vacancies = {
-                int(row.job_id): int(row.placements) for row in filled_rows
-            }
-            placements = int(
-                (
-                    await db.execute(
-                        text(
-                            "SELECT COUNT(*) "
-                            "FROM analytics_first_milestones "
-                            "WHERE job_id = ANY(CAST(:job_ids AS integer[])) "
-                            "AND stage = 'hired' "
-                            "AND first_reached_at >= :start "
-                            "AND first_reached_at < :end "
-                            f"{actor_clause}"
-                        ),
-                        params,
-                    )
-                ).scalar()
-                or 0
-            )
+            ).scalar()
+            or 0
+        )
 
     jobs = [
         DeliveryJobSnapshot(

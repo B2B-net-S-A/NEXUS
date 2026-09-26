@@ -126,6 +126,10 @@ describe("RecruitmentActivityDashboard", () => {
     expect(screen.getByRole("button", { name: /Placementy/ })).toHaveTextContent(
       "2",
     )
+    // Runda 7 (R7-N9-2): „Interview" = rozmowy u klienta, nie etap QC CV.
+    expect(
+      screen.getByRole("button", { name: /Rozmowy u klienta/ }),
+    ).toHaveTextContent("8")
     expect(getDetails).not.toHaveBeenCalled()
   })
 

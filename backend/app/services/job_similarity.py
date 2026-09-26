@@ -220,6 +220,10 @@ class PoolJob:
     skills: frozenset[str]
     tokens: frozenset[str]
     created_at: Optional[datetime]
+    # Data otwarcia rekrutacji; `created_at` rekrutacji z Traffita to data
+    # importu (runda 7, R7-V3-1). Okna „z ostatnich N miesięcy” czytają
+    # `opened_at or created_at`.
+    opened_at: Optional[datetime] = None
 
 
 @dataclass
@@ -270,6 +274,7 @@ def _build_pool(rows: Sequence[Any]) -> _Pool:
             skills=skill_set(row.must_skills, row.champion_profile),
             tokens=title_tokens(row.title),
             created_at=row.created_at,
+            opened_at=row.opened_at,
         )
         pool.jobs[item.id] = item
         for key in item.skills | {f"t:{t}" for t in item.tokens}:
@@ -297,6 +302,7 @@ async def _load_pool(db: AsyncSession) -> _Pool:
                     Job.must_skills,
                     Job.champion_profile,
                     Job.created_at,
+                    Job.opened_at,
                 ).where(Job.client_id.is_not(None))
             )
         ).all()
@@ -366,6 +372,7 @@ def _as_pool_job(job: Any) -> PoolJob:
         ),
         tokens=title_tokens(getattr(job, "title", None)),
         created_at=getattr(job, "created_at", None),
+        opened_at=getattr(job, "opened_at", None),
     )
 
 

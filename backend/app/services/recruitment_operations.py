@@ -41,6 +41,7 @@ from app.models.client import Client
 from app.models.competence_category import CompetenceCategory
 from app.models.job import Job, JobStatus
 from app.models.job_collaborator import JobCollaborator
+from app.models.pipeline_template import PipelineStageDef
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import User, UserRole
 from app.schemas.recruitment_operations import (
@@ -64,6 +65,8 @@ from app.services.client_identity import (
     job_client_listed_clause,
 )
 from app.services.access_scope import ScopeKind, resolve_dashboard_scope
+from app.services.board_stage_badges import board_column_for
+from app.services.request_work_state import FINISHED as FINISHED_WORK_STATE
 from app.services.similar_job_candidates import SimilarJobRef, fetch_similar_jobs
 
 
@@ -76,18 +79,30 @@ _PROCESS_HIDDEN_STAGES = frozenset({PipelineStage.rejected, PipelineStage.withdr
 _OVERLAP_INACTIVE_STAGES = frozenset(
     {PipelineStage.rejected, PipelineStage.withdrawn, PipelineStage.hired}
 )
-_DASHBOARD_STAGE_FIELDS: dict[PipelineStage, str] = {
-    PipelineStage.new: "new",
-    PipelineStage.screening: "screening",
-    PipelineStage.cv_sent: "cv_sent",
-    PipelineStage.client_interview: "client_interview",
-    PipelineStage.acceptance: "acceptance",
+# Runda 7 (R7-N9-4): licznik = KOLUMNA Tablicy (`board_column_for`), nie
+# goły kod etapu. Do 26.09 „Nowy” gubił `posting`, „Screening” — `prep_call`,
+# a „Akceptacje” — `negotiation` i etapy „Umowa wysłana/podpisana” (kolumna
+# „Umowa”), więc kafel i macierz pokazywały 0 tam, gdzie Tablica miała ludzi.
+_DASHBOARD_COLUMN_FIELDS: dict[str, str] = {
+    "new": "new",
+    "screening": "screening",
+    "cv_sent": "cv_sent",
+    "client_interview": "client_interview",
+    "contract": "acceptance",
 }
+# Etapy, które nigdy nie trafiają do żadnego licznika (zamknięcia, zatrudnienie)
+# — odcinamy je już w SQL, żeby agregat nie niósł historii całej bazy.
+_NEVER_COUNTED_STAGES = (
+    PipelineStage.rejected,
+    PipelineStage.withdrawn,
+    PipelineStage.hired,
+)
 _CURRENT_PIPELINE = table(
     "analytics_current_pipeline",
     column("candidate_id", Integer),
     column("job_id", Integer),
     column("stage", CandidateStage.__table__.c.stage.type),
+    column("candidate_stage_id", Integer),
 )
 
 
@@ -111,6 +126,15 @@ class _LatestStage:
     candidate_id: int
     job_id: int
     stage: PipelineStage
+    # Kolumna Tablicy wyliczona z nazwy etapu (QC, „Umowa wysłana”…); pusta =
+    # z samego kodu etapu.
+    column: str | None = None
+
+    @property
+    def board_column(self) -> str:
+        if self.column is not None:
+            return self.column
+        return board_column_for(None, self.stage.value)
 
 
 @dataclass(frozen=True)
@@ -160,6 +184,9 @@ def _job_filters(
 ) -> list[object]:
     filters: list[object] = [
         Job.status == JobStatus.published,
+        # Request „Zakończony” (stan pracy NEXUSA) znika z list, choć status
+        # z Traffita zostaje `published` (runda 7, R7-N9-5).
+        Job.work_state != FINISHED_WORK_STATE,
         # Techniczny kubeł importu nie jest procesem rekrutacyjnym (UAT B73).
         job_client_listed_clause(Job.client_id),
     ]
@@ -254,12 +281,17 @@ def _record_from_mapping(row: object) -> _JobRecord:
     )
 
 
-def _current_pipeline_subquery(*, job_ids: Select | None = None):
-    statement = select(
+def _current_pipeline_subquery(
+    *, job_ids: Select | None = None, with_stage_row: bool = False
+):
+    columns = [
         _CURRENT_PIPELINE.c.candidate_id,
         _CURRENT_PIPELINE.c.job_id,
         _CURRENT_PIPELINE.c.stage,
-    )
+    ]
+    if with_stage_row:
+        columns.append(_CURRENT_PIPELINE.c.candidate_stage_id)
+    statement = select(*columns)
     if job_ids is not None:
         statement = statement.where(_CURRENT_PIPELINE.c.job_id.in_(job_ids))
     return statement.subquery()
@@ -372,19 +404,50 @@ async def _load_latest_stages(
     if not job_ids:
         return []
     latest = _current_pipeline_subquery(
-        job_ids=select(Job.id).where(Job.id.in_(job_ids))
+        job_ids=select(Job.id).where(Job.id.in_(job_ids)), with_stage_row=True
     )
     result = await db.execute(
-        select(latest.c.candidate_id, latest.c.job_id, latest.c.stage)
+        _with_stage_def(
+            latest,
+            select(latest.c.candidate_id, latest.c.job_id, latest.c.stage),
+        )
     )
     return [
         _LatestStage(
             candidate_id=row.candidate_id,
             job_id=row.job_id,
             stage=_pipeline_stage(row.stage),
+            column=_row_column(row),
         )
         for row in result.all()
     ]
+
+
+def _with_stage_def(latest: Subquery, statement: Select) -> Select:
+    """Dokleja nazwę, kategorię i typ zamknięcia definicji bieżącego etapu."""
+
+    return (
+        statement.add_columns(
+            PipelineStageDef.name.label("stage_name"),
+            PipelineStageDef.category.label("stage_category"),
+            PipelineStageDef.terminal_type.label("stage_terminal_type"),
+        )
+        .select_from(latest)
+        .outerjoin(CandidateStage, CandidateStage.id == latest.c.candidate_stage_id)
+        .outerjoin(PipelineStageDef, PipelineStageDef.id == CandidateStage.stage_def_id)
+    )
+
+
+def _row_column(row) -> str:
+    stage = _pipeline_stage(row.stage)
+    return board_column_for(
+        row.stage_name,
+        stage.value,
+        category=getattr(row.stage_category, "value", row.stage_category),
+        terminal_type=getattr(
+            row.stage_terminal_type, "value", row.stage_terminal_type
+        ),
+    )
 
 
 def _visible_process_stages(rows: Iterable[_LatestStage]) -> list[_LatestStage]:
@@ -398,23 +461,23 @@ def _overlap_candidate_ids(rows: Iterable[_LatestStage]) -> set[int]:
 
 
 def fold_stage_counts(
-    pairs: Iterable[tuple[PipelineStage | str, int]],
+    pairs: Iterable[tuple[str, int]],
 ) -> RecruitmentOperationsStageCounts:
-    """(etap bieżący, liczba) → pięć liczników pulpitu; inne etapy pomijamy.
+    """(kolumna Tablicy, liczba) → pięć liczników pulpitu; inne kolumny pomijamy.
 
-    Jedyne miejsce mapowania etapu na licznik — czyta je pulpit procesów
+    Jedyne miejsce mapowania kolumny na licznik — czyta je pulpit procesów
     i macierz kompetencji w /insights (``dashboard_stage_counts_by_job``).
     """
-    counts = {field: 0 for field in _DASHBOARD_STAGE_FIELDS.values()}
-    for stage, count in pairs:
-        field = _DASHBOARD_STAGE_FIELDS.get(_pipeline_stage(stage))
+    counts = {field: 0 for field in _DASHBOARD_COLUMN_FIELDS.values()}
+    for board_column, count in pairs:
+        field = _DASHBOARD_COLUMN_FIELDS.get(board_column)
         if field is not None:
             counts[field] += int(count)
     return RecruitmentOperationsStageCounts(**counts)
 
 
 def _stage_counts(rows: Iterable[_LatestStage]) -> RecruitmentOperationsStageCounts:
-    return fold_stage_counts((row.stage, 1) for row in rows)
+    return fold_stage_counts((row.board_column, 1) for row in rows)
 
 
 async def dashboard_stage_counts_by_job(
@@ -426,17 +489,24 @@ async def dashboard_stage_counts_by_job(
     ``_stage_counts`` w wierszu procesu, tylko zliczone ``GROUP BY`` zamiast
     ładowania każdego kandydata — dla przeglądu całej organizacji.
     """
-    latest = _current_pipeline_subquery(job_ids=job_ids)
+    latest = _current_pipeline_subquery(job_ids=job_ids, with_stage_row=True)
+    statement = _with_stage_def(
+        latest, select(latest.c.job_id, latest.c.stage, func.count().label("cnt"))
+    )
     rows = (
         await db.execute(
-            select(latest.c.job_id, latest.c.stage, func.count().label("cnt"))
-            .where(latest.c.stage.in_(list(_DASHBOARD_STAGE_FIELDS)))
-            .group_by(latest.c.job_id, latest.c.stage)
+            statement.where(latest.c.stage.notin_(_NEVER_COUNTED_STAGES)).group_by(
+                latest.c.job_id,
+                latest.c.stage,
+                PipelineStageDef.name,
+                PipelineStageDef.category,
+                PipelineStageDef.terminal_type,
+            )
         )
     ).all()
-    pairs_by_job: dict[int, list[tuple[PipelineStage | str, int]]] = defaultdict(list)
+    pairs_by_job: dict[int, list[tuple[str, int]]] = defaultdict(list)
     for row in rows:
-        pairs_by_job[int(row.job_id)].append((row.stage, int(row.cnt)))
+        pairs_by_job[int(row.job_id)].append((_row_column(row), int(row.cnt)))
     return {job_id: fold_stage_counts(pairs) for job_id, pairs in pairs_by_job.items()}
 
 

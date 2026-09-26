@@ -70,7 +70,7 @@ export const ZESPOL_DL_PERIOD: InsightsPeriodParams = {
 const STEPS = [
   { stage: "verified", label: "Zweryfikowani" },
   { stage: "cv_sent", label: "CV wysłane" },
-  { stage: "interview", label: "Rozmowy" },
+  { stage: "client_interview", label: "Rozmowy u klienta" },
   { stage: "hired", label: "Zatrudnieni" },
 ] as const;
 
@@ -177,7 +177,7 @@ export function ZespolView() {
           <TileRow>
             {tile("hired", "Placementy")}
             {tile("cv_sent", "CV wysłane do klienta")}
-            {tile("interview", "Rozmowy")}
+            {tile("client_interview", "Rozmowy u klienta")}
             {tile("verified", "Zweryfikowani")}
           </TileRow>
 
@@ -378,7 +378,7 @@ function RecruiterTable({
               </th>
               <th className="px-3 py-2.5 text-right font-semibold">Weryf. / dzień</th>
               <th className="px-3 py-2.5 text-right font-semibold">CV wysłane</th>
-              <th className="px-3 py-2.5 text-right font-semibold">Rozmowy</th>
+              <th className="px-3 py-2.5 text-right font-semibold">Rozmowy u klienta</th>
               <th className="px-3 py-2.5 text-right font-semibold">Placementy</th>
               <th className="px-3 py-2.5 text-right font-semibold">Precyzja 30 dni</th>
               <th className="px-4 py-2.5 text-right font-semibold">

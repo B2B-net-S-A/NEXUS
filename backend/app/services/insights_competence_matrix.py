@@ -22,13 +22,14 @@ from app.models.competence_category import CompetenceCategory
 from app.models.job import Job, JobStatus
 from app.services.client_identity import job_client_listed_clause
 from app.services.recruitment_operations import dashboard_stage_counts_by_job
+from app.services.request_work_state import FINISHED as FINISHED_WORK_STATE
 
 STAGES: tuple[tuple[str, str], ...] = (
     ("new", "Nowy"),
     ("screening", "Screening"),
     ("cv_sent", "Wysłany do klienta"),
-    ("client_interview", "Interview"),
-    ("acceptance", "Akceptacje"),
+    ("client_interview", "Rozmowa u klienta"),
+    ("acceptance", "Umowa"),
 )
 NO_CATEGORY_NAME = "Bez kategorii"
 
@@ -40,6 +41,8 @@ def _zero_counts() -> dict[str, int]:
 async def compute_competence_matrix(db: AsyncSession) -> dict:
     job_filters = (
         Job.status == JobStatus.published,
+        # „Zakończony” w NEXUSIE nie jest otwarty (runda 7, R7-N9-5).
+        Job.work_state != FINISHED_WORK_STATE,
         job_client_listed_clause(Job.client_id),
     )
     job_rows = (

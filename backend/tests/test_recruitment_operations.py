@@ -280,6 +280,10 @@ async def test_recruiter_cannot_request_named_team_drilldown() -> None:
 
 @pytest.mark.asyncio
 async def test_activity_summary_uses_one_snapshot_for_counts_and_comparisons() -> None:
+    # Przegląd jest w cache procesu (runda 7, R7-N9-3) — liczymy od zera.
+    from app.core import cache as cache_module
+
+    cache_module._cache.clear()
     current = _user(UserRole.recruiter, user_id=11)
     other = _user(UserRole.tac, user_id=12)
     users_result = MagicMock()
@@ -562,11 +566,13 @@ async def test_hybrid_user_can_select_each_held_preset(
     assert response.status_code == 418
 
 
-def test_stage_counts_use_only_exact_dashboard_pipeline_stages() -> None:
+def test_stage_counts_follow_board_columns() -> None:
+    # Runda 7 (R7-N9-4): licznik = kolumna Tablicy (`board_column_for`).
     rows = [
         service._LatestStage(index, 1, stage)
         for index, stage in enumerate(
             [
+                PipelineStage.posting,
                 PipelineStage.new,
                 PipelineStage.prep_call,
                 PipelineStage.screening,
@@ -584,9 +590,41 @@ def test_stage_counts_use_only_exact_dashboard_pipeline_stages() -> None:
     ]
 
     assert service._stage_counts(rows).model_dump() == {
-        "new": 1,
-        "screening": 1,
+        "new": 2,
+        "screening": 2,
         "cv_sent": 1,
+        "client_interview": 1,
+        "acceptance": 2,
+    }
+
+
+def test_stage_counts_read_the_stage_name_like_the_board() -> None:
+    # „Przepuszczony przez DZ” (kod `interview`) = kolumna QC CV — poza
+    # licznikami; „Umowa wysłana” = kolumna „Umowa”; „Po Interview” = rozmowa
+    # u klienta — tak samo jak na Tablicy.
+    row = SimpleNamespace(
+        stage="interview",
+        stage_name="Przepuszczony przez DZ",
+        stage_category="internal",
+        stage_terminal_type=None,
+    )
+    assert service._row_column(row) == "cv_qc"
+    after = SimpleNamespace(
+        stage="new",
+        stage_name="Po Interview",
+        stage_category="external",
+        stage_terminal_type=None,
+    )
+    assert service._row_column(after) == "client_interview"
+    rows = [
+        service._LatestStage(1, 1, PipelineStage.interview, column="cv_qc"),
+        service._LatestStage(2, 1, PipelineStage.new, column="client_interview"),
+        service._LatestStage(3, 1, PipelineStage.new, column="contract"),
+    ]
+    assert service._stage_counts(rows).model_dump() == {
+        "new": 0,
+        "screening": 0,
+        "cv_sent": 0,
         "client_interview": 1,
         "acceptance": 1,
     }
@@ -1237,3 +1275,20 @@ async def test_similar_processes_use_live_scoped_jobs_only(
     assert "jobs.status =" in scope_sql
     assert "jobs.recruiter_id =" in scope_sql
     assert "job_collaborators" in scope_sql
+
+
+def test_finished_requests_are_not_open_processes() -> None:
+    # Runda 7 (R7-N9-5): „Zakończony” (stan pracy NEXUSA) znika z pulpitu
+    # procesów, choć status z Traffita zostaje `published`.
+    compiled = (
+        select(Job.id)
+        .where(
+            *service._job_filters(
+                _user(UserRole.admin),
+                scope=service._RecruitmentOperationsScope(preset="finance"),
+            )
+        )
+        .compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True})
+    )
+
+    assert "jobs.work_state != 'finished'" in str(compiled)

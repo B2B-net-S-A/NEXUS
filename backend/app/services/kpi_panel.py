@@ -453,7 +453,11 @@ async def compute_my_panel(
 
     weryfikacje = _funnel_counts(by_stage.get("verified"))
     rekomendacje = _funnel_counts(by_stage.get("cv_sent"))
-    interview_month = int(by_stage["interview"]["mo"]) if "interview" in by_stage else 0
+    # Runda 7 (R7-N9-2, decyzja 26.09.2026): „Interview" = rozmowy u klienta
+    # (`client_interview`), nie etap QC CV (kod `interview`).
+    interview_month = (
+        int(by_stage["client_interview"]["mo"]) if "client_interview" in by_stage else 0
+    )
     akceptacje_month = (
         int(by_stage["acceptance"]["mo"]) if "acceptance" in by_stage else 0
     )

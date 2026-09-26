@@ -21,9 +21,10 @@ from datetime import datetime, time, timedelta
 from typing import Literal, Optional
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import and_, func, select, text
+from sqlalchemy import and_, bindparam, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.cache import cache_get, cache_set, cache_single_flight
 from app.models.call import Call, CallStatus
 from app.models.candidate import Candidate
 from app.models.user import User, UserRole
@@ -293,6 +294,80 @@ async def count_canonical_metric(
     return int(result or 0)
 
 
+_MILESTONE_SNAPSHOT_TTL_SECONDS = 60
+
+
+async def _milestone_snapshot(
+    db: AsyncSession,
+    windows: dict[KpiPeriod, tuple[datetime, datetime]],
+) -> dict[tuple[int, str, str], int]:
+    """Kamienie milowe (osoba, etap, okres) całej firmy — jedno CTE na minutę.
+
+    Runda 7 (R7-N10-1): `/api/kpis/me/today` liczył osobne pełne
+    `VERIFIER_ANCHORED_CTE` na każdą metrykę (3 × 5–7 s) przy każdym wejściu,
+    a przebieg coacha robił to po kolei dla każdej osoby. Filtr osoby i tak
+    działał dopiero na wyniku CTE, więc liczymy wszystkich naraz i trzymamy
+    wynik 60 s z jednym wykonawcą. Ta sama atrybucja co
+    ``count_canonical_metric``.
+    """
+
+    from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
+
+    ordered = sorted(windows.items(), key=lambda item: item[0].value)
+    key = "kpi:milestones:v1:" + "|".join(
+        f"{period.value}={start.isoformat()}/{end.isoformat()}"
+        for period, (start, end) in ordered
+    )
+    cached = await cache_get(key)
+    if cached is not None:
+        return cached
+    async with cache_single_flight(key, db=db):
+        cached = await cache_get(key)
+        if cached is not None:
+            return cached
+        params: dict[str, object] = {
+            "stages": sorted(set(_MILESTONE_STAGE.values())),
+            "min_start": min(start for _, (start, _) in ordered),
+            "max_end": max(end for _, (_, end) in ordered),
+        }
+        filters = []
+        for index, (period, (start, end)) in enumerate(ordered):
+            params[f"s{index}"] = start
+            params[f"e{index}"] = end
+            filters.append(
+                f"count(*) FILTER (WHERE reached_at >= :s{index} "
+                f"AND reached_at < :e{index}) AS p{index}"
+            )
+        statement = text(
+            VERIFIER_ANCHORED_CTE
+            + f"""
+            SELECT credit_user, stage, {", ".join(filters)}
+            FROM credited
+            WHERE credit_user IS NOT NULL
+              AND stage IN :stages
+              AND reached_at >= :min_start
+              AND reached_at < :max_end
+            GROUP BY credit_user, stage
+            """
+        ).bindparams(bindparam("stages", expanding=True))
+        rows = (await db.execute(statement, params)).mappings().all()
+        snapshot: dict[tuple[int, str, str], int] = {}
+        for row in rows:
+            for index, (period, _) in enumerate(ordered):
+                count = int(row[f"p{index}"] or 0)
+                if count:
+                    snapshot[
+                        (int(row["credit_user"]), str(row["stage"]), period.value)
+                    ] = count
+        await cache_set(
+            key,
+            snapshot,
+            ttl_seconds=_MILESTONE_SNAPSHOT_TTL_SECONDS,
+            jitter_seconds=10,
+        )
+        return snapshot
+
+
 def _hours_until_period_end(period: KpiPeriod, now: datetime) -> float:
     """Ile godzin zostało do końca bieżącego okresu w Warsaw."""
     now_w = _as_warsaw(now)
@@ -346,17 +421,31 @@ async def evaluate_user_kpis(
         await resolve_kpi_targets_bulk(db, [user], [k.kpi_id for k in coach_kpis])
     )[user.id]
 
+    milestone_windows = {
+        k.period: period_bounds(k.period, now)
+        for k in coach_kpis
+        if k.metric in _MILESTONE_STAGE
+    }
+    milestones = (
+        await _milestone_snapshot(db, milestone_windows) if milestone_windows else {}
+    )
+
     results: list[KpiResult] = []
     for kpi_def in coach_kpis:
         target = targets[kpi_def.kpi_id]
         start, end = period_bounds(kpi_def.period, now)
-        current = await count_canonical_metric(
-            db,
-            user_id=user.id,
-            metric=kpi_def.metric,
-            since=start,
-            until=end,
-        )
+        if kpi_def.metric in _MILESTONE_STAGE:
+            current = milestones.get(
+                (user.id, _MILESTONE_STAGE[kpi_def.metric], kpi_def.period.value), 0
+            )
+        else:
+            current = await count_canonical_metric(
+                db,
+                user_id=user.id,
+                metric=kpi_def.metric,
+                since=start,
+                until=end,
+            )
         ratio = expected_progress_ratio(kpi_def.period, now)
         state = derive_state(current=current, target=target, expected_ratio=ratio)
         progress = (current / target * 100.0) if target > 0 else 0.0
