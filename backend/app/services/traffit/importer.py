@@ -582,6 +582,13 @@ _CANDIDATE_TOMBSTONE_GUARD = """
         ) OR (
             pc.external_source = 'email'
             AND pc.external_id_hash = CAST(:tombstone_email_hash AS text)
+            -- Żywy kandydat z tym mailem (założony po migawce `email_to_id`)
+            -- to osoba, która wróciła: INSERT trafi w UNIQUE maila, a
+            -- `_late_email_owner` zaadoptuje kartotekę do niego.
+            AND NOT EXISTS (
+                SELECT 1 FROM candidates AS live
+                WHERE live.email = CAST(:email AS text)
+            )
         )
     )
 """
@@ -2367,10 +2374,15 @@ class TraffitImporter:
                 email_lc = (payload.get("email") or "").strip().lower()
                 owner_id = ext_to_id.get(str(payload["external_id"]))
                 # Runda 7 audytu (R7-V2-2): druga kartoteka tej samej osoby
-                # (ten sam mail, inny id) — nagrobek maila. Tylko gdy
-                # `external_id` nie ma żywego właściciela: wtedy ten wiersz
-                # NIE jest usuniętą osobą i dalej synchronizuje się normalnie.
-                if tombstones is not None and owner_id is None:
+                # (ten sam mail, inny id) — nagrobek maila. Tylko gdy ani
+                # `external_id`, ani mail nie ma żywego właściciela: żywy wiersz
+                # z tym mailem to osoba, która wróciła (np. zgłoszeniem ze
+                # strony kariery) — kartoteka adoptuje się do niej normalnie.
+                if (
+                    tombstones is not None
+                    and owner_id is None
+                    and (not email_lc or email_to_id.get(email_lc) is None)
+                ):
                     email_hash = candidate_email_tombstone(email_lc)
                     if email_hash is not None and email_hash in tombstones[1]:
                         progress.skipped += 1

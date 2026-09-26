@@ -79,6 +79,8 @@ def test_candidate_upsert_checks_tombstones_in_the_statement_itself():
     assert "NOT EXISTS" in guarded and "purged_candidates" in guarded
     assert ":tombstone_source_hash" in guarded
     assert ":tombstone_email_hash" in guarded
+    # Nagrobek maila nie blokuje, gdy żyje kandydat z tym mailem (adopcja).
+    assert "live.email = CAST(:email AS text)" in guarded
     # Baza sprzed 0388: tabeli nie wolno nawet wymienić w zapytaniu.
     bare = str(_UPSERT_CANDIDATE_NO_TOMBSTONES)
     assert "purged_candidates" not in bare
@@ -124,6 +126,9 @@ def test_talent_radar_skips_tombstoned_traffit_id_and_email(hmac_key):
     # Żywy właściciel identyfikatora nie jest usuniętą osobą.
     imp._ext_id_to_id = {"1": 7}
     assert not imp._is_tombstoned({"external_id": "1", "email": "gone@example.com"})
+    # Żywy wiersz z tym mailem — osoba wróciła, CV łączy się z nią.
+    imp._email_to_id = {"gone@example.com": 9}
+    assert not imp._is_tombstoned({"external_id": "2", "email": "Gone@example.com"})
 
 
 def test_talent_radar_without_tombstones_checks_nothing():
