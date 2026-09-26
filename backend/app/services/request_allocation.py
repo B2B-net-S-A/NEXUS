@@ -356,6 +356,7 @@ async def _last_assignment_was_auto(
                 JobWorkAssignment.user_id,
                 JobWorkAssignment.source,
                 JobWorkAssignment.role,
+                JobWorkAssignment.release_reason,
             )
             .where(
                 JobWorkAssignment.job_id.in_(sorted({job for job, _ in pairs})),
@@ -377,6 +378,9 @@ async def _last_assignment_was_auto(
         if (row.job_id, row.user_id) in wanted
         and row.source == "auto"
         and row.role == "recruiter"
+        # Zwolnienie z powodu automatu (urlop, poza przydziałem…) zdjęło też
+        # prowadzącego — skoro znów ktoś nim jest, wpisał go człowiek.
+        and row.release_reason not in AUTO_RELEASE_REASONS
     )
 
 

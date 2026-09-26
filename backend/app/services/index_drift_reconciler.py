@@ -241,7 +241,13 @@ async def reconcile_once(
 async def _dead_never_done(
     db: AsyncSession, entity_type: str, entity_ids: list[int]
 ) -> set[int]:
-    """Encje z intencją ``dead`` i bez żadnego wiersza ``done`` (R8-N11-4)."""
+    """Encje z DOKŁADNIE JEDNĄ intencją ``dead`` i bez żadnego ``done`` (R8-N11-4).
+
+    Wznawiamy raz: kandydat bez tekstu do embeddingu wraca jako ``dead`` po
+    każdej próbie, więc bez tego warunku każdy pełny przebieg dopisywał mu
+    kolejne 5 prób (przegląd rundy 8). Po retencji ``dead`` (30 dni) licznik
+    spada i próba wraca — raz na miesiąc, nie raz na przebieg.
+    """
     dead_rows = (
         await db.execute(
             select(IndexOutboxEvent.entity_id)
@@ -251,7 +257,8 @@ async def _dead_never_done(
                 IndexOutboxEvent.status == "dead",
                 IndexOutboxEvent.operation == "upsert",
             )
-            .distinct()
+            .group_by(IndexOutboxEvent.entity_id)
+            .having(func.count() == 1)
         )
     ).scalars()
     dead = {int(e) for e in dead_rows}

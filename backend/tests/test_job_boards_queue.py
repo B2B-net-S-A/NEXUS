@@ -571,13 +571,10 @@ async def test_unpublish_during_lease_does_not_free_the_row(api, rocket_ready):
         again = {p.id for p in await claim_batch(db, 1000)}
         await db.rollback()
     assert posting.id not in again
-
-    # Spóźniony sukces pierwszej wysyłki zostawia zamknięcie w kolejce.
-    await _process(job_id)
+    # Wiersz nadal czeka na zamknięcie (spóźniony wynik pierwszej wysyłki
+    # rozstrzyga `_apply(changed=True)`, sprawdzane w testach workera).
     after = await _posting(job_id)
-    assert after.status == PostingStatus.published
     assert after.pending_action == "close"
-    assert after.next_attempt_at is None
     await _retire(job_id)
 
 

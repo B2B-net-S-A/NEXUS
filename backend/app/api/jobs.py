@@ -461,10 +461,9 @@ async def _sync_job_status_payload(job: Job) -> None:
     Runda 8 (R8-N11-2): zmiana statusu nie zmienia tekstu embeddingu, więc nie
     wywołuje re-embedu, a filtr puli ofert (`search_jobs_semantic(statuses=…)`)
     czyta status z payloadu. Oferta bez `embedding_id` nie ma punktu — pomijamy.
-    Wołać PO commicie; nigdy nie rzuca.
+    Wołać PO commicie; nigdy nie rzuca. Oferty bez punktu nie sprawdzamy
+    tutaj — `sync_job_status_payloads` pomija punkty, których nie ma.
     """
-    if not job.embedding_id:
-        return
     try:
         from app.services.embedding_service import (
             job_status_value,

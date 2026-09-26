@@ -133,3 +133,24 @@ class TestReplayMatchItems:
 
         # 20 stron = 2000 trafień dawało niepełną linię bazową (fałszywe alerty).
         assert mod._MAX_PAGES * mod._PAGE_SIZE >= 100_000
+
+
+def test_log_writes_are_batched_under_the_asyncpg_argument_limit():
+    """Runda 8 (przegląd): sufit skanu to 100 tys. osób, a asyncpg przyjmuje
+    najwyżej 32 767 argumentów — zapis i odczyt dziennika idą paczkami."""
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+
+    from app.tasks import saved_search_alerts as mod
+
+    db = MagicMock()
+    result = MagicMock()
+    result.all.return_value = []
+    db.execute = AsyncMock(return_value=result)
+    ids = list(range(1, 11_001))
+    asyncio.run(mod._log_candidates(db, 1, ids, notified_at=None))
+    assert db.execute.await_count == 3
+    db.execute.reset_mock()
+    asyncio.run(mod._logged_candidate_ids(db, 1, ids))
+    assert db.execute.await_count == 3
+    assert mod._LOG_BATCH * 3 < 32_767

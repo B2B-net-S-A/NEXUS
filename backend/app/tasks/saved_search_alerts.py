@@ -50,6 +50,7 @@ _PAGE_SIZE = 100  # GET /api/candidates hard cap (le=100)
 # ucięte osoby nie były już nigdy sprawdzane. 1000 stron = 100 tys. osób,
 # więcej niż cała baza; trafienie w sufit to stan awaryjny (niżej).
 _MAX_PAGES = int(os.getenv("SAVED_SEARCH_ALERTS_MAX_PAGES", "1000"))  # bound per run
+_LOG_BATCH = 5000
 _NAMES_IN_MESSAGE = 3
 
 # Params we never replay from the stored snapshot: paging/sort is forced by
@@ -213,13 +214,18 @@ async def _logged_candidate_ids(db, search_id: int, ids: list[int]) -> set[int]:
         return set()
     from app.models.saved_search_alert_log import SavedSearchAlertLog
 
-    rows = await db.execute(
-        select(SavedSearchAlertLog.candidate_id).where(
-            SavedSearchAlertLog.saved_search_id == search_id,
-            SavedSearchAlertLog.candidate_id.in_(ids),
+    # Runda 8: paczki — asyncpg przyjmuje najwyżej 32 767 argumentów,
+    # a sufit skanu to 100 tys. osób.
+    found: set[int] = set()
+    for start in range(0, len(ids), _LOG_BATCH):
+        rows = await db.execute(
+            select(SavedSearchAlertLog.candidate_id).where(
+                SavedSearchAlertLog.saved_search_id == search_id,
+                SavedSearchAlertLog.candidate_id.in_(ids[start : start + _LOG_BATCH]),
+            )
         )
-    )
-    return {r[0] for r in rows.all()}
+        found.update(r[0] for r in rows.all())
+    return found
 
 
 async def _log_candidates(
@@ -231,21 +237,23 @@ async def _log_candidates(
         return
     from app.models.saved_search_alert_log import SavedSearchAlertLog
 
-    stmt = (
-        pg_insert(SavedSearchAlertLog)
-        .values(
-            [
-                {
-                    "saved_search_id": search_id,
-                    "candidate_id": cid,
-                    "notified_at": notified_at,
-                }
-                for cid in ids
-            ]
+    # Runda 8: paczki — 3 parametry na wiersz, limit asyncpg to 32 767.
+    for start in range(0, len(ids), _LOG_BATCH):
+        stmt = (
+            pg_insert(SavedSearchAlertLog)
+            .values(
+                [
+                    {
+                        "saved_search_id": search_id,
+                        "candidate_id": cid,
+                        "notified_at": notified_at,
+                    }
+                    for cid in ids[start : start + _LOG_BATCH]
+                ]
+            )
+            .on_conflict_do_nothing(constraint="uq_saved_search_alert_pair")
         )
-        .on_conflict_do_nothing(constraint="uq_saved_search_alert_pair")
-    )
-    await db.execute(stmt)
+        await db.execute(stmt)
 
 
 async def _baseline_one(client, db, ss, owner) -> None:

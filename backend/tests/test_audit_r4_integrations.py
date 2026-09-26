@@ -352,7 +352,7 @@ async def test_imported_meeting_retyped_in_nexus_is_still_scrubbed() -> None:
     assert existing.attendees == []
 
 
-@pytest.mark.parametrize("event_type", ["prep_call", "meeting", "client_interview"])
+@pytest.mark.parametrize("event_type", ["prep_call", "meeting"])
 @pytest.mark.asyncio
 async def test_event_created_in_nexus_keeps_its_content(event_type) -> None:
     from app.models.calendar_event import EventType
@@ -372,6 +372,26 @@ async def test_event_created_in_nexus_keeps_its_content(event_type) -> None:
     # Zwykła aktualizacja z Outlooka, bez zamiany na „Spotkanie prywatne”.
     assert existing.title == "Wizyta u lekarza"
     assert existing.description == "Gabinet 12"
+
+
+@pytest.mark.asyncio
+async def test_client_interview_from_nexus_is_not_rewritten_by_outlook() -> None:
+    """Runda 8 (R8-N9-4): blokada rozmowy u klienta w Outlooku jest kopią —
+    zmiana tytułu i opisu w Outlooku nie nadpisuje rozmowy z NEXUSA."""
+    from app.models.calendar_event import EventType
+    from app.services.m365.sync import _upsert_event
+
+    existing = _existing_row(
+        event_type=EventType.client_interview,
+        title="Prep z kandydatem",
+        description="Treść NEXUSA",
+        operational_owner_id=7,
+    )
+    db = AsyncMock()
+    db.scalar.side_effect = [existing, None]
+    await _upsert_event(db, SimpleNamespace(user_id=5), _graph_event())
+    assert existing.title == "Prep z kandydatem"
+    assert existing.description == "Treść NEXUSA"
 
 
 def test_origin_marker_cannot_be_set_from_nexus_edit_nor_by_import() -> None:

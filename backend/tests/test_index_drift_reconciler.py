@@ -363,6 +363,27 @@ async def test_candidate_whose_only_intent_died_is_revived():
 
 
 @pytest.mark.asyncio
+async def test_candidate_that_died_again_after_revival_is_not_revived_twice():
+    """Przegląd rundy 8: kandydat bez tekstu do embeddingu wraca jako `dead`
+    po każdej próbie — wznowienie jest jednorazowe, inaczej kolejka rosła
+    o 5 prób na każdy pełny przebieg."""
+    async with AsyncSessionLocal() as db:
+        cand = await _fresh_candidate(db)
+        await _add_event(db, cand.id, status="dead")
+        await _add_event(db, cand.id, status="dead")
+        result = await rec.reconcile_once(
+            db,
+            entity_type=outbox.CANDIDATE,
+            cursor=cand.id - 1,
+            batch=1,
+            revive_dead_unseen=True,
+        )
+        assert result.revived == 0
+        assert await _pending_ids(db, cand.id) == []
+        await db.rollback()
+
+
+@pytest.mark.asyncio
 async def test_quarantined_candidate_with_an_old_dead_intent_is_not_revived():
     """Kwarantanna zostawia `done` z pustym haszem — nie wolno jej odwrócić."""
     async with AsyncSessionLocal() as db:
