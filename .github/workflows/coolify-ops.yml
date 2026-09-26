@@ -51,7 +51,7 @@ on:
       action:
         description: "What to do"
         type: choice
-        options: [app-mail-send-probe, app-mail-config-audit, release-config-audit, staging-status, candidate-index-audit, candidate-index-repair, list, cancel, cron-list, backup-status, client-lookup, migration-receipts, contract-merge-audit, contract-merge-apply, nexus-data-correction-audit, nexus-data-correction-apply, eval-ab, eval-ab-scorer, eval-ab-text, eval-ab-text-notes, eval-read, eval-stop, eval-cv-quality, recover-cv-quality, inspect-cv-quality, cleanup-cv-quality, cv-generation-logs, startup-timing]
+        options: [teams-prep-config-audit, teams-prep-meeting-probe, app-mail-send-probe, app-mail-config-audit, release-config-audit, staging-status, candidate-index-audit, candidate-index-repair, list, cancel, cron-list, backup-status, client-lookup, migration-receipts, contract-merge-audit, contract-merge-apply, nexus-data-correction-audit, nexus-data-correction-apply, eval-ab, eval-ab-scorer, eval-ab-text, eval-ab-text-notes, eval-read, eval-stop, eval-cv-quality, recover-cv-quality, inspect-cv-quality, cleanup-cv-quality, cv-generation-logs, startup-timing]
         default: list
       index_audit_identity:
         description: "Reviewed audit RUN_ID-ATTEMPT (candidate-index-repair only)"
@@ -183,6 +183,25 @@ permissions:
   contents: read
 
 jobs:
+  teams-prep-probe:
+    name: Scoped Teams access and optional synthetic meeting probe
+    if: ${{ github.ref == 'refs/heads/main' && (inputs.action == 'teams-prep-config-audit' || inputs.action == 'teams-prep-meeting-probe') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: .github/scripts
+      - name: Verify redaction, scope rejection and cleanup
+        run: python3 -m unittest discover -s .github/scripts/tests -p test_teams_prep_probe.py
+      - name: Probe fixed organizer and excluded mailbox
+        env:
+          CO_URL: ${{ secrets.COOLIFY_URL }}
+          CO_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
+          TEAMS_MEETING_PROBE: ${{ inputs.action == 'teams-prep-meeting-probe' && '1' || '0' }}
+        run: python3 .github/scripts/teams_prep_probe.py
+
   app-mail-config-audit:
     name: System mail diagnosis and optional owner probe
     # OPS-N05 (audyt 22.09.2026): sekrety produkcji tylko dla wersji tego pliku z maina.
