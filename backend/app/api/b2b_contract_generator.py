@@ -98,6 +98,7 @@ from app.services.polish_ilike import polish_folded_ilike
 from app.services.contract_lifecycle import (
     SIGNED_AGREEMENT_ACTIVATION,
     activate_without_revenue_gate,
+    lock_contract_then_orders,
 )
 from app.services.contract_order_sync import (
     resync_contract_safely,
@@ -2911,6 +2912,36 @@ async def confirm_generated_contract_fully_signed(
 
     _require_signature_confirmation(current_user)
     try:
+        # Kontrakty osoby blokowane PRZED wierszem rejestru — ta sama kolejność
+        # co ``/terminate`` i nocny cron (kontrakt → wiersze). Automatyzacja
+        # zatrudnienia blokuje kontrakt pary dopiero później
+        # (``lock_contract_then_orders``), więc równoległe zakończenie tej osoby
+        # kończyło się zakleszczeniem (runda 7, R7-V4-7 — bliźniak LOCK-1).
+        # Odczyt osoby samymi kolumnami, bez encji w mapie tożsamości.
+        link = (
+            await db.execute(
+                select(
+                    B2BGeneratedContract.candidate_id,
+                    B2BGeneratedContract.contract_id,
+                ).where(B2BGeneratedContract.id == generated_id)
+            )
+        ).first()
+        person_id = (link.candidate_id if link else None) or payload.candidate_id
+        person_contract_ids = (
+            list(
+                (
+                    await db.scalars(
+                        select(Contract.id).where(Contract.candidate_id == person_id)
+                    )
+                ).all()
+            )
+            if person_id is not None
+            else []
+        )
+        await lock_contract_then_orders(
+            db,
+            contract_ids=[*person_contract_ids, link.contract_id if link else None],
+        )
         row = await db.scalar(
             select(B2BGeneratedContract)
             .where(B2BGeneratedContract.id == generated_id)

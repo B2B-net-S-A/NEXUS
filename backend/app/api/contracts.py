@@ -384,6 +384,30 @@ def _amendment_baseline_from(
     return start_date
 
 
+def _amendment_step_from(
+    schedule: object, start_date: Optional[date], effective_date: date
+) -> date:
+    """Data kroku harmonogramu dla aneksu stawki.
+
+    Aneks sprzed startu umowy ma działać od startu. Gdy harmonogram ma już
+    krok między datą aneksu a startem (stawka progresywna z generatora, krok
+    klienta od startu zamówienia), resolver brał krok o najpóźniejszym
+    ``effective_from`` ≤ dzień — stary krok wygrywał od startu i aneks nie
+    działał ani dnia (runda 7, R7-V4-2; runda 6 poprawiła tylko pusty
+    harmonogram). Krok aneksu staje wtedy na dacie ostatniego takiego kroku:
+    remis rozstrzyga kolejność dopisania, więc wygrywa aneks. Kroki PO
+    starcie to późniejsze zmiany i zostają nadrzędne.
+    """
+    if start_date is None or effective_date >= start_date:
+        return effective_date
+    blocking = [
+        step.effective_from
+        for step in (schedule or [])
+        if effective_date < step.effective_from <= start_date
+    ]
+    return max(blocking, default=effective_date)
+
+
 def _extension_end_date_passed(contract: Contract, new_end: date) -> bool:
     """Czy przedłużenie zakończonej/kończącej się umowy celuje w miniony dzień.
 
@@ -5454,7 +5478,11 @@ async def create_contract_amendment(
             contract.candidate_rate_schedule.append(
                 ContractCandidateRate(
                     rate=data.new_rate_candidate,
-                    effective_from=data.effective_date,
+                    effective_from=_amendment_step_from(
+                        contract.candidate_rate_schedule,
+                        contract.start_date,
+                        data.effective_date,
+                    ),
                     note=data.reason,
                     created_by=current_user.id,
                 )
@@ -5484,7 +5512,11 @@ async def create_contract_amendment(
             contract.client_rate_schedule.append(
                 ContractClientRate(
                     rate=data.new_rate_client,
-                    effective_from=data.effective_date,
+                    effective_from=_amendment_step_from(
+                        contract.client_rate_schedule,
+                        contract.start_date,
+                        data.effective_date,
+                    ),
                     note=data.reason,
                     created_by=current_user.id,
                 )
