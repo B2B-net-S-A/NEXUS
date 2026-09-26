@@ -249,12 +249,13 @@ async def get_rules_preview(
     db: AsyncSession = Depends(get_db),
 ):
     """Wielkość puli przy regułach z formularza (niezapisane wartości w query
-    nadpisują zapisane). Liczone na żywo — kilka sekund. Statystyki panelu
-    zapisujemy tylko dla reguł zapisanych."""
+    nadpisują zapisane). Liczone świeżo — kilka sekund, w wątku, jedno
+    liczenie na te same reguły i pamiętane chwilę (runda 6 audytu).
+    Statystyki panelu zapisujemy tylko dla reguł zapisanych."""
     saved = await lists.load_rules(db)
     overrides = _query_rules(request.query_params)
     rules = rules_mod.normalize_rules({**saved, **overrides})
-    stats = await lists.pool_stats(db, rules, today=business_today())
+    stats = await lists.preview_pool_stats(db, rules, today=business_today())
     if rules == saved and not _is_preview(request):
         await lists.store_pool_stats(db, stats)
         await db.commit()

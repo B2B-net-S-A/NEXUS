@@ -23,6 +23,7 @@ przez indeks odwrócony, więc lista rekrutacji nie porównuje każdej z każdą
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import time
@@ -226,9 +227,17 @@ class _Pool:
     loaded_at: float = 0.0
     jobs: dict[int, PoolJob] = field(default_factory=dict)
     index: dict[str, set[int]] = field(default_factory=dict)
+    #: Ranking wiersza listy pamiętany na czas życia puli (runda 6 audytu) —
+    #: klucz niesie całą referencję i wykluczenia, więc edycja rekrutacji albo
+    #: nowe połączenie liczy się od nowa. Pisany wyłącznie na pętli zdarzeń.
+    rank_cache: dict[tuple, list[tuple[int, int]]] = field(default_factory=dict)
 
 
 _pool = _Pool()
+
+#: Jedno przeładowanie puli naraz (runda 6 audytu): po wygaśnięciu TTL każde
+#: równoległe żądanie listy budowało własny indeks całej historii rekrutacji.
+_pool_lock = asyncio.Lock()
 
 
 def reset_pool_cache() -> None:
@@ -237,25 +246,16 @@ def reset_pool_cache() -> None:
     _pool = _Pool()
 
 
-async def _load_pool(db: AsyncSession) -> _Pool:
-    global _pool
-    if _pool.jobs and time.monotonic() - _pool.loaded_at < _POOL_TTL_SECONDS:
-        return _pool
-    rows = (
-        await db.execute(
-            select(
-                Job.id,
-                Job.title,
-                Job.client_id,
-                Job.reference_number,
-                Job.status,
-                Job.competence_category_id,
-                Job.must_skills,
-                Job.champion_profile,
-                Job.created_at,
-            ).where(Job.client_id.is_not(None))
-        )
-    ).all()
+def _pool_fresh() -> bool:
+    return bool(_pool.jobs) and time.monotonic() - _pool.loaded_at < _POOL_TTL_SECONDS
+
+
+def _build_pool(rows: Sequence[Any]) -> _Pool:
+    """Pula i indeks z pobranych wierszy — czysta funkcja, liczona w wątku.
+
+    Kilka tysięcy rekrutacji × kanonizacja umiejętności i Championa to CPU,
+    które na pętli zatrzymywało całe API (runda 6 audytu).
+    """
     pool = _Pool(loaded_at=time.monotonic())
     for row in rows:
         item = PoolJob(
@@ -274,8 +274,36 @@ async def _load_pool(db: AsyncSession) -> _Pool:
         pool.jobs[item.id] = item
         for key in item.skills | {f"t:{t}" for t in item.tokens}:
             pool.index.setdefault(key, set()).add(item.id)
-    _pool = pool
     return pool
+
+
+async def _load_pool(db: AsyncSession) -> _Pool:
+    global _pool
+    if _pool_fresh():
+        return _pool
+    async with _pool_lock:
+        # Kto czekał, zastaje pulę przeładowaną przez poprzednika.
+        if _pool_fresh():
+            return _pool
+        rows = (
+            await db.execute(
+                select(
+                    Job.id,
+                    Job.title,
+                    Job.client_id,
+                    Job.reference_number,
+                    Job.status,
+                    Job.competence_category_id,
+                    Job.must_skills,
+                    Job.champion_profile,
+                    Job.created_at,
+                ).where(Job.client_id.is_not(None))
+            )
+        ).all()
+        pool = await asyncio.to_thread(_build_pool, rows)
+        pool.loaded_at = time.monotonic()
+        _pool = pool
+        return pool
 
 
 def _rank(pool: _Pool, ref: PoolJob, exclude: set[int]) -> list[tuple[int, int]]:
@@ -301,6 +329,27 @@ def _rank(pool: _Pool, ref: PoolJob, exclude: set[int]) -> list[tuple[int, int]]
             scored.append((job_id, score))
     scored.sort(key=lambda pair: (-pair[1], -pair[0]))
     return scored
+
+
+def _rank_cache_key(ref: PoolJob, exclude: frozenset[int]) -> tuple:
+    return (
+        ref.id,
+        ref.skills,
+        ref.tokens,
+        ref.competence_category_id,
+        ref.client_id,
+        exclude,
+    )
+
+
+def _rank_many(
+    pool: _Pool, work: list[tuple[tuple, PoolJob, frozenset[int]]]
+) -> dict[tuple, list[tuple[int, int]]]:
+    """Ranking wielu wierszy naraz (w wątku) — pula tylko czytana."""
+    return {
+        key: _rank(pool, ref, set(exclude))[:MAX_SUGGESTIONS]
+        for key, ref, exclude in work
+    }
 
 
 def _as_pool_job(job: Any) -> PoolJob:
@@ -440,17 +489,29 @@ async def suggestion_summaries(
     """Dla listy: ile podobnych (niepołączonych) rekrutacji z osobami
     wysłanymi do klienta ma każda rekrutacja. Tylko otwarte wiersze."""
     pool = await _load_pool(db)
-    ranked_by_job: dict[int, list[tuple[int, int]]] = {}
-    wanted: set[int] = set()
+    # Referencje z obiektów ORM składamy na pętli (atrybuty są już wczytane),
+    # a ranking strony — ~0,4 s CPU przy 100 wierszach — idzie w wątku
+    # i zostaje w pamięci puli (runda 6 audytu).
+    keys_by_job: dict[int, tuple] = {}
+    work: list[tuple[tuple, PoolJob, frozenset[int]]] = []
     for job in jobs:
         status = job.status.value if hasattr(job.status, "value") else job.status
         if status == JobStatus.closed.value:
             continue
-        ranked = _rank(pool, _as_pool_job(job), set(linked.get(job.id, [])))[
-            :MAX_SUGGESTIONS
-        ]
-        ranked_by_job[job.id] = ranked
-        wanted.update(job_id for job_id, _ in ranked)
+        ref = _as_pool_job(job)
+        exclude = frozenset(linked.get(job.id, []))
+        key = _rank_cache_key(ref, exclude)
+        keys_by_job[job.id] = key
+        if key not in pool.rank_cache:
+            work.append((key, ref, exclude))
+    if work:
+        pool.rank_cache.update(await asyncio.to_thread(_rank_many, pool, work))
+    ranked_by_job: dict[int, list[tuple[int, int]]] = {}
+    wanted: set[int] = set()
+    for job_id, key in keys_by_job.items():
+        ranked = pool.rank_cache[key]
+        ranked_by_job[job_id] = ranked
+        wanted.update(other_id for other_id, _ in ranked)
     sent = await sent_counts(db, wanted)
     out: dict[int, dict] = {}
     for job_id, ranked in ranked_by_job.items():

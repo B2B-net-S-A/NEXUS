@@ -23,6 +23,7 @@ paragonu (klucz ``repair_details_…``, którego publiczny workflow nie drukuje)
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -367,7 +368,9 @@ async def run_import(
     """Import (albo podgląd) jednego pliku. Wołający commituje/rollbackuje
     zgodnie z ``dry_run`` — patrz ``api/b2b_register_import.py``."""
     sha = payload_sha256(payload)
-    parsed = parse_register(payload)
+    # zipfile + openpyxl to sekundy CPU przy dużym arkuszu — w wątku, nie na
+    # pętli zdarzeń jedynego procesu API (runda 6 audytu).
+    parsed = await asyncio.to_thread(parse_register, payload)
     await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": _LOCK_KEY})
 
     if not dry_run:
