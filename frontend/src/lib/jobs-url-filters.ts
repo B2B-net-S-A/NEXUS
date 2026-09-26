@@ -28,8 +28,9 @@ export const RECRUITMENT_RUNNING_ROLES: readonly UserRole[] = [
 type ScopeUser = Parameters<typeof hasRole>[0];
 
 /**
- * Zakres listy: „Moje" (prowadzę albo współpracuję), „Otwarte" (wszystko poza
- * zamkniętymi — backend `open_only`) albo „Wszystkie" (cały rejestr).
+ * Zakres listy: „Moje" (prowadzę albo współpracuję, bez zamkniętych),
+ * „Otwarte" (wszystko poza zamkniętymi — backend `open_only`) albo
+ * „Wszystkie" (cały rejestr).
  */
 export type JobScope = "mine" | "open" | "all";
 
@@ -66,12 +67,17 @@ export function resolveScope(
   return override ?? defaultScopeForUser(user);
 }
 
-/** Parametry zakresu dla `GET /api/jobs` (i klucza zapytania). */
+/**
+ * Parametry zakresu dla `GET /api/jobs` (i klucza zapytania). „Moje" to moje
+ * NIEZAMKNIĘTE (decyzja Artura 26.09.2026) — zamknięte, w tym archiwum
+ * z Traffita, widać wyłącznie we „Wszystkie"; liczniki `quick-counts`
+ * zakresu „Moje" liczą tym samym warunkiem.
+ */
 export function scopeQueryFlags(scope: JobScope): {
   mine: boolean;
   openOnly: boolean;
 } {
-  return { mine: scope === "mine", openOnly: scope === "open" };
+  return { mine: scope === "mine", openOnly: scope !== "all" };
 }
 
 // ── Typ, termin, sortowanie (M03-B01) ─────────────────────────────────────

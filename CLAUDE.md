@@ -2565,7 +2565,9 @@ miejsce, nie zbiór funkcji.
   zapytanie listy ma `enabled: hydrated`. Szybkie filtry „Niezamknięte”
   i „Moje rekrutacje” usunięte — dublowały przełącznik. Zakres NIE liczy się
   do liczby ustawionych filtrów. Liczniki z `/api/jobs/quick-counts` (`all`,
-  `open`, `mine`).
+  `open`, `mine`). „Moje” = moje NIEZAMKNIĘTE (decyzja Artura 26.09.2026):
+  lista wysyła `mine` + `open_only`, a `mine`, `*_mine` i `attention_mine`
+  w `quick-counts` liczą `jobs_mine_scope_clause` — archiwum tylko we „Wszystkie”.
 - **Sortowanie domyślne zależy od zakresu** (`defaultSortForScope`):
   „Moje” → `sort=attention` („Wymaga uwagi”), „Otwarte”/„Wszystkie” →
   `newest`. `sort=deadline` = „Najbliższy termin” (bez terminu na końcu).
@@ -2602,6 +2604,9 @@ miejsce, nie zbiór funkcji.
     jak pulpit „Requesty i obłożenie” i automat przydziału (propozycja z trybu
     cienia się liczy). `jobs_worked_by_clause` / `jobs_nobody_working_clause`;
     `worked_by` razem z `nobody_working=true` to LUB („ja albo nikt”).
+    Prowadzący (`jobs.recruiter_id`, aktywne konto, niezdjęty ręcznie
+    w bieżącym stanie requestu) też pracuje — przypisania powstają tylko
+    w puli „Szukamy” przy włączonym przydziale (runda 7 audytu, 26.09.2026).
 - **Kolumny:** „Etapy” = te same 8 kolumn co Tablica (Nowi … Zatrudniony),
   rozstrzygane `placeStage` z `lib/board-stages.ts` na `stage_columns` wiersza
   — tą samą regułą co Tablica (QC ma kod `interview`, a mimo to trafia do QC
