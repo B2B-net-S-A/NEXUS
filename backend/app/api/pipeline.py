@@ -3306,6 +3306,9 @@ async def bulk_move_candidates(
             candidate_id=cid,
             job_id=data.job_id,
             stage=data.stage,
+            # Runda 8 (R8-N8-6): wiersz z paczki niesie etap szablonu jak
+            # pojedynczy /move — kolejka Cpro i tablica filtrują po nim.
+            stage_def_id=bulk_stage_def.id if bulk_stage_def else None,
             moved_at=datetime.now(timezone.utc),
             actor_user_id=current_user.id,
             work_channel=PriorityChannel.database,

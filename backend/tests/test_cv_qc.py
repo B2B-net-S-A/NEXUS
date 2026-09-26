@@ -1024,6 +1024,47 @@ async def test_fresh_pair_without_stage_rows_does_not_skip_qc(
 
 
 @pytest.mark.asyncio
+async def test_bulk_move_keeps_the_template_stage(
+    api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Runda 8 (R8-N8-6): `/bulk-move` zapisuje `stage_def_id` jak pojedynczy
+    `/move` — bez niego kolejka Cpro i tablica nie widziały wiersza."""
+
+    monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", "")
+    world = await _seed_world()
+    dl_id, dl_creds = await _seed_user(UserRole.delivery_lead)
+    dl = await _login(api_client, dl_creds)
+    try:
+        await _move(api_client, dl, world, "verified")
+        bulk = await api_client.post(
+            "/api/pipeline/bulk-move",
+            headers=dl,
+            json={
+                "candidate_ids": [world["candidate_id"]],
+                "job_id": world["job_id"],
+                "stage": "cv_sent",
+                "client_rate_value": "180",
+                "client_rate_unit": "hourly",
+                "client_rate_currency": "PLN",
+            },
+        )
+        assert bulk.status_code == 200, bulk.text
+        async with AsyncSessionLocal() as db:
+            latest = await db.scalar(
+                select(CandidateStage)
+                .where(
+                    CandidateStage.candidate_id == world["candidate_id"],
+                    CandidateStage.job_id == world["job_id"],
+                )
+                .order_by(CandidateStage.id.desc())
+                .limit(1)
+            )
+        assert latest.stage_def_id == world["defs"]["cv_sent"]
+    finally:
+        await _cleanup(world, [dl_id])
+
+
+@pytest.mark.asyncio
 async def test_gate_switch_off_lets_the_move_through(
     api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
