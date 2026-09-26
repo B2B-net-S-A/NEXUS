@@ -633,7 +633,8 @@ czekająca decyzja zamyka się sama, gdy późniejszy import z Finansów wyzeruj
 pulę tej osoby — wpis zostaje w historii zamówienia. Gdy korekta zużycia
 (np. plik poprawkowy z Finansów) przywróci tej osobie MD, sprawa **otwiera się
 ponownie** i znów czeka na Twoją decyzję (decyzji podjętej przez człowieka
-system nie rusza). Po decyzji „oddaj pulę” późny raport za miesiąc zejścia
+system nie rusza), a zamówienie zamknięte przez wyczerpanie MD wraca do
+aktywnych, dopóki ta decyzja czeka. Po decyzji „oddaj pulę” późny raport za miesiąc zejścia
 zdejmuje z zamówienia tylko to, co naprawdę zostało — nie więcej. Przy wspólnej
 puli MD decyzja o obsadzie jest potrzebna jak dotąd.
 

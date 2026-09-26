@@ -478,7 +478,12 @@ async def test_delivery_lead_finance_scope_still_uses_assignments() -> None:
     assert finance_client_ids == frozenset({10})
     rendered = str(db.scalars.await_args.args[0])
     assert "delivery_lead_client_assignments" in rendered
-    assert "FROM clients" not in rendered
+    # Od rundy 6 (DL-04) zapytanie czyta ``clients`` wyłącznie po to, żeby
+    # przypisanie na scalonym duplikacie objęło klienta kanonicznego (i
+    # odwrotnie) — każdy warunek wychodzi od przypisań DL, nie z całej firmy.
+    assert "merged_into_client_id" in rendered
+    where = rendered.split("WHERE", 1)[1]
+    assert where.count("delivery_lead_client_assignments") >= 1
 
 
 @pytest.mark.asyncio

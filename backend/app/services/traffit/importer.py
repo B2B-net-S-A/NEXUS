@@ -3747,7 +3747,7 @@ class TraffitImporter:
                               AND external_id IS DISTINCT FROM :external_id
                               -- Tylko kopie z Traffita: CV wgrane w NEXUSIE nie
                               -- ustępuje plikowi z importu (runda 6 audytu,
-                              -- lustro _RESYNC_STALE_CV_POINTER). Kolizja z nim
+                              -- lustro reguły wskaźnika CV). Kolizja z nim
                               -- kończy się niżej zapisem pliku jako pobocznego.
                               AND external_source = 'traffit'
                             """

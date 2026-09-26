@@ -317,6 +317,12 @@ async def test_detached_candidate_cv_is_not_served_but_upload_without_person_is(
 # ── RODO-03: powiadomienia ──────────────────────────────────────────────────
 
 
+def _unique_entity_id() -> int:
+    """Indeks ``ix_notif_dedup_daily`` (użytkownik, typ, id encji, dzień) jest
+    wspólny dla całej bazy testowej — stałe id zderzałyby się między testami."""
+    return 1_000_000_000 + uuid.uuid4().int % 1_000_000_000
+
+
 async def test_notifications_about_the_person_are_erased(
     app_client: AsyncClient, app_auth_headers: dict
 ):
@@ -352,12 +358,12 @@ async def test_notifications_about_the_person_are_erased(
             note(related_entity_type="candidate_stage", related_entity_id=stage.id),
             note(
                 related_entity_type="job",
-                related_entity_id=job.id,
+                related_entity_id=_unique_entity_id(),
                 link=f"/jobs/{job.id}?candidate={candidate_id}",
             ),
             note(
                 related_entity_type="calendar_event",
-                related_entity_id=1,
+                related_entity_id=_unique_entity_id(),
                 link=f"/candidates/{candidate_id}?tab=activity",
             ),
         ]
@@ -365,7 +371,7 @@ async def test_notifications_about_the_person_are_erased(
             note(related_entity_type="candidate", related_entity_id=other_id),
             note(
                 related_entity_type="job",
-                related_entity_id=job.id,
+                related_entity_id=_unique_entity_id(),
                 link=f"/candidates/{candidate_id}0",
             ),
         ]
@@ -399,7 +405,7 @@ async def test_merge_repoints_links_of_non_candidate_notifications(
                 message="x",
                 notification_type=NotificationType.stage_rule,
                 related_entity_type="candidate_stage",
-                related_entity_id=1,
+                related_entity_id=_unique_entity_id(),
                 link=link,
             )
             for link in (

@@ -307,7 +307,7 @@ async def test_create_job_rejects_tac_not_assigned_to_client(
             },
         )
         assert resp.status_code == 400, resp.text
-        assert "assigned to the selected client_id" in resp.text
+        assert "nie jest przypisana do wybranego klienta" in resp.text
     finally:
         await _cleanup(client_id, [tac_id])
 
@@ -331,7 +331,7 @@ async def test_create_job_invalid_tac_role_returns_400(
             },
         )
         assert resp.status_code == 400, resp.text
-        assert "tac_id" in resp.text
+        assert "TAC" in resp.text
     finally:
         await _cleanup(client_id, [sourcer_id])
 

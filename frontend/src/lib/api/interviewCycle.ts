@@ -63,11 +63,23 @@ export const interviewCycleApi = {
     api
       .post<SlotRequest>(`/api/interview-cycle/slots/${id}/choose`, { index })
       .then((r) => r.data),
-  confirmSlot: (id: number, body: { index?: number | null; add_to_outlook: boolean }) =>
+  confirmSlot: (
+    id: number,
+    body: { index?: number | null; add_to_outlook: boolean; supersedes_event_id?: number | null },
+  ) =>
     api
-      .post<{ request: SlotRequest; event_id: number; outlook: string }>(
-        `/api/interview-cycle/slots/${id}/confirm`,
-        body,
+      .post<{
+        request: SlotRequest;
+        event_id: number;
+        outlook: string;
+        cancelled_event_id?: number | null;
+      }>(`/api/interview-cycle/slots/${id}/confirm`, body)
+      .then((r) => r.data),
+  /** Nieodbyte rozmowy pary, które potwierdzany termin może przełożyć. */
+  replaceableInterviews: (id: number) =>
+    api
+      .get<{ id: number; start_time: string; end_time?: string | null }[]>(
+        `/api/interview-cycle/slots/${id}/replaceable`,
       )
       .then((r) => r.data),
   cancelSlots: (id: number) =>

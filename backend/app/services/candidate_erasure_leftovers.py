@@ -73,7 +73,14 @@ def is_detached_generated_document(row: Any) -> bool:
     odpinająca dokument). Upload „Generuj bez dodawania” (bez kandydata i bez
     etapu) jest legalny i zostaje.
     """
-    return row.candidate_id is None and (row.mode == "new" or row.stage_id is not None)
+    # Obiekt bez pola kandydata (np. lekka projekcja wiersza) nie jest „odpięty”
+    # — odpięcie stwierdza tylko pusty FK prawdziwego wiersza.
+    if not hasattr(row, "candidate_id") or row.candidate_id is not None:
+        return False
+    return (
+        getattr(row, "mode", None) == "new"
+        or getattr(row, "stage_id", None) is not None
+    )
 
 
 def detached_generated_document_clause():

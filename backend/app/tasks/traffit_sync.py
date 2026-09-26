@@ -517,11 +517,11 @@ async def _save_cv_fields_windows(db, windows: list[dict[str, Any]]) -> None:
                 """
                 INSERT INTO traffit_sync_state
                     (phase, cursor_payload, created_at, updated_at)
-                VALUES (:p, jsonb_build_object(:slot, CAST(:w AS JSONB)), NOW(), NOW())
+                VALUES (:p, jsonb_build_object(CAST(:slot AS TEXT), CAST(:w AS JSONB)), NOW(), NOW())
                 ON CONFLICT (phase) DO UPDATE SET
                     cursor_payload = COALESCE(traffit_sync_state.cursor_payload,
                                               '{}'::jsonb)
-                                     || jsonb_build_object(:slot, CAST(:w AS JSONB)),
+                                     || jsonb_build_object(CAST(:slot AS TEXT), CAST(:w AS JSONB)),
                     updated_at = NOW()
                 """
             ),
@@ -536,7 +536,7 @@ async def _save_cv_fields_windows(db, windows: list[dict[str, Any]]) -> None:
             text(
                 """
                 UPDATE traffit_sync_state
-                   SET cursor_payload = NULLIF(cursor_payload - :slot, '{}'::jsonb),
+                   SET cursor_payload = NULLIF(cursor_payload - CAST(:slot AS TEXT), '{}'::jsonb),
                        updated_at = NOW()
                  WHERE phase = :p AND cursor_payload -> :slot IS NOT NULL
                 """

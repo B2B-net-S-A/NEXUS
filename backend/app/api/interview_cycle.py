@@ -198,12 +198,22 @@ class SlotChoose(BaseModel):
 class SlotConfirm(BaseModel):
     index: Optional[int] = Field(None, ge=0)
     add_to_outlook: bool = True
+    # Rozmowa, którą ten termin przekłada (jawny wybór DL; bez niego nic nie
+    # jest odwoływane — para może mieć kilka rund naraz).
+    supersedes_event_id: Optional[int] = None
 
 
 class SlotConfirmOut(BaseModel):
     request: SlotRequestOut
     event_id: int
     outlook: str
+    cancelled_event_id: Optional[int] = None
+
+
+class ReplaceableInterviewOut(BaseModel):
+    id: int
+    start_time: datetime
+    end_time: Optional[datetime] = None
 
 
 DebriefOutcome = Literal["good", "medium", "bad"]
@@ -683,6 +693,7 @@ async def confirm_slot(
         user_id=current_user.id,
         index=body.index,
         add_to_outlook=body.add_to_outlook,
+        supersedes_event_id=body.supersedes_event_id,
     )
     await interview_slots.notify(
         db,
@@ -700,7 +711,36 @@ async def confirm_slot(
     )
     await db.commit()
     await db.refresh(req)
-    return SlotConfirmOut(request=_slot_out(req), event_id=event.id, outlook=outlook)
+    return SlotConfirmOut(
+        request=_slot_out(req),
+        event_id=event.id,
+        outlook=outlook,
+        cancelled_event_id=body.supersedes_event_id,
+    )
+
+
+@router.get(
+    "/interview-cycle/slots/{request_id}/replaceable",
+    response_model=list[ReplaceableInterviewOut],
+)
+async def list_replaceable_interviews(
+    request_id: int,
+    current_user: CalendarWriteAccess,
+    db: AsyncSession = Depends(get_db),
+) -> list[ReplaceableInterviewOut]:
+    """Nieodbyte rozmowy pary, które potwierdzany termin może przełożyć —
+    okno potwierdzenia pyta DL, czy to przełożenie (runda 6 audytu)."""
+    req = await db.get(ClientInterviewSlotRequest, request_id)
+    if req is None:
+        raise HTTPException(status_code=404, detail="Nie znaleziono wniosku o terminy.")
+    await _ensure_slot_owner(db, current_user, req)
+    rows = await interview_slots.replaceable_interviews(db, req)
+    return [
+        ReplaceableInterviewOut(
+            id=ev.id, start_time=ev.start_time, end_time=ev.end_time
+        )
+        for ev in rows
+    ]
 
 
 @router.post(

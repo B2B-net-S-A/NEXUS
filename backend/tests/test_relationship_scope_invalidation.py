@@ -464,4 +464,4 @@ async def test_explicit_job_tac_must_match_client_relationship() -> None:
             client_id=44,
         )
     assert exc_info.value.status_code == 400
-    assert "assigned to the selected client_id" in exc_info.value.detail
+    assert "nie jest przypisana do wybranego klienta" in exc_info.value.detail

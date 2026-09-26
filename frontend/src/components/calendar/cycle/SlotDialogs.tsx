@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Trash2 } from "lucide-react";
 
 import { AppModal } from "@/components/ds/AppModal";
@@ -266,32 +266,50 @@ export function SlotDecisionDialog({
   const invalidate = useInvalidateCycle();
   const [index, setIndex] = useState<number | null>(null);
   const [addToOutlook, setAddToOutlook] = useState(true);
+  // Rozmowa, którą ten termin PRZEKŁADA (runda 6 audytu, decyzja Artura
+  // 26.09.2026): bez zaznaczenia nic nie jest odwoływane — para może mieć
+  // kilka rund naraz.
+  const [supersedes, setSupersedes] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
     setIndex(request?.chosen_index ?? (request?.slots.length === 1 ? 0 : null));
     setAddToOutlook(true);
+    setSupersedes(null);
     setError(null);
   }, [open, request]);
+
+  const replaceable = useQuery({
+    queryKey: ["interview-cycle", "replaceable", request?.id],
+    queryFn: () => interviewCycleApi.replaceableInterviews(request!.id),
+    enabled: open && mode === "confirm" && request != null,
+  });
 
   const mutation = useMutation({
     mutationFn: async () => {
       if (!request || index == null) throw new Error("no-index");
       if (mode === "pick") return interviewCycleApi.chooseSlot(request.id, index);
-      return interviewCycleApi.confirmSlot(request.id, { index, add_to_outlook: addToOutlook });
+      return interviewCycleApi.confirmSlot(request.id, {
+        index,
+        add_to_outlook: addToOutlook,
+        supersedes_event_id: supersedes,
+      });
     },
     onSuccess: (res) => {
       invalidate();
       if (mode === "pick") {
         toast.showSuccess("Termin wysłany do DL — potwierdzi go u klienta.");
       } else {
-        const outlook = (res as { outlook?: string }).outlook;
-        toast.showSuccess(
+        const { outlook, cancelled_event_id: cancelled } = res as {
+          outlook?: string;
+          cancelled_event_id?: number | null;
+        };
+        const base =
           outlook === "added"
             ? "Termin potwierdzony — rozmowa jest w kalendarzu rekrutera i w jego Outlooku."
-            : "Termin potwierdzony — rozmowa jest w kalendarzu rekrutera w NEXUSIE.",
-        );
+            : "Termin potwierdzony — rozmowa jest w kalendarzu rekrutera w NEXUSIE.";
+        toast.showSuccess(cancelled ? `${base} Poprzedni termin odwołany.` : base);
       }
       onOpenChange(false);
     },
@@ -361,6 +379,50 @@ export function SlotDecisionDialog({
             </div>
           </fieldset>
           {request.note ? <p className="text-xs text-muted-foreground">Notatka DL: {request.note}</p> : null}
+          {mode === "confirm" && replaceable.isSuccess && replaceable.data.length > 0 ? (
+            <fieldset>
+              <legend className="mb-2 text-xs font-semibold text-muted-foreground">
+                Kandydat ma już zaplanowaną rozmowę u tego klienta
+              </legend>
+              <div className="space-y-1.5">
+                <label className="flex items-start gap-2 text-sm">
+                  <input
+                    type="radio"
+                    name="supersedes"
+                    checked={supersedes == null}
+                    onChange={() => setSupersedes(null)}
+                    className="mt-0.5 h-4 w-4"
+                  />
+                  <span>To kolejna rozmowa — zostaw obie</span>
+                </label>
+                {replaceable.data.map((ev) => (
+                  <label key={ev.id} className="flex items-start gap-2 text-sm">
+                    <input
+                      type="radio"
+                      name="supersedes"
+                      checked={supersedes === ev.id}
+                      onChange={() => setSupersedes(ev.id)}
+                      className="mt-0.5 h-4 w-4"
+                    />
+                    <span>
+                      To przełożenie rozmowy z {formatSlot({ start: ev.start_time, end: ev.end_time ?? null })}
+                      <span className="block text-xs text-muted-foreground">
+                        Tamta rozmowa zostanie odwołana (także blokada w Outlooku).
+                      </span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+          ) : null}
+          {mode === "confirm" && replaceable.isError ? (
+            <p role="alert" className="text-xs text-muted-foreground">
+              {apiErrorMessage(
+                replaceable.error,
+                "Nie udało się sprawdzić, czy kandydat ma już zaplanowaną rozmowę.",
+              )}
+            </p>
+          ) : null}
           {mode === "confirm" ? (
             <label className="flex items-start gap-2 text-sm">
               <input

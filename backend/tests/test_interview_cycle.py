@@ -891,12 +891,24 @@ async def test_confirming_a_new_date_cancels_the_unheld_previous_interview(
     )
 
     second = await _slot_request(app_client, dl_h, cand_id, job_id, days=5)
+    # Okno potwierdzenia pokazuje DL rozmowy, które termin może przełożyć:
+    # tylko przyszłą, nieodbytą — nie tę, która się odbyła.
+    listed = await app_client.get(
+        f"/api/interview-cycle/slots/{second['id']}/replaceable", headers=dl_h
+    )
+    assert listed.status_code == 200, listed.text
+    assert [row["id"] for row in listed.json()] == [one.json()["event_id"]]
     two = await app_client.post(
         f"/api/interview-cycle/slots/{second['id']}/confirm",
         headers=dl_h,
-        json={"index": 0, "add_to_outlook": False},
+        json={
+            "index": 0,
+            "add_to_outlook": False,
+            "supersedes_event_id": one.json()["event_id"],
+        },
     )
     assert two.status_code == 200, two.text
+    assert two.json()["cancelled_event_id"] == one.json()["event_id"]
 
     async with AsyncSessionLocal() as db:
         old = await db.get(CalendarEvent, one.json()["event_id"])
@@ -906,6 +918,65 @@ async def test_confirming_a_new_date_cancels_the_unheld_previous_interview(
         assert new.status == EventStatus.scheduled
         # Rozmowa, która się odbyła, zostaje w historii.
         assert past.status == EventStatus.completed
+
+
+async def test_next_round_without_rescheduling_keeps_both_interviews(
+    app_client: AsyncClient,
+):
+    """Decyzja Artura 26.09.2026: bez jawnego „to przełożenie” nic nie jest
+    odwoływane — klient bywa, że umawia dwie rundy naraz."""
+    rec_id, _ = await _user(UserRole.recruiter)
+    dl_id, dl_h = await _user(UserRole.delivery_lead)
+    job_id, cand_id, _ = await _job_with_candidate(recruiter_id=rec_id, dl_id=dl_id)
+    first = await _slot_request(app_client, dl_h, cand_id, job_id, days=2)
+    one = await app_client.post(
+        f"/api/interview-cycle/slots/{first['id']}/confirm",
+        headers=dl_h,
+        json={"index": 0, "add_to_outlook": False},
+    )
+    assert one.status_code == 200, one.text
+    second = await _slot_request(app_client, dl_h, cand_id, job_id, days=5)
+    two = await app_client.post(
+        f"/api/interview-cycle/slots/{second['id']}/confirm",
+        headers=dl_h,
+        json={"index": 0, "add_to_outlook": False},
+    )
+    assert two.status_code == 200, two.text
+    assert two.json()["cancelled_event_id"] is None
+    async with AsyncSessionLocal() as db:
+        for key in (one, two):
+            event = await db.get(CalendarEvent, key.json()["event_id"])
+            assert event.status == EventStatus.scheduled
+
+
+async def test_superseding_a_foreign_interview_is_refused(app_client: AsyncClient):
+    rec_id, _ = await _user(UserRole.recruiter)
+    dl_id, dl_h = await _user(UserRole.delivery_lead)
+    job_id, cand_id, _ = await _job_with_candidate(recruiter_id=rec_id, dl_id=dl_id)
+    other_job, other_cand, _ = await _job_with_candidate(
+        recruiter_id=rec_id, dl_id=dl_id
+    )
+    foreign = await _slot_request(app_client, dl_h, other_cand, other_job, days=2)
+    foreign_ok = await app_client.post(
+        f"/api/interview-cycle/slots/{foreign['id']}/confirm",
+        headers=dl_h,
+        json={"index": 0, "add_to_outlook": False},
+    )
+    assert foreign_ok.status_code == 200, foreign_ok.text
+    mine = await _slot_request(app_client, dl_h, cand_id, job_id, days=5)
+    refused = await app_client.post(
+        f"/api/interview-cycle/slots/{mine['id']}/confirm",
+        headers=dl_h,
+        json={
+            "index": 0,
+            "add_to_outlook": False,
+            "supersedes_event_id": foreign_ok.json()["event_id"],
+        },
+    )
+    assert refused.status_code == 422, refused.text
+    async with AsyncSessionLocal() as db:
+        event = await db.get(CalendarEvent, foreign_ok.json()["event_id"])
+        assert event.status == EventStatus.scheduled
 
 
 async def test_confirm_skips_a_recruiter_who_left_before_confirmation(
