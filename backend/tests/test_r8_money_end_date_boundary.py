@@ -38,9 +38,9 @@ def test_archive_boundary_prefers_end_date_over_stale_termination():
 
 
 def test_archive_boundary_falls_back_to_termination_then_today():
-    assert _archive_boundary(
-        _contract(terminated_at=date(2025, 3, 31)), TODAY
-    ) == date(2025, 3, 31)
+    assert _archive_boundary(_contract(terminated_at=date(2025, 3, 31)), TODAY) == date(
+        2025, 3, 31
+    )
     assert _archive_boundary(_contract(), TODAY) == TODAY
 
 

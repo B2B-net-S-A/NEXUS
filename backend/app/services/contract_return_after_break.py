@@ -40,6 +40,7 @@ from app.models.client_order_group import (
 from app.models.contract import Contract, ContractStatus, RateUnit
 from app.services.client_access import assert_client_assignable
 from app.services.client_order_lines import consultant_display_name, record_event
+from app.services.executive_contracts import inheritable_executive_contract_id
 from app.services.multi_consultant_orders import (
     EVENT_CONSULTANT_ADDED,
     is_multi_consultant_client,

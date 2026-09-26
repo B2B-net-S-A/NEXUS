@@ -90,11 +90,7 @@ async def inheritable_executive_contract_id(
             ClientExecutiveContract.id == executive_contract_id
         )
     )
-    return (
-        executive_contract_id
-        if status == EXECUTIVE_CONTRACT_STATUS_ACTIVE
-        else None
-    )
+    return executive_contract_id if status == EXECUTIVE_CONTRACT_STATUS_ACTIVE else None
 
 
 def executive_brief(executive: ClientExecutiveContract) -> ExecutiveContractBrief:
