@@ -814,9 +814,7 @@ def client_safe_screening(screening_answers: Any) -> Optional[dict]:
     """
     if not isinstance(screening_answers, dict) or not screening_answers:
         return None
-    safe = {
-        k: v for k, v in screening_answers.items() if k in _CLIENT_SCREENING_KEYS
-    }
+    safe = {k: v for k, v in screening_answers.items() if k in _CLIENT_SCREENING_KEYS}
     answers = screening_answers.get("answers")
     if isinstance(answers, list):
         safe["answers"] = [

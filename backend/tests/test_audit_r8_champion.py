@@ -80,8 +80,7 @@ def test_first_name_alone_does_not_pick_another_person_by_shared_mailbox():
 
     contacts = [_contact(1, "Jan Kowalski", "rekrutacja@bank.pl")]
     assert (
-        pick_matching_contact(contacts, name="Anna", email="rekrutacja@bank.pl")
-        is None
+        pick_matching_contact(contacts, name="Anna", email="rekrutacja@bank.pl") is None
     )
 
 
@@ -95,7 +94,9 @@ def test_first_name_of_the_same_person_still_matches_by_mail():
     picked = pick_matching_contact(contacts, name="Anna", email="rekrutacja@bank.pl")
     assert picked is not None and picked.id == 2
     # Bez imienia — jak dotąd, po samym adresie.
-    assert pick_matching_contact(contacts, name=None, email="rekrutacja@bank.pl").id == 1
+    assert (
+        pick_matching_contact(contacts, name=None, email="rekrutacja@bank.pl").id == 1
+    )
 
 
 # ── R8-N12-4: arkusz screeningu dla klienta = biała lista ────────────────
