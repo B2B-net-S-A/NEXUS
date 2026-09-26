@@ -347,19 +347,32 @@ async def test_cv_sent_requires_delivery_lead_and_client_rate(api_client):
 
 
 async def test_cv_sent_at_nordea_keeps_the_cpro_path(api_client, monkeypatch):
+    """U Nordei „CV wysłane” = Cpro: bez stawki DL, ale wrzuca osoba od Cpro.
+    Runda 8 (R8-N8-3): także przy wyłączonej bramce QC (autouse w conftest)."""
+    from app.services import cpro_sender
+    from tests.test_board_tasks import restore_cpro_sender
+
     rec_id, rec_email, rec_pw = await _seed_user(UserRole.recruiter)
+    other_id, other_email, other_pw = await _seed_user(UserRole.recruiter)
     job_id, client_id = await _seed_job(rec_id)
     monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", str(client_id))
     cand_id = await _seed_candidate()
     rec_h = await _login(api_client, rec_email, rec_pw)
+    other_h = await _login(api_client, other_email, other_pw)
     try:
-        await _add(api_client, rec_h, job_id, cand_id, "manual_search")
-        sent = await api_client.post(
-            "/api/pipeline/move",
-            headers=rec_h,
-            json={"candidate_id": cand_id, "job_id": job_id, "stage": "cv_sent"},
-        )
-        assert sent.status_code == 200, sent.text
+        async with restore_cpro_sender():
+            async with AsyncSessionLocal() as db:
+                actor = await db.get(User, rec_id)
+                await cpro_sender.set_sender(db, user_id=rec_id, until=None, actor=actor)
+                await db.commit()
+            await _add(api_client, rec_h, job_id, cand_id, "manual_search")
+            move = {"candidate_id": cand_id, "job_id": job_id, "stage": "cv_sent"}
+            refused = await api_client.post(
+                "/api/pipeline/move", headers=other_h, json=move
+            )
+            assert refused.status_code == 403, refused.text
+            sent = await api_client.post("/api/pipeline/move", headers=rec_h, json=move)
+            assert sent.status_code == 200, sent.text
     finally:
         await _cleanup([cand_id], job_id)
 

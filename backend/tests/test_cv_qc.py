@@ -442,6 +442,41 @@ def test_parse_fixes_proposal_must_contain_the_requirement() -> None:
     assert qc.parse_fixes(raw, _material(), "c" * 64) == []
 
 
+@pytest.mark.parametrize(
+    "quote",
+    [
+        # Jedna litera jest podciągiem każdego oryginału.
+        "a",
+        # Samo słowo wymagania — za mało, żeby potwierdzało zdanie.
+        "Kubernetes",
+        # Zdanie z oryginału, ale bez wymagania.
+        "Globex 2018-2021 Developer Java React",
+    ],
+)
+def test_parse_fixes_quote_must_be_a_sentence_about_the_requirement(
+    quote: str,
+) -> None:
+    """Runda 8 (R8-N8-2): cytat źródła, który niczego nie potwierdza, nie
+    przepuszcza zdania z wymyślonymi liczbami."""
+    raw = json.dumps(
+        {
+            "fixes": [
+                {
+                    "requirement": "Kubernetes",
+                    "role": "Senior Developer · Acme Bank",
+                    "current_text": None,
+                    "proposed_text": (
+                        "Utrzymanie 200 usług na **Kubernetes** dla 2 mln klientów."
+                    ),
+                    "source": "original",
+                    "source_quote": quote,
+                }
+            ]
+        }
+    )
+    assert qc.parse_fixes(raw, _material(), "e" * 64) == []
+
+
 # ── Edycja HTML ─────────────────────────────────────────────────────────────
 
 

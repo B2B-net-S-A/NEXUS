@@ -540,8 +540,6 @@ async def _assert_cv_qc_gate(
     from app.core.config import settings
     from app.services import cv_qc
 
-    if not settings.CV_QC_GATE_ENABLED:
-        return
     if stage_def is not None and stage_def.is_terminal:
         return
     target_column = board_column_for(
@@ -599,6 +597,10 @@ async def _assert_cv_qc_gate(
                     "osoba trafi do kolejki na pulpicie."
                 ),
             )
+    # Runda 8 (R8-N8-3): wyłącznik QC dotyczy wyłącznie kontroli CV — reguła
+    # „do Cpro wrzuca osoba od Cpro” wyżej działa także przy wyłączonym QC.
+    if not settings.CV_QC_GATE_ENABLED:
+        return
     # Osoba już w kolejce Cpro przeszła bramkę przy wejściu do niej (albo —
     # sprzed 24.09.2026 — ręczny przegląd DZ). „✓ Wrzucone” nie liczy QC
     # drugi raz: CV Nordei to zwykle pliki Word spoza NEXUSA, a obejście ma

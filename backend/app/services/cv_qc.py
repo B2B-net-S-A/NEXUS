@@ -50,7 +50,9 @@ from app.core.scheduling import business_today
 
 logger = logging.getLogger(__name__)
 
-FIXES_PROMPT_VERSION = "cv-qc-fixes-v1"
+FIXES_PROMPT_VERSION = "cv-qc-fixes-v2"
+# Runda 8 (R8-N8-2): cytat źródła musi być zdaniem o wymaganiu, nie słowem.
+SOURCE_QUOTE_MIN_WORDS = 4
 NOTES_TEXT_MAX = 12_000
 NOTES_MAX_ROWS = 60
 PROMPT_ORIGINAL_MAX = 15_000
@@ -1503,8 +1505,9 @@ punktu w tej roli.
 Zasady:
 1. Wyłącznie fakty z ORYGINALNEGO CV albo NOTATEK poniżej. Nie wymyślaj
    technologii, liczb, projektów ani efektów.
-2. source_quote = dosłowny fragment (najwyżej 200 znaków) z oryginału albo
-   notatek, który potwierdza zdanie. Bez takiego fragmentu pomiń brak.
+2. source_quote = dosłowny fragment (co najmniej 4 słowa, najwyżej 200 znaków)
+   z oryginału albo notatek, który potwierdza zdanie i zawiera nazwę
+   wymaganej technologii. Bez takiego fragmentu pomiń brak.
 3. current_text = dosłowny tekst istniejącego punktu tej roli w CV dla
    klienta, który Twoje zdanie zastępuje (rozszerza), albo null, gdy to nowy
    punkt.
@@ -1593,6 +1596,8 @@ def parse_fixes(raw: str, material: dict, digest: str) -> list[dict]:
 
     * cytat (znormalizowany) musi być w oryginale albo w notatkach — model nie
       może dopisać faktu, którego kandydat nie podał,
+    * cytat ma co najmniej ``SOURCE_QUOTE_MIN_WORDS`` słów i zawiera wymaganie
+      (runda 8, R8-N8-2: cytat „a” był podciągiem każdego oryginału),
     * zdanie musi zawierać wymaganie,
     * ``current_text`` spoza punktów tej roli w CV = nowy punkt (null).
     """
@@ -1619,6 +1624,8 @@ def parse_fixes(raw: str, material: dict, digest: str) -> list[dict]:
         quote = " ".join(str(entry.get("source_quote") or "").split())
         if not proposed or not quote or len(proposed) > PROPOSED_TEXT_MAX:
             continue
+        if len(quote.split()) < SOURCE_QUOTE_MIN_WORDS:
+            continue
         nq = _norm(quote)
         if nq and nq in original:
             source = "original"
@@ -1632,6 +1639,8 @@ def parse_fixes(raw: str, material: dict, digest: str) -> list[dict]:
             terms=tuple(item["terms"]),
         )
         if not dz._found(proposed.replace("**", ""), req):
+            continue
+        if not dz._found(quote, req):
             continue
         current = entry.get("current_text")
         current = " ".join(str(current).split()) if current else None
