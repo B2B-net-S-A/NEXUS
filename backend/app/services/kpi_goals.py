@@ -163,8 +163,10 @@ async def _delivery_lead_goals(
             note=(
                 None
                 if hit_ratio is not None
-                else "Niepoliczony — w tym kwartale nie ma nowych requestów "
-                "w Twoim portfelu."
+                # Mianownik ligi DL to rekrutacje ZAMKNIĘTE w kwartale
+                # (`dl_portfolio_counts`), nie nowe requesty (runda 6 audytu).
+                else "Niepoliczony — w tym kwartale nie zamknięto żadnej "
+                "rekrutacji w Twoim portfelu."
             ),
         ),
         GoalRow(
@@ -180,7 +182,7 @@ async def _delivery_lead_goals(
                 target=int(target_pl),
                 expected_ratio=_quarter_ratio(now),
             ),
-            note=f"Nowe requesty w kwartale: {requests}",
+            note=f"Rekrutacje zamknięte w kwartale: {requests}",
         ),
     )
     return GoalsResult(
