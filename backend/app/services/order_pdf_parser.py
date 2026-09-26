@@ -2247,12 +2247,39 @@ def apply_gross_to_net_rate_policy(
 
 _PFRON_PERSON_LABEL_RE = re.compile(r"Imi[ęe]\s+i\s+nazwisko\s*:", re.I)
 _PFRON_PERSON_RATE_RE = re.compile(
-    r"Stawka\s+za\s+jedn[ąa]\s+Roboczogodzin[ęe]"
-    r"(?:\s*\([^)]{0,160}\))?\s*:\s*"
+    r"Stawka(?P<label>(?:\s+(?:brutto|netto))*)\s+za\s+jedn[ąa]\s+Roboczogodzin[ęe]"
+    r"(?:\s*(?P<note>\([^)]{0,160}\)))?\s*:\s*"
     r"(?P<amount>\d[\d \u00a0\u202f]*(?:[,.]\d{1,2})?)\s*(?:zł|PLN)"
-    r"\s*(?P<kind>brutto|netto)?",
+    r"(?P<kind>(?:\s*[/,]?\s*(?:brutto|netto)\b)*)",
     re.I,
 )
+_PFRON_RATE_MARK_WORD_RE = re.compile(r"brutto|netto", re.I)
+# „Sprzeczne” w treści jest nośne: `_is_rate_conversion_reason`
+# i `_pfron_conversion_reason` nie zdejmują powodu ze słowem „sprzeczn…”,
+# więc późniejsze rozpoznanie rodzaju stawki go nie wyciszy.
+PFRON_CONFLICTING_RATE_MARK_REASON = (
+    "Sprzeczne oznaczenie stawki: brutto i netto naraz — sprawdź, czy przeliczać ÷ 1,23"
+)
+
+
+def _pfron_rate_marking(rate: re.Match) -> tuple[str, bool]:
+    """Rodzaj stawki PFRON z oznaczenia PRZY STAWCE: ``(marking, sprzeczne)``.
+
+    Runda 6 audytu (decyzja Artura 26.09.2026): jawne „netto” przy stawce
+    (w etykiecie, w nawiasie albo za kwotą) wygrywa — kwota zostaje bez ÷ 1,23.
+    Bez oznaczenia albo z „brutto” działa reguła klienta (brutto → netto, jak
+    dotąd). Oba słowa naraz to sprzeczność: przeliczamy jak dotąd, ale wiersz
+    idzie do sprawdzenia. Do tej rundy oznaczenie było przechwytywane
+    i ignorowane — PFRON-owe „147,60 zł netto” trafiało do bazy jako 120,00.
+    """
+    words = {
+        word.lower()
+        for part in ("label", "note", "kind")
+        for word in _PFRON_RATE_MARK_WORD_RE.findall(rate.group(part) or "")
+    }
+    if words == {"netto"}:
+        return RATE_MARK_NET, False
+    return RATE_MARK_GROSS, words == {"brutto", "netto"}
 
 
 def pfron_extract_rows(text: str) -> list[ConsultantOrderRow]:
@@ -2277,20 +2304,20 @@ def pfron_extract_rows(text: str) -> list[ConsultantOrderRow]:
         if not _name_token_variants(name):
             return []
         amount = _normalize_amount(rate.group("amount"))
-        marking = (
-            RATE_MARK_GROSS  # PFRON labelled hourly rate is gross by the client rule.
-        )
+        marking, conflicting = _pfron_rate_marking(rate)
+        gross = amount is not None and marking == RATE_MARK_GROSS
         rows.append(
             ConsultantOrderRow(
                 consultant_name=name,
-                rate_client=net_rate_from_gross(amount)
-                if amount is not None and marking == RATE_MARK_GROSS
-                else amount,
-                rate_client_gross=amount if marking == RATE_MARK_GROSS else None,
+                rate_client=net_rate_from_gross(amount) if gross else amount,
+                rate_client_gross=amount if gross else None,
                 rate_unit="hour",
                 start_date=pfron_start_date(block),
                 end_date=pfron_end_date(block),
-                uncertain=amount is None or marking is None,
+                uncertain=amount is None or conflicting,
+                uncertain_reason=PFRON_CONFLICTING_RATE_MARK_REASON
+                if conflicting
+                else None,
             )
         )
     return rows

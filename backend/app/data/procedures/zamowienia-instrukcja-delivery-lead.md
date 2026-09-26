@@ -1009,7 +1009,8 @@ weryfikacji. **Wyjątkiem jest Nordea: stawka jest zawsze netto za godzinę,
 bez dzielenia przez 1,23. U Aliora stawka jest domyślnie netto: brak oznaczenia
 nie jest wątpliwością, a jawne „brutto” w tabeli Konsultantów kieruje zamówienie
 do weryfikacji bez przeliczenia. W PFRON stawka z pola „Stawka za jedną Roboczogodzinę”
-jest brutto i zawsze jest dzielona przez 1,23. Kolumna „Quantity (max Xh/month)” nie określa
+bez oznaczenia albo z „brutto” jest dzielona przez 1,23, a z jawnym „netto” przy
+stawce zostaje bez przeliczenia; oba słowa naraz kierują zamówienie do weryfikacji. Kolumna „Quantity (max Xh/month)” nie określa
 liczby godzin ani MD w planie. Summary jest pomijane przed odczytem danych.**
 
 **„Przelicz plan"** odświeża oczekujący wpis z zachowanego PDF-a i aktualnej

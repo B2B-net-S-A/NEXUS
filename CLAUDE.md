@@ -1666,7 +1666,8 @@ link). API: `app/api/client_playbooks.py`.
   org-wide, bez grafu klienta** — świadome odstępstwo: karta zastępuje 14 wzorów
   Word w Pomocy, które czytał każdy zalogowany, a rekruter czyta ją PRZED
   przypisaniem do rekrutacji. `off_limits` (z `client_contract_terms`) jedzie
-  w odpowiedzi tylko do ról z odczytem sekcji Delivery. `client_playbooks.router`
+  w odpowiedzi tylko do ról z odczytem sekcji Delivery, a Delivery Leadowi
+  tylko u klientów z portfela (26.09.2026, niżej). `client_playbooks.router`
   NIE trafia na listę routerów Delivery w `test_section_access.py` (bramki per
   handler, jak `client_cv_rules.router`).
 - **Trzy powierzchnie odczytu, jeden formularz:** profil klienta → „Zasady
@@ -1715,6 +1716,12 @@ DL widzi klienta, gdy ma DOWOLNY wiersz w `delivery_lead_client_assignments`
   w rekrutacji), **Generator umów B2B** (`purpose="org"`; stawki i zapis nadal
   tylko u przypisanych — bez zmian), pulpity, KPI i Insights
   (`resolve_dashboard_scope` nietknięty).
+- **Wyjątek od pulpitu: kontrakty i zamówienia w kreatorze metryk liczą tylko
+  portfel DL** (decyzja Artura 26.09.2026, runda 6 audytu). Źródła `contracts`
+  i `orders` (`custom_metrics/engine._delivery_client_boundary`, lustro warunków
+  `resolve_delivery_lead_client_ids`) — także gotowe kafle „Aktywne kontrakty”
+  i „Kończące się zamówienia”; klient spoza portfela w filtrze = 403
+  `metric_scope_denied`, DL bez klientów = odmowa, nie zero.
 - **Wyjątki persony:** DL + admin/finance/talent_community_manager widzi
   wszystko (TCM czyta Delivery całej organizacji).
 - **Wyłącznik bez deployu:** `DL_CLIENT_SCOPE=all` przywraca stan z #1365.
@@ -1778,6 +1785,14 @@ w jednej zakładce i puste w sąsiedniej.
   (`_finance_rates_in_pln`), nigdy z kolumny `contracts.margin` — ta niesie
   kwotę z ostatniego ZAPISU kontraktu. `None` zostaje tylko wtedy, gdy brakuje
   danych źródłowych: stawki albo kursu FX dla waluty obcej.
+- **Ekrany rekrutacji też nie pokazują DL-owi kwot ani off-limitów cudzych
+  klientów** (decyzja Artura 26.09.2026, runda 6 audytu). Historia requestów
+  i baner podglądu (`jobs._history_fee_visible`) redagują `fee_rate` (marżę)
+  per klient regułą `can_read_client_finance` — lista zostaje org-wide, także
+  z `cross_client=true`, kwoty tylko portfela (hybryda HoR+DL też). Karta
+  klienta i jej przegląd (`client_playbooks._off_limits_client_boundary`)
+  oddają `off_limits` tylko u klientów z `resolve_delivery_lead_client_ids` —
+  tym samym zakresem, którym DL czyta warunki umów.
 - **Tabela konsultantów nie ma bramki front-endowej i mieć nie powinna** —
   `ConsultantsTable` rysuje wszystkie kolumny zawsze, a `null` renderuje jako
   „—". Decyduje wyłącznie backend.
@@ -5587,6 +5602,13 @@ fail-closed:
   rozpoznany dopiero przy ponownej weryfikacji nie dostaje trwałego powodu
   „odczyt sprzed zmiany reguły”. Ręczne „Zastosuj” odmawia wiersza ze stawką
   bez jednostki (audyt 24.09.2026).
+- **PFRON: jawne „netto” przy stawce wygrywa z regułą brutto** (decyzja Artura
+  26.09.2026, runda 6 audytu). `pfron_extract_rows` czyta oznaczenie przy
+  stawce (etykieta, nawias, słowo za kwotą — `_pfron_rate_marking`): samo
+  „netto” = kwota bez ÷ 1,23; brak oznaczenia albo „brutto” = ÷ 1,23 jak
+  dotąd; oba słowa naraz = ÷ 1,23, ale wiersz niepewny („Sprzeczne
+  oznaczenie stawki…”), więc dokument idzie do człowieka. `rule_version`
+  PFRON = „2026-09-26”.
 - **„Brak liczby MD" nie jest zastrzeżeniem ODCZYTU — o wymaganych polach decyduje
   typ zamówienia** (ticket Polkomtel 09.2026). Model czyta PDF bez wiedzy o typie
   i przy zamówieniu kosztowym zgłaszał „brak informacji o liczbie MD". Trzy warstwy:
