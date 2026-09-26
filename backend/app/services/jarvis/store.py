@@ -222,6 +222,43 @@ def repair_history(
         else:
             fixed.append({"role": message["role"], "content": content})
 
+    # Runda 8 (R8-N1-6): ``tool_result`` musi odpowiadać ``tool_use`` z
+    # BEZPOŚREDNIO poprzedzającej wiadomości asystenta, i to raz. Tura, której
+    # blokada wygasła, potrafiła dopisać wyniki za wiadomościami następnej —
+    # osierocony albo zdublowany wynik to 400 od dostawcy w każdej kolejnej
+    # turze tej rozmowy. Osierocone wyniki wypadają (brakujące i tak dostaną
+    # niżej syntetyczne „przerwane”).
+    cleaned: list[dict[str, Any]] = []
+    for message in fixed:
+        content = message["content"]
+        if message["role"] == "user":
+            prev = cleaned[-1] if cleaned and cleaned[-1]["role"] == "assistant" else None
+            allowed = (
+                {b.get("id") for b in prev["content"] if b.get("type") == "tool_use"}
+                if prev is not None
+                else set()
+            )
+            seen: set[Any] = set()
+            kept: list[dict[str, Any]] = []
+            for block in content:
+                if block.get("type") == "tool_result":
+                    tid = block.get("tool_use_id")
+                    if tid not in allowed or tid in seen:
+                        continue
+                    seen.add(tid)
+                kept.append(block)
+            content = kept
+        if not content:
+            continue
+        if cleaned and cleaned[-1]["role"] == message["role"]:
+            cleaned[-1] = {
+                "role": message["role"],
+                "content": cleaned[-1]["content"] + content,
+            }
+        else:
+            cleaned.append({"role": message["role"], "content": content})
+    fixed = cleaned
+
     result: list[dict[str, Any]] = []
     for index, message in enumerate(fixed):
         result.append(message)
@@ -319,13 +356,79 @@ async def create_action(
     return action_id
 
 
+# Akcja, której wykonanie się urwało (restart, wyjątek po wywołaniu trasy).
+# Front pokazuje ``uncertain`` jako „nie wiadomo”, nie jako „nie udało się”.
+UNCERTAIN_RESULT: dict[str, Any] = {
+    "ok": False,
+    "uncertain": True,
+    "error": (
+        "Wykonanie zostało przerwane — nie wiadomo, czy zmiana się zapisała. "
+        "Sprawdź na ekranie, zanim poprosisz o powtórkę."
+    ),
+}
+
+# Wykonanie akcji to jedno wywołanie trasy (limit transportu 45 s) — akcja
+# dłużej w ``confirmed`` została osierocona (deploy w trakcie, zerwane żądanie).
+CONFIRMED_STALE_MINUTES = 5
+
+
+def uncertain_note(preview_text: str) -> str:
+    return (
+        f"[Wynik akcji] Wykonanie przerwane w trakcie: {preview_text}. Nie wiadomo, "
+        "czy się zapisało — nie zakładaj wyniku, poproś użytkownika o sprawdzenie."
+    )
+
+
 async def expire_stale_actions(ttl_minutes: int) -> int:
     cutoff = _now() - timedelta(minutes=ttl_minutes)
+    confirmed_cutoff = _now() - timedelta(minutes=CONFIRMED_STALE_MINUTES)
     async with AsyncSessionLocal() as db:
         result = await db.execute(
             update(JarvisAction)
             .where(JarvisAction.status == "proposed", JarvisAction.created_at < cutoff)
             .values(status="expired", decided_at=_now())
+        )
+        # Runda 8 (R8-N1-5): ``confirmed`` bez wyniku (proces ubity w trakcie
+        # wykonania) wisiał na zawsze — karta kręciła „Wykonuję…”, model nie
+        # wiedział, co się stało. Teraz: „nie wiadomo” + notatka w rozmowie.
+        orphaned = (
+            await db.execute(
+                update(JarvisAction)
+                .where(
+                    JarvisAction.status == "confirmed",
+                    JarvisAction.decided_at < confirmed_cutoff,
+                )
+                .values(status="failed", result=UNCERTAIN_RESULT)
+                .returning(JarvisAction.conversation_id, JarvisAction.preview)
+            )
+        ).all()
+        for conversation_id, preview in orphaned:
+            text = str((preview or {}).get("text") or "akcja Jarvisa")
+            db.add(
+                JarvisMessage(
+                    conversation_id=conversation_id,
+                    role="user",
+                    content=[{"type": "text", "text": uncertain_note(text)}],
+                )
+            )
+        await db.commit()
+        return int(result.rowcount or 0) + len(orphaned)
+
+
+async def release_turns_after_restart() -> int:
+    """Zdejmuje blokady tur przy starcie procesu (backend = jeden uvicorn).
+
+    Runda 8 (R8-N1-7): tura ubita deployem zostawiała ``busy_until`` do 150 s
+    w przyszłości, więc pierwsze pytanie po deployu dostawało 409 „Jarvis
+    jeszcze odpowiada”. Po starcie procesu żadna tura nie trwa. Gdyby jednak
+    stary kontener jeszcze kończył turę, jego żeton przestaje pasować i tura
+    kończy się ``turn_lost`` bez dopisania wyników (``_steps``).
+    """
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            update(JarvisConversation)
+            .where(JarvisConversation.busy_until.is_not(None))
+            .values(busy_until=None)
         )
         await db.commit()
         return int(result.rowcount or 0)

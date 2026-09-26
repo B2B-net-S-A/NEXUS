@@ -12,6 +12,7 @@ ma być natychmiastowe i nic nie kosztować.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -30,6 +31,12 @@ from app.services.jarvis.transport import (
     ToolResponse,
     describe_error,
 )
+
+
+logger = logging.getLogger(__name__)
+
+class _NotExecutable(Exception):
+    """Akcji nie da się wykonać, zanim cokolwiek poszło do trasy."""
 
 
 class ActionNotFound(Exception):
@@ -180,12 +187,45 @@ async def confirm_action(
         finished = await _finish(action.id, "failed", {"error": "Nieznane narzędzie"})
         return ActionOutcome(serialize_action(finished), "Nie mogę wykonać tej akcji.")
 
-    async with JarvisTransport(identity) as transport:
-        response = await transport.call(tool.build(dict(action.args)))
-
     preview_text = str((action.preview or {}).get("text") or tool.label)
+    args = dict(action.args)
+    # Runda 8 (R8-N1-5): wszystko po ``proposed → confirmed`` ma zakończyć się
+    # ``executed`` albo ``failed`` — wcześniej wyjątek w ``build``/``shape``
+    # (np. args sprzed zmiany schematu po deployu) zostawiał kartę na zawsze
+    # w „Wykonuję…”, a model nie dostawał wyniku.
+    try:
+        async with JarvisTransport(identity) as transport:
+            if tool.name == "remember_preference":
+                args = await _fresh_notes(transport, args)
+            try:
+                spec = tool.build(args)
+            except (ValueError, TypeError) as exc:
+                raise _NotExecutable(
+                    str(exc) or "Nieprawidłowe argumenty akcji"
+                ) from exc
+            response = await transport.call(spec)
+    except _NotExecutable as exc:
+        error = str(exc)
+        finished = await _finish(action.id, "failed", {"ok": False, "error": error})
+        await _note(
+            action, f"[Wynik akcji] Nie udało się: {preview_text}. Powód: {error}"
+        )
+        return ActionOutcome(serialize_action(finished), f"Nie udało się: {error}")
+    except Exception:
+        # Wywołanie trasy mogło już coś zapisać — nie wiemy, czy się wykonało.
+        logger.exception("jarvis: wykonanie akcji %s padło", tool.name)
+        finished = await _finish(action.id, "failed", store.UNCERTAIN_RESULT)
+        await _note(action, store.uncertain_note(preview_text))
+        return ActionOutcome(
+            serialize_action(finished), str(store.UNCERTAIN_RESULT["error"])
+        )
+
     if response.ok:
-        shaped = tool.shape(response.data, dict(action.args))
+        try:
+            shaped = tool.shape(response.data, args)
+        except Exception:  # noqa: BLE001 — zapis się udał, psuje się tylko skrót
+            logger.warning("jarvis: shape akcji %s padł", tool.name)
+            shaped = None
         finished = await _finish(action.id, "executed", {"ok": True, "data": shaped})
         message = tool.done
         await _note(
@@ -248,6 +288,22 @@ async def confirm_action(
     )
     await _note(action, f"[Wynik akcji] Nie udało się: {preview_text}. Powód: {error}")
     return ActionOutcome(serialize_action(finished), f"Nie udało się: {error}")
+
+
+async def _fresh_notes(
+    transport: JarvisTransport, args: dict[str, Any]
+) -> dict[str, Any]:
+    """Pamięć składana z listy ZAPISANEJ teraz, nie z chwili propozycji.
+
+    Runda 8 (R8-N1-4): PATCH podmienia całą listę, więc dwie karty albo edycja
+    w ustawieniach między propozycją a kliknięciem gubiły notatki.
+    """
+    from app.services.jarvis.agent import ProposalRejected, _merge_notes
+
+    try:
+        return await _merge_notes(transport, args)
+    except ProposalRejected as exc:
+        raise _NotExecutable(str(exc)) from exc
 
 
 async def reject_action(action_id: uuid.UUID, *, user_id: int) -> ActionOutcome:

@@ -29,7 +29,9 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from typing import Any, Callable, Literal, Optional
 from urllib.parse import quote
+from zoneinfo import ZoneInfo
 
+from app.core.scheduling import DEFAULT_TZ
 from app.data.screen_guides import SCREEN_KEYS
 from app.services.section_permissions import ProductSection
 
@@ -1691,14 +1693,65 @@ def _short(text: Any, n: int = 160) -> str:
     return text if len(text) <= n else text[: n - 1] + "…"
 
 
-def _event_start(a: dict[str, Any]) -> str:
-    raw = str(a.get("start_time") or "")
+def _aware_time(a: dict[str, Any], key: str) -> Optional[str]:
+    """Czas ISO 8601 ZE STREFĄ albo ``ValueError`` (→ propozycja odrzucona).
+
+    Runda 8 (R8-N1-3): czas bez strefy zapisywał się jako UTC (kontener
+    chodzi w UTC), a karta pokazywała go dosłownie — wydarzenie lądowało
+    1–2 h później, niż mówiła karta. Teraz model musi podać strefę, a karta
+    pokazuje godzinę w Europe/Warsaw.
+    """
+    raw = a.get(key)
+    if raw in (None, ""):
+        return None
     try:
-        return datetime.fromisoformat(raw.replace("Z", "+00:00")).strftime(
-            "%d.%m.%Y %H:%M"
+        parsed = datetime.fromisoformat(str(raw).strip().replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError(
+            f"Pole {key} nie jest czasem ISO 8601 (np. 2026-09-22T10:00:00+02:00)"
+        ) from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError(
+            f"Pole {key} musi mieć strefę czasową (np. 2026-09-22T10:00:00+02:00)"
         )
+    return parsed.isoformat()
+
+
+def _local_time(a: dict[str, Any], key: str) -> str:
+    raw = str(a.get(key) or "")
+    try:
+        parsed = datetime.fromisoformat(raw.strip().replace("Z", "+00:00"))
     except ValueError:
         return raw
+    if parsed.tzinfo is None:
+        return raw
+    return parsed.astimezone(ZoneInfo(DEFAULT_TZ)).strftime("%d.%m.%Y %H:%M")
+
+
+def _event_start(a: dict[str, Any]) -> str:
+    start = _local_time(a, "start_time")
+    if a.get("end_time"):
+        return f"{start} – {_local_time(a, 'end_time')}"
+    return start
+
+
+def _lines(*parts: Optional[str]) -> str:
+    return "\n\n".join(p for p in parts if p)
+
+
+def _labelled(label: str, value: Any) -> Optional[str]:
+    text = str(value or "").strip()
+    return f"{label}: {text}" if text else None
+
+
+def _names(a: dict[str, Any], key: str, label: str) -> str:
+    """Lista osób na karcie — nazwy z odczytu API, brak nazwy = numer."""
+    display = a.get("_display") if isinstance(a.get("_display"), dict) else {}
+    named = display.get(key) if isinstance(display, dict) else None
+    ids = [str(i) for i in (a.get(key) or [])]
+    if isinstance(named, list) and len(named) == len(ids):
+        return ", ".join(f"**{n}**" for n in named)
+    return ", ".join(f"**{label} #{i}**" for i in ids)
 
 
 WRITE_TOOLS: tuple[JarvisTool, ...] = (
@@ -1736,7 +1789,15 @@ WRITE_TOOLS: tuple[JarvisTool, ...] = (
             ),
         ),
         shape=pick_list(("id", "candidate_id", "job_id", "created_at")),
-        preview=lambda a: f"Dodam notatkę do {_who(a)}: „{_short(a.get('content'))}”",
+        preview=lambda a: (
+            f"Dodam notatkę do {_who(a)}"
+            + (
+                f" (rekrutacja {_who(a, 'job_id', 'Rekrutacja')})"
+                if a.get("job_id")
+                else ""
+            )
+            + f": „{_short(a.get('content'))}”"
+        ),
         detail=lambda a: str(a.get("content") or "")[:4000],
     ),
     JarvisTool(
@@ -1796,6 +1857,7 @@ WRITE_TOOLS: tuple[JarvisTool, ...] = (
             f"**{a.get('stage_name')}**"
             + (" — mimo ostrzeżenia" if a.get("acknowledge_eligibility") else "")
         ),
+        detail=lambda a: _labelled("Notatka przy przesunięciu", a.get("notes")) or "",
     ),
     JarvisTool(
         name="add_candidates_to_job",
@@ -1841,7 +1903,14 @@ WRITE_TOOLS: tuple[JarvisTool, ...] = (
         preview=lambda a: (
             f"Dodam {len(a.get('candidate_ids') or [])} "
             f"{'kandydata' if len(a.get('candidate_ids') or []) == 1 else 'kandydatów'} do "
-            f"{_who(a, 'job_id', 'Rekrutacja')}"
+            f"{_who(a, 'job_id', 'Rekrutacja')}: "
+            f"{_names(a, 'candidate_ids', 'Kandydat')}"
+        ),
+        detail=lambda a: (
+            _labelled(
+                "Notatka (trafi do profilu każdej z tych osób)", a.get("note")
+            )
+            or ""
         ),
     ),
     JarvisTool(
@@ -1885,8 +1954,8 @@ WRITE_TOOLS: tuple[JarvisTool, ...] = (
             json=_clean(
                 {
                     "title": str(a.get("title") or "")[:200],
-                    "start_time": a.get("start_time"),
-                    "end_time": a.get("end_time"),
+                    "start_time": _aware_time(a, "start_time"),
+                    "end_time": _aware_time(a, "end_time"),
                     "event_type": a.get("event_type") or "meeting",
                     "candidate_id": a.get("candidate_id"),
                     "job_id": a.get("job_id"),
@@ -1896,7 +1965,21 @@ WRITE_TOOLS: tuple[JarvisTool, ...] = (
         ),
         shape=pick_list(("id", "title", "start_time", "end_time")),
         preview=lambda a: (
-            f"Dodam do kalendarza **{_short(a.get('title'), 80)}** — {_event_start(a)}"
+            f"Dodam do kalendarza **{_short(a.get('title'), 200)}** — "
+            f"{_event_start(a)} (czas polski)"
+        ),
+        detail=lambda a: _lines(
+            _labelled(
+                "Rodzaj",
+                _EVENT_TYPE_PL.get(
+                    str(a.get("event_type") or "meeting"), a.get("event_type")
+                ),
+            ),
+            f"Kandydat: {_who(a)}" if a.get("candidate_id") else None,
+            f"Rekrutacja: {_who(a, 'job_id', 'Rekrutacja')}"
+            if a.get("job_id")
+            else None,
+            _labelled("Opis", a.get("description")),
         ),
     ),
     JarvisTool(
@@ -2146,8 +2229,10 @@ WRITE_TOOLS: tuple[JarvisTool, ...] = (
             else data
         ),
         preview=lambda a: (
-            f"Zapiszę werdykt klienta o {_who(a)}: "
+            f"Zapiszę werdykt klienta o {_who(a)} w rekrutacji "
+            f"{_who(a, 'job_id', 'Rekrutacja')}: "
             f"{_DECISION_PL.get(str(a.get('decision')), a.get('decision'))}"
+            + (f", ocena {a.get('overall_fit')}/5" if a.get("overall_fit") else "")
         ),
         detail=lambda a: str(a.get("note") or ""),
     ),
@@ -2290,6 +2375,13 @@ _DECISION_PL = {
     "advance": "dalej w procesie",
     "reject": "odrzucony",
     "on_hold": "wstrzymany",
+}
+_EVENT_TYPE_PL = {
+    "interview": "rozmowa",
+    "screening": "screening",
+    "prep_call": "prep",
+    "meeting": "spotkanie",
+    "deadline": "termin",
 }
 _SNOOZE_PL = {
     "found_job": "znalazła pracę",
