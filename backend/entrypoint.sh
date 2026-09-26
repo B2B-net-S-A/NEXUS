@@ -9554,7 +9554,8 @@ PY
 # 0312: docelowa struktura umów Centrum e-Zdrowia (5 umów ramowych = części,
 # 3 umowy wykonawcze). Safety-net dla migracji 0312 — jedno źródło SQL w
 # `app/services/ezdrowie_structure.py`; idempotentny (ramowa po części,
-# wykonawcza po numerze), no-op bez klienta 115. Log: tylko liczby.
+# wykonawcze tylko pod część bez żadnej umowy wykonawczej — numer poprawiony
+# w UI nie wraca, R8-N6-2), no-op bez klienta 115. Log: tylko liczby.
 startup_phase "seed-ezdrowie-structure"
 echo "Centrum e-Zdrowia: seeding framework parts and executive contracts (idempotent)..."
 python - <<'PY' || echo "ezdrowie structure seed skipped; continuing"

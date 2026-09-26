@@ -157,3 +157,37 @@ async def test_seed_is_idempotent_and_noop_without_the_client():
             ("CeZ/45/2026", "cz1", "active"),
         ]
         await db.rollback()
+
+
+@pytest.mark.asyncio
+async def test_seed_does_not_resurrect_an_executive_number_corrected_in_the_ui():
+    """R8-N6-2: numer poprawiony przez DL nie wraca po deployu jako druga umowa."""
+    from app.models.client import Client
+
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"CeZ rename {uuid.uuid4().hex[:8]}")
+        db.add(client)
+        await db.flush()
+        seed_sql = build_structure_seed_sql(client.id)
+        await db.execute(text(seed_sql))
+        await db.execute(
+            text(
+                "UPDATE client_executive_contracts SET number = 'CeZ/002/2026' "
+                f"WHERE client_id = {client.id} AND number = 'CeZ/2/2026'"
+            )
+        )
+        await db.execute(text(seed_sql))
+        numbers = (
+            (
+                await db.execute(
+                    text(
+                        "SELECT number FROM client_executive_contracts "
+                        f"WHERE client_id = {client.id} ORDER BY number"
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert numbers == ["CeZ/002/2026", "CeZ/242/2025", "CeZ/45/2026"]
+        await db.rollback()
