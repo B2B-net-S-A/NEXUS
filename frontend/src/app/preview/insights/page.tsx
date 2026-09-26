@@ -180,10 +180,16 @@ function seeded(): QueryClient {
   });
   const monthFunnel = funnel({ verified: 412, cv_sent: 142, interview: 61, hired: 21 });
   qc.setQueryData(["insights", "recruitment", "funnel", CURRENT_MONTH], monthFunnel);
-  qc.setQueryData(insightsTeamQueryKeys.teamTable(CURRENT_MONTH), {
+  const monthTeamTable = {
     period: monthFunnel.period, columns: [],
     rows: PEOPLE.map((p) => ({ user_id: p.id, name: p.name, role: "recruiter", role_label: "Rekruter", is_active: true, verifications: p.v, recommendations: p.r, interviews: p.i, placements: p.p, total: p.v + p.r + p.i + p.p })),
     totals: { attributed: {}, unattributed: {}, all: {}, users: PEOPLE.length, former_employees: 0 },
+  };
+  qc.setQueryData(insightsTeamQueryKeys.teamTable(CURRENT_MONTH), monthTeamTable);
+  // „Mój miesiąc” czyta tabelę ze średnią verifier-anchored (runda 6 audytu).
+  qc.setQueryData(insightsTeamQueryKeys.teamTableAnchored(CURRENT_MONTH), {
+    ...monthTeamTable,
+    anchored_average: { attribution: "verifier_anchored", people: PEOPLE.length, recommendations: 11.4 },
   });
 
   // Zespół.

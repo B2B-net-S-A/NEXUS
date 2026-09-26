@@ -534,3 +534,50 @@ async def test_talent_community_manager_stays_in_the_people_table(
 
     assert tcm_id in [r["user_id"] for r in body["rows"]]
     assert body["totals"]["outside_scope"]["placements"] == 0
+
+
+@pytest.mark.asyncio
+async def test_anchored_average_uses_the_same_attribution_as_my_month(
+    fx_app: AsyncClient, fx_login: AsyncClient
+):
+    """Runda 6 audytu: „Mój miesiąc” porównuje własne CV wysłane (kredyt
+    pierwszego weryfikatora) ze średnią zespołu. Średnia z wierszy tabeli
+    liczyła „kto kliknął” (`first_moved_by`) — inna atrybucja. Tu A i B
+    weryfikują po jednej parze, a oba CV wysyła B: tabela daje B = 2 (średnia
+    2), atrybucja weryfikatora A = 1, B = 1 (średnia 1)."""
+    day = _next_window()
+    a_id, email, password = await _seed_user(UserRole.recruiter)
+    b_id, _, _ = await _seed_user(UserRole.sourcer)
+    for verifier in (a_id, b_id):
+        cand, job = await _seed_pair()
+        await _seed_stage(
+            candidate_id=cand,
+            job_id=job,
+            stage=PipelineStage.verified,
+            moved_at=_at(day),
+            moved_by=verifier,
+        )
+        await _seed_stage(
+            candidate_id=cand,
+            job_id=job,
+            stage=PipelineStage.cv_sent,
+            moved_at=_at(day) + timedelta(hours=1),
+            moved_by=b_id,
+        )
+
+    headers = await _headers(fx_login, email, password)
+    plain = (await fx_app.get(URL, headers=headers, params=_params(day))).json()
+    assert "anchored_average" not in plain
+    assert {r["user_id"]: r for r in plain["rows"]}[b_id]["recommendations"] == 2
+
+    body = (
+        await fx_app.get(
+            URL,
+            headers=headers,
+            params={**_params(day), "anchored_average": "true"},
+        )
+    ).json()
+    average = body["anchored_average"]
+    assert average["attribution"] == "verifier_anchored"
+    assert average["people"] == 2
+    assert average["recommendations"] == 1.0
