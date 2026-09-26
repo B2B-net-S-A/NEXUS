@@ -75,9 +75,15 @@ async def suggest_organizer_id(
     recruiter = await interview_slots.default_recruiter_id(
         db, candidate_id=candidate_id, job_id=job.id
     )
+    # DL przechodzi tę samą bramkę co rekruter (runda 6 audytu): podpowiedź
+    # nieaktywnego DL-a kończyła zapis prepu 422 „Organizator jest nieaktywny”,
+    # a okno nie podpowiadało wtedy nikogo, choć rekruter był pod ręką.
+    lead = job.delivery_lead_id
+    if lead and not await interview_slots.slot_recruiter_eligible(db, lead, job.id):
+        lead = None
     if prep_no == 1:
-        return job.delivery_lead_id or recruiter
-    return recruiter or job.delivery_lead_id
+        return lead or recruiter
+    return recruiter or lead
 
 
 def app_only_ready() -> bool:
