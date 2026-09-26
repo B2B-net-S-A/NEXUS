@@ -4,9 +4,8 @@ Runda 6 audytu — każda pozycja to miejsce, do którego kaskada FK nie sięga:
 
 * RODO-01: nagrobek ``(external_source, HMAC(external_id))`` — bez niego
   nocny sync Traffita zakładał usuniętą osobę od nowa;
-* RODO-02: wygenerowane CV (``cv_generated_documents.candidate_id`` to
-  ``SET NULL``, więc pełne CV zostawało czytelne i do pobrania) razem ze
-  zrzutem zgody RODO z magazynu;
+* wygenerowane CV i pliki CV ZOSTAJĄ — nigdy ich nie kasujemy (decyzja
+  Artura 26.09.2026: „nie usuwać nigdy żadnych CV”);
 * RODO-03: powiadomienia z imieniem i nazwiskiem (``notifications`` nie ma FK
   na kandydata);
 * RODO-06: ``integration_run_events.candidate_name`` / ``traffit_id``;
@@ -14,8 +13,8 @@ Runda 6 audytu — każda pozycja to miejsce, do którego kaskada FK nie sięga:
   worker M365 zakładał ją od nowa z niesparsowanego CV.
 
 Wołane z ``DELETE /api/candidates/{id}`` pod blokadą wiersza kandydata, przed
-``db.delete``; zwraca liczby do dowodu wykonania i klucze plików do rejestru
-kasowań. Niczego nie commituje.
+``db.delete``; zwraca liczby do dowodu wykonania (lista kluczy plików jest
+zawsze pusta — CV zostają). Niczego nie commituje.
 """
 
 from __future__ import annotations
@@ -23,7 +22,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import delete, func, or_, select, update
+from sqlalchemy import delete, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # Wzorce linków powiadomień wskazujących osobę (składnia ARE Postgresa):
@@ -64,35 +63,6 @@ def notification_link_clause(candidate_id: int):
     )
 
 
-def is_detached_generated_document(row: Any) -> bool:
-    """CV powstało dla kandydata, którego już nie ma (runda 6, RODO-02).
-
-    Tryb „new” zawsze startuje z istniejącego kandydata, a ``stage_id`` upload
-    przyjmuje wyłącznie razem z kandydatem — pusty FK przy którymś z nich
-    znaczy, że osobę usunięto (wiersz sprzed poprawki albo przyszła ścieżka
-    odpinająca dokument). Upload „Generuj bez dodawania” (bez kandydata i bez
-    etapu) jest legalny i zostaje.
-    """
-    # Obiekt bez pola kandydata (np. lekka projekcja wiersza) nie jest „odpięty”
-    # — odpięcie stwierdza tylko pusty FK prawdziwego wiersza.
-    if not hasattr(row, "candidate_id") or row.candidate_id is not None:
-        return False
-    return (
-        getattr(row, "mode", None) == "new"
-        or getattr(row, "stage_id", None) is not None
-    )
-
-
-def detached_generated_document_clause():
-    """Lustro ``is_detached_generated_document`` w SQL (lista CV)."""
-    from app.models.cv_generated_document import CvGeneratedDocument
-
-    return CvGeneratedDocument.candidate_id.is_(None) & or_(
-        CvGeneratedDocument.mode == "new",
-        CvGeneratedDocument.stage_id.is_not(None),
-    )
-
-
 async def _write_tombstone(db: AsyncSession, candidate: Any) -> int:
     from sqlalchemy.dialects.postgresql import insert as pg_insert
 
@@ -114,53 +84,6 @@ async def _write_tombstone(db: AsyncSession, candidate: Any) -> int:
         .on_conflict_do_nothing(constraint="uq_purged_candidates_source_hash")
     )
     return result.rowcount or 0
-
-
-async def _erase_generated_documents(
-    db: AsyncSession, candidate_id: int
-) -> tuple[int, list[str]]:
-    from app.models.cv_generated_document import CvGeneratedDocument
-
-    rows = (
-        await db.execute(
-            select(CvGeneratedDocument.id, CvGeneratedDocument.render_payload).where(
-                CvGeneratedDocument.candidate_id == candidate_id
-            )
-        )
-    ).all()
-    if not rows:
-        return 0, []
-    ids = [row.id for row in rows]
-    consent_keys: set[str] = set()
-    for row in rows:
-        payload = row.render_payload if isinstance(row.render_payload, dict) else {}
-        consent = payload.get("consent_screenshot")
-        if isinstance(consent, dict):
-            key = str(consent.get("storage_key") or "").strip()
-            if key:
-                consent_keys.add(key)
-    keys: list[str] = []
-    for key in sorted(consent_keys):
-        # Zrzut zgody bywa wspólny dla wersji PL i EN tego samego CV. Inny
-        # dokument (np. upload bez kandydata) z tym samym kluczem zatrzymuje
-        # plik — kasujemy wyłącznie obiekt, którego nikt już nie wskazuje.
-        still_used = await db.scalar(
-            select(func.count())
-            .select_from(CvGeneratedDocument)
-            .where(
-                CvGeneratedDocument.id.not_in(ids),
-                CvGeneratedDocument.render_payload["consent_screenshot"][
-                    "storage_key"
-                ].as_string()
-                == key,
-            )
-        )
-        if not still_used:
-            keys.append(key)
-    # Wersje zatwierdzone (`cv_document_versions.generated_owner_id`), szkice
-    # edytora, linki publiczne i kontrole zatwierdzenia kaskadują z dokumentu.
-    await db.execute(delete(CvGeneratedDocument).where(CvGeneratedDocument.id.in_(ids)))
-    return len(ids), keys
 
 
 async def _erase_notifications(db: AsyncSession, candidate_id: int) -> int:
@@ -225,8 +148,6 @@ async def erase_candidate_leftovers(
     candidate_id = int(candidate.id)
     counts: dict[str, int] = {}
     counts["source_tombstones"] = await _write_tombstone(db, candidate)
-    documents, keys = await _erase_generated_documents(db, candidate_id)
-    counts["generated_cvs_deleted"] = documents
     counts["notifications_deleted"] = await _erase_notifications(db, candidate_id)
     counts["integration_events_scrubbed"] = await _scrub_integration_events(
         db, candidate_id
@@ -234,4 +155,6 @@ async def erase_candidate_leftovers(
     counts["email_cv_attachments_closed"] = await _stamp_email_cv_attachments(
         db, candidate_id
     )
-    return counts, keys
+    # CV zostają zawsze (decyzja Artura 26.09.2026) — żadnych kluczy plików
+    # do kasowania.
+    return counts, []

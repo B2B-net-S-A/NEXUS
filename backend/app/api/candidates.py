@@ -5594,25 +5594,14 @@ async def delete_candidate(
     )
     storage_keys.extend(k for k in document_keys.scalars().all() if k)
 
-    from app.services.cv_source_cleanup import schedule_source_cleanup
     from app.services.cv_source_erasure import detach_candidate_job_sources
 
     storage_keys.extend(await detach_candidate_job_sources(db, candidate_id))
 
-    # Audyt 22.09 r2 (CAND-02, art. 17 RODO): zgłoszenia z formularza
-    # aplikacyjnego niosą CV (bajty albo klucz w storage), kontakt i zgodę.
-    # FK `matched_candidate_id` to SET NULL, więc bez tego przeżywały
-    # usunięcie profilu. Bierzemy te dopasowane do kandydata i te z jego
-    # adresem e-mail (zgłoszenie sprzed dopasowania nie ma FK); zgody
-    # zgłoszeń kaskadują z wiersza, ale liczymy je do dowodu wykonania.
-    from app.services.application_submission_erasure import (
-        erase_candidate_submissions,
-    )
-
-    submission_erasure = await erase_candidate_submissions(
-        db, candidate_id=candidate_id, email=candidate.email
-    )
-    storage_keys.extend(submission_erasure.pop("storage_keys"))
+    # Zgłoszenia z formularza aplikacyjnego (z CV w bazie albo w storage)
+    # ZOSTAJĄ: FK `matched_candidate_id` to SET NULL (decyzja Artura
+    # 26.09.2026 — „nie usuwać nigdy żadnych CV”, RODO pomijamy; do tego dnia
+    # kasowała je `erase_candidate_submissions`, audyt 22.09 r2 CAND-02).
 
     # audyt 22.09 r2 (PROD-02): kopie snapshotów CV etapów w object storage
     # (`stage-cv/<candidate_id>/…`) znikają razem z osobą — wiersze
@@ -5769,13 +5758,12 @@ async def delete_candidate(
         details={
             "operation": "hard_delete",
             "contracts_detached": contracts_detached,
-            "storage_objects": len(storage_keys),
+            "storage_objects_kept": len(storage_keys),
             "storage_cleanup": "scheduled",
             "share_tokens_revoked": tokens_revoked,
             "subject_ref": subject_ref,
             **search_erasure,
             **jarvis_erasure,
-            **submission_erasure,
             **leftovers,
         },
     )
@@ -5797,7 +5785,7 @@ async def delete_candidate(
         details={
             "subject_ref": subject_ref,
             "contracts_detached": contracts_detached,
-            "storage_objects": len(storage_keys),
+            "storage_objects_kept": len(storage_keys),
         },
     )
 
@@ -5819,20 +5807,10 @@ async def delete_candidate(
         )
     )
 
-    # Pliki NIE są kasowane w żądaniu. Do 09.2026 pętla `delete_cv` szła po
-    # `flush()`, a błąd w jej środku kończył się 503 „usunięcie wycofane
-    # w całości" — ale rollback SQL nie przywraca obiektów skasowanych już
-    # wcześniej w tej pętli, więc „w całości" było nieprawdą: kandydat wracał
-    # do bazy bez części swoich plików. Zamiast tego każdy klucz trafia do
-    # trwałego rejestru kasowań (`cv_source_cleanup`, ten sam wzorzec co
-    # `IndexOutboxEvent` wyżej dla Qdranta): wiersz commituje się RAZEM
-    # z usunięciem, więc albo znika i kandydat, i intencja kasowania jego
-    # plików, albo nic. Pętla `cv_source_cleanup` (main.py) kasuje obiekty
-    # w tle z ponowieniami i backoffem — niedostępny storage odkłada
-    # sprzątanie, nie blokuje usunięcia.
-    for key in storage_keys:
-        await schedule_source_cleanup(db, key)
-
+    # Pliki CV ZOSTAJĄ w magazynie (decyzja Artura 26.09.2026: „nie usuwać
+    # nigdy żadnych CV”). Do tego dnia każdy klucz szedł do rejestru kasowań
+    # `cv_source_cleanup`; klucze nadal zbieramy wyżej, ale tylko do liczby
+    # w dowodzie wykonania.
     await db.delete(candidate)
     # Flush PRZED commitem: kaskady w bazie wykonują się tutaj, więc ewentualny
     # FK bez `ON DELETE` wywali się czytelnie, a rejestr kasowań wycofa się

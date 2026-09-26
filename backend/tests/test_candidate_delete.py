@@ -486,7 +486,7 @@ async def _seed_candidate_with_files() -> tuple[int, list[str]]:
         return c.id, sorted([cv_key, doc_key])
 
 
-async def test_hard_delete_hands_storage_keys_to_the_cleanup_ledger(
+async def test_hard_delete_keeps_cv_files_in_storage(
     app_client: AsyncClient, app_auth_headers: dict, monkeypatch
 ):
     """„Usunięcie wycofane w całości" nie obejmowało plików.
@@ -517,39 +517,18 @@ async def test_hard_delete_hands_storage_keys_to_the_cleanup_ledger(
     assert r.status_code == 204, r.text
     assert await _count(Candidate, id=candidate_id) == 0
 
+    # CV ZOSTAJĄ (decyzja Artura 26.09.2026: „nie usuwać nigdy żadnych CV”):
+    # usunięcie kandydata nie zapisuje intencji kasowania jego plików.
     async with AsyncSessionLocal() as db:
-        ledger = sorted(
-            (
-                await db.scalars(
-                    select(CvSourceCleanup.storage_key).where(
-                        CvSourceCleanup.storage_key.in_(keys)
-                    )
-                )
-            ).all()
-        )
-    assert ledger == keys, "każdy klucz kandydata musi mieć wiersz w rejestrze"
-
-    # Pętla tła zdejmuje wiersze i dopiero ONA woła storage.
-    deleted: list[str] = []
-
-    async def _fake_run(fn, key):
-        assert fn is object_storage.delete_cv
-        deleted.append(key)
-
-    monkeypatch.setattr(cv_source_cleanup, "run_in_threadpool", _fake_run)
-    async with AsyncSessionLocal() as db:
-        await cv_source_cleanup.clean_pending_sources(db, limit=200)
-
-    assert set(keys) <= set(deleted)
-    async with AsyncSessionLocal() as db:
-        left = (
+        ledger = (
             await db.scalars(
                 select(CvSourceCleanup.storage_key).where(
                     CvSourceCleanup.storage_key.in_(keys)
                 )
             )
         ).all()
-    assert left == [], "po skasowaniu obiektów wiersze rejestru znikają"
+    assert ledger == [], "usunięcie kandydata nie może kasować jego CV"
+    assert cv_source_cleanup is not None
 
 
 async def test_ledger_rows_roll_back_with_a_failed_delete(
@@ -587,11 +566,13 @@ async def test_ledger_rows_roll_back_with_a_failed_delete(
 # ── CAND-02 (audyt 22.09 r2): zgłoszenia z formularza idą razem z osobą ──────
 
 
-async def test_hard_delete_erases_application_submissions_consents_and_files(
+async def test_hard_delete_keeps_application_submissions_and_their_cvs(
     app_client: AsyncClient, app_auth_headers: dict
 ):
-    """`matched_candidate_id` to SET NULL — bez jawnego kasowania zgłoszenie
-    z CV, kontaktem i zgodą przeżywało usunięcie profilu (art. 17 RODO)."""
+    """Decyzja Artura 26.09.2026: „nie usuwać nigdy żadnych CV”, RODO
+    pomijamy — zgłoszenia z CV zostają po usunięciu profilu, odpięte od
+    kandydata (``matched_candidate_id`` SET NULL), a ich pliki nie trafiają
+    do rejestru kasowań."""
     from app.core.database import AsyncSessionLocal
     from app.models.activity import Activity
     from app.models.application_submission import ApplicationSubmission
@@ -662,26 +643,31 @@ async def test_hard_delete_erases_application_submissions_consents_and_files(
                 )
             )
         ).all()
-        assert list(left) == [unrelated_id]
+        assert sorted(left) == sorted([*sub_ids, unrelated_id])
+        matched_after = (
+            await db.scalars(
+                select(ApplicationSubmission.matched_candidate_id).where(
+                    ApplicationSubmission.id.in_(sub_ids)
+                )
+            )
+        ).all()
+        assert set(matched_after) == {None}
         consents = await db.scalar(
             select(func.count())
             .select_from(CandidateConsent)
             .where(CandidateConsent.application_submission_id.in_(sub_ids))
         )
-        assert consents == 0
-        ledger = set(
-            (
-                await db.scalars(
-                    select(CvSourceCleanup.storage_key).where(
-                        CvSourceCleanup.storage_key.in_(
-                            [matched_key, by_email_key, shared_key]
-                        )
+        assert consents == 1
+        ledger = (
+            await db.scalars(
+                select(CvSourceCleanup.storage_key).where(
+                    CvSourceCleanup.storage_key.in_(
+                        [matched_key, by_email_key, shared_key]
                     )
                 )
-            ).all()
-        )
-        # Klucz, na który wskazuje CV innej osoby, NIE trafia do kasowania.
-        assert ledger == {matched_key, by_email_key}
+            )
+        ).all()
+        assert ledger == [], "usunięcie kandydata nie może kasować CV zgłoszeń"
         assert await db.get(Candidate, other_id) is not None
         audit = await db.scalar(
             select(Activity).where(
@@ -689,5 +675,5 @@ async def test_hard_delete_erases_application_submissions_consents_and_files(
                 Activity.details["operation"].astext == "hard_delete",
             )
         )
-        assert audit.details["application_submissions_deleted"] == 3
-        assert audit.details["application_consents_deleted"] == 1
+        assert audit is not None
+        assert "application_submissions_deleted" not in audit.details

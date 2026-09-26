@@ -37,6 +37,8 @@ Reguły, które wynikły z napraw (i których nie wolno cofnąć „przy okazji�
 
 ## Świadomie zostawione (nie zgłaszaj ponownie bez nowego faktu)
 
+- **CV nie usuwamy nigdy, RODO pomijamy** (decyzja Artura 26.09.2026): pliki CV, wygenerowane CV i zgłoszenia z CV zostają także po usunięciu kandydata. Nie zgłaszaj „danych po usunięciu kandydata” jako błędu do naprawy kasowaniem.
+
 - Martwy kod: routery `analytics_v1`, stary `/api/dashboard`, modele `dr_*` (decyzja Artura 25.09 — nie ruszać).
 - CSP egzekwowane bez `script-src` (przejściowo, Report-Only zbiera raporty).
 - Retencja `trainee_call_items` — to dziennik telefonów (reguły „niezainteresowany = nigdy”, „zły numer”).

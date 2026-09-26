@@ -198,120 +198,45 @@ async def test_tombstone_blocks_the_adopt_path_onto_another_row(
     assert fresh.lastname != "Wraca"
 
 
-# ── RODO-02: wygenerowane CV znikają razem z osobą ───────────────────────────
+# ── CV zostają (decyzja Artura 26.09.2026: „nie usuwać nigdy żadnych CV”) ──
 
 
-async def test_generated_cvs_and_consent_screenshot_are_erased(
+async def test_generated_cvs_and_consent_screenshot_survive_candidate_deletion(
     app_client: AsyncClient, app_auth_headers: dict
 ):
     from app.models.cv_source_cleanup import CvSourceCleanup
 
     candidate_id = await _candidate()
-    own_key = f"consent/{uuid.uuid4().hex}.png"
-    shared_key = f"consent/{uuid.uuid4().hex}.png"
+    key = f"consent/{uuid.uuid4().hex}.png"
     async with AsyncSessionLocal() as db:
-        docs = [
-            CvGeneratedDocument(
-                candidate_id=candidate_id,
-                candidate_name="Ewa Usunieta",
-                language=lang,
-                blind=False,
-                mode="new",
-                filename=f"CV_{lang}.docx",
-                status="ready",
-                render_payload=_payload(key),
-            )
-            for lang, key in (("pl", own_key), ("en", shared_key))
-        ]
-        # Dokument bez kandydata z tym samym zrzutem zatrzymuje plik.
-        keeper = CvGeneratedDocument(
-            candidate_id=None,
-            candidate_name="Ktoś inny",
+        doc = CvGeneratedDocument(
+            candidate_id=candidate_id,
+            candidate_name="Ewa Usunieta",
             language="pl",
             blind=False,
-            mode="upload",
-            filename="Upload.docx",
+            mode="new",
+            filename="CV_pl.docx",
             status="ready",
-            render_payload=_payload(shared_key),
+            render_payload=_payload(key),
         )
-        db.add_all([*docs, keeper])
+        db.add(doc)
         await db.commit()
-        doc_ids = [d.id for d in docs]
-        keeper_id = keeper.id
+        doc_id = doc.id
 
     await _delete(app_client, app_auth_headers, candidate_id)
 
     async with AsyncSessionLocal() as db:
-        for doc_id in doc_ids:
-            assert await db.get(CvGeneratedDocument, doc_id) is None
-        assert await db.get(CvGeneratedDocument, keeper_id) is not None
-        scheduled = set(
-            (
-                await db.scalars(
-                    select(CvSourceCleanup.storage_key).where(
-                        CvSourceCleanup.storage_key.in_([own_key, shared_key])
-                    )
+        kept = await db.get(CvGeneratedDocument, doc_id)
+        assert kept is not None, "wygenerowane CV nie może zniknąć"
+        assert kept.candidate_id is None
+        scheduled = (
+            await db.scalars(
+                select(CvSourceCleanup.storage_key).where(
+                    CvSourceCleanup.storage_key == key
                 )
-            ).all()
-        )
-    assert scheduled == {own_key}
-    for doc_id in doc_ids:
-        resp = await app_client.get(
-            f"/api/cv-generator/generated/{doc_id}/docx", headers=app_auth_headers
-        )
-        assert resp.status_code == 404, resp.text
-
-
-async def test_detached_candidate_cv_is_not_served_but_upload_without_person_is(
-    app_client: AsyncClient, app_auth_headers: dict
-):
-    """CV osoby usuniętej PRZED poprawką (FK wyzerowany) — strażnik tras."""
-    async with AsyncSessionLocal() as db:
-        detached = CvGeneratedDocument(
-            candidate_id=None,
-            candidate_name="Usunieta Osoba",
-            language="pl",
-            blind=False,
-            mode="upload",
-            stage_id=987654321,
-            filename="Detached.docx",
-            status="ready",
-            render_payload=_payload(),
-        )
-        legit = CvGeneratedDocument(
-            candidate_id=None,
-            candidate_name="Bez Dodawania",
-            language="pl",
-            blind=False,
-            mode="upload",
-            filename="Legit.docx",
-            status="ready",
-            render_payload=_payload(),
-        )
-        db.add_all([detached, legit])
-        await db.commit()
-        detached_id, legit_id = detached.id, legit.id
-
-    for path in ("docx", "html", "approved-versions"):
-        resp = await app_client.get(
-            f"/api/cv-generator/generated/{detached_id}/{path}",
-            headers=app_auth_headers,
-        )
-        assert resp.status_code == 404, (path, resp.text)
-    listed = await app_client.get(
-        "/api/cv-generator/generated",
-        params={"limit": 200},
-        headers=app_auth_headers,
-    )
-    assert listed.status_code == 200, listed.text
-    ids = {row["id"] for row in listed.json()}
-    assert detached_id not in ids
-    # Trasa pobrania legalnego uploadu dalej przechodzi bramkę dostępu (bez 404).
-    legit_resp = await app_client.get(
-        f"/api/cv-generator/generated/{legit_id}/approved-versions",
-        headers=app_auth_headers,
-    )
-    assert legit_resp.status_code != 404, legit_resp.text
+            )
+        ).all()
+    assert scheduled == [], "zrzut zgody przy CV nie trafia do kasowania"
 
 
 # ── RODO-03: powiadomienia ──────────────────────────────────────────────────

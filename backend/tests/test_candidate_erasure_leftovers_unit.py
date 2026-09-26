@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -83,26 +82,6 @@ def test_merge_rewrites_keep_the_rest_of_the_link():
     assert rewrite("/jobs/9?candidate=57&panel=cv") == "/jobs/9?candidate=3&panel=cv"
     assert rewrite("/calendar?cycle=57-9") == "/calendar?cycle=3-9"
     assert rewrite("/candidates/570") == "/candidates/570"
-
-
-@pytest.mark.parametrize(
-    "candidate_id, mode, stage_id, detached",
-    [
-        (None, "new", None, True),
-        (None, "upload", 12, True),
-        # „Generuj bez dodawania” — legalny dokument bez kandydata.
-        (None, "upload", None, False),
-        (5, "new", 12, False),
-        (5, "upload", None, False),
-    ],
-)
-def test_detached_generated_document_rule(candidate_id, mode, stage_id, detached):
-    from app.services.candidate_erasure_leftovers import (
-        is_detached_generated_document,
-    )
-
-    row = SimpleNamespace(candidate_id=candidate_id, mode=mode, stage_id=stage_id)
-    assert is_detached_generated_document(row) is detached
 
 
 def test_merge_does_not_tombstone_the_source_record():

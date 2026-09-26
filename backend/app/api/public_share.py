@@ -379,13 +379,7 @@ def _generated_doc_or_404(row: CvGeneratedShareToken) -> CvGeneratedDocument:
     # niezależny od odwoływania tokenów w `delete_candidate` — zamyka tę samą
     # dziurę dla każdej PRZYSZŁEJ ścieżki odpinającej dokument. Tryb „upload"
     # nie ma kandydata w bazie z definicji i celowo go nie dotyczy.
-    # Runda 6 audytu: ta sama reguła co panel generatora (także upload
-    # z etapem, który wymaga kandydata).
-    from app.services.candidate_erasure_leftovers import (
-        is_detached_generated_document,
-    )
-
-    if is_detached_generated_document(doc):
+    if doc.mode == "new" and doc.candidate_id is None:
         raise HTTPException(status_code=404, detail="CV nie jest już dostępne.")
     return doc
 

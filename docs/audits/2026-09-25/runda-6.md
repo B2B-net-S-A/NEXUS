@@ -1,7 +1,7 @@
 # Audyt NEXUS 26.09.2026 — runda 6
 
 > **Baza:** `e2585b51c` (main po #1853) · **Status:** naprawione w PR „fix: naprawa pozycji z rundy 6 audytu (26.09.2026)” — statusy w tabeli niżej.
-> Decyzje Artura (26.09.2026): przełożenie rozmowy u klienta tylko po jawnym wyborze w oknie potwierdzenia; pulpit i kreator metryk DL zawężone do portfela; kwoty i off-limits klientów spoza portfela DL ukryte na ekranach rekrutacji; PFRON — jawne „netto” przy stawce wygrywa (bez ÷1,23).
+> Decyzje Artura (26.09.2026): **CV nie usuwamy nigdy, RODO pomijamy** (usunięcie kandydata nie kasuje plików CV, wygenerowanych CV ani zgłoszeń z CV); przełożenie rozmowy u klienta tylko po jawnym wyborze w oknie potwierdzenia; pulpit i kreator metryk DL zawężone do portfela; kwoty i off-limits klientów spoza portfela DL ukryte na ekranach rekrutacji; PFRON — jawne „netto” przy stawce wygrywa (bez ÷1,23).
 > Poprzednie rundy: [README](README.md). Reguły po naprawach: `CLAUDE.md`, sekcja „Audyt 25.09.2026 — reguły po naprawie”.
 
 ## Zakres i metoda
@@ -46,7 +46,7 @@ Trend błędów w kodzie poprawionym w poprzedniej rundzie: 61 → 19 → 2 → 
 
 - **M365-1 (krytyczne, potwierdzone):** „stopka Outlooka” doklejana do każdego maila z NEXUSA to wszystko od OSTATNIEGO znacznika podpisu do końca treści ostatniego wysłanego maila — razem z cytatem innej rozmowy (adres, stawka innego kandydata). `services/m365/signature_cache.py:126-148`.
 - **T6-1 (wysokie, potwierdzone, regresja #1730):** od 22.09 powody i komentarze odrzuceń z Traffita przestały się wypełniać — backfill czyta `activity_date` jako UTC, a mapper etapów od #1730 jako Europe/Warsaw; złączenie po dokładnym znaczniku nie trafia nigdy. `services/traffit/rejection_backfill.py:57,108`.
-- **RODO-01 (wysokie, potwierdzone):** usunięty kandydat z Traffita wraca z nocnym syncem (brak nagrobka, jak `purged_clients` u klientów). **RODO-02:** wygenerowane CV przeżywają usunięcie kandydata i są czytelne/pobieralne.
+- **RODO-01 (wysokie, potwierdzone):** usunięty kandydat z Traffita wraca z nocnym syncem (brak nagrobka, jak `purged_clients` u klientów). **RODO-02** (wygenerowane CV przeżywają usunięcie) — decyzja Artura: CV nie usuwamy nigdy, RODO pomijamy; zamiast kasować, usunięcie kandydata przestało kasować także pliki CV i zgłoszenia z CV.
 - **A6-1 (wysokie, potwierdzone):** retencja przeglądów automatycznych (2 dni) kasuje jedyną pamięć „ten request już przejrzany” → stare rekrutacje wracają do nocnej kolejki co 2 noce i zjadają limit nowym.
 - **DOC-1 (wysokie, potwierdzone):** rozwiązanie/wypowiedzenie umowy „bez projektu” nadpisuje datę i powód zakończenia starego projektu na kontrakcie (zejście przesuwa się w Insights, powód zamienia na rezygnację).
 - **L1 (wysokie):** „zapytania” DL w Insights liczone od `jobs.created_at` = data importu z Traffita (3859/4229 z maja 2026) — hit ratio DL kilka % zamiast kilkudziesięciu.
@@ -62,7 +62,7 @@ Legenda statusu: ✅ naprawione w PR rundy 6 · ⛔ odrzucone po przeczytaniu ko
 | M365-1 | krytyczne | L | Podpis Outlooka dokleja cytat innej rozmowy do każdego maila z NEXUSA (`signature_cache.py`) | ✅ ucięcie na znaczniku cytatu, pierwszy znacznik podpisu, odrzucenie podpisu z cudzym adresem |
 | T6-1 | wysokie | D | Powody odrzuceń z Traffita puste od 22.09 (strefa w `rejection_backfill.py`) | ✅ złączenie po czasie warszawskim i starym UTC |
 | RODO-01 | wysokie | H | Usunięty kandydat wraca z nocnym syncem Traffita | ✅ nagrobek `purged_candidates` (HMAC external_id, migracja 0388), importer pomija |
-| RODO-02 | wysokie | H | Wygenerowane CV przeżywają usunięcie kandydata | ✅ kasowane z plikiem zgody; odpięte dokumenty niewydawane |
+| RODO-02 | wysokie | H | Wygenerowane CV przeżywają usunięcie kandydata | 🟡 decyzja Artura 26.09.2026: CV nie usuwamy nigdy, RODO pomijamy — zostają; usunięcie kandydata przestało też kasować pliki CV i zgłoszenia z CV |
 | A6-1 | wysokie | N | Retencja kasuje pamięć nocnego przeglądu → rekrutacje wracają co 2 noce | ✅ start i odcisk we wpisie „Praca w tle”; `failed` nie zamyka zdarzenia |
 | DOC-1 | wysokie | E | Rozwiązanie umowy „bez projektu” nadpisuje zakończenie starego projektu | ✅ zakończony kontrakt nietknięty, zamyka się tylko wiersz rejestru |
 | L1 | wysokie | O | Zapytania DL liczone od daty importu z Traffita | ✅ `COALESCE(opened_at, created_at)` w rankingu, trendzie, portfelu, HM, raporcie DL |
