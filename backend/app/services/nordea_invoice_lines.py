@@ -39,7 +39,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, Optional
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -192,6 +192,30 @@ def refresh_on_upload(order: ClientOrder, abs_path: Path | str) -> None:
     order.invoice_lines = read_pdf_payload(abs_path, order.filename)
 
 
+async def refresh_on_upload_async(order: ClientOrder, abs_path: Path | str) -> None:
+    """Asynchroniczny odpowiednik ``refresh_on_upload`` dla handlerów i poczty.
+
+    Odczyt PDF-a (przy skanie OCR do 10 stron) idzie w wątku — synchronicznie
+    blokował pętlę zdarzeń jedynego procesu uvicorna na czas OCR (przegląd
+    PR #1849, bliźniak R5-6).
+    """
+    if not is_nordea(order.client_id):
+        return
+    order.invoice_lines = await asyncio.to_thread(
+        read_pdf_payload, abs_path, order.filename
+    )
+
+
+def clear_on_new_upload(order: ClientOrder) -> None:
+    """Nowy PDF = formuła poprzedniego dokumentu przestaje obowiązywać.
+
+    Nową formułę dopisuje ``refresh_on_upload_async`` po zapisie pliku (albo
+    pętla ``order_gaps``) — tu bez odczytu, bo woła to kod synchroniczny.
+    """
+    if is_nordea(order.client_id):
+        order.invoice_lines = None
+
+
 def clear_on_file_delete(order: ClientOrder) -> None:
     """Usunięcie PDF-a zdejmuje formułę odczytaną z niego (nie ręczną)."""
     payload = order.invoice_lines
@@ -310,18 +334,34 @@ async def save_line(
         raise InvoiceLineError(
             f"Pozycja faktury może mieć najwyżej {MAX_TEXT_CHARS} znaków."
         )
-    order = await db.scalar(
-        select(ClientOrder).where(ClientOrder.id == order_id).with_for_update()
-    )
+    order = await db.scalar(select(ClientOrder).where(ClientOrder.id == order_id))
     if order is None:
         raise LookupError("Nie znaleziono zamówienia.")
     if not is_nordea(order.client_id):
         raise InvoiceLineError("Pozycja faktury dotyczy wyłącznie zamówień Nordei.")
-    payload = order.invoice_lines
-    if not payload:
+    # OCR PRZED blokadą wiersza — odczyt PDF-a trwa sekundy i nie może trzymać
+    # FOR UPDATE (wstrzymałby upload PDF-a i pętlę ``fill_missing``).
+    read_payload: Optional[dict] = None
+    read_file = (order.file_path, order.file_uploaded_at)
+    if not order.invoice_lines:
         path = _abs_path(order)
         if path is not None:
-            payload = await asyncio.to_thread(read_pdf_payload, path, order.filename)
+            read_payload = await asyncio.to_thread(
+                read_pdf_payload, path, order.filename
+            )
+    order = await db.scalar(
+        select(ClientOrder)
+        .where(ClientOrder.id == order_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if order is None:
+        raise LookupError("Nie znaleziono zamówienia.")
+    payload = order.invoice_lines
+    if not payload:
+        # Odczyt sprzed blokady tylko dla tego samego pliku.
+        if read_payload and read_file == (order.file_path, order.file_uploaded_at):
+            payload = read_payload
         if not payload:
             payload = template_payload(await _consultant_name(db, order))
     lines = list(payload.get("lines") or [])
@@ -363,6 +403,10 @@ async def fill_missing(db: AsyncSession, *, limit: int = 200) -> int:
     ``_attach_po_bytes``. PDF nieczytelny zapisuje szablon z ``[brak]``
     (konsultant z zamówienia) — inaczej ten sam plik byłby czytany w każdym
     biegu.
+
+    Funkcja SAMA commituje: kończy transakcję odczytu przed OCR i zapisuje
+    każde zamówienie osobno, warunkowo (formuła wciąż pusta, ten sam plik).
+    Zwraca liczbę faktycznie zapisanych formuł.
     """
     from app.services.order_policies.registry import (
         client_ids_from_env,
@@ -390,14 +434,48 @@ async def fill_missing(db: AsyncSession, *, limit: int = 200) -> int:
         .scalars()
         .all()
     )
-    filled = 0
+    # Migawka (id, plik, stempel wgrania) i koniec transakcji odczytu PRZED OCR:
+    # odczyt PDF-a trwa sekundy–minuty i nie może trzymać otwartej
+    # transakcji ani blokady wiersza.
+    pending: list[tuple[int, str, Optional[datetime], Path, Optional[str]]] = []
     for order in orders:
         path = _abs_path(order)
-        if path is None:
-            continue
-        payload = await asyncio.to_thread(read_pdf_payload, path, order.filename)
-        order.invoice_lines = payload or template_payload(
-            await _consultant_name(db, order)
+        if path is not None:
+            pending.append(
+                (
+                    order.id,
+                    order.file_path,
+                    order.file_uploaded_at,
+                    path,
+                    order.filename,
+                )
+            )
+    await db.commit()
+
+    filled = 0
+    for order_id, file_path, uploaded_at, path, filename in pending:
+        payload = await asyncio.to_thread(read_pdf_payload, path, filename)
+        if not payload:
+            order = await db.get(ClientOrder, order_id)
+            payload = template_payload(
+                await _consultant_name(db, order) if order is not None else None
+            )
+        # Zapis warunkowy: w trakcie OCR ktoś mógł ręcznie poprawić formułę
+        # (``save_line``) albo podmienić PDF (``_attach_po_bytes`` zapisuje
+        # formułę nowego pliku) — wtedy wynik tego biegu jest nieaktualny
+        # i przepada.
+        result = await db.execute(
+            update(ClientOrder)
+            .where(
+                ClientOrder.id == order_id,
+                ClientOrder.invoice_lines.is_(None),
+                ClientOrder.file_path == file_path,
+                # Podmiana pliku pod tą samą ścieżką zmienia stempel wgrania.
+                ClientOrder.file_uploaded_at.is_not_distinct_from(uploaded_at),
+            )
+            .values(invoice_lines=payload)
+            .execution_options(synchronize_session=False)
         )
-        filled += 1
+        await db.commit()
+        filled += result.rowcount or 0
     return filled

@@ -15,10 +15,12 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.models.job import Job, JobStatus
 from app.models.job_work_assignment import JobWorkAssignment
 from app.models.notification import NotificationType
@@ -95,6 +97,16 @@ async def _assignment_notices(db: AsyncSession, *, now: datetime) -> int:
 
 
 SILENT_EVERY_DAYS = 14
+
+
+def is_stale_check_day(now: datetime) -> bool:
+    """Poniedziałek w kalendarzu firmy (``BUSINESS_TZ``), nie w UTC.
+
+    Przegląd o ``review_time`` przed 02:00 wypada w UTC jeszcze w niedzielę —
+    ``now.weekday()`` na czasie UTC gubił wtedy poniedziałkowy przegląd
+    „Szukamy” bez ruchu, a dawał go we wtorek.
+    """
+    return now.astimezone(ZoneInfo(settings.BUSINESS_TZ)).weekday() == 0
 
 
 def silent_reminder_due(
@@ -175,7 +187,7 @@ async def _review_notices(
         bucket["new" if state == "to_review" else "silent"] += 1
 
     # W poniedziałek: „Szukamy” bez żadnego ruchu rekrutera od 30 dni.
-    if now.weekday() == 0:
+    if is_stale_check_day(now):
         month = now - timedelta(days=30)
         last_move = (
             select(CandidateStage.job_id)

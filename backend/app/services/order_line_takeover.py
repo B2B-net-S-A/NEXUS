@@ -665,6 +665,7 @@ TAKEOVER_CANCEL_TERMINATION_UNDONE = "source_termination_undone"
 TAKEOVER_CANCEL_POOL_USED_UP = "source_pool_used_up"
 TAKEOVER_CANCEL_SWAPPED = "source_swapped"
 TAKEOVER_CANCEL_DECIDED = "source_pool_decided"
+TAKEOVER_CANCEL_ENTRY_NOT_AFTER_DEPARTURE = "entry_not_after_departure"
 
 
 def _cancel_scheduled_takeover(
@@ -962,6 +963,36 @@ async def activate_due_takeovers(
                             if used_up
                             else TAKEOVER_CANCEL_DECIDED
                         ),
+                        actor_id=None,
+                    )
+                    continue
+                # Ostatni dzień odchodzącego przesunięty na dzień wejścia albo
+                # za niego (data końca umowy zmieniona po zaplanowaniu — przed
+                # audytem 25.09.2026, runda 5, PATCH daty nie odwoływał
+                # zastępstwa). Wejście z dawną datą nałożyłoby okresy obu osób
+                # i przeniosło pulę wstecz — zastępstwo odpada z wpisem.
+                known_departure = (
+                    pending.effective_date if pending is not None else source.end_date
+                )
+                if (
+                    known_departure is not None
+                    and target.start_date is not None
+                    and target.start_date <= known_departure
+                ):
+                    target.status = ClientOrderStatus.cancelled
+                    _cancel_scheduled_takeover(
+                        db,
+                        group_id=group.id,
+                        target=target,
+                        source_name=consultant_display_name(source),
+                        why=(
+                            "ostatni dzień pracy osoby odchodzącej "
+                            f"({known_departure:%d.%m.%Y}) przypada w dniu "
+                            "wejścia albo później, a zastępstwo może wejść "
+                            "wyłącznie po ostatnim dniu odchodzącego. Zaplanuj "
+                            "je ponownie z nową datą."
+                        ),
+                        code=TAKEOVER_CANCEL_ENTRY_NOT_AFTER_DEPARTURE,
                         actor_id=None,
                     )
                     continue

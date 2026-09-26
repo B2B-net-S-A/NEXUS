@@ -367,11 +367,10 @@ def _attach_po_bytes(
     order.size_bytes = size
     order.file_uploaded_by = user.id
     order.file_uploaded_at = datetime.now(timezone.utc)
-    # Nordea: pozycja faktury cyklicznej z tego dokumentu (ticket 8). Błąd
-    # odczytu nie zatrzymuje uploadu — formułę dosypie pętla ``order_gaps``.
-    nordea_invoice_lines.refresh_on_upload(
-        order, storage_service.get_client_order_po_path(rel_path)
-    )
+    # Nordea: pozycja faktury cyklicznej z tego dokumentu (ticket 8). Odczyt
+    # (OCR) robi wołający przez ``refresh_on_upload_async`` — tu tylko zdjęcie
+    # formuły poprzedniego dokumentu; brak odczytu dosypie pętla ``order_gaps``.
+    nordea_invoice_lines.clear_on_new_upload(order)
     return previous if previous and previous != rel_path else None
 
 
@@ -2185,6 +2184,9 @@ async def create_order_extension(
             content_type=content_type,
             user=user,
         )
+        await nordea_invoice_lines.refresh_on_upload_async(
+            order, storage_service.get_client_order_po_path(order.file_path)
+        )
     # Formularz może świadomie zacząć od draftu i uzupełniać cztery wymagane
     # obszary kolejnymi zapisami. Gdy komplet jest już obecny przy tworzeniu,
     # rekord od razu trafia do „Aktywnych”.
@@ -3720,6 +3722,9 @@ async def replace_order_po(
         filename=filename,
         content_type=file.content_type,
         user=user,
+    )
+    await nordea_invoice_lines.refresh_on_upload_async(
+        order, storage_service.get_client_order_po_path(order.file_path)
     )
 
     db.add(

@@ -58,7 +58,7 @@ import { hasRole, useAuthStore } from "@/store/auth";
 
 import { RecruitmentSheet } from "./RecruitmentSheet";
 
-export type OrderSlideOverSection = "team" | "close";
+export type OrderSlideOverSection = "team" | "close" | "portals";
 
 export interface OrderSlideOverProps {
   open: boolean;
@@ -84,7 +84,8 @@ export interface OrderSlideOverProps {
   /**
    * Sekcja rozwinięta i przewinięta przy otwarciu. `close` = wejście z podpowiedzi
    * „Obsada kompletna" w panelu osoby: od razu okno zamknięcia z powodem
-   * (dawny krok 08 otwierał je jednym kliknięciem).
+   * (dawny krok 08 otwierał je jednym kliknięciem). `portals` = wejście
+   * z `/jobs/new` po nieudanej publikacji na portalu (`?tab=portals`).
    */
   initialSection?: OrderSlideOverSection | null;
   /**
@@ -496,6 +497,9 @@ function OrderBody({
       }
       return;
     }
+    // „Portale ogłoszeniowe” rozwija i przewija sama sekcja (`focusOnReady`) —
+    // renderuje się dopiero po wczytaniu konfiguracji portali.
+    if (initialSection === "portals") return;
     teamRef.current?.scrollIntoView?.({ block: "start" });
   }, [jobLoaded, initialSection]);
 
@@ -787,7 +791,11 @@ function OrderBody({
         </DisclosureRow>
         {/* Multiposting (Pracuj.pl, JustJoinIT) — renderuje się dopiero, gdy
             backend zgłasza gotowy portal (dziś flagi są wyłączone). */}
-        <JobPortalsSection jobId={jobId} readOnly={!canEditContent} />
+        <JobPortalsSection
+          jobId={jobId}
+          readOnly={!canEditContent}
+          focusOnReady={initialSection === "portals"}
+        />
       </section>
 
       <p className="text-xs text-muted-foreground">

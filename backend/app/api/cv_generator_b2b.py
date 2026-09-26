@@ -50,6 +50,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 from app.core.terminal_failure import terminal_operation, capture_terminal_failure
 from app.core.http_headers import content_disposition_attachment
+from app.core.printable_html import printable_document
 from pydantic import BaseModel, Field, field_validator
 from app.services.cv_generator_b2b import central_policies
 from sqlalchemy import and_, case, func, or_, select
@@ -3765,6 +3766,19 @@ async def preview_generated_editor(
     )
 
 
+def _wrap_printable_generated_cv(body_html: str) -> str:
+    """Wydruk szkicu CV z generatora — wspólna otoczka z CSP w ``<meta>``.
+
+    Front otwiera ten dokument jako ``blob:`` pod originem aplikacji, więc
+    nagłówek CSP nie działa; do 25.09.2026 (audyt, runda 5) trasa składała
+    własny HTML ze skryptem bez polityki — bliźniak CV etapu
+    (``candidate_stage_cv._wrap_printable_cv``) miał ją od 24.09.
+    """
+    from app.services.html_sanitizer import sanitize_cv_html
+
+    return printable_document(sanitize_cv_html(body_html), "CV")
+
+
 @router.get("/generated/{generated_id}/editor/render-pdf")
 async def print_generated_editor(
     generated_id: int,
@@ -3773,13 +3787,7 @@ async def print_generated_editor(
 ):
     draft = await _load_generated_editor(db, generated_id, current_user, persist=False)
     consent_gate.ensure_downloadable(await db.get(CvGeneratedDocument, generated_id))
-    from app.services.html_sanitizer import sanitize_cv_html
-
-    content = (
-        '<!DOCTYPE html><html><head><meta charset="utf-8"><title>CV</title>'
-        "<script>window.addEventListener('load',()=>setTimeout(()=>window.print(),300));</script>"
-        "</head><body>" + sanitize_cv_html(draft.branded_draft_html) + "</body></html>"
-    )
+    content = _wrap_printable_generated_cv(draft.branded_draft_html)
     await db.commit()
     return Response(
         content=content, media_type="text/html", headers={"Cache-Control": "no-store"}

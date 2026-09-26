@@ -20,7 +20,7 @@ describe("resolveLegacyJobTab", () => {
     ["ai-matching", { view: "people", segment: "proposals" }],
     ["similar", { view: "people", segment: "proposals" }],
     ["manual-search", { view: "people", slideOver: "manual-search" }],
-    ["portals", { view: "people", slideOver: "order" }],
+    ["portals", { view: "people", slideOver: "order", orderSection: "portals" }],
     ["questions", { view: "people", slideOver: "questions" }],
     ["history", { view: "people", slideOver: "history-chat", slideOverTab: "request" }],
     ["chat", { view: "people", slideOver: "history-chat", slideOverTab: "chat" }],
@@ -97,7 +97,7 @@ describe("readJobDetailUrlState", () => {
       slideOver: "history-chat",
       slideOverTab: "chat",
     });
-    expect(read("tab=portals")).toMatchObject({ slideOver: "order", orderSection: null });
+    expect(read("tab=portals")).toMatchObject({ slideOver: "order", orderSection: "portals" });
     expect(read("tab=notes&candidate=7")).toMatchObject({ view: "people", panelSection: "notes" });
   });
 
@@ -156,7 +156,7 @@ describe("rewriteLegacyJobParams", () => {
     expect(rewrite("tab=notes&candidate=3")).toBe("candidate=3&tab=people&panel=notes");
     expect(rewrite("tab=chat")).toBe("tab=people&win=history-chat&wintab=chat");
     expect(rewrite("tab=history")).toBe("tab=people&win=history-chat&wintab=request");
-    expect(rewrite("tab=portals")).toBe("tab=people&win=order");
+    expect(rewrite("tab=portals")).toBe("tab=people&win=order&wintab=portals");
     expect(rewrite("tab=questions")).toBe("tab=people&win=questions");
     expect(rewrite("tab=manual-search")).toBe("tab=people&win=manual-search");
     expect(rewrite("tab=similar")).toBe("tab=people&seg=proposals");

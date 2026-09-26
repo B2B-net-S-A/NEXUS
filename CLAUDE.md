@@ -7136,6 +7136,31 @@ z archiwum zostają przypięte także do otwartych rekrutacji; aneks przedłuże
   wcześniejszej próbie kolejkuje zamknięcie po externalId. Ocena prepu nie liczy pytań
   `legacy_import` przypiętych bez człowieka (prep-kit je pokazuje).
 
+### Runda 5 (26.09.2026, po PR #1844)
+
+Raport: `docs/audits/2026-09-25/runda-5.md` (raporty wszystkich rund są w repo —
+zacznij od `docs/audits/2026-09-25/README.md`, zanim zrobisz kolejny audyt).
+
+- **Limit ciała żądania i strażnik NUL czytają jedną stałą `REQUEST_BODY_METHODS`**
+  (`core/body_size_limit.py`, z DELETE). Metoda buforowana przez strażnika bez limitu
+  to anonimowe wyczerpanie pamięci jedynego procesu uvicorna.
+- **HTML otwierany w nowej karcie pod originem aplikacji** (blob albo `document.write`)
+  składa `core/printable_html.printable_document` (CSP w `<meta>`; `autoprint=False` =
+  bez skryptu). Test AST odrzuca trasę z własnym `window.print`.
+- **PATCH daty końca umowy w przód albo na „bezterminowo”** odwołuje zaplanowane
+  „Wejdź za konsultanta” jak aneks przedłużenia; nocne wejście anuluje zastępstwo
+  z dniem wejścia nie później niż ostatni dzień odchodzącego
+  (`entry_not_after_departure`).
+- **Czat `/cv-i/{token}/chat` respektuje `max_views`** bez zużywania wyświetleń; po
+  ostatnim wyświetleniu przyjmuje pytania jeszcze 2 h (`CHAT_AFTER_LAST_VIEW`).
+- **Formuła faktury Nordei:** OCR nigdy w otwartej transakcji ani pod blokadą;
+  `fill_missing` zapisuje warunkowo (`invoice_lines IS NULL`, ta sama `file_path`
+  i `file_uploaded_at`), `save_line` czyta PDF przed `FOR UPDATE`.
+- **Dzień tygodnia** w powiadomieniach i przeglądach liczony w `BUSINESS_TZ`;
+  `.weekday()` na UTC tylko z komentarzem „Dzień UTC celowo”, gdy godzina też jest UTC.
+- `?tab=portals` otwiera okno zlecenia z rozwiniętą sekcją „Portale ogłoszeniowe”
+  (`wintab=portals`).
+
 ## Narzędzia rekrutera — reguły po audycie 17.09.2026
 
 Audyt `docs/recruiter-tools-audit-2026-09-17.md`, raport z poprawek

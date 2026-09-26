@@ -36,20 +36,33 @@ PRINTABLE_CSP = (
     "base-uri 'none'; form-action 'none'"
 )
 
+# Ta sama polityka bez żadnego skryptu — dokument bez auto-printu (np. szablon
+# umowy otwierany przez ``document.write`` w nowym oknie pod originem aplikacji).
+PRINTABLE_CSP_NO_SCRIPT = (
+    "default-src 'none'; "
+    "style-src 'unsafe-inline'; img-src data:; font-src data:; "
+    "base-uri 'none'; form-action 'none'"
+)
 
-def printable_document(body_html: str, title: str, *, head_extra: str = "") -> str:
+
+def printable_document(
+    body_html: str, title: str, *, head_extra: str = "", autoprint: bool = True
+) -> str:
     """Pełny dokument HTML z CSP w ``<meta>`` jako PIERWSZYM elementem głowy.
 
     ``title`` to zwykły tekst (escapowany tutaj); ``body_html`` i
     ``head_extra`` muszą pochodzić z zaufanego kodu albo z sanitizera —
-    CSP z ``<meta>`` jest drugą linią obrony, nie pierwszą.
+    CSP z ``<meta>`` jest drugą linią obrony, nie pierwszą. ``autoprint=False``
+    = bez skryptu i z polityką, która nie wpuszcza żadnego.
     """
+    csp = PRINTABLE_CSP if autoprint else PRINTABLE_CSP_NO_SCRIPT
+    script = f"<script>{AUTOPRINT_JS}</script>" if autoprint else ""
     return (
         '<!DOCTYPE html><html><head><meta charset="utf-8">'
-        f'<meta http-equiv="Content-Security-Policy" content="{PRINTABLE_CSP}">'
+        f'<meta http-equiv="Content-Security-Policy" content="{csp}">'
         f"<title>{escape(title, quote=False)}</title>"
         f"{head_extra}"
-        f"<script>{AUTOPRINT_JS}</script>"
+        f"{script}"
         "</head><body>"
         f"{body_html}"
         "</body></html>"

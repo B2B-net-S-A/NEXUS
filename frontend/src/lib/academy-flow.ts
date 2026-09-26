@@ -245,6 +245,30 @@ export function bulkFailureMessage(
   return `${head}: ${reasons}`;
 }
 
+/**
+ * Wiersz zwrócony po akcji na osobie wstawiony do listy razem z licznikami
+ * statusów. Bez przeliczenia `counts` zakładka „Wykluczeni” i kafle edycji
+ * pokazywały stan sprzed akcji do najbliższego odpytania (≤ 2 min). Liczniki
+ * pochodne (`luna_skipped`, `reapplied_excluded`…) dociąga odświeżenie listy.
+ */
+export function withReplacedApplication<
+  T extends { items: AcademyApplication[]; counts: AcademyCounts },
+>(data: T | undefined, row: AcademyApplication): T | undefined {
+  if (!data) return data;
+  const previous = data.items.find((a) => a.id === row.id);
+  const counts: AcademyCounts = { ...data.counts };
+  if (previous && previous.status !== row.status) {
+    const before = counts[previous.status];
+    if (typeof before === "number") counts[previous.status] = Math.max(0, before - 1);
+    counts[row.status] = (counts[row.status] ?? 0) + 1;
+  }
+  return {
+    ...data,
+    items: data.items.map((a) => (a.id === row.id ? row : a)),
+    counts,
+  };
+}
+
 /** Dni tygodnia w kolejności pon–nd dla formularza rytmu (0 = poniedziałek). */
 export const RHYTHM_DAYS: readonly { value: number; label: string }[] = [
   { value: 0, label: "pon" },

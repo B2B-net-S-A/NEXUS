@@ -12,7 +12,7 @@ import os
 import pathlib
 import hashlib
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import aiofiles
@@ -341,6 +341,32 @@ async def _load_generated_share(token: str, db: AsyncSession) -> CvGeneratedShar
     return row
 
 
+#: Jak długo po OSTATNIM dozwolonym wyświetleniu strona otwarta tym
+#: wyświetleniem może jeszcze zadawać pytania. Pytanie nie zużywa wyświetleń,
+#: więc bez okna link z wyczerpanym limitem działałby jako chat bez końca.
+CHAT_AFTER_LAST_VIEW = timedelta(hours=2)
+
+
+def chat_view_limit_exhausted(
+    max_views: Optional[int],
+    view_count: int,
+    last_viewed_at: Optional[datetime],
+    *,
+    now: datetime,
+) -> bool:
+    """Czy chat linku ma odpowiedzieć 410 z powodu limitu wyświetleń.
+
+    Limit jak w GET (audyt 25.09.2026, runda 5 — do tego dnia chat nie
+    sprawdzał go wcale): poniżej limitu chat działa i niczego nie zużywa.
+    Link wyczerpany przyjmuje pytania tylko w oknie ``CHAT_AFTER_LAST_VIEW``
+    od ostatniego wyświetlenia — ostatni dozwolony widz nie traci chatu na
+    stronie, którą właśnie otworzył, a link przekazany dalej już nic nie mówi.
+    """
+    if max_views is None or view_count < max_views:
+        return False
+    return last_viewed_at is None or now - last_viewed_at > CHAT_AFTER_LAST_VIEW
+
+
 def _generated_doc_or_404(row: CvGeneratedShareToken) -> CvGeneratedDocument:
     doc = row.generated_document
     if doc is None or doc.status != "ready" or not doc.render_payload:
@@ -546,9 +572,19 @@ async def post_public_generated_cv_chat(
 
     Kontekst modelu = wyłącznie client-safe payload + mapa wymagań — patrz
     `cv_generator_b2b.interactive_chat`. Warstwy limitów: rate limit (IP),
-    dzienny limit pytań per link (429), globalna kwota AI (503).
+    limit wyświetleń linku (410, bez zużywania wyświetleń), dzienny limit
+    pytań per link (429), globalna kwota AI (503).
     """
     row = await _load_generated_share(token, db)
+    if chat_view_limit_exhausted(
+        row.max_views,
+        row.view_count or 0,
+        row.last_viewed_at,
+        now=datetime.now(timezone.utc),
+    ):
+        raise HTTPException(
+            status_code=410, detail="Limit wyświetleń linku został wyczerpany."
+        )
     doc = _generated_doc_or_404(row)
     approved_context = None
     if row.document_version_id is not None:

@@ -247,10 +247,10 @@ describe("strona rekrutacji — stare adresy", () => {
     expect(seen.history).toMatchObject({ open: true, initialTab: "request" });
   });
 
-  it("?tab=portals → okno „Zlecenie” bez sekcji (portale usunięte); ?tab=questions → baza pytań; ?tab=manual-search → wyszukiwarka", async () => {
+  it("?tab=portals → okno „Zlecenie” z sekcją portali (R5-8); ?tab=questions → baza pytań; ?tab=manual-search → wyszukiwarka", async () => {
     const first = renderPage("tab=portals");
     await screen.findByTestId("order-window");
-    expect(seen.order).toMatchObject({ open: true, initialSection: null });
+    expect(seen.order).toMatchObject({ open: true, initialSection: "portals" });
     first.unmount();
     const second = renderPage("tab=questions");
     expect(await screen.findByTestId("questions-window")).toBeInTheDocument();

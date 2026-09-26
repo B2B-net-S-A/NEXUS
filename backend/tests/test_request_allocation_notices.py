@@ -10,7 +10,10 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from app.services.request_allocation_notices import silent_reminder_due
+from app.services.request_allocation_notices import (
+    is_stale_check_day,
+    silent_reminder_due,
+)
 
 NOW = datetime(2026, 9, 24, 8, 30, tzinfo=timezone.utc)
 
@@ -43,3 +46,15 @@ def test_reminder_from_a_previous_silent_episode_does_not_count() -> None:
 @pytest.mark.unit
 def test_no_start_date_means_no_reminder() -> None:
     assert silent_reminder_due(NOW, None, None) is False
+
+
+@pytest.mark.unit
+def test_monday_stale_check_uses_the_business_calendar_not_utc() -> None:
+    """R5-7: przegląd o 00:30 w Warszawie w poniedziałek to niedziela w UTC."""
+    monday_0030_warsaw = datetime(2026, 9, 27, 22, 30, tzinfo=timezone.utc)
+    assert monday_0030_warsaw.weekday() == 6  # niedziela w UTC
+    assert is_stale_check_day(monday_0030_warsaw) is True
+    tuesday_0030_warsaw = datetime(2026, 9, 28, 22, 30, tzinfo=timezone.utc)
+    assert tuesday_0030_warsaw.weekday() == 0  # poniedziałek w UTC
+    assert is_stale_check_day(tuesday_0030_warsaw) is False
+    assert is_stale_check_day(datetime(2026, 9, 28, 8, 0, tzinfo=timezone.utc)) is True

@@ -365,3 +365,127 @@ async def test_loop_fills_formula_for_orders_uploaded_before_the_release(
     async with AsyncSessionLocal() as db:
         stored = (await db.get(ClientOrder, ids["order_id"])).invoice_lines
     assert stored["contact"] == "Jan Testowy"
+
+
+async def _order_with_old_pdf(monkeypatch, tmp_path) -> dict:
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order import ClientOrder
+
+    ids = await _seed_nordea_order(monkeypatch)
+    _fake_text(monkeypatch, _document(people=(ids["person"],)))
+    pdf = tmp_path / "old.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n")
+    monkeypatch.setattr(nil, "_abs_path", lambda order: pdf)
+    async with AsyncSessionLocal() as db:
+        order = await db.get(ClientOrder, ids["order_id"])
+        order.file_path = f"client_orders/old-{ids['order_id']}.pdf"
+        await db.commit()
+    return ids
+
+
+@pytest.mark.asyncio
+async def test_loop_ends_the_read_transaction_before_ocr_and_writes_conditionally(
+    monkeypatch, tmp_path
+):
+    """R5-6 bez bazy: OCR po commicie odczytu, zapis tylko do pustej formuły."""
+    import types
+
+    from app.models.client_order import ClientOrder
+
+    monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", "4242")
+    pdf = tmp_path / "old.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n")
+    monkeypatch.setattr(nil, "_abs_path", lambda order: pdf)
+    order = ClientOrder(
+        id=7, client_id=4242, contract_id=1, file_path="client_orders/a.pdf"
+    )
+    events: list[str] = []
+    statements: list[str] = []
+
+    class FakeSession:
+        async def execute(self, stmt):
+            sql = str(stmt.compile(compile_kwargs={"literal_binds": False}))
+            statements.append(sql)
+            events.append("select" if sql.lstrip().startswith("SELECT") else "update")
+            return types.SimpleNamespace(
+                scalars=lambda: types.SimpleNamespace(all=lambda: [order]),
+                rowcount=1,
+            )
+
+        async def commit(self):
+            events.append("commit")
+
+    async def fake_to_thread(fn, *args, **kwargs):
+        events.append("ocr")
+        return {"source": "pdf", "lines": []}
+
+    monkeypatch.setattr(nil, "asyncio", types.SimpleNamespace(to_thread=fake_to_thread))
+    assert await nil.fill_missing(FakeSession()) == 1
+    assert events == ["select", "commit", "ocr", "update", "commit"]
+    update_sql = statements[-1]
+    assert "invoice_lines IS NULL" in update_sql
+    assert "client_orders.file_path =" in update_sql
+    assert "file_uploaded_at IS NOT DISTINCT FROM" in update_sql
+
+
+def _during_ocr(monkeypatch, order_id: int, change) -> None:
+    """Zmiana wiersza w trakcie odczytu PDF-a (osobna sesja = inna osoba)."""
+    import types
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order import ClientOrder
+
+    async def fake_to_thread(fn, *args, **kwargs):
+        result = fn(*args, **kwargs)
+        async with AsyncSessionLocal() as other:
+            row = await other.get(ClientOrder, order_id)
+            change(row)
+            await other.commit()
+        return result
+
+    monkeypatch.setattr(nil, "asyncio", types.SimpleNamespace(to_thread=fake_to_thread))
+
+
+@pytest.mark.asyncio
+async def test_loop_never_overwrites_a_manual_correction_made_during_ocr(
+    monkeypatch, tmp_path
+):
+    """R5-6: ręczna formuła zapisana w trakcie OCR biegu wygrywa."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order import ClientOrder
+
+    ids = await _order_with_old_pdf(monkeypatch, tmp_path)
+    manual = {"source": "template", "lines": [{"text": "NIDS: ręcznie"}]}
+
+    def set_manual(row):
+        row.invoice_lines = manual
+
+    _during_ocr(monkeypatch, ids["order_id"], set_manual)
+    async with AsyncSessionLocal() as db:
+        await nil.fill_missing(db)
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        stored = (await db.get(ClientOrder, ids["order_id"])).invoice_lines
+    assert stored == manual
+
+
+@pytest.mark.asyncio
+async def test_loop_drops_the_result_when_the_pdf_was_replaced_during_ocr(
+    monkeypatch, tmp_path
+):
+    """R5-6: podmieniony PDF — formuła starego pliku nie trafia do zamówienia."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order import ClientOrder
+
+    ids = await _order_with_old_pdf(monkeypatch, tmp_path)
+
+    def replace_pdf(row):
+        row.file_path = f"client_orders/new-{ids['order_id']}.pdf"
+
+    _during_ocr(monkeypatch, ids["order_id"], replace_pdf)
+    async with AsyncSessionLocal() as db:
+        await nil.fill_missing(db)
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        stored = (await db.get(ClientOrder, ids["order_id"])).invoice_lines
+    assert stored is None

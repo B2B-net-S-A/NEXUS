@@ -33,7 +33,7 @@ export const JOB_DETAIL_DEFAULT_VIEW: JobDetailView = "board";
 /** Zakładka startowa okna „Historia i czat" (lustro `HistoryChatTab`). */
 export type JobHistoryChatTab = "all" | "chat" | "moves" | "request" | "background";
 /** Sekcja startowa okna „Zlecenie" (lustro `OrderSlideOverSection`). */
-export type JobOrderSection = "team" | "close";
+export type JobOrderSection = "team" | "close" | "portals";
 
 export interface LegacyJobTabTarget {
   view: JobDetailView;
@@ -57,9 +57,9 @@ const LEGACY_TAB_TARGETS: Readonly<Record<string, LegacyJobTabTarget>> = {
   // similar_job_notify). Panel przepięć otwiera `?win=similar`.
   similar: { view: "people", segment: "proposals" },
   "manual-search": { view: "people", slideOver: "manual-search" },
-  // Symulowane portale ogłoszeniowe usunięte 23.09.2026 — stary link otwiera
-  // samo okno zlecenia (sekcja „Ogłoszenie i link aplikacyjny" jest w nim).
-  portals: { view: "people", slideOver: "order" },
+  // Okno zlecenia z rozwiniętą i przewiniętą sekcją „Portale ogłoszeniowe”
+  // (link z /jobs/new po nieudanej publikacji na portalu).
+  portals: { view: "people", slideOver: "order", orderSection: "portals" },
   questions: { view: "people", slideOver: "questions" },
   history: { view: "people", slideOver: "history-chat", slideOverTab: "request" },
   chat: { view: "people", slideOver: "history-chat", slideOverTab: "chat" },
@@ -117,7 +117,7 @@ const HISTORY_TABS: readonly JobHistoryChatTab[] = [
   "request",
   "background",
 ];
-const ORDER_SECTIONS: readonly JobOrderSection[] = ["team", "close"];
+const ORDER_SECTIONS: readonly JobOrderSection[] = ["team", "close", "portals"];
 
 function oneOf<T extends string>(raw: string | null | undefined, allowed: readonly T[]): T | null {
   if (raw == null) return null;
