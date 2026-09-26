@@ -38,8 +38,10 @@ from app.api.md_consumption import (
 from app.api.delivery_client_scope import DELIVERY_CLIENT_SCOPE_DEPENDENCIES
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.core.database import get_db
+from app.models.candidate import Candidate
 from app.models.client_order import ClientOrder
 from app.models.client_order_group import ClientOrderGroup
+from app.models.contract import Contract
 from app.models.md_consumption import (
     COST_ROW_APPLIED,
     IMPORT_ROW_APPLIED,
@@ -53,7 +55,12 @@ from app.models.md_consumption import (
 from app.models.user import User
 from app.schemas.client_order_group import MdValue, MoneyPLN
 from app.services import finance_order_matching
-from app.services.md_consumption_view import is_foreign_number, same_order_number
+from app.services.client_order_lines import name_tokens
+from app.services.md_consumption_view import (
+    binds_as_order_number,
+    is_foreign_number,
+    same_order_number,
+)
 
 router = APIRouter(
     dependencies=[*DELIVERY_SECTION_DEPENDENCIES, *DELIVERY_CLIENT_SCOPE_DEPENDENCIES]
@@ -125,9 +132,48 @@ def row_state(row: MdConsumptionImportRow, has_reason: bool) -> RowState:
 class _ClientScope:
     """Zamówienia klienta: linie, grupy i numery — do zawężenia wierszy."""
 
-    def __init__(self, line_group: dict[int, int], groups: dict[int, str]) -> None:
+    def __init__(
+        self,
+        line_group: dict[int, int],
+        groups: dict[int, str],
+        *,
+        client_id: Optional[int] = None,
+        people: frozenset[frozenset[str]] = frozenset(),
+    ) -> None:
         self.line_group = line_group
         self.groups = groups
+        self.client_id = client_id
+        # Osoby z linią w zamówieniu tego klienta (dowolny status).
+        self.people = people
+        self.order_numbers = finance_order_matching.build_order_number_index(
+            (client_id, number) for number in groups.values()
+        )
+
+    def _names_this_clients_order(self, row: MdConsumptionImportRow) -> bool:
+        """Wiersz niezaksięgowany należy do klienta tylko przez WIĄŻĄCY numer
+        jego zamówienia i osobę, która ma u niego linię.
+
+        Runda 7 (R7-N4-2): „Uwagi" niosą też inne liczby („delegacja 445",
+        „08/2026"), a numer „445" istnieje u kilku klientów naraz. Samo
+        porównanie cyfr pokazywało DL-owi klienta B nazwisko i kwotę faktury
+        konsultanta klienta A. Numer musi wiązać regułą importu
+        (``binds_as_order_number``), a osoba — mieć linię u tego klienta.
+        """
+        if not row.order_number_hint:
+            return False
+        wanted = name_tokens(row.consultant_name)
+        if not wanted or wanted not in self.people:
+            return False
+        if not binds_as_order_number(
+            row.order_number_hint,
+            client_id=self.client_id,
+            order_numbers=self.order_numbers,
+        ):
+            return False
+        return any(
+            same_order_number(row.order_number_hint, number)
+            for number in self.groups.values()
+        )
 
     def target_group(self, row: MdConsumptionImportRow) -> Optional[int]:
         if row.matched_order_id is not None and row.matched_order_id in self.line_group:
@@ -150,13 +196,8 @@ class _ClientScope:
                     return True
             except (TypeError, ValueError):
                 continue
-        if row.status in (IMPORT_ROW_UNMATCHED, IMPORT_ROW_COST_ONLY) and (
-            row.order_number_hint
-        ):
-            return any(
-                same_order_number(row.order_number_hint, number)
-                for number in self.groups.values()
-            )
+        if row.status in (IMPORT_ROW_UNMATCHED, IMPORT_ROW_COST_ONLY):
+            return self._names_this_clients_order(row)
         return False
 
 
@@ -171,18 +212,31 @@ async def _client_scope(db: AsyncSession, client_id: int) -> _ClientScope:
             )
         ).all()
     }
-    line_group = {
-        oid: gid
-        for oid, gid in (
-            await db.execute(
-                select(ClientOrder.id, ClientOrder.order_group_id).where(
-                    ClientOrder.client_id == client_id,
-                    ClientOrder.order_group_id.isnot(None),
-                )
+    line_group: dict[int, int] = {}
+    people: set[frozenset[str]] = set()
+    for oid, gid, first_name, last_name in (
+        await db.execute(
+            select(
+                ClientOrder.id,
+                ClientOrder.order_group_id,
+                Candidate.name,
+                Candidate.lastname,
             )
-        ).all()
-    }
-    return _ClientScope(line_group, groups)
+            .outerjoin(Contract, Contract.id == ClientOrder.contract_id)
+            .outerjoin(Candidate, Candidate.id == Contract.candidate_id)
+            .where(
+                ClientOrder.client_id == client_id,
+                ClientOrder.order_group_id.isnot(None),
+            )
+        )
+    ).all():
+        line_group[oid] = gid
+        tokens = name_tokens(f"{first_name or ''} {last_name or ''}")
+        if tokens:
+            people.add(tokens)
+    return _ClientScope(
+        line_group, groups, client_id=client_id, people=frozenset(people)
+    )
 
 
 def _summary(
@@ -293,9 +347,7 @@ async def get_client_md_import(
         raise HTTPException(404, detail="Import nie istnieje")
     batch, uploader = found
     scope = await _client_scope(db, client_id)
-    order_numbers = finance_order_matching.build_order_number_index(
-        (client_id, number) for number in scope.groups.values()
-    )
+    order_numbers = scope.order_numbers
     stored = [
         row
         for row in (

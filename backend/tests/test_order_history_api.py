@@ -434,3 +434,64 @@ async def test_client_md_imports_show_only_this_clients_rows(
     assert [(w["order_number"], w["md"]) for w in body["foreign_import_warnings"]] == [
         ("4599999999", 19)
     ]
+
+
+async def test_client_md_imports_unbooked_row_needs_binding_number_and_own_person(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Runda 7 (R7-N4-2): wiersz niezaksięgowany jest wierszem klienta A tylko
+    przy numerze A, który wiąże, i osobie z linią u A. Osoba innego klienta
+    z tym samym numerem w „Uwagach" nie wychodzi (nazwisko i kwota faktury)."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.md_consumption import MdConsumptionImport, MdConsumptionImportRow
+
+    client_a, contracts_a, names_a = await _seed_client_with_contracts(1)
+    client_b, contracts_b, names_b = await _seed_client_with_contracts(1)
+    _enable_for(monkeypatch, client_a, client_b)
+    group_a = await _create_md_group(
+        app_client, app_auth_headers, client_a, [_line_payload(contracts_a[0])]
+    )
+    await _create_md_group(
+        app_client, app_auth_headers, client_b, [_line_payload(contracts_b[0])]
+    )
+
+    async with AsyncSessionLocal() as db:
+        batch = MdConsumptionImport(period_month="2026-08", filename="zuzycie.xlsx")
+        db.add(batch)
+        await db.flush()
+        db.add_all(
+            [
+                MdConsumptionImportRow(
+                    import_id=batch.id,
+                    row_number=2,
+                    consultant_name=names_a[0],
+                    md_reported=Decimal("4"),
+                    status="unmatched",
+                    order_number_hint=group_a["order_number"],
+                ),
+                MdConsumptionImportRow(
+                    import_id=batch.id,
+                    row_number=3,
+                    consultant_name=names_b[0],
+                    md_reported=Decimal("0"),
+                    status="cost_only",
+                    cost_status="unmatched_consultant",
+                    order_number_hint=group_a["order_number"],
+                    invoice_amount=Decimal("41000"),
+                ),
+            ]
+        )
+        await db.commit()
+        batch_id = batch.id
+
+    detail = await app_client.get(
+        f"/api/clients/{client_a}/md-imports/{batch_id}", headers=app_auth_headers
+    )
+    assert detail.status_code == 200, detail.text
+    assert [r["row_number"] for r in detail.json()["rows"]] == [2]
+    assert names_b[0] not in detail.text
+
+    other = await app_client.get(
+        f"/api/clients/{client_b}/md-imports/{batch_id}", headers=app_auth_headers
+    )
+    assert other.status_code == 404
