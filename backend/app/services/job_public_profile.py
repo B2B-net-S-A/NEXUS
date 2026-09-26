@@ -362,6 +362,31 @@ def _names(value: Any) -> list[str]:
     return [str(name)[:200] for name in (value or []) if isinstance(name, str)][:20]
 
 
+# Parametry, które znikają z danych publicznych razem z wyłączoną sekcją
+# „parametry”. ``contract`` zostaje: to stała firmy (każda rekrutacja to B2B),
+# a nie dana rekrutacji — czyta ją też sekcja „proces”.
+_HIDEABLE_PARAMS = (
+    "city",
+    "remote_policy",
+    "onsite_days_per_week",
+    "seniority",
+    "start",
+    "duration",
+)
+
+
+def hide_params(params: dict[str, Any]) -> dict[str, Any]:
+    return {**params, **{key: None for key in _HIDEABLE_PARAMS}}
+
+
+def visible_params(job: Job, sections: Any) -> dict[str, Any]:
+    """Parametry do danych publicznych: z migawki i z przełącznikiem ``show``."""
+    params = approved_params(job, sections)
+    if not normalize_sections(sections)["params"]:
+        return hide_params(params)
+    return params
+
+
 def public_job_payload(
     job: Job,
     *,
@@ -370,6 +395,7 @@ def public_job_payload(
     subtitle: Optional[str],
     about: Optional[str],
     sections: Any,
+    respect_show: bool = True,
 ) -> dict[str, Any]:
     """Kształt ``job`` z ``GET /api/public/career/r/{slug}`` — biała lista.
 
@@ -377,6 +403,14 @@ def public_job_payload(
     miasto, start i długość z chwili zatwierdzenia. Bez migawki (opisy
     zatwierdzone przed 25.09.2026, podgląd szkicu i kontrola przy
     zatwierdzaniu — te podają same przełączniki) pola idą na żywo.
+
+    Runda 8 (decyzja Artura 27.09.2026): sekcja wyłączona przełącznikiem
+    ``show`` znika z projekcji CAŁKIEM — strona, JSON, grafika OG, opis meta
+    i ogłoszenie na portalu dostają pustą listę / puste parametry.
+    ``respect_show=False`` wyłącznie dla kontroli treści i migawki
+    zatwierdzenia: kontrola sprawdza także sekcje ukryte (włączenie sekcji
+    to zmiana skrótu treści, więc i tak wraca do zatwierdzenia), a migawka
+    musi nieść pełne pola, inaczej ``approved_content_stale`` kłamałoby.
     """
     show = normalize_sections(sections)
     snapshot = stored_approved_content(sections)
@@ -387,6 +421,10 @@ def public_job_payload(
         must = _names(snapshot.get("must"))
         nice = _names(snapshot.get("nice"))
     params = approved_params(job, sections)
+    if respect_show:
+        must = must if show["must"] else []
+        nice = nice if show["nice"] else []
+        params = params if show["params"] else hide_params(params)
     return {
         "slug": link_slug,
         "title": title,
@@ -425,10 +463,10 @@ def closed_job_payload(
 def _payload_texts(payload: dict[str, Any]) -> list[str]:
     """Wszystkie teksty projekcji — także sekcji ukrytych przełącznikiem.
 
-    Runda 8 (R8-N4-1): przełącznik ``show`` chowa sekcję wyłącznie na stronie.
-    Publiczny JSON ``/r/{slug}``, grafika OG, opis meta, lista na stronie
-    rekrutera i umiejętności ogłoszenia na portalu niosą must/nice i
-    parametry zawsze, więc wyłączenie sekcji omijało kontrolę nazwy klienta.
+    Runda 8 (R8-N4-1): kontrola sprawdza także sekcje ukryte — wołający
+    podaje projekcję z ``respect_show=False``. Ukryta sekcja nie trafia do
+    danych publicznych, ale włączenie jej po zatwierdzeniu nie może ominąć
+    kontroli nazwy klienta.
     """
     texts: list[str] = [payload.get("title") or ""]
     texts.append(payload.get("subtitle") or "")
@@ -754,6 +792,7 @@ async def draft_for_request(
         subtitle=draft["subtitle"],
         about=draft["about"],
         sections=None,
+        respect_show=False,
     )
     findings = lint_public_texts(
         _payload_texts(payload), client_names=names, person_names=[]
