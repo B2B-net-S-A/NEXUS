@@ -391,9 +391,7 @@ async def test_post_interview_call_skips_inactive_owner_for_the_job_recruiter(
     )
     job = SimpleNamespace(id=1, recruiter_id=33, delivery_lead_id=44)
     monkeypatch.setattr(nt, "_user_is_active", _active_only(33))
-    assert await nt._post_interview_recipients(None, ev, job, client_side=False) == [
-        33
-    ]
+    assert await nt._post_interview_recipients(None, ev, job, client_side=False) == [33]
 
     # Nikt aktywny z rekrutacji → zapas DL-owy (DL albo HoR).
     async def targets(db, job):
@@ -401,9 +399,7 @@ async def test_post_interview_call_skips_inactive_owner_for_the_job_recruiter(
 
     monkeypatch.setattr(nt, "_user_is_active", _active_only())
     monkeypatch.setattr(nt, "_delivery_lead_targets", targets)
-    assert await nt._post_interview_recipients(None, ev, job, client_side=False) == [
-        90
-    ]
+    assert await nt._post_interview_recipients(None, ev, job, client_side=False) == [90]
 
 
 @pytest.mark.asyncio
@@ -420,9 +416,7 @@ async def test_post_interview_call_goes_to_the_compass_substitute(monkeypatch):
     monkeypatch.setattr(nt, "_user_is_active", _active_only(77))
     ev = CalendarEvent(event_type=EventType.interview, created_by=33)
     job = SimpleNamespace(id=1, recruiter_id=33, delivery_lead_id=None)
-    assert await nt._post_interview_recipients(None, ev, job, client_side=False) == [
-        77
-    ]
+    assert await nt._post_interview_recipients(None, ev, job, client_side=False) == [77]
 
 
 @pytest.mark.asyncio
@@ -449,9 +443,7 @@ async def test_stage_stuck_reminder_for_inactive_recruiter_goes_to_the_dl(
 
     async def jobs_by_id(db, ids):
         return {
-            12: SimpleNamespace(
-                id=12, title="Java", working_title=None, recruiter_id=3
-            )
+            12: SimpleNamespace(id=12, title="Java", working_title=None, recruiter_id=3)
         }
 
     async def targets(db, job):

@@ -85,8 +85,13 @@ def test_client_conflict_warning_blocks_the_autonomous_add():
     assert decision.decision == "penalized"
     assert "active_conflict" in decision.reason
     breakdown = SimpleNamespace(
-        candidate_id=1, job_id=9, total=95, matching_must=["Python"], gap_must=[],
-        penalties=[], warnings=["active_conflict", "something_else"],
+        candidate_id=1,
+        job_id=9,
+        total=95,
+        matching_must=["Python"],
+        gap_must=[],
+        penalties=[],
+        warnings=["active_conflict", "something_else"],
     )
     assert ams._scored_from_breakdown(breakdown).warnings == ("active_conflict",)
 
@@ -202,7 +207,10 @@ async def _cleanup(ids):
 
     statements = [
         ("DELETE FROM notifications WHERE user_id = :owner", {"owner": ids["owner"]}),
-        ("DELETE FROM candidate_auto_match_log WHERE job_id = :job", {"job": ids["job"]}),
+        (
+            "DELETE FROM candidate_auto_match_log WHERE job_id = :job",
+            {"job": ids["job"]},
+        ),
         (
             "DELETE FROM candidate_match_outbox WHERE job_id = :job OR candidate_id = :cand",
             {"job": ids["job"], "cand": ids["candidate"]},
@@ -238,9 +246,16 @@ async def test_new_cv_lands_in_pipeline_once_and_notifies_the_owner(monkeypatch)
     async with AsyncSessionLocal() as db:
         owner, job, candidate = await _seed(db)
         await db.commit()
-        ids = {"owner": owner.id, "job": job.id, "candidate": candidate.id, "client": job.client_id}
+        ids = {
+            "owner": owner.id,
+            "job": job.id,
+            "candidate": candidate.id,
+            "client": job.client_id,
+        }
     try:
-        seen = _stub_ranking(monkeypatch, job_hits={ids["job"]: 0.91}, candidate_hits={})
+        seen = _stub_ranking(
+            monkeypatch, job_hits={ids["job"]: 0.91}, candidate_hits={}
+        )
         for _ in range(2):
             async with AsyncSessionLocal() as db:
                 event = CandidateMatchOutbox(
@@ -270,7 +285,9 @@ async def test_new_cv_lands_in_pipeline_once_and_notifies_the_owner(monkeypatch)
             assert len(stages) == 1
             log = (
                 await db.execute(
-                    text("SELECT decision, stage_id FROM candidate_auto_match_log WHERE job_id = :j"),
+                    text(
+                        "SELECT decision, stage_id FROM candidate_auto_match_log WHERE job_id = :j"
+                    ),
                     {"j": ids["job"]},
                 )
             ).all()
@@ -318,11 +335,18 @@ async def test_dry_run_logs_the_decision_without_adding(monkeypatch):
     async with AsyncSessionLocal() as db:
         owner, job, candidate = await _seed(db)
         await db.commit()
-        ids = {"owner": owner.id, "job": job.id, "candidate": candidate.id, "client": job.client_id}
+        ids = {
+            "owner": owner.id,
+            "job": job.id,
+            "candidate": candidate.id,
+            "client": job.client_id,
+        }
     try:
         _stub_ranking(monkeypatch, job_hits={}, candidate_hits={ids["candidate"]: 0.8})
         async with AsyncSessionLocal() as db:
-            event = CandidateMatchOutbox(job_id=ids["job"], trigger="job_publish", status="processing")
+            event = CandidateMatchOutbox(
+                job_id=ids["job"], trigger="job_publish", status="processing"
+            )
             db.add(event)
             await db.commit()
             result = await ams.run_job_event(db, event)
@@ -330,12 +354,15 @@ async def test_dry_run_logs_the_decision_without_adding(monkeypatch):
         async with AsyncSessionLocal() as db:
             assert (
                 await db.scalar(
-                    select(func.count()).select_from(CandidateStage).where(CandidateStage.job_id == ids["job"])
+                    select(func.count())
+                    .select_from(CandidateStage)
+                    .where(CandidateStage.job_id == ids["job"])
                 )
                 == 0
             )
             decision = await db.scalar(
-                text("SELECT decision FROM candidate_auto_match_log WHERE job_id = :j"), {"j": ids["job"]}
+                text("SELECT decision FROM candidate_auto_match_log WHERE job_id = :j"),
+                {"j": ids["job"]},
             )
             assert decision == "dry_run"
     finally:
@@ -352,10 +379,20 @@ async def test_stale_event_is_skipped_by_the_worker(monkeypatch):
 
     async with AsyncSessionLocal() as db:
         owner, job, candidate = await _seed(db)
-        event = CandidateMatchOutbox(candidate_id=candidate.id, trigger="cv_upload", profile_revision="old", status="processing")
+        event = CandidateMatchOutbox(
+            candidate_id=candidate.id,
+            trigger="cv_upload",
+            profile_revision="old",
+            status="processing",
+        )
         db.add(event)
         await db.commit()
-        ids = {"owner": owner.id, "job": job.id, "candidate": candidate.id, "client": job.client_id}
+        ids = {
+            "owner": owner.id,
+            "job": job.id,
+            "candidate": candidate.id,
+            "client": job.client_id,
+        }
         event_id = event.id
         await db.execute(
             update(CandidateMatchOutbox)
@@ -401,18 +438,26 @@ def _patch_m365(monkeypatch, tmp_path, parsed, duplicates):
 
     monkeypatch.setattr(attachment_handler, "STORAGE_ROOT", tmp_path)
     monkeypatch.setattr(attachment_handler.settings, "M365_AUTO_PARSE_CV", True)
-    monkeypatch.setattr(attachment_handler.settings, "M365_AUTO_CREATE_CANDIDATE_FROM_CV", True)
     monkeypatch.setattr(
-        attachment_handler, "_extract_and_parse", AsyncMock(return_value=("tekst", parsed))
+        attachment_handler.settings, "M365_AUTO_CREATE_CANDIDATE_FROM_CV", True
     )
-    monkeypatch.setattr(dedup_service, "find_candidate_duplicates", AsyncMock(return_value=duplicates))
+    monkeypatch.setattr(
+        attachment_handler,
+        "_extract_and_parse",
+        AsyncMock(return_value=("tekst", parsed)),
+    )
+    monkeypatch.setattr(
+        dedup_service, "find_candidate_duplicates", AsyncMock(return_value=duplicates)
+    )
     parse = AsyncMock()
     monkeypatch.setattr(attachment_handler, "try_parse_cv", parse)
     return attachment_handler, parse
 
 
 @pytest.mark.asyncio
-async def test_unknown_sender_cv_with_strong_identity_links_existing(monkeypatch, tmp_path):
+async def test_unknown_sender_cv_with_strong_identity_links_existing(
+    monkeypatch, tmp_path
+):
     from app.models.m365 import EmailMatchMethod
 
     handler, parse = _patch_m365(
@@ -422,14 +467,18 @@ async def test_unknown_sender_cv_with_strong_identity_links_existing(monkeypatch
         [{"candidate_id": 42, "match_score": 1.0, "match_reasons": ["email_exact"]}],
     )
     attachment, email = _m365_inputs(tmp_path)
-    assert await handler.try_create_candidate_from_cv(AsyncMock(), attachment, email) == 42
+    assert (
+        await handler.try_create_candidate_from_cv(AsyncMock(), attachment, email) == 42
+    )
     assert email.candidate_id == 42
     assert email.match_method is EmailMatchMethod.cv_identity
     parse.assert_awaited_once()
 
 
 @pytest.mark.asyncio
-async def test_unknown_sender_cv_matching_only_by_name_creates_nothing(monkeypatch, tmp_path):
+async def test_unknown_sender_cv_matching_only_by_name_creates_nothing(
+    monkeypatch, tmp_path
+):
     handler, parse = _patch_m365(
         monkeypatch,
         tmp_path,
@@ -447,9 +496,14 @@ async def test_unknown_sender_cv_matching_only_by_name_creates_nothing(monkeypat
 
 @pytest.mark.asyncio
 async def test_unknown_sender_cv_without_contact_creates_nothing(monkeypatch, tmp_path):
-    handler, _ = _patch_m365(monkeypatch, tmp_path, {"first_name": "Jan", "last_name": "Bez"}, [])
+    handler, _ = _patch_m365(
+        monkeypatch, tmp_path, {"first_name": "Jan", "last_name": "Bez"}, []
+    )
     attachment, email = _m365_inputs(tmp_path)
-    assert await handler.try_create_candidate_from_cv(AsyncMock(), attachment, email) is None
+    assert (
+        await handler.try_create_candidate_from_cv(AsyncMock(), attachment, email)
+        is None
+    )
     assert attachment.parse_error == "identity_insufficient"
 
 
@@ -465,7 +519,11 @@ async def test_unknown_sender_cv_creates_a_candidate(monkeypatch, tmp_path):
     handler, parse = _patch_m365(
         monkeypatch,
         tmp_path,
-        {"first_name": "Ewa", "last_name": f"Mail{marker}", "email": f"ewa.{marker}@example.com"},
+        {
+            "first_name": "Ewa",
+            "last_name": f"Mail{marker}",
+            "email": f"ewa.{marker}@example.com",
+        },
         [],
     )
     attachment, email = _m365_inputs(tmp_path)
@@ -481,7 +539,9 @@ async def test_unknown_sender_cv_creates_a_candidate(monkeypatch, tmp_path):
     monkeypatch.setattr(index_outbox_service, "schedule_or_embed_candidate", index)
     async with AsyncSessionLocal() as db:
         try:
-            candidate_id = await handler.try_create_candidate_from_cv(db, attachment, email)
+            candidate_id = await handler.try_create_candidate_from_cv(
+                db, attachment, email
+            )
             await db.flush()
             candidate = await db.get(Candidate, candidate_id)
             assert candidate.source == "email"
@@ -489,7 +549,8 @@ async def test_unknown_sender_cv_creates_a_candidate(monkeypatch, tmp_path):
             assert email.candidate_id == candidate_id
             action = await db.scalar(
                 select(Activity.action).where(
-                    Activity.entity_type == "candidate", Activity.entity_id == candidate_id
+                    Activity.entity_type == "candidate",
+                    Activity.entity_id == candidate_id,
                 )
             )
             assert action == "created_from_email"
@@ -517,12 +578,18 @@ async def test_unknown_sender_cv_creates_a_candidate(monkeypatch, tmp_path):
                     )
                 ),
             )
-            monkeypatch.setattr(dedup_service, "find_candidate_duplicates", AsyncMock(return_value=[]))
-            second_id = await handler.try_create_candidate_from_cv(db, other, other_email)
+            monkeypatch.setattr(
+                dedup_service, "find_candidate_duplicates", AsyncMock(return_value=[])
+            )
+            second_id = await handler.try_create_candidate_from_cv(
+                db, other, other_email
+            )
             index.assert_awaited_once_with(second_id, db)
         finally:
             await db.rollback()
-            await db.execute(delete(Candidate).where(Candidate.lastname == f"Mail{marker}"))
+            await db.execute(
+                delete(Candidate).where(Candidate.lastname == f"Mail{marker}")
+            )
             await db.commit()
 
 
@@ -537,13 +604,20 @@ async def test_dry_run_approvals_are_added_after_going_live(monkeypatch):
     async with AsyncSessionLocal() as db:
         owner, job, candidate = await _seed(db)
         await db.commit()
-        ids = {"owner": owner.id, "job": job.id, "candidate": candidate.id, "client": job.client_id}
+        ids = {
+            "owner": owner.id,
+            "job": job.id,
+            "candidate": candidate.id,
+            "client": job.client_id,
+        }
     try:
         _stub_ranking(monkeypatch, job_hits={}, candidate_hits={ids["candidate"]: 0.8})
         for dry in (True, False):
             monkeypatch.setattr(settings, "AUTO_MATCH_DRY_RUN", dry)
             async with AsyncSessionLocal() as db:
-                event = CandidateMatchOutbox(job_id=ids["job"], trigger="job_publish", status="processing")
+                event = CandidateMatchOutbox(
+                    job_id=ids["job"], trigger="job_publish", status="processing"
+                )
                 db.add(event)
                 await db.commit()
                 await ams.run_job_event(db, event)
@@ -552,7 +626,9 @@ async def test_dry_run_approvals_are_added_after_going_live(monkeypatch):
         async with AsyncSessionLocal() as db:
             rows = (
                 await db.execute(
-                    text("SELECT decision, stage_id FROM candidate_auto_match_log WHERE job_id = :j"),
+                    text(
+                        "SELECT decision, stage_id FROM candidate_auto_match_log WHERE job_id = :j"
+                    ),
                     {"j": ids["job"]},
                 )
             ).all()
@@ -574,18 +650,32 @@ async def test_job_requirement_change_re_evaluates_earlier_rejections(monkeypatc
     async with AsyncSessionLocal() as db:
         owner, job, candidate = await _seed(db)
         await db.commit()
-        ids = {"owner": owner.id, "job": job.id, "candidate": candidate.id, "client": job.client_id}
+        ids = {
+            "owner": owner.id,
+            "job": job.id,
+            "candidate": candidate.id,
+            "client": job.client_id,
+        }
     try:
         for total in (40.0, 90.0):
-            _stub_ranking(monkeypatch, job_hits={}, candidate_hits={ids["candidate"]: 0.8}, total=total)
+            _stub_ranking(
+                monkeypatch,
+                job_hits={},
+                candidate_hits={ids["candidate"]: 0.8},
+                total=total,
+            )
             async with AsyncSessionLocal() as db:
                 if total == 90.0:
                     await db.execute(
                         update(Job)
                         .where(Job.id == ids["job"])
-                        .values(updated_at=datetime.now(timezone.utc) + timedelta(seconds=5))
+                        .values(
+                            updated_at=datetime.now(timezone.utc) + timedelta(seconds=5)
+                        )
                     )
-                event = CandidateMatchOutbox(job_id=ids["job"], trigger="job_publish", status="processing")
+                event = CandidateMatchOutbox(
+                    job_id=ids["job"], trigger="job_publish", status="processing"
+                )
                 db.add(event)
                 await db.commit()
                 await ams.run_job_event(db, event)
@@ -612,10 +702,19 @@ async def test_claim_never_collides_and_dead_letters_exhausted_events(monkeypatc
     async with AsyncSessionLocal() as db:
         owner, job, candidate = await _seed(db)
         await db.commit()
-        ids = {"owner": owner.id, "job": job.id, "candidate": candidate.id, "client": job.client_id}
+        ids = {
+            "owner": owner.id,
+            "job": job.id,
+            "candidate": candidate.id,
+            "client": job.client_id,
+        }
         old = datetime.now(timezone.utc) - timedelta(hours=2)
         failed = CandidateMatchOutbox(
-            job_id=ids["job"], trigger="job_publish", status="failed", attempts=1, heartbeat_at=old
+            job_id=ids["job"],
+            trigger="job_publish",
+            status="failed",
+            attempts=1,
+            heartbeat_at=old,
         )
         db.add(failed)
         await db.commit()
@@ -626,7 +725,8 @@ async def test_claim_never_collides_and_dead_letters_exhausted_events(monkeypatc
         await enqueue_job(db, job_id=ids["job"], trigger="job_publish")
         await db.commit()
         open_rows = await db.scalar(
-            text("SELECT count(*) FROM candidate_match_outbox WHERE job_id = :j"), {"j": ids["job"]}
+            text("SELECT count(*) FROM candidate_match_outbox WHERE job_id = :j"),
+            {"j": ids["job"]},
         )
         assert open_rows == 1
         stuck = CandidateMatchOutbox(
@@ -646,7 +746,9 @@ async def test_claim_never_collides_and_dead_letters_exhausted_events(monkeypatc
         assert failed_id in claimed
         async with AsyncSessionLocal() as db:
             status = await db.scalar(
-                select(CandidateMatchOutbox.status).where(CandidateMatchOutbox.id == stuck_id)
+                select(CandidateMatchOutbox.status).where(
+                    CandidateMatchOutbox.id == stuck_id
+                )
             )
         assert status == "dead"
     finally:
@@ -654,18 +756,28 @@ async def test_claim_never_collides_and_dead_letters_exhausted_events(monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_unknown_sender_cv_with_conflicting_strong_matches_creates_nothing(monkeypatch, tmp_path):
+async def test_unknown_sender_cv_with_conflicting_strong_matches_creates_nothing(
+    monkeypatch, tmp_path
+):
     handler, parse = _patch_m365(
         monkeypatch,
         tmp_path,
-        {"first_name": "Jan", "last_name": "Nowak", "email": "jan@example.com", "phone": "600100200"},
+        {
+            "first_name": "Jan",
+            "last_name": "Nowak",
+            "email": "jan@example.com",
+            "phone": "600100200",
+        },
         [
             {"candidate_id": 1, "match_score": 1.0, "match_reasons": ["phone_exact"]},
             {"candidate_id": 2, "match_score": 1.0, "match_reasons": ["email_exact"]},
         ],
     )
     attachment, email = _m365_inputs(tmp_path)
-    assert await handler.try_create_candidate_from_cv(AsyncMock(), attachment, email) is None
+    assert (
+        await handler.try_create_candidate_from_cv(AsyncMock(), attachment, email)
+        is None
+    )
     assert attachment.parse_error == "conflicting_identity"
     assert email.candidate_id is None
     assert attachment.cv_parse_attempted_at is None
@@ -673,7 +785,9 @@ async def test_unknown_sender_cv_with_conflicting_strong_matches_creates_nothing
 
 
 @pytest.mark.asyncio
-async def test_unknown_sender_cv_with_only_company_contact_creates_nothing(monkeypatch, tmp_path):
+async def test_unknown_sender_cv_with_only_company_contact_creates_nothing(
+    monkeypatch, tmp_path
+):
     handler, _ = _patch_m365(
         monkeypatch,
         tmp_path,
@@ -682,9 +796,11 @@ async def test_unknown_sender_cv_with_only_company_contact_creates_nothing(monke
     )
     monkeypatch.setattr(handler.settings, "SSO_ALLOWED_DOMAINS", "b2bnetwork.pl")
     attachment, email = _m365_inputs(tmp_path)
-    assert await handler.try_create_candidate_from_cv(AsyncMock(), attachment, email) is None
+    assert (
+        await handler.try_create_candidate_from_cv(AsyncMock(), attachment, email)
+        is None
+    )
     assert attachment.parse_error == "identity_insufficient"
-
 
 
 @needs_db
@@ -699,11 +815,18 @@ async def test_finished_request_gets_no_auto_match_proposals(monkeypatch):
         owner, job, candidate = await _seed(db)
         job.work_state = "finished"
         await db.commit()
-        ids = {"owner": owner.id, "job": job.id, "candidate": candidate.id, "client": job.client_id}
+        ids = {
+            "owner": owner.id,
+            "job": job.id,
+            "candidate": candidate.id,
+            "client": job.client_id,
+        }
     try:
         _stub_ranking(monkeypatch, job_hits={}, candidate_hits={ids["candidate"]: 0.9})
         async with AsyncSessionLocal() as db:
-            event = CandidateMatchOutbox(job_id=ids["job"], trigger="job_publish", status="processing")
+            event = CandidateMatchOutbox(
+                job_id=ids["job"], trigger="job_publish", status="processing"
+            )
             db.add(event)
             await db.commit()
             result = await ams.run_job_event(db, event)

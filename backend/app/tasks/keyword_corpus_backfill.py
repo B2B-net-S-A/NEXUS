@@ -268,8 +268,7 @@ async def _db_fold_version() -> int | None:
         source = (
             await db.execute(
                 text(
-                    "SELECT prosrc FROM pg_proc "
-                    "WHERE oid = to_regprocedure(:signature)"
+                    "SELECT prosrc FROM pg_proc WHERE oid = to_regprocedure(:signature)"
                 ),
                 {"signature": f"{keyword_corpus.FOLD_FUNCTION}(text)"},
             )

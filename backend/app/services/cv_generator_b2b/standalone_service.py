@@ -1958,8 +1958,7 @@ def _run_generation_pipeline(
 
     logger.info(
         # runda 6 audytu: bez imienia i nazwiska — request_id wiąże log z zadaniem
-        "[cv_b2b][%s] OK lang=%s blind=%s warnings=%d "
-        "(guard=%d) duration_ms=%d",
+        "[cv_b2b][%s] OK lang=%s blind=%s warnings=%d (guard=%d) duration_ms=%d",
         request_id,
         language,
         blind_cv,

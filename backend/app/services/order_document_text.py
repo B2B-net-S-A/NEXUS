@@ -94,7 +94,9 @@ def extract_order_text(path: str, filename: str) -> OrderDocumentText:
             logger.info(
                 "[order_document_text] letter-spaced text (ratio %.2f) on %s — using pdfminer",
                 ratio,
-                safe_filename(filename),  # runda 6 audytu: bywa z nazwiskiem konsultanta
+                safe_filename(
+                    filename
+                ),  # runda 6 audytu: bywa z nazwiskiem konsultanta
             )
             text = alt
             reextracted = "pdfminer"

@@ -92,11 +92,23 @@ async def test_backfill_with_empty_ids_touches_nothing():
 def _fake_backfill(calls, *, stop_at=None, reason="limit"):
     """Backfill, który „przetwarza" okno do `stop_at` (last_id) i staje."""
 
-    async def fake(db, *, after_id=0, updated_since=None, updated_before=None,
-                   limit=None, progress=None, **kw):
+    async def fake(
+        db,
+        *,
+        after_id=0,
+        updated_since=None,
+        updated_before=None,
+        limit=None,
+        progress=None,
+        **kw,
+    ):
         calls.append(
-            {"after_id": after_id, "since": updated_since, "until": updated_before,
-             "limit": limit}
+            {
+                "after_id": after_id,
+                "since": updated_since,
+                "until": updated_before,
+                "limit": limit,
+            }
         )
         stats = progress if progress is not None else {}
         stats.setdefault("processed", 0)
@@ -216,7 +228,11 @@ def test_windows_payload_is_parsed_defensively():
     payload = {
         "delta": {
             "windows": [
-                {"since": "2026-09-24T02:00:00+00:00", "until": "2026-09-24T03:00:00+00:00", "after_id": "5"},
+                {
+                    "since": "2026-09-24T02:00:00+00:00",
+                    "until": "2026-09-24T03:00:00+00:00",
+                    "after_id": "5",
+                },
                 {"since": "x", "until": None},
                 "garbage",
             ]
@@ -225,6 +241,10 @@ def test_windows_payload_is_parsed_defensively():
     }
     windows = ts._cv_fields_windows_from_payload(payload)
     assert windows == [
-        {"since": "2026-09-24T02:00:00+00:00", "until": "2026-09-24T03:00:00+00:00", "after_id": 5}
+        {
+            "since": "2026-09-24T02:00:00+00:00",
+            "until": "2026-09-24T03:00:00+00:00",
+            "after_id": 5,
+        }
     ]
     assert ts._cv_fields_windows_from_payload(None) == []

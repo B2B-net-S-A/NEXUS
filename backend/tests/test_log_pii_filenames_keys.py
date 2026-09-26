@@ -119,7 +119,9 @@ async def test_order_parser_unparsed_json_log_has_no_raw_model_output(
 
     with caplog.at_level(logging.WARNING, logger=order_pdf_parser.logger.name):
         result = await order_pdf_parser._call_extraction(
-            "Zamówienie nr 1", consultant_name=None, consultant_given_names=None,
+            "Zamówienie nr 1",
+            consultant_name=None,
+            consultant_given_names=None,
             all_rows=True,
         )
 

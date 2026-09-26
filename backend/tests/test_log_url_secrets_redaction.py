@@ -112,7 +112,10 @@ def test_ordinary_urls_are_not_touched():
             '1.2.3.4:5 - "GET /api/candidates?page=2&phone=%2B48601234567 HTTP/1.1" 200',
             "601234567",
         ),
-        ('1.2.3.4:5 - "GET /api/candidates?q_all=kowalsk*&x=1 HTTP/1.1" 200', "kowalsk"),
+        (
+            '1.2.3.4:5 - "GET /api/candidates?q_all=kowalsk*&x=1 HTTP/1.1" 200',
+            "kowalsk",
+        ),
     ],
 )
 def test_access_log_query_pii_is_masked(line, leaked):
@@ -121,7 +124,9 @@ def test_access_log_query_pii_is_masked(line, leaked):
 
 
 def test_access_log_keeps_harmless_params():
-    out = redact_sensitive('"GET /api/candidates?q=Jan&page=2&sort=newest HTTP/1.1" 200')
+    out = redact_sensitive(
+        '"GET /api/candidates?q=Jan&page=2&sort=newest HTTP/1.1" 200'
+    )
     assert "page=2" in out and "sort=newest" in out
     assert "HTTP/1.1" in out
     assert "q=Jan" not in out

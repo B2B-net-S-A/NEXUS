@@ -351,10 +351,14 @@ async def test_jarvis_conversation_links_follow_the_survivor(app_client: AsyncCl
         db.add_all(
             [
                 JarvisConversationEntity(
-                    conversation_id=only_dup.id, entity_type="candidate", entity_id=duplicate
+                    conversation_id=only_dup.id,
+                    entity_type="candidate",
+                    entity_id=duplicate,
                 ),
                 JarvisConversationEntity(
-                    conversation_id=both.id, entity_type="candidate", entity_id=duplicate
+                    conversation_id=both.id,
+                    entity_type="candidate",
+                    entity_id=duplicate,
                 ),
                 JarvisConversationEntity(
                     conversation_id=both.id, entity_type="candidate", entity_id=survivor

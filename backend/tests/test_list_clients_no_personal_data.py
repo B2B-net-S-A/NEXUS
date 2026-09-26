@@ -42,8 +42,14 @@ class _FakeSession:
         row = []
         for column in stmt.selected_columns:
             name = getattr(column, "key", None) or getattr(column, "name", "col")
-            if name in {"id", "client_id", "contract_id", "job_id", "order_group_id",
-                        "candidate_id"}:
+            if name in {
+                "id",
+                "client_id",
+                "contract_id",
+                "job_id",
+                "order_group_id",
+                "candidate_id",
+            }:
                 row.append(7)
             else:
                 row.append(f"SECRET_{name}")
@@ -56,7 +62,12 @@ async def test_with_links_prints_ids_not_people(monkeypatch, capsys):
     await list_clients.print_links([7])
 
     out = capsys.readouterr().out
-    for leaked in ("SECRET_lastname", "SECRET_name", "SECRET_partner_name", "SECRET_title"):
+    for leaked in (
+        "SECRET_lastname",
+        "SECRET_name",
+        "SECRET_partner_name",
+        "SECRET_title",
+    ):
         assert leaked not in out, f"{leaked} w wyjściu:\n{out}"
     # identyfikatory i liczby zostają — po nich wskazuje się wiersz do poprawki
     assert "contract=7" in out
@@ -77,4 +88,4 @@ def test_failed_lookup_cleanup_does_not_dump_raw_executions():
         assert "[0:1500]" not in run, (
             f"{job}: surowe wykonanie (do 1500 znaków) w publicznym logu Actions"
         )
-        assert "(.message // \"\") | .[0:" not in run, job
+        assert '(.message // "") | .[0:' not in run, job

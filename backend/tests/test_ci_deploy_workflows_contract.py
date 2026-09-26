@@ -119,7 +119,9 @@ def test_backend_coverage_measures_branches_and_blocks_regressions() -> None:
     assert "needs.backend-coverage-combine.result" in gate["steps"][0]["run"]
 
     frontend_steps = ci["jobs"]["frontend-vitest"]["steps"]
-    assert "npm run test:coverage" in _step(frontend_steps, "Vitest with coverage")["run"]
+    assert (
+        "npm run test:coverage" in _step(frontend_steps, "Vitest with coverage")["run"]
+    )
     artifact = _step(frontend_steps, "Upload frontend coverage (artifact)")
     assert artifact["with"]["path"] == "frontend/coverage/lcov.info"
     vitest_config = (_WORKFLOWS.parents[1] / "frontend" / "vitest.config.ts").read_text(

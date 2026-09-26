@@ -144,7 +144,9 @@ def extract_text_from_file(data: bytes, file_name: str) -> str:
             except Exception as err:  # corrupt-ish PDF — OCR may still read it
                 logger.warning(
                     "[cv_b2b] pdfplumber failed on %s: %s — trying OCR",
-                    safe_filename(file_name),  # runda 6 audytu: nazwa pliku CV = nazwisko
+                    safe_filename(
+                        file_name
+                    ),  # runda 6 audytu: nazwa pliku CV = nazwisko
                     type(err).__name__,
                 )
                 text = ""

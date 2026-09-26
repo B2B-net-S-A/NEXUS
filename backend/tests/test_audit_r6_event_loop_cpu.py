@@ -350,9 +350,9 @@ async def test_suggestion_summaries_rank_in_a_thread_and_keep_the_result(
         if job.status == "closed":
             assert job.id not in first
             continue
-        expected = sim._rank(
-            pool, sim._as_pool_job(job), set(linked.get(job.id, []))
-        )[: sim.MAX_SUGGESTIONS]
+        expected = sim._rank(pool, sim._as_pool_job(job), set(linked.get(job.id, [])))[
+            : sim.MAX_SUGGESTIONS
+        ]
         if expected:
             assert first[job.id]["count"] == len(expected)
             assert first[job.id]["first"]["id"] == expected[0][0]

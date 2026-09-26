@@ -136,9 +136,7 @@ async def test_link_attaches_the_rendered_agreement_to_contract_documents(
     async def render_ok(db, row):
         return b"PK-docx"
 
-    monkeypatch.setattr(
-        b2b_contract_generator, "_render_generated_row_docx", render_ok
-    )
+    monkeypatch.setattr(b2b_contract_generator, "_render_generated_row_docx", render_ok)
     monkeypatch.setattr(
         "app.services.storage_service.save_contract_document",
         lambda contract_id, filename, fileobj, stored_name=None: (

@@ -346,7 +346,9 @@ def _sql(stmt) -> str:
     from sqlalchemy.dialects import postgresql
 
     return str(
-        stmt.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True})
+        stmt.compile(
+            dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}
+        )
     )
 
 

@@ -59,7 +59,10 @@ async def _seed() -> dict[str, int]:
         )
         await db.execute(
             text("UPDATE candidates SET created_at = :t WHERE id = :id"),
-            {"t": datetime.now(timezone.utc) - timedelta(days=90), "id": ids["too_old"]},
+            {
+                "t": datetime.now(timezone.utc) - timedelta(days=90),
+                "id": ids["too_old"],
+            },
         )
         await db.commit()
     return ids
