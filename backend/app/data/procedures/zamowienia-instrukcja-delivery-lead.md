@@ -479,7 +479,7 @@ datę; samo pozostawienie kompletnego szkicu nie aktywuje go.
 | **Zakończ** | okienko „Zakończ zamówienie": obowiązkowa data + opcjonalny powód |
 | **Przywróć** | cofa zakończenie — pokazuje się przy **każdym** zamówieniu ze statusem „Zakończone", także takim, które system domknął sam; przy zamówieniu MD z budżetem przy osobie wskrzesza też konsultantów, którym zostały dni i nie minęła data. Zamówienia **wyczerpanego** nie przywrócisz — tam trzeba podnieść budżet; dotyczy to też zamówienia, które było wyczerpane w chwili zakończenia |
 | **Anuluj zamówienie** | dla zamówienia, które **nie doszło do skutku** albo zostało założone omyłkowo, a chcesz zachować jego historię. Zamówienie i jego konsultanci dostają status „Anulowane”, znikają z aktywnych zamówień, sum, alertów i rozliczeń, ale zostają w rejestrze (filtr **Anulowane**). **Zamówienia z rozliczeniami (zaraportowane MD, faktury) nie anulujesz** — system odmówi i wskaże, co blokuje; wtedy właściwą akcją jest **Zakończ**. Anulowanego zamówienia nie edytujesz, nie kończysz ani nie przedłużasz |
-| **Przywróć anulowane** | cofa anulowanie: zamówienie wraca do stanu sprzed niego (np. „Aktywne”), a konsultanci — do swoich statusów; osoba, której okres w międzyczasie minął, wraca jako zakończona |
+| **Przywróć anulowane** | cofa anulowanie: zamówienie wraca do stanu sprzed niego (np. „Aktywne”), a konsultanci — do swoich statusów; osoba, której okres w międzyczasie minął, wraca jako zakończona; osoba, której umowę w międzyczasie zakończono, wraca jako zakończona, ze sprawą o pozostałe MD (jak po „Zakończ współpracę”), a osoba z unieważnioną umową zostaje anulowana |
 | **Usuń całe zamówienie** | służy do wycofania **pomyłki** i jest nieodwracalne: zamówienie znika razem ze swoją historią. **Zamówienia z rozliczeniami system nie usunie** — odmówi i wskaże, co je blokuje (rozliczone MD, zaimportowane faktury). Wtedy właściwą akcją jest **Zakończ**. Razem z zamówieniem znikają jego linie — **nie powstają z nich osobne zamówienia okresowe**. Okno usuwania pokazuje skutki dla umów: jeśli zamówienie niosło jedyną stawkę klienta na umowie, umowa zostaje **bez przychodu** (stawka klienta i marża znikają), a gdy są inne zamówienia — okres, którego dotyczyło, przejdzie na ich stawkę |
 | **Historia zamówienia** | rozwijana lista **zdarzeń biznesowych**: data · autor (wpis bez osoby = zmiana automatyczna) · rodzaj · osoba · co zmieniono w formie „przed → po" · saldo osoby po zmianie (ujemne na czerwono, obok „było …"). Są w niej: utworzenie, przedłużenie, zakończenie i anulowanie zamówienia, dodanie, zamiana i usunięcie konsultanta, decyzje o osobie i o puli MD, zmiany stawek i budżetu MD osoby oraz **jeden wpis na każdy import MD** („Import MD za sierpień 2026 – 2 osoby, 25 MD") z odsyłaczem **„Otwórz import →"** do zakładki **Importy MD**. Kilka edycji tej samej osoby przez tę samą osobę w odstępie do 15 minut to **jeden wpis z wynikiem netto** — pojedyncze zmiany rozwiniesz przyciskiem „▸ N zmian". Nad listą są filtry: **typ zdarzenia** (Wszystko / Zamówienie / Konsultanci / Zużycie MD / Edycje) i **osoba**. **Nie ma tu** pojedynczych zejść i korekt MD (są w oknie **Zużycie MD** osoby) ani technicznych zmian pól, np. waluty czy jednostki stawki (są w zakładce **Timeline** kontraktu osoby, z polskimi nazwami pól). Zapis nowego szkicu MD, zmiana jego trybu, aktywacja i zapis miesięcznego zużycia wspólnej puli również zostawiają wpis |
 
@@ -681,7 +681,11 @@ Zamiany nie zapiszesz, gdy:
 * nowa osoba **już pracuje** na tym zamówieniu — także na innym kontrakcie.
 * na miejsce tej osoby jest już **zaplanowane zastępstwo** („Wejdź za
   konsultanta” z datą wejścia w przyszłości) — anuluj je albo poczekaj na
-  datę wejścia; inaczej te same pozostałe MD przeszłyby na dwie osoby.
+  datę wejścia; inaczej te same pozostałe MD przeszłyby na dwie osoby,
+* ta osoba ma już **zaplanowaną zamianę** na kogoś innego (data zamiany
+  w przyszłości) — jej pozostałe MD są już budżetem następcy. Pomyłkę w osobie
+  poprawiasz na linii następcy (albo ją usuwasz i robisz zamianę od nowa);
+  przycisk zamiany jest wtedy nieaktywny.
 
 Do **Historii zamówienia** trafiają zawsze obie stawki (stara i nowa) oraz data
 zamiany. Liczby MD wpisują się tam tylko przy budżecie przypisanym
@@ -746,7 +750,11 @@ nowe zamówienie. Karty z zamówieniem innym niż szkic nie da się tak usunąć
   kontraktu — w historii zamówienia zostaje wpis z powodem. Zastępstwo, którego
   dzień wejścia nie wypada po ostatnim dniu odchodzącego, też jest anulowane. Gdy pula odchodzącego wyczerpie się przed dniem wejścia,
   zastępstwo jest anulowane (wpis „pula wyczerpana przed wejściem”) — dodaj
-  wtedy nową osobę z własną pulą.
+  wtedy nową osobę z własną pulą. Gdy w dniu wejścia pozostałych MD nie da się
+  przenieść (np. przeliczenie po stawce dało 0 MD), zastępstwo też jest
+  anulowane z wpisem „nie udało się przenieść pozostałych MD” — decyzja o puli
+  odchodzącego znowu jest wtedy dostępna. Osoby z zaplanowanym zastępstwem nie
+  usuniesz z zamówienia — najpierw usuń zastępującą osobę.
 * **Nowe zamówienie** — dotychczasowe „Uzupełnij zamówienie": osobne zamówienie
   z własną umową wykonawczą, zapisywane jako szkic.
 
