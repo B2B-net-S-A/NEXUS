@@ -50,6 +50,21 @@ describe("paramRows", () => {
   it("paramsSummary do grafiki OG", () => {
     expect(paramsSummary(params)).toBe("warszawa · hybryda · b2b · senior");
   });
+
+  it("sekcja parametrów ukryta — API oddaje puste pola, OG i opis meta ich nie mają", () => {
+    // Runda 8: wyłączona sekcja „parametry” zeruje wszystko poza stałą umową.
+    const hidden = {
+      city: null,
+      remote_policy: null,
+      onsite_days_per_week: null,
+      seniority: null,
+      contract: "B2B",
+      start: null,
+      duration: null,
+    };
+    expect(paramsSummary(hidden)).toBe("b2b");
+    expect(paramRows(hidden).map((r) => r.key)).toEqual(["contract"]);
+  });
 });
 
 describe("teksty", () => {
