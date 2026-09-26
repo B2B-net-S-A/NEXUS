@@ -455,6 +455,29 @@ async def _validate_tac_client_assignment(
         )
 
 
+async def _sync_job_status_payload(job: Job) -> None:
+    """Status w payloadzie punktu oferty w Qdrancie — tani zapis, bez Voyage'a.
+
+    Runda 8 (R8-N11-2): zmiana statusu nie zmienia tekstu embeddingu, więc nie
+    wywołuje re-embedu, a filtr puli ofert (`search_jobs_semantic(statuses=…)`)
+    czyta status z payloadu. Oferta bez `embedding_id` nie ma punktu — pomijamy.
+    Wołać PO commicie; nigdy nie rzuca.
+    """
+    if not job.embedding_id:
+        return
+    try:
+        from app.services.embedding_service import (
+            job_status_value,
+            sync_job_status_payloads,
+        )
+
+        await sync_job_status_payloads({job.id: job_status_value(job.status)})
+    except Exception as exc:  # noqa: BLE001 — payload dogoni reconciler
+        logger.warning(
+            "[Job] status payload sync failed job=%s: %s", job.id, type(exc).__name__
+        )
+
+
 async def _maybe_embed_job(job_id: int, db: AsyncSession) -> None:
     """Fire-and-log job embedding (or enqueue a reindex); never raises."""
     try:
@@ -2526,6 +2549,7 @@ async def update_job(
     # Invalidate client hit-ratio cache on status changes (affects aggregates).
     if status_flipped:
         await cache_invalidate("reports:clients")
+        await _sync_job_status_payload(job)
 
     # Phase 2: re-embed if any embed-relevant field changed
     if _EMBED_TRIGGER_FIELDS & changed:
@@ -2809,6 +2833,7 @@ async def close_job(
     await db.refresh(job)
 
     await cache_invalidate("reports:clients")
+    await _sync_job_status_payload(job)
     payload = JobResponse.model_validate(job).model_dump()
     return _redact_delivery_lead_job_finance(payload, current_user)
 
@@ -2988,6 +3013,7 @@ async def publish_job(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     await _ensure_delivery_lead_job_visible(job, current_user, db)
+    status_changes = job.status != JobStatus.published
     if job.status == JobStatus.closed:
         # Lustro ponownego otwarcia w PATCH: bez tego rekrutacja opublikowana
         # z powrotem zostawała „Zakończona” i poza przydziałem (audyt 24.09.2026).
@@ -3014,6 +3040,8 @@ async def publish_job(
 
     await enqueue_job(db, job_id=job_id, trigger="job_publish")
     await db.commit()
+    if status_changes:
+        await _sync_job_status_payload(job)
     return {"status": "published", "job_id": job_id}
 
 

@@ -46,11 +46,14 @@ class ReconcileResult:
     drifted: int
     unseen: int
     next_cursor: Optional[int]
+    status_synced: int = 0
+    revived: int = 0
 
     def as_log(self) -> str:
         return (
             f"scanned={self.scanned} drifted={self.drifted} "
-            f"unseen(skipped)={self.unseen} next_cursor={self.next_cursor}"
+            f"unseen(skipped)={self.unseen} revived={self.revived} "
+            f"status_synced={self.status_synced} next_cursor={self.next_cursor}"
         )
 
 
@@ -108,6 +111,8 @@ async def reconcile_once(
     cursor: int = 0,
     include_unseen: bool = False,
     unseen_predicate: Optional[Callable[[Any], bool]] = None,
+    revive_dead_unseen: bool = False,
+    sync_job_status: bool = False,
 ) -> ReconcileResult:
     """Scan one batch of entities and enqueue those whose hash has drifted.
 
@@ -118,6 +123,17 @@ async def reconcile_once(
     `failed`) — inaczej każdy przebieg dopisywałby kolejny duplikat. Bez tego
     9 opublikowanych rekrutacji zostawało bez wektora NA STAŁE: worker
     zamienił ich intencje w `dead`, a reconciler je pomijał jako „nieznane".
+
+    ``revive_dead_unseen`` (runda 8, R8-N11-4) — encja nigdy nie
+    zaindeksowana, której jedyna intencja skończyła jako ``dead`` (np. Qdrant
+    leżał dłużej niż budżet prób workera), jest kolejkowana ponownie. Warunek:
+    brak JAKIEGOKOLWIEK wiersza ``done`` (kwarantanna zostawia ``done`` z pustym
+    haszem i nie może zostać odwrócona) i brak intencji w toku.
+
+    ``sync_job_status`` (runda 8, R8-N11-2) — tylko dla ofert: porównuje
+    ``status`` w payloadzie punktów z bazą i poprawia go tanim ``set_payload``
+    (bez Voyage'a). Łapie zmiany statusu robione zwykłym SQL-em (archiwum
+    Traffita, 0378, usunięcie klienta), których żaden hak nie widzi.
 
     ``cursor`` is the last id examined, so a caller can walk the whole table
     across ticks without holding a transaction open, and without loading the
@@ -150,8 +166,11 @@ async def reconcile_once(
     indexed = await _last_indexed_hashes(db, entity_type, ids)
 
     in_flight: set[int] = set()
-    if unseen_predicate is not None and not include_unseen:
+    dead_only: set[int] = set()
+    if (unseen_predicate is not None or revive_dead_unseen) and not include_unseen:
         unseen_ids = [int(r.id) for r in rows if int(r.id) not in indexed]
+        if unseen_ids and revive_dead_unseen:
+            dead_only = await _dead_never_done(db, entity_type, unseen_ids)
         if unseen_ids:
             in_flight = set(
                 (
@@ -171,6 +190,7 @@ async def reconcile_once(
 
     drifted = 0
     unseen = 0
+    revived = 0
     to_enqueue: list[int] = []
     for row in rows:
         entity_id = int(row.id)
@@ -179,11 +199,12 @@ async def reconcile_once(
             unseen += 1
             if include_unseen:
                 to_enqueue.append(entity_id)
-            elif (
-                unseen_predicate is not None
-                and entity_id not in in_flight
-                and unseen_predicate(row)
-            ):
+            elif entity_id in in_flight:
+                pass
+            elif unseen_predicate is not None and unseen_predicate(row):
+                to_enqueue.append(entity_id)
+            elif entity_id in dead_only:
+                revived += 1
                 to_enqueue.append(entity_id)
             continue
         desired = outbox.desired_state(entity_type, row)
@@ -203,9 +224,72 @@ async def reconcile_once(
         # intencji w toku, INTG-05) widział właśnie zapisane wiersze.
         await db.flush()
 
+    status_synced = 0
+    if sync_job_status and entity_type == outbox.JOB:
+        status_synced = await _sync_job_statuses(rows)
+
     return ReconcileResult(
         scanned=len(rows),
         drifted=drifted,
         unseen=unseen,
         next_cursor=ids[-1],
+        status_synced=status_synced,
+        revived=revived,
     )
+
+
+async def _dead_never_done(
+    db: AsyncSession, entity_type: str, entity_ids: list[int]
+) -> set[int]:
+    """Encje z intencją ``dead`` i bez żadnego wiersza ``done`` (R8-N11-4)."""
+    dead_rows = (
+        await db.execute(
+            select(IndexOutboxEvent.entity_id)
+            .where(
+                IndexOutboxEvent.entity_type == entity_type,
+                IndexOutboxEvent.entity_id.in_(entity_ids),
+                IndexOutboxEvent.status == "dead",
+                IndexOutboxEvent.operation == "upsert",
+            )
+            .distinct()
+        )
+    ).scalars()
+    dead = {int(e) for e in dead_rows}
+    if not dead:
+        return set()
+    with_done = set(
+        (
+            await db.execute(
+                select(IndexOutboxEvent.entity_id)
+                .where(
+                    IndexOutboxEvent.entity_type == entity_type,
+                    IndexOutboxEvent.entity_id.in_(dead),
+                    IndexOutboxEvent.status == "done",
+                )
+                .distinct()
+            )
+        ).scalars()
+    )
+    return dead - {int(e) for e in with_done}
+
+
+async def _sync_job_statuses(rows) -> int:
+    """Payload ``status`` punktów ofert zgodny z bazą (R8-N11-2)."""
+    from app.services.embedding_service import (
+        job_payload_statuses,
+        job_status_value,
+        sync_job_status_payloads,
+    )
+
+    wanted = {int(r.id): job_status_value(r.status) for r in rows}
+    indexed = await job_payload_statuses(list(wanted))
+    if not indexed:
+        return 0
+    stale = {
+        job_id: wanted[job_id]
+        for job_id, status in indexed.items()
+        if job_id in wanted and status != wanted[job_id]
+    }
+    if not stale:
+        return 0
+    return await sync_job_status_payloads(stale)

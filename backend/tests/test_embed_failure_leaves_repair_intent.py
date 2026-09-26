@@ -88,11 +88,40 @@ async def test_provider_failure_records_a_durable_reindex_intent(monkeypatch):
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_no_intent_recorded_when_the_outbox_worker_drives_the_call(monkeypatch):
-    """Przy włączonym workerze to ON woła `embed_candidate` i sam liczy próby.
+    """Worker woła `embed_candidate(record_intent=False)` i sam liczy próby.
 
     Dopisanie stamtąd nowego zdarzenia zamieniłoby każdą nieudaną próbę drenażu
     w kolejny wiersz kolejki — podczas awarii providera kolejka rosłaby
     wykładniczo, a licznik `attempts` przestałby cokolwiek znaczyć.
+    """
+
+    async def _no_embedding(*_a, **_kw):
+        return None
+
+    monkeypatch.setattr(embedding_service, "generate_embedding", _no_embedding)
+
+    async with AsyncSessionLocal() as db:
+        cand = await _seed_candidate(db)
+        try:
+            ok = await embedding_service.embed_candidate(
+                cand.id, db, record_intent=False
+            )
+            assert ok is False
+            await db.flush()
+            assert await _events_for(db, cand.id) == []
+        finally:
+            await _cleanup(db, cand.id)
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_inline_failure_records_intent_even_when_the_worker_is_on(monkeypatch):
+    """Runda 8 (R8-N11-1): worker ON + outbox OFF, nieudany embed INLINE.
+
+    Do tej rundy `_record_failed_embed_intent` wychodził przy
+    `worker_enabled()`, choć wołającym było żądanie HTTP, nie worker — nowy
+    kandydat nie miał ani wektora, ani wiersza w kolejce, a reconciler pomija
+    kandydatów bez historii. Taki kandydat nie dostawał wektora nigdy.
     """
     from app.services import index_outbox_service
 
@@ -101,16 +130,68 @@ async def test_no_intent_recorded_when_the_outbox_worker_drives_the_call(monkeyp
 
     monkeypatch.setattr(embedding_service, "generate_embedding", _no_embedding)
     monkeypatch.setattr(index_outbox_service, "worker_enabled", lambda: True)
+    monkeypatch.setattr(index_outbox_service, "outbox_enabled", lambda: False)
 
     async with AsyncSessionLocal() as db:
         cand = await _seed_candidate(db)
         try:
-            ok = await embedding_service.embed_candidate(cand.id, db)
+            ok = await index_outbox_service.schedule_or_embed_candidate(cand.id, db)
             assert ok is False
-            await db.flush()
-            assert await _events_for(db, cand.id) == []
+            await db.commit()
+            events = await _events_for(db, cand.id)
+            assert [(e.status, e.operation) for e in events] == [("pending", "upsert")]
         finally:
             await _cleanup(db, cand.id)
+
+
+class _FakeQdrant:
+    upserts: list = []
+
+    def __init__(self, *_a, **_kw) -> None:
+        pass
+
+    def upsert(self, **kw):
+        type(self).upserts.append(kw)
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_successful_embed_does_not_commit_the_callers_transaction(monkeypatch):
+    """Runda 8 (R8-N11-5): stempel `embedding_id` jest flushowany, nie commitowany.
+
+    Formularz kariery woła embed w savepoincie PRZED zapisem zgody i CV —
+    `commit` w środku zatwierdzał kandydata, więc błąd dalszego kroku
+    zostawiał go w bazie bez zgody i bez CV.
+    """
+    from unittest.mock import AsyncMock, MagicMock
+
+    import qdrant_client
+
+    async def _vector(*_a, **_kw):
+        return [0.1, 0.2]
+
+    monkeypatch.setattr(embedding_service, "generate_embedding", _vector)
+    monkeypatch.setattr(qdrant_client, "QdrantClient", _FakeQdrant)
+    _FakeQdrant.upserts = []
+
+    cand = MagicMock()
+    cand.id = 7
+    cand.competence_category = ""
+    monkeypatch.setattr(embedding_service, "_build_candidate_text", lambda _c: "python")
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = cand
+    db = MagicMock()
+    db.execute = AsyncMock(return_value=result)
+    db.flush = AsyncMock()
+    db.commit = AsyncMock()
+
+    ok = await embedding_service.embed_candidate(7, db)
+
+    assert ok is True
+    assert len(_FakeQdrant.upserts) == 1
+    assert cand.embedding_id == "7"
+    db.flush.assert_awaited()
+    db.commit.assert_not_awaited()
 
 
 # ── Ponowienia wywołania Voyage'a ────────────────────────────────────────────

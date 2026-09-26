@@ -25,7 +25,7 @@ describe("dodania z propozycji deklarują swoje pochodzenie", () => {
   it("każde dodanie bulk w segmencie propozycji idzie przez grupowanie po pochodzeniu", () => {
     const calls = [...hook.matchAll(/proposalsBulkApi\.add\(([\s\S]*?)\)\s*[;)]/g)];
     expect(calls.length).toBe(1);
-    expect(hook).toContain("for (const group of groupAddsByOrigin(picked))");
+    expect(hook).toContain("for (const group of groupAddsByOrigin(picked, autoRunId))");
     expect(hook).toContain("if (group.source) body.source = group.source;");
     expect(hook).toContain("if (group.runId) body.run_id = group.runId;");
   });

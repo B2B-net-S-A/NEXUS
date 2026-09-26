@@ -258,4 +258,14 @@ describe("groupAddsByOrigin", () => {
       { source: "proposal_inbox", runId: null, ids: [6] },
     ]);
   });
+
+  it("wiersz adoptowanego przeglądu nocnego idzie jako skrzynka propozycji (R8-N11-7)", () => {
+    const entry = (id: number, runId: string | null, origins: string[]) => ({ row: { candidateId: id, runId }, detail: { origins } }) as never;
+    expect(
+      groupAddsByOrigin([entry(1, "auto-9", ["run"]), entry(2, "manual-1", ["run"])], "auto-9"),
+    ).toEqual([
+      { source: "proposal_inbox", runId: "auto-9", ids: [1] },
+      { source: "full_search", runId: "manual-1", ids: [2] },
+    ]);
+  });
 });
