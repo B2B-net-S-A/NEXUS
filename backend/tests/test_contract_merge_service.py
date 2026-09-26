@@ -20,6 +20,7 @@ from app.services.contract_merge import (
     _explicit_historical_reference_blocker,
     _replace_contract_link,
     _resolve_field_decisions,
+    _returned_after_break_ids,
     _resolvable_merge_blocker_codes,
     _same_day_schedule_conflicts,
     _snapshot_for_source,
@@ -142,6 +143,96 @@ def test_field_merge_resolves_period_bounds_but_not_other_nonempty_conflicts():
     assert updates["start_date"] == date(2026, 7, 1)
     assert updates["end_date"] == date(2026, 12, 31)
     assert [item["field"] for item in conflicts] == ["line_manager"]
+
+
+def test_field_merge_never_carries_a_losers_cooperation_end_onto_a_live_survivor():
+    """Runda 7 (N1-1): lustro ``_NOT_TRANSFERRED`` z korekty 0308."""
+    contracts = [
+        {"id": 1, "status": "active", "contract_type": "b2b", "end_date": None},
+        {
+            "id": 2,
+            "status": "ended",
+            "contract_type": "b2b",
+            "end_date": date(2026, 6, 30),
+            "terminated_at": date(2026, 6, 15),
+            "termination_reason": "consultant_resigned",
+            "termination_lessons": "Kto — powód",
+            "agreement_termination_mode": "notice",
+            "agreement_termination_party": "partner",
+            "agreement_termination_signed_on": date(2026, 5, 31),
+            "agreement_last_day": date(2026, 6, 30),
+            "project_name": "Phoenix",
+        },
+    ]
+    updates, conflicts = merge_field_plan(contracts, 1)
+
+    for field in (
+        "end_date",
+        "terminated_at",
+        "termination_reason",
+        "termination_lessons",
+        "agreement_termination_mode",
+        "agreement_termination_party",
+        "agreement_termination_signed_on",
+        "agreement_last_day",
+    ):
+        assert field not in updates, field
+    assert updates["project_name"] == "Phoenix"
+    assert conflicts == []
+
+
+def test_field_merge_keeps_an_indefinite_uz_survivor_indefinite():
+    contracts = [
+        {"id": 1, "status": "active", "contract_type": "uzlecenie", "end_date": None},
+        {
+            "id": 2,
+            "status": "ended",
+            "contract_type": "uzlecenie",
+            "end_date": date(2026, 6, 30),
+        },
+    ]
+    updates, _ = merge_field_plan(contracts, 1)
+    assert "end_date" not in updates
+
+
+def test_field_merge_still_takes_end_date_from_a_live_duplicate():
+    contracts = [
+        {"id": 1, "status": "active", "contract_type": "uzlecenie", "end_date": None},
+        {
+            "id": 2,
+            "status": "draft",
+            "contract_type": "uzlecenie",
+            "end_date": date(2026, 12, 31),
+        },
+    ]
+    updates, _ = merge_field_plan(contracts, 1)
+    assert updates["end_date"] == date(2026, 12, 31)
+
+
+def test_field_merge_between_ended_contracts_still_merges_their_end():
+    contracts = [
+        {"id": 1, "status": "ended", "end_date": date(2026, 5, 31)},
+        {
+            "id": 2,
+            "status": "ended",
+            "end_date": date(2026, 6, 30),
+            "termination_reason": "consultant_resigned",
+        },
+    ]
+    updates, _ = merge_field_plan(contracts, 1)
+    assert updates["end_date"] == date(2026, 6, 30)
+    assert updates["termination_reason"] == "consultant_resigned"
+
+
+def test_returned_after_break_pair_is_not_a_duplicate():
+    """Runda 7 (N1-5): „Powrót po przerwie" to druga współpraca, nie duplikat."""
+    rows = [
+        {"id": 10, "status": "ended", "returned_from_contract_id": None},
+        {"id": 11, "status": "active", "returned_from_contract_id": 10},
+        {"id": 12, "status": "draft", "returned_from_contract_id": 99},
+    ]
+    assert _returned_after_break_ids(rows) == [10, 11]
+    assert _returned_after_break_ids([rows[0], rows[2]]) == []
 
 
 def test_effective_rate_uses_latest_schedule_step():
@@ -1317,4 +1408,344 @@ async def test_apply_handles_no_current_order_notification_collision_and_noop_hi
                 await db.execute(delete(Client).where(Client.id.in_(client_ids)))
             if user_id is not None:
                 await db.execute(delete(User).where(User.id == user_id))
+            await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_apply_keeps_order_rates_authoritative_and_moves_ended_losers_leftovers():
+    """Runda 7 (N1-1, N1-2, N1-3, N1-4, N1-6) na prawdziwym Postgresie.
+
+    Zachowany: aktywny B2B bez daty końca, jedyne zamówienie zaczyna się za
+    10 dni (krok stawki przychodowej z zamówienia). Przegrany: zakończony
+    duplikat z wypowiedzeniem, otwartą migawką zakończenia, brakiem zamówienia
+    i wierszem Generatora, którego ``termination_restore`` wskazuje na niego.
+    """
+    import uuid
+    from datetime import timedelta
+
+    from sqlalchemy import delete, select
+
+    from app.core.database import AsyncSessionLocal
+    from app.core.scheduling import business_today
+    from app.models.activity import Activity
+    from app.models.b2b_generated_contract import B2BGeneratedContract
+    from app.models.candidate import Candidate
+    from app.models.client import Client
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+    from app.models.contract import (
+        Contract,
+        ContractStatus,
+        ContractTerminationReason,
+        ContractType,
+        RateUnit,
+    )
+    from app.models.contract_client_rate import ContractClientRate
+    from app.models.contract_termination_snapshot import ContractTerminationSnapshot
+    from app.models.order_gap import OrderGap
+    from app.services.contract_merge import (
+        apply_contract_merge_plan,
+        build_contract_merge_plan,
+    )
+    from app.services.contract_order_sync import resync_contract
+    from app.services.contract_rates import RATE_SCHEDULE_LOADS
+
+    suffix = uuid.uuid4().hex[:10]
+    today = business_today()
+    candidate_id = client_id = survivor_id = loser_id = None
+    order_id = loser_order_id = gap_id = generated_id = None
+    async with AsyncSessionLocal() as db:
+        try:
+            candidate = Candidate(
+                name="Merge",
+                lastname=f"Leftovers-{suffix}",
+                email=f"merge-leftovers-{suffix}@example.com",
+            )
+            client = Client(name=f"Merge Leftovers {suffix}")
+            db.add_all([candidate, client])
+            await db.flush()
+            candidate_id, client_id = candidate.id, client.id
+
+            survivor = Contract(
+                candidate_id=candidate.id,
+                client_id=client.id,
+                status=ContractStatus.active,
+                contract_type=ContractType.b2b,
+                start_date=today - timedelta(days=200),
+                rate_candidate=Decimal("100.000"),
+                rate_client=Decimal("150.000"),
+                rate_unit=RateUnit.hourly,
+                billing_hours_per_month=168,
+                currency="PLN",
+            )
+            loser = Contract(
+                candidate_id=candidate.id,
+                client_id=client.id,
+                status=ContractStatus.ended,
+                contract_type=ContractType.b2b,
+                start_date=today - timedelta(days=200),
+                end_date=today - timedelta(days=100),
+                terminated_at=today - timedelta(days=110),
+                termination_reason=ContractTerminationReason.consultant_resigned,
+                rate_unit=RateUnit.hourly,
+                billing_hours_per_month=168,
+                currency="PLN",
+            )
+            db.add_all([survivor, loser])
+            await db.flush()
+            survivor_id, loser_id = survivor.id, loser.id
+
+            order = ClientOrder(
+                client_id=client.id,
+                contract_id=survivor.id,
+                title=f"PO-{suffix}",
+                status=ClientOrderStatus.active,
+                start_date=today + timedelta(days=10),
+                rate_client=Decimal("150.000"),
+                rate_unit=RateUnit.hourly,
+                currency="PLN",
+            )
+            loser_order = ClientOrder(
+                client_id=client.id,
+                contract_id=loser.id,
+                title=f"OLD-{suffix}",
+                status=ClientOrderStatus.completed,
+                start_date=today - timedelta(days=200),
+                end_date=today - timedelta(days=100),
+            )
+            db.add_all([order, loser_order])
+            await db.flush()
+            order_id, loser_order_id = order.id, loser_order.id
+            db.add(
+                ContractClientRate(
+                    contract_id=survivor.id,
+                    rate=Decimal("150.000"),
+                    effective_from=today + timedelta(days=10),
+                    source_order_id=order.id,
+                    note="Z zamówienia klienta",
+                )
+            )
+            before = {
+                "status": "active",
+                "end_date": None,
+                "terminated_at": None,
+                "termination_reason": None,
+                "termination_lessons": None,
+            }
+            db.add_all(
+                [
+                    ContractTerminationSnapshot(
+                        contract_id=survivor.id, status="open", contract_before=before
+                    ),
+                    ContractTerminationSnapshot(
+                        contract_id=loser.id, status="open", contract_before=before
+                    ),
+                ]
+            )
+            gap = OrderGap(
+                order_id=loser_order.id,
+                contract_id=loser.id,
+                client_id=client.id,
+                ended_on=today - timedelta(days=100),
+                detected_on=today - timedelta(days=99),
+                status="open",
+            )
+            seq = 600000 + (uuid.uuid4().int % 300000)
+            generated = B2BGeneratedContract(
+                year=2026,
+                seq=seq,
+                contract_number=f"{seq}/2026",
+                partner_name="Merge Leftovers",
+                client_name=client.name,
+                language="pl",
+                signature_status="signed_both",
+                contract_status="active",
+                candidate_id=candidate.id,
+                client_id=client.id,
+                contract_id=None,
+                termination_restore={
+                    "contract_id": loser.id,
+                    "contract_status": "active",
+                },
+                render_payload={"language": "pl", "client_name": client.name},
+            )
+            db.add_all([gap, generated])
+            await db.flush()
+            gap_id, generated_id = gap.id, generated.id
+            await db.commit()
+
+            manifest = ContractMergeManifest(
+                same_client_groups=((survivor_id, loser_id),)
+            )
+            audit = await build_contract_merge_plan(db, manifest, today=today)
+            group = audit["groups"][0]
+            assert group["survivor_id"] == survivor_id
+            assert group["blockers"] == []
+            for field in ("end_date", "terminated_at", "termination_reason"):
+                assert field not in group["field_updates"]
+            await db.rollback()
+
+            await apply_contract_merge_plan(
+                db,
+                manifest,
+                expected_fingerprint=audit["fingerprint"],
+                expected_approval_fingerprint=approval_fingerprint(
+                    audit["fingerprint"]
+                ),
+                today=today,
+            )
+            await db.commit()
+            db.expunge_all()
+
+            kept = await db.scalar(
+                select(Contract)
+                .where(Contract.id == survivor_id)
+                .options(*RATE_SCHEDULE_LOADS)
+            )
+            assert kept is not None and kept.status == ContractStatus.active
+            # N1-1: koniec współpracy duplikatu nie przeszedł na żywą umowę.
+            assert kept.end_date is None
+            assert kept.terminated_at is None
+            assert kept.termination_reason is None
+            # N1-6: okres zamówienia liczy reguła 0304 (najnowsze uzupełnione).
+            assert kept.client_order_start_date == today + timedelta(days=10)
+            # N1-2: rozstrzygnięcie nie dołożyło kroków ręcznych obok kroku
+            # z zamówienia.
+            resolution_steps = [
+                step
+                for step in kept.client_rate_schedule
+                if step.source_order_id is None
+            ]
+            assert resolution_steps == []
+
+            moved_order = await db.get(ClientOrder, order_id)
+            assert moved_order is not None
+            moved_order.rate_client = Decimal("170.000")
+            await db.flush()
+            await resync_contract(db, kept, actor_id=None, today=today)
+            assert kept.effective_client_rate(today + timedelta(days=10)) == Decimal(
+                "170.000"
+            )
+            await db.rollback()
+
+            # N1-3: otwarta migawka duplikatu zamknięta, migawka zachowanego
+            # nietknięta; restore Generatora wskazuje zachowany kontrakt.
+            snapshots = {
+                row.status: row
+                for row in (
+                    await db.scalars(
+                        select(ContractTerminationSnapshot).where(
+                            ContractTerminationSnapshot.contract_id == survivor_id
+                        )
+                    )
+                ).all()
+            }
+            assert set(snapshots) == {"open", "superseded"}
+            generated_row = await db.get(B2BGeneratedContract, generated_id)
+            assert generated_row is not None
+            assert generated_row.termination_restore["contract_id"] == survivor_id
+            # N1-4: brak zamówienia idzie za zachowanym kontraktem.
+            moved_gap = await db.get(OrderGap, gap_id)
+            assert moved_gap is not None and moved_gap.contract_id == survivor_id
+        finally:
+            await db.rollback()
+            if gap_id is not None:
+                await db.execute(delete(OrderGap).where(OrderGap.id == gap_id))
+            if generated_id is not None:
+                await db.execute(
+                    delete(B2BGeneratedContract).where(
+                        B2BGeneratedContract.id == generated_id
+                    )
+                )
+            if survivor_id is not None:
+                await db.execute(
+                    delete(Activity).where(
+                        Activity.entity_type == "contract",
+                        Activity.entity_id.in_([survivor_id, loser_id]),
+                    )
+                )
+            order_ids = [value for value in (order_id, loser_order_id) if value]
+            if order_ids:
+                await db.execute(
+                    delete(ClientOrder).where(ClientOrder.id.in_(order_ids))
+                )
+            if survivor_id is not None and loser_id is not None:
+                await db.execute(
+                    delete(Contract).where(Contract.id.in_([survivor_id, loser_id]))
+                )
+            if candidate_id is not None:
+                await db.execute(delete(Candidate).where(Candidate.id == candidate_id))
+            if client_id is not None:
+                await db.execute(delete(Client).where(Client.id == client_id))
+            await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_plan_blocks_a_returned_after_break_pair():
+    """Runda 7 (N1-5): para „Powrót po przerwie" nie jest duplikatem."""
+    import uuid
+    from datetime import timedelta
+
+    from sqlalchemy import delete
+
+    from app.core.database import AsyncSessionLocal
+    from app.core.scheduling import business_today
+    from app.models.candidate import Candidate
+    from app.models.client import Client
+    from app.models.contract import Contract, ContractStatus
+    from app.services.contract_merge import build_contract_merge_plan
+
+    suffix = uuid.uuid4().hex[:10]
+    today = business_today()
+    candidate_id = client_id = None
+    contract_ids: list[int] = []
+    async with AsyncSessionLocal() as db:
+        try:
+            candidate = Candidate(
+                name="Merge",
+                lastname=f"Return-{suffix}",
+                email=f"merge-return-{suffix}@example.com",
+            )
+            client = Client(name=f"Merge Return {suffix}")
+            db.add_all([candidate, client])
+            await db.flush()
+            candidate_id, client_id = candidate.id, client.id
+            previous = Contract(
+                candidate_id=candidate.id,
+                client_id=client.id,
+                status=ContractStatus.ended,
+                start_date=today - timedelta(days=400),
+                end_date=today - timedelta(days=100),
+            )
+            db.add(previous)
+            await db.flush()
+            returned = Contract(
+                candidate_id=candidate.id,
+                client_id=client.id,
+                status=ContractStatus.draft,
+                start_date=today - timedelta(days=10),
+                returned_from_contract_id=previous.id,
+            )
+            db.add(returned)
+            await db.flush()
+            contract_ids = [previous.id, returned.id]
+            await db.commit()
+
+            audit = await build_contract_merge_plan(
+                db,
+                ContractMergeManifest(same_client_groups=(tuple(contract_ids),)),
+                today=today,
+            )
+            blockers = {item["code"]: item for item in audit["groups"][0]["blockers"]}
+            assert blockers["returned_after_break_pair_in_merge_group"][
+                "contract_ids"
+            ] == sorted(contract_ids)
+        finally:
+            await db.rollback()
+            if contract_ids:
+                await db.execute(delete(Contract).where(Contract.id == contract_ids[1]))
+                await db.execute(delete(Contract).where(Contract.id == contract_ids[0]))
+            if candidate_id is not None:
+                await db.execute(delete(Candidate).where(Candidate.id == candidate_id))
+            if client_id is not None:
+                await db.execute(delete(Client).where(Client.id == client_id))
             await db.commit()

@@ -860,10 +860,24 @@ def merge_field_plan(
     survivor = next(row for row in contracts if int(row["id"]) == survivor_id)
     updates: dict[str, Any] = {}
     conflicts: list[dict[str, Any]] = []
+    # Runda 7 (N1-1): lustro ``_NOT_TRANSFERRED`` z korekty 0308 — koniec
+    # współpracy duplikatu (data końca, wypowiedzenie, rozwiązanie umowy) nie
+    # przechodzi na żywy kontrakt. Inaczej nocny cron kończył zachowany kontrakt
+    # datą zakończonego duplikatu i anulował bieżące zamówienia.
+    survivor_live = _enum_text(survivor.get("status")) not in _ENDED_STATUSES
     for field in _MERGEABLE_FIELDS:
+        sources = (
+            [
+                row
+                for row in contracts
+                if int(row["id"]) == survivor_id or not _carries_cooperation_end(row)
+            ]
+            if survivor_live and field in _END_OF_COOPERATION_FIELDS
+            else contracts
+        )
         populated = [
             (int(row["id"]), row.get(field))
-            for row in contracts
+            for row in sources
             if not _is_empty(row.get(field))
         ]
         distinct: dict[str, list[int]] = {}
@@ -900,6 +914,32 @@ def merge_field_plan(
             updates[field] = populated[0][1]
     _keep_live_b2b_survivor_indefinite(survivor, updates)
     return updates, conflicts
+
+
+_ENDED_STATUSES = frozenset({"ended", "void"})
+_END_OF_COOPERATION_FIELDS = frozenset(
+    {
+        "end_date",
+        "terminated_at",
+        "termination_reason",
+        "termination_lessons",
+        "agreement_termination_mode",
+        "agreement_termination_party",
+        "agreement_termination_signed_on",
+        "agreement_last_day",
+    }
+)
+
+
+def _carries_cooperation_end(row: Mapping[str, Any]) -> bool:
+    """Kontrakt zakończony albo z zapisanym końcem współpracy (wypowiedzenie,
+    rozwiązanie umowy) — jego daty i powody opisują TAMTĄ decyzję."""
+    return (
+        _enum_text(row.get("status")) in _ENDED_STATUSES
+        or not _is_empty(row.get("terminated_at"))
+        or not _is_empty(row.get("termination_reason"))
+        or not _is_empty(row.get("agreement_termination_mode"))
+    )
 
 
 def _keep_live_b2b_survivor_indefinite(
@@ -1826,6 +1866,17 @@ async def _unscoped_contract_ids(
     return [int(value) for value in rows]
 
 
+def _returned_after_break_ids(rows: Sequence[Mapping[str, Any]]) -> list[int]:
+    """ID kontraktów grupy połączonych relacją „Powrót po przerwie"."""
+    group_ids = {int(row["id"]) for row in rows}
+    linked: set[int] = set()
+    for row in rows:
+        previous = row.get("returned_from_contract_id")
+        if previous is not None and int(previous) in group_ids:
+            linked.update({int(row["id"]), int(previous)})
+    return sorted(linked)
+
+
 async def build_contract_merge_plan(
     db: AsyncSession,
     manifest: ContractMergeManifest,
@@ -1928,6 +1979,17 @@ async def build_contract_merge_plan(
                 )
         if any(_enum_text(row.get("status")) == "void" for row in rows):
             blockers.append({"code": "void_contract_in_merge_group"})
+        # Runda 7 (N1-5): „Powrót po przerwie" (0368) celowo zakłada DRUGI
+        # kontrakt tej osoby u tego klienta — to kolejna współpraca, nie
+        # duplikat. Scalenie zlałoby dwie umowy w jedną.
+        returned_pairs = _returned_after_break_ids(rows)
+        if returned_pairs:
+            blockers.append(
+                {
+                    "code": "returned_after_break_pair_in_merge_group",
+                    "contract_ids": returned_pairs,
+                }
+            )
         lifecycle_values = {
             field: sorted(
                 {
@@ -2818,6 +2880,28 @@ async def _reparent_fks(
     survivor_id: int,
 ) -> dict[str, int]:
     moved: dict[str, int] = {}
+    if any(
+        (str(fk["table_name"]), str(fk["column_name"]))
+        == ("contract_termination_snapshots", "contract_id")
+        for fk in catalog
+    ):
+        # Runda 7 (N1-3): otwarta migawka zakończenia duplikatu opisuje JEGO
+        # stan sprzed zakończenia. Przepięta jako otwarta zderzyłaby się
+        # z otwartą migawką zachowanego (częściowy UNIQUE) albo — przy
+        # późniejszym zakończeniu zachowanego — podsunęłaby „Cofnij
+        # zakończenie" stan przegranego. Zamykamy ją jak wskrzeszenie inną
+        # drogą (``superseded``); wiersz i tak idzie za zachowanym.
+        superseded = await db.execute(
+            text(
+                "UPDATE contract_termination_snapshots "
+                "SET status = 'superseded', closed_at = NOW() "
+                "WHERE contract_id = ANY(:losers) AND status = 'open'"
+            ),
+            {"losers": list(loser_ids)},
+        )
+        moved["contract_termination_snapshots_superseded"] = int(
+            superseded.rowcount or 0
+        )
     for fk in catalog:
         table, column = str(fk["table_name"]), str(fk["column_name"])
         if int(fk["column_count"]) != 1 or (table, column) not in _KNOWN_CONTRACT_FKS:
@@ -2906,11 +2990,39 @@ async def _repoint_polymorphic(
         if int(updated.rowcount or 0) != 1:
             raise ContractMergeError("notification link drifted while locked")
         link_count += 1
+    # Runda 7 (N1-4): braki zamówień (``order_gaps``) nie mają klucza obcego —
+    # bez przepięcia wskazywały skasowany kontrakt: Finanse → Braki gubiły
+    # osobę, a odświeżenie po zapisie zamówienia następcy nie zamykało braku.
+    gaps = await db.execute(
+        text(
+            "UPDATE order_gaps SET contract_id = :survivor "
+            "WHERE contract_id = ANY(:losers)"
+        ),
+        {"survivor": survivor_id, "losers": list(loser_ids)},
+    )
+    # Runda 7 (N1-3): migawka wiersza Generatora B2B sprzed zakończenia niesie
+    # ``contract_id`` kontraktu, który ją wykonał — „Cofnij zakończenie" na
+    # zachowanym szuka jej po SWOIM id.
+    restores = await db.execute(
+        text(
+            "UPDATE b2b_generated_contracts "
+            "SET termination_restore = jsonb_set(termination_restore::jsonb, "
+            "'{contract_id}', to_jsonb(CAST(:survivor AS integer))) "
+            "WHERE termination_restore IS NOT NULL "
+            "AND termination_restore::jsonb ->> 'contract_id' = ANY(:loser_keys)"
+        ),
+        {
+            "survivor": survivor_id,
+            "loser_keys": [str(int(value)) for value in loser_ids],
+        },
+    )
     return {
         "activities": int(activity.rowcount or 0),
         "notifications": int(notifications.rowcount or 0),
         "notifications_retained_historical": len(retained_ids),
         "notification_links": link_count,
+        "order_gaps": int(gaps.rowcount or 0),
+        "b2b_termination_restores": int(restores.rowcount or 0),
     }
 
 
@@ -2995,29 +3107,83 @@ async def _insert_resolution_rates(
     table: str,
     survivor_id: int,
     trajectory: Sequence[Mapping[str, Any]],
-) -> None:
+    kind: str,
+) -> int:
+    """Dopisz kroki rozstrzygnięcia TYLKO tam, gdzie przepięty harmonogram
+    zachowanego nie daje już wybranej trajektorii.
+
+    Runda 7 (N1-2): do 09.2026 krok ręczny (``source_order_id`` NULL) powstawał
+    na KAŻDEJ dacie granicznej. Przy tej samej dacie resolver bierze krok
+    dodany później, więc rozstrzygnięcie trwale przykrywało kroki z zamówień
+    (0304): poprawka stawki zamówienia nie zmieniała przychodu, a usunięcie
+    zamówienia go nie zdejmowało. Kolejne przebiegi dochodzą do punktu stałego —
+    data z własnym krokiem rozstrzygnięcia rozwiązuje się już zawsze do niego.
+    """
     if table not in {
         "contract_candidate_rates",
         "contract_client_rates",
         "contract_framework_rates",
     }:
         raise ContractMergeError("unsafe rate table")
-    for item in trajectory:
-        if item.get("rate") is None:
-            continue
-        await db.execute(
+    expected = sorted(
+        (
+            (_date_value(item["effective_from"]), Decimal(str(item["rate"])))
+            for item in trajectory
+            if item.get("rate") is not None
+        ),
+        key=lambda pair: pair[0],
+    )
+    if not expected:
+        return 0
+    contract = (await _fetch_contracts(db, [survivor_id], False))[survivor_id]
+    schedule = [dict(row) for row in await _fetch_rows(db, table, [survivor_id])]
+    inserted = 0
+    for _ in range(len(expected) + 1):
+        mismatch = next(
+            (
+                (boundary, rate)
+                for boundary, rate in expected
+                if (
+                    (
+                        actual := _rate_snapshot(
+                            contract, schedule, kind, boundary
+                        ).get("rate")
+                    )
+                    is None
+                    or Decimal(str(actual)) != rate
+                )
+            ),
+            None,
+        )
+        if mismatch is None:
+            return inserted
+        boundary, rate = mismatch
+        new_id = await db.scalar(
             text(
                 f"INSERT INTO {table} "
                 "(contract_id, rate, effective_from, note, created_at, updated_at) "
-                "VALUES (:contract_id, :rate, :effective_from, :note, NOW(), NOW())"
+                "VALUES (:contract_id, :rate, :effective_from, :note, NOW(), NOW()) "
+                "RETURNING id"
             ),
             {
                 "contract_id": survivor_id,
-                "rate": Decimal(str(item["rate"])),
-                "effective_from": _date_value(item["effective_from"]),
+                "rate": rate,
+                "effective_from": boundary,
                 "note": "Rozstrzygnięcie scalania zduplikowanych kontraktów 2026-08",
             },
         )
+        schedule.append(
+            {
+                "id": int(new_id),
+                "contract_id": survivor_id,
+                "rate": rate,
+                "effective_from": boundary,
+            }
+        )
+        inserted += 1
+    raise ContractMergeError(  # pragma: no cover - each boundary is fixed once
+        f"{kind} resolution rates did not converge for {survivor_id}"
+    )
 
 
 async def _assert_no_fk_rows(
@@ -3249,6 +3415,35 @@ async def _assert_contract_postconditions(
                 raise ContractMergeError(
                     f"same-client cardinality postcondition failed for group {group['group_key']}"
                 )
+
+
+async def _resync_survivors_with_orders(
+    db: AsyncSession, survivor_ids: Sequence[int], today: date
+) -> None:
+    """Zachowany kontrakt przelicza się z zamówieniami tak jak po każdym
+    zapisie zamówienia (0304) — tą samą drogą co korekta 0308.
+
+    Runda 7 (N1-2, N1-6): scalenie przepina zamówienia przegranego i jego kroki
+    stawek, a okres zamówienia liczyło własną regułą („bieżące zamówienie").
+    Bez przeliczenia kroki z zamówień przegranego i okres „Koniec zamówienia
+    u klienta" zostawały w stanie, którego synchronizacja nigdy by nie dała.
+    Błąd projekcji nie cofa scalenia (``resync_contract_safely``).
+    """
+    from sqlalchemy import select
+
+    from app.models.contract import Contract
+    from app.services.contract_order_sync import resync_contract_safely
+    from app.services.contract_rates import RATE_SCHEDULE_LOADS
+
+    for survivor_id in survivor_ids:
+        survivor = await db.scalar(
+            select(Contract)
+            .where(Contract.id == survivor_id)
+            .options(*RATE_SCHEDULE_LOADS)
+            .execution_options(populate_existing=True)
+        )
+        if survivor is not None:
+            await resync_contract_safely(db, survivor, actor_id=None, today=today)
 
 
 async def apply_contract_merge_plan(
@@ -3603,7 +3798,7 @@ async def apply_contract_merge_plan(
                 ("framework", "contract_framework_rates"),
             ):
                 trajectory = item["resolution_trajectories"][kind]
-                await _insert_resolution_rates(db, table, survivor_id, trajectory)
+                await _insert_resolution_rates(db, table, survivor_id, trajectory, kind)
                 await _assert_rate_trajectory(db, survivor_id, kind, trajectory)
             await _assert_original_rate_rows_preserved(db, group, survivor_id)
             await _assert_notification_repoint_postconditions(
@@ -3663,6 +3858,15 @@ async def apply_contract_merge_plan(
         )
 
     await _assert_contract_postconditions(db, plan)
+    await _resync_survivors_with_orders(
+        db,
+        [
+            int(item["survivor_id"])
+            for item in applied
+            if item["operation"] == "merge_same_client"
+        ],
+        boundary,
+    )
     result: dict[str, Any] = {
         "mode": "apply",
         "ok": True,
