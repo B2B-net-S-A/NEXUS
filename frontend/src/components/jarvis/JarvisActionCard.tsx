@@ -28,10 +28,19 @@ const STATUS_LINE: Record<Exclude<JarvisAction["status"], "proposed">, { icon: t
   expired: { icon: Clock, text: "Propozycja wygasła — poproś o nową", tone: "text-muted-foreground" },
 };
 
+const UNCERTAIN_LINE = {
+  icon: AlertTriangle,
+  text: "Przerwane w trakcie — nie wiadomo, czy się zapisało. Sprawdź na ekranie.",
+  tone: "text-warning",
+};
+
 export function JarvisActionCard({ action, busy = false, disabled = false, onConfirm, onReject }: Props) {
   const pending = action.status === "proposed";
-  const status = action.status === "proposed" ? null : STATUS_LINE[action.status];
-  const error = action.status === "failed" ? action.result?.error : undefined;
+  // Przerwane w trakcie (restart, zerwane połączenie) to NIE „nie udało się”:
+  // zmiana mogła się zapisać — karta mówi to wprost (runda 8, R8-N1-5).
+  const uncertain = action.status === "failed" && action.result?.uncertain === true;
+  const status = action.status === "proposed" ? null : uncertain ? UNCERTAIN_LINE : STATUS_LINE[action.status];
+  const error = action.status === "failed" && !uncertain ? action.result?.error : undefined;
   return (
     <div
       className="rounded-lg border border-primary/30 bg-card p-3 shadow-xs"
