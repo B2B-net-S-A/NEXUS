@@ -11,6 +11,8 @@ import {
   type SeniorityResponse,
 } from "@/lib/insights-api";
 import { cn } from "@/lib/utils";
+import { formatIsoDatePl } from "@/lib/date-pl";
+import { warsawDateOf } from "@/lib/warsaw-date";
 import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
 import { NotAssessable, SectionError } from "./_shared";
 
@@ -305,7 +307,7 @@ function SeniorityRegressions({
             {row.observed_at && (
               <span className="text-warning-muted-foreground/80">
                 {" "}
-                · zauważone {row.observed_at.slice(0, 10)}
+                · zauważone {formatIsoDatePl(warsawDateOf(row.observed_at))}
               </span>
             )}
           </li>

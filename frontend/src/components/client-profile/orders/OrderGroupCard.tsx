@@ -20,6 +20,7 @@ import {
 import { ContractPersonLink } from "@/components/contracts/ContractPersonLink";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
+import { warsawDateOf } from "@/lib/warsaw-date";
 import {
   type OrderGroupRead,
   type OrderLineRead,
@@ -1002,7 +1003,7 @@ export function OrderGroupCard({
               ? ` · zakończone ${formatDate(group.closure_date)}`
               : ""}
             {group.status === "cancelled" && group.cancelled_at
-              ? ` · anulowane ${formatDate(group.cancelled_at.slice(0, 10))}`
+              ? ` · anulowane ${formatDate(warsawDateOf(group.cancelled_at) ?? group.cancelled_at)}`
               : ""}
             {group.status === "cancelled" && group.cancellation_reason
               ? ` — ${group.cancellation_reason}`

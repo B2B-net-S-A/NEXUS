@@ -26,6 +26,7 @@ import type {
   ProposalTraineeHandover,
 } from "@/lib/job-proposals-api";
 import { SEARCH_AVAILABILITY_OPTIONS } from "@/lib/search-availability";
+import { warsawDateOf } from "@/lib/warsaw-date";
 import {
   PROPOSAL_SOURCE_LABEL,
   type ProposalPersonRow,
@@ -210,7 +211,7 @@ function emptyDetail(candidateId: number): ProposalDetail {
 /** „Od praktykanta: Ola Kamińska · 24.09". Notatka idzie osobną linią. */
 export function traineeHandoverReason(handover: ProposalTraineeHandover): string {
   const who = handover.by_name?.trim() || "praktykant";
-  const day = handover.at ? handover.at.slice(0, 10).split("-") : null;
+  const day = warsawDateOf(handover.at)?.split("-") ?? null;
   const when = day && day.length === 3 ? ` · ${day[2]}.${day[1]}` : "";
   return `Od praktykanta: ${who}${when}`;
 }

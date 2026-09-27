@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { warsawToday } from "@/lib/warsaw-date";
+import { warsawDateOf, warsawToday } from "@/lib/warsaw-date";
 import { emptyAmendmentForm } from "@/components/ContractAmendmentsTab";
 
 describe("warsawToday", () => {
@@ -51,3 +51,32 @@ describe("formularze z domyślną datą „dziś”", () => {
     expect(source).toContain("warsawToday");
   });
 });
+
+describe("warsawDateOf (R10-X1-3)", () => {
+  it("znacznik czasu z 00:00–02:00 w Warszawie to już nowy dzień", () => {
+    expect(warsawDateOf("2026-09-30T22:30:00+00:00")).toBe("2026-10-01");
+    expect(warsawDateOf("2026-01-31T23:15:00Z")).toBe("2026-02-01");
+  });
+
+  it("sama data wraca bez zmian, pusta i nieczytelna to null", () => {
+    expect(warsawDateOf("2026-09-30")).toBe("2026-09-30");
+    expect(warsawDateOf(null)).toBeNull();
+    expect(warsawDateOf("")).toBeNull();
+    expect(warsawDateOf("nie-data")).toBeNull();
+  });
+
+  it("ekrany ze znacznikami czasu nie tną ich już `.slice(0, 10)`", () => {
+    for (const file of [
+      "components/client-profile/orders/OrderGroupCard.tsx",
+      "components/settings/B2BRegisterImportPanel.tsx",
+      "components/insights/sections/InsightsSeniority.tsx",
+      "lib/proposals-merge.ts",
+      "components/ChampionProfileEditor.tsx",
+    ]) {
+      const source = readFileSync(resolve(process.cwd(), "src", file), "utf8");
+      expect(source, file).not.toMatch(/(_at|cancelled_at|created_at)\??\.slice\(0, 10\)/);
+      expect(source, file).toContain("warsawDateOf");
+    }
+  });
+});
+
