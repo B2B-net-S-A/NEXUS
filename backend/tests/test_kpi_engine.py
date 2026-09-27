@@ -169,10 +169,27 @@ def test_expected_progress_ratio_week_weekend_caps_at_one():
 
 
 def test_expected_progress_ratio_month_mid():
-    # 15 kwietnia 17:30, miesiąc ma 30 dni → ~15/30 = 0.5
+    # 15 kwietnia 17:30. Kwiecień 2026 ma 21 dni roboczych (22 dni Pon–Pt
+    # minus Poniedziałek Wielkanocny 6.04); do 15.04 włącznie minęło 10.
     now = datetime(2026, 4, 15, 17, 30, tzinfo=WARSAW)
     ratio = expected_progress_ratio(KpiPeriod.month, now)
-    assert 0.48 < ratio < 0.52
+    assert ratio == pytest.approx(10 / 21)
+
+
+def test_expected_progress_ratio_month_counts_only_business_days():
+    """Runda 10 (R10-V1-5): 4 maja rano (po 1–3 maja) nic nie jest oczekiwane."""
+    now = datetime(2026, 5, 4, 9, 30, tzinfo=WARSAW)
+    ratio = expected_progress_ratio(KpiPeriod.month, now)
+    # 30 minut pierwszego z 20 dni roboczych maja 2026 (21 dni Pon–Pt minus
+    # święto 1.05). Wcześniej: 3 dni kalendarzowe z 31 ≈ 0,097.
+    assert ratio < 0.01
+    # Ostatni dzień roboczy miesiąca po pracy = 100%, weekend po nim też.
+    assert expected_progress_ratio(
+        KpiPeriod.month, datetime(2026, 5, 29, 17, 30, tzinfo=WARSAW)
+    ) == pytest.approx(1.0)
+    assert expected_progress_ratio(
+        KpiPeriod.month, datetime(2026, 5, 31, 12, 0, tzinfo=WARSAW)
+    ) == pytest.approx(1.0)
 
 
 # ── derive_state ────────────────────────────────────────────────────────
