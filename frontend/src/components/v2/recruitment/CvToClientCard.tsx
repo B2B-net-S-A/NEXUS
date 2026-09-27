@@ -213,10 +213,25 @@ export function CvToClientCard({
     return () => clearTimeout(timer);
   }, [pendingId]);
 
-  const brandedQuery = useQuery<CVBrandedState>({
+  const ownBrandedQuery = useQuery<CVBrandedState>({
     queryKey: stageBrandedQueryKey(stageId),
     queryFn: () => candidateStageCvApi.branded.get(stageId).then((r) => r.data),
   });
+  // Runda 11 (PIPE-3, F23): ruch na kolejną kolumnę zakłada nowy wiersz etapu
+  // bez CV, a CV firmowe zostaje na wierszu, na którym powstało. Serwer
+  // wskazuje ten wiersz (`pair_source_stage_id`) — karta pokazuje, pobiera
+  // i edytuje TEN dokument zamiast proponować generację od nowa.
+  const pairStageId =
+    ownBrandedQuery.data?.status === "none"
+      ? (ownBrandedQuery.data.pair_source_stage_id ?? null)
+      : null;
+  const pairBrandedQuery = useQuery<CVBrandedState>({
+    queryKey: stageBrandedQueryKey(pairStageId),
+    queryFn: () => candidateStageCvApi.branded.get(pairStageId as number).then((r) => r.data),
+    enabled: pairStageId != null,
+  });
+  const brandedQuery = pairStageId != null ? pairBrandedQuery : ownBrandedQuery;
+  const cvStageId = pairStageId ?? stageId;
   const rowsQuery = useQuery<StageGeneratedCvRow[]>({
     queryKey: cvToClientRowsQueryKey(candidateId, jobId),
     queryFn: () =>
@@ -249,9 +264,12 @@ export function CvToClientCard({
       // z listą, inaczej karta pokazałaby „Użyj tej wersji” zamiast gotowego CV.
       void queryClient.invalidateQueries({ queryKey: cvToClientRowsQueryKey(candidateId, jobId) });
       void queryClient.invalidateQueries({ queryKey: stageBrandedQueryKey(stageId) });
+      if (pairStageId != null) {
+        void queryClient.invalidateQueries({ queryKey: stageBrandedQueryKey(pairStageId) });
+      }
     }, POLL_MS);
     return () => clearInterval(id);
-  }, [polling, queryClient, candidateId, jobId, stageId]);
+  }, [polling, queryClient, candidateId, jobId, stageId, pairStageId]);
 
   // Koniec czekania: serwer podpiął CV (etap ma treść) albo generacja padła.
   useEffect(() => {
@@ -262,17 +280,20 @@ export function CvToClientCard({
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: cvToClientRowsQueryKey(candidateId, jobId) });
     void queryClient.invalidateQueries({ queryKey: stageBrandedQueryKey(stageId) });
+    if (pairStageId != null) {
+      void queryClient.invalidateQueries({ queryKey: stageBrandedQueryKey(pairStageId) });
+    }
   };
 
   const attachVersionMut = useMutation({
     mutationFn: (generatedId: number) =>
       candidateStageCvApi.branded.selectGenerated(
-        stageId,
+        cvStageId,
         generatedId,
         branded?.edit_revision ?? 0,
       ),
     onSuccess: (response) => {
-      queryClient.setQueryData(stageBrandedQueryKey(stageId), response.data);
+      queryClient.setQueryData(stageBrandedQueryKey(cvStageId), response.data);
       void queryClient.invalidateQueries({ queryKey: cvToClientRowsQueryKey(candidateId, jobId) });
       showSuccess("CV podpięte do tej rekrutacji.");
     },
@@ -291,12 +312,12 @@ export function CvToClientCard({
     try {
       if (branded.status === "finalized") {
         await downloadAuthenticatedFile(
-          `/api/candidates/stages/${stageId}/cv/branded/versions/${branded.version}/docx`,
+          `/api/candidates/stages/${cvStageId}/cv/branded/versions/${branded.version}/docx`,
           branded.docx_filename || "CV.docx",
         );
       } else {
         const result = await postAuthenticatedDownload(
-          `/api/candidates/stages/${stageId}/cv/branded/preview-docx`,
+          `/api/candidates/stages/${cvStageId}/cv/branded/preview-docx`,
           { content_html: branded.content_html ?? "", expected_revision: branded.edit_revision },
         );
         downloadBlob(result.blob, result.filename || "SZKIC_CV.docx");
@@ -619,7 +640,7 @@ export function CvToClientCard({
             if (!open) refresh();
           }}
           onRegenerate={openGenerator}
-          stageId={stageId}
+          stageId={cvStageId}
           jobTitle={jobLabel}
           candidateName={candidateName}
         />

@@ -188,17 +188,24 @@ describe("NotificationsTab", () => {
   it("usuwa override po potwierdzeniu, a anulowanie nic nie wysyła", async () => {
     mockLoad([override()]);
     mocks.overridesDelete.mockResolvedValue({});
-    const confirmMock = vi.fn().mockReturnValueOnce(false).mockReturnValueOnce(true);
-    vi.stubGlobal("confirm", confirmMock);
+    // Runda 11 (FRONT): okno aplikacji zamiast natywnego confirm().
+    const nativeConfirm = vi.fn();
+    vi.stubGlobal("confirm", nativeConfirm);
 
     render(<NotificationsTab clientId={CLIENT_ID} />);
     await screen.findByText(/Proces: Default B2B/);
 
     fireEvent.click(screen.getByTitle("Usuń"));
-    expect(confirmMock).toHaveBeenCalledTimes(1);
+    let dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent("Usunąć override? Stage wróci do baseline.");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Anuluj" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(mocks.overridesDelete).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByTitle("Usuń"));
+    dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Usuń" }));
+    expect(nativeConfirm).not.toHaveBeenCalled();
     await waitFor(() =>
       expect(mocks.overridesDelete).toHaveBeenCalledWith(CLIENT_ID, 500),
     );
@@ -208,7 +215,6 @@ describe("NotificationsTab", () => {
   it("nieudane usunięcie informuje użytkownika", async () => {
     mockLoad([override()]);
     mocks.overridesDelete.mockRejectedValue({ response: { status: 403 } });
-    vi.stubGlobal("confirm", vi.fn(() => true));
     const alertMock = vi.fn();
     vi.stubGlobal("alert", alertMock);
 
@@ -216,6 +222,8 @@ describe("NotificationsTab", () => {
     await screen.findByText(/Proces: Default B2B/);
 
     fireEvent.click(screen.getByTitle("Usuń"));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Usuń" }));
 
     await waitFor(() => expect(alertMock).toHaveBeenCalledWith("Nie udało się usunąć."));
     expect(mocks.overridesList).toHaveBeenCalledTimes(1);

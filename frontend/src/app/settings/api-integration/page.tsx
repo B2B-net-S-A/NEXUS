@@ -20,6 +20,7 @@ import {
   type ScopeInfoDto,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -239,6 +240,7 @@ interface ClientRowProps {
 function ClientRow({ client, scopes, onChange }: ClientRowProps) {
   const queryClient = useQueryClient();
   const [pending, setPending] = useState<"toggle" | "delete" | null>(null);
+  const { askConfirm, confirmDialog } = useConfirmV2();
 
   const labelFor = (value: string) =>
     scopes.find((s) => s.value === value)?.label ?? value;
@@ -273,6 +275,7 @@ function ClientRow({ client, scopes, onChange }: ClientRowProps) {
         client.enabled ? "border-border" : "border-border opacity-60",
       )}
     >
+      {confirmDialog}
       <div className="flex items-start justify-between gap-4">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
@@ -336,8 +339,14 @@ function ClientRow({ client, scopes, onChange }: ClientRowProps) {
           </button>
           <button
             type="button"
-            onClick={() => {
-              if (confirm(`Usunąć klienta "${client.name}"?`)) {
+            onClick={async () => {
+              if (
+                await askConfirm({
+                  title: `Usunąć klienta "${client.name}"?`,
+                  confirmLabel: "Usuń",
+                  variant: "destructive",
+                })
+              ) {
                 remove.mutate();
               }
             }}

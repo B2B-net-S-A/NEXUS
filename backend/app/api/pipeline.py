@@ -3417,6 +3417,7 @@ async def bulk_move_candidates(
     data: BulkMoveRequest,
     current_user: RecruiterPlus,
     db: AsyncSession = Depends(get_db),
+    request: Request = None,  # type: ignore[assignment] — wywołania wprost w testach
 ):
     """Move multiple candidates to a stage at once."""
     if not data.candidate_ids or not data.job_id:
@@ -3641,6 +3642,13 @@ async def bulk_move_candidates(
             work_channel=PriorityChannel.database,
             notes=data.notes,
             **bulk_rate,
+            # Runda 11 (PIPE-1): osoba spoza rekrutacji dodana paczką dostaje
+            # to samo źródło wejścia i blokadę 12 h co pojedynczy /move.
+            **(
+                _fresh_pair_entry_kwargs(current_user, request)
+                if cid in fresh_ids
+                else {}
+            ),
         )
         await create_original_cv_snapshot(db, entry)
         await maybe_ensure_contact_opportunity(

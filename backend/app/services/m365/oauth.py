@@ -7,27 +7,35 @@ so Azure generated its own PKCE challenge under the hood and then rejected
 our verifier at the token exchange with AADSTS501481.
 
 Flow:
-- /authorize generates (verifier, challenge) locally, signs a state JWT that
-  carries the verifier + user_id, and builds the authorize URL by hand.
-- /callback decodes state → verifier, posts the authorization_code grant to
-  /token with code + code_verifier in the form body.
+- /authorize signs a state JWT with user_id + a random nonce ``n``; the PKCE
+  verifier is DERIVED server-side (HMAC of the signing key and ``n``), so it
+  never appears in the authorize URL, and builds the authorize URL by hand.
+- /callback decodes state → nonce → verifier, consumes the nonce once
+  (``consume_state``), posts the authorization_code grant to /token with
+  code + code_verifier in the form body.
 """
 
 from __future__ import annotations
 
 import base64
 import hashlib
+import hmac
 import json
 import logging
-import os
+import secrets
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from urllib.parse import urlencode
 
 import httpx
 from jose import JWTError, jwt
+from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.models.app_setting import AppSetting
 from app.services.m365.provider import TokenBundle
 
 logger = logging.getLogger(__name__)
@@ -66,14 +74,6 @@ class M365NotConfigured(RuntimeError):
 # ── PKCE ─────────────────────────────────────────────────────────────────────
 
 
-def generate_pkce_pair() -> tuple[str, str]:
-    """Return (verifier, challenge). Verifier 43-128 chars URL-safe base64;
-    challenge is S256(verifier) URL-safe base64 without padding."""
-    verifier = base64.urlsafe_b64encode(os.urandom(64)).rstrip(b"=").decode("ascii")
-    challenge = _derive_challenge(verifier)
-    return verifier, challenge
-
-
 def _derive_challenge(verifier: str) -> str:
     digest = hashlib.sha256(verifier.encode("ascii")).digest()
     return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
@@ -86,28 +86,105 @@ def _state_signing_key() -> str:
     return settings.M365_STATE_SIGNING_KEY or settings.SECRET_KEY
 
 
-def sign_state(user_id: int, pkce_verifier: str) -> str:
+_STATE_PURPOSE = "m365_oauth_state"
+
+
+# Runda 11 (SEC, bliźniak R9-N1-4 i R10-N10-8): weryfikator PKCE jechał JAWNIE
+# w ``state``, a ``state`` wraca w adresie callbacku razem z kodem autoryzacji
+# (historia przeglądarki, logi proxy, Referer) i był wielokrotnego użytku przez
+# 10 min. Teraz ``state`` niesie tylko losowy ``n``, weryfikator wylicza serwer
+# (HMAC klucza podpisu), a callback zużywa ``n`` jednorazowo (``consume_state``).
+def pkce_verifier_for(nonce: str) -> str:
+    digest = hmac.new(
+        _state_signing_key().encode("utf-8"),
+        f"m365-pkce:{nonce}".encode("utf-8"),
+        hashlib.sha256,
+    ).digest()
+    # 43 znaki alfabetu base64url — mieści się w RFC 7636 (43–128).
+    return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+
+
+@dataclass(frozen=True)
+class M365OAuthState:
+    user_id: int
+    verifier: str
+    nonce_digest: str
+    expires_at: datetime
+
+
+def sign_state(user_id: int, nonce: Optional[str] = None) -> str:
     now = datetime.now(timezone.utc)
     payload = {
         "sub": str(user_id),
-        "pkce": pkce_verifier,
+        "n": nonce or secrets.token_urlsafe(24),
         "iat": now,
         "exp": now + timedelta(seconds=_STATE_TTL_SECONDS),
-        "purpose": "m365_oauth_state",
+        "purpose": _STATE_PURPOSE,
     }
     return jwt.encode(payload, _state_signing_key(), algorithm=_STATE_ALGORITHM)
 
 
-def verify_state(token: str) -> tuple[int, str]:
-    """Return (user_id, pkce_verifier) or raise JWTError."""
+def verify_state(token: str) -> M365OAuthState:
+    """Stan łączenia skrzynki albo ``JWTError`` — także przy obcym ``purpose``
+    i przy ``state`` sprzed rundy 11 (bez ``n``)."""
     try:
         payload = jwt.decode(token, _state_signing_key(), algorithms=[_STATE_ALGORITHM])
     except JWTError as exc:
-        logger.info("m365 state verify failed: %s", exc)
+        logger.info("m365 state verify failed: %s", type(exc).__name__)
         raise
-    if payload.get("purpose") != "m365_oauth_state":
+    if payload.get("purpose") != _STATE_PURPOSE:
         raise JWTError("wrong purpose")
-    return int(payload["sub"]), str(payload["pkce"])
+    nonce = payload.get("n")
+    if not isinstance(nonce, str) or not nonce:
+        raise JWTError("state without nonce")
+    return M365OAuthState(
+        user_id=int(payload["sub"]),
+        verifier=pkce_verifier_for(nonce),
+        nonce_digest=hashlib.sha256(nonce.encode("utf-8")).hexdigest(),
+        expires_at=datetime.fromtimestamp(int(payload["exp"]), tz=timezone.utc),
+    )
+
+
+_CONSUMED_STATES_KEY = "m365_oauth_consumed_states"
+
+
+async def consume_state(db: AsyncSession, state: M365OAuthState) -> bool:
+    """Zużywa ``state`` (bez commitu). ``False`` = ten ``state`` już wrócił.
+
+    Ten sam wzór co ``jjit_connection.consume_state``: wiersz ``app_settings``
+    pod blokadą serializuje równoległe callbacki; w wartości leżą skróty ``n``
+    (nie same ``n``) do upływu ich ważności.
+    """
+    await db.execute(
+        pg_insert(AppSetting)
+        .values(key=_CONSUMED_STATES_KEY, value={})
+        .on_conflict_do_nothing(index_elements=["key"])
+    )
+    row = await db.scalar(
+        select(AppSetting)
+        .where(AppSetting.key == _CONSUMED_STATES_KEY)
+        .with_for_update()
+    )
+    now = datetime.now(timezone.utc)
+    seen: dict[str, str] = {}
+    for digest, expires in (row.value or {}).items():
+        try:
+            if datetime.fromisoformat(expires) > now:
+                seen[digest] = expires
+        except (TypeError, ValueError):
+            continue
+    if state.nonce_digest in seen:
+        return False
+    seen[state.nonce_digest] = state.expires_at.isoformat()
+    row.value = seen
+    await db.flush()
+    return True
+
+
+def new_authorize_url(user_id: int) -> str:
+    """Adres logowania Microsoft dla łączenia skrzynki (weryfikator poza URL-em)."""
+    nonce = secrets.token_urlsafe(24)
+    return build_authorize_url(sign_state(user_id, nonce), pkce_verifier_for(nonce))
 
 
 # ── Endpoint builders ────────────────────────────────────────────────────────

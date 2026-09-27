@@ -393,6 +393,31 @@ def _build_branded_response(
     )
 
 
+def with_pair_source(
+    response: CVBrandedResponse, pair: RecruitmentBrandedCvSummary
+) -> CVBrandedResponse:
+    """Pusty stan etapu + wskazanie CV firmowego pary z innego etapu.
+
+    Runda 11 (PIPE-3, F23): ruch na kolejną kolumnę zakłada nowy wiersz etapu
+    bez CV, a dokument zostaje na wierszu, na którym powstał. Nic nie jest
+    kopiowane ani przenoszone (edycje, wersje i linki zostają przy jednym
+    wierszu, bramka QC i tak czyta CV pary) — odpowiedź tylko mówi, gdzie
+    dokument leży, żeby karta nie proponowała generacji od nowa."""
+    if (
+        response.status != "none"
+        or pair.status not in ("draft", "finalized")
+        or pair.stage_id is None
+        or pair.stage_id == response.candidate_stage_id
+    ):
+        return response
+    return response.model_copy(
+        update={
+            "pair_source_stage_id": pair.stage_id,
+            "pair_source_status": pair.status,
+        }
+    )
+
+
 def _build_empty_branded_response(csv: CandidateStageCV) -> CVBrandedResponse:
     """Etap bez CV (``none``) — pusty stan, bez renderu i bez zapisu.
 
@@ -428,7 +453,10 @@ async def get_branded_cv(
     csv = await _load_csv_for_stage(db, stage_id, current_user, read_access=True)
 
     if csv.branded_status == "none":
-        return _build_empty_branded_response(csv)
+        return with_pair_source(
+            _build_empty_branded_response(csv),
+            await _branded_cv_summary_for_pair(db, csv.candidate_id, csv.job_id),
+        )
 
     updated_by_name: Optional[str] = None
     if csv.branded_updated_by:
@@ -1000,9 +1028,9 @@ async def _branded_cv_summary_for_pair(
 ) -> RecruitmentBrandedCvSummary:
     """CV firmowe pary (kandydat, rekrutacja): sfinalizowane wygrywa ze szkicem.
 
-    Samo „najnowszy etap z CV firmowym" nie wystarcza: ``GET …/cv/branded``
-    zakłada szkic przy pierwszym odczycie, więc obejrzenie CV na PÓŹNIEJSZYM
-    etapie przykrywałoby szkicem sfinalizowane CV wysłane klientowi. W obrębie
+    Samo „najnowszy etap z CV firmowym" nie wystarcza: szkic założony
+    pierwszą edycją na PÓŹNIEJSZYM etapie przykrywałby sfinalizowane CV
+    wysłane klientowi (GET niczego nie zapisuje od audytu 22.09.2026). W obrębie
     tego samego statusu wygrywa najnowszy etap. Wołający sprawdził już dostęp
     do rekrutacji.
     """

@@ -332,6 +332,7 @@ async def test_failed_build_is_retried_on_next_tick(
         return [reports._Mail("rada-r9@example.com", f"Rada {period_key}", "t")]
 
     monkeypatch.setattr(reports, "_monthly_mails", flaky_mails)
+    monkeypatch.setattr(reports, "_weekly_mails", _no_weekly_mails)
     year = _r9_year()
     day = reports.first_business_day(year, 9)
     key = f"{year}-08"

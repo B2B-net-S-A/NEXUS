@@ -7505,6 +7505,30 @@ Raport: `docs/audits/2026-09-25/runda-10.md`; testy manualne UI Codexa (F01–F2
 - Stawka kandydata w propozycjach jawna dla wszystkich; stawka do klienta
   bez zmian (tylko admin/DL zapisują, rekruter nie widzi).
 
+### Runda 11 (27.09.2026, po PR #1874)
+
+Raport: `docs/audits/2026-09-25/runda-11.md` (domknięcie pozycji z rundy 10).
+
+- **`/bulk-move` i `/move` otwierają świeżą parę tą samą funkcją**
+  (`_fresh_pair_entry_kwargs`: `entry_source` + blokada 12 h, integracja =
+  `auto_match` bez blokady). Nowa ścieżka zakładająca proces = ta funkcja.
+- **Korpus słów kluczowych ma trzecie źródło: `screening_notes.verified_skills`**
+  (tylko `confirmed`, sama nazwa), przeliczane triggerem na `screening_notes`
+  (migracja 0396). Nie zapisuj screeningu do `verified_tech` — to pole czyta
+  scoring. Zmiana źródeł = podbicie `CORPUS_SOURCES_VERSION` (dziś 3).
+- **OAuth łączenia skrzynki M365: `state` niesie tylko nonce**, verifier PKCE
+  = HMAC klucza podpisu, nonce zużywany raz (`consume_state`,
+  `app_settings['m365_oauth_consumed_states']`). Nie wkładaj sekretów do `state`.
+- **Każdy render Jinja z treścią od użytkownika przez `_render_bounded`**
+  (`user_email_templates`): szablony maili, szablony umów, szkic kontraktu,
+  podgląd generatora B2B. Surowy `SandboxedEnvironment().render()` = OOM.
+- **Potwierdzenia we froncie przez `useConfirmV2()`** (`components/v2/modals/ConfirmV2.tsx`)
+  albo istniejące przyciski potwierdzane w wierszu — natywne `confirm()`
+  odrzuca strażnik `src/__tests__/native-confirm-guard.test.ts`.
+- **CV firmowe etapu jest per wiersz etapu**; GET dla etapu bez własnego CV
+  niesie `pair_source_stage_id`/`pair_source_status` — ekrany czytają CV pary
+  stamtąd. Plików CV nie kopiujemy ani nie przenosimy.
+
 ## Narzędzia rekrutera — reguły po audycie 17.09.2026
 
 Audyt `docs/recruiter-tools-audit-2026-09-17.md`, raport z poprawek

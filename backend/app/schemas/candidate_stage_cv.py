@@ -63,6 +63,11 @@ class CVBrandedResponse(BaseModel):
     finalized_by_name: Optional[str] = None
     snapshot_filename: Optional[str] = None
     rendered_from_default: bool = False
+    # Runda 11 (PIPE-3): etap bez własnego CV (``none``) wskazuje wiersz etapu
+    # tej pary, na którym leży CV firmowe (ruch na kolejną kolumnę zakłada nowy
+    # wiersz bez CV) — jak ``screening_source_stage_id`` przy arkuszu.
+    pair_source_stage_id: Optional[int] = None
+    pair_source_status: Optional[BrandedStatusLiteral] = None
 
 
 class CVBrandedUpdate(BaseModel):

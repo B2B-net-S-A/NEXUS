@@ -12,6 +12,7 @@ import {
 import { apiErrorMessage } from "@/lib/api-error";
 import { hasSectionAccess } from "@/lib/section-access";
 import { hasRole, useAuthStore } from "@/store/auth";
+import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 
 // Sześć warstw silnika — spójne z backendowym built-in (scoring_service.py):
 // 35 + 30 + 12 + 8 + 5 + 10 = 100. Edytor był 5-warstwowy (M3-SCORE/UI):
@@ -325,6 +326,7 @@ export default function ScoringWeightsPage() {
   });
 
   const [editing, setEditing] = useState<ScoringWeightProfile | null | "new">(null);
+  const { askConfirm, confirmDialog } = useConfirmV2();
 
   const deleteMut = useMutation({
     mutationFn: (id: number) => scoringWeightsApi.remove(id),
@@ -349,6 +351,7 @@ export default function ScoringWeightsPage() {
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
+      {confirmDialog}
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex-1 min-w-0 basis-64">
           <h1 className="text-2xl font-bold text-foreground dark:text-foreground flex items-center gap-2">
@@ -416,8 +419,15 @@ export default function ScoringWeightsPage() {
               profile={p}
               canEdit={canEdit}
               onEdit={() => setEditing(p)}
-              onDelete={() => {
-                if (canEdit && confirm(`Usunąć profil "${p.name}"?`)) {
+              onDelete={async () => {
+                if (
+                  canEdit &&
+                  (await askConfirm({
+                    title: `Usunąć profil "${p.name}"?`,
+                    confirmLabel: "Usuń",
+                    variant: "destructive",
+                  }))
+                ) {
                   deleteMut.mutate(p.id);
                 }
               }}

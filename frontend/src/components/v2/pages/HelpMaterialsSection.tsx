@@ -20,6 +20,7 @@ import {
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { HelpMaterial, helpMaterialsApi } from "@/lib/api/help-materials";
 import { isTemplateMaterial } from "@/lib/help-invite";
 import {
@@ -202,6 +203,7 @@ export function HelpMaterialsSection({
   const queryClient = useQueryClient();
   const [rawQuery, setRawQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
+  const { askConfirm, confirmDialog } = useConfirmV2();
 
   useEffect(() => {
     const handle = setTimeout(() => setDebouncedQuery(rawQuery), 250);
@@ -243,13 +245,14 @@ export function HelpMaterialsSection({
     onCategoriesChange?.(categories);
   }, [categories, onCategoriesChange]);
 
-  const handleDelete = (material: HelpMaterial) => {
-    if (typeof window !== "undefined") {
-      const ok = window.confirm(
-        `Usunąć materiał "${material.title}"? Operacja nieodwracalna (dokument w SharePoincie zostaje).`,
-      );
-      if (!ok) return;
-    }
+  const handleDelete = async (material: HelpMaterial) => {
+    const ok = await askConfirm({
+      title: `Usunąć materiał "${material.title}"?`,
+      description: "Operacja nieodwracalna (dokument w SharePoincie zostaje).",
+      confirmLabel: "Usuń",
+      variant: "destructive",
+    });
+    if (!ok) return;
     deleteMutation.mutate(material.id);
   };
 
@@ -257,6 +260,7 @@ export function HelpMaterialsSection({
 
   return (
     <div className="space-y-4">
+      {confirmDialog}
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="w-full sm:max-w-sm">
           <Input

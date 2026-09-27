@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import { ScorecardSchemaBuilder } from "@/components/ScorecardSchemaBuilder";
 import { StageNotificationRulesModal } from "@/components/StageNotificationRulesModal";
+import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 
 const CATEGORY_LABELS: Record<string, string> = {
   internal: "Wewnętrzny",
@@ -49,6 +50,7 @@ export function PipelineTemplatesTab() {
   const [detail, setDetail] = useState<PipelineTemplateDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [savingOrder, setSavingOrder] = useState(false);
+  const { askConfirm, confirmDialog } = useConfirmV2();
   const [error, setError] = useState<string | null>(null);
   const [scorecardEditor, setScorecardEditor] = useState<{
     stageDefId: number;
@@ -122,7 +124,15 @@ export function PipelineTemplatesTab() {
 
   const handleArchive = async () => {
     if (!detail) return;
-    if (!confirm(`Zarchiwizować proces "${detail.name}"?`)) return;
+    if (
+      !(await askConfirm({
+        title: `Zarchiwizować proces "${detail.name}"?`,
+        confirmLabel: "Zarchiwizuj",
+        variant: "destructive",
+      }))
+    ) {
+      return;
+    }
     try {
       await pipelineTemplatesApi.archive(detail.id);
       setSelectedId(null);
@@ -177,7 +187,15 @@ export function PipelineTemplatesTab() {
 
   const handleDeleteStage = async (stage: StageDef) => {
     if (!detail) return;
-    if (!confirm(`Usunąć etap "${stage.name}"?`)) return;
+    if (
+      !(await askConfirm({
+        title: `Usunąć etap "${stage.name}"?`,
+        confirmLabel: "Usuń",
+        variant: "destructive",
+      }))
+    ) {
+      return;
+    }
     try {
       await pipelineTemplatesApi.deleteStage(detail.id, stage.id);
       await loadDetail(detail.id);
@@ -259,11 +277,13 @@ export function PipelineTemplatesTab() {
     // starts blocking. Turning it OFF only relaxes, so it needs no confirm.
     if (
       next &&
-      !confirm(
-        `Włączyć blokadę dla powodu "${rejectionReasonLabel(reason)}"?\n\n` +
+      !(await askConfirm({
+        title: `Włączyć blokadę dla powodu "${rejectionReasonLabel(reason)}"?`,
+        description:
           "Zadziała wstecz — wszystkie dotychczasowe odrzucenia z tym powodem " +
-          "zaczną blokować ponowne zgłoszenie do tego samego hiring managera."
-      )
+          "zaczną blokować ponowne zgłoszenie do tego samego hiring managera.",
+        confirmLabel: "Włącz blokadę",
+      }))
     ) {
       return;
     }
@@ -280,7 +300,14 @@ export function PipelineTemplatesTab() {
 
   const handleDeactivateReason = async (reason: RejectionReasonDef) => {
     if (!detail) return;
-    if (!confirm(`Wyłączyć powód "${rejectionReasonLabel(reason)}"?`)) return;
+    if (
+      !(await askConfirm({
+        title: `Wyłączyć powód "${rejectionReasonLabel(reason)}"?`,
+        confirmLabel: "Wyłącz",
+      }))
+    ) {
+      return;
+    }
     try {
       await pipelineTemplatesApi.deactivateRejectionReason(detail.id, reason.id);
       await loadDetail(detail.id);
@@ -291,6 +318,7 @@ export function PipelineTemplatesTab() {
 
   return (
     <>
+      {confirmDialog}
       <div className="flex flex-wrap items-start justify-between gap-3 mb-6">
         <div className="min-w-0">
           <h2 className="text-2xl font-bold text-foreground dark:text-foreground">

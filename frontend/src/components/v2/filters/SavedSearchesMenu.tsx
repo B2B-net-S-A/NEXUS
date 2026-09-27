@@ -21,6 +21,7 @@ import {
 import { semanticsReapproval } from "@/lib/saved-search-reapproval";
 import { SemanticsReapprovalPanel } from "@/components/v2/filters/SemanticsReapprovalPanel";
 import { useAuthStore } from "@/store/auth";
+import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -58,6 +59,7 @@ export function SavedSearchesMenu({ currentQs, onApply }: SavedSearchesMenuProps
  const [reviewId, setReviewId] = useState<number | null>(null);
  // Wyjaśnienie w menu zamiast natywnego `alert()`, który zamrażał kartę.
  const [notice, setNotice] = useState<string | null>(null);
+ const { askConfirm, confirmDialog } = useConfirmV2();
  const currentUser = useAuthStore((s) => s.user);
  const queryClient = useQueryClient();
 
@@ -94,16 +96,18 @@ export function SavedSearchesMenu({ currentQs, onApply }: SavedSearchesMenuProps
  // Toggle dzwonka. Przy włączaniu odświeżamy też filters.api z zapisanego
  // qs — starsze searche mają tylko {qs}, a skaner potrzebuje parametrów API.
  const alertMutation = useMutation({
- mutationFn: (ss: SavedSearchRow) => {
+ mutationFn: async (ss: SavedSearchRow) => {
  const enable = !ss.notify_new_matches;
  if (
  enable &&
  ss.requires_reapproval &&
- !confirm(
- `Zapis „${ss.name}" zawierał wycofane miesięczne kryteria stawki. Zostały usunięte bez konwersji. Czy zatwierdzasz pozostałe filtry i chcesz ponownie włączyć alert?`,
- )
+ !(await askConfirm({
+ title: `Włączyć ponownie alert dla „${ss.name}"?`,
+ description: `Zapis „${ss.name}" zawierał wycofane miesięczne kryteria stawki. Zostały usunięte bez konwersji. Czy zatwierdzasz pozostałe filtry i chcesz ponownie włączyć alert?`,
+ confirmLabel: "Zatwierdź i włącz",
+ }))
  ) {
- return Promise.resolve(null);
+ return null;
  }
  return savedSearchesApi.update(
  ss.id,
@@ -274,9 +278,15 @@ export function SavedSearchesMenu({ currentQs, onApply }: SavedSearchesMenuProps
  </button>
  <button
  type="button"
- onClick={(e) => {
+ onClick={async (e) => {
  e.stopPropagation();
- if (confirm(`Usunąć zapisane wyszukiwanie „${ss.name}"?`)) {
+ if (
+ await askConfirm({
+ title: `Usunąć zapisane wyszukiwanie „${ss.name}"?`,
+ confirmLabel: "Usuń",
+ variant: "destructive",
+ })
+ ) {
  deleteMutation.mutate(ss.id);
  }
  }}
@@ -320,6 +330,9 @@ export function SavedSearchesMenu({ currentQs, onApply }: SavedSearchesMenuProps
  </Button>
  </PopoverTrigger>
  <PopoverContent align="start" className="w-72 p-2">
+ {/* W treści popovera: okno potwierdzenia jest wtedy warstwą-dzieckiem
+     i nie zamyka menu przy przejęciu fokusu. */}
+ {confirmDialog}
  {notice && (
  <p
  role="status"

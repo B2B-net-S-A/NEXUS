@@ -141,8 +141,15 @@ async def test_finance_branded_cv_lazy_preview_does_not_persist(monkeypatch):
         async def refresh(self, value):
             self.refreshes += 1
 
+    async def no_pair_cv(db, candidate_id, job_id):
+        # Runda 11 (F23): pusty etap pyta o CV firmowe pary — tu go nie ma.
+        return SimpleNamespace(status="none", stage_id=None)
+
     db = RecordingDb()
     monkeypatch.setattr(candidate_stage_cv, "_load_csv_for_stage", load_csv)
+    monkeypatch.setattr(
+        candidate_stage_cv, "_branded_cv_summary_for_pair", no_pair_cv
+    )
 
     response = await candidate_stage_cv.get_branded_cv(
         stage_id=17,
