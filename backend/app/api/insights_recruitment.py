@@ -105,9 +105,13 @@ FUNNEL_STAGES: list[dict] = [
     },
     {
         # Kod `interview` to od v5 etap „QC CV” (przed wysłaniem CV), nie
-        # rozmowa — rozmowy liczy `client_interview` (R8-V2-2).
+        # rozmowa — rozmowy liczy `client_interview` (R8-V2-2). Lejek liczy
+        # jednak po KODZIE, a import Traffita nadal zapisuje tym kodem etapy
+        # rozmów („Interview”, „Po Interview”), więc sama etykieta „QC CV”
+        # mówiła nieprawdę (runda 10, R10-N2-5). Regułę z nazwy ma raport
+        # „Lejek po etapach”.
         "stage": "interview",
-        "label": "QC CV",
+        "label": "QC CV lub rozmowa z Traffita (kod „interview”)",
         "in_milestones": True,
     },
     {

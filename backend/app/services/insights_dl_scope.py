@@ -21,8 +21,13 @@ from app.services.job_delivery_lead_fill import _HEADS
 # wiersze `jobs`, wiec renderowalby sie jako osobny kawalek donuta, podczas gdy
 # Klienci juz go zwineli — dwoch sum nie dalo by sie uzgodnic wzrokiem.
 CLIENT_DISPLAY_NAME_SQL = "COALESCE(NULLIF(BTRIM(c.display_name), ''), c.name)"
+# Runda 10 (R10-N2-4): lustro `job_client_listed_clause` (UAT B73) + scalenie.
+# `deleted_at` odcina klienta usuniętego z historią (import portfela potrafi
+# cofnąć mu `archived_at`, więc sam `archived_at` go nie łapał). Świadomie BEZ
+# `archived_at`: archiwalny prawdziwy klient ma historyczne rekrutacje
+# i w Portfelach DL ma nosić swoją nazwę, nie „(klient ukryty lub scalony)”.
 CLIENT_VISIBLE_SQL = (
-    "c.hidden IS FALSE AND c.archived_at IS NULL AND c.merged_into_client_id IS NULL"
+    "c.hidden IS FALSE AND c.deleted_at IS NULL AND c.merged_into_client_id IS NULL"
 )
 
 
