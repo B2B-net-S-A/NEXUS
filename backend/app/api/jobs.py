@@ -651,13 +651,21 @@ def jobs_search_clause(q: str):
 
 
 def jobs_mine_clause(current_user: User):
-    """„Moje projekty" — właściciel operacyjny ALBO współpracownik."""
+    """„Moje projekty" — właściciel operacyjny, współpracownik ALBO osoba
+    z żywym przypisaniem do requestu (``job_work_assignments``).
+
+    Runda 9 (R9-N15-2): sourcer 2. priorytetu, drugi rekruter i osoba dodana
+    ręcznie na pulpicie „Requesty i obłożenie” pracują nad requestem, a do tej
+    rundy nie widzieli go w „Moje”. Ta sama klauzula liczy listę, liczniki
+    zakresu i „Moje następne kroki”.
+    """
     collab_subq = select(JobCollaborator.job_id).where(
         JobCollaborator.user_id == current_user.id
     )
     return or_(
         operational_owner_clause(Job.recruiter_id, current_user),
         Job.id.in_(collab_subq),
+        Job.id.in_(_live_work_assignment_job_ids([current_user.id])),
     )
 
 
