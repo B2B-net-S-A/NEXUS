@@ -1,11 +1,14 @@
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import func, select, text
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.models.note import Note
+from app.models.deleted_note_source import DeletedNoteSource
+from app.models.note import Note, NoteType
 from app.models.candidate import Candidate
 from app.models.job import Job
 from app.models.note_mention import NoteMention
@@ -32,6 +35,8 @@ from app.services.mention_dispatch import (
     build_note_context_label,
     build_note_deep_link,
     enqueue_mention_notifications,
+    refresh_note_mention_snippets,
+    retract_note_mention_notifications,
     send_mention_side_effects,
     trim_snippet,
 )
@@ -67,9 +72,12 @@ def _can_modify_note(user: User, note: Note) -> bool:
 async def list_notes(
     current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
-    candidate_id: Optional[int] = None,
-    job_id: Optional[int] = None,
-    note_type: Optional[str] = None,
+    # Runda 10 (R10-N6-7): `0` przechodziło sprawdzenie P0.6 (`is None`), ale
+    # filtr `if candidate_id:` go pomijał — lista całej firmy. R10-N6-6: typ
+    # spoza enuma dawał 500 z Postgresa zamiast 422.
+    candidate_id: Optional[int] = Query(None, ge=1),
+    job_id: Optional[int] = Query(None, ge=1),
+    note_type: Optional[NoteType] = None,
     unattached: bool = False,
     limit: int = Query(1000, ge=1, le=2000),
 ):
@@ -102,11 +110,11 @@ async def list_notes(
         .outerjoin(User, Note.author_id == User.id)
         .outerjoin(Job, Note.job_id == Job.id)
     )
-    if candidate_id:
+    if candidate_id is not None:
         query = query.where(Note.candidate_id == candidate_id)
-    if job_id:
+    if job_id is not None:
         query = query.where(Note.job_id == job_id)
-    if note_type:
+    if note_type is not None:
         query = query.where(Note.note_type == note_type)
     if unattached:
         # Panel „Meetingi bez powiązania” w Źródłach AI Championa: wyłącznie
@@ -147,6 +155,16 @@ async def create_note(
     current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
 ):
+    # Runda 10 (R10-N6-8): nieistniejący kandydat albo rekrutacja kończyły się
+    # IntegrityError (FK) przy flush, czyli 500.
+    if (
+        data.candidate_id is not None
+        and await db.get(Candidate, data.candidate_id) is None
+    ):
+        raise HTTPException(status_code=404, detail="Kandydat nie istnieje.")
+    if data.job_id is not None and await db.get(Job, data.job_id) is None:
+        raise HTTPException(status_code=404, detail="Rekrutacja nie istnieje.")
+
     note = Note(**data.model_dump(), author_id=current_user.id)
     db.add(note)
     await db.flush()  # need note.id
@@ -283,6 +301,9 @@ async def update_note(
     notification_title = (
         f"{current_user.name or current_user.email} oznaczył(a) Cię w notatce"
     )
+    if "content" in data.model_fields_set:
+        # Runda 10 (R10-N6-3): wzmianka w dzwonku niosła pierwotny fragment.
+        await refresh_note_mention_snippets(db, note.id, snippet)
     if to_add:
         pairs = await enqueue_mention_notifications(
             db,
@@ -325,7 +346,100 @@ async def delete_note(
         raise HTTPException(
             status_code=403, detail="Brak uprawnień do usunięcia tej notatki"
         )
+    await _tombstone_traffit_source(db, note)
+    await retract_note_mention_notifications(db, note.id)
+    candidate_id = note.candidate_id
     await db.delete(note)
+    await db.flush()
+    if candidate_id is not None:
+        await _forget_note_facts(db, candidate_id, actor_id=current_user.id)
+
+
+_TRAFFIT_NOTE_ACTIONS = (
+    "traffit:Notatka",
+    "traffit:Email",
+    "traffit:Reply",
+    "traffit:Rozmowa telefoniczna",
+    "traffit:Spotkanie",
+)
+
+
+async def _tombstone_traffit_source(db: AsyncSession, note: Note) -> None:
+    """Runda 10 (R10-N6-1): usunięta notatka z Traffita nie wraca z syncem.
+
+    Promocja aktywności (``_PROMOTE_NOTES_SQL``) deduplikowała wyłącznie po
+    ISTNIEJĄCEJ notatce, więc pełny bieg zakładał usuniętą od nowa. Notatki
+    z migracji 0077 nie mają ``source_ref`` — promocja dopasowuje je po
+    (kandydat, ``created_at``), więc nagrobek dostaje każda aktywność z tym
+    samym znacznikiem czasu (żadna z nich nie była promowana obok 0077).
+    """
+    refs: set[str] = set()
+    source_ref = note.source_ref or ""
+    if source_ref.startswith("traffit:activity:"):
+        refs.add(source_ref)
+    elif not source_ref and note.candidate_id is not None and note.created_at:
+        rows = await db.execute(
+            text(
+                "SELECT 'traffit:activity:' || external_id FROM activities "
+                "WHERE external_source = 'traffit' AND entity_type = 'candidate' "
+                "AND entity_id = :cid AND created_at = :at "
+                "AND external_id IS NOT NULL "
+                "AND action = ANY(CAST(:actions AS text[]))"
+            ),
+            {
+                "cid": note.candidate_id,
+                "at": note.created_at,
+                "actions": list(_TRAFFIT_NOTE_ACTIONS),
+            },
+        )
+        refs.update(ref for (ref,) in rows.all())
+    for ref in sorted(refs):
+        await db.execute(
+            pg_insert(DeletedNoteSource)
+            .values(source_ref=ref)
+            .on_conflict_do_nothing(index_elements=["source_ref"])
+        )
+
+
+async def _forget_note_facts(
+    db: AsyncSession, candidate_id: int, *, actor_id: int
+) -> None:
+    """Runda 10 (R10-N6-2): fakty z usuniętej notatki nie zostają na profilu.
+
+    Są jeszcze notatki → znacznik zmiany, nocna ekstrakcja policzy fakty od
+    nowa. Nie ma żadnej → fakty z notatek i stawka wpisana przez notatki
+    znikają od razu (kandydat bez notatek nie trafia już do selekcji).
+    """
+    from app.services.candidate_notes_facts import (
+        clear_notes_facts,
+        mark_notes_changed,
+    )
+
+    candidate = await db.scalar(
+        select(Candidate).where(Candidate.id == candidate_id).with_for_update()
+    )
+    if candidate is None:
+        return
+    remaining = await db.scalar(
+        select(func.count(Note.id)).where(Note.candidate_id == candidate_id)
+    )
+    if remaining:
+        mark_notes_changed(candidate, now_iso=datetime.now(timezone.utc).isoformat())
+        return
+    rate_audit = clear_notes_facts(candidate)
+    if rate_audit is None:
+        return
+    from app.services import candidate_audit
+    from app.services.match_score_cache import mark_stale_for_candidate
+
+    candidate_audit.record_candidate_audit(
+        db,
+        action=candidate_audit.PROFILE_RATE_CHANGED,
+        user_id=actor_id,
+        entity_id=candidate_id,
+        details=rate_audit,
+    )
+    await mark_stale_for_candidate(db, candidate_id)
 
 
 @router.post("/{note_id}/link-job")
