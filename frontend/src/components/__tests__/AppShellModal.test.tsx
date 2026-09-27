@@ -222,6 +222,7 @@ describe("EditCandidateModal — profile rate boundary", () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
+    const onSuccess = vi.fn();
 
     render(
       <QueryClientProvider client={queryClient}>
@@ -234,7 +235,7 @@ describe("EditCandidateModal — profile rate boundary", () => {
             expected_rate_currency: "PLN",
           }}
           onClose={() => {}}
-          onSuccess={() => {}}
+          onSuccess={onSuccess}
         />
       </QueryClientProvider>,
     );
@@ -244,15 +245,45 @@ describe("EditCandidateModal — profile rate boundary", () => {
     ).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Zapisz zmiany" }));
 
+    // Bez zmian nie ma czego wysyłać (runda 9, R9-N8-7) — stawka ani
+    // tożsamość nie jadą „przy okazji”.
+    await waitFor(() => expect(onSuccess).toHaveBeenCalledTimes(1));
+    expect(api.patch).not.toHaveBeenCalled();
+  });
+
+  it("sends only changed fields, never the stale status or preferences (R9-N8-7)", async () => {
+    vi.mocked(api.get).mockResolvedValue({ data: [] });
+    vi.mocked(phase5Api.clientsLookup).mockResolvedValue({ data: [] } as never);
+    vi.mocked(api.patch).mockResolvedValue({ data: {} });
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <EditCandidateModal
+          candidate={{
+            id: 13,
+            name: "Jan",
+            lastname: "Kowalski",
+            status: "active",
+            availability_date: "2026-10-01",
+            max_onsite_days_per_week: 2,
+            preferences: { remote_modes: ["hybrid"], industries: ["Fintech"] },
+          }}
+          onClose={() => {}}
+          onSuccess={() => {}}
+        />
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(queryClient.isFetching()).toBe(0));
+
+    await user.clear(screen.getByPlaceholderText("Fintech, E-commerce"));
+    await user.click(screen.getByRole("button", { name: "Zapisz zmiany" }));
+
     await waitFor(() => expect(api.patch).toHaveBeenCalledTimes(1));
-    const payload = vi.mocked(api.patch).mock.calls[0]?.[1] as Record<
-      string,
-      unknown
-    >;
-    expect(payload).not.toHaveProperty("expected_rate_hourly");
-    expect(payload).not.toHaveProperty("expected_rate_currency");
-    expect(payload).not.toHaveProperty("name");
-    expect(payload).not.toHaveProperty("lastname");
+    const payload = vi.mocked(api.patch).mock.calls[0]?.[1] as Record<string, unknown>;
+    // Czarna lista ustawiona w tym czasie przez kogoś innego nie jest cofana.
+    expect(payload).toEqual({ preferences: { industries: null } });
   });
 
   it("keeps imported object tags intact and shows only text tags in the field (UAT B60)", async () => {
@@ -280,15 +311,24 @@ describe("EditCandidateModal — profile rate boundary", () => {
 
     // Zapis bez zmian nie dotyka kolumny tagów.
     await user.click(screen.getByRole("button", { name: "Zapisz zmiany" }));
-    await waitFor(() => expect(api.patch).toHaveBeenCalledTimes(1));
-    expect(vi.mocked(api.patch).mock.calls[0]?.[1]).not.toHaveProperty("tags");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Zapisz zmiany" })).toBeEnabled());
+    expect(api.patch).not.toHaveBeenCalled();
+    expect(api.post).not.toHaveBeenCalled();
 
-    // Edycja tekstu zapisuje napisy i zachowuje obiekt importu.
-    await user.type(field, ", Java");
+    // Edycja tekstu dodaje i usuwa POJEDYNCZE tagi — lista (z obiektem
+    // importu i tagami dodanymi w tym czasie przez kolegę) nie jest nadpisywana.
+    vi.mocked(api.post).mockResolvedValue({ data: {} });
+    vi.mocked(api.delete).mockResolvedValue({ data: {} });
+    await user.clear(field);
+    await user.type(field, "Java");
     await user.click(screen.getByRole("button", { name: "Zapisz zmiany" }));
-    await waitFor(() => expect(api.patch).toHaveBeenCalledTimes(2));
-    const payload = vi.mocked(api.patch).mock.calls[1]?.[1] as Record<string, unknown>;
-    expect(payload.tags).toEqual(["Remote", "Java", sourceTag]);
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
+    expect(api.post).toHaveBeenCalledWith("/api/candidates/12/tags", { tag: "Java" });
+    await waitFor(() => expect(api.delete).toHaveBeenCalledTimes(1));
+    expect(api.delete).toHaveBeenCalledWith("/api/candidates/12/tags", {
+      params: { tag: "Remote" },
+    });
+    expect(api.patch).not.toHaveBeenCalled();
   });
 
   it("sends the office-presence rubric with explicit nulls for cleared preference keys (0278)", async () => {
@@ -344,7 +384,8 @@ describe("EditCandidateModal — profile rate boundary", () => {
     const preferences = payload.preferences as Record<string, unknown>;
     expect(preferences.remote_modes).toEqual(["hybrid", "onsite"]);
     expect(preferences.industries).toBeNull();
-    expect(preferences.office_cities).toBeNull();
+    // Klucz niezmieniony nie jedzie wcale (R9-N8-7).
+    expect(preferences).not.toHaveProperty("office_cities");
   });
 
   it("submits only the identity field that the recruiter actually changed", async () => {
@@ -416,12 +457,7 @@ describe("EditCandidateModal — profile rate boundary", () => {
     );
     await user.click(screen.getByRole("button", { name: "Zapisz zmiany" }));
 
-    await waitFor(() => expect(api.patch).toHaveBeenCalledTimes(1));
-    const payload = vi.mocked(api.patch).mock.calls[0]?.[1] as Record<
-      string,
-      unknown
-    >;
-    expect(payload).not.toHaveProperty("name");
-    expect(payload).not.toHaveProperty("lastname");
+    await waitFor(() => expect(onSuccess).toHaveBeenCalledTimes(1));
+    expect(api.patch).not.toHaveBeenCalled();
   });
 });

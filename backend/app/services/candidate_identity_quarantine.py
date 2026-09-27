@@ -242,7 +242,7 @@ async def _clear_quarantined_cv_projection(
     ):
         candidate.education = []
         cleared_fields.append("education")
-    from app.services.cv_enrichment import cv_experience_entries
+    from app.services.cv_enrichment import NON_CV_EXTRACTED_KEYS, cv_experience_entries
 
     # Ten sam kształt, który zapisał `_apply_cv_enrichment` (także stanowiska
     # z datami z odczytu v6) — inaczej doświadczenie złej osoby zostawałoby.
@@ -281,10 +281,14 @@ async def _clear_quarantined_cv_projection(
 
     # Keep only explicit locks and integration-owned metadata. Raw parser
     # output can itself describe the wrong person.
+    # Runda 9 (R9-N8-3): fakty z notatek i pochodzenie importu nie pochodzą
+    # z tego CV — kwarantanna CV ich nie kasuje.
     candidate.cv_extracted_data = {
         key: value
         for key, value in extracted.items()
-        if key.startswith("_manual_override_") or key.startswith("traffit_")
+        if key.startswith("_manual_override_")
+        or key.startswith("traffit_")
+        or key in NON_CV_EXTRACTED_KEYS
     }
     candidate.cv_extracted_data["_identity_quarantine_source"] = {
         "kind": source_kind,

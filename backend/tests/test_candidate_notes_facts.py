@@ -148,10 +148,31 @@ def test_modes_follow_office_days():
         ),
         ({"remote_only": False}, None),
         ({"work_modes": ["office"]}, None),
+        # Runda 9 (R9-N8-9): „hybrydowo” z zerem dni = sprzeczność → bez liczby.
+        (
+            {"work_modes": ["hybrid"], "max_onsite_days_per_week": 0},
+            {"modes": ["remote", "hybrid"], "max_onsite_days": None},
+        ),
     ],
 )
 def test_work_mode_from_insights(prefs, expected):
     assert work_mode_from_insights({"preferences": prefs}) == expected
+
+
+def test_changing_office_limit_clears_consent_for_more_days():
+    """Runda 9 (R9-N8-5): zgoda dotyczyła poprzedniego limitu dni."""
+    from app.services.candidate_notes_facts import set_profile_work_mode
+
+    cand = _cand(max_onsite_days_per_week=2, accepts_more_office_days=True)
+    set_profile_work_mode(cand, modes=["remote", "hybrid"], max_onsite_days=2)
+    assert cand.accepts_more_office_days is True  # ten sam limit — zgoda zostaje
+    set_profile_work_mode(cand, modes=["remote", "hybrid"], max_onsite_days=3)
+    assert cand.accepts_more_office_days is None
+
+    filled = _cand(accepts_more_office_days=False)
+    fill_work_mode_from_notes(filled, {"preferences": {"max_onsite_days_per_week": 1}})
+    assert filled.max_onsite_days_per_week == 1
+    assert filled.accepts_more_office_days is None
 
 
 def test_work_mode_fill_is_per_field():

@@ -39,6 +39,10 @@ from app.services.candidate_location_writer import (
 logger = logging.getLogger(__name__)
 
 _CV_CONTACT_FIELDS = ("first_name", "last_name", "email", "phone", "city")
+# Klucze ``cv_extracted_data`` spoza odczytu CV: fakty z notatek (nocna pętla
+# ``notes_insights_sync``) i pochodzenie rekordu z importu Traffita. Odczyt CV
+# i kwarantanna tożsamości CV ich nie ruszają.
+NON_CV_EXTRACTED_KEYS = ("_notes_insights", "legacy_source")
 
 # Fields an AI parse may author. Everything here is subject to `CvWritePolicy`
 # and to a `_manual_override_<field>` lock.
@@ -432,6 +436,11 @@ def _apply_cv_enrichment(
         """Locks always win; otherwise REFRESH writes, FILL_EMPTY backfills."""
         if existing_extracted.get(f"_manual_override_{field}"):
             return False
+        # Runda 9 (R9-N8-11): umiejętności poprawione ręcznie przed znacznikiem
+        # blokady (0280) są tak samo chronione — także przy REFRESH, inaczej
+        # nowy odczyt CV wskrzeszał usunięte przez rekrutera pozycje.
+        if field == "skills" and getattr(candidate, "skills_manually_curated", False):
+            return False
         if policy is CvWritePolicy.REFRESH:
             return True
         return _is_empty_value(getattr(candidate, field, None))
@@ -552,6 +561,12 @@ def _apply_cv_enrichment(
     for key, value in existing_extracted.items():
         if key.startswith("traffit_"):
             next_extracted.setdefault(key, value)
+    # Runda 9 (R9-N8-3): fakty z notatek rekruterów i pochodzenie importu nie
+    # pochodzą z CV — nowy odczyt CV nie może ich skasować (do tej pory każde
+    # wgranie CV zerowało kartę „Z notatek rekruterów” do nocnego biegu).
+    for key in NON_CV_EXTRACTED_KEYS:
+        if key in existing_extracted:
+            next_extracted[key] = existing_extracted[key]
     # Merge, never replace: fields this run left alone keep whatever provenance
     # an earlier run recorded for them.
     provenance = dict(existing_extracted.get("_field_provenance") or {})

@@ -411,6 +411,9 @@ async def test_document_quarantine_clears_only_matching_cv_projection(
         "career_summary": "wrong summary",
         "cv_highlights": {"source_document_id": 22},
         "_manual_override_experience": True,
+        # Runda 9 (R9-N8-3): fakty z notatek i pochodzenie importu nie są z CV.
+        "_notes_insights": {"rate": {"amount": 150}},
+        "legacy_source": "tr_legacy",
     }
     manually_curated_experience = [
         {"company": "Keep", "role": "Lead", "start": None, "end": None, "desc": None}
@@ -489,6 +492,8 @@ async def test_document_quarantine_clears_only_matching_cv_projection(
     assert language.version == 2
     assert candidate.cv_extracted_data == {
         "_manual_override_experience": True,
+        "_notes_insights": {"rate": {"amount": 150}},
+        "legacy_source": "tr_legacy",
         "_identity_quarantine_source": {"kind": "document", "id": 22},
     }
     assert result["cleared_fields"] >= 10

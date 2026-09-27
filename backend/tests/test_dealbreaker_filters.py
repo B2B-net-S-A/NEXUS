@@ -131,6 +131,24 @@ def test_remote_only_true_excludes_false_and_none_pass():
     assert not remote_only_refuses_office(_cand(cv_extracted_data=["legacy"]))
 
 
+def test_remote_only_from_notes_yields_to_profile_that_contradicts_it():
+    """Runda 9 (R9-N8-6): profil wpisany przez człowieka wygrywa z notatką."""
+    notes = _notes(remote_only=True)
+    hybrid = _cand(cv_extracted_data=notes, preferences={"remote_modes": ["hybrid"]})
+    assert not remote_only_refuses_office(hybrid)
+    days = _cand(cv_extracted_data=notes, max_onsite_days_per_week=2)
+    assert not remote_only_refuses_office(days)
+    consent = _cand(cv_extracted_data=notes, accepts_more_office_days=True)
+    assert not remote_only_refuses_office(consent)
+    # Profil zgodny z notatką („tylko zdalnie”, 0 dni) — bramka działa dalej.
+    remote = _cand(
+        cv_extracted_data=notes,
+        preferences={"remote_modes": ["remote"]},
+        max_onsite_days_per_week=0,
+    )
+    assert remote_only_refuses_office(remote)
+
+
 def test_apply_counts_and_order_are_deterministic():
     over = _cand(
         expected_rate_hourly=200,

@@ -244,6 +244,10 @@ async def submit_application(
     from app.api import public_share
 
     link = ref.link
+    # Runda 9 (R9-X1-4): nieudane powiadomienie robi ``rollback()``, który
+    # wygasza ``link`` — odczyt ``link.job_id`` po nim leciał w leniwe
+    # doładowanie (MissingGreenlet, 500 po ZAPISANYM zgłoszeniu).
+    link_job_id = link.job_id
     normalized_email = applicant.email.strip().lower()
     existing = await db.scalar(
         select(Candidate).where(func.lower(Candidate.email) == normalized_email)
@@ -274,7 +278,11 @@ async def submit_application(
             blocked_reason=blocked_reason,
         )
         await _confirm_to_applicant(
-            db, ref=ref, applicant=applicant, background_tasks=background_tasks
+            db,
+            ref=ref,
+            job_id=link_job_id,
+            applicant=applicant,
+            background_tasks=background_tasks,
         )
         return {"ok": True, "status": "received"}
 
@@ -295,7 +303,11 @@ async def submit_application(
     )
 
     await _confirm_to_applicant(
-        db, ref=ref, applicant=applicant, background_tasks=background_tasks
+        db,
+        ref=ref,
+        job_id=link_job_id,
+        applicant=applicant,
+        background_tasks=background_tasks,
     )
 
     # Lookup przez moduł (nie import nazwy): testy podmieniają
@@ -308,6 +320,7 @@ async def _confirm_to_applicant(
     db: AsyncSession,
     *,
     ref: LinkRef,
+    job_id: Optional[int],
     applicant: ApplicantInput,
     background_tasks: BackgroundTasks,
 ) -> None:
@@ -323,7 +336,7 @@ async def _confirm_to_applicant(
         background_tasks=background_tasks,
         email=applicant.email,
         first_name=applicant.first_name,
-        job_id=ref.link.job_id,
+        job_id=job_id,
         link_key=ref.digest,
     )
 

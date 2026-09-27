@@ -211,21 +211,23 @@ def _normalize_candidate_preferences(value: Any, *, allow_null_values: bool) -> 
 
 
 class CandidateCreate(BaseModel):
-    name: str
-    lastname: str
+    # Runda 9 (R9-N8-8): limity = długości kolumn; bez nich zbyt długa
+    # wartość kończyła się błędem bazy (500) zamiast 422.
+    name: str = Field(max_length=100)
+    lastname: str = Field(max_length=100)
     email: Optional[EmailStr] = None
-    phone: Optional[str] = None
-    city: Optional[str] = None
+    phone: Optional[str] = Field(default=None, max_length=30)
+    city: Optional[str] = Field(default=None, max_length=120)
     country: Optional[str] = Field(default=None, max_length=2)
-    linkedin: Optional[str] = None
+    linkedin: Optional[str] = Field(default=None, max_length=500)
     availability_date: Optional[date] = None
     notice_period: Optional[int] = None
     notice_period_unit: Optional[Literal["days", "weeks", "months"]] = None
-    source: Optional[str] = None
+    source: Optional[str] = Field(default=None, max_length=100)
     status: CandidateStatus = CandidateStatus.active
     availability_status: AvailabilityStatus = AvailabilityStatus.unknown
-    avatar_url: Optional[str] = None
-    competence_category: Optional[str] = None
+    avatar_url: Optional[str] = Field(default=None, max_length=1000)
+    competence_category: Optional[str] = Field(default=None, max_length=100)
     years_it_experience: Optional[int] = None
     ai_summary: Optional[str] = None
     tags: Optional[List[Any]] = None
@@ -286,19 +288,20 @@ class CandidateCreate(BaseModel):
 
 
 class CandidateUpdate(BaseModel):
-    name: Optional[str] = None
-    lastname: Optional[str] = None
+    # Runda 9 (R9-N8-8): limity = długości kolumn (422 zamiast 500).
+    name: Optional[str] = Field(default=None, max_length=100)
+    lastname: Optional[str] = Field(default=None, max_length=100)
     email: Optional[EmailStr] = None
-    phone: Optional[str] = None
-    linkedin: Optional[str] = None
+    phone: Optional[str] = Field(default=None, max_length=30)
+    linkedin: Optional[str] = Field(default=None, max_length=500)
     availability_date: Optional[date] = None
     notice_period: Optional[int] = None
     notice_period_unit: Optional[Literal["days", "weeks", "months"]] = None
-    source: Optional[str] = None
+    source: Optional[str] = Field(default=None, max_length=100)
     status: Optional[CandidateStatus] = None
     availability_status: Optional[AvailabilityStatus] = None
-    avatar_url: Optional[str] = None
-    competence_category: Optional[str] = None
+    avatar_url: Optional[str] = Field(default=None, max_length=1000)
+    competence_category: Optional[str] = Field(default=None, max_length=100)
     years_it_experience: Optional[int] = None
     ai_summary: Optional[str] = None
     tags: Optional[List[Any]] = None
@@ -320,11 +323,11 @@ class CandidateUpdate(BaseModel):
     open_to_expert_consult: Optional[bool] = None
     engagement_notes: Optional[str] = None
     # Business entity / JDG (migracja 0058) — używane przy generowaniu umów.
-    legal_name: Optional[str] = None
-    nip: Optional[str] = None
-    regon: Optional[str] = None
+    legal_name: Optional[str] = Field(default=None, max_length=255)
+    nip: Optional[str] = Field(default=None, max_length=32)
+    regon: Optional[str] = Field(default=None, max_length=32)
     business_address: Optional[str] = None
-    business_form: Optional[str] = None
+    business_form: Optional[str] = Field(default=None, max_length=64)
 
     @model_validator(mode="before")
     @classmethod

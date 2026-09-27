@@ -32,13 +32,3 @@ export function structuredTagLabels(tags: unknown): string[] {
     .map(getTagName)
     .filter((name): name is string => Boolean(name));
 }
-
-/**
- * Tablica do zapisu: edytowane napisy + zachowane obiekty.
- * `undefined` = brak zmian (PATCH nie dotyka kolumny).
- */
-export function mergeEditedTags(text: string, original: unknown): unknown[] | undefined {
-  const edited = text.split(",").map(t => t.trim()).filter(Boolean);
-  if (text === editableTagText(original)) return undefined;
-  return [...edited, ...structuredTags(original)];
-}

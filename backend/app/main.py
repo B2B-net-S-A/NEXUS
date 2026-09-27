@@ -2772,6 +2772,7 @@ async def api_health_deep_check():
     from app.models.candidate_followup import CandidateFollowup
     from app.models.followup_meeting import FollowupMeeting
     from app.models.purged_candidate import PurgedCandidate
+    from app.models.retained_candidate_file import RetainedCandidateFile
     from app.models.b2b_contract_document import B2BContractDocument
     from app.models.b2b_register_import import B2BRegisterImportRun
     from app.models.cv_qc_run import CvQcRun
@@ -2983,6 +2984,9 @@ async def api_health_deep_check():
         # 0388: usunięcie kandydata zapisuje nagrobek — brak tabeli = 500
         # przy każdym DELETE /api/candidates/{id} (runda 6 audytu).
         ("purged_candidates", PurgedCandidate),
+        # 0390: usunięcie kandydata zapisuje wskaźniki do jego CV — brak
+        # tabeli = 500 przy każdym DELETE /api/candidates/{id} (runda 9).
+        ("retained_candidate_files", RetainedCandidateFile),
         # 0361: QC CV — tablica czyta stan QC każdej karty, a ruch na
         # „CV wysłane” zapisuje przebieg, więc brak tabeli = kanban 500.
         ("cv_qc_runs", CvQcRun),
