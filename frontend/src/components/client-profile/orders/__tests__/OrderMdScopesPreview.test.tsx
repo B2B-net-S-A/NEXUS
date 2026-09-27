@@ -25,7 +25,7 @@ describe("Harness /preview/order-md-scopes", () => {
     render(<OrderMdScopesPreview />);
 
     // Nagłówek: umowa wykonawcza z częścią i kwoty tylko w wariancie z finansami.
-    expect(screen.getAllByText("Umowa wykonawcza CeZ/242/2025 · Cz. II")).toHaveLength(2);
+    expect(screen.getAllByText("Umowa wykonawcza IPR/942/2031 · Cz. II")).toHaveLength(2);
     expect(screen.getAllByText(/Wykorzystano wartości umowy/)).toHaveLength(1);
     // Karta konsultanta CeZ: zastąpiony → następca, brak opcji w umowie,
     // przekroczenie i korekta ręczna wprost przy „Łącznie".

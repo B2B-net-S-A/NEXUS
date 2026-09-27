@@ -30,11 +30,11 @@ describe("Harness /preview/order-lifecycle", () => {
 
     // Wpis `transfer_md` z powiązaniem — numer jest przejściem do następcy.
     expect(
-      screen.getByRole("button", { name: "Pokaż zamówienie nr 4500029903" }),
+      screen.getByRole("button", { name: "Pokaż zamówienie nr 4599009903" }),
     ).toBeInTheDocument();
     // …i ten sam typ wpisu bez powiązania — sam tekst, bez martwego przycisku.
     expect(
-      screen.getByText(/kontynuacja na zamówieniu nr 4500029904/),
+      screen.getByText(/kontynuacja na zamówieniu nr 4599009904/),
     ).toBeInTheDocument();
     // Awaria pobrania renderuje się inaczej niż pustka — gdyby któryś klucz
     // nie był zasiany, zobaczylibyśmy tu komunikat błędu, nie wpisy.

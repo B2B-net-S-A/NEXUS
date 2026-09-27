@@ -1,4 +1,4 @@
-"""Lustro DDL 0391 w ``entrypoint.sh`` (runda 10, R10-N4-1/3).
+"""Lustro DDL 0392 w ``entrypoint.sh`` (runda 10, R10-N4-1/3).
 
 Prod alembic bywa osierocony — entrypoint JEST wdrożeniem. Bez kolumny
 ``episode`` pada każdy odczyt braku przez ORM (pętla ``order_gaps``, widok
@@ -17,7 +17,7 @@ BACKEND = pathlib.Path(__file__).resolve().parents[1]
 
 def _migration():
     path = BACKEND / "alembic" / "versions" / "0392_fin_order_gap_episodes.py"
-    spec = importlib.util.spec_from_file_location("m0391", path)
+    spec = importlib.util.spec_from_file_location("m0392", path)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(module)
@@ -28,8 +28,15 @@ def _flat(sql: str) -> str:
     return re.sub(r"\s+", " ", sql).strip()
 
 
-def test_entrypoint_mirrors_every_0391_statement_in_order() -> None:
-    entrypoint = _flat((BACKEND / "entrypoint.sh").read_text())
+def _entrypoint_sql() -> str:
+    # Lustro w entrypoincie bywa rozbite na sąsiednie literały Pythona
+    # ("… " "ON …") — sklejamy je, zanim porównamy z instrukcją migracji.
+    text = (BACKEND / "entrypoint.sh").read_text()
+    return _flat(re.sub(r'"[ \t]*\n[ \t]*"', "", text))
+
+
+def test_entrypoint_mirrors_every_0392_statement_in_order() -> None:
+    entrypoint = _entrypoint_sql()
     positions = []
     for statement in _migration().DDL_STATEMENTS:
         flat = _flat(statement)

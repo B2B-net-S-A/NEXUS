@@ -2,7 +2,7 @@
 
 R10-N6-2 (fakty z usuniętej notatki), R10-N6-4 (``@<liczba>``), R10-N6-5
 (``null`` w PATCH notatki), R10-N6-11 (N+1 w czacie rekrutacji) oraz lustro
-DDL migracji 0391 (R10-N6-1).
+DDL migracji 0395 (R10-N6-1).
 """
 
 from __future__ import annotations
@@ -205,7 +205,7 @@ async def test_job_chat_serialization_has_constant_query_count() -> None:
 
 def _migration():
     path = BACKEND / "alembic" / "versions" / "0395_notes_deleted_note_sources.py"
-    spec = importlib.util.spec_from_file_location("m0391", path)
+    spec = importlib.util.spec_from_file_location("m0395", path)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(module)
@@ -216,7 +216,7 @@ def _flat(sql: str) -> str:
     return re.sub(r"\s+", " ", sql).strip()
 
 
-def test_entrypoint_mirrors_every_0391_statement() -> None:
+def test_entrypoint_mirrors_every_0395_statement() -> None:
     entrypoint = _flat((BACKEND / "entrypoint.sh").read_text())
     for statement in _migration().DDL_STATEMENTS:
         assert _flat(statement) in entrypoint, statement[:80]

@@ -208,7 +208,7 @@ def test_new_cost_statuses_are_mirrored_in_entrypoint_and_migration():
     for value in ("'invoice_unreadable'", "'order_exhausted'"):
         assert value in entrypoint, value
         assert value in migration, value
-    assert 'down_revision = "0390_cand_retained_candidate_files"' in migration
+    assert 'down_revision = "0392_fin_order_gap_episodes"' in migration
 
 
 # ── Testy z bazą ────────────────────────────────────────────────────────────
