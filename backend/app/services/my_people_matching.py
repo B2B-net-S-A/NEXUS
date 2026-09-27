@@ -35,7 +35,7 @@ from app.models.job import Job, JobStatus
 from app.models.my_people import MyPeopleJobMatch
 from app.models.recruitment_pipeline import CandidateStage
 from app.services.auto_match_service import AutoMatchUnavailable, scoped_similarity
-from app.services.candidate_job_eligibility import Visibility
+from app.services.candidate_job_eligibility import Severity, Visibility
 from app.services.current_employment import current_employment_client_ids
 from app.services.dealbreaker_filters import employment_only_refuses_b2b
 from app.services.eligibility_annotation import eligibility_annotation
@@ -138,6 +138,12 @@ async def score_people_for_job(
         now=datetime.now(timezone.utc),
     )
 
+    from app.services.requirement_verification import load_verified_requirements
+
+    if candidates:
+        await load_verified_requirements(db, job, candidates)
+    dealbreaker_hidden = dealbreaker_exclusions(job, candidates, decisions)
+
     by_id = {c.id: c for c in candidates}
     out: list[ScoredPerson] = []
     for i, fit in enumerate(fits):
@@ -152,7 +158,8 @@ async def score_people_for_job(
                 # „Tylko umowa o pracę" z rozmowy praktykanta: pracujemy na
                 # B2B, więc tej osoby nie proponujemy do żadnej rekrutacji.
                 hidden=bool(decision and decision.visibility is Visibility.hidden)
-                or employment_only_refuses_b2b(by_id.get(cid)),
+                or employment_only_refuses_b2b(by_id.get(cid))
+                or cid in dealbreaker_hidden,
             )
         )
         if (i + 1) % YIELD_EVERY == 0:
@@ -166,6 +173,36 @@ async def score_people_for_job(
         if cid not in scored_ids
     )
     return out
+
+
+def dealbreaker_exclusions(job, candidates: list, decisions: dict) -> dict[int, str]:
+    """Kogo przegląd bazy tej rekrutacji UKRYŁBY dealbreakerem (id → powód).
+
+    Runda 9 (R9-N5-2): „Moi ludzie" liczyli sam kanoniczny fit, więc dzwonek
+    „pasuje" szedł o osobie, którą każda powierzchnia wyszukiwania tej
+    rekrutacji chowa (ponad budżet, brak must-have, dni/miasto biura, tylko
+    zdalnie). Ta sama polityka co wyszukiwanie (`search_dealbreaker_inputs`)
+    i ten sam wyjątek co `_gate_and_dealbreakers`: weto HM (twarde, ale
+    widoczne) nie jest wchłaniane przez dealbreakery.
+    """
+    from app.services.dealbreaker_filters import apply_dealbreakers
+    from app.services.requirement_contract import search_dealbreaker_inputs
+
+    if not candidates:
+        return {}
+    exempt = {
+        c.id
+        for c in candidates
+        if (d := decisions.get(c.id)) is not None
+        and d.severity is Severity.hard
+        and d.visibility is Visibility.warn
+        and not employment_only_refuses_b2b(c)
+    }
+    result = apply_dealbreakers(
+        [c for c in candidates if c.id not in exempt],
+        inputs=search_dealbreaker_inputs(job),
+    )
+    return dict(result.exclusion_reasons)
 
 
 async def run_for_job(db: AsyncSession, job: Job) -> dict:
@@ -328,6 +365,7 @@ def _people_phrase(n: int) -> str:
 
 
 __all__ = [
+    "dealbreaker_exclusions",
     "AutoMatchUnavailable",
     "ScoredPerson",
     "candidates_in_job",
