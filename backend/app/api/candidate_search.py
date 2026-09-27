@@ -205,28 +205,28 @@ async def latest_run_for_job(
 
     _search_access(user)
     await _authorized_job(db, user, job_id)
-    run = await db.scalar(
-        select(CandidateSearchRun)
-        .where(
-            CandidateSearchRun.job_id == job_id,
-            CandidateSearchRun.state.in_(store.FINISHED_STATES),
-            or_(
-                CandidateSearchRun.created_by == user.id,
-                CandidateSearchRun.version_trace["origin"].astext == "auto",
-                CandidateSearchRun.metrics["origin"].astext == "auto",
-            ),
+
+    def _latest(states):
+        return (
+            select(CandidateSearchRun)
+            .where(
+                CandidateSearchRun.job_id == job_id,
+                CandidateSearchRun.state.in_(states),
+                or_(
+                    CandidateSearchRun.created_by == user.id,
+                    CandidateSearchRun.version_trace["origin"].astext == "auto",
+                    CandidateSearchRun.metrics["origin"].astext == "auto",
+                ),
+            )
+            .order_by(
+                CandidateSearchRun.completed_at.desc().nullslast(),
+                CandidateSearchRun.created_at.desc(),
+            )
+            .limit(1)
         )
-        .order_by(
-            CandidateSearchRun.completed_at.desc().nullslast(),
-            CandidateSearchRun.created_at.desc(),
-        )
-        .limit(1)
-    )
-    if run is None:
-        return {"job_id": job_id, "run": None}
-    return {
-        "job_id": job_id,
-        "run": {
+
+    def _shape(run):
+        return {
             "run_id": run.id,
             "state": run.state,
             "completed_at": run.completed_at,
@@ -234,7 +234,28 @@ async def latest_run_for_job(
             or (run.metrics or {}).get("origin")
             or "manual",
             "own": run.created_by == user.id,
-        },
+        }
+
+    # Runda 9 (R9-N5-5): nowszy przegląd `failed` (np. nocny automat po
+    # awarii) przykrywał udany ranking — ekran adoptował awarię i pokazywał
+    # „uruchom ponownie” zamiast gotowych wyników. Najpierw najnowszy przegląd
+    # z wynikami; awaria nowsza od niego idzie osobnym polem.
+    run = await db.scalar(_latest(store.RESULT_STATES))
+    failure = await db.scalar(_latest(("failed",)))
+    if run is None:
+        # Bez wyniku awaria zostaje odpowiedzią (ekran mówi „nie udało się”).
+        run, failure = failure, None
+    if run is None:
+        return {"job_id": job_id, "run": None, "latest_failure": None}
+    newer_failure = (
+        failure is not None
+        and failure.completed_at is not None
+        and (run.completed_at is None or failure.completed_at > run.completed_at)
+    )
+    return {
+        "job_id": job_id,
+        "run": _shape(run),
+        "latest_failure": _shape(failure) if newer_failure else None,
     }
 
 
