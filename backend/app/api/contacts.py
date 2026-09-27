@@ -22,7 +22,7 @@ from typing import Annotated, Optional, Union
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.core.database import get_db
 from app.models.contact import Contact, RelationshipStrength
@@ -54,11 +54,12 @@ router = APIRouter()
 
 class ContactCreate(BaseModel):
     client_id: int
-    name: str
-    email: Optional[str] = None
-    phone: Optional[str] = None
-    position: Optional[str] = None
-    department: Optional[str] = None
+    # Runda 9 (R9-N4-5): lustro długości kolumn `contacts` (422 zamiast 500).
+    name: str = Field(max_length=255)
+    email: Optional[str] = Field(None, max_length=255)
+    phone: Optional[str] = Field(None, max_length=50)
+    position: Optional[str] = Field(None, max_length=255)
+    department: Optional[str] = Field(None, max_length=255)
     is_decision_maker: bool = False
     notes: Optional[str] = None
     last_contacted_at: Optional[datetime] = None
@@ -71,11 +72,11 @@ class ContactCreate(BaseModel):
 
 
 class ContactUpdate(BaseModel):
-    name: Optional[str] = None
-    email: Optional[str] = None
-    phone: Optional[str] = None
-    position: Optional[str] = None
-    department: Optional[str] = None
+    name: Optional[str] = Field(None, max_length=255)
+    email: Optional[str] = Field(None, max_length=255)
+    phone: Optional[str] = Field(None, max_length=50)
+    position: Optional[str] = Field(None, max_length=255)
+    department: Optional[str] = Field(None, max_length=255)
     is_decision_maker: Optional[bool] = None
     notes: Optional[str] = None
     last_contacted_at: Optional[datetime] = None
@@ -149,6 +150,24 @@ def _contact_projection(contact: Contact, access: ClientAccess) -> AnyContactRes
     if access.can_view_contact_private_notes(contact):
         return ContactResponse.model_validate(contact)
     return ContactSafeResponse.model_validate(contact)
+
+
+async def _assert_relationship_owner_exists(
+    db: AsyncSession, user_id: Optional[int]
+) -> None:
+    """422 dla właściciela relacji, którego nie ma albo jest nieaktywny.
+
+    Runda 9 (R9-N4-5): nieistniejące id szło prosto do FK
+    ``contacts.key_relationship_owner_id`` i kończyło się 500 bez CORS.
+    """
+    if user_id is None:
+        return
+    is_active = await db.scalar(select(User.is_active).where(User.id == user_id))
+    if not is_active:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Wskazany właściciel relacji nie istnieje albo jest nieaktywny.",
+        )
 
 
 async def _load_contact(db: AsyncSession, contact_id: int) -> Contact:
@@ -314,6 +333,7 @@ async def create_contact(
         and not access.can_reassign_relationship_owner
     ):
         raise deny("ustawienie innego właściciela relacji wymaga roli admin")
+    await _assert_relationship_owner_exists(db, data.key_relationship_owner_id)
 
     contact = Contact(**data.model_dump())
     db.add(contact)
@@ -357,6 +377,9 @@ async def update_contact(
             is_self_claim and access.can_edit_contacts
         ):
             raise deny("zmiana właściciela relacji wymaga roli admin")
+        await _assert_relationship_owner_exists(
+            db, payload["key_relationship_owner_id"]
+        )
 
     # 2. Kto może edytować pozostałe pola.
     if not access.can_edit_contacts:

@@ -16,7 +16,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.core.database import get_db
 from app.models.client_knowledge import ClientKnowledge, KnowledgeCategory
@@ -40,7 +40,8 @@ router = APIRouter(
 class ClientKnowledgeCreate(BaseModel):
     category: KnowledgeCategory
     content: str
-    source: Optional[str] = None
+    # Runda 9 (R9-N4-5): kolumna `source` ma 255 znaków (422 zamiast 500).
+    source: Optional[str] = Field(None, max_length=255)
 
 
 class ClientKnowledgeResponse(BaseModel):
