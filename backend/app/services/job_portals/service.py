@@ -947,11 +947,19 @@ async def failed_recently(db: AsyncSession, *, hours: int = 24) -> int:
     )
 
 
-async def portal_health_inputs(db: AsyncSession) -> tuple[int, bool]:
-    """(nieudane publikacje z doby, czy konto JustJoin.IT/RocketJobs wymaga połączenia)."""
-    from app.models.job_board_connection import STATUS_RECONNECT_REQUIRED
+async def portal_health_inputs(db: AsyncSession) -> tuple[int, bool, bool]:
+    """(nieudane publikacje z doby, konto JustJoin.IT/RocketJobs do ponownego
+    połączenia, konto połączone i aktywne)."""
+    from app.models.job_board_connection import (
+        STATUS_ACTIVE,
+        STATUS_RECONNECT_REQUIRED,
+    )
     from app.services.job_portals import jjit_connection
 
     failed = await failed_recently(db)
     row = await jjit_connection.load(db)
-    return failed, bool(row is not None and row.status == STATUS_RECONNECT_REQUIRED)
+    return (
+        failed,
+        bool(row is not None and row.status == STATUS_RECONNECT_REQUIRED),
+        bool(row is not None and row.status == STATUS_ACTIVE),
+    )

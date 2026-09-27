@@ -70,8 +70,10 @@ async def _run(*, dry_run: bool, apply_once: bool, rollback_run_id: int | None) 
                     # edited in the app after the import) must not fail the
                     # command and crash-loop the backend on every restart. The
                     # manifest itself is intact and idempotent; the drift is
-                    # surfaced by /api/health/deep as degraded, which is the
-                    # correct place to flag it. First-apply plan blockers and a
+                    # surfaced by /api/health/deep as ``client_portfolio_import:
+                    # unhealthy`` (HTTP 503, red "Deep healthcheck" on every
+                    # deploy until fixed), which is the correct place to flag
+                    # it. First-apply plan blockers and a
                     # manifest digest mismatch stay fail-closed — those mean the
                     # import is not safely applied yet.
                     if blocker_codes == {"applied_manifest_state_inconsistent"}:

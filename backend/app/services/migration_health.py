@@ -35,8 +35,6 @@ from typing import Any, Optional
 STATUS_FILE_ENV = "ALEMBIC_STATUS_FILE"
 DEFAULT_STATUS_FILE = "/tmp/nexus-alembic-status.json"
 
-_CREDENTIALS_RE = re.compile(r"(\w+://[^:/\s@]+:)[^@\s]+@")
-
 
 def status_file_path() -> Path:
     return Path(os.environ.get(STATUS_FILE_ENV) or DEFAULT_STATUS_FILE)
@@ -50,11 +48,6 @@ def read_startup_status(path: Optional[Path] = None) -> Optional[dict[str, Any]]
     except (OSError, ValueError):
         return None
     return data if isinstance(data, dict) and "ok" in data else None
-
-
-def redact(text: str) -> str:
-    """Usuń hasła z adresów połączeń, zanim fragment logu trafi do Sentry."""
-    return _CREDENTIALS_RE.sub(r"\1***@", text)
 
 
 _REVISIONS_UNAVAILABLE: list[str] = []
@@ -139,13 +132,38 @@ def migrations_verdict(state: dict[str, Any], startup: Optional[dict[str, Any]])
     return f"degraded: {failure}, revisions match" if startup_failed else "healthy"
 
 
+_RUNNING_UPGRADE_RE = re.compile(r"Running upgrade [^\s>]* ?-> ?([\w-]{1,64})")
+_IDENTIFIER_RE = re.compile(r"[A-Za-z_][\w.]{0,200}")
+_ERROR_CLASS_SUFFIXES = ("Error", "Exception", "Violation", "Timeout", "Cancelled")
+
+
+def _failure_summary(tail: str) -> tuple[Optional[str], list[str]]:
+    """(rewizja, klasy błędów) z ogona logu alembica — bez treści komunikatów.
+
+    Runda 10 (R10-N12-3): asyncpg dokleja do komunikatu ``DETAIL`` Postgresa
+    („Failing row contains (…)”, wartość klucza UNIQUE — np. e-mail), a
+    SQLAlchemy ``[parameters: …]``. Do Sentry idzie więc tylko numer rewizji
+    i nazwy klas wyjątków; pełny wynik zostaje w logu kontenera. Tokenizacja
+    zamiast regexu z nawrotami — czas liniowy względem długości ogona.
+    """
+    revisions = _RUNNING_UPGRADE_RE.findall(tail)
+    classes: list[str] = []
+    for token in _IDENTIFIER_RE.findall(tail):
+        name = token.rstrip(".").rsplit(".", 1)[-1]
+        if name.endswith(_ERROR_CLASS_SUFFIXES) and name not in classes:
+            classes.append(name)
+    return (revisions[-1] if revisions else None), classes[-5:]
+
+
 def startup_failure_message(startup: Optional[dict[str, Any]]) -> Optional[str]:
     """Treść jednorazowego ``logger.error`` przy starcie aplikacji (→ Sentry)."""
     if startup is None or startup.get("ok"):
         return None
-    tail = redact(str(startup.get("tail") or ""))[-2000:]
+    revision, classes = _failure_summary(str(startup.get("tail") or "")[-4000:])
     return (
         "alembic upgrade heads FAILED at container start "
         f"(exit {startup.get('exit_code')}); schema relies on entrypoint safety-net. "
-        f"Output tail:\n{tail}"
+        f"Failing revision: {revision or 'unknown'}; "
+        f"error classes: {', '.join(classes) or 'unknown'}. "
+        "Full output (with DETAIL/parameters) only in the container log."
     )
