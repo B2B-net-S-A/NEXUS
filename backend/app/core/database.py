@@ -92,10 +92,14 @@ def _mark_statement_writes(orm_execute_state: ORMExecuteState) -> None:
         orm_execute_state.session.info[_UNCOMMITTED_WRITES_KEY] = True
 
 
-@event.listens_for(Session, "after_commit")
-@event.listens_for(Session, "after_rollback")
-def _clear_write_marker(session: Session) -> None:
-    session.info.pop(_UNCOMMITTED_WRITES_KEY, None)
+@event.listens_for(Session, "after_transaction_end")
+def _clear_write_marker(session: Session, transaction: Any) -> None:
+    # Runda 9: ``after_rollback`` odpala się także przy wycofaniu SAVEPOINT-u —
+    # flaga znikała, choć zewnętrzna transakcja miała już zapis, więc
+    # ``release_idle_connection`` mógł go zatwierdzić w połowie operacji.
+    # Czyścimy wyłącznie po końcu transakcji NAJWYŻSZEGO poziomu.
+    if transaction.parent is None:
+        session.info.pop(_UNCOMMITTED_WRITES_KEY, None)
 
 
 def session_has_uncommitted_writes(db: AsyncSession) -> bool:
