@@ -76,6 +76,12 @@ EXPERIENCE_KEYS: tuple[str, ...] = (
     "client",
 )
 SKILL_KEYS: tuple[str, ...] = ("name",)
+# „Zweryfikowane technologie” (formularz kandydata, ``verified_tech``): napisy
+# albo obiekty z nazwą pod ``name``/``tech``/``skill`` — te same klucze czyta
+# profil (``screeningConfirmedSkills``). Runda 10 (F17): kolumny nie było
+# w korpusie, więc „Python” potwierdzony na profilu nie trafiał do słów
+# kluczowych, choć znajdował go filtr „Umiejętności” (skills + verified_tech).
+VERIFIED_TECH_KEYS: tuple[str, ...] = ("name", "tech", "skill")
 EDUCATION_KEYS: tuple[str, ...] = ("school", "field", "degree")
 LANGUAGE_KEYS: tuple[str, ...] = ("lang", "name")
 # Tagi: wyłącznie napisy. Obiekty to źródła z Traffita
@@ -110,6 +116,7 @@ PLAIN_COLUMNS: tuple[str, ...] = (
 JSON_COLUMNS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("experience", EXPERIENCE_KEYS),
     ("skills", SKILL_KEYS),
+    ("verified_tech", VERIFIED_TECH_KEYS),
     ("tags", TAG_KEYS),
     ("education", EDUCATION_KEYS),
     ("languages", LANGUAGE_KEYS),
@@ -554,6 +561,30 @@ NOTES_RECOMPUTE_BATCH_SQL = (
 )
 
 
+# Wersja LISTY PÓL korpusu (nie funkcji składania — ta ma ``FOLD_VERSION``).
+# Dołożenie kolumny do ``JSON_COLUMNS``/``PLAIN_COLUMNS`` zmienia trigger, ale
+# zapisane wiersze mają korpus policzony starą listą. Podbij numer i dopisz
+# zapytanie wybierające wiersze, których nowa kolumna dotyczy — pętla
+# ``keyword_corpus_backfill`` przeliczy je raz (znacznik w ``app_settings``).
+# Historia: 2 — runda 10 (F17): ``verified_tech``.
+CORPUS_SOURCES_VERSION = 2
+CORPUS_SOURCES_VERSION_KEY = "keyword_corpus_sources_version"
+# Kolumna, której obecność w ciele funkcji triggera potwierdza, że baza ma już
+# trigger z bieżącą listą pól (siatka DDL w ``entrypoint.sh`` mogła przegrać
+# blokadę — wtedy przeliczenie starym triggerem nic by nie dało).
+CORPUS_SOURCES_MARKER_COLUMN = "verified_tech"
+SOURCES_RECOMPUTE_BATCH_SQL = (
+    "UPDATE candidates SET keyword_doc = NULL WHERE id IN ("
+    " SELECT id FROM candidates WHERE id > :after"
+    " AND verified_tech IS NOT NULL"
+    " AND (jsonb_typeof(verified_tech) = 'string'"
+    " OR (jsonb_typeof(verified_tech) = 'array'"
+    " AND jsonb_array_length(verified_tech) > 0))"
+    " ORDER BY id LIMIT :limit"
+    ") RETURNING id, keyword_doc IS NOT NULL"
+)
+
+
 # ── Gotowość (czy wszystkie wiersze mają korpus) ─────────────────────────────
 
 _ready = False
@@ -732,9 +763,11 @@ def title_text(candidate: Any, roles: Optional[str] = None) -> str:
 
 
 def skills_text(candidate: Any) -> str:
-    """Umiejętności: nazwy (bez poziomów) + technologie z Traffita."""
+    """Umiejętności: nazwy (bez poziomów), zweryfikowane technologie
+    i technologie z Traffita."""
     parts = [
         json_text(getattr(candidate, "skills", None), SKILL_KEYS),
+        json_text(getattr(candidate, "verified_tech", None), VERIFIED_TECH_KEYS),
         traffit_value(candidate, "traffit_technologie"),
     ]
     return " · ".join(p for p in parts if p)
