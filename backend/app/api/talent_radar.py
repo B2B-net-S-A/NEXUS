@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import CurrentUser
 from app.api.deps import get_db
 from app.api.section_access import SOURCING_SECTION_DEPENDENCIES
-from app.core.rate_limit import limiter
+from app.core.rate_limit import limiter, user_or_ip_key
 from app.schemas.matching_requirements import MatchingRequirements
 from app.services.talent_radar_search import (
     normalize_skill_names,
@@ -131,7 +131,7 @@ async def interpret_requirements(
 
 
 @router.post("/talent-radar/search")
-@limiter.limit("20/minute")
+@limiter.limit("20/minute", key_func=user_or_ip_key)
 async def talent_radar_search(
     request: Request,
     payload: TalentRadarSearchRequest,
@@ -147,6 +147,11 @@ async def talent_radar_search(
     kandydata pozostaje za bramkami modułu kandydatów. Sam `status` tej
     warstwy mówi prawdę o tym, czy weszła do wyniku (`_shape_result`).
     """
+    from app.services.client_access import assert_client_assignable
+
+    # Runda 9 (R9-N5-8): klient usunięty albo scalony nie jest celem nowego
+    # wyszukiwania — ta sama reguła co przy zakładaniu rekrutacji.
+    await assert_client_assignable(db, payload.client_id)
     try:
         result = await search(
             db,
@@ -243,7 +248,7 @@ def _shape_result(
 
 
 @router.post("/talent-radar/parse-champion")
-@limiter.limit("10/minute")
+@limiter.limit("10/minute", key_func=user_or_ip_key)
 async def talent_radar_parse_champion(
     request: Request,
     current_user: CurrentUser,

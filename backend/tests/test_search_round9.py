@@ -191,3 +191,76 @@ async def test_r9_n5_1_rank_candidates_for_job_yields_to_the_event_loop(monkeypa
     )
     assert [r.candidate_id for r in out][:2] == [199, 198]
     assert counter["yields"] >= 200 // 32
+
+
+# ---------------------------------------------------------------- R9-N5-8/9
+
+
+def _module_ast(relpath: str):
+    import ast
+    from pathlib import Path
+
+    return ast.parse((Path(__file__).resolve().parents[1] / relpath).read_text())
+
+
+def test_r9_n5_9_radar_limits_are_keyed_per_user():
+    import ast
+
+    tree = _module_ast("app/api/talent_radar.py")
+    limits = [
+        dec
+        for node in ast.walk(tree)
+        if isinstance(node, ast.AsyncFunctionDef)
+        for dec in node.decorator_list
+        if isinstance(dec, ast.Call)
+        and isinstance(dec.func, ast.Attribute)
+        and dec.func.attr == "limit"
+    ]
+    assert len(limits) == 2
+    for dec in limits:
+        keys = {kw.arg: kw.value for kw in dec.keywords}
+        assert isinstance(keys.get("key_func"), ast.Name)
+        assert keys["key_func"].id == "user_or_ip_key"
+
+
+def test_r9_n5_8_radar_search_checks_client_assignable_before_ranking():
+    import ast
+
+    tree = _module_ast("app/api/talent_radar.py")
+    [fn] = [
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, ast.AsyncFunctionDef) and n.name == "talent_radar_search"
+    ]
+    calls = [
+        n.func.id
+        for n in ast.walk(fn)
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+    ]
+    assert "assert_client_assignable" in calls
+    assert calls.index("assert_client_assignable") < calls.index("search")
+
+
+@pytest.mark.asyncio
+async def test_r9_n5_8_full_scan_radar_refuses_deleted_client(monkeypatch):
+    from fastapi import HTTPException
+
+    from app.api import candidate_search as cs
+    from app.api.talent_radar import TalentRadarSearchRequest
+    from app.services import client_access
+
+    async def refuse(db, client_id):
+        raise HTTPException(422, {"code": "client_deleted", "message": "x"})
+
+    class _Db:
+        async def get(self, model, pk):
+            return SimpleNamespace(id=pk)
+
+    monkeypatch.setattr(cs, "_search_access", lambda user: None)
+    monkeypatch.setattr(client_access, "assert_client_assignable", refuse)
+    payload = cs.StartSearchRequest(
+        radar=TalentRadarSearchRequest(client_id=5, text="Java developer")
+    )
+    with pytest.raises(HTTPException) as exc:
+        await cs.start_search(payload, SimpleNamespace(id=1), _Db())
+    assert exc.value.status_code == 422

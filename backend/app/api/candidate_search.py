@@ -136,6 +136,12 @@ async def start_search(
             raise HTTPException(422, "Podaj request lub profil Championa")
     if not await db.get(Client, job.client_id):
         raise HTTPException(404, "Klient nie istnieje")
+    if payload.radar is not None:
+        from app.services.client_access import assert_client_assignable
+
+        # Runda 9 (R9-N5-8): Radar nie startuje przeglądu dla klienta
+        # usuniętego albo scalonego (422 z nazwą rekordu głównego).
+        await assert_client_assignable(db, job.client_id)
     from app.services.champion_intake import enforce_operation
 
     enforce_operation(job, "search", force=payload.radar is not None)
