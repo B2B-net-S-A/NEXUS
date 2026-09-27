@@ -106,6 +106,7 @@ from app.services.delivery_alert_recipients import (
 )
 from app.services.dl_alerts import (
     MAIL_NEW_DRAFT_ACTION,
+    client_not_deleted_clause,
     date_cycle_stage,
     dl_user_ids_for_client,
     emit,
@@ -926,6 +927,9 @@ async def rule_framework_contract_expiring(
             ClientFrameworkContract.expiry_date.isnot(None),
             ClientFrameworkContract.expiry_date >= start,
             ClientFrameworkContract.expiry_date <= stop,
+            # Runda 9 (R9-N12-6): usunięty klient nie dostaje kart; otwarte
+            # zamyka ``resolve_stale`` niżej.
+            client_not_deleted_clause(ClientFrameworkContract.client_id),
         )
     )
     contracts = list(result.scalars())
@@ -993,6 +997,8 @@ async def rule_candidate_conflict_expired(
             CandidateConflict.expires_at <= now,
             CandidateConflict.expires_at
             >= now - timedelta(days=CONFLICT_EXPIRED_LOOKBACK_DAYS),
+            # Runda 9 (R9-N12-6): usunięty klient nie dostaje kart.
+            client_not_deleted_clause(CandidateConflict.client_id),
         )
         .order_by(CandidateConflict.id)
     )

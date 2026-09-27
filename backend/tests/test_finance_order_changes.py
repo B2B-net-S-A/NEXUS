@@ -1865,7 +1865,8 @@ async def test_reminders_stop_and_card_closes_once_cooperation_ended(monkeypatch
     from app.core.database import AsyncSessionLocal
     from app.models.dl_alert import (
         ALERT_ORDER_MISSING_SUCCESSOR,
-        DL_ALERT_STATUS_HANDLED,
+        DL_ALERT_STATUS_NEW,
+        DL_ALERT_STATUS_RESOLVED,
         DlAlert,
     )
     from app.services.order_gaps import remind_open_gaps
@@ -1889,8 +1890,113 @@ async def test_reminders_stop_and_card_closes_once_cooperation_ended(monkeypatch
                 )
             )
         ).all()
-    assert alerts and all(a.status == DL_ALERT_STATUS_HANDLED for a in alerts)
+    # Runda 9 (R9-N12-3): zamknięcie epizodu, nie odhaczenie przez DL.
+    assert alerts and all(a.status == DL_ALERT_STATUS_RESOLVED for a in alerts)
     assert all(a.handled_by_user_id is None for a in alerts)
+    assert all(a.episode_closed_at is not None for a in alerts)
+
+    # Cofnięte zakończenie: brak wraca jako sprawa i karta pojawia się znowu.
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, ids["contract_id"])
+        contract.end_date = None
+        contract.terminated_at = None
+        contract.termination_reason = None
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        await remind_open_gaps(db)
+        await db.commit()
+        alerts = (
+            await db.scalars(
+                select(DlAlert).where(
+                    DlAlert.user_id == dl_id,
+                    DlAlert.alert_type == ALERT_ORDER_MISSING_SUCCESSOR,
+                )
+            )
+        ).all()
+    assert [a.status for a in alerts if a.episode_closed_at is None] == [
+        DL_ALERT_STATUS_NEW
+    ]
+
+
+async def test_gap_card_closes_when_the_dl_is_unassigned(monkeypatch):
+    """Runda 9 (R9-N12-7): DL zdjęty z klienta nie zachowuje karty braku."""
+    from sqlalchemy import delete
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.dl_alert import (
+        ALERT_ORDER_MISSING_SUCCESSOR,
+        DL_ALERT_STATUS_RESOLVED,
+        DlAlert,
+    )
+    from app.models.team_structure import DeliveryLeadClientAssignment
+    from app.services.order_gaps import remind_open_gaps
+
+    end = _far_day(2052, 2055)
+    ids = await _seed(
+        contract_rate_client=None, start=end - timedelta(days=60), end=end
+    )
+    dl_id = await _seed_dl(ids["client_id"])
+    await _detect(monkeypatch, tracking_start=end, today=end + timedelta(days=1))
+
+    async def _cards():
+        async with AsyncSessionLocal() as db:
+            return (
+                await db.scalars(
+                    select(DlAlert).where(
+                        DlAlert.user_id == dl_id,
+                        DlAlert.alert_type == ALERT_ORDER_MISSING_SUCCESSOR,
+                    )
+                )
+            ).all()
+
+    async with AsyncSessionLocal() as db:
+        await remind_open_gaps(db)
+        await db.commit()
+    assert any(a.status == "new" for a in await _cards())
+
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            delete(DeliveryLeadClientAssignment).where(
+                DeliveryLeadClientAssignment.delivery_lead_user_id == dl_id
+            )
+        )
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        await remind_open_gaps(db)
+        await db.commit()
+    cards = await _cards()
+    assert cards and all(a.status == DL_ALERT_STATUS_RESOLVED for a in cards)
+
+
+async def test_deleted_client_gap_gets_no_card(monkeypatch):
+    """Runda 9 (R9-N12-6): usunięty klient (tryb archiwum) nie dostaje kart."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.client import Client
+    from app.models.dl_alert import ALERT_ORDER_MISSING_SUCCESSOR, DlAlert
+    from app.services.order_gaps import remind_open_gaps
+
+    end = _far_day(2056, 2059)
+    ids = await _seed(
+        contract_rate_client=None, start=end - timedelta(days=60), end=end
+    )
+    dl_id = await _seed_dl(ids["client_id"])
+    await _detect(monkeypatch, tracking_start=end, today=end + timedelta(days=1))
+    async with AsyncSessionLocal() as db:
+        client = await db.get(Client, ids["client_id"])
+        client.deleted_at = datetime.now(timezone.utc)
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        await remind_open_gaps(db)
+        await db.commit()
+        alerts = (
+            await db.scalars(
+                select(DlAlert).where(
+                    DlAlert.user_id == dl_id,
+                    DlAlert.alert_type == ALERT_ORDER_MISSING_SUCCESSOR,
+                )
+            )
+        ).all()
+    assert all(a.status != "new" for a in alerts)
 
 
 async def test_gap_resolved_by_a_later_run_keeps_the_successor_creation_time(

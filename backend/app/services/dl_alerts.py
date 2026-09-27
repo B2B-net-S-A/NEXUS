@@ -82,6 +82,22 @@ from app.services.multi_consultant_orders import EVENT_BUDGET_EXHAUSTED
 logger = logging.getLogger(__name__)
 
 
+def client_not_deleted_clause(client_id_column):
+    """Encja NIE należy do klienta usuniętego z zachowaniem historii (0307).
+
+    Runda 9 (R9-N12-6): usunięty klient (``deleted_at``, tryb archiwum) nie ma
+    profilu ani zapisów, a mimo to dostawał karty DL i dzwonki o umowach
+    ramowych, konfliktach i brakach zamówień. Jedna klauzula dla wszystkich
+    reguł; encja bez klienta (``NULL``) przechodzi.
+    """
+    return ~(
+        select(Client.id)
+        .where(Client.id == client_id_column, Client.deleted_at.isnot(None))
+        .correlate_except(Client)
+        .exists()
+    )
+
+
 async def dl_user_ids_for_client(
     db: AsyncSession,
     client_id: int,

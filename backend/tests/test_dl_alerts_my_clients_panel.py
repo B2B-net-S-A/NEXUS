@@ -1017,3 +1017,67 @@ async def test_contract_card_is_skipped_when_the_order_card_covers_it(monkeypatc
     await _run(rule_contract_ending, monkeypatch, _TODAY)
     assert len(await _alerts(user_id, ALERT_PERIODIC_ORDER_ENDING)) == 1
     assert await _alerts(user_id, ALERT_CONTRACT_ENDING) == []
+
+
+async def test_deleted_client_framework_contract_gets_no_card_or_bell(monkeypatch):
+    """Runda 9 (R9-N12-6): usunięty klient (tryb archiwum) nie dostaje kart.
+
+    Karta istniejąca przed usunięciem zamyka się przy najbliższym przebiegu,
+    a dzwonek 30/14/7 o umowie ramowej też milczy.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.client import Client
+    from app.models.client_framework_contract import (
+        ClientFrameworkContract,
+        FrameworkContractStatus,
+    )
+    from app.models.dl_alert import ALERT_FRAMEWORK_CONTRACT_EXPIRING
+    from app.models.notification import Notification
+    from app.services.delivery_alert_recipients import (
+        load_delivery_alert_recipient_scope,
+    )
+    import app.tasks.dl_portal_expiry_scanner as bell_scanner
+    from app.tasks.dl_alerts_scanner import rule_framework_contract_expiring
+
+    client_id = await _seed_client()
+    user_id, _, _ = await _seed_dl(client_id)
+    async with AsyncSessionLocal() as db:
+        fc = ClientFrameworkContract(
+            client_id=client_id,
+            name=f"MSA {uuid.uuid4().hex[:6]}",
+            status=FrameworkContractStatus.active,
+            expiry_date=_TODAY + timedelta(days=10),
+        )
+        db.add(fc)
+        await db.commit()
+        fc_id = fc.id
+
+    await _run(rule_framework_contract_expiring, monkeypatch, _TODAY)
+    assert [r.status for r in await _alerts(user_id, ALERT_FRAMEWORK_CONTRACT_EXPIRING)] == [
+        "new"
+    ]
+
+    async with AsyncSessionLocal() as db:
+        client = await db.get(Client, client_id)
+        client.deleted_at = datetime.now(timezone.utc)
+        await db.commit()
+
+    await _run(rule_framework_contract_expiring, monkeypatch, _TODAY)
+    rows = await _alerts(user_id, ALERT_FRAMEWORK_CONTRACT_EXPIRING)
+    assert [r.status for r in rows] == ["resolved"]
+
+    monkeypatch.setattr(bell_scanner, "business_today", lambda: _TODAY)
+    async with AsyncSessionLocal() as db:
+        scope = await load_delivery_alert_recipient_scope(db)
+        await bell_scanner._scan_framework_contracts(db, scope)
+        await db.commit()
+        bells = (
+            await db.scalars(
+                select(Notification).where(
+                    Notification.user_id == user_id,
+                    Notification.related_entity_type == "client_framework_contract",
+                    Notification.related_entity_id == fc_id,
+                )
+            )
+        ).all()
+    assert bells == []
