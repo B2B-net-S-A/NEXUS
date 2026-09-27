@@ -1081,3 +1081,92 @@ async def test_deleted_client_framework_contract_gets_no_card_or_bell(monkeypatc
             )
         ).all()
     assert bells == []
+
+
+async def test_draft_lines_waiting_for_their_group_are_not_without_an_order(
+    monkeypatch,
+):
+    """Runda 9 (R9-N12-4): „bez zamówienia” tylko dla osoby naprawdę bez niego.
+
+    Szkic linii w zamówieniu zaplanowanym i szkic zaplanowanego „Wejdź za
+    konsultanta” dostawały co tydzień fałszywą kartę. Samodzielny szkic
+    i szkic linii w zamówieniu aktywnym (powrót po przerwie) — nadal tak.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+    from app.models.client_order_group import (
+        GROUP_STATUS_ACTIVE,
+        GROUP_STATUS_SCHEDULED,
+        ClientOrderGroup,
+        ClientOrderGroupEvent,
+    )
+    from app.models.dl_alert import ALERT_DRAFT_CONSULTANT_UNASSIGNED
+    from app.services.order_line_takeover import ASSIGNMENT_TAKEOVER
+    from app.services.multi_consultant_orders import EVENT_CONSULTANT_ADDED
+    from app.tasks.dl_alerts_scanner import rule_draft_consultant_unassigned
+
+    client_id = await _seed_client()
+    user_id, _, _ = await _seed_dl(client_id)
+    contract_ids = [(await _seed_contract(client_id))[0] for _ in range(4)]
+
+    async with AsyncSessionLocal() as db:
+        scheduled = ClientOrderGroup(
+            client_id=client_id,
+            order_number=f"MD-{uuid.uuid4().hex[:6]}",
+            start_date=_TODAY + timedelta(days=30),
+            status=GROUP_STATUS_SCHEDULED,
+            order_type="md",
+        )
+        active = ClientOrderGroup(
+            client_id=client_id,
+            order_number=f"MD-{uuid.uuid4().hex[:6]}",
+            start_date=date(2026, 9, 1),
+            status=GROUP_STATUS_ACTIVE,
+            order_type="md",
+        )
+        db.add_all([scheduled, active])
+        await db.flush()
+
+        def _line(group_id, contract_id):
+            return ClientOrder(
+                client_id=client_id,
+                contract_id=contract_id,
+                title=f"L-{uuid.uuid4().hex[:6]}",
+                status=ClientOrderStatus.draft,
+                order_group_id=group_id,
+                start_date=_TODAY + timedelta(days=30),
+            )
+
+        in_scheduled = _line(scheduled.id, contract_ids[0])
+        takeover = _line(active.id, contract_ids[1])
+        back_after_break = _line(active.id, contract_ids[2])
+        standalone = ClientOrder(
+            client_id=client_id,
+            contract_id=contract_ids[3],
+            title=f"ZAM-{uuid.uuid4().hex[:6]}",
+            status=ClientOrderStatus.draft,
+            start_date=_TODAY,
+        )
+        db.add_all([in_scheduled, takeover, back_after_break, standalone])
+        await db.flush()
+        db.add(
+            ClientOrderGroupEvent(
+                group_id=active.id,
+                order_id=takeover.id,
+                event_type=EVENT_CONSULTANT_ADDED,
+                description="Zaplanowane zastępstwo",
+                payload={"assignment": ASSIGNMENT_TAKEOVER, "scheduled": True},
+            )
+        )
+        await db.commit()
+        expected = {back_after_break.id, standalone.id}
+        excluded = {in_scheduled.id, takeover.id}
+
+    await _run(rule_draft_consultant_unassigned, monkeypatch, _TODAY)
+    alerted = {
+        row.order_id
+        for row in await _alerts(user_id, ALERT_DRAFT_CONSULTANT_UNASSIGNED)
+        if row.status == "new"
+    }
+    assert alerted == expected
+    assert not alerted & excluded

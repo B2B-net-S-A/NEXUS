@@ -51,7 +51,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Awaitable, Callable
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -128,6 +128,7 @@ from app.services.order_burn_rate import (
     md_burn_rate,
 )
 from app.services.order_continuation import order_ending_without_continuation
+from app.services.order_line_takeover import scheduled_takeover_draft_clause
 from app.services.shared_md_orders import uses_shared_md_pool
 from app.services import loop_heartbeat
 
@@ -204,6 +205,22 @@ async def rule_draft_consultant_unassigned(
                 ),
             )
             .exists(),
+            # Runda 9 (R9-N12-4): osoba na linii zamówienia MD/kosztowego NIE
+            # jest „bez zamówienia". Szkic linii w zamówieniu zaplanowanym albo
+            # w szkicu zamówienia czeka na swoją grupę, a szkic zaplanowanego
+            # „Wejdź za konsultanta” — na dzień wejścia. Zostaje wyłącznie
+            # szkic linii w zamówieniu AKTYWNYM (np. powrót po przerwie).
+            or_(
+                ClientOrder.order_group_id.is_(None),
+                and_(
+                    ClientOrder.order_group_id.in_(
+                        select(ClientOrderGroup.id).where(
+                            ClientOrderGroup.status == GROUP_STATUS_ACTIVE
+                        )
+                    ),
+                    ~scheduled_takeover_draft_clause(ClientOrder),
+                ),
+            ),
         )
     )
     orders = list(result.scalars())
