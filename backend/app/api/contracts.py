@@ -5396,10 +5396,30 @@ async def create_contract_amendment(
     current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ):
+    return await apply_contract_amendment(
+        contract_id=contract_id, data=data, current_user=current_user, db=db
+    )
+
+
+async def apply_contract_amendment(
+    *,
+    contract_id: int,
+    data: ContractAmendmentCreate,
+    current_user: User,
+    db: AsyncSession,
+    finance_write_authorized: bool = False,
+):
+    """Aneks kontraktu — ciało trasy ``POST /{id}/amendments``.
+
+    ``finance_write_authorized=True`` wyłącznie dla wołającego, który sam
+    sprawdził bramkę kwot: podpisany aneks stawki z Generatora potwierdza
+    także Delivery Lead u klienta z portfela (decyzja Artura 27.09.2026,
+    ``b2b_documents.effects.can_confirm_rate_annex``)."""
     supplied_fields = set(data.model_fields_set)
     if data.amendment_type == ContractAmendmentType.rate_change:
         supplied_fields.add("rate_change")
-    _assert_contract_finance_write_allowed(current_user, supplied_fields)
+    if not finance_write_authorized:
+        _assert_contract_finance_write_allowed(current_user, supplied_fields)
 
     # FOR UPDATE: aneks przedłużający i wcześniejsze zakończenie zmieniają
     # status — oceniany musi być ten po commicie równoległego `void` (F03).

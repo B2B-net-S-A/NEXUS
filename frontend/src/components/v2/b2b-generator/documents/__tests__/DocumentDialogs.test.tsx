@@ -296,6 +296,25 @@ describe("Wypowiedzenie Partnera (runda 6 audytu, DOC-3)", () => {
     );
   });
 
+  it("umowa bez powiązanego kontraktu nie obiecuje daty w kontrakcie (runda 10, R10-N14-3)", async () => {
+    mocks.partnerNotice.mockResolvedValue({
+      termination_date: "2026-10-31",
+      contract_warning: "Umowa nie jest powiązana z kontraktem — zmienił się tylko rejestr umów.",
+    });
+    renderWith(
+      <PartnerNoticeDialog
+        parentId={7}
+        contractNumber="264A"
+        contractLinked={false}
+        onClose={() => {}}
+      />,
+    );
+    expect(screen.queryByText(/kontrakt dostanie datę zakończenia, a umowa/)).toBeNull();
+    expect(screen.getByText(/nie jest powiązana z kontraktem/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Zarejestruj" }));
+    expect(await screen.findByText(/zmienił się tylko rejestr umów/)).toBeInTheDocument();
+  });
+
   it("umowa ze znaną wersją pozwala zostawić datę pustą", () => {
     renderWith(
       <PartnerNoticeDialog parentId={7} contractNumber="1500/2026" onClose={() => {}} />,

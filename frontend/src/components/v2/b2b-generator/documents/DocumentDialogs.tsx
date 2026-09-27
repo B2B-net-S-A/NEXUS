@@ -368,6 +368,7 @@ export function PartnerNoticeDialog({
   contractNumber,
   partnerName,
   noticePeriodKnown = true,
+  contractLinked = true,
   onClose,
 }: {
   parentId: number;
@@ -379,6 +380,12 @@ export function PartnerNoticeDialog({
    * serwer nie zgaduje jej z umowy 2026 (runda 6 audytu, DOC-3).
    */
   noticePeriodKnown?: boolean;
+  /**
+   * Umowa ma powiązany kontrakt. Bez niego (wiersz z Excela działu) serwer
+   * szuka trwającego kontraktu osoby u klienta umowy — okno nie może obiecać,
+   * że kontrakt dostanie datę zakończenia (runda 10, R10-N14-3).
+   */
+  contractLinked?: boolean;
   onClose: () => void;
 }) {
   const toast = useToast();
@@ -393,8 +400,11 @@ export function PartnerNoticeDialog({
         termination_date: terminationDate || null,
       }),
     onSuccess: (result) => {
+      const when = result.termination_date.split("-").reverse().join(".");
       toast.showSuccess(
-        `Wypowiedzenie zarejestrowane — umowa rozwiąże się ${result.termination_date.split("-").reverse().join(".")}.`,
+        result.contract_warning
+          ? `Wypowiedzenie zarejestrowane — umowa rozwiąże się ${when}. ${result.contract_warning}`
+          : `Wypowiedzenie zarejestrowane — umowa rozwiąże się ${when}.`,
       );
       invalidateAfterDocumentChange(queryClient);
       onClose();
@@ -413,9 +423,9 @@ export function PartnerNoticeDialog({
         </DialogHeader>
         <DialogBody className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            Partner złożył wypowiedzenie — NEXUS zapisze fakt i jego skutek:
-            kontrakt dostanie datę zakończenia, a umowa w rejestrze status
-            „Zakończona”. Dokumentu po naszej stronie nie ma.
+            {contractLinked
+              ? "Partner złożył wypowiedzenie — NEXUS zapisze fakt i jego skutek: kontrakt dostanie datę zakończenia, a umowa w rejestrze status „Zakończona”. Dokumentu po naszej stronie nie ma."
+              : "Partner złożył wypowiedzenie — NEXUS zapisze fakt i jego skutek w rejestrze umów (status „Zakończona”). Umowa nie jest powiązana z kontraktem: datę zakończenia dostanie trwający kontrakt tej osoby u tego klienta, jeśli jest jeden; bez niego zmieni się tylko rejestr. Dokumentu po naszej stronie nie ma."}
           </p>
           <div className="space-y-1">
             <Label htmlFor="b2b-partner-notice-delivered">Data doręczenia wypowiedzenia *</Label>

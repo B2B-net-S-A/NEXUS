@@ -71,12 +71,39 @@ def _pl_under_1000(n: int) -> str:
     return " ".join(parts)
 
 
-def _pl_thousands(n: int) -> str:
+# Runda 10 (R10-N14-5): do rundy 10 słownik znał tylko tysiące — kwota od
+# miliona (literówka w stawce) kończyła się IndexError i 500 w generatorze
+# umów i dokumentów pochodnych. Skale do miliardów (poniżej biliona).
+_PL_SCALES = (
+    ("tysiąc", "tysiące", "tysięcy"),
+    ("milion", "miliony", "milionów"),
+    ("miliard", "miliardy", "miliardów"),
+)
+_EN_SCALES = ("thousand", "million", "billion")
+
+
+def _pl_scale(n: int, forms: tuple[str, str, str]) -> str:
+    one, few, many = forms
     if n == 1:
-        return "tysiąc"
+        return one
     last, last2 = n % 10, n % 100
-    word = "tysiące" if (2 <= last <= 4 and not (12 <= last2 <= 14)) else "tysięcy"
+    word = few if (2 <= last <= 4 and not (12 <= last2 <= 14)) else many
     return f"{_pl_under_1000(n)} {word}"
+
+
+def _pl_thousands(n: int) -> str:
+    return _pl_scale(n, _PL_SCALES[0])
+
+
+def _groups(n: int, scales: int) -> list[int]:
+    """Grupy po trzy cyfry od najmłodszej; ``ValueError`` poza zakresem skal."""
+    groups: list[int] = []
+    while n:
+        n, rest = divmod(n, 1000)
+        groups.append(rest)
+    if len(groups) > scales + 1:
+        raise ValueError("Kwota poza zakresem słownika liczb.")
+    return groups
 
 
 def liczba_slownie(num: int | float | None) -> str:
@@ -85,12 +112,16 @@ def liczba_slownie(num: int | float | None) -> str:
     n = int(abs(num))
     if n == 0:
         return "zero"
-    th, rest = divmod(n, 1000)
     parts: list[str] = []
-    if th:
-        parts.append(_pl_thousands(th))
-    if rest:
-        parts.append(_pl_under_1000(rest))
+    groups = _groups(n, len(_PL_SCALES))
+    for index in range(len(groups) - 1, -1, -1):
+        value = groups[index]
+        if not value:
+            continue
+        if index == 0:
+            parts.append(_pl_under_1000(value))
+        else:
+            parts.append(_pl_scale(value, _PL_SCALES[index - 1]))
     return " ".join(parts).strip()
 
 
@@ -154,12 +185,14 @@ def number_to_words_en(num: int | float | None) -> str:
     n = int(abs(num))
     if n == 0:
         return "zero"
-    th, rest = divmod(n, 1000)
     parts: list[str] = []
-    if th:
-        parts.append(f"{_en_under_1000(th)} thousand")
-    if rest:
-        parts.append(_en_under_1000(rest))
+    groups = _groups(n, len(_EN_SCALES))
+    for index in range(len(groups) - 1, -1, -1):
+        value = groups[index]
+        if not value:
+            continue
+        words = _en_under_1000(value)
+        parts.append(words if index == 0 else f"{words} {_EN_SCALES[index - 1]}")
     return " ".join(parts).strip()
 
 

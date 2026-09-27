@@ -162,9 +162,11 @@ def test_extension_paths_call_the_lifecycle_helper():
         node.name: node
         for node in tree.body
         if isinstance(node, ast.AsyncFunctionDef)
-        and node.name in {"bulk_extend_contracts", "create_contract_amendment"}
+        and node.name in {"bulk_extend_contracts", "apply_contract_amendment"}
     }
-    assert set(handlers) == {"bulk_extend_contracts", "create_contract_amendment"}, (
+    # Runda 10 (R10-N14-7): ciało trasy aneksu żyje w `apply_contract_amendment`
+    # (woła je też podpis aneksu stawki z Generatora).
+    assert set(handlers) == {"bulk_extend_contracts", "apply_contract_amendment"}, (
         "Ścieżka przedłużania zmieniła nazwę — zaktualizuj ten test razem z nią, "
         "inaczej przestaje czegokolwiek pilnować."
     )
