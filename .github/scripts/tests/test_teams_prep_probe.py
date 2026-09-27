@@ -37,7 +37,7 @@ class TeamsProbeTests(unittest.TestCase):
             "onlineMeeting": {"joinUrl": "private-join"},
             "attendees": attendees
             if attendees is not None
-            else [{"emailAddress": {"address": probe.EXCLUDED}}],
+            else [{"emailAddress": {"address": probe.SESSION_ATTENDEE}}],
         }
         return self.initial()[:3] + [
             response({"value": events if events is not None else [event]}),
@@ -182,18 +182,83 @@ class TeamsProbeTests(unittest.TestCase):
         self.assertEqual(result["transcripts_http"], 200)
 
     def test_session_content_denial_identifies_stage_without_disclosing_errors(self):
+        for error in (
+            denied(),
+            urllib.error.HTTPError(
+                "private-url",
+                403,
+                "private-error",
+                {},
+                io.BytesIO(
+                    json.dumps(
+                        {
+                            "error": {
+                                "innerError": {
+                                    "code": "GraphAccessToTranscriptsDisabled"
+                                }
+                            }
+                        }
+                    ).encode()
+                ),
+            ),
+        ):
+            opener = Mock(
+                side_effect=self.session_initial()
+                + [
+                    response({"value": [{"id": "private-transcript"}]}),
+                    error,
+                ]
+            )
+            result = probe.probe(self.rows(), session=True, opener=opener)
+            self.assertFalse(result["passed"])
+            self.assertEqual(result["session_stage"], "read_session_transcripts")
+            self.assertEqual(result["http_status"], 403)
+            self.assertEqual(opener.call_count, 8)
+            self.assert_private(result)
+
+    def test_session_unattributed_fallback_proves_speech_and_preserves_privacy(self):
+        error = urllib.error.HTTPError(
+            "private-url",
+            403,
+            "private-error",
+            {},
+            io.BytesIO(
+                json.dumps(
+                    {"error": {"innerError": {"code": "SpeakerAttributionNotAllowed"}}}
+                ).encode()
+            ),
+        )
         opener = Mock(
             side_effect=self.session_initial()
             + [
                 response({"value": [{"id": "private-transcript"}]}),
-                denied(),
+                error,
+                raw_response(b"00:00:01.000 --> 00:00:03.000\nprivate-speech\n\n"),
             ]
         )
         result = probe.probe(self.rows(), session=True, opener=opener)
-        self.assertFalse(result["passed"])
-        self.assertEqual(result["session_stage"], "read_session_transcripts")
-        self.assertEqual(result["http_status"], 403)
+        self.assertTrue(result["passed"])
+        self.assertEqual(result["spoken_cue_count"], 1)
+        self.assertEqual(result["speaker_attribution"], "disabled")
+        fallback = opener.call_args_list[-1].args[0]
+        self.assertNotIn("$format", fallback.full_url)
+        self.assertEqual(
+            fallback.get_header("Accept"),
+            "application/vnd.microsoft.graph.transcript+text",
+        )
+        self.assertEqual(fallback.get_method(), "GET")
         self.assert_private(result)
+        self.assertNotIn("private-speech", json.dumps(result))
+
+    def test_session_rejects_excluded_mailbox_as_attendee(self):
+        opener = Mock(
+            side_effect=self.session_initial(
+                attendees=[{"emailAddress": {"address": probe.EXCLUDED}}]
+            )
+        )
+        result = probe.probe(self.rows(), session=True, opener=opener)
+        self.assertEqual(result["failed_stage"], "test_attendees_mismatch")
+        self.assertEqual(opener.call_count, 4)
 
     def test_session_rejects_non_owner_attendees_and_ambiguous_event(self):
         for kwargs, expected in (

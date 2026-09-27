@@ -16,8 +16,9 @@ import uuid
 
 TENANT = "e277180c-b58a-418c-b362-bb89ab0b1301"
 CLIENT = "b6051b61-559e-4482-841e-0cc8869a4e2e"
-ORGANIZER = "ewa.kalata@b2bnetwork.pl"
-EXCLUDED = "artur.twardowski@b2bnetwork.pl"
+ORGANIZER = "artur.twardowski@b2bnetwork.pl"
+EXCLUDED = "nexus-powiadomienia@b2bnetwork.pl"
+SESSION_ATTENDEE = "artur.twardowski@b2bnetwork.pl"
 SESSION_ORGANIZER = "klaudia.uliasz@b2bnetwork.pl"
 SESSION_SUBJECT = (
     "Prep 1: NEXUS TEST-M365-20260926 — "
@@ -48,7 +49,7 @@ def audit_session(graph, opener, token, result):
         str(a.get("emailAddress", {}).get("address", "")).lower()
         for a in event.get("attendees", [])
     }
-    if not addresses or not addresses.issubset({EXCLUDED, SESSION_ORGANIZER}):
+    if not addresses or not addresses.issubset({SESSION_ATTENDEE, SESSION_ORGANIZER}):
         result["failed_stage"] = "test_attendees_mismatch"
         return result
     join = (event.get("onlineMeeting") or {}).get("joinUrl")
@@ -97,15 +98,13 @@ def audit_session(graph, opener, token, result):
         request = urllib.request.Request(
             url, headers={"Authorization": "Bearer " + token}
         )
-        try:
-            with opener(request, timeout=25) as response:
-                raw = response.read()
-        except urllib.error.HTTPError as error:
-            raise ProbeError(error.code) from None
-        except Exception:
-            raise ProbeError() from None
+        raw, unattributed = transcript_content(request, opener, token)
+        if unattributed:
+            result["speaker_attribution"] = "disabled"
         text = raw.decode("utf-8", errors="replace")
-        if not text.lstrip().startswith("WEBVTT"):
+        if not text.lstrip().startswith("WEBVTT") and not (
+            unattributed and re.search(r"^\d{2}:\d{2}:\d{2}\.\d{3} --> ", text, re.M)
+        ):
             result["failed_stage"] = "transcript_format_invalid"
             return result
         content_bytes += len(raw)
@@ -131,6 +130,42 @@ def audit_session(graph, opener, token, result):
     if not result["passed"]:
         result["failed_stage"] = "transcript_empty"
     return result
+
+
+def transcript_content(request, opener, token):
+    """Mirror production's fallback only for the explicit attribution denial."""
+    try:
+        with opener(request, timeout=25) as response:
+            return response.read(), False
+    except urllib.error.HTTPError as error:
+        try:
+            payload = json.loads(error.read())
+            detail = payload.get("error", {})
+            inner = detail.get("innerError") or detail.get("innererror") or {}
+            fallback = (
+                error.code == 403
+                and inner.get("code") == "SpeakerAttributionNotAllowed"
+            )
+        except Exception:
+            fallback = False
+        if not fallback:
+            raise ProbeError(error.code) from None
+    except Exception:
+        raise ProbeError() from None
+    request = urllib.request.Request(
+        request.full_url.split("?$format=", 1)[0],
+        headers={
+            "Authorization": "Bearer " + token,
+            "Accept": "application/vnd.microsoft.graph.transcript+text",
+        },
+    )
+    try:
+        with opener(request, timeout=25) as response:
+            return response.read(), True
+    except urllib.error.HTTPError as error:
+        raise ProbeError(error.code) from None
+    except Exception:
+        raise ProbeError() from None
 
 
 class ProbeError(Exception):

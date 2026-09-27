@@ -41,10 +41,10 @@ konfigurację; dowód nagrania i importu wymaga zakończonego spotkania z mową.
 
 ### Test dostępu Graph bez danych kandydata
 
-Workflow `Coolify Ops` ma dwa działania dostępne wyłącznie z `main`:
+Workflow `Coolify Ops` udostępnia działania wyłącznie z `main`:
 
 - `teams-prep-config-audit`: uzyskuje token aplikacji i potwierdza dostęp do
-  kalendarza Ewy oraz HTTP 403 dla Artura poza zakresem.
+  kalendarza Artura oraz HTTP 403 dla skrzynki systemowej poza zakresem.
 - `teams-prep-meeting-probe`: po tej samej kontroli tworzy jedno oznaczone
   spotkanie bez uczestników, sprawdza zapis i odczyt `recordAutomatically`
   oraz `allowTranscription`, a także odczyt listy transkryptów. Następnie
@@ -188,6 +188,27 @@ treść VTT. Wynik zawiera kody HTTP i liczbę wypowiedzi; nie zawiera treści,
 identyfikatorów spotkań, linków ani sekretów. Pusta lista lub pusty VTT nie
 przechodzą testu. Akcja nie tworzy ani nie odwołuje spotkań i nie zmienia
 uprawnień. Nagranie wideo i import do NEXUS mają osobne dowody odbioru.
+
+## Uzupełnienie konfiguracji 27.09.2026
+
+Na prośbę właściciela konto `artur.twardowski@b2bnetwork.pl` dodano do grupy
+`NEXUS-Meetings-Scope` (14 członków) i przypisano mu istniejące polityki
+`NEXUS-TeamsPrep-ApplicationAccess` oraz `NEXUS-TeamsPrep-AutoRecording`.
+Exchange `Test-ServicePrincipalAuthorization` potwierdził kalendarz Artura
+w zakresie. Skrzynka `nexus-powiadomienia@b2bnetwork.pl` pozostaje poza
+zakresem kalendarzy i zastępuje Artura jako negatywna kontrola w probe.
+Zakres pozostałych aplikacji i ich uprawnienia nie zostały rozszerzone.
+
+Test mowy w kontrolnym prepie potwierdził w Teams automatyczny start oraz
+rzeczywisty tekst transkrypcji. Graph udostępnił jeden plik. Tenant ma
+`EnableGraphTranscriptAccess=true`, `EnableAttributedTranscripts=false`.
+Dlatego probe, tak jak produkcyjny klient NEXUS, po dokładnym błędzie
+`SpeakerAttributionNotAllowed` żąda treści z nagłówkiem
+`Accept: application/vnd.microsoft.graph.transcript+text`. Pozostałe odmowy
+403 pozostają błędami. Ten format nie zawiera nazw mówców; potwierdzenie
+tekstu nie jest dowodem podziału czasu mowy ani importu do NEXUS.
+
+Źródło: [Microsoft Graph — formaty callTranscript](https://learn.microsoft.com/en-us/graph/api/calltranscript-get?view=graph-rest-1.0).
 
 ## Czego NEXUS nie kasuje
 
