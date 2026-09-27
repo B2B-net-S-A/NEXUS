@@ -158,12 +158,17 @@ async def import_candidates(
                 )
                 continue
 
-            # Dedup by email
+            # Dedup by email. Runda 10 (R10-N13-2): bez rozróżniania wielkości
+            # liter — Traffit zapisuje adres tak, jak przyszedł („Jan@Firma.pl”),
+            # a UNIQUE działa na surowym tekście, więc równość z adresem
+            # zmienionym na małe litery zakładała tę samą osobę drugi raz.
             if email:
-                existing = await db.execute(
-                    select(Candidate).where(Candidate.email == email)
+                existing = await db.scalar(
+                    select(Candidate.id)
+                    .where(func.lower(Candidate.email) == email)
+                    .limit(1)
                 )
-                if existing.scalar_one_or_none():
+                if existing is not None:
                     skipped += 1
                     details.append(
                         {
@@ -261,6 +266,10 @@ async def import_candidates(
                     source=source_raw[:100],
                     skills=_parse_skills(skills_raw),
                     status=CandidateStatus.active,
+                    # Runda 10 (R10-N13-7): autor jak w bulk-import i POST
+                    # /candidates — inaczej filtr „Kto dodał / Moi kandydaci”
+                    # nie widzi osób z importu CSV.
+                    created_by=current_user.id,
                 )
                 db.add(candidate)
                 await db.flush()
@@ -311,13 +320,22 @@ async def import_candidates(
                 detail["field_errors"] = row_field_errors
             details.append(detail)
 
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - każdy wiersz osobno
+            # Runda 10 (R10-N13-9): ``str(exc)`` z bazy niósł pełny tekst SQL
+            # z nazwami kolumn. Odpowiedź dostaje stały kod i polski powód,
+            # log — samą klasę wyjątku (bez danych wiersza).
+            logger.warning(
+                "CSV candidate import failed at row=%s error=%s",
+                row_num,
+                type(exc).__name__,
+            )
             errors += 1
             details.append(
                 {
                     "row": row_num,
                     "status": "error",
-                    "reason": str(exc),
+                    "code": "candidate_import_failed",
+                    "reason": "Nie udało się zapisać wiersza (sprawdź długość pól)",
                 }
             )
 
@@ -329,9 +347,14 @@ async def import_candidates(
     try:
         from app.services.index_outbox_service import CANDIDATE, record_bulk_reindex
 
-        await record_bulk_reindex(db, CANDIDATE, imported_ids)
+        # Savepoint: błąd SQL w kolejce bez niego psuł transakcję i commit
+        # niżej zabierał cały import mimo „never fail an import”.
+        async with db.begin_nested():
+            await record_bulk_reindex(db, CANDIDATE, imported_ids)
     except Exception as exc:  # noqa: BLE001 — never fail an import on the queue
-        logger.warning("Recording reindex intent for CSV import failed: %s", exc)
+        logger.warning(
+            "Recording reindex intent for CSV import failed: %s", type(exc).__name__
+        )
 
     await db.commit()
 

@@ -26,6 +26,7 @@ from typing import Any, Optional
 
 from openpyxl import load_workbook
 
+from app.core.zip_guard import UnsafeArchive, assert_safe_ooxml
 from app.services.candidate_identity_quarantine import normalize_person_name_part
 
 _MAX_HEADER_SCAN_ROWS = 10
@@ -408,6 +409,10 @@ _NUMBER_RE = re.compile(
 )
 
 
+#: Sufit ``b2b_generated_contracts.seq`` (Integer) — ten sam co w generatorze.
+MAX_CONTRACT_SEQ = 2_147_483_647
+
+
 def _number_value(raw: Optional[str]) -> Optional[int]:
     if not raw:
         return None
@@ -448,6 +453,12 @@ def _parse_contract_row(
     elif number is not None:
         number_raw = _text(number)
         number_int = _number_value(number_raw)
+    # Runda 10 (R10-N13-4): literówka „12345678901” nie mieści się w kolumnie
+    # ``seq`` (Integer) — flush dawał 500 już na podglądzie. Taki numer idzie
+    # jak numer spoza formatu (``raw_contract_number``, bez ``seq``) z flagą.
+    if number_int is not None and not 0 < number_int <= MAX_CONTRACT_SEQ:
+        number_int = None
+        flags.append("number_out_of_range")
 
     position = _text(values.get("position"))
     cancelled = False
@@ -654,6 +665,15 @@ def _assert_reasonable_archive(payload: bytes) -> None:
         raise RegisterParseError(
             "Plik po rozpakowaniu jest zbyt duży jak na rejestr umów."
         )
+    # Runda 10 (R10-N13-5): wspólny strażnik OOXML (jak import Finansów i MD,
+    # R9-N7-13) — limit na pojedynczy XML i liczbę wpisów. openpyxl w trybie
+    # read_only i tak wczytuje ``sharedStrings.xml`` w całości do pamięci.
+    try:
+        assert_safe_ooxml(payload)
+    except UnsafeArchive as exc:
+        raise RegisterParseError(
+            "Plik po rozpakowaniu jest zbyt duży jak na rejestr umów."
+        ) from exc
 
 
 #: Nagłówki arkusza, którego NAZWA nie mówi „umowy” — tylko pełne „Numer

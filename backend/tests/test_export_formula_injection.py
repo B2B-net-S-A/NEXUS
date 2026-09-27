@@ -266,3 +266,81 @@ def test_no_private_copy_of_the_formula_prefix_list():
                 if {"=", "+", "-", "@"} <= values:
                     copies.append(f"{path.relative_to(APP_DIR.parent)}:{node.lineno}")
     assert not copies, f"Lokalna kopia prefiksów formuły: {copies}"
+
+
+# ── znaki niedozwolone w XLSX (Runda 10, R10-N13-1 / R10-N4-4) ───────────────
+#
+# openpyxl rzuca ``IllegalCharacterError`` na ``\x00``–``\x08``, ``\x0b``,
+# ``\x0c`` i ``\x0e``–``\x1f`` — jedno imię z formularza kariery albo ręcznie
+# wklejona pozycja faktury Nordei wywracały cały eksport błędem 500.
+
+
+@pytest.mark.parametrize("char", ["\x00", "\x07", "\x0b", "\x0c", "\x1f"])
+def test_safe_cell_drops_characters_xlsx_rejects(char):
+    from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
+
+    cleaned = safe_cell(f"Jan{char}Kowalski")
+    assert cleaned == "JanKowalski"
+    assert not ILLEGAL_CHARACTERS_RE.search(cleaned)
+
+
+def test_safe_cell_keeps_newlines_and_tabs_inside_text():
+    """Nowa linia i tabulator są w XLSX legalne — pozycje faktury Nordei
+    rozdziela właśnie ``\\n``."""
+    assert safe_cell("NIDS: 1\nNIDS: 2") == "NIDS: 1\nNIDS: 2"
+    assert safe_cell("a\tb") == "a\tb"
+
+
+def test_safe_cell_strips_before_checking_the_formula_prefix():
+    """Znak sterujący przed ``=`` nie może przemycić formuły."""
+    assert safe_cell("\x07" + PAYLOAD) == "'" + PAYLOAD
+
+
+def test_candidate_xlsx_builds_with_control_character_in_name():
+    from app.api.candidates import _build_xlsx_bytes, _row_for_export
+
+    buffer = _build_xlsx_bytes(
+        [_row_for_export(_candidate(name="Jan\x07", lastname="Kow\x0balska"))]
+    )
+    sheet = load_workbook(buffer).active
+    assert sheet.cell(row=2, column=2).value == "Jan"
+    assert sheet.cell(row=2, column=3).value == "Kowalska"
+
+
+def test_order_changes_export_builds_with_control_character_in_invoice_line():
+    from app.schemas.finance_order_changes import (
+        InvoiceLine,
+        OrderChangesCounts,
+        OrderChangesPeriod,
+        OrderChangesResponse,
+        OrderEntryItem,
+    )
+    from app.services.finance_order_changes import build_order_changes_workbook
+
+    entry = OrderEntryItem(
+        client_name="Klient\x01",
+        consultant_name="Jan\x07 Kowalski",
+        order_number="NR-1",
+        order_type="periodic",
+        status="active",
+        start_date=date(2026, 9, 1),
+        invoice_lines=[InvoiceLine(index=0, text="NIDS: 1\x0bX")],
+    )
+    data = OrderChangesResponse(
+        period=OrderChangesPeriod(year=2026, month=9, label="Wrzesień 2026"),
+        counts=OrderChangesCounts(changes=0, entries=1, exits=0, ending=0, gaps=0),
+        changes=[],
+        entries=[entry],
+        exits=[],
+        ending_orders=[],
+        gaps=[],
+        gaps_tracked_since=date(2026, 8, 1),
+        open_gaps_total=0,
+    )
+    for tabs in (("entries",), None):
+        workbook = load_workbook(io.BytesIO(build_order_changes_workbook(data, tabs)))
+        sheet = workbook["Wejścia (1)"]
+        row = [cell.value for cell in sheet[2]]
+        assert row[0] == "Jan Kowalski"
+        assert row[1] == "Klient"
+        assert row[12] == "NIDS: 1X"

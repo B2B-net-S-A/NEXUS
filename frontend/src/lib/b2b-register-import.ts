@@ -45,6 +45,7 @@ const REASON_LABELS: Record<string, string> = {
   duplicate_in_file: "ten sam numer w kilku wierszach pliku",
   deleted_in_nexus: "numer był wydany i usunięty w NEXUSIE",
   number_taken: "numer zajęty w NEXUSIE przez inną umowę",
+  number_out_of_range: "numer poza zakresem (literówka?) — zapisany bez numeru kanonicznego",
   legend: "legenda pod tabelą",
   no_name_no_number: "brak nazwiska i numeru",
   no_name: "brak nazwiska",

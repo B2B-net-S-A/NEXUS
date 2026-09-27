@@ -7506,6 +7506,24 @@ async def bulk_import_candidates(
                 "field_errors": field_errors,
             }
         )
+    # Runda 10 (R10-N13-8): intencja indeksu jak w imporcie CSV — bez niej
+    # kandydat nigdy nie trafiał do Qdranta (reconciler nie kolejkuje encji
+    # „nigdy niewidzianych”). Ścieżka masowa: sam INSERT, bez embeddingu
+    # w pętli; savepoint, bo błąd kolejki nie może zabrać importu.
+    if created:
+        try:
+            from app.services.index_outbox_service import (
+                CANDIDATE,
+                record_bulk_reindex,
+            )
+
+            async with db.begin_nested():
+                await record_bulk_reindex(db, CANDIDATE, created)
+        except Exception as exc:  # noqa: BLE001 - nigdy nie wywracaj importu
+            logger.warning(
+                "Recording reindex intent for bulk import failed: %s",
+                type(exc).__name__,
+            )
     activity = Activity(
         entity_type="candidate",
         entity_id=0,
