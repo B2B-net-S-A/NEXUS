@@ -3446,21 +3446,25 @@ async def create_candidate(
             db.add(notif)
             notif_ids.append((mgr.id, notif))
     await db.flush()
+    # Runda 9 (R9-N2-5): zdarzenie wychodzi dopiero po commicie żądania.
+    from app.services.notification_ws_after_commit import queue_ws_notification
+
     for mgr_id, notif in notif_ids:
-        await ws_manager.notify_user(
-            mgr_id,
-            {
-                "type": "notification",
-                "data": {
-                    "id": notif.id,
-                    "title": notif.title,
-                    "message": notif.message,
-                    "link": notif.link,
-                    "notification_type": NotificationType.candidate_added.value,
-                    "created_at": datetime.now(timezone.utc).isoformat(),
-                },
+        payload = {
+            "type": "notification",
+            "data": {
+                "id": notif.id,
+                "title": notif.title,
+                "message": notif.message,
+                "link": notif.link,
+                "notification_type": NotificationType.candidate_added.value,
+                "created_at": datetime.now(timezone.utc).isoformat(),
             },
-        )
+        }
+        if not queue_ws_notification(
+            db, user_id=mgr_id, event_payload=payload, row=notif
+        ):
+            await ws_manager.notify_user(mgr_id, payload)
 
     await db.refresh(candidate)
     # Phase 7.6 — fire-and-forget Teams card to all subscribed channels.

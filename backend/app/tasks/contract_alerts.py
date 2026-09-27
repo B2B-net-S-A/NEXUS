@@ -604,18 +604,17 @@ async def run_contract_alerts_cycle() -> dict:
                 )
                 link = f"/contracts/{c.id}"
                 for uid in recipient_ids:
-                    db.add(
-                        Notification(
-                            user_id=uid,
-                            title=title,
-                            message=message,
-                            link=link,
-                            notification_type=notif_type,
-                            related_entity_type="contract",
-                            related_entity_id=c.id,
-                        )
-                    )
-                    stats["notifications_created"] += 1
+                    if await _insert_dedup_notification(
+                        db,
+                        user_id=uid,
+                        title=title,
+                        message=message,
+                        link=link,
+                        notification_type=notif_type,
+                        related_entity_type="contract",
+                        related_entity_id=c.id,
+                    ):
+                        stats["notifications_created"] += 1
                 to_slack.append((threshold, c))
         await db.commit()
 
@@ -704,16 +703,15 @@ async def run_contract_alerts_cycle() -> dict:
                     f"{item.return_due_date} ({days_left} dni)."
                 )
                 for uid in recipient_ids:
-                    db.add(
-                        Notification(
-                            user_id=uid,
-                            title=title,
-                            message=message,
-                            link=f"/contracts/{item.contract_id}?tab=equipment",
-                            notification_type=NotificationType.equipment_return_due_14d,
-                            related_entity_type="contract_equipment",
-                            related_entity_id=item.id,
-                        )
+                    await _insert_dedup_notification(
+                        db,
+                        user_id=uid,
+                        title=title,
+                        message=message,
+                        link=f"/contracts/{item.contract_id}?tab=equipment",
+                        notification_type=NotificationType.equipment_return_due_14d,
+                        related_entity_type="contract_equipment",
+                        related_entity_id=item.id,
                     )
                 stats["equipment_return_alerts"] += 1
         await db.commit()
@@ -752,16 +750,15 @@ async def run_contract_alerts_cycle() -> dict:
                     f"Skontaktuj się z klientem w sprawie przedłużenia."
                 )
                 for uid in recipient_ids:
-                    db.add(
-                        Notification(
-                            user_id=uid,
-                            title=title,
-                            message=message,
-                            link=f"/contracts/{c.id}",
-                            notification_type=NotificationType.client_order_ending_30d,
-                            related_entity_type="contract",
-                            related_entity_id=c.id,
-                        )
+                    await _insert_dedup_notification(
+                        db,
+                        user_id=uid,
+                        title=title,
+                        message=message,
+                        link=f"/contracts/{c.id}",
+                        notification_type=NotificationType.client_order_ending_30d,
+                        related_entity_type="contract",
+                        related_entity_id=c.id,
                     )
                 stats["client_order_alerts"] += 1
         await db.commit()
@@ -773,6 +770,20 @@ async def run_contract_alerts_cycle() -> dict:
 
     logger.info("contract_alerts: cycle done %s", stats)
     return stats
+
+
+async def _insert_dedup_notification(db: AsyncSession, **values: object) -> bool:
+    """Wstaw powiadomienie; kolizja z ``ix_notif_dedup_daily`` = pominięcie.
+
+    Runda 9 (R9-N12-5): zwykłe ``db.add`` wywracało CAŁY cykl na commicie,
+    gdy tego samego dnia powstawał drugi wpis o tej samej encji — np. próg
+    kontraktu po zmianie daty końca albo ``client_order_ending_30d`` dla
+    kontraktu #N obok dzwonka zamówienia #N ze skanera portalu DL (indeks nie
+    zna typu encji). Ten sam ``ON CONFLICT DO NOTHING`` co w skanerze portalu.
+    """
+    from app.tasks.dl_portal_expiry_scanner import _insert_notification
+
+    return await _insert_notification(db, **values)
 
 
 async def contract_alerts_loop(interval_hours: float = _DEFAULT_INTERVAL_HOURS) -> None:

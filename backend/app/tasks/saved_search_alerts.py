@@ -387,22 +387,25 @@ async def _incremental_one(client, db, ss, owner) -> bool:
     ss.unseen_count = unseen_total
     await db.flush()
 
+    payload = {
+        "type": "notification",
+        "data": {
+            "id": notif.id,
+            "title": notif.title,
+            "message": notif.message,
+            "link": notif.link,
+            "notification_type": NotificationType.saved_search_match.value,
+            "related_entity_type": "saved_search",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        },
+    }
+    # Runda 9 (R9-N2-5): zdarzenie wychodzi dopiero po commicie przebiegu.
+    from app.services.notification_ws_after_commit import queue_ws_notification
+
+    if queue_ws_notification(db, user_id=ss.user_id, event_payload=payload, row=notif):
+        return True
     try:
-        await ws_notify_user(
-            ss.user_id,
-            {
-                "type": "notification",
-                "data": {
-                    "id": notif.id,
-                    "title": notif.title,
-                    "message": notif.message,
-                    "link": notif.link,
-                    "notification_type": NotificationType.saved_search_match.value,
-                    "related_entity_type": "saved_search",
-                    "created_at": datetime.now(timezone.utc).isoformat(),
-                },
-            },
-        )
+        await ws_notify_user(ss.user_id, payload)
     except Exception as e:  # noqa: BLE001 — WS push is best-effort
         logger.debug(
             "saved_search_alerts: ws push failed for user %s: %s", ss.user_id, e
