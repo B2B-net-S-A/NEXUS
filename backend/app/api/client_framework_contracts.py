@@ -440,9 +440,7 @@ def _is_manifest_owned(fc: ClientFrameworkContract) -> bool:
     return fc.source_system == PORTFOLIO_MANIFEST_SOURCE_SYSTEM
 
 
-def _assert_manifest_dates_untouched(
-    fc: ClientFrameworkContract, data: dict
-) -> None:
+def _assert_manifest_dates_untouched(fc: ClientFrameworkContract, data: dict) -> None:
     """Runda 10 (R10-N12-1): lustro reguły zakresów portfela.
 
     ``get_client_portfolio_import_health`` porównuje daty umów z manifestu

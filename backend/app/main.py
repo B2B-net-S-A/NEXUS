@@ -2202,11 +2202,11 @@ async def api_health_check():
             from app.services.job_portals.service import portal_health_inputs
 
             async with AsyncSessionLocal() as session:
-                _failed, _reconnect = await asyncio.wait_for(
+                _failed, _reconnect, _connected = await asyncio.wait_for(
                     portal_health_inputs(session), timeout=1.0
                 )
             checks["job_portals"] = _job_portals.health_state(
-                _failed, reconnect_required=_reconnect
+                _failed, reconnect_required=_reconnect, connected=_connected
             )
     except Exception:  # noqa: BLE001 — sonda informacyjna
         checks["job_portals"] = "unknown"

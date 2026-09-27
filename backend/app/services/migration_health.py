@@ -36,7 +36,6 @@ STATUS_FILE_ENV = "ALEMBIC_STATUS_FILE"
 DEFAULT_STATUS_FILE = "/tmp/nexus-alembic-status.json"
 
 
-
 def status_file_path() -> Path:
     return Path(os.environ.get(STATUS_FILE_ENV) or DEFAULT_STATUS_FILE)
 
