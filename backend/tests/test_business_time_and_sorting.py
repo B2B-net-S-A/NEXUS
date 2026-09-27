@@ -244,7 +244,8 @@ async def test_hired_this_month_binds_warsaw_month_as_timestamps(monkeypatch):
 
     db = _Db()
     await dashboard_metrics.compute_kpi_snapshot(db)
-    hired = [s for s in db.statements if "candidate_stages" in _sql(s)]
+    # Runda 10 (R10-N8-11): pierwsze „Zatrudniony” pary z widoku D2.
+    hired = [s for s in db.statements if "analytics_first_milestones" in _sql(s)]
     assert hired, "brak zapytania o hired_this_month"
     sql = _sql(hired[-1])
     assert "2026-08-31 22:00:00" in sql
