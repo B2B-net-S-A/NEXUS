@@ -204,8 +204,11 @@ def probe(
         for row in rows
         if row.get("key") in allowed and row.get("is_preview") is not True
     }
+    # The named-session audit reads Klaudia's fixture. Owner-scope propagation
+    # must not prevent measuring transcript access for that existing meeting.
+    scope_organizer = SESSION_ORGANIZER if session else ORGANIZER
     result = {
-        "organizer": ORGANIZER,
+        "organizer": scope_organizer,
         "excluded": EXCLUDED,
         "recording_generated_verified": False,
         "transcript_generated_verified": False,
@@ -213,7 +216,7 @@ def probe(
     event_id = None
     token = None
     stage = "configuration"
-    user_path = "/users/" + ORGANIZER
+    user_path = "/users/" + scope_organizer
 
     def graph(path, method="GET", payload=None):
         request = urllib.request.Request(

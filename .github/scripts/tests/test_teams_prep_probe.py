@@ -130,6 +130,13 @@ class TeamsProbeTests(unittest.TestCase):
         )
         result = probe.probe(self.rows(), write=True, opener=opener)
         self.assertTrue(result["passed"])
+        self.assertEqual(result["organizer"], probe.ORGANIZER)
+        self.assertEqual(
+            opener.call_args_list[1].args[0].full_url,
+            "https://graph.microsoft.com/v1.0/users/"
+            + probe.ORGANIZER
+            + "/calendar?$select=id",
+        )
         self.assertTrue(result["event_cancelled"])
         self.assertFalse(result["recording_generated_verified"])
         self.assertFalse(result["transcript_generated_verified"])
@@ -163,6 +170,13 @@ class TeamsProbeTests(unittest.TestCase):
         )
         result = probe.probe(self.rows(), session=True, opener=opener)
         self.assertTrue(result["passed"])
+        self.assertEqual(result["organizer"], probe.SESSION_ORGANIZER)
+        self.assertEqual(
+            opener.call_args_list[1].args[0].full_url,
+            "https://graph.microsoft.com/v1.0/users/"
+            + probe.SESSION_ORGANIZER
+            + "/calendar?$select=id",
+        )
         self.assertTrue(result["transcript_generated_verified"])
         self.assertFalse(result["recording_generated_verified"])
         self.assertEqual(result["spoken_cue_count"], 1)
