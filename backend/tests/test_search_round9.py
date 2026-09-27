@@ -131,3 +131,63 @@ async def test_r9_n5_2_score_people_marks_dealbreaker_rows_hidden(monkeypatch):
     )
     hidden = {p.candidate_id: p.hidden for p in out}
     assert hidden == {1: False, 2: True}
+
+
+# ---------------------------------------------------------------- R9-N5-1
+
+
+def _counting_sleep(monkeypatch, module):
+    import asyncio
+
+    counter = {"yields": 0}
+    real_sleep = asyncio.sleep
+
+    async def counting_sleep(delay, *a, **k):
+        if delay == 0:
+            counter["yields"] += 1
+        await real_sleep(delay, *a, **k)
+
+    monkeypatch.setattr(module.asyncio, "sleep", counting_sleep)
+    return counter
+
+
+@pytest.mark.asyncio
+async def test_r9_n5_1_radar_dealbreakers_in_chunks_equal_one_pass_and_yield(
+    monkeypatch,
+):
+    from app.services import talent_radar_search as trs
+    from app.services.dealbreaker_filters import DealbreakerInputs, apply_dealbreakers
+
+    cands = [
+        _cand(i, expected_rate_hourly=(200 if i % 3 == 0 else 90))
+        for i in range(1, 301)
+    ]
+    inputs = DealbreakerInputs(budget_hourly=100.0)
+    whole = apply_dealbreakers(cands, inputs=inputs)
+
+    counter = _counting_sleep(monkeypatch, trs)
+    merged = await trs._apply_dealbreakers_yielding(cands, inputs=inputs)
+    assert [c.id for c in merged.kept] == [c.id for c in whole.kept]
+    assert merged.hidden_meta() == whole.hidden_meta()
+    assert merged.exclusion_reasons == whole.exclusion_reasons
+    assert counter["yields"] >= 300 // trs.DEALBREAKER_CHUNK
+
+
+@pytest.mark.asyncio
+async def test_r9_n5_1_rank_candidates_for_job_yields_to_the_event_loop(monkeypatch):
+    from app.services import scoring_service as ss
+
+    async def ctx(db, job, ids):
+        return None
+
+    async def score(c, job, db, *, semantic_similarity, profile, context):
+        return SimpleNamespace(total=float(c.id), candidate_id=c.id)
+
+    monkeypatch.setattr(ss, "build_job_scoring_context", ctx)
+    monkeypatch.setattr(ss, "score_candidate_job", score)
+    counter = _counting_sleep(monkeypatch, ss)
+    out = await ss.rank_candidates_for_job(
+        SimpleNamespace(id=None), [_cand(i) for i in range(200)], None
+    )
+    assert [r.candidate_id for r in out][:2] == [199, 198]
+    assert counter["yields"] >= 200 // 32

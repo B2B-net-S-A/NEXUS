@@ -28,6 +28,7 @@ query embedding and nothing else — no quota gate, no per-search spend.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -344,6 +345,38 @@ def dealbreaker_inputs_for_radar(query: RadarQuery) -> DealbreakerInputs:
     )
 
 
+DEALBREAKER_CHUNK = 64
+
+
+async def _apply_dealbreakers_yielding(candidates: list, *, inputs) -> Any:
+    """`apply_dealbreakers` w paczkach, z oddaniem pętli zdarzeń między nimi.
+
+    Runda 9 (R9-N5-1): pula radaru to do `MATCH_POOL_SIZE` kandydatów, a filtr
+    (w tym bramka must-have po umiejętnościach) jest czystym CPU. Decyzja
+    o kandydacie nie zależy od innych kandydatów, więc wynik paczek złożony
+    w kolejności jest identyczny z jednym wywołaniem na całej liście.
+    """
+    from dataclasses import fields
+
+    from app.services.dealbreaker_filters import DealbreakerResult, apply_dealbreakers
+
+    merged = DealbreakerResult()
+    counters = [
+        f.name for f in fields(DealbreakerResult) if f.name.startswith("hidden_")
+    ]
+    for start in range(0, len(candidates), DEALBREAKER_CHUNK):
+        if start:
+            await asyncio.sleep(0)
+        part = apply_dealbreakers(
+            candidates[start : start + DEALBREAKER_CHUNK], inputs=inputs
+        )
+        merged.kept.extend(part.kept)
+        merged.exclusion_reasons.update(part.exclusion_reasons)
+        for name in counters:
+            setattr(merged, name, getattr(merged, name) + getattr(part, name))
+    return merged
+
+
 async def search(db: AsyncSession, query: RadarQuery) -> RadarResult:
     """Rank the candidate base against an ad-hoc role. Persists nothing."""
     if not query.text and not query.champion_profile:
@@ -441,11 +474,8 @@ async def search(db: AsyncSession, query: RadarQuery) -> RadarResult:
     # (must/dni/miasto) i AUTO `exclude_remote_only` (z `wants_office`) liczone
     # RAZEM przez `dealbreaker_inputs_for_radar` — bez jawnego
     # `exclude_remote_only=` tutaj, bo `inputs.wants_office` już go niesie.
-    from app.services.dealbreaker_filters import apply_dealbreakers
-
-    dealbreakers = apply_dealbreakers(
-        candidates,
-        inputs=dealbreaker_inputs_for_radar(query),
+    dealbreakers = await _apply_dealbreakers_yielding(
+        candidates, inputs=dealbreaker_inputs_for_radar(query)
     )
     candidates = dealbreakers.kept
 
