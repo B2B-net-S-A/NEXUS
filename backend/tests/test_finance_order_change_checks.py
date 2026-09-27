@@ -523,3 +523,17 @@ def test_can_check_needs_finance_section_write_not_only_the_role():
     assert _can_check(request, user(UserRole.recruiter, "write")) is False
     impersonated = SimpleNamespace(state=SimpleNamespace(impersonator_id=1))
     assert _can_check(impersonated, user(UserRole.admin, "write")) is False
+
+
+def test_reopened_gap_gets_a_new_check_key():
+    """Runda 10 (R10-N4-3): brak przywrócony na „open” nie dziedziczy
+    „Zrobione” z pierwszego epizodu; epizod 0 zachowuje dawny klucz."""
+    from types import SimpleNamespace
+
+    from app.services.order_change_checks import item_key
+
+    first = SimpleNamespace(gap_id=7, status="open", episode=0)
+    reopened = SimpleNamespace(gap_id=7, status="open", episode=1)
+    assert item_key("gaps", first) == "gap:7:open"
+    assert item_key("gaps", reopened) == "gap:7:open:e1"
+    assert item_key("gaps", reopened) != item_key("gaps", first)

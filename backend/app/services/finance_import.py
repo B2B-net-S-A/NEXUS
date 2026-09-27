@@ -30,7 +30,7 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass, field
-from decimal import Decimal, DecimalException
+from decimal import ROUND_HALF_UP, Decimal, DecimalException
 from io import BytesIO
 from typing import Any, Optional
 
@@ -80,6 +80,21 @@ NUMERIC_FIELDS: tuple[str, ...] = (
     "margin_pln",
     "margin_pct",
 )
+
+# (precyzja, skala) kolumn ``finance_monthly_results`` — lustro modelu
+# (pilnuje ``test_finance_import_column_bounds_mirror_the_model``). Runda 10
+# (R10-N4-5): liczba spoza zakresu kolumny (formuła „Marża %” przy fakturze
+# bliskiej zera, kwota wpisana w „Ilość MD”) wywracała cały import błędem 500.
+# Taka wartość idzie do uzupełnienia jak każda nieczytelna komórka.
+NUMERIC_BOUNDS: dict[str, tuple[int, int]] = {
+    "cost_rate_md": (12, 2),
+    "md_count": (9, 3),
+    "compensation": (15, 3),
+    "revenue_rate_md": (12, 2),
+    "invoice_amount": (15, 3),
+    "margin_pln": (15, 3),
+    "margin_pct": (7, 2),
+}
 
 # Sufit wierszy. Arkusz miesięczny to dziesiątki pozycji; cokolwiek w tej skali
 # to pomyłka albo próba wysycenia pamięci procesu (uvicorn ma jednego workera).
@@ -186,6 +201,20 @@ def _coerce_decimal(value: Any) -> Optional[Decimal]:
     return parsed if parsed.is_finite() else None
 
 
+def _fits_column(value: Decimal, field_name: str) -> bool:
+    """Czy Postgres zapisze liczbę w kolumnie ``NUMERIC(precyzja, skala)``.
+
+    Postgres zaokrągla do skali PRZED sprawdzeniem zakresu (99 999,995 przy
+    skali 2 to już 100 000,00), więc porównujemy wartość po zaokrągleniu.
+    """
+    precision, scale = NUMERIC_BOUNDS[field_name]
+    try:
+        rounded = value.quantize(Decimal(1).scaleb(-scale), rounding=ROUND_HALF_UP)
+    except (DecimalException, ValueError):
+        return False
+    return abs(rounded) < Decimal(10) ** (precision - scale)
+
+
 def _coerce_text(value: Any) -> Optional[str]:
     if value is None:
         return None
@@ -281,6 +310,8 @@ def parse_finance_workbook(data: bytes) -> FinanceParseResult:
                 if target not in NUMERIC_FIELDS:
                     continue
                 parsed = _coerce_decimal(cell(header))
+                if parsed is not None and not _fits_column(parsed, target):
+                    parsed = None
                 values[target] = parsed
                 if parsed is None:
                     missing_fields.append(target)

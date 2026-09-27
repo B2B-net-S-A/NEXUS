@@ -630,6 +630,8 @@ async def test_deleted_late_successor_reopens_the_gap_with_a_dl_card(
     gap = await _gap_for(ids["order_id"])
     assert gap.status == "open"
     assert gap.resolved_order_id is None and gap.resolved_at is None
+    # R10-N4-3: przywrócony brak to nowy epizod — nowy klucz odhaczenia.
+    assert gap.episode == 1
     async with AsyncSessionLocal() as db:
         cards = await db.scalar(
             select(func.count())
@@ -678,6 +680,121 @@ async def test_cancelled_late_successor_reopens_the_gap_unless_another_one_exist
         await db.commit()
     gap = await _gap_for(ids["order_id"])
     assert gap.status == "open" and gap.resolved_order_id is None
+
+
+async def _gaps_of(order_id: int) -> list:
+    from app.core.database import AsyncSessionLocal
+    from app.models.order_gap import OrderGap
+
+    async with AsyncSessionLocal() as db:
+        return list(
+            (
+                await db.scalars(
+                    select(OrderGap)
+                    .where(OrderGap.order_id == order_id)
+                    .order_by(OrderGap.ended_on)
+                )
+            ).all()
+        )
+
+
+async def _set_order_end(order_id: int, end: date) -> None:
+    from app.core.database import AsyncSessionLocal
+
+    async with AsyncSessionLocal() as db:
+        (await db.get(ClientOrder, order_id)).end_date = end
+        await db.commit()
+
+
+async def test_extended_order_ending_again_without_successor_gets_a_second_gap(
+    monkeypatch,
+):
+    """Runda 10 (R10-N4-1): brak uzupełniony PRZEDŁUŻENIEM tego samego
+    zamówienia nie blokuje nowego braku, gdy nowa data końca też minie.
+
+    Do rundy 10 UNIQUE(order_id) i wykluczenie „ma jakikolwiek brak” trzymały
+    osobę bez Braku i bez karty DL na zawsze.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.services.order_gaps import resolve_order_gaps
+
+    end = _far_day(2001, 2020)
+    extended = end + timedelta(days=30)
+    ids = await _seed(start=end - timedelta(days=60), end=end)
+    await _detect(monkeypatch, tracking_start=end, today=end + timedelta(days=2))
+    [first] = await _gaps_of(ids["order_id"])
+    assert first.status == "open"
+
+    await _set_order_end(ids["order_id"], extended)
+    async with AsyncSessionLocal() as db:
+        await resolve_order_gaps(db, contract_ids=[ids["contract_id"]])
+        await db.commit()
+    [first] = await _gaps_of(ids["order_id"])
+    assert first.status == "filled_late"
+    assert first.resolved_order_id == ids["order_id"]
+
+    await _detect(monkeypatch, tracking_start=end, today=extended + timedelta(days=2))
+    gaps = await _gaps_of(ids["order_id"])
+    assert [(g.ended_on, g.status) for g in gaps] == [
+        (end, "filled_late"),
+        (extended, "open"),
+    ]
+    # Kolejny przebieg nie zakłada trzeciego wpisu.
+    await _detect(monkeypatch, tracking_start=end, today=extended + timedelta(days=3))
+    assert len(await _gaps_of(ids["order_id"])) == 2
+
+
+async def test_reverted_extension_reopens_the_gap_as_a_new_episode(monkeypatch):
+    """Runda 10 (R10-N4-1/3): cofnięte przedłużenie (koniec wraca na datę
+    braku) przywraca brak — i to jako nowy epizod (nowy klucz odhaczenia)."""
+    from app.core.database import AsyncSessionLocal
+    from app.services.order_gaps import refresh_order_gaps_safely
+
+    end = _far_day(2001, 2020)
+    ids = await _seed(start=end - timedelta(days=60), end=end)
+    await _detect(monkeypatch, tracking_start=end, today=end + timedelta(days=2))
+    await _set_order_end(ids["order_id"], end + timedelta(days=30))
+    async with AsyncSessionLocal() as db:
+        await refresh_order_gaps_safely(db, contract_ids=[ids["contract_id"]])
+        await db.commit()
+    [gap] = await _gaps_of(ids["order_id"])
+    assert gap.status == "filled_late" and gap.episode == 0
+
+    await _set_order_end(ids["order_id"], end)
+    async with AsyncSessionLocal() as db:
+        await refresh_order_gaps_safely(db, contract_ids=[ids["contract_id"]])
+        await db.commit()
+    [gap] = await _gaps_of(ids["order_id"])
+    assert gap.status == "open"
+    assert gap.resolved_order_id is None
+    assert gap.episode == 1
+
+
+async def test_late_filled_gap_survives_a_later_contract_termination(
+    monkeypatch, app_client: AsyncClient, app_auth_headers: dict
+):
+    """Runda 10 (R10-N4-2): „uzupełnione z opóźnieniem” to historia miesiąca —
+    wypowiedzenie umowy zapisane miesiące później nie może jej wymazać."""
+
+    first = _far_day(2001, 2020).replace(day=1)
+    end = first + timedelta(days=9)
+    ids = await _seed(
+        contract_rate_client=None, start=end - timedelta(days=60), end=end
+    )
+    late_id = await _add_order(
+        ids, start=end + timedelta(days=10), end=end + timedelta(days=100)
+    )
+    await _detect(monkeypatch, tracking_start=end, today=end + timedelta(days=30))
+    gap = await _gap_for(ids["order_id"])
+    assert gap.status == "filled_late" and gap.resolved_order_id == late_id
+
+    before = await _month(app_client, app_auth_headers, first)
+    assert _gap_order_ids(before, ids["client_id"]) == {ids["order_id"]}
+
+    await _terminate(ids["contract_id"], end + timedelta(days=150))
+
+    after = await _month(app_client, app_auth_headers, first)
+    assert _gap_order_ids(after, ids["client_id"]) == {ids["order_id"]}
 
 
 async def test_successor_added_on_the_day_of_detection_is_on_time(monkeypatch):

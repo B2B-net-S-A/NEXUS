@@ -110,7 +110,12 @@ def item_key(tab: str, item) -> str:
         # Bez werdyktu: „kończy się" przechodzi w „brak kolejnego" samym
         # upływem daty — to nie jest nowa zmiana do rozliczenia.
         return f"ending:{item.order_id}:{item.end_date.isoformat()}"
-    return f"gap:{item.gap_id}:{item.status}"
+    # Runda 10 (R10-N4-3): brak przywrócony na „open” (następca zniknął) to
+    # nowa sprawa — bez epizodu w kluczu dziedziczył „Zrobione” z pierwszego
+    # epizodu. Epizod 0 zachowuje stary kształt klucza (istniejące odhaczenia).
+    episode = getattr(item, "episode", 0) or 0
+    suffix = f":e{episode}" if episode else ""
+    return f"gap:{item.gap_id}:{item.status}{suffix}"
 
 
 def item_summary(tab: str, item) -> str:

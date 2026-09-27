@@ -501,3 +501,14 @@ def test_none_is_stored_as_sql_null_so_the_loop_finds_it():
     assert column_type.none_as_null is True
     sql = str(_formula_missing().compile(compile_kwargs={"literal_binds": True}))
     assert "IS NULL" in sql and "jsonb_typeof" in sql
+
+
+def test_manual_line_drops_every_control_character():
+    """Runda 10 (R10-N4-4): ``\\x0b`` z miękkiego łamania wiersza nie trafia do
+    bazy — openpyxl odrzuca znaki sterujące i eksport Wejść kończył się 500."""
+    from app.services.nordea_invoice_lines import clean_line_text
+
+    cleaned = clean_line_text("  NIDS: 1\x0bX\x00Y\x1f\x7fZ\r\n\t ")
+    assert cleaned == "NIDS: 1 X Y Z"
+    assert not any(ord(ch) < 32 or 127 <= ord(ch) < 160 for ch in cleaned)
+    assert clean_line_text(None) == ""

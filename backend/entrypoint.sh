@@ -4594,6 +4594,14 @@ _COLUMN_STATEMENTS = [
     "ON order_gaps (detected_on)",
     "CREATE INDEX IF NOT EXISTS ix_order_gaps_contract_status "
     "ON order_gaps (contract_id, status)",
+    # 0391 (runda 10, R10-N4-1/3): kilka braków na zamówienie — po jednym na
+    # datę końca — i licznik przywróceń braku (klucz odhaczenia w Finansach).
+    # Indeks unikalny PRZED zdjęciem starego więzu: tabela nie zostaje bez
+    # unikalności, gdy któraś instrukcja przegra blokadę.
+    "ALTER TABLE order_gaps ADD COLUMN IF NOT EXISTS episode INTEGER NOT NULL DEFAULT 0",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_order_gaps_order_ended "
+    "ON order_gaps (order_id, ended_on)",
+    "ALTER TABLE order_gaps DROP CONSTRAINT IF EXISTS uq_order_gaps_order_id",
     # 0354: Finanse — odhaczenia zmian w zamówieniach (audyt dopisywany)
     # i pobrania PDF-ów zamówień per osoba („Nowy / Pobrane przez Ciebie").
     """CREATE TABLE IF NOT EXISTS order_change_checks (
