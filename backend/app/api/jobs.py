@@ -2316,6 +2316,16 @@ async def update_job(
     recruiter_changed = "recruiter_id" in sent and data.recruiter_id != job.recruiter_id
     if client_changed:
         await assert_client_assignable(db, data.client_id)
+    elif (
+        "status" in sent
+        and data.status is not None
+        and data.status != JobStatus.closed
+        and job.status == JobStatus.closed
+    ):
+        # Runda 9 (R9-N4-1): ponowne otwarcie rekrutacji usuniętego albo
+        # scalonego klienta dawało żywą rekrutację, której nie widać w żadnym
+        # rejestrze (lustro zakładania — `create_job`).
+        await assert_client_assignable(db, job.client_id)
     if tac_changed and data.tac_id is not None:
         await _validate_owner_override(
             db,
@@ -3014,6 +3024,8 @@ async def publish_job(
     await _ensure_delivery_lead_job_visible(job, current_user, db)
     status_changes = job.status != JobStatus.published
     if job.status == JobStatus.closed:
+        # Runda 9 (R9-N4-1): jak PATCH — klient usunięty/scalony = 422.
+        await assert_client_assignable(db, job.client_id)
         # Lustro ponownego otwarcia w PATCH: bez tego rekrutacja opublikowana
         # z powrotem zostawała „Zakończona” i poza przydziałem (audyt 24.09.2026).
         job.closed_at = None

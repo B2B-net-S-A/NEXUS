@@ -27,7 +27,7 @@ from pydantic import BaseModel
 from app.core.database import get_db
 from app.models.contact import Contact, RelationshipStrength
 from app.models.client import Client
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.api.deps import get_current_user
 from app.api.section_access import (
     DeliverySectionUser,
@@ -36,14 +36,13 @@ from app.api.section_access import (
     section_access_for_user,
 )
 from app.services.client_access import (
-    ADMIN_LIKE_ROLES,
+    contact_private_notes_checker,
     ClientAccess,
     assert_client_assignable,
     assert_client_exists,
     deny,
     record_client_audit,
     resolve_client_access,
-    resolve_client_team_client_ids,
     resolve_client_visible_client_ids,
 )
 
@@ -164,7 +163,6 @@ async def _load_contact(db: AsyncSession, contact_id: int) -> Contact:
 class GlobalContactScope:
     user: User
     visible_client_ids: frozenset[int] | None
-    client_team_ids: frozenset[int] | None
 
 
 def _require_contact_read_section(current_user: User) -> None:
@@ -211,7 +209,6 @@ async def require_global_contact_access(
     return GlobalContactScope(
         user=current_user,
         visible_client_ids=visible_client_ids,
-        client_team_ids=await resolve_client_team_client_ids(db, current_user),
     )
 
 
@@ -239,12 +236,9 @@ async def list_all_contacts(
     """
     current_user = scope.user
     visible_client_ids = scope.visible_client_ids
-    is_admin_like = current_user.has_any_role(*ADMIN_LIKE_ROLES)
-    can_write_delivery = (
-        section_access_for_user(current_user, ProductSection.delivery)
-        >= SectionAccess.write
-    )
-    client_team_ids = scope.client_team_ids
+    # Runda 9 (R9-N4-2): ta sama reguła notatek co `GET /clients/{id}/contacts`
+    # (`ClientAccess.can_view_contact_private_notes`), liczona raz na klienta.
+    can_see_private_notes = await contact_private_notes_checker(db, current_user)
 
     query = (
         select(Contact, Client.name.label("client_name"))
@@ -264,25 +258,7 @@ async def list_all_contacts(
     rows = result.all()
     contacts_out: list[AnyContactWithClientResponse] = []
     for contact, client_name in rows:
-        # Ta sama reguła co ClientAccess.can_view_contact_private_notes:
-        # Admin z zapisem Delivery widzi wszystko; uprawniony owner swoje;
-        # nie-zaklaimowane (owner=None)
-        # widzą wyłącznie role edytujące przypisane do tego klienta.
-        can_edit_client = (
-            client_team_ids is None or contact.client_id in client_team_ids
-        )
-        tcm_read_only = current_user.has_role(
-            UserRole.talent_community_manager
-        ) and not current_user.has_any_role(UserRole.admin, UserRole.delivery_lead)
-        can_see_notes = not tcm_read_only and (
-            (is_admin_like and can_write_delivery)
-            or contact.key_relationship_owner_id == current_user.id
-            or (
-                contact.key_relationship_owner_id is None
-                and can_write_delivery
-                and can_edit_client
-            )
-        )
+        can_see_notes = can_see_private_notes(contact)
         model = (
             ContactWithClientResponse
             if can_see_notes
