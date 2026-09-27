@@ -81,7 +81,25 @@ vi.mock("@/components/v2/modals/ImportCandidatesV2", () => ({
 vi.mock("@/components/v2/modals/AddCandidateFromCVModal", () => ({
   AddCandidateFromCVModal: () => null,
 }));
-vi.mock("@/components/v2/modals/QuickAssignV2", () => ({ QuickAssignV2: () => null }));
+vi.mock("@/components/v2/modals/QuickAssignV2", () => ({
+  QuickAssignV2: ({
+    open,
+    candidateId,
+    onAssigned,
+  }: {
+    open: boolean;
+    candidateId: number;
+    onAssigned?: (jobId: number) => void;
+  }) =>
+    open ? (
+      <div role="dialog" aria-label="Przypisz do rekrutacji">
+        <span>assign:{candidateId}</span>
+        <button type="button" onClick={() => onAssigned?.(55)}>
+          Potwierdź przypisanie
+        </button>
+      </div>
+    ) : null,
+}));
 vi.mock("@/components/v2/modals/GenerateInviteLinkV2", () => ({
   GenerateInviteLinkV2: () => null,
 }));
@@ -877,6 +895,19 @@ describe("CandidatesListV2", () => {
       await waitFor(() =>
         expect(screen.queryByRole("region", { name: "Akcje zaznaczonych kandydatów" })).toBeNull(),
       );
+    });
+
+    it("„Rekrutacja” w wierszu odświeża listę po przypisaniu (R10-N15-5)", async () => {
+      renderList();
+      await screen.findByRole("button", { name: "Przypisz Osoba2 Testowa do rekrutacji" });
+      const before = (await candidateCalls()).length;
+      fireEvent.click(screen.getByRole("button", { name: "Przypisz Osoba2 Testowa do rekrutacji" }));
+      const dialog = await screen.findByRole("dialog", { name: "Przypisz do rekrutacji" });
+      expect(within(dialog).getByText("assign:2")).toBeTruthy();
+      fireEvent.click(within(dialog).getByRole("button", { name: "Potwierdź przypisanie" }));
+
+      expect(await screen.findByText("Kandydat przypisany.")).toBeTruthy();
+      await waitFor(async () => expect((await candidateCalls()).length).toBeGreaterThan(before));
     });
 
     it("„Odznacz” czyści zaznaczenie", async () => {
