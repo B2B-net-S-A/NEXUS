@@ -53,6 +53,40 @@ describe("RejectionV2 — mail odrzucenia opt-in", () => {
   });
 });
 
+describe("RejectionV2 — dostępność maila z reguły serwera (runda 9)", () => {
+  it("`emailAvailable` wygrywa z kategorią kolumny", () => {
+    render(
+      <RejectionV2
+        open
+        onOpenChange={() => {}}
+        terminalType="rejected"
+        reasons={reasons}
+        previousStageCategory="internal"
+        previousStage="cv_sent"
+        emailAvailable
+        onConfirm={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("checkbox")).toBeInTheDocument();
+  });
+
+  it("bez możliwości maila checkboxa nie ma, nawet przy kategorii external", () => {
+    render(
+      <RejectionV2
+        open
+        onOpenChange={() => {}}
+        terminalType="rejected"
+        reasons={reasons}
+        previousStageCategory="external"
+        previousStage="screening"
+        emailAvailable={false}
+        onConfirm={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole("checkbox")).toBeNull();
+  });
+});
+
 describe("RejectionV2 — kto zakończył proces (Pipeline v4)", () => {
   it("domyślnie „Odrzucamy my”, wybór klienta idzie w ostatnim argumencie", () => {
     const onConfirm = renderRejection();

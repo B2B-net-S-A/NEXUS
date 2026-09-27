@@ -36,6 +36,7 @@ from tests.test_board_tasks import (
     _seed_world,
     clear_cpro_sender,
     restore_cpro_sender,
+    seed_entry_row,
 )
 from tests.test_dz_review import (
     BRANDED_HTML,
@@ -828,6 +829,7 @@ async def test_leaving_the_cpro_queue_does_not_repeat_qc(
     zastrzeżenie: wrzuca osoba od Cpro albo admin/DL/HoR."""
 
     world = await _seed_world()
+    await seed_entry_row(world["candidate_id"], world["job_id"])
     monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", str(world["client_id"]))
     hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
     rec_id, rec_creds = await _seed_user(UserRole.recruiter)
@@ -867,6 +869,7 @@ async def test_fallback_sender_of_the_job_can_upload_without_firm_sender(
     je wrzucić („✓ Wrzucone”), a nie dostawać 403. Inny rekruter dalej 403."""
 
     world = await _seed_world()
+    await seed_entry_row(world["candidate_id"], world["job_id"])
     monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", str(world["client_id"]))
     hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
     rec_id, rec_creds = await _seed_user(UserRole.recruiter)
@@ -931,6 +934,7 @@ async def test_closed_pair_does_not_skip_qc_on_the_way_to_cv_sent(
 
     monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", "")
     world = await _seed_world()
+    await seed_entry_row(world["candidate_id"], world["job_id"])
     dl_id, dl_creds = await _seed_user(UserRole.delivery_lead)
     dl = await _login(api_client, dl_creds)
     try:
@@ -980,9 +984,9 @@ async def test_fresh_pair_without_stage_rows_does_not_skip_qc(
 ) -> None:
     """Runda 2 audytu 25.09.2026: para bez żadnego wiersza etapu (świeży
     kandydat wysłany przez API wprost na „CV wysłane”) omijała QC i osobę od
-    Cpro, bo bramka kończyła się na „brak wiersza”. Para bez wierszy stoi na
-    początku drogi („Nowi”), a bez CV firmowego QC nie przechodzi — także
-    w paczce (`/bulk-move`)."""
+    Cpro. Od rundy 9 (R9-N11-4) taka para wchodzi WYŁĄCZNIE do „Nowych”/
+    „Screeningu” (422 — także w paczce), a po wejściu bez CV firmowego QC
+    nie przechodzi."""
 
     monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", "")
     monkeypatch.setattr(settings, "CV_QC_GATE_ENABLED", True)
@@ -994,21 +998,18 @@ async def test_fresh_pair_without_stage_rows_does_not_skip_qc(
         "client_rate_unit": "hourly",
         "client_rate_currency": "PLN",
     }
+    move_body = {
+        "candidate_id": world["candidate_id"],
+        "job_id": world["job_id"],
+        "stage_def_id": world["defs"]["cv_sent"],
+        **rate,
+    }
     try:
         refused = await api_client.post(
-            "/api/pipeline/move",
-            headers=dl,
-            json={
-                "candidate_id": world["candidate_id"],
-                "job_id": world["job_id"],
-                "stage_def_id": world["defs"]["cv_sent"],
-                **rate,
-            },
+            "/api/pipeline/move", headers=dl, json=move_body
         )
-        assert refused.status_code == 409, refused.text
-        detail = refused.json()["detail"]
-        assert detail["code"] == "CV_QC_FAILED"
-        assert detail["stage_id"] is None
+        assert refused.status_code == 422, refused.text
+        assert "nie ma jeszcze w rekrutacji" in refused.json()["detail"]
 
         bulk = await api_client.post(
             "/api/pipeline/bulk-move",
@@ -1020,8 +1021,7 @@ async def test_fresh_pair_without_stage_rows_does_not_skip_qc(
                 **rate,
             },
         )
-        assert bulk.status_code == 409, bulk.text
-        assert bulk.json()["detail"]["code"] == "CV_QC_FAILED"
+        assert bulk.status_code == 422, bulk.text
         async with AsyncSessionLocal() as db:
             assert (
                 await db.scalar(
@@ -1034,7 +1034,23 @@ async def test_fresh_pair_without_stage_rows_does_not_skip_qc(
                 )
                 == 0
             )
+
+        # Osoba w „Nowych” — dalej bez CV firmowego QC nie przechodzi.
+        await seed_entry_row(world["candidate_id"], world["job_id"])
+        refused = await api_client.post(
+            "/api/pipeline/move", headers=dl, json=move_body
+        )
+        assert refused.status_code == 409, refused.text
+        assert refused.json()["detail"]["code"] == "CV_QC_FAILED"
     finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(CvQcRun).where(
+                    CvQcRun.candidate_id == world["candidate_id"],
+                    CvQcRun.job_id == world["job_id"],
+                )
+            )
+            await db.commit()
         await _cleanup(world, [dl_id])
 
 
@@ -1047,6 +1063,7 @@ async def test_bulk_move_keeps_the_template_stage(
 
     monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", "")
     world = await _seed_world()
+    await seed_entry_row(world["candidate_id"], world["job_id"])
     dl_id, dl_creds = await _seed_user(UserRole.delivery_lead)
     dl = await _login(api_client, dl_creds)
     try:

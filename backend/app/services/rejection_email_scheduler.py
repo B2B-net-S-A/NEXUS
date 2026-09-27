@@ -74,6 +74,36 @@ TRIGGER_PREVIOUS_STAGES: frozenset[PipelineStage] = frozenset(
     }
 )
 
+# Kolumny Tablicy, z których osoba była widoczna dla klienta — ta sama reguła
+# po kolumnie (``board_column_for``), którą czyta okno odrzucenia
+# (`frontend/src/lib/rejection-email.ts`). Runda 9 (R9-N11-2): etapy
+# rozpoznawane po nazwie („Po Interview”, „Umowa wysłana”) mają kod
+# `interview`/`new`, więc sam kod gubił je po jednej stronie.
+TRIGGER_PREVIOUS_COLUMNS: frozenset[str] = frozenset(
+    {"cv_sent", "client_interview", "contract"}
+)
+
+# Powody, dla których zaznaczony mail odrzucenia NIE został zaplanowany —
+# `POST /api/pipeline/move` oddaje je w `rejection_email_status`.
+EMAIL_STATUS_SCHEDULED = "scheduled"
+EMAIL_SKIP_NOT_CLIENT_VISIBLE = "not_client_visible"
+EMAIL_SKIP_NO_CANDIDATE_EMAIL = "no_candidate_email"
+EMAIL_SKIP_NO_PERMISSION = "no_permission"
+EMAIL_SKIP_NO_MAILBOX = "no_mailbox"
+
+# Znacznik w `last_error` wiersza `pending`, którego wysyłka już ruszyła
+# (rezerwacja zatwierdzona przed Graphem). Takiego wiersza nie da się
+# anulować — mail mógł już wyjść (runda 9, R9-N10-10).
+SEND_IN_PROGRESS = "send_in_progress"
+
+
+def send_in_progress(row: ScheduledRejectionEmail) -> bool:
+    """Wysyłka tego wiersza ruszyła — anulowanie niczego by nie cofnęło."""
+    return (
+        row.status == RejectionEmailStatus.pending
+        and row.last_error == SEND_IN_PROGRESS
+    )
+
 
 def _can_send_rejection_email(user: User) -> bool:
     """Require both the candidate persona and current Pipeline write access."""
@@ -128,6 +158,61 @@ SEND_LEASE_MINUTES = 30
 # ── Public API ──────────────────────────────────────────────────────────────
 
 
+def previous_is_client_visible(
+    legacy: Optional[str],
+    *,
+    name: Optional[str] = None,
+    category: Optional[str] = None,
+    terminal_type: Optional[str] = None,
+) -> bool:
+    """Czy osoba z tego etapu była widoczna dla klienta (reguła maila)."""
+    from app.services.board_stage_badges import board_column_for
+
+    if legacy is not None and legacy in {s.value for s in TRIGGER_PREVIOUS_STAGES}:
+        return True
+    return (
+        board_column_for(name, legacy, category=category, terminal_type=terminal_type)
+        in TRIGGER_PREVIOUS_COLUMNS
+    )
+
+
+async def sender_has_mailbox(db: AsyncSession, user_id: int) -> bool:
+    """Aktywne połączenie Microsoft 365 osoby, z której skrzynki wyjdzie mail."""
+    return bool(
+        await db.scalar(
+            select(M365Connection.id)
+            .where(
+                M365Connection.user_id == user_id,
+                M365Connection.is_active.is_(True),
+            )
+            .limit(1)
+        )
+    )
+
+
+async def skip_reason(
+    db: AsyncSession, *, stage: CandidateStage, sender: User
+) -> Optional[str]:
+    """Dlaczego zaznaczony mail odrzucenia NIE zostanie zaplanowany (albo None).
+
+    Runda 9 (R9-N11-1): mail wychodzi ze skrzynki osoby, która odrzuca — nie
+    prowadzącego rekrutacji. Bez podłączonej skrzynki nic nie planujemy
+    i mówimy to wprost (dotąd mail szedł z cudzej skrzynki albo przepadał
+    po cichu na `skipped` po 15 minutach).
+    """
+    if not await _previous_row_client_visible(db, stage):
+        return EMAIL_SKIP_NOT_CLIENT_VISIBLE
+    candidate = await db.get(Candidate, stage.candidate_id)
+    if candidate is None or not candidate.email:
+        return EMAIL_SKIP_NO_CANDIDATE_EMAIL
+    await resolve_effective_section_access(db, sender)
+    if not _can_send_rejection_email(sender):
+        return EMAIL_SKIP_NO_PERMISSION
+    if not await sender_has_mailbox(db, sender.id):
+        return EMAIL_SKIP_NO_MAILBOX
+    return None
+
+
 async def maybe_schedule(
     db: AsyncSession,
     *,
@@ -152,8 +237,7 @@ async def maybe_schedule(
     if recruiter_id is None:
         return None
 
-    previous_stage = await _load_previous_stage(db, stage)
-    if previous_stage is None or previous_stage not in TRIGGER_PREVIOUS_STAGES:
+    if not await _previous_row_client_visible(db, stage):
         return None
 
     candidate = await db.get(Candidate, stage.candidate_id)
@@ -403,6 +487,10 @@ async def dispatch(db: AsyncSession, row_id: int) -> None:
     row.scheduled_at = datetime.now(timezone.utc) + timedelta(
         minutes=SEND_LEASE_MINUTES
     )
+    # Runda 9 (R9-N10-10): znacznik „wysyłka ruszyła” zatwierdzony razem
+    # z rezerwacją — `/cancel` i ruch przywracający kandydata nie mogą już
+    # odpowiedzieć „Anulowano”, gdy mail za chwilę (albo właśnie) wychodzi.
+    row.last_error = SEND_IN_PROGRESS
     await db.flush()
 
     send_error: Optional[Exception] = None
@@ -499,20 +587,37 @@ async def dispatch(db: AsyncSession, row_id: int) -> None:
         await db.commit()
         return
 
+    # Rezerwacja zdjęła blokadę FOR UPDATE — wynik zapisujemy pod ponowną
+    # blokadą wiersza. Status inny niż `pending` (anulowanie mimo znacznika,
+    # np. starszą wersją API) nie cofa faktu: mail wyszedł, więc wiersz mówi
+    # „wysłany”, a ślad zapisuje, co go próbowało zatrzymać.
+    await db.refresh(row, with_for_update=True)
+    status_before = row.status
     row.status = RejectionEmailStatus.sent
     row.sent_at = datetime.now(timezone.utc)
     row.email_id = email.id
+    row.last_error = None
+    sent_details: dict = {
+        "scheduled_rejection_email_id": row.id,
+        "email_id": email.id,
+        "to": row.to_email,
+    }
+    if status_before != RejectionEmailStatus.pending:
+        sent_details["status_before_send_result"] = getattr(
+            status_before, "value", status_before
+        )
+        logger.warning(
+            "rejection_email_dispatch: row %s sent although status was %s",
+            row_id,
+            getattr(status_before, "value", status_before),
+        )
     db.add(
         Activity(
             entity_type="candidate",
             entity_id=row.candidate_id,
             action="rejection_email_sent",
             user_id=row.recruiter_id,
-            details={
-                "scheduled_rejection_email_id": row.id,
-                "email_id": email.id,
-                "to": row.to_email,
-            },
+            details=sent_details,
         )
     )
     db.add(
@@ -584,50 +689,76 @@ async def _mark_send_outcome_unknown(
     await db.commit()
 
 
-async def _load_previous_stage(
+async def _previous_row_client_visible(
     db: AsyncSession, current: CandidateStage
-) -> Optional[PipelineStage]:
-    """Load the stage BEFORE `current` for the same (candidate, job).
+) -> bool:
+    """Poprzedni wiersz pary (przed odrzuceniem) — widoczny dla klienta?"""
+    from app.models.pipeline_template import PipelineStageDef
 
-    Orders by id DESC (append-only table, id monotonic) and skips the row
-    we were just handed.
-    """
-    prev = await db.scalar(
-        select(CandidateStage.stage)
-        .where(
-            CandidateStage.candidate_id == current.candidate_id,
-            CandidateStage.job_id == current.job_id,
-            CandidateStage.id < current.id,
+    row = (
+        await db.execute(
+            select(
+                CandidateStage.stage,
+                PipelineStageDef.name,
+                PipelineStageDef.category,
+                PipelineStageDef.terminal_type,
+            )
+            .outerjoin(
+                PipelineStageDef, PipelineStageDef.id == CandidateStage.stage_def_id
+            )
+            .where(
+                CandidateStage.candidate_id == current.candidate_id,
+                CandidateStage.job_id == current.job_id,
+                CandidateStage.id < current.id,
+            )
+            .order_by(CandidateStage.id.desc())
+            .limit(1)
         )
-        .order_by(CandidateStage.id.desc())
-        .limit(1)
+    ).first()
+    if row is None:
+        return False
+    stage, name, category, terminal_type = row
+    return previous_is_client_visible(
+        getattr(stage, "value", stage),
+        name=name,
+        category=getattr(category, "value", category),
+        terminal_type=getattr(terminal_type, "value", terminal_type),
     )
-    return prev
 
 
 async def _load_other_active_processes(
     db: AsyncSession, *, candidate_id: int, current_job_id: int
 ) -> list[dict]:
     """Return [{"job_id": int, "title": str}, ...] for the candidate's OTHER
-    active processes.
+    processes that are still in front of a client.
 
     Uses a window function (ROW_NUMBER OVER PARTITION BY job_id) to pick
     the LATEST stage row per (candidate, job) — critical so that a
     candidate who has been through multiple stages on a job is classified
-    by their CURRENT position, not any historical row. Then filters out
-    rows whose latest stage is terminal (rejected/withdrawn/hired).
+    by their CURRENT position, not any historical row.
 
-    `job.client_id` / client name is deliberately NOT exposed (NDA — we
-    don't tell a candidate which client they're still in play with).
+    Runda 9 (R9-N10-2): mail idzie do kandydata, więc lista nie może zdradzać
+    więcej niż strona kariery. Wchodzą wyłącznie rekrutacje OPUBLIKOWANE,
+    w których osoba jest dziś u klienta (kolumny „CV wysłane”, „Rozmowa
+    u klienta”, „Umowa”), a tytuł pochodzi WYŁĄCZNIE z zatwierdzonego opisu
+    publicznego. Rekrutacja bez niego nie trafia na listę — `jobs.title`
+    niesie nazwę klienta i numery zapytań (do 26.09 lista brała też
+    zamknięte i archiwalne rekrutacje z Traffita).
     """
+    from app.models.job import JobStatus
+    from app.models.job_public_profile import JobPublicProfile
+    from app.models.pipeline_template import PipelineStageDef
+    from app.services.job_public_profile import STATUS_APPROVED, resolve_status
+
     latest = (
         select(
             CandidateStage.job_id.label("job_id"),
             CandidateStage.stage.label("stage"),
+            CandidateStage.stage_def_id.label("stage_def_id"),
             func.row_number()
             .over(
                 partition_by=CandidateStage.job_id,
-                order_by=CandidateStage.id.desc(),
+                order_by=(CandidateStage.moved_at.desc(), CandidateStage.id.desc()),
             )
             .label("rn"),
         )
@@ -639,15 +770,46 @@ async def _load_other_active_processes(
     )
     rows = (
         await db.execute(
-            select(Job.id, Job.title)
+            select(
+                Job,
+                latest.c.stage,
+                PipelineStageDef.name,
+                PipelineStageDef.category,
+                PipelineStageDef.terminal_type,
+            )
             .join(latest, latest.c.job_id == Job.id)
+            .outerjoin(PipelineStageDef, PipelineStageDef.id == latest.c.stage_def_id)
             .where(
                 latest.c.rn == 1,
+                Job.status == JobStatus.published,
                 ~latest.c.stage.in_([s.value for s in ACTIVE_OTHER_STAGES_EXCLUDE]),
             )
+            .order_by(Job.id)
         )
     ).all()
-    return [{"job_id": jid, "title": title or ""} for jid, title in rows]
+    out: list[dict] = []
+    names_cache: dict = {}
+    for job, stage, name, category, terminal_type in rows:
+        column_ok = previous_is_client_visible(
+            getattr(stage, "value", stage),
+            name=name,
+            category=getattr(category, "value", category),
+            terminal_type=getattr(terminal_type, "value", terminal_type),
+        )
+        if not column_ok:
+            continue
+        profile = await db.scalar(
+            select(JobPublicProfile).where(JobPublicProfile.job_id == job.id)
+        )
+        if profile is None:
+            continue
+        status, _default, effective = await resolve_status(
+            db, job, profile, names_cache=names_cache
+        )
+        if status != STATUS_APPROVED or not effective:
+            continue
+        out.append({"job_id": job.id, "title": effective})
+    return out
 
 
 async def _resolve_template(

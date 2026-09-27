@@ -8,10 +8,11 @@ Three endpoints:
 The FE uses these to power the "Cofnij" toast after rejection, the
 candidate-detail timeline, and audit views.
 
-AuthZ: cancel requires either the row's `recruiter_id` OR an elevated role
-(admin / delivery_lead). Rationale: if the recruiter is on leave or offline,
-a DL should be able to pull the trigger to prevent a misfire; admins can
-always intervene.
+AuthZ: cancel — osoba, która zaplanowała mail (od rundy 9 to ona jest
+`recruiter_id`, bo mail wychodzi z jej skrzynki), oversight (admin / DL /
+HoR) albo każdy, kto może ruszać kartą w tej rekrutacji (`/move`:
+RecruiterPlus + `ensure_job_membership`). Zatrzymać pomyłkę ma móc zespół,
+nie tylko jedna osoba (runda 9, R9-N11-1).
 """
 
 from __future__ import annotations
@@ -26,7 +27,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.api.recruitment_access import (
+    RECRUITMENT_TRANSITION_ROLES,
     RecruitmentReadAccess,
+    ensure_job_membership,
     user_has_rejection_email_oversight,
 )
 from app.core.database import get_db
@@ -36,6 +39,8 @@ from app.models.rejection_email import (
     RejectionEmailStatus,
     ScheduledRejectionEmail,
 )
+from app.models.user import User
+from app.services.rejection_email_scheduler import send_in_progress
 
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 
@@ -129,6 +134,28 @@ async def get_rejection_email(
     return _to_response(row)
 
 
+async def _ensure_can_cancel(
+    db: AsyncSession, user: User, row: ScheduledRejectionEmail
+) -> None:
+    """Planujący, oversight albo osoba z prawem ruchu w tej rekrutacji."""
+    if user.id == row.recruiter_id or user_has_rejection_email_oversight(user):
+        return
+    if user.has_any_role(*RECRUITMENT_TRANSITION_ROLES):
+        try:
+            await ensure_job_membership(db, user, row.job_id)
+        except HTTPException:
+            pass
+        else:
+            return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail=(
+            "Wysyłkę anuluje osoba, która ją zaplanowała, albo ktoś z prawem "
+            "ruchu w tej rekrutacji."
+        ),
+    )
+
+
 @router.post("/{rejection_email_id}/cancel", response_model=RejectionEmailResponse)
 async def cancel_rejection_email(
     rejection_email_id: int,
@@ -141,26 +168,20 @@ async def cancel_rejection_email(
     the row unchanged; any other terminal state returns 409 because we
     cannot "un-send" an email.
     """
-    row = await db.get(ScheduledRejectionEmail, rejection_email_id)
+    # Blokada wiersza: pętla wysyłki trzyma ją do zatwierdzenia rezerwacji,
+    # więc anulowanie widzi znacznik „wysyłka ruszyła” albo wiersz przed nią.
+    row = await db.scalar(
+        select(ScheduledRejectionEmail)
+        .where(ScheduledRejectionEmail.id == rejection_email_id)
+        .with_for_update()
+    )
     if row is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Scheduled rejection email not found",
         )
 
-    # AuthZ — recruiter who owns the row or an oversight role. M4 PR-01:
-    # multi-role aware (has_any_role) zamiast porównania primary ``role``,
-    # oversight = admin / delivery_lead / head_of_recruitment.
-    if current_user.id != row.recruiter_id and not user_has_rejection_email_oversight(
-        current_user
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=(
-                "Only the assigned recruiter or an admin/delivery lead/"
-                "head of recruitment can cancel."
-            ),
-        )
+    await _ensure_can_cancel(db, current_user, row)
 
     if row.status == RejectionEmailStatus.cancelled:
         return _to_response(row)  # idempotent
@@ -171,6 +192,16 @@ async def cancel_rejection_email(
             detail=(
                 f"Cannot cancel a rejection email in status '{row.status.value}'. "
                 "Only 'pending' rows can be cancelled."
+            ),
+        )
+    # Runda 9 (R9-N10-10): wysyłka już ruszyła — „Anulowano” byłoby
+    # nieprawdą, bo mail wychodzi (albo właśnie wyszedł).
+    if send_in_progress(row):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Wysyłka tego maila już trwa — nie da się jej anulować. "
+                "Sprawdź folder Wysłane w Outlooku."
             ),
         )
 

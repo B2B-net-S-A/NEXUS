@@ -342,12 +342,16 @@ describe("usePipelineMove — ruch pojedynczy", () => {
 });
 
 describe("usePipelineMove — odrzucenie", () => {
-  async function rejectWith(checkEmail: boolean) {
+  async function rejectWith(
+    checkEmail: boolean,
+    response: Record<string, unknown> = {
+      id: 600,
+      scheduled_rejection_email_id: checkEmail ? 77 : null,
+    }
+  ) {
     const item = card({ id: 20, candidate_id: 200, stage: "client_interview" });
     const b = board({ client: [item] });
-    post.mockResolvedValue({
-      data: { id: 600, scheduled_rejection_email_id: checkEmail ? 77 : null },
-    });
+    post.mockResolvedValue({ data: response });
     mount(b.all);
 
     React.act(() => controls.requestReject(item));
@@ -380,6 +384,20 @@ describe("usePipelineMove — odrzucenie", () => {
     post.mockResolvedValueOnce({ data: {} });
     await options.onAction();
     expect(post).toHaveBeenLastCalledWith("/api/rejection-emails/77/cancel");
+  });
+
+  it("mail zaznaczony, a serwer go nie zaplanował — okno mówi dlaczego (runda 9)", async () => {
+    await rejectWith(true, {
+      id: 600,
+      scheduled_rejection_email_id: null,
+      rejection_email_status: "no_mailbox",
+    });
+    await waitFor(() =>
+      expect(showError).toHaveBeenCalledWith(
+        expect.stringContaining("Microsoft 365")
+      )
+    );
+    expect(showActionToast).not.toHaveBeenCalled();
   });
 });
 
