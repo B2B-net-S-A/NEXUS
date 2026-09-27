@@ -773,4 +773,3 @@ def test_playbook_read_schema_has_no_off_limits():
 
     assert "off_limits" not in api.ClientPlaybookRead.model_fields
     assert not hasattr(api, "OffLimitsRead")
-

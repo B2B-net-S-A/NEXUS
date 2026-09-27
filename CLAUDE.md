@@ -7271,12 +7271,17 @@ Raport: `docs/audits/2026-09-25/runda-7.md`.
   ją przed użyciem; klucze wyglądające na sekret tylko przez `value_from_secret`.
 - **Usunięty albo scalony klient nie przyjmuje zapisów:**
   `client_access.assert_client_assignable` (422 `client_deleted`/`client_merged`
-  z nazwą rekordu głównego) w rekrutacjach (POST, PATCH przy zmianie klienta),
-  kontraktach, kontaktach, odczycie maila klienta, stawkach, konfliktach
-  i generatorze CV „bez procesu”. Rejestr NIP poczty zamówień i writer
-  pomijają `deleted_at`. `merge-into` z żywymi kontraktami/rekrutacjami/ID w env
-  = 409 z listą; usunięcie klienta z historią zamyka jego puste opublikowane
-  rekrutacje (bez `closed_at`).
+  z nazwą rekordu głównego) w rekrutacjach (POST, PATCH przy zmianie klienta,
+  ponowne otwarcie zamkniętej — PATCH i `/publish`, runda 9), kontraktach,
+  kontaktach, hiring managerze „nowa osoba”, regułach CV (zapis), przypisaniu
+  DL-a (`/team-structure/dl-clients`), odczycie maila klienta, stawkach,
+  konfliktach i generatorze CV „bez procesu”. Rejestr NIP poczty zamówień
+  i writer pomijają `deleted_at`. `merge-into` z żywymi kontraktami/rekrutacjami/
+  ID w env = 409 z listą; od rundy 9 scalenie PRZENOSI na cel kontakty, wiedzę,
+  one-pagery, warunki umowy i kartę klienta (`_move_client_materials_on_merge`;
+  warunki/karta po obu stronach = 409 `duplicate_singletons`), a duplikaty
+  scalone wcześniej w źródło wskazują wprost na cel (bez łańcucha). Usunięcie
+  klienta z historią zamyka jego puste opublikowane rekrutacje (bez `closed_at`).
 - **DELETE rekrutacji:** zamknięta, z Traffita albo ze spotkaniem w kalendarzu =
   409 (`job_is_closed`, `job_from_traffit`, `job_has_calendar_events`) — dla
   każdej roli; całość w `audited_deletion`.
