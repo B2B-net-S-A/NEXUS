@@ -262,7 +262,9 @@ dam znać.</p>{{/if}}
 AVAILABLE_PLACEHOLDERS = ["{{" + name + "}}" for name, _ in TEMPLATE_VARIABLES]
 
 
-def _assert_rejection_variables(category: EmailCategory, subject: str, body: str) -> None:
+def _assert_rejection_variables(
+    category: EmailCategory, subject: str, body: str
+) -> None:
     """Szablon odrzucenia wysyła się sam — zmienna bez wartości = 422."""
     if category != EmailCategory.rejection:
         return

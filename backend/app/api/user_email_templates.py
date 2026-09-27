@@ -103,17 +103,23 @@ class _BoundedSandbox(SandboxedEnvironment):
 
     def call_binop(self, context, operator, left, right):
         if operator == "**" and _is_int(left) and _is_int(right):
-            if right > 0 and abs(left) > 1 and (
-                right * abs(left).bit_length() > _MAX_INT_BITS
+            if (
+                right > 0
+                and abs(left) > 1
+                and (right * abs(left).bit_length() > _MAX_INT_BITS)
             ):
                 raise SecurityError("Potęga w szablonie przekracza limit.")
         if operator == "*":
             for seq, times in ((left, right), (right, left)):
                 if isinstance(seq, (str, list, tuple)) and _is_int(times):
                     if len(seq) * max(times, 0) > _MAX_SEQ_REPEAT:
-                        raise SecurityError("Powielenie tekstu w szablonie przekracza limit.")
-            if _is_int(left) and _is_int(right) and (
-                left.bit_length() + right.bit_length() > _MAX_INT_BITS
+                        raise SecurityError(
+                            "Powielenie tekstu w szablonie przekracza limit."
+                        )
+            if (
+                _is_int(left)
+                and _is_int(right)
+                and (left.bit_length() + right.bit_length() > _MAX_INT_BITS)
             ):
                 raise SecurityError("Iloczyn w szablonie przekracza limit.")
         return super().call_binop(context, operator, left, right)
