@@ -24,6 +24,10 @@ Baza: `734c4fa6d` (main po PR #1874). Bez nowego audytu: runda domyka pozycje �
 - Natywne `alert()` we froncie (np. `NotificationsTab`, `PipelineTemplatesTab`) — ten sam problem zamrażania automatyzacji co `confirm`.
 - F07 (zakładka prospektu) nadal czeka na decyzję Artura.
 
+## Lekcja
+
+Scalając main do gałęzi rundy 10, rozstrzygnąłem konflikty wersją gałęzi (wzorzec 18 z README), choć squash rundy 9 różnił się od końcówki gałęzi o jedną linię testu (`_no_weekly_mails` w `test_failed_build_is_retried_on_next_tick`). Linia wypadła z maina i test znów padał na wspólnej bazie CI. Przywrócona tutaj. Zanim rozstrzygniesz konflikty wersją gałęzi: `git diff <końcówka gałęzi poprzedniej rundy> <squash na mainie>` — każdą różnicę przenieś ręcznie.
+
 ## Porządki
 
 Usunięte lokalne kopie repo (78) i gałęzie (81 agentów + 19 integracyjnych) po rundach 6–10 — każda gałąź sprawdzona jako zawarta w scalonym PR-ze. Gałęzie na GitHubie nietknięte.

@@ -1028,9 +1028,9 @@ async def _branded_cv_summary_for_pair(
 ) -> RecruitmentBrandedCvSummary:
     """CV firmowe pary (kandydat, rekrutacja): sfinalizowane wygrywa ze szkicem.
 
-    Samo „najnowszy etap z CV firmowym" nie wystarcza: ``GET …/cv/branded``
-    zakłada szkic przy pierwszym odczycie, więc obejrzenie CV na PÓŹNIEJSZYM
-    etapie przykrywałoby szkicem sfinalizowane CV wysłane klientowi. W obrębie
+    Samo „najnowszy etap z CV firmowym" nie wystarcza: szkic założony
+    pierwszą edycją na PÓŹNIEJSZYM etapie przykrywałby sfinalizowane CV
+    wysłane klientowi (GET niczego nie zapisuje od audytu 22.09.2026). W obrębie
     tego samego statusu wygrywa najnowszy etap. Wołający sprawdził już dostęp
     do rekrutacji.
     """
