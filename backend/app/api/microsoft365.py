@@ -190,9 +190,7 @@ async def authorize(
             detail="Microsoft 365 integration is currently disabled.",
         )
     try:
-        verifier, _ = m365_oauth.generate_pkce_pair()
-        state = m365_oauth.sign_state(current_user.id, verifier)
-        url = m365_oauth.build_authorize_url(state, verifier)
+        url = m365_oauth.new_authorize_url(current_user.id)
     except m365_oauth.M365NotConfigured as exc:
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
@@ -231,7 +229,7 @@ async def callback(
         )
 
     try:
-        user_id, pkce_verifier = m365_oauth.verify_state(state)
+        parsed_state = m365_oauth.verify_state(state)
     except JWTError:
         return RedirectResponse(
             _frontend_callback_url("error", "State expired or invalid — try again"),
@@ -244,6 +242,7 @@ async def callback(
     # the candidate domain.  Re-check the current persisted role before
     # exchanging the authorization code: a user may have been moved to Finance
     # (or the legacy viewer role) after opening the Microsoft consent page.
+    user_id = parsed_state.user_id
     user = await db.get(User, user_id)
     if user is None or not user_can_access_candidate_domain(user):
         return RedirectResponse(
@@ -253,8 +252,22 @@ async def callback(
             status_code=302,
         )
 
+    # Runda 11 (SEC): `state` jest jednorazowy — drugi powrót z tym samym
+    # `state` (adres z historii przeglądarki, logów, Referer) nie podepnie
+    # skrzynki. Commit od razu: blokada wiersza zużytych `state` nie może
+    # wisieć przez wymianę kodu w Microsoft (do 30 s).
+    if not await m365_oauth.consume_state(db, parsed_state):
+        await db.rollback()
+        return RedirectResponse(
+            _frontend_callback_url(
+                "error", "Ten link logowania został już użyty — spróbuj ponownie."
+            ),
+            status_code=302,
+        )
+    await db.commit()
+
     try:
-        bundle = await m365_oauth.exchange_code(code, pkce_verifier)
+        bundle = await m365_oauth.exchange_code(code, parsed_state.verifier)
     except Exception:  # noqa: BLE001
         # Szczegóły wyjątku (odpowiedź Microsoftu, fragmenty tokenów) tylko
         # w logu — adres przekierowania trafia do historii przeglądarki.

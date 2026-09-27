@@ -52,6 +52,15 @@ def _bundle(upn: str) -> TokenBundle:
     )
 
 
+def _parsed_state(user_id: int):
+    return microsoft365.m365_oauth.M365OAuthState(
+        user_id=user_id,
+        verifier="pkce-verifier",
+        nonce_digest="d" * 64,
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+    )
+
+
 async def _run_callback(monkeypatch, user: User, bundle: TokenBundle | Exception):
     db = AsyncMock()
     db.add = MagicMock()
@@ -60,7 +69,10 @@ async def _run_callback(monkeypatch, user: User, bundle: TokenBundle | Exception
     monkeypatch.setattr(
         microsoft365.m365_oauth,
         "verify_state",
-        MagicMock(return_value=(user.id, "pkce-verifier")),
+        MagicMock(return_value=_parsed_state(user.id)),
+    )
+    monkeypatch.setattr(
+        microsoft365.m365_oauth, "consume_state", AsyncMock(return_value=True)
     )
     exchange = (
         AsyncMock(side_effect=bundle)
@@ -102,7 +114,8 @@ async def test_callback_rejects_mailbox_of_another_person(monkeypatch) -> None:
     assert "innej+osoby" in location
     assert "anna.nowak%40b2bnetwork.pl" in location
     db.add.assert_not_called()
-    db.commit.assert_not_awaited()
+    # Jedyny commit to zużycie `state` (runda 11) — bez połączenia skrzynki.
+    assert db.commit.await_count == 1
     assert spawned == []
 
 
@@ -111,7 +124,7 @@ async def test_callback_rejects_bundle_without_mailbox_address(monkeypatch) -> N
     response, db, _ = await _run_callback(monkeypatch, _nexus_user(), _bundle(""))
     assert "status=error" in response.headers["location"]
     db.add.assert_not_called()
-    db.commit.assert_not_awaited()
+    assert db.commit.await_count == 1
 
 
 @pytest.mark.parametrize(
@@ -152,6 +165,40 @@ async def test_callback_token_exchange_error_does_not_leak_exception(
     assert "secret" not in location
     assert "RuntimeError" not in location
     db.add.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_callback_rejects_state_used_twice(monkeypatch) -> None:
+    """Runda 11 (SEC): drugi powrót z tym samym `state` nie łączy skrzynki."""
+    user = _nexus_user()
+    db = AsyncMock()
+    db.get.return_value = user
+    monkeypatch.setattr(
+        microsoft365.m365_oauth,
+        "verify_state",
+        MagicMock(return_value=_parsed_state(user.id)),
+    )
+    monkeypatch.setattr(
+        microsoft365.m365_oauth, "consume_state", AsyncMock(return_value=False)
+    )
+    exchange = AsyncMock()
+    monkeypatch.setattr(microsoft365.m365_oauth, "exchange_code", exchange)
+
+    response = await microsoft365.callback.__wrapped__(
+        request=MagicMock(),
+        code="authorization-code",
+        state="signed-state",
+        error=None,
+        error_description=None,
+        db=db,
+    )
+
+    location = response.headers["location"]
+    assert "status=error" in location
+    assert "ju%C5%BC+u%C5%BCyty" in location or "już użyty" in location
+    exchange.assert_not_awaited()
+    db.commit.assert_not_awaited()
+    db.rollback.assert_awaited()
 
 
 # ── R3-3: mail o etapie przechodzi bramkę odbiorcy ───────────────────────────

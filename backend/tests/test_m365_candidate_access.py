@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from typing import get_type_hints
 from unittest.mock import AsyncMock, MagicMock
@@ -102,7 +103,14 @@ async def test_oauth_callback_rechecks_role_before_token_exchange(
     monkeypatch.setattr(
         microsoft365.m365_oauth,
         "verify_state",
-        MagicMock(return_value=(37, "pkce-verifier")),
+        MagicMock(
+            return_value=microsoft365.m365_oauth.M365OAuthState(
+                user_id=37,
+                verifier="pkce-verifier",
+                nonce_digest="d" * 64,
+                expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+            )
+        ),
     )
     monkeypatch.setattr(microsoft365.m365_oauth, "exchange_code", exchange_code)
 
