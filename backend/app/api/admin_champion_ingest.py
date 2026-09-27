@@ -19,6 +19,7 @@ NEXUS nie używa cookie, a traffit origin nie ma tokenu użytkownika NEXUS.
 import logging
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -128,7 +129,9 @@ async def champion_ingest(
             }
         )
 
-    text = extract_document_text(content, file.filename or "")
+    # Runda 9 (R9-X1-6): pdfplumber i OCR to sekundy CPU — w wątku, jak
+    # `champion_intake.preview_document`, nie na pętli jedynego procesu.
+    text = await run_in_threadpool(extract_document_text, content, file.filename or "")
     if not text or len(text) < 200:
         return _json({"outcome": "no_text", "external_rid": rid}, status_code=422)
 
