@@ -1,7 +1,9 @@
 import json
-from typing import Any, AsyncGenerator
+from contextlib import AsyncExitStack, asynccontextmanager
+from typing import Any, AsyncIterator
 
 from fastapi.encoders import jsonable_encoder
+from starlette.requests import HTTPConnection
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, ORMExecuteState, Session
@@ -129,8 +131,9 @@ async def release_idle_connection(db: AsyncSession) -> bool:
     return True
 
 
-async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    """FastAPI dependency: yields a database session per request."""
+@asynccontextmanager
+async def _request_session() -> AsyncIterator[AsyncSession]:
+    """Sesja żądania: commit po handlerze, rollback przy wyjątku."""
     async with AsyncSessionLocal() as session:
         try:
             yield session
@@ -142,57 +145,26 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
             await session.close()
 
 
-def enforce_function_scope(app: Any, dependency: Any = None) -> int:
-    """Ustaw ``scope="function"`` każdemu ``Depends(get_db)`` w trasach aplikacji.
+async def get_db(connection: HTTPConnection) -> AsyncSession:
+    """FastAPI dependency: sesja bazy na jedno żądanie.
 
-    Runda 9 (R9-X1-2): od FastAPI 0.121 zależność z ``yield`` bez jawnego
-    ``scope`` ma zasięg ``"request"`` — jej część po ``yield`` biegnie PO
-    wysłaniu odpowiedzi i PO ``BackgroundTasks`` (``fastapi/routing.py``,
-    ``request_response``). Skutki: 2xx mimo nieudanego commitu (FK, UNIQUE),
-    zadanie w tle nie widzi wierszy z tego żądania, a połączenie wisi „idle in
-    transaction” przez całe zadanie. Zasięg ``"function"`` zamyka sesję
-    (commit/rollback) zaraz po handlerze i serializacji, przed odpowiedzią.
+    Runda 9 (R9-X1-2): commit (albo rollback) wykonuje się PO handlerze
+    i serializacji, ale PRZED wysłaniem odpowiedzi i przed ``BackgroundTasks``.
+    Od FastAPI 0.121 zależność z ``yield`` bez jawnego ``scope`` ma zasięg
+    „request” — dawny generator commitował dopiero po wysłaniu odpowiedzi i po
+    zadaniach w tle (``fastapi/routing.py``, ``request_response``). Skutki: 2xx
+    mimo nieudanego commitu (FK, UNIQUE), zadanie w tle nie widziało wierszy
+    z tego żądania, a połączenie wisiało „idle in transaction” przez całe
+    zadanie. ``Depends(get_db, scope="function")`` w ~1100 miejscach dałoby
+    to samo, ale mieszanka dwóch zasięgów tworzy DWIE sesje w jednym żądaniu
+    (zasięg jest częścią klucza cache zależności). Dlatego sesja wchodzi na
+    ten sam stos, którego FastAPI używa dla ``scope="function"`` — jedna
+    zmiana, każde ``Depends(get_db)`` bez ruszania.
 
-    Jedno miejsce zamiast ~1100 wywołań ``Depends(get_db, scope="function")``:
-    klucz cache zależności zawiera zasięg, więc mieszanka dwóch zasięgów dałaby
-    DWIE sesje w jednym żądaniu (``current_user`` z innej sesji niż handler).
-    Wołane raz, po zarejestrowaniu wszystkich tras. Zwraca liczbę zmienionych
-    zależności. Strumieniowe odpowiedzi nie mogą czytać sesji żądania w
-    generatorze — otwierają własną (eksport kandydatów).
+    Skutek dla odpowiedzi strumieniowych: generator ``StreamingResponse``
+    biegnie po zamknięciu tej sesji — musi otworzyć własną.
     """
-    import inspect
-
-    target = dependency or get_db
-    changed = 0
-    seen: set[int] = set()
-
-    def walk(dependant: Any) -> None:
-        nonlocal changed
-        if id(dependant) in seen:
-            return
-        seen.add(id(dependant))
-        call = inspect.unwrap(dependant.call) if dependant.call is not None else None
-        parent_is_request_gen = (
-            call is not None
-            and (inspect.isgeneratorfunction(call) or inspect.isasyncgenfunction(call))
-            and dependant.scope in (None, "request")
-        )
-        for sub in dependant.dependencies:
-            if sub.call is target:
-                if parent_is_request_gen:
-                    # FastAPI odrzuca to przy deklaracji (DependencyScopeError);
-                    # my ustawiamy zasięg po fakcie, więc pilnujemy tego sami.
-                    raise RuntimeError(
-                        "Zależność z yield o zasięgu 'request' nie może używać "
-                        f"get_db o zasięgu 'function': {dependant.call!r}"
-                    )
-                if sub.scope != "function":
-                    sub.scope = "function"
-                    changed += 1
-            walk(sub)
-
-    for route in getattr(app, "routes", []):
-        dependant = getattr(route, "dependant", None)
-        if dependant is not None:
-            walk(dependant)
-    return changed
+    stack = connection.scope.get("fastapi_function_astack")
+    if not isinstance(stack, AsyncExitStack):
+        raise RuntimeError("get_db wymaga żądania obsługiwanego przez trasę FastAPI")
+    return await stack.enter_async_context(_request_session())
