@@ -491,69 +491,77 @@ async def _notify_proposals(
         job = jobs_by_id.get(job_id)
         if job is None or not fresh:
             continue
+        # Runda 9 (R9-X1-7): savepoint na rekrutację. `db.rollback()` całej
+        # sesji cofał digesty poprzednich rekrutacji i wygaszał obiekty `Job`,
+        # więc każda następna iteracja padała na leniwym odczycie `job.title`.
+        job_sent = 0
         try:
-            today_count = int(
-                await db.scalar(
-                    text(
-                        "SELECT count(*) FROM ("
-                        " SELECT candidate_id FROM job_proposals"
-                        " WHERE job_id = :job_id AND status = 'proposed'"
-                        " GROUP BY candidate_id"
-                        " HAVING bool_or(source = 'new_cv')"
-                        " AND (min(first_seen_at) AT TIME ZONE :tz)::date = :today"
-                        ") AS fresh"
-                    ),
-                    {
-                        "job_id": job_id,
-                        "tz": settings.BUSINESS_TZ,
-                        "today": business_today(settings.BUSINESS_TZ),
-                    },
-                )
-                or fresh
-            )
-            title = f"{_digest_text(today_count)} — {job.title}"[:255]
-            message = (
-                f"Rekrutacja „{job.title}”: sprawdź skrzynkę „Propozycje”. "
-                "Nikt nie został dodany do procesu."
-            )
-            link = f"/jobs/{job_id}?tab=similar"
-            for user_id in {uid for uid in (job.recruiter_id, job.tac_id) if uid}:
-                created = await emit(
-                    db,
-                    user_id=user_id,
-                    title=title,
-                    message=message,
-                    ntype=ntype,
-                    related_entity_type="job",
-                    related_entity_id=job_id,
-                    link=link,
-                )
-                if created is not None:
-                    sent += 1
-                    continue
-                # Dzisiejszy digest już jest (albo odbiorca nie ma dostępu —
-                # wtedy UPDATE nie znajdzie wiersza): podbij licznik.
-                existing = await db.scalar(
-                    select(Notification)
-                    .where(
-                        Notification.user_id == user_id,
-                        Notification.notification_type == ntype,
-                        Notification.related_entity_type == "job",
-                        Notification.related_entity_id == job_id,
-                        func.date(
-                            func.timezone(settings.BUSINESS_TZ, Notification.created_at)
-                        )
-                        == business_today(settings.BUSINESS_TZ),
+            async with db.begin_nested():
+                today_count = int(
+                    await db.scalar(
+                        text(
+                            "SELECT count(*) FROM ("
+                            " SELECT candidate_id FROM job_proposals"
+                            " WHERE job_id = :job_id AND status = 'proposed'"
+                            " GROUP BY candidate_id"
+                            " HAVING bool_or(source = 'new_cv')"
+                            " AND (min(first_seen_at) AT TIME ZONE :tz)::date = :today"
+                            ") AS fresh"
+                        ),
+                        {
+                            "job_id": job_id,
+                            "tz": settings.BUSINESS_TZ,
+                            "today": business_today(settings.BUSINESS_TZ),
+                        },
                     )
-                    .order_by(Notification.created_at.desc())
-                    .limit(1)
+                    or fresh
                 )
-                if existing is not None and existing.title != title:
-                    existing.title = title
-                    existing.is_read = False
+                title = f"{_digest_text(today_count)} — {job.title}"[:255]
+                message = (
+                    f"Rekrutacja „{job.title}”: sprawdź skrzynkę „Propozycje”. "
+                    "Nikt nie został dodany do procesu."
+                )
+                link = f"/jobs/{job_id}?tab=similar"
+                for user_id in {uid for uid in (job.recruiter_id, job.tac_id) if uid}:
+                    created = await emit(
+                        db,
+                        user_id=user_id,
+                        title=title,
+                        message=message,
+                        ntype=ntype,
+                        related_entity_type="job",
+                        related_entity_id=job_id,
+                        link=link,
+                    )
+                    if created is not None:
+                        job_sent += 1
+                        continue
+                    # Dzisiejszy digest już jest (albo odbiorca nie ma dostępu —
+                    # wtedy UPDATE nie znajdzie wiersza): podbij licznik.
+                    existing = await db.scalar(
+                        select(Notification)
+                        .where(
+                            Notification.user_id == user_id,
+                            Notification.notification_type == ntype,
+                            Notification.related_entity_type == "job",
+                            Notification.related_entity_id == job_id,
+                            func.date(
+                                func.timezone(settings.BUSINESS_TZ, Notification.created_at)
+                            )
+                            == business_today(settings.BUSINESS_TZ),
+                        )
+                        .order_by(Notification.created_at.desc())
+                        .limit(1)
+                    )
+                    if existing is not None and existing.title != title:
+                        existing.title = title
+                        existing.is_read = False
         except Exception as exc:  # noqa: BLE001 — digest nigdy nie psuje biegu
-            logger.warning("[auto_match] digest failed job=%s: %s", job_id, exc)
-            await db.rollback()
+            logger.warning(
+                "[auto_match] digest failed job=%s: %s", job_id, type(exc).__name__
+            )
+            continue
+        sent += job_sent
     await db.commit()
     return sent
 
