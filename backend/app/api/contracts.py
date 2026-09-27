@@ -25,7 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.analytics.capabilities import AnalyticsCapability, user_has_capability
-from app.api.contract_templates import _contract_vars, _jinja_env
+from app.api.contract_templates import _contract_vars, render_contract_template
 from app.core.printable_html import (
     AUTOPRINT_HASH,
     AUTOPRINT_JS,
@@ -4587,8 +4587,9 @@ def _render_draft_body(template: ContractTemplate, contract: Contract) -> str:
     """Render Jinja template against contract context. Returns raw HTML body
     (no <html> wrap — that's added by the printable endpoint)."""
     try:
-        return _jinja_env.from_string(template.content_jinja).render(
-            **_contract_vars(contract, language=template.language)
+        return render_contract_template(
+            template.content_jinja,
+            _contract_vars(contract, language=template.language),
         )
     except TemplateError as exc:
         raise HTTPException(status_code=422, detail=f"Template render error: {exc}")

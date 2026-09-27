@@ -165,8 +165,7 @@ def test_state_jwt_rejects_wrong_purpose(monkeypatch):
     from app.services.m365 import oauth as m365_oauth
 
     # Build a mailbox-flow state (purpose="m365_oauth_state").
-    verifier, _ = m365_oauth.generate_pkce_pair()
-    mailbox_state = m365_oauth.sign_state(user_id=1, pkce_verifier=verifier)
+    mailbox_state = m365_oauth.sign_state(user_id=1)
     with pytest.raises(Exception):
         auth_ms_module._verify_login_state(mailbox_state)
 
