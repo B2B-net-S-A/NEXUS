@@ -868,7 +868,9 @@ async def test_no_proposals_for_a_job_that_is_not_in_work(
 # ── Runda 8 (R8-N11-3): przegląd z niepełnym pokryciem ──────────────────────
 
 
-async def _auto_run_with_rows(world: dict, owner_id: int, rows) -> str:
+async def _auto_run_with_rows(
+    world: dict, owner_id: int, rows, *, error_code=None
+) -> str:
     run_id = str(uuid.uuid4())
     async with AsyncSessionLocal() as db:
         db.add(
@@ -883,6 +885,7 @@ async def _auto_run_with_rows(world: dict, owner_id: int, rows) -> str:
                 version_trace={"origin": "auto"},
                 population_size=len(rows),
                 metrics={},
+                error_code=error_code,
                 completed_at=datetime.now(timezone.utc),
             )
         )
@@ -921,6 +924,7 @@ async def test_partial_coverage_publishes_but_does_not_close_the_event(monkeypat
         world,
         owner_id,
         [lambda rid: _result(rid, good, 91), _failed_row(skipped)],
+        error_code="TimeoutError",
     )
     async with AsyncSessionLocal() as db:
         await afr.publish_on_finish(db, run_id, eligible=1)
@@ -963,3 +967,51 @@ async def test_missing_index_alone_is_not_incomplete_coverage():
     async with AsyncSessionLocal() as db:
         run = await db.get(CandidateSearchRun, run_id)
         assert await afr._incomplete_coverage(db, run) is False
+
+
+# ── Runda 9 (R9-N5-3): dryf wersji i trwale niepełny przegląd ──────────────
+
+
+async def test_version_drift_failed_row_is_not_incomplete_coverage():
+    """`failed` bez awarii partii = kandydat zmienił się w trakcie przeglądu.
+    Następna noc nie „dokończy” go inaczej, więc temat się zamyka."""
+    owner_id, _ = await _user()
+    world = await _job(owner_id=owner_id, event=True, people=2)
+    first, drifted = world["candidate_ids"]
+    run_id = await _auto_run_with_rows(
+        world,
+        owner_id,
+        [lambda rid: _result(rid, first, 91), _failed_row(drifted)],
+    )
+    async with AsyncSessionLocal() as db:
+        run = await db.get(CandidateSearchRun, run_id)
+        assert await afr._incomplete_coverage(db, run) is False
+
+
+async def test_third_incomplete_review_with_same_fingerprint_closes_the_topic(
+    monkeypatch,
+):
+    """Wadliwy pojedynczy wektor (`unavailable`) powtarza się co noc tak samo —
+    po `MAX_INCOMPLETE_REPEATS` niepełnych z tym samym odciskiem przegląd
+    zamyka temat zamiast wracać przez całe okno zdarzeń."""
+    monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_MIN_SCORE", 70.0)
+    owner_id, _ = await _user()
+    world = await _job(owner_id=owner_id, event=True, people=2)
+    good, broken = world["candidate_ids"]
+    rows = [
+        lambda rid: _result(rid, good, 91),
+        lambda rid: _result(rid, broken, 80, measurement="unavailable"),
+    ]
+    run_ids = []
+    for _ in range(afr.MAX_INCOMPLETE_REPEATS + 1):
+        run_id = await _auto_run_with_rows(world, owner_id, rows)
+        async with AsyncSessionLocal() as db:
+            await afr.publish_on_finish(db, run_id, eligible=2)
+            await db.commit()
+        run_ids.append(run_id)
+    async with AsyncSessionLocal() as db:
+        runs = [await db.get(CandidateSearchRun, rid) for rid in run_ids]
+        assert all(r.metrics.get(afr.INCOMPLETE_METRIC) for r in runs[:-1])
+        assert afr.INCOMPLETE_METRIC not in runs[-1].metrics
+        assert runs[-1].metrics["auto_incomplete_accepted"] is True
+        assert await afr._last_successful_fingerprint(db, world["job_id"]) == "n" * 64
