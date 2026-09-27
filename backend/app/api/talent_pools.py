@@ -398,6 +398,11 @@ async def delete_talent_pool(
             detail="Pulę firmową może usunąć tylko administrator.",
         )
 
+    if pool.external_source == "traffit" and pool.external_id:
+        # Runda 10 (R10-N11-7): nagrobek — nocny import nie odtworzy puli.
+        from app.services.traffit.pool_tombstones import add_deleted_traffit_pool
+
+        await add_deleted_traffit_pool(db, str(pool.external_id))
     await db.delete(pool)
     await db.commit()
 

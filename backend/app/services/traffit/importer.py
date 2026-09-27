@@ -1247,7 +1247,9 @@ _UPSERT_TALENT_POOL = text(
     )
     ON CONFLICT (external_source, external_id) WHERE external_id IS NOT NULL
     DO UPDATE SET
-        name        = EXCLUDED.name,
+        -- Runda 10 (R10-N11-7): nazwę prowadzi NEXUS — przemianowanie puli
+        -- w NEXUSIE nie jest cofane nocnym syncem; import tylko dopełnia.
+        name        = COALESCE(NULLIF(talent_pools.name, ''), EXCLUDED.name),
         description = COALESCE(EXCLUDED.description, talent_pools.description)
     RETURNING id, (xmax = 0) AS was_insert
     """
@@ -3364,11 +3366,18 @@ class TraffitImporter:
         progress.total_source = await self._probe_total("/talents/", "Talents")
 
         user_map = await self.build_user_id_map()
+        from app.services.traffit.pool_tombstones import load_deleted_traffit_pools
+
+        deleted_pools = await load_deleted_traffit_pools(self.db)
 
         async for raw in self.traffit.get_paginated(
             "/talents/", page_size=self.batch_size
         ):
             progress.processed += 1
+            if str(raw.get("id")) in deleted_pools:
+                # Runda 10 (R10-N11-7): pula usunięta w NEXUSIE nie wraca.
+                progress.skipped += 1
+                continue
             try:
                 payload = traffit_talent_to_pool(raw, user_map)
             except Exception as e:  # noqa: BLE001
