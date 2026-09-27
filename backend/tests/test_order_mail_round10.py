@@ -199,6 +199,50 @@ def test_gate_reasons_are_masked_in_proposal_for_non_finance_role():
     assert out["resolved"][0]["reason"] == "stawka …"
 
 
+@pytest.mark.asyncio
+async def test_queue_item_hides_amounts_in_reasons_for_role_without_finance(
+    monkeypatch,
+):
+    """Hybryda DL+TCM albo DL spoza portfela: kwoty w ``extraction`` były
+    zredagowane, a ``gate_reasons`` i ``error`` cytowały stawki."""
+    monkeypatch.setattr(queue, "_dl_assigned_to_client", AsyncMock(return_value=False))
+    monkeypatch.setattr(queue, "_can_manage_order_finance", lambda *a, **k: False)
+    monkeypatch.setattr(queue, "_order_finance_visible", lambda *a, **k: False)
+    monkeypatch.setattr(queue, "_is_read_only_tcm", lambda user: False)
+    monkeypatch.setattr(queue, "_sees_other_clients", lambda user: True)
+    monkeypatch.setattr(queue, "_attachment_exists", lambda doc: False)
+    doc = SimpleNamespace(
+        id=1,
+        received_at=None,
+        created_at=None,
+        sender_email="a@b.example",
+        subject="Zamówienie",
+        attachment_name="z.pdf",
+        outcome="needs_review",
+        client_id=5,
+        identification_method="registry_id",
+        identification_reason="NIP",
+        client_policy=None,
+        gate_verdict="review",
+        gate_reasons=["„Jan Kowalski”: stawka 1400 odbiega o 45% od obowiązującej 965"],
+        document_meta={},
+        extraction=None,
+        proposal=None,
+        applied_order_id=None,
+        applied_at=None,
+        reviewed_at=None,
+        error="Nie udało się zapisać zamówienia: stawka 1400",
+        storage_path=None,
+    )
+    db = AsyncMock()
+    db.scalar = AsyncMock(return_value="Bank")
+    body = await queue._serialize(db, doc, SimpleNamespace())
+    assert body["gate_reasons"] == [
+        "„Jan Kowalski”: stawka … odbiega o …% od obowiązującej …"
+    ]
+    assert "1400" not in body["error"]
+
+
 # ── R10-N3-9: odmowa writera bez nazwisk w logu ──────────────────────────────
 
 
@@ -259,4 +303,3 @@ async def test_recheck_outside_the_window_does_not_count_as_a_run(monkeypatch):
     monkeypatch.setattr(recheck.settings, "ORDER_MAIL_RECHECK_ENABLED", False)
     result = await recheck.run_recheck(AsyncMock(), trigger="scheduled")
     assert result.ran is False
-

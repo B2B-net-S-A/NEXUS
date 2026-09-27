@@ -1424,3 +1424,142 @@ async def test_pfron_active_directory_record_controls_roster_and_plan(
     await db_session.flush()
     assert await svc.resolve_order_client_id(db_session, ident) == (None, "pfron")
     await db_session.rollback()
+
+
+# ── Runda 10 audytu (27.09.2026) ─────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_data_error_on_commit_records_failed_row_and_continues(
+    db_session, monkeypatch, tmp_path
+):
+    """R10-N3-5: ``DataError`` przy commicie (np. znak, którego Postgres nie
+    przyjmuje) nie przerywa biegu — dawniej łapany był tylko
+    ``IntegrityError`` i znacznik skrzynki stał na tej wiadomości na zawsze."""
+    from sqlalchemy.exc import DataError
+
+    from app.models.order_mail import OUTCOME_FAILED
+    from app.services import storage_service
+
+    monkeypatch.setattr(storage_service, "STORAGE_ROOT", tmp_path)
+    monkeypatch.setattr(storage_service, "ORDER_MAIL_DIR", tmp_path / "order_mail")
+    monkeypatch.setattr(svc.settings, "ORDER_MAIL_SENDER_ALLOWLIST", "")
+
+    async def ok_process(db, row, payload, *, registry):
+        row.client_key = "bank-d"
+
+    monkeypatch.setattr(svc, "process_pdf_bytes", ok_process)
+    real_commit = db_session.commit
+    calls = {"n": 0}
+
+    async def commit_once_broken():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            await db_session.rollback()
+            raise DataError("INSERT", {}, Exception("invalid byte sequence"))
+        await real_commit()
+
+    monkeypatch.setattr(db_session, "commit", commit_once_broken)
+    tag = uuid.uuid4().hex[:8]
+    mid = f"de{tag}"
+    fake = _FakeGraph([], {f"graph-{mid}": [_pdf("de.pdf", f"%PDF de {tag}".encode())]})
+    stats = svc.IngestStats()
+    added = await svc._process_message(
+        db_session,
+        fake,
+        None,
+        _msg(mid),
+        stats,
+        registry=ClientRegistry(by_registry_id={}),
+    )
+    assert added is True and stats.failed == 1
+    saved = (
+        await db_session.scalars(
+            select(OrderMailDocument).where(
+                OrderMailDocument.internet_message_id == f"<{mid}-{RUN}@example>"
+            )
+        )
+    ).all()
+    assert len(saved) == 1
+    assert saved[0].outcome == OUTCOME_FAILED
+    assert saved[0].error == "Błąd przetwarzania: DataError"
+
+
+@pytest.mark.asyncio
+async def test_nul_in_subject_and_attachment_name_is_journaled(
+    db_session, monkeypatch, tmp_path
+):
+    """R10-N3-5: U+0000 w temacie i nazwie załącznika od nadawcy zewnętrznego
+    nie wywraca zapisu wpisu dziennika."""
+    from app.services import storage_service
+
+    monkeypatch.setattr(storage_service, "STORAGE_ROOT", tmp_path)
+    monkeypatch.setattr(storage_service, "ORDER_MAIL_DIR", tmp_path / "order_mail")
+    monkeypatch.setattr(svc.settings, "ORDER_MAIL_SENDER_ALLOWLIST", "")
+
+    async def ok_process(db, row, payload, *, registry):
+        row.outcome = "unrecognized_client"
+
+    monkeypatch.setattr(svc, "process_pdf_bytes", ok_process)
+    tag = uuid.uuid4().hex[:8]
+    mid = f"nul{tag}"
+    fake = _FakeGraph(
+        [], {f"graph-{mid}": [_pdf("z\x00am.pdf", f"%PDF nul {tag}".encode())]}
+    )
+    stats = svc.IngestStats()
+    added = await svc._process_message(
+        db_session,
+        fake,
+        None,
+        _msg(mid, subject="Zam\x00ówienie"),
+        stats,
+        registry=ClientRegistry(by_registry_id={}),
+    )
+    assert added is True and stats.errors == []
+    saved = (
+        await db_session.scalars(
+            select(OrderMailDocument).where(
+                OrderMailDocument.internet_message_id == f"<{mid}-{RUN}@example>"
+            )
+        )
+    ).one()
+    assert saved.subject == "Zamówienie" and saved.attachment_name == "zam.pdf"
+
+
+@pytest.mark.asyncio
+async def test_recheck_failures_are_counted_across_runs(db_session, monkeypatch):
+    """R10-N12-6: padający co bieg recheck zostawia licznik w ``stats`` —
+    sonda degraduje przy trzecim z rzędu (bieg ``partial`` był „zdrowy”)."""
+    from unittest.mock import AsyncMock
+
+    import app.services.order_mail_recheck as recheck_svc
+
+    monkeypatch.setattr(
+        recheck_svc, "run_recheck", AsyncMock(side_effect=RuntimeError("boom"))
+    )
+    monkeypatch.setattr(
+        svc,
+        "read_state",
+        AsyncMock(return_value={"stats": {"recheck_failures_in_row": 2}}),
+    )
+    monkeypatch.setattr(svc, "_write_state", AsyncMock())
+    monkeypatch.setattr(svc.settings, "ORDER_MAIL_AUTH_MODE", "app")
+    monkeypatch.setattr(svc, "app_only_credentials_configured", lambda: False)
+    stats = await svc.run_order_mail_ingest(reason="test")
+    assert stats.recheck_failures_in_row == 3
+    assert "recheck: RuntimeError" in stats.errors
+
+    ok = recheck_svc.RecheckRunResult()
+    ok.ran = True
+    monkeypatch.setattr(recheck_svc, "run_recheck", AsyncMock(return_value=ok))
+    stats = await svc.run_order_mail_ingest(reason="test")
+    assert stats.recheck_failures_in_row == 0
+
+    # Bieg poza oknem godzin niczego nie sprawdził — licznik nie znika.
+    monkeypatch.setattr(
+        recheck_svc,
+        "run_recheck",
+        AsyncMock(return_value=recheck_svc.RecheckRunResult()),
+    )
+    stats = await svc.run_order_mail_ingest(reason="test")
+    assert stats.recheck_failures_in_row == 2

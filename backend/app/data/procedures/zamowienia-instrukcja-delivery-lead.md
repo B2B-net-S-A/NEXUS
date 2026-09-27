@@ -867,7 +867,8 @@ kolejka miała w menu własną pozycję „Zamówienia z maila", a stare linki
 z powiadomień nadal do niej prowadzą.
 
 Automatyczny odczyt załączników ze skrzynki **zamowienia@b2bnetwork.pl**
-przygotowuje plan dla osób rozpoznanych w dokumencie. Trzy sytuacje zawsze
+przygotowuje plan dla osób rozpoznanych w dokumencie (czytane są także PDF-y
+wstawione w treść maila). Trzy sytuacje zawsze
 czekają na Ciebie w kolejce: **waluta inna niż PLN** (zapis bierze walutę
 z dokumentu), **okres niepotwierdzony regułą klienta** u BIK, Polkomtela, BNP,
 PFRON i Credit Agricole (tam liczy się wyłącznie okres z dokumentu) oraz
@@ -964,7 +965,10 @@ dołącz do niego PDF, jeśli ma zostać nietknięty. Draft na linii zamówienia
 albo kosztowego zostaje przy linii: system **nie wypełnia go** jak zamówienia
 okresowego (bez budżetu MD i bez zamówienia zbiorczego) i nie zakłada obok niego
 osobnego zamówienia — plan pokazuje „Linia grupy (zapis ręczny)”, a linię
-uzupełniasz w oknie zamówienia klienta.
+uzupełniasz w oknie zamówienia klienta. To samo dotyczy osoby, która jest na
+**aktywnej** linii zamówienia MD albo kosztowego: nowy PDF dla niej (także na
+okres po dacie końca linii — linia MD kończy się budżetem, nie datą) czeka
+w weryfikacji, a kolejne zamówienie zapisujesz w oknie zamówienia klienta.
 
 **Ten sam numer zamówienia** to numer identyczny po pominięciu spacji i wielkości
 liter. Krótsza forma numeru (np. „30751” zamiast „4500030751”) liczy się jako ten
@@ -1022,7 +1026,10 @@ godzinowej ponownej weryfikacji i nie wystawia karty Delivery Leadowi.
 **Klient scalony z innym rekordem** zostaje do odczytu: jego dawne zamówienia
 obejrzysz i pobierzesz, ale nowego zamówienia, edycji, dodania konsultanta,
 przedłużenia ani przywrócenia u niego nie zapiszesz — system odpowie, z którym
-rekordem go scalono. Zamówienia prowadzisz u rekordu głównego.
+rekordem go scalono. Zamówienia prowadzisz u rekordu głównego. Dokument z maila,
+który czekał w weryfikacji przy klientcie scalonym później, przechodzi na rekord
+główny przy najbliższym „Przelicz plan” albo godzinowej ponownej weryfikacji;
+„Zastosuj” kliknięte wcześniej odmawia z prośbą o przeliczenie planu.
 
 Gdy mail przychodzi przed umową, draft czeka na koszt i podpis. Po obustronnym
 podpisaniu umowy system pobiera koszt z umowy i aktywuje kompletny draft.
@@ -1828,6 +1835,9 @@ Osobne certyfikaty DocuSign („Certificate of Completion”, „Record Tracking
 „Signer Events”) są pomijane niezależnie od nazwy pliku i nie trafiają na listy
 zamówień. Załącznik bez cech zamówienia także jest pomijany. Właściwy dokument
 z tego samego maila oraz PDF łączący zamówienie z certyfikatem są odczytywane.
+PDF, z którego nie udało się odczytać tekstu (pusty albo prawie pusty odczyt),
+**nie jest pomijany** — trafia do zakładki „Nieudane” i system ponawia odczyt
+z zapisanego pliku.
 Te trzy reguły nie powodują „odczytu niepewnego”; inne błędy, np. niejasna
 osoba lub okres, nadal wymagają weryfikacji. **Osobę i stawkę z tabeli musi
 powtórzyć odczyt AI** — gdy odczyt nie potwierdza osoby albo podaje inną stawkę,
