@@ -348,13 +348,19 @@ def dealbreaker_inputs_for_radar(query: RadarQuery) -> DealbreakerInputs:
 DEALBREAKER_CHUNK = 64
 
 
-async def _apply_dealbreakers_yielding(candidates: list, *, inputs) -> Any:
+async def _apply_dealbreakers_yielding(
+    candidates: list, *, inputs, **switches: Any
+) -> Any:
     """`apply_dealbreakers` w paczkach, z oddaniem pętli zdarzeń między nimi.
 
     Runda 9 (R9-N5-1): pula radaru to do `MATCH_POOL_SIZE` kandydatów, a filtr
     (w tym bramka must-have po umiejętnościach) jest czystym CPU. Decyzja
     o kandydacie nie zależy od innych kandydatów, więc wynik paczek złożony
     w kolejności jest identyczny z jednym wywołaniem na całej liście.
+
+    ``switches`` (``exclude_*``) przechodzą bez zmian — runda 10 (R10-V2-10):
+    ścieżka kanoniczna (``matching._gate_and_dealbreakers``) filtruje tę samą
+    pulę z przełącznikami.
     """
     from dataclasses import fields
 
@@ -368,7 +374,7 @@ async def _apply_dealbreakers_yielding(candidates: list, *, inputs) -> Any:
         if start:
             await asyncio.sleep(0)
         part = apply_dealbreakers(
-            candidates[start : start + DEALBREAKER_CHUNK], inputs=inputs
+            candidates[start : start + DEALBREAKER_CHUNK], inputs=inputs, **switches
         )
         merged.kept.extend(part.kept)
         merged.exclusion_reasons.update(part.exclusion_reasons)

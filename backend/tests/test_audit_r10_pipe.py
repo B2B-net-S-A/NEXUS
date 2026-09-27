@@ -448,3 +448,58 @@ async def test_previous_row_for_rejection_mail_follows_moved_at() -> None:
         assert imported.id > sent.id
         assert await _previous_row_client_visible(db, rejected) is True
         await db.rollback()
+
+
+# ── R10-V2-10: ścieżka kanoniczna radaru filtruje pulę w paczkach ────────────
+
+
+@pytest.mark.asyncio
+async def test_canonical_gate_applies_dealbreakers_in_chunks(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    import app.api.matching as matching
+    from app.services import requirement_verification
+    from app.services import talent_radar_search as trs
+    from app.services.dealbreaker_filters import (
+        DealbreakerInputs,
+        apply_dealbreakers,
+    )
+    from tests.test_search_round9 import _cand, _counting_sleep, _decision
+
+    cands = [
+        _cand(i, expected_rate_hourly=(200 if i % 3 == 0 else 90))
+        for i in range(1, 301)
+    ]
+    inputs = DealbreakerInputs(budget_hourly=100.0)
+
+    from app.services.candidate_job_eligibility import EligibilityReason
+
+    def eligible():
+        decision = _decision("none", "visible")
+        decision.reason_code = EligibilityReason.eligible
+        decision.secondary_reasons = []
+        return decision
+
+    async def decisions(db, *, job, candidate_ids, now):
+        return {cid: eligible() for cid in candidate_ids}
+
+    async def noop(db, job, candidates):
+        return None
+
+    monkeypatch.setattr(matching, "evaluate_candidates_for_job", decisions)
+    monkeypatch.setattr(requirement_verification, "load_verified_requirements", noop)
+    counter = _counting_sleep(monkeypatch, trs)
+
+    kept, _, hidden, _, used = await matching._gate_and_dealbreakers(
+        SimpleNamespace(),
+        job=SimpleNamespace(id=1),
+        ordered=cands,
+        now=None,
+        inputs=inputs,
+    )
+
+    whole = apply_dealbreakers(cands, inputs=inputs, exclude_remote_only=False)
+    assert [c.id for c in kept] == [c.id for c in whole.kept]
+    assert hidden == whole.hidden_meta()
+    assert used is inputs
+    assert counter["yields"] >= 300 // trs.DEALBREAKER_CHUNK
