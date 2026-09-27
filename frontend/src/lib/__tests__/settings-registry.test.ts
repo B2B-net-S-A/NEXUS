@@ -52,7 +52,7 @@ describe("settings-registry — widoczność jak przed przebudową", () => {
   it("Finanse bez admina widzą swoje powierzchnie i Outlooka (U6, 22.09)", () => {
     const f = user("finance", { finance: "write", insights: "read" });
     const listed = SETTINGS_ITEMS.filter((i) => !i.hidden && canSeeSettingsItem(f as never, i)).map((i) => i.id);
-    expect(listed.sort()).toEqual(["assign", "contracts", "history", "outlook", "rates"]);
+    expect(listed.sort()).toEqual(["assign", "contracts", "history", "my-notifications", "outlook", "rates"]);
   });
 
   it("Szablony maili: każdy z capability candidate.write, nie tylko admin (U10)", () => {

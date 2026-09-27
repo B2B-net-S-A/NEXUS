@@ -107,7 +107,9 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     id: "my-notifications", area: "me", title: "Moje powiadomienia",
     description: "Wybierz, które powiadomienia mają do Ciebie trafiać.",
     keywords: "powiadomienia dzwonek wycisz wylacz alerty przypomnienia kategorie",
-    gate: {},
+    // Runda 9 (R9-N13-4): `/api/notifications/preferences` jest otwarte dla
+    // każdego zalogowanego (CurrentUser) — Finanse też dostają powiadomienia.
+    gate: { finance: true },
   },
   {
     id: "people", area: "team", title: "Osoby i role",
