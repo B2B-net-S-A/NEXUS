@@ -50,6 +50,12 @@ CHECK_INTERVAL_SECONDS = 3600
 MONTHS_LOOKBACK = 3
 QUARTERS_LOOKBACK = 2
 OVERDUE_WARNING_DAYS = 31
+# Decyzja Artura 27.09.2026: nadrabianie obejmuje wyłącznie okresy kończące
+# się PO wdrożeniu rundy 9. Starsze okresy, których nikt nie zamroził (na
+# 27.09 liga DL Q1 2026 i wyścig rekomendacji 07.2026), zostają otwarte —
+# o nagrodach za nie decyduje admin ręcznie. Poprzedni miesiąc i kwartał
+# pętla sprawdza zawsze, tak jak przed rundą 9.
+CATCH_UP_FROM = date(2026, 9, 30)
 
 
 def _closed_months(today: date, count: int) -> list[str]:
@@ -119,6 +125,15 @@ def _quarter_period_end(period: str):
     last_day = date(year, last_month, calendar.monthrange(year, last_month)[1])
     _start, end_utc = comp_service.quarter_bounds(year, quarter)
     return last_day, end_utc
+
+
+def _catch_up_periods(periods: list[str], period_end) -> list[str]:
+    """Okresy do przeglądu: zawsze ostatni zakończony, starsze tylko te, które
+    kończą się nie wcześniej niż ``CATCH_UP_FROM`` (decyzja 27.09.2026)."""
+    if not periods:
+        return []
+    latest = periods[-1]
+    return [p for p in periods if p == latest or period_end(p)[0] >= CATCH_UP_FROM]
 
 
 async def _rollback_quietly(db) -> None:
@@ -217,7 +232,9 @@ async def _run_once(today: date | None = None) -> dict:
         # Kwartał PRZED miesiącami: wykluczenie lidera kwartału z wyścigu
         # ostatniego miesiąca kwartału czyta wtedy zamrożonego zwycięzcę
         # (albo remis czekający na admina), a nie ranking liczony na żywo.
-        for quarter_period in _closed_quarters(today, QUARTERS_LOOKBACK):
+        for quarter_period in _catch_up_periods(
+            _closed_quarters(today, QUARTERS_LOOKBACK), _quarter_period_end
+        ):
             for ctype in (
                 CompetitionType.quarterly_champions_dl,
                 CompetitionType.quarterly_champions_recruiter,
@@ -240,7 +257,9 @@ async def _run_once(today: date | None = None) -> dict:
                     )
                     await _rollback_quietly(db)
 
-        for month_period in _closed_months(today, MONTHS_LOOKBACK):
+        for month_period in _catch_up_periods(
+            _closed_months(today, MONTHS_LOOKBACK), _month_period_end
+        ):
             for ctype in (
                 CompetitionType.monthly_recommendations,
                 CompetitionType.monthly_placements,

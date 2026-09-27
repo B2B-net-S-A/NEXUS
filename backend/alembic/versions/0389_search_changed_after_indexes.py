@@ -1,6 +1,6 @@
 """Indeksy pod „zmienieni od ostatniego przebiegu” skanera zapisanych wyszukiwań.
 
-Revision ID: 0390_search_changed_after_indexes
+Revision ID: 0389_search_changed_after_indexes
 Revises: 0388_purged_candidates
 
 Runda 9 audytu (R9-N14-2). `candidates._changed_after_clause` (lista
@@ -18,7 +18,7 @@ prod alembic bywa osierocony.
 
 from alembic import op
 
-revision = "0390_search_changed_after_indexes"
+revision = "0389_search_changed_after_indexes"
 down_revision = "0388_purged_candidates"
 branch_labels = None
 depends_on = None

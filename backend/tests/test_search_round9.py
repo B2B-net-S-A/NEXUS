@@ -399,7 +399,7 @@ def test_r9_n14_2_changed_after_indexes_are_mirrored_in_the_entrypoint():
     from pathlib import Path
 
     backend = Path(__file__).resolve().parents[1]
-    path = backend / "alembic" / "versions" / "0390_search_changed_after_indexes.py"
+    path = backend / "alembic" / "versions" / "0389_search_changed_after_indexes.py"
     spec = importlib.util.spec_from_file_location("m0390_search", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

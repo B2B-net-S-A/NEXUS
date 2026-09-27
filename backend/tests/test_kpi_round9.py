@@ -196,8 +196,8 @@ class _Session:
 @pytest.mark.asyncio
 async def test_autofreeze_catches_up_a_missed_month(monkeypatch) -> None:
     monkeypatch.setattr(competition_autofreeze, "AsyncSessionLocal", _Session)
-    # Wrzesień zamknięty, sierpień nie (import stał na przełomie miesięcy).
-    closed = {"2026-09", "Q3 2026", "Q2 2026", "2026-07"}
+    # Listopad zamknięty, październik nie (import stał na przełomie miesięcy).
+    closed = {"2026-11", "2026-09", "Q3 2026", "Q2 2026"}
 
     async def is_frozen(_db, _ctype, period):
         return period in closed
@@ -217,11 +217,19 @@ async def test_autofreeze_catches_up_a_missed_month(monkeypatch) -> None:
     monkeypatch.setattr(competition_rules, "freeze_readiness", ready)
     monkeypatch.setattr(competitions, "freeze_competition", freeze)
 
-    await competition_autofreeze._run_once(date(2026, 10, 20))
+    await competition_autofreeze._run_once(date(2026, 12, 20))
     assert frozen == [
-        "monthly_recommendations:2026-08",
-        "monthly_placements:2026-08",
+        "monthly_recommendations:2026-10",
+        "monthly_placements:2026-10",
     ]
+
+    # Decyzja 27.09.2026: okres zakończony PRZED wdrożeniem (sierpień 2026)
+    # nie jest nadrabiany — o nim decyduje admin.
+    frozen.clear()
+    closed.clear()
+    closed.update({"2026-09", "Q3 2026", "Q2 2026", "2026-07"})
+    await competition_autofreeze._run_once(date(2026, 10, 20))
+    assert frozen == []
 
 
 @pytest.mark.asyncio

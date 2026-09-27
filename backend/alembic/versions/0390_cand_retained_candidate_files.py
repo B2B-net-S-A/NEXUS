@@ -1,7 +1,7 @@
 """Pliki CV usuniętych kandydatów zostają — rejestr kluczy (runda 9, R9-N7-12).
 
 Revision ID: 0390_cand_retained_candidate_files
-Revises: 0388_purged_candidates
+Revises: 0389_search_changed_after_indexes
 
 Twarde usunięcie kandydata kaskadą kasowało CV trzymane w bazie (BYTEA), a
 pliki w magazynie obiektów zostawały bez wskaźnika. Decyzja Artura 26.09.2026:
@@ -14,7 +14,7 @@ Lustro w ``entrypoint.sh`` (prod alembic bywa osierocony) — pilnuje
 from alembic import op
 
 revision = "0390_cand_retained_candidate_files"
-down_revision = "0388_purged_candidates"
+down_revision = "0389_search_changed_after_indexes"
 branch_labels = None
 depends_on = None
 
