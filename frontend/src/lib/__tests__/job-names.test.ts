@@ -75,4 +75,15 @@ describe("jobNamesPatch — PATCH niesie wyłącznie zmienione nazwy", () => {
       jobNamesPatch(manual, { clientReference: "", workingTitle: "", workingTitleManual: false }),
     ).toEqual({ client_reference: null, working_title: "" });
   });
+
+  it("wyczyszczony ręczny tytuł (tryb ręczny) = powrót do automatu (R9-N15-8)", () => {
+    const manual = { ...auto, working_title: "Ręczny", working_title_auto: false };
+    expect(
+      jobNamesPatch(manual, { clientReference: "", workingTitle: "  ", workingTitleManual: true }),
+    ).toEqual({ working_title: "" });
+    // Automat + pusty szkic w trybie ręcznym = nic do zapisania.
+    expect(
+      jobNamesPatch(auto, { clientReference: "", workingTitle: "", workingTitleManual: true }),
+    ).toEqual({});
+  });
 });
