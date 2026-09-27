@@ -540,6 +540,20 @@ def plan_document(
             proposal.rows.append(rp)
             continue
 
+        live_group = [o for o in open_live if o.order_group_id is not None]
+        if live_group:
+            # Runda 10 (R10-N3-2): żywa linia zamówienia MD/kosztowego nie
+            # kończy się datą (budżet, zamiana kontraktora), więc zamówienie
+            # „po jej okresie” byłoby drugim zapisem tej samej współpracy obok
+            # linii. Lustro gałęzi szkicu linii wyżej — decyduje człowiek.
+            rp.action = ACTION_GROUP
+            rp.reasons.append(
+                "Osoba jest na linii zamówienia MD/kosztowego "
+                f"(#{live_group[0].id}, {live_group[0].title}) — kolejne "
+                "zamówienie tej osoby zapisz w oknie zamówienia u tego klienta"
+            )
+            proposal.rows.append(rp)
+            continue
         open_orders = open_live + mail_drafts
         overlapping = [o for o in open_orders if _overlaps(o, new_start, end)]
         if overlapping:
