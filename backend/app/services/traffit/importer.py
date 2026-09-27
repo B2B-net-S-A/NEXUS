@@ -2591,7 +2591,8 @@ class TraffitImporter:
                 elif (
                     existing_id is not None
                     and owner_id is None
-                    and id_to_ext.get(existing_id) not in (None, str(payload["external_id"]))
+                    and id_to_ext.get(existing_id)
+                    not in (None, str(payload["external_id"]))
                     and existing_id not in gone_ids
                 ):
                     # Runda 10 (R10-N11-1): mail pasuje do wiersza, który jest
@@ -2988,9 +2989,7 @@ class TraffitImporter:
                     # commit paczki niżej po cichu wycofałby razem z 200
                     # zapisanymi rekrutacjami.
                     async with self.db.begin_nested():
-                        await enqueue_job(
-                            self.db, job_id=job_id, trigger="traffit_job"
-                        )
+                        await enqueue_job(self.db, job_id=job_id, trigger="traffit_job")
                     progress.job_events += 1
                 except Exception as exc:  # noqa: BLE001
                     # Brak zdarzenia = rekrutacja poczeka na ręczną zmianę;

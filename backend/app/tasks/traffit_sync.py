@@ -866,6 +866,23 @@ def _phase_plan(
 ADVISORY_PHASES = frozenset({"candidates_enrich_names", "candidates_cv_fields"})
 
 
+def row_errors_are_advisory(phase: str, mode: str) -> bool:
+    """Czy błędy WIERSZY tej fazy w tym trybie wstrzymują watermark.
+
+    Runda 10 (R10-N11-10): budżetowane przeglądy PEŁNEGO biegu
+    (`candidate_files`, `candidates_cv`) oglądają wiersz raz na przebieg,
+    a delta tej samej fazy (ten sam wiersz stanu) zeruje licznik kwarantanny —
+    ten sam mechanizm co przy `ADVISORY_PHASES`. Kwarantanna nigdy nie
+    parkowała takiego wiersza, więc każdy pełny bieg z jednym błędem pliku
+    kończył się `errors` i nie przesuwał `__daily__`, a wstrzymanie niczego
+    nie ponawiało (pełny przegląd ma własny kursor `after_id`). W delcie te
+    same fazy blokują jak dotąd — tam wstrzymanie ponawia dotkniętych.
+    """
+    if phase in ADVISORY_PHASES:
+        return True
+    return mode == "full" and phase in ("candidate_files", "candidates_cv")
+
+
 # Nazwy faz w kolejności planu. Trzymane osobno, bo walidacja `phases=` musi
 # działać BEZ budowania importera i klienta HTTP — a 422 za literówkę ma paść
 # zanim cokolwiek ruszy. `test_traffit_sync_phases` pilnuje, żeby ta krotka nie
@@ -1332,7 +1349,8 @@ async def run_traffit_sync(
                             for ref, n in quarantine.items()
                             if n >= settings.TRAFFIT_MAX_ROW_ATTEMPTS
                         }
-                        if blocking and name in ADVISORY_PHASES:
+                        advisory_rows = row_errors_are_advisory(name, mode)
+                        if blocking and advisory_rows:
                             # Row errors of an enrichment phase: counted and
                             # shown, but under a key the global gate below does
                             # not read — see `ADVISORY_PHASES`.
@@ -1371,7 +1389,7 @@ async def run_traffit_sync(
                             # powtórzy. Blokujące błędy wierszy pamiętamy
                             # osobno, żeby watermark nadal stał.
                             attempt["done"] = sorted(set(attempt["done"]) | {name})
-                            if blocking and name not in ADVISORY_PHASES:
+                            if blocking and not advisory_rows:
                                 attempt["held"] = sorted(set(attempt["held"]) | {name})
                             attempt["touched_at"] = datetime.now(
                                 timezone.utc
@@ -1390,7 +1408,9 @@ async def run_traffit_sync(
                             await db.rollback()
                         except Exception:  # noqa: BLE001
                             pass
-                        crash_stats: dict[str, Any] = {"error": safe_db_error(exc)[:500]}
+                        crash_stats: dict[str, Any] = {
+                            "error": safe_db_error(exc)[:500]
+                        }
                         # Przenieś licznik kwarantanny przez awarię fazy.
                         # `stats` jest podmieniane W CAŁOŚCI (COALESCE w
                         # `_UPSERT_STATE` chroni wyłącznie przed NULL-em, a to
