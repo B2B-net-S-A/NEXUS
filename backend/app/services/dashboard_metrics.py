@@ -9,7 +9,8 @@ from __future__ import annotations
 from datetime import timedelta
 from typing import Any
 
-from sqlalchemy import DateTime, String, column, distinct, func, select, table
+from sqlalchemy import DateTime, column, distinct, func, select, table
+from sqlalchemy import Enum as SAEnum
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduling import business_today, local_month_bounds
@@ -106,7 +107,9 @@ async def compute_kpi_snapshot(db: AsyncSession) -> dict[str, Any]:
     # liczyło każdy powrót na etap. Widok pomija też wykluczone pary (0343).
     milestones = table(
         "analytics_first_milestones",
-        column("stage", String),
+        # Typ enuma, nie String — w bazie kolumna jest natywnym `pipelinestage`
+        # (bind VARCHAR nie ma z nim operatora `=`: 500 na /api/dashboard/stats).
+        column("stage", SAEnum(PipelineStage, name="pipelinestage")),
         column("first_reached_at", DateTime(timezone=True)),
     )
     hired_this_month = (
@@ -114,7 +117,7 @@ async def compute_kpi_snapshot(db: AsyncSession) -> dict[str, Any]:
             select(func.count())
             .select_from(milestones)
             .where(
-                milestones.c.stage == PipelineStage.hired.value,
+                milestones.c.stage == PipelineStage.hired,
                 milestones.c.first_reached_at >= month.start_utc,
                 milestones.c.first_reached_at < month.end_utc,
             )
