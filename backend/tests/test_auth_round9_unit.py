@@ -183,6 +183,11 @@ async def test_jjit_mint_refuses_admin_acting_user(monkeypatch):
             return user
 
     monkeypatch.setattr(nexus_client, "AsyncSessionLocal", lambda: _Session())
+
+    async def _pick(_db):
+        return client
+
+    monkeypatch.setattr(nexus_client, "_pick_oauth_client", _pick)
     with pytest.raises(nexus_client.NexusClientError, match="admina"):
         await nexus_client.mint_client_token()
 

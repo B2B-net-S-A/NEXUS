@@ -102,6 +102,10 @@ class WorkdaySyncResult:
     matched_users: int = 0
     unmatched_compass_emails: list[str] = field(default_factory=list)
     nexus_users_without_compass: list[str] = field(default_factory=list)
+    # Runda 9 (R9-N9-7): wiersze feedu dla tego samego (osoba, okres) —
+    # powtórzone z tymi samymi liczbami są zlewane, sprzeczne pomijane.
+    duplicate_rows: int = 0
+    conflicting_periods: int = 0
     basis: str | None = None
     error: str | None = None
 
@@ -115,6 +119,8 @@ class WorkdaySyncResult:
             # bez adresów nie da się naprawić konkretnego przypadku.
             "unmatched_compass_emails": sorted(self.unmatched_compass_emails),
             "nexus_users_without_compass": sorted(self.nexus_users_without_compass),
+            "duplicate_rows": self.duplicate_rows,
+            "conflicting_periods": self.conflicting_periods,
             "basis": self.basis,
             "error": self.error,
         }
@@ -195,7 +201,11 @@ async def sync_workdays(
 
     seen_emails: set[str] = set()
     matched_user_ids: set[int] = set()
-    to_write: list[dict] = []
+    # Runda 9 (R9-N9-7): klucz = więz `uq_user_workday_period`. Dwa wiersze tej
+    # samej osoby i okresu w jednym INSERT … ON CONFLICT dawały „ON CONFLICT DO
+    # UPDATE command cannot affect row a second time” i cały przebieg padał.
+    by_key: dict[tuple[int, date, date], dict] = {}
+    conflicting: set[tuple[int, date, date]] = set()
 
     for row in rows:
         email = str(row.get("email") or "").strip().lower()
@@ -211,19 +221,29 @@ async def sync_workdays(
         if p_start is None or p_end is None:
             continue
         matched_user_ids.add(user_id)
-        to_write.append(
-            {
-                "user_id": user_id,
-                "period_start": p_start,
-                "period_end": p_end,
-                "business_days": int(row.get("business_days") or 0),
-                "absence_days": float(row.get("absence_days") or 0),
-                "working_days": float(row.get("working_days") or 0),
-                "basis": EXPECTED_BASIS,
-                "source": "compass",
-                "synced_at": datetime.now(timezone.utc),
-            }
-        )
+        values = {
+            "user_id": user_id,
+            "period_start": p_start,
+            "period_end": p_end,
+            "business_days": int(row.get("business_days") or 0),
+            "absence_days": float(row.get("absence_days") or 0),
+            "working_days": float(row.get("working_days") or 0),
+            "basis": EXPECTED_BASIS,
+            "source": "compass",
+            "synced_at": datetime.now(timezone.utc),
+        }
+        key = (user_id, p_start, p_end)
+        previous = by_key.get(key)
+        if previous is None:
+            by_key[key] = values
+            continue
+        result.duplicate_rows += 1
+        numbers = ("business_days", "absence_days", "working_days")
+        if any(previous[n] != values[n] for n in numbers):
+            conflicting.add(key)
+
+    result.conflicting_periods = len(conflicting)
+    to_write = [v for k, v in by_key.items() if k not in conflicting]
 
     # Druga strona rachunku: kto w NEXUSIE nie ma odpowiednika w COMPASSIE.
     # Bez tej listy mianownik wyglądałby na kompletny przy 72% pokryciu.

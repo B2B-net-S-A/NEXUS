@@ -51,24 +51,46 @@ class MatchResult:
     skipped: list[dict] = field(default_factory=list)
 
 
+async def _pick_oauth_client(db) -> OAuthClient:
+    """Jedyny włączony klient OAuth o nazwie ``JJIT_OAUTH_CLIENT_NAME``.
+
+    Runda 9 (R9-N9-11): nazwa klienta OAuth nie jest unikalna, a ``scalar``
+    brał dowolny pierwszy wiersz — drugi klient o tej samej nazwie (np. kopia
+    założona przez admina z innymi scope'ami albo innym użytkownikiem
+    serwisowym) mógł po cichu przejąć tożsamość importu. Filtr: włączony,
+    z użytkownikiem serwisowym; więcej niż jeden = odmowa.
+    """
+    rows = (
+        (
+            await db.execute(
+                select(OAuthClient).where(
+                    OAuthClient.name == settings.JJIT_OAUTH_CLIENT_NAME,
+                    OAuthClient.enabled.is_(True),
+                    OAuthClient.acting_user_id.is_not(None),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not rows:
+        raise NexusClientError(
+            f"klient OAuth '{settings.JJIT_OAUTH_CLIENT_NAME}' nie istnieje / wyłączony / bez acting_user"
+        )
+    if len(rows) > 1:
+        raise NexusClientError(
+            f"klient OAuth '{settings.JJIT_OAUTH_CLIENT_NAME}' jest niejednoznaczny "
+            f"({len(rows)} włączonych o tej nazwie) — zostaw jeden"
+        )
+    return rows[0]
+
+
 async def mint_client_token() -> str:
     from app.api.oauth_token import _create_client_token
 
     async with AsyncSessionLocal() as db:
-        client = await db.scalar(
-            select(OAuthClient).where(
-                OAuthClient.name == settings.JJIT_OAUTH_CLIENT_NAME
-            )
-        )
-        acting_user = (
-            await db.get(User, client.acting_user_id)
-            if client is not None and client.acting_user_id is not None
-            else None
-        )
-    if client is None or not client.enabled or client.acting_user_id is None:
-        raise NexusClientError(
-            f"klient OAuth '{settings.JJIT_OAUTH_CLIENT_NAME}' nie istnieje / wyłączony / bez acting_user"
-        )
+        client = await _pick_oauth_client(db)
+        acting_user = await db.get(User, client.acting_user_id)
     # Runda 9 (R9-N9-1): token i tak zostałby odrzucony w ``deps`` — tu mówimy
     # od razu, DLACZEGO import nie ruszy, zamiast 401 na pierwszym żądaniu.
     if acting_user is None or not acting_user.is_active:

@@ -560,3 +560,36 @@ async def test_present_like_end_words_are_current_employment(app_client) -> None
         )
     assert past_ids & set(ids) == {ids[2]}
     assert current_ids & set(ids) == {ids[0], ids[1]}
+
+
+@pytest.mark.asyncio
+async def test_deleted_client_is_not_resolved_by_name_or_nip() -> None:
+    """Runda 9 (R9-N9-5): usunięty klient nie jest „naszym klientem” dla CRM.
+
+    Drugie wywołanie po usunięciu sprawdza też, że indeks nazw w pamięci
+    (R9-N9-12) odświeża się po zmianie tabeli klientów.
+    """
+    tag = uuid.uuid4().hex[:8]
+    company = f"Pelikan Serwis {tag}"
+    nip = f"99{uuid.uuid4().int % 10**8:08d}"
+    async with AsyncSessionLocal() as db:
+        client = Client(name=company, nip=nip)
+        db.add(client)
+        await db.commit()
+        client_id = client.id
+
+    names = {integrations_companies.normalize_company_name(company)}
+    async with AsyncSessionLocal() as db:
+        found = await integrations_companies._resolve_client(db, names, "")
+        assert found is not None and found.id == client_id
+        by_nip = await integrations_companies._resolve_client(db, set(), nip)
+        assert by_nip is not None and by_nip.id == client_id
+
+    async with AsyncSessionLocal() as db:
+        row = await db.get(Client, client_id)
+        row.deleted_at = datetime.now(timezone.utc)
+        await db.commit()
+
+    async with AsyncSessionLocal() as db:
+        assert await integrations_companies._resolve_client(db, names, "") is None
+        assert await integrations_companies._resolve_client(db, set(), nip) is None
