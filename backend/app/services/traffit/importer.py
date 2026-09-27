@@ -1024,9 +1024,12 @@ _UPDATE_CANDIDATE_ADOPT = text(
 # `status` i `closed_at` (etapy prowadzi już NEXUS, więc „zamknięta w Traffitcie"
 # nie może jej zamknąć ani przemianować). Unieważnienie wymagań jest wtedy
 # wyłączone, bo tytuł się nie zmienia — inaczej każdy bieg kasowałby kryteria
-# tylko dlatego, że Traffit ma inne brzmienie niż zatrzymany tytuł. Pozostałe
-# kolumny bez zmian: COALESCE (`deadline`, `opened_at`, `client_id`…) nadal
-# dopełnia puste pola, a `custom_fields` scala JSONB.
+# tylko dlatego, że Traffit ma inne brzmienie niż zatrzymany tytuł. `client_id`,
+# `pipeline_template_id`, `reference_number`, `deadline` i `opened_at` przełączonej
+# rekrutacji Traffit tylko DOPEŁNIA (Runda 9, R9-N15-1: do tej rundy
+# `COALESCE(EXCLUDED, jobs)` nadpisywał termin czy klienta ustawione w NEXUSIE);
+# rekrutacji nieprzełączonej nadal nadpisuje je wartością z Traffita.
+# `custom_fields` scala JSONB.
 _UPSERT_JOB = text(
     """
     INSERT INTO jobs (
@@ -1066,17 +1069,23 @@ _UPSERT_JOB = text(
             ELSE jobs.requirements_reviewed END,
         status               = CASE WHEN jobs.managed_in_nexus THEN jobs.status
                                    ELSE EXCLUDED.status END,
-        client_id            = COALESCE(EXCLUDED.client_id, jobs.client_id),
-        pipeline_template_id = COALESCE(
-            EXCLUDED.pipeline_template_id, jobs.pipeline_template_id
-        ),
+        client_id            = CASE WHEN jobs.managed_in_nexus
+                                   THEN COALESCE(jobs.client_id, EXCLUDED.client_id)
+                                   ELSE COALESCE(EXCLUDED.client_id, jobs.client_id) END,
+        pipeline_template_id = CASE WHEN jobs.managed_in_nexus
+                                   THEN COALESCE(jobs.pipeline_template_id, EXCLUDED.pipeline_template_id)
+                                   ELSE COALESCE(EXCLUDED.pipeline_template_id, jobs.pipeline_template_id) END,
         recruiter_id         = CASE WHEN jobs.is_open THEN jobs.recruiter_id
                                    ELSE COALESCE(jobs.recruiter_id, EXCLUDED.recruiter_id) END,
-        reference_number     = COALESCE(
-            EXCLUDED.reference_number, jobs.reference_number
-        ),
-        deadline             = COALESCE(EXCLUDED.deadline, jobs.deadline),
-        opened_at            = COALESCE(EXCLUDED.opened_at, jobs.opened_at),
+        reference_number     = CASE WHEN jobs.managed_in_nexus
+                                   THEN COALESCE(jobs.reference_number, EXCLUDED.reference_number)
+                                   ELSE COALESCE(EXCLUDED.reference_number, jobs.reference_number) END,
+        deadline             = CASE WHEN jobs.managed_in_nexus
+                                   THEN COALESCE(jobs.deadline, EXCLUDED.deadline)
+                                   ELSE COALESCE(EXCLUDED.deadline, jobs.deadline) END,
+        opened_at            = CASE WHEN jobs.managed_in_nexus
+                                   THEN COALESCE(jobs.opened_at, EXCLUDED.opened_at)
+                                   ELSE COALESCE(EXCLUDED.opened_at, jobs.opened_at) END,
         closed_at            = CASE WHEN jobs.managed_in_nexus THEN jobs.closed_at
                                    ELSE EXCLUDED.closed_at END,
         custom_fields        = jobs.custom_fields || EXCLUDED.custom_fields,
@@ -1095,18 +1104,22 @@ _UPSERT_JOB = text(
             )
         )
         OR (EXCLUDED.client_id IS NOT NULL
-            AND jobs.client_id IS DISTINCT FROM EXCLUDED.client_id)
+            AND jobs.client_id IS DISTINCT FROM EXCLUDED.client_id
+            AND (NOT jobs.managed_in_nexus OR jobs.client_id IS NULL))
         OR (EXCLUDED.pipeline_template_id IS NOT NULL
-            AND jobs.pipeline_template_id IS DISTINCT FROM
-                EXCLUDED.pipeline_template_id)
+            AND jobs.pipeline_template_id IS DISTINCT FROM EXCLUDED.pipeline_template_id
+            AND (NOT jobs.managed_in_nexus OR jobs.pipeline_template_id IS NULL))
         OR (NOT jobs.is_open AND jobs.recruiter_id IS NULL
             AND EXCLUDED.recruiter_id IS NOT NULL)
         OR (EXCLUDED.reference_number IS NOT NULL
-            AND jobs.reference_number IS DISTINCT FROM EXCLUDED.reference_number)
+            AND jobs.reference_number IS DISTINCT FROM EXCLUDED.reference_number
+            AND (NOT jobs.managed_in_nexus OR jobs.reference_number IS NULL))
         OR (EXCLUDED.deadline IS NOT NULL
-            AND jobs.deadline IS DISTINCT FROM EXCLUDED.deadline)
+            AND jobs.deadline IS DISTINCT FROM EXCLUDED.deadline
+            AND (NOT jobs.managed_in_nexus OR jobs.deadline IS NULL))
         OR (EXCLUDED.opened_at IS NOT NULL
-            AND jobs.opened_at IS DISTINCT FROM EXCLUDED.opened_at)
+            AND jobs.opened_at IS DISTINCT FROM EXCLUDED.opened_at
+            AND (NOT jobs.managed_in_nexus OR jobs.opened_at IS NULL))
         OR NOT (COALESCE(jobs.custom_fields, '{}'::jsonb) @> EXCLUDED.custom_fields)
     RETURNING id, (xmax = 0) AS was_insert, managed_in_nexus
     """
