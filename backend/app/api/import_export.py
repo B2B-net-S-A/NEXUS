@@ -446,8 +446,12 @@ def _build_candidates_csv(candidates) -> bytes:
     return codecs.BOM_UTF8 + output.getvalue().encode("utf-8")
 
 
-async def _stream_candidates_csv(db: AsyncSession, query):
-    """Wypuszcza CSV kawalkami, w miare jak Postgres oddaje wiersze."""
+async def _stream_candidates_csv(query):
+    """Wypuszcza CSV kawalkami, w miare jak Postgres oddaje wiersze.
+
+    Runda 9 (R9-X1-2): wlasna sesja — sesja zadania (``get_db``) zamyka sie
+    przed wyslaniem odpowiedzi, a generator biegnie w trakcie wysylki.
+    """
     buffer = io.StringIO()
     writer = csv.writer(buffer)
     writer.writerow(_CANDIDATE_EXPORT_HEADER)
@@ -456,13 +460,18 @@ async def _stream_candidates_csv(db: AsyncSession, query):
     buffer.seek(0)
     buffer.truncate(0)
 
-    stream = await db.stream(query.execution_options(yield_per=_EXPORT_YIELD_PER))
-    async for row in stream:
-        writer.writerow(_candidate_export_row(row))
-        if buffer.tell() >= _EXPORT_CHUNK_BYTES:
-            yield buffer.getvalue().encode("utf-8")
-            buffer.seek(0)
-            buffer.truncate(0)
+    from app.core.database import AsyncSessionLocal
+
+    async with AsyncSessionLocal() as stream_db:
+        stream = await stream_db.stream(
+            query.execution_options(yield_per=_EXPORT_YIELD_PER)
+        )
+        async for row in stream:
+            writer.writerow(_candidate_export_row(row))
+            if buffer.tell() >= _EXPORT_CHUNK_BYTES:
+                yield buffer.getvalue().encode("utf-8")
+                buffer.seek(0)
+                buffer.truncate(0)
     if buffer.tell():
         yield buffer.getvalue().encode("utf-8")
 
@@ -513,7 +522,7 @@ async def export_candidates(
     filename = f"kandydaci_{timestamp}.csv"
 
     return StreamingResponse(
-        _stream_candidates_csv(db, query),
+        _stream_candidates_csv(query),
         media_type="text/csv; charset=utf-8-sig",
         # Bez `Content-Length` — rozmiaru nie znamy przed wyslaniem, a
         # zgadniety naglowek jest gorszy niz jego brak (przegladarka ucina
