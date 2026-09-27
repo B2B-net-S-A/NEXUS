@@ -7,9 +7,7 @@ import {
   AdminUser,
   UserFormData,
   ROLES,
-  RECRUITER_ROLES,
   ROLE_LABELS,
-  RECRUITER_ROLE_LABELS,
   isExclusiveRole,
 } from "./types";
 
@@ -46,7 +44,6 @@ export function UserModal({ initial, onClose, onSave, loading, error }: UserModa
     password: "",
     role: initialPrimary,
     roles: initialRoles,
-    recruiter_role: initial?.recruiter_role ?? "",
     can_delete_clients: initial?.can_delete_clients ?? false,
     clear_microsoft_identity: false,
   });
@@ -57,7 +54,7 @@ export function UserModal({ initial, onClose, onSave, loading, error }: UserModa
   const setPrimaryRole = (role: string) => {
     setForm((f) => {
       if (isExclusiveRole(role)) {
-        return { ...f, role, roles: [role], recruiter_role: "" };
+        return { ...f, role, roles: [role] };
       }
       const withoutExclusive = f.roles.filter(
         (value) => !isExclusiveRole(value),
@@ -237,19 +234,6 @@ export function UserModal({ initial, onClose, onSave, loading, error }: UserModa
               </p>
             </div>
           )}
-
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-1">Rola rekrutacyjna (legacy)</label>
-            <select
-              value={form.recruiter_role}
-              onChange={(e) => set("recruiter_role", e.target.value)}
-              className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
-            >
-              {RECRUITER_ROLES.map((r) => (
-                <option key={r} value={r}>{RECRUITER_ROLE_LABELS[r] ?? r}</option>
-              ))}
-            </select>
-          </div>
         </div>
 
         {error && (
