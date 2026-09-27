@@ -60,6 +60,7 @@ from app.models.help_material import HelpMaterial
 from app.models.user import User
 from app.services.cv_generator_b2b.language_aliases import alias_catalog, resolve_alias
 from app.services.client_access import (
+    assert_client_assignable,
     deny,
     resolve_client_access,
     resolve_client_visible_client_ids,
@@ -571,6 +572,18 @@ async def _client_or_404(db: AsyncSession, client_id: int) -> Client:
     return client
 
 
+async def _writable_client_or_404(db: AsyncSession, client_id: int) -> Client:
+    """Klient, któremu wolno zapisać regułę CV.
+
+    Runda 9 (R9-N4-7): reguła zapisana klientowi usuniętemu albo scalonemu
+    nie działa nigdzie (brak żywych rekrutacji, profil ukryty), a scalony
+    rekord główny zostawał bez reguły. 422 z nazwą rekordu głównego.
+    """
+    client = await _client_or_404(db, client_id)
+    await assert_client_assignable(db, client.id)
+    return client
+
+
 def _require_shared_rule_section_read(user: User) -> None:
     """Allow the Job/Pipeline consumer without opening the Delivery module.
 
@@ -911,7 +924,7 @@ async def upsert_client_cv_rule(
     db: AsyncSession = Depends(get_db),
 ) -> ClientCvRuleRead:
     """Save an independent draft, or atomically publish the complete recipe."""
-    client = await _client_or_404(db, client_id)
+    client = await _writable_client_or_404(db, client_id)
     await _require_client_rule_access(db, current_user, client.id, write=True)
     rule = await _lock_rule_edit(db, client, payload.expected_revision)
     rule = await _store_recipe(db, client, rule, payload, current_user)
@@ -932,7 +945,7 @@ async def confirm_client_cv_rule(
     expected_revision: Optional[int] = Query(None, ge=0),
 ) -> ClientCvRuleRead:
     """Publish the saved draft and its client flags as one version."""
-    client = await _client_or_404(db, client_id)
+    client = await _writable_client_or_404(db, client_id)
     await _require_client_rule_access(db, current_user, client.id, write=True)
     rule = await _lock_rule_edit(db, client, expected_revision)
     if rule is None:
@@ -1015,7 +1028,7 @@ async def copy_client_cv_rule(
         raise HTTPException(
             status_code=422, detail="Wskaż innego klienta niż docelowy."
         )
-    client = await _client_or_404(db, client_id)
+    client = await _writable_client_or_404(db, client_id)
     await _require_client_rule_access(db, current_user, client.id, write=True)
     source_client = await _client_or_404(db, source_client_id)
     await _require_client_rule_access(db, current_user, source_client.id, write=False)
@@ -1074,7 +1087,7 @@ async def restore_cv_rule_version(
     expected_revision: Optional[int] = Query(None, ge=0),
 ) -> ClientCvRuleRead:
     """Restore an immutable publication into a draft, never silently activate it."""
-    client = await _client_or_404(db, client_id)
+    client = await _writable_client_or_404(db, client_id)
     await _require_client_rule_access(db, current_user, client_id, write=True)
     rule = await _lock_rule_edit(db, client, expected_revision)
     publication = await db.get(ClientCvRulePublication, (client_id, version))

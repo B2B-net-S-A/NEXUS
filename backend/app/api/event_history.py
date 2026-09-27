@@ -11,7 +11,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Literal, Optional
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -61,6 +61,21 @@ class CriticalEventList(BaseModel):
     outcomes: dict[str, str]
 
 
+# Runda 9 (R9-N4-6): data spoza tego zakresu (np. 9999-12-31) przepełniała
+# `date + 1 dzień` / strefę czasową → OverflowError i 500. Ten sam zakres co
+# filtry dat listy kandydatów (`candidate_search_predicates`).
+_FILTER_DATE_MIN = date(1900, 1, 1)
+_FILTER_DATE_MAX = date(2100, 12, 31)
+
+
+def _assert_filter_date(day: Optional[date], label: str) -> None:
+    if day is not None and not (_FILTER_DATE_MIN <= day <= _FILTER_DATE_MAX):
+        raise HTTPException(
+            status_code=422,
+            detail=f"{label}: podaj datę z zakresu 1900–2100.",
+        )
+
+
 def _day_start(day: date) -> datetime:
     """Początek dnia w strefie firmy — filtr dat mówi o dniach w Polsce."""
 
@@ -104,6 +119,8 @@ async def list_event_history(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ):
+    _assert_filter_date(date_from, "Data od")
+    _assert_filter_date(date_to, "Data do")
     filters = []
     if entity_type:
         filters.append(CriticalEvent.entity_type == entity_type)

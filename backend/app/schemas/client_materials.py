@@ -3,8 +3,11 @@
 Covers:
   - ClientOnePager: metadata-only responses (no file bytes; download goes
     through the dedicated endpoint)
-  - ClientContractTerms: structured MSA clauses (off-limits, internalization,
-    payment, warranty) — single row per client, edited via upsert
+  - ClientContractTerms: structured MSA clauses (internalization, payment,
+    warranty) — single row per client, edited via upsert. Off-limits usunięte
+    27.09.2026 decyzją Artura (runda 9, R9-N4-8): kolumny ``off_limits_*``
+    zostają w bazie, ale API ich nie przyjmuje (pola spoza schematu są
+    ignorowane) ani nie oddaje.
 """
 
 from datetime import datetime
@@ -31,11 +34,6 @@ class ClientOnePagerResponse(BaseModel):
 
 
 class ClientContractTermsBase(BaseModel):
-    # Off-limits
-    off_limits_months: Optional[int] = None
-    off_limits_scope: Optional[str] = None
-    off_limits_notes: Optional[str] = None
-
     # Internalization
     internalization_fee_pct: Optional[Decimal] = None
     internalization_min_months: Optional[int] = None
@@ -61,7 +59,6 @@ class ClientContractTermsBase(BaseModel):
 # Lustro długości kolumn `client_contract_terms` — za długa wartość dawała
 # surowy błąd bazy (500 bez CORS) zamiast czytelnego 422 (audyt S3).
 _TERMS_MAX_LENGTH = {
-    "off_limits_scope": (500, "Zakres off-limits"),
     "payment_currency": (3, "Waluta płatności"),
     "payment_invoice_cycle": (50, "Cykl fakturowania"),
     "payment_late_fees": (500, "Odsetki za opóźnienie"),

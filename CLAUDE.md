@@ -1681,9 +1681,10 @@ link). API: `app/api/client_playbooks.py`.
   w edytorze reguł CV, a te są otwarte). **Odczyt karty i przeglądu = `OperationalUser`,
   org-wide, bez grafu klienta** — świadome odstępstwo: karta zastępuje 14 wzorów
   Word w Pomocy, które czytał każdy zalogowany, a rekruter czyta ją PRZED
-  przypisaniem do rekrutacji. `off_limits` (z `client_contract_terms`) jedzie
-  w odpowiedzi tylko do ról z odczytem sekcji Delivery, a Delivery Leadowi
-  tylko u klientów z portfela (26.09.2026, niżej). `client_playbooks.router`
+  przypisaniem do rekrutacji. **Off-limits: funkcja usunięta 27.09.2026 decyzją
+  Artura; kolumny zostają** (`client_contract_terms.off_limits_*` — karta,
+  przegląd i `contract-terms` ich nie oddają, PUT je ignoruje, UI nie ma pól;
+  runda 9, R9-N4-8). `client_playbooks.router`
   NIE trafia na listę routerów Delivery w `test_section_access.py` (bramki per
   handler, jak `client_cv_rules.router`).
 - **Trzy powierzchnie odczytu, jeden formularz:** profil klienta → „Zasady
@@ -1801,14 +1802,13 @@ w jednej zakładce i puste w sąsiedniej.
   (`_finance_rates_in_pln`), nigdy z kolumny `contracts.margin` — ta niesie
   kwotę z ostatniego ZAPISU kontraktu. `None` zostaje tylko wtedy, gdy brakuje
   danych źródłowych: stawki albo kursu FX dla waluty obcej.
-- **Ekrany rekrutacji też nie pokazują DL-owi kwot ani off-limitów cudzych
-  klientów** (decyzja Artura 26.09.2026, runda 6 audytu). Historia requestów
+- **Ekrany rekrutacji też nie pokazują DL-owi kwot cudzych klientów**
+  (decyzja Artura 26.09.2026, runda 6 audytu). Historia requestów
   i baner podglądu (`jobs._history_fee_visible`) redagują `fee_rate` (marżę)
   per klient regułą `can_read_client_finance` — lista zostaje org-wide, także
-  z `cross_client=true`, kwoty tylko portfela (hybryda HoR+DL też). Karta
-  klienta i jej przegląd (`client_playbooks._off_limits_client_boundary`)
-  oddają `off_limits` tylko u klientów z `resolve_delivery_lead_client_ids` —
-  tym samym zakresem, którym DL czyta warunki umów.
+  z `cross_client=true`, kwoty tylko portfela (hybryda HoR+DL też).
+  Off-limits na karcie klienta: funkcja usunięta 27.09.2026 decyzją Artura;
+  kolumny zostają.
 - **Tabela konsultantów nie ma bramki front-endowej i mieć nie powinna** —
   `ConsultantsTable` rysuje wszystkie kolumny zawsze, a `null` renderuje jako
   „—". Decyduje wyłącznie backend.
@@ -7271,12 +7271,17 @@ Raport: `docs/audits/2026-09-25/runda-7.md`.
   ją przed użyciem; klucze wyglądające na sekret tylko przez `value_from_secret`.
 - **Usunięty albo scalony klient nie przyjmuje zapisów:**
   `client_access.assert_client_assignable` (422 `client_deleted`/`client_merged`
-  z nazwą rekordu głównego) w rekrutacjach (POST, PATCH przy zmianie klienta),
-  kontraktach, kontaktach, odczycie maila klienta, stawkach, konfliktach
-  i generatorze CV „bez procesu”. Rejestr NIP poczty zamówień i writer
-  pomijają `deleted_at`. `merge-into` z żywymi kontraktami/rekrutacjami/ID w env
-  = 409 z listą; usunięcie klienta z historią zamyka jego puste opublikowane
-  rekrutacje (bez `closed_at`).
+  z nazwą rekordu głównego) w rekrutacjach (POST, PATCH przy zmianie klienta,
+  ponowne otwarcie zamkniętej — PATCH i `/publish`, runda 9), kontraktach,
+  kontaktach, hiring managerze „nowa osoba”, regułach CV (zapis), przypisaniu
+  DL-a (`/team-structure/dl-clients`), odczycie maila klienta, stawkach,
+  konfliktach i generatorze CV „bez procesu”. Rejestr NIP poczty zamówień
+  i writer pomijają `deleted_at`. `merge-into` z żywymi kontraktami/rekrutacjami/
+  ID w env = 409 z listą; od rundy 9 scalenie PRZENOSI na cel kontakty, wiedzę,
+  one-pagery, warunki umowy i kartę klienta (`_move_client_materials_on_merge`;
+  warunki/karta po obu stronach = 409 `duplicate_singletons`), a duplikaty
+  scalone wcześniej w źródło wskazują wprost na cel (bez łańcucha). Usunięcie
+  klienta z historią zamyka jego puste opublikowane rekrutacje (bez `closed_at`).
 - **DELETE rekrutacji:** zamknięta, z Traffita albo ze spotkaniem w kalendarzu =
   409 (`job_is_closed`, `job_from_traffit`, `job_has_calendar_events`) — dla
   każdej roli; całość w `audited_deletion`.

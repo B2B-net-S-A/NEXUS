@@ -279,9 +279,6 @@ describe("MaterialsTab — wymagane dokumenty i warunki (zapis)", () => {
         {
           id: 1,
           client_id: CLIENT_ID,
-          off_limits_months: 12,
-          off_limits_scope: "cała grupa",
-          off_limits_notes: null,
           internalization_fee_pct: null,
           internalization_min_months: null,
           internalization_notice_days: null,
@@ -294,7 +291,7 @@ describe("MaterialsTab — wymagane dokumenty i warunki (zapis)", () => {
           notice_period_days: null,
           warranty_replacement_days: null,
           warranty_notes: null,
-          other_clauses: null,
+          other_clauses: "cała grupa",
           updated_at: "2026-09-01T10:00:00Z",
           updated_by_email: "dl@example.com",
         },
@@ -305,6 +302,8 @@ describe("MaterialsTab — wymagane dokumenty i warunki (zapis)", () => {
     renderTab();
     fireEvent.click(screen.getByRole("button", { name: "Warunki kontraktowe" }));
     const scope = await screen.findByDisplayValue("cała grupa");
+    // Runda 9 (R9-N4-8): off-limits usunięte — formularz nie ma tej sekcji.
+    expect(screen.queryByText(/Off-limits/i)).not.toBeInTheDocument();
     fireEvent.change(scope, { target: { value: "tylko spółka matka" } });
 
     const form = scope.closest("form") as HTMLFormElement;
@@ -312,7 +311,7 @@ describe("MaterialsTab — wymagane dokumenty i warunki (zapis)", () => {
 
     await waitFor(() =>
       expect(mocks.put).toHaveBeenCalledWith(TERMS_URL, {
-        off_limits_scope: "tylko spółka matka",
+        other_clauses: "tylko spółka matka",
       }),
     );
     await waitFor(() => expect(mocks.showError).toHaveBeenCalledWith("Nie udało się zapisać"));

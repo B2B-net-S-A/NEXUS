@@ -28,6 +28,7 @@ from app.models.competence_category import (
     CompetenceCategory,
     UserCompetenceCategory,
 )
+from app.services.client_access import assert_client_assignable
 from app.services.job_delivery_lead_fill import fill_missing_job_delivery_leads
 from app.services.pipeline_latest import latest_stage_ids
 from app.models.job import Job, JobStatus
@@ -718,6 +719,22 @@ async def assign_dl_to_client(
     ).scalar_one_or_none()
     if dl is None or not dl.has_role(UserRole.delivery_lead):
         raise HTTPException(400, "must reference role=delivery_lead")
+    # Runda 9 (R9-N4-7): nieaktywny DL nie dostaje portfela (jego alerty
+    # i przeglądy trafiałyby w próżnię), klienta, którego nie ma, nie da się
+    # przypisać (FK → 500), a usuniętemu/scalonemu nie przypisujemy nikogo.
+    if not dl.is_active:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "Delivery Lead jest nieaktywny — nie można przypisać mu klienta.",
+        )
+    # Blokada wiersza klienta szereguje równoległe przypisania: dwa naraz
+    # widziały brak wiersza i drugi INSERT padał na `uq_dl_client` (500).
+    client_row = await db.scalar(
+        select(Client.id).where(Client.id == payload.client_id).with_for_update()
+    )
+    if client_row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Klient nie został znaleziony.")
+    await assert_client_assignable(db, payload.client_id)
 
     changed_delivery_lead_ids: set[int] = set()
 

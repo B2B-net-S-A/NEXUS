@@ -22,9 +22,9 @@ Model dostępu (decyzja 03.09.2026, świadome odstępstwo od reguł CV):
 * ZAPIS i historia idą jak reguły CV po #1351: sekcja Delivery
   (``DeliverySectionUser``) plus graf klienta (``resolve_client_access``):
   admin i Delivery Lead org-wide.
-* ``off_limits`` pochodzi z umowy ramowej (``client_contract_terms``), więc
-  jedzie w odpowiedzi tylko do ról z odczytem sekcji Delivery; reszta dostaje
-  ``null`` — karta nie może być bocznym wejściem do warunków umowy.
+* Off-limits (``client_contract_terms.off_limits_*``) NIE jedzie w karcie —
+  funkcja usunięta 27.09.2026 decyzją Artura (runda 9, R9-N4-8); kolumny
+  w bazie zostają.
 """
 
 from datetime import datetime
@@ -42,22 +42,15 @@ from app.api.help_materials import _validate_url
 from app.api.section_access import DeliverySectionUser
 from app.core.database import get_db
 from app.models.client import Client
-from app.models.client_contract_terms import ClientContractTerms
 from app.models.client_playbook import ClientPlaybook
 from app.models.client_playbook_event import ClientPlaybookEvent
 from app.models.user import User
-from app.services.access_scope import resolve_delivery_lead_client_ids
 from app.services.client_access import (
     assert_client_writable,
     deny,
     resolve_client_access,
 )
 from app.services.client_playbook_seed import seed_entry
-from app.services.section_permissions import (
-    ProductSection,
-    SectionAccess,
-    section_access_for_user,
-)
 
 router = APIRouter(tags=["client-playbooks"])
 
@@ -139,12 +132,6 @@ class PlaybookSeedRequest(BaseModel):
     seed_key: str = Field(min_length=1, max_length=64)
 
 
-class OffLimitsRead(BaseModel):
-    months: Optional[int] = None
-    scope: Optional[str] = None
-    notes: Optional[str] = None
-
-
 class ClientPlaybookRead(BaseModel):
     client_id: int
     client_name: Optional[str] = None
@@ -162,9 +149,6 @@ class ClientPlaybookRead(BaseModel):
     process_rules_md: Optional[str] = None
     onboarding_md: Optional[str] = None
     documents: list[dict[str, str]] = Field(default_factory=list)
-    # Tylko do odczytu, z `client_contract_terms`; None = brak warunków umowy
-    # ALBO brak odczytu sekcji Delivery (patrz docstring modułu).
-    off_limits: Optional[OffLimitsRead] = None
     seed_key: Optional[str] = None
     updated_at: Optional[str] = None
     updated_by_name: Optional[str] = None
@@ -211,58 +195,6 @@ async def _playbook_for(db: AsyncSession, client_id: int) -> Optional[ClientPlay
             select(ClientPlaybook).where(ClientPlaybook.client_id == client_id)
         )
     ).scalar_one_or_none()
-
-
-async def _terms_for(db: AsyncSession, client_id: int) -> Optional[ClientContractTerms]:
-    return (
-        await db.execute(
-            select(ClientContractTerms).where(
-                ClientContractTerms.client_id == client_id
-            )
-        )
-    ).scalar_one_or_none()
-
-
-def _off_limits(terms: Optional[ClientContractTerms]) -> Optional[OffLimitsRead]:
-    if terms is None:
-        return None
-    return OffLimitsRead(
-        months=terms.off_limits_months,
-        scope=terms.off_limits_scope,
-        notes=terms.off_limits_notes,
-    )
-
-
-def _can_read_off_limits(user: User) -> bool:
-    """Off-limit z umowy ramowej widzą tylko role z odczytem sekcji Delivery."""
-    return section_access_for_user(user, ProductSection.delivery) >= SectionAccess.read
-
-
-async def _off_limits_client_boundary(
-    db: AsyncSession, user: User
-) -> Optional[frozenset[int]]:
-    """``None`` = off-limit u każdego klienta; zbiór = portfel Delivery Leada.
-
-    Runda 6 audytu (decyzja Artura 26.09.2026): karta klienta jest otwarta dla
-    każdej roli operacyjnej, ale off-limit pochodzi z umowy ramowej, a warunki
-    umów Delivery Lead czyta tylko u swoich klientów
-    (``GET /clients/{id}/contract-terms`` — zakres Delivery z
-    ``resolve_delivery_lead_client_ids``). Do tej rundy karta i przegląd
-    oddawały DL-owi off-limit KAŻDEGO klienta. Ten sam resolver: TCM+DL,
-    Finanse i ``DL_CLIENT_SCOPE=all`` widzą wszystkich.
-    """
-    return await resolve_delivery_lead_client_ids(user, db)
-
-
-async def _off_limits_for(
-    db: AsyncSession, user: User, client_id: int
-) -> Optional[OffLimitsRead]:
-    if not _can_read_off_limits(user):
-        return None
-    boundary = await _off_limits_client_boundary(db, user)
-    if boundary is not None and client_id not in boundary:
-        return None
-    return _off_limits(await _terms_for(db, client_id))
 
 
 async def _require_client_playbook_access(
@@ -366,13 +298,10 @@ def _to_read(
     *,
     client_id: int,
     client_name: Optional[str],
-    off_limits: Optional[OffLimitsRead],
     updated_by_name: Optional[str] = None,
 ) -> ClientPlaybookRead:
     if row is None:
-        return ClientPlaybookRead(
-            client_id=client_id, client_name=client_name, off_limits=off_limits
-        )
+        return ClientPlaybookRead(client_id=client_id, client_name=client_name)
     return ClientPlaybookRead(
         client_id=client_id,
         client_name=client_name,
@@ -389,7 +318,6 @@ def _to_read(
         process_rules_md=row.process_rules_md,
         onboarding_md=row.onboarding_md,
         documents=list(row.documents or []),
-        off_limits=off_limits,
         seed_key=row.seed_key,
         updated_at=_iso(row.updated_at),
         updated_by_name=updated_by_name,
@@ -420,7 +348,6 @@ async def get_client_playbook(
         row,
         client_id=client.id,
         client_name=_client_label(client),
-        off_limits=await _off_limits_for(db, current_user, client.id),
         updated_by_name=updated_by_name,
     )
 
@@ -495,7 +422,6 @@ async def upsert_client_playbook(
         row,
         client_id=client.id,
         client_name=_client_label(client),
-        off_limits=await _off_limits_for(db, current_user, client.id),
         updated_by_name=updated_by_name,
     )
 
@@ -563,7 +489,6 @@ async def seed_client_playbook(
         row,
         client_id=client.id,
         client_name=_client_label(client),
-        off_limits=await _off_limits_for(db, current_user, client.id),
         updated_by_name=current_user.name,
     )
 
@@ -631,31 +556,12 @@ async def client_playbooks_overview(
         )
     ).all()
 
-    terms_by_client: dict[int, ClientContractTerms] = {}
-    if rows and _can_read_off_limits(current_user):
-        # Ta sama granica co karta pojedynczego klienta (runda 6 audytu).
-        boundary = await _off_limits_client_boundary(db, current_user)
-        client_ids = [
-            r[0].client_id
-            for r in rows
-            if boundary is None or r[0].client_id in boundary
-        ]
-        terms = (
-            await db.scalars(
-                select(ClientContractTerms).where(
-                    ClientContractTerms.client_id.in_(client_ids)
-                )
-            )
-        ).all()
-        terms_by_client = {t.client_id: t for t in terms}
-
     items = [
         ClientPlaybookListItem(
             **_to_read(
                 row,
                 client_id=row.client_id,
                 client_name=client_name,
-                off_limits=_off_limits(terms_by_client.get(row.client_id)),
                 updated_by_name=editor_name,
             ).model_dump()
         )

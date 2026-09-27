@@ -73,9 +73,6 @@ interface OnePager {
 interface ContractTerms {
   id?: number;
   client_id?: number;
-  off_limits_months: number | null;
-  off_limits_scope: string | null;
-  off_limits_notes: string | null;
   internalization_fee_pct: string | null;
   internalization_min_months: number | null;
   internalization_notice_days: number | null;
@@ -94,9 +91,6 @@ interface ContractTerms {
 }
 
 const EMPTY_TERMS: ContractTerms = {
-  off_limits_months: null,
-  off_limits_scope: null,
-  off_limits_notes: null,
   internalization_fee_pct: null,
   internalization_min_months: null,
   internalization_notice_days: null,
@@ -1338,8 +1332,7 @@ function TermsEditor({ initial, onSave, saving, readOnly }: TermsEditorProps) {
             Najważniejsze rzeczy w umowie
           </h2>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Kluczowe klauzule z umowy ramowej — off-limits, internalizacja,
-            płatności
+            Kluczowe klauzule z umowy ramowej — internalizacja, płatności
           </p>
           {initial.updated_at && (
             <p className="text-xs text-muted-foreground mt-1">
@@ -1356,30 +1349,6 @@ function TermsEditor({ initial, onSave, saving, readOnly }: TermsEditorProps) {
         </p>
       )}
       <fieldset disabled={readOnly} className="contents">
-        {/* Off-limits */}
-        <FieldGroup title="Off-limits (ochrona pracowników klienta)">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <NumberField
-              label="Okres (miesiące)"
-              value={form.off_limits_months}
-              onChange={(v) => update("off_limits_months", v)}
-              placeholder="12"
-            />
-            <TextField
-              label="Zakres"
-              value={form.off_limits_scope}
-              onChange={(v) => update("off_limits_scope", v)}
-              placeholder="cała grupa kapitałowa"
-            />
-          </div>
-          <TextareaField
-            label="Notatki"
-            value={form.off_limits_notes}
-            onChange={(v) => update("off_limits_notes", v)}
-            rows={2}
-          />
-        </FieldGroup>
-
       {/* Internalization */}
       <FieldGroup title="Internalizacja (klient bierze kontraktora na etat)">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">

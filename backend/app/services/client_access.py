@@ -40,6 +40,7 @@ Polityka (fail-closed; decyzje produktowe "wg polityki" domyślnie NA NIE):
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal, Optional
 
@@ -295,6 +296,100 @@ async def resolve_client_visible_client_ids(
     return frozenset(visible)
 
 
+@dataclass(frozen=True)
+class _UserClientFacts:
+    """Część decyzji dostępu, która nie zależy od klienta (liczona raz)."""
+
+    is_admin_like: bool
+    is_organization_reader: bool
+    is_finance_reader: bool
+    is_read_only_tcm: bool
+    has_delivery_write: bool
+    delivery_lead_assignment_required: bool
+    is_delivery: bool
+    has_financial_access: bool
+
+
+def _user_client_facts(user: User) -> _UserClientFacts:
+    delivery_scoped = user.has_role(UserRole.delivery_lead) and not user.has_any_role(
+        UserRole.admin,
+        UserRole.finance,
+    )
+    return _UserClientFacts(
+        is_admin_like=user.has_any_role(*ADMIN_LIKE_ROLES) and not delivery_scoped,
+        is_organization_reader=(
+            user.has_any_role(*ORGANIZATION_READ_ROLES) and not delivery_scoped
+        ),
+        is_finance_reader=(
+            user.has_role(UserRole.finance) and has_financial_access(user)
+        ),
+        is_read_only_tcm=(
+            user.has_role(UserRole.talent_community_manager)
+            and not user.has_any_role(UserRole.admin, UserRole.delivery_lead)
+        ),
+        has_delivery_write=(
+            section_access_for_user(user, ProductSection.delivery)
+            >= SectionAccess.write
+        ),
+        delivery_lead_assignment_required=(
+            user.has_role(UserRole.delivery_lead) and not user.has_role(UserRole.admin)
+        ),
+        is_delivery=user.has_any_role(*DELIVERY_ROLES) and not delivery_scoped,
+        has_financial_access=has_financial_access(user),
+    )
+
+
+def _build_client_access(
+    user: User,
+    client_id: int,
+    facts: _UserClientFacts,
+    *,
+    is_client_team: bool,
+    is_delivery_lead_assigned: bool,
+    is_job_assigned: bool,
+) -> ClientAccess:
+    is_admin_like = facts.is_admin_like
+    can_view_team_surfaces = (
+        is_admin_like
+        or facts.is_organization_reader
+        or is_client_team
+        or is_job_assigned
+    )
+    can_edit = facts.has_delivery_write and (is_admin_like or is_client_team)
+
+    return ClientAccess(
+        user_id=user.id,
+        client_id=client_id,
+        is_admin_like=is_admin_like,
+        is_organization_reader=facts.is_organization_reader,
+        is_client_team=is_client_team,
+        is_delivery_lead_assigned=is_delivery_lead_assigned,
+        is_job_assigned=is_job_assigned,
+        can_view_contacts=can_view_team_surfaces,
+        can_edit_contacts=can_edit,
+        can_reassign_relationship_owner=is_admin_like and facts.has_delivery_write,
+        can_view_knowledge=can_view_team_surfaces,
+        can_edit_knowledge=can_edit,
+        # Materiały klienta są częścią jego powierzchni operacyjnej. Recruiter
+        # i sourcer widzą je wyłącznie przez przypisany Job tego klienta.
+        can_view_materials=can_view_team_surfaces,
+        can_edit_materials=can_edit,
+        can_view_legal_documents=(
+            not facts.is_read_only_tcm
+            and (is_admin_like or facts.is_finance_reader or is_client_team)
+        ),
+        can_edit_legal_documents=(
+            can_edit
+            and (
+                not facts.delivery_lead_assignment_required or is_delivery_lead_assigned
+            )
+        ),
+        can_view_financials=can_view_team_surfaces and facts.has_financial_access,
+        can_manage_client=is_admin_like and facts.has_delivery_write,
+        private_contact_notes_allowed=not facts.is_read_only_tcm,
+    )
+
+
 async def resolve_client_access(
     db: AsyncSession,
     user: User,
@@ -303,77 +398,67 @@ async def resolve_client_access(
     purpose: ClientScopePurpose = "delivery",
 ) -> ClientAccess:
     """Zbuduj decyzję dostępu. Zakłada, że klient istnieje (404 wcześniej)."""
-    delivery_scoped = user.has_role(UserRole.delivery_lead) and not user.has_any_role(
-        UserRole.admin,
-        UserRole.finance,
-    )
-    is_admin_like = user.has_any_role(*ADMIN_LIKE_ROLES) and not delivery_scoped
-    is_organization_reader = (
-        user.has_any_role(*ORGANIZATION_READ_ROLES) and not delivery_scoped
-    )
-    is_finance_reader = user.has_role(UserRole.finance) and has_financial_access(user)
-    is_read_only_tcm = user.has_role(
-        UserRole.talent_community_manager
-    ) and not user.has_any_role(UserRole.admin, UserRole.delivery_lead)
-    has_delivery_write = (
-        section_access_for_user(user, ProductSection.delivery) >= SectionAccess.write
-    )
+    facts = _user_client_facts(user)
     client_team_client_ids = await resolve_client_team_client_ids(
         db, user, purpose=purpose
     )
     is_client_team = (
         client_team_client_ids is None or client_id in client_team_client_ids
     )
-    delivery_lead_assignment_required = user.has_role(
-        UserRole.delivery_lead
-    ) and not user.has_role(UserRole.admin)
     is_delivery_lead_assigned = False
-    if delivery_lead_assignment_required:
+    if facts.delivery_lead_assignment_required:
         assigned_client_ids = await resolve_delivery_lead_assigned_client_ids(user, db)
         is_delivery_lead_assigned = (
             assigned_client_ids is not None and client_id in assigned_client_ids
         )
-    is_delivery = user.has_any_role(*DELIVERY_ROLES) and not delivery_scoped
 
     # Query o przypisanie do Joba tylko gdy może zmienić decyzję.
     is_job_assigned = False
-    if not is_admin_like and not is_client_team and is_delivery:
+    if not facts.is_admin_like and not is_client_team and facts.is_delivery:
         is_job_assigned = await _user_assigned_to_client_job(db, user.id, client_id)
 
-    can_view_team_surfaces = (
-        is_admin_like or is_organization_reader or is_client_team or is_job_assigned
-    )
-    can_edit = has_delivery_write and (is_admin_like or is_client_team)
-
-    return ClientAccess(
-        user_id=user.id,
-        client_id=client_id,
-        is_admin_like=is_admin_like,
-        is_organization_reader=is_organization_reader,
+    return _build_client_access(
+        user,
+        client_id,
+        facts,
         is_client_team=is_client_team,
         is_delivery_lead_assigned=is_delivery_lead_assigned,
         is_job_assigned=is_job_assigned,
-        can_view_contacts=can_view_team_surfaces,
-        can_edit_contacts=can_edit,
-        can_reassign_relationship_owner=is_admin_like and has_delivery_write,
-        can_view_knowledge=can_view_team_surfaces,
-        can_edit_knowledge=can_edit,
-        # Materiały klienta są częścią jego powierzchni operacyjnej. Recruiter
-        # i sourcer widzą je wyłącznie przez przypisany Job tego klienta.
-        can_view_materials=can_view_team_surfaces,
-        can_edit_materials=can_edit,
-        can_view_legal_documents=(
-            not is_read_only_tcm
-            and (is_admin_like or is_finance_reader or is_client_team)
-        ),
-        can_edit_legal_documents=(
-            can_edit
-            and (not delivery_lead_assignment_required or is_delivery_lead_assigned)
-        ),
-        can_view_financials=can_view_team_surfaces and has_financial_access(user),
-        can_manage_client=is_admin_like and has_delivery_write,
-        private_contact_notes_allowed=not is_read_only_tcm,
     )
+
+
+async def contact_private_notes_checker(
+    db: AsyncSession, user: User
+) -> Callable[[Contact], bool]:
+    """``ClientAccess.can_view_contact_private_notes`` dla listy wielu klientów.
+
+    Runda 9 (R9-N4-2): globalna lista kontaktów (``GET /api/contacts``) miała
+    własną kopię reguły i liczyła „admin-like” bez wyjątku persony DL, więc
+    hybryda HoR+DL widziała notatki relacyjne kontaktów cudzego DL-a, których
+    ``GET /clients/{id}/contacts`` jej nie pokazywał. Ta funkcja liczy decyzję
+    TYM SAMYM builderem co ``resolve_client_access`` — fakty użytkownika
+    i zespół klientów raz, potem per klient bez zapytań. Pola przypisania do
+    rekrutacji / portfela DL nie wpływają na notatki, więc zostają ``False``.
+    """
+    facts = _user_client_facts(user)
+    team_ids = await resolve_client_team_client_ids(db, user)
+    cache: dict[int, ClientAccess] = {}
+
+    def check(contact: Contact) -> bool:
+        access = cache.get(contact.client_id)
+        if access is None:
+            access = _build_client_access(
+                user,
+                contact.client_id,
+                facts,
+                is_client_team=team_ids is None or contact.client_id in team_ids,
+                is_delivery_lead_assigned=False,
+                is_job_assigned=False,
+            )
+            cache[contact.client_id] = access
+        return access.can_view_contact_private_notes(contact)
+
+    return check
 
 
 async def assert_client_exists(db: AsyncSession, client_id: int) -> None:

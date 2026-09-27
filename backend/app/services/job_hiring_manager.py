@@ -21,12 +21,18 @@ from dataclasses import dataclass
 from typing import Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.contact import Contact
 from app.services.candidate_identity_quarantine import normalize_person_name_part
-from app.services.client_access import record_client_audit
+from app.services.client_access import (
+    assert_client_assignable,
+    record_client_audit,
+)
+
+# Przestrzeń nazw blokady doradczej „nowa osoba jako kontakt klienta”.
+_HM_CONTACT_LOCK_NS = 20260927
 
 NAME_MAX = 255
 POSITION_MAX = 255
@@ -128,7 +134,7 @@ class ResolvedContact:
 async def find_or_create_contact(
     db: AsyncSession,
     *,
-    client_id: int,
+    client_id: Optional[int],
     name: str,
     position: Optional[str],
     email: Optional[str],
@@ -144,6 +150,21 @@ async def find_or_create_contact(
     cleaned_name = validate_new_person_name(name)
     clean_position = _clean_optional(position, POSITION_MAX)
     clean_email = _clean_optional(email, EMAIL_MAX)
+    if client_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Rekrutacja nie ma klienta — najpierw wskaż klienta.",
+        )
+    # Runda 9 (R9-N4-7): nowa osoba nie trafia jako kontakt do klienta
+    # usuniętego albo scalonego (niewidoczny rekord, rozbite weto HM).
+    await assert_client_assignable(db, client_id)
+    # Runda 9 (R9-N4-9): dwie rekrutacje tego samego klienta wpisujące naraz
+    # tę samą osobę obie nie widziały kontaktu i zakładały dwa. Blokada doradcza
+    # per klient szereguje dopasowanie i założenie (do końca transakcji).
+    await db.execute(
+        text("SELECT pg_advisory_xact_lock(:ns, :client_id)"),
+        {"ns": _HM_CONTACT_LOCK_NS, "client_id": client_id},
+    )
     existing = await match_client_contact(
         db, client_id=client_id, name=cleaned_name, email=clean_email
     )

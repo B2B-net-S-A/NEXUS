@@ -26,7 +26,6 @@ export function makeClientPlaybook(
     documents: [
       { name: "NDA klienta", url: "https://b2bnetsa.sharepoint.com/nda" },
     ],
-    off_limits: { months: 12, scope: "Cały bank", notes: null },
     seed_key: null,
     updated_at: "2026-09-01T10:00:00Z",
     updated_by_name: "Artur",
@@ -55,7 +54,6 @@ export function makeEmptyClientPlaybook(
     process_rules_md: null,
     onboarding_md: null,
     documents: [],
-    off_limits: null,
     updated_at: null,
     updated_by_name: null,
   });
