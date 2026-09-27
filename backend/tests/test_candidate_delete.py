@@ -783,3 +783,84 @@ async def test_hard_delete_moves_db_cv_to_storage_and_records_every_key(
     kept_keys = {row.storage_key for row in rows}
     assert set(uploaded) <= kept_keys
     assert key in kept_keys
+
+
+async def test_hard_delete_keeps_the_edited_stage_cv_not_the_letterhead(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Runda 10 (R10-V1-1): niezatwierdzone CV firmowe etapu żyje tylko
+    w ``branded_draft_html`` — to ono idzie do magazynu, nie szablon papieru;
+    plik zatwierdzonego CV etapu zostaje w rejestrze."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from app.models.candidate_stage_cv import CandidateStageCV
+    from app.models.client import Client
+    from app.models.job import Job
+    from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+    from app.models.retained_candidate_file import RetainedCandidateFile
+    from app.services import object_storage
+    from app.services.candidate_audit import candidate_subject_reference
+
+    unique = uuid.uuid4().hex[:8]
+    draft = f"<p>Edytowane CV {unique}</p>"
+    snapshot = f"stage-cv-snapshots/{unique}/cv.docx"
+    async with AsyncSessionLocal() as db:
+        cand = Candidate(
+            name="Stage",
+            lastname=f"Draft-{unique}",
+            email=f"del-draft-{unique}@example.com",
+        )
+        cli = Client(name=f"DelDraftClient-{unique}")
+        db.add_all([cand, cli])
+        await db.flush()
+        job = Job(title=f"Job {unique}", client_id=cli.id, description="x")
+        db.add(job)
+        await db.flush()
+        stage = CandidateStage(
+            candidate_id=cand.id, job_id=job.id, stage=PipelineStage.new
+        )
+        db.add(stage)
+        await db.flush()
+        db.add(
+            CandidateStageCV(
+                candidate_stage_id=stage.id,
+                candidate_id=cand.id,
+                job_id=job.id,
+                branded_status="draft",
+                branded_draft_html=draft,
+                branded_template_content=b"TPL",
+                branded_snapshot_path=snapshot,
+            )
+        )
+        await db.commit()
+        candidate_id = cand.id
+
+    uploaded: dict[str, bytes] = {}
+
+    def _upload(content, filename, content_type=None, *, storage_key=None):
+        uploaded[storage_key] = content
+        return storage_key
+
+    monkeypatch.setattr(object_storage, "is_available", lambda: True)
+    monkeypatch.setattr(object_storage, "upload_cv", _upload)
+
+    r = await app_client.delete(
+        f"/api/candidates/{candidate_id}", headers=app_auth_headers
+    )
+    assert r.status_code == 204, r.text
+    assert await _count(Candidate, id=candidate_id) == 0
+    assert draft.encode("utf-8") in uploaded.values()
+    assert b"TPL" not in uploaded.values()
+
+    subject_ref = candidate_subject_reference(candidate_id)
+    async with AsyncSessionLocal() as db:
+        rows = (
+            await db.scalars(
+                select(RetainedCandidateFile).where(
+                    RetainedCandidateFile.subject_ref == subject_ref
+                )
+            )
+        ).all()
+    kept = {(row.source, row.storage_key) for row in rows}
+    assert ("stage_snapshot_path", snapshot) in kept
+    assert any(row.source == "stage_branded" for row in rows)

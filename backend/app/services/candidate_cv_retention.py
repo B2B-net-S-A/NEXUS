@@ -50,10 +50,15 @@ _BYTE_SOURCES: tuple[tuple[str, str], ...] = (
         "WHERE candidate_id = :cid AND original_cv_content IS NOT NULL "
         "AND original_cv_storage_key IS NULL",
     ),
+    # Runda 10 (R10-V1-1): CV firmowe etapu to treść z edytora
+    # (``branded_draft_html``), nie ``branded_template_content`` — ta kolumna
+    # trzyma szablon papieru firmowego, a nie CV osoby.
     (
         "stage_branded",
-        "SELECT branded_template_content, NULL FROM candidate_stage_cvs "
-        "WHERE candidate_id = :cid AND branded_template_content IS NOT NULL",
+        "SELECT convert_to(branded_draft_html, 'UTF8'), "
+        "'text/html; charset=utf-8' FROM candidate_stage_cvs "
+        "WHERE candidate_id = :cid AND branded_status <> 'none' "
+        "AND branded_draft_html IS NOT NULL AND branded_draft_html <> ''",
     ),
     (
         "stage_version",
@@ -61,9 +66,30 @@ _BYTE_SOURCES: tuple[tuple[str, str], ...] = (
         "JOIN candidate_stage_cvs s ON s.id = v.candidate_stage_cv_id "
         "WHERE s.candidate_id = :cid AND v.docx_content IS NOT NULL",
     ),
+    # Zatwierdzona wersja bez pliku DOCX i bez pliku na dysku ma treść
+    # wyłącznie w ``content_html``.
+    (
+        "stage_version_html",
+        "SELECT convert_to(v.content_html, 'UTF8'), 'text/html; charset=utf-8' "
+        "FROM cv_document_versions v "
+        "JOIN candidate_stage_cvs s ON s.id = v.candidate_stage_cv_id "
+        "WHERE s.candidate_id = :cid AND v.docx_content IS NULL "
+        "AND v.snapshot_path IS NULL AND v.content_html <> ''",
+    ),
+    # CV próbne reguł klienta (kaskada z kandydatem).
+    (
+        "cv_rule_preview",
+        "SELECT with_rule_docx, NULL FROM client_cv_rule_previews "
+        "WHERE candidate_id = :cid AND with_rule_docx IS NOT NULL",
+    ),
+    (
+        "cv_rule_preview",
+        "SELECT without_rule_docx, NULL FROM client_cv_rule_previews "
+        "WHERE candidate_id = :cid AND without_rule_docx IS NOT NULL",
+    ),
 )
 
-# Pliki zatwierdzonych wersji zapisane na dysku — wiersz znika kaskadą, plik
+# Pliki zatwierdzonych CV zapisane na dysku — wiersz znika kaskadą, plik
 # zostaje; zapisujemy ścieżkę.
 _PATH_SOURCES: tuple[tuple[str, str], ...] = (
     (
@@ -71,6 +97,12 @@ _PATH_SOURCES: tuple[tuple[str, str], ...] = (
         "SELECT DISTINCT v.snapshot_path FROM cv_document_versions v "
         "JOIN candidate_stage_cvs s ON s.id = v.candidate_stage_cv_id "
         "WHERE s.candidate_id = :cid AND v.snapshot_path IS NOT NULL",
+    ),
+    # Zatwierdzone CV etapu sprzed wersjonowania ma plik tylko tutaj.
+    (
+        "stage_snapshot_path",
+        "SELECT DISTINCT branded_snapshot_path FROM candidate_stage_cvs "
+        "WHERE candidate_id = :cid AND branded_snapshot_path IS NOT NULL",
     ),
 )
 
@@ -150,9 +182,11 @@ async def retain_candidate_files(
                 subject_ref=subject_ref, source="storage_key", storage_key=key[:512]
             )
         )
+    seen_paths: set[str] = set()
     for source, sql in _PATH_SOURCES:
         for (path,) in (await db.execute(text(sql), {"cid": candidate_id})).all():
-            if path:
+            if path and path not in seen_paths:
+                seen_paths.add(path)
                 rows.append(
                     RetainedCandidateFile(
                         subject_ref=subject_ref, source=source, storage_key=path[:512]
