@@ -922,3 +922,46 @@ describe("PipelineCandidateDock — następny etap, profil i CV", () => {
     expect(screen.getByRole("button", { name: /Pokaż CV oryginalne/ })).toBeInTheDocument();
   });
 });
+
+// Runda 10 (R10-N15-3): awaria odczytu w doku to komunikat z „Ponów”, nie
+// „Brak …” — rekruter dopisywał notatkę albo robił screening drugi raz.
+describe("PipelineCandidateDock — awaria odczytu to nie pustka", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    originalGet.mockResolvedValue({ data: { has_snapshot: false } });
+    brandedGet.mockResolvedValue({ data: { status: "none" } });
+    candidatesGet.mockResolvedValue({ data: { email: "anna@example.com" } });
+    apiPost.mockResolvedValue({ data: {} });
+  });
+
+  it("screening: 500 daje „Nie udało się wczytać” z Ponów", async () => {
+    const user = userEvent.setup();
+    getForStage.mockRejectedValue(new Error("500"));
+    apiGet.mockResolvedValue({ data: { items: [] } });
+    renderDock({ item: baseItem({ stage: "new" }) });
+
+    expect(await screen.findByText(/Nie udało się wczytać: screening/)).toBeTruthy();
+    expect(screen.queryByText(/Brak jeszcze wypełnionego screeningu/)).toBeNull();
+
+    getForStage.mockResolvedValue({
+      data: { stage_id: 501, candidate_id: 42, job_id: 10, champion_profile: {}, screening_answers: null },
+    });
+    await user.click(screen.getByRole("button", { name: "Ponów" }));
+    expect(await screen.findByText(/Brak jeszcze wypełnionego screeningu/)).toBeTruthy();
+  });
+
+  it("notatki: 500 daje „Nie udało się wczytać”, nie „Brak notatek”", async () => {
+    const user = userEvent.setup();
+    getForStage.mockResolvedValue({ data: { screening_answers: null, champion_profile: {} } });
+    apiGet.mockImplementation((url: string) =>
+      url.startsWith("/api/notes")
+        ? Promise.reject(new Error("500"))
+        : Promise.resolve({ data: { items: [] } }),
+    );
+    renderDock();
+
+    await user.click(screen.getByRole("button", { name: /^Notatki/ }));
+    expect(await screen.findByText(/Nie udało się wczytać: notatki/)).toBeTruthy();
+    expect(screen.queryByText(/Brak notatek dla tej rekrutacji/)).toBeNull();
+  });
+});
