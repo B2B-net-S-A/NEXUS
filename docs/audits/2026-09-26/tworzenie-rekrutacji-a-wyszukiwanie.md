@@ -321,3 +321,18 @@ z dniami w biurze. Dwa problemy — oba zaczynają się przy tworzeniu rekrutacj
   kandydatów (≈5% bazy). Kierunek jest ten sam we wszystkich badaniach, skala może się różnić.
 - Kolejność Java-rekrutacji (osoby zespołu na miejscach 140–800) to osobny problem rankingu —
   poza tym badaniem (patrz A/B tekstu embeddingu v3, #1862).
+
+## Aktualizacja 27.09.2026 — ponowna weryfikacja po rundach 6–10 audytu
+
+Sprawdzone na produkcji `734c4fa6d` (17 commitów od bazy badania; tylko odczyt).
+
+| teza / rekomendacja | stan 27.09 | dowód |
+|---|---|---|
+| Bramka must = wszystkie must obowiązkowe (B1–B3, rek. 7) | **aktualna** — `missing_must_skills` bez zmian; runda 9 zmieniła tylko regułę „wyłącznie zdalnie” (polityka `-v7`) | noc 26→27.09: 5 kolejnych rekrutacji, bramka must ukryła 54–58 tys. osób; w 4 z 5 dopuszczeni to WYŁĄCZNIE osoby bez danych o umiejętnościach; propozycje 0, 8, 0, 0, 0; z 32 osób dodanych przez zespół do tych rekrutacji widoczne 0 |
+| Limit „max 10” must w prompcie Luny (rek. 1) | **aktualna** | `llm_prompts.py:947` bez zmian |
+| Formularz nie ma pola lat doświadczenia (rek. 2) | **aktualna** — potwierdza to sam kod rundy 6 („Formularz nie ma pola lat”, `job-request-intake.ts`) | lata tylko z maila albo szablonu |
+| Walidacja `min_years` dziedzin (rek. 5) | **aktualna** — nadal tylko zakres 0–40; runda 8 dodała sprawdzenie, czy cytat dotyczy nazwy dziedziny (R8-N12-6), nie liczby lat | `job_request_intake.py:438` |
+| Błąd nazw miast w bramce biura (B11, rek. 8) | **aktualna** — `location_utils` bez zmian | #689439 „Warsaw” nadal opublikowana, #689442 „Gdansk or Warsaw” w szkicu |
+| Bramka miasta w wyszukiwaniu AI (rek. 9) | **aktualna** (decyzja czeka) | #1861 zmiękczył miasto tylko w „Szukaj ręcznie”; `office_city_mismatch` w przeglądzie bazy i auto-dopasowaniu bez zmian |
+| Pełny tekst rekrutacji szuka najlepiej (B7) | **aktualna** — embedding nadal v1; A/B v3 przegrał (#1868) | `AI_TEXT_SCHEMA_V3=False` |
+| Nowe dane | od 26.09 nie powstała żadna nowa prawdziwa rekrutacja (tylko 2 testowe), więc liczby z B1–B11 się nie zmieniły | SQL `jobs` |
