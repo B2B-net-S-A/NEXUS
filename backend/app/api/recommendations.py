@@ -1158,11 +1158,23 @@ async def refresh_job_criteria(
     await db.commit()
     await db.refresh(job)
 
-    # Re-embed with fresh criteria
-    try:
-        await embed_job(job_id, db)
-    except Exception as e:  # pragma: no cover
-        logger.warning(f"[refresh-criteria] embed failed: {e}")
+    # Runda 10 (R10-N7-6): nowe must/nice to zmiana wejść dopasowania — tak jak
+    # PATCH rekrutacji: ponowny wektor, cache wyników i migawka propozycji jako
+    # nieaktualne (`refresh_job_matching`), a dla opublikowanej zdarzenie dla
+    # automatów (auto-match, nocny przegląd) i ponowny skan Targu.
+    from app.services.job_matching_refresh import refresh_job_matching
+
+    await refresh_job_matching(job_id, db)
+    await db.refresh(job)
+    if job.status == JobStatus.published:
+        from app.services.auto_match_outbox import enqueue_job_safe
+
+        await enqueue_job_safe(job_id)
+    if settings.MARKETPLACE_ENABLED:
+        from app.core.tasks import spawn
+        from app.services.marketplace_service import run_marketplace_scan_safe
+
+        spawn(run_marketplace_scan_safe(job_id), "marketplace_scan:refresh_criteria")
 
     return {
         "job_id": job_id,
