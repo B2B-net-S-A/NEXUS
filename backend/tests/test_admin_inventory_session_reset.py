@@ -69,3 +69,31 @@ async def test_failed_pii_check_does_not_poison_following_checks():
     with pytest.raises(RuntimeError):
         await pii._run_check(db, "SELECT 1")
     assert await pii._run_check(db, "SELECT 1") == 0
+
+
+def test_schema_drift_reads_the_migration_graph_once(monkeypatch):
+    """Runda 10 (R10-N8-10): graf migracji z pamięci, nie z dysku przy każdym GET."""
+    from alembic.script import ScriptDirectory
+
+    from app.api import admin_schema_drift as drift
+    from app.services import migration_health
+
+    migration_health._load_code_revisions.cache_clear()
+    monkeypatch.setattr(migration_health, "_REVISIONS_UNAVAILABLE", [])
+    real = ScriptDirectory.from_config.__func__
+    calls = 0
+
+    def counting(cls, cfg):
+        nonlocal calls
+        calls += 1
+        return real(cls, cfg)
+
+    monkeypatch.setattr(ScriptDirectory, "from_config", classmethod(counting))
+    first = drift._alembic_state_from_code()
+    second = drift._alembic_state_from_code()
+    migration_health._load_code_revisions.cache_clear()
+
+    assert "code_error" not in first, first
+    assert first == second
+    assert first["revision_count"] > 100
+    assert calls == 1

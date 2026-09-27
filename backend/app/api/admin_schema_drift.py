@@ -42,7 +42,6 @@ from __future__ import annotations
 import asyncio
 import time
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends
@@ -349,36 +348,31 @@ async def _run_checks(db: AsyncSession) -> dict[str, Any]:
 
 
 def _alembic_state_from_code() -> dict[str, Any]:
-    """Code-side revision graph. Best-effort: never raises."""
+    """Code-side revision graph. Best-effort: never raises.
+
+    Runda 10 (R10-N8-10): graf (~420 migracji) czyta i zapamiętuje
+    `migration_health.code_revisions` — ta sama funkcja co `/api/health`
+    i `/api/health/alembic`. Dotąd każde wywołanie tego raportu przechodziło
+    graf od nowa, synchronicznie na pętli zdarzeń. Ścieżka `alembic` jest
+    tam liczona od `app/services`, więc pułapka „dwa poziomy zamiast trzech”
+    (patrz historia tej funkcji) nie wraca.
+    """
+    from app.services.migration_health import code_revisions
+
     out: dict[str, Any] = {}
     try:
-        from alembic.config import Config
-        from alembic.script import ScriptDirectory
-
-        # __file__ is <backend>/app/api/admin_schema_drift.py and the migration
-        # tree lives at <backend>/alembic — three levels up (api → app →
-        # backend). The two-level form works in app/main.py, which sits one
-        # directory shallower; copying it here silently resolved to
-        # <backend>/app/alembic, ScriptDirectory raised CommandError, and the
-        # bare except below turned that into a quiet "code_error" field. The
-        # endpoint reported no alembic state at all until a test caught it.
-        script_location = str(Path(__file__).resolve().parents[2] / "alembic")
-        cfg = Config()
-        cfg.set_main_option("script_location", script_location)
-        script = ScriptDirectory.from_config(cfg)
-        heads = list(script.get_heads())
+        heads_tuple, known = code_revisions()
+        heads = list(heads_tuple)
         out["code_heads"] = heads
         out["code_head_count"] = len(heads)
         # `head` (singular) — used by backup-drill.yml — only resolves when
         # there is exactly one tip.
         out["singular_head_resolves"] = len(heads) == 1
-        out["revision_count"] = sum(1 for _ in script.walk_revisions())
+        out["revision_count"] = len(known)
     except Exception as exc:  # noqa: BLE001 — diagnostic must never raise
         out["code_error"] = type(exc).__name__
-        # Recording only the exception class is what let a plain
-        # "path doesn't exist" hide as an opaque `CommandError`. This endpoint
-        # is admin-gated and emits schema identifiers only, so the message adds
-        # no exposure and saves the next debugging session.
+        # The endpoint is admin-gated and emits schema identifiers only, so the
+        # message adds no exposure and saves the next debugging session.
         out["code_error_detail"] = str(exc)[:200]
     return out
 
@@ -439,7 +433,8 @@ async def schema_drift(
 
     # Alembic bookkeeping, so one call answers both "is the schema OK" and
     # "is the migration state coherent".
-    alembic: dict[str, Any] = _alembic_state_from_code()
+    # Pierwsze wywołanie w procesie czyta graf z dysku — poza pętlą zdarzeń.
+    alembic: dict[str, Any] = await asyncio.to_thread(_alembic_state_from_code)
     try:
         rows = (
             (await db.execute(text("SELECT version_num FROM alembic_version")))
