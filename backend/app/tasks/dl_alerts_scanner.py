@@ -1059,9 +1059,14 @@ async def rule_contract_ending(
     )
     contracts = list(result.scalars())
     names = await _client_names(db, {c.client_id for c in contracts if c.client_id})
-    # Kontrakt, którego zamówienie okresowe kończy się TEGO SAMEGO dnia, ma już
-    # kartę zamówienia — druga karta (i drugi mail) o tej samej osobie i dacie
+    # Kontrakt, którego zamówienie kończy się TEGO SAMEGO dnia, ma już kartę
+    # zamówienia — druga karta (i drugi mail) o tej samej osobie i dacie
     # byłaby szumem.
+    # Runda 9 (R9-N12-1): „ma kartę" to dokładnie ta sama reguła co
+    # ``rule_periodic_order_ending``. Zamówienie z kontynuacją (np. czekający
+    # szkic) karty nie dostaje, więc nie może też zdejmować karty kontraktu —
+    # wypowiedziana umowa ze szkicem następnego zamówienia nie dawała DL
+    # żadnego sygnału.
     covered = set()
     if contracts:
         covered = {
@@ -1069,9 +1074,11 @@ async def rule_contract_ending(
             for contract_id, end in await db.execute(
                 select(ClientOrder.contract_id, ClientOrder.end_date).where(
                     ClientOrder.contract_id.in_([c.id for c in contracts]),
-                    ClientOrder.order_group_id.is_(None),
-                    ClientOrder.status.in_(
-                        (ClientOrderStatus.active, ClientOrderStatus.paused)
+                    order_ending_without_continuation(
+                        start,
+                        stop,
+                        extended_client_ids=extended_order_alert_client_ids(),
+                        today=today,
                     ),
                 )
             )

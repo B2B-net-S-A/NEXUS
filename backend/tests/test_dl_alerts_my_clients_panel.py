@@ -910,3 +910,74 @@ async def test_empty_signing_draft_does_not_close_the_ending_order_card(monkeypa
     rows = await _alerts(user_id, ALERT_PERIODIC_ORDER_ENDING)
     assert [r.status for r in rows] == ["new"]
     assert f"order:{order_id}:" in rows[0].event_key
+
+
+async def test_terminated_contract_with_waiting_draft_still_gets_its_card(monkeypatch):
+    """Runda 9 (R9-N12-1): zamówienie z kontynuacją nie „pokrywa” kontraktu.
+
+    Kontrakt kończy się tego samego dnia co zamówienie okresowe, a po nim czeka
+    szkic następnego zamówienia. Karta zamówienia nie powstaje (jest
+    kontynuacja), więc karta KONTRAKTU nie może być zdejmowana jako duplikat —
+    do poprawki DL nie dostawał żadnego sygnału o końcu współpracy.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+    from app.models.contract import Contract
+    from app.models.dl_alert import ALERT_CONTRACT_ENDING, ALERT_PERIODIC_ORDER_ENDING
+    from app.tasks.dl_alerts_scanner import (
+        rule_contract_ending,
+        rule_periodic_order_ending,
+    )
+
+    end = _TODAY + timedelta(days=10)
+    client_id = await _seed_client()
+    user_id, _, _ = await _seed_dl(client_id)
+    contract_id, _ = await _seed_contract(client_id)
+    await _seed_periodic_order(client_id, contract_id, end)
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, contract_id)
+        contract.end_date = end
+        db.add(
+            ClientOrder(
+                client_id=client_id,
+                contract_id=contract_id,
+                title=f"ZAM-{uuid.uuid4().hex[:6]}",
+                status=ClientOrderStatus.draft,
+                start_date=end + timedelta(days=1),
+                end_date=end + timedelta(days=90),
+            )
+        )
+        await db.commit()
+
+    await _run(rule_periodic_order_ending, monkeypatch, _TODAY)
+    await _run(rule_contract_ending, monkeypatch, _TODAY)
+    assert await _alerts(user_id, ALERT_PERIODIC_ORDER_ENDING) == []
+    rows = await _alerts(user_id, ALERT_CONTRACT_ENDING)
+    assert [r.status for r in rows] == ["new"]
+    assert f"contract:{contract_id}:" in rows[0].event_key
+
+
+async def test_contract_card_is_skipped_when_the_order_card_covers_it(monkeypatch):
+    """Runda 9 (R9-N12-1): bez kontynuacji jedna karta — zamówienia."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.contract import Contract
+    from app.models.dl_alert import ALERT_CONTRACT_ENDING, ALERT_PERIODIC_ORDER_ENDING
+    from app.tasks.dl_alerts_scanner import (
+        rule_contract_ending,
+        rule_periodic_order_ending,
+    )
+
+    end = _TODAY + timedelta(days=10)
+    client_id = await _seed_client()
+    user_id, _, _ = await _seed_dl(client_id)
+    contract_id, _ = await _seed_contract(client_id)
+    await _seed_periodic_order(client_id, contract_id, end)
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, contract_id)
+        contract.end_date = end
+        await db.commit()
+
+    await _run(rule_periodic_order_ending, monkeypatch, _TODAY)
+    await _run(rule_contract_ending, monkeypatch, _TODAY)
+    assert len(await _alerts(user_id, ALERT_PERIODIC_ORDER_ENDING)) == 1
+    assert await _alerts(user_id, ALERT_CONTRACT_ENDING) == []
