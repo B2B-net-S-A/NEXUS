@@ -570,6 +570,8 @@ async def _vetoed_world() -> dict:
         target = await db.get(Job, world["target_job_id"])
         target.is_open = True
         await db.commit()
+    # Runda 10: /apply/{token} wymaga zatwierdzonego opisu publicznego.
+    await approve_public_profile(world["target_job_id"])
     return world
 
 
