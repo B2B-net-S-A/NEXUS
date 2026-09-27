@@ -87,8 +87,8 @@ jobs:
           # `value_from_secret`. Pusta wartość (wyczyszczenie) jest dozwolona.
           # Runda 8 (R8-V3-7): liczby i identyfikatory z „KEY” w nazwie
           # (`SERVICE_ACCOUNT_KEY_MAX_TTL_DAYS`, `CLOUDTALK_API_KEY_ID`) nie są
-          # sekretami, a adres z hasłem (`DATABASE_URL=postgresql://u:hasło@…`)
-          # jest — niezależnie od nazwy klucza.
+          # sekretami, a adres bazy z hasłem przed znakiem @ jest —
+          # niezależnie od nazwy klucza.
           if [ -n "${VALUE_PLAIN}" ]; then
             case "${KEY}" in
               *_TTL_DAYS|*_TTL_SECONDS|*_KEY_ID) ;;

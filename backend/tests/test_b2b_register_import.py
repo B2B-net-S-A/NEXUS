@@ -383,7 +383,9 @@ async def test_generator_refuses_a_number_already_in_the_excel_register(
         },
     )
     assert resp.status_code == 409, resp.text
-    assert "Excela" in resp.json()["detail"]
+    detail = resp.json()["detail"]
+    assert detail["code"] == "contract_number_taken"
+    assert "Excela" in detail["message"]
 
 
 async def test_next_seq_counts_excel_numbers(app_client, app_auth_headers):

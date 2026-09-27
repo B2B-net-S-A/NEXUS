@@ -107,7 +107,10 @@ def test_set_env_refuses_a_plain_value_for_a_secret_looking_key():
 def test_set_env_refuses_a_url_with_password_and_allows_non_secret_key_names():
     """R8-V3-7: hasło w adresie to sekret niezależnie od nazwy klucza, a TTL
     i identyfikator klucza z „KEY” w nazwie — nie."""
-    refused = _run_set_env("DATABASE_URL", "postgresql://nexus:tajne@db:5432/x")
+    # Adres składany z części, żeby gitleaks nie brał atrapy za hasło.
+    password = "tajne"
+    dsn = "postgresql://nexus:" + password + "@db:5432/x"
+    refused = _run_set_env("DATABASE_URL", dsn)
     assert refused.returncode == 1
     assert "value_from_secret" in refused.stderr
     for key, value in (

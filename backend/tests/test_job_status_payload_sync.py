@@ -95,9 +95,12 @@ async def test_patch_status_rewrites_the_status_payload(
     assert payload_writes[-1] == {job_id: "closed"}
 
 
-async def test_job_without_a_vector_is_not_touched(
+async def test_job_without_a_vector_is_left_to_the_service(
     app_client: AsyncClient, app_auth_headers: dict, payload_writes
 ) -> None:
+    """Trasa nie czyta `embedding_id` (strażnik embedding-id odrzuca taki odczyt
+    w `app/api`) — punkt, którego nie ma w Qdrancie, pomija
+    `sync_job_status_payloads` (test niżej)."""
     job_id = await _job(app_client, app_auth_headers, embedded=False)
 
     resp = await app_client.post(
@@ -106,7 +109,7 @@ async def test_job_without_a_vector_is_not_touched(
         headers=app_auth_headers,
     )
     assert resp.status_code == 200, resp.text
-    assert payload_writes == []
+    assert payload_writes == [{job_id: "closed"}]
 
 
 class _FakeQdrant:

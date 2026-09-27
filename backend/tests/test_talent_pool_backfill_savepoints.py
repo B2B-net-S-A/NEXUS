@@ -76,6 +76,9 @@ async def test_one_failing_row_does_not_roll_back_the_rest_of_the_batch(
 
     async def fake_add(*, db, candidate_id, job, log_noops, **_kw):
         calls.append(candidate_id)
+        if candidate_id not in ids:
+            # Wspólna baza: etapy innych testów też wchodzą do przebiegu.
+            return AutoAddResult(status="already_in_pool")
         if candidate_id == ids[1]:
             raise IntegrityError("INSERT", {}, Exception("fk"))
         db.add(
