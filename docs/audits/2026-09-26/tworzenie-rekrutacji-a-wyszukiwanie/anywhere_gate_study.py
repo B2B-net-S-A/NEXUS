@@ -14,6 +14,7 @@ odczytu (ro_boot). Tryb w RESEARCH_ARGS:
 
 import ro_boot  # noqa: F401
 import asyncio
+import datetime
 import json
 import os
 import random
@@ -94,7 +95,7 @@ async def pairs():
                     "JOIN jobs j ON j.id = s.job_id WHERE j.created_at >= :since "
                     "AND j.external_source IS DISTINCT FROM 'traffit'"
                 ),
-                {"since": NEW_JOBS_SINCE},
+                {"since": datetime.date.fromisoformat(NEW_JOBS_SINCE)},
             )
         ).all():
             added_new.setdefault(jid, set()).add(cid)
