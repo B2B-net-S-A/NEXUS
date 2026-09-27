@@ -11,6 +11,7 @@ must regenerate via DELETE + create.
 
 from __future__ import annotations
 
+import asyncio
 import secrets
 import uuid
 from typing import List
@@ -112,7 +113,7 @@ async def create_client(
     client = OAuthClient(
         name=payload.name,
         client_id=client_id,
-        secret_hash=hash_password(client_secret),
+        secret_hash=await asyncio.to_thread(hash_password, client_secret),
         scopes=[s.value for s in payload.scopes],
         enabled=True,
         created_by=admin.id,

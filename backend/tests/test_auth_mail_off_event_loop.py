@@ -63,6 +63,21 @@ class _FakeDB:
     async def execute(self, *a, **k):
         return _Result(self._user)
 
+    async def scalar(self, *a, **k):
+        # Dzisiejsze powiadomienie (create_notification z dedupe_resurface,
+        # runda 9 R9-N2-4) — brak.
+        return None
+
+    def begin_nested(self):
+        class _Savepoint:
+            async def __aenter__(self_inner):
+                return self_inner
+
+            async def __aexit__(self_inner, *exc):
+                return False
+
+        return _Savepoint()
+
     def add(self, obj) -> None:
         pass
 
@@ -92,7 +107,11 @@ async def test_admin_reset_sends_mail_after_commit_in_thread(monkeypatch) -> Non
         return True
 
     monkeypatch.setattr(admin_api.asyncio, "to_thread", _to_thread)
-    monkeypatch.setattr(admin_api, "hash_password", lambda pw: "hash")
+
+    def _fake_hash(pw):
+        return "hash"
+
+    monkeypatch.setattr(admin_api, "hash_password", _fake_hash)
 
     def _send_password_changed_notification(**kw):
         raise AssertionError("wysyłka poza wątkiem")
@@ -110,4 +129,9 @@ async def test_admin_reset_sends_mail_after_commit_in_thread(monkeypatch) -> Non
         db=_FakeDB(user, events),
     )
 
-    assert events == ["commit", "thread:_send_password_changed_notification"]
+    # bcrypt też w wątku (runda 9, R9-N9-10), mail dopiero po commicie.
+    assert events == [
+        "thread:_fake_hash",
+        "commit",
+        "thread:_send_password_changed_notification",
+    ]

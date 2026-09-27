@@ -31,6 +31,7 @@ Uwaga: ten moduł NIE MOŻE dostać `from __future__ import annotations` —
 PEP 563 + slowapi #579 zamieniają guardy `Annotated` w parametry query.
 """
 
+import asyncio
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
@@ -141,7 +142,10 @@ async def issue_token(
     if client is None or not client.enabled:
         raise invalid
 
-    if not verify_password(payload.client_secret, client.secret_hash):
+    # bcrypt w wątku (R9-N9-10) — ~100 ms na pętli zdarzeń jedynego procesu.
+    if not await asyncio.to_thread(
+        verify_password, payload.client_secret, client.secret_hash
+    ):
         raise invalid
 
     granted = set(client.scopes or [])

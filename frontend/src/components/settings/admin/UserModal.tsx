@@ -135,8 +135,10 @@ export function UserModal({ initial, onClose, onSave, loading, error }: UserModa
                 type="password"
                 value={form.password}
                 onChange={(e) => set("password", e.target.value)}
+                minLength={8}
+                maxLength={128}
                 className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
-                placeholder="••••••••"
+                placeholder="min. 8 znaków"
               />
             </div>
           )}

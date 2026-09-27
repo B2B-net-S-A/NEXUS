@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import api, { extractErrorMsg } from "@/lib/api";
+import { takeSsoBrowserNonce } from "@/lib/sso-browser-nonce";
 import { postLoginDestination, useAuthStore } from "@/store/auth";
 import { AlertCircle } from "lucide-react";
 
@@ -45,7 +46,7 @@ function CallbackBody() {
       try {
         const { data: tokens } = await api.post(
           "/api/auth/microsoft/exchange",
-          { code },
+          { code, browser_nonce: takeSsoBrowserNonce() },
         );
         const accessToken: string | undefined = tokens?.access_token;
         if (!accessToken) {

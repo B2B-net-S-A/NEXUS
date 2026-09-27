@@ -29,6 +29,7 @@ from app.services.auto_match_rules import is_good_match  # noqa: F401 — reguł
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.models.oauth_client import OAuthClient
+from app.models.user import User, UserRole
 
 logger = logging.getLogger(__name__)
 
@@ -59,9 +60,23 @@ async def mint_client_token() -> str:
                 OAuthClient.name == settings.JJIT_OAUTH_CLIENT_NAME
             )
         )
+        acting_user = (
+            await db.get(User, client.acting_user_id)
+            if client is not None and client.acting_user_id is not None
+            else None
+        )
     if client is None or not client.enabled or client.acting_user_id is None:
         raise NexusClientError(
             f"klient OAuth '{settings.JJIT_OAUTH_CLIENT_NAME}' nie istnieje / wyłączony / bez acting_user"
+        )
+    # Runda 9 (R9-N9-1): token i tak zostałby odrzucony w ``deps`` — tu mówimy
+    # od razu, DLACZEGO import nie ruszy, zamiast 401 na pierwszym żądaniu.
+    if acting_user is None or not acting_user.is_active:
+        raise NexusClientError("acting_user klienta OAuth jest nieaktywny")
+    if acting_user.has_role(UserRole.admin):
+        raise NexusClientError(
+            "acting_user klienta OAuth ma rolę admina — integracja potrzebuje "
+            "konta z rolą operacyjną"
         )
     scopes = [s for s in (client.scopes or []) if s.endswith(":write")] or list(
         client.scopes or []

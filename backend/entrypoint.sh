@@ -8803,6 +8803,23 @@ def _read_playbook_seed():
     return None
 
 
+async def _lowercase_user_emails(conn):
+    # Runda 9 (R9-N1-1): adres konta małymi literami — panel admina zapisywał
+    # wielkie litery, a SSO szukało małych i zakładało drugie konto. Kolizje
+    # (dwa konta tej samej osoby) zostają; w logu tylko ich liczba.
+    from app.services.user_email import (
+        LOWERCASE_EMAIL_COLLISIONS_SQL,
+        LOWERCASE_EMAILS_SQL,
+    )
+
+    try:
+        status = await conn.execute(LOWERCASE_EMAILS_SQL)
+        left = await conn.fetchval(LOWERCASE_EMAIL_COLLISIONS_SQL)
+        print(f"user emails lowercase: {status}; left with collisions: {left}")
+    except Exception as e:
+        print(f"user emails lowercase skip: {type(e).__name__}")
+
+
 async def _seed_client_playbooks(conn):
     entries = _read_playbook_seed()
     if not entries:
@@ -8942,6 +8959,7 @@ async def backfill():
                 print(f"backfill data skip: {stmt!r} -> {e!r}")
         await _seed_repo_procedures(conn)
         await _seed_client_playbooks(conn)
+        await _lowercase_user_emails(conn)
         _t = _timing("data statements + seeds", _t)
         await _apply_limits(conn, lock="'3s'", statement="'60s'")
         for stmt in _CONSTRAINT_STATEMENTS:

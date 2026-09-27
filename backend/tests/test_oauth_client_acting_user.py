@@ -67,7 +67,9 @@ def _client(**overrides):
 
 
 def _user(**overrides):
-    base = dict(id=42, is_active=True)
+    # ``has_role``: od rundy 9 (R9-N9-1) każde żądanie sprawdza, czy konto
+    # integracji nie ma roli admina.
+    base = dict(id=42, is_active=True, has_role=lambda role: False)
     base.update(overrides)
     return SimpleNamespace(**base)
 
