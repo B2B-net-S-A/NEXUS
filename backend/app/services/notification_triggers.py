@@ -50,6 +50,7 @@ from app.models.user import User, UserRole
 from app.schemas.pipeline import STAGE_LABELS
 from app.services.calendar_auto_complete import mark_ended_interviews_completed
 from app.services.notification_access import notification_recipient_has_access
+from app.services.notification_ws_after_commit import queue_ws_notification
 from app.services.job_working_title import display_title
 
 logger = logging.getLogger(__name__)
@@ -155,23 +156,26 @@ async def emit(
         return None
 
     # Best-effort WS push — brak odbiorcy online = brak problemu (poll to złapie).
-    try:
-        await ws_manager.notify_user(
-            user_id,
-            {
-                "type": "notification",
-                "data": {
-                    "id": notif.id,
-                    "title": notif.title,
-                    "message": notif.message,
-                    "link": notif.link,
-                    "notification_type": ntype.value,
-                    "created_at": datetime.now(timezone.utc).isoformat(),
-                },
-            },
-        )
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("WS push failed for user=%s: %s", user_id, exc)
+    # Runda 9 (R9-N2-5): dopiero po commicie; pętla triggerów commituje raz,
+    # po wszystkich triggerach, a wycofany wiersz nie może trafić do dzwonka.
+    payload = {
+        "type": "notification",
+        "data": {
+            "id": notif.id,
+            "title": notif.title,
+            "message": notif.message,
+            "link": notif.link,
+            "notification_type": ntype.value,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        },
+    }
+    if not queue_ws_notification(
+        db, user_id=user_id, event_payload=payload, row=notif
+    ):
+        try:
+            await ws_manager.notify_user(user_id, payload)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("WS push failed for user=%s: %s", user_id, exc)
     return notif
 
 
