@@ -52,8 +52,13 @@ Workflow `Coolify Ops` udostępnia działania wyłącznie z `main`:
 
 Skrypt wypisuje statusy i identyfikator korelacji, bez sekretu, tokena,
 linku spotkania ani treści odpowiedzi Graph. `cleanup_required=true` wymaga
-sprawdzenia oznaczonego spotkania w kalendarzu Ewy; wynik nie jest wtedy
+sprawdzenia oznaczonego spotkania w kalendarzu organizatora; wynik nie jest wtedy
 zaliczany. Pusta lista transkryptów w tym teście potwierdza tylko dostęp API.
+Przy odmowie Graph pole `graph_error_code` zawiera wyłącznie kod ze stałej
+listy rozpoznawanych błędów (np. `ErrorAccessDenied`, `insufficient_claims`
+lub `MailboxNotEnabledForRESTAPI`); pozostałe odpowiedzi mają wartość
+`unclassified`. Komunikaty, identyfikatory żądań i treść odpowiedzi są pomijane.
+Kod błędu pomaga ustalić przyczynę; sam HTTP 403 nie dowodzi problemu propagacji.
 
 ## 1. Nowa rejestracja aplikacji w Entra ID
 

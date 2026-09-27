@@ -24,6 +24,38 @@ SESSION_SUBJECT = (
     "Prep 1: NEXUS TEST-M365-20260926 — "
     "[NEXUS TEST M365 2026-09-26] Kontrola prepu Teams"
 )
+SAFE_GRAPH_ERROR_CODES = frozenset(
+    {
+        "ErrorAccessDenied",
+        "AccessDenied",
+        "accessDenied",
+        "Authorization_RequestDenied",
+        "insufficient_claims",
+        "MailboxNotEnabledForRESTAPI",
+        "ErrorMailboxNotEnabledForRESTAPI",
+        "ErrorInvalidUser",
+        "Request_ResourceNotFound",
+        "ResourceNotFound",
+        "ErrorFolderNotFound",
+    }
+)
+
+
+def safe_graph_error_code(error):
+    """Read bounded error JSON; emit only known codes, never provider messages."""
+    try:
+        detail = json.loads(error.read(8192)).get("error", {})
+        code = "unclassified"
+        for _ in range(8):
+            if not isinstance(detail, dict):
+                break
+            candidate = detail.get("code")
+            if isinstance(candidate, str) and candidate in SAFE_GRAPH_ERROR_CODES:
+                code = candidate
+            detail = detail.get("innerError") or detail.get("innererror")
+        return code
+    except Exception:  # noqa: BLE001 — malformed/private bodies stay redacted
+        return "unclassified"
 
 
 def audit_session(graph, opener, token, result):
@@ -169,8 +201,9 @@ def transcript_content(request, opener, token):
 
 
 class ProbeError(Exception):
-    def __init__(self, status=0):
+    def __init__(self, status=0, graph_code=None):
         self.status = status
+        self.graph_code = graph_code
 
 
 def fetch(request, opener):
@@ -179,7 +212,12 @@ def fetch(request, opener):
             raw = response.read()
             return response.status, json.loads(raw) if raw else {}
     except urllib.error.HTTPError as error:
-        raise ProbeError(error.code) from None
+        code = (
+            safe_graph_error_code(error)
+            if request.full_url.startswith("https://graph.microsoft.com/v1.0/")
+            else None
+        )
+        raise ProbeError(error.code, code) from None
     except Exception:  # noqa: BLE001 — never expose private HTTP/parsing exceptions
         raise ProbeError() from None
 
@@ -360,6 +398,8 @@ def probe(
         result["passed"] = status == 200
     except ProbeError as error:
         result.update(passed=False, failed_stage=stage, http_status=error.status)
+        if error.graph_code:
+            result["graph_error_code"] = error.graph_code
         if stage == "create_event" and error.status == 0:
             result.update(event_creation_uncertain=True, cleanup_required=True)
     except Exception:  # noqa: BLE001 — result remains redacted and cleanup still runs
