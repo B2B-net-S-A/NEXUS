@@ -690,6 +690,34 @@ describe("OrdersAndContractsTab card", () => {
     );
   });
 
+  it("zapis na karcie kontraktora odświeża też kafle profilu i alerty DL (R10-N15-6)", async () => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const spy = vi.spyOn(queryClient, "invalidateQueries");
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ToastProvider>
+          <OrdersAndContractsTab clientId={7} />
+        </ToastProvider>
+      </QueryClientProvider>,
+    );
+    await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
+
+    await user.click(screen.getByLabelText("Edytuj: Numer zamówienia"));
+    const input = screen.getByLabelText("Numer zamówienia");
+    await user.clear(input);
+    await user.type(input, "99999");
+    await user.keyboard("{Enter}");
+
+    await waitFor(() =>
+      expect(spy).toHaveBeenCalledWith({ queryKey: ["client-profile", 7] }),
+    );
+    expect(spy).toHaveBeenCalledWith({ queryKey: ["dl-alerts"] });
+    expect(spy).toHaveBeenCalledWith({ queryKey: ["order-group-events", 7] });
+  });
+
   it("keeps the cost rate read-only when the contract carries it", async () => {
     // Kontrakt jest źródłem prawdy dla stawki kosztowej (09.2026): zapis
     // w zamówieniu i tak nadpisałaby synchronizacja, więc pola nie da się

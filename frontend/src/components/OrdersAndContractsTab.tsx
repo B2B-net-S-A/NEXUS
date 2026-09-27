@@ -73,6 +73,7 @@ import { NordeaOrderImportPanel } from "@/components/client-profile/orders/Norde
 import { OrderTypeBadge } from "@/components/client-profile/orders/OrderTypeBadge";
 import { normalizeOrderCurrency } from "@/components/orders/OrderRateUnitToggle";
 import { canViewClientFinance, useAuthStore } from "@/store/auth";
+import { invalidateClientOrderQueries } from "@/lib/client-order-cache";
 
 interface OrdersAndContractsTabProps {
   clientId: number;
@@ -244,11 +245,7 @@ export function OrdersAndContractsTab({
   }
 
   function refresh() {
-    return Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["dl-orders-grouped", clientId] }),
-      queryClient.invalidateQueries({ queryKey: ["client-order-groups", clientId] }),
-      queryClient.invalidateQueries({ queryKey: ["order-documents"] }),
-    ]).then(() => undefined);
+    return invalidateClientOrderQueries(queryClient, clientId);
   }
 
   if (isLoading) {
@@ -477,11 +474,7 @@ export function ContractorOrderCards({
   } | null>(null);
 
   function refresh() {
-    return Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["dl-orders-grouped", clientId] }),
-      queryClient.invalidateQueries({ queryKey: ["client-order-groups", clientId] }),
-      queryClient.invalidateQueries({ queryKey: ["order-documents"] }),
-    ]).then(() => undefined);
+    return invalidateClientOrderQueries(queryClient, clientId);
   }
 
   const closeOrder = useMutation({
