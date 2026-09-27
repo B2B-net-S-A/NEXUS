@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { PeriodicOrderDraft } from "@/lib/order-type-switch";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -100,11 +101,13 @@ function renderDialog({
   onOrderTypeChange,
   canManageFinance,
   defaultRateUnit,
+  initialDraft,
 }: {
   orderType?: OrderType;
   onOrderTypeChange?: (orderType: OrderType) => void;
   canManageFinance?: boolean;
   defaultRateUnit?: "hourly" | "daily" | "monthly";
+  initialDraft?: Partial<PeriodicOrderDraft> | null;
 } = {}) {
   // `retry: 1` LUSTRZANIE do produkcji (`QueryProvider`), nie `false`. Przy
   // `retry: false` test przechodziłby, nie dotykając realnego opóźnienia:
@@ -122,6 +125,7 @@ function renderDialog({
           onOrderTypeChange={onOrderTypeChange}
           canManageFinance={canManageFinance}
           defaultRateUnit={defaultRateUnit}
+          initialDraft={initialDraft}
           onClose={() => {}}
           onCreated={() => {}}
         />
@@ -174,7 +178,43 @@ describe("NewContractorOrderDialog — wyszukiwarka kandydatów", () => {
     );
     await user.click(screen.getByRole("radio", { name: "Kosztowe" }));
     // Plik (tu: brak) jedzie razem ze zmianą typu — okno MD/kosztowe go przejmie.
-    expect(onOrderTypeChange).toHaveBeenCalledWith("cost", null, "");
+    expect(onOrderTypeChange).toHaveBeenCalledWith(
+      "cost",
+      null,
+      "",
+      expect.objectContaining({ orderStart: "", notes: "" }),
+    );
+  });
+
+  it("zmiana typu oddaje roboczy stan, a powrót go odtwarza (runda 10, F02)", async () => {
+    const user = userEvent.setup();
+    const onOrderTypeChange = vi.fn();
+    mockApi(() => Promise.resolve({ data: { items: [] } }));
+    const first = renderDialog({ orderType: "periodic", onOrderTypeChange });
+    await user.type(screen.getByLabelText(/Początek umowy/i), "2026-10-01");
+    await user.type(screen.getByLabelText(/Koniec zamówienia/i), "2026-10-31");
+    await user.type(screen.getByLabelText(/Notatki/i), "notatka testowa");
+    await user.click(screen.getByRole("radio", { name: "Kosztowe" }));
+    const draft = onOrderTypeChange.mock.calls[0][3];
+    expect(draft).toMatchObject({
+      contractStart: "2026-10-01",
+      orderEnd: "2026-10-31",
+      notes: "notatka testowa",
+    });
+    first.unmount();
+
+    renderDialog({
+      orderType: "periodic",
+      onOrderTypeChange,
+      initialDraft: {
+        ...draft,
+        selectedCandidate: { id: 7, name: "Jan", lastname: "Testowy" },
+      },
+    });
+    expect(screen.getByLabelText(/Początek umowy/i)).toHaveValue("2026-10-01");
+    expect(screen.getByLabelText(/Koniec zamówienia/i)).toHaveValue("2026-10-31");
+    expect(screen.getByLabelText(/Notatki/i)).toHaveValue("notatka testowa");
+    expect(screen.getByText(/Jan Testowy/)).toBeInTheDocument();
   });
 
   it("awaria zapytania NIE renderuje się jako „Brak wyników”", async () => {
