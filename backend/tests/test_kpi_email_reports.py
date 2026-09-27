@@ -111,6 +111,10 @@ class _Outbox:
         return True
 
 
+async def _no_weekly_mails(db, now_local):
+    return []
+
+
 @pytest.fixture
 def outbox(monkeypatch) -> _Outbox:
     box = _Outbox()
@@ -190,6 +194,7 @@ async def test_monthly_report_on_first_business_day(
         return [reports._Mail("rada@example.com", f"Rada {period_key}", "treść")]
 
     monkeypatch.setattr(reports, "_monthly_mails", fake_mails)
+    monkeypatch.setattr(reports, "_weekly_mails", _no_weekly_mails)
     year = 2700 + random.randint(0, 250)
     day = reports.first_business_day(year, 6)
     result = await reports.run_once(_at(day, 8))
@@ -254,6 +259,7 @@ async def test_deferred_recipients_are_retried_on_next_tick(
         return outcome
 
     monkeypatch.setattr(reports, "_monthly_mails", fake_mails)
+    monkeypatch.setattr(reports, "_weekly_mails", _no_weekly_mails)
     monkeypatch.setattr(reports, "_deliver", fake_deliver)
     year = 2700 + random.randint(0, 250)
     day = reports.first_business_day(year, 7)
@@ -286,6 +292,7 @@ async def test_new_period_drops_stale_pending_of_the_same_kind(
         return [reports._Mail("rada@example.com", f"Rada {period_key}", "t")]
 
     monkeypatch.setattr(reports, "_monthly_mails", fake_mails)
+    monkeypatch.setattr(reports, "_weekly_mails", _no_weekly_mails)
     year = 2700 + random.randint(0, 250)
     stale = reports._pending_key(reports.MONTHLY_KIND, f"{year}-01")
     other_kind = f"{reports._PENDING_PREFIX}other_report:{year}-01"
@@ -362,6 +369,9 @@ async def test_stale_claim_after_restart_is_taken_over(
         return [reports._Mail("rada-r9b@example.com", f"Rada {period_key}", "t")]
 
     monkeypatch.setattr(reports, "_monthly_mails", fake_mails)
+    # Dzień testu bywa poniedziałkiem: bez tego raport tygodniowy idzie do
+    # wszystkich HoR na wspólnej bazie CI i psuje asercje skrzynki.
+    monkeypatch.setattr(reports, "_weekly_mails", _no_weekly_mails)
     year = _r9_year()
     day = reports.first_business_day(year, 10)
     key = f"{year}-09"
@@ -382,6 +392,9 @@ async def test_fresh_claim_is_left_to_the_running_container(
         return [reports._Mail("rada-r9c@example.com", f"Rada {period_key}", "t")]
 
     monkeypatch.setattr(reports, "_monthly_mails", fake_mails)
+    # Dzień testu bywa poniedziałkiem: bez tego raport tygodniowy idzie do
+    # wszystkich HoR na wspólnej bazie CI i psuje asercje skrzynki.
+    monkeypatch.setattr(reports, "_weekly_mails", _no_weekly_mails)
     year = _r9_year()
     day = reports.first_business_day(year, 11)
     key = f"{year}-10"
@@ -418,6 +431,9 @@ async def test_interrupted_send_resumes_only_remaining_recipients(
         ]
 
     monkeypatch.setattr(reports, "_monthly_mails", fake_mails)
+    # Dzień testu bywa poniedziałkiem: bez tego raport tygodniowy idzie do
+    # wszystkich HoR na wspólnej bazie CI i psuje asercje skrzynki.
+    monkeypatch.setattr(reports, "_weekly_mails", _no_weekly_mails)
     year = _r9_year()
     day = reports.first_business_day(year, 12)
     key = f"{year}-11"
