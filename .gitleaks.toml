@@ -167,6 +167,11 @@ regexes = [
   # Placeholder w przykładzie użycia w docstringu (hasło zapisane dosłownie
   # jako ``...``) — nie sekret.
   '''postgresql://nexus:\.\.\.@''',
+  # Atrapy z rundy 8 (R8-V3-7): przykład w komentarzu „Coolify set env” i dane
+  # testu strażnika sekretów. Są w historii commitów PR-a #1870, a skan
+  # commitów PR-a widzi je mimo poprawki w głowie gałęzi.
+  '''postgresql://u:hasło@''',
+  '''postgresql://nexus:tajne@''',
   '''postgresql\+asyncpg://\$\{POSTGRES_USER''',
   # Local dev default — used by seed scripts, entrypoint.sh, and the
   # ``Settings()`` Pydantic default in backend/app/core/config.py. Never
