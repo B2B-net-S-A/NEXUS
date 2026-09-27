@@ -23,10 +23,12 @@ from app.schemas.matching_requirements import MatchingRequirements
 
 
 class JobCreate(BaseModel):
-    title: str
+    # Runda 9 (R9-N15-5): długości = kolumny `jobs`; dłuższy napis dawał
+    # `StringDataRightTruncation`, czyli 500 bez CORS zamiast 422.
+    title: str = Field(max_length=255)
     description: Optional[str] = None
     requirements: Optional[str] = None
-    location: Optional[str] = None
+    location: Optional[str] = Field(default=None, max_length=255)
     salary_min: Optional[int] = None
     salary_max: Optional[int] = None
     # Budżet PLN/h dla kandydata (dealbreaker-switch; 0235).
@@ -63,18 +65,18 @@ class JobCreate(BaseModel):
     seniority: Optional[Seniority] = None
     work_mode: WorkMode = WorkMode.fulltime
     headcount: int = 1
-    reference_number: Optional[str] = None
+    reference_number: Optional[str] = Field(default=None, max_length=50)
     # 0380: numer zapytania klienta i tytuł dla rekrutera (`job_working_title`).
     # Brak ``working_title`` = składa go serwer i przelicza przy zmianach.
     client_reference: Optional[str] = Field(default=None, max_length=120)
     working_title: Optional[str] = Field(default=None, max_length=255)
-    industry: Optional[str] = None
-    subcategory: Optional[str] = None
+    industry: Optional[str] = Field(default=None, max_length=50)
+    subcategory: Optional[str] = Field(default=None, max_length=100)
     custom_fields: Optional[dict] = None
     pipeline_template_id: Optional[int] = None
     # Phase 15 / Phase D: programme / ART tag — free-text, optional.
     # Auto-populated by `extract_train_name` when left empty.
-    train_name: Optional[str] = None
+    train_name: Optional[str] = Field(default=None, max_length=128)
 
     # AI CC matching (migracja 0041). Jeśli `competence_category_id` podane —
     # używamy jawnie; jeśli None + `auto_suggest_cc=true` — classifier wybiera
@@ -114,10 +116,10 @@ _JOB_UPDATE_NOT_NULL_FIELDS = {
 
 
 class JobUpdate(BaseModel):
-    title: Optional[str] = None
+    title: Optional[str] = Field(default=None, max_length=255)
     description: Optional[str] = None
     requirements: Optional[str] = None
-    location: Optional[str] = None
+    location: Optional[str] = Field(default=None, max_length=255)
     salary_min: Optional[int] = None
     salary_max: Optional[int] = None
     # Budżet PLN/h dla kandydata (dealbreaker-switch; 0235).
@@ -143,19 +145,19 @@ class JobUpdate(BaseModel):
     seniority: Optional[Seniority] = None
     work_mode: Optional[WorkMode] = None
     headcount: Optional[int] = None
-    reference_number: Optional[str] = None
+    reference_number: Optional[str] = Field(default=None, max_length=50)
     client_reference: Optional[str] = Field(default=None, max_length=120)
     # Wartość = ręczny tytuł (automat wyłączony); pusty napis albo null =
     # powrót do tytułu składanego automatycznie.
     working_title: Optional[str] = Field(default=None, max_length=255)
-    industry: Optional[str] = None
-    subcategory: Optional[str] = None
+    industry: Optional[str] = Field(default=None, max_length=50)
+    subcategory: Optional[str] = Field(default=None, max_length=100)
     custom_fields: Optional[dict] = None
     pipeline_template_id: Optional[int] = None
     competence_category_id: Optional[int] = None
     secondary_cc_ids: Optional[List[int]] = None
     # Phase 15 / Phase D: allow DL to set/override train_name explicitly.
-    train_name: Optional[str] = None
+    train_name: Optional[str] = Field(default=None, max_length=128)
 
     @field_validator("must_skills", "nice_skills", mode="before")
     @classmethod

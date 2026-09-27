@@ -432,6 +432,64 @@ async def _validate_owner_override(
         )
 
 
+async def _assert_job_references_valid(
+    db: AsyncSession,
+    *,
+    job_id: Optional[int] = None,
+    pipeline_template_id: Optional[int] = None,
+    competence_category_id: Optional[int] = None,
+    secondary_cc_ids: Optional[list[int]] = None,
+    reference_number: Optional[str] = None,
+) -> None:
+    """Odrzuć przed zapisem odwołania, na których padłby więz bazy.
+
+    Runda 9 (R9-N15-5): nieistniejący szablon procesu albo kategoria kończyły
+    się `ForeignKeyViolation`, a zajęty numer referencyjny — naruszeniem
+    UNIQUE; oba jako 500 bez CORS („Network Error”). Brak = 422, zajęty
+    numer = 409.
+    """
+    from app.models.competence_category import CompetenceCategory  # noqa: PLC0415
+    from app.models.pipeline_template import PipelineTemplate  # noqa: PLC0415
+
+    if pipeline_template_id is not None and not await db.scalar(
+        select(PipelineTemplate.id).where(PipelineTemplate.id == pipeline_template_id)
+    ):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Szablon procesu: nie znaleziono takiego szablonu.",
+        )
+    cc_ids = {
+        cc_id
+        for cc_id in [competence_category_id, *(secondary_cc_ids or [])]
+        if cc_id is not None
+    }
+    if cc_ids:
+        found = set(
+            (
+                await db.scalars(
+                    select(CompetenceCategory.id).where(CompetenceCategory.id.in_(cc_ids))
+                )
+            ).all()
+        )
+        if cc_ids - found:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Kategoria kompetencji: nie znaleziono takiej kategorii.",
+            )
+    if reference_number:
+        clash = select(Job.id).where(Job.reference_number == reference_number)
+        if job_id is not None:
+            clash = clash.where(Job.id != job_id)
+        if await db.scalar(clash.limit(1)) is not None:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "reference_number_taken",
+                    "message": "Ten numer referencyjny ma już inna rekrutacja.",
+                },
+            )
+
+
 async def _validate_tac_client_assignment(
     db: AsyncSession,
     *,
@@ -513,7 +571,10 @@ async def _auto_extract_train_name(
                 client_slug = client.name.strip().lower()
 
         combined = f"{title}\n{description}".strip()
-        return extract_train_name(combined, client_slug=client_slug)
+        extracted = extract_train_name(combined, client_slug=client_slug)
+        # Runda 9 (R9-N15-5): kolumna ma 128 znaków, a słowo z opisu nie ma
+        # limitu — dłuższy tag dawał 500 przy zapisie rekrutacji.
+        return extracted[:128] if extracted else extracted
     except Exception as exc:  # pragma: no cover
         logger.warning("[Job] train_name extraction failed: %s", exc)
         return None
@@ -1927,6 +1988,13 @@ async def create_job(
             contact_id=payload["hiring_manager_contact_id"],
             client_id=payload.get("client_id"),
         )
+    await _assert_job_references_valid(
+        db,
+        pipeline_template_id=payload.get("pipeline_template_id"),
+        competence_category_id=payload.get("competence_category_id"),
+        secondary_cc_ids=secondary_cc_ids,
+        reference_number=payload.get("reference_number"),
+    )
 
     job = Job(**payload, created_by=current_user.id)
 
@@ -2364,6 +2432,31 @@ async def update_job(
             allowed_roles=set(_HANDOFF_RECRUITER_ROLES),
             field="recruiter_id",
         )
+
+    # Runda 9 (R9-N15-5): tylko przy realnej zmianie — okno edycji odsyła
+    # komplet pól przy każdym zapisie.
+    await _assert_job_references_valid(
+        db,
+        job_id=job.id,
+        pipeline_template_id=(
+            data.pipeline_template_id
+            if "pipeline_template_id" in sent
+            and data.pipeline_template_id != job.pipeline_template_id
+            else None
+        ),
+        competence_category_id=(
+            data.competence_category_id
+            if "competence_category_id" in sent
+            and data.competence_category_id != job.competence_category_id
+            else None
+        ),
+        reference_number=(
+            data.reference_number
+            if "reference_number" in sent
+            and data.reference_number != job.reference_number
+            else None
+        ),
+    )
 
     updates = data.model_dump(exclude_unset=True)
     # Wejścia rankingu sprzed zapisu (runda 6 audytu): wektor i ranking
