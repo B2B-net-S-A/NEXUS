@@ -8607,6 +8607,13 @@ _INDEX_STATEMENTS = [
     # 0385: domyślne sortowanie listy kandydatów (najnowsi) bez skanu tabeli.
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_candidates_created_at_id "
     "ON candidates (created_at DESC, id DESC)",
+    # 0390 (runda 9, R9-N14-2): skaner alertów zapisanych wyszukiwań pyta
+    # o notatki, dokumenty i rozmowy nowsze niż poprzedni przebieg.
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_notes_created_at ON notes (created_at)",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_notes_updated_at ON notes (updated_at)",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_candidate_documents_created_at "
+    "ON candidate_documents (created_at)",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_calls_created_at ON calls (created_at)",
 ]
 
 

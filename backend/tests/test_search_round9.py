@@ -389,3 +389,26 @@ def test_r9_n14_3_export_match_order_joins_instead_of_array_position():
     assert "WITH ORDINALITY" in sql
     assert "LEFT OUTER JOIN unnest(" in sql
     assert "ORDER BY id_order.position ASC NULLS LAST" in sql
+
+
+# ---------------------------------------------------------------- R9-N14-2
+
+
+def test_r9_n14_2_changed_after_indexes_are_mirrored_in_the_entrypoint():
+    import importlib.util
+    from pathlib import Path
+
+    backend = Path(__file__).resolve().parents[1]
+    path = backend / "alembic" / "versions" / "0390_search_changed_after_indexes.py"
+    spec = importlib.util.spec_from_file_location("m0390_search", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    text = (backend / "entrypoint.sh").read_text()
+    start = text.index("_INDEX_STATEMENTS = [")
+    section = " ".join(text[start : text.index("\n]\n", start)].split())
+    for name, target in module.INDEXES:
+        assert (
+            f"CREATE INDEX CONCURRENTLY IF NOT EXISTS {name} " in section
+        ), name
+        assert f"ON {target}" in section, target
