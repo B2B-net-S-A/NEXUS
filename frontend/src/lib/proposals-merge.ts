@@ -106,6 +106,13 @@ export interface MergeProposalsInput {
     degraded: boolean;
   } | null;
   pipelineCandidateIds?: Iterable<number>;
+  /**
+   * Osoby pominięte w tej rekrutacji („Pomiń" z dowolnego źródła) — odsiewane
+   * ze WSZYSTKICH źródeł, tak jak osoby już w rekrutacji. Bez tego pominięty
+   * wracał po odświeżeniu z żywego przeglądu, podobnych projektów albo
+   * rekomendacji (runda 10, R10-N7-1).
+   */
+  dismissedCandidateIds?: Iterable<number>;
   budgetHourly?: number | null;
 }
 
@@ -260,7 +267,11 @@ function inboxRequirements(item: ProposalInboxItem): ProposalRequirement[] {
 }
 
 export function mergeProposals(input: MergeProposalsInput): ProposalEntry[] {
-  const inPipeline = new Set<number>(input.pipelineCandidateIds ?? []);
+  // Osoby w rekrutacji ORAZ pominięte — żadne źródło ich nie proponuje.
+  const inPipeline = new Set<number>([
+    ...(input.pipelineCandidateIds ?? []),
+    ...(input.dismissedCandidateIds ?? []),
+  ]);
   const drafts = new Map<number, Draft>();
   const draft = (id: number, name?: string | null, lastname?: string | null): Draft => {
     let d = drafts.get(id);

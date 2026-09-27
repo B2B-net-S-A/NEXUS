@@ -122,6 +122,17 @@ describe("mergeProposals", () => {
     expect(entries.map((e) => e.row.candidateId)).toEqual([2]);
   });
 
+  it("pominięci znikają ze WSZYSTKICH źródeł, nie tylko ze skrzynki (R10-N7-1)", () => {
+    const entries = mergeProposals({
+      inbox: [inboxItem(2)],
+      run: { runId: "r", rows: [runRow(1, 80), runRow(3, 75)] },
+      similar: [similar(1), similar(4)],
+      recommendations: { items: [recommendation(1, 60), recommendation(5, 50)], degraded: false },
+      dismissedCandidateIds: [1],
+    });
+    expect(entries.map((e) => e.row.candidateId).sort()).toEqual([2, 3, 4, 5]);
+  });
+
   it("sortuje stabilnie: wynik malejąco (null na końcu), potem nowe, potem nazwisko", () => {
     const entries = mergeProposals({
       inbox: [

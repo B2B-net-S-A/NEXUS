@@ -156,7 +156,7 @@ async def _job(db, user, job_id: int):
     return await _authorized_job(db, user, job_id)
 
 
-def _candidate_brief(candidate: Candidate, *, include_finance: bool) -> dict:
+def _candidate_brief(candidate: Candidate) -> dict:
     """Tożsamość węższa niż profil — jak wiersz pełnego przeglądu (bez kontaktu)."""
     availability = candidate.availability_status
     rate = candidate.expected_rate_hourly
@@ -172,12 +172,11 @@ def _candidate_brief(candidate: Candidate, *, include_finance: bool) -> dict:
             if candidate.availability_date
             else None
         ),
-        # Stawka z profilu (PLN/h) — tylko dla ról z odczytem finansów; klucz
-        # zostaje, żeby „—" nie czytało się jak brak pola w odpowiedzi.
-        "expected_rate_hourly": (
-            float(rate) if include_finance and rate is not None else None
-        ),
-        "expected_rate_redacted": not include_finance,
+        # Stawka KANDYDATA (PLN/h) jest jawna dla każdej roli — jak na profilu
+        # i liście (decyzja Artura 27.09.2026, R10-N7-10). Stawka DO KLIENTA
+        # tu nie występuje. Klucz `expected_rate_redacted` zostaje w kształcie.
+        "expected_rate_hourly": float(rate) if rate is not None else None,
+        "expected_rate_redacted": False,
     }
 
 
@@ -190,10 +189,6 @@ async def list_job_proposals(
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
 ):
-    from app.analytics.capabilities import (  # noqa: PLC0415
-        AnalyticsCapability,
-        user_has_capability,
-    )
     from app.services.candidate_job_eligibility import Visibility  # noqa: PLC0415
     from app.services.eligibility_annotation import (  # noqa: PLC0415
         eligibility_annotation,
@@ -229,7 +224,6 @@ async def list_job_proposals(
         if candidates and status == "proposed"
         else {}
     )
-    include_finance = user_has_capability(user, AnalyticsCapability.VIEW_FINANCE)
     reassign_from = await _reassign_sources(db, job_id, ids)
     trainee_handover = await _trainee_handovers(db, job_id, ids)
     items = []
@@ -244,9 +238,7 @@ async def list_job_proposals(
             continue
         items.append(
             {
-                "candidate": _candidate_brief(
-                    candidate, include_finance=include_finance
-                ),
+                "candidate": _candidate_brief(candidate),
                 "sources": row.sources,
                 "score": row.score,
                 "evidence": row.evidence,
@@ -262,10 +254,19 @@ async def list_job_proposals(
                 "trainee_handover": trainee_handover.get(row.candidate_id),
             }
         )
+    # Runda 10 (R10-N7-1): pominięci znikają ze wszystkich źródeł widoku, nie
+    # tylko ze skrzynki — tylko pierwsza strona niesie listę (dalsze pytają
+    # o kolejne osoby, a lista jest ta sama).
+    dismissed_ids = (
+        await proposals.dismissed_candidate_ids(db, job_id=job_id)
+        if status == "proposed" and offset == 0
+        else []
+    )
     return {
         "job_id": job_id,
         "status": status,
         "items": items,
+        "dismissed_candidate_ids": dismissed_ids,
         "total": total,
         "hidden_on_page": hidden,
         "limit": limit,
@@ -285,13 +286,8 @@ async def job_proposal_facts(
 
     Dwa zapytania niezależnie od liczby osób (kandydaci + historia etapów
     u klienta tej rekrutacji). Dostęp jak skrzynka propozycji
-    (``_authorized_job``); stawka tylko dla ról z odczytem finansów — tak samo
-    jak w wierszu skrzynki.
+    (``_authorized_job``); stawka kandydata jawna jak w wierszu skrzynki.
     """
-    from app.analytics.capabilities import (  # noqa: PLC0415
-        AnalyticsCapability,
-        user_has_capability,
-    )
     from app.models.job import Job  # noqa: PLC0415
     from app.models.recruitment_pipeline import CandidateStage  # noqa: PLC0415
     from app.services import proposal_facts  # noqa: PLC0415
@@ -333,14 +329,11 @@ async def job_proposal_facts(
         history = proposal_facts.client_history(
             proposal_facts.StageRow(*row) for row in rows
         )
-    include_rate = user_has_capability(user, AnalyticsCapability.VIEW_FINANCE)
     by_id = {c.id: c for c in candidates}
     return {
         "job_id": job_id,
         "items": [
-            proposal_facts.candidate_facts(
-                by_id[cid], include_rate=include_rate, history=history.get(cid)
-            )
+            proposal_facts.candidate_facts(by_id[cid], history=history.get(cid))
             for cid in ids
             if cid in by_id
         ],

@@ -2775,7 +2775,12 @@ export function BulkAddToPoolModal({
  is_personal?: boolean;
  owner_id?: number | null;
  owner_name?: string | null;
- }> = Array.isArray(data) ? data : data?.items ?? [];
+ is_marketplace?: boolean;
+ }> = (Array.isArray(data) ? data : data?.items ?? []).filter(
+ // Targ kandydatów ma własne trasy z terminem — ogólne bulk-add daje 409
+ // (runda 10, R10-N7-4), więc tej puli tu nie proponujemy.
+ (p: { is_marketplace?: boolean }) => !p.is_marketplace,
+ );
  // Pula osobista innego usera = tylko podgląd (backend zwróci 403 na bulk-add).
  // Pokazujemy ją (jest team-visible), ale wyłączoną + z oznaczeniem właściciela.
  const canUsePool = (p: { is_personal?: boolean; owner_id?: number | null }) =>
