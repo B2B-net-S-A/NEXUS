@@ -79,6 +79,17 @@ export interface RecruitmentsTabProps {
   defaultJobId: number | null;
   view: CandidateRecruitmentView;
   readOnly: boolean;
+  /**
+   * Flagi stawki do klienta z odpowiedzi `/history` (`can_view_client_rate`,
+   * `can_write_client_rate`). Runda 10 (R10-X2-3): serwer liczy je z roli
+   * I sekcji — rola z przeglądarki jest tylko zapasem, gdy ich brak.
+   */
+  clientRateAccess?: ClientRateAccess;
+}
+
+export interface ClientRateAccess {
+  canView?: boolean | null;
+  canWrite?: boolean | null;
 }
 
 export function RecruitmentsTab({
@@ -93,6 +104,7 @@ export function RecruitmentsTab({
   defaultJobId,
   view,
   readOnly,
+  clientRateAccess,
 }: RecruitmentsTabProps) {
   const { active, ended } = useMemo(() => splitRecruitments(history), [history]);
   const focusedJobId = useMemo(
@@ -179,6 +191,7 @@ export function RecruitmentsTab({
                   candidateName={candidateName}
                   focusedJobId={focusedJobId}
                   readOnly={readOnly}
+                  clientRateAccess={clientRateAccess}
                 />
               ))
             )}
@@ -207,6 +220,7 @@ export function RecruitmentsTab({
                         candidateName={candidateName}
                         focusedJobId={focusedJobId}
                         readOnly={readOnly}
+                        clientRateAccess={clientRateAccess}
                       />
                     ))}
                   </div>
@@ -435,18 +449,23 @@ export function RecruitmentRateRow({
   clientRate,
   expectedRate,
   readOnly = false,
+  clientRateAccess,
 }: {
   candidateId: number;
   jobId: number;
   clientRate: RecruitmentRate;
   expectedRate: RecruitmentRate;
   readOnly?: boolean;
+  clientRateAccess?: ClientRateAccess;
 }) {
   const authUser = useAuthStore((st) => st.user);
   // Decyzja 23.09.2026: stawki do klienta nie widzą rekruter, sourcer i TAC;
   // wpisuje ją wyłącznie DL albo admin (lustro `candidate_access.py`).
-  const showClientRate = canViewClientRate(authUser);
-  const clientRateWritable = canWriteClientRate(authUser);
+  // Runda 10 (R10-X2-3): rozstrzyga serwer (rola + zapis w sekcji); rola
+  // z przeglądarki tylko wtedy, gdy odpowiedź nie niesie flag.
+  const showClientRate = clientRateAccess?.canView ?? canViewClientRate(authUser);
+  const clientRateWritable =
+    showClientRate && (clientRateAccess?.canWrite ?? canWriteClientRate(authUser));
   const sameUnit =
     showClientRate &&
     clientRate != null &&
@@ -507,12 +526,14 @@ function RecruitmentCard({
   candidateName,
   focusedJobId,
   readOnly = false,
+  clientRateAccess,
 }: {
   job: any;
   candidateId: number;
   candidateName: string;
   focusedJobId: number | null;
   readOnly?: boolean;
+  clientRateAccess?: ClientRateAccess;
 }) {
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
@@ -652,6 +673,7 @@ function RecruitmentCard({
         clientRate={job.client_rate ?? null}
         expectedRate={job.expected_rate ?? null}
         readOnly={readOnly}
+        clientRateAccess={clientRateAccess}
       />
 
       <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-border pt-3">

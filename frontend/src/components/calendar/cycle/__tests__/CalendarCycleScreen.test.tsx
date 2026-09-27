@@ -239,6 +239,34 @@ describe("CalendarCycleScreen", () => {
     expect(questions).toHaveTextContent("Pytania klienta Alior z poprzednich rozmów");
   });
 
+  it("link z dzwonka do pary spoza „mine” przełącza HoR na cały zespół (R10-N15-4)", async () => {
+    mocks.user = { id: 3, role: "head_of_recruitment", roles: ["head_of_recruitment"] };
+    mocks.search = "cycle=5-9";
+    renderScreen();
+    await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/calendar?cycle=5-9&scope=all"));
+    expect(mocks.replace).toHaveBeenCalledTimes(1);
+  });
+
+  it("link z dzwonka do pary spoza najszerszego zakresu mówi to wprost (R10-N15-4)", async () => {
+    mocks.search = "scope=jobs&cycle=5-9";
+    renderScreen();
+    expect(await screen.findByTestId("cycle-link-out-of-scope")).toHaveTextContent(
+      /nie ma w Twoim zakresie/,
+    );
+    expect(mocks.replace).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Zamknij" }));
+    expect(mocks.replace).toHaveBeenCalledWith("/calendar?scope=jobs");
+  });
+
+  it("para z linku jest w zakresie — bez przełączania i bez komunikatu", async () => {
+    mocks.user = { id: 3, role: "head_of_recruitment", roles: ["head_of_recruitment"] };
+    mocks.search = "cycle=11-22";
+    renderScreen();
+    expect(await screen.findByTestId("cycle-candidate-card")).toBeInTheDocument();
+    expect(mocks.replace).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("cycle-link-out-of-scope")).not.toBeInTheDocument();
+  });
+
   it("link z dzwonka ?cycle= otwiera panel tego kandydata", async () => {
     mocks.search = "cycle=11-22";
     renderScreen();

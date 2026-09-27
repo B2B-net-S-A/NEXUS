@@ -21,7 +21,7 @@
 import type { ReactNode } from "react";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Send } from "lucide-react";
+import { AlertCircle, Loader2, Send } from "lucide-react";
 
 import api, { extractErrorMsg } from "@/lib/api";
 import { useToast } from "@/components/Toast";
@@ -644,6 +644,30 @@ interface NoteListItem {
  * montuje się przy każdym wyborze kandydata i pobieranie notatek „na zapas"
  * byłoby zapytaniem per wiersz kolejki.
  */
+/**
+ * Awaria odczytu w doku osoby. Runda 10 (R10-N15-3): pusty stan („Brak …”)
+ * wolno pokazać wyłącznie po udanym odczycie — przy `retry: 0` awaria daje
+ * od razu `isLoading=false`, a rekruter czytający „Brak notatek” dopisywał
+ * notatkę albo robił screening drugi raz.
+ */
+export function DockLoadError({ what, onRetry }: { what: string; onRetry: () => void }) {
+  return (
+    <p role="alert" className="flex items-start gap-1.5 text-xs text-muted-foreground">
+      <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" aria-hidden="true" />
+      <span className="min-w-0 flex-1">
+        Nie udało się wczytać: {what}.{" "}
+        <button
+          type="button"
+          className="font-medium text-primary hover:underline"
+          onClick={onRetry}
+        >
+          Ponów
+        </button>
+      </span>
+    </p>
+  );
+}
+
 export function DockNotesPanel({
   candidateId,
   jobId,
@@ -733,6 +757,8 @@ export function DockNotesPanel({
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <Loader2 className="h-3 w-3 animate-spin" /> Wczytywanie…
         </div>
+      ) : notesQuery.isError ? (
+        <DockLoadError what="notatki" onRetry={() => void notesQuery.refetch()} />
       ) : items.length > 0 ? (
         <div className="space-y-2">
           {items.map((n) => (
@@ -752,11 +778,11 @@ export function DockNotesPanel({
             </div>
           ))}
         </div>
-      ) : (
+      ) : notesQuery.isSuccess ? (
         <p className="text-xs text-muted-foreground">
           Brak notatek dla tej rekrutacji.
         </p>
-      )}
+      ) : null}
     </div>
   );
 }

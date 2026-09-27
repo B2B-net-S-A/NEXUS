@@ -10,6 +10,7 @@
  * albo kolumna Tablicy „CV wysłane” / „Rozmowa u klienta” / „Umowa”).
  */
 import { placeStage, type StageLike } from "@/lib/board-stages";
+import { countPl } from "@/lib/plural-pl";
 
 /** Lustro `TRIGGER_PREVIOUS_STAGES` w `rejection_email_scheduler.py`. */
 export const REJECTION_EMAIL_TRIGGER_STAGES: ReadonlySet<string> = new Set([
@@ -66,4 +67,100 @@ export function rejectionEmailSkipMessage(
     SKIP_MESSAGE[status as Exclude<RejectionEmailStatus, "scheduled">] ??
     "Mail odrzucenia nie został zaplanowany."
   );
+}
+
+/** Krótkie powody do jednego zdania przy odrzuceniu kilku osób naraz. */
+const SKIP_SHORT: Record<Exclude<RejectionEmailStatus, "scheduled">, string> = {
+  no_mailbox: "brak podłączonej skrzynki Microsoft 365",
+  not_client_visible: "CV nie trafiło do klienta",
+  no_candidate_email: "brak adresu e-mail kandydata",
+  no_permission: "brak uprawnień do wysyłki",
+};
+
+/**
+ * Runda 10 (R10-V2-1): odrzucenie kilku osób — JEDNO zdanie o mailach,
+ * których serwer nie zaplanował (zamiast ciszy albo toastu na osobę).
+ */
+export function rejectionEmailBulkSkipMessage(
+  statuses: ReadonlyArray<string | null | undefined>
+): string | null {
+  const skipped = statuses.filter(
+    (s): s is string => !!s && s !== "scheduled"
+  );
+  if (skipped.length === 0) return null;
+  if (skipped.length === 1) return rejectionEmailSkipMessage(skipped[0]);
+  const counts = new Map<string, number>();
+  for (const status of skipped) {
+    const label =
+      SKIP_SHORT[status as Exclude<RejectionEmailStatus, "scheduled">] ??
+      "inny powód";
+    counts.set(label, (counts.get(label) ?? 0) + 1);
+  }
+  const reasons = Array.from(counts, ([label, n]) =>
+    counts.size > 1 ? `${label} (${n})` : label
+  ).join(", ");
+  return (
+    `Mail odrzucenia nie został zaplanowany dla ` +
+    `${countPl(skipped.length, "osoby", "osób", "osób")} — ${reasons}.`
+  );
+}
+
+/** Wynik `POST /api/pipeline/move` potrzebny do komunikatu o mailu. */
+export interface RejectionEmailMoveResult {
+  scheduled_rejection_email_id?: number | null;
+  rejection_email_status?: string | null;
+}
+
+export interface RejectionEmailToasts {
+  showActionToast: (
+    message: string,
+    options: { actionLabel: string; onAction: () => void | Promise<void>; durationMs?: number }
+  ) => void;
+  showSuccess: (message: string) => void;
+  showError: (message: string) => void;
+}
+
+/**
+ * Runda 10 (R10-V2-1): jeden komunikat po odrzuceniu dla KAŻDEGO ekranu —
+ * zaplanowany mail dostaje „Cofnij wysyłkę”, a zaznaczony mail, którego
+ * serwer nie zaplanował, zdanie z powodem. Warsztat rozmów pokazywał samo
+ * „Zapisano decyzję.”, więc rekruter bez skrzynki M365 nie wiedział, że mail
+ * nie wyjdzie.
+ */
+export function announceRejectionEmail(
+  data: RejectionEmailMoveResult | null | undefined,
+  {
+    requested,
+    reportSkip = true,
+    toast,
+    cancel,
+  }: {
+    /** Czy rekruter zaznaczył mail odrzucenia. */
+    requested: boolean | null | undefined;
+    /** `false` = wołający zbiera powody i mówi o nich raz (ruch zbiorczy). */
+    reportSkip?: boolean;
+    toast: RejectionEmailToasts;
+    cancel: (scheduledId: number) => Promise<unknown>;
+  }
+): void {
+  const scheduledId = data?.scheduled_rejection_email_id;
+  if (scheduledId) {
+    toast.showActionToast("Email odrzucenia zostanie wysłany za 15 minut.", {
+      actionLabel: "Cofnij wysyłkę",
+      onAction: async () => {
+        try {
+          await cancel(scheduledId);
+          toast.showSuccess("Anulowano wysyłkę emaila.");
+        } catch (err) {
+          console.error("rejection email cancel failed", err);
+          toast.showError("Nie udało się anulować wysyłki.");
+        }
+      },
+      durationMs: 10_000,
+    });
+    return;
+  }
+  if (!requested || !reportSkip) return;
+  const skip = rejectionEmailSkipMessage(data?.rejection_email_status);
+  if (skip) toast.showError(skip);
 }

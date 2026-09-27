@@ -17,7 +17,7 @@ import {
   isInterviewStage,
 } from "@/lib/job-flow-stages";
 import { terminalOf } from "@/lib/kanban-terminal";
-import { placeStage } from "@/lib/board-stages";
+import { placeStage, type StageLike } from "@/lib/board-stages";
 import { formatDate } from "@/lib/utils";
 import { isOverHourlyBudget } from "@/lib/rate-to-hourly";
 
@@ -296,6 +296,13 @@ export interface MoveGateInput {
    * Własny etap bez legacy-enuma raportuje `new` i weta nie dotyczy.
    */
   targetStage: string | null;
+  /**
+   * Kolumna docelowa (nazwa + kod). Gdy podana, weto liczy się po KOLUMNIE
+   * Tablicy — lustro `puts_column_before_client` (runda 9, R9-N11-3). Etapy
+   * u klienta rozpoznawane po nazwie („Po Interview”, „Preparation Meeting”)
+   * mają kod `interview`, więc sam kod je przepuszczał (R10-X2-4).
+   */
+  targetColumn?: StageLike | null;
 }
 
 /**
@@ -305,6 +312,12 @@ export interface MoveGateInput {
  * `ELIGIBILITY_WARNING`, a tablica pyta „Przenieś mimo to".
  */
 export const HM_VETO_ENFORCED_STAGES: ReadonlySet<string> = new Set([
+  "cv_sent",
+  "client_interview",
+]);
+
+/** Lustro `VETO_ENFORCED_COLUMNS` (kolumny Tablicy przed klientem). */
+export const HM_VETO_ENFORCED_COLUMNS: ReadonlySet<string> = new Set([
   "cv_sent",
   "client_interview",
 ]);
@@ -335,9 +348,13 @@ export function hmVetoWarningReason({
   item,
   terminal = false,
   targetStage,
-}: Pick<MoveGateInput, "item" | "terminal" | "targetStage">): string | null {
+  targetColumn,
+}: Pick<MoveGateInput, "item" | "terminal" | "targetStage" | "targetColumn">): string | null {
   if (terminal || !item.hm_veto) return null;
-  if (targetStage == null || !HM_VETO_ENFORCED_STAGES.has(targetStage)) return null;
+  const enforced = targetColumn
+    ? HM_VETO_ENFORCED_COLUMNS.has(placeStage(targetColumn).column)
+    : targetStage != null && HM_VETO_ENFORCED_STAGES.has(targetStage);
+  if (!enforced) return null;
   const when = item.hm_veto.rejected_at
     ? ` (${formatDate(item.hm_veto.rejected_at)})`
     : "";

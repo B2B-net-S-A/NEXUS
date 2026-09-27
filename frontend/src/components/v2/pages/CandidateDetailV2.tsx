@@ -664,6 +664,14 @@ export function CandidateDetailV2({
                 defaultJobId={backJobId}
                 view={profileView.recruitments}
                 readOnly={readOnly}
+                clientRateAccess={
+                  historyRaw && !Array.isArray(historyRaw)
+                    ? {
+                        canView: historyRaw.can_view_client_rate,
+                        canWrite: historyRaw.can_write_client_rate,
+                      }
+                    : undefined
+                }
               />
             </TabsContent>
 

@@ -105,6 +105,10 @@ export function EventDetailModal({
     queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
     queryClient.invalidateQueries({ queryKey: ["calendar-upcoming"] });
     queryClient.invalidateQueries({ queryKey: ["calendar-conflicts-summary"] });
+    // Runda 10 (R10-N15-11): Tablica „Rozmowy u klienta” na tym samym ekranie
+    // czyta cykl z osobnego klucza — bez tego odwołana rozmowa i jej zadania
+    // wisiały tam do 30 s (staleTime `useInterviewCycle`).
+    queryClient.invalidateQueries({ queryKey: ["interview-cycle"] });
   };
 
   const deleteMutation = useMutation({

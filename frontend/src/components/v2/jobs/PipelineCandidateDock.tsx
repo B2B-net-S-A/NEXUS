@@ -100,6 +100,7 @@ import {
 import type { CandidateDocument } from "@/components/v2/files/FilePreviewModal";
 import { DockFollowupBlock } from "@/components/v2/followups/DockFollowupBlock";
 import { DockInterviewCycle } from "@/components/v2/jobs/DockInterviewCycle";
+import { DockLoadError } from "@/components/v2/jobs/workbench-chrome";
 
 // Edytor brandowanego CV jest ciężki (rich text) — leniwy import jak w
 // CandidateDetailV2, żeby nie puchła zakładka Pipeline dla osób, które go
@@ -827,7 +828,9 @@ export function PipelineCandidateDock({
                 .join(" · ") ||
                 (candidateDetailQuery.isLoading
                   ? "Wczytywanie profilu…"
-                  : "Brak danych profilowych")}
+                  : candidateDetailQuery.isError
+                    ? "Nie udało się wczytać profilu"
+                    : "Brak danych profilowych")}
             </div>
           </div>
         </div>
@@ -1213,6 +1216,8 @@ export function PipelineCandidateDock({
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <Loader2 className="h-3 w-3 animate-spin" /> Wczytywanie…
               </div>
+            ) : screeningQuery.isError ? (
+              <DockLoadError what="screening" onRetry={() => void screeningQuery.refetch()} />
             ) : screeningAnswers ? (
               <div className="space-y-1.5 rounded-lg border border-border bg-muted/20 p-3 text-xs">
                 <div className="flex items-center justify-between">
@@ -1249,11 +1254,11 @@ export function PipelineCandidateDock({
                   </div>
                 )}
               </div>
-            ) : (
+            ) : screeningQuery.isSuccess ? (
               <p className="text-xs text-muted-foreground">
                 Brak jeszcze wypełnionego screeningu dla tego etapu.
               </p>
-            )}
+            ) : null}
           </div>
         </DockSection>
 
@@ -1410,6 +1415,8 @@ export function PipelineCandidateDock({
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <Loader2 className="h-3 w-3 animate-spin" /> Wczytywanie…
               </div>
+            ) : notesQuery.isError ? (
+              <DockLoadError what="notatki" onRetry={() => void notesQuery.refetch()} />
             ) : (notesQuery.data?.items ?? []).length > 0 ? (
               <div className="space-y-2">
                 {(notesQuery.data?.items ?? []).map((n) => (
@@ -1429,11 +1436,11 @@ export function PipelineCandidateDock({
                   </div>
                 ))}
               </div>
-            ) : (
+            ) : notesQuery.isSuccess ? (
               <p className="text-xs text-muted-foreground">
                 Brak notatek dla tej rekrutacji.
               </p>
-            )}
+            ) : null}
           </div>
         </DockSection>
       </div>

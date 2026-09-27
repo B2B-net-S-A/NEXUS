@@ -44,6 +44,11 @@ interface Props {
   }) => void;
   /** Przesuń bez stawki — stawka jest opcjonalna od 17.09.2026. */
   onSkip: () => void;
+  /**
+   * Ruch jest w drodze. Runda 10 (R10-N15-7): okno zostaje otwarte do
+   * odpowiedzi, więc bez blokady podwójny klik albo Enter wysyłał drugi ruch.
+   */
+  submitting?: boolean;
 }
 
 function initialRateText(value: number | string | null | undefined): string {
@@ -61,6 +66,7 @@ export function VerifiedRateModal({
   initialRateHourly = null,
   onConfirm,
   onSkip,
+  submitting = false,
 }: Props) {
   // Okno jest montowane z `key` karty, więc inicjalizator liczy się per kandydat.
   const [rate, setRate] = useState<string>(() =>
@@ -77,7 +83,7 @@ export function VerifiedRateModal({
   });
 
   const handleSubmit = () => {
-    if (!gate.isValid) return;
+    if (!gate.isValid || submitting) return;
     onConfirm({ rate: gate.numericRate, unit, currency });
   };
 
@@ -114,10 +120,10 @@ export function VerifiedRateModal({
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             Anuluj
           </Button>
-          <Button variant="outline" onClick={onSkip}>
+          <Button variant="outline" onClick={onSkip} disabled={submitting}>
             Pomiń stawkę
           </Button>
-          <Button onClick={handleSubmit} disabled={!gate.isValid}>
+          <Button onClick={handleSubmit} disabled={!gate.isValid || submitting} loading={submitting}>
             Przesuń
           </Button>
         </DialogFooter>
