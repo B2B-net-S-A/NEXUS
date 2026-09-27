@@ -70,6 +70,9 @@ regexes = [
   # Zakotwiczone (audyt 24.09.2026): bez ``^…$`` wpis pasował jako PODCIĄG
   # każdego pełnego tokenu HS256, więc zacommitowany prawdziwy JWT przechodził.
   '''^eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9$''',
+  # Nazwa klucza w ``app_settings`` (kursor ponownego dopasowania maili M365),
+  # nie sekret — reguła generic-api-key łapie ją po nazwie stałej ``…_KEY``.
+  '''^m365_rematch_cursor$''',
   # Dosłowna atrapa z asercji ``redact_sensitive("token=abcdef123456")``.
   # Zakotwiczona, bo ten globalny blok dopasowuje regexy do SAMEGO SEKRETU
   # (``regexTarget`` domyślnie ``"secret"``, nie ``"line"`` jak w blokach
