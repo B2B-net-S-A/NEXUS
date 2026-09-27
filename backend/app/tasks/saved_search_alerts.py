@@ -197,7 +197,18 @@ async def _replay_match_items(
         resp.raise_for_status()
         data = resp.json()
         batch = data.get("items") or []
-        items.extend(batch)
+        # Runda 9 (R9-N14-1): po podniesieniu sufitu do 1000 stron pełne
+        # wiersze kandydatów (doświadczenie, edukacja, podsumowanie AI)
+        # potrafiły zająć gigabajty pamięci jedynego procesu. Skaner potrzebuje
+        # wyłącznie id i nazwiska do komunikatu.
+        items.extend(
+            {
+                "id": it.get("id"),
+                "name": it.get("name"),
+                "lastname": it.get("lastname"),
+            }
+            for it in batch
+        )
         if len(batch) < _PAGE_SIZE:
             return items, False
     logger.warning(

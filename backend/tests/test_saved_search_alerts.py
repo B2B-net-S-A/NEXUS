@@ -128,6 +128,31 @@ class TestReplayMatchItems:
         items, truncated = await _replay_match_items(client, "t", {}, max_pages=2)
         assert (len(items), truncated) == (200, True)
 
+    @pytest.mark.asyncio
+    async def test_keeps_only_id_and_names(self):
+        """Runda 9 (R9-N14-1): pełne wiersze kandydatów nie zostają w pamięci."""
+        from app.tasks.saved_search_alerts import _replay_match_items
+
+        class _Rich(_FakeResponse):
+            def json(self) -> dict:
+                return {
+                    "items": [
+                        {
+                            "id": 1,
+                            "name": "A",
+                            "lastname": "B",
+                            "experience": ["x"] * 50,
+                        }
+                    ]
+                }
+
+        class _Client:
+            async def get(self, _url, *, params, headers):
+                return _Rich(1)
+
+        items, _ = await _replay_match_items(_Client(), "t", {}, max_pages=1)
+        assert items == [{"id": 1, "name": "A", "lastname": "B"}]
+
     def test_default_cap_covers_whole_database(self):
         from app.tasks import saved_search_alerts as mod
 
