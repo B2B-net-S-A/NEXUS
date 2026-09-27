@@ -45,6 +45,7 @@ import { DopasowanieTab } from "@/components/v2/pages/DopasowanieTab";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import { invalidateCandidateMutation } from "@/components/v2/pages/candidate-cache";
 import { candidateStageLabel } from "@/components/v2/pages/candidate-timeline-labels";
+import { entrySourceLabel, recruitmentStageLabel } from "@/lib/recruitment-stage-label";
 import {
   focusCandidateRecruitmentCard,
   resolveVisibleRecruitmentFocus,
@@ -613,14 +614,21 @@ function RecruitmentCard({
         </Link>
         <div className="text-xs text-muted-foreground">
           {job.client_name ? `${job.client_name} · ` : ""}
-          {candidateStageLabel(job.latest_stage)}
+          {recruitmentStageLabel(
+            job.latest_stage,
+            job.latest_stage_name,
+            candidateStageLabel,
+          )}
+          {entrySourceLabel(job.entry_source)
+            ? ` · ${entrySourceLabel(job.entry_source)}`
+            : ""}
           {job.first_seen ? ` · dodano ${formatDate(job.first_seen)}` : ""}
         </div>
         {Array.isArray(job.stages) && job.stages.length > 1 ? (
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
             {job.stages.slice(0, 6).map((s: any, si: number) => (
               <Badge key={si} size="sm" variant="soft">
-                {candidateStageLabel(s.stage)}
+                {recruitmentStageLabel(s.stage, s.stage_name, candidateStageLabel)}
               </Badge>
             ))}
           </div>

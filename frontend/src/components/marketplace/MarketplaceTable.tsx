@@ -80,6 +80,13 @@ export function MarketplaceTable({ sourceEvent, emptyHint }: MarketplaceTablePro
 
   const items: MarketplaceCandidate[] = data?.items ?? [];
   const total = data?.total ?? 0;
+  // Runda 10 (F11): 0 wyników przy wpisanym wyszukiwaniu to „nikt nie pasuje”,
+  // a nie „nikogo nie wystawiono na targ”.
+  const searching = q.trim().length > 0;
+  const clearSearch = () => {
+    setQ("");
+    setPage(1);
+  };
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   // Przy awarii ten ekran mówił „Brak kandydatów na targu" i DODATKOWO
@@ -112,7 +119,7 @@ export function MarketplaceTable({ sourceEvent, emptyHint }: MarketplaceTablePro
         </div>
         <div className="text-xs text-muted-foreground">
           {/* Bez odpowiedzi `total` to zero z inicjalizacji, nie stan targu. */}
-          Razem na targu:{" "}
+          {searching ? "Pasuje do wyszukiwania:" : "Razem na targu:"}{" "}
           <strong>{isBlockingViewState(viewState) ? "—" : total}</strong>
         </div>
       </div>
@@ -134,6 +141,24 @@ export function MarketplaceTable({ sourceEvent, emptyHint }: MarketplaceTablePro
           }
           onRetry={viewState === "error" ? () => void refetch() : undefined}
         />
+      ) : viewState === "empty" && searching ? (
+        <div className="text-center py-16 bg-muted dark:bg-card/40 rounded-2xl">
+          <Search className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
+          <h3 className="text-lg font-semibold text-muted-foreground mb-1">
+            Nikt na targu nie pasuje do wyszukiwania
+          </h3>
+          <p className="text-sm text-muted-foreground max-w-md mx-auto">
+            Szukasz: „{q.trim()}”. Wyczyść wyszukiwanie, żeby zobaczyć wszystkich
+            kandydatów na targu.
+          </p>
+          <button
+            type="button"
+            onClick={clearSearch}
+            className="mt-4 inline-flex h-9 items-center rounded-lg border border-border bg-card px-3 text-sm font-medium hover:bg-muted"
+          >
+            Wyczyść wyszukiwanie
+          </button>
+        </div>
       ) : viewState === "empty" ? (
         <div className="text-center py-16 bg-muted dark:bg-card/40 rounded-2xl">
           <Store className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />

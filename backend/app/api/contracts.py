@@ -92,6 +92,7 @@ from app.schemas.contract import (
     ContractBulkTerminateRequest,
     ContractTemplateBrief,
     ContractTerminateRequest,
+    ContractNoteCreate,
     ContractTimelineItem,
     ContractUpdate,
     ContractVoidRequest,
@@ -6226,19 +6227,7 @@ async def contract_timeline(
     items: list[ContractTimelineItem] = []
 
     for note, author_email in notes_res.all():
-        items.append(
-            ContractTimelineItem(
-                id=note.id,
-                kind="note",
-                at=note.created_at,
-                content=note.content,
-                sub_type=note.note_type.value
-                if hasattr(note.note_type, "value")
-                else str(note.note_type),
-                author_id=note.author_id,
-                author_name=author_email,
-            )
-        )
+        items.append(_note_timeline_item(note, author_email))
 
     for call, author_email in calls_res.all():
         items.append(
@@ -6262,6 +6251,67 @@ async def contract_timeline(
 
     items.sort(key=lambda i: i.at, reverse=True)
     return items[:limit]
+
+
+def _note_timeline_item(
+    note: Note, author_email: Optional[str]
+) -> ContractTimelineItem:
+    return ContractTimelineItem(
+        id=note.id,
+        kind="note",
+        at=note.created_at,
+        content=note.content,
+        sub_type=note.note_type.value
+        if hasattr(note.note_type, "value")
+        else str(note.note_type),
+        author_id=note.author_id,
+        author_name=author_email,
+    )
+
+
+@router.post(
+    "/{contract_id}/notes",
+    response_model=ContractTimelineItem,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_contract_note(
+    contract_id: int,
+    data: ContractNoteCreate,
+    current_user: DeliveryLeadPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    """Notatka przy kontrakcie — widoczna tu i w profilu kandydata.
+
+    Runda 10 (F03): bramka jak przy sprzęcie kontraktu (`DeliveryLeadPlus` +
+    zakres klienta DL), nie `POST /api/notes` — tamta trasa stoi za zapisem
+    kandydatów, czyli w innej domenie uprawnień niż umowa.
+    """
+    contract = await _assert_contract(db, contract_id, current_user)
+    note = Note(
+        content=data.content,
+        note_type=data.note_type,
+        candidate_id=contract.candidate_id,
+        contract_id=contract.id,
+        author_id=current_user.id,
+    )
+    db.add(note)
+    if contract.candidate_id is not None:
+        candidate = await db.get(Candidate, contract.candidate_id)
+        if candidate is not None:
+            candidate.notes_count = (candidate.notes_count or 0) + 1
+    await db.flush()
+    db.add(
+        Activity(
+            entity_type="contract",
+            entity_id=contract.id,
+            action="note_added",
+            user_id=current_user.id,
+            details={"note_id": note.id},
+        )
+    )
+    await db.flush()
+    await db.refresh(note)
+    return _note_timeline_item(note, current_user.email)
 
 
 # ── Benchmark comparison (rate vs internal avg vs market) ────────────────────

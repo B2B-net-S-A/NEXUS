@@ -11,7 +11,7 @@
  */
 
 import type { KanbanItem } from "@/components/v2/pages/kanban-shared";
-import type { BoardColumnKey } from "@/lib/board-stages";
+import type { BoardColumnKey, StageBadgeKey } from "@/lib/board-stages";
 import { cardBadgeLabel } from "@/lib/candidate-followup";
 
 export type CardBadgeTone =
@@ -121,6 +121,23 @@ function sourceBadge(item: KanbanItem, ctx: CardBadgeContext): CardBadge | null 
     default:
       return null;
   }
+}
+
+/**
+ * Runda 10 (F04): znacznik etapu „Z ogłoszenia" tylko wtedy, gdy osoba
+ * naprawdę przyszła z ogłoszenia. Ręczne dodanie też ląduje na etapie
+ * „Ogłoszenia" szablonu, a karta mówiła wtedy „Z ogłoszenia" obok „Dodałeś
+ * sam". Źródło nieznane (proces sprzed 0352) zostawia dawny znacznik.
+ */
+export function cardStageBadge(
+  item: Pick<KanbanItem, "entry_source">,
+  badge: StageBadgeKey | null | undefined,
+): StageBadgeKey | null {
+  if (!badge) return null;
+  if (badge === "posting" && item.entry_source && item.entry_source !== "application") {
+    return null;
+  }
+  return badge;
 }
 
 function claimBadge(item: KanbanItem, ctx: CardBadgeContext): CardBadge {

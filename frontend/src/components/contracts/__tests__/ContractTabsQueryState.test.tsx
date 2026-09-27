@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   equipmentList: vi.fn(),
   equipmentUpdate: vi.fn(),
   notesTimeline: vi.fn(),
+  createNote: vi.fn(),
   showToast: vi.fn(),
 }));
 
@@ -39,6 +40,7 @@ vi.mock("@/lib/api", () => ({
   },
   contractsApi: {
     notesTimeline: (...a: unknown[]) => mocks.notesTimeline(...a),
+    createNote: (...a: unknown[]) => mocks.createNote(...a),
   },
   // Słowniki czytane przez `contract-timeline-labels.ts` (lista zmian aneksu).
   CONTRACT_FIELD_LABELS: { rate_candidate: "Stawka kandydata" },
@@ -226,6 +228,37 @@ describe("ContractNotesTab", () => {
     mocks.notesTimeline.mockResolvedValueOnce({ data: [] });
     fireEvent.click(screen.getByRole("button", { name: /Spróbuj ponownie/ }));
     expect(await screen.findByText(/Brak notatek/)).toBeInTheDocument();
+  });
+
+  it("pusta zakładka nie każe ustawiać pola technicznego (runda 10, F03)", async () => {
+    mocks.notesTimeline.mockResolvedValueOnce({ data: [] });
+    renderWith(<ContractNotesTab contractId={4} />);
+    expect(await screen.findByText(/Brak notatek/)).toBeInTheDocument();
+    expect(screen.queryByText(/contract_id/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Dodaj notatkę/ })).toBeNull();
+  });
+
+  it("notatkę dodaje się wprost przy kontrakcie (runda 10, F03)", async () => {
+    mocks.notesTimeline.mockResolvedValue({ data: [] });
+    mocks.createNote.mockResolvedValueOnce({ data: { id: 1 } });
+    renderWith(<ContractNotesTab contractId={4} canAddNote />);
+
+    const button = await screen.findByRole("button", { name: /Dodaj notatkę/ });
+    expect(button).toBeDisabled();
+    fireEvent.change(screen.getByLabelText(/Nowa notatka przy kontrakcie/), {
+      target: { value: "  Ustalenia z rozmowy  " },
+    });
+    fireEvent.change(screen.getByLabelText("Rodzaj notatki"), {
+      target: { value: "call" },
+    });
+    fireEvent.click(button);
+    await waitFor(() =>
+      expect(mocks.createNote).toHaveBeenCalledWith(4, {
+        content: "Ustalenia z rozmowy",
+        note_type: "call",
+      }),
+    );
+    await waitFor(() => expect(mocks.notesTimeline).toHaveBeenCalledTimes(2));
   });
 });
 

@@ -467,10 +467,20 @@ function CreateFrameworkContractDialog({
   const [notes, setNotes] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // Runda 10 (F12): odwrócony zakres dat mówimy przy polu „Wygasa”, zanim
+  // formularz pójdzie do serwera — do 27.09 kończyło się to toastem
+  // „Request failed with status code 422”.
+  const [expiryError, setExpiryError] = useState<string | null>(null);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim()) return;
+    if (effectiveDate && expiryDate && expiryDate < effectiveDate) {
+      setExpiryError("Data wygaśnięcia nie może być wcześniejsza niż „Obowiązuje od”.");
+      document.getElementById("framework-contract-expiry")?.focus();
+      return;
+    }
+    setExpiryError(null);
     setSubmitting(true);
     try {
       const fd = new FormData();
@@ -486,8 +496,7 @@ function CreateFrameworkContractDialog({
       showToast("Umowa ramowa dodana", "success");
       onCreated();
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Błąd zapisu";
-      showToast(msg, "error");
+      showToast(apiErrorMessage(err, "Nie udało się zapisać umowy ramowej."), "error");
     } finally {
       setSubmitting(false);
     }
@@ -546,18 +555,36 @@ function CreateFrameworkContractDialog({
               <input
                 type="date"
                 value={effectiveDate}
-                onChange={(e) => setEffectiveDate(e.target.value)}
+                onChange={(e) => {
+                  setEffectiveDate(e.target.value);
+                  setExpiryError(null);
+                }}
                 className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
               />
             </label>
             <label>
               <span className="text-sm">Wygasa</span>
               <input
+                id="framework-contract-expiry"
                 type="date"
                 value={expiryDate}
-                onChange={(e) => setExpiryDate(e.target.value)}
+                onChange={(e) => {
+                  setExpiryDate(e.target.value);
+                  setExpiryError(null);
+                }}
+                aria-invalid={expiryError ? true : undefined}
+                aria-describedby={expiryError ? "framework-contract-expiry-error" : undefined}
                 className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
               />
+              {expiryError ? (
+                <span
+                  id="framework-contract-expiry-error"
+                  role="alert"
+                  className="mt-1 block text-xs text-destructive"
+                >
+                  {expiryError}
+                </span>
+              ) : null}
             </label>
           </div>
           <label>
@@ -641,7 +668,7 @@ function CreateAmendmentDialog({
       showToast("Aneks dodany", "success");
       onCreated();
     } catch (err: unknown) {
-      showToast(err instanceof Error ? err.message : "Błąd zapisu", "error");
+      showToast(apiErrorMessage(err, "Nie udało się zapisać aneksu."), "error");
     } finally {
       setSubmitting(false);
     }

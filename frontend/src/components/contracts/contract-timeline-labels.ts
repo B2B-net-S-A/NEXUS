@@ -43,6 +43,7 @@ const ACTION_LABELS: Record<string, string> = {
   signature_withdrawn: "Wycofano z podpisu",
   signature_expired: "Wygasł termin podpisu",
   equipment_added: "Dodano sprzęt",
+  note_added: "Dodano notatkę",
   equipment_updated: "Zaktualizowano sprzęt",
   equipment_removed: "Usunięto sprzęt",
   document_uploaded: "Dodano dokument",

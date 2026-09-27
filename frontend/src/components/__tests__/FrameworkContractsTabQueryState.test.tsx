@@ -10,7 +10,7 @@
  */
 import * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 interface TestUser {
@@ -20,7 +20,7 @@ interface TestUser {
 
 const authState: { user: TestUser | null } = { user: null };
 
-const mocks = vi.hoisted(() => ({ list: vi.fn() }));
+const mocks = vi.hoisted(() => ({ list: vi.fn(), create: vi.fn(), showToast: vi.fn() }));
 
 vi.mock("@/store/auth", async () => {
   const actual =
@@ -33,7 +33,7 @@ vi.mock("@/store/auth", async () => {
 });
 
 vi.mock("@/components/Toast", () => ({
-  useToast: () => ({ showToast: vi.fn() }),
+  useToast: () => ({ showToast: mocks.showToast }),
 }));
 
 vi.mock("@/lib/authenticated-files", () => ({
@@ -44,6 +44,7 @@ vi.mock("@/lib/api/dlPortal", () => ({
   dlPortalApi: {
     listFrameworkContracts: (...a: unknown[]) => mocks.list(...a),
     deleteFrameworkContract: vi.fn(),
+    createFrameworkContract: (...a: unknown[]) => mocks.create(...a),
     listAmendments: vi.fn(),
     deleteAmendment: vi.fn(),
   },
@@ -71,6 +72,8 @@ function renderTab() {
 
 beforeEach(() => {
   mocks.list.mockReset();
+  mocks.create.mockReset();
+  mocks.showToast.mockReset();
   authState.user = { role: "admin" };
 });
 
@@ -116,5 +119,57 @@ describe("FrameworkContractsTab", () => {
 
     expect(await screen.findByText(FALSE_CLAIM)).toBeInTheDocument();
     expect(screen.getByText(NEW_BUTTON)).toBeInTheDocument();
+  });
+});
+
+describe("Nowa umowa ramowa — odwrócone daty (runda 10, F12)", () => {
+  async function openDialog() {
+    mocks.list.mockResolvedValue({ data: { items: [] } });
+    const view = renderTab();
+    fireEvent.click(await screen.findByText(NEW_BUTTON));
+    fireEvent.change(screen.getByPlaceholderText("np. MSA 2026"), {
+      target: { value: "MSA test" },
+    });
+    return view;
+  }
+
+  function dateInputs(container: HTMLElement) {
+    return container.querySelectorAll<HTMLInputElement>('input[type="date"]');
+  }
+
+  it("koniec przed początkiem: komunikat przy polu „Wygasa”, bez żądania", async () => {
+    const { container } = await openDialog();
+    const [from, to] = Array.from(dateInputs(container));
+    fireEvent.change(from, { target: { value: "2026-10-01" } });
+    fireEvent.change(to, { target: { value: "2026-09-30" } });
+    fireEvent.click(screen.getByRole("button", { name: /Zapisz/ }));
+
+    expect(
+      await screen.findByText(/nie może być wcześniejsza niż „Obowiązuje od”/),
+    ).toBeInTheDocument();
+    expect(to).toHaveAttribute("aria-invalid", "true");
+    expect(document.activeElement).toBe(to);
+    expect(mocks.create).not.toHaveBeenCalled();
+    expect(to).toHaveValue("2026-09-30");
+  });
+
+  it("odmowa serwera pokazuje jego polski komunikat, nie kod HTTP", async () => {
+    mocks.create.mockRejectedValue(
+      Object.assign(new Error("Request failed with status code 422"), {
+        response: { status: 422, data: { detail: "Waluta to trzyliterowy kod, np. PLN albo EUR." } },
+      }),
+    );
+    await openDialog();
+    fireEvent.click(screen.getByRole("button", { name: /Zapisz/ }));
+    await waitFor(() =>
+      expect(mocks.showToast).toHaveBeenCalledWith(
+        "Waluta to trzyliterowy kod, np. PLN albo EUR.",
+        "error",
+      ),
+    );
+    expect(mocks.showToast).not.toHaveBeenCalledWith(
+      expect.stringMatching(/status code/),
+      "error",
+    );
   });
 });
