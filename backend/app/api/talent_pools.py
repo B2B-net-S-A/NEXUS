@@ -5,7 +5,7 @@ Talent Pools API — zarządzanie pulami talentów.
 from datetime import datetime
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
@@ -55,6 +55,9 @@ class TalentPoolOut(BaseModel):
     is_personal: bool = False
     owner_id: Optional[int] = None
     owner_name: Optional[str] = None
+    # Runda 10 (R10-N7-4): Targ kandydatów to singleton z własnymi trasami
+    # (termin `marketplace_until`) — okna „Dodaj do puli" go pomijają.
+    is_marketplace: bool = False
 
     class Config:
         from_attributes = True
@@ -65,7 +68,8 @@ class AddCandidateRequest(BaseModel):
 
 
 class BulkAddCandidatesRequest(BaseModel):
-    candidate_ids: list[int]
+    # Runda 10 (R10-N7-11): `IN (...)` z ponad 32 767 id to błąd asyncpg (500).
+    candidate_ids: list[int] = Field(..., max_length=1000)
 
 
 class BulkAddResponse(BaseModel):
@@ -114,6 +118,17 @@ def _assert_can_modify_pool(pool: TalentPool, user: User) -> None:
     * Pula osobista (``is_personal=True``) — tylko właściciel (``created_by``)
       lub admin. Reszta zespołu widzi pulę, ale jej nie edytuje.
     """
+    if pool.is_marketplace:
+        # Runda 10 (R10-N7-4): Targ ma własne trasy z terminem. Wpis dodany tu
+        # nie miałby `marketplace_until` ani `source_event` i nigdy by nie
+        # wygasł (sweeper zdejmuje tylko wpisy z datą i wpisy automatyczne).
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Targiem kandydatów zarządza się na ekranie Targu "
+                "(z terminem) — nie przez zwykłą pulę."
+            ),
+        )
     if (
         pool.is_personal
         and pool.created_by != user.id
@@ -171,6 +186,7 @@ async def list_talent_pools(
             is_personal=p.is_personal,
             owner_id=p.created_by,
             owner_name=(p.creator.name if p.creator else None),
+            is_marketplace=bool(p.is_marketplace),
         )
         for p, cnt in result.all()
     ]
