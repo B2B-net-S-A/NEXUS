@@ -28,6 +28,7 @@ from collections import defaultdict
 from datetime import date, datetime, timezone
 from io import BytesIO
 from typing import Annotated, Optional
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
@@ -39,7 +40,7 @@ from app.api.deps import require_roles
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.core.export_safety import safe_cell
-from app.core.scheduling import business_today
+from app.core.scheduling import DEFAULT_TZ, business_today, local_now
 from app.models.activity import Activity
 from app.models.dl_alert import (
     DL_ALERT_PRIORITY_HIGH,
@@ -417,6 +418,19 @@ async def mark_handled(
     return _to_read(refreshed or alert)
 
 
+def export_local_timestamp(moment: Optional[datetime]) -> str:
+    """Znacznik czasu do arkusza — w czasie firmy (Europe/Warsaw), bez strefy.
+
+    Runda 9 (R9-N12-8): eksport pisał surowe ISO w UTC („…T21:30:00+00:00”),
+    więc wieczorna reakcja DL lądowała w arkuszu pod innym dniem niż w panelu.
+    """
+    if moment is None:
+        return ""
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return moment.astimezone(ZoneInfo(DEFAULT_TZ)).strftime("%Y-%m-%d %H:%M:%S")
+
+
 @router.get("/export")
 async def export_alerts(
     user: DlAlertsUser,
@@ -473,12 +487,8 @@ async def export_alerts(
                 safe_cell(read.client_name),
                 safe_cell(read.alert_type_label),
                 safe_cell(read.message),
-                read.created_at.isoformat(timespec="seconds"),
-                (
-                    read.handled_at.isoformat(timespec="seconds")
-                    if read.handled_at
-                    else ""
-                ),
+                export_local_timestamp(read.created_at),
+                export_local_timestamp(read.handled_at),
                 read.reaction_label,
                 read.status_label,
             ]
@@ -487,7 +497,7 @@ async def export_alerts(
     buffer = BytesIO()
     workbook.save(buffer)
     buffer.seek(0)
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    stamp = local_now().strftime("%Y%m%d_%H%M%S")
     filename = f"powiadomienia-dl_{stamp}.xlsx"
     return StreamingResponse(
         buffer,

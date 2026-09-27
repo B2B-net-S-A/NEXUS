@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 26.09.2026
+> **Zgodność z systemem sprawdzona:** 27.09.2026
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -1266,18 +1266,18 @@ nie samą zakładkę. Karty są pogrupowane:
 |---|---|---|---|
 | Kończące się zamówienia i umowy | **Zamówienie okresowe** kończy się (a u klientów z rozszerzonymi alertami — także **zamówienie MD/kosztowe**, osobno dla każdego konsultanta) | 30 dni przed datą końca — **pierwsza karta od razu z mailem**. **Nie powstaje, gdy do zamówienia dodano już przyszłe zamówienie** (także szkic) — wtedy nic nie trzeba robić, a otwarta karta zamyka się sama; to samo dotyczy powiadomienia w dzwonku. Samo przyszłe zamówienie dostaje kartę na tych samych zasadach | co 7 dni bez maila; **14 dni przed — mail**; **7 dni przed — wysoki priorytet (czerwona karta) + mail** |
 | | **Umowa ramowa** klienta wygasa | 30 dni przed wygaśnięciem | jak wyżej |
-| | **Kontrakt** konsultanta kończy się (umowa B2B ma datę końca dopiero po „Zakończ współpracę") | 30 dni przed końcem | jak wyżej |
+| | **Kontrakt** konsultanta kończy się (umowa B2B ma datę końca dopiero po „Zakończ współpracę") | 30 dni przed końcem. Gdy tego samego dnia kończy się zamówienie, które ma już własną kartę, kontrakt drugiej karty nie dostaje; ale jeśli za zamówieniem czeka kontynuacja (np. szkic), karta kontraktu **powstaje** — umowa się kończy, a szkic zostałby bez współpracy | jak wyżej |
 | | **[Klient] — wygasł konflikt z kandydatem** (NDA / cooling-off, czarna lista klienta albo konkurencja z datą wygaśnięcia) | data wygaśnięcia wpisu w „Konflikty" na profilu kandydata minęła — kandydata znów można proponować temu klientowi; przycisk otwiera profil kandydata | raz; bez maila |
 | | **Mało MD** — konsultantowi (budżet przy osobie; nie osobie, która już zeszła z zamówienia) albo całemu zamówieniu (wspólna pula) | zostało **21 MD lub mniej** | co 7 dni; **wysoki priorytet + mail**, gdy zostało MD na ok. **7 dni roboczych** pracy przy dotychczasowym tempie tego zamówienia |
 | | **Wysokie zużycie podstawy MD** — tylko u klientów z rozszerzonymi alertami, osobno dla każdego konsultanta | zużyto **80% lub więcej** podstawy MD (zakres opcjonalny nie wchodzi do rachunku) | co 7 dni; bez eskalacji — pilny sygnał daje wiersz wyżej |
 | | **Kończy się budżet zamówienia kosztowego** | zostało **10 000 zł lub mniej** | co 7 dni; **wysoki priorytet + mail**, gdy budżet wystarczy na ok. **7 dni roboczych** przy dotychczasowym tempie faktur |
-| | Zamówienie **wyczerpane** (kosztowe albo wspólna pula MD) | budżet zszedł do zera | raz |
-| Nowi kontraktorzy — draft zamówienia | **Nowy kontraktor u [klient] — uzupełnij zamówienie** | umowa oznaczona w Generatorze umów jako **podpisana obustronnie** (powstaje draft kontraktu i zamówienia); karta wypunktowuje braki: stawka przychodowa, okres zamówienia, numer zamówienia | co 7 dni, dopóki czegoś brakuje |
-| | **[Klient] — [kto] bez zamówienia** | zamówienie konsultanta wisi w statusie **Draft** (z innego źródła niż podpis umowy); pierwszy draft z maila ma osobne jednorazowe powiadomienie | co 7 dni |
+| | Zamówienie **wyczerpane** (kosztowe albo wspólna pula MD) | budżet zszedł do zera | raz; karta znika sama, gdy budżet zostanie podniesiony i zamówienie wróci na „Aktywne” |
+| Nowi kontraktorzy — draft zamówienia | **Nowy kontraktor u [klient] — uzupełnij zamówienie** | umowa oznaczona w Generatorze umów jako **podpisana obustronnie** (powstaje draft kontraktu i zamówienia); karta wypunktowuje to samo, czego wymaga aktywacja zamówienia: numer zamówienia, data startu, stawka przychodowa i kosztowa, a przy zamówieniu MD liczba MD, przy kosztowym — kwota. Data końca nie jest wymagana (zamówienie bezterminowe jest w porządku) | co 7 dni, dopóki czegoś brakuje |
+| | **[Klient] — [kto] bez zamówienia** | zamówienie konsultanta wisi w statusie **Draft** (z innego źródła niż podpis umowy); pierwszy draft z maila ma osobne jednorazowe powiadomienie. Nie dotyczy osoby dopisanej do zamówienia zaplanowanego albo szkicu zamówienia MD/kosztowego ani zaplanowanego „Wejdź za konsultanta” — te czekają na swój dzień | co 7 dni |
 | | **Brak stawki przychodowej** | aktywne zamówienie bez stawki, którą płaci klient | co 7 dni |
 | Zamówienia z maila do weryfikacji | **Sprawdź zamówienie z maila: [numer]** — „Zamówienie dla [kto] do [klient] czeka na ręczną weryfikację”, z powodem | **trzy nieudane próby automatycznego dokończenia z rzędu** (czyli po ok. 3 godzinach pracy, licząc tylko 8:00–18:00). Zamówienie czekające na podpis umowy nowego kontraktora **nie wysyła karty nigdy**; wpis bez rozpoznanego klienta też nie — nie ma komu | co 7 dni |
 | Decyzje po zakończeniu współpracy | **Decyzja MD po zakończeniu współpracy** | konsultant zakończył pracę na zamówieniu MD — **zawsze**, także gdy nie zostało ani jedno MD | raz; **nie da się jej odhaczyć** — zamyka ją decyzja w zamówieniu |
-| | **[Klient] — brak kolejnego zamówienia** | dzień po końcu zamówienia osoba nie ma u tego klienta następnego zamówienia — aktywnego, przyszłego ani szkicu | co 7 dni, do dodania zamówienia |
+| | **[Klient] — brak kolejnego zamówienia** | dzień po końcu zamówienia osoba nie ma u tego klienta następnego zamówienia — aktywnego, przyszłego ani szkicu | co 7 dni, do dodania zamówienia. Zakończenie współpracy zamyka kartę sama (to nie jest Twoje „zrobione”); cofnięte zakończenie przywraca ją |
 
 **Tempo zużycia** liczone jest z raportów tego zamówienia: suma zaraportowanych
 MD (albo faktur) podzielona przez dni robocze od startu zamówienia do końca
@@ -1297,6 +1297,10 @@ dostaje przypomnienie standardowe, a na końcu alert o wyczerpaniu.
   ostrzeżenie: przy zamówieniu na 220 MD alert „mało MD" (21 MD pozostałych)
   wypada dopiero przy ~90% zużycia, za późno na wynegocjowanie i wystawienie
   nowego dokumentu PO.
+
+Klient **usunięty** (z zachowaniem historii) nie dostaje żadnych kart ani
+powiadomień w dzwonku; otwarte karty umowy ramowej i braku kolejnego
+zamówienia zamykają się przy najbliższym przebiegu.
 
 Gdy oba warunki są spełnione naraz, w panelu stoją **dwie karty** i każdą
 odhaczasz osobno. Listę klientów objętych tymi alertami ustawia administrator

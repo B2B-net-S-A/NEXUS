@@ -209,18 +209,54 @@ def test_new_contractor_missing_fields():
     draft = ClientOrder(title="Jan Nowak — Java Developer", start_date=date(2026, 9, 1))
     assert new_contractor_missing_fields(
         draft, candidate_name="Jan Nowak", job_title="Java Developer"
-    ) == ["stawkę przychodową", "okres zamówienia", "numer zamówienia"]
+    ) == ["numer zamówienia", "stawkę przychodową", "stawkę kosztową"]
 
+    # Runda 9 (R9-N12-2): zamówienie bezterminowe jest kompletne — bramka
+    # aktywacji nie wymaga daty końca, więc karta też nie.
     done = ClientOrder(
         title="PO/2026/77",
         start_date=date(2026, 9, 1),
-        end_date=date(2026, 12, 31),
         rate_client=Decimal("150"),
+        rate_candidate=Decimal("100"),
     )
     assert (
         new_contractor_missing_fields(done, candidate_name="Jan Nowak", job_title="X")
         == []
     )
+
+
+def test_new_contractor_missing_fields_follow_the_activation_gate():
+    """Runda 9 (R9-N12-2): MD bez liczby MD i kosztowe bez kwoty nie są gotowe.
+
+    Do poprawki karta liczyła własną listę i zamykała się, choć bramka
+    aktywacji nadal odmawiała — szkic wisiał w Draft bez żadnego sygnału.
+    """
+    from app.models.client_order import ClientOrder
+    from app.services.dl_alerts import new_contractor_missing_fields
+
+    base = dict(
+        title="PO/2026/78",
+        start_date=date(2026, 9, 1),
+        end_date=date(2026, 12, 31),
+        rate_client=Decimal("150"),
+        rate_candidate=Decimal("100"),
+    )
+    md = ClientOrder(order_type="md", **base)
+    assert new_contractor_missing_fields(md, candidate_name="A B", job_title="X") == [
+        "liczbę MD"
+    ]
+    cost = ClientOrder(order_type="cost", **base)
+    assert new_contractor_missing_fields(cost, candidate_name="A B", job_title="X") == [
+        "kwotę zamówienia"
+    ]
+    md_ok = ClientOrder(order_type="md", md_total=Decimal("20"), **base)
+    assert (
+        new_contractor_missing_fields(md_ok, candidate_name="A B", job_title="X") == []
+    )
+    placeholder = ClientOrder(**{**base, "title": "(bez numeru)"})
+    assert new_contractor_missing_fields(
+        placeholder, candidate_name="A B", job_title="X"
+    ) == ["numer zamówienia"]
 
 
 # ── Cykl zamówienia okresowego ──────────────────────────────────────────────
@@ -910,3 +946,379 @@ async def test_empty_signing_draft_does_not_close_the_ending_order_card(monkeypa
     rows = await _alerts(user_id, ALERT_PERIODIC_ORDER_ENDING)
     assert [r.status for r in rows] == ["new"]
     assert f"order:{order_id}:" in rows[0].event_key
+
+
+async def test_terminated_contract_with_waiting_draft_still_gets_its_card(monkeypatch):
+    """Runda 9 (R9-N12-1): zamówienie z kontynuacją nie „pokrywa” kontraktu.
+
+    Kontrakt kończy się tego samego dnia co zamówienie okresowe, a po nim czeka
+    szkic następnego zamówienia. Karta zamówienia nie powstaje (jest
+    kontynuacja), więc karta KONTRAKTU nie może być zdejmowana jako duplikat —
+    do poprawki DL nie dostawał żadnego sygnału o końcu współpracy.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+    from app.models.contract import Contract
+    from app.models.dl_alert import ALERT_CONTRACT_ENDING, ALERT_PERIODIC_ORDER_ENDING
+    from app.tasks.dl_alerts_scanner import (
+        rule_contract_ending,
+        rule_periodic_order_ending,
+    )
+
+    end = _TODAY + timedelta(days=10)
+    client_id = await _seed_client()
+    user_id, _, _ = await _seed_dl(client_id)
+    contract_id, _ = await _seed_contract(client_id)
+    await _seed_periodic_order(client_id, contract_id, end)
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, contract_id)
+        contract.end_date = end
+        db.add(
+            ClientOrder(
+                client_id=client_id,
+                contract_id=contract_id,
+                title=f"ZAM-{uuid.uuid4().hex[:6]}",
+                status=ClientOrderStatus.draft,
+                start_date=end + timedelta(days=1),
+                end_date=end + timedelta(days=90),
+            )
+        )
+        await db.commit()
+
+    await _run(rule_periodic_order_ending, monkeypatch, _TODAY)
+    await _run(rule_contract_ending, monkeypatch, _TODAY)
+    assert await _alerts(user_id, ALERT_PERIODIC_ORDER_ENDING) == []
+    rows = await _alerts(user_id, ALERT_CONTRACT_ENDING)
+    assert [r.status for r in rows] == ["new"]
+    assert f"contract:{contract_id}:" in rows[0].event_key
+
+
+async def test_contract_card_is_skipped_when_the_order_card_covers_it(monkeypatch):
+    """Runda 9 (R9-N12-1): bez kontynuacji jedna karta — zamówienia."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.contract import Contract
+    from app.models.dl_alert import ALERT_CONTRACT_ENDING, ALERT_PERIODIC_ORDER_ENDING
+    from app.tasks.dl_alerts_scanner import (
+        rule_contract_ending,
+        rule_periodic_order_ending,
+    )
+
+    end = _TODAY + timedelta(days=10)
+    client_id = await _seed_client()
+    user_id, _, _ = await _seed_dl(client_id)
+    contract_id, _ = await _seed_contract(client_id)
+    await _seed_periodic_order(client_id, contract_id, end)
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, contract_id)
+        contract.end_date = end
+        await db.commit()
+
+    await _run(rule_periodic_order_ending, monkeypatch, _TODAY)
+    await _run(rule_contract_ending, monkeypatch, _TODAY)
+    assert len(await _alerts(user_id, ALERT_PERIODIC_ORDER_ENDING)) == 1
+    assert await _alerts(user_id, ALERT_CONTRACT_ENDING) == []
+
+
+async def test_deleted_client_framework_contract_gets_no_card_or_bell(monkeypatch):
+    """Runda 9 (R9-N12-6): usunięty klient (tryb archiwum) nie dostaje kart.
+
+    Karta istniejąca przed usunięciem zamyka się przy najbliższym przebiegu,
+    a dzwonek 30/14/7 o umowie ramowej też milczy.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.client import Client
+    from app.models.client_framework_contract import (
+        ClientFrameworkContract,
+        FrameworkContractStatus,
+    )
+    from app.models.dl_alert import ALERT_FRAMEWORK_CONTRACT_EXPIRING
+    from app.models.notification import Notification
+    from app.services.delivery_alert_recipients import (
+        load_delivery_alert_recipient_scope,
+    )
+    import app.tasks.dl_portal_expiry_scanner as bell_scanner
+    from app.tasks.dl_alerts_scanner import rule_framework_contract_expiring
+
+    client_id = await _seed_client()
+    user_id, _, _ = await _seed_dl(client_id)
+    async with AsyncSessionLocal() as db:
+        fc = ClientFrameworkContract(
+            client_id=client_id,
+            name=f"MSA {uuid.uuid4().hex[:6]}",
+            status=FrameworkContractStatus.active,
+            expiry_date=_TODAY + timedelta(days=10),
+        )
+        db.add(fc)
+        await db.commit()
+        fc_id = fc.id
+
+    await _run(rule_framework_contract_expiring, monkeypatch, _TODAY)
+    assert [
+        r.status for r in await _alerts(user_id, ALERT_FRAMEWORK_CONTRACT_EXPIRING)
+    ] == ["new"]
+
+    async with AsyncSessionLocal() as db:
+        client = await db.get(Client, client_id)
+        client.deleted_at = datetime.now(timezone.utc)
+        await db.commit()
+
+    await _run(rule_framework_contract_expiring, monkeypatch, _TODAY)
+    rows = await _alerts(user_id, ALERT_FRAMEWORK_CONTRACT_EXPIRING)
+    assert [r.status for r in rows] == ["resolved"]
+
+    monkeypatch.setattr(bell_scanner, "business_today", lambda: _TODAY)
+    async with AsyncSessionLocal() as db:
+        scope = await load_delivery_alert_recipient_scope(db)
+        await bell_scanner._scan_framework_contracts(db, scope)
+        await db.commit()
+        bells = (
+            await db.scalars(
+                select(Notification).where(
+                    Notification.user_id == user_id,
+                    Notification.related_entity_type == "client_framework_contract",
+                    Notification.related_entity_id == fc_id,
+                )
+            )
+        ).all()
+    assert bells == []
+
+
+async def test_draft_lines_waiting_for_their_group_are_not_without_an_order(
+    monkeypatch,
+):
+    """Runda 9 (R9-N12-4): „bez zamówienia” tylko dla osoby naprawdę bez niego.
+
+    Szkic linii w zamówieniu zaplanowanym i szkic zaplanowanego „Wejdź za
+    konsultanta” dostawały co tydzień fałszywą kartę. Samodzielny szkic
+    i szkic linii w zamówieniu aktywnym (powrót po przerwie) — nadal tak.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+    from app.models.client_order_group import (
+        GROUP_STATUS_ACTIVE,
+        GROUP_STATUS_SCHEDULED,
+        ClientOrderGroup,
+        ClientOrderGroupEvent,
+    )
+    from app.models.dl_alert import ALERT_DRAFT_CONSULTANT_UNASSIGNED
+    from app.services.order_line_takeover import ASSIGNMENT_TAKEOVER
+    from app.services.multi_consultant_orders import EVENT_CONSULTANT_ADDED
+    from app.tasks.dl_alerts_scanner import rule_draft_consultant_unassigned
+
+    client_id = await _seed_client()
+    user_id, _, _ = await _seed_dl(client_id)
+    contract_ids = [(await _seed_contract(client_id))[0] for _ in range(4)]
+
+    async with AsyncSessionLocal() as db:
+        scheduled = ClientOrderGroup(
+            client_id=client_id,
+            order_number=f"MD-{uuid.uuid4().hex[:6]}",
+            start_date=_TODAY + timedelta(days=30),
+            status=GROUP_STATUS_SCHEDULED,
+            order_type="md",
+        )
+        active = ClientOrderGroup(
+            client_id=client_id,
+            order_number=f"MD-{uuid.uuid4().hex[:6]}",
+            start_date=date(2026, 9, 1),
+            status=GROUP_STATUS_ACTIVE,
+            order_type="md",
+        )
+        db.add_all([scheduled, active])
+        await db.flush()
+
+        def _line(group_id, contract_id):
+            return ClientOrder(
+                client_id=client_id,
+                contract_id=contract_id,
+                title=f"L-{uuid.uuid4().hex[:6]}",
+                status=ClientOrderStatus.draft,
+                order_group_id=group_id,
+                start_date=_TODAY + timedelta(days=30),
+            )
+
+        in_scheduled = _line(scheduled.id, contract_ids[0])
+        takeover = _line(active.id, contract_ids[1])
+        back_after_break = _line(active.id, contract_ids[2])
+        standalone = ClientOrder(
+            client_id=client_id,
+            contract_id=contract_ids[3],
+            title=f"ZAM-{uuid.uuid4().hex[:6]}",
+            status=ClientOrderStatus.draft,
+            start_date=_TODAY,
+        )
+        db.add_all([in_scheduled, takeover, back_after_break, standalone])
+        await db.flush()
+        db.add(
+            ClientOrderGroupEvent(
+                group_id=active.id,
+                order_id=takeover.id,
+                event_type=EVENT_CONSULTANT_ADDED,
+                description="Zaplanowane zastępstwo",
+                payload={"assignment": ASSIGNMENT_TAKEOVER, "scheduled": True},
+            )
+        )
+        await db.commit()
+        expected = {back_after_break.id, standalone.id}
+        excluded = {in_scheduled.id, takeover.id}
+
+    await _run(rule_draft_consultant_unassigned, monkeypatch, _TODAY)
+    alerted = {
+        row.order_id
+        for row in await _alerts(user_id, ALERT_DRAFT_CONSULTANT_UNASSIGNED)
+        if row.status == "new"
+    }
+    assert alerted == expected
+    assert not alerted & excluded
+
+
+async def test_exhausted_card_closes_when_the_cost_budget_is_raised():
+    """Runda 9 (R9-N12-9): zamówienie z powrotem ``active`` = karta znika."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+    from app.models.client_order_group import (
+        GROUP_STATUS_ACTIVE,
+        GROUP_STATUS_EXHAUSTED,
+        ClientOrderGroup,
+    )
+    from app.models.dl_alert import ALERT_COST_ORDER_EXHAUSTED
+    from app.models.md_consumption import ClientOrderInvoiceConsumption
+    from app.services.cost_orders import settle_group
+    from app.services.dl_alerts import emit_cost_order_exhausted
+
+    client_id = await _seed_client()
+    user_id, _, _ = await _seed_dl(client_id)
+    contract_id, _ = await _seed_contract(client_id)
+    async with AsyncSessionLocal() as db:
+        group = ClientOrderGroup(
+            client_id=client_id,
+            order_number=f"KOSZT-{uuid.uuid4().hex[:6]}",
+            start_date=date(2026, 9, 1),
+            status=GROUP_STATUS_ACTIVE,
+            is_cost_based=True,
+            budget_amount=Decimal("1000.00"),
+            budget_remaining=Decimal("1000.00"),
+        )
+        db.add(group)
+        await db.flush()
+        line = ClientOrder(
+            client_id=client_id,
+            contract_id=contract_id,
+            title=group.order_number,
+            status=ClientOrderStatus.active,
+            order_group_id=group.id,
+            start_date=date(2026, 9, 1),
+        )
+        db.add(line)
+        await db.flush()
+        db.add(
+            ClientOrderInvoiceConsumption(
+                order_id=line.id,
+                period_month="2026-09",
+                invoice_amount=Decimal("1000.00"),
+                source="import",
+            )
+        )
+        await db.flush()
+        await settle_group(db, group)
+        assert group.status == GROUP_STATUS_EXHAUSTED
+        await emit_cost_order_exhausted(db, group)
+        await db.commit()
+        group_id = group.id
+
+    assert [r.status for r in await _alerts(user_id, ALERT_COST_ORDER_EXHAUSTED)] == [
+        "new"
+    ]
+
+    async with AsyncSessionLocal() as db:
+        group = await db.get(ClientOrderGroup, group_id)
+        group.budget_amount = Decimal("2000.00")
+        await settle_group(db, group)
+        assert group.status == GROUP_STATUS_ACTIVE
+        await db.commit()
+
+    rows = await _alerts(user_id, ALERT_COST_ORDER_EXHAUSTED)
+    assert [r.status for r in rows] == ["resolved"]
+    assert rows[0].handled_by_user_id is None
+
+
+async def test_deleting_a_line_closes_its_md_decision_card():
+    """Runda 9 (R9-N12-7): sprawa offboardingu znika kaskadą, karta też.
+
+    ``dl_alerts.offboarding_case_id`` ma ``SET NULL``, więc karta
+    „decyzja MD po zakończeniu” zostawała w panelu na zawsze.
+    """
+    from app.api.client_order_groups import _delete_line_row
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+    from app.models.client_order_group import GROUP_STATUS_ACTIVE, ClientOrderGroup
+    from app.models.client_order_offboarding import (
+        OFFBOARDING_RESOLUTION_RESTORE,
+        OFFBOARDING_STATUS_RESOLVED,
+        ClientOrderOffboardingCase,
+    )
+    from app.models.dl_alert import ALERT_MD_CONSULTANT_ENDED
+    from app.services.dl_alerts import emit_md_consultant_ended
+
+    client_id = await _seed_client()
+    user_id, _, _ = await _seed_dl(client_id)
+    contract_id, _ = await _seed_contract(client_id)
+    async with AsyncSessionLocal() as db:
+        group = ClientOrderGroup(
+            client_id=client_id,
+            order_number=f"MD-{uuid.uuid4().hex[:6]}",
+            start_date=date(2026, 9, 1),
+            status=GROUP_STATUS_ACTIVE,
+            order_type="md",
+        )
+        db.add(group)
+        await db.flush()
+        line = ClientOrder(
+            client_id=client_id,
+            contract_id=contract_id,
+            title=group.order_number,
+            status=ClientOrderStatus.active,
+            order_group_id=group.id,
+            start_date=date(2026, 9, 1),
+        )
+        db.add(line)
+        await db.flush()
+        case = ClientOrderOffboardingCase(
+            contract_id=contract_id,
+            order_id=line.id,
+            order_group_id=group.id,
+            client_id=client_id,
+            effective_date=_TODAY,
+            status=OFFBOARDING_STATUS_RESOLVED,
+            resolution=OFFBOARDING_RESOLUTION_RESTORE,
+            resolved_at=datetime.now(timezone.utc),
+            uses_shared_md_pool=False,
+            remaining_md_snapshot=Decimal("10"),
+            order_number_snapshot=group.order_number,
+        )
+        db.add(case)
+        await db.flush()
+        await emit_md_consultant_ended(
+            db,
+            case_id=case.id,
+            client_id=client_id,
+            order_id=line.id,
+            order_group_id=group.id,
+            order_number=group.order_number,
+            consultant_name="Anna T.",
+            effective_date=_TODAY,
+            remaining_md=Decimal("10"),
+            uses_shared_md_pool=False,
+        )
+        await db.commit()
+        line_id = line.id
+
+    assert [r.status for r in await _alerts(user_id, ALERT_MD_CONSULTANT_ENDED)] == [
+        "new"
+    ]
+    async with AsyncSessionLocal() as db:
+        line = await db.get(ClientOrder, line_id)
+        await _delete_line_row(db, line)
+        await db.commit()
+    rows = await _alerts(user_id, ALERT_MD_CONSULTANT_ENDED)
+    assert [r.status for r in rows] == ["resolved"]

@@ -93,6 +93,7 @@ from app.models.client_order_offboarding import (
     OFFBOARDING_STATUS_RESOLVED,
     ClientOrderOffboardingCase,
 )
+from app.models.dl_alert import ALERT_MD_CONSULTANT_ENDED
 from app.models.md_consumption import (
     CONSUMPTION_SOURCE_MANUAL,
     IMPORT_ROW_APPLIED,
@@ -235,6 +236,8 @@ from app.services.dl_alerts import (
     emit_cost_order_exhausted,
     emit_shared_md_pool_exhausted,
     handle_offboarding_case_alerts,
+    resolve_budget_exhausted_alerts,
+    resolve_entity_alerts,
 )
 from app.services.lotte_wedel_orders import is_lotte_wedel_order_types_client
 from app.services.multi_consultant_orders import (
@@ -3883,6 +3886,9 @@ async def delete_order_group(
         audit.describe(lines_removed=len(lines))
 
         await db.flush()
+        # Runda 9 (R9-N12-7): jednorazowa karta „zamówienie wyczerpane” nie
+        # ma skanera, który by ją zamknął — kasowana grupa zamyka ją sama.
+        await resolve_budget_exhausted_alerts(db, group.id)
         await db.delete(group)
         db.add(
             Activity(
@@ -4017,6 +4023,19 @@ async def _delete_line_row(db: AsyncSession, line: ClientOrder) -> str | None:
     file_path = line.file_path
     # audyt 22.09 r2 (FIN-CHG-5): karty DL braku tej linii.
     await close_gaps_of_deleted_orders(db, [line.id])
+    # Runda 9 (R9-N12-7): sprawy offboardingu tej linii znikają kaskadą FK,
+    # a karta DL ma ``offboarding_case_id`` z ``SET NULL`` — bez zamknięcia
+    # przed kasowaniem zostawała w panelu na zawsze.
+    for case_id in (
+        await db.scalars(
+            select(ClientOrderOffboardingCase.id).where(
+                ClientOrderOffboardingCase.order_id == line.id
+            )
+        )
+    ).all():
+        await resolve_entity_alerts(
+            db, alert_type=ALERT_MD_CONSULTANT_ENDED, entity_key=f"case:{case_id}"
+        )
     # audyt 22.09 r2 (FIN-02): krok stawki zdejmowany PRZED kaskadą w bazie.
     await detach_order_rate_steps(db, line)
     await db.delete(line)
