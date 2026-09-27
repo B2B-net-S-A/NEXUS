@@ -29,6 +29,7 @@ FastAPI rig, and reused by the signing pipeline.
 
 from __future__ import annotations
 
+import logging
 import unicodedata
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
@@ -44,6 +45,8 @@ from app.models.contract import Contract, ContractStatus
 from app.models.document_signature import DocumentSignature, SignatureStatus
 from app.services.contract_service import validate_ready_for_activation
 from app.core.scheduling import business_today
+
+logger = logging.getLogger(__name__)
 
 
 HardDeleteBlocker = Literal["completed_signature", "signed_generated_contract"]
@@ -880,6 +883,41 @@ def _live_order_reconcile_window(
     return cutover_day, frozenset(raw_audited_ids)
 
 
+async def sync_contract_to_live_order_nightly(
+    db: AsyncSession,
+    contract: Contract,
+    *,
+    order_start: Optional[date],
+    order_end: Optional[date],
+    today: date,
+) -> bool:
+    """`sync_contract_to_live_order` dla przebiegów nocnych — w savepoincie.
+
+    Runda 9 (R9-V1-1): blokada wznowienia kontraktu usuniętego albo scalonego
+    klienta (runda 8) rzuca 422. Wywołana z nocnego skanu wygasania wycofywała
+    CAŁY przebieg — domykanie zamówień datą, umowy ramowe, wyczerpanie MD
+    i alerty — co noc, dopóki takie zamówienie istniało. Tu odmowa oznacza
+    wyłącznie „tego kontraktu nie wznawiamy”, a reszta przebiegu idzie dalej.
+    """
+    try:
+        async with db.begin_nested():
+            return await sync_contract_to_live_order(
+                db,
+                contract,
+                order_start=order_start,
+                order_end=order_end,
+                actor_id=None,
+                today=today,
+            )
+    except HTTPException as exc:
+        logger.warning(
+            "[contract_lifecycle] nightly reopen refused contract=%s status=%s",
+            contract.id,
+            exc.status_code,
+        )
+        return False
+
+
 async def reconcile_contracts_to_live_orders(
     db: AsyncSession,
     *,
@@ -968,12 +1006,11 @@ async def reconcile_contracts_to_live_orders(
         if contract.id in seen_contract_ids:
             continue
         seen_contract_ids.add(contract.id)
-        if await sync_contract_to_live_order(
+        if await sync_contract_to_live_order_nightly(
             db,
             contract,
             order_start=order.start_date,
             order_end=order.end_date,
-            actor_id=None,
             today=today,
         ):
             reconciled += 1
