@@ -51,6 +51,15 @@ PATTERNS = (
         "datetime(rok, miesiąc, 1, tzinfo=timezone.utc)",
     ),
     (re.compile(r"\butcnow\(\)\s*\.date\(\)"), "datetime.utcnow().date()"),
+    # Runda 10 (R10-N10-10): data z „teraz” sformatowana w f-stringu
+    # (`f"{now:%Y-%m-%d}"`) — `.strftime(` wyżej tego nie łapało.
+    (
+        re.compile(
+            r"\{\s*(?:[\w.]*\bnow(?:\([^{}]*\))?|[\w.]*utc\w*)\s*:\s*"
+            r"%Y-?%m(?:-?%d)?\s*\}"
+        ),
+        'f"{now:%Y-%m-%d}"',
+    ),
     (re.compile(r"\bCURRENT_DATE\b|\bfunc\.current_date\b"), "SQL CURRENT_DATE"),
     # Runda 8 (R8-X1-5): rzut znacznika czasu (`timestamptz`, kolumny `*_at`,
     # `now()`) na datę w sesji UTC — bez `AT TIME ZONE` to dzień UTC.
@@ -189,3 +198,16 @@ def test_flags_timestamp_cast_to_date_without_time_zone():
         'd = "SELECT start_date::date, :v::date"\n'
     )
     assert [lineno for lineno, _ in find_violations(source)] == [1, 2]
+
+
+def test_flags_date_formatted_from_now_in_an_fstring():
+    """R10-N10-10: `f"{now:%Y-%m-%d}"` na znaczniku UTC to dzień UTC."""
+    source = (
+        'a = f"[deklaracja, {now:%Y-%m-%d}]"\n'
+        'b = f"{datetime.now(timezone.utc):%Y-%m}"\n'
+        'c = f"{now_utc:%Y-%m-%d}"\n'
+        'd = f"{today:%Y-%m-%d}"\n'
+        'e = f"{now:%Y-%m-%dT%H:%M}"\n'
+        'f = f"{business_today():%Y-%m-%d}"\n'
+    )
+    assert [lineno for lineno, _ in find_violations(source)] == [1, 2, 3]

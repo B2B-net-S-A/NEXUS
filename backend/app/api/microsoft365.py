@@ -535,6 +535,11 @@ async def free_busy(
 # rejestr historii — po dobie ten sam identyfikator z NOWĄ zmianą to nowe
 # zdarzenie, a 24-godzinny wpis kazał mu czekać na harmonogram.
 _REPLAY_CACHE_MAX = 4096
+# Runda 10 (R10-N10-3): anonimowy POST z setkami tysięcy wpisów w `value` robił
+# osobny SELECT i osobny wpis w logu na każdy. Graph wysyła paczki po kilka
+# wpisów; więcej niż tysiąc to nie Graph.
+_WEBHOOK_MAX_ENTRIES = 1000
+_WEBHOOK_MAX_SUBSCRIPTION_ID_LEN = 200
 # 10 min obejmuje SZYBKIE ponowienia Grapha (sekundy–minuty po 5xx/timeout), nie
 # cały jego horyzont ponowień (do ~4 h z rosnącym odstępem). Późniejsze ponowienie
 # uruchomi sync jeszcze raz — to bezpieczne, bo import jest idempotentny po
@@ -646,12 +651,15 @@ async def webhooks(
     entries = payload.get("value") if isinstance(payload, dict) else None
     if not isinstance(entries, list) or not entries:
         return Response(status_code=status.HTTP_202_ACCEPTED)
+    if len(entries) > _WEBHOOK_MAX_ENTRIES:
+        logger.warning(
+            "webhook payload with %d entries over limit %d — refusing",
+            len(entries),
+            _WEBHOOK_MAX_ENTRIES,
+        )
+        return Response(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE)
 
-    # Dedupe affected connections — one inbox + sent + events tick should
-    # fire ONE sync, not three. Klucze replay per połączenie: do cache trafiają
-    # dopiero PO udanym spawnie zadania dla tego połączenia.
-    conns_to_sync: dict[int, list[_ReplayKey]] = {}
-
+    candidates: list[tuple[dict, str, str]] = []
     for entry in entries:
         if not isinstance(entry, dict):
             continue
@@ -659,25 +667,41 @@ async def webhooks(
         client_state = entry.get("clientState")
         if not isinstance(sub_id, str) or not isinstance(client_state, str):
             continue
+        candidates.append((entry, sub_id, client_state))
 
-        sub = await db.scalar(
-            select(GraphSubscription).where(GraphSubscription.subscription_id == sub_id)
+    # Jedno zapytanie na całą paczkę zamiast SELECT-u na wpis.
+    lookup_ids = {
+        sub_id
+        for _entry, sub_id, _state in candidates
+        if len(sub_id) <= _WEBHOOK_MAX_SUBSCRIPTION_ID_LEN
+    }
+    subs_by_id: dict[str, GraphSubscription] = {}
+    if lookup_ids:
+        rows = await db.scalars(
+            select(GraphSubscription).where(
+                GraphSubscription.subscription_id.in_(lookup_ids)
+            )
         )
+        subs_by_id = {row.subscription_id: row for row in rows.all()}
+
+    # Dedupe affected connections — one inbox + sent + events tick should
+    # fire ONE sync, not three. Klucze replay per połączenie: do cache trafiają
+    # dopiero PO udanym spawnie zadania dla tego połączenia.
+    conns_to_sync: dict[int, list[_ReplayKey]] = {}
+    unknown: list[str] = []
+    mismatched: list[str] = []
+
+    for entry, sub_id, client_state in candidates:
+        sub = subs_by_id.get(sub_id)
         if sub is None:
             # Subscription was unsubscribed locally but Graph hasn't caught
-            # up yet — log truncated id so a Sentry breadcrumb can correlate.
-            logger.warning(
-                "webhook for unknown subscription_id prefix=%s — ignoring",
-                sub_id[:32],
-            )
+            # up yet — zliczamy, jeden zbiorczy wpis w logu niżej.
+            unknown.append(sub_id)
             continue
 
         # Constant-time compare to neutralise timing side-channels.
         if not secrets_equal(client_state, sub.client_state):
-            logger.warning(
-                "webhook client_state mismatch for sub_id prefix=%s — refusing entry",
-                sub_id[:32],
-            )
+            mismatched.append(sub_id)
             continue
 
         # Replay dedup key: (subscription, resource/id, changeType).
@@ -694,6 +718,20 @@ async def webhooks(
             continue
 
         conns_to_sync.setdefault(sub.m365_connection_id, []).append(key)
+
+    if unknown:
+        logger.warning(
+            "webhook for %d unknown subscription_id(s), first prefix=%s — ignoring",
+            len(unknown),
+            unknown[0][:32],
+        )
+    if mismatched:
+        logger.warning(
+            "webhook client_state mismatch for %d entr(y/ies), first sub_id "
+            "prefix=%s — refusing",
+            len(mismatched),
+            mismatched[0][:32],
+        )
 
     for conn_id, keys in conns_to_sync.items():
         try:

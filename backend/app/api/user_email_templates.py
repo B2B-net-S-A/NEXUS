@@ -21,15 +21,22 @@ from __future__ import annotations
 
 import asyncio
 import functools
+import inspect
+import os
+import re
+import resource
+import string
 import sys
 import time
+from collections.abc import ItemsView, KeysView, Mapping, ValuesView
 from typing import Any, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from jinja2 import TemplateError, meta, select_autoescape
+from jinja2.compiler import CodeGenerator, optimizeconst
 from jinja2.exceptions import SecurityError
 from jinja2.sandbox import SandboxedEnvironment
-from jinja2.utils import _PassArg
+from jinja2.utils import Namespace, _PassArg
 from pydantic import BaseModel, Field
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -62,6 +69,50 @@ _MAX_SEQ_REPEAT = 100_000
 _MAX_INT_BITS = 4_096
 _RENDER_OUTPUT_LIMIT = 500_000
 _RENDER_DEADLINE_SECONDS = 2.0
+# Runda 10 (R10-V3-1): sufity z rundy 9 obejmowały wyłącznie `*`/`**` i samo
+# wyjście. `s + s` (albo `~`, `"%99999999s" % x`, `"{:99999999}".format(x)`,
+# `|replace(old=, new=)`, `|join`, `|indent`) budowały w JEDNYM wywołaniu kodu
+# C napis wielu GB, zanim funkcja śledząca albo limit wyniku zdążyły
+# zareagować — OOM zabijał jedyny proces uvicorna. Teraz każdy napis pośredni
+# ma ten sam sufit co wynik, liczony PRZED operacją; bufor bloków
+# (`{% set x %}…{% endset %}`, makra) liczy, co do niego trafia; zamiana
+# kolekcji na tekst (wyjście, `~`, `%s`, filtry tekstowe) liczy jej długość
+# tekstową bez budowania jej; a pętla w Pythonie, która alokuje za dużo,
+# przerywa się przy przyroście pamięci procesu.
+_MAX_LIST_ITEMS = 100_000
+_RENDER_MEMORY_GROWTH_LIMIT = 512 * 1024 * 1024
+_TRACER_CHECK_EVERY = 256
+_MAX_SPEC_DIGITS = 9
+_SPEC_NUMBER_RE = re.compile(r"\d+")
+_PERCENT_SPEC_CHARS = frozenset("-#0 +*.123456789")
+_FORMATTER = string.Formatter()
+# Metody napisów bez zastosowania w mailu, które mnożą długość tekstu
+# (`translate` z długimi wartościami) albo wyprowadzają poza `str` (`encode`).
+_BLOCKED_STR_METHODS = frozenset({"translate", "maketrans", "encode"})
+# Filtry, które zamieniają wartość na tekst — kolekcja z wieloma odwołaniami do
+# tego samego długiego napisu daje w nich tekst wielu GB jednym `str()`.
+_STRINGIFY_FILTERS = frozenset(
+    {
+        "capitalize",
+        "e",
+        "escape",
+        "forceescape",
+        "lower",
+        "pprint",
+        "safe",
+        "string",
+        "striptags",
+        "title",
+        "tojson",
+        "trim",
+        "truncate",
+        "upper",
+        "urlencode",
+        "urlize",
+        "wordcount",
+        "xmlattr",
+    }
+)
 
 
 def _is_int(value: Any) -> bool:
@@ -72,6 +123,116 @@ def _check_call_args(args: tuple, kwargs: dict) -> None:
     for value in (*args, *kwargs.values()):
         if _is_int(value) and abs(value) > _MAX_CALL_INT:
             raise SecurityError("Liczba w szablonie przekracza dopuszczalny limit.")
+
+
+def _ensure_size(size: int) -> None:
+    if size > _RENDER_OUTPUT_LIMIT:
+        raise SecurityError("Wynik szablonu przekracza dopuszczalny limit.")
+
+
+def _text_weight(value: Any, budget: int = _RENDER_OUTPUT_LIMIT) -> int:
+    """Górne oszacowanie długości tekstu z `str(value)`, liczone bez budowania go.
+
+    Zatrzymuje się po przekroczeniu budżetu — każdy element dokłada co najmniej
+    dwa znaki, więc liczenie kosztuje najwyżej ~budżet kroków, także dla listy
+    ze stoma tysiącami odwołań do tego samego napisu albo listy, która zawiera
+    samą siebie.
+    """
+    total = 0
+    stack = [value]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, (str, bytes, bytearray)):
+            total += len(item) + 2
+        elif isinstance(item, (list, tuple, set, frozenset, KeysView, ValuesView)):
+            total += 2 + 2 * len(item)
+            if total > budget:
+                return total
+            stack.extend(item)
+        elif isinstance(item, (Mapping, ItemsView)):
+            pairs = item.items() if isinstance(item, Mapping) else item
+            total += 2 + 4 * len(pairs)
+            if total > budget:
+                return total
+            for key, val in pairs:
+                stack.append(key)
+                stack.append(val)
+        elif isinstance(item, Namespace):
+            total += 12
+            stack.append(item._Namespace__attrs)
+        elif _is_int(item):
+            total += item.bit_length() // 3 + 2
+        else:
+            total += 32
+        if total > budget:
+            return total
+    return total
+
+
+def _ensure_text_weight(value: Any) -> None:
+    _ensure_size(_text_weight(value))
+
+
+def _spec_numbers(spec: str) -> int:
+    """Suma liczb w specyfikacji formatu (szerokość, precyzja) — górny sufit
+    dopełnienia, które doda formatowanie."""
+    total = 0
+    for run in _SPEC_NUMBER_RE.findall(spec):
+        if len(run) > _MAX_SPEC_DIGITS:
+            raise SecurityError("Szerokość pola w szablonie przekracza limit.")
+        total += int(run)
+    return total
+
+
+def _percent_format_size(fmt: str, values: Any) -> int:
+    """Oszacowanie długości `fmt % values` przed wykonaniem (liniowe)."""
+    size = len(fmt) + _text_weight(values)
+    length = len(fmt)
+    i = fmt.find("%")
+    while i != -1 and i + 1 < length:
+        j = i + 1
+        if fmt[j] == "(":
+            # Klucz mapowania liczony jak w Pythonie (z zagnieżdżonymi
+            # nawiasami) — inaczej `%((x))999s` chowałby szerokość za kluczem.
+            depth = 1
+            j += 1
+            while j < length and depth:
+                if fmt[j] == "(":
+                    depth += 1
+                elif fmt[j] == ")":
+                    depth -= 1
+                j += 1
+            if depth:
+                break
+        begin = j
+        while j < length and fmt[j] in _PERCENT_SPEC_CHARS:
+            j += 1
+        spec = fmt[begin:j]
+        if "*" in spec:
+            raise SecurityError("Szerokość pola z argumentu nie jest dostępna.")
+        size += _spec_numbers(spec)
+        if size > _RENDER_OUTPUT_LIMIT:
+            return size
+        i = fmt.find("%", j + 1)
+    return size
+
+
+def _new_format_size(fmt: str, args: Any, kwargs: Any) -> int:
+    """Oszacowanie długości `fmt.format(...)` przed wykonaniem."""
+    size = len(fmt) + _text_weight(args) + _text_weight(kwargs)
+    try:
+        fields = list(_FORMATTER.parse(fmt))
+    except ValueError:
+        return size  # Python odrzuci ten format sam
+    for _literal, _field, spec, _conversion in fields:
+        if not spec:
+            continue
+        if "{" in spec:
+            raise SecurityError("Zagnieżdżone pola formatu nie są dostępne.")
+        size += _spec_numbers(spec)
+        if size > _RENDER_OUTPUT_LIMIT:
+            return size
+    return size
 
 
 def _check_replace(subject: Any, old: Any, new: Any) -> None:
@@ -87,47 +248,217 @@ def _check_replace(subject: Any, old: Any, new: Any) -> None:
         if isinstance(old, str)
         else 0
     )
-    if len(subject) + hits * len(new) > _RENDER_OUTPUT_LIMIT:
-        raise SecurityError("Wynik szablonu przekracza dopuszczalny limit.")
+    _ensure_size(len(subject) + hits * len(new))
 
 
-def _bounded_filter(func):
-    """Filtr z sufitem liczb w argumentach (np. `|center(10**9)`)."""
+def _join_size(separator: Any, items: list) -> int:
+    sep = len(separator) if isinstance(separator, str) else _text_weight(separator)
+    return sep * max(len(items) - 1, 0) + _text_weight(items)
+
+
+def _width(value: Any) -> int:
+    return value if _is_int(value) else 0
+
+
+def _check_filter(name: str, value: Any, arguments: dict) -> Any:
+    """Sufit wyniku filtra liczony przed wywołaniem. Zwraca wartość do użycia
+    (iterator zamieniony na listę, żeby liczenie go nie zużyło)."""
+    if name == "replace":
+        _check_replace(value, arguments.get("old"), arguments.get("new"))
+    elif name == "join":
+        if not isinstance(value, (str, list)):
+            value = list(value)
+        _ensure_size(_join_size(arguments.get("d", ""), value))
+    elif name == "format":
+        values = arguments.get("kwargs") or arguments.get("args") or ()
+        _ensure_size(_percent_format_size(str(value), values))
+    elif name == "indent":
+        text = value if isinstance(value, str) else str(value)
+        width = arguments.get("width", 4)
+        per_line = width if _is_int(width) else _text_weight(width)
+        _ensure_size(len(text) + (text.count("\n") + 1) * max(per_line, 0))
+    elif name == "center":
+        _ensure_size(max(_text_weight(value), _width(arguments.get("width", 80))))
+    elif name == "wordwrap":
+        text = value if isinstance(value, str) else str(value)
+        width = max(_width(arguments.get("width", 79)), 1)
+        wrap = arguments.get("wrapstring") or "\n"
+        breaks = len(text) // width + text.count(" ") + text.count("\n") + 1
+        _ensure_size(len(text) + breaks * _text_weight(wrap))
+    elif name == "sum":
+        start = arguments.get("start", 0)
+        if not isinstance(start, (int, float)):
+            # `sum(start=[])` skleja listy w czasie kwadratowym w kodzie C.
+            raise SecurityError("Filtr sum przyjmuje wyłącznie liczby.")
+    elif name in _STRINGIFY_FILTERS:
+        _ensure_text_weight(value)
+    return value
+
+
+def _check_str_method(owner: str, name: str, args: tuple, kwargs: dict) -> tuple:
+    """Sufit wyniku metody napisu liczony przed wywołaniem."""
+    if name == "replace":
+        old = args[0] if args else kwargs.get("old")
+        new = args[1] if len(args) > 1 else kwargs.get("new")
+        _check_replace(owner, old, new)
+    elif name == "join" and args:
+        items = list(args[0])
+        _ensure_size(_join_size(owner, items))
+        return (items, *args[1:])
+    elif name in {"center", "ljust", "rjust", "zfill"}:
+        width = args[0] if args else kwargs.get("width")
+        _ensure_size(max(len(owner), _width(width)))
+    elif name == "expandtabs":
+        tabsize = args[0] if args else kwargs.get("tabsize", 8)
+        _ensure_size(len(owner) + owner.count("\t") * max(_width(tabsize), 0))
+    return args
+
+
+def _check_list_growth(owner: list, name: str, args: tuple) -> tuple:
+    if name == "extend" and args:
+        items = list(args[0])
+        if len(owner) + len(items) > _MAX_LIST_ITEMS:
+            raise SecurityError("Lista w szablonie przekracza limit.")
+        return (items, *args[1:])
+    if len(owner) + 1 > _MAX_LIST_ITEMS:
+        raise SecurityError("Lista w szablonie przekracza limit.")
+    return args
+
+
+def _bounded_filter(name: str, func):
+    """Filtr z sufitem liczb w argumentach (np. `|center(10**9)`) i sufitem
+    długości wyniku liczonym przed wywołaniem (Runda 10: także argumenty
+    nazwane, np. `|replace(old="", new=s)`)."""
     skip = 2 if _PassArg.from_obj(func) is not None else 1
+    # Podpis funkcji właściwej bez parametrów kontekstu (warianty async Jinja
+    # dokładają `eval_ctx`, którego funkcja synchroniczna nie deklaruje).
+    target = inspect.unwrap(func)
+    params = list(inspect.signature(target).parameters.values())
+    context_params = 1 if _PassArg.from_obj(target) is not None else 0
+    signature = inspect.Signature(params[context_params:])
 
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
         _check_call_args(args[skip:], kwargs)
-        if getattr(func, "__name__", "") == "do_replace" and len(args) >= skip + 2:
-            _check_replace(
-                args[skip - 1],
-                args[skip],
-                args[skip + 1] if len(args) > skip + 1 else kwargs.get("new"),
-            )
+        if len(args) < skip:
+            return func(*args, **kwargs)
+        try:
+            bound = signature.bind(*args[skip - 1 :], **kwargs)
+        except TypeError:
+            return func(*args, **kwargs)  # zły wywołujący — niech odmówi Jinja
+        bound.apply_defaults()
+        value = args[skip - 1]
+        checked = _check_filter(name, value, dict(bound.arguments))
+        if checked is not value:
+            args = (*args[: skip - 1], checked, *args[skip:])
         return func(*args, **kwargs)
 
     return wrapper
 
 
+class _BoundedBuffer(list):
+    """Bufor bloku (`{% set x %}`, makro, `{% filter %}`) z sufitem długości —
+    bez niego `concat` bufora budował jednym wywołaniem napis wielu GB."""
+
+    __slots__ = ("_size",)
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._size = 0
+
+    def _grow(self, items) -> None:
+        for item in items:
+            self._size += len(item) if isinstance(item, str) else _text_weight(item)
+        _ensure_size(self._size)
+
+    def append(self, item) -> None:
+        self._grow((item,))
+        super().append(item)
+
+    def extend(self, items) -> None:
+        items = tuple(items)
+        self._grow(items)
+        super().extend(items)
+
+
+class _BoundedCodeGenerator(CodeGenerator):
+    def buffer(self, frame) -> None:
+        frame.buffer = self.temporary_identifier()
+        self.writeline(f"{frame.buffer} = environment.bounded_buffer()")
+
+    @optimizeconst
+    def visit_Concat(self, node, frame) -> None:
+        # Jak `CodeGenerator.visit_Concat`, tylko części idą najpierw przez
+        # `environment.bounded_concat_parts` — sufit przed złożeniem napisu.
+        if frame.eval_ctx.volatile:
+            func_name = "(markup_join if context.eval_ctx.volatile else str_join)"
+        elif frame.eval_ctx.autoescape:
+            func_name = "markup_join"
+        else:
+            func_name = "str_join"
+        self.write(f"{func_name}(environment.bounded_concat_parts((")
+        for arg in node.nodes:
+            self.visit(arg, frame)
+            self.write(", ")
+        self.write(")))")
+
+
 class _BoundedSandbox(SandboxedEnvironment):
-    intercepted_binops = frozenset({"*", "**"})
+    intercepted_binops = frozenset({"*", "**", "+", "%"})
+    code_generator_class = _BoundedCodeGenerator
 
     def __init__(self, **options: Any) -> None:
         super().__init__(**options)
         self.filters = {
-            name: _bounded_filter(func) for name, func in self.filters.items()
+            name: _bounded_filter(name, func) for name, func in self.filters.items()
         }
         # `lipsum(n)` generuje dowolnie długi tekst — w mailu niepotrzebny.
         self.globals.pop("lipsum", None)
 
+    @staticmethod
+    def bounded_buffer() -> _BoundedBuffer:
+        return _BoundedBuffer()
+
+    @staticmethod
+    def bounded_concat_parts(parts: tuple) -> tuple:
+        _ensure_size(
+            sum(len(p) if isinstance(p, str) else _text_weight(p) for p in parts)
+        )
+        return parts
+
+    def wrap_str_format(self, value: Any):
+        # `str.format`/`format_map` Jinja owija przy odczycie atrybutu, więc
+        # wywołanie nie przechodzi przez `call` — sufit stoi tutaj.
+        wrapped = super().wrap_str_format(value)
+        if wrapped is None:
+            return None
+        owner = value.__self__
+        is_format_map = value.__name__ == "format_map"
+
+        @functools.wraps(wrapped)
+        def bounded(*args: Any, **kwargs: Any) -> str:
+            if is_format_map:
+                mapping = args[0] if args else {}
+                _ensure_size(_new_format_size(owner, (), mapping))
+            else:
+                _ensure_size(_new_format_size(owner, args, kwargs))
+            return wrapped(*args, **kwargs)
+
+        return bounded
+
+    def is_safe_attribute(self, obj: Any, attr: str, value: Any) -> bool:
+        if isinstance(obj, str) and attr in _BLOCKED_STR_METHODS:
+            return False
+        return super().is_safe_attribute(obj, attr, value)
+
     def call(__self, __context, __obj, *args, **kwargs):  # noqa: N805
         _check_call_args(args, kwargs)
-        if (
-            getattr(__obj, "__name__", "") == "replace"
-            and isinstance(getattr(__obj, "__self__", None), str)
-            and len(args) >= 2
-        ):
-            _check_replace(__obj.__self__, args[0], args[1])
+        owner = getattr(__obj, "__self__", None)
+        name = getattr(__obj, "__name__", "")
+        if isinstance(owner, str):
+            args = _check_str_method(owner, name, args, kwargs)
+        elif isinstance(owner, list) and name in {"append", "extend", "insert"}:
+            args = _check_list_growth(owner, name, args)
         return super().call(__context, __obj, *args, **kwargs)
 
     def call_binop(self, context, operator, left, right):
@@ -139,8 +470,9 @@ class _BoundedSandbox(SandboxedEnvironment):
             ):
                 raise SecurityError("Potęga w szablonie przekracza limit.")
         if operator == "*":
+            sequences = (str, bytes, bytearray, list, tuple)
             for seq, times in ((left, right), (right, left)):
-                if isinstance(seq, (str, list, tuple)) and _is_int(times):
+                if isinstance(seq, sequences) and _is_int(times):
                     if len(seq) * max(times, 0) > _MAX_SEQ_REPEAT:
                         raise SecurityError(
                             "Powielenie tekstu w szablonie przekracza limit."
@@ -151,6 +483,15 @@ class _BoundedSandbox(SandboxedEnvironment):
                 and (left.bit_length() + right.bit_length() > _MAX_INT_BITS)
             ):
                 raise SecurityError("Iloczyn w szablonie przekracza limit.")
+        if operator == "+":
+            texts = (str, bytes, bytearray)
+            if isinstance(left, texts) and isinstance(right, texts):
+                _ensure_size(len(left) + len(right))
+            elif isinstance(left, (list, tuple)) and isinstance(right, (list, tuple)):
+                if len(left) + len(right) > _MAX_LIST_ITEMS:
+                    raise SecurityError("Lista w szablonie przekracza limit.")
+        if operator == "%" and isinstance(left, str):
+            _ensure_size(_percent_format_size(left, right))
         return super().call_binop(context, operator, left, right)
 
 
@@ -162,7 +503,13 @@ def _finalize(value: Any) -> Any:
     # Ten sam defekt co w `contract_templates`, tylko z odbiorcą na zewnątrz.
     # `finalize` zamienia wyłącznie `None` na pusty napis: `False` i `0` muszą
     # przejść nietknięte, bo są prawidłowymi wartościami, a nie brakiem danych.
-    return "" if value is None else value
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        # Runda 10 (R10-V3-1): `{{ [s] * 100000 }}` — `str()` listy odwołań
+        # do długiego napisu to jedno wywołanie w C budujące wiele GB.
+        _ensure_text_weight(value)
+    return value
 
 
 # Sandboxed so user-supplied template source can't reach Python internals.
@@ -188,6 +535,27 @@ class _RenderTimeout(SecurityError):
     pass
 
 
+_PAGE_SIZE = os.sysconf("SC_PAGE_SIZE") if hasattr(os, "sysconf") else 4096
+
+
+def _process_memory() -> int | None:
+    """Bieżąca pamięć procesu (RSS) w bajtach; `None`, gdy system jej nie podaje.
+
+    Linux (produkcja, CI): `/proc/self/statm`. Poza nim — szczyt z `getrusage`
+    (przyrost szczytu też oznacza, że render alokuje za dużo).
+    """
+    try:
+        with open("/proc/self/statm", "rb") as handle:
+            return int(handle.read().split()[1]) * _PAGE_SIZE
+    except (OSError, ValueError, IndexError):
+        pass
+    try:
+        peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    except (OSError, ValueError):
+        return None
+    return peak if sys.platform == "darwin" else peak * 1024
+
+
 def _render_bounded(env: SandboxedEnvironment, source: str, ctx: dict) -> str:
     """Render z twardym limitem czasu i długości wyniku (wołany w wątku).
 
@@ -196,13 +564,23 @@ def _render_bounded(env: SandboxedEnvironment, source: str, ctx: dict) -> str:
     """
     template = env.from_string(source)
     deadline = time.monotonic() + _RENDER_DEADLINE_SECONDS
+    memory_start = _process_memory()
     ticks = 0
 
     def _tracer(frame, event, arg):
         nonlocal ticks
         ticks += 1
-        if ticks % 256 == 0 and time.monotonic() > deadline:
-            raise _RenderTimeout("Render szablonu przekroczył limit czasu.")
+        if ticks % _TRACER_CHECK_EVERY == 0:
+            if time.monotonic() > deadline:
+                raise _RenderTimeout("Render szablonu przekroczył limit czasu.")
+            # Runda 10 (R10-V3-1): pętla w Pythonie (`|map('upper')` na liście
+            # długich napisów) alokuje GB w czasie krótszym niż limit czasu.
+            if (
+                memory_start is not None
+                and (_process_memory() or 0) - memory_start
+                > _RENDER_MEMORY_GROWTH_LIMIT
+            ):
+                raise SecurityError("Render szablonu przekroczył limit pamięci.")
         return _tracer
 
     previous = sys.gettrace()

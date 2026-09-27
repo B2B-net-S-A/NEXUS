@@ -348,13 +348,18 @@ def _make_request_with_body(body: dict) -> MagicMock:
     return request
 
 
+def _scalars(*subs: SimpleNamespace) -> AsyncMock:
+    """`db.scalars(select ... IN (...))` — endpoint czyta paczkę jednym zapytaniem."""
+    return AsyncMock(return_value=SimpleNamespace(all=lambda: list(subs)))
+
+
 async def test_webhooks_dispatches_sync_for_valid_notification(monkeypatch) -> None:
     monkeypatch.setattr(m365_api.settings, "M365_WEBHOOKS_ENABLED", True)
     m365_api._reset_replay_cache_for_tests()
 
     sub = _make_sub(client_state="secret-1")
     db = MagicMock()
-    db.scalar = AsyncMock(return_value=sub)
+    db.scalars = _scalars(sub)
 
     dispatched: list[int] = []
 
@@ -396,7 +401,7 @@ async def test_webhooks_silently_skips_mismatched_client_state(monkeypatch) -> N
 
     sub = _make_sub(client_state="correct-secret")
     db = MagicMock()
-    db.scalar = AsyncMock(return_value=sub)
+    db.scalars = _scalars(sub)
 
     dispatched: list[int] = []
 
@@ -432,7 +437,7 @@ async def test_webhooks_replay_protection(monkeypatch) -> None:
 
     sub = _make_sub(client_state="secret-1")
     db = MagicMock()
-    db.scalar = AsyncMock(return_value=sub)
+    db.scalars = _scalars(sub)
 
     dispatched: list[int] = []
 
@@ -480,7 +485,7 @@ async def test_webhooks_updated_after_created_is_dispatched_again(monkeypatch) -
 
     sub = _make_sub(client_state="secret-1")
     db = MagicMock()
-    db.scalar = AsyncMock(return_value=sub)
+    db.scalars = _scalars(sub)
 
     dispatched: list[int] = []
 
@@ -527,7 +532,7 @@ async def test_webhooks_failed_spawn_leaves_no_replay_entry(monkeypatch) -> None
 
     sub = _make_sub(client_state="secret-1")
     db = MagicMock()
-    db.scalar = AsyncMock(return_value=sub)
+    db.scalars = _scalars(sub)
 
     dispatched: list[int] = []
 
@@ -581,7 +586,7 @@ async def test_webhooks_ignores_unknown_subscription(monkeypatch) -> None:
     m365_api._reset_replay_cache_for_tests()
 
     db = MagicMock()
-    db.scalar = AsyncMock(return_value=None)  # not found
+    db.scalars = _scalars()  # not found
 
     dispatched: list[int] = []
 
@@ -628,8 +633,8 @@ async def test_webhooks_dedupes_dispatch_for_same_connection(monkeypatch) -> Non
     )
 
     db = MagicMock()
-    # Endpoint scalar()s the SELECT in the same order it iterates `value`.
-    db.scalar = AsyncMock(side_effect=[sub_inbox, sub_sent, sub_events])
+    # Endpoint czyta całą paczkę jednym SELECT-em (runda 10, R10-N10-3).
+    db.scalars = _scalars(sub_inbox, sub_sent, sub_events)
 
     dispatched: list[int] = []
 
@@ -698,3 +703,56 @@ async def test_list_due_for_renewal_filters_by_window() -> None:
     sql = str(stmt.compile(compile_kwargs={"literal_binds": False}))
     assert "graph_subscriptions.expires_at <=" in sql
     assert "ORDER BY graph_subscriptions.expires_at" in sql
+
+
+async def test_webhooks_batch_uses_one_query_and_one_log_line(
+    monkeypatch, caplog
+) -> None:
+    """R10-N10-3: paczka nieznanych subskrypcji = jedno zapytanie i jeden wpis
+    w logu, nie SELECT i ostrzeżenie na każdy wpis."""
+    import logging
+
+    monkeypatch.setattr(m365_api.settings, "M365_WEBHOOKS_ENABLED", True)
+    m365_api._reset_replay_cache_for_tests()
+    db = MagicMock()
+    db.scalar = AsyncMock(return_value=None)
+    db.scalars = _scalars()
+
+    body = {
+        "value": [
+            {"subscriptionId": f"x{i}", "clientState": "y"}
+            for i in range(m365_api._WEBHOOK_MAX_ENTRIES)
+        ]
+    }
+    with caplog.at_level(logging.WARNING, logger=m365_api.logger.name):
+        resp = await m365_api.webhooks(
+            request=_make_request_with_body(body), validationToken=None, db=db
+        )
+
+    assert resp.status_code == 202
+    assert db.scalars.await_count == 1
+    assert db.scalar.await_count == 0
+    webhook_lines = [r for r in caplog.records if "webhook" in r.getMessage()]
+    assert len(webhook_lines) == 1
+
+
+async def test_webhooks_refuses_payload_over_entry_limit(monkeypatch) -> None:
+    monkeypatch.setattr(m365_api.settings, "M365_WEBHOOKS_ENABLED", True)
+    m365_api._reset_replay_cache_for_tests()
+    db = MagicMock()
+    db.scalar = AsyncMock(return_value=None)
+    db.scalars = _scalars()
+
+    body = {
+        "value": [
+            {"subscriptionId": f"x{i}", "clientState": "y"}
+            for i in range(m365_api._WEBHOOK_MAX_ENTRIES + 1)
+        ]
+    }
+    resp = await m365_api.webhooks(
+        request=_make_request_with_body(body), validationToken=None, db=db
+    )
+
+    assert resp.status_code == 413
+    assert db.scalars.await_count == 0
+    assert db.scalar.await_count == 0
