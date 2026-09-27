@@ -134,7 +134,6 @@ describe("tryb edycji pulpitu (R10-N1-2)", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Zapisz układ/ }))
     await waitFor(() => expect(saveMock).toHaveBeenCalledTimes(1))
-    console.log("CALLS", JSON.stringify(saveMock.mock.calls.map(c=>c[1])))
     expect(saveMock.mock.calls[0][1]).toBe(3)
     expect(await screen.findByText(/zmieniony w innej karcie/)).toBeInTheDocument()
   })
