@@ -155,6 +155,13 @@ describe("ważny token → dostęp", () => {
     const res = middleware(request("/dashboard", undefined))
     expect(res.headers.get("location")).toContain("next=%2Fdashboard")
   })
+
+  it("zachowuje w ?next także query linku (R10-N15-1)", () => {
+    const res = middleware(request("/jobs/5?candidate=7", undefined))
+    const location = new URL(res.headers.get("location") ?? "")
+    expect(location.pathname).toBe("/login")
+    expect(location.searchParams.get("next")).toBe("/jobs/5?candidate=7")
+  })
 })
 
 describe("linki publiczne działają bez tokenu", () => {

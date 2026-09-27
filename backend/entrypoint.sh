@@ -8627,6 +8627,10 @@ _INDEX_STATEMENTS = [
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_candidate_documents_created_at "
     "ON candidate_documents (created_at)",
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_calls_created_at ON calls (created_at)",
+    # 0391 (runda 10, R10-V3-3): dopasowanie maila/uczestnika M365 do
+    # kandydata porównuje lower(btrim(email)) — bez tego skan całej tabeli.
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_candidates_email_lower_btrim "
+    "ON candidates (lower(btrim(email)))",
 ]
 
 

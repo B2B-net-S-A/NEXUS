@@ -44,6 +44,7 @@ from app.services.onboarding_access import (
     onboarding_persona_changed,
     onboarding_persona_for_roles,
 )
+from app.services.admin_active_decision import latest_admin_active_decision
 from app.services.admin_membership import protect_active_admin_membership
 from app.services.client_identity import visible_client_predicates
 from app.services import trainee_program
@@ -815,6 +816,9 @@ class ResyncAadGroupsResponse(BaseModel):
     new_roles: list[str] = []
     roles_changed: bool = False
     is_active: bool
+    # R10-V3-2: konto wyłączone jawną decyzją admina zostaje wyłączone —
+    # grupa AAD nie cofa decyzji admina (jak logowanie SSO, R9-N13-2).
+    kept_inactive_by_admin_decision: bool = False
 
 
 @router.post(
@@ -975,16 +979,24 @@ async def resync_aad_groups(
             detail=str(exc),
         ) from exc
     new_role = mapped_roles[0]
+    # Runda 10 (R10-V3-2): resync nie jest decyzją admina o aktywności
+    # (``admin_active_decision``). Konto, które admin jawnie wyłączył, zostaje
+    # wyłączone — inaczej resync włączał je bez wpisu ``active_changed``,
+    # a SSO nadal widziało „wyłączone” i przy następnym wyjściu i powrocie
+    # do grupy odmawiało logowania. Włączenie = zwykła edycja użytkownika.
+    kept_inactive = (
+        not user.is_active and await latest_admin_active_decision(db, user.id) is False
+    )
     await protect_active_admin_membership(
         db,
         actor_id=_admin.id,
         target=user,
         next_roles=role_strs,
-        next_active=True,
+        next_active=not kept_inactive,
     )
     role_changed = user.role != new_role
     roles_changed = previous_roles != role_strs
-    active_changed = not user.is_active
+    active_changed = not user.is_active and not kept_inactive
     legacy_sections_reset = new_role == UserRole.finance and bool(user.allowed_sections)
     onboarding_reset = onboarding_persona_changed(
         previous_effective_roles,
@@ -1043,7 +1055,18 @@ async def resync_aad_groups(
         user.profile_completed_at = user.profile_completed_at or datetime.now(
             timezone.utc
         )
-    user.is_active = True
+    if kept_inactive:
+        db.add(
+            Activity(
+                entity_type="user",
+                entity_id=user.id,
+                action="admin_aad_resync_kept_inactive",
+                user_id=_admin.id,
+                details={"reason": "admin_active_decision"},
+            )
+        )
+    else:
+        user.is_active = True
     if role_changed or roles_changed or active_changed or legacy_sections_reset:
         user.authorization_version += 1
         user.tokens_valid_after = datetime.now(timezone.utc)
@@ -1078,4 +1101,5 @@ async def resync_aad_groups(
         new_roles=role_strs,
         roles_changed=roles_changed,
         is_active=user.is_active,
+        kept_inactive_by_admin_decision=kept_inactive,
     )

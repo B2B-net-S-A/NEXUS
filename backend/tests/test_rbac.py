@@ -533,7 +533,11 @@ async def test_inactive_user_cannot_login(rbac_client: AsyncClient):
 
 @pytest.mark.asyncio
 async def test_change_password_rejects_wrong_current(rbac_client: AsyncClient):
-    """Weryfikacja current_password — złe hasło → 401 bez zmiany hasha."""
+    """Weryfikacja current_password — złe hasło → 400 bez zmiany hasha.
+
+    400, nie 401 (R10-N15-2): front wylogowuje przy każdym 401, więc
+    literówka w aktualnym haśle kończyła sesję zamiast pokazać komunikat.
+    """
     email, password = await _seed_user(UserRole.recruiter)
     headers = await _login(rbac_client, email, password)
 
@@ -542,7 +546,8 @@ async def test_change_password_rejects_wrong_current(rbac_client: AsyncClient):
         headers=headers,
         json={"current_password": "wrong-password-xxx", "new_password": "brandnew123"},
     )
-    assert resp.status_code == 401
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "Aktualne hasło jest nieprawidłowe."
 
     # Stare hasło wciąż działa — nie zostało nadpisane
     ok = await rbac_client.post(
