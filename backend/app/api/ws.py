@@ -612,9 +612,7 @@ async def ws_notifications(
                     await websocket.close(code=4001, reason="Unauthorized")
                     break
                 user = refreshed_user
-                last_seen_stamped = await _refresh_last_seen(
-                    user.id, last_seen_stamped
-                )
+                last_seen_stamped = await _refresh_last_seen(user.id, last_seen_stamped)
                 try:
                     await websocket.send_json({"type": "ping"})
                 except Exception:

@@ -169,9 +169,7 @@ async def emit(
             "created_at": datetime.now(timezone.utc).isoformat(),
         },
     }
-    if not queue_ws_notification(
-        db, user_id=user_id, event_payload=payload, row=notif
-    ):
+    if not queue_ws_notification(db, user_id=user_id, event_payload=payload, row=notif):
         try:
             await ws_manager.notify_user(user_id, payload)
         except Exception as exc:  # noqa: BLE001

@@ -402,9 +402,7 @@ async def _incremental_one(client, db, ss, owner) -> bool:
     # Runda 9 (R9-N2-5): zdarzenie wychodzi dopiero po commicie przebiegu.
     from app.services.notification_ws_after_commit import queue_ws_notification
 
-    if queue_ws_notification(
-        db, user_id=ss.user_id, event_payload=payload, row=notif
-    ):
+    if queue_ws_notification(db, user_id=ss.user_id, event_payload=payload, row=notif):
         return True
     try:
         await ws_notify_user(ss.user_id, payload)
