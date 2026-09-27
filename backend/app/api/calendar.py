@@ -8,7 +8,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional, List
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import select, and_, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,6 +16,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.config import settings
 from app.core.database import get_db, AsyncSessionLocal
+from app.core.rate_limit import limiter, user_or_ip_key
 from app.models.calendar_event import CalendarEvent, EventType, EventStatus
 from app.models.candidate import Candidate
 from app.models.candidate_contact import (
@@ -1359,7 +1360,11 @@ class ICalImportRequest(BaseModel):
 
 
 @router.post("/calendar/import-ical")
+# Runda 9 (R9-X1-5): import to pobranie do 5 MiB, parsowanie i tysiące
+# zapisów — bez limitu jedna osoba mogła zająć proces pętlą żądań.
+@limiter.limit("5/minute", key_func=user_or_ip_key)
 async def import_ical(
+    request: Request,
     body: ICalImportRequest,
     current_user: CalendarWriteAccess,
     db: AsyncSession = Depends(get_db),
