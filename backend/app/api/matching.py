@@ -28,7 +28,6 @@ from app.services.eligibility_annotation import eligibility_annotation
 from app.services.dealbreaker_filters import (
     DealbreakerInputs,
     DealbreakerResult,
-    apply_dealbreakers,
     dealbreaker_inputs_for_job,
     employment_only_refuses_b2b,
     missing_must_skills,
@@ -379,7 +378,14 @@ async def _gate_and_dealbreakers(
     # zastosowała, a nie drugim, niezależnym wyliczeniem tego samego.
     if inputs is None:
         inputs = dealbreaker_inputs_for_job(job)
-    db_res = apply_dealbreakers(
+    # Runda 10 (R10-V2-10): pula do MATCH_POOL_SIZE (1000) to 60–125 ms czystego
+    # CPU w jedynym procesie — paczki z oddaniem pętli, jak ścieżka legacy
+    # radaru (R9-N5-1).
+    from app.services.talent_radar_search import (  # noqa: PLC0415 — cykl importów
+        _apply_dealbreakers_yielding,
+    )
+
+    db_res = await _apply_dealbreakers_yielding(
         dealbreakable,
         inputs=inputs,
         exclude_over_budget=exclude_over_budget,

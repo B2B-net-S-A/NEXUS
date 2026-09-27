@@ -4908,6 +4908,36 @@ async def remove_candidate_from_recruitment(
             detail="Ten kandydat nie bierze udziału w tej rekrutacji.",
         )
 
+    # Runda 10 (R10-V2-7): mail odrzucenia, którego wysyłka już ruszyła,
+    # wychodzi niezależnie od usunięcia — a kaskada skasowałaby jego wiersz,
+    # więc wynik wysyłki nie miałby gdzie się zapisać. `/cancel` w tej samej
+    # sytuacji odpowiada 409; blokada wiersza serializuje z pętlą wysyłki.
+    from app.models.rejection_email import (
+        RejectionEmailStatus,
+        ScheduledRejectionEmail,
+    )
+    from app.services.rejection_email_scheduler import send_in_progress
+
+    pending_mails = (
+        await db.scalars(
+            select(ScheduledRejectionEmail)
+            .where(
+                ScheduledRejectionEmail.candidate_id == candidate_id,
+                ScheduledRejectionEmail.job_id == job_id,
+                ScheduledRejectionEmail.status == RejectionEmailStatus.pending,
+            )
+            .with_for_update()
+        )
+    ).all()
+    if any(send_in_progress(row) for row in pending_mails):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Nie można teraz usunąć — mail odrzucenia do tej osoby właśnie "
+                "wychodzi. Spróbuj ponownie za kilka minut."
+            ),
+        )
+
     # Runda 9 (R9-N11-5): usunięcie to też ruch osoby — blokada 12 h
     # („Nowi”/„Screening” zarezerwowane przez kogoś innego) obowiązuje jak
     # przy `/move`. Admin, DL i HoR przechodzą (`candidate_claim.can_override`).

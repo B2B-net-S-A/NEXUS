@@ -349,6 +349,29 @@ def test_client_cv_file_ignores_generic_words_and_flags_a_tie() -> None:
     assert svc.document_cv_ambiguous(tie, "Bank Polska") is False
 
 
+def test_client_word_matches_whole_words_and_missing_client_is_ambiguous() -> None:
+    """Runda 10 (R10-V2-8): „ING” nie pasuje do „Testing”; jedyny plik
+    z nazwą innego klienta jest „do sprawdzenia”."""
+    from datetime import datetime, timezone
+
+    old = datetime(2026, 9, 1, tzinfo=timezone.utc)
+    new = datetime(2026, 9, 20, tzinfo=timezone.utc)
+    rows = [
+        (1, "Ewa_B2B_Testing.docx", new, new),
+        (2, "Ewa_B2B_ING.docx", old, old),
+    ]
+    assert svc.pick_document_cv(rows, "ING Bank Śląski") == 2
+    assert svc.document_cv_ambiguous(rows, "ING Bank Śląski") is False
+    assert svc._matches_client("Ewa_B2B_Banking.docx", ["ing"]) is False
+    # Słowo co najmniej czteroliterowe może zaczynać słowo pliku.
+    assert svc._matches_client("Ewa_B2B_MillenniumBank.docx", ["millennium"])
+
+    only_other = [(3, "Ewa_B2B_Bank_Millennium.docx", new, new)]
+    assert svc.pick_document_cv(only_other, "Bank Pekao S.A.") == 3
+    assert svc.document_cv_ambiguous(only_other, "Bank Pekao S.A.") is True
+    assert svc.document_cv_ambiguous([], "Bank Pekao S.A.") is False
+
+
 def test_parse_hints_drops_quotes_not_found_in_either_cv() -> None:
     material = {"generated": "Programista **Java**", "original": "Java Kubernetes"}
     raw = json.dumps(
