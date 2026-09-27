@@ -250,6 +250,37 @@ describe("usePipelineMove — ruch pojedynczy", () => {
     );
   });
 
+  it("„Zweryfikowany”: podwójny klik w trakcie wysyłki to jeden ruch (R10-N15-7)", async () => {
+    const item = card({ id: 11, candidate_id: 101, process_state_version: 2 });
+    const b = board({ fresh: [item] });
+    let resolveMove: (v: unknown) => void = () => undefined;
+    move.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveMove = resolve;
+        })
+    );
+    mount(b.all, { apply: vi.fn(), confirm: vi.fn() });
+
+    React.act(() => controls.requestMove(item, b.fresh, b.verified));
+    const input = await screen.findByLabelText("Kwota");
+    fireEvent.change(input, { target: { value: "120" } });
+    const submit = screen.getByRole("button", { name: "Przesuń" });
+    fireEvent.click(submit);
+    fireEvent.click(submit);
+    fireEvent.click(screen.getByRole("button", { name: "Pomiń stawkę" }));
+    await waitFor(() => expect(move).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole("button", { name: "Pomiń stawkę" })).toBeDisabled();
+
+    await React.act(async () => {
+      resolveMove({ data: { id: 503, process_state_version: 3 } });
+    });
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "Pomiń stawkę" })).toBeNull()
+    );
+    expect(move).toHaveBeenCalledTimes(1);
+  });
+
   it("rola bez prawa do stawek dostaje komunikat zamiast okna", () => {
     useAuthStore.setState({
       user: { id: 2, role: "sourcer", email: "s@example.com" },

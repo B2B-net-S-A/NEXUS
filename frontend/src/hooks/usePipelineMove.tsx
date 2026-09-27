@@ -315,6 +315,8 @@ export function usePipelineMove({
   // (jeden po drugim) zamiast jednego wspólnego formularza.
   const [verifiedQueue, setVerifiedQueue] = useState<MoveEntry[]>([]);
   const [verifiedBulkTotal, setVerifiedBulkTotal] = useState(0);
+  const [verifiedSubmitting, setVerifiedSubmitting] = useState(false);
+  const verifiedSubmittingRef = useRef(false);
   // „CV Wysłane" → zapytaj o stawkę do klienta (sell rate). Analogiczne do
   // verified, ale stawka jest opcjonalna i zapisywana osobnym PATCH-em po ruchu
   // (kolumny client_rate_* na najnowszym CandidateStage). Bulk = kolejka modali.
@@ -673,6 +675,11 @@ export function usePipelineMove({
   const submitVerifiedMove = useCallback(
     async (payload: RatePayload | null, acknowledge = false) => {
       if (!verifiedRatePrompt) return;
+      // Runda 10 (R10-N15-7): jeden ruch naraz — ref, bo dwa kliknięcia
+      // w tej samej klatce widzą jeszcze stary stan.
+      if (verifiedSubmittingRef.current) return;
+      verifiedSubmittingRef.current = true;
+      setVerifiedSubmitting(true);
       const { item, destCol, srcColId } = verifiedRatePrompt;
       const isSingleMove = verifiedBulkTotal <= 1;
       const advanceQueue = () => {
@@ -749,6 +756,9 @@ export function usePipelineMove({
           showError(assignErrorMessage(e));
         }
         advanceQueue();
+      } finally {
+        verifiedSubmittingRef.current = false;
+        setVerifiedSubmitting(false);
       }
     },
     [
@@ -1138,6 +1148,7 @@ export function usePipelineMove({
           initialRateHourly={verifiedRatePrompt.item.candidate_expected_rate_hourly ?? null}
           onConfirm={(payload) => void submitVerifiedMove(payload)}
           onSkip={() => void submitVerifiedMove(null)}
+          submitting={verifiedSubmitting}
         />
       )}
 
