@@ -212,6 +212,7 @@ from app.services.cyfrowy_polsat_orders import (
     is_cyfrowy_polsat_order_types_client,
 )
 from app.services.ezdrowie import is_ezdrowie_client, resolve_ezdrowie_assignment
+from app.services.executive_contracts import inheritable_executive_contract_id
 from app.services.client_order_lines import _swap_split_remaining
 from app.services.order_line_takeover import (
     ASSIGNMENT_JOIN,
@@ -4484,7 +4485,15 @@ async def reopen_order_group(
     # decyzją o okresie i reopen jej nie unieważnia (patrz `sync_md_line_status`).
     lines_reopened = 0
     reopen_day = business_today()
-    for line in await lines_for_group(db, group.id):
+    # Runda 9 (R9-V1-4): linia kosztowa/wspólnej puli wracała na obsadę także
+    # wtedy, gdy umowę osoby w międzyczasie zakończono albo unieważniono.
+    # Unieważniona umowa = linia zostaje zakończona; zakończona = linia
+    # przechodzi przez tę samą ścieżkę zakończenia co przy „Zakończ
+    # współpracę” (lustro „Przywróć anulowane”), ograniczoną do tych linii.
+    offboard_contracts: dict[int, date] = {}
+    offboard_lines: dict[int, set[int]] = {}
+    group_lines = await lines_for_group(db, group.id)
+    for line in group_lines:
         state = closed_lines_state.get(line.id)
         if state is not None and previous_closure is not None:
             if line.end_date == previous_closure:
@@ -4500,11 +4509,40 @@ async def reopen_order_group(
                 and (line.end_date is None or line.end_date >= reopen_day)
                 and (line.start_date is None or line.start_date <= reopen_day)
             ):
+                contract = await db.get(Contract, line.contract_id)
+                if contract is not None and contract.status == ContractStatus.void:
+                    continue
                 line.status = ClientOrderStatus.active
                 lines_reopened += 1
+                if contract is not None and contract.status == ContractStatus.ended:
+                    offboard_contracts[contract.id] = (
+                        contract.end_date or contract.terminated_at or reopen_day
+                    )
+                    offboard_lines.setdefault(contract.id, set()).add(line.id)
                 continue
         if await sync_md_line_status(db, line):
             lines_reopened += 1
+
+    if offboard_contracts:
+        from app.services.contract_order_offboarding import (
+            apply_contract_order_offboarding,
+        )
+
+        await db.flush()
+        for contract_id in sorted(offboard_contracts):
+            await apply_contract_order_offboarding(
+                db,
+                contract_id=contract_id,
+                effective_date=offboard_contracts[contract_id],
+                actor_id=user.id,
+                order_ids=offboard_lines[contract_id],
+            )
+        offboarded = set().union(*offboard_lines.values())
+        lines_reopened -= sum(
+            1
+            for line in group_lines
+            if line.id in offboarded and line.status != ClientOrderStatus.active
+        )
 
     record_event(
         db,
@@ -4770,6 +4808,7 @@ async def restore_order_group(
     # a linia zakończonej umowy przechodzi przez tę samą ścieżkę zakończenia
     # co przy „Zakończ współpracę" (przycięcie daty + sprawa MD).
     offboard_contracts: dict[int, date] = {}
+    offboard_lines: dict[int, set[int]] = {}
     for line in await lines_for_group(db, group.id):
         raw = previous_line_status.get(line.id)
         if raw is None or raw == ClientOrderStatus.cancelled.value:
@@ -4801,6 +4840,7 @@ async def restore_order_group(
             offboard_contracts[contract.id] = (
                 contract.end_date or contract.terminated_at or today
             )
+            offboard_lines.setdefault(contract.id, set()).add(line.id)
 
     restored_status = group.status_before_cancel or GROUP_STATUS_ACTIVE
     group.status = restored_status
@@ -4821,6 +4861,9 @@ async def restore_order_group(
                 contract_id=contract_id,
                 effective_date=offboard_contracts[contract_id],
                 actor_id=user.id,
+                # R9-V1-3: kończymy tylko przywracane linie, nie inne otwarte
+                # zamówienia tej osoby (przyszłe, szkic przedłużenia).
+                order_ids=offboard_lines[contract_id],
             )
 
     record_event(
@@ -4936,8 +4979,12 @@ async def extend_order_group(
         md_budget_remaining=payload.md_budget_total,
         predecessor_group_id=source.id,
         # Kontynuacja zostaje pod tą samą umową wykonawczą CeZ — przedłużenie
-        # nie zmienia, z której umowy schodzą MD.
-        executive_contract_id=source.executive_contract_id,
+        # nie zmienia, z której umowy schodzą MD. Runda 9 (R9-V1-5): ale tylko
+        # AKTYWNĄ — zakończona umowa wykonawcza nie przyjmuje nowych zamówień
+        # (lustro powrotu po przerwie, R8-N6-5); puste = „Nieprzypisani”.
+        executive_contract_id=await inheritable_executive_contract_id(
+            db, source.executive_contract_id
+        ),
         created_by_user_id=user.id,
     )
     db.add(group)
