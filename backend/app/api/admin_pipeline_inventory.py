@@ -410,6 +410,13 @@ _TOTALS_SQL = f"""
 """
 
 
+async def _reset_session(db: AsyncSession) -> None:
+    try:
+        await db.rollback()
+    except Exception:  # noqa: BLE001 — reset sesji nie może wywalić raportu
+        pass
+
+
 async def _run_check(
     db: AsyncSession, key: str, severity: str, description: str, sql: str
 ) -> dict[str, Any]:
@@ -441,6 +448,12 @@ async def _run_check(
             "elapsed_ms": int((time.monotonic() - started) * 1000),
             "error": f"{type(exc).__name__}: {exc}",
         }
+    finally:
+        # Runda 10 (R10-N8-1): wszystkie checki jadą po jednej sesji. Nieudany
+        # albo anulowany przez `wait_for` SELECT zostawia przerwaną transakcję,
+        # a bez resetu każdy kolejny check dostaje `InFailedSQLTransaction`
+        # (lustro `admin_process_adoption._run`). Raport jest tylko do odczytu.
+        await _reset_session(db)
 
 
 @router.get(
@@ -467,6 +480,8 @@ async def pipeline_inventory(
         totals = dict(totals_row)
     except Exception as exc:  # noqa: BLE001
         totals = {"error": f"{type(exc).__name__}: {exc}"}
+    finally:
+        await _reset_session(db)
 
     checks = [
         await _run_check(db, key, severity, description, sql)

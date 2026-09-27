@@ -109,6 +109,10 @@ async def trigger_process_backfill(
             status_code=status.HTTP_409_CONFLICT,
             detail="Backfill już trwa",
         )
+    # Runda 10 (R10-N8-2): flaga PRZED `spawn`, synchronicznie — zadanie w tle
+    # ustawia ją dopiero w kolejnej iteracji pętli, więc dwa szybkie POST-y
+    # startowały dwa biegi konkurujące o te same INSERT-y.
+    _JOB["running"] = True
     # `spawn`: trzymana referencja i log porażki (goły `create_task` — nie).
     spawn(_run_backfill(limit_pairs, resync_stale), "recruitment_process_backfill")
     return {

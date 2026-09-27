@@ -448,6 +448,10 @@ async def backfill_missing_names(
         # padł parser, magazyn plików czy zapis — a to trzy różne naprawy.
         "error_types": {},
         "last_id": ids[-1] if ids else None,
+        # Runda 10 (R10-N8-4): pozycja PRZEROBIONA, nie koniec paczki.
+        # `last_id` (ids[-1]) zna się od startu — wznowienie z niego po
+        # restarcie w połowie biegu pominęłoby nieprzerobiony ogon paczki.
+        "cursor_id": after_id,
     }
     if progress is not None:
         progress.update(stats)
@@ -458,6 +462,7 @@ async def backfill_missing_names(
     for cand_id in ids:
         candidate = await db.scalar(select(Candidate).where(Candidate.id == cand_id))
         if candidate is None:
+            stats["cursor_id"] = cand_id
             continue
         try:
             # Kwota `cv_name_backfill` — OSOBNY kubełek od `cv_backfill`, mimo
@@ -496,6 +501,7 @@ async def backfill_missing_names(
             stats["error_types"][cand_id] = type(e).__name__
             logger.warning("[cv_backfill] candidate %s failed: %s", cand_id, e)
         stats["processed"] += 1
+        stats["cursor_id"] = cand_id
         if progress is not None:
             progress.update(stats)
         if stats["processed"] % 25 == 0:

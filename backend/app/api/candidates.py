@@ -7901,13 +7901,19 @@ async def assign_candidate_cc(
     )
     await db.execute(stmt)
 
-    # Backwards-compat: keep legacy single FK in sync when primary flagged
-    if body.is_primary:
-        candidate = await db.scalar(
-            select(Candidate).where(Candidate.id == candidate_id)
-        )
-        if candidate:
+    # Backwards-compat: keep legacy single FK in sync when primary flagged.
+    # Runda 10 (R10-N8-6): razem ze slugiem `competence_category` — czytają go
+    # karta dla klienta, prep-kit, tekst embeddingu i wyszukiwarka; sam FK
+    # zostawiał tam starą kategorię AI (lustro `apply_candidate_cc_scores`).
+    candidate = await db.scalar(select(Candidate).where(Candidate.id == candidate_id))
+    if candidate:
+        if body.is_primary:
             candidate.competence_category_id = body.competence_category_id
+            candidate.competence_category = cc.slug
+        elif candidate.competence_category_id == body.competence_category_id:
+            # Dotychczasowa główna zdegradowana do pobocznej — główną zostaje „brak”.
+            candidate.competence_category_id = None
+            candidate.competence_category = None
     await db.commit()
 
     return CandidateCcOut(
@@ -7933,6 +7939,10 @@ async def unassign_candidate_cc(
     """Remove a CC assignment from a candidate."""
     from app.models.competence_category import CandidateCompetenceCategory
 
+    # Runda 10 (R10-N8-7): ta sama blokada co przy przydziale i w backfillu CC.
+    await db.execute(
+        select(Candidate.id).where(Candidate.id == candidate_id).with_for_update()
+    )
     link = await db.scalar(
         select(CandidateCompetenceCategory).where(
             CandidateCompetenceCategory.candidate_id == candidate_id,
@@ -7948,8 +7958,11 @@ async def unassign_candidate_cc(
         candidate = await db.scalar(
             select(Candidate).where(Candidate.id == candidate_id)
         )
-        if candidate and candidate.competence_category_id == cc_id:
+        if candidate and candidate.competence_category_id in (cc_id, None):
             candidate.competence_category_id = None
+            # Runda 10 (R10-N8-6): slug razem z FK, inaczej karta klienta,
+            # prep-kit i embedding dalej widzą zdjętą kategorię.
+            candidate.competence_category = None
     await db.commit()
 
 

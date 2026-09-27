@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import timedelta
 from typing import Any
 
-from sqlalchemy import distinct, func, select
+from sqlalchemy import DateTime, String, column, distinct, func, select, table
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduling import business_today, local_month_bounds
@@ -17,9 +17,11 @@ from app.models.candidate import Candidate, CandidateStatus
 from app.models.client import Client
 from app.models.contract import Contract, ContractStatus
 from app.models.job import Job, JobStatus
-from app.models.recruitment_pipeline import CandidateStage, PipelineStage
-from app.services.contractor_identity import count_unique_contractors
-from app.services.placement_exclusions import not_excluded_placement
+from app.models.recruitment_pipeline import PipelineStage
+from app.services.contractor_identity import (
+    count_unique_contractors,
+    current_contract_clause,
+)
 
 
 async def compute_kpi_snapshot(db: AsyncSession) -> dict[str, Any]:
@@ -45,13 +47,15 @@ async def compute_kpi_snapshot(db: AsyncSession) -> dict[str, Any]:
     # TZ, więc `date.today()` zwraca datę UTC — przez pierwsze 1–2 godziny
     # polskiej doby jest to WCZORAJ.
     today_d = business_today()
+    # Runda 10 (R10-N8-11): jedna reguła „obecny kontrakt” — lustro licznika
+    # katalogu klientów (`client_directory`): status active/ending i
+    # `current_contract_clause`. Dotąd liczył umowy `void`/`ready_for_signature`
+    # bez daty końca, a pomijał umowy B2B bez daty startu.
     clients_active = (
         await db.execute(
             select(func.count(distinct(Contract.client_id))).where(
-                Contract.status != ContractStatus.draft,
-                Contract.start_date.isnot(None),
-                Contract.start_date <= today_d,
-                (Contract.end_date.is_(None)) | (Contract.end_date >= today_d),
+                Contract.status.in_((ContractStatus.active, ContractStatus.ending)),
+                current_contract_clause(today_d),
             )
         )
     ).scalar()
@@ -97,16 +101,22 @@ async def compute_kpi_snapshot(db: AsyncSession) -> dict[str, Any]:
     # WRZEŚNIA po drugiej, czyli znikało z KPI na stałe. Samo `ENV TZ` tego nie
     # naprawia — o granicy decyduje strefa sesji Postgresa, nie procesu.
     month = local_month_bounds(today_d)
+    # Runda 10 (R10-N8-11): placement = PIERWSZE „Zatrudniony” pary (D2, widok
+    # `analytics_first_milestones`, jak Insights) — surowe `candidate_stages`
+    # liczyło każdy powrót na etap. Widok pomija też wykluczone pary (0343).
+    milestones = table(
+        "analytics_first_milestones",
+        column("stage", String),
+        column("first_reached_at", DateTime(timezone=True)),
+    )
     hired_this_month = (
         await db.execute(
-            select(func.count(CandidateStage.id)).where(
-                CandidateStage.stage == PipelineStage.hired,
-                CandidateStage.moved_at >= month.start_utc,
-                CandidateStage.moved_at < month.end_utc,
-                # 0343: seria „Zatrudniony" bez CV nie jest placementem.
-                not_excluded_placement(
-                    CandidateStage.candidate_id, CandidateStage.job_id
-                ),
+            select(func.count())
+            .select_from(milestones)
+            .where(
+                milestones.c.stage == PipelineStage.hired.value,
+                milestones.c.first_reached_at >= month.start_utc,
+                milestones.c.first_reached_at < month.end_utc,
             )
         )
     ).scalar()

@@ -79,7 +79,16 @@ def extract_diagnostics_report(executions):
                 raise ValueError("Unbounded diagnostic runs")
             runs = []
             for run in recent:
-                if run["state"] not in {"queued", "running", "complete", "partial"}:
+                # Runda 10 (R10-N8-8): `failed` istnieje od #1428 (przegląd po
+                # wyczerpanych przejęciach albo `candidate_erased`) — jeden taki
+                # wśród ostatnich 10 nie może wywracać całej diagnostyki.
+                if run["state"] not in {
+                    "queued",
+                    "running",
+                    "complete",
+                    "partial",
+                    "failed",
+                }:
                     raise ValueError("Invalid search state")
                 if not re.fullmatch(r"[0-9a-f-]{36}", run["run_id"]):
                     raise ValueError("Invalid diagnostic run ID")
