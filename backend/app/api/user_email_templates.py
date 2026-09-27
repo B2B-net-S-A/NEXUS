@@ -19,22 +19,29 @@ to ORM rows and exposes them to the template under the namespaces
 
 from __future__ import annotations
 
-from typing import List, Optional
+import asyncio
+import functools
+import sys
+import time
+from typing import Any, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from jinja2 import TemplateError, meta, select_autoescape
+from jinja2.exceptions import SecurityError
 from jinja2.sandbox import SandboxedEnvironment
+from jinja2.utils import _PassArg
 from pydantic import BaseModel, Field
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.analytics.capabilities import AnalyticsCapability, user_has_capability
-from app.api.candidate_access import CandidatePIIAccess
+from app.api.candidate_access import CandidatePIIAccess, CandidateWriteAccess
 from app.api.deps import CurrentUser
 from app.core.database import get_db
 from app.models.candidate import Candidate
 from app.models.job import Job
+from app.models.user import UserRole
 from app.models.user_email_template import UserEmailTemplate
 from app.services.access_scope import (
     assert_delivery_lead_client_visible,
@@ -45,12 +52,74 @@ from app.core.scheduling import business_today
 router = APIRouter()
 
 
-# Sandboxed so user-supplied template source can't reach Python internals.
-# autoescape=True since rendered output is injected as HTML into Tiptap.
-_jinja_env = SandboxedEnvironment(
-    autoescape=select_autoescape(["html", "xml"]),
-    trim_blocks=True,
-    lstrip_blocks=True,
+# Runda 9 (R9-N10-7): render szablonu autora szedł synchronicznie w handlerze
+# async — `{% for a in range(100000) %}{% for b in range(100000) %}` albo
+# `9 ** 9 ** 9` zamrażały jedyny proces uvicorna. Teraz: działania `*`/`**`
+# i liczby w wywołaniach mają sufit, render ma limit czasu (twardy — sprawdzany
+# w trakcie wykonania) i limit długości wyniku, a całość idzie w wątku.
+_MAX_CALL_INT = 10_000_000
+_MAX_SEQ_REPEAT = 100_000
+_MAX_INT_BITS = 4_096
+_RENDER_OUTPUT_LIMIT = 500_000
+_RENDER_DEADLINE_SECONDS = 2.0
+
+
+def _is_int(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _check_call_args(args: tuple, kwargs: dict) -> None:
+    for value in (*args, *kwargs.values()):
+        if _is_int(value) and abs(value) > _MAX_CALL_INT:
+            raise SecurityError("Liczba w szablonie przekracza dopuszczalny limit.")
+
+
+def _bounded_filter(func):
+    """Filtr z sufitem liczb w argumentach (np. `|center(10**9)`)."""
+    skip = 2 if _PassArg.from_obj(func) is not None else 1
+
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        _check_call_args(args[skip:], kwargs)
+        return func(*args, **kwargs)
+
+    return wrapper
+
+
+class _BoundedSandbox(SandboxedEnvironment):
+    intercepted_binops = frozenset({"*", "**"})
+
+    def __init__(self, **options: Any) -> None:
+        super().__init__(**options)
+        self.filters = {
+            name: _bounded_filter(func) for name, func in self.filters.items()
+        }
+        # `lipsum(n)` generuje dowolnie długi tekst — w mailu niepotrzebny.
+        self.globals.pop("lipsum", None)
+
+    def call(__self, __context, __obj, *args, **kwargs):  # noqa: N805
+        _check_call_args(args, kwargs)
+        return super().call(__context, __obj, *args, **kwargs)
+
+    def call_binop(self, context, operator, left, right):
+        if operator == "**" and _is_int(left) and _is_int(right):
+            if right > 0 and abs(left) > 1 and (
+                right * abs(left).bit_length() > _MAX_INT_BITS
+            ):
+                raise SecurityError("Potęga w szablonie przekracza limit.")
+        if operator == "*":
+            for seq, times in ((left, right), (right, left)):
+                if isinstance(seq, (str, list, tuple)) and _is_int(times):
+                    if len(seq) * max(times, 0) > _MAX_SEQ_REPEAT:
+                        raise SecurityError("Powielenie tekstu w szablonie przekracza limit.")
+            if _is_int(left) and _is_int(right) and (
+                left.bit_length() + right.bit_length() > _MAX_INT_BITS
+            ):
+                raise SecurityError("Iloczyn w szablonie przekracza limit.")
+        return super().call_binop(context, operator, left, right)
+
+
+def _finalize(value: Any) -> Any:
     # Jinja renderuje `None` jako napis "None". `_candidate_ctx` i `_job_ctx`
     # celowo zwracają `None` dla pól nieuzupełnionych (`full_name`,
     # `client_name`, `phone`, `location`, `linkedin`, widełki), więc szablon
@@ -58,8 +127,72 @@ _jinja_env = SandboxedEnvironment(
     # Ten sam defekt co w `contract_templates`, tylko z odbiorcą na zewnątrz.
     # `finalize` zamienia wyłącznie `None` na pusty napis: `False` i `0` muszą
     # przejść nietknięte, bo są prawidłowymi wartościami, a nie brakiem danych.
-    finalize=lambda v: "" if v is None else v,
+    return "" if value is None else value
+
+
+# Sandboxed so user-supplied template source can't reach Python internals.
+# autoescape=True since rendered output is injected as HTML into Tiptap.
+_jinja_env = _BoundedSandbox(
+    autoescape=select_autoescape(["html", "xml"]),
+    trim_blocks=True,
+    lstrip_blocks=True,
+    finalize=_finalize,
 )
+
+# Runda 9 (R9-N10-6): temat to zwykły tekst (nagłówek maila), nie HTML —
+# środowisko z autoescape zamieniało „R&D” w „R&amp;D” w skrzynce kandydata.
+_subject_env = _BoundedSandbox(
+    autoescape=False,
+    trim_blocks=True,
+    lstrip_blocks=True,
+    finalize=_finalize,
+)
+
+
+class _RenderTimeout(SecurityError):
+    pass
+
+
+def _render_bounded(env: SandboxedEnvironment, source: str, ctx: dict) -> str:
+    """Render z twardym limitem czasu i długości wyniku (wołany w wątku).
+
+    Limit czasu sprawdza funkcja śledząca wątku — przerywa także pętlę, która
+    nic nie wypisuje (samo `asyncio.wait_for` nie zatrzymałoby wątku).
+    """
+    template = env.from_string(source)
+    deadline = time.monotonic() + _RENDER_DEADLINE_SECONDS
+    ticks = 0
+
+    def _tracer(frame, event, arg):
+        nonlocal ticks
+        ticks += 1
+        if ticks % 256 == 0 and time.monotonic() > deadline:
+            raise _RenderTimeout("Render szablonu przekroczył limit czasu.")
+        return _tracer
+
+    previous = sys.gettrace()
+    sys.settrace(_tracer)
+    try:
+        parts: list[str] = []
+        size = 0
+        for chunk in template.generate(**ctx):
+            size += len(chunk)
+            if size > _RENDER_OUTPUT_LIMIT:
+                raise SecurityError("Wynik szablonu przekracza dopuszczalną długość.")
+            parts.append(chunk)
+        return "".join(parts)
+    finally:
+        sys.settrace(previous)
+
+
+async def _render_in_thread(env: SandboxedEnvironment, source: str, ctx: dict) -> str:
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(_render_bounded, env, source, ctx),
+            timeout=_RENDER_DEADLINE_SECONDS * 3,
+        )
+    except asyncio.TimeoutError as exc:
+        raise _RenderTimeout("Render szablonu przekroczył limit czasu.") from exc
 
 
 def _extract_variables(body_html: str) -> List[str]:
@@ -285,12 +418,34 @@ async def list_templates(
     return [TemplateResponse.from_orm_row(t) for t in res.scalars().all()]
 
 
+# Runda 9 (R9-N10-11): szablon wspólny widzi każdy — publikuje go tylko autor
+# szablonów systemowych (lustro `emails.EmailTemplateAuthor`: admin, HoR, DL).
+_SHARED_TEMPLATE_AUTHOR_ROLES = (
+    UserRole.admin,
+    UserRole.head_of_recruitment,
+    UserRole.delivery_lead,
+)
+
+
+def _assert_can_share(current_user) -> None:
+    if not current_user.has_any_role(*_SHARED_TEMPLATE_AUTHOR_ROLES):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Szablon wspólny dla całego zespołu może opublikować tylko "
+                "administrator, Head of Recruitment albo Delivery Lead."
+            ),
+        )
+
+
 @router.post("", response_model=TemplateResponse, status_code=status.HTTP_201_CREATED)
 async def create_template(
     data: TemplateCreate,
-    current_user: CurrentUser,
+    current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
 ):
+    if data.is_shared:
+        _assert_can_share(current_user)
     _validate_jinja(data.body_html, "body_html")
     if data.subject:
         _validate_jinja(data.subject, "subject")
@@ -330,6 +485,8 @@ async def update_template(
     t = await _load_template_for_write(template_id, current_user.id, db)
 
     updates = data.model_dump(exclude_unset=True)
+    if updates.get("is_shared") and not t.is_shared:
+        _assert_can_share(current_user)
     if "body_html" in updates and updates["body_html"] is not None:
         _validate_jinja(updates["body_html"], "body_html")
         updates["variables"] = _extract_variables(updates["body_html"])
@@ -408,8 +565,7 @@ async def render_template(
     )
 
     try:
-        body_tmpl = _jinja_env.from_string(t.body_html)
-        rendered_body = body_tmpl.render(**ctx)
+        rendered_body = await _render_in_thread(_jinja_env, t.body_html, ctx)
     except TemplateError as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -419,8 +575,7 @@ async def render_template(
     rendered_subject = ""
     if t.subject:
         try:
-            subj_tmpl = _jinja_env.from_string(t.subject)
-            rendered_subject = subj_tmpl.render(**ctx)
+            rendered_subject = await _render_in_thread(_subject_env, t.subject, ctx)
         except TemplateError as e:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
