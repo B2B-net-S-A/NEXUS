@@ -453,7 +453,8 @@ async def test_merge_fences_active_search_runs_like_erasure(app_client: AsyncCli
         async with AsyncSessionLocal() as db:
             active = await db.get(CandidateSearchRun, active_id)
             finished = await db.get(CandidateSearchRun, finished_id)
-            assert (active.state, active.error_code) == ("failed", "candidate_erased")
+            # Runda 9 (R9-N5-7): przegląd w toku traci wiersz duplikatu, nie pada.
+            assert (active.state, active.population_size) == ("running", 1)
             assert finished.state == "complete"
             left = (
                 await db.execute(
