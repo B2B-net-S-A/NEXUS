@@ -195,6 +195,7 @@ from app.services.candidate_location_writer import (
 from app.services.candidate_identity_ownership import (
     identity_sync_state,
     lock_changed_traffit_identity_fields,
+    lock_changed_traffit_synced_fields,
     restore_traffit_identity_fields,
 )
 from app.services.recruitment_process_commands import (
@@ -5544,6 +5545,13 @@ async def update_candidate(
             entity_id=candidate.id,
             details={"fields": manual_identity_locks, "owner": "nexus"},
         )
+    # Runda 10 (R10-N11-2/3): telefon, e-mail, LinkedIn i status poprawione
+    # tutaj nie wracają przy nocnym syncu Traffita.
+    manual_synced = lock_changed_traffit_synced_fields(
+        candidate, updates, user_id=current_user.id
+    )
+    if manual_synced:
+        activity_details["manual_sync_locks"] = manual_synced
 
     # Phase D4: flag manual edits to `experience` so a subsequent CV upload
     # does not silently overwrite recruiter-curated data with AI extraction.

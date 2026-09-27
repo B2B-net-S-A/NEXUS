@@ -86,6 +86,56 @@ def lock_changed_traffit_identity_fields(
     return changed
 
 
+# Runda 10 (R10-N11-2, R10-N11-3): pola, które nocny sync Traffita nadpisywał,
+# choć rekruter poprawił je w NEXUSIE (telefon po „złym numerze”, zdjęta
+# czarna lista). Znacznik `<pole>_manual` w `_nexus_identity` czytają oba SQL-e
+# importera (`_UPSERT_CANDIDATE`, `_UPDATE_CANDIDATE_ADOPT`) — pole zostaje
+# wtedy przy wartości z NEXUSA. Znacznik stawiamy dla KAŻDEGO źródła, nie tylko
+# `traffit`: wiersz z innego źródła bywa później adoptowany po mailu.
+TRAFFIT_SYNCED_MANUAL_FIELDS: tuple[str, ...] = (
+    "email",
+    "phone",
+    "linkedin",
+    "profile_about",
+    "status",
+)
+
+
+def _comparable(value: Any) -> Any:
+    value = getattr(value, "value", value)
+    if isinstance(value, str):
+        return value.strip()
+    return value
+
+
+def lock_changed_traffit_synced_fields(
+    candidate: Candidate,
+    updates: Mapping[str, Any],
+    *,
+    user_id: int | None,
+    changed_at: datetime | None = None,
+) -> list[str]:
+    """Oznacz pola zsynchronizowane z Traffitem, które NAPRAWDĘ się zmieniły."""
+
+    changed = [
+        field
+        for field in TRAFFIT_SYNCED_MANUAL_FIELDS
+        if field in updates
+        and _comparable(updates[field]) != _comparable(getattr(candidate, field))
+    ]
+    if not changed:
+        return []
+    custom_fields, metadata = _metadata(candidate)
+    stamp = (changed_at or datetime.now(timezone.utc)).isoformat()
+    for field in changed:
+        metadata[f"{field}_manual"] = True
+        metadata[f"{field}_set_at"] = stamp
+        metadata[f"{field}_set_by"] = user_id
+    custom_fields[IDENTITY_META_KEY] = metadata
+    candidate.custom_fields = custom_fields
+    return changed
+
+
 def identity_sync_state(candidate: Candidate) -> dict[str, Any] | None:
     """Return the typed API projection consumed by the profile editor."""
 

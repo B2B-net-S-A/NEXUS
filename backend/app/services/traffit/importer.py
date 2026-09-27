@@ -605,7 +605,26 @@ _CANDIDATE_TOMBSTONE_GUARD = """
     )
 """
 
-_UPSERT_CANDIDATE_SQL = """
+def _with_manual_locks(sql: str) -> str:
+    """Wstaw warunek znacznika ręcznej edycji zamiast `{manual:<pole>}`.
+
+    Runda 10 (R10-N11-2/3): znaczniki `<pole>_manual` w
+    `custom_fields._nexus_identity` stawia PATCH kandydata
+    (`lock_changed_traffit_synced_fields`). Jedno miejsce, żeby gałąź upsertu
+    i adopcji czytały ten sam warunek.
+    """
+    return re.sub(
+        r"\{manual:(\w+)\}",
+        lambda m: (
+            "(COALESCE(candidates.custom_fields #>> "
+            f"'{{_nexus_identity,{m.group(1)}_manual}}', 'false') = 'true')"
+        ),
+        sql,
+    )
+
+
+_UPSERT_CANDIDATE_SQL = _with_manual_locks(
+    """
     INSERT INTO candidates (
         external_id, external_source, name, lastname, email, phone, linkedin,
         status, profile_about, cv_filename,
@@ -629,7 +648,8 @@ _UPSERT_CANDIDATE_SQL = """
                 'traffit_name', CAST(:name AS text),
                 'traffit_lastname', CAST(:lastname AS text),
                 'traffit_source_updated_at',
-                    CAST(:traffit_source_updated_at AS text)
+                    CAST(:traffit_source_updated_at AS text),
+                'traffit_payload_sha', CAST(:traffit_payload_sha AS text)
             ))
         ),
         CAST(:source AS text), CAST(:created_by AS integer),
@@ -676,9 +696,20 @@ _UPSERT_CANDIDATE_SQL = """
                               THEN candidates.lastname
                               ELSE EXCLUDED.lastname
                             END,
-        email             = COALESCE(EXCLUDED.email, candidates.email),
-        phone             = COALESCE(EXCLUDED.phone, candidates.phone),
-        linkedin          = COALESCE(EXCLUDED.linkedin, candidates.linkedin),
+        -- Runda 10 (R10-N11-3): pole poprawione w NEXUSIE (znacznik
+        -- `<pole>_manual` z PATCH kandydata) zostaje przy wartości z NEXUSA.
+        email             = CASE WHEN {manual:email}
+                              THEN candidates.email
+                              ELSE COALESCE(EXCLUDED.email, candidates.email)
+                            END,
+        phone             = CASE WHEN {manual:phone}
+                              THEN candidates.phone
+                              ELSE COALESCE(EXCLUDED.phone, candidates.phone)
+                            END,
+        linkedin          = CASE WHEN {manual:linkedin}
+                              THEN candidates.linkedin
+                              ELSE COALESCE(EXCLUDED.linkedin, candidates.linkedin)
+                            END,
         -- Blacklista jest LEPKA. `EXCLUDED.status` niesie to, co przysłał
         -- Traffit, a tam blacklisty nie ma w żadnym polu: jest wklejona
         -- w imię. Bez tego warunku każdy, kogo admin oznaczył ręcznie
@@ -686,16 +717,23 @@ _UPSERT_CANDIDATE_SQL = """
         -- cichy powrót do proponowania osoby, której proponować nie wolno.
         -- Zdjęcie blacklisty jest świadomą decyzją człowieka i musi się
         -- odbyć w Nexusie, a nie przez brak markera w cudzym systemie.
+        --
+        -- Runda 10 (R10-N11-2): w drugą stronę też — zdjęcie blacklisty
+        -- w NEXUSIE (znacznik `status_manual`) nie wraca z markera w imieniu.
         status            = CASE
                               WHEN candidates.status
                                    = CAST('blacklisted' AS candidatestatus)
+                                OR {manual:status}
                               THEN candidates.status
                               ELSE EXCLUDED.status
                             END,
-        profile_about     = COALESCE(
-            EXCLUDED.profile_about,
-            candidates.profile_about
-        ),
+        profile_about     = CASE WHEN {manual:profile_about}
+                              THEN candidates.profile_about
+                              ELSE COALESCE(
+                                EXCLUDED.profile_about,
+                                candidates.profile_about
+                              )
+                            END,
         cv_filename       = COALESCE(EXCLUDED.cv_filename, candidates.cv_filename),
         cv_extracted_data = candidates.cv_extracted_data
                             || EXCLUDED.cv_extracted_data
@@ -797,8 +835,17 @@ _UPSERT_CANDIDATE_SQL = """
         -- (chwilowa awaria Traffita, rekord przywrócony z kosza) zostawiałoby
         -- trwałe „usunięty u źródła" na wskroś żywym profilu.
         external_deleted_at = NULL
+    -- Runda 10 (R10-N11-9): rekord Traffita bez zmian (ten sam skrót
+    -- zmapowanego payloadu) nie jest przepisywany — pełny bieg stemplował
+    -- `updated_at` ~57 tys. kandydatów co tydzień, a trigger przeliczał korpus
+    -- słów kluczowych (tsvector z CV) dla każdego z nich. Brak wiersza
+    -- w RETURNING = „bez zmian”.
+    WHERE candidates.custom_fields #>> '{_nexus_identity,traffit_payload_sha}'
+            IS DISTINCT FROM CAST(:traffit_payload_sha AS text)
+       OR candidates.external_deleted_at IS NOT NULL
     RETURNING id, (xmax = 0) AS was_insert
     """
+)
 
 _UPSERT_CANDIDATE = text(
     _UPSERT_CANDIDATE_SQL.replace("{tombstone_guard}", _CANDIDATE_TOMBSTONE_GUARD)
@@ -818,7 +865,8 @@ _CANDIDATE_EMAIL_UNIQUE = ("ix_candidates_email", "candidates_email_key")
 # stash the previous external_source under cv_extracted_data.legacy_source
 # so we don't lose origin attribution.
 _UPDATE_CANDIDATE_ADOPT = text(
-    """
+    _with_manual_locks(
+        """
     UPDATE candidates
     SET external_source = CAST(:external_source AS text),
         external_id     = CAST(:external_id AS text),
@@ -856,8 +904,16 @@ _UPDATE_CANDIDATE_ADOPT = text(
                             THEN candidates.lastname
                             ELSE CAST(:lastname AS text)
                           END,
-        phone           = COALESCE(CAST(:phone AS text), candidates.phone),
-        linkedin        = COALESCE(CAST(:linkedin AS text), candidates.linkedin),
+        -- Runda 10 (R10-N11-3): lustro gałęzi upsertu.
+        phone           = CASE WHEN {manual:phone}
+                            THEN candidates.phone
+                            ELSE COALESCE(CAST(:phone AS text), candidates.phone)
+                          END,
+        linkedin        = CASE WHEN {manual:linkedin}
+                            THEN candidates.linkedin
+                            ELSE COALESCE(CAST(:linkedin AS text),
+                                          candidates.linkedin)
+                          END,
         -- Blacklista jest LEPKA — dokładnie tak jak w gałęzi upsertu wyżej.
         -- Bez tego warunku nocny sync ZDEJMOWAŁBY blacklisty założone
         -- w NEXUSIE: Traffit nie zna tego stanu (jest wklejony w imię), więc
@@ -871,13 +927,17 @@ _UPDATE_CANDIDATE_ADOPT = text(
         status          = CASE
                             WHEN candidates.status
                                  = CAST('blacklisted' AS candidatestatus)
+                              OR {manual:status}
                             THEN candidates.status
                             ELSE CAST(:status AS candidatestatus)
                           END,
-        profile_about   = COALESCE(
-            CAST(:profile_about AS text),
-            candidates.profile_about
-        ),
+        profile_about   = CASE WHEN {manual:profile_about}
+                            THEN candidates.profile_about
+                            ELSE COALESCE(
+                              CAST(:profile_about AS text),
+                              candidates.profile_about
+                            )
+                          END,
         cv_filename     = COALESCE(CAST(:cv_filename AS text),
                                    candidates.cv_filename),
         cv_extracted_data = candidates.cv_extracted_data
@@ -966,7 +1026,9 @@ _UPDATE_CANDIDATE_ADOPT = text(
                                END
                             || jsonb_build_object(
                                  'traffit_name', CAST(:name AS text),
-                                 'traffit_lastname', CAST(:lastname AS text)
+                                 'traffit_lastname', CAST(:lastname AS text),
+                                 'traffit_payload_sha',
+                                   CAST(:traffit_payload_sha AS text)
                                )
                             || CASE
                                  WHEN CAST(:traffit_source_updated_at AS text)
@@ -994,8 +1056,19 @@ _UPDATE_CANDIDATE_ADOPT = text(
         -- przy najbliższym syncu — bez migracji danych.
         external_deleted_at = NULL
     WHERE id = :nexus_id
+      -- Runda 10 (R10-N11-9): lustro WHERE upsertu — bez zmiany u źródła
+      -- (i bez przejęcia z innego źródła) wiersz nie jest przepisywany.
+      AND (
+        candidates.custom_fields #>> '{_nexus_identity,traffit_payload_sha}'
+          IS DISTINCT FROM CAST(:traffit_payload_sha AS text)
+        OR candidates.external_deleted_at IS NOT NULL
+        OR candidates.external_id IS DISTINCT FROM CAST(:external_id AS text)
+        OR candidates.external_source
+             IS DISTINCT FROM CAST(:external_source AS text)
+      )
     RETURNING id
     """
+    )
 )
 
 
@@ -1173,11 +1246,21 @@ _UPSERT_USER = text(
     ON CONFLICT (external_source, external_id) WHERE external_id IS NOT NULL
     DO UPDATE SET
         name      = EXCLUDED.name,
-        role      = EXCLUDED.role,
-        is_active = EXCLUDED.is_active,
+        -- Runda 10 (R10-N11-11): rolę i aktywność prowadzi Traffit WYŁĄCZNIE
+        -- dla kont zastępczych z importu (hash-zaślepka, bez SSO). Konto
+        -- zaadoptowane w NEXUSIE trafia tu, gdy w Traffit zmieni się mail
+        -- (nie pasuje do mapy adresów) — bez warunku sync wyłączał je albo
+        -- zmieniał mu rolę.
+        role      = CASE WHEN {placeholder} THEN EXCLUDED.role ELSE users.role END,
+        is_active = CASE WHEN {placeholder} THEN EXCLUDED.is_active
+                         ELSE users.is_active END,
         updated_at = NOW()
     RETURNING id, (xmax = 0) AS was_insert
-    """
+    """.replace(
+        "{placeholder}",
+        "(users.password_hash = '!imported-from-traffit-no-login!' "
+        "AND users.azure_oid IS NULL AND users.microsoft_upn IS NULL)",
+    )
 )
 
 # Mark istniejącego (po email) Nexus usera jako Traffit-imported. Nie zmienia
