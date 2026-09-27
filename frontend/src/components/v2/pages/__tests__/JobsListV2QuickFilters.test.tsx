@@ -261,6 +261,35 @@ describe("JobsListV2 — filtry Szybkie → parametry zapytania", () => {
     window.history.replaceState(null, "", "/jobs");
   });
 
+  it("miękka nawigacja na goły /jobs zdejmuje filtry — jak F5 (R10-N15-12)", async () => {
+    navState.search = "client=5&stage=champion&q=java";
+    window.history.replaceState(null, "", `/jobs?${navState.search}`);
+    const view = renderJobs();
+    await waitFor(() =>
+      expect(latestParams()).toMatchObject({
+        client_id: [5],
+        request_stage: ["champion"],
+        q: "java",
+      }),
+    );
+
+    // Menu „Rekrutacje” → `/jobs` bez parametrów, komponent zostaje.
+    navState.search = "";
+    window.history.replaceState(null, "", "/jobs");
+    view.rerender(
+      <QueryClientProvider client={new QueryClient()}>
+        <JobsListV2 />
+      </QueryClientProvider>,
+    );
+    await waitFor(() => {
+      const params = latestParams();
+      expect(params.client_id).toBeUndefined();
+      expect(params.request_stage).toBeUndefined();
+      expect(params.q).toBeUndefined();
+    });
+    expect(window.location.search).toBe("");
+  });
+
   it("„Po terminie” wysyła termin do wczoraj, a drugi klik go zdejmuje", async () => {
     const user = userEvent.setup();
     renderJobs();
