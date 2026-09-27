@@ -198,6 +198,46 @@ async def test_move_adding_a_fresh_pair_claims_and_stamps_entry_source(
     assert taken.json()["detail"]["code"] == "CANDIDATE_CLAIMED"
 
 
+@pytest.mark.asyncio
+async def test_hiring_manager_of_a_vetoing_job_changes_only_by_admin_or_hor(
+    app_client: AsyncClient, app_auth_headers: dict
+) -> None:
+    from app.core.database import AsyncSessionLocal
+    from app.models.job import Job as JobModel
+    from app.services.hiring_manager_verdicts import load_manager_rejections
+    from tests.test_manager_rejection_gate import _seed_vetoed_candidate
+    from tests.test_pipeline_membership_gate import _seed_recruiter
+
+    world = await _seed_vetoed_candidate()
+    headers, _ = await _seed_recruiter(app_client)
+    source = world["source_job_id"]
+
+    cleared = await app_client.put(
+        f"/api/jobs/{source}/hiring-manager", headers=headers, json={"clear": True}
+    )
+    assert cleared.status_code == 409, cleared.text
+    patched = await app_client.patch(
+        f"/api/jobs/{source}",
+        headers=headers,
+        json={"hiring_manager_contact_id": None},
+    )
+    assert patched.status_code == 409, patched.text
+
+    async with AsyncSessionLocal() as db:
+        target = await db.get(JobModel, world["target_job_id"])
+        vetoes = await load_manager_rejections(
+            db, job=target, candidate_ids=[world["candidate_id"]]
+        )
+    assert world["candidate_id"] in vetoes
+
+    by_admin = await app_client.put(
+        f"/api/jobs/{source}/hiring-manager",
+        headers=app_auth_headers,
+        json={"clear": True},
+    )
+    assert by_admin.status_code == 200, by_admin.text
+
+
 def test_fresh_pair_entry_kwargs_mirror_bulk_add() -> None:
     from types import SimpleNamespace
 
