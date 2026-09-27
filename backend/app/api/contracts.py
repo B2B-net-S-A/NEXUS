@@ -4537,7 +4537,7 @@ def _render_draft_body(template: ContractTemplate, contract: Contract) -> str:
     (no <html> wrap — that's added by the printable endpoint)."""
     try:
         return _jinja_env.from_string(template.content_jinja).render(
-            **_contract_vars(contract)
+            **_contract_vars(contract, language=template.language)
         )
     except TemplateError as exc:
         raise HTTPException(status_code=422, detail=f"Template render error: {exc}")

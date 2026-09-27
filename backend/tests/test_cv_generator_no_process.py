@@ -230,6 +230,9 @@ async def test_source_without_stage_reads_only_notes_outside_recruitments(
         world["client_id"],
     )
     assert source.job_title == "Architekt"
+    # Runda 10 (F21): stanowisko wpisane przez rekrutera idzie dosłownie do
+    # nagłówka i nazwy pliku.
+    assert source.position_override == "Architekt"
     assert "Kotlin" in source.screening_notes_text
     assert "TAJNE" not in source.screening_notes_text
     # Champion rekrutacji NIE wchodzi do generacji bez procesu.

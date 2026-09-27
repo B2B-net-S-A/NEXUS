@@ -5,6 +5,7 @@ import {
   dockOriginalCv,
   originalCvSentence,
   pairCompanyCv,
+  pairCvOnOtherStage,
   primaryProfileCv,
 } from "@/lib/dock-cv-summary";
 import { summarizeRequirements, type MoveRequirementItem } from "@/lib/api/moveRequirements";
@@ -138,5 +139,43 @@ describe("nextStageHeading", () => {
     );
     expect(heading.step).toBe(5);
     expect(heading.label).toMatch(/Cpro/);
+  });
+});
+
+describe("CV firmowe pary na innym etapie (runda 10, F23)", () => {
+  const pair = {
+    status: "finalized",
+    stage_id: 11,
+    stage_name: "QC CV",
+    finalized_at: "2026-09-26T10:00:00Z",
+  };
+
+  it("etap bez CV, para ma zatwierdzone CV na innym etapie — nie „brak”", () => {
+    const elsewhere = pairCvOnOtherStage(null, pair, 12);
+    expect(elsewhere).toEqual(pair);
+    const sentence = companyCvSentence(null, { pairBranded: elsewhere });
+    expect(sentence.tone).toBe("success");
+    expect(sentence.text).toBe(
+      "CV firmowe: zatwierdzone 26.09.2026 — z etapu „QC CV”, nie podpięte do bieżącego etapu",
+    );
+  });
+
+  it("para bez CV albo CV na bieżącym etapie — brak podpowiedzi", () => {
+    expect(pairCvOnOtherStage(null, { ...pair, status: "none", stage_id: null }, 12)).toBeNull();
+    expect(pairCvOnOtherStage(null, pair, 11)).toBeNull();
+    expect(
+      pairCvOnOtherStage({ status: "draft", from_generator: true }, pair, 12),
+    ).toBeNull();
+    expect(companyCvSentence(null, { pairBranded: null }).text).toBe("CV firmowe: brak");
+  });
+
+  it("szkic na innym etapie mówi „szkic”", () => {
+    const sentence = companyCvSentence(null, {
+      pairBranded: { ...pair, status: "draft", finalized_at: null },
+    });
+    expect(sentence).toEqual({
+      text: "CV firmowe: szkic — z etapu „QC CV”, nie podpięte do bieżącego etapu",
+      tone: "info",
+    });
   });
 });

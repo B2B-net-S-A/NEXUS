@@ -186,6 +186,40 @@ def _parse_date_range(dates: str) -> tuple[int, int] | None:
     return (start, end)
 
 
+def _duration_bounds(dates: str) -> tuple[int, int] | None:
+    """Przedział roli do SUMY stażu (nagłówek lat).
+
+    Runda 10 (F19): sam rok bez miesiąca liczony był od stycznia do grudnia,
+    więc oba lata graniczne wchodziły w całości — źródło „2021–2026, 5 lat”
+    dawało w CV „6 lat”. Rok bez miesiąca to niepewność, więc bierzemy środek
+    roku: start z samego roku = lipiec, koniec z samego roku = czerwiec
+    („2019–2021” = 24 miesiące, nie 36). Rola jednoroczna („2020”) i przedział,
+    który by się odwrócił, zostają przy pełnym zakresie z ``_parse_date_range``.
+    Daty z miesiącami liczą się bez zmian.
+    """
+    rng = _parse_date_range(dates)
+    if rng is None:
+        return None
+    tokens = [
+        (int(m.group(2)), int(m.group(1)) if m.group(1) else None)
+        for m in _DATE_TOKEN_RE.finditer(dates)
+    ]
+    ongoing = bool(_ONGOING_RE.search(dates))
+    if len(tokens) < 2 and not ongoing:
+        return rng
+    start, end = rng
+    start_year, start_month = tokens[0]
+    if start_month is None:
+        start = start_year * 12 + 6
+    if not ongoing:
+        end_year, end_month = tokens[-1]
+        if end_month is None:
+            end = end_year * 12 + 5
+    if end < start:
+        return rng
+    return (start, end)
+
+
 def _total_experience_years(experience: list[dict[str, Any]]) -> int | None:
     """Sum the candidate's actual time employed across all roles, in whole
     years. Intervals are merged so overlapping/parallel contracts (common in
@@ -200,7 +234,7 @@ def _total_experience_years(experience: list[dict[str, Any]]) -> int | None:
     now_idx = now.year * 12 + (now.month - 1)
     intervals: list[tuple[int, int]] = []
     for job in experience or []:
-        rng = _parse_date_range(job.get("dates") or "")
+        rng = _duration_bounds(job.get("dates") or "")
         if rng is None:
             continue
         start, end = rng

@@ -56,6 +56,7 @@ import api, {
   type ChampionProfile,
   type CVBrandedState,
   type CVOriginalSnapshot,
+  type CVShareTokensForRecruitment,
 } from "@/lib/api";
 import { useToast } from "@/components/Toast";
 import { Badge } from "@/components/ui/badge";
@@ -94,6 +95,7 @@ import {
   companyCvSentence,
   dockOriginalCv,
   pairCompanyCv,
+  pairCvOnOtherStage,
   originalCvSentence,
   type DockProfileCvDoc,
 } from "@/lib/dock-cv-summary";
@@ -652,6 +654,24 @@ export function PipelineCandidateDock({
     cvBrandedQuery.isError &&
     (cvBrandedQuery.error as { response?: { status?: number } } | null)?.response?.status === 404;
   const brandedFailed = cvBrandedQuery.isError && !brandedMissingOnStage;
+  // Runda 10 (F23): ruch na kolejną kolumnę zakłada nowy wiersz etapu bez CV,
+  // a CV firmowe zostaje na etapie, na którym powstało. Stan PARY (ten sam
+  // klucz co podgląd w panelu osoby) odróżnia „brak dokumentu” od „dokument
+  // na innym etapie” — i prowadzi do edycji tego dokumentu zamiast generacji.
+  const stageHasNoCv =
+    brandedMissingOnStage || (cvBrandedQuery.isSuccess && stageCv === "none");
+  const pairCvQuery = useQuery<CVShareTokensForRecruitment>({
+    queryKey: ["cv-share-tokens-recruitment", item.candidate_id, jobId],
+    queryFn: () =>
+      candidateStageCvApi.share
+        .listForRecruitment(item.candidate_id, jobId)
+        .then((r) => r.data),
+    enabled: isOpen("cv") && stageHasNoCv,
+  });
+  const pairCvElsewhere = stageHasNoCv
+    ? pairCvOnOtherStage(null, pairCvQuery.data?.branded_cv, item.id)
+    : null;
+  const editStageId = pairCvElsewhere?.stage_id ?? item.id;
   const nextStageRequirements = useMoveRequirements(
     {
       candidateId: item.candidate_id,
@@ -662,6 +682,7 @@ export function PipelineCandidateDock({
   );
   const companyCv = companyCvSentence(brandedMissingOnStage ? null : cvBrandedQuery.data, {
     pairHasCompanyCv: pairCompanyCv(nextStageRequirements.data?.items),
+    pairBranded: pairCvElsewhere,
   });
   const profileHref = `/candidates/${item.candidate_id}?${encodeJobBackRef(jobId).toString()}`;
 
@@ -1334,14 +1355,17 @@ export function PipelineCandidateDock({
               ) : null}
               {!readOnly && (
                 <>
-                  {stageCv === "ready" ? (
+                  {stageCv === "ready" || pairCvElsewhere ? (
                     <Button
                       size="sm"
                       variant="outline"
                       onClick={() => setOpenBranded(true)}
                       className="justify-start"
                     >
-                      <FileText className="h-3.5 w-3.5" /> Edytuj CV
+                      <FileText className="h-3.5 w-3.5" />{" "}
+                      {pairCvElsewhere?.stage_name
+                        ? `Edytuj CV (etap „${pairCvElsewhere.stage_name}”)`
+                        : "Edytuj CV"}
                     </Button>
                   ) : (
                     <Button
@@ -1529,9 +1553,16 @@ export function PipelineCandidateDock({
       {!readOnly && openBranded && (
         <CVBrandedEditModal
           open
-          onOpenChange={setOpenBranded}
+          onOpenChange={(open) => {
+            setOpenBranded(open);
+            if (!open) {
+              void queryClient.invalidateQueries({
+                queryKey: ["cv-share-tokens-recruitment", item.candidate_id, jobId],
+              });
+            }
+          }}
           onRegenerate={() => setOpenGenerator(true)}
-          stageId={item.id}
+          stageId={editStageId}
           jobTitle={jobLabel}
           candidateName={fullName}
         />

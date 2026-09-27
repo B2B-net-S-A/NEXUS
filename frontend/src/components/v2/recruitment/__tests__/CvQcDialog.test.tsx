@@ -22,6 +22,14 @@ vi.mock("@/components/Toast", () => ({
 vi.mock("@/lib/clipboard", () => ({
   copyTextToClipboard: (...a: unknown[]) => copyTextToClipboard(...a),
 }));
+// Edytor CV (dynamiczny import) — zaślepka zapisuje, który dokument otwarto.
+const editorProps = vi.fn();
+vi.mock("next/dynamic", () => ({
+  default: () => (props: Record<string, unknown>) => {
+    editorProps(props);
+    return <div data-testid="cv-editor" />;
+  },
+}));
 
 import { CvQcDialog } from "@/components/v2/recruitment/CvQcDialog";
 import type { QcResult } from "@/lib/api/cvQc";
@@ -135,10 +143,45 @@ describe("CvQcDialog — QC CV", () => {
     // Niepogrubiona Kafka na żółto, stanowisko z brakiem Javy z czerwoną krawędzią.
     expect(within(cv).getByText("Kafka").tagName).toBe("MARK");
     expect(cv.querySelector('[data-qc-gap="true"]')).toHaveTextContent("ING Tech — Java Developer");
-    expect(within(dialog).getByRole("link", { name: /Otwórz w edytorze CV/ })).toHaveAttribute(
+  });
+
+  it("„Otwórz w edytorze CV” otwiera edytor sprawdzanego CV etapu, a po zamknięciu QC liczy się od nowa (runda 10, F22)", async () => {
+    // Produkcja 26.09.2026: link prowadził do panelu osoby, który dla karty
+    // w „QC CV” pokazywał CV tylko do odczytu.
+    get.mockImplementation((url: string) =>
+      url === "/api/pipeline/stages/7/qc"
+        ? Promise.resolve({ data: result({ cv: { ...result().cv!, stage_id: 5 } }) })
+        : Promise.reject(new Error(url)),
+    );
+    renderDialog();
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(await within(dialog).findByRole("button", { name: "Otwórz w edytorze CV" }));
+    expect(await screen.findByTestId("cv-editor")).toBeInTheDocument();
+    const props = editorProps.mock.lastCall![0] as { stageId?: number; generatedId?: number; onOpenChange: (o: boolean) => void };
+    expect(props.stageId).toBe(5);
+    expect(props.generatedId).toBeUndefined();
+    const before = get.mock.calls.filter(([u]) => u === "/api/pipeline/stages/7/qc").length;
+    props.onOpenChange(false);
+    await waitFor(() =>
+      expect(get.mock.calls.filter(([u]) => u === "/api/pipeline/stages/7/qc").length).toBeGreaterThan(before),
+    );
+  });
+
+  it("CV z pliku (bez edycji) — zamiast edytora link do panelu osoby", async () => {
+    get.mockImplementation((url: string) =>
+      url === "/api/pipeline/stages/7/qc"
+        ? Promise.resolve({
+            data: result({ cv: { ...result().cv!, source: "document", editable: false, stage_id: null } }),
+          })
+        : Promise.reject(new Error(url)),
+    );
+    renderDialog();
+    const dialog = await screen.findByRole("dialog");
+    expect(await within(dialog).findByRole("link", { name: /Otwórz panel osoby/ })).toHaveAttribute(
       "href",
       "/jobs/31?candidate=21&panel=cv",
     );
+    expect(within(dialog).queryByRole("button", { name: "Otwórz w edytorze CV" })).toBeNull();
   });
 
   it("„Pogrub wszystkie” podmienia wynik w cache i odświeża Tablicę oraz kolejki", async () => {

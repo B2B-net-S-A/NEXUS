@@ -527,3 +527,134 @@ def test_year_only_roles_with_certain_overlap_still_warn():
     warnings = _date_overlap_warnings(data, "pl")
     assert any("Theta" in w and "Iota" in w for w in warnings)
     assert any("Iota" in w and "Kappa" in w for w in warnings)
+
+
+# ── Runda 10 (F19): lata graniczne z samych lat nie liczą się w całości ─────
+
+
+@pytest.mark.parametrize(
+    "dates",
+    ["2021 - 2026", "2021 - 09.2026", "2021 - obecnie"],
+)
+def test_year_only_start_does_not_count_both_boundary_years_in_full(monkeypatch, dates):
+    from datetime import datetime
+
+    from app.services.cv_generator_b2b.legacy_v7 import _helpers
+
+    monkeypatch.setattr(_helpers, "local_now", lambda: datetime(2026, 9, 26, 12, 0))
+    # Źródło: „5 lat doświadczenia”, rola 2021–2026. Do rundy 10 styczeń
+    # 2021 – wrzesień 2026 = 69 miesięcy → 6 lat w nagłówku CV.
+    assert _helpers._total_experience_years([{"dates": dates}]) == 5
+
+    data = {
+        "experience": [
+            {
+                "dates": dates,
+                "company": "Test Company Omega",
+                "position": "QA Manual Tester",
+                "technologies": ["Python"],
+            }
+        ],
+        "why_points": ["6 lat doświadczenia jako QA Manual Tester"],
+    }
+    _helpers._fix_experience_years(data, "pl")
+    assert data["why_points"] == ["5 lat doświadczenia jako QA Manual Tester"]
+
+
+def test_year_only_adjacent_roles_sum_to_the_calendar_difference(monkeypatch):
+    from datetime import datetime
+
+    from app.services.cv_generator_b2b.legacy_v7 import _helpers
+
+    monkeypatch.setattr(_helpers, "local_now", lambda: datetime(2026, 9, 26, 12, 0))
+    assert _helpers._total_experience_years([{"dates": "2017 - 2021"}]) == 4
+    assert (
+        _helpers._total_experience_years(
+            [{"dates": "2017 - 2021"}, {"dates": "2021 - 2026"}]
+        )
+        == 9
+    )
+    # Rola jednoroczna i daty z miesiącami — bez zmian.
+    assert _helpers._total_experience_years([{"dates": "2020"}]) == 1
+    assert _helpers._total_experience_years([{"dates": "01.2015 – 07.2019"}]) == 5
+
+
+# ── Runda 10 (F21): stanowisko z „Zaawansowanych” trafia do nagłówka ────────
+
+
+def _run_with_position(position_ref, rule):
+    return svc._run_generation_pipeline(
+        cv_bytes=b"cv",
+        cv_filename="cv.pdf",
+        champion_dto=None,
+        screening_notes_text="Kandydat potwierdził znajomość Pythona.",
+        language="pl",
+        blind_cv=False,
+        request_id="legacy-test",
+        fallback_name="Jan Kowalski",
+        started_at=time.time(),
+        job_id=1,
+        job_title="Backend Developer",
+        content_mode="polished",
+        client_rule=rule,
+        position_ref=position_ref,
+    )
+
+
+@pytest.mark.parametrize("managed", [True, False])
+def test_explicit_position_lands_in_header_and_filename(defaults, monkeypatch, managed):
+    from io import BytesIO
+
+    from docx import Document
+
+    from app.services.cv_generator_b2b.docx_renderer import render_cv_to_bytes
+
+    monkeypatch.setattr(legacy, "render_cv_to_bytes", render_cv_to_bytes)
+    defaults["response"]["presentation_position"] = "Programista zaplecza"
+    rule = _rule(managed_policy={"key": "standard"}) if managed else _rule()
+    result = _run_with_position("Starszy Inżynier Testów", rule)
+    payload = result.render_payload
+    assert payload["presentation_position"] == "Starszy Inżynier Testów"
+    assert "Starszy" in result.filename
+    document = Document(BytesIO(result.docx_bytes))
+    assert document.paragraphs[0].text == "Starszy Inżynier Testów – Jan Kowalski"
+
+
+def test_without_explicit_position_the_model_title_stays(defaults):
+    defaults["response"]["presentation_position"] = "Programista zaplecza"
+    result = _run_with_position(None, _rule(managed_policy={"key": "standard"}))
+    assert result.render_payload["presentation_position"] == "Programista zaplecza"
+
+
+async def test_source_override_reaches_the_pipeline_as_position_ref(monkeypatch):
+    from app.services.cv_generator_b2b.standalone_service import (
+        CandidateGenerationSource,
+        generate_cv_from_candidate_source,
+    )
+
+    seen = {}
+
+    def fake_pipeline(**kwargs):
+        seen.update(kwargs)
+        return SimpleNamespace(warnings=[])
+
+    monkeypatch.setattr(svc, "_run_generation_pipeline", fake_pipeline)
+    monkeypatch.setattr(CandidateGenerationSource, "champion", lambda self: None)
+    source = CandidateGenerationSource(
+        cv_bytes=b"cv",
+        cv_filename="cv.pdf",
+        champion_json="{}",
+        has_champion=False,
+        screening_notes_text="",
+        source_warnings=(),
+        fallback_name=None,
+        job_id=1,
+        job_title="Tester QA",
+        client_content_mode_cap=None,
+        candidate_id=1,
+        stage_id=1,
+        cv_document_id=1,
+        position_override="Starszy Inżynier Testów",
+    )
+    await generate_cv_from_candidate_source(source, content_mode="polished")
+    assert seen["position_ref"] == "Starszy Inżynier Testów"
