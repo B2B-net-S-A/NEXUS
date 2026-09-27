@@ -401,3 +401,16 @@ async def test_cv_pointer_is_written_only_into_an_empty_slot(monkeypatch) -> Non
     assert progress.inserted == 0
     assert progress.skipped == 1
     assert progress.errors == 0
+
+
+def test_candidate_patch_sets_the_sync_markers() -> None:
+    """R10-N11-3: PATCH kandydata stawia znaczniki przed `setattr` pól."""
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parents[1] / "app/api/candidates.py").read_text(
+        encoding="utf-8"
+    )
+    body = source[source.index("async def update_candidate(") :]
+    body = body[: body.index("\n@router.", 10)]
+    lock = body.index("lock_changed_traffit_synced_fields(")
+    assert lock < body.index("setattr(candidate, field, value)")
