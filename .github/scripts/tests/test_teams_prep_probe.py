@@ -30,6 +30,81 @@ def raw_response(raw):
 
 
 class TeamsProbeTests(unittest.TestCase):
+    def test_calendar_denial_emits_only_allowlisted_graph_code(self):
+        error = urllib.error.HTTPError(
+            "private-url",
+            403,
+            "private-error",
+            {},
+            io.BytesIO(
+                json.dumps(
+                    {
+                        "error": {
+                            "code": "ErrorAccessDenied",
+                            "message": "private-token",
+                            "innerError": {"request-id": "private-secret"},
+                        }
+                    }
+                ).encode()
+            ),
+        )
+        result = probe.probe(
+            self.rows(),
+            opener=Mock(
+                side_effect=[
+                    response({"access_token": "private-token"}),
+                    error,
+                ]
+            ),
+        )
+        self.assertFalse(result["passed"])
+        self.assertEqual(result["failed_stage"], "calendar_scope")
+        self.assertEqual(result["graph_error_code"], "ErrorAccessDenied")
+        self.assert_private(result)
+
+    def test_error_code_redaction_and_bounded_read(self):
+        for payload in (
+            b"not-json private-secret",
+            b"[]",
+            b'{"error": "private-error"}',
+            b'{"error": {"code": "private-token", "message": "private-secret"}}',
+            b'{"error": {"code": ["private-token"]}}',
+            b" " * 8192 + b'{"error": {"code": "ErrorAccessDenied"}}',
+        ):
+            with self.subTest(payload=payload[:60]):
+                body = io.BytesIO(payload)
+                error = urllib.error.HTTPError(
+                    "private-url", 403, "private-error", {}, body
+                )
+                self.assertEqual(probe.safe_graph_error_code(error), "unclassified")
+                self.assertLessEqual(body.tell(), 8192)
+
+    def test_known_inner_code_is_more_specific(self):
+        error = urllib.error.HTTPError(
+            "private-url",
+            403,
+            "private-error",
+            {},
+            io.BytesIO(
+                b'{"error": {"code": "AccessDenied", "innerError": '
+                b'{"code": "insufficient_claims", "message": "private-token"}}}'
+            ),
+        )
+        self.assertEqual(probe.safe_graph_error_code(error), "insufficient_claims")
+
+    def test_non_graph_errors_have_no_graph_metadata(self):
+        error = urllib.error.HTTPError(
+            "private-url",
+            403,
+            "private-error",
+            {},
+            io.BytesIO(b'{"error": {"code": "ErrorAccessDenied"}}'),
+        )
+        result = probe.probe(self.rows(), opener=Mock(side_effect=[error]))
+        self.assertEqual(result["failed_stage"], "token")
+        self.assertNotIn("graph_error_code", result)
+        self.assert_private(result)
+
     def session_initial(self, *, attendees=None, events=None):
         event = {
             "id": "private-event",
