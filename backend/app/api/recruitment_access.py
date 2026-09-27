@@ -486,9 +486,7 @@ def job_scope_clause(
         # przypisane” był AND-owany z zakresem, który przypisań nie zna.
         from app.api.jobs import _live_work_assignment_job_ids  # noqa: PLC0415
 
-        scope_clauses.append(
-            job_id_col.in_(_live_work_assignment_job_ids([user.id]))
-        )
+        scope_clauses.append(job_id_col.in_(_live_work_assignment_job_ids([user.id])))
     inherited = operational_owner_ids(user) - {user.id}
     if inherited:
         scope_clauses.append(inherited_collaborator_work_clause(job_id_col, inherited))

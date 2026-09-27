@@ -1385,11 +1385,7 @@ async def move_candidate(
         ),
         # Runda 10 (R10-V2-4): para bez wiersza to dodanie osoby — źródło
         # wejścia i blokada 12 h jak w bulk-add (integracja bez blokady).
-        **(
-            _fresh_pair_entry_kwargs(current_user, request)
-            if fresh_pair
-            else {}
-        ),
+        **(_fresh_pair_entry_kwargs(current_user, request) if fresh_pair else {}),
     )
     if client_rate_value is not None:
         candidate_audit.record_candidate_audit(
@@ -2653,9 +2649,7 @@ async def my_next_steps(
     # bramka tablicy (`is_member_of_job`) go nie zna — dla nich decyduje
     # zakres w SQL wyżej.
     assigned_job_ids = (
-        set(
-            await db.scalars(_live_work_assignment_job_ids([current_user.id]))
-        )
+        set(await db.scalars(_live_work_assignment_job_ids([current_user.id])))
         if user_can_access_candidate_domain(current_user)
         else set()
     )

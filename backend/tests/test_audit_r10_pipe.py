@@ -589,9 +589,7 @@ async def test_onboarding_counts_as_hired_in_request_status() -> None:
             ]
         )
         await db.commit()
-        status_, stage = (await sim.request_statuses_and_stages(db, [job_id]))[
-            job_id
-        ]
+        status_, stage = (await sim.request_statuses_and_stages(db, [job_id]))[job_id]
     assert status_ == "filled"
     assert stage == "filled"
 
