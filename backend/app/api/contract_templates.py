@@ -11,7 +11,6 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import HTMLResponse
 from jinja2 import StrictUndefined, TemplateError, select_autoescape
-from jinja2.sandbox import SandboxedEnvironment
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,6 +22,12 @@ from app.api.contract_access import (
 )
 from app.api.deps import AdminUser
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
+from app.api.user_email_templates import (
+    _BoundedSandbox,
+    _render_bounded,
+    _render_in_thread,
+)
+from app.api.user_email_templates import _finalize as _bounded_finalize
 from app.core.database import get_db
 from app.core.printable_html import PRINTABLE_CSP_NO_SCRIPT, printable_document
 from app.models.contract import Contract
@@ -66,7 +71,12 @@ class TemplateResponse(TemplateBase):
 # must render in a SandboxedEnvironment — a plain Environment allows SSTI
 # (``{{ ''.__class__.__mro__ ... }}`` → RCE). Mirrors user_email_templates.py
 # (M5-P0.10).
-_jinja_env = SandboxedEnvironment(
+# Runda 11 (SEC): to samo ograniczone środowisko co szablony maili autora
+# (rundy 9/10) — sufit operacji (`* ** + % ~`, `join`, `replace`, formatowanie),
+# a render przez `render_contract_template` ma limit czasu, pamięci i długości
+# wyniku. Zwykły sandbox budował `{{ 'a' * 10**9 }}` w jednym wywołaniu kodu C
+# i OOM zabijał jedyny proces uvicorna.
+_jinja_env = _BoundedSandbox(
     autoescape=select_autoescape(["html", "xml"]),
     undefined=StrictUndefined,
     trim_blocks=True,
@@ -77,8 +87,19 @@ _jinja_env = SandboxedEnvironment(
     # do dokumentu trafia "NIP None" (11 505 z 11 899 klientów nie ma NIP-u).
     # `finalize` zamienia wyłącznie `None` na pusty napis: `False` i `0` muszą
     # przejść nietknięte, bo są prawidłowymi wartościami, a nie brakiem danych.
-    finalize=lambda v: "" if v is None else v,
+    finalize=_bounded_finalize,
 )
+
+
+def render_contract_template(source: str, context: dict) -> str:
+    """Render szablonu umowy z limitem czasu, pamięci i długości wyniku.
+
+    Synchroniczny — z handlera async wołaj w wątku. Przekroczenie limitu to
+    ``SecurityError`` (podklasa ``TemplateError``), więc istniejące gałęzie
+    ``except TemplateError`` → 422 obsługują je bez zmian.
+    """
+    return _render_bounded(_jinja_env, source, context)
+
 
 # Generator Umów B2B — filtr formatujący daty (PL/EN), współdzielony z renderem
 # DOCX. Import modułu-liścia (bez zależności od `app`) → brak cyklu importów.
@@ -369,8 +390,10 @@ async def render_template_for_contract(
         contract.client_id,
     )
     try:
-        rendered = _jinja_env.from_string(tpl.content_jinja).render(
-            **_contract_vars(contract, language=tpl.language)
+        rendered = await _render_in_thread(
+            _jinja_env,
+            tpl.content_jinja,
+            _contract_vars(contract, language=tpl.language),
         )
     except TemplateError as e:
         raise HTTPException(status_code=422, detail=f"Render error: {e}")

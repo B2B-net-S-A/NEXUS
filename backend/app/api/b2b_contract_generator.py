@@ -29,7 +29,7 @@ from app.api.contract_access import (
     assert_b2b_generator_action_access,
     assert_contract_legal_client_access,
 )
-from app.api.contract_templates import _jinja_env
+from app.api.contract_templates import render_contract_template
 from app.api.contracts import (
     _assert_no_duplicate_contract,
     _load_contract_with_relations,
@@ -1779,7 +1779,7 @@ async def render_standalone(
         tpl = await _b2b_template_for(db, lang)
         try:
             html = await run_in_threadpool(
-                lambda: _jinja_env.from_string(tpl.content_jinja).render(**context)
+                render_contract_template, tpl.content_jinja, context
             )
         except TemplateError as exc:
             raise HTTPException(status_code=422, detail=f"Render error: {exc}")

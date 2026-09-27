@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import base64
-import time
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -89,7 +88,8 @@ def test_wrong_purpose_rejected() -> None:
 
 
 def test_pkce_pair_is_valid_length() -> None:
-    verifier, challenge = m365_oauth.generate_pkce_pair()
+    verifier = m365_oauth.pkce_verifier_for("n")
+    challenge = m365_oauth._derive_challenge(verifier)
     assert 43 <= len(verifier) <= 128
     # Challenge is URL-safe base64 of SHA-256 digest → 43 chars without padding.
     assert len(challenge) == 43

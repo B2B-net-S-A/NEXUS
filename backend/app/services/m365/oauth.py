@@ -22,7 +22,6 @@ import hashlib
 import hmac
 import json
 import logging
-import os
 import secrets
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -73,14 +72,6 @@ class M365NotConfigured(RuntimeError):
 
 
 # ── PKCE ─────────────────────────────────────────────────────────────────────
-
-
-def generate_pkce_pair() -> tuple[str, str]:
-    """Return (verifier, challenge). Verifier 43-128 chars URL-safe base64;
-    challenge is S256(verifier) URL-safe base64 without padding."""
-    verifier = base64.urlsafe_b64encode(os.urandom(64)).rstrip(b"=").decode("ascii")
-    challenge = _derive_challenge(verifier)
-    return verifier, challenge
 
 
 def _derive_challenge(verifier: str) -> str:
