@@ -338,6 +338,116 @@ async def test_two_matches_for_one_job_on_one_day_notify_owner_once(
     for n in notifs:
         per_user[n.user_id] = per_user.get(n.user_id, 0) + 1
     assert per_user == {owner_a.id: 1, owner_b.id: 1, recruiter_job.id: 1}
+    # R10-N7-3: jedno powiadomienie prowadzącego mówi o OBU osobach — drugi
+    # kandydat nie może zniknąć w dziennym dedupie.
+    job_note = next(n for n in notifs if n.user_id == recruiter_job.id)
+    assert job_note.message.startswith("2 osób z Targu"), job_note.message
+    assert cand_a.lastname in job_note.message
+    assert cand_b.lastname in job_note.message
+    # Właściciel jednego kandydata dostaje zdanie o nim i link do profilu.
+    owner_note = next(n for n in notifs if n.user_id == owner_a.id)
+    assert cand_a.lastname in owner_note.message
+    assert owner_note.link == f"/candidates/{cand_a.id}?job={job.id}"
+
+
+def _only(*ids):
+    async def fake_score(
+        candidate, job_obj, db_, *, semantic_similarity=None, profile=None
+    ):
+        return _FakeBreakdown(
+            candidate_id=candidate.id,
+            job_id=job_obj.id,
+            total=90.0 if candidate.id in ids else 0.0,
+            matching_must=["Python"],
+            gap_must=[],
+        )
+
+    return fake_score
+
+
+async def _no_semantic(*args, **kwargs):
+    return []
+
+
+async def _logged(db, job_id: int, candidate_ids: list[int]) -> set[int]:
+    return {
+        row[0]
+        for row in (
+            await db.execute(
+                select(MarketplaceAlertLog.candidate_id).where(
+                    MarketplaceAlertLog.job_id == job_id,
+                    MarketplaceAlertLog.candidate_id.in_(candidate_ids),
+                )
+            )
+        ).all()
+    }
+
+
+async def test_scan_skips_people_already_in_the_job_and_employment_only(
+    monkeypatch, fresh_db
+):
+    """R10-N7-2: bramki jak w digeście — osoba już w pipeline'ie tej
+    rekrutacji i „tylko umowa o pracę" nie dostają alertu „Nowy match"."""
+    from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+
+    db = fresh_db
+    owner = await _seed_user(db, name="GateOwner")
+    staged = await _seed_candidate(db, owner=owner)
+    uop = await _seed_candidate(db, owner=owner)
+    fine = await _seed_candidate(db, owner=owner)
+    job = await _seed_job(db, recruiter=owner)
+    uop.b2b_willingness = "employment_only"
+    db.add(CandidateStage(candidate_id=staged.id, job_id=job.id, stage=PipelineStage.new))
+    await db.commit()
+    await auto_sync_marketplace_membership(db)
+    await db.commit()
+
+    monkeypatch.setattr(
+        "app.services.embedding_service.search_candidates_semantic", _no_semantic
+    )
+    monkeypatch.setattr(
+        "app.services.scoring_service.score_candidate_job",
+        _only(staged.id, uop.id, fine.id),
+    )
+    await scan_job_for_marketplace_matches(job.id, db)
+    await db.commit()
+
+    assert await _logged(db, job.id, [staged.id, uop.id, fine.id]) == {fine.id}
+
+
+async def test_pair_without_any_recipient_is_not_burned_in_the_log(
+    monkeypatch, fresh_db
+):
+    """R10-N7-3: brak odbiorcy (szkic bez prowadzącego, kandydat bez
+    autora) = para NIE trafia do logu — dostanie ją ktoś po handoffie."""
+    db = fresh_db
+    recruiter = await _seed_user(db, name="LaterOwner")
+    cand = await _seed_candidate(db, owner=recruiter)
+    cand.created_by = None
+    job = await _seed_job(db, recruiter=recruiter)
+    job.recruiter_id = None
+    await db.commit()
+    await auto_sync_marketplace_membership(db)
+    await db.commit()
+
+    monkeypatch.setattr(
+        "app.services.embedding_service.search_candidates_semantic", _no_semantic
+    )
+    monkeypatch.setattr(
+        "app.services.scoring_service.score_candidate_job", _only(cand.id)
+    )
+    first = await scan_job_for_marketplace_matches(job.id, db)
+    await db.commit()
+    assert await _logged(db, job.id, [cand.id]) == set()
+    assert first.new_alerts == 0
+
+    # Po przypisaniu prowadzącego ta sama para daje alert.
+    job.recruiter_id = recruiter.id
+    await db.commit()
+    second = await scan_job_for_marketplace_matches(job.id, db)
+    await db.commit()
+    assert await _logged(db, job.id, [cand.id]) == {cand.id}
+    assert second.new_alerts == 1
 
 
 async def test_dedup_second_scan_creates_no_new_alert(monkeypatch, fresh_db):
