@@ -8184,12 +8184,14 @@ _CONSTRAINT_STATEMENTS = [
     "ALTER TABLE md_consumption_import_rows "
     "DROP CONSTRAINT IF EXISTS ck_md_import_rows_cost_status",
     # 0351: 'non_positive_amount' — korekta faktury / kwota ≤ 0 (FIN-MD-06).
+    # 0391: 'invoice_unreadable' (nieczytelna faktura, MD zostają) i
+    # 'order_exhausted' (faktura na wyczerpane zamówienie kosztowe).
     """DO $$ BEGIN
         ALTER TABLE md_consumption_import_rows
             ADD CONSTRAINT ck_md_import_rows_cost_status
             CHECK (cost_status IS NULL OR cost_status IN (
                 'applied', 'unmatched_number', 'unmatched_consultant',
-                'non_positive_amount'
+                'non_positive_amount', 'invoice_unreadable', 'order_exhausted'
             )) NOT VALID;
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     # 0351: 'cost_only' — wiersz arkusza z samą fakturą, bez liczby MD.

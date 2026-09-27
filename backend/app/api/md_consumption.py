@@ -60,7 +60,9 @@ from app.models.md_consumption import (
     ClientOrderInvoiceConsumption,
     ClientOrderMdConsumption,
     COST_ROW_APPLIED,
+    COST_ROW_INVOICE_UNREADABLE,
     COST_ROW_NON_POSITIVE,
+    COST_ROW_ORDER_EXHAUSTED,
     COST_ROW_STATUS_LABELS,
     COST_ROW_UNMATCHED_CONSULTANT,
     COST_ROW_UNMATCHED_NUMBER,
@@ -94,6 +96,7 @@ from app.services.client_order_lines import (
     candidate_name_tokens,
     exhausted_groups_with_month_entry,
     cost_lines_settling_in_month,
+    exhausted_cost_lines,
     describe_import,
     format_period_month,
     group_settles_in_month,
@@ -275,6 +278,14 @@ def _unmatched_reason(
         or row.cost_status == COST_ROW_APPLIED
     ):
         return None
+    if row.cost_status == COST_ROW_ORDER_EXHAUSTED:
+        # Runda 10 (R10-N5-6): zamówienie istnieje — skończył się jego budżet.
+        return _REASON_TO_VERIFY, (
+            f"Zamówienie kosztowe nr {row.order_number_hint or '—'} jest "
+            f"wyczerpane — faktura za {format_period_month(period_month)} nie "
+            "została rozliczona. Zwiększ budżet zamówienia albo dodaj kolejne "
+            "i rozlicz fakturę ręcznie."
+        )
     hints = extract_order_number_candidates(row.notes_raw)
     wanted = name_tokens(row.consultant_name)
     person_lines = context.lines_by_person.get(wanted, []) if wanted else []
@@ -1001,6 +1012,7 @@ async def create_import(
     in_period_line_ids = {match.order.id for match in candidates}
     shared_md_candidates = await shared_md_lines_settling_in_month(db, period_month)
     cost_candidates = await cost_lines_settling_in_month(db, period_month)
+    exhausted_cost_candidates = await exhausted_cost_lines(db, period_month)
     order_numbers = await _order_number_index(db)
 
     batch = MdConsumptionImport(
@@ -1052,8 +1064,18 @@ async def create_import(
                 else IMPORT_ROW_UNMATCHED
             ),
             notes_raw=parsed_row.notes_raw,
-            order_number_hint=parsed_row.order_number_hint,
+            # Runda 10 (R10-N5-7): kolumna ma 64 znaki, a parser oddaje
+            # najdłuższy ciąg cyfr z „Uwag" bez limitu — ≥ 65 cyfr dawało 500
+            # i przepadał cały import.
+            order_number_hint=(parsed_row.order_number_hint or "")[:64] or None,
             invoice_amount=parsed_row.invoice_amount,
+            # Runda 10 (R10-N5-5): MD z wiersza zostają, nieczytelna faktura
+            # dostaje trwały znacznik zamiast zniknąć z importu.
+            cost_status=(
+                COST_ROW_INVOICE_UNREADABLE
+                if getattr(parsed_row, "invoice_problem", None)
+                else None
+            ),
         )
         if getattr(parsed_row, "cost_only", False):
             # FIN-MD-06: wiersz z samą fakturą rozlicza wyłącznie pulę
@@ -1065,6 +1087,7 @@ async def create_import(
                 pending_invoices=pending_invoices,
                 invoice_orders=invoice_orders,
                 touched_groups=touched_groups,
+                exhausted_cost_candidates=exhausted_cost_candidates,
             )
             if cost_match is not None:
                 cost_rows[cost_match.order.id].append(row)
@@ -1194,6 +1217,7 @@ async def create_import(
                 pending_invoices=pending_invoices,
                 invoice_orders=invoice_orders,
                 touched_groups=touched_groups,
+                exhausted_cost_candidates=exhausted_cost_candidates,
             )
             if cost_match is not None:
                 cost_rows[cost_match.order.id].append(row)
@@ -1643,6 +1667,7 @@ def _match_cost_row(
     pending_invoices: dict[int, Decimal],
     invoice_orders: dict[int, ClientOrder],
     touched_groups: dict[int, ClientOrderGroup],
+    exhausted_cost_candidates: Iterable[LineMatch] = (),
 ) -> Optional[LineMatch]:
     """Dopasuj wiersz do zamówienia kosztowego po numerze z „Uwag".
 
@@ -1682,6 +1707,23 @@ def _match_cost_row(
         )
     ]
     if not numbered:
+        # Runda 10 (R10-N5-6): numer wyczerpanego zamówienia kosztowego tej
+        # osoby to nie „brak zamówienia” — faktura jest nierozliczona.
+        exhausted = [
+            match
+            for match in match_by_name(
+                exhausted_cost_candidates, parsed_row.consultant_name
+            )
+            if finance_order_matching.finance_order_number_matches(
+                client_id=match.group.client_id,
+                order_number=match.group.order_number,
+                numeric_hints=hints,
+            )
+        ]
+        if len({m.group.id for m in exhausted}) == 1:
+            row.cost_status = COST_ROW_ORDER_EXHAUSTED
+            row.order_number_hint = exhausted[0].group.order_number.strip()[:64]
+            return None
         row.cost_status = COST_ROW_UNMATCHED_NUMBER
         return None
 
@@ -2988,6 +3030,51 @@ async def _approve_shared_md_overflow(
             )
         ).scalars()
     )
+    # Runda 10 (R10-N5-4): wstrzymany miesiąc czeka dowolnie długo — w tym
+    # czasie zamówienie mogło zostać zakończone przed tym miesiącem albo
+    # anulowane (tylko do odczytu). Ta sama reguła co ponowne dopasowanie
+    # importu pod blokadami (`_ordinary_locked_target_is_valid`, shared_md).
+    rows_by_order: dict[int, list[MdConsumptionImportRow]] = defaultdict(list)
+    for booked in group_rows:
+        if booked.matched_order_id is not None:
+            rows_by_order[booked.matched_order_id].append(booked)
+    correctable = await exhausted_groups_with_month_entry(
+        db, [group.id], batch.period_month
+    )
+    booked_orders = {
+        o.id: o
+        for o in (
+            await db.scalars(
+                select(ClientOrder)
+                .options(
+                    selectinload(ClientOrder.contract).selectinload(Contract.candidate)
+                )
+                .where(ClientOrder.id.in_(sorted(rows_by_order)))
+                .execution_options(populate_existing=True)
+            )
+        ).all()
+    }
+    if not rows_by_order or any(
+        booked_orders.get(order_id) is None
+        or not _ordinary_locked_target_is_valid(
+            kind="shared_md",
+            order=booked_orders[order_id],
+            group=group,
+            rows=order_rows,
+            expected_client_id=group.client_id,
+            period_month=batch.period_month,
+            correctable_exhausted_group_ids=correctable,
+        )
+        for order_id, order_rows in rows_by_order.items()
+    ):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=(
+                "Zamówienie ze wspólną pulą MD nie rozlicza już tego miesiąca "
+                "(zakończone przed nim, anulowane albo zmienione) — przekroczenia "
+                "nie da się zatwierdzić."
+            ),
+        )
     present = {r.matched_order_id for r in group_rows if r.matched_order_id}
     carried, carried_names = await _shared_md_carry_over(
         db,
@@ -3103,6 +3190,13 @@ async def reapply_rows_for_restored_line(
     # Wiersze należą do jednej osoby (`wanted`), więc klienci jej linii
     # kosztowych zależą wyłącznie od miesiąca paczki.
     cost_clients_by_month: dict[str, set[int]] = {}
+    # Runda 10 (R10-N5-2): wiązanie numeru liczone z tej samej puli co przy
+    # wgraniu pliku — linie osoby rozliczające miesiąc paczki + linie wskazane
+    # numerem (BIK). Sama przywracana linia nie znała klientów o numerach
+    # z samych cyfr, więc wiersz odrzucony za nieznany numer BIK trafiał na
+    # przywróconą linię BNP.
+    md_lines_by_month: dict[str, list[LineMatch]] = {}
+    numbered_candidates: Optional[list[LineMatch]] = None
     for row, batch in candidates:
         if name_tokens(row.consultant_name) != wanted:
             continue
@@ -3121,9 +3215,30 @@ async def reapply_rows_for_restored_line(
                     await cost_lines_settling_in_month(db, batch.period_month),
                     row.consultant_name,
                 )
+            if batch.period_month not in md_lines_by_month:
+                md_lines_by_month[
+                    batch.period_month
+                ] = await md_lines_settling_in_month(db, batch.period_month)
+            if numbered_candidates is None:
+                numbered_candidates = await md_lines_for_numbered_rows(
+                    db, md_exhaustion_client_ids()
+                )
+            own = LineMatch(line, group, row.consultant_name)
+            pool = [
+                match
+                for match in _md_row_pool(
+                    consultant_name=row.consultant_name,
+                    hints=hints,
+                    named=match_by_name(
+                        md_lines_by_month[batch.period_month], row.consultant_name
+                    ),
+                    numbered_candidates=numbered_candidates,
+                )
+                if match.order.id != line.id
+            ]
             authoritative = _authoritative_md_hints(
                 hints,
-                named=[LineMatch(line, group, row.consultant_name)],
+                named=[own, *pool],
                 order_numbers=order_numbers,
                 other_client_ids=cost_clients_by_month[batch.period_month],
             )

@@ -1543,21 +1543,29 @@ Korekta pozostałości to osobna operacja opisana na końcu tej sekcji.
   zamówienia tej osoby, wiersz nie zejdzie po nazwisku i trafi do sprawdzenia.
   Usuń takie ciągi z „Uwag" albo wpisz tam właściwy numer. Ponowny
   import miesiąca z numerem cofa nadwyżkę przeniesioną wcześniej na
-  przedłużenie — te same MD nie liczą się dwa razy. Numer z samych cyfr jest
+  przedłużenie, a z numerem przedłużenia — część miesiąca zaksięgowaną
+  wcześniej na poprzednim zamówieniu (wpis w historii „cofnięto … MD”) —
+  te same MD nie liczą się dwa razy. Numer z samych cyfr jest
   porównywany **bez zer wiodących** — Excel zapisuje „0087020188" jako
   „87020188" i taki wiersz nadal trafia w swoje zamówienie.
 * **Zakończenie współpracy konsultanta nie wyklucza go z importu.** Liczy się
   okres, w którym obsadzał zamówienie — raport za sierpień wgrany we wrześniu
   trafi w osobę, która zeszła 31 sierpnia, i doliczy jej MD. Gdy ta sama osoba
-  w jednym miesiącu zeszła z jednego zamówienia i weszła na drugie, wiersz
-  idzie na to, na którym **nadal pracuje**. Pominięta jest wyłącznie osoba
-  **usunięta z zamówienia**.
+  w jednym miesiącu zeszła z jednego zamówienia i weszła na drugie **u tego
+  samego klienta**, wiersz idzie na to, na którym **nadal pracuje**. Gdy
+  zamówienia są u **różnych klientów** (albo to dwie różne osoby o tym samym
+  nazwisku), wiersz bez numeru trafia do **„Wymaga przypisania”** — system nie
+  zdejmie MD za pracę u jednego klienta z zamówienia drugiego. Pominięta jest
+  wyłącznie osoba **usunięta z zamówienia**.
 * **Zamówienie zakończone z datą w przyszłości nadal przyjmuje import** za
   miesiące, które nie leżą po dacie zakończenia — konsultant pracuje do tej
   daty, choć zamówienie od razu figuruje w „Zakończonych”. Dotyczy MD przy
   osobie, wspólnej puli MD i zamówień kosztowych. Za miesiąc po dacie
   zakończenia wiersz zostanie „Bez zamówienia MD”. Zamówienie
-  **wyczerpane** importu nie przyjmuje. Zamówienie, które zakończyło się samo
+  **wyczerpane** importu nie przyjmuje. Faktura z numerem wyczerpanego
+  zamówienia kosztowego tej osoby dostaje status **„Zamówienie wyczerpane —
+  faktura nierozliczona”** (nie „brak zamówienia”) — podnieś budżet albo dodaj
+  kolejne zamówienie i rozlicz fakturę ręcznie. Zamówienie, które zakończyło się samo
   po wyczerpaniu limitów MD wszystkich osób, dostaje datę zakończenia z dnia
   przeliczenia — raport za bieżący miesiąc nadal na nie trafia.
 * **Przy wspólnej puli MD u dowolnego klienta samo nazwisko nie
@@ -1575,11 +1583,13 @@ Korekta pozostałości to osobna operacja opisana na końcu tej sekcji.
   wiersz niedopasowany.
 * **Wiersz z liczbą MD ujemną, większą niż 1000 albo nieliczbową („NaN”)
   jest odrzucany** i trafia do pominiętych wierszy z numerem i powodem — nie
-  zmienia żadnego budżetu. To samo dotyczy nieczytelnej kwoty faktury
-  (nieskończonej albo powyżej miliarda złotych) i każdej niepustej kwoty,
-  której nie da się odczytać („do ustalenia"). Kwoty w formatach „20 900,00 zł",
-  „20.900,00 zł" i „1,234.56" są czytane poprawnie. Popraw plik i wgraj miesiąc
-  ponownie.
+  zmienia żadnego budżetu. **Nieczytelna kwota faktury** (nieskończona, powyżej
+  miliarda złotych albo tekst, którego nie da się odczytać — „do ustalenia”,
+  „brak”) **nie odrzuca wiersza**: MD z tego wiersza schodzą normalnie, a
+  faktura dostaje status **„Nieczytelna kwota faktury — rozlicz ręcznie”**
+  i nie zdejmuje niczego z zamówienia kosztowego. Kwoty w formatach
+  „20 900,00 zł", „20.900,00 zł" i „1,234.56" są czytane poprawnie. Popraw plik
+  i wgraj miesiąc ponownie.
 * **Zejście, po którym saldo spadłoby poniżej zera, nie jest księgowane samo.**
   Dotyczy puli przy osobie (gdy nadwyżki nie przejmuje przedłużenie) i wspólnej
   puli MD. Wiersz dostaje status **„Do weryfikacji – przekroczenie puli o X MD"**,
@@ -1588,6 +1598,8 @@ Korekta pozostałości to osobna operacja opisana na końcu tej sekcji.
   przyciskiem **„Zatwierdź mimo przekroczenia"** (dwa kliknięcia) — wtedy MD
   schodzą, a historia zamówienia ma dopisek „Przekroczenie puli zatwierdzone
   ręcznie". Przy wspólnej puli zatwierdza się cały miesiąc zamówienia naraz.
+  Zatwierdzenie odmówi, gdy zamówienie ze wspólną pulą zostało w międzyczasie
+  zakończone przed tym miesiącem albo anulowane.
 * **Powtórny import tego samego miesiąca nadpisuje** poprzednie zużycie — MD nie
   odejmą się drugi raz. Przy **wspólnej puli MD** plik korygujący może nieść
   tylko poprawione osoby: MD pozostałych osób z wcześniejszego importu tego
