@@ -13,6 +13,7 @@ import { Plus, Trash2, Upload, X, Save } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { warsawToday } from "@/lib/warsaw-date";
 import { hasRole, useAuthStore } from "@/store/auth";
+import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 
 const SENIORITY_LABELS: Record<SeniorityLevel, string> = {
   junior: "Junior",
@@ -55,6 +56,7 @@ function RateBenchmarksAdmin({ readOnly = false }: { readOnly?: boolean }) {
   const [adding, setAdding] = useState(false);
   const [roleFilter, setRoleFilter] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
+  const { askConfirm, confirmDialog } = useConfirmV2();
   const [importResult, setImportResult] = useState<{
     created: number;
     skipped: number;
@@ -95,6 +97,7 @@ function RateBenchmarksAdmin({ readOnly = false }: { readOnly?: boolean }) {
 
   return (
     <div className="max-w-6xl mx-auto md:px-4 md:py-8 space-y-6">
+      {confirmDialog}
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <h1 className="text-xl font-semibold">Benchmarki stawek</h1>
@@ -244,8 +247,16 @@ function RateBenchmarksAdmin({ readOnly = false }: { readOnly?: boolean }) {
                     <td className="px-3 py-2 text-right">
                       <button
                         type="button"
-                        onClick={() => {
-                          if (confirm("Usunąć wpis ? ")) deleteMut.mutate(row.id);
+                        onClick={async () => {
+                          if (
+                            await askConfirm({
+                              title: "Usunąć wpis?",
+                              confirmLabel: "Usuń",
+                              variant: "destructive",
+                            })
+                          ) {
+                            deleteMut.mutate(row.id);
+                          }
                         }}
                         className="text-destructive hover:underline"
                       >

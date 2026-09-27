@@ -24,6 +24,7 @@ import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { cn } from "@/lib/utils";
 import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
 import { hasRole, useAuthStore } from "@/store/auth";
+import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 
 interface NotificationTypeOption {
   value: TeamsNotificationType;
@@ -394,6 +395,7 @@ function ChannelRow({
   onDelete,
 }: ChannelRowProps) {
   const [editing, setEditing] = useState(false);
+  const { askConfirm, confirmDialog } = useConfirmV2();
   const [localTypes, setLocalTypes] = useState<TeamsNotificationType[]>(
     channel.notification_types,
   );
@@ -405,6 +407,7 @@ function ChannelRow({
 
   return (
     <li className="rounded-lg border border-border bg-background/40 px-4 py-3 text-sm">
+      {confirmDialog}
       <div className="flex items-start gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
@@ -528,11 +531,14 @@ function ChannelRow({
               </button>
               <button
                 type="button"
-                onClick={() => {
+                onClick={async () => {
                   if (
-                    confirm(
-                      `Usunąć kanał "${channel.workspace_label}"? Tej akcji nie można cofnąć.`,
-                    )
+                    await askConfirm({
+                      title: `Usunąć kanał "${channel.workspace_label}"?`,
+                      description: "Tej akcji nie można cofnąć.",
+                      confirmLabel: "Usuń",
+                      variant: "destructive",
+                    })
                   ) {
                     onDelete();
                   }

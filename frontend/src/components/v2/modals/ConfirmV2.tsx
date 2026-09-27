@@ -75,3 +75,73 @@ export function ConfirmV2({
  </Dialog>
  );
 }
+
+export interface ConfirmRequest {
+  title: string;
+  description?: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  variant?: "default" | "destructive";
+}
+
+/**
+ * Obietnicowe potwierdzenie na ConfirmV2 — zamiennik `window.confirm()`
+ * (runda 11 audytu, FRONT). Natywny dialog zamraża automatyzację przeglądarki
+ * i odstaje od UI; ten zwraca `Promise<boolean>`, więc wołający zmienia tylko
+ * `confirm(...)` na `await askConfirm({...})`.
+ *
+ * - Anulowanie (przycisk, Esc, klik obok) = `false`, nic się nie dzieje.
+ * - Potwierdzenie rozwiązuje obietnicę RAZ — drugie kliknięcie w trakcie
+ *   zamykania nie wykona akcji drugi raz.
+ * - `confirmDialog` wyrenderuj raz w komponencie, który woła `askConfirm`.
+ */
+export function useConfirmV2(): {
+  askConfirm: (request: ConfirmRequest) => Promise<boolean>;
+  confirmDialog: React.ReactNode;
+} {
+  const [request, setRequest] = React.useState<ConfirmRequest | null>(null);
+  const [open, setOpen] = React.useState(false);
+  const resolverRef = React.useRef<((value: boolean) => void) | null>(null);
+
+  const settle = React.useCallback((value: boolean) => {
+    const resolve = resolverRef.current;
+    resolverRef.current = null;
+    setOpen(false);
+    resolve?.(value);
+  }, []);
+
+  React.useEffect(
+    () => () => {
+      resolverRef.current?.(false);
+      resolverRef.current = null;
+    },
+    [],
+  );
+
+  const askConfirm = React.useCallback((next: ConfirmRequest) => {
+    // Poprzednie, nierozstrzygnięte pytanie traktujemy jak anulowane.
+    resolverRef.current?.(false);
+    return new Promise<boolean>((resolve) => {
+      resolverRef.current = resolve;
+      setRequest(next);
+      setOpen(true);
+    });
+  }, []);
+
+  const confirmDialog = request ? (
+    <ConfirmV2
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) settle(false);
+      }}
+      title={request.title}
+      description={request.description}
+      confirmLabel={request.confirmLabel}
+      cancelLabel={request.cancelLabel}
+      variant={request.variant}
+      onConfirm={() => settle(true)}
+    />
+  ) : null;
+
+  return { askConfirm, confirmDialog };
+}
