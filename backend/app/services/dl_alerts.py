@@ -45,6 +45,7 @@ from decimal import Decimal
 from typing import Optional, Sequence
 
 from sqlalchemy import func, select, update
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -790,6 +791,18 @@ def format_reaction(alert: DlAlert) -> str:
 ORDER_NUMBER_PLACEHOLDER = "(bez numeru)"
 
 
+#: Braki z bramki aktywacji (``_missing_activation_fields``) w bierniku —
+#: karta mówi „Uzupełnij: stawkę przychodową, …".
+_ACTIVATION_FIELD_ACCUSATIVE = {
+    "numer zamówienia": "numer zamówienia",
+    "data startu": "datę startu",
+    "stawka przychodowa": "stawkę przychodową",
+    "stawka kosztowa": "stawkę kosztową",
+    "kwota zamówienia": "kwotę zamówienia",
+    "liczba MD": "liczbę MD",
+}
+
+
 def new_contractor_missing_fields(
     order: ClientOrder, *, candidate_name: Optional[str], job_title: Optional[str]
 ) -> list[str]:
@@ -799,17 +812,15 @@ def new_contractor_missing_fields(
     zamówienia JEST jego numerem. Szkic z podpisu dostaje tytuł-etykietę
     „Imię Nazwisko — Rekrutacja" albo zaślepkę „(bez numeru)"; dopóki tytuł
     jest jednym z nich, numeru nikt nie wpisał.
+
+    Runda 9 (R9-N12-2): pozostałe braki liczy TA SAMA reguła co bramka
+    aktywacji (``api.client_orders._missing_activation_fields``) — liczba MD
+    dla zamówienia MD, kwota dla kosztowego, data startu (koniec NIE jest
+    wymagany: zamówienie bezterminowe to normalny stan). Własna lista
+    wymagała końca, którego aktywacja nie wymaga, a nie znała MD i kwoty,
+    więc karta zamykała się, zanim szkic dało się aktywować.
     """
     missing: list[str] = []
-    has_revenue_rate = (
-        order.md_rate_revenue is not None
-        if order.order_group_id is not None
-        else order.rate_client is not None
-    )
-    if not has_revenue_rate:
-        missing.append("stawkę przychodową")
-    if order.start_date is None or order.end_date is None:
-        missing.append("okres zamówienia")
     title = (order.title or "").strip()
     # Tytuł-etykieta szkicu z podpisu to „Imię Nazwisko — Rekrutacja". Porównanie
     # po KOŃCÓWCE (tytule rekrutacji), nie po imieniu: korekta nazwiska
@@ -827,6 +838,20 @@ def new_contractor_missing_fields(
     )
     if not title or auto_label:
         missing.append("numer zamówienia")
+    if order.order_group_id is not None:
+        # Linia zamówienia MD/kosztowego — aktywuje ją zapis linii, nie bramka
+        # zamówienia okresowego.
+        if order.md_rate_revenue is None:
+            missing.append("stawkę przychodową")
+        if order.start_date is None:
+            missing.append("datę startu")
+        return missing
+    from app.api.client_orders import _missing_activation_fields
+
+    for field in _missing_activation_fields(order):
+        label = _ACTIVATION_FIELD_ACCUSATIVE.get(field, field)
+        if label not in missing:
+            missing.append(label)
     return missing
 
 
@@ -845,6 +870,11 @@ async def emit_new_contractor_draft(
     (powtórka co 7 dni, dopóki czegoś brakuje). Link otwiera TEN szkic
     (``?order=``), nie samą zakładkę.
     """
+    # Bramka aktywacji czyta stawkę kosztową z kontraktu; świeży szkic ze
+    # ścieżki podpisu ma relację niewczytaną, a leniwy odczyt w sesji async to
+    # ``MissingGreenlet``.
+    if order.contract_id is not None and "contract" in sa_inspect(order).unloaded:
+        await db.refresh(order, attribute_names=["contract"])
     missing = new_contractor_missing_fields(
         order, candidate_name=candidate_name, job_title=job_title
     )

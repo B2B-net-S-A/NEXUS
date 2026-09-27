@@ -209,18 +209,54 @@ def test_new_contractor_missing_fields():
     draft = ClientOrder(title="Jan Nowak — Java Developer", start_date=date(2026, 9, 1))
     assert new_contractor_missing_fields(
         draft, candidate_name="Jan Nowak", job_title="Java Developer"
-    ) == ["stawkę przychodową", "okres zamówienia", "numer zamówienia"]
+    ) == ["numer zamówienia", "stawkę przychodową", "stawkę kosztową"]
 
+    # Runda 9 (R9-N12-2): zamówienie bezterminowe jest kompletne — bramka
+    # aktywacji nie wymaga daty końca, więc karta też nie.
     done = ClientOrder(
         title="PO/2026/77",
         start_date=date(2026, 9, 1),
-        end_date=date(2026, 12, 31),
         rate_client=Decimal("150"),
+        rate_candidate=Decimal("100"),
     )
     assert (
         new_contractor_missing_fields(done, candidate_name="Jan Nowak", job_title="X")
         == []
     )
+
+
+def test_new_contractor_missing_fields_follow_the_activation_gate():
+    """Runda 9 (R9-N12-2): MD bez liczby MD i kosztowe bez kwoty nie są gotowe.
+
+    Do poprawki karta liczyła własną listę i zamykała się, choć bramka
+    aktywacji nadal odmawiała — szkic wisiał w Draft bez żadnego sygnału.
+    """
+    from app.models.client_order import ClientOrder
+    from app.services.dl_alerts import new_contractor_missing_fields
+
+    base = dict(
+        title="PO/2026/78",
+        start_date=date(2026, 9, 1),
+        end_date=date(2026, 12, 31),
+        rate_client=Decimal("150"),
+        rate_candidate=Decimal("100"),
+    )
+    md = ClientOrder(order_type="md", **base)
+    assert new_contractor_missing_fields(md, candidate_name="A B", job_title="X") == [
+        "liczbę MD"
+    ]
+    cost = ClientOrder(order_type="cost", **base)
+    assert new_contractor_missing_fields(
+        cost, candidate_name="A B", job_title="X"
+    ) == ["kwotę zamówienia"]
+    md_ok = ClientOrder(order_type="md", md_total=Decimal("20"), **base)
+    assert (
+        new_contractor_missing_fields(md_ok, candidate_name="A B", job_title="X") == []
+    )
+    placeholder = ClientOrder(**{**base, "title": "(bez numeru)"})
+    assert new_contractor_missing_fields(
+        placeholder, candidate_name="A B", job_title="X"
+    ) == ["numer zamówienia"]
 
 
 # ── Cykl zamówienia okresowego ──────────────────────────────────────────────
