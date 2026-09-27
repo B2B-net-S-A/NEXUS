@@ -21,6 +21,7 @@ import {
 } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { hasRole, useAuthStore } from "@/store/auth";
+import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -69,6 +70,7 @@ export default function EmailTemplatesCard() {
   const [editing, setEditing] = useState<UserEmailTemplate | null>(null);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { askConfirm, confirmDialog } = useConfirmV2();
 
   const { data, isLoading } = useQuery({
     queryKey: ["user-email-templates"],
@@ -99,6 +101,7 @@ export default function EmailTemplatesCard() {
 
   return (
     <div className="bg-card dark:bg-muted rounded-2xl border border-border dark:border-border p-6">
+      {confirmDialog}
       <div className="flex items-start gap-4 mb-6">
         <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
           <FileText className="w-6 h-6 text-primary" />
@@ -175,8 +178,14 @@ export default function EmailTemplatesCard() {
                 <Pencil className="h-4 w-4" />
               </button>
               <button
-                onClick={() => {
-                  if (window.confirm(`Usunąć szablon „${t.name}"?`)) {
+                onClick={async () => {
+                  if (
+                    await askConfirm({
+                      title: `Usunąć szablon „${t.name}"?`,
+                      confirmLabel: "Usuń",
+                      variant: "destructive",
+                    })
+                  ) {
                     setError(null);
                     deleteMutation.mutate(t.id);
                   }

@@ -6,6 +6,7 @@ import { phase5Api, RateHistoryRow } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { hasRole, useAuthStore } from "@/store/auth";
 import { useToast } from "@/components/Toast";
+import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 
 interface Props {
   candidateId: number;
@@ -39,6 +40,7 @@ export function RateHistoryWidget({ candidateId, hideWhenEmpty = false }: Props)
     notes: "",
   });
   const [saving, setSaving] = useState(false);
+  const { askConfirm, confirmDialog } = useConfirmV2();
 
   const load = async () => {
     setLoading(true);
@@ -86,7 +88,15 @@ export function RateHistoryWidget({ candidateId, hideWhenEmpty = false }: Props)
   };
 
   const handleDelete = async (id: number) => {
-    if (!confirm("Usunąć rekord stawki?")) return;
+    if (
+      !(await askConfirm({
+        title: "Usunąć rekord stawki?",
+        confirmLabel: "Usuń",
+        variant: "destructive",
+      }))
+    ) {
+      return;
+    }
     try {
       await phase5Api.rateHistory.delete(id);
       await load();
@@ -117,6 +127,7 @@ export function RateHistoryWidget({ candidateId, hideWhenEmpty = false }: Props)
 
   return (
     <div className="bg-card dark:bg-muted rounded-lg border border-border dark:border-border p-4">
+      {confirmDialog}
       <div className="flex items-center justify-between mb-3">
         <h3 className="font-medium flex items-center gap-2 text-foreground dark:text-foreground">
           <DollarSign className="w-4 h-4 text-emerald-500" />

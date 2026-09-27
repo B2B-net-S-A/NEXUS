@@ -23,6 +23,7 @@ import {
   RECIPIENT_LABELS,
   StageRuleForm,
 } from "@/components/StageRuleForm";
+import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 
 interface Props {
   clientId: number;
@@ -37,6 +38,7 @@ export function NotificationsTab({ clientId }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [creatingFor, setCreatingFor] = useState<number | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const { askConfirm, confirmDialog } = useConfirmV2();
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -116,7 +118,15 @@ export function NotificationsTab({ clientId }: Props) {
   };
 
   const handleDelete = async (overrideId: number) => {
-    if (!confirm("Usunąć override? Stage wróci do baseline.")) return;
+    if (
+      !(await askConfirm({
+        title: "Usunąć override? Stage wróci do baseline.",
+        confirmLabel: "Usuń",
+        variant: "destructive",
+      }))
+    ) {
+      return;
+    }
     try {
       await clientNotificationOverridesApi.delete(clientId, overrideId);
       await loadAll();
@@ -145,6 +155,7 @@ export function NotificationsTab({ clientId }: Props) {
 
   return (
     <div className="space-y-6">
+      {confirmDialog}
       <div className="bg-card dark:bg-muted rounded-lg border border-border dark:border-border p-4">
         <h2 className="flex items-center gap-2 text-base font-semibold mb-1">
           <Bell className="w-5 h-5 text-primary" />

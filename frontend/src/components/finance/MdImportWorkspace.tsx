@@ -14,6 +14,7 @@ import {
 import { EmptyState, QueryStateNotice } from "@/components/ds";
 import { ConfirmTwoStepButton } from "@/components/orders/ConfirmTwoStepButton";
 import { useToast } from "@/components/Toast";
+import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import {
   mdConsumptionApi,
   type ImportDetail,
@@ -112,6 +113,7 @@ export function MdImportWorkspace() {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
   const fileInput = useRef<HTMLInputElement>(null);
+  const { askConfirm, confirmDialog } = useConfirmV2();
 
   const [file, setFile] = useState<File | null>(null);
   const [periodMonth, setPeriodMonth] = useState(currentMonth());
@@ -269,6 +271,7 @@ export function MdImportWorkspace() {
 
   return (
     <div className="flex flex-col gap-6">
+      {confirmDialog}
       <section className="rounded-xl border border-border bg-card p-5" data-help="finance.md_import">
         <h2 className="text-sm font-semibold text-foreground">Import zużycia MD</h2>
         <p className="mt-1 text-xs text-muted-foreground">
@@ -522,12 +525,15 @@ export function MdImportWorkspace() {
                     <button
                       type="button"
                       disabled={reprocessApply.isPending || reprocessDryRun.isPending}
-                      onClick={() => {
-                        const confirmed = window.confirm(
-                          `Zastosować korektę dla importu #${currentReprocessPreview.import_id} (${currentReprocessPreview.period_month})? Zostanie poprawionych ${currentReprocessPreview.rows_to_update} wierszy i przeliczonych ${currentReprocessPreview.targets_to_recalculate} budżetów.`,
-                        );
+                      onClick={async () => {
+                        const preview = currentReprocessPreview;
+                        const confirmed = await askConfirm({
+                          title: `Zastosować korektę dla importu #${preview.import_id} (${preview.period_month})?`,
+                          description: `Zostanie poprawionych ${preview.rows_to_update} wierszy i przeliczonych ${preview.targets_to_recalculate} budżetów.`,
+                          confirmLabel: "Zastosuj korektę",
+                        });
                         if (confirmed) {
-                          reprocessApply.mutate(currentReprocessPreview.import_id);
+                          reprocessApply.mutate(preview.import_id);
                         }
                       }}
                       className="rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground disabled:opacity-50"

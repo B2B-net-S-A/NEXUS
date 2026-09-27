@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 
 import { useToast } from "@/components/Toast";
+import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { AppModal } from "@/components/ds/AppModal";
 import { FilterBar } from "@/components/ds/FilterBar";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
@@ -847,6 +848,7 @@ function UserPermissionsEditor({
   const [draftState, setDraftState] = useState<UserDraftState>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [conflict, setConflict] = useState(false);
+  const { askConfirm, confirmDialog } = useConfirmV2();
 
   const usersQuery = useQuery({
     queryKey: ["admin-user-section-permissions", debouncedSearch],
@@ -975,11 +977,23 @@ function UserPermissionsEditor({
     setConflict(false);
   };
 
-  const discardDraft = (): boolean =>
-    changesCount === 0 ||
-    window.confirm(
-      "Masz niezapisane zmiany uprawnień. Odrzucić je i przejść dalej?",
-    );
+  // Przejście w obrębie ekranu (inny użytkownik, wyszukiwanie) — nie
+  // `beforeunload`, więc potwierdzenie w oknie aplikacji, nie natywne.
+  // Bez zmian akcja idzie synchronicznie: pole wyszukiwania jest sterowane,
+  // a stan ustawiony dopiero w mikrozadaniu przestawiałby kursor na koniec.
+  const whenDraftDiscarded = (action: () => void): void => {
+    if (changesCount === 0) {
+      action();
+      return;
+    }
+    void askConfirm({
+      title: "Masz niezapisane zmiany uprawnień. Odrzucić je i przejść dalej?",
+      confirmLabel: "Odrzuć zmiany",
+      variant: "destructive",
+    }).then((ok) => {
+      if (ok) action();
+    });
+  };
 
   const confirmationChanges = selectedUser
     ? [
@@ -1006,20 +1020,21 @@ function UserPermissionsEditor({
 
   return (
     <div className="space-y-4">
+      {confirmDialog}
       <FilterBar
         variant="surface"
         search={{
           value: search,
-          onChange: (value) => {
-            if (!discardDraft()) return;
-            resetDraft();
-            setSearch(value);
-          },
-          onClear: () => {
-            if (!discardDraft()) return;
-            resetDraft();
-            setSearch("");
-          },
+          onChange: (value) =>
+            whenDraftDiscarded(() => {
+              resetDraft();
+              setSearch(value);
+            }),
+          onClear: () =>
+            whenDraftDiscarded(() => {
+              resetDraft();
+              setSearch("");
+            }),
           placeholder: "Szukaj po imieniu lub e-mailu…",
           ariaLabel: "Szukaj użytkownika",
         }}
@@ -1073,16 +1088,14 @@ function UserPermissionsEditor({
                     type="button"
                     aria-pressed={selected}
                     onClick={() => {
-                      if (
-                        entry.user_id !== selectedUser?.user_id &&
-                        !discardDraft()
-                      ) {
-                        return;
-                      }
-                      setSelectedUserId(entry.user_id);
-                      setDraftState(null);
-                      setConflict(false);
-                      setRevealTick((t) => t + 1);
+                      const select = () => {
+                        setSelectedUserId(entry.user_id);
+                        setDraftState(null);
+                        setConflict(false);
+                        setRevealTick((t) => t + 1);
+                      };
+                      if (entry.user_id === selectedUser?.user_id) select();
+                      else whenDraftDiscarded(select);
                     }}
                     className={`w-full rounded-lg px-3 py-2.5 text-left transition-colors focus:outline-hidden focus:ring-2 focus:ring-ring ${
                       selected

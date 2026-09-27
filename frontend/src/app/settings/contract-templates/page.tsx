@@ -8,6 +8,7 @@ import api from "@/lib/api";
 import { RequireRole } from "@/components/RequireRole";
 import { Plus, Trash2, Save, X, Pencil } from "lucide-react";
 import { hasRole, useAuthStore } from "@/store/auth";
+import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 
 interface ContractTemplate {
   id: number;
@@ -153,6 +154,7 @@ export default function ContractTemplatesPage() {
   const canEdit = hasRole(user, "admin");
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState<Partial<ContractTemplate> | null>(null);
+  const { askConfirm, confirmDialog } = useConfirmV2();
 
   const { data } = useQuery<ContractTemplate[]>({
     queryKey: ["contract-templates"],
@@ -168,6 +170,7 @@ export default function ContractTemplatesPage() {
   return (
     <RequireRole roles={["admin", "finance"]}>
       <div className="space-y-4 max-w-5xl">
+        {confirmDialog}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-2xl font-bold">Szablony kontraktów</h1>
           {!editing && canEdit && (
@@ -228,8 +231,14 @@ export default function ContractTemplatesPage() {
                               <Pencil className="w-4 h-4" />
                             </button>
                             <button
-                              onClick={() => {
-                                if (window.confirm(`Usunąć szablon "${t.name}"?`)) {
+                              onClick={async () => {
+                                if (
+                                  await askConfirm({
+                                    title: `Usunąć szablon "${t.name}"?`,
+                                    confirmLabel: "Usuń",
+                                    variant: "destructive",
+                                  })
+                                ) {
                                   deleteMutation.mutate(t.id);
                                 }
                               }}

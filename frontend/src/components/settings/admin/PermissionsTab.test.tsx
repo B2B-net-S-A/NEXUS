@@ -5,6 +5,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -258,6 +259,42 @@ describe("PermissionsTab", () => {
         [],
       ),
     );
+  });
+
+  it("niezapisane zmiany: pytanie w oknie aplikacji, Anuluj zostawia szkic (runda 11)", async () => {
+    const nativeConfirm = vi.spyOn(window, "confirm");
+    const user = userEvent.setup();
+    renderTab();
+
+    await user.click(
+      await screen.findByRole("tab", { name: "Wyjątki użytkowników" }),
+    );
+    const search = screen.getByLabelText("Szukaj użytkownika");
+    // Bez zmian pole działa od razu, bez pytania.
+    fireEvent.change(search, { target: { value: "J" } });
+    expect(search).toHaveValue("J");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    fireEvent.change(search, { target: { value: "" } });
+
+    const selector = await screen.findByLabelText("Jan Kowalski: Delivery");
+    fireEvent.change(selector, { target: { value: "write" } });
+
+    fireEvent.change(search, { target: { value: "Ja" } });
+    let dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent(
+      "Masz niezapisane zmiany uprawnień. Odrzucić je i przejść dalej?",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Anuluj" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(search).toHaveValue("");
+    expect(screen.getByLabelText("Jan Kowalski: Delivery")).toHaveValue("write");
+
+    fireEvent.change(search, { target: { value: "Ja" } });
+    dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Odrzuć zmiany" }));
+    await waitFor(() => expect(search).toHaveValue("Ja"));
+    expect(nativeConfirm).not.toHaveBeenCalled();
+    nativeConfirm.mockRestore();
   });
 
   it("nadaje użytkownikowi indywidualne generowanie bez Finansów", async () => {

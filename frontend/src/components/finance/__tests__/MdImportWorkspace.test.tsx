@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -449,10 +449,8 @@ describe("MdImportWorkspace", () => {
     vi.mocked(mdConsumptionApi.getImport).mockResolvedValue({
       data: detail([row()]),
     } as never);
-    const confirm = vi
-      .spyOn(window, "confirm")
-      .mockReturnValueOnce(false)
-      .mockReturnValueOnce(true);
+    // Runda 11 (FRONT): okno aplikacji zamiast natywnego confirm().
+    const nativeConfirm = vi.spyOn(window, "confirm");
 
     const user = userEvent.setup();
     renderWorkspace();
@@ -465,11 +463,16 @@ describe("MdImportWorkspace", () => {
       name: "Zastosuj sprawdzoną korektę",
     });
     await user.click(applyButton);
-    expect(confirm).toHaveBeenCalledTimes(1);
+    let dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent(/Zastosować korektę dla importu #1/);
+    await user.click(within(dialog).getByRole("button", { name: "Anuluj" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(mdConsumptionApi.reprocessPolkomtel).toHaveBeenCalledTimes(1);
 
     await user.click(applyButton);
-    expect(confirm).toHaveBeenCalledTimes(2);
+    dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Zastosuj korektę" }));
+    expect(nativeConfirm).not.toHaveBeenCalled();
     await waitFor(() =>
       expect(mdConsumptionApi.reprocessPolkomtel).toHaveBeenLastCalledWith(1, true),
     );
@@ -493,8 +496,6 @@ describe("MdImportWorkspace", () => {
           },
         },
       });
-    vi.spyOn(window, "confirm").mockReturnValue(true);
-
     const user = userEvent.setup();
     renderWorkspace();
     await openUploadedImport(user);
@@ -503,6 +504,11 @@ describe("MdImportWorkspace", () => {
     );
     await user.click(
       await screen.findByRole("button", { name: "Zastosuj sprawdzoną korektę" }),
+    );
+    await user.click(
+      within(await screen.findByRole("dialog")).getByRole("button", {
+        name: "Zastosuj korektę",
+      }),
     );
 
     expect(
