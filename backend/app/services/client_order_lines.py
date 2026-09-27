@@ -1210,6 +1210,11 @@ def match_by_name(
     return [m for m in candidates if name_tokens(m.consultant_name) == wanted]
 
 
+def _match_candidate_id(match: LineMatch) -> Optional[int]:
+    contract = getattr(match.order, "contract", None)
+    return getattr(contract, "candidate_id", None)
+
+
 def prefer_active_line(matches: list[LineMatch]) -> list[LineMatch]:
     """Remis rozstrzyga linia aktywna — zakończona jest celem ZAPASOWYM.
 
@@ -1228,8 +1233,19 @@ def prefer_active_line(matches: list[LineMatch]) -> list[LineMatch]:
     Preferencja jest wąska z rozmysłem: wymaga DOKŁADNIE JEDNEJ linii
     aktywnej. Dwie aktywne albo dwie zakończone to nadal niejednoznaczność
     i nadal rozstrzyga ją człowiek — system nie zgaduje (reguła 2 modułu).
+
+    Runda 10 (R10-N5-1): tylko wtedy, gdy wszystkie trafienia to TA SAMA osoba
+    (kandydat kontraktu) u TEGO SAMEGO klienta. Linia zakończona u BNP i aktywna
+    u BIK (albo imiennicy u dwóch klientów) to nie „zejście i wejście” jednej
+    osoby — preferencja zdejmowała MD za pracę u klienta A z zamówienia
+    klienta B.
     """
     if len(matches) <= 1:
+        return matches
+    owners = {
+        (m.group.client_id, _match_candidate_id(m)) for m in matches
+    }
+    if len(owners) != 1 or next(iter(owners))[1] is None:
         return matches
     active = [m for m in matches if m.order.status == ClientOrderStatus.active]
     if len(active) == 1:
@@ -2678,6 +2694,63 @@ async def _revert_earlier_transfer(
     )
 
 
+async def _revert_earlier_predecessor_split(
+    db: AsyncSession,
+    *,
+    order: ClientOrder,
+    group: ClientOrderGroup,
+    period_month: str,
+    import_id: Optional[int],
+    user_id: Optional[int],
+) -> None:
+    """Lustro :func:`_revert_earlier_transfer` od strony NASTĘPCY.
+
+    Runda 10 (R10-N5-3): wcześniejsza paczka podzieliła raport osoby — część
+    na poprzedniku, nadwyżka na tym zamówieniu (``transfer_md``). Nowy wiersz
+    z numerem TEGO zamówienia niesie całą liczbę, więc wpis poprzednika za ten
+    miesiąc liczyłby część tych samych MD drugi raz. Cofamy go tylko wtedy,
+    gdy ``_month_split_from_predecessor`` potwierdza podział (wpis poprzednika
+    z importu, z INNEJ paczki, dziennik ma przeniesienie za ten miesiąc).
+    Wpis poprzednika z tej samej paczki to jego własny wiersz arkusza.
+    """
+    pred_line, pred_group = await predecessor_line_for(db, order)
+    if pred_line is None or pred_group is None:
+        return
+    if not await _month_split_from_predecessor(
+        db,
+        predecessor_line=pred_line,
+        predecessor_group=pred_group,
+        successor_group_id=group.id,
+        period_month=period_month,
+        import_id=import_id,
+    ):
+        return
+    from app.services.contract_lifecycle import lock_contract_then_orders
+
+    await lock_contract_then_orders(db, order_ids=[pred_line.id])
+    removed = await delete_consumption(db, pred_line, period_month)
+    if removed is None or quantize_md(removed) == ZERO:
+        return
+    record_event(
+        db,
+        group_id=pred_group.id,
+        order_id=pred_line.id,
+        event_type=EVENT_MD_IMPORT,
+        description=(
+            f"Za {format_period_month(period_month)} cofnięto {format_md(removed)} MD "
+            f"z wcześniejszego podziału miesiąca — import wskazał numerem "
+            f"zamówienie nr {group.order_number} i rozliczył na nim całość."
+        ),
+        payload={
+            "period_month": period_month,
+            "md_reverted": str(removed),
+            "successor_group_id": group.id,
+            "import_id": import_id,
+        },
+        user_id=user_id,
+    )
+
+
 async def apply_md_consumption(
     db: AsyncSession,
     *,
@@ -2772,6 +2845,14 @@ async def apply_md_consumption(
             )
     elif allow_successor_transfer and group is not None:
         await _revert_earlier_transfer(
+            db,
+            order=order,
+            group=group,
+            period_month=period_month,
+            import_id=import_id,
+            user_id=user_id,
+        )
+        await _revert_earlier_predecessor_split(
             db,
             order=order,
             group=group,

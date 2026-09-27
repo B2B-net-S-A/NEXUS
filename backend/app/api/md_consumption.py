@@ -3103,6 +3103,13 @@ async def reapply_rows_for_restored_line(
     # Wiersze należą do jednej osoby (`wanted`), więc klienci jej linii
     # kosztowych zależą wyłącznie od miesiąca paczki.
     cost_clients_by_month: dict[str, set[int]] = {}
+    # Runda 10 (R10-N5-2): wiązanie numeru liczone z tej samej puli co przy
+    # wgraniu pliku — linie osoby rozliczające miesiąc paczki + linie wskazane
+    # numerem (BIK). Sama przywracana linia nie znała klientów o numerach
+    # z samych cyfr, więc wiersz odrzucony za nieznany numer BIK trafiał na
+    # przywróconą linię BNP.
+    md_lines_by_month: dict[str, list[LineMatch]] = {}
+    numbered_candidates: Optional[list[LineMatch]] = None
     for row, batch in candidates:
         if name_tokens(row.consultant_name) != wanted:
             continue
@@ -3121,9 +3128,30 @@ async def reapply_rows_for_restored_line(
                     await cost_lines_settling_in_month(db, batch.period_month),
                     row.consultant_name,
                 )
+            if batch.period_month not in md_lines_by_month:
+                md_lines_by_month[batch.period_month] = (
+                    await md_lines_settling_in_month(db, batch.period_month)
+                )
+            if numbered_candidates is None:
+                numbered_candidates = await md_lines_for_numbered_rows(
+                    db, md_exhaustion_client_ids()
+                )
+            own = LineMatch(line, group, row.consultant_name)
+            pool = [
+                match
+                for match in _md_row_pool(
+                    consultant_name=row.consultant_name,
+                    hints=hints,
+                    named=match_by_name(
+                        md_lines_by_month[batch.period_month], row.consultant_name
+                    ),
+                    numbered_candidates=numbered_candidates,
+                )
+                if match.order.id != line.id
+            ]
             authoritative = _authoritative_md_hints(
                 hints,
-                named=[LineMatch(line, group, row.consultant_name)],
+                named=[own, *pool],
                 order_numbers=order_numbers,
                 other_client_ids=cost_clients_by_month[batch.period_month],
             )
