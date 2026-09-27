@@ -439,7 +439,8 @@ _LOCKED_HANDLERS = (
     "activate_contract",
     "reopen_contract_endpoint",
     "terminate_contract",
-    "create_contract_amendment",
+    # Runda 10 (R10-N14-7): ciało trasy aneksu (`create_contract_amendment`).
+    "apply_contract_amendment",
     "bulk_mark_ended",
     "bulk_extend_contracts",
 )

@@ -374,9 +374,9 @@ def _kept_snapshot(row: B2BGeneratedContract, contract: Contract) -> dict:
     return {**_snapshot(row, contract), DOCUMENT_DISSOLUTION_KEY: True}
 
 
-async def _independent_dissolution_last_day(
+async def _signed_dissolution_last_day(
     db: AsyncSession, row: B2BGeneratedContract
-) -> Optional[date]:
+) -> tuple[Optional[date], bool]:
     """Ostatni dzień umowy z rozwiązania podpisanego NIEZALEŻNIE od końca projektu.
 
     Znacznik czekającego rozwiązania niesie tryb, stronę i datę podpisu, ale
@@ -386,8 +386,14 @@ async def _independent_dissolution_last_day(
     (``contract_already_ended`` w podsumowaniu skutków) — projekt kończył się
     wcześniej niż umowa (runda 7, R7-V4-1). Rozwiązanie, które samo zakończyło
     kontrakt, zostaje przy dotychczasowej regule (data końca kontraktu,
-    „Cofnij zakończenie” przywraca umowę)."""
-    found: list[tuple[object, Optional[date], bool]] = []
+    „Cofnij zakończenie” przywraca umowę).
+
+    Runda 10 (R10-N14-2): porozumienie z ostatnim dniem świadczenia usług
+    wcześniejszym niż rozwiązanie umowy (``agreement_outlives_project``) samo
+    kończy kontrakt (datą usług), ale umowa trwa do daty rozwiązania — data
+    wraca, a drugi element krotki (``False``) mówi, że rozwiązanie NIE jest
+    niezależne od końca projektu: „Cofnij zakończenie” przywraca umowę."""
+    found: list[tuple[object, Optional[date], bool, bool]] = []
     doc = (
         await db.execute(
             select(
@@ -406,11 +412,13 @@ async def _independent_dissolution_last_day(
     ).first()
     if doc is not None:
         values = (doc.render_payload or {}).get("values") or {}
+        summary = doc.effect_summary or {}
         found.append(
             (
                 doc.effect_applied_at,
                 _parse_day(values.get("termination_date")),
-                bool((doc.effect_summary or {}).get("contract_already_ended")),
+                bool(summary.get("contract_already_ended")),
+                bool(summary.get("agreement_outlives_project")),
             )
         )
     notice = (
@@ -432,12 +440,17 @@ async def _independent_dissolution_last_day(
                 notice.created_at,
                 _parse_day(details.get("termination_date")),
                 bool(details.get("contract_already_ended")),
+                False,
             )
         )
     if not found:
-        return None
-    _at, last_day, independent = max(found, key=lambda item: item[0])
-    return last_day if independent else None
+        return None, False
+    _at, last_day, independent, outlives = max(found, key=lambda item: item[0])
+    if independent:
+        return last_day, True
+    if outlives:
+        return last_day, False
+    return None, False
 
 
 def _record(
@@ -530,10 +543,10 @@ async def sync_generator_after_contract_ended(
             # projektu rozwiązuje umowę PÓŹNIEJ niż kończy się projekt —
             # umowa kończy się ostatnim dniem z dokumentu, a „Cofnij
             # zakończenie” projektu jej nie wskrzesza.
-            signed_last = await _independent_dissolution_last_day(db, row)
+            signed_last, independent = await _signed_dissolution_last_day(db, row)
             if signed_last is not None and signed_last > ended_on:
                 row.closure_date = signed_last
-                kept = True
+                kept = independent
             else:
                 row.closure_date = ended_on
             row_details = {
