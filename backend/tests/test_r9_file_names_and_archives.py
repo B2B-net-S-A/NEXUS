@@ -52,23 +52,29 @@ def _xlsx_bomb() -> bytes:
     return buf.getvalue()
 
 
-def test_finance_workbook_bomb_is_rejected_before_openpyxl():
+def test_finance_workbook_bomb_is_rejected_before_openpyxl(monkeypatch):
     """R9-N7-13: arkusz Finansów bez strażnika „bomby ZIP”."""
+    import openpyxl
+
     from app.services.finance_import import FinanceWorkbookError, parse_finance_workbook
 
+    calls: list[bool] = []
+    monkeypatch.setattr(openpyxl, "load_workbook", lambda *a, **k: calls.append(True))
     with pytest.raises(FinanceWorkbookError):
         parse_finance_workbook(_xlsx_bomb())
+    assert calls == [], "openpyxl dostał archiwum, które rozwija się ponad limit"
 
 
 def test_md_sheet_bomb_is_rejected_before_openpyxl(monkeypatch):
     from app.services import md_import_parser
 
-    def _never(*_a, **_kw):  # openpyxl nie może dostać tego pliku
-        raise AssertionError("load_workbook called on an unsafe archive")
-
-    monkeypatch.setattr(md_import_parser, "load_workbook", _never)
+    calls: list[bool] = []
+    monkeypatch.setattr(
+        md_import_parser, "load_workbook", lambda *a, **k: calls.append(True)
+    )
     with pytest.raises(md_import_parser.MdSheetFormatError):
         md_import_parser.parse_md_sheet(_xlsx_bomb())
+    assert calls == [], "openpyxl dostał archiwum, które rozwija się ponad limit"
 
 
 def test_storage_log_lines_carry_no_exception_message():
