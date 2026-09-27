@@ -13,7 +13,7 @@ definicji, której silnik by nie policzył.
 
 from __future__ import annotations
 
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -157,15 +157,20 @@ SOURCES: dict[str, SourceSpec] = {
 
 MAX_FILTER_IDS = 20
 
+# Runda 10 (R10-N1-6): kolumny id w bazie są int4 — liczba spoza zakresu
+# dawała DataError z asyncpg (500), także przy każdym odpytaniu zapisanego
+# kafelka. Teraz to 422 przy zapisie i przy liczeniu.
+DbId = Annotated[int, Field(ge=1, le=2**31 - 1)]
+
 
 class MetricFilters(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    client_ids: list[int] = Field(default_factory=list, max_length=MAX_FILTER_IDS)
-    competence_category_ids: list[int] = Field(
+    client_ids: list[DbId] = Field(default_factory=list, max_length=MAX_FILTER_IDS)
+    competence_category_ids: list[DbId] = Field(
         default_factory=list, max_length=MAX_FILTER_IDS
     )
-    job_ids: list[int] = Field(default_factory=list, max_length=MAX_FILTER_IDS)
+    job_ids: list[DbId] = Field(default_factory=list, max_length=MAX_FILTER_IDS)
     author: MetricAuthor = "me"
 
 

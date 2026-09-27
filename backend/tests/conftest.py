@@ -203,6 +203,19 @@ def _competition_rankings_uncached(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _dashboard_metric_credit_snapshot_uncached(monkeypatch):
+    """Migawka kredytu kamieni milowych kreatora metryk żyje 60 s w procesie.
+
+    Runda 10 (R10-N1-1): testy na wspólnej bazie dosiewają ruchy i liczą
+    metrykę ponownie — z cache'em dostawałyby migawkę poprzedniego testu.
+    Zachowanie cache'u sprawdza `test_dashboard_metrics_r10.py`.
+    """
+    from app.services.custom_metrics import engine as metric_engine
+
+    monkeypatch.setattr(metric_engine, "_CREDITED_SNAPSHOT_TTL_SECONDS", -1)
+
+
+@pytest.fixture(autouse=True)
 def _open_the_order_mail_recheck_window(monkeypatch):
     """Automatyczny recheck ma w testach chodzić niezależnie od pory dnia.
 
