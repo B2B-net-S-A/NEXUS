@@ -100,6 +100,11 @@ DELETED_CLIENT_REFUSAL = (
     "wskaż właściwego klienta albo odrzuć dokument"
 )
 
+MERGED_CLIENT_REFUSAL = (
+    "Klient tego dokumentu został scalony z innym rekordem — kliknij „Przelicz "
+    "plan”, żeby przenieść dokument na klienta głównego, i zastosuj ponownie"
+)
+
 
 @dataclass
 class AppliedRow:
@@ -196,7 +201,8 @@ async def _new_person_contract(db, doc, rp, actor_user_id=None):
     if matches:
         candidate = matches[0]
     else:
-        candidate = Candidate(name=" ".join(tokens[:-1]), lastname=tokens[-1])
+        given, surname = _split_person_name(tokens)
+        candidate = Candidate(name=given, lastname=surname)
         db.add(candidate)
         await db.flush()
         from app.services.index_outbox_service import CANDIDATE, record_bulk_reindex
@@ -230,6 +236,32 @@ async def _new_person_contract(db, doc, rp, actor_user_id=None):
         )
     )
     return contract
+
+
+def _is_caps_word(token: str) -> bool:
+    letters = [ch for ch in token if ch.isalpha()]
+    return len(letters) > 1 and all(ch.isupper() for ch in letters)
+
+
+def _split_person_name(tokens: list[str]) -> tuple[str, str]:
+    """Imię i nazwisko nowej kartoteki z nazwy osoby w PDF-ie.
+
+    Runda 10 (R10-N3-10): zapis „KOWALSKI Jan” (nazwisko wielkimi literami na
+    początku) dawał ``name="KOWALSKI"``, ``lastname="Jan"``. Wyraz pisany
+    WIELKIMI literami obok wyrazów pisanych normalnie jest nazwiskiem; gdy tak
+    zapisane są wszystkie albo żaden — nazwisko jest ostatnie, jak dotąd.
+    Wyrazy WIELKIMI literami dostają zwykłą pisownię („Kowalski”).
+    """
+    caps = [i for i, token in enumerate(tokens) if _is_caps_word(token)]
+    if caps and len(caps) < len(tokens) and caps == list(range(len(caps))):
+        surname_tokens, given_tokens = tokens[: len(caps)], tokens[len(caps) :]
+    else:
+        surname_tokens, given_tokens = tokens[-1:], tokens[:-1]
+
+    def pretty(words: list[str]) -> str:
+        return " ".join(w.title() if _is_caps_word(w) else w for w in words)
+
+    return pretty(given_tokens), pretty(surname_tokens)
 
 
 async def _notify_new_draft(db, doc, order, name):
@@ -356,14 +388,25 @@ async def apply_document(
     )
     # Lock the client before refreshing the roster. Different incoming PDFs
     # for the same first contractor cannot both create an initial draft.
-    client_deleted_at = await db.scalar(
-        select(Client.deleted_at).where(Client.id == doc.client_id).with_for_update()
-    )
-    if client_deleted_at is not None:
+    client_state = (
+        await db.execute(
+            select(Client.deleted_at, Client.merged_into_client_id)
+            .where(Client.id == doc.client_id)
+            .with_for_update()
+        )
+    ).first()
+    if client_state is not None and client_state.deleted_at is not None:
         # Runda 7 (R7-X5-1): usunięty klient nie ma profilu ani zapisów (0307).
         # Dokument rozpoznany przed usunięciem nie może założyć zamówienia ani
         # wskrzesić kontraktu u klienta, którego profil zwraca 404.
         return ApplyResult(error=DELETED_CLIENT_REFUSAL)
+    if client_state is not None and client_state.merged_into_client_id is not None:
+        # Runda 10 (R10-N3-1): scalony duplikat nie jest klientem — ma pusty
+        # roster, więc każda osoba wyglądała na nową i „Zastosuj” zakładało
+        # kandydata, kontrakt i zamówienie u ukrytego rekordu. Przeliczenie
+        # (``refresh_review_plan``) przenosi dokument na klienta głównego
+        # i sprawdza prawa do niego; writer tego nie zgaduje.
+        return ApplyResult(error=MERGED_CLIENT_REFUSAL)
     if not (doc.proposal or {}).get("apply_result"):
         from app.services.order_mail_ingest import current_proposal, restore_extraction
 
@@ -660,8 +703,10 @@ async def _write_document(
                     if applied.action == ACTION_REACTIVATE
                     else (None, {})
                 )
-                if applied.action != ACTION_FUTURE:
-                    await assert_no_open_md_group_line(db, contract.id)
+                # Runda 10 (R10-N3-2): także ``future`` — linia MD nie kończy
+                # się datą, więc „kolejne zamówienie po jej okresie” byłoby
+                # drugim zapisem tej samej współpracy (ręcznie: 409).
+                await assert_no_open_md_group_line(db, contract.id)
                 # Drugi guard, gdy `apply_result` nie zdążył się zapisać (crash
                 # między commitem wiersza a zapisem dokumentu): zamówienie z TEJ
                 # POZYCJI dokumentu dla tego kontraktu i numeru już istnieje →
@@ -782,7 +827,12 @@ async def _write_document(
             await db.flush()
             applied.order_id = order.id
         except HTTPException as exc:
-            applied.error = str(exc.detail)
+            detail = exc.detail
+            if isinstance(detail, dict) and detail.get("message"):
+                # Odmowa ze strukturą (np. „konsultant już na zamówieniu MD”)
+                # — do kolejki idzie zdanie, nie słownik Pythona.
+                detail = detail["message"]
+            applied.error = str(detail)[:500]
             return result
         except ValueError as exc:
             if type(exc) is not ValueError:
@@ -799,12 +849,12 @@ async def _write_document(
             # Odmowy writera (imiennik w bazie, zmieniony plan…) niosą polskie
             # zdanie dla operatora. `repr(exc)` pokazywał je w kolejce jako
             # „ValueError('W bazie jest już…')". Ślad zostaje w logu.
+            # Runda 10 (R10-N3-9): treść odmowy cytuje imiona i nazwiska
+            # („Jan Kowalski” (#123)) — do logu idą tylko identyfikatory.
             logger.warning(
-                "order_mail apply refused (doc=%s row=%s): %s",
+                "order_mail apply refused (doc=%s row=%s)",
                 doc.id,
                 applied.row_index,
-                exc,
-                exc_info=True,
             )
             applied.error = str(exc)[:500]
             return result

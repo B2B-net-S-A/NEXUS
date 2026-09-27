@@ -808,3 +808,141 @@ async def test_manual_apply_refuses_rate_without_unit_instead_of_contract_unit(
         ).all()
         assert orders == []
         await db.rollback()
+
+
+# ── Runda 10 audytu (27.09.2026) ─────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_apply_refuses_a_merged_client_and_writes_nothing(seeded):
+    """R10-N3-1 / R10-V1-4: dokument rozpoznany u klienta, którego potem
+    scalono, nie zakłada kandydata, kontraktu ani zamówienia u ukrytego
+    duplikatu. „Przelicz plan” przenosi go na klienta głównego."""
+    from app.services.order_mail_apply import MERGED_CLIENT_REFUSAL
+
+    async with AsyncSessionLocal() as db:
+        target = Client(name=f"Bank Kanoniczny {seeded['tag']} S.A.")
+        db.add(target)
+        await db.flush()
+        dup = await db.get(Client, seeded["client_id"])
+        dup.merged_into_client_id = target.id
+        await db.commit()
+
+        doc = await db.get(OrderMailDocument, seeded["doc_id"])
+        result = await apply_document(db, doc, actor_user_id=None)
+        await db.commit()
+        assert result.ok is False
+        assert result.error == MERGED_CLIENT_REFUSAL
+        orders = (
+            (
+                await db.execute(
+                    select(ClientOrder).where(
+                        ClientOrder.client_id == seeded["client_id"]
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert orders == []
+
+
+@pytest.mark.asyncio
+async def test_future_order_next_to_a_live_md_line_is_not_written(seeded):
+    """R10-N3-2: linia MD do 31.03, PDF od 01.04 — dawniej ``future`` i zapis
+    samodzielnego zamówienia obok linii (ręcznie ta sama operacja = 409)."""
+    from app.models.client_order_group import ClientOrderGroup
+
+    async with AsyncSessionLocal() as db:
+        group = ClientOrderGroup(
+            client_id=seeded["client_id"],
+            order_number=f"MD-{seeded['tag']}",
+            start_date=date(2031, 1, 1),
+            order_type="md",
+            md_budget_mode="per_person",
+            status="active",
+        )
+        db.add(group)
+        await db.flush()
+        db.add(
+            ClientOrder(
+                client_id=seeded["client_id"],
+                contract_id=seeded["contract_id"],
+                order_group_id=group.id,
+                title=f"Linia {group.order_number}",
+                status=ClientOrderStatus.active,
+                start_date=date(2031, 1, 1),
+                end_date=date(2031, 3, 31),
+                md_total=Decimal("100.000000"),
+                md_remaining=Decimal("40.000000"),
+                md_manual_adjustment=Decimal("0"),
+                md_input_mode="md",
+                md_input_value=Decimal("100.000000"),
+                md_rate_cost=Decimal("700.00"),
+                md_rate_revenue=Decimal("900.00"),
+            )
+        )
+        await db.commit()
+
+        doc = await db.get(OrderMailDocument, seeded["doc_id"])
+        result = await apply_document(db, doc, actor_user_id=None)
+        await db.commit()
+        assert result.ok is False
+        standalone = (
+            (
+                await db.execute(
+                    select(ClientOrder).where(
+                        ClientOrder.contract_id == seeded["contract_id"],
+                        ClientOrder.order_group_id.is_(None),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert standalone == []
+
+
+@pytest.mark.asyncio
+async def test_refresh_auto_apply_closes_the_review_card(
+    seeded, app_client, monkeypatch
+):
+    """R10-N3-7: zapis automatem przez „Przelicz plan” zamyka kartę DL od
+    razu — dawniej wisiała do dobowego skanera."""
+    from app.services import order_mail_apply
+    from app.services.order_mail_apply import ApplyResult, AppliedRow
+
+    async with AsyncSessionLocal() as db:
+        doc = await db.get(OrderMailDocument, seeded["doc_id"])
+        assert await svc.notify_review(db, doc) >= 1
+        await db.commit()
+
+    async def certain(db, doc):
+        doc.gate_verdict = "auto"
+        doc.gate_reasons = []
+
+    async def write(db, doc, *, actor_user_id, confirmed_by_human):
+        return ApplyResult(rows=[AppliedRow(row_index=0, action="new")])
+
+    monkeypatch.setattr(svc, "refresh_review_plan", certain)
+    monkeypatch.setattr(order_mail_apply, "apply_document", write)
+    headers = await _headers_for_role(app_client, UserRole.admin)
+    response = await app_client.post(
+        f"/api/order-mail/queue/{seeded['doc_id']}/refresh-plan", headers=headers
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["outcome"] == "auto_applied"
+    async with AsyncSessionLocal() as db:
+        cards = (
+            (
+                await db.execute(
+                    select(DlAlert).where(
+                        DlAlert.alert_type == "order_mail_review",
+                        DlAlert.client_id == seeded["client_id"],
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert cards and all(c.status == "resolved" for c in cards)
