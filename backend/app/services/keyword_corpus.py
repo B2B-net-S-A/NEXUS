@@ -378,11 +378,49 @@ END;
 $$ LANGUAGE plpgsql;
 """
 
-TRIGGER_FUNCTION_DDL = f"""
+# Runda 11 (SEARCH): umiejętności potwierdzone w screeningu
+# (``screening_notes.verified_skills``, poziom „confirmed”). Profil pokazuje je
+# z ✓ w sekcji „Umiejętności” (``screeningConfirmedSkills``: ``verified_tech``
+# + agregat screeningów), a runda 10 (F17) dołożyła do korpusu tylko
+# ``verified_tech`` — „Python” potwierdzony na screeningu nie był słowem
+# kluczowym. Same nazwy (``skill``): bez poziomu i notatki rekrutera
+# („none” = kandydat tego NIE umie, więc nie może trafić do korpusu).
+# Dane żyją w osobnej tabeli, więc trigger kandydata czyta je podzapytaniem
+# (indeks ``ix_screening_notes_candidate_id``), a zapis notatki screeningu
+# przelicza korpus kandydata triggerem ``SCREENING_TOUCH_TRIGGER`` niżej.
+SCREENING_NOTES_TABLE = "screening_notes"
+SCREENING_CONFIRMED_LEVEL = "confirmed"
+
+
+def screening_skills_sql(candidate_id: str = "NEW.id") -> str:
+    """Nazwy umiejętności potwierdzonych w screeningu kandydata (SQL)."""
+    return f"""(
+        SELECT string_agg(e ->> 'skill', ' ')
+        FROM {SCREENING_NOTES_TABLE} AS sn
+        CROSS JOIN LATERAL jsonb_array_elements(
+            CASE WHEN jsonb_typeof(sn.verified_skills) = 'array'
+                 THEN sn.verified_skills ELSE '[]'::jsonb END
+        ) AS e
+        WHERE sn.candidate_id = {candidate_id}
+          AND jsonb_typeof(e) = 'object'
+          AND e ->> 'level' = '{SCREENING_CONFIRMED_LEVEL}'
+    )"""
+
+
+def trigger_function_ddl(*, screening_skills: bool = True) -> str:
+    """Funkcja triggera korpusu. ``screening_skills=False`` = wersja sprzed
+    rundy 11 (downgrade migracji 0396)."""
+    profile = profile_text_sql("NEW.")
+    if screening_skills:
+        profile = (
+            f"left(concat_ws(' ', {profile}, {screening_skills_sql('NEW.id')}), "
+            f"{PROFILE_CAP})"
+        )
+    return f"""
 CREATE OR REPLACE FUNCTION {TRIGGER_FUNCTION}()
 RETURNS trigger AS $$
 DECLARE
-    profile text := {profile_text_sql("NEW.")};
+    profile text := {profile};
 BEGIN
     NEW.keyword_doc := lower(translate(profile, '{FOLD_SRC}', '{FOLD_DST}'));
     NEW.keyword_fts := to_tsvector(
@@ -398,11 +436,51 @@ END;
 $$ LANGUAGE plpgsql;
 """
 
+
+TRIGGER_FUNCTION_DDL = trigger_function_ddl()
+
 TRIGGER_DDL = f"""
 CREATE OR REPLACE TRIGGER {TRIGGER_NAME}
 BEFORE INSERT OR UPDATE OF {", ".join(SOURCE_COLUMNS)} ON candidates
 FOR EACH ROW EXECUTE FUNCTION {TRIGGER_FUNCTION}();
 """
+
+# Zapis notatki screeningu (nowa notatka, zmiana umiejętności, przepięcie na
+# innego kandydata przy scalaniu) przelicza korpus kandydata: ``SET
+# keyword_doc = NULL`` odpala trigger kandydata, jak w pętli uzupełniania.
+# Bez DELETE: żadna ścieżka nie kasuje notatki przy żywym kandydacie (brak
+# trasy usuwania, scalanie przepina ``candidate_id``), a usunięcie kandydata
+# kasuje notatki kaskadą — wtedy nie ma czego przeliczać.
+SCREENING_TOUCH_FUNCTION = "screening_notes_keyword_corpus_touch"
+SCREENING_TOUCH_TRIGGER = "trg_screening_notes_keyword_corpus"
+SCREENING_TOUCH_FUNCTION_DDL = f"""
+CREATE OR REPLACE FUNCTION {SCREENING_TOUCH_FUNCTION}()
+RETURNS trigger AS $$
+BEGIN
+    -- Osobne IF: przy INSERT nie sięgamy po OLD w ogóle.
+    IF TG_OP = 'UPDATE' THEN
+        IF OLD.candidate_id IS DISTINCT FROM NEW.candidate_id THEN
+            UPDATE candidates SET keyword_doc = NULL WHERE id = OLD.candidate_id;
+        END IF;
+    END IF;
+    UPDATE candidates SET keyword_doc = NULL WHERE id = NEW.candidate_id;
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+"""
+SCREENING_TOUCH_TRIGGER_DDL = f"""
+CREATE OR REPLACE TRIGGER {SCREENING_TOUCH_TRIGGER}
+AFTER INSERT OR UPDATE OF verified_skills, candidate_id ON {SCREENING_NOTES_TABLE}
+FOR EACH ROW EXECUTE FUNCTION {SCREENING_TOUCH_FUNCTION}();
+"""
+SCREENING_TOUCH_DDLS: tuple[str, ...] = (
+    SCREENING_TOUCH_FUNCTION_DDL,
+    SCREENING_TOUCH_TRIGGER_DDL,
+)
+SCREENING_TOUCH_DROP_DDLS: tuple[str, ...] = (
+    f"DROP TRIGGER IF EXISTS {SCREENING_TOUCH_TRIGGER} ON {SCREENING_NOTES_TABLE}",
+    f"DROP FUNCTION IF EXISTS {SCREENING_TOUCH_FUNCTION}()",
+)
 
 COLUMN_DDL: tuple[str, ...] = (
     "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS keyword_doc text",
@@ -488,6 +566,11 @@ def schema_ddl() -> list[str]:
         _when_column_exists(NOTE_TRIGGER_DDL, "notes", "content_fold_fts"),
         _when_column_exists(TRIGGER_FUNCTION_DDL, "candidates", "keyword_fold_fts"),
         TRIGGER_DDL,
+        # Runda 11 (SEARCH, migracja 0396): notatka screeningu przelicza korpus.
+        # Osłona jak wyżej: bez kolumny ``keyword_doc`` KAŻDY zapis notatki
+        # screeningu padałby na UPDATE-cie w triggerze.
+        _when_column_exists(SCREENING_TOUCH_FUNCTION_DDL, "candidates", "keyword_doc"),
+        _when_column_exists(SCREENING_TOUCH_TRIGGER_DDL, "candidates", "keyword_doc"),
     ]
 
 
@@ -566,20 +649,27 @@ NOTES_RECOMPUTE_BATCH_SQL = (
 # zapisane wiersze mają korpus policzony starą listą. Podbij numer i dopisz
 # zapytanie wybierające wiersze, których nowa kolumna dotyczy — pętla
 # ``keyword_corpus_backfill`` przeliczy je raz (znacznik w ``app_settings``).
-# Historia: 2 — runda 10 (F17): ``verified_tech``.
-CORPUS_SOURCES_VERSION = 2
+# Historia: 2 — runda 10 (F17): ``verified_tech``;
+# 3 — runda 11 (SEARCH): umiejętności potwierdzone w screeningu
+#     (``screening_notes``, ``screening_skills_sql``).
+# Zapytanie przelicza wiersze WSZYSTKICH źródeł dołożonych po wersji 1 — baza,
+# która nie przeszła wersji 2, dostaje obie naraz.
+CORPUS_SOURCES_VERSION = 3
 CORPUS_SOURCES_VERSION_KEY = "keyword_corpus_sources_version"
-# Kolumna, której obecność w ciele funkcji triggera potwierdza, że baza ma już
+# Napis, którego obecność w ciele funkcji triggera potwierdza, że baza ma już
 # trigger z bieżącą listą pól (siatka DDL w ``entrypoint.sh`` mogła przegrać
-# blokadę — wtedy przeliczenie starym triggerem nic by nie dało).
-CORPUS_SOURCES_MARKER_COLUMN = "verified_tech"
+# blokadę — wtedy przeliczenie starym triggerem nic by nie dało). Od wersji 3
+# to tabela notatek screeningu (``verified_tech`` było już w wersji 2).
+CORPUS_SOURCES_MARKER_COLUMN = SCREENING_NOTES_TABLE
 SOURCES_RECOMPUTE_BATCH_SQL = (
     "UPDATE candidates SET keyword_doc = NULL WHERE id IN ("
     " SELECT id FROM candidates WHERE id > :after"
-    " AND verified_tech IS NOT NULL"
+    " AND ((verified_tech IS NOT NULL"
     " AND (jsonb_typeof(verified_tech) = 'string'"
     " OR (jsonb_typeof(verified_tech) = 'array'"
-    " AND jsonb_array_length(verified_tech) > 0))"
+    " AND jsonb_array_length(verified_tech) > 0)))"
+    f" OR EXISTS (SELECT 1 FROM {SCREENING_NOTES_TABLE} AS sn"
+    " WHERE sn.candidate_id = candidates.id))"
     " ORDER BY id LIMIT :limit"
     ") RETURNING id, keyword_doc IS NOT NULL"
 )
