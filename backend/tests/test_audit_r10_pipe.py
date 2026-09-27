@@ -332,3 +332,73 @@ async def test_expired_unstarted_job_is_requeued_only_once() -> None:
                     delete(CvGenerationJob).where(CvGenerationJob.id == job_id)
                 )
                 await db.commit()
+
+
+# ── R10-V2-7: usunięcie pary nie kasuje maila, który właśnie wychodzi ────────
+
+
+@pytest.mark.asyncio
+async def test_remove_from_recruitment_refuses_while_rejection_mail_is_sending(
+    app_client: AsyncClient, app_auth_headers: dict
+) -> None:
+    from datetime import datetime, timezone
+
+    from sqlalchemy import delete, select
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.recruitment_pipeline import CandidateStage
+    from app.models.rejection_email import (
+        RejectionEmailStatus,
+        ScheduledRejectionEmail,
+    )
+    from app.services.rejection_email_scheduler import SEND_IN_PROGRESS
+    from tests.test_pipeline_membership_gate import (
+        _seed_candidate,
+        _seed_job,
+        _seed_recruiter,
+        _seed_stage,
+    )
+
+    _, sender = await _seed_recruiter(app_client)
+    job_id, _ = await _seed_job(owner_id=None)
+    cand = await _seed_candidate()
+    stage_id = await _seed_stage(cand, job_id, "rejected")
+    async with AsyncSessionLocal() as db:
+        mail = ScheduledRejectionEmail(
+            candidate_stage_id=stage_id,
+            candidate_id=cand,
+            job_id=job_id,
+            recruiter_id=sender,
+            to_email=f"r10-{uuid.uuid4().hex[:8]}@example.com",
+            subject="Dziękujemy",
+            body_html="<p>Dziękujemy</p>",
+            status=RejectionEmailStatus.pending,
+            # Dzierżawa w przyszłości — pętla wysyłki (gdyby działała) nie
+            # weźmie tego wiersza.
+            scheduled_at=datetime.now(timezone.utc) + timedelta(days=2),
+            last_error=SEND_IN_PROGRESS,
+        )
+        db.add(mail)
+        await db.commit()
+        mail_id = mail.id
+    try:
+        resp = await app_client.delete(
+            f"/api/candidates/{cand}/recruitments/{job_id}", headers=app_auth_headers
+        )
+        assert resp.status_code == 409, resp.text
+        async with AsyncSessionLocal() as db:
+            assert await db.get(ScheduledRejectionEmail, mail_id) is not None
+            assert (
+                await db.scalar(
+                    select(CandidateStage.id).where(CandidateStage.id == stage_id)
+                )
+                == stage_id
+            )
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(ScheduledRejectionEmail).where(
+                    ScheduledRejectionEmail.id == mail_id
+                )
+            )
+            await db.commit()
