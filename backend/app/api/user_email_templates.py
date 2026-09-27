@@ -74,6 +74,23 @@ def _check_call_args(args: tuple, kwargs: dict) -> None:
             raise SecurityError("Liczba w szablonie przekracza dopuszczalny limit.")
 
 
+def _check_replace(subject: Any, old: Any, new: Any) -> None:
+    """Sufit wyniku `replace` liczony PRZED wywołaniem (przegląd rundy 9):
+    jedno wywołanie w kodzie C buduje napis 10¹⁰ znaków, zanim funkcja
+    śledząca albo limit długości wyniku zdążą zareagować."""
+    if not (isinstance(subject, str) and isinstance(new, str)):
+        return
+    hits = (
+        len(subject) + 1
+        if not old
+        else subject.count(old)
+        if isinstance(old, str)
+        else 0
+    )
+    if len(subject) + hits * len(new) > _RENDER_OUTPUT_LIMIT:
+        raise SecurityError("Wynik szablonu przekracza dopuszczalny limit.")
+
+
 def _bounded_filter(func):
     """Filtr z sufitem liczb w argumentach (np. `|center(10**9)`)."""
     skip = 2 if _PassArg.from_obj(func) is not None else 1
@@ -81,6 +98,12 @@ def _bounded_filter(func):
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
         _check_call_args(args[skip:], kwargs)
+        if getattr(func, "__name__", "") == "do_replace" and len(args) >= skip + 2:
+            _check_replace(
+                args[skip - 1],
+                args[skip],
+                args[skip + 1] if len(args) > skip + 1 else kwargs.get("new"),
+            )
         return func(*args, **kwargs)
 
     return wrapper
@@ -99,6 +122,12 @@ class _BoundedSandbox(SandboxedEnvironment):
 
     def call(__self, __context, __obj, *args, **kwargs):  # noqa: N805
         _check_call_args(args, kwargs)
+        if (
+            getattr(__obj, "__name__", "") == "replace"
+            and isinstance(getattr(__obj, "__self__", None), str)
+            and len(args) >= 2
+        ):
+            _check_replace(__obj.__self__, args[0], args[1])
         return super().call(__context, __obj, *args, **kwargs)
 
     def call_binop(self, context, operator, left, right):

@@ -108,7 +108,25 @@ def test_template_authors_can_publish_shared_template(role):
 def test_create_route_requires_candidate_write_access():
     import inspect
 
-    annotation = inspect.signature(uet.create_template).parameters[
-        "current_user"
-    ].annotation
+    annotation = (
+        inspect.signature(uet.create_template).parameters["current_user"].annotation
+    )
     assert "CandidateWriteAccess" in str(annotation)
+
+
+def test_replace_that_would_explode_is_refused_before_it_runs() -> None:
+    """Przegląd rundy 9: jedno `replace` w kodzie C budowało napis 10¹⁰ znaków."""
+    import pytest
+    from jinja2.exceptions import SecurityError
+
+    from app.api import user_email_templates as m
+
+    for src in (
+        "{{ ('x'*100000)|replace('x', 'y'*100000) }}",
+        "{{ ('x'*100000).replace('x', 'y'*100000) }}",
+    ):
+        with pytest.raises(SecurityError):
+            m._jinja_env.from_string(src).render()
+    assert (
+        m._jinja_env.from_string("{{ 'R&D'|replace('&', 'and') }}").render() == "RandD"
+    )
