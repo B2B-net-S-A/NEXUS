@@ -8,7 +8,7 @@ import { PERIOD_LABELS } from "@/lib/dashboard-tiles/layout";
 const STAGE_LABELS: Record<string, string> = {
   verified: "Zweryfikowani",
   cv_sent: "CV wysłane",
-  interview: "Rozmowa",
+  interview: "QC CV",
   client_interview: "Rozmowa z klientem",
   acceptance: "Akceptacja",
   hired: "Zatrudnieni",

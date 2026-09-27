@@ -477,7 +477,7 @@ datę; samo pozostawienie kompletnego szkicu nie aktywuje go.
 | **Uzupełnij zamówienie** | edycja numeru, budżetu, dat, notatek, podmiana PDF-a; w nowym szkicu MD także wybór trybu i aktywacja, a przy aktywnej wspólnej puli — miesięczne zużycie. **Zczytaj dane z dokumentu** czyta tu PDF tak samo jak w „Nowe zamówienie": osoby z dokumentu, których **nie ma jeszcze na zamówieniu**, dostają karty do dopisania (z tymi samymi odznakami i decyzjami — także osoba bez aktywnej współpracy albo nieznaleziona), a osoby, które **już są**, wypisane są w ramce „Już na zamówieniu" bez drugiej karty (gdy dokument podaje dla niej inne MD albo stawkę, ramka to mówi — zmieniasz je w „Edytuj linię"). Osoby, która już pracuje na tym zamówieniu, nie dopiszesz drugi raz — także wskazanej ręcznie. **Zapisz** dopisuje wszystkie karty naraz albo żadnej; przy aktywacji szkicu najpierw dopisuje osoby, potem aktywuje |
 | **Dodaj przedłużenie** | zakłada **nowe** zamówienie podpięte pod obecne (patrz niżej) |
 | **Zakończ** | okienko „Zakończ zamówienie": obowiązkowa data + opcjonalny powód |
-| **Przywróć** | cofa zakończenie — pokazuje się przy **każdym** zamówieniu ze statusem „Zakończone", także takim, które system domknął sam; przy zamówieniu MD z budżetem przy osobie wskrzesza też konsultantów, którym zostały dni i nie minęła data. Zamówienia **wyczerpanego** nie przywrócisz — tam trzeba podnieść budżet; dotyczy to też zamówienia, które było wyczerpane w chwili zakończenia |
+| **Przywróć** | cofa zakończenie — pokazuje się przy **każdym** zamówieniu ze statusem „Zakończone", także takim, które system domknął sam; przy zamówieniu MD z budżetem przy osobie wskrzesza też konsultantów, którym zostały dni i nie minęła data. Osoba, której umowę w międzyczasie **unieważniono**, nie wraca; osoba z umową **zakończoną** wraca jako zakończona z datą zakończenia umowy (jak po „Zakończ współpracę”). Zamówienia **wyczerpanego** nie przywrócisz — tam trzeba podnieść budżet; dotyczy to też zamówienia, które było wyczerpane w chwili zakończenia |
 | **Anuluj zamówienie** | dla zamówienia, które **nie doszło do skutku** albo zostało założone omyłkowo, a chcesz zachować jego historię. Zamówienie i jego konsultanci dostają status „Anulowane”, znikają z aktywnych zamówień, sum, alertów i rozliczeń, ale zostają w rejestrze (filtr **Anulowane**). **Zamówienia z rozliczeniami (zaraportowane MD, faktury) nie anulujesz** — system odmówi i wskaże, co blokuje; wtedy właściwą akcją jest **Zakończ**. Anulowanego zamówienia nie edytujesz, nie kończysz ani nie przedłużasz |
 | **Przywróć anulowane** | cofa anulowanie: zamówienie wraca do stanu sprzed niego (np. „Aktywne”), a konsultanci — do swoich statusów; osoba, której okres w międzyczasie minął, wraca jako zakończona; osoba, której umowę w międzyczasie zakończono, wraca jako zakończona, ze sprawą o pozostałe MD (jak po „Zakończ współpracę”), a osoba z unieważnioną umową zostaje anulowana |
 | **Usuń całe zamówienie** | służy do wycofania **pomyłki** i jest nieodwracalne: zamówienie znika razem ze swoją historią. **Zamówienia z rozliczeniami system nie usunie** — odmówi i wskaże, co je blokuje (rozliczone MD, zaimportowane faktury). Wtedy właściwą akcją jest **Zakończ**. Razem z zamówieniem znikają jego linie — **nie powstają z nich osobne zamówienia okresowe**. Okno usuwania pokazuje skutki dla umów: jeśli zamówienie niosło jedyną stawkę klienta na umowie, umowa zostaje **bez przychodu** (stawka klienta i marża znikają), a gdy są inne zamówienia — okres, którego dotyczyło, przejdzie na ich stawkę |
@@ -1018,6 +1018,11 @@ rekordu z tym samym numerem, a dokument, który przypisano mu przed usunięciem,
 nie zostanie zapisany („Klient tego dokumentu został usunięty”); wskaż
 właściwego klienta albo odrzuć dokument. Taki dokument nie wraca też do
 godzinowej ponownej weryfikacji i nie wystawia karty Delivery Leadowi.
+
+**Klient scalony z innym rekordem** zostaje do odczytu: jego dawne zamówienia
+obejrzysz i pobierzesz, ale nowego zamówienia, edycji, dodania konsultanta,
+przedłużenia ani przywrócenia u niego nie zapiszesz — system odpowie, z którym
+rekordem go scalono. Zamówienia prowadzisz u rekordu głównego.
 
 Gdy mail przychodzi przed umową, draft czeka na koszt i podpis. Po obustronnym
 podpisaniu umowy system pobiera koszt z umowy i aktywuje kompletny draft.
@@ -2087,7 +2092,9 @@ Reguła odczytu zmienia liczby, więc warto znać ją w całości:
 ### Centrum e-Zdrowia
 
 * Jedyny klient z polem **„Umowa wykonawcza \*"** — i jest ono **obowiązkowe**
-  przy nowym zamówieniu oraz przy przedłużeniu. Lista jest **pogrupowana po
+  przy nowym zamówieniu oraz przy przedłużeniu. Przedłużenie przejmuje umowę
+  wykonawczą poprzedniego zamówienia tylko wtedy, gdy nadal trwa — po
+  zakończonej umowie nowe zamówienie trafia do „Przypisań do przeglądu”. Lista jest **pogrupowana po
   części umowy ramowej** (**cz.1, cz.2, cz.4, cz.5, cz.6** — część 3. nie
   istnieje i to jest poprawne); część zamówienia wynika z wybranej umowy
   wykonawczej, nie wybierasz jej osobno.

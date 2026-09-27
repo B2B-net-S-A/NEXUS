@@ -1469,9 +1469,10 @@ async def sync_md_line_status(db: AsyncSession, order: ClientOrder) -> bool:
     # także zapis historyczny z niewykorzystanym limitem MD (ticket 09.2026),
     # którego data końca udziału bywa dzisiejsza. Wznowienie współpracy to
     # decyzja człowieka (przywrócenie w offboardingu, nowy kontrakt).
+    # Runda 9 (R9-V1-4): unieważniona umowa (``void``) tym bardziej nie wraca.
     contract = await db.get(Contract, order.contract_id)
     if contract is not None and (
-        getattr(contract.status, "value", contract.status) == "ended"
+        getattr(contract.status, "value", contract.status) in ("ended", "void")
     ):
         return False
     # Osoba świadomie usunięta z zamówienia albo zostawiona jako historia nie

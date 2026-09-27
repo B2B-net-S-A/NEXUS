@@ -54,6 +54,10 @@ class _FakeDb:
     def add(self, obj: object) -> None:
         self.added.append(obj)
 
+    async def scalar(self, *_args, **_kwargs):
+        # Auto-aktywacja pyta o klienta kontraktu (R9-V1-2); brak = aktywny.
+        return None
+
 
 def _contract(**overrides) -> Contract:
     """Kontrakt z generatora B2B: godzinowy, 120 zł/h, start 14.09.2026."""
