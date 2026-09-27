@@ -6,6 +6,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   bulkMoveFailureMessage,
+  bulkMoveSkipReason,
+  HM_VETO_ENFORCED_COLUMNS,
   HM_VETO_ENFORCED_STAGES,
   PIPELINE_GROUP_LABEL,
   countAtClient,
@@ -754,5 +756,49 @@ describe("knownClientRate — stawka do klienta już zapisana dla pary", () => {
     expect(knownClientRate({ ...base, client_rate_value: null })).toBeNull();
     expect(knownClientRate({ ...base, client_rate_value: "0", client_rate_unit: "hourly" })).toBeNull();
     expect(knownClientRate({ ...base, client_rate_value: "170", client_rate_unit: null })).toBeNull();
+  });
+});
+
+// Runda 10 (R10-X2-4): weto w ruchu zbiorczym po KOLUMNIE Tablicy — lustro
+// `puts_column_before_client`. Etap u klienta rozpoznany po nazwie ma kod
+// `interview`, a serwer i tak odrzuci paczkę z wetem 409.
+describe("bulkMoveSkipReason — weto HM po kolumnie", () => {
+  const veto = {
+    hiring_manager_contact_id: 5,
+    source_job_id: 2,
+    rejected_at: "2026-01-01",
+    rejection_reason_name: "Brak doświadczenia w bankowości",
+  };
+
+  it("kolumny weta są lustrem VETO_ENFORCED_COLUMNS z backendu", () => {
+    expect([...HM_VETO_ENFORCED_COLUMNS].sort()).toEqual(["client_interview", "cv_sent"]);
+  });
+
+  it("„Po Interview” (kod interview) jest w kolumnie u klienta — karta z wetem pominięta", () => {
+    expect(
+      bulkMoveSkipReason({
+        item: item({ hm_veto: veto }),
+        readOnly: false,
+        targetStage: "interview",
+        targetColumn: { stage: "interview", name: "Po Interview", category: "external" },
+      }),
+    ).toMatch(/hiring manager/);
+  });
+
+  it("QC CV (kod interview, przed klientem) nie sprawdza weta", () => {
+    expect(
+      bulkMoveSkipReason({
+        item: item({ hm_veto: veto }),
+        readOnly: false,
+        targetStage: "interview",
+        targetColumn: { stage: "interview", name: "QC CV", category: "internal" },
+      }),
+    ).toBeNull();
+  });
+
+  it("bez kolumny — zapas po kodzie etapu jak dotąd", () => {
+    expect(
+      bulkMoveSkipReason({ item: item({ hm_veto: veto }), readOnly: false, targetStage: "cv_sent" }),
+    ).toMatch(/hiring manager/);
   });
 });

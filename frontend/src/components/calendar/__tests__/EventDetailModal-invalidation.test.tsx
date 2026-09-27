@@ -67,7 +67,7 @@ function renderModal() {
   return invalidate;
 }
 
-function invalidatedKeys(spy: ReturnType<typeof vi.spyOn>): unknown[] {
+function invalidatedKeys(spy: { mock: { calls: unknown[][] } }): unknown[] {
   return spy.mock.calls.map((call) => (call[0] as { queryKey?: unknown }).queryKey);
 }
 

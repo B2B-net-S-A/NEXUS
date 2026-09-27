@@ -858,6 +858,8 @@ export function usePipelineMove({
           readOnly,
           terminal: dstTerminal === "rejected" || dstTerminal === "withdrawn",
           targetStage: dst.stage,
+          // Runda 10 (R10-X2-4): weto po kolumnie Tablicy, jak serwer.
+          targetColumn: dst,
         });
         if (reason) {
           skippedEntries.push({ name: itemFullName(item), reason });
