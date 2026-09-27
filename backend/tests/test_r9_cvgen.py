@@ -59,7 +59,11 @@ async def test_explicitly_chosen_document_is_not_filtered_by_kind():
 
 @pytest.mark.parametrize(
     ("template", "language", "expected"),
-    [("blind", "pl", "Kandydat"), ("blind", "en", "Candidate"), ("standard", "pl", "Jan")],
+    [
+        ("blind", "pl", "Kandydat"),
+        ("blind", "en", "Candidate"),
+        ("standard", "pl", "Jan"),
+    ],
 )
 async def test_frozen_stage_version_masks_first_name_for_blind(
     template, language, expected
@@ -215,7 +219,9 @@ def _package_with_two_surfaces(monkeypatch):
     # Nowsza wersja zatwierdzona w CV etapu, do którego podpięto ten dokument.
     stage_version = version(30, candidate_stage_cv_id=5)
     by_id = {11: generator_version, 30: stage_version}
-    job = NS(status="complete", input_storage_key="cv/in.json", prepared_source_facts={})
+    job = NS(
+        status="complete", input_storage_key="cv/in.json", prepared_source_facts={}
+    )
     monkeypatch.setattr(packages, "members", AsyncMock(return_value=(job, row, [row])))
     db = AsyncMock()
 
@@ -467,3 +473,116 @@ def test_generator_champion_preview_with_bad_shape_is_422(profile):
     with pytest.raises(HTTPException) as error:
         _imported_champion(profile, 1)
     assert error.value.status_code == 422
+
+
+# ── R9-N3-5: generacja przerwana przez deploy ─────────────────────────────
+
+
+async def test_requeue_touches_only_expired_unstarted_generation_jobs():
+    from app.services.cv_generator_b2b import job_leases
+
+    db = AsyncMock()
+    db.execute.return_value = Mock(
+        scalars=Mock(return_value=Mock(all=Mock(return_value=[7])))
+    )
+    assert await job_leases.requeue_unstarted_expired_jobs(db) == [7]
+    sql = str(
+        db.execute.call_args.args[0].compile(compile_kwargs={"literal_binds": True})
+    )
+    assert "status='queued'" in sql.replace(" ", "")
+    assert "cv_generation_jobs.status = 'running'" in sql
+    assert "cv_generation_jobs.kind IN ('new', 'upload')" in sql
+    assert "prepared_source_facts IS NULL" in sql
+    assert "jsonb_typeof" in sql
+    assert "cv_generation_jobs.created_at >" in sql
+
+
+def test_recovery_loop_requeues_before_it_interrupts():
+    import inspect
+
+    from app.services.cv_generator_b2b import durable_jobs
+
+    source = inspect.getsource(durable_jobs.recovery_loop)
+    assert source.index("requeue_unstarted_expired_jobs(db)") < source.index(
+        "interrupt_expired_jobs(db)"
+    )
+
+
+async def test_retry_resumes_interrupted_primary_generation(monkeypatch):
+    from fastapi import BackgroundTasks
+
+    from app.api import cv_generator_b2b as api
+    from app.services import cv_packages
+    from app.services.cv_generator_b2b import durable_jobs
+
+    primary = NS(id=11, status="failed", error_message="przerwana", central_policy=None)
+    job = NS(
+        id=5,
+        status="interrupted",
+        finished_at=object(),
+        error_code="worker_lease_expired",
+        input_storage_key="cv-inputs/abc.json",
+        prepared_source_facts={"facts": 1},
+    )
+    monkeypatch.setattr(
+        api, "_load_generated_document", AsyncMock(return_value=primary)
+    )
+    monkeypatch.setattr(
+        cv_packages, "members", AsyncMock(return_value=(job, primary, [primary]))
+    )
+    tasks = BackgroundTasks()
+    db = AsyncMock()
+    result = await api.retry_cv_package(11, NS(id=3), tasks, db)
+    assert result == {"id": 11, "status": "queued"}
+    assert primary.status == "processing" and primary.error_message is None
+    assert job.status == "queued" and job.finished_at is None and job.error_code is None
+    db.commit.assert_awaited_once()
+    assert [t.func for t in tasks.tasks] == [durable_jobs.execute_job]
+
+
+async def test_retry_refuses_ordinary_generation_failure(monkeypatch):
+    from fastapi import BackgroundTasks, HTTPException
+
+    from app.api import cv_generator_b2b as api
+    from app.services import cv_packages
+
+    primary = NS(id=11, status="failed", error_message="błąd", central_policy=None)
+    job = NS(id=5, status="failed", input_storage_key="k", prepared_source_facts=None)
+    monkeypatch.setattr(
+        api, "_load_generated_document", AsyncMock(return_value=primary)
+    )
+    monkeypatch.setattr(
+        cv_packages, "members", AsyncMock(return_value=(job, primary, [primary]))
+    )
+    with pytest.raises(HTTPException) as error:
+        await api.retry_cv_package(11, NS(id=3), BackgroundTasks(), AsyncMock())
+    assert error.value.status_code == 409
+    assert primary.status == "failed"
+
+
+async def test_resumed_job_reuses_frozen_source_facts(monkeypatch):
+    from app.api import cv_generator_b2b as api
+    from app.services.cv_generator_b2b import job_leases
+    from app.services.cv_generator_b2b.job_snapshot import _encode
+
+    facts = svc.PreparedSourceFacts("original source", "{}", "sha", "notes")
+    job = NS(prepared_source_facts=_encode(facts))
+    monkeypatch.setattr(job_leases, "lock_owned_job", AsyncMock(return_value=job))
+    prepare = AsyncMock(side_effect=AssertionError("must reuse frozen facts"))
+    assert await api._frozen_or_prepared_source_facts(AsyncMock(), prepare) == facts
+
+
+async def test_fresh_job_prepares_and_freezes_source_facts(monkeypatch):
+    from app.api import cv_generator_b2b as api
+    from app.services.cv_generator_b2b import job_leases
+    from app.services.cv_generator_b2b.job_snapshot import _decode
+
+    facts = svc.PreparedSourceFacts("original source", "{}", "sha", "notes")
+    job = NS(prepared_source_facts=None)
+    monkeypatch.setattr(job_leases, "lock_owned_job", AsyncMock(return_value=job))
+
+    async def prepare():
+        return facts
+
+    assert await api._frozen_or_prepared_source_facts(AsyncMock(), prepare) == facts
+    assert _decode(job.prepared_source_facts) == facts

@@ -55,6 +55,8 @@ export function CvResultView(props: CvResultViewProps) {
   const processing = !main || props.documents.some((doc) => doc.status === "processing");
   const failed = props.documents.filter((doc) => doc.status === "failed");
   const ready = props.documents.filter((doc) => doc.status === "ready");
+  // Generacja urwana w trakcie (zwykle deploy): serwer wznawia to samo zadanie.
+  const interrupted = main?.status === "failed" && main.job_status === "interrupted";
   const name = main?.candidate_name || props.fallbackTitle?.candidateName || "";
   const jobTitle = main?.job_title ?? main?.position ?? props.fallbackTitle?.jobTitle ?? null;
   const clientName = main?.client_name ?? props.fallbackTitle?.clientName ?? null;
@@ -169,9 +171,9 @@ export function CvResultView(props: CvResultViewProps) {
                 </li>
               ))}
             </ul>
-            {failed.length > 0 && ready.length > 0 && props.onRetryPackage && props.canWrite ? (
+            {((failed.length > 0 && ready.length > 0) || interrupted) && props.onRetryPackage && props.canWrite ? (
               <Button type="button" variant="outline" size="sm" className="mt-2" onClick={props.onRetryPackage}>
-                Ponów brakującą wersję językową
+                {interrupted ? "Ponów generację" : "Ponów brakującą wersję językową"}
               </Button>
             ) : null}
           </div>

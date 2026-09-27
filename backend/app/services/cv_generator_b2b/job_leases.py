@@ -6,7 +6,8 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
-from sqlalchemy import func, select, update
+from sqlalchemy import cast, func, or_, select, update
+from sqlalchemy.dialects.postgresql import JSONB
 
 from app.models.cv_generation_job import CvGenerationJob
 
@@ -86,6 +87,42 @@ async def finish_job(db, job_id: int, token: str, *, failed: bool = False) -> bo
     finished = result.scalar_one_or_none() is not None
     await db.commit()
     return finished
+
+
+# Jak długo od przyjęcia zadanie, które nie doszło do wywołania modelu
+# generacji, wraca do kolejki po utracie wykonawcy. Każdy powrót to co najmniej
+# jedna dzierżawa (180 s), więc zadanie, które samo zabija proces (np. plik,
+# na którym pada odczyt), nie krąży bez końca.
+REQUEUE_UNSTARTED_WITHIN = timedelta(minutes=30)
+
+
+async def requeue_unstarted_expired_jobs(db) -> list[int]:
+    """Oddaj do kolejki wygasłe zadania, które nie zaczęły płatnej generacji.
+
+    Runda 9 (R9-N3-5): deploy przerywał generację, a reaper od razu stawiał
+    „interrupted” i dokument „failed”. Zadanie bez zamrożonych faktów źródła
+    (``prepared_source_facts``) nie doszło jeszcze do wywołania modelu
+    generacji — zapisujemy je tuż przed nim — więc ponowienie nie płaci drugi
+    raz za wynik, którego nikt nie dostał. Zadania z faktami idą ścieżką
+    ``interrupt_expired_jobs`` (wynik wywołania modelu nieznany); ponawia je
+    człowiek. Wołający trzyma transakcję (jak ``interrupt_expired_jobs``).
+    """
+    now = datetime.now(timezone.utc)
+    facts = CvGenerationJob.prepared_source_facts
+    result = await db.execute(
+        update(CvGenerationJob)
+        .where(
+            CvGenerationJob.status == "running",
+            CvGenerationJob.lease_expires_at <= now,
+            CvGenerationJob.kind.in_(("new", "upload")),
+            CvGenerationJob.created_at > now - REQUEUE_UNSTARTED_WITHIN,
+            # Kolumna JSONB: brak wartości bywa SQL NULL albo JSON-owym null.
+            or_(facts.is_(None), func.jsonb_typeof(cast(facts, JSONB)) == "null"),
+        )
+        .values(status="queued", lease_token=None, lease_expires_at=None)
+        .returning(CvGenerationJob.id)
+    )
+    return list(result.scalars().all())
 
 
 async def interrupt_expired_jobs(db) -> list[int]:

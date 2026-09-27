@@ -42,6 +42,14 @@ PREVIEW_RETIRED_MESSAGE = (
 )
 
 
+# Dokument, którego generacja urwała się w trakcie wywołania modelu (zwykle
+# deploy). „Ponów generację” (`POST …/package/retry`) wznawia to samo zadanie.
+INTERRUPTED_MESSAGE = (
+    "Generacja przerwana (restart serwera). Kliknij „Ponów generację” — "
+    "nie trzeba wypełniać formularza jeszcze raz."
+)
+
+
 async def persist_job(
     db,
     *,
@@ -271,7 +279,10 @@ async def queued_job_ids(limit: int = 4) -> list[int]:
 async def recovery_loop():
     """Resume only never-started jobs; fence expired work without paid replay."""
     from sqlalchemy import update
-    from app.services.cv_generator_b2b.job_leases import interrupt_expired_jobs
+    from app.services.cv_generator_b2b.job_leases import (
+        interrupt_expired_jobs,
+        requeue_unstarted_expired_jobs,
+    )
 
     active = set()
     try:
@@ -281,6 +292,9 @@ async def recovery_loop():
             beat.tick()
             try:
                 async with AsyncSessionLocal() as db:
+                    requeued = await requeue_unstarted_expired_jobs(db)
+                    if requeued:
+                        logger.info("CV jobs requeued after lost worker: %s", requeued)
                     expired = await interrupt_expired_jobs(db)
                     if expired:
                         documents = (
@@ -300,7 +314,7 @@ async def recovery_loop():
                             )
                             .values(
                                 status="failed",
-                                error_message="Generacja przerwana po utracie wykonawcy. Sprawdź wynik przed ponowieniem.",
+                                error_message=INTERRUPTED_MESSAGE,
                             )
                         )
                         previews = select(CvGenerationJob.preview_id).where(

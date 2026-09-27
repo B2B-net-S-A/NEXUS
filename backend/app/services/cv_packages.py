@@ -107,7 +107,10 @@ def _latest_version_query(row, selected=None):
     query = select(CvDocumentVersion).where(
         CvDocumentVersion.generated_document_id == row.id
     )
-    if selected is not None and getattr(selected, "generated_document_id", None) == row.id:
+    if (
+        selected is not None
+        and getattr(selected, "generated_document_id", None) == row.id
+    ):
         if getattr(selected, "generated_owner_id", None):
             query = query.where(
                 CvDocumentVersion.generated_owner_id == selected.generated_owner_id

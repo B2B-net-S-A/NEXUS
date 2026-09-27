@@ -848,6 +848,32 @@ async def _attach_manual_stage_draft(
 # server restart mid-job are reaped to „failed" on startup (see main.lifespan).
 
 
+async def _frozen_or_prepared_source_facts(db: AsyncSession, prepare):
+    """Fakty źródła zamrożone przez przerwaną próbę tego zadania albo nowe.
+
+    Runda 9 (R9-N3-5): ponowienie przerwanej wersji głównej wznawia TO SAMO
+    zadanie — fakty zamrożone przed wywołaniem modelu (w trybie v10 kosztowało
+    je osobne wywołanie AI) są użyte ponownie zamiast liczone od nowa. Nowe
+    fakty zamrażamy przed wywołaniem modelu generacji: ich obecność mówi
+    reaperowi, że zadania nie wolno już po cichu powtórzyć.
+    """
+    from app.services.cv_generator_b2b.job_leases import lock_owned_job
+    from app.services.cv_generator_b2b.job_snapshot import _decode, _encode
+
+    active_job = await lock_owned_job(db)
+    frozen = getattr(active_job, "prepared_source_facts", None)
+    if active_job is not None:
+        await db.commit()  # nie trzymaj blokady zadania przez odczyt CV
+    if frozen:
+        return _decode(frozen)
+    source_facts = await prepare()
+    active_job = await lock_owned_job(db)
+    if active_job is not None:
+        active_job.prepared_source_facts = _encode(source_facts)
+        await db.commit()
+    return source_facts
+
+
 @terminal_operation("cv-generation")
 async def _run_generate_new_job(
     generated_id: int,
@@ -904,20 +930,16 @@ async def _run_generate_new_job(
             await db.commit()
         else:
             try:
-                source_facts = await run_in_threadpool(
-                    prepare_source_facts,
-                    cv_bytes=source.cv_bytes,
-                    cv_filename=source.cv_filename,
-                    screening_notes_text=source.screening_notes_text,
-                    request_id=f"cvgen_source_{generated_id}",
+                source_facts = await _frozen_or_prepared_source_facts(
+                    db,
+                    lambda: run_in_threadpool(
+                        prepare_source_facts,
+                        cv_bytes=source.cv_bytes,
+                        cv_filename=source.cv_filename,
+                        screening_notes_text=source.screening_notes_text,
+                        request_id=f"cvgen_source_{generated_id}",
+                    ),
                 )
-                from app.services.cv_generator_b2b.job_leases import lock_owned_job
-                from app.services.cv_generator_b2b.job_snapshot import _encode
-
-                active_job = await lock_owned_job(db)
-                if active_job is not None:
-                    active_job.prepared_source_facts = _encode(source_facts)
-                    await db.commit()
                 review_quota = await _charge_final_review(db, user_id=user_id)
                 with _review_declaration_or_null(user_id, review_quota):
                     result = await generate_cv_from_candidate_source(
@@ -1204,20 +1226,16 @@ async def _run_generate_upload_job(
             await db.commit()
         else:
             try:
-                source_facts = await run_in_threadpool(
-                    prepare_source_facts,
-                    cv_bytes=payload.cv_bytes,
-                    cv_filename=payload.cv_filename,
-                    screening_notes_text=payload.screening_notes or "",
-                    request_id=f"cvgen_upload_source_{generated_id}",
+                source_facts = await _frozen_or_prepared_source_facts(
+                    db,
+                    lambda: run_in_threadpool(
+                        prepare_source_facts,
+                        cv_bytes=payload.cv_bytes,
+                        cv_filename=payload.cv_filename,
+                        screening_notes_text=payload.screening_notes or "",
+                        request_id=f"cvgen_upload_source_{generated_id}",
+                    ),
                 )
-                from app.services.cv_generator_b2b.job_leases import lock_owned_job
-                from app.services.cv_generator_b2b.job_snapshot import _encode
-
-                active_job = await lock_owned_job(db)
-                if active_job is not None:
-                    active_job.prepared_source_facts = _encode(source_facts)
-                    await db.commit()
                 review_quota = await _charge_final_review(db, user_id=user_id)
                 with _review_declaration_or_null(user_id, review_quota):
                     result = await run_in_threadpool(
@@ -4118,6 +4136,22 @@ async def retry_cv_package(
 
     row = await _load_generated_document(db, generated_id, current_user)
     job, primary, rows = await members(db, row, lock=True)
+    if job and primary.status == "failed" and job.status == "interrupted":
+        # Runda 9 (R9-N3-5): wersja główna urwała się w trakcie generacji
+        # (zwykle deploy) — wznów TO SAMO zadanie z zapisanego wejścia. Kwota
+        # naliczona przy przyjęciu nie jest naliczana drugi raz.
+        if is_purged_key(job.input_storage_key):
+            raise HTTPException(
+                409, "Źródła tego zadania wygasły. Wygeneruj CV jeszcze raz."
+            )
+        primary.status = "processing"
+        primary.error_message = None
+        job.status = "queued"
+        job.finished_at = None
+        job.error_code = None
+        await db.commit()
+        background_tasks.add_task(execute_job, job.id)
+        return {"id": primary.id, "status": "queued"}
     if not primary.central_policy or not job or primary.status != "ready":
         raise HTTPException(
             409, "Ponowienie dotyczy brakującej wersji językowej gotowego CV."
