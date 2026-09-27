@@ -385,9 +385,7 @@ def _local_day_bound(value: Any, *, end: bool) -> Any:
     from app.core.scheduling import local_day_start_utc
 
     if end:
-        bound = local_day_start_utc(day + timedelta(days=1)) - timedelta(
-            microseconds=1
-        )
+        bound = local_day_start_utc(day + timedelta(days=1)) - timedelta(microseconds=1)
     else:
         bound = local_day_start_utc(day)
     return bound.isoformat()

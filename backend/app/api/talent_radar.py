@@ -169,9 +169,7 @@ async def talent_radar_search(
     # Runda 9 (R9-N5-8): klient usunięty albo scalony nie jest celem nowego
     # wyszukiwania — ta sama reguła co przy zakładaniu rekrutacji.
     await assert_client_assignable(db, payload.client_id)
-    runner = (
-        partial(canonical_search, user_id=current_user.id) if canonical else search
-    )
+    runner = partial(canonical_search, user_id=current_user.id) if canonical else search
     try:
         result = await runner(
             db,

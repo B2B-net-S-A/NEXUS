@@ -592,9 +592,7 @@ async def canonical_search(
     fits = await score_candidates(db, context, kept)
     measured = [f for f in fits if f.fit_score is not None]
     ranked = [
-        f
-        for f in measured
-        if query.min_score is None or f.fit_score >= query.min_score
+        f for f in measured if query.min_score is None or f.fit_score >= query.min_score
     ][: query.top_k]
     returned = {f.breakdown.candidate_id for f in ranked}
     blind = bool(kept) and not measured

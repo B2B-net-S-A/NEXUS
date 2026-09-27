@@ -27,6 +27,25 @@ export function buildCandidateSavedSearchPayload(
   };
 }
 
+/**
+ * Filtry zapisu po włączeniu dzwonka — przebudowane z `qs` (starsze zapisy
+ * mają tylko `{qs}`, a skaner potrzebuje `api`).
+ *
+ * Runda 9 (R9-N14-4): przebudowa gubiła znacznik `keep_legacy_semantics`
+ * („Zostaw po staremu”). Wyniki zostawały przy v1 (`sv=1` jedzie w `qs`),
+ * ale bez znacznika kolejny przebieg migracji uznawał zapis za niezmigrowany,
+ * znowu wstrzymywał alert i prosił właściciela o tę samą decyzję.
+ */
+export function alertPayloadFromSavedSearch(filters: unknown): Record<string, unknown> {
+  const payload = buildCandidateSavedSearchPayload(listQsFromSavedSearch(filters));
+  const pinned =
+    !!filters &&
+    typeof filters === "object" &&
+    !Array.isArray(filters) &&
+    (filters as Record<string, unknown>).keep_legacy_semantics === true;
+  return pinned ? { ...payload, keep_legacy_semantics: true } : payload;
+}
+
 /** Apply both legacy `{qs}` and v2 `{version, qs, api}` records as replacement criteria. */
 export function filtersFromCandidateSavedSearch(
   payload: CandidateSavedSearchPayload,

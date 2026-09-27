@@ -408,7 +408,5 @@ def test_r9_n14_2_changed_after_indexes_are_mirrored_in_the_entrypoint():
     start = text.index("_INDEX_STATEMENTS = [")
     section = " ".join(text[start : text.index("\n]\n", start)].split())
     for name, target in module.INDEXES:
-        assert (
-            f"CREATE INDEX CONCURRENTLY IF NOT EXISTS {name} " in section
-        ), name
+        assert f"CREATE INDEX CONCURRENTLY IF NOT EXISTS {name} " in section, name
         assert f"ON {target}" in section, target
