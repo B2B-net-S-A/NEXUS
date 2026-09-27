@@ -118,3 +118,61 @@ async def test_assign_cc_to_missing_candidate_is_404_not_500(
         headers=app_auth_headers,
     )
     assert resp.status_code == 404, resp.text
+
+
+async def test_manual_primary_syncs_legacy_slug_and_unassign_clears_it(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Runda 10 (R10-N8-6): ręczna główna kategoria przestawia też slug.
+
+    Slug `competence_category` czytają karta dla klienta, prep-kit, tekst
+    embeddingu i wyszukiwarka — sam FK zostawiał tam starą kategorię AI.
+    """
+    import uuid
+
+    from sqlalchemy import select
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+
+    by_slug = {
+        cc["slug"]: cc["id"]
+        for cc in (
+            await app_client.get("/api/competence-categories", headers=app_auth_headers)
+        ).json()
+    }
+    async with AsyncSessionLocal() as db:
+        cand = Candidate(
+            name="Kat",
+            lastname=f"Slug-{uuid.uuid4().hex[:6]}",
+            email=f"ccslug-{uuid.uuid4().hex[:8]}@example.com",
+            competence_category="software_development",
+            competence_category_id=by_slug["software_development"],
+        )
+        db.add(cand)
+        await db.commit()
+        cand_id = cand.id
+
+    qa_id = by_slug["security_quality"]
+    resp = await app_client.post(
+        f"/api/candidates/{cand_id}/competence-categories",
+        json={"competence_category_id": qa_id, "is_primary": True},
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 201, resp.text
+
+    async with AsyncSessionLocal() as db:
+        row = await db.scalar(select(Candidate).where(Candidate.id == cand_id))
+        assert row.competence_category_id == qa_id
+        assert row.competence_category == "security_quality"
+
+    resp = await app_client.delete(
+        f"/api/candidates/{cand_id}/competence-categories/{qa_id}",
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 204, resp.text
+
+    async with AsyncSessionLocal() as db:
+        row = await db.scalar(select(Candidate).where(Candidate.id == cand_id))
+        assert row.competence_category_id is None
+        assert row.competence_category is None
