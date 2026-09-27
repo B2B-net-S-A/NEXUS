@@ -22,9 +22,13 @@ Sentry breadcrumbs. The UUID is jednorazowy (60s TTL, ``consumed_at`` flag).
 # annotacjach (PydanticUserError "TypeAdapter[Annotated[ForwardRef(...)]]
 # is not fully defined"). Eager annotacje są tu OK — plik jest mały.
 
+import base64
+import hashlib
+import hmac
 import logging
 import re
 import secrets
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from urllib.parse import urlencode
@@ -33,7 +37,8 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, sta
 from fastapi.responses import RedirectResponse
 from jose import JWTError, jwt
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -48,17 +53,20 @@ from app.core.security import (
 )
 from app.models.activity import Activity
 from app.models.auth_exchange_code import AuthExchangeCode
+from app.models.email_verification_token import EmailVerificationToken
 from app.models.user import User, UserRole
 from app.services.aad_role_policy import (
     InvalidAadRoleMapping,
     fail_closed_invalid_aad_mapping,
     validate_aad_mapped_roles,
 )
+from app.services.admin_active_decision import latest_admin_active_decision
 from app.services.admin_membership import protect_active_admin_membership
 from app.services.finance_role_cleanup import clear_recruitment_access_for_finance
 from app.services.m365 import oauth as m365_oauth
 from app.services.onboarding_access import onboarding_persona_changed
 from app.services.section_permissions import resolve_effective_section_access
+from app.services.user_email import normalize_email, user_by_email_statement
 
 logger = logging.getLogger(__name__)
 
@@ -137,10 +145,15 @@ def _exchange_tokens_are_current(
 
 class AuthorizeResponse(BaseModel):
     authorize_url: str
+    # Sekret tej przeglądarki (R9-N1-4): frontend trzyma go w sessionStorage
+    # i odsyła przy /exchange. Kod wymiany z cudzego logowania bez niego nie
+    # zadziała.
+    browser_nonce: str
 
 
 class ExchangeRequest(BaseModel):
     code: str = Field(..., min_length=32, max_length=64)
+    browser_nonce: Optional[str] = Field(None, max_length=128)
 
 
 class SsoUserSummary(BaseModel):
@@ -165,10 +178,51 @@ def _state_signing_key() -> str:
     return settings.M365_STATE_SIGNING_KEY or settings.SECRET_KEY
 
 
-def _sign_login_state(pkce_verifier: str) -> str:
+# Runda 9 (R9-N1-4): dwie luki w ``state``.
+# 1. Weryfikator PKCE jechał JAWNIE w ``state`` — a ``state`` wraca w adresie
+#    razem z kodem autoryzacji, więc przechwycony kod przychodził z kluczem do
+#    jego wymiany. Teraz ``state`` niesie tylko losowy ``n``, a weryfikator
+#    wylicza serwer: HMAC(klucz podpisu, n). Bez klucza nie da się go odtworzyć.
+# 2. ``state`` nie był związany z przeglądarką (login CSRF): link
+#    ``/auth/microsoft/callback?code=…&state=…`` z logowania napastnika,
+#    otwarty przez ofiarę, logował ją na konto napastnika. Teraz /authorize
+#    wydaje ``browser_nonce`` (frontend trzyma go w sessionStorage karty),
+#    ``state`` niesie jego skrót, a w bazie leży HMAC(kod z adresu + skrót) —
+#    /exchange bez nonce'u tej karty nie znajdzie wiersza.
+@dataclass(frozen=True)
+class LoginState:
+    pkce_verifier: str
+    browser_binding: str
+
+
+def _browser_binding(browser_nonce: str) -> str:
+    return hashlib.sha256(browser_nonce.encode("utf-8")).hexdigest()
+
+
+def _pkce_verifier_for(state_nonce: str) -> str:
+    digest = hmac.new(
+        _state_signing_key().encode("utf-8"),
+        f"sso-pkce:{state_nonce}".encode("utf-8"),
+        hashlib.sha256,
+    ).digest()
+    # 43 znaki alfabetu base64url — mieści się w RFC 7636 (43–128).
+    return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+
+
+def _bound_exchange_code(handoff: str, browser_binding: str) -> str:
+    """Klucz wiersza ``auth_exchange_codes`` (64 znaki hex = długość kolumny)."""
+    return hmac.new(
+        _state_signing_key().encode("utf-8"),
+        f"sso-exchange:{handoff}:{browser_binding}".encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def _sign_login_state(browser_binding: str) -> str:
     now = datetime.now(timezone.utc)
     payload = {
-        "pkce": pkce_verifier,
+        "n": secrets.token_urlsafe(24),
+        "bb": browser_binding,
         "iat": now,
         "exp": now + timedelta(seconds=_STATE_TTL_SECONDS),
         "purpose": _STATE_PURPOSE,
@@ -176,12 +230,20 @@ def _sign_login_state(pkce_verifier: str) -> str:
     return jwt.encode(payload, _state_signing_key(), algorithm="HS256")
 
 
-def _verify_login_state(token: str) -> str:
-    """Return PKCE verifier; raise JWTError on invalid/expired/wrong purpose."""
+def _verify_login_state(token: str) -> LoginState:
+    """Raise JWTError on invalid/expired/wrong purpose/pre-binding state."""
     payload = jwt.decode(token, _state_signing_key(), algorithms=["HS256"])
     if payload.get("purpose") != _STATE_PURPOSE:
         raise JWTError("wrong purpose for SSO login state")
-    return str(payload["pkce"])
+    nonce = payload.get("n")
+    binding = payload.get("bb")
+    # ``state`` sprzed tej zmiany (logowanie rozpoczęte przed deployem) nie ma
+    # tych pól — użytkownik zaczyna od nowa.
+    if not isinstance(nonce, str) or not nonce:
+        raise JWTError("SSO login state without nonce")
+    if not isinstance(binding, str) or not binding:
+        raise JWTError("SSO login state without browser binding")
+    return LoginState(pkce_verifier=_pkce_verifier_for(nonce), browser_binding=binding)
 
 
 def is_sso_configured() -> bool:
@@ -424,6 +486,75 @@ async def _last_admin_sso_redirect(
     return None
 
 
+async def _provision_sso_user(
+    db: AsyncSession,
+    *,
+    email_lower: str,
+    upn: str,
+    name: str,
+    azure_oid: str,
+    domain: str,
+) -> User | None:
+    """Załóż konto przy pierwszym logowaniu SSO; ``None`` = ktoś był szybszy.
+
+    INSERT idzie w savepoincie (R9-N1-6): równoległe pierwsze logowanie tej
+    samej osoby trafia w unikalność adresu, a bez savepointu wyjątek psuł całą
+    transakcję żądania i kończył się 500.
+    """
+    # First-time users from the verified corporate-domain allowlist enter
+    # the Recruiter persona. They remain behind mandatory onboarding, and
+    # an enabled AAD role mapping below stays authoritative and may replace
+    # this bootstrap role before the first session is issued.
+    user = User(
+        email=email_lower,
+        name=name,
+        password_hash=None,  # SSO-only — no bcrypt hash.
+        role=UserRole.recruiter,
+        roles=[UserRole.recruiter.value],
+        is_active=True,
+        profile_completed=False,
+        oauth_provider="microsoft",
+        external_id=azure_oid,
+        azure_oid=azure_oid,
+        microsoft_upn=upn,
+    )
+    try:
+        async with db.begin_nested():
+            db.add(user)
+            await db.flush()  # populate user.id for the Activity FK
+    except IntegrityError:
+        logger.info("sso provisioning raced with a parallel login — reusing row")
+        return None
+    # Security: log SSO auto-provisioning so admins have an audit trail
+    # of new account creation. Domain whitelist already gates which
+    # emails can self-provision, but recording WHO got created and when
+    # is still needed for incident response (e.g. compromised corporate
+    # MS account suddenly auto-provisioning into the ATS).
+    logger.info(
+        "sso new-user provisioned behind recruiter onboarding: "
+        "user_id=%s domain=%s role=%s",
+        user.id,
+        domain,
+        UserRole.recruiter.value,
+    )
+    db.add(
+        Activity(
+            entity_type="user",
+            entity_id=user.id,
+            action="sso_user_provisioned",
+            user_id=user.id,  # actor = the new user themselves (no admin involved)
+            details={
+                "email": email_lower,
+                "domain": domain,
+                "provider": "microsoft",
+                "azure_oid": azure_oid,
+                "default_role": UserRole.recruiter.value,
+            },
+        )
+    )
+    return user
+
+
 # ── Routes ──────────────────────────────────────────────────────────────────
 
 
@@ -436,9 +567,13 @@ async def _last_admin_sso_redirect(
 async def authorize(request: Request) -> AuthorizeResponse:
     """Build the Microsoft login URL. Frontend does ``window.location = url``."""
     _require_sso_configured()
-    verifier, _ = m365_oauth.generate_pkce_pair()
-    state = _sign_login_state(verifier)
-    return AuthorizeResponse(authorize_url=_build_authorize_url(state, verifier))
+    browser_nonce = secrets.token_urlsafe(32)
+    state = _sign_login_state(_browser_binding(browser_nonce))
+    verifier = _verify_login_state(state).pkce_verifier
+    return AuthorizeResponse(
+        authorize_url=_build_authorize_url(state, verifier),
+        browser_nonce=browser_nonce,
+    )
 
 
 @router.get("/callback", response_class=RedirectResponse)
@@ -471,7 +606,7 @@ async def callback(
         )
 
     try:
-        pkce_verifier = _verify_login_state(state)
+        login_state = _verify_login_state(state)
     except JWTError:
         return RedirectResponse(
             _frontend_login_error_url(SSO_ERR_STATE_EXPIRED),
@@ -479,7 +614,9 @@ async def callback(
         )
 
     try:
-        token_payload = await _exchange_code_for_id_token(code, pkce_verifier)
+        token_payload = await _exchange_code_for_id_token(
+            code, login_state.pkce_verifier
+        )
     except Exception as exc:  # noqa: BLE001
         provider_code = getattr(exc, "provider_code", "transport_or_validation_error")
         expected = provider_code in {"invalid_grant", "access_denied"}
@@ -543,61 +680,71 @@ async def callback(
             _frontend_login_error_url(SSO_ERR_DOMAIN_FORBIDDEN), status_code=302
         )
 
-    # Upsert user keyed by lowercased email.
-    email_lower = email.lower()
-    result = await db.execute(
-        select(User).where(User.email == email_lower).with_for_update()
-    )
-    user = result.scalar_one_or_none()
-    if user is None:
-        # First-time users from the verified corporate-domain allowlist enter
-        # the Recruiter persona. They remain behind mandatory onboarding, and
-        # an enabled AAD role mapping below stays authoritative and may replace
-        # this bootstrap role before the first session is issued.
-        user = User(
-            email=email_lower,
-            name=name,
-            password_hash=None,  # SSO-only — no bcrypt hash.
-            role=UserRole.recruiter,
-            roles=[UserRole.recruiter.value],
-            is_active=True,
-            profile_completed=False,
-            oauth_provider="microsoft",
-            external_id=azure_oid,
-            azure_oid=azure_oid,
-            microsoft_upn=email,
-        )
-        db.add(user)
-        # Security: log SSO auto-provisioning so admins have an audit trail
-        # of new account creation. Domain whitelist already gates which
-        # emails can self-provision, but recording WHO got created and when
-        # is still needed for incident response (e.g. compromised corporate
-        # MS account suddenly auto-provisioning into the ATS). Listing
-        # placeholder user_id=0 (system action — no admin actor).
-        await db.flush()  # populate user.id for the Activity FK
-        logger.info(
-            "sso new-user provisioned behind recruiter onboarding: "
-            "email=%s domain=%s role=%s",
-            email_lower,
-            domain,
-            UserRole.recruiter.value,
-        )
-        db.add(
-            Activity(
-                entity_type="user",
-                entity_id=user.id,
-                action="sso_user_provisioned",
-                user_id=user.id,  # actor = the new user themselves (no admin involved)
-                details={
-                    "email": email_lower,
-                    "domain": domain,
-                    "provider": "microsoft",
-                    "azure_oid": azure_oid,
-                    "default_role": UserRole.recruiter.value,
-                },
+    # ── AAD group-based RBAC: pobranie grup PRZED blokadą wiersza ──────────
+    # Runda 9 (R9-N1-5): odczyt grup z Grapha trwa do kilku sekund. Do tej
+    # zmiany szedł po ``SELECT … FOR UPDATE`` na ``users``, więc każda inna
+    # operacja na tym koncie (zapis profilu, panel admina) czekała na Microsoft.
+    groups: list[dict] = []
+    if settings.AAD_GROUP_RBAC_ENABLED:
+        from app.services.m365.aad_groups import fetch_user_groups
+
+        if not graph_access_token:
+            logger.error(
+                "sso callback: AAD RBAC enabled but Microsoft returned no "
+                "access_token — check GroupMember.Read.All consent in Azure app."
             )
+            # ``get_db`` commits after a normal route return. Nothing has been
+            # written yet, but roll back anyway so an unavailable authoritative
+            # AAD source can never persist the bootstrap Recruiter role.
+            await db.rollback()
+            return RedirectResponse(
+                _frontend_login_error_url(SSO_ERR_AAD_NO_GRAPH_TOKEN),
+                status_code=302,
+            )
+        try:
+            groups = await fetch_user_groups(graph_access_token)
+        except Exception:  # noqa: BLE001
+            logger.error("sso callback: AAD memberOf fetch failed (details redacted)")
+            await db.rollback()
+            return RedirectResponse(
+                _frontend_login_error_url(_AAD_GROUP_LOOKUP_ERROR),
+                status_code=302,
+            )
+
+    # Upsert user keyed by lowercased email. Lookup bez rozróżniania wielkości
+    # liter (R9-N1-1): konto założone w panelu admina mogło mieć wielkie
+    # litery i SSO zakładało obok niego DRUGIE konto.
+    email_lower = normalize_email(email)
+    user = await db.scalar(user_by_email_statement(email_lower, for_update=True))
+    created = False
+    if user is None:
+        user = await _provision_sso_user(
+            db,
+            email_lower=email_lower,
+            upn=email,
+            name=name,
+            azure_oid=azure_oid,
+            domain=domain,
         )
-    else:
+        if user is not None:
+            created = True
+        else:
+            # Runda 9 (R9-N1-6): dwa pierwsze logowania tej samej osoby naraz
+            # (dwie karty, podwójne kliknięcie) — drugi INSERT trafiał
+            # w unikalność adresu i kończył się 500. Konto już jest: bierzemy je.
+            user = await db.scalar(
+                user_by_email_statement(email_lower, for_update=True)
+            )
+            if user is None:
+                # Konflikt nie na adresie, tylko na tożsamości Microsoft
+                # (ten sam `oid` przypięty do konta z INNYM adresem).
+                logger.warning("sso provisioning conflict on identity, not email")
+                await db.rollback()
+                return RedirectResponse(
+                    _frontend_login_error_url(SSO_ERR_IDENTITY_MISMATCH),
+                    status_code=302,
+                )
+    if not created:
         # Konto już przypięte do tożsamości Microsoft (`oid`) nie przechodzi na
         # INNĄ tożsamość z tym samym adresem: UPN bywa nadany ponownie nowej
         # osobie po odejściu poprzedniej, a dopasowanie po samym e-mailu
@@ -636,7 +783,19 @@ async def callback(
         # account — must NOT short-circuit here, or that user can never be
         # reactivated even while still in their AAD group. With RBAC disabled
         # there is no later gate, so the flag is honoured immediately.
-        if not user.is_active and not settings.AAD_GROUP_RBAC_ENABLED:
+        #
+        # Runda 9 (R9-N13-2, decyzja Artura 27.09.2026): wyjątek — JAWNA
+        # deaktywacja przez admina wygrywa z grupą AAD. Ta sama reguła co
+        # w ``compass_lifecycle``: liczy się ostatnia decyzja admina
+        # (``active_changed`` / ``user_deactivated``), a nie sam stan flagi.
+        admin_disabled = (
+            not user.is_active
+            and settings.AAD_GROUP_RBAC_ENABLED
+            and await latest_admin_active_decision(db, user.id) is False
+        )
+        if not user.is_active and (
+            not settings.AAD_GROUP_RBAC_ENABLED or admin_disabled
+        ):
             # Zostaw ślad w dzienniku aktywności, nie tylko w logu aplikacji.
             # Konta z importu Traffita (115 ze 140 nieaktywnych) nie idą ścieżką
             # auto-provisioningu, więc bez tego wpisu administrator nie ma jak
@@ -644,9 +803,9 @@ async def callback(
             # przestawić ``is_active``. Semantyka bramki bez zmian — konto dalej
             # odrzucone, żaden kod wymiany nie powstaje.
             logger.info(
-                "sso login denied — inactive account: email=%s user_id=%s",
-                email_lower,
+                "sso login denied — inactive account: user_id=%s admin_disabled=%s",
                 user.id,
+                admin_disabled,
             )
             db.add(
                 Activity(
@@ -658,13 +817,42 @@ async def callback(
                         "email": email_lower,
                         "domain": domain,
                         "provider": "microsoft",
-                        "reason": "user.is_active = false",
+                        "reason": (
+                            "deactivated by admin"
+                            if admin_disabled
+                            else "user.is_active = false"
+                        ),
                     },
                 )
             )
             await db.commit()
             return RedirectResponse(
                 _frontend_login_error_url(SSO_ERR_ACCOUNT_DISABLED), status_code=302
+            )
+        # Runda 9 (R9-N1-3): konto z samorejestracji, którego adresu nikt nie
+        # potwierdził, mógł założyć ktokolwiek, kto zna adres — z WŁASNYM
+        # hasłem. Logowanie Microsoftem dowodzi, że skrzynka należy do tej
+        # osoby: hasło obcej osoby przepada, adres jest potwierdzony, a stare
+        # linki aktywacyjne przestają działać.
+        if not user.email_verified:
+            user.password_hash = None
+            user.email_verified = True
+            await db.execute(
+                update(EmailVerificationToken)
+                .where(
+                    EmailVerificationToken.user_id == user.id,
+                    EmailVerificationToken.used_at.is_(None),
+                )
+                .values(used_at=datetime.now(timezone.utc))
+            )
+            db.add(
+                Activity(
+                    entity_type="user",
+                    entity_id=user.id,
+                    action="sso_claimed_unverified_account",
+                    user_id=user.id,
+                    details={"domain": domain, "provider": "microsoft"},
+                )
             )
 
     # ── AAD group-based RBAC (Phase 7.2) ──────────────────────────────────
@@ -675,34 +863,9 @@ async def callback(
     # Disabled by default for safety — flag flipped in Coolify env vault
     # only after AAD_GROUP_ROLE_MAP_JSON is populated and admin consent for
     # GroupMember.Read.All has been granted in the Azure app registration.
+    # Grupy pobrano wyżej, przed blokadą wiersza.
     if settings.AAD_GROUP_RBAC_ENABLED:
-        from app.services.m365.aad_groups import (
-            fetch_user_groups,
-            map_groups_to_roles,
-        )
-
-        if not graph_access_token:
-            logger.error(
-                "sso callback: AAD RBAC enabled but Microsoft returned no "
-                "access_token — check GroupMember.Read.All consent in Azure app."
-            )
-            # ``get_db`` commits after a normal route return. Roll back the
-            # provisional user/identity link so an unavailable authoritative
-            # AAD source can never persist the bootstrap Recruiter role.
-            await db.rollback()
-            return RedirectResponse(
-                _frontend_login_error_url(SSO_ERR_AAD_NO_GRAPH_TOKEN),
-                status_code=302,
-            )
-        try:
-            groups = await fetch_user_groups(graph_access_token)
-        except Exception:  # noqa: BLE001
-            logger.error("sso callback: AAD memberOf fetch failed (details redacted)")
-            await db.rollback()
-            return RedirectResponse(
-                _frontend_login_error_url(_AAD_GROUP_LOOKUP_ERROR),
-                status_code=302,
-            )
+        from app.services.m365.aad_groups import map_groups_to_roles
 
         # Keep the authoritative membership snapshot even when the role map is
         # malformed. The invalid-mapping branch commits it together with the
@@ -942,11 +1105,12 @@ async def callback(
         user.id, authorization_version=user.authorization_version
     )
 
-    # Stash behind a short-lived UUID (frontend will POST it back).
+    # Stash behind a short-lived UUID (frontend will POST it back together
+    # with the browser nonce — the row key is bound to both, R9-N1-4).
     exchange_code = secrets.token_urlsafe(40)
     db.add(
         AuthExchangeCode(
-            code=exchange_code,
+            code=_bound_exchange_code(exchange_code, login_state.browser_binding),
             user_id=user_id,
             access_token=access,
             refresh_token=refresh,
@@ -974,6 +1138,16 @@ async def exchange(
 ) -> ExchangeResponse:
     """Trade the one-time UUID code for the real Nexus JWTs."""
     now = datetime.now(timezone.utc)
+    if not payload.browser_nonce:
+        # Karta bez nonce'u z /authorize (link z cudzego logowania albo
+        # frontend sprzed R9-N1-4) — nie ma czego szukać.
+        raise HTTPException(
+            status.HTTP_410_GONE,
+            detail="Exchange code unknown, expired or already consumed",
+        )
+    stored_code = _bound_exchange_code(
+        payload.code, _browser_binding(payload.browser_nonce)
+    )
     # Atomic consume: DELETE the row only while its issuing authorization
     # version still matches an active user, and take its contents in the same
     # statement. Referencing ``users`` makes SQLAlchemy emit PostgreSQL
@@ -991,7 +1165,7 @@ async def exchange(
         await db.execute(
             delete(AuthExchangeCode)
             .where(
-                AuthExchangeCode.code == payload.code,
+                AuthExchangeCode.code == stored_code,
                 AuthExchangeCode.consumed_at.is_(None),
                 AuthExchangeCode.expires_at > now,
                 AuthExchangeCode.user_id == User.id,
@@ -1012,7 +1186,7 @@ async def exchange(
         # A stale/inactive/expired handoff is no longer useful and still stores
         # plaintext JWTs. Purge it without revealing which condition failed.
         await db.execute(
-            delete(AuthExchangeCode).where(AuthExchangeCode.code == payload.code)
+            delete(AuthExchangeCode).where(AuthExchangeCode.code == stored_code)
         )
         await db.commit()
         raise HTTPException(

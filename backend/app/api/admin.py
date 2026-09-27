@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,10 +20,11 @@ from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.contract import Contract
 from app.models.job import Job
-from app.models.notification import Notification, NotificationType
+from app.models.notification import NotificationType
 from app.models.user import User, UserRole
 from app.models.user_activity import UserActivity
 from app.api.deps import AdminUser, ensure_exclusive_role_configuration
+from app.api.notifications import create_notification
 from app.schemas.user import UserResponse
 from app.services.aad_role_policy import (
     InvalidAadRoleMapping,
@@ -46,6 +47,7 @@ from app.services.onboarding_access import (
 from app.services.admin_membership import protect_active_admin_membership
 from app.services.client_identity import visible_client_predicates
 from app.services import trainee_program
+from app.services.user_email import find_user_by_email, normalize_email
 from app.services.critical_events import record_executed
 from app.services.action_permissions import resolve_effective_action_access
 from app.services.section_permissions import resolve_effective_section_access
@@ -76,8 +78,11 @@ class AdminUserResponse(BaseModel):
 
 class AdminUserCreate(BaseModel):
     email: EmailStr
-    password: str
-    name: str
+    # Runda 9 (R9-N13-7): hasło ustawione przez admina bez granic (dozwolone
+    # było ""), a imię dłuższe niż kolumna (255) kończyło się 500. Te same
+    # granice co przy zmianie hasła przez użytkownika.
+    password: str = Field(..., min_length=8, max_length=128)
+    name: str = Field(..., min_length=1, max_length=255)
     role: UserRole = UserRole.recruiter
     # Optional secondary roles. ``role`` is always set as primary. If
     # ``roles`` is omitted, defaults to ``[role]``.
@@ -85,7 +90,7 @@ class AdminUserCreate(BaseModel):
 
 
 class AdminUserUpdate(BaseModel):
-    name: Optional[str] = None
+    name: Optional[str] = Field(None, min_length=1, max_length=255)
     role: Optional[UserRole] = None
     # Replace the full role set. If supplied, must contain ``role`` (or the
     # current primary). Setting only ``role`` updates the primary and adds
@@ -102,7 +107,7 @@ class AdminUserUpdate(BaseModel):
 
 
 class ResetPasswordRequest(BaseModel):
-    new_password: str
+    new_password: str = Field(..., min_length=8, max_length=128)
 
 
 def _normalized_role_values(
@@ -222,10 +227,10 @@ async def create_user(
     domain_error = admin_email_domain_error(data.email)
     if domain_error:
         raise HTTPException(status_code=422, detail=domain_error)
-    existing = await db.execute(
-        select(User).where(func.lower(User.email) == data.email.lower())
-    )
-    if existing.scalar_one_or_none():
+    # Adres zawsze małymi literami (R9-N1-1) — SSO i rejestracja zapisują go
+    # tak samo, więc konto założone tutaj nie dostaje bliźniaka przy SSO.
+    email = normalize_email(data.email)
+    if await find_user_by_email(db, email) is not None:
         raise HTTPException(
             status_code=409, detail="Konto z tym adresem e-mail już istnieje."
         )
@@ -236,8 +241,8 @@ async def create_user(
     preexempt = onboarding_persona_for_roles(roles_list) is None
     is_finance = data.role == UserRole.finance
     user = User(
-        email=data.email,
-        password_hash=hash_password(data.password),
+        email=email,
+        password_hash=await asyncio.to_thread(hash_password, data.password),
         name=data.name,
         role=data.role,
         roles=roles_list,
@@ -245,6 +250,10 @@ async def create_user(
         kpi_coach_enabled=not is_finance,
         profile_completed=preexempt,
         profile_completed_at=func.now() if preexempt else None,
+        # Hasło zna admin — przy pierwszym logowaniu hasłem użytkownik ustawia
+        # własne (R9-N13-7), tak jak po resecie hasła przez admina.
+        force_password_change=True,
+        force_password_change_at=func.now(),
     )
     db.add(user)
     await db.flush()
@@ -604,7 +613,7 @@ async def reset_password(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    user.password_hash = hash_password(data.new_password)
+    user.password_hash = await asyncio.to_thread(hash_password, data.new_password)
     user.force_password_change = True
     user.force_password_change_at = func.now()
     # F-05: admin-reset unieważnia wszystkie wcześniej wybite tokeny usera —
@@ -624,20 +633,23 @@ async def reset_password(
             },
         )
     )
-    db.add(
-        Notification(
-            user_id=user.id,
-            title="Twoje hasło zostało zresetowane",
-            message=(
-                f"Administrator {_admin.name} zresetował Twoje hasło. "
-                "Przy następnym logowaniu zostaniesz poproszony(-a) o "
-                "ustawienie nowego hasła."
-            ),
-            link="/profile",
-            notification_type=NotificationType.password_changed_by_admin,
-            related_entity_type="user",
-            related_entity_id=user.id,
-        )
+    # Runda 9 (R9-N2-4): drugi reset tego samego dnia trafiał w
+    # ``ix_notif_dedup_daily`` (użytkownik, typ, encja, doba) — 500 i cofnięty
+    # reset. Drugi wpis tego dnia odświeża pierwszy zamiast wstawiać nowy.
+    await create_notification(
+        db,
+        user_id=user.id,
+        title="Twoje hasło zostało zresetowane",
+        message=(
+            f"Administrator {_admin.name} zresetował Twoje hasło. "
+            "Przy następnym logowaniu zostaniesz poproszony(-a) o "
+            "ustawienie nowego hasła."
+        ),
+        link="/profile",
+        notification_type=NotificationType.password_changed_by_admin,
+        related_entity_type="user",
+        related_entity_id=user.id,
+        dedupe_resurface=True,
     )
     await db.flush()
     to_email, recipient_name, admin_name = user.email, user.name, _admin.name
@@ -695,19 +707,20 @@ async def send_reset_link(
             },
         )
     )
-    db.add(
-        Notification(
-            user_id=user.id,
-            title="Wysłano link do resetu hasła",
-            message=(
-                f"Administrator {_admin.name} wysłał Ci link do zresetowania "
-                "hasła. Sprawdź skrzynkę email — link jest ważny przez 60 minut."
-            ),
-            link=None,
-            notification_type=NotificationType.password_reset_requested,
-            related_entity_type="user",
-            related_entity_id=user.id,
-        )
+    # Drugi link tego samego dnia odświeża powiadomienie (R9-N2-4).
+    await create_notification(
+        db,
+        user_id=user.id,
+        title="Wysłano link do resetu hasła",
+        message=(
+            f"Administrator {_admin.name} wysłał Ci link do zresetowania "
+            "hasła. Sprawdź skrzynkę email — link jest ważny przez 60 minut."
+        ),
+        link=None,
+        notification_type=NotificationType.password_reset_requested,
+        related_entity_type="user",
+        related_entity_id=user.id,
+        dedupe_resurface=True,
     )
     await db.flush()
     # Commit PRZED wysyłką: token musi istnieć, zanim link wyjdzie mailem,

@@ -46,6 +46,7 @@ from app.services.email_verification import (
 from app.api.deps import AuthenticatedUser, ensure_exclusive_role_configuration
 from app.api.auth_microsoft import is_sso_configured
 from app.services.section_permissions import resolve_effective_section_access
+from app.services.user_email import find_user_by_email
 from app.services.user_response import build_user_response
 
 # Roles that must complete first-login onboarding before the frontend unlocks
@@ -229,15 +230,20 @@ async def login(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=_PASSWORD_LOGIN_DISABLED_DETAIL,
         )
-    result = await db.execute(select(User).where(User.email == data.email))
-    user = result.scalar_one_or_none()
+    # Runda 9 (R9-N1-1): adres bez rozróżniania wielkości liter — konto
+    # założone w panelu admina mogło mieć wielkie litery.
+    user = await find_user_by_email(db, data.email)
     # Guard SSO-only userów: ``password_hash IS NULL`` po migracji 0081 oznacza
     # konto zalogowane przez Microsoft SSO i bez bcrypt hash — odmów cicho,
     # nie ujawniając czy konto istnieje.
     if (
         not user
         or not user.password_hash
-        or not verify_password(data.password, user.password_hash)
+        # bcrypt (~100 ms) w wątku — na pętli zdarzeń jedynego procesu
+        # wstrzymywał każde inne żądanie (R9-N9-10).
+        or not await asyncio.to_thread(
+            verify_password, data.password, user.password_hash
+        )
     ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials"
@@ -320,11 +326,9 @@ async def register(
     # not the email already exists — bcrypt dominates the cost, so doing it on
     # both branches removes the timing oracle that would otherwise complement
     # the (now-removed) 409 enumeration signal.
-    password_hash = hash_password(data.password)
+    password_hash = await asyncio.to_thread(hash_password, data.password)
 
-    existing = (
-        await db.execute(select(User).where(User.email == email))
-    ).scalar_one_or_none()
+    existing = await find_user_by_email(db, email)
 
     if existing is not None:
         # Anti-enumeration: never reveal that the email is taken. If the account
@@ -458,7 +462,7 @@ async def resend_verification(
 
     await cleanup_expired_verification_tokens(db)
 
-    user = await db.scalar(select(User).where(User.email == email))
+    user = await find_user_by_email(db, email)
     if user is not None and user.is_active and not user.email_verified:
         plain_token = await create_verification_token(
             db, user.id, requested_ip=requester_ip
@@ -592,7 +596,9 @@ async def change_password(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=SSO_ONLY_PASSWORD_DETAIL,
         )
-    if not verify_password(data.current_password, current_user.password_hash):
+    if not await asyncio.to_thread(
+        verify_password, data.current_password, current_user.password_hash
+    ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Current password is incorrect",
@@ -602,7 +608,9 @@ async def change_password(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="New password must differ from current",
         )
-    current_user.password_hash = hash_password(data.new_password)
+    current_user.password_hash = await asyncio.to_thread(
+        hash_password, data.new_password
+    )
     current_user.force_password_change = False
     current_user.force_password_change_at = None
     # F-05: unieważnij wszystkie wcześniej wybite tokeny (także bieżący —
@@ -660,10 +668,9 @@ async def forgot_password(
         )
     requester_ip = request.client.host if request.client else None
 
-    # Lookup user (case-insensitive nie jest istotny — backend wymusza
-    # email validator EmailStr, a DB ma unique index na exact match).
-    result = await db.execute(select(User).where(User.email == data.email))
-    user = result.scalar_one_or_none()
+    # Lookup bez rozróżniania wielkości liter (R9-N1-1) — konto założone
+    # w panelu admina mogło mieć wielkie litery w adresie.
+    user = await find_user_by_email(db, data.email)
 
     # Periodic cleanup — best-effort, nie blokujemy responsu.
     await cleanup_expired_tokens(db)
@@ -749,7 +756,7 @@ async def reset_password_with_token(
             detail=_PASSWORD_LOGIN_DISABLED_DETAIL,
         )
 
-    user.password_hash = hash_password(data.new_password)
+    user.password_hash = await asyncio.to_thread(hash_password, data.new_password)
     user.force_password_change = False
     user.force_password_change_at = None
     # F-05: reset przez link z maila też unieważnia wcześniejsze tokeny.

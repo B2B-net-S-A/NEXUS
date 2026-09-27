@@ -1,3 +1,4 @@
+import hmac
 from datetime import datetime, timedelta, timezone
 from typing import Mapping, Optional, Union
 
@@ -25,6 +26,24 @@ _BCRYPT_ROUNDS = 12
 # mają placeholder z importu Traffita. Ta sama zasada co bcrypt liczony na obu
 # ścieżkach rejestracji (anti-enumeration).
 _DUMMY_HASH = b"$2b$12$XIC4ez/F8wAC/Y/.sa.A6.CIqyRSrsapLIgL5LYOcebe3w8RNw7Xu"
+
+
+def secrets_equal(presented: Optional[str], expected: Optional[str]) -> bool:
+    """Porównanie sekretów w stałym czasie, odporne na znaki spoza ASCII.
+
+    Runda 9 (R9-N9-6): ``hmac.compare_digest`` na dwóch ``str`` rzuca
+    ``TypeError``, gdy którykolwiek ma znak spoza ASCII — nagłówek HTTP
+    (Starlette dekoduje latin-1) albo pole JSON z „ł” dawało 500 zamiast
+    odmowy. Porównujemy bajty UTF-8; tekst nie do zakodowania = zły sekret.
+    """
+    if presented is None or expected is None:
+        return False
+    try:
+        presented_bytes = presented.encode("utf-8")
+        expected_bytes = expected.encode("utf-8")
+    except (AttributeError, UnicodeEncodeError):
+        return False
+    return hmac.compare_digest(presented_bytes, expected_bytes)
 
 
 def _bcrypt_secret(password: str) -> bytes:
