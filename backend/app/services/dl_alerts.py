@@ -640,6 +640,9 @@ async def reconcile_exhausted_group_budget_alerts(db: AsyncSession) -> int:
         select(ClientOrderGroup)
         .where(
             ClientOrderGroup.status == GROUP_STATUS_EXHAUSTED,
+            # Runda 9 (R9-N12-6): wyczerpane zamówienie nie blokuje usunięcia
+            # klienta, a usunięty klient nie dostaje kart.
+            client_not_deleted_clause(ClientOrderGroup.client_id),
             ~select(DlAlert.id)
             .where(
                 DlAlert.order_group_id == ClientOrderGroup.id,

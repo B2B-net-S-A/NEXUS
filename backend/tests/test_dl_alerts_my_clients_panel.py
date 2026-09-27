@@ -246,9 +246,9 @@ def test_new_contractor_missing_fields_follow_the_activation_gate():
         "liczbę MD"
     ]
     cost = ClientOrder(order_type="cost", **base)
-    assert new_contractor_missing_fields(
-        cost, candidate_name="A B", job_title="X"
-    ) == ["kwotę zamówienia"]
+    assert new_contractor_missing_fields(cost, candidate_name="A B", job_title="X") == [
+        "kwotę zamówienia"
+    ]
     md_ok = ClientOrder(order_type="md", md_total=Decimal("20"), **base)
     assert (
         new_contractor_missing_fields(md_ok, candidate_name="A B", job_title="X") == []
@@ -1053,9 +1053,9 @@ async def test_deleted_client_framework_contract_gets_no_card_or_bell(monkeypatc
         fc_id = fc.id
 
     await _run(rule_framework_contract_expiring, monkeypatch, _TODAY)
-    assert [r.status for r in await _alerts(user_id, ALERT_FRAMEWORK_CONTRACT_EXPIRING)] == [
-        "new"
-    ]
+    assert [
+        r.status for r in await _alerts(user_id, ALERT_FRAMEWORK_CONTRACT_EXPIRING)
+    ] == ["new"]
 
     async with AsyncSessionLocal() as db:
         client = await db.get(Client, client_id)
