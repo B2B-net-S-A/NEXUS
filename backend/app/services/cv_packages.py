@@ -94,7 +94,33 @@ async def members(db, generated, *, lock=False):
     return job, primary, rows
 
 
-async def assess(db, generated, *, note_id=None, lock=False):
+def _latest_version_query(row, selected=None):
+    """Najnowsza wersja dokumentu ``row`` — w obrębie właściciela ``selected``.
+
+    Runda 9 (R9-N3-4): wersje tego samego dokumentu generatora zatwierdza
+    i edytor generatora (``generated_owner_id``), i CV etapu, do którego go
+    podpięto (``candidate_stage_cv_id``). Globalnie „najnowsza po id” należała
+    do jednej powierzchni, więc link z drugiej kończył się 409 „wybrana wersja
+    nie należy do pakietu”. Dla dokumentu wybranej wersji liczymy najnowszą
+    tego samego właściciela; pozostałe języki pakietu — jak dotąd.
+    """
+    query = select(CvDocumentVersion).where(
+        CvDocumentVersion.generated_document_id == row.id
+    )
+    if selected is not None and getattr(selected, "generated_document_id", None) == row.id:
+        if getattr(selected, "generated_owner_id", None):
+            query = query.where(
+                CvDocumentVersion.generated_owner_id == selected.generated_owner_id
+            )
+        elif getattr(selected, "candidate_stage_cv_id", None):
+            query = query.where(
+                CvDocumentVersion.candidate_stage_cv_id
+                == selected.candidate_stage_cv_id
+            )
+    return query.order_by(CvDocumentVersion.id.desc()).limit(1)
+
+
+async def assess(db, generated, *, note_id=None, lock=False, selected_version=None):
     job, primary, rows = await members(db, generated, lock=lock)
     policy = primary.central_policy
     if not policy:
@@ -108,12 +134,7 @@ async def assess(db, generated, *, note_id=None, lock=False):
     # pakiet nigdy nie stawał się gotowy).
     reasons, hints, documents, fingerprints, versions = [], [], [], {}, {}
     for row in rows:
-        version = await db.scalar(
-            select(CvDocumentVersion)
-            .where(CvDocumentVersion.generated_document_id == row.id)
-            .order_by(CvDocumentVersion.id.desc())
-            .limit(1)
-        )
+        version = await db.scalar(_latest_version_query(row, selected_version))
         documents.append(
             {
                 "id": row.id,
@@ -316,7 +337,12 @@ async def confirm(
 async def require_ready(db, generated, selected_version_id):
     if not getattr(generated, "central_policy", None):
         return None
-    state, data = await assess(db, generated, lock=True)
+    selected = (
+        await db.get(CvDocumentVersion, selected_version_id)
+        if selected_version_id is not None
+        else None
+    )
+    state, data = await assess(db, generated, lock=True, selected_version=selected)
     if not state["ready"] or selected_version_id not in data["versions"].values():
         raise HTTPException(
             409,

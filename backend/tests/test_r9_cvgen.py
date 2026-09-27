@@ -167,3 +167,98 @@ async def test_editor_finalize_stamps_first_name_and_title(
     version = await editor.finalize(db, draft, 2, "<p>cv</p>", user_id=3)
     assert version.candidate_first_name == expected_name
     assert version.job_title == "Java Developer"
+
+
+# ── R9-N3-4: pakiet liczy „najnowszą” wersję w obrębie właściciela ────────
+
+
+def _package_with_two_surfaces(monkeypatch):
+    from hashlib import sha256
+
+    from app.models.candidate_stage_cv import CandidateStageCV
+    from app.models.cv_document_version import CvDocumentVersion
+    from app.models.cv_generated_draft import CvGeneratedDraft
+    from app.services import cv_packages as packages
+
+    policy = {"required_languages": ["pl"], "version": 1}
+    row = NS(
+        id=1,
+        language="pl",
+        status="ready",
+        filename="CV_pl.docx",
+        candidate_id=8,
+        job_id=9,
+        central_policy=policy,
+        package_review=None,
+        position="Developer",
+        content_mode="tailored",
+        render_payload={},
+    )
+
+    def version(pk, **owner):
+        html = f"<p>{pk}</p>"
+        return NS(
+            id=pk,
+            language="pl",
+            generated_document_id=1,
+            generated_owner_id=owner.get("generated_owner_id"),
+            candidate_stage_cv_id=owner.get("candidate_stage_cv_id"),
+            content_html=html,
+            content_sha256=sha256(html.encode()).hexdigest(),
+            docx_content=b"file",
+            docx_sha256=sha256(b"file").hexdigest(),
+            consent_content=None,
+            docx_filename="CV_pl.docx",
+        )
+
+    generator_version = version(11, generated_owner_id=1)
+    # Nowsza wersja zatwierdzona w CV etapu, do którego podpięto ten dokument.
+    stage_version = version(30, candidate_stage_cv_id=5)
+    by_id = {11: generator_version, 30: stage_version}
+    job = NS(status="complete", input_storage_key="cv/in.json", prepared_source_facts={})
+    monkeypatch.setattr(packages, "members", AsyncMock(return_value=(job, row, [row])))
+    db = AsyncMock()
+
+    async def scalar(query):
+        entity = query.column_descriptions[0]["entity"]
+        params = query.compile().params
+        if entity is CvDocumentVersion:
+            if "id_1" in params:
+                return by_id.get(params["id_1"])
+            if "generated_owner_id_1" in params:
+                return generator_version
+            if "candidate_stage_cv_id_1" in params:
+                return stage_version
+            return stage_version  # globalnie najnowsza po id
+        if entity is CvGeneratedDraft:
+            return NS(
+                branded_status="finalized",
+                branded_draft_html=generator_version.content_html,
+                edit_revision=1,
+            )
+        if entity is CandidateStageCV:
+            return NS(
+                branded_status="finalized",
+                branded_draft_html=stage_version.content_html,
+                edit_revision=1,
+            )
+        raise AssertionError(str(query))
+
+    db.scalar.side_effect = scalar
+
+    async def get(model, pk):
+        assert model is CvDocumentVersion
+        return by_id[pk]
+
+    db.get.side_effect = get
+    return packages, db, row
+
+
+async def test_generator_share_accepts_its_own_latest_version(monkeypatch):
+    packages, db, row = _package_with_two_surfaces(monkeypatch)
+    assert await packages.require_ready(db, row, 11) == {"pl": 11}
+
+
+async def test_stage_share_accepts_its_own_latest_version(monkeypatch):
+    packages, db, row = _package_with_two_surfaces(monkeypatch)
+    assert await packages.require_ready(db, row, 30) == {"pl": 30}
