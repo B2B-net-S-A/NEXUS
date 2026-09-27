@@ -376,6 +376,17 @@ class InvoiceLineError(ValueError):
     pass
 
 
+# Runda 10 (R10-N4-4): wszystkie znaki sterujące (C0, DEL, C1), nie tylko
+# ``\r\n\t``. Pionowy tabulator z miękkiego łamania wiersza w edytorze
+# przechodził do bazy i wywracał eksport XLSX (openpyxl odrzuca takie znaki).
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]+")
+
+
+def clean_line_text(text: Optional[str]) -> str:
+    """Tekst ręcznej poprawki pozycji: znaki sterujące → spacja, bez brzegów."""
+    return _CONTROL_CHARS_RE.sub(" ", text or "").strip()
+
+
 async def save_line(
     db: AsyncSession,
     order_id: int,
@@ -386,7 +397,7 @@ async def save_line(
     user_name: Optional[str],
 ) -> list[dict]:
     """Ręczna poprawka jednej linii; zwraca wszystkie linie zamówienia."""
-    cleaned = re.sub(r"[\r\n\t]+", " ", text or "").strip()
+    cleaned = clean_line_text(text)
     if not cleaned:
         raise InvoiceLineError("Pozycja faktury nie może być pusta.")
     if len(cleaned) > MAX_TEXT_CHARS:
