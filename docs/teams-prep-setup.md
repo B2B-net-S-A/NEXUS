@@ -184,7 +184,13 @@ transkryptu.
 Akcja `teams-prep-session-audit` w Coolify Ops działa tylko z `main` i tylko
 odczytuje nazwany test właściciela w kalendarzu Klaudii Uliasz. Weryfikuje
 unikalność wydarzenia, kontrolnych uczestników, opcje nagrywania i rzeczywistą
-treść VTT. Wynik zawiera kody HTTP i liczbę wypowiedzi; nie zawiera treści,
+treść transkryptu. Dodatnia kontrola kalendarza dotyczy organizatora tego
+konkretnego testu (Klaudii), a ujemna nadal wykluczonej skrzynki systemowej.
+Kontrole `teams-prep-config-audit` i `teams-prep-meeting-probe` osobno wymagają
+działającego dostępu Artura. Propagacja nowego członkostwa Artura nie blokuje
+więc odczytu transkryptu istniejącego prepu i nie zostaje uznana za zakończoną
+przez udany odczyt Klaudii.
+Wynik zawiera kody HTTP i liczbę wypowiedzi; nie zawiera treści,
 identyfikatorów spotkań, linków ani sekretów. Pusta lista lub pusty VTT nie
 przechodzą testu. Akcja nie tworzy ani nie odwołuje spotkań i nie zmienia
 uprawnień. Nagranie wideo i import do NEXUS mają osobne dowody odbioru.
