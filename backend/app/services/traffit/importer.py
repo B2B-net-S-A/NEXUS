@@ -333,6 +333,8 @@ class PhaseProgress:
     # („Zakończony”) i ilu nowym nadała kategorię kompetencji.
     archived: int = 0
     categorised: int = 0
+    # Runda 9 (R9-N15-7): przeliczone tytuły dla rekrutera (`working_title`).
+    working_titles: int = 0
     error_samples: list[str] = field(default_factory=list)
     # Stable per-row keys ("candidate:48895") for the errors we could attribute
     # to a specific source record. Consumed by the quarantine in
@@ -424,6 +426,7 @@ class PhaseProgress:
             "recruiter_detail_failed": self.recruiter_detail_failed,
             "archived": self.archived,
             "categorised": self.categorised,
+            "working_titles": self.working_titles,
             "error_samples": self.error_samples[:20],
             "error_refs": sorted(self.error_refs),
             "attributed_errors": self.attributed_errors,
@@ -2734,6 +2737,10 @@ class TraffitImporter:
         # DATA-01: opublikowane rekrutacje nowe albo ze zmienionym
         # tytułem/statusem — zdarzenie dla automatów.
         event_job_ids: list[int] = []
+        # Runda 9 (R9-N15-7): rekrutacje nowe albo ze zmienionym tytułem —
+        # tytuł dla rekrutera (`working_title`) liczy się też z `title`, a
+        # import go nie przeliczał.
+        working_title_job_ids: list[int] = []
         logger.info(
             "Jobs lookup maps: clients=%d workflows=%d users=%d",
             len(client_map),
@@ -2864,6 +2871,30 @@ class TraffitImporter:
                         progress, exc, batch="jobs", staged=since_commit
                     )
                 inserted_job_ids.clear()
+
+            if working_title_job_ids:
+                from app.services.job_working_title import (
+                    refresh_working_titles_for_ids,
+                )
+
+                try:
+                    async with self.db.begin_nested():
+                        progress.working_titles += (
+                            await refresh_working_titles_for_ids(
+                                self.db, list(working_title_job_ids)
+                            )
+                        )
+                except Exception as exc:  # noqa: BLE001
+                    # Tytuł dla rekrutera jest pomocniczy — jego awaria nie
+                    # zatrzymuje importu ani watermarku.
+                    logger.warning(
+                        "Jobs: przeliczenie tytułów dla rekrutera nie powiodło się (%s)",
+                        type(exc).__name__,
+                    )
+                    await self._recover_session(
+                        progress, exc, batch="jobs", staged=since_commit
+                    )
+                working_title_job_ids.clear()
 
             await self.db.commit()
             since_commit = 0
@@ -3036,6 +3067,12 @@ class TraffitImporter:
                                 )
                             )
                         )
+                        if was_insert or (
+                            not managed
+                            and previous is not None
+                            and previous[1] != payload.get("title")
+                        ):
+                            working_title_job_ids.append(int(row[0]))
                         if meaningful:
                             touched_job_ids.append(int(row[0]))
                             if not managed and payload.get("status") == "published":
@@ -3057,6 +3094,7 @@ class TraffitImporter:
                     event_job_ids.clear()
                     touched_job_ids.clear()
                     inserted_job_ids.clear()
+                    working_title_job_ids.clear()
                     since_commit = 0
                 continue
             if was_insert is None:
