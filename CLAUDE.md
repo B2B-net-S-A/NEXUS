@@ -7401,6 +7401,59 @@ Raport: `docs/audits/2026-09-25/runda-8.md`.
   (bramka, ekran, plakietka, kolejka prepów i przypomnienia 45 min / 2 h po
   rozmowie) — sam feedback bez pytań klienta rundy nie zamyka.
 
+### Runda 9 (27.09.2026, po PR #1870)
+
+Raport: `docs/audits/2026-09-25/runda-9.md`.
+
+- **`get_db` commituje PRZED wysłaniem odpowiedzi** (sesja na stosie
+  „function” FastAPI, nie „request”). Od FastAPI 0.141 zależność z `yield`
+  kończyła się po odpowiedzi i po `BackgroundTasks`: 2xx mimo nieudanego
+  commitu, połączenie „idle in transaction” przez zadanie w tle. Generator
+  `StreamingResponse` i zadanie w tle otwierają WŁASNĄ sesję — sesja żądania
+  jest już zamknięta. Flagę niezatwierdzonych zapisów czyści wyłącznie koniec
+  transakcji najwyższego poziomu (wycofanie SAVEPOINT-u jej nie kasuje).
+- **Nocne ścieżki nie rzucają nowych odmów** — wznowienie kontraktu ze skanu
+  idzie przez `sync_contract_to_live_order_nightly` (savepoint, pominięcie
+  przy 422), auto-aktywacja szkicu i podpis B2B pomijają kontrakt klienta
+  usuniętego/scalonego (`contract_client_is_gone`).
+- **Scalony klient nie przyjmuje zapisów zamówień** (`_assert_client(...,
+  for_write=True)` → 422 `client_merged`); odczyty i sprzątanie (zakończenie,
+  usunięcie, anulowanie) zostają.
+- **Scalanie kandydatów nigdy nie kasuje CV** — konflikt dwóch głównych CV
+  albo tej samej treści zdejmuje `is_primary`/odcisk, wiersz zostaje. Pola
+  blokujące (czarna lista, „tylko etat”, zgody) rozstrzyga reguła „bardziej
+  restrykcyjne wygrywa”.
+- **Usunięcie kandydata przenosi CV z bazy (BYTEA) do magazynu** i zapisuje
+  klucze w `retained_candidate_files` (0390, pseudonim zamiast id); magazyn
+  niedostępny przy CV w bazie = 409, nic się nie zmienia.
+- **Liga DL, cel DL, raport DL i Insights DL (decyzja Artura 27.09.2026):** DL
+  rekrutacji to AKTYWNE konto z rolą Delivery Leada; inaczej rekrutacja idzie
+  do głównego DL-a klienta (`job_delivery_lead_fill._HEADS`,
+  `reports._resolve_dl_id`, `insights_dl_scope.DL_HEAD_CTE`).
+- **Autofreeze nadrabia pominięte okresy** (3 miesiące, 2 kwartały wstecz) —
+  ale tylko kończące się ≥ `CATCH_UP_FROM` (30.09.2026, decyzja Artura).
+  Liga DL Q1 2026 i wyścig rekomendacji 07.2026 zostają dla admina.
+- **SSO z AAD RBAC nie reaktywuje konta, które admin jawnie wyłączył**
+  (`services/admin_active_decision.py`). E-mail użytkownika porównywany
+  i zapisywany małymi literami (`services/user_email.py`). Stan SSO niesie
+  `browser_nonce` (sessionStorage karty) — kod wymiany z cudzej przeglądarki
+  daje 410.
+- **Off-limits klienta usunięte w całości** (decyzja Artura 27.09.2026) —
+  karta, przegląd, warunki umowy i API ich nie niosą; kolumny zostają.
+- **Mail odrzucenia wychodzi ze skrzynki osoby, która odrzuca** (bez
+  połączenia M365 = `rejection_email_status: no_mailbox`, nic nie wychodzi).
+  Dostępność maila liczy jedna reguła po obu stronach
+  (`previous_is_client_visible` ↔ `lib/rejection-email.ts`).
+- **`/move` i `/bulk-move` dla osoby spoza rekrutacji** przyjmują wyłącznie
+  kolumny „Nowi”/„Screening” (422 w innych) z twardą bramką czarnej listy
+  i weta. Weto HM, przepięcia i „Klient milczy” liczą się z KOLUMNY docelowej.
+- **Odczyt PDF (CV, formularz kariery, poczta zamówień) w osobnym procesie**
+  z limitem pamięci 1,5 GB i czasu 150 s (`cv_text_extractor`).
+- **Pytania z archiwum rozmów (bez autora) edytuje tylko admin albo HoR**;
+  pytań `legacy_import`/`client_debrief` nie da się przenieść do innego klienta.
+- **Admin/DL czytają cudzy mail wyłącznie powiązany z kandydatem**
+  (`_can_access_email`).
+
 ## Narzędzia rekrutera — reguły po audycie 17.09.2026
 
 Audyt `docs/recruiter-tools-audit-2026-09-17.md`, raport z poprawek
