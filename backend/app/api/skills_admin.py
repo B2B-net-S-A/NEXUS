@@ -43,7 +43,8 @@ class MapTermRequest(BaseModel):
 
 
 def _curation_error(exc: skill_curation.CurationError) -> HTTPException:
-    return HTTPException(status_code=400, detail=str(exc))
+    status_code = 409 if isinstance(exc, skill_curation.CurationConflict) else 400
+    return HTTPException(status_code=status_code, detail=str(exc))
 
 
 @router.get("/skills")

@@ -81,7 +81,9 @@ def normalize_rules(raw: Optional[Mapping[str, Any]]) -> dict[str, Any]:
             continue
         try:
             number = int(value)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
+            # Runda 9 (R9-N13-9): JSON `1e999` to float('inf') — int() rzucał
+            # OverflowError i zapis reguł kończył się 500.
             continue
         low, high = _INT_BOUNDS[key]
         rules[key] = min(max(number, low), high)

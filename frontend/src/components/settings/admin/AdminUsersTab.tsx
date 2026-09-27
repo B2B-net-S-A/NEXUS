@@ -24,7 +24,6 @@ import {
   AdminUser,
   UserFormData,
   ROLE_LABELS,
-  RECRUITER_ROLE_LABELS,
   formatDate,
 } from "./types";
 import { UserModal } from "./UserModal";
@@ -76,7 +75,6 @@ export function AdminUsersTab({ embedded = false }: AdminUsersTabProps = {}) {
       adminApi.createUser({
         ...data,
         roles: data.roles,
-        recruiter_role: data.recruiter_role || null,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-users"] });
@@ -89,7 +87,6 @@ export function AdminUsersTab({ embedded = false }: AdminUsersTabProps = {}) {
       adminApi.updateUser(id, {
         ...data,
         roles: data.roles,
-        recruiter_role: data.recruiter_role || null,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-users"] });
@@ -182,7 +179,6 @@ export function AdminUsersTab({ embedded = false }: AdminUsersTabProps = {}) {
           name: data.name,
           role: data.role,
           roles: data.roles,
-          recruiter_role: data.recruiter_role,
           can_delete_clients: data.can_delete_clients,
           ...(data.clear_microsoft_identity
             ? { clear_microsoft_identity: true }
@@ -310,7 +306,6 @@ export function AdminUsersTab({ embedded = false }: AdminUsersTabProps = {}) {
                   <th className="sticky left-0 z-10 bg-muted dark:bg-card px-4 py-3 text-left font-semibold text-foreground">Imię</th>
                   <th className="px-4 py-3 text-left font-semibold text-foreground">Email</th>
                   <th className="px-4 py-3 text-left font-semibold text-foreground">Rola</th>
-                  <th className="px-4 py-3 text-left font-semibold text-foreground">Rola rekrutacyjna</th>
                   <th className="px-4 py-3 text-left font-semibold text-foreground">Status</th>
                   <th className="px-4 py-3 text-left font-semibold text-foreground">Ostatnia aktywność</th>
                   <th className="px-4 py-3 text-right font-semibold text-foreground">Akcje</th>
@@ -349,9 +344,6 @@ export function AdminUsersTab({ embedded = false }: AdminUsersTabProps = {}) {
                           </span>
                         )}
                       </div>
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground dark:text-muted-foreground">
-                      {u.recruiter_role ? (RECRUITER_ROLE_LABELS[u.recruiter_role] ?? u.recruiter_role) : "—"}
                     </td>
                     <td className="px-4 py-3">
                       <span
@@ -421,7 +413,7 @@ export function AdminUsersTab({ embedded = false }: AdminUsersTabProps = {}) {
                 ))}
                 {displayedUsers.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">
+                    <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
                       {filtersActive
                         ? "Brak użytkowników pasujących do filtrów"
                         : "Brak użytkowników"}
