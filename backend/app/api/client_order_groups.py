@@ -184,7 +184,11 @@ from app.services.client_order_lines import (
     sync_md_line_status,
     upsert_consumption,
 )
-from app.services.client_access import deny, resolve_client_access
+from app.services.client_access import (
+    assert_client_assignable,
+    deny,
+    resolve_client_access,
+)
 from app.services.candidate_identity_quarantine import normalize_person_name_part
 from app.services.cost_orders import (
     assert_cost_order_client,
@@ -392,12 +396,20 @@ async def _canonical_currency_rate(
     return (value * factor).quantize(Decimal("0.01"))
 
 
-async def _assert_client(db: AsyncSession, client_id: int) -> Client:
+async def _assert_client(
+    db: AsyncSession, client_id: int, *, for_write: bool = False
+) -> Client:
     client = await db.scalar(select(Client).where(Client.id == client_id))
     # Klient usunięty z profilu (0307): historia zostaje w bazie, ale nowych
     # zamówień i zmian przez jego (nieistniejący już) profil nie przyjmujemy.
     if client is None or client.deleted_at is not None:
         raise HTTPException(404, detail="Client not found")
+    if for_write and getattr(client, "merged_into_client_id", None) is not None:
+        # Runda 9 (R9-V1-1): scalony duplikat jest ukryty jak usunięty klient,
+        # a zapis zamówienia przez jego stary profil (karta otwarta przed
+        # scaleniem, wywołanie API) zakładał zamówienie, którego nie widać
+        # w żadnym rejestrze. Odczyt zostaje — to historia.
+        await assert_client_assignable(db, client_id)
     return client
 
 
@@ -828,14 +840,16 @@ def _has_order_lifecycle_role(user: User) -> bool:
 
 
 async def _require_order_lifecycle(
-    db: AsyncSession, user: User, client_id: int
+    db: AsyncSession, user: User, client_id: int, *, for_write: bool = False
 ) -> None:
     """Bramka czterech akcji cyklu życia zamówienia.
 
     Nie reużywa wąskiego guarda przypisań, bo Delivery Lead zarządza operacyjnie
     wszystkimi klientami, a Finance ma te akcje przez ``MANAGE_FINANCE``.
+    ``for_write`` — akcja, która wskrzesza albo zakłada zamówienie
+    (przywrócenie, przedłużenie), odmawia u klienta scalonego (R9-V1-1).
     """
-    await _assert_client(db, client_id)
+    await _assert_client(db, client_id, for_write=for_write)
     if not _has_order_lifecycle_role(user):
         raise deny("ta akcja wymaga roli zarządzającej zamówieniami")
     if user.has_role(UserRole.admin) or (
@@ -3117,7 +3131,7 @@ async def replace_order_group_file(
 ):
     """Zapisz master PDF i upsertuj jego kopię na każdym kontrakcie z grupy."""
 
-    await _assert_client(db, client_id)
+    await _assert_client(db, client_id, for_write=True)
     if not await _can_see_finance(db, user, client_id):
         raise deny("plik zamówienia z kwotami wymaga przypisania do klienta")
     _assert_multi_client(client_id)
@@ -3252,7 +3266,7 @@ async def create_order_group(
         await _assert_line_finance_write_allowed(
             db, user, client_id, {"md_budget_total"}
         )
-    await _assert_client(db, client_id)
+    await _assert_client(db, client_id, for_write=True)
     _assert_multi_client(client_id)
     if payload.end_date and payload.end_date < payload.start_date:
         raise HTTPException(422, detail="Data zakończenia jest wcześniejsza niż start")
@@ -3524,7 +3538,7 @@ async def update_order_group(
 ):
     """Edycja numeru i okresu zamówienia (bez dotykania linii)."""
     _assert_finance_manager_amounts_only(user, payload.model_fields_set)
-    await _assert_client(db, client_id)
+    await _assert_client(db, client_id, for_write=True)
     _assert_multi_client(client_id)
     group = await _load_group(db, client_id, group_id)
     _assert_group_not_cancelled(group)
@@ -4382,7 +4396,7 @@ async def reopen_order_group(
     przywrócenie zostawiłoby zamówienie z zerową pulą, które i tak niczego nie
     przyjmie. Zaplanowane (``scheduled``) też zwraca 409 — patrz niżej.
     """
-    await _require_order_lifecycle(db, user, client_id)
+    await _require_order_lifecycle(db, user, client_id, for_write=True)
     _assert_multi_client(client_id)
     group = await _load_group(db, client_id, group_id)
 
@@ -4710,7 +4724,7 @@ async def restore_order_group(
     wraca jako ``completed`` — przywrócenie nie wskrzesza współpracy, która
     w międzyczasie się skończyła.
     """
-    await _require_order_lifecycle(db, user, client_id)
+    await _require_order_lifecycle(db, user, client_id, for_write=True)
     _assert_multi_client(client_id)
     group = await _load_group(db, client_id, group_id)
     if group.status != GROUP_STATUS_CANCELLED:
@@ -4870,7 +4884,7 @@ async def extend_order_group(
                 "md_budget_total",
             },
         )
-    await _require_order_lifecycle(db, user, client_id)
+    await _require_order_lifecycle(db, user, client_id, for_write=True)
     _assert_multi_client(client_id)
     source = await _load_group(db, client_id, group_id)
     _assert_group_not_cancelled(source)
@@ -5085,7 +5099,7 @@ async def _group_accepting_lines(
     await _assert_line_finance_write_allowed(
         db, user, client_id, {"rate_cost", "rate_revenue"}
     )
-    await _assert_client(db, client_id)
+    await _assert_client(db, client_id, for_write=True)
     _assert_multi_client(client_id)
     group = await _load_group(db, client_id, group_id)
     # Wyczerpane/zakończone zamówienie nie przyjmuje nowych konsultantów.
@@ -5251,7 +5265,7 @@ async def update_line(
     supplied = payload.model_fields_set
     _assert_finance_manager_amounts_only(user, supplied)
     await _assert_line_finance_write_allowed(db, user, client_id, set(supplied))
-    await _assert_client(db, client_id)
+    await _assert_client(db, client_id, for_write=True)
     _assert_multi_client(client_id)
     group = await _load_group(db, client_id, group_id)
     _assert_group_not_cancelled(group)
@@ -5933,7 +5947,7 @@ async def take_over_consultant(
     await _assert_line_finance_write_allowed(
         db, user, client_id, {"rate_cost", "rate_revenue"}
     )
-    await _assert_client(db, client_id)
+    await _assert_client(db, client_id, for_write=True)
     _assert_multi_client(client_id)
     if not await _has_md_line_management_access(db, user, client_id):
         raise deny(
@@ -6246,7 +6260,7 @@ async def swap_consultant(
     await _assert_line_finance_write_allowed(
         db, user, client_id, {"rate_cost", "rate_revenue"}
     )
-    await _assert_client(db, client_id)
+    await _assert_client(db, client_id, for_write=True)
     _assert_multi_client(client_id)
     group = await _load_group(db, client_id, group_id)
     _assert_group_not_cancelled(group)
