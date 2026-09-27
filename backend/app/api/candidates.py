@@ -25,6 +25,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import FileResponse, StreamingResponse
+from starlette.background import BackgroundTask
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 from sqlalchemy import (
     ARRAY,
@@ -1463,6 +1464,25 @@ def _sort_prefix_exprs(filters: CandidateFilterSpec):
             rate_active=filters.min_rate is not None or filters.max_rate is not None,
         )
     return preferred_rank, unknown_rank
+
+
+def order_by_id_list(query, ids: list[int]):
+    """Posortuj ``select(Candidate…)`` w kolejności listy identyfikatorów.
+
+    Runda 9 (R9-N14-3): ``array_position`` przeszukuje tablicę od początku dla
+    KAŻDEGO wiersza — przy eksporcie kilkudziesięciu tysięcy osób w kolejności
+    „Dopasowanie” to kwadratowy koszt sortowania. ``unnest … WITH ORDINALITY``
+    daje pozycję złączeniem, a LEFT JOIN zostawia wiersze spoza listy na końcu
+    (jak NULL z ``array_position``), z ``id`` jako stabilnym rozstrzygnięciem.
+    """
+    position = (
+        func.unnest(literal(list(ids), type_=ARRAY(Integer)))
+        .table_valued("candidate_id", with_ordinality="position")
+        .render_derived(name="id_order")
+    )
+    return query.outerjoin(position, position.c.candidate_id == Candidate.id).order_by(
+        position.c.position.asc().nullslast(), Candidate.id.asc()
+    )
 
 
 def _apply_requested_sort(
@@ -3168,27 +3188,36 @@ async def export_candidates(
 
     filename = f"candidates_{ts}.csv"
     return StreamingResponse(
-        _stream_candidate_csv(db, query),
+        _stream_candidate_csv(query),
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
-async def _stream_candidate_csv(db: AsyncSession, query):
-    """Yield bounded CSV chunks while candidates are streamed from Postgres."""
+async def _stream_candidate_csv(query):
+    """Yield bounded CSV chunks while candidates are streamed from Postgres.
+
+    Runda 9 (R9-X1-2): własna sesja. Sesja żądania (``get_db``) zamyka się
+    przed wysłaniem odpowiedzi, a ten generator biegnie dopiero w trakcie jej
+    wysyłania — zamknięta sesja pobrałaby nowe połączenie, którego nikt by
+    nie zwolnił.
+    """
     import csv
     from io import StringIO
+
+    from app.core.database import AsyncSessionLocal
 
     buffer = StringIO()
     writer = csv.writer(buffer, quoting=csv.QUOTE_MINIMAL)
     writer.writerow(_EXPORT_COLUMNS)
-    stream = await db.stream_scalars(query.execution_options(yield_per=500))
-    async for candidate in stream:
-        writer.writerow(_row_for_export(candidate))
-        if buffer.tell() >= 64 * 1024:
-            yield buffer.getvalue()
-            buffer.seek(0)
-            buffer.truncate(0)
+    async with AsyncSessionLocal() as stream_db:
+        stream = await stream_db.stream_scalars(query.execution_options(yield_per=500))
+        async for candidate in stream:
+            writer.writerow(_row_for_export(candidate))
+            if buffer.tell() >= 64 * 1024:
+                yield buffer.getvalue()
+                buffer.seek(0)
+                buffer.truncate(0)
     if buffer.tell():
         yield buffer.getvalue()
 
@@ -3309,12 +3338,7 @@ async def export_candidates_v2(
             if match_ids is None:
                 export_filters = export_filters.model_copy(update={"sort": "newest"})
         if match_ids is not None:
-            query = query.order_by(
-                func.array_position(
-                    literal(list(match_ids), type_=ARRAY(Integer)), Candidate.id
-                ).asc(),
-                Candidate.id.asc(),
-            )
+            query = order_by_id_list(query, match_ids)
         else:
             query = _apply_candidate_sort(
                 query,
@@ -3353,7 +3377,7 @@ async def export_candidates_v2(
         )
 
     return StreamingResponse(
-        _stream_candidate_csv(db, query),
+        _stream_candidate_csv(query),
         media_type="text/csv; charset=utf-8",
         headers=headers,
     )
@@ -3446,21 +3470,25 @@ async def create_candidate(
             db.add(notif)
             notif_ids.append((mgr.id, notif))
     await db.flush()
+    # Runda 9 (R9-N2-5): zdarzenie wychodzi dopiero po commicie żądania.
+    from app.services.notification_ws_after_commit import queue_ws_notification
+
     for mgr_id, notif in notif_ids:
-        await ws_manager.notify_user(
-            mgr_id,
-            {
-                "type": "notification",
-                "data": {
-                    "id": notif.id,
-                    "title": notif.title,
-                    "message": notif.message,
-                    "link": notif.link,
-                    "notification_type": NotificationType.candidate_added.value,
-                    "created_at": datetime.now(timezone.utc).isoformat(),
-                },
+        payload = {
+            "type": "notification",
+            "data": {
+                "id": notif.id,
+                "title": notif.title,
+                "message": notif.message,
+                "link": notif.link,
+                "notification_type": NotificationType.candidate_added.value,
+                "created_at": datetime.now(timezone.utc).isoformat(),
             },
-        )
+        }
+        if not queue_ws_notification(
+            db, user_id=mgr_id, event_payload=payload, row=notif
+        ):
+            await ws_manager.notify_user(mgr_id, payload)
 
     await db.refresh(candidate)
     # Phase 7.6 — fire-and-forget Teams card to all subscribed channels.
@@ -4879,6 +4907,37 @@ async def remove_candidate_from_recruitment(
             detail="Ten kandydat nie bierze udziału w tej rekrutacji.",
         )
 
+    # Runda 9 (R9-N11-5): usunięcie to też ruch osoby — blokada 12 h
+    # („Nowi”/„Screening” zarezerwowane przez kogoś innego) obowiązuje jak
+    # przy `/move`. Admin, DL i HoR przechodzą (`candidate_claim.can_override`).
+    from app.services import candidate_claim
+
+    await candidate_claim.assert_can_act(
+        db,
+        process=await candidate_claim.load_process(
+            db, candidate_id=candidate_id, job_id=job_id
+        ),
+        user=current_user,
+    )
+    # Runda 9 (R9-N11-5): weto hiring managera liczy się z wierszy
+    # `rejected` po spotkaniu z nim. Usunięcie osoby z rekrutacji, w której
+    # HM ją odrzucił, kasowało te wiersze — i razem z nimi weto we wszystkich
+    # rekrutacjach tego managera. Zdejmuje je wyłącznie admin albo HoR.
+    if not current_user.has_any_role(UserRole.admin, UserRole.head_of_recruitment):
+        from app.services.hiring_manager_verdicts import pair_carries_manager_veto
+
+        if await pair_carries_manager_veto(
+            db, candidate_id=candidate_id, job_id=job_id
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Nie można usunąć — hiring manager odrzucił tę osobę "
+                    "po rozmowie w tej rekrutacji, a usunięcie zdjęłoby "
+                    "jego weto. Zrobi to admin albo Head of Recruitment."
+                ),
+            )
+
     # Resource scope: to najbardziej destrukcyjna trasa w module — kasuje
     # WSZYSTKIE `CandidateStage` pary, a kaskadą snapshoty CV, share-tokeny i
     # zaplanowane maile odrzucenia. Guard `hired`/kontrakt niżej ogranicza CO
@@ -5439,6 +5498,9 @@ _EMBEDDING_TEXT_FIELDS = frozenset(
 )
 
 
+_MISSING = object()
+
+
 @router.patch("/{candidate_id}", response_model=CandidateResponse)
 async def update_candidate(
     candidate_id: int,
@@ -5519,8 +5581,29 @@ async def update_candidate(
         # NOWY obiekt → ORM widzi zmianę; flag_modified zbędne.
         updates["preferences"] = current
 
+    # Runda 9 (R9-N8-8): e-mail innego kandydata dawał IntegrityError → 500.
+    # Ta sama odmowa co przy zakładaniu (POST); SAVEPOINT niżej łapie wyścig.
+    duplicate_message = "Kandydat z tym adresem e-mail już istnieje."
+    new_email = updates.get("email")
+    if new_email and new_email != candidate.email:
+        if await db.scalar(
+            select(Candidate.id).where(
+                Candidate.email == new_email, Candidate.id != candidate.id
+            )
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail=duplicate_message
+            )
+
+    office_days = updates.pop("max_onsite_days_per_week", _MISSING)
     for field, value in updates.items():
         setattr(candidate, field, value)
+    if office_days is not _MISSING:
+        from app.services.candidate_notes_facts import set_office_days_limit
+
+        # Runda 9 (R9-N8-5): zmiana limitu dni czyści zgodę na więcej dni.
+        set_office_days_limit(candidate, office_days)
+        updates["max_onsite_days_per_week"] = office_days
     activity = Activity(
         entity_type="candidate",
         entity_id=candidate.id,
@@ -5541,7 +5624,15 @@ async def update_candidate(
     # could get overwritten by the in-memory state read. Flush first, then
     # reload with eager-loaded relations so `_derive_employment` sees current
     # contracts/conflicts.
-    await db.flush()
+    try:
+        async with db.begin_nested():
+            await db.flush()
+    except IntegrityError as exc:
+        if new_email and "email" in str(exc.orig):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail=duplicate_message
+            ) from exc
+        raise
 
     # Re-embed when embedding-text fields changed (AI-P0-04). Without this, the
     # profile-edit PATCH updated the row but left the vector index on stale
@@ -5732,6 +5823,31 @@ async def delete_candidate(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
         ) from exc
+
+    # Runda 9 (R9-N7-12): CV trzymane w bazie znikały z kaskadą, a klucze
+    # plików w magazynie traciły jedyny wskaźnik. Najpierw kopia i rejestr
+    # (pod pseudonimem), dopiero potem cokolwiek innego — bez magazynu przy CV
+    # w bazie odmawiamy, zanim coś zmienimy.
+    from app.services.candidate_cv_retention import (
+        CvRetentionUnavailable,
+        retain_candidate_files,
+    )
+
+    try:
+        cv_files_retained = await retain_candidate_files(
+            db, candidate_id, subject_ref=subject_ref, storage_keys=storage_keys
+        )
+    except CvRetentionUnavailable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "cv_retention_unavailable",
+                "message": (
+                    "Nie można teraz usunąć kandydata: jego CV zapisane w bazie "
+                    "nie dały się przenieść do magazynu plików. Spróbuj później."
+                ),
+            },
+        ) from exc
     contracts_detached = (
         await db.execute(
             update(Contract)
@@ -5867,6 +5983,7 @@ async def delete_candidate(
             "operation": "hard_delete",
             "contracts_detached": contracts_detached,
             "storage_objects_kept": len(storage_keys),
+            "cv_files_retained": cv_files_retained,
             "storage_cleanup": "scheduled",
             "share_tokens_revoked": tokens_revoked,
             "subject_ref": subject_ref,
@@ -6086,10 +6203,12 @@ async def _store_candidate_document(
             )
             file_content = None
     except Exception as exc:  # pragma: no cover - storage fallback
+        # Runda 9 (R9-N7-8): komunikat wyjątku magazynu niesie URL z kluczem
+        # (nazwa pliku CV = imię i nazwisko) — do logu tylko klasa wyjątku.
         logger.warning(
             "[candidate_documents] storage upload failed candidate=%s: %s",
             candidate_id,
-            exc,
+            type(exc).__name__,
         )
 
     document = CandidateDocument(
@@ -6144,6 +6263,15 @@ async def _candidate_document_bytes(
             return await asyncio.to_thread(download_cv, document.storage_key)
     await db.refresh(document, attribute_names=["file_content"])
     return document.file_content or b""
+
+
+async def _relock_candidate(db: AsyncSession, candidate_id: int) -> Optional[Candidate]:
+    return await db.scalar(
+        select(Candidate)
+        .where(Candidate.id == candidate_id)
+        .execution_options(populate_existing=True)
+        .with_for_update()
+    )
 
 
 async def _enrich_candidate_from_document_task(
@@ -6202,6 +6330,12 @@ async def _enrich_candidate_from_document_task(
             # `_assert_declared`. `db=` włącza kwotę na PŁATNYM kroku wewnątrz
             # parsera — wyczerpana gasi tylko Claude'a, fallbacki zostają.
             parsed = await parse_cv(raw_text, db=db, user_id=actor_user_id)
+            # Runda 9 (R9-N8-4): odczyt modelu trwa, a rekruter w tym czasie
+            # edytuje profil — zapis idzie na świeżo odczytanym, zablokowanym
+            # wierszu, nie na kopii sprzed wywołania modelu.
+            candidate = await _relock_candidate(db, candidate_id)
+            if candidate is None:
+                return
 
             current_primary = await db.scalar(
                 select(CandidateDocument.id).where(
@@ -6314,7 +6448,13 @@ async def _enrich_candidate_cv_task(
             if not candidate or not candidate.raw_cv_text:
                 return
 
-            parsed = await parse_cv(candidate.raw_cv_text, db=db, user_id=actor_user_id)
+            parsed_text = candidate.raw_cv_text
+            parsed = await parse_cv(parsed_text, db=db, user_id=actor_user_id)
+            # Runda 9 (R9-N8-4): świeży, zablokowany wiersz po wywołaniu modelu;
+            # tekst zmieniony w międzyczasie = odczyt nieaktualny, nic nie piszemy.
+            candidate = await _relock_candidate(db, candidate_id)
+            if candidate is None or candidate.raw_cv_text != parsed_text:
+                return
             if source_document_id is not None:
                 still_primary = (
                     await db.execute(
@@ -6714,8 +6854,13 @@ def _sanitize_upload_filename(raw_filename: Optional[str], *, fallback: str) -> 
     """
     import pathlib
 
+    from app.api.public_share import _fit_filename
+
     name = pathlib.Path((raw_filename or "").strip()).name
-    return name or fallback
+    # Runda 9 (R9-N7-3): nazwa trafia na dysk jako `candidate_<id>_<nazwa>`,
+    # a nazwa pliku ma limit 255 BAJTÓW — CV z długą polską nazwą dawało
+    # `ENAMETOOLONG` = 500. Ta sama reguła co formularz kariery.
+    return _fit_filename(name) if name else fallback
 
 
 def _candidate_cv_disk_path(
@@ -7118,6 +7263,13 @@ async def bulk_cv_download(
 
     Skips candidates without an uploaded CV or missing file on disk and reports
     them in the `_manifest.txt` entry included at the archive root.
+
+    Runda 9 (R9-N7-6): CV bierze się z GŁÓWNEGO dokumentu kandydata
+    (``cv_source.get_current_cv`` — ta sama reguła co generator i kopie etapów),
+    a stare pola ``cv_filename``/``cv_storage_key`` są tylko zapasem. Do tej
+    zmiany paczka oddawała CV sprzed wgrania nowej wersji albo „brak CV” osobie,
+    która ma plik w dokumentach. Archiwum powstaje w pliku tymczasowym, nie
+    w pamięci procesu webowego (200 CV po kilka MB).
     """
     requested_ids = list(dict.fromkeys(payload.candidate_ids))
 
@@ -7128,111 +7280,106 @@ async def bulk_cv_download(
     included = 0
     skipped = 0
 
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_STORED) as zf:
-        for cid in requested_ids:
-            candidate = candidates_by_id.get(cid)
-            if candidate is None:
-                manifest_rows.append(f"{cid}\t\t\t\tskipped_not_found")
-                skipped += 1
-                continue
-            if not candidate.cv_filename:
-                manifest_rows.append(
-                    f"{cid}\t{candidate.name}\t{candidate.lastname}\t\tskipped_no_cv"
-                )
-                skipped += 1
-                continue
+    tmp = tempfile.NamedTemporaryFile(prefix="nexus-cvs-", suffix=".zip", delete=False)
+    tmp.close()
+    archive_path = tmp.name
+    try:
+        with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_STORED) as zf:
+            for cid in requested_ids:
+                candidate = candidates_by_id.get(cid)
+                if candidate is None:
+                    manifest_rows.append(f"{cid}\t\t\t\tskipped_not_found")
+                    skipped += 1
+                    continue
 
-            # Niebezpieczna nazwa = brak pliku na dysku; CV może nadal przyjść
-            # z object storage albo BYTEA niżej.
-            file_path = _candidate_cv_disk_path(candidate.id, candidate.cv_filename)
-            data: bytes | None = None
-            if file_path is not None and os.path.exists(file_path):
-                try:
-                    async with aiofiles.open(file_path, "rb") as f:
-                        data = await f.read()
-                except OSError as err:
-                    # Ścieżka niesie nazwę pliku CV (imię i nazwisko) — do logu
-                    # tylko id kandydata i klasa błędu (runda 6 audytu).
-                    logger.warning(
-                        "bulk_cv_download: failed to read CV of candidate=%s: %s",
-                        candidate.id,
-                        type(err).__name__,
+                data, filename = await _bulk_cv_bytes(db, candidate)
+                if data is None:
+                    status_label = (
+                        "skipped_file_missing"
+                        if candidate.cv_filename
+                        else "skipped_no_cv"
                     )
-            elif candidate.cv_storage_key:
-                # Round 2 migracja (audit-2026-05-07): CV w Hetzner Object Storage.
-                from app.services.object_storage import (
-                    download_cv as _download_cv,
-                    is_available as _storage_available,
+                    manifest_rows.append(
+                        f"{cid}\t{candidate.name}\t{candidate.lastname}\t"
+                        f"{candidate.cv_filename or ''}\t{status_label}"
+                    )
+                    skipped += 1
+                    continue
+
+                ext = os.path.splitext(filename or "")[1] or ".pdf"
+                entry_name = (
+                    f"{_sanitize_zip_component(candidate.lastname)}_"
+                    f"{_sanitize_zip_component(candidate.name)}_"
+                    f"{candidate.id}{_sanitize_zip_component(ext)}"
                 )
-
-                if _storage_available():
-                    try:
-                        # Sync boto3 download — offload so the loop is not
-                        # blocked for each of up to 200 CVs in this bulk request.
-                        data = await asyncio.to_thread(
-                            _download_cv, candidate.cv_storage_key
-                        )
-                    except Exception as err:
-                        logger.warning(
-                            "bulk_cv_download: storage fetch failed for %s: %s",
-                            candidate.id,
-                            err,
-                        )
-                # Fallback do BYTEA jeśli storage nie odpowiada — przed
-                # finalize-delete-bytea oba mogą współistnieć.
-                if data is None and candidate.cv_file_content:
-                    data = candidate.cv_file_content
-            elif candidate.cv_file_content:
-                data = candidate.cv_file_content
-
-            if data is None:
+                await asyncio.to_thread(zf.writestr, entry_name, data)
                 manifest_rows.append(
                     f"{cid}\t{candidate.name}\t{candidate.lastname}\t"
-                    f"{candidate.cv_filename}\tskipped_file_missing"
+                    f"{filename}\tincluded"
                 )
-                skipped += 1
-                continue
+                included += 1
 
-            ext = os.path.splitext(candidate.cv_filename)[1] or ".pdf"
-            entry_name = (
-                f"{_sanitize_zip_component(candidate.lastname)}_"
-                f"{_sanitize_zip_component(candidate.name)}_"
-                f"{candidate.id}{ext}"
-            )
-            zf.writestr(entry_name, data)
-            manifest_rows.append(
-                f"{cid}\t{candidate.name}\t{candidate.lastname}\t"
-                f"{candidate.cv_filename}\tincluded"
-            )
-            included += 1
+            zf.writestr("_manifest.txt", "\n".join(manifest_rows) + "\n")
 
-        zf.writestr("_manifest.txt", "\n".join(manifest_rows) + "\n")
-
-    candidate_audit.record_candidate_audit(
-        db,
-        action=candidate_audit.BULK_CV_DOWNLOADED,
-        user_id=current_user.id,
-        details={
-            "requested_count": len(requested_ids),
-            "included_count": included,
-            "skipped_count": skipped,
-        },
-    )
-    await db.commit()
+        candidate_audit.record_candidate_audit(
+            db,
+            action=candidate_audit.BULK_CV_DOWNLOADED,
+            user_id=current_user.id,
+            details={
+                "requested_count": len(requested_ids),
+                "included_count": included,
+                "skipped_count": skipped,
+            },
+        )
+        await db.commit()
+    except BaseException:
+        os.remove(archive_path)
+        raise
 
     archive_name = _bulk_cv_archive_name()
     headers = {
-        "Content-Disposition": f'attachment; filename="{archive_name}"',
         "X-Included-Count": str(included),
         "X-Skipped-Count": str(skipped),
         "Access-Control-Expose-Headers": "Content-Disposition, X-Included-Count, X-Skipped-Count",
     }
-    return Response(
-        content=buffer.getvalue(),
+    return FileResponse(
+        archive_path,
         media_type="application/zip",
+        filename=archive_name,
         headers=headers,
+        background=BackgroundTask(os.remove, archive_path),
     )
+
+
+async def _bulk_cv_bytes(
+    db: AsyncSession, candidate: Candidate
+) -> tuple[Optional[bytes], Optional[str]]:
+    """Bajty i nazwa CV kandydata do paczki: główny dokument, potem stare pola."""
+    from app.services.cv_source import get_current_cv
+
+    current = await get_current_cv(db, candidate)
+    if current is not None and current.source.startswith("document_"):
+        return current.content, current.filename
+
+    # Stary zapis na dysku (`candidate_<id>_<cv_filename>`), którego
+    # `get_current_cv` nie zna. Niebezpieczna nazwa = brak pliku na dysku.
+    if candidate.cv_filename:
+        file_path = _candidate_cv_disk_path(candidate.id, candidate.cv_filename)
+        if file_path is not None and os.path.exists(file_path):
+            try:
+                async with aiofiles.open(file_path, "rb") as f:
+                    return await f.read(), candidate.cv_filename
+            except OSError as err:
+                # Ścieżka niesie nazwę pliku CV (imię i nazwisko) — do logu
+                # tylko id kandydata i klasa błędu (runda 6 audytu).
+                logger.warning(
+                    "bulk_cv_download: failed to read CV of candidate=%s: %s",
+                    candidate.id,
+                    type(err).__name__,
+                )
+    if current is not None:
+        return current.content, current.filename
+    return None, None
 
 
 @router.post("/bulk-import", status_code=status.HTTP_201_CREATED)
@@ -7689,6 +7836,15 @@ async def assign_candidate_cc(
     )
     if not cc:
         raise HTTPException(status_code=404, detail="Competence Category not found")
+    # Runda 9 (R9-N8-13): nieistniejący kandydat dawał naruszenie FK → 500.
+    # Blokada wiersza szereguje też dwa równoległe „główna kategoria”.
+    if (
+        await db.scalar(
+            select(Candidate.id).where(Candidate.id == candidate_id).with_for_update()
+        )
+        is None
+    ):
+        raise HTTPException(status_code=404, detail="Nie znaleziono kandydata.")
 
     # If assigning as primary: clear previous primary for this candidate
     if body.is_primary:

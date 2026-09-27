@@ -182,6 +182,18 @@ async def _resolve_client_principal(
     user = result.scalar_one_or_none()
     if user is None or not user.is_active:
         raise credentials_exception
+    # Runda 9 (R9-N9-1): ta sama reguła co ``_validate_acting_user`` przy
+    # zapisie klienta — ale sprawdzana przy KAŻDYM żądaniu. Konto integracji,
+    # któremu ktoś później dopisał rolę admina, robiło z klienta OAuth trwałego,
+    # bezosobowego admina (sekret przeżywa odejście autora).
+    if user.has_role(UserRole.admin):
+        logger.warning(
+            "oauth client refused — acting user holds admin role "
+            "oauth_client_id=%s user_id=%s",
+            client.client_id,
+            user.id,
+        )
+        raise credentials_exception
 
     scopes = set((payload.get("scope") or "").split()) & set(client.scopes or [])
     # Odczyt/zapis wg tej samej klasyfikacji co sekcje i podgląd — POST-y

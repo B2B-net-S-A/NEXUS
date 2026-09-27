@@ -92,7 +92,10 @@ def requirements_for_job(job) -> MatchingRequirements:
 # `work_time_fit`), nie ukrywa.
 # v6 (25.09.2026): polskie słowa i litery z surowego CV („różni”, „jest”)
 # przestały być znanymi umiejętnościami R/C/Jest/Go (`is_technology_mention`).
-MUST_GATE_POLICY_VERSION = "known-technology-gap-v6"
+# v7 (27.09.2026, runda 9 R9-N8-6): „wyłącznie zdalnie” z notatek nie ukrywa
+# osoby, która ma w profilu jawny tryb pracy, limit dni w biurze albo zgodę
+# na więcej dni.
+MUST_GATE_POLICY_VERSION = "known-technology-gap-v7"
 
 
 def search_dealbreaker_inputs(job, *, exclude_missing_must: bool | None = None):

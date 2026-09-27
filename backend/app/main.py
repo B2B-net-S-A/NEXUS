@@ -949,6 +949,13 @@ app.add_middleware(
     compresslevel=5,
     exclude_content_types=(
         *DEFAULT_EXCLUDED_CONTENT_TYPES,
+        # Runda 9 (R9-N7-7): pliki już skompresowane (ZIP paczki CV, obrazy)
+        # i dokumenty Worda nie są kompresowane na pętli jedynego procesu —
+        # jawnie, niezależnie od wersji Starlette (starsze znały tylko SSE).
+        "application/zip",
+        "application/x-zip-compressed",
+        "application/msword",
+        "image/*",
         "application/pdf",
         "application/octet-stream",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -2233,6 +2240,31 @@ async def api_health_check():
         except Exception:
             checks["compass_lifecycle"] = "degraded"
 
+    # Runda 9 (R9-N9-9): klucze kont serwisowych — aktywne konto bez ważnego
+    # klucza albo z kluczem wygasającym w 14 dni = `degraded`. Informacyjna,
+    # nie zmienia `status` (patrz `services/service_account_health.py`).
+    if not settings.SERVICE_ACCOUNTS_ENABLED:
+        checks["service_account_keys"] = "disabled"
+    else:
+        try:
+            from datetime import datetime as _dt
+            from datetime import timezone as _tz
+
+            from app.services.service_account_health import (
+                load_latest_valid_expiry,
+                service_account_keys_verdict,
+            )
+
+            async with AsyncSessionLocal() as session:
+                _expiries = await asyncio.wait_for(
+                    load_latest_valid_expiry(session), timeout=1.0
+                )
+            checks["service_account_keys"] = service_account_keys_verdict(
+                _expiries, now=_dt.now(_tz.utc)
+            )
+        except Exception:  # noqa: BLE001 — sonda informacyjna
+            checks["service_account_keys"] = "degraded"
+
     # Qdrant — patrz `_probe_qdrant` po uzasadnienie kształtu tej sondy.
     #
     # Nigdy nie przestawia `overall` ani kodu HTTP: utrata wektorów to utrata
@@ -2740,6 +2772,7 @@ async def api_health_deep_check():
     from app.models.candidate_followup import CandidateFollowup
     from app.models.followup_meeting import FollowupMeeting
     from app.models.purged_candidate import PurgedCandidate
+    from app.models.retained_candidate_file import RetainedCandidateFile
     from app.models.b2b_contract_document import B2BContractDocument
     from app.models.b2b_register_import import B2BRegisterImportRun
     from app.models.cv_qc_run import CvQcRun
@@ -2951,6 +2984,9 @@ async def api_health_deep_check():
         # 0388: usunięcie kandydata zapisuje nagrobek — brak tabeli = 500
         # przy każdym DELETE /api/candidates/{id} (runda 6 audytu).
         ("purged_candidates", PurgedCandidate),
+        # 0390: usunięcie kandydata zapisuje wskaźniki do jego CV — brak
+        # tabeli = 500 przy każdym DELETE /api/candidates/{id} (runda 9).
+        ("retained_candidate_files", RetainedCandidateFile),
         # 0361: QC CV — tablica czyta stan QC każdej karty, a ruch na
         # „CV wysłane” zapisuje przebieg, więc brak tabeli = kanban 500.
         ("cv_qc_runs", CvQcRun),

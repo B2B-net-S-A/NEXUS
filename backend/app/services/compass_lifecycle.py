@@ -73,7 +73,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from app.core.config import settings
 from app.models.activity import Activity
 from app.models.app_setting import AppSetting
-from app.models.user import User
+from app.models.user import User, UserRole
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +104,19 @@ DEACTIVATION_ACTION = "compass_lifecycle_deactivated"
 _ADMIN_REENABLE_ACTION = "active_changed"
 _ADMIN_ACTIVITY_DECISIONS = (_ADMIN_REENABLE_ACTION, "user_deactivated")
 
+# Runda 9 (R9-N9-3): bezpiecznik na masowe odejście. Pusty roster był jedynym
+# bezpiecznikiem — feed, w którym COMPASS (błąd eksportu, zmiana słownika)
+# oznaczy wszystkich jako `exited`, wyłączyłby cały zespół razem z adminami,
+# czyli także osoby, które mogłyby to cofnąć. Przebieg, który miałby wyłączyć
+# więcej niż `MASS_EXIT_MAX_PEOPLE` osób albo więcej niż `MASS_EXIT_MAX_SHARE`
+# dopasowanych kont (przy co najmniej `MASS_EXIT_MIN_MATCHED` dopasowanych),
+# nie zmienia NICZEGO i stempluje błąd `mass_exit_suspected`. Prawdziwe
+# odejście kilku osób naraz admin wyłącza ręcznie.
+MASS_EXIT_MAX_PEOPLE = 5
+MASS_EXIT_MAX_SHARE = 0.2
+MASS_EXIT_MIN_MATCHED = 10
+MASS_EXIT_ERROR = "mass_exit_suspected"
+
 
 @dataclass
 class LifecycleSyncResult:
@@ -123,6 +136,14 @@ class LifecycleSyncResult:
     # w KAŻDYM przebiegu, a adres e-mail nie ma powodu lądować w logach co 6 h.
     skipped_reenabled: list[str] = field(default_factory=list)
     skipped_reenabled_user_ids: list[int] = field(default_factory=list)
+    # Runda 9 (R9-N9-3): konta z rolą admin nie są wyłączane automatem —
+    # admin jest jedyną osobą, która może cofnąć błędną deaktywację.
+    skipped_admin_user_ids: list[int] = field(default_factory=list)
+    # Runda 9 (R9-N9-7): ten sam e-mail w feedzie z RÓŻNYMI statusami —
+    # osoba pominięta (nie zgadujemy, który wpis jest prawdą).
+    conflicting_compass_emails: list[str] = field(default_factory=list)
+    # Liczba kont, które przebieg WYŁĄCZYŁBY, gdyby nie bezpiecznik.
+    mass_exit_blocked: int = 0
     unmatched_compass_emails: list[str] = field(default_factory=list)
     nexus_users_without_compass: list[str] = field(default_factory=list)
     error: str | None = None
@@ -137,6 +158,9 @@ class LifecycleSyncResult:
             "already_inactive": self.already_inactive,
             "skipped_reenabled": sorted(self.skipped_reenabled),
             "skipped_reenabled_user_ids": sorted(self.skipped_reenabled_user_ids),
+            "skipped_admin_user_ids": sorted(self.skipped_admin_user_ids),
+            "conflicting_compass_emails": sorted(self.conflicting_compass_emails),
+            "mass_exit_blocked": self.mass_exit_blocked,
             "unmatched_compass_emails": sorted(self.unmatched_compass_emails),
             "nexus_users_without_compass": sorted(self.nexus_users_without_compass),
             "error": self.error,
@@ -371,6 +395,13 @@ async def _admin_reenabled_since(db, user_id: int, episode_start: datetime) -> b
     return latest.created_at > episode_start
 
 
+def _mass_exit_suspected(planned: int, matched: int) -> bool:
+    """Czy przebieg wyłączyłby podejrzanie wiele kont (R9-N9-3)."""
+    if planned > MASS_EXIT_MAX_PEOPLE:
+        return True
+    return matched >= MASS_EXIT_MIN_MATCHED and planned > MASS_EXIT_MAX_SHARE * matched
+
+
 async def fetch_roster() -> dict:
     """Pobiera listę osób z COMPASSA.
 
@@ -421,15 +452,28 @@ async def sync_user_lifecycle(db) -> LifecycleSyncResult:
         return result
 
     by_email: dict[str, str] = {}
+    conflicting: set[str] = set()
     for person in people:
         email = (person.get("email") or "").strip().lower()
-        if email:
-            by_email[email] = (person.get("employment_status") or "").strip().lower()
+        if not email:
+            continue
+        status = (person.get("employment_status") or "").strip().lower()
+        if email in by_email and by_email[email] != status:
+            # Runda 9 (R9-N9-7): dwa wpisy tej samej osoby z różnymi statusami —
+            # ostatni wygrywał, więc kolejność feedu decydowała o odebraniu
+            # dostępu. Osoba jest pomijana w całym przebiegu.
+            conflicting.add(email)
+        by_email[email] = status
+    for email in conflicting:
+        by_email.pop(email, None)
+    result.conflicting_compass_emails = sorted(conflicting)
 
     users = (await db.execute(select(User))).scalars().all()
     nexus_emails = {(u.email or "").strip().lower() for u in users if u.email}
 
     for email in by_email:
+        if email in conflicting:
+            continue
         if email not in nexus_emails:
             result.unmatched_compass_emails.append(email)
 
@@ -438,8 +482,11 @@ async def sync_user_lifecycle(db) -> LifecycleSyncResult:
     # samego źródła.
     observed_at: datetime = await db.scalar(select(func.now()))
     last_seen, exit_since = await _load_state(db)
+    to_deactivate: list[tuple[User, str, str, Optional[str], datetime]] = []
     for user in users:
         email = (user.email or "").strip().lower()
+        if email in conflicting:
+            continue
         status = by_email.get(email)
         if status is None:
             # Tylko AKTYWNI są raportowani jako „bez odpowiednika" — konto
@@ -476,7 +523,27 @@ async def sync_user_lifecycle(db) -> LifecycleSyncResult:
             result.skipped_reenabled.append(email)
             result.skipped_reenabled_user_ids.append(user.id)
             continue
+        if user.has_role(UserRole.admin):
+            # Runda 9 (R9-N9-3): admina wyłącza wyłącznie człowiek.
+            result.skipped_admin_user_ids.append(user.id)
+            continue
+        to_deactivate.append((user, email, status, previous, episode_start))
 
+    if _mass_exit_suspected(len(to_deactivate), result.matched_users):
+        # Zero zmian: ani flipów, ani Activity, ani zapisu stanu epizodów.
+        result.mass_exit_blocked = len(to_deactivate)
+        result.error = MASS_EXIT_ERROR
+        await db.rollback()
+        logger.warning(
+            "compass_lifecycle refused: %s deactivations of %s matched accounts "
+            "look like a broken feed — nothing changed",
+            result.mass_exit_blocked,
+            result.matched_users,
+        )
+        await record_sync_outcome(db, ok=False, error=MASS_EXIT_ERROR)
+        return result
+
+    for user, email, status, previous, episode_start in to_deactivate:
         user.is_active = False
         db.add(
             Activity(
@@ -526,6 +593,7 @@ async def sync_user_lifecycle(db) -> LifecycleSyncResult:
 
 __all__ = [
     "DEACTIVATION_ACTION",
+    "MASS_EXIT_ERROR",
     "MIN_INTERVAL_SECONDS",
     "LifecycleSyncResult",
     "fetch_roster",

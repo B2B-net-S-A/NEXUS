@@ -327,6 +327,8 @@ async def _scan_framework_contracts(
     db: AsyncSession, recipient_scope: DeliveryAlertRecipientScope
 ) -> int:
     """Zwraca # nowych notyfikacji."""
+    from app.services.dl_alerts import client_not_deleted_clause
+
     today = business_today()
     rows = list(
         (
@@ -336,6 +338,8 @@ async def _scan_framework_contracts(
                     ClientFrameworkContract.expiry_date >= today,
                     ClientFrameworkContract.expiry_date
                     <= today + timedelta(days=_HORIZON_DAYS),
+                    # Runda 9 (R9-N12-6): usunięty klient nie dostaje dzwonków.
+                    client_not_deleted_clause(ClientFrameworkContract.client_id),
                 )
             )
         ).scalars()

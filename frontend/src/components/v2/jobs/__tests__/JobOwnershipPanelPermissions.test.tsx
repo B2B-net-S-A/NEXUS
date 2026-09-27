@@ -30,7 +30,15 @@ const deliveryLead = {
   effective_section_access: { pipeline: "write" },
 } satisfies User;
 
-function renderPanel() {
+function renderPanel(
+  primaryOwner: {
+    id: number;
+    name: string;
+    email: string;
+    role: "recruiter";
+    is_active?: boolean;
+  } | null = null,
+) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
@@ -39,7 +47,7 @@ function renderPanel() {
       <JobOwnershipPanel
         jobId={11}
         jobTitle="Backend Engineer"
-        primaryOwner={null}
+        primaryOwner={primaryOwner}
         collaborators={[]}
       />
     </QueryClientProvider>,
@@ -82,6 +90,24 @@ describe("JobOwnershipPanel section access", () => {
     renderPanel();
 
     expect(screen.queryByRole("button", { name: "Zmień" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Przejmij rekrutację" }),
+    ).not.toBeInTheDocument();
+  });
+});
+
+describe("JobOwnershipPanel — nieaktywny prowadzący (R9-V2-2)", () => {
+  const owner = { id: 3, name: "Była Rekruterka", email: "b@example.com", role: "recruiter" as const };
+
+  it("prowadzący z nieaktywnym kontem = rekrutację da się przejąć", () => {
+    renderPanel({ ...owner, is_active: false });
+    expect(
+      screen.getByRole("button", { name: "Przejmij rekrutację" }),
+    ).toBeInTheDocument();
+  });
+
+  it("aktywny prowadzący — bez przycisku przejęcia", () => {
+    renderPanel({ ...owner, is_active: true });
     expect(
       screen.queryByRole("button", { name: "Przejmij rekrutację" }),
     ).not.toBeInTheDocument();

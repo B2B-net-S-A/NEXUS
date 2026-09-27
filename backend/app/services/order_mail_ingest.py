@@ -1549,7 +1549,18 @@ async def notify_review(
         )
     ) or "klienta"
     people = _mail_candidate_names(row)
-    received = row.received_at.date().isoformat() if row.received_at else None
+    # Runda 9 (R9-N12-8): dzień wpłynięcia w kalendarzu firmy, nie UTC —
+    # mail z 00:30 czasu PL nie może być podpisany dniem poprzednim.
+    received = None
+    if row.received_at:
+        from zoneinfo import ZoneInfo
+
+        from app.core.scheduling import DEFAULT_TZ
+
+        moment = row.received_at
+        if moment.tzinfo is None:
+            moment = moment.replace(tzinfo=timezone.utc)
+        received = moment.astimezone(ZoneInfo(DEFAULT_TZ)).date().isoformat()
     if people:
         who = ", ".join(people[:3]) + (
             f" i {len(people) - 3} innych" if len(people) > 3 else ""

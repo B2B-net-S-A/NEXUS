@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  alertPayloadFromSavedSearch,
   buildCandidateSavedSearchPayload,
   filtersFromCandidateSavedSearch,
   listQsFromSavedSearch,
@@ -108,5 +109,21 @@ describe("candidate saved searches", () => {
   it("zapis listy otwiera się bez zmian", () => {
     expect(listQsFromSavedSearch({ version: 2, qs: "q_any=java", api: {} })).toBe("q_any=java");
     expect(listQsFromSavedSearch(null)).toBe("");
+  });
+
+  it("włączenie dzwonka zachowuje „Zostaw po staremu” (runda 9, R9-N14-4)", () => {
+    const pinned = alertPayloadFromSavedSearch({
+      version: 2,
+      qs: "q_any=java",
+      api: { q_any_group: ["java"] },
+      keep_legacy_semantics: true,
+    });
+    expect(pinned.keep_legacy_semantics).toBe(true);
+    expect(pinned.qs).toContain("sv=1");
+    expect(pinned.api).toMatchObject({ semantics_version: 1 });
+
+    const plain = alertPayloadFromSavedSearch({ qs: "q_any=java" });
+    expect(plain).not.toHaveProperty("keep_legacy_semantics");
+    expect(plain.version).toBe(2);
   });
 });

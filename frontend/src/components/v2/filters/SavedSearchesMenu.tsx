@@ -14,6 +14,7 @@ import {
 import { savedSearchesApi, type SavedSearchRow } from "@/lib/api";
 import { detectSavedSearchFormat } from "@/lib/saved-search-format";
 import {
+ alertPayloadFromSavedSearch,
  buildCandidateSavedSearchPayload,
  listQsFromSavedSearch,
 } from "@/lib/candidate-saved-search";
@@ -104,13 +105,12 @@ export function SavedSearchesMenu({ currentQs, onApply }: SavedSearchesMenuProps
  ) {
  return Promise.resolve(null);
  }
- const qs = listQsFromSavedSearch(ss.filters);
  return savedSearchesApi.update(
  ss.id,
  enable
  ? {
  notify_new_matches: true,
- filters: buildCandidateSavedSearchPayload(qs),
+ filters: alertPayloadFromSavedSearch(ss.filters),
  confirm_reapproval: ss.requires_reapproval,
  }
  : { notify_new_matches: false },

@@ -51,7 +51,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Awaitable, Callable
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -106,6 +106,7 @@ from app.services.delivery_alert_recipients import (
 )
 from app.services.dl_alerts import (
     MAIL_NEW_DRAFT_ACTION,
+    client_not_deleted_clause,
     date_cycle_stage,
     dl_user_ids_for_client,
     emit,
@@ -127,6 +128,7 @@ from app.services.order_burn_rate import (
     md_burn_rate,
 )
 from app.services.order_continuation import order_ending_without_continuation
+from app.services.order_line_takeover import scheduled_takeover_draft_clause
 from app.services.shared_md_orders import uses_shared_md_pool
 from app.services import loop_heartbeat
 
@@ -203,6 +205,22 @@ async def rule_draft_consultant_unassigned(
                 ),
             )
             .exists(),
+            # Runda 9 (R9-N12-4): osoba na linii zamówienia MD/kosztowego NIE
+            # jest „bez zamówienia". Szkic linii w zamówieniu zaplanowanym albo
+            # w szkicu zamówienia czeka na swoją grupę, a szkic zaplanowanego
+            # „Wejdź za konsultanta” — na dzień wejścia. Zostaje wyłącznie
+            # szkic linii w zamówieniu AKTYWNYM (np. powrót po przerwie).
+            or_(
+                ClientOrder.order_group_id.is_(None),
+                and_(
+                    ClientOrder.order_group_id.in_(
+                        select(ClientOrderGroup.id).where(
+                            ClientOrderGroup.status == GROUP_STATUS_ACTIVE
+                        )
+                    ),
+                    ~scheduled_takeover_draft_clause(ClientOrder),
+                ),
+            ),
         )
     )
     orders = list(result.scalars())
@@ -926,6 +944,9 @@ async def rule_framework_contract_expiring(
             ClientFrameworkContract.expiry_date.isnot(None),
             ClientFrameworkContract.expiry_date >= start,
             ClientFrameworkContract.expiry_date <= stop,
+            # Runda 9 (R9-N12-6): usunięty klient nie dostaje kart; otwarte
+            # zamyka ``resolve_stale`` niżej.
+            client_not_deleted_clause(ClientFrameworkContract.client_id),
         )
     )
     contracts = list(result.scalars())
@@ -993,6 +1014,8 @@ async def rule_candidate_conflict_expired(
             CandidateConflict.expires_at <= now,
             CandidateConflict.expires_at
             >= now - timedelta(days=CONFLICT_EXPIRED_LOOKBACK_DAYS),
+            # Runda 9 (R9-N12-6): usunięty klient nie dostaje kart.
+            client_not_deleted_clause(CandidateConflict.client_id),
         )
         .order_by(CandidateConflict.id)
     )
@@ -1059,9 +1082,14 @@ async def rule_contract_ending(
     )
     contracts = list(result.scalars())
     names = await _client_names(db, {c.client_id for c in contracts if c.client_id})
-    # Kontrakt, którego zamówienie okresowe kończy się TEGO SAMEGO dnia, ma już
-    # kartę zamówienia — druga karta (i drugi mail) o tej samej osobie i dacie
+    # Kontrakt, którego zamówienie kończy się TEGO SAMEGO dnia, ma już kartę
+    # zamówienia — druga karta (i drugi mail) o tej samej osobie i dacie
     # byłaby szumem.
+    # Runda 9 (R9-N12-1): „ma kartę" to dokładnie ta sama reguła co
+    # ``rule_periodic_order_ending``. Zamówienie z kontynuacją (np. czekający
+    # szkic) karty nie dostaje, więc nie może też zdejmować karty kontraktu —
+    # wypowiedziana umowa ze szkicem następnego zamówienia nie dawała DL
+    # żadnego sygnału.
     covered = set()
     if contracts:
         covered = {
@@ -1069,9 +1097,11 @@ async def rule_contract_ending(
             for contract_id, end in await db.execute(
                 select(ClientOrder.contract_id, ClientOrder.end_date).where(
                     ClientOrder.contract_id.in_([c.id for c in contracts]),
-                    ClientOrder.order_group_id.is_(None),
-                    ClientOrder.status.in_(
-                        (ClientOrderStatus.active, ClientOrderStatus.paused)
+                    order_ending_without_continuation(
+                        start,
+                        stop,
+                        extended_client_ids=extended_order_alert_client_ids(),
+                        today=today,
                     ),
                 )
             )

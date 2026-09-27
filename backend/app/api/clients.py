@@ -1199,7 +1199,9 @@ async def merge_client_into(
     """Kanonizacja duplikatu: archiwizuje ``client_id`` i wskazuje na ``target_id``.
 
     Historia (joby, kontrakty, aktywności) ZOSTAJE na scalanym wierszu — merge
-    nie przepisuje danych, tylko chowa duplikat z katalogu/lookupów
+    przenosi wyłącznie wiedzę o kliencie (kontakty, wiedza, materiały, warunki
+    umowy, karta — runda 9, ``_move_client_materials_on_merge``) i chowa
+    duplikat z katalogu/lookupów
     (``merged_into_client_id IS NULL`` filtry) i przekierowuje detail 307-ką
     (``_merged_client_redirect``). Pierwszy klient tej ścieżki: e-Zdrowie
     37721 → 115 (Faza B); kolejni kandydaci: rodzina „BNP *".
@@ -1242,8 +1244,16 @@ async def merge_client_into(
     # danymi (zamówienia, kontraktorzy, rekrutacje, bramki w konfiguracji)
     # zostawiłby je na niewidocznym wierszu. Blokada wiersza duplikatu przed
     # oceną: dopisanie zamówienia albo kontraktu czeka na nią (FOR KEY SHARE).
-    await db.execute(select(Client.id).where(Client.id == client_id).with_for_update())
-    blockers = await assess_client_merge_blockers(db, source)
+    # Runda 9 (R9-N4-3): blokujemy też wiersz celu — zapis warunków umowy
+    # i karty klienta bierze blokadę wiersza klienta, więc ocena „czy cel ma
+    # własne” i przeniesienie widzą ten sam stan. Kolejność po id.
+    await db.execute(
+        select(Client.id)
+        .where(Client.id.in_((client_id, target_id)))
+        .order_by(Client.id)
+        .with_for_update()
+    )
+    blockers = await assess_client_merge_blockers(db, source, target_id=target_id)
     if blockers:
         raise HTTPException(
             status_code=409,
@@ -1258,6 +1268,7 @@ async def merge_client_into(
             },
         )
 
+    moved = await _move_client_materials_on_merge(db, client_id, target_id)
     source.merged_into_client_id = target_id
     # Wcześniej zarchiwizowane źródło to legalny kandydat do scalenia —
     # zachowujemy ORYGINALNY moment/autora archiwizacji (review #1054), merge
@@ -1270,12 +1281,68 @@ async def merge_client_into(
             entity_id=client_id,
             action="merged",
             user_id=current_user.id,
-            details={"merged_into_client_id": target_id},
+            details={"merged_into_client_id": target_id, "moved": moved},
         )
     )
     await db.flush()
     await db.refresh(source)
     return _serialize_client(source, current_user=current_user)
+
+
+async def _move_client_materials_on_merge(
+    db: AsyncSession, source_id: int, target_id: int
+) -> dict[str, int]:
+    """Przenieś wiedzę o kliencie z duplikatu na klienta docelowego.
+
+    Runda 9 (R9-N4-3): scalenie przenosiło tylko przekierowanie profilu.
+    Kontakty założone w NEXUSIE, wiedza, one-pagery, warunki umowy i karta
+    zostawały na niewidocznym duplikacie — hiring manager wpisany w rekrutacji
+    u celu zakładał się drugi raz, a weto HM (po id kontaktu) rozbijało się
+    na dwa rekordy. Kontakty z Traffita też idą na cel: nocny import i tak
+    przypina je do klienta kanonicznego (`_canonical_client_id`).
+
+    Warunki umowy i karta są jednym wierszem na klienta — przechodzą tylko
+    wtedy, gdy cel ich nie ma (inaczej scalenie zatrzymuje blokada
+    ``duplicate_singletons``). Duplikaty scalone wcześniej W źródło
+    (A→S) wskazują od teraz wprost na cel (R9-N4-4) — bez łańcucha, którego
+    przekierowanie profilu i import Traffita nie przechodzą.
+    """
+    from sqlalchemy import update
+
+    from app.models.client_contract_terms import ClientContractTerms
+    from app.models.client_knowledge import ClientKnowledge
+    from app.models.client_one_pager import ClientOnePager
+    from app.models.client_playbook import ClientPlaybook
+    from app.models.client_playbook_event import ClientPlaybookEvent
+    from app.models.contact import Contact
+
+    moved: dict[str, int] = {}
+
+    async def _repoint(model, key: str, column=None) -> None:
+        column = column if column is not None else model.client_id
+        result = await db.execute(
+            update(model)
+            .where(column == source_id)
+            .values({column.key: target_id})
+            .execution_options(synchronize_session=False)
+        )
+        if result.rowcount:
+            moved[key] = int(result.rowcount)
+
+    await _repoint(Contact, "contacts")
+    await _repoint(ClientKnowledge, "knowledge")
+    await _repoint(ClientOnePager, "one_pagers")
+    await _repoint(ClientContractTerms, "contract_terms")
+    if (
+        await db.scalar(
+            select(ClientPlaybook.id).where(ClientPlaybook.client_id == source_id)
+        )
+        is not None
+    ):
+        await _repoint(ClientPlaybook, "playbook")
+        await _repoint(ClientPlaybookEvent, "playbook_events")
+    await _repoint(Client, "merged_duplicates", Client.merged_into_client_id)
+    return moved
 
 
 # Usuwanie klienta: ``app/api/client_deletion.py`` (imienne uprawnienie,

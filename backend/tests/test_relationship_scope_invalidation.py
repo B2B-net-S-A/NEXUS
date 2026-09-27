@@ -73,6 +73,11 @@ class _Database:
         self.parameters.append(parameters)
         return self.results.pop(0) if self.results else _ScalarResult(rowcount=0)
 
+    async def scalar(self, statement):
+        # Runda 9 (R9-N4-7): przypisanie DL blokuje wiersz klienta.
+        self.statements.append(statement)
+        return 44
+
     def add(self, value):
         self.added.append(value)
 
@@ -150,6 +155,7 @@ async def test_dl_client_upsert_does_not_revoke_session_on_noop(monkeypatch) -> 
         "app.api.team_structure.invalidate_delivery_lead_scope_for_users",
         invalidator,
     )
+    monkeypatch.setattr("app.api.team_structure.assert_client_assignable", AsyncMock())
 
     result = await assign_dl_to_client(
         AssignDlClientPayload(
@@ -191,6 +197,7 @@ async def test_dl_client_upsert_revokes_every_changed_dl(monkeypatch) -> None:
         "app.api.team_structure.invalidate_delivery_lead_scope_for_users",
         invalidator,
     )
+    monkeypatch.setattr("app.api.team_structure.assert_client_assignable", AsyncMock())
     fill = AsyncMock(return_value=0)
     monkeypatch.setattr("app.api.team_structure.fill_missing_job_delivery_leads", fill)
 
@@ -218,6 +225,7 @@ async def test_dl_client_toggle_and_delete_revoke_changed_dl(monkeypatch) -> Non
         "app.api.team_structure.invalidate_delivery_lead_scope_for_users",
         invalidator,
     )
+    monkeypatch.setattr("app.api.team_structure.assert_client_assignable", AsyncMock())
     fill = AsyncMock(return_value=0)
     monkeypatch.setattr("app.api.team_structure.fill_missing_job_delivery_leads", fill)
 

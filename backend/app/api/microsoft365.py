@@ -20,7 +20,6 @@ Routes:
 # this file (PEP 585 built-in generics, `Optional`) without the future
 # import, so removing it is purely a fix, not a downgrade.
 
-import hmac
 import logging
 import time
 from collections import OrderedDict
@@ -43,6 +42,7 @@ from app.core.config import settings
 from app.core.database import AsyncSessionLocal, get_db
 from app.core.encryption import TokenCipherNotConfigured, get_token_cipher
 from app.core.rate_limit import limiter
+from app.core.security import secrets_equal
 from app.core.tasks import spawn as spawn_background
 from app.models.m365 import GraphSubscription, M365Connection, M365SyncStatus
 from app.models.user import User
@@ -673,7 +673,7 @@ async def webhooks(
             continue
 
         # Constant-time compare to neutralise timing side-channels.
-        if not hmac.compare_digest(sub.client_state, client_state):
+        if not secrets_equal(client_state, sub.client_state):
             logger.warning(
                 "webhook client_state mismatch for sub_id prefix=%s — refusing entry",
                 sub_id[:32],

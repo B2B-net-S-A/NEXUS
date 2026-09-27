@@ -75,10 +75,41 @@ def upgrade() -> None:
 # nie ma DROP VALUE), a kod sprzed tej rewizji jej nie zna — `select(JobPosting)`
 # na takim wierszu rzuca `LookupError` (500). Downgrade odmawia, zamiast kasować
 # publikacje (ogłoszenie mogło zostać na portalu bez możliwości zamknięcia).
+#
+# Runda 9 (R9-V3-5): to samo dotyczy JustJoin.IT. Downgrade kasuje
+# `pending_action`/`remote_state` i `job_board_connections`, więc publikacja
+# w toku (zaległe zamknięcie, żywe ogłoszenie) traciłaby jedyną drogę do
+# zamknięcia na portalu, a połączone konto — tokeny. Wiersze zakończone
+# (`removed`/`expired` bez zaległej akcji) niczego nie tracą i nie blokują.
+# Kolumny i tabela sprawdzane przed zapytaniem — plan zapytania o brakującą
+# kolumnę padłby błędem zamiast odmowy (lustro strażnika 0388).
 REFUSE_WITH_ROCKETJOBS_POSTINGS = """DO $$
+DECLARE
+    live_jjit boolean := false;
 BEGIN
     IF EXISTS (SELECT 1 FROM job_postings WHERE portal::text = 'rocketjobs') THEN
         RAISE EXCEPTION 'Downgrade 0381 odmawia: job_postings ma publikacje na RocketJobs, których kod sprzed tej rewizji nie odczyta. Zamknij je i usuń wiersze ręcznie albo zostaw tę rewizję.';
+    END IF;
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'job_postings'
+          AND column_name IN ('pending_action', 'remote_state')
+        HAVING count(*) = 2
+    ) THEN
+        EXECUTE 'SELECT EXISTS (SELECT 1 FROM job_postings'
+            || ' WHERE pending_action IS NOT NULL'
+            || ' OR (remote_state IS NOT NULL'
+            || ' AND remote_state NOT IN (''removed'', ''expired'')))'
+            INTO live_jjit;
+        IF live_jjit THEN
+            RAISE EXCEPTION 'Downgrade 0381 odmawia: job_postings ma publikacje w toku (zaległa akcja albo żywe ogłoszenie na portalu), a downgrade usuwa stan potrzebny do ich zamknięcia. Zamknij ogłoszenia na portalu albo zostaw tę rewizję.';
+        END IF;
+    END IF;
+    IF to_regclass('job_board_connections') IS NOT NULL THEN
+        IF EXISTS (SELECT 1 FROM job_board_connections) THEN
+            RAISE EXCEPTION 'Downgrade 0381 odmawia: job_board_connections ma połączone konto portalu (tokeny zginęłyby razem z tabelą). Odłącz konto albo zostaw tę rewizję.';
+        END IF;
     END IF;
 END $$"""
 

@@ -259,11 +259,17 @@ async def reap_stalled_runs(db, *, stalled_after: timedelta) -> list[str]:
 async def erase_candidate(db, candidate_id: int) -> dict:
     """Remove one candidate's snapshot rows from every run (RODO erasure).
 
-    Finished runs simply lose the row. An active run cannot: ``finish_run``
-    requires every snapshot ID to stay accounted for, so the run is failed
-    first (the author restarts it) and then loses the row as well. Runs are
-    locked before their rows, in the same order as ``save_batch``. The caller
-    owns the transaction — the candidate delete commits it.
+    Finished runs simply lose the row. An active run loses it too, and its
+    ``population_size`` shrinks by the same number under the run lock, so
+    ``finish_run`` still accounts for the whole snapshot. Until round 9
+    (R9-N5-7) every active run containing the person was FAILED instead — one
+    erasure killed every running three-minute scan (and every nightly review)
+    that had this candidate in its population, i.e. practically all of them.
+    Runs are locked before their rows, in the same order as ``save_batch``;
+    a worker holding a batch with the erased row updates zero rows for it
+    (``state == 'pending'`` guard). ``search_runs_failed`` stays in the result
+    (always 0) for the audit shape. The caller owns the transaction — the
+    candidate delete commits it.
     """
     active_ids = list(
         (
@@ -282,15 +288,34 @@ async def erase_candidate(db, candidate_id: int) -> dict:
             )
         ).all()
     )
-    failed = 0
-    for run_id in active_ids:
-        failed += int(await fail_run(db, run_id, "candidate_erased"))
     removed = await db.execute(
-        delete(CandidateSearchResult).where(
-            CandidateSearchResult.candidate_id == candidate_id
-        )
+        delete(CandidateSearchResult)
+        .where(CandidateSearchResult.candidate_id == candidate_id)
+        .returning(CandidateSearchResult.run_id)
     )
-    return {"search_rows_deleted": removed.rowcount or 0, "search_runs_failed": failed}
+    per_run: dict[str, int] = {}
+    for run_id in removed.scalars().all():
+        per_run[run_id] = per_run.get(run_id, 0) + 1
+    shrunk = 0
+    for run_id in active_ids:
+        count = per_run.get(run_id, 0)
+        if not count:
+            continue
+        await db.execute(
+            update(CandidateSearchRun)
+            .where(CandidateSearchRun.id == run_id)
+            .values(
+                population_size=func.greatest(
+                    CandidateSearchRun.population_size - count, 0
+                )
+            )
+        )
+        shrunk += 1
+    return {
+        "search_rows_deleted": sum(per_run.values()),
+        "search_runs_failed": 0,
+        "search_runs_shrunk": shrunk,
+    }
 
 
 async def _locked_run(db, run_id: str, token: str):

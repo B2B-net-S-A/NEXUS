@@ -330,8 +330,20 @@ async def close_gaps_of_deleted_orders(
     if not ids or not settings.ORDER_GAPS_ENABLED:
         return
     moment = datetime.now(timezone.utc)
-    for order_id in ids:
-        await _close_gap_alerts(db, order_id, moment, actor_id=actor_id)
+    # Runda 9 (R9-N12-3): usunięcie zamówienia to przyczyna, która ustąpiła,
+    # a nie reakcja DL — epizod sprawy się zamyka (``resolved``), a raport
+    # reakcji nie przypisuje „obsłużenia" osobie, która kasowała zamówienie.
+    # ``actor_id`` zostaje w sygnaturze dla wołających.
+    gap_ids = (
+        await db.scalars(select(OrderGap.id).where(OrderGap.order_id.in_(ids)))
+    ).all()
+    for gap_id in sorted(gap_ids):
+        await dl_alerts.resolve_entity_alerts(
+            db,
+            alert_type=ALERT_ORDER_MISSING_SUCCESSOR,
+            entity_key=f"gap:{gap_id}",
+            now=moment,
+        )
     # Usuwane zamówienie bywa NASTĘPCĄ, który uzupełnił czyjś brak — ten brak
     # wraca, jeśli osoba nie ma innego następcy (runda 6 audytu). Liczone
     # teraz, bo zamówienie jeszcze istnieje: po ``db.delete`` nikt już nie
@@ -550,14 +562,27 @@ async def remind_open_gaps(
 
     gaps = list(
         (
-            await db.scalars(select(OrderGap).where(OrderGap.status == GAP_STATUS_OPEN))
+            await db.scalars(
+                select(OrderGap).where(
+                    OrderGap.status == GAP_STATUS_OPEN,
+                    # Runda 9 (R9-N12-6): usunięty klient nie dostaje kart.
+                    dl_alerts.client_not_deleted_clause(OrderGap.client_id),
+                )
+            )
         ).all()
     )
-    if not gaps:
-        return 0
-    fact_list = await load_facts(db, ClientOrder.id.in_([gap.order_id for gap in gaps]))
+    fact_list = (
+        await load_facts(db, ClientOrder.id.in_([gap.order_id for gap in gaps]))
+        if gaps
+        else []
+    )
     facts = {fact.order_id: fact for fact in fact_list}
-    ended = set(await load_ending_intents(db, fact_list))
+    ended = set(await load_ending_intents(db, fact_list)) if fact_list else set()
+    # Runda 9 (R9-N12-7): sprawy, które w tym przebiegu są aktualne. Reszta
+    # (DL zdjęty z klienta, klient usunięty, brak zamknięty) jest zamykana na
+    # końcu — do poprawki odbiorca, który przestał być DL klienta, zachowywał
+    # kartę na zawsze.
+    live: set[str] = set()
     created = 0
     for gap in gaps:
         fact = facts.get(gap.order_id)
@@ -572,11 +597,20 @@ async def remind_open_gaps(
         if gap.order_id in ended:
             # Współpraca zakończona po wykryciu braku: nie przypominamy DL
             # o zamówieniu, którego świadomie nie będzie, i zdejmujemy kartę.
-            await _close_gap_alerts(db, gap.order_id, datetime.now(timezone.utc))
+            # Runda 9 (R9-N12-3): zamknięcie EPIZODU (``resolved``), nie
+            # odhaczenie — cofnięte zakończenie przywraca kartę, a raport
+            # reakcji nie liczy tego jako obsłużenia przez DL.
+            await dl_alerts.resolve_entity_alerts(
+                db, alert_type=ALERT_ORDER_MISSING_SUCCESSOR, entity_key=f"gap:{gap.id}"
+            )
             continue
         user_ids = await dl_alerts.dl_user_ids_for_client(
             db, gap.client_id, scope=scope
         )
+        live |= {
+            dl_alerts.event_key_for(ALERT_ORDER_MISSING_SUCCESSOR, f"gap:{gap.id}", uid)
+            for uid in user_ids
+        }
         rows = await dl_alerts.emit(
             db,
             alert_type=ALERT_ORDER_MISSING_SUCCESSOR,
@@ -597,6 +631,12 @@ async def remind_open_gaps(
             repeat_every_days=settings.DL_ALERT_REPEAT_DAYS,
         )
         created += len(rows)
+    await dl_alerts.resolve_stale(
+        db,
+        alert_type=ALERT_ORDER_MISSING_SUCCESSOR,
+        live_event_keys=live,
+        entity_prefix="gap:",
+    )
     return created
 
 

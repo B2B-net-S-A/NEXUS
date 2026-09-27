@@ -22,6 +22,19 @@ describe("UserModal — exclusive personas", () => {
     ).toBeInTheDocument();
   });
 
+  it("nie ma martwego pola „Rola rekrutacyjna (legacy)” (R9-N13-8)", () => {
+    render(
+      <UserModal
+        initial={{ role: "recruiter", roles: ["recruiter"] }}
+        onClose={vi.fn()}
+        onSave={vi.fn()}
+        loading={false}
+      />,
+    );
+    expect(screen.queryByText(/Rola rekrutacyjna/)).not.toBeInTheDocument();
+    expect(screen.getAllByRole("combobox")).toHaveLength(1);
+  });
+
   it("clears operational roles when Finance becomes primary", () => {
     const onSave = vi.fn();
     render(
@@ -48,7 +61,6 @@ describe("UserModal — exclusive personas", () => {
       expect.objectContaining({
         role: "finance",
         roles: ["finance"],
-        recruiter_role: "",
       }),
     );
   });
@@ -74,7 +86,7 @@ describe("UserModal — exclusive personas", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
     expect(onSave).toHaveBeenCalledWith(
-      expect.objectContaining({ role: "trainee", roles: ["trainee"], recruiter_role: "" }),
+      expect.objectContaining({ role: "trainee", roles: ["trainee"] }),
     );
   });
 

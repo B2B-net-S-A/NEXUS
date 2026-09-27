@@ -177,6 +177,13 @@ async def finalize(db, draft, expected_revision, html, user_id):
         "renderer_version": RENDERER_VERSION,
         "template_sha256": hashlib.sha256(draft.branded_template_content).hexdigest(),
     }
+    # Runda 9 (R9-N3-3): nagłówek linku `/cv/i/` czyta imię i stanowisko
+    # z WERSJI — bez nich zatwierdzenie z edytora dawało pusty nagłówek. Te
+    # same pola co przy zatwierdzeniu bez edycji (`cv_standalone_approval`).
+    from app.models.cv_generated_document import CvGeneratedDocument
+
+    generated = await db.get(CvGeneratedDocument, draft.generated_document_id)
+    public = build_public_payload(getattr(generated, "render_payload", None))
     version = CvDocumentVersion(
         generated_owner_id=draft.generated_document_id,
         generated_document_id=draft.generated_document_id,
@@ -191,6 +198,8 @@ async def finalize(db, draft, expected_revision, html, user_id):
         render_metadata=metadata,
         language=draft.branded_language,
         template=draft.branded_template,
+        candidate_first_name=public["candidate_name"] or None,
+        job_title=public["position"] or None,
         approved_at=datetime.now(timezone.utc),
         approved_by=user_id,
     )

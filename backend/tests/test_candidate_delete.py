@@ -222,8 +222,9 @@ async def test_hard_delete_erases_full_search_rows_and_fails_active_scans(
     """RODO: wiersze pełnego przeglądu bazy nie mają FK na kandydata.
 
     Niosą dowody dopasowania osoby, więc bez jawnego kasowania przeżywałyby
-    usunięcie profilu. Aktywny przegląd nie może stracić wiersza po cichu
-    (`finish_run` wymaga rozliczenia całej migawki), więc kończy się `failed`.
+    usunięcie profilu. Aktywny przegląd traci wiersz razem z jednym miejscem
+    w populacji (`finish_run` rozlicza całą migawkę) — od rundy 9 (R9-N5-7)
+    nie kończy się już `failed`.
     """
     from app.core.database import AsyncSessionLocal
     from app.models.activity import Activity
@@ -309,9 +310,11 @@ async def test_hard_delete_erases_full_search_rows_and_fails_active_scans(
         assert {cid for _, cid in left} == {bystander_id}, "usunięta osoba zostaje"
         assert len(left) == 2, "wiersze innych kandydatów nie mogą zniknąć"
         assert finished.state == "complete"
-        assert active.state == "failed" and active.error_code == "candidate_erased"
+        # Runda 9 (R9-N5-7): przegląd w toku nie pada — traci wiersz.
+        assert active.state == "running" and active.population_size == 1
         assert audit.details["search_rows_deleted"] == 2
-        assert audit.details["search_runs_failed"] == 1
+        assert audit.details["search_runs_failed"] == 0
+        assert audit.details["search_runs_shrunk"] == 1
     finally:
         from sqlalchemy import delete
 
@@ -677,3 +680,106 @@ async def test_hard_delete_keeps_application_submissions_and_their_cvs(
         )
         assert audit is not None
         assert "application_submissions_deleted" not in audit.details
+
+
+# ── R9-N7-12 (runda 9): CV trzymane w bazie nie znikają z kaskadą ────────────
+
+
+async def _seed_candidate_with_db_cv() -> tuple[int, bytes, bytes, str]:
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from app.models.candidate_document import CandidateDocument, CandidateDocumentKind
+
+    unique = uuid.uuid4().hex[:8]
+    main_cv = f"%PDF-1.4 glowne {unique}".encode()
+    doc_cv = f"%PDF-1.4 dokument {unique}".encode()
+    key = f"cv/{unique}-stare.pdf"
+    async with AsyncSessionLocal() as db:
+        c = Candidate(
+            name="Del",
+            lastname=f"DbCv-{unique}",
+            email=f"del-dbcv-{unique}@example.com",
+            cv_file_content=main_cv,
+        )
+        db.add(c)
+        await db.flush()
+        db.add_all(
+            [
+                CandidateDocument(
+                    candidate_id=c.id,
+                    filename="cv-w-bazie.pdf",
+                    file_content=doc_cv,
+                    content_type="application/pdf",
+                    document_kind=CandidateDocumentKind.cv,
+                ),
+                CandidateDocument(
+                    candidate_id=c.id,
+                    filename="cv-w-magazynie.pdf",
+                    storage_key=key,
+                    document_kind=CandidateDocumentKind.cv,
+                ),
+            ]
+        )
+        await db.commit()
+        return c.id, main_cv, doc_cv, key
+
+
+async def test_hard_delete_refuses_when_db_cv_cannot_reach_storage(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Bez magazynu CV z bazy przepadłoby z kaskadą — odmowa, nic nie znika."""
+    from app.models.candidate import Candidate
+    from app.models.candidate_document import CandidateDocument
+    from app.services import object_storage
+
+    candidate_id, *_ = await _seed_candidate_with_db_cv()
+    monkeypatch.setattr(object_storage, "is_available", lambda: False)
+
+    r = await app_client.delete(
+        f"/api/candidates/{candidate_id}", headers=app_auth_headers
+    )
+    assert r.status_code == 409, r.text
+    assert r.json()["detail"]["code"] == "cv_retention_unavailable"
+    assert await _count(Candidate, id=candidate_id) == 1
+    assert await _count(CandidateDocument, candidate_id=candidate_id) == 2
+
+
+async def test_hard_delete_moves_db_cv_to_storage_and_records_every_key(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from app.models.retained_candidate_file import RetainedCandidateFile
+    from app.services import object_storage
+    from app.services.candidate_audit import candidate_subject_reference
+
+    candidate_id, main_cv, doc_cv, key = await _seed_candidate_with_db_cv()
+    uploaded: dict[str, bytes] = {}
+
+    def _upload(content, filename, content_type=None, *, storage_key=None):
+        uploaded[storage_key] = content
+        return storage_key
+
+    monkeypatch.setattr(object_storage, "is_available", lambda: True)
+    monkeypatch.setattr(object_storage, "upload_cv", _upload)
+
+    r = await app_client.delete(
+        f"/api/candidates/{candidate_id}", headers=app_auth_headers
+    )
+    assert r.status_code == 204, r.text
+    assert await _count(Candidate, id=candidate_id) == 0
+    assert sorted(uploaded.values()) == sorted([main_cv, doc_cv])
+    assert all(k.startswith("retained-cv/") for k in uploaded)
+
+    subject_ref = candidate_subject_reference(candidate_id)
+    async with AsyncSessionLocal() as db:
+        rows = (
+            await db.scalars(
+                select(RetainedCandidateFile).where(
+                    RetainedCandidateFile.subject_ref == subject_ref
+                )
+            )
+        ).all()
+    kept_keys = {row.storage_key for row in rows}
+    assert set(uploaded) <= kept_keys
+    assert key in kept_keys

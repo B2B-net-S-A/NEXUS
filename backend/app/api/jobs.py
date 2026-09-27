@@ -6,7 +6,15 @@ from typing import Annotated, Optional
 
 import httpx
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    HTTPException,
+    Query,
+    Request,
+    status,
+)
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import (
     and_,
@@ -27,6 +35,7 @@ from sqlalchemy.orm import aliased
 
 from app.services.job_portals.service import (
     close_live_postings,
+    close_postings_if_approved_for_other_client,
     has_live_postings,
 )
 from app.core.cache import cache_invalidate
@@ -432,6 +441,66 @@ async def _validate_owner_override(
         )
 
 
+async def _assert_job_references_valid(
+    db: AsyncSession,
+    *,
+    job_id: Optional[int] = None,
+    pipeline_template_id: Optional[int] = None,
+    competence_category_id: Optional[int] = None,
+    secondary_cc_ids: Optional[list[int]] = None,
+    reference_number: Optional[str] = None,
+) -> None:
+    """Odrzuć przed zapisem odwołania, na których padłby więz bazy.
+
+    Runda 9 (R9-N15-5): nieistniejący szablon procesu albo kategoria kończyły
+    się `ForeignKeyViolation`, a zajęty numer referencyjny — naruszeniem
+    UNIQUE; oba jako 500 bez CORS („Network Error”). Brak = 422, zajęty
+    numer = 409.
+    """
+    from app.models.competence_category import CompetenceCategory  # noqa: PLC0415
+    from app.models.pipeline_template import PipelineTemplate  # noqa: PLC0415
+
+    if pipeline_template_id is not None and not await db.scalar(
+        select(PipelineTemplate.id).where(PipelineTemplate.id == pipeline_template_id)
+    ):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Szablon procesu: nie znaleziono takiego szablonu.",
+        )
+    cc_ids = {
+        cc_id
+        for cc_id in [competence_category_id, *(secondary_cc_ids or [])]
+        if cc_id is not None
+    }
+    if cc_ids:
+        found = set(
+            (
+                await db.scalars(
+                    select(CompetenceCategory.id).where(
+                        CompetenceCategory.id.in_(cc_ids)
+                    )
+                )
+            ).all()
+        )
+        if cc_ids - found:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Kategoria kompetencji: nie znaleziono takiej kategorii.",
+            )
+    if reference_number:
+        clash = select(Job.id).where(Job.reference_number == reference_number)
+        if job_id is not None:
+            clash = clash.where(Job.id != job_id)
+        if await db.scalar(clash.limit(1)) is not None:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "reference_number_taken",
+                    "message": "Ten numer referencyjny ma już inna rekrutacja.",
+                },
+            )
+
+
 async def _validate_tac_client_assignment(
     db: AsyncSession,
     *,
@@ -513,7 +582,10 @@ async def _auto_extract_train_name(
                 client_slug = client.name.strip().lower()
 
         combined = f"{title}\n{description}".strip()
-        return extract_train_name(combined, client_slug=client_slug)
+        extracted = extract_train_name(combined, client_slug=client_slug)
+        # Runda 9 (R9-N15-5): kolumna ma 128 znaków, a słowo z opisu nie ma
+        # limitu — dłuższy tag dawał 500 przy zapisie rekrutacji.
+        return extracted[:128] if extracted else extracted
     except Exception as exc:  # pragma: no cover
         logger.warning("[Job] train_name extraction failed: %s", exc)
         return None
@@ -651,13 +723,21 @@ def jobs_search_clause(q: str):
 
 
 def jobs_mine_clause(current_user: User):
-    """„Moje projekty" — właściciel operacyjny ALBO współpracownik."""
+    """„Moje projekty" — właściciel operacyjny, współpracownik ALBO osoba
+    z żywym przypisaniem do requestu (``job_work_assignments``).
+
+    Runda 9 (R9-N15-2): sourcer 2. priorytetu, drugi rekruter i osoba dodana
+    ręcznie na pulpicie „Requesty i obłożenie” pracują nad requestem, a do tej
+    rundy nie widzieli go w „Moje”. Ta sama klauzula liczy listę, liczniki
+    zakresu i „Moje następne kroki”.
+    """
     collab_subq = select(JobCollaborator.job_id).where(
         JobCollaborator.user_id == current_user.id
     )
     return or_(
         operational_owner_clause(Job.recruiter_id, current_user),
         Job.id.in_(collab_subq),
+        Job.id.in_(_live_work_assignment_job_ids([current_user.id])),
     )
 
 
@@ -1919,6 +1999,13 @@ async def create_job(
             contact_id=payload["hiring_manager_contact_id"],
             client_id=payload.get("client_id"),
         )
+    await _assert_job_references_valid(
+        db,
+        pipeline_template_id=payload.get("pipeline_template_id"),
+        competence_category_id=payload.get("competence_category_id"),
+        secondary_cc_ids=secondary_cc_ids,
+        reference_number=payload.get("reference_number"),
+    )
 
     job = Job(**payload, created_by=current_user.id)
 
@@ -2316,6 +2403,16 @@ async def update_job(
     recruiter_changed = "recruiter_id" in sent and data.recruiter_id != job.recruiter_id
     if client_changed:
         await assert_client_assignable(db, data.client_id)
+    elif (
+        "status" in sent
+        and data.status is not None
+        and data.status != JobStatus.closed
+        and job.status == JobStatus.closed
+    ):
+        # Runda 9 (R9-N4-1): ponowne otwarcie rekrutacji usuniętego albo
+        # scalonego klienta dawało żywą rekrutację, której nie widać w żadnym
+        # rejestrze (lustro zakładania — `create_job`).
+        await assert_client_assignable(db, job.client_id)
     if tac_changed and data.tac_id is not None:
         await _validate_owner_override(
             db,
@@ -2356,6 +2453,31 @@ async def update_job(
             allowed_roles=set(_HANDOFF_RECRUITER_ROLES),
             field="recruiter_id",
         )
+
+    # Runda 9 (R9-N15-5): tylko przy realnej zmianie — okno edycji odsyła
+    # komplet pól przy każdym zapisie.
+    await _assert_job_references_valid(
+        db,
+        job_id=job.id,
+        pipeline_template_id=(
+            data.pipeline_template_id
+            if "pipeline_template_id" in sent
+            and data.pipeline_template_id != job.pipeline_template_id
+            else None
+        ),
+        competence_category_id=(
+            data.competence_category_id
+            if "competence_category_id" in sent
+            and data.competence_category_id != job.competence_category_id
+            else None
+        ),
+        reference_number=(
+            data.reference_number
+            if "reference_number" in sent
+            and data.reference_number != job.reference_number
+            else None
+        ),
+    )
 
     updates = data.model_dump(exclude_unset=True)
     # Wejścia rankingu sprzed zapisu (runda 6 audytu): wektor i ranking
@@ -2464,6 +2586,9 @@ async def update_job(
             await db.flush()
             await fill_missing_job_delivery_leads(db, [job.client_id])
             await db.refresh(job, ["delivery_lead_id", "delivery_lead_auto_filled"])
+        # Runda 9 (R9-V2-7): opis publiczny zatwierdzony przy starym kliencie
+        # wraca do szkicu — ogłoszenia na portalach idą do zamknięcia.
+        await close_postings_if_approved_for_other_client(db, job)
     if (
         working_title_reset
         or {
@@ -2794,6 +2919,16 @@ async def close_job(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     await _ensure_delivery_lead_job_visible(job, current_user, db)
+    if job.status == JobStatus.closed:
+        # Runda 9 (R9-N15-4): ponowne zamknięcie przestawiało `closed_at`,
+        # a hit ratio Ligi DL liczy rekrutacje zamknięte w kwartale po tej dacie.
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "job_already_closed",
+                "message": "Rekrutacja jest już zamknięta.",
+            },
+        )
 
     job.status = JobStatus.closed
     job.closed_at = datetime.now(timezone.utc)
@@ -3014,6 +3149,8 @@ async def publish_job(
     await _ensure_delivery_lead_job_visible(job, current_user, db)
     status_changes = job.status != JobStatus.published
     if job.status == JobStatus.closed:
+        # Runda 9 (R9-N4-1): jak PATCH — klient usunięty/scalony = 422.
+        await assert_client_assignable(db, job.client_id)
         # Lustro ponownego otwarcia w PATCH: bez tego rekrutacja opublikowana
         # z powrotem zostawała „Zakończona” i poza przydziałem (audyt 24.09.2026).
         job.closed_at = None
@@ -3055,7 +3192,11 @@ _champion_response = champion_view.api_response
 
 @router.get("/{job_id}/champion-profile")
 async def get_champion_profile(
-    job_id: int, current_user: OperationalUser, db: AsyncSession = Depends(get_db)
+    job_id: int,
+    request: Request,
+    current_user: OperationalUser,
+    db: AsyncSession = Depends(get_db),
+    mark_read: bool = Query(True),
 ) -> dict:
     """Return the Delivery Lead's Champion Profile for this job (or {}).
 
@@ -3064,24 +3205,32 @@ async def get_champion_profile(
     this implements "powiadomienie znika jak Rekruter otworzy" regardless
     of whether the user arrived via the notification dropdown, a direct
     URL, or an internal link.
+
+    Runda 9 (R9-N1-2, R9-V2-4): nic nie oznaczamy w „podglądzie jako”
+    (admin czyta cudzy ekran, powiadomienia należą do podglądanej osoby) ani
+    przy ``mark_read=false`` — tak czyta profil kopiowanie szablonu na
+    ``/jobs/new``, gdzie nikt tej rekrutacji nie otwiera.
     """
     job = await db.scalar(select(Job).where(Job.id == job_id))
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     await _ensure_delivery_lead_job_visible(job, current_user, db)
 
-    await db.execute(
-        sql_update(Notification)
-        .where(
-            Notification.user_id == current_user.id,
-            Notification.notification_type == NotificationType.champion_profile_updated,
-            Notification.related_entity_type == "job",
-            Notification.related_entity_id == job_id,
-            Notification.is_read.is_(False),
+    previewing = getattr(request.state, "impersonator_id", None) is not None
+    if mark_read and not previewing:
+        await db.execute(
+            sql_update(Notification)
+            .where(
+                Notification.user_id == current_user.id,
+                Notification.notification_type
+                == NotificationType.champion_profile_updated,
+                Notification.related_entity_type == "job",
+                Notification.related_entity_id == job_id,
+                Notification.is_read.is_(False),
+            )
+            .values(is_read=True)
         )
-        .values(is_read=True)
-    )
-    await db.commit()
+        await db.commit()
 
     from app.services.champion_intake import response_context
 
@@ -3094,22 +3243,40 @@ async def get_champion_profile(
 
 
 async def _champion_profile_recipients(
-    db: AsyncSession, job: Job, exclude_user_id: int
+    db: AsyncSession, job: Job, exclude_user_id: int, *, link: str
 ) -> list[int]:
     """Return the distinct user ids that should be notified of a CP edit.
 
     The set is the primary ``recruiter_id`` plus everyone in
     ``job_collaborators`` — minus the editor themselves. Nulls are
     filtered out.
+
+    Runda 9 (R9-N2-7): bez współpracowników zdjętych z auto-CC
+    (``removed_from_auto_cc``) i przez bramkę odbiorcy
+    (``filter_notification_recipients``: aktywne konto, sekcja, wyciszenia) —
+    do tej rundy dzwonek dostawały też konta nieaktywne i osoby wypisane
+    z rekrutacji.
     """
+    from app.services.notification_access import filter_notification_recipients
+
     rows = await db.execute(
-        select(JobCollaborator.user_id).where(JobCollaborator.job_id == job.id)
+        select(JobCollaborator.user_id).where(
+            JobCollaborator.job_id == job.id,
+            JobCollaborator.removed_from_auto_cc.is_(False),
+        )
     )
     collaborator_ids = {uid for (uid,) in rows.all() if uid is not None}
     if job.recruiter_id is not None:
         collaborator_ids.add(job.recruiter_id)
     collaborator_ids.discard(exclude_user_id)
-    return sorted(collaborator_ids)
+    allowed = await filter_notification_recipients(
+        db,
+        collaborator_ids,
+        NotificationType.champion_profile_updated,
+        related_entity_type="job",
+        link=link,
+    )
+    return sorted(user.id for user in allowed)
 
 
 @router.put("/{job_id}/champion-profile")
@@ -3338,9 +3505,6 @@ async def _save_champion_profile(
         )
     )
 
-    recipients = await _champion_profile_recipients(
-        db, job, exclude_user_id=current_user.id
-    )
     editor_name = (current_user.name or "Ktoś").strip() or "Ktoś"
     sections_pl = summarize_sections(fields_changed)
     title = "Profil Championa zaktualizowany"
@@ -3352,6 +3516,9 @@ async def _save_champion_profile(
     # Front zna zakładkę `champion`; `champion-profile` zostaje jako alias
     # dla powiadomień zapisanych w bazie przed 09.2026.
     link = f"/jobs/{job.id}?tab=champion"
+    recipients = await _champion_profile_recipients(
+        db, job, exclude_user_id=current_user.id, link=link
+    )
 
     for recipient_id in recipients:
         await create_notification(
@@ -4936,7 +5103,12 @@ async def claim_job(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     await _ensure_delivery_lead_job_visible(job, current_user, db)
-    if job.recruiter_id is not None:
+    # Runda 9 (R9-V2-2): prowadzący z nieaktywnym kontem to brak prowadzącego —
+    # do tej rundy przejęcie takiej rekrutacji kończyło się 409, a front nie
+    # pokazywał „Przejmij”, więc nikt nie mógł jej prowadzić.
+    if job.recruiter_id is not None and await db.scalar(
+        select(User.is_active).where(User.id == job.recruiter_id)
+    ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Ta rekrutacja ma już właściciela",

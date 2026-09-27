@@ -31,7 +31,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 from uuid import uuid4
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, exists, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -47,6 +47,7 @@ from app.models.app_setting import AppSetting
 from app.models.calendar_event import CalendarEvent, EventStatus, EventType
 from app.models.m365 import (
     Email,
+    EmailAttachment,
     EmailDirection,
     EmailMatchMethod,
     M365Connection,
@@ -607,6 +608,22 @@ async def _sync_messages_for_folder(
         )
 
 
+async def _has_cv_attachment(db: AsyncSession, email_id: int) -> bool:
+    return bool(
+        await db.scalar(
+            select(
+                exists().where(
+                    EmailAttachment.email_id == email_id,
+                    or_(
+                        EmailAttachment.is_cv_candidate.is_(True),
+                        EmailAttachment.parsed_candidate_id.is_not(None),
+                    ),
+                )
+            )
+        )
+    )
+
+
 async def _upsert_message(
     db: AsyncSession,
     gc: GraphClient,
@@ -634,6 +651,17 @@ async def _upsert_message(
                 logger.info(
                     "m365 conn %s: email %s removed from %s in Outlook — kept "
                     "(linked to candidate or sent from NEXUS)",
+                    conn.id,
+                    existing.id,
+                    folder_hint,
+                )
+            elif await _has_cv_attachment(db, existing.id):
+                # Runda 9 (R9-N10-12): CV nigdy nie znika samo (decyzja
+                # właściciela) — mail z załącznikiem CV czekającym na odczyt
+                # albo podpięcie zostaje, nawet bez kandydata.
+                logger.info(
+                    "m365 conn %s: email %s removed from %s in Outlook — kept "
+                    "(CV attachment)",
                     conn.id,
                     existing.id,
                     folder_hint,
@@ -1326,7 +1354,14 @@ async def _upsert_event(db: AsyncSession, conn: M365Connection, ev: dict) -> boo
         from app.models.candidate import Candidate
 
         addrs = [a["address"] for a in attendee_rows]
-        cand = await db.scalar(select(Candidate).where(Candidate.email.in_(addrs)))
+        # Runda 9 (R9-N10-8): adresy uczestników są już małymi literami, adres
+        # w bazie bywa zapisany z wielkimi — porównanie po obu stronach.
+        cand = await db.scalar(
+            select(Candidate)
+            .where(func.lower(func.trim(Candidate.email)).in_(addrs))
+            .order_by(Candidate.id)
+            .limit(1)
+        )
         if cand:
             candidate_id = cand.id
 

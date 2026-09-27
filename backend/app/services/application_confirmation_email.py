@@ -187,11 +187,15 @@ async def release_claim(*, email: str, link_key: str) -> None:
 async def deliver(message: ConfirmationEmail, *, event_at: datetime, link_key: str):
     """Zadanie w tle: wysyłka przez ``guarded_send`` w wątku. Nigdy nie rzuca."""
     from app.services.email import send_email
-    from app.services.notification_delivery import guarded_send
+    from app.services.notification_delivery import (
+        guarded_send,
+        last_send_policy_blocked,
+    )
 
-    try:
-        sent = await asyncio.to_thread(
-            guarded_send,
+    def _send() -> tuple[bool, bool]:
+        from app.services.m365.app_mail import last_delivery_uncertain
+
+        ok = guarded_send(
             KIND,
             event_at,
             send_email,
@@ -200,10 +204,27 @@ async def deliver(message: ConfirmationEmail, *, event_at: datetime, link_key: s
             message.text_body,
             message.html_body,
         )
+        # Runda 9 (R9-N10-14): 502/504 z Graph = mail mógł wyjść. Stan jest
+        # w wątku wysyłki, więc czytamy go tutaj, nie w pętli zdarzeń.
+        uncertain = bool(
+            not ok
+            and settings.M365_APP_MAIL_ENABLED
+            and not last_send_policy_blocked()
+            and last_delivery_uncertain()
+        )
+        return ok, uncertain
+
+    uncertain = False
+    try:
+        sent, uncertain = await asyncio.to_thread(_send)
     except Exception as exc:  # noqa: BLE001
         logger.warning("[apply-confirmation] send failed: %s", type(exc).__name__)
         sent = False
-    if not sent:
+    if uncertain:
+        # Niepewny wynik = rezerwacja zostaje: drugie zgłoszenie w ciągu 24 h
+        # nie może wysłać kandydatowi drugiego potwierdzenia.
+        logger.warning("[apply-confirmation] delivery uncertain — claim kept")
+    elif not sent:
         await release_claim(email=message.to, link_key=link_key)
     return sent
 

@@ -160,7 +160,7 @@ async def test_funnel_groups_by_stage_in_pipeline_order(app_client):
     assert resp.status_code == 200, resp.text
     series = resp.json()["series"]
     assert [s["key"] for s in series] == ["cv_sent", "interview", "hired"]
-    assert [s["label"] for s in series] == ["CV wysłane", "Rozmowa", "Zatrudnieni"]
+    assert [s["label"] for s in series] == ["CV wysłane", "QC CV", "Zatrudnieni"]
 
 
 @needs_db

@@ -13,18 +13,28 @@ anyway, so it is repeated where the next person will look.
 """
 
 import logging
+from functools import partial
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+)
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser
 from app.api.deps import get_db
 from app.api.section_access import SOURCING_SECTION_DEPENDENCIES
-from app.core.rate_limit import limiter
+from app.core.rate_limit import limiter, user_or_ip_key
 from app.schemas.matching_requirements import MatchingRequirements
 from app.services.talent_radar_search import (
+    canonical_search,
     normalize_skill_names,
     shape_radar_candidate,
     RadarQuery,
@@ -131,14 +141,21 @@ async def interpret_requirements(
 
 
 @router.post("/talent-radar/search")
-@limiter.limit("20/minute")
+@limiter.limit("20/minute", key_func=user_or_ip_key)
 async def talent_radar_search(
     request: Request,
     payload: TalentRadarSearchRequest,
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
+    canonical: bool = Query(
+        False,
+        description="Kanoniczny fit i bramka must-have jak ekran Radaru (Jarvis).",
+    ),
 ) -> dict[str, Any]:
     """Rank the candidate base against a pasted request. Creates no Job.
+
+    ``canonical=true`` (runda 9, R9-N5-4) liczy tą samą miarą co ekran
+    Radaru (pełny przegląd) — na puli najbliższych, bez zapisu przeglądu.
 
     Dostęp: KAŻDA zalogowana rola (decyzja produktowa Artura 19.08 — radar
     i powiązane funkcje mają być dostępne dla wszystkich). Wyniki niosą
@@ -147,8 +164,14 @@ async def talent_radar_search(
     kandydata pozostaje za bramkami modułu kandydatów. Sam `status` tej
     warstwy mówi prawdę o tym, czy weszła do wyniku (`_shape_result`).
     """
+    from app.services.client_access import assert_client_assignable
+
+    # Runda 9 (R9-N5-8): klient usunięty albo scalony nie jest celem nowego
+    # wyszukiwania — ta sama reguła co przy zakładaniu rekrutacji.
+    await assert_client_assignable(db, payload.client_id)
+    runner = partial(canonical_search, user_id=current_user.id) if canonical else search
     try:
-        result = await search(
+        result = await runner(
             db,
             RadarQuery(
                 client_id=payload.client_id,
@@ -185,16 +208,20 @@ async def talent_radar_search(
             result.reason,
         )
 
+    def _cid(item: Any) -> int:
+        # `CanonicalFit` niesie id w `breakdown`, legacy `ScoreBreakdown` wprost.
+        return getattr(item, "candidate_id", None) or item.breakdown.candidate_id
+
     return {
         "results": [
             _shape_result(
                 breakdown,
-                result.candidates_by_id.get(breakdown.candidate_id),
-                result.eligibility_by_id.get(breakdown.candidate_id),
+                result.candidates_by_id.get(_cid(breakdown)),
+                result.eligibility_by_id.get(_cid(breakdown)),
             )
             for breakdown in result.breakdowns
         ],
-        "meta": result.as_meta(),
+        "meta": {**result.as_meta(), **({"scorer": "canonical"} if canonical else {})},
     }
 
 
@@ -243,7 +270,7 @@ def _shape_result(
 
 
 @router.post("/talent-radar/parse-champion")
-@limiter.limit("10/minute")
+@limiter.limit("10/minute", key_func=user_or_ip_key)
 async def talent_radar_parse_champion(
     request: Request,
     current_user: CurrentUser,

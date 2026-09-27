@@ -39,6 +39,7 @@ from app.services.job_portals.service import (
     PortalRequestError,
     claim_batch,
     request_publish,
+    close_postings_if_approved_for_other_client,
     close_postings_of_closed_jobs,
     has_live_postings,
     external_ref_for,
@@ -260,6 +261,50 @@ async def test_closed_job_closes_live_posting_and_blocks_delete(api, rocket_read
         await db.execute(
             update(Job).where(Job.id == job_id).values(status=JobStatus.closed)
         )
+        await close_postings_of_closed_jobs(db)
+        await db.commit()
+    assert (await _posting(job_id)).pending_action == "close"
+
+
+async def _move_to_new_client(job_id: int) -> None:
+    from app.models.client import Client
+
+    async with AsyncSessionLocal() as db:
+        client = Client(name="Inny klient R9")
+        db.add(client)
+        await db.flush()
+        await db.execute(
+            update(Job).where(Job.id == job_id).values(client_id=client.id)
+        )
+        await db.commit()
+
+
+async def test_client_change_after_approval_closes_live_posting(api, rocket_ready):
+    """Runda 9 (R9-V2-7): opis zatwierdzony przy starym kliencie wraca do
+    szkicu, więc ogłoszenia na portalach idą do zamknięcia."""
+    headers, job_id = await _ready_job(api)
+    await api.post(_url(job_id), json={"options": OPTIONS}, headers=headers)
+    await _process(job_id)
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        # Ten sam klient = nic do zamknięcia.
+        assert await close_postings_if_approved_for_other_client(db, job) == 0
+    assert (await _posting(job_id)).pending_action is None
+
+    await _move_to_new_client(job_id)
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        assert await close_postings_if_approved_for_other_client(db, job) == 1
+        await db.commit()
+    assert (await _posting(job_id)).pending_action == "close"
+
+
+async def test_worker_net_closes_posting_after_client_change(api, rocket_ready):
+    headers, job_id = await _ready_job(api)
+    await api.post(_url(job_id), json={"options": OPTIONS}, headers=headers)
+    await _process(job_id)
+    await _move_to_new_client(job_id)
+    async with AsyncSessionLocal() as db:
         await close_postings_of_closed_jobs(db)
         await db.commit()
     assert (await _posting(job_id)).pending_action == "close"

@@ -10,8 +10,11 @@ from __future__ import annotations
 
 from typing import List
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, ManagerOrAdmin
@@ -40,6 +43,43 @@ from app.schemas.pipeline_template import (
 )
 
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
+
+
+logger = logging.getLogger(__name__)
+
+_FOREIGN_KEY_VIOLATION = "23503"
+_MISSING_REFERENCE_DETAIL = "Wskazany klient albo etap nie istnieje."
+_TEMPLATE_NAME_TAKEN = "Proces rekrutacyjny o tej nazwie już istnieje."
+_STAGE_TAKEN = "Ten proces ma już etap o tej nazwie albo na tej pozycji."
+_REASON_TAKEN = "Ten proces ma już taki powód odrzucenia."
+
+
+async def _write_or_conflict(db: AsyncSession, detail: str, *, flush: bool = False):
+    """Commit (albo flush) zapisu szablonu; kolizja więzu = 409 po polsku.
+
+    Runda 9 (R9-N13-5): do tej zmiany 409 niosło surowy ``IntegrityError``
+    (treść SQL i parametry), a ``except Exception`` podpisywał każdą awarię
+    bazy jako „konflikt nazwy”. Łapiemy wyłącznie naruszenia więzów; reszta
+    idzie dalej jako błąd serwera."""
+    try:
+        if flush:
+            await db.flush()
+        else:
+            await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        orig = getattr(exc, "orig", None)
+        sqlstate = getattr(orig, "sqlstate", None) or getattr(orig, "pgcode", None)
+        logger.info(
+            "pipeline template write refused: %s (sqlstate=%s)",
+            type(orig).__name__,
+            sqlstate,
+        )
+        if sqlstate == _FOREIGN_KEY_VIOLATION:
+            raise HTTPException(
+                status_code=409, detail=_MISSING_REFERENCE_DETAIL
+            ) from exc
+        raise HTTPException(status_code=409, detail=detail) from exc
 
 
 # ── Template CRUD ────────────────────────────────────────────────────────────
@@ -166,13 +206,7 @@ async def create_template(
         created_by=current_user.id,
     )
     db.add(template)
-    try:
-        await db.commit()
-    except Exception as e:
-        await db.rollback()
-        raise HTTPException(
-            status_code=409, detail=f"Template name conflict: {e}"
-        ) from e
+    await _write_or_conflict(db, _TEMPLATE_NAME_TAKEN)
     await db.refresh(template)
     return PipelineTemplateDetail(
         id=template.id,
@@ -230,6 +264,16 @@ async def update_template(
                 "template'owi — ustaw najpierw inny jako default."
             ),
         )
+    # Runda 9 (R9-N13-6): liczy się stan WYNIKOWY — `{"is_default": true,
+    # "archived": true}` (albo default na już zarchiwizowanym) przechodził
+    # oba warunki wyżej i zostawiał domyślny szablon w archiwum.
+    default_after = update_data.get("is_default", template.is_default)
+    archived_after = update_data.get("archived", template.archived)
+    if default_after and archived_after:
+        raise HTTPException(
+            status_code=409,
+            detail="Domyślny proces rekrutacyjny nie może być zarchiwizowany.",
+        )
 
     # Handle is_default exclusivity
     if update_data.get("is_default"):
@@ -247,7 +291,7 @@ async def update_template(
     for key, value in update_data.items():
         setattr(template, key, value)
 
-    await db.commit()
+    await _write_or_conflict(db, _TEMPLATE_NAME_TAKEN)
     await db.refresh(template)
 
     # stage_count
@@ -325,11 +369,7 @@ async def clone_template(
         created_by=current_user.id,
     )
     db.add(new_template)
-    try:
-        await db.flush()
-    except Exception as e:
-        await db.rollback()
-        raise HTTPException(status_code=409, detail=f"Name conflict: {e}") from e
+    await _write_or_conflict(db, _TEMPLATE_NAME_TAKEN, flush=True)
 
     stages_res = await db.execute(
         select(PipelineStageDef).where(PipelineStageDef.template_id == template_id)
@@ -413,13 +453,7 @@ async def add_stage(
 
     stage = PipelineStageDef(template_id=template_id, **data.model_dump())
     db.add(stage)
-    try:
-        await db.commit()
-    except Exception as e:
-        await db.rollback()
-        raise HTTPException(
-            status_code=409, detail=f"Stage name/order conflict: {e}"
-        ) from e
+    await _write_or_conflict(db, _STAGE_TAKEN)
     await db.refresh(stage)
     return stage
 
@@ -527,11 +561,7 @@ async def update_stage(
     for key, value in update_data.items():
         setattr(stage, key, value)
 
-    try:
-        await db.commit()
-    except Exception as e:
-        await db.rollback()
-        raise HTTPException(status_code=409, detail=str(e)) from e
+    await _write_or_conflict(db, _STAGE_TAKEN)
     await db.refresh(stage)
     return stage
 
@@ -594,11 +624,7 @@ async def add_rejection_reason(
 
     reason = RejectionReason(template_id=template_id, **data.model_dump())
     db.add(reason)
-    try:
-        await db.commit()
-    except Exception as e:
-        await db.rollback()
-        raise HTTPException(status_code=409, detail=str(e)) from e
+    await _write_or_conflict(db, _REASON_TAKEN)
     await db.refresh(reason)
     return reason
 
@@ -625,7 +651,7 @@ async def update_rejection_reason(
         raise HTTPException(status_code=404, detail="Reason not found")
     for key, value in data.model_dump(exclude_unset=True).items():
         setattr(reason, key, value)
-    await db.commit()
+    await _write_or_conflict(db, _REASON_TAKEN)
     await db.refresh(reason)
     return reason
 

@@ -75,17 +75,39 @@ def record_candidate_audit(
     target a single candidate. Caller owns the transaction; endpoints that
     only read (downloads/exports) must ``await db.commit()`` themselves so
     the event survives the request.
+
+    Runda 9 (R9-N1-2): w „podglądzie jako” wołający podaje osobę podglądaną
+    (``current_user``), a pobranie CV czy eksport wykonuje admin. Dziennik
+    zapisuje prawdziwego sprawcę (konto z tokenu, stemplowane w sesji przez
+    ``deps.get_authenticated_user``), a osobę podglądaną w
+    ``details.viewed_as_user_id`` — samo id, bez danych osobowych.
     """
+    payload = dict(details or {})
+    actor_id = _session_actor_id(db)
+    if actor_id is not None and user_id is not None and actor_id != user_id:
+        payload["viewed_as_user_id"] = user_id
+        user_id = actor_id
     db.add(
         Activity(
             entity_type="candidate",
             entity_id=entity_id,
             action=action,
             user_id=user_id,
-            details=details or {},
+            details=payload,
             external_source="audit",
         )
     )
+
+
+def _session_actor_id(db: AsyncSession) -> Optional[int]:
+    """Konto z tokenu żądania (nie podglądane) albo ``None`` poza żądaniem."""
+    from app.services.order_change_audit import ACTOR_INFO_KEY
+
+    info = getattr(db, "info", None)
+    if not isinstance(info, dict):
+        return None
+    actor = info.get(ACTOR_INFO_KEY)
+    return actor if isinstance(actor, int) else None
 
 
 def candidate_subject_reference(candidate_id: int) -> str:

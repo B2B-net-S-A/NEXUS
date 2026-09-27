@@ -30,7 +30,7 @@ from typing import Any, Literal
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload, undefer
 
 from app.core.log_safety import safe_storage_key
 from app.schemas.champion import client_safe_screening
@@ -2480,19 +2480,27 @@ async def load_candidate_generation_source(
 
     client = await db.get(Client, client_id) if client_id else None
     # ── 1. CV file ────────────────────────────────────────────────────────
+    from app.services.cv_source import current_cv_filters, current_cv_ordering
+
     cv_doc_q = (
         select(CandidateDocument)
+        # Runda 9 (R9-X1-1): `file_content` jest odroczone; bez `undefer`
+        # odczyt BYTEA niżej to MissingGreenlet (500 „Generuj CV", awaria
+        # auto-CV) dla dokumentów z formularza kariery i maila.
+        .options(undefer(CandidateDocument.file_content))
         .where(
             CandidateDocument.candidate_id == candidate_id,
             _supported_cv_doc_filter(),
         )
-        .order_by(
-            CandidateDocument.is_primary.desc(), CandidateDocument.uploaded_at.desc()
-        )
+        .order_by(*current_cv_ordering())
         .limit(1)
     )
     if cv_document_id is not None:
         cv_doc_q = cv_doc_q.where(CandidateDocument.id == cv_document_id)
+    else:
+        # Wybór domyślny (bez pliku wskazanego przez rekrutera) tą samą regułą
+        # co migawka oryginału CV (R9-N7-11).
+        cv_doc_q = cv_doc_q.where(*current_cv_filters())
     cv_doc = (await db.scalars(cv_doc_q)).first()
     if cv_doc is None and cv_document_id is not None:
         raise StandaloneGenerationError(
@@ -2525,12 +2533,17 @@ async def load_candidate_generation_source(
                 object_storage.download_cv, cv_doc.storage_key
             )
         except Exception as err:  # noqa: BLE001
-            logger.exception(
-                "[cv_b2b][%s] Object storage download failed: %s", request_id, err
+            # Runda 9 (R9-N7-8): komunikat wyjątku boto3 niesie URL z kluczem
+            # (nazwa pliku CV) — nie do logu i nie do komunikatu dla rekrutera.
+            logger.warning(
+                "[cv_b2b][%s] Object storage download failed: %s (%s)",
+                request_id,
+                type(err).__name__,
+                safe_storage_key(cv_doc.storage_key),
             )
             raise StandaloneGenerationError(
                 code="extraction_failed",
-                message=f"Nie udało się pobrać CV z Object Storage: {err}",
+                message="Nie udało się pobrać CV z magazynu plików. Spróbuj ponownie.",
             ) from err
     elif cv_doc.file_content:
         cv_bytes = bytes(cv_doc.file_content)

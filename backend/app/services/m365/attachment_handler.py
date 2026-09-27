@@ -25,7 +25,7 @@ from sqlalchemy.exc import IntegrityError
 from app.core.config import settings
 from app.models.candidate import Candidate
 from app.models.candidate_document import CandidateDocument, CandidateDocumentKind
-from app.models.m365 import Email, EmailAttachment
+from app.models.m365 import Email, EmailAttachment, EmailDirection
 from app.services.m365.graph_client import GraphClient
 from app.services.storage_service import _sanitize_filename
 
@@ -294,6 +294,13 @@ async def try_parse_cv(
         return
     target_id = candidate_id if candidate_id is not None else email_row.candidate_id
     if target_id is None:
+        return
+    # Runda 9 (R9-N10-9): tylko poczta PRZYCHODZĄCA. Załącznik wysłany przez
+    # rekrutera (CV firmowe do klienta, kandydat w kopii) nadpisywał oryginał
+    # kandydata i jego tekst CV.
+    if getattr(email_row, "direction", None) not in (None, EmailDirection.received):
+        if attachment.parse_error is None:
+            attachment.parse_error = "outgoing_mail_skipped"
         return
     # A delta page contains existing messages as well as new ones.  Re-running
     # the paid parser for an attachment already applied to the same candidate

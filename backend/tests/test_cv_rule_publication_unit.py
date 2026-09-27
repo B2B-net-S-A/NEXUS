@@ -124,6 +124,8 @@ async def test_restoration_creates_draft_without_reverting_live_flags(monkeypatc
     publication = ClientCvRulePublication(client_id=26, version=1, recipe=snapshot)
     db.get.return_value = publication
     monkeypatch.setattr(api, "_client_or_404", AsyncMock(return_value=client))
+    # Runda 9 (R9-N4-7): zapis wymaga klienta, który nie jest usunięty/scalony.
+    monkeypatch.setattr(api, "_writable_client_or_404", AsyncMock(return_value=client))
     monkeypatch.setattr(api, "_require_client_rule_access", AsyncMock())
     monkeypatch.setattr(api, "_lock_rule_edit", AsyncMock(return_value=rule))
     monkeypatch.setattr(api, "_client_label", lambda _: "Test Client")

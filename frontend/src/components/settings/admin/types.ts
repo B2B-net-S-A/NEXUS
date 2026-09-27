@@ -5,7 +5,6 @@ export interface AdminUser {
   role: string;
   /** Multi-role (migracja 0110). Lista wszystkich ról użytkownika. */
   roles?: string[];
-  recruiter_role: string | null;
   is_active: boolean;
   /** Imienne uprawnienie do usuwania klientów z profilu (0307). */
   can_delete_clients?: boolean;
@@ -21,7 +20,6 @@ export interface UserFormData {
   role: string;
   /** Multi-role (migracja 0110). Lista ról secondary + primary. */
   roles: string[];
-  recruiter_role: string;
   /** Imienne uprawnienie do usuwania klientów (tylko edycja istniejącego konta). */
   can_delete_clients: boolean;
   /** Odpina tożsamość Microsoft — następne logowanie SSO przypnie nowe konto. */
@@ -53,16 +51,6 @@ export function isExclusiveRole(role: string): boolean {
   return EXCLUSIVE_ROLES.includes(role);
 }
 
-export const RECRUITER_ROLES = [
-  "",
-  "recruiter",
-  "sourcer",
-  "tac",
-  "delivery_lead",
-  "quality_control",
-  "admin",
-];
-
 export const ROLE_LABELS: Record<string, string> = {
   admin: "Administrator",
   finance: "Finanse",
@@ -76,16 +64,6 @@ export const ROLE_LABELS: Record<string, string> = {
   trainee: "Praktykant",
   manager: "Manager",
   client: "Klient",
-};
-
-export const RECRUITER_ROLE_LABELS: Record<string, string> = {
-  "": "—",
-  recruiter: "Rekruter",
-  sourcer: "Sourcer",
-  tac: "TAC",
-  delivery_lead: "Delivery Lead",
-  quality_control: "Quality Control",
-  admin: "Admin",
 };
 
 export function formatDate(iso: string | null) {

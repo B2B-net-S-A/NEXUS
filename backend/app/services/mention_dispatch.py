@@ -152,6 +152,9 @@ async def enqueue_mention_notifications(
     users = list(rows.scalars().all())
     await resolve_effective_section_access_for_users(db, users)
 
+    # Import leniwy: ``app.api.notifications`` ciągnie za sobą routery.
+    from app.api.notifications import create_notification
+
     pairs: list[tuple[User, Notification]] = []
     for user in users:
         if not user_can_receive_notification(
@@ -161,7 +164,13 @@ async def enqueue_mention_notifications(
             link=deep_link_path,
         ):
             continue
-        notif = Notification(
+        # Runda 9 (R9-N2-6): ponowne oznaczenie tej samej osoby w tej samej
+        # notatce tego samego dnia (usunięta i dopisana wzmianka) trafiało
+        # w ``ix_notif_dedup_daily`` i wywracało zapis notatki 500-ką.
+        # ``dedupe_resurface`` wstawia w savepoincie, a przy kolizji odświeża
+        # dzisiejszy wiersz (znowu nieprzeczytany) zamiast dokładać drugi.
+        notif = await create_notification(
+            db,
             user_id=user.id,
             title=notification_title,
             message=snippet,
@@ -169,8 +178,13 @@ async def enqueue_mention_notifications(
             notification_type=NotificationType.note_mention,
             related_entity_type=related_entity_type,
             related_entity_id=related_entity_id,
+            dedupe_resurface=True,
         )
-        db.add(notif)
+        # Odświeżony wiersz ma ``created_at = now()`` jako wyrażenie SQL —
+        # po zapisie atrybut wygasa, a leniwe doczytanie po commicie
+        # (``send_mention_side_effects``) w async to ``MissingGreenlet``.
+        await db.flush()
+        await db.refresh(notif, attribute_names=["created_at"])
         pairs.append((user, notif))
     return pairs
 

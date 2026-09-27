@@ -25,8 +25,14 @@ from typing import Optional
 from app.core.log_safety import safe_filename
 from app.services.cv_text_extractor import (
     _OCR_FALLBACK_THRESHOLD_CHARS,
-    _extract_pdf_native,
+    extract_pdfminer_sandboxed,
     extract_text,
+    pdf_page_count_sandboxed,
+)
+from app.services.cv_text_extractor import (
+    # Runda 9 (R9-N7-2): załącznik z poczty zamówień przysyła ktokolwiek, więc
+    # każdy odczyt PDF idzie w procesie z limitem pamięci i czasu.
+    extract_pdf_native_sandboxed as _extract_pdf_native,
 )
 
 logger = logging.getLogger(__name__)
@@ -61,28 +67,11 @@ def single_char_token_ratio(text: str) -> float:
 
 
 def _pdf_page_count(path: str) -> Optional[int]:
-    try:
-        import pdfplumber  # type: ignore[import-untyped]
-
-        with pdfplumber.open(path) as pdf:
-            return len(pdf.pages)
-    except Exception:  # noqa: BLE001 — metadane są best-effort
-        return None
+    return pdf_page_count_sandboxed(path)  # metadane są best-effort
 
 
 def _pdfminer_text(path: str) -> Optional[str]:
-    try:
-        from pdfminer.high_level import extract_text as _pdfminer_extract
-
-        return _pdfminer_extract(path) or None
-    except Exception as exc:  # noqa: BLE001
-        # Runda 8 (R8-V3-1): ścieżka to `order_mail/…/{sha12}-{nazwa_załącznika}`.
-        logger.info(
-            "[order_document_text] pdfminer re-extraction failed on %s: %s",
-            safe_filename(path),
-            type(exc).__name__,
-        )
-        return None
+    return extract_pdfminer_sandboxed(path)
 
 
 def extract_order_text(path: str, filename: str) -> OrderDocumentText:

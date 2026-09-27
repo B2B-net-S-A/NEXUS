@@ -25,7 +25,13 @@ from app.models.job import Job
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import UserRole
 from app.services import dz_review as svc
-from tests.test_board_tasks import _cleanup, _login, _seed_user, _seed_world
+from tests.test_board_tasks import (
+    _cleanup,
+    _login,
+    _seed_user,
+    _seed_world,
+    seed_entry_row,
+)
 
 
 @pytest_asyncio.fixture
@@ -311,6 +317,38 @@ def test_client_cv_file_is_picked_by_client_name_then_newest() -> None:
     assert svc.pick_document_cv([], "Nordea") is None
 
 
+def test_client_cv_file_ignores_generic_words_and_flags_a_tie() -> None:
+    """Runda 9 (R9-V2-5): „Bank …” nie łączy się z plikiem innego banku po
+    słowie „bank”; dwa pliki tego samego klienta to „do sprawdzenia”."""
+    from datetime import datetime, timezone
+
+    old = datetime(2026, 9, 1, tzinfo=timezone.utc)
+    new = datetime(2026, 9, 20, tzinfo=timezone.utc)
+    rows = [
+        (200, "Ewa_B2B_Bank_Pekao.docx", old, old),
+        (210, "Ewa_B2B_Bank_Millennium.docx", new, new),
+    ]
+    # Dotąd: słowo „bank” pasowało do obu, wygrywał nowszy plik Millennium.
+    assert svc.pick_document_cv(rows, "Bank Pekao S.A.") == 200
+    assert svc.document_cv_ambiguous(rows, "Bank Pekao S.A.") is False
+    # Polskie znaki i wielkość liter nie przeszkadzają.
+    assert (
+        svc.pick_document_cv(
+            [(1, "cv_B2B_lodz.docx", old, old), (2, "cv_B2B_x.docx", new, new)],
+            "Miasto Łódź",
+        )
+        == 1
+    )
+    tie = [
+        (300, "Ewa_B2B_Pekao_v1.docx", old, old),
+        (310, "Ewa_B2B_Pekao_v2.docx", new, new),
+    ]
+    assert svc.pick_document_cv(tie, "Bank Pekao") == 310
+    assert svc.document_cv_ambiguous(tie, "Bank Pekao") is True
+    # Sama nazwa rodzajowa nie wyróżnia nikogo — bez dopasowania, bez remisu.
+    assert svc.document_cv_ambiguous(tie, "Bank Polska") is False
+
+
 def test_parse_hints_drops_quotes_not_found_in_either_cv() -> None:
     material = {"generated": "Programista **Java**", "original": "Java Kubernetes"}
     raw = json.dumps(
@@ -374,6 +412,7 @@ async def _seed_review(world: dict, hor: dict, api: AsyncClient) -> int:
         cand.experience = EXPERIENCE
         cand.raw_cv_text = ORIGINAL
         await db.commit()
+    await seed_entry_row(world["candidate_id"], world["job_id"])
     moved = await api.post(
         "/api/pipeline/move",
         headers=hor,

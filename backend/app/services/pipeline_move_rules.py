@@ -28,7 +28,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.pipeline_template import PipelineStageDef
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import User, UserRole
-from app.services.board_stage_badges import board_column_for, cpro_enabled_for_client
+from app.services.board_stage_badges import (
+    BOARD_COLUMN_ORDER,
+    board_column_for,
+    cpro_enabled_for_client,
+)
 
 # Kto może przenieść osobę na „CV wysłane" poza Nordeą.
 CLIENT_SEND_ROLES: tuple[UserRole, ...] = (UserRole.admin, UserRole.delivery_lead)
@@ -148,6 +152,23 @@ def requires_dl_client_rate(target: PipelineStage, client_id: Optional[int]) -> 
     """Ruch na „CV wysłane" u klienta innego niż Nordea."""
 
     return target == PipelineStage.cv_sent and not cpro_enabled_for_client(client_id)
+
+
+async def arrives_from_before_client_send(
+    db: AsyncSession, *, candidate_id: int, job_id: int
+) -> bool:
+    """Czy para wchodzi na „CV wysłane” z kolumny PRZED nim.
+
+    Wymóg DL i stawki do klienta dotyczy WYSŁANIA, nie cofnięcia karty
+    z „Rozmowy u klienta” czy „Umowy” — tam osoba już jest u klienta.
+    Kolumna jak przy pozostałych bramkach (``gate_stage_row``: para
+    w „Zamkniętych” liczy się kolumną sprzed zamknięcia, bez wierszy — „Nowi”).
+    Runda 9 (R9-N11-6).
+    """
+    _row, column = await gate_stage_row(db, candidate_id=candidate_id, job_id=job_id)
+    if column not in BOARD_COLUMN_ORDER:
+        return True
+    return BOARD_COLUMN_ORDER.index(column) < BOARD_COLUMN_ORDER.index("cv_sent")
 
 
 def assert_client_send_allowed(user: User, rate_value: Optional[Decimal]) -> None:

@@ -36,7 +36,8 @@ import type {
   ClientTeamResponse,
 } from "@/lib/api";
 import { useCapability } from "@/hooks/useCapability";
-import { editableTagText, mergeEditedTags, structuredTagLabels } from "@/lib/candidate-tags";
+import { editableTagText, structuredTagLabels } from "@/lib/candidate-tags";
+import { changedCandidateFields, tagChanges } from "@/lib/candidate-edit-diff";
 import { useClickOutside } from "@/lib/use-click-outside";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { defaultMeetingWindow } from "@/lib/meeting-defaults";
@@ -1087,11 +1088,10 @@ export function AddCandidateModal({ onClose, onSuccess }: { onClose: () => void;
 }
 
 export function EditCandidateModal({ candidate, onClose, onSuccess }: { candidate: any; onClose: () => void; onSuccess: (msg: string) => void }) {
-  const [initialIdentity] = useState(() => ({
-    name: candidate.name ?? "",
-    lastname: candidate.lastname ?? "",
-  }));
-  const [form, setForm] = useState<CandidateFormData>(() => candidateToForm(candidate));
+  // Stan z chwili otwarcia — zapis wysyła tylko różnice względem niego
+  // (runda 9, R9-N8-7), żeby nie cofać zmian zrobionych w międzyczasie.
+  const [initialForm] = useState<CandidateFormData>(() => candidateToForm(candidate));
+  const [form, setForm] = useState<CandidateFormData>(initialForm);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -1124,29 +1124,27 @@ export function EditCandidateModal({ candidate, onClose, onSuccess }: { candidat
     if (!form.name || !form.lastname) { setError("Imię i nazwisko są wymagane"); return; }
     setSaving(true); setError("");
     try {
-      const {
-        city: _city,
-        country: _country,
-        name: nextName,
-        lastname: nextLastname,
-        ...nonIdentityPayload
-      } =
+      const { city: _city, country: _country, tags: _tags, ...nextPayload } =
         candidateFormToPayload(form);
-      const profilePayload: Omit<typeof nonIdentityPayload, "tags"> & {
-        name?: string;
-        lastname?: string;
-        tags?: unknown[];
-      } = { ...nonIdentityPayload, tags: mergeEditedTags(form.tags, candidate.tags) };
-      // Niezmienione tagi nie jadą w PATCH (backend zastępuje całą listę).
-      if (profilePayload.tags === undefined) delete profilePayload.tags;
-      // Nie wysyłaj pól tożsamości tylko dlatego, że pełny modal zawsze je
-      // renderuje. W przeciwnym razie nocny sync między otwarciem a zapisem
-      // telefonu zamieniłby starą wartość formularza w fałszywy manual lock.
-      if (nextName !== initialIdentity.name) profilePayload.name = nextName;
-      if (nextLastname !== initialIdentity.lastname) {
-        profilePayload.lastname = nextLastname;
+      const { city: _c0, country: _k0, tags: _t0, ...initialPayload } =
+        candidateFormToPayload(initialForm);
+      // Tylko zmienione pola. Pole tożsamości wysłane „przy okazji” zamieniłoby
+      // też wartość z nocnego syncu w fałszywą ręczną blokadę.
+      const profilePayload = changedCandidateFields(initialPayload, nextPayload);
+      if (Object.keys(profilePayload).length) {
+        await api.patch(`/api/candidates/${candidate.id}`, profilePayload);
       }
-      await api.patch(`/api/candidates/${candidate.id}`, profilePayload);
+      // Tagi pojedynczo: PATCH zastępuje całą listę, więc tag dodany w tym
+      // czasie przez kolegę (i obiekty importu) by znikał.
+      // Najpierw usunięcia: przy limicie 50 tagów podmiana jednego tagu
+      // inaczej kończyła się 422 na dodaniu.
+      const { add, remove } = tagChanges(initialForm.tags, form.tags);
+      for (const tag of remove) {
+        await api.delete(`/api/candidates/${candidate.id}/tags`, { params: { tag } });
+      }
+      for (const tag of add) {
+        await api.post(`/api/candidates/${candidate.id}/tags`, { tag });
+      }
 
       const nextCity = form.city.trim();
       const nextCountry = form.country.trim().toUpperCase();

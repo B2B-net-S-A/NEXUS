@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 26.09.2026
+> **Zgodność z systemem sprawdzona:** 27.09.2026
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -477,7 +477,7 @@ datę; samo pozostawienie kompletnego szkicu nie aktywuje go.
 | **Uzupełnij zamówienie** | edycja numeru, budżetu, dat, notatek, podmiana PDF-a; w nowym szkicu MD także wybór trybu i aktywacja, a przy aktywnej wspólnej puli — miesięczne zużycie. **Zczytaj dane z dokumentu** czyta tu PDF tak samo jak w „Nowe zamówienie": osoby z dokumentu, których **nie ma jeszcze na zamówieniu**, dostają karty do dopisania (z tymi samymi odznakami i decyzjami — także osoba bez aktywnej współpracy albo nieznaleziona), a osoby, które **już są**, wypisane są w ramce „Już na zamówieniu" bez drugiej karty (gdy dokument podaje dla niej inne MD albo stawkę, ramka to mówi — zmieniasz je w „Edytuj linię"). Osoby, która już pracuje na tym zamówieniu, nie dopiszesz drugi raz — także wskazanej ręcznie. **Zapisz** dopisuje wszystkie karty naraz albo żadnej; przy aktywacji szkicu najpierw dopisuje osoby, potem aktywuje |
 | **Dodaj przedłużenie** | zakłada **nowe** zamówienie podpięte pod obecne (patrz niżej) |
 | **Zakończ** | okienko „Zakończ zamówienie": obowiązkowa data + opcjonalny powód |
-| **Przywróć** | cofa zakończenie — pokazuje się przy **każdym** zamówieniu ze statusem „Zakończone", także takim, które system domknął sam; przy zamówieniu MD z budżetem przy osobie wskrzesza też konsultantów, którym zostały dni i nie minęła data. Zamówienia **wyczerpanego** nie przywrócisz — tam trzeba podnieść budżet; dotyczy to też zamówienia, które było wyczerpane w chwili zakończenia |
+| **Przywróć** | cofa zakończenie — pokazuje się przy **każdym** zamówieniu ze statusem „Zakończone", także takim, które system domknął sam; przy zamówieniu MD z budżetem przy osobie wskrzesza też konsultantów, którym zostały dni i nie minęła data. Osoba, której umowę w międzyczasie **unieważniono**, nie wraca; osoba z umową **zakończoną** wraca jako zakończona z datą zakończenia umowy (jak po „Zakończ współpracę”). Zamówienia **wyczerpanego** nie przywrócisz — tam trzeba podnieść budżet; dotyczy to też zamówienia, które było wyczerpane w chwili zakończenia |
 | **Anuluj zamówienie** | dla zamówienia, które **nie doszło do skutku** albo zostało założone omyłkowo, a chcesz zachować jego historię. Zamówienie i jego konsultanci dostają status „Anulowane”, znikają z aktywnych zamówień, sum, alertów i rozliczeń, ale zostają w rejestrze (filtr **Anulowane**). **Zamówienia z rozliczeniami (zaraportowane MD, faktury) nie anulujesz** — system odmówi i wskaże, co blokuje; wtedy właściwą akcją jest **Zakończ**. Anulowanego zamówienia nie edytujesz, nie kończysz ani nie przedłużasz |
 | **Przywróć anulowane** | cofa anulowanie: zamówienie wraca do stanu sprzed niego (np. „Aktywne”), a konsultanci — do swoich statusów; osoba, której okres w międzyczasie minął, wraca jako zakończona; osoba, której umowę w międzyczasie zakończono, wraca jako zakończona, ze sprawą o pozostałe MD (jak po „Zakończ współpracę”), a osoba z unieważnioną umową zostaje anulowana |
 | **Usuń całe zamówienie** | służy do wycofania **pomyłki** i jest nieodwracalne: zamówienie znika razem ze swoją historią. **Zamówienia z rozliczeniami system nie usunie** — odmówi i wskaże, co je blokuje (rozliczone MD, zaimportowane faktury). Wtedy właściwą akcją jest **Zakończ**. Razem z zamówieniem znikają jego linie — **nie powstają z nich osobne zamówienia okresowe**. Okno usuwania pokazuje skutki dla umów: jeśli zamówienie niosło jedyną stawkę klienta na umowie, umowa zostaje **bez przychodu** (stawka klienta i marża znikają), a gdy są inne zamówienia — okres, którego dotyczyło, przejdzie na ich stawkę |
@@ -788,7 +788,9 @@ stawkę przychodową (tę, którą płaci klient), jednostkę tej stawki
 **Skany działają, ale w ograniczonym zakresie.** Gdy w pliku nie ma warstwy
 tekstowej, system rozpoznaje pismo — ale tylko z **pierwszych 10 stron** i wolno
 (kilka sekund na stronę). Zamówienie ze stawkami na 11. stronie skanu nie
-zostanie odczytane.
+zostanie odczytane. PDF, którego odczyt trwa zbyt długo albo potrzebuje zbyt
+dużo pamięci (uszkodzony albo nietypowo zbudowany plik), system traktuje jak
+nieczytelny — pola wpisujesz wtedy ręcznie.
 
 **Co zobaczysz po odczycie:**
 
@@ -1016,6 +1018,11 @@ rekordu z tym samym numerem, a dokument, który przypisano mu przed usunięciem,
 nie zostanie zapisany („Klient tego dokumentu został usunięty”); wskaż
 właściwego klienta albo odrzuć dokument. Taki dokument nie wraca też do
 godzinowej ponownej weryfikacji i nie wystawia karty Delivery Leadowi.
+
+**Klient scalony z innym rekordem** zostaje do odczytu: jego dawne zamówienia
+obejrzysz i pobierzesz, ale nowego zamówienia, edycji, dodania konsultanta,
+przedłużenia ani przywrócenia u niego nie zapiszesz — system odpowie, z którym
+rekordem go scalono. Zamówienia prowadzisz u rekordu głównego.
 
 Gdy mail przychodzi przed umową, draft czeka na koszt i podpis. Po obustronnym
 podpisaniu umowy system pobiera koszt z umowy i aktywuje kompletny draft.
@@ -1266,18 +1273,18 @@ nie samą zakładkę. Karty są pogrupowane:
 |---|---|---|---|
 | Kończące się zamówienia i umowy | **Zamówienie okresowe** kończy się (a u klientów z rozszerzonymi alertami — także **zamówienie MD/kosztowe**, osobno dla każdego konsultanta) | 30 dni przed datą końca — **pierwsza karta od razu z mailem**. **Nie powstaje, gdy do zamówienia dodano już przyszłe zamówienie** (także szkic) — wtedy nic nie trzeba robić, a otwarta karta zamyka się sama; to samo dotyczy powiadomienia w dzwonku. Samo przyszłe zamówienie dostaje kartę na tych samych zasadach | co 7 dni bez maila; **14 dni przed — mail**; **7 dni przed — wysoki priorytet (czerwona karta) + mail** |
 | | **Umowa ramowa** klienta wygasa | 30 dni przed wygaśnięciem | jak wyżej |
-| | **Kontrakt** konsultanta kończy się (umowa B2B ma datę końca dopiero po „Zakończ współpracę") | 30 dni przed końcem | jak wyżej |
+| | **Kontrakt** konsultanta kończy się (umowa B2B ma datę końca dopiero po „Zakończ współpracę") | 30 dni przed końcem. Gdy tego samego dnia kończy się zamówienie, które ma już własną kartę, kontrakt drugiej karty nie dostaje; ale jeśli za zamówieniem czeka kontynuacja (np. szkic), karta kontraktu **powstaje** — umowa się kończy, a szkic zostałby bez współpracy | jak wyżej |
 | | **[Klient] — wygasł konflikt z kandydatem** (NDA / cooling-off, czarna lista klienta albo konkurencja z datą wygaśnięcia) | data wygaśnięcia wpisu w „Konflikty" na profilu kandydata minęła — kandydata znów można proponować temu klientowi; przycisk otwiera profil kandydata | raz; bez maila |
 | | **Mało MD** — konsultantowi (budżet przy osobie; nie osobie, która już zeszła z zamówienia) albo całemu zamówieniu (wspólna pula) | zostało **21 MD lub mniej** | co 7 dni; **wysoki priorytet + mail**, gdy zostało MD na ok. **7 dni roboczych** pracy przy dotychczasowym tempie tego zamówienia |
 | | **Wysokie zużycie podstawy MD** — tylko u klientów z rozszerzonymi alertami, osobno dla każdego konsultanta | zużyto **80% lub więcej** podstawy MD (zakres opcjonalny nie wchodzi do rachunku) | co 7 dni; bez eskalacji — pilny sygnał daje wiersz wyżej |
 | | **Kończy się budżet zamówienia kosztowego** | zostało **10 000 zł lub mniej** | co 7 dni; **wysoki priorytet + mail**, gdy budżet wystarczy na ok. **7 dni roboczych** przy dotychczasowym tempie faktur |
-| | Zamówienie **wyczerpane** (kosztowe albo wspólna pula MD) | budżet zszedł do zera | raz |
-| Nowi kontraktorzy — draft zamówienia | **Nowy kontraktor u [klient] — uzupełnij zamówienie** | umowa oznaczona w Generatorze umów jako **podpisana obustronnie** (powstaje draft kontraktu i zamówienia); karta wypunktowuje braki: stawka przychodowa, okres zamówienia, numer zamówienia | co 7 dni, dopóki czegoś brakuje |
-| | **[Klient] — [kto] bez zamówienia** | zamówienie konsultanta wisi w statusie **Draft** (z innego źródła niż podpis umowy); pierwszy draft z maila ma osobne jednorazowe powiadomienie | co 7 dni |
+| | Zamówienie **wyczerpane** (kosztowe albo wspólna pula MD) | budżet zszedł do zera | raz; karta znika sama, gdy budżet zostanie podniesiony i zamówienie wróci na „Aktywne” |
+| Nowi kontraktorzy — draft zamówienia | **Nowy kontraktor u [klient] — uzupełnij zamówienie** | umowa oznaczona w Generatorze umów jako **podpisana obustronnie** (powstaje draft kontraktu i zamówienia); karta wypunktowuje to samo, czego wymaga aktywacja zamówienia: numer zamówienia, data startu, stawka przychodowa i kosztowa, a przy zamówieniu MD liczba MD, przy kosztowym — kwota. Data końca nie jest wymagana (zamówienie bezterminowe jest w porządku) | co 7 dni, dopóki czegoś brakuje |
+| | **[Klient] — [kto] bez zamówienia** | zamówienie konsultanta wisi w statusie **Draft** (z innego źródła niż podpis umowy); pierwszy draft z maila ma osobne jednorazowe powiadomienie. Nie dotyczy osoby dopisanej do zamówienia zaplanowanego albo szkicu zamówienia MD/kosztowego ani zaplanowanego „Wejdź za konsultanta” — te czekają na swój dzień | co 7 dni |
 | | **Brak stawki przychodowej** | aktywne zamówienie bez stawki, którą płaci klient | co 7 dni |
 | Zamówienia z maila do weryfikacji | **Sprawdź zamówienie z maila: [numer]** — „Zamówienie dla [kto] do [klient] czeka na ręczną weryfikację”, z powodem | **trzy nieudane próby automatycznego dokończenia z rzędu** (czyli po ok. 3 godzinach pracy, licząc tylko 8:00–18:00). Zamówienie czekające na podpis umowy nowego kontraktora **nie wysyła karty nigdy**; wpis bez rozpoznanego klienta też nie — nie ma komu | co 7 dni |
 | Decyzje po zakończeniu współpracy | **Decyzja MD po zakończeniu współpracy** | konsultant zakończył pracę na zamówieniu MD — **zawsze**, także gdy nie zostało ani jedno MD | raz; **nie da się jej odhaczyć** — zamyka ją decyzja w zamówieniu |
-| | **[Klient] — brak kolejnego zamówienia** | dzień po końcu zamówienia osoba nie ma u tego klienta następnego zamówienia — aktywnego, przyszłego ani szkicu | co 7 dni, do dodania zamówienia |
+| | **[Klient] — brak kolejnego zamówienia** | dzień po końcu zamówienia osoba nie ma u tego klienta następnego zamówienia — aktywnego, przyszłego ani szkicu | co 7 dni, do dodania zamówienia. Zakończenie współpracy zamyka kartę sama (to nie jest Twoje „zrobione”); cofnięte zakończenie przywraca ją |
 
 **Tempo zużycia** liczone jest z raportów tego zamówienia: suma zaraportowanych
 MD (albo faktur) podzielona przez dni robocze od startu zamówienia do końca
@@ -1297,6 +1304,10 @@ dostaje przypomnienie standardowe, a na końcu alert o wyczerpaniu.
   ostrzeżenie: przy zamówieniu na 220 MD alert „mało MD" (21 MD pozostałych)
   wypada dopiero przy ~90% zużycia, za późno na wynegocjowanie i wystawienie
   nowego dokumentu PO.
+
+Klient **usunięty** (z zachowaniem historii) nie dostaje żadnych kart ani
+powiadomień w dzwonku; otwarte karty umowy ramowej i braku kolejnego
+zamówienia zamykają się przy najbliższym przebiegu.
 
 Gdy oba warunki są spełnione naraz, w panelu stoją **dwie karty** i każdą
 odhaczasz osobno. Listę klientów objętych tymi alertami ustawia administrator
@@ -2081,7 +2092,9 @@ Reguła odczytu zmienia liczby, więc warto znać ją w całości:
 ### Centrum e-Zdrowia
 
 * Jedyny klient z polem **„Umowa wykonawcza \*"** — i jest ono **obowiązkowe**
-  przy nowym zamówieniu oraz przy przedłużeniu. Lista jest **pogrupowana po
+  przy nowym zamówieniu oraz przy przedłużeniu. Przedłużenie przejmuje umowę
+  wykonawczą poprzedniego zamówienia tylko wtedy, gdy nadal trwa — po
+  zakończonej umowie nowe zamówienie trafia do „Przypisań do przeglądu”. Lista jest **pogrupowana po
   części umowy ramowej** (**cz.1, cz.2, cz.4, cz.5, cz.6** — część 3. nie
   istnieje i to jest poprawne); część zamówienia wynika z wybranej umowy
   wykonawczej, nie wybierasz jej osobno.

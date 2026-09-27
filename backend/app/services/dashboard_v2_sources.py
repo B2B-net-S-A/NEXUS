@@ -517,8 +517,6 @@ async def load_monthly_races(db: AsyncSession) -> dict[str, Any]:
 
 async def load_hall_of_fame(db: AsyncSession) -> dict[str, Any]:
     """All-time TOP 5 (live) + zamrożone podia ligi kwartalnej z historii."""
-    from sqlalchemy import desc
-
     from app.models.competition_winner import CompetitionType, CompetitionWinner
     from app.services import competitions as comp
 
@@ -532,8 +530,10 @@ async def load_hall_of_fame(db: AsyncSession) -> dict[str, Any]:
                 CompetitionWinner.competition_type
                 == CompetitionType.quarterly_champions_recruiter.value
             )
-            .order_by(desc(CompetitionWinner.period), CompetitionWinner.rank)
-            .limit(12)  # 4 okresy × podium
+            # Runda 9 (R9-N6-4): bez `LIMIT` po napisie okresu — „Q4 2025” >
+            # „Q1 2026” alfabetycznie; 4 ostatnie okresy wybiera niżej
+            # `period_sort_key`.
+            .order_by(CompetitionWinner.period, CompetitionWinner.rank)
         )
     ).all()
     history: dict[str, list[dict[str, Any]]] = {}
@@ -552,7 +552,9 @@ async def load_hall_of_fame(db: AsyncSession) -> dict[str, Any]:
         "all_time": [r.to_dict() for r in all_time],
         "history": [
             {"period": period, "top3": history[period]}
-            for period in sorted(history.keys(), reverse=True)
+            for period in sorted(
+                history.keys(), key=comp.period_sort_key, reverse=True
+            )[:4]
         ],
     }
 

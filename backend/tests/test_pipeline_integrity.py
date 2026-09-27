@@ -188,6 +188,7 @@ async def test_hourly_rate_within_budget_stays_active(
 ):
     """100 PLN/h ×168 = 16 800 < 25 000 → active."""
     cand, (job, _) = await _seed_candidate(), await _seed_job(salary_max=25000)
+    await _seed_stage(cand, job, "new")  # R9-N11-4: najpierw w „Nowych”
     r = await app_client.post(
         MOVE,
         json={
@@ -693,6 +694,7 @@ async def test_hourly_rate_over_monthly_budget_stays_active(
     """150 PLN/h ×168 = 25 200 > 25 000 — do 17.09.2026 `pending`, dziś `active`;
     snapshot budżetu zostaje dla audytu."""
     cand, (job, _) = await _seed_candidate(), await _seed_job(salary_max=25000)
+    await _seed_stage(cand, job, "new")  # R9-N11-4: najpierw w „Nowych”
     r = await app_client.post(
         MOVE,
         json={
@@ -714,6 +716,7 @@ async def test_foreign_currency_rate_stays_active(
 ):
     """EUR nie jest porównywane z budżetem — ale też niczego nie blokuje."""
     cand, (job, _) = await _seed_candidate(), await _seed_job(salary_max=25000)
+    await _seed_stage(cand, job, "new")  # R9-N11-4: najpierw w „Nowych”
     r = await app_client.post(
         MOVE,
         json={
@@ -792,6 +795,9 @@ async def test_rejection_email_is_scheduled_only_on_explicit_opt_in(
 
     schedule = AsyncMock(return_value=None)
     monkeypatch.setattr(scheduler, "maybe_schedule", schedule)
+    # Runda 9 (R9-N11-1): mail wychodzi ze skrzynki odrzucającego — tu udajemy,
+    # że ją ma (test niżej sprawdza przypadek bez skrzynki).
+    monkeypatch.setattr(scheduler, "sender_has_mailbox", AsyncMock(return_value=True))
 
     cand, (job, _) = await _seed_candidate(), await _seed_job()
     await _seed_stage(cand, job, "cv_sent")
@@ -823,6 +829,53 @@ async def test_rejection_email_is_scheduled_only_on_explicit_opt_in(
     )
     assert r2.status_code == 200, r2.text
     schedule.assert_awaited_once()
+    # Mail planuje się na OSOBĘ, która odrzuca, nie na prowadzącego rekrutacji.
+    me = await app_client.get("/api/auth/me", headers=app_auth_headers)
+    assert schedule.await_args.kwargs["recruiter_id"] == me.json()["id"]
+    # Atrapa nic nie zapisała → serwer mówi wprost, że maila nie ma.
+    assert r2.json()["rejection_email_status"] == "not_client_visible"
+    assert r.json()["rejection_email_status"] is None
+
+
+async def test_rejection_email_without_mailbox_is_refused_out_loud(
+    app_client: AsyncClient, app_auth_headers, monkeypatch
+):
+    """Runda 9 (R9-N11-1/N11-2): odrzucający bez skrzynki M365 nie dostaje
+    maila zaplanowanego z cudzej skrzynki ani cichego `skipped` po 15 minutach
+    — odpowiedź ruchu mówi `no_mailbox`, a wiersz harmonogramu nie powstaje."""
+    from unittest.mock import AsyncMock
+
+    from sqlalchemy import select
+
+    import app.services.rejection_email_scheduler as scheduler
+    from app.models.rejection_email import ScheduledRejectionEmail
+
+    monkeypatch.setattr(scheduler, "sender_has_mailbox", AsyncMock(return_value=False))
+    cand, (job, _) = await _seed_candidate(), await _seed_job()
+    await _seed_stage(cand, job, "cv_sent")
+    r = await app_client.post(
+        MOVE,
+        json={
+            "candidate_id": cand,
+            "job_id": job,
+            "stage": "rejected",
+            "rejection_reason": "Klient wybrał innego kandydata",
+            "send_rejection_email": True,
+        },
+        headers=app_auth_headers,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["rejection_email_status"] == "no_mailbox"
+    assert r.json()["scheduled_rejection_email_id"] is None
+    async with AsyncSessionLocal() as db:
+        rows = (
+            await db.scalars(
+                select(ScheduledRejectionEmail.id).where(
+                    ScheduledRejectionEmail.candidate_id == cand
+                )
+            )
+        ).all()
+    assert rows == []
 
 
 async def test_failed_post_commit_side_effect_does_not_turn_the_move_into_500(

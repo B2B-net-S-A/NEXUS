@@ -9,6 +9,7 @@ rekrutacji i definicja placementu (D2) nie mogą mieć dwóch kopii.
 """
 
 from app.services.metric_definitions import DL_HIT_RATIO_TARGET_PCT
+from app.services.job_delivery_lead_fill import _HEADS
 
 # Nazwa klienta i widocznosc — LUSTRO `app/services/client_identity.py`
 # w surowym SQL-u (te zapytania sa tekstowe, wiec nie moga wolac helperow ORM).
@@ -31,11 +32,15 @@ HIT_RATIO_TARGET_PCT = DL_HIT_RATIO_TARGET_PCT
 
 # Rozwiązanie DL dla oferty: własny `delivery_lead_id`, a gdy pusty — główny
 # opiekun klienta (`is_head`). Jedno źródło dla wszystkich trzech zapytań.
-DL_HEAD_CTE = """
+# Runda 9 (R9-N6-2, decyzja Artura 27.09.2026): główny DL klienta i DL
+# rekrutacji to wyłącznie AKTYWNE konto z rolą Delivery Leada — ta sama reguła
+# co liga DL (`reports._resolve_dl_id`) i automat DL-a (`job_delivery_lead_fill`).
+# Bez niej Portfele DL i ranking w Insights liczyły placementy odchodzącego
+# DL-a jemu, a liga (nagrody) — głównemu DL-owi klienta.
+DL_HEAD_CTE = f"""
     dl_head AS (
-        SELECT client_id, delivery_lead_user_id
-        FROM delivery_lead_client_assignments
-        WHERE is_head IS TRUE
+        SELECT heads.client_id, heads.dl_id AS delivery_lead_user_id
+        FROM ({_HEADS}) heads
     )
 """
 
@@ -53,8 +58,11 @@ JOBS_SCOPED_CTE = """
                j.status,
                j.client_id,
                COALESCE(j.headcount, 1) AS headcount,
-               COALESCE(j.delivery_lead_id, h.delivery_lead_user_id) AS dl_id
+               COALESCE(jdl.id, h.delivery_lead_user_id) AS dl_id
         FROM jobs j
+        LEFT JOIN users jdl ON jdl.id = j.delivery_lead_id AND jdl.is_active
+             AND (CAST(jdl.role AS text) = 'delivery_lead'
+                  OR jdl.roles @> CAST('["delivery_lead"]' AS jsonb))
         LEFT JOIN dl_head h ON h.client_id = j.client_id
     )
 """

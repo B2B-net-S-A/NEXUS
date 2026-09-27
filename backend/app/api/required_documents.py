@@ -30,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import OperationalUser, require_roles
 from app.api.section_access import DeliverySectionUser
 from app.core.database import get_db
+from app.core.upload_filename import fit_filename_column
 from app.models.activity import Activity
 from app.models.client import Client
 from app.models.client_required_document import (
@@ -429,8 +430,9 @@ async def delete_required_doc(
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
 
-    if doc.file_path:
-        storage_service.delete_client_required_doc(doc.file_path)
+    # Runda 9 (R9-N7-5): plik kasujemy dopiero po udanym commicie — nieudany
+    # zapis zostawiał wiersz wskazujący na nieistniejący plik.
+    file_path = doc.file_path
     await db.delete(doc)
     db.add(
         Activity(
@@ -442,6 +444,9 @@ async def delete_required_doc(
         )
     )
     await db.flush()
+    await db.commit()
+    if file_path:
+        storage_service.delete_client_required_doc(file_path)
     return None
 
 
@@ -466,7 +471,8 @@ async def upload_required_doc_file(
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
 
-    filename = file.filename or "file"
+    # Runda 9 (R9-N7-4): `filename` to VARCHAR(255).
+    filename = fit_filename_column(file.filename or "file")
     relative_path, size = storage_service.save_client_required_doc(
         client_id=client_id,
         upload_filename=filename,
@@ -479,10 +485,9 @@ async def upload_required_doc_file(
             detail=f"File exceeds {MAX_UPLOAD_BYTES // (1024 * 1024)} MB",
         )
 
-    # Replace previous file if any
-    if doc.file_path:
-        storage_service.delete_client_required_doc(doc.file_path)
-
+    # Poprzedni plik znika dopiero po zapisie nowego (R9-N7-5): nieudany commit
+    # zostawiał wiersz ze starą ścieżką, której pliku już nie było.
+    previous_path = doc.file_path
     doc.filename = filename
     doc.file_path = relative_path
     doc.content_type = file.content_type
@@ -505,9 +510,17 @@ async def upload_required_doc_file(
             },
         )
     )
-    await db.flush()
-    await db.refresh(doc)
-    return await _doc_to_response(db, doc)
+    try:
+        await db.flush()
+        await db.refresh(doc)
+        response = await _doc_to_response(db, doc)
+        await db.commit()
+    except Exception:
+        storage_service.delete_client_required_doc(relative_path)
+        raise
+    if previous_path and previous_path != relative_path:
+        storage_service.delete_client_required_doc(previous_path)
+    return response
 
 
 @router.get(

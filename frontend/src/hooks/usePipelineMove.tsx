@@ -40,6 +40,10 @@ import {
 import { VerifiedRateModal } from "@/components/v2/modals/VerifiedRateModal";
 import { ClientRateModal } from "@/components/v2/modals/ClientRateModal";
 import { RejectionV2, type EndedBy } from "@/components/v2/modals/RejectionV2";
+import {
+  rejectionEmailAvailableFrom,
+  rejectionEmailSkipMessage,
+} from "@/lib/rejection-email";
 import { DebriefRequiredDialog } from "@/components/v2/recruitment/DebriefRequiredDialog";
 import {
   colId,
@@ -387,6 +391,7 @@ export function usePipelineMove({
           id?: number;
           verification_status?: "active" | "pending" | "rejected";
           scheduled_rejection_email_id?: number | null;
+          rejection_email_status?: string | null;
           process_state_version?: number | null;
         }>("/api/pipeline/move", {
           candidate_id: item.candidate_id,
@@ -462,6 +467,13 @@ export function usePipelineMove({
             },
             durationMs: 10_000,
           });
+        } else if (reason?.sendRejectionEmail && !opts?.silent) {
+          // Runda 9 (R9-N11-2): zaznaczony mail, którego serwer nie
+          // zaplanował — mówimy dlaczego, zamiast ciszy.
+          const skip = rejectionEmailSkipMessage(
+            response?.data?.rejection_email_status
+          );
+          if (skip) showError(skip);
         }
 
         if (!opts?.deferCacheSync) syncKanbanCache();
@@ -1074,6 +1086,13 @@ export function usePipelineMove({
               )?.stage ?? null
             : null
         }
+        emailAvailable={rejectionEmailAvailableFrom(
+          pendingRejection
+            ? columns.find(
+                (c) => colId(c) === pendingRejection.entries[0]?.srcColId
+              )
+            : null
+        )}
         onConfirm={confirmRejection}
         initialEndedBy={pendingRejection?.endedBy ?? null}
         canEndAsDeliveryLead={canEndAsDeliveryLead}

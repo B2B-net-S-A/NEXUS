@@ -1,7 +1,8 @@
 """Background task: auto-freeze Liga Mistrzów + Wyścigi Miesięczne.
 
-Odpala raz na godzinę i sprawdza, czy poprzedni miesiąc/kwartał jest już
-zamknięty (wiersze podium w `competition_winners` ALBO zamknięcie w
+Odpala raz na godzinę i sprawdza, czy zakończone miesiące/kwartały (od rundy 9
+kilka wstecz, nie tylko poprzedni) są już
+zamknięte (wiersze podium w `competition_winners` ALBO zamknięcie w
 `competition_period_closures`). Jeśli NIE — i okres jest „dojrzały" — liczy
 ranking i zapisuje.
 
@@ -40,6 +41,45 @@ logger = logging.getLogger(__name__)
 # Sprawdzamy co 1h — niski koszt, wystarczająca częstotliwość dla okresów
 # mierzonych w miesiącach/kwartałach.
 CHECK_INTERVAL_SECONDS = 3600
+
+# Runda 9 (R9-N6-6): pętla patrzyła wyłącznie na POPRZEDNI miesiąc i kwartał.
+# Okres, który nie dojrzał na czas (import Traffita stał kilka dni na przełomie
+# miesięcy), wypadał z przeglądu następnego miesiąca i nigdy nie był zamrażany —
+# nagrody za niego nie powstawały. Przeglądamy kilka zakończonych okresów wstecz
+# (najstarsze najpierw, kwartały przed miesiącami — reguła bez zmian).
+MONTHS_LOOKBACK = 3
+QUARTERS_LOOKBACK = 2
+OVERDUE_WARNING_DAYS = 31
+# Decyzja Artura 27.09.2026: nadrabianie obejmuje wyłącznie okresy kończące
+# się PO wdrożeniu rundy 9. Starsze okresy, których nikt nie zamroził (na
+# 27.09 liga DL Q1 2026 i wyścig rekomendacji 07.2026), zostają otwarte —
+# o nagrodach za nie decyduje admin ręcznie. Poprzedni miesiąc i kwartał
+# pętla sprawdza zawsze, tak jak przed rundą 9.
+CATCH_UP_FROM = date(2026, 9, 30)
+
+
+def _closed_months(today: date, count: int) -> list[str]:
+    """`count` ostatnich ZAKOŃCZONYCH miesięcy, najstarszy pierwszy."""
+    year, month = today.year, today.month
+    periods: list[str] = []
+    for _ in range(count):
+        month -= 1
+        if month == 0:
+            month, year = 12, year - 1
+        periods.append(f"{year}-{month:02d}")
+    return list(reversed(periods))
+
+
+def _closed_quarters(today: date, count: int) -> list[str]:
+    """`count` ostatnich ZAKOŃCZONYCH kwartałów, najstarszy pierwszy."""
+    year, quarter = today.year, (today.month - 1) // 3 + 1
+    periods: list[str] = []
+    for _ in range(count):
+        quarter -= 1
+        if quarter == 0:
+            quarter, year = 4, year - 1
+        periods.append(f"Q{quarter} {year}")
+    return list(reversed(periods))
 
 
 async def _is_period_frozen(db, competition_type: CompetitionType, period: str) -> bool:
@@ -87,6 +127,15 @@ def _quarter_period_end(period: str):
     return last_day, end_utc
 
 
+def _catch_up_periods(periods: list[str], period_end) -> list[str]:
+    """Okresy do przeglądu: zawsze ostatni zakończony, starsze tylko te, które
+    kończą się nie wcześniej niż ``CATCH_UP_FROM`` (decyzja 27.09.2026)."""
+    if not periods:
+        return []
+    latest = periods[-1]
+    return [p for p in periods if p == latest or period_end(p)[0] >= CATCH_UP_FROM]
+
+
 async def _rollback_quietly(db) -> None:
     """Odblokuj sesję po nieudanym typie, żeby następny mógł jeszcze pytać.
 
@@ -116,12 +165,16 @@ async def _freeze_if_ready(
         db, period_last_day=last_day, period_end_utc=end_utc, today=today
     )
     if not readiness.ready:
-        logger.info(
-            "auto-freeze %s for %s postponed: %s (earliest %s)",
+        # Runda 9 (R9-N6-6): okres czekający ponad miesiąc po końcu to sygnał
+        # dla człowieka (zwykle import Traffita stoi), nie rutyna.
+        overdue = (today - last_day).days > OVERDUE_WARNING_DAYS
+        (logger.warning if overdue else logger.info)(
+            "auto-freeze %s for %s postponed: %s (earliest %s)%s",
             ctype.value,
             period,
             readiness.reason,
             readiness.earliest_day.isoformat(),
+            " — okres czeka na zamrożenie ponad miesiąc" if overdue else "",
         )
         return
     created = await comp_service.freeze_competition(
@@ -175,15 +228,13 @@ async def _run_once(today: date | None = None) -> dict:
     today = today or business_today()
     results: dict[str, int] = {}
 
-    prev_month_period = await comp_service.previous_month_period(today)
-    prev_quarter_period = await comp_service.previous_quarter_period(today)
-    current_q_period = comp_service.current_quarter_period(today)
-
     async with AsyncSessionLocal() as db:
         # Kwartał PRZED miesiącami: wykluczenie lidera kwartału z wyścigu
         # ostatniego miesiąca kwartału czyta wtedy zamrożonego zwycięzcę
         # (albo remis czekający na admina), a nie ranking liczony na żywo.
-        if prev_quarter_period != current_q_period:
+        for quarter_period in _catch_up_periods(
+            _closed_quarters(today, QUARTERS_LOOKBACK), _quarter_period_end
+        ):
             for ctype in (
                 CompetitionType.quarterly_champions_dl,
                 CompetitionType.quarterly_champions_recruiter,
@@ -192,8 +243,8 @@ async def _run_once(today: date | None = None) -> dict:
                     await _freeze_if_ready(
                         db,
                         ctype,
-                        prev_quarter_period,
-                        _quarter_period_end(prev_quarter_period),
+                        quarter_period,
+                        _quarter_period_end(quarter_period),
                         today,
                         results,
                     )
@@ -201,32 +252,35 @@ async def _run_once(today: date | None = None) -> dict:
                     logger.warning(
                         "auto-freeze failed for %s %s: %s",
                         ctype.value,
-                        prev_quarter_period,
+                        quarter_period,
                         exc,
                     )
                     await _rollback_quietly(db)
 
-        for ctype in (
-            CompetitionType.monthly_recommendations,
-            CompetitionType.monthly_placements,
+        for month_period in _catch_up_periods(
+            _closed_months(today, MONTHS_LOOKBACK), _month_period_end
         ):
-            try:
-                await _freeze_if_ready(
-                    db,
-                    ctype,
-                    prev_month_period,
-                    _month_period_end(prev_month_period),
-                    today,
-                    results,
-                )
-            except Exception as exc:  # noqa: BLE001
-                logger.warning(
-                    "auto-freeze failed for %s %s: %s",
-                    ctype.value,
-                    prev_month_period,
-                    exc,
-                )
-                await _rollback_quietly(db)
+            for ctype in (
+                CompetitionType.monthly_recommendations,
+                CompetitionType.monthly_placements,
+            ):
+                try:
+                    await _freeze_if_ready(
+                        db,
+                        ctype,
+                        month_period,
+                        _month_period_end(month_period),
+                        today,
+                        results,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "auto-freeze failed for %s %s: %s",
+                        ctype.value,
+                        month_period,
+                        exc,
+                    )
+                    await _rollback_quietly(db)
 
     return results
 

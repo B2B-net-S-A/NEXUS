@@ -287,7 +287,7 @@ async def test_reaper_fails_only_claimed_runs_without_progress_or_live_lease():
 
 
 @pytest.mark.asyncio
-async def test_candidate_erasure_removes_rows_and_fails_only_active_runs():
+async def test_candidate_erasure_removes_rows_and_shrinks_active_runs():
     from sqlalchemy import select
     from app.models.candidate_search_run import CandidateSearchResult
 
@@ -320,7 +320,11 @@ async def test_candidate_erasure_removes_rows_and_fails_only_active_runs():
 
             result = await store.erase_candidate(db, erased.id)
 
-            assert result == {"search_rows_deleted": 2, "search_runs_failed": 1}
+            assert result == {
+                "search_rows_deleted": 2,
+                "search_runs_failed": 0,
+                "search_runs_shrunk": 1,
+            }
             remaining = [
                 tuple(row)
                 for row in await db.execute(
@@ -335,11 +339,11 @@ async def test_candidate_erasure_removes_rows_and_fails_only_active_runs():
             await db.refresh(finished)
             await db.refresh(active)
             assert finished.state == "complete"
-            assert active.state == "failed"
-            assert active.error_code == "candidate_erased"
-            # The worker that held the lease can no longer write or finalize.
-            with pytest.raises(store.SearchLeaseLost):
-                await store.save_metrics(db, active.id, token, {})
+            # Runda 9 (R9-N5-7): przegląd w toku żyje dalej — traci wiersz,
+            # a populacja maleje, więc `finish_run` nadal rozlicza migawkę.
+            assert active.state == "running"
+            assert active.population_size == 1
+            await store.save_metrics(db, active.id, token, {})
         finally:
             await db.rollback()
 

@@ -13,17 +13,19 @@ from app.models.client import ClientStatus
 
 
 class ClientCreate(BaseModel):
-    name: str
-    industry: Optional[str] = None
-    website: Optional[str] = None
-    address: Optional[str] = None
+    # Runda 9 (R9-N4-5): lustro długości kolumn `clients` — za długa wartość
+    # dawała 500 z bazy (bez CORS) zamiast 422.
+    name: str = Field(max_length=255)
+    industry: Optional[str] = Field(None, max_length=100)
+    website: Optional[str] = Field(None, max_length=500)
+    address: Optional[str] = Field(None, max_length=500)
     status: ClientStatus = ClientStatus.prospect
     nda_signed: bool = False
-    contract_type: Optional[str] = None
+    contract_type: Optional[str] = Field(None, max_length=100)
     notes: Optional[str] = None
-    legal_name: Optional[str] = None
-    nip: Optional[str] = None
-    regon: Optional[str] = None
+    legal_name: Optional[str] = Field(None, max_length=255)
+    nip: Optional[str] = Field(None, max_length=32)
+    regon: Optional[str] = Field(None, max_length=32)
 
 
 class ClientUpdate(BaseModel):
@@ -37,16 +39,16 @@ class ClientUpdate(BaseModel):
     # pola (""/whitespace → None) przywraca nazwę źródłową, bo odczyt robi
     # coalesce(nullif(btrim(display_name),''), name).
     display_name: Optional[str] = Field(None, max_length=255)
-    industry: Optional[str] = None
-    website: Optional[str] = None
-    address: Optional[str] = None
+    industry: Optional[str] = Field(None, max_length=100)
+    website: Optional[str] = Field(None, max_length=500)
+    address: Optional[str] = Field(None, max_length=500)
     status: Optional[ClientStatus] = None
     nda_signed: Optional[bool] = None
-    contract_type: Optional[str] = None
+    contract_type: Optional[str] = Field(None, max_length=100)
     notes: Optional[str] = None
-    legal_name: Optional[str] = None
-    nip: Optional[str] = None
-    regon: Optional[str] = None
+    legal_name: Optional[str] = Field(None, max_length=255)
+    nip: Optional[str] = Field(None, max_length=32)
+    regon: Optional[str] = Field(None, max_length=32)
     # Interaktywna wersja CV na publicznym linku (kafelki + chat) dla hiring
     # managerów tego klienta. Niezależne od `cv_content_mode_cap`.
     cv_interactive_enabled: Optional[bool] = None

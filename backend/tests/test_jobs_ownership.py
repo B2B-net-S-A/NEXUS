@@ -210,6 +210,29 @@ async def test_claim_already_owned_returns_409(ownership_client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_claim_job_of_an_inactive_owner_succeeds(ownership_client: AsyncClient):
+    """Runda 9 (R9-V2-2): prowadzący z nieaktywnym kontem to brak prowadzącego —
+    rekrutację da się przejąć, a odpowiedź mówi, że konto jest nieaktywne."""
+    owner_id, _, _ = await _seed_user(UserRole.recruiter)
+    rec_id, rec_email, rec_pass = await _seed_user(UserRole.recruiter)
+    job_id = await _seed_job(recruiter_id=owner_id)
+    headers = await _login(ownership_client, rec_email, rec_pass)
+    async with AsyncSessionLocal() as db:
+        owner = await db.get(User, owner_id)
+        owner.is_active = False
+        await db.commit()
+
+    detail = await ownership_client.get(f"/api/jobs/{job_id}", headers=headers)
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["primary_owner"]["is_active"] is False
+
+    resp = await ownership_client.post(f"/api/jobs/{job_id}/claim", headers=headers)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["primary_owner"]["id"] == rec_id
+    assert resp.json()["primary_owner"]["is_active"] is True
+
+
+@pytest.mark.asyncio
 async def test_claim_closed_job_returns_409(ownership_client: AsyncClient):
     """Runda 8 (R8-X2-3): zamkniętej rekrutacji bez prowadzącego (archiwum
     z Traffita) nikt nie przejmuje — „prowadzący” widział stawki umów B2B

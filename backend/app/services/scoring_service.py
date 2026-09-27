@@ -24,6 +24,7 @@ lists, active penalties and warnings so the UI can render a "why" tooltip.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -2171,7 +2172,12 @@ async def rank_candidates_for_job(
     # One context for the whole pool instead of two SELECTs per candidate.
     context = await build_job_scoring_context(db, job, [c.id for c in candidates])
     results: List[ScoreBreakdown] = []
-    for c in candidates:
+    for i, c in enumerate(candidates):
+        # Runda 9 (R9-N5-1): z gotowym kontekstem `score_candidate_job` nie
+        # czeka na bazę, więc tysiąc kandydatów Talent Radaru liczył się bez
+        # jednego oddania pętli zdarzeń — a backend to jeden proces uvicorna.
+        if i and i % 32 == 0:
+            await asyncio.sleep(0)
         sim = sims.get(c.id)
         results.append(
             await score_candidate_job(

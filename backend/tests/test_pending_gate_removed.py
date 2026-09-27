@@ -130,6 +130,22 @@ async def _login(client: AsyncClient, email: str, password: str) -> dict[str, st
     return {"Authorization": f"Bearer {resp.json()['access_token']}"}
 
 
+async def enter_pipeline(
+    client: AsyncClient, headers: dict[str, str], candidate_id: int, job_id: int
+) -> None:
+    """Dodaj osobę do „Nowych” — dopiero wtedy `/move` przenosi ją dalej.
+
+    Runda 9 (R9-N11-4): para BEZ wiersza etapu wchodzi wyłącznie do
+    „Nowych”/„Screeningu”, jak przy dodaniu przez bulk-add.
+    """
+    resp = await client.post(
+        "/api/pipeline/move",
+        headers=headers,
+        json={"candidate_id": candidate_id, "job_id": job_id, "stage": "new"},
+    )
+    assert resp.status_code == 200, resp.text
+
+
 async def _cleanup(*, candidate_ids: list[int], job_ids: list[int]) -> None:
     async with AsyncSessionLocal() as db:
         if candidate_ids or job_ids:
@@ -156,6 +172,7 @@ async def test_above_budget_stays_active_and_flags_budget(
     headers = await _login(pv_client, email, pw)
     cand_id = await _seed_candidate()
     job_id = await _seed_job(salary_max=20000, recruiter_id=recr_uid)
+    await enter_pipeline(pv_client, headers, cand_id, job_id)
     try:
         resp = await pv_client.post(
             "/api/pipeline/move",
@@ -207,6 +224,7 @@ async def test_within_budget_has_no_flag(pv_client: AsyncClient):
     headers = await _login(pv_client, email, pw)
     cand_id = await _seed_candidate()
     job_id = await _seed_job(salary_max=20000, recruiter_id=recr_uid)
+    await enter_pipeline(pv_client, headers, cand_id, job_id)
     try:
         resp = await pv_client.post(
             "/api/pipeline/move",
@@ -307,6 +325,7 @@ async def test_move_to_verified_without_rate_succeeds(pv_client: AsyncClient):
     headers = await _login(pv_client, email, pw)
     cand_id = await _seed_candidate()
     job_id = await _seed_job(recruiter_id=recr_uid)
+    await enter_pipeline(pv_client, headers, cand_id, job_id)
     try:
         resp = await pv_client.post(
             "/api/pipeline/move",
@@ -336,6 +355,7 @@ async def test_verified_move_credits_first_verifier_immediately(
     recr_headers = await _login(pv_client, recr_email, recr_pw)
     cand_id = await _seed_candidate()
     job_id = await _seed_job(salary_max=20000, recruiter_id=recr_uid)
+    await enter_pipeline(pv_client, recr_headers, cand_id, job_id)
     try:
         resp = await pv_client.post(
             "/api/pipeline/move",

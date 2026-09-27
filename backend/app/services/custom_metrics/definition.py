@@ -55,7 +55,10 @@ MILESTONE_STAGES: tuple[str, ...] = (
 STAGE_LABELS_PL: dict[str, str] = {
     "verified": "Zweryfikowani",
     "cv_sent": "CV wysłane",
-    "interview": "Rozmowa",
+    # Runda 9 (R9-V1-6): od Rekrutacji v5 etap o kodzie `interview` to
+    # „QC CV” (dawniej „Przepuszczony przez DZ”), nie rozmowa — rozmowy
+    # u klienta liczy `client_interview`. Lustro: `dashboard-tiles/describe.ts`.
+    "interview": "QC CV",
     "client_interview": "Rozmowa z klientem",
     "acceptance": "Akceptacja",
     "hired": "Zatrudnieni",

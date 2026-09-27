@@ -470,3 +470,104 @@ async def test_state_write_is_an_upsert_under_overlapping_runs() -> None:
         assert row is not None
         assert row.value["last_seen"] == {"-2": "active"}
         assert row.value["version"] == 2
+
+
+# ── Runda 9 (R9-N9-3, R9-N9-7) ──────────────────────────────────────────────
+
+
+def test_mass_exit_threshold_rule():
+    suspected = compass_lifecycle._mass_exit_suspected
+    assert suspected(0, 43) is False
+    assert suspected(compass_lifecycle.MASS_EXIT_MAX_PEOPLE, 100) is False
+    assert suspected(compass_lifecycle.MASS_EXIT_MAX_PEOPLE + 1, 100) is True
+    # 20% dopasowanych przy dużej próbie
+    assert suspected(3, 12) is True
+    assert suspected(2, 12) is False
+    # mała próba: próg procentowy nie działa (jedno odejście z trzech osób)
+    assert suspected(1, 3) is False
+
+
+@pytest.mark.asyncio
+async def test_mass_exit_changes_nothing(monkeypatch):
+    """Feed, w którym nagle wszyscy mają `exited`, nie wyłącza nikogo."""
+    emails = [
+        f"lc-mass-{i}-{uuid.uuid4().hex[:6]}@b2bnetwork.pl"
+        for i in range(compass_lifecycle.MASS_EXIT_MAX_PEOPLE + 1)
+    ]
+    ids = [await _seed_user(e) for e in emails]
+    _configure(
+        monkeypatch, [{"email": e, "employment_status": "exited"} for e in emails]
+    )
+
+    async with AsyncSessionLocal() as db:
+        result = await compass_lifecycle.sync_user_lifecycle(db)
+
+    assert result.error == compass_lifecycle.MASS_EXIT_ERROR
+    assert result.deactivated == []
+    assert result.mass_exit_blocked == len(emails)
+    for uid in ids:
+        assert await _is_active(uid) is True
+    async with AsyncSessionLocal() as db:
+        audit = (
+            (
+                await db.execute(
+                    select(Activity).where(
+                        Activity.entity_type == "user",
+                        Activity.entity_id.in_(ids),
+                        Activity.action == compass_lifecycle.DEACTIVATION_ACTION,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        state = await db.get(AppSetting, compass_lifecycle._STATE_KEY)
+    assert audit == []
+    assert state is not None
+    assert state.value.get("last_status") == "error"
+    assert state.value.get("last_error") == compass_lifecycle.MASS_EXIT_ERROR
+
+
+@pytest.mark.asyncio
+async def test_admin_account_is_never_deactivated(monkeypatch):
+    email = f"lc-adm-{uuid.uuid4().hex[:8]}@b2bnetwork.pl"
+    async with AsyncSessionLocal() as db:
+        u = User(
+            email=email,
+            name=f"LC {uuid.uuid4().hex[:6]}",
+            password_hash=hash_password("T3st_lifecycle!x0"),
+            role=UserRole.admin,
+            is_active=True,
+        )
+        db.add(u)
+        await db.commit()
+        await db.refresh(u)
+        uid = u.id
+    _configure(monkeypatch, [{"email": email, "employment_status": "exited"}])
+
+    async with AsyncSessionLocal() as db:
+        result = await compass_lifecycle.sync_user_lifecycle(db)
+
+    assert uid in result.skipped_admin_user_ids
+    assert result.deactivated == []
+    assert await _is_active(uid) is True
+
+
+@pytest.mark.asyncio
+async def test_duplicate_email_with_conflicting_statuses_is_skipped(monkeypatch):
+    email = f"lc-dup-{uuid.uuid4().hex[:8]}@b2bnetwork.pl"
+    uid = await _seed_user(email)
+    _configure(
+        monkeypatch,
+        [
+            {"email": email, "employment_status": "active"},
+            {"email": email.upper(), "employment_status": "exited"},
+        ],
+    )
+
+    async with AsyncSessionLocal() as db:
+        result = await compass_lifecycle.sync_user_lifecycle(db)
+
+    assert email in result.conflicting_compass_emails
+    assert result.deactivated == []
+    assert await _is_active(uid) is True

@@ -182,6 +182,104 @@ def _to_datetime(v) -> Optional[datetime]:
     return None
 
 
+# Runda 9 (R9-X1-5): ile wydarzeń zapisujemy w jednym commicie.
+_COMMIT_BATCH = 200
+
+
+@dataclass
+class _ParsedEvent:
+    uid: str
+    summary: str
+    description: Optional[str]
+    location: Optional[str]
+    start: datetime
+    end: Optional[datetime]
+    all_day: bool
+
+
+def _parse_feed(raw: bytes) -> list[_ParsedEvent | str]:
+    """Rozbiera kanał iCal na proste rekordy — CPU, wołane w wątku.
+
+    Element listy to wydarzenie albo opis błędu tego wydarzenia (brak UID,
+    brak DTSTART, wyjątek przy odczycie) — kolejność = kolejność VEVENT.
+    """
+    from icalendar import Calendar  # local import keeps cold-start light
+
+    cal = Calendar.from_ical(raw)
+    out: list[_ParsedEvent | str] = []
+    for component in cal.walk("VEVENT"):
+        try:
+            uid = str(component.get("UID") or "").strip()
+            if not uid:
+                out.append("event missing UID")
+                continue
+
+            summary = str(component.get("SUMMARY") or "Spotkanie").strip()[:255]
+            description = str(component.get("DESCRIPTION") or "") or None
+            location = str(component.get("LOCATION") or "") or None
+            # CLASS:PRIVATE/CONFIDENTIAL = sam zajęty termin, bez treści
+            # (lustro `sensitivity` z synchronizacji Outlooka, R3-7).
+            if is_private_marker(component.get("CLASS")):
+                summary = PRIVATE_EVENT_TITLE
+                description = None
+                location = None
+
+            raw_start = getattr(component.get("DTSTART"), "dt", None)
+            dtstart = _to_datetime(raw_start)
+            dtend = _to_datetime(getattr(component.get("DTEND"), "dt", None))
+            # `DTSTART;VALUE=DATE` (sama data, bez godziny) to wpis całodniowy
+            # — urlop, OOO. Bez flagi siatka rysowała go jako blok 00:00–24:00.
+            all_day = is_all_day_value(raw_start)
+            if all_day and dtstart is not None:
+                dtstart, dtend = normalize_all_day(dtstart, dtend)
+
+            if dtstart is None:
+                out.append(f"uid={uid}: missing DTSTART")
+                continue
+            out.append(
+                _ParsedEvent(
+                    uid=uid,
+                    summary=summary,
+                    description=description,
+                    location=location,
+                    start=dtstart,
+                    end=dtend,
+                    all_day=all_day,
+                )
+            )
+        except Exception as e:  # noqa: BLE001
+            out.append(f"event: {type(e).__name__}")
+    return out
+
+
+@dataclass
+class _Batch:
+    inserted: int = 0
+    updated: int = 0
+    uids: set[str] = field(default_factory=set)
+
+    def size(self) -> int:
+        return self.inserted + self.updated
+
+
+async def _commit_batch(
+    db: AsyncSession, result: ICalImportResult, batch: _Batch, seen_uids: set[str]
+) -> None:
+    """Zatwierdza paczkę; nieudany commit wycofuje TYLKO tę paczkę z liczników."""
+    try:
+        await db.commit()
+    except Exception as e:  # noqa: BLE001
+        await db.rollback()
+        result.errors += 1
+        result.error_samples.append(f"commit: {type(e).__name__}")
+        result.inserted -= batch.inserted
+        result.updated -= batch.updated
+        seen_uids.difference_update(batch.uids)
+    batch.inserted = 0
+    batch.updated = 0
+    batch.uids = set()
+
+
 async def import_ical_url(
     db: AsyncSession,
     url: str,
@@ -191,8 +289,6 @@ async def import_ical_url(
     creator_id: Optional[int] = None,
 ) -> ICalImportResult:
     """Fetch iCal feed and upsert events into calendar_events."""
-    from icalendar import Calendar  # local import keeps cold-start light
-
     # P0.8: never store or echo the full URL — it is effectively a secret
     # (public iCal URLs grant read access to the whole calendar). Keep only the
     # host for display/logging.
@@ -234,55 +330,31 @@ async def import_ical_url(
         result.error_samples.append("fetch: unexpected error")
         return result
 
+    # Runda 9 (R9-X1-5): parsowanie do 5 MiB i przejście po komponentach to
+    # czysty CPU — w wątku, żeby nie zamrażać pętli jedynego procesu uvicorna.
     try:
-        cal = Calendar.from_ical(raw)
+        parsed = await asyncio.to_thread(_parse_feed, raw)
     except Exception as e:  # noqa: BLE001
         result.errors += 1
-        result.error_samples.append(f"parse: {e!r}")
+        result.error_samples.append(f"parse: {type(e).__name__}")
         return result
 
     # UIDs inserted during THIS run. Pending rows are invisible to the
     # collision SELECT below, so a feed repeating a UID would otherwise still
     # hit the unique index at commit and lose the whole batch.
     seen_uids: set[str] = set()
+    batch = _Batch()
 
-    for component in cal.walk("VEVENT"):
+    for item in parsed:
         result.events_fetched += 1
+        if isinstance(item, str):
+            result.errors += 1
+            if len(result.error_samples) < 20:
+                result.error_samples.append(item)
+            continue
         try:
-            uid = str(component.get("UID") or "").strip()
-            if not uid:
-                result.errors += 1
-                if len(result.error_samples) < 20:
-                    result.error_samples.append("event missing UID")
-                continue
-
-            summary = str(component.get("SUMMARY") or "Spotkanie").strip()[:255]
-            description = str(component.get("DESCRIPTION") or "") or None
-            location = str(component.get("LOCATION") or "") or None
-            # CLASS:PRIVATE/CONFIDENTIAL = sam zajęty termin, bez treści
-            # (lustro `sensitivity` z synchronizacji Outlooka, R3-7).
-            if is_private_marker(component.get("CLASS")):
-                summary = PRIVATE_EVENT_TITLE
-                description = None
-                location = None
-
-            raw_start = getattr(component.get("DTSTART"), "dt", None)
-            dtstart = _to_datetime(raw_start)
-            dtend = _to_datetime(getattr(component.get("DTEND"), "dt", None))
-            # `DTSTART;VALUE=DATE` (sama data, bez godziny) to wpis całodniowy
-            # — urlop, OOO. Bez flagi siatka rysowała go jako blok 00:00–24:00.
-            all_day = is_all_day_value(raw_start)
-            if all_day and dtstart is not None:
-                dtstart, dtend = normalize_all_day(dtstart, dtend)
-
-            if dtstart is None:
-                result.errors += 1
-                if len(result.error_samples) < 20:
-                    result.error_samples.append(f"uid={uid}: missing DTSTART")
-                continue
-
             # Skip past events older than cutoff
-            if dtstart < cutoff:
+            if item.start < cutoff:
                 result.skipped_past += 1
                 continue
 
@@ -292,18 +364,19 @@ async def import_ical_url(
             existing = await db.scalar(
                 select(CalendarEvent).where(
                     CalendarEvent.external_source == source_tag,
-                    CalendarEvent.external_id == uid,
+                    CalendarEvent.external_id == item.uid,
                     CalendarEvent.created_by == creator_id,
                 )
             )
             if existing:
-                existing.title = summary
-                existing.description = description
-                existing.location = location
-                existing.start_time = dtstart
-                existing.end_time = dtend
-                existing.all_day = all_day
+                existing.title = item.summary
+                existing.description = item.description
+                existing.location = item.location
+                existing.start_time = item.start
+                existing.end_time = item.end
+                existing.all_day = item.all_day
                 result.updated += 1
+                batch.updated += 1
             else:
                 # The DB carries a partial unique index on
                 # (external_source, external_id) that does NOT include
@@ -313,44 +386,47 @@ async def import_ical_url(
                 # losing every event in this import. Skip and report the
                 # collision instead — we must neither overwrite the other
                 # user's event (P0.8) nor destroy this user's import.
-                if uid in seen_uids:
+                if item.uid in seen_uids:
                     result.skipped_conflict += 1
                     continue
                 taken = await db.scalar(
                     select(CalendarEvent.id).where(
                         CalendarEvent.external_source == source_tag,
-                        CalendarEvent.external_id == uid,
+                        CalendarEvent.external_id == item.uid,
                     )
                 )
                 if taken is not None:
                     result.skipped_conflict += 1
                     continue
-                seen_uids.add(uid)
-                ev = CalendarEvent(
-                    title=summary,
-                    description=description,
-                    event_type=EventType.meeting,
-                    start_time=dtstart,
-                    end_time=dtend,
-                    all_day=all_day,
-                    location=location,
-                    status=EventStatus.scheduled,
-                    external_source=source_tag,
-                    external_id=uid,
-                    created_by=creator_id,
+                seen_uids.add(item.uid)
+                batch.uids.add(item.uid)
+                db.add(
+                    CalendarEvent(
+                        title=item.summary,
+                        description=item.description,
+                        event_type=EventType.meeting,
+                        start_time=item.start,
+                        end_time=item.end,
+                        all_day=item.all_day,
+                        location=item.location,
+                        status=EventStatus.scheduled,
+                        external_source=source_tag,
+                        external_id=item.uid,
+                        created_by=creator_id,
+                    )
                 )
-                db.add(ev)
                 result.inserted += 1
+                batch.inserted += 1
         except Exception as e:  # noqa: BLE001
             result.errors += 1
             if len(result.error_samples) < 20:
-                result.error_samples.append(f"event: {e!r}")
+                result.error_samples.append(f"event: {type(e).__name__}")
+            continue
 
-    try:
-        await db.commit()
-    except Exception as e:  # noqa: BLE001
-        await db.rollback()
-        result.errors += 1
-        result.error_samples.append(f"commit: {e!r}")
+        # Runda 9 (R9-X1-5): zapis paczkami — jeden flush tysięcy wierszy na
+        # końcu trzymał pętlę i transakcję przez cały import.
+        if batch.size() >= _COMMIT_BATCH:
+            await _commit_batch(db, result, batch, seen_uids)
 
+    await _commit_batch(db, result, batch, seen_uids)
     return result

@@ -24,7 +24,13 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import and_, bindparam, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.cache import cache_get, cache_set, cache_single_flight
+from app.core.cache import (
+    cache_get,
+    cache_invalidate,
+    cache_set,
+    cache_single_flight,
+)
+from app.core.scheduling import is_business_day
 from app.models.call import Call, CallStatus
 from app.models.candidate import Candidate
 from app.models.user import User, UserRole
@@ -144,16 +150,30 @@ def expected_progress_ratio(period: KpiPeriod, now: datetime) -> float:
         )
         return minutes / _WORKDAY_MINUTES
 
+    # Runda 9 (R9-N6-6): święto (Boże Ciało, 1 i 3 maja…) liczyło się jak
+    # dzień roboczy — w święto dzienny KPI był „behind”, a tygodniowy oczekiwał
+    # pięciu dni pracy w tygodniu z czterema. Dzień roboczy = `is_business_day`
+    # (Pon–Pt bez polskich świąt ustawowych).
     if period == KpiPeriod.day:
+        if not is_business_day(now_w):
+            return 0.0  # dzień wolny — nic nie jest oczekiwane
         return _intraday_ratio(now_w)
 
     if period == KpiPeriod.week:
         weekday = now_w.weekday()  # 0=pon, 6=niedz
         if weekday >= _WORKDAYS_PER_WEEK:
             return 1.0  # weekend — okres praktycznie "zamknięty"
-        completed_days = weekday  # pon=0, wt=1 (czyli 1 dzień się skończył)
-        today_ratio = _intraday_ratio(now_w)
-        return min(1.0, (completed_days + today_ratio) / _WORKDAYS_PER_WEEK)
+        monday = now_w - timedelta(days=weekday)
+        workdays = [
+            day
+            for day in (monday + timedelta(days=i) for i in range(_WORKDAYS_PER_WEEK))
+            if is_business_day(day)
+        ]
+        if not workdays:
+            return 0.0
+        completed_days = sum(1 for day in workdays if day.date() < now_w.date())
+        today_ratio = _intraday_ratio(now_w) if is_business_day(now_w) else 0.0
+        return min(1.0, (completed_days + today_ratio) / len(workdays))
 
     if period == KpiPeriod.month:
         # Ile dni w miesiącu
@@ -295,6 +315,7 @@ async def count_canonical_metric(
 
 
 _MILESTONE_SNAPSHOT_TTL_SECONDS = 60
+_MILESTONE_KEY_PREFIX = "kpi:milestones:v2:"
 
 
 async def _milestone_snapshot(
@@ -314,15 +335,31 @@ async def _milestone_snapshot(
     from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
 
     ordered = sorted(windows.items(), key=lambda item: item[0].value)
-    key = "kpi:milestones:v1:" + "|".join(
-        f"{period.value}={start.isoformat()}/{end.isoformat()}"
-        for period, (start, end) in ordered
+    # Runda 9 (R9-N6-1): koniec okna to „teraz” z mikrosekundami, więc klucz
+    # z końcem był inny przy każdym wejściu — cache nigdy nie trafiał, a każdy
+    # wpis zostawał w `_cache` na zawsze (wygasłe wpisy usuwa tylko odczyt tego
+    # samego klucza). Klucz niesie same POCZĄTKI okien; migawka pamięta, do
+    # kiedy liczyła, i służy wywołaniom, których „teraz” leży w granicach TTL.
+    key = _MILESTONE_KEY_PREFIX + "|".join(
+        f"{period.value}={start.isoformat()}" for period, (start, _) in ordered
     )
-    cached = await cache_get(key)
+    until = max(end for _, (_, end) in ordered)
+
+    def _fresh(entry: object) -> Optional[dict[tuple[int, str, str], int]]:
+        if not isinstance(entry, tuple) or len(entry) != 2:
+            return None
+        computed_until, snapshot = entry
+        if abs((until - computed_until).total_seconds()) > (
+            _MILESTONE_SNAPSHOT_TTL_SECONDS
+        ):
+            return None
+        return snapshot
+
+    cached = _fresh(await cache_get(key))
     if cached is not None:
         return cached
     async with cache_single_flight(key, db=db):
-        cached = await cache_get(key)
+        cached = _fresh(await cache_get(key))
         if cached is not None:
             return cached
         params: dict[str, object] = {
@@ -359,9 +396,12 @@ async def _milestone_snapshot(
                     snapshot[
                         (int(row["credit_user"]), str(row["stage"]), period.value)
                     ] = count
+        # Najwyżej jeden wpis migawki naraz: starsze (wczorajszy początek dnia,
+        # historyczne „teraz” z przebiegu coacha) znikają przy każdym zapisie.
+        await cache_invalidate(_MILESTONE_KEY_PREFIX)
         await cache_set(
             key,
-            snapshot,
+            (until, snapshot),
             ttl_seconds=_MILESTONE_SNAPSHOT_TTL_SECONDS,
             jitter_seconds=10,
         )

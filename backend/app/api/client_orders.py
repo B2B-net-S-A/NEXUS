@@ -100,7 +100,11 @@ from app.services.order_gaps import close_gaps_of_deleted_orders
 from app.services.shared_md_orders import client_uses_shared_md_pool
 from app.services.order_continuation import ending_without_successor
 from app.services.ai_quota import AIQuotaExceeded, ai_feature
-from app.services.client_access import deny, resolve_client_access
+from app.services.client_access import (
+    assert_client_assignable,
+    deny,
+    resolve_client_access,
+)
 from app.services.client_default_rate_unit import default_rate_unit_for_client
 from app.services.client_identity import client_display_name
 from app.services.client_order_lines import LIVE_CONTRACT_STATUSES, recompute_remaining
@@ -214,12 +218,20 @@ def _assert_allowed_order_type(client_id: int, order_type: OrderType | str) -> N
 # ── Helpers ────────────────────────────────────────────────────────────────
 
 
-async def _assert_client(db: AsyncSession, client_id: int) -> Client:
+async def _assert_client(
+    db: AsyncSession, client_id: int, *, for_write: bool = False
+) -> Client:
     client = await db.scalar(select(Client).where(Client.id == client_id))
     # Klient usunięty z profilu (0307) nie przyjmuje nowych zamówień — jego
     # historyczne zamówienia zostają w bazie, ale nie ma już profilu.
     if client is None or client.deleted_at is not None:
         raise HTTPException(404, detail="Client not found")
+    if for_write and getattr(client, "merged_into_client_id", None) is not None:
+        # Runda 9 (R9-V1-1): scalony duplikat jest ukryty jak usunięty klient,
+        # a zapis zamówienia przez jego stary profil (karta otwarta przed
+        # scaleniem, wywołanie API) zakładał zamówienie, którego nie widać
+        # w żadnym rejestrze. Odczyt zostaje — to historia.
+        await assert_client_assignable(db, client_id)
     return client
 
 
@@ -1995,7 +2007,7 @@ async def create_order_extension(
         }.items()
         if value is not None
     }
-    await _assert_client(db, client_id)
+    await _assert_client(db, client_id, for_write=True)
     if order_status in (ClientOrderStatus.completed, ClientOrderStatus.cancelled):
         # Nowe zamówienie nie może powstać od razu jako historia (S7).
         raise HTTPException(
@@ -2526,7 +2538,7 @@ async def update_order(
         _ORDER_FINANCE_WRITE_FIELDS,
         operational_roles=(UserRole.delivery_lead,),
     )
-    await _assert_client(db, client_id)
+    await _assert_client(db, client_id, for_write=True)
     can_finance = _can_manage_order_finance(
         user, dl_assigned=await _dl_assigned_to_client(db, user, client_id)
     )
@@ -3364,7 +3376,12 @@ async def download_order_po(
     )
     if order is None or order.file_path is None:
         raise HTTPException(404, detail="File not found")
-    abs_path = storage_service.get_client_order_po_path(order.file_path)
+    try:
+        abs_path = storage_service.get_client_order_po_path(order.file_path)
+    except FileNotFoundError as exc:
+        # Runda 9 (R9-N7-9): wiersz wskazuje na plik, którego nie ma na dysku —
+        # 410 jak przy dokumentach kontraktu, nie 500 bez CORS.
+        raise HTTPException(410, detail="Plik PDF zamówienia nie istnieje") from exc
     return FileResponse(
         path=str(abs_path),
         filename=order.filename or "po.pdf",
@@ -3431,9 +3448,25 @@ async def list_contract_order_documents(
         .scalars()
         .all()
     )
-    return OrderDocumentsResponse(
-        documents=[_order_to_document_item(o) for o in orders]
-    )
+    # Runda 9 (R9-X2-2): `client_orders.client_id` to własna kolumna, a baza nie
+    # wiąże jej z klientem kontraktu. Bramka wyżej sprawdzała WYŁĄCZNIE klienta
+    # kontraktu, więc zamówienie z rozjechanym klientem (PDF ze stawkami innego
+    # klienta) wychodziło bez sprawdzenia. Każdy inny klient — ta sama bramka co
+    # pobranie pliku (`GET /{client_id}/orders/{id}/file`).
+    access_cache: dict[int, bool] = {contract.client_id: True}
+    visible: list[OrderDocumentItem] = []
+    for o in orders:
+        can = access_cache.get(o.client_id)
+        if can is None:
+            try:
+                await _require_order_file_read(db, user, o.client_id)
+                can = True
+            except HTTPException:
+                can = False
+            access_cache[o.client_id] = can
+        if can:
+            visible.append(_order_to_document_item(o))
+    return OrderDocumentsResponse(documents=visible)
 
 
 @router.get(
@@ -3500,7 +3533,7 @@ async def create_contract_with_order(
     db: AsyncSession = Depends(get_db),
 ):
     """Flow B — "Nowy kontraktor / zamówienie": atomic Contract + Order create."""
-    await _assert_client(db, client_id)
+    await _assert_client(db, client_id, for_write=True)
     # Ten formularz zakłada umowę B2B (typ domyślny kontraktu), a umowa B2B
     # rodzi się bezterminowa. Pole „Contract end" było tu źródłem dat
     # przepisywanych z końca ZAMÓWIENIA — tamta data ma swoje pole
@@ -3693,7 +3726,7 @@ async def replace_order_po(
     działającą od dawna ścieżkę przedłużeń, gdzie klienci przysyłają PO również
     w Wordzie.
     """
-    await _assert_client(db, client_id)
+    await _assert_client(db, client_id, for_write=True)
     await _require_order_file_read(db, user, client_id)
 
     filename = file.filename or "po.pdf"

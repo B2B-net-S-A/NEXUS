@@ -2,7 +2,7 @@
 
 /**
  * Karta klienta — renderer TYLKO DO ODCZYTU standardów współpracy per klient
- * (SLA, limity, polityka stawek, off-limit z umowy, „co powiedzieć
+ * (SLA, limity, polityka stawek, „co powiedzieć
  * kandydatowi", reguły priorytetu, zasady procesu, onboarding, dokumenty).
  *
  * Dwa warianty:
@@ -40,7 +40,6 @@ import { buttonVariants } from "@/components/ui/button";
 import { useClientCvRule } from "@/components/v2/cv-generator/ClientCvRuleBanner";
 import { useCapability } from "@/hooks/useCapability";
 import {
-  formatOffLimits,
   isPlaybookEmpty,
   useClientPlaybook,
   PLAYBOOK_FIELD_LABELS,
@@ -217,12 +216,6 @@ function FullCard({
       value: playbook.rate_policy,
     },
     {
-      id: "off_limits",
-      label: PLAYBOOK_FIELD_LABELS.off_limits,
-      value: formatOffLimits(playbook.off_limits),
-      hint: playbook.off_limits?.notes ?? undefined,
-    },
-    {
       id: "cv_filename",
       label: "Nazwa pliku CV (z reguły CV)",
       value: rule ? (rule.filename_preview ?? rule.filename_pattern) : null,
@@ -360,9 +353,6 @@ function compactChips(playbook: ClientPlaybook, rule: ClientCvRule | null): stri
   if (playbook.multi_project_cooldown_days != null) {
     chips.push(`karencja ${playbook.multi_project_cooldown_days} dni`);
   }
-  const off = playbook.off_limits;
-  if (off?.months != null) chips.push(`off-limit ${off.months} mies.`);
-  else if (off?.scope?.trim()) chips.push(`off-limit: ${off.scope.trim()}`);
   if (rule?.cv_language) chips.push(`CV: ${rule.cv_language.toUpperCase()}`);
   if (rule?.filename_preview) chips.push(`plik: ${rule.filename_preview}`);
   if (playbook.rate_policy?.trim()) {

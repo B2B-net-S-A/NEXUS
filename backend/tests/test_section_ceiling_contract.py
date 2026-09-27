@@ -53,7 +53,6 @@ _SECTIONLESS_ALLOWLIST: dict[str, str] = {
     "PUT /api/users/me/dashboard": "zapis własnego układu kafelków pulpitu, bez danych domenowych",
     "GET /api/settings/candidates-columns": "własny układ kolumn tabeli, bez danych domenowych",
     "GET /api/user-email-templates": "prywatne szablony maili autora, zakres = właściciel",
-    "POST /api/user-email-templates": "prywatne szablony maili autora, zakres = właściciel",
     "GET /api/user-email-templates/{template_id}": "prywatny szablon autora, zakres = właściciel",
     "PUT /api/user-email-templates/{template_id}": "prywatny szablon autora, zakres = właściciel",
     "DELETE /api/user-email-templates/{template_id}": "prywatny szablon autora, zakres = właściciel",

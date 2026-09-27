@@ -144,8 +144,20 @@ async def test_authorize_returns_url_with_login_redirect(
     assert "User.Read" in qs["scope"][0]
     # State JWT decodes to purpose=sso_login.
     state = qs["state"][0]
-    pkce = auth_ms_module._verify_login_state(state)
-    assert isinstance(pkce, str) and len(pkce) > 30
+    login_state = auth_ms_module._verify_login_state(state)
+    pkce = login_state.pkce_verifier
+    assert isinstance(pkce, str) and len(pkce) >= 43
+    # R9-N1-4: state jest związany z sekretem tej karty, a weryfikatora PKCE
+    # w nim nie ma (jechał jawnie w adresie razem z kodem autoryzacji).
+    nonce = resp.json()["browser_nonce"]
+    assert len(nonce) >= 32
+    assert login_state.browser_binding == auth_ms_module._browser_binding(nonce)
+    state_claims = jose_jwt.get_unverified_claims(state)
+    assert pkce not in str(state_claims)
+    assert "pkce" not in state_claims
+    from app.services.m365 import oauth as m365_oauth
+
+    assert qs["code_challenge"] == [m365_oauth._derive_challenge(pkce)]
 
 
 def test_state_jwt_rejects_wrong_purpose(monkeypatch):
@@ -162,8 +174,24 @@ def test_state_jwt_rejects_wrong_purpose(monkeypatch):
 # ── /callback ───────────────────────────────────────────────────────────────
 
 
-def _make_state(verifier: str) -> str:
-    return auth_ms_module._sign_login_state(verifier)
+# Sekret karty, która „zaczęła” logowanie w testach (R9-N1-4).
+_TEST_BROWSER_NONCE = "test-browser-nonce-" + "n" * 32
+
+
+def _make_state(_legacy_verifier: str = "") -> str:
+    return auth_ms_module._sign_login_state(
+        auth_ms_module._browser_binding(_TEST_BROWSER_NONCE)
+    )
+
+
+def _stored_code(handoff: str, nonce: str = _TEST_BROWSER_NONCE) -> str:
+    return auth_ms_module._bound_exchange_code(
+        handoff, auth_ms_module._browser_binding(nonce)
+    )
+
+
+def _exchange_body(handoff: str, nonce: str | None = _TEST_BROWSER_NONCE) -> dict:
+    return {"code": handoff, "browser_nonce": nonce}
 
 
 def _patch_token_exchange(monkeypatch, claims: dict, *, access_token: str = ""):
@@ -253,7 +281,9 @@ async def test_callback_creates_new_sso_user_as_onboarding_recruiter(
 
         # Exchange code persisted, not yet consumed.
         ex = await db.scalar(
-            select(AuthExchangeCode).where(AuthExchangeCode.code == exchange_code)
+            select(AuthExchangeCode).where(
+                AuthExchangeCode.code == _stored_code(exchange_code)
+            )
         )
         assert ex is not None
         assert ex.consumed_at is None
@@ -635,7 +665,7 @@ async def _make_exchange_row(
             )
         db.add(
             AuthExchangeCode(
-                code=code,
+                code=_stored_code(code),
                 user_id=user_id,
                 access_token=access_token,
                 refresh_token=refresh_token,
@@ -681,7 +711,7 @@ async def test_exchange_consumes_current_version_code_once(
     code = await _make_exchange_row(user_id)
 
     resp1 = await app_client_no_redirect.post(
-        "/api/auth/microsoft/exchange", json={"code": code}
+        "/api/auth/microsoft/exchange", json=_exchange_body(code)
     )
     assert resp1.status_code == 200, resp1.text
     body = resp1.json()
@@ -697,7 +727,7 @@ async def test_exchange_consumes_current_version_code_once(
 
     # Second use → 410.
     resp2 = await app_client_no_redirect.post(
-        "/api/auth/microsoft/exchange", json={"code": code}
+        "/api/auth/microsoft/exchange", json=_exchange_body(code)
     )
     assert resp2.status_code == 410
 
@@ -719,11 +749,11 @@ async def test_exchange_rejects_stale_issued_authorization_version(
         await db.commit()
 
     resp = await app_client_no_redirect.post(
-        "/api/auth/microsoft/exchange", json={"code": code}
+        "/api/auth/microsoft/exchange", json=_exchange_body(code)
     )
     assert resp.status_code == 410
     async with AsyncSessionLocal() as db:
-        assert await db.get(AuthExchangeCode, code) is None
+        assert await db.get(AuthExchangeCode, _stored_code(code)) is None
 
 
 @pytest.mark.asyncio
@@ -741,11 +771,11 @@ async def test_exchange_rejects_stale_token_authorization_version(
     )
 
     resp = await app_client_no_redirect.post(
-        "/api/auth/microsoft/exchange", json={"code": code}
+        "/api/auth/microsoft/exchange", json=_exchange_body(code)
     )
     assert resp.status_code == 410
     async with AsyncSessionLocal() as db:
-        assert await db.get(AuthExchangeCode, code) is None
+        assert await db.get(AuthExchangeCode, _stored_code(code)) is None
 
 
 @pytest.mark.asyncio
@@ -759,11 +789,11 @@ async def test_exchange_rejects_token_missing_authorization_version(
     code = await _make_exchange_row(user_id, omit_access_token_av=True)
 
     resp = await app_client_no_redirect.post(
-        "/api/auth/microsoft/exchange", json={"code": code}
+        "/api/auth/microsoft/exchange", json=_exchange_body(code)
     )
     assert resp.status_code == 410
     async with AsyncSessionLocal() as db:
-        assert await db.get(AuthExchangeCode, code) is None
+        assert await db.get(AuthExchangeCode, _stored_code(code)) is None
 
 
 @pytest.mark.asyncio
@@ -777,7 +807,7 @@ async def test_exchange_rejects_expired_code(
     code = await _make_exchange_row(user_id, expires_in_seconds=-1)
 
     resp = await app_client_no_redirect.post(
-        "/api/auth/microsoft/exchange", json={"code": code}
+        "/api/auth/microsoft/exchange", json=_exchange_body(code)
     )
     assert resp.status_code == 410
 
@@ -788,7 +818,7 @@ async def test_exchange_rejects_unknown_code(
 ):
     resp = await app_client_no_redirect.post(
         "/api/auth/microsoft/exchange",
-        json={"code": "x" * 40},
+        json=_exchange_body("x" * 40),
     )
     assert resp.status_code == 410
 
@@ -925,3 +955,347 @@ async def test_admin_can_unpin_the_microsoft_identity(
     async with AsyncSessionLocal() as db:
         u = await db.get(User, user_id)
         assert u.azure_oid == f"azure-oid-new-{unique}"
+
+
+# ── Runda 9 audytu (27.09.2026) ─────────────────────────────────────────────
+
+
+def _handoff_from(resp) -> str:
+    assert resp.status_code == 302, resp.text
+    parsed = urlparse(resp.headers["location"])
+    assert parsed.path == "/login/microsoft/callback", resp.headers["location"]
+    return parse_qs(parsed.query)["code"][0]
+
+
+@pytest.mark.asyncio
+async def test_exchange_code_from_someone_elses_login_does_not_work(
+    app_client_no_redirect: AsyncClient, monkeypatch, cleanup_sso_users
+):
+    """R9-N1-4: link z cudzego logowania (login CSRF) nie loguje ofiary.
+
+    Kod wymiany działa wyłącznie z sekretem karty, która wywołała /authorize.
+    """
+    unique = uuid.uuid4().hex[:8]
+    email = f"csrf-{unique}@b2bnetwork.pl"
+    cleanup_sso_users.append(email)
+    _patch_token_exchange(
+        monkeypatch,
+        {"preferred_username": email, "oid": f"azure-oid-csrf-{unique}"},
+    )
+    handoff = _handoff_from(
+        await app_client_no_redirect.get(
+            "/api/auth/microsoft/callback",
+            params={"code": "graph-code", "state": _make_state()},
+        )
+    )
+
+    for body in (
+        _exchange_body(handoff, nonce=None),
+        _exchange_body(handoff, nonce="karta-ofiary-" + "x" * 32),
+    ):
+        resp = await app_client_no_redirect.post(
+            "/api/auth/microsoft/exchange", json=body
+        )
+        assert resp.status_code == 410, resp.text
+
+    ok = await app_client_no_redirect.post(
+        "/api/auth/microsoft/exchange", json=_exchange_body(handoff)
+    )
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["user"]["email"] == email
+
+
+@pytest.mark.asyncio
+async def test_callback_links_account_created_with_capital_letters(
+    app_client_no_redirect: AsyncClient, monkeypatch, cleanup_sso_users
+):
+    """R9-N1-1: konto z wielkimi literami w adresie nie dostaje bliźniaka."""
+    unique = uuid.uuid4().hex[:8]
+    mixed = f"Jan.Kowalski-{unique}@B2BNetwork.pl"
+    cleanup_sso_users.extend([mixed, mixed.lower()])
+    async with AsyncSessionLocal() as db:
+        db.add(
+            User(
+                email=mixed,
+                password_hash=hash_password("HasloTestowe1!"),
+                name="Jan Kowalski",
+                role=UserRole.recruiter,
+                is_active=True,
+                profile_completed=True,
+            )
+        )
+        await db.commit()
+
+    _patch_token_exchange(
+        monkeypatch,
+        {"preferred_username": mixed.lower(), "oid": f"azure-oid-case-{unique}"},
+    )
+    _handoff_from(
+        await app_client_no_redirect.get(
+            "/api/auth/microsoft/callback",
+            params={"code": "graph-code", "state": _make_state()},
+        )
+    )
+    async with AsyncSessionLocal() as db:
+        rows = (
+            (
+                await db.execute(
+                    select(User).where(User.email.in_([mixed, mixed.lower()]))
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert len(rows) == 1
+    assert rows[0].azure_oid == f"azure-oid-case-{unique}"
+
+
+@pytest.mark.asyncio
+async def test_sso_claims_unverified_self_registered_account(
+    app_client_no_redirect: AsyncClient, monkeypatch, cleanup_sso_users
+):
+    """R9-N1-3: samorejestracja na cudzy adres + SSO właściciela.
+
+    Hasło obcej osoby przepada, adres jest potwierdzony, stare linki
+    aktywacyjne przestają działać.
+    """
+    from app.models.email_verification_token import EmailVerificationToken
+
+    unique = uuid.uuid4().hex[:8]
+    email = f"unverified-{unique}@b2bnetwork.pl"
+    cleanup_sso_users.append(email)
+    async with AsyncSessionLocal() as db:
+        user = User(
+            email=email,
+            password_hash=hash_password("HasloIntruza1!"),
+            name="Ktoś Obcy",
+            role=UserRole.recruiter,
+            roles=[UserRole.recruiter.value],
+            is_active=True,
+            email_verified=False,
+            profile_completed=False,
+        )
+        db.add(user)
+        await db.flush()
+        db.add(
+            EmailVerificationToken(
+                user_id=user.id,
+                token_hash=uuid.uuid4().hex + uuid.uuid4().hex,
+                expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+            )
+        )
+        await db.commit()
+        user_id = user.id
+
+    _patch_token_exchange(
+        monkeypatch,
+        {"preferred_username": email, "oid": f"azure-oid-claim-{unique}"},
+    )
+    _handoff_from(
+        await app_client_no_redirect.get(
+            "/api/auth/microsoft/callback",
+            params={"code": "graph-code", "state": _make_state()},
+        )
+    )
+    async with AsyncSessionLocal() as db:
+        u = await db.get(User, user_id)
+        assert u.password_hash is None
+        assert u.email_verified is True
+        open_tokens = (
+            (
+                await db.execute(
+                    select(EmailVerificationToken).where(
+                        EmailVerificationToken.user_id == user_id,
+                        EmailVerificationToken.used_at.is_(None),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert open_tokens == []
+
+
+@pytest.mark.asyncio
+async def test_parallel_first_login_reuses_the_row_instead_of_500(cleanup_sso_users):
+    """R9-N1-6: drugi INSERT pierwszego logowania nie wywraca żądania."""
+    unique = uuid.uuid4().hex[:8]
+    email = f"race-{unique}@b2bnetwork.pl"
+    cleanup_sso_users.append(email)
+    async with AsyncSessionLocal() as other:
+        other.add(
+            User(
+                email=email,
+                name="Wyścig",
+                role=UserRole.recruiter,
+                roles=[UserRole.recruiter.value],
+                is_active=True,
+                profile_completed=False,
+            )
+        )
+        await other.commit()
+
+    async with AsyncSessionLocal() as db:
+        created = await auth_ms_module._provision_sso_user(
+            db,
+            email_lower=email,
+            upn=email,
+            name="Wyścig",
+            azure_oid=f"azure-oid-race-{unique}",
+            domain="b2bnetwork.pl",
+        )
+        assert created is None
+        # Sesja nadal działa — savepoint zdjął tylko nieudany INSERT.
+        found = await db.scalar(
+            auth_ms_module.user_by_email_statement(email, for_update=True)
+        )
+        assert found is not None and found.email == email
+        await db.rollback()
+
+
+def _enable_rbac(monkeypatch, group_id: str, role: str = "recruiter") -> None:
+    import json
+
+    monkeypatch.setattr(settings, "AAD_GROUP_RBAC_ENABLED", True)
+    monkeypatch.setattr(
+        settings, "AAD_GROUP_ROLE_MAP_JSON", json.dumps({group_id: role})
+    )
+
+
+async def _make_inactive_user(email: str, *, deactivated_by_admin: bool) -> int:
+    async with AsyncSessionLocal() as db:
+        user = User(
+            email=email,
+            password_hash=None,
+            name="Wyłączony",
+            role=UserRole.recruiter,
+            roles=[UserRole.recruiter.value],
+            is_active=False,
+            profile_completed=True,
+        )
+        db.add(user)
+        await db.flush()
+        if deactivated_by_admin:
+            db.add(
+                Activity(
+                    entity_type="user",
+                    entity_id=user.id,
+                    action="active_changed",
+                    user_id=user.id,
+                    details={"from": True, "to": False},
+                )
+            )
+        await db.commit()
+        return user.id
+
+
+@pytest.mark.asyncio
+async def test_aad_group_does_not_reactivate_account_disabled_by_admin(
+    app_client_no_redirect: AsyncClient, monkeypatch, cleanup_sso_users
+):
+    """R9-N13-2 (decyzja Artura): jawna deaktywacja przez admina wygrywa z AAD."""
+    from app.services.m365 import aad_groups as aad_groups_module
+
+    unique = uuid.uuid4().hex[:8]
+    group = f"grp-rec-{unique}"
+    _enable_rbac(monkeypatch, group)
+
+    async def _groups(_token):
+        return [{"id": group, "displayName": "NEXUS-Rekruterzy"}]
+
+    monkeypatch.setattr(aad_groups_module, "fetch_user_groups", _groups)
+
+    disabled = f"admin-off-{unique}@b2bnetwork.pl"
+    stale = f"stale-off-{unique}@b2bnetwork.pl"
+    cleanup_sso_users.extend([disabled, stale])
+    disabled_id = await _make_inactive_user(disabled, deactivated_by_admin=True)
+    stale_id = await _make_inactive_user(stale, deactivated_by_admin=False)
+
+    _patch_token_exchange(
+        monkeypatch,
+        {"preferred_username": disabled, "oid": f"azure-oid-off-{unique}"},
+        access_token="graph-token",
+    )
+    resp = await app_client_no_redirect.get(
+        "/api/auth/microsoft/callback",
+        params={"code": "graph-code", "state": _make_state()},
+    )
+    assert parse_qs(urlparse(resp.headers["location"]).query)["error"] == [
+        auth_ms_module.SSO_ERR_ACCOUNT_DISABLED
+    ]
+
+    # Konto wyłączone BEZ decyzji admina (np. sprzątanie importu) grupa AAD
+    # nadal włącza — to zachowanie sprzed rundy 9.
+    _patch_token_exchange(
+        monkeypatch,
+        {"preferred_username": stale, "oid": f"azure-oid-stale-{unique}"},
+        access_token="graph-token",
+    )
+    _handoff_from(
+        await app_client_no_redirect.get(
+            "/api/auth/microsoft/callback",
+            params={"code": "graph-code", "state": _make_state()},
+        )
+    )
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(User, disabled_id)).is_active is False
+        assert (await db.get(User, stale_id)).is_active is True
+
+
+@pytest.mark.asyncio
+async def test_aad_groups_are_read_before_the_user_row_is_locked(
+    app_client_no_redirect: AsyncClient, monkeypatch, cleanup_sso_users
+):
+    """R9-N1-5: odczyt grup z Grapha nie trzyma blokady wiersza ``users``."""
+    from sqlalchemy.exc import DBAPIError
+
+    from app.services.m365 import aad_groups as aad_groups_module
+
+    unique = uuid.uuid4().hex[:8]
+    group = f"grp-lock-{unique}"
+    _enable_rbac(monkeypatch, group)
+    email = f"lock-{unique}@b2bnetwork.pl"
+    cleanup_sso_users.append(email)
+    async with AsyncSessionLocal() as db:
+        user = User(
+            email=email,
+            name="Blokada",
+            role=UserRole.recruiter,
+            roles=[UserRole.recruiter.value],
+            is_active=True,
+            profile_completed=True,
+        )
+        db.add(user)
+        await db.commit()
+        user_id = user.id
+
+    lock_free: list[bool] = []
+
+    async def _groups(_token):
+        async with AsyncSessionLocal() as other:
+            try:
+                await other.execute(
+                    select(User.id)
+                    .where(User.id == user_id)
+                    .with_for_update(nowait=True)
+                )
+                lock_free.append(True)
+            except DBAPIError:
+                lock_free.append(False)
+            finally:
+                await other.rollback()
+        return [{"id": group, "displayName": "NEXUS-Rekruterzy"}]
+
+    monkeypatch.setattr(aad_groups_module, "fetch_user_groups", _groups)
+    _patch_token_exchange(
+        monkeypatch,
+        {"preferred_username": email, "oid": f"azure-oid-lock-{unique}"},
+        access_token="graph-token",
+    )
+    _handoff_from(
+        await app_client_no_redirect.get(
+            "/api/auth/microsoft/callback",
+            params={"code": "graph-code", "state": _make_state()},
+        )
+    )
+    assert lock_free == [True]

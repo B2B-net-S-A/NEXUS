@@ -139,6 +139,11 @@ class CandidateStageResponse(BaseModel):
     # Set when this move caused a rejection email to be queued; lets the FE
     # show a "Cofnij wysyłkę" toast and anchor the cancel link.
     scheduled_rejection_email_id: Optional[int] = None
+    # Runda 9 (R9-N11-2): los zaznaczonego maila odrzucenia — `scheduled`
+    # albo powód, dla którego go NIE zaplanowano (`no_mailbox`,
+    # `not_client_visible`, `no_candidate_email`, `no_permission`). `None`,
+    # gdy nikt o mail nie prosił. Okno pokazuje powód zamiast ciszy.
+    rejection_email_status: Optional[str] = None
     # This job's hiring manager already rejected the candidate after an
     # interview elsewhere. Populated by the Kanban endpoint only — the manager
     # is implicit there (it is this job's), so the card needs no name, and the

@@ -179,7 +179,9 @@ async def _find_candidate_by_email(
         return None
     stmt = (
         select(Candidate)
-        .where(Candidate.email.in_(normalized))
+        # Runda 9 (R9-N10-8): adres w bazie bywa z wielkimi literami albo
+        # spacją z importu — porównanie wprost gubiło takich kandydatów.
+        .where(func.lower(func.trim(Candidate.email)).in_(normalized))
         .order_by(Candidate.id)
         .limit(_STRICT_ROW_LIMIT)
     )

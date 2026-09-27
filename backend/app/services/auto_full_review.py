@@ -545,11 +545,23 @@ async def _semantic_blind(db, run: CandidateSearchRun) -> bool:
     return bool(eligible) and not measured
 
 
+# Runda 9 (R9-N5-3): ile razy z rzędu przegląd z TYM SAMYM odciskiem może
+# skończyć się niepełnym pokryciem, zanim automat uzna temat za zamknięty.
+# Pojedynczy wadliwy wektor (``unavailable`` bez awarii wywołania) powtarza się
+# co noc identycznie — bez sufitu rekrutacja wracała przez całe okno zdarzeń
+# (14 nocy) i zjadała nocny limit.
+MAX_INCOMPLETE_REPEATS = 2
+
+
 async def _incomplete_coverage(db, run: CandidateSearchRun) -> bool:
-    """Część populacji nieoceniona: partia `failed` albo pomiar `unavailable`.
+    """Część populacji nieoceniona przez AWARIĘ: partia `failed` albo `unavailable`.
 
     `stale`/`missing_index` NIE liczą się — to trwały stan indeksu, który
-    następna noc by powtórzyła (przegląd nie zamknąłby się nigdy).
+    następna noc by powtórzyła (przegląd nie zamknąłby się nigdy). Wiersz
+    `failed` liczy się tylko przy awarii partii (``run.error_code``): bez niej
+    `failed` znaczy, że kandydat zmienił się w trakcie przeglądu (dryf wersji)
+    — jego zmiana sama zapisze zdarzenie, a następna noc i tak by go nie
+    „dokończyła” (runda 9, R9-N5-3).
     """
     failed, unavailable = (
         await db.execute(
@@ -562,7 +574,33 @@ async def _incomplete_coverage(db, run: CandidateSearchRun) -> bool:
             ).where(CandidateSearchResult.run_id == run.id)
         )
     ).one()
-    return bool(failed or unavailable)
+    return bool((failed and run.error_code) or unavailable)
+
+
+async def _incomplete_repeats(db, job_id: int, fingerprint: str) -> int:
+    """Ile ostatnich przeglądów tej rekrutacji z rzędu było niepełnych z tym odciskiem."""
+    rows = (
+        await db.scalars(
+            select(Activity.details)
+            .where(
+                Activity.entity_type == ACTIVITY_ENTITY,
+                Activity.entity_id == job_id,
+                Activity.action == "auto_full_review_finished",
+            )
+            .order_by(Activity.created_at.desc(), Activity.id.desc())
+            .limit(MAX_INCOMPLETE_REPEATS)
+        )
+    ).all()
+    streak = 0
+    for details in rows:
+        details = details or {}
+        if (
+            not details.get(INCOMPLETE_METRIC)
+            or details.get("incomplete_fingerprint") != fingerprint
+        ):
+            break
+        streak += 1
+    return streak
 
 
 async def _publish(db, run: CandidateSearchRun, *, eligible: Optional[int]) -> int:
@@ -596,11 +634,20 @@ async def _publish(db, run: CandidateSearchRun, *, eligible: Optional[int]) -> i
         "run_created_at": run.created_at.isoformat() if run.created_at else None,
         "fingerprint": run.request_fingerprint,
     }
+    if incomplete and run.job_id is not None:
+        repeats = await _incomplete_repeats(db, run.job_id, run.request_fingerprint)
+        if repeats >= MAX_INCOMPLETE_REPEATS:
+            # Ten sam request był już niepełny `repeats` razy z rzędu — kolejna
+            # noc nie da innego wyniku, więc przegląd zamyka temat (R9-N5-3).
+            incomplete = False
+            metrics["auto_incomplete_accepted"] = True
+            details["incomplete_accepted"] = True
     if incomplete:
         # Bez odcisku i ze znacznikiem: wpis nie jest pamięcią przeglądu
         # (`_finished_review_started_at`, `_last_successful_fingerprint`).
+        # Odcisk zostaje pod innym kluczem — liczy serię niepełnych.
         metrics[INCOMPLETE_METRIC] = True
-        details.pop("fingerprint")
+        details["incomplete_fingerprint"] = details.pop("fingerprint")
         details[INCOMPLETE_METRIC] = True
     run.metrics = metrics
     db.add(

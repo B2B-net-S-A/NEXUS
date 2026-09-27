@@ -301,11 +301,20 @@ async def get_public_cv(
     from app.services.cv_packages import public_documents
 
     package = await public_documents(db, getattr(row, "package_versions", None))
-    return {
-        **package,
-        "candidate_first_name": version.candidate_first_name
+    from app.services.cv_document_versions import public_first_name
+
+    # Maskowanie przy odczycie (R9-N3-1): wersje zapisane przed poprawką
+    # niosą prawdziwe imię także przy szablonie blind.
+    first_name = public_first_name(
+        version.candidate_first_name
         if version
         else (candidate.name if candidate else None),
+        version.template if version else csv.branded_template,
+        version.language if version else csv.branded_language,
+    )
+    return {
+        **package,
+        "candidate_first_name": first_name,
         "job_title": version.job_title if version else (job.title if job else None),
         "cv_html": cv_html,
         "expires_at": row.expires_at.isoformat() if row.expires_at else None,
@@ -839,7 +848,10 @@ async def _persist_submission_cv(
             )
             file_bytes = None
     except Exception as e:  # pragma: no cover — defensive
-        logger.warning("[apply] inert CV object-store upload failed: %s", e)
+        # Runda 9 (R9-N7-8): wyjątek magazynu niesie klucz z nazwą pliku CV.
+        logger.warning(
+            "[apply] inert CV object-store upload failed: %s", type(e).__name__
+        )
         object_key = None
         file_bytes = content
 
@@ -858,7 +870,7 @@ async def _persist_submission_cv(
 
         raw_text = await asyncio.to_thread(_extract)
     except Exception as e:  # pragma: no cover — defensive
-        logger.warning("[apply] inert CV text extraction failed: %s", e)
+        logger.warning("[apply] inert CV text extraction failed: %s", type(e).__name__)
 
     return object_key, file_bytes, raw_text
 

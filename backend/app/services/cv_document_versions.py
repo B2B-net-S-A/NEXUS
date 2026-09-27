@@ -12,6 +12,18 @@ from app.models.cv_share_token import CVShareToken
 from app.models.job import Job
 
 
+def public_first_name(name, template, language):
+    """Imię pokazywane klientowi pod linkiem — przy szablonie blind zamaskowane.
+
+    Runda 9 (R9-N3-1): wersja CV etapu w szablonie blind zapisywała prawdziwe
+    imię kandydata, a publiczny link `/cv/{token}` je zwracał. Lustro maskowania
+    `public_view._mask_blind` i widoku `/cv/i/`.
+    """
+    if template == "blind":
+        return "Candidate" if language == "en" else "Kandydat"
+    return name
+
+
 def check_revision(csv, expected: int) -> None:
     if expected != (csv.edit_revision or 0):
         raise HTTPException(
@@ -52,7 +64,11 @@ async def freeze_approved_version(
             content_sha256=hashlib.sha256(html.encode()).hexdigest(),
             template=csv.branded_template,
             language=csv.branded_language,
-            candidate_first_name=candidate.name if candidate else None,
+            candidate_first_name=public_first_name(
+                candidate.name if candidate else None,
+                csv.branded_template,
+                csv.branded_language,
+            ),
             job_title=job.title if job else None,
             snapshot_path=csv.branded_snapshot_path,
             snapshot_filename=csv.branded_snapshot_filename,

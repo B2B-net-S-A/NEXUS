@@ -385,10 +385,51 @@ def _configured(
     )
 
 
+async def _merge_singleton_conflicts(
+    db: AsyncSession, source_id: int, target_id: int
+) -> Optional[DeletionBlocker]:
+    """Warunki umowy albo karta klienta po OBU stronach scalenia.
+
+    Runda 9 (R9-N4-3): scalenie przenosi kontakty, wiedzę, materiały, warunki
+    umowy i kartę klienta na klienta docelowego. Warunki umowy i karta są
+    jednym wierszem na klienta (UNIQUE), więc gdy obie strony mają własny,
+    o treści decyduje człowiek — automat nie wybierze, który jest prawdziwy.
+    """
+
+    from app.models.client_contract_terms import ClientContractTerms
+    from app.models.client_playbook import ClientPlaybook
+
+    items: list[str] = []
+    for model, label in (
+        (ClientContractTerms, "warunki umowy"),
+        (ClientPlaybook, "karta klienta"),
+    ):
+        owners = set(
+            (
+                await db.scalars(
+                    select(model.client_id).where(
+                        model.client_id.in_((source_id, target_id))
+                    )
+                )
+            ).all()
+        )
+        if {source_id, target_id} <= owners:
+            items.append(label)
+    if not items:
+        return None
+    return DeletionBlocker(
+        code="duplicate_singletons",
+        label="Oba rekordy mają własne warunki umowy albo kartę klienta",
+        count=len(items),
+        items=_clip_items(items),
+    )
+
+
 async def assess_client_merge_blockers(
     db: AsyncSession,
     client: Client,
     *,
+    target_id: Optional[int] = None,
     environ: Optional[dict[str, str]] = None,
 ) -> tuple[DeletionBlocker, ...]:
     """Co zatrzymuje scalenie ``client`` (duplikatu) w klienta kanonicznego.
@@ -410,6 +451,11 @@ async def assess_client_merge_blockers(
             await _live_contractors(db, client.id),
             await _open_recruitments(db, client.id),
             _configured(client.id, environ),
+            (
+                await _merge_singleton_conflicts(db, client.id, target_id)
+                if target_id is not None
+                else None
+            ),
         )
         if blocker is not None
     )

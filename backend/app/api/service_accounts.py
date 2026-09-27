@@ -51,6 +51,7 @@ from app.schemas.service_account import (
     ServiceAccountOut,
     ServiceAccountUpdate,
 )
+from app.services.compass_service_account_bootstrap import retire_key_ids
 from app.services.service_account_auth import default_expires_at, generate_api_key
 
 logger = logging.getLogger(__name__)
@@ -186,6 +187,10 @@ async def delete_account(
     """
     account = await _get_account(db, account_id)
     slug = account.slug
+    # Runda 9 (R9-N9-2): klucze kasowane razem z kontem trafiają do nagrobka —
+    # bootstrap z env (COMPASS_INTEGRATION_BOOTSTRAP_KEY) nie odtworzy ich
+    # przy następnym starcie.
+    await retire_key_ids(db, [key.key_id for key in account.keys])
     await db.delete(account)
     await db.commit()
     logger.info("service_account.deleted", extra={"slug": slug, "by_user_id": admin.id})

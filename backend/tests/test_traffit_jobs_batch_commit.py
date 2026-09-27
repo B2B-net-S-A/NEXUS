@@ -19,6 +19,7 @@ import app.services.auto_match_outbox as auto_match_outbox_mod
 import app.services.index_outbox_service as index_outbox_mod
 import app.services.job_cc as job_cc_mod
 import app.services.job_delivery_lead_fill as dl_fill_mod
+import app.services.job_working_title as working_title_mod
 import app.services.traffit.importer as importer_mod
 import app.services.traffit_job_archive as archive_mod
 from app.services.traffit.importer import TraffitImporter
@@ -125,6 +126,13 @@ async def test_jobs_phase_commits_in_batches_with_side_effects(monkeypatch) -> N
     monkeypatch.setattr(
         dl_fill_mod, "fill_missing_job_delivery_leads", AsyncMock(return_value=0)
     )
+    title_batches: list[int] = []
+
+    async def _titles(db_, ids):
+        title_batches.append(len(ids))
+        return len(ids)
+
+    monkeypatch.setattr(working_title_mod, "refresh_working_titles_for_ids", _titles)
 
     progress = await imp.import_jobs(since=None)
 
@@ -134,4 +142,7 @@ async def test_jobs_phase_commits_in_batches_with_side_effects(monkeypatch) -> N
     # Intencje indeksu i kategorie idą z każdą paczką, nie raz na końcu fazy.
     assert reindex_batches == [200, 200, 50]
     assert classify_batches == [200, 200, 50]
+    # Runda 9 (R9-N15-7): tytuły dla rekrutera nowych rekrutacji — z paczką.
+    assert title_batches == [200, 200, 50]
+    assert progress.working_titles == 450
     assert progress.index_intents == 450

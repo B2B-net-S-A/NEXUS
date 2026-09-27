@@ -356,6 +356,11 @@ async def activate_contract(
             status_code=http_status.HTTP_409_CONFLICT,
             detail={"message": "Missing required fields", "missing": missing},
         )
+    # Runda 9 (R9-V1-2): zakończony kontrakt usuniętego/scalonego klienta
+    # dało się wznowić drogą ``ended → draft`` (revert) → ``active``,
+    # omijając bramkę `reopen_contract` — i wrócić z nim do MRR.
+    if contract.client_id is not None:
+        await assert_contract_client_not_deleted(db, contract)
 
     contract.status = ContractStatus.active
     db.add(
@@ -408,6 +413,10 @@ async def activate_without_revenue_gate(
         raise ValueError(f"unknown ungated activation source: {source}")
     previous = contract.status
     if previous not in (ContractStatus.draft, ContractStatus.ready_for_signature):
+        return False
+    # Runda 9 (bliźniak R9-V1-2): podpis umowy nie wskrzesza kontraktu klienta
+    # usuniętego albo scalonego — kontrakt zostaje szkicem, podpis się zapisuje.
+    if source == "b2b_signed_agreement" and await contract_client_is_gone(db, contract):
         return False
     assert_transition(previous, ContractStatus.active)
     contract.status = ContractStatus.active
@@ -484,6 +493,11 @@ async def auto_activate_complete_draft(
         return False
     if validate_ready_for_activation(contract):
         return False
+    # R9-V1-2: automat (zapis kontraktu, synchronizacja z zamówieniami, także
+    # nocna) nie aktywuje szkicu klienta usuniętego/scalonego — POMIJA go
+    # zamiast rzucać 422, które wywracałoby zapis albo cały przebieg.
+    if await contract_client_is_gone(db, contract):
+        return False
 
     await activate_contract(db, contract, actor_id=actor_id)
     return True
@@ -555,6 +569,24 @@ async def revert_contract(
 
 CLIENT_DELETED_REACTIVATION_CODE = "client_deleted"
 CLIENT_MERGED_REACTIVATION_CODE = "client_merged"
+
+
+async def contract_client_is_gone(db: AsyncSession, contract: Contract) -> bool:
+    """Klient kontraktu jest usunięty albo scalony (bez wyjątku).
+
+    Lustro warunku :func:`assert_contract_client_not_deleted` dla ścieżek,
+    które mają POMINĄĆ kontrakt zamiast odmówić (auto-aktywacja szkicu).
+    """
+    if contract.client_id is None:
+        return False
+    from app.models.client import Client
+
+    client = await db.scalar(select(Client).where(Client.id == contract.client_id))
+    if client is None:
+        return False
+    return client.deleted_at is not None or bool(
+        getattr(client, "merged_into_client_id", None)
+    )
 
 
 async def assert_contract_client_not_deleted(

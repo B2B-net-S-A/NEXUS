@@ -526,9 +526,11 @@ async def admin_debug_fire_nudge(
         await db.rollback()
         # Audyt M7 PR-05 (P1.15): traceback/exc_repr NIE wychodzi w response —
         # szczegóły tylko do logów serwera (Sentry i tak złapie exception).
+        # Runda 9 (R9-X1-9): po rollbacku `user` jest wygaszony — `user.id`
+        # wymagałby leniwego odczytu w sesji async (MissingGreenlet → goły 500).
         logger.exception(
             "debug-fire-nudge failed (user_id=%s kpi_id=%s nudge_type=%s)",
-            user.id,
+            target_user_id,
             kpi_id,
             nudge_type,
         )

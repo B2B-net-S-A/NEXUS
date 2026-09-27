@@ -70,6 +70,11 @@ interface Props {
  initialEndedBy?: Exclude<EndedBy, "candidate"> | null;
  /** „Odrzuca Delivery Lead" widzi tylko admin, DL i Head of Recruitment. */
  canEndAsDeliveryLead?: boolean;
+ /** Czy osoba była widoczna dla klienta — ta sama reguła co serwer
+  *  (`lib/rejection-email.ts`). Podane wygrywa z `previousStageCategory`,
+  *  które mówi o kategorii kolumny, a nie o tym, co widział klient
+  *  (runda 9, R9-N11-2: „CV wysłane" ma kategorię `internal`). */
+ emailAvailable?: boolean;
 }
 
 const TYPE_LABEL: Record<string, string> = {
@@ -87,6 +92,7 @@ export function RejectionV2({
  onConfirm,
  initialEndedBy = null,
  canEndAsDeliveryLead = false,
+ emailAvailable: emailAvailableProp,
 }: Props) {
  const [reasonId, setReasonId] = useState("");
  const [endedBy, setEndedBy] = useState<Exclude<EndedBy, "candidate">>(
@@ -98,7 +104,8 @@ export function RejectionV2({
  // (wycofanie inicjuje kandydat). Od 17.09.2026 to OPT-IN: checkbox
  // domyślnie ODZNACZONY, serwer planuje wysyłkę wyłącznie przy `true`.
  const emailAvailable =
- terminalType === "rejected" && previousStageCategory === "external";
+ terminalType === "rejected" &&
+ (emailAvailableProp ?? previousStageCategory === "external");
  const [sendEmail, setSendEmail] = useState<boolean>(false);
 
  // Phase 17 — show offer response radio only for withdrawn FROM post-accept.

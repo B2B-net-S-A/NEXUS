@@ -43,7 +43,8 @@ from openpyxl import load_workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 from starlette.concurrency import run_in_threadpool
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import case as sa_case
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -65,6 +66,7 @@ from app.api.delivery_client_scope import DELIVERY_CLIENT_SCOPE_DEPENDENCIES
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.core.scheduling import business_today
+from app.core.upload_filename import fit_filename_column
 from app.core.work_time import HOURS_PER_MONTH
 from app.models.activity import Activity
 from app.models.ai_feature import AIFeatureKey
@@ -93,6 +95,7 @@ from app.models.client_order_offboarding import (
     OFFBOARDING_STATUS_RESOLVED,
     ClientOrderOffboardingCase,
 )
+from app.models.dl_alert import ALERT_MD_CONSULTANT_ENDED, DlAlert
 from app.models.md_consumption import (
     CONSUMPTION_SOURCE_MANUAL,
     IMPORT_ROW_APPLIED,
@@ -184,7 +187,11 @@ from app.services.client_order_lines import (
     sync_md_line_status,
     upsert_consumption,
 )
-from app.services.client_access import deny, resolve_client_access
+from app.services.client_access import (
+    assert_client_assignable,
+    deny,
+    resolve_client_access,
+)
 from app.services.candidate_identity_quarantine import normalize_person_name_part
 from app.services.cost_orders import (
     assert_cost_order_client,
@@ -208,6 +215,7 @@ from app.services.cyfrowy_polsat_orders import (
     is_cyfrowy_polsat_order_types_client,
 )
 from app.services.ezdrowie import is_ezdrowie_client, resolve_ezdrowie_assignment
+from app.services.executive_contracts import inheritable_executive_contract_id
 from app.services.client_order_lines import _swap_split_remaining
 from app.services.order_line_takeover import (
     ASSIGNMENT_JOIN,
@@ -235,6 +243,8 @@ from app.services.dl_alerts import (
     emit_cost_order_exhausted,
     emit_shared_md_pool_exhausted,
     handle_offboarding_case_alerts,
+    resolve_budget_exhausted_alerts,
+    resolve_entity_alerts,
 )
 from app.services.lotte_wedel_orders import is_lotte_wedel_order_types_client
 from app.services.multi_consultant_orders import (
@@ -392,12 +402,20 @@ async def _canonical_currency_rate(
     return (value * factor).quantize(Decimal("0.01"))
 
 
-async def _assert_client(db: AsyncSession, client_id: int) -> Client:
+async def _assert_client(
+    db: AsyncSession, client_id: int, *, for_write: bool = False
+) -> Client:
     client = await db.scalar(select(Client).where(Client.id == client_id))
     # Klient usunięty z profilu (0307): historia zostaje w bazie, ale nowych
     # zamówień i zmian przez jego (nieistniejący już) profil nie przyjmujemy.
     if client is None or client.deleted_at is not None:
         raise HTTPException(404, detail="Client not found")
+    if for_write and getattr(client, "merged_into_client_id", None) is not None:
+        # Runda 9 (R9-V1-1): scalony duplikat jest ukryty jak usunięty klient,
+        # a zapis zamówienia przez jego stary profil (karta otwarta przed
+        # scaleniem, wywołanie API) zakładał zamówienie, którego nie widać
+        # w żadnym rejestrze. Odczyt zostaje — to historia.
+        await assert_client_assignable(db, client_id)
     return client
 
 
@@ -828,14 +846,16 @@ def _has_order_lifecycle_role(user: User) -> bool:
 
 
 async def _require_order_lifecycle(
-    db: AsyncSession, user: User, client_id: int
+    db: AsyncSession, user: User, client_id: int, *, for_write: bool = False
 ) -> None:
     """Bramka czterech akcji cyklu życia zamówienia.
 
     Nie reużywa wąskiego guarda przypisań, bo Delivery Lead zarządza operacyjnie
     wszystkimi klientami, a Finance ma te akcje przez ``MANAGE_FINANCE``.
+    ``for_write`` — akcja, która wskrzesza albo zakłada zamówienie
+    (przywrócenie, przedłużenie), odmawia u klienta scalonego (R9-V1-1).
     """
-    await _assert_client(db, client_id)
+    await _assert_client(db, client_id, for_write=for_write)
     if not _has_order_lifecycle_role(user):
         raise deny("ta akcja wymaga roli zarządzającej zamówieniami")
     if user.has_role(UserRole.admin) or (
@@ -906,6 +926,12 @@ def _group_family_root_id(
     return current.id
 
 
+def _order_copy_filename(order_number: str) -> str:
+    """Nazwa kopii PDF zamówienia na kontrakcie: numer bez ukośników + `.pdf`."""
+    safe = order_number.replace("/", "_").replace("\\", "_").strip() or "zamowienie"
+    return f"{safe}.pdf"
+
+
 async def _sync_group_pdf_documents(
     db: AsyncSession,
     *,
@@ -943,10 +969,14 @@ async def _sync_group_pdf_documents(
     target_contract_ids = current_contract_ids | set(by_contract)
     superseded_paths: list[str] = []
 
+    # Runda 9 (R9-N7-10): nazwa kopii na kontrakcie to nazwa PLIKU — z `.pdf`
+    # i bez `/` z numeru („OIT/0189/2026/ITVM”), inaczej pobranie z karty
+    # kontraktu dawało plik bez rozszerzenia.
+    copy_filename = _order_copy_filename(group.order_number)
     for contract_id in sorted(target_contract_ids):
         rel_path, size = storage_service.save_contract_document(
             contract_id,
-            f"{group.order_number}.pdf",
+            copy_filename,
             io.BytesIO(payload),
         )
         document = by_contract.get(contract_id)
@@ -955,7 +985,7 @@ async def _sync_group_pdf_documents(
                 contract_id=contract_id,
                 source_order_group_id=group.id,
                 doc_type=ContractDocumentType.order,
-                filename=group.order_number,
+                filename=copy_filename,
                 file_path=rel_path,
                 content_type="application/pdf",
                 size_bytes=size,
@@ -965,7 +995,7 @@ async def _sync_group_pdf_documents(
         else:
             if document.file_path and document.file_path != rel_path:
                 superseded_paths.append(document.file_path)
-            document.filename = group.order_number
+            document.filename = copy_filename
             document.file_path = rel_path
             document.content_type = "application/pdf"
             document.size_bytes = size
@@ -3117,13 +3147,15 @@ async def replace_order_group_file(
 ):
     """Zapisz master PDF i upsertuj jego kopię na każdym kontrakcie z grupy."""
 
-    await _assert_client(db, client_id)
+    await _assert_client(db, client_id, for_write=True)
     if not await _can_see_finance(db, user, client_id):
         raise deny("plik zamówienia z kwotami wymaga przypisania do klienta")
     _assert_multi_client(client_id)
     group = await _load_group(db, client_id, group_id)
 
-    filename = file.filename or "zamowienie.pdf"
+    # Runda 9 (R9-N7-4): `filename` to VARCHAR(255) — dłuższa nazwa z przeglądarki
+    # kończyła się DataError przy commicie (500) i osieroconym plikiem.
+    filename = fit_filename_column(file.filename or "zamowienie.pdf")
     if not filename.lower().endswith(".pdf"):
         raise HTTPException(415, detail="Plik zamówienia musi być PDF-em")
     payload = await file.read(MAX_GROUP_PDF_BYTES + 1)
@@ -3252,7 +3284,7 @@ async def create_order_group(
         await _assert_line_finance_write_allowed(
             db, user, client_id, {"md_budget_total"}
         )
-    await _assert_client(db, client_id)
+    await _assert_client(db, client_id, for_write=True)
     _assert_multi_client(client_id)
     if payload.end_date and payload.end_date < payload.start_date:
         raise HTTPException(422, detail="Data zakończenia jest wcześniejsza niż start")
@@ -3524,7 +3556,7 @@ async def update_order_group(
 ):
     """Edycja numeru i okresu zamówienia (bez dotykania linii)."""
     _assert_finance_manager_amounts_only(user, payload.model_fields_set)
-    await _assert_client(db, client_id)
+    await _assert_client(db, client_id, for_write=True)
     _assert_multi_client(client_id)
     group = await _load_group(db, client_id, group_id)
     _assert_group_not_cancelled(group)
@@ -3883,6 +3915,9 @@ async def delete_order_group(
         audit.describe(lines_removed=len(lines))
 
         await db.flush()
+        # Runda 9 (R9-N12-7): jednorazowa karta „zamówienie wyczerpane” nie
+        # ma skanera, który by ją zamknął — kasowana grupa zamyka ją sama.
+        await resolve_budget_exhausted_alerts(db, group.id)
         await db.delete(group)
         db.add(
             Activity(
@@ -4017,6 +4052,45 @@ async def _delete_line_row(db: AsyncSession, line: ClientOrder) -> str | None:
     file_path = line.file_path
     # audyt 22.09 r2 (FIN-CHG-5): karty DL braku tej linii.
     await close_gaps_of_deleted_orders(db, [line.id])
+    # Runda 9 (R9-N12-7): sprawy offboardingu tej linii znikają kaskadą FK,
+    # a karta DL ma ``offboarding_case_id`` z ``SET NULL`` — bez zamknięcia
+    # przed kasowaniem zostawała w panelu na zawsze.
+    case_ids = (
+        await db.scalars(
+            select(ClientOrderOffboardingCase.id).where(
+                ClientOrderOffboardingCase.order_id == line.id
+            )
+        )
+    ).all()
+    for case_id in case_ids:
+        await resolve_entity_alerts(
+            db, alert_type=ALERT_MD_CONSULTANT_ENDED, entity_key=f"case:{case_id}"
+        )
+    # Karta DL wskazuje i linię, i sprawę: przy kasowaniu linii obie akcje
+    # SET NULL biegną w jednej instrukcji, a UPDATE z pierwszej sprawdza FK
+    # sprawy już skasowanej kaskadą (ForeignKeyViolation → 500). Odpinamy
+    # kartę jawnie, zanim linia zniknie.
+    alert_links = [DlAlert.order_id == line.id]
+    if case_ids:
+        alert_links.append(DlAlert.offboarding_case_id.in_(case_ids))
+    await db.execute(
+        update(DlAlert)
+        .where(or_(*alert_links))
+        .values(
+            order_id=sa_case(
+                (DlAlert.order_id == line.id, None), else_=DlAlert.order_id
+            ),
+            offboarding_case_id=(
+                sa_case(
+                    (DlAlert.offboarding_case_id.in_(case_ids), None),
+                    else_=DlAlert.offboarding_case_id,
+                )
+                if case_ids
+                else DlAlert.offboarding_case_id
+            ),
+        )
+        .execution_options(synchronize_session=False)
+    )
     # audyt 22.09 r2 (FIN-02): krok stawki zdejmowany PRZED kaskadą w bazie.
     await detach_order_rate_steps(db, line)
     await db.delete(line)
@@ -4382,7 +4456,7 @@ async def reopen_order_group(
     przywrócenie zostawiłoby zamówienie z zerową pulą, które i tak niczego nie
     przyjmie. Zaplanowane (``scheduled``) też zwraca 409 — patrz niżej.
     """
-    await _require_order_lifecycle(db, user, client_id)
+    await _require_order_lifecycle(db, user, client_id, for_write=True)
     _assert_multi_client(client_id)
     group = await _load_group(db, client_id, group_id)
 
@@ -4470,7 +4544,15 @@ async def reopen_order_group(
     # decyzją o okresie i reopen jej nie unieważnia (patrz `sync_md_line_status`).
     lines_reopened = 0
     reopen_day = business_today()
-    for line in await lines_for_group(db, group.id):
+    # Runda 9 (R9-V1-4): linia kosztowa/wspólnej puli wracała na obsadę także
+    # wtedy, gdy umowę osoby w międzyczasie zakończono albo unieważniono.
+    # Unieważniona umowa = linia zostaje zakończona; zakończona = linia
+    # przechodzi przez tę samą ścieżkę zakończenia co przy „Zakończ
+    # współpracę” (lustro „Przywróć anulowane”), ograniczoną do tych linii.
+    offboard_contracts: dict[int, date] = {}
+    offboard_lines: dict[int, set[int]] = {}
+    group_lines = await lines_for_group(db, group.id)
+    for line in group_lines:
         state = closed_lines_state.get(line.id)
         if state is not None and previous_closure is not None:
             if line.end_date == previous_closure:
@@ -4486,11 +4568,40 @@ async def reopen_order_group(
                 and (line.end_date is None or line.end_date >= reopen_day)
                 and (line.start_date is None or line.start_date <= reopen_day)
             ):
+                contract = await db.get(Contract, line.contract_id)
+                if contract is not None and contract.status == ContractStatus.void:
+                    continue
                 line.status = ClientOrderStatus.active
                 lines_reopened += 1
+                if contract is not None and contract.status == ContractStatus.ended:
+                    offboard_contracts[contract.id] = (
+                        contract.end_date or contract.terminated_at or reopen_day
+                    )
+                    offboard_lines.setdefault(contract.id, set()).add(line.id)
                 continue
         if await sync_md_line_status(db, line):
             lines_reopened += 1
+
+    if offboard_contracts:
+        from app.services.contract_order_offboarding import (
+            apply_contract_order_offboarding,
+        )
+
+        await db.flush()
+        for contract_id in sorted(offboard_contracts):
+            await apply_contract_order_offboarding(
+                db,
+                contract_id=contract_id,
+                effective_date=offboard_contracts[contract_id],
+                actor_id=user.id,
+                order_ids=offboard_lines[contract_id],
+            )
+        offboarded = set().union(*offboard_lines.values())
+        lines_reopened -= sum(
+            1
+            for line in group_lines
+            if line.id in offboarded and line.status != ClientOrderStatus.active
+        )
 
     record_event(
         db,
@@ -4710,7 +4821,7 @@ async def restore_order_group(
     wraca jako ``completed`` — przywrócenie nie wskrzesza współpracy, która
     w międzyczasie się skończyła.
     """
-    await _require_order_lifecycle(db, user, client_id)
+    await _require_order_lifecycle(db, user, client_id, for_write=True)
     _assert_multi_client(client_id)
     group = await _load_group(db, client_id, group_id)
     if group.status != GROUP_STATUS_CANCELLED:
@@ -4756,6 +4867,7 @@ async def restore_order_group(
     # a linia zakończonej umowy przechodzi przez tę samą ścieżkę zakończenia
     # co przy „Zakończ współpracę" (przycięcie daty + sprawa MD).
     offboard_contracts: dict[int, date] = {}
+    offboard_lines: dict[int, set[int]] = {}
     for line in await lines_for_group(db, group.id):
         raw = previous_line_status.get(line.id)
         if raw is None or raw == ClientOrderStatus.cancelled.value:
@@ -4787,6 +4899,7 @@ async def restore_order_group(
             offboard_contracts[contract.id] = (
                 contract.end_date or contract.terminated_at or today
             )
+            offboard_lines.setdefault(contract.id, set()).add(line.id)
 
     restored_status = group.status_before_cancel or GROUP_STATUS_ACTIVE
     group.status = restored_status
@@ -4807,6 +4920,9 @@ async def restore_order_group(
                 contract_id=contract_id,
                 effective_date=offboard_contracts[contract_id],
                 actor_id=user.id,
+                # R9-V1-3: kończymy tylko przywracane linie, nie inne otwarte
+                # zamówienia tej osoby (przyszłe, szkic przedłużenia).
+                order_ids=offboard_lines[contract_id],
             )
 
     record_event(
@@ -4870,7 +4986,7 @@ async def extend_order_group(
                 "md_budget_total",
             },
         )
-    await _require_order_lifecycle(db, user, client_id)
+    await _require_order_lifecycle(db, user, client_id, for_write=True)
     _assert_multi_client(client_id)
     source = await _load_group(db, client_id, group_id)
     _assert_group_not_cancelled(source)
@@ -4922,8 +5038,12 @@ async def extend_order_group(
         md_budget_remaining=payload.md_budget_total,
         predecessor_group_id=source.id,
         # Kontynuacja zostaje pod tą samą umową wykonawczą CeZ — przedłużenie
-        # nie zmienia, z której umowy schodzą MD.
-        executive_contract_id=source.executive_contract_id,
+        # nie zmienia, z której umowy schodzą MD. Runda 9 (R9-V1-5): ale tylko
+        # AKTYWNĄ — zakończona umowa wykonawcza nie przyjmuje nowych zamówień
+        # (lustro powrotu po przerwie, R8-N6-5); puste = „Nieprzypisani”.
+        executive_contract_id=await inheritable_executive_contract_id(
+            db, source.executive_contract_id
+        ),
         created_by_user_id=user.id,
     )
     db.add(group)
@@ -5085,7 +5205,7 @@ async def _group_accepting_lines(
     await _assert_line_finance_write_allowed(
         db, user, client_id, {"rate_cost", "rate_revenue"}
     )
-    await _assert_client(db, client_id)
+    await _assert_client(db, client_id, for_write=True)
     _assert_multi_client(client_id)
     group = await _load_group(db, client_id, group_id)
     # Wyczerpane/zakończone zamówienie nie przyjmuje nowych konsultantów.
@@ -5251,7 +5371,7 @@ async def update_line(
     supplied = payload.model_fields_set
     _assert_finance_manager_amounts_only(user, supplied)
     await _assert_line_finance_write_allowed(db, user, client_id, set(supplied))
-    await _assert_client(db, client_id)
+    await _assert_client(db, client_id, for_write=True)
     _assert_multi_client(client_id)
     group = await _load_group(db, client_id, group_id)
     _assert_group_not_cancelled(group)
@@ -5933,7 +6053,7 @@ async def take_over_consultant(
     await _assert_line_finance_write_allowed(
         db, user, client_id, {"rate_cost", "rate_revenue"}
     )
-    await _assert_client(db, client_id)
+    await _assert_client(db, client_id, for_write=True)
     _assert_multi_client(client_id)
     if not await _has_md_line_management_access(db, user, client_id):
         raise deny(
@@ -6246,7 +6366,7 @@ async def swap_consultant(
     await _assert_line_finance_write_allowed(
         db, user, client_id, {"rate_cost", "rate_revenue"}
     )
-    await _assert_client(db, client_id)
+    await _assert_client(db, client_id, for_write=True)
     _assert_multi_client(client_id)
     group = await _load_group(db, client_id, group_id)
     _assert_group_not_cancelled(group)

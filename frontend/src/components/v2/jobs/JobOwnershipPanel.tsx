@@ -23,7 +23,7 @@ import { useAuthStore, ROLE_LABELS, hasRole } from"@/store/auth";
 import { hasSectionAccess } from "@/lib/section-access";
 import { OwnerBadge } from"./OwnerBadge";
 import { ReassignOwnerV2 } from"@/components/v2/modals/ReassignOwnerV2";
-import type { UserBrief } from"./ownership-types";
+import { hasActiveOwner, type UserBrief } from"./ownership-types";
 
 interface JobOwnershipPanelProps {
  jobId: number;
@@ -60,7 +60,7 @@ export function JobOwnershipPanel({
  canWritePipeline && hasRole(currentUser, "admin", "delivery_lead");
  const canClaim =
  canWritePipeline &&
- primaryOwner === null &&
+ !hasActiveOwner(primaryOwner) &&
  !!currentUser &&
  !hasRole(currentUser, "user");
  const isPrimary = !!currentUser && primaryOwner?.id === currentUser.id;

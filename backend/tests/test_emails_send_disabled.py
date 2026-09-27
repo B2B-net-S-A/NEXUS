@@ -90,8 +90,10 @@ def test_render_template_leaves_business_tokens_unresolved():
 
 def test_render_template_substitutes_real_candidate_name():
     cand = Candidate(name="Anna", lastname="Nowak")
+    # Runda 9 (R9-N10-5): podgląd = wysyłka — `candidate_name` to imię,
+    # pełne imię i nazwisko to `candidate_full_name`.
     rendered_subject, rendered_body = _render_template(
-        "Cześć {{candidate_name}}", "Witaj {{candidate_name}}", candidate=cand
+        "Cześć {{candidate_name}}", "Witaj {{candidate_full_name}}", candidate=cand
     )
-    assert rendered_subject == "Cześć Anna Nowak"
+    assert rendered_subject == "Cześć Anna"
     assert rendered_body == "Witaj Anna Nowak"

@@ -16,6 +16,7 @@ Behavioural against a real Postgres.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi import HTTPException
@@ -76,6 +77,18 @@ async def _seed_job_with_custom_terminal(term: TerminalType) -> dict:
             recruiter_id=user.id,
         )
         db.add(job)
+        await db.flush()
+        # Runda 9 (R9-N11-4): osoba jest już w rekrutacji — para bez wiersza
+        # wchodzi tylko do „Nowych”/„Screeningu”, a te testy sprawdzają
+        # semantykę etapów końcowych.
+        db.add(
+            CandidateStage(
+                candidate_id=cand.id,
+                job_id=job.id,
+                stage=PipelineStage.new,
+                moved_at=datetime.now(timezone.utc) - timedelta(minutes=5),
+            )
+        )
         await db.commit()
         return {
             "cand": cand.id,
@@ -106,10 +119,13 @@ async def test_custom_hired_stage_maps_to_hire_and_creates_contract() -> None:
         )
     async with AsyncSessionLocal() as db:
         st = await db.scalar(
-            select(CandidateStage).where(
+            select(CandidateStage)
+            .where(
                 CandidateStage.candidate_id == ids["cand"],
                 CandidateStage.job_id == ids["job"],
             )
+            .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
+            .limit(1)
         )
         assert st is not None and st.stage == PipelineStage.hired, (
             "custom hired stage did not map to the hire signal (M4-P0.2)"

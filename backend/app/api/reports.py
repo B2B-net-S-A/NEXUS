@@ -29,11 +29,11 @@ from app.models.contract import Contract, ContractStatus
 from app.services import job_data_trust
 from app.models.job import Job, JobCloseReason, JobStatus
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
-from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User, UserRole
 from app.services.client_identity import client_display_name_expression
 from app.services.contractor_identity import summarize_active_contracts
 from app.services.fx_service import amount_to_pln_with_rate, rates_to_pln
+from app.services.job_delivery_lead_fill import _HEADS as _DL_HEADS_SQL
 from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
 from app.services.metric_definitions import (
     DL_HIT_RATIO_TARGET_PCT,
@@ -722,24 +722,49 @@ async def report_sales(
 HIT_RATIO_TARGET_PCT = DL_HIT_RATIO_TARGET_PCT
 
 
-async def _dl_head_fallback_map(db: AsyncSession) -> dict[int, int]:
-    """client_id → delivery_lead_user_id (is_head=true). Używane jako fallback
-    dla Jobów bez przypisanego `delivery_lead_id`."""
-    rows = (
-        await db.execute(
-            select(
-                DeliveryLeadClientAssignment.client_id,
-                DeliveryLeadClientAssignment.delivery_lead_user_id,
-            ).where(DeliveryLeadClientAssignment.is_head == True)  # noqa: E712
-        )
-    ).all()
-    return {r.client_id: r.delivery_lead_user_id for r in rows}
+class DlFallback(dict[int, int]):
+    """client_id → główny DL klienta + zbiór kont, które mogą być DL-em.
+
+    Runda 9 (R9-N6-2, decyzja Artura 27.09.2026): DL rekrutacji to aktywne
+    konto z rolą Delivery Leada (w `role` albo `roles`). Nieaktywne konto albo
+    konto bez tej roli = brak DL-a rekrutacji, więc rekrutacja idzie do
+    głównego DL-a klienta — lustro `job_delivery_lead_fill._HEADS`. Do tego dnia
+    liga DL (wypłaca nagrody), cel DL i raport DL liczyły placementy
+    odchodzącego DL-a jemu, a ranking i tak odrzucał nieaktywne konto — zasługa
+    przepadała zamiast trafić do opiekuna klienta.
+    """
+
+    def __init__(self, heads: dict[int, int], eligible_dl_ids: frozenset[int]):
+        super().__init__(heads)
+        self.eligible_dl_ids = eligible_dl_ids
+
+
+_ELIGIBLE_DL_SQL = text(
+    """
+    SELECT u.id FROM users u
+     WHERE u.is_active
+       AND (CAST(u.role AS text) = 'delivery_lead'
+            OR u.roles @> CAST('["delivery_lead"]' AS jsonb))
+    """
+)
+
+
+async def _dl_head_fallback_map(db: AsyncSession) -> DlFallback:
+    """client_id → główny DL klienta (`is_head`, aktywny, z rolą DL). Fallback
+    dla rekrutacji bez DL-a albo z DL-em, który nie może już nim być."""
+    heads = {
+        int(r.client_id): int(r.dl_id)
+        for r in (await db.execute(text(_DL_HEADS_SQL))).all()
+    }
+    eligible = frozenset(int(r.id) for r in (await db.execute(_ELIGIBLE_DL_SQL)).all())
+    return DlFallback(heads, eligible)
 
 
 def _resolve_dl_id(
     job_dl_id: Optional[int], job_client_id: Optional[int], fallback: dict[int, int]
 ) -> Optional[int]:
-    if job_dl_id is not None:
+    eligible = getattr(fallback, "eligible_dl_ids", None)
+    if job_dl_id is not None and (eligible is None or job_dl_id in eligible):
         return job_dl_id
     if job_client_id is not None:
         return fallback.get(job_client_id)

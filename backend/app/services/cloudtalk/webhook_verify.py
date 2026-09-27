@@ -62,7 +62,13 @@ def verify_signature(
     expected = hmac.new(
         secret.encode("utf-8"), signed_material, hashlib.sha256
     ).hexdigest()
-    return hmac.compare_digest(expected, cleaned)
+    # Bajty, nie ``str`` (R9-N9-6): nagłówek ze znakiem spoza ASCII dawał
+    # ``TypeError`` i 500 zamiast odmowy.
+    try:
+        presented = cleaned.encode("ascii")
+    except UnicodeEncodeError:
+        return False
+    return hmac.compare_digest(expected.encode("ascii"), presented)
 
 
 def timestamp_is_fresh(

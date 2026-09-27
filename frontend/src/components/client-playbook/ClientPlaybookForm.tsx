@@ -8,8 +8,7 @@
  * walidacji, ani zapisu.
  *
  * Niezależny od reguły CV: „Zapisz kartę" zapisuje tylko kartę i nie wymaga
- * zatwierdzenia (zapis = obowiązuje, D2). Off-limit jest TYLKO DO ODCZYTU —
- * pochodzi z warunków umowy ramowej (zakładka Umowy), nie z karty.
+ * zatwierdzenia (zapis = obowiązuje, D2).
  *
  * Awaria odczytu ma własną gałąź — nie może udawać „klient nie ma karty",
  * bo to zaprasza do wpisania karty, która już istnieje. Delivery Lead spoza
@@ -28,7 +27,6 @@ import { extractErrorMsg } from "@/lib/api";
 import {
   CLIENT_PLAYBOOKS_OVERVIEW_KEY,
   clientPlaybooksApi,
-  formatOffLimits,
   playbookFormToPayload,
   playbookToForm,
   useClientPlaybookHistory,
@@ -188,26 +186,6 @@ export function ClientPlaybookForm({ clientId, onSaved }: ClientPlaybookFormProp
           onChange={(v) => set("multi_project_cooldown_days", v)}
         />
       </fieldset>
-
-      {/* Off-limit — TYLKO ODCZYT (precedens: język CV w edytorze Championa).
-          Źródłem prawdy jest umowa ramowa; edytowalne pole obok niej byłoby
-          drugim źródłem, które przy pierwszej zmianie zaczyna kłamać. */}
-      <div>
-        <span className="mb-1 block text-xs font-medium">{PLAYBOOK_FIELD_LABELS.off_limits}</span>
-        <div
-          className="flex items-center rounded-md border bg-muted/60 px-3 py-2 text-sm"
-          data-testid="playbook-off-limits"
-        >
-          {formatOffLimits(playbook?.off_limits ?? null) ?? (
-            <span className="text-muted-foreground">
-              brak — ustala się w warunkach umowy
-            </span>
-          )}
-        </div>
-        {playbook?.off_limits?.notes ? (
-          <p className="mt-1 text-xs text-muted-foreground">{playbook.off_limits.notes}</p>
-        ) : null}
-      </div>
 
       <div>
         <label htmlFor="playbook-rate-policy" className="mb-1 block text-xs font-medium">

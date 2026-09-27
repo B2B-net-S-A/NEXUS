@@ -97,3 +97,62 @@ async def test_key_from_a_different_account_is_rejected(monkeypatch):
     async with AsyncSessionLocal() as db:
         with pytest.raises(ServiceKeyError):
             await authenticate_api_key(db, other)
+
+
+@pytest.mark.asyncio
+async def test_deleted_account_is_not_recreated_from_env(monkeypatch):
+    """Runda 9 (R9-N9-2): usunięte konto nie wraca przy kolejnym starcie.
+
+    Do rundy 9 skasowanie konta kasowało też ślad idempotencji (wiersz klucza),
+    więc start z tą samą, być może wyciekłą, wartością w env zakładał klucz od
+    nowa. Teraz ``key_id`` siedzi w nagrobku i bootstrap odmawia.
+    """
+    from sqlalchemy import delete, select
+
+    from app.models.service_account import ServiceAccountKey
+
+    key = _wire_key()
+    monkeypatch.setattr(
+        boot.settings, "COMPASS_INTEGRATION_BOOTSTRAP_KEY", key, raising=False
+    )
+    async with AsyncSessionLocal() as db:
+        assert await boot.ensure_bootstrap_service_account(db) == "created"
+
+    from app.services.service_account_auth import parse_api_key
+
+    key_id, _secret = parse_api_key(key)
+    async with AsyncSessionLocal() as db:
+        row = (
+            await db.execute(
+                select(ServiceAccountKey).where(ServiceAccountKey.key_id == key_id)
+            )
+        ).scalar_one()
+        # Kasujemy sam klucz (jak kaskada z DELETE konta) — konto zostaje,
+        # bo dzielą je inne testy na wspólnej bazie.
+        await db.execute(
+            delete(ServiceAccountKey).where(ServiceAccountKey.key_id == row.key_id)
+        )
+        await db.commit()
+
+    async with AsyncSessionLocal() as db:
+        assert await boot.ensure_bootstrap_service_account(db) == "retired"
+    async with AsyncSessionLocal() as db:
+        with pytest.raises(ServiceKeyError):
+            await authenticate_api_key(db, key)
+        still = (
+            await db.execute(
+                select(ServiceAccountKey).where(ServiceAccountKey.key_id == key_id)
+            )
+        ).scalar_one_or_none()
+        assert still is None
+
+
+def test_delete_account_route_retires_its_key_ids():
+    """DELETE konta dopisuje key_id kasowanych kluczy do nagrobka (R9-N9-2)."""
+    import inspect
+
+    from app.api import service_accounts
+
+    src = inspect.getsource(service_accounts.delete_account)
+    assert "retire_key_ids" in src
+    assert src.index("retire_key_ids") < src.index("db.delete(account)")

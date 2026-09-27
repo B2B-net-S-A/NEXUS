@@ -541,13 +541,83 @@ async def test_finance_draft_preview_does_not_persist_lazy_initialization(monkey
         lambda *_args: "<p>Finance preview</p>",
     )
 
-    response = await contracts.get_contract_draft(17, finance, ReadOnlyDb())
+    response = await contracts.get_contract_draft(
+        17,
+        request=SimpleNamespace(state=SimpleNamespace()),
+        current_user=finance,
+        db=ReadOnlyDb(),
+    )
 
     assert response.content_html == "<p>Finance preview</p>"
     assert response.template_id == 8
     assert response.rendered_from_default is True
     assert contract.draft_content_html is None
     assert contract.draft_template_id is None
+    assert contract.draft_updated_by is None
+
+
+@pytest.mark.asyncio
+async def test_impersonated_draft_preview_does_not_persist_lazy_initialization(
+    monkeypatch,
+):
+    """R9-N1-2: admin w „podglądzie jako” nie zapisuje szkicu za podglądanego."""
+    target = _user(UserRole.delivery_lead)
+    contract = SimpleNamespace(
+        id=17,
+        contract_type="b2b",
+        draft_content_html=None,
+        draft_template_id=None,
+        draft_updated_at=None,
+        draft_updated_by=None,
+    )
+    template = SimpleNamespace(
+        id=8,
+        name="B2B default",
+        contract_type="b2b",
+        content_jinja="<p>template</p>",
+        is_default=True,
+    )
+
+    async def load_contract(*_args, **_kwargs):
+        return contract
+
+    async def list_templates(*_args, **_kwargs):
+        return [template]
+
+    async def client_access(*_args, **_kwargs):
+        return None
+
+    class ReadOnlyDb:
+        def add(self, *_args, **_kwargs):
+            raise AssertionError("Preview GET must not add Activity")
+
+        async def flush(self):
+            raise AssertionError("Preview GET must not flush writes")
+
+        async def scalar(self, *_args, **_kwargs):
+            raise AssertionError("No updated_by lookup is expected")
+
+    monkeypatch.setattr(contracts, "_load_contract_with_relations", load_contract)
+    monkeypatch.setattr(
+        contracts, "_assert_contract_document_client_access", client_access
+    )
+    monkeypatch.setattr(
+        contracts, "_list_templates_for_contract_type", list_templates
+    )
+    monkeypatch.setattr(
+        contracts, "_render_draft_body", lambda *_args: "<p>Podgląd</p>"
+    )
+
+    response = await contracts.get_contract_draft(
+        17,
+        request=SimpleNamespace(state=SimpleNamespace(impersonator_id=1)),
+        current_user=target,
+        db=ReadOnlyDb(),
+    )
+
+    assert response.content_html == "<p>Podgląd</p>"
+    assert response.rendered_from_default is True
+    assert contract.draft_content_html is None
     assert contract.draft_updated_by is None
 
 

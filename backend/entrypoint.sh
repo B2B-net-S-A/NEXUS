@@ -5632,6 +5632,19 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     purged_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT uq_purged_candidates_source_hash UNIQUE (external_source, external_id_hash)
 )""",
+    # 0390: wskaźniki do CV usuniętych kandydatów — pliki zostają (runda 9,
+    # decyzja Artura 26.09.2026). Pseudonim zamiast id, bez nazwiska.
+    """CREATE TABLE IF NOT EXISTS retained_candidate_files (
+    id BIGSERIAL PRIMARY KEY,
+    subject_ref VARCHAR(64) NOT NULL,
+    source VARCHAR(40) NOT NULL,
+    storage_key VARCHAR(512) NOT NULL,
+    content_type VARCHAR(100) NULL,
+    size_bytes BIGINT NULL,
+    content_sha256 VARCHAR(64) NULL,
+    retained_at TIMESTAMPTZ NOT NULL DEFAULT now()
+)""",
+    "CREATE INDEX IF NOT EXISTS ix_retained_candidate_files_subject_ref ON retained_candidate_files (subject_ref)",
     # 0372: follow-up z kandydatem — wyniki telefonów (kandydat CASCADE, RODO).
     """CREATE TABLE IF NOT EXISTS candidate_followups (
     id BIGSERIAL PRIMARY KEY,
@@ -8607,6 +8620,13 @@ _INDEX_STATEMENTS = [
     # 0385: domyślne sortowanie listy kandydatów (najnowsi) bez skanu tabeli.
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_candidates_created_at_id "
     "ON candidates (created_at DESC, id DESC)",
+    # 0390 (runda 9, R9-N14-2): skaner alertów zapisanych wyszukiwań pyta
+    # o notatki, dokumenty i rozmowy nowsze niż poprzedni przebieg.
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_notes_created_at ON notes (created_at)",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_notes_updated_at ON notes (updated_at)",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_candidate_documents_created_at "
+    "ON candidate_documents (created_at)",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_calls_created_at ON calls (created_at)",
 ]
 
 
@@ -8803,6 +8823,23 @@ def _read_playbook_seed():
     return None
 
 
+async def _lowercase_user_emails(conn):
+    # Runda 9 (R9-N1-1): adres konta małymi literami — panel admina zapisywał
+    # wielkie litery, a SSO szukało małych i zakładało drugie konto. Kolizje
+    # (dwa konta tej samej osoby) zostają; w logu tylko ich liczba.
+    from app.services.user_email import (
+        LOWERCASE_EMAIL_COLLISIONS_SQL,
+        LOWERCASE_EMAILS_SQL,
+    )
+
+    try:
+        status = await conn.execute(LOWERCASE_EMAILS_SQL)
+        left = await conn.fetchval(LOWERCASE_EMAIL_COLLISIONS_SQL)
+        print(f"user emails lowercase: {status}; left with collisions: {left}")
+    except Exception as e:
+        print(f"user emails lowercase skip: {type(e).__name__}")
+
+
 async def _seed_client_playbooks(conn):
     entries = _read_playbook_seed()
     if not entries:
@@ -8942,6 +8979,7 @@ async def backfill():
                 print(f"backfill data skip: {stmt!r} -> {e!r}")
         await _seed_repo_procedures(conn)
         await _seed_client_playbooks(conn)
+        await _lowercase_user_emails(conn)
         _t = _timing("data statements + seeds", _t)
         await _apply_limits(conn, lock="'3s'", statement="'60s'")
         for stmt in _CONSTRAINT_STATEMENTS:

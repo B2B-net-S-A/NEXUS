@@ -10,7 +10,6 @@ function user(overrides: Partial<AdminUser>): AdminUser {
     name: "Osoba",
     role: "recruiter",
     roles: ["recruiter"],
-    recruiter_role: null,
     is_active: true,
     activity_count: 0,
     last_activity: null,
