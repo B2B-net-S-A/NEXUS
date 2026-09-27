@@ -207,9 +207,10 @@ _MONEY_CONTEXT_RE = re.compile(
     re.I,
 )
 #: Liczba, która nie jest częścią daty (2026-09-30, 30.09.2026), numeru
-#: rekordu (#123) ani numeru zamówienia (7/2031). Bez zagnieżdżonych
-#: kwantyfikatorów wstecz — czas liniowy na tekście z zewnątrz.
-_AMOUNT_RE = re.compile(r"(?<![#\d./\-])\d+(?:[ \u00a0]\d{3})*(?:[.,]\d+)?(?![\d./\-])")
+#: rekordu (#123) ani numeru zamówienia (7/2031). „1 250,00” to dwie liczby
+#: — obie maskowane. Kwantyfikatory zaborcze i brak grup powtarzanych: czas
+#: liniowy na tekście z zewnątrz.
+_AMOUNT_RE = re.compile(r"(?<![#\d./\-])\d++(?:[.,]\d++)?+(?![\d./\-])")
 
 
 def _hide_amounts(text: Any) -> Any:
