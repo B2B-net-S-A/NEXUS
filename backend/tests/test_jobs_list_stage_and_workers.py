@@ -114,8 +114,12 @@ async def test_each_job_has_exactly_one_stage_and_chips_combine_with_or(
         "incomplete": await _seed_job(token, status="draft", work_state="searching"),
         "to_review": await _seed_job(token),
         "searching": await _seed_job(token, work_state="searching"),
-        "champion": await _seed_job(token, work_state="client_silent", champion=True),
-        "client_silent": await _seed_job(token, work_state="client_silent"),
+        # Runda 10 (R10-X2-1): champion liczy się wyłącznie przy „Szukamy”;
+        # „Klient milczy” z championem zostaje „Klient milczy”.
+        "champion": await _seed_job(token, work_state="searching", champion=True),
+        "client_silent": await _seed_job(
+            token, work_state="client_silent", champion=True
+        ),
         "finished": await _seed_job(token, work_state="finished"),
         "closed": await _seed_job(token, status="closed", work_state="searching"),
     }
