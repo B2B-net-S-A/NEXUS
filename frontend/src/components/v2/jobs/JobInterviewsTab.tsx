@@ -54,6 +54,11 @@ import { copyTextToClipboard } from "@/lib/clipboard";
 import { countPl } from "@/lib/plural-pl";
 import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
 import { terminalOf } from "@/lib/kanban-terminal";
+import {
+  announceRejectionEmail,
+  rejectionEmailAvailableFrom,
+  type RejectionEmailMoveResult,
+} from "@/lib/rejection-email";
 import { isInterviewStage } from "@/lib/job-flow-stages";
 import {
   loadJobRejectionReasons,
@@ -331,31 +336,23 @@ export function JobInterviewsTab({
         candidate_offer_response: vars.offerResponse ?? undefined,
         expected_state_version: expectedStateVersionOf(vars.item),
       }),
-    onSuccess: (res) => {
+    onSuccess: (res, vars) => {
       queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
       queryClient.invalidateQueries({ queryKey: ["kanban", jobId] });
       setPendingTerminal(null);
       showSuccess("Zapisano decyzję.");
       // 0045_rejection_emails — ta sama afordancja co na tablicy: backend
       // zaplanował mail odrzucenia za 15 min, rekruter ma 10 s na „Cofnij".
-      // Bez tego decyzja z tej zakładki wysyłałaby mail bez szansy anulowania.
-      const scheduledId = (
-        res as { data?: { scheduled_rejection_email_id?: number | null } }
-      )?.data?.scheduled_rejection_email_id;
-      if (scheduledId) {
-        showActionToast("Email odrzucenia zostanie wysłany za 15 minut.", {
-          actionLabel: "Cofnij wysyłkę",
-          onAction: async () => {
-            try {
-              await api.post(`/api/rejection-emails/${scheduledId}/cancel`);
-              showSuccess("Anulowano wysyłkę emaila.");
-            } catch {
-              showError("Nie udało się anulować wysyłki.");
-            }
-          },
-          durationMs: 10_000,
-        });
-      }
+      // Runda 10 (R10-V2-1): zaznaczony mail, którego serwer nie zaplanował
+      // (np. brak skrzynki M365), dostaje zdanie z powodem — jak na Tablicy.
+      announceRejectionEmail(
+        (res as { data?: RejectionEmailMoveResult } | undefined)?.data,
+        {
+          requested: vars.sendRejectionEmail,
+          toast: { showActionToast, showSuccess, showError },
+          cancel: (id) => api.post(`/api/rejection-emails/${id}/cancel`),
+        },
+      );
     },
     onError: (e, vars) => {
       if (isPipelineVersionConflict(e)) {
@@ -500,6 +497,9 @@ export function JobInterviewsTab({
                 : null
           }
           previousStage={pendingTerminal.entry.col.stage}
+          // Runda 10 (R10-V2-1): ta sama reguła dostępności maila co na
+          // Tablicy (kod etapu albo kolumna), nie sama kategoria kolumny.
+          emailAvailable={rejectionEmailAvailableFrom(pendingTerminal.entry.col)}
           onConfirm={(
             reasonId,
             notes,

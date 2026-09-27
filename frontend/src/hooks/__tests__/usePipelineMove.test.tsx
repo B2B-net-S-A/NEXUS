@@ -430,6 +430,30 @@ describe("usePipelineMove — odrzucenie", () => {
     );
     expect(showActionToast).not.toHaveBeenCalled();
   });
+
+  it("kilka osób, mail niezaplanowany — JEDNO zdanie z liczbą (R10-V2-1)", async () => {
+    const items = [1, 2].map((n) =>
+      card({ id: 40 + n, candidate_id: 400 + n, stage: "client_interview" })
+    );
+    const b = board({ client: items });
+    post.mockResolvedValue({
+      data: { id: 700, scheduled_rejection_email_id: null, rejection_email_status: "no_mailbox" },
+    });
+    mount(b.all);
+
+    React.act(() => controls.requestReject(items));
+    const reason = await screen.findByPlaceholderText(/brak wymaganych kompetencji/);
+    fireEvent.change(reason, { target: { value: "Za wysoka stawka" } });
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(showError).toHaveBeenCalledWith(
+        "Mail odrzucenia nie został zaplanowany dla 2 osób — brak podłączonej skrzynki Microsoft 365."
+      )
+    );
+    expect(showError).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("usePipelineMove — ruch zbiorczy", () => {

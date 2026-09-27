@@ -41,8 +41,9 @@ import { VerifiedRateModal } from "@/components/v2/modals/VerifiedRateModal";
 import { ClientRateModal } from "@/components/v2/modals/ClientRateModal";
 import { RejectionV2, type EndedBy } from "@/components/v2/modals/RejectionV2";
 import {
+  announceRejectionEmail,
   rejectionEmailAvailableFrom,
-  rejectionEmailSkipMessage,
+  rejectionEmailBulkSkipMessage,
 } from "@/lib/rejection-email";
 import { DebriefRequiredDialog } from "@/components/v2/recruitment/DebriefRequiredDialog";
 import {
@@ -188,6 +189,9 @@ interface SendMoveOptions {
   taskAssigneeId?: number;
   // Pipeline v4: stawka do klienta w TYM SAMYM żądaniu co ruch na „CV wysłane".
   clientRate?: RatePayload;
+  // Runda 10 (R10-V2-1): ruch zbiorczy zbiera statusy maila odrzucenia
+  // i mówi o niezaplanowanych RAZ, po pętli.
+  onRejectionEmailStatus?: (status: string | null) => void;
 }
 
 type RatePayload = { rate: number; unit: RateUnit; currency: string };
@@ -454,28 +458,21 @@ export function usePipelineMove({
         // 0045_rejection_emails — if the backend scheduled an auto-email,
         // offer a 10-second "Cofnij wysyłkę" toast so the recruiter can
         // abort before the 15-minute countdown elapses.
-        const scheduledId = response?.data?.scheduled_rejection_email_id;
-        if (scheduledId) {
-          showActionToast("Email odrzucenia zostanie wysłany za 15 minut.", {
-            actionLabel: "Cofnij wysyłkę",
-            onAction: async () => {
-              try {
-                await api.post(`/api/rejection-emails/${scheduledId}/cancel`);
-                showSuccess("Anulowano wysyłkę emaila.");
-              } catch (err) {
-                console.error("rejection email cancel failed", err);
-                showError("Nie udało się anulować wysyłki.");
-              }
-            },
-            durationMs: 10_000,
-          });
-        } else if (reason?.sendRejectionEmail && !opts?.silent) {
-          // Runda 9 (R9-N11-2): zaznaczony mail, którego serwer nie
-          // zaplanował — mówimy dlaczego, zamiast ciszy.
-          const skip = rejectionEmailSkipMessage(
-            response?.data?.rejection_email_status
+        // Runda 9 (R9-N11-2) / 10 (R10-V2-1): zaznaczony mail, którego
+        // serwer nie zaplanował — mówimy dlaczego, zamiast ciszy.
+        announceRejectionEmail(response?.data, {
+          requested: reason?.sendRejectionEmail,
+          reportSkip: !opts?.silent,
+          toast: { showActionToast, showSuccess, showError },
+          cancel: (id) => api.post(`/api/rejection-emails/${id}/cancel`),
+        });
+        if (
+          reason?.sendRejectionEmail &&
+          !response?.data?.scheduled_rejection_email_id
+        ) {
+          opts?.onRejectionEmailStatus?.(
+            response?.data?.rejection_email_status ?? null
           );
-          if (skip) showError(skip);
         }
 
         if (!opts?.deferCacheSync) syncKanbanCache();
@@ -1039,6 +1036,7 @@ export function usePipelineMove({
     setPendingRejection(null);
     void (async () => {
       const failed: { name: string; reason: string }[] = [];
+      const emailStatuses: (string | null)[] = [];
       for (const { item, srcColId } of entries) {
         applyOptimistic(item, srcColId, destCol);
         let failureReason = "nieznany błąd";
@@ -1060,9 +1058,16 @@ export function usePipelineMove({
             onFailure: (r) => {
               failureReason = r;
             },
+            onRejectionEmailStatus: (status) => {
+              emailStatuses.push(status);
+            },
           }
         );
         if (!ok) failed.push({ name: itemFullName(item), reason: failureReason });
+      }
+      if (entries.length > 1) {
+        const emailSkip = rejectionEmailBulkSkipMessage(emailStatuses);
+        if (emailSkip) showError(emailSkip);
       }
       if (failed.length > 0) {
         if (entries.length > 1) {
@@ -1096,12 +1101,12 @@ export function usePipelineMove({
               )?.stage ?? null
             : null
         }
-        emailAvailable={rejectionEmailAvailableFrom(
-          pendingRejection
-            ? columns.find(
-                (c) => colId(c) === pendingRejection.entries[0]?.srcColId
-              )
-            : null
+        // Runda 10 (R10-V2-1): przy kilku osobach checkbox jest, gdy KTÓRAKOLWIEK
+        // była u klienta — o pozostałych mówi zbiorcze zdanie po odrzuceniu.
+        emailAvailable={(pendingRejection?.entries ?? []).some((entry) =>
+          rejectionEmailAvailableFrom(
+            columns.find((c) => colId(c) === entry.srcColId)
+          )
         )}
         onConfirm={confirmRejection}
         initialEndedBy={pendingRejection?.endedBy ?? null}
