@@ -6714,8 +6714,13 @@ def _sanitize_upload_filename(raw_filename: Optional[str], *, fallback: str) -> 
     """
     import pathlib
 
+    from app.api.public_share import _fit_filename
+
     name = pathlib.Path((raw_filename or "").strip()).name
-    return name or fallback
+    # Runda 9 (R9-N7-3): nazwa trafia na dysk jako `candidate_<id>_<nazwa>`,
+    # a nazwa pliku ma limit 255 BAJTÓW — CV z długą polską nazwą dawało
+    # `ENAMETOOLONG` = 500. Ta sama reguła co formularz kariery.
+    return _fit_filename(name) if name else fallback
 
 
 def _candidate_cv_disk_path(

@@ -65,6 +65,7 @@ from app.api.delivery_client_scope import DELIVERY_CLIENT_SCOPE_DEPENDENCIES
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.core.scheduling import business_today
+from app.core.upload_filename import fit_filename_column
 from app.core.work_time import HOURS_PER_MONTH
 from app.models.activity import Activity
 from app.models.ai_feature import AIFeatureKey
@@ -906,6 +907,12 @@ def _group_family_root_id(
     return current.id
 
 
+def _order_copy_filename(order_number: str) -> str:
+    """Nazwa kopii PDF zamówienia na kontrakcie: numer bez ukośników + `.pdf`."""
+    safe = order_number.replace("/", "_").replace("\\", "_").strip() or "zamowienie"
+    return f"{safe}.pdf"
+
+
 async def _sync_group_pdf_documents(
     db: AsyncSession,
     *,
@@ -943,10 +950,14 @@ async def _sync_group_pdf_documents(
     target_contract_ids = current_contract_ids | set(by_contract)
     superseded_paths: list[str] = []
 
+    # Runda 9 (R9-N7-10): nazwa kopii na kontrakcie to nazwa PLIKU — z `.pdf`
+    # i bez `/` z numeru („OIT/0189/2026/ITVM”), inaczej pobranie z karty
+    # kontraktu dawało plik bez rozszerzenia.
+    copy_filename = _order_copy_filename(group.order_number)
     for contract_id in sorted(target_contract_ids):
         rel_path, size = storage_service.save_contract_document(
             contract_id,
-            f"{group.order_number}.pdf",
+            copy_filename,
             io.BytesIO(payload),
         )
         document = by_contract.get(contract_id)
@@ -955,7 +966,7 @@ async def _sync_group_pdf_documents(
                 contract_id=contract_id,
                 source_order_group_id=group.id,
                 doc_type=ContractDocumentType.order,
-                filename=group.order_number,
+                filename=copy_filename,
                 file_path=rel_path,
                 content_type="application/pdf",
                 size_bytes=size,
@@ -965,7 +976,7 @@ async def _sync_group_pdf_documents(
         else:
             if document.file_path and document.file_path != rel_path:
                 superseded_paths.append(document.file_path)
-            document.filename = group.order_number
+            document.filename = copy_filename
             document.file_path = rel_path
             document.content_type = "application/pdf"
             document.size_bytes = size
@@ -3123,7 +3134,9 @@ async def replace_order_group_file(
     _assert_multi_client(client_id)
     group = await _load_group(db, client_id, group_id)
 
-    filename = file.filename or "zamowienie.pdf"
+    # Runda 9 (R9-N7-4): `filename` to VARCHAR(255) — dłuższa nazwa z przeglądarki
+    # kończyła się DataError przy commicie (500) i osieroconym plikiem.
+    filename = fit_filename_column(file.filename or "zamowienie.pdf")
     if not filename.lower().endswith(".pdf"):
         raise HTTPException(415, detail="Plik zamówienia musi być PDF-em")
     payload = await file.read(MAX_GROUP_PDF_BYTES + 1)

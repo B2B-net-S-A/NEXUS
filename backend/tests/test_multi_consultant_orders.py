@@ -2091,7 +2091,8 @@ async def test_group_pdf_syncs_on_upload_assignment_replace_and_survives_detach(
         assert len(documents) == 1
         assert documents[0].contract_id == contracts[0]
         assert documents[0].doc_type == ContractDocumentType.order
-        assert documents[0].filename == group["order_number"]
+        # Runda 9 (R9-N7-10): kopia na kontrakcie to plik `<numer>.pdf`.
+        assert documents[0].filename == f"{group['order_number'].replace('/', '_')}.pdf"
         assert (
             storage_service.get_contract_document_path(
                 documents[0].file_path
@@ -2346,7 +2347,7 @@ async def test_deleting_future_group_keeps_pdf_as_historical_contract_document(
     async with AsyncSessionLocal() as db:
         unchanged = await db.get(ContractDocument, document_id)
         assert unchanged is not None
-        assert unchanged.filename == "FUTURE-PDF"
+        assert unchanged.filename == "FUTURE-PDF.pdf"
         assert unchanged.file_path == original_path
         assert (
             storage_service.get_contract_document_path(unchanged.file_path).read_bytes()
@@ -2363,7 +2364,7 @@ async def test_deleting_future_group_keeps_pdf_as_historical_contract_document(
         document = await db.scalar(
             select(ContractDocument).where(
                 ContractDocument.contract_id == contracts[0],
-                ContractDocument.filename == "FUTURE-PDF",
+                ContractDocument.filename == "FUTURE-PDF.pdf",
             )
         )
         assert document is not None

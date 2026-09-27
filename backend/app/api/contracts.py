@@ -19,6 +19,7 @@ from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from starlette.concurrency import run_in_threadpool
 from jinja2 import TemplateError
 from sqlalchemy import String, case, cast, distinct, func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -33,6 +34,7 @@ from app.core.printable_html import (
 from app.core.database import get_db
 from app.core.export_safety import safe_row
 from app.core.scheduling import business_today
+from app.core.upload_filename import fit_filename_column
 from app.core.work_time import HOURS_PER_MONTH, MD_PER_MONTH
 from app.models.activity import Activity
 from app.models.call import Call
@@ -53,6 +55,7 @@ from app.models.contract_framework_rate import ContractFrameworkRate
 from app.models.contract_equipment import ContractEquipment, EquipmentReturnStatus
 from app.models.contract_onboarding import ContractOnboardingItem
 from app.models.contract_document import ContractDocument, ContractDocumentType
+from app.models.document_signature import DocumentSignature
 from app.models.contract_template import ContractTemplate
 from app.models.b2b_contract_detail import B2BContractDetail
 from app.models.job import Job
@@ -5160,7 +5163,9 @@ async def upload_contract_document(
 
     doc = ContractDocument(
         contract_id=contract_id,
-        filename=file.filename or "file",
+        # Runda 9 (R9-N7-4): kolumna ma 255 znaków — dłuższa nazwa z przeglądarki
+        # kończyła się DataError (500) i plikiem osieroconym na dysku.
+        filename=fit_filename_column(file.filename or "file"),
         file_path=relative_path,
         content_type=file.content_type,
         size_bytes=size,
@@ -5184,7 +5189,11 @@ async def upload_contract_document(
             },
         )
     )
-    await db.flush()
+    try:
+        await db.flush()
+    except Exception:
+        storage_service.delete_contract_document(relative_path)
+        raise
     await db.refresh(doc)
     return await _document_to_response(db, doc)
 
@@ -5269,7 +5278,24 @@ async def delete_contract_document(
     doc = result.scalar_one_or_none()
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
-    storage_service.delete_contract_document(doc.file_path)
+    # Runda 9 (R9-N7-5): plik znikał PRZED commitem. Wysłany do podpisu snapshot
+    # (`document_signatures.contract_document_id`, FK RESTRICT) wywracał commit
+    # już po odpowiedzi 204 — zostawał wiersz bez pliku. Najpierw baza, plik
+    # dopiero po udanym commicie.
+    signed_snapshot = await db.scalar(
+        select(DocumentSignature.id)
+        .where(DocumentSignature.contract_document_id == doc.id)
+        .limit(1)
+    )
+    if signed_snapshot is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Tego dokumentu nie można usunąć — został wysłany do podpisu "
+                "i jest zapisem tego, co podpisano."
+            ),
+        )
+    file_path = doc.file_path
     db.add(
         Activity(
             entity_type="contract",
@@ -5280,6 +5306,17 @@ async def delete_contract_document(
         )
     )
     await db.delete(doc)
+    try:
+        await db.flush()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Tego dokumentu nie można usunąć — wskazują na niego inne zapisy.",
+        ) from exc
+    await db.commit()
+    if file_path:
+        storage_service.delete_contract_document(file_path)
 
 
 # ── Amendments (Phase 9 B3) ──────────────────────────────────────────────────
