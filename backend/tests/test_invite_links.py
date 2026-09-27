@@ -828,3 +828,56 @@ async def test_closed_job_cannot_get_a_link(inv_client: AsyncClient):
         "/api/invite-links", json={"job_id": job_id}, headers=headers
     )
     assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_failed_owner_notification_does_not_500_a_saved_application(
+    inv_client: AsyncClient, monkeypatch
+):
+    """Runda 9 (R9-X1-4): nieudany dzwonek robi rollback, który wygasza link.
+
+    Mail potwierdzenia czytał potem ``ref.link.job_id`` — leniwe doładowanie
+    w sesji async (MissingGreenlet) dawało 500 po zapisanym zgłoszeniu.
+    """
+    uid, email, password = await _seed_user(UserRole.recruiter)
+    headers = await _login(inv_client, email, password)
+    job_id = await _seed_job()
+    token = (
+        await inv_client.post(
+            "/api/invite-links",
+            json={"job_id": job_id, "expires_in_days": 30},
+            headers=headers,
+        )
+    ).json()["token"]
+
+    async def _broken_emit(*_args, **_kwargs):
+        raise RuntimeError("dzwonek padł")
+
+    seen: dict = {}
+
+    async def _capture_confirmation(db, **kwargs):
+        seen.update(kwargs)
+
+    monkeypatch.setattr("app.services.notification_triggers.emit", _broken_emit)
+    monkeypatch.setattr(
+        "app.services.application_confirmation_email.schedule_confirmation",
+        _capture_confirmation,
+    )
+    applicant_email = f"applicant-{uuid.uuid4().hex[:6]}@example.com"
+    resp = await inv_client.post(
+        f"/api/public/apply/{token}",
+        data={
+            "consent": "true",
+            "first_name": "Jan",
+            "last_name": "Kowalski",
+            "email": applicant_email,
+        },
+        files={"cv": ("cv.pdf", io.BytesIO(b"%PDF-1.4 minimal"), "application/pdf")},
+    )
+    assert resp.status_code == 201, resp.text
+    assert seen["job_id"] == job_id
+    async with AsyncSessionLocal() as db:
+        cand = await db.scalar(
+            select(Candidate).where(Candidate.email == applicant_email)
+        )
+        assert cand is not None

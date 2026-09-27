@@ -102,3 +102,19 @@ async def test_cc_recruiters_returns_empty_or_list(
     )
     assert resp.status_code == 200
     assert isinstance(resp.json(), list)
+
+
+async def test_assign_cc_to_missing_candidate_is_404_not_500(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Runda 9 (R9-N8-13): brak kandydata = 404, nie naruszenie FK (500)."""
+    list_resp = await app_client.get(
+        "/api/competence-categories", headers=app_auth_headers
+    )
+    cc_id = list_resp.json()[0]["id"]
+    resp = await app_client.post(
+        "/api/candidates/999999999/competence-categories",
+        json={"competence_category_id": cc_id, "is_primary": True},
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 404, resp.text

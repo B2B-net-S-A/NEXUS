@@ -154,9 +154,26 @@ def remote_only_refuses_office(candidate) -> bool:
     Źródło: ``_notes_insights.preferences.remote_only`` — pole strukturalne
     ekstrakcji rozmów (True u 1 382 kandydatów, False u 5 893; reszta to
     nieznane i PRZECHODZI). Świadomie nie zgadujemy z wolnego tekstu.
+
+    Runda 9 (R9-N8-6): notatka jest słabszym źródłem niż profil. Profil,
+    który jej przeczy — tryb hybrydowy/stacjonarny, limit dni w biurze większy
+    od zera albo zgoda na więcej dni — wygrywa; o biurze decyduje wtedy bramka
+    dni (``office_days_exceeded``). Profil „tylko zdalnie” (zwykle uzupełniony
+    z tej samej notatki) niczego nie zmienia.
     """
     from app.services.location_utils import _notes_insights_dict
 
+    if candidate_consents_more_office_days(candidate):
+        return False
+    days = getattr(candidate, "max_onsite_days_per_week", None)
+    if isinstance(days, int) and not isinstance(days, bool) and days > 0:
+        return False
+    profile_prefs = getattr(candidate, "preferences", None)
+    modes = (
+        profile_prefs.get("remote_modes") if isinstance(profile_prefs, dict) else None
+    )
+    if isinstance(modes, list) and {"hybrid", "onsite"} & set(modes):
+        return False
     ins = _notes_insights_dict(candidate)
     if ins is None:
         return False

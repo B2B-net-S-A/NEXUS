@@ -141,3 +141,52 @@ async def test_document_enrichment_fills_profile_with_and_without_languages(
             assert candidate.languages and candidate.languages[0]["code"] == "EN"
     finally:
         await _cleanup(candidate_id)
+
+
+@pytest.mark.asyncio
+async def test_document_enrichment_does_not_overwrite_edit_made_during_parse(
+    monkeypatch,
+):
+    """Runda 9 (R9-N8-4): zapis po odczycie modelu idzie na świeżym wierszu.
+
+    Rekruter zablokował umiejętności, kiedy model czytał CV. Zadanie w tle
+    pisało ze starej kopii (bez blokady) i nadpisywało jego zmianę.
+    """
+    from app.api import candidates as candidates_api
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from sqlalchemy import select
+
+    first, last = "Anna", f"Testowa{uuid.uuid4().hex[:6]}"
+    candidate_id, document_id, digest = await _seed(first, last)
+
+    async def _parse_while_recruiter_edits(*_args, **_kwargs):
+        async with AsyncSessionLocal() as other:
+            row = await other.get(Candidate, candidate_id)
+            row.skills = [{"name": "Rust", "level": "expert"}]
+            row.cv_extracted_data = {"_manual_override_skills": True}
+            await other.commit()
+        return _parsed(first, last, with_languages=False)
+
+    monkeypatch.setattr(
+        "app.services.cv_text_extractor.extract_text",
+        lambda *_args, **_kwargs: "Anna Testowa — Python developer",
+    )
+    monkeypatch.setattr("app.services.cv_parser.parse_cv", _parse_while_recruiter_edits)
+    monkeypatch.setattr(
+        "app.services.index_outbox_service.schedule_or_embed_candidate",
+        AsyncMock(return_value=True),
+    )
+    try:
+        await candidates_api._enrich_candidate_from_document_task(
+            candidate_id, document_id, digest
+        )
+        async with AsyncSessionLocal() as db:
+            candidate = await db.scalar(
+                select(Candidate).where(Candidate.id == candidate_id)
+            )
+        assert [s["name"] for s in candidate.skills] == ["Rust"]
+        assert candidate.cv_extracted_data.get("_manual_override_skills") is True
+        assert candidate.cv_parsed_at is not None
+    finally:
+        await _cleanup(candidate_id)

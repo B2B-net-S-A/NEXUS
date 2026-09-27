@@ -5439,6 +5439,9 @@ _EMBEDDING_TEXT_FIELDS = frozenset(
 )
 
 
+_MISSING = object()
+
+
 @router.patch("/{candidate_id}", response_model=CandidateResponse)
 async def update_candidate(
     candidate_id: int,
@@ -5519,8 +5522,29 @@ async def update_candidate(
         # NOWY obiekt → ORM widzi zmianę; flag_modified zbędne.
         updates["preferences"] = current
 
+    # Runda 9 (R9-N8-8): e-mail innego kandydata dawał IntegrityError → 500.
+    # Ta sama odmowa co przy zakładaniu (POST); SAVEPOINT niżej łapie wyścig.
+    duplicate_message = "Kandydat z tym adresem e-mail już istnieje."
+    new_email = updates.get("email")
+    if new_email and new_email != candidate.email:
+        if await db.scalar(
+            select(Candidate.id).where(
+                Candidate.email == new_email, Candidate.id != candidate.id
+            )
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail=duplicate_message
+            )
+
+    office_days = updates.pop("max_onsite_days_per_week", _MISSING)
     for field, value in updates.items():
         setattr(candidate, field, value)
+    if office_days is not _MISSING:
+        from app.services.candidate_notes_facts import set_office_days_limit
+
+        # Runda 9 (R9-N8-5): zmiana limitu dni czyści zgodę na więcej dni.
+        set_office_days_limit(candidate, office_days)
+        updates["max_onsite_days_per_week"] = office_days
     activity = Activity(
         entity_type="candidate",
         entity_id=candidate.id,
@@ -5541,7 +5565,15 @@ async def update_candidate(
     # could get overwritten by the in-memory state read. Flush first, then
     # reload with eager-loaded relations so `_derive_employment` sees current
     # contracts/conflicts.
-    await db.flush()
+    try:
+        async with db.begin_nested():
+            await db.flush()
+    except IntegrityError as exc:
+        if new_email and "email" in str(exc.orig):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail=duplicate_message
+            ) from exc
+        raise
 
     # Re-embed when embedding-text fields changed (AI-P0-04). Without this, the
     # profile-edit PATCH updated the row but left the vector index on stale
@@ -5732,6 +5764,31 @@ async def delete_candidate(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
         ) from exc
+
+    # Runda 9 (R9-N7-12): CV trzymane w bazie znikały z kaskadą, a klucze
+    # plików w magazynie traciły jedyny wskaźnik. Najpierw kopia i rejestr
+    # (pod pseudonimem), dopiero potem cokolwiek innego — bez magazynu przy CV
+    # w bazie odmawiamy, zanim coś zmienimy.
+    from app.services.candidate_cv_retention import (
+        CvRetentionUnavailable,
+        retain_candidate_files,
+    )
+
+    try:
+        cv_files_retained = await retain_candidate_files(
+            db, candidate_id, subject_ref=subject_ref, storage_keys=storage_keys
+        )
+    except CvRetentionUnavailable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "cv_retention_unavailable",
+                "message": (
+                    "Nie można teraz usunąć kandydata: jego CV zapisane w bazie "
+                    "nie dały się przenieść do magazynu plików. Spróbuj później."
+                ),
+            },
+        ) from exc
     contracts_detached = (
         await db.execute(
             update(Contract)
@@ -5867,6 +5924,7 @@ async def delete_candidate(
             "operation": "hard_delete",
             "contracts_detached": contracts_detached,
             "storage_objects_kept": len(storage_keys),
+            "cv_files_retained": cv_files_retained,
             "storage_cleanup": "scheduled",
             "share_tokens_revoked": tokens_revoked,
             "subject_ref": subject_ref,
@@ -6146,6 +6204,15 @@ async def _candidate_document_bytes(
     return document.file_content or b""
 
 
+async def _relock_candidate(db: AsyncSession, candidate_id: int) -> Optional[Candidate]:
+    return await db.scalar(
+        select(Candidate)
+        .where(Candidate.id == candidate_id)
+        .execution_options(populate_existing=True)
+        .with_for_update()
+    )
+
+
 async def _enrich_candidate_from_document_task(
     candidate_id: int,
     document_id: int,
@@ -6202,6 +6269,12 @@ async def _enrich_candidate_from_document_task(
             # `_assert_declared`. `db=` włącza kwotę na PŁATNYM kroku wewnątrz
             # parsera — wyczerpana gasi tylko Claude'a, fallbacki zostają.
             parsed = await parse_cv(raw_text, db=db, user_id=actor_user_id)
+            # Runda 9 (R9-N8-4): odczyt modelu trwa, a rekruter w tym czasie
+            # edytuje profil — zapis idzie na świeżo odczytanym, zablokowanym
+            # wierszu, nie na kopii sprzed wywołania modelu.
+            candidate = await _relock_candidate(db, candidate_id)
+            if candidate is None:
+                return
 
             current_primary = await db.scalar(
                 select(CandidateDocument.id).where(
@@ -6314,7 +6387,13 @@ async def _enrich_candidate_cv_task(
             if not candidate or not candidate.raw_cv_text:
                 return
 
-            parsed = await parse_cv(candidate.raw_cv_text, db=db, user_id=actor_user_id)
+            parsed_text = candidate.raw_cv_text
+            parsed = await parse_cv(parsed_text, db=db, user_id=actor_user_id)
+            # Runda 9 (R9-N8-4): świeży, zablokowany wiersz po wywołaniu modelu;
+            # tekst zmieniony w międzyczasie = odczyt nieaktualny, nic nie piszemy.
+            candidate = await _relock_candidate(db, candidate_id)
+            if candidate is None or candidate.raw_cv_text != parsed_text:
+                return
             if source_document_id is not None:
                 still_primary = (
                     await db.execute(
@@ -7689,6 +7768,15 @@ async def assign_candidate_cc(
     )
     if not cc:
         raise HTTPException(status_code=404, detail="Competence Category not found")
+    # Runda 9 (R9-N8-13): nieistniejący kandydat dawał naruszenie FK → 500.
+    # Blokada wiersza szereguje też dwa równoległe „główna kategoria”.
+    if (
+        await db.scalar(
+            select(Candidate.id).where(Candidate.id == candidate_id).with_for_update()
+        )
+        is None
+    ):
+        raise HTTPException(status_code=404, detail="Nie znaleziono kandydata.")
 
     # If assigning as primary: clear previous primary for this candidate
     if body.is_primary:

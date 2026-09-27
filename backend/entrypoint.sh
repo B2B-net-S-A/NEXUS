@@ -5632,6 +5632,19 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     purged_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT uq_purged_candidates_source_hash UNIQUE (external_source, external_id_hash)
 )""",
+    # 0390: wskaźniki do CV usuniętych kandydatów — pliki zostają (runda 9,
+    # decyzja Artura 26.09.2026). Pseudonim zamiast id, bez nazwiska.
+    """CREATE TABLE IF NOT EXISTS retained_candidate_files (
+    id BIGSERIAL PRIMARY KEY,
+    subject_ref VARCHAR(64) NOT NULL,
+    source VARCHAR(40) NOT NULL,
+    storage_key VARCHAR(512) NOT NULL,
+    content_type VARCHAR(100) NULL,
+    size_bytes BIGINT NULL,
+    content_sha256 VARCHAR(64) NULL,
+    retained_at TIMESTAMPTZ NOT NULL DEFAULT now()
+)""",
+    "CREATE INDEX IF NOT EXISTS ix_retained_candidate_files_subject_ref ON retained_candidate_files (subject_ref)",
     # 0372: follow-up z kandydatem — wyniki telefonów (kandydat CASCADE, RODO).
     """CREATE TABLE IF NOT EXISTS candidate_followups (
     id BIGSERIAL PRIMARY KEY,

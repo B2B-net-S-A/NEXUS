@@ -186,6 +186,11 @@ def work_mode_from_insights(insights: Any) -> Optional[dict]:
     named = _ordered_modes(prefs.get("work_modes"))
     remote_only = prefs.get("remote_only") is True
     days = _int_days(prefs.get("max_onsite_days_per_week"))
+    if days == 0 and not remote_only and ({"hybrid", "onsite"} & set(named)):
+        # Runda 9 (R9-N8-9): „hybrydowo” z zerem dni to sprzeczny odczyt — zero
+        # zawęziłoby profil do „tylko zdalnie” wbrew notatce. Liczba odpada,
+        # zostaje nazwany tryb (dni do uzupełnienia).
+        days = None
     if days is None and remote_only:
         days = 0
     if days is None and "onsite" in named:
@@ -222,13 +227,29 @@ def _set_preference(candidate: Any, key: str, value: Any) -> None:
     flag_modified(candidate, "preferences")
 
 
+def set_office_days_limit(candidate: Any, days: Optional[int]) -> bool:
+    """Zapisz limit dni w biurze; zmiana limitu unieważnia zgodę na więcej dni.
+
+    Runda 9 (R9-N8-5): zgoda z telefonu praktykanta („można dzwonić z ofertą
+    z większą liczbą dni w biurze”) dotyczyła limitu z tej rozmowy. Po zmianie
+    limitu (formularz, notatki, tryb pracy) zostawała i bramka dopasowań
+    wpuszczała osobę do ofert ponad NOWY limit. Telefon z jawną odpowiedzią
+    ustawia zgodę PO tej funkcji. Zwraca, czy limit się zmienił.
+    """
+    changed = _int_days(getattr(candidate, "max_onsite_days_per_week", None)) != days
+    candidate.max_onsite_days_per_week = days
+    if changed and getattr(candidate, "accepts_more_office_days", None) is not None:
+        candidate.accepts_more_office_days = None
+    return changed
+
+
 def set_profile_work_mode(
     candidate: Any, *, modes: list[str], max_onsite_days: Optional[int]
 ) -> dict:
     """Zapisz tryb pracy (preferencje + kolumna). Zwraca stan przed/po do audytu."""
     before = profile_work_mode(candidate)
     _set_preference(candidate, "remote_modes", _ordered_modes(modes) or None)
-    candidate.max_onsite_days_per_week = max_onsite_days
+    set_office_days_limit(candidate, max_onsite_days)
     return {"before": before, "after": profile_work_mode(candidate)}
 
 
@@ -249,7 +270,7 @@ def fill_work_mode_from_notes(candidate: Any, insights: Any) -> dict[str, int]:
         getattr(candidate, "max_onsite_days_per_week", None) is None
         and derived["max_onsite_days"] is not None
     ):
-        candidate.max_onsite_days_per_week = derived["max_onsite_days"]
+        set_office_days_limit(candidate, derived["max_onsite_days"])
         stats["onsite_days_filled"] = 1
     return stats
 
